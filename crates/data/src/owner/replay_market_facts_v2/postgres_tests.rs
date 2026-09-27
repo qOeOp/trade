@@ -1433,8 +1433,6 @@ async fn universe_member_entry_refuses_an_exact_design_step_v1(
             w3.composer_locator().clone(),
             w3.pit_locator().clone(),
             w3.source_binding_locator().clone(),
-            50,
-            51,
             w3.universe_selection_locator(),
             w3.reference_fact_r0_locator(),
             w3.market_semantics_locator(),
@@ -2452,8 +2450,6 @@ async fn replay_composition_after_base_fixture_step_v1(
             composer_locator.clone(),
             base.pit.receipt().locator().clone(),
             base.source.receipt().locator().clone(),
-            50,
-            51,
             ReplayCompositionRequestLocatorV1::from_untrusted(
                 base.instrument.cut().request_identity,
                 base.instrument.cut().request_meaning_digest,
@@ -2501,8 +2497,7 @@ async fn replay_composition_after_base_fixture_step_v1(
             ReplayCompositionRequestLocatorV1::from_untrusted(
                 leaves.corporate_action_request.request_identity,
                 leaves.corporate_action_request.request_meaning_digest,
-            ),
-        );
+            ),);
         let command = ReplayCompositionLocatorOnlyIssuanceRequestV1::new(d(220), composition).unwrap();
         let composition_with_sample_projection =
             |sample_projection_locator: ReplayCompositionContentLocatorV1| {
@@ -2510,8 +2505,6 @@ async fn replay_composition_after_base_fixture_step_v1(
                     command.composition().composer_locator().clone(),
                     command.composition().pit_locator().clone(),
                     command.composition().source_binding_locator().clone(),
-                    command.composition().replay_start_event_ns(),
-                    command.composition().replay_end_event_ns_exclusive(),
                     command.composition().instrument_master_locator(),
                     command.composition().universe_selection_locator(),
                     command.composition().observation_census_locator(),
@@ -2523,8 +2516,7 @@ async fn replay_composition_after_base_fixture_step_v1(
                     command.composition().time_zone_locator(),
                     command.composition().market_semantics_locator(),
                     command.composition().correction_policy_locator(),
-                    command.composition().corporate_action_locator(),
-                )
+                    command.composition().corporate_action_locator(),)
             };
         let before = replay_positive_state(market_mutation_pool).await;
         let composition_with_time_zone = |time_zone_locator: ReplayCompositionRequestLocatorV1| {
@@ -2532,8 +2524,6 @@ async fn replay_composition_after_base_fixture_step_v1(
                 command.composition().composer_locator().clone(),
                 command.composition().pit_locator().clone(),
                 command.composition().source_binding_locator().clone(),
-                command.composition().replay_start_event_ns(),
-                command.composition().replay_end_event_ns_exclusive(),
                 command.composition().instrument_master_locator(),
                 command.composition().universe_selection_locator(),
                 command.composition().observation_census_locator(),
@@ -2545,8 +2535,7 @@ async fn replay_composition_after_base_fixture_step_v1(
                 time_zone_locator,
                 command.composition().market_semantics_locator(),
                 command.composition().correction_policy_locator(),
-                command.composition().corporate_action_locator(),
-            )
+                command.composition().corporate_action_locator(),)
         };
         let alternate_time_zone =
             persist_replay_alternate_r0_time_zone_fixture_v1(&market, &base, d(243), d(250), d(251))
@@ -2699,8 +2688,6 @@ async fn replay_composition_after_base_fixture_step_v1(
             },
             command.composition().pit_locator().clone(),
             command.composition().source_binding_locator().clone(),
-            50,
-            51,
             command.composition().instrument_master_locator(),
             command.composition().universe_selection_locator(),
             command.composition().observation_census_locator(),
@@ -2712,8 +2699,7 @@ async fn replay_composition_after_base_fixture_step_v1(
             command.composition().time_zone_locator(),
             command.composition().market_semantics_locator(),
             command.composition().correction_policy_locator(),
-            command.composition().corporate_action_locator(),
-        );
+            command.composition().corporate_action_locator(),);
         let missing =
             ReplayCompositionLocatorOnlyIssuanceRequestV1::new(d(221), missing_composition).unwrap();
         assert!(owner.issue_binding_v1(&missing).await.is_err());
@@ -3185,8 +3171,6 @@ async fn replay_composition_after_base_fixture_step_v1(
             composer_locator,
             command.composition().pit_locator().clone(),
             command.composition().source_binding_locator().clone(),
-            50,
-            51,
             command.composition().instrument_master_locator(),
             command.composition().universe_selection_locator(),
             command.composition().observation_census_locator(),
@@ -3198,8 +3182,7 @@ async fn replay_composition_after_base_fixture_step_v1(
             command.composition().time_zone_locator(),
             command.composition().market_semantics_locator(),
             command.composition().correction_policy_locator(),
-            command.composition().corporate_action_locator(),
-        );
+            command.composition().corporate_action_locator(),);
         let bad = ReplayCompositionLocatorOnlyIssuanceRequestV1::new(d(222), bad_r0).unwrap();
         assert!(fresh_owner.issue_binding_v1(&bad).await.is_err());
         assert_eq!(replay_positive_state(market_mutation_pool).await, committed);

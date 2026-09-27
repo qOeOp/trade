@@ -349,6 +349,75 @@ class SourceCanaryTest(unittest.TestCase):
             "use the documented public-data host so the cell can produce a real signal"
         )
 
+    def test_each_probe_asks_for_the_type_its_validator_reads(self) -> None:
+        arxiv, _detail = canary.RESEARCH_PROBES[0].request({})
+        assert arxiv is not None
+        assert canary.RESEARCH_PROBES[0].name == "arXiv query"
+        # Atom is what _validate_arxiv reads; a JSON Accept is what arXiv refused with 406.
+        assert arxiv.get_header("Accept") == "application/atom+xml"
+        binance, _detail = canary.MARKET_PROBES[0].request({})
+        assert binance is not None
+        assert binance.get_header("Accept") == "application/json"
+        core, _detail = canary.RESEARCH_PROBES[2].request({"CORE_API_KEY": "fixture"})
+        assert core is not None
+        assert core.get_header("Accept") == "application/json"
+
+    def test_arxiv_intermittent_406_is_retried(self) -> None:
+        answers = [406, None]
+        waits: list[float] = []
+
+        def opener(*_args: Any, **_kwargs: Any) -> Response:
+            code = answers.pop(0)
+            if code:
+                raise urllib.error.HTTPError("https://example.invalid", code, "", {}, io.BytesIO())
+            return Response(b"<feed><entry>paper</entry></feed>")
+
+        receipt = canary.run_probe(
+            canary.RESEARCH_PROBES[0],
+            {},
+            timeout=1,
+            opener=opener,
+            sleeper=waits.append,
+        )
+        assert receipt.status == canary.Status.HEALTHY
+        assert waits == [1.0]
+
+    def test_arxiv_persistent_406_fails_after_every_attempt(self) -> None:
+        waits: list[float] = []
+
+        def opener(*_args: Any, **_kwargs: Any) -> Response:
+            raise urllib.error.HTTPError("https://example.invalid", 406, "", {}, io.BytesIO())
+
+        receipt = canary.run_probe(
+            canary.RESEARCH_PROBES[0],
+            {},
+            timeout=1,
+            opener=opener,
+            sleeper=waits.append,
+        )
+        assert receipt.status == canary.Status.FAILED
+        assert receipt.detail == "HTTP 406 after 3 attempts"
+        assert waits == [1.0, 2.0]
+
+    def test_a_406_elsewhere_is_not_retried(self) -> None:
+        attempts = 0
+
+        def opener(*_args: Any, **_kwargs: Any) -> Response:
+            nonlocal attempts
+            attempts += 1
+            raise urllib.error.HTTPError("https://example.invalid", 406, "", {}, io.BytesIO())
+
+        receipt = canary.run_probe(
+            canary.RESEARCH_PROBES[1],
+            {"SEMANTIC_SCHOLAR_API_KEY": "private"},
+            timeout=1,
+            opener=opener,
+            sleeper=lambda _seconds: None,
+        )
+        assert receipt.status == canary.Status.FAILED
+        assert receipt.detail == "HTTP 406"
+        assert attempts == 1
+
     def test_only_failed_receipts_fail_the_run(self) -> None:
         healthy = canary.Receipt("ok", canary.Status.HEALTHY, "")
         tolerated = [

@@ -851,6 +851,12 @@ pub enum ProgramHostV2Error {
     Kernel(lifecycle_v1::KernelFaultV1),
     #[error("checkpoint bundle is malformed or mismatched")]
     Checkpoint,
+    /// A program named a rebalance sequence. The Host assigns it
+    /// (`docs/architecture/strategy-factory.md`), so a program emits `0` for a rebalance target.
+    #[error(
+        "REBALANCE_SEQUENCE_IS_HOST_ASSIGNED: a program emits 0 for a rebalance target's sequence"
+    )]
+    RebalanceSequenceIsHostAssigned,
 }
 
 impl From<StrategyArtifactV2Error> for ProgramHostV2Error {
@@ -1804,17 +1810,16 @@ fn admit_universe_frame_values_v2(
     })
 }
 
+/// A later BAR frame of the same universe at `logical_time_ns`, carrying `member_open_close` as
+/// each member's open and close, and whatever member coordinates `frame` was admitted with.
 #[cfg(all(test, feature = "sealed-strategy-input-acceptance"))]
 pub(crate) fn issue_backtest_universe_successor_for_test(
     plan: &StrategyPlanV2,
-    frame: &StrategyInputUniverseFrameReceipt,
+    frame: &OwnerUniverseFrameV1,
     logical_time_ns: u64,
     member_open_close: &[[i128; 2]],
 ) -> Result<AdmittedProgramEventV2, ProgramHostV2Error> {
-    let mut event = admit_owner_universe_program_event_v2(
-        plan,
-        &OwnerUniverseFrameV1::uncoordinated(frame.clone()),
-    )?;
+    let mut event = admit_owner_universe_program_event_v2(plan, frame)?;
     let prior = event.envelope.order_key;
     let identity_digest = domain_digest(
         b"strategy.backtest.test-successor-event.v2\0",
@@ -2486,6 +2491,24 @@ impl ProgramHostV2 {
     pub const fn host_identity(&self) -> BindingDigest {
         self.host_identity
     }
+
+    /// The sequence the next rebalance target this Host decodes is assigned.
+    ///
+    /// Over an Owner universe it is the sequence of the target set the proposal will be lifted into,
+    /// which the lift requires each member to carry; that is also greater than any member kernel's
+    /// last rebalance, because a member's last rebalance was assigned an earlier set's sequence. On
+    /// the single-instrument path it is one more than the kernel's last rebalance, which the kernel
+    /// requires a rebalance to exceed.
+    fn next_rebalance_sequence_v2(&self) -> Option<u64> {
+        if self.member_kernels.is_empty() {
+            rebalance_sequence(self.kernel.checkpoint().target).checked_add(1)
+        } else {
+            self.pending_target_set.map_or(Some(1), |pending| {
+                pending.target_set.sequence.checked_add(1)
+            })
+        }
+    }
+
     pub const fn checkpoint(&self) -> &ProgramCheckpointBundleV2 {
         &self.checkpoint
     }
@@ -3490,6 +3513,35 @@ pub(crate) fn proposal_target_v2(
     }
 }
 
+/// Gives a rebalance target the sequence the Host assigns, and leaves every other target as it is.
+///
+/// A program emits `0` for a rebalance target: the rule the sequence must satisfy - equal to the
+/// target set's on the target-set path, greater than the member kernel's last on the
+/// single-instrument path - is the Host's to meet, and no constant a program writes meets it on
+/// more than one frame. `assigned` is only asked for when the target is a rebalance.
+///
+/// # Errors
+///
+/// [`ProgramHostV2Error::RebalanceSequenceIsHostAssigned`] when a program named the sequence, and
+/// [`ProgramHostV2Error::InputCoverage`] when the Host has no next sequence to assign.
+pub(crate) fn assign_rebalance_sequence_v2(
+    target: TargetProposalV1,
+    assigned: impl FnOnce() -> Option<u64>,
+) -> Result<TargetProposalV1, ProgramHostV2Error> {
+    match target {
+        TargetProposalV1::RebalancePosition { sequence: 0, units } => {
+            Ok(TargetProposalV1::RebalancePosition {
+                sequence: assigned().ok_or(ProgramHostV2Error::InputCoverage)?,
+                units,
+            })
+        }
+        TargetProposalV1::RebalancePosition { .. } => {
+            Err(ProgramHostV2Error::RebalanceSequenceIsHostAssigned)
+        }
+        other => Ok(other),
+    }
+}
+
 /// The reconciliation target a proposal carries: none for a kept target, and the declared units
 /// for every other.
 pub(crate) fn proposal_reconciliation_v2(target: TargetProposalV1, units: i64) -> Option<i64> {
@@ -3505,20 +3557,70 @@ fn proposal_from_wiring(
     strategy_digest: BindingDigest,
     plugin_digest: BindingDigest,
 ) -> Result<UnsealedGuestProposalV1, ProgramHostV2Error> {
-    let resolve = |reference: &ValueRefV2| {
-        host.resolve(
-            reference,
-            inputs,
-            outputs,
-            ResolveContextV2 {
-                envelope,
-                strategy_digest,
-                plugin_digest,
-                plugin_input: None,
-            },
-        )
-    };
-    let position = match semantic(&resolve(&wiring.position_intent)?)? {
+    decode_proposal_terminals_v2(
+        |terminal| {
+            host.resolve(
+                match terminal {
+                    ProposalTerminalV2::PositionIntent => &wiring.position_intent,
+                    ProposalTerminalV2::TargetVariant => &wiring.target_variant,
+                    ProposalTerminalV2::TargetPositionUnits => &wiring.target_position_units,
+                    ProposalTerminalV2::TargetWeightMicros => &wiring.target_weight_micros,
+                    ProposalTerminalV2::RebalanceSequence => &wiring.rebalance_sequence,
+                    ProposalTerminalV2::ReconciliationTargetUnits => {
+                        &wiring.reconciliation_target_units
+                    }
+                    ProposalTerminalV2::ProtectionVariant => &wiring.protection_variant,
+                    ProposalTerminalV2::StopLossTicks => &wiring.stop_loss_ticks,
+                    ProposalTerminalV2::TakeProfitTicks => &wiring.take_profit_ticks,
+                    ProposalTerminalV2::TrailingDistanceTicks => &wiring.trailing_distance_ticks,
+                    ProposalTerminalV2::TrailingStopTicks => &wiring.trailing_stop_ticks,
+                },
+                inputs,
+                outputs,
+                ResolveContextV2 {
+                    envelope,
+                    strategy_digest,
+                    plugin_digest,
+                    plugin_input: None,
+                },
+            )
+        },
+        || host.next_rebalance_sequence_v2(),
+    )
+}
+
+/// One of the eleven terminal values a single-instrument proposal is decoded from.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ProposalTerminalV2 {
+    PositionIntent,
+    TargetVariant,
+    TargetPositionUnits,
+    TargetWeightMicros,
+    RebalanceSequence,
+    ReconciliationTargetUnits,
+    ProtectionVariant,
+    StopLossTicks,
+    TakeProfitTicks,
+    TrailingDistanceTicks,
+    TrailingStopTicks,
+}
+
+/// Decodes a single-instrument proposal from its terminal values, the way the Host decodes every
+/// program's.
+///
+/// `terminal` yields a terminal's value and is asked only for the terminals the proposal's variants
+/// read; `rebalance_sequence` is the sequence the Host assigns a rebalance target, asked only for
+/// one.
+///
+/// # Errors
+///
+/// Returns [`ProgramHostV2Error`] when a terminal does not resolve or does not decode, or when the
+/// proposal is outside the kernel's canonical domain.
+pub(crate) fn decode_proposal_terminals_v2(
+    terminal: impl Fn(ProposalTerminalV2) -> Result<TypedValueV2, ProgramHostV2Error>,
+    rebalance_sequence: impl FnOnce() -> Option<u64>,
+) -> Result<UnsealedGuestProposalV1, ProgramHostV2Error> {
+    let position = match semantic(&terminal(ProposalTerminalV2::PositionIntent)?)? {
         lifecycle_v1::HOLD_SEMANTIC_ID => PositionIntentV1::Hold,
         lifecycle_v1::ENTER_SEMANTIC_ID => PositionIntentV1::Enter,
         lifecycle_v1::ADD_SEMANTIC_ID => PositionIntentV1::Add,
@@ -3526,31 +3628,40 @@ fn proposal_from_wiring(
         lifecycle_v1::EXIT_SEMANTIC_ID => PositionIntentV1::Exit,
         _ => return Err(ProgramHostV2Error::Graph("proposal.position_intent".into())),
     };
-    let target_variant_value = resolve(&wiring.target_variant)?;
+    let target_variant_value = terminal(ProposalTerminalV2::TargetVariant)?;
     let target_variant = semantic(&target_variant_value)?;
-    let target_position = exact_i64(&resolve(&wiring.target_position_units)?)?;
-    let target_weight = exact_i32(&resolve(&wiring.target_weight_micros)?)?;
-    let sequence = exact_u64(&resolve(&wiring.rebalance_sequence)?)?;
-    let target = proposal_target_v2(target_variant, target_position, target_weight, sequence)?;
+    let target_position = exact_i64(&terminal(ProposalTerminalV2::TargetPositionUnits)?)?;
+    let target_weight = exact_i32(&terminal(ProposalTerminalV2::TargetWeightMicros)?)?;
+    let sequence = exact_u64(&terminal(ProposalTerminalV2::RebalanceSequence)?)?;
+    let target = assign_rebalance_sequence_v2(
+        proposal_target_v2(target_variant, target_position, target_weight, sequence)?,
+        rebalance_sequence,
+    )?;
     let reconciliation = proposal_reconciliation_v2(
         target,
-        exact_i64(&resolve(&wiring.reconciliation_target_units)?)?,
+        exact_i64(&terminal(ProposalTerminalV2::ReconciliationTargetUnits)?)?,
     );
-    let protection_variant_value = resolve(&wiring.protection_variant)?;
+    let protection_variant_value = terminal(ProposalTerminalV2::ProtectionVariant)?;
     let protection_variant = semantic(&protection_variant_value)?;
     let protection = match protection_variant {
         "kernel.protection.keep.v1" => ProtectionProposalV1::Keep,
         "kernel.protection.clear.v1" => ProtectionProposalV1::Clear,
         lifecycle_v1::TRAILING_ADJUST_SEMANTIC_ID => ProtectionProposalV1::AdjustTrailing {
-            stop_ticks: exact_i64(&resolve(&wiring.trailing_stop_ticks)?)?,
+            stop_ticks: exact_i64(&terminal(ProposalTerminalV2::TrailingStopTicks)?)?,
         },
         "kernel.protection.replace.v1" => ProtectionProposalV1::Replace(ProtectionStateV1 {
-            stop_loss_ticks: positive_i64(exact_i64(&resolve(&wiring.stop_loss_ticks)?)?),
-            take_profit_ticks: positive_i64(exact_i64(&resolve(&wiring.take_profit_ticks)?)?),
-            trailing_distance_ticks: positive_u64(exact_u64(&resolve(
-                &wiring.trailing_distance_ticks,
+            stop_loss_ticks: positive_i64(exact_i64(&terminal(
+                ProposalTerminalV2::StopLossTicks,
             )?)?),
-            trailing_stop_ticks: positive_i64(exact_i64(&resolve(&wiring.trailing_stop_ticks)?)?),
+            take_profit_ticks: positive_i64(exact_i64(&terminal(
+                ProposalTerminalV2::TakeProfitTicks,
+            )?)?),
+            trailing_distance_ticks: positive_u64(exact_u64(&terminal(
+                ProposalTerminalV2::TrailingDistanceTicks,
+            )?)?),
+            trailing_stop_ticks: positive_i64(exact_i64(&terminal(
+                ProposalTerminalV2::TrailingStopTicks,
+            )?)?),
         }),
         _ => {
             return Err(ProgramHostV2Error::Graph(

@@ -2268,6 +2268,71 @@ async fn record_issuance_v1(
     Ok(ReplayCompositionDurableIssuanceResponseV1::from_exact_storage(response_bytes))
 }
 
+/// The Replay interval an issuance composes, derived by the Owner: from the event instant the
+/// snapshot's R0 record starts at, for one execution bar - the bar the Source Binding declares for
+/// the Design's execution label - and never past the R0 claim.
+///
+/// The execution label is the timeframe label of the Design's execution role
+/// (`execution_role_semantic_id_v1`): the role its joins trigger on, or, with no join, the one role
+/// reading the BAR close. The caller names no interval. A binding that declares no bars, or a Design
+/// with no join and no close, gets the event instant alone.
+pub(super) fn owner_replay_request_v1(
+    pit: &crate::owner::pit_snapshot::UntrustedPitSnapshotLocator,
+    r0: &crate::owner::reference_fact_coordinates::r0::ReferenceFactR0ReadbackV1,
+    source: &crate::owner::source_binding::SourceBindingOwnerReadback,
+    receipt: &crate::owner::strategy_design_role_set::StrategyDesignRoleSetReceiptV1,
+) -> Result<UntrustedReplayMarketFactsRequestV2, ReplayCompositionBindingErrorV1> {
+    use crate::owner::declared_bar_timeframe_v1::{
+        ExecutionWindowErrorV1, execution_role_semantic_id_v1, execution_window_end_v1,
+    };
+
+    let refusal = |e| match e {
+        ExecutionWindowErrorV1::ExecutionRoleAmbiguous => {
+            ReplayCompositionBindingErrorV1::ExecutionRoleAmbiguous
+        }
+        ExecutionWindowErrorV1::ExecutionTimeframeNotDeclared => {
+            ReplayCompositionBindingErrorV1::ExecutionTimeframeNotDeclared
+        }
+        ExecutionWindowErrorV1::ExecutionBarExceedsR0Window => {
+            ReplayCompositionBindingErrorV1::ExecutionBarExceedsR0Window
+        }
+    };
+    let execution_role = execution_role_semantic_id_v1(
+        receipt
+            .roles
+            .iter()
+            .map(|role| (role.semantic_id.as_str(), role.field_semantic_id.as_str())),
+        receipt
+            .joins
+            .iter()
+            .map(|join| join.trigger_input_id.as_str()),
+    )
+    .map_err(refusal)?;
+    let execution_label = execution_role
+        .map(|semantic_id| {
+            receipt
+                .roles
+                .iter()
+                .find(|role| role.semantic_id == semantic_id)
+                .map(|role| role.timeframe.as_str())
+                .ok_or(ReplayCompositionBindingErrorV1::DependencyMismatch)
+        })
+        .transpose()?;
+    let start = r0.record().replay_start_event_ns;
+    let end = execution_window_end_v1(
+        start,
+        r0.record().replay_end_event_ns_exclusive,
+        source.bar_timeframes(),
+        execution_label,
+    )
+    .map_err(refusal)?;
+    Ok(UntrustedReplayMarketFactsRequestV2::new(
+        pit.clone(),
+        start,
+        end,
+    ))
+}
+
 /// Resolves the first corpus's exact custody in the Owner transaction and stores its binding and
 /// Replay facts.
 async fn issue_first_corpus_in_transaction_v1(
@@ -2282,7 +2347,6 @@ async fn issue_first_corpus_in_transaction_v1(
         .native_join
         .as_ref()
         .ok_or(ReplayCompositionBindingErrorV1::IncompleteComposition)?;
-    let replay = request.replay_request();
     let validated_native_join = validate_native_join_v4(transaction, native_join).await?;
 
     let r0_locator = request.reference_fact_r0_locator();
@@ -2513,6 +2577,7 @@ async fn issue_first_corpus_in_transaction_v1(
     if source.locator() != request.source_binding_locator() {
         return Err(ReplayCompositionBindingErrorV1::DependencyMismatch);
     }
+    let replay = owner_replay_request_v1(request.pit_locator(), &r0, &source, receipt)?;
     let native_reference_r0s =
         recover_native_reference_r0s_v1(transaction, &calendar, &session, &time_zone).await?;
     let coordinates = coordinates_from_r0(&r0)?;
@@ -2676,6 +2741,7 @@ async fn issue_first_corpus_in_transaction_v1(
     ];
     let reference_cuts = build_reference_cuts(
         request,
+        &replay,
         &r0,
         &calendar,
         &session,
@@ -3426,6 +3492,7 @@ fn validate_native_reference_fact_evidence_v1(
 )]
 fn build_reference_cuts(
     request: &crate::owner::replay_market_facts_v2::ReplayCompositionBindingIssuanceRequestV1,
+    replay: &UntrustedReplayMarketFactsRequestV2,
     r0: &crate::owner::reference_fact_coordinates::r0::ReferenceFactR0ReadbackV1,
     calendar: &crate::owner::calendar::CalendarReadbackV1,
     session: &crate::owner::session::SessionReadbackV1,
@@ -3457,8 +3524,8 @@ fn build_reference_cuts(
     let make_scope = |kind, identity| {
         reference_scope_v2(
             request.pit_locator(),
-            request.replay_start_event_ns(),
-            request.replay_end_event_ns_exclusive(),
+            replay.replay_start_event_ns(),
+            replay.replay_end_event_ns_exclusive(),
             kind,
             identity,
         )
@@ -4137,6 +4204,15 @@ fn map_admission_reader_error(
         }
         // Raised only while issuing a universe-member aggregate, which this reader never does.
         ReplayCompositionBindingErrorV1::UniverseFrameMismatch => {
+            StrategyInputBindingAdmissionErrorV1::BindingUnavailable
+        }
+        // Raised only while an issuance derives its window or composes its facts, which this reader
+        // never does; each says the Design cannot be replayed over this snapshot, not that the
+        // store failed.
+        ReplayCompositionBindingErrorV1::ExecutionRoleAmbiguous
+        | ReplayCompositionBindingErrorV1::ExecutionTimeframeNotDeclared
+        | ReplayCompositionBindingErrorV1::ExecutionBarExceedsR0Window
+        | ReplayCompositionBindingErrorV1::SessionOutsideReplayWindow => {
             StrategyInputBindingAdmissionErrorV1::BindingUnavailable
         }
         // Listed rather than left to a wildcard, so that a variant added later cannot become a

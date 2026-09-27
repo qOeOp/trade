@@ -1111,7 +1111,7 @@ fn every_executable_operation_builds_and_runs_as_strict_abi_three_wasm() {
 }
 
 /// One frozen program lowered, built as strict ABI 3 Wasm, and instantiated, taking one frame per
-/// sample of its single input role the way the program host drives it.
+/// sample of its input roles the way the program host drives it.
 struct BuiltGuest {
     manifest: crate::strategy_design_v2::PluginManifestV2,
     manifest_digest: BindingDigest,
@@ -1166,11 +1166,34 @@ impl BuiltGuest {
         }
     }
 
-    /// Invokes the guest on one sample of its input, with `prior_state` as the state it resumes.
+    /// Invokes a guest of one input role on one sample of it, with `prior_state` as the state it
+    /// resumes.
     fn invoke(
         &mut self,
         sample: u64,
         value: i128,
+        prior_state: &[u8],
+        label: &str,
+    ) -> PluginFrameV2 {
+        let [port] = self
+            .manifest
+            .input_ports
+            .iter()
+            .filter(|port| !port.semantic_id.starts_with(SAMPLE_COORDINATE_PORT_PREFIX))
+            .collect::<Vec<_>>()[..]
+        else {
+            panic!("{label} reads more than one input role");
+        };
+        let port = port.semantic_id.clone();
+        self.invoke_ports(sample, &[(port.as_str(), value)], prior_state, label)
+    }
+
+    /// Invokes the guest on one sample of every input role, naming each role's value by its
+    /// manifest port; every role's coordinate is the sample's.
+    fn invoke_ports(
+        &mut self,
+        sample: u64,
+        values: &[(&str, i128)],
         prior_state: &[u8],
         label: &str,
     ) -> PluginFrameV2 {
@@ -1182,10 +1205,22 @@ impl BuiltGuest {
             manifest_digest: self.manifest_digest,
             module_identity,
             invocation_identity,
-            values: vec![
-                TypedValueV2::i128(value),
-                TypedValueV2::new(ValueTypeV2::Bytes, canonical_coordinate(sample)).unwrap(),
-            ],
+            values: self
+                .manifest
+                .input_ports
+                .iter()
+                .map(|port| {
+                    if port.semantic_id.starts_with(SAMPLE_COORDINATE_PORT_PREFIX) {
+                        TypedValueV2::new(ValueTypeV2::Bytes, canonical_coordinate(sample)).unwrap()
+                    } else {
+                        let (_, value) = values
+                            .iter()
+                            .find(|(port_id, _)| *port_id == port.semantic_id)
+                            .unwrap_or_else(|| panic!("{label} has no value for {port:?}"));
+                        TypedValueV2::i128(*value)
+                    }
+                })
+                .collect(),
             state: TypedValueV2::new(ValueTypeV2::Bytes, prior_state).unwrap(),
         };
         let input_bytes = input.encode(&self.manifest).unwrap();
@@ -1212,6 +1247,9 @@ impl BuiltGuest {
         .unwrap_or_else(|e| panic!("{label} sample {sample}: {e}"))
     }
 }
+
+/// The manifest port prefix of every input role's Owner sample coordinate.
+const SAMPLE_COORDINATE_PORT_PREFIX: &str = "strategy.input.sample-coordinate.v1.";
 
 /// Daily closes, in whole units, whose only bearish divergence is confirmed at bar 14.
 ///
@@ -1407,4 +1445,148 @@ fn a_divergence_program_carries_its_previous_pivot_through_fixed_point_state() {
     assert_eq!(forgotten.carried_close[8], 12_000);
     assert_eq!(forgotten.carried_close[9], 0);
     assert_eq!(forgotten.carried_close[13], 12_100);
+}
+
+/// Daily highs and lows, in whole units, with three bullish fair value gaps and three returns.
+///
+/// Gap A forms at bar 3 (low 102 above bar 1's high of 100), B at bar 6 (111 above 109) and C at
+/// bar 9 (121 above 120); no other bar's low is above the high two bars back. Until bar 10 every
+/// low stays above every gap's upper edge. Then bar 10 trades into C alone (a low of 119), bar 11
+/// into B alone (108), and bar 12 into A's interval alone (101).
+const FAIR_VALUE_GAP_BARS: [(i128, i128); 12] = [
+    (100, 95),
+    (105, 96),
+    (108, 102),
+    (109, 104),
+    (112, 106),
+    (118, 111),
+    (120, 112),
+    (122, 115),
+    (128, 121),
+    (124, 119),
+    (116, 108),
+    (106, 101),
+];
+
+/// What one run of a fair value gap program emitted: the first bar its output was ready, the bars
+/// it entered on, and each slot's upper edge after every bar.
+struct FairValueGapRun {
+    first_ready: Option<u64>,
+    entries: Vec<u64>,
+    upper_edges: Vec<Vec<i128>>,
+}
+
+/// Builds the corpus program `name` and runs it over [`FAIR_VALUE_GAP_BARS`].
+fn run_fair_value_gap(name: &str, slots: usize) -> FairValueGapRun {
+    let (design, proposal) = corpus_program(name);
+    let custody = CurrentResearchDevelopCustodyV2::joint_bfp_test_fixture(&design);
+    let frozen = freeze_research_bounded_feature_program_v1(&custody, &design, proposal)
+        .expect("joint Owner freeze");
+    let canonical = crate::bounded_feature_program_v1::parse_bounded_feature_program_v1(
+        frozen.program_bytes(),
+        &design,
+    )
+    .expect("frozen program parses");
+    let upper_edges: Vec<_> = (1..=slots)
+        .map(|slot| {
+            let cell = canonical
+                .state_layout()
+                .slots()
+                .iter()
+                .find(|cell| cell.state_id() == format!("up{slot}"))
+                .expect("every slot's upper edge is in the layout");
+            let start = cell.offset() as usize;
+            (start, start + cell.width() as usize)
+        })
+        .collect();
+    let root = tempfile::tempdir().expect("private build root");
+    let mut guest = BuiltGuest::build(&frozen, root.path(), &root.path().join("target-out"), name);
+    let mut state = Vec::new();
+    let mut run = FairValueGapRun {
+        first_ready: None,
+        entries: Vec::new(),
+        upper_edges: Vec::new(),
+    };
+
+    for (sample, (high, low)) in (1_u64..).zip(FAIR_VALUE_GAP_BARS) {
+        let output = guest.invoke_ports(
+            sample,
+            &[("input.high.v1", high * 100), ("input.low.v1", low * 100)],
+            &state,
+            name,
+        );
+        let ready = output.output_availability == Some(PluginOutputAvailabilityV3::Ready);
+
+        if ready && run.first_ready.is_none() {
+            run.first_ready = Some(sample);
+        }
+
+        if ready
+            && output
+                .values
+                .iter()
+                .any(|value| value.bytes() == b"kernel.position.enter.v1")
+        {
+            run.entries.push(sample);
+        }
+        state = output.state.bytes().to_vec();
+        run.upper_edges.push(
+            upper_edges
+                .iter()
+                .map(|(start, end)| i128::from_le_bytes(state[*start..*end].try_into().unwrap()))
+                .collect(),
+        );
+    }
+    run
+}
+
+/// A fair value gap program holds its open gaps in fixed slots, and a new gap replaces the oldest
+/// only when every slot is open.
+///
+/// `g2` and `g3` are one program with two and three slots. Three gaps form, each above the last,
+/// and every later bar trades into exactly one of them. With two slots the third gap evicts the
+/// first, so the bar that trades into the first gap's interval emits nothing; with three slots the
+/// same bars keep it, and that bar enters. The two other returns enter under both, which is the
+/// control that the eviction, not the price path, is what removes the signal.
+#[rstest::rstest]
+#[ignore = "builds and invokes the fair value gap programs with the pinned local wasm compiler"]
+fn a_fair_value_gap_program_evicts_the_oldest_gap_only_when_its_slots_are_full() {
+    let two = run_fair_value_gap("g2", 2);
+    let three = run_fair_value_gap("g3", 3);
+
+    // The high two bars back is the last node to warm.
+    assert_eq!(two.first_ready, Some(3));
+    assert_eq!(three.first_ready, Some(3));
+
+    assert_eq!(
+        two.upper_edges[7],
+        [11_100, 10_200],
+        "A and B fill both slots"
+    );
+    assert_eq!(
+        two.upper_edges[8],
+        [12_100, 11_100],
+        "C takes a slot and A, the oldest, is gone"
+    );
+    assert_eq!(
+        three.upper_edges[8],
+        [12_100, 11_100, 10_200],
+        "a third slot keeps A"
+    );
+
+    assert_eq!(
+        two.entries,
+        [10, 11],
+        "the return into A's interval finds no gap"
+    );
+    assert_eq!(
+        three.entries,
+        [10, 11, 12],
+        "the same return enters while A is held"
+    );
+    assert_eq!(
+        three.upper_edges[11],
+        [0, 0, 0],
+        "each gap is cleared by the bar that trades into it"
+    );
 }

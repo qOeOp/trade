@@ -31,7 +31,7 @@ use crate::owner::{
     },
 };
 
-const USDM: &str = include_str!(
+pub(super) const USDM: &str = include_str!(
     "../../../../adapters/binance/test_data/futures/http_json/exchange_info_usdm.json"
 );
 const COINM: &str = include_str!(
@@ -40,11 +40,11 @@ const COINM: &str = include_str!(
 const CLOCK_IDENTITY: &str = "market-clock.identity.v2-intake-01";
 const CLOCK_EPOCH: &str = "market-clock.epoch.v2-intake-00001";
 /// 2026-09-21 in nanoseconds: a head on the real clock, after `BTCUSDT`'s listing.
-const FIRST_CUT: u64 = 1_790_000_000_000_000_000;
-const SECOND: u64 = 1_000_000_000;
+pub(super) const FIRST_CUT: u64 = 1_790_000_000_000_000_000;
+pub(super) const SECOND: u64 = 1_000_000_000;
 const BTCUSDT_ONBOARD_NS: i128 = 1_569_398_400_000 * 1_000_000;
 
-fn d(byte: u8) -> BindingDigest {
+pub(super) fn d(byte: u8) -> BindingDigest {
     BindingDigest::from_untrusted_bytes([byte; 32])
 }
 
@@ -64,7 +64,7 @@ fn clock(sequence: u64, decision_cut: u64) -> MarketDataClockAdmission {
 
 /// Commits one admitted Source Binding over `dataset_mapping` with `clock`, which is how the Owner's
 /// clock head moves in production.
-async fn commit_binding(
+pub(super) async fn commit_binding(
     owner: &MarketDataOwnerPostgres,
     dataset_mapping: &str,
     sequence: u64,
@@ -99,7 +99,7 @@ async fn commit_binding(
         .expect("the Owner admits the binding and its clock")
 }
 
-fn submission(
+pub(super) fn submission(
     binding: &SourceBindingCommit,
     raw_symbol: &str,
     retrieval_time_ns: u64,
@@ -137,7 +137,7 @@ fn price_filter(entry: &mut serde_json::Value) -> &mut serde_json::Value {
 }
 
 /// Every V2 fact row, in a stable order, for "nothing was written".
-async fn facts(owner: &MarketDataOwnerPostgres) -> Vec<(Vec<u8>, String, Vec<u8>)> {
+pub(super) async fn facts(owner: &MarketDataOwnerPostgres) -> Vec<(Vec<u8>, String, Vec<u8>)> {
     sqlx::query_as(
         "SELECT fact_identity,canonical_identity,fact_bytes FROM market_data_instrument_master_v2.facts ORDER BY fact_identity",
     )
@@ -147,7 +147,7 @@ async fn facts(owner: &MarketDataOwnerPostgres) -> Vec<(Vec<u8>, String, Vec<u8>
 }
 
 /// The decision cut R&D reads, through the function R&D reads it with.
-async fn research_decision_cut(owner: &MarketDataOwnerPostgres) -> u64 {
+pub(super) async fn research_decision_cut(owner: &MarketDataOwnerPostgres) -> u64 {
     let cut: i64 = sqlx::query_scalar(
         "SELECT decision_cut FROM market_data_rd_api.read_owner_clock_head_for_research_v1()",
     )
@@ -159,7 +159,7 @@ async fn research_decision_cut(owner: &MarketDataOwnerPostgres) -> u64 {
 
 /// A Universe Selection over `BTCUSDT-PERP.BINANCE`, evaluated by the Owner, whose request carries
 /// `decision_cut` as its Owner observation exactly as R&D's request does.
-async fn selection(
+pub(super) async fn selection(
     owner: &MarketDataOwnerPostgres,
     binding: &SourceBindingCommit,
     frontier: u8,

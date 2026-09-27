@@ -81,6 +81,17 @@ type BacktestRunReportFacts = Readonly<{
   fills: readonly BacktestRunReportFill[];
 }>;
 
+// Why an `EMPTY` run recorded no return, in the engine's own order, exactly as the Backtest Owner
+// states it (`docs/owners/backtest.md`). The browser shows the code and derives no reason of its own.
+export const BACKTEST_RUN_EMPTY_REASONS = [
+  "MORE_THAN_ONE_EQUITY_CURRENCY",
+  "ACCOUNT_WITHOUT_PRICED_SNAPSHOT",
+  "FEWER_THAN_TWO_ENGINE_DAYS",
+  "NO_DEFINED_DAILY_RETURN",
+] as const;
+
+export type BacktestRunEmptyReason = (typeof BACKTEST_RUN_EMPTY_REASONS)[number];
+
 // `loading` is the browser's own state and never arrives on the wire. The other three are what the
 // projection states; `empty` and `available` carry every fact, and differ only in the result.
 export type BacktestRunReport =
@@ -88,6 +99,7 @@ export type BacktestRunReport =
   | Readonly<{ state: "unavailable"; reason: string }>
   | (BacktestRunReportFacts & Readonly<{
     state: "empty";
+    empty_reason: BacktestRunEmptyReason;
     series: readonly [];
     net_return: null;
     max_drawdown: null;
@@ -104,6 +116,7 @@ export type BacktestRunReport =
 // projection as the route relayed it; `UNAVAILABLE` is the route's envelope around the Owner's reason.
 const PROJECTION_KEYS = [
   "data_window",
+  "empty_reason",
   "fill_count",
   "fills",
   "max_drawdown",
@@ -242,6 +255,10 @@ function isFill(value: unknown): value is BacktestRunReportFill {
     && UNSIGNED_DECIMAL.test(value.quantity);
 }
 
+function isEmptyReason(value: unknown): value is BacktestRunEmptyReason {
+  return typeof value === "string" && (BACKTEST_RUN_EMPTY_REASONS as readonly string[]).includes(value);
+}
+
 // A projection that carries no key the contract does not know, and lacks some it requires, is one
 // whose statement has not been delivered yet rather than a malformed one. It is refused all the same,
 // under a reason that names what is missing, so the two cannot be read as the same fault.
@@ -298,14 +315,30 @@ export function normalizeBacktestRunReport(
     fill_count: value.fill_count,
     fills: value.fills,
   };
-  // `empty` is a run that produced no points: both quantities are null, and fills may still be listed
-  // because a position can open and close between two equity snapshots. `available` states both.
+  // `empty` is a run that recorded no return: no points, both quantities null, and the Owner's reason.
+  // Fills may still be listed, because a run can fill without the engine recording a return. `available`
+  // states both quantities and no reason. `empty_reason` runs the other way round from the two
+  // quantities - null only in `available` - so an `empty` without a reason, an `available` with one,
+  // and a reason outside the set are all refused.
   if (value.state === "EMPTY") {
-    return value.series.length === 0 && value.net_return === null && value.max_drawdown === null
-      ? { ...facts, state: "empty", series: [], net_return: null, max_drawdown: null }
+    return value.series.length === 0
+      && value.net_return === null
+      && value.max_drawdown === null
+      && isEmptyReason(value.empty_reason)
+      ? {
+        ...facts,
+        state: "empty",
+        empty_reason: value.empty_reason,
+        series: [],
+        net_return: null,
+        max_drawdown: null,
+      }
       : unavailableBacktestRunReport();
   }
-  return value.series.length > 0 && isFiniteNumber(value.net_return) && isFiniteNumber(value.max_drawdown)
+  return value.series.length > 0
+    && value.empty_reason === null
+    && isFiniteNumber(value.net_return)
+    && isFiniteNumber(value.max_drawdown)
     ? {
       ...facts,
       state: "available",

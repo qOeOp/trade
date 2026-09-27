@@ -10,6 +10,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import ts from "typescript";
 
 import {
+  BACKTEST_RUN_EMPTY_REASONS,
   BACKTEST_RUN_REPORT_IDENTITY_MISMATCH,
   BACKTEST_RUN_REPORT_KEYS_MISSING,
   INVALID_BACKTEST_RUN_REPORT_PROJECTION,
@@ -80,18 +81,20 @@ const available = {
   ],
   net_return: -0.002,
   max_drawdown: -0.00647,
+  empty_reason: null,
   fill_count: 2,
   fills,
 };
 
-// A run can open and close a position between two equity snapshots, so it can list fills while
-// having no observation points. Its fills are facts; it is empty only in the series.
+// A run can fill without the engine recording a return, so it can list fills while having no
+// observation points. Its fills are facts; it is empty only in the result, and the Owner says why.
 const emptyWithFills = {
   ...available,
   state: "EMPTY",
   series: [],
   net_return: null,
   max_drawdown: null,
+  empty_reason: "FEWER_THAN_TWO_ENGINE_DAYS",
 };
 
 // The route's envelope around the Owner's refusal code: the reason and nothing else.
@@ -123,7 +126,36 @@ test("empty means no points, and still lists the run's fills", () => {
   assert.deepEqual(report.series, []);
   assert.equal(report.net_return, null);
   assert.equal(report.max_drawdown, null);
+  assert.equal(report.empty_reason, "FEWER_THAN_TWO_ENGINE_DAYS");
   assert.equal(report.fills.length, 2);
+});
+
+test("empty carries each of the Owner's reasons, and only those", () => {
+  for (const reason of BACKTEST_RUN_EMPTY_REASONS) {
+    assert.equal(
+      normalizeBacktestRunReport({ ...emptyWithFills, empty_reason: reason }, LOCATOR).empty_reason,
+      reason,
+    );
+  }
+  // The reason runs the other way round from the two quantities: it is null only in `available`.
+  for (const faulty of [
+    { ...emptyWithFills, empty_reason: null },
+    { ...emptyWithFills, empty_reason: "NO_FILL" },
+    { ...emptyWithFills, empty_reason: "fewer_than_two_engine_days" },
+    { ...emptyWithFills, empty_reason: ["FEWER_THAN_TWO_ENGINE_DAYS"] },
+    { ...available, empty_reason: "FEWER_THAN_TWO_ENGINE_DAYS" },
+    { ...available, empty_reason: "" },
+  ]) {
+    assert.deepEqual(normalizeBacktestRunReport(faulty, LOCATOR), invalid);
+  }
+  assert.deepEqual(normalizeBacktestRunReport(without(emptyWithFills, "empty_reason"), LOCATOR), {
+    state: "unavailable",
+    reason: `${BACKTEST_RUN_REPORT_KEYS_MISSING}: empty_reason`,
+  });
+  assert.deepEqual(normalizeBacktestRunReport(without(available, "empty_reason"), LOCATOR), {
+    state: "unavailable",
+    reason: `${BACKTEST_RUN_REPORT_KEYS_MISSING}: empty_reason`,
+  });
 });
 
 test("the state is stated, and must agree with the result", () => {
@@ -412,10 +444,14 @@ test("available answers all four questions from the stated values", () => {
   assert.doesNotMatch(html, /No observations|%/u);
 });
 
-test("empty lists the run's fills and says only what is missing", () => {
+test("empty lists the run's fills, says what is missing and the Owner's reason as stated", () => {
   const html = render(normalizeBacktestRunReport(emptyWithFills, LOCATOR));
   assert.match(html, /data-state="empty"/u);
   assert.match(html, /No observations/u);
+  assert.match(
+    html,
+    /<code data-empty-reason="FEWER_THAN_TWO_ENGINE_DAYS">FEWER_THAN_TWO_ENGINE_DAYS<\/code>/u,
+  );
   assert.doesNotMatch(html, /<polyline|<circle|unavailable-state/u);
   assert.deepEqual(cellTexts(html).filter((text) => text === "BUY" || text === "SELL"), ["BUY", "SELL"]);
   assert.match(html, /<h3>Strategy<\/h3>/u);
@@ -436,15 +472,61 @@ test("a single observation is drawn as a point, not an empty path", () => {
   assert.match(html, /1 observations/u);
 });
 
+// What the Backtest Owner actually serializes, written by the Owner's own test
+// (`backtest_run_report_read_v1::tests::the_dashboard_reads_this_owner_s_wire_from_one_shared_file`),
+// which fails when this file stops being its output. Read here through the same contract the page uses.
+const ownerWire = JSON.parse(readFileSync(
+  new URL("./fixtures/backtest_run_report_wire_v1.json", import.meta.url),
+  "utf8",
+));
+
+test("the contract reads the Backtest Owner's own wire in both states", () => {
+  for (const [key, state] of [["available", "available"], ["empty", "empty"]]) {
+    const wire = ownerWire[key];
+    const locator = {
+      result_identity: wire.run.result_identity,
+      request_identity: wire.run.request_identity,
+      attempt_identity: wire.run.attempt_identity,
+    };
+    const report = normalizeBacktestRunReport(wire, locator);
+    assert.equal(report.state, state, key);
+    assert.equal(report.fill_count, wire.fill_count, key);
+    assert.match(render(report), new RegExp(`data-state="${state}"`, "u"), key);
+  }
+  const empty = ownerWire.empty;
+  const report = normalizeBacktestRunReport(empty, {
+    result_identity: empty.run.result_identity,
+    request_identity: empty.run.request_identity,
+    attempt_identity: empty.run.attempt_identity,
+  });
+  assert.ok(BACKTEST_RUN_EMPTY_REASONS.includes(report.empty_reason));
+  assert.equal(report.empty_reason, empty.empty_reason);
+  assert.equal(ownerWire.available.empty_reason, null);
+});
+
 test("no state states or implies an equity return", () => {
   // The series may be built on a per-closed-position price return rather than a daily equity return,
-  // and the projection does not yet say which. Until it does, no rendered word may claim equity.
+  // and the projection does not yet say which. Until it does, no word the browser writes may claim
+  // equity. The one exception is the Owner's own empty reason, shown verbatim as a code: one of them
+  // names an equity currency (`MORE_THAN_ONE_EQUITY_CURRENCY`), which says why no return was recorded
+  // and claims no basis for one. Everything outside that code element is still held to the rule.
+  const ownWords = (html) => html.replace(/<code data-empty-reason="[A-Z_]+">[A-Z_]+<\/code>/gu, "");
   for (const report of [
     { state: "loading" },
     normalizeBacktestRunReport(unavailable, LOCATOR),
-    normalizeBacktestRunReport(emptyWithFills, LOCATOR),
+    ...BACKTEST_RUN_EMPTY_REASONS.map((reason) =>
+      normalizeBacktestRunReport({ ...emptyWithFills, empty_reason: reason }, LOCATOR)
+    ),
     normalizeBacktestRunReport(available, LOCATOR),
   ]) {
-    assert.doesNotMatch(render(report), /equity/iu, report.state);
+    assert.doesNotMatch(ownWords(render(report)), /equity/iu, report.state);
   }
+  // The exception is exactly the code element and holds a real match: without it the currency reason
+  // would trip the rule.
+  const currency = render(normalizeBacktestRunReport(
+    { ...emptyWithFills, empty_reason: "MORE_THAN_ONE_EQUITY_CURRENCY" },
+    LOCATOR,
+  ));
+  assert.match(currency, /EQUITY/u);
+  assert.doesNotMatch(ownWords(currency), /equity/iu);
 });
