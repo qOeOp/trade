@@ -324,6 +324,17 @@ repos:
             scripts/ci/connect_guard_plant_test\.py
           )$
         pass_filenames: false
+      - id: test-connect-guard-reading
+        name: test how the connection guard reads cargo
+        description: A refused plant passes the self-test; a real connection fails by count, not as a failed build
+        entry: bash scripts/ci/test-check-disallowed-connect-outside-union.bash
+        language: system
+        files: >-
+          (?x)^(
+            scripts/ci/(check-disallowed-connect-outside-union|test-check-disallowed-connect-outside-union|sealed-feature-union)\.bash|
+            scripts/lib/git-isolation\.bash
+          )$
+        pass_filenames: false
       - id: test-chain-verdict-reuse
         name: test chain verdict reuse
         description: Only the same tree's green whole-chain verdict for its entry count is reused
