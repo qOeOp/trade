@@ -167,6 +167,39 @@ CI/CD, testing, publishing, and automation within the NautilusTrader repository.
   runners, but retain the configured egress policy, which defaults to `block`. These jobs run with
   read‑only permissions and no access to Actions secrets.
 
+### Public logs and artifacts
+
+The repository is public. Any signed‑in GitHub user can read every job log and download every
+artifact, including the Owner chains' `chain-record-*` records. GitHub masks the exact value of
+each registered secret in logs, but it masks nothing inside an artifact, nor a secret's value once
+it has been encoded or transformed.
+
+The accepted exposure, audited on 2026-09-27 against main's scheduled build 36296884249 (53a0174ad),
+is single-use test credentials only:
+
+- **Chain records**: 230 files, 0 credential-shaped strings. The scan covered URL credentials,
+  `password=`, Bearer, token and key assignments, GitHub, `sk-`, AWS, Databento and Firecrawl key
+  shapes, and 40+ digit hex. It also matched the 58 credential-shaped variable names the chain
+  scripts set, by name only.
+- **All 17 job logs** (81,417 lines):
+  - `POSTGRES_PASSWORD` appears only with the committed service-container literal `pass`.
+  - `GH_TOKEN` appears only as `***`.
+  - The Owner chain's per-run generated test password never appears.
+- **Long-lived secrets** reach one workflow, `research-source-canary.yml`, on schedule and dispatch
+  only. It uploads no artifact, and its logs show each key as `***`. `cli-binaries.yml` references
+  the AWS/R2 publish secrets and has never run here. No workflow references the local API keys
+  named in `AGENTS.md`, and the Owner chain jobs receive only `GITHUB_TOKEN`.
+- **The failed-entry warnings** a chain job prints to its log are redacted before printing (#1169).
+  The raw lines stay in `chain-records/NNN.log`, which is why the audit covers the records too.
+
+Re-run this audit, reporting only types and positions and never values, when any of these happens:
+
+- a workflow starts referencing a long-lived secret;
+- an Owner chain or build job gains any secret beyond `GITHUB_TOKEN`;
+- a new artifact upload step is added.
+
+If it finds a long-lived credential, stop and report it. Rotating a credential is the user's call.
+
 ### Security gate override
 
 The `security-gate-nightly` job runs `cargo audit` and `osv-scanner` to catch vulnerabilities
