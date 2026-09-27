@@ -464,13 +464,13 @@ async fn postgres_a_snapshot_past_a_head_on_another_clock_is_refused_and_writes_
     assert_eq!((facts(&owner).await, clock(&owner).await), before);
 }
 
-/// Runs `first` and then `second`, both held behind the Owner's clock-state lock: `second` starts
-/// only once `first` waits on a lock, so `first` queues for the clock-state lock ahead of it, and
-/// both are released once both wait.
+/// Runs `first` and then `second`, both held behind the Owner's clock-state lock: `second` is built
+/// and started only once `first` waits on a lock, so `first` queues for the clock-state lock ahead
+/// of it, and both are released once both wait.
 async fn behind_the_clock_state<A: Future, B: Future>(
     owner: &MarketDataOwnerPostgres,
     first: A,
-    second: B,
+    second: impl FnOnce() -> B,
 ) -> (A::Output, B::Output) {
     let waiting = || async {
         let count: i64 = sqlx::query_scalar(
@@ -500,7 +500,7 @@ async fn behind_the_clock_state<A: Future, B: Future>(
             until(1).await.is_ok(),
             "the first waits before the second starts"
         );
-        second.await
+        second().await
     };
     let release = async {
         let queued = until(2).await;
@@ -548,7 +548,8 @@ async fn postgres_a_minting_snapshot_and_another_clock_writer_at_once_both_answe
     let locator = usdm.receipt().locator();
 
     // 1. A Source Binding admission, which mints the Owner's clock, queued ahead of a snapshot that
-    //    mints it too.
+    //    mints it too: the snapshot is retrieved once the admission waits, so after the admission
+    //    minted its cut, and the head the admission commits does not reach it.
     let admissions = SourceBindingAdmissionPostgresV1 {
         owner: MarketDataOwnerPostgres::connect(&owner_url).await.unwrap(),
     };
@@ -556,7 +557,6 @@ async fn postgres_a_minting_snapshot_and_another_clock_writer_at_once_both_answe
     proposal.semantics.normalization = "normalization-clock-order".to_owned();
     proposal.claimed_binding_id = derive_binding_id(&proposal);
     let (handoffs_before, _) = clock(&owner).await;
-    let retrieval = wall_now_ns();
     let (admitted, snapshotted) = behind_the_clock_state(
         &owner,
         admissions.admit(SourceBindingAdmissionRequestV1 {
@@ -564,12 +564,14 @@ async fn postgres_a_minting_snapshot_and_another_clock_writer_at_once_both_answe
             rights: ProviderRightsEvidenceV1::Granted,
             reachability: ProviderReachabilityEvidenceV1::Reachable,
         }),
-        owner.admit_instrument_master_snapshot_v2(snapshot(
-            baseline.fact_identity(),
-            retrieval,
-            USDM,
-            locator,
-        )),
+        || {
+            owner.admit_instrument_master_snapshot_v2(snapshot(
+                baseline.fact_identity(),
+                wall_now_ns(),
+                USDM,
+                locator,
+            ))
+        },
     )
     .await;
     admitted.expect("the Source Binding admission answers with its binding");
@@ -590,7 +592,7 @@ async fn postgres_a_minting_snapshot_and_another_clock_writer_at_once_both_answe
         ))
     };
     let before = facts(&owner).await.len();
-    let (first, second) = behind_the_clock_state(&owner, submit(), submit()).await;
+    let (first, second) = behind_the_clock_state(&owner, submit(), submit).await;
     let first = first.expect("the first snapshot answers with its fact");
     assert_eq!(second, Ok(first), "the second rejoins the first");
     assert_eq!(facts(&owner).await.len(), before + 1);
