@@ -1174,6 +1174,18 @@ default。错误 fact、receipt、terms、venue、account 或 time，以及 nonc
 cross-spliced、tampered 或 ACL-drifted custody 都会在 `ProgramHostV2` 或 Backtest state 存在前失败。既有
 profile canonical bytes 与 digest 保持不变。
 
+一次 Replay 用哪个品种的 terms，按它的请求解析，而不是由它的 family 钉死。economic configuration 的 schema 1
+还钉死了一个品种的 terms（`instrument_terms`：品种、public fact 与 receipt digest、费率与保证金），profile
+binding 随后要求恰好一个成员与之相等。这条规则随 #468 的密封验收配置引入，此前本文没有陈述过。schema 1 对在其下
+密封的每个 family 保持可读，字节与 digest 不变。schema 2 不钉任何品种，只固定跨品种成立的东西：venue、币种、
+杠杆，以及 fill、fee 与 margin model；每次 Replay 的品种 terms，是签发 execution-profile binding 时 Instrument
+Owner 按它的成员、在它窗口起点解析出的那一份。binding 记录它们的 provenance：品种、public fact digest、terms
+receipt、terms digest、费率与保证金。再次解析 terms 的消费方必须恰好遇到这些事实，否则拒绝。因此费率变更是一条
+新的 terms fact，而不是新的 Catalog 版本。不钉 terms 的 schema 1，或钉了 terms 的 schema 2，都以
+`InstrumentTermsPinningMismatch` 拒绝。不钉品种并不放宽 venue：配置未指名的 venue 上的 terms 在 provenance
+存在前就被拒绝，成员位于其他 venue 时 Instrument Owner 什么也解析不出。account scope 是 Owner 为每个成员都持有的
+唯一完整 scope；schema 2 不钉费率档位。
+
 原生 engine materialization 保持 `UNAVAILABLE`。V1 只把 liquidation 表示为 disabled，不携带 numeric ratio；
 adapter 必须另行证明原生 float-only inactive liquidation field 不会被读取，或在 policy meaning 之外绑定
 version-specific inactive constant。materialization 前，一个 version-bound、fail-closed adapter 还必须证明每个

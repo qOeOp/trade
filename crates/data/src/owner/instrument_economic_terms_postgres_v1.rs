@@ -678,5 +678,16 @@ mod tests {
             InstrumentEconomicTermsPostgresErrorV1::UnknownSelection,
             "outside the terms' validity nothing resolves"
         );
+        // A Replay whose economic configuration names another venue than the members' resolves
+        // nothing either, however the configuration pins or omits instrument terms: the venue is
+        // checked against the cut's members before any terms are read.
+        assert_eq!(
+            terms
+                .resolve_unique_native_replay_members(&one, "SIM", &quote, 500)
+                .await
+                .unwrap_err(),
+            InstrumentEconomicTermsPostgresErrorV1::UnknownSelection,
+            "a venue the members are not at resolves nothing"
+        );
     }
 }

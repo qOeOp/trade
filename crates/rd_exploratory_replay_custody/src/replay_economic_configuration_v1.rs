@@ -4,13 +4,21 @@
 //! floating-point field, and names every native `SimulatedVenueConfig` choice explicitly. The
 //! distinct sealed Instrument Owner provenance required for fees and margins is checked by the
 //! execution-profile preflight, not reconstructed from these caller-visible bytes.
+//!
+//! Schema 1 also pins one instrument's terms, which the profile binding then requires one member
+//! to equal; it stays readable byte for byte for the families sealed under it. Schema 2 pins no
+//! instrument: it states only what holds across instruments, and each Replay's instrument terms
+//! are the ones the Instrument Owner resolves for its members and window when the binding is
+//! issued.
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
-/// Replay economic configuration schema version.
+/// Replay economic configuration schema that pins one instrument's terms.
 pub const REPLAY_ECONOMIC_CONFIGURATION_SCHEMA_VERSION_V1: u16 = 1;
+/// Replay economic configuration schema that pins no instrument's terms.
+pub const REPLAY_ECONOMIC_CONFIGURATION_SCHEMA_VERSION_V2: u16 = 2;
 const ECONOMIC_CONFIGURATION_DIGEST_DOMAIN_V1: &[u8] =
     b"strategy-factory.replay-economic-configuration.v1\0";
 const MAX_CANONICAL_BYTES_V1: usize = 32 * 1024;
@@ -162,7 +170,10 @@ pub struct ReplayEconomicConfigurationInputV1 {
     pub common_quote_currency: String,
     pub default_leverage: ReplayFixedDecimalV1,
     pub instrument_leverage: ReplayFixedDecimalV1,
-    pub instrument_terms: InstrumentEconomicTermsBindingV1,
+    /// Present exactly under schema 1, absent exactly under schema 2. An absent value is not
+    /// written, so schema 1 bytes are unchanged and schema 2 bytes carry no such key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub instrument_terms: Option<InstrumentEconomicTermsBindingV1>,
     pub margin_model: ReplayMarginModelV1,
     pub modules: ReplaySimulationModulesV1,
     pub fill_model: ReplayFillModelV1,
@@ -262,6 +273,8 @@ pub enum ReplayEconomicConfigurationErrorV1 {
     CurrencyMismatch,
     #[error("Replay economic configuration Instrument Owner provenance is incomplete")]
     InvalidInstrumentProvenance,
+    #[error("Replay economic configuration pins instrument terms against its schema")]
+    InstrumentTermsPinningMismatch,
     #[error("EVENT Replay economic configuration enables host-random identifiers")]
     RandomIdentifiersUnavailable,
     #[error("EVENT-only Replay economic configuration enables a BAR-only behavior")]
@@ -277,38 +290,49 @@ pub enum ReplayEconomicConfigurationErrorV1 {
 fn validate(
     input: &ReplayEconomicConfigurationInputV1,
 ) -> Result<(), ReplayEconomicConfigurationErrorV1> {
-    if input.schema_version != REPLAY_ECONOMIC_CONFIGURATION_SCHEMA_VERSION_V1 {
-        return Err(ReplayEconomicConfigurationErrorV1::UnsupportedSchema);
-    }
+    let pinned = match (input.schema_version, input.instrument_terms.as_ref()) {
+        (REPLAY_ECONOMIC_CONFIGURATION_SCHEMA_VERSION_V1, Some(terms)) => Some(terms),
+        (REPLAY_ECONOMIC_CONFIGURATION_SCHEMA_VERSION_V2, None) => None,
+        (
+            REPLAY_ECONOMIC_CONFIGURATION_SCHEMA_VERSION_V1
+            | REPLAY_ECONOMIC_CONFIGURATION_SCHEMA_VERSION_V2,
+            _,
+        ) => return Err(ReplayEconomicConfigurationErrorV1::InstrumentTermsPinningMismatch),
+        _ => return Err(ReplayEconomicConfigurationErrorV1::UnsupportedSchema),
+    };
 
     for identity in [
         input.venue_identity.as_str(),
         input.starting_balance_currency.as_str(),
         input.common_quote_currency.as_str(),
-        input.instrument_terms.instrument_identity.as_str(),
-        input.instrument_terms.quote_currency.as_str(),
     ] {
         validate_identity(identity)?;
     }
 
-    if input.starting_balance_currency != input.common_quote_currency
-        || input.common_quote_currency != input.instrument_terms.quote_currency
-    {
+    if input.starting_balance_currency != input.common_quote_currency {
         return Err(ReplayEconomicConfigurationErrorV1::CurrencyMismatch);
-    }
-
-    if input.instrument_terms.instrument_fact_digest == [0; 32]
-        || input.instrument_terms.instrument_receipt_digest == [0; 32]
-    {
-        return Err(ReplayEconomicConfigurationErrorV1::InvalidInstrumentProvenance);
     }
     input.starting_balance.validate(true)?;
     input.default_leverage.validate(true)?;
     input.instrument_leverage.validate(true)?;
-    input.instrument_terms.maker_fee.validate(false)?;
-    input.instrument_terms.taker_fee.validate(false)?;
-    input.instrument_terms.initial_margin.validate(true)?;
-    input.instrument_terms.maintenance_margin.validate(true)?;
+
+    if let Some(terms) = pinned {
+        validate_identity(&terms.instrument_identity)?;
+        validate_identity(&terms.quote_currency)?;
+
+        if input.common_quote_currency != terms.quote_currency {
+            return Err(ReplayEconomicConfigurationErrorV1::CurrencyMismatch);
+        }
+
+        if terms.instrument_fact_digest == [0; 32] || terms.instrument_receipt_digest == [0; 32] {
+            return Err(ReplayEconomicConfigurationErrorV1::InvalidInstrumentProvenance);
+        }
+        terms.maker_fee.validate(false)?;
+        terms.taker_fee.validate(false)?;
+        terms.initial_margin.validate(true)?;
+        terms.maintenance_margin.validate(true)?;
+    }
+
     if input.use_random_ids {
         return Err(ReplayEconomicConfigurationErrorV1::RandomIdentifiersUnavailable);
     }
@@ -365,7 +389,7 @@ pub(crate) fn economic_fixture() -> ReplayEconomicConfigurationInputV1 {
             mantissa: 10,
             scale: 0,
         },
-        instrument_terms: InstrumentEconomicTermsBindingV1 {
+        instrument_terms: Some(InstrumentEconomicTermsBindingV1 {
             instrument_identity: "ETHUSDT-PERP".into(),
             quote_currency: "USDT".into(),
             instrument_fact_digest: [1; 32],
@@ -386,7 +410,7 @@ pub(crate) fn economic_fixture() -> ReplayEconomicConfigurationInputV1 {
                 mantissa: 5,
                 scale: 2,
             },
-        },
+        }),
         margin_model: ReplayMarginModelV1::SealedInstrumentTerms,
         modules: ReplaySimulationModulesV1::None,
         fill_model: ReplayFillModelV1::DeterministicFullFill,
@@ -521,7 +545,7 @@ mod tests {
         );
 
         let mut decimal = economic_fixture();
-        decimal.instrument_terms.initial_margin = ReplayFixedDecimalV1 {
+        decimal.instrument_terms.as_mut().unwrap().initial_margin = ReplayFixedDecimalV1 {
             mantissa: 10,
             scale: 2,
         };
@@ -531,10 +555,81 @@ mod tests {
         );
 
         let mut provenance = economic_fixture();
-        provenance.instrument_terms.instrument_receipt_digest = [0; 32];
+        provenance
+            .instrument_terms
+            .as_mut()
+            .unwrap()
+            .instrument_receipt_digest = [0; 32];
         assert_eq!(
             ReplayEconomicConfigurationV1::seal(provenance),
             Err(ReplayEconomicConfigurationErrorV1::InvalidInstrumentProvenance)
+        );
+    }
+    /// The digest schema 1 had before `instrument_terms` became optional: its bytes are unchanged.
+    const SCHEMA_1_FIXTURE_DIGEST_V1: &str =
+        "a1d1f4c766e5c3ee514c418d4659f34d4f944e510806c2d5f1be9d0153774186";
+
+    fn hex(bytes: [u8; 32]) -> String {
+        bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+    }
+
+    /// Schema 2: the same configuration with no instrument pinned.
+    fn schema_2_fixture() -> ReplayEconomicConfigurationInputV1 {
+        ReplayEconomicConfigurationInputV1 {
+            schema_version: REPLAY_ECONOMIC_CONFIGURATION_SCHEMA_VERSION_V2,
+            instrument_terms: None,
+            ..economic_fixture()
+        }
+    }
+
+    #[rstest]
+    fn schema_1_keeps_its_bytes_and_digest() {
+        let sealed = ReplayEconomicConfigurationV1::seal(economic_fixture()).unwrap();
+        assert_eq!(hex(sealed.digest()), SCHEMA_1_FIXTURE_DIGEST_V1);
+        assert!(
+            String::from_utf8_lossy(sealed.canonical_bytes()).contains("\"instrument_terms\":{")
+        );
+    }
+
+    #[rstest]
+    fn schema_2_pins_no_instrument_and_round_trips() {
+        let sealed = ReplayEconomicConfigurationV1::seal(schema_2_fixture()).unwrap();
+        assert!(sealed.input().instrument_terms.is_none());
+        assert!(!String::from_utf8_lossy(sealed.canonical_bytes()).contains("instrument_terms"));
+        assert_eq!(
+            ReplayEconomicConfigurationV1::parse_canonical(sealed.canonical_bytes()),
+            Ok(sealed.clone())
+        );
+        assert_ne!(hex(sealed.digest()), SCHEMA_1_FIXTURE_DIGEST_V1);
+    }
+
+    /// Each schema admits exactly its own shape: schema 1 without terms and schema 2 with them are
+    /// refused by name, and so is a schema no version names.
+    #[rstest]
+    fn each_schema_admits_only_its_own_instrument_pinning() {
+        let unpinned_1 = ReplayEconomicConfigurationInputV1 {
+            instrument_terms: None,
+            ..economic_fixture()
+        };
+        assert_eq!(
+            ReplayEconomicConfigurationV1::seal(unpinned_1),
+            Err(ReplayEconomicConfigurationErrorV1::InstrumentTermsPinningMismatch)
+        );
+        let pinned_2 = ReplayEconomicConfigurationInputV1 {
+            schema_version: REPLAY_ECONOMIC_CONFIGURATION_SCHEMA_VERSION_V2,
+            ..economic_fixture()
+        };
+        assert_eq!(
+            ReplayEconomicConfigurationV1::seal(pinned_2),
+            Err(ReplayEconomicConfigurationErrorV1::InstrumentTermsPinningMismatch)
+        );
+        let unknown = ReplayEconomicConfigurationInputV1 {
+            schema_version: 3,
+            ..schema_2_fixture()
+        };
+        assert_eq!(
+            ReplayEconomicConfigurationV1::seal(unknown),
+            Err(ReplayEconomicConfigurationErrorV1::UnsupportedSchema)
         );
     }
 }
