@@ -117,6 +117,9 @@ const PERPETUAL_V1: &str = "LINKUSDT-PERP.BINANCE";
 const PERPETUAL_EXCHANGE_INFO_V1: &str = include_str!(
     "../../adapters/binance/test_data/futures/http_json/exchange_info_usdm_linkusdt.json"
 );
+
+/// When [`PERPETUAL_EXCHANGE_INFO_V1`]'s entry was fetched: 2026-09-27T09:17:36Z.
+const PERPETUAL_EXCHANGE_INFO_RETRIEVED_NS_V1: i128 = 1_790_500_656_000_000_000;
 const OPEN_ROLE: &str = "research.input.open.daily.v1";
 
 /// One Owner record by its identity and the digest it was issued under.
@@ -242,7 +245,10 @@ impl Drop for SchedulingGrantsGuardV1 {
 /// The perpetual's Source Binding, as Operations proposes one: a public USD-M feed that needs no
 /// credential. Every clock field is the Owner's and is overwritten on admission; only the effective
 /// instant and its four coordinates are the proposer's.
-fn perpetual_source_proposal(effective_ns: u64) -> UntrustedSourceBindingProposal {
+fn perpetual_source_proposal(
+    effective_ns: u64,
+    dataset_mapping: &str,
+) -> UntrustedSourceBindingProposal {
     let frontier = |meaning: &str| UntrustedCompleteFrontier {
         stream_identity: "binance/usdm-klines".to_owned(),
         cut_identity: "binance/usdm-klines/cut-1".to_owned(),
@@ -256,7 +262,7 @@ fn perpetual_source_proposal(effective_ns: u64) -> UntrustedSourceBindingProposa
             implementation_digest: first_composer_v3_digest("perpetual.adapter.implementation"),
             configuration_digest: first_composer_v3_digest("perpetual.adapter.configuration"),
             authenticated_endpoint_identity: "https://fapi.binance.com".to_owned(),
-            dataset_mapping: "usdm/klines/1d".to_owned(),
+            dataset_mapping: dataset_mapping.to_owned(),
             account_mapping: "binance/public".to_owned(),
         },
         credential_handle: UntrustedOpaqueCredentialHandle::from_untrusted_identity(
@@ -600,7 +606,7 @@ pub(crate) async fn ensure_first_composer_v3_replay_acceptance_v1(
         .await
         .expect("H0: Market Data states its decision cut")
         .decision_cut;
-    let proposal = perpetual_source_proposal(effective_ns);
+    let proposal = perpetual_source_proposal(effective_ns, "usdm/klines/1d");
     let (status, answer) = post(
         &routes,
         "/v1/market-data/source-bindings",
@@ -642,6 +648,53 @@ pub(crate) async fn ensure_first_composer_v3_replay_acceptance_v1(
         status,
         StatusCode::OK,
         "H0: the perpetual's Instrument Master fact: {answer}"
+    );
+    // Its Instrument Master V2 fact, which Market Data derives from the real `exchangeInfo` entry
+    // under a Source Binding that names that dataset. The retrieval instant is when the entry was
+    // fetched; the Owner's clock head, which the binding admission above stamped, is past it.
+    let exchange_info_binding: SourceBindingAdmissionTerminalV1 = {
+        let (status, answer) = post(
+            &routes,
+            "/v1/market-data/source-bindings",
+            Some(
+                serde_json::to_value(SourceBindingAdmissionRequestV1 {
+                    proposal: perpetual_source_proposal(effective_ns, "usdm/exchangeInfo"),
+                    rights: ProviderRightsEvidenceV1::Granted,
+                    reachability: ProviderReachabilityEvidenceV1::Reachable,
+                })
+                .expect("the binding admission serializes"),
+            ),
+        )
+        .await;
+        assert_eq!(
+            status,
+            StatusCode::OK,
+            "H0: the exchangeInfo Source Binding: {answer}"
+        );
+        serde_json::from_value(json_of(&answer))
+            .expect("H0: the binding admission answers its terminal")
+    };
+    let (status, answer) = post(
+        &routes,
+        "/v1/market-data/instrument-master-v2-facts",
+        Some(serde_json::json!({
+            "raw_symbol": "LINKUSDT",
+            "instrument_class": "CRYPTO_PERPETUAL",
+            "retrieval_time_ns": PERPETUAL_EXCHANGE_INFO_RETRIEVED_NS_V1,
+            "raw_payload": PERPETUAL_EXCHANGE_INFO_V1,
+            "source_binding": exchange_info_binding.locator(),
+        })),
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "H0: the perpetual's Instrument Master V2 fact: {answer}"
+    );
+    assert_eq!(
+        json_of(&answer)["canonical_identity"],
+        PERPETUAL_V1,
+        "H0: Market Data derives the perpetual's canonical identity: {answer}"
     );
     let observed = i128::from(effective_ns);
     let (status, answer) = post(
@@ -858,6 +911,31 @@ pub(crate) async fn ensure_first_composer_v3_replay_acceptance_v1(
         StatusCode::OK,
         "H4: the universe declaration: {answer}"
     );
+
+    // H4b: the BAR schedule the Replay's frame reads for the pricing role, which production has no
+    // proposer for (`bar_schedule_acceptance_v1`). Market Data derives every schedule field from the
+    // snapshot's verified batch, the role's declaration and the snapshot's Instrument Master cut.
+    //
+    // UNVERIFIED: the constructor states "1D" as an exchange session day, and a crypto perpetual's
+    // day is a fixed UTC day. The schedule it derives for this role is admitted and read, but its
+    // shape and interval are not yet proved to be the perpetual's; once the fixed UTC day lands
+    // (S1'), this step asserts the schedule's fields one by one.
+    let close_role = design
+        .inputs
+        .iter()
+        .find(|role| role.semantic_id == CLOSE_ROLE)
+        .expect("H4b: the Design declares its pricing role");
+    vibe_data::owner::bar_schedule_acceptance_v1::commit_bar_schedule_for_acceptance_v1(
+        test_database.database_url(CanonicalOwnerTestRoleV1::MarketDataOwner),
+        &pit_snapshot,
+        serde_json::from_value(published["design_identity"].clone())
+            .expect("H3: the role intent names its Design"),
+        vibe_strategy_factory::strategy_plan_v2::strategy_input_role_identity_v2(close_role),
+    )
+    .await
+    .unwrap_or_else(|e| {
+        panic!("H4b: Market Data puts the pricing role's BAR schedule in custody: {e:?}")
+    });
     let (status, answer) = post(
         &routes,
         "/v1/bounded-feature-programs/declare",
