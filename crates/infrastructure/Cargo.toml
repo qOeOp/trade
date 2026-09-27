@@ -66,6 +66,7 @@ redis = { workspace = true, optional = true }
 sqlx = { workspace = true, optional = true }
 
 [dev-dependencies]
+vibe-common = { workspace = true, features = ["stubs"] }
 vibe-live = { workspace = true, features = ["node"] }
 vibe-persistence = { workspace = true }
 vibe-serialization = { workspace = true }

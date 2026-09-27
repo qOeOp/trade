@@ -152,18 +152,25 @@ pub async fn resolve_universe_member_composition_basis_v1(
         return Err(BasisError::StoreUnavailable);
     }
 
-    // The R0 record is the one the snapshot's own commit appended, whose request is a function of
-    // the snapshot alone.
-    let expected_r0 =
-        super::reference_fact_coordinates::owner_r0_request_for_available_pit_v1(&aggregate)
-            .map_err(|_| BasisError::StoreUnavailable)?;
+    // The R0 record is the one the snapshot's own commit appended. Its request is a function of the
+    // snapshot and of where its claim ends, which the Owner derived from the snapshot's batch and
+    // Source Binding declarations when it wrote the record; this read holds no batch, so it takes
+    // that end from the record and checks every other coordinate against the snapshot.
     let r0 = super::reference_fact_coordinates::read_reference_fact_r0_for_composition_basis_v1(
         transaction,
-        expected_r0.request_identity,
+        super::reference_fact_coordinates::owner_r0_request_identity_v1(
+            fact.snapshot_identity(),
+            fact.digest(),
+        ),
     )
     .await
     .map_err(|_| BasisError::StoreUnavailable)?
     .ok_or(BasisError::StoreUnavailable)?;
+    let expected_r0 = super::reference_fact_coordinates::owner_r0_request_for_available_pit_v1(
+        &aggregate,
+        r0.record().replay_end_event_ns_exclusive,
+    )
+    .map_err(|_| BasisError::StoreUnavailable)?;
 
     if r0.receipt().request_meaning_digest != expected_r0.request_meaning_digest {
         return Err(BasisError::StoreUnavailable);

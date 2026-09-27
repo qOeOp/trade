@@ -1400,6 +1400,11 @@ fn execution_input_binding_error(
             "INSTRUMENT_MASTER_GENERATION_MISMATCH",
             request_identity,
         ),
+        NativeReplayExecutionInputBindingErrorV1::InstrumentMasterTermsChanged => rejection(
+            StatusCode::CONFLICT,
+            "INSTRUMENT_MASTER_TERMS_CHANGED",
+            request_identity,
+        ),
     }
 }
 
@@ -2115,6 +2120,13 @@ mod tests {
         assert_ne!(
             code(&NativeReplayExecutionInputBindingErrorV1::Conflict).1,
             "INSTRUMENT_MASTER_GENERATION_MISMATCH"
+        );
+        assert_eq!(
+            code(&NativeReplayExecutionInputBindingErrorV1::InstrumentMasterTermsChanged),
+            (
+                StatusCode::CONFLICT,
+                "INSTRUMENT_MASTER_TERMS_CHANGED".to_owned()
+            )
         );
     }
 

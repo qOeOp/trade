@@ -138,6 +138,7 @@ readonly rd_owner_postgres_tests=(
   'vibe-strategy-factory|vibe_strategy_factory|iteration_decision_postgres::postgres_acceptance_tests::legacy_replay_request_passes_the_source_boundary_under_issuance_isolation'
   'vibe-product-edge-routing-api|vibe_product_edge_routing_api|postgres_tests::the_operation_routing_read_port_answers_every_routing_state_over_http'
   'vibe-strategy-factory-rd-owner-api|rd_owner_api_main|research_initial_pit_postgres_tests::a_v3_research_request_issues_its_initial_pit_request_over_http'
+  'vibe-strategy-factory-rd-owner-api|rd_owner_api_main|research_initial_pit_postgres_tests::the_initial_pit_request_refreezes_when_the_clock_head_moves_before_its_send'
   'vibe-strategy-factory-rd-owner-api|rd_owner_api_main|dashboard_run_routing_acceptance::a_dashboard_run_starts_only_on_the_routing_the_writer_committed_and_reaches_the_owner'
   'vibe-strategy-factory|composer_replay_v3_postgres|forged_v3_admission_fails_without_replay_transition_or_outbox_write'
   'vibe-strategy-factory|vibe_strategy_factory|trial_family_postgres::postgres_binding_tests::a_census_read_that_meets_an_uncommitted_append_waits_and_reads_one_cut'
@@ -217,8 +218,8 @@ check_nextest_graph_contract() {
     echo "ERROR: isolated PostgreSQL tests must use the shared nextest graph." >&2
     return 1
   fi
-  if [[ "${#rd_owner_postgres_tests[@]}" -ne 117 ]]; then
-    echo "ERROR: isolated PostgreSQL test selection must retain all 117 ordered tests, found ${#rd_owner_postgres_tests[@]}." >&2
+  if [[ "${#rd_owner_postgres_tests[@]}" -ne 118 ]]; then
+    echo "ERROR: isolated PostgreSQL test selection must retain all 118 ordered tests, found ${#rd_owner_postgres_tests[@]}." >&2
     return 1
   fi
   if [[ "${rd_owner_postgres_tests[0]}" != *'|replay_policy_catalog_postgres_v2::postgres_tests::catalog_admin_and_family_formation_are_atomic_and_fail_closed' ]] ||
@@ -339,15 +340,16 @@ check_nextest_graph_contract() {
     [[ "${rd_owner_postgres_tests[105]}" != *'|iteration_decision_postgres::postgres_acceptance_tests::legacy_replay_request_passes_the_source_boundary_under_issuance_isolation' ]] ||
     [[ "${rd_owner_postgres_tests[106]}" != *'|postgres_tests::the_operation_routing_read_port_answers_every_routing_state_over_http' ]] ||
     [[ "${rd_owner_postgres_tests[107]}" != *'|research_initial_pit_postgres_tests::a_v3_research_request_issues_its_initial_pit_request_over_http' ]] ||
-    [[ "${rd_owner_postgres_tests[108]}" != *'|dashboard_run_routing_acceptance::a_dashboard_run_starts_only_on_the_routing_the_writer_committed_and_reaches_the_owner' ]] ||
-    [[ "${rd_owner_postgres_tests[109]}" != *'|forged_v3_admission_fails_without_replay_transition_or_outbox_write' ]] ||
-    [[ "${rd_owner_postgres_tests[110]}" != *'|trial_family_postgres::postgres_binding_tests::a_census_read_that_meets_an_uncommitted_append_waits_and_reads_one_cut' ]] ||
-    [[ "${rd_owner_postgres_tests[111]}" != *'|trial_family_postgres::postgres_binding_tests::concurrent_appends_and_admission_census_reads_neither_deadlock_nor_tear' ]] ||
-    [[ "${rd_owner_postgres_tests[112]}" != *'|product_edge_postgres::tests::a_native_composer_research_view_is_admitted_by_every_custody_scan' ]] ||
-    [[ "${rd_owner_postgres_tests[113]}" != *'|native_replay_scheduling_acceptance::tests::the_composed_scheduling_resolver_holds_its_reads_only_while_composed' ]] ||
-    [[ "${rd_owner_postgres_tests[114]}" != *'|tests::postgres_result_directory_lists_one_requests_results_without_a_row_lock' ]] ||
-    [[ "${rd_owner_postgres_tests[115]}" != *'|product_edge_postgres::tests::a_frozen_research_intent_continues_under_its_admission_past_its_views_window' ]] ||
-    [[ "${rd_owner_postgres_tests[116]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]]; then
+    [[ "${rd_owner_postgres_tests[108]}" != *'|research_initial_pit_postgres_tests::the_initial_pit_request_refreezes_when_the_clock_head_moves_before_its_send' ]] ||
+    [[ "${rd_owner_postgres_tests[109]}" != *'|dashboard_run_routing_acceptance::a_dashboard_run_starts_only_on_the_routing_the_writer_committed_and_reaches_the_owner' ]] ||
+    [[ "${rd_owner_postgres_tests[110]}" != *'|forged_v3_admission_fails_without_replay_transition_or_outbox_write' ]] ||
+    [[ "${rd_owner_postgres_tests[111]}" != *'|trial_family_postgres::postgres_binding_tests::a_census_read_that_meets_an_uncommitted_append_waits_and_reads_one_cut' ]] ||
+    [[ "${rd_owner_postgres_tests[112]}" != *'|trial_family_postgres::postgres_binding_tests::concurrent_appends_and_admission_census_reads_neither_deadlock_nor_tear' ]] ||
+    [[ "${rd_owner_postgres_tests[113]}" != *'|product_edge_postgres::tests::a_native_composer_research_view_is_admitted_by_every_custody_scan' ]] ||
+    [[ "${rd_owner_postgres_tests[114]}" != *'|native_replay_scheduling_acceptance::tests::the_composed_scheduling_resolver_holds_its_reads_only_while_composed' ]] ||
+    [[ "${rd_owner_postgres_tests[115]}" != *'|tests::postgres_result_directory_lists_one_requests_results_without_a_row_lock' ]] ||
+    [[ "${rd_owner_postgres_tests[116]}" != *'|product_edge_postgres::tests::a_frozen_research_intent_continues_under_its_admission_past_its_views_window' ]] ||
+    [[ "${rd_owner_postgres_tests[117]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]]; then
     echo "ERROR: isolated PostgreSQL test ordering must remain fresh-first and destructive-drain-last." >&2
     return 1
   fi
@@ -497,7 +499,7 @@ for line in array_body.splitlines():
     entries.append(tuple(fields))
 # The count lives in one place. Writing it into the message as well lets the two drift, and the
 # drifted form reads as nonsense the moment it fires: "must contain 92 entries, found 92".
-expected_entries = 117
+expected_entries = 118
 if len(entries) != expected_entries:
     raise SystemExit(
         f"ERROR: ordered PostgreSQL test literal must contain {expected_entries} entries, found {len(entries)}."
@@ -2070,7 +2072,8 @@ load_chain_shard() {
 # must be named, so all three are kept beside it and restored on every rebuild.
 chain_snapshot_databases() {
   printf '%s\n' "$test_database" "$catalog_admin_database" "$origin_current_database" \
-    "$legacy_replay_database" "$program_host_acceptance_database" "$composer_sealed_read_database"
+    "$legacy_replay_database" "$program_host_acceptance_database" "$composer_sealed_read_database" \
+    "$initial_pit_clock_move_database"
 }
 
 chain_admin_psql() {
@@ -2716,6 +2719,10 @@ readonly origin_current_database="vibe_test_origin_current_${suffix//-/_}"
 readonly legacy_replay_database="vibe_test_legacy_replay_${suffix//-/_}"
 readonly program_host_acceptance_database="vibe_test_program_host_acceptance_${suffix//-/_}"
 readonly composer_sealed_read_database="vibe_test_composer_sealed_read_${suffix//-/_}"
+# The initial PIT clock-move entry moves Market Data's clock head for good, which every later entry on
+# the shared database would meet as a head no longer the acceptance basis's, so it runs on a clone of
+# its own. The entry refuses any database whose name lacks this prefix.
+readonly initial_pit_clock_move_database="vibe_test_rd_initial_pit_clock_move_${suffix//-/_}"
 readonly dashboard_run_store_database="vibe_test_dashboard_run_store_${suffix//-/_}"
 readonly impersonator_container="vibe-rd-owner-impersonator-${suffix}"
 readonly impersonator_volume="vibe-rd-owner-impersonator-${suffix}"
@@ -4136,17 +4143,20 @@ docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
   --set=origin_current_database="$origin_current_database" \
   --set=legacy_replay_database="$legacy_replay_database" \
   --set=program_host_acceptance_database="$program_host_acceptance_database" \
-  --set=composer_sealed_read_database="$composer_sealed_read_database" << 'SQL'
+  --set=composer_sealed_read_database="$composer_sealed_read_database" \
+  --set=initial_pit_clock_move_database="$initial_pit_clock_move_database" << 'SQL'
 CREATE DATABASE :"catalog_admin_database" WITH TEMPLATE :"test_database" OWNER rd_database_owner;
 CREATE DATABASE :"origin_current_database" WITH TEMPLATE :"test_database" OWNER rd_database_owner;
 CREATE DATABASE :"legacy_replay_database" WITH TEMPLATE :"test_database" OWNER rd_database_owner;
 CREATE DATABASE :"program_host_acceptance_database" WITH TEMPLATE :"test_database" OWNER rd_database_owner;
 CREATE DATABASE :"composer_sealed_read_database" WITH TEMPLATE :"test_database" OWNER rd_database_owner;
+CREATE DATABASE :"initial_pit_clock_move_database" WITH TEMPLATE :"test_database" OWNER rd_database_owner;
 REVOKE CONNECT, CREATE, TEMPORARY ON DATABASE :"catalog_admin_database" FROM PUBLIC;
 REVOKE CONNECT, CREATE, TEMPORARY ON DATABASE :"origin_current_database" FROM PUBLIC;
 REVOKE CONNECT, CREATE, TEMPORARY ON DATABASE :"legacy_replay_database" FROM PUBLIC;
 REVOKE CONNECT, CREATE, TEMPORARY ON DATABASE :"program_host_acceptance_database" FROM PUBLIC;
 REVOKE CONNECT, CREATE, TEMPORARY ON DATABASE :"composer_sealed_read_database" FROM PUBLIC;
+REVOKE CONNECT, CREATE, TEMPORARY ON DATABASE :"initial_pit_clock_move_database" FROM PUBLIC;
 GRANT CONNECT ON DATABASE :"catalog_admin_database"
   TO operator_authorization_writer, product_edge_owner, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, market_data_owner, market_data_reader, qualification_writer, backtest_owner, instrument_owner, execution_writer, portfolio_writer, governance_writer, risk_writer, scanner_writer, vibe_test_owner_topology_admin;
 GRANT CONNECT ON DATABASE :"origin_current_database"
@@ -4157,9 +4167,11 @@ GRANT CONNECT ON DATABASE :"program_host_acceptance_database"
   TO operator_authorization_writer, product_edge_owner, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, market_data_owner, market_data_reader, qualification_writer, backtest_owner, instrument_owner, execution_writer, portfolio_writer, governance_writer, risk_writer, scanner_writer, vibe_test_owner_topology_admin;
 GRANT CONNECT ON DATABASE :"composer_sealed_read_database"
   TO operator_authorization_writer, product_edge_owner, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, market_data_owner, market_data_reader, qualification_writer, backtest_owner, instrument_owner, execution_writer, portfolio_writer, governance_writer, risk_writer, scanner_writer, vibe_test_owner_topology_admin;
+GRANT CONNECT ON DATABASE :"initial_pit_clock_move_database"
+  TO operator_authorization_writer, product_edge_owner, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, market_data_owner, market_data_reader, qualification_writer, backtest_owner, instrument_owner, execution_writer, portfolio_writer, governance_writer, risk_writer, scanner_writer, vibe_test_owner_topology_admin;
 
 WITH clones(database_name) AS (
-  VALUES (:'catalog_admin_database'), (:'origin_current_database'), (:'legacy_replay_database'), (:'program_host_acceptance_database'), (:'composer_sealed_read_database')
+  VALUES (:'catalog_admin_database'), (:'origin_current_database'), (:'legacy_replay_database'), (:'program_host_acceptance_database'), (:'composer_sealed_read_database'), (:'initial_pit_clock_move_database')
 ), roles(role_name) AS (
   VALUES
     ('operator_authorization_writer'),
@@ -4344,6 +4356,13 @@ docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
   --set=composer_sealed_read_database="$composer_sealed_read_database" << 'SQL'
 UPDATE vibe_test_admin.dedicated_postgres_test_instance_v1
    SET database_name=:'composer_sealed_read_database';
+SQL
+
+docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+  --username postgres --dbname "$initial_pit_clock_move_database" \
+  --set=initial_pit_clock_move_database="$initial_pit_clock_move_database" << 'SQL'
+UPDATE vibe_test_admin.dedicated_postgres_test_instance_v1
+   SET database_name=:'initial_pit_clock_move_database';
 SQL
 
 legacy_replay_fingerprint() {
@@ -4983,6 +5002,31 @@ for chain_step in "${chain_run_order[@]}"; do
       --profile "$nextest_profile" \
       "${nextest_execution_args[@]}" \
       -E "$test_filter"
+  elif [[ "$test_name" == 'research_initial_pit_postgres_tests::the_initial_pit_request_refreezes_when_the_clock_head_moves_before_its_send' ]]; then
+    env \
+      VIBE_POSTGRES_TEST_DATABASE_NAME="$initial_pit_clock_move_database" \
+      OPERATOR_AUTHORIZATION_TEST_DATABASE_URL="postgresql://operator_authorization_writer:${test_password}@${postgres_host}:${postgres_port}/${initial_pit_clock_move_database}" \
+      PRODUCT_EDGE_TEST_DATABASE_URL="postgresql://product_edge_owner:${test_password}@${postgres_host}:${postgres_port}/${initial_pit_clock_move_database}" \
+      RD_OWNER_TEST_DATABASE_URL="postgresql://rd_owner:${test_password}@${postgres_host}:${postgres_port}/${initial_pit_clock_move_database}" \
+      RD_FACT_WRITER_TEST_DATABASE_URL="postgresql://rd_fact_writer:${test_password}@${postgres_host}:${postgres_port}/${initial_pit_clock_move_database}" \
+      MARKET_DATA_OWNER_TEST_DATABASE_URL="postgresql://market_data_owner:${test_password}@${postgres_host}:${postgres_port}/${initial_pit_clock_move_database}" \
+      REPLAY_POLICY_CATALOG_ADMIN_TEST_DATABASE_URL="postgresql://replay_policy_catalog_admin_writer:${test_password}@${postgres_host}:${postgres_port}/${initial_pit_clock_move_database}" \
+      MARKET_DATA_RD_ROLE_SET_TEST_DATABASE_URL="postgresql://market_data_reader:${test_password}@${postgres_host}:${postgres_port}/${initial_pit_clock_move_database}" \
+      VIBE_TEST_OWNER_TOPOLOGY_ADMIN_DATABASE_URL="postgresql://vibe_test_owner_topology_admin:${test_password}@${postgres_host}:${postgres_port}/${initial_pit_clock_move_database}" \
+      QUALIFICATION_TEST_DATABASE_URL="postgresql://qualification_writer:${test_password}@${postgres_host}:${postgres_port}/${initial_pit_clock_move_database}" \
+      BACKTEST_TEST_DATABASE_URL="postgresql://backtest_owner:${test_password}@${postgres_host}:${postgres_port}/${initial_pit_clock_move_database}" \
+      INSTRUMENT_OWNER_TEST_DATABASE_URL="postgresql://instrument_owner:${test_password}@${postgres_host}:${postgres_port}/${initial_pit_clock_move_database}" \
+      INSTRUMENT_OWNER_DATABASE_URL="postgresql://instrument_owner:${test_password}@${postgres_host}:${postgres_port}/${initial_pit_clock_move_database}" \
+      EXECUTION_OWNER_TEST_DATABASE_URL="postgresql://execution_writer:${test_password}@${postgres_host}:${postgres_port}/${initial_pit_clock_move_database}" \
+      PORTFOLIO_OWNER_TEST_DATABASE_URL="postgresql://portfolio_writer:${test_password}@${postgres_host}:${postgres_port}/${initial_pit_clock_move_database}" \
+      GOVERNANCE_OWNER_TEST_DATABASE_URL="postgresql://governance_writer:${test_password}@${postgres_host}:${postgres_port}/${initial_pit_clock_move_database}" \
+      RISK_OWNER_TEST_DATABASE_URL="postgresql://risk_writer:${test_password}@${postgres_host}:${postgres_port}/${initial_pit_clock_move_database}" \
+      SCANNER_OWNER_TEST_DATABASE_URL="postgresql://scanner_writer:${test_password}@${postgres_host}:${postgres_port}/${initial_pit_clock_move_database}" \
+      cargo nextest run \
+      "${nextest_reuse_args[@]}" \
+      --profile "$nextest_profile" \
+      "${nextest_execution_args[@]}" \
+      -E "$test_filter"
   elif [[ "$test_name" == 'program_host_bar_joined_cut_postgres_acceptance_tests::owner_postgres_v4_moves_through_program_host_and_real_backtest' ]]; then
     env \
       VIBE_POSTGRES_TEST_DATABASE_NAME="$program_host_acceptance_database" \
@@ -5074,7 +5118,7 @@ require_no_postgres_crash impersonating "$impersonator_container" "$impersonator
 bash "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/run-security-definer-guard.bash" "$container" \
   postgres "$test_database" "$catalog_admin_database" "$origin_current_database" \
   "$legacy_replay_database" "$program_host_acceptance_database" "$composer_sealed_read_database" \
-  "$dashboard_run_store_database"
+  "$initial_pit_clock_move_database" "$dashboard_run_store_database"
 
 docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
   --username postgres --dbname "$test_database" << 'SQL'

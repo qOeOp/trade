@@ -5,6 +5,7 @@ use std::fmt::Debug;
 use sqlx::{Postgres, Row, Transaction};
 
 use crate::owner::{
+    declared_bar_timeframe_v1::r0_window_end_v1,
     pit_snapshot::{
         PitSnapshotCommitAggregate, PitSnapshotOwnerReadback, UntrustedPitSnapshotLocator,
         authority::verify_observation_batch,
@@ -20,7 +21,7 @@ use crate::owner::{
 
 use super::{
     build_head_fact, clock_for_pit_time, load_historical_clock, load_pit_for_update,
-    load_pit_observation_batch_for_update, load_source_for_update,
+    load_pit_observation_batch_for_update, load_source, load_source_for_update,
 };
 
 pub(super) const REFERENCE_FACT_R0_SCHEMA_V1: &[&str] = &[
@@ -61,11 +62,13 @@ pub(crate) fn owner_r0_request_identity_v1(
     digest(OWNER_R0_REQUEST_DOMAIN, &bytes)
 }
 
-/// The R0 request the Owner registers for one `AVAILABLE` snapshot it has just persisted.
+/// The R0 request the Owner registers for one `AVAILABLE` snapshot it has just persisted, claiming
+/// its reference facts from the snapshot's event instant to `event_end`.
 ///
-/// Every coordinate is copied from the snapshot's own frozen request: the record covers exactly
-/// the one event instant the snapshot answers, and the resolver below re-verifies each value
-/// against the persisted PIT, batch, Source Binding and clock custody before anything is written.
+/// Every other coordinate is copied from the snapshot's own frozen request. `event_end` is
+/// [`r0_window_end_v1`] over the snapshot's batch and Source Binding, and the resolver below
+/// re-derives it, and re-verifies every value against the persisted PIT, batch, Source Binding and
+/// clock custody, before anything is written.
 ///
 /// # Errors
 ///
@@ -73,6 +76,7 @@ pub(crate) fn owner_r0_request_identity_v1(
 /// its locators cannot be encoded; nothing about the store is consulted here.
 pub(super) fn owner_r0_request_for_available_pit_v1(
     aggregate: &PitSnapshotCommitAggregate,
+    event_end: i128,
 ) -> Result<UntrustedReferenceFactR0RequestV1, ReferenceFactR0ErrorV1> {
     let fact = aggregate.fact();
     let request = fact.request();
@@ -81,9 +85,6 @@ pub(super) fn owner_r0_request_for_available_pit_v1(
         return Err(ReferenceFactR0ErrorV1::InvalidRequest);
     };
     let event_effective = i128::from(time.event_effective.value);
-    let event_end = event_effective
-        .checked_add(1)
-        .ok_or(ReferenceFactR0ErrorV1::InvalidRequest)?;
     let mut r0 = UntrustedReferenceFactR0RequestV1 {
         request_identity: owner_r0_request_identity_v1(fact.snapshot_identity(), fact.digest()),
         request_meaning_digest: BindingDigest::from_untrusted_bytes([0; 32]),
@@ -120,7 +121,8 @@ pub(super) async fn append_owner_r0_for_available_pit_v1(
     transaction: &mut Transaction<'_, Postgres>,
     aggregate: &PitSnapshotCommitAggregate,
 ) -> Result<ReferenceFactR0ReadbackV1, ReferenceFactR0ErrorV1> {
-    let request = owner_r0_request_for_available_pit_v1(aggregate)?;
+    let event_end = owner_r0_window_end_in_transaction_v1(transaction, aggregate).await?;
+    let request = owner_r0_request_for_available_pit_v1(aggregate, event_end)?;
     // Boxed here rather than at each caller: resolving R0 re-reads the PIT, batch, Source Binding
     // and clock custody, so inlining it would grow every commit future that appends a record.
     Box::pin(resolve_reference_fact_r0_in_transaction_v1(
@@ -128,6 +130,49 @@ pub(super) async fn append_owner_r0_for_available_pit_v1(
         &request,
     ))
     .await
+}
+
+/// [`r0_window_end_v1`] for a snapshot the caller's transaction has just persisted, over its stored
+/// batch and the Source Binding it was taken under.
+pub(super) async fn owner_r0_window_end_in_transaction_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    aggregate: &PitSnapshotCommitAggregate,
+) -> Result<i128, ReferenceFactR0ErrorV1> {
+    let source = load_source(
+        transaction,
+        aggregate.fact().source_binding_identity(),
+        false,
+    )
+    .await
+    .map_err(|_| ReferenceFactR0ErrorV1::EvidenceUnavailable)?
+    .ok_or(ReferenceFactR0ErrorV1::EvidenceUnavailable)?;
+    let stored_batch = load_pit_observation_batch_for_update(transaction, aggregate)
+        .await
+        .map_err(|_| ReferenceFactR0ErrorV1::EvidenceUnavailable)?
+        .ok_or(ReferenceFactR0ErrorV1::EvidenceUnavailable)?;
+    let batch = verify_observation_batch(
+        aggregate,
+        stored_batch.source_binding_identity,
+        stored_batch.source_binding_lineage_root,
+        stored_batch.source_binding_lineage_version,
+        stored_batch.digest,
+        &stored_batch.bytes,
+        &stored_batch.rows,
+    )
+    .map_err(|_| ReferenceFactR0ErrorV1::EvidenceMismatch)?;
+    r0_window_end_v1(
+        i128::from(
+            aggregate
+                .fact()
+                .request()
+                .time_evidence
+                .event_effective
+                .value,
+        ),
+        &SourceBindingOwnerReadback::from_verified(&source),
+        &batch,
+    )
+    .ok_or(ReferenceFactR0ErrorV1::EvidenceMismatch)
 }
 
 pub(super) async fn resolve_reference_fact_r0_in_transaction_v1(
@@ -206,8 +251,8 @@ pub(super) async fn resolve_reference_fact_r0_in_transaction_v1(
         return Err(ReferenceFactR0ErrorV1::EvidenceMismatch);
     };
     let event_effective = i128::from(time.event_effective.value);
-    let event_end = event_effective
-        .checked_add(1)
+    // The claim ends where the snapshot's longest declared bar does, and nowhere a caller chose.
+    let event_end = r0_window_end_v1(event_effective, &source_readback, &batch)
         .ok_or(ReferenceFactR0ErrorV1::EvidenceMismatch)?;
 
     if request.replay_start_event_ns != event_effective
