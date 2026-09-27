@@ -1,13 +1,13 @@
-# Declared Bounded Feature Program meaning: thirteen authored programs
+# Declared Bounded Feature Program meaning: fourteen authored programs
 
-Thirteen declarations of `BoundedFeatureProgramMeaningV1`, with the nine Strategy Designs they name.
+Fourteen declarations of `BoundedFeatureProgramMeaningV1`, with the ten Strategy Designs they name.
 `every_authored_declaration_reassembles`, in `src/bounded_feature_program_derivation_v1.rs`, reads
 them: each one is assembled by `derive_bounded_feature_program_proposal_v1` against the newest
 published catalog, exactly as `declare` does, and the assembled proposal is then put through
 `prepare_bounded_feature_program_v1`.
 
 `derivation_reproduces_a_known_good_proposal` next to it proves the same claim once, against a
-proposal this crate builds itself. These thirteen were written outside it, as declared meaning only.
+proposal this crate builds itself. These fourteen were written outside it, as declared meaning only.
 Between them they reach every availability rule, every state sizing rule and every input rule the
 catalog has, which is the part one fixture cannot carry: a derivation that mishandled a single rule
 would still reproduce a proposal that never used it.
@@ -41,8 +41,8 @@ left four programs with a correct entry and a wrong exit, but it is a structural
 than a semantic one. The family requires only that the two frames differ, which they do.
 
 `a0` and `a0v3` share one Design and differ only in reaching for the square root catalog version 3
-added. `t4`/`t5` and `t7`/`t8`/`t9` likewise share a Design, which is why there are nine Designs and
-thirteen meanings.
+added. `t4`/`t5` and `t7`/`t8`/`t9` likewise share a Design, which is why there are ten Designs and
+fourteen meanings.
 
 `w1` and `w2` are catalog version 4's first users, one program for each row it added.
 `every_row_added_since_version_4_is_used_by_an_authored_program` holds that: a row a later version
@@ -50,6 +50,17 @@ adds fails the build until a program here reaches for it. `w1` reads an up leg w
 ten daily closes the highest came after the lowest, which is the leg a Fibonacci retracement is drawn
 on, and the latest close ranks in the top fifth - and so uses both bar counts and the nearest-rounding
 percent rank. `w2` reads a percentile pullback with the toward-zero percent rank.
+
+`d1` is the first program whose strategy state is a fixed-point value rather than a flag. It reads a
+bearish momentum divergence on the daily close: a newly confirmed order-2 pivot high above the
+previous one while RSI(3) at the new pivot is below its value at the previous one, and it exits a
+long when it sees one. The previous pivot's close and RSI are two fixed-point strategy state cells
+seeded at zero, so the first pivot is only a reference. Besides reassembling here, it is the one
+program built and run as Wasm:
+`a_divergence_program_carries_its_previous_pivot_through_fixed_point_state` in
+`src/bounded_feature_program_lowerer_v1_tests.rs` exits exactly two bars after the second pivot,
+and neither when the second high is lower nor when the two cells are put back to their seeds before
+every bar.
 
 ## Regenerating
 

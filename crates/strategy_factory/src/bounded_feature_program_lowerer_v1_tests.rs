@@ -1163,23 +1163,57 @@ fn every_executable_operation_builds_and_runs_as_strict_abi_three_wasm() {
         let custody = CurrentResearchDevelopCustodyV2::joint_bfp_test_fixture(&design);
         let frozen = freeze_research_bounded_feature_program_v1(&custody, &design, proposal)
             .unwrap_or_else(|e| panic!("{operation:?} joint Owner freeze: {e}"));
+        let label = format!("{operation:?}");
+        let mut guest = BuiltGuest::build(&frozen, root.path(), &target_dir, &label);
+        let mut prior_state = Vec::new();
+        let mut became_ready = false;
+
+        for sample in 1_u64..=3 {
+            let output = guest.invoke(sample, i128::from(199 + sample), &prior_state, &label);
+            became_ready |= output.output_availability == Some(PluginOutputAvailabilityV3::Ready);
+            prior_state = output.state.bytes().to_vec();
+        }
+        assert!(became_ready, "{operation:?} never became READY");
+    }
+}
+
+/// One frozen program lowered, built as strict ABI 3 Wasm, and instantiated, taking one frame per
+/// sample of its single input role the way the program host drives it.
+struct BuiltGuest {
+    manifest: crate::strategy_design_v2::PluginManifestV2,
+    manifest_digest: BindingDigest,
+    store: wasmi::Store<()>,
+    memory: wasmi::Memory,
+    input_ptr: usize,
+    output_ptr: usize,
+    invoke: wasmi::TypedFunc<i32, i32>,
+}
+
+impl BuiltGuest {
+    /// Lowers `frozen` into `root` and builds it into `target_dir` with the production command.
+    fn build(
+        frozen: &crate::rd_bounded_feature_program_v1::FrozenResearchBoundedFeatureProgramV1,
+        root: &Path,
+        target_dir: &Path,
+        label: &str,
+    ) -> Self {
         let canonical_design: StrategyDesignV2 =
             serde_json::from_slice(frozen.design_bytes()).unwrap();
         let manifest = canonical_design.plugins[0].clone();
-        let lowered = prepare_frozen_bounded_feature_source_inputs_v1(&frozen)
-            .unwrap_or_else(|e| panic!("{operation:?} source lowering: {e}"));
+        let lowered = prepare_frozen_bounded_feature_source_inputs_v1(frozen)
+            .unwrap_or_else(|e| panic!("{label} source lowering: {e}"));
 
         for (path, bytes) in lowered.source_files() {
-            let destination = root.path().join(path);
+            let destination = root.join(path);
             fs::create_dir_all(destination.parent().expect("source parent")).unwrap();
             fs::write(destination, bytes).unwrap();
         }
-        let output = lowered_guest_build_command(root.path(), &target_dir)
+        let output = lowered_guest_build_command(root, target_dir)
             .output()
             .expect("run cargo");
         assert!(
             output.status.success(),
-            "{operation:?}: {}",
+            "{label}: {}",
             String::from_utf8_lossy(&output.stderr)
         );
         let wasm = fs::read(target_dir.join("wasm32v1-none/release/strategy_bfp_guest.wasm"))
@@ -1189,10 +1223,9 @@ fn every_executable_operation_builds_and_runs_as_strict_abi_three_wasm() {
             &manifest,
             lowered.bounds().max_wasm_bytes,
         )
-        .unwrap_or_else(|e| panic!("{operation:?} strict ABI 3 module: {e}"));
+        .unwrap_or_else(|e| panic!("{label} strict ABI 3 module: {e}"));
 
         let manifest_digest = plugin_manifest_digest(&manifest);
-        let module_identity = BindingDigest::from_untrusted_bytes([91; 32]);
         let engine = wasmi::Engine::default();
         let module = wasmi::Module::new(&engine, &wasm).unwrap();
         let mut store = wasmi::Store::new(&engine, ());
@@ -1213,45 +1246,257 @@ fn every_executable_operation_builds_and_runs_as_strict_abi_three_wasm() {
         let invoke = instance
             .get_typed_func::<i32, i32>(&store, "strategy_factory_plugin_invoke_v2")
             .unwrap();
-        let mut prior_state = Vec::new();
-        let mut became_ready = false;
 
-        for sample in 1_u64..=3 {
-            let invocation_identity = [u8::try_from(16 + sample).unwrap(); 16];
-            let coordinate = canonical_coordinate(sample);
-            let input = PluginFrameV2 {
-                kind: PluginFrameKindV2::Input,
-                output_availability: None,
-                manifest_digest,
-                module_identity,
-                invocation_identity,
-                values: vec![
-                    TypedValueV2::i128(i128::from(199 + sample)),
-                    TypedValueV2::new(ValueTypeV2::Bytes, coordinate).unwrap(),
-                ],
-                state: TypedValueV2::new(ValueTypeV2::Bytes, prior_state.as_slice()).unwrap(),
-            };
-            let input_bytes = input.encode(&manifest).unwrap();
-            memory.write(&mut store, input_ptr, &input_bytes).unwrap();
-            let output_len = invoke.call(&mut store, input_bytes.len() as i32).unwrap();
-            assert!(
-                output_len > 0,
-                "{operation:?} sample {sample}: {output_len}"
-            );
-            let mut output_bytes = vec![0; output_len as usize];
-            memory.read(&store, output_ptr, &mut output_bytes).unwrap();
-            let output = PluginFrameV2::decode_exact(
-                &output_bytes,
-                PluginFrameKindV2::Output,
-                &manifest,
-                manifest_digest,
-                module_identity,
-                invocation_identity,
-            )
-            .unwrap_or_else(|e| panic!("{operation:?} sample {sample}: {e}"));
-            became_ready |= output.output_availability == Some(PluginOutputAvailabilityV3::Ready);
-            prior_state = output.state.bytes().to_vec();
+        Self {
+            manifest,
+            manifest_digest,
+            store,
+            memory,
+            input_ptr,
+            output_ptr,
+            invoke,
         }
-        assert!(became_ready, "{operation:?} never became READY");
     }
+
+    /// Invokes the guest on one sample of its input, with `prior_state` as the state it resumes.
+    fn invoke(
+        &mut self,
+        sample: u64,
+        value: i128,
+        prior_state: &[u8],
+        label: &str,
+    ) -> PluginFrameV2 {
+        let module_identity = BindingDigest::from_untrusted_bytes([91; 32]);
+        let invocation_identity = [u8::try_from(16 + sample).unwrap(); 16];
+        let input = PluginFrameV2 {
+            kind: PluginFrameKindV2::Input,
+            output_availability: None,
+            manifest_digest: self.manifest_digest,
+            module_identity,
+            invocation_identity,
+            values: vec![
+                TypedValueV2::i128(value),
+                TypedValueV2::new(ValueTypeV2::Bytes, canonical_coordinate(sample)).unwrap(),
+            ],
+            state: TypedValueV2::new(ValueTypeV2::Bytes, prior_state).unwrap(),
+        };
+        let input_bytes = input.encode(&self.manifest).unwrap();
+        self.memory
+            .write(&mut self.store, self.input_ptr, &input_bytes)
+            .unwrap();
+        let output_len = self
+            .invoke
+            .call(&mut self.store, input_bytes.len() as i32)
+            .unwrap();
+        assert!(output_len > 0, "{label} sample {sample}: {output_len}");
+        let mut output_bytes = vec![0; output_len as usize];
+        self.memory
+            .read(&self.store, self.output_ptr, &mut output_bytes)
+            .unwrap();
+        PluginFrameV2::decode_exact(
+            &output_bytes,
+            PluginFrameKindV2::Output,
+            &self.manifest,
+            self.manifest_digest,
+            module_identity,
+            invocation_identity,
+        )
+        .unwrap_or_else(|e| panic!("{label} sample {sample}: {e}"))
+    }
+}
+
+/// Daily closes, in whole units, whose only bearish divergence is confirmed at bar 14.
+///
+/// Bars 1 to 7 only rise, so RSI(3) at bar 7 is 100, and bar 7 at 120 is the first order-2 pivot
+/// high, confirmed at bar 9. After a pullback bar 12 closes higher at 121 on a smaller gain, so its
+/// RSI is below 100: a higher high on a lower RSI, the second pivot, confirmed two bars later at
+/// bar 14. Every other bar is below the highest of the five around it.
+const DIVERGENCE_CLOSES: [i128; 16] = [
+    100, 102, 104, 106, 108, 110, 120, 115, 112, 113, 114, 121, 118, 116, 117, 119,
+];
+
+/// The authored program `name` from the declared-meaning corpus, assembled as `declare` does.
+fn corpus_program(name: &str) -> (StrategyDesignV2, BoundedFeatureProgramProposalV1) {
+    use crate::bounded_feature_program_derivation_v1::{
+        BoundedFeatureProgramMeaningV1, derive_bounded_feature_program_proposal_v1,
+    };
+
+    let corpus = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/test_data/bounded_feature_program_meaning_v1/"
+    );
+    let design: StrategyDesignV2 =
+        serde_json::from_str(&fs::read_to_string(format!("{corpus}{name}-design.json")).unwrap())
+            .unwrap();
+    let declared: BoundedFeatureProgramMeaningV1 =
+        serde_json::from_str(&fs::read_to_string(format!("{corpus}{name}-meaning.json")).unwrap())
+            .unwrap();
+    let receipts = design
+        .inputs
+        .iter()
+        .enumerate()
+        .map(|(index, role)| {
+            let mut bytes = [0x5a_u8; 32];
+            bytes[0] = u8::try_from(index).unwrap();
+            (role.clone(), BindingDigest::from_untrusted_bytes(bytes))
+        })
+        .collect();
+    let bindings =
+        crate::strategy_plan_v2::verified_strategy_input_bindings_for_test(&design, receipts);
+    let proposal = derive_bounded_feature_program_proposal_v1(
+        &design,
+        PrimitiveCatalogV1::verify().unwrap(),
+        &declared,
+        &bindings,
+    )
+    .unwrap_or_else(|e| panic!("{name} assembles: {e}"));
+    (design, proposal)
+}
+
+/// What one run of the divergence program emitted: the bars it exited on, and the previous
+/// pivot's close its fixed-point strategy state held after each bar.
+struct DivergenceRun {
+    first_ready: Option<u64>,
+    exits: Vec<u64>,
+    carried_close: Vec<i128>,
+}
+
+/// Runs `guest` over `closes`. With `frozen_cells`, each named strategy state cell is put back to
+/// its initial bytes before every bar, so the program sees its seed where its carried value was.
+fn run_divergence(
+    guest: &mut BuiltGuest,
+    slots: &[(String, usize, usize, Vec<u8>)],
+    closes: &[i128],
+    frozen_cells: bool,
+) -> DivergenceRun {
+    let (_, close_start, close_end, _) = slots
+        .iter()
+        .find(|(state_id, ..)| state_id == "prev_close")
+        .expect("the program carries the previous pivot's close");
+    let mut state = Vec::new();
+    let mut run = DivergenceRun {
+        first_ready: None,
+        exits: Vec::new(),
+        carried_close: Vec::new(),
+    };
+
+    for (sample, close) in (1_u64..).zip(closes) {
+        if frozen_cells && !state.is_empty() {
+            for (_, start, end, initial) in slots {
+                state[*start..*end].copy_from_slice(initial);
+            }
+        }
+        let output = guest.invoke(sample, close * 100, &state, "d1");
+        let ready = output.output_availability == Some(PluginOutputAvailabilityV3::Ready);
+
+        if ready && run.first_ready.is_none() {
+            run.first_ready = Some(sample);
+        }
+
+        if ready
+            && output
+                .values
+                .iter()
+                .any(|value| value.bytes() == b"kernel.position.exit.v1")
+        {
+            run.exits.push(sample);
+        }
+        state = output.state.bytes().to_vec();
+        run.carried_close.push(i128::from_le_bytes(
+            state[*close_start..*close_end].try_into().unwrap(),
+        ));
+    }
+    run
+}
+
+/// A bearish divergence runs through fixed-point strategy state as Wasm, and needs that state.
+///
+/// `d1` is the first authored program whose strategy state is a fixed-point value rather than a
+/// flag: the previous confirmed pivot's close and RSI, rewritten only on a pivot. The validator
+/// admitted that shape and the lowerer emitted it, but nothing had built and run it. Here the
+/// program exits exactly at bar 14 - the second pivot plus its confirmation lag of two bars, never
+/// earlier - and its state holds each pivot's close from the bar that confirms it.
+///
+/// Two controls give the exit a single cause. A lower high at bar 12 removes the divergence from
+/// the prices and the exit goes with it. Putting the two carried cells back to their zero seeds
+/// before every bar leaves the prices alone and removes only the memory of the previous pivot,
+/// and the exit goes too: the signal is carried by that state, not by the prices around bar 14.
+#[rstest::rstest]
+#[ignore = "builds and invokes the divergence program with the pinned local wasm compiler"]
+fn a_divergence_program_carries_its_previous_pivot_through_fixed_point_state() {
+    let (design, proposal) = corpus_program("d1");
+    let custody = CurrentResearchDevelopCustodyV2::joint_bfp_test_fixture(&design);
+    let frozen = freeze_research_bounded_feature_program_v1(&custody, &design, proposal)
+        .expect("joint Owner freeze");
+    let canonical = crate::bounded_feature_program_v1::parse_bounded_feature_program_v1(
+        frozen.program_bytes(),
+        &design,
+    )
+    .expect("frozen program parses");
+    let slots: Vec<_> = canonical
+        .state_layout()
+        .slots()
+        .iter()
+        .filter(|slot| ["prev_close", "prev_rsi"].contains(&slot.state_id()))
+        .map(|slot| {
+            let start = slot.offset() as usize;
+            (
+                slot.state_id().to_owned(),
+                start,
+                start + slot.width() as usize,
+                slot.initial_bytes()
+                    .expect("a strategy cell has initial bytes")
+                    .to_vec(),
+            )
+        })
+        .collect();
+    assert_eq!(slots.len(), 2, "both carried cells are in the layout");
+    let root = tempfile::tempdir().expect("private build root");
+    let mut guest = BuiltGuest::build(&frozen, root.path(), &root.path().join("target-out"), "d1");
+
+    let divergence = run_divergence(&mut guest, &slots, &DIVERGENCE_CLOSES, false);
+    // RSI(3) is ready from bar 4 and its two-bar lag from bar 6, the last node to warm.
+    assert_eq!(divergence.first_ready, Some(6));
+    assert_eq!(
+        divergence.exits,
+        [14],
+        "the only exit is the second pivot plus two bars"
+    );
+    assert_eq!(
+        divergence.carried_close[7], 0,
+        "no pivot is confirmed before bar 9"
+    );
+    assert_eq!(
+        divergence.carried_close[8], 12_000,
+        "bar 9 confirms bar 7's close of 120"
+    );
+    assert_eq!(
+        divergence.carried_close[12], 12_000,
+        "no pivot between bars 9 and 14"
+    );
+    assert_eq!(
+        divergence.carried_close[13], 12_100,
+        "bar 14 confirms bar 12's close of 121"
+    );
+
+    let mut lower_high = DIVERGENCE_CLOSES;
+    lower_high[11] = 119;
+    let without = run_divergence(&mut guest, &slots, &lower_high, false);
+    assert_eq!(without.exits, [0_u64; 0], "a lower high is no divergence");
+    assert_eq!(
+        without.carried_close[13], 11_900,
+        "bar 14 still confirms a pivot"
+    );
+
+    let forgotten = run_divergence(&mut guest, &slots, &DIVERGENCE_CLOSES, true);
+    assert_eq!(
+        forgotten.exits, [0_u64; 0],
+        "without the previous pivot in state there is nothing to diverge from"
+    );
+    // The reset removed only that memory: both pivots are still found and written on the bars
+    // that confirm them, and read back as the seed on the bar after.
+    assert_eq!(forgotten.first_ready, Some(6));
+    assert_eq!(forgotten.carried_close[8], 12_000);
+    assert_eq!(forgotten.carried_close[9], 0);
+    assert_eq!(forgotten.carried_close[13], 12_100);
 }
