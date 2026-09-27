@@ -1,0 +1,89 @@
+# yamllint disable rule:line-length
+# LANE8 PROBE, NOT FOR MERGE: how much of main's rust-tests entry is workspace units the saving
+# run did not rebuild. D rebuilds every such unit anyway (its outputs predate the recorded time T),
+# so they are dead weight; external dependencies reuse by hash and are not counted as prunable.
+name: lane8-prune-probe
+
+on:
+  push:
+    branches:
+      - lane8-probe/prune
+
+permissions:
+  contents: read
+
+jobs:
+  measure:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 40
+    env:
+      CARGO_CI_PROFILE: ci-pr
+      CARGO_TARGET_DIR: target/rust-tests-linux-x86
+    steps:
+      - uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
+
+      - name: Checkout repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Common setup
+        uses: ./.github/actions/common-setup
+        with:
+          python-version: "3.13"
+          build-type: "test"
+          free-disk-space: "true"
+          rust-cache-enabled: "true"
+          rust-cache-shared-key: rust-tests-linux-x86
+          rust-cache-workspaces: . -> target/rust-tests-linux-x86
+          rust-cache-on-failure: "false"
+          rust-cache-save-if: "false"
+          rust-cache-workspace-crates: "true"
+
+      - name: Measure stale workspace units
+        run: |-
+          set -euo pipefail
+          cargo metadata --format-version 1 --no-deps > /tmp/meta.json
+          python3 - << 'PY'
+          import json, os, re
+          from pathlib import Path
+          target = Path(os.environ["CARGO_TARGET_DIR"])
+          marker = (target / "source-marker" / "CACHEDIR.TAG").read_text()
+          m = re.search(r"# workspace source ([0-9a-f]{40}) ([0-9]+)", marker)
+          sha, t = m.group(1), int(m.group(2))
+          meta = json.load(open("/tmp/meta.json"))
+          names = set()
+          for p in meta["packages"]:
+              for n in [p["name"]] + [tgt["name"] for tgt in p["targets"]]:
+                  names.add(n.replace("-", "_"))
+          def pkg_of(entry):
+              base = entry.split(".")[0]
+              base = base[3:] if base.startswith("lib") else base
+              return base.rsplit("-", 1)[0].replace("-", "_") if "-" in base else base.replace("-", "_")
+          total = ws_new = ws_old = ext = 0
+          for dirpath, _, files in os.walk(target):
+              for f in files:
+                  path = Path(dirpath) / f
+                  try:
+                      st = path.lstat()
+                  except OSError:
+                      continue
+                  total += st.st_size
+                  rel = path.relative_to(target).parts
+                  kind = next((k for k in ("deps", ".fingerprint", "build") if k in rel), None)
+                  if kind is None:
+                      continue
+                  entry = rel[rel.index(kind) + 1]
+                  if pkg_of(entry) in names:
+                      if st.st_mtime < t:
+                          ws_old += st.st_size
+                      else:
+                          ws_new += st.st_size
+                  else:
+                      ext += st.st_size
+          gb = lambda b: f"{b / 1e9:.2f} GB"
+          print(f"LANE8-P marker {sha[:9]} at {t}")
+          print(f"LANE8-P restored target {gb(total)}: workspace units built in the saving run {gb(ws_new)}, workspace units older than the marker {gb(ws_old)} (prunable), external {gb(ext)}")
+          PY
