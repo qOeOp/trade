@@ -225,7 +225,9 @@ contract refuses.
 `ExploratoryReplayReadbackWorkbench` is the exact `P` surface for `/backtest`. It is an
 `ACTIVE_OBSERVATION / IMPLEMENTATION_ADMITTED` point-read of one previously committed Replay V2 request and,
 when all three result locator fields are supplied, one Backtest-owned canonical result. It is not a replay composer,
-dispatcher, comparison surface, or economic chart. The route uses
+dispatcher, comparison surface, or economic chart. A composer-backed request is the same Replay V2 request; the
+Owner reads it back only in a build that recognizes composer-backed custody, which today is the ordered chain's,
+and a deployed image answers it `UNAVAILABLE`. The route uses
 one full-width `PanelFrame` with no summary strip, historical list/table, split detail pane, or reserved chart
 height. Its header contains the `EXPLORATORY REPLAY` eyebrow, `Replay request` title, one concise purpose,
 and `Refresh`, which is disabled until a valid selector has been opened. The inset body starts with one
@@ -236,8 +238,9 @@ decorative icon.
 An available readback renders three ordered, subtly grouped surfaces. `Request` contains exact request
 identity, availability, namespace and deterministic seed. `Custody` contains meaning digest, receipt
 identity, seal digest, committed time and Owner observation cut. `Replay basis` contains the exact event
-window plus TrialFamily, Artifact, strategy-design, PIT-snapshot, runtime-kernel and simulator identities.
-Long identities remain selectable, expose their complete accessible text and truncate only visually. The
+window plus TrialFamily, Artifact, strategy-design, universe-selection, PIT-snapshot, runtime-kernel and simulator
+identities. The universe-selection identity names the member set the request was bound to; which instrument that
+set held is stated by the run's report, on its own member, and is not derived here. Long identities remain selectable, expose their complete accessible text and truncate only visually. The
 browser receives none of the canonical request bytes, raw receipt, component digests, Product Edge
 admission, protected evidence, source, result bytes or storage fields.
 

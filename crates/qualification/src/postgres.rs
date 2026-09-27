@@ -17,6 +17,7 @@ use vibe_backtest_result_custody::{
     resolve_protected_replay_result_v3_for_qualification_in_transaction,
 };
 use vibe_data::owner::shared_time_evidence::ClockHeadSuccessorReadback;
+use vibe_postgres_connect::{PgPoolOptionsExt, PostgresTls};
 
 use crate::candidate_intake::{
     ProtectedReplayAuthoritySourceV1, ResolvedRdSelectionStorageV1, decode_intake_receipt_v1,
@@ -88,7 +89,7 @@ impl PostgresQualificationPublicStatusReadPortV1 {
     pub async fn connect(database_url: &str) -> Result<Self, QualificationOwnerError> {
         let pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(2)
-            .connect(database_url)
+            .connect_url(database_url, PostgresTls::Disabled)
             .await
             .map_err(storage)?;
         let admitted: bool = sqlx::query_scalar(
@@ -957,7 +958,7 @@ impl PostgresQualificationOwnerV1 {
     pub async fn connect(database_url: &str) -> Result<Self, QualificationOwnerError> {
         let pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(8)
-            .connect(database_url)
+            .connect_url(database_url, PostgresTls::Disabled)
             .await
             .map_err(storage)?;
         let owner = Self { pool };
@@ -7019,7 +7020,10 @@ mod postgres_tests {
         ));
 
         let locator = serde_json::to_value(first.locator()).expect("locator JSON");
-        let backtest = PgPool::connect(&backtest_url).await.expect("Backtest pool");
+        let backtest = sqlx::postgres::PgPoolOptions::new()
+            .connect_url(&backtest_url, PostgresTls::Disabled)
+            .await
+            .expect("Backtest pool");
         assert!(
             sqlx::query_scalar::<_, i64>(
                 "SELECT count(*) FROM public.qualification_protected_replay_requests_v1",
@@ -7253,7 +7257,10 @@ mod postgres_tests {
         const FACTS: &str = "public.qualification_eligibility_facts_v1";
 
         let url = qualification_test_database_url();
-        let pool = PgPool::connect(&url).await.expect("Qualification pool");
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .connect_url(&url, PostgresTls::Disabled)
+            .await
+            .expect("Qualification pool");
 
         // The window is populated, half-open, and its closing edge is the evidence the Fact binds.
         let facts: Vec<(String, i64, i64, String)> = sqlx::query_as(
@@ -7380,10 +7387,14 @@ mod postgres_tests {
         let qualification_url = qualification_test_database_url();
         let backtest_url =
             std::env::var("BACKTEST_TEST_DATABASE_URL").expect("explicit disposable Backtest URL");
-        let qualification = PgPool::connect(&qualification_url)
+        let qualification = sqlx::postgres::PgPoolOptions::new()
+            .connect_url(&qualification_url, PostgresTls::Disabled)
             .await
             .expect("Qualification pool");
-        let backtest = PgPool::connect(&backtest_url).await.expect("Backtest pool");
+        let backtest = sqlx::postgres::PgPoolOptions::new()
+            .connect_url(&backtest_url, PostgresTls::Disabled)
+            .await
+            .expect("Backtest pool");
 
         // One identity that belongs to no row, reused everywhere below so the only thing that
         // changes between cases is the admission under test.
@@ -7534,7 +7545,10 @@ mod postgres_tests {
         let owner = PostgresQualificationOwnerV1::connect(&qualification_url)
             .await
             .expect("Qualification topology");
-        let backtest = PgPool::connect(&backtest_url).await.expect("Backtest pool");
+        let backtest = sqlx::postgres::PgPoolOptions::new()
+            .connect_url(&backtest_url, PostgresTls::Disabled)
+            .await
+            .expect("Backtest pool");
         let legacy_terminal: (String, String, String) = sqlx::query_as(
             "SELECT result_identity,request_identity,attempt_identity
                FROM public.backtest_protected_replay_results_v1
@@ -7787,7 +7801,10 @@ mod postgres_tests {
         let owner = PostgresQualificationOwnerV1::connect(&qualification_url)
             .await
             .expect("Qualification topology");
-        let backtest = PgPool::connect(&backtest_url).await.expect("Backtest pool");
+        let backtest = sqlx::postgres::PgPoolOptions::new()
+            .connect_url(&backtest_url, PostgresTls::Disabled)
+            .await
+            .expect("Backtest pool");
         let (result_identity, request_identity, attempt_identity): (String, String, String) =
             sqlx::query_as(
                 "SELECT result.result_identity,result.request_identity,result.attempt_identity \
@@ -8266,7 +8283,10 @@ mod postgres_tests {
         let owner = PostgresQualificationOwnerV1::connect(&qualification_url)
             .await
             .expect("Qualification topology");
-        let backtest = PgPool::connect(&backtest_url).await.expect("Backtest pool");
+        let backtest = sqlx::postgres::PgPoolOptions::new()
+            .connect_url(&backtest_url, PostgresTls::Disabled)
+            .await
+            .expect("Backtest pool");
 
         for lineage in PROTECTED_TERMINAL_LINEAGES_V1 {
             Box::pin(seal_protected_request_set_for_lineage(
@@ -8526,7 +8546,10 @@ mod postgres_tests {
         let owner = PostgresQualificationOwnerV1::connect(&qualification_url)
             .await
             .expect("Qualification topology");
-        let backtest = PgPool::connect(&backtest_url).await.expect("Backtest pool");
+        let backtest = sqlx::postgres::PgPoolOptions::new()
+            .connect_url(&backtest_url, PostgresTls::Disabled)
+            .await
+            .expect("Backtest pool");
 
         for (lineage, terminal) in [
             (ReadyLineageV1::EconomicPass, ProtectedTerminalV1::Qualified),
@@ -8939,7 +8962,10 @@ mod postgres_tests {
         let owner = PostgresQualificationOwnerV1::connect(&qualification_url)
             .await
             .expect("Qualification topology");
-        let rd = PgPool::connect(&rd_url).await.expect("R&D Owner pool");
+        let rd = sqlx::postgres::PgPoolOptions::new()
+            .connect_url(&rd_url, PostgresTls::Disabled)
+            .await
+            .expect("R&D Owner pool");
 
         // The inadequate-plan lineage's basis carries a projection R&D obtained through
         // Qualification's sealed admission API and no admitted protected attempt, so this entry can

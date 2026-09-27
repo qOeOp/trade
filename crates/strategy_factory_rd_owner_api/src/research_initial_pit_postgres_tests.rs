@@ -34,6 +34,7 @@ use rstest::rstest;
 use sha2::{Digest as _, Sha256};
 use sqlx::{PgPool, Postgres, Transaction};
 use tower::ServiceExt;
+use vibe_postgres_connect::{PgPoolOptionsExt, PostgresTls};
 // The chain fixture's instrument, which the Market Data acceptance basis admits into its frontier.
 // It is not a product choice: this entry proves how R&D issues an initial PIT request, which does
 // not depend on the kind of instrument a scope names.
@@ -389,9 +390,9 @@ fn available() -> ResearchInitialPitV1 {
 /// Ensures what it reads rather than relying on earlier entries: the chain's Market Data acceptance
 /// basis (frontier, Instrument Master fact, Source Binding and clock head, read through Market
 /// Data's own read surface) and the sealed Catalog V3 head its Research request forms a TrialFamily
-/// against. It asserts the clock head is the basis's. The frontier it reads is asserted once row 33
-/// stops admitting a second one (Lane 2's change to build it on this basis); until then the serial
-/// chain's current frontier is row 33's, which admits the same instrument.
+/// against. It asserts that Market Data's current clock head and eligible frontier are the basis's,
+/// so the frontier the scope check reads is the one this entry ensured, in the serial chain as on a
+/// fresh cluster.
 #[rstest]
 #[ignore = "requires the ordered Owner PostgreSQL chain"]
 fn a_v3_research_request_issues_its_initial_pit_request_over_http() {
@@ -420,12 +421,13 @@ async fn issues_its_initial_pit_request() {
     #[cfg(feature = "sealed-source-intake-acceptance")]
     crate::tests::ensure_sealed_catalog_v3(&test_database).await;
     let basis = crate::tests::ensure_market_data_acceptance_basis(&test_database).await;
-    crate::tests::require_basis_pointer(
-        &test_database,
-        &basis,
+
+    for pointer in [
         MarketDataAcceptanceBasisPointerV1::ClockHead,
-    )
-    .await;
+        MarketDataAcceptanceBasisPointerV1::EligibleFrontier,
+    ] {
+        crate::tests::require_basis_pointer(&test_database, &basis, pointer).await;
+    }
     // The production Market Data ports open from the deployment environment.
     unsafe {
         env::set_var(
@@ -465,13 +467,20 @@ async fn issues_its_initial_pit_request() {
         .await
         .unwrap(),
     );
-    let rd = PgPool::connect(test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner))
+    let rd = sqlx::postgres::PgPoolOptions::new()
+        .connect_url(
+            test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
+            PostgresTls::Disabled,
+        )
         .await
         .unwrap();
-    let market_data =
-        PgPool::connect(test_database.database_url(CanonicalOwnerTestRoleV1::MarketDataOwner))
-            .await
-            .unwrap();
+    let market_data = sqlx::postgres::PgPoolOptions::new()
+        .connect_url(
+            test_database.database_url(CanonicalOwnerTestRoleV1::MarketDataOwner),
+            PostgresTls::Disabled,
+        )
+        .await
+        .unwrap();
     let universe = universe_selection_admission_from_environment_v1()
         .await
         .unwrap();

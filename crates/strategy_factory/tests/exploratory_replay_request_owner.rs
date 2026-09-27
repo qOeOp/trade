@@ -20,6 +20,7 @@ use vibe_operator_authorization::{
     OperatorAuthorizationIssuerPostgresV1, OperatorAuthorizationLocatorV1,
     OperatorAuthorizationRevocationProposalV1, OperatorAuthorizationScopeV1,
 };
+use vibe_postgres_connect::{PgPoolOptionsExt, PostgresTls};
 use vibe_product_edge::{
     AgentOperationManifestProposalV1, ProductEdgeAdmissionRequestV1,
     ProductEdgeAuthorizationTrustV1, ProductEdgeBootstrapProposalV1,
@@ -767,7 +768,8 @@ fn replay_at_or_after_valid_through_writes_no_frozen_row_or_outbox() {
 
 async fn run_replay_at_or_after_valid_through_writes_no_frozen_row_or_outbox() {
     let fixture = Box::pin(prepare_replay_fixture(60_000)).await;
-    let blocker_pool = PgPool::connect(&fixture.edge_url)
+    let blocker_pool = sqlx::postgres::PgPoolOptions::new()
+        .connect_url(&fixture.edge_url, PostgresTls::Disabled)
         .await
         .expect("Product Edge blocker pool");
     let mut blocker = blocker_pool.begin().await.expect("blocker transaction");
@@ -2570,7 +2572,7 @@ async fn assert_impersonator_rejected(
     let encoded = BASE64.encode(serde_json::to_vec(envelope).unwrap());
     let pool = sqlx::postgres::PgPoolOptions::new()
         .max_connections(1)
-        .connect(impersonator_url)
+        .connect_url(impersonator_url, PostgresTls::Disabled)
         .await
         .expect("impersonating backtest_owner pool");
     let mut connection = pool.acquire().await.unwrap();
@@ -2610,7 +2612,8 @@ async fn prepare_replay_fixture(validity_ms: u64) -> ReplayFixture {
     let catalog_v3 = {
         let catalog_admin_url = std::env::var("REPLAY_POLICY_CATALOG_ADMIN_TEST_DATABASE_URL")
             .expect("explicit Catalog admin test database URL");
-        let catalog_admin_pool = PgPool::connect(&catalog_admin_url)
+        let catalog_admin_pool = sqlx::postgres::PgPoolOptions::new()
+            .connect_url(&catalog_admin_url, PostgresTls::Disabled)
             .await
             .expect("Catalog admin test connection");
 

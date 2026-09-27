@@ -8,6 +8,7 @@ use std::{collections::BTreeMap, env, ffi::OsString, fmt, fs, path::Path};
 use serde::{Deserialize, Deserializer, Serialize, de};
 use sha2::{Digest, Sha256};
 use sqlx::{Postgres, Row, Transaction};
+use vibe_postgres_connect::{PgPoolOptionsExt, PostgresTls};
 
 use crate::{
     ProtectedFeedbackFrontierReadbackV1, ProtectedFeedbackResolutionV1, QualificationOwnerError,
@@ -793,7 +794,7 @@ async fn recover_with_expected_target(
     }
     let pool = sqlx::postgres::PgPoolOptions::new()
         .max_connections(4)
-        .connect(database_url)
+        .connect_url(database_url, PostgresTls::Disabled)
         .await
         .map_err(storage)?;
     let mut transaction = pool.begin().await.map_err(storage)?;
@@ -927,7 +928,7 @@ async fn verify_current_cut_remains_unavailable(
 ) -> Result<(), QualificationOwnerError> {
     let pool = sqlx::postgres::PgPoolOptions::new()
         .max_connections(1)
-        .connect(database_url)
+        .connect_url(database_url, PostgresTls::Disabled)
         .await
         .map_err(storage)?;
     let mut transaction = pool.begin().await.map_err(storage)?;
@@ -1754,12 +1755,12 @@ mod tests {
 
         let pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(8)
-            .connect(&database_url)
+            .connect_url(&database_url, PostgresTls::Disabled)
             .await
             .unwrap();
         let second_pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(4)
-            .connect(&second_database_url)
+            .connect_url(&second_database_url, PostgresTls::Disabled)
             .await
             .unwrap();
         assert_disposable_test_store(&pool).await;

@@ -16,6 +16,7 @@ mod credential_files;
 mod custody_postgres;
 mod postgres;
 mod signature;
+mod witness;
 pub(super) use postgres::RawSharedTimeEvidenceSnapshotV1;
 #[cfg(test)]
 pub(super) use postgres::RawSharedTimeHistoryRowV1;
@@ -213,8 +214,7 @@ pub(super) struct SealedDeploymentStoreAdmissionReceipt {
     history_digest: String,
     signed_history_proof_identity: String,
     signed_head_proof_identity: String,
-    witness_identity: String,
-    witness_proof_identity: String,
+    anti_rollback: AntiRollbackEvidence,
     measurement_digest: String,
     credential_handle_identity: String,
     credential_handle_audience: String,
@@ -1721,8 +1721,20 @@ struct ResolvedHistory {
     read_cut_epoch_ms: u64,
 }
 
+/// What an anti-rollback witness answers for one signed head.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
-struct AntiRollbackObservation {
+enum AntiRollbackObservation {
+    /// An independent witness, outside the custody store's trust domain, observed this frontier.
+    Witnessed(WitnessedFrontier),
+    /// Nothing was observed: the deployment has one trust domain, where any witness rolls back
+    /// with the store it would watch (see [`witness::SingleTrustDomainNoRollbackWitness`]).
+    SingleTrustDomainNoRollbackWitness,
+}
+
+/// A frontier an independent witness observed. It must not change between observations of the same
+/// head: revalidation re-admits on every read and requires the same receipt.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+struct WitnessedFrontier {
     witness_identity: String,
     head_identity: String,
     manifest_identity: String,
@@ -1731,11 +1743,24 @@ struct AntiRollbackObservation {
     valid_through_epoch_ms: u64,
 }
 
+/// What a receipt says stands behind its head being current rather than rolled back.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+enum AntiRollbackEvidence {
+    /// An independent witness observed the frontier; its proof is the observation's digest.
+    Witnessed {
+        witness_identity: String,
+        witness_proof_identity: String,
+    },
+    /// Nothing did. The receipt says so by name rather than carrying anything shaped like a
+    /// witness proof.
+    SingleTrustDomainNoRollbackWitness,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct AdmissionCommitCut {
     signed_history_proof_identity: String,
     signed_head_proof_identity: String,
-    witness_proof_identity: String,
+    anti_rollback_proof_identity: String,
     not_before_epoch_ms: u64,
     valid_through_epoch_ms: u64,
 }
@@ -1961,18 +1986,28 @@ impl Custodian {
                 )
             })?;
 
-        if observation.head_identity != signed_head.head.head_identity
-            || observation.manifest_identity != latest.manifest_identity
-            || observation.generation != latest.generation
-            || observation.observed_at_epoch_ms > now
-            || observation.valid_through_epoch_ms <= now
-            || !valid_opaque_identity(&observation.witness_identity)
-        {
-            return Err(rejection(
-                &scope,
-                AdmissionFailureCode::AntiRollbackRejected,
-            ));
-        }
+        // The bounds a witnessed frontier puts on the receipt: none when nothing was observed.
+        let (witnessed_from_epoch_ms, witnessed_through_epoch_ms) = match &observation {
+            AntiRollbackObservation::Witnessed(frontier) => {
+                if frontier.head_identity != signed_head.head.head_identity
+                    || frontier.manifest_identity != latest.manifest_identity
+                    || frontier.generation != latest.generation
+                    || frontier.observed_at_epoch_ms > now
+                    || frontier.valid_through_epoch_ms <= now
+                    || !valid_opaque_identity(&frontier.witness_identity)
+                {
+                    return Err(rejection(
+                        &scope,
+                        AdmissionFailureCode::AntiRollbackRejected,
+                    ));
+                }
+                (
+                    frontier.observed_at_epoch_ms,
+                    frontier.valid_through_epoch_ms,
+                )
+            }
+            AntiRollbackObservation::SingleTrustDomainNoRollbackWitness => (0, u64::MAX),
+        };
 
         let lease = self
             .credentials
@@ -2015,19 +2050,28 @@ impl Custodian {
 
         let valid_through_epoch_ms = latest
             .valid_through_epoch_ms
-            .min(observation.valid_through_epoch_ms)
+            .min(witnessed_through_epoch_ms)
             .min(lease.valid_through_epoch_ms());
         let not_before_epoch_ms = now
             .max(latest.valid_from_epoch_ms)
             .max(latest.rotation_fence.closed_at_epoch_ms.unwrap_or(u64::MAX))
-            .max(observation.observed_at_epoch_ms);
+            .max(witnessed_from_epoch_ms);
 
         // Whether the commit falls inside this window is the custody store's to judge, on the
         // clock that cut `now`; an empty window needs no clock to refuse.
         if not_before_epoch_ms >= valid_through_epoch_ms {
             return Err(rejection(&scope, AdmissionFailureCode::AdmissionCutExpired));
         }
-        let witness_proof_identity = digest_serializable(&observation);
+        let anti_rollback_proof_identity = digest_serializable(&observation);
+        let anti_rollback = match observation {
+            AntiRollbackObservation::Witnessed(frontier) => AntiRollbackEvidence::Witnessed {
+                witness_identity: frontier.witness_identity,
+                witness_proof_identity: anti_rollback_proof_identity.clone(),
+            },
+            AntiRollbackObservation::SingleTrustDomainNoRollbackWitness => {
+                AntiRollbackEvidence::SingleTrustDomainNoRollbackWitness
+            }
+        };
 
         let mut receipt = SealedDeploymentStoreAdmissionReceipt {
             receipt_identity: String::new(),
@@ -2042,8 +2086,7 @@ impl Custodian {
             history_digest,
             signed_history_proof_identity: signed_history_proof_identity.clone(),
             signed_head_proof_identity: signed_head_proof_identity.clone(),
-            witness_identity: observation.witness_identity,
-            witness_proof_identity: witness_proof_identity.clone(),
+            anti_rollback,
             measurement_digest: digest_serializable(&measurement),
             credential_handle_identity: latest.credential_handle.identity.clone(),
             credential_handle_audience: latest.credential_handle.audience.clone(),
@@ -2058,7 +2101,7 @@ impl Custodian {
         let commit_cut = AdmissionCommitCut {
             signed_history_proof_identity,
             signed_head_proof_identity,
-            witness_proof_identity,
+            anti_rollback_proof_identity,
             not_before_epoch_ms,
             valid_through_epoch_ms,
         };
@@ -2257,7 +2300,7 @@ fn receipt_slot(scope: &AdmissionScope, cut: &AdmissionCommitCut) -> String {
         &scope.backend,
         &cut.signed_head_proof_identity,
         &cut.signed_history_proof_identity,
-        &cut.witness_proof_identity,
+        &cut.anti_rollback_proof_identity,
     ))
 }
 
@@ -2379,6 +2422,7 @@ mod tests {
 
     use ed25519_dalek::{Signer, SigningKey, VerifyingKey};
     use rstest::rstest;
+    use vibe_postgres_connect::{PgPoolOptionsExt, PostgresTls};
 
     use super::*;
 
@@ -2389,7 +2433,7 @@ mod tests {
 
     struct FakeCustodyState {
         history: ResolvedHistory,
-        current_witness_proof_identity: String,
+        current_anti_rollback_proof_identity: String,
         receipts: HashMap<String, SealedDeploymentStoreAdmissionReceipt>,
         now_epoch_ms: u64,
     }
@@ -2432,7 +2476,8 @@ mod tests {
             let current_history_proof = digest_serializable(&state.history.manifests);
             if current_head_proof != expected_cut.signed_head_proof_identity
                 || current_history_proof != expected_cut.signed_history_proof_identity
-                || state.current_witness_proof_identity != expected_cut.witness_proof_identity
+                || state.current_anti_rollback_proof_identity
+                    != expected_cut.anti_rollback_proof_identity
             {
                 return Err(ReceiptCommitError::HeadChanged);
             }
@@ -2563,7 +2608,8 @@ mod tests {
                 .state
                 .lock()
                 .map_err(|_| ())?
-                .current_witness_proof_identity = "sha256:witness-frontier-advanced".to_string();
+                .current_anti_rollback_proof_identity =
+                "sha256:witness-frontier-advanced".to_string();
             Ok(self.value.clone())
         }
     }
@@ -2610,7 +2656,7 @@ mod tests {
         history: ResolvedHistory,
         /// The signed head of the genesis manifest alone, the first thing a store publishes.
         genesis_head: SignedHead,
-        witness: AntiRollbackObservation,
+        witness: WitnessedFrontier,
         measurement: PostgresMeasurement,
         signing_key: SigningKey,
         /// When the witness observation and the credential lease lapse.
@@ -2713,7 +2759,7 @@ mod tests {
                     // The fake store reports its own clock at every read.
                     read_cut_epoch_ms: 0,
                 },
-                witness: AntiRollbackObservation {
+                witness: WitnessedFrontier {
                     witness_identity: "anti-rollback-witness-observation-v1".to_string(),
                     head_identity: expected_head,
                     manifest_identity: successor.manifest_identity,
@@ -2749,7 +2795,9 @@ mod tests {
             FakeCustodyStore {
                 state: Arc::new(Mutex::new(FakeCustodyState {
                     history: self.history.clone(),
-                    current_witness_proof_identity: digest_serializable(&self.witness),
+                    current_anti_rollback_proof_identity: digest_serializable(
+                        &AntiRollbackObservation::Witnessed(self.witness.clone()),
+                    ),
                     receipts: HashMap::new(),
                     now_epoch_ms: STORE_NOW,
                 })),
@@ -2766,7 +2814,7 @@ mod tests {
                 Arc::new(custody),
                 signatures,
                 Arc::new(FakeWitness {
-                    observation: self.witness.clone(),
+                    observation: AntiRollbackObservation::Witnessed(self.witness.clone()),
                 }),
                 Arc::new(FakeCredentials {
                     valid_through_epoch_ms: self.lapse_epoch_ms,
@@ -2973,7 +3021,7 @@ mod tests {
                 Arc::new(AtomicUsize::new(0)),
             )),
             Arc::new(FakeWitness {
-                observation: fixture.witness.clone(),
+                observation: AntiRollbackObservation::Witnessed(fixture.witness.clone()),
             }),
             Arc::new(FakeCredentials {
                 valid_through_epoch_ms: NOW + 5_000,
@@ -3151,7 +3199,9 @@ mod tests {
             Arc::new(FakeCustodyStore {
                 state: Arc::new(Mutex::new(FakeCustodyState {
                     history: changed.history.clone(),
-                    current_witness_proof_identity: digest_serializable(&changed.witness),
+                    current_anti_rollback_proof_identity: digest_serializable(
+                        &AntiRollbackObservation::Witnessed(changed.witness.clone()),
+                    ),
                     receipts: HashMap::new(),
                     now_epoch_ms: STORE_NOW,
                 })),
@@ -3162,7 +3212,7 @@ mod tests {
                 Arc::new(AtomicUsize::new(0)),
             )),
             Arc::new(FakeWitness {
-                observation: changed.witness.clone(),
+                observation: AntiRollbackObservation::Witnessed(changed.witness.clone()),
             }),
             Arc::new(FakeCredentials {
                 valid_through_epoch_ms: NOW + 5_000,
@@ -3225,7 +3275,7 @@ mod tests {
                     Arc::new(AtomicUsize::new(0)),
                 )),
                 Arc::new(FakeWitness {
-                    observation: fixture.witness.clone(),
+                    observation: AntiRollbackObservation::Witnessed(fixture.witness.clone()),
                 }),
                 Arc::new(
                     credential_files::SecretFileCredentialResolver::new(&directory, lease_ms)
@@ -3275,6 +3325,120 @@ mod tests {
             AdmissionFailureCode::ProductionCredentialResolverUnavailable
         );
         std::fs::remove_dir_all(&directory).unwrap();
+    }
+
+    /// A custodian over the fixture's store and ports, with `witness` as its anti-rollback witness.
+    fn custodian_witnessed_by(
+        fixture: &Fixture,
+        custody: FakeCustodyStore,
+        witness: Arc<dyn AntiRollbackWitness>,
+    ) -> Custodian {
+        Custodian::new(
+            Arc::new(custody),
+            Arc::new(CountingVerifier::pinned(
+                SIGNER,
+                &fixture.signing_key.verifying_key(),
+                Arc::new(AtomicUsize::new(0)),
+            )),
+            witness,
+            Arc::new(FakeCredentials {
+                valid_through_epoch_ms: fixture.lapse_epoch_ms,
+            }),
+            Arc::new(FakeMeasurer {
+                value: fixture.measurement.clone(),
+                calls: Arc::new(AtomicUsize::new(0)),
+            }),
+        )
+    }
+
+    /// The fixture's store, with the single-trust-domain mode as its anti-rollback frontier.
+    fn single_trust_domain_custody(fixture: &Fixture) -> FakeCustodyStore {
+        let custody = fixture.custody();
+        custody
+            .state
+            .lock()
+            .unwrap()
+            .current_anti_rollback_proof_identity =
+            digest_serializable(&AntiRollbackObservation::SingleTrustDomainNoRollbackWitness);
+        custody
+    }
+
+    #[rstest]
+    #[tokio::test]
+    async fn a_single_trust_domain_admits_and_its_receipt_names_that_nothing_was_witnessed() {
+        let fixture = Fixture::new();
+        let custody = single_trust_domain_custody(&fixture);
+        let custodian = custodian_witnessed_by(
+            &fixture,
+            custody.clone(),
+            Arc::new(witness::SingleTrustDomainNoRollbackWitness),
+        );
+
+        let receipt = custodian.admit(fixture.request.scope()).await.unwrap();
+        assert_eq!(
+            receipt.anti_rollback,
+            AntiRollbackEvidence::SingleTrustDomainNoRollbackWitness
+        );
+        // Nothing observed bounds nothing: the lease, lapsing before the manifest, bounds the
+        // receipt.
+        assert_eq!(receipt.valid_through_epoch_ms, fixture.lapse_epoch_ms);
+
+        // The mode observes the same nothing every time, so a later readmission joins the receipt.
+        custody.state.lock().unwrap().now_epoch_ms = STORE_NOW + 10;
+        assert_eq!(
+            custodian.admit(fixture.request.scope()).await.unwrap(),
+            receipt
+        );
+    }
+
+    /// The property the single-trust-domain mode gives up, pinned so that it is read rather than
+    /// discovered: a store rolled back to an earlier head is admitted, where an independent witness
+    /// that saw the later generation refuses the same history.
+    #[rstest]
+    #[tokio::test]
+    async fn a_single_trust_domain_does_not_detect_a_rolled_back_store() {
+        let mut rolled_back = Fixture::new();
+        let witnessed_generation = rolled_back.witness.generation;
+        rolled_back.history.manifests.truncate(1);
+        rolled_back.history.current_heads = vec![rolled_back.genesis_head.clone()];
+        rolled_back.request = RdOwnerMarketDataAdmissionRequest::new(
+            rolled_back.request.scope().environment_identity,
+            "rd-workbench-test".to_string(),
+            rolled_back.genesis_head.head.head_identity.clone(),
+        )
+        .unwrap();
+        assert_eq!(witnessed_generation, 2);
+        assert_eq!(rolled_back.history.current_heads[0].head.generation, 1);
+
+        let unwitnessed = custodian_witnessed_by(
+            &rolled_back,
+            single_trust_domain_custody(&rolled_back),
+            Arc::new(witness::SingleTrustDomainNoRollbackWitness),
+        );
+        assert_eq!(
+            unwitnessed
+                .admit(rolled_back.request.scope())
+                .await
+                .unwrap()
+                .anti_rollback,
+            AntiRollbackEvidence::SingleTrustDomainNoRollbackWitness
+        );
+
+        let witnessed = custodian_witnessed_by(
+            &rolled_back,
+            rolled_back.custody(),
+            Arc::new(FakeWitness {
+                observation: AntiRollbackObservation::Witnessed(rolled_back.witness.clone()),
+            }),
+        );
+        assert_eq!(
+            witnessed
+                .admit(rolled_back.request.scope())
+                .await
+                .unwrap_err()
+                .code(),
+            AdmissionFailureCode::AntiRollbackRejected
+        );
     }
 
     #[tokio::test]
@@ -4051,7 +4215,7 @@ mod tests {
                 Arc::new(AtomicUsize::new(0)),
             )),
             Arc::new(FakeWitness {
-                observation: fixture.witness.clone(),
+                observation: AntiRollbackObservation::Witnessed(fixture.witness.clone()),
             }),
             Arc::new(LeasedCredentials {
                 database_url: owner_url.to_owned(),
@@ -4573,7 +4737,7 @@ mod tests {
                 Arc::new(AtomicUsize::new(0)),
             )),
             Arc::new(FakeWitness {
-                observation: fixture.witness.clone(),
+                observation: AntiRollbackObservation::Witnessed(fixture.witness.clone()),
             }),
             Arc::new(LeasedCredentials {
                 database_url: owner_url.clone(),
@@ -4777,7 +4941,7 @@ mod tests {
                 Arc::new(AtomicUsize::new(0)),
             )),
             Arc::new(FakeWitness {
-                observation: fixture.witness.clone(),
+                observation: AntiRollbackObservation::Witnessed(fixture.witness.clone()),
             }),
             Arc::new(LeasedCredentials {
                 database_url: owner_url.clone(),
@@ -4934,7 +5098,7 @@ mod tests {
         measurer: Arc<dyn DirectMeasurer>,
     ) -> Custodian {
         let witness: Arc<dyn AntiRollbackWitness> = Arc::new(FakeWitness {
-            observation: fixture.witness.clone(),
+            observation: AntiRollbackObservation::Witnessed(fixture.witness.clone()),
         });
         let store = custody_postgres::PostgresCustodyStore::connect(custodian_url, witness.clone())
             .await
@@ -4980,17 +5144,17 @@ mod tests {
         let custodian_url = std::env::var("DEPLOYMENT_STORE_CUSTODIAN_TEST_DATABASE_URL").unwrap();
         let admin = sqlx::postgres::PgPoolOptions::new()
             .max_connections(1)
-            .connect(&admin_url)
+            .connect_url(&admin_url, PostgresTls::Disabled)
             .await
             .unwrap();
         let publisher = sqlx::postgres::PgPoolOptions::new()
             .max_connections(1)
-            .connect(&publisher_url)
+            .connect_url(&publisher_url, PostgresTls::Disabled)
             .await
             .unwrap();
         let custodian_pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(1)
-            .connect(&custodian_url)
+            .connect_url(&custodian_url, PostgresTls::Disabled)
             .await
             .unwrap();
         let spec = synthetic_spec();
@@ -5077,7 +5241,7 @@ mod tests {
         let store = custody_postgres::PostgresCustodyStore::connect(
             &custodian_url,
             Arc::new(FakeWitness {
-                observation: admitted.witness.clone(),
+                observation: AntiRollbackObservation::Witnessed(admitted.witness.clone()),
             }),
         )
         .await

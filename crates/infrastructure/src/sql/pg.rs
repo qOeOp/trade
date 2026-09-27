@@ -3,8 +3,9 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use sqlx::{
     AssertSqlSafe, ConnectOptions, PgPool,
-    postgres::{PgConnectOptions, PgConnection},
+    postgres::{PgConnectOptions, PgConnection, PgPoolOptions},
 };
+use vibe_postgres_connect::{PgPoolOptionsExt, PostgresTls, with_tls};
 
 fn validate_sql_identifier(value: &str, label: &str) -> anyhow::Result<()> {
     if value.is_empty() {
@@ -167,7 +168,9 @@ pub fn get_postgres_connect_options(
 ///
 /// Returns an error if establishing the database connection fails.
 pub async fn connect_pg(options: PgConnectOptions) -> anyhow::Result<PgPool> {
-    Ok(PgPool::connect_with(options).await?)
+    Ok(PgPoolOptions::new()
+        .connect_stated(with_tls(options, PostgresTls::Disabled))
+        .await?)
 }
 
 /// Scans the current working directory for the `vibe_trader` repository

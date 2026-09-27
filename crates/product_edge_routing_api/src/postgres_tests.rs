@@ -13,6 +13,7 @@ use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
 };
+use vibe_postgres_connect::{PgPoolOptionsExt, PostgresTls};
 use vibe_product_edge::{
     ProductEdgeError, ProductEdgeOperationDispatcherV1, ProductEdgeOperationRoutingBindingV1,
     ProductEdgeOperationRoutingKeyV1, ProductEdgeOperationRoutingObservationV1,
@@ -148,7 +149,10 @@ async fn the_operation_routing_read_port_answers_every_routing_state_over_http()
     let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
     let oa_url = test_database.database_url(CanonicalOwnerTestRoleV1::OperatorAuthorizationWriter);
     let pe_url = test_database.database_url(CanonicalOwnerTestRoleV1::ProductEdgeOwner);
-    let pe_pool = &sqlx::PgPool::connect(pe_url).await.unwrap();
+    let pe_pool = &sqlx::postgres::PgPoolOptions::new()
+        .connect_url(pe_url, PostgresTls::Disabled)
+        .await
+        .unwrap();
     let operation = |operation: &str, schema: &str, effect: &str| DeploymentAcceptanceOperationV1 {
         operation: operation.into(),
         operation_schema: schema.into(),
