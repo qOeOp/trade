@@ -11075,9 +11075,6 @@ impl MarketDataOwnerPostgres {
                 .ok_or(Refused::AdmissionConflict)?;
         // The clock-state lock before the head's row lock, as every other clock writer takes them,
         // so a snapshot that mints never waits on a writer that waits on it.
-        lock_clock_state(&mut transaction)
-            .await
-            .map_err(|_| Refused::StoreUnavailable)?;
         let head = load_current_clock_for_update(&mut transaction)
             .await
             .map_err(|_| Refused::StoreUnavailable)?
