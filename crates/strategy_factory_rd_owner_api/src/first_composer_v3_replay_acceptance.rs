@@ -105,6 +105,18 @@ const CLOSE_ROLE: &str = "research.input.close.daily.v1";
 /// It is F's own, not the chain fixtures' instrument, which stays an equity for the entries built on
 /// it.
 const PERPETUAL_V1: &str = "LINKUSDT-PERP.BINANCE";
+
+/// The perpetual's real USD-M `exchangeInfo` entry, which its Instrument Master facts are read from.
+///
+/// Fetched once from `https://fapi.binance.com/fapi/v1/exchangeInfo` (public, no credential) at
+/// 2026-09-27T09:17:36Z; the whole response was 1,127,625 bytes with sha256
+/// `427d91c56afdfb79867659e455e1e9fd0128445f658c6533a54605a9f6f36db9` and a cached `serverTime` of
+/// 1790456106252 ms. The `LINKUSDT` entry is sliced from that response byte for byte and wrapped in a
+/// minimal envelope, so the file's digest proves only that these bytes were submitted, not that they
+/// are the provider's whole response.
+const PERPETUAL_EXCHANGE_INFO_V1: &str = include_str!(
+    "../../adapters/binance/test_data/futures/http_json/exchange_info_usdm_linkusdt.json"
+);
 const OPEN_ROLE: &str = "research.input.open.daily.v1";
 
 /// One Owner record by its identity and the digest it was issued under.
@@ -311,7 +323,6 @@ fn perpetual_instrument_submission(
     effective_ns: u64,
 ) -> InstrumentMasterFactSubmissionV1 {
     let observed = i128::from(effective_ns) - 1;
-    let decimal = |mantissa, scale| InstrumentDecimalSubmissionV1 { mantissa, scale };
     InstrumentMasterFactSubmissionV1 {
         canonical_identity: PERPETUAL_V1.to_owned(),
         predecessor_fact_digest: None,
@@ -325,9 +336,14 @@ fn perpetual_instrument_submission(
         quote_currency: Some("USDT".to_owned()),
         settlement_currency: Some("USDT".to_owned()),
         margin_currency: Some("USDT".to_owned()),
-        price_increment: decimal(1, 3),
-        quantity_increment: decimal(1, 2),
-        contract_multiplier: decimal(1, 0),
+        // The same increments the Instrument Master V2 fact derives from the same entry, so the
+        // two generations cannot disagree about the instrument's terms.
+        price_increment: exchange_info_filter_decimal("PRICE_FILTER", "tickSize"),
+        quantity_increment: exchange_info_filter_decimal("LOT_SIZE", "stepSize"),
+        contract_multiplier: InstrumentDecimalSubmissionV1 {
+            mantissa: 1,
+            scale: 0,
+        },
         calendar_identity: "CRYPTO-CONTINUOUS-V1".to_owned(),
         session_identity: "CRYPTO-CONTINUOUS-V1".to_owned(),
         time_zone_identity: "Etc/UTC".to_owned(),
@@ -341,6 +357,28 @@ fn perpetual_instrument_submission(
         retrieval: observed,
         correction_publication: observed,
         owner_observation: observed,
+    }
+}
+
+/// One decimal filter value of the perpetual's `exchangeInfo` entry, in canonical form (no trailing
+/// zero at a nonzero scale).
+fn exchange_info_filter_decimal(filter_type: &str, field: &str) -> InstrumentDecimalSubmissionV1 {
+    let info: serde_json::Value =
+        serde_json::from_str(PERPETUAL_EXCHANGE_INFO_V1).expect("the exchangeInfo fixture parses");
+    let text = info["symbols"][0]["filters"]
+        .as_array()
+        .expect("the entry states its filters")
+        .iter()
+        .find(|filter| filter["filterType"] == filter_type)
+        .and_then(|filter| filter[field].as_str())
+        .unwrap_or_else(|| panic!("the entry states {filter_type}.{field}"));
+    let (whole, fraction) = text.split_once('.').unwrap_or((text, ""));
+    let fraction = fraction.trim_end_matches('0');
+    InstrumentDecimalSubmissionV1 {
+        mantissa: format!("{whole}{fraction}")
+            .parse()
+            .expect("a filter value is a decimal"),
+        scale: u8::try_from(fraction.len()).expect("a filter value has a small scale"),
     }
 }
 
@@ -1116,4 +1154,19 @@ async fn owner_api_state(
             .expect("Market Data's replay composition Owner opens"),
         )),
     }
+}
+
+/// The perpetual's increments are read from its real entry, canonically: `0.001` and `0.01` are
+/// `(1, 3)` and `(1, 2)`, the terms the Instrument Master V2 fact derives from the same bytes.
+#[rstest::rstest]
+fn the_perpetual_increments_are_the_exchange_info_entry_s_own() {
+    let decimal = |mantissa, scale| InstrumentDecimalSubmissionV1 { mantissa, scale };
+    assert_eq!(
+        exchange_info_filter_decimal("PRICE_FILTER", "tickSize"),
+        decimal(1, 3)
+    );
+    assert_eq!(
+        exchange_info_filter_decimal("LOT_SIZE", "stepSize"),
+        decimal(1, 2)
+    );
 }
