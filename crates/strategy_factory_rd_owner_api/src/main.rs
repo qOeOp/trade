@@ -3041,6 +3041,7 @@ fn env_or(name: &str, default: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use vibe_postgres_connect::{PgPoolOptionsExt, PostgresTls};
     /// Installs a subscriber so the servers this module spawns can be heard.
     ///
     /// The acceptance harness serves `dashboard_read_api` and the Owner API in-process with
@@ -3507,7 +3508,7 @@ mod tests {
     async fn owner_clock_epoch_ms(owner_url: &str) -> Result<u64, sqlx::Error> {
         let pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(1)
-            .connect(owner_url)
+            .connect_url(owner_url, PostgresTls::Disabled)
             .await?;
         let epoch_ms: i64 = sqlx::query_scalar(
             "SELECT pg_catalog.floor(EXTRACT(epoch FROM pg_catalog.clock_timestamp()) * 1000)::bigint",
@@ -3602,12 +3603,14 @@ mod tests {
         let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
         let mutation = test_database.mutation();
         {
-            let catalog_admin_pool = sqlx::PgPool::connect(
-                test_database
-                    .database_url(CanonicalOwnerTestRoleV1::ReplayPolicyCatalogAdminWriter),
-            )
-            .await
-            .unwrap();
+            let catalog_admin_pool = sqlx::postgres::PgPoolOptions::new()
+                .connect_url(
+                    test_database
+                        .database_url(CanonicalOwnerTestRoleV1::ReplayPolicyCatalogAdminWriter),
+                    PostgresTls::Disabled,
+                )
+                .await
+                .unwrap();
             ensure_replay_policy_catalog_fixture_v3(&catalog_admin_pool)
                 .await
                 .unwrap();
@@ -4084,12 +4087,14 @@ mod tests {
         let mutation = test_database.mutation();
         #[cfg(feature = "sealed-source-intake-acceptance")]
         {
-            let catalog_admin_pool = sqlx::PgPool::connect(
-                test_database
-                    .database_url(CanonicalOwnerTestRoleV1::ReplayPolicyCatalogAdminWriter),
-            )
-            .await
-            .unwrap();
+            let catalog_admin_pool = sqlx::postgres::PgPoolOptions::new()
+                .connect_url(
+                    test_database
+                        .database_url(CanonicalOwnerTestRoleV1::ReplayPolicyCatalogAdminWriter),
+                    PostgresTls::Disabled,
+                )
+                .await
+                .unwrap();
             ensure_replay_policy_catalog_fixture_v3(&catalog_admin_pool)
                 .await
                 .unwrap();
@@ -4936,11 +4941,14 @@ mod tests {
     /// this creates the head; after another entry has ensured it, it resolves the same head exactly.
     #[cfg(feature = "sealed-source-intake-acceptance")]
     async fn ensure_sealed_catalog_v3(test_database: &CanonicalOwnerPostgresTestDatabaseV1) {
-        let pool = sqlx::PgPool::connect(
-            test_database.database_url(CanonicalOwnerTestRoleV1::ReplayPolicyCatalogAdminWriter),
-        )
-        .await
-        .expect("the Catalog administrator connects");
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .connect_url(
+                test_database
+                    .database_url(CanonicalOwnerTestRoleV1::ReplayPolicyCatalogAdminWriter),
+                PostgresTls::Disabled,
+            )
+            .await
+            .expect("the Catalog administrator connects");
         ensure_replay_policy_catalog_fixture_v3(&pool)
             .await
             .expect("the sealed Catalog V3 head is created or resolved exactly");
@@ -4983,10 +4991,13 @@ mod tests {
 
         let bindings = composed_market_data_binding_admission(&test_database).await;
 
-        let rd_pool =
-            sqlx::PgPool::connect(test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner))
-                .await
-                .unwrap();
+        let rd_pool = sqlx::postgres::PgPoolOptions::new()
+            .connect_url(
+                test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
+                PostgresTls::Disabled,
+            )
+            .await
+            .unwrap();
         let freezes_before: i64 =
             sqlx::query_scalar("SELECT count(*) FROM public.rd_bounded_feature_program_freezes_v1")
                 .fetch_one(&rd_pool)
@@ -5404,7 +5415,10 @@ mod tests {
 
         let rd_pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(2)
-            .connect(test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner))
+            .connect_url(
+                test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
+                PostgresTls::Disabled,
+            )
             .await
             .unwrap();
 
@@ -5739,7 +5753,10 @@ mod tests {
         ensure_sealed_catalog_v3(&test_database).await;
         let rd_pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(2)
-            .connect(test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner))
+            .connect_url(
+                test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
+                PostgresTls::Disabled,
+            )
             .await
             .unwrap();
 

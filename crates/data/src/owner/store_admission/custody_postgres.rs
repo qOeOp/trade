@@ -6,15 +6,16 @@
 //! publisher's principal can only append a signed manifest and advance its head. Both reach the
 //! store through that script's SECURITY DEFINER functions and hold no table privilege.
 
-use std::{str::FromStr, sync::Arc};
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use serde::{Serialize, de::DeserializeOwned};
 use sqlx::{
     PgPool, Row,
-    postgres::{PgConnectOptions, PgPoolOptions, PgRow},
+    postgres::{PgPoolOptions, PgRow},
 };
 use thiserror::Error;
+use vibe_postgres_connect::{PgPoolOptionsExt, PostgresTls, connect_options};
 
 use super::{
     AdmissionCommitCut, AdmissionScope, AntiRollbackWitness, CustodyStore, ReceiptCommitError,
@@ -266,12 +267,13 @@ pub(super) async fn publish_signed_v1(
     }
 }
 
+/// The custody store runs in the deployment's own PostgreSQL, which serves plaintext today.
 async fn connect_pool(database_url: &str) -> Result<PgPool, CustodyStoreError> {
-    let options =
-        PgConnectOptions::from_str(database_url).map_err(|_| CustodyStoreError::InvalidTarget)?;
+    let options = connect_options(database_url, PostgresTls::Disabled)
+        .map_err(|_| CustodyStoreError::InvalidTarget)?;
     PgPoolOptions::new()
         .max_connections(2)
-        .connect_with(options)
+        .connect_stated(options)
         .await
         .map_err(|_| CustodyStoreError::Unavailable)
 }

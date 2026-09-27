@@ -21,6 +21,7 @@ use vibe_model::{
     },
     identifiers::InstrumentId,
 };
+use vibe_postgres_connect::{PgPoolOptionsExt, PostgresTls, with_tls};
 
 use crate::{
     cache::{
@@ -86,7 +87,7 @@ impl BlockchainCacheDatabase {
             .max_connections(32) // Increased from default 10
             .min_connections(5) // Keep some connections warm
             .acquire_timeout(std::time::Duration::from_secs(3))
-            .connect_with(pg_options)
+            .connect_stated(with_tls(pg_options, PostgresTls::Disabled))
             .await?;
         Ok(Self { pool })
     }

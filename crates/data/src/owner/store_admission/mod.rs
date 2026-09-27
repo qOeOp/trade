@@ -2379,6 +2379,7 @@ mod tests {
 
     use ed25519_dalek::{Signer, SigningKey, VerifyingKey};
     use rstest::rstest;
+    use vibe_postgres_connect::{PgPoolOptionsExt, PostgresTls};
 
     use super::*;
 
@@ -4980,17 +4981,17 @@ mod tests {
         let custodian_url = std::env::var("DEPLOYMENT_STORE_CUSTODIAN_TEST_DATABASE_URL").unwrap();
         let admin = sqlx::postgres::PgPoolOptions::new()
             .max_connections(1)
-            .connect(&admin_url)
+            .connect_url(&admin_url, PostgresTls::Disabled)
             .await
             .unwrap();
         let publisher = sqlx::postgres::PgPoolOptions::new()
             .max_connections(1)
-            .connect(&publisher_url)
+            .connect_url(&publisher_url, PostgresTls::Disabled)
             .await
             .unwrap();
         let custodian_pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(1)
-            .connect(&custodian_url)
+            .connect_url(&custodian_url, PostgresTls::Disabled)
             .await
             .unwrap();
         let spec = synthetic_spec();

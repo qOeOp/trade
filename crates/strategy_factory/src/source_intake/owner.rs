@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 
 use crate::storage_diagnostic::refused_by_store;
+use vibe_postgres_connect::{PgPoolOptionsExt, PostgresTls};
 use vibe_product_edge::{
     ProductEdgeAdmissionLocatorV1, ProductEdgeAdmissionReadbackV1, ProductEdgeAdmissionRequestV1,
     ProductEdgeError, ProductEdgePostgresAdmissionPointReadPortV1, ProductEdgePostgresOwnerV1,
@@ -176,7 +177,7 @@ impl PostgresSourceIntakeReadbackOwnerV1 {
                 .map_err(|e| product_edge_error(&e))?;
         let owner_pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(4)
-            .connect(owner_database_url)
+            .connect_url(owner_database_url, PostgresTls::Disabled)
             .await
             .map_err(|e| {
                 refused_by_store(

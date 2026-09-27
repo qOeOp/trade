@@ -11,6 +11,7 @@ use std::{
 use sqlx::{PgPool, postgres::PgPoolOptions};
 use tracing_subscriber::{Layer as _, layer::SubscriberExt as _};
 use url::Url;
+use vibe_postgres_connect::{PgPoolOptionsExt, PostgresTls};
 
 const EXPECTED_DATABASE_ENV: &str = "VIBE_POSTGRES_TEST_DATABASE_NAME";
 const EXPECTED_MARKER_ENV: &str = "VIBE_POSTGRES_TEST_INSTANCE_MARKER";
@@ -446,7 +447,7 @@ impl CanonicalOwnerPostgresTestDatabaseV1 {
         {
             let pool = PgPoolOptions::new()
                 .max_connections(8)
-                .connect(url)
+                .connect_url(url, PostgresTls::Disabled)
                 .await
                 .map_err(|_| DedicatedPostgresTestDatabaseError::ConnectionUnavailable(role))?;
             verify_marker_read_only(
@@ -511,7 +512,7 @@ async fn admit_owner_topology_admin(
     }
     let pool = PgPoolOptions::new()
         .max_connections(8)
-        .connect(&url)
+        .connect_url(&url, PostgresTls::Disabled)
         .await
         .map_err(|_| {
             DedicatedPostgresTestDatabaseError::ConnectionUnavailable(
@@ -600,7 +601,7 @@ impl DedicatedPostgresTestDatabase {
         for (test_url, target) in values.test_urls.iter().zip(&targets) {
             let pool = PgPoolOptions::new()
                 .max_connections(4)
-                .connect(&test_url.value)
+                .connect_url(&test_url.value, PostgresTls::Disabled)
                 .await
                 .map_err(|_| {
                     DedicatedPostgresTestDatabaseError::ConnectionUnavailable(test_url.name)

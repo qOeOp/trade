@@ -9890,6 +9890,7 @@ dependencies = [
  "vibe-live",
  "vibe-model",
  "vibe-network",
+ "vibe-postgres-connect",
  "vibe-system",
 ]
 
@@ -10141,6 +10142,7 @@ dependencies = [
  "vibe-core",
  "vibe-model",
  "vibe-persistence",
+ "vibe-postgres-connect",
  "vibe-rd-exploratory-replay-custody",
  "vibe-serialization",
  "vibe-testkit",
@@ -10411,6 +10413,7 @@ dependencies = [
  "sha2 0.10.9",
  "sqlx",
  "tokio",
+ "vibe-postgres-connect",
  "vibe-testkit",
 ]
 
@@ -10543,6 +10546,7 @@ dependencies = [
  "vibe-live",
  "vibe-model",
  "vibe-persistence",
+ "vibe-postgres-connect",
  "vibe-serialization",
 ]
 
@@ -10884,6 +10888,7 @@ dependencies = [
  "sqlx",
  "thiserror 2.0.19",
  "tokio",
+ "vibe-postgres-connect",
  "vibe-testkit",
 ]
 
@@ -11029,7 +11034,16 @@ dependencies = [
  "sqlx",
  "tokio",
  "vibe-execution-owner",
+ "vibe-postgres-connect",
  "vibe-testkit",
+]
+
+[[package]]
+name = "vibe-postgres-connect"
+version = "0.62.0"
+dependencies = [
+ "rstest",
+ "sqlx",
 ]
 
 [[package]]
@@ -11046,6 +11060,7 @@ dependencies = [
  "thiserror 2.0.19",
  "tokio",
  "vibe-operator-authorization",
+ "vibe-postgres-connect",
  "vibe-product-edge-claim-custody",
  "vibe-product-edge-contracts",
  "vibe-rd-artifact-invocation-custody",
@@ -11065,6 +11080,7 @@ dependencies = [
  "sqlx",
  "tokio",
  "vibe-operator-authorization",
+ "vibe-postgres-connect",
  "vibe-product-edge",
 ]
 
@@ -11105,6 +11121,7 @@ dependencies = [
  "tower",
  "tracing",
  "tracing-subscriber",
+ "vibe-postgres-connect",
  "vibe-product-edge",
  "vibe-testkit",
 ]
@@ -11171,6 +11188,7 @@ dependencies = [
  "vibe-backtest-owner-contracts",
  "vibe-backtest-result-custody",
  "vibe-data",
+ "vibe-postgres-connect",
  "vibe-testkit",
 ]
 
@@ -11263,6 +11281,7 @@ dependencies = [
  "tokio",
  "vibe-execution-owner",
  "vibe-portfolio-owner",
+ "vibe-postgres-connect",
  "vibe-testkit",
 ]
 
@@ -11321,6 +11340,7 @@ dependencies = [
  "sqlx",
  "tokio",
  "trybuild",
+ "vibe-postgres-connect",
  "vibe-scanner",
  "vibe-testkit",
 ]
@@ -11411,6 +11431,7 @@ dependencies = [
  "vibe-operator-authorization",
  "vibe-persistence",
  "vibe-portfolio",
+ "vibe-postgres-connect",
  "vibe-product-edge",
  "vibe-qualification",
  "vibe-rd-artifact-invocation-custody",
@@ -11450,6 +11471,7 @@ dependencies = [
  "vibe-data",
  "vibe-databento",
  "vibe-operator-authorization",
+ "vibe-postgres-connect",
  "vibe-product-edge",
  "vibe-product-edge-routing-api",
  "vibe-rd-artifact-invocation-custody",
@@ -11470,6 +11492,7 @@ dependencies = [
  "trybuild",
  "vibe-execution-owner",
  "vibe-portfolio-owner",
+ "vibe-postgres-connect",
  "vibe-testkit",
 ]
 
@@ -11592,6 +11615,7 @@ dependencies = [
  "vibe-model",
  "vibe-network",
  "vibe-portfolio",
+ "vibe-postgres-connect",
  "vibe-scanner",
  "vibe-serialization",
  "vibe-strategy-governance",
