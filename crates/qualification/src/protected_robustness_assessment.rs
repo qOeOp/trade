@@ -969,6 +969,14 @@ fn form_invalid_disposition(
     })
 }
 
+/// The closing edge of an Eligibility Fact's window: the assessment head's exclusive validity
+/// bound, which is Market Data epoch nanoseconds, floored to the epoch millisecond it falls in, so
+/// the window ends no later than the head it rests on. Rounding up would let the Fact outlive its
+/// head by up to a millisecond.
+fn eligibility_valid_through_epoch_ms(assessment_time: &ProtectedEvaluationTimeEvidenceV1) -> u64 {
+    assessment_time.valid_through.to_epoch_millis_floor()
+}
+
 fn form_ineligible_fact(
     assessment: ProtectedRobustnessAssessmentV1,
     request_set: &ProtectedReplayRequestSetSealDtoV1,
@@ -1031,12 +1039,9 @@ fn form_ineligible_fact(
         holdout_treatment_policy_digest: treatment.digest().to_string(),
         predecessor_eligibility_identity: None,
         effective_from_epoch_ms: committed_at_epoch_ms,
-        // The Market Data bound is epoch nanoseconds; floored to the millisecond it falls in, so
-        // the eligibility window ends no later than the head it rests on.
-        valid_through_epoch_ms: assessment
-            .assessment_time_evidence
-            .valid_through
-            .to_epoch_millis_floor(),
+        valid_through_epoch_ms: eligibility_valid_through_epoch_ms(
+            &assessment.assessment_time_evidence,
+        ),
         committed_at_epoch_ms,
     };
     eligibility.eligibility_digest = canonical_digest(
@@ -1182,12 +1187,9 @@ fn form_qualified_fact(
         holdout_treatment_policy_digest: treatment.digest().to_string(),
         predecessor_eligibility_identity: None,
         effective_from_epoch_ms: committed_at_epoch_ms,
-        // The Market Data bound is epoch nanoseconds; floored to the millisecond it falls in, so
-        // the eligibility window ends no later than the head it rests on.
-        valid_through_epoch_ms: assessment
-            .assessment_time_evidence
-            .valid_through
-            .to_epoch_millis_floor(),
+        valid_through_epoch_ms: eligibility_valid_through_epoch_ms(
+            &assessment.assessment_time_evidence,
+        ),
         committed_at_epoch_ms,
     };
     eligibility.eligibility_digest = canonical_digest(
@@ -1615,6 +1617,17 @@ mod tests {
                 .unwrap()
                 .head_identity,
             latest.head_identity
+        );
+    }
+
+    /// An Eligibility Fact's window closes on the millisecond its assessment head's bound falls
+    /// in, never the next one: a bound half a millisecond into `k` closes the window at `k`.
+    #[rstest::rstest]
+    fn an_eligibility_window_closes_on_the_millisecond_its_head_bound_falls_in() {
+        let head = result_time_valid_through(2, 1_010, nanos(1_110, HALF_MILLI_NANOS), 2);
+        assert_eq!(
+            eligibility_valid_through_epoch_ms(&head),
+            BASE_EPOCH_MS + 1_110
         );
     }
 
