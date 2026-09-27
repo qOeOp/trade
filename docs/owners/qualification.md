@@ -248,6 +248,50 @@ protected payload, outcome, measurement, parameter, holdout detail, or dereferen
 protected-feedback write must repeat the precommitted basis relation. Same basis and canonical source cut replay
 byte-identically; a changed basis or source cut cannot join.
 
+### Protected-feedback generation
+
+Each principal/scope history carries one protected-feedback generation: a count of the public Qualification phase facts
+that history has produced, which the projection states as its source sequence. It is the observation frontier the
+Qualification Status Summary advances, so a Research Intent frozen under one projection can tell, at a later Owner cut,
+whether any protected evaluation has since become observable to it.
+
+- **What advances it:** the first commit of each public status phase fact whose candidate's protected-feedback frontier
+  belongs to the history: `NOT_ADMITTED`, `ADMITTED`, `EVALUATING`, `CLOSED_NOT_QUALIFIED` and `QUALIFIED`, one step
+  each. A phase fact is what R&D can observe of a protected evaluation, so it is what the generation counts. A replayed
+  phase fact does not advance it.
+- **What does not:** a projection's creation or renewal, the ten-minute validity window, a read, and the incident
+  reconstruction. A renewal takes the generation as it stands, so time alone never changes it.
+- **Atomicity:** the step is written in the transaction that commits the phase fact, under the principal/scope lock and
+  the history's head row lock that projection writes also take. Every protected closure, attempt disposition and
+  assessment alike, commits its phase fact in its own serializable transaction, together with its read of the Protected
+  Replay Attempt Frontier, so the generation, the phase fact and the protected state it records commit or roll back as
+  one.
+- **Evidence for every step:** each step is one append-only row naming its history, its generation and the phase fact
+  that caused it, numbered from one without a gap. The head's source sequence is the history's latest generation, and
+  its source cut is `qualification-protected-feedback-cut-v1-<generation>`, of which the genesis cut is generation zero.
+  History verification requires the head to equal the latest logged step, each logged step to name a stored phase fact
+  of that history, and each projection's source sequence to be no greater than its successor's; a generation that no
+  phase fact accounts for fails verification.
+- **Currentness:** a projection is current only while it is fresh and its source sequence is the history's generation.
+  `resolve_or_create_for_basis` renews a fresh projection whose generation has been passed, and `admit_in_transaction`
+  refuses it as stale. `admit_historical_projection_in_transaction` still reads a projection at its own cut.
+- **Read without renewal:** `read_protected_feedback_generation_in_transaction` answers, for the projection a caller
+  froze, its history's current generation and source cut, and nothing else. It takes the history's head row `FOR SHARE`
+  in the caller's read-committed transaction, so the answer holds until that transaction ends, and it neither checks the
+  projection's validity window nor writes anything, so a caller past the window reads it without bringing the window
+  back or causing a Qualification write. Its SQL function grants `EXECUTE` to `rd_owner` alone. A caller compares the
+  source cut it froze with the one it reads: unequal means a phase fact of that history became observable after the
+  freeze.
+- **A candidate's own phase facts count:** once a Research request's own candidate enters Qualification, its first phase
+  fact, `ADMITTED` or `NOT_ADMITTED`, and every later one advance the generation the request froze, so a continuation of
+  that request is refused from then on and further iteration needs a successor Intent. That is intended: once
+  Qualification has observed the candidate, iterating on it goes through a new freeze.
+- **Counted from its deployment:** phase facts committed before the generation existed are not counted, and no step is
+  reconstructed for them. At its first deployment every history's generation is zero even where protected evaluations
+  already happened, so a generation compares two moments after that deployment and says nothing about the history before
+  it. An Intent frozen before the deployment froze the genesis cut, and the first phase fact of its history after the
+  deployment makes its continuation refuse: the comparison errs toward stopping.
+
 ## Incident-specific Owner reconstruction
 
 Qualification alone may execute the sealed `qualification-owner-incident-v1-01a02194-139a-7281-9d2b-a87ab29d67ba`
