@@ -158,7 +158,7 @@ The maturity boundary is explicit:
   evaluates at request time, so neither the Design nor R&D chooses it (the R&D Owner contract states that request
   scope). A Design with `EXACT_INSTRUMENT` roles stays refused under an Owner universe, by a named refusal,
   `ExactInstrumentRolesUnderOwnerUniverse`, which the implementing change introduces. The universe vertical's input contract of exactly one fixed `OPEN` and one
-  fixed `CLOSE` member role is unchanged; the single-threshold authoring surface gains a universe-member form whose
+  fixed `CLOSE` member role was later replaced by the role set the Design declares (P1 below); the single-threshold authoring surface gains a universe-member form whose
   channel is the member's daily close and which carries the fixed open role, as a carried input its program never
   reads. The authoring request names its form in a required `scope`, so a request without one is refused rather than
   read as the exact-instrument form. That form consumes each role at member
@@ -1388,9 +1388,18 @@ later submission and the cost grows with the whole history.
   adding a role changes only the Design. It changes no admitted bound by itself. A V2 request states no scope and
   stays the legacy exact channel, whose Designs name their instrument; retiring it is a separate slice after T1,
   once every chain entry that creates exact custody under V2 has a scoped replacement.
-- **P1, the role set comes from the Design:** the native Plan contract stops fixing OPEN and CLOSE on one day; the
-  Design declares its roles, its execution timeframe, and which role prices an order. A role the Host cannot bind is
-  refused by name.
+- **P1, the role set comes from the Design:** the native Plan contract stops fixing OPEN and CLOSE on one day. The
+  Design declares its roles, its execution role and its pricing role through fields it already has, the roles' field
+  semantics and a join's trigger; no field is added. A universe role must be an `I128` Market Data BAR open, high,
+  low, close or volume role, which the target-set Host checks against its native bar; any other is refused as
+  `TargetSetRoleNotHostBindable`. The role that prices orders is the one reading the BAR close, and it is also the
+  execution role: none is `ExecutionPricingRoleAbsent`, more than one is `ExecutionPricingRoleAmbiguous`, and a join
+  triggered by any other role is `ExecutionRoleNotPricingRole`, which nothing constructs today because a join over
+  universe roles is refused first. The Host reads its member roles and its pricing role from the Plan. A role's
+  timeframe label stays provenance only, so the execution timeframe is not derived from it here: Market Data resolves
+  the execution role's typed timeframe from its own binding and refuses more than one timeframe, or a day it cannot
+  type, by name. That scheduling change replaces the label comparison in `native_replay_scheduling_v1` and is Market
+  Data's.
 - **P2, the report states every member:** the report family states each member of a universe run, generalizing the
   one-member statement Backtest already makes. It lands with I2, driven by the first run over more than one member:
   before I2 no program reads a member other than the first, so a statement of every member would have nothing to
