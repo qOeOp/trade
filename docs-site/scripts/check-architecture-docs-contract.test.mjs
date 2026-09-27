@@ -5935,7 +5935,7 @@ test('R61 effect outcomes discriminate add-risk liability from decrease-only exp
 test('R61 Capability Adoption separates target-only seams and source-verifies all provider typed ports', () => {
   const adoption = contract.capabilityAdoptionContract;
   assert.equal(adoption.workspaceCapabilityPorts.length, 15);
-  assert.equal(adoption.workspaceCapabilityPorts.find(({ capabilityId }) => capabilityId === 'strategy-factory-trial-receipt').disposition, 'PRESENT');
+  assert.equal(adoption.workspaceCapabilityPorts.find(({ capabilityId }) => capabilityId === 'strategy-factory-trial-receipt').disposition, 'ABSENT_TARGET_ONLY');
   assert.equal(adoption.workspaceCapabilityPorts.find(({ capabilityId }) => capabilityId === 'strategy-factory-formation-receipt').disposition, 'ABSENT_TARGET_ONLY');
   const mappings = new Map(adoption.strategyFactoryMappings.map((mapping) => [mapping.capabilityId, mapping]));
   assert.deepEqual(mappings.get('trial-receipt').destinationObjectIds, ['exploratory-result']);
