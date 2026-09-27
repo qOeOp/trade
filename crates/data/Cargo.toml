@@ -48,6 +48,7 @@ vibe-common = { workspace = true }
 vibe-core = { workspace = true }
 vibe-model = { workspace = true, features = ["stubs"] }
 vibe-persistence = { workspace = true, optional = true }
+vibe-postgres-connect = { workspace = true }
 vibe-rd-exploratory-replay-custody = { workspace = true, optional = true }
 
 ahash = { workspace = true }

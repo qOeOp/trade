@@ -168,7 +168,8 @@ Backtest Owner 投影存在。该路由原样转达投影的回答、不添加�
 `ExploratoryReplayReadbackWorkbench` 是 `/backtest` 的精确 `P` surface。它是一个
 `ACTIVE_OBSERVATION / IMPLEMENTATION_ADMITTED` 的 Replay V2 已提交请求 point-read；当三个 result locator
 field 齐全时，还可读取一个由 Backtest Owner 持有的 canonical result。它不是 replay composer、dispatcher、
-compare surface 或经济图表。route 只使用一个全宽 `PanelFrame`，
+compare surface 或经济图表。composer-backed 请求是同一种 Replay V2 request；Owner 只在识别 composer-backed
+custody 的构建里读回它，今天那是有序链路的构建，部署镜像对它答 `UNAVAILABLE`。route 只使用一个全宽 `PanelFrame`，
 没有 summary strip、历史列表/表格、左右 detail pane 或预留图表高度。header 包含 `EXPLORATORY REPLAY`
 eyebrow、`Replay request` title、一行简短 purpose 与 `Refresh`；在打开合法 selector 前 Refresh disabled。
 inset body 从一条水平 lookup rail 开始：`Request identity`、`Meaning digest`、`Open readback`。窄屏只让
@@ -177,7 +178,8 @@ lookup rail 换行，label 和 value 始终左对齐。icon 只能来自 Lucide�
 available readback 按顺序渲染三个轻微色差分组。`Request` 展示精确 request identity、availability、
 namespace 与 deterministic seed；`Custody` 展示 meaning digest、receipt identity、seal digest、committed
 time 与 Owner observation cut；`Replay basis` 展示精确 event window，以及 TrialFamily、Artifact、
-strategy-design、PIT-snapshot、runtime-kernel 与 simulator identity。长 identity 仍可选择并以 accessible
+strategy-design、universe-selection、PIT-snapshot、runtime-kernel 与 simulator identity。universe-selection identity
+指名该请求所绑定的成员集合；该集合含哪一个品种由这次运行的报告在其唯一成员上陈述，这里不推导。长 identity 仍可选择并以 accessible
 text 暴露完整值，只在视觉上截断。browser 不接收 canonical request bytes、raw receipt、component digest、
 Product Edge admission、protected evidence、source、result bytes 或 storage field。
 
@@ -379,9 +381,11 @@ reason，并且绝不保留之前 success 的字段。group title surface 比 bo
 
 经认证的 Owner GET `/v2/develop-composer/runs/{request_identity}/readback` 以 zero-effect read 在 Owner 自己的
 Strategy Input custody 上解析同一身份：它经由该次运行自己绑定的 Market Data locked facade 复验已存储的正向 Composer
-记录，因此在生产中提交的一次运行就能在生产中读回。该解析为 `IMPLEMENTATION_ADMITTED / NOT_CUT_OVER`：在那次改动落地之前，
-路由背后的适配器仍从 sealed acceptance frame 解析绑定并带着该 acceptance feature，所以今天一个不带该 feature 的部署
-根本不提供读回。它不接收 request body，返回既有 strict
+记录，因此在生产中提交的一次运行就能在生产中读回。该解析为 `IMPLEMENTATION_ADMITTED / NOT_CUT_OVER`。路由及其适配器
+`PostgresDevelopComposerReadbackOwnerV2` 都不带 feature 门，所以部署的 read API 会为未设门的
+`POST /v2/develop-composer/runs` 所提交的运行提供它。它只在 Research 视图当前有效且为 `INTENT_FROZEN` 时应答：一旦
+composer-backed 的 replay commit 把该视图推进到 `EXPLORATION_ACTIVE`，同一身份就在 coordinate `research_custody` 读回
+`UNAVAILABLE`。这是 Owner 读取的一处缺口，记在这里，以免页面被读成 Composer 运行消失了。它不接收 request body，返回既有 strict
 `DevelopComposerOperationResponseV2`；Dashboard BFF 绑定 path identity，并只投影上述字段。`SUCCESS` 必须同时
 带 operation receipt 与完整四字段 Artifact projection；其他 disposition 必须不带 receipt 或 Artifact
 projection。未知 key、identity drift、互相矛盾的 disposition field、非法 digest、超限 response、缺失
@@ -479,6 +483,15 @@ identity digest，经 family binding receipt，直到 census frontier digest。�
 unavailable 的同一处缺口。届时 v2 commit 退役或被 composer-backed 路径取代，读取方一行都不用改：
 它的 exact-key 检查已经是终态形状。把它放宽到接受 legacy 视图，等于把缺席的 Composer 编码成在场的 Composer，
 并画出一个读起来像 exploration 正在运行的页面。
+
+读取方确实接纳这样的视图时（今天只在有序链路的构建里，它为验收编译了那次 commit），页面按原样陈述它。
+`Availability` 显示 `Exploration active`，`Next step` 显示 `View exploratory run`，research journey 显示
+`Exploration is active` 而不是 `Strategy is ready for build`；它们都不退回 `Intent frozen` 或 `Awaiting R&D` 的措辞，
+那两个说的是仍在等待第一次运行的请求。视图指名了这次 exploration 所用的 Composer 运行与 Replay 请求，
+页面在它们各自已准入的路由上链接到二者：`Composer run` 以视图的 `composer_request_identity` 打开
+`/rd/composer?requestIdentity=`，`Exploratory replay` 以其 `replay_request_identity` 与
+`replay_request_meaning_digest` 打开 `/backtest?replayRequestIdentity=&meaningDigest=`。这些身份只取自已验证的视图，
+页面不推导其中任何一个。phase 或 next legal action 超出各自映射的四种之外时，readback 变为 unavailable，而不是显示成另一种。
 
 Historical-custody Owner projection available 时，route 在 directory 前放置一张共享 compact Bento status card，
 把用户的 R&D workspace 组织成三个细肩分组：`research`、`build`、`families`。当 Research outcome inventory

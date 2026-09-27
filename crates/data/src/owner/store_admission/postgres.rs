@@ -7,12 +7,10 @@ use std::fmt::Debug;
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use sqlx::{
-    AssertSqlSafe, Connection, PgConnection, Row,
-    postgres::{PgConnectOptions, PgSslMode},
-};
+use sqlx::{AssertSqlSafe, Connection, Row, postgres::PgConnectOptions};
 use thiserror::Error;
 use url::Url;
+use vibe_postgres_connect::{PostgresTls, StatedConnectOptions, connect_with, with_tls};
 use zeroize::Zeroizing;
 
 /// TLS identity observed for the exact PostgreSQL session.
@@ -402,7 +400,7 @@ pub(crate) async fn read_market_data_source_binding_snapshot(
         return Err(PostgresMeasurementError::InvalidTarget);
     }
     let options = connect_options(&target, "vibe-market-data-source-binding-v1");
-    let mut connection = PgConnection::connect_with(&options)
+    let mut connection = connect_with(&options)
         .await
         .map_err(|_| PostgresMeasurementError::ConnectionUnavailable)?;
     let mut transaction = connection
@@ -493,7 +491,7 @@ pub(crate) async fn read_shared_time_evidence_snapshot_v1(
         return Err(PostgresMeasurementError::InvalidTarget);
     }
     let options = connect_options(&target, "vibe-market-data-shared-time-v1");
-    let mut connection = PgConnection::connect_with(&options)
+    let mut connection = connect_with(&options)
         .await
         .map_err(|_| PostgresMeasurementError::ConnectionUnavailable)?;
     let mut transaction = connection
@@ -591,7 +589,7 @@ pub(crate) async fn read_strategy_input_sample_projection_snapshot_v2(
         return Err(PostgresMeasurementError::InvalidTarget);
     }
     let options = connect_options(&target, "vibe-market-data-sample-projection-v2");
-    let mut connection = PgConnection::connect_with(&options)
+    let mut connection = connect_with(&options)
         .await
         .map_err(|_| PostgresMeasurementError::ConnectionUnavailable)?;
     let mut transaction = connection
@@ -707,7 +705,7 @@ pub(crate) async fn read_strategy_input_sample_projection_snapshot_v3(
         return Err(PostgresMeasurementError::InvalidTarget);
     }
     let options = connect_options(&target, "vibe-market-data-sample-projection-v3");
-    let mut connection = PgConnection::connect_with(&options)
+    let mut connection = connect_with(&options)
         .await
         .map_err(|_| PostgresMeasurementError::ConnectionUnavailable)?;
     let mut transaction = connection
@@ -920,7 +918,7 @@ pub(super) async fn read_bar_schedule_snapshot_v1(
         return Err(PostgresMeasurementError::InvalidTarget);
     }
     let options = connect_options(&target, "vibe-market-data-bar-schedule-v1");
-    let mut connection = PgConnection::connect_with(&options)
+    let mut connection = connect_with(&options)
         .await
         .map_err(|_| PostgresMeasurementError::ConnectionUnavailable)?;
     let mut transaction = connection
@@ -1002,7 +1000,7 @@ pub(super) async fn read_bar_schedule_candidate_snapshots_v1(
     }
     let target = parse_target(lease.database_url())?;
     let options = connect_options(&target, "vibe-market-data-bar-schedule-candidates-v1");
-    let mut connection = PgConnection::connect_with(&options)
+    let mut connection = connect_with(&options)
         .await
         .map_err(|_| PostgresMeasurementError::ConnectionUnavailable)?;
     let mut transaction = connection
@@ -1108,7 +1106,7 @@ pub(super) async fn read_native_replay_quote_cut_census_snapshot_v2(
         .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
     let target = parse_target(lease.database_url())?;
     let options = connect_options(&target, "vibe-market-data-native-replay-quote-cut-v2");
-    let mut connection = PgConnection::connect_with(&options)
+    let mut connection = connect_with(&options)
         .await
         .map_err(|_| PostgresMeasurementError::ConnectionUnavailable)?;
     let mut transaction = connection
@@ -1214,7 +1212,7 @@ pub(crate) async fn read_market_data_pit_terminal_snapshot(
         return Err(PostgresMeasurementError::InvalidTarget);
     }
     let options = connect_options(&target, "vibe-market-data-pit-terminal-v1");
-    let mut connection = PgConnection::connect_with(&options)
+    let mut connection = connect_with(&options)
         .await
         .map_err(|_| PostgresMeasurementError::ConnectionUnavailable)?;
     let mut transaction = connection
@@ -1357,7 +1355,7 @@ pub(crate) async fn read_market_data_pit_evaluation_snapshot(
         return Err(PostgresMeasurementError::InvalidTarget);
     }
     let options = connect_options(&target, "vibe-market-data-pit-evaluation-v1");
-    let mut connection = PgConnection::connect_with(&options)
+    let mut connection = connect_with(&options)
         .await
         .map_err(|_| PostgresMeasurementError::ConnectionUnavailable)?;
     let mut transaction = connection
@@ -1644,7 +1642,7 @@ impl PostgresDirectMeasurer {
             return Err(PostgresMeasurementError::InvalidTarget);
         }
         let options = connect_options(&target, "vibe-market-data-store-admission-disposable-v1");
-        let mut connection = PgConnection::connect_with(&options)
+        let mut connection = connect_with(&options)
             .await
             .map_err(|_| PostgresMeasurementError::ConnectionUnavailable)?;
         let mut transaction = connection
@@ -1988,15 +1986,19 @@ struct ParsedTarget {
     password: Zeroizing<String>,
 }
 
-fn connect_options(target: &ParsedTarget, application_name: &str) -> PgConnectOptions {
-    PgConnectOptions::new_without_pgpass()
-        .host(&target.host)
-        .port(target.port)
-        .username(&target.role)
-        .password(target.password.as_str())
-        .database(&target.database)
-        .ssl_mode(PgSslMode::Disable)
-        .application_name(application_name)
+/// The disposable loopback target's options. Its measurement records a plaintext session and
+/// refuses a TLS one, so TLS is disabled here, stated rather than defaulted.
+fn connect_options(target: &ParsedTarget, application_name: &str) -> StatedConnectOptions {
+    with_tls(
+        PgConnectOptions::new_without_pgpass()
+            .host(&target.host)
+            .port(target.port)
+            .username(&target.role)
+            .password(target.password.as_str())
+            .database(&target.database)
+            .application_name(application_name),
+        PostgresTls::Disabled,
+    )
 }
 
 fn parse_target(database_url: &str) -> Result<ParsedTarget, PostgresMeasurementError> {

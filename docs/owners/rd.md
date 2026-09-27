@@ -55,11 +55,15 @@ Unify Research and Develop under one business-fact Owner. The Research capabilit
 - Append-only TrialFamily Census Frontier containing every exploratory Intent, Request, and Result identity through a frozen cut, including losing, rejected, invalid, and unknown trials, plus the consumed family budget.
 - Exploratory findings that may justify a new Research Intent, without mutating the frozen predecessor.
 - Write-once Iteration Result Admission binding one locked canonical Backtest Result to the iteration that may
-  consume it. The Owner derives every admitted fact inside one serializable R&D transaction from the locked
-  Result bytes, the exact TrialFamily census cut and the sealed trial budget; the caller supplies only the
-  locator, the result and request-meaning digests, the canonically ordered candidate proposal set, and the
-  Product Edge admission locator that authorized the mutation. The Owner resolves that admission inside the
-  same serializable transaction that holds the Result lock, verifies it names this exact request, operation,
+  consume it. The Owner derives every admitted fact inside one READ COMMITTED R&D transaction, the isolation
+  the Product Edge admission lock admits, from the Result bytes, the exact TrialFamily census cut and the sealed
+  trial budget; the caller supplies only the locator, the result and request-meaning digests, the canonically
+  ordered candidate proposal set, and the Product Edge admission locator that authorized the mutation. The
+  transaction first takes the Result's admission lock, so a concurrent admission of the same Result waits and then
+  reads what that one committed. It then locks the family's census head before it reads the census members and
+  attempt cuts: a census append holds that head from before its first row until it commits, so the census the
+  admission binds is one cut and no append lands before the admission commits. The Owner resolves the Product
+  Edge admission inside the same transaction, verifies it names this exact request, operation,
   schema, target Owner, payload and single effect, and requires it to authorize the mutation both when the
   transaction opens and at the committing cut. A replay resolves it historically, because the committed fact
   is content-addressed on the request meaning rather than on who authorized it. A
@@ -177,6 +181,18 @@ ordered chain's acceptance build admits nothing in production.
   and the historical readback both bind the Composer's inputs through the production binding Owner, which re-reads
   Market Data custody, never the acceptance corpus's fixed frame. No SQL function reads the source sub-object of
   either column; one that starts to must branch on the source schema first.
+- **CURRENT - which TrialFamily state a composer-backed Replay binds:** the same state the legacy exploratory
+  Replay binds. A Replay of the family's formation Intent binds the family as it formed, with its formation census
+  frontier, and is admitted only while the family has no attempt; a successor binds the family's V2 census. An
+  attempt is one Replay recorded after its Result, so a family's first Replay can never compose against a V2 census.
+  Only the Decision composition below appends an attempt, and until it is admitted a successor is refused by name,
+  `SUCCESSOR_CENSUS_AWAITS_DECISION_COMPOSITION`. The commit and the historical readback take the choice from one
+  rule, and the readback of a first-generation Replay re-reads the formation frontier from the family's root, so a
+  later attempt does not change it. Its replay window is the window of the facts it was composed from, which the
+  family's policy window bounds (`docs/architecture/strategy-factory.md`, TrialFamily-owned Replay execution policy
+  V2), and a Market Data repair re-entry whose predecessor is a composer-backed Replay is refused by name,
+  `MARKET_DATA_REPAIR_OF_COMPOSER_V3_REPLAY_AWAITS_DESIGN`, because the re-entry forms its successor from the
+  policy window.
 - **CURRENT - one read-only operation is reachable only through the write API:** the Dashboard's operation
   registry declares eleven Owner routes, and ten are `GET`. The eleventh,
   `research_goal.legacy_quarantine_read.v1`, declares `effect_set: []` and resolves to
@@ -652,6 +668,18 @@ and a rendering of a document exists for reading only.
   `zscore`, `crosses_above`, `crosses_below`; `compare`, `all_of`, `any_of`, `not`, `if` and `banded`;
   and the states `latch`, `count_while` and `capture`. `if` is not lazy: both branches are evaluated, as
   every node is.
+- *Members (TARGET, with the Strategy shape envelope's I2).* A document is written once over the member set
+  the Research scope names. An expression over a role is broadcast: the compiler unrolls it into one node per
+  member, each reading its input at that member's `member_ordinal`. `across_members` reduces one broadcast
+  expression over every member with `rank`, `mean`, `min`, `max` or `nth`, which lower to the cross-member
+  primitives I2 appends to the catalog: `rank` is the average rank, so tied members share one, and `nth` returns
+  the n-th order statistic's value. The unrolled graph is measured against `graph_bounds` like any other, and
+  the member bound is fixed only after I1.5 measures how N-fold unrolling presses on `max_edges`. A compiled
+  program is valid only for its own member count, so a changed member set is a new Research and a new compile.
+  Until I2 lands, a document whose scope names more than one member, or that uses `across_members`, is refused
+  at its path as `MEMBER_DIMENSION_NOT_YET_ADMITTED`: before I2 a program reads a universe role only at
+  `member_ordinal` 0 and no terminal emits target-set bytes, so a document compiles today only over one member.
+  Nothing constructs that refusal until the authoring compiler exists; its unit tests drive it from then on.
 - *States and rules.* A state's name read in an expression is its value at the previous tick, so feedback
   runs only through state and a cycle between definitions is refused. While the program is warming, every
   state keeps its prior value, because the host holds only the warming frame neutral and a state that moved
@@ -1112,7 +1140,8 @@ request binds 'the requested instrument or universe scope'."
 - `ProductEdgeResearchGoalRequestV3` is `ProductEdgeResearchGoalRequestV2` plus a required `instrument_scope`, a
   `ResearchInstrumentScopeV1`: one or two distinct canonical Instrument Master identities, such as
   `BTCUSDT-PERP.BINANCE`, in ascending byte order, matching the member counts the universe vertical admits. The
-  single-instrument route states one. Its canonical bytes are schema `u16LE = 1`, the member count `u8`, and each
+  single-instrument route states one. The Strategy shape envelope widens this to N members as a TARGET, which the
+  user authorized on 2026-09-27; until its slice I1 lands, one or two remains the admitted bound. Its canonical bytes are schema `u16LE = 1`, the member count `u8`, and each
   identity length-prefixed (`u16LE`) in order; its identity is SHA-256 over
   `rd.research-instrument-scope.v1\0 || canonical bytes`. On the wire it is the JSON object
   `{"schema_version": 1, "identities": ["BTCUSDT-PERP.BINANCE"]}`; this Owner refuses an unknown schema, an empty,

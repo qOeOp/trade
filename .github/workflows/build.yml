@@ -732,12 +732,30 @@ jobs:
           rust-cache-workspaces: . -> target/rust-tests-linux-x86
           rust-cache-on-failure: "false"
           rust-cache-save-if: ${{ env.SAVE_BUILD_CACHES }}
-          # Dependencies only. Checkout gives every source file a new mtime, so cargo rebuilds all
-          # 112 workspace crates on every run whatever the entry holds (0 external and 112
-          # workspace `Compiling` lines, run 36241288847); caching their artifacts only grew the
-          # entry, to 5.47 GB on 2026-09-26, and the quota evicted py-stubs for it. Turn this back
-          # on only together with a fix for the mtimes (Option D, option_d_source_mtimes_stopped).
-          rust-cache-workspace-crates: "false"
+          # Workspace artifacts too, which only pay off with the mtimes the next two steps set:
+          # checkout alone gives every source file a new mtime and every workspace crate rebuilds
+          # (74 `Compiling` lines, 10 min 36 s, run 36255351574). Without those steps this only
+          # grows the entry - 5.47 GB against 1.92 GB for dependencies alone, on 2026-09-26.
+          rust-cache-workspace-crates: "true"
+
+      - name: Record the workspace source this run builds
+        # Main's side of the reuse below. Before anything compiles, the commit and the time go
+        # into the cached target, so every workspace artifact this run saves is newer than that
+        # time and every artifact an earlier run left there is older.
+        if: env.SAVE_BUILD_CACHES == 'true'
+        run: python3 scripts/ci/workspace_mtimes.py record "$CARGO_TARGET_DIR"
+
+      - name: Reuse main's workspace artifacts
+        # A pull request rebuilds only the crates its changes reach: files unchanged since the
+        # recorded commit get the recorded time less a second, changed files - any tracked file,
+        # not only .rs - get now. Anything it cannot prove (no marker, a manifest or toolchain
+        # change, an unreachable commit) leaves the checkout's mtimes and rebuilds everything,
+        # printing why; a file left wrong fails this step by name. Main never runs it: its full
+        # build is what records, and it stays the backstop.
+        if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
+        env:
+          GIT_FETCH_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci/workspace_mtimes.py reuse "$CARGO_TARGET_DIR"
 
       # The tests are uniformly small (26353 of them averaging 88ms, one single `slow`), so this
       # job reads the whole machine rather than the `ci` profile's `test-threads = 2`, which came
@@ -834,7 +852,8 @@ jobs:
       needs.plan.outputs.run-tests == 'true' &&
       (needs.plan.outputs.run-rust-tests == 'true' ||
        needs.plan.outputs.publish_r2 == 'true' ||
-       github.ref == 'refs/heads/master')
+       github.ref == 'refs/heads/master') &&
+      needs.postgres-owner-chain-plan-linux-x86.outputs.reuse-run == ''
     name: rd owner archive (ubuntu-22.04)
     runs-on: ubuntu-22.04
     # Twice the slowest run without a cache restore (8.8 minutes, owner-chains run 36058051045),
@@ -842,6 +861,7 @@ jobs:
     timeout-minutes: 30
     needs:
       - plan
+      - postgres-owner-chain-plan-linux-x86
     env:
       # The chain job's environment exactly - it runs what this builds.
       # check-chain-channel-environment.py keeps them equal.
@@ -940,6 +960,10 @@ jobs:
     outputs:
       matrix: ${{ steps.matrix.outputs.matrix }}
       rd-chain: ${{ steps.matrix.outputs.rd-chain }}
+      reuse-run: ${{ steps.reuse.outputs.reuse-run }}
+      reuse-url: ${{ steps.reuse.outputs.reuse-url }}
+      reuse-tree: ${{ steps.reuse.outputs.reuse-tree }}
+      this-tree: ${{ steps.reuse.outputs.this-tree }}
     steps:
       # https://github.com/step-security/harden-runner
       - uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
@@ -968,13 +992,25 @@ jobs:
           python3 scripts/ci/owner-chain-matrix.py --rd-chain "$RD_CHAIN"
           scripts/ci/rd-owner-chain-shards.tsv >> "$GITHUB_OUTPUT"
 
+      - name: Reuse an owner-chains verdict on this exact tree
+        # A pull request's checkout is its merge commit, and an owner-chains run on that very tree
+        # has already proven what the chain jobs below would. Only a green whole-chain verdict for
+        # this tree's entry count is taken; anything else, including any failure to look, runs
+        # the chains (scripts/ci/chain_verdict_reuse.py says exactly what counts).
+        id: reuse
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci/chain_verdict_reuse.py
+
   postgres-owner-chains-linux-x86:
     if: >
       github.ref != 'refs/heads/test-pre-commit' &&
       needs.plan.outputs.run-tests == 'true' &&
       (needs.plan.outputs.run-rust-tests == 'true' ||
        needs.plan.outputs.publish_r2 == 'true' ||
-       github.ref == 'refs/heads/master')
+       github.ref == 'refs/heads/master') &&
+      needs.postgres-owner-chain-plan-linux-x86.outputs.reuse-run == ''
     name: ${{ matrix.chain.name }}
     runs-on: ubuntu-22.04
     timeout-minutes: ${{ matrix.chain.job-timeout-minutes }}
@@ -1259,6 +1295,7 @@ jobs:
       - rust-doctests-linux-x86
       - rust-tests-linux-x86
       - postgres-owner-chain-archive-linux-x86
+      - postgres-owner-chain-plan-linux-x86
       - postgres-owner-chains-linux-x86
       - postgres-owner-chain-report-linux-x86
     runs-on: ubuntu-22.04
@@ -1295,6 +1332,11 @@ jobs:
           POSTGRES_CHAIN_ARCHIVE_RESULT: ${{ needs.postgres-owner-chain-archive-linux-x86.result }}
           POSTGRES_CHAINS_RESULT: ${{ needs.postgres-owner-chains-linux-x86.result }}
           POSTGRES_CHAIN_REPORT_RESULT: ${{ needs.postgres-owner-chain-report-linux-x86.result }}
+          CHAIN_PLAN_RESULT: ${{ needs.postgres-owner-chain-plan-linux-x86.result }}
+          CHAIN_REUSE_RUN: ${{ needs.postgres-owner-chain-plan-linux-x86.outputs.reuse-run }}
+          CHAIN_REUSE_URL: ${{ needs.postgres-owner-chain-plan-linux-x86.outputs.reuse-url }}
+          CHAIN_REUSE_TREE: ${{ needs.postgres-owner-chain-plan-linux-x86.outputs.reuse-tree }}
+          CHAIN_THIS_TREE: ${{ needs.postgres-owner-chain-plan-linux-x86.outputs.this-tree }}
           RUN_TESTS: ${{ needs.plan.outputs.run-tests }}
           RUN_RUST_TESTS: ${{ needs.plan.outputs.run-rust-tests }}
           RUN_GENERATED_DRIFT: ${{ needs.plan.outputs.run-generated-drift }}
@@ -1321,9 +1363,20 @@ jobs:
                [[ "$REF_NAME" == master ]]; }; then
             test "$RUST_TESTS_RESULT" = success
             test "$RUST_DOCTESTS_RESULT" = success
-            test "$POSTGRES_CHAIN_ARCHIVE_RESULT" = success
-            test "$POSTGRES_CHAINS_RESULT" = success
-            test "$POSTGRES_CHAIN_REPORT_RESULT" = success
+            test "$CHAIN_PLAN_RESULT" = success
+            if [[ -n "$CHAIN_REUSE_RUN" ]]; then
+              test "$POSTGRES_CHAIN_ARCHIVE_RESULT" = skipped
+              test "$POSTGRES_CHAINS_RESULT" = skipped
+              test "$POSTGRES_CHAIN_REPORT_RESULT" = skipped
+              test -n "$CHAIN_REUSE_TREE"
+              test "$CHAIN_REUSE_TREE" = "$CHAIN_THIS_TREE"
+              echo "Owner chains: verdict of owner-chains run ${CHAIN_REUSE_RUN} (${CHAIN_REUSE_URL})," \
+                "its tree ${CHAIN_REUSE_TREE} == this checkout's tree ${CHAIN_THIS_TREE}"
+            else
+              test "$POSTGRES_CHAIN_ARCHIVE_RESULT" = success
+              test "$POSTGRES_CHAINS_RESULT" = success
+              test "$POSTGRES_CHAIN_REPORT_RESULT" = success
+            fi
           else
             test "$RUST_TESTS_RESULT" = skipped
             test "$RUST_DOCTESTS_RESULT" = skipped

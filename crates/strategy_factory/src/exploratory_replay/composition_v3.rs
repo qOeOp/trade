@@ -4,7 +4,7 @@ use sqlx::{Postgres, Transaction};
 use std::fmt::Display;
 use vibe_backtest_owner_contracts::{
     CanonicalDigestV2, ContentIdentityV2, OpaqueIdentityV2, ReplayAuthorityClaimV2,
-    ReplayModelProfilesV2, ReplayNamespaceV2, ReplayRequestDtoV2, ReplayRequestV2,
+    ReplayModelProfilesV2, ReplayNamespaceV2, ReplayRequestDtoV2, ReplayRequestV2, ReplayWindowV2,
 };
 use vibe_data::owner::{
     replay_market_facts_v2::{
@@ -16,6 +16,7 @@ use vibe_data::owner::{
 
 use crate::{
     composer_artifact_family_binding_v3::ComposerArtifactFamilyReadbackV3,
+    composer_replay_intent_v3::ComposerReplayFamilyCutV3,
     composer_replay_intent_v3::{ComposerReplayIntentV3, hex, parse_named_sha256},
     design_input_custody_v1::reread_design_universe_frame_digest_v1,
     develop_composer_postgres_v2::SealedDevelopComposerReadbackV2,
@@ -28,7 +29,6 @@ use crate::{
         canonical_research_view_identity_v2, project_composer_exploration_research_view_v3,
     },
     replay_execution_profile_binding_v1::ReplayExecutionProfileRequestSealV1,
-    trial_family::TrialFamilyCensusReadbackV2,
 };
 
 /// The Composer source of a COMPOSER_V3 Replay.
@@ -137,7 +137,7 @@ pub(super) struct PreparedComposerReplaySealV3 {
 /// Reproduces the canonical Backtest request and family-sealed profile before any Replay write.
 pub(super) fn prepare_composer_replay_seal_v3(
     composed: ComposedComposerBackedReplayV3,
-    census: &TrialFamilyCensusReadbackV2,
+    cut: &ComposerReplayFamilyCutV3,
     pre_transition_research_view: ResearchViewV1,
     product_edge_request_semantic_digest: String,
     committed_at_epoch_ms: u64,
@@ -145,8 +145,8 @@ pub(super) fn prepare_composer_replay_seal_v3(
     let request = ReplayRequestV2::try_from(composed.request).map_err(unavailable)?;
     if request.namespace() != ReplayNamespaceV2::Exploratory
         || request.request_identity().as_str() != composed.source.proposal.request_identity
-        || composed.source.trial_family_root_digest != census.legacy_family.root().root_digest()
-        || composed.source.census_frontier_digest != census.census_frontier.frontier_digest()
+        || composed.source.trial_family_root_digest != cut.legacy_family().root().root_digest()
+        || composed.source.census_frontier_digest != cut.frontier_digest()
     {
         return Err(unavailable("Composer Replay canonical source mismatch"));
     }
@@ -157,7 +157,7 @@ pub(super) fn prepare_composer_replay_seal_v3(
         .as_str()
         .to_owned();
     let execution_profile_seal = ReplayExecutionProfileRequestSealV1::issue(
-        &census.legacy_family,
+        cut.legacy_family(),
         &composed.source.proposal.request_identity,
         &meaning_digest,
     )
@@ -468,7 +468,7 @@ fn universe_frame_dependency(
 
 pub(super) fn prepare_composer_backed_replay_v3(
     proposal: &ComposerBackedExploratoryReplayProposalV3,
-    census: &TrialFamilyCensusReadbackV2,
+    cut: &ComposerReplayFamilyCutV3,
     intent: &ComposerReplayIntentV3,
     composer: &SealedDevelopComposerReadbackV2,
     artifact_family: &ComposerArtifactFamilyReadbackV3,
@@ -476,17 +476,16 @@ pub(super) fn prepare_composer_backed_replay_v3(
     admitted: &AdmittedReplayMarketShapeV3,
 ) -> Result<ComposedComposerBackedReplayV3, ExploratoryReplayOwnerError> {
     let request = compose_composer_backed_replay_request_v3(
-        proposal, census, intent, composer, market, admitted,
+        proposal, cut, intent, composer, market, admitted,
     )?;
-    let family = &census.legacy_family;
+    let family = cut.legacy_family();
     let root = family.root();
     let root_receipt = family.root_receipt();
     let member = family.initial_intent_member();
-    let frontier = &census.census_frontier;
 
     if root_receipt.root_digest() != root.root_digest()
         || root_receipt.intent_identity() != member.fact_identity()
-        || frontier.trial_family_identity() != root.trial_family_identity()
+        || cut.frontier_trial_family_identity() != root.trial_family_identity()
         || artifact_family.binding().artifact_locator() != proposal.artifact_identity
         || artifact_family.binding().composer_request_identity()
             != composer.locator().request_identity
@@ -519,8 +518,8 @@ pub(super) fn prepare_composer_backed_replay_v3(
             trial_family_root_digest: root.root_digest().to_owned(),
             trial_family_member_identity: member.member_identity().to_owned(),
             trial_family_member_digest: member.member_digest().to_owned(),
-            census_frontier_identity: frontier.frontier_identity().to_owned(),
-            census_frontier_digest: frontier.frontier_digest().to_owned(),
+            census_frontier_identity: cut.frontier_identity().to_owned(),
+            census_frontier_digest: cut.frontier_digest().to_owned(),
             composer_request_digest: composer.request_digest(),
             artifact_family_binding_identity: artifact_family.binding().identity().to_owned(),
             artifact_family_binding_digest: artifact_family.binding().digest().to_owned(),
@@ -551,15 +550,14 @@ pub(super) fn prepare_composer_backed_replay_v3(
 
 fn compose_composer_backed_replay_request_v3(
     proposal: &ComposerBackedExploratoryReplayProposalV3,
-    census: &TrialFamilyCensusReadbackV2,
+    cut: &ComposerReplayFamilyCutV3,
     intent: &ComposerReplayIntentV3,
     composer: &SealedDevelopComposerReadbackV2,
     market: &ResolvedReplayCompositionCutV1,
     admitted: &AdmittedReplayMarketShapeV3,
 ) -> Result<ReplayRequestDtoV2, ExploratoryReplayOwnerError> {
-    let family = &census.legacy_family;
+    let family = cut.legacy_family();
     let root = family.root();
-    let frontier = &census.census_frontier;
     let composer_locator = composer.locator();
     let market_facts = market.market_facts().facts();
     let composition = market.binding().record();
@@ -591,14 +589,16 @@ fn compose_composer_backed_replay_request_v3(
         || composer.intent_identity() != parse_named_sha256(intent.identity(), intent_prefix)?
         || composer.design_identity() != composition.strategy_design_identity()
         || market_facts.identity() != admitted.facts_identity
-        || market_facts.replay_start_event_ns() != i128::from(policy.window.start_event_ns)
-        || market_facts.replay_end_event_ns_exclusive()
-            != i128::from(policy.window.end_event_ns_exclusive)
     {
         return Err(unavailable(
             "Composer, TrialFamily, or Market Data composition binding mismatch",
         ));
     }
+    let window = replay_window_within_policy_v3(
+        market_facts.replay_start_event_ns(),
+        market_facts.replay_end_event_ns_exclusive(),
+        &policy.window,
+    )?;
 
     // The first corpus's owner inputs are its observation census; a universe-member cut's are the
     // universe frame, whose identity is its BLAKE3 digest.
@@ -623,8 +623,8 @@ fn compose_composer_backed_replay_request_v3(
         frozen_research_intent: content_from_text(intent.identity(), intent.digest())?,
         trial_family: content_from_text(root.trial_family_identity(), root.root_digest())?,
         trial_family_census_frontier: content_from_text(
-            frontier.frontier_identity(),
-            frontier.frontier_digest(),
+            cut.frontier_identity(),
+            cut.frontier_digest(),
         )?,
         replay_authority: ReplayAuthorityClaimV2::Exploratory,
         strategy_design: sha256_content(
@@ -662,7 +662,7 @@ fn compose_composer_backed_replay_request_v3(
         runner_operational_profile: policy.runner_operational_profile.clone(),
         diagnostic_policy: policy.diagnostic_policy.clone(),
         deterministic_seed: policy.deterministic_seed,
-        window: policy.window,
+        window,
         calendar: policy.calendar.clone(),
         session: policy.session.clone(),
         time_zone: policy.time_zone.clone(),
@@ -733,6 +733,44 @@ fn sha256_digest(digest: BindingDigest) -> Result<CanonicalDigestV2, Exploratory
     CanonicalDigestV2::try_from(format!("sha256:{}", hex(digest))).map_err(unavailable)
 }
 
+/// The Replay window of a Composer-backed Replay: the window its Market Data facts were composed
+/// over, which must lie within the TrialFamily's sealed Replay policy window.
+///
+/// The family policy bounds every Replay of the family and no caller can widen it, but the window
+/// one Replay spans is its facts': a family's Replay policy is sealed when the family forms, before
+/// any snapshot of it exists, and the facts cover exactly the instants the snapshot's reference
+/// facts cover. Requiring the two to be equal would require the family to name, when it forms, the
+/// instant its first snapshot is later cut at. Every later consumer of the request (the native
+/// scheduling frame instant, the Instrument Master cut, the economic terms' validity) reads this
+/// window, so each stays exactly equal to what the facts cover.
+fn replay_window_within_policy_v3(
+    facts_start_event_ns: i128,
+    facts_end_event_ns_exclusive: i128,
+    policy: &ReplayWindowV2,
+) -> Result<ReplayWindowV2, ExploratoryReplayOwnerError> {
+    let (Ok(start_event_ns), Ok(end_event_ns_exclusive)) = (
+        u64::try_from(facts_start_event_ns),
+        u64::try_from(facts_end_event_ns_exclusive),
+    ) else {
+        return Err(shape_refused(
+            ComposerReplayShapeRefusalV1::FactsWindowOutsidePolicyRange,
+        ));
+    };
+
+    if start_event_ns >= end_event_ns_exclusive
+        || start_event_ns < policy.start_event_ns
+        || end_event_ns_exclusive > policy.end_event_ns_exclusive
+    {
+        return Err(shape_refused(
+            ComposerReplayShapeRefusalV1::FactsWindowOutsidePolicyRange,
+        ));
+    }
+    Ok(ReplayWindowV2 {
+        start_event_ns,
+        end_event_ns_exclusive,
+    })
+}
+
 fn unavailable(error: impl Display) -> ExploratoryReplayOwnerError {
     ExploratoryReplayOwnerError::Unavailable(error.to_string())
 }
@@ -757,6 +795,47 @@ mod tests {
             ResearchViewPhase,
         },
     };
+
+    /// A Composer-backed Replay spans its facts' window, which the family's policy window bounds
+    /// but need not equal: the policy is sealed before the snapshot exists. A window reaching
+    /// outside the policy's on either side, or one that is not a window at all, is refused by name.
+    #[rstest]
+    #[case::equal(1, 1_000, Some((1, 1_000)))]
+    #[case::inside(100, 101, Some((100, 101)))]
+    #[case::at_the_start(1, 101, Some((1, 101)))]
+    #[case::before_the_start(0, 101, None)]
+    #[case::past_the_end(100, 1_001, None)]
+    #[case::empty(100, 100, None)]
+    #[case::negative(-1, 101, None)]
+    fn a_replay_spans_its_facts_window_within_the_policy_window(
+        #[case] facts_start: i128,
+        #[case] facts_end_exclusive: i128,
+        #[case] expected: Option<(u64, u64)>,
+    ) {
+        let policy = ReplayWindowV2 {
+            start_event_ns: 1,
+            end_event_ns_exclusive: 1_000,
+        };
+
+        match (
+            replay_window_within_policy_v3(facts_start, facts_end_exclusive, &policy),
+            expected,
+        ) {
+            (Ok(window), Some((start, end))) => {
+                assert_eq!(
+                    (window.start_event_ns, window.end_event_ns_exclusive),
+                    (start, end)
+                );
+            }
+            (
+                Err(ExploratoryReplayOwnerError::ComposerReplayShapeRefused(
+                    ComposerReplayShapeRefusalV1::FactsWindowOutsidePolicyRange,
+                )),
+                None,
+            ) => {}
+            (outcome, expected) => panic!("{outcome:?} where {expected:?} was expected"),
+        }
+    }
 
     fn digest(byte: u8) -> BindingDigest {
         BindingDigest::from_untrusted_bytes([byte; 32])

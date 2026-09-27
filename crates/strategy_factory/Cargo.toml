@@ -67,6 +67,7 @@ vibe-market-data-repair-custody = { workspace = true }
 vibe-model = { workspace = true }
 vibe-persistence = { workspace = true }
 vibe-portfolio = { workspace = true }
+vibe-postgres-connect = { workspace = true }
 vibe-product-edge = { workspace = true }
 vibe-qualification = { workspace = true }
 vibe-rd-artifact-invocation-custody = { workspace = true }

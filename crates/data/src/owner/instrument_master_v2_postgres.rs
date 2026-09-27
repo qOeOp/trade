@@ -742,6 +742,7 @@ fn classify_insert(error: &sqlx::Error) -> InstrumentMasterCustodyErrorV2 {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+    use vibe_postgres_connect::{PgPoolOptionsExt, PostgresTls};
 
     #[rstest::rstest]
     fn schema_is_v2_only_append_ledger() {
@@ -874,7 +875,10 @@ pub(crate) mod tests {
         use crate::owner::instrument_master_v2::tests::{fact_for, id};
 
         let owner_url = std::env::var("MARKET_DATA_OWNER_TEST_DATABASE_URL").unwrap();
-        let pool = PgPool::connect(&owner_url).await.unwrap();
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .connect_url(&owner_url, PostgresTls::Disabled)
+            .await
+            .unwrap();
         let owner = InstrumentMasterV2PostgresOwner::install(pool.clone())
             .await
             .unwrap();
@@ -1156,7 +1160,10 @@ pub(crate) mod tests {
         crate::owner::postgres::MarketDataOwnerPostgres::connect(&owner_url)
             .await
             .expect("Market Data custody installs");
-        let pool = PgPool::connect(&owner_url).await.unwrap();
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .connect_url(&owner_url, PostgresTls::Disabled)
+            .await
+            .unwrap();
         let owner = InstrumentMasterV2PostgresOwner::install(pool.clone())
             .await
             .unwrap();

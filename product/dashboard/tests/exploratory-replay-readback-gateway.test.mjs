@@ -124,7 +124,14 @@ test("gateway performs one authenticated Owner point read and filters sealed cus
   assert.equal(result.projection.replayBasis.endEventNsExclusive, endEventNsExclusive.toString());
   assert.equal(result.projection.replayBasis.runtimeKernelIdentity, "runtime-kernel-1");
   assert.equal(result.projection.replayBasis.simulatorIdentity, "simulator-1");
+  // The universe the request was bound to, as its identity only: the member is the report's to state.
+  assert.equal(result.projection.replayBasis.universeSelectionIdentity, replayRequest().universe_selection.identity);
   assert.deepEqual(parseExploratoryReplayBrowserProjectionV1(result.projection), result.projection);
+  const { universeSelectionIdentity: _dropped, ...withoutUniverse } = result.projection.replayBasis;
+  assert.equal(parseExploratoryReplayBrowserProjectionV1({ ...result.projection, replayBasis: withoutUniverse }), null);
+  assert.equal(parseExploratoryReplayBrowserProjectionV1({
+    ...result.projection, replayBasis: { ...result.projection.replayBasis, universeSelectionIdentity: "" },
+  }), null);
   const browserBytes = JSON.stringify(result.projection);
   for (const withheld of [
     "canonical_request_bytes", "nextLegalAction", "LOCK_BY_LOCATOR", "strategy_plan",
@@ -338,6 +345,7 @@ test("gateway reads a sealed schema 3 receipt exactly and rejects a drifted exec
   assert.ok(projection?.readback);
   assert.equal(projection.availability, "AVAILABLE");
   assert.equal(projection.readback.trialFamilyIdentity, sealed.readback.request.trial_family.identity);
+  assert.equal(projection.readback.universeSelectionIdentity, sealed.readback.request.universe_selection.identity);
   assert.equal(projection.readback.receiptIdentity, sealed.readback.receipt.receipt_identity);
   for (const tamper of [
     (value) => { value.readback.receipt.execution_profile_seal.request.trial_family_identity = "another-family"; },

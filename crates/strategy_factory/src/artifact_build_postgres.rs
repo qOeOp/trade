@@ -4,6 +4,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use sha2::Digest as _;
 use sqlx::{PgPool, Row};
+use vibe_postgres_connect::{PgPoolOptionsExt, PostgresTls};
 use vibe_product_edge::{
     DownstreamAdmissionModeV1, ProductEdgeAdmissionLocatorV1, ProductEdgeInvocationClaimReadbackV1,
     ProductEdgeInvocationStateV1, resolve_admission_for_downstream_in_transaction,
@@ -315,7 +316,7 @@ impl PostgresArtifactBuildOwnerV1 {
             )?;
         let pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(1)
-            .connect(database_url)
+            .connect_url(database_url, PostgresTls::Disabled)
             .await
             .map_err(storage)?;
 
@@ -392,7 +393,7 @@ impl PostgresArtifactBuildOwnerV1 {
             )?;
         let pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(8)
-            .connect(database_url)
+            .connect_url(database_url, PostgresTls::Disabled)
             .await
             .map_err(storage)?;
         let owner = Self {
@@ -1909,7 +1910,7 @@ impl PostgresArtifactReadbackOwnerV1 {
         crate::legacy_prepared_attempt_drain::database_endpoint_resource_fingerprint(database_url)?;
         let pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(4)
-            .connect(database_url)
+            .connect_url(database_url, PostgresTls::Disabled)
             .await
             .map_err(storage)?;
         require_rd_owner_api_schema(&pool).await.map_err(storage)?;
@@ -3073,7 +3074,7 @@ pub async fn drain_legacy_prepared_attempts_v1(
     }
     let pool = sqlx::postgres::PgPoolOptions::new()
         .max_connections(1)
-        .connect(database_url)
+        .connect_url(database_url, PostgresTls::Disabled)
         .await
         .map_err(storage)?;
     let mut transaction = pool.begin().await.map_err(storage)?;
@@ -3356,6 +3357,7 @@ mod postgres_freshness_tests {
         OperationManifestBindingV1, OperatorAuthorizationIssuanceProposalV1,
         OperatorAuthorizationIssuerPostgresV1, OperatorAuthorizationScopeV1,
     };
+    use vibe_postgres_connect::{PgPoolOptionsExt, PostgresTls};
     use vibe_product_edge::{
         AgentOperationManifestProposalV1, ProductEdgeAdmissionRequestV1,
         ProductEdgeAuthorizationTrustV1, ProductEdgeBootstrapProposalV1,
@@ -3403,7 +3405,7 @@ mod postgres_freshness_tests {
             .expect("RD_OWNER_CLASSIFICATION_DATABASE_URL must be explicitly supplied");
         let pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(1)
-            .connect(&database_url)
+            .connect_url(&database_url, PostgresTls::Disabled)
             .await
             .unwrap();
         let rows: Vec<serde_json::Value> =
@@ -3610,10 +3612,13 @@ mod postgres_freshness_tests {
         let database_url = test_database
             .database_url(CanonicalOwnerTestRoleV1::RdOwner)
             .to_string();
-        let product_edge_pool =
-            PgPool::connect(test_database.database_url(CanonicalOwnerTestRoleV1::ProductEdgeOwner))
-                .await
-                .unwrap();
+        let product_edge_pool = sqlx::postgres::PgPoolOptions::new()
+            .connect_url(
+                test_database.database_url(CanonicalOwnerTestRoleV1::ProductEdgeOwner),
+                PostgresTls::Disabled,
+            )
+            .await
+            .unwrap();
         let owner = PostgresArtifactBuildOwnerV1::connect(
             &database_url,
             "/tmp/unused-rd-sandbox.sock",
@@ -3756,7 +3761,10 @@ mod postgres_freshness_tests {
             target_database_resource_fingerprint,
             alias_database_resource_fingerprint
         );
-        let alias_pool = PgPool::connect(&alias_database_url).await.unwrap();
+        let alias_pool = sqlx::postgres::PgPoolOptions::new()
+            .connect_url(&alias_database_url, PostgresTls::Disabled)
+            .await
+            .unwrap();
         let mut alias_transaction = alias_pool.begin().await.unwrap();
         let alias_database_identity =
             crate::legacy_prepared_attempt_drain::current_database_identity(&mut alias_transaction)
@@ -4202,7 +4210,7 @@ mod postgres_freshness_tests {
             .to_string();
         let pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(2)
-            .connect(&database_url)
+            .connect_url(&database_url, PostgresTls::Disabled)
             .await
             .unwrap();
         let suffix = unique_suffix();
@@ -4972,11 +4980,17 @@ mod postgres_freshness_tests {
 
     async fn run_governance_artifact_membership_readback() {
         let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
+        // The Catalog V3 head this entry's Research request forms its TrialFamily against.
+        #[cfg(feature = "sealed-develop-composer-acceptance")]
+        crate::replay_policy_catalog_postgres_v2::ensure_sealed_acceptance_catalog_v3_for_test(
+            &test_database,
+        )
+        .await;
         let _mutation = test_database.mutation();
         let rd_url = test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner);
         let rd_pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(4)
-            .connect(rd_url)
+            .connect_url(rd_url, PostgresTls::Disabled)
             .await
             .unwrap();
         let suffix = unique_suffix();
@@ -5546,6 +5560,12 @@ mod postgres_freshness_tests {
 
     async fn run_specialized_artifact_admission_rechecks_locked_rd_view() {
         let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
+        // The Catalog V3 head this entry's Research request forms its TrialFamily against.
+        #[cfg(feature = "sealed-develop-composer-acceptance")]
+        crate::replay_policy_catalog_postgres_v2::ensure_sealed_acceptance_catalog_v3_for_test(
+            &test_database,
+        )
+        .await;
         let mutation = test_database.mutation();
         let suffix = unique_suffix();
         let research_request_identity = format!("research-request-v2-race-{suffix}");

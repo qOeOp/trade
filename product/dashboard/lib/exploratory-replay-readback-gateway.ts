@@ -35,6 +35,7 @@ export type ExploratoryReplayBrowserProjectionV1 = Readonly<{
     trialFamilyIdentity: string;
     artifactIdentity: string;
     strategyDesignIdentity: string;
+    universeSelectionIdentity: string;
     pitSnapshotIdentity: string;
     runtimeKernelIdentity: string;
     simulatorIdentity: string;
@@ -137,6 +138,7 @@ function projectAvailable(
       trialFamilyIdentity: readback.trialFamilyIdentity,
       artifactIdentity: readback.artifactIdentity,
       strategyDesignIdentity: readback.strategyDesignIdentity,
+      universeSelectionIdentity: readback.universeSelectionIdentity,
       pitSnapshotIdentity: readback.pitSnapshotIdentity,
       runtimeKernelIdentity: readback.runtimeKernelIdentity,
       simulatorIdentity: readback.simulatorIdentity,
@@ -236,12 +238,13 @@ export function parseExploratoryReplayBrowserProjectionV1(
     || Date.parse(value.custody.ownerObservedAt) < Date.parse(value.custody.committedAt)
     || !record(value.replayBasis) || !exactKeys(value.replayBasis, [
       "startEventNs", "endEventNsExclusive", "trialFamilyIdentity", "artifactIdentity",
-      "strategyDesignIdentity", "pitSnapshotIdentity", "runtimeKernelIdentity", "simulatorIdentity",
+      "strategyDesignIdentity", "universeSelectionIdentity", "pitSnapshotIdentity", "runtimeKernelIdentity",
+      "simulatorIdentity",
     ]) || !validUnsignedDecimal(value.replayBasis.startEventNs)
     || !validUnsignedDecimal(value.replayBasis.endEventNsExclusive)
     || BigInt(value.replayBasis.startEventNs) >= BigInt(value.replayBasis.endEventNsExclusive)
-    || !["trialFamilyIdentity", "artifactIdentity", "strategyDesignIdentity", "pitSnapshotIdentity",
-      "runtimeKernelIdentity", "simulatorIdentity"].every(
+    || !["trialFamilyIdentity", "artifactIdentity", "strategyDesignIdentity", "universeSelectionIdentity",
+      "pitSnapshotIdentity", "runtimeKernelIdentity", "simulatorIdentity"].every(
       (field) => validExploratoryReplayOpaqueIdentityV2((value.replayBasis as Json)[field]),
     )) return null;
   return value as ExploratoryReplayBrowserProjectionV1;

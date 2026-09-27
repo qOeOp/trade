@@ -144,7 +144,10 @@ meaning. The trace binds every normalized event order key, before/after checkpoi
 bounded result, kernel primitive semantic ID, target/protection transition, simulated order/fill reconciliation,
 position, cost and terminal result. The first admitted vertical is the deterministic stateful-trend corpus;
 cross-sectional rebalance and multi-leg/multi-timeframe regime are required acceptance corpora, not permission to
-fabricate absent bindings or implement a third runtime.
+fabricate absent bindings or implement a third runtime. A multi-frame run reads its frames from Market Data's PIT
+window custody, as a TARGET of the Strategy shape envelope; its Result custody binds the custody identity and the
+ordered identities of the frame views it consumed, so a run over a window is attested by those and never by one
+frame's evidence.
 
 A positive Run Result derives its actual-consumption record inside Backtest from the exact inputs admitted by
 Native Replay, `ProgramHost`, the shared kernel and Sim Exchange. A caller or R&D request may propose requested

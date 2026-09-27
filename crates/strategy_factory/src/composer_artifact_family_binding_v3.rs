@@ -17,9 +17,18 @@ use vibe_product_edge::{
 
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
 use crate::trial_family_postgres::{persist_outbox, verify_outbox_storage};
+use crate::{
+    composer_replay_intent_v3::{
+        ComposerReplayFamilyCutV3, ComposerReplayIntentV3, parse_named_sha256,
+    },
+    develop_composer_postgres_v2::SealedDevelopComposerReadbackV2,
+    trial_family::TrialFamilyError,
+};
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
 use crate::{
-    composer_replay_intent_v3::resolve_composer_replay_intent_in_transaction,
+    composer_replay_intent_v3::{
+        load_composer_replay_family_cut_v3, resolve_composer_replay_intent_in_transaction,
+    },
     develop_composer_postgres_v2::read_accepted_for_replay_in_transaction,
     exploratory_replay::{
         ComposerBackedExploratoryReplayProposalV3, EXPLORATORY_REPLAY_MUTATION_EFFECT_V3,
@@ -28,12 +37,6 @@ use crate::{
     },
     product_edge::{RESEARCH_OWNER_V1, RESEARCH_SCOPE_V1},
     source_research_composer_postgres_v2::SourceResearchComposerBindingOwnerV2,
-    trial_family_postgres::load_trial_family_census_v2_by_family_in_transaction,
-};
-use crate::{
-    composer_replay_intent_v3::{ComposerReplayIntentV3, parse_named_sha256},
-    develop_composer_postgres_v2::SealedDevelopComposerReadbackV2,
-    trial_family::{TrialFamilyCensusReadbackV2, TrialFamilyError, verify_census_v2},
 };
 
 const SCHEMA_VERSION: u16 = 3;
@@ -187,14 +190,14 @@ impl ComposerArtifactFamilyBindingReceiptV3 {
 }
 
 pub(crate) fn issue_composer_artifact_family_binding_v3(
-    census: &TrialFamilyCensusReadbackV2,
+    cut: &ComposerReplayFamilyCutV3,
     intent: &ComposerReplayIntentV3,
     composer: &SealedDevelopComposerReadbackV2,
     committed_at_epoch_ms: u64,
 ) -> Result<ComposerArtifactFamilyReadbackV3, TrialFamilyError> {
-    verify_census_v2(census)?;
+    cut.verify()?;
     let locator = composer.locator();
-    let family = census.legacy_family.root();
+    let family = cut.legacy_family().root();
     let intent_prefix = if intent.identity().starts_with("rd-research-intent-v2-") {
         "rd-research-intent-v2-"
     } else {
@@ -223,8 +226,8 @@ pub(crate) fn issue_composer_artifact_family_binding_v3(
         intent_digest: intent.digest(),
         trial_family_identity: family.trial_family_identity(),
         trial_family_root_digest: family.root_digest(),
-        census_frontier_identity: census.census_frontier.frontier_identity(),
-        census_frontier_digest: census.census_frontier.frontier_digest(),
+        census_frontier_identity: cut.frontier_identity(),
+        census_frontier_digest: cut.frontier_digest(),
     };
     let binding_digest = canonical_digest("rd.composer-artifact-family-binding.v3", &meaning)?;
     let binding = ComposerArtifactFamilyBindingV3 {
@@ -269,7 +272,7 @@ pub(crate) fn issue_composer_artifact_family_binding_v3(
 }
 
 pub(crate) fn admit_stored_composer_artifact_family_binding_v3(
-    census: &TrialFamilyCensusReadbackV2,
+    cut: &ComposerReplayFamilyCutV3,
     intent: &ComposerReplayIntentV3,
     composer: &SealedDevelopComposerReadbackV2,
     binding_json: &serde_json::Value,
@@ -280,7 +283,7 @@ pub(crate) fn admit_stored_composer_artifact_family_binding_v3(
     let receipt: ComposerArtifactFamilyBindingReceiptV3 =
         serde_json::from_value(receipt_json.clone()).map_err(unavailable)?;
     let expected = issue_composer_artifact_family_binding_v3(
-        census,
+        cut,
         intent,
         composer,
         receipt.committed_at_epoch_ms,
@@ -352,11 +355,6 @@ where
     .await
     .map_err(unavailable)?;
     verify_composer_replay_admission_v3(&admission, proposal)?;
-    let census = load_trial_family_census_v2_by_family_in_transaction(
-        &mut transaction,
-        &proposal.trial_family_identity,
-    )
-    .await?;
     let composer = read_accepted_for_replay_in_transaction(
         &mut transaction,
         &proposal.composer_locator,
@@ -365,10 +363,17 @@ where
     )
     .await
     .map_err(unavailable)?;
-    let intent =
-        resolve_composer_replay_intent_in_transaction(&mut transaction, &census, &composer)
-            .await
-            .map_err(unavailable)?;
+    let cut = load_composer_replay_family_cut_v3(
+        &mut transaction,
+        &proposal.trial_family_identity,
+        &composer,
+        None,
+    )
+    .await
+    .map_err(unavailable)?;
+    let intent = resolve_composer_replay_intent_in_transaction(&mut transaction, &cut, &composer)
+        .await
+        .map_err(unavailable)?;
     if composer.locator().artifact_locator != proposal.artifact_identity {
         return Err(unavailable("Composer Artifact identity mismatch"));
     }
@@ -381,7 +386,7 @@ where
     }
     let binding = persist_preverified_composer_artifact_family_binding_v3(
         &mut transaction,
-        &census,
+        &cut,
         &intent,
         &composer,
         final_cut,
@@ -435,7 +440,7 @@ async fn database_now_epoch_ms(
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
 pub(crate) async fn load_composer_artifact_family_binding_for_replay_v3(
     transaction: &mut Transaction<'_, Postgres>,
-    census: &TrialFamilyCensusReadbackV2,
+    cut: &ComposerReplayFamilyCutV3,
     intent: &ComposerReplayIntentV3,
     composer: &SealedDevelopComposerReadbackV2,
 ) -> Result<Option<ComposerArtifactFamilyReadbackV3>, TrialFamilyError> {
@@ -448,7 +453,7 @@ pub(crate) async fn load_composer_artifact_family_binding_for_replay_v3(
     let binding_json: serde_json::Value = row.try_get("binding_json").map_err(unavailable)?;
     let receipt_json: serde_json::Value = row.try_get("receipt_json").map_err(unavailable)?;
     let readback = admit_stored_composer_artifact_family_binding_v3(
-        census,
+        cut,
         intent,
         composer,
         &binding_json,
@@ -500,19 +505,19 @@ pub(crate) async fn load_composer_artifact_family_binding_for_replay_v3(
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
 async fn persist_preverified_composer_artifact_family_binding_v3(
     transaction: &mut Transaction<'_, Postgres>,
-    census: &TrialFamilyCensusReadbackV2,
+    cut: &ComposerReplayFamilyCutV3,
     intent: &ComposerReplayIntentV3,
     composer: &SealedDevelopComposerReadbackV2,
     committed_at_epoch_ms: u64,
 ) -> Result<ComposerArtifactFamilyReadbackV3, TrialFamilyError> {
     if let Some(existing) =
-        load_composer_artifact_family_binding_for_replay_v3(transaction, census, intent, composer)
+        load_composer_artifact_family_binding_for_replay_v3(transaction, cut, intent, composer)
             .await?
     {
         return Ok(existing);
     }
     let readback =
-        issue_composer_artifact_family_binding_v3(census, intent, composer, committed_at_epoch_ms)?;
+        issue_composer_artifact_family_binding_v3(cut, intent, composer, committed_at_epoch_ms)?;
     let binding = &readback.binding;
     sqlx::query("INSERT INTO public.rd_composer_artifact_family_bindings_v3 (binding_identity,artifact_locator,composer_request_identity,intent_identity,trial_family_identity,census_frontier_identity,binding_digest,binding_json,receipt_json,committed_at_epoch_ms) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)")
         .bind(&binding.binding_identity)
