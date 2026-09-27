@@ -46,6 +46,15 @@ export function projectResearchJourneyV1(projection: ResearchReadbackProjectionV
       { id: "artifact", label: "Artifact", detail: "Waiting for a current view", state: "pending" },
     ],
   };
+  // An exploration ran on a Composer artifact, so nothing before it is still waiting to be built.
+  if (projection.view?.phase === "exploration_active") return {
+    summary: "Exploration is active",
+    stages: [
+      { id: "request", label: "Request", detail: "Accepted", state: "complete" },
+      { id: "intent", label: "Strategy", detail: "Composed", state: "complete" },
+      { id: "artifact", label: "Artifact", detail: "Exploring", state: "current" },
+    ],
+  };
   if (projection.view?.phase === "artifact_available") return {
     summary: "Artifact is ready for review",
     stages: [
