@@ -737,7 +737,21 @@ jobs:
       - name: Verify immutable CI inputs (post-checkout)
         run: bash scripts/ci/verify-ci-inputs.sh post-checkout
 
+      # rust-cache saves only on an exact key miss, and its key holds no source, so main kept
+      # restoring one snapshot and never saved another: every pull request on 2026-09-27 reused
+      # main's build of 53a0174ad however far main had moved. One comment line in
+      # .cargo/config.toml, which rust-cache hashes into the last part of the key
+      # (src/config.ts:164 at c19371144) and never into the prefix pull requests fall back to,
+      # gives main a new key each day: the day's first run saves, a pull request restores the
+      # newest entry, and no moment is left without one. The file is restored right after the
+      # restore: the save reuses the key the restore stored (src/save.ts:30, :84).
+      - name: Date the Rust tests cache key
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        run: |
+          printf '\n# rust-tests cache day: %s\n' "$(date -u +%F)" >> .cargo/config.toml
+
       - name: Common setup
+        id: setup
         # Twice this job's slowest successful Common setup: 1233s over its last 10 successful
         # runs (2026-09-24). A hung setup then fails as this step and keeps its log, instead of running
         # to the job limit and being cancelled with none. Re-measure and raise it once setup
@@ -782,6 +796,18 @@ jobs:
           # (74 `Compiling` lines, 10 min 36 s, run 36255351574). Without those steps this only
           # grows the entry - 5.47 GB against 1.92 GB for dependencies alone, on 2026-09-26.
           rust-cache-workspace-crates: "true"
+
+      - name: Restore the checked-out cargo config
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        env:
+          EXACT_HIT: ${{ steps.setup.outputs.rust-cache-hit }}
+        run: |
+          set -euo pipefail
+          git checkout -- .cargo/config.toml
+          git diff --exit-code -- .cargo/config.toml
+          saves=yes
+          if [[ "$EXACT_HIT" == true ]]; then saves=no; fi
+          echo "rust-tests cache day $(date -u +%F): exact key hit ${EXACT_HIT:-false}; this run saves: ${saves}"
 
       - name: Record the workspace source this run builds
         # Main's side of the reuse below. Before anything compiles, the commit and the time go

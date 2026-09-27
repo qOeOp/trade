@@ -1162,6 +1162,17 @@ report_step="$(awk '/- name: Report the rust-tests cache entry this run saved/{f
 [[ "$report_step" == *'${{ needs.rust-tests-linux-x86.outputs.pruned-bytes }}'* ]]
 [[ "$(grep -c 'workspace_mtimes.py' "$build_workflow")" -eq 4 ]]
 python3 -B "$repo_root/scripts/ci/workspace_mtimes_prune_test.py" > /dev/null
+# Main gives the Rust tests cache key a new day (one comment line in .cargo/config.toml, which
+# rust-cache hashes after the prefix pull requests fall back to) and restores the file at once. Both
+# steps run on main only: a pull request carrying the dated key would never match it again.
+main_only="if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'"
+if [[ "$(grep -A1 'name: Date the Rust tests cache key' <<< "$rust_tests_job")" != *"$main_only"* ]] ||
+  [[ "$(grep -A1 'name: Restore the checked-out cargo config' <<< "$rust_tests_job")" != *"$main_only"* ]] ||
+  [[ "$rust_tests_job" != *'git checkout -- .cargo/config.toml'* ]] ||
+  [[ "$(grep -n 'name: Date the Rust tests cache key\|name: Common setup\|name: Restore the checked-out cargo config' <<< "$rust_tests_job" | head -n 3 | cut -d: -f2- | tr -d ' ' | paste -sd'|' -)" != '-name:DatetheRusttestscachekey|-name:Commonsetup|-name:Restorethechecked-outcargoconfig' ]]; then
+  echo "build.yml's rust tests job must date the cache key on main only, just before Common setup, and restore .cargo/config.toml just after." >&2
+  exit 1
+fi
 bash "$repo_root/scripts/ci/test-workspace-mtimes.bash"
 for composite in common-test-data common-setup; do
   file="$repo_root/.github/actions/${composite}/action.yml"
