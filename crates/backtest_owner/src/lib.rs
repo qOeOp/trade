@@ -922,10 +922,17 @@ mod tests {
     }
 
     fn observations(request: &ReplayRequestV2) -> Vec<ConsumedComponentObservationV2> {
+        observations_for(request, "attempt")
+    }
+
+    fn observations_for(
+        request: &ReplayRequestV2,
+        attempt: &str,
+    ) -> Vec<ConsumedComponentObservationV2> {
         let request_meaning_digest = request
             .meaning_digest()
             .expect("fixture request must have canonical meaning");
-        let attempt_identity = identity("attempt");
+        let attempt_identity = identity(attempt);
         let mut observations: Vec<_> = requested_component_meanings(request)
             .expect("fixture request components must hash")
             .into_iter()
@@ -971,23 +978,32 @@ mod tests {
     }
 
     fn diagnostics(request: &ReplayRequestV2) -> Vec<DiagnosticEvidenceV2> {
+        diagnostics_for(request, "attempt")
+    }
+
+    fn diagnostics_for(request: &ReplayRequestV2, attempt: &str) -> Vec<DiagnosticEvidenceV2> {
         vec![DiagnosticEvidenceV2 {
             request_identity: request.request_identity().clone(),
             request_meaning_digest: request
                 .meaning_digest()
                 .expect("fixture request must have canonical meaning"),
-            attempt_identity: identity("attempt"),
+            attempt_identity: identity(attempt),
             category: DiagnosticCategoryV2::NoExecutionDefect,
             decisive_evidence: locator(ObservationComponentV2::SemanticTrace, 'c'),
         }]
     }
 
     fn draft(request: &ReplayRequestV2) -> OwnerResultDraftV2 {
+        draft_for_attempt(request, "attempt")
+    }
+
+    /// The same Result, observed and diagnosed under another attempt of the request.
+    fn draft_for_attempt(request: &ReplayRequestV2, attempt: &str) -> OwnerResultDraftV2 {
         OwnerResultDraftV2 {
-            attempt_identity: identity("attempt"),
+            attempt_identity: identity(attempt),
             terminal: ReplayTerminalV2::TerminalResult,
-            observations: observations(request),
-            diagnostics: diagnostics(request),
+            observations: observations_for(request, attempt),
+            diagnostics: diagnostics_for(request, attempt),
         }
     }
 
@@ -2314,9 +2330,8 @@ mod tests {
             (&many, "attempt-b"),
             (&one, "attempt"),
         ] {
-            let mut result_draft = draft(request);
-            result_draft.attempt_identity = identity(attempt);
-            let result = commit_owner_result(request, result_draft).expect("sealed result");
+            let result = commit_owner_result(request, draft_for_attempt(request, attempt))
+                .expect("sealed result");
             expect_committed(
                 owner
                     .commit_exploratory_replay_result_v2(&result)
@@ -2339,7 +2354,7 @@ mod tests {
                 u64::try_from(committed_at).expect("a non-negative commit time"),
             ));
         }
-        let meaning = many_meaning(&many);
+        let meaning = meaning_of(&many);
 
         let read = |request_identity: String, meaning_digest: String| async move {
             let mut transaction = rd_pool.begin().await.expect("R&D transaction");
@@ -2414,11 +2429,7 @@ mod tests {
         );
 
         // One.
-        let (listed, _) = read(
-            one.request_identity().as_str().to_owned(),
-            many_meaning(&one),
-        )
-        .await;
+        let (listed, _) = read(one.request_identity().as_str().to_owned(), meaning_of(&one)).await;
         let listed = listed.expect("a one-Result directory");
         assert_eq!(listed.len(), 1);
         assert_eq!(listed[0].attempt_identity(), "attempt");
@@ -2458,10 +2469,10 @@ mod tests {
         );
     }
 
-    fn many_meaning(request: &ReplayRequestV2) -> String {
-        commit_owner_result(request, draft(request))
-            .expect("sealed result")
-            .request_meaning_digest()
+    fn meaning_of(request: &ReplayRequestV2) -> String {
+        request
+            .meaning_digest()
+            .expect("fixture request must have canonical meaning")
             .as_str()
             .to_owned()
     }
