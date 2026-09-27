@@ -15,6 +15,10 @@ use vibe_postgres_connect::{PgPoolOptionsExt, PostgresTls};
 mod authenticated_design_registration_v1;
 #[cfg(feature = "sealed-strategy-input-acceptance")]
 pub mod bar_joined_cut_acceptance_v1;
+#[cfg(any(test, feature = "sealed-strategy-input-acceptance"))]
+pub mod bar_schedule_acceptance_v1;
+#[cfg(test)]
+mod bar_schedule_acceptance_v1_tests;
 // Test and sealed acceptance fixtures only; no production build reaches it.
 #[cfg(any(test, feature = "sealed-strategy-input-acceptance"))]
 mod acceptance_fixture_v1;
