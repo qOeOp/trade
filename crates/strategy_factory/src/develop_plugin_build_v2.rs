@@ -142,6 +142,7 @@ impl DevelopPluginBuildReceiptV2 {
         self.implementation_capsule_digest
     }
 
+    #[cfg(test)]
     pub(crate) const fn module_digest(&self) -> BindingDigest {
         self.module_digest
     }

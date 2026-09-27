@@ -1,3 +1,4 @@
+#[cfg(any(test, feature = "sealed-artifact-source-acceptance"))]
 use std::path::{Component, Path};
 
 use serde::{Deserialize, Serialize};
@@ -22,10 +23,12 @@ pub(crate) const RUSTC_RELEASE: &str = "1.97.1";
 pub(crate) const RUSTC_COMMIT: &str = "8bab26f4f68e0e26f0bb7960be334d5b520ea452";
 const FRONTEND: &str = "docker/dockerfile:1.20@sha256:26147acbda4f14c5add9946e2fd2ed543fc402884fd75146bd342a7f6271dc1d";
 const RUST_IMAGE: &str = "public.ecr.aws/docker/library/rust:1.97.1-slim-bookworm@sha256:99e09cb2284e2ddbb73a995deee3e91783fd04d177602ccf6eab326d778ee777";
+#[cfg(any(test, feature = "sealed-artifact-source-acceptance"))]
 pub(crate) const BUILD_RECIPE_LOCATOR: &str = "program-build-recipe-v1.jcs";
 pub(crate) const SANDBOX_BUILD_RECIPE_LOCATOR: &str = "program-build-recipe-v2.jcs";
 pub(crate) const SOURCE_CAPSULE_LOCATOR: &str = "program-source-capsule-v1.tar";
 pub(crate) const SANDBOX_POLICY_V1: &str = "rd-development-sandbox-container-v1";
+#[cfg(any(test, feature = "sealed-artifact-source-acceptance"))]
 pub(crate) const PROGRAM_SEAL_DOCKERFILE: &str = include_str!("../tools/program-seal.dockerfile");
 pub(crate) const RD_SANDBOX_DOCKERFILE: &str =
     include_str!("../../../product/rd-workbench/Dockerfile.sandbox");
@@ -41,6 +44,7 @@ pub(crate) struct ProgramProfileV1 {
     pub(crate) runtime_budget: ProgramRuntimeBudget,
 }
 
+#[cfg(any(test, feature = "sealed-artifact-source-acceptance"))]
 #[derive(Clone, Copy)]
 pub(crate) struct CargoBuildEvidence<'a> {
     pub(crate) wasm_one: &'a [u8],
@@ -121,6 +125,7 @@ pub(crate) enum CargoArtifactError {
     RuntimeProfile(String),
 }
 
+#[cfg(any(test, feature = "sealed-artifact-source-acceptance"))]
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct BuildRecipeV1 {
@@ -155,6 +160,13 @@ struct SandboxedBuildRecipeV2 {
 }
 
 impl VerifiedCargoBuild {
+    /// Verifies the sealed price program checked into `assets/program_complex_v1`, the only V1
+    /// build a sealed recipe still covers. Production verifies sandbox builds instead
+    /// (`verify_sandboxed`), so this and the recipe items gated with it exist for
+    /// `sealed-artifact-source-acceptance`: the R&D chain's entry 28
+    /// (`strategy_source_browser_acceptance_reads_canonical_terminal_owner_custody`) submits an artifact
+    /// build whose sandbox returns this program. Deleting them breaks that entry.
+    #[cfg(any(test, feature = "sealed-artifact-source-acceptance"))]
     pub(crate) fn verify(evidence: CargoBuildEvidence<'_>) -> Result<Self, CargoArtifactError> {
         if evidence.wasm_one != evidence.wasm_two {
             return Err(CargoArtifactError::NonReproducible);
@@ -376,6 +388,7 @@ impl VerifiedPluginCargoBuildV3 {
     }
 }
 
+#[cfg(any(test, feature = "sealed-artifact-source-acceptance"))]
 fn validate_recipe(bytes: &[u8]) -> Result<BuildRecipeV1, CargoArtifactError> {
     let recipe: BuildRecipeV1 =
         serde_json::from_slice(bytes).map_err(|e| CargoArtifactError::Recipe(e.to_string()))?;

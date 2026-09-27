@@ -183,17 +183,6 @@ impl StrategyArtifact {
     pub(crate) fn wasm(&self) -> &[u8] {
         &self.wasm
     }
-
-    pub(crate) fn program_profile(&self) -> &ProgramProfileV1 {
-        &self.profile
-    }
-
-    pub(crate) fn verify_parameters(&self, parameters: &[u8]) -> Result<(), ArtifactError> {
-        if self.identity.parameters_digest.as_deref() != Some(digest(parameters).as_str()) {
-            return Err(ArtifactError::Binding);
-        }
-        Ok(())
-    }
 }
 
 pub(crate) fn digest(bytes: &[u8]) -> String {
