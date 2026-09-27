@@ -282,23 +282,35 @@ history; it says nothing about whether the path has ever run in some other envir
     recorded in canonical UTC, net return, maximum drawdown, and every execution with its side and with
     price and quantity exactly as the engine wrote them. It carries no statistics map, because those
     legitimately hold non-finite values. An `EMPTY` report also names why the run recorded no return, as
-    `empty_reason`, derived from those same bytes and nothing else. The engine's own rule decides the set:
-    `Portfolio::statistics` takes daily equity returns from portfolio snapshots on at least two UTC days in
-    one currency, and otherwise the return of each closed position. So a run that closed a position is never
-    `EMPTY`, and a canonical result that is `EMPTY` with a closed position is refused as
-    `ENGINE_RESULT_NONCANONICAL` rather than given a reason. The first of these that holds is the reason,
-    and each is reached today as stated:
-    - `NO_FILL`: the run has no fill. No run reaches it, because the Sim EVENT consumer refuses a run
-      without a native fill before any Result exists; a projection test over a canonical result with no
-      fills does.
-    - `NO_CLOSED_POSITION_WITHIN_ONE_BALANCE_DAY`: the run has a fill, closed no position, and its portfolio
-      snapshots fall on fewer than two UTC days. F's single-frame run reaches it, and so does
-      `an_authored_universe_member_program_enters_once_and_reports_empty`.
-    - `NO_CLOSED_POSITION_WITHOUT_DAILY_EQUITY`: the run has a fill, closed no position, and its snapshots
-      span two or more UTC days that still gave the engine no daily equity series - more than one equity
-      currency, or unpriced snapshots, which the engine skips, leaving fewer than two days. No run reaches it
-      today, because every admitted account holds one currency; a projection test over two days of snapshots
-      in two currencies does.
+    `empty_reason`, derived from those same bytes and nothing else. The engine's own rule decides it:
+    `Portfolio::statistics` takes daily equity returns from the portfolio snapshots
+    (`calculate_snapshot_returns`) and, when those resolve to nothing, the return of each closed position. A run
+    records no return exactly when the snapshots resolve to nothing and it closed no position. The reason is the
+    first cause the engine's snapshot resolution meets, in its own order:
+    - `MORE_THAN_ONE_EQUITY_CURRENCY`: a priced snapshot carries more than one equity, or two priced snapshots
+      carry different currencies.
+    - `ACCOUNT_WITHOUT_PRICED_SNAPSHOT`: the run has no account, or one of its accounts has no priced snapshot,
+      because every snapshot of it names an unpriced instrument.
+    - `FEWER_THAN_TWO_ENGINE_DAYS`: the priced snapshots give fewer than two days on which every account has
+      equity, as the engine counts days. `snapshot_day_start` files each account's first priced snapshot, and
+      any snapshot exactly on a UTC midnight, under the previous day, so a one-account run has two days as soon
+      as it has a later snapshot not on a midnight. A run without a fill is therefore `AVAILABLE` with a return of
+      zero, and having a fill is not a reason.
+
+    A canonical result that is `EMPTY` although it closed a position, or although its snapshots resolve to a daily
+    series, is not one the engine writes, and it is refused as `ENGINE_RESULT_NONCANONICAL` rather than given a
+    reason. Every input the rule reads is in the committed bytes: the accounts' identities, each portfolio
+    snapshot's account, `ts_event`, `total_equity`, `base_currency_equity` and `unpriced_instruments`, and each
+    position's `ts_closed` and `realized_pnl`. The projection asks the engine's resolution itself for its cause
+    rather than keeping a second copy of the rule. What reaches each reason today:
+    - `FEWER_THAN_TWO_ENGINE_DAYS`: a run whose snapshots all fall on one midnight, which
+      `a_run_whose_snapshots_all_fall_on_a_midnight_reports_empty` runs with a control a minute later; and any run
+      on the epoch's first day, where the previous day cannot go below day zero, such as the sealed frame at 25 ns
+      that `an_authored_universe_member_program_enters_once_through_the_target_set_sim` uses. F's single frame is
+      not one: its registration snapshot is at the frame's midnight and its fill snapshot after it, so it is
+      `AVAILABLE` with one return.
+    - `MORE_THAN_ONE_EQUITY_CURRENCY` and `ACCOUNT_WITHOUT_PRICED_SNAPSHOT`: no run, because every admitted account
+      holds one currency and prices its instruments; a projection test over edited snapshots reaches each.
 
     The key is always present: `null` in an `AVAILABLE` report, one of the set in an `EMPTY` one. The strategy and the data window are not in a backtest result,
     so they come from upstream: the replay request the run answered, and the Design and program

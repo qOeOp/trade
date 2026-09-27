@@ -237,18 +237,28 @@ production write、provider effect、Paper、Live 或交易权威。
     结果证据所绑定的引擎结果摘要；由 Owner 判定的状态（`AVAILABLE` 或 `EMPTY`）；该次运行记录的每一个
     收益观测，时间为规范 UTC；净收益；最大回撤；以及每一笔成交的方向，价格与数量按引擎写出的原样给出。
     它不承载统计量映射，因为那些映射合法地含有非有限值。`EMPTY` 的报告还会以 `empty_reason` 说出这次运行
-    为什么没有记录收益，只从同一份字节推出，不引入别的输入。取值集合由引擎自己的规则决定：
-    `Portfolio::statistics` 在组合快照落在至少两个 UTC 日且为单一币种时取日权益收益，否则取每个已平仓持仓的
-    收益。所以平过仓的运行永远不会是 `EMPTY`；一份 `EMPTY` 却带已平仓持仓的 canonical result 以
-    `ENGINE_RESULT_NONCANONICAL` 拒绝，而不是给它编一个原因。按下列顺序，第一个成立的就是原因，每一项今天
-    的驱动方式如下：
-    - `NO_FILL`：运行没有成交。没有任何运行能走到它，因为 Sim EVENT 消费者在任何 Result 存在之前就拒绝
-      没有真实成交的运行；由一个对无成交 canonical result 做投影的测试驱动。
-    - `NO_CLOSED_POSITION_WITHIN_ONE_BALANCE_DAY`：运行有成交、没有平仓，且组合快照落在少于两个 UTC 日。
-      F 的单帧运行走到它，`an_authored_universe_member_program_enters_once_and_reports_empty` 也是。
-    - `NO_CLOSED_POSITION_WITHOUT_DAILY_EQUITY`：运行有成交、没有平仓，快照跨两个或更多 UTC 日，但引擎仍
-      没得到日权益序列 - 权益币种不止一种，或者 unpriced 的快照被引擎跳过后剩下的不足两天。今天没有运行走到它，因为每个
-      准入账户都只持一种币种；由一个对两天、两种币种快照做投影的测试驱动。
+    为什么没有记录收益，只从同一份字节推出，不引入别的输入。决定它的是引擎自己的规则：`Portfolio::statistics`
+    从组合快照取日权益收益（`calculate_snapshot_returns`），快照解不出结果时，取每个已平仓持仓的收益。一次运行
+    不记录收益，当且仅当快照解不出结果且它没有平过仓。原因是引擎的快照解析按它自己的顺序遇到的第一个成因：
+    - `MORE_THAN_ONE_EQUITY_CURRENCY`：某个已定价快照带不止一个权益，或两个已定价快照的币种不同。
+    - `ACCOUNT_WITHOUT_PRICED_SNAPSHOT`：运行没有账户，或它的某个账户没有已定价快照，因为该账户的每个快照都
+      指名了一个未定价的合约。
+    - `FEWER_THAN_TWO_ENGINE_DAYS`：按引擎计日的方式，已定价快照给出的「每个账户都有权益」的天少于两个。
+      `snapshot_day_start` 把每个账户的第一个已定价快照、以及任何恰好落在 UTC 零点的快照，都归到前一天，所以
+      单账户的运行只要有一个之后的、不在零点的快照，就有两天。于是没有成交的运行是 `AVAILABLE`、收益为零，
+      有没有成交不是原因。
+
+    一份 `EMPTY` 却平过仓、或快照其实解得出日序列的 canonical result，不是引擎会写出的结果，按
+    `ENGINE_RESULT_NONCANONICAL` 拒绝，而不是给它一个原因。规则读的每个输入都在已提交的字节里：账户的身份，
+    每个组合快照的账户、`ts_event`、`total_equity`、`base_currency_equity` 与 `unpriced_instruments`，以及
+    每个持仓的 `ts_closed` 与 `realized_pnl`。投影直接向引擎的解析要它的成因，而不是另存一份规则。今天各原因
+    由什么走到：
+    - `FEWER_THAN_TWO_ENGINE_DAYS`：所有快照都落在同一个零点的运行，`a_run_whose_snapshots_all_fall_on_a_midnight_reports_empty`
+      跑的就是它，并以晚一分钟作对照；以及任何落在 epoch 第一天的运行，那里前一天不能低于第零天，例如
+      `an_authored_universe_member_program_enters_once_through_the_target_set_sim` 用的 25 ns 的 sealed 帧。
+      F 的单帧不在此列：它的注册快照在帧的零点、成交快照在其后，所以是带一个收益的 `AVAILABLE`。
+    - `MORE_THAN_ONE_EQUITY_CURRENCY` 与 `ACCOUNT_WITHOUT_PRICED_SNAPSHOT`：没有运行走得到，因为每个准入账户
+      都只持一种币种并给它的合约定价；各由一个对改过的快照做投影的测试走到。
 
     这个键恒在：`AVAILABLE` 的报告里为 `null`，`EMPTY` 的报告里是集合中的一个。策略与数据窗口不在回测结果里，所以取自上游：
     该次运行所回应的 replay 请求，以及冻结在该请求所指 Design 之下的 Design 与程序。三次读取都在报告自己开的
