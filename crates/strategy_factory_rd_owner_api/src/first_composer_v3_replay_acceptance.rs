@@ -30,6 +30,11 @@ use async_trait::async_trait;
 use axum::{body::Body, extract::Request};
 use tower::ServiceExt;
 use vibe_data::owner::{
+    bar_schedule::{
+        BarScheduleClockV1, BarScheduleCompletionV1, BarScheduleKindV1, BarScheduleLabelV1,
+        BarScheduleUnitV1,
+    },
+    declared_bar_timeframe_v1::{DeclaredBarAnchorV1, anchor_identity_v1},
     instrument_master_admission_v1::{
         InstrumentDecimalSubmissionV1, InstrumentMasterFactSubmissionV1,
         InstrumentVenueSourceMappingSubmissionV1,
@@ -38,6 +43,7 @@ use vibe_data::owner::{
     market_semantics_admission_v1::{
         MarketSemanticsFactSubmissionV1, MarketSemanticsValueSubmissionV1,
     },
+    native_replay_scheduling_v1::native_bar_type_for_schedule_v1,
     pit_market_snapshot_intake_v1::pit_market_snapshot_intake_from_environment_v1,
     pit_observation_source_v1::{
         PitObservationScopeV1, PitObservationSourceErrorV1, PitObservationSourceV1,
@@ -984,29 +990,59 @@ pub(crate) async fn ensure_first_composer_v3_replay_acceptance_v1(
     // proposer for (`bar_schedule_acceptance_v1`). Market Data derives every schedule field from the
     // snapshot's verified batch, the role's declaration and the snapshot's Instrument Master cut.
     //
-    // UNVERIFIED: the klines binding now declares the rows' bar timeframe (a fixed 24-hour UTC day),
-    // and the proposer mints the schedule from that declaration (S1'). What it minted is not yet
-    // asserted: its answer carries only the schedule's identity and digest, the schedule readback
-    // is reachable only through the Store Admission resolver, and the native bar type
-    // (`LINKUSDT-PERP.BINANCE-1-DAY-LAST-EXTERNAL`) is projected only by the initial market read
-    // past H8's Economic Terms. This step asserts the schedule field by field, and that bar type,
-    // once one of those reads is open to it.
+    // The schedule is the one the klines binding declares: a fixed 24-hour UTC day on the Unix epoch
+    // grid, continuous, labelled at its close, complete only, and the engine's bar type for it is
+    // the canonical `1-DAY` spelling of that duration.
     let close_role = design
         .inputs
         .iter()
         .find(|role| role.semantic_id == CLOSE_ROLE)
         .expect("H4b: the Design declares its pricing role");
-    vibe_data::owner::bar_schedule_acceptance_v1::commit_bar_schedule_for_acceptance_v1(
-        test_database.database_url(CanonicalOwnerTestRoleV1::MarketDataOwner),
-        &pit_snapshot,
-        serde_json::from_value(published["design_identity"].clone())
-            .expect("H3: the role intent names its Design"),
-        vibe_strategy_factory::strategy_plan_v2::strategy_input_role_identity_v2(close_role),
-    )
-    .await
-    .unwrap_or_else(|e| {
-        panic!("H4b: Market Data puts the pricing role's BAR schedule in custody: {e:?}")
-    });
+    let minted =
+        vibe_data::owner::bar_schedule_acceptance_v1::commit_bar_schedule_for_acceptance_v1(
+            test_database.database_url(CanonicalOwnerTestRoleV1::MarketDataOwner),
+            &pit_snapshot,
+            serde_json::from_value(published["design_identity"].clone())
+                .expect("H3: the role intent names its Design"),
+            vibe_strategy_factory::strategy_plan_v2::strategy_input_role_identity_v2(close_role),
+        )
+        .await
+        .unwrap_or_else(|e| {
+            panic!("H4b: Market Data puts the pricing role's BAR schedule in custody: {e:?}")
+        });
+    let schedule = minted.schedule().fact();
+    assert_eq!(
+        (schedule.kind(), schedule.unit(), schedule.step()),
+        (
+            BarScheduleKindV1::FixedInterval,
+            BarScheduleUnitV1::Hour,
+            24
+        ),
+        "H4b: the schedule is a fixed 24-hour interval"
+    );
+    assert_eq!(
+        schedule.anchor_identity(),
+        anchor_identity_v1(DeclaredBarAnchorV1::UnixEpoch),
+        "H4b: the schedule is anchored at the Unix epoch"
+    );
+    assert_eq!(schedule.clock(), BarScheduleClockV1::Continuous);
+    assert_eq!(
+        (schedule.calendar_identity(), schedule.session_identity()),
+        (
+            BindingDigest::from_untrusted_bytes([0; 32]),
+            BindingDigest::from_untrusted_bytes([0; 32])
+        ),
+        "H4b: a continuous schedule binds no calendar and no session"
+    );
+    assert_eq!(schedule.label(), BarScheduleLabelV1::IntervalClose);
+    assert_eq!(schedule.completion(), BarScheduleCompletionV1::CompleteOnly);
+    assert_eq!(
+        native_bar_type_for_schedule_v1(schedule, PERPETUAL_V1.into())
+            .expect("H4b: the schedule projects to a bar type")
+            .to_string(),
+        "LINKUSDT-PERP.BINANCE-1-DAY-LAST-EXTERNAL",
+        "H4b: the engine's bar type for the schedule"
+    );
     let (status, answer) = post(
         &routes,
         "/v1/bounded-feature-programs/declare",
