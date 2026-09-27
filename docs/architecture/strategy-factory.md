@@ -1368,6 +1368,13 @@ surfaces: the Design role, the role entry, the Market Data binding request, the 
 Program input, the Plan binding, and the Research scope with its PIT request. Extending each constant would repeat
 that pattern; the target below deletes the variants instead.
 
+Two other shapes of pressure surfaced on the same path. The envelope does not remove them, so they are recorded for
+evaluation after F. One is a consumer built against a producer that was never built, which the section on what the
+envelope assumes of F scopes. The other is a global scan in place of an exact read by identity: a Research
+submission, the current Research lock, and the historical readback each admit every Research custody in the store,
+reading them twice and the second time under a shared row lock, so one custody that fails verification blocks every
+later submission and the cost grows with the whole history.
+
 ### Prerequisite slices
 
 - **P0, one source for the shape tuple:** the Research request's scope carries the member set, the role set, and the
@@ -1475,8 +1482,9 @@ including on inputs with ties.
 - **Values:** catalog V4a appends window rank and percentile, bars since an extremum, and covariance and correlation.
   V4b appends natural logarithm and exponential. The user authorized their numeric rule on 2026-09-27 by choosing, in
   these words (translated): "Introduce ln/exp with a pinned algorithm plus golden test vectors, applying only to new
-  catalog rows; this class of operation is exempt from 'one exact expression, one final rounding'." V5 adds a
-  fixed-bucket state rule. Bollinger variance written as `Mean(x²) − Mean(x)²` must guard its radicand with `Select`,
+  catalog rows; this class of operation is exempt from 'one exact expression, one final rounding'." V5 adds two
+  fixed-slot state rules: a bucket array, and a memory of the last N events whose slots each hold a frozen set of
+  values. Bollinger variance written as `Mean(x²) − Mean(x)²` must guard its radicand with `Select`,
   because the two terms round separately.
 - **Inputs:** funding rate and open interest extend the existing Binance futures PIT source with two appended row
   fields and field semantics (N1). Binance's public archive holds history for mark, index, and premium klines,
@@ -1489,6 +1497,66 @@ including on inputs with ties.
   `LifecycleContext` values the program may read, where `DecisionTime` is the frame's decision cut `d_k`; intended entry price and bars held are expressible inside the
   program already. A2 places take-profit as reduce-only limit orders. A3 first measures a one-limit-per-bar ladder
   and adds a kernel ladder only if that is not enough.
+
+### Coverage corpus
+
+Every shape has at least one reference strategy, and each must compile through the authoring language and run to a
+report over a multi-frame Backtest, proven by its chain entry's test name. The corpus and the slices each item needs:
+
+| Shape                                 | Reference                                                                           | Needs              |
+| ------------------------------------- | ----------------------------------------------------------------------------------- | ------------------ |
+| Moving average crossover              | C1                                                                                  | P0, P1, T1         |
+| Breakout with an ATR stop             | C2, chandelier stop                                                                 | P1, T1, D1         |
+| Oversold reversal with a trend filter | C3                                                                                  | P1, T1             |
+| Range quartering                      | Ronnie S3, 4h                                                                       | P1, T1, A1         |
+| Support and resistance limit orders   | Ronnie S1, 4h structure, 1h execution                                               | P1, T2, A1, A2, V5 |
+| Large body breakout                   | Ronnie S2b                                                                          | P1, T1, A1         |
+| Fibonacci layered entries             | Ronnie S4                                                                           | P1, T1, V4a, A3    |
+| Counter trend short at a key level    | Ronnie S5                                                                           | P1, T1, D1, A1     |
+| Bollinger state filter                | Ronnie F1(c), with a `Select` radicand guard                                        | P1, T1             |
+| Weekly momentum                       | Ronnie F2, weekly signal, daily execution                                           | T2                 |
+| Independent instruments               | F2 on BTC and ETH                                                                   | I1                 |
+| Cross instrument condition            | BTC trend filtering ETH                                                             | I2                 |
+| Pair spread                           | BTC and ETH z score                                                                 | I2, V4a            |
+| Cross sectional rotation              | Top two of eight by momentum                                                        | I2, I3             |
+| Funding rate filter                   | Extreme funding reversal                                                            | N1                 |
+| Ronnie's drawing rules R1 to R6       | Horizontal and wide bands, trend line bands, Fibonacci, quartering, timeframe roles | See below          |
+
+Ronnie's drawing rules were measured from 2,512 screenshots across 17 of his videos and reduced to six computable
+rules. They need these slices:
+
+- **R1 and R2, horizontal and wide bands:** P1, T1, and V5's memory of the last N reactions, where each slot keeps
+  one swing point's wick extreme and nearest body edge; clustering, the outer and inner edges, and the thickness
+  clip are reductions over those slots, and ATR is expressible today. An order-k swing point is a lag plus a
+  centered window maximum or minimum.
+- **R3, trend line bands:** P1, V4a's bars since an anchor, and the authoring language's `capture` and `latch` to
+  move an anchor on an event. The line's value is the anchors' linear extrapolation with one final rounding; trading
+  needs the value, not a drawn coordinate.
+- **R4, Fibonacci:** P1, V4a to require the high after the low, and `capture`; levels are frozen rationals, and
+  Ronnie's 0.764 is 191/250.
+- **R5, quartering:** arithmetic over the inner edges of the R1 or R2 bands above and below.
+- **R6, timeframe roles:** T2 over daily direction, 4h structure, and 1h execution, with A1 sizing and V5 bands;
+  it is T2's acceptance example.
+
+Compiling is not enough for these rules. Each of R1 to R6 carries a behavioral positive control on real data: the
+program runs over the public K-lines of the instrument, venue, timeframe, and window each measured frame shows, and
+the band edges, line values, and Fibonacci levels it computes must match the prices measured from those frames
+within the measurement's own error - about one dollar per edge, 0.9% of a band's thickness, where a frame printed
+its own prices, and two pixels at that frame's price scale elsewhere. The control has two halves so that a miss has
+one cause: the program's output must equal a direct reference computation of the same rule exactly, which tests the
+compiled program, and that reference must match the measured prices within the tolerance, which tests the rule and
+the parameters the measurement filled in rather than observed. It becomes constructible only after T1 and V5.
+
+### What the envelope assumes of F
+
+The envelope adds no production path of its own: every slice runs a Backtest through the path F's acceptance
+establishes. That path's first-generation Replay binds the family formation frontier, as the legacy path does, because
+a family forms before any attempt and an attempt is a Replay that has already produced a Result. A first-generation
+Replay therefore needs no attempt cut and no R&D Decision composition, and every corpus item above is a
+first-generation run. A successor Replay - a later research round of the same family - reads the TrialFamily Census V2,
+which needs an attempt cut whose only writer waits for the Decision composition consumer; successors remain
+`TARGET / NOT_ADMITTED` in the R&D Owner, and the envelope neither needs nor builds them. An acceptance that iterates
+one family would depend on that producer and would be listed separately.
 
 ### Order and what is asked later
 
