@@ -112,10 +112,40 @@ const ACCEPTANCE_COMMIT_FUNCTION_V3: &str = "composer_owner_api.commit_develop_c
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
 const ACCEPTANCE_COMMIT_QUERY_V3: &str = "SELECT composer_owner_api.commit_develop_composer_acceptance_v3($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33)";
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
-const COMPOSER_OWNER_API_FUNCTION_COUNT_V2: i64 = 11;
+const COMPOSER_OWNER_API_FUNCTION_COUNT_V2: i64 = 13;
 #[cfg(not(feature = "sealed-source-intake-composer-acceptance"))]
-const COMPOSER_OWNER_API_FUNCTION_COUNT_V2: i64 = 9;
+const COMPOSER_OWNER_API_FUNCTION_COUNT_V2: i64 = 11;
 const COMMIT_CUT_FUNCTION_V2: &str = "composer_owner_api.lock_develop_composer_commit_cut_v2(text)";
+const RUN_VIEW_RECORD_FUNCTION_V1: &str =
+    "composer_owner_api.record_develop_composer_run_view_v1(text,jsonb,bigint)";
+const RUN_VIEW_RECORD_QUERY_V1: &str =
+    "SELECT composer_owner_api.record_develop_composer_run_view_v1($1,$2,$3)";
+const RUN_VIEW_RECORD_FUNCTION_SOURCE_V1: &str = "BEGIN
+  IF SESSION_USER NOT IN ('rd_fact_writer','rd_owner') THEN RAISE EXCEPTION 'R&D Composer writer required' USING ERRCODE='42501'; END IF;
+  IF pg_catalog.jsonb_typeof(p_research_view)<>'object' OR p_read_cut_epoch_ms<0 THEN RAISE EXCEPTION 'Composer run view is malformed' USING ERRCODE='22023'; END IF;
+  UPDATE composer_private.rd_develop_operations_v2 operation
+     SET run_research_view_json=p_research_view, run_read_cut_epoch_ms=p_read_cut_epoch_ms
+   WHERE operation.request_identity=p_request_identity
+     AND operation.run_research_view_json IS NULL
+     AND operation.run_read_cut_epoch_ms IS NULL;
+  IF FOUND THEN RETURN; END IF;
+  PERFORM operation.request_identity
+    FROM composer_private.rd_develop_operations_v2 operation
+   WHERE operation.request_identity=p_request_identity
+     AND operation.run_research_view_json IS NOT NULL
+     AND operation.run_read_cut_epoch_ms IS NOT NULL;
+  IF NOT FOUND THEN RAISE EXCEPTION 'Composer operation is absent or half recorded' USING ERRCODE='P0002'; END IF;
+END";
+const RUN_VIEW_READ_FUNCTION_V1: &str =
+    "composer_owner_api.read_develop_composer_run_view_v1(text)";
+const RUN_VIEW_READ_QUERY_V1: &str = "SELECT research_view,read_cut_epoch_ms FROM composer_owner_api.read_develop_composer_run_view_v1($1)";
+const RUN_VIEW_READ_FUNCTION_SOURCE_V1: &str = "BEGIN
+  IF SESSION_USER<>'rd_owner' OR CURRENT_USER<>'composer_owner' THEN RAISE EXCEPTION 'R&D Owner required' USING ERRCODE='42501'; END IF;
+  RETURN QUERY
+  SELECT operation.run_research_view_json,operation.run_read_cut_epoch_ms
+    FROM composer_private.rd_develop_operations_v2 operation
+   WHERE operation.request_identity=p_request_identity;
+END";
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
 pub const SEALED_COMPOSER_FAIL_AFTER_GUC_V2: &str = "vibe.sealed_acceptance.composer_fail_after";
 
@@ -2138,6 +2168,8 @@ async fn verify_composer_read_authority_in_transaction(
         "rd_develop_operations_v2:5:artifact_identity:bytea:true:",
         "rd_develop_operations_v2:6:canonical_receipt_bytes:bytea:true:",
         "rd_develop_operations_v2:7:response_bytes:bytea:true:",
+        "rd_develop_operations_v2:8:run_research_view_json:jsonb:false:",
+        "rd_develop_operations_v2:9:run_read_cut_epoch_ms:bigint:false:",
         "rd_develop_outbox_v2:1:request_identity:text:true:",
         "rd_develop_outbox_v2:2:canonical_bytes:bytea:true:",
         "rd_develop_plans_v2:1:plan_digest:bytea:true:",
@@ -2485,6 +2517,84 @@ async fn verify_composer_commit_cut_authority_in_transaction(
     } else {
         Err(sqlx::Error::Protocol(
             "Composer request-scoped commit-cut authority is unavailable".to_owned(),
+        ))
+    }
+}
+
+/// The two run-view routines, as the migration materializes them: owned by `composer_owner`, with
+/// exactly the source this build expects, and executable by `rd_owner` alone, or by both R&D writers
+/// for the recorder that the Composer commit transaction calls.
+#[derive(Clone, Copy)]
+enum ComposerRunViewRoutineV1 {
+    Record,
+    Read,
+}
+
+impl ComposerRunViewRoutineV1 {
+    const fn signature(self) -> &'static str {
+        match self {
+            Self::Record => RUN_VIEW_RECORD_FUNCTION_V1,
+            Self::Read => RUN_VIEW_READ_FUNCTION_V1,
+        }
+    }
+
+    const fn source(self) -> &'static str {
+        match self {
+            Self::Record => RUN_VIEW_RECORD_FUNCTION_SOURCE_V1,
+            Self::Read => RUN_VIEW_READ_FUNCTION_SOURCE_V1,
+        }
+    }
+
+    const fn is_recorder(self) -> bool {
+        matches!(self, Self::Record)
+    }
+}
+
+async fn verify_composer_run_view_authority_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    routine: ComposerRunViewRoutineV1,
+) -> Result<(), sqlx::Error> {
+    let exact: bool = sqlx::query_scalar(
+        "SELECT pg_catalog.pg_get_userbyid(procedure.proowner)='composer_owner'
+            AND language.lanname='plpgsql'
+            AND procedure.prokind='f'
+            AND procedure.proretset=NOT $3
+            AND procedure.prosecdef
+            AND procedure.proisstrict
+            AND procedure.provolatile=CASE WHEN $3 THEN 'v' ELSE 's' END
+            AND procedure.proparallel='u'
+            AND procedure.proconfig=ARRAY['search_path=pg_catalog, pg_temp']::text[]
+            AND procedure.prosrc=$2
+            AND NOT pg_catalog.pg_has_role('rd_owner','composer_owner','MEMBER')
+            AND NOT pg_catalog.pg_has_role('composer_owner','rd_owner','MEMBER')
+            AND pg_catalog.has_function_privilege('rd_owner',procedure.oid,'EXECUTE')
+            AND pg_catalog.has_function_privilege('rd_fact_writer',procedure.oid,'EXECUTE')=$3
+            AND NOT pg_catalog.has_function_privilege('market_data_reader',procedure.oid,'EXECUTE')
+            AND (
+              SELECT count(*)=CASE WHEN $3 THEN 3 ELSE 2 END
+                 AND count(*) FILTER (WHERE acl.grantee=procedure.proowner AND acl.privilege_type='EXECUTE')=1
+                 AND count(*) FILTER (WHERE role.rolname='rd_owner' AND acl.privilege_type='EXECUTE' AND NOT acl.is_grantable)=1
+                 AND count(*) FILTER (WHERE role.rolname='rd_fact_writer' AND acl.privilege_type='EXECUTE' AND NOT acl.is_grantable)=CASE WHEN $3 THEN 1 ELSE 0 END
+                 AND count(*) FILTER (WHERE acl.grantee=0 OR acl.privilege_type<>'EXECUTE' OR (acl.grantee<>procedure.proowner AND (acl.is_grantable OR role.rolname NOT IN ('rd_owner','rd_fact_writer'))))=0
+                FROM pg_catalog.aclexplode(COALESCE(procedure.proacl,pg_catalog.acldefault('f',procedure.proowner))) acl
+                LEFT JOIN pg_catalog.pg_roles role ON role.oid=acl.grantee
+            )
+           FROM pg_catalog.pg_proc procedure
+           JOIN pg_catalog.pg_language language ON language.oid=procedure.prolang
+          WHERE procedure.oid=pg_catalog.to_regprocedure($1)",
+    )
+    .bind(routine.signature())
+    .bind(routine.source())
+    .bind(routine.is_recorder())
+    .fetch_optional(&mut **transaction)
+    .await?
+    .unwrap_or(false);
+
+    if exact {
+        Ok(())
+    } else {
+        Err(sqlx::Error::Protocol(
+            "Composer run-view authority is unavailable".to_owned(),
         ))
     }
 }
@@ -3586,7 +3696,7 @@ impl PostgresDevelopComposerStoreV2 {
             &record,
             &role_set,
             None,
-            current.bindings.clone(),
+            &current,
             None,
         )
         .await
@@ -3663,7 +3773,7 @@ impl PostgresDevelopComposerStoreV2 {
             &record,
             &role_set,
             None,
-            current.bindings.clone(),
+            &current,
             fail_after_boundary,
         )
         .await
@@ -3839,7 +3949,7 @@ impl PostgresDevelopComposerStoreV2 {
             &record,
             &role_set,
             native_join_receipt.as_ref(),
-            current.bindings.clone(),
+            &current,
             fail_after_boundary,
         )
         .await
@@ -4050,7 +4160,7 @@ async fn persist_record(
     record: &StoredDevelopComposerPositiveV2,
     role_set: &StrategyDesignRoleSetReceiptV1,
     native_join: Option<&StrategyDesignNativeJoinReceiptV1>,
-    current_bindings: crate::strategy_plan_v2::VerifiedStrategyInputBindingsV2,
+    current: &DevelopComposerLockedEvidenceV2,
     #[cfg(feature = "sealed-source-intake-composer-acceptance")] fail_after_boundary: Option<
         DevelopComposerAcceptanceWriteBoundaryV2,
     >,
@@ -4071,7 +4181,7 @@ async fn persist_record(
     verify_composer_commit_authority_in_transaction(transaction).await?;
     let plan = crate::strategy_plan_v2::StrategyPlanV2::parse_and_revalidate_durable(
         &record.plan_bytes,
-        current_bindings,
+        current.bindings.clone(),
     )
     .map_err(sqlx::Error::Protocol)?;
     let build_receipt_tag = record
@@ -4204,12 +4314,102 @@ async fn persist_record(
     };
     let committed: bool = commit_query.fetch_one(&mut **transaction).await?;
 
-    if committed {
-        Ok(())
-    } else {
-        Err(sqlx::Error::Protocol(
+    if !committed {
+        return Err(sqlx::Error::Protocol(
             "Composer owner rejected commit envelope".to_owned(),
-        ))
+        ));
+    }
+    Box::pin(record_run_view(
+        transaction,
+        &record.request_identity,
+        current,
+    ))
+    .await
+}
+
+/// Records, in the commit's own transaction, the Research View the run was verified under and the
+/// read cut it was verified at. Only a custody built from a verified View carries them; the corpus
+/// fixtures behind sealed acceptance carry none and record nothing.
+async fn record_run_view(
+    transaction: &mut Transaction<'_, Postgres>,
+    request_identity: &str,
+    current: &DevelopComposerLockedEvidenceV2,
+) -> Result<(), sqlx::Error> {
+    let Some(run_view) = current.research.run_view() else {
+        return Ok(());
+    };
+    verify_composer_run_view_authority_in_transaction(
+        transaction,
+        ComposerRunViewRoutineV1::Record,
+    )
+    .await?;
+    let read_cut = i64::try_from(run_view.read_cut_epoch_ms)
+        .map_err(|_| sqlx::Error::Protocol("Composer run read cut overflows".to_owned()))?;
+    sqlx::query(RUN_VIEW_RECORD_QUERY_V1)
+        .bind(request_identity)
+        .bind(
+            serde_json::to_value(&run_view.view)
+                .map_err(|e| sqlx::Error::Protocol(e.to_string()))?,
+        )
+        .bind(read_cut)
+        .execute(&mut **transaction)
+        .await?;
+    Ok(())
+}
+
+/// What a committed Composer operation recorded about the View it ran under.
+#[derive(Debug, Eq, PartialEq)]
+pub(crate) enum DevelopComposerRunViewRecordV1 {
+    /// Committed before the record existed.
+    Unrecorded,
+    Recorded(Box<crate::develop_composer_v2::ResearchRunViewV1>),
+}
+
+/// Reads the run View a committed operation recorded. The caller has already read the operation
+/// itself, so an absent row is a store fault, not an unrecorded run.
+pub(crate) async fn load_run_view_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    request_identity: &str,
+) -> Result<DevelopComposerRunViewRecordV1, sqlx::Error> {
+    verify_composer_run_view_authority_in_transaction(transaction, ComposerRunViewRoutineV1::Read)
+        .await?;
+    let rows = sqlx::query(RUN_VIEW_READ_QUERY_V1)
+        .bind(request_identity)
+        .fetch_all(&mut **transaction)
+        .await?;
+    let [row] = rows.as_slice() else {
+        return Err(sqlx::Error::Protocol(
+            "Composer run view does not name exactly one operation".to_owned(),
+        ));
+    };
+    let view: Option<serde_json::Value> = row.try_get("research_view")?;
+    let read_cut: Option<i64> = row.try_get("read_cut_epoch_ms")?;
+    match (view, read_cut) {
+        (None, None) => Ok(DevelopComposerRunViewRecordV1::Unrecorded),
+        (Some(view), Some(read_cut)) => {
+            let decoded: crate::product_edge::ResearchViewV1 = serde_json::from_value(view.clone())
+                .map_err(|e| {
+                    sqlx::Error::Protocol(format!("Composer run view is malformed: {e}"))
+                })?;
+
+            if serde_json::to_value(&decoded).ok().as_ref() != Some(&view) {
+                return Err(sqlx::Error::Protocol(
+                    "Composer run view is not the canonical View encoding".to_owned(),
+                ));
+            }
+            let read_cut_epoch_ms = u64::try_from(read_cut).map_err(|_| {
+                sqlx::Error::Protocol("Composer run read cut is negative".to_owned())
+            })?;
+            Ok(DevelopComposerRunViewRecordV1::Recorded(Box::new(
+                crate::develop_composer_v2::ResearchRunViewV1 {
+                    view: decoded,
+                    read_cut_epoch_ms,
+                },
+            )))
+        }
+        _ => Err(sqlx::Error::Protocol(
+            "Composer run view is half recorded".to_owned(),
+        )),
     }
 }
 

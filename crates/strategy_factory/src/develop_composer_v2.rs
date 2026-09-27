@@ -255,6 +255,18 @@ pub(crate) struct CurrentResearchDevelopCustodyV2 {
     trial_family_frontier_identity: String,
     trial_family_frontier_digest: String,
     custody_digest: BindingDigest,
+    /// The View this custody was verified under and the read cut it was verified at. A committed
+    /// run records both, so its readback can re-derive it after the View expires or moves on. The
+    /// custody digest already binds the View's identity and source cut, so this stays out of it.
+    #[serde(skip)]
+    run_view: Option<Box<ResearchRunViewV1>>,
+}
+
+/// The Research View a Composer operation ran under and the Owner read cut it ran at.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct ResearchRunViewV1 {
+    pub(crate) view: ResearchViewV1,
+    pub(crate) read_cut_epoch_ms: u64,
 }
 
 impl CurrentResearchDevelopCustodyV2 {
@@ -282,6 +294,10 @@ impl CurrentResearchDevelopCustodyV2 {
         self.custody_digest
     }
 
+    pub(crate) fn run_view(&self) -> Option<&ResearchRunViewV1> {
+        self.run_view.as_deref()
+    }
+
     #[cfg(test)]
     pub(crate) fn joint_bfp_test_fixture(design: &StrategyDesignV2) -> Self {
         Self {
@@ -299,6 +315,7 @@ impl CurrentResearchDevelopCustodyV2 {
             trial_family_frontier_identity: "test-trial-family-frontier-v2".to_owned(),
             trial_family_frontier_digest: "sha256:test-trial-family-frontier-v2".to_owned(),
             custody_digest: BindingDigest::from_untrusted_bytes([4; 32]),
+            run_view: None,
         }
     }
 
@@ -399,6 +416,10 @@ impl CurrentResearchDevelopCustodyV2 {
             trial_family_frontier_identity: family.census_frontier().frontier_identity().to_owned(),
             trial_family_frontier_digest: family.census_frontier().frontier_digest().to_owned(),
             custody_digest: BindingDigest::from_untrusted_bytes([0; 32]),
+            run_view: Some(Box::new(ResearchRunViewV1 {
+                view: view.clone(),
+                read_cut_epoch_ms,
+            })),
         };
         value.custody_digest = domain_digest(
             b"rd.develop.current-research-custody.v2\0",
@@ -491,6 +512,10 @@ impl CurrentResearchDevelopCustodyV2 {
             trial_family_frontier_identity: family.census_frontier.frontier_identity().to_owned(),
             trial_family_frontier_digest: family.census_frontier.frontier_digest().to_owned(),
             custody_digest: BindingDigest::from_untrusted_bytes([0; 32]),
+            run_view: Some(Box::new(ResearchRunViewV1 {
+                view: view.clone(),
+                read_cut_epoch_ms,
+            })),
         };
         value.custody_digest = domain_digest(
             b"rd.develop.current-research-custody.v2\0",
@@ -518,6 +543,7 @@ impl CurrentResearchDevelopCustodyV2 {
             trial_family_frontier_identity: "sealed-develop-family-frontier-v2".to_owned(),
             trial_family_frontier_digest: "sha256:sealed-develop-family-frontier-v2".to_owned(),
             custody_digest: BindingDigest::from_untrusted_bytes([0; 32]),
+            run_view: None,
         };
         let canonical_bytes = serde_json::to_vec(&value)?;
         value.custody_digest = domain_digest(
@@ -1110,6 +1136,7 @@ impl CurrentResearchDevelopCustodyV2 {
             trial_family_frontier_identity: "family-frontier".to_owned(),
             trial_family_frontier_digest: "family-frontier-digest".to_owned(),
             custody_digest: BindingDigest::from_untrusted_bytes([custody_byte; 32]),
+            run_view: None,
         };
         value.custody_digest = domain_digest(
             b"rd.develop.current-research-custody.v2\0",
@@ -1310,5 +1337,24 @@ mod successor_custody_tests {
         .expect_err("expired successor custody must fail closed");
         assert_eq!(expired.kind, DevelopComposerTerminalKindV2::Unavailable);
         assert_eq!(expired.coordinate, "research_custody");
+
+        // The custody carries the View and cut it was verified at, for a committed run to record,
+        // and neither enters its digest: a later cut in the same window is the same custody.
+        let later = CurrentResearchDevelopCustodyV2::from_verified_successor(
+            &readback, &custody, &census, 719,
+        )
+        .expect("the last cut of the window");
+        assert_eq!(later.custody_digest(), admitted.custody_digest());
+        assert_eq!(
+            admitted.run_view(),
+            Some(&ResearchRunViewV1 {
+                view: custody.view().clone(),
+                read_cut_epoch_ms: 121,
+            })
+        );
+        assert_eq!(
+            later.run_view().map(|run_view| run_view.read_cut_epoch_ms),
+            Some(719)
+        );
     }
 }

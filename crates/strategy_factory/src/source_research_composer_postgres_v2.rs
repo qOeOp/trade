@@ -46,12 +46,12 @@ use crate::develop_plugin_build_v2::{
     DevelopPluginBuildProducerV2, DevelopPluginBuildTerminalKindV2,
     VerifiedDevelopPluginBuildReadV2, source_research_composer_sealed_corpus_verified_build_v2,
 };
+use crate::product_edge::ResearchViewV1;
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
 use crate::product_edge::{
-    ResearchComposerArtifactViewV3, ResearchExplorationViewV1, ResearchViewV1,
+    ResearchComposerArtifactViewV3, ResearchExplorationViewV1,
     composer_exploration_research_view_is_valid_v3,
 };
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
 use crate::rd_owner_postgres_custody::validate_historical_view;
 use crate::{
     bounded_feature_program_lowerer_v1::prepare_frozen_bounded_feature_source_inputs_v1,
@@ -64,12 +64,15 @@ use crate::{
         DevelopComposerRunRequestV2, DevelopComposerV3BuildRestartPortV2,
     },
     develop_composer_postgres_v2::{
-        DevelopComposerSealedReadErrorV2, DevelopComposerSealedReadLocatorV2,
-        DevelopComposerSealedReadPortV2, PostgresDevelopComposerStoreV2,
-        PreparedDevelopComposerRunInTransactionV2, SealedDevelopComposerReadbackV2,
-        read_accepted_in_transaction, read_accepted_in_transaction_with_v3_restart,
+        DevelopComposerRunViewRecordV1, DevelopComposerSealedReadErrorV2,
+        DevelopComposerSealedReadLocatorV2, DevelopComposerSealedReadPortV2,
+        PostgresDevelopComposerStoreV2, PreparedDevelopComposerRunInTransactionV2,
+        SealedDevelopComposerReadbackV2, read_accepted_in_transaction,
+        read_accepted_in_transaction_with_v3_restart,
     },
-    develop_composer_v2::{CurrentResearchDevelopCustodyV2, DevelopComposerTerminalV2},
+    develop_composer_v2::{
+        CurrentResearchDevelopCustodyV2, DevelopComposerTerminalV2, ResearchRunViewV1,
+    },
     develop_plugin_build_v2::{
         UntrustedDevelopPluginCapsuleV2, UntrustedDevelopPluginSourceFileV2, bounded_source,
     },
@@ -1523,6 +1526,7 @@ pub(crate) struct PostgresSourceResearchComposerV2<B> {
 pub struct PostgresDevelopComposerReadbackOwnerV2 {
     store: PostgresDevelopComposerReadStoreV2,
     binding_owner: PostgresSourceResearchComposerBindingOwnerV2,
+    clock: crate::rd_owner_clock::RdOwnerClockV1,
 }
 
 impl PostgresDevelopComposerReadbackOwnerV2 {
@@ -1530,8 +1534,151 @@ impl PostgresDevelopComposerReadbackOwnerV2 {
         Ok(Self {
             store: PostgresDevelopComposerReadStoreV2::connect(rd_owner_database_url).await?,
             binding_owner: PostgresSourceResearchComposerBindingOwnerV2,
+            clock: crate::rd_owner_clock::RdOwnerClockV1::owner_transaction(),
         })
     }
+
+    /// The same adapter reading its cut from `clock`, so a test can read back after a View's
+    /// validity window without waiting it out.
+    #[cfg(all(test, feature = "sealed-strategy-input-acceptance"))]
+    pub(crate) fn with_clock(mut self, clock: crate::rd_owner_clock::RdOwnerClockV1) -> Self {
+        self.clock = clock;
+        self
+    }
+}
+
+/// Resolves a committed operation's stored record for its readback.
+///
+/// A run that recorded the View it ran under is re-derived at that View and the cut it ran at,
+/// whatever the Research View has become since. A run committed before that record existed can
+/// only be read against the current View, and says so by name once that no longer verifies.
+pub(crate) async fn resolve_committed_record_for_readback(
+    binding_owner: &impl SourceResearchComposerBindingOwnerV2,
+    transaction: &mut Transaction<'_, Postgres>,
+    record: &crate::develop_composer_operation_v2::StoredDevelopComposerPositiveV2,
+    locator: &DevelopComposerDurableEvidenceLocatorV2,
+    run_view: &DevelopComposerRunViewRecordV1,
+    now_epoch_ms: u64,
+) -> Result<DevelopComposerOperationResponseV2, DevelopComposerTerminalV2> {
+    let (research, frozen, read_cut_epoch_ms) = match run_view {
+        DevelopComposerRunViewRecordV1::Recorded(run_view) => {
+            let research = Box::pin(lock_research_at_run_view_in_transaction(
+                transaction,
+                locator,
+                run_view,
+            ))
+            .await?;
+            let frozen = matching_historical_bfp_v3(transaction, &research, locator).await;
+            (research, frozen, run_view.read_cut_epoch_ms)
+        }
+        DevelopComposerRunViewRecordV1::Unrecorded => {
+            let research = Box::pin(lock_current_research_for_composer_replay_in_transaction(
+                transaction,
+                locator,
+                now_epoch_ms,
+            ))
+            .await
+            .map_err(|_| {
+                DevelopComposerTerminalV2::unavailable(
+                    RUN_VIEW_UNRECORDED_COORDINATE_V1,
+                    "the run predates the record of the Research View it ran under, and its Research custody does not verify against the current View",
+                )
+            })?;
+            let frozen =
+                matching_current_bfp_v3(transaction, &research, locator, now_epoch_ms).await;
+            (research, frozen, now_epoch_ms)
+        }
+    };
+    let bindings = match frozen.as_ref() {
+        Some(frozen) => {
+            binding_owner
+                .lock_for_frozen_program(transaction, frozen, read_cut_epoch_ms)
+                .await?
+        }
+        None => {
+            binding_owner
+                .lock_for_resolve(transaction, locator, read_cut_epoch_ms)
+                .await?
+        }
+    };
+    let locked = DevelopComposerLockedEvidenceV2 { research, bindings };
+
+    match frozen.as_ref() {
+        Some(frozen) => {
+            crate::develop_composer_operation_v2::resolve_positive_record_with_v3_restart_v2(
+                record,
+                locked,
+                &FrozenBfpV3Restart { frozen },
+            )
+        }
+        None => crate::develop_composer_operation_v2::resolve_positive_record_v2(record, locked),
+    }
+}
+
+/// Coordinate of a run committed before the record of its View existed, once the current View no
+/// longer verifies it.
+pub(crate) const RUN_VIEW_UNRECORDED_COORDINATE_V1: &str = "research_custody.run_view_unrecorded";
+/// Coordinate of a recorded read cut that falls outside the recorded View's validity window.
+pub(crate) const RUN_VIEW_CUT_OUTSIDE_VIEW_COORDINATE_V1: &str =
+    "research_custody.run_view.cut_outside_view";
+/// Coordinate of a stored Research View that is not a legal descendant of the recorded one.
+pub(crate) const RUN_VIEW_NOT_ANCESTOR_COORDINATE_V1: &str =
+    "research_custody.run_view.not_ancestor";
+/// Coordinate of a recorded View the Research artifact evidence was not sealed for.
+pub(crate) const RUN_VIEW_NOT_SEALED_COORDINATE_V1: &str = "research_custody.run_view.not_sealed";
+
+/// Whether the recorded cut is one the recorded View admitted: from its projection, up to but not
+/// including the end of its window, which is where a run's own custody read refuses.
+const fn run_cut_lies_inside_view(run_view: &ResearchRunViewV1) -> bool {
+    run_view.view.projection_at_epoch_ms <= run_view.read_cut_epoch_ms
+        && run_view.read_cut_epoch_ms < run_view.view.valid_through_epoch_ms
+}
+
+/// Locks the Research custody a committed run ran under, at the View and cut it recorded.
+async fn lock_research_at_run_view_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    locator: &DevelopComposerDurableEvidenceLocatorV2,
+    run_view: &ResearchRunViewV1,
+) -> Result<CurrentResearchDevelopCustodyV2, DevelopComposerTerminalV2> {
+    let view = &run_view.view;
+    if !run_cut_lies_inside_view(run_view) {
+        return Err(DevelopComposerTerminalV2::unavailable(
+            RUN_VIEW_CUT_OUTSIDE_VIEW_COORDINATE_V1,
+            "the recorded read cut lies outside the recorded Research View's validity window",
+        ));
+    }
+    Box::pin(lock_research_ran_under_in_transaction(
+        transaction,
+        locator,
+        view,
+        run_view.read_cut_epoch_ms,
+        |current| {
+            validate_historical_view(current, view).map_err(|e| {
+                crate::storage_diagnostic::refused_by_store(
+                    RUN_VIEW_NOT_ANCESTOR_COORDINATE_V1,
+                    &e,
+                );
+                DevelopComposerTerminalV2::unavailable(
+                    RUN_VIEW_NOT_ANCESTOR_COORDINATE_V1,
+                    "the stored Research View does not descend from the View the run recorded",
+                )
+            })
+        },
+        |step, cause| match step {
+            RanUnderResearchStepV1::ArtifactLock => {
+                crate::storage_diagnostic::refused_by_store(
+                    RUN_VIEW_NOT_SEALED_COORDINATE_V1,
+                    &cause.to_string(),
+                );
+                DevelopComposerTerminalV2::unavailable(
+                    RUN_VIEW_NOT_SEALED_COORDINATE_V1,
+                    "the Research artifact evidence was not sealed for the View the run recorded",
+                )
+            }
+            _ => research_custody_refused(step.run_view_coordinate(), &cause.to_string()),
+        },
+    ))
+    .await
 }
 
 #[async_trait::async_trait]
@@ -1545,10 +1692,11 @@ impl DevelopComposerReadbackOwnerPortV2 for PostgresDevelopComposerReadbackOwner
             .begin_read_transaction()
             .await
             .map_err(|_| DevelopComposerReadbackOwnerErrorV2::Unavailable)?;
-        let read_cut_epoch_ms =
-            crate::rd_owner_clock::owner_clock_epoch_ms_in_transaction(&mut transaction)
-                .await
-                .map_err(|_| DevelopComposerReadbackOwnerErrorV2::Unavailable)?;
+        let read_cut_epoch_ms = self
+            .clock
+            .read(&mut transaction)
+            .await
+            .map_err(|_| DevelopComposerReadbackOwnerErrorV2::Unavailable)?;
         let record = self
             .store
             .load_record_in_transaction(&mut transaction, request_identity)
@@ -1565,39 +1713,22 @@ impl DevelopComposerReadbackOwnerPortV2 for PostgresDevelopComposerReadbackOwner
             ));
         };
         let locator = DevelopComposerDurableEvidenceLocatorV2::from_record(&record);
-        let locked = Box::pin(lock_resolve_evidence_with_binding(
+        let run_view = crate::develop_composer_postgres_v2::load_run_view_in_transaction(
+            &mut transaction,
+            request_identity,
+        )
+        .await
+        .map_err(|_| DevelopComposerReadbackOwnerErrorV2::Unavailable)?;
+        let response = Box::pin(resolve_committed_record_for_readback(
             &self.binding_owner,
             &mut transaction,
+            &record,
             &locator,
+            &run_view,
             read_cut_epoch_ms,
         ))
-        .await;
-        let response = match locked {
-            Ok(locked) => {
-                let frozen = matching_current_bfp_v3(
-                    &mut transaction,
-                    &locked.research,
-                    &locator,
-                    read_cut_epoch_ms,
-                )
-                .await;
-
-                match frozen {
-                    Some(frozen) => crate::develop_composer_operation_v2::resolve_positive_record_with_v3_restart_v2(
-                        &record,
-                        locked,
-                        &FrozenBfpV3Restart { frozen: &frozen },
-                    ),
-                    None => crate::develop_composer_operation_v2::resolve_positive_record_v2(
-                        &record, locked,
-                    ),
-                }
-                .unwrap_or_else(|terminal| {
-                    terminal_response_for_identity(request_identity, terminal)
-                })
-            }
-            Err(terminal) => terminal_response_for_identity(request_identity, terminal),
-        };
+        .await
+        .unwrap_or_else(|terminal| terminal_response_for_identity(request_identity, terminal));
         transaction
             .commit()
             .await
@@ -2301,50 +2432,111 @@ async fn lock_historical_research_for_composer_replay_in_transaction(
             &"the stored Research View transition differs from the claimed one",
         ));
     }
-    let read_cut_epoch_ms = expected_current_view.projection_at_epoch_ms;
+    Box::pin(lock_research_ran_under_in_transaction(
+        transaction,
+        locator,
+        pre_transition_view,
+        expected_current_view.projection_at_epoch_ms,
+        |current| {
+            validate_historical_descendant_view(current, pre_transition_view, expected_current_view)
+        },
+        |step, cause| sealed_read_refused(step.historical_replay_coordinate(), &cause.to_string()),
+    ))
+    .await
+}
+
+/// The step of a Research lock at a View an operation ran under that refused. Each reader names it
+/// under its own coordinate family.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum RanUnderResearchStepV1 {
+    SuccessorLock,
+    SuccessorView,
+    SuccessorFamily,
+    SuccessorCustody,
+    CustodiesAdmit,
+    CustodyView,
+    ArtifactLock,
+    CustodyVerify,
+    MatchCount,
+}
+
+impl RanUnderResearchStepV1 {
+    #[cfg_attr(
+        not(any(test, feature = "sealed-source-intake-composer-acceptance")),
+        expect(dead_code, reason = "the Composer-backed Replay readback is sealed")
+    )]
+    const fn historical_replay_coordinate(self) -> &'static str {
+        match self {
+            Self::SuccessorLock => "develop_composer.historical_research.successor.lock",
+            Self::SuccessorView => "develop_composer.historical_research.successor.view",
+            Self::SuccessorFamily => "develop_composer.historical_research.successor.family",
+            Self::SuccessorCustody => "develop_composer.historical_research.successor.custody",
+            Self::CustodiesAdmit => "develop_composer.historical_research.custodies.admit",
+            Self::CustodyView => "develop_composer.historical_research.custody.view",
+            Self::ArtifactLock => "develop_composer.historical_research.custody.artifact_lock",
+            Self::CustodyVerify => "develop_composer.historical_research.custody.verify",
+            Self::MatchCount => "develop_composer.historical_research.match_count",
+        }
+    }
+
+    const fn run_view_coordinate(self) -> &'static str {
+        match self {
+            Self::SuccessorLock => "source_research_composer.run_view.successor_lock",
+            Self::SuccessorView => "source_research_composer.run_view.successor_view",
+            Self::SuccessorFamily => "source_research_composer.run_view.successor_family",
+            Self::SuccessorCustody => "source_research_composer.run_view.successor_custody",
+            Self::CustodiesAdmit => "source_research_composer.run_view.custodies_admit",
+            Self::CustodyView => "source_research_composer.run_view.custody_view",
+            Self::ArtifactLock => "source_research_composer.run_view.artifact_lock",
+            Self::CustodyVerify => "source_research_composer.run_view.custody_verify",
+            Self::MatchCount => "source_research_composer.run_view.match_count",
+        }
+    }
+}
+
+/// Locks the one Research custody a Composer operation ran under and rebuilds its Composer custody
+/// from `ran_under`, the View it ran under, at `read_cut_epoch_ms`, the cut it ran at.
+///
+/// `ran_under` is only a claim. The stored View must pass `validate_current`, which states how the
+/// caller's View may have moved on since, and the Research artifact evidence must have been sealed
+/// for `ran_under`, which no transition reseals. The caller compares the rebuilt custody digest with
+/// the operation's own.
+async fn lock_research_ran_under_in_transaction<E>(
+    transaction: &mut Transaction<'_, Postgres>,
+    locator: &DevelopComposerDurableEvidenceLocatorV2,
+    ran_under: &ResearchViewV1,
+    read_cut_epoch_ms: u64,
+    validate_current: impl Fn(&ResearchViewV1) -> Result<(), E>,
+    refuse: impl Fn(RanUnderResearchStepV1, &dyn Display) -> E,
+) -> Result<CurrentResearchDevelopCustodyV2, E> {
     let mut matches = Vec::new();
     let successor_locator = successor_intent_locator(locator.intent_identity);
     if let Some(successor) = lock_by_intent_in_transaction(transaction, &successor_locator)
         .await
-        .map_err(|e| {
-            sealed_read_refused("develop_composer.historical_research.successor.lock", &e)
-        })?
+        .map_err(|e| refuse(RanUnderResearchStepV1::SuccessorLock, &e))?
     {
         let custody = lock_successor_research_view_in_transaction(transaction, &successor)
             .await
-            .map_err(|e| {
-                sealed_read_refused("develop_composer.historical_research.successor.view", &e)
-            })?;
+            .map_err(|e| refuse(RanUnderResearchStepV1::SuccessorView, &e))?;
 
-        if successor.intent().request_identity() == pre_transition_view.request_identity
-            && successor.intent().intent_identity() == pre_transition_view.intent_identity
+        if successor.intent().request_identity() == ran_under.request_identity
+            && successor.intent().intent_identity() == ran_under.intent_identity
         {
-            validate_historical_descendant_view(
-                custody.view(),
-                pre_transition_view,
-                expected_current_view,
-            )?;
+            validate_current(custody.view())?;
             let family = load_trial_family_census_v2_by_family_in_transaction(
                 transaction,
                 successor.intent().trial_family_identity(),
             )
             .await
-            .map_err(|e| {
-                sealed_read_refused("develop_composer.historical_research.successor.family", &e)
-            })?;
+            .map_err(|e| refuse(RanUnderResearchStepV1::SuccessorFamily, &e))?;
             let research = CurrentResearchDevelopCustodyV2::from_verified_successor_with_view(
                 &successor,
                 &custody,
                 &family,
-                pre_transition_view,
+                ran_under,
                 read_cut_epoch_ms,
             )
-            .map_err(|e| {
-                sealed_read_refused(
-                    "develop_composer.historical_research.successor.custody",
-                    &format!("{e:?}"),
-                )
-            })?;
+            .map_err(|e| refuse(RanUnderResearchStepV1::SuccessorCustody, &format!("{e:?}")))?;
 
             if research.research_request_identity() == locator.research_request_identity
                 && research.intent_identity() == locator.intent_identity
@@ -2356,57 +2548,41 @@ async fn lock_historical_research_for_composer_replay_in_transaction(
 
     let custodies = Box::pin(admit_all_research_custodies_in_transaction(transaction))
         .await
-        .map_err(|e| {
-            sealed_read_refused("develop_composer.historical_research.custodies.admit", &e)
-        })?;
+        .map_err(|e| refuse(RanUnderResearchStepV1::CustodiesAdmit, &e))?;
 
     for custody in custodies {
         if durable_research_identities(&custody).is_some_and(|(request, intent)| {
             request == locator.research_request_identity && intent == locator.intent_identity
         }) {
             let current = custody.view().ok_or_else(|| {
-                sealed_read_refused(
-                    "develop_composer.historical_research.custody.view",
+                refuse(
+                    RanUnderResearchStepV1::CustodyView,
                     &"an admitted Research custody carries no View",
                 )
             })?;
-            validate_historical_descendant_view(
-                current,
-                pre_transition_view,
-                expected_current_view,
-            )?;
-            // The Composer operation ran under the pre-transition View, which its artifact evidence
-            // was sealed for; the current View is the Replay's, which nothing reseals it for.
+            validate_current(current)?;
+            // The operation ran under `ran_under`, which its artifact evidence was sealed for; a
+            // later View is one nothing reseals the evidence for.
             crate::product_edge_postgres::lock_research_artifact_custody_at_view_in_transaction(
                 transaction,
                 &custody,
-                pre_transition_view,
+                ran_under,
             )
             .await
-            .map_err(|e| {
-                sealed_read_refused(
-                    "develop_composer.historical_research.custody.artifact_lock",
-                    &e,
-                )
-            })?;
+            .map_err(|e| refuse(RanUnderResearchStepV1::ArtifactLock, &e))?;
             let research = CurrentResearchDevelopCustodyV2::from_verified_with_view(
                 &custody,
                 &custody.receipt().request_identity,
-                pre_transition_view,
+                ran_under,
                 read_cut_epoch_ms,
             )
-            .map_err(|e| {
-                sealed_read_refused(
-                    "develop_composer.historical_research.custody.verify",
-                    &format!("{e:?}"),
-                )
-            })?;
+            .map_err(|e| refuse(RanUnderResearchStepV1::CustodyVerify, &format!("{e:?}")))?;
             matches.push(research);
         }
     }
     let [research] = matches.try_into().map_err(|unmatched: Vec<_>| {
-        sealed_read_refused(
-            "develop_composer.historical_research.match_count",
+        refuse(
+            RanUnderResearchStepV1::MatchCount,
             &format!(
                 "{} Research custodies matched, not exactly one",
                 unmatched.len()
@@ -2441,7 +2617,6 @@ fn validate_historical_descendant_view(
     Ok(())
 }
 
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
 async fn matching_historical_bfp_v3(
     transaction: &mut Transaction<'_, Postgres>,
     research: &CurrentResearchDevelopCustodyV2,
@@ -3572,6 +3747,73 @@ mod tests {
                 .expect("fixed A2 input is present");
             assert_ne!(request_digest(&tampered), canonical_digest, "{selector:?}");
         }
+    }
+}
+
+#[cfg(test)]
+mod run_view_readback_tests {
+    use rstest::rstest;
+
+    use super::*;
+
+    #[rstest]
+    #[case::before_the_projection(99, false)]
+    #[case::at_the_projection(100, true)]
+    #[case::last_admitted_cut(699, true)]
+    #[case::at_the_window_end(700, false)]
+    fn a_recorded_cut_lies_in_the_recorded_views_window(#[case] cut: u64, #[case] inside: bool) {
+        let view = crate::product_edge::v2_sealing_tests::research_view(100, 700);
+        assert_eq!(
+            run_cut_lies_inside_view(&ResearchRunViewV1 {
+                view,
+                read_cut_epoch_ms: cut,
+            }),
+            inside
+        );
+    }
+
+    /// The Composer-backed Replay's historical read names every refusal exactly as it did before
+    /// it shared its lock with the run-view readback, which names the same steps apart from it.
+    #[rstest]
+    fn each_ran_under_step_keeps_one_coordinate_per_reader() {
+        let steps = [
+            RanUnderResearchStepV1::SuccessorLock,
+            RanUnderResearchStepV1::SuccessorView,
+            RanUnderResearchStepV1::SuccessorFamily,
+            RanUnderResearchStepV1::SuccessorCustody,
+            RanUnderResearchStepV1::CustodiesAdmit,
+            RanUnderResearchStepV1::CustodyView,
+            RanUnderResearchStepV1::ArtifactLock,
+            RanUnderResearchStepV1::CustodyVerify,
+            RanUnderResearchStepV1::MatchCount,
+        ];
+        assert_eq!(
+            steps.map(RanUnderResearchStepV1::historical_replay_coordinate),
+            [
+                "develop_composer.historical_research.successor.lock",
+                "develop_composer.historical_research.successor.view",
+                "develop_composer.historical_research.successor.family",
+                "develop_composer.historical_research.successor.custody",
+                "develop_composer.historical_research.custodies.admit",
+                "develop_composer.historical_research.custody.view",
+                "develop_composer.historical_research.custody.artifact_lock",
+                "develop_composer.historical_research.custody.verify",
+                "develop_composer.historical_research.match_count",
+            ]
+        );
+        let run_view = steps.map(RanUnderResearchStepV1::run_view_coordinate);
+        assert!(
+            run_view
+                .iter()
+                .all(|coordinate| coordinate.starts_with("source_research_composer.run_view."))
+        );
+        assert_eq!(
+            run_view
+                .iter()
+                .collect::<std::collections::BTreeSet<_>>()
+                .len(),
+            steps.len()
+        );
     }
 }
 
