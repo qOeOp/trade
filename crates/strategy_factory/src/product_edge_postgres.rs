@@ -7213,9 +7213,18 @@ pub(crate) mod tests {
         design.intent_identity = facts.intent_identity;
         design.intent_digest = facts.intent_digest;
         design.falsifier = facts.falsifier;
+        let crate::strategy_plan_v2::StrategyDesignPreparationV2::Prepared {
+            design_identity,
+            design_digest,
+        } = crate::strategy_plan_v2::prepare_strategy_design_v2(&design)
+        else {
+            panic!("the exact-instrument candidate prepares, so only the scope refuses it");
+        };
         proposal.research_request_identity = design.research_request_identity;
         proposal.intent_identity = design.intent_identity;
         proposal.intent_digest = design.intent_digest;
+        proposal.design_identity = design_identity;
+        proposal.design_digest = design_digest;
         assert!(crate::rd_bounded_feature_program_v1::design_names_an_instrument_v1(&design));
 
         assert!(matches!(
