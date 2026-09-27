@@ -1651,10 +1651,14 @@ run_authority_migration_for_database() {
     "$container" sh -s < product/rd-workbench/postgres-init/10-migrate-authority-custody.sh
 }
 
-# `--report-records` judges records and nothing else: it runs where the shard records are merged,
-# a job with the checkout but none of the tools these source checks need (ripgrep among them), and
-# its verdict must not depend on them. It keeps the self-tests of the two readings it uses.
-if [[ "${1:-}" != "--report-records" ]]; then
+# `--report-records` and `--report-partial-records` judge records and nothing else: they run where
+# the shard records are merged, a job with the checkout but none of the tools these source checks
+# need (ripgrep among them), and their verdict must not depend on them. They keep the self-tests of
+# the readings they use.
+chain_reports_only=false
+[[ "${1:-}" != "--report-records" && "${1:-}" != "--report-partial-records" ]] || chain_reports_only=true
+readonly chain_reports_only
+if [[ "$chain_reports_only" != true ]]; then
   check_postgres_containers_run_under_init
   check_static_isolation
   check_nextest_graph_contract
@@ -1794,8 +1798,9 @@ chain_position_of() {
   done
 }
 
+# With a component after the shard, only that component's rows (a partial run's `entry-N`).
 load_chain_shard() {
-  local shard="$1" row_shard component name position replays replay replayed first
+  local shard="$1" only_component="${2:-}" row_shard component name position replays replay replayed first
   local -a components=()
   local -A component_entries=() component_replays=()
   if [[ ! -f "$chain_shard_list" ]]; then
@@ -1804,6 +1809,7 @@ load_chain_shard() {
   fi
   while IFS=$'\t' read -r row_shard component name _; do
     [[ "$row_shard" == "$shard" ]] || continue
+    [[ -z "$only_component" || "$component" == "$only_component" ]] || continue
     position="$(chain_position_of "$name")"
     if [[ -z "$position" ]]; then
       echo "ERROR: shard ${shard} lists ${name}, which is not a chain entry." >&2
@@ -1833,7 +1839,7 @@ load_chain_shard() {
     fi
   done < "$chain_shard_list"
   if [[ "$chain_shard_entry_count" -eq 0 ]]; then
-    echo "ERROR: the shard list names no entry for shard ${shard}." >&2
+    echo "ERROR: the shard list names no entry for shard ${shard}${only_component:+ in component ${only_component}}." >&2
     exit 1
   fi
   for component in "${components[@]}"; do
@@ -1990,14 +1996,29 @@ report_changed_cluster_state() {
 # junit record naming the test the array puts there, with one test run and none failed, errored or
 # skipped: a record under the wrong number, a skip-shaped pass and a missing entry are each named.
 # The two summary lines then come from the same code the serial chain calls.
+# With a label and positions after the directory, it judges only those positions, refuses a record
+# for any other, and says PARTIAL: a partial run must never print the whole chain's verdict line,
+# which is what AGENTS.md accepts and what a caller reusing a verdict looks for.
 report_chain_records() {
-  local record_dir="$1" position selection package binary name record header problems=0
+  local record_dir="$1" partial_label="${2:-}" position selection package binary name record header problems=0
   local expected_count="${#rd_owner_postgres_tests[@]}"
+  local -a expected_positions=()
+  local -A expected_set=()
+  if [[ -n "$partial_label" ]]; then
+    expected_positions=("${@:3}")
+  else
+    mapfile -t expected_positions < <(seq 1 "$expected_count")
+  fi
+  for position in "${expected_positions[@]}"; do expected_set["$position"]=1; done
   if [[ ! -d "$record_dir" ]]; then
     echo "ERROR: no chain record directory at ${record_dir}." >&2
     return 1
   fi
-  for position in $(seq 1 "$expected_count"); do
+  if [[ "${#expected_positions[@]}" -eq 0 ]]; then
+    echo "ERROR: the report was given no positions to judge." >&2
+    return 1
+  fi
+  for position in "${expected_positions[@]}"; do
     selection="${rd_owner_postgres_tests[$((position - 1))]}"
     IFS='|' read -r package binary name <<< "$selection"
     record="$(printf '%s/%03d.xml' "$record_dir" "$position")"
@@ -2021,14 +2042,45 @@ report_chain_records() {
     if [[ ! "$position" =~ ^[0-9]{3}$ ]] || ((10#$position < 1 || 10#$position > expected_count)); then
       echo "ERROR: ${record} is not the record of any of the ${expected_count} entries." >&2
       problems=$((problems + 1))
+    elif [[ -z "${expected_set[$((10#$position))]+set}" ]]; then
+      echo "ERROR: ${record} is the record of entry $((10#$position)), which this run did not select." >&2
+      problems=$((problems + 1))
     fi
   done < <(find "$record_dir" -maxdepth 1 -name '*.xml' -type f | sort)
   if [[ "$problems" -ne 0 ]]; then
     echo "ERROR: ${problems} problem(s) in the chain records at ${record_dir}." >&2
     return 1
   fi
+  if [[ -n "$partial_label" ]]; then
+    echo "=== PARTIAL (${partial_label}): all ${#expected_positions[@]} selected entries passed, ${#expected_positions[@]} recorded; not an ordered-chain verdict"
+    return 0
+  fi
   echo "=== ordered chain: all ${expected_count} entries passed, ${expected_count} recorded"
   report_collected_warnings "$record_dir" "$expected_count"
+}
+
+# The positions a partial run selects, from `<shard>` or `<shard>=<component>` specs read against
+# the shard list: every entry of the shard, or those of its one component.
+chain_selection_positions() {
+  local spec shard component row_shard row_component name position
+  local -a found=()
+  for spec in "$@"; do
+    shard="${spec%%=*}"
+    component=''
+    [[ "$spec" != *=* ]] || component="${spec#*=}"
+    local before="${#found[@]}"
+    while IFS=$'\t' read -r row_shard row_component name _; do
+      [[ "$row_shard" == "$shard" ]] || continue
+      [[ -z "$component" || "$row_component" == "$component" ]] || continue
+      position="$(chain_position_of "$name")"
+      [[ -n "$position" ]] && found+=("$position")
+    done < <(grep -v '^#' "$chain_shard_list")
+    if [[ "${#found[@]}" -eq "$before" ]]; then
+      echo "ERROR: the selection ${spec} names no entry of the shard list." >&2
+      return 1
+    fi
+  done
+  printf '%s\n' "${found[@]}" | sort -n -u
 }
 
 # The record verdict and its positive control, on records built from the array itself. A complete
@@ -2083,8 +2135,61 @@ check_chain_record_report() {
   rm -rf -- "$fixtures"
 }
 
+# A partial run's report on records built from the array: a complete selection passes and says
+# PARTIAL; it never prints the whole chain's verdict line, which is what reuse and acceptance read;
+# a missing selected record and a record outside the selection are each refused by name.
+check_chain_partial_report() {
+  local fixtures report position selection package binary name
+  fixtures="$(mktemp -d)"
+  for position in 2 5; do
+    selection="${rd_owner_postgres_tests[$((position - 1))]}"
+    IFS='|' read -r package binary name <<< "$selection"
+    printf '<testsuites name="nextest-run" tests="1" skipped="0" failures="0" errors="0" time="1">\n<testcase name="%s" classname="%s::%s" time="1"/>\n</testsuites>\n' \
+      "$name" "$package" "$binary" > "$(printf '%s/%03d.xml' "$fixtures" "$position")"
+  done
+  if ! report="$(report_chain_records "$fixtures" probe 2 5 2>&1)" ||
+    [[ "$report" != *"=== PARTIAL (probe): all 2 selected entries passed, 2 recorded; not an ordered-chain verdict"* ]] ||
+    [[ "$report" == *"=== ordered chain:"* ]]; then
+    echo "ERROR: a complete partial selection does not report as PARTIAL, or prints the whole chain's verdict:" >&2
+    echo "$report" >&2
+    return 1
+  fi
+  if report_chain_records "$fixtures" probe 2 5 7 > /dev/null 2>&1; then
+    echo "ERROR: a partial report passed with a selected entry's record missing." >&2
+    return 1
+  fi
+  if report_chain_records "$fixtures" probe 2 > /dev/null 2>&1; then
+    echo "ERROR: a partial report passed with a record outside its selection." >&2
+    return 1
+  fi
+  rm -rf -- "$fixtures"
+}
+
+# The component filter on the real shard list: in a shard that holds more than one component,
+# narrowing to one keeps exactly that component's entries, in order, and none of another's.
+check_chain_component_filter() {
+  local shard first second order
+  read -r shard first second < <(awk -F'\t' '!/^#/ { if (!($1 in seen)) seen[$1] = $2; else if ($2 != seen[$1] && !done[$1]++) { print $1, seen[$1], $2; exit } }' "$chain_shard_list")
+  if [[ -z "$second" ]]; then
+    echo "ERROR: no shard of ${chain_shard_list} holds two components, so the component filter cannot be checked." >&2
+    return 1
+  fi
+  order="$(chain_run_order=() chain_shard_entry_count=0 && load_chain_shard "$shard" "$first" && printf '%s\n' "${chain_run_order[@]}")"
+  local expected
+  expected="$(awk -F'\t' -v s="$shard" -v c="$first" '!/^#/ && $1 == s && $2 == c { print $3 }' "$chain_shard_list" |
+    while read -r name; do chain_position_of "$name"; done | tr '\n' ' ')"
+  if [[ "$(grep '|entry|' <<< "$order" | cut -d'|' -f1 | tr '\n' ' ')" != "$expected" ]] ||
+    grep -q "|${second}\$" <<< "$order"; then
+    echo "ERROR: narrowing ${shard} to one component did not keep exactly that component's entries:" >&2
+    echo "$order" >&2
+    return 1
+  fi
+}
+
 check_chain_record_report
-if [[ "${1:-}" != "--report-records" ]]; then
+check_chain_partial_report
+if [[ "$chain_reports_only" != true ]]; then
+  check_chain_component_filter
   check_postgres_crash_reading
   check_chain_sleep_reading
   check_chain_shard_plan
@@ -2096,6 +2201,16 @@ if [[ "${1:-}" == "--report-records" ]]; then
     exit 2
   fi
   report_chain_records "$2"
+  exit
+fi
+
+if [[ "${1:-}" == "--report-partial-records" ]]; then
+  if [[ "$#" -lt 4 ]]; then
+    echo "usage: $0 --report-partial-records <chain record directory> <label> <shard>[=<component>]..." >&2
+    exit 2
+  fi
+  mapfile -t chain_partial_positions < <(chain_selection_positions "${@:4}")
+  report_chain_records "$2" "$3" "${chain_partial_positions[@]}"
   exit
 fi
 
@@ -2416,8 +2531,12 @@ chain_shard_entry_count=0
 # What the loop runs, in order: `position|entry|component` or `position|replay|component`. Without a
 # shard it is every entry, in chain order.
 chain_run_order=()
+if [[ -n "${RD_OWNER_CHAIN_COMPONENT:-}" && -z "$chain_shard" ]]; then
+  echo "ERROR: RD_OWNER_CHAIN_COMPONENT narrows a shard, and no RD_OWNER_CHAIN_SHARD is set." >&2
+  exit 1
+fi
 if [[ -n "$chain_shard" ]]; then
-  load_chain_shard "$chain_shard"
+  load_chain_shard "$chain_shard" "${RD_OWNER_CHAIN_COMPONENT:-}"
 else
   for chain_position in $(seq 1 "$chain_entry_count"); do
     chain_run_order+=("${chain_position}|entry|")
