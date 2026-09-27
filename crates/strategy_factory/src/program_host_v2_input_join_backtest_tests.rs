@@ -55,8 +55,8 @@ use crate::{
     strategy_plan_v2::{
         StrategyCompilationV2, StrategyDesignPreparationV2, StrategyPlanV2,
         compile_strategy_design_v2, compile_with_binding_and_implementation_receipts_for_test,
-        issue_plugin_implementation_receipt_v2_for_test, prepare_strategy_design_v2,
-        strategy_input_role_identity_v2,
+        coordinate_port_id, issue_plugin_implementation_receipt_v2_for_test,
+        prepare_strategy_design_v2, strategy_input_role_identity_v2,
     },
 };
 
@@ -593,10 +593,7 @@ pub(crate) fn six_role_bar_design() -> crate::strategy_design_v2::StrategyDesign
         .iter()
         .map(|input| {
             let role_identity = strategy_input_role_identity_v2(input);
-            (
-                input.semantic_id.clone(),
-                owner_sample_coordinate_port_id(role_identity),
-            )
+            (input.semantic_id.clone(), coordinate_port_id(role_identity))
         })
         .collect::<Vec<_>>();
     design.plugins[0]
@@ -934,14 +931,4 @@ fn timer_price() -> ValueRefV2 {
     ValueRefV2::Parameter {
         parameter_id: "research.parameter.timer-close.v1".into(),
     }
-}
-
-fn owner_sample_coordinate_port_id(input_role_identity: BindingDigest) -> String {
-    let mut value = String::from("strategy.input.sample-coordinate.v1.");
-
-    for byte in input_role_identity.as_bytes() {
-        use std::fmt::Write as _;
-        write!(&mut value, "{byte:02x}").expect("writing lowercase hex to String is infallible");
-    }
-    value
 }

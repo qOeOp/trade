@@ -781,11 +781,18 @@ and a rendering of a document exists for reading only.
   cut: all ten weight constants in the hand-written corpus are positive, and the only negative weight literal
   under `crates/` is a codec round trip in `crates/strategy_factory/programs/sdk/src/lib.rs`.
 - *Compilation.* The compiler decides encoding only. It calls the Owner's own functions for units and
-  scales, state bytes and role and coordinate-port identity rather than holding a second copy, which first
-  requires making `expected_state_bytes` visible to it, removing the lowerer's private copy of
-  `coordinate_port_id`, and extracting the shape measurement `prepare_bounded_feature_program_v1` performs
-  into one function both call. `graph_bounds` are measured from the emitted graph; the source and Wasm byte
-  bounds are ceilings fixed by the language version. A declared input the program never reads is compiled
+  scales, state bytes and role and coordinate-port identity rather than holding a second copy. Three of them
+  exist: `expected_state_bytes`; `coordinate_port_id` in `strategy_plan_v2.rs`, the one spelling of a
+  coordinate port id, which the validator and the Plan compiler call. The lowerer keeps its own copy because its
+  source is frozen - the V3 build capsule binds its digest, so removing the copy would re-identify every build -
+  and a test holds that copy to this one; and
+  `measure_bounded_feature_program_shape_v1`, which validates a program as
+  `prepare_bounded_feature_program_v1` does with its graph bounds lifted and returns the shape they are checked
+  against. The unit and scale derivation is still private to the validator and is exposed with the compiler
+  that calls it. `graph_bounds` are the measured shape, with a lag or window of 0 declared as 1, and they are
+  exactly where the program is refused: one below any of them fails `prepare`. The Design's state size is its
+  plugin manifest's rather than a graph bound, and the program's cells may not exceed it; the source and Wasm
+  byte bounds are ceilings fixed by the language version. A declared input the program never reads is compiled
   into `carried_input_role_ids`. The compiler then derives and prepares its own output against the newest
   published catalog and emits nothing `prepare` refuses. Its own refusals are named at a document path:
   unknown name, definition cycle, unused definition, unit mismatch, literal not representable at its scale,
