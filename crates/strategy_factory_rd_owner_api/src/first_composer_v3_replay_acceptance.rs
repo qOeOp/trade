@@ -1108,14 +1108,11 @@ pub(crate) async fn ensure_first_composer_v3_replay_acceptance_v1(
     .await
     .unwrap_or_else(|e| panic!("H6: Market Data states the snapshot's composition basis: {e:?}"));
     read.rollback().await.expect("the read transaction closes");
-    let event_effective = i128::from(submission.time_evidence.event_effective.value);
     let composition: ReplayCompositionUniverseBindingIssuanceRequestV1 =
         serde_json::from_value(serde_json::json!({
             "composer_locator": composer_locator,
             "pit_locator": pit_snapshot,
             "source_binding_locator": submission.source_binding,
-            "replay_start_event_ns": event_effective,
-            "replay_end_event_ns_exclusive": event_effective + 1,
             "universe_selection_locator": basis.universe_selection_locator(),
             "reference_fact_r0_locator": basis.reference_fact_r0_locator(),
             "market_semantics_locator": basis.market_semantics_locator(),
@@ -1183,11 +1180,9 @@ pub(crate) async fn ensure_first_composer_v3_replay_acceptance_v1(
     assert_eq!(
         status,
         StatusCode::OK,
-        "H7: the COMPOSER_V3 Replay (TrialFamily window {}..{}, Market Data window \
-         {event_effective}..{}): {answer}",
+        "H7: the COMPOSER_V3 Replay (TrialFamily window {}..{}): {answer}",
         policy_window.start_event_ns,
         policy_window.end_event_ns_exclusive,
-        event_effective + 1,
     );
     let replay_request: ExploratoryReplayRequestLocatorV2 =
         serde_json::from_value(json_of(&answer)["locator"].clone())
