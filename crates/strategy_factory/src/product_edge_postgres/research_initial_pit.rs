@@ -405,7 +405,7 @@ impl PostgresResearchGoalOwnerV1 {
                             "research_goal_owner.initial_pit.issue.clock_moved_again",
                             &"Market Data's clock head moved again before the refrozen send",
                         );
-                        Ok(ResearchInitialPitV1::SubmittedOrUnknown)
+                        Ok(ResearchInitialPitV1::NotIssued)
                     }
                 }
             }
