@@ -19,7 +19,8 @@ use super::{
     },
 };
 use crate::owner::native_replay_scheduling_v1::{
-    NativeReplaySchedulingErrorV1, seal_native_replay_scheduling_v1, tests::schedule_bound_to_batch,
+    NativeReplaySchedulingErrorV1, seal_native_replay_scheduling_v1,
+    tests::{declared_minute_for, schedule_bound_to_batch},
 };
 use crate::owner::research_pit_terminal::{
     ResearchPitBlocker, ResearchPitDisposition, UntrustedResearchPitTerminalRequest,
@@ -82,6 +83,7 @@ fn source_proposal(sequence: u64, cut: u64) -> UntrustedSourceBindingProposal {
     let is_successor = sequence > 10;
     let mut proposal = UntrustedSourceBindingProposal {
         availability_rule: None,
+        bar_timeframes: Vec::new(),
         claimed_binding_id: d(0),
         schema_version: 1,
         adapter: UntrustedAdapterBinding {
@@ -1763,10 +1765,12 @@ fn v1_native_scheduling_seals_a_custody_frame_with_its_custody_quote_cut() {
             schedule_bound_to_batch(FRAME_MEMBERS[0], 40, &frame),
             schedule_bound_to_batch(FRAME_MEMBERS[1], 41, &frame),
         ];
+        let declared = declared_minute_for(frame.source_binding_fact_digest());
         seal_native_replay_scheduling_v1(
             frame,
             quote_cut,
             schedules,
+            &declared,
             members.clone(),
             frame_time,
             frame_time + 100,

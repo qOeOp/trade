@@ -80,13 +80,22 @@ ACL 拒绝。它不证明供应商真实性，不证明生产装配，也不证�
   部署的二进制启用它），`native_replay_scheduling_resolver_for_sealed_acceptance_v1` 以已准入 resolver 的原始读取、校验与选择
   走原生 Replay 调度读路径，但读取之前不做准入，读取之后不做重新校验。它以一个测试用的最小权限主体连接，一次性数据库只授予
   它 `NATIVE_REPLAY_SCHEDULING_ACCEPTANCE_GRANTS_V1`；它的 evidence 在已准入读取携带 receipt 的位置携带标记
-  `SEALED_ACCEPTANCE_NO_STORE_ADMISSION_V1`，只有携带该读口的构建才接受这个标记。Admission 本身，包括它租用的主体与那道门上的
-  授权，仍然是 `B3`。今天没有任何生产角色持有那道门：部署时的 ACL 切换把 `market_data_private` 与
-  `market_data_admitted_read` 上的全部权限从 owner 以外的所有角色收回，而已准入读口的测量下限所列的对象也还没有授予任何角色。
-  每一次已准入读取，以及测量对 Owner 迁移账本的读取，都只经由 `market_data_admitted_read` 到达 Owner。那里的每个函数要么是
-  同名私有函数的 `SECURITY DEFINER` 直通包装，参数与结果都相同，要么是四个固定的 Owner 行读取之一；每个都是 `STABLE`、
-  固定 `search_path`，迁移不把它授予任何角色。因此 Store Admission 租用的主体需要该 schema 的 `USAGE` 与它的读取所调用
-  包装的 `EXECUTE`，在 `market_data_private` 上什么都不需要；时区托管检查要求后者除 owner 外没有任何被授权者。每个读口只在
+  `SEALED_ACCEPTANCE_NO_STORE_ADMISSION_V1`，只有携带该读口的构建才接受这个标记。Admission 本身仍然是 `B3`：还没有
+  任何东西租用它的主体。那个主体是 `market_data_admitted_reader`。
+  `product/rd-workbench/postgres-init/25-market-data-admitted-reader.sh` 把它建成一个可登录、不继承任何东西、在两个方向上
+  都没有角色成员关系、并持有数据库 `CONNECT` 的角色；compose 文件还不运行这个脚本。部署时的 ACL 切换把
+  `market_data_private` 与 `market_data_admitted_read` 上的全部权限从它点名的每个角色收回，admitted reader 不在其中。
+  切换在 Owner materialize 之后运行，所以 Owner 迁移授给读者的权限能留下来，靠的只是读者不在那些名单里；
+  `product/rd-workbench/scripts/check/authority.bash` 拒绝点名它的切换。每一次已准入读取，以及
+  测量对 Owner 迁移账本的读取，都只经由 `market_data_admitted_read` 到达 Owner。那里的每个函数要么是同名私有函数的
+  `SECURITY DEFINER` 直通包装，参数与结果都相同，要么是四个固定的 Owner 行读取之一；每个都是 `STABLE` 并固定
+  `search_path`。Owner 迁移只把它们授予一个角色：`market_data_admitted_reader` 存在时，它获得该 schema 的 `USAGE` 与其中
+  每个函数的 `EXECUTE`，在 `market_data_private` 上什么都不获得；时区托管检查要求后者除 owner 外没有任何被授权者。测量仍然
+  点名私有函数与关系，它按 schema 与存储名在每个角色都能读的 catalog 行里找到每一个，从不经过 `to_regclass` 或
+  `to_regprocedure`，后两者对角色无权使用的 schema 里的限定名会直接拒绝。在迁移最近一次运行之后才建出的读者，会在 Owner 下一次迁移时获得这份授权。除测量自己做的那次账本读取外，每个包装都在某个
+  已准入读取的下限上，所以这份授权恰好是已准入读取与测量所调用的东西。一个单元测试把包装清单钉在各下限与测量的那一次
+  额外调用上，一条 Market Data PostgreSQL 证明把建好的读者的权限普查钉在这份授权上：它以该读者身份测量并准入每一个
+  下限、调用每一个包装，并被 `market_data_private` 拒绝。每个读口只在
   测量覆盖它所服务读取的下限时才打开，原生 Replay 调度读口的 PIT evaluation 读取也在其中；每次读取在它所依据的每次准入上
   都再核一遍自己的下限。
   读取一份 BAR schedule 有**两套托管策略**，每种构建一套，而本文档此前一套都没描述过。测试构建自行开启
@@ -207,6 +216,16 @@ ACL 拒绝。它不证明供应商真实性，不证明生产装配，也不证�
   `ADMITTED` 是互斥状态，要求 failure set 为空。
 - **CURRENT：** 一个私有规范 clock head 与 Owner-local Source Binding 和 PIT fact 原子持久化。当前支持准确
   replay 与同 epoch 前进；epoch 变化、sealed 跨 Owner handoff 与 Epoch Successor Proof 均非当前能力。
+  handoff、Epoch Successor Proof 与 `MarketDataDecisionCutV1` 携带的每个时刻都是
+  Unix-epoch 纳秒，单位由类型 `EpochNanosV1` 承载；uncertainty 与 skew bound 是 `NanosV1`。
+  两者都没有不说出单位就返回数值的访问器，并且都序列化为裸数值，所以把单位移进类型时，
+  没有任何 wire 形式或 digest 改变。与毫秒时钟的比较只经由 `may_be_reached_within_epoch_ms`、
+  `is_reached_throughout_epoch_ms` 或 `is_not_passed_throughout_epoch_ms`，每个都对整个提交毫秒作答，
+  因此朝拒绝取整。Backtest 与 Qualification 的 wire 以 `MarketDataEpochNanosV1` 对应它，
+  其唯一的毫秒比较是 `is_expired_at_epoch_ms`。之所以由类型承载单位，是因为名字没有承载：
+  Backtest、Qualification、R&D repair request 与 Source Intake 曾把这些时刻当作 epoch 毫秒读，
+  于是对纳秒 bound 的过期检查从不触发、顺序检查从不通过，
+  而它们测试里唯一的时钟，sealed protected-evaluation 时钟，本身就是毫秒。
 - **TARGET：** immutable、content-addressed 且可按准确身份回读的 sealed clock-head handoff 绑定 head
   identity/digest、clock identity/epoch、monotonic sequence、wall observation、decision cut、排他的 valid-through、
   restart-continuity digest、uncertainty/skew bound 与 comparison rule。同 epoch successor 严格推进必需 cut。
@@ -1642,12 +1661,13 @@ TARGET 缺口，BAR schedule 的生产提议者：`commit_prepared_bar_schedule_
 何生产路径提议 schedule；今天每一个提议都由测试或验收夹具构造。native Replay 的初始读需要一个在它的帧上切出的 schedule，
 所以在生产提议者出现之前，驱动这条读的验收从 sealed 验收提议者 `commit_bar_schedule_for_acceptance_v1` 取 schedule，它
 只存在于带 `sealed-strategy-input-acceptance` 的构建里。给定一个 PIT 快照和在它上面声明的一个 BAR 角色，Owner 从快照受
-验的 batch、该角色的 binding 以及快照绑定的 Instrument Master readback 推出 schedule 的每个字段：标签等于角色周期的那
-个形态、master fact 的区间、区间收盘、完整 bar，以及在快照事件时刻的 cut。schedule 属于品种与周期，不属于角色；帧已经
-读得到的 schedule 会被 rejoin，不再重写。找不到快照、batch 验不过、角色未声明、角色跨多个成员、角色所在行不是 BAR、周
-期没有任何 schedule 单位能陈述，以及 Instrument Master readback 缺失，都按名拒绝。Strategy Factory 的切片 F 依赖它。旁
-边还有两个源缺口：没有 schedule 单位能陈述固定间隔的日，所以像 Binance 永续这样的连续日线今天排不了 schedule；已准入的
-Binance 永续源不提供 QUOTE 行，所以永续 Replay 没有可供成交的报价 cut。
+验的 batch、它的 Source Binding 为该角色行标签声明的 bar、该角色的 binding 以及快照绑定的 Instrument Master readback
+推出 schedule 的每个字段：声明的 cadence、anchor、clock、label 与 completion，master fact 的区间，以及在快照事件时刻的
+cut。schedule 属于品种与所声明的 bar，不属于角色；帧已经读得到、且声明接纳的 schedule 会被 rejoin，不再重写。找不到快
+照、batch 验不过、角色未声明、角色跨多个成员、角色所在行不是 BAR、Source Binding 没有声明任何 bar 周期、角色的行标签
+没有对应声明，以及 Instrument Master readback 缺失，都按名拒绝。Strategy Factory 的切片 F 依赖它。像 Binance 永续这
+样的连续日线，被声明为从 Unix epoch 起、连续时钟上的 24 小时固定间隔，并按这个 bar 排 schedule。旁边还有一个源缺口：
+已准入的 Binance 永续源不提供 QUOTE 行，所以永续 Replay 没有可供成交的报价 cut。
 
 `TimeframeSpecV1` 只有一种 fixed canonical codec，字段顺序是：schema `u16LE = 1`、reserved-zero `u16LE`、
 kind `u8`、正 step `u32LE`、unit `u8`、anchor identity `[u8; 32]`、calendar identity `[u8; 32]`、session
@@ -1692,6 +1712,41 @@ projection、fact、receipt 或 resolver result。
 BAR shape，但该 input 没有直接 projection 权威，也不能铸造、选择或改写 schedule、calendar、session、
 time-zone、anchor、label、partial rule 或 instrument evidence。
 
+一行 BAR 作为 bar 是什么，由它的 Source Binding 声明。schema 2 的 Source Binding proposal 声明
+`bar_timeframes`：源盖在 BAR 行上的每个标签各一条，按标签严格升序且不重复，每条写明准确的 `row_timeframe`、
+cadence（正 step 的 `FixedInterval`，单位为 `Second`、`Minute` 或 `Hour`，或 `ExchangeSessionDay`）、anchor
+（`UnixEpoch` 或 `SessionOpen`）、clock（`Continuous` 或 `ScheduleBounded`）、label（`IntervalOpen` 或
+`IntervalClose`）与 completion（`CompleteOnly`）。只接纳三种组合：连续时钟上从 Unix epoch 起的固定间隔、交易日程上
+从开盘起的固定间隔，以及交易日程上从开盘起的交易所 session 日；其他任何组合、乱序或重复的标签，或 PIT batch 带不了的
+标签，都以 `UnsupportedBarTimeframe` 拒绝该 binding。schema 1 的 proposal 不作任何声明。在 schema 2 下，这些声明先
+写条数，再进入 binding identity 与 fact digest；schema 1 不编入任何新内容，所以声明出现之前铸造的每条 binding 都保持
+原 identity。今天没有任何生产 Source Binding 是 schema 2。UTC 日，例如 Binance USD-M 永续的 `1d` kline，是连续
+时钟上从 Unix epoch 起的 24 小时 `FixedInterval`；股票的 `1D` 是 `ExchangeSessionDay`。标签 `1D` 两者都可以指，
+只有声明说明是哪一个。
+
+schedule 在三处按同一条规则选择与铸造 - native Replay 排程读、universe sample projection 的成员 schedule，以及
+sealed 验收提议者：帧的 batch 指明它的 Source Binding fact，角色的行标签按身份相等选出该 binding 的那条声明，schedule
+必须逐字段陈述所声明的 cadence、anchor、clock、label 与 completion。角色标签、行标签与声明的 `row_timeframe` 都作为
+provenance 字符串比较：相等只确认角色读的正是这条声明所说的那些行，并不说明标签的含义。schedule 的 anchor identity 是
+`market-data.bar-schedule.anchor.v1\0 || anchor tag` 的 SHA-256，所以同一个 anchor 在每个 schedule 上含义相同；连续时
+钟无论 Instrument Master 写什么，都绑定为零的 calendar 与 session identity，交易日程时钟两者都绑定。该读按名拒绝没有
+声明任何 bar 周期的 binding（`SourceBindingDeclaresNoBarTimeframe`），并按名拒绝没有对应声明的角色标签、来自其他
+binding 的声明，以及在帧上所有 schedule 都陈述别的 bar 的成员（`DeclaredBarTimeframeMismatch`）。一个角色有多个周
+期无法构造：一个角色只有一个标签，一个标签只有一条声明。一个 Design 里的多个周期就是多个角色，或者在同一条 binding
+的不同标签下（如下面已准入的 joined-cut 语料），或者在不同 binding 下（例如同一品种的 1 小时源与 1 日源）；Strategy
+Factory 切片 T2 正是按这个形状为每个角色解析其最近一次收盘。声明是否符合市场，是 binding 作者的陈述，与 availability
+rule 相同；Market Data 只拒绝没有任何 bar 能具备的组合。等 Session Owner 提供类型化日历后，交易日程类的声明可以对照
+品种的 session 校验，而不必信任。
+
+原生引擎给 schedule 的 bar 起的名字，只是类型化 schedule 的一种编码，含义始终只有类型化 schedule。引擎只接受周期性的
+step - `Second` 或 `Minute` 的 step 须整除 60，`Hour` 的 step 须整除 24，且都不能等于满单位
+（`BarSpecification::validate_step`） - 所以连续时钟上从 Unix epoch 起的固定间隔，用能整除其时长且引擎接受的最大单
+位来命名：24 小时是 `1-DAY`，60 分钟是 `1-HOUR`，48 小时是 `2-DAY`；没有任何单位能接受的时长（如 5 小时）以
+`NativeRepresentation` 拒绝该帧。这个名字是准确的，因为引擎以 `EXTERNAL` 接收这些 bar：既不聚合它们，也不从名字推导
+它们的时刻，行自带时刻。交易日程上的固定间隔保留自己的单位；交易所 session 日命名为 `DAY`，引擎分不清它和 UTC 日，这是
+在引擎建模 session 之前明确写明的限制。由于多个类型化 bar 会共用一个名字，Replay 的帧序列拒绝两个 bar 命名相同、声明却
+不同的帧，拒绝名为 `NativeBarTypeCarriesTwoTimeframes`。
+
 结构 `BarScheduleFactV1` codec 支撑 CURRENT/PARTIAL durable PostgreSQL schedule 权威。其 canonical
 bytes 按顺序为：schema `u16LE = 1`、reserved-zero `u16LE`、canonical instrument
 `u16LE length || UTF-8 bytes`、predecessor-fact presence `u8` 并仅在 present 时后接 digest `[u8; 32]`、
@@ -1702,10 +1757,11 @@ source/correction frontier 各 `[u8; 32]`，以及 cut-effective instant `i128LE
 `0x00`/`0x01`；trailing bytes、空 instrument、所需 identity 为零、unsupported tag combination，以及空或
 倒置的 half-open effective interval 均被禁止。fact identity 与 digest 是
 `market-data.bar-schedule-fact.v1\0 || canonical fact bytes` 的同一 SHA-256；不存在单独编码的 schedule
-identity。Owner-local proposal 提供 effective interval、kind、step、unit、anchor、label 与 completion，但
-它本身不能铸造权威。preparation 只接纳与一份准确原生 `InstrumentMasterReadbackV1` 交叉绑定的 BAR row；
-Market Data 从该 readback 派生 calendar/session/time-zone identity，并拒绝 instrument、Market Semantics、
-frontier、effective containment 或 Instrument Master mismatch。
+identity。Owner-local proposal 提供 effective interval、kind、step、unit、anchor、clock、label 与
+completion，但它本身不能铸造权威。preparation 只接纳与一份准确原生 `InstrumentMasterReadbackV1` 交叉绑定的 BAR
+row；Market Data 从该 readback 派生 time-zone identity，交易日程时钟也从中派生 calendar 与 session identity，连续时
+钟则把两者都绑定为零；calendar 与 session 要么同为零，要么同非零，交易所 session 日永远不是连续的。它拒绝
+instrument、Market Semantics、frontier、effective containment 或 Instrument Master mismatch。
 
 结构 `BarScheduleCutV1` canonical bytes 按顺序为：schema `u16LE = 1`、reserved-zero `u16LE`、fact digest
 `[u8; 32]`、同一 canonical-instrument variable bytes、effective instant `i128LE`，随后是 Instrument Master

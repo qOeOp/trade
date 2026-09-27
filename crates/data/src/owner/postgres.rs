@@ -51,6 +51,8 @@ mod reference_fact_coordinates;
 mod replay_market_facts_v2;
 pub(in crate::owner) mod research_pit_references_v1;
 pub(in crate::owner) mod research_pit_terminal_v1;
+#[cfg(test)]
+pub(in crate::owner) use admitted_read_api_v1::declared_admitted_read_wrapper_names_v1;
 pub(super) use replay_market_facts_v2::resolve_bound_replay_cut_for_rd_in_transaction_v1;
 pub(super) use replay_market_facts_v2::{
     BoundUniverseSelectionErrorV1, recover_bound_universe_selection_in_transaction_v1,
@@ -82,6 +84,7 @@ pub(in crate::owner) mod universe_selection;
 
 // The resolver is needed in every build: the arrangement that reads a frame's inputs is no longer
 // inside a `cfg(not(test))` arm, so that its order can be driven rather than only deployed.
+use super::declared_bar_timeframe_v1::{DeclaredBarTimeframeErrorV1, DeclaredBarTimeframeV1};
 use super::native_replay_scheduling_v1::{
     NativeReplayInitialMarketReadbackV1, NativeReplayInitialMarketRequestV1,
     NativeReplaySchedulingErrorV1, NativeReplaySchedulingResolverV1,
@@ -262,11 +265,11 @@ use super::{
         verify_decoded_projection_component_native_v3,
     },
     shared_time_evidence::{
-        ClockHeadFact, ClockHeadHandoff, ClockHeadSuccessorReadback, EpochSuccessorProof,
-        SharedTimeEvidenceError, SharedTimeEvidenceResolver, UntrustedClockHeadLocator,
-        build_epoch_successor_proof, build_head_fact, successor_readback,
-        validate_new_epoch_successor, validate_same_epoch_successor, verify_epoch_successor_proof,
-        verify_head_fact,
+        ClockHeadFact, ClockHeadHandoff, ClockHeadSuccessorReadback, EpochNanosV1,
+        EpochSuccessorProof, NanosV1, SharedTimeEvidenceError, SharedTimeEvidenceResolver,
+        UntrustedClockHeadLocator, build_epoch_successor_proof, build_head_fact,
+        successor_readback, validate_new_epoch_successor, validate_same_epoch_successor,
+        verify_epoch_successor_proof, verify_head_fact,
     },
     source_binding::{
         BindingDigest, MarketDataClockAdmission, MarketDataClockComparisonRule,
@@ -7366,12 +7369,12 @@ async fn insert_clock_handoff(
     .bind(fact.handoff.clock_identity())
     .bind(fact.handoff.clock_epoch())
     .bind(to_i64(fact.handoff.monotonic_sequence())?)
-    .bind(to_i64(fact.handoff.wall_observed())?)
-    .bind(to_i64(fact.handoff.decision_cut())?)
-    .bind(to_i64(fact.handoff.valid_through())?)
+    .bind(to_i64(fact.handoff.wall_observed().as_epoch_nanos())?)
+    .bind(to_i64(fact.handoff.decision_cut().as_epoch_nanos())?)
+    .bind(to_i64(fact.handoff.valid_through().as_epoch_nanos())?)
     .bind(fact.handoff.restart_continuity_digest().as_bytes().as_slice())
-    .bind(to_i64(fact.handoff.uncertainty_bound())?)
-    .bind(to_i64(fact.handoff.skew_bound())?)
+    .bind(to_i64(fact.handoff.uncertainty_bound().as_nanos())?)
+    .bind(to_i64(fact.handoff.skew_bound().as_nanos())?)
     .execute(&mut **transaction)
     .await
     .map_err(|_| SourceBindingError::StoreUnavailable)?;
@@ -7572,7 +7575,7 @@ async fn insert_epoch_proof(
     .bind(proof.successor_clock_identity())
     .bind(proof.successor_clock_epoch())
     .bind(proof.successor_continuity_digest().as_bytes().as_slice())
-    .bind(i64::try_from(proof.commit_cut()).map_err(|_| SharedTimeEvidenceError::StoreUnavailable)?)
+    .bind(i64::try_from(proof.commit_cut().as_epoch_nanos()).map_err(|_| SharedTimeEvidenceError::StoreUnavailable)?)
     .execute(&mut **transaction)
     .await
     .map_err(|e| map_shared_time_insert_error(&e))?;
@@ -8536,16 +8539,20 @@ where
         .resolve_pit_evaluation(*request.snapshot_identity().as_bytes())
         .await
         .map_err(|_| NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)?;
-    let batch = verify_admitted_pit_evidence_by_identity_v1(
+    let (batch, source) = verify_admitted_pit_evidence_with_source_by_identity_v1(
         request.snapshot_identity(),
         request.snapshot_fact_digest(),
         &evidence,
     )
     .map_err(|_| NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)?;
+    // The bar the frame's schedules must state is the one its own Source Binding declares for the
+    // roles' row label, taken from the lineage rows the evidence verified the batch against: no
+    // further read.
     let timeframe = request
         .schedule_timeframe()
-        .ok_or(NativeReplaySchedulingErrorV1::OwnerBindingMismatch)?
-        .to_owned();
+        .ok_or(NativeReplaySchedulingErrorV1::OwnerBindingMismatch)?;
+    let declared = DeclaredBarTimeframeV1::from_binding(&source, timeframe)
+        .map_err(native_replay_scheduling_error_of_declaration)?;
     let mut schedules = Vec::with_capacity(request.member_instruments().len());
 
     for instrument in request.member_instruments() {
@@ -8561,7 +8568,7 @@ where
             verified,
             &batch,
             instrument,
-            &timeframe,
+            &declared,
             request.frame_time_ns(),
         )?);
     }
@@ -8572,7 +8579,7 @@ where
     )
     .await
     .map_err(native_replay_scheduling_error_of_quote_cut_refusal)?;
-    issue_native_replay_initial_market_readback_v1(batch, quote_cut, schedules, request)
+    issue_native_replay_initial_market_readback_v1(batch, quote_cut, schedules, declared, request)
 }
 
 /// Resolves a frame's quote cut through an admitted port, by the same rules as custody's own read.
@@ -8711,8 +8718,8 @@ async fn resolve_native_replay_initial_market_from_pool_v1(
         .map_err(|_| NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)?;
     let timeframe = request
         .schedule_timeframe()
-        .ok_or(NativeReplaySchedulingErrorV1::OwnerBindingMismatch)?
-        .to_owned();
+        .ok_or(NativeReplaySchedulingErrorV1::OwnerBindingMismatch)?;
+    let declared = declared_bar_timeframe_of_batch_v1(&mut transaction, &batch, timeframe).await?;
     let mut schedules = Vec::with_capacity(request.member_instruments().len());
 
     for instrument in request.member_instruments() {
@@ -8723,7 +8730,7 @@ async fn resolve_native_replay_initial_market_from_pool_v1(
             candidates,
             &batch,
             instrument,
-            &timeframe,
+            &declared,
             request.frame_time_ns(),
         )?);
     }
@@ -8738,7 +8745,50 @@ async fn resolve_native_replay_initial_market_from_pool_v1(
         .commit()
         .await
         .map_err(|_| NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)?;
-    issue_native_replay_initial_market_readback_v1(batch, quote_cut, schedules, request)
+    issue_native_replay_initial_market_readback_v1(batch, quote_cut, schedules, declared, request)
+}
+
+/// The bar timeframe that the exact Source Binding fact `batch` was taken under declares for its
+/// BAR rows labelled `row_timeframe`, read in the caller's transaction without locks.
+///
+/// # Errors
+///
+/// `OwnerReadbackUnavailable` when the binding cannot be read,
+/// `SourceBindingDeclaresNoBarTimeframe` when it declares none, and
+/// `DeclaredBarTimeframeMismatch` when it declares none for this label.
+pub(super) async fn declared_bar_timeframe_of_batch_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    batch: &VerifiedPitObservationBatch,
+    row_timeframe: &str,
+) -> Result<DeclaredBarTimeframeV1, NativeReplaySchedulingErrorV1> {
+    let source = load_source(transaction, batch.source_binding_identity(), false)
+        .await
+        .map_err(|_| NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)?
+        .ok_or(NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)?;
+    let declared = DeclaredBarTimeframeV1::from_binding(
+        &SourceBindingOwnerReadback::from_verified(&source),
+        row_timeframe,
+    )
+    .map_err(native_replay_scheduling_error_of_declaration)?;
+    declared
+        .for_batch(batch)
+        .map_err(|_| NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)?;
+    Ok(declared)
+}
+
+/// What a missing declaration means to the frame that needed one.
+const fn native_replay_scheduling_error_of_declaration(
+    error: DeclaredBarTimeframeErrorV1,
+) -> NativeReplaySchedulingErrorV1 {
+    match error {
+        DeclaredBarTimeframeErrorV1::SourceBindingDeclaresNoBarTimeframe => {
+            NativeReplaySchedulingErrorV1::SourceBindingDeclaresNoBarTimeframe
+        }
+        DeclaredBarTimeframeErrorV1::NotTheBatchBinding
+        | DeclaredBarTimeframeErrorV1::TimeframeLabelNotDeclared => {
+            NativeReplaySchedulingErrorV1::DeclaredBarTimeframeMismatch
+        }
+    }
 }
 
 /// Every schedule one instrument holds, in the order the candidate function returns them.
@@ -9567,6 +9617,16 @@ fn verify_admitted_pit_evidence(
     locator: &UntrustedPitSnapshotLocator,
     evidence: &MarketDataPitEvaluationStorageEvidence,
 ) -> Result<VerifiedPitObservationBatch, PitSnapshotError> {
+    verify_admitted_pit_evidence_with_source_v1(locator, evidence).map(|(batch, _)| batch)
+}
+
+/// [`verify_admitted_pit_evidence`], keeping the Source Binding readback the evidence verified
+/// the batch against: the one binding the batch's rows were taken under, and so the one whose
+/// declarations speak for them.
+fn verify_admitted_pit_evidence_with_source_v1(
+    locator: &UntrustedPitSnapshotLocator,
+    evidence: &MarketDataPitEvaluationStorageEvidence,
+) -> Result<(VerifiedPitObservationBatch, SourceBindingOwnerReadback), PitSnapshotError> {
     if !evidence_names_its_admission_v1(evidence.admission_receipt_identity()) {
         return Err(PitSnapshotError::PersistenceUnavailable);
     }
@@ -9615,7 +9675,7 @@ fn verify_admitted_pit_evidence(
         return Err(PitSnapshotError::PersistenceUnavailable);
     }
     let aggregate = selected.ok_or(PitSnapshotError::LocatorMismatch)?;
-    verify_admitted_source_rows(
+    let source = verify_admitted_source_rows(
         &aggregate.fact().request().source_binding,
         evidence.source_lineage_rows(),
         evidence.clock_rows(),
@@ -9636,7 +9696,7 @@ fn verify_admitted_pit_evidence(
         &aggregate.fact().request().time_evidence,
         &historical_clock,
     )?;
-    verify_observation_batch(
+    let batch = verify_observation_batch(
         &aggregate,
         BindingDigest::from_untrusted_bytes(*evidence.batch_source_binding_identity()),
         BindingDigest::from_untrusted_bytes(*evidence.batch_source_binding_lineage_root()),
@@ -9653,7 +9713,8 @@ fn verify_admitted_pit_evidence(
                 row_bytes: row.row_bytes().to_vec(),
             })
             .collect::<Vec<_>>(),
-    )
+    )?;
+    Ok((batch, source))
 }
 
 pub(super) fn verify_admitted_pit_evidence_by_identity_v1(
@@ -9661,6 +9722,21 @@ pub(super) fn verify_admitted_pit_evidence_by_identity_v1(
     fact_digest: BindingDigest,
     evidence: &MarketDataPitEvaluationStorageEvidence,
 ) -> Result<VerifiedPitObservationBatch, PitSnapshotError> {
+    verify_admitted_pit_evidence_with_source_by_identity_v1(
+        snapshot_identity,
+        fact_digest,
+        evidence,
+    )
+    .map(|(batch, _)| batch)
+}
+
+/// [`verify_admitted_pit_evidence_by_identity_v1`], keeping the Source Binding readback the batch
+/// was verified against.
+pub(super) fn verify_admitted_pit_evidence_with_source_by_identity_v1(
+    snapshot_identity: BindingDigest,
+    fact_digest: BindingDigest,
+    evidence: &MarketDataPitEvaluationStorageEvidence,
+) -> Result<(VerifiedPitObservationBatch, SourceBindingOwnerReadback), PitSnapshotError> {
     let mut selected = None;
 
     for raw in evidence.pit_lineage_rows() {
@@ -9678,7 +9754,7 @@ pub(super) fn verify_admitted_pit_evidence_by_identity_v1(
         }
     }
     let locator = selected.ok_or(PitSnapshotError::LocatorMismatch)?;
-    verify_admitted_pit_evidence(&locator, evidence)
+    verify_admitted_pit_evidence_with_source_v1(&locator, evidence)
 }
 
 #[cfg(not(test))]
@@ -11733,12 +11809,12 @@ fn public_decision_cut_v1(clock: &MarketDataClockAdmission) -> MarketDataDecisio
     MarketDataDecisionCutV1 {
         clock_identity: clock.clock_identity.clone(),
         clock_epoch: clock.clock_epoch.clone(),
-        decision_cut: clock.decision_cut,
+        decision_cut: EpochNanosV1::from_epoch_nanos(clock.decision_cut),
         monotonic_sequence: clock.monotonic_sequence,
         restart_continuity_digest: clock.restart_continuity_digest,
-        valid_through: clock.valid_through,
-        uncertainty_bound: clock.uncertainty_bound,
-        skew_bound: clock.skew_bound,
+        valid_through: EpochNanosV1::from_epoch_nanos(clock.valid_through),
+        uncertainty_bound: NanosV1::from_nanos(clock.uncertainty_bound),
+        skew_bound: NanosV1::from_nanos(clock.skew_bound),
     }
 }
 

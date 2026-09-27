@@ -4444,6 +4444,9 @@ ALTER SCHEMA market_data_rd_api OWNER TO market_data_owner;
 ALTER SCHEMA market_data_admitted_read OWNER TO market_data_owner;
 ALTER SCHEMA market_data_instrument_master_v2 OWNER TO market_data_owner;
 REVOKE ALL ON SCHEMA replay_policy_catalog_private, replay_policy_catalog_api, composer_private, composer_owner_api, market_data_private FROM PUBLIC, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, market_data_reader, product_edge_owner, qualification_owner, qualification_writer, operator_authorization_owner, operator_authorization_writer, portfolio_owner, backtest_owner;
+-- market_data_admitted_reader is deliberately absent from every REVOKE list here. The Market Data
+-- Owner migration grants it the market_data_admitted_read wrappers, and this cutover runs after the
+-- Owner has materialized, so naming it here would silently strip that grant. authority.bash refuses it.
 REVOKE ALL ON SCHEMA market_data_rd_api FROM PUBLIC, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, market_data_reader, product_edge_owner, qualification_owner, qualification_writer, operator_authorization_owner, operator_authorization_writer, portfolio_owner, backtest_owner;
 REVOKE ALL ON SCHEMA market_data_admitted_read FROM PUBLIC, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, market_data_reader, product_edge_owner, qualification_owner, qualification_writer, operator_authorization_owner, operator_authorization_writer, portfolio_owner, backtest_owner;
 GRANT USAGE ON SCHEMA market_data_rd_api TO rd_owner;
@@ -4599,6 +4602,26 @@ CREATE TABLE IF NOT EXISTS composer_private.rd_develop_operations_v2 (request_id
 CREATE TABLE IF NOT EXISTS composer_private.rd_develop_strategy_design_role_set_attestations_v1 (request_identity TEXT PRIMARY KEY REFERENCES composer_private.rd_develop_operations_v2(request_identity), composer_schema_version INTEGER NOT NULL, operation_receipt_identity BYTEA NOT NULL UNIQUE, artifact_locator TEXT NOT NULL, artifact_identity BYTEA NOT NULL UNIQUE, canonical_plan_digest BYTEA NOT NULL UNIQUE, design_digest BYTEA NOT NULL, attestation_identity BYTEA NOT NULL UNIQUE, attestation_digest BYTEA NOT NULL UNIQUE, canonical_bytes BYTEA NOT NULL, UNIQUE (request_identity, composer_schema_version, operation_receipt_identity, artifact_locator, artifact_identity, canonical_plan_digest, design_digest));
 CREATE TABLE IF NOT EXISTS composer_private.rd_develop_strategy_design_native_joins_v1 (request_identity TEXT PRIMARY KEY REFERENCES composer_private.rd_develop_operations_v2(request_identity), native_join_digest BYTEA NOT NULL UNIQUE, projection_receipt_digest BYTEA NOT NULL UNIQUE, joined_cut_digest BYTEA NOT NULL, schedule_dependency_set_digest BYTEA NOT NULL, canonical_bytes BYTEA NOT NULL);
 CREATE TABLE IF NOT EXISTS composer_private.rd_develop_outbox_v2 (request_identity TEXT PRIMARY KEY REFERENCES composer_private.rd_develop_operations_v2(request_identity), canonical_bytes BYTEA NOT NULL);
+-- Two columns later than the table. Read the shape before changing it: the seven original columns
+-- gain the run-view pair, the nine-column shape is left alone, and anything else stops here.
+DO $composer_operation_run_view_columns$
+DECLARE
+  columns text[];
+BEGIN
+  SELECT pg_catalog.array_agg(attribute.attname::text||':'||pg_catalog.format_type(attribute.atttypid,attribute.atttypmod)||':'||attribute.attnotnull::text ORDER BY attribute.attnum)
+    INTO columns
+    FROM pg_catalog.pg_attribute attribute
+   WHERE attribute.attrelid='composer_private.rd_develop_operations_v2'::pg_catalog.regclass
+     AND attribute.attnum>0 AND NOT attribute.attisdropped;
+  IF columns=ARRAY['request_identity:text:true','request_digest:bytea:true','research_request_identity:bytea:true','intent_identity:bytea:true','artifact_identity:bytea:true','canonical_receipt_bytes:bytea:true','response_bytes:bytea:true']::text[] THEN
+    ALTER TABLE composer_private.rd_develop_operations_v2
+      ADD COLUMN run_research_view_bytes BYTEA,
+      ADD COLUMN run_read_cut_epoch_ms BIGINT;
+  ELSIF columns<>ARRAY['request_identity:text:true','request_digest:bytea:true','research_request_identity:bytea:true','intent_identity:bytea:true','artifact_identity:bytea:true','canonical_receipt_bytes:bytea:true','response_bytes:bytea:true','run_research_view_bytes:bytea:false','run_read_cut_epoch_ms:bigint:false']::text[] THEN
+    RAISE EXCEPTION 'unsupported rd_develop_operations_v2 shape';
+  END IF;
+END
+$composer_operation_run_view_columns$;
 
 DO $private_table_owners$
 DECLARE relation_name text;
@@ -5447,6 +5470,44 @@ END$composer_commit_cut$;
 ALTER FUNCTION composer_owner_api.lock_develop_composer_commit_cut_v2(text) OWNER TO composer_owner;
 REVOKE ALL ON FUNCTION composer_owner_api.lock_develop_composer_commit_cut_v2(text) FROM PUBLIC, rd_owner, rd_fact_writer;
 GRANT EXECUTE ON FUNCTION composer_owner_api.lock_develop_composer_commit_cut_v2(text) TO rd_owner;
+-- A committed Composer run records the Research View it ran under and the read cut it ran at, so
+-- its readback can re-derive it after that View expires or moves on. Nothing but the recorder
+-- writes them, and it writes them once: a later commit of the same operation keeps the first.
+CREATE OR REPLACE FUNCTION composer_owner_api.record_develop_composer_run_view_v1(p_request_identity text, p_research_view bytea, p_read_cut_epoch_ms bigint)
+RETURNS void
+LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp AS $composer_run_view_record$BEGIN
+  IF SESSION_USER NOT IN ('rd_fact_writer','rd_owner') THEN RAISE EXCEPTION 'R&D Composer writer required' USING ERRCODE='42501'; END IF;
+  IF octet_length(p_research_view)=0 OR p_read_cut_epoch_ms<0 THEN RAISE EXCEPTION 'Composer run view is malformed' USING ERRCODE='22023'; END IF;
+  UPDATE composer_private.rd_develop_operations_v2 operation
+     SET run_research_view_bytes=p_research_view, run_read_cut_epoch_ms=p_read_cut_epoch_ms
+   WHERE operation.request_identity=p_request_identity
+     AND operation.run_research_view_bytes IS NULL
+     AND operation.run_read_cut_epoch_ms IS NULL;
+  IF FOUND THEN RETURN; END IF;
+  PERFORM operation.request_identity
+    FROM composer_private.rd_develop_operations_v2 operation
+   WHERE operation.request_identity=p_request_identity
+     AND operation.run_research_view_bytes IS NOT NULL
+     AND operation.run_read_cut_epoch_ms IS NOT NULL;
+  IF NOT FOUND THEN RAISE EXCEPTION 'Composer operation is absent or half recorded' USING ERRCODE='P0002'; END IF;
+END$composer_run_view_record$;
+ALTER FUNCTION composer_owner_api.record_develop_composer_run_view_v1(text,bytea,bigint) OWNER TO composer_owner;
+REVOKE ALL ON FUNCTION composer_owner_api.record_develop_composer_run_view_v1(text,bytea,bigint) FROM PUBLIC, rd_owner, rd_fact_writer, market_data_owner, market_data_reader;
+GRANT EXECUTE ON FUNCTION composer_owner_api.record_develop_composer_run_view_v1(text,bytea,bigint) TO rd_owner, rd_fact_writer;
+CREATE OR REPLACE FUNCTION composer_owner_api.read_develop_composer_run_view_v1(p_request_identity text)
+RETURNS TABLE (research_view bytea, read_cut_epoch_ms bigint)
+LANGUAGE plpgsql STRICT STABLE PARALLEL UNSAFE SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp AS $composer_run_view_read$BEGIN
+  IF SESSION_USER<>'rd_owner' OR CURRENT_USER<>'composer_owner' THEN RAISE EXCEPTION 'R&D Owner required' USING ERRCODE='42501'; END IF;
+  RETURN QUERY
+  SELECT operation.run_research_view_bytes,operation.run_read_cut_epoch_ms
+    FROM composer_private.rd_develop_operations_v2 operation
+   WHERE operation.request_identity=p_request_identity;
+END$composer_run_view_read$;
+ALTER FUNCTION composer_owner_api.read_develop_composer_run_view_v1(text) OWNER TO composer_owner;
+REVOKE ALL ON FUNCTION composer_owner_api.read_develop_composer_run_view_v1(text) FROM PUBLIC, rd_owner, rd_fact_writer, market_data_owner, market_data_reader;
+GRANT EXECUTE ON FUNCTION composer_owner_api.read_develop_composer_run_view_v1(text) TO rd_owner;
 CREATE OR REPLACE FUNCTION composer_owner_api.lock_replay_composition_cut_v1(p_request_identity text)
 RETURNS bigint
 LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
@@ -5513,6 +5574,8 @@ GRANT EXECUTE ON FUNCTION composer_owner_api.commit_develop_composer_acceptance_
 GRANT EXECUTE ON FUNCTION composer_owner_api.resolve_strategy_design_role_set_attestation_v1(text,integer,bytea,text,bytea,bytea,bytea), composer_owner_api.resolve_strategy_design_native_join_v1(text,integer,bytea,text,bytea,bytea,bytea) TO market_data_reader;
 GRANT EXECUTE ON FUNCTION composer_owner_api.resolve_strategy_design_role_set_attestation_v1(text,integer,bytea,text,bytea,bytea,bytea) TO rd_owner;
 GRANT EXECUTE ON FUNCTION composer_owner_api.lock_replay_composition_cut_v1(text) TO market_data_reader, market_data_owner;
+GRANT EXECUTE ON FUNCTION composer_owner_api.record_develop_composer_run_view_v1(text,bytea,bigint) TO rd_owner, rd_fact_writer;
+GRANT EXECUTE ON FUNCTION composer_owner_api.read_develop_composer_run_view_v1(text) TO rd_owner;
 \if :composer_acceptance
 SELECT pg_catalog.set_config('vibe.migration.install_composer_acceptance','true',true);
 \else
@@ -5560,7 +5623,7 @@ BEGIN
     AND (SELECT count(*)=6 AND bool_and(relation.relpersistence='p' AND pg_catalog.pg_get_userbyid(relation.relowner)='replay_policy_catalog_owner') AND NOT bool_or(pg_catalog.has_table_privilege('rd_owner',relation.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')) AND NOT bool_or(pg_catalog.has_table_privilege('market_data_reader',relation.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')) FROM pg_catalog.pg_class relation JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname='replay_policy_catalog_private' AND relation.relkind='r')
     AND (SELECT count(*)=14 AND bool_and(relation.relpersistence='p' AND pg_catalog.pg_get_userbyid(relation.relowner)='composer_owner') AND NOT bool_or(pg_catalog.has_table_privilege('rd_owner',relation.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')) AND NOT bool_or(pg_catalog.has_table_privilege('rd_fact_writer',relation.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')) AND NOT bool_or(pg_catalog.has_table_privilege('market_data_reader',relation.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')) AND NOT bool_or(pg_catalog.has_table_privilege('market_data_owner',relation.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')) FROM pg_catalog.pg_class relation JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname='composer_private' AND relation.relkind='r')
     AND (SELECT count(*)=50 FROM pg_catalog.pg_attribute attribute JOIN pg_catalog.pg_class relation ON relation.oid=attribute.attrelid JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname='replay_policy_catalog_private' AND relation.relkind='r' AND attribute.attnum>0 AND NOT attribute.attisdropped)
-    AND (SELECT count(*)=54 FROM pg_catalog.pg_attribute attribute JOIN pg_catalog.pg_class relation ON relation.oid=attribute.attrelid JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname='composer_private' AND relation.relkind='r' AND attribute.attnum>0 AND NOT attribute.attisdropped)
+    AND (SELECT count(*)=56 FROM pg_catalog.pg_attribute attribute JOIN pg_catalog.pg_class relation ON relation.oid=attribute.attrelid JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname='composer_private' AND relation.relkind='r' AND attribute.attnum>0 AND NOT attribute.attisdropped)
     AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_class object JOIN pg_catalog.pg_namespace namespace ON namespace.oid=object.relnamespace WHERE namespace.nspname IN ('replay_policy_catalog_private','composer_private') AND object.relkind NOT IN ('r','i'))
     AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_trigger trigger_fact JOIN pg_catalog.pg_class relation ON relation.oid=trigger_fact.tgrelid JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname IN ('replay_policy_catalog_private','composer_private') AND NOT trigger_fact.tgisinternal)
     AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_policy policy JOIN pg_catalog.pg_class relation ON relation.oid=policy.polrelid JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname IN ('replay_policy_catalog_private','composer_private'))
@@ -5592,13 +5655,15 @@ BEGIN
 $catalog_audit_read$
     ) FROM pg_catalog.pg_proc procedure JOIN pg_catalog.pg_namespace namespace ON namespace.oid=procedure.pronamespace
       WHERE namespace.nspname='replay_policy_catalog_api' AND procedure.proname='read_replay_policy_catalog_audit_v2')
-    AND (SELECT count(*)=CASE WHEN composer_acceptance THEN 11 ELSE 9 END AND bool_and(procedure.oid IN (
+    AND (SELECT count(*)=CASE WHEN composer_acceptance THEN 13 ELSE 11 END AND bool_and(procedure.oid IN (
       pg_catalog.to_regprocedure('composer_owner_api.commit_develop_composer_v2(text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea[],bytea[],bytea[],bytea[],bytea[],bytea,bytea,bytea,bytea,bytea,integer,bytea,text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea)'),
       pg_catalog.to_regprocedure('composer_owner_api.commit_develop_composer_v3(text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea[],bytea[],bytea[],bytea[],bytea[],bytea,bytea,bytea,bytea,bytea,integer,bytea,text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,integer[])'),
       pg_catalog.to_regprocedure('composer_owner_api.lock_accepted_develop_composer_v2(text)'),
       pg_catalog.to_regprocedure('composer_owner_api.resolve_develop_composer_locator_for_replay_v2(text,bytea,bytea,bytea)'),
       pg_catalog.to_regprocedure('composer_owner_api.resolve_artifact_build_receipts_v1(bytea)'),
       pg_catalog.to_regprocedure('composer_owner_api.lock_develop_composer_commit_cut_v2(text)'),
+      pg_catalog.to_regprocedure('composer_owner_api.record_develop_composer_run_view_v1(text,bytea,bigint)'),
+      pg_catalog.to_regprocedure('composer_owner_api.read_develop_composer_run_view_v1(text)'),
       pg_catalog.to_regprocedure('composer_owner_api.lock_replay_composition_cut_v1(text)'),
       pg_catalog.to_regprocedure('composer_owner_api.resolve_strategy_design_role_set_attestation_v1(text,integer,bytea,text,bytea,bytea,bytea)'),
       pg_catalog.to_regprocedure('composer_owner_api.resolve_strategy_design_native_join_v1(text,integer,bytea,text,bytea,bytea,bytea)')
@@ -5612,6 +5677,12 @@ $catalog_audit_read$
     AND pg_catalog.has_function_privilege('rd_owner','composer_owner_api.commit_develop_composer_v3(text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea[],bytea[],bytea[],bytea[],bytea[],bytea,bytea,bytea,bytea,bytea,integer,bytea,text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,integer[])','EXECUTE')
     AND pg_catalog.has_function_privilege('rd_owner','composer_owner_api.lock_develop_composer_commit_cut_v2(text)','EXECUTE')
     AND NOT pg_catalog.has_function_privilege('rd_fact_writer','composer_owner_api.lock_develop_composer_commit_cut_v2(text)','EXECUTE')
+    AND pg_catalog.has_function_privilege('rd_owner','composer_owner_api.record_develop_composer_run_view_v1(text,bytea,bigint)','EXECUTE')
+    AND pg_catalog.has_function_privilege('rd_fact_writer','composer_owner_api.record_develop_composer_run_view_v1(text,bytea,bigint)','EXECUTE')
+    AND NOT pg_catalog.has_function_privilege('market_data_reader','composer_owner_api.record_develop_composer_run_view_v1(text,bytea,bigint)','EXECUTE')
+    AND pg_catalog.has_function_privilege('rd_owner','composer_owner_api.read_develop_composer_run_view_v1(text)','EXECUTE')
+    AND NOT pg_catalog.has_function_privilege('rd_fact_writer','composer_owner_api.read_develop_composer_run_view_v1(text)','EXECUTE')
+    AND NOT pg_catalog.has_function_privilege('market_data_reader','composer_owner_api.read_develop_composer_run_view_v1(text)','EXECUTE')
     AND NOT pg_catalog.has_function_privilege('rd_fact_writer','replay_policy_catalog_api.apply_replay_policy_catalog_command_v2(text,text,text,text,text,numeric,text,text,bytea,bytea,bytea,bytea,text,text,jsonb,bigint)','EXECUTE')
     AND NOT pg_catalog.has_function_privilege('rd_fact_writer','replay_policy_catalog_api.read_replay_policy_catalog_audit_v2(text)','EXECUTE')
     AND pg_catalog.has_function_privilege('replay_policy_catalog_admin_writer','replay_policy_catalog_api.apply_replay_policy_catalog_command_v2(text,text,text,text,text,numeric,text,text,bytea,bytea,bytea,bytea,text,text,jsonb,bigint)','EXECUTE')

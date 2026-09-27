@@ -4675,10 +4675,10 @@ mod tests {
     /// The floor names longer than PostgreSQL's identifier limit, each one stated.
     ///
     /// PostgreSQL truncates an identifier to `NAMEDATALEN - 1`, 63 bytes, wherever SQL spells it,
-    /// and stores it truncated. A longer name still resolves, in the reads and through
-    /// `to_regprocedure` in the measurer, because both truncate the same way; but the catalog
-    /// lists the object under the shorter name, so anything comparing a floor's text to the
-    /// catalog must truncate first, and two names sharing their first 63 bytes are one object.
+    /// and stores it truncated. A longer name still resolves, in the reads and in the measurer,
+    /// which truncates it the same way before it matches the catalog; but the catalog lists the
+    /// object under the shorter name, so anything comparing a floor's text to the catalog must
+    /// truncate first, and two names sharing their first 63 bytes are one object.
     const FLOOR_NAMES_OVER_THE_IDENTIFIER_LIMIT: &[&str] = &[
         "market_data_admitted_read.resolve_strategy_input_sample_projection_schedule_dependencies_v3",
         "market_data_private.resolve_strategy_input_sample_projection_schedule_dependencies_v3",
@@ -4725,8 +4725,8 @@ mod tests {
                 .copied()
                 .collect(),
             "a floor name over 63 bytes is stored truncated to 63 by PostgreSQL; it still resolves \
-             from SQL and through to_regprocedure, but the catalog lists the shorter name. State it \
-             in FLOOR_NAMES_OVER_THE_IDENTIFIER_LIMIT, or give the object a shorter name"
+             from SQL and in the measurer, but the catalog lists the shorter name. State it in \
+             FLOOR_NAMES_OVER_THE_IDENTIFIER_LIMIT, or give the object a shorter name"
         );
     }
 
@@ -4889,6 +4889,270 @@ mod tests {
         );
     }
 
+    /// Every wrapper the Owner migration creates, and so grants the admitted reader, serves Store
+    /// Admission: it is on the floor of an admitted read, or it is the one admitted read schema
+    /// call this module makes outside every floor, the measurement's read of the migration ledger.
+    /// No floor names a wrapper the migration does not create. So the reader's grant, every
+    /// function in that schema, is exactly what admitting and reading need of it.
+    #[rstest]
+    fn every_wrapper_serves_an_admitted_read_or_the_measurement() {
+        const PREFIX: &str = "market_data_admitted_read.";
+        let on_floors = postgres::MEASUREMENT_FLOORS
+            .iter()
+            .flat_map(|floor| floor.functions)
+            .filter_map(|signature| signature.strip_prefix(PREFIX))
+            .filter_map(|rest| rest.split_once('(').map(|(name, _)| name.to_owned()))
+            .collect::<BTreeSet<_>>();
+        let source = include_str!("postgres.rs");
+        let floors_end = source
+            .find("pub(super) const MEASUREMENT_FLOORS")
+            .expect("the floors are declared before the reads and the measurement");
+        let outside = identifiers_after(&source[floors_end..], PREFIX)
+            .into_iter()
+            .map(str::to_owned)
+            .filter(|name| !on_floors.contains(name))
+            .collect::<BTreeSet<_>>();
+        assert_eq!(
+            outside,
+            BTreeSet::from(["resolve_owner_migrations_v1".to_owned()]),
+            "the measurement's ledger read is the one call outside the floors"
+        );
+        let declared = crate::owner::postgres::declared_admitted_read_wrapper_names_v1()
+            .into_iter()
+            .map(str::to_owned)
+            .collect::<BTreeSet<_>>();
+        assert_eq!(
+            declared,
+            on_floors.union(&outside).cloned().collect::<BTreeSet<_>>(),
+            "the migration creates exactly the wrappers admission calls"
+        );
+    }
+
+    /// The admitted reader the deployment provisions holds, once the Owner has migrated, exactly
+    /// what Store Admission needs of it: `USAGE` on the admitted read schema and `EXECUTE` on every
+    /// wrapper there, beside what every role holds through `PUBLIC`, and nothing on
+    /// `market_data_private`.
+    ///
+    /// The reader comes from the deployment's own init script, which the runner runs for every
+    /// database, and its grant from the Owner migration. Its census is read, the migration's two
+    /// grants are revoked and the census is read again: the difference is the schema's `USAGE` and
+    /// one `EXECUTE` per wrapper the migration creates. Migrating again restores the first census,
+    /// which is what a reader provisioned after the migration gains the next time the Owner
+    /// migrates. As that reader, a real measurement over every floor is admitted and opens every
+    /// port, every wrapper runs without a privilege refusal, and a direct read of an Owner table is
+    /// refused.
+    #[rstest]
+    #[ignore = "requires the crates/data disposable PostgreSQL harness"]
+    fn the_admitted_reader_holds_every_admitted_read_and_nothing_else() {
+        std::thread::Builder::new()
+            .name("market-data-admitted-reader".into())
+            .stack_size(16 * 1024 * 1024)
+            .spawn(|| {
+                tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .unwrap()
+                    .block_on(run_admitted_reader_scenario());
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
+    #[allow(
+        clippy::too_many_lines,
+        reason = "one provisioned reader: its shape, its grant, and every use admission makes of it"
+    )]
+    async fn run_admitted_reader_scenario() {
+        use vibe_postgres_connect::{PgPoolOptionsExt, PostgresTls};
+
+        const READER: &str = "market_data_admitted_reader";
+        let admin_url = std::env::var("MARKET_DATA_ADMIN_TEST_DATABASE_URL")
+            .expect("explicit disposable administrator URL");
+        let owner_url = std::env::var("MARKET_DATA_OWNER_TEST_DATABASE_URL")
+            .expect("explicit disposable Owner URL");
+        let reader_url = std::env::var("MARKET_DATA_ADMITTED_READER_TEST_DATABASE_URL")
+            .expect("explicit disposable admitted reader URL");
+        let database =
+            std::env::var("VIBE_POSTGRES_TEST_DATABASE_NAME").expect("disposable database name");
+        assert!(
+            database.starts_with("vibe_test_"),
+            "this proof revokes and grants; it runs only against a disposable database"
+        );
+        assert!(
+            reader_url.contains(READER),
+            "the proof's principal is the provisioned reader"
+        );
+        let owner = crate::owner::postgres::MarketDataOwnerPostgres::connect(&owner_url)
+            .await
+            .expect("Owner connects and migrates");
+        let admin = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(1)
+            .connect_url(&admin_url, PostgresTls::Disabled)
+            .await
+            .expect("the administrator connects");
+        let reader = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(1)
+            .connect_url(&reader_url, PostgresTls::Disabled)
+            .await
+            .expect("the provisioned reader connects");
+
+        // 1. What the init script makes it: a login role that inherits nothing, with no membership
+        //    either way.
+        let shape: (bool, bool, bool, bool, bool, bool, bool) = sqlx::query_as(
+            "SELECT rolcanlogin, rolinherit, rolsuper, rolcreatedb, rolcreaterole, rolreplication, \
+             rolbypassrls FROM pg_catalog.pg_roles WHERE rolname = $1",
+        )
+        .bind(READER)
+        .fetch_one(&admin)
+        .await
+        .expect("the reader is provisioned");
+        assert_eq!(shape, (true, false, false, false, false, false, false));
+        let memberships: i64 = sqlx::query_scalar(
+            "SELECT pg_catalog.count(*) FROM pg_catalog.pg_auth_members AS edge \
+             JOIN pg_catalog.pg_roles AS role ON role.oid IN (edge.roleid, edge.member) \
+             WHERE role.rolname = $1",
+        )
+        .bind(READER)
+        .fetch_one(&admin)
+        .await
+        .unwrap();
+        assert_eq!(
+            memberships, 0,
+            "the reader is in no role and no role is in it"
+        );
+
+        // 2. What the migration grants it, read through the census admission measures.
+        let granted = census_rows(&reader).await;
+        assert!(
+            granted
+                .iter()
+                .all(|(subject, _, _, _)| subject == READER || subject == "PUBLIC"),
+            "the census is the reader's own: {granted:?}"
+        );
+        assert!(
+            granted
+                .iter()
+                .all(|(_, _, object, _)| !object.starts_with("market_data_private")),
+            "the reader holds nothing on market_data_private: {granted:?}"
+        );
+        let revoke = [
+            "REVOKE USAGE ON SCHEMA market_data_admitted_read FROM market_data_admitted_reader",
+            "REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA market_data_admitted_read FROM market_data_admitted_reader",
+        ];
+
+        for statement in revoke {
+            sqlx::query(statement)
+                .execute(&admin)
+                .await
+                .expect("the administrator revokes the migration's grant");
+        }
+        let ungranted = census_rows(&reader).await;
+        assert!(ungranted.is_subset(&granted), "revoking only removes");
+        let gained = granted
+            .difference(&ungranted)
+            .map(|(subject, kind, object, privilege)| {
+                assert_eq!(subject, READER, "the grant is to the reader itself");
+                let object = object
+                    .strip_prefix("market_data_admitted_read.")
+                    .and_then(|rest| rest.split_once('(').map(|(name, _)| name))
+                    .unwrap_or(object);
+                (kind.clone(), object.to_owned(), privilege.clone())
+            })
+            .collect::<BTreeSet<_>>();
+        let mut expected = BTreeSet::from([(
+            "schema".to_owned(),
+            "market_data_admitted_read".to_owned(),
+            "USAGE".to_owned(),
+        )]);
+        // The census names a function as the catalog stores it, which truncates a long name.
+        expected.extend(
+            crate::owner::postgres::declared_admitted_read_wrapper_names_v1()
+                .into_iter()
+                .map(|name| {
+                    let stored = catalog_name(format!("market_data_admitted_read.{name}"));
+                    let stored = stored.trim_start_matches("market_data_admitted_read.");
+                    (
+                        "function".to_owned(),
+                        stored.to_owned(),
+                        "EXECUTE".to_owned(),
+                    )
+                }),
+        );
+        assert_eq!(
+            gained, expected,
+            "the migration grants the schema and every wrapper, and nothing else"
+        );
+        crate::owner::postgres::MarketDataOwnerPostgres::connect(&owner_url)
+            .await
+            .expect("the Owner migrates again");
+        assert_eq!(
+            census_rows(&reader).await,
+            granted,
+            "migrating again restores exactly the grant"
+        );
+
+        // 3. What admission does with it: measure and admit every floor, and open every port.
+        for (port, construct, floors) in PORT_FLOORS {
+            let spec = measurement_spec_covering(floors);
+            assert!(
+                construct(admitted_capability_for(&reader_url, &spec).await).is_ok(),
+                "{port} opens on a measurement the provisioned reader takes"
+            );
+        }
+        let all_floors = postgres::MEASUREMENT_FLOORS.iter().collect::<Vec<_>>();
+        drop(admitted_capability_for(&reader_url, &measurement_spec_covering(&all_floors)).await);
+
+        // 4. Every wrapper runs as the reader, and an Owner table does not.
+        let wrappers: Vec<(String, String)> = sqlx::query_as(
+            "SELECT p.proname::text, pg_catalog.oidvectortypes(p.proargtypes) \
+             FROM pg_catalog.pg_proc AS p JOIN pg_catalog.pg_namespace AS n ON n.oid = p.pronamespace \
+             WHERE n.nspname = 'market_data_admitted_read' ORDER BY 1",
+        )
+        .fetch_all(owner.pool())
+        .await
+        .unwrap();
+        assert_eq!(
+            wrappers.len(),
+            crate::owner::postgres::declared_admitted_read_wrapper_names_v1().len()
+        );
+
+        for (name, types) in &wrappers {
+            let arguments = types
+                .split(", ")
+                .filter(|kind| !kind.is_empty())
+                .map(|kind| format!("NULL::{kind}"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            let called = sqlx::query(sqlx::AssertSqlSafe(format!(
+                "SELECT * FROM market_data_admitted_read.{name}({arguments})"
+            )))
+            .fetch_all(&reader)
+            .await;
+
+            if let Err(e) = called {
+                assert_ne!(
+                    e.as_database_error()
+                        .and_then(sqlx::error::DatabaseError::code)
+                        .as_deref(),
+                    Some("42501"),
+                    "{name} is refused to the reader: {e}"
+                );
+            }
+        }
+        let direct = sqlx::query("SELECT 1 FROM market_data_private.owner_migrations_v1")
+            .fetch_all(&reader)
+            .await
+            .expect_err("an Owner table is refused to the reader");
+        assert_eq!(
+            direct
+                .as_database_error()
+                .and_then(sqlx::error::DatabaseError::code)
+                .as_deref(),
+            Some("42501")
+        );
+    }
+
     /// Each port opens on exactly the floors its resolver's reads stand on, and refuses a measurement
     /// short of any single function or relation of them.
     #[tokio::test]
@@ -4959,9 +5223,9 @@ mod tests {
 
     /// The name the catalog stores for `qualified`: PostgreSQL truncates an identifier to
     /// `NAMEDATALEN - 1`, 63 bytes, wherever SQL spells it, so a function spelled with 65 in a read
-    /// and in its floor is stored and listed with 63. The floors keep the SQL spelling, which is what
-    /// the measurer hands to `to_regprocedure`, and this proof compares both sides as the catalog
-    /// resolves them.
+    /// and in its floor is stored and listed with 63. The floors keep the SQL spelling, which the
+    /// measurer truncates the same way before it matches the catalog, and this proof compares both
+    /// sides as the catalog resolves them.
     fn catalog_name(qualified: String) -> String {
         match qualified.split_once('.') {
             Some((schema, object)) if object.len() > 63 => format!("{schema}.{}", &object[..63]),
@@ -5317,7 +5581,6 @@ mod tests {
     }
 
     /// The privilege census the principal behind `reader` would be measured with, row by row.
-    #[cfg(feature = "sealed-strategy-input-acceptance")]
     async fn census_rows(
         reader: &sqlx::PgPool,
     ) -> std::collections::BTreeSet<(String, String, String, String)> {

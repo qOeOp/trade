@@ -12,7 +12,8 @@ use thiserror::Error;
 use super::{
     MarketDataOwnerPostgres,
     acceptance_fixture_v1::{
-        d, instrument_fact, instrument_request, market_base_pit_time_v1, source_proposal,
+        d, declaring_bars_v1, instrument_fact, instrument_request, market_base_pit_time_v1,
+        session_bar_v1, source_proposal,
     },
     public_decision_cut_v1,
 };
@@ -50,10 +51,11 @@ use crate::owner::{
     shared_time_evidence::{UntrustedClockHeadLocator, build_head_fact},
     source_binding::{
         BindingDigest, MarketDataClockAdmission, SourceBindingOwnerReadback,
-        UntrustedSourceBindingLocator, UntrustedSourceBindingProposal,
+        UntrustedSourceBarCadenceV1, UntrustedSourceBarUnitV1, UntrustedSourceBindingLocator,
+        UntrustedSourceBindingProposal,
         authority::{
             OwnerSourceBindingDecision, SourceBindingCommit, derive_binding_id,
-            derive_market_semantics_compatibility_identity_v1, derive_time_evidence_identity,
+            derive_market_semantics_compatibility_identity_v1,
         },
     },
     universe_selection::{
@@ -645,10 +647,28 @@ pub(super) fn chain_market_base_source_proposal_v1(
     proposal.source_frontier.digest = d(85);
     proposal.correction_frontier.cut_identity = "instrument-correction-cut-86".into();
     proposal.correction_frontier.digest = d(86);
-    proposal.time_evidence.claimed_evidence_identity =
-        derive_time_evidence_identity(&proposal.time_evidence);
-    proposal.claimed_binding_id = derive_binding_id(&proposal);
-    proposal
+    // The base serves an exchange-listed instrument's one-minute and one-hour bars on its trading
+    // schedule, and its exchange-session day, and says so.
+    declaring_bars_v1(
+        proposal,
+        vec![
+            session_bar_v1("1D", UntrustedSourceBarCadenceV1::ExchangeSessionDay),
+            session_bar_v1(
+                "1H",
+                UntrustedSourceBarCadenceV1::FixedInterval {
+                    step: 1,
+                    unit: UntrustedSourceBarUnitV1::Hour,
+                },
+            ),
+            session_bar_v1(
+                "1M",
+                UntrustedSourceBarCadenceV1::FixedInterval {
+                    step: 1,
+                    unit: UntrustedSourceBarUnitV1::Minute,
+                },
+            ),
+        ],
+    )
 }
 
 /// The Market Semantics compatibility scope of the base's Source Binding, derived from its

@@ -103,7 +103,7 @@ fn request(
         scope: InstrumentMasterScopeV1::ExactInstrument(identity.into()),
         effective_instant: 50,
         owner_observation: observed,
-        decision_cut: head.handoff.decision_cut(),
+        decision_cut: head.handoff.decision_cut().as_epoch_nanos(),
         clock_head: head.handoff.locator().clone(),
         lifecycle_frontier: d(1),
         corporate_action_frontier: d(2),

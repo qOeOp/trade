@@ -238,6 +238,30 @@ impl OwnerUniverseFrameV1 {
     pub const fn frame(&self) -> &StrategyInputUniverseFrameReceipt {
         &self.frame
     }
+
+    /// A frame with test coordinates standing in for a Market Data sample projection's, one for
+    /// each (member, role) pair `plan` reads, built by
+    /// [`UniverseMemberSampleCoordinateV1::for_frame_test`].
+    #[cfg(all(test, feature = "sealed-strategy-input-acceptance"))]
+    pub(crate) fn with_plan_coordinates_for_test(
+        plan: &StrategyPlanV2,
+        frame: StrategyInputUniverseFrameReceipt,
+    ) -> Self {
+        let coordinates = plan
+            .bfp_role_bindings()
+            .iter()
+            .filter(|row| row.kind() == BfpRoleBindingKindV1::Coordinate)
+            .map(|row| {
+                UniverseMemberSampleCoordinateV1::for_frame_test(
+                    &frame,
+                    row.member_ordinal()
+                        .expect("a universe coordinate row names its member"),
+                    row.input_role_identity(),
+                )
+            })
+            .collect();
+        Self { frame, coordinates }
+    }
 }
 
 /// Whether a Plan reads any universe member's Owner sample coordinate: whether it has a coordinate

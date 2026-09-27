@@ -96,15 +96,27 @@ never runs in CI.
   after one. It connects as a least-privilege test principal that the disposable database grants exactly
   `NATIVE_REPLAY_SCHEDULING_ACCEPTANCE_GRANTS_V1`, and its evidence carries the marker
   `SEALED_ACCEPTANCE_NO_STORE_ADMISSION_V1` where an admitted read carries a receipt; only a build that carries that
-  port accepts the marker. Admission itself, including the principal it leases and the grants on that gate, is still
-  `B3`. No production role holds that gate today: the deployed ACL cutover revokes every privilege on
-  `market_data_private` and `market_data_admitted_read` from every role but the owner, and no role is yet granted what
-  the admitted ports' measurement floors list. Every admitted read, and the measurement's read of the Owner's migration
-  ledger, reaches the Owner only through `market_data_admitted_read`. Each function there is a `SECURITY DEFINER`
-  pass-through of the private function of its name, with the same parameters and result, or one of four fixed reads of
-  Owner rows; each is `STABLE`, pins `search_path`, and is granted to no one by the migration. The principal a Store
-  Admission leases therefore needs `USAGE` on that schema and `EXECUTE` on the wrappers its reads call, and nothing on
-  `market_data_private`, whose time-zone custody check requires that it have no grantee but its owner. Each port opens
+  port accepts the marker. Admission itself is still `B3`: nothing leases its principal yet. That principal is
+  `market_data_admitted_reader`. `product/rd-workbench/postgres-init/25-market-data-admitted-reader.sh` provisions it as
+  a login role that inherits nothing, has no role membership in either direction, and holds `CONNECT` on the database;
+  the compose file does not run that script yet. The deployed ACL cutover revokes every privilege on
+  `market_data_private` and `market_data_admitted_read` from every role it names, and the admitted reader is not among
+  them. The cutover runs after the Owner has materialized, so the Owner migration's grant to the reader survives it only
+  because the reader is absent from those lists; `product/rd-workbench/scripts/check/authority.bash` refuses a cutover
+  that names it. Every admitted read, and the
+  measurement's read of the Owner's migration ledger, reaches the Owner only through `market_data_admitted_read`. Each
+  function there is a `SECURITY DEFINER` pass-through of the private function of its name, with the same parameters and
+  result, or one of four fixed reads of Owner rows; each is `STABLE` and pins `search_path`. The Owner migration grants
+  them to one role only: when `market_data_admitted_reader` exists, it gains `USAGE` on the schema and `EXECUTE` on
+  every function in it, and nothing on `market_data_private`, whose time-zone custody check requires that it have no
+  grantee but its owner. The measurement still names private functions and relations, and finds each by its schema and
+  stored name in the catalog rows every role can read, never through `to_regclass` or `to_regprocedure`, which refuse a
+  qualified name in a schema the role cannot use. A reader provisioned after the migration last ran gains that grant the
+  next time the Owner migrates. Every wrapper is on the floor of an admitted read, except the ledger read the measurement itself makes, so
+  the grant is exactly what the admitted reads and the measurement call. A unit test holds the wrapper list to the
+  floors and the measurement's one other call, and a Market Data PostgreSQL proof holds the provisioned reader's
+  privilege census to that grant: it measures and admits every floor as that reader, calls every wrapper, and is
+  refused `market_data_private`. Each port opens
   only on a measurement that covers the floors of the reads it serves, the native Replay scheduling port's PIT
   evaluation reads included, and each read checks its own floor again on every admission it reads under.
   Reading a BAR schedule has **two custody strategies**, one per build, and this document has until now described
@@ -257,7 +269,17 @@ never runs in CI.
   identity/configuration or semantics mismatch is `INCOMPATIBLE`. `ADMITTED` is exclusive and requires no failure.
 - **CURRENT:** one private canonical clock head is atomically persisted with Owner-local Source Binding and PIT facts.
   Exact replay and same-epoch advancement are supported; epoch change, a sealed cross-Owner handoff, and an Epoch
-  Successor Proof are not current.
+  Successor Proof are not current. Every instant a handoff, an Epoch Successor Proof or a `MarketDataDecisionCutV1`
+  carries is Unix-epoch nanoseconds, and the unit travels in the type, `EpochNanosV1`; uncertainty and skew bounds are
+  `NanosV1`. Neither has an accessor that returns the number without naming its unit, and both serialize as the bare
+  number, so no wire form or digest changed when the unit moved into the type. A comparison with a millisecond clock
+  goes through `may_be_reached_within_epoch_ms`, `is_reached_throughout_epoch_ms` or
+  `is_not_passed_throughout_epoch_ms`, each of which answers for the whole commit millisecond and so rounds toward
+  refusing. The Backtest and Qualification wire mirrors it with `MarketDataEpochNanosV1`, whose only millisecond
+  comparison is `is_expired_at_epoch_ms`. The type carries the unit because the names did not: Backtest, Qualification,
+  the R&D repair request and Source Intake read these instants as epoch milliseconds, so an expiry check against a
+  nanosecond bound never fired and an ordering check never passed, and the one clock their tests had, the sealed
+  protected-evaluation clock, was itself in milliseconds.
 - **TARGET:** an immutable, content-addressed, exactly resolvable sealed clock-head handoff binds head identity/digest,
   clock identity/epoch, monotonic sequence, wall observation, decision cut, exclusive valid-through,
   restart-continuity digest, uncertainty/skew bounds, and comparison rule. Same-epoch successors strictly advance the
@@ -1815,15 +1837,16 @@ fixture. A native Replay's initial read needs a schedule cut at its frame, so un
 acceptance that drives that read takes its schedule from the sealed acceptance proposer
 `commit_bar_schedule_for_acceptance_v1`, present only in a build carrying `sealed-strategy-input-acceptance`. Given a
 PIT snapshot and a BAR role declared on it, the Owner derives every schedule field from the snapshot's verified batch,
-the role's binding, and the Instrument Master readback the snapshot binds: the shape whose label is the role's
-timeframe, the master fact's interval, the interval close, complete bars, and a cut at the snapshot's event. The
-schedule is the instrument's and timeframe's, not the role's, and a schedule the frame already reads is rejoined
-rather than written again. It refuses by name a snapshot it cannot find, a batch that does not verify, an undeclared
-role, a role spanning several members, a role whose row is not a BAR, a timeframe no schedule unit states, and a
-missing Instrument Master readback. Strategy Factory slice F depends on it. Two source gaps remain beside it: no
-schedule unit states a fixed-interval day, so a continuous daily bar such as a Binance perpetual's cannot be scheduled
-today; and no admitted Binance perpetual source supplies QUOTE rows, so a perpetual Replay has no quote cut to fill
-from.
+the bar its Source Binding declares for the role's row label, the role's binding, and the Instrument Master readback
+the snapshot binds: the declared cadence, anchor, clock, label and completion, the master fact's interval, and a cut at
+the snapshot's event. The schedule is the instrument's and declared bar's, not the role's, and a schedule the frame
+already reads and the declaration admits is rejoined rather than written again. It refuses by name a snapshot it
+cannot find, a batch that does not verify, an undeclared role, a role spanning several members, a role whose row is
+not a BAR, a Source Binding that declares no bar timeframe, a role row label it declares none for, and a missing
+Instrument Master readback. Strategy Factory slice F depends on it. A continuous daily bar such as a Binance
+perpetual's is declared as a 24-hour fixed interval on a continuous clock from the Unix epoch and scheduled as that
+bar. One source gap remains beside it: no admitted Binance perpetual source supplies QUOTE rows, so a perpetual Replay
+has no quote cut to fill from.
 
 `TimeframeSpecV1` has one fixed canonical codec, in this order: schema `u16LE = 1`, reserved-zero `u16LE`, kind
 `u8`, positive step `u32LE`, unit `u8`, anchor identity `[u8; 32]`, calendar identity `[u8; 32]`, session identity
@@ -1867,6 +1890,51 @@ bytes and changing it cannot change a schedule identity, timeframe identity, or 
 an untrusted desired BAR shape, but that input has no direct projection authority and cannot mint, select, or mutate
 schedule, calendar, session, time-zone, anchor, label, partial rule, or instrument evidence.
 
+What a BAR row is as a bar is declared by its Source Binding. A schema-2 Source Binding proposal declares
+`bar_timeframes`: one declaration per BAR row label the source stamps, in strictly ascending label order with no label
+repeated, each stating the exact `row_timeframe`, a cadence (`FixedInterval` of a positive step in `Second`, `Minute`
+or `Hour`, or `ExchangeSessionDay`), an anchor (`UnixEpoch` or `SessionOpen`), a clock (`Continuous` or
+`ScheduleBounded`), a label (`IntervalOpen` or `IntervalClose`) and a completion (`CompleteOnly`). Exactly three
+combinations are admitted: a fixed interval from the Unix epoch on a continuous clock, a fixed interval from the session
+open on the trading schedule, and an exchange session day from the session open on the trading schedule; any other
+combination, an out-of-order or repeated label, or a label a PIT batch cannot carry refuses the binding as
+`UnsupportedBarTimeframe`. A schema-1 proposal declares none. Under schema 2 the declarations enter the binding
+identity and fact digest, count first; schema 1 encodes nothing new, so every binding minted before declarations keeps
+its identity. No production Source Binding is schema 2 today. A UTC day, such as a Binance USD-M perpetual's `1d`
+kline, is a 24-hour `FixedInterval` from the Unix epoch on a continuous clock; an equity's `1D` is an
+`ExchangeSessionDay`. The label `1D` names either, and only the declaration says which.
+
+A schedule is selected and minted by one rule in three places - the native Replay scheduling read, the universe
+sample projection's member schedules, and the sealed acceptance proposer: the frame's batch names its Source Binding
+fact, the roles' row label selects that binding's declaration by identity equality, and the schedule must state the
+declared cadence, anchor, clock, label and completion field by field. The role label, the row label and the
+declaration's `row_timeframe` are compared as provenance strings: equality confirms that the roles read the rows the
+declaration speaks for, and says nothing about what the label means. A schedule's anchor identity is SHA-256 over
+`market-data.bar-schedule.anchor.v1\0 || anchor tag`, so one anchor means one thing on every schedule; a continuous
+clock binds zero calendar and session identities whatever the Instrument Master names, and a trading-schedule clock
+binds both. The read refuses by name a binding that declares no bar timeframe
+(`SourceBindingDeclaresNoBarTimeframe`) and a role label it declares none for, a declaration from another binding, or
+a member whose schedules at the frame all state another bar (`DeclaredBarTimeframeMismatch`). One role with several
+timeframes cannot be constructed: a role has one label and a label has one declaration. Several timeframes in one
+Design are several roles, either under different labels of one binding, as the admitted joined-cut corpus below does,
+or under different bindings, such as one instrument's 1-hour and 1-day sources; this is the shape Strategy Factory
+slice T2 resolves each role's last close under. Whether a declaration is true of the market is the binding author's
+statement, as the availability rule is; Market Data refuses only a combination no bar can have. When a Session Owner
+serves typed calendars, the schedule-bounded declarations can be checked against the instrument's session instead of
+trusted.
+
+The native engine's name for a schedule's bar is an encoding of the typed schedule, which stays the only meaning. The
+engine admits a periodic step only - a `Second` or `Minute` step dividing 60 and an `Hour` step dividing 24, never
+the whole of either (`BarSpecification::validate_step`) - so a fixed interval from the Unix epoch on a continuous clock
+is named in the largest unit that divides its duration and that the engine admits: 24 hours is `1-DAY`, 60 minutes
+`1-HOUR`, 48 hours `2-DAY`, and a duration no unit admits, such as 5 hours, refuses the frame as
+`NativeRepresentation`. The name is exact because the engine takes these bars as `EXTERNAL`: it neither aggregates them
+nor derives their instants from the name, and the rows carry their own times. A fixed interval on a trading schedule
+keeps its own unit, and an exchange session day is named `DAY`, which the engine cannot tell from a UTC day; that is a
+stated limitation until the engine models sessions. Because several typed bars share one name, a Replay's frame
+sequence refuses two frames that name their bars alike but declare different bars, as
+`NativeBarTypeCarriesTwoTimeframes`.
+
 The structural `BarScheduleFactV1` codec underpins the CURRENT/PARTIAL durable PostgreSQL schedule authority. Its
 canonical bytes are, in order: schema `u16LE = 1`, reserved-zero `u16LE`, canonical instrument as
 `u16LE length || UTF-8 bytes`, predecessor-fact presence `u8` followed by its digest `[u8; 32]` only when present,
@@ -1877,10 +1945,12 @@ source and correction frontiers `[u8; 32]` each, and cut-effective instant `i128
 `0x00`/`0x01`; trailing bytes, an empty instrument, zero required identity, unsupported tag combination, or empty or
 inverted half-open effective interval is forbidden. Fact identity and digest are the same SHA-256 over
 `market-data.bar-schedule-fact.v1\0 || canonical fact bytes`; there is no separately encoded schedule identity.
-The Owner-local proposal supplies the effective interval, kind, step, unit, anchor, label, and completion, but it
-cannot itself mint authority. Preparation admits only a BAR row cross-bound to one exact native
-`InstrumentMasterReadbackV1`; Market Data derives calendar/session/time-zone identities from that readback and
-rejects instrument, Market Semantics, frontier, effective-containment, or Instrument Master mismatches.
+The Owner-local proposal supplies the effective interval, kind, step, unit, anchor, clock, label, and completion, but
+it cannot itself mint authority. Preparation admits only a BAR row cross-bound to one exact native
+`InstrumentMasterReadbackV1`; Market Data derives the time-zone identity from that readback, and the calendar and
+session identities too for a trading-schedule clock, while a continuous clock binds both as zero; calendar and session
+are both zero or both non-zero, and an exchange session day is never continuous. It rejects instrument, Market
+Semantics, frontier, effective-containment, or Instrument Master mismatches.
 
 The structural `BarScheduleCutV1` canonical bytes are schema `u16LE = 1`, reserved-zero `u16LE`, fact digest
 `[u8; 32]`, the same canonical-instrument variable bytes, effective instant `i128LE`, then Instrument Master

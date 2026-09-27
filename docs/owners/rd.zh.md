@@ -323,6 +323,19 @@ join 推断。
 下面的契约写明这份 Design 由谁撰写。它下游的一切都已存在：生产提交函数、store、写入器、两张 build-receipt
 关系，以及生产 binding 接缝。
 
+**已提交的 Composer 运行在其运行时所处的 View 上读回。** 提交该运行的事务在其 receipt 旁记下这次操作的两条事实：
+它运行时所处的 Research View，以及它运行时的 Owner read cut。没有任何东西改写它们。
+`GET /v2/develop-composer/runs/{request_identity}/readback`
+在该 View、该 cut 上重新推导已存储的正向记录，并在该 cut 上重新锁定 Market Data 绑定，因此在其 Research View
+过期、或推进到 `ARTIFACT_AVAILABLE` 或 `EXPLORATION_ACTIVE` 之后，这次运行仍可读。View 在投影后十分钟过期且没有任何东西
+刷新它，所以没有这条记录时，每次运行都会在其 Research request 被接受后十分钟内变得不可读。记下的 View 不按原样信任：
+Research artifact evidence 必须正是为它封存的（`rd_owner_api.lock_research_for_artifact_at_view_v1`），已存储的 View
+必须是它的合法后代，cut 必须落在它的有效窗口内，operation receipt 的 Research custody digest 必须等于由它重建的那一个。
+前三种失败在 `research_custody.run_view` 下各自的 coordinate 处应答 `UNAVAILABLE`；digest 不等时在既有的 `operation_receipt` coordinate 处应答。在这条记录存在之前提交的行两条事实都没有：
+它保留针对当前 View 的读取，一旦该 View 不再当前，就在 `research_custody.run_view_unrecorded`
+处应答，说明这一行为什么不能读，而不是暗示运行消失了。迁移先读目录形状再加这两列；它们在迁移部署时冻结，而不是在合并时。
+运行本身仍需要当前的 View，所以一个 Research request 只能在被接受后十分钟内做 compose；这个界属于运行，不属于这次读回。
+
 **CURRENT/PARTIAL：第一圈已有立足之处。** 封存语料 run 之后，`run_bounded_feature_program` 成为唯一的生产入口，
 而它需要一份已冻结的 joint program。冻结需要 Strategy Input declaration；Market Data 过去只从一份
 Composer attestation 注册它们，而铸造该 attestation 的正是一次 Composer 提交。此后每一圈都自洽：

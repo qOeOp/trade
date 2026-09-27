@@ -2,62 +2,14 @@ use super::*;
 use crate::{
     bounded_feature_program_v1::tests::candidate,
     develop_composer_v2::CurrentResearchDevelopCustodyV2,
+    lowered_guest_build_for_test::{
+        AMBIENT_RUST_FLAG_VARS, build_lowered_guest_for_test, lowered_guest_build_command,
+    },
     plugin_wire_v2::{PluginFrameKindV2, PluginFrameV2, PluginOutputAvailabilityV3, TypedValueV2},
     rd_bounded_feature_program_v1::freeze_research_bounded_feature_program_v1,
     strategy_plan_v2::plugin_manifest_digest,
 };
-use std::{ffi::OsStr, fs, path::Path, process::Command};
-
-/// Every Cargo key that outranks, or replaces, the `[build] rustflags` the lowering freezes
-/// into a guest project's own `.cargo/config.toml`.
-///
-/// Cargo does not merge rustflags across levels. The first of `RUSTFLAGS`,
-/// `CARGO_ENCODED_RUSTFLAGS`, `target.<triple>.rustflags` and `build.rustflags` that is
-/// present wins outright, and an environment variable beats the configuration file that
-/// carries the same key. So any one of these silently discards the whole frozen list,
-/// including the `--initial-memory`/`--max-memory` pair `frozen_config` sizes from the
-/// manifest.
-const AMBIENT_RUST_FLAG_VARS: [&str; 4] = [
-    "RUSTFLAGS",
-    "CARGO_ENCODED_RUSTFLAGS",
-    "CARGO_BUILD_RUSTFLAGS",
-    "CARGO_TARGET_WASM32V1_NONE_RUSTFLAGS",
-];
-
-/// Build a lowered guest project the way a production build of one is run.
-///
-/// `develop_plugin_build_v2_sandbox` invokes Cargo under `env_clear`, so the only rustflags a
-/// guest compiles under in production are the ones the lowering froze into the project's
-/// `.cargo/config.toml`. A proof that inherited its own environment did not stand for that
-/// build: `actions-rust-lang/setup-rust-toolchain` exports `RUSTFLAGS=-D warnings` for the
-/// whole job, which its own input documents as overwriting `build.rustflags`, so on CI the
-/// frozen list was discarded and the linker emitted a growable memory with no maximum at all.
-/// The strict ABI 3 envelope then refused the module for the linear-memory budget it does in
-/// fact fit inside - on the first operation, on Linux only, while the same proof passed on a
-/// developer machine that exports no such variable.
-///
-/// Warning discipline is stated here rather than inherited. `build.warnings` is a separate key
-/// from rustflags, so denying warnings this way cannot displace the frozen list, and the guest
-/// is held to the same bar on every host - including one whose `make` target exports
-/// `CARGO_BUILD_WARNINGS=warn` for the workspace around it.
-fn lowered_guest_build_command(project: &Path, target_dir: &Path) -> Command {
-    let mut command = Command::new("cargo");
-    for name in AMBIENT_RUST_FLAG_VARS {
-        command.env_remove(name);
-    }
-    command
-        .args([
-            "build",
-            "--release",
-            "--target",
-            "wasm32v1-none",
-            "--offline",
-        ])
-        .env("CARGO_BUILD_WARNINGS", "deny")
-        .env("CARGO_TARGET_DIR", target_dir)
-        .current_dir(project);
-    command
-}
+use std::{ffi::OsStr, fs, path::Path};
 
 /// The frozen project, not the surrounding job, decides what a guest compiles under.
 #[rstest::rstest]
@@ -833,33 +785,14 @@ fn generated_candidate_is_a_real_strict_abi_three_module() {
     let custody = CurrentResearchDevelopCustodyV2::joint_bfp_test_fixture(&design);
     let frozen = freeze_research_bounded_feature_program_v1(&custody, &design, proposal)
         .expect("joint Owner freeze");
-    let canonical_design: StrategyDesignV2 = serde_json::from_slice(frozen.design_bytes()).unwrap();
-    let manifest = canonical_design.plugins[0].clone();
-    let lowered = prepare_frozen_bounded_feature_source_inputs_v1(&frozen)
-        .expect("executable source lowering");
     let root = tempfile::tempdir().expect("private build root");
-    for (path, bytes) in lowered.source_files() {
-        let destination = root.path().join(path);
-        fs::create_dir_all(destination.parent().expect("source parent")).unwrap();
-        fs::write(destination, bytes).unwrap();
-    }
-    let target_dir = root.path().join("target-out");
-    let output = lowered_guest_build_command(root.path(), &target_dir)
-        .output()
-        .expect("run cargo");
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
+    let guest = build_lowered_guest_for_test(
+        &frozen,
+        root.path(),
+        &root.path().join("target-out"),
+        "candidate",
     );
-    let wasm = fs::read(target_dir.join("wasm32v1-none/release/strategy_bfp_guest.wasm"))
-        .expect("built wasm");
-    crate::program_runtime::validate_plugin_candidate_v3(
-        &wasm,
-        &manifest,
-        lowered.bounds().max_wasm_bytes,
-    )
-    .expect("strict ABI 3 module");
+    let (manifest, wasm) = (guest.manifest, guest.wasm);
 
     let manifest_digest = plugin_manifest_digest(&manifest);
     let module_identity = BindingDigest::from_untrusted_bytes([91; 32]);
@@ -1197,33 +1130,8 @@ impl BuiltGuest {
         target_dir: &Path,
         label: &str,
     ) -> Self {
-        let canonical_design: StrategyDesignV2 =
-            serde_json::from_slice(frozen.design_bytes()).unwrap();
-        let manifest = canonical_design.plugins[0].clone();
-        let lowered = prepare_frozen_bounded_feature_source_inputs_v1(frozen)
-            .unwrap_or_else(|e| panic!("{label} source lowering: {e}"));
-
-        for (path, bytes) in lowered.source_files() {
-            let destination = root.join(path);
-            fs::create_dir_all(destination.parent().expect("source parent")).unwrap();
-            fs::write(destination, bytes).unwrap();
-        }
-        let output = lowered_guest_build_command(root, target_dir)
-            .output()
-            .expect("run cargo");
-        assert!(
-            output.status.success(),
-            "{label}: {}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-        let wasm = fs::read(target_dir.join("wasm32v1-none/release/strategy_bfp_guest.wasm"))
-            .expect("built wasm");
-        crate::program_runtime::validate_plugin_candidate_v3(
-            &wasm,
-            &manifest,
-            lowered.bounds().max_wasm_bytes,
-        )
-        .unwrap_or_else(|e| panic!("{label} strict ABI 3 module: {e}"));
+        let guest = build_lowered_guest_for_test(frozen, root, target_dir, label);
+        let (manifest, wasm) = (guest.manifest, guest.wasm);
 
         let manifest_digest = plugin_manifest_digest(&manifest);
         let engine = wasmi::Engine::default();

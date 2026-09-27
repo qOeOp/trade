@@ -26,6 +26,7 @@ use super::{
         UntrustedEventEffectiveTime, UntrustedPitSnapshotLocator, UntrustedPitSnapshotTimeEvidence,
         UntrustedProviderAvailableTime, UntrustedRetrievalTime, UntrustedSnapshotDecisionCut,
     },
+    shared_time_evidence::{EpochNanosV1, NanosV1},
     source_binding::BindingDigest,
     universe_selection::UntrustedUniverseSelectionLocatorV1,
 };
@@ -300,17 +301,17 @@ pub struct MarketDataDecisionCutV1 {
     /// The Owner's clock epoch.
     pub clock_epoch: String,
     /// The exact decision cut, which also equals the wall observation.
-    pub decision_cut: u64,
+    pub decision_cut: EpochNanosV1,
     /// The monotonic sequence at the cut.
     pub monotonic_sequence: u64,
     /// The restart-continuity digest for this epoch.
     pub restart_continuity_digest: BindingDigest,
     /// The exclusive bound past which this cut is stale.
-    pub valid_through: u64,
+    pub valid_through: EpochNanosV1,
     /// The clock's uncertainty bound.
-    pub uncertainty_bound: u64,
+    pub uncertainty_bound: NanosV1,
     /// The clock's skew bound.
-    pub skew_bound: u64,
+    pub skew_bound: NanosV1,
 }
 
 const DECISION_CUT_DOMAIN_V1: &[u8] = b"vibe.market-data.decision-cut.v1\0";
@@ -323,7 +324,7 @@ impl UntrustedPitSnapshotTimeEvidence {
     /// and observation all equal the cut, and the clock coordinates are the cut's.
     #[must_use]
     pub fn at_decision_cut_v1(cut: &MarketDataDecisionCutV1) -> Self {
-        let at = cut.decision_cut;
+        let at = cut.decision_cut.as_epoch_nanos();
         Self {
             event_effective: UntrustedEventEffectiveTime::from_untrusted(
                 at,
@@ -352,10 +353,10 @@ impl UntrustedPitSnapshotTimeEvidence {
             ),
             monotonic_sequence: cut.monotonic_sequence,
             restart_continuity_digest: cut.restart_continuity_digest,
-            skew_bound: cut.skew_bound,
-            uncertainty_bound: cut.uncertainty_bound,
+            skew_bound: cut.skew_bound.as_nanos(),
+            uncertainty_bound: cut.uncertainty_bound.as_nanos(),
             observed_at: at,
-            valid_through: cut.valid_through,
+            valid_through: cut.valid_through.as_epoch_nanos(),
         }
     }
 }
@@ -380,12 +381,12 @@ impl MarketDataDecisionCutV1 {
         hasher.update(self.clock_identity.as_bytes());
         hasher.update(epoch_length.to_le_bytes());
         hasher.update(self.clock_epoch.as_bytes());
-        hasher.update(self.decision_cut.to_le_bytes());
+        hasher.update(self.decision_cut.as_epoch_nanos().to_le_bytes());
         hasher.update(self.monotonic_sequence.to_le_bytes());
         hasher.update(self.restart_continuity_digest.as_bytes());
-        hasher.update(self.valid_through.to_le_bytes());
-        hasher.update(self.uncertainty_bound.to_le_bytes());
-        hasher.update(self.skew_bound.to_le_bytes());
+        hasher.update(self.valid_through.as_epoch_nanos().to_le_bytes());
+        hasher.update(self.uncertainty_bound.as_nanos().to_le_bytes());
+        hasher.update(self.skew_bound.as_nanos().to_le_bytes());
         Some(BindingDigest::from_untrusted_bytes(
             hasher.finalize().into(),
         ))
@@ -452,12 +453,12 @@ mod tests {
         MarketDataDecisionCutV1 {
             clock_identity: "market-data.owner-clock.v1-00001".into(),
             clock_epoch: "market-data.owner-epoch.v1-00001".into(),
-            decision_cut: 1_000,
+            decision_cut: EpochNanosV1::from_epoch_nanos(1_000),
             monotonic_sequence: 7,
             restart_continuity_digest: BindingDigest::from_untrusted_bytes([0x11; 32]),
-            valid_through: 2_000,
-            uncertainty_bound: 3,
-            skew_bound: 5,
+            valid_through: EpochNanosV1::from_epoch_nanos(2_000),
+            uncertainty_bound: NanosV1::from_nanos(3),
+            skew_bound: NanosV1::from_nanos(5),
         }
     }
 
@@ -480,14 +481,14 @@ mod tests {
     #[rstest]
     #[case::clock_identity(|cut: &mut MarketDataDecisionCutV1| cut.clock_identity.push('x'))]
     #[case::clock_epoch(|cut: &mut MarketDataDecisionCutV1| cut.clock_epoch.push('x'))]
-    #[case::decision_cut(|cut: &mut MarketDataDecisionCutV1| cut.decision_cut += 1)]
+    #[case::decision_cut(|cut: &mut MarketDataDecisionCutV1| cut.decision_cut = EpochNanosV1::from_epoch_nanos(cut.decision_cut.as_epoch_nanos() + 1))]
     #[case::monotonic_sequence(|cut: &mut MarketDataDecisionCutV1| cut.monotonic_sequence += 1)]
     #[case::restart_continuity(|cut: &mut MarketDataDecisionCutV1| {
         cut.restart_continuity_digest = BindingDigest::from_untrusted_bytes([0x12; 32]);
     })]
-    #[case::valid_through(|cut: &mut MarketDataDecisionCutV1| cut.valid_through += 1)]
-    #[case::uncertainty_bound(|cut: &mut MarketDataDecisionCutV1| cut.uncertainty_bound += 1)]
-    #[case::skew_bound(|cut: &mut MarketDataDecisionCutV1| cut.skew_bound += 1)]
+    #[case::valid_through(|cut: &mut MarketDataDecisionCutV1| cut.valid_through = EpochNanosV1::from_epoch_nanos(cut.valid_through.as_epoch_nanos() + 1))]
+    #[case::uncertainty_bound(|cut: &mut MarketDataDecisionCutV1| cut.uncertainty_bound = NanosV1::from_nanos(cut.uncertainty_bound.as_nanos() + 1))]
+    #[case::skew_bound(|cut: &mut MarketDataDecisionCutV1| cut.skew_bound = NanosV1::from_nanos(cut.skew_bound.as_nanos() + 1))]
     #[case::identity_epoch_boundary(|cut: &mut MarketDataDecisionCutV1| {
         cut.clock_epoch.insert(0, cut.clock_identity.pop().unwrap());
     })]
@@ -591,18 +592,22 @@ mod tests {
         ] {
             assert_eq!(
                 coordinate,
-                (cut.decision_cut, &cut.clock_identity, &cut.clock_epoch)
+                (
+                    cut.decision_cut.as_epoch_nanos(),
+                    &cut.clock_identity,
+                    &cut.clock_epoch
+                )
             );
         }
-        assert_eq!(time.observed_at, cut.decision_cut);
-        assert_eq!(time.valid_through, cut.valid_through);
+        assert_eq!(time.observed_at, cut.decision_cut.as_epoch_nanos());
+        assert_eq!(time.valid_through, cut.valid_through.as_epoch_nanos());
         assert_eq!(time.monotonic_sequence, cut.monotonic_sequence);
         assert_eq!(
             time.restart_continuity_digest,
             cut.restart_continuity_digest
         );
-        assert_eq!(time.skew_bound, cut.skew_bound);
-        assert_eq!(time.uncertainty_bound, cut.uncertainty_bound);
+        assert_eq!(time.skew_bound, cut.skew_bound.as_nanos());
+        assert_eq!(time.uncertainty_bound, cut.uncertainty_bound.as_nanos());
     }
 
     /// The one mapping from a submission and the Owner's digest to the sealed request.

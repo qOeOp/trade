@@ -380,6 +380,26 @@ invent the Design: the contract below states who authors it. Everything downstre
 production commit function, the store, the writer, the two build-receipt relations, and the production
 binding seam.
 
+**A committed Composer run reads back at the View it ran under.** In the transaction that commits
+it, the run records two facts of that operation beside its receipt: the Research View it ran under
+and the Owner read cut it ran at. Nothing rewrites them. `GET /v2/develop-composer/runs/{request_identity}/readback`
+re-derives the stored positive record against that View at that cut and relocks the Market Data
+bindings at that cut, so the run stays readable after its Research View has expired or has moved to
+`ARTIFACT_AVAILABLE` or `EXPLORATION_ACTIVE`. A View expires ten minutes after its projection and
+nothing refreshes it, so without the record every run became unreadable within ten minutes of its
+Research request's acceptance. The recorded View is not trusted as written. The Research artifact
+evidence must have been sealed for it (`rd_owner_api.lock_research_for_artifact_at_view_v1`), the
+stored View must be a legal descendant of it, the cut must lie inside its validity window, and the
+operation receipt's Research custody digest must equal the one rebuilt from it. The first three
+failures answer `UNAVAILABLE` at their own coordinates under `research_custody.run_view`; a differing
+digest answers at the existing `operation_receipt` coordinate. A row committed before the
+record existed carries neither fact: it keeps the read against the current View, and once that View
+is no longer current it answers at `research_custody.run_view_unrecorded`, which
+states why the row cannot be read instead of implying that the run is gone. The migration adds the two
+columns by reading the catalog shape first; they freeze when the migration is deployed, not when it
+merges. The run itself still requires a current View, so a Research request can be composed only
+within ten minutes of its acceptance; that bound belongs to the run, not to this readback.
+
 **CURRENT/PARTIAL - the first cycle now has something to stand on.** Sealing the corpus run leaves
 `run_bounded_feature_program` as the only production entry, and it requires a frozen joint program.
 Freezing one requires Strategy Input declarations, and Market Data used to register those only from

@@ -9,9 +9,10 @@ use super::{
 };
 use crate::owner::{
     bar_schedule::{
-        BarScheduleCompletionV1, BarScheduleKindV1, BarScheduleLabelV1, BarScheduleUnitV1,
-        UntrustedBarScheduleProposalV1, prepare_bar_schedule_commit_v1,
+        BarScheduleClockV1, BarScheduleCompletionV1, BarScheduleKindV1, BarScheduleLabelV1,
+        BarScheduleUnitV1, UntrustedBarScheduleProposalV1, prepare_bar_schedule_commit_v1,
     },
+    declared_bar_timeframe_v1::{DeclaredBarAnchorV1, anchor_identity_v1},
     native_replay_scheduling_v1::{
         NativeReplayInitialMarketRequestV1, NativeReplayInitialUniverseRoleV1,
         native_replay_universe_binding_requests_v1,
@@ -178,7 +179,10 @@ async fn postgres_a_universe_frame_issues_one_sample_projection_over_the_host_fr
         kind: BarScheduleKindV1::FixedInterval,
         step: 1,
         unit: BarScheduleUnitV1::Minute,
-        anchor_identity: d(206),
+        // The bar the base's Source Binding declares for its `1M` rows: a minute on the trading
+        // schedule from the session open.
+        anchor_identity: anchor_identity_v1(DeclaredBarAnchorV1::SessionOpen),
+        clock: BarScheduleClockV1::ScheduleBounded,
         label: BarScheduleLabelV1::IntervalClose,
         completion: BarScheduleCompletionV1::CompleteOnly,
     };

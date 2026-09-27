@@ -135,6 +135,13 @@ grep -Fq 'ALTER SCHEMA market_data_admitted_read OWNER TO market_data_owner' "$p
 grep -Fq 'REVOKE ALL ON SCHEMA market_data_admitted_read FROM PUBLIC, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, market_data_reader, product_edge_owner, qualification_owner, qualification_writer, operator_authorization_owner, operator_authorization_writer, portfolio_owner, backtest_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'REVOKE ALL ON ALL FUNCTIONS IN SCHEMA market_data_admitted_read FROM PUBLIC, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, market_data_reader, product_edge_owner, qualification_owner, qualification_writer, operator_authorization_owner, operator_authorization_writer, portfolio_owner, backtest_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq "WHERE namespace.nspname IN ('market_data_private','market_data_rd_api','market_data_admitted_read')" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+# The cutover runs after the Owner has materialized and granted the admitted reader its wrappers, and
+# its REVOKE lists name roles one by one. The reader's grant survives only because no statement names
+# it, so a statement that does would strip it silently. Comments explaining that are allowed.
+if grep -v '^--' "$package_dir/postgres-init/10-migrate-authority-custody.sh" | grep -Fq 'market_data_admitted_reader'; then
+  echo "10-migrate-authority-custody.sh names market_data_admitted_reader, which would revoke the Owner migration's grant to it" >&2
+  exit 1
+fi
 grep -Fq "DO \$private_owner_cutover_gate\$" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq '(catalog_public_count=4 AND catalog_public_exact AND catalog_private_count=0 AND composer_public_count IN (9,11,12,14) AND composer_public_exact AND composer_private_count=0)' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq '(catalog_public_count=0 AND catalog_private_count=4 AND catalog_private_exact AND composer_public_count=0 AND composer_private_count IN (9,11,12,14) AND composer_private_exact)' "$package_dir/postgres-init/10-migrate-authority-custody.sh"

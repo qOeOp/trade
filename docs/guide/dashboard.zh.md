@@ -139,8 +139,11 @@ Trading 树并未 vendor 进本仓库，也未被检索，因此本节不对该�
 
 `loading`、`unavailable`、合法 `empty` 与 `available` 是四种独立状态，且投影必须把它们区分表达：空序列
 不得同时代表「这次运行没有产出 point」与「这次读取无法被回答」。投影直接陈述它的状态，而不是留给调用方
-从空数组推断。`empty` 表示序列没有 point，且净收益与最大回撤都为 null；成交仍可列出，因为一次运行可以开仓又平仓而不产生
-观测点，而成交无论如何都是事实。`available` 表示序列有 point 且两个量都已陈述。净收益
+从空数组推断。`empty` 表示序列没有 point，且净收益与最大回撤都为 null；成交仍可列出，因为一次运行可以有成交
+而引擎不记录收益 - 例如它的所有快照都落在引擎计的同一天 - 而成交无论如何都是事实。`empty` 还显示 Owner 的
+`empty_reason`，取值是 `docs/owners/backtest.md` 定义的封闭集之一，完全按 Owner 的陈述显示；浏览器不自行
+推导任何原因。`empty_reason` 作为键恒在，只在 `available` 时为 null，因此有三种投影是 `unavailable`：不带原因
+的 `empty`、带原因的 `available`、以及原因不在集合里的。`available` 表示序列有 point 且两个量都已陈述。净收益
 与最大回撤作为键恒在，只在 `empty` 时为 null，因此缺一个键永远是故障。策略不在已准入单阈值族内的运行是
 `unavailable`，理由具名为「该程序族不存在 Owner 对策略的陈述」，而不是一个通用码。
 
@@ -387,10 +390,10 @@ reason，并且绝不保留之前 success 的字段。group title surface 比 bo
 Strategy Input custody 上解析同一身份：它经由该次运行自己绑定的 Market Data locked facade 复验已存储的正向 Composer
 记录，因此在生产中提交的一次运行就能在生产中读回。该解析为 `IMPLEMENTATION_ADMITTED / NOT_CUT_OVER`。路由及其适配器
 `PostgresDevelopComposerReadbackOwnerV2` 都不带 feature 门，所以部署的 read API 会为未设门的
-`POST /v2/develop-composer/runs` 所提交的运行提供它。它只在 Research 视图当前有效且为 `INTENT_FROZEN` 时应答：一旦
-composer-backed 的 replay commit 把该视图推进到 `EXPLORATION_ACTIVE`，同一身份就在 coordinate `research_custody` 读回
-`UNAVAILABLE`。这是 Owner 读取的一处缺口，记在这里，以免页面被读成 Composer 运行消失了。它不接收 request body，返回既有 strict
-`DevelopComposerOperationResponseV2`；Dashboard BFF 绑定 path identity，并只投影上述字段。`SUCCESS` 必须同时
+`POST /v2/develop-composer/runs` 所提交的运行提供它。它在该运行提交时记下的 Research View 与 read cut 上重新推导这次运行，
+所以该 View 过期、或推进到 `ARTIFACT_AVAILABLE` 或 `EXPLORATION_ACTIVE` 之后，同一身份仍能读回。在这条记录存在之前提交的运行
+只在其 View 当前有效时读回，之后在 coordinate `research_custody.run_view_unrecorded` 读回
+`UNAVAILABLE`，以免页面被读成运行消失了。它不接收 request body，返回既有 strict `DevelopComposerOperationResponseV2`；Dashboard BFF 绑定 path identity，并只投影上述字段。`SUCCESS` 必须同时
 带 operation receipt 与完整四字段 Artifact projection；其他 disposition 必须不带 receipt 或 Artifact
 projection。未知 key、identity drift、互相矛盾的 disposition field、非法 digest、超限 response、缺失
 configuration、permission denial、transport failure 或 sealed-custody verification failure 全部 fail closed

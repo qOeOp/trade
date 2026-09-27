@@ -131,6 +131,8 @@ pub use successor_intent_postgres::{
     SuccessorResearchIntentPostgresErrorV1, SuccessorResearchIntentResolutionLocatorV1,
 };
 mod legacy_prepared_attempt_drain;
+#[cfg(test)]
+mod lowered_guest_build_for_test;
 mod native_replay_execution_binding_consumer_v1;
 pub mod native_replay_execution_bundle_owner_v2;
 #[allow(
