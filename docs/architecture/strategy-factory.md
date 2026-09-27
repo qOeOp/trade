@@ -1145,6 +1145,15 @@ The kernel, never a Design or plugin, owns these stable semantic primitives and 
 - fill reconciliation under `kernel.fill.reconcile.v1`, including partial fill, rejection, cancellation and
   out-of-order readback handling.
 
+A rebalance target's sequence is the Host's, not the program's. A program emits `0` on
+`proposal.rebalance-sequence.v1` for a `kernel.target.rebalance.v1` target, and the Host assigns the sequence when it
+decodes the proposal: on the target-set path, the sequence of the target set the proposal is lifted into, which the
+lift requires each member to carry; on the single-instrument path, one more than the member kernel's current
+rebalance sequence, which the kernel requires a rebalance to exceed. Both rules hold by construction, where a
+program could only guess the one number that satisfies them on one frame. A program that emits any other value for
+a rebalance target is refused by name as `REBALANCE_SEQUENCE_IS_HOST_ASSIGNED`; the port stays in the plugin ABI,
+and no other target reads it.
+
 Each primitive has a versioned semantic ID whose meaning is stable across Backtest and Runtime. The kernel turns
 targets and protection transitions into semantic intent records; in Runtime, Risk remains the final admission
 authority, Execution remains the order/fill/effect authority, and Portfolio remains the position/account truth.
@@ -1630,22 +1639,31 @@ and timeframes. T1 depends on all three, because it derives the custody request 
 Design; its first positive case uses only CLOSE and one member, and D1 lands with it. P2 lands with I2. A1 and V4a proceed in parallel with T1; then T2, I1, I1.5, I2, and I3; then N1, A2, A3, V4b, and V5. Per-frame as-of membership (T4) would
 remove the invariant that every frame shares one member set, so it is asked of the user when it is proposed.
 
-Two target variants the single-threshold author accepts cannot run past one frame of the target-set Host today, and
-each is a slice after F and before T1. Both were measured on `main` 3a465a537, red as it stands and past the named
-check under a temporary change that was then reverted. Until its slice lands, the author refuses the variant by
-name as `SINGLE_THRESHOLD_TARGET_VARIANT_NOT_RUNNABLE`, on either side, so a program that could only fail on its
-first frame is not authored at all. The refusal is temporary: each slice below removes it for its own variant.
+One target variant the single-threshold author accepts cannot run past one frame of the target-set Host today, and
+it is a slice after F and before T1. It was measured on `main` 3a465a537, red as it stands and past the named check
+under a temporary change that was then reverted. Until its slice lands, the author refuses it by name as
+`SINGLE_THRESHOLD_TARGET_VARIANT_NOT_RUNNABLE`, on either side, so a program that could only fail on its first frame
+is not authored at all; the slice removes the refusal.
 
-- **Rebalance sequence.** A `kernel.target.rebalance.v1` target must carry the sequence of the target set it is
-  lifted into, which advances by one each frame, and the author writes one constant for it. Constant 1 lifts on the
-  first frame only, and constant 2 on the second only, so no constant runs two frames: the sequence has to be the
-  Host's at lift, not the author's. Strategy Factory's Host fixes it.
 - **Weight reconciliation.** The Host decodes a reconciliation target for every target but `Keep`, and the target-set
   reconciliation requires none for a weight target, so a weight side fails as `InputCoverage` on its first frame.
   With the decoding temporarily leaving weight without one, that check passes and the frame then fails as
   `InvalidPositionTransition`: the author shares one target weight of 0 between both sides, and entering at weight 0
   is no transition. Strategy Factory fixes both: the Host's decoding, and the author's weight, which follows each
   side as its position already does.
+
+A rebalance target was the second such variant, and its slice has landed: the Host assigns the sequence as the rule
+above states, and the author writes `0`. With a constant of 1 only the first frame lifts, and with the Host's
+assignment removed and `0` written not even the first does. `an_authored_rebalance_program_lifts_three_consecutive_frames`
+runs the authored program as Wasm through three frames of the target-set Sim, entering, exiting and entering again at
+sequences 1, 2 and 3, and `a_single_instrument_host_assigns_each_rebalance_the_next_sequence` holds the
+single-instrument path.
+
+That run found a defect no variant refusal covered: the author shared one protection, `keep`, between both sides, and
+the kernel refuses `keep` on an exit, so no authored program could exit. Each side's protection now follows its
+intent - an exit clears, every other side keeps - and `every_authored_side_runs_through_the_kernel` applies every
+authored side to a real lifecycle kernel from each position it can be proposed at, so a terminal shared where it must
+follow the side fails there rather than on a later frame.
 
 ## Value-stream handoffs
 
