@@ -922,10 +922,17 @@ mod tests {
     }
 
     fn observations(request: &ReplayRequestV2) -> Vec<ConsumedComponentObservationV2> {
+        observations_for(request, "attempt")
+    }
+
+    fn observations_for(
+        request: &ReplayRequestV2,
+        attempt: &str,
+    ) -> Vec<ConsumedComponentObservationV2> {
         let request_meaning_digest = request
             .meaning_digest()
             .expect("fixture request must have canonical meaning");
-        let attempt_identity = identity("attempt");
+        let attempt_identity = identity(attempt);
         let mut observations: Vec<_> = requested_component_meanings(request)
             .expect("fixture request components must hash")
             .into_iter()
@@ -971,23 +978,32 @@ mod tests {
     }
 
     fn diagnostics(request: &ReplayRequestV2) -> Vec<DiagnosticEvidenceV2> {
+        diagnostics_for(request, "attempt")
+    }
+
+    fn diagnostics_for(request: &ReplayRequestV2, attempt: &str) -> Vec<DiagnosticEvidenceV2> {
         vec![DiagnosticEvidenceV2 {
             request_identity: request.request_identity().clone(),
             request_meaning_digest: request
                 .meaning_digest()
                 .expect("fixture request must have canonical meaning"),
-            attempt_identity: identity("attempt"),
+            attempt_identity: identity(attempt),
             category: DiagnosticCategoryV2::NoExecutionDefect,
             decisive_evidence: locator(ObservationComponentV2::SemanticTrace, 'c'),
         }]
     }
 
     fn draft(request: &ReplayRequestV2) -> OwnerResultDraftV2 {
+        draft_for_attempt(request, "attempt")
+    }
+
+    /// The same Result, observed and diagnosed under another attempt of the request.
+    fn draft_for_attempt(request: &ReplayRequestV2, attempt: &str) -> OwnerResultDraftV2 {
         OwnerResultDraftV2 {
-            attempt_identity: identity("attempt"),
+            attempt_identity: identity(attempt),
             terminal: ReplayTerminalV2::TerminalResult,
-            observations: observations(request),
-            diagnostics: diagnostics(request),
+            observations: observations_for(request, attempt),
+            diagnostics: diagnostics_for(request, attempt),
         }
     }
 
@@ -2267,6 +2283,198 @@ mod tests {
             .rollback()
             .await
             .expect("fault read transaction rollback");
+    }
+
+    /// Chain entry: one Replay request's Result directory, read by R&D without a row lock.
+    ///
+    /// Its requests are its own, so it needs no other entry. What it cannot construct: a listed
+    /// Result missing its receipt or outbox event. Only a raw Result row makes one, and `rd_owner`
+    /// can call the function without seeing that row unless it is committed, which would leave an
+    /// orphan in the shared chain database; the function's receipt and outbox branches mirror
+    /// `resolve_exploratory_replay_result_v2`'s and its source is pinned by the chain.
+    #[tokio::test]
+    #[ignore = "requires the canonical disposable PostgreSQL Owner topology"]
+    #[allow(
+        clippy::too_many_lines,
+        reason = "one ordered entry, read top to bottom"
+    )]
+    async fn postgres_result_directory_lists_one_requests_results_without_a_row_lock() {
+        use vibe_strategy_factory::{
+            BacktestReadbackRefusalV1, BacktestResultCustodyErrorV2,
+            read_exploratory_replay_result_directory_for_rd_in_transaction,
+        };
+
+        let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
+            .await
+            .expect("canonical disposable topology");
+        let mutation = database.mutation();
+        let backtest_pool = mutation
+            .pool(CanonicalOwnerTestRoleV1::BacktestOwner)
+            .clone();
+        let rd_pool = mutation.pool(CanonicalOwnerTestRoleV1::RdOwner);
+        let owner = PostgresReplayResultOwnerV2::from_admitted_pool(backtest_pool.clone())
+            .await
+            .expect("Backtest writer principal");
+        let suffix = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("time after the epoch")
+            .as_nanos();
+        let many = request_identified(&format!("directory-many-{suffix}"));
+        let one = request_identified(&format!("directory-one-{suffix}"));
+        let mut committed = Vec::new();
+
+        // Committed out of attempt order, so an order by insertion would show.
+        for (request, attempt) in [
+            (&many, "attempt-c"),
+            (&many, "attempt-a"),
+            (&many, "attempt-b"),
+            (&one, "attempt"),
+        ] {
+            let result = commit_owner_result(request, draft_for_attempt(request, attempt))
+                .expect("sealed result");
+            expect_committed(
+                owner
+                    .commit_exploratory_replay_result_v2(&result)
+                    .await
+                    .expect("committed Result"),
+            );
+            // The receipt's own time, read by the writer from its table: the order the directory
+            // must reproduce, measured apart from the function under test.
+            let committed_at: i64 = sqlx::query_scalar(
+                "SELECT committed_at_epoch_ms FROM public.backtest_replay_result_receipts_v1 WHERE result_identity=$1",
+            )
+            .bind(result.result_identity().as_str())
+            .fetch_one(&backtest_pool)
+            .await
+            .expect("the committed receipt");
+            committed.push((
+                result.request_identity().as_str().to_owned(),
+                attempt.to_owned(),
+                result.result_identity().as_str().to_owned(),
+                u64::try_from(committed_at).expect("a non-negative commit time"),
+            ));
+        }
+        let meaning = meaning_of(&many);
+
+        let read = |request_identity: String, meaning_digest: String| async move {
+            let mut transaction = rd_pool.begin().await.expect("R&D transaction");
+            sqlx::query("SET TRANSACTION READ ONLY")
+                .execute(&mut *transaction)
+                .await
+                .expect("a read-only transaction");
+            let directory = read_exploratory_replay_result_directory_for_rd_in_transaction(
+                &mut transaction,
+                &request_identity,
+                &meaning_digest,
+            )
+            .await;
+            // Nothing stronger than the topology fence and the shared relation reads it names.
+            let held: Vec<(String, String, Option<String>)> = sqlx::query_as(
+                "SELECT locktype, mode, relation::pg_catalog.regclass::text
+                   FROM pg_catalog.pg_locks
+                  WHERE pid = pg_catalog.pg_backend_pid()
+                    AND NOT (locktype = 'relation' AND mode = 'AccessShareLock')
+                    AND NOT (locktype = 'virtualxid' AND mode = 'ExclusiveLock')",
+            )
+            .fetch_all(&mut *transaction)
+            .await
+            .expect("this backend's locks");
+            transaction.rollback().await.expect("read-only rollback");
+            (directory, held)
+        };
+
+        // Many: every Result of the request, ordered by receipt time, then attempt, then Result.
+        let (listed, held) =
+            read(many.request_identity().as_str().to_owned(), meaning.clone()).await;
+        let listed = listed.expect("a complete directory");
+        let mut expected: Vec<_> = committed
+            .iter()
+            .filter(|(request, ..)| request == many.request_identity().as_str())
+            .map(|(_, attempt, result, at)| (*at, attempt.clone(), result.clone()))
+            .collect();
+        expected.sort();
+        assert_eq!(expected.len(), 3);
+        assert_eq!(
+            listed
+                .iter()
+                .map(|entry| (
+                    entry.committed_at_epoch_ms(),
+                    entry.attempt_identity().to_owned(),
+                    entry.result_identity().to_owned()
+                ))
+                .collect::<Vec<_>>(),
+            expected
+        );
+        assert!(
+            listed
+                .iter()
+                .all(|entry| entry.terminal() == ReplayTerminalV2::TerminalResult)
+        );
+        assert!(
+            held.iter()
+                .all(
+                    |(locktype, mode, relation)| (locktype == "advisory" && mode == "ShareLock")
+                        || (locktype == "relation"
+                            && mode == "ShareLock"
+                            && matches!(
+                                relation.as_deref(),
+                                Some("pg_authid" | "pg_auth_members")
+                            ))
+                ),
+            "only the topology fence is held beyond shared reads: {held:?}"
+        );
+        assert!(
+            !held.iter().any(|(locktype, ..)| locktype == "tuple"),
+            "{held:?}"
+        );
+
+        // One.
+        let (listed, _) = read(one.request_identity().as_str().to_owned(), meaning_of(&one)).await;
+        let listed = listed.expect("a one-Result directory");
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].attempt_identity(), "attempt");
+
+        // None: Backtest holds no Result for this request, which is not an error.
+        let (listed, _) = read(format!("directory-none-{suffix}"), meaning.clone()).await;
+        assert_eq!(listed.expect("an empty directory"), Vec::new());
+
+        // Another meaning digest for a request that has Results is refused, never listed as empty.
+        let (listed, _) = read(
+            many.request_identity().as_str().to_owned(),
+            format!("sha256:{}", "f".repeat(64)),
+        )
+        .await;
+        assert!(
+            matches!(
+                listed,
+                Err(BacktestResultCustodyErrorV2::Refused(
+                    BacktestReadbackRefusalV1::ExploratoryRequestMeaningMismatch
+                ))
+            ),
+            "{listed:?}"
+        );
+
+        // The Backtest writer cannot call it; only R&D reads the directory.
+        let error = sqlx::query_scalar::<_, Option<serde_json::Value>>(
+            "SELECT backtest_owner_api.read_exploratory_replay_result_directory_v1($1,$2)",
+        )
+        .bind(many.request_identity().as_str())
+        .bind(&meaning)
+        .fetch_one(&backtest_pool)
+        .await
+        .expect_err("the Backtest writer holds no EXECUTE on the directory");
+        assert_eq!(
+            error.as_database_error().and_then(|value| value.code()),
+            Some(std::borrow::Cow::Borrowed("42501"))
+        );
+    }
+
+    fn meaning_of(request: &ReplayRequestV2) -> String {
+        request
+            .meaning_digest()
+            .expect("fixture request must have canonical meaning")
+            .as_str()
+            .to_owned()
     }
 
     #[tokio::test]

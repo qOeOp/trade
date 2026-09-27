@@ -597,10 +597,10 @@ mod tests {
         crate::strategy_plan_v2::verified_strategy_input_bindings_for_test(design, receipts)
     }
 
-    /// Ten independently authored declarations reassemble against the newest published catalog.
+    /// Every independently authored declaration reassembles against the newest published catalog.
     ///
     /// `derivation_reproduces_a_known_good_proposal` proves the claim once, against a proposal
-    /// built in this crate by the same hands as the derivation. These ten were written outside it,
+    /// built in this crate by the same hands as the derivation. These were written outside it,
     /// as declared meaning only, and between them they reach every availability rule, every state
     /// sizing rule and every input rule the catalog has. That is the part a single fixture cannot
     /// carry: a derivation that mishandled one rule would still reproduce a proposal that never
@@ -627,6 +627,7 @@ mod tests {
     #[case::s1("s1", "s1")]
     #[case::w1("w1", "w1")]
     #[case::w2("w2", "w2")]
+    #[case::d1("d1", "d1")]
     fn every_authored_declaration_reassembles(#[case] program: &str, #[case] design_name: &str) {
         let design: StrategyDesignV2 = serde_json::from_str(
             &std::fs::read_to_string(format!("{CORPUS}{design_name}-design.json"))

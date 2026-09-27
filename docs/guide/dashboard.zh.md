@@ -183,8 +183,12 @@ strategy-design、universe-selection、PIT-snapshot、runtime-kernel 与 simulat
 text 暴露完整值，只在视觉上截断。browser 不接收 canonical request bytes、raw receipt、component digest、
 Product Edge admission、protected evidence、source、result bytes 或 storage field。
 
-request available 后，第二条 compact lookup rail 接受 `Result identity` 与 `Attempt identity`；已打开的
-request identity 和 meaning digest 一起构成完整 immutable selector。`Open result` 只使用共享 `FactGroup`
+request available 后，workbench 经 Owner 的 Result 目录读取 Backtest Owner 为该请求持有的 Result，即同一 read API 上的
+`GET /v2/exploratory-replay-results?request_identity={request_identity}&meaning_digest={meaning_digest}`，并用一个共享
+`DataWorkspaceTable` 列出：每行给出 committed 时间、status、Result 与 attempt identity，按 Owner 的顺序；没有 Result 的请求
+显示 `No runs recorded`。拒绝时按 Owner 自己的 reason 撤回列表。不再手输任何身份：某行上的 `Open result` 以 Owner 列出的
+身份原样打开该 Result，并由已打开的 request identity 与 meaning digest 补全；指名某个 Result 的链接只把该行标为选中，不打开它。
+打开的 Result 只使用共享 `FactGroup`
 展示 result status、简短 diagnosis category、reconciled component 数量、semantic trace 是否 available 与
 result identity，并复用共享语义 badge 色。主页面不展示原始 28 行 reconciliation、decisive evidence locator
 或内部实现短句。在该 `FactGroup` 之下，同一个已打开的 result 挂载一个针对它的

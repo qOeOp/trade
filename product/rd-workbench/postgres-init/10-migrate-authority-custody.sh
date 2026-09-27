@@ -1679,14 +1679,25 @@ ALTER FUNCTION backtest_owner_api.resolve_exploratory_replay_result_v2(text,text
 REVOKE ALL ON FUNCTION backtest_owner_api.resolve_exploratory_replay_result_v2(text,text,text) FROM PUBLIC, backtest_owner, product_edge_owner, qualification_owner, qualification_writer, operator_authorization_owner, operator_authorization_writer, portfolio_owner, rd_fact_writer, market_data_reader, rd_owner;
 GRANT EXECUTE ON FUNCTION backtest_owner_api.resolve_exploratory_replay_result_v2(text,text,text) TO rd_owner;
 
+CREATE OR REPLACE FUNCTION backtest_owner_api.read_exploratory_replay_result_directory_v1(
+  p_request_identity text,
+  p_request_meaning_digest text
+) RETURNS jsonb LANGUAGE plpgsql STRICT STABLE PARALLEL UNSAFE SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp
+AS $function$DECLARE entry_count bigint; entries jsonb; BEGIN IF EXISTS (SELECT 1 FROM public.backtest_replay_results_v2 result WHERE result.request_identity=p_request_identity AND result.request_meaning_digest<>p_request_meaning_digest) THEN RETURN pg_catalog.jsonb_build_object('schema_version',1,'refusal','EXPLORATORY_REQUEST_MEANING_MISMATCH'); END IF; SELECT pg_catalog.count(*) INTO entry_count FROM public.backtest_replay_results_v2 result WHERE result.request_identity=p_request_identity AND result.request_meaning_digest=p_request_meaning_digest; IF entry_count=0 THEN RETURN pg_catalog.jsonb_build_object('schema_version',1,'refusal','EXPLORATORY_REQUEST_RESULTS_ABSENT'); END IF; IF entry_count>256 THEN RETURN pg_catalog.jsonb_build_object('schema_version',1,'refusal','EXPLORATORY_REQUEST_RESULTS_EXCEED_BOUND'); END IF; IF EXISTS (SELECT 1 FROM public.backtest_replay_results_v2 result WHERE result.request_identity=p_request_identity AND result.request_meaning_digest=p_request_meaning_digest AND NOT EXISTS (SELECT 1 FROM public.backtest_replay_result_receipts_v1 receipt WHERE receipt.result_identity=result.result_identity)) THEN RETURN pg_catalog.jsonb_build_object('schema_version',1,'refusal','EXPLORATORY_RECEIPT_ABSENT'); END IF; IF EXISTS (SELECT 1 FROM public.backtest_replay_results_v2 result WHERE result.request_identity=p_request_identity AND result.request_meaning_digest=p_request_meaning_digest AND NOT EXISTS (SELECT 1 FROM public.backtest_replay_result_outbox_v1 outbox WHERE outbox.result_identity=result.result_identity)) THEN RETURN pg_catalog.jsonb_build_object('schema_version',1,'refusal','EXPLORATORY_OUTBOX_ABSENT'); END IF; SELECT pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object('result_identity',result.result_identity,'result_digest',result.result_digest,'attempt_identity',result.attempt_identity,'terminal',result.terminal,'receipt_identity',receipt.receipt_identity,'receipt_request_identity',receipt.request_identity,'receipt_request_meaning_digest',receipt.request_meaning_digest,'receipt_result_digest',receipt.result_digest,'receipt_namespace',receipt.namespace,'committed_at_epoch_ms',receipt.committed_at_epoch_ms,'outbox_receipt_identity',outbox.receipt_identity,'outbox_request_identity',outbox.request_identity,'outbox_request_meaning_digest',outbox.request_meaning_digest,'outbox_result_digest',outbox.result_digest,'outbox_namespace',outbox.namespace) ORDER BY receipt.committed_at_epoch_ms, result.attempt_identity, result.result_identity) INTO entries FROM public.backtest_replay_results_v2 result JOIN public.backtest_replay_result_receipts_v1 receipt ON receipt.result_identity=result.result_identity JOIN public.backtest_replay_result_outbox_v1 outbox ON outbox.result_identity=result.result_identity WHERE result.request_identity=p_request_identity AND result.request_meaning_digest=p_request_meaning_digest; RETURN pg_catalog.jsonb_build_object('schema_version',1,'request_identity',p_request_identity,'request_meaning_digest',p_request_meaning_digest,'entry_count',entry_count,'entries',entries); END$function$;
+ALTER FUNCTION backtest_owner_api.read_exploratory_replay_result_directory_v1(text,text) OWNER TO backtest_custodian;
+REVOKE ALL ON FUNCTION backtest_owner_api.read_exploratory_replay_result_directory_v1(text,text) FROM PUBLIC, backtest_owner, product_edge_owner, qualification_owner, qualification_writer, operator_authorization_owner, operator_authorization_writer, portfolio_owner, rd_fact_writer, market_data_reader, rd_owner;
+GRANT EXECUTE ON FUNCTION backtest_owner_api.read_exploratory_replay_result_directory_v1(text,text) TO rd_owner;
+
 DO $backtest_result_topology_readback$
 DECLARE exact boolean;
 BEGIN
   SELECT
     (SELECT pg_catalog.pg_get_userbyid(namespace.nspowner)='backtest_custodian' FROM pg_catalog.pg_namespace namespace WHERE namespace.nspname='backtest_owner_api')
-    AND (SELECT pg_catalog.count(*) BETWEEN 1 AND 4
+    AND (SELECT pg_catalog.count(*) BETWEEN 1 AND 5
                 AND pg_catalog.bool_and(procedure.oid IN (
                   pg_catalog.to_regprocedure('backtest_owner_api.resolve_exploratory_replay_result_v2(text,text,text)'),
+                  pg_catalog.to_regprocedure('backtest_owner_api.read_exploratory_replay_result_directory_v1(text,text)'),
                   pg_catalog.to_regprocedure('backtest_owner_api.resolve_exploratory_replay_result_v3(text,text,text)'),
                   pg_catalog.to_regprocedure('backtest_owner_api.resolve_protected_replay_result_v1(text,text,text)'),
                   pg_catalog.to_regprocedure('backtest_owner_api.resolve_protected_replay_attempt_frontier_v1(text,text)')
@@ -4415,6 +4426,9 @@ CREATE SCHEMA IF NOT EXISTS composer_private AUTHORIZATION composer_owner;
 CREATE SCHEMA IF NOT EXISTS composer_owner_api AUTHORIZATION composer_owner;
 CREATE SCHEMA IF NOT EXISTS market_data_private AUTHORIZATION market_data_owner;
 CREATE SCHEMA IF NOT EXISTS market_data_rd_api AUTHORIZATION market_data_owner;
+-- Store Admission's reads reach Market Data only through this schema's definer wrappers, so the
+-- principal they connect as holds nothing on market_data_private. Nothing is granted on it here.
+CREATE SCHEMA IF NOT EXISTS market_data_admitted_read AUTHORIZATION market_data_owner;
 -- Instrument Master V2 stores under market_data_owner, and this migration's own readback
 -- asserts that role holds no database CREATE. So the schema is created here rather than by
 -- InstrumentMasterV2PostgresOwner::install, which cannot create it.
@@ -4427,9 +4441,11 @@ ALTER SCHEMA composer_private OWNER TO composer_owner;
 ALTER SCHEMA composer_owner_api OWNER TO composer_owner;
 ALTER SCHEMA market_data_private OWNER TO market_data_owner;
 ALTER SCHEMA market_data_rd_api OWNER TO market_data_owner;
+ALTER SCHEMA market_data_admitted_read OWNER TO market_data_owner;
 ALTER SCHEMA market_data_instrument_master_v2 OWNER TO market_data_owner;
 REVOKE ALL ON SCHEMA replay_policy_catalog_private, replay_policy_catalog_api, composer_private, composer_owner_api, market_data_private FROM PUBLIC, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, market_data_reader, product_edge_owner, qualification_owner, qualification_writer, operator_authorization_owner, operator_authorization_writer, portfolio_owner, backtest_owner;
 REVOKE ALL ON SCHEMA market_data_rd_api FROM PUBLIC, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, market_data_reader, product_edge_owner, qualification_owner, qualification_writer, operator_authorization_owner, operator_authorization_writer, portfolio_owner, backtest_owner;
+REVOKE ALL ON SCHEMA market_data_admitted_read FROM PUBLIC, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, market_data_reader, product_edge_owner, qualification_owner, qualification_writer, operator_authorization_owner, operator_authorization_writer, portfolio_owner, backtest_owner;
 GRANT USAGE ON SCHEMA market_data_rd_api TO rd_owner;
 GRANT USAGE ON SCHEMA replay_policy_catalog_api TO rd_owner, replay_policy_catalog_admin_writer;
 GRANT USAGE ON SCHEMA composer_owner_api TO rd_owner, rd_fact_writer, market_data_reader, market_data_owner;
@@ -4454,7 +4470,7 @@ BEGIN
     SELECT procedure.oid::pg_catalog.regprocedure AS identity
       FROM pg_catalog.pg_proc procedure
       JOIN pg_catalog.pg_namespace namespace ON namespace.oid=procedure.pronamespace
-     WHERE namespace.nspname IN ('market_data_private','market_data_rd_api')
+     WHERE namespace.nspname IN ('market_data_private','market_data_rd_api','market_data_admitted_read')
      ORDER BY procedure.oid
   LOOP
     EXECUTE pg_catalog.format('ALTER FUNCTION %s OWNER TO market_data_owner',object.identity);
@@ -4465,6 +4481,7 @@ REVOKE ALL ON ALL TABLES IN SCHEMA market_data_private FROM PUBLIC, rd_owner, rd
 REVOKE ALL ON ALL SEQUENCES IN SCHEMA market_data_private FROM PUBLIC, rd_owner, rd_fact_writer, market_data_reader;
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA market_data_private FROM PUBLIC, rd_owner, rd_fact_writer;
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA market_data_rd_api FROM PUBLIC, rd_fact_writer, replay_policy_catalog_admin_writer, market_data_reader, product_edge_owner, qualification_owner, qualification_writer, operator_authorization_owner, operator_authorization_writer, portfolio_owner, backtest_owner;
+REVOKE ALL ON ALL FUNCTIONS IN SCHEMA market_data_admitted_read FROM PUBLIC, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, market_data_reader, product_edge_owner, qualification_owner, qualification_writer, operator_authorization_owner, operator_authorization_writer, portfolio_owner, backtest_owner;
 DO $catalog_composer_schema_acl_cutover$
 DECLARE grant_fact record;
 BEGIN
