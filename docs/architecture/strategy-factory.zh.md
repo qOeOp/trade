@@ -1497,6 +1497,29 @@ rebalance 目标曾是第二种这样的变体，它那一片已经落地：Host
 `every_authored_side_runs_through_the_kernel` 把每一个编写出的侧，从它可能被提出的每个仓位，施加到一个真实的生命周期
 内核上，于是一个本该跟随各侧却被共用的终端，会在那里失败，而不是在之后某一帧。
 
+## TARGET - Research 运行到出策略为止，由花费约束
+
+用户于 2026-09-27 决定：Research 不因试验次数停下；每次试验都记账并跨轮累计，Qualification 的折扣随这个计数增长，随机对照
+与留出数据保留，一个用户设定的花费上限约束 Research 的花费。[R&D](../owners/rd/#target---cumulative-trial-accounting-and-the-spend-cap)
+定义一次试验、它累计所跨的血缘、移除与花费上限；
+[Qualification](../owners/qualification/#target---cumulative-trial-deflation-at-candidate-intake) 定义打折。这些都不阻塞 F，
+在 F 之后按以下顺序实现：
+
+| 切片               | Owner                               | 内容                                                                                    | 之后                 |
+| ------------------ | ----------------------------------- | --------------------------------------------------------------------------------------- | -------------------- |
+| TB1 血缘试验计数   | R&D                                 | 生产 census 追加、`trial_count`、在所绑定前驱前沿上的血缘求和                           | Decision composition |
+| TB2 累计打折       | Qualification                       | 在 Candidate Intake 处按推导出的计数打折、跨 family 的保护性尝试计数                    | TB1                  |
+| TB3 随机对照       | Qualification、R&D、Backtest        | 已规定的定义、合成与重放，按此顺序                                                      | 无                   |
+| TB4 花费账本与上限 | R&D、R&D Owner client、Product Edge | 用量采集、预留与结算、`PAUSED_SPEND_CAP_REACHED`、环境设定的上限，然后是 Dashboard 控件 | 无                   |
+| TB5 移除试验上限   | R&D、Product Edge、Dashboard        | 没有预算的 TrialFamily Policy V2，对 V2 family 去掉准入拒绝与 `TRIAL_BUDGET_EXHAUSTED`  | TB1、TB2、TB4        |
+
+TB1 现在还不能开工。它计数的是
+[R&D](../owners/rd/#target--not_admitted---same-cut-decision-and-selection-composition) 中同一截面的 Decision 与 Selection
+composition 所做的 census 追加，而这个 composition 本身是 `TARGET / NOT_ADMITTED`：在它被准入并建成之前，后继迭代没有生产
+路径，也不存在可计数的 census 追加。TB5 排在最后，因为它移除的正是其他几片所替代的约束：TB2 之前没有东西会给长时间的搜索打折，TB4 之前没有东西会约束它的成本。
+TB3 本来就是任何 Eligibility 的条件，所以不论顺序如何它都约束 Qualification。一条血缘停止后接着做什么，即来自 Source Intake
+的新假设，不在这几片之内。
+
 ## 价值流交接
 
 R&D、Backtest 与 Qualification 之间的阶段关系恰以下列对象跨越价值流。每个 Owner 页定义自己发出的对象，接收页

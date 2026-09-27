@@ -1708,6 +1708,31 @@ intent - an exit clears, every other side keeps - and `every_authored_side_runs_
 authored side to a real lifecycle kernel from each position it can be proposed at, so a terminal shared where it must
 follow the side fails there rather than on a later frame.
 
+## TARGET - Research runs until a strategy, bounded by spend
+
+The user decided on 2026-09-27 that Research does not stop on a trial count: every trial is recorded and accumulates
+across rounds, Qualification's discount grows with that count, the random control and holdout stay, and one
+user-set spend cap bounds what Research spends. [R&D](../owners/rd/#target---cumulative-trial-accounting-and-the-spend-cap)
+defines a trial, the lineage it accumulates across, the removal, and the spend cap;
+[Qualification](../owners/qualification/#target---cumulative-trial-deflation-at-candidate-intake) defines the
+deflation. None of it blocks F; it is implemented after F, in this order:
+
+| Slice                    | Owners                              | What                                                                                                               | After                |
+| ------------------------ | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------ | -------------------- |
+| TB1 Lineage trial count  | R&D                                 | production census append, `trial_count`, the lineage sum over bound predecessor frontiers                          | Decision composition |
+| TB2 Cumulative deflation | Qualification                       | the deflated ratio at Candidate Intake from the derived count, the cross‑family protected‑attempt count            | TB1                  |
+| TB3 Random control       | Qualification, R&D, Backtest        | the specified definition, synthesis, and replay, in that order                                                     | none                 |
+| TB4 Spend ledger and cap | R&D, R&D Owner client, Product Edge | usage capture, reserve and settle, `PAUSED_SPEND_CAP_REACHED`, the environment‑set cap, then the Dashboard control | none                 |
+| TB5 Remove the trial cap | R&D, Product Edge, Dashboard        | TrialFamily Policy V2 without a budget, the admission refusal and `TRIAL_BUDGET_EXHAUSTED` gone for V2 families    | TB1, TB2, TB4        |
+
+TB1 cannot start yet. It counts the census appends the same-cut Decision and Selection composition in
+[R&D](../owners/rd/#target--not_admitted---same-cut-decision-and-selection-composition) makes, and that composition is
+itself `TARGET / NOT_ADMITTED`: until it is admitted and built, successor iterations have no production path and no
+census append exists to count. TB5 is last because it removes the bound the others replace: before TB2 nothing would
+discount a long search, and before TB4 nothing would bound its cost. TB3 is already a condition of any Eligibility, so
+it gates Qualification whatever the order. What a stopped lineage does next, a new hypothesis from Source Intake, is
+outside these slices.
+
 ## Value-stream handoffs
 
 The stage relations between R&D, Backtest, and Qualification cross the value stream as exactly these objects. Each
