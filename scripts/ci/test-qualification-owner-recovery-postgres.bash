@@ -1,4 +1,12 @@
 #!/usr/bin/env bash
+
+# Unrunnable, and not in CI. No workflow or Makefile target CI runs calls this script, and the one
+# proof it runs, `isolated_postgres_recovery_is_atomic_fail_closed_and_replay_safe`, cannot pass
+# anywhere: it reads the bound incident evidence session resource, which no longer exists, and
+# `verify_evidence` accepts no other path and no other bytes. docs/owners/qualification.md records
+# this under "Incident-specific Owner reconstruction". It is kept as the record of how that proof was
+# run, not as a selector: check-owner-custody-proof-selection.bash does not read it, and the proof
+# carries its reason there.
 set -euo pipefail
 
 : "${QUALIFICATION_OWNER_RECOVERY_TEST_DATABASE_URL:?set an explicit disposable Qualification recovery test database URL}"
