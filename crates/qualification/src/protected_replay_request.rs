@@ -1,11 +1,11 @@
 use serde::{Deserialize, Serialize};
 use vibe_backtest_owner_contracts::{
-    CanonicalDigestV2, OpaqueIdentityV2, PROTECTED_REPLAY_BINDING_COUNT_V1,
-    ProtectedEconomicPolicyBundleV1, ProtectedEvaluationComparisonRuleV1,
-    ProtectedEvaluationStageV1, ProtectedEvaluationTimeEvidenceV1, ProtectedReplayRequestDtoV1,
-    ProtectedReplayRequestDtoV2, ProtectedReplayRequestLocatorV1,
-    ProtectedReplayRequestSetMemberV1, ProtectedReplayRequestSetSealDtoV1,
-    protected_evaluation_time_evidence_digest_v1,
+    CanonicalDigestV2, MarketDataEpochNanosV1, MarketDataNanosV1, OpaqueIdentityV2,
+    PROTECTED_REPLAY_BINDING_COUNT_V1, ProtectedEconomicPolicyBundleV1,
+    ProtectedEvaluationComparisonRuleV1, ProtectedEvaluationStageV1,
+    ProtectedEvaluationTimeEvidenceV1, ProtectedReplayRequestDtoV1, ProtectedReplayRequestDtoV2,
+    ProtectedReplayRequestLocatorV1, ProtectedReplayRequestSetMemberV1,
+    ProtectedReplayRequestSetSealDtoV1, protected_evaluation_time_evidence_digest_v1,
 };
 pub(crate) use vibe_backtest_owner_contracts::{
     ProtectedReplayBindingFieldV1, ProtectedReplayBindingV1,
@@ -312,12 +312,18 @@ fn request_time_evidence(handoff: &ClockHeadHandoff) -> ProtectedEvaluationTimeE
         clock_identity: handoff.clock_identity().to_string(),
         clock_epoch: handoff.clock_epoch().to_string(),
         monotonic_sequence: handoff.monotonic_sequence(),
-        wall_observed: handoff.wall_observed(),
-        decision_cut: handoff.decision_cut(),
-        valid_through: handoff.valid_through(),
+        wall_observed: MarketDataEpochNanosV1::from_epoch_nanos(
+            handoff.wall_observed().as_epoch_nanos(),
+        ),
+        decision_cut: MarketDataEpochNanosV1::from_epoch_nanos(
+            handoff.decision_cut().as_epoch_nanos(),
+        ),
+        valid_through: MarketDataEpochNanosV1::from_epoch_nanos(
+            handoff.valid_through().as_epoch_nanos(),
+        ),
         restart_continuity_digest: *handoff.restart_continuity_digest().as_bytes(),
-        uncertainty_bound: handoff.uncertainty_bound(),
-        skew_bound: handoff.skew_bound(),
+        uncertainty_bound: MarketDataNanosV1::from_nanos(handoff.uncertainty_bound().as_nanos()),
+        skew_bound: MarketDataNanosV1::from_nanos(handoff.skew_bound().as_nanos()),
         comparison_rule: match handoff.comparison_rule() {
             ClockHeadComparisonRule::ExclusiveValidThrough => {
                 ProtectedEvaluationComparisonRuleV1::ExclusiveValidThrough
@@ -528,7 +534,11 @@ pub(crate) fn form_request_receipt_v2(
     request: &ProtectedReplayRequestV2,
     committed_at_epoch_ms: u64,
 ) -> Result<ProtectedReplayRequestReceiptV1, QualificationOwnerError> {
-    if committed_at_epoch_ms >= request.0.request_time_evidence.valid_through {
+    if request
+        .0
+        .request_time_evidence
+        .is_expired_at_epoch_ms(committed_at_epoch_ms)
+    {
         return Err(unavailable(
             "Protected Replay Request time evidence expired before commit",
         ));

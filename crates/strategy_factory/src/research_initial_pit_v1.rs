@@ -91,7 +91,8 @@ pub(crate) fn universe_selection_request_v1(
             cut_digest.as_bytes(),
         ],
     );
-    let at = i128::from(cut.decision_cut);
+    // The cut is Market Data's own nanosecond instant, echoed back to it unchanged.
+    let at = i128::from(cut.decision_cut.as_epoch_nanos());
     Ok(UntrustedUniverseSelectionRequestV1::new(
         request_identity,
         UNIVERSE_SELECTION_REQUESTER_ROLE_V1,
@@ -100,7 +101,7 @@ pub(crate) fn universe_selection_request_v1(
         frontier,
         at,
         at,
-        cut.decision_cut,
+        cut.decision_cut.as_epoch_nanos(),
         references.source_binding_lineage_root(),
         references.correction_frontier_digest(),
         correlation,
@@ -239,6 +240,7 @@ mod tests {
             MarketDataDecisionCutV1, PitMarketSnapshotBlockerV1, PitMarketSnapshotTerminalV1,
         },
         pit_snapshot::{PitSnapshotSubmissionV1, UntrustedPitSnapshotTimeEvidence},
+        shared_time_evidence::{EpochNanosV1, NanosV1},
         source_binding::{
             BindingDigest, UntrustedCompleteFrontier, UntrustedCredentialAudienceClaim,
             UntrustedCredentialCapabilityClaim, UntrustedMarketDataAsOf,
@@ -320,12 +322,12 @@ mod tests {
                     &MarketDataDecisionCutV1 {
                         clock_identity: "market-data.owner-clock.v1-00001".into(),
                         clock_epoch: "market-data.owner-epoch.v1-00001".into(),
-                        decision_cut,
+                        decision_cut: EpochNanosV1::from_epoch_nanos(decision_cut),
                         monotonic_sequence: decision_cut,
                         restart_continuity_digest: digest(15),
-                        valid_through: decision_cut + 1_000,
-                        uncertainty_bound: 1,
-                        skew_bound: 1,
+                        valid_through: EpochNanosV1::from_epoch_nanos(decision_cut + 1_000),
+                        uncertainty_bound: NanosV1::from_nanos(1),
+                        skew_bound: NanosV1::from_nanos(1),
                     },
                 ),
             },

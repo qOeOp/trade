@@ -2214,7 +2214,7 @@ async fn research_scope_reads_oracle_v1(
     admit_research_frontier_v1(
         owner,
         d(211),
-        (cut.decision_cut + 1, 98),
+        (cut.decision_cut.as_epoch_nanos() + 1, 98),
         &[(b"AAPL", lineage, d(86))],
     )
     .await;
@@ -2241,7 +2241,7 @@ async fn research_scope_reads_oracle_v1(
                 retrieval_ns: 92,
                 correction_publication_ns: 91,
                 owner_observation_ns: 98,
-                decision_cut: cut.decision_cut + 1,
+                decision_cut: cut.decision_cut.as_epoch_nanos() + 1,
                 source_binding_lineage_root: lineage,
                 correction_frontier_digest: d(86),
             }],
@@ -2391,7 +2391,7 @@ async fn fixed_member_selection_oracle_v1(
 
     let cut = super::public_decision_cut_v1(&owner.current_clock_admission_v1().await.unwrap());
     let lineage = source.fact().lineage_root();
-    let instant = i128::from(cut.decision_cut);
+    let instant = i128::from(cut.decision_cut.as_epoch_nanos());
     let request = |identity: u8, frontier: BindingDigest, identities: &[&str]| {
         let scope = ResearchInstrumentScopeV1::from_identities(
             identities
@@ -2408,7 +2408,7 @@ async fn fixed_member_selection_oracle_v1(
             frontier,
             instant,
             instant,
-            cut.decision_cut,
+            cut.decision_cut.as_epoch_nanos(),
             lineage,
             d(86),
             d(identity),
@@ -6797,7 +6797,7 @@ async fn run_postgres_owner_scenario() {
     );
     assert_eq!(epoch_proof.prior_clock_epoch(), TEST_CLOCK_EPOCH_V1);
     assert_eq!(epoch_proof.successor_clock_epoch(), "epoch-2");
-    assert_eq!(epoch_proof.commit_cut(), 90);
+    assert_eq!(epoch_proof.commit_cut().as_epoch_nanos(), 90);
     assert_eq!(epoch_two.handoff().monotonic_sequence(), 1);
     assert!(
         epoch_reader
@@ -6956,7 +6956,7 @@ async fn run_postgres_owner_scenario() {
             .as_bytes()
             .as_slice(),
     )
-    .bind(i64::try_from(epoch_proof.commit_cut()).unwrap())
+    .bind(i64::try_from(epoch_proof.commit_cut().as_epoch_nanos()).unwrap())
     .execute(epoch_owner.pool())
     .await
     .unwrap();
@@ -6972,7 +6972,7 @@ async fn run_postgres_owner_scenario() {
         .bind(epoch_proof.successor_clock_identity())
         .bind(epoch_proof.successor_clock_epoch())
         .bind(epoch_proof.successor_continuity_digest().as_bytes().as_slice())
-        .bind(i64::try_from(epoch_proof.commit_cut()).unwrap())
+        .bind(i64::try_from(epoch_proof.commit_cut().as_epoch_nanos()).unwrap())
         .execute(epoch_owner.pool())
         .await
         .is_err()

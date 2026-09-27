@@ -476,11 +476,18 @@ fn validate_time(
         || current.clock_identity() != clock
         || current.clock_epoch() != epoch
         || current.monotonic_sequence() <= original.monotonic_sequence
-        || current.decision_cut() <= original.decision_cut.value
-        || current.wall_observed() < original.observed_at
+        || current.decision_cut().as_epoch_nanos() <= original.decision_cut.value
+        || current.wall_observed().as_epoch_nanos() < original.observed_at
         || current.decision_cut() >= current.valid_through()
-        || committed_at_epoch_ms < current.wall_observed()
-        || committed_at_epoch_ms >= current.valid_through()
+        // The commit clock is epoch milliseconds and the head's instants are nanoseconds. A commit
+        // counts as after the head's wall observation only if its whole millisecond is, and as
+        // expired if any of its millisecond might be: both round toward refusing.
+        || !current
+            .wall_observed()
+            .is_reached_throughout_epoch_ms(committed_at_epoch_ms)
+        || current
+            .valid_through()
+            .may_be_reached_within_epoch_ms(committed_at_epoch_ms)
     {
         return Err(MarketDataRepairRequestErrorV1::TimeEvidenceUnavailable);
     }
@@ -528,4 +535,54 @@ fn identity(prefix: &str, digest: &str) -> String {
 
 fn encoding(error: impl Display) -> MarketDataRepairRequestErrorV1 {
     MarketDataRepairRequestErrorV1::Encoding(error.to_string())
+}
+
+#[cfg(all(test, feature = "sealed-strategy-input-acceptance"))]
+mod time_tests {
+    use rstest::rstest;
+    use vibe_data::owner::{
+        pit_market_snapshot_intake_v1::MarketDataDecisionCutV1,
+        sealed_acceptance::issue_protected_evaluation_shared_time_v1,
+    };
+
+    use super::*;
+
+    /// A repair's original PIT evidence cut at `head`, as Market Data published that cut.
+    fn original_at(head: &ClockHeadHandoff) -> UntrustedPitSnapshotTimeEvidence {
+        UntrustedPitSnapshotTimeEvidence::at_decision_cut_v1(&MarketDataDecisionCutV1 {
+            clock_identity: head.clock_identity().to_owned(),
+            clock_epoch: head.clock_epoch().to_owned(),
+            decision_cut: head.decision_cut(),
+            monotonic_sequence: head.monotonic_sequence(),
+            restart_continuity_digest: head.restart_continuity_digest(),
+            valid_through: head.valid_through(),
+            uncertainty_bound: head.uncertainty_bound(),
+            skew_bound: head.skew_bound(),
+        })
+    }
+
+    /// A repair committed on a millisecond clock against real nanosecond heads: admitted from
+    /// the first millisecond wholly at or after the current head's wall observation, and refused
+    /// from the millisecond its validity ends in. Before the head's instants carried their unit,
+    /// every millisecond commit sat before a nanosecond wall observation and this always refused.
+    #[rstest]
+    fn a_millisecond_commit_is_ordered_against_a_nanosecond_head() {
+        let shared_time = issue_protected_evaluation_shared_time_v1().expect("sealed Shared Time");
+        let original = original_at(&shared_time.request_head());
+        let current = shared_time.result_successor().handoff().clone();
+        let first_ms = current.wall_observed().as_epoch_nanos().div_ceil(1_000_000);
+        let expiry_ms = current.valid_through().to_epoch_millis_floor();
+        assert!(first_ms > 1_000_000_000_000, "a real epoch-nanosecond head");
+
+        assert!(validate_time(&original, &current, first_ms).is_ok());
+        assert!(validate_time(&original, &current, expiry_ms - 1).is_ok());
+        assert!(matches!(
+            validate_time(&original, &current, first_ms - 1),
+            Err(MarketDataRepairRequestErrorV1::TimeEvidenceUnavailable)
+        ));
+        assert!(matches!(
+            validate_time(&original, &current, expiry_ms),
+            Err(MarketDataRepairRequestErrorV1::TimeEvidenceUnavailable)
+        ));
+    }
 }

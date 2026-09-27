@@ -2745,7 +2745,7 @@ pub(crate) mod tests {
             scope: InstrumentMasterScopeV1::ExactInstrument("AAPL.XNAS".into()),
             effective_instant,
             owner_observation: observation,
-            decision_cut: clock.handoff.decision_cut(),
+            decision_cut: clock.handoff.decision_cut().as_epoch_nanos(),
             clock_head: clock.handoff.locator().clone(),
             lifecycle_frontier: d(36),
             corporate_action_frontier: d(37),

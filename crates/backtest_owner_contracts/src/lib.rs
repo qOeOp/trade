@@ -14,9 +14,10 @@ pub use outcome_evidence::{
     BacktestOutcomeEvidenceErrorV1, CanonicalResultBindingDtoV1,
 };
 pub use protected_replay::{
-    ProtectedCellApplicabilityEvidenceV3, ProtectedCellApplicabilityObservationV3,
-    ProtectedConsumedInputLocatorV1, ProtectedDiagnosticEvidenceV2, ProtectedEconomicAggregationV1,
-    ProtectedEconomicComparisonV1, ProtectedEconomicMeasurementV1, ProtectedEconomicPolicyBundleV1,
+    MarketDataEpochNanosV1, MarketDataNanosV1, ProtectedCellApplicabilityEvidenceV3,
+    ProtectedCellApplicabilityObservationV3, ProtectedConsumedInputLocatorV1,
+    ProtectedDiagnosticEvidenceV2, ProtectedEconomicAggregationV1, ProtectedEconomicComparisonV1,
+    ProtectedEconomicMeasurementV1, ProtectedEconomicPolicyBundleV1,
     ProtectedEconomicPolicyReferenceV1, ProtectedEvaluationComparisonRuleV1,
     ProtectedEvaluationEpochSuccessorProofV1, ProtectedEvaluationStageV1,
     ProtectedEvaluationTimeEvidenceV1, ProtectedReplayAttemptFrontierDtoV1,
