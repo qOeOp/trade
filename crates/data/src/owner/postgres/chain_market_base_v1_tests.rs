@@ -15,8 +15,9 @@ use super::{
         BASE_CLOCK_EPOCH, BASE_CLOCK_IDENTITY, CHAIN_MARKET_DATA_ACCEPTANCE_BASIS_V1,
         MarketDataAcceptanceBasisErrorV1, MarketDataAcceptanceBasisPointerV1,
         chain_market_base_clock_v1, chain_market_base_historical_clock_v1,
-        chain_market_base_source_proposal_v1, commit_market_base_corpus_v1,
-        ensure_chain_market_base_on_v1, ensure_market_data_acceptance_basis_v1,
+        chain_market_base_records_on_v1, chain_market_base_source_proposal_v1,
+        commit_market_base_corpus_v1, ensure_chain_market_base_on_v1,
+        ensure_market_data_acceptance_basis_v1,
     },
     tests::{clock, replay_composition_market_base_fixture_v1},
     universe_selection::persist_historical_membership_frontier_v1,
@@ -316,5 +317,27 @@ async fn the_basis_rejoins_the_base_the_replay_composition_entry_writes() {
     assert_eq!(
         basis.market_semantics().request_identity(),
         base.semantics.receipt().request_identity
+    );
+}
+
+#[tokio::test]
+#[ignore = "requires a disposable Market Data PostgreSQL database"]
+async fn the_base_records_are_the_same_written_or_rejoined() {
+    let owner = MarketDataOwnerPostgres::connect(&owner_url())
+        .await
+        .unwrap();
+    let written = chain_market_base_records_on_v1(&owner).await.unwrap();
+    let state = store_state_v1(owner.pool()).await;
+    let rejoined = chain_market_base_records_on_v1(&owner).await.unwrap();
+    assert_eq!(
+        store_state_v1(owner.pool()).await,
+        state,
+        "a rejoin writes nothing"
+    );
+    assert_eq!(rejoined.pit, written.pit);
+    assert_eq!(rejoined.batch, written.batch);
+    assert_eq!(
+        rejoined.instrument.canonical_bytes(),
+        written.instrument.canonical_bytes()
     );
 }
