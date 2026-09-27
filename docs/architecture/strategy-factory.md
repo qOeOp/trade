@@ -1523,6 +1523,9 @@ report over a multi-frame Backtest, proven by its chain entry's test name. The c
 | Pair spread                           | BTC and ETH z score                                                                 | I2, V4a            |
 | Cross sectional rotation              | Top two of eight by momentum                                                        | I2, I3             |
 | Funding rate filter                   | Extreme funding reversal                                                            | N1                 |
+| Momentum divergence                   | Price against RSI or the MACD histogram at two confirmed pivots                     | P1, T1             |
+| Rising and falling wedges             | Lines through the two latest confirmed pivot highs and lows                         | P1, T1             |
+| Three and five pushes                 | A push count over confirmed pivots with a holding structure                         | P1, T1             |
 | Ronnie's drawing rules R1 to R6       | Horizontal and wide bands, trend line bands, Fibonacci, quartering, timeframe roles | See below          |
 
 Ronnie's drawing rules were measured from 2,512 screenshots across 17 of his videos and reduced to six computable
@@ -1549,6 +1552,35 @@ its own prices, and two pixels at that frame's price scale elsewhere. The contro
 one cause: the program's output must equal a direct reference computation of the same rule exactly, which tests the
 compiled program, and that reference must match the measured prices within the tolerance, which tests the rule and
 the parameters the measurement filled in rather than observed. It becomes constructible only after T1 and V5.
+
+Momentum divergence, wedges, and three or five pushes rest on one building block, a confirmed pivot, and need no
+slice beyond P1 and T1:
+
+- **Confirmed pivot:** an order-k pivot high at bar `t - k` is confirmed at bar `t` exactly when `Lag(high, k)`
+  equals `Maximum(high, 2k + 1)`, and a pivot low likewise with `Minimum` over the low. The catalog's `SwingHigh` is
+  the highest bar of a trailing window, so a bar that is still rising qualifies; it is not a pivot. A pivot is known
+  k bars late, and that lag is the definition, not a limit of the implementation.
+- **Divergence:** bearish when a newly confirmed pivot high is strictly above the previous one while the indicator
+  at the new pivot, `Lag(indicator, k)`, is strictly below its value at the previous pivot; bullish is the mirror
+  over lows. The signal is emitted at the confirmation bar. The previous pivot's price and indicator are two
+  fixed-point strategy state cells, which the validator admits and no authored program has used yet, so the first
+  divergence program must write and read them through Wasm, and holding them at their initial value must turn its
+  signal red.
+- **Wedge:** lines through the two latest confirmed pivot highs and the two latest pivot lows. It is rising when both
+  slopes are positive and the lower line is steeper, falling in the mirror case, and it declares a convergence ratio
+  and a breakout tolerance in ATR. A line's value at the current bar is `p2 + (p2 - p1) * a / b`, where `a` is the
+  bars since the later anchor and `b` the bars between the anchors; the subtraction, product, and sum are exact at
+  their declared scales, so the division is the one rounding. Lines through three or more pivots need V5's memory
+  and round once per node, which the definition must declare.
+- **Pushes:** the count rises at each newly confirmed pivot high strictly above the previous push while the pivot low
+  between them stays strictly above the one before, and restarts otherwise; three strategy state cells hold it.
+  Pushes read on 4h with entries on 1h are T2.
+
+Each has a synthetic control that fixes its signal bar exactly - a divergence at the pivot plus k and never earlier,
+no wedge from a parallel channel, a count that restarts at a structure break - and a real-data control: over public
+BTC K-lines, the program's pivots and signals must equal an independent reference implementation of the definition
+exactly. No human-labelled ground truth exists for these three patterns, so what's checked is the program against
+its definition, not the program against the trader.
 
 ### What the envelope assumes of F
 
