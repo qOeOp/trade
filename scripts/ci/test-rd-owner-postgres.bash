@@ -349,6 +349,34 @@ check_nextest_graph_contract() {
     echo "ERROR: isolated PostgreSQL test ordering must remain fresh-first and destructive-drain-last." >&2
     return 1
   fi
+  # The first COMPOSER_V3 Replay (F) admits a perpetual's historical membership as Market Data's
+  # newest eligible frontier, so after it the shared chain store's current frontier names only that
+  # perpetual (`first_composer_v3_replay_acceptance`, H0). Market Data has no way back to an earlier
+  # frontier: a later entry whose Research scope names another instrument is refused at the scope
+  # check as NotInEligibleFrontier. Only the entries below may follow F, in a shard or in the serial
+  # run; a new entry goes before F unless it is added here with the reason it tolerates the frontier.
+  local f_entry='|tests::the_first_composer_v3_replay_is_submitted_over_http_and_its_execution_input_binding_reads_back'
+  local -a after_f_allowed=(
+    '|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only'
+  )
+  local f_seen=0 entry allowed admitted
+  for entry in "${rd_owner_postgres_tests[@]}"; do
+    if ((f_seen)); then
+      admitted=0
+      for allowed in "${after_f_allowed[@]}"; do
+        [[ "$entry" == *"$allowed" ]] && admitted=1
+      done
+      if ((!admitted)); then
+        echo "ERROR: ${entry##*|} follows the first COMPOSER_V3 Replay, which leaves Market Data's current eligible frontier naming only its perpetual; order it before that entry." >&2
+        return 1
+      fi
+    fi
+    [[ "$entry" == *"$f_entry" ]] && f_seen=1
+  done
+  if ((!f_seen)); then
+    echo "ERROR: the first COMPOSER_V3 Replay entry the eligible-frontier guard orders around is missing." >&2
+    return 1
+  fi
   if [[ "${nextest_graph_args[*]}" != '--locked --package vibe-strategy-factory --package vibe-strategy-factory-rd-owner-api --package vibe-product-edge --package vibe-operator-authorization --package vibe-backtest-owner --package vibe-data --package vibe-qualification --package vibe-execution-owner --package vibe-portfolio-owner --package vibe-strategy-governance --package vibe-scanner-custody --package vibe-risk-owner --package vibe-product-edge-routing-api --lib --tests' ]] ||
     [[ "$nextest_archive_features" != 'vibe-strategy-factory/sealed-develop-composer-acceptance,vibe-strategy-factory-rd-owner-api/sealed-source-intake-acceptance,vibe-strategy-factory-rd-owner-api/sealed-artifact-source-browser-acceptance,vibe-strategy-factory-rd-owner-api/sealed-source-intake-composer-acceptance,vibe-product-edge/sealed-deployment-acceptance' ]] ||
     [[ "${nextest_execution_args[*]}" != '--fail-fast --run-ignored ignored-only --success-output final --no-tests=fail' ]]; then

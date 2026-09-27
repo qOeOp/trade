@@ -30,7 +30,10 @@ use async_trait::async_trait;
 use axum::{body::Body, extract::Request};
 use tower::ServiceExt;
 use vibe_data::owner::{
-    chain_fixture_v1::CHAIN_FIXTURE_INSTRUMENT_V1,
+    instrument_master_admission_v1::{
+        InstrumentDecimalSubmissionV1, InstrumentMasterFactSubmissionV1,
+        InstrumentVenueSourceMappingSubmissionV1,
+    },
     instrument_master_v2::{InstrumentMasterCutLocatorV2, InstrumentMasterResolverV2},
     market_semantics_admission_v1::{
         MarketSemanticsFactSubmissionV1, MarketSemanticsValueSubmissionV1,
@@ -43,8 +46,22 @@ use vibe_data::owner::{
     pit_snapshot::PitSnapshotSubmissionV1,
     replay_market_facts_v2::ReplayCompositionBindingLocatorV1,
     research_instrument_scope_v1::ResearchInstrumentScopeWireV1,
-    source_binding::BindingDigest,
-    universe_selection_admission_v1::universe_selection_admission_from_environment_v1,
+    source_binding::{
+        BindingDigest, UntrustedAdapterBinding, UntrustedCompleteFrontier,
+        UntrustedCredentialAudienceClaim, UntrustedCredentialCapabilityClaim,
+        UntrustedLicensePolicy, UntrustedMarketDataAsOf, UntrustedMarketSemantics,
+        UntrustedOpaqueCredentialHandle, UntrustedSourceBindingLocator,
+        UntrustedSourceBindingProposal, UntrustedTrustPolicy, seal_binding_claim_v1,
+    },
+    source_binding_admission_v1::{
+        ProviderReachabilityEvidenceV1, ProviderRightsEvidenceV1,
+        SourceBindingAdmissionDispositionV1, SourceBindingAdmissionRequestV1,
+        SourceBindingAdmissionTerminalV1,
+    },
+    universe_selection_admission_v1::{
+        HistoricalMembershipAdmissionRequestV1, HistoricalMembershipSubmissionV1,
+        universe_selection_admission_from_environment_v1,
+    },
 };
 use vibe_postgres_connect::PgPoolOptionsExt as _;
 use vibe_product_edge::{
@@ -82,6 +99,12 @@ pub(crate) const FIRST_COMPOSER_V3_REPLAY_FIXTURE_KEY_V1: &str = "f-first-compos
 
 const TOKEN: &str = "rd-owner-api-first-composer-v3";
 const CLOSE_ROLE: &str = "research.input.close.daily.v1";
+
+/// The instrument this Replay studies: a crypto perpetual, the class the product studies, and one no
+/// other chain entry names, so no other entry's Instrument Master or membership facts can meet it.
+/// It is F's own, not the chain fixtures' instrument, which stays an equity for the entries built on
+/// it.
+const PERPETUAL_V1: &str = "LINKUSDT-PERP.BINANCE";
 const OPEN_ROLE: &str = "research.input.open.daily.v1";
 
 /// One Owner record by its identity and the digest it was issued under.
@@ -204,6 +227,121 @@ impl Drop for SchedulingGrantsGuardV1 {
     }
 }
 
+/// The perpetual's Source Binding, as Operations proposes one: a public USD-M feed that needs no
+/// credential. Every clock field is the Owner's and is overwritten on admission; only the effective
+/// instant and its four coordinates are the proposer's.
+fn perpetual_source_proposal(effective_ns: u64) -> UntrustedSourceBindingProposal {
+    let frontier = |meaning: &str| UntrustedCompleteFrontier {
+        stream_identity: "binance/usdm-klines".to_owned(),
+        cut_identity: "binance/usdm-klines/cut-1".to_owned(),
+        sequence: 1,
+        digest: first_composer_v3_digest(meaning),
+    };
+    let mut proposal = UntrustedSourceBindingProposal {
+        claimed_binding_id: BindingDigest::from_untrusted_bytes([0; 32]),
+        schema_version: 1,
+        adapter: UntrustedAdapterBinding {
+            implementation_digest: first_composer_v3_digest("perpetual.adapter.implementation"),
+            configuration_digest: first_composer_v3_digest("perpetual.adapter.configuration"),
+            authenticated_endpoint_identity: "https://fapi.binance.com".to_owned(),
+            dataset_mapping: "usdm/klines/1d".to_owned(),
+            account_mapping: "binance/public".to_owned(),
+        },
+        credential_handle: UntrustedOpaqueCredentialHandle::from_untrusted_identity(
+            first_composer_v3_digest("perpetual.credential"),
+            UntrustedCredentialAudienceClaim::MarketData,
+            [
+                UntrustedCredentialCapabilityClaim::MarketDataRead,
+                UntrustedCredentialCapabilityClaim::ReferenceDataRead,
+                UntrustedCredentialCapabilityClaim::MetadataRead,
+            ],
+        ),
+        trust_policy: UntrustedTrustPolicy {
+            identity: "binance/official-public-data".to_owned(),
+            version: 1,
+        },
+        semantics: UntrustedMarketSemantics {
+            normalization: "binance/usdm-kline".to_owned(),
+            adjustment: "raw".to_owned(),
+            price_meaning: "decimal-string/usdt".to_owned(),
+            calendar_rules: "crypto/continuous".to_owned(),
+            session_rules: "crypto/continuous".to_owned(),
+            timezone_rules: "etc-utc".to_owned(),
+            instrument_lifecycle_rules: "binance/usdm-perpetual".to_owned(),
+            corporate_action_rules: "crypto/none".to_owned(),
+            membership_rules: "binance/static".to_owned(),
+            universe_rules: "requester-owned".to_owned(),
+            correction_policy: "provider-revision".to_owned(),
+        },
+        license: UntrustedLicensePolicy {
+            use_scope: "internal-research".to_owned(),
+            redistribution_scope: "none".to_owned(),
+            retention_policy: "retain-while-entitled".to_owned(),
+            redaction_policy: "no-payload-export".to_owned(),
+        },
+        source_frontier: frontier("perpetual.source-frontier"),
+        correction_frontier: frontier("perpetual.correction-frontier"),
+        time_evidence: UntrustedMarketDataAsOf {
+            claimed_evidence_identity: BindingDigest::from_untrusted_bytes([0; 32]),
+            clock_identity: String::new(),
+            clock_epoch: String::new(),
+            monotonic_sequence: 0,
+            restart_continuity_digest: BindingDigest::from_untrusted_bytes([0; 32]),
+            skew_bound: 0,
+            uncertainty_bound: 0,
+            event_effective: effective_ns,
+            provider_available: effective_ns,
+            retrieval: effective_ns,
+            correction_publication: effective_ns,
+            observed_at: 0,
+            effective_at: effective_ns,
+            valid_through: 0,
+        },
+    };
+    seal_binding_claim_v1(&mut proposal);
+    proposal
+}
+
+/// The perpetual's Instrument Master fact, as Operations describes it: a linear USD-M perpetual on
+/// a venue that never closes, observed under the admitted binding just before the effective instant.
+fn perpetual_instrument_submission(
+    source_binding: &UntrustedSourceBindingLocator,
+    effective_ns: u64,
+) -> InstrumentMasterFactSubmissionV1 {
+    let observed = i128::from(effective_ns) - 1;
+    let decimal = |mantissa, scale| InstrumentDecimalSubmissionV1 { mantissa, scale };
+    InstrumentMasterFactSubmissionV1 {
+        canonical_identity: PERPETUAL_V1.to_owned(),
+        predecessor_fact_digest: None,
+        mappings: vec![InstrumentVenueSourceMappingSubmissionV1 {
+            venue_identity: "BINANCE".to_owned(),
+            source_identity: "BINANCE_USDM".to_owned(),
+            source_instrument: b"LINKUSDT".to_vec(),
+        }],
+        instrument_class: "CRYPTO_PERPETUAL".to_owned(),
+        base_currency: Some("LINK".to_owned()),
+        quote_currency: Some("USDT".to_owned()),
+        settlement_currency: Some("USDT".to_owned()),
+        margin_currency: Some("USDT".to_owned()),
+        price_increment: decimal(1, 3),
+        quantity_increment: decimal(1, 2),
+        contract_multiplier: decimal(1, 0),
+        calendar_identity: "CRYPTO-CONTINUOUS-V1".to_owned(),
+        session_identity: "CRYPTO-CONTINUOUS-V1".to_owned(),
+        time_zone_identity: "Etc/UTC".to_owned(),
+        lifecycle_frontier: first_composer_v3_digest("perpetual.lifecycle-frontier"),
+        corporate_action_frontier: first_composer_v3_digest("perpetual.corporate-action-frontier"),
+        historical_membership_frontier: first_composer_v3_digest("perpetual.eligible-frontier"),
+        source_binding: source_binding.clone(),
+        effective_from: 1,
+        effective_until: None,
+        provider_available: observed,
+        retrieval: observed,
+        correction_publication: observed,
+        owner_observation: observed,
+    }
+}
+
 /// A registry meaning named for this fixture, so no value is borrowed from another entry's.
 fn first_composer_v3_digest(meaning: &str) -> BindingDigest {
     BindingDigest::from_untrusted_bytes(
@@ -289,7 +427,7 @@ async fn accept_research(
     };
     let instrument_scope = ResearchInstrumentScopeWireV1 {
         schema_version: 1,
-        identities: vec![CHAIN_FIXTURE_INSTRUMENT_V1.to_owned()],
+        identities: vec![PERPETUAL_V1.to_owned()],
     };
     let mut typed_payload = serde_json::to_value(&operation).expect("the operation serializes");
     typed_payload["instrument_scope"] =
@@ -394,7 +532,103 @@ pub(crate) async fn ensure_first_composer_v3_replay_acceptance_v1(
             ),
         );
 
-    // H1: the V3 Research request, scoped to the chain fixture's instrument.
+    // H0: the perpetual, admitted as Operations admits an instrument, through Market Data's
+    // production routes: its Source Binding, its Instrument Master fact under that binding, and the
+    // historical membership of one eligible frontier that names it. Every instant is Market Data's
+    // own decision cut, read from the production intake.
+    //
+    // Deliberate state side effect: that frontier is admitted last, so it becomes Market Data's
+    // current eligible frontier in the shared chain database, and it names only the perpetual. A
+    // later entry whose Research scope names another instrument is refused at the scope check as
+    // NotInEligibleFrontier. Market Data has one current frontier and admits no way back to an
+    // earlier one, so the chain guards the order instead: `--check` refuses any entry after this
+    // one other than those it lists.
+    let intake =
+        pit_market_snapshot_intake_from_environment_v1(Arc::new(UniverseMemberDailyBarsV1))
+            .await
+            .expect("Market Data's PIT intake opens");
+    let effective_ns = intake
+        .current_decision_cut()
+        .await
+        .expect("H0: Market Data states its decision cut")
+        .decision_cut;
+    let proposal = perpetual_source_proposal(effective_ns);
+    let (status, answer) = post(
+        &routes,
+        "/v1/market-data/source-bindings",
+        Some(
+            serde_json::to_value(SourceBindingAdmissionRequestV1 {
+                proposal: proposal.clone(),
+                rights: ProviderRightsEvidenceV1::Granted,
+                reachability: ProviderReachabilityEvidenceV1::Reachable,
+            })
+            .expect("the binding admission serializes"),
+        ),
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "H0: the perpetual's Source Binding: {answer}"
+    );
+    let binding: SourceBindingAdmissionTerminalV1 = serde_json::from_value(json_of(&answer))
+        .expect("H0: the binding admission answers its terminal");
+    assert_eq!(
+        binding.disposition(),
+        SourceBindingAdmissionDispositionV1::Admitted,
+        "H0: granted rights and a reachable endpoint admit the binding"
+    );
+    let (status, answer) = post(
+        &routes,
+        "/v1/market-data/instrument-master-facts",
+        Some(
+            serde_json::to_value(perpetual_instrument_submission(
+                binding.locator(),
+                effective_ns,
+            ))
+            .expect("the instrument submission serializes"),
+        ),
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "H0: the perpetual's Instrument Master fact: {answer}"
+    );
+    let observed = i128::from(effective_ns);
+    let (status, answer) = post(
+        &routes,
+        "/v1/market-data/historical-memberships",
+        Some(
+            serde_json::to_value(HistoricalMembershipAdmissionRequestV1 {
+                eligible_instrument_frontier: first_composer_v3_digest(
+                    "perpetual.eligible-frontier",
+                ),
+                members: vec![HistoricalMembershipSubmissionV1 {
+                    member_key: PERPETUAL_V1.to_owned(),
+                    instrument: PERPETUAL_V1.to_owned(),
+                    effective_from_ns: 1,
+                    effective_until_ns: None,
+                    provider_available_ns: observed,
+                    retrieval_ns: observed,
+                    correction_publication_ns: observed,
+                    owner_observation_ns: observed,
+                    decision_cut: effective_ns,
+                    source_binding_lineage_root: binding.lineage_root(),
+                    correction_frontier_digest: proposal.correction_frontier.digest,
+                }],
+            })
+            .expect("the membership admission serializes"),
+        ),
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "H0: the perpetual's membership: {answer}"
+    );
+
+    // H1: the V3 Research request, scoped to the perpetual.
     let owner = Arc::new(
         PostgresResearchGoalOwnerV1::connect(
             rd_url,
@@ -423,9 +657,7 @@ pub(crate) async fn ensure_first_composer_v3_replay_acceptance_v1(
         universe_selection_admission_from_environment_v1()
             .await
             .expect("Market Data's Universe Selection admission opens"),
-        pit_market_snapshot_intake_from_environment_v1(Arc::new(UniverseMemberDailyBarsV1))
-            .await
-            .expect("Market Data's PIT intake opens"),
+        intake,
     );
     let initial_pit = research_initial_pit::router(owner.clone(), Some(ports), token_digest);
     let (status, answer) = post(
@@ -799,7 +1031,7 @@ pub(crate) async fn ensure_first_composer_v3_replay_acceptance_v1(
             .expect("H3: the role intent names its Design")
             .to_owned(),
         artifact_locator: composer_locator.artifact_locator.clone(),
-        member_instrument: CHAIN_FIXTURE_INSTRUMENT_V1.to_owned(),
+        member_instrument: PERPETUAL_V1.to_owned(),
         replay_request,
         composition_binding,
         execution_input_binding: OwnerRecordLocatorV1 {
