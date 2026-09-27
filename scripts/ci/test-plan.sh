@@ -967,6 +967,19 @@ for scope in pull-request-full full; do
     exit 1
   fi
 done
+run_pre_commit_step="$(
+  workflow_job_block "$build_workflow" pre-commit |
+    awk '/^      - name: Run pre-commit$/ {on = 1; print; next} on && /^      - / {exit} on'
+)"
+# shellcheck disable=SC2016 # the workflow's literal expressions and shell text
+if [[ -z "$run_pre_commit_step" ]] || grep -Eq '^        if:' <<< "$run_pre_commit_step" ||
+  [[ "$run_pre_commit_step" != *'FULL_PRE_COMMIT: ${{ needs.plan.outputs.run-full-pre-commit }}'* ]] ||
+  [[ "$run_pre_commit_step" != *'if [[ "$FULL_PRE_COMMIT" == true ]]; then route=full; fi'* ]]; then
+  echo "build.yml's \"Run pre-commit\" must run unconditionally and take the full scope whenever" >&2
+  echo "run-full-pre-commit is true: that is what keeps the connection gate hook on every route its" >&2
+  echo "old step ran on." >&2
+  exit 1
+fi
 if [[ "$(workflow_job_block "$build_workflow" pre-commit)" == *'check-disallowed-connect-outside-union.bash'* ]]; then
   echo "build.yml's pre-commit job runs the connection gate again as a step; the hook already is the gate." >&2
   exit 1
