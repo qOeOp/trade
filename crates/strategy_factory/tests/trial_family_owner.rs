@@ -10,6 +10,7 @@ use vibe_operator_authorization::{
     OperatorAuthorizationIssuerPostgresV1, OperatorAuthorizationLocatorV1,
     OperatorAuthorizationRevocationProposalV1, OperatorAuthorizationScopeV1,
 };
+use vibe_postgres_connect::{PgPoolOptionsExt, PostgresTls};
 use vibe_product_edge::{
     AgentOperationManifestProposalV1, DownstreamAdmissionModeV1, ProductEdgeAdmissionLocatorV1,
     ProductEdgeAdmissionRequestV1, ProductEdgeAuthorizationTrustV1, ProductEdgeBootstrapProposalV1,
@@ -68,7 +69,7 @@ async fn postgres_owner_persists_one_family_and_replays_without_partial_conflict
     .unwrap();
     let pool = PgPoolOptions::new()
         .max_connections(2)
-        .connect(&database_url)
+        .connect_url(&database_url, PostgresTls::Disabled)
         .await
         .unwrap();
     let suffix = unique_suffix();
@@ -184,12 +185,15 @@ async fn every_v2_semantic_rejection_is_rejection_only_and_replays_exactly() {
     .unwrap();
     let pool = PgPoolOptions::new()
         .max_connections(2)
-        .connect(&database_url)
+        .connect_url(&database_url, PostgresTls::Disabled)
         .await
         .unwrap();
     let qualification_pool = PgPoolOptions::new()
         .max_connections(2)
-        .connect(test_database.database_url(CanonicalOwnerTestRoleV1::QualificationWriter))
+        .connect_url(
+            test_database.database_url(CanonicalOwnerTestRoleV1::QualificationWriter),
+            PostgresTls::Disabled,
+        )
         .await
         .unwrap();
     let suffix = unique_suffix();
@@ -284,12 +288,15 @@ async fn invalid_successor_cannot_poison_heads_and_verified_lineage_never_skips_
     .unwrap();
     let pool = PgPoolOptions::new()
         .max_connections(2)
-        .connect(&database_url)
+        .connect_url(&database_url, PostgresTls::Disabled)
         .await
         .unwrap();
     let qualification_pool = PgPoolOptions::new()
         .max_connections(2)
-        .connect(test_database.database_url(CanonicalOwnerTestRoleV1::QualificationWriter))
+        .connect_url(
+            test_database.database_url(CanonicalOwnerTestRoleV1::QualificationWriter),
+            PostgresTls::Disabled,
+        )
         .await
         .unwrap();
     let suffix = unique_suffix();
@@ -528,12 +535,15 @@ async fn qualification_basis_cannot_terminalize_after_authority_revocation() {
     .unwrap();
     let pool = PgPoolOptions::new()
         .max_connections(2)
-        .connect(&database_url)
+        .connect_url(&database_url, PostgresTls::Disabled)
         .await
         .unwrap();
     let qualification_pool = PgPoolOptions::new()
         .max_connections(2)
-        .connect(test_database.database_url(CanonicalOwnerTestRoleV1::QualificationWriter))
+        .connect_url(
+            test_database.database_url(CanonicalOwnerTestRoleV1::QualificationWriter),
+            PostgresTls::Disabled,
+        )
         .await
         .unwrap();
     let suffix = unique_suffix();
@@ -750,7 +760,10 @@ async fn qualification_basis_recovers_under_immediate_policy_equivalent_successo
     .unwrap();
     let qualification_pool = PgPoolOptions::new()
         .max_connections(2)
-        .connect(test_database.database_url(CanonicalOwnerTestRoleV1::QualificationWriter))
+        .connect_url(
+            test_database.database_url(CanonicalOwnerTestRoleV1::QualificationWriter),
+            PostgresTls::Disabled,
+        )
         .await
         .unwrap();
     let suffix = unique_suffix();
@@ -812,12 +825,15 @@ async fn committed_basis_cannot_terminalize_after_original_authority_expires() {
     .unwrap();
     let pool = PgPoolOptions::new()
         .max_connections(2)
-        .connect(&database_url)
+        .connect_url(&database_url, PostgresTls::Disabled)
         .await
         .unwrap();
     let qualification_pool = PgPoolOptions::new()
         .max_connections(2)
-        .connect(test_database.database_url(CanonicalOwnerTestRoleV1::QualificationWriter))
+        .connect_url(
+            test_database.database_url(CanonicalOwnerTestRoleV1::QualificationWriter),
+            PostgresTls::Disabled,
+        )
         .await
         .unwrap();
     let suffix = unique_suffix();
@@ -894,12 +910,15 @@ async fn concurrent_invalid_and_valid_same_scope_serialize_without_invalid_autho
     );
     let pool = PgPoolOptions::new()
         .max_connections(2)
-        .connect(&database_url)
+        .connect_url(&database_url, PostgresTls::Disabled)
         .await
         .unwrap();
     let qualification_pool = PgPoolOptions::new()
         .max_connections(2)
-        .connect(test_database.database_url(CanonicalOwnerTestRoleV1::QualificationWriter))
+        .connect_url(
+            test_database.database_url(CanonicalOwnerTestRoleV1::QualificationWriter),
+            PostgresTls::Disabled,
+        )
         .await
         .unwrap();
     let suffix = unique_suffix();
@@ -976,12 +995,15 @@ async fn exhaustive_lineage_waits_for_row_mutation_and_recovers_after_restore() 
     );
     let pool = PgPoolOptions::new()
         .max_connections(4)
-        .connect(&database_url)
+        .connect_url(&database_url, PostgresTls::Disabled)
         .await
         .unwrap();
     let qualification_pool = PgPoolOptions::new()
         .max_connections(2)
-        .connect(test_database.database_url(CanonicalOwnerTestRoleV1::QualificationWriter))
+        .connect_url(
+            test_database.database_url(CanonicalOwnerTestRoleV1::QualificationWriter),
+            PostgresTls::Disabled,
+        )
         .await
         .unwrap();
     let suffix = unique_suffix();
@@ -1079,12 +1101,15 @@ async fn stored_request_meaning_corruption_is_unavailable_until_exact_restoratio
     .unwrap();
     let pool = PgPoolOptions::new()
         .max_connections(2)
-        .connect(&database_url)
+        .connect_url(&database_url, PostgresTls::Disabled)
         .await
         .unwrap();
     let qualification_pool = PgPoolOptions::new()
         .max_connections(2)
-        .connect(test_database.database_url(CanonicalOwnerTestRoleV1::QualificationWriter))
+        .connect_url(
+            test_database.database_url(CanonicalOwnerTestRoleV1::QualificationWriter),
+            PostgresTls::Disabled,
+        )
         .await
         .unwrap();
     let suffix = unique_suffix();
@@ -1295,7 +1320,7 @@ async fn missing_research_custody_prepares_no_attempt() {
     .unwrap();
     let pool = PgPoolOptions::new()
         .max_connections(2)
-        .connect(&database_url)
+        .connect_url(&database_url, PostgresTls::Disabled)
         .await
         .unwrap();
     let suffix = unique_suffix();
@@ -1371,7 +1396,7 @@ async fn research_and_attempt_resolve_share_one_deadlock_free_lock_order() {
     );
     let pool = PgPoolOptions::new()
         .max_connections(2)
-        .connect(&database_url)
+        .connect_url(&database_url, PostgresTls::Disabled)
         .await
         .unwrap();
     let suffix = unique_suffix();
@@ -1508,7 +1533,7 @@ async fn intent_lookup_does_not_lock_a_receipt_it_does_not_return() {
     .unwrap();
     let pool = PgPoolOptions::new()
         .max_connections(2)
-        .connect(&database_url)
+        .connect_url(&database_url, PostgresTls::Disabled)
         .await
         .unwrap();
     let suffix = unique_suffix();
@@ -1622,7 +1647,7 @@ async fn no_artifact_receipt_mutation_fails_closed_and_exact_restore_replays() {
     .unwrap();
     let pool = PgPoolOptions::new()
         .max_connections(2)
-        .connect(&database_url)
+        .connect_url(&database_url, PostgresTls::Disabled)
         .await
         .unwrap();
     let suffix = unique_suffix();
@@ -1771,7 +1796,7 @@ async fn expired_attempt_receipt_is_independently_outcome_unknown() {
             .unwrap();
     let pool = PgPoolOptions::new()
         .max_connections(2)
-        .connect(&database_url)
+        .connect_url(&database_url, PostgresTls::Disabled)
         .await
         .unwrap();
     let suffix = unique_suffix();
@@ -1855,8 +1880,9 @@ async fn test_database() -> CanonicalOwnerPostgresTestDatabaseV1 {
         let database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
         let catalog_admin_pool = PgPoolOptions::new()
             .max_connections(1)
-            .connect(
+            .connect_url(
                 database.database_url(CanonicalOwnerTestRoleV1::ReplayPolicyCatalogAdminWriter),
+                PostgresTls::Disabled,
             )
             .await
             .unwrap();
@@ -2381,7 +2407,7 @@ impl OwnerClockAnchorV1 {
 async fn owner_clock_epoch_ms(owner_url: &str) -> Result<u64, sqlx::Error> {
     let pool = PgPoolOptions::new()
         .max_connections(1)
-        .connect(owner_url)
+        .connect_url(owner_url, PostgresTls::Disabled)
         .await?;
     let epoch_ms: i64 = sqlx::query_scalar(
         "SELECT pg_catalog.floor(EXTRACT(epoch FROM pg_catalog.clock_timestamp()) * 1000)::bigint",

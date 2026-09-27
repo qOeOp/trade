@@ -100,12 +100,17 @@ fn user_and_database(url: &str) -> (&str, &str) {
 
 #[cfg(test)]
 mod tests {
+    use sqlx::postgres::PgPoolOptions;
+    use vibe_postgres_connect::{PgPoolOptionsExt, PostgresTls};
+
     use super::*;
 
     /// Who the credential authenticates as and whether it holds the schema and one table read. The
     /// table is named by oid: naming it by path would need the schema usage being measured.
     async fn reader_privileges(reader_url: &str) -> (String, bool, bool) {
-        let pool = sqlx::PgPool::connect(reader_url)
+        let pool = PgPoolOptions::new()
+            .max_connections(1)
+            .connect_url(reader_url, PostgresTls::Disabled)
             .await
             .expect("the scheduling acceptance reader connects");
         let privileges = sqlx::query_as(

@@ -453,34 +453,125 @@ pub(super) fn ensure_chain_market_base_on_v1(
     owner: &MarketDataOwnerPostgres,
 ) -> MarketDataAcceptanceBasisFutureV1<'_> {
     Box::pin(async move {
-        let existing = {
-            let mut transaction = owner
-                .pool
-                .begin()
-                .await
-                .map_err(|_| MarketDataAcceptanceBasisErrorV1::StoreUnavailable)?;
-            let existing =
-                match chain_market_base_snapshot_in_transaction_v1(&mut transaction).await {
-                    Ok(snapshot) => Some(snapshot),
-                    Err(ChainMarketBaseUnavailableV1::NoSnapshot) => None,
-                    Err(ChainMarketBaseUnavailableV1::Ambiguous) => {
-                        return Err(diverged("pit_snapshot"));
-                    }
-                    Err(_) => return Err(MarketDataAcceptanceBasisErrorV1::StoreUnavailable),
-                };
-            transaction
-                .rollback()
-                .await
-                .map_err(|_| MarketDataAcceptanceBasisErrorV1::StoreUnavailable)?;
-            existing
-        };
+        let existing = existing_chain_market_base_v1(owner).await?;
 
         match existing {
             None => write_chain_market_base_v1(owner)
                 .await
                 .map(|written| written.basis()),
-            Some(snapshot) => rejoin_chain_market_base_v1(owner, snapshot).await,
+            Some(snapshot) => rejoin_chain_market_base_v1(owner, snapshot)
+                .await
+                .map(|(basis, _)| basis),
         }
+    })
+}
+
+/// The chain market base's snapshot, when the store already holds one.
+async fn existing_chain_market_base_v1(
+    owner: &MarketDataOwnerPostgres,
+) -> Result<Option<ChainMarketBaseSnapshotV1>, MarketDataAcceptanceBasisErrorV1> {
+    let mut transaction = owner
+        .pool
+        .begin()
+        .await
+        .map_err(|_| MarketDataAcceptanceBasisErrorV1::StoreUnavailable)?;
+    let existing = match chain_market_base_snapshot_in_transaction_v1(&mut transaction).await {
+        Ok(snapshot) => Some(snapshot),
+        Err(ChainMarketBaseUnavailableV1::NoSnapshot) => None,
+        Err(ChainMarketBaseUnavailableV1::Ambiguous) => return Err(diverged("pit_snapshot")),
+        Err(_) => return Err(MarketDataAcceptanceBasisErrorV1::StoreUnavailable),
+    };
+    transaction
+        .rollback()
+        .await
+        .map_err(|_| MarketDataAcceptanceBasisErrorV1::StoreUnavailable)?;
+    Ok(existing)
+}
+
+/// The base's records a chain entry builds its own custody over: the base's PIT snapshot, the
+/// snapshot's verified observation batch, and the Instrument Master cut the snapshot binds.
+pub(super) struct ChainMarketBaseRecordsV1 {
+    pub(super) pit: PitSnapshotCommitAggregate,
+    pub(super) batch: VerifiedPitObservationBatch,
+    pub(super) instrument: InstrumentMasterReadbackV1,
+}
+
+/// Ensures the chain market base on `owner`, as [`ensure_market_data_acceptance_basis_v1`] does,
+/// and returns the base's records rather than its handle.
+///
+/// A rejoin reads the records back after the same comparisons the handle's rejoin makes, and adds
+/// one: the Instrument Master cut it resolves is the one the snapshot binds.
+pub(super) fn chain_market_base_records_on_v1(
+    owner: &MarketDataOwnerPostgres,
+) -> Pin<
+    Box<
+        dyn Future<Output = Result<ChainMarketBaseRecordsV1, MarketDataAcceptanceBasisErrorV1>>
+            + '_,
+    >,
+> {
+    Box::pin(async move {
+        let Some(snapshot) = existing_chain_market_base_v1(owner).await? else {
+            let written = write_chain_market_base_v1(owner).await?;
+            return Ok(ChainMarketBaseRecordsV1 {
+                pit: written.corpus.pit,
+                batch: written.corpus.batch,
+                instrument: written.instrument,
+            });
+        };
+        let (_, pit) = rejoin_chain_market_base_v1(owner, snapshot).await?;
+        let batch = {
+            let mut transaction = owner
+                .pool
+                .begin()
+                .await
+                .map_err(|_| MarketDataAcceptanceBasisErrorV1::StoreUnavailable)?;
+            let stored = super::load_pit_observation_batch_for_update(&mut transaction, &pit)
+                .await
+                .map_err(|_| MarketDataAcceptanceBasisErrorV1::StoreUnavailable)?
+                .ok_or_else(|| diverged("pit_observation_batch"))?;
+            let batch = verify_observation_batch(
+                &pit,
+                stored.source_binding_identity,
+                stored.source_binding_lineage_root,
+                stored.source_binding_lineage_version,
+                stored.digest,
+                &stored.bytes,
+                &stored.rows,
+            )
+            .map_err(|_| diverged("pit_observation_batch"))?;
+            transaction
+                .rollback()
+                .await
+                .map_err(|_| MarketDataAcceptanceBasisErrorV1::StoreUnavailable)?;
+            batch
+        };
+        let historical = build_head_fact(&chain_market_base_historical_clock_v1(), None)
+            .map_err(|_| diverged("clock_head"))?;
+        let successor = build_head_fact(
+            &chain_market_base_clock_v1(),
+            Some(historical.handoff.head_digest()),
+        )
+        .map_err(|_| diverged("clock_head"))?;
+        let instrument = owner
+            .resolve_instrument_master(
+                &instrument_request(
+                    BASE_INSTRUMENT_MASTER_REQUEST,
+                    InstrumentMasterScopeV1::ExactInstrument(CHAIN_FIXTURE_INSTRUMENT_V1.into()),
+                    successor.handoff.locator().clone(),
+                ),
+                None,
+            )
+            .await
+            .map_err(|_| diverged("instrument_master_cut"))?;
+
+        if instrument.digest() != pit.fact().request().instrument_master_digest {
+            return Err(diverged("instrument_master_cut"));
+        }
+        Ok(ChainMarketBaseRecordsV1 {
+            pit,
+            batch,
+            instrument,
+        })
     })
 }
 
@@ -558,6 +649,14 @@ pub(super) fn chain_market_base_source_proposal_v1(
         derive_time_evidence_identity(&proposal.time_evidence);
     proposal.claimed_binding_id = derive_binding_id(&proposal);
     proposal
+}
+
+/// The Market Semantics compatibility scope of the base's Source Binding, derived from its
+/// semantics by the function production admits under.
+pub(super) fn chain_market_base_scope_v1() -> BindingDigest {
+    derive_market_semantics_compatibility_identity_v1(
+        &chain_market_base_source_proposal_v1(&chain_market_base_historical_clock_v1()).semantics,
+    )
 }
 
 /// The base's writes, as the Owner committed them.
@@ -695,7 +794,10 @@ pub(super) fn write_chain_market_base_v1(
 async fn rejoin_chain_market_base_v1(
     owner: &MarketDataOwnerPostgres,
     snapshot: ChainMarketBaseSnapshotV1,
-) -> Result<MarketDataAcceptanceBasisV1, MarketDataAcceptanceBasisErrorV1> {
+) -> Result<
+    (MarketDataAcceptanceBasisV1, PitSnapshotCommitAggregate),
+    MarketDataAcceptanceBasisErrorV1,
+> {
     let clock = chain_market_base_clock_v1();
     let expected_source = derive_binding_id(&chain_market_base_source_proposal_v1(
         &chain_market_base_historical_clock_v1(),
@@ -753,7 +855,7 @@ async fn rejoin_chain_market_base_v1(
         .rollback()
         .await
         .map_err(|_| MarketDataAcceptanceBasisErrorV1::StoreUnavailable)?;
-    Ok(chain_market_base_basis_v1(
+    let basis = chain_market_base_basis_v1(
         &clock,
         pit_locator,
         source_locator,
@@ -761,7 +863,8 @@ async fn rejoin_chain_market_base_v1(
             request_identity: semantics_request.request_identity,
             request_meaning_digest: semantics_request.request_meaning_digest,
         },
-    ))
+    );
+    Ok((basis, pit))
 }
 
 const fn diverged(step: &'static str) -> MarketDataAcceptanceBasisErrorV1 {

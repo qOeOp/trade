@@ -30,6 +30,8 @@ use vibe_data::owner::{
     instrument_master_v2_postgres::InstrumentMasterV2PostgresOwner,
     native_replay_scheduling_v1::NativeReplaySchedulingResolverV1,
 };
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+use vibe_postgres_connect::{PgPoolOptionsExt, PostgresTls};
 use vibe_product_edge::{ProductEdgeAdmissionRequestV1, ProductEdgeError};
 #[cfg(any(test, feature = "sealed-develop-composer-acceptance"))]
 use vibe_strategy_factory::NativeReplayExecutionInputBindingErrorV1;
@@ -217,8 +219,12 @@ impl NativeReplayExecutionServiceV2 {
         market_data: Arc<dyn NativeReplaySchedulingResolverV1>,
         sample_projections: Arc<UniverseSampleProjectionOwnerV1>,
     ) -> anyhow::Result<Self> {
-        let rd_relock_pool = sqlx::PgPool::connect(rd_database_url).await?;
-        let backtest_pool = sqlx::PgPool::connect(backtest_database_url).await?;
+        let rd_relock_pool = sqlx::postgres::PgPoolOptions::new()
+            .connect_url(rd_database_url, PostgresTls::Disabled)
+            .await?;
+        let backtest_pool = sqlx::postgres::PgPoolOptions::new()
+            .connect_url(backtest_database_url, PostgresTls::Disabled)
+            .await?;
         let result_owner =
             Arc::new(PostgresReplayResultOwnerV2::from_admitted_pool(backtest_pool).await?);
         let resolver = Arc::new(PostgresNativeReplayExecutionPreparationResolverV2::new(

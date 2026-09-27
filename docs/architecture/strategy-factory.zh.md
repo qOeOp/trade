@@ -1127,9 +1127,14 @@ select、override、synthesize、backfill 或 infer 任何 field。
 
 - runtime-kernel、simulator、cost、slippage 与 capacity profile 的身份和版本；
 - runner operational profile、diagnostic policy 与 deterministic seed；
-- 半开 replay window，以及 calendar、session 与 time-zone 的身份和版本；以及
+- 可准入的半开 replay 范围，以及 calendar、session 与 time-zone 的身份和版本；以及
 - correction-rule 与 market-semantics 的身份和版本、corporate-action cut、historical-membership cut，及请求中
   其他应由 family policy 而非 input Owner 选择的内容。
+
+请求的 replay window 是它所组合的 Market Data facts 的窗口，落在 policy 可准入的范围之内；今天是一帧
+`[C, C+1)`，`C` 是 Market Data 切出该家族快照的时刻。policy 限定窗口，调用方两者都不能提供；policy 不能直接
+固定窗口本身，因为家族的 policy 在家族成形时封存，那时它的任何快照都还不存在。组合出的窗口落在范围之外时按名
+被拒，`FactsWindowOutsidePolicyRange`。legacy exploratory 请求仍然直接携带 policy 窗口。
 
 ### TARGET / NOT_ADMITTED - Replay execution profile V1
 
@@ -1223,10 +1228,15 @@ TARGET 才能获准；它不授予 production 或 trading authority。
 Feature Program 输入、Plan 绑定、Research scope 及其 PIT 请求。逐个扩展这些常量只会重复同一个模式；下面的目标
 改为删掉这些变体。
 
+同一条路径上还出现了另外两种压力形状。包络不消除它们，所以记下来留到 F 之后评估。一种是消费方按一个从未建出的
+产出者建好了，其范围由「包络对 F 的假设」一节划定。另一种是用全局扫描代替按身份精确读：一次 Research 提交、当前
+Research 锁与历史 readback 都会准入存储里的每一份 Research custody，读两遍，第二遍还带共享行锁，所以一份验证失败的
+custody 会挡住之后的每一次提交，而成本随整个历史增长。
+
 ### 前置切片
 
-- **P0，形状元组只有一个来源：** Research 请求的 scope 带成员集、角色集与窗口；其余每个面都从这份托管推导，不再
-  各自声明。精确品种就是一成员 universe，所以精确与 universe 两条输入路径合成一条。凡是随成员数不同的东西，例如
+- **P0，形状元组只有一个来源：** Research 请求的 scope 带成员集与窗口，Design 带角色集（P1）；其余每个面都从这两份
+  托管推导，不再各自声明。精确品种就是一成员 universe，所以精确与 universe 两条输入路径合成一条。凡是随成员数不同的东西，例如
   Market Data 的 PIT 请求 preimage 域，都由成员数推导，不在旁边另行声明。改成员数或加一个角色只需改一处声明时，
   P0 才算完成。它本身不改动任何已准入的界。
 - **P1，角色集来自 Design：** 原生 Plan 契约不再固定为一天周期的 OPEN 与 CLOSE；Design 声明自己的角色、执行周期
@@ -1311,7 +1321,8 @@ Research scope 是成员集的唯一来源（P0）。一到两个成员的界变
 
 - **值：** catalog V4a 追加窗口 rank 与百分位、距极值的 bar 数、协方差与相关。V4b 追加自然对数与指数。用户于
   2026-09-27 选择了下面这个选项，以此授权它们的数值规则：「引入 ln/exp，钉住算法加 golden 测试向量，只适用于新增
-  的 catalog 行；这一类运算豁免『一个精确表达式、最后只舍入一次』。」V5 增加定桶状态规则。把 Bollinger 方差写成
+  的 catalog 行；这一类运算豁免『一个精确表达式、最后只舍入一次』。」V5 增加两条定槽状态规则：一个定桶数组，以及最近 N 个事件的
+  记忆，每个槽存一组冻结的值。把 Bollinger 方差写成
   `Mean(x²) − Mean(x)²` 时必须用 `Select` 守住被开方数，因为两项各自舍入。
 - **输入：** 资金费率与持仓量扩展既有的 Binance futures PIT 源，追加两个行字段与字段语义（N1）。Binance 公开归档
   有标记价、指数价、溢价指数 K 线、metrics、盘口深度与资金费率的历史。强平没有已准入的历史源 - USDⓈ-M 归档没有，
@@ -1324,9 +1335,60 @@ Research scope 是成员集的唯一来源（P0）。一到两个成员的界变
   已经能在程序内表达。A2 把止盈下成 reduce-only 限价单。A3 先量「每根 bar 一张限价单」的阶梯，不够才增加内核
   阶梯。
 
+### 覆盖语料
+
+每一种形状至少有一个参考策略，每个都必须经编写语言编译，并在多帧 Backtest 上跑到报告，由它的链路条目按测试名证明。
+语料与每一项需要的切片：
+
+| 形状                  | 参考                                         | 需要               |
+| --------------------- | -------------------------------------------- | ------------------ |
+| 均线交叉              | C1                                           | P0、P1、T1         |
+| 突破加 ATR 止损       | C2，吊灯止损                                 | P1、T1、D1         |
+| 超卖反转加趋势过滤    | C3                                           | P1、T1             |
+| 区间四分              | 罗尼 S3，4h                                  | P1、T1、A1         |
+| 支撑阻力限价单        | 罗尼 S1，4h 结构、1h 执行                    | P1、T2、A1、A2、V5 |
+| 大实体突破            | 罗尼 S2b                                     | P1、T1、A1         |
+| 斐波分层进场          | 罗尼 S4                                      | P1、T1、V4a、A3    |
+| 关键位逆势短单        | 罗尼 S5                                      | P1、T1、D1、A1     |
+| 布林状态过滤          | 罗尼 F1(c)，带 `Select` 被开方数守卫         | P1、T1             |
+| 周线动能              | 罗尼 F2，周线信号、日线执行                  | T2                 |
+| 独立多品种            | F2 分别跑 BTC 与 ETH                         | I1                 |
+| 跨品种条件            | BTC 趋势过滤 ETH                             | I2                 |
+| 配对价差              | BTC 与 ETH 的 z 分数                         | I2、V4a            |
+| 截面轮动              | 八选二按动能                                 | I2、I3             |
+| 资金费率过滤          | 资金费率极值反向                             | N1                 |
+| 罗尼画线规则 R1 至 R6 | 水平与宽区域、趋势线带、斐波、四分、周期角色 | 见下               |
+
+罗尼的画线规则取自他 17 个视频的 2,512 张截图测量，归纳成六条可计算的规则。它们需要这些切片：
+
+- **R1 与 R2，水平区域与宽区域：** P1、T1，以及 V5 的「最近 N 次反应」记忆，每个槽存一个摆点的影线极值与最近
+  实体边；聚类、外沿与内沿、厚度 clip 都是对这些槽的归约，ATR 今天就能表达。order-k 摆点是一个 lag 加一个居中
+  窗口的最大值或最小值。
+- **R3，趋势线带：** P1、V4a 的「距锚点的 bar 数」，以及编写语言的 `capture` 与 `latch`，用来在事件发生时移动
+  锚点。线值是两个锚点的线性外推，只做一次最终舍入；交易需要的是这个值，不是画出来的坐标。
+- **R4，斐波：** P1、用 V4a 要求高点在低点之后，以及 `capture`；档位是冻结的有理数，罗尼的 0.764 是 191/250。
+- **R5，四分：** 对上下两个 R1 或 R2 区域内沿的算术。
+- **R6，周期角色：** T2 覆盖日线定方向、4h 定结构、1h 执行，加上 A1 定仓位与 V5 的区域；它是 T2 的验收范例。
+
+对这些规则，编译通过不够。R1 至 R6 每一条都带一个在真实数据上的行为正控：程序在每个被测帧所显示的品种、交易所、
+周期与窗口的公开 K 线上运行，它算出的区域边沿、线值与斐波档位，必须在测量本身的误差内与从那些帧上量出的价格
+一致 - 帧上自己印出了价格时，每条边约一美元、区域厚度的 0.9%，其余情况为该帧价格刻度上的两个像素。这个正控分
+两半，使得一次不符只有一个成因：程序的输出必须与同一条规则的直接参考计算逐位相等，这检验的是编译出的程序；该参考
+必须在容差内符合量出的价格，这检验的是规则本身，以及测量时补上而非观测到的参数。它要在 T1 与 V5 之后才能构造。
+
+### 包络对 F 的假设
+
+包络自己不增加任何生产路径：每个切片都经 F 的验收所建立的路径跑 Backtest。这条路径的第一代 Replay 与 legacy 路径一样，
+绑定的是 family 形成时的前沿，因为 family 在任何 attempt 之前形成，而 attempt 是一个已经产出 Result 的 Replay。所以第一代
+Replay 不需要 attempt cut，也不需要 R&D Decision composition，上面每一个语料项都是第一代运行。后继 Replay - 同一 family
+的后一轮研究 - 读的是 TrialFamily Census V2，它需要 attempt cut，而 attempt cut 唯一的写入者在等 Decision composition
+消费方；后继在 R&D Owner 里仍是 `TARGET / NOT_ADMITTED`，包络既不需要它们，也不建它们。凡是在同一个 family 上迭代的验收都会
+依赖那个产出者，届时单独列出。
+
 ### 顺序与以后要问的
 
-先做 P0、P1、P2；然后 T0 再 T1（首个正例只用 CLOSE，D1 与它一同落地）；A1 与 V4a 并行；然后 T2、I1、I1.5、I2、
+P0、P1、P2 与 T0 并行推进：T0 在 Market Data 内部，它的托管请求自己陈述成员集与周期。T1 依赖这四项，因为它从
+Research scope 与 Design 推导出托管请求；T1 的首个正例只用 CLOSE，D1 与它一同落地。A1 与 V4a 与 T1 并行；然后 T2、I1、I1.5、I2、
 I3；再然后 N1、A2、A3、V4b、V5。按帧 as-of 成员（T4）会移除「每帧共用一个成员集」这条不变式，所以在提出它时再
 问用户。
 

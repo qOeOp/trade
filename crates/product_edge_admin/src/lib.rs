@@ -5,6 +5,7 @@ use vibe_operator_authorization::{
     OperatorAuthorizationIssuerPostgresV1, OperatorAuthorizationLocatorV1,
     OperatorAuthorizationReadbackV1,
 };
+use vibe_postgres_connect::{PostgresTls, connect};
 use vibe_product_edge::{
     AgentOperationManifestSetV1, ProductEdgeAuthorizationTrustV1,
     ProductEdgeExpiredManifestRecoveryProposalV1, ProductEdgePostgresOwnerV1,
@@ -301,7 +302,7 @@ fn require_observed_postgresql_targets(
 }
 
 async fn read_postgresql_target(database_url: &str) -> anyhow::Result<ObservedPostgresqlTargetV1> {
-    let mut connection = sqlx::PgConnection::connect(database_url).await?;
+    let mut connection = connect(database_url, PostgresTls::Disabled).await?;
     let mut transaction = connection.begin().await?;
     sqlx::query("SET TRANSACTION READ ONLY")
         .execute(&mut *transaction)

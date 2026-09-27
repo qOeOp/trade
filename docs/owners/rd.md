@@ -188,7 +188,11 @@ ordered chain's acceptance build admits nothing in production.
   Only the Decision composition below appends an attempt, and until it is admitted a successor is refused by name,
   `SUCCESSOR_CENSUS_AWAITS_DECISION_COMPOSITION`. The commit and the historical readback take the choice from one
   rule, and the readback of a first-generation Replay re-reads the formation frontier from the family's root, so a
-  later attempt does not change it.
+  later attempt does not change it. Its replay window is the window of the facts it was composed from, which the
+  family's policy window bounds (`docs/architecture/strategy-factory.md`, TrialFamily-owned Replay execution policy
+  V2), and a Market Data repair re-entry whose predecessor is a composer-backed Replay is refused by name,
+  `MARKET_DATA_REPAIR_OF_COMPOSER_V3_REPLAY_AWAITS_DESIGN`, because the re-entry forms its successor from the
+  policy window.
 - **CURRENT - one read-only operation is reachable only through the write API:** the Dashboard's operation
   registry declares eleven Owner routes, and ten are `GET`. The eleventh,
   `research_goal.legacy_quarantine_read.v1`, declares `effect_set: []` and resolves to
@@ -664,6 +668,18 @@ and a rendering of a document exists for reading only.
   `zscore`, `crosses_above`, `crosses_below`; `compare`, `all_of`, `any_of`, `not`, `if` and `banded`;
   and the states `latch`, `count_while` and `capture`. `if` is not lazy: both branches are evaluated, as
   every node is.
+- *Members (TARGET, with the Strategy shape envelope's I2).* A document is written once over the member set
+  the Research scope names. An expression over a role is broadcast: the compiler unrolls it into one node per
+  member, each reading its input at that member's `member_ordinal`. `across_members` reduces one broadcast
+  expression over every member with `rank`, `mean`, `min`, `max` or `nth`, which lower to the cross-member
+  primitives I2 appends to the catalog: `rank` is the average rank, so tied members share one, and `nth` returns
+  the n-th order statistic's value. The unrolled graph is measured against `graph_bounds` like any other, and
+  the member bound is fixed only after I1.5 measures how N-fold unrolling presses on `max_edges`. A compiled
+  program is valid only for its own member count, so a changed member set is a new Research and a new compile.
+  Until I2 lands, a document whose scope names more than one member, or that uses `across_members`, is refused
+  at its path as `MEMBER_DIMENSION_NOT_YET_ADMITTED`: before I2 a program reads a universe role only at
+  `member_ordinal` 0 and no terminal emits target-set bytes, so a document compiles today only over one member.
+  Nothing constructs that refusal until the authoring compiler exists; its unit tests drive it from then on.
 - *States and rules.* A state's name read in an expression is its value at the previous tick, so feedback
   runs only through state and a cycle between definitions is refused. While the program is warming, every
   state keeps its prior value, because the host holds only the warming frame neutral and a state that moved

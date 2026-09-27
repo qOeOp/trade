@@ -109,11 +109,13 @@ ACL 拒绝。它不证明供应商真实性，不证明生产装配，也不证�
   下文 `ISOLATED_EVENT_REPLAY_ACCEPTANCE_V1` 有两处表述与代码尚不一致；都不挡生产路线。该档要求由单独执行的主体测量
   目标，而 `DirectMeasurer` 是在 custodian 内用租到的凭据测量。该档还要求准入回执交叉绑定 trust bundle，而
   `SealedDeploymentStoreAdmissionReceipt` 带 witness identity，却没有 signer key fingerprint 或 bundle identity。
-  已有三个生产适配器，但都还没有接入组合根：pin 住一把公钥的 Ed25519 签名验证器（`store_admission/signature.rs`）、
+  已有四个生产适配器，但都还没有接入组合根：pin 住一把公钥的 Ed25519 签名验证器（`store_admission/signature.rs`）、
   PostgreSQL custody store（`store_admission/custody_postgres.rs`；其 schema 与两个主体在
   `product/rd-workbench/postgres-init/20-deployment-store-custody.sh`，compose 文件还没有运行它），以及 secret 文件凭据
   resolver（`store_admission/credential_files.rs`）。secret 文件自身没有版本也没有过期时间：其版本是文件原样字节的
-  SHA-256，由签名 manifest 指名；其租约在准入的 store 时钟 cut 之后一段固定时长到期。
+  SHA-256，由签名 manifest 指名；其租约在准入的 store 时钟 cut 之后一段固定时长到期。第四个是单机部署的 anti-rollback
+  模式 `SingleTrustDomainNoRollbackWitness`（`store_admission/witness.rs`）：单机上 anti-rollback 性质不成立，每张回执都写明
+  这个模式，用户 2026-09-27 的授权载于架构规则。
   `admit_rd_owner_market_data_postgres` 仍接 `Unavailable*` 端口，所以 `required` 在启动时仍然失败关闭。准入只从 custody
   store 的时钟读时间：每次读历史都带回该库的 `clock_timestamp()` cut，commit 也在同一个时钟上判定回执的窗口。
 - **`B4` 消费者未编入已部署镜像。** `product/rd-workbench/Dockerfile.owner` 以默认 feature 构建
@@ -1656,11 +1658,26 @@ census。V1 scheduling receipt 先声明成员数，并在帧的 batch 之后绑
 同一个 seal 封存，覆盖一个或两个成员，其流动性 EVENT receipt 封存的是报价 cut 而不是帧的 snapshot、fact 与
 batch。目前还没有证明在 Owner 托管数据上驱动过一次完整的首帧读取（schedule、universe 与报价 cut 齐备）。
 
-**TARGET / NOT_ADMITTED，PIT 窗口托管：** 针对回补历史的多帧 Backtest 读一份只追加的 PIT 窗口托管，而不是每帧
+**TARGET / IMPLEMENTATION_ADMITTED（切片 T0），PIT 窗口托管：** 针对回补历史的多帧 Backtest 读一份只追加的 PIT 窗口托管，而不是每帧
 一份快照。用户于 2026-09-27 准入了这一点，原选项见 Strategy Factory 页策略形状包络一节的引文，其中包括它收窄的那
 一条性质：托管运行的帧不再各自带有自己的铸造 cut 与可信时钟证据，所以托管只准入回补历史，实时决策仍然每个时刻取
 一次快照。PIT 快照仍然是一个时刻。快照这一支保持它的字节、封印、census 与报价 cut 端口；受验 batch 的封印与报价
 cut 的读各自在旁边新增一条托管视图分支。
+
+切片 T0 准入实现，且只准入 T0。用户于 2026-09-27 授权了这一设计，原话见策略形状包络一节的引文：「换成窗口托管。回补的历史按
+整段一次放进托管；每根 bar 何时可见，由 Source Binding 上声明的规则推导；实时交易仍然每个时刻取一次快照。用户
+授权收窄『每帧各自带有铸造证据』这一性质的适用域：在回测里，帧不再各自带铸造证据，并且只准入回补的历史。」T0 只
+是 Market Data 这一侧：两层托管（截面版本记录，以及后继 sample fact schema 下的行事实）、带分支拒绝的截面更正模
+型、Source Binding 上声明的可得规则、由执行周期的 Owner BAR schedule 枚举帧、带时间证据与 identity 的派生视图、受
+验 batch 封印的 `CustodyView` 分支，以及从托管派生的报价 cut。下文「读者」一条里，T0 记录 Market Semantics fact 与 head、
+Instrument Master cut 与 Reference Fact R0，每条托管链各一次，因为托管视图要经它们来读；声明登记与 universe 成员
+组合基底随消费它们的读者一起放在 T1。托管请求自己陈述成员集与周期；由 Research scope 与
+Design 推导出这份请求属于切片 T1，N 帧 Backtest 的组合与 Market Data 之外的每个读者也属于 T1；T2（多周期角色）与
+T3（按角色预热）在它们的切片准入之前，在本页仍不准入。T0 不新增路由、生产调用方或 Backtest 输入，所以 T1 准入之
+前，除 Market Data 自己的证明外，没有任何东西铸造或读取托管。它的证明是包络里落在 Market Data 之内的那几条证伪：
+N=1 以及两帧单周期数据，在值、坐标、事件时间、bar 类型与成员顺序这组投影上等于快照路径；两份只差「某个更正是否在
+`d_k` 之前发布」的托管，帧 `k` 的值不同，去掉 publication 条件就变红，由一个声明了更正流的合成源驱动；可得规则设
+为铸造时刻时，每一帧都看不见。
 
 - **托管：** 覆盖从预热起点开始的半开窗口，只提交一次，此后不可变。后来的更正是一份后继托管，它指名自己的前驱，
   只携带它新增的版本；视图沿这条链读到 head。后继托管原样重述前驱的基底 - Market Semantics fact、

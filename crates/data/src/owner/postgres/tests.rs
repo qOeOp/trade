@@ -571,14 +571,14 @@ async fn guarded_pools() -> (String, String, PgPool) {
     let reader_url = env::var(READER_URL).expect("explicit disposable reader URL");
     let admin = PgPoolOptions::new()
         .max_connections(2)
-        .connect(&admin_url)
+        .connect_url(&admin_url, PostgresTls::Disabled)
         .await
         .unwrap();
 
     for (url, expected_role) in [(&owner_url, OWNER_ROLE), (&reader_url, READER_ROLE)] {
         let pool = PgPoolOptions::new()
             .max_connections(1)
-            .connect(url)
+            .connect_url(url, PostgresTls::Disabled)
             .await
             .unwrap();
         let row = sqlx::query("SELECT current_database() AS database, current_user AS role, r.rolsuper, r.rolcreatedb, r.rolcreaterole, r.rolreplication, r.rolbypassrls, (SELECT marker_identity FROM public.vibe_test_instance_marker) AS marker FROM pg_roles AS r WHERE r.rolname=current_user")
@@ -694,7 +694,7 @@ async fn observation_census_schema_oracle(reader_url: &str, admin: &PgPool) {
     }
     let reader = PgPoolOptions::new()
         .max_connections(1)
-        .connect(reader_url)
+        .connect_url(reader_url, PostgresTls::Disabled)
         .await
         .unwrap();
     assert!(
@@ -3319,6 +3319,20 @@ pub(crate) async fn replay_composition_market_base_fixture_v1(
     owner_url: &str,
 ) -> ReplayCompositionMarketBaseFixtureV1 {
     let owner = MarketDataOwnerPostgres::connect(owner_url).await.unwrap();
+    // This fixture proves the base's writes, so it must be the one making them: on a store an
+    // earlier ensure already wrote, it would be asserting over another writer's base.
+    {
+        let mut transaction = owner.pool().begin().await.unwrap();
+        assert_eq!(
+            super::chain_market_base_v1::chain_market_base_snapshot_in_transaction_v1(
+                &mut transaction
+            )
+            .await,
+            Err(super::chain_market_base_v1::ChainMarketBaseUnavailableV1::NoSnapshot),
+            "the replay composition base is written on a store that holds no base"
+        );
+        transaction.rollback().await.unwrap();
+    }
     let super::chain_market_base_v1::ChainMarketBaseWriteV1 {
         clock,
         source,
@@ -4379,7 +4393,7 @@ async fn instrument_master_postgres_oracle(owner_url: &str, reader_url: &str, ad
     );
     let reader = PgPoolOptions::new()
         .max_connections(1)
-        .connect(reader_url)
+        .connect_url(reader_url, PostgresTls::Disabled)
         .await
         .unwrap();
     assert!(

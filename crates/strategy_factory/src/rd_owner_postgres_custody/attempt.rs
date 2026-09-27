@@ -650,11 +650,21 @@ pub(crate) async fn admit_attempt_with_develop_intent_in_transaction(
     }))
 }
 
+/// The refusal of a legacy Artifact Build attempt lineage for a native Composer Research custody,
+/// which has none.
+pub(crate) const NATIVE_COMPOSER_CUSTODY_HAS_NO_ATTEMPT_LINEAGE: &str =
+    "NATIVE_COMPOSER_CUSTODY_HAS_NO_ATTEMPT_LINEAGE";
+
 pub(super) async fn admit_terminal_attempt_for_research_view(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     research: VerifiedResearchCustodyV1,
     product_edge_admission: ProductEdgeAdmissionReadbackV1,
 ) -> Result<VerifiedAttemptCustodyV1, ArtifactBuildError> {
+    if research.is_native_composer() {
+        return Err(ArtifactBuildError::Storage(
+            NATIVE_COMPOSER_CUSTODY_HAS_NO_ATTEMPT_LINEAGE.into(),
+        ));
+    }
     let view = research
         .view()
         .ok_or_else(|| ArtifactBuildError::Storage("terminal research view missing".to_string()))?;

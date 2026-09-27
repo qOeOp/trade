@@ -291,6 +291,13 @@ repos:
         language: system
         files: ^scripts/(lib/(git-isolation\.bash|git_isolation\.py|test-git-isolation\.bash)|check-git-isolation\.py)$
         pass_filenames: false
+      - id: test-chain-verdict-reuse
+        name: test chain verdict reuse
+        description: Only the same tree's green whole-chain verdict for its entry count is reused
+        entry: python3 -B scripts/ci/chain_verdict_reuse_test.py
+        language: system
+        files: ^scripts/ci/chain_verdict_reuse(_test)?\.py$
+        pass_filenames: false
       - id: test-workspace-mtimes
         name: test workspace mtimes reuse
         description: Honest mtimes on reuse; a missed touch of any tracked file fails by name; unproven falls back

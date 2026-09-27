@@ -4,7 +4,7 @@ use sqlx::{Postgres, Transaction};
 use std::fmt::Display;
 use vibe_backtest_owner_contracts::{
     CanonicalDigestV2, ContentIdentityV2, OpaqueIdentityV2, ReplayAuthorityClaimV2,
-    ReplayModelProfilesV2, ReplayNamespaceV2, ReplayRequestDtoV2, ReplayRequestV2,
+    ReplayModelProfilesV2, ReplayNamespaceV2, ReplayRequestDtoV2, ReplayRequestV2, ReplayWindowV2,
 };
 use vibe_data::owner::{
     replay_market_facts_v2::{
@@ -589,14 +589,16 @@ fn compose_composer_backed_replay_request_v3(
         || composer.intent_identity() != parse_named_sha256(intent.identity(), intent_prefix)?
         || composer.design_identity() != composition.strategy_design_identity()
         || market_facts.identity() != admitted.facts_identity
-        || market_facts.replay_start_event_ns() != i128::from(policy.window.start_event_ns)
-        || market_facts.replay_end_event_ns_exclusive()
-            != i128::from(policy.window.end_event_ns_exclusive)
     {
         return Err(unavailable(
             "Composer, TrialFamily, or Market Data composition binding mismatch",
         ));
     }
+    let window = replay_window_within_policy_v3(
+        market_facts.replay_start_event_ns(),
+        market_facts.replay_end_event_ns_exclusive(),
+        &policy.window,
+    )?;
 
     // The first corpus's owner inputs are its observation census; a universe-member cut's are the
     // universe frame, whose identity is its BLAKE3 digest.
@@ -660,7 +662,7 @@ fn compose_composer_backed_replay_request_v3(
         runner_operational_profile: policy.runner_operational_profile.clone(),
         diagnostic_policy: policy.diagnostic_policy.clone(),
         deterministic_seed: policy.deterministic_seed,
-        window: policy.window,
+        window,
         calendar: policy.calendar.clone(),
         session: policy.session.clone(),
         time_zone: policy.time_zone.clone(),
@@ -731,6 +733,44 @@ fn sha256_digest(digest: BindingDigest) -> Result<CanonicalDigestV2, Exploratory
     CanonicalDigestV2::try_from(format!("sha256:{}", hex(digest))).map_err(unavailable)
 }
 
+/// The Replay window of a Composer-backed Replay: the window its Market Data facts were composed
+/// over, which must lie within the TrialFamily's sealed Replay policy window.
+///
+/// The family policy bounds every Replay of the family and no caller can widen it, but the window
+/// one Replay spans is its facts': a family's Replay policy is sealed when the family forms, before
+/// any snapshot of it exists, and the facts cover exactly the instants the snapshot's reference
+/// facts cover. Requiring the two to be equal would require the family to name, when it forms, the
+/// instant its first snapshot is later cut at. Every later consumer of the request (the native
+/// scheduling frame instant, the Instrument Master cut, the economic terms' validity) reads this
+/// window, so each stays exactly equal to what the facts cover.
+fn replay_window_within_policy_v3(
+    facts_start_event_ns: i128,
+    facts_end_event_ns_exclusive: i128,
+    policy: &ReplayWindowV2,
+) -> Result<ReplayWindowV2, ExploratoryReplayOwnerError> {
+    let (Ok(start_event_ns), Ok(end_event_ns_exclusive)) = (
+        u64::try_from(facts_start_event_ns),
+        u64::try_from(facts_end_event_ns_exclusive),
+    ) else {
+        return Err(shape_refused(
+            ComposerReplayShapeRefusalV1::FactsWindowOutsidePolicyRange,
+        ));
+    };
+
+    if start_event_ns >= end_event_ns_exclusive
+        || start_event_ns < policy.start_event_ns
+        || end_event_ns_exclusive > policy.end_event_ns_exclusive
+    {
+        return Err(shape_refused(
+            ComposerReplayShapeRefusalV1::FactsWindowOutsidePolicyRange,
+        ));
+    }
+    Ok(ReplayWindowV2 {
+        start_event_ns,
+        end_event_ns_exclusive,
+    })
+}
+
 fn unavailable(error: impl Display) -> ExploratoryReplayOwnerError {
     ExploratoryReplayOwnerError::Unavailable(error.to_string())
 }
@@ -755,6 +795,47 @@ mod tests {
             ResearchViewPhase,
         },
     };
+
+    /// A Composer-backed Replay spans its facts' window, which the family's policy window bounds
+    /// but need not equal: the policy is sealed before the snapshot exists. A window reaching
+    /// outside the policy's on either side, or one that is not a window at all, is refused by name.
+    #[rstest]
+    #[case::equal(1, 1_000, Some((1, 1_000)))]
+    #[case::inside(100, 101, Some((100, 101)))]
+    #[case::at_the_start(1, 101, Some((1, 101)))]
+    #[case::before_the_start(0, 101, None)]
+    #[case::past_the_end(100, 1_001, None)]
+    #[case::empty(100, 100, None)]
+    #[case::negative(-1, 101, None)]
+    fn a_replay_spans_its_facts_window_within_the_policy_window(
+        #[case] facts_start: i128,
+        #[case] facts_end_exclusive: i128,
+        #[case] expected: Option<(u64, u64)>,
+    ) {
+        let policy = ReplayWindowV2 {
+            start_event_ns: 1,
+            end_event_ns_exclusive: 1_000,
+        };
+
+        match (
+            replay_window_within_policy_v3(facts_start, facts_end_exclusive, &policy),
+            expected,
+        ) {
+            (Ok(window), Some((start, end))) => {
+                assert_eq!(
+                    (window.start_event_ns, window.end_event_ns_exclusive),
+                    (start, end)
+                );
+            }
+            (
+                Err(ExploratoryReplayOwnerError::ComposerReplayShapeRefused(
+                    ComposerReplayShapeRefusalV1::FactsWindowOutsidePolicyRange,
+                )),
+                None,
+            ) => {}
+            (outcome, expected) => panic!("{outcome:?} where {expected:?} was expected"),
+        }
+    }
 
     fn digest(byte: u8) -> BindingDigest {
         BindingDigest::from_untrusted_bytes([byte; 32])

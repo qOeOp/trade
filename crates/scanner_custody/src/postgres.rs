@@ -13,6 +13,7 @@
 //! store honoured its own predicate before it spends anything parsing.
 
 use sqlx::{PgPool, Row};
+use vibe_postgres_connect::{PgPoolOptionsExt, PostgresTls};
 use vibe_scanner::{
     AttemptId, CommitKind, CommitOutcome, OpaqueId, ReceiptStoreError, ScannerReceipt,
     TerminalReceiptDecodeError, TerminalReceiptEncodeError, TerminalReceiptStore,
@@ -83,7 +84,8 @@ impl ScannerTerminalReceiptCustodyV1 {
     ///
     /// Returns [`TerminalReceiptCustodyError::Unavailable`] when the connection cannot be made.
     pub async fn connect(database_url: &str) -> Result<Self, TerminalReceiptCustodyError> {
-        let pool = PgPool::connect(database_url)
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .connect_url(database_url, PostgresTls::Disabled)
             .await
             .map_err(|_| unavailable("connect"))?;
         Ok(Self { pool })
@@ -100,7 +102,8 @@ impl ScannerTerminalReceiptCustodyV1 {
     ///
     /// Returns [`TerminalReceiptCustodyError::Unavailable`] when any statement fails.
     pub async fn materialize_schema(database_url: &str) -> Result<(), TerminalReceiptCustodyError> {
-        let pool = PgPool::connect(database_url)
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .connect_url(database_url, PostgresTls::Disabled)
             .await
             .map_err(|_| unavailable("materialize-connect"))?;
         let statements = [
