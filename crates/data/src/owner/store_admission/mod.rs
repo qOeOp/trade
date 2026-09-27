@@ -1320,9 +1320,10 @@ impl AcceptanceGrantV1 {
 ///
 /// It is also a draft of the gate `B3` must grant the principal a Store Admission leases, measured
 /// by removal: the sealed acceptance proof revokes each entry alone and requires the read that
-/// needs it to be refused. Two entries fall outside every floor a scheduling admission measures
-/// today: the PIT evaluation read names `pit_snapshot_facts_v1` and `clock_handoffs_v1` directly,
-/// and no floor covers the PIT evaluation functions at all.
+/// needs it to be refused. Every entry lies inside the floors a scheduling admission measures
+/// (`PIT_EVALUATION_FLOOR_V1`, `BAR_SCHEDULE_FLOOR_V1`, `NATIVE_REPLAY_QUOTE_CUT_FLOOR_V2`), which
+/// `the_acceptance_grants_lie_inside_the_scheduling_floors` holds: the grants are the direct
+/// privileges, the floors their catalog closure.
 #[cfg(feature = "sealed-strategy-input-acceptance")]
 pub(super) const NATIVE_REPLAY_SCHEDULING_ACCEPTANCE_GRANTS_V1: &[AcceptanceGrantV1] = &[
     AcceptanceGrantV1::SchemaUsage("market_data_private"),
@@ -4482,6 +4483,32 @@ mod tests {
                 .collect::<BTreeSet<_>>(),
             "every admitted read is reached through a port read"
         );
+    }
+
+    /// Every privilege the sealed acceptance principal is granted lies inside the floors the native
+    /// Replay scheduling port opens on, so a grant on an object no scheduling admission measures
+    /// is refused here rather than found in a deployment.
+    #[cfg(feature = "sealed-strategy-input-acceptance")]
+    #[rstest]
+    fn the_acceptance_grants_lie_inside_the_scheduling_floors() {
+        let (_, _, floors) = PORT_FLOORS
+            .iter()
+            .find(|(port, _, _)| *port == "native_replay_scheduling")
+            .expect("the scheduling port is listed");
+        let (functions, relations) = floor_union(floors);
+
+        for grant in NATIVE_REPLAY_SCHEDULING_ACCEPTANCE_GRANTS_V1 {
+            let inside = match grant {
+                AcceptanceGrantV1::SchemaUsage(schema) => *schema == "market_data_private",
+                AcceptanceGrantV1::TableSelect(relation) => {
+                    relations.iter().any(|listed| listed == relation)
+                }
+                AcceptanceGrantV1::FunctionExecute(signature) => {
+                    functions.iter().any(|listed| listed == signature)
+                }
+            };
+            assert!(inside, "{grant:?} lies outside every scheduling floor");
+        }
     }
 
     /// Each port opens on exactly the floors its resolver's reads stand on, and refuses a measurement
