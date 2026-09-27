@@ -193,6 +193,18 @@ ordered chain's acceptance build admits nothing in production.
   V2), and a Market Data repair re-entry whose predecessor is a composer-backed Replay is refused by name,
   `MARKET_DATA_REPAIR_OF_COMPOSER_V3_REPLAY_AWAITS_DESIGN`, because the re-entry forms its successor from the
   policy window.
+- **CURRENT - how Native Replay preparation reads a composer-backed Replay's Research custody:** as the Replay
+  committed it, not as the current custody reads. The commit moves the Research View from IntentFrozen to the
+  schema 3 View that names the Replay, and records the move as an append-only transition, so a read that wants the
+  current custody to still be IntentFrozen refuses every committed Replay. Preparation therefore admits a native
+  Composer View only as that transition's new View, and reads the Composer operation over the transition's old
+  View, the way the Replay's own readback does (`read_accepted_for_replay_historical_in_transaction`), in the
+  issuance transaction. A current View that a later Replay has moved on is refused by name,
+  `native Composer Research View has moved past this Replay`: once a second Replay commits on the same Research,
+  the first can no longer be prepared. No Research reaches a second one today, because the commit requires the IntentFrozen View it
+  moves and a successor waits for the Decision composition below. Revisit this rule when the Decision composition
+  or successor iteration is admitted. A build without the COMPOSER_V3 routes refuses a native Composer View by
+  name.
 - **CURRENT - one read-only operation is reachable only through the write API:** the Dashboard's operation
   registry declares eleven Owner routes, and ten are `GET`. The eleventh,
   `research_goal.legacy_quarantine_read.v1`, declares `effect_set: []` and resolves to
@@ -1240,6 +1252,13 @@ request binds 'the requested instrument or universe scope'."
   registers the Design's declarations against exactly that request instead of searching for one, so a request a
   caller submitted under a forged `requester_identity` is never picked up. A successor PIT request of the same Intent
   is named only by a role intent published after it; a published role intent never changes.
+- A V3 request's scope is the one place its instruments are declared, so a Design published, frozen or declared under
+  it may not name one itself: a role with the exact instrument scope or a non-empty `instrument` is refused as
+  `DESIGN_ROLE_NAMES_INSTRUMENT_UNDER_RESEARCH_SCOPE` before any row is written, and every role reads the members the
+  scope names, one or many. This is the Strategy shape envelope's P0 on the paths that create new custody: only a first
+  write is refused, so a Design already published or frozen under the request reads back as it was committed. The
+  ordered chain's V3 scope entry drives it, publishing and freezing the exact-instrument candidate under an accepted V3
+  request and finding neither row. A V2 request states no scope, so its Designs still name their instrument.
 
 Built so far: the scope codec, the schema 2 role intent codec, V3 acceptance and the issuance above.
 `ResearchInstrumentScopeV1` validates a scope and computes its canonical bytes, identity and fixed-member selection

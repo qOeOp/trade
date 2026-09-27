@@ -1377,17 +1377,24 @@ later submission and the cost grows with the whole history.
 
 ### Prerequisite slices
 
-- **P0, one source for the shape tuple:** the Research request's scope carries the member set and the window, and the
-  Design carries the role set (P1); every other surface derives them from those two custodies and declares none of
-  them again. An exact instrument is
-  a one-member universe, so the exact and universe input paths become one. Anything that differs by member count,
-  such as Market Data's PIT request preimage domain, is derived from the count rather than declared beside it. P0
-  is complete when changing the member count or adding a role changes exactly one declaration. It changes no admitted bound by itself.
+- **P0, one source for the shape tuple:** a Research request that states its scope carries the member set, the Design
+  carries the role set (P1), and the TrialFamily's sealed replay policy carries the admissible replay range; every
+  other surface derives them and declares none of them again. The run's actual window is derived from the Market
+  Data facts composed within that range, never supplied beside it. Under a stated scope an exact instrument is a
+  one-member universe, so a Design may not name an instrument: publishing, freezing or declaring one that does is
+  refused as `DESIGN_ROLE_NAMES_INSTRUMENT_UNDER_RESEARCH_SCOPE`. Anything that differs by member count, such as
+  Market Data's PIT request preimage domain, is derived from the count rather than declared beside it. P0 is
+  complete when, for a Research request that states its scope, changing the member count changes only the scope and
+  adding a role changes only the Design. It changes no admitted bound by itself. A V2 request states no scope and
+  stays the legacy exact channel, whose Designs name their instrument; retiring it is a separate slice after T1,
+  once every chain entry that creates exact custody under V2 has a scoped replacement.
 - **P1, the role set comes from the Design:** the native Plan contract stops fixing OPEN and CLOSE on one day; the
   Design declares its roles, its execution timeframe, and which role prices an order. A role the Host cannot bind is
   refused by name.
 - **P2, the report states every member:** the report family states each member of a universe run, generalizing the
-  one-member statement Backtest already makes.
+  one-member statement Backtest already makes. It lands with I2, driven by the first run over more than one member:
+  before I2 no program reads a member other than the first, so a statement of every member would have nothing to
+  state.
 
 ### Time: PIT window custody
 
@@ -1403,6 +1410,11 @@ commits, one year of one-minute bars about 520,000, and every frame must share o
   instant its data becomes available under the availability rule declared on the Source Binding, with
   `d_k < e_{k+1}`. Frames are enumerated from the execution timeframe's Owner BAR schedule, never from custody rows,
   so a missing bar refuses its frame instead of skipping it.
+- The last frame `N` has no later frame, so `e_{N+1}` is the next close that same schedule declares after `e_N`,
+  one execution interval later, since only a fixed-interval execution timeframe is admitted. The window ends no
+  earlier than `e_{N+1}`, so the last frame's quote cut has `(d_N, e_{N+1})` to fall in, as every other frame's does.
+  A one-frame run is the case `N = 1`: a window ending at `e_1` plus one nanosecond leaves no instant strictly
+  between the frame and its end, and no quote cut can be derived.
 - The derived view's decision cut is `d_k`, never the custody's minting cut: every reader of a decision cut would
   otherwise see a later cut than the frame had. The view's order check is event ≤ available ≤ publication ≤ `d_k`.
 - A multi-timeframe role (slice T2) resolves, at frame `k`, the bar its own timeframe's Owner schedule last closed
@@ -1523,6 +1535,9 @@ report over a multi-frame Backtest, proven by its chain entry's test name. The c
 | Pair spread                           | BTC and ETH z score                                                                 | I2, V4a            |
 | Cross sectional rotation              | Top two of eight by momentum                                                        | I2, I3             |
 | Funding rate filter                   | Extreme funding reversal                                                            | N1                 |
+| Momentum divergence                   | Price against RSI or the MACD histogram at two confirmed pivots                     | P1, T1             |
+| Rising and falling wedges             | Lines through the two latest confirmed pivot highs and lows                         | P1, T1             |
+| Three and five pushes                 | A push count over confirmed pivots with a holding structure                         | P1, T1             |
 | Ronnie's drawing rules R1 to R6       | Horizontal and wide bands, trend line bands, Fibonacci, quartering, timeframe roles | See below          |
 
 Ronnie's drawing rules were measured from 2,512 screenshots across 17 of his videos and reduced to six computable
@@ -1550,6 +1565,35 @@ one cause: the program's output must equal a direct reference computation of the
 compiled program, and that reference must match the measured prices within the tolerance, which tests the rule and
 the parameters the measurement filled in rather than observed. It becomes constructible only after T1 and V5.
 
+Momentum divergence, wedges, and three or five pushes rest on one building block, a confirmed pivot, and need no
+slice beyond P1 and T1:
+
+- **Confirmed pivot:** an order-k pivot high at bar `t - k` is confirmed at bar `t` exactly when `Lag(high, k)`
+  equals `Maximum(high, 2k + 1)`, and a pivot low likewise with `Minimum` over the low. The catalog's `SwingHigh` is
+  the highest bar of a trailing window, so a bar that is still rising qualifies; it is not a pivot. A pivot is known
+  k bars late, and that lag is the definition, not a limit of the implementation.
+- **Divergence:** bearish when a newly confirmed pivot high is strictly above the previous one while the indicator
+  at the new pivot, `Lag(indicator, k)`, is strictly below its value at the previous pivot; bullish is the mirror
+  over lows. The signal is emitted at the confirmation bar. The previous pivot's price and indicator are two
+  fixed-point strategy state cells, which the validator admits and no authored program has used yet, so the first
+  divergence program must write and read them through Wasm, and holding them at their initial value must turn its
+  signal red.
+- **Wedge:** lines through the two latest confirmed pivot highs and the two latest pivot lows. It is rising when both
+  slopes are positive and the lower line is steeper, falling in the mirror case, and it declares a convergence ratio
+  and a breakout tolerance in ATR. A line's value at the current bar is `p2 + (p2 - p1) * a / b`, where `a` is the
+  bars since the later anchor and `b` the bars between the anchors; the subtraction, product, and sum are exact at
+  their declared scales, so the division is the one rounding. Lines through three or more pivots need V5's memory
+  and round once per node, which the definition must declare.
+- **Pushes:** the count rises at each newly confirmed pivot high strictly above the previous push while the pivot low
+  between them stays strictly above the one before, and restarts otherwise; three strategy state cells hold it.
+  Pushes read on 4h with entries on 1h are T2.
+
+Each has a synthetic control that fixes its signal bar exactly - a divergence at the pivot plus k and never earlier,
+no wedge from a parallel channel, a count that restarts at a structure break - and a real-data control: over public
+BTC K-lines, the program's pivots and signals must equal an independent reference implementation of the definition
+exactly. No human-labelled ground truth exists for these three patterns, so what's checked is the program against
+its definition, not the program against the trader.
+
 ### What the envelope assumes of F
 
 The envelope adds no production path of its own: every slice runs a Backtest through the path F's acceptance
@@ -1563,9 +1607,9 @@ one family would depend on that producer and would be listed separately.
 
 ### Order and what is asked later
 
-P0, P1, P2, and T0 proceed in parallel: T0 is internal to Market Data, and its custody request states its own member
-set and timeframes. T1 depends on all four, because it derives the custody request from the Research scope and the
-Design; its first positive case uses only CLOSE, and D1 lands with it. A1 and V4a proceed in parallel with T1; then T2, I1, I1.5, I2, and I3; then N1, A2, A3, V4b, and V5. Per-frame as-of membership (T4) would
+P0, P1, and T0 proceed in parallel: T0 is internal to Market Data, and its custody request states its own member set
+and timeframes. T1 depends on all three, because it derives the custody request from the Research scope and the
+Design; its first positive case uses only CLOSE and one member, and D1 lands with it. P2 lands with I2. A1 and V4a proceed in parallel with T1; then T2, I1, I1.5, I2, and I3; then N1, A2, A3, V4b, and V5. Per-frame as-of membership (T4) would
 remove the invariant that every frame shares one member set, so it is asked of the user when it is proposed.
 
 ## Value-stream handoffs

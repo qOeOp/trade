@@ -29,6 +29,8 @@ use vibe_testkit::postgres::{
     CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1, assert_statement_is_refused,
 };
 
+use super::MarketDataOwnerPostgres;
+
 /// The sealed read face this pair describes.
 const READ_FACE_SCHEMA: &str = "market_data_rd_api";
 
@@ -110,12 +112,22 @@ async fn read_face(pool: &PgPool) -> Vec<FaceRoutine> {
 /// Every call passes typed NULLs, so it matches nothing and returns no rows. That is the whole
 /// intended subject: an admitted caller is answered, a refused one raises. Row contents belong to
 /// the entries that write the facts, not to a proof about who may ask.
+///
+/// The routines and their `EXECUTE` grants are the Market Data Owner's migration, which runs when
+/// that Owner connects. This entry connects it first, so it proves the face the Owner installs
+/// rather than whichever earlier entry happened to connect it; in the ordered chain the migration
+/// is already applied and connecting changes nothing.
 #[tokio::test]
 #[ignore = "requires the ordered Owner PostgreSQL chain"]
 async fn market_data_rd_api_admits_the_rd_owner_through_the_grant_layer_alone() {
     let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
         .await
         .expect("canonical disposable topology");
+    MarketDataOwnerPostgres::connect(
+        database.database_url(CanonicalOwnerTestRoleV1::MarketDataOwner),
+    )
+    .await
+    .expect("the Market Data Owner connects and applies its migration");
     let mutation = database.mutation();
     let pool = mutation.pool(CanonicalOwnerTestRoleV1::RdOwner);
 

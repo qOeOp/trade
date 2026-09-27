@@ -19,6 +19,15 @@
 #
 # `--self-test` plants one direct `PgPool::connect` under `owner-recovery` and passes only if the plant
 # is refused by name, so a derivation that silently lints nothing is caught.
+#
+# When the features do not compile together, nothing was linted, and the gate fails. It then checks
+# each feature on its own and names the ones that do not compile alone, or, when each does, says the
+# failure is the combination. `--self-test-bisect` plants a `compile_error!` under `owner-recovery`
+# and passes only if that feature, and no other, is named as not compiling on its own.
+#
+# Both plants carry the fixed marker `planted_direct_connect_for_check_disallowed_connect_outside_union`
+# (`plant_marker` below). A killed run cannot restore the plant file, so pre-commit refuses any staged
+# `.rs` content containing the marker; that check matches this exact string, so change both together.
 
 set -Eeuo pipefail
 
@@ -35,12 +44,13 @@ union="$(sealed_feature_union "$chain_script")"
 
 cd "$repository_root"
 
-self_test=false
+mode=gate
 case "${1:-}" in
   "") ;;
-  --self-test) self_test=true ;;
+  --self-test) mode=self-test ;;
+  --self-test-bisect) mode=self-test-bisect ;;
   *)
-    echo "usage: $0 [--self-test]" >&2
+    echo "usage: $0 [--self-test | --self-test-bisect]" >&2
     exit 2
     ;;
 esac
@@ -90,21 +100,31 @@ if [ "${#packages[@]}" -eq 0 ]; then
   exit 1
 fi
 
-if [ "$self_test" = true ]; then
+if [ "$mode" != gate ]; then
   if ! git diff --quiet -- "$plant_file"; then
-    echo "ERROR: --self-test plants into $plant_file, which has local changes; commit or set them aside first." >&2
+    echo "ERROR: $mode plants into $plant_file, which has local changes; commit or set them aside first." >&2
     exit 1
   fi
   restore_plant() { git checkout -- "$plant_file"; }
   trap 'restore_plant' EXIT
-  cat >> "$plant_file" << EOF
+fi
+case "$mode" in
+  self-test)
+    cat >> "$plant_file" << EOF
 
 #[allow(dead_code, reason = "self-test plant, removed on exit")]
 async fn ${plant_marker}(url: &str) {
     let _ = sqlx::PgPool::connect(url).await;
 }
 EOF
-fi
+    ;;
+  self-test-bisect)
+    cat >> "$plant_file" << EOF
+
+compile_error!("${plant_marker}: self-test-bisect plant, removed on exit");
+EOF
+    ;;
+esac
 
 package_args=()
 for package in "${packages[@]}"; do
@@ -126,15 +146,55 @@ if [ -n "$hits" ]; then
   count="$(printf '%s\n' "$hits" | wc -l | tr -d ' ')"
 fi
 
+# Names the features that do not compile on their own, one clippy run per feature over its own
+# package, and records them in `alone_failures`.
+alone_failures=()
+bisect_compile_failure() {
+  local feature
+  local -a all
+  IFS=',' read -r -a all <<< "$features"
+
+  for feature in "${all[@]}"; do
+    if ! cargo clippy --package "${feature%%/*}" --locked --all-targets --features "$feature" \
+      --profile "$profile" --message-format short -- --cap-lints warn > /dev/null 2>&1; then
+      alone_failures+=("$feature")
+    fi
+  done
+
+  if [ "${#alone_failures[@]}" -eq 0 ]; then
+    echo "ERROR: these ${#all[@]} features compile alone but not together: ${all[*]}" >&2
+    return
+  fi
+
+  for feature in "${alone_failures[@]}"; do
+    echo "ERROR: feature $feature does not compile on its own." >&2
+  done
+}
+
 if [ "$status" -ne 0 ]; then
   tail -n 40 "$output" >&2
   rm -f "$output"
   echo "ERROR: clippy did not finish (exit $status), so nothing here was linted." >&2
+  echo "       Checking each feature on its own to name what does not compile." >&2
+  bisect_compile_failure
+
+  if [ "$mode" = self-test-bisect ]; then
+    if [ "${alone_failures[*]}" = "vibe-qualification/owner-recovery" ]; then
+      echo "self-test-bisect: the planted compile error was named, and only it: vibe-qualification/owner-recovery"
+      exit 0
+    fi
+    echo "ERROR: self-test-bisect: expected exactly vibe-qualification/owner-recovery, named: ${alone_failures[*]:-none}" >&2
+  fi
   exit 1
 fi
 rm -f "$output"
 
-if [ "$self_test" = true ]; then
+if [ "$mode" = self-test-bisect ]; then
+  echo "ERROR: self-test-bisect: the planted compile error did not stop clippy." >&2
+  exit 1
+fi
+
+if [ "$mode" = self-test ]; then
   if printf '%s\n' "$hits" | grep -q "$plant_file"; then
     echo "self-test: the planted direct connection was refused: $(printf '%s\n' "$hits" | grep "$plant_file")"
     exit 0

@@ -238,7 +238,7 @@ fn shared_time_raw_history_rejects_tampered_historical_epoch_proof() {
     ));
 }
 
-fn pit_time(cut: u64, sequence: u64) -> UntrustedPitSnapshotTimeEvidence {
+pub(super) fn pit_time(cut: u64, sequence: u64) -> UntrustedPitSnapshotTimeEvidence {
     UntrustedPitSnapshotTimeEvidence {
         event_effective: UntrustedEventEffectiveTime::from_untrusted(
             10,
@@ -4812,8 +4812,8 @@ impl PitObservationSourceV1 for ScopeFaithfulObservationSourceV1 {
 /// later than the bar, in the same snapshot - so the production commit path can say whether a
 /// snapshot may hold it. It cannot, which is why a frame's liquidity now comes from a quote cut of
 /// its own. With `quote_offset == 0` it is the control: the same rows, nothing out of time.
-struct QuoteAfterBarObservationSourceV1 {
-    quote_offset: u64,
+pub(super) struct QuoteAfterBarObservationSourceV1 {
+    pub(super) quote_offset: u64,
 }
 
 #[async_trait::async_trait]
@@ -8878,7 +8878,7 @@ async fn research_request_pit_on_v1(
 }
 
 /// Declares one exact-instrument close role against `pit`'s own verified batch.
-async fn declare_close_role_v1(
+pub(super) async fn declare_close_role_v1(
     owner: &MarketDataOwnerPostgres,
     pit: &crate::owner::pit_snapshot::PitSnapshotCommitAggregate,
     instrument: &str,

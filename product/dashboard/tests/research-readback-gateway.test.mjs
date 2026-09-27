@@ -429,7 +429,14 @@ test("browser parser rejects identity drift and contradictory accepted fields", 
 const composerRequestIdentity = "rd-develop-composer-request-exploration-1";
 // A Replay request identity is opaque, so this one needs encoding to survive a query string.
 const replayRequestIdentity = "replay request/α&#1";
-const replayMeaningDigest = `sha256:${"6".repeat(64)}`;
+// Every digest-shaped fact of the exploration comes from the view the shared identity vectors pin,
+// which the producing Rust side and the Owner client both verify: a change to what the Owner states
+// reaches this test through that file rather than through a value typed here.
+const identityVectors = JSON.parse(await readFile(
+  new URL("../../rd-owner-client/fixtures/research_view_identity_vectors_v4.json", import.meta.url),
+  "utf8",
+));
+const replayMeaningDigest = identityVectors.view.exploration.replay_request_meaning_digest;
 
 async function explorationOf(base) {
   const at = base.owner_receipt.committed_at_epoch_ms + 1000;
@@ -440,26 +447,20 @@ async function explorationOf(base) {
     schema_version: 3, projection_identity: "", request_identity: base.request_identity,
     trusted_principal: base.research_view.trusted_principal, authorized_scope: base.research_view.authorized_scope,
     authorization_policy_cut: base.research_view.authorization_policy_cut, source_owner: "R_AND_D",
-    source_cut: `rd-composer-exploration-cut-v3-${"3".repeat(64)}`,
+    source_cut: identityVectors.view.source_cut,
     observed_at_epoch_ms: at, projection_at_epoch_ms: at, valid_through_epoch_ms: at + 600_000,
     availability: "AVAILABLE", phase: "EXPLORATION_ACTIVE", intent_identity: base.research_view.intent_identity,
     source_frontier: base.research_view.source_frontier,
+    // The vectors' own facts, with only this request's identities in place of the vectors'.
     composer_artifact: {
-      artifact_locator: `rd-strategy-artifact-v2-${"1".repeat(64)}`,
-      artifact_identity_digest: `sha256:${"1".repeat(64)}`,
+      ...identityVectors.view.composer_artifact,
       composer_request_identity: composerRequestIdentity,
-      composer_operation_receipt_digest: `sha256:${"2".repeat(64)}`,
-      artifact_family_binding_identity: `rd-composer-artifact-family-binding-v3-${"4".repeat(64)}`,
-      artifact_family_binding_digest: `sha256:${"4".repeat(64)}`,
-      artifact_family_binding_receipt_identity: `rd-composer-artifact-family-binding-receipt-v3-${"7".repeat(64)}`,
       ...family,
     },
     exploration: {
+      ...identityVectors.view.exploration,
       ...family,
       replay_request_identity: replayRequestIdentity,
-      replay_request_meaning_digest: replayMeaningDigest,
-      replay_request_seal_digest: `sha256:${"3".repeat(64)}`,
-      replay_receipt_identity: `rd-exploratory-replay-receipt-v2-${"8".repeat(64)}`,
     },
     next_legal_action: "VIEW_EXPLORATORY_RUN",
   };
@@ -507,6 +508,9 @@ test("the browser parser keeps an exploration to the state the Owner states", as
     ["a stale exploration", { ...projection, view: { ...projection.view, availability: "stale" } }],
     ["an exploration with a malformed meaning digest",
       { ...projection, view: { ...projection.view, exploration: { ...projection.view.exploration, replayMeaningDigest: "sha256:x" } } }],
+    // The Replay request's meaning digest is BLAKE3; a SHA-256 one is not what the Owner states.
+    ["an exploration with a SHA-256 meaning digest",
+      { ...projection, view: { ...projection.view, exploration: { ...projection.view.exploration, replayMeaningDigest: `sha256:${"6".repeat(64)}` } } }],
     ["a frozen Intent naming an exploration", { ...frozen, view: { ...frozen.view, exploration: projection.view.exploration } }],
     ["a frozen Intent leading to an exploratory run", { ...frozen, view: { ...frozen.view, nextStep: "view_exploratory_run" } }],
     ["a phase the page does not know", { ...projection, view: { ...projection.view, phase: "exploring" } }],

@@ -417,3 +417,56 @@ fn publishing_version_2_leaves_version_1_untouched() {
         assert_eq!(&two.rows()[shifted], row);
     }
 }
+
+/// Version 2's meaning, pinned the way version 1's is, and for the same reason: a program frozen
+/// against version 2 reads back only while this digest holds.
+const VERSION_2_SEMANTIC_DIGEST: [u8; 32] = [
+    0x4e, 0xdf, 0x5b, 0x42, 0xe2, 0xf3, 0xaa, 0x47, 0x21, 0x12, 0x75, 0x2e, 0xa0, 0xb2, 0x65, 0x23,
+    0x98, 0xcb, 0x4c, 0x0f, 0x9f, 0x1f, 0x9a, 0x64, 0x7e, 0x69, 0x60, 0xd3, 0x54, 0x3f, 0xd0, 0xf8,
+];
+
+/// Version 3's meaning, pinned for programs frozen against it, the first of which carries Sqrt.
+const VERSION_3_SEMANTIC_DIGEST: [u8; 32] = [
+    0xaa, 0x78, 0xd2, 0x51, 0xc4, 0xe1, 0x01, 0x8f, 0x2b, 0x18, 0x91, 0x30, 0xe4, 0x64, 0xae, 0x16,
+    0x1e, 0xa8, 0xb4, 0x21, 0xf9, 0x8a, 0xd8, 0x24, 0x0b, 0xf5, 0xd0, 0x4f, 0xfb, 0x50, 0x9d, 0xaa,
+];
+
+/// Every published version after the first keeps its predecessor's meaning and rows.
+///
+/// `docs/owners/rd.md` states that each version is checked against its predecessor, and until this
+/// test only version 1 was. It pins each later version's digest, so a published version cannot
+/// change beneath the programs frozen against it, and it holds every row of each version unchanged
+/// and in order inside the next, so a new version only adds.
+#[rstest::rstest]
+fn every_published_version_keeps_its_predecessors_rows_and_meaning() {
+    let pinned = [
+        (1, VERSION_1_SEMANTIC_DIGEST),
+        (2, VERSION_2_SEMANTIC_DIGEST),
+        (3, VERSION_3_SEMANTIC_DIGEST),
+    ];
+
+    for (version, digest) in pinned {
+        assert_eq!(
+            PrimitiveCatalogV1::resolve(version)
+                .unwrap()
+                .semantic_digest(),
+            digest,
+            "version {version}'s meaning changed; every program frozen against it stops reading back"
+        );
+    }
+
+    for (older, newer) in [(1, 2), (2, 3)] {
+        let older_rows = PrimitiveCatalogV1::resolve(older).unwrap().rows();
+        let newer_rows = PrimitiveCatalogV1::resolve(newer).unwrap().rows();
+        assert!(newer_rows.len() > older_rows.len());
+        let mut next = newer_rows.iter();
+
+        for row in older_rows {
+            assert!(
+                next.any(|candidate| candidate == row),
+                "version {newer} dropped, changed or reordered {} from version {older}",
+                row.semantic_id
+            );
+        }
+    }
+}

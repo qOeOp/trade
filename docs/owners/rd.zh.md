@@ -160,6 +160,16 @@
   窗口限定（`docs/architecture/strategy-factory.md`，TrialFamily-owned Replay execution policy V2）；前驱是
   composer-backed Replay 的 Market Data 修复 re-entry 按名被拒，`MARKET_DATA_REPAIR_OF_COMPOSER_V3_REPLAY_AWAITS_DESIGN`，
   因为 re-entry 按 policy 窗口组成它的后继。
+- **CURRENT - Native Replay preparation 如何读 composer-backed Replay 的 Research 托管：** 按 Replay 提交时的
+  样子读，而不是按当前托管读。commit 把 Research View 从 IntentFrozen 推进到指名这个 Replay 的 schema 3
+  View，并把这次推进记成一条只追加的 transition，所以凡是要求当前托管仍是 IntentFrozen 的读，都会拒绝每一个
+  已提交的 Replay。因此 preparation 只把 native Composer View 当作那条 transition 的 new View 来准入，并像
+  Replay 自己的 readback 那样（`read_accepted_for_replay_historical_in_transaction`），在 issuance 事务里按
+  transition 的 old View 读 Composer 操作。当前 View 若已被之后的 Replay 推进走，按名被拒，
+  `native Composer Research View has moved past this Replay`：同一个 Research 上一旦提交了第二个 Replay，
+  第一个就再也无法被 prepare。今天没有 Research 会走到第二个，因为 commit 要求它所推进的那个 IntentFrozen View，而 successor
+  要等下文的 Decision composition。Decision composition 或 successor 迭代被准入时，要重新审视这条规则。不带
+  COMPOSER_V3 路由的构建按名拒绝 native Composer View。
 - **CURRENT - 有一条只读操作只能经由写 API 触达：** Dashboard 的操作登记表声明了十一条 Owner 路由，
   其中十条是 `GET`。第十一条 `research_goal.legacy_quarantine_read.v1` 声明 `effect_set: []`，
   解析到 `POST /v1/research-goals/{request_identity}/resolve`，它注册在
@@ -1053,6 +1063,11 @@ unavailable 或位于不同 cut 时，只撤回它自己的行与计数。两个
   的终态为 `AVAILABLE` 之后才发布。Market Data 针对恰为该请求注册 Design 的声明，而不去搜索一个，因此调用方以伪造的
   `requester_identity` 提交的请求永远不会被选中。同一 Intent 的后继 PIT 请求只由在它之后发布的 role intent 指名；
   已发布的 role intent 从不改变。
+- V3 请求的 scope 是它的品种唯一的声明处，所以在它之下发布、冻结或声明的 Design 自己不得再指名品种：带 exact 品种
+  scope 或 `instrument` 非空的角色，在写入任何行之前以 `DESIGN_ROLE_NAMES_INSTRUMENT_UNDER_RESEARCH_SCOPE` 拒绝，
+  每个角色都读 scope 指名的成员，一个或多个。这就是策略形状包络的 P0 在创建新托管的路径上的落地：只拒绝第一次写入，
+  所以已在该请求下发布或冻结的 Design 照它提交时的样子读回。有序链路的 V3 scope 条目驱动它：在一个已接纳的 V3 请求下
+  发布并冻结 exact 品种的候选 Design，两种行都找不到。V2 请求不陈述 scope，所以它的 Design 仍然指名自己的品种。
 
 目前已建成：scope 编解码、schema 2 role intent 编解码、V3 接纳与上述签发。`ResearchInstrumentScopeV1` 校验 scope，
 计算其 canonical bytes、identity 与 fixed-member 选择规则，并能从该规则解回 scope，本 Owner 与 Market Data 共用。
