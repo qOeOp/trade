@@ -871,7 +871,9 @@ first binds the sealed request for native execution. Instrument Master verificat
 to that cut's issuance, `issue_cut_for_bound_replay_v1`. It takes the members from the recovered selection's own
 included membership, so the member set is the selection's by construction, and resolves each member's Instrument
 Master V2 fact chain at the selection's owner observation time; a member with no fact at that time (`MissingFact`) or
-a chain that does not verify (`ChainMismatch`) refuses the issuance by name with zero writes. Strategy Factory's
+a chain that does not verify (`ChainMismatch`) refuses the issuance by name with zero writes, and so does a member whose
+V2 fact disagrees with the V1 readback the binding's PIT snapshot cites (`GenerationMismatch`, under the V1/V2
+generation consistency rule below). Strategy Factory's
 initial Owner inputs (`resolve_native_replay_initial_owner_inputs_v1`) then refuse a cut whose members disagree with
 the Plan's selection. Between the two checkpoints no binding, fact or reader may claim or pass on an Instrument Master
 field as verified. That a selection member without a verifiable Instrument Master fact refuses the issuance by name
@@ -1316,8 +1318,42 @@ not be given one.
 **NOT_ADMITTED:** a correction of an admitted V2 fact (a `!contractInfo` delta) has no production intake, so a V2 fact has
 one version in production, and a changed instrument cannot be recorded. No V1 fact is derived into V2, no class but the
 crypto perpetual and no venue outside the Owner's table is admitted, and nothing here claims provider ingestion,
-authenticity, deployment or trading. The consistency of a V2 cut with the V1 facts a composition binding cites is not
-checked by this intake.
+authenticity, deployment or trading. This intake does not compare a V2 fact with any V1 fact; the cut that reads both
+does, as the next paragraph states.
+
+**CURRENT, V1/V2 generation consistency:** while both generations are in use, one instrument is described in each. A PIT
+request names the V1 Instrument Master readback its snapshot was cut under (`instrument_master_digest`), and Market
+Semantics admission, first-corpus Replay composition and R&D's research scope read that V1 readback; the Native Replay
+binding reads the request-keyed V2 cut. The two must describe the same instruments, and the bound-replay issuance proves
+they do before it writes anything. In its own transaction it follows the binding's PIT snapshot locator to the V1
+readback that snapshot's request cites, reading both without a row lock, and compares that readback member by member
+with the V2 facts it has just resolved for the cut:
+
+- the member sets are equal: the V1 readback's facts and the cut's members name the same canonical identities;
+- each V1 fact is classed `CryptoPerpetual`, the one class V2 has;
+- each V1 fact has exactly one mapping whose venue identity equals the V2 fact's venue identity, and that mapping's source
+  instrument is byte for byte the V2 raw symbol;
+- the V2 price increment, quantity increment and contract multiplier are each a value, and each equals the V1 term in
+  both mantissa and scale. Both generations store a decimal canonically, without trailing fractional zeros, so equal
+  values have equal mantissa and scale and nothing is normalized.
+
+A difference refuses the issuance with `GenerationMismatch` and zero writes, and R&D's execution-input binding answers
+`INSTRUMENT_MASTER_GENERATION_MISMATCH` (HTTP 409): the cut's facts are fixed at the selection's observation, so a retry
+cannot change the answer. Internally the refusal names the rule that failed: the member set, the class, a venue mapping
+that is absent or ambiguous, the raw symbol, or a named term that is not a value or differs; R&D records it under the
+issuance's storage-diagnostic coordinate. A V2 term that is `UNAVAILABLE`, `UNBOUNDED` or `NOT_APPLICABLE` is refused
+rather than skipped, because a V2 fact that cannot vouch for a tick, step or multiplier the V1 fact states must not be
+used beside it; no V2 fact reaches this today, because the intake's mapping always gives those three terms a value. No
+other term is compared: currencies, lot, limits and status have no V1 counterpart in V2's form, and
+V1's calendar, session and frontier fields have none in V2. The check sits at the cut, not at either intake, because the
+cut is where the two generations are read together: a V1 fact corrected or admitted after the V2 fact is still compared.
+
+It runs on every bound-replay issuance, the only production path to the V2 cut. The Market Data PostgreSQL runner drives
+both outcomes through bindings whose PIT snapshots cite a stored V1 readback. The universe-member composition binding over
+the chain market base, whose one V1 instrument is an equity, is refused by class and writes nothing. The bound-replay
+issuance proof issues its cuts over PIT snapshots taken by the production PIT intake, whose V1 facts the production V1
+intake admitted to agree with the V2 facts, and one member's V1 fact with a different tick is refused by that term. Each
+rule's refusal is asserted once on the comparison itself.
 
 ### Native immutable records
 

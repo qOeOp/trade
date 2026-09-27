@@ -355,17 +355,6 @@ async fn insert_readback_rows(
     Ok(())
 }
 
-/// Stores a selection the Owner issued in memory through the same rows its resolver writes, for
-/// a test that needs a persisted selection without the membership frontier behind it.
-#[cfg(test)]
-pub(in crate::owner) async fn persist_issued_readback_for_test(
-    transaction: &mut Transaction<'_, Postgres>,
-    readback: &UniverseSelectionReadbackV1,
-    sequence: u64,
-) -> Result<(), UniverseSelectionErrorV1> {
-    insert_readback_rows(transaction, readback, sequence).await
-}
-
 pub(super) async fn recover_universe_selection_in_transaction_v1(
     transaction: &mut Transaction<'_, Postgres>,
     locator: &UntrustedUniverseSelectionLocatorV1,

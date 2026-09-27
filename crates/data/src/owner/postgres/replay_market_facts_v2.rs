@@ -3037,29 +3037,39 @@ fn digest_registry(
     crate::owner::source_binding::BindingDigest::from_untrusted_bytes(hasher.finalize().into())
 }
 
-/// Why the Universe Selection a composition binding bound could not be recovered.
+/// Why the Owner inputs a composition binding bound could not be recovered.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::owner) enum BoundUniverseSelectionErrorV1 {
+pub(in crate::owner) enum BoundReplayInputsErrorV1 {
     /// No binding carries this exact identity and digest.
     BindingUnavailable,
-    /// The binding, or the selection it names, is not what the store says it bound.
+    /// The binding, or an input it names, is not what the store says it bound.
     CustodyMismatch,
     StoreUnavailable,
 }
 
-/// Recovers the Universe Selection one exact composition binding bound, taking no row lock.
+/// The Owner inputs one exact composition binding bound, as its request-keyed Instrument Master
+/// V2 cut is issued over them.
+pub(in crate::owner) struct BoundReplayInputsV1 {
+    /// The Universe Selection the binding bound; the cut's members are its included members.
+    pub(in crate::owner) selection: crate::owner::universe_selection::UniverseSelectionReadbackV1,
+    /// The V1 Instrument Master readback the binding's PIT snapshot request cites, which the cut's
+    /// V2 facts must agree with.
+    pub(in crate::owner) instrument_master_v1:
+        crate::owner::instrument_master::InstrumentMasterReadbackV1,
+}
+
+/// Recovers the Universe Selection one exact composition binding bound, and the V1 Instrument
+/// Master readback its PIT snapshot's request cites, taking no row lock.
 ///
 /// The bound-replay Instrument Master cut issuance calls this from its own transaction while R&D
-/// may hold `FOR SHARE` locks on the same binding rows in an open transaction of its own. Both
-/// reads here are plain `SELECT`s, so they never wait on that transaction; the binding and the
-/// selection are append-only, so the caller's snapshot is enough.
-pub(in crate::owner) async fn recover_bound_universe_selection_in_transaction_v1(
+/// may hold `FOR SHARE` locks on the same binding and snapshot rows in an open transaction of its
+/// own. Every read here is a plain `SELECT`, so it never waits on that transaction; the binding,
+/// the selection, the snapshot and the V1 readback are append-only, so the caller's snapshot is
+/// enough.
+pub(in crate::owner) async fn recover_bound_replay_inputs_in_transaction_v1(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     locator: ReplayCompositionBindingLocatorV1,
-) -> Result<
-    crate::owner::universe_selection::UniverseSelectionReadbackV1,
-    BoundUniverseSelectionErrorV1,
-> {
+) -> Result<BoundReplayInputsV1, BoundReplayInputsErrorV1> {
     use crate::owner::replay_market_facts_v2::postgres::ReplayMarketFactsPostgresErrorV2 as Binding;
     use crate::owner::universe_selection::UniverseSelectionErrorV1 as Selection;
 
@@ -3068,9 +3078,9 @@ pub(in crate::owner) async fn recover_bound_universe_selection_in_transaction_v1
         .map_err(|e| match e {
             // A digest that disagrees with the stored binding names no binding either.
             Binding::BindingUnavailable | Binding::BindingConflict => {
-                BoundUniverseSelectionErrorV1::BindingUnavailable
+                BoundReplayInputsErrorV1::BindingUnavailable
             }
-            Binding::StoreUnavailable => BoundUniverseSelectionErrorV1::StoreUnavailable,
+            Binding::StoreUnavailable => BoundReplayInputsErrorV1::StoreUnavailable,
             Binding::InvalidPrepared
             | Binding::IdentityConflict
             | Binding::MeaningConflict
@@ -3079,39 +3089,119 @@ pub(in crate::owner) async fn recover_bound_universe_selection_in_transaction_v1
             | Binding::UnknownShape
             | Binding::UniverseSelectionUnavailable
             | Binding::JoinedCutUnavailable
-            | Binding::SampleProjectionUnavailable => {
-                BoundUniverseSelectionErrorV1::CustodyMismatch
-            }
+            | Binding::SampleProjectionUnavailable => BoundReplayInputsErrorV1::CustodyMismatch,
         })?;
     let universe = binding
         .record()
         .native_locator(ReplayCompositionNativeLocatorKindV1::UniverseSelection)
-        .ok_or(BoundUniverseSelectionErrorV1::CustodyMismatch)?;
-    super::universe_selection::recover_universe_selection_by_record_in_transaction_v1(
+        .ok_or(BoundReplayInputsErrorV1::CustodyMismatch)?;
+    let selection =
+        super::universe_selection::recover_universe_selection_by_record_in_transaction_v1(
+            transaction,
+            universe.identity,
+            universe.digest,
+        )
+        .await
+        .map_err(|e| match e {
+            Selection::StoreUnavailable => BoundReplayInputsErrorV1::StoreUnavailable,
+            // Issuing the binding required this selection in the same store, and neither is ever
+            // deleted, so every other answer means the store disagrees with what it bound.
+            Selection::InvalidRequest
+            | Selection::InvalidMembership
+            | Selection::NonCanonicalOrder
+            | Selection::CapacityExceeded
+            | Selection::CodecMismatch
+            | Selection::DigestMismatch
+            | Selection::RequestConflict
+            | Selection::UnknownIdentity
+            | Selection::EvaluatorUnavailable
+            | Selection::StoreUntrusted
+            | Selection::CommitInterrupted
+            | Selection::ResponseLost
+            | Selection::FrontierNotCurrent
+            | Selection::FixedMemberUnresolved
+            | Selection::FixedMemberNotInFrontier => BoundReplayInputsErrorV1::CustodyMismatch,
+        })?;
+    // The binding was issued over an authenticated snapshot, and the snapshot was committed only
+    // after its request's V1 readback resolved, so a missing or different one is the store
+    // disagreeing with what it bound.
+    let pit = binding
+        .record()
+        .native_locator(ReplayCompositionNativeLocatorKindV1::PitSnapshot)
+        .ok_or(BoundReplayInputsErrorV1::CustodyMismatch)?;
+    let snapshot = super::load_pit(transaction, pit.identity, false, false)
+        .await
+        .map_err(|e| {
+            use crate::owner::pit_snapshot::PitSnapshotError as Snapshot;
+
+            match e {
+                Snapshot::PersistenceUnavailable => BoundReplayInputsErrorV1::StoreUnavailable,
+                Snapshot::MissingField(_)
+                | Snapshot::ZeroDigest(_)
+                | Snapshot::RequestDigestMismatch
+                | Snapshot::RequestIdentityMismatch
+                | Snapshot::SourceBindingUnavailable
+                | Snapshot::CanonicalBasisMismatch
+                | Snapshot::TrustedClockMismatch
+                | Snapshot::CorrectionHeadMismatch
+                | Snapshot::InvalidCorrectionSequence
+                | Snapshot::ReplayConflict
+                | Snapshot::CommitInterrupted
+                | Snapshot::ResponseLost
+                | Snapshot::LocatorMismatch
+                | Snapshot::ObservationBatchUnavailable
+                | Snapshot::InvalidObservationBatch
+                | Snapshot::ConsumerRoleMismatch
+                | Snapshot::ConsumerBindingMismatch
+                | Snapshot::InstrumentMasterUnavailable
+                | Snapshot::UniverseMemberCountUnadmitted
+                | Snapshot::UniverseMemberKeyIsNotInstrument
+                | Snapshot::CorrelationAlreadyCommitted => {
+                    BoundReplayInputsErrorV1::CustodyMismatch
+                }
+            }
+        })?
+        .ok_or(BoundReplayInputsErrorV1::CustodyMismatch)?;
+    if snapshot.receipt().locator().fact_digest != pit.digest {
+        return Err(BoundReplayInputsErrorV1::CustodyMismatch);
+    }
+    let instrument_master_v1 = super::load_durable_instrument_readback_by_digest(
         transaction,
-        universe.identity,
-        universe.digest,
+        snapshot.fact().request().instrument_master_digest,
     )
     .await
-    .map_err(|e| match e {
-        Selection::StoreUnavailable => BoundUniverseSelectionErrorV1::StoreUnavailable,
-        // Issuing the binding required this selection in the same store, and neither is ever
-        // deleted, so every other answer means the store disagrees with what it bound.
-        Selection::InvalidRequest
-        | Selection::InvalidMembership
-        | Selection::NonCanonicalOrder
-        | Selection::CapacityExceeded
-        | Selection::CodecMismatch
-        | Selection::DigestMismatch
-        | Selection::RequestConflict
-        | Selection::UnknownIdentity
-        | Selection::EvaluatorUnavailable
-        | Selection::StoreUntrusted
-        | Selection::CommitInterrupted
-        | Selection::ResponseLost
-        | Selection::FrontierNotCurrent
-        | Selection::FixedMemberUnresolved
-        | Selection::FixedMemberNotInFrontier => BoundUniverseSelectionErrorV1::CustodyMismatch,
+    .map_err(|e| {
+        use crate::owner::instrument_master::InstrumentMasterError as Master;
+
+        match e {
+            Master::StoreUnavailable => BoundReplayInputsErrorV1::StoreUnavailable,
+            Master::InvalidFact
+            | Master::InvalidRequest
+            | Master::WrongRole
+            | Master::CodecMismatch
+            | Master::DigestMismatch
+            | Master::ClockUnavailable
+            | Master::ClockMismatch
+            | Master::ClockExpired
+            | Master::ClockDiscontinuous
+            | Master::FrontierMismatch
+            | Master::MembershipMismatch
+            | Master::UnknownIdentity
+            | Master::AmbiguousIdentity
+            | Master::MissingPredecessor
+            | Master::PredecessorBranch
+            | Master::PredecessorCycle
+            | Master::InvalidOverlap
+            | Master::RequestConflict
+            | Master::StoreUntrusted
+            | Master::CommitInterrupted
+            | Master::ResponseLost => BoundReplayInputsErrorV1::CustodyMismatch,
+        }
+    })?
+    .ok_or(BoundReplayInputsErrorV1::CustodyMismatch)?;
+    Ok(BoundReplayInputsV1 {
+        selection,
+        instrument_master_v1,
     })
 }
 

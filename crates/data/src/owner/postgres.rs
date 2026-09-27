@@ -43,7 +43,7 @@ mod pit_empty_observation_tests;
 #[cfg(test)]
 mod pit_initial_intake_correlation_tests;
 #[cfg(test)]
-mod pit_intake_member_count_tests;
+pub(in crate::owner) mod pit_intake_member_count_tests;
 mod pit_role_resolution_v1;
 mod rd_strategy_input_custody;
 mod reference_fact_catalog;
@@ -55,14 +55,12 @@ pub(in crate::owner) mod research_pit_terminal_v1;
 pub(in crate::owner) use admitted_read_api_v1::declared_admitted_read_wrapper_names_v1;
 pub(super) use replay_market_facts_v2::resolve_bound_replay_cut_for_rd_in_transaction_v1;
 pub(super) use replay_market_facts_v2::{
-    BoundUniverseSelectionErrorV1, recover_bound_universe_selection_in_transaction_v1,
+    BoundReplayInputsErrorV1, BoundReplayInputsV1, recover_bound_replay_inputs_in_transaction_v1,
 };
 #[cfg(test)]
 pub(super) use replay_market_facts_v2::{
     ISSUANCE_BINDING_CONSTRAINT, ISSUANCE_IDENTITY_CONSTRAINT, ISSUANCE_MEANING_CONSTRAINT,
 };
-#[cfg(test)]
-pub(super) use universe_selection::persist_issued_readback_for_test;
 mod sample_projection_v4;
 mod session;
 #[cfg(test)]
@@ -11270,13 +11268,8 @@ pub(super) async fn load_market_semantics_admission_inputs_v1(
     if batch.market_semantics_identity() != scope {
         return Err(MarketSemanticsAdmissionErrorV1::DependencyUnavailable);
     }
-    let instrument_request_identity = instrument_master_request_identity_for_cut_v1(
-        transaction,
-        batch.instrument_master_digest(),
-    )
-    .await?;
     let instrument =
-        load_durable_instrument_readback(transaction, instrument_request_identity, false)
+        load_durable_instrument_readback_by_digest(transaction, batch.instrument_master_digest())
             .await
             .map_err(|_| MarketSemanticsAdmissionErrorV1::StoreUnavailable)?
             .ok_or(MarketSemanticsAdmissionErrorV1::DependencyUnavailable)?;
@@ -11307,32 +11300,40 @@ pub(super) async fn load_market_semantics_admission_inputs_v1(
 /// A snapshot binds the readback digest its mint resolved. The registry key needs that exact
 /// readback, and the durable receipt is the only thing that maps the digest back to the request
 /// that produced it.
-async fn instrument_master_request_identity_for_cut_v1(
+/// The stored V1 Instrument Master readback whose digest is `readback_digest`, read without a row
+/// lock, or none when no stored readback has it.
+///
+/// A PIT request names its Instrument Master by this digest and no column stores it, so each
+/// stored readback is rebuilt and compared. The digest covers the whole readback, so at most one
+/// matches.
+async fn load_durable_instrument_readback_by_digest(
     transaction: &mut Transaction<'_, Postgres>,
     readback_digest: BindingDigest,
-) -> Result<BindingDigest, MarketSemanticsAdmissionErrorV1> {
+) -> Result<Option<InstrumentMasterReadbackV1>, InstrumentMasterError> {
     let rows: Vec<Vec<u8>> = sqlx::query_scalar(
         "SELECT request_identity FROM market_data_private.instrument_master_receipts_v1 ORDER BY request_identity",
     )
     .fetch_all(&mut **transaction)
     .await
-    .map_err(|_| MarketSemanticsAdmissionErrorV1::StoreUnavailable)?;
+    .map_err(|_| InstrumentMasterError::StoreUnavailable)?;
 
     for row in rows {
         let identity: [u8; 32] = row
             .as_slice()
             .try_into()
-            .map_err(|_| MarketSemanticsAdmissionErrorV1::StoreUnavailable)?;
-        let identity = BindingDigest::from_untrusted_bytes(identity);
-        let candidate = load_durable_instrument_readback(transaction, identity, false)
-            .await
-            .map_err(|_| MarketSemanticsAdmissionErrorV1::StoreUnavailable)?;
+            .map_err(|_| InstrumentMasterError::StoreUnavailable)?;
+        let candidate = load_durable_instrument_readback(
+            transaction,
+            BindingDigest::from_untrusted_bytes(identity),
+            false,
+        )
+        .await?;
 
-        if candidate.is_some_and(|readback| readback.digest() == readback_digest) {
-            return Ok(identity);
+        if let Some(readback) = candidate.filter(|readback| readback.digest() == readback_digest) {
+            return Ok(Some(readback));
         }
     }
-    Err(MarketSemanticsAdmissionErrorV1::DependencyUnavailable)
+    Ok(None)
 }
 
 pub(super) async fn market_semantics_admission_from_environment_v1()

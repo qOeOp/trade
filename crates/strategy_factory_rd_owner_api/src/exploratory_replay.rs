@@ -1395,6 +1395,11 @@ fn execution_input_binding_error(
             "REPLAY_REQUEST_NAMES_NO_COMPOSITION_BINDING",
             request_identity,
         ),
+        NativeReplayExecutionInputBindingErrorV1::InstrumentMasterGenerationMismatch => rejection(
+            StatusCode::CONFLICT,
+            "INSTRUMENT_MASTER_GENERATION_MISMATCH",
+            request_identity,
+        ),
     }
 }
 
@@ -2082,6 +2087,34 @@ mod tests {
             )
             .status(),
             StatusCode::SERVICE_UNAVAILABLE
+        );
+    }
+
+    /// A generation mismatch is final, as a conflict is, but it is its own code: the fix is a V1 or
+    /// V2 fact, not the request.
+    #[rstest]
+    fn an_instrument_master_generation_mismatch_is_named_and_final() {
+        let code = |error: &NativeReplayExecutionInputBindingErrorV1| {
+            let response = execution_input_binding_error(error, "request-1");
+            (
+                response.status(),
+                response.headers()["x-rd-rejection-code"]
+                    .to_str()
+                    .unwrap()
+                    .to_owned(),
+            )
+        };
+
+        assert_eq!(
+            code(&NativeReplayExecutionInputBindingErrorV1::InstrumentMasterGenerationMismatch),
+            (
+                StatusCode::CONFLICT,
+                "INSTRUMENT_MASTER_GENERATION_MISMATCH".to_owned()
+            )
+        );
+        assert_ne!(
+            code(&NativeReplayExecutionInputBindingErrorV1::Conflict).1,
+            "INSTRUMENT_MASTER_GENERATION_MISMATCH"
         );
     }
 
