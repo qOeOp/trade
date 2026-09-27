@@ -37,11 +37,8 @@ trap 'echo "check-merge-tree-compiles.bash:${LINENO}: this failed: ${BASH_COMMAN
 
 # A git hook or another git command can export GIT_DIR and friends; inherited here they would point
 # every git call below at the caller's repository instead of the dedicated worktree.
-while IFS='=' read -r name _; do
-  case "$name" in
-    GIT_*) unset "$name" ;;
-  esac
-done < <(env)
+# shellcheck source=scripts/lib/git-isolation.bash
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/git-isolation.bash"
 
 repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 state_dir="${MERGE_CHECK_HOME:-$HOME/.cache/vibe-merge-check}"

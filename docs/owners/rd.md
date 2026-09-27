@@ -1197,6 +1197,15 @@ request binds 'the requested instrument or universe scope'."
   single member of Market Data's current frontier is refused by the fixed-member rule before any PIT request exists, so
   issuance answers `INSTRUMENT_SCOPE_NOT_ELIGIBLE_AT_ISSUE`, freezes nothing, and the readback stays `NOT_ISSUED`:
   nothing downstream of that Intent can consume it, and the remedy is a successor request.
+- The Research readback also states `request_schema_version`, `2` or `3`, read from the `operation_schema` of the
+  Product Edge admission the request was made under (`sourced-research-goal-v2` or `sourced-research-goal-v3`), and
+  `instrument_scope`, the scope a V3 request states, exactly as it was admitted and stored; it is `null` for a V2
+  request. The stored request is one shape for both versions, so the version is never inferred from it. The two must
+  agree - a V3 admission exactly when the request states a scope - and a readback where they disagree is refused as an
+  integrity failure (`DisagreesWithInstrumentScope`), as is one whose admission names another schema
+  (`UnsupportedOperationSchema`). A rejected V3 request is still V3 and states its scope, even one rejected because the
+  scope is not canonical. Where this Owner holds no current admitted request - an unresolved request, an identity
+  conflict, a legacy quarantined one - both are `null`, and `null` implies no version.
 - The Design role intent (schema 2) additionally names that initial PIT request, read from this Owner's custody and
   never from the publishing caller, and it is published only once the recorded terminal is `AVAILABLE`. Market Data
   registers the Design's declarations against exactly that request instead of searching for one, so a request a
