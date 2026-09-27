@@ -265,7 +265,26 @@ pub enum SingleThresholdAuthoringErrorV1 {
     /// as a fault of the program rather than of the request.
     #[error("channel.field_semantic_id {0} is not a field semantic this Owner resolves")]
     UnknownFieldSemantic(String),
+    /// A side names a target variant the target-set Host cannot run past its first frame.
+    ///
+    /// Temporary, until the slices `docs/architecture/strategy-factory.md` orders after F and
+    /// before T1 land: a rebalance target needs the target set's own sequence, which no authored
+    /// constant can follow, and a weight target is decoded with a reconciliation the target-set
+    /// reconciliation refuses, over a weight this author shares as 0. Authoring either would only
+    /// fail on the first frame, under a name that does not say why.
+    #[error(
+        "SINGLE_THRESHOLD_TARGET_VARIANT_NOT_RUNNABLE: {field} {variant} cannot run past one frame of the target-set Host"
+    )]
+    TargetVariantNotRunnable {
+        field: &'static str,
+        variant: String,
+    },
 }
+
+/// The target variants a side may not name until their slices land; see
+/// [`SingleThresholdAuthoringErrorV1::TargetVariantNotRunnable`].
+const NOT_RUNNABLE_TARGET_VARIANTS: [&str; 2] =
+    ["kernel.target.rebalance.v1", "kernel.target.weight.v1"];
 
 /// Authors one single-threshold program: the Design it needs and the meaning a proposer declares.
 ///
@@ -320,6 +339,13 @@ pub fn author_single_threshold_program_v1(
     ] {
         exact(&outcome.position_intent_semantic_id, position_field)?;
         exact(&outcome.target_variant_semantic_id, target_field)?;
+
+        if NOT_RUNNABLE_TARGET_VARIANTS.contains(&outcome.target_variant_semantic_id.as_str()) {
+            return Err(SingleThresholdAuthoringErrorV1::TargetVariantNotRunnable {
+                field: target_field,
+                variant: outcome.target_variant_semantic_id.clone(),
+            });
+        }
     }
 
     // Checked before anything is built, because the two frames are what the rest of the program
@@ -1283,6 +1309,69 @@ mod tests {
             };
             lift_single_instrument_proposal(&["BTCUSDT-PERP.BINANCE"], None, proposal)
                 .unwrap_or_else(|e| panic!("{semantic_id} does not lift: {e:?}"));
+        }
+    }
+
+    /// A side naming a target the target-set Host cannot run past one frame is refused by name, on
+    /// either side; position and keep sides, the control, still author.
+    #[rstest]
+    #[case::rebalance_when_true(
+        "kernel.target.rebalance.v1",
+        true,
+        "when_true.target_variant_semantic_id"
+    )]
+    #[case::weight_when_true(
+        "kernel.target.weight.v1",
+        true,
+        "when_true.target_variant_semantic_id"
+    )]
+    #[case::rebalance_otherwise(
+        "kernel.target.rebalance.v1",
+        false,
+        "otherwise.target_variant_semantic_id"
+    )]
+    #[case::weight_otherwise(
+        "kernel.target.weight.v1",
+        false,
+        "otherwise.target_variant_semantic_id"
+    )]
+    fn a_target_variant_that_cannot_run_is_refused_by_name(
+        #[case] variant: &str,
+        #[case] when_true: bool,
+        #[case] field: &'static str,
+    ) {
+        let mut refused = request();
+        let side = if when_true {
+            &mut refused.when_true
+        } else {
+            &mut refused.otherwise
+        };
+        side.target_variant_semantic_id = variant.to_owned();
+
+        let error = author_single_threshold_program_v1(&refused).expect_err("refused");
+        assert_eq!(
+            error,
+            SingleThresholdAuthoringErrorV1::TargetVariantNotRunnable {
+                field,
+                variant: variant.to_owned(),
+            }
+        );
+        assert!(
+            error
+                .to_string()
+                .starts_with("SINGLE_THRESHOLD_TARGET_VARIANT_NOT_RUNNABLE")
+        );
+
+        for runnable in ["kernel.target.position.v1", "kernel.target.keep.v1"] {
+            let mut control = request();
+            let side = if when_true {
+                &mut control.when_true
+            } else {
+                &mut control.otherwise
+            };
+            side.target_variant_semantic_id = runnable.to_owned();
+            author_single_threshold_program_v1(&control)
+                .unwrap_or_else(|e| panic!("{runnable} still authors: {e}"));
         }
     }
 

@@ -387,15 +387,9 @@ jobs:
         # before the chain and rust-test jobs finish, so it stays off the critical path.
         if: needs.plan.outputs.run-full-pre-commit == 'true'
         run: bash scripts/ci/check-sealed-feature-clippy.bash
-
-      - name: Refuse direct PostgreSQL connections outside the sealed feature union
-        # `clippy.toml` disallows opening a pool or connection outside `vibe-postgres-connect`, but a
-        # lint guards only what some clippy run compiles. Every acceptance or recovery feature outside
-        # the chain union, such as `vibe-qualification`'s `owner-recovery`, is compiled by tests and
-        # deployments and was linted by nothing. Same job, profile and target dir as the two clippy
-        # runs above, for the same reuse.
-        if: needs.plan.outputs.run-full-pre-commit == 'true'
-        run: bash scripts/ci/check-disallowed-connect-outside-union.bash
+      # The features outside that union are linted for direct PostgreSQL connections by the COMPILED
+      # hook test-disallowed-connect-guard inside "Run pre-commit", which every full route runs over
+      # all files; it plants its own control in the same pass, so it is not repeated as a step here.
 
       - name: Verify capnp schemas are up-to-date
         if: needs.plan.outputs.run-capnp-check == 'true'
