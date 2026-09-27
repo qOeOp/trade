@@ -366,7 +366,71 @@ fn sealed_acceptance_catalog_command_v3(
     command_kind: CatalogAdminCommandKindV3,
     command_identity: &str,
 ) -> Result<Vec<u8>, ReplayPolicyCatalogErrorV2> {
-    let economic = ReplayEconomicConfigurationV1::seal(economic_fixture())
+    sealed_acceptance_catalog_record_command_v3(
+        signing_key,
+        command_kind,
+        command_identity,
+        economic_fixture(),
+        None,
+        "sealed-acceptance-replay-policy-v3",
+        1,
+    )
+}
+
+/// Advances the sealed acceptance Catalog V3 head to a record whose economic configuration is
+/// schema 2 at `venue_identity`: its Replays take each instrument's terms as the Instrument Owner
+/// resolves them. The base head is ensured first; the successor names it as predecessor.
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+pub(crate) async fn ensure_sealed_acceptance_schema_2_catalog_v3(
+    pool: &PgPool,
+    venue_identity: &str,
+) -> Result<ReplayPolicyCatalogBindingV3, ReplayPolicyCatalogErrorV2> {
+    ensure_authenticated_sealed_acceptance_fixture_v3(pool).await?;
+    let signing_key = SigningKey::from_bytes(&[11_u8; 32]);
+    let record = format!(
+        "sealed-acceptance-replay-policy-v3-schema-2-{}",
+        venue_identity.to_ascii_lowercase()
+    );
+    let command = |kind, identity: &str| {
+        sealed_acceptance_catalog_record_command_v3(
+            &signing_key,
+            kind,
+            identity,
+            crate::replay_economic_configuration_v1::economic_fixture_v2(venue_identity),
+            Some("sealed-acceptance-replay-policy-v3"),
+            &record,
+            2,
+        )
+    };
+    let create = command(
+        CatalogAdminCommandKindV3::Create,
+        &format!("{record}-create"),
+    )?;
+    let advance = command(
+        CatalogAdminCommandKindV3::Advance,
+        &format!("{record}-advance"),
+    )?;
+    ensure_authenticated_replay_policy_catalog_v3(
+        pool,
+        &create,
+        &advance,
+        "rd-catalog-sealed-acceptance-verifier-v3",
+        &bytes_hex(signing_key.verifying_key().as_bytes()),
+    )
+    .await
+}
+
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+fn sealed_acceptance_catalog_record_command_v3(
+    signing_key: &SigningKey,
+    command_kind: CatalogAdminCommandKindV3,
+    command_identity: &str,
+    economic_input: ReplayEconomicConfigurationInputV1,
+    predecessor_record_id: Option<&str>,
+    catalog_record_id: &str,
+    catalog_version: u64,
+) -> Result<Vec<u8>, ReplayPolicyCatalogErrorV2> {
+    let economic = ReplayEconomicConfigurationV1::seal(economic_input)
         .map_err(|e| ReplayPolicyCatalogErrorV2::InvalidPolicy(e.to_string()))?;
     let mut policy = sealed_acceptance_policy()?;
     policy.replay_configuration.digest =
@@ -383,10 +447,10 @@ fn sealed_acceptance_catalog_command_v3(
             command_kind,
             administrator_identity: "rd-catalog-sealed-acceptance-administrator-v3",
             verifier_identity: "rd-catalog-sealed-acceptance-verifier-v3",
-            expected_predecessor_record_id: None,
-            expected_head_record_id: None,
-            catalog_record_id: "sealed-acceptance-replay-policy-v3",
-            catalog_version: 1,
+            expected_predecessor_record_id: predecessor_record_id,
+            expected_head_record_id: predecessor_record_id,
+            catalog_record_id,
+            catalog_version,
             policy: &policy,
             economic: &economic,
             runner: &runner,

@@ -595,6 +595,23 @@ pub(crate) async fn ensure_first_composer_v3_replay_acceptance_v1(
     // The sealed Catalog V3 head the Research request forms its TrialFamily against, ensured here
     // rather than inherited from an earlier entry of another shard.
     super::tests::ensure_sealed_catalog_v3(test_database).await;
+    // PROBE ONLY: the family forms against a schema 2 Catalog at BINANCE, which pins no instrument.
+    {
+        use vibe_postgres_connect::{PgPoolOptionsExt, PostgresTls};
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .connect_url(
+                test_database
+                    .database_url(CanonicalOwnerTestRoleV1::ReplayPolicyCatalogAdminWriter),
+                PostgresTls::Disabled,
+            )
+            .await
+            .expect("PROBE: the Catalog administrator connects");
+        vibe_strategy_factory::replay_policy_catalog_sealed_acceptance_v2::ensure_replay_policy_catalog_schema_2_fixture_v3(
+            &pool, "BINANCE",
+        )
+        .await
+        .expect("PROBE: the schema 2 Catalog head at BINANCE is created or resolved exactly");
+    }
     let token_digest: [u8; 32] = Sha256::digest(TOKEN.as_bytes()).into();
 
     // The deployment admits the two operations this Replay is made of: the V3 Research request and
@@ -1008,11 +1025,13 @@ pub(crate) async fn ensure_first_composer_v3_replay_acceptance_v1(
                 position_intent_semantic_id: "kernel.position.enter.v1".to_owned(),
                 target_variant_semantic_id: "kernel.target.position.v1".to_owned(),
                 target_position_units: 1,
+                target_weight_micros: 0,
             },
             otherwise: SingleThresholdOutcomeV1 {
                 position_intent_semantic_id: "kernel.position.exit.v1".to_owned(),
                 target_variant_semantic_id: "kernel.target.position.v1".to_owned(),
                 target_position_units: 0,
+                target_weight_micros: 0,
             },
             falsifier: facts.falsifier.clone(),
         })
