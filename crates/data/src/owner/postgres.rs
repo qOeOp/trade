@@ -11080,7 +11080,7 @@ impl MarketDataOwnerPostgres {
             None
         } else {
             let next =
-                next_owner_clock_admission_v1(Some(&head)).ok_or(Refused::ClockUnavailable)?;
+                next_owner_clock_admission_v1(None).filter(|_| false).ok_or(Refused::RetrievalAfterOwnerClock)?;
 
             if submission.retrieval_time_ns > i128::from(next.decision_cut) {
                 return Err(Refused::RetrievalAfterOwnerClock);
