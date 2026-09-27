@@ -32,6 +32,11 @@ TRANSITIVELY_ENABLED = "sealed-strategy-input-acceptance"
 # this probe when the ordered chain took it - or the resolution below stopped discriminating.
 ENABLED_BY_NOTHING = "isolated-event-replay-acceptance"
 
+# A production feature that only a sealed acceptance feature turns on in CI. It must read as compiled
+# only inside the union, and as linted alone: if stripping the sealed entries stopped removing it,
+# the union-only set would be empty and that rule would pass without looking at anything.
+UNION_ONLY = "composer-v3-replay"
+
 
 def load() -> object:
     """
@@ -65,6 +70,16 @@ def main() -> int:
             f"list, and is resolved as compiled. The resolution no longer discriminates.",
         )
 
+    direct = guard.compiled_features({guard.without_sealed(s) for s in strings})
+    if UNION_ONLY not in compiled or UNION_ONLY in direct:
+        failures.append(
+            f"`{UNION_ONLY}` should compile only because a sealed feature includes it: compiled "
+            f"{UNION_ONLY in compiled}, compiled without the sealed entries {UNION_ONLY in direct}. "
+            f"Either CI now names it directly - pick another probe - or the strip stopped working.",
+        )
+    if UNION_ONLY not in guard.carried_alone(strings):
+        failures.append(f"`{UNION_ONLY}` is not among the features linted alone.")
+
     # The reason the first half is not a tautology: no string says this name, so no amount of
     # reading them produces it. This also fails if someone adds it to a string, which would make
     # the first assertion pass for a reason that teaches nothing.
@@ -81,7 +96,8 @@ def main() -> int:
         return 1
     print(
         f"ok: `{TRANSITIVELY_ENABLED}` is compiled through a feature list no string names, and "
-        f"`{ENABLED_BY_NOTHING}` is not compiled",
+        f"`{ENABLED_BY_NOTHING}` is not compiled, and `{UNION_ONLY}` compiles only inside the "
+        f"sealed union and is linted alone",
     )
     return 0
 

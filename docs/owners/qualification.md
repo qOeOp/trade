@@ -274,7 +274,10 @@ whether any protected evaluation has since become observable to it.
   phase fact accounts for fails verification.
 - **Currentness:** a projection is current only while it is fresh and its source sequence is the history's generation.
   `resolve_or_create_for_basis` renews a fresh projection whose generation has been passed, and `admit_in_transaction`
-  refuses it as stale. `admit_historical_projection_in_transaction` still reads a projection at its own cut.
+  refuses it as stale. Candidate intake reads a candidate's feedback frontier the same way: it is current only while it
+  is the history's head, fresh at the intake cut and stating the history's generation, so a candidate whose frontier a
+  phase fact has passed is `NOT_ADMITTED`. `admit_historical_projection_in_transaction` still reads a projection at its
+  own cut.
 - **Read without renewal:** `read_protected_feedback_generation_in_transaction` answers, for the projection a caller
   froze, its history's current generation and source cut, and nothing else. It takes the history's head row `FOR SHARE`
   in the caller's read-committed transaction, so the answer holds until that transaction ends, and it neither checks the
@@ -283,9 +286,12 @@ whether any protected evaluation has since become observable to it.
   source cut it froze with the one it reads: unequal means a phase fact of that history became observable after the
   freeze.
 - **A candidate's own phase facts count:** once a Research request's own candidate enters Qualification, its first phase
-  fact, `ADMITTED` or `NOT_ADMITTED`, and every later one advance the generation the request froze, so a continuation of
-  that request is refused from then on and further iteration needs a successor Intent. That is intended: once
-  Qualification has observed the candidate, iterating on it goes through a new freeze.
+  fact, `ADMITTED` or `NOT_ADMITTED`, and every later one advance the generation the request froze. That is intended:
+  once Qualification has observed the candidate, iterating on it goes through a new freeze. Two consequences rest on
+  work outside this Owner and hold only once it lands. R&D refuses a continuation whose frozen source cut the
+  generation has passed through its continuation check, which comes after slice 1. Further iteration goes through a
+  successor Intent that freezes the current projection under its family's basis, which is slice 1, qOeOp/trade#1197.
+  Until slice 1, a successor copies its predecessor's projection and therefore its frozen source cut.
 - **Counted from its deployment:** phase facts committed before the generation existed are not counted, and no step is
   reconstructed for them. At its first deployment every history's generation is zero even where protected evaluations
   already happened, so a generation compares two moments after that deployment and says nothing about the history before
@@ -327,7 +333,10 @@ ever run on that one machine and never on Linux CI. The same function also pins 
 that file, so no substitute file can satisfy it. The file itself is gone from that machine: no Time Machine
 destination is configured, no local snapshot holds it, nothing under the home directory or any mounted volume
 carries that session identifier, and the artifact was never committed. Its proof,
-`isolated_postgres_recovery_is_atomic_fail_closed_and_replay_safe`, therefore cannot pass anywhere. The contract
+`isolated_postgres_recovery_is_atomic_fail_closed_and_replay_safe`, therefore cannot pass anywhere, and neither can
+`frozen_evidence_recomputes_exact_canonical_vector`, which recomputes the sealed vector from the same file. Both
+are ignored as unrunnable. The module's other tests do not read the file: `make cargo-test` builds with
+`vibe-qualification/owner-recovery`, so the workspace test job runs them. The contract
 above stays as the record of a closed one-incident reconstruction; it does not widen into a general restore path
 because it can no longer be exercised, and nothing here authorizes substituting a fixture for the sealed
 evidence.
@@ -508,6 +517,47 @@ the same identity is conflicting replay. Renewal creates a new immutable Fact th
 new interval; once a successor, expiry, or revocation becomes the Qualification head, the predecessor can never
 be current again. Governance may consume one still-current Fact once per distinct authorized lifecycle request,
 evaluation, and decision frontier, while duplicates inside that frontier join and never restore capital.
+
+## TARGET - Cumulative trial deflation at Candidate Intake
+
+Research no longer stops at a trial count ([R&D](./rd/#target---cumulative-trial-accounting-and-the-spend-cap),
+user decision of 2026-09-27); instead the more a lineage tries, the higher the bar its Candidate meets here.
+Qualification applies that discount to a trial count it derives, never to one it is told.
+
+- *What is deflated.* The selected exploratory result the Candidate's Research Selection names, by the Deflated
+  Sharpe Ratio of Bailey and López de Prado on its daily non-annualized return series. It is the statistic
+  `analyze_formation_robustness` computes on the legacy formation path (`crates/strategy_factory/src/robustness.rs`),
+  whose trial count is a fixed four or two within one formation; that path is the "trial-count corrections on the
+  formation path" named above. The legacy formation path is being retired, and the file goes with it. TB2 ports it
+  from `crates/strategy_factory/src/robustness.rs` at `main` f2238c09b1e2b89b16a9965104375dbb72748f9d rather than
+  rewriting it: `analyze_formation_robustness` at lines 92 to 181 is the deflated ratio and its PBO bar, lines 183 to
+  354 are its helpers, among them `cscv_pbo` (the CSCV estimate of PBO) at 222 and `daily_risk_return_ratio` at 314,
+  and its tests begin at 355. The port changes N from a fixed four or two to the cumulative count, so those tests are
+  validated again against that count rather than carried over.
+- *N.* The cumulative trial count: the sum of `trial_count` across the census frontiers the Candidate binds for its
+  TrialFamily and its cross-family predecessors, plus every protected attempt in that lineage, since each consumed
+  holdout is another look. Qualification recomputes it from those frontiers, and an incomplete frontier is
+  `NOT_ADMITTED` as it already is.
+- *The spread of trial ratios.* The sample standard deviation of the daily ratios of the lineage's
+  `TERMINAL_RESULT` trials, which are exploratory evidence rather than protected, floored at a preregistered minimum.
+  Trials without a terminal result count in N and add no ratio; with fewer than two terminal trials the floor alone
+  is used.
+- *The bar.* The protected decision policy version fixes the minimum deflated probability and the floor before any
+  result is observed. A Candidate below it is `NOT_ADMITTED` as `DEFLATED_SHARPE_BELOW_POLICY` and reserves no
+  holdout, so the deflation spends no protected evidence.
+- *Determinism.* The statistic is a function of the canonical result bytes of each trial, and its probability is
+  recorded in parts per million, floored, as the formation report records it. The bytes a trial's return series is
+  read from are the ones its production build wrote.
+
+The same-universe random control and the sealed holdout stay as specified above. The control is what still holds if
+the count is understated; the holdout never returns detail to R&D.
+
+**What exists and what is missing**, measured at `main` 019f231b0. The deflated statistic exists only on the legacy
+formation path, with a fixed trial count and no census. `crates/qualification` has no deflation, no random-control
+arm, and no cross-family holdout count: it reserves holdout once per Candidate and closes it per result, while the
+acceptance below requires cumulative disposition across related TrialFamilies. That count is part of this slice,
+because N includes the lineage's protected attempts. The trial count it reads needs the production census append R&D
+does not have yet.
 
 ## Decision contract
 

@@ -10,6 +10,9 @@ use vibe_product_edge::{
     DownstreamAdmissionModeV1, ProductEdgeAdmissionReadbackV1,
     resolve_admission_for_downstream_in_transaction,
 };
+use vibe_qualification::{
+    PostgresQualificationOwnerV1, ProtectedFeedbackFrontierReadbackV1, RdIndependenceBasisLocatorV1,
+};
 
 use crate::{
     iteration_decision::{
@@ -22,7 +25,8 @@ use crate::{
         canonical_research_view_identity_v2,
     },
     rd_owner_postgres_custody::{
-        ResearchCustodyLookupV1, admit_research_custody_in_transaction, validate_historical_view,
+        ResearchCustodyLookupV1, admit_independence_basis_by_identity_in_transaction,
+        admit_research_custody_in_transaction, validate_historical_view,
     },
     successor_intent::{
         FrozenSuccessorResearchIntentV1, SuccessorResearchIntentCompositionRequestV1,
@@ -320,11 +324,26 @@ async fn migrate_successor_artifact_read_port(
     Ok(())
 }
 
+/// Freezes the Decision-selected successor Research Intent.
+///
+/// A successor freezes the protected-feedback projection that is current when it is created, the
+/// same way an initial Research request does, under the Independence Basis its TrialFamily was
+/// admitted under: Qualification resolves it first in its own transaction, which may renew it, and
+/// the creating transaction admits it again and freezes only an equal one. An existing successor
+/// replays under the projection it stored and resolves nothing.
 pub(crate) async fn compose_successor_research_intent_v1(
     pool: &PgPool,
+    qualification: &PostgresQualificationOwnerV1,
     request: SuccessorResearchIntentCompositionRequestV1,
 ) -> Result<SuccessorResearchIntentReadbackV1, SuccessorResearchIntentPostgresErrorV1> {
     validate_composition_request(&request)?;
+    let resolved = match Box::pin(basis_to_resolve_for_new_successor(pool, &request)).await? {
+        Some(basis) => {
+            let resolution = qualification.resolve_or_create_for_basis(&basis).await;
+            Some((basis, resolution))
+        }
+        None => None,
+    };
     let mut transaction = pool.begin().await.map_err(storage)?;
     lock_composition_key(&mut transaction, &request.decision_identity).await?;
 
@@ -385,10 +404,24 @@ pub(crate) async fn compose_successor_research_intent_v1(
         return Err(storage("successor Decision locator mismatch"));
     }
 
+    let basis = Box::pin(family_independence_basis_in_transaction(
+        &mut transaction,
+        &census,
+    ))
+    .await?;
+    let protected_feedback = admit_successor_protected_feedback_in_transaction(
+        &mut transaction,
+        qualification,
+        &basis,
+        &admission,
+        resolved,
+    )
+    .await?;
     let source = Box::pin(source_from_locked_custody(
         &mut transaction,
         &census,
         &decision,
+        &protected_feedback,
     ))
     .await?;
     let committed_at_epoch_ms = owner_clock_epoch_ms_in_transaction(&mut transaction).await?;
@@ -411,8 +444,233 @@ pub(crate) async fn compose_successor_research_intent_v1(
     if readback != issued {
         return Err(storage("committed successor Intent readback changed"));
     }
+    let refreshed = qualification
+        .admit_in_transaction(&mut transaction, &basis)
+        .await;
+
+    if !matches!(&refreshed, Ok(Some(refreshed)) if *refreshed == protected_feedback) {
+        return Err(refuse_protected_feedback(
+            SUCCESSOR_PROTECTED_FEEDBACK_REFRESH_MISMATCH_COORDINATE_V1,
+            "the protected-feedback projection changed between its admission and the commit",
+        ));
+    }
     transaction.commit().await.map_err(storage)?;
     Ok(readback)
+}
+
+/// A successor request admitted for an operator whose principal and scope are not its
+/// TrialFamily basis's. It negates the request, which no retry changes, so it is refused as an
+/// invalid proposal under this reason rather than as an unavailable Owner.
+pub(crate) const SUCCESSOR_PROTECTED_FEEDBACK_PRINCIPAL_SCOPE_REFUSAL_V1: &str =
+    "the successor's admitted principal and scope are not its TrialFamily basis's";
+
+/// Where each refusal that the environment may change is recorded. Each writes nothing and
+/// answers the Owner unavailable, as any other store state the successor could not use does.
+pub(crate) const SUCCESSOR_PROTECTED_FEEDBACK_RESOLVE_COORDINATE_V1: &str =
+    "research_goal_owner.compose_successor_v1.protected_feedback.resolve";
+pub(crate) const SUCCESSOR_PROTECTED_FEEDBACK_ABSENT_COORDINATE_V1: &str =
+    "research_goal_owner.compose_successor_v1.protected_feedback.absent";
+pub(crate) const SUCCESSOR_PROTECTED_FEEDBACK_MISMATCH_COORDINATE_V1: &str =
+    "research_goal_owner.compose_successor_v1.protected_feedback.mismatch";
+pub(crate) const SUCCESSOR_PROTECTED_FEEDBACK_REFRESH_MISMATCH_COORDINATE_V1: &str =
+    "research_goal_owner.compose_successor_v1.protected_feedback.refresh_mismatch";
+/// A successor's protected-feedback projection that was not admitted under its TrialFamily's
+/// Independence Basis. The same coordinate answers when a successor is created and when its
+/// Artifact build binds it.
+pub(crate) const SUCCESSOR_PROTECTED_FEEDBACK_FOREIGN_BASIS_COORDINATE_V1: &str =
+    "research_goal_owner.compose_successor_v1.protected_feedback.foreign_basis";
+
+fn refuse_protected_feedback(
+    coordinate: &'static str,
+    cause: &(impl Display + ?Sized),
+) -> SuccessorResearchIntentPostgresErrorV1 {
+    crate::storage_diagnostic::refused_by_store(coordinate, &cause.to_string());
+    storage(format!("{coordinate}: {cause}"))
+}
+
+/// The basis a new successor must resolve protected feedback under, read before the creating
+/// transaction because Qualification's resolution commits in its own; `None` when the successor
+/// already exists and replays.
+async fn basis_to_resolve_for_new_successor(
+    pool: &PgPool,
+    request: &SuccessorResearchIntentCompositionRequestV1,
+) -> Result<Option<RdIndependenceBasisLocatorV1>, SuccessorResearchIntentPostgresErrorV1> {
+    let mut transaction = pool.begin().await.map_err(storage)?;
+    if load_by_decision_in_transaction(&mut transaction, &request.decision_identity, Some(request))
+        .await?
+        .is_some()
+    {
+        transaction.rollback().await.map_err(storage)?;
+        return Ok(None);
+    }
+    let family_identity = load_decision_family_identity(
+        &mut transaction,
+        &request.decision_identity,
+        &request.result_identity,
+    )
+    .await?;
+    let census =
+        crate::trial_family_postgres::load_trial_family_census_v2_by_family_in_transaction(
+            &mut transaction,
+            &family_identity,
+        )
+        .await?;
+    let basis = Box::pin(family_independence_basis_in_transaction(
+        &mut transaction,
+        &census,
+    ))
+    .await?;
+    transaction.rollback().await.map_err(storage)?;
+    Ok(Some(basis))
+}
+
+/// The Independence Basis a TrialFamily was admitted under: the one its initial Research Intent
+/// committed. A successor commits no basis of its own.
+async fn family_independence_basis_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    census: &TrialFamilyCensusReadbackV2,
+) -> Result<RdIndependenceBasisLocatorV1, SuccessorResearchIntentPostgresErrorV1> {
+    let custody = Box::pin(admit_research_custody_in_transaction(
+        transaction,
+        ResearchCustodyLookupV1::Intent(
+            census.legacy_family.initial_intent_member().fact_identity(),
+        ),
+    ))
+    .await?
+    .ok_or_else(|| storage("TrialFamily initial Research Intent custody is missing"))?;
+    let Some(FrozenResearchGoalIntent::V2(intent)) = custody.intent() else {
+        return Err(storage(
+            "TrialFamily initial Research Intent V2 is required",
+        ));
+    };
+    admitted_independence_basis_in_transaction(
+        transaction,
+        &intent.independence_basis_identity,
+        &intent.independence_basis_digest,
+    )
+    .await
+}
+
+async fn admitted_independence_basis_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    basis_identity: &str,
+    basis_digest: &str,
+) -> Result<RdIndependenceBasisLocatorV1, SuccessorResearchIntentPostgresErrorV1> {
+    let basis =
+        admit_independence_basis_by_identity_in_transaction(transaction, basis_identity).await?;
+
+    if basis.basis_digest() != basis_digest {
+        return Err(storage("TrialFamily Independence Basis digest mismatch"));
+    }
+    Ok(basis.locator())
+}
+
+/// Admits, in the creating transaction, the protected-feedback projection a new successor freezes:
+/// the one Qualification resolved for the family's basis, still current under the creating lock,
+/// admitted for an operator whose principal and scope are the basis's own.
+async fn admit_successor_protected_feedback_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    qualification: &PostgresQualificationOwnerV1,
+    basis: &RdIndependenceBasisLocatorV1,
+    admission: &ProductEdgeAdmissionReadbackV1,
+    resolved: Option<(
+        RdIndependenceBasisLocatorV1,
+        Result<ProtectedFeedbackFrontierReadbackV1, vibe_qualification::QualificationOwnerError>,
+    )>,
+) -> Result<ProtectedFeedbackFrontierReadbackV1, SuccessorResearchIntentPostgresErrorV1> {
+    if admission.effective_principal() != basis.principal
+        || admission.authorized_scope() != basis.request_scope.as_slice()
+    {
+        return Err(SuccessorResearchIntentErrorV1::Invalid(
+            SUCCESSOR_PROTECTED_FEEDBACK_PRINCIPAL_SCOPE_REFUSAL_V1,
+        )
+        .into());
+    }
+    let resolved = match resolved {
+        Some((resolved_basis, Ok(resolved))) if resolved_basis == *basis => resolved,
+        Some((_, Err(cause))) => {
+            return Err(refuse_protected_feedback(
+                SUCCESSOR_PROTECTED_FEEDBACK_RESOLVE_COORDINATE_V1,
+                &cause,
+            ));
+        }
+        _ => {
+            return Err(refuse_protected_feedback(
+                SUCCESSOR_PROTECTED_FEEDBACK_RESOLVE_COORDINATE_V1,
+                "no protected feedback was resolved for the TrialFamily basis",
+            ));
+        }
+    };
+    let admitted = match qualification.admit_in_transaction(transaction, basis).await {
+        Ok(Some(admitted)) => admitted,
+        Ok(None) => {
+            return Err(refuse_protected_feedback(
+                SUCCESSOR_PROTECTED_FEEDBACK_ABSENT_COORDINATE_V1,
+                "Qualification admitted no protected-feedback projection for the TrialFamily basis",
+            ));
+        }
+        Err(cause) => {
+            return Err(refuse_protected_feedback(
+                SUCCESSOR_PROTECTED_FEEDBACK_ABSENT_COORDINATE_V1,
+                &cause,
+            ));
+        }
+    };
+
+    if admitted != resolved {
+        return Err(refuse_protected_feedback(
+            SUCCESSOR_PROTECTED_FEEDBACK_MISMATCH_COORDINATE_V1,
+            "the projection admitted under the creating lock differs from the one resolved before it",
+        ));
+    }
+    Ok(admitted)
+}
+
+/// Proves that the protected-feedback projection a successor Intent froze was admitted under its
+/// TrialFamily's Independence Basis, `basis_identity` and `basis_digest`, which the Intent names.
+/// Qualification owns that binding: its historical admission answers a projection only for the
+/// basis it was admitted under.
+pub(crate) async fn verify_successor_protected_feedback_basis_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    basis_identity: &str,
+    basis_digest: &str,
+    projection_identity: &str,
+    projection_digest: &str,
+) -> Result<(), SuccessorResearchIntentPostgresErrorV1> {
+    let basis =
+        admitted_independence_basis_in_transaction(transaction, basis_identity, basis_digest)
+            .await?;
+
+    match vibe_qualification::admit_historical_projection_in_transaction(
+        transaction,
+        &basis,
+        projection_identity,
+        projection_digest,
+    )
+    .await
+    {
+        Ok(Some(projection))
+            if projection.projection_identity() == projection_identity
+                && projection.projection_digest() == projection_digest =>
+        {
+            Ok(())
+        }
+        Ok(_) => Err(foreign_basis()),
+        Err(cause) => {
+            crate::storage_diagnostic::refused_by_store(
+                SUCCESSOR_PROTECTED_FEEDBACK_FOREIGN_BASIS_COORDINATE_V1,
+                &cause,
+            );
+            Err(foreign_basis())
+        }
+    }
+}
+
+fn foreign_basis() -> SuccessorResearchIntentPostgresErrorV1 {
+    refuse_protected_feedback(
+        SUCCESSOR_PROTECTED_FEEDBACK_FOREIGN_BASIS_COORDINATE_V1,
+        "the successor's protected-feedback projection was not admitted under its TrialFamily's Independence Basis",
+    )
 }
 
 pub(crate) async fn resolve_successor_research_intent_v1(
@@ -442,8 +700,6 @@ struct PredecessorContextV1 {
     trial_family_policy_digest: String,
     independence_basis_identity: String,
     independence_basis_digest: String,
-    protected_feedback_projection_identity: String,
-    protected_feedback_projection_digest: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -778,6 +1034,7 @@ async fn source_from_locked_custody(
     transaction: &mut Transaction<'_, Postgres>,
     census: &TrialFamilyCensusReadbackV2,
     readback: &CandidateComparisonDecisionReadbackV1,
+    protected_feedback: &ProtectedFeedbackFrontierReadbackV1,
 ) -> Result<SuccessorResearchIntentSourceV1, SuccessorResearchIntentPostgresErrorV1> {
     let decision = readback.decision();
     let (experiment_identity, experiment_digest) = match decision.outcome() {
@@ -829,8 +1086,8 @@ async fn source_from_locked_custody(
         census_frontier_digest: evidence.census_frontier_digest.clone(),
         independence_basis_identity: predecessor.independence_basis_identity,
         independence_basis_digest: predecessor.independence_basis_digest,
-        protected_feedback_projection_identity: predecessor.protected_feedback_projection_identity,
-        protected_feedback_projection_digest: predecessor.protected_feedback_projection_digest,
+        protected_feedback_projection_identity: protected_feedback.projection_identity().to_owned(),
+        protected_feedback_projection_digest: protected_feedback.projection_digest().to_owned(),
         experiment_identity: experiment_identity.clone(),
         experiment_digest: experiment_digest.clone(),
         experiment: chosen.experiment.clone(),
@@ -868,12 +1125,6 @@ async fn load_predecessor_context(
             trial_family_policy_digest: intent.trial_family_policy_digest.clone(),
             independence_basis_identity: intent.independence_basis_identity.clone(),
             independence_basis_digest: intent.independence_basis_digest.clone(),
-            protected_feedback_projection_identity: intent
-                .protected_feedback_projection_identity
-                .clone(),
-            protected_feedback_projection_digest: intent
-                .protected_feedback_projection_digest
-                .clone(),
         });
     }
     let successor = load_by_intent_in_transaction(transaction, intent_identity)
@@ -891,12 +1142,6 @@ async fn load_predecessor_context(
         trial_family_policy_digest: intent.trial_family_policy_digest().to_string(),
         independence_basis_identity: intent.independence_basis_identity().to_string(),
         independence_basis_digest: intent.independence_basis_digest().to_string(),
-        protected_feedback_projection_identity: intent
-            .protected_feedback_projection_identity()
-            .to_string(),
-        protected_feedback_projection_digest: intent
-            .protected_feedback_projection_digest()
-            .to_string(),
     })
 }
 

@@ -1590,3 +1590,22 @@ fn a_fair_value_gap_program_evicts_the_oldest_gap_only_when_its_slots_are_full()
         "each gap is cleared by the bar that trades into it"
     );
 }
+
+/// The lowerer keeps its own spelling of a coordinate port id because its source is frozen: the V3
+/// build capsule binds the lowerer's source digest, so deleting the copy would re-identify every
+/// build and needs a capsule compatibility migration. This holds the copy to the Owner's one
+/// spelling in `strategy_plan_v2` instead.
+#[rstest::rstest]
+fn the_lowerer_s_frozen_coordinate_port_id_is_the_owner_s() {
+    for bytes in [
+        [0_u8; 32],
+        [0xff; 32],
+        std::array::from_fn(|index| u8::try_from(index).expect("32 bytes")),
+    ] {
+        let identity = BindingDigest::from_untrusted_bytes(bytes);
+        assert_eq!(
+            coordinate_port_id(identity),
+            crate::strategy_plan_v2::coordinate_port_id(identity),
+        );
+    }
+}

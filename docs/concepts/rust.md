@@ -134,7 +134,8 @@ The minimum supported Rust version (MSRV) is **1.97.1**.
 :::tip
 Standard 9-digit precision handles most traditional finance instruments.
 Enable `high-precision` for crypto venues where prices can have many decimal
-places (e.g. `0.00000001`).
+places (e.g. `0.00000001`). This product's own crates always build with it:
+`vibe-strategy-factory` declares it on its `vibe-model` dependency.
 :::
 
 ### Memory allocator
