@@ -4009,3 +4009,118 @@ mod contract_info_normalization_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod exchange_info_snapshot_tests {
+    use rstest::rstest;
+
+    use super::*;
+
+    /// The recorded USD-M `exchangeInfo` the baseline comes from, as the baseline intake reads it.
+    const USDM: &[u8] = include_bytes!(
+        "../../../adapters/binance/test_data/futures/http_json/exchange_info_usdm.json"
+    );
+    const RETRIEVED_NS: i128 = 1_790_000_000_000_000_000;
+    const OBSERVED_NS: i128 = 1_790_000_000_500_000_000;
+
+    fn binding() -> (BindingDigest, BindingDigest) {
+        (
+            BindingDigest::from_untrusted_bytes([7; 32]),
+            BindingDigest::from_untrusted_bytes([8; 32]),
+        )
+    }
+
+    fn venue() -> &'static InstrumentMasterVenueV2 {
+        instrument_master_venue_v2("usdm/exchangeInfo").expect("the USD-M row")
+    }
+
+    fn baseline_of(raw_symbol: &str) -> InstrumentMasterFactV2 {
+        let (identity, digest) = binding();
+        InstrumentMasterFactV2::from_exchange_info_baseline(
+            ExchangeInfoBaselineV2::from_usdm_exchange_info(
+                USDM,
+                raw_symbol,
+                venue(),
+                ExchangeInfoRetrievalV2 {
+                    source_binding_identity: identity,
+                    source_binding_digest: digest,
+                    retrieval_time_ns: RETRIEVED_NS,
+                    owner_observation_time_ns: OBSERVED_NS,
+                },
+            )
+            .unwrap(),
+        )
+        .unwrap()
+    }
+
+    fn hex(digest: BindingDigest) -> String {
+        use std::fmt::Write as _;
+
+        digest
+            .as_bytes()
+            .iter()
+            .fold(String::new(), |mut text, byte| {
+                write!(text, "{byte:02x}").unwrap();
+                text
+            })
+    }
+
+    /// F's case: a baseline from the recorded payload, the status successor B1 admits after it,
+    /// and a one-member cut over the baseline keep the exact bytes they had before snapshot
+    /// successors existed. These were read from that tree, so a codec change that is not additive
+    /// moves one of them.
+    #[rstest]
+    fn a_baseline_its_status_successor_and_its_cut_keep_their_bytes() {
+        let baseline = baseline_of("BTCUSDT");
+        let delta = baseline
+            .usdm_contract_info_delta(
+                &serde_json::to_vec(&serde_json::json!({
+                    "e": "contractInfo", "E": 1_790_086_400_000_u64, "s": "BTCUSDT",
+                    "ct": "PERPETUAL", "cs": "SETTLING", "st": 1
+                }))
+                .unwrap(),
+                ContractInfoRetrievalV2 {
+                    retrieval_time_ns: 1_790_086_401_000_000_000,
+                    owner_observation_time_ns: 1_790_086_460_000_000_000,
+                },
+            )
+            .unwrap();
+        let successor = baseline.apply_contract_info_delta(delta).unwrap();
+        let cut = InstrumentMasterCutV2::issue(
+            InstrumentMasterCutRequestV2::new(BindingDigest::from_untrusted_bytes([30; 32]), 7),
+            BindingDigest::from_untrusted_bytes([31; 32]),
+            BindingDigest::from_untrusted_bytes([32; 32]),
+            BindingDigest::from_untrusted_bytes([33; 32]),
+            vec![baseline.clone()],
+        )
+        .unwrap();
+
+        assert_eq!(
+            (
+                baseline.canonical_bytes().len(),
+                hex(baseline.identity()).as_str()
+            ),
+            (
+                414,
+                "eb7ca6f83437082c6e838d88c2d70827e9f8c460848ae9587894f5b8f0383144"
+            )
+        );
+        assert_eq!(
+            (
+                successor.canonical_bytes().len(),
+                hex(successor.identity()).as_str()
+            ),
+            (
+                669,
+                "c849c3b0b9ccbe39e1fbd5f1c6f2457b21ff7a938a99e3cfe43e53b97f6dc5e2"
+            )
+        );
+        assert_eq!(
+            (cut.canonical_bytes().len(), hex(cut.identity()).as_str()),
+            (
+                669,
+                "2cf8cc2bb714c0ec23bfc5445a7816e199d5936ef375a9c1510a1da1262f270d"
+            )
+        );
+    }
+}
