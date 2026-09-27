@@ -7,7 +7,8 @@ filter counts as triggered. A workflow with no pull_request trigger never does. 
 workflow files are read from this checkout and given real diffs:
 - #1100's files, which include the root Cargo.toml, require docs-pages;
 - a Dashboard file requires product-packages;
-- a plain crate edit requires none of them.
+- a plain crate edit requires none of them;
+- a service's uv.lock requires security-audit and that service's own workflow.
 
 """
 
@@ -77,6 +78,7 @@ def main() -> None:
             "docs-pages.yml",
             "product-packages.yml",
             "bilibili-note-mcp.yml",
+            "security-audit.yml",
             "codeql-analysis.yml",
         )
     }
@@ -97,11 +99,25 @@ def main() -> None:
         "docs-pages.yml": (True, False, False),
         "product-packages.yml": (False, True, False),
         "bilibili-note-mcp.yml": (False, False, False),
+        "security-audit.yml": (True, False, False),
     }
     for name, (on1100, on_dash, on_plain) in expect.items():
         check(f"{name} on #1100's diff", real[name], pr1100, on1100)
         check(f"{name} on a Dashboard edit", real[name], dashboard, on_dash)
         check(f"{name} on a plain crate edit", real[name], plain, on_plain)
+    service_lock = ["services/bilibili-note-mcp/uv.lock"]
+    check(
+        "security-audit.yml on a service lockfile",
+        real["security-audit.yml"],
+        service_lock,
+        True,
+    )
+    check(
+        "bilibili-note-mcp.yml on its own lockfile",
+        real["bilibili-note-mcp.yml"],
+        service_lock,
+        True,
+    )
     print(
         "ok: path-filtered workflows are required exactly when their own paths say they run, and on any doubt",
     )
