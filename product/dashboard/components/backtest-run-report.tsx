@@ -79,10 +79,12 @@ export function BacktestRunReport({ report }: { report: BacktestRunReportProject
             <SeriesLine points={report.series} />
           ) : (
             // Empty is a run that produced no points, not a read that failed: the facts above and the
-            // fills below are still the run's own, so this says what is missing and nothing more.
+            // fills below are still the run's own, so this says what is missing and the Owner's reason
+            // for it, shown as the Owner states it, and nothing more.
             <EmptyState title="No observations">
               This run produced no observation points, so it states no series, net return or maximum
-              drawdown.
+              drawdown. The Backtest Owner states why:{" "}
+              <code data-empty-reason={report.empty_reason}>{report.empty_reason}</code>.
             </EmptyState>
           )}
           <FillsTable fills={report.fills} />

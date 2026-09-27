@@ -2580,6 +2580,60 @@ pub(crate) mod tests {
         }
     }
 
+    /// And the other way round: once the declaration says exchange session day, the 24-hour UTC
+    /// bar a perpetual's `1d` klines are is another bar, refused by name, while the same schedule
+    /// under the UTC-day declaration is selected.
+    #[rstest::rstest]
+    fn a_utc_day_is_refused_under_a_declared_session_day() {
+        let verified = two_member_frame();
+        let utc_day = || {
+            schedule_shaped(
+                "AAA-PERP.SIM",
+                40,
+                (
+                    BarScheduleKindV1::FixedInterval,
+                    BarScheduleUnitV1::Hour,
+                    24,
+                ),
+                DeclaredBarAnchorV1::UnixEpoch,
+                BarScheduleClockV1::Continuous,
+            )
+        };
+        let declared_session_day = declared_bar_timeframe_for_test_v1(
+            digest(19),
+            &UntrustedSourceBarTimeframeV1 {
+                row_timeframe: "1D".to_owned(),
+                cadence: UntrustedSourceBarCadenceV1::ExchangeSessionDay,
+                anchor: UntrustedSourceBarAnchorV1::SessionOpen,
+                clock: UntrustedSourceBarClockV1::ScheduleBounded,
+                label: UntrustedSourceBarLabelV1::IntervalClose,
+                completion: UntrustedSourceBarCompletionV1::CompleteOnly,
+            },
+        );
+
+        assert!(
+            select_native_replay_schedule_v1(
+                vec![utc_day()],
+                &verified,
+                InstrumentId::from("AAA-PERP.SIM"),
+                &declared_utc_day(),
+                100,
+            )
+            .is_ok()
+        );
+        assert_eq!(
+            select_native_replay_schedule_v1(
+                vec![utc_day()],
+                &verified,
+                InstrumentId::from("AAA-PERP.SIM"),
+                &declared_session_day,
+                100,
+            )
+            .err(),
+            Some(NativeReplaySchedulingErrorV1::DeclaredBarTimeframeMismatch)
+        );
+    }
+
     /// A declaration speaks for its own binding's batch only.
     #[rstest::rstest]
     fn another_bindings_declaration_selects_and_seals_nothing() {

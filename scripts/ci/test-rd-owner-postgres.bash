@@ -1182,30 +1182,44 @@ readonly chain_log_sqlx_performance_hint='^[^ ]+ +WARN sqlx::(query: slow statem
 # `coordinate=` and are listed by entry and coordinate. sqlx performance hints are only totalled.
 # Anything else - a sqlx connection error, an Owner cause logged without a coordinate - is listed by
 # entry with its first line, never folded into either of the other two.
+#
+# classify_chain_log is the one place that sorts an entry's log into them, for the round's report and
+# for a failed entry's printout alike: one tab-tagged line per event (refusal, hint or other), and
+# exit 3 with nothing printed when the log is missing or lacks the collector's marker - not observed,
+# never "no warnings". The marker line is not an event, although it says "WARN".
+classify_chain_log() {
+  local log="$1"
+  [[ -f "$log" && "$(head -n 1 -- "$log")" == "$chain_log_collecting_marker" ]] || return 3
+  # The pattern goes through ENVIRON, not -v: awk -v would read its backslashes as escapes, and a
+  # future `\.` in it would stop matching with nothing turning red.
+  tail -n +2 -- "$log" | CHAIN_LOG_HINT="$chain_log_sqlx_performance_hint" awk '
+    !/^[^ ]+ +(WARN|ERROR) / { next }
+    $0 ~ ENVIRON["CHAIN_LOG_HINT"] { print "hint\t" $0; next }
+    index($0, "coordinate=\"") { print "refusal\t" $0; next }
+    { print "other\t" $0 }
+  '
+}
+
 report_collected_warnings() {
   local record_dir="$1" entry_count="$2" position log events coordinates other count first
   local collected=0 refusing=0 othering=0 hints=0
   local -a unobserved=() refusal_lines=() other_lines=()
   for position in $(seq 1 "$entry_count"); do
     log="$(printf '%s/%03d.log' "$record_dir" "$position")"
-    if [[ ! -f "$log" || "$(head -n 1 -- "$log")" != "$chain_log_collecting_marker" ]]; then
+    if ! events="$(classify_chain_log "$log")"; then
       unobserved+=("$position")
       continue
     fi
     collected=$((collected + 1))
-    # Events only: the marker line itself says "WARN".
-    events="$(tail -n +2 -- "$log" | grep -E '^[^ ]+ +WARN ' || true)"
     [[ -n "$events" ]] || continue
-    count="$(printf '%s\n' "$events" | grep -cE "$chain_log_sqlx_performance_hint" || true)"
+    count="$(grep -c '^hint' <<< "$events" || true)"
     hints=$((hints + count))
-    events="$(printf '%s\n' "$events" | grep -vE "$chain_log_sqlx_performance_hint" || true)"
-    [[ -n "$events" ]] || continue
-    coordinates="$(printf '%s\n' "$events" | grep -o 'coordinate="[^"]*"' | sed -e 's/^coordinate="//' -e 's/"$//' | sort -u | paste -sd ' ' - || true)"
+    coordinates="$(grep '^refusal' <<< "$events" | grep -o 'coordinate="[^"]*"' | sed -e 's/^coordinate="//' -e 's/"$//' | sort -u | paste -sd ' ' - || true)"
     if [[ -n "$coordinates" ]]; then
       refusing=$((refusing + 1))
       refusal_lines+=("  refused, entry ${position}: ${coordinates}")
     fi
-    other="$(printf '%s\n' "$events" | grep -v 'coordinate="' || true)"
+    other="$(grep '^other' <<< "$events" | cut -f2- || true)"
     if [[ -n "$other" ]]; then
       othering=$((othering + 1))
       count="$(printf '%s\n' "$other" | grep -c '' || true)"
@@ -1289,6 +1303,160 @@ check_collected_warning_report() {
   if require_collected_positive_control "$fixtures" 5 2> /dev/null; then
     rm -rf -- "$fixtures"
     echo "ERROR: the collector's positive control accepts a log that holds neither coordinate." >&2
+    return 1
+  fi
+  rm -rf -- "$fixtures"
+}
+
+# A failing entry's own warnings, in the job log. The collector writes them to NNN.log only, inside
+# the chain-record artifact, so when an Owner refusal reached its test as a bare 503 (F's H8,
+# 2026-09-27) the job log said where the chain stopped and not why, and finding out meant
+# downloading the artifact or rerunning on a machine. Printed after the sentence that says where the
+# run stopped and bounded: classify_chain_log's refusals and other warnings first, its sqlx hints
+# only counted, then the file's last lines, each line cut to a fixed width.
+#
+# Nothing is printed before it is redacted, and redaction must not erase the diagnosis with it:
+# - the password in any URL, keeping its scheme, user, host and database;
+# - the values in CHAIN_REDACT_VALUES (the chain's generated test password);
+# - every environment value whose name reads as a credential;
+# - every other environment value of 8 or more characters, unless it names an existing path, is a
+#   URL (its password is already covered), or is a bare identifier or host such as `rd_owner` or
+#   `127.0.0.1`.
+readonly chain_failed_entry_event_limit=40
+readonly chain_failed_entry_tail_lines=20
+readonly chain_failed_entry_line_width=400
+print_failed_entry_warnings() {
+  local log="$1" label="$2" events observed=true events_file
+  echo "::group::Owner warnings recorded by the failed ${label}"
+  if ! events="$(classify_chain_log "$log")"; then
+    observed=false
+    if [[ -f "$log" ]]; then
+      echo "not observed: ${log} does not begin with the collector's marker"
+    else
+      echo "not observed: ${log} was not written"
+    fi
+  fi
+  if [[ -f "$log" ]]; then
+    # Through a file, not the environment: one environment string is capped at 128 KiB on Linux,
+    # and an entry that logged a thousand warnings would make exec fail and print nothing of them.
+    events_file="$(mktemp)"
+    printf '%s\n' "$events" > "$events_file"
+    python3 - "$log" "$observed" "$events_file" "$chain_failed_entry_event_limit" \
+      "$chain_failed_entry_tail_lines" "$chain_failed_entry_line_width" << 'PY' || echo "the warnings of ${log} could not be read"
+import os
+import re
+import sys
+
+log, observed, events_file = sys.argv[1], sys.argv[2] == "true", sys.argv[3]
+limit, tail, width = (int(a) for a in sys.argv[4:7])
+url_password = re.compile(r"(://[^:/@\s]+:)([^@\s]+)@")
+credential_name = re.compile(r"PASS|SECRET|TOKEN|KEY|CREDENTIAL|AUTH|DSN|PRIVATE|SALT", re.IGNORECASE)
+bare = re.compile(r"[A-Za-z0-9_.:-]{1,64}")
+secrets = {v for v in os.environ.get("CHAIN_REDACT_VALUES", "").splitlines() if v}
+for name, value in os.environ.items():
+    passwords = [m.group(2) for m in url_password.finditer(value)]
+    if passwords:
+        secrets.update(passwords)
+    elif credential_name.search(name) and len(value) >= 4:
+        secrets.add(value)
+    elif len(value) >= 8 and not os.path.exists(value) and not bare.fullmatch(value):
+        secrets.add(value)
+
+
+def clean(line):
+    line = url_password.sub(r"\1<redacted>@", line)
+    for value in sorted(secrets, key=len, reverse=True):
+        line = line.replace(value, "<redacted>")
+    return line if len(line) <= width else line[:width] + " [cut]"
+
+
+tagged = [line.split("\t", 1) for line in open(events_file, encoding="utf-8").read().splitlines() if "\t" in line]
+refusals = [line for kind, line in tagged if kind == "refusal"]
+others = [line for kind, line in tagged if kind == "other"]
+hints = [line for kind, line in tagged if kind == "hint"]
+if observed:
+    print(f"{len(refusals)} refusal(s), {len(others)} other warning(s), {len(hints)} sqlx performance hint(s) in {log}")
+shown = refusals + others
+for line in shown[:limit]:
+    print(clean(line))
+if len(shown) > limit:
+    print(f"... {len(shown) - limit} more in {log}")
+print(f"--- last {tail} lines of {log}")
+for line in open(log, encoding="utf-8", errors="replace").read().splitlines()[-tail:]:
+    print(clean(line))
+PY
+    rm -f -- "$events_file"
+  fi
+  echo "::endgroup::"
+}
+
+# print_failed_entry_warnings on fixed files: every kind of line lands where it should, the limits
+# hold, no secret survives, and redaction keeps what a diagnosis needs. Each absence is checked next
+# to a line that must be there, so a secret cannot pass as redacted because nothing was printed.
+check_failed_entry_warnings() {
+  local fixtures output position
+  local token='fixture-token-9f3c2a7b' password='fixturepassword00ff' dsn_password='dsnpass77'
+  local opaque='opaque value / with ? spaces 42' inline='inlinepass9'
+  fixtures="$(mktemp -d)"
+  {
+    printf '%s\n' "$chain_log_collecting_marker"
+    printf '%s\n' '2026-01-01T00:00:00.000000Z  WARN vibe_product_edge: Product Edge authority unavailable coordinate="fixture.refusal" detail=WINDOW_NOT_CURRENT'
+    printf '%s\n' "2026-01-01T00:00:00.000000Z  WARN sqlx_core::pool: connect failed url=postgres://rd_owner:${password}@db.internal/vibe?sslmode=disable token=${token}"
+    printf '%s\n' "2026-01-01T00:00:00.000000Z ERROR vibe_fixture: env dsn postgres://product_edge_owner:${dsn_password}@127.0.0.1:5432/vibe role rd_owner note ${opaque}"
+    printf '%s\n' "2026-01-01T00:00:00.000000Z  WARN vibe_fixture: inline dsn postgresql://writer:${inline}@replica.internal:6432/archive"
+    printf '%s\n' '2026-01-01T00:00:00.000000Z  WARN sqlx::query: slow statement: execution time exceeded alert threshold summary="SELECT 1" elapsed=1.5'
+    printf '%s %s\n' '2026-01-01T00:00:00.000000Z  WARN vibe_fixture: long' "$(printf 'x%.0s' {1..500})"
+  } > "$fixtures/001.log"
+  output="$(
+    FIXTURE_API_TOKEN="$token" CHAIN_REDACT_VALUES="$password" FIXTURE_ROLE=rd_owner \
+      FIXTURE_DATABASE_URL="postgres://product_edge_owner:${dsn_password}@127.0.0.1:5432/vibe" \
+      FIXTURE_NOTE="$opaque" print_failed_entry_warnings "$fixtures/001.log" 'entry 1/1 (fixture)'
+  )"
+  if [[ "$output" != *'::group::Owner warnings recorded by the failed entry 1/1 (fixture)'* ]] ||
+    [[ "$output" != *'::endgroup::'* ]] ||
+    [[ "$output" != *'1 refusal(s), 4 other warning(s), 1 sqlx performance hint(s)'* ]] ||
+    [[ "$output" != *'inline dsn postgresql://writer:<redacted>@replica.internal:6432/archive'* ]] ||
+    [[ "$output" != *'coordinate="fixture.refusal" detail=WINDOW_NOT_CURRENT'* ]] ||
+    [[ "$output" != *'url=postgres://rd_owner:<redacted>@db.internal/vibe?sslmode=disable token=<redacted>'* ]] ||
+    [[ "$output" != *'postgres://product_edge_owner:<redacted>@127.0.0.1:5432/vibe role rd_owner note <redacted>'* ]] ||
+    [[ "$output" == *"$token"* || "$output" == *"$password"* || "$output" == *"$dsn_password"* || "$output" == *"$inline"* ]] ||
+    [[ "$output" == *"$opaque"* ]] ||
+    [[ "$output" != *' [cut]'* ]] ||
+    [[ "$output" == *"$(printf 'x%.0s' {1..401})"* ]]; then
+    rm -rf -- "$fixtures"
+    echo "ERROR: the failed entry's warnings are misprinted (grouped; refusal, other and hint counted; secrets redacted while user, host and database stay; long lines cut):" >&2
+    printf '%s\n' "$output" >&2
+    return 1
+  fi
+  {
+    printf '%s\n' "$chain_log_collecting_marker"
+    for position in $(seq 1 45); do
+      printf '2026-01-01T00:00:00.000000Z  WARN vibe_fixture: other %s\n' "$position"
+    done
+  } > "$fixtures/002.log"
+  output="$(print_failed_entry_warnings "$fixtures/002.log" 'entry 2/2 (fixture)')"
+  if [[ "$output" != *"... 5 more in $fixtures/002.log"* ]] ||
+    [[ "$(grep -c 'vibe_fixture: other' <<< "$output")" -ne $((chain_failed_entry_event_limit + chain_failed_entry_tail_lines)) ]]; then
+    rm -rf -- "$fixtures"
+    echo "ERROR: the failed entry's warnings are not bounded to ${chain_failed_entry_event_limit} events and ${chain_failed_entry_tail_lines} tail lines:" >&2
+    printf '%s\n' "$output" >&2
+    return 1
+  fi
+  printf '%s\n' 'panicked at crates/fixture/src/lib.rs:1:1: no collector here' > "$fixtures/003.log"
+  output="$(print_failed_entry_warnings "$fixtures/003.log" 'entry 3/3 (fixture)')"
+  if [[ "$output" != *"not observed: $fixtures/003.log does not begin with the collector's marker"* ]] ||
+    [[ "$output" == *'refusal(s)'* ]] ||
+    [[ "$output" != *'panicked at crates/fixture/src/lib.rs:1:1: no collector here'* ]]; then
+    rm -rf -- "$fixtures"
+    echo "ERROR: a failed entry's log without the collector's marker is not reported as not observed, with its tail:" >&2
+    printf '%s\n' "$output" >&2
+    return 1
+  fi
+  output="$(print_failed_entry_warnings "$fixtures/004.log" 'entry 4/4 (fixture)')"
+  if [[ "$output" != *"not observed: $fixtures/004.log was not written"* ]]; then
+    rm -rf -- "$fixtures"
+    echo "ERROR: a failed entry without a record is not reported as not observed:" >&2
+    printf '%s\n' "$output" >&2
     return 1
   fi
   rm -rf -- "$fixtures"
@@ -1710,6 +1878,7 @@ if [[ "$chain_reports_only" != true ]]; then
   check_chain_node_declarations
 fi
 check_collected_warning_report
+check_failed_entry_warnings
 # A PostgreSQL crash-reinit leaves the postmaster running, so its start time does not move; what
 # records it is a LOG line, which the lock-and-error excerpt printed at cleanup filters out. Measured
 # before --init: every round's authority-migration drills made the postmaster reap an orphaned shell
@@ -2669,6 +2838,8 @@ cleanup() {
   if [[ "$primary_status" -ne 0 && "$chain_position" -gt 0 && "$chain_completed" != true ]]; then
     echo "ordered chain stopped at entry ${chain_position}/${chain_entry_count} (${chain_entry_label}); $((chain_position - 1)) passed before it." >&2
     report_undeclared_node_entry
+    CHAIN_REDACT_VALUES="${test_password:-}" print_failed_entry_warnings "${VIBE_TEST_LOG_FILE:-}" \
+      "entry ${chain_position}/${chain_entry_count} (${chain_entry_label})"
   fi
 
   if [[ -n "$nextest_extract_dir" ]] &&
