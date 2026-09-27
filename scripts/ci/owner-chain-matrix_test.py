@@ -108,6 +108,97 @@ def check_serial() -> list[str]:
     return failures
 
 
+SELECTOR_LIST = (
+    "shard-1\tc1\ttest_a\t-\n"
+    "shard-2\tc2\ttest_b\tnode\n"
+    "shard-2\tc3\ttest_c\t-\n"
+    "shard-2\tc2\ttest_d\t-\n"
+)
+FULL = [
+    ("rd-owner", "shard-1", ""),
+    ("rd-owner", "shard-2", ""),
+    ("market-data", "", ""),
+]
+
+
+def legs(result: subprocess.CompletedProcess[str]) -> list[tuple[str, str, str]]:
+    return [(e["key"], e["shard"], e["component"]) for e in matrix(result)]
+
+
+def check_selector() -> list[str]:
+    """
+    Check that a readable selector narrows the matrix and anything else runs all of it.
+    """
+    failures = []
+    narrowed = {
+        "test-chain/lane5": (FULL, "", ""),
+        "test-chain/lane5--only-shard-2": ([("rd-owner", "shard-2", "")], "shard-2", "shard-2"),
+        "test-chain/lane5--only-entry-2": (
+            [("rd-owner", "shard-2", "c2")],
+            "entry-2",
+            "shard-2=c2",
+        ),
+        # Two components of one shard cannot be named at once, so the shard runs whole.
+        "test-chain/lane5--only-entry-2+entry-3": (
+            [("rd-owner", "shard-2", "")],
+            "entry-2+entry-3",
+            "shard-2",
+        ),
+        "test-chain/lane5--only-shard-2+entry-2": (
+            [("rd-owner", "shard-2", "")],
+            "shard-2+entry-2",
+            "shard-2",
+        ),
+        "test-chain/lane5--only-md": ([("market-data", "", "")], "md", ""),
+        "test-chain/lane5--only-entry-1+md": (
+            [("rd-owner", "shard-1", "c1"), ("market-data", "", "")],
+            "entry-1+md",
+            "shard-1=c1",
+        ),
+    }
+    for ref, (expected, partial, selection) in narrowed.items():
+        result = run(SELECTOR_LIST, "--selector-ref", ref)
+        out = outputs(result)
+        if (
+            legs(result) != expected
+            or out["rd-partial"] != partial
+            or out["rd-selection"] != selection
+        ):
+            failures.append(
+                f"{ref}: got {legs(result)}, partial {out['rd-partial']!r}, selection {out['rd-selection']!r}",
+            )
+    # A narrowed shard still installs what its whole shard needs.
+    if matrix(run(SELECTOR_LIST, "--selector-ref", "x--only-entry-3"))[0]["node"] != 1:
+        failures.append("a shard narrowed to one component lost its shard's node capability")
+    for bad in (
+        "bogus",
+        "shard-9",
+        "shard-",
+        "entry-0",
+        "entry-5",
+        "",
+        "shard-2+bogus",
+        "SHARD-2",
+        "shard-2 ",
+    ):
+        result = run(SELECTOR_LIST, "--selector-ref", f"test-chain/lane5--only-{bad}")
+        if (
+            legs(result) != FULL
+            or outputs(result)["rd-partial"] != ""
+            or "running the full matrix" not in result.stderr
+        ):
+            failures.append(
+                f"selector {bad!r} did not fall back to the full matrix with a notice: {legs(result)}",
+            )
+    serial = run(SELECTOR_LIST, "--rd-chain", "serial", "--selector-ref", "x--only-shard-2")
+    if (
+        matrix(serial)[0]["name"] != "rd owner postgres serial (ubuntu-22.04)"
+        or outputs(serial)["rd-partial"]
+    ):
+        failures.append("a serial run took a selector")
+    return failures
+
+
 def check_refusals() -> list[str]:
     failures = []
     for tsv, expected in (
@@ -133,7 +224,7 @@ def check_workflows() -> list[str]:
     failures = []
     for workflow, job, options in (
         ("build.yml", "postgres-owner-chain-plan-linux-x86", '--rd-chain "$RD_CHAIN" '),
-        ("owner-chains.yml", "owner-chain-plan", ""),
+        ("owner-chains.yml", "owner-chain-plan", '--selector-ref "$REF_NAME" '),
     ):
         # Whitespace-normalized, so a `run:` folded over two lines reads as the one command it is.
         text = " ".join((ROOT / ".github/workflows" / workflow).read_text(encoding="utf-8").split())
@@ -154,6 +245,7 @@ def main() -> int:
         check_missing_list_refused()
         + check_shards()
         + check_serial()
+        + check_selector()
         + check_refusals()
         + check_workflows()
     )
@@ -163,7 +255,8 @@ def main() -> int:
         return 1
     print(
         "owner-chain-matrix: a missing shard list refused, one entry per shard in name order, "
-        "malformed and empty lists refused, a serial run on request, both workflows use it",
+        "malformed and empty lists refused, a serial run on request, a selector narrows it or runs all, "
+        "both workflows use it",
     )
     return 0
 

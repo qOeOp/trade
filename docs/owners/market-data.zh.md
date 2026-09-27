@@ -82,7 +82,8 @@ ACL 拒绝。它不证明供应商真实性，不证明生产装配，也不证�
   它 `NATIVE_REPLAY_SCHEDULING_ACCEPTANCE_GRANTS_V1`；它的 evidence 在已准入读取携带 receipt 的位置携带标记
   `SEALED_ACCEPTANCE_NO_STORE_ADMISSION_V1`，只有携带该读口的构建才接受这个标记。Admission 本身，包括它租用的主体与那道门上的
   授权，仍然是 `B3`。今天没有任何生产角色持有那道门：部署时的 ACL 切换把 `market_data_private` 的 `USAGE` 从 owner 以外的
-  所有角色收回，而 Store Admission 所测量的调度下限也不覆盖该路径所做的 PIT evaluation 读取。
+  所有角色收回，而已准入读口的测量下限所列的对象也还没有授予任何角色。每个读口只在测量覆盖它所服务读取的下限时才打开，
+  原生 Replay 调度读口的 PIT evaluation 读取也在其中；每次读取在它所依据的每次准入上都再核一遍自己的下限。
   读取一份 BAR schedule 有**两套托管策略**，每种构建一套，而本文档此前一套都没描述过。测试构建自行开启
   `REPEATABLE READ READ ONLY` 事务并自验该 schedule 的历史；生产构建的快照由已准入读口的 evidence 承担，并在返回前
   重新校验。两者跑的是同一个 `verify_bar_schedule_storage_evidence`。差别是一致性保证从哪里来，不是强弱：测试那条
@@ -115,7 +116,8 @@ ACL 拒绝。它不证明供应商真实性，不证明生产装配，也不证�
   resolver（`store_admission/credential_files.rs`）。secret 文件自身没有版本也没有过期时间：其版本是文件原样字节的
   SHA-256，由签名 manifest 指名；其租约在准入的 store 时钟 cut 之后一段固定时长到期。第四个是单机部署的 anti-rollback
   模式 `SingleTrustDomainNoRollbackWitness`（`store_admission/witness.rs`）：单机上 anti-rollback 性质不成立，每张回执都写明
-  这个模式，用户 2026-09-27 的授权载于架构规则。
+  这个模式，用户 2026-09-27 的授权载于架构规则。管理员用 `deployment-store-publication-seal` 与
+  `deployment-store-publication-publish` 封存并发布历史；步骤见 `product/rd-workbench/README.md`。
   `admit_rd_owner_market_data_postgres` 仍接 `Unavailable*` 端口，所以 `required` 在启动时仍然失败关闭。准入只从 custody
   store 的时钟读时间：每次读历史都带回该库的 `clock_timestamp()` cut，commit 也在同一个时钟上判定回执的窗口。
 - **`B4` 消费者未编入已部署镜像。** `product/rd-workbench/Dockerfile.owner` 以默认 feature 构建
@@ -1517,6 +1519,17 @@ BAR 只能使用下述独立 V3 FRAME projection；其 durable Owner custody 是
 TARGET/UNAVAILABLE。它绝不扩大或重新解释 V2。新增 V4 FRAME/JOINED_CUT 与 BAR lifecycle 是
 TARGET/NOT_ADMITTED，且绝不扩大或重新解释 V2 或 V3。
 
+TARGET 缺口，BAR schedule 的生产提议者：`commit_prepared_bar_schedule_v1` 是 BAR schedule custody 唯一的写者，而没有任
+何生产路径提议 schedule；今天每一个提议都由测试或验收夹具构造。native Replay 的初始读需要一个在它的帧上切出的 schedule，
+所以在生产提议者出现之前，驱动这条读的验收从 sealed 验收提议者 `commit_bar_schedule_for_acceptance_v1` 取 schedule，它
+只存在于带 `sealed-strategy-input-acceptance` 的构建里。给定一个 PIT 快照和在它上面声明的一个 BAR 角色，Owner 从快照受
+验的 batch、该角色的 binding 以及快照绑定的 Instrument Master readback 推出 schedule 的每个字段：标签等于角色周期的那
+个形态、master fact 的区间、区间收盘、完整 bar，以及在快照事件时刻的 cut。schedule 属于品种与周期，不属于角色；帧已经
+读得到的 schedule 会被 rejoin，不再重写。找不到快照、batch 验不过、角色未声明、角色跨多个成员、角色所在行不是 BAR、周
+期没有任何 schedule 单位能陈述，以及 Instrument Master readback 缺失，都按名拒绝。Strategy Factory 的切片 F 依赖它。旁
+边还有两个源缺口：没有 schedule 单位能陈述固定间隔的日，所以像 Binance 永续这样的连续日线今天排不了 schedule；已准入的
+Binance 永续源不提供 QUOTE 行，所以永续 Replay 没有可供成交的报价 cut。
+
 `TimeframeSpecV1` 只有一种 fixed canonical codec，字段顺序是：schema `u16LE = 1`、reserved-zero `u16LE`、
 kind `u8`、正 step `u32LE`、unit `u8`、anchor identity `[u8; 32]`、calendar identity `[u8; 32]`、session
 identity `[u8; 32]`、time-zone identity `[u8; 32]`、label-rule `u8`、partial-bar-rule `u8`；禁止 trailing
@@ -1664,42 +1677,53 @@ batch。目前还没有证明在 Owner 托管数据上驱动过一次完整的�
 一次快照。PIT 快照仍然是一个时刻。快照这一支保持它的字节、封印、census 与报价 cut 端口；受验 batch 的封印与报价
 cut 的读各自在旁边新增一条托管视图分支。
 
-切片 T0 准入实现，且只准入 T0。用户于 2026-09-27 授权了这一设计，原话见策略形状包络一节的引文：「换成窗口托管。回补的历史按
-整段一次放进托管；每根 bar 何时可见，由 Source Binding 上声明的规则推导；实时交易仍然每个时刻取一次快照。用户
-授权收窄『每帧各自带有铸造证据』这一性质的适用域：在回测里，帧不再各自带铸造证据，并且只准入回补的历史。」T0 只
-是 Market Data 这一侧：两层托管（截面版本记录，以及后继 sample fact schema 下的行事实）、带分支拒绝的截面更正模
-型、Source Binding 上声明的可得规则、由执行周期的 Owner BAR schedule 枚举帧、带时间证据与 identity 的派生视图、受
-验 batch 封印的 `CustodyView` 分支，以及从托管派生的报价 cut。下文「读者」一条里，T0 记录 Market Semantics fact 与 head、
-Instrument Master cut 与 Reference Fact R0，每条托管链各一次，因为托管视图要经它们来读；声明登记与 universe 成员
-组合基底随消费它们的读者一起放在 T1。托管请求自己陈述成员集与周期；由 Research scope 与
-Design 推导出这份请求属于切片 T1，N 帧 Backtest 的组合与 Market Data 之外的每个读者也属于 T1；T2（多周期角色）与
-T3（按角色预热）在它们的切片准入之前，在本页仍不准入。T0 不新增路由、生产调用方或 Backtest 输入，所以 T1 准入之
-前，除 Market Data 自己的证明外，没有任何东西铸造或读取托管。它的证明是包络里落在 Market Data 之内的那几条证伪：
-N=1 以及两帧单周期数据，在值、坐标、事件时间、bar 类型与成员顺序这组投影上等于快照路径；两份只差「某个更正是否在
-`d_k` 之前发布」的托管，帧 `k` 的值不同，去掉 publication 条件就变红，由一个声明了更正流的合成源驱动；可得规则设
-为铸造时刻时，每一帧都看不见。
+切片 T0 准入实现，且只准入 T0。用户于 2026-09-27 授权了这一设计，原话见策略形状包络一节的引文：「换成窗口托管。回补的
+历史按整段一次放进托管；每根 bar 何时可见，由 Source Binding 上声明的规则推导；实时交易仍然每个时刻取一次快照。用户授
+权收窄『每帧各自带有铸造证据』这一性质的适用域：在回测里，帧不再各自带铸造证据，并且只准入回补的历史。」T0 只是 Market
+Data 这一侧：两层托管（截面版本记录，以及后继 sample fact schema 下的行事实）、带分支拒绝的截面更正模型、Source
+Binding 上声明的可得规则、由执行周期的 Owner BAR schedule 枚举帧、带时间证据与 identity 的派生视图、受验 batch 封印的
+`CustodyView` 分支，以及从托管派生的报价 cut。下文「读者」一条里，T0 记录 Market Semantics fact 与 head、 Instrument
+Master cut 与 Reference Fact R0，每条托管链各一次，因为托管视图要经它们来读；声明登记与 universe 成员组合基底随消费它
+们的读者一起放在 T1。托管请求自己陈述成员集与周期；由 Research scope 与 Design 推导出这份请求属于切片 T1，N 帧
+Backtest 的组合与 Market Data 之外的每个读者也属于 T1；T2（多周期角色）与 T3（按角色预热）在它们的切片准入之前，在本页
+仍不准入。T0 不新增路由、生产调用方或 Backtest 输入，所以 T1 准入之前，除 Market Data 自己的证明外，没有任何东西铸造或
+读取托管。它的证明是包络里落在 Market Data 之内的那几条证伪： N=1 以及两帧单周期数据，在值、坐标、事件时间、bar 类型与
+成员顺序这组投影上等于快照路径；两份只差「某个更正是否在 `d_k` 之前发布」的托管，帧 `k` 的值不同，去掉 publication 条
+件就变红，由一个声明了更正流的合成源驱动；可得规则设为铸造时刻时，每一帧都看不见；在 `d_k` 与报价可得时刻之间发布的更
+正会到达成交报价，但不到达帧 `k` 的策略输入，两者共用一段代码路径就会变红。T0 在 T1 之前不被驱动：它没有生产调用方，所
+以一个完整的 T0 在结构上存在，但没有任何 Backtest 运行它。
 
-- **托管：** 覆盖从预热起点开始的半开窗口，只提交一次，此后不可变。后来的更正是一份后继托管，它指名自己的前驱，
-  只携带它新增的版本；视图沿这条链读到 head。后继托管原样重述前驱的基底 - Market Semantics fact、
-  Instrument Master cut、成员集与可得规则 digest - 基底一变就是新的根托管，绝不是后继，所以一条链绝不混用两套基底。更正单位是截面 - 同一个源、周期与 event-effective 时刻的全部行 -
-  带更正序号、前驱与发布时刻，因为一帧的各行必须共用时间与更正坐标。两个版本指向同一前驱、序号重复，或发布时刻
-  不随序号递增，都是有歧义的分支。托管分两层：一层是截面版本记录，承载 `SampleFactV1` 已陈述的 lineage、分支
-  拒绝与 head 规则；另一层是不可变的行事实，作为某个版本的成员，走后继的 sample fact schema。该 schema 把来源
-  快照那组字段换成截面版本 identity 与行 digest，根 slot 对 series 与 event-effective 时刻做哈希、不含快照
-  digest，所以同一根 bar 跨多次抓取的更正连成一条链。`SampleFactV1` 的字节绝不被重新解释。因此行身份 - Owner
-  event identity、sample slot 与坐标 - 按托管行定键，绝不按派生视图定键，于是同一根高周期 bar 在读到它的每一帧
-  里都带相同的坐标字节。
+- **托管：** 覆盖从预热起点开始的半开窗口，只提交一次，此后不可变。后来的更正是一份后继托管，它指名自己的前驱，只携带
+  它新增的版本；视图沿这条链读到 head。后继托管原样重述前驱的基底 - Market Semantics fact、 Instrument Master cut、成
+  员集与可得规则 digest - 基底一变就是新的根托管，绝不是后继，所以一条链绝不混用两套基底。更正单位是截面 - 同一个源、
+  周期与 event-effective 时刻的全部行 - 带更正序号、前驱与发布时刻，因为一帧的各行必须共用时间与更正坐标。两个版本指向
+  同一前驱、序号重复，或发布时刻不随序号递增，都是有歧义的分支。托管分两层：一层是截面版本记录，承载 `SampleFactV1` 已
+  陈述的 lineage、分支拒绝与 head 规则；另一层是不可变的行事实，作为某个版本的成员，走后继的 sample fact schema。该
+  schema 把来源快照那组字段换成截面版本 identity 与行 digest，根 slot 对 series 与 event-effective 时刻做哈希、不含快
+  照 digest，所以同一根 bar 跨多次抓取的更正连成一条链。`SampleFactV1` 的字节绝不被重新解释。因此行身份 - Owner event
+  identity、sample slot 与坐标 - 按托管行定键，绝不按派生视图定键，于是同一根高周期 bar 在读到它的每一帧里都带相同的坐
+  标字节。在这个 schema 下，series head 每个 event-effective 时刻前进一次：序号加一，事件严格更晚；每个 slot 的
+  correction head 按截面的更正序号前进。`SampleFactV1` 把一行的 series 序号取自它的更正序号，这条规则串不起一个不发布
+  更正的源的各根 bar，所以后继 schema 自己陈述这两条链。
 - **发布：** 截面的发布时刻只从发布更正的源观测得来。不发布更正的源（今天每个已准入的源都是）对每个截面只保留一个
   版本，其发布时刻等于可得时刻，它的后继版本以 `CROSS_SECTION_CORRECTION_NOT_PUBLISHED_BY_SOURCE` 按名拒绝。
   今天没有任何东西能构造这个拒绝，因为托管还不存在；更正的证伪条件由一个声明了更正流的合成源驱动。
 - **可得：** 某行何时可见，由 Source Binding 上声明的规则推导（例如 bar 收盘加源延迟），绝不取请求方盖上的
-  `provider_available`。规则的 digest 进入托管 identity。不看未来建立在这条规则上，而这条规则是声明，不是观测。
-  声明的延迟不严格小于执行 bar 间隔时，无法满足 `d_k < e_{k+1}`，以 `AVAILABILITY_LAG_NOT_BELOW_BAR_INTERVAL`
-  按名拒绝；今天无法构造。
+  `provider_available`。规则的 digest 进入托管 identity。不看未来建立在这条规则上，而这条规则是声明，不是观测。声明的
+  延迟不严格小于执行 bar 间隔时，无法满足 `d_k < e_{k+1}`，以 `AVAILABILITY_LAG_NOT_BELOW_BAR_INTERVAL` 按名拒绝；今天
+  无法构造。规则由 schema 2 的 Source Binding 提案声明，同时声明该源是否发布更正流。规则要么是该行所属 bar 收盘后的一
+  段延迟，要么就是抓取时刻本身，后者用于没有陈述更早时刻的源；设为抓取时刻时，今天铸造的托管在它的窗口里一帧都看不见。
+  它的 digest 只对规则本身取，所以保持同一规则的 binding 后继保持同一 digest，而 binding identity 仍然哈希每个 cut 的
+  frontier 与时间证据。schema 1 的 binding 没有声明规则，托管按名拒为 `SOURCE_BINDING_DECLARES_NO_AVAILABILITY_RULE`，
+  托管提交存在之前没有东西构造它，之后由 T0 的证明驱动。
 - **成员：** 成员集在整份托管内固定。某成员的 Instrument Master 有效期或 Universe 成员资格在窗口内开始或结束，
   就以 `WINDOW_MEMBER_NOT_VALID_THROUGHOUT` 按名拒绝这份托管。
-- **帧：** 从执行周期的 Owner BAR schedule 枚举，绝不从托管行枚举。帧 `k` 有事件时刻 `e_k` 与可得时刻 `d_k`，
-  且 `d_k < e_{k+1}`；没有完整截面的帧以 `PIT_WINDOW_FRAME_NOT_COVERED` 拒绝整次运行。
+- **帧：** 从执行周期的 Owner BAR schedule 枚举，绝不从托管行枚举。帧 `k` 有事件时刻 `e_k` 与可得时刻 `d_k`，且
+  `d_k < e_{k+1}`；没有完整截面的帧以 `PIT_WINDOW_FRAME_NOT_COVERED` 拒绝整次运行。执行周期是固定间隔，从窗口 schedule
+  fact 记录的相位时刻开始枚举，例如日线取 UTC 零点，Binance 周线取周一 UTC 零点；session 型执行周期按名拒为
+  `PIT_WINDOW_EXECUTION_TIMEFRAME_NOT_FIXED_INTERVAL`，托管提交存在之前没有东西构造它，之后由 T0 的证明驱动。这是范围
+  限制，不是性质：session 型周期（例如黄金按交易所 session 的日线）需要以后一个做 session 展开的切片，在那之前一律拒绝。
+  schedule 是托管自己的提交在整个窗口上铸的一个窗口 schedule fact，因为今天的 schedule fact 只能从单个 batch 行铸出。
 - **派生视图：** 对帧 `k`，Market Data 为每个源选出执行周期在 `e_k` 上的截面，以及其他每个周期中可得时刻不晚于
   `d_k` 的最新截面；每一处都取在 `d_k` 之前发布、序号最高的版本，丢掉已撤回的，遇到分支就拒绝。某个声明的周期
   还没有产出截面的帧（例如预热期内）以 `PIT_WINDOW_FRAME_NOT_COVERED` 拒绝整次运行。视图的 decision cut 是 `d_k`，顺序检查是 event ≤ available ≤ publication ≤ `d_k`，
@@ -1714,8 +1738,10 @@ N=1 以及两帧单周期数据，在值、坐标、事件时间、bar 类型与
   slot 按每条托管行携带的 series 与 event-effective 时刻定键，所以后继托管里的更正落在同一个 slot。Reference Fact R0 按每条托管链覆盖整个窗口存一次，某帧的 R0 在读时由它算出，不存按帧的
   locator。PIT evaluation evidence 的读从托管推导，BAR schedule 检查改为一个窗口 schedule fact，其有效区间包含
   `e_k`，且其 cut 不晚于 `d_k`。这些读碰到的每一张表和每个函数都在 admitted-port 的测量范围内。
-- **报价 cut：** 从托管在 `(d_k, e_{k+1})` 之内派生，每个间隙恰好一个、同一时刻、按成员顺序、不占帧序号，而且
-  绝不是后来的更正取代掉的那个版本。
+- **报价 cut：** 从托管在 `(d_k, e_{k+1})` 之内派生，每个间隙恰好一个、同一时刻、按成员顺序、不占帧序号，而且绝不是后
+  来的更正取代掉的那个版本。它的版本是在报价时刻自己的可得时刻之前发布的最高序号，更晚的更正也只在那个时刻取代它：成交
+  在决策之后，而在 `d_k` 上没有报价能入选，因为报价的事件在 `d_k` 之后。这只关乎成交报价。帧 `k` 的策略输入仍然截在
+  `d_k`，所以在 `d_k` 与报价可得时刻之间发布的更正会到达成交报价，绝不到达帧 `k` 的输入。
 
 在 CURRENT/PARTIAL BAR schedule 路径中，只有具备 custody verification 的 readback 才能授权以准确 V1
 binding-receipt digest 为键的新增 immutable `TimeframeProjectionReceiptV1`。其既有 canonical bytes 与 domain

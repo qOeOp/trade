@@ -23,9 +23,9 @@ shard() { # case, shard name, positions...
 
 printf '# header\nshard-1\tc\tt1\t-\nshard-2\tc\tt2\tnode\nshard-1\tc\tt3\tbrowser\n' > "${root}/shards.tsv"
 
-run_case() { # case, expected exit, expected output fragment
+run_case() { # case, expected exit, expected output fragment, then any selected shards
   local status=0
-  bash "$MERGER" "${root}/$1/in" "${root}/$1/out" "${root}/shards.tsv" > "${root}/$1.out" 2>&1 || status=$?
+  bash "$MERGER" "${root}/$1/in" "${root}/$1/out" "${root}/shards.tsv" "${@:4}" > "${root}/$1.out" 2>&1 || status=$?
   if [[ "$status" -ne "$2" ]] || ! grep -qF -- "$3" "${root}/$1.out"; then
     echo "FAIL: $1: expected exit $2 with '$3', got ${status}:" >&2
     cat "${root}/$1.out" >&2
@@ -52,4 +52,13 @@ run_case none 1 "no records from shard-1 shard-2 (of 2 shards)"
 shard stray shard-1 1 && shard stray shard-2 2 && shard stray shard-9 3
 run_case stray 1 "records from shard-9, which"
 
-echo "merge-chain-shard-records: merges the listed shards, refuses duplicates, missing and unlisted shards by name"
+# A partial run: only the selected shard is expected, a shard it did not select is refused, and a
+# selection naming a shard the list does not is refused.
+shard partial shard-2 2 4
+run_case partial 0 "merged 1 shard(s): 2 entry record(s)" shard-2
+shard partial-stray shard-1 1 && shard partial-stray shard-2 2
+run_case partial-stray 1 "records from shard-1, which this partial run did not select" shard-2
+shard partial-unlisted shard-2 2
+run_case partial-unlisted 1 "the selection names shard-7" shard-7
+
+echo "merge-chain-shard-records: merges the listed or selected shards, refuses duplicates, missing, unlisted and unselected shards by name"
