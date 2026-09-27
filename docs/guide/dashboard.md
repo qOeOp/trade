@@ -187,8 +187,12 @@ compute a drawdown the projection did not state, or infer a fill the projection 
 expresses them distinctly: an empty series must not stand for both a run that produced no points and
 a read that could not be answered. The projection names its state rather than leaving it to be
 inferred from an empty array. `empty` means the series has no points and both net return and maximum
-drawdown are null; fills may still be listed, because a run can open and close a position without producing an
-observation point, and a fill is a fact regardless. `available` means the series has points and both
+drawdown are null; fills may still be listed, because a run can fill without the engine recording a return - when
+all its snapshots fall in one engine day, for one - and a fill is a fact regardless. `empty` also shows the
+Owner's `empty_reason`, one of the closed set `docs/owners/backtest.md` defines, exactly as the Owner states it;
+the browser derives no reason of its own. `empty_reason` is always present as a key, null only in `available`, so
+three projections are `unavailable`: an `empty` one without a reason, an `available` one with a reason, and one
+whose reason is not in the set. `available` means the series has points and both
 quantities are stated. Net return and maximum drawdown are always present as keys and null only in
 `empty`, so a missing key is always a fault. A run whose strategy is outside the admitted
 single-threshold family is `unavailable` for a named reason, that no Owner statement of strategy
