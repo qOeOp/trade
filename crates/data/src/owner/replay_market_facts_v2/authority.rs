@@ -1199,8 +1199,8 @@ fn validate_stored_fact(
             closes_at_ns,
             ..
         } => {
-            opens_at_ns < context.replay_end_event_ns_exclusive
-                && closes_at_ns > context.replay_start_event_ns
+            opens_at_ns >= context.replay_start_event_ns
+                && closes_at_ns <= context.replay_end_event_ns_exclusive
         }
         _ => true,
     };
