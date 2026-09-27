@@ -379,9 +379,11 @@ reason，并且绝不保留之前 success 的字段。group title surface 比 bo
 
 经认证的 Owner GET `/v2/develop-composer/runs/{request_identity}/readback` 以 zero-effect read 在 Owner 自己的
 Strategy Input custody 上解析同一身份：它经由该次运行自己绑定的 Market Data locked facade 复验已存储的正向 Composer
-记录，因此在生产中提交的一次运行就能在生产中读回。该解析为 `IMPLEMENTATION_ADMITTED / NOT_CUT_OVER`：在那次改动落地之前，
-路由背后的适配器仍从 sealed acceptance frame 解析绑定并带着该 acceptance feature，所以今天一个不带该 feature 的部署
-根本不提供读回。它不接收 request body，返回既有 strict
+记录，因此在生产中提交的一次运行就能在生产中读回。该解析为 `IMPLEMENTATION_ADMITTED / NOT_CUT_OVER`。路由及其适配器
+`PostgresDevelopComposerReadbackOwnerV2` 都不带 feature 门，所以部署的 read API 会为未设门的
+`POST /v2/develop-composer/runs` 所提交的运行提供它。它只在 Research 视图当前有效且为 `INTENT_FROZEN` 时应答：一旦
+composer-backed 的 replay commit 把该视图推进到 `EXPLORATION_ACTIVE`，同一身份就在 coordinate `research_custody` 读回
+`UNAVAILABLE`。这是 Owner 读取的一处缺口，记在这里，以免页面被读成 Composer 运行消失了。它不接收 request body，返回既有 strict
 `DevelopComposerOperationResponseV2`；Dashboard BFF 绑定 path identity，并只投影上述字段。`SUCCESS` 必须同时
 带 operation receipt 与完整四字段 Artifact projection；其他 disposition 必须不带 receipt 或 Artifact
 projection。未知 key、identity drift、互相矛盾的 disposition field、非法 digest、超限 response、缺失
@@ -479,6 +481,15 @@ identity digest，经 family binding receipt，直到 census frontier digest。�
 unavailable 的同一处缺口。届时 v2 commit 退役或被 composer-backed 路径取代，读取方一行都不用改：
 它的 exact-key 检查已经是终态形状。把它放宽到接受 legacy 视图，等于把缺席的 Composer 编码成在场的 Composer，
 并画出一个读起来像 exploration 正在运行的页面。
+
+读取方确实接纳这样的视图时（今天只在有序链路的构建里，它为验收编译了那次 commit），页面按原样陈述它。
+`Availability` 显示 `Exploration active`，`Next step` 显示 `View exploratory run`，research journey 显示
+`Exploration is active` 而不是 `Strategy is ready for build`；它们都不退回 `Intent frozen` 或 `Awaiting R&D` 的措辞，
+那两个说的是仍在等待第一次运行的请求。视图指名了这次 exploration 所用的 Composer 运行与 Replay 请求，
+页面在它们各自已准入的路由上链接到二者：`Composer run` 以视图的 `composer_request_identity` 打开
+`/rd/composer?requestIdentity=`，`Exploratory replay` 以其 `replay_request_identity` 与
+`replay_request_meaning_digest` 打开 `/backtest?replayRequestIdentity=&meaningDigest=`。这些身份只取自已验证的视图，
+页面不推导其中任何一个。phase 或 next legal action 超出各自映射的四种之外时，readback 变为 unavailable，而不是显示成另一种。
 
 Historical-custody Owner projection available 时，route 在 directory 前放置一张共享 compact Bento status card，
 把用户的 R&D workspace 组织成三个细肩分组：`research`、`build`、`families`。当 Research outcome inventory
