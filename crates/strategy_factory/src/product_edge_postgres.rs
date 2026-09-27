@@ -521,7 +521,6 @@ fn artifact_evidence_is_sealed_for_view(
 ///
 /// A historical read of an operation the Research View has since moved past names the
 /// pre-transition View; the Owner verifies the evidence against that View, not the stored one.
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
 pub(crate) async fn lock_research_artifact_custody_at_view_in_transaction(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     custody: &crate::rd_owner_postgres_custody::VerifiedResearchCustodyV1,
@@ -541,7 +540,6 @@ enum ArtifactEvidenceViewV1<'a> {
     Current(&'a crate::product_edge::ResearchViewV1),
     /// The View an operation ran under, which the Owner is told
     /// (`rd_owner_api.*_research_for_artifact_at_view_v1`).
-    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
     RanUnder(&'a crate::product_edge::ResearchViewV1),
 }
 
@@ -558,7 +556,6 @@ async fn lock_research_artifact_custody_in_transaction(
     let admission = custody.product_edge_admission().ok_or_else(unavailable)?;
     let (view, named_view): (_, Option<serde_json::Value>) = match evidence_view {
         ArtifactEvidenceViewV1::Current(view) => (view, None),
-        #[cfg(feature = "sealed-source-intake-composer-acceptance")]
         ArtifactEvidenceViewV1::RanUnder(view) => (
             view,
             Some(serde_json::to_value(view).map_err(json_storage)?),
@@ -6726,9 +6723,30 @@ pub(crate) mod tests {
         )
         .await
         .expect("the production Composer opens against its two R&D roles");
+        let ran_under: crate::product_edge::ResearchViewV1 = serde_json::from_value(
+            sqlx::query_scalar(
+                "SELECT view_json FROM rd_research_request_receipts_v1 WHERE request_identity = $1",
+            )
+            .bind(&request_identity)
+            .fetch_one(&owner.pool)
+            .await
+            .unwrap(),
+        )
+        .unwrap();
+        let owner_clock = || async {
+            let mut transaction = owner.pool.begin().await.unwrap();
+            let reading =
+                crate::rd_owner_clock::owner_clock_epoch_ms_in_transaction(&mut transaction)
+                    .await
+                    .unwrap();
+            transaction.rollback().await.unwrap();
+            reading
+        };
+        let before_run = owner_clock().await;
         let response = Box::pin(composer.run_bounded_feature_program(&request_identity))
             .await
             .expect("the R&D transaction completes");
+        let after_run = owner_clock().await;
 
         assert_eq!(
             response.disposition,
@@ -6803,6 +6821,222 @@ pub(crate) mod tests {
                 .is_err(),
             "a locator naming a different canonical plan resolves nothing"
         );
+
+        Box::pin(composer_run_reads_back_at_the_view_it_ran_under(
+            &owner,
+            &rd_database_url,
+            &request_identity,
+            &response,
+            &ran_under,
+            (before_run, after_run),
+        ))
+        .await;
+    }
+
+    /// The committed run records the View it ran under and the cut it ran at, and its readback
+    /// re-derives it there after that View has expired and after it has moved on.
+    ///
+    /// Two-sided throughout: a run read the way it was read before the record existed - against the
+    /// current View - answers `research_custody.run_view_unrecorded` in both cases, and the recorded
+    /// run answers the committed response in both. The stored View is moved and put back inside
+    /// this entry, so no later entry reads a changed request.
+    #[cfg(feature = "sealed-strategy-input-acceptance")]
+    async fn composer_run_reads_back_at_the_view_it_ran_under(
+        owner: &PostgresResearchGoalOwnerV1,
+        rd_database_url: &str,
+        research_request_identity: &str,
+        response: &crate::develop_composer_operation_v2::DevelopComposerOperationResponseV2,
+        ran_under: &crate::product_edge::ResearchViewV1,
+        (before_run, after_run): (u64, u64),
+    ) {
+        use crate::{
+            develop_composer_operation_v2::{
+                DevelopComposerDurableEvidenceLocatorV2, DevelopComposerReadbackOwnerPortV2,
+            },
+            develop_composer_postgres_v2::{
+                DevelopComposerRunViewRecordV1, PostgresDevelopComposerReadStoreV2,
+                load_run_view_in_transaction,
+            },
+            develop_composer_v2::ResearchRunViewV1,
+            rd_owner_clock::RdOwnerClockV1,
+            source_research_composer_postgres_v2::{
+                PostgresDevelopComposerReadbackOwnerV2,
+                PostgresSourceResearchComposerBindingOwnerV2,
+                RUN_VIEW_CUT_OUTSIDE_VIEW_COORDINATE_V1, RUN_VIEW_NOT_ANCESTOR_COORDINATE_V1,
+                RUN_VIEW_NOT_SEALED_COORDINATE_V1, RUN_VIEW_UNRECORDED_COORDINATE_V1,
+                resolve_committed_record_for_readback,
+            },
+        };
+
+        let operation = response.request_identity.as_str();
+
+        // The writer recorded the View the run was verified under - the request's IntentFrozen
+        // View, byte for byte - and a cut the run's own transaction took, between the two clock
+        // readings around it.
+        let mut transaction = owner.pool.begin().await.unwrap();
+        let recorded = load_run_view_in_transaction(&mut transaction, operation)
+            .await
+            .expect("the committed operation's run View reads back");
+        transaction.rollback().await.unwrap();
+        let DevelopComposerRunViewRecordV1::Recorded(run_view) = recorded else {
+            panic!("a run committed by the production Composer records its View: {recorded:?}");
+        };
+        assert_eq!(&run_view.view, ran_under);
+        assert!(
+            (before_run..=after_run).contains(&run_view.read_cut_epoch_ms),
+            "the recorded cut {} is the run's own, inside [{before_run}, {after_run}]",
+            run_view.read_cut_epoch_ms
+        );
+
+        let expired = ran_under.valid_through_epoch_ms.saturating_add(60_000);
+        let readback_at = |cut: Option<u64>| async move {
+            let readback = PostgresDevelopComposerReadbackOwnerV2::connect(rd_database_url)
+                .await
+                .expect("the Composer readback adapter opens as rd_owner");
+            let readback = match cut {
+                Some(cut) => readback.with_clock(RdOwnerClockV1::fixed(move || cut)),
+                None => readback,
+            };
+            readback
+                .read_develop_composer(operation)
+                .await
+                .expect("the readback transaction completes")
+        };
+        let read_store = PostgresDevelopComposerReadStoreV2::connect(rd_database_url)
+            .await
+            .unwrap();
+        let resolve = |record_view: DevelopComposerRunViewRecordV1, now: u64| {
+            let read_store = &read_store;
+            async move {
+                let mut transaction = read_store.begin_read_transaction().await.unwrap();
+                let record = read_store
+                    .load_record_in_transaction(&mut transaction, operation)
+                    .await
+                    .unwrap()
+                    .expect("the committed operation reads back");
+                let locator = DevelopComposerDurableEvidenceLocatorV2::from_record(&record);
+                let resolved = Box::pin(resolve_committed_record_for_readback(
+                    &PostgresSourceResearchComposerBindingOwnerV2,
+                    &mut transaction,
+                    &record,
+                    &locator,
+                    &record_view,
+                    now,
+                ))
+                .await;
+                transaction.rollback().await.unwrap();
+                resolved
+            }
+        };
+        let coordinate = |resolved: Result<
+            crate::develop_composer_operation_v2::DevelopComposerOperationResponseV2,
+            crate::develop_composer_v2::DevelopComposerTerminalV2,
+        >| resolved.expect_err("the readback refuses").coordinate;
+
+        // Now, inside the View's window: both reads answer.
+        assert_eq!(&readback_at(None).await, response);
+        assert_eq!(
+            resolve(
+                DevelopComposerRunViewRecordV1::Unrecorded,
+                run_view.read_cut_epoch_ms
+            )
+            .await
+            .expect("an unrecorded run still reads against a current View"),
+            *response
+        );
+
+        // After the View's window: the current-View read has nothing to stand on, the recorded
+        // View still does.
+        assert_eq!(&readback_at(Some(expired)).await, response);
+        assert_eq!(
+            coordinate(resolve(DevelopComposerRunViewRecordV1::Unrecorded, expired).await),
+            RUN_VIEW_UNRECORDED_COORDINATE_V1
+        );
+
+        // A recorded View is a claim, checked like any other: its cut must lie in its window, and
+        // the stored View must descend from it.
+        let recorded_with = |view: crate::product_edge::ResearchViewV1, cut: u64| {
+            DevelopComposerRunViewRecordV1::Recorded(Box::new(ResearchRunViewV1 {
+                view,
+                read_cut_epoch_ms: cut,
+            }))
+        };
+        assert_eq!(
+            coordinate(
+                resolve(
+                    recorded_with(ran_under.clone(), ran_under.valid_through_epoch_ms),
+                    expired
+                )
+                .await
+            ),
+            RUN_VIEW_CUT_OUTSIDE_VIEW_COORDINATE_V1
+        );
+        let mut other_principal = ran_under.clone();
+        other_principal.trusted_principal.push('0');
+        assert_eq!(
+            coordinate(
+                resolve(
+                    recorded_with(other_principal.clone(), run_view.read_cut_epoch_ms),
+                    expired
+                )
+                .await
+            ),
+            RUN_VIEW_NOT_ANCESTOR_COORDINATE_V1
+        );
+
+        // Moved on: the Composer-backed Replay commit's View. The recorded run still reads back;
+        // the current-View read now refuses for the View it cannot verify against.
+        let moved = native_composer_research_view(ran_under);
+        let store = |view: &crate::product_edge::ResearchViewV1| {
+            sqlx::query(
+                "UPDATE rd_research_request_receipts_v1 SET view_json = $1 WHERE request_identity = $2",
+            )
+            .bind(serde_json::to_value(view).unwrap())
+            .bind(research_request_identity.to_owned())
+        };
+        assert_eq!(
+            store(&moved)
+                .execute(&owner.pool)
+                .await
+                .unwrap()
+                .rows_affected(),
+            1
+        );
+        let now = moved.projection_at_epoch_ms.saturating_add(1);
+        assert_eq!(&readback_at(Some(now)).await, response);
+        assert_eq!(
+            coordinate(resolve(DevelopComposerRunViewRecordV1::Unrecorded, now).await),
+            RUN_VIEW_UNRECORDED_COORDINATE_V1
+        );
+        // Past IntentFrozen the descendant check no longer pins the View byte for byte, so the
+        // artifact evidence is what refuses a View it was not sealed for, and the operation
+        // receipt what refuses a View whose custody digest differs.
+        let mut other_window = ran_under.clone();
+        other_window.valid_through_epoch_ms = other_window.valid_through_epoch_ms.saturating_add(1);
+        assert_eq!(
+            coordinate(resolve(recorded_with(other_window, run_view.read_cut_epoch_ms), now).await),
+            RUN_VIEW_NOT_SEALED_COORDINATE_V1
+        );
+        assert_eq!(
+            coordinate(
+                resolve(
+                    recorded_with(other_principal, run_view.read_cut_epoch_ms),
+                    now
+                )
+                .await
+            ),
+            RUN_VIEW_NOT_ANCESTOR_COORDINATE_V1
+        );
+        assert_eq!(
+            store(ran_under)
+                .execute(&owner.pool)
+                .await
+                .unwrap()
+                .rows_affected(),
+            1,
+            "the request's View is put back"
+        );
+        assert_eq!(&readback_at(None).await, response);
     }
 
     fn expected_digest_text(digest: BindingDigest) -> String {

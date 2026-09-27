@@ -2731,7 +2731,7 @@ fn trial_family_storage(error: &TrialFamilyError) -> ResearchGoalOwnerError {
 }
 
 #[cfg(test)]
-mod v2_sealing_tests {
+pub(crate) mod v2_sealing_tests {
     use super::*;
     use rstest::rstest;
     use vibe_data::owner::shared_time_evidence::{EpochNanosV1, NanosV1};
@@ -3451,7 +3451,10 @@ mod v2_sealing_tests {
         }
     }
 
-    fn research_view(projection_at_epoch_ms: u64, valid_through_epoch_ms: u64) -> ResearchViewV1 {
+    pub(crate) fn research_view(
+        projection_at_epoch_ms: u64,
+        valid_through_epoch_ms: u64,
+    ) -> ResearchViewV1 {
         ResearchViewV1 {
             schema_version: 1,
             projection_identity: "rd-research-view-test-v1".to_string(),
