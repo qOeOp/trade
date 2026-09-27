@@ -8,7 +8,8 @@ pub(crate) fn economic_fixture() -> ReplayEconomicConfigurationInputV1 {
         schema_version: 1,
         input_kind: ReplayInputKindV1::EventOnly,
         venue_census: ReplayVenueCensusV1::SingleVenue,
-        venue_identity: "SIM".into(),
+        // PROBE ONLY (never merged): the venue F's perpetual is admitted under.
+        venue_identity: "BINANCE".into(),
         oms_type: ReplayOmsTypeV1::Netting,
         account_type: ReplayAccountTypeV1::Margin,
         book_type: ReplayBookTypeV1::L1Mbp,
