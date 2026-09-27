@@ -65,6 +65,11 @@ MUTATIONS = {
         "    args=(--from-ref x --to-ref HEAD)\n    for hook in",
         "full route: `typos` ran over all files on every pull request and now runs over the diff.",
     ),
+    "the connection guard self-test moved to the no-compile job": (
+        "  cargo-doc\n  test-disallowed-connect-guard\n",
+        "  cargo-doc\n",
+        "`test-disallowed-connect-guard` is in COMPILED_SINCE, so it must run in build.yml's pre-commit job",
+    ),
     "a hook name the config does not have": (
         "  cargo-machete\n  check-links-offline\n)",
         "  cargo-machete\n  check-links-offline-renamed\n)",
