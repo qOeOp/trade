@@ -672,8 +672,10 @@ and a rendering of a document exists for reading only.
   the n-th order statistic's value. The unrolled graph is measured against `graph_bounds` like any other, and
   the member bound is fixed only after I1.5 measures how N-fold unrolling presses on `max_edges`. A compiled
   program is valid only for its own member count, so a changed member set is a new Research and a new compile.
-  Until I2 lands, a document that uses `across_members` is refused by name at its path, and one that does not
-  compiles as it does without a member dimension.
+  Until I2 lands, a document whose scope names more than one member, or that uses `across_members`, is refused
+  at its path as `MEMBER_DIMENSION_NOT_YET_ADMITTED`: before I2 a program reads a universe role only at
+  `member_ordinal` 0 and no terminal emits target-set bytes, so a document compiles today only over one member.
+  Nothing constructs that refusal until the authoring compiler exists; its unit tests drive it from then on.
 - *States and rules.* A state's name read in an expression is its value at the previous tick, so feedback
   runs only through state and a cycle between definitions is refused. While the program is warming, every
   state keeps its prior value, because the host holds only the warming frame neutral and a state that moved
