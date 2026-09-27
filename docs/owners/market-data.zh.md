@@ -1212,6 +1212,10 @@ V2 fact 的 instrument 提交一条原样公开的 `!contractInfo` 事件。Owne
 - **重放：** 若提交推出的 fact 等于所指名 fact 已存的直接后继（按该后继自己的 Owner-observation 时刻读取），就 rejoin 它
   并返回同一个 terminal，即使其后已有更多 delta。两份相同的提交同时到来也一样：事务的第一条语句就取 V2 store 的表锁，在读
   任何东西之前，所以后一份读到前一份已提交的内容并 rejoin 它。
+- **已知局限：一次一个写者。** 事务是 `SERIALIZABLE`，快照由它的第一次读取决定，所以表锁在快照之前取得，每次读取都看得到
+  前一个持锁者已提交的内容。这些锁让 `market_data_instrument_master_v2` 上的每一个事务串行：两个 intake、每一次 cut 签发（包括
+  bound-replay 签发），以及取同一组锁的每一次 cut 解析，彼此等待。按今天手工提交的量这没有代价；每小时一次的快照归档器会
+  增加它。等待变得可测量时重新评估：即观察到某个 intake、cut 签发或解析等这些锁超过一秒时。
 - **代际检查不变：** 它不比较状态，所以一条状态 delta 既不引起也不消除 `GenerationMismatch`。
 - **拒绝，均按名给出，且不写入任何东西；每条都说明今天什么提交会走到它：**
   - `UNAUTHORIZED_PRODUCT_EDGE`（HTTP 403）：请求未带 Product Edge bearer token。

@@ -1355,6 +1355,13 @@ status and nothing else. It is the second production writer of `market_data_inst
   successor's own Owner-observation instant, rejoins it and returns the same terminal, even after later deltas. Two
   identical submissions at once are no different: the transaction takes the V2 store's table locks as its first
   statement, before it reads anything, so the later one reads what the earlier one committed and rejoins it.
+- **Known limit, one writer at a time.** The transaction is `SERIALIZABLE`, and its snapshot is taken by its first
+  read, so the table locks come before it and every read sees what the previous lock holder committed. Those locks
+  serialize every transaction on `market_data_instrument_master_v2`: both intakes, every cut issuance, the
+  bound-replay issuance included, and every cut resolution, which takes the same locks, wait for one another. At
+  today's volume of manual submissions that costs nothing; an hourly snapshot archiver would add to it. Revisit when the
+  wait is measurable: when an intake, a cut issuance or a resolution is observed waiting on these locks for longer than
+  one second.
 - **The generation check is unchanged:** it compares no status, so a status delta neither causes nor clears a
   `GenerationMismatch`.
 - **Refusals, each by name, with nothing written; each says how a submission reaches it today:**
