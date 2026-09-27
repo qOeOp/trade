@@ -1239,13 +1239,18 @@ custody 会挡住之后的每一次提交，而成本随整个历史增长。
 
 ### 前置切片
 
-- **P0，形状元组只有一个来源：** Research 请求的 scope 带成员集与窗口，Design 带角色集（P1）；其余每个面都从这两份
-  托管推导，不再各自声明。精确品种就是一成员 universe，所以精确与 universe 两条输入路径合成一条。凡是随成员数不同的东西，例如
-  Market Data 的 PIT 请求 preimage 域，都由成员数推导，不在旁边另行声明。改成员数或加一个角色只需改一处声明时，
-  P0 才算完成。它本身不改动任何已准入的界。
+- **P0，形状元组只有一个来源：** 陈述了 scope 的 Research 请求带成员集，Design 带角色集（P1），TrialFamily 封存的
+  回放策略带可接纳的回放区间；其余每个面都从它们推导，不再各自声明。运行的实际窗口由在该区间内组合的 Market Data
+  facts 推导，绝不在旁边另行给出。在陈述了 scope 的请求下，精确品种就是一成员 universe，所以 Design 不得指名品种：
+  发布、冻结或声明这样的 Design 以 `DESIGN_ROLE_NAMES_INSTRUMENT_UNDER_RESEARCH_SCOPE` 拒绝。凡是随成员数不同的
+  东西，例如 Market Data 的 PIT 请求 preimage 域，都由成员数推导，不在旁边另行声明。对陈述了 scope 的 Research
+  请求，改成员数只改 scope、加一个角色只改 Design 时，P0 才算完成。它本身不改动任何已准入的界。V2 请求不陈述
+  scope，仍是 legacy 的 exact 通道，它的 Design 照旧指名品种；退役它是 T1 之后的一个独立切片，前提是每个在 V2 下
+  创建 exact 托管的链路条目都有了陈述 scope 的替身。
 - **P1，角色集来自 Design：** 原生 Plan 契约不再固定为一天周期的 OPEN 与 CLOSE；Design 声明自己的角色、执行周期
   以及用哪个角色为订单定价。Host 绑不上的角色按名拒绝。
-- **P2，报告陈述每个成员：** 报告族陈述 universe 运行的每个成员，把 Backtest 已经做到的一成员陈述推广开。
+- **P2，报告陈述每个成员：** 报告族陈述 universe 运行的每个成员，把 Backtest 已经做到的一成员陈述推广开。它与 I2
+  一同落地，由第一个超过一个成员的运行驱动：I2 之前没有程序读第一个成员以外的成员，陈述每个成员就无物可陈述。
 
 ### 时间：PIT 窗口托管
 
@@ -1258,6 +1263,10 @@ PIT 快照仍然是一个时刻，Market Data 的快照路径、它的封印以�
 - 每帧有两个时刻：`e_k` 是定义该帧的执行周期那根 bar 的收盘，`d_k` 是按 Source Binding 上声明的可得规则该帧
   数据变为可见的时刻，且满足 `d_k < e_{k+1}`。帧从执行周期的 Owner BAR schedule 枚举，绝不从托管行枚举，所以缺
   一根 bar 会拒绝该帧，而不是跳过它。
+- 最后一帧 `N` 没有后一帧，所以 `e_{N+1}` 是同一 schedule 在 `e_N` 之后声明的下一次收盘，也就是晚一个执行间隔，
+  因为只接纳固定间隔的执行周期。窗口的终点不早于 `e_{N+1}`，于是最后一帧的 quote cut 和其他帧一样有
+  `(d_N, e_{N+1})` 可以落。单帧运行就是 `N = 1` 的情形：窗口终点若是 `e_1` 加一纳秒，帧与终点之间就没有任何严格
+  居中的时刻，推不出 quote cut。
 - 派生视图的 decision cut 是 `d_k`，绝不是托管的铸造 cut：否则每个读 decision cut 的地方看到的 cut 都比该帧
   实际的晚。视图的顺序检查是 event ≤ available ≤ publication ≤ `d_k`。
 - 多周期角色（切片 T2）在帧 `k` 解析为它自己周期的 Owner schedule 在 `d_k` 之前最后一次收盘的那根 bar，而且
@@ -1394,8 +1403,8 @@ Replay 不需要 attempt cut，也不需要 R&D Decision composition，上面每
 
 ### 顺序与以后要问的
 
-P0、P1、P2 与 T0 并行推进：T0 在 Market Data 内部，它的托管请求自己陈述成员集与周期。T1 依赖这四项，因为它从
-Research scope 与 Design 推导出托管请求；T1 的首个正例只用 CLOSE，D1 与它一同落地。A1 与 V4a 与 T1 并行；然后 T2、I1、I1.5、I2、
+P0、P1 与 T0 并行推进：T0 在 Market Data 内部，它的托管请求自己陈述成员集与周期。T1 依赖这三项，因为它从
+Research scope 与 Design 推导出托管请求；T1 的首个正例只用 CLOSE 和一个成员，D1 与它一同落地。P2 与 I2 一同落地。A1 与 V4a 与 T1 并行；然后 T2、I1、I1.5、I2、
 I3；再然后 N1、A2、A3、V4b、V5。按帧 as-of 成员（T4）会移除「每帧共用一个成员集」这条不变式，所以在提出它时再
 问用户。
 
