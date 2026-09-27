@@ -193,6 +193,18 @@ ordered chain's acceptance build admits nothing in production.
   V2), and a Market Data repair re-entry whose predecessor is a composer-backed Replay is refused by name,
   `MARKET_DATA_REPAIR_OF_COMPOSER_V3_REPLAY_AWAITS_DESIGN`, because the re-entry forms its successor from the
   policy window.
+- **CURRENT - how Native Replay preparation reads a composer-backed Replay's Research custody:** as the Replay
+  committed it, not as the current custody reads. The commit moves the Research View from IntentFrozen to the
+  schema 3 View that names the Replay, and records the move as an append-only transition, so a read that wants the
+  current custody to still be IntentFrozen refuses every committed Replay. Preparation therefore admits a native
+  Composer View only as that transition's new View, and reads the Composer operation over the transition's old
+  View, the way the Replay's own readback does (`read_accepted_for_replay_historical_in_transaction`), in the
+  issuance transaction. A current View that a later Replay has moved on is refused by name,
+  `native Composer Research View has moved past this Replay`: once a second Replay commits on the same Research,
+  the first can no longer be prepared. No Research reaches a second one today, because the commit requires the IntentFrozen View it
+  moves and a successor waits for the Decision composition below. Revisit this rule when the Decision composition
+  or successor iteration is admitted. A build without the COMPOSER_V3 routes refuses a native Composer View by
+  name.
 - **CURRENT - one read-only operation is reachable only through the write API:** the Dashboard's operation
   registry declares eleven Owner routes, and ten are `GET`. The eleventh,
   `research_goal.legacy_quarantine_read.v1`, declares `effect_set: []` and resolves to
