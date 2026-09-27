@@ -3099,7 +3099,10 @@ mod postgres_binding_tests {
         let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
         let pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(4)
-            .connect(test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner))
+            .connect_url(
+                test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
+                PostgresTls::Disabled,
+            )
             .await
             .unwrap();
         crate::schema_materialization::require_existing_public_tables(&pool, TABLES)
@@ -3188,7 +3191,10 @@ mod postgres_binding_tests {
         let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
         let pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(u32::try_from(APPENDS + READERS + 1).unwrap())
-            .connect(test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner))
+            .connect_url(
+                test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
+                PostgresTls::Disabled,
+            )
             .await
             .unwrap();
         crate::schema_materialization::require_existing_public_tables(&pool, TABLES)
