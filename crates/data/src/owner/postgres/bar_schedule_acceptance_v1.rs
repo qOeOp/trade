@@ -75,11 +75,16 @@ impl Display for BarScheduleAcceptanceErrorV1 {
 impl std::error::Error for BarScheduleAcceptanceErrorV1 {}
 
 /// The schedule the snapshot's frame reads, and whether it was already in custody.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+///
+/// It carries the exact readback it minted or rejoined, so an acceptance can assert what the
+/// schedule states, field by field, rather than only that one exists. It is a sealed acceptance
+/// return value; production reads a schedule only through the admitted resolver.
+#[derive(Debug, Eq, PartialEq)]
 pub struct BarScheduleAcceptanceV1 {
     readback_identity: BindingDigest,
     fact_digest: BindingDigest,
     rejoined: bool,
+    schedule: BarScheduleReadbackV1,
 }
 
 impl BarScheduleAcceptanceV1 {
@@ -94,6 +99,11 @@ impl BarScheduleAcceptanceV1 {
     /// True when the store already held a schedule the snapshot's frame reads, so none was written.
     pub const fn rejoined(&self) -> bool {
         self.rejoined
+    }
+
+    /// The schedule itself, as the store holds it.
+    pub const fn schedule(&self) -> &BarScheduleReadbackV1 {
+        &self.schedule
     }
 }
 
@@ -185,7 +195,7 @@ pub(super) async fn commit_bar_schedule_on_v1(
         .await
         .map_err(|_| BarScheduleAcceptanceErrorV1::StoreUnavailable)?;
 
-    if let Some(existing) = candidates.iter().find(|candidate| {
+    if let Some(existing) = candidates.into_iter().find(|candidate| {
         declared.admits_schedule(candidate.fact())
             && schedule_bar_specification_at_frame_v1(candidate, &batch, &instrument, event).is_ok()
     }) {
@@ -230,14 +240,15 @@ pub(super) async fn commit_bar_schedule_on_v1(
         .commit_prepared_bar_schedule_v1(&prepared)
         .await
         .map_err(|_| BarScheduleAcceptanceErrorV1::ScheduleRefused)?;
-    Ok(answer_v1(&stored, false))
+    Ok(answer_v1(stored, false))
 }
 
-fn answer_v1(readback: &BarScheduleReadbackV1, rejoined: bool) -> BarScheduleAcceptanceV1 {
+fn answer_v1(readback: BarScheduleReadbackV1, rejoined: bool) -> BarScheduleAcceptanceV1 {
     BarScheduleAcceptanceV1 {
         readback_identity: BindingDigest::from_untrusted_bytes(*readback.identity().as_bytes()),
         fact_digest: BindingDigest::from_untrusted_bytes(*readback.fact().digest().as_bytes()),
         rejoined,
+        schedule: readback,
     }
 }
 

@@ -987,15 +987,27 @@ fn validated_bar_type(
     instrument_id: InstrumentId,
     frame_time_ns: u64,
 ) -> Result<BarType, NativeReplaySchedulingErrorV1> {
-    let specification = schedule_bar_specification_at_frame_v1(
-        schedule,
-        batch,
-        &instrument_id.to_string(),
-        frame_time_ns,
-    )?;
+    schedule_is_at_frame_v1(schedule, batch, &instrument_id.to_string(), frame_time_ns)?;
+    native_bar_type_for_schedule_v1(schedule.fact(), instrument_id)
+}
+
+/// The native engine's bar type for the bar `schedule` states, on `instrument`.
+///
+/// The one implementation of a schedule's native bar type: the frame's own seal reaches it, and so
+/// does an acceptance asserting what a schedule will be named, so the two cannot drift. The name
+/// is the engine's encoding of the typed schedule, as `native_bar_specification_v1` describes.
+///
+/// # Errors
+///
+/// Returns `NativeRepresentation` for a bar the engine has no name for, and `OwnerBindingMismatch`
+/// for a schedule shape no native aggregation states.
+pub fn native_bar_type_for_schedule_v1(
+    schedule: &BarScheduleFactV1,
+    instrument: InstrumentId,
+) -> Result<BarType, NativeReplaySchedulingErrorV1> {
     Ok(BarType::new(
-        instrument_id,
-        specification,
+        instrument,
+        native_bar_specification_v1(schedule)?,
         AggregationSource::External,
     ))
 }
@@ -1005,7 +1017,9 @@ fn validated_bar_type(
 /// force and cut at the frame's instant, and was admitted over the frame's batch coordinates.
 ///
 /// This is the whole of the rule. The host's frame names its members as native instruments, and
-/// Market Data's own reads name them by canonical instrument; both ask it here.
+/// Market Data's own reads name them by canonical instrument; both ask it here. The seal asks its
+/// two halves directly, so only the sealed acceptance proposer, and tests, ask it whole.
+#[cfg(any(test, feature = "sealed-strategy-input-acceptance"))]
 pub(crate) fn schedule_bar_specification_at_frame_v1(
     schedule: &BarScheduleReadbackV1,
     batch: &VerifiedPitObservationBatch,
@@ -2620,6 +2634,59 @@ pub(crate) mod tests {
             .map(|_| ())
             .unwrap_err(),
             NativeReplaySchedulingErrorV1::DeclaredBarTimeframeMismatch
+        );
+    }
+
+    /// A schedule's native bar type has one implementation: the frame's seal and an acceptance
+    /// asserting a schedule's name get the same bar type for the same schedule, and the seal adds
+    /// only that the schedule is the frame's.
+    #[rstest::rstest]
+    fn the_seal_and_the_public_name_agree_on_every_schedule() {
+        let frame = two_member_frame();
+        let instrument = InstrumentId::from("AAA-PERP.SIM");
+        let utc_day = schedule_shaped(
+            "AAA-PERP.SIM",
+            40,
+            (
+                BarScheduleKindV1::FixedInterval,
+                BarScheduleUnitV1::Hour,
+                24,
+            ),
+            DeclaredBarAnchorV1::UnixEpoch,
+            BarScheduleClockV1::Continuous,
+        );
+
+        for schedule in [schedule_at("AAA-PERP.SIM", 40, 100), utc_day] {
+            assert_eq!(
+                validated_bar_type(&schedule, &frame, instrument, 100),
+                native_bar_type_for_schedule_v1(schedule.fact(), instrument)
+            );
+        }
+        let utc_day = schedule_shaped(
+            "AAA-PERP.SIM",
+            40,
+            (
+                BarScheduleKindV1::FixedInterval,
+                BarScheduleUnitV1::Hour,
+                24,
+            ),
+            DeclaredBarAnchorV1::UnixEpoch,
+            BarScheduleClockV1::Continuous,
+        );
+        assert_eq!(
+            native_bar_type_for_schedule_v1(utc_day.fact(), instrument).map(|bar| bar.to_string()),
+            Ok("AAA-PERP.SIM-1-DAY-LAST-EXTERNAL".to_owned())
+        );
+
+        let elsewhere = schedule_at("AAA-PERP.SIM", 40, 160);
+        assert_eq!(
+            validated_bar_type(&elsewhere, &frame, instrument, 100),
+            Err(NativeReplaySchedulingErrorV1::OwnerBindingMismatch),
+            "the seal refuses a schedule that is not the frame's"
+        );
+        assert!(
+            native_bar_type_for_schedule_v1(elsewhere.fact(), instrument).is_ok(),
+            "while the name is the schedule's alone"
         );
     }
 }
