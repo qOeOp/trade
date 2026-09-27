@@ -13,7 +13,7 @@
 //! [`PostgresReadLockMode::query`]: crate::trial_family_postgres::PostgresReadLockMode::query
 
 #[cfg_attr(
-    all(not(feature = "sealed-source-intake-composer-acceptance"), not(test)),
+    all(not(feature = "composer-v3-replay"), not(test)),
     expect(
         dead_code,
         reason = "only the Composer-backed Replay build reads COMPOSER_V3 claims"
@@ -21,7 +21,7 @@
 )]
 pub(crate) const STORED_FROZEN_READ_V3: &str = "SELECT source_kind,frozen_json FROM public.rd_sealed_exploratory_replay_requests_v1 WHERE request_identity=$1";
 #[cfg_attr(
-    all(not(feature = "sealed-source-intake-composer-acceptance"), not(test)),
+    all(not(feature = "composer-v3-replay"), not(test)),
     expect(
         dead_code,
         reason = "only the Composer-backed Replay build reads COMPOSER_V3 claims"
@@ -29,7 +29,7 @@ pub(crate) const STORED_FROZEN_READ_V3: &str = "SELECT source_kind,frozen_json F
 )]
 pub(crate) const STORED_CLAIM_READ_V3: &str = "SELECT request_identity,request_digest,source_kind,composer_source_json,build_request_identity,attempt_identity,intent_identity,trial_family_identity,artifact_identity,build_receipt_identity,artifact_family_binding_identity,census_frontier_identity,frozen_json,receipt_json,lifecycle_state,committed_at_epoch_ms,v2_canonical_request_bytes,v2_request_storage_digest,v2_meaning_digest,v2_seal_digest,v2_receipt_json,v2_receipt_storage_bytes,v2_receipt_storage_digest,request_schema_version FROM public.rd_sealed_exploratory_replay_requests_v1 WHERE request_identity=$1";
 #[cfg_attr(
-    all(not(feature = "sealed-source-intake-composer-acceptance"), not(test)),
+    all(not(feature = "composer-v3-replay"), not(test)),
     expect(
         dead_code,
         reason = "only the Composer-backed Replay build reads COMPOSER_V3 claims"
@@ -37,7 +37,7 @@ pub(crate) const STORED_CLAIM_READ_V3: &str = "SELECT request_identity,request_d
 )]
 pub(crate) const OUTBOX_EVENT_READ_V3: &str = "SELECT event_identity,aggregate_identity,event_kind,payload_digest,payload_json,canonical_payload_bytes,canonical_payload_storage_digest,canonical_envelope_bytes,canonical_envelope_storage_digest,committed_at_epoch_ms FROM public.rd_owner_outbox_v1 WHERE aggregate_identity=$1 AND event_kind=$2";
 #[cfg_attr(
-    all(not(feature = "sealed-source-intake-composer-acceptance"), not(test)),
+    all(not(feature = "composer-v3-replay"), not(test)),
     expect(
         dead_code,
         reason = "only the Composer-backed Replay build reads COMPOSER_V3 claims"

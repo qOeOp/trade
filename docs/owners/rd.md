@@ -111,11 +111,14 @@ an admission as invalid:
 - **CURRENT - deployed service and the boundary of what it exposes:** `product/rd-workbench/Dockerfile.owner`
   builds `--bin strategy-factory-rd-owner-api` with no `--features` at all; the file's only `--features` is on the
   dashboard binary. So the deployed image is the ungated router in
-  `crates/strategy_factory_rd_owner_api/src/main.rs`, and the six routes registered after it by
-  `#[cfg(feature = "sealed-develop-composer-acceptance")]` and
-  `#[cfg(feature = "sealed-source-intake-composer-acceptance")]` are absent from it:
-  `/v2/exploratory-replay/execution-input-bindings`, `/v3/exploratory-replay-requests/composer-backed`, and the
-  four `/_sealed-acceptance/v1/develop-composer/*` routes. An acceptance route is never evidence of a production
+  `crates/strategy_factory_rd_owner_api/src/main.rs`, and the six routes registered after it are absent from it:
+  `/v2/exploratory-replay/execution-input-bindings` under `#[cfg(feature = "composer-replay-issuance")]`,
+  `/v3/exploratory-replay-requests/composer-backed` under `#[cfg(feature = "composer-v3-replay")]`, and the four
+  `/_sealed-acceptance/v1/develop-composer/*` routes under
+  `#[cfg(feature = "sealed-source-intake-composer-acceptance")]`. The first two features are production surfaces
+  that carry no acceptance fixture, corpus or route; the sealed features include them rather than own them, and in
+  the default build the Composer's own `/v2/develop-composer/runs/{request_identity}/resolve` and `/readback` answer
+  `503` because `composer-replay-issuance` is off. An acceptance route is never evidence of a production
   capability, and the sealed features exist to keep that distinction mechanical rather than remembered.
 - **CURRENT - the deployed Source Intake pipeline stops after admission:** `SourceIntakeEnvironmentPort` has two
   implementations. `SealedSourceIntakeEnvironmentV1` sits behind `sealed-source-intake-acceptance`, which the image
@@ -144,16 +147,23 @@ an admission as invalid:
   a malformed body) the route already answers by name. That no retry changes the answer today is the build's
   missing capability, listed in `UNIMPLEMENTED_PRODUCTION_STAGES`; it is not a property of the request and calls
   for no answer of its own.
-- **CURRENT - the composer-backed Exploratory Replay request path carries no admission label, and what lifts its
-seal is upstream:** `commit_composer_backed_exploratory_replay_request_v3` and its route
-`/v3/exploratory-replay-requests/composer-backed` exist only under `sealed-source-intake-composer-acceptance`,
-which the image above does not build. Nothing in this document, `docs/owners/backtest.md` or
-`docs/architecture/` marks the path `TARGET`, `IMPLEMENTATION_ADMITTED` or any other state, so its state is
+- **CURRENT - the composer-backed Exploratory Replay request path carries no admission label, and what keeps it
+out of the deployed image is the image, not a missing producer:** `commit_composer_backed_exploratory_replay_request_v3`,
+its route `/v3/exploratory-replay-requests/composer-backed`, its tables and their migration exist only under
+`composer-v3-replay`, a production feature that the image above does not build; the default build's
+`--materialize-schema` therefore creates none of those tables. Nothing in this document, `docs/owners/backtest.md`
+or `docs/architecture/` marks the path `TARGET`, `IMPLEMENTATION_ADMITTED` or any other state, so its state is
 read from three statements instead. The deployed-service bullet above says an acceptance route is never evidence
 of a production capability. `docs/guide/dashboard.md` says the boundary lifts when a deployed image carries a
-path that produces Composer artifacts, and that the v2 commit then retires or is replaced by this one. The
-Source Intake bullet above says the deployed pipeline, the first hop toward any Composer artifact, acquires
-nothing. The path is therefore sealed pending a production producer: neither unfinished nor closed by intent.
+path that produces Composer artifacts, and that the v2 commit then retires or is replaced by this one. Such a
+path is compiled and registered in the default build: `/v2/develop-composer/runs` runs the production Composer on
+the Research request's frozen Bounded Feature Program
+(`PostgresSourceResearchComposerProductionV2::run_bounded_feature_program`), which reads the joint freeze and
+Market Data's bindings and does not go through Source Intake, so the Source Intake bullet above no longer names
+the hop in the way. A build that enables `composer-v3-replay` carries that Composer and this commit together and
+no acceptance code. The ordered chain's build is not that build: its acceptance feature includes
+`composer-v3-replay` but also replaces the Composer's run with the fixed corpus. The path is therefore unadmitted into the image: neither unfinished nor closed
+by intent, and what admits it is a deployment decision.
 The ungated v2 commit cannot stand in for it. Native Replay preparation parses the request's `artifact.digest`
 as a `sha256:` digest before it queries Composer, while a v2 commit succeeds only when that digest equals the
 Artifact Build Owner's `blake3:` wasm digest; and the request's `artifact.identity` would have to equal the

@@ -1352,7 +1352,7 @@ async fn load_trial_family_census_v2_with_lock_mode_in_transaction(
 
 /// The schema of a TrialFamily's census head, read `FOR SHARE`: 1 while the family has only its
 /// formation census, 2 once an attempt has been appended.
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+#[cfg(feature = "composer-v3-replay")]
 pub(crate) async fn trial_family_head_schema_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
     trial_family_identity: &str,
@@ -1376,7 +1376,7 @@ pub(crate) async fn trial_family_head_schema_in_transaction(
 /// A successor COMPOSER_V3 Replay's historical readback, through the family-cut loader, is this
 /// prefix's only consumer, and that loader is gated on the same feature; without this gate the helper is dead in every other build and `-D warnings`
 /// fails the crate.
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+#[cfg(feature = "composer-v3-replay")]
 pub(crate) async fn load_trial_family_census_v2_at_frontier_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
     trial_family_identity: &str,
