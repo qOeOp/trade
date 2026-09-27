@@ -188,6 +188,9 @@ def main() -> int:
         raise SystemExit(
             "usage: owner-chain-matrix.py [--rd-chain shards|serial] [--selector-ref <ref>] <shards.tsv>",
         )
+    # LANE8 PROBE, NOT FOR MERGE: a probe ref ending in `-serial` runs the R&D chain serially.
+    if ref.endswith("-serial"):
+        mode = "serial"
     rows = rd_rows(Path(arguments[0]))
     # A serial run is the whole chain by definition, so it takes no selector.
     chosen = selection(ref, rows) if mode == "shards" else None
