@@ -41,8 +41,15 @@ test("Backtest route renders one compact exact Replay request and result workben
   assert.match(component, /Meaning digest/u);
   assert.match(component, /Open readback/u);
   assert.match(component, /\["Request", "Custody", "Replay basis"\]/u);
-  assert.match(component, /Result identity/u);
-  assert.match(component, /Attempt identity/u);
+  // A Result is opened from the Owner's directory, never from typed identities.
+  assert.match(component, /<ResultDirectory/u);
+  assert.match(component, /<DataWorkspaceTable<ExploratoryReplayResultDirectoryEntryV1>/u);
+  assert.match(component, /\/api\/backtest\/result-directory\?/u);
+  assert.match(component, /No runs recorded/u);
+  // The directory is read for the request just opened, and only once it is available.
+  assert.match(component, /setStatus\("available"\);\s*void readDirectory\(\{ requestIdentity, meaningDigest \}, requestIdentityB64\);/u);
+  // The historical rejection rail keeps its own typed selector; the Result rail is gone.
+  assert.doesNotMatch(component, /placeholder="result identity"|placeholder="attempt identity"|label="Result identity"/u);
   assert.match(component, /Open result/u);
   assert.match(component, /requestSequence\.current !== sequence/u);
   assert.match(component, /setProjection\(null\)/u);
@@ -64,8 +71,8 @@ test("Backtest route renders one compact exact Replay request and result workben
   assert.match(page, /query\.resultIdentity/u);
   assert.match(shell, /initialResultIdentity=\{replayHistoricalCustody \? undefined : replayResultIdentity\}/u);
   assert.match(shell, /initialAttemptIdentity=\{replayHistoricalCustody \? undefined : replayAttemptIdentity\}/u);
-  assert.match(component, /useState\(initialResultIdentity \?\? ""\)/u);
-  assert.match(component, /useState\(initialAttemptIdentity \?\? ""\)/u);
+  // A link that names a Result selects its row; it opens nothing by itself.
+  assert.match(component, /initialResultIdentity && initialAttemptIdentity\s*\? \{ resultIdentity: initialResultIdentity, attemptIdentity: initialAttemptIdentity \}/u);
   assert.match(ownerApi, /resolve_sealed_exploratory_replay_request_v2/u);
   assert.match(ownerRouter, /"\/v2\/exploratory-replay-requests\/readback"/u);
   assert.match(ownerReadApi, /"\/v2\/exploratory-replay-results\/\{result_identity\}"/u);
@@ -306,11 +313,13 @@ test("Replay request contract is bonded to the workbench and the Owner routes it
   const code = await sources([
     "components/exploratory-replay-readback-workbench.tsx", "components/ui/iconography.ts",
     "lib/exploratory-replay-readback-client.ts", "../../crates/strategy_factory_rd_owner_api/src/main.rs",
+    "lib/exploratory-replay-result-directory-gateway.ts",
   ]);
   expectRoute(section, "/backtest", "Replay readback");
   expectBonded(section, code, [
     "ExploratoryReplayReadbackWorkbench", "PanelFrame", "Request identity", "Meaning digest", "Open readback",
-    "Refresh", "Replay basis", "Result identity", "Attempt identity", "Open result", "Lucide",
+    "Refresh", "Replay basis", "DataWorkspaceTable", "No runs recorded", "Open result", "Lucide",
+    "/v2/exploratory-replay-results?request_identity={request_identity}&meaning_digest={meaning_digest}",
     "/v2/exploratory-replay-requests/readback", "meaning_digest",
     "/v2/exploratory-replay-results/{result_identity}?request_identity={request_identity}&attempt_identity={attempt_identity}",
   ], "Replay readback");

@@ -165,6 +165,20 @@ Result 与 receipt；不能创建首次 custody、重新组合 result，或追�
 已在该 disposable PostgreSQL 证明上准入；它仍不授予 Dashboard 实现、deployment、
 production write、provider effect、Paper、Live 或交易权威。
 
+同一接缝列出一个请求的 Result。`read_exploratory_replay_result_directory_v1` 接收请求身份及其 meaning digest，
+是第五个 `owner_api` 函数：固定、safe-`search_path`、`SECURITY DEFINER` 且 `STABLE`，只有 `rd_owner` 可执行，
+并由与其余函数相同的 topology census 钉住。每一项陈述 `attempt_identity`、`result_identity`、`terminal` 与 receipt
+上的 `committed_at_epoch_ms`，按该时间、再按 attempt 排序。Backtest 不保存 attempt 表，所以一个 attempt 只以一份
+终态 Result 的形式出现在这里：仍在途的 attempt，或在产生任何 Result 之前就失败的 attempt，归 R&D 陈述；被拒的运行
+以其自身的 terminal 照常列出。目录要么完整，要么什么都不给。某个列出的 Result 缺 receipt 或 outbox event 时，整次读取
+以 `EXPLORATORY_RECEIPT_ABSENT` 或 `EXPLORATORY_OUTBOX_ABSENT` 拒绝，而不是列出比事实少的 Result；adapter 还核对
+每一项的 receipt 与 outbox 陈述的是同一请求、meaning digest 与 Result。Backtest 在某请求下不持有任何 Result 时答
+`EXPLORATORY_REQUEST_RESULTS_ABSENT`，读作空目录：Backtest 没有请求表，所以分不清未知的请求与尚无 Result 的请求。
+同一请求身份下存在另一 meaning digest 的 Result 时，读取以 `EXPLORATORY_REQUEST_MEANING_MISMATCH` 拒绝；超过 256 份
+Result 时以 `EXPLORATORY_REQUEST_RESULTS_EXCEED_BOUND` 拒绝。该读取不取行锁：它在 `READ ONLY` 事务中运行，只持有
+`AccessShareLock` 与每次 Backtest 读取都会取的 topology fence。它只陈述哪些 Result 存在及其 terminal，从不陈述报告
+能否被陈述，那仍是报告读取的判断；它也不列出任何 Protected Result。
+
 ## 输入交接
 
 - [R&D](./rd/) 提交一个冻结 Exploratory Replay Request，由一个 R&D 拥有的定位符寻址，该定位符携带请求身份

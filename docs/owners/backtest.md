@@ -190,6 +190,24 @@ recompose a result, or append a second Result, receipt, or outbox event. Admitte
 proof; it still grants no Dashboard implementation, deployment, production write, provider effect, Paper, Live,
 or trading authority.
 
+The same seam lists one request's Results. `read_exploratory_replay_result_directory_v1` takes the request
+identity and its meaning digest and is the fifth `owner_api` function: fixed, safe-`search_path`, `SECURITY DEFINER`
+and `STABLE`, executable by `rd_owner` alone, and pinned by the same topology census as the others. Each entry
+states `attempt_identity`, `result_identity`, `terminal` and the receipt's `committed_at_epoch_ms`, ordered by that
+time and then by attempt. Backtest keeps no attempt table, so an attempt appears here only as a terminal Result: an
+attempt still in flight, or one that failed before any Result, is R&D's to state, while a rejected run is listed
+with its own terminal. The directory is complete or it is nothing. A listed Result whose receipt or outbox event is
+missing refuses the whole read as `EXPLORATORY_RECEIPT_ABSENT` or `EXPLORATORY_OUTBOX_ABSENT` rather than listing
+fewer Results than exist, and the adapter checks that every entry's receipt and outbox state the same request,
+meaning digest and Result. A request under which Backtest holds no Result answers
+`EXPLORATORY_REQUEST_RESULTS_ABSENT`, read as an empty directory: Backtest holds no request table, so it cannot tell
+an unknown request from one with no Result yet. A Result held under the same request identity and another meaning
+digest refuses the read as `EXPLORATORY_REQUEST_MEANING_MISMATCH`, and more than 256 Results refuse it as
+`EXPLORATORY_REQUEST_RESULTS_EXCEED_BOUND`. The read takes no row lock: it runs inside a `READ ONLY` transaction and
+holds only `AccessShareLock` and the topology fence every Backtest read takes. It states which Results exist and
+their terminals, never whether a report can be stated, which stays the report read's judgement, and it lists no
+Protected Result.
+
 ## Input handoffs
 
 - [R&D](./rd/) submits one frozen Exploratory Replay Request, addressed by an R&D-owned locator carrying the

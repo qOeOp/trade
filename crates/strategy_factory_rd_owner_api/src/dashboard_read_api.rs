@@ -8,12 +8,13 @@ use axum::{
     response::{IntoResponse, Response},
     routing::get,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tokio::net::TcpListener;
 use vibe_backtest_owner_contracts::{CanonicalDigestV2, OpaqueIdentityV2};
 use vibe_strategy_factory::{
-    BacktestResultCustodyErrorV2, ExploratoryReplayResultLocatorV2,
+    BacktestReadbackRefusalV1, BacktestResultCustodyErrorV2,
+    ExploratoryReplayResultDirectoryEntryV1, ExploratoryReplayResultLocatorV2,
     artifact_build::{
         ArtifactBuildError, ArtifactBuildResultV1, ArtifactDirectoryCursorV1,
         ArtifactDirectoryOwnerPort, ArtifactDirectoryReadbackV1, ArtifactReadbackOwnerPortV1,
@@ -125,6 +126,13 @@ pub trait ExploratoryReplayResultReadbackOwnerPortV2: Send + Sync {
         request_identity: &str,
         attempt_identity: &str,
     ) -> Result<Option<Vec<u8>>, BacktestResultCustodyErrorV2>;
+
+    /// Every Result the Backtest Owner holds for one Replay request, in its order.
+    async fn read_exploratory_replay_result_directory(
+        &self,
+        request_identity: &str,
+        request_meaning_digest: &str,
+    ) -> Result<Vec<ExploratoryReplayResultDirectoryEntryV1>, BacktestResultCustodyErrorV2>;
 }
 
 #[async_trait::async_trait]
@@ -186,6 +194,15 @@ impl ExploratoryReplayResultReadbackOwnerPortV2 for PostgresExploratoryReplayRea
         })
         .await
         .map(|result| result.map(|locked| locked.result_canonical_bytes().to_vec()))
+    }
+
+    async fn read_exploratory_replay_result_directory(
+        &self,
+        request_identity: &str,
+        request_meaning_digest: &str,
+    ) -> Result<Vec<ExploratoryReplayResultDirectoryEntryV1>, BacktestResultCustodyErrorV2> {
+        self.read_exploratory_replay_result_directory_v1(request_identity, request_meaning_digest)
+            .await
     }
 }
 
@@ -302,6 +319,14 @@ impl ExploratoryReplayResultReadbackOwnerPortV2 for UnavailableExploratoryReplay
         _request_identity: &str,
         _attempt_identity: &str,
     ) -> Result<Option<Vec<u8>>, BacktestResultCustodyErrorV2> {
+        Err(BacktestResultCustodyErrorV2::Unavailable)
+    }
+
+    async fn read_exploratory_replay_result_directory(
+        &self,
+        _request_identity: &str,
+        _request_meaning_digest: &str,
+    ) -> Result<Vec<ExploratoryReplayResultDirectoryEntryV1>, BacktestResultCustodyErrorV2> {
         Err(BacktestResultCustodyErrorV2::Unavailable)
     }
 }
@@ -611,6 +636,10 @@ pub fn router(state: ApiState) -> Router {
         .route(
             "/v2/exploratory-replay-requests/readback",
             get(read_exploratory_replay),
+        )
+        .route(
+            "/v2/exploratory-replay-results",
+            get(read_exploratory_replay_result_directory),
         )
         .route(
             "/v2/exploratory-replay-results/{result_identity}",
@@ -1144,6 +1173,88 @@ pub async fn read_exploratory_replay_result(
         Ok(None) => StatusCode::NOT_FOUND.into_response(),
         Err(e) => {
             tracing::warn!(%e, "Exploratory Replay result Dashboard read unavailable");
+            StatusCode::SERVICE_UNAVAILABLE.into_response()
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct ExploratoryReplayResultDirectoryResponseV1<'a> {
+    schema_version: u32,
+    request_identity: &'a str,
+    meaning_digest: &'a str,
+    results: Vec<ExploratoryReplayResultDirectoryItemV1<'a>>,
+}
+
+#[derive(Debug, Serialize)]
+struct ExploratoryReplayResultDirectoryItemV1<'a> {
+    attempt_identity: &'a str,
+    result_identity: &'a str,
+    terminal: vibe_backtest_owner_contracts::ReplayTerminalV2,
+    committed_at_epoch_ms: u64,
+}
+
+/// Lists one Replay request's Results as the Backtest Owner holds them, so a Result is opened from
+/// the list instead of by a hand-typed identity.
+///
+/// A request with no Result lists none. A refusal answers the unavailable envelope under the
+/// Owner's own reason, `409` for a Result held under another meaning digest, since the selector
+/// itself disagrees with custody, and `503` otherwise; only when the Owner could not be asked at
+/// all does the response carry no body.
+pub async fn read_exploratory_replay_result_directory(
+    State(state): State<ApiState>,
+    Query(query): Query<ExploratoryReplayReadbackQueryV2>,
+    headers: HeaderMap,
+) -> Response {
+    if !authorized(&headers, &state.token_digest) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+
+    if OpaqueIdentityV2::try_from(query.request_identity.clone()).is_err()
+        || CanonicalDigestV2::try_from(query.meaning_digest.clone()).is_err()
+    {
+        return StatusCode::BAD_REQUEST.into_response();
+    }
+
+    match state
+        .exploratory_replay_result_readback
+        .read_exploratory_replay_result_directory(&query.request_identity, &query.meaning_digest)
+        .await
+    {
+        Ok(entries) => (
+            StatusCode::OK,
+            Json(ExploratoryReplayResultDirectoryResponseV1 {
+                schema_version: 1,
+                request_identity: &query.request_identity,
+                meaning_digest: &query.meaning_digest,
+                results: entries
+                    .iter()
+                    .map(|entry| ExploratoryReplayResultDirectoryItemV1 {
+                        attempt_identity: entry.attempt_identity(),
+                        result_identity: entry.result_identity(),
+                        terminal: entry.terminal(),
+                        committed_at_epoch_ms: entry.committed_at_epoch_ms(),
+                    })
+                    .collect(),
+            }),
+        )
+            .into_response(),
+        Err(BacktestResultCustodyErrorV2::Refused(refusal)) => {
+            tracing::warn!(%refusal, "Exploratory Replay result directory refused");
+            let status = if refusal == BacktestReadbackRefusalV1::ExploratoryRequestMeaningMismatch
+            {
+                StatusCode::CONFLICT
+            } else {
+                StatusCode::SERVICE_UNAVAILABLE
+            };
+            (
+                status,
+                Json(serde_json::json!({"state": "UNAVAILABLE", "reason": refusal.code()})),
+            )
+                .into_response()
+        }
+        Err(e) => {
+            tracing::warn!(%e, "Exploratory Replay result directory Dashboard read unavailable");
             StatusCode::SERVICE_UNAVAILABLE.into_response()
         }
     }

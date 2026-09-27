@@ -11,7 +11,9 @@ use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Row, postgres::PgRow};
 pub(crate) use vibe_backtest_result_custody::LockedExploratoryReplayResultV3;
 pub use vibe_backtest_result_custody::{
-    BacktestResultCustodyErrorV2, ExploratoryReplayResultLocatorV2, LockedExploratoryReplayResultV2,
+    BacktestReadbackRefusalV1, BacktestResultCustodyErrorV2,
+    ExploratoryReplayResultDirectoryEntryV1, ExploratoryReplayResultLocatorV2,
+    LockedExploratoryReplayResultV2,
 };
 use vibe_product_edge::{
     DownstreamAdmissionModeV1, ProductEdgeAdmissionLocatorV1, ProductEdgeAdmissionReadbackV1,
@@ -27,6 +29,22 @@ pub async fn resolve_exploratory_replay_result_for_rd_in_transaction(
     locator: ExploratoryReplayResultLocatorV2<'_>,
 ) -> Result<Option<LockedExploratoryReplayResultV2>, BacktestResultCustodyErrorV2> {
     vibe_backtest_result_custody::resolve_exploratory_replay_result_v2(transaction, locator).await
+}
+
+/// Lists every Backtest-owned Result of one Replay request under the caller's R&D transaction.
+///
+/// The read takes no row lock, so the caller may hold the transaction `READ ONLY`.
+pub async fn read_exploratory_replay_result_directory_for_rd_in_transaction(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    request_identity: &str,
+    request_meaning_digest: &str,
+) -> Result<Vec<ExploratoryReplayResultDirectoryEntryV1>, BacktestResultCustodyErrorV2> {
+    vibe_backtest_result_custody::read_exploratory_replay_result_directory_v1(
+        transaction,
+        request_identity,
+        request_meaning_digest,
+    )
+    .await
 }
 
 /// Resolves the same Result with Backtest-owned native outcome evidence for R&D interpretation.

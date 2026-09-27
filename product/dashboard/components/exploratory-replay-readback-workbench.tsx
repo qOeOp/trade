@@ -15,10 +15,20 @@ import {
   type ExploratoryReplayResultBrowserProjectionV1,
 } from "../lib/exploratory-replay-result-gateway";
 import {
+  parseExploratoryReplayResultDirectoryV1,
+  type ExploratoryReplayResultDirectoryEntryV1,
+  type ExploratoryReplayResultDirectoryV1,
+} from "../lib/exploratory-replay-result-directory-gateway";
+import {
   encodeExploratoryReplayOpaqueIdentityV2,
   validExploratoryReplayOpaqueIdentityV2,
 } from "../lib/exploratory-replay-identity";
 import { BacktestRunReportReadback } from "./backtest-run-report-readback";
+import {
+  DataWorkspaceTable,
+  dataWorkspaceSelectedRowStyles,
+  type DataWorkspaceColumn,
+} from "./ui/data-workspace-table";
 import { EmptyState, UnavailableState } from "./ui/evidence-strip";
 import { FactGroup, FactGroupGrid, FactGroupSkeletonGrid, FactItem } from "./ui/fact-group";
 import { FilterButton } from "./ui/filter-toolbar";
@@ -86,15 +96,97 @@ const diagnosticLabels = {
   UNRESOLVED_FAILURE: "unresolved failure",
 } as const;
 
+// One terminal reads the same wherever a Result is shown: in the directory and once opened.
+function terminalPresentation(terminal: string) {
+  return {
+    label: terminal === "TERMINAL_RESULT" ? "complete"
+      : terminal === "RUN_REJECTED" ? "rejected"
+        : terminal === "INVALID_REPLAY_EVIDENCE" ? "invalid evidence" : "in progress",
+    tone: terminal === "TERMINAL_RESULT" ? "success" as const
+      : terminal === "INVALID_REPLAY_EVIDENCE" ? "danger" as const
+        : terminal === "RUN_REJECTED" ? "warning" as const : "neutral" as const,
+  };
+}
+
+// The Results the Backtest Owner holds for the opened request, each opened from here. Nothing is
+// typed: the identities a Result is opened with are the ones the Owner listed.
+function ResultDirectory({
+  status,
+  directory,
+  selected,
+  opening,
+  onOpen,
+}: {
+  status: "idle" | "loading" | "available" | "unavailable";
+  directory: ExploratoryReplayResultDirectoryV1 | null;
+  selected: Readonly<{ resultIdentity: string; attemptIdentity: string }> | null;
+  opening: boolean;
+  onOpen: (entry: ExploratoryReplayResultDirectoryEntryV1) => void;
+}) {
+  if (status === "loading" || status === "idle") {
+    return <FactGroupSkeletonGrid aria-label="Loading Replay results" titles={["Results"]} />;
+  }
+  if (status !== "available" || directory?.state !== "available") {
+    return (
+      <UnavailableState
+        density="compact"
+        icon={<EvidenceIcons.warning aria-hidden="true" size={20} />}
+        title="Replay results unavailable"
+        reason={directory?.state === "unavailable" ? directory.reason : "EXPLORATORY_REPLAY_RESULT_DIRECTORY_TRANSPORT_UNAVAILABLE"}
+      />
+    );
+  }
+  const columns: DataWorkspaceColumn<ExploratoryReplayResultDirectoryEntryV1>[] = [
+    {
+      id: "committed",
+      name: "Committed",
+      cell: (entry) => <time dateTime={entry.committedAt}>{new Date(entry.committedAt).toLocaleString()}</time>,
+    },
+    {
+      id: "terminal",
+      name: "Status",
+      cell: (entry) => {
+        const { label, tone } = terminalPresentation(entry.terminal);
+        return <StatusBadge tone={tone}>{label}</StatusBadge>;
+      },
+    },
+    { id: "result", name: "Result", cell: (entry) => <code title={entry.resultIdentity}>{entry.resultIdentity}</code> },
+    { id: "attempt", name: "Attempt", cell: (entry) => <code title={entry.attemptIdentity}>{entry.attemptIdentity}</code> },
+    {
+      id: "open",
+      name: <span className="sr-only">Open</span>,
+      cell: (entry) => (
+        <FilterButton
+          density="compact"
+          variant="secondary"
+          disabled={opening}
+          data-result-identity={entry.resultIdentity}
+          data-attempt-identity={entry.attemptIdentity}
+          onClick={() => onOpen(entry)}
+        >
+          Open result <EvidenceIcons.next aria-hidden="true" size={12} />
+        </FilterButton>
+      ),
+    },
+  ];
+  return (
+    <DataWorkspaceTable<ExploratoryReplayResultDirectoryEntryV1>
+      ariaLabel="Replay results"
+      columns={columns}
+      data={directory.results}
+      dense
+      keyField="resultIdentity"
+      conditionalRowStyles={dataWorkspaceSelectedRowStyles((entry) =>
+        entry.resultIdentity === selected?.resultIdentity
+        && entry.attemptIdentity === selected?.attemptIdentity)}
+      noDataComponent={<EmptyState title="No runs recorded">The Backtest Owner holds no Result for this request.</EmptyState>}
+    />
+  );
+}
+
 function AvailableResult({ projection }: { projection: ExploratoryReplayResultBrowserProjectionV1 }) {
   if (!projection.result) return null;
-  const terminal = projection.result.terminal;
-  const terminalLabel = terminal === "TERMINAL_RESULT" ? "complete"
-    : terminal === "RUN_REJECTED" ? "rejected"
-      : terminal === "INVALID_REPLAY_EVIDENCE" ? "invalid evidence" : "in progress";
-  const tone = terminal === "TERMINAL_RESULT" ? "success"
-    : terminal === "INVALID_REPLAY_EVIDENCE" ? "danger"
-      : terminal === "RUN_REJECTED" ? "warning" : "neutral";
+  const { label: terminalLabel, tone } = terminalPresentation(projection.result.terminal);
   const diagnosis = projection.result.diagnostics.length === 0
     ? "pending"
     : projection.result.diagnostics.map((item) => diagnosticLabels[item]).join(", ");
@@ -160,11 +252,17 @@ export function ExploratoryReplayReadbackWorkbench({
   }> | null>(null);
   const [status, setStatus] = useState<"idle" | "loading" | "available" | "unavailable">("idle");
   const [projection, setProjection] = useState<ExploratoryReplayBrowserProjectionV1 | null>(null);
-  const [resultIdentity, setResultIdentity] = useState(initialResultIdentity ?? "");
-  const [attemptIdentity, setAttemptIdentity] = useState(initialAttemptIdentity ?? "");
+  // The Result the page has selected: the one a link named, until one is opened from the directory.
+  const [selectedResult, setSelectedResult] = useState<Readonly<{
+    resultIdentity: string;
+    attemptIdentity: string;
+  }> | null>(initialResultIdentity && initialAttemptIdentity
+    ? { resultIdentity: initialResultIdentity, attemptIdentity: initialAttemptIdentity }
+    : null);
+  const [directoryStatus, setDirectoryStatus] = useState<"idle" | "loading" | "available" | "unavailable">("idle");
+  const [directory, setDirectory] = useState<ExploratoryReplayResultDirectoryV1 | null>(null);
   const [resultStatus, setResultStatus] = useState<"idle" | "loading" | "available" | "unavailable">("idle");
   const [resultProjection, setResultProjection] = useState<ExploratoryReplayResultBrowserProjectionV1 | null>(null);
-  const [resultValidation, setResultValidation] = useState<string | null>(null);
   const [validation, setValidation] = useState<string | null>(null);
   const [historicalRequestInput, setHistoricalRequestInput] = useState(
     initialHistoricalRequestIdentity ?? "",
@@ -188,14 +286,39 @@ export function ExploratoryReplayReadbackWorkbench({
   >(null);
   const [historicalValidation, setHistoricalValidation] = useState<string | null>(null);
   const requestSequence = useRef(0);
+  const directorySequence = useRef(0);
   const resultSequence = useRef(0);
   const historicalSequence = useRef(0);
+
+  // The Results the Backtest Owner holds for the opened request, read once the request itself is.
+  const readDirectory = useCallback(async (
+    selector: Readonly<{ requestIdentity: string; meaningDigest: string }>,
+    requestIdentityB64: string,
+  ) => {
+    const sequence = ++directorySequence.current;
+    setDirectoryStatus("loading");
+    try {
+      const query = new URLSearchParams({ requestIdentityB64, meaningDigest: selector.meaningDigest });
+      const response = await fetch(`/api/backtest/result-directory?${query.toString()}`, { cache: "no-store" });
+      const parsed = parseExploratoryReplayResultDirectoryV1(await response.json(), selector);
+      if (directorySequence.current !== sequence) return;
+      setDirectory(parsed);
+      setDirectoryStatus(response.ok && parsed?.state === "available" ? "available" : "unavailable");
+    } catch {
+      if (directorySequence.current !== sequence) return;
+      setDirectory(null);
+      setDirectoryStatus("unavailable");
+    }
+  }, []);
 
   const read = useCallback(async (requestCandidate: string, meaningCandidate: string) => {
     const requestIdentity = requestCandidate;
     const meaningDigest = meaningCandidate;
     const sequence = ++requestSequence.current;
+    ++directorySequence.current;
     setProjection(null);
+    setDirectory(null);
+    setDirectoryStatus("idle");
     setResultProjection(null);
     setResultStatus("idle");
     if (!validExploratoryReplayOpaqueIdentityV2(requestIdentity) || !DIGEST.test(meaningDigest)) {
@@ -227,24 +350,26 @@ export function ExploratoryReplayReadbackWorkbench({
       }
       setProjection(parsed);
       setStatus("available");
+      void readDirectory({ requestIdentity, meaningDigest }, requestIdentityB64);
     } catch {
       if (requestSequence.current !== sequence) return;
       setProjection(null);
       setStatus("unavailable");
     }
-  }, []);
+  }, [readDirectory]);
 
-  const readResult = useCallback(async () => {
+
+
+  const readResult = useCallback(async (entry: ExploratoryReplayResultDirectoryEntryV1) => {
     const selector = openedSelector;
+    const { resultIdentity, attemptIdentity } = entry;
     const sequence = ++resultSequence.current;
     setResultProjection(null);
-    if (!selector || !validExploratoryReplayOpaqueIdentityV2(resultIdentity)
-      || !validExploratoryReplayOpaqueIdentityV2(attemptIdentity)) {
+    setSelectedResult({ resultIdentity, attemptIdentity });
+    if (!selector) {
       setResultStatus("idle");
-      setResultValidation("Enter the exact result identity and attempt identity.");
       return;
     }
-    setResultValidation(null);
     setResultStatus("loading");
     try {
       const encoded = [selector.requestIdentity, attemptIdentity, resultIdentity]
@@ -273,7 +398,7 @@ export function ExploratoryReplayReadbackWorkbench({
       if (resultSequence.current !== sequence) return;
       setResultStatus("unavailable");
     }
-  }, [attemptIdentity, openedSelector, resultIdentity]);
+  }, [openedSelector]);
 
   const readHistorical = useCallback(async (
     requestCandidate: string,
@@ -518,49 +643,13 @@ export function ExploratoryReplayReadbackWorkbench({
         </PanelSection>
         {status === "available" && openedSelector ? (
           <div className={styles.resultLookup}>
-            <ReadbackLookup
-              columns="double"
-              validation={resultValidation}
-              validationId="exploratory-replay-result-validation"
-              onSubmit={(event) => {
-                event.preventDefault();
-                void readResult();
-              }}
-            >
-              <ReadbackLookupField label="Result identity">
-                <ReadbackLookupInput
-                  aria-describedby={resultValidation ? "exploratory-replay-result-validation" : undefined}
-                  aria-invalid={Boolean(resultValidation)}
-                  autoComplete="off"
-                  onChange={(event) => {
-                    setResultIdentity(event.target.value);
-                    setResultValidation(null);
-                  }}
-                  placeholder="result identity"
-                  spellCheck={false}
-                  typography="mono"
-                  value={resultIdentity}
-                />
-              </ReadbackLookupField>
-              <ReadbackLookupField label="Attempt identity">
-                <ReadbackLookupInput
-                  aria-describedby={resultValidation ? "exploratory-replay-result-validation" : undefined}
-                  aria-invalid={Boolean(resultValidation)}
-                  autoComplete="off"
-                  onChange={(event) => {
-                    setAttemptIdentity(event.target.value);
-                    setResultValidation(null);
-                  }}
-                  placeholder="attempt identity"
-                  spellCheck={false}
-                  typography="mono"
-                  value={attemptIdentity}
-                />
-              </ReadbackLookupField>
-              <ReadbackLookupAction disabled={resultStatus === "loading"}>
-                Open result <EvidenceIcons.next aria-hidden="true" size={12} />
-              </ReadbackLookupAction>
-            </ReadbackLookup>
+            <ResultDirectory
+              status={directoryStatus}
+              directory={directory}
+              selected={selectedResult}
+              opening={resultStatus === "loading"}
+              onOpen={(entry) => void readResult(entry)}
+            />
             <div className={styles.resultReadback} aria-live="polite">
               {resultStatus === "loading" ? (
                 <FactGroupSkeletonGrid aria-label="Loading Replay result" titles={["Result"]} />

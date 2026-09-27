@@ -140,6 +140,7 @@ readonly rd_owner_postgres_tests=(
   'vibe-strategy-factory-rd-owner-api|rd_owner_api_main|research_initial_pit_postgres_tests::a_v3_research_request_issues_its_initial_pit_request_over_http'
   'vibe-strategy-factory-rd-owner-api|rd_owner_api_main|dashboard_run_routing_acceptance::a_dashboard_run_starts_only_on_the_routing_the_writer_committed_and_reaches_the_owner'
   'vibe-strategy-factory|composer_replay_v3_postgres|forged_v3_admission_fails_without_replay_transition_or_outbox_write'
+  'vibe-backtest-owner|vibe_backtest_owner|tests::postgres_result_directory_lists_one_requests_results_without_a_row_lock'
   'vibe-strategy-factory|vibe_strategy_factory|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only'
 )
 readonly nextest_graph_args=(
@@ -211,8 +212,8 @@ check_nextest_graph_contract() {
     echo "ERROR: isolated PostgreSQL tests must use the shared nextest graph." >&2
     return 1
   fi
-  if [[ "${#rd_owner_postgres_tests[@]}" -ne 111 ]]; then
-    echo "ERROR: isolated PostgreSQL test selection must retain all 111 ordered tests, found ${#rd_owner_postgres_tests[@]}." >&2
+  if [[ "${#rd_owner_postgres_tests[@]}" -ne 112 ]]; then
+    echo "ERROR: isolated PostgreSQL test selection must retain all 112 ordered tests, found ${#rd_owner_postgres_tests[@]}." >&2
     return 1
   fi
   if [[ "${rd_owner_postgres_tests[0]}" != *'|replay_policy_catalog_postgres_v2::postgres_tests::catalog_admin_and_family_formation_are_atomic_and_fail_closed' ]] ||
@@ -335,7 +336,8 @@ check_nextest_graph_contract() {
     [[ "${rd_owner_postgres_tests[107]}" != *'|research_initial_pit_postgres_tests::a_v3_research_request_issues_its_initial_pit_request_over_http' ]] ||
     [[ "${rd_owner_postgres_tests[108]}" != *'|dashboard_run_routing_acceptance::a_dashboard_run_starts_only_on_the_routing_the_writer_committed_and_reaches_the_owner' ]] ||
     [[ "${rd_owner_postgres_tests[109]}" != *'|forged_v3_admission_fails_without_replay_transition_or_outbox_write' ]] ||
-    [[ "${rd_owner_postgres_tests[110]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]]; then
+    [[ "${rd_owner_postgres_tests[110]}" != *'|tests::postgres_result_directory_lists_one_requests_results_without_a_row_lock' ]] ||
+    [[ "${rd_owner_postgres_tests[111]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]]; then
     echo "ERROR: isolated PostgreSQL test ordering must remain fresh-first and destructive-drain-last." >&2
     return 1
   fi
@@ -485,7 +487,7 @@ for line in array_body.splitlines():
     entries.append(tuple(fields))
 # The count lives in one place. Writing it into the message as well lets the two drift, and the
 # drifted form reads as nonsense the moment it fires: "must contain 92 entries, found 92".
-expected_entries = 111
+expected_entries = 112
 if len(entries) != expected_entries:
     raise SystemExit(
         f"ERROR: ordered PostgreSQL test literal must contain {expected_entries} entries, found {len(entries)}."
@@ -795,6 +797,13 @@ frontier_sql_match = re.search(
 frontier_rust_match = re.search(
     r'const FRONTIER_FUNCTION_SOURCE: &str = r#"(.*?)"#;', protected_rust, re.DOTALL
 )
+directory_sql_match = re.search(
+    r"CREATE OR REPLACE FUNCTION backtest_owner_api\.read_exploratory_replay_result_directory_v1\("
+    r".*?AS \$function\$(.*?)\$function\$;",
+    migration,
+    re.DOTALL,
+)
+directory_rust_match = re.search(r'const DIRECTORY_FUNCTION_SOURCE: &str = "([^"]*)";', rust)
 if (
     sql_match is None
     or rust_match is None
@@ -804,6 +813,8 @@ if (
     or protected_rust_match is None
     or frontier_sql_match is None
     or frontier_rust_match is None
+    or directory_sql_match is None
+    or directory_rust_match is None
 ):
     raise SystemExit("ERROR: Backtest Result locked-read source identity is unavailable")
 if sql_match.group(1) != rust_match.group(1):
@@ -814,6 +825,8 @@ if protected_sql_match.group(1) != protected_rust_match.group(1):
     raise SystemExit("ERROR: protected Backtest Result locked-read source identity mismatch")
 if frontier_sql_match.group(1) != frontier_rust_match.group(1):
     raise SystemExit("ERROR: protected Backtest frontier locked-read source identity mismatch")
+if directory_sql_match.group(1) != directory_rust_match.group(1):
+    raise SystemExit("ERROR: Backtest Result directory read source identity mismatch")
 required_isolation = (
     "CREATE SCHEMA IF NOT EXISTS backtest_authority_lock_api AUTHORIZATION postgres;",
     "misplaced Backtest authority-lock function provenance mismatch",
@@ -833,9 +846,10 @@ runtime_census = (
 if any(required not in rust for required in runtime_census):
     raise SystemExit("ERROR: Backtest Result runtime namespace census is unavailable")
 materializer_owner_api_routine_census = (
-    "pg_catalog.count(*) BETWEEN 1 AND 4",
+    "pg_catalog.count(*) BETWEEN 1 AND 5",
     "procedure.oid IN (",
     "backtest_owner_api.resolve_exploratory_replay_result_v2(text,text,text)",
+    "backtest_owner_api.read_exploratory_replay_result_directory_v1(text,text)",
     "backtest_owner_api.resolve_exploratory_replay_result_v3(text,text,text)",
     "backtest_owner_api.resolve_protected_replay_result_v1(text,text,text)",
     "backtest_owner_api.resolve_protected_replay_attempt_frontier_v1(text,text)",
@@ -845,9 +859,12 @@ runtime_owner_api_routine_census = (
     "expected_sibling_function AS (",
     "expected_protected_function AS (",
     "expected_protected_frontier_function AS (",
+    "expected_directory_function AS (",
     "namespace.nspname='backtest_owner_api'",
     "procedure.proname=$2",
     "procedure.proname=$4",
+    "procedure.proname=$5",
+    "SELECT oid FROM expected_directory_function",
     "procedure.proargtypes=ARRAY[",
     "procedure.oid=(SELECT oid FROM expected_function)",
     "SELECT oid FROM expected_sibling_function",
