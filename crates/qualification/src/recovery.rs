@@ -1687,8 +1687,7 @@ mod tests {
 
     #[rstest]
     fn strict_json_rejects_duplicate_members() {
-        // MUTATION (positive control): a duplicate member is wrongly expected to parse.
-        assert!(strict_json(b"{\"a\":1,\"a\":2}\n").is_ok());
+        assert!(strict_json(b"{\"a\":1,\"a\":2}\n").is_err());
         assert!(strict_json(b"{\"a\":1}\n").is_ok());
     }
 
