@@ -801,7 +801,11 @@ mod tests {
             U160::from_str_radix("2018382873588440326581633304624437", 10).unwrap();
 
         let raw_price = decode_sqrt_price_x96_to_price(sqrt_price_x96).unwrap();
-        assert_eq!(raw_price.as_f64(), 649_004_842.701_37);
+        // The raw price is floor(sqrt^2 * 10^16 / 2^192) = 6490048427013700766389061, exactly
+        // 649004842.7013700766389061. The nearest f64 is 649004842.7013701 (0x1.357839559c67fp+29,
+        // 0.36 ULP away). The previous expectation, 649004842.70137, was the f64 one ULP below
+        // (0.64 ULP away), which `(raw as f64) / FIXED_SCALAR` produced by rounding twice.
+        assert_eq!(raw_price.as_f64(), 649_004_842.701_370_1);
 
         // We want the adjusted price inverted as USDC is token0 and WETH is token1
         let adjusted_price =
