@@ -1592,6 +1592,7 @@ mod tests {
             position_intent_semantic_id: position.to_owned(),
             target_variant_semantic_id: "kernel.target.position.v1".to_owned(),
             target_position_units: units,
+            target_weight_micros: 0,
         };
         BacktestRunStrategyV1 {
             family: SINGLE_THRESHOLD_FAMILY_V1,
@@ -1666,6 +1667,7 @@ mod tests {
             position_intent_semantic_id: position.to_owned(),
             target_variant_semantic_id: "kernel.target.position.v1".to_owned(),
             target_position_units: units,
+            target_weight_micros: 0,
         };
         let (design, _) = author_single_threshold_program_v1(&SingleThresholdAuthoringRequestV1 {
             research_request_identity: BindingDigest::from_untrusted_bytes([1; 32]),

@@ -3542,10 +3542,19 @@ pub(crate) fn assign_rebalance_sequence_v2(
     }
 }
 
-/// The reconciliation target a proposal carries: none for a kept target, and the declared units
-/// for every other.
+/// The reconciliation target a proposal carries: the declared units for a position target, and
+/// none for a kept target or a weight target.
+///
+/// A weight's grid position depends on account equity and price at reconciliation, so the
+/// target-set Host derives it then and refuses a weight member that already carries one; no
+/// other path runs a weight target.
 pub(crate) fn proposal_reconciliation_v2(target: TargetProposalV1, units: i64) -> Option<i64> {
-    (target != TargetProposalV1::Keep).then_some(units)
+    match target {
+        TargetProposalV1::Position(_) | TargetProposalV1::RebalancePosition { .. } => Some(units),
+        TargetProposalV1::Keep
+        | TargetProposalV1::WeightMicros(_)
+        | TargetProposalV1::RebalanceWeightMicros { .. } => None,
+    }
 }
 
 fn proposal_from_wiring(
