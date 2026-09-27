@@ -1578,7 +1578,16 @@ pub(crate) async fn resolve_committed_record_for_readback(
                 now_epoch_ms,
             ))
             .await
-            .map_err(|_| {
+            .map_err(|terminal| {
+                // A continuation refusal keeps its own name: it says the authority is gone, which
+                // is not the same as the View having moved on.
+                if crate::research_continuation_v1::is_research_continuation_refusal(&terminal) {
+                    return terminal;
+                }
+                crate::storage_diagnostic::refused_by_store(
+                    RUN_VIEW_UNRECORDED_COORDINATE_V1,
+                    &format!("{}: {}", terminal.coordinate, terminal.reason),
+                );
                 DevelopComposerTerminalV2::unavailable(
                     RUN_VIEW_UNRECORDED_COORDINATE_V1,
                     "the run predates the record of the Research View it ran under, and its Research custody does not verify against the current View",
@@ -2508,6 +2517,25 @@ impl RanUnderResearchStepV1 {
     }
 }
 
+/// A View a committed operation ran under, and the cut it ran at, as the historical ran-under lock
+/// established them: the stored View descends from it and, for an initial Intent, its artifact
+/// evidence was sealed for it. Its fields are private, so only that lock builds one, and a Research
+/// custody rebuilt at an arbitrary View and cut cannot be had outside it.
+pub(crate) struct RanUnderResearchViewV1<'a> {
+    view: &'a ResearchViewV1,
+    read_cut_epoch_ms: u64,
+}
+
+impl RanUnderResearchViewV1<'_> {
+    pub(crate) const fn view(&self) -> &ResearchViewV1 {
+        self.view
+    }
+
+    pub(crate) const fn read_cut_epoch_ms(&self) -> u64 {
+        self.read_cut_epoch_ms
+    }
+}
+
 /// Locks the one Research custody a Composer operation ran under and rebuilds its Composer custody
 /// from `ran_under`, the View it ran under, at `read_cut_epoch_ms`, the cut it ran at.
 ///
@@ -2543,12 +2571,14 @@ async fn lock_research_ran_under_in_transaction<E>(
             )
             .await
             .map_err(|e| refuse(RanUnderResearchStepV1::SuccessorFamily, &e))?;
-            let research = CurrentResearchDevelopCustodyV2::from_verified_successor_with_view(
+            let research = CurrentResearchDevelopCustodyV2::from_ran_under_successor(
                 &successor,
                 &custody,
                 &family,
-                ran_under,
-                read_cut_epoch_ms,
+                &RanUnderResearchViewV1 {
+                    view: ran_under,
+                    read_cut_epoch_ms,
+                },
             )
             .map_err(|e| refuse(RanUnderResearchStepV1::SuccessorCustody, &format!("{e:?}")))?;
 
@@ -2584,11 +2614,13 @@ async fn lock_research_ran_under_in_transaction<E>(
             )
             .await
             .map_err(|e| refuse(RanUnderResearchStepV1::ArtifactLock, &e))?;
-            let research = CurrentResearchDevelopCustodyV2::from_verified_with_view(
+            let research = CurrentResearchDevelopCustodyV2::from_ran_under(
                 &custody,
                 &custody.receipt().request_identity,
-                ran_under,
-                read_cut_epoch_ms,
+                &RanUnderResearchViewV1 {
+                    view: ran_under,
+                    read_cut_epoch_ms,
+                },
             )
             .map_err(|e| refuse(RanUnderResearchStepV1::CustodyVerify, &format!("{e:?}")))?;
             matches.push(research);

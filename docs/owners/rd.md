@@ -396,7 +396,11 @@ digest answers at the existing `operation_receipt` coordinate. A row committed b
 record existed carries neither fact: it keeps the read against the current View. Once that View has
 moved past `INTENT_FROZEN`, or the authority it continues under is no longer current (see below), it
 answers at `research_custody.run_view_unrecorded`, which
-states why the row cannot be read instead of implying that the run is gone. The migration adds the two
+states why the row cannot be read instead of implying that the run is gone. Such a row therefore reads
+back for as long as the operator authorization its Research request was admitted under lasts. Once that
+authorization expires or is revoked, it answers under the continuation's own coordinate,
+`research_custody.continuation.authority_not_current`, not the unrecorded one. A row that recorded its
+View does not depend on the authorization at all. The migration adds the two
 columns by reading the catalog shape first; they freeze when the migration is deployed, not when it
 merges.
 

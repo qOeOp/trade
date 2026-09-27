@@ -22,6 +22,18 @@ use vibe_product_edge::{
 
 use crate::develop_composer_v2::DevelopComposerTerminalV2;
 
+/// Every continuation refusal's coordinate starts with this, so a reader that has its own refusal
+/// for other failures can let these through under their own names.
+pub(crate) const RESEARCH_CONTINUATION_COORDINATE_PREFIX_V1: &str =
+    "research_custody.continuation.";
+
+/// Whether `terminal` is one of this module's refusals.
+pub(crate) fn is_research_continuation_refusal(terminal: &DevelopComposerTerminalV2) -> bool {
+    terminal
+        .coordinate
+        .starts_with(RESEARCH_CONTINUATION_COORDINATE_PREFIX_V1)
+}
+
 /// Coordinate of a Research custody with no current Product Edge admission to continue under: a
 /// quarantined legacy custody.
 pub(crate) const RESEARCH_CONTINUATION_NO_ADMISSION_COORDINATE_V1: &str =
@@ -92,6 +104,13 @@ pub(crate) async fn authorize_research_continuation_in_transaction(
     if current.locator() != admission
         || admitted.is_some_and(|admitted| !current.has_same_admission_lineage(admitted))
     {
+        crate::storage_diagnostic::refused_by_store(
+            RESEARCH_CONTINUATION_ADMISSION_CHANGED_COORDINATE_V1,
+            &format!(
+                "re-locked admission {} differs from the one the Intent was admitted under",
+                current.locator().admission_identity
+            ),
+        );
         return Err(DevelopComposerTerminalV2::unavailable(
             RESEARCH_CONTINUATION_ADMISSION_CHANGED_COORDINATE_V1,
             "the re-locked Product Edge admission is not the one the Research Intent was admitted under",

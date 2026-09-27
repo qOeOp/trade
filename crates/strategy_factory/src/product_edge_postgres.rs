@@ -6963,6 +6963,31 @@ pub(crate) mod tests {
                 .expect("an unrecorded run reads past its View's window under a current authority"),
             *response
         );
+        // Past the authority's own window it refuses, and says so under the continuation's name
+        // rather than folding it into the unrecorded one.
+        let authorization_ends = {
+            let mut transaction = owner.pool.begin().await.unwrap();
+            let verified =
+                crate::rd_owner_postgres_custody::admit_research_v2_custody_read_only_in_transaction(
+                    &mut transaction,
+                    research_request_identity,
+                )
+                .await
+                .unwrap()
+                .expect("the committed run's Research custody");
+            transaction.rollback().await.unwrap();
+            verified
+                .product_edge_admission()
+                .expect("the request's admission")
+                .authorization()
+                .valid_through_epoch_ms()
+        };
+        assert_eq!(
+            coordinate(
+                resolve(DevelopComposerRunViewRecordV1::Unrecorded, authorization_ends).await
+            ),
+            crate::research_continuation_v1::RESEARCH_CONTINUATION_AUTHORITY_NOT_CURRENT_COORDINATE_V1
+        );
 
         // A recorded View is a claim, checked like any other: its cut must lie in its window, and
         // the stored View must descend from it.
@@ -8179,8 +8204,13 @@ pub(crate) mod tests {
     /// Two-sided at every step, on one request admitted here under an authorization of its own:
     /// the continuation that answers past the View's window is refused past the authorization's
     /// window, and refused again, at a cut inside both, once that authorization is revoked. The
-    /// route a Design author reads first answers the same way on pinned clocks. The revocation is
-    /// this entry's own authorization, which no other entry's request is admitted under.
+    /// route a Design author reads first answers the same way on pinned clocks.
+    ///
+    /// Deliberate state side effect: the entry revokes an authorization, and it stays revoked in the
+    /// shared database. It is this entry's own: `bootstrap_admission` issues
+    /// `operator-authorization-{suffix}` for this entry's suffix alone, and the only request
+    /// admitted under it is `research-continuation-{suffix}`, which no other entry names. So no
+    /// later entry reads a revoked authority.
     #[rstest::rstest]
     #[ignore = "requires the ordered canonical Owner PostgreSQL gate"]
     fn a_frozen_research_intent_continues_under_its_admission_past_its_views_window() {

@@ -333,7 +333,9 @@ Research artifact evidence 必须正是为它封存的（`rd_owner_api.lock_rese
 必须是它的合法后代，cut 必须落在它的有效窗口内，operation receipt 的 Research custody digest 必须等于由它重建的那一个。
 前三种失败在 `research_custody.run_view` 下各自的 coordinate 处应答 `UNAVAILABLE`；digest 不等时在既有的 `operation_receipt` coordinate 处应答。在这条记录存在之前提交的行两条事实都没有：
 它保留针对当前 View 的读取。一旦该 View 已推进到 `INTENT_FROZEN` 之后，或者它继续所依据的授权不再当前（见下文），就在
-`research_custody.run_view_unrecorded` 处应答，说明这一行为什么不能读，而不是暗示运行消失了。迁移先读目录形状再加这两列；它们在迁移部署时冻结，而不是在合并时。
+`research_custody.run_view_unrecorded` 处应答，说明这一行为什么不能读，而不是暗示运行消失了。因此这样的行在其 Research request
+准入时所依据的操作员授权持续期间都可以读回；一旦该授权过期或被撤销，它就在继续检查自己的 coordinate
+`research_custody.continuation.authority_not_current` 处应答，而不是在未记录的那个 coordinate 处。记下了自己 View 的行完全不依赖该授权。迁移先读目录形状再加这两列；它们在迁移部署时冻结，而不是在合并时。
 
 **已准入的 Research Intent 在其准入时的授权下继续，而不是在其 View 的窗口内继续。** View 的 `valid_through`
 是读者看到的新鲜度：过了它，View 读作 `STALE`，而且没有任何东西刷新它。它并不界定冻结的 Intent 可以被处理多久。

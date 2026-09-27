@@ -3742,9 +3742,10 @@ mod tests {
         );
     }
 
-    #[rstest::rstest]
-    fn legacy_v2_point_read_preserves_quarantine_receipt() {
-        let custody = VerifiedResearchCustodyV1 {
+    /// An accepted schema-2 custody as the legacy missing-request representation verifies it: no
+    /// stored request, no View, and no Product Edge admission (`LegacyQuarantined`).
+    fn legacy_quarantined_v2_custody() -> VerifiedResearchCustodyV1 {
+        VerifiedResearchCustodyV1 {
             request_json: None,
             receipt: ResearchRequestReceiptV1 {
                 schema_version: 1,
@@ -3769,7 +3770,12 @@ mod tests {
             initial_pit: None,
             admitted_version: None,
             terminal_attempt_admission: None,
-        };
+        }
+    }
+
+    #[rstest::rstest]
+    fn legacy_v2_point_read_preserves_quarantine_receipt() {
+        let custody = legacy_quarantined_v2_custody();
 
         let result = custody.into_legacy_quarantined_v2_result().unwrap();
 
@@ -3780,6 +3786,22 @@ mod tests {
         assert_eq!(result.request_identity(), "research-request-v2-test");
         assert!(result.owner_receipt().is_some());
         assert!(result.research_view().is_none());
+    }
+
+    /// A legacy accepted custody has no admission to continue under, so a continuation refuses it
+    /// by name at its first step: `continue_initial_research_in_transaction` asks for the admission
+    /// before it locks anything. BFP reaches it that way for such a request.
+    #[rstest::rstest]
+    fn a_legacy_custody_continues_nothing_and_says_why() {
+        let custody = legacy_quarantined_v2_custody();
+
+        let refused = crate::research_continuation_v1::initial_research_admission(&custody)
+            .expect_err("a legacy custody carries no admission");
+        assert_eq!(
+            refused.coordinate,
+            crate::research_continuation_v1::RESEARCH_CONTINUATION_NO_ADMISSION_COORDINATE_V1
+        );
+        assert!(crate::research_continuation_v1::is_research_continuation_refusal(&refused));
     }
 
     #[rstest::rstest]

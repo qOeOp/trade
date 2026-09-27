@@ -367,13 +367,28 @@ impl CurrentResearchDevelopCustodyV2 {
                 "the continuation was authorized under another Product Edge admission",
             ));
         }
-        Self::from_verified_with_view(custody, request_locator, view, authorized.cut_epoch_ms())
+        Self::rebuild_at_view(custody, request_locator, view, authorized.cut_epoch_ms())
     }
 
-    /// Rebuilds the original Composer research digest from an independently verified historical
-    /// View. The caller must prove this View is an authenticated preimage of a committed Owner
-    /// transition. Expiry of a later mutable View does not change this immutable operation fact.
-    pub(crate) fn from_verified_with_view(
+    /// The Research custody a committed operation ran under, rebuilt at the View and cut the
+    /// historical ran-under lock established; only that lock builds `ran_under`.
+    pub(crate) fn from_ran_under(
+        custody: &VerifiedResearchCustodyV1,
+        request_locator: &str,
+        ran_under: &crate::source_research_composer_postgres_v2::RanUnderResearchViewV1<'_>,
+    ) -> Result<Self, DevelopComposerTerminalV2> {
+        Self::rebuild_at_view(
+            custody,
+            request_locator,
+            ran_under.view(),
+            ran_under.read_cut_epoch_ms(),
+        )
+    }
+
+    /// Rebuilds the Composer research digest at `view` and `read_cut_epoch_ms`. Private: a caller
+    /// reaches it only with a continuation proof ([`Self::from_verified`]) or a ran-under View
+    /// ([`Self::from_ran_under`]), never with a View and cut of its own choosing.
+    fn rebuild_at_view(
         custody: &VerifiedResearchCustodyV1,
         request_locator: &str,
         view: &ResearchViewV1,
@@ -467,7 +482,7 @@ impl CurrentResearchDevelopCustodyV2 {
                 "the continuation was authorized under another Product Edge admission",
             ));
         }
-        Self::from_verified_successor_with_view(
+        Self::rebuild_successor_at_view(
             readback,
             custody,
             family,
@@ -476,8 +491,26 @@ impl CurrentResearchDevelopCustodyV2 {
         )
     }
 
-    /// Rebuilds the original successor Composer digest from a verified View preimage.
-    pub(crate) fn from_verified_successor_with_view(
+    /// The successor Research custody a committed operation ran under, rebuilt at the View and cut
+    /// the historical ran-under lock established.
+    pub(crate) fn from_ran_under_successor(
+        readback: &SuccessorResearchIntentReadbackV1,
+        custody: &SuccessorResearchViewCustodyV1,
+        family: &TrialFamilyCensusReadbackV2,
+        ran_under: &crate::source_research_composer_postgres_v2::RanUnderResearchViewV1<'_>,
+    ) -> Result<Self, DevelopComposerTerminalV2> {
+        Self::rebuild_successor_at_view(
+            readback,
+            custody,
+            family,
+            ran_under.view(),
+            ran_under.read_cut_epoch_ms(),
+        )
+    }
+
+    /// Rebuilds the successor Composer digest at `view`; private for the same reason as
+    /// [`Self::rebuild_at_view`].
+    fn rebuild_successor_at_view(
         readback: &SuccessorResearchIntentReadbackV1,
         custody: &SuccessorResearchViewCustodyV1,
         family: &TrialFamilyCensusReadbackV2,
