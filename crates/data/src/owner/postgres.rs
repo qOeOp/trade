@@ -43,7 +43,7 @@ mod pit_empty_observation_tests;
 #[cfg(test)]
 mod pit_initial_intake_correlation_tests;
 #[cfg(test)]
-mod pit_intake_member_count_tests;
+pub(in crate::owner) mod pit_intake_member_count_tests;
 mod pit_role_resolution_v1;
 mod rd_strategy_input_custody;
 mod reference_fact_catalog;
@@ -51,16 +51,16 @@ mod reference_fact_coordinates;
 mod replay_market_facts_v2;
 pub(in crate::owner) mod research_pit_references_v1;
 pub(in crate::owner) mod research_pit_terminal_v1;
+#[cfg(test)]
+pub(in crate::owner) use admitted_read_api_v1::declared_admitted_read_wrapper_names_v1;
 pub(super) use replay_market_facts_v2::resolve_bound_replay_cut_for_rd_in_transaction_v1;
 pub(super) use replay_market_facts_v2::{
-    BoundUniverseSelectionErrorV1, recover_bound_universe_selection_in_transaction_v1,
+    BoundReplayInputsErrorV1, BoundReplayInputsV1, recover_bound_replay_inputs_in_transaction_v1,
 };
 #[cfg(test)]
 pub(super) use replay_market_facts_v2::{
     ISSUANCE_BINDING_CONSTRAINT, ISSUANCE_IDENTITY_CONSTRAINT, ISSUANCE_MEANING_CONSTRAINT,
 };
-#[cfg(test)]
-pub(super) use universe_selection::persist_issued_readback_for_test;
 mod sample_projection_v4;
 mod session;
 #[cfg(test)]
@@ -82,6 +82,7 @@ pub(in crate::owner) mod universe_selection;
 
 // The resolver is needed in every build: the arrangement that reads a frame's inputs is no longer
 // inside a `cfg(not(test))` arm, so that its order can be driven rather than only deployed.
+use super::declared_bar_timeframe_v1::{DeclaredBarTimeframeErrorV1, DeclaredBarTimeframeV1};
 use super::native_replay_scheduling_v1::{
     NativeReplayInitialMarketReadbackV1, NativeReplayInitialMarketRequestV1,
     NativeReplaySchedulingErrorV1, NativeReplaySchedulingResolverV1,
@@ -8536,16 +8537,20 @@ where
         .resolve_pit_evaluation(*request.snapshot_identity().as_bytes())
         .await
         .map_err(|_| NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)?;
-    let batch = verify_admitted_pit_evidence_by_identity_v1(
+    let (batch, source) = verify_admitted_pit_evidence_with_source_by_identity_v1(
         request.snapshot_identity(),
         request.snapshot_fact_digest(),
         &evidence,
     )
     .map_err(|_| NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)?;
+    // The bar the frame's schedules must state is the one its own Source Binding declares for the
+    // roles' row label, taken from the lineage rows the evidence verified the batch against: no
+    // further read.
     let timeframe = request
         .schedule_timeframe()
-        .ok_or(NativeReplaySchedulingErrorV1::OwnerBindingMismatch)?
-        .to_owned();
+        .ok_or(NativeReplaySchedulingErrorV1::OwnerBindingMismatch)?;
+    let declared = DeclaredBarTimeframeV1::from_binding(&source, timeframe)
+        .map_err(native_replay_scheduling_error_of_declaration)?;
     let mut schedules = Vec::with_capacity(request.member_instruments().len());
 
     for instrument in request.member_instruments() {
@@ -8561,7 +8566,7 @@ where
             verified,
             &batch,
             instrument,
-            &timeframe,
+            &declared,
             request.frame_time_ns(),
         )?);
     }
@@ -8572,7 +8577,7 @@ where
     )
     .await
     .map_err(native_replay_scheduling_error_of_quote_cut_refusal)?;
-    issue_native_replay_initial_market_readback_v1(batch, quote_cut, schedules, request)
+    issue_native_replay_initial_market_readback_v1(batch, quote_cut, schedules, declared, request)
 }
 
 /// Resolves a frame's quote cut through an admitted port, by the same rules as custody's own read.
@@ -8711,8 +8716,8 @@ async fn resolve_native_replay_initial_market_from_pool_v1(
         .map_err(|_| NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)?;
     let timeframe = request
         .schedule_timeframe()
-        .ok_or(NativeReplaySchedulingErrorV1::OwnerBindingMismatch)?
-        .to_owned();
+        .ok_or(NativeReplaySchedulingErrorV1::OwnerBindingMismatch)?;
+    let declared = declared_bar_timeframe_of_batch_v1(&mut transaction, &batch, timeframe).await?;
     let mut schedules = Vec::with_capacity(request.member_instruments().len());
 
     for instrument in request.member_instruments() {
@@ -8723,7 +8728,7 @@ async fn resolve_native_replay_initial_market_from_pool_v1(
             candidates,
             &batch,
             instrument,
-            &timeframe,
+            &declared,
             request.frame_time_ns(),
         )?);
     }
@@ -8738,7 +8743,50 @@ async fn resolve_native_replay_initial_market_from_pool_v1(
         .commit()
         .await
         .map_err(|_| NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)?;
-    issue_native_replay_initial_market_readback_v1(batch, quote_cut, schedules, request)
+    issue_native_replay_initial_market_readback_v1(batch, quote_cut, schedules, declared, request)
+}
+
+/// The bar timeframe that the exact Source Binding fact `batch` was taken under declares for its
+/// BAR rows labelled `row_timeframe`, read in the caller's transaction without locks.
+///
+/// # Errors
+///
+/// `OwnerReadbackUnavailable` when the binding cannot be read,
+/// `SourceBindingDeclaresNoBarTimeframe` when it declares none, and
+/// `DeclaredBarTimeframeMismatch` when it declares none for this label.
+pub(super) async fn declared_bar_timeframe_of_batch_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    batch: &VerifiedPitObservationBatch,
+    row_timeframe: &str,
+) -> Result<DeclaredBarTimeframeV1, NativeReplaySchedulingErrorV1> {
+    let source = load_source(transaction, batch.source_binding_identity(), false)
+        .await
+        .map_err(|_| NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)?
+        .ok_or(NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)?;
+    let declared = DeclaredBarTimeframeV1::from_binding(
+        &SourceBindingOwnerReadback::from_verified(&source),
+        row_timeframe,
+    )
+    .map_err(native_replay_scheduling_error_of_declaration)?;
+    declared
+        .for_batch(batch)
+        .map_err(|_| NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)?;
+    Ok(declared)
+}
+
+/// What a missing declaration means to the frame that needed one.
+const fn native_replay_scheduling_error_of_declaration(
+    error: DeclaredBarTimeframeErrorV1,
+) -> NativeReplaySchedulingErrorV1 {
+    match error {
+        DeclaredBarTimeframeErrorV1::SourceBindingDeclaresNoBarTimeframe => {
+            NativeReplaySchedulingErrorV1::SourceBindingDeclaresNoBarTimeframe
+        }
+        DeclaredBarTimeframeErrorV1::NotTheBatchBinding
+        | DeclaredBarTimeframeErrorV1::TimeframeLabelNotDeclared => {
+            NativeReplaySchedulingErrorV1::DeclaredBarTimeframeMismatch
+        }
+    }
 }
 
 /// Every schedule one instrument holds, in the order the candidate function returns them.
@@ -9567,6 +9615,16 @@ fn verify_admitted_pit_evidence(
     locator: &UntrustedPitSnapshotLocator,
     evidence: &MarketDataPitEvaluationStorageEvidence,
 ) -> Result<VerifiedPitObservationBatch, PitSnapshotError> {
+    verify_admitted_pit_evidence_with_source_v1(locator, evidence).map(|(batch, _)| batch)
+}
+
+/// [`verify_admitted_pit_evidence`], keeping the Source Binding readback the evidence verified
+/// the batch against: the one binding the batch's rows were taken under, and so the one whose
+/// declarations speak for them.
+fn verify_admitted_pit_evidence_with_source_v1(
+    locator: &UntrustedPitSnapshotLocator,
+    evidence: &MarketDataPitEvaluationStorageEvidence,
+) -> Result<(VerifiedPitObservationBatch, SourceBindingOwnerReadback), PitSnapshotError> {
     if !evidence_names_its_admission_v1(evidence.admission_receipt_identity()) {
         return Err(PitSnapshotError::PersistenceUnavailable);
     }
@@ -9615,7 +9673,7 @@ fn verify_admitted_pit_evidence(
         return Err(PitSnapshotError::PersistenceUnavailable);
     }
     let aggregate = selected.ok_or(PitSnapshotError::LocatorMismatch)?;
-    verify_admitted_source_rows(
+    let source = verify_admitted_source_rows(
         &aggregate.fact().request().source_binding,
         evidence.source_lineage_rows(),
         evidence.clock_rows(),
@@ -9636,7 +9694,7 @@ fn verify_admitted_pit_evidence(
         &aggregate.fact().request().time_evidence,
         &historical_clock,
     )?;
-    verify_observation_batch(
+    let batch = verify_observation_batch(
         &aggregate,
         BindingDigest::from_untrusted_bytes(*evidence.batch_source_binding_identity()),
         BindingDigest::from_untrusted_bytes(*evidence.batch_source_binding_lineage_root()),
@@ -9653,7 +9711,8 @@ fn verify_admitted_pit_evidence(
                 row_bytes: row.row_bytes().to_vec(),
             })
             .collect::<Vec<_>>(),
-    )
+    )?;
+    Ok((batch, source))
 }
 
 pub(super) fn verify_admitted_pit_evidence_by_identity_v1(
@@ -9661,6 +9720,21 @@ pub(super) fn verify_admitted_pit_evidence_by_identity_v1(
     fact_digest: BindingDigest,
     evidence: &MarketDataPitEvaluationStorageEvidence,
 ) -> Result<VerifiedPitObservationBatch, PitSnapshotError> {
+    verify_admitted_pit_evidence_with_source_by_identity_v1(
+        snapshot_identity,
+        fact_digest,
+        evidence,
+    )
+    .map(|(batch, _)| batch)
+}
+
+/// [`verify_admitted_pit_evidence_by_identity_v1`], keeping the Source Binding readback the batch
+/// was verified against.
+pub(super) fn verify_admitted_pit_evidence_with_source_by_identity_v1(
+    snapshot_identity: BindingDigest,
+    fact_digest: BindingDigest,
+    evidence: &MarketDataPitEvaluationStorageEvidence,
+) -> Result<(VerifiedPitObservationBatch, SourceBindingOwnerReadback), PitSnapshotError> {
     let mut selected = None;
 
     for raw in evidence.pit_lineage_rows() {
@@ -9678,7 +9752,7 @@ pub(super) fn verify_admitted_pit_evidence_by_identity_v1(
         }
     }
     let locator = selected.ok_or(PitSnapshotError::LocatorMismatch)?;
-    verify_admitted_pit_evidence(&locator, evidence)
+    verify_admitted_pit_evidence_with_source_v1(&locator, evidence)
 }
 
 #[cfg(not(test))]
@@ -11194,13 +11268,8 @@ pub(super) async fn load_market_semantics_admission_inputs_v1(
     if batch.market_semantics_identity() != scope {
         return Err(MarketSemanticsAdmissionErrorV1::DependencyUnavailable);
     }
-    let instrument_request_identity = instrument_master_request_identity_for_cut_v1(
-        transaction,
-        batch.instrument_master_digest(),
-    )
-    .await?;
     let instrument =
-        load_durable_instrument_readback(transaction, instrument_request_identity, false)
+        load_durable_instrument_readback_by_digest(transaction, batch.instrument_master_digest())
             .await
             .map_err(|_| MarketSemanticsAdmissionErrorV1::StoreUnavailable)?
             .ok_or(MarketSemanticsAdmissionErrorV1::DependencyUnavailable)?;
@@ -11231,32 +11300,40 @@ pub(super) async fn load_market_semantics_admission_inputs_v1(
 /// A snapshot binds the readback digest its mint resolved. The registry key needs that exact
 /// readback, and the durable receipt is the only thing that maps the digest back to the request
 /// that produced it.
-async fn instrument_master_request_identity_for_cut_v1(
+/// The stored V1 Instrument Master readback whose digest is `readback_digest`, read without a row
+/// lock, or none when no stored readback has it.
+///
+/// A PIT request names its Instrument Master by this digest and no column stores it, so each
+/// stored readback is rebuilt and compared. The digest covers the whole readback, so at most one
+/// matches.
+async fn load_durable_instrument_readback_by_digest(
     transaction: &mut Transaction<'_, Postgres>,
     readback_digest: BindingDigest,
-) -> Result<BindingDigest, MarketSemanticsAdmissionErrorV1> {
+) -> Result<Option<InstrumentMasterReadbackV1>, InstrumentMasterError> {
     let rows: Vec<Vec<u8>> = sqlx::query_scalar(
         "SELECT request_identity FROM market_data_private.instrument_master_receipts_v1 ORDER BY request_identity",
     )
     .fetch_all(&mut **transaction)
     .await
-    .map_err(|_| MarketSemanticsAdmissionErrorV1::StoreUnavailable)?;
+    .map_err(|_| InstrumentMasterError::StoreUnavailable)?;
 
     for row in rows {
         let identity: [u8; 32] = row
             .as_slice()
             .try_into()
-            .map_err(|_| MarketSemanticsAdmissionErrorV1::StoreUnavailable)?;
-        let identity = BindingDigest::from_untrusted_bytes(identity);
-        let candidate = load_durable_instrument_readback(transaction, identity, false)
-            .await
-            .map_err(|_| MarketSemanticsAdmissionErrorV1::StoreUnavailable)?;
+            .map_err(|_| InstrumentMasterError::StoreUnavailable)?;
+        let candidate = load_durable_instrument_readback(
+            transaction,
+            BindingDigest::from_untrusted_bytes(identity),
+            false,
+        )
+        .await?;
 
-        if candidate.is_some_and(|readback| readback.digest() == readback_digest) {
-            return Ok(identity);
+        if let Some(readback) = candidate.filter(|readback| readback.digest() == readback_digest) {
+            return Ok(Some(readback));
         }
     }
-    Err(MarketSemanticsAdmissionErrorV1::DependencyUnavailable)
+    Ok(None)
 }
 
 pub(super) async fn market_semantics_admission_from_environment_v1()

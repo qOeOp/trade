@@ -21,6 +21,7 @@ use vibe_model::{
 
 use super::{
     bar_schedule::BarScheduleReadbackV1,
+    declared_bar_timeframe_v1::{DeclaredBarShapeV1, DeclaredBarTimeframeV1},
     native_replay_scheduling_v1::{
         NativeReplayInitialMarketRequestV1, NativeReplayQuoteCutReadbackV1,
         NativeReplaySchedulingErrorV1, NativeReplaySchedulingResolverV1,
@@ -99,6 +100,7 @@ pub struct NativeReplayFrameEvidenceV2 {
     liquidity: Vec<NativeReplayQuoteLiquidityEvidenceV2>,
     liquidity_receipt: NativeReplayQuoteLiquidityReceiptV2,
     bar_types: Vec<BarType>,
+    bar_shape: DeclaredBarShapeV1,
     data: Vec<Data>,
 }
 
@@ -183,6 +185,12 @@ impl NativeReplayFrameEvidenceV2 {
         &self.bar_types
     }
 
+    /// The bar the frame's Source Binding declares, which its BAR types name.
+    #[must_use]
+    pub const fn bar_shape(&self) -> DeclaredBarShapeV1 {
+        self.bar_shape
+    }
+
     /// Consumes this Owner evidence, preserving the unchanged V1 native value order.
     #[must_use]
     pub fn into_native_schedule(self) -> (Vec<BarType>, Vec<Data>) {
@@ -208,6 +216,7 @@ pub(crate) fn verify_native_replay_frame_evidence_v2(
     batch: VerifiedPitObservationBatch,
     quote_cut: VerifiedPitObservationBatch,
     schedules: Vec<BarScheduleReadbackV1>,
+    declared: &DeclaredBarTimeframeV1,
     member_instruments: Vec<InstrumentId>,
     frame_time_ns: u64,
     window_end_ns_exclusive: u64,
@@ -216,6 +225,7 @@ pub(crate) fn verify_native_replay_frame_evidence_v2(
         batch.clone(),
         quote_cut.clone(),
         schedules,
+        declared,
         member_instruments.clone(),
         frame_time_ns,
         window_end_ns_exclusive,
@@ -283,6 +293,7 @@ pub(crate) fn verify_native_replay_frame_evidence_v2(
         ),
         liquidity,
         bar_types,
+        bar_shape: declared.shape(),
         data,
     })
 }
@@ -386,6 +397,9 @@ pub enum NativeReplayFrameSequenceRefusalV2 {
     NonIncreasingEventOrder,
     /// A frame's liquidity EVENT does not precede the next frame's first BAR.
     LiquidityDoesNotPrecedeSuccessorBar,
+    /// Two frames name their bars alike but declare different bars: the engine name would carry two
+    /// meanings of one instrument's bar in one Replay.
+    NativeBarTypeCarriesTwoTimeframes,
 }
 
 /// The Owner-issued, move-only, request-bound frame sequence.
@@ -443,6 +457,16 @@ impl NativeReplayFrameSequenceReadbackV2 {
                 || frame.bar_types() != first.bar_types()
         }) {
             return Err(NativeReplayFrameSequenceRefusalV2::FramesDoNotShareTheirRequestShape);
+        }
+
+        // The engine names several declared bars alike - a 24-hour UTC bar and an exchange session
+        // day are both `1-DAY` - so equal names are not equal bars. Every frame names each member's
+        // bar alike by now; they must also mean it alike.
+        if rest
+            .iter()
+            .any(|(frame, _)| frame.bar_shape() != first.bar_shape())
+        {
+            return Err(NativeReplayFrameSequenceRefusalV2::NativeBarTypeCarriesTwoTimeframes);
         }
         let mut cuts = BTreeSet::new();
 
@@ -1516,6 +1540,14 @@ mod frame_sequence_tests {
     };
 
     use super::*;
+    use crate::owner::{
+        bar_schedule::{
+            BarScheduleClockV1, BarScheduleCompletionV1, BarScheduleKindV1, BarScheduleLabelV1,
+            BarScheduleUnitV1,
+        },
+        declared_bar_timeframe_v1::DeclaredBarAnchorV1,
+        native_replay_scheduling_v1::tests::declared_minute,
+    };
 
     const WINDOW_START: u64 = 1_000;
     const WINDOW_END: u64 = 2_000;
@@ -1600,6 +1632,7 @@ mod frame_sequence_tests {
             liquidity,
             liquidity_receipt,
             bar_types: bar_types().to_vec(),
+            bar_shape: declared_minute().shape(),
             data: Vec::new(),
         }
     }
@@ -1657,6 +1690,59 @@ mod frame_sequence_tests {
         assert_eq!(
             issue(frames).err(),
             Some(NativeReplayFrameSequenceRefusalV2::FramesDoNotShareTheirRequestShape)
+        );
+    }
+
+    /// The engine names a 24-hour UTC bar and an exchange session day alike, `1-DAY`. Two frames
+    /// naming one instrument's bars alike must also declare the same bar, or the name would carry
+    /// two meanings in one Replay.
+    #[rstest]
+    fn one_native_bar_name_over_two_declared_bars_is_refused() {
+        let day = |instrument: &str| {
+            BarType::new(
+                InstrumentId::from(instrument),
+                BarSpecification::new(1, BarAggregation::Day, PriceType::Last),
+                AggregationSource::External,
+            )
+        };
+        let utc_day = DeclaredBarShapeV1 {
+            kind: BarScheduleKindV1::FixedInterval,
+            unit: BarScheduleUnitV1::Hour,
+            step: 24,
+            anchor: DeclaredBarAnchorV1::UnixEpoch,
+            clock: BarScheduleClockV1::Continuous,
+            label: BarScheduleLabelV1::IntervalClose,
+            completion: BarScheduleCompletionV1::CompleteOnly,
+        };
+        let session_day = DeclaredBarShapeV1 {
+            kind: BarScheduleKindV1::ExchangeSession,
+            unit: BarScheduleUnitV1::ExchangeSessionDay,
+            step: 1,
+            anchor: DeclaredBarAnchorV1::SessionOpen,
+            clock: BarScheduleClockV1::ScheduleBounded,
+            ..utc_day
+        };
+        let with_third = |third: DeclaredBarShapeV1| {
+            let mut frames = three();
+
+            for (offset, (frame, _)) in frames.iter_mut().enumerate() {
+                frame.bar_types = frame
+                    .member_instruments
+                    .iter()
+                    .map(|instrument| day(&instrument.to_string()))
+                    .collect();
+                frame.bar_shape = if offset == 2 { third } else { utc_day };
+            }
+            frames
+        };
+
+        assert!(
+            issue(with_third(utc_day)).is_ok(),
+            "one declared bar, named alike in every frame, is issued"
+        );
+        assert_eq!(
+            issue(with_third(session_day)).err(),
+            Some(NativeReplayFrameSequenceRefusalV2::NativeBarTypeCarriesTwoTimeframes)
         );
     }
 

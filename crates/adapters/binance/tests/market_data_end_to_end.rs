@@ -852,6 +852,7 @@ fn binance_source_proposal(product: &Product, effective_ns: u64) -> UntrustedSou
     };
     let mut proposal = UntrustedSourceBindingProposal {
         availability_rule: None,
+        bar_timeframes: Vec::new(),
         claimed_binding_id: digest(0),
         schema_version: 1,
         adapter: UntrustedAdapterBinding {

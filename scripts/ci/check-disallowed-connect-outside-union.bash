@@ -132,6 +132,13 @@ for package in "${packages[@]}"; do
 done
 export HIGH_PRECISION="${HIGH_PRECISION:-1}"
 profile="${CARGO_CI_PROFILE:-nextest}"
+# The answer is read from warnings: `--cap-lints warn` leaves every lint a warning, the disallowed
+# method included. `.cargo/config.toml` sets `build.warnings = "deny"`, which turns any warning in a
+# workspace crate into a failed build (exit 101), so under it every hit - the self-test's plant
+# included - read as "clippy did not finish" and was blamed on the feature that carries it (run
+# 36305569380). Stating `warn` here makes a non-zero exit mean what the code below assumes: something
+# did not compile. scripts/ci/test-check-disallowed-connect-outside-union.bash pins both readings.
+export CARGO_BUILD_WARNINGS=warn
 
 echo "Refusing direct PostgreSQL connections outside the chain's sealed union"
 echo "  packages: ${packages[*]}"

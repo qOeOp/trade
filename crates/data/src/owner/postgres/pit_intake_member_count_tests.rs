@@ -43,7 +43,7 @@ const CLOCK_IDENTITY: &str = "market-clock.identity.v1-0000001";
 const CLOCK_EPOCH: &str = "market-clock.epoch.v1-0000000001";
 const DECISION_CUT: u64 = 40;
 
-pub(super) fn d(byte: u8) -> BindingDigest {
+pub(in crate::owner) fn d(byte: u8) -> BindingDigest {
     BindingDigest::from_untrusted_bytes([byte; 32])
 }
 
@@ -64,6 +64,7 @@ pub(super) fn clock() -> MarketDataClockAdmission {
 pub(super) fn source_proposal() -> UntrustedSourceBindingProposal {
     let mut proposal = UntrustedSourceBindingProposal {
         availability_rule: None,
+        bar_timeframes: Vec::new(),
         claimed_binding_id: d(0),
         schema_version: 1,
         adapter: UntrustedAdapterBinding {
@@ -254,13 +255,13 @@ impl PitObservationSourceV1 for EveryMemberObservationSourceV1 {
 }
 
 /// The fixture every case shares: one admitted Source Binding under the Owner's clock head.
-pub(super) struct Fixture {
+pub(in crate::owner) struct Fixture {
     pub(super) intake: MarketDataPitIntakePostgresV1,
     pub(super) source: SourceBindingCommit,
 }
 
 impl Fixture {
-    pub(super) async fn install() -> Self {
+    pub(in crate::owner) async fn install() -> Self {
         let owner_url = std::env::var("MARKET_DATA_OWNER_TEST_DATABASE_URL")
             .expect("explicit disposable Owner URL");
         let database =
@@ -291,7 +292,7 @@ impl Fixture {
         }
     }
 
-    pub(super) fn owner(&self) -> &MarketDataOwnerPostgres {
+    pub(in crate::owner) fn owner(&self) -> &MarketDataOwnerPostgres {
         &self.intake.owner
     }
 
@@ -314,6 +315,58 @@ impl Fixture {
         transaction.commit().await.unwrap();
     }
 
+    /// Admits a crypto perpetual through the production V1 intake: `instrument` mapped at `BINANCE`
+    /// to `symbol`, with a tick of `tick` (mantissa, scale), a step of 0.001 and a multiplier of 1,
+    /// the terms a V2 fact from `instrument_master_v2::tests::fact_for` states with a 0.01 tick.
+    pub(in crate::owner) async fn admit_crypto_perpetual(
+        &self,
+        instrument: &str,
+        symbol: &str,
+        (mantissa, scale): (i128, u8),
+    ) {
+        let mut submission = instrument_submission(instrument, &self.source, d(81));
+        submission.mappings = vec![InstrumentVenueSourceMappingSubmissionV1 {
+            venue_identity: "BINANCE".into(),
+            source_identity: "USDM".into(),
+            source_instrument: symbol.as_bytes().to_vec(),
+        }];
+        submission.instrument_class = "CRYPTO_PERPETUAL".into();
+        submission.price_increment = InstrumentDecimalSubmissionV1 { mantissa, scale };
+        submission.quantity_increment = InstrumentDecimalSubmissionV1 {
+            mantissa: 1,
+            scale: 3,
+        };
+        submission.contract_multiplier = InstrumentDecimalSubmissionV1 {
+            mantissa: 1,
+            scale: 0,
+        };
+        self.owner()
+            .admit_instrument_master_fact_v1(submission)
+            .await
+            .unwrap();
+    }
+
+    /// Takes one PIT snapshot over `universe` through the production PIT intake, which cites the V1
+    /// Instrument Master readback it resolved for the members, and returns the snapshot identity
+    /// and fact digest a composition binding names it by.
+    pub(in crate::owner) async fn snapshot(
+        &self,
+        correlation: u8,
+        universe: &UniverseSelectionReadbackV1,
+        locator: UntrustedUniverseSelectionLocatorV1,
+    ) -> (BindingDigest, BindingDigest) {
+        let terminal = self
+            .intake
+            .submit(self.request(correlation, universe), locator)
+            .await
+            .unwrap();
+        assert_eq!(
+            terminal.disposition(),
+            PitMarketSnapshotDispositionV1::Available
+        );
+        (terminal.snapshot_identity(), terminal.fact_digest())
+    }
+
     pub(super) async fn admit_instrument(&self, identity: &str, lifecycle_frontier: BindingDigest) {
         self.owner()
             .admit_instrument_master_fact_v1(instrument_submission(
@@ -332,7 +385,7 @@ impl Fixture {
     /// two frontiers needs two facts: `frontier` also sets when each member's membership began,
     /// always before the request's event instant. `rule` is the canonical evaluator's rule:
     /// `[0, 1, 1]` includes everyone.
-    pub(super) async fn universe(
+    pub(in crate::owner) async fn universe(
         &self,
         frontier: u8,
         rule: &[u8],

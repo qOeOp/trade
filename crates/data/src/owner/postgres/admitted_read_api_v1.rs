@@ -10,12 +10,19 @@
 //! A wrapper widens nothing. Each one either calls the private function of the same name with its
 //! own parameters, unchanged, or is one of four fixed reads of Owner rows that a read or a
 //! measurement used to make directly. Every wrapper is `STABLE`, pins `search_path`, takes only typed values, and
-//! loses `PUBLIC`'s default `EXECUTE` as soon as it is created. The migration grants nothing:
-//! who may call a wrapper is decided by whoever provisions the reader, from the one list Store
-//! Admission measures.
+//! loses `PUBLIC`'s default `EXECUTE` as soon as it is created.
+//!
+//! The migration grants them to one role: `market_data_admitted_reader`, the principal a Store
+//! Admission leases, when the deployment has provisioned it
+//! (`product/rd-workbench/postgres-init/25-market-data-admitted-reader.sh`). It gains `USAGE` on
+//! this schema and `EXECUTE` on every function in it. That is exactly what the admitted reads and
+//! the measurement call, because every wrapper is on an admitted read's floor or is the
+//! measurement's ledger read, which `every_wrapper_serves_an_admitted_read_or_the_measurement` in
+//! Store Admission holds.
 
 /// Creates the schema if it is missing, then every wrapper, then revokes `PUBLIC`'s default
-/// `EXECUTE` from each.
+/// `EXECUTE` from each, and last grants the admitted reader the schema and every wrapper when it
+/// exists.
 pub(super) const ADMITTED_READ_SCHEMA_V1: &[&str] = &[
     // `CREATE SCHEMA IF NOT EXISTS` checks database `CREATE` before existence, and the deployed
     // Owner holds none; the authority migration creates this schema there. Ask about existence
@@ -77,7 +84,31 @@ pub(super) const ADMITTED_READ_SCHEMA_V1: &[&str] = &[
     "REVOKE ALL ON FUNCTION market_data_admitted_read.resolve_pit_snapshot_references_v1(BYTEA) FROM PUBLIC",
     "REVOKE ALL ON FUNCTION market_data_admitted_read.resolve_clock_handoffs_v1() FROM PUBLIC",
     "REVOKE ALL ON FUNCTION market_data_admitted_read.resolve_owner_migrations_v1() FROM PUBLIC",
+    ADMITTED_READER_GRANT_V1,
 ];
+
+/// The one grant the migration makes. It is conditional because the role is the deployment's to
+/// provision, and a store with no reader is still a valid Owner store.
+///
+/// `ALL FUNCTIONS IN SCHEMA` is every wrapper above and nothing else only because nothing else
+/// creates a function here, which `the_admitted_read_schema_is_what_its_statements_declare` proves
+/// against the migrated catalog. If that proof is ever relaxed, this must grant each wrapper by
+/// signature instead.
+pub(super) const ADMITTED_READER_GRANT_V1: &str = "DO $admitted_reader_grant$ BEGIN IF pg_catalog.to_regrole('market_data_admitted_reader') IS NOT NULL THEN GRANT USAGE ON SCHEMA market_data_admitted_read TO market_data_admitted_reader; GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA market_data_admitted_read TO market_data_admitted_reader; END IF; END $admitted_reader_grant$";
+
+/// The name of every wrapper the list creates, for Store Admission's proof that each serves an
+/// admitted read or the measurement.
+#[cfg(test)]
+pub(in crate::owner) fn declared_admitted_read_wrapper_names_v1()
+-> std::collections::BTreeSet<&'static str> {
+    ADMITTED_READ_SCHEMA_V1
+        .iter()
+        .filter_map(|statement| {
+            statement.strip_prefix("CREATE OR REPLACE FUNCTION market_data_admitted_read.")
+        })
+        .filter_map(|rest| rest.split_once('(').map(|(name, _)| name))
+        .collect()
+}
 
 /// The Owner rows a wrapper may read directly, and the one body that reads each.
 ///
@@ -110,7 +141,7 @@ mod tests {
 
     use rstest::rstest;
 
-    use super::{ADMITTED_READ_SCHEMA_V1, OWNER_ROW_READS_V1};
+    use super::{ADMITTED_READ_SCHEMA_V1, ADMITTED_READER_GRANT_V1, OWNER_ROW_READS_V1};
     use crate::owner::postgres::MarketDataOwnerPostgres;
 
     const CREATE: &str = "CREATE OR REPLACE FUNCTION market_data_admitted_read.";
@@ -156,8 +187,7 @@ mod tests {
 
     /// Every wrapper is either the pass-through of its private namesake, with its own parameters in
     /// order, or one of the fixed Owner row reads; and every one loses `PUBLIC`'s `EXECUTE` in the
-    /// same migration. Nothing in the list grants: who may call a wrapper is decided by whoever
-    /// provisions the reader, from the list Store Admission measures.
+    /// same migration. The list grants once, last, and only to the admitted reader.
     #[rstest]
     fn every_wrapper_widens_nothing() {
         let row_reads = OWNER_ROW_READS_V1
@@ -226,16 +256,37 @@ mod tests {
             ADMITTED_READ_SCHEMA_V1
                 .contains(&"REVOKE ALL ON SCHEMA market_data_admitted_read FROM PUBLIC")
         );
-        assert!(
+        assert_eq!(
             ADMITTED_READ_SCHEMA_V1
                 .iter()
-                .all(|statement| !statement.contains("GRANT ")),
-            "the migration grants nothing"
+                .filter(|statement| statement.contains("GRANT "))
+                .collect::<Vec<_>>(),
+            [&ADMITTED_READER_GRANT_V1],
+            "the migration grants in one statement"
+        );
+        assert_eq!(
+            ADMITTED_READ_SCHEMA_V1.last(),
+            Some(&ADMITTED_READER_GRANT_V1)
+        );
+        let granted = ADMITTED_READER_GRANT_V1
+            .strip_prefix("DO $admitted_reader_grant$ BEGIN IF pg_catalog.to_regrole('market_data_admitted_reader') IS NOT NULL THEN ")
+            .and_then(|rest| rest.strip_suffix(" END IF; END $admitted_reader_grant$"))
+            .expect("the grant is conditional on the reader existing");
+        assert_eq!(
+            granted
+                .split("; ")
+                .map(|statement| statement.trim_end_matches(';'))
+                .collect::<Vec<_>>(),
+            [
+                "GRANT USAGE ON SCHEMA market_data_admitted_read TO market_data_admitted_reader",
+                "GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA market_data_admitted_read TO market_data_admitted_reader",
+            ],
+            "the reader gains the schema and its functions, and nothing else"
         );
         assert_eq!(
             ADMITTED_READ_SCHEMA_V1.len(),
-            2 + 2 * names.len(),
-            "the list is the schema, its revoke, and a create and a revoke per wrapper"
+            3 + 2 * names.len(),
+            "the list is the schema, its revoke, a create and a revoke per wrapper, and the grant"
         );
     }
 

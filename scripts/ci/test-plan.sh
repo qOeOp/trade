@@ -262,6 +262,17 @@ run_case planner_self_change \
 run_case security_config_change \
   "printf '# changed\\n' >> .pre-commit-config.yaml" "${fail_closed[@]}"
 run_case empty_change ":" "${fail_closed[@]}"
+# The connection guard's self-test hook runs on the diff even on the narrow route
+# (scripts/ci/check-pr-hook-coverage.py, COMPILED_SINCE). That loses nothing only while every file
+# that triggers it routes a pull request to the full route, which these two cases hold.
+run_case disallowed_lint_config \
+  "printf '# changed\\n' >> clippy.toml" \
+  run_tests=true run_rust_tests=true run_generated_drift=false \
+  run_full_pre_commit=true run_capnp_check=false \
+  codeql_python_impacted=false codeql_rust_impacted=true
+run_case connect_guard_script \
+  "printf '# changed\\n' >> scripts/ci/check-disallowed-connect-outside-union.bash" \
+  "${fail_closed[@]}"
 
 run_push_case pin_only_main_push \
   "printf '{\"schema_version\":2,\"commit\":\"changed\"}\\n' > codex-skills.lock.json" \

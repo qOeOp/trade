@@ -246,6 +246,14 @@ fn native_chain_v4(seed: u8) -> ReplayNativeChainEvidenceV2 {
 }
 
 pub(crate) fn request(snapshot_byte: u8) -> UntrustedReplayMarketFactsRequestV2 {
+    request_over_snapshot((d(snapshot_byte), d(63)))
+}
+
+/// A Replay request over the PIT snapshot `snapshot` (identity, fact digest), every other
+/// coordinate a fixture.
+fn request_over_snapshot(
+    (snapshot_identity, fact_digest): (BindingDigest, BindingDigest),
+) -> UntrustedReplayMarketFactsRequestV2 {
     let frontier = UntrustedCompleteFrontier {
         stream_identity: "stream".into(),
         cut_identity: "cut".into(),
@@ -274,8 +282,8 @@ pub(crate) fn request(snapshot_byte: u8) -> UntrustedReplayMarketFactsRequestV2 
         correlation_identity: d(59),
         requester_identity: d(60),
         scope_digest: d(61),
-        snapshot_identity: d(snapshot_byte),
-        fact_digest: d(63),
+        snapshot_identity,
+        fact_digest,
         source_binding_identity: d(64),
         source_binding_lineage_root: d(65),
         source_binding_lineage_version: 1,
@@ -371,21 +379,37 @@ fn composition_evidence(seed: u8) -> ReplayCompositionBindingEvidenceV1 {
     }
 }
 
-/// A binding the Owner issues over the Universe Selection `identity`/`digest`, with every other
-/// coordinate a fixture; `seed` varies the binding's own identity.
-pub(crate) fn binding_over_universe_selection(
-    seed: u8,
-    identity: BindingDigest,
-    digest: BindingDigest,
-) -> super::ReplayCompositionBindingReadbackV1 {
-    let mut evidence = composition_evidence(seed);
-    for locator in &mut evidence.native_locators {
-        if locator.kind == ReplayCompositionNativeLocatorKindV1::UniverseSelection {
-            locator.identity = identity;
-            locator.digest = digest;
+/// Points a binding's Universe Selection and PIT snapshot locators at `selection` and `snapshot`,
+/// each an identity and digest.
+fn bind_selection_and_snapshot(
+    locators: &mut [ReplayCompositionNativeLocatorV1],
+    selection: (BindingDigest, BindingDigest),
+    snapshot: (BindingDigest, BindingDigest),
+) {
+    for locator in locators {
+        match locator.kind {
+            ReplayCompositionNativeLocatorKindV1::UniverseSelection => {
+                (locator.identity, locator.digest) = selection;
+            }
+            ReplayCompositionNativeLocatorKindV1::PitSnapshot => {
+                (locator.identity, locator.digest) = snapshot;
+            }
+            _ => {}
         }
     }
-    issue_replay_composition_binding_v1(&request(seed + 70), evidence)
+}
+
+/// A binding the Owner issues over the Universe Selection `selection` and the PIT snapshot
+/// `snapshot`, each an identity and digest, with every other coordinate a fixture; `seed` varies
+/// the binding's own identity.
+pub(crate) fn binding_over_universe_selection(
+    seed: u8,
+    selection: (BindingDigest, BindingDigest),
+    snapshot: (BindingDigest, BindingDigest),
+) -> super::ReplayCompositionBindingReadbackV1 {
+    let mut evidence = composition_evidence(seed);
+    bind_selection_and_snapshot(&mut evidence.native_locators, selection, snapshot);
+    issue_replay_composition_binding_v1(&request_over_snapshot(snapshot), evidence)
         .expect("a binding over the selection")
 }
 
@@ -1590,18 +1614,16 @@ fn a_universe_member_binding_refuses_an_instrument_master_and_a_receipt_of_the_o
 /// A schema 2 universe-member binding naming `identity`/`digest` as its Universe Selection.
 pub(crate) fn universe_member_binding_over_universe_selection(
     seed: u8,
-    identity: BindingDigest,
-    digest: BindingDigest,
+    selection: (BindingDigest, BindingDigest),
+    snapshot: (BindingDigest, BindingDigest),
 ) -> super::ReplayCompositionBindingReadbackV1 {
     let mut evidence = universe_composition_evidence(seed);
-    for locator in &mut evidence.native_locators {
-        if locator.kind == ReplayCompositionNativeLocatorKindV1::UniverseSelection {
-            locator.identity = identity;
-            locator.digest = digest;
-        }
-    }
-    super::composition::issue_universe_member_composition_binding_v1(&request(seed + 70), evidence)
-        .expect("a universe-member binding over the selection")
+    bind_selection_and_snapshot(&mut evidence.native_locators, selection, snapshot);
+    super::composition::issue_universe_member_composition_binding_v1(
+        &request_over_snapshot(snapshot),
+        evidence,
+    )
+    .expect("a universe-member binding over the selection")
 }
 
 /// Universe-member facts are stored only under the universe-member binding issued for exactly this
