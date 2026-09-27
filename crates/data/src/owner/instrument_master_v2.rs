@@ -961,7 +961,7 @@ impl InstrumentMasterFactV2 {
     fn known_as_of_ns(&self) -> i128 {
         self.latest_delta
             .as_ref()
-            .map_or(self.baseline.retrieval_time_ns, |delta| {
+            .map_or(self.baseline.effective_from_ns, |delta| {
                 delta.provider_event_time_ns
             })
     }
