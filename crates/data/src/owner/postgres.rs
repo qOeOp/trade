@@ -31,6 +31,8 @@ mod chain_market_base_v1_tests;
 mod corporate_action;
 #[cfg(test)]
 mod instrument_master_admission_v1_tests;
+#[cfg(test)]
+mod instrument_master_admission_v2_tests;
 mod live_market_stream_v1;
 #[cfg(test)]
 mod market_data_rd_api_authorization_postgres_tests;
@@ -195,6 +197,11 @@ use super::{
         InstrumentMasterAdmissionErrorV1, InstrumentMasterAdmissionTerminalV1,
         InstrumentMasterAdmissionV1, InstrumentMasterBindingCoordinatesV1,
         InstrumentMasterFactSubmissionV1, sealed::Sealed as InstrumentMasterAdmissionSealed,
+    },
+    instrument_master_admission_v2::{
+        InstrumentMasterAdmissionErrorV2, InstrumentMasterAdmissionTerminalV2,
+        InstrumentMasterAdmissionV2, InstrumentMasterBaselineSubmissionV2,
+        sealed::Sealed as InstrumentMasterAdmissionSealedV2,
     },
     live_market_fact_v1::{LiveMarketFactSourceV1, LiveMarketFactV1, LiveMarketSubscriptionV1},
     live_market_stream_v1::{
@@ -10704,6 +10711,105 @@ impl MarketDataOwnerPostgres {
         Ok(head.handoff.locator().clone())
     }
 
+    /// Admits one instrument's Instrument Master V2 baseline under the Owner's current clock head.
+    ///
+    /// One serializable transaction verifies the named Source Binding, selects the Owner's venue row
+    /// by that binding's exact dataset mapping, reads the clock head's decision cut as the fact's
+    /// Owner observation, derives the baseline from the payload, and appends it as the instrument's
+    /// first fact or rejoins the stored baseline that means the same.
+    ///
+    /// # Errors
+    ///
+    /// One documented refusal when nothing was admitted; a replayed submission rejoins its fact.
+    pub(crate) async fn admit_instrument_master_baseline_v2(
+        &self,
+        submission: InstrumentMasterBaselineSubmissionV2,
+    ) -> Result<InstrumentMasterAdmissionTerminalV2, InstrumentMasterAdmissionErrorV2> {
+        use super::instrument_master_v2::{
+            ExchangeInfoBaselineV2, ExchangeInfoRetrievalV2, InstrumentMasterCustodyErrorV2,
+            InstrumentMasterFactV2, instrument_master_venue_v2,
+        };
+        use super::instrument_master_v2_postgres::{
+            BaselineAdmissionErrorV2, admit_baseline_in_transaction_v2,
+        };
+        use InstrumentMasterAdmissionErrorV2 as Refused;
+
+        if !submission.names_the_admitted_class() {
+            return Err(Refused::UnsupportedClass);
+        }
+        let mut transaction = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| Refused::StoreUnavailable)?;
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+            .execute(&mut *transaction)
+            .await
+            .map_err(|_| Refused::StoreUnavailable)?;
+        let locator = &submission.source_binding;
+        let stored = load_source(&mut transaction, locator.binding_id, false)
+            .await
+            .map_err(|_| Refused::StoreUnavailable)?
+            .ok_or(Refused::SourceBindingUnavailable)?;
+
+        if stored.commit().receipt().locator() != locator
+            || !SourceBindingOwnerReadback::from_verified(&stored).is_admitted()
+        {
+            return Err(Refused::SourceBindingUnavailable);
+        }
+        let venue =
+            instrument_master_venue_v2(&stored.commit().fact().proposal().adapter.dataset_mapping)
+                .ok_or(Refused::UnsupportedVenue)?;
+        let head = load_current_clock_fact_for_update(&mut transaction)
+            .await
+            .map_err(|_| Refused::StoreUnavailable)?
+            .ok_or(Refused::ClockUnavailable)?;
+        let owner_observation_time_ns = i128::from(head.clock().decision_cut);
+
+        if submission.retrieval_time_ns > owner_observation_time_ns {
+            return Err(Refused::RetrievalAfterOwnerClock);
+        }
+        let derive = |owner_observation_time_ns: i128| {
+            ExchangeInfoBaselineV2::from_usdm_exchange_info(
+                submission.raw_payload.as_bytes(),
+                &submission.raw_symbol,
+                venue,
+                ExchangeInfoRetrievalV2 {
+                    source_binding_identity: locator.binding_id,
+                    source_binding_digest: locator.fact_digest,
+                    retrieval_time_ns: submission.retrieval_time_ns,
+                    owner_observation_time_ns,
+                },
+            )
+        };
+        let candidate = InstrumentMasterFactV2::from_exchange_info_baseline(derive(
+            owner_observation_time_ns,
+        )?)?;
+        let fact = admit_baseline_in_transaction_v2(&mut transaction, &candidate, |observed| {
+            derive(observed).ok().and_then(|baseline| {
+                InstrumentMasterFactV2::from_exchange_info_baseline(baseline).ok()
+            })
+        })
+        .await
+        .map_err(|e| match e {
+            BaselineAdmissionErrorV2::BaselineExists => Refused::BaselineExists,
+            BaselineAdmissionErrorV2::Custody(InstrumentMasterCustodyErrorV2::IdentityConflict) => {
+                Refused::AdmissionConflict
+            }
+            BaselineAdmissionErrorV2::Custody(_) => Refused::StoreUnavailable,
+        })?;
+        transaction
+            .commit()
+            .await
+            .map_err(|_| Refused::StoreUnavailable)?;
+        Ok(InstrumentMasterAdmissionTerminalV2::seal(
+            fact.canonical_identity().to_owned(),
+            fact.identity(),
+            fact.owner_observation_time_ns(),
+            fact.terms_basis(),
+        ))
+    }
+
     /// Admits one Instrument Master V1 fact under the Owner's current clock head.
     ///
     /// The fact's Market Semantics Compatibility identity is the one derived from the named Source
@@ -11465,6 +11571,56 @@ impl InstrumentMasterAdmissionV1 for InstrumentMasterAdmissionPostgresV1 {
         submission: InstrumentMasterFactSubmissionV1,
     ) -> Result<InstrumentMasterAdmissionTerminalV1, InstrumentMasterAdmissionErrorV1> {
         self.owner.admit_instrument_master_fact_v1(submission).await
+    }
+}
+
+pub(super) async fn instrument_master_admission_from_environment_v2()
+-> Result<std::sync::Arc<dyn InstrumentMasterAdmissionV2>, InstrumentMasterAdmissionErrorV2> {
+    let url =
+        std::env::var(super::instrument_master_v2_postgres::MARKET_DATA_OWNER_DATABASE_URL_ENV)
+            .map_err(|_| InstrumentMasterAdmissionErrorV2::StoreUnavailable)?;
+    if url.is_empty() || url.trim() != url {
+        return Err(InstrumentMasterAdmissionErrorV2::StoreUnavailable);
+    }
+    let owner = MarketDataOwnerPostgres::connect(&url).await.map_err(|e| {
+        super::storage_diagnostic::refused_by_store(
+            "instrument_master_admission_v2.environment.connect",
+            &e,
+        );
+        InstrumentMasterAdmissionErrorV2::StoreUnavailable
+    })?;
+    // The V2 store's schema and its ownership assertion, before the first admission reads it.
+    super::instrument_master_v2_postgres::InstrumentMasterV2PostgresOwner::install(
+        owner.pool.clone(),
+    )
+    .await
+    .map_err(|_| InstrumentMasterAdmissionErrorV2::StoreUnavailable)?;
+    Ok(std::sync::Arc::new(InstrumentMasterAdmissionPostgresV2 {
+        owner,
+    }))
+}
+
+struct InstrumentMasterAdmissionPostgresV2 {
+    owner: MarketDataOwnerPostgres,
+}
+
+impl Debug for InstrumentMasterAdmissionPostgresV2 {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct(stringify!(InstrumentMasterAdmissionPostgresV2))
+            .finish_non_exhaustive()
+    }
+}
+
+impl InstrumentMasterAdmissionSealedV2 for InstrumentMasterAdmissionPostgresV2 {}
+
+#[async_trait::async_trait]
+impl InstrumentMasterAdmissionV2 for InstrumentMasterAdmissionPostgresV2 {
+    async fn admit_baseline(
+        &self,
+        submission: InstrumentMasterBaselineSubmissionV2,
+    ) -> Result<InstrumentMasterAdmissionTerminalV2, InstrumentMasterAdmissionErrorV2> {
+        Box::pin(self.owner.admit_instrument_master_baseline_v2(submission)).await
     }
 }
 

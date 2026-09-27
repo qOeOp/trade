@@ -555,22 +555,27 @@ pub(crate) async fn ensure_first_composer_v3_replay_acceptance_v1(
     let routes =
         bounded_feature_program::router(bounded_feature_program_owner.clone(), token_digest).merge(
             market_data_pit::router(
-                None,
-                bootstrap_market_data_source_binding_admission()
-                    .await
-                    .expect("the Source Binding admission composes"),
-                bootstrap_market_data_universe_selection()
-                    .await
-                    .expect("the Universe Selection admission composes"),
-                bootstrap_market_data_strategy_input_bindings()
-                    .await
-                    .expect("the Strategy Input Binding admission composes"),
-                bootstrap_market_data_instrument_master_admission()
-                    .await
-                    .expect("the Instrument Master admission composes"),
-                bootstrap_market_data_market_semantics_admission()
-                    .await
-                    .expect("the Market Semantics admission composes"),
+                market_data_pit::MarketDataAdmissions {
+                    intake: None,
+                    admission: bootstrap_market_data_source_binding_admission()
+                        .await
+                        .expect("the Source Binding admission composes"),
+                    universe: bootstrap_market_data_universe_selection()
+                        .await
+                        .expect("the Universe Selection admission composes"),
+                    bindings: bootstrap_market_data_strategy_input_bindings()
+                        .await
+                        .expect("the Strategy Input Binding admission composes"),
+                    instruments: bootstrap_market_data_instrument_master_admission()
+                        .await
+                        .expect("the Instrument Master admission composes"),
+                    instruments_v2: bootstrap_market_data_instrument_master_admission_v2()
+                        .await
+                        .expect("the Instrument Master V2 admission composes"),
+                    semantics: bootstrap_market_data_market_semantics_admission()
+                        .await
+                        .expect("the Market Semantics admission composes"),
+                },
                 token_digest,
             ),
         );

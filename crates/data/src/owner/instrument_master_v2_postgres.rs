@@ -119,20 +119,7 @@ impl InstrumentMasterV2PostgresOwner {
             Some(previous) if fact.is_direct_successor_of(previous) => {}
             _ => return Err(InstrumentMasterCustodyErrorV2::ChainMismatch),
         }
-        let custody = fact_custody(fact);
-        let result = sqlx::query("INSERT INTO market_data_instrument_master_v2.facts(fact_identity,canonical_identity,predecessor_fact_identity,correction_sequence,owner_observation_ns,fact_bytes,custody_digest) VALUES($1,$2,$3,$4,$5,$6,$7)")
-            .bind(fact.identity().as_bytes().as_slice())
-            .bind(fact.canonical_identity())
-            .bind(fact.predecessor_fact_digest().map(|value| value.as_bytes().to_vec()))
-            .bind(i64::try_from(fact.correction_sequence()).map_err(|_| InstrumentMasterCustodyErrorV2::ChainMismatch)?)
-            .bind(fact.owner_observation_time_ns().to_be_bytes().as_slice())
-            .bind(fact.canonical_bytes())
-            .bind(custody.as_slice())
-            .execute(&mut *tx).await.map_err(|cause| classify_insert(&cause))?;
-
-        if result.rows_affected() != 1 {
-            return Err(InstrumentMasterCustodyErrorV2::StoreUnavailable);
-        }
+        insert_fact(&mut tx, fact).await?;
         tx.commit().await.map_err(|cause| store_error(&cause))
     }
 
@@ -660,6 +647,75 @@ async fn assert_complete_ledger(
         Err(InstrumentMasterCustodyErrorV2::CrossSpliced)
     } else {
         Ok(())
+    }
+}
+
+async fn insert_fact(
+    tx: &mut Transaction<'_, Postgres>,
+    fact: &InstrumentMasterFactV2,
+) -> Result<(), InstrumentMasterCustodyErrorV2> {
+    let custody = fact_custody(fact);
+    let result = sqlx::query("INSERT INTO market_data_instrument_master_v2.facts(fact_identity,canonical_identity,predecessor_fact_identity,correction_sequence,owner_observation_ns,fact_bytes,custody_digest) VALUES($1,$2,$3,$4,$5,$6,$7)")
+        .bind(fact.identity().as_bytes().as_slice())
+        .bind(fact.canonical_identity())
+        .bind(fact.predecessor_fact_digest().map(|value| value.as_bytes().to_vec()))
+        .bind(i64::try_from(fact.correction_sequence()).map_err(|_| InstrumentMasterCustodyErrorV2::ChainMismatch)?)
+        .bind(fact.owner_observation_time_ns().to_be_bytes().as_slice())
+        .bind(fact.canonical_bytes())
+        .bind(custody.as_slice())
+        .execute(&mut **tx).await.map_err(|cause| classify_insert(&cause))?;
+
+    if result.rows_affected() == 1 {
+        Ok(())
+    } else {
+        Err(InstrumentMasterCustodyErrorV2::StoreUnavailable)
+    }
+}
+
+/// Why a baseline was not admitted in the caller's transaction.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum BaselineAdmissionErrorV2 {
+    /// The instrument's stored baseline means something else.
+    BaselineExists,
+    /// A custody or store failure.
+    Custody(InstrumentMasterCustodyErrorV2),
+}
+
+impl From<InstrumentMasterCustodyErrorV2> for BaselineAdmissionErrorV2 {
+    fn from(error: InstrumentMasterCustodyErrorV2) -> Self {
+        Self::Custody(error)
+    }
+}
+
+/// Admits `candidate` as its instrument's first fact inside the caller's transaction, or rejoins the
+/// stored baseline when the submission means the same.
+///
+/// The Owner-observation instant is the Owner's stamp, not part of what the caller means, so the
+/// comparison rebuilds the candidate at the stored baseline's own observation through `at` and
+/// compares canonical bytes: equal rejoins the stored fact, different is `BaselineExists`, and a
+/// baseline is never replaced. The store's ownership and privilege assertion runs first.
+pub(super) async fn admit_baseline_in_transaction_v2(
+    tx: &mut Transaction<'_, Postgres>,
+    candidate: &InstrumentMasterFactV2,
+    at: impl FnOnce(i128) -> Option<InstrumentMasterFactV2>,
+) -> Result<InstrumentMasterFactV2, BaselineAdmissionErrorV2> {
+    assert_acl_in_transaction(tx).await?;
+    let chain = decode_chain(load_fact_rows(tx, candidate.canonical_identity()).await?)?;
+
+    let Some(stored) = chain.first() else {
+        insert_fact(tx, candidate).await?;
+        return Ok(candidate.clone());
+    };
+    // A submission that cannot even be built at the stored observation, such as one retrieved after
+    // it, means something else.
+    let Some(rebuilt) = at(stored.owner_observation_time_ns()) else {
+        return Err(BaselineAdmissionErrorV2::BaselineExists);
+    };
+
+    if rebuilt.canonical_bytes() == stored.canonical_bytes() {
+        Ok(stored.clone())
+    } else {
+        Err(BaselineAdmissionErrorV2::BaselineExists)
     }
 }
 

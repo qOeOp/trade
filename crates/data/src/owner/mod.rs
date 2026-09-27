@@ -11,6 +11,7 @@ pub mod instrument_economic_terms_postgres_v1;
 pub mod instrument_economic_terms_v1;
 pub mod instrument_master;
 pub mod instrument_master_admission_v1;
+pub mod instrument_master_admission_v2;
 pub mod instrument_master_v2;
 pub mod instrument_master_v2_postgres;
 pub mod live_market_fact_v1;
