@@ -4426,6 +4426,9 @@ CREATE SCHEMA IF NOT EXISTS composer_private AUTHORIZATION composer_owner;
 CREATE SCHEMA IF NOT EXISTS composer_owner_api AUTHORIZATION composer_owner;
 CREATE SCHEMA IF NOT EXISTS market_data_private AUTHORIZATION market_data_owner;
 CREATE SCHEMA IF NOT EXISTS market_data_rd_api AUTHORIZATION market_data_owner;
+-- Store Admission's reads reach Market Data only through this schema's definer wrappers, so the
+-- principal they connect as holds nothing on market_data_private. Nothing is granted on it here.
+CREATE SCHEMA IF NOT EXISTS market_data_admitted_read AUTHORIZATION market_data_owner;
 -- Instrument Master V2 stores under market_data_owner, and this migration's own readback
 -- asserts that role holds no database CREATE. So the schema is created here rather than by
 -- InstrumentMasterV2PostgresOwner::install, which cannot create it.
@@ -4438,9 +4441,11 @@ ALTER SCHEMA composer_private OWNER TO composer_owner;
 ALTER SCHEMA composer_owner_api OWNER TO composer_owner;
 ALTER SCHEMA market_data_private OWNER TO market_data_owner;
 ALTER SCHEMA market_data_rd_api OWNER TO market_data_owner;
+ALTER SCHEMA market_data_admitted_read OWNER TO market_data_owner;
 ALTER SCHEMA market_data_instrument_master_v2 OWNER TO market_data_owner;
 REVOKE ALL ON SCHEMA replay_policy_catalog_private, replay_policy_catalog_api, composer_private, composer_owner_api, market_data_private FROM PUBLIC, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, market_data_reader, product_edge_owner, qualification_owner, qualification_writer, operator_authorization_owner, operator_authorization_writer, portfolio_owner, backtest_owner;
 REVOKE ALL ON SCHEMA market_data_rd_api FROM PUBLIC, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, market_data_reader, product_edge_owner, qualification_owner, qualification_writer, operator_authorization_owner, operator_authorization_writer, portfolio_owner, backtest_owner;
+REVOKE ALL ON SCHEMA market_data_admitted_read FROM PUBLIC, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, market_data_reader, product_edge_owner, qualification_owner, qualification_writer, operator_authorization_owner, operator_authorization_writer, portfolio_owner, backtest_owner;
 GRANT USAGE ON SCHEMA market_data_rd_api TO rd_owner;
 GRANT USAGE ON SCHEMA replay_policy_catalog_api TO rd_owner, replay_policy_catalog_admin_writer;
 GRANT USAGE ON SCHEMA composer_owner_api TO rd_owner, rd_fact_writer, market_data_reader, market_data_owner;
@@ -4465,7 +4470,7 @@ BEGIN
     SELECT procedure.oid::pg_catalog.regprocedure AS identity
       FROM pg_catalog.pg_proc procedure
       JOIN pg_catalog.pg_namespace namespace ON namespace.oid=procedure.pronamespace
-     WHERE namespace.nspname IN ('market_data_private','market_data_rd_api')
+     WHERE namespace.nspname IN ('market_data_private','market_data_rd_api','market_data_admitted_read')
      ORDER BY procedure.oid
   LOOP
     EXECUTE pg_catalog.format('ALTER FUNCTION %s OWNER TO market_data_owner',object.identity);
@@ -4476,6 +4481,7 @@ REVOKE ALL ON ALL TABLES IN SCHEMA market_data_private FROM PUBLIC, rd_owner, rd
 REVOKE ALL ON ALL SEQUENCES IN SCHEMA market_data_private FROM PUBLIC, rd_owner, rd_fact_writer, market_data_reader;
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA market_data_private FROM PUBLIC, rd_owner, rd_fact_writer;
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA market_data_rd_api FROM PUBLIC, rd_fact_writer, replay_policy_catalog_admin_writer, market_data_reader, product_edge_owner, qualification_owner, qualification_writer, operator_authorization_owner, operator_authorization_writer, portfolio_owner, backtest_owner;
+REVOKE ALL ON ALL FUNCTIONS IN SCHEMA market_data_admitted_read FROM PUBLIC, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, market_data_reader, product_edge_owner, qualification_owner, qualification_writer, operator_authorization_owner, operator_authorization_writer, portfolio_owner, backtest_owner;
 DO $catalog_composer_schema_acl_cutover$
 DECLARE grant_fact record;
 BEGIN

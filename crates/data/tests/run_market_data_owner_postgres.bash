@@ -13,6 +13,7 @@ readonly market_data_owner_postgres_tests=(
   owner::store_admission::tests::the_admitted_quote_cut_read_resolves_what_custody_resolves
   owner::store_admission::tests::the_postgres_custody_store_admits_on_its_own_clock_and_refuses_what_moved
   owner::store_admission::tests::each_floor_is_the_catalog_closure_of_its_reads
+  owner::postgres::admitted_read_api_v1::tests::the_admitted_read_schema_is_what_its_statements_declare
   owner::store_admission::tests::the_role_identity_moves_with_every_privilege_the_role_gains_and_no_other
   owner::instrument_master_v2_postgres::tests::postgres_v2_cut_custody_holds_one_or_two_members_and_migrates_a_legacy_table
   owner::instrument_master_v2_postgres::tests::postgres_bound_replay_issuance_keys_each_request_to_one_binding

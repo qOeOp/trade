@@ -97,10 +97,16 @@ never runs in CI.
   `NATIVE_REPLAY_SCHEDULING_ACCEPTANCE_GRANTS_V1`, and its evidence carries the marker
   `SEALED_ACCEPTANCE_NO_STORE_ADMISSION_V1` where an admitted read carries a receipt; only a build that carries that
   port accepts the marker. Admission itself, including the principal it leases and the grants on that gate, is still
-  `B3`. No production role holds that gate today: the deployed ACL cutover revokes `USAGE` on `market_data_private`
-  from every role but the owner, and no role is yet granted what the admitted ports' measurement floors list. Each
-  port opens only on a measurement that covers the floors of the reads it serves, the native Replay scheduling port's
-  PIT evaluation reads included, and each read checks its own floor again on every admission it reads under.
+  `B3`. No production role holds that gate today: the deployed ACL cutover revokes every privilege on
+  `market_data_private` and `market_data_admitted_read` from every role but the owner, and no role is yet granted what
+  the admitted ports' measurement floors list. Every admitted read, and the measurement's read of the Owner's migration
+  ledger, reaches the Owner only through `market_data_admitted_read`. Each function there is a `SECURITY DEFINER`
+  pass-through of the private function of its name, with the same parameters and result, or one of four fixed reads of
+  Owner rows; each is `STABLE`, pins `search_path`, and is granted to no one by the migration. The principal a Store
+  Admission leases therefore needs `USAGE` on that schema and `EXECUTE` on the wrappers its reads call, and nothing on
+  `market_data_private`, whose time-zone custody check requires that it have no grantee but its owner. Each port opens
+  only on a measurement that covers the floors of the reads it serves, the native Replay scheduling port's PIT
+  evaluation reads included, and each read checks its own floor again on every admission it reads under.
   Reading a BAR schedule has **two custody strategies**, one per build, and this document has until now described
   neither. A test build opens its own `REPEATABLE READ READ ONLY` transaction and validates the schedule's history
   itself; a production build takes its snapshot from the admitted port's evidence and revalidates before returning.

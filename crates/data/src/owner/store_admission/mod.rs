@@ -1288,8 +1288,6 @@ impl NativeReplaySchedulingReadPortV1 for UnadmittedAcceptanceSnapshotPortV1 {
 pub(super) enum AcceptanceGrantV1 {
     /// `USAGE` on a schema.
     SchemaUsage(&'static str),
-    /// `SELECT` on a relation the raw reads name directly.
-    TableSelect(&'static str),
     /// `EXECUTE` on a function the raw reads call, by its exact signature.
     FunctionExecute(&'static str),
 }
@@ -1299,7 +1297,6 @@ impl AcceptanceGrantV1 {
     fn object(self) -> String {
         match self {
             Self::SchemaUsage(schema) => format!("USAGE ON SCHEMA {schema}"),
-            Self::TableSelect(table) => format!("SELECT ON TABLE {table}"),
             Self::FunctionExecute(function) => format!("EXECUTE ON FUNCTION {function}"),
         }
     }
@@ -1320,43 +1317,57 @@ impl AcceptanceGrantV1 {
 ///
 /// It is also a draft of the gate `B3` must grant the principal a Store Admission leases, measured
 /// by removal: the sealed acceptance proof revokes each entry alone and requires the read that
-/// needs it to be refused. Two entries fall outside every floor a scheduling admission measures
-/// today: the PIT evaluation read names `pit_snapshot_facts_v1` and `clock_handoffs_v1` directly,
-/// and no floor covers the PIT evaluation functions at all.
+/// needs it to be refused. Every entry is on `market_data_admitted_read`, so the principal holds
+/// nothing on `market_data_private`. The functions are exactly the wrappers the floors a
+/// scheduling admission measures list (`PIT_EVALUATION_FLOOR_V1`, `BAR_SCHEDULE_FLOOR_V1`,
+/// `NATIVE_REPLAY_QUOTE_CUT_FLOOR_V2`), which `the_acceptance_grants_are_the_scheduling_wrappers`
+/// holds: the grants are the direct privileges, the floors their catalog closure.
 #[cfg(feature = "sealed-strategy-input-acceptance")]
 pub(super) const NATIVE_REPLAY_SCHEDULING_ACCEPTANCE_GRANTS_V1: &[AcceptanceGrantV1] = &[
-    AcceptanceGrantV1::SchemaUsage("market_data_private"),
-    AcceptanceGrantV1::TableSelect("market_data_private.pit_snapshot_facts_v1"),
-    AcceptanceGrantV1::TableSelect("market_data_private.clock_handoffs_v1"),
-    AcceptanceGrantV1::FunctionExecute("market_data_private.resolve_pit_snapshot_v1(bytea)"),
+    AcceptanceGrantV1::SchemaUsage("market_data_admitted_read"),
     AcceptanceGrantV1::FunctionExecute(
-        "market_data_private.resolve_pit_observation_batch_v1(bytea)",
+        "market_data_admitted_read.resolve_pit_snapshot_references_v1(bytea)",
+    ),
+    AcceptanceGrantV1::FunctionExecute("market_data_admitted_read.resolve_pit_snapshot_v1(bytea)"),
+    AcceptanceGrantV1::FunctionExecute(
+        "market_data_admitted_read.resolve_pit_observation_batch_v1(bytea)",
     ),
     AcceptanceGrantV1::FunctionExecute(
-        "market_data_private.resolve_pit_observation_rows_v1(bytea)",
-    ),
-    AcceptanceGrantV1::FunctionExecute("market_data_private.resolve_pit_lineage_custody_v1(bytea)"),
-    AcceptanceGrantV1::FunctionExecute("market_data_private.resolve_pit_lineage_members_v1(bytea)"),
-    AcceptanceGrantV1::FunctionExecute("market_data_private.resolve_source_binding_v1(bytea)"),
-    AcceptanceGrantV1::FunctionExecute(
-        "market_data_private.resolve_source_lineage_custody_v1(bytea)",
+        "market_data_admitted_read.resolve_pit_observation_rows_v1(bytea)",
     ),
     AcceptanceGrantV1::FunctionExecute(
-        "market_data_private.resolve_source_lineage_members_v1(bytea)",
-    ),
-    AcceptanceGrantV1::FunctionExecute("market_data_private.resolve_clock_custody_state_v1()"),
-    AcceptanceGrantV1::FunctionExecute(
-        "market_data_private.resolve_owner_history_census_custody_v1()",
+        "market_data_admitted_read.resolve_pit_lineage_custody_v1(bytea)",
     ),
     AcceptanceGrantV1::FunctionExecute(
-        "market_data_private.resolve_bar_schedule_candidates_v1(text)",
-    ),
-    AcceptanceGrantV1::FunctionExecute("market_data_private.resolve_bar_schedule_history_v1(text)"),
-    AcceptanceGrantV1::FunctionExecute(
-        "market_data_private.resolve_native_replay_quote_cut_census_v2(bytea,bigint,bigint)",
+        "market_data_admitted_read.resolve_pit_lineage_members_v1(bytea)",
     ),
     AcceptanceGrantV1::FunctionExecute(
-        "market_data_private.resolve_native_replay_next_frame_v2(bytea,bigint,bigint)",
+        "market_data_admitted_read.resolve_source_binding_v1(bytea)",
+    ),
+    AcceptanceGrantV1::FunctionExecute(
+        "market_data_admitted_read.resolve_source_lineage_custody_v1(bytea)",
+    ),
+    AcceptanceGrantV1::FunctionExecute(
+        "market_data_admitted_read.resolve_source_lineage_members_v1(bytea)",
+    ),
+    AcceptanceGrantV1::FunctionExecute(
+        "market_data_admitted_read.resolve_clock_custody_state_v1()",
+    ),
+    AcceptanceGrantV1::FunctionExecute("market_data_admitted_read.resolve_clock_handoffs_v1()"),
+    AcceptanceGrantV1::FunctionExecute(
+        "market_data_admitted_read.resolve_owner_history_census_custody_v1()",
+    ),
+    AcceptanceGrantV1::FunctionExecute(
+        "market_data_admitted_read.resolve_bar_schedule_candidates_v1(text)",
+    ),
+    AcceptanceGrantV1::FunctionExecute(
+        "market_data_admitted_read.resolve_bar_schedule_history_v1(text)",
+    ),
+    AcceptanceGrantV1::FunctionExecute(
+        "market_data_admitted_read.resolve_native_replay_quote_cut_census_v2(bytea,bigint,bigint)",
+    ),
+    AcceptanceGrantV1::FunctionExecute(
+        "market_data_admitted_read.resolve_native_replay_next_frame_v2(bytea,bigint,bigint)",
     ),
 ];
 
@@ -2620,8 +2631,8 @@ mod tests {
 
     fn synthetic_spec() -> PostgresMeasurementSpec {
         PostgresMeasurementSpec::new(
-            "market_data_private",
-            "market_data_private.schema_migrations_v1",
+            postgres::ADMITTED_READ_SCHEMA,
+            postgres::OWNER_MIGRATION_RELATION,
             vec!["market_data_api.resolve_snapshot_v1(text)".to_string()],
             vec!["market_data_private.snapshot_facts_v1".to_string()],
         )
@@ -3525,27 +3536,9 @@ mod tests {
             AdmissionFailureCode::DirectMeasurementMismatch
         );
 
-        let complete = Fixture::with_spec(
-            &PostgresMeasurementSpec::new(
-                "market_data_private",
-                "market_data_private.schema_migrations_v1",
-                vec![
-                    "market_data_private.resolve_strategy_input_sample_projection_v2(bytea)"
-                        .to_string(),
-                    "market_data_private.resolve_timeframe_projection_receipt_v1(bytea)"
-                        .to_string(),
-                    "market_data_private.resolve_sample_receipt_v1(bytea)".to_string(),
-                ],
-                vec![
-                    "market_data_private.strategy_input_sample_projection_receipts_v2".to_string(),
-                    "market_data_private.timeframe_projection_receipts_v1".to_string(),
-                    "market_data_private.sample_facts_v1".to_string(),
-                    "market_data_private.sample_receipts_v1".to_string(),
-                    "market_data_private.sample_outbox_v1".to_string(),
-                ],
-            )
-            .unwrap(),
-        );
+        let complete = Fixture::with_spec(&measurement_spec_covering(&[
+            &postgres::SAMPLE_PROJECTION_FLOOR_V2,
+        ]));
         let measurement_calls = Arc::new(AtomicUsize::new(0));
         let custodian = complete.custodian(
             Arc::new(AtomicUsize::new(0)),
@@ -3570,8 +3563,8 @@ mod tests {
         assert_eq!(measurement_calls.load(Ordering::SeqCst), 2);
 
         let incomplete_spec = PostgresMeasurementSpec::new(
-            "market_data_private",
-            "market_data_private.schema_migrations_v1",
+            postgres::ADMITTED_READ_SCHEMA,
+            postgres::OWNER_MIGRATION_RELATION,
             vec!["market_data_api.resolve_snapshot_v1(text)".to_string()],
             vec!["market_data_private.snapshot_facts_v1".to_string()],
         )
@@ -3621,33 +3614,7 @@ mod tests {
             AdmissionFailureCode::DirectMeasurementMismatch
         );
 
-        let complete_spec = PostgresMeasurementSpec::new(
-            "market_data_private",
-            "market_data_private.schema_migrations_v1",
-            vec![
-                "market_data_private.resolve_strategy_input_sample_projection_v3(bytea)".into(),
-                "market_data_private.resolve_strategy_input_sample_projection_schedule_dependencies_v3(bytea)".into(),
-                "market_data_private.resolve_timeframe_projection_receipt_v1(bytea)".into(),
-                "market_data_private.resolve_sample_receipt_v1(bytea)".into(),
-                "market_data_private.resolve_bar_schedule_v1(bytea)".into(),
-                "market_data_private.resolve_bar_schedule_history_v1(text)".into(),
-            ],
-            vec![
-                "market_data_private.strategy_input_sample_projection_receipts_v3".into(),
-                "market_data_private.strategy_input_sample_projection_schedule_dependencies_v3".into(),
-                "market_data_private.timeframe_projection_receipts_v1".into(),
-                "market_data_private.sample_facts_v1".into(),
-                "market_data_private.sample_receipts_v1".into(),
-                "market_data_private.sample_outbox_v1".into(),
-                "market_data_private.bar_schedule_state_v1".into(),
-                "market_data_private.bar_schedule_facts_v1".into(),
-                "market_data_private.bar_schedule_heads_v1".into(),
-                "market_data_private.bar_schedule_cuts_v1".into(),
-                "market_data_private.bar_schedule_receipts_v1".into(),
-                "market_data_private.bar_schedule_outbox_v1".into(),
-            ],
-        )
-        .unwrap();
+        let complete_spec = measurement_spec_covering(&[&postgres::SAMPLE_PROJECTION_FLOOR_V3]);
         let complete = Fixture::with_spec(&complete_spec);
         let measurement_calls = Arc::new(AtomicUsize::new(0));
         let custodian = complete.custodian(
@@ -3673,8 +3640,8 @@ mod tests {
         assert_eq!(measurement_calls.load(Ordering::SeqCst), 2);
 
         let incomplete = PostgresMeasurementSpec::new(
-            "market_data_private",
-            "market_data_private.schema_migrations_v1",
+            postgres::ADMITTED_READ_SCHEMA,
+            postgres::OWNER_MIGRATION_RELATION,
             vec!["market_data_private.resolve_strategy_input_sample_projection_v3(bytea)".into()],
             vec!["market_data_private.strategy_input_sample_projection_receipts_v3".into()],
         )
@@ -3723,26 +3690,9 @@ mod tests {
             AdmissionFailureCode::DirectMeasurementMismatch
         );
 
-        let complete = Fixture::with_spec(
-            &PostgresMeasurementSpec::new(
-                "market_data_private",
-                "market_data_private.schema_migrations_v1",
-                vec![
-                    "market_data_private.resolve_bar_schedule_v1(bytea)".to_string(),
-                    "market_data_private.resolve_bar_schedule_candidates_v1(text)".to_string(),
-                    "market_data_private.resolve_bar_schedule_history_v1(text)".to_string(),
-                ],
-                vec![
-                    "market_data_private.bar_schedule_state_v1".to_string(),
-                    "market_data_private.bar_schedule_facts_v1".to_string(),
-                    "market_data_private.bar_schedule_heads_v1".to_string(),
-                    "market_data_private.bar_schedule_cuts_v1".to_string(),
-                    "market_data_private.bar_schedule_receipts_v1".to_string(),
-                    "market_data_private.bar_schedule_outbox_v1".to_string(),
-                ],
-            )
-            .unwrap(),
-        );
+        let complete = Fixture::with_spec(&measurement_spec_covering(&[
+            &postgres::BAR_SCHEDULE_FLOOR_V1,
+        ]));
         let measurement_calls = Arc::new(AtomicUsize::new(0));
         let custodian = complete.custodian(
             Arc::new(AtomicUsize::new(0)),
@@ -3767,8 +3717,8 @@ mod tests {
         assert_eq!(measurement_calls.load(Ordering::SeqCst), 2);
 
         let incomplete = PostgresMeasurementSpec::new(
-            "market_data_private",
-            "market_data_private.schema_migrations_v1",
+            postgres::ADMITTED_READ_SCHEMA,
+            postgres::OWNER_MIGRATION_RELATION,
             vec!["market_data_private.resolve_bar_schedule_v1(bytea)".to_string()],
             vec!["market_data_private.bar_schedule_facts_v1".to_string()],
         )
@@ -3829,26 +3779,9 @@ mod tests {
     ///    skipping the check changes the outcome instead of merely removing a step.
     #[tokio::test]
     async fn the_admitted_ports_bar_schedule_read_admits_and_validates_before_it_measures() {
-        let complete = Fixture::with_spec(
-            &PostgresMeasurementSpec::new(
-                "market_data_private",
-                "market_data_private.schema_migrations_v1",
-                vec![
-                    "market_data_private.resolve_bar_schedule_v1(bytea)".to_string(),
-                    "market_data_private.resolve_bar_schedule_candidates_v1(text)".to_string(),
-                    "market_data_private.resolve_bar_schedule_history_v1(text)".to_string(),
-                ],
-                vec![
-                    "market_data_private.bar_schedule_state_v1".to_string(),
-                    "market_data_private.bar_schedule_facts_v1".to_string(),
-                    "market_data_private.bar_schedule_heads_v1".to_string(),
-                    "market_data_private.bar_schedule_cuts_v1".to_string(),
-                    "market_data_private.bar_schedule_receipts_v1".to_string(),
-                    "market_data_private.bar_schedule_outbox_v1".to_string(),
-                ],
-            )
-            .unwrap(),
-        );
+        let complete = Fixture::with_spec(&measurement_spec_covering(&[
+            &postgres::BAR_SCHEDULE_FLOOR_V1,
+        ]));
         let measurement_calls = Arc::new(AtomicUsize::new(0));
         let custodian = complete.custodian(
             Arc::new(AtomicUsize::new(0)),
@@ -3885,65 +3818,35 @@ mod tests {
         );
     }
 
-    #[rstest::rstest]
-    fn shared_time_floor_requires_every_fixed_function_and_relation() {
-        let functions = vec![
-            "market_data_private.resolve_owner_history_census_custody_v1()".to_string(),
-            "market_data_private.resolve_clock_custody_state_v1()".to_string(),
-            "market_data_private.resolve_clock_membership_custody_v1()".to_string(),
-            "market_data_private.resolve_clock_handoff_v1(bytea)".to_string(),
-            "market_data_private.resolve_epoch_successor_proof_v1(bytea)".to_string(),
-        ];
-        let relations = vec![
-            "market_data_private.owner_migrations_v1".to_string(),
-            "market_data_private.owner_history_census_state_v1".to_string(),
-            "market_data_private.source_binding_lineage_census_v1".to_string(),
-            "market_data_private.pit_snapshot_lineage_census_v1".to_string(),
-            "market_data_private.source_binding_facts_v1".to_string(),
-            "market_data_private.source_binding_heads_v1".to_string(),
-            "market_data_private.pit_snapshot_facts_v1".to_string(),
-            "market_data_private.pit_snapshot_heads_v1".to_string(),
-            "market_data_private.clock_head_v1".to_string(),
-            "market_data_private.clock_handoffs_v1".to_string(),
-            "market_data_private.clock_handoff_state_v1".to_string(),
-            "market_data_private.clock_handoff_membership_v1".to_string(),
-            "market_data_private.clock_handoff_head_v1".to_string(),
-            "market_data_private.epoch_successor_proofs_v1".to_string(),
-        ];
-        let complete = PostgresMeasurementSpec::new(
-            "market_data_private",
-            "market_data_private.schema_migrations_v1",
-            functions.clone(),
-            relations.clone(),
-        )
-        .expect("complete Shared Time measurement");
-        assert!(complete.covers(&postgres::SHARED_TIME_FLOOR_V1));
-
-        for omitted in 0..functions.len() {
-            let mut incomplete = functions.clone();
-            incomplete.remove(omitted);
-            let spec = PostgresMeasurementSpec::new(
-                "market_data_private",
-                "market_data_private.schema_migrations_v1",
-                incomplete,
+    /// A measurement names the admitted read schema and the Owner's migration ledger, and nothing
+    /// else: the reads reach the Owner only through that schema, and the ledger is the one relation
+    /// whose rows the measurer reads, through its wrapper. A specification naming the private
+    /// schema, or another ledger, describes a surface no admitted principal can measure.
+    #[rstest]
+    #[case::the_private_schema("market_data_private", postgres::OWNER_MIGRATION_RELATION)]
+    #[case::another_ledger(
+        postgres::ADMITTED_READ_SCHEMA,
+        "market_data_private.schema_migrations_v1"
+    )]
+    fn a_measurement_names_only_the_admitted_read_schema_and_the_owner_ledger(
+        #[case] schema: &str,
+        #[case] ledger: &str,
+    ) {
+        let (functions, relations) = floor_union(&[&postgres::SHARED_TIME_FLOOR_V1]);
+        assert!(
+            PostgresMeasurementSpec::new(
+                postgres::ADMITTED_READ_SCHEMA,
+                postgres::OWNER_MIGRATION_RELATION,
+                functions.clone(),
                 relations.clone(),
             )
-            .expect("bounded incomplete function measurement");
-            assert!(!spec.covers(&postgres::SHARED_TIME_FLOOR_V1));
-        }
-
-        for omitted in 0..relations.len() {
-            let mut incomplete = relations.clone();
-            incomplete.remove(omitted);
-            let spec = PostgresMeasurementSpec::new(
-                "market_data_private",
-                "market_data_private.schema_migrations_v1",
-                functions.clone(),
-                incomplete,
-            )
-            .expect("bounded incomplete relation measurement");
-            assert!(!spec.covers(&postgres::SHARED_TIME_FLOOR_V1));
-        }
+            .is_ok_and(|spec| spec.covers(&postgres::SHARED_TIME_FLOOR_V1)),
+            "the admitted surface is a valid measurement"
+        );
+        assert_eq!(
+            PostgresMeasurementSpec::new(schema, ledger, functions, relations),
+            Err(PostgresMeasurementError::InvalidSpecification)
+        );
     }
 
     #[tokio::test]
@@ -3957,8 +3860,8 @@ mod tests {
         )
         .unwrap();
         let spec = PostgresMeasurementSpec::new(
-            "safe_schema",
-            "safe_schema.schema_migrations_v1",
+            postgres::ADMITTED_READ_SCHEMA,
+            postgres::OWNER_MIGRATION_RELATION,
             vec!["safe_schema.resolve_v1()".to_string()],
             vec!["safe_schema.facts_v1".to_string()],
         )
@@ -4055,8 +3958,8 @@ mod tests {
         ));
         assert_eq!(
             PostgresMeasurementSpec::new(
-                "safe_schema",
-                "safe_schema.schema_migrations_v1",
+                postgres::ADMITTED_READ_SCHEMA,
+                postgres::OWNER_MIGRATION_RELATION,
                 vec!["postgres://user:secret-canary@db.example/store".to_string()],
                 vec!["safe_schema.facts_v1".to_string()],
             ),
@@ -4698,8 +4601,8 @@ mod tests {
         relations: Vec<String>,
     ) -> PostgresMeasurementSpec {
         PostgresMeasurementSpec::new(
-            "market_data_private",
-            "market_data_private.owner_migrations_v1",
+            postgres::ADMITTED_READ_SCHEMA,
+            postgres::OWNER_MIGRATION_RELATION,
             functions,
             relations,
         )
@@ -4727,23 +4630,25 @@ mod tests {
             .collect()
     }
 
-    /// The Owner objects `text` names, split into those it calls and those it reads as relations.
+    /// The Owner objects `text` names in either Market Data schema, split into those it calls and
+    /// those it reads as relations.
     fn owner_references(text: &str) -> (BTreeSet<String>, BTreeSet<String>) {
-        const SCHEMA: &str = "market_data_private.";
         let mut functions = BTreeSet::new();
         let mut relations = BTreeSet::new();
 
-        for (at, _) in text.match_indices(SCHEMA) {
-            let rest = &text[at + SCHEMA.len()..];
-            let end = rest
-                .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
-                .unwrap_or(rest.len());
-            let name = format!("{SCHEMA}{}", &rest[..end]);
+        for schema in ["market_data_admitted_read.", "market_data_private."] {
+            for (at, _) in text.match_indices(schema) {
+                let rest = &text[at + schema.len()..];
+                let end = rest
+                    .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+                    .unwrap_or(rest.len());
+                let name = format!("{schema}{}", &rest[..end]);
 
-            if rest[end..].trim_start().starts_with('(') {
-                functions.insert(name);
-            } else {
-                relations.insert(name);
+                if rest[end..].trim_start().starts_with('(') {
+                    functions.insert(name);
+                } else {
+                    relations.insert(name);
+                }
             }
         }
         (functions, relations)
@@ -4774,8 +4679,10 @@ mod tests {
     /// `to_regprocedure` in the measurer, because both truncate the same way; but the catalog
     /// lists the object under the shorter name, so anything comparing a floor's text to the
     /// catalog must truncate first, and two names sharing their first 63 bytes are one object.
-    const FLOOR_NAMES_OVER_THE_IDENTIFIER_LIMIT: &[&str] =
-        &["market_data_private.resolve_strategy_input_sample_projection_schedule_dependencies_v3"];
+    const FLOOR_NAMES_OVER_THE_IDENTIFIER_LIMIT: &[&str] = &[
+        "market_data_admitted_read.resolve_strategy_input_sample_projection_schedule_dependencies_v3",
+        "market_data_private.resolve_strategy_input_sample_projection_schedule_dependencies_v3",
+    ];
 
     /// A floor name over 63 bytes is refused unless it is listed above, so whoever adds one is
     /// told the truncation rule rather than rediscovering it against a catalog; and no two floor
@@ -4840,6 +4747,15 @@ mod tests {
                 assert!(listed.insert(*read), "{read} stands on one floor");
                 let (functions, relations) = owner_references(top_level_function(source, read));
                 assert!(!functions.is_empty(), "{read} calls the Owner");
+
+                for object in functions.iter().chain(&relations) {
+                    assert!(
+                        object.starts_with("market_data_admitted_read."),
+                        "{read} names {object}; an admitted read reaches the Owner only through \
+                         market_data_admitted_read, so its principal holds nothing on \
+                         market_data_private"
+                    );
+                }
 
                 for function in &functions {
                     assert!(
@@ -4921,6 +4837,55 @@ mod tests {
                 .flat_map(|(_, reads)| reads.iter().map(|read| (*read).to_owned()))
                 .collect::<BTreeSet<_>>(),
             "every admitted read is reached through a port read"
+        );
+    }
+
+    /// The sealed acceptance principal is granted `USAGE` on the admitted read schema and `EXECUTE`
+    /// on exactly the wrappers the three scheduling reads call, read from their source: nothing on
+    /// `market_data_private`, no wrapper those reads do not call, and none they call left out. Each
+    /// grant also lies inside the floors of the scheduling port's own `PORT_FLOORS` entry, so a
+    /// grant is never on an object no scheduling admission measures.
+    #[cfg(feature = "sealed-strategy-input-acceptance")]
+    #[rstest]
+    fn the_acceptance_grants_are_the_scheduling_wrappers() {
+        const SCHEDULING_READS: &[&str] = &[
+            "read_market_data_pit_evaluation_snapshot",
+            "read_bar_schedule_candidate_snapshots_v1",
+            "read_native_replay_quote_cut_census_snapshot_v2",
+        ];
+        let source = include_str!("postgres.rs");
+        let called = SCHEDULING_READS
+            .iter()
+            .flat_map(|read| owner_references(top_level_function(source, read)).0)
+            .collect::<BTreeSet<_>>();
+        let (_, _, floors) = PORT_FLOORS
+            .iter()
+            .find(|(port, _, _)| *port == "native_replay_scheduling")
+            .expect("the scheduling port is listed");
+        let (measured, _) = floor_union(floors);
+        let mut granted = BTreeSet::new();
+        let mut schemas = Vec::new();
+
+        for grant in NATIVE_REPLAY_SCHEDULING_ACCEPTANCE_GRANTS_V1 {
+            match grant {
+                AcceptanceGrantV1::SchemaUsage(schema) => schemas.push(*schema),
+                AcceptanceGrantV1::FunctionExecute(signature) => {
+                    assert!(
+                        measured.iter().any(|listed| listed == signature),
+                        "{signature} lies outside every scheduling floor"
+                    );
+                    let (name, _) = signature.split_once('(').expect("a signature");
+                    assert!(
+                        granted.insert(name.to_owned()),
+                        "{signature} is granted once"
+                    );
+                }
+            }
+        }
+        assert_eq!(schemas, ["market_data_admitted_read"]);
+        assert_eq!(
+            granted, called,
+            "the acceptance grants are exactly the wrappers the scheduling reads call"
         );
     }
 
@@ -5017,7 +4982,8 @@ mod tests {
             "SELECT n.nspname || '.' || p.proname, p.oid::pg_catalog.regprocedure::text, \
              pg_catalog.pg_get_functiondef(p.oid), p.proconfig \
              FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace \
-             WHERE n.nspname = 'market_data_private' AND p.prokind IN ('f', 'p')",
+             WHERE n.nspname IN ('market_data_admitted_read', 'market_data_private') \
+             AND p.prokind IN ('f', 'p')",
         )
         .fetch_all(owner.pool())
         .await
@@ -5350,6 +5316,33 @@ mod tests {
         );
     }
 
+    /// The privilege census the principal behind `reader` would be measured with, row by row.
+    #[cfg(feature = "sealed-strategy-input-acceptance")]
+    async fn census_rows(
+        reader: &sqlx::PgPool,
+    ) -> std::collections::BTreeSet<(String, String, String, String)> {
+        let mut connection = reader.acquire().await.expect("a reader connection");
+        postgres::privilege_census_rows_v1(&mut connection)
+            .await
+            .expect("the reader's census is readable")
+    }
+
+    /// How many roles other than its owner hold a privilege on `market_data_private`, counted as
+    /// the time-zone custody check counts them.
+    #[cfg(feature = "sealed-strategy-input-acceptance")]
+    async fn private_schema_grantees(owner: &sqlx::PgPool) -> i64 {
+        sqlx::query_scalar(
+            "SELECT count(*) FROM pg_catalog.pg_namespace AS namespace, \
+             pg_catalog.aclexplode(COALESCE(namespace.nspacl, \
+             pg_catalog.acldefault('n', namespace.nspowner))) AS acl \
+             WHERE namespace.nspname = 'market_data_private' \
+             AND acl.grantee <> namespace.nspowner",
+        )
+        .fetch_one(owner)
+        .await
+        .expect("the private schema's ACL is readable")
+    }
+
     /// Which of the three scheduling reads a grant serves.
     #[cfg(feature = "sealed-strategy-input-acceptance")]
     #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
@@ -5368,7 +5361,6 @@ mod tests {
             AcceptanceGrantV1::SchemaUsage(_) => {
                 [PitEvaluation, BarScheduleCandidates, QuoteCutCensus].into()
             }
-            AcceptanceGrantV1::TableSelect(_) => [PitEvaluation].into(),
             AcceptanceGrantV1::FunctionExecute(function) if function.contains("bar_schedule") => {
                 [BarScheduleCandidates].into()
             }
@@ -5421,12 +5413,15 @@ mod tests {
     /// The sealed acceptance resolver reads under exactly the grants it declares, as a
     /// least-privilege principal, through the read path the admitted resolver uses.
     ///
-    /// It connects as the disposable harness's reader role, which starts with no `USAGE` on
-    /// `market_data_private`. With nothing granted, every read is refused. With exactly
+    /// It connects as the disposable harness's reader role, which starts with no privilege on
+    /// either Market Data schema. With nothing granted, every read is refused. With exactly
     /// `NATIVE_REPLAY_SCHEDULING_ACCEPTANCE_GRANTS_V1`, every read is answered: the snapshot's
     /// evidence verifies, a member's schedule candidates are read, and the quote cut read through
-    /// the port is the one custody resolves. Each grant revoked alone refuses exactly the reads
-    /// stated for it in `reads_needing`, and nothing else, so the list is neither short nor padded.
+    /// the port is the one custody resolves. Those grants reach nothing private: the private
+    /// schema still has no grantee but its owner, which is what the time-zone custody check
+    /// requires, and the principal calling a private function directly is refused. Each grant
+    /// revoked alone refuses exactly the reads stated for it in `reads_needing`, and nothing else,
+    /// so the list is neither short nor padded.
     #[cfg(feature = "sealed-strategy-input-acceptance")]
     #[rstest]
     #[ignore = "requires the crates/data disposable PostgreSQL harness"]
@@ -5485,6 +5480,11 @@ mod tests {
             3,
             "an ungranted principal is refused every read"
         );
+        let reader = sqlx::postgres::PgPoolOptions::new()
+            .connect_url(&reader_url, PostgresTls::Disabled)
+            .await
+            .expect("the reader connects");
+        let ungranted = census_rows(&reader).await;
 
         apply_native_replay_scheduling_acceptance_grants_v1(owner.pool(), READER, |grant, role| {
             grant.grant_to(role)
@@ -5492,8 +5492,83 @@ mod tests {
         .await
         .expect("the owner grants the acceptance reads");
 
+        // The Store Admission privilege census sees exactly these grants, since a measurement admits
+        // on it: one USAGE on the admitted read schema, one EXECUTE per granted wrapper, and nothing
+        // on market_data_private.
+        let gained = census_rows(&reader)
+            .await
+            .difference(&ungranted)
+            .cloned()
+            .collect::<Vec<_>>();
+        let granted_functions = NATIVE_REPLAY_SCHEDULING_ACCEPTANCE_GRANTS_V1
+            .iter()
+            .filter(|grant| matches!(grant, AcceptanceGrantV1::FunctionExecute(_)))
+            .count();
+        assert!(
+            gained
+                .iter()
+                .all(|(_, _, object, _)| object.starts_with("market_data_admitted_read")),
+            "the census gains nothing outside the admitted read schema: {gained:?}"
+        );
+        assert_eq!(
+            gained
+                .iter()
+                .filter(|(_, kind, _, privilege)| kind == "schema" && privilege == "USAGE")
+                .count(),
+            1,
+            "the census gains USAGE on the admitted read schema: {gained:?}"
+        );
+        assert_eq!(
+            gained
+                .iter()
+                .filter(|(_, _, _, privilege)| privilege == "EXECUTE")
+                .count(),
+            granted_functions,
+            "the census gains EXECUTE on each granted wrapper and no other: {gained:?}"
+        );
+        assert_eq!(gained.len(), 1 + granted_functions, "{gained:?}");
+
         // Exactly the grants: every read is answered.
         assert!(refused_reads(&resolver.port, &snapshot).await.is_empty());
+
+        // And they reach nothing private. The probe is the time-zone custody check's own: a
+        // grantee on `market_data_private` other than its owner. It is shown to fire first, on a
+        // grant of the kind the reads needed before they went through the admitted read schema.
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "GRANT USAGE ON SCHEMA market_data_private TO {READER}"
+        )))
+        .execute(owner.pool())
+        .await
+        .expect("the owner grants private USAGE for the probe's own control");
+        assert!(
+            private_schema_grantees(owner.pool()).await > 0,
+            "the probe sees a private grantee"
+        );
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "REVOKE USAGE ON SCHEMA market_data_private FROM {READER}"
+        )))
+        .execute(owner.pool())
+        .await
+        .expect("the owner revokes the probe's grant");
+        assert_eq!(
+            private_schema_grantees(owner.pool()).await,
+            0,
+            "the acceptance grants leave market_data_private with no grantee but its owner"
+        );
+        let direct = sqlx::query("SELECT * FROM market_data_private.resolve_pit_snapshot_v1($1)")
+            .bind(snapshot.snapshot_identity.as_bytes().as_slice())
+            .fetch_all(&reader)
+            .await
+            .expect_err("a private function is not the reader's to call");
+        assert_eq!(
+            direct
+                .as_database_error()
+                .and_then(sqlx::error::DatabaseError::code)
+                .as_deref(),
+            Some("42501"),
+            "the direct call is refused for privilege, not for anything else"
+        );
+        reader.close().await;
 
         // The resolver composes the same read path. It cannot tell this proof which case it is in:
         // the fixture seeds no schedule, and selection names a member with no candidate exactly as
