@@ -89,6 +89,10 @@ arm_chain_entry_watchdog() {
     # A child that ignores TERM is not allowed to keep the job alive either.
     sleep 30
     chain_entry_signal_descendants "$chain" KILL "$BASHPID"
-  ) &
+    # `9>&-`: descriptor 9 is the machine's chain lock (owner-chain-lock.bash). The watchdog is not
+    # load, and a chain killed outright leaves it asleep for up to its whole limit; holding the lock
+    # meanwhile would refuse the next chain, and keep it from reaping the dead run's containers, for
+    # nothing. Closing it here leaves the lock to the chain and the children that are real work.
+  ) 9>&- &
   chain_entry_watchdog_pid=$!
 }
