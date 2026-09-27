@@ -10,6 +10,11 @@
 //! the Owner observation, and appends the fact as the instrument's first, so the request-keyed V2
 //! cut can resolve it.
 //!
+//! It also admits a raw `!contractInfo` event for an instrument that already has a fact, as that
+//! fact's direct successor. The event changes the contract status only: the delta grammar admits
+//! no other member, so tick, step, lot, multiplier, limits, currencies and inverse semantics stay
+//! the baseline's, and a status delta is not a correction of a baseline's terms.
+//!
 //! [`ExchangeInfoBaselineV2::from_usdm_exchange_info`]:
 //! super::instrument_master_v2::ExchangeInfoBaselineV2::from_usdm_exchange_info
 
@@ -23,7 +28,8 @@ use serde::{Deserialize, Serialize};
 
 use super::{
     instrument_master_v2::{
-        ExchangeInfoNormalizationErrorV2, InstrumentMasterV2Error, InstrumentTermsBasisV2,
+        ContractInfoNormalizationErrorV2, ExchangeInfoNormalizationErrorV2,
+        InstrumentMasterV2Error, InstrumentTermsBasisV2,
     },
     source_binding::{BindingDigest, UntrustedSourceBindingLocator},
 };
@@ -229,6 +235,215 @@ impl From<InstrumentMasterV2Error> for InstrumentMasterAdmissionErrorV2 {
     }
 }
 
+/// One raw `!contractInfo` event Operations submits for an instrument that already has a fact.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct InstrumentMasterStatusDeltaSubmissionV2 {
+    /// The fact the event follows, as a baseline or an earlier delta terminal returned it.
+    pub predecessor_fact_identity: BindingDigest,
+    /// When Operations received the event, in nanoseconds.
+    pub retrieval_time_ns: i128,
+    /// The exact event text. The Owner digests its UTF-8 bytes.
+    pub raw_payload: String,
+    /// The admitted Source Binding the event was received under: the instrument's baseline's.
+    pub source_binding: UntrustedSourceBindingLocator,
+}
+
+/// What Operations learns about the status delta the Owner admitted.
+///
+/// Everything here is in the stored fact, so a replay, which rejoins that fact, returns the same
+/// terminal after later deltas and after the clock has advanced.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct InstrumentMasterStatusDeltaTerminalV2 {
+    canonical_identity: String,
+    fact_identity: BindingDigest,
+    predecessor_fact_identity: BindingDigest,
+    correction_sequence: u64,
+    contract_status: String,
+    owner_observation_time_ns: i128,
+    terms_basis: InstrumentTermsBasisWireV2,
+    disposition: InstrumentMasterAdmissionDispositionV2,
+}
+
+impl InstrumentMasterStatusDeltaTerminalV2 {
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "each argument is one stored field of the admitted fact"
+    )]
+    pub(crate) fn seal(
+        canonical_identity: String,
+        fact_identity: BindingDigest,
+        predecessor_fact_identity: BindingDigest,
+        correction_sequence: u64,
+        contract_status: String,
+        owner_observation_time_ns: i128,
+        terms_basis: InstrumentTermsBasisV2,
+    ) -> Self {
+        Self {
+            canonical_identity,
+            fact_identity,
+            predecessor_fact_identity,
+            correction_sequence,
+            contract_status,
+            owner_observation_time_ns,
+            terms_basis: terms_basis.into(),
+            disposition: InstrumentMasterAdmissionDispositionV2::Admitted,
+        }
+    }
+
+    /// The instrument's canonical identity.
+    #[must_use]
+    pub fn canonical_identity(&self) -> &str {
+        &self.canonical_identity
+    }
+
+    /// The admitted fact's identity, which the next delta names.
+    #[must_use]
+    pub const fn fact_identity(&self) -> BindingDigest {
+        self.fact_identity
+    }
+
+    /// The fact it directly follows.
+    #[must_use]
+    pub const fn predecessor_fact_identity(&self) -> BindingDigest {
+        self.predecessor_fact_identity
+    }
+
+    /// Its position in the instrument's chain; the baseline is 1.
+    #[must_use]
+    pub const fn correction_sequence(&self) -> u64 {
+        self.correction_sequence
+    }
+
+    /// The contract status the event states, verbatim.
+    #[must_use]
+    pub fn contract_status(&self) -> &str {
+        &self.contract_status
+    }
+
+    /// The Owner-observation instant the fact holds.
+    #[must_use]
+    pub const fn owner_observation_time_ns(&self) -> i128 {
+        self.owner_observation_time_ns
+    }
+
+    /// The basis of its terms, which a status delta inherits from the baseline unchanged.
+    #[must_use]
+    pub const fn terms_basis(&self) -> InstrumentTermsBasisWireV2 {
+        self.terms_basis
+    }
+
+    /// The disposition, which is always `ADMITTED` once a terminal exists.
+    #[must_use]
+    pub const fn disposition(&self) -> InstrumentMasterAdmissionDispositionV2 {
+        self.disposition
+    }
+}
+
+/// Why a status delta reached no fact. Each is one documented refusal.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum InstrumentMasterStatusDeltaErrorV2 {
+    /// The text is not a `contractInfo` event the fact can take, or its `E` or `cs` is unusable.
+    InvalidEvent,
+    /// `s` is not the fact's raw symbol.
+    EventSymbolMismatch,
+    /// `ct` is not `PERPETUAL`.
+    ContractTypeUnsupported,
+    /// `st` is present and is not `1`.
+    DatasetMismatch,
+    /// The event instant is later than the retrieval.
+    EventAfterRetrieval,
+    /// `cs` is the fact's current status.
+    StatusUnchanged,
+    /// The event instant is not later than the named fact's latest event instant.
+    EventOutOfOrder,
+    /// No V2 fact has the named identity.
+    PredecessorUnknown,
+    /// The named fact already has a successor with another meaning.
+    PredecessorNotCurrent,
+    /// No binding is admitted under exactly the named locator.
+    SourceBindingUnavailable,
+    /// The binding is admitted but is not the one the instrument's baseline names.
+    SourceBindingMismatch,
+    /// The retrieval is later than the current clock head's decision cut.
+    RetrievalAfterOwnerClock,
+    /// The Owner holds no clock head.
+    ClockUnavailable,
+    /// A fact with the computed identity is stored with other bytes, or the head is behind the
+    /// named fact's Owner observation.
+    AdmissionConflict,
+    /// The store is unreachable, refused the commit, or failed its ownership assertion.
+    StoreUnavailable,
+}
+
+impl Display for InstrumentMasterStatusDeltaErrorV2 {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let text = match self {
+            Self::InvalidEvent => "the contractInfo event is invalid",
+            Self::EventSymbolMismatch => "the event is for another symbol than the fact's",
+            Self::ContractTypeUnsupported => "the event's contract type is not PERPETUAL",
+            Self::DatasetMismatch => "the event's system contradicts the baseline's dataset",
+            Self::EventAfterRetrieval => "the event is later than its retrieval",
+            Self::StatusUnchanged => "the event states the fact's current status",
+            Self::EventOutOfOrder => "the event is not later than the fact's latest event",
+            Self::PredecessorUnknown => "no Instrument Master V2 fact has the named identity",
+            Self::PredecessorNotCurrent => "the named fact already has another successor",
+            Self::SourceBindingUnavailable => {
+                "no admitted Source Binding is stored under the submitted locator"
+            }
+            Self::SourceBindingMismatch => "the binding is not the one the baseline names",
+            Self::RetrievalAfterOwnerClock => {
+                "the retrieval is later than the Owner's current decision cut"
+            }
+            Self::ClockUnavailable => "Market Data holds no canonical clock head",
+            Self::AdmissionConflict => "the fact conflicts with what the store holds",
+            Self::StoreUnavailable => "the Market Data store is unavailable",
+        };
+        formatter.write_str(text)
+    }
+}
+
+impl std::error::Error for InstrumentMasterStatusDeltaErrorV2 {}
+
+impl From<ContractInfoNormalizationErrorV2> for InstrumentMasterStatusDeltaErrorV2 {
+    fn from(error: ContractInfoNormalizationErrorV2) -> Self {
+        match error {
+            ContractInfoNormalizationErrorV2::InvalidEvent => Self::InvalidEvent,
+            ContractInfoNormalizationErrorV2::SymbolMismatch => Self::EventSymbolMismatch,
+            ContractInfoNormalizationErrorV2::ContractTypeUnsupported => {
+                Self::ContractTypeUnsupported
+            }
+            ContractInfoNormalizationErrorV2::DatasetMismatch => Self::DatasetMismatch,
+            ContractInfoNormalizationErrorV2::EventAfterRetrieval => Self::EventAfterRetrieval,
+            ContractInfoNormalizationErrorV2::EventOutOfOrder => Self::EventOutOfOrder,
+            ContractInfoNormalizationErrorV2::StatusUnchanged => Self::StatusUnchanged,
+        }
+    }
+}
+
+impl From<InstrumentMasterV2Error> for InstrumentMasterStatusDeltaErrorV2 {
+    /// What `apply_contract_info_delta` can still refuse once the event is normalized. A status
+    /// text the fact cannot hold is the event's. Every other refusal is the store disagreeing with
+    /// itself: the delta is built from the named fact, so its instrument, binding, prior event and
+    /// sequence are that fact's, and the head is behind the named fact's observation only if a
+    /// stored row was altered.
+    fn from(error: InstrumentMasterV2Error) -> Self {
+        match error {
+            InstrumentMasterV2Error::InvalidIdentity => Self::InvalidEvent,
+            InstrumentMasterV2Error::TimeRegression
+            | InstrumentMasterV2Error::InvalidDecimal
+            | InstrumentMasterV2Error::InvalidProvenance
+            | InstrumentMasterV2Error::InvalidDelta
+            | InstrumentMasterV2Error::InstrumentMismatch
+            | InstrumentMasterV2Error::SourceBindingMismatch
+            | InstrumentMasterV2Error::SourceEventPredecessorMismatch
+            | InstrumentMasterV2Error::CorrectionSequenceMismatch
+            | InstrumentMasterV2Error::SuccessorMismatch
+            | InstrumentMasterV2Error::CodecMismatch => Self::AdmissionConflict,
+        }
+    }
+}
+
 /// The sealed production admission. Operations reaches it; no consumer can implement it.
 #[async_trait]
 pub trait InstrumentMasterAdmissionV2: Send + Sync + sealed::Sealed {
@@ -242,6 +457,18 @@ pub trait InstrumentMasterAdmissionV2: Send + Sync + sealed::Sealed {
         &self,
         submission: InstrumentMasterBaselineSubmissionV2,
     ) -> Result<InstrumentMasterAdmissionTerminalV2, InstrumentMasterAdmissionErrorV2>;
+
+    /// Admits one `!contractInfo` status delta as the named fact's direct successor under the
+    /// Owner's current clock head, or refuses it.
+    ///
+    /// # Errors
+    ///
+    /// Returns one documented refusal only when Market Data admitted nothing. A replayed
+    /// submission of an already admitted delta is not an error: it rejoins the same fact.
+    async fn admit_status_delta(
+        &self,
+        submission: InstrumentMasterStatusDeltaSubmissionV2,
+    ) -> Result<InstrumentMasterStatusDeltaTerminalV2, InstrumentMasterStatusDeltaErrorV2>;
 }
 
 pub(crate) mod sealed {
@@ -340,6 +567,35 @@ mod tests {
         assert!(serde_json::from_str::<InstrumentMasterBaselineSubmissionV2>(&body("")).is_ok());
         assert!(
             serde_json::from_str::<InstrumentMasterBaselineSubmissionV2>(&body(extra)).is_err()
+        );
+    }
+
+    fn delta_body(extra: &str) -> String {
+        format!(
+            r#"{{"predecessor_fact_identity":{predecessor},"retrieval_time_ns":1,"raw_payload":"{{}}","source_binding":{source}{extra}}}"#,
+            predecessor =
+                serde_json::to_string(&BindingDigest::from_untrusted_bytes([3; 32])).unwrap(),
+            source = serde_json::to_string(&locator()).unwrap(),
+        )
+    }
+
+    /// A status delta states nothing the Owner derives either: the instrument, the status, the
+    /// sequence, the event instant, a digest or the Owner observation is an unknown field.
+    #[rstest]
+    #[case::canonical_identity(r#","canonical_identity":"BTCUSDT-PERP.BINANCE""#)]
+    #[case::status(r#","contract_status":"SETTLING""#)]
+    #[case::sequence(r#","correction_sequence":2"#)]
+    #[case::event_instant(r#","provider_event_time_ns":1"#)]
+    #[case::digest(r#","raw_payload_digest":"00""#)]
+    #[case::observation(r#","owner_observation_time_ns":1"#)]
+    fn a_status_delta_stating_what_the_owner_derives_is_refused(#[case] extra: &str) {
+        assert!(
+            serde_json::from_str::<InstrumentMasterStatusDeltaSubmissionV2>(&delta_body(""))
+                .is_ok()
+        );
+        assert!(
+            serde_json::from_str::<InstrumentMasterStatusDeltaSubmissionV2>(&delta_body(extra))
+                .is_err()
         );
     }
 

@@ -960,7 +960,7 @@ fn run_two_frame_corpus(
     let exit_time = entry_time + 100;
     let successor = issue_backtest_universe_successor_for_test(
         &plan,
-        &frame,
+        &OwnerUniverseFrameV1::uncoordinated(frame.clone()),
         exit_time,
         &[[18_725, 18_700], [42_115, 42_100]],
     )?;
@@ -1431,7 +1431,7 @@ fn run_multi_frame_equity_corpus() -> anyhow::Result<TargetSetBacktestTraceV2> {
     // receipts, so no Owner-issued successor exists to take its place yet.
     let successor = issue_backtest_universe_successor_for_test(
         &plan,
-        &frame,
+        &OwnerUniverseFrameV1::uncoordinated(frame.clone()),
         second_time,
         &[[18_725, 18_750], [42_115, 42_150]],
     )?;
@@ -2230,18 +2230,28 @@ fn two_member_execution_bundle_digests_are_unchanged_by_the_member_count_widenin
 }
 
 /// The authored single-threshold universe-member program over one member, lowered from its
-/// frozen pair, built as a strict ABI 3 module, and run through the target-set Sim for one frame.
-///
-/// `open_role` and `close_role` name the Design's two member roles. Returns the run's readback and
-/// the frame's time.
+/// frozen pair, built as a strict ABI 3 module, and compiled against its one-member Owner frame.
 #[cfg(feature = "sealed-strategy-input-acceptance")]
-fn run_authored_universe_member_program(
+struct AuthoredUniverseMemberProgram {
+    plan: StrategyPlanV2,
+    artifact: StrategyArtifactV2,
+    /// The Owner frame with the coordinates the Plan reads.
+    owner_frame: OwnerUniverseFrameV1,
+    /// The frame's logical time.
+    time: u64,
+}
+
+/// Authors, lowers, builds and compiles the single-threshold universe-member program whose sides
+/// enter at 1 and exit to 0 under `target_variant`, with the entry side above a threshold of
+/// 120.00.
+///
+/// `open_role` and `close_role` name the Design's two member roles.
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+fn authored_universe_member_program(
     open_role: &str,
     close_role: &str,
-) -> (
-    super::program_host_sim_event_consumer_v1::ProgramHostSimEventReadbackV1,
-    u64,
-) {
+    target_variant: &str,
+) -> AuthoredUniverseMemberProgram {
     use crate::{
         bounded_feature_program_derivation_v1::derive_bounded_feature_program_proposal_v1,
         bounded_feature_program_v1::BoundedFeaturePredicateV1,
@@ -2264,7 +2274,7 @@ fn run_authored_universe_member_program(
 
     let outcome = |position_intent: &str, units| SingleThresholdOutcomeV1 {
         position_intent_semantic_id: position_intent.to_owned(),
-        target_variant_semantic_id: "kernel.target.position.v1".to_owned(),
+        target_variant_semantic_id: target_variant.to_owned(),
         target_position_units: units,
     };
     let (design, meaning) =
@@ -2361,13 +2371,52 @@ fn run_authored_universe_member_program(
     };
     let artifact = StrategyArtifactV2::issue_versioned(&plan, vec![build.into()])
         .expect("ABI3 strategy artifact");
-    let frame = sealed_frame.frame().clone();
-    let owner_frame = OwnerUniverseFrameV1::with_plan_coordinates_for_test(&plan, frame.clone());
+    let owner_frame =
+        OwnerUniverseFrameV1::with_plan_coordinates_for_test(&plan, sealed_frame.frame().clone());
     let time = admit_owner_universe_program_event_v2(&plan, &owner_frame)
         .expect("the coordinated frame is admitted")
         .envelope()
         .order_key
         .logical_time_ns;
+    AuthoredUniverseMemberProgram {
+        plan: *plan,
+        artifact,
+        owner_frame,
+        time,
+    }
+}
+
+/// One member of `instruments()`, with the fees and margins the authored-program runs share.
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+fn authored_program_member() -> InstrumentAny {
+    let [mut aapl, _] = instruments();
+    let perpetual = crypto_perpetual_mut(&mut aapl);
+    perpetual.maker_fee = rust_decimal::Decimal::new(2, 4);
+    perpetual.taker_fee = rust_decimal::Decimal::new(4, 4);
+    perpetual.margin_init = rust_decimal::Decimal::new(1, 1);
+    perpetual.margin_maint = rust_decimal::Decimal::new(5, 2);
+    aapl
+}
+
+/// The authored position-target program run through the target-set Sim for one frame.
+///
+/// `open_role` and `close_role` name the Design's two member roles. Returns the run's readback and
+/// the frame's time.
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+fn run_authored_universe_member_program(
+    open_role: &str,
+    close_role: &str,
+) -> (
+    super::program_host_sim_event_consumer_v1::ProgramHostSimEventReadbackV1,
+    u64,
+) {
+    let AuthoredUniverseMemberProgram {
+        plan,
+        artifact,
+        owner_frame,
+        time,
+    } = authored_universe_member_program(open_role, close_role, "kernel.target.position.v1");
+    let frame = owner_frame.frame().clone();
     let authority = owner_replay_execution_profile_binding_fixture_v1(
         &plan,
         &artifact,
@@ -2379,12 +2428,7 @@ fn run_authored_universe_member_program(
     );
 
     // One member: the frame's BAR, then one quote after it for the entry to fill against.
-    let [mut aapl, _] = instruments();
-    let perpetual = crypto_perpetual_mut(&mut aapl);
-    perpetual.maker_fee = rust_decimal::Decimal::new(2, 4);
-    perpetual.taker_fee = rust_decimal::Decimal::new(4, 4);
-    perpetual.margin_init = rust_decimal::Decimal::new(1, 1);
-    perpetual.margin_maint = rust_decimal::Decimal::new(5, 2);
+    let aapl = authored_program_member();
     let bar_type = BarType::new(
         aapl.id(),
         BarSpecification::new(1, BarAggregation::Day, PriceType::Last),
@@ -2413,7 +2457,7 @@ fn run_authored_universe_member_program(
     ];
     let bundle = ReplayTargetSetExecutionBundleV1::new_with_native_instruments_for_test(
         authority,
-        *plan,
+        plan,
         artifact,
         vec![owner_frame],
         StrategyId::from("TARGET-SET-UNIVERSE-MEMBER-WASM-001"),
@@ -2517,4 +2561,200 @@ fn an_authored_universe_member_program_enters_once_through_the_target_set_sim() 
     // The control: an initial state stamped at the epoch is what the check exists to see.
     document["portfolio_snapshots"][0]["ts_event"] = serde_json::json!("0");
     assert_eq!(earliest_balance_instant(&document), Some(0));
+}
+
+/// The authored rebalance program runs three consecutive frames of the target-set Sim: its close
+/// above the threshold, below it, and above it again.
+///
+/// A rebalance target must carry the sequence of the target set it is lifted into, which advances
+/// by one each frame. The program emits 0 and the Host assigns that sequence at decode, so every
+/// frame lifts; when the author wrote one constant instead, only the frame whose set sequence
+/// equalled it lifted, and the run stopped at the next.
+///
+/// THE SECOND AND THIRD FRAMES ARE CONSTRUCTED BY THIS TEST, NOT ISSUED BY THE OWNER: they are the
+/// first frame, with its coordinates, at a new logical time and with new member values. What this
+/// proves is the Host's sequence across frames, not that Market Data can supply them.
+#[rstest]
+#[ignore = "lowers and builds the authored universe-member program with the pinned local wasm compiler"]
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+fn an_authored_rebalance_program_lifts_three_consecutive_frames() {
+    let trace = run_authored_rebalance_program_over_three_frames()
+        .expect("the three-frame Sim run completes");
+
+    assert_eq!(trace.callback_failure, None);
+    let targets = trace
+        .canonical_target_sets
+        .iter()
+        .map(|bytes| {
+            let set = InstrumentTargetSetV2::decode_slot(bytes).expect("a committed target set");
+            (set.sequence, set.members()[0].target)
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        targets,
+        [
+            (
+                1,
+                TargetProposalV1::RebalancePosition {
+                    sequence: 1,
+                    units: 1
+                }
+            ),
+            (
+                2,
+                TargetProposalV1::RebalancePosition {
+                    sequence: 2,
+                    units: 0
+                }
+            ),
+            (
+                3,
+                TargetProposalV1::RebalancePosition {
+                    sequence: 3,
+                    units: 1
+                }
+            ),
+        ],
+        "each frame lifts at its own set's sequence"
+    );
+    let legs = trace
+        .actual_fill_consumptions
+        .iter()
+        .map(|fill| {
+            (
+                fill.position_intent.as_str(),
+                fill.position_after_grid_units,
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(legs, [("ENTER", 1), ("EXIT", 0), ("ENTER", 1)]);
+    assert_eq!(trace.final_member_grid_units.as_deref(), Some(&[1][..]));
+}
+
+/// Runs [`an_authored_rebalance_program_lifts_three_consecutive_frames`]'s three frames, 100 ns
+/// apart, each with a resting book level for its order to fill against.
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+fn run_authored_rebalance_program_over_three_frames() -> anyhow::Result<TargetSetBacktestTraceV2> {
+    let AuthoredUniverseMemberProgram {
+        plan,
+        artifact,
+        owner_frame,
+        time,
+    } = authored_universe_member_program(
+        "research.input.open.v1",
+        "research.input.close.v1",
+        "kernel.target.rebalance.v1",
+    );
+    let member = authored_program_member();
+    let bar_type = BarType::new(
+        member.id(),
+        BarSpecification::new(1, BarAggregation::Day, PriceType::Last),
+        AggregationSource::External,
+    );
+    // Each later frame's member open and close, at the channel's scale of two, and its bar: the
+    // second frame's close of 110.00 is below the threshold of 120.00, the third's 188.00 above.
+    let frames = [
+        (
+            time + 100,
+            [18_725, 11_000],
+            ("187.25", "188.00", "109.00", "110.00"),
+        ),
+        (
+            time + 200,
+            [11_000, 18_800],
+            ("110.00", "189.00", "109.50", "188.00"),
+        ),
+    ];
+    let successors = frames
+        .iter()
+        .map(|(at, open_close, _)| {
+            issue_backtest_universe_successor_for_test(&plan, &owner_frame, *at, &[*open_close])
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let bar = |at: u64, (open, high, low, close): (&str, &str, &str, &str)| {
+        Data::Bar(Bar::new(
+            bar_type,
+            Price::from(open),
+            Price::from(high),
+            Price::from(low),
+            Price::from(close),
+            Quantity::from("100"),
+            at.into(),
+            at.into(),
+        ))
+    };
+    let mut data = vec![
+        Data::Delta(OrderBookDelta::clear(
+            member.id(),
+            1,
+            time.into(),
+            time.into(),
+        )),
+        book_level(&member, OrderSide::Sell, 187.25, "100", 2, time),
+        bar(time, ("186.41", "188.00", "185.00", "187.25")),
+    ];
+    // Each later frame's order meets the side it needs: a bid for the exit, an ask for the entry.
+    for (index, ((at, _, prices), side)) in frames
+        .iter()
+        .zip([OrderSide::Buy, OrderSide::Sell])
+        .enumerate()
+    {
+        let price = Price::from(prices.3).as_f64();
+        data.push(book_level(
+            &member,
+            side,
+            price,
+            "100",
+            3 + index as u64,
+            *at,
+        ));
+        data.push(bar(*at, *prices));
+    }
+
+    let trace = Rc::new(RefCell::new(TargetSetBacktestTraceV2::default()));
+    let mut strategy = BacktestTargetSetProgramHostStrategyV2::new(
+        StrategyId::from("TARGET-SET-AUTHORED-REBALANCE-001"),
+        plan,
+        artifact,
+        BoundedMembers::try_from([member.id()])?,
+        BoundedMembers::try_from([bar_type])?,
+        [owner_frame],
+        None,
+        false,
+        Rc::new(Cell::new(false)),
+        Rc::clone(&trace),
+    )?;
+
+    for successor in successors {
+        strategy.add_admitted_frame_for_test(successor)?;
+    }
+    let mut engine = BacktestEngine::new(BacktestEngineConfig {
+        bypass_logging: true,
+        run_analysis: false,
+        ..Default::default()
+    })?;
+    engine.add_venue(
+        SimulatedVenueConfig::builder()
+            .venue(Venue::from("XNAS"))
+            .oms_type(OmsType::Netting)
+            .account_type(AccountType::Margin)
+            .book_type(BookType::L2_MBP)
+            .starting_balances(vec![Money::from("1_000_000 USD")])
+            .bar_execution(false)
+            .liquidity_consumption(true)
+            .use_random_ids(false)
+            .build()?,
+    )?;
+    engine.add_instrument(&member)?;
+    engine.add_strategy(strategy)?;
+    engine.add_data(data, None, true, true)?;
+    engine.run(
+        None,
+        None,
+        Some("target-set-authored-rebalance".to_owned()),
+        false,
+    )?;
+    let trace = trace.borrow().clone();
+    Ok(trace)
 }
