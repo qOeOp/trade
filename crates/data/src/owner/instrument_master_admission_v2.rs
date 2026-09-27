@@ -15,6 +15,12 @@
 //! no other member, so tick, step, lot, multiplier, limits, currencies and inverse semantics stay
 //! the baseline's, and a status delta is not a correction of a baseline's terms.
 //!
+//! And it admits a later raw `exchangeInfo` snapshot of an instrument that already has a fact, as
+//! that fact's direct successor: the terms the snapshot states, derived by the baseline's own
+//! mapping, and its contract status when the snapshot is the newest status evidence. When the
+//! Owner's clock head has not reached the snapshot's retrieval, the admission advances the head
+//! itself, as a Source Binding admission does.
+//!
 //! [`ExchangeInfoBaselineV2::from_usdm_exchange_info`]:
 //! super::instrument_master_v2::ExchangeInfoBaselineV2::from_usdm_exchange_info
 
@@ -29,7 +35,7 @@ use serde::{Deserialize, Serialize};
 use super::{
     instrument_master_v2::{
         ContractInfoNormalizationErrorV2, ExchangeInfoNormalizationErrorV2,
-        InstrumentMasterV2Error, InstrumentTermsBasisV2,
+        ExchangeInfoSnapshotNormalizationErrorV2, InstrumentMasterV2Error, InstrumentTermsBasisV2,
     },
     source_binding::{BindingDigest, UntrustedSourceBindingLocator},
 };
@@ -74,6 +80,8 @@ pub enum InstrumentMasterAdmissionDispositionV2 {
 pub enum InstrumentTermsBasisWireV2 {
     /// Terms observed at retrieval and assumed back to the listing.
     RetrievedTermsAssumedSinceListing,
+    /// Terms a later snapshot observed to differ from the baseline's, at that snapshot or after it.
+    ObservedSinceTermsChange,
 }
 
 impl From<InstrumentTermsBasisV2> for InstrumentTermsBasisWireV2 {
@@ -82,6 +90,7 @@ impl From<InstrumentTermsBasisV2> for InstrumentTermsBasisWireV2 {
             InstrumentTermsBasisV2::RetrievedTermsAssumedSinceListing => {
                 Self::RetrievedTermsAssumedSinceListing
             }
+            InstrumentTermsBasisV2::ObservedSinceTermsChange => Self::ObservedSinceTermsChange,
         }
     }
 }
@@ -444,6 +453,239 @@ impl From<InstrumentMasterV2Error> for InstrumentMasterStatusDeltaErrorV2 {
     }
 }
 
+/// One later raw `exchangeInfo` snapshot of an instrument that already has a fact.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct InstrumentMasterSnapshotSubmissionV2 {
+    /// The fact the snapshot follows: the instrument's current head, as a terminal returned it.
+    pub predecessor_fact_identity: BindingDigest,
+    /// When the snapshot was retrieved, in nanoseconds.
+    pub retrieval_time_ns: i128,
+    /// The exact `exchangeInfo` text. The Owner digests its UTF-8 bytes.
+    pub raw_payload: String,
+    /// The admitted Source Binding it was retrieved under: the instrument's baseline's.
+    pub source_binding: UntrustedSourceBindingLocator,
+}
+
+/// What the submitter learns about the snapshot the Owner admitted.
+///
+/// Everything here is in the stored fact or follows from it and the fact it follows, so a replay,
+/// which rejoins that fact, returns the same terminal.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct InstrumentMasterSnapshotTerminalV2 {
+    canonical_identity: String,
+    fact_identity: BindingDigest,
+    predecessor_fact_identity: BindingDigest,
+    correction_sequence: u64,
+    contract_status: String,
+    terms_changed: bool,
+    owner_observation_time_ns: i128,
+    terms_basis: InstrumentTermsBasisWireV2,
+    disposition: InstrumentMasterAdmissionDispositionV2,
+}
+
+impl InstrumentMasterSnapshotTerminalV2 {
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "each argument is one stored field of the admitted fact"
+    )]
+    pub(crate) fn seal(
+        canonical_identity: String,
+        fact_identity: BindingDigest,
+        predecessor_fact_identity: BindingDigest,
+        correction_sequence: u64,
+        contract_status: String,
+        terms_changed: bool,
+        owner_observation_time_ns: i128,
+        terms_basis: InstrumentTermsBasisV2,
+    ) -> Self {
+        Self {
+            canonical_identity,
+            fact_identity,
+            predecessor_fact_identity,
+            correction_sequence,
+            contract_status,
+            terms_changed,
+            owner_observation_time_ns,
+            terms_basis: terms_basis.into(),
+            disposition: InstrumentMasterAdmissionDispositionV2::Admitted,
+        }
+    }
+
+    /// The instrument's canonical identity.
+    #[must_use]
+    pub fn canonical_identity(&self) -> &str {
+        &self.canonical_identity
+    }
+
+    /// The admitted fact's identity, which the next successor names.
+    #[must_use]
+    pub const fn fact_identity(&self) -> BindingDigest {
+        self.fact_identity
+    }
+
+    /// The fact it directly follows.
+    #[must_use]
+    pub const fn predecessor_fact_identity(&self) -> BindingDigest {
+        self.predecessor_fact_identity
+    }
+
+    /// Its position in the instrument's chain; the baseline is 1.
+    #[must_use]
+    pub const fn correction_sequence(&self) -> u64 {
+        self.correction_sequence
+    }
+
+    /// The fact's contract status: the snapshot's when it is the newest status evidence.
+    #[must_use]
+    pub fn contract_status(&self) -> &str {
+        &self.contract_status
+    }
+
+    /// Whether the snapshot's terms, the contract status aside, differ from the fact it follows.
+    #[must_use]
+    pub const fn terms_changed(&self) -> bool {
+        self.terms_changed
+    }
+
+    /// The Owner-observation instant the fact holds.
+    #[must_use]
+    pub const fn owner_observation_time_ns(&self) -> i128 {
+        self.owner_observation_time_ns
+    }
+
+    /// The basis of its terms.
+    #[must_use]
+    pub const fn terms_basis(&self) -> InstrumentTermsBasisWireV2 {
+        self.terms_basis
+    }
+
+    /// The disposition, which is always `ADMITTED` once a terminal exists.
+    #[must_use]
+    pub const fn disposition(&self) -> InstrumentMasterAdmissionDispositionV2 {
+        self.disposition
+    }
+}
+
+/// Why a snapshot reached no fact. Each is one documented refusal.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum InstrumentMasterSnapshotErrorV2 {
+    /// The payload is not a JSON `exchangeInfo`, or the derived fact fails its own validation.
+    InvalidSubmission,
+    /// No `symbols` entry has the fact's raw symbol.
+    SymbolAbsent,
+    /// More than one entry has it.
+    SymbolAmbiguous,
+    /// The entry's `contractType` is not `PERPETUAL`.
+    ContractTypeUnsupported,
+    /// The entry carries `contractSize`, contradicting the baseline's dataset.
+    DatasetMismatch,
+    /// The entry has no `onboardDate`, or it is later than the retrieval.
+    OnboardDateUnavailable,
+    /// A required filter or field is absent, repeated, or not an accepted decimal.
+    FilterUnavailable,
+    /// The entry's `onboardDate` is not the baseline's: another listing.
+    ListingDiffers,
+    /// The retrieval is not later than the fact's latest snapshot, or its baseline.
+    SnapshotOutOfOrder,
+    /// No V2 fact has the named identity.
+    PredecessorUnknown,
+    /// The named fact already has a successor with another meaning.
+    PredecessorNotCurrent,
+    /// No binding is admitted under exactly the named locator.
+    SourceBindingUnavailable,
+    /// The binding is admitted but is not the one the instrument's baseline names.
+    SourceBindingMismatch,
+    /// The retrieval is later than the Owner's own wall observation.
+    RetrievalAfterOwnerClock,
+    /// The Owner holds no clock head, or its wall clock has not moved past the head.
+    ClockUnavailable,
+    /// The head is not one the Owner's clock can succeed.
+    ClockMismatch,
+    /// A fact with the computed identity is stored with other bytes, or the store disagrees with
+    /// itself about the named fact.
+    AdmissionConflict,
+    /// The store is unreachable, refused the commit, or failed its ownership assertion.
+    StoreUnavailable,
+}
+
+impl Display for InstrumentMasterSnapshotErrorV2 {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let text = match self {
+            Self::InvalidSubmission => "the Instrument Master V2 snapshot is invalid",
+            Self::SymbolAbsent => "no exchangeInfo entry has the fact's raw symbol",
+            Self::SymbolAmbiguous => "more than one exchangeInfo entry has the raw symbol",
+            Self::ContractTypeUnsupported => "the entry's contract type is not PERPETUAL",
+            Self::DatasetMismatch => "the entry's shape contradicts the baseline's dataset",
+            Self::OnboardDateUnavailable => "the entry has no onboard date before the retrieval",
+            Self::FilterUnavailable => "a required filter or field is absent or malformed",
+            Self::ListingDiffers => "the entry's onboard date is not the baseline's",
+            Self::SnapshotOutOfOrder => "the snapshot is not later than the fact's latest one",
+            Self::PredecessorUnknown => "no Instrument Master V2 fact has the named identity",
+            Self::PredecessorNotCurrent => "the named fact already has another successor",
+            Self::SourceBindingUnavailable => {
+                "no admitted Source Binding is stored under the submitted locator"
+            }
+            Self::SourceBindingMismatch => "the binding is not the one the baseline names",
+            Self::RetrievalAfterOwnerClock => {
+                "the retrieval is later than the Owner's own wall observation"
+            }
+            Self::ClockUnavailable => "Market Data cannot mint a clock past its current head",
+            Self::ClockMismatch => "the current clock head is not one the Owner's clock succeeds",
+            Self::AdmissionConflict => "the fact conflicts with what the store holds",
+            Self::StoreUnavailable => "the Market Data store is unavailable",
+        };
+        formatter.write_str(text)
+    }
+}
+
+impl std::error::Error for InstrumentMasterSnapshotErrorV2 {}
+
+impl From<ExchangeInfoSnapshotNormalizationErrorV2> for InstrumentMasterSnapshotErrorV2 {
+    fn from(error: ExchangeInfoSnapshotNormalizationErrorV2) -> Self {
+        use ExchangeInfoNormalizationErrorV2 as Payload;
+
+        match error {
+            ExchangeInfoSnapshotNormalizationErrorV2::Payload(payload) => match payload {
+                Payload::NotExchangeInfo => Self::InvalidSubmission,
+                Payload::SymbolAbsent => Self::SymbolAbsent,
+                Payload::SymbolAmbiguous => Self::SymbolAmbiguous,
+                Payload::ContractTypeUnsupported => Self::ContractTypeUnsupported,
+                Payload::DatasetMismatch => Self::DatasetMismatch,
+                Payload::OnboardDateUnavailable => Self::OnboardDateUnavailable,
+                Payload::FilterUnavailable => Self::FilterUnavailable,
+            },
+            ExchangeInfoSnapshotNormalizationErrorV2::ListingDiffers => Self::ListingDiffers,
+            ExchangeInfoSnapshotNormalizationErrorV2::SnapshotOutOfOrder => {
+                Self::SnapshotOutOfOrder
+            }
+        }
+    }
+}
+
+impl From<InstrumentMasterV2Error> for InstrumentMasterSnapshotErrorV2 {
+    /// What `apply_exchange_info_snapshot` can still refuse once the payload is normalized. Terms
+    /// the fact cannot hold are the payload's. Every other refusal is the store disagreeing with
+    /// itself: the successor is built from the named fact and a binding already checked to be the
+    /// baseline's, and its observation is a head at or past the named fact's.
+    fn from(error: InstrumentMasterV2Error) -> Self {
+        match error {
+            InstrumentMasterV2Error::InvalidIdentity | InstrumentMasterV2Error::InvalidDecimal => {
+                Self::InvalidSubmission
+            }
+            InstrumentMasterV2Error::TimeRegression
+            | InstrumentMasterV2Error::InvalidProvenance
+            | InstrumentMasterV2Error::InvalidDelta
+            | InstrumentMasterV2Error::InstrumentMismatch
+            | InstrumentMasterV2Error::SourceBindingMismatch
+            | InstrumentMasterV2Error::SourceEventPredecessorMismatch
+            | InstrumentMasterV2Error::CorrectionSequenceMismatch
+            | InstrumentMasterV2Error::SuccessorMismatch
+            | InstrumentMasterV2Error::CodecMismatch => Self::AdmissionConflict,
+        }
+    }
+}
+
 /// The sealed production admission. Operations reaches it; no consumer can implement it.
 #[async_trait]
 pub trait InstrumentMasterAdmissionV2: Send + Sync + sealed::Sealed {
@@ -469,6 +711,18 @@ pub trait InstrumentMasterAdmissionV2: Send + Sync + sealed::Sealed {
         &self,
         submission: InstrumentMasterStatusDeltaSubmissionV2,
     ) -> Result<InstrumentMasterStatusDeltaTerminalV2, InstrumentMasterStatusDeltaErrorV2>;
+
+    /// Admits one later `exchangeInfo` snapshot as the named fact's direct successor, advancing
+    /// the Owner's clock head first when the head has not reached its retrieval, or refuses it.
+    ///
+    /// # Errors
+    ///
+    /// Returns one documented refusal only when Market Data admitted nothing. A replayed
+    /// submission of an already admitted snapshot is not an error: it rejoins the same fact.
+    async fn admit_snapshot(
+        &self,
+        submission: InstrumentMasterSnapshotSubmissionV2,
+    ) -> Result<InstrumentMasterSnapshotTerminalV2, InstrumentMasterSnapshotErrorV2>;
 }
 
 pub(crate) mod sealed {

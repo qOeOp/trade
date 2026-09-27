@@ -37,7 +37,8 @@ use crate::{
 /// instead: a request with no composition binding is `NoCompositionBinding`, an Instrument
 /// Master cut already issued for the request under another binding is `Conflict`, and a cut whose
 /// V2 facts disagree with the V1 facts the binding's PIT snapshot cites is
-/// `InstrumentMasterGenerationMismatch`; the last two are recorded under their coordinate the same
+/// `InstrumentMasterGenerationMismatch`, and a cut with a member whose terms a later snapshot changed
+/// is `InstrumentMasterTermsChanged`; the last three are recorded under their coordinate the same
 /// way. The final issue's own error is not collapsed and not recorded
 /// here: it already names `Conflict` and `Storage`, and a cause the caller can be told should be
 /// told rather than logged.
@@ -105,6 +106,10 @@ where
                 InstrumentMasterCustodyErrorV2::GenerationMismatch(_) => {
                     crate::storage_diagnostic::refused_by_store(coordinate, &e);
                     NativeReplayExecutionInputBindingErrorV1::InstrumentMasterGenerationMismatch
+                }
+                InstrumentMasterCustodyErrorV2::TermsChanged => {
+                    crate::storage_diagnostic::refused_by_store(coordinate, &e);
+                    NativeReplayExecutionInputBindingErrorV1::InstrumentMasterTermsChanged
                 }
                 InstrumentMasterCustodyErrorV2::InvalidRequest
                 | InstrumentMasterCustodyErrorV2::InvalidUniverseSelection
