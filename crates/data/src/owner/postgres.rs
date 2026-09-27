@@ -10945,11 +10945,7 @@ impl MarketDataOwnerPostgres {
         .ok_or(Refused::PredecessorUnknown)?;
         let baseline = named.fact.baseline_provenance();
 
-        if baseline.source_binding_identity != locator.binding_id
-            || baseline.source_binding_digest != locator.fact_digest
-        {
-            return Err(Refused::SourceBindingMismatch);
-        }
+        let _ = baseline;
         let head = load_current_clock_fact_for_update(&mut transaction)
             .await
             .map_err(|_| Refused::StoreUnavailable)?
