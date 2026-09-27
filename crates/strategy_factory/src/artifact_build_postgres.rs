@@ -4972,6 +4972,12 @@ mod postgres_freshness_tests {
 
     async fn run_governance_artifact_membership_readback() {
         let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
+        // The Catalog V3 head this entry's Research request forms its TrialFamily against.
+        #[cfg(feature = "sealed-develop-composer-acceptance")]
+        crate::replay_policy_catalog_postgres_v2::ensure_sealed_acceptance_catalog_v3_for_test(
+            &test_database,
+        )
+        .await;
         let _mutation = test_database.mutation();
         let rd_url = test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner);
         let rd_pool = sqlx::postgres::PgPoolOptions::new()
@@ -5546,6 +5552,12 @@ mod postgres_freshness_tests {
 
     async fn run_specialized_artifact_admission_rechecks_locked_rd_view() {
         let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
+        // The Catalog V3 head this entry's Research request forms its TrialFamily against.
+        #[cfg(feature = "sealed-develop-composer-acceptance")]
+        crate::replay_policy_catalog_postgres_v2::ensure_sealed_acceptance_catalog_v3_for_test(
+            &test_database,
+        )
+        .await;
         let mutation = test_database.mutation();
         let suffix = unique_suffix();
         let research_request_identity = format!("research-request-v2-race-{suffix}");
