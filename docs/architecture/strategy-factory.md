@@ -1632,9 +1632,11 @@ T1 either:
   signal, and is then cleared. Each open gap takes three fixed-point strategy state cells - its upper edge, its
   lower edge, and whether it is open - and the program declares how many gaps it holds and that a new gap, when
   every slot is open, replaces the oldest. V5's memory of the last N events is that rule as one declaration;
-  written out with `Select` today, the gap does not wait for V5. It is the next authored program to prove its state
-  through Wasm after `d1`: with two slots a third gap evicts the first, so a later bar trading into the first gap's
-  interval emits nothing, and the same bars with three slots emit the signal.
+  written out with `Select` today, the gap does not wait for V5. `g2` and `g3`, one bullish gap program with two
+  and three slots, are the second authored programs after `d1` whose state is proven through Wasm:
+  `a_fair_value_gap_program_evicts_the_oldest_gap_only_when_its_slots_are_full` forms three gaps, and with two slots
+  the third evicts the first, so a later bar trading into the first gap's interval emits nothing, while the same
+  bars with three slots emit the signal.
 - **Liquidity sweep:** bearish at bar `t` when the high is strictly above the latest confirmed pivot high and the
   close is strictly below it, and bullish in the mirror case over lows; the pivot is one state cell. A bar's high
   and close do not say when inside the bar the level was crossed, so the signal is at the sweep bar's close;
