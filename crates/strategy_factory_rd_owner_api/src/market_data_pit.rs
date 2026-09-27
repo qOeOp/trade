@@ -30,7 +30,8 @@ use vibe_data::owner::{
     },
     instrument_master_admission_v2::{
         InstrumentMasterAdmissionErrorV2, InstrumentMasterAdmissionV2,
-        InstrumentMasterBaselineSubmissionV2, InstrumentMasterStatusDeltaErrorV2,
+        InstrumentMasterBaselineSubmissionV2, InstrumentMasterSnapshotErrorV2,
+        InstrumentMasterSnapshotSubmissionV2, InstrumentMasterStatusDeltaErrorV2,
         InstrumentMasterStatusDeltaSubmissionV2,
     },
     market_semantics_admission_v1::{
@@ -153,6 +154,10 @@ pub(super) fn router(admissions: MarketDataAdmissions, token_digest: [u8; 32]) -
         .route(
             "/v1/market-data/instrument-master-v2-status-deltas",
             post(admit_instrument_master_status_delta),
+        )
+        .route(
+            "/v1/market-data/instrument-master-v2-snapshots",
+            post(admit_instrument_master_snapshot),
         )
         .route(
             "/v1/market-data/market-semantics",
@@ -749,6 +754,108 @@ async fn admit_instrument_master_status_delta(
     }
 }
 
+async fn admit_instrument_master_snapshot(
+    State(state): State<MarketDataPitApiState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    if !authorized(&headers, &state.token_digest) {
+        return rejection(StatusCode::FORBIDDEN, "UNAUTHORIZED_PRODUCT_EDGE");
+    }
+    let Some(instruments) = state.instruments_v2 else {
+        return rejection(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "MARKET_DATA_INSTRUMENT_MASTER_UNAVAILABLE",
+        );
+    };
+    let submission: InstrumentMasterSnapshotSubmissionV2 = match serde_json::from_slice(&body) {
+        Ok(submission) => submission,
+        Err(_) => return rejection(StatusCode::BAD_REQUEST, "MALFORMED_TYPED_REQUEST"),
+    };
+
+    match instruments.admit_snapshot(submission).await {
+        Ok(terminal) => (StatusCode::OK, Json(terminal)).into_response(),
+        Err(e) => instrument_master_v2_snapshot_error(e),
+    }
+}
+
+fn instrument_master_v2_snapshot_error(error: InstrumentMasterSnapshotErrorV2) -> Response {
+    use InstrumentMasterSnapshotErrorV2 as Refused;
+
+    let (status, code) = match error {
+        Refused::InvalidSubmission => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "INSTRUMENT_MASTER_V2_INVALID_SUBMISSION",
+        ),
+        Refused::SymbolAbsent => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "INSTRUMENT_MASTER_V2_SYMBOL_ABSENT",
+        ),
+        Refused::SymbolAmbiguous => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "INSTRUMENT_MASTER_V2_SYMBOL_AMBIGUOUS",
+        ),
+        Refused::ContractTypeUnsupported => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "INSTRUMENT_MASTER_V2_CONTRACT_TYPE_UNSUPPORTED",
+        ),
+        Refused::DatasetMismatch => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "INSTRUMENT_MASTER_V2_DATASET_MISMATCH",
+        ),
+        Refused::OnboardDateUnavailable => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "INSTRUMENT_MASTER_V2_ONBOARD_DATE_UNAVAILABLE",
+        ),
+        Refused::FilterUnavailable => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "INSTRUMENT_MASTER_V2_FILTER_UNAVAILABLE",
+        ),
+        Refused::ListingDiffers => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "INSTRUMENT_MASTER_V2_LISTING_DIFFERS",
+        ),
+        Refused::SnapshotOutOfOrder => (
+            StatusCode::CONFLICT,
+            "INSTRUMENT_MASTER_V2_SNAPSHOT_OUT_OF_ORDER",
+        ),
+        Refused::PredecessorUnknown => (
+            StatusCode::CONFLICT,
+            "INSTRUMENT_MASTER_V2_PREDECESSOR_UNKNOWN",
+        ),
+        Refused::PredecessorNotCurrent => (
+            StatusCode::CONFLICT,
+            "INSTRUMENT_MASTER_V2_PREDECESSOR_NOT_CURRENT",
+        ),
+        Refused::SourceBindingUnavailable => (
+            StatusCode::CONFLICT,
+            "INSTRUMENT_MASTER_V2_SOURCE_BINDING_UNAVAILABLE",
+        ),
+        Refused::SourceBindingMismatch => (
+            StatusCode::CONFLICT,
+            "INSTRUMENT_MASTER_V2_SOURCE_BINDING_MISMATCH",
+        ),
+        Refused::RetrievalAfterOwnerClock => (
+            StatusCode::CONFLICT,
+            "INSTRUMENT_MASTER_V2_RETRIEVAL_AFTER_OWNER_CLOCK",
+        ),
+        Refused::ClockMismatch => (StatusCode::CONFLICT, "INSTRUMENT_MASTER_V2_CLOCK_MISMATCH"),
+        Refused::AdmissionConflict => (
+            StatusCode::CONFLICT,
+            "INSTRUMENT_MASTER_V2_ADMISSION_CONFLICT",
+        ),
+        Refused::ClockUnavailable => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "MARKET_DATA_CLOCK_UNAVAILABLE",
+        ),
+        Refused::StoreUnavailable => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "MARKET_DATA_OWNER_UNAVAILABLE",
+        ),
+    };
+    rejection(status, code)
+}
+
 fn instrument_master_v2_status_delta_error(error: InstrumentMasterStatusDeltaErrorV2) -> Response {
     use InstrumentMasterStatusDeltaErrorV2 as Refused;
 
@@ -968,12 +1075,13 @@ mod tests {
         request.body(axum::body::Body::from("{}")).unwrap()
     }
 
-    /// Both V2 routes are guarded as the V1 intake is: a request without the Product Edge bearer
+    /// Every V2 route is guarded as the V1 intake is: a request without the Product Edge bearer
     /// token, or with another token, is refused before availability or the body is looked at. The
     /// authorized control reaches the next check, the route's own availability.
     #[rstest]
     #[case::baseline("/v1/market-data/instrument-master-v2-facts")]
     #[case::status_delta("/v1/market-data/instrument-master-v2-status-deltas")]
+    #[case::snapshot("/v1/market-data/instrument-master-v2-snapshots")]
     #[tokio::test]
     async fn a_v2_route_refuses_a_request_without_the_product_edge_token(#[case] uri: &str) {
         use sha2::Digest as _;
@@ -1205,6 +1313,117 @@ mod tests {
             assert_eq!(code(&response), (status, Some(name)), "{refusal:?}");
             assert!(codes.insert(name), "{name} names one refusal");
         }
+    }
+
+    /// Every V2 snapshot refusal is its own documented code, so no two causes read alike; the
+    /// payload refusals the snapshot shares with the baseline intake keep the baseline's codes.
+    #[rstest]
+    fn every_v2_snapshot_refusal_has_its_documented_code() {
+        use InstrumentMasterSnapshotErrorV2 as Refused;
+
+        let unprocessable = StatusCode::UNPROCESSABLE_ENTITY;
+        let conflict = StatusCode::CONFLICT;
+        let unavailable = StatusCode::SERVICE_UNAVAILABLE;
+        let expected = [
+            (
+                Refused::InvalidSubmission,
+                unprocessable,
+                "INSTRUMENT_MASTER_V2_INVALID_SUBMISSION",
+            ),
+            (
+                Refused::SymbolAbsent,
+                unprocessable,
+                "INSTRUMENT_MASTER_V2_SYMBOL_ABSENT",
+            ),
+            (
+                Refused::SymbolAmbiguous,
+                unprocessable,
+                "INSTRUMENT_MASTER_V2_SYMBOL_AMBIGUOUS",
+            ),
+            (
+                Refused::ContractTypeUnsupported,
+                unprocessable,
+                "INSTRUMENT_MASTER_V2_CONTRACT_TYPE_UNSUPPORTED",
+            ),
+            (
+                Refused::DatasetMismatch,
+                unprocessable,
+                "INSTRUMENT_MASTER_V2_DATASET_MISMATCH",
+            ),
+            (
+                Refused::OnboardDateUnavailable,
+                unprocessable,
+                "INSTRUMENT_MASTER_V2_ONBOARD_DATE_UNAVAILABLE",
+            ),
+            (
+                Refused::FilterUnavailable,
+                unprocessable,
+                "INSTRUMENT_MASTER_V2_FILTER_UNAVAILABLE",
+            ),
+            (
+                Refused::ListingDiffers,
+                unprocessable,
+                "INSTRUMENT_MASTER_V2_LISTING_DIFFERS",
+            ),
+            (
+                Refused::SnapshotOutOfOrder,
+                conflict,
+                "INSTRUMENT_MASTER_V2_SNAPSHOT_OUT_OF_ORDER",
+            ),
+            (
+                Refused::PredecessorUnknown,
+                conflict,
+                "INSTRUMENT_MASTER_V2_PREDECESSOR_UNKNOWN",
+            ),
+            (
+                Refused::PredecessorNotCurrent,
+                conflict,
+                "INSTRUMENT_MASTER_V2_PREDECESSOR_NOT_CURRENT",
+            ),
+            (
+                Refused::SourceBindingUnavailable,
+                conflict,
+                "INSTRUMENT_MASTER_V2_SOURCE_BINDING_UNAVAILABLE",
+            ),
+            (
+                Refused::SourceBindingMismatch,
+                conflict,
+                "INSTRUMENT_MASTER_V2_SOURCE_BINDING_MISMATCH",
+            ),
+            (
+                Refused::RetrievalAfterOwnerClock,
+                conflict,
+                "INSTRUMENT_MASTER_V2_RETRIEVAL_AFTER_OWNER_CLOCK",
+            ),
+            (
+                Refused::ClockMismatch,
+                conflict,
+                "INSTRUMENT_MASTER_V2_CLOCK_MISMATCH",
+            ),
+            (
+                Refused::AdmissionConflict,
+                conflict,
+                "INSTRUMENT_MASTER_V2_ADMISSION_CONFLICT",
+            ),
+            (
+                Refused::ClockUnavailable,
+                unavailable,
+                "MARKET_DATA_CLOCK_UNAVAILABLE",
+            ),
+            (
+                Refused::StoreUnavailable,
+                unavailable,
+                "MARKET_DATA_OWNER_UNAVAILABLE",
+            ),
+        ];
+        let mut codes = std::collections::BTreeSet::new();
+
+        for (refusal, status, name) in expected {
+            let response = instrument_master_v2_snapshot_error(refusal);
+            assert_eq!(code(&response), (status, Some(name)), "{refusal:?}");
+            assert!(codes.insert(name), "{name} names one refusal");
+        }
+        assert_eq!(codes.len(), 18, "every refusal the enum names");
     }
 
     /// A clock mismatch reaches the caller as its own conflict, not as a malformed proposal.

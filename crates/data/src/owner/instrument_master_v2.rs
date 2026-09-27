@@ -1210,6 +1210,11 @@ impl InstrumentMasterFactV2 {
         }
     }
 
+    /// Whether this fact's terms, the contract status aside, differ from `predecessor`'s.
+    pub(crate) fn changes_terms_of(&self, predecessor: &Self) -> bool {
+        !equal_but_status(&self.terms, &predecessor.terms)
+    }
+
     pub(crate) fn owner_observation_time_ns(&self) -> i128 {
         self.latest_owner_observation_time_ns()
     }
@@ -1895,6 +1900,12 @@ pub enum InstrumentMasterCustodyErrorV2 {
     /// The cut's V2 facts do not describe the instruments the V1 readback its bound PIT snapshot
     /// cites describes; the payload names the rule that failed.
     GenerationMismatch(InstrumentMasterGenerationMismatchV2),
+    /// A member's terms were changed by a later `exchangeInfo` snapshot observed at the selection.
+    /// The cut does not yet read the Replay window, so it cannot tell whether the window lies
+    /// before or after the change, and refuses such a member whatever the window rather than price
+    /// any window on terms that did not hold for all of it. Selecting by window is the only change
+    /// that removes this refusal.
+    TermsChanged,
 }
 
 /// A V2 term the generation consistency check compares with its V1 counterpart.

@@ -11,8 +11,9 @@ use super::{
     instrument_master_v2::{
         InstrumentMasterCustodyErrorV2, InstrumentMasterCutLocatorV2, InstrumentMasterCutReceiptV2,
         InstrumentMasterCutRequestV2, InstrumentMasterCutV2, InstrumentMasterFactV2,
-        InstrumentMasterReadbackV2, InstrumentMasterResolverV2, PublicInstrumentClassV2,
-        native_replay_request_identity_v2, require_same_generation_v2, resolver_seal_v2,
+        InstrumentMasterReadbackV2, InstrumentMasterResolverV2, InstrumentTermsBasisV2,
+        PublicInstrumentClassV2, native_replay_request_identity_v2, require_same_generation_v2,
+        resolver_seal_v2,
     },
     postgres::{
         BoundReplayInputsErrorV1, BoundReplayInputsV1,
@@ -407,6 +408,13 @@ async fn issue_cut_in_transaction(
         .any(|fact| !class_has_no_corporate_actions(fact.instrument_class()))
     {
         return Err(InstrumentMasterCustodyErrorV2::MemberClassCarriesCorporateActions);
+    }
+
+    if facts
+        .iter()
+        .any(|fact| fact.terms_basis() != InstrumentTermsBasisV2::RetrievedTermsAssumedSinceListing)
+    {
+        return Err(InstrumentMasterCustodyErrorV2::TermsChanged);
     }
 
     if let Some(v1) = generation_v1 {
