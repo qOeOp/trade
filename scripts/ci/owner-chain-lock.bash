@@ -21,7 +21,7 @@ owner_chain_lock_file="${OWNER_CHAIN_LOCK_FILE:-/tmp/vibe-owner-chain.lock}"
 
 # Returns 0 holding the lock on descriptor 9, or 1 after naming the run that holds it.
 acquire_owner_chain_lock() {
-  local status=0 holder
+  local status=0 holder recorded_pid
 
   # `>>`, not `>`: opening must not truncate the holder's record before the lock is even tried.
   exec 9>> "$owner_chain_lock_file"
@@ -47,11 +47,41 @@ acquire_owner_chain_lock() {
     return 1
   fi
   holder="$(cat "$owner_chain_lock_file" 2> /dev/null || true)"
+  recorded_pid="$(sed -n 's/^pid \([0-9][0-9]*\),.*/\1/p' <<< "$holder")"
+
+  # The record names the run that took the lock, not whoever holds it now. When that run is gone,
+  # the holder is a process that inherited descriptor 9 from it - after a run is killed, typically
+  # the proof watchdog's `sleep` - and waiting for the recorded pid to exit waits for nothing.
+  if [[ -n "$recorded_pid" ]] && ! kill -0 "$recorded_pid" 2> /dev/null; then
+    echo "ERROR: the local Owner chain recorded in the lock has exited (${holder}), but the lock is" >&2
+    echo "       still held by a process that inherited its descriptor 9:" >&2
+    list_owner_chain_lock_holders >&2
+    echo "       It is still load while it runs; stop it if its run is gone for good. To wait for the" >&2
+    echo "       lock, probe the lock itself (flock with LOCK_NB on the file), not the recorded pid." >&2
+    echo "       Lock: ${owner_chain_lock_file}" >&2
+    return 1
+  fi
   echo "ERROR: another local Owner chain is running on this machine: ${holder:-holder not recorded}." >&2
   echo "       One chain at a time: overlapping chains load the machine until entries with a time" >&2
-  echo "       window fail for load alone. Run again once that pid has exited." >&2
+  echo "       window fail for load alone. Run again once that run has exited; a process it started" >&2
+  echo "       holds the lock too, until it exits as well." >&2
   echo "       Lock: ${owner_chain_lock_file}" >&2
   return 1
+}
+
+# Names every process holding the lock file open for writing, which is every process that can hold
+# the lock: descriptor 9 is opened for appending, and a descriptor only reading the file cannot.
+list_owner_chain_lock_holders() {
+  if ! command -v lsof > /dev/null 2>&1; then
+    echo "       (lsof is not installed, so the holder cannot be named here)"
+    return 0
+  fi
+  lsof -F pcfa "$owner_chain_lock_file" 2> /dev/null | awk '
+    /^p/ { pid = substr($0, 2) }
+    /^c/ { command = substr($0, 2) }
+    /^f/ { descriptor = substr($0, 2) }
+    /^a/ { if ($0 ~ /^a[wu]/) print "       pid " pid " (" command "), descriptor " descriptor }
+  '
 }
 
 # A chain removes its containers in its EXIT trap, so a run that is killed outright - SIGKILL, a

@@ -389,7 +389,9 @@ impl SignedEntryRow {
 
 /// Parses `bytes` and requires that serializing the result reproduces them exactly, so the value
 /// the custodian verifies is the message the signer signed.
-fn decode_exact<T: Serialize + DeserializeOwned>(bytes: &[u8]) -> Result<T, ResolveHistoryError> {
+pub(super) fn decode_exact<T: Serialize + DeserializeOwned>(
+    bytes: &[u8],
+) -> Result<T, ResolveHistoryError> {
     let value: T =
         serde_json::from_slice(bytes).map_err(|_| ResolveHistoryError::InvalidHistory)?;
 

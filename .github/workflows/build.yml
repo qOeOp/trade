@@ -1152,6 +1152,8 @@ jobs:
             && format('{0}/rd-owner-archive/rd-owner-tests.tar.zst', runner.temp) || '' }}
           # Empty for the whole chain and for Market Data; a shard name runs that shard's entries only.
           RD_OWNER_CHAIN_SHARD: ${{ matrix.chain.shard }}
+          # Always empty here: `build` runs the whole of each shard (owner-chains alone narrows).
+          RD_OWNER_CHAIN_COMPONENT: ${{ matrix.chain.component }}
         run: make ${{ matrix.chain.make }}
 
       # `if: always()`: the run that ends at an entry is the one whose record answers the most.
