@@ -1492,8 +1492,10 @@ including on inputs with ties.
   metrics, book depth, and funding rate. Liquidations have no admitted historical source - the USDⓈ-M archive holds
   none and the coin-margined `BTCUSD_PERP` snapshot ends on 2024-10-14 - so a Design that asks for them is refused as
   `INPUT_FACT_UNAVAILABLE_FROM_ADMITTED_SOURCE`, which no field vocabulary lets a Design reach today.
-- **Actions:** read from the code, the target-set Host ignores a protective fill today, so the next frame's
-  reconciliation would fail and abort the run; only a second frame reaches it, and no test drives it yet. Its repair (D1) adds a `kernel.fill.reconcile.v1` case and lands
+- **Actions:** the target-set Host ignores a protective fill today, so the next frame's reconciliation fails and
+  aborts the run; only a second frame reaches it. `a_triggered_stop_aborts_the_run_today_until_d1` pins that behavior
+  over two real Sim frames, with a close stop that does not fall and a fall that misses a far stop as its clean
+  controls, and flips to asserting the run continues when D1 lands. Its repair (D1) adds a `kernel.fill.reconcile.v1` case and lands
   with T1. A1 exposes `DecisionTime` and `AccountEquity` (and fill-based entry price and bars held) as
   `LifecycleContext` values the program may read, where `DecisionTime` is the frame's decision cut `d_k`; intended entry price and bars held are expressible inside the
   program already. A2 places take-profit as reduce-only limit orders. A3 first measures a one-limit-per-bar ladder
