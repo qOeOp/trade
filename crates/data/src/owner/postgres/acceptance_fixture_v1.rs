@@ -269,6 +269,6 @@ pub(super) fn market_base_pit_time_v1(
         skew_bound: clock.skew_bound,
         uncertainty_bound: clock.uncertainty_bound,
         observed_at: 100,
-        valid_through: 160,
+        valid_through: clock.valid_through,
     }
 }

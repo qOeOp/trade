@@ -12,8 +12,7 @@ use thiserror::Error;
 use super::{
     MarketDataOwnerPostgres,
     acceptance_fixture_v1::{
-        d, instrument_fact, instrument_request, market_base_pit_time_v1, shared_clock,
-        source_proposal,
+        d, instrument_fact, instrument_request, market_base_pit_time_v1, source_proposal,
     },
     public_decision_cut_v1,
 };
@@ -592,34 +591,35 @@ const BASE_R0_REQUEST: u8 = 183;
 /// The Market Semantics request the base's fact is resolved for.
 const BASE_MARKET_SEMANTICS_REQUEST: u8 = 188;
 
-/// The clock identity and epoch the base's two clocks share.
-pub(super) const BASE_CLOCK_IDENTITY: &str = "12345678901234567890123456789012";
-pub(super) const BASE_CLOCK_EPOCH: &str = "abcdefghijklmnopqrstuvwxyzABCDEF";
+/// The Owner's own clock at one base instant, sealed by the production sealer under the identity,
+/// epoch, validity window and bounds every production cut is minted under.
+///
+/// Only the instants are the fixture's. A base on any other clock would be one production can
+/// never succeed: the Owner mints every later cut under this identity and epoch, and a cut on
+/// another clock is not a same-epoch successor (`validate_same_epoch_successor`). On this clock, a
+/// cut the Owner mints from its wall clock after the base is the ordinary successor production
+/// admits after any idle stretch.
+pub(super) fn owner_clock_at_v1(sequence: u64, instant: u64) -> MarketDataClockAdmission {
+    super::seal_owner_clock_admission_v1(
+        super::OWNER_CLOCK_IDENTITY_V1,
+        super::OWNER_CLOCK_EPOCH_V1,
+        sequence,
+        instant,
+        super::OWNER_CLOCK_VALIDITY_WINDOW_NS,
+        super::OWNER_CLOCK_UNCERTAINTY_BOUND_NS,
+        super::OWNER_CLOCK_SKEW_BOUND_NS,
+    )
+    .expect("the base's instants seal on the Owner clock")
+}
 
 /// The clock the base's corpus is written on: the successor of the historical clock.
 pub(super) fn chain_market_base_clock_v1() -> MarketDataClockAdmission {
-    shared_clock(
-        BASE_CLOCK_IDENTITY,
-        BASE_CLOCK_EPOCH,
-        2,
-        BASE_WRITTEN_AT,
-        d(90),
-        1,
-        2,
-    )
+    owner_clock_at_v1(2, BASE_WRITTEN_AT)
 }
 
 /// The clock the base's Source Binding and historical native corpus are written on.
 pub(super) fn chain_market_base_historical_clock_v1() -> MarketDataClockAdmission {
-    shared_clock(
-        BASE_CLOCK_IDENTITY,
-        BASE_CLOCK_EPOCH,
-        1,
-        BASE_HISTORICAL_AT,
-        d(90),
-        1,
-        2,
-    )
+    owner_clock_at_v1(1, BASE_HISTORICAL_AT)
 }
 
 /// The Source Binding the base admits, on the historical clock.
@@ -631,13 +631,13 @@ pub(super) fn chain_market_base_source_proposal_v1(
     time.clock_identity
         .clone_from(&historical_clock.clock_identity);
     time.clock_epoch.clone_from(&historical_clock.clock_epoch);
-    time.monotonic_sequence = 1;
-    time.restart_continuity_digest = d(90);
-    time.skew_bound = 2;
-    time.uncertainty_bound = 1;
+    time.monotonic_sequence = historical_clock.monotonic_sequence;
+    time.restart_continuity_digest = historical_clock.restart_continuity_digest;
+    time.skew_bound = historical_clock.skew_bound;
+    time.uncertainty_bound = historical_clock.uncertainty_bound;
     time.observed_at = BASE_HISTORICAL_AT;
     time.effective_at = BASE_HISTORICAL_AT;
-    time.valid_through = 159;
+    time.valid_through = historical_clock.valid_through;
     time.provider_available = 89;
     time.retrieval = 91;
     time.correction_publication = 90;
