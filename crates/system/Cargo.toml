@@ -41,7 +41,7 @@ vibe-common = { workspace = true }
 vibe-core = { workspace = true }
 vibe-data = { workspace = true }
 vibe-execution = { workspace = true }
-vibe-model = { workspace = true, features = ["stubs"] }
+vibe-model = { workspace = true }
 vibe-portfolio = { workspace = true }
 vibe-risk = { workspace = true }
 vibe-trading = { workspace = true }
@@ -63,6 +63,7 @@ pyo3 = { workspace = true, optional = true }
 pyo3-stub-gen = { workspace = true, optional = true }
 
 [dev-dependencies]
+vibe-model = { workspace = true, features = ["stubs"] }
 vibe-testkit = { workspace = true, default-features = false, features = [
   "testers",
 ] }
