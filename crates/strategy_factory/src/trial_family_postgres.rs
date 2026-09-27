@@ -1102,6 +1102,20 @@ async fn load_trial_family_census_v2_with_lock_mode_in_transaction(
         ));
     }
     let family_identity: String = roots[0].try_get("trial_family_identity").map_err(storage)?;
+    // The head is read, and under `ForShare` locked, before the members and cuts. An append holds
+    // the head `FOR UPDATE` from before its first row until it commits, so this read waits for any
+    // append in flight and then reads members and cuts that match the head it got. Read after them,
+    // at READ COMMITTED it could pair the members before an append with the head after it, which the
+    // checks below refuse as `V2 census head mismatch` rather than waiting.
+    let heads_query = lock_mode.query(
+        "SELECT frontier_identity, frontier_digest, frontier_json, frontier_storage_bytes, frontier_storage_digest, committed_at_epoch_ms FROM rd_trial_family_heads_v1 WHERE trial_family_identity = $1",
+        " FOR SHARE",
+    );
+    let head_rows = sqlx::query(heads_query)
+        .bind(&family_identity)
+        .fetch_all(&mut **transaction)
+        .await
+        .map_err(storage)?;
     let members_query = lock_mode.query(
         "SELECT member_identity, trial_family_identity, ordinal, fact_identity, member_digest, member_json, membership_receipt_json, member_storage_bytes, member_storage_digest, membership_receipt_storage_bytes, membership_receipt_storage_digest, committed_at_epoch_ms FROM rd_trial_family_members_v1 WHERE trial_family_identity = $1 ORDER BY ordinal",
         " FOR SHARE",
@@ -1116,15 +1130,6 @@ async fn load_trial_family_census_v2_with_lock_mode_in_transaction(
         " FOR SHARE",
     );
     let cut_rows = sqlx::query(cuts_query)
-        .bind(&family_identity)
-        .fetch_all(&mut **transaction)
-        .await
-        .map_err(storage)?;
-    let heads_query = lock_mode.query(
-        "SELECT frontier_identity, frontier_digest, frontier_json, frontier_storage_bytes, frontier_storage_digest, committed_at_epoch_ms FROM rd_trial_family_heads_v1 WHERE trial_family_identity = $1",
-        " FOR SHARE",
-    );
-    let head_rows = sqlx::query(heads_query)
         .bind(&family_identity)
         .fetch_all(&mut **transaction)
         .await
@@ -2950,5 +2955,329 @@ mod postgres_binding_tests {
             .execute(pool)
             .await
             .unwrap();
+    }
+
+    struct CensusFamilyFixtureV1 {
+        intent_identity: String,
+        intent_digest: String,
+        receipt_identity: String,
+        family_identity: String,
+        committed_at: u64,
+    }
+
+    /// Persists one family with one committed attempt, so every census read below has a V2 head.
+    async fn census_family_with_one_attempt(
+        pool: &sqlx::PgPool,
+        suffix: &str,
+    ) -> CensusFamilyFixtureV1 {
+        let intent_identity = format!("rd-research-intent-v2-race-{suffix}");
+        let intent_digest = format!("sha256:{}", "d".repeat(64));
+        let committed_at = u64::try_from(
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_millis(),
+        )
+        .unwrap();
+        let family = form_initial_family(
+            &intent_identity,
+            &intent_digest,
+            family_policy(),
+            committed_at,
+        )
+        .unwrap();
+        let receipt = ResearchRequestReceiptV1 {
+            schema_version: 1,
+            receipt_identity: format!("rd-research-request-receipt-v2-race-{suffix}"),
+            request_identity: format!("research-request-v2-race-{suffix}"),
+            semantic_digest: intent_digest.clone(),
+            disposition: ResearchRequestDisposition::Accepted,
+            resulting_research_intent_identity: Some(intent_identity.clone()),
+            committed_at_epoch_ms: committed_at,
+            rejection_code: None,
+        };
+        let mut transaction = pool.begin().await.unwrap();
+        persist_initial_family(&mut transaction, &family, &receipt)
+            .await
+            .unwrap();
+        transaction.commit().await.unwrap();
+        let fixture = CensusFamilyFixtureV1 {
+            intent_identity,
+            intent_digest,
+            receipt_identity: receipt.receipt_identity,
+            family_identity: family.root.trial_family_identity().to_string(),
+            committed_at,
+        };
+        let mut transaction = pool.begin().await.unwrap();
+        append_trial_family_attempt_in_transaction(
+            &mut transaction,
+            &fixture.intent_identity,
+            &fixture.receipt_identity,
+            race_attempt(&fixture, suffix, "first", 1),
+            committed_at + 1,
+        )
+        .await
+        .unwrap();
+        transaction.commit().await.unwrap();
+        fixture
+    }
+
+    fn race_attempt(
+        fixture: &CensusFamilyFixtureV1,
+        suffix: &str,
+        tag: &str,
+        consumed_trial_budget: u32,
+    ) -> TrialFamilyAttemptAppendV2 {
+        // The first attempt runs the family's initial intent; each later one names its own, because
+        // a member's fact identity is unique across the store.
+        let (intent_identity, intent_digest) = if consumed_trial_budget == 1 {
+            (
+                fixture.intent_identity.clone(),
+                fixture.intent_digest.clone(),
+            )
+        } else {
+            (
+                format!("rd-research-intent-v2-race-{tag}-{suffix}"),
+                race_digest("intent", tag, suffix),
+            )
+        };
+        TrialFamilyAttemptAppendV2 {
+            intent_identity,
+            intent_digest,
+            request_identity: format!("rd-replay-request-v2-race-{tag}-{suffix}"),
+            request_digest: race_digest("request", tag, suffix),
+            result_identity: format!("backtest-result-v2-race-{tag}-{suffix}"),
+            result_digest: race_digest("result", tag, suffix),
+            terminal_disposition: TrialFamilyAttemptTerminalDispositionV2::Rejected,
+            consumed_trial_budget,
+            candidate_set: TrialFamilyCandidateSetProposalV2 {
+                generation_rule_identity: format!("rd-candidate-generation-v2-race-{tag}-{suffix}"),
+                generation_rule_digest: format!("sha256:{}", "3".repeat(64)),
+                expected_cardinality: 1,
+                candidates: vec![TrialFamilyCandidateExperimentProposalV1 {
+                    candidate_identity: format!("rd-candidate-v2-race-{tag}-{suffix}"),
+                    experiment: IterationExperimentModeV1::SingleDimension {
+                        changed_dimension: IterationHypothesisDimensionV1::ReturnMechanism,
+                    },
+                }],
+            },
+        }
+    }
+
+    /// A distinct content digest per fact, so no two race attempts share a stored member.
+    fn race_digest(kind: &str, tag: &str, suffix: &str) -> String {
+        use sha2::{Digest as _, Sha256};
+
+        let digest = Sha256::digest(format!("{kind}-{tag}-{suffix}"));
+        format!(
+            "sha256:{}",
+            digest
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect::<String>()
+        )
+    }
+
+    /// A census read that meets an uncommitted append waits for it and then reads one cut.
+    ///
+    /// The append holds the family head `FOR UPDATE` and has inserted its member and cut rows. The
+    /// read is held on the head until the append commits; the test confirms from `pg_locks` that it
+    /// is blocked by the appender before letting the append commit. At READ COMMITTED every
+    /// statement reads the latest committed rows, so a read that fetched members and cuts before
+    /// it reached the head would pair the old members with the new head and refuse as a torn
+    /// census. Taking the head first makes the member and cut reads follow the append instead.
+    #[tokio::test]
+    #[ignore = "requires the canonical disposable R&D Owner PostgreSQL topology"]
+    async fn a_census_read_that_meets_an_uncommitted_append_waits_and_reads_one_cut() {
+        let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(4)
+            .connect(test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner))
+            .await
+            .unwrap();
+        crate::schema_materialization::require_existing_public_tables(&pool, TABLES)
+            .await
+            .unwrap();
+        let suffix = unique_suffix();
+        let fixture = census_family_with_one_attempt(&pool, &suffix).await;
+
+        let mut appender = pool.begin().await.unwrap();
+        let appender_pid: i32 = sqlx::query_scalar("SELECT pg_catalog.pg_backend_pid()")
+            .fetch_one(&mut *appender)
+            .await
+            .unwrap();
+        let appended = append_trial_family_attempt_in_transaction(
+            &mut appender,
+            &fixture.intent_identity,
+            &fixture.receipt_identity,
+            race_attempt(&fixture, &suffix, "second", 2),
+            fixture.committed_at + 2,
+        )
+        .await
+        .unwrap();
+
+        let (reader_pid_sender, reader_pid) = tokio::sync::oneshot::channel();
+        let reader_pool = pool.clone();
+        let family_identity = fixture.family_identity.clone();
+
+        let reader = tokio::spawn(async move {
+            let mut transaction = reader_pool.begin().await.unwrap();
+            let pid: i32 = sqlx::query_scalar("SELECT pg_catalog.pg_backend_pid()")
+                .fetch_one(&mut *transaction)
+                .await
+                .unwrap();
+            reader_pid_sender.send(pid).unwrap();
+            let census = load_trial_family_census_v2_by_family_in_transaction(
+                &mut transaction,
+                &family_identity,
+            )
+            .await;
+            transaction.rollback().await.unwrap();
+            census
+        });
+        let reader_pid = reader_pid.await.unwrap();
+        let mut blocked = false;
+        for _ in 0..200 {
+            blocked = sqlx::query_scalar("SELECT $2 = ANY(pg_catalog.pg_blocking_pids($1))")
+                .bind(reader_pid)
+                .bind(appender_pid)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+
+            if blocked {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+        assert!(
+            blocked,
+            "the census read never waited on the uncommitted append"
+        );
+        appender.commit().await.unwrap();
+
+        let read = reader.await.unwrap();
+        assert_eq!(
+            read.as_ref().map_err(ToString::to_string),
+            Ok(&appended),
+            "the census read after the append committed"
+        );
+    }
+
+    /// Concurrent appends and census reads in the Iteration Result Admission's lock order neither
+    /// deadlock nor read a torn census.
+    ///
+    /// Each read takes an advisory lock on its own Result key and then reads the census by family,
+    /// as the admission does before it writes. The admission's other lock, the Product Edge
+    /// admission, is on rows no append touches. The appender has no production caller yet, so this
+    /// concurrency exists only here.
+    #[tokio::test]
+    #[ignore = "requires the canonical disposable R&D Owner PostgreSQL topology"]
+    async fn concurrent_appends_and_admission_census_reads_neither_deadlock_nor_tear() {
+        const APPENDS: usize = 4;
+        const READERS: usize = 6;
+        const READS_PER_READER: usize = 10;
+
+        let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(u32::try_from(APPENDS + READERS + 1).unwrap())
+            .connect(test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner))
+            .await
+            .unwrap();
+        crate::schema_materialization::require_existing_public_tables(&pool, TABLES)
+            .await
+            .unwrap();
+        let suffix = unique_suffix();
+        let fixture = std::sync::Arc::new(census_family_with_one_attempt(&pool, &suffix).await);
+
+        let mut tasks = tokio::task::JoinSet::new();
+
+        for append in 0..APPENDS {
+            let pool = pool.clone();
+            let fixture = std::sync::Arc::clone(&fixture);
+            let suffix = suffix.clone();
+
+            tasks.spawn(async move {
+                // The attempt's budget is cumulative, so each append names the count it read. It
+                // reads that count in its own transaction: reading it under the append's lock
+                // would upgrade a shared head lock that another appender also holds. A count that
+                // another append has since moved is refused by name, and the append retries.
+                loop {
+                    let mut read = pool.begin().await.map_err(|e| e.to_string())?;
+                    let consumed = load_trial_family_census_v2_by_family_in_transaction(
+                        &mut read,
+                        &fixture.family_identity,
+                    )
+                    .await
+                    .map_err(|e| format!("append {append} count: {e}"))?
+                    .consumed_trial_budget();
+                    read.rollback().await.map_err(|e| e.to_string())?;
+                    let mut transaction = pool.begin().await.map_err(|e| e.to_string())?;
+                    match append_trial_family_attempt_in_transaction(
+                        &mut transaction,
+                        &fixture.intent_identity,
+                        &fixture.receipt_identity,
+                        race_attempt(&fixture, &suffix, &format!("append-{append}"), consumed + 1),
+                        fixture.committed_at + 2 + u64::try_from(append).unwrap(),
+                    )
+                    .await
+                    {
+                        Ok(_) => return transaction.commit().await.map_err(|e| e.to_string()),
+                        Err(TrialFamilyError::InvalidPolicy("CONSUMED_TRIAL_BUDGET_INVALID")) => {
+                            transaction.rollback().await.map_err(|e| e.to_string())?;
+                        }
+                        Err(e) => return Err(format!("append {append}: {e}")),
+                    }
+                }
+            });
+        }
+
+        for reader in 0..READERS {
+            let pool = pool.clone();
+            let fixture = std::sync::Arc::clone(&fixture);
+            let suffix = suffix.clone();
+
+            tasks.spawn(async move {
+                for read in 0..READS_PER_READER {
+                    let mut transaction = pool.begin().await.map_err(|e| e.to_string())?;
+                    sqlx::query(
+                        "SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended($1, 0))",
+                    )
+                    .bind(format!("backtest-result-v2-race-admission-{reader}-{read}-{suffix}"))
+                    .execute(&mut *transaction)
+                    .await
+                    .map_err(|e| e.to_string())?;
+                    load_trial_family_census_v2_by_family_in_transaction(
+                        &mut transaction,
+                        &fixture.family_identity,
+                    )
+                    .await
+                    .map_err(|e| format!("reader {reader} read {read}: {e}"))?;
+                    transaction.commit().await.map_err(|e| e.to_string())?;
+                }
+                Ok(())
+            });
+        }
+        let mut failures = Vec::new();
+
+        while let Some(joined) = tasks.join_next().await {
+            if let Err(failure) = joined.unwrap() {
+                failures.push(failure);
+            }
+        }
+        assert_eq!(failures, Vec::<String>::new());
+
+        let mut transaction = pool.begin().await.unwrap();
+        let census = load_trial_family_census_v2_by_family_in_transaction(
+            &mut transaction,
+            &fixture.family_identity,
+        )
+        .await
+        .unwrap();
+        transaction.rollback().await.unwrap();
+        assert_eq!(
+            census.consumed_trial_budget(),
+            u32::try_from(1 + APPENDS).unwrap()
+        );
     }
 }

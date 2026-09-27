@@ -55,11 +55,15 @@ Unify Research and Develop under one business-fact Owner. The Research capabilit
 - Append-only TrialFamily Census Frontier containing every exploratory Intent, Request, and Result identity through a frozen cut, including losing, rejected, invalid, and unknown trials, plus the consumed family budget.
 - Exploratory findings that may justify a new Research Intent, without mutating the frozen predecessor.
 - Write-once Iteration Result Admission binding one locked canonical Backtest Result to the iteration that may
-  consume it. The Owner derives every admitted fact inside one serializable R&D transaction from the locked
-  Result bytes, the exact TrialFamily census cut and the sealed trial budget; the caller supplies only the
-  locator, the result and request-meaning digests, the canonically ordered candidate proposal set, and the
-  Product Edge admission locator that authorized the mutation. The Owner resolves that admission inside the
-  same serializable transaction that holds the Result lock, verifies it names this exact request, operation,
+  consume it. The Owner derives every admitted fact inside one READ COMMITTED R&D transaction, the isolation
+  the Product Edge admission lock admits, from the Result bytes, the exact TrialFamily census cut and the sealed
+  trial budget; the caller supplies only the locator, the result and request-meaning digests, the canonically
+  ordered candidate proposal set, and the Product Edge admission locator that authorized the mutation. The
+  transaction first takes the Result's admission lock, so a concurrent admission of the same Result waits and then
+  reads what that one committed. It then locks the family's census head before it reads the census members and
+  attempt cuts: a census append holds that head from before its first row until it commits, so the census the
+  admission binds is one cut and no append lands before the admission commits. The Owner resolves the Product
+  Edge admission inside the same transaction, verifies it names this exact request, operation,
   schema, target Owner, payload and single effect, and requires it to authorize the mutation both when the
   transaction opens and at the committing cut. A replay resolves it historically, because the committed fact
   is content-addressed on the request meaning rather than on who authorized it. A
