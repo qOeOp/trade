@@ -56,6 +56,16 @@ class Probe:
     # Codes this source answers now and then and not on the next request. Retrying them tells an
     # intermittent answer from a persistent one: only a code that survives every attempt fails.
     intermittent_codes: tuple[int, ...] = ()
+    # Intermittent codes that, once they survive every attempt, mean the source refuses this
+    # runner's address rather than that it is broken: BLOCKED instead of FAILED, for a public
+    # endpoint only. Every other code, including every other intermittent one, still fails.
+    address_refusal_after_retries: tuple[int, ...] = ()
+
+    def __post_init__(self) -> None:
+        if not set(self.address_refusal_after_retries) <= set(self.intermittent_codes):
+            raise ValueError(
+                f"{self.name}: a code read as an address refusal after retries must be retried",
+            )
 
 
 @dataclass(frozen=True)
@@ -297,10 +307,15 @@ RESEARCH_PROBES = (
         _validate_arxiv,
         # arXiv answers HTTP 406 now and then, whatever the Accept header: on 2026-09-28 one of
         # ten requests from this code got 406 and the next nine got 200, as did eleven requests
-        # from curl and plain urllib with either Accept. The runner saw it on 2026-09-22. Why is
-        # undetermined; retrying separates that from a 406 that persists.
+        # from curl and plain urllib with either Accept. Retrying separates that from a 406 that
+        # persists. On GitHub-hosted runners it persists: a runner got 200 on 2026-09-15, 406 on
+        # 2026-09-22, and 406 on all three attempts on 2026-09-28, the failing runs in two Azure
+        # regions. That reads as arXiv refusing the runners' addresses (inferred, not announced),
+        # so a 406 that survives the retries is BLOCKED like Binance's 451; any other code, and a
+        # 406 from any other source, still fails.
         rate_limit_backoff=(1.0, 2.0),
         intermittent_codes=(406,),
+        address_refusal_after_retries=(406,),
     ),
     Probe(
         "Semantic Scholar search",
@@ -357,6 +372,14 @@ RESEARCH_PROBES = (
 )
 
 
+def _status_after_retries(probe: Probe, code: int, request_detail: str) -> Status:
+    if code == 429:
+        return Status.RATE_LIMITED
+    if code in probe.address_refusal_after_retries and request_detail == _PUBLIC_ENDPOINT:
+        return Status.BLOCKED
+    return Status.FAILED
+
+
 def run_probe(
     probe: Probe,
     env: Mapping[str, str],
@@ -374,10 +397,12 @@ def run_probe(
             with opener(request, timeout=timeout) as response:
                 body = response.read()
             validation_detail = probe.validate(body)
+            # The attempt count keeps an answer that needed retries apart from a first answer.
+            attempts = f"after {attempt + 1} attempt{'s' if attempt else ''}"
             return Receipt(
                 probe.name,
                 Status.HEALTHY,
-                f"{request_detail}; {validation_detail}",
+                f"{request_detail}; {validation_detail}; {attempts}",
             )
         except urllib.error.HTTPError as e:
             if e.code in _ADDRESS_REFUSAL_CODES and request_detail == _PUBLIC_ENDPOINT:
@@ -387,7 +412,7 @@ def run_probe(
             if attempt == len(probe.rate_limit_backoff):
                 return Receipt(
                     probe.name,
-                    Status.RATE_LIMITED if e.code == 429 else Status.FAILED,
+                    _status_after_retries(probe, e.code, request_detail),
                     f"HTTP {e.code} after {attempt + 1} attempts",
                 )
             sleeper(probe.rate_limit_backoff[attempt])
