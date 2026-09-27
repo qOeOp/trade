@@ -2789,6 +2789,20 @@ fn replay_composition_refusal(error: ReplayCompositionBindingErrorV1) -> Respons
         ReplayCompositionBindingErrorV1::PriceAdjustmentUnknown => {
             (StatusCode::UNPROCESSABLE_ENTITY, None)
         }
+        // The Design cannot be replayed over this snapshot as it stands; each names why, and no
+        // retry changes it.
+        ReplayCompositionBindingErrorV1::ExecutionTimeframeNotSingle => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Some("EXECUTION_TIMEFRAME_NOT_SINGLE"),
+        ),
+        ReplayCompositionBindingErrorV1::ExecutionTimeframeNotDeclared => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Some("EXECUTION_TIMEFRAME_NOT_DECLARED"),
+        ),
+        ReplayCompositionBindingErrorV1::ExecutionBarExceedsR0Window => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Some("EXECUTION_BAR_EXCEEDS_R0_WINDOW"),
+        ),
         ReplayCompositionBindingErrorV1::ReplayV2Unavailable
         | ReplayCompositionBindingErrorV1::DigestMismatch
         | ReplayCompositionBindingErrorV1::UnknownBinding
@@ -6143,6 +6157,21 @@ mod tests {
         ReplayCompositionBindingErrorV1::PriceAdjustmentUnknown,
         StatusCode::UNPROCESSABLE_ENTITY,
         None
+    )]
+    #[case::execution_timeframe_not_single(
+        ReplayCompositionBindingErrorV1::ExecutionTimeframeNotSingle,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        Some("EXECUTION_TIMEFRAME_NOT_SINGLE")
+    )]
+    #[case::execution_timeframe_not_declared(
+        ReplayCompositionBindingErrorV1::ExecutionTimeframeNotDeclared,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        Some("EXECUTION_TIMEFRAME_NOT_DECLARED")
+    )]
+    #[case::execution_bar_exceeds_r0_window(
+        ReplayCompositionBindingErrorV1::ExecutionBarExceedsR0Window,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        Some("EXECUTION_BAR_EXCEEDS_R0_WINDOW")
     )]
     #[case::replay_v2_unavailable(
         ReplayCompositionBindingErrorV1::ReplayV2Unavailable,

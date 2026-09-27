@@ -4903,9 +4903,17 @@ async fn owner_r0_readback_v1(
     owner: &MarketDataOwnerPostgres,
     aggregate: &PitSnapshotCommitAggregate,
 ) -> Option<crate::owner::reference_fact_coordinates::r0::ReferenceFactR0ReadbackV1> {
-    let request =
-        super::reference_fact_coordinates::owner_r0_request_for_available_pit_v1(aggregate).ok()?;
     let mut transaction = owner.pool().begin().await.unwrap();
+    let event_end = super::reference_fact_coordinates::owner_r0_window_end_in_transaction_v1(
+        &mut transaction,
+        aggregate,
+    )
+    .await
+    .ok()?;
+    let request = super::reference_fact_coordinates::owner_r0_request_for_available_pit_v1(
+        aggregate, event_end,
+    )
+    .ok()?;
     let readback = super::reference_fact_coordinates::recover_reference_fact_r0_in_transaction_v1(
         &mut transaction,
         request.locator(),

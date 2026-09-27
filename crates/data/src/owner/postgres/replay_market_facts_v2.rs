@@ -2268,6 +2268,48 @@ async fn record_issuance_v1(
     Ok(ReplayCompositionDurableIssuanceResponseV1::from_exact_storage(response_bytes))
 }
 
+/// The Replay interval an issuance composes, derived by the Owner: from the event instant the
+/// snapshot's R0 record starts at, for one execution bar - the bar the Source Binding declares for
+/// the one label the Design's BAR roles read - and never past the R0 claim.
+///
+/// The caller names no interval. A binding that declares no bars, or a Design with no BAR role,
+/// gets the event instant alone.
+pub(super) fn owner_replay_request_v1(
+    pit: &crate::owner::pit_snapshot::UntrustedPitSnapshotLocator,
+    r0: &crate::owner::reference_fact_coordinates::r0::ReferenceFactR0ReadbackV1,
+    source: &crate::owner::source_binding::SourceBindingOwnerReadback,
+    role_requests: &[crate::owner::strategy_input_binding::UntrustedStrategyInputBindingRequest],
+) -> Result<UntrustedReplayMarketFactsRequestV2, ReplayCompositionBindingErrorV1> {
+    use crate::owner::declared_bar_timeframe_v1::{
+        ExecutionWindowErrorV1, execution_label_v1, execution_window_end_v1,
+    };
+
+    let refusal = |e| match e {
+        ExecutionWindowErrorV1::ExecutionTimeframeNotSingle => {
+            ReplayCompositionBindingErrorV1::ExecutionTimeframeNotSingle
+        }
+        ExecutionWindowErrorV1::ExecutionTimeframeNotDeclared => {
+            ReplayCompositionBindingErrorV1::ExecutionTimeframeNotDeclared
+        }
+        ExecutionWindowErrorV1::ExecutionBarExceedsR0Window => {
+            ReplayCompositionBindingErrorV1::ExecutionBarExceedsR0Window
+        }
+    };
+    let start = r0.record().replay_start_event_ns;
+    let end = execution_window_end_v1(
+        start,
+        r0.record().replay_end_event_ns_exclusive,
+        source.bar_timeframes(),
+        execution_label_v1(role_requests).map_err(refusal)?,
+    )
+    .map_err(refusal)?;
+    Ok(UntrustedReplayMarketFactsRequestV2::new(
+        pit.clone(),
+        start,
+        end,
+    ))
+}
+
 /// Resolves the first corpus's exact custody in the Owner transaction and stores its binding and
 /// Replay facts.
 async fn issue_first_corpus_in_transaction_v1(
@@ -2282,7 +2324,6 @@ async fn issue_first_corpus_in_transaction_v1(
         .native_join
         .as_ref()
         .ok_or(ReplayCompositionBindingErrorV1::IncompleteComposition)?;
-    let replay = request.replay_request();
     let validated_native_join = validate_native_join_v4(transaction, native_join).await?;
 
     let r0_locator = request.reference_fact_r0_locator();
@@ -2513,6 +2554,15 @@ async fn issue_first_corpus_in_transaction_v1(
     if source.locator() != request.source_binding_locator() {
         return Err(ReplayCompositionBindingErrorV1::DependencyMismatch);
     }
+    let replay = owner_replay_request_v1(
+        request.pit_locator(),
+        &r0,
+        &source,
+        &declarations
+            .iter()
+            .map(|declaration| declaration.request().clone())
+            .collect::<Vec<_>>(),
+    )?;
     let native_reference_r0s =
         recover_native_reference_r0s_v1(transaction, &calendar, &session, &time_zone).await?;
     let coordinates = coordinates_from_r0(&r0)?;
@@ -2676,6 +2726,7 @@ async fn issue_first_corpus_in_transaction_v1(
     ];
     let reference_cuts = build_reference_cuts(
         request,
+        &replay,
         &r0,
         &calendar,
         &session,
@@ -3426,6 +3477,7 @@ fn validate_native_reference_fact_evidence_v1(
 )]
 fn build_reference_cuts(
     request: &crate::owner::replay_market_facts_v2::ReplayCompositionBindingIssuanceRequestV1,
+    replay: &UntrustedReplayMarketFactsRequestV2,
     r0: &crate::owner::reference_fact_coordinates::r0::ReferenceFactR0ReadbackV1,
     calendar: &crate::owner::calendar::CalendarReadbackV1,
     session: &crate::owner::session::SessionReadbackV1,
@@ -3457,8 +3509,8 @@ fn build_reference_cuts(
     let make_scope = |kind, identity| {
         reference_scope_v2(
             request.pit_locator(),
-            request.replay_start_event_ns(),
-            request.replay_end_event_ns_exclusive(),
+            replay.replay_start_event_ns(),
+            replay.replay_end_event_ns_exclusive(),
             kind,
             identity,
         )
@@ -4137,6 +4189,13 @@ fn map_admission_reader_error(
         }
         // Raised only while issuing a universe-member aggregate, which this reader never does.
         ReplayCompositionBindingErrorV1::UniverseFrameMismatch => {
+            StrategyInputBindingAdmissionErrorV1::BindingUnavailable
+        }
+        // Raised only while an issuance derives its window, which this reader never does; each
+        // says the Design cannot be replayed over this snapshot, not that the store failed.
+        ReplayCompositionBindingErrorV1::ExecutionTimeframeNotSingle
+        | ReplayCompositionBindingErrorV1::ExecutionTimeframeNotDeclared
+        | ReplayCompositionBindingErrorV1::ExecutionBarExceedsR0Window => {
             StrategyInputBindingAdmissionErrorV1::BindingUnavailable
         }
         // Listed rather than left to a wildcard, so that a variant added later cannot become a

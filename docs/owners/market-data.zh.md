@@ -288,6 +288,11 @@ readback。Meaning 改变、locator 缺失/篡改、partial row、scalar/frontie
 response-loss retry mismatch 均不 append。**CURRENT / PARTIAL，生产 R0 写：** Owner 对每个自己提交为
 `AVAILABLE` 的 PIT 快照，在与快照同一个 Owner transaction 内 append 其 R0 record，只由同事务提交的 PIT 与 Source
 Binding 托管及当前 clock head 派生；没有路由、没有调用方字段、没有测试代码参与，重放的提交 rejoin 同一条 record。
+它的声明从快照的事件时刻起，持续 Source Binding 为该快照任一 BAR 行标签所声明的最长固定间隔；没有任何声明时只持续一
+纳秒 - 即 binding 不声明任何 bar，或快照只有交易所 session 日的行。更长的声明是对参考事实成立时长的更宽陈述，而不是更
+谨慎的陈述：它以快照自身所含最长的 bar 为界，而每个 Replay 的窗口按它自己的执行标签另行推导，所以没有任何执行窗口因它
+而变宽。resolver 从已存的 batch 与 binding 重新推导终点；composition-basis 读取不持有 batch，从 resolver 写下的
+record 取终点。
 一次性 PostgreSQL 链路在两条生产 intake 路径上都证明了它：record 的坐标就是该快照的坐标、重放不再追加第二条、
 非 `AVAILABLE` 的快照一条也不带。除这条写入外不声称任何事。**NOT_ADMITTED：** R0 不授予 provider authenticity、deployment、runtime、Dashboard 或
 trading authority。
@@ -863,8 +868,14 @@ Design，因为 registration 经 Market Data pool 写入，而重读持有 regis
 locator 的 `ReplayCompositionUniverseBindingIssuanceRequestV1` 走自己的路由
 `POST /v1/replay-compositions/universe-member-issuances`，在自己的 meaning 域
 `market-data.replay-composition-universe-issuance-meaning.v1\0` 下哈希；它指名 Composer attestation、PIT request、
-Source Binding、replay 窗口、Universe Selection、Reference Fact R0 record、Market Semantics 与 correction policy，
-此外什么都不指名。它在第一语料的两个事务与两个 challenge 中运行，但不做 native-join 读取，并原子地存下 schema 2
+Source Binding、Universe Selection、Reference Fact R0 record、Market Semantics 与 correction policy，此外什么都不
+指名。两种 issuance body 都不指名 replay 窗口，指名了的 body 在解析时被 `deny_unknown_fields` 拒绝。窗口由 Owner
+推导：从快照 R0 record 的起始事件时刻起，持续一个执行 bar - 即 Source Binding 为 Design 的 BAR 角色所读的那一个标签声明
+的 bar - 且绝不越过 R0 的声明。多个标签以 `EXECUTION_TIMEFRAME_NOT_SINGLE` 拒绝，因为一个 Replay 里的多个周期属于
+Strategy Factory 切片 T2；binding 没有为其声明 bar 的标签以 `EXECUTION_TIMEFRAME_NOT_DECLARED` 拒绝；没有固定长度、
+或长于 R0 声明的执行 bar 以 `EXECUTION_BAR_EXCEEDS_R0_WINDOW` 拒绝；三者都是 HTTP 422。不声明任何 bar 的 binding，
+或没有 BAR 角色的 Design，只得到事件时刻本身。窗口依赖的顺序是：PIT 连同 R0、Market Semantics、角色声明，然后是
+schedule。它在第一语料的两个事务与两个 challenge 中运行，但不做 native-join 读取，并原子地存下 schema 2
 binding、其 Replay facts 与这次 issuance。重试返回已存字节；issuance identity 在两种形状间是同一个命名空间，并经同一个
 resolve 路由恢复；带 exact-instrument declaration 的 Design 按名以 composition shape mismatch 拒绝，零写入。该形状的
 Replay facts 只存在于恰为其 request、其 native authority 与其 frame 签发的 universe-member binding 之下。该形状的
