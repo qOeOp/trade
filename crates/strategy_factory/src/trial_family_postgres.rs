@@ -1350,10 +1350,31 @@ async fn load_trial_family_census_v2_with_lock_mode_in_transaction(
     }
 }
 
+/// The schema of a TrialFamily's census head, read `FOR SHARE`: 1 while the family has only its
+/// formation census, 2 once an attempt has been appended.
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+pub(crate) async fn trial_family_head_schema_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    trial_family_identity: &str,
+) -> Result<u64, TrialFamilyError> {
+    let frontier_json: serde_json::Value = sqlx::query_scalar(
+        "SELECT frontier_json FROM rd_trial_family_heads_v1 WHERE trial_family_identity = $1 FOR SHARE",
+    )
+    .bind(trial_family_identity)
+    .fetch_optional(&mut **transaction)
+    .await
+    .map_err(storage)?
+    .ok_or_else(|| TrialFamilyError::Unavailable("family census head missing".to_string()))?;
+    frontier_json
+        .get("schema_version")
+        .and_then(serde_json::Value::as_u64)
+        .ok_or_else(|| TrialFamilyError::Unavailable("family head schema missing".to_string()))
+}
+
 /// Reads an exact immutable Census prefix after validating the whole chain and current head.
 ///
-/// The historical COMPOSER_V3 readback is this prefix's only consumer, and that module is gated on
-/// the same feature; without this gate the helper is dead in every other build and `-D warnings`
+/// A successor COMPOSER_V3 Replay's historical readback, through the family-cut loader, is this
+/// prefix's only consumer, and that loader is gated on the same feature; without this gate the helper is dead in every other build and `-D warnings`
 /// fails the crate.
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
 pub(crate) async fn load_trial_family_census_v2_at_frontier_in_transaction(

@@ -151,6 +151,12 @@
   在它之前签不出 universe-member composition binding，所以没有存量行是这种形状，也不回填。commit 与历史
   readback 都通过生产 binding Owner 绑定 Composer 的输入，它重读 Market Data 托管，而不是验收语料的固定帧。
   没有 SQL 函数读这两列里的 source 子对象；将来要读的函数必须先按 source schema 分支。
+- **CURRENT - composer-backed Replay 绑定哪一份 TrialFamily 状态：** 与 legacy exploratory Replay 绑定的相同。
+  对家族成形 Intent 的 Replay 绑定家族成形时的样子，即成形时的 census frontier，且只在家族还没有任何 attempt
+  时被准入；successor 绑定家族的 V2 census。一个 attempt 是在 Result 之后记录的一次 Replay，所以家族的第一次
+  Replay 永远不可能对着 V2 census 组合。只有下文的 Decision composition 会追加 attempt，在它被准入之前，
+  successor 按名被拒，`SUCCESSOR_CENSUS_AWAITS_DECISION_COMPOSITION`。commit 与历史 readback 用同一条规则做这个
+  选择；第一代 Replay 的 readback 从家族的 root 重新读出成形 frontier，所以之后追加的 attempt 不会改变它。
 - **CURRENT - 有一条只读操作只能经由写 API 触达：** Dashboard 的操作登记表声明了十一条 Owner 路由，
   其中十条是 `GET`。第十一条 `research_goal.legacy_quarantine_read.v1` 声明 `effect_set: []`，
   解析到 `POST /v1/research-goals/{request_identity}/resolve`，它注册在

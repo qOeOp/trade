@@ -36,6 +36,12 @@ async fn backtest_run_report_reads_back_every_point_a_real_run_committed() {
     let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
         .await
         .expect("canonical disposable topology");
+    // The Catalog V3 head this entry's Research request forms its TrialFamily against.
+    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    crate::replay_policy_catalog_postgres_v2::ensure_sealed_acceptance_catalog_v3_for_test(
+        &database,
+    )
+    .await;
     let mutation = database.mutation();
     let rd_pool = mutation.pool(CanonicalOwnerTestRoleV1::RdOwner);
     let backtest_pool = mutation.pool(CanonicalOwnerTestRoleV1::BacktestOwner);

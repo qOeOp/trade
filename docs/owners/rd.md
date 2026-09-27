@@ -181,6 +181,14 @@ ordered chain's acceptance build admits nothing in production.
   and the historical readback both bind the Composer's inputs through the production binding Owner, which re-reads
   Market Data custody, never the acceptance corpus's fixed frame. No SQL function reads the source sub-object of
   either column; one that starts to must branch on the source schema first.
+- **CURRENT - which TrialFamily state a composer-backed Replay binds:** the same state the legacy exploratory
+  Replay binds. A Replay of the family's formation Intent binds the family as it formed, with its formation census
+  frontier, and is admitted only while the family has no attempt; a successor binds the family's V2 census. An
+  attempt is one Replay recorded after its Result, so a family's first Replay can never compose against a V2 census.
+  Only the Decision composition below appends an attempt, and until it is admitted a successor is refused by name,
+  `SUCCESSOR_CENSUS_AWAITS_DECISION_COMPOSITION`. The commit and the historical readback take the choice from one
+  rule, and the readback of a first-generation Replay re-reads the formation frontier from the family's root, so a
+  later attempt does not change it.
 - **CURRENT - one read-only operation is reachable only through the write API:** the Dashboard's operation
   registry declares eleven Owner routes, and ten are `GET`. The eleventh,
   `research_goal.legacy_quarantine_read.v1`, declares `effect_set: []` and resolves to
