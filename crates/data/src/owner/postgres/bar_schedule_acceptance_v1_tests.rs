@@ -2,6 +2,8 @@
 
 use std::{collections::BTreeSet, env};
 
+use vibe_model::identifiers::InstrumentId;
+
 use super::{
     MarketDataOwnerPostgres, OwnerSourceBindingDecision,
     acceptance_fixture_v1::{declaring_bars_v1, session_bar_v1},
@@ -23,7 +25,8 @@ use crate::owner::{
     },
     declared_bar_timeframe_v1::{DeclaredBarAnchorV1, anchor_identity_v1},
     native_replay_scheduling_v1::{
-        schedule_bar_specification_at_frame_v1, select_native_replay_schedule_for_member_v1,
+        native_bar_type_for_schedule_v1, schedule_bar_specification_at_frame_v1,
+        select_native_replay_schedule_for_member_v1,
     },
     pit_snapshot::PitSnapshotCommitAggregate,
     source_binding::{
@@ -141,6 +144,11 @@ async fn postgres_a_declared_bar_role_gets_the_schedule_its_frame_reads_once() {
         .await
         .unwrap();
     assert!(!committed.rejoined());
+    assert_eq!(
+        committed.schedule().fact().digest(),
+        committed.fact_digest(),
+        "the answer carries the schedule it minted"
+    );
     assert_eq!(schedule_rows(&owner).await, before + 1);
 
     // The committed schedule is the one the native scheduling read selects for the frame.
@@ -183,6 +191,11 @@ async fn postgres_a_declared_bar_role_gets_the_schedule_its_frame_reads_once() {
         .unwrap();
     assert!(again.rejoined());
     assert_eq!(again.fact_digest(), committed.fact_digest());
+    assert_eq!(
+        again.schedule(),
+        committed.schedule(),
+        "a rejoin answers the stored schedule"
+    );
     // The schedule is the instrument's and timeframe's, not the role's: the other Design's role
     // over the same row rejoins it too.
     let other_role = Box::pin(commit_bar_schedule_on_v1(&owner, &locator, d(61), d(62)))
@@ -358,6 +371,19 @@ async fn postgres_a_continuous_declaration_mints_a_schedule_without_calendar_or_
     let zero = BindingDigest::from_untrusted_bytes([0; 32]);
 
     assert_eq!(fact.digest(), committed.fact_digest());
+    assert_eq!(
+        committed.schedule(),
+        &selected,
+        "the answer is the schedule the read selects"
+    );
+    assert_eq!(
+        native_bar_type_for_schedule_v1(
+            committed.schedule().fact(),
+            InstrumentId::from(instrument)
+        )
+        .map(|bar| bar.to_string()),
+        Ok(format!("{instrument}-1-MINUTE-LAST-EXTERNAL"))
+    );
     assert_eq!(fact.kind(), BarScheduleKindV1::FixedInterval);
     assert_eq!(fact.unit(), BarScheduleUnitV1::Minute);
     assert_eq!(fact.step(), 1);
