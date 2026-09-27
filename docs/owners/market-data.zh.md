@@ -288,6 +288,11 @@ readback。Meaning 改变、locator 缺失/篡改、partial row、scalar/frontie
 response-loss retry mismatch 均不 append。**CURRENT / PARTIAL，生产 R0 写：** Owner 对每个自己提交为
 `AVAILABLE` 的 PIT 快照，在与快照同一个 Owner transaction 内 append 其 R0 record，只由同事务提交的 PIT 与 Source
 Binding 托管及当前 clock head 派生；没有路由、没有调用方字段、没有测试代码参与，重放的提交 rejoin 同一条 record。
+它的声明从快照的事件时刻起，持续 Source Binding 为该快照任一 BAR 行标签所声明的最长固定间隔；没有任何声明时只持续一
+纳秒 - 即 binding 不声明任何 bar，或快照只有交易所 session 日的行。更长的声明是对参考事实成立时长的更宽陈述，而不是更
+谨慎的陈述：它以快照自身所含最长的 bar 为界，而每个 Replay 的窗口按它自己的执行标签另行推导，所以没有任何执行窗口因它
+而变宽。resolver 从已存的 batch 与 binding 重新推导终点；composition-basis 读取不持有 batch，从 resolver 写下的
+record 取终点。
 一次性 PostgreSQL 链路在两条生产 intake 路径上都证明了它：record 的坐标就是该快照的坐标、重放不再追加第二条、
 非 `AVAILABLE` 的快照一条也不带。除这条写入外不声称任何事。**NOT_ADMITTED：** R0 不授予 provider authenticity、deployment、runtime、Dashboard 或
 trading authority。
@@ -744,6 +749,16 @@ provider-available、retrieval、correction-publication、Owner-observation、de
 Corporate-action 或 membership cut 可以完整地包含零个 member，但该空 census 必须是绑定准确 scope
 与 decision cut 的显式内容寻址 cut；`NO_ACTIONS` 等字符串绝不等价。
 
+一条事实只有在其 effective interval 与 Replay 窗口重叠、其 provider-available、retrieval、correction-publication 与
+Owner-observation 坐标全部不晚于 snapshot 的 observation instant、且其 decision cut 不晚于 snapshot 的 decision cut
+时才进入 Replay。Session 多满足一条规则，且不更严：它至少与窗口共享一个时刻；不共享的按名拒绝为
+`SessionOutsideReplayWindow`（HTTP 422 `SESSION_OUTSIDE_REPLAY_WINDOW`）。Session 可以早于窗口开盘、晚于窗口收盘。
+它的边界是事先排定的日程事实，不是市场观测，而且一个 session 天然包住其中的 bar，所以在窗口到达收盘时刻之前读到收盘位置
+不构成 look-ahead。一条 session 事实携带四个值 - `session_identity`、`calendar_identity`、`opens_at_ns` 与
+`closes_at_ns` - 每个都是 session 开盘前已知的日程边界。被修订的 session 是一条带自己 correction identity 的新事实版本，
+它满足每条事实都要满足的两条检查：在 snapshot 的 observation instant 之前可得，以及 decision cut 不晚于 snapshot 的。
+挡住在 snapshot 之后才决定的修订的是这两条检查，不是窗口。
+
 V2 frontier 仅通过各 producer 的准确 identity 与 digest 引用既有 PIT Snapshot、Source Binding、
 Instrument Master cut、Universe Selection、normalized observation census、V1 joined-cut receipt 与 V2
 sample projection；不复制或重新解释其规范 bytes，也不创建第二权威。公共 request 只接受一个不受信
@@ -863,8 +878,20 @@ Design，因为 registration 经 Market Data pool 写入，而重读持有 regis
 locator 的 `ReplayCompositionUniverseBindingIssuanceRequestV1` 走自己的路由
 `POST /v1/replay-compositions/universe-member-issuances`，在自己的 meaning 域
 `market-data.replay-composition-universe-issuance-meaning.v1\0` 下哈希；它指名 Composer attestation、PIT request、
-Source Binding、replay 窗口、Universe Selection、Reference Fact R0 record、Market Semantics 与 correction policy，
-此外什么都不指名。它在第一语料的两个事务与两个 challenge 中运行，但不做 native-join 读取，并原子地存下 schema 2
+Source Binding、Universe Selection、Reference Fact R0 record、Market Semantics 与 correction policy，此外什么都不
+指名。两种 issuance body 都不指名 replay 窗口，指名了的 body 在解析时被 `deny_unknown_fields` 拒绝。窗口由 Owner
+推导：从快照 R0 record 的起始事件时刻起，持续一个执行 bar - 即 Source Binding 为 Design 执行角色的标签声明的 bar -
+且绝不越过 R0 的声明。执行角色是 Design 各个 join 所触发的那个角色；不声明 join 的 Design，则是唯一读 BAR close 的那个
+角色；所以第一语料里 join 在一起的 `1M`、`1H` 与 session 日角色按 `1M` 触发器执行。这是 Strategy Factory 的规则
+（`derive_execution_role_v2`），从同一份 Composer role-set 投影读出，其权威在 Strategy Factory：凡是 Strategy Factory
+定义了该角色的 universe Design，都有一条 Strategy Factory 测试要求两者对同一个 Design 得出同一个角色。join 在一起的第一
+语料（一个精确品种、一个 join、三个 close 角色）今天不在那份定义之内，所以这条规则是它唯一的定义；这是一个覆盖缺口，由
+Strategy Factory 切片 T2 补上。**决策点，归 T2：** T2 把执行角色推广到带 join 的多周期 Design 之后，role-set 投影携带执行
+角色的 identity，Market Data 改为读取该角色的标签，不再自行推导。各 join 触发不同角色、或没有 join 却有多个 close 角色的
+Design，以 `EXECUTION_ROLE_AMBIGUOUS` 拒绝；binding 没有为其声明 bar 的标签以 `EXECUTION_TIMEFRAME_NOT_DECLARED` 拒绝；没有固定长度、
+或长于 R0 声明的执行 bar 以 `EXECUTION_BAR_EXCEEDS_R0_WINDOW` 拒绝；三者都是 HTTP 422。不声明任何 bar 的 binding，
+或没有 BAR 角色的 Design，只得到事件时刻本身。窗口依赖的顺序是：PIT 连同 R0、Market Semantics、角色声明，然后是
+schedule。它在第一语料的两个事务与两个 challenge 中运行，但不做 native-join 读取，并原子地存下 schema 2
 binding、其 Replay facts 与这次 issuance。重试返回已存字节；issuance identity 在两种形状间是同一个命名空间，并经同一个
 resolve 路由恢复；带 exact-instrument declaration 的 Design 按名以 composition shape mismatch 拒绝，零写入。该形状的
 Replay facts 只存在于恰为其 request、其 native authority 与其 frame 签发的 universe-member binding 之下。该形状的

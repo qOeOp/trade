@@ -344,7 +344,13 @@ move-only readback. Changed meaning, missing/tampered locator, partial row, scal
 or response-loss retry mismatch appends nothing. **CURRENT / PARTIAL, production R0 write:** the Owner
 appends the R0 record for every PIT snapshot it commits as `AVAILABLE`, inside the same Owner transaction as the
 snapshot, derived only from the co-committed PIT and Source Binding custody and the current clock head; no route, no
-caller field and no test code takes part, and a replayed commit rejoins the same record. The isolated PostgreSQL
+caller field and no test code takes part, and a replayed commit rejoins the same record. Its claim runs from the
+snapshot's event instant for the longest fixed interval the Source Binding declares for any BAR row label of the
+snapshot, and for one nanosecond when none is declared - a binding that declares no bars, or rows of an exchange session
+day only. A longer claim is a broader statement about how long the reference facts hold, not a more cautious one: it is
+bounded by the longest bar the snapshot itself contains, and each Replay's window is derived separately from its own
+execution label, so no execution window widens because of it. The resolver re-derives the end from the stored batch and
+binding; the composition-basis read, which holds no batch, takes it from the record the resolver wrote. The isolated PostgreSQL
 chain proves it on both production intake paths: the record's coordinates are the snapshot's, a replay appends no
 second record, and a snapshot that is not `AVAILABLE` carries none. Nothing beyond this write is claimed. **NOT_ADMITTED:** R0 grants no provider authenticity, deployment, runtime, Dashboard or trading authority.
 
@@ -808,6 +814,19 @@ instrument and inclusion disposition. A complete corporate-action or membership 
 members, but that empty census is an explicit content-addressed cut over an exact scope and decision
 cut; a string such as `NO_ACTIONS` is never equivalent.
 
+A fact enters a Replay only while its effective interval overlaps the Replay window, only when its
+provider-available, retrieval, correction-publication and Owner-observation coordinates are all at or before the
+snapshot's observation instant, and only when its decision cut is at or before the snapshot's. A session meets one
+more rule, and no stricter one: it shares at least one instant with the window, and one that does not is refused by
+name as `SessionOutsideReplayWindow` (HTTP 422 `SESSION_OUTSIDE_REPLAY_WINDOW`). A session may open before the window
+and close after it. Its boundaries are calendar facts scheduled in advance, not market observations, and a session
+encloses the bars inside it, so reading where it closes before the window reaches that instant is not look-ahead. A
+session fact carries four values - `session_identity`, `calendar_identity`, `opens_at_ns` and `closes_at_ns` - and
+each is a schedule boundary known before the session opens. A revised session is a new fact version under its own
+correction identity, and it meets the two checks every fact meets: availability by the snapshot's observation instant,
+and a decision cut no later than the snapshot's. Those two checks, not the window, keep out a revision decided after
+the snapshot.
+
 The V2 frontier references the existing PIT Snapshot, Source Binding, Instrument Master cut, Universe
 Selection, normalized observation census, V1 joined-cut receipt and V2 sample projection only by each
 producer's exact identity and digest. It does not copy or reinterpret their canonical bytes and does
@@ -943,8 +962,24 @@ facts whose shape is not their binding's, and the class refusal at the Instrumen
 shape is built and issued. A locator-only `ReplayCompositionUniverseBindingIssuanceRequestV1`, on its own route
 `POST /v1/replay-compositions/universe-member-issuances` and hashed under its own meaning domain
 `market-data.replay-composition-universe-issuance-meaning.v1\0`, names the Composer attestation, the PIT request, the
-Source Binding, the replay window, the Universe Selection, the Reference Fact R0 record, Market Semantics and the
-correction policy, and nothing else. It runs in the first corpus's two transactions and challenges without the
+Source Binding, the Universe Selection, the Reference Fact R0 record, Market Semantics and the correction policy, and
+nothing else. Neither issuance body names a replay window, and one that does is refused at parse by
+`deny_unknown_fields`. The Owner derives the window: from the event instant the snapshot's R0 record starts at, for one
+execution bar - the bar the Source Binding declares for the label of the Design's execution role - and never past the
+R0 claim. The execution role is the role the Design's joins trigger on, or, for a Design that declares no join, the one
+role reading the BAR close; so the first corpus's joined `1M`, `1H` and session-day roles execute on the `1M` trigger.
+This is Strategy Factory's rule (`derive_execution_role_v2`), read from the same Composer role-set projection, and
+Strategy Factory is its authority: for every universe Design, where Strategy Factory defines the role, a Strategy
+Factory test holds the two to the same role for the same Design. The joined first corpus - one exact instrument, a join
+and three close roles - is outside that definition today, so this rule is its only definition; this is a coverage gap
+that Strategy Factory slice T2 closes. **Decision point, owned by T2:** once T2 generalizes the execution role to joined
+and multi-timeframe Designs, the role-set projection carries the execution role's identity, and Market Data reads that
+role's label instead of deriving the role. A Design whose joins trigger on different roles, or that has no join and
+several close roles, is refused as `EXECUTION_ROLE_AMBIGUOUS`; a label the binding declares no bar for as
+`EXECUTION_TIMEFRAME_NOT_DECLARED`; and an
+execution bar with no fixed length, or longer than the R0 claim, as `EXECUTION_BAR_EXCEEDS_R0_WINDOW`; each is
+HTTP 422. A binding that declares no bars, or a Design with no BAR role, gets the event instant alone. The window rests on
+the order PIT with R0, Market Semantics, the role declarations, then the schedule. It runs in the first corpus's two transactions and challenges without the
 native-join read, and stores the schema 2 binding, its Replay facts and the issuance atomically. A retry returns the
 stored bytes; an issuance identity is one namespace across both shapes and is recovered through the same resolve
 route; and a Design with an exact-instrument declaration is refused by name as a composition shape mismatch, writing

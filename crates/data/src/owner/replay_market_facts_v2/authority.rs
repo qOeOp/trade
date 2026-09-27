@@ -1190,14 +1190,17 @@ fn validate_stored_fact(
         } => *selection_identity == cut.scope.authority_identity,
         _ => true,
     };
-    let session_inside_window = match fact.value {
+    // A session is a scheduled calendar boundary, not a market observation: it may open before
+    // the Replay window and close after it. Look-ahead over a revised session is the decision-cut
+    // and availability checks' job, not this one's.
+    let session_overlaps_window = match fact.value {
         ReplayReferenceFactValueV2::Session {
             opens_at_ns,
             closes_at_ns,
             ..
         } => {
-            opens_at_ns >= context.replay_start_event_ns
-                && closes_at_ns <= context.replay_end_event_ns_exclusive
+            opens_at_ns < context.replay_end_event_ns_exclusive
+                && closes_at_ns > context.replay_start_event_ns
         }
         _ => true,
     };
@@ -1206,11 +1209,15 @@ fn validate_stored_fact(
         || fact.scope != cut.scope
         || fact.source_identity != source_binding_identity
         || fact.time.decision_cut > context.pit_decision_cut
-        || !overlaps_window
         || !available_before_pit
         || !membership_matches
-        || !session_inside_window
     {
+        Err(ReplayMarketFactsErrorV2::InvalidFactCut)
+    } else if !session_overlaps_window {
+        // Named before the validity check: an Owner-built session is valid exactly while it is
+        // open, so that check would otherwise report the same session under the generic name.
+        Err(ReplayMarketFactsErrorV2::SessionOutsideReplayWindow)
+    } else if !overlaps_window {
         Err(ReplayMarketFactsErrorV2::InvalidFactCut)
     } else {
         Ok(())
