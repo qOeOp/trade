@@ -6203,7 +6203,10 @@ pub(crate) mod tests {
                 UntrustedBarJoinedCutAcceptanceDesignClaimsV1,
                 register_bar_joined_cut_declarations_for_published_design_v1,
             },
-            chain_market_base_v1::chain_market_base_snapshot_v1,
+            chain_market_base_v1::{
+                CHAIN_MARKET_DATA_ACCEPTANCE_BASIS_V1, chain_market_base_snapshot_v1,
+                ensure_market_data_acceptance_basis_v1,
+            },
         };
 
         use crate::{
@@ -6236,6 +6239,14 @@ pub(crate) mod tests {
             &test_database,
         )
         .await;
+        // The Market Data acceptance basis whose PIT snapshot and corpus the six BAR bindings are
+        // issued against.
+        ensure_market_data_acceptance_basis_v1(
+            test_database.database_url(CanonicalOwnerTestRoleV1::MarketDataOwner),
+            CHAIN_MARKET_DATA_ACCEPTANCE_BASIS_V1,
+        )
+        .await
+        .expect("the chain's Market Data acceptance basis is written or rejoined");
         let _mutation = test_database.mutation();
         let operator_authorization_database_url = test_database
             .database_url(CanonicalOwnerTestRoleV1::OperatorAuthorizationWriter)
@@ -6339,7 +6350,7 @@ pub(crate) mod tests {
         // Nothing has attested this Design, and nothing can: the Composer operation that would
         // attest it runs over a program whose identity folds in the binding receipts the
         // registration below issues. So R&D publishes what it knows about the Design, and Market
-        // Data binds it to the acceptance corpus this store already carries.
+        // Data binds it to the acceptance corpus of the basis this entry ensured.
         let published = composition_root
             .publish_design_role_intent(&request_identity, &design)
             .await
@@ -7348,20 +7359,39 @@ pub(crate) mod tests {
         .await
         .unwrap();
         let scope = ResearchInstrumentScopeV1::from_wire(scope_wire(&[&unknown])).unwrap();
+        // The precondition, ensured rather than inherited: Market Data answers only once it holds a
+        // clock head and an eligible frontier, which the chain's acceptance basis commits and
+        // admits. Without them the request would stay unresolved.
+        #[cfg(feature = "sealed-strategy-input-acceptance")]
+        {
+            use vibe_data::owner::chain_market_base_v1::{
+                CHAIN_MARKET_DATA_ACCEPTANCE_BASIS_V1, MarketDataAcceptanceBasisPointerV1,
+                ensure_market_data_acceptance_basis_v1,
+            };
 
-        // The precondition, named: Market Data answers only once it holds a clock head, which the
-        // replay composition entry commits. Without it the request would stay unresolved.
-        let answer = {
-            let mut transaction = owner.pool.begin().await.unwrap();
-            let answer = vibe_data::owner::check_research_instrument_scope_v1(
-                &mut transaction,
-                &scope,
+            let market_data_database_url =
+                test_database.database_url(CanonicalOwnerTestRoleV1::MarketDataOwner);
+            ensure_market_data_acceptance_basis_v1(
+                market_data_database_url,
+                CHAIN_MARKET_DATA_ACCEPTANCE_BASIS_V1,
             )
             .await
-            .expect(
-                "Market Data's clock head, which the replay composition entry commits, must \
-                     precede this entry",
-            );
+            .expect("the chain's Market Data acceptance basis is written or rejoined")
+            .require_current_in(
+                market_data_database_url,
+                MarketDataAcceptanceBasisPointerV1::ClockHead,
+            )
+            .await
+            .expect("Market Data's current clock head is the acceptance basis's");
+        }
+        let answer = {
+            let mut transaction = owner.pool.begin().await.unwrap();
+            let answer =
+                vibe_data::owner::check_research_instrument_scope_v1(&mut transaction, &scope)
+                    .await
+                    .expect(
+                        "Market Data answers once the acceptance basis's clock head is current",
+                    );
             transaction.rollback().await.unwrap();
             answer
         };
@@ -7371,8 +7401,7 @@ pub(crate) mod tests {
         );
         assert!(
             answer.eligible_instrument_frontier().is_some(),
-            "Market Data's current eligible frontier, which the replay composition entry admits, \
-             must precede this entry"
+            "Market Data holds a current eligible frontier once the acceptance basis is ensured"
         );
 
         let admission =

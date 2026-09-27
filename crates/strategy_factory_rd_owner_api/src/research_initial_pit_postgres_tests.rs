@@ -7,8 +7,8 @@
 //!
 //! What this entry cannot construct, and why:
 //!
-//! - A new attempt after Market Data's clock head moves. The chain's head after entry 6 is that
-//!   entry's fixture clock, and the production advancer (a Source Binding admission, which mints
+//! - A new attempt after Market Data's clock head moves. The chain's head is the Market Data
+//!   acceptance basis's fixture clock, which this entry ensures and asserts is current, and the production advancer (a Source Binding admission, which mints
 //!   the Owner's own clock) is refused against it as `TrustedClockMismatch` (owner-chains run
 //!   36225783033). The recovery branch is driven instead, with Market Data's refusal injected at
 //!   the port; at an unchanged cut it refreezes the same attempt.
@@ -34,10 +34,11 @@ use rstest::rstest;
 use sha2::{Digest as _, Sha256};
 use sqlx::{PgPool, Postgres, Transaction};
 use tower::ServiceExt;
-// The chain fixture's instrument, which entry 6 admits into the only frontier Market Data holds.
+// The chain fixture's instrument, which the Market Data acceptance basis admits into its frontier.
 // It is not a product choice: this entry proves how R&D issues an initial PIT request, which does
 // not depend on the kind of instrument a scope names.
 use vibe_data::owner::chain_fixture_v1::CHAIN_FIXTURE_INSTRUMENT_V1 as CHAIN_FIXTURE_INSTRUMENT;
+use vibe_data::owner::chain_market_base_v1::MarketDataAcceptanceBasisPointerV1;
 use vibe_data::owner::{
     pit_market_snapshot_intake_v1::{
         PitMarketSnapshotBlockerV1, PitMarketSnapshotDispositionV1, PitMarketSnapshotIntakeErrorV1,
@@ -385,10 +386,14 @@ fn available() -> ResearchInitialPitV1 {
     }
 }
 
-/// Needs entry 6: it admits the only frontier, Instrument Master fact and Source Binding the
-/// chain's Market Data holds, and this entry reads them through Market Data's own read surface.
+/// Ensures what it reads rather than relying on earlier entries: the chain's Market Data acceptance
+/// basis (frontier, Instrument Master fact, Source Binding and clock head, read through Market
+/// Data's own read surface) and the sealed Catalog V3 head its Research request forms a TrialFamily
+/// against. It asserts the clock head is the basis's. The frontier it reads is asserted once row 33
+/// stops admitting a second one (Lane 2's change to build it on this basis); until then the serial
+/// chain's current frontier is row 33's, which admits the same instrument.
 #[rstest]
-#[ignore = "requires the ordered Owner PostgreSQL chain and entry 6's Market Data fixture"]
+#[ignore = "requires the ordered Owner PostgreSQL chain"]
 fn a_v3_research_request_issues_its_initial_pit_request_over_http() {
     // Accepting a request and issuing its PIT request each run the Owner's deepest custody paths;
     // together they overflow the default test stack, as the other V3 entries do.
@@ -412,6 +417,15 @@ fn a_v3_research_request_issues_its_initial_pit_request_over_http() {
 )]
 async fn issues_its_initial_pit_request() {
     let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
+    #[cfg(feature = "sealed-source-intake-acceptance")]
+    crate::tests::ensure_sealed_catalog_v3(&test_database).await;
+    let basis = crate::tests::ensure_market_data_acceptance_basis(&test_database).await;
+    crate::tests::require_basis_pointer(
+        &test_database,
+        &basis,
+        MarketDataAcceptanceBasisPointerV1::ClockHead,
+    )
+    .await;
     // The production Market Data ports open from the deployment environment.
     unsafe {
         env::set_var(
