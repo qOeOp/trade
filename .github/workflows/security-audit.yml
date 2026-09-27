@@ -8,6 +8,11 @@ name: security-audit
 #     create a workflow run only when audit-relevant paths change. Development-
 #     wheel publication commits force all audit jobs. An active, expiring
 #     SECURITY_GATE_OVERRIDE skips forced audit jobs for push runs only.
+#   - Pull requests, on the same paths: build.yml's quality then requires the run
+#     (scripts/ci/path_triggered_workflows.py). Until 2026-09-27 this ran on `main`
+#     alone and gated nothing: it was red for 53 runs over four days (RUSTSEC-2026-0306)
+#     while every pull request merged, and no lockfile outside Cargo.lock and
+#     python/uv.lock was scanned at all.
 
 permissions:
   contents: read
@@ -24,7 +29,7 @@ env:
 on:
   push:
     branches: [main, develop, master, test-ci, test-security]
-    paths:
+    paths: &security_audit_paths
       - Cargo.lock # Keep in sync with scripts/ci/security-audit-gate.sh.
       - Cargo.toml
       - crates/**/Cargo.toml
@@ -32,6 +37,8 @@ on:
       - .pre-commit-config.yaml
       - python/uv.lock
       - python/pyproject.toml
+      - services/*/uv.lock
+      - services/*/pyproject.toml
       - deny.toml
       - .cargo/deny-fuzz.toml
       - osv-scanner.toml
@@ -54,6 +61,9 @@ on:
       - .zizmor.yml
       - .github/actions/**
       - .github/workflows/**
+  pull_request:
+    branches: [main]
+    paths: *security_audit_paths
   schedule:
     - cron: "0 12 * * *" # Daily at 12:00 UTC
   workflow_dispatch: # Allow manual trigger
@@ -287,6 +297,7 @@ jobs:
             --lockfile=Cargo.lock
             --lockfile=crates/adapters/lighter/fuzz/pornin/Cargo.lock
             --lockfile=python/uv.lock
+            --lockfile=services/bilibili-note-mcp/uv.lock
 
   audit-result:
     name: audit-result

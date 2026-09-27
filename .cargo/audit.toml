@@ -31,6 +31,8 @@ ignore = [
   "RUSTSEC-2025-0141",
   # capnp unsound APIs, transitive via hypersync-client, awaiting upstream fix
   "RUSTSEC-2025-0143",
+  # faster-hex unsound hex_decode_unchecked, transitive via hypersync (never called), awaiting upstream
+  "RUSTSEC-2026-0306",
   # proc-macro-error2 unmaintained, transitive via alloy and tabled_derive
   "RUSTSEC-2026-0173",
   # quick-xml DoS, transitive via object_store 0.13.2; no object_store release with quick-xml >= 0.41.0
