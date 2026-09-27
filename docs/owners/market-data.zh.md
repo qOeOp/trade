@@ -749,6 +749,16 @@ provider-available、retrieval、correction-publication、Owner-observation、de
 Corporate-action 或 membership cut 可以完整地包含零个 member，但该空 census 必须是绑定准确 scope
 与 decision cut 的显式内容寻址 cut；`NO_ACTIONS` 等字符串绝不等价。
 
+一条事实只有在其 effective interval 与 Replay 窗口重叠、其 provider-available、retrieval、correction-publication 与
+Owner-observation 坐标全部不晚于 snapshot 的 observation instant、且其 decision cut 不晚于 snapshot 的 decision cut
+时才进入 Replay。Session 多满足一条规则，且不更严：它至少与窗口共享一个时刻；不共享的按名拒绝为
+`SessionOutsideReplayWindow`（HTTP 422 `SESSION_OUTSIDE_REPLAY_WINDOW`）。Session 可以早于窗口开盘、晚于窗口收盘。
+它的边界是事先排定的日程事实，不是市场观测，而且一个 session 天然包住其中的 bar，所以在窗口到达收盘时刻之前读到收盘位置
+不构成 look-ahead。一条 session 事实携带四个值 - `session_identity`、`calendar_identity`、`opens_at_ns` 与
+`closes_at_ns` - 每个都是 session 开盘前已知的日程边界。被修订的 session 是一条带自己 correction identity 的新事实版本，
+它满足每条事实都要满足的两条检查：在 snapshot 的 observation instant 之前可得，以及 decision cut 不晚于 snapshot 的。
+挡住在 snapshot 之后才决定的修订的是这两条检查，不是窗口。
+
 V2 frontier 仅通过各 producer 的准确 identity 与 digest 引用既有 PIT Snapshot、Source Binding、
 Instrument Master cut、Universe Selection、normalized observation census、V1 joined-cut receipt 与 V2
 sample projection；不复制或重新解释其规范 bytes，也不创建第二权威。公共 request 只接受一个不受信

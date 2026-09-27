@@ -2758,7 +2758,7 @@ fn insert_rejection_code(response: &mut Response, code: &str) {
 /// Answers a replay composition refusal with the status its cause supports.
 ///
 /// A variant leaves 503 only when every site that constructs it on the issuance and recovery paths
-/// is the caller's request or a fact the store declared, never a store failure. Three qualify.
+/// is the caller's request or a fact the store declared, never a store failure. Seven qualify.
 /// `InvalidRequest` is raised only by validation of the caller's command, including a locator that
 /// contradicts the composition it was sent with. `IssuanceIdentityConflict` is raised only where the
 /// Owner has established that the identity and the request disagree with an issuance it holds -
@@ -2766,7 +2766,11 @@ fn insert_rejection_code(response: &mut Response, code: &str) {
 /// which is the conflict this file already answers as `CONFLICTING_SEMANTICS_FOR_REQUEST_IDENTITY`.
 /// `PriceAdjustmentUnknown` is raised only when a Market Semantics fact declares its price
 /// adjustment unknown, a statement about the data that takes the 422 this file gives a well-formed
-/// request the Owner declines on semantics.
+/// request the Owner declines on semantics. `ExecutionRoleAmbiguous`,
+/// `ExecutionTimeframeNotDeclared` and `ExecutionBarExceedsR0Window` are raised only while issuance
+/// derives the Replay window from the Design's roles and the bars the Source Binding declares, and
+/// `SessionOutsideReplayWindow` only while issuance composes the snapshot's sessions against that
+/// window; each is a statement that the Design cannot be replayed over this snapshot as it stands.
 ///
 /// The rest stay 503 because their sites are the store's, and a 4xx would tell a caller its request
 /// is wrong when the store may be at fault. `DigestMismatch` now reports only stored bytes,
@@ -2802,6 +2806,10 @@ fn replay_composition_refusal(error: ReplayCompositionBindingErrorV1) -> Respons
         ReplayCompositionBindingErrorV1::ExecutionBarExceedsR0Window => (
             StatusCode::UNPROCESSABLE_ENTITY,
             Some("EXECUTION_BAR_EXCEEDS_R0_WINDOW"),
+        ),
+        ReplayCompositionBindingErrorV1::SessionOutsideReplayWindow => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Some("SESSION_OUTSIDE_REPLAY_WINDOW"),
         ),
         ReplayCompositionBindingErrorV1::ReplayV2Unavailable
         | ReplayCompositionBindingErrorV1::DigestMismatch
@@ -6172,6 +6180,11 @@ mod tests {
         ReplayCompositionBindingErrorV1::ExecutionBarExceedsR0Window,
         StatusCode::UNPROCESSABLE_ENTITY,
         Some("EXECUTION_BAR_EXCEEDS_R0_WINDOW")
+    )]
+    #[case::session_outside_replay_window(
+        ReplayCompositionBindingErrorV1::SessionOutsideReplayWindow,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        Some("SESSION_OUTSIDE_REPLAY_WINDOW")
     )]
     #[case::replay_v2_unavailable(
         ReplayCompositionBindingErrorV1::ReplayV2Unavailable,

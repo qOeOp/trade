@@ -862,6 +862,11 @@ pub enum ReplayCompositionBindingErrorV1 {
     /// The execution bar has no fixed duration, or one execution bar after the event instant ends
     /// after the window the snapshot's R0 record claims its reference facts for.
     ExecutionBarExceedsR0Window,
+    /// A session the snapshot's reference facts carry for this Replay does not overlap its window.
+    ///
+    /// A session may open before the window and close after it; one that shares no instant with it
+    /// is not a session of this Replay, and the snapshot cannot serve the Replay as it stands.
+    SessionOutsideReplayWindow,
 }
 
 impl Display for ReplayCompositionBindingErrorV1 {
@@ -1695,6 +1700,11 @@ fn nonzero(value: BindingDigest) -> bool {
     value.as_bytes() != &[0; 32]
 }
 
-fn map_v2_error(_error: ReplayMarketFactsErrorV2) -> ReplayCompositionBindingErrorV1 {
-    ReplayCompositionBindingErrorV1::ReplayV2Unavailable
+fn map_v2_error(error: ReplayMarketFactsErrorV2) -> ReplayCompositionBindingErrorV1 {
+    match error {
+        ReplayMarketFactsErrorV2::SessionOutsideReplayWindow => {
+            ReplayCompositionBindingErrorV1::SessionOutsideReplayWindow
+        }
+        _ => ReplayCompositionBindingErrorV1::ReplayV2Unavailable,
+    }
 }

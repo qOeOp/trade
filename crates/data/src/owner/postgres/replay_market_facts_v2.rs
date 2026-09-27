@@ -4206,11 +4206,13 @@ fn map_admission_reader_error(
         ReplayCompositionBindingErrorV1::UniverseFrameMismatch => {
             StrategyInputBindingAdmissionErrorV1::BindingUnavailable
         }
-        // Raised only while an issuance derives its window, which this reader never does; each
-        // says the Design cannot be replayed over this snapshot, not that the store failed.
+        // Raised only while an issuance derives its window or composes its facts, which this reader
+        // never does; each says the Design cannot be replayed over this snapshot, not that the
+        // store failed.
         ReplayCompositionBindingErrorV1::ExecutionRoleAmbiguous
         | ReplayCompositionBindingErrorV1::ExecutionTimeframeNotDeclared
-        | ReplayCompositionBindingErrorV1::ExecutionBarExceedsR0Window => {
+        | ReplayCompositionBindingErrorV1::ExecutionBarExceedsR0Window
+        | ReplayCompositionBindingErrorV1::SessionOutsideReplayWindow => {
             StrategyInputBindingAdmissionErrorV1::BindingUnavailable
         }
         // Listed rather than left to a wildcard, so that a variant added later cannot become a

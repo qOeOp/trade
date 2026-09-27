@@ -814,6 +814,19 @@ instrument and inclusion disposition. A complete corporate-action or membership 
 members, but that empty census is an explicit content-addressed cut over an exact scope and decision
 cut; a string such as `NO_ACTIONS` is never equivalent.
 
+A fact enters a Replay only while its effective interval overlaps the Replay window, only when its
+provider-available, retrieval, correction-publication and Owner-observation coordinates are all at or before the
+snapshot's observation instant, and only when its decision cut is at or before the snapshot's. A session meets one
+more rule, and no stricter one: it shares at least one instant with the window, and one that does not is refused by
+name as `SessionOutsideReplayWindow` (HTTP 422 `SESSION_OUTSIDE_REPLAY_WINDOW`). A session may open before the window
+and close after it. Its boundaries are calendar facts scheduled in advance, not market observations, and a session
+encloses the bars inside it, so reading where it closes before the window reaches that instant is not look-ahead. A
+session fact carries four values - `session_identity`, `calendar_identity`, `opens_at_ns` and `closes_at_ns` - and
+each is a schedule boundary known before the session opens. A revised session is a new fact version under its own
+correction identity, and it meets the two checks every fact meets: availability by the snapshot's observation instant,
+and a decision cut no later than the snapshot's. Those two checks, not the window, keep out a revision decided after
+the snapshot.
+
 The V2 frontier references the existing PIT Snapshot, Source Binding, Instrument Master cut, Universe
 Selection, normalized observation census, V1 joined-cut receipt and V2 sample projection only by each
 producer's exact identity and digest. It does not copy or reinterpret their canonical bytes and does
