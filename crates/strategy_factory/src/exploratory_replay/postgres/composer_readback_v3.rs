@@ -24,7 +24,9 @@ use super::{
 };
 use crate::{
     composer_artifact_family_binding_v3::load_composer_artifact_family_binding_for_replay_v3,
-    composer_replay_intent_v3::resolve_composer_replay_intent_in_transaction,
+    composer_replay_intent_v3::{
+        load_composer_replay_family_cut_v3, resolve_composer_replay_intent_in_transaction,
+    },
     develop_composer_postgres_v2::read_accepted_for_replay_historical_in_transaction,
     exploratory_replay::{
         ComposerBackedExploratoryReplayProposalV3, EXPLORATORY_REPLAY_MUTATION_EFFECT_V3,
@@ -47,9 +49,7 @@ use crate::{
         composer_exploration_research_view_is_valid_v3,
     },
     replay_execution_profile_binding_v1::ReplayExecutionProfileRequestSealV1,
-    trial_family_postgres::{
-        PostgresReadLockMode, load_trial_family_census_v2_at_frontier_in_transaction,
-    },
+    trial_family_postgres::PostgresReadLockMode,
 };
 
 /// One internally consistent persisted claim. This type deliberately is not a sealed readback:
@@ -296,32 +296,6 @@ pub(super) async fn resolve_existing_composer_v3_in_transaction(
             "COMPOSER_V3 Product Edge historical admission mismatch",
         ));
     }
-    let census = Box::pin(load_trial_family_census_v2_at_frontier_in_transaction(
-        transaction,
-        &proposal.trial_family_identity,
-        &source.census_frontier_identity,
-        &source.census_frontier_digest,
-    ))
-    .await
-    .map_err(unavailable)?;
-    let root = census.legacy_family.root();
-    let root_receipt = census.legacy_family.root_receipt();
-    let member = census.legacy_family.initial_intent_member();
-    let expected_profile = ReplayExecutionProfileRequestSealV1::issue(
-        &census.legacy_family,
-        &proposal.request_identity,
-        &claim.receipt.meaning_digest,
-    )
-    .map_err(unavailable)?;
-
-    if source.trial_family_root_receipt_identity != root_receipt.receipt_identity()
-        || source.trial_family_root_digest != root.root_digest()
-        || source.trial_family_member_identity != member.member_identity()
-        || source.trial_family_member_digest != member.member_digest()
-        || claim.receipt.execution_profile_seal.as_ref() != Some(&expected_profile)
-    {
-        return Err(corrupt("COMPOSER_V3 TrialFamily Owner readback mismatch"));
-    }
 
     if market.market_data_scope_digest() != proposal.market_data_scope_digest
         || source.market_binding_receipt_identity != binding.receipt().identity()
@@ -357,22 +331,46 @@ pub(super) async fn resolve_existing_composer_v3_in_transaction(
     )
     .await
     .map_err(unavailable)?;
-    let intent =
-        resolve_composer_replay_intent_in_transaction(transaction, &census, &composer).await?;
-    let artifact_family = load_composer_artifact_family_binding_for_replay_v3(
+    let cut = load_composer_replay_family_cut_v3(
         transaction,
-        &census,
-        &intent,
+        &proposal.trial_family_identity,
         &composer,
+        Some((
+            &source.census_frontier_identity,
+            &source.census_frontier_digest,
+        )),
     )
-    .await
-    .map_err(unavailable)?
-    .ok_or_else(|| corrupt("COMPOSER_V3 historical Artifact-family binding is missing"))?;
+    .await?;
+    let root = cut.legacy_family().root();
+    let root_receipt = cut.legacy_family().root_receipt();
+    let member = cut.legacy_family().initial_intent_member();
+    let expected_profile = ReplayExecutionProfileRequestSealV1::issue(
+        cut.legacy_family(),
+        &proposal.request_identity,
+        &claim.receipt.meaning_digest,
+    )
+    .map_err(unavailable)?;
+
+    if source.trial_family_root_receipt_identity != root_receipt.receipt_identity()
+        || source.trial_family_root_digest != root.root_digest()
+        || source.trial_family_member_identity != member.member_identity()
+        || source.trial_family_member_digest != member.member_digest()
+        || claim.receipt.execution_profile_seal.as_ref() != Some(&expected_profile)
+    {
+        return Err(corrupt("COMPOSER_V3 TrialFamily Owner readback mismatch"));
+    }
+    let intent =
+        resolve_composer_replay_intent_in_transaction(transaction, &cut, &composer).await?;
+    let artifact_family =
+        load_composer_artifact_family_binding_for_replay_v3(transaction, &cut, &intent, &composer)
+            .await
+            .map_err(unavailable)?
+            .ok_or_else(|| corrupt("COMPOSER_V3 historical Artifact-family binding is missing"))?;
     let admitted =
         admit_composer_replay_market_in_transaction_v3(transaction, &composer, &market).await?;
     let composed = prepare_composer_backed_replay_v3(
         proposal,
-        &census,
+        &cut,
         &intent,
         &composer,
         &artifact_family,
@@ -385,7 +383,7 @@ pub(super) async fn resolve_existing_composer_v3_in_transaction(
     }
     let prepared = prepare_composer_replay_seal_v3(
         composed,
-        &census,
+        &cut,
         old_view.clone(),
         claim.frozen.product_edge_request_semantic_digest.clone(),
         claim.frozen.committed_at_epoch_ms,
