@@ -136,10 +136,15 @@ never runs in CI.
   measures inside the custodian with the leased credential. It also has the admission receipt cross-bind the trust
   bundle, while `SealedDeploymentStoreAdmissionReceipt` carries the witness identity but no signer key fingerprint
   or bundle identity.
-  Two production adapters now exist, and neither is composed: the pinned Ed25519 signature verifier
-  (`store_admission/signature.rs`) and the PostgreSQL custody store (`store_admission/custody_postgres.rs`, its schema
+  Four production adapters now exist, and none is composed: the pinned Ed25519 signature verifier
+  (`store_admission/signature.rs`), the PostgreSQL custody store (`store_admission/custody_postgres.rs`, its schema
   and its two principals in `product/rd-workbench/postgres-init/20-deployment-store-custody.sh`, which the compose file
-  does not run yet). `admit_rd_owner_market_data_postgres` still wires the `Unavailable*` ports, so `required` still
+  does not run yet), and the secret-file credential resolver (`store_admission/credential_files.rs`). A secret file
+  has no version or expiry of its own: its version is the SHA-256 of its exact bytes, which the signed manifest names,
+  and its lease lapses a fixed time after the admission's store-clock cut. The fourth is the single-machine
+  anti-rollback mode `SingleTrustDomainNoRollbackWitness` (`store_admission/witness.rs`): on one machine the
+  anti-rollback property does not hold, the mode says so in every receipt, and the architecture rules carry the
+  user's 2026-09-27 authorization. `admit_rd_owner_market_data_postgres` still wires the `Unavailable*` ports, so `required` still
   fails closed at startup. The admission reads time from the custody store's clock alone: every history read carries
   the store's `clock_timestamp()` cut, and the commit judges the receipt's window on that clock.
 - **`B4` consumer not compiled into the deployed image.** `product/rd-workbench/Dockerfile.owner` builds
@@ -1752,7 +1757,11 @@ Market Semantics, source frontier, and correction frontier all equal that same b
 duplicate, overlapping, reordered, or corrupt candidates return no frame or schedule readback. The caller supplies
 no schedule locator, account scope, latest selector, raw row, SQL, pool, credential, or replacement store.
 
-**TARGET / NOT_ADMITTED, Native Replay frame sequence V2:** the existing initial-frame
+**SUPERSEDED TARGET, Native Replay frame sequence V2:** PIT window custody below replaces this profile for
+multi-frame Backtest; the sequence issuance and its tables have no caller, and Market Data deletes them with Strategy
+Factory slice T1, their tables through a migration rather than only their code, while the frame and quote cut
+censuses keep serving the snapshot path. The text remains the statement of the
+invariants custody carries forward. The existing initial-frame
 resolver, `StrategyInputUniverseFrameReceipt` V1, BAR schedule readbacks and
 `NativeReplaySchedulingReadbackV1` keep their exact bytes and single-frame meaning. The additive
 Owner-issued `NativeReplayFrameSequenceReadbackV2` is a move-only, request-bound capability. Its
@@ -1825,6 +1834,114 @@ took Quotes from the frame's own batch - bytes Owner custody never produced. The
 seals every frame through that same seal, over one or two members, and its liquidity EVENT receipt
 seals the quote cut's snapshot, fact and batch in place of the frame's. No proof yet drives a
 complete initial read - schedules, universe and quote cut together - on Owner custody.
+
+**TARGET / IMPLEMENTATION_ADMITTED for slice T0, PIT window custody:** a multi-frame Backtest over backfilled history
+reads one append-only PIT window custody instead of a snapshot per frame. The user admitted this on 2026-09-27, as the
+Strategy Factory page's Strategy shape envelope quotes, including the one property it narrows: frames of a custody run
+no longer each carry their own minting cut and trusted-clock evidence, so custody is admitted only for backfilled
+history, and real-time decisions keep taking one snapshot per instant. A PIT snapshot remains one instant. The
+snapshot path keeps its bytes, seals, censuses, and quote cut port; the verified batch seal and the quote cut read
+each gain a custody view branch beside it.
+
+Slice T0 is admitted for implementation, and only T0. The user authorized the design on 2026-09-27 in these words
+(translated), as the Strategy shape envelope quotes them: "Switch to window custody. Backfilled history is placed in
+custody once for the whole range; when each bar becomes visible is derived from the rule declared on the Source
+Binding; real-time trading still takes a snapshot per instant. The user authorizes narrowing the scope of the property
+that each frame carries its own minting evidence: in backtests, frames no longer each carry minting evidence, and only
+backfilled history is admitted." T0 is the Market Data side alone: the two-layer custody (cross-section version
+records and row facts under the successor sample fact schema), the cross-section correction model with its branch
+refusal, the availability rule declared on the Source Binding, frame enumeration from the execution timeframe's Owner
+BAR schedule, the derived view with its time evidence and identity, the `CustodyView` branch of the verified batch
+seal, and the quote cut derived from custody. Of the Readers bullet below, T0 records the Market Semantics fact and
+head, the Instrument Master cut, and Reference Fact R0 once per custody chain, because a custody view is read through
+them; the declaration registry and the universe member composition basis follow in T1 with the readers that consume
+them. A custody request states its member set and timeframes itself. Deriving that request from a Research scope and a
+Design is slice T1's, as are the N-frame Backtest composition and every reader outside Market Data; T2
+(multi-timeframe roles) and T3 (warm-up by role) stay not admitted here until their slices are. T0 adds no route,
+production caller, or Backtest input, so until T1 is admitted nothing outside Market Data's own proofs mints or reads
+a custody. Its proofs are the envelope's falsifiers that fall inside Market Data: N=1 and two single-timeframe frames
+equal the snapshot path on the projection of values, coordinates, event times, bar types, and member order; two
+custodies differing only in whether one correction publishes before `d_k` yield different frame `k` values, and
+removing the publication condition turns that red, driven by a synthetic source that declares a correction stream; an
+availability rule set to the minting instant hides every frame; and a correction published between `d_k` and a quote's
+availability reaches the fill quote but not frame `k`'s strategy inputs, which a code path shared by the two turns
+red. T0 is not driven until T1: it has no production caller, so a complete T0 is structurally present and run by no
+Backtest.
+
+- **Custody:** covers the half-open window from its warm-up start and is committed once, then never mutated. A later
+  correction is a successor custody that names its predecessor and carries only the versions it adds; a view reads the
+  chain to its head. A successor restates its predecessor's basis exactly - Market Semantics fact, Instrument Master
+  cut, member set, and availability rule digest - and a changed basis is a new root custody, never a successor, so one
+  chain never mixes two bases. The correction unit is a cross-section - every row of one source, timeframe, and
+  event-effective instant - with a correction sequence, predecessor, and publication instant, because a frame's rows
+  must share their time and correction coordinates. Two versions naming one predecessor, a repeated sequence, or a
+  publication that does not increase with the sequence is an ambiguous branch. Custody has two layers: a cross-section
+  version record carrying the lineage, branch refusal, and head rules `SampleFactV1` already states, and immutable row
+  facts that are members of one version under a successor sample fact schema. That schema replaces the source snapshot
+  fields with the cross-section version identity and row digest, and its root slot hashes the series and
+  event-effective instant without a snapshot digest, so one bar's corrections across retrievals form one chain.
+  `SampleFactV1` bytes are never reinterpreted. Row identity - Owner event identity, sample slot, and coordinate - is
+  therefore keyed by the custody row, never by a derived view, so one higher-timeframe bar carries the same coordinate
+  bytes in every frame that reads it. Under that schema the series head advances once per event-effective instant, its
+  sequence by one and its event strictly later, and each slot's correction head advances by the cross-section's
+  correction sequence. `SampleFactV1` takes a row's series sequence from its correction sequence, a rule that cannot
+  chain the bars of a source publishing no corrections, so the successor schema states both chains itself.
+- **Publication:** a cross-section's publication instant is observed only from a source that publishes corrections.
+  A source that does not, which is every admitted source today, keeps one version per cross-section whose
+  publication equals its availability instant, and a successor version for it is refused by name as
+  `CROSS_SECTION_CORRECTION_NOT_PUBLISHED_BY_SOURCE`. Nothing constructs that refusal today, because no custody
+  exists; the correction falsifier is driven by a synthetic source that declares a correction stream.
+- **Availability:** the instant a row becomes visible is derived from a rule declared on the Source Binding, such as
+  bar close plus source lag, never from the requester's stamped `provider_available`. The rule's digest enters the
+  custody identity. No-look-ahead rests on this rule, which is a declaration rather than an observation. A declared
+  lag that is not strictly below the execution bar interval cannot satisfy `d_k < e_{k+1}` and is refused by name as
+  `AVAILABILITY_LAG_NOT_BELOW_BAR_INTERVAL`; nothing constructs it today. The rule is declared by a Source Binding
+  proposal of schema 2, together with whether the source publishes a correction stream. It is either a lag after the
+  row's bar closes or the retrieval instant itself, the second for a source that states nothing earlier; set to the
+  retrieval instant, a custody minted today shows no frame of its window. Its digest is taken over the rule alone, so
+  a binding successor that keeps the rule keeps the digest, while the binding identity still hashes each cut's
+  frontiers and time evidence. A schema-1 binding declares no rule and refuses a custody by name as
+  `SOURCE_BINDING_DECLARES_NO_AVAILABILITY_RULE`, which nothing constructs until custody commits exist and the T0
+  proofs then drive.
+- **Members:** the member set is fixed for the whole custody. A member whose Instrument Master validity or Universe
+  membership begins or ends inside the window refuses the custody by name, as `WINDOW_MEMBER_NOT_VALID_THROUGHOUT`.
+- **Frames:** enumerated from the execution timeframe's Owner BAR schedule, never from custody rows. Frame `k` has an
+  event instant `e_k` and an availability instant `d_k`, with `d_k < e_{k+1}`; a frame with no complete cross-section
+  refuses the run as `PIT_WINDOW_FRAME_NOT_COVERED`. The execution timeframe is a fixed interval, enumerated from the
+  phase instant the window schedule fact records, such as midnight UTC for a daily bar or Monday midnight UTC for a
+  Binance weekly bar; a session-based execution timeframe is refused by name as
+  `PIT_WINDOW_EXECUTION_TIMEFRAME_NOT_FIXED_INTERVAL`, which nothing constructs until custody commits exist and the T0
+  proofs then drive. That is a scope limit, not a property: a session-based timeframe, such as an exchange-session
+  daily bar for gold, needs a later slice that expands sessions, and is refused until one exists. The schedule is a
+  window schedule fact that the custody's own commit mints over the whole window, since a schedule fact today is
+  minted from one batch row.
+- **Derived view:** for frame `k`, Market Data selects, for each source, the execution timeframe's cross-section at
+  `e_k`, and for every other timeframe the latest cross-section whose availability is at or before `d_k`; in each it
+  takes the highest sequence published by `d_k`, drops a withdrawn one, and refuses a branch. A frame for which a
+  declared timeframe has produced no cross-section yet, such as during warm-up, refuses the run as
+  `PIT_WINDOW_FRAME_NOT_COVERED`. The view's decision cut is `d_k`,
+  its order check is event ≤ available ≤ publication ≤ `d_k`, one derived frontier digest covers its uniform
+  fields, and its identity is SHA-256 over the selected cross-section version identities, the availability rule
+  digest, the view schema version, and `e_k`, so a correction changes only the views that select it. Its time
+  evidence names the Owner clock identity and epoch the custody was minted under, and `d_k` is an instant of that
+  clock. The custody's own minting cut and retrieval instants stay in custody evidence.
+- **Seal:** `VerifiedPitObservationBatch` gains a source, committed snapshot or custody view, and loses its direct
+  snapshot identity and fact digest accessors, so the compiler lists every reader keyed by a snapshot. The custody
+  view constructor is sealed like the snapshot one and has its own `compile_fail` and tamper tests.
+- **Readers:** everything that is one per snapshot today is one per custody chain, and nothing is keyed by the first
+  frame's snapshot. The Market Semantics fact and head, the Instrument Master cut stamped at intake, the declaration
+  registry, and the universe member composition basis are each recorded once per custody chain; sample slots are
+  keyed by the series and event-effective instant each custody row carries, so a correction in a successor custody lands in the
+  same slot. Reference Fact R0 is stored once per custody chain over the whole window, and a frame's R0 is computed on
+  read from it with no stored per-frame locator. The PIT evaluation evidence read derives from custody, and the BAR
+  schedule check becomes a window schedule fact whose interval contains `e_k` with its cut at or before `d_k`.
+  Every table and function those reads touch is inside the admitted-port measurement.
+- **Quote cut:** derived from custody inside `(d_k, e_{k+1})`, exactly one per gap, on one instant, in member order,
+  taking no frame ordinal, and never the version a later correction superseded. Its version is the highest sequence
+  published at or before the quote instant's own availability, and a later correction supersedes it only as of that
+  instant: the fill follows the decision, and at `d_k` no quote could qualify, since its event follows `d_k`. This
+  concerns the fill quote alone. Frame `k`'s strategy inputs are still cut at `d_k`, so a correction published between
+  `d_k` and the quote's availability reaches the fill quote and never frame `k`'s inputs.
 
 In the CURRENT/PARTIAL BAR schedule path, only a custody-verified readback may authorize the additive immutable
 `TimeframeProjectionReceiptV1` keyed by the exact V1 binding-receipt digest. Its existing canonical bytes and domain

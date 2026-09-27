@@ -574,6 +574,7 @@ mod tests {
         },
         instrument_master_v2_postgres::{InstrumentMasterV2PostgresOwner, tests::selection_of},
     };
+    use vibe_postgres_connect::{PgPoolOptionsExt, PostgresTls};
 
     /// One member's economic terms under the shared account scope, valid around the replay time.
     fn terms_for(
@@ -611,7 +612,10 @@ mod tests {
     #[ignore = "requires a disposable Market Data PostgreSQL database"]
     async fn postgres_economic_terms_resolve_for_one_member_or_two() {
         let owner_url = std::env::var("MARKET_DATA_OWNER_TEST_DATABASE_URL").unwrap();
-        let pool = PgPool::connect(&owner_url).await.unwrap();
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .connect_url(&owner_url, PostgresTls::Disabled)
+            .await
+            .unwrap();
         let master = InstrumentMasterV2PostgresOwner::install(pool.clone())
             .await
             .unwrap();

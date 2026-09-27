@@ -27,6 +27,7 @@ use std::{
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, postgres::PgPoolOptions};
+use vibe_postgres_connect::{PgPoolOptionsExt, PostgresTls};
 
 use crate::capacity_observation::{
     CapacityObservationRefusal, RISK_CAPACITY_OBSERVATION_SCHEMA_V1, SealedCapacityObservationV1,
@@ -182,7 +183,7 @@ impl RiskCapacityReadPortPostgresV1 {
     ) -> Result<Self, RiskCustodyError> {
         let pool = PgPoolOptions::new()
             .max_connections(4)
-            .connect(database_url)
+            .connect_url(database_url, PostgresTls::Disabled)
             .await
             .map_err(storage)?;
         Ok(Self { pool, clock })

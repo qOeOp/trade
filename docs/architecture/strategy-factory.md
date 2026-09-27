@@ -15,6 +15,9 @@ specification: the typed Design shape, the fail-closed pipeline, the pinned prim
 the ABI, and the build capsule. They are normative for anyone implementing the compiler and are not required to
 understand the value stream. The actor throughout is R&D's Develop capability.
 
+The Strategy shape envelope section records the admitted target those Owners and the compiler grow toward, and
+which stated bounds the user has authorized it to move.
+
 ## Forward path
 
 A sourced hypothesis is only a proposal. Before protected feedback, R&D atomically precommits one principal- and request-scope-bound Independence Basis Receipt. Qualification directly resolves that exact R&D receipt and, after inspecting its complete durable principal/scope history, returns either `GENESIS_EMPTY`, a current opaque `FRONTIER(ref, cut)`, or `UNAVAILABLE`; genesis is valid only for proven empty Qualification history. Product Edge carries that principal/scope-bound opaque projection without protected detail. Inside the locked R&D admission transaction, R&D resolves its own complete local semantic-predecessor lineage as `GENESIS_EMPTY`, `COMPLETE_FRONTIER`, or `UNAVAILABLE`. Only exact current canonical reads from both Owners may atomically create the frozen Research Intent, permanent TrialFamily root, initial census member and head, receipts, and outbox. The caller cannot supply or override either frontier, the independence disposition, or the basis identity.
@@ -315,6 +318,12 @@ including all powers of ten and rational factors, and performs exactly one final
 declared output scale. A wide intermediate that exceeds I128 but fits I256 and rounds to I128 is valid. An I256
 overflow, divide by zero, invalid scale, discarded nonzero remainder without a declared rounding mode, or final
 I128 overflow - including I128 `MIN / -1` - returns the named `NUMERIC_FAILURE_NO_STATE_CHANGE` terminal.
+One class is exempt by user authorization: the TARGET natural logarithm and exponential catalog rows (V4b) have no
+exact single-rounding form, so each pins its algorithm and golden test vectors instead, and the exemption covers
+only those new rows. The pinned algorithm is part of the row's identity, so changing it is a new row; it is written
+in the catalog's own fixed-point arithmetic, never a host math library, so guest and host agree; and a domain
+failure - a logarithm of zero or less, an exponential that overflows - still returns
+`NUMERIC_FAILURE_NO_STATE_CHANGE`. The exemption covers only the single final rounding, never the failure meaning.
 
 `NUMERIC_FAILURE_NO_STATE_CHANGE` is failure-atomic: input admission may be recorded, but primitive state,
 warm-up counters, stored sample coordinates, plugin/BFP/kernel state, lifecycle output, target/protection, semantic
@@ -688,7 +697,10 @@ canonical Result bytes after the coordinator acknowledges the Result, all 28 evi
 trace; an unacknowledged submission remains unavailable. This admission grants no disposable PostgreSQL acceptance,
 deployed or running service, production invocation, Paper/Live execution, or trading.
 
-**TARGET / NOT_ADMITTED, Owner-sealed Native Replay frame sequence V2:** the existing
+**SUPERSEDED TARGET, Owner-sealed Native Replay frame sequence V2:** the Strategy shape envelope replaces this
+profile with PIT window custody; the profile has no caller, and in slice T1 each Owner deletes its part, tables
+through a migration. The paragraphs below remain as
+the statement of the invariants the replacement's relocation table carries forward. The existing
 `NativeReplayExecutionInputBindingV1`, its single universe frame, native scheduling receipt,
 28-component observation package, execution bundle, request and Result identities remain
 byte-for-byte unchanged. A separate `NativeReplayExecutionInputBindingV2` may bind one already
@@ -741,17 +753,14 @@ attempt/Result response-loss readback returns the already committed Result and e
 re-executes or fabricates a closure. This contract does not itself prove dynamic Owner issuance,
 disposable PostgreSQL acceptance, profitable strategy behavior, Paper, Live or trading authority.
 
-**Why a longer Backtest is a longer frame sequence and not a larger batch:** one PIT batch is one
-instant. Nothing that resolves a member's role row filters it by event time, so a batch that also
-holds a later instant of the same role offers two exact rows and binds no universe frame at all;
-`a_batch_holding_a_second_instant_of_one_role_binds_no_frame` measures exactly that. A window of
-several BAR instants is therefore that many snapshots, universe frames and native scheduling seals,
-and the consumer already reads it that way: the target-set ProgramHost strategy keys pending BARs
-and Owner frames by instant and refuses to finish until both are exhausted. The frame census, the window readback and the sequence
-resolver this paragraph once listed as missing now exist, and the sequence's own
-`MIN_FRAME_COUNT` is a floor of two rather than a fixed count. Generalizing the native scheduling
-seal to project a whole window out of one batch is not a way around either: the frames such a
-series needs cannot be bound from the batch it came from.
+**Why a longer Backtest is one window custody and not a longer frame sequence:** one PIT batch is one
+instant, and nothing that resolves a member's role row filters it by event time, so a batch holding a later instant
+of the same role offers two exact rows and binds no universe frame at all;
+`a_batch_holding_a_second_instant_of_one_role_binds_no_frame` measures exactly that. The frame-sequence profile
+answered this with one snapshot, universe frame, and native scheduling seal per instant, which costs one external
+commit per frame and fixes one timeframe for the run. Window custody keeps both facts - each frame is still bound
+from a one-instant batch through the one construction site below - but derives that batch from custody minted once,
+as the Strategy shape envelope states.
 
 **Where a run is pinned to one frame today:**
 `ReplayTargetSetExecutionBundleV1::new_from_single_frame_v1` has one production caller, in
@@ -1243,9 +1252,16 @@ The nested policy owns every execution choice needed to compose the complete `Re
 
 - the runtime-kernel, simulator, cost, slippage, and capacity profile identities and versions;
 - the runner operational profile, diagnostic policy, and deterministic seed;
-- the half-open replay window, calendar, session, and time-zone identities and versions; and
+- the admissible half-open replay range, and the calendar, session, and time-zone identities and versions; and
 - the correction-rule and market-semantics identities and versions, corporate-action cut, historical-membership
   cut, and any other selection in the request that family policy, rather than an input Owner, owns.
+
+A request's replay window is the window of the Market Data facts it is composed from, within the policy's
+admissible range; today one frame, `[C, C+1)`, where `C` is the instant Market Data cut the family's snapshot. The
+policy bounds the window and no caller supplies either; it cannot fix the window itself, because the family's
+policy is sealed when the family forms, before any snapshot of it exists. A composed window outside the range is
+refused by name, `FactsWindowOutsidePolicyRange`. A legacy exploratory request still carries the policy window
+itself.
 
 ### TARGET / NOT_ADMITTED - Replay execution profile V1
 
@@ -1328,6 +1344,229 @@ and may not compose a replacement, alter policy, or create a second request, rec
 is not admitted until implementation plus real disposable PostgreSQL Owner readback and end-to-end first-party
 acceptance prove the complete composition and every zero-change rejection; it grants no production or trading
 authority.
+
+<a id="strategy-shape-envelope"></a>
+
+## TARGET - Strategy shape envelope
+
+The user set this target on 2026-09-27, in these words (translated): "Increase the design's expressive power: let
+the design hold the strategy shapes I may want; multi-timeframe and multi-instrument are certain," and "the current
+design is not necessarily the best; sometimes, rather than extending it, it may be overturned and redesigned." The
+shapes named are breakout and range, support and resistance, candlestick patterns and indicators, multi-timeframe and
+multi-instrument strategies, and Fibonacci levels. The consumer is the user's own corpus: every shape must compile
+through the authoring language into a Bounded Feature Program and run to a report over a multi-frame Backtest. The
+first executable acceptance (F) keeps its single-instrument perpetual scope; everything in this section follows it.
+Nothing here admits a Paper or Live path, a production write, or trading, and nothing adds a second strategy
+interpreter or runtime: every shape still lowers to a Bounded Feature Program and the shared lifecycle kernel.
+
+**Why this is a redesign and not an extension:** from the member-count slices onward each F blocker was fixed by
+changing one number on one path, after which the next path refused the same shape. They share one cause: the shape
+tuple - roles, members, window, and timeframe - has no single Owner. It is encoded as variants (an exact instrument
+versus a universe member; a single target versus a member target set) and as constants (one or two members, a floor
+of two frames, OPEN and CLOSE on one day, one PIT instant per composition), and it is declared again on seven
+surfaces: the Design role, the role entry, the Market Data binding request, the Composer claim, the Bounded Feature
+Program input, the Plan binding, and the Research scope with its PIT request. Extending each constant would repeat
+that pattern; the target below deletes the variants instead.
+
+Two other shapes of pressure surfaced on the same path. The envelope does not remove them, so they are recorded for
+evaluation after F. One is a consumer built against a producer that was never built, which the section on what the
+envelope assumes of F scopes. The other is a global scan in place of an exact read by identity: a Research
+submission, the current Research lock, and the historical readback each admit every Research custody in the store,
+reading them twice and the second time under a shared row lock, so one custody that fails verification blocks every
+later submission and the cost grows with the whole history.
+
+### Prerequisite slices
+
+- **P0, one source for the shape tuple:** the Research request's scope carries the member set and the window, and the
+  Design carries the role set (P1); every other surface derives them from those two custodies and declares none of
+  them again. An exact instrument is
+  a one-member universe, so the exact and universe input paths become one. Anything that differs by member count,
+  such as Market Data's PIT request preimage domain, is derived from the count rather than declared beside it. P0
+  is complete when changing the member count or adding a role changes exactly one declaration. It changes no admitted bound by itself.
+- **P1, the role set comes from the Design:** the native Plan contract stops fixing OPEN and CLOSE on one day; the
+  Design declares its roles, its execution timeframe, and which role prices an order. A role the Host cannot bind is
+  refused by name.
+- **P2, the report states every member:** the report family states each member of a universe run, generalizing the
+  one-member statement Backtest already makes.
+
+### Time: PIT window custody
+
+A PIT snapshot remains one instant, and the Market Data snapshot path, its seals, and the quote cut port that F uses
+are unchanged. A multi-frame Backtest instead reads one **PIT window custody**, a new append-only Market Data
+aggregate that holds backfilled history for the whole window once, and Market Data derives from it, frame by frame,
+a one-instant view that satisfies the batch invariants the frame receipt already checks. The Market Data Owner page
+states the custody contract. This replaces the frame-sequence profile below, whose code has no caller, because that
+profile commits one external PIT snapshot and one schedule per frame: two years of daily bars are about 730
+commits, one year of one-minute bars about 520,000, and every frame must share one timeframe.
+
+- Each frame has two instants: `e_k`, the close of the execution-timeframe bar that defines it, and `d_k`, the
+  instant its data becomes available under the availability rule declared on the Source Binding, with
+  `d_k < e_{k+1}`. Frames are enumerated from the execution timeframe's Owner BAR schedule, never from custody rows,
+  so a missing bar refuses its frame instead of skipping it.
+- The derived view's decision cut is `d_k`, never the custody's minting cut: every reader of a decision cut would
+  otherwise see a later cut than the frame had. The view's order check is event ≤ available ≤ publication ≤ `d_k`.
+- A multi-timeframe role (slice T2) resolves, at frame `k`, the bar its own timeframe's Owner schedule last closed
+  before `d_k`, and exactly that bar; a gap refuses the frame. The binder relaxes its single-trigger check by source
+  for custody views only: the trigger is the execution role's row, and every other role carries its own lifecycle
+  coordinate with available ≤ `d_k`.
+- The member set is fixed for the whole run. A member whose Instrument Master validity or Universe membership begins or
+  ends inside the window refuses the run by name as `WINDOW_MEMBER_NOT_VALID_THROUGHOUT`; nothing constructs that refusal today, because no custody
+  exists.
+- A frame with no complete cross-section refuses the run as `PIT_WINDOW_FRAME_NOT_COVERED`, naming `e_k` and the
+  blocker; nothing constructs it today, for the same reason.
+- Backtest result custody for a custody run binds the custody identity and the ordered view identities.
+
+Every invariant the frame-sequence design held has a new home, except one:
+
+| Invariant                                                                                            | Where it lives today                       | Where it lives under window custody                                                                                                           |
+| ---------------------------------------------------------------------------------------------------- | ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| A batch is one instant                                                                               | Market Data PIT snapshot                   | Each derived view is one instant at `e_k`; under T2 only roles other than the execution role align to their own last close                    |
+| Row time order and one clock                                                                         | PIT batch verification                     | View rows: event ≤ available ≤ publication ≤ `d_k`; retrieval ≤ minting cut stays in custody evidence                                         |
+| One member set, role set, Instrument Master cut, timeframe, venue, and account scope for every frame | Frame sequence V2                          | Unchanged: the member set is fixed and a member not valid throughout refuses the run                                                          |
+| No gap, no skipped frame, no frame list from the caller                                              | Frame sequence V2                          | Frames enumerated from the execution timeframe's Owner schedule; a gap is `PIT_WINDOW_FRAME_NOT_COVERED`                                      |
+| Latest visible correction, never the superseded version, ambiguous branches refused                  | Frame sequence V2 and the quote cut census | Version selection per cross section at `d_k`; a branch refuses the frame                                                                      |
+| A BAR receipt alone cannot authorize a fill                                                          | Frame sequence V2                          | Each frame still needs its derived quote cut, strictly inside `(d_k, e_{k+1})`                                                                |
+| An exact locator reread returns identical bytes                                                      | Frame sequence V2                          | Custody is immutable after commit; view identities are recomputable                                                                           |
+| A verified batch comes only from a committed snapshot                                                | Market Data seal                           | A second sealed source, `CustodyView`, with its own `compile_fail` and tamper tests                                                           |
+| Nothing from the future is visible                                                                   | The snapshot boundary                      | The declared availability rule, version selection at `d_k`, and the binder's available ≤ `d_k`; the rule is a declaration, not an observation |
+| **Each frame carries its own minting cut and evidence from a trusted clock**                         | Frame sequence V2                          | **No equivalent home**: custody is minted once. Authorized below                                                                              |
+
+The last row narrows a stated property. The user authorized it on 2026-09-27 by choosing, in these words
+(translated): "Switch to window custody. Backfilled history is placed in custody once for the whole range; when each
+bar becomes visible is derived from the rule declared on the Source Binding; real-time trading still takes a
+snapshot per instant. The user authorizes narrowing the scope of the property that each frame carries its own
+minting evidence: in backtests, frames no longer each carry minting evidence, and only backfilled history is
+admitted." Window custody is therefore admitted only for backtests over backfilled history.
+
+Slices: **T0** is the Market Data custody (cross-section correction model, availability rule, frame enumeration,
+derived view, `CustodyView` seal); **T1** composes a single-timeframe N-frame Backtest from it; **T2** adds
+multi-timeframe roles after P1; **T3** keys warm-up by role and emits neutral member targets during warm-up. Their
+falsifiers are fixed now: N=1 and two single-timeframe frames must equal the snapshot path on the projection of
+values, coordinates, event times, bar types, and member order; two custodies differing only in whether one
+correction publishes before `d_k` must yield different frame `k` values, and removing the publication condition must
+turn that red (Binance publishes no correction stream, so a synthetic source drives it); an availability rule set to
+the minting instant must hide every frame; removing the available ≤ `d_k` check must turn the T2 look-ahead test red;
+and the same higher-timeframe bar must carry byte-identical coordinates in adjacent frames.
+
+### Members: a parameter
+
+The Research scope is the only source of the member set (P0). The one-or-two bound becomes one declared upper bound.
+The user authorized widening the user route on 2026-09-27 by choosing, in these words (translated): "Widen to N. The
+upper bound is provisionally 16 and is fixed after I1.5 measures `max_edges`." A frozen program is valid only for its
+own member count; changing the member set is a new Research.
+
+- **I1** makes the bound one declaration and the target set bounded-variable, and deletes the Host's single-versus-
+  members branch. Market Data keeps its one-member PIT request preimage domain, so stored one-member request
+  identities are not rekeyed; the members domain carries two or more.
+- **I1.5** measures the edge count of per-member expansion against the graph bound before the upper bound is fixed.
+- **I2** gives the Bounded Feature Program a member dimension: index reference in the program, broadcast per member
+  in the authoring language, and cross-member reductions (rank, mean, minimum, maximum, n-th) as appended catalog
+  primitives. Rank is the average rank, so tied members share one rank and a permutation of members permutes their
+  ranks; n-th returns the n-th order statistic's value, which no permutation changes. This changes a governed
+  surface, and each of the four cheaper routes fails: a new field semantic value cannot, because a member axis is
+  not a data meaning; a new catalog primitive cannot, because it acts on values already in the graph and creates no
+  per-member port; a new action catalog entry cannot, because it still needs a terminal that emits target-set bytes;
+  and a composition of existing nodes cannot, because no node has a target-set type. The change is an optional
+  `member_ordinal` on the input meaning and one terminal that turns N member weights into a canonical target set.
+  The encoder omits an absent `member_ordinal`, so every frozen meaning re-encodes to identical bytes and digest,
+  which is I2's falsifier. The meaning schema version is unchanged and stays closed: a decoder from before I2
+  refuses bytes carrying `member_ordinal`, as a frozen program is valid only for its own member count anyway.
+- **I3** adds gross and net exposure caps as a Design legality constraint, not a Risk decision; an over-cap proposal
+  is refused as `TARGET_SET_EXPOSURE_CAP_EXCEEDED`, which nothing constructs today because no member dimension exists.
+
+The falsifiers: N one-member runs and one non-interacting N-member run agree on per-unit targets and fills (not
+weights, which share one equity); permuting members leaves every reduction unchanged and permutes member targets,
+including on inputs with ties.
+
+### Values, inputs, and actions
+
+- **Values:** catalog V4a appends window rank and percentile, bars since an extremum, and covariance and correlation.
+  V4b appends natural logarithm and exponential. The user authorized their numeric rule on 2026-09-27 by choosing, in
+  these words (translated): "Introduce ln/exp with a pinned algorithm plus golden test vectors, applying only to new
+  catalog rows; this class of operation is exempt from 'one exact expression, one final rounding'." V5 adds two
+  fixed-slot state rules: a bucket array, and a memory of the last N events whose slots each hold a frozen set of
+  values. Bollinger variance written as `Mean(x²) − Mean(x)²` must guard its radicand with `Select`,
+  because the two terms round separately.
+- **Inputs:** funding rate and open interest extend the existing Binance futures PIT source with two appended row
+  fields and field semantics (N1). Binance's public archive holds history for mark, index, and premium klines,
+  metrics, book depth, and funding rate. Liquidations have no admitted historical source - the USDⓈ-M archive holds
+  none and the coin-margined `BTCUSD_PERP` snapshot ends on 2024-10-14 - so a Design that asks for them is refused as
+  `INPUT_FACT_UNAVAILABLE_FROM_ADMITTED_SOURCE`, which no field vocabulary lets a Design reach today.
+- **Actions:** the target-set Host ignores a protective fill today, so the next frame's reconciliation fails and
+  aborts the run; only a second frame reaches it. `a_triggered_stop_aborts_the_run_today_until_d1` pins that behavior
+  over two real Sim frames, with a close stop that does not fall and a fall that misses a far stop as its clean
+  controls, and flips to asserting the run continues when D1 lands. Its repair (D1) adds a `kernel.fill.reconcile.v1` case and lands
+  with T1. A1 exposes `DecisionTime` and `AccountEquity` (and fill-based entry price and bars held) as
+  `LifecycleContext` values the program may read, where `DecisionTime` is the frame's decision cut `d_k`; intended entry price and bars held are expressible inside the
+  program already. A2 places take-profit as reduce-only limit orders. A3 first measures a one-limit-per-bar ladder
+  and adds a kernel ladder only if that is not enough.
+
+### Coverage corpus
+
+Every shape has at least one reference strategy, and each must compile through the authoring language and run to a
+report over a multi-frame Backtest, proven by its chain entry's test name. The corpus and the slices each item needs:
+
+| Shape                                 | Reference                                                                           | Needs              |
+| ------------------------------------- | ----------------------------------------------------------------------------------- | ------------------ |
+| Moving average crossover              | C1                                                                                  | P0, P1, T1         |
+| Breakout with an ATR stop             | C2, chandelier stop                                                                 | P1, T1, D1         |
+| Oversold reversal with a trend filter | C3                                                                                  | P1, T1             |
+| Range quartering                      | Ronnie S3, 4h                                                                       | P1, T1, A1         |
+| Support and resistance limit orders   | Ronnie S1, 4h structure, 1h execution                                               | P1, T2, A1, A2, V5 |
+| Large body breakout                   | Ronnie S2b                                                                          | P1, T1, A1         |
+| Fibonacci layered entries             | Ronnie S4                                                                           | P1, T1, V4a, A3    |
+| Counter trend short at a key level    | Ronnie S5                                                                           | P1, T1, D1, A1     |
+| Bollinger state filter                | Ronnie F1(c), with a `Select` radicand guard                                        | P1, T1             |
+| Weekly momentum                       | Ronnie F2, weekly signal, daily execution                                           | T2                 |
+| Independent instruments               | F2 on BTC and ETH                                                                   | I1                 |
+| Cross instrument condition            | BTC trend filtering ETH                                                             | I2                 |
+| Pair spread                           | BTC and ETH z score                                                                 | I2, V4a            |
+| Cross sectional rotation              | Top two of eight by momentum                                                        | I2, I3             |
+| Funding rate filter                   | Extreme funding reversal                                                            | N1                 |
+| Ronnie's drawing rules R1 to R6       | Horizontal and wide bands, trend line bands, Fibonacci, quartering, timeframe roles | See below          |
+
+Ronnie's drawing rules were measured from 2,512 screenshots across 17 of his videos and reduced to six computable
+rules. They need these slices:
+
+- **R1 and R2, horizontal and wide bands:** P1, T1, and V5's memory of the last N reactions, where each slot keeps
+  one swing point's wick extreme and nearest body edge; clustering, the outer and inner edges, and the thickness
+  clip are reductions over those slots, and ATR is expressible today. An order-k swing point is a lag plus a
+  centered window maximum or minimum.
+- **R3, trend line bands:** P1, V4a's bars since an anchor, and the authoring language's `capture` and `latch` to
+  move an anchor on an event. The line's value is the anchors' linear extrapolation with one final rounding; trading
+  needs the value, not a drawn coordinate.
+- **R4, Fibonacci:** P1, V4a to require the high after the low, and `capture`; levels are frozen rationals, and
+  Ronnie's 0.764 is 191/250.
+- **R5, quartering:** arithmetic over the inner edges of the R1 or R2 bands above and below.
+- **R6, timeframe roles:** T2 over daily direction, 4h structure, and 1h execution, with A1 sizing and V5 bands;
+  it is T2's acceptance example.
+
+Compiling is not enough for these rules. Each of R1 to R6 carries a behavioral positive control on real data: the
+program runs over the public K-lines of the instrument, venue, timeframe, and window each measured frame shows, and
+the band edges, line values, and Fibonacci levels it computes must match the prices measured from those frames
+within the measurement's own error - about one dollar per edge, 0.9% of a band's thickness, where a frame printed
+its own prices, and two pixels at that frame's price scale elsewhere. The control has two halves so that a miss has
+one cause: the program's output must equal a direct reference computation of the same rule exactly, which tests the
+compiled program, and that reference must match the measured prices within the tolerance, which tests the rule and
+the parameters the measurement filled in rather than observed. It becomes constructible only after T1 and V5.
+
+### What the envelope assumes of F
+
+The envelope adds no production path of its own: every slice runs a Backtest through the path F's acceptance
+establishes. That path's first-generation Replay binds the family formation frontier, as the legacy path does, because
+a family forms before any attempt and an attempt is a Replay that has already produced a Result. A first-generation
+Replay therefore needs no attempt cut and no R&D Decision composition, and every corpus item above is a
+first-generation run. A successor Replay - a later research round of the same family - reads the TrialFamily Census V2,
+which needs an attempt cut whose only writer waits for the Decision composition consumer; successors remain
+`TARGET / NOT_ADMITTED` in the R&D Owner, and the envelope neither needs nor builds them. An acceptance that iterates
+one family would depend on that producer and would be listed separately.
+
+### Order and what is asked later
+
+P0, P1, P2, and T0 proceed in parallel: T0 is internal to Market Data, and its custody request states its own member
+set and timeframes. T1 depends on all four, because it derives the custody request from the Research scope and the
+Design; its first positive case uses only CLOSE, and D1 lands with it. A1 and V4a proceed in parallel with T1; then T2, I1, I1.5, I2, and I3; then N1, A2, A3, V4b, and V5. Per-frame as-of membership (T4) would
+remove the invariant that every frame shares one member set, so it is asked of the user when it is proposed.
 
 ## Value-stream handoffs
 

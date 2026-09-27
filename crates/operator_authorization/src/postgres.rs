@@ -2,6 +2,7 @@ use std::fmt::Display;
 
 use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, Postgres, Row, Transaction, postgres::PgPoolOptions};
+use vibe_postgres_connect::{PgPoolOptionsExt, PostgresTls};
 
 use crate::{
     AuthorizationReadModeV1, ExpiredManifestRecoveryEpochV1, GENESIS_REVOCATION_FRONTIER,
@@ -356,7 +357,10 @@ fn admitted_relations() -> Vec<String> {
 
 impl OperatorAuthorizationIssuerPostgresV1 {
     pub async fn connect(database_url: &str) -> Result<Self, OperatorAuthorizationError> {
-        let pool = PgPool::connect(database_url).await.map_err(storage)?;
+        let pool = PgPoolOptions::new()
+            .connect_url(database_url, PostgresTls::Disabled)
+            .await
+            .map_err(storage)?;
         let owner = Self { pool };
         owner.migrate().await?;
         Ok(owner)
@@ -366,7 +370,7 @@ impl OperatorAuthorizationIssuerPostgresV1 {
     pub async fn connect_existing(database_url: &str) -> Result<Self, OperatorAuthorizationError> {
         let pool = PgPoolOptions::new()
             .max_connections(8)
-            .connect(database_url)
+            .connect_url(database_url, PostgresTls::Disabled)
             .await
             .map_err(storage)?;
         let admitted: bool = sqlx::query_scalar(
@@ -423,7 +427,10 @@ impl OperatorAuthorizationIssuerPostgresV1 {
     pub async fn connect_for_expired_manifest_recovery(
         database_url: &str,
     ) -> Result<Self, OperatorAuthorizationError> {
-        let pool = PgPool::connect(database_url).await.map_err(storage)?;
+        let pool = PgPoolOptions::new()
+            .connect_url(database_url, PostgresTls::Disabled)
+            .await
+            .map_err(storage)?;
         let owner = Self { pool };
         owner.prepare_expired_manifest_recovery_schema().await?;
         Ok(owner)
@@ -444,7 +451,10 @@ impl OperatorAuthorizationIssuerPostgresV1 {
     /// assumes `operator_authorization_private` already exists, and that schema
     /// is created by that step.
     pub async fn materialize_schema(database_url: &str) -> Result<(), OperatorAuthorizationError> {
-        let pool = PgPool::connect(database_url).await.map_err(storage)?;
+        let pool = PgPoolOptions::new()
+            .connect_url(database_url, PostgresTls::Disabled)
+            .await
+            .map_err(storage)?;
         let owner = Self { pool };
         owner.migrate().await?;
         owner.pool.close().await;
@@ -5199,7 +5209,10 @@ mod tests {
             })
             .await
             .unwrap();
-        let consumer = PgPool::connect(consumer_database_url).await.unwrap();
+        let consumer = PgPoolOptions::new()
+            .connect_url(consumer_database_url, PostgresTls::Disabled)
+            .await
+            .unwrap();
         let consumer_role: String = sqlx::query_scalar("SELECT current_user")
             .fetch_one(&consumer)
             .await

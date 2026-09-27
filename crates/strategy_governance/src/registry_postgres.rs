@@ -35,6 +35,7 @@ use std::{
 
 use serde_json::Value;
 use sqlx::{PgPool, Postgres, Row, Transaction, postgres::PgPoolOptions};
+use vibe_postgres_connect::{PgPoolOptionsExt, PostgresTls};
 
 use crate::execution_scope::{
     AdmittedAdapterBindingFact, BoundCapacityScopeFact, ExecutionScopeDecisionTime,
@@ -176,7 +177,7 @@ impl StrategyRegistryPostgresV1 {
     ) -> Result<Self, GovernanceCustodyError> {
         let pool = PgPoolOptions::new()
             .max_connections(8)
-            .connect(database_url)
+            .connect_url(database_url, PostgresTls::Disabled)
             .await
             .map_err(storage)?;
         Ok(Self { pool, clock })

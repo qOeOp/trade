@@ -332,10 +332,12 @@ fn frozen_event_effective_ns(product: &Product) -> u64 {
     two_bars_ago - (two_bars_ago % product.bar_ns)
 }
 
+// Admitting and answering runs Market Data's admissions end to end; the future is over the
+// `large_futures` threshold at `opt-level = 0`, the profile CI lints with, so it lives on the heap.
 #[tokio::test]
 #[ignore = "requires the disposable PostgreSQL harness and a reachable venue"]
 async fn market_data_answers_one_frozen_request_without_a_credential() {
-    admit_and_answer(&SPOT).await;
+    Box::pin(admit_and_answer(&SPOT)).await;
 }
 
 /// The same seven steps for a perpetual: a different instrument class, a different venue surface,
@@ -347,7 +349,7 @@ async fn market_data_answers_one_frozen_request_without_a_credential() {
 #[tokio::test]
 #[ignore = "requires the disposable PostgreSQL harness and a reachable venue"]
 async fn market_data_answers_one_frozen_perpetual_request_without_a_credential() {
-    admit_and_answer(&PERPETUAL).await;
+    Box::pin(admit_and_answer(&PERPETUAL)).await;
 }
 
 /// The same seven steps for a perpetual's daily bar, which is where the Owner's timeframe word and
@@ -372,7 +374,7 @@ async fn market_data_answers_one_year_of_daily_perpetual_coordinates() {
 #[tokio::test]
 #[ignore = "requires the disposable PostgreSQL harness and a reachable venue"]
 async fn market_data_answers_one_frozen_daily_perpetual_request_without_a_credential() {
-    admit_and_answer(&PERPETUAL_DAILY).await;
+    Box::pin(admit_and_answer(&PERPETUAL_DAILY)).await;
 }
 
 /// Everything one product's admission establishes before any snapshot is requested.

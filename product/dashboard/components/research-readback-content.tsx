@@ -1,10 +1,12 @@
 import type { ResearchReadbackProjectionV1 } from "../lib/research-readback-gateway";
+import { researchExplorationLinksV1 } from "../lib/research-exploration-links";
 import { projectResearchJourneyV1 } from "../lib/research-journey";
 import type { ResearchQuestionItemV1 } from "../lib/research-question-directory";
 import { humanizeReasonCode } from "../lib/reason-presentation";
 import { ArtifactFormationControl } from "./artifact-formation-control";
 import { ResearchQuestionBrief } from "./research-question-brief";
 import { EmptyState, UnavailableState } from "./ui/evidence-strip";
+import { FilterLink } from "./ui/filter-toolbar";
 import { FactGroup, FactGroupGrid, FactGroupSkeletonGrid, FactItem } from "./ui/fact-group";
 import { EvidenceIcons } from "./ui/iconography";
 import { JourneyProgress } from "./ui/journey-progress";
@@ -18,7 +20,13 @@ function displayTime(value: string): string {
 }
 
 function phaseLabel(value: NonNullable<ResearchReadbackProjectionV1["view"]>["phase"]): string {
-  return value === "artifact_available" ? "Artifact available" : "Intent frozen";
+  if (value === "artifact_available") return "Artifact available";
+  if (value === "exploration_active") return "Exploration active";
+  return "Intent frozen";
+}
+
+function phaseTone(value: NonNullable<ResearchReadbackProjectionV1["view"]>["phase"]) {
+  return value === "intent_frozen" ? "info" as const : "success" as const;
 }
 
 // The Owner's initial PIT state as it states it: never derived from another field, and `null` only
@@ -51,9 +59,25 @@ function instrumentsLabel(outcome: NonNullable<ResearchReadbackProjectionV1["out
   return outcome.requestVersion === 2 ? "None" : "Not available";
 }
 
+// What an exploration ran, opened on the routes that read each of them.
+function ExplorationLinks({
+  exploration,
+}: {
+  exploration: NonNullable<NonNullable<ResearchReadbackProjectionV1["view"]>["exploration"]>;
+}) {
+  const links = researchExplorationLinksV1(exploration);
+  return (
+    <FactItem label="Exploration">
+      <FilterLink density="compact" variant="secondary" href={links.composerRun}>Composer run</FilterLink>{" "}
+      <FilterLink density="compact" variant="secondary" href={links.exploratoryReplay}>Exploratory replay</FilterLink>
+    </FactItem>
+  );
+}
+
 function nextStepLabel(value: NonNullable<ResearchReadbackProjectionV1["view"]>["nextStep"]): string {
   if (value === "review_artifact") return "Artifact ready";
   if (value === "refresh_same_request") return "Refresh required";
+  if (value === "view_exploratory_run") return "View exploratory run";
   return "Awaiting R&D";
 }
 
@@ -96,7 +120,7 @@ function AvailableReadback({
             </StatusBadge>
           </FactItem>
           <FactItem label="Availability">
-            {view ? <StatusBadge tone={view.phase === "artifact_available" ? "success" : "info"}>
+            {view ? <StatusBadge tone={phaseTone(view.phase)}>
               {phaseLabel(view.phase)}
             </StatusBadge> : quarantined ? "Needs current review" : "Not available"}
           </FactItem>
@@ -123,6 +147,7 @@ function AvailableReadback({
           <FactItem label="Initial PIT request">
             <InitialPit value={outcome.initialPit} />
           </FactItem>
+          {view?.exploration ? <ExplorationLinks exploration={view.exploration} /> : null}
         </FactGroup>
         <FactGroup title="Timing">
           <FactItem label="Committed">{displayTime(outcome.committedAt)}</FactItem>

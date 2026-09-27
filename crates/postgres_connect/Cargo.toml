@@ -1,0 +1,20 @@
+[package]
+name = "vibe-postgres-connect"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+description = "The one way the workspace opens a PostgreSQL connection: each connection states its TLS"
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+name = "vibe_postgres_connect"
+
+[dependencies]
+sqlx = { workspace = true }
+
+[dev-dependencies]
+rstest = { workspace = true }

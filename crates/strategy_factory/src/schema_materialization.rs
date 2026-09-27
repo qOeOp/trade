@@ -408,6 +408,7 @@ mod tests {
         ColumnSpec, PublicTableSpec, require_existing_public_tables_for_readback, required,
     };
     use rstest::rstest;
+    use vibe_postgres_connect::{PgPoolOptionsExt, PostgresTls};
 
     #[rstest]
     fn runtime_validation_is_read_only_and_exact() {
@@ -450,7 +451,7 @@ mod tests {
             .expect("RD_SCHEMA_READBACK_ACL_TEST_DATABASE_URL must be explicitly supplied");
         let pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(1)
-            .connect(&database_url)
+            .connect_url(&database_url, PostgresTls::Disabled)
             .await
             .unwrap();
         sqlx::query("CREATE TABLE public.rbm_schema_readback_acl_probe_v1 (id bigint NOT NULL)")

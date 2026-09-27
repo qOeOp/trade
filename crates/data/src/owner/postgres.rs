@@ -10,14 +10,19 @@
 )]
 
 use std::{collections::BTreeSet, fmt::Debug};
+use vibe_postgres_connect::{PgPoolOptionsExt, PostgresTls};
 
 mod authenticated_design_registration_v1;
 #[cfg(feature = "sealed-strategy-input-acceptance")]
 pub mod bar_joined_cut_acceptance_v1;
 // Test and sealed acceptance fixtures only; no production build reaches it.
+#[cfg(any(test, feature = "sealed-strategy-input-acceptance"))]
+mod acceptance_fixture_v1;
 mod calendar;
 #[cfg(any(test, feature = "sealed-strategy-input-acceptance"))]
 pub mod chain_market_base_v1;
+#[cfg(test)]
+mod chain_market_base_v1_tests;
 mod corporate_action;
 #[cfg(test)]
 mod instrument_master_admission_v1_tests;
@@ -495,7 +500,7 @@ impl MarketDataOwnerPostgres {
     pub(crate) async fn connect(database_url: &str) -> Result<Self, SourceBindingError> {
         let pool = PgPoolOptions::new()
             .max_connections(8)
-            .connect(database_url)
+            .connect_url(database_url, PostgresTls::Disabled)
             .await
             .map_err(|e| {
                 super::storage_diagnostic::refused_by_store("market_data_owner.connect.pool", &e);
@@ -543,7 +548,7 @@ impl MarketDataOwnerPostgres {
     pub(crate) async fn connect_existing(database_url: &str) -> Result<Self, SourceBindingError> {
         let pool = PgPoolOptions::new()
             .max_connections(8)
-            .connect(database_url)
+            .connect_url(database_url, PostgresTls::Disabled)
             .await
             .map_err(|e| {
                 super::storage_diagnostic::refused_by_store(
@@ -3529,7 +3534,7 @@ impl MarketDataReadPostgres {
     pub(crate) async fn connect(database_url: &str) -> Result<Self, SourceBindingError> {
         let pool = PgPoolOptions::new()
             .max_connections(4)
-            .connect(database_url)
+            .connect_url(database_url, PostgresTls::Disabled)
             .await
             .map_err(|_| SourceBindingError::StoreUnavailable)?;
         Ok(Self { pool })
@@ -10655,6 +10660,14 @@ fn pit_instrument_master_request_v1(
     }))
 }
 
+type InstrumentMasterAppendFutureV1<'a> = std::pin::Pin<
+    Box<
+        dyn std::future::Future<Output = Result<InstrumentMasterFactV1, InstrumentMasterError>>
+            + Send
+            + 'a,
+    >,
+>;
+
 impl MarketDataOwnerPostgres {
     /// The locator of the Owner's current clock head, for custody that must bind it exactly.
     pub(crate) async fn current_clock_head_locator_v1(
@@ -10698,13 +10711,27 @@ impl MarketDataOwnerPostgres {
             .await
             .map_err(|_| InstrumentMasterAdmissionErrorV1::ClockUnavailable)?;
         let fact = self
-            .append_instrument_master_fact(proposal, &locator)
+            .append_instrument_master_fact_boxed_v1(proposal, &locator)
             .await?;
         Ok(InstrumentMasterAdmissionTerminalV1::seal(
             fact.canonical_identity().to_owned(),
             fact.digest(),
             locator.head_identity(),
         ))
+    }
+
+    /// `append_instrument_master_fact`, built here rather than in the caller's poll frame.
+    ///
+    /// The append's state is larger than clippy's `large_futures` bound. Awaiting
+    /// `Box::pin(append(..))` inline would still build that state in the admission's own frame
+    /// before moving it to the heap. This synchronous frame returns before the admission polls, so
+    /// the admission holds only the box.
+    fn append_instrument_master_fact_boxed_v1<'a>(
+        &'a self,
+        proposal: InstrumentMasterFactProposalV1,
+        clock_locator: &'a UntrustedClockHeadLocator,
+    ) -> InstrumentMasterAppendFutureV1<'a> {
+        Box::pin(self.append_instrument_master_fact(proposal, clock_locator))
     }
 
     /// The coordinates an Instrument Master fact takes from the admitted Source Binding a

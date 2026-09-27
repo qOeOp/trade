@@ -103,8 +103,10 @@ impl CanonicalBasisResolverV1 for TestOnlyCanonicalBasisResolver {
 ///
 /// Each field answers a question the requester cannot answer about itself: whether the Owner's own
 /// observation batch covers the evaluated Universe Selection Record, whether the request's frozen
-/// Market Semantics Compatibility identity resolves to an Owner-held semantics fact, and whether
-/// the admitted Source Binding is available at the decision cut. The struct has no public
+/// Market Semantics Compatibility identity is the one Market Data derives from the admitted Source
+/// Binding's own semantics, and whether that binding is admitted. No Market Semantics fact is
+/// consulted: the registry is keyed over the batch this determination admits, so it is downstream
+/// of the mint. The struct has no public
 /// constructor: only [`OwnerCanonicalBasisV1::resolve_from_owner_custody`] and its callers inside
 /// Market Data can produce one.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

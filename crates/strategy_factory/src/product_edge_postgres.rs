@@ -12,6 +12,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Row};
+use vibe_postgres_connect::{PgPoolOptionsExt, PostgresTls};
 use vibe_product_edge::{
     DownstreamAdmissionModeV1, ProductEdgeAdmissionLocatorV1, ProductEdgeAdmissionReadbackV1,
     resolve_admission_for_downstream_in_transaction,
@@ -119,7 +120,7 @@ impl PostgresExploratoryReplayReadbackOwnerV2 {
     pub async fn connect(database_url: &str) -> Result<Self, ExploratoryReplayOwnerError> {
         let pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(4)
-            .connect(database_url)
+            .connect_url(database_url, PostgresTls::Disabled)
             .await
             .map_err(|e| ExploratoryReplayOwnerError::Unavailable(e.to_string()))?;
         require_rd_owner_api_schema(&pool)
@@ -180,7 +181,7 @@ impl PostgresResearchReadbackOwnerV1 {
     pub async fn connect(database_url: &str) -> Result<Self, ResearchGoalOwnerError> {
         let pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(4)
-            .connect(database_url)
+            .connect_url(database_url, PostgresTls::Disabled)
             .await
             .map_err(|e| storage(&e))?;
         require_rd_owner_api_schema(&pool)
@@ -1045,7 +1046,7 @@ impl PostgresResearchGoalOwnerV1 {
     pub async fn materialize_schema(database_url: &str) -> Result<(), ResearchGoalOwnerError> {
         let pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(1)
-            .connect(database_url)
+            .connect_url(database_url, PostgresTls::Disabled)
             .await
             .map_err(|e| storage(&e))?;
         if let Some(admitted) =
@@ -1069,7 +1070,7 @@ impl PostgresResearchGoalOwnerV1 {
     ) -> Result<Self, ResearchGoalOwnerError> {
         let pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(8)
-            .connect(database_url)
+            .connect_url(database_url, PostgresTls::Disabled)
             .await
             .map_err(|e| storage(&e))?;
         Self::verify_public_relation_shapes(&pool, false).await?;
@@ -4429,6 +4430,7 @@ pub(crate) mod tests {
         OperationManifestBindingV1, OperatorAuthorizationIssuanceProposalV1,
         OperatorAuthorizationIssuerPostgresV1, OperatorAuthorizationScopeV1,
     };
+    use vibe_postgres_connect::{PgPoolOptionsExt, PostgresTls};
     use vibe_product_edge::{
         AgentOperationManifestProposalV1, ProductEdgeAdmissionRequestV1,
         ProductEdgeAuthorizationTrustV1, ProductEdgeBootstrapProposalV1,
@@ -5508,6 +5510,12 @@ pub(crate) mod tests {
 
     async fn run_bounded_feature_program_joint_freeze() {
         let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
+        // The Catalog V3 head this entry's Research request forms its TrialFamily against.
+        #[cfg(feature = "sealed-develop-composer-acceptance")]
+        crate::replay_policy_catalog_postgres_v2::ensure_sealed_acceptance_catalog_v3_for_test(
+            &test_database,
+        )
+        .await;
         let _mutation = test_database.mutation();
         let operator_authorization_database_url = test_database
             .database_url(CanonicalOwnerTestRoleV1::OperatorAuthorizationWriter)
@@ -5935,47 +5943,38 @@ pub(crate) mod tests {
         declared_bounded_feature_program_fixture(ComposerRunCoverageV1::BindingsOnly);
     }
 
-    /// A second Research request under one principal is refused before the lineage advances.
+    /// A second Research request under one principal and scope is accepted, and its
+    /// protected-feedback projection takes the `FRONTIER` arm.
     ///
     /// Protected-feedback resolution has three paths: a basis whose projection is still fresh
     /// replays, a basis under a scope with no frontier takes the genesis arm, and a basis under a
-    /// scope that already has one takes the `FRONTIER` arm. The gate had only ever taken the
-    /// genesis arm, and the reason recorded for that was a property of the corpus: every entry
-    /// bootstraps its own deployment under `admin-{suffix}`, so no scope had ever seen a second
-    /// request. This entry supplies exactly that missing configuration - one deployment, one
-    /// principal, one authorized scope, two requests, each with its own admission - and the
-    /// `FRONTIER` arm is still not reached. The corpus property was not the only thing in the way.
+    /// scope that already has one takes the `FRONTIER` arm. Every other entry bootstraps its own
+    /// deployment under `admin-{suffix}`, so no other scope ever sees a second request. This entry
+    /// supplies exactly that configuration - one deployment, one principal, one authorized scope,
+    /// two requests, each with its own admission - and pins what each takes: the first request the
+    /// genesis arm, the second a basis of its own and the `FRONTIER` arm.
     ///
-    /// What the second request meets is `load_or_create_basis_in_transaction` taking its
-    /// `head_lineage == lineage_digest` branch. That branch is written for a replay of the request
-    /// that created the head, so it looks up basis-stage custody under the request identity it was
-    /// given, finds none for a request it has not seen, and returns
-    /// `Owner storage unavailable: R&D basis-stage custody missing`. The `FRONTIER` arm sits past
-    /// that branch and is reached only when the lineage has advanced, which needs the first
-    /// request to have completed; the first request does not complete either, because
+    /// The first request completes only against a current Catalog V3 head, which this entry ensures
+    /// itself (`ensure_sealed_acceptance_catalog_v3_for_test`). Without one,
     /// `resolve_current_v3_for_trial_family_formation` refuses with
-    /// `current Catalog V3 head is missing, partial, or duplicate` and nothing in the gate
-    /// publishes that head.
+    /// `current Catalog V3 head is missing, partial, or duplicate`, the lineage never advances, and
+    /// the second request meets `load_or_create_basis_in_transaction`'s replay branch
+    /// (`R&D basis-stage custody missing`) instead of the `FRONTIER` arm. That is what this entry
+    /// observed before any head was published.
     ///
-    /// Neither refusal surfaces as an error. Both are swallowed into
-    /// an unresolved result wrapped in `Ok`, one of the twenty-eight `unresolved_result_v2` returns this
-    /// file carries, so it returns
-    /// `SubmittedOrUnknown` and a caller that asserts on `Result::is_ok` sees a submission it has
-    /// every reason to read as accepted. This entry therefore asserts on the resolution and on the
-    /// store, never on `Ok`.
-    ///
-    /// What this pins is the refusal, not the arm.
-    ///
-    /// **This entry is built to fail when the situation improves.** Publishing a Catalog V3 head,
-    /// or any other change that lets the lineage advance, turns the assertions below red. That red
-    /// is the signal, not a regression: read it as "the `FRONTIER` arm is now reachable" and
-    /// rewrite this entry to assert the arm it currently proves unreachable. A test that fails
-    /// when things get better is worth more than a comment saying they have not, because a comment
-    /// cannot notice.
+    /// Neither refusal surfaces as an error: both are swallowed into an unresolved result wrapped in
+    /// `Ok`, so a caller that asserts on `Result::is_ok` reads a submission as accepted. This entry
+    /// therefore asserts on the resolution and on the store, never on `Ok`.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     #[ignore = "requires the ordered canonical Owner PostgreSQL gate"]
     async fn second_request_under_one_principal_resolves_through_the_frontier_arm() {
         let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
+        // The Catalog V3 head this entry's Research request forms its TrialFamily against.
+        #[cfg(feature = "sealed-develop-composer-acceptance")]
+        crate::replay_policy_catalog_postgres_v2::ensure_sealed_acceptance_catalog_v3_for_test(
+            &test_database,
+        )
+        .await;
         let operator_authorization_database_url = test_database
             .database_url(CanonicalOwnerTestRoleV1::OperatorAuthorizationWriter)
             .to_string();
@@ -6050,13 +6049,14 @@ pub(crate) mod tests {
             .await
             .expect("the second Research request reaches the Owner");
 
-        // Measured on the ordered gate (owner-chains 35632339563, 187 PASS / 0 FAIL / 93 entries),
-        // not on a local subset: a four-entry subset had skipped entry 69, which publishes the
-        // Catalog V3 head, and reported refusals that were a skip artefact.
+        // This entry ensures the Catalog V3 head itself (above), so the first request no longer
+        // depends on which entries ran before it. Before it did, a four-entry local subset that
+        // skipped the entry publishing the head reported refusals that were a skip artefact
+        // (owner-chains 35632339563).
         assert_eq!(
             first.resolution(),
             ProductEdgeResolution::Accepted,
-            "the gate publishes a Catalog V3 head before this entry, so the first request completes",
+            "the Catalog V3 head this entry ensures is current, so the first request completes",
         );
         assert_eq!(
             second.resolution(),
@@ -6077,8 +6077,12 @@ pub(crate) mod tests {
         // and `qualification_protected_feedback_projections_v1` to Qualification, and no role can
         // read both: that isolation is a property under test here, so a join across it would be
         // asking the database to break the thing this entry exists to observe.
-        let rd_pool = sqlx::PgPool::connect(&rd_database_url).await.unwrap();
-        let qualification_pool = sqlx::PgPool::connect(&qualification_database_url)
+        let rd_pool = sqlx::postgres::PgPoolOptions::new()
+            .connect_url(&rd_database_url, PostgresTls::Disabled)
+            .await
+            .unwrap();
+        let qualification_pool = sqlx::postgres::PgPoolOptions::new()
+            .connect_url(&qualification_database_url, PostgresTls::Disabled)
             .await
             .unwrap();
 
@@ -6121,8 +6125,8 @@ pub(crate) mod tests {
             "the second request writes a basis of its own once the lineage has advanced",
         );
 
-        // Scoped to this entry's own principal: the gate shares one database it never resets, so a
-        // global count would read every other entry's rows.
+        // Scoped to this entry's own principal: the entries of one chain component share a database,
+        // so a global count would read the other entries' rows.
         let projections_under_this_principal: i64 = sqlx::query_scalar(
             "SELECT pg_catalog.count(*)
                FROM public.qualification_protected_feedback_projections_v1
@@ -6232,6 +6236,12 @@ pub(crate) mod tests {
         };
 
         let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
+        // The Catalog V3 head this entry's Research request forms its TrialFamily against.
+        #[cfg(feature = "sealed-develop-composer-acceptance")]
+        crate::replay_policy_catalog_postgres_v2::ensure_sealed_acceptance_catalog_v3_for_test(
+            &test_database,
+        )
+        .await;
         let _mutation = test_database.mutation();
         let operator_authorization_database_url = test_database
             .database_url(CanonicalOwnerTestRoleV1::OperatorAuthorizationWriter)
@@ -7121,9 +7131,14 @@ pub(crate) mod tests {
         use crate::product_edge::InstrumentAdmissibilityV1::Admissible;
         use vibe_data::owner::research_instrument_scope_v1::ResearchInstrumentScopeV1;
 
-        // The ordered chain's canonical Owner topology, which also holds the Replay Policy Catalog
-        // V3 head an accepted request forms its TrialFamily against.
+        // The ordered chain's canonical Owner topology.
         let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
+        // The Catalog V3 head this entry's Research request forms its TrialFamily against.
+        #[cfg(feature = "sealed-develop-composer-acceptance")]
+        crate::replay_policy_catalog_postgres_v2::ensure_sealed_acceptance_catalog_v3_for_test(
+            &test_database,
+        )
+        .await;
         let suffix = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
@@ -7183,6 +7198,233 @@ pub(crate) mod tests {
                 .await,
             Err(ResearchGoalOwnerError::ConflictingReplay)
         );
+    }
+
+    /// A native Composer Research View, as a Composer-backed Replay commit writes it.
+    ///
+    /// It is built from the request's own stored initial View the way that commit projects it, so
+    /// the schema 3 validator accepts it for this exact request.
+    fn native_composer_research_view(
+        initial: &crate::product_edge::ResearchViewV1,
+    ) -> crate::product_edge::ResearchViewV1 {
+        use crate::product_edge::{
+            ResearchComposerArtifactViewV3, ResearchExplorationViewV1, ResearchNextLegalAction,
+            ResearchViewPhase, canonical_research_view_identity_v4,
+        };
+
+        let sha256 = |digit: char| format!("sha256:{}", digit.to_string().repeat(64));
+        let mut view = initial.clone();
+        view.schema_version = 3;
+        view.phase = ResearchViewPhase::ExplorationActive;
+        view.observed_at_epoch_ms = initial.projection_at_epoch_ms + 1;
+        view.projection_at_epoch_ms = initial.projection_at_epoch_ms + 1;
+        view.valid_through_epoch_ms = view.projection_at_epoch_ms + 600_000;
+        view.source_cut = format!("rd-composer-exploration-cut-v3-{}", "3".repeat(64));
+        view.composer_artifact = Some(ResearchComposerArtifactViewV3 {
+            artifact_locator: format!("rd-strategy-artifact-v2-{}", "1".repeat(64)),
+            artifact_identity_digest: sha256('1'),
+            composer_request_identity: "composer-request".into(),
+            composer_operation_receipt_digest: sha256('2'),
+            artifact_family_binding_identity: format!(
+                "rd-composer-artifact-family-binding-v3-{}",
+                "4".repeat(64)
+            ),
+            artifact_family_binding_digest: sha256('4'),
+            artifact_family_binding_receipt_identity: format!(
+                "rd-composer-artifact-family-binding-receipt-v3-{}",
+                "7".repeat(64)
+            ),
+            trial_family_identity: "trial-family".into(),
+            census_frontier_identity: "census-frontier".into(),
+            census_frontier_digest: sha256('5'),
+        });
+        view.exploration = Some(ResearchExplorationViewV1 {
+            trial_family_identity: "trial-family".into(),
+            census_frontier_identity: "census-frontier".into(),
+            census_frontier_digest: sha256('5'),
+            replay_request_identity: "replay-request".into(),
+            replay_request_meaning_digest: format!("blake3:{}", "6".repeat(64)),
+            replay_request_seal_digest: sha256('3'),
+            replay_receipt_identity: format!("rd-exploratory-replay-receipt-v2-{}", "8".repeat(64)),
+        });
+        view.next_legal_action = ResearchNextLegalAction::ViewExploratoryRun;
+        view.projection_identity = canonical_research_view_identity_v4(&view).unwrap();
+        view
+    }
+
+    /// A native Composer Research View no longer stops the scans of every Research custody.
+    ///
+    /// Research submission, the current-Research lock a Composer run takes and the historical
+    /// Composer read each admit every stored custody, and custody admission used to refuse any
+    /// native Composer View outright. One stored View then refused every later submission. Here one
+    /// request's View becomes native; a later request is still accepted, the scan admits the native
+    /// custody as native, and the current-Research lock for the later request still resolves. A
+    /// native View changed by one byte is refused by name, inside a transaction that is rolled
+    /// back so the shared chain database keeps no tampered row.
+    ///
+    /// Deliberate state side effect: the native View it stores stays in the shared database for
+    /// good. Every entry after this one - the rest of its shard, and in the serial run every later
+    /// entry of the chain - scans a custody set that holds one native Composer custody. That is the
+    /// state this entry proves the scans admit; an entry after it that cannot admit such a custody
+    /// is refusing a real production state, not tripping over test residue.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[ignore = "requires the ordered canonical Owner PostgreSQL gate"]
+    async fn a_native_composer_research_view_is_admitted_by_every_custody_scan() {
+        use crate::product_edge::InstrumentAdmissibilityV1::Admissible;
+
+        let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
+        #[cfg(feature = "sealed-develop-composer-acceptance")]
+        crate::replay_policy_catalog_postgres_v2::ensure_sealed_acceptance_catalog_v3_for_test(
+            &test_database,
+        )
+        .await;
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let btc = "BTCUSDT-PERP.BINANCE";
+        let owner = PostgresResearchGoalOwnerV1::connect(
+            test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
+            test_database.database_url(CanonicalOwnerTestRoleV1::QualificationWriter),
+        )
+        .await
+        .unwrap()
+        .bind_instrument_scope_check_for_test(answering(Ok(scope_check(
+            Some([9; 32]),
+            &[(btc, Admissible)],
+        ))));
+
+        let native_identity = format!("research-request-native-composer-{suffix}");
+        let admission =
+            bootstrap_v3_admission(&test_database, &native_identity, suffix, &[btc]).await;
+        assert_eq!(
+            owner
+                .submit_v2(request_v3(&native_identity, admission, &[btc]))
+                .await
+                .unwrap()
+                .resolution(),
+            ProductEdgeResolution::Accepted
+        );
+        let initial: crate::product_edge::ResearchViewV1 = serde_json::from_value(
+            sqlx::query_scalar(
+                "SELECT view_json FROM rd_research_request_receipts_v1 WHERE request_identity = $1",
+            )
+            .bind(&native_identity)
+            .fetch_one(&owner.pool)
+            .await
+            .unwrap(),
+        )
+        .unwrap();
+        let native = native_composer_research_view(&initial);
+        let store = |view: &crate::product_edge::ResearchViewV1| {
+            sqlx::query(
+                "UPDATE rd_research_request_receipts_v1 SET view_json = $1 WHERE request_identity = $2",
+            )
+            .bind(serde_json::to_value(view).unwrap())
+            .bind(native_identity.clone())
+        };
+        assert_eq!(
+            store(&native)
+                .execute(&owner.pool)
+                .await
+                .unwrap()
+                .rows_affected(),
+            1
+        );
+
+        // Research submission scans every custody, the native one included.
+        let later_identity = format!("research-request-after-native-composer-{suffix}");
+        let later_admission =
+            bootstrap_v3_admission(&test_database, &later_identity, suffix + 1, &[btc]).await;
+        let later = owner
+            .submit_v2(request_v3(&later_identity, later_admission, &[btc]))
+            .await
+            .unwrap();
+        assert_eq!(
+            later.resolution(),
+            ProductEdgeResolution::Accepted,
+            "a submission after a native Composer View: {later:?}"
+        );
+
+        let mut transaction = owner.pool.begin().await.unwrap();
+        let custodies =
+            crate::rd_owner_postgres_custody::admit_all_research_custodies_in_transaction(
+                &mut transaction,
+            )
+            .await
+            .expect("every custody is admitted, the native one included");
+        let native_custody = custodies
+            .iter()
+            .find(|custody| custody.receipt().request_identity == native_identity)
+            .expect("the native custody is among them");
+        assert!(native_custody.is_native_composer());
+        assert!(
+            custodies
+                .iter()
+                .filter(|custody| custody.receipt().request_identity != native_identity)
+                .all(|custody| !custody.is_native_composer())
+        );
+
+        // The current-Research lock a Composer run takes for the later request scans them too.
+        #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+        {
+            let later_custody = custodies
+                .iter()
+                .find(|custody| custody.receipt().request_identity == later_identity)
+                .expect("the later custody is among them");
+            let (research_request_identity, intent_identity) =
+                crate::source_research_composer_postgres_v2::durable_research_identities(
+                    later_custody,
+                )
+                .expect("a V3 request states its durable identities");
+            let now_ms = u64::try_from(
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_millis(),
+            )
+            .unwrap();
+            crate::source_research_composer_postgres_v2::lock_current_research_for_composer_replay_in_transaction(
+                &mut transaction,
+                &crate::develop_composer_operation_v2::DevelopComposerDurableEvidenceLocatorV2 {
+                    request_identity: format!("composer-request-{suffix}"),
+                    request_digest: BindingDigest::from_untrusted_bytes([1; 32]),
+                    research_request_identity,
+                    intent_identity,
+                    design_identity: BindingDigest::from_untrusted_bytes([2; 32]),
+                },
+                now_ms,
+            )
+            .await
+            .expect("the later request's current Research custody still locks");
+        }
+        transaction.rollback().await.unwrap();
+
+        // A native View changed by one byte is refused by name, and the change is rolled back.
+        let mut tampered = native.clone();
+        tampered
+            .composer_artifact
+            .as_mut()
+            .unwrap()
+            .artifact_locator
+            .push('0');
+        let mut transaction = owner.pool.begin().await.unwrap();
+        store(&tampered).execute(&mut *transaction).await.unwrap();
+        let Err(refused) =
+            crate::rd_owner_postgres_custody::admit_all_research_custodies_in_transaction(
+                &mut transaction,
+            )
+            .await
+        else {
+            panic!("a tampered native View is refused");
+        };
+        assert!(
+            refused
+                .to_string()
+                .contains("research view historical meaning mismatch"),
+            "{refused}"
+        );
+        transaction.rollback().await.unwrap();
     }
 
     /// When Market Data's early check does not admit the scope, the request closes

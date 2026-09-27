@@ -47,6 +47,7 @@ vibe-binance = { workspace = true }
 vibe-core = { workspace = true }
 vibe-data = { workspace = true }
 vibe-databento = { workspace = true }
+vibe-postgres-connect = { workspace = true }
 vibe-product-edge = { workspace = true }
 vibe-strategy-factory = { workspace = true }
 

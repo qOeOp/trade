@@ -22,6 +22,7 @@ use std::{
 };
 
 use sqlx::{PgPool, Postgres, Row, Transaction, postgres::PgPoolOptions};
+use vibe_postgres_connect::{PgPoolOptionsExt, PostgresTls};
 
 use crate::{
     adapter_binding::{
@@ -166,7 +167,7 @@ impl PaperAdapterBindingPostgresV1 {
         crate::adapter_binding::validate_node_identity(&node_identity)?;
         let pool = PgPoolOptions::new()
             .max_connections(8)
-            .connect(database_url)
+            .connect_url(database_url, PostgresTls::Disabled)
             .await
             .map_err(|_| AdapterBindingError::StoreUnavailable)?;
         Ok(Self {
