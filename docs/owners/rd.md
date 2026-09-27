@@ -188,7 +188,11 @@ ordered chain's acceptance build admits nothing in production.
   Only the Decision composition below appends an attempt, and until it is admitted a successor is refused by name,
   `SUCCESSOR_CENSUS_AWAITS_DECISION_COMPOSITION`. The commit and the historical readback take the choice from one
   rule, and the readback of a first-generation Replay re-reads the formation frontier from the family's root, so a
-  later attempt does not change it.
+  later attempt does not change it. Its replay window is the window of the facts it was composed from, which the
+  family's policy window bounds (`docs/architecture/strategy-factory.md`, TrialFamily-owned Replay execution policy
+  V2), and a Market Data repair re-entry whose predecessor is a composer-backed Replay is refused by name,
+  `MARKET_DATA_REPAIR_OF_COMPOSER_V3_REPLAY_AWAITS_DESIGN`, because the re-entry forms its successor from the
+  policy window.
 - **CURRENT - one read-only operation is reachable only through the write API:** the Dashboard's operation
   registry declares eleven Owner routes, and ten are `GET`. The eleventh,
   `research_goal.legacy_quarantine_read.v1`, declares `effect_set: []` and resolves to
