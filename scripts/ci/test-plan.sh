@@ -313,15 +313,31 @@ rm -f "$invalid_base_output"
 rm -rf "$invalid_base_checkout"
 echo "ok: invalid base history fails closed"
 
-# The heavy scanners stay paused on pull requests; only `build` gates them.
-for workflow in \
-  "$repo_root/.github/workflows/codeql-analysis.yml" \
-  "$repo_root/.github/workflows/security-audit.yml"; do
-  if grep -Eq '^[[:space:]]+pull_request:' "$workflow"; then
-    echo "PR CI must remain paused in $workflow" >&2
-    exit 1
-  fi
-done
+# CodeQL stays paused on pull requests; only `build` gates it.
+if grep -Eq '^[[:space:]]+pull_request:' "$repo_root/.github/workflows/codeql-analysis.yml"; then
+  echo "PR CI must remain paused in codeql-analysis.yml" >&2
+  exit 1
+fi
+# security-audit runs on a pull request that touches what it audits, so quality requires it there
+# (path_triggered_workflows.py). It ran on main alone until 2026-09-27 and was red for four days
+# with nothing blocked. Its pull request paths are its push paths, and they cover every lockfile
+# and audit configuration it reads, so a dependency change cannot merge without it.
+python3 - "$repo_root/.github/workflows/security-audit.yml" << 'AUDIT'
+import sys
+import yaml
+
+on = yaml.safe_load(open(sys.argv[1]))[True]
+pull, push = on.get("pull_request") or {}, on.get("push") or {}
+if pull.get("paths") != push.get("paths"):
+    sys.exit("security-audit.yml: its pull_request paths must be its push paths")
+required = {
+    "Cargo.lock", "python/uv.lock", "python/pyproject.toml", "services/*/uv.lock",
+    "services/*/pyproject.toml", "deny.toml", ".cargo/audit.toml", "osv-scanner.toml",
+}
+missing = sorted(required - set(pull["paths"]))
+if missing:
+    sys.exit(f"security-audit.yml: pull requests changing {missing} would skip the audit")
+AUDIT
 test ! -e "$repo_root/.github/workflows/pr-fast.yml"
 build_triggers="$(sed -n '/^on:/,/^concurrency:/p' "$repo_root/.github/workflows/build.yml")"
 for branch in test-ci test-pre-commit nightly master; do
@@ -443,7 +459,7 @@ security_triggers="$(sed -n '/^on:/,/^jobs:/p' "$repo_root/.github/workflows/sec
 [[ "$security_triggers" == *'schedule:'* ]]
 [[ "$security_triggers" == *'workflow_dispatch:'* ]]
 grep -Fq 'pull_request_target:' "$repo_root/.github/workflows/pr-title.yml"
-echo "ok: build gates ready pull requests; heavy scanners paused; title validation retained"
+echo "ok: build gates ready pull requests; CodeQL paused, security-audit path-gated; title validation retained"
 
 build_workflow="$repo_root/.github/workflows/build.yml"
 common_setup="$repo_root/.github/actions/common-setup/action.yml"

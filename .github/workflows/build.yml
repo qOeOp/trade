@@ -245,7 +245,8 @@ jobs:
           workflows="$(python3 "$trusted" "$base" "$PR_HEAD_SHA" \
             .github/workflows/docs-pages.yml \
             .github/workflows/product-packages.yml \
-            .github/workflows/bilibili-note-mcp.yml | tr '\n' ' ')"
+            .github/workflows/bilibili-note-mcp.yml \
+            .github/workflows/security-audit.yml | tr '\n' ' ')"
           echo "path-workflows=${workflows}" >> "$GITHUB_OUTPUT"
 
       - name: Plan security audit

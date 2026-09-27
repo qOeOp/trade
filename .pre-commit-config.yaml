@@ -301,7 +301,7 @@ repos:
         files: >-
           (?x)^(
             scripts/ci/path_triggered_workflows(_test)?\.py|
-            \.github/workflows/(docs-pages|product-packages|bilibili-note-mcp)\.yml
+            \.github/workflows/(docs-pages|product-packages|bilibili-note-mcp|security-audit)\.yml
           )$
         pass_filenames: false
       - id: check-connect-guard-plant
