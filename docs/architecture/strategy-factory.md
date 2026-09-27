@@ -1377,8 +1377,9 @@ later submission and the cost grows with the whole history.
 
 ### Prerequisite slices
 
-- **P0, one source for the shape tuple:** the Research request's scope carries the member set, the role set, and the
-  window; every other surface derives them from that custody and declares none of them again. An exact instrument is
+- **P0, one source for the shape tuple:** the Research request's scope carries the member set and the window, and the
+  Design carries the role set (P1); every other surface derives them from those two custodies and declares none of
+  them again. An exact instrument is
   a one-member universe, so the exact and universe input paths become one. Anything that differs by member count,
   such as Market Data's PIT request preimage domain, is derived from the count rather than declared beside it. P0
   is complete when changing the member count or adding a role changes exactly one declaration. It changes no admitted bound by itself.
@@ -1560,8 +1561,9 @@ one family would depend on that producer and would be listed separately.
 
 ### Order and what is asked later
 
-P0, P1, and P2 come first; T0 then T1 (whose first positive case uses only CLOSE, and with which D1 lands); A1 and
-V4a in parallel; then T2, I1, I1.5, I2, and I3; then N1, A2, A3, V4b, and V5. Per-frame as-of membership (T4) would
+P0, P1, P2, and T0 proceed in parallel: T0 is internal to Market Data, and its custody request states its own member
+set and timeframes. T1 depends on all four, because it derives the custody request from the Research scope and the
+Design; its first positive case uses only CLOSE, and D1 lands with it. A1 and V4a proceed in parallel with T1; then T2, I1, I1.5, I2, and I3; then N1, A2, A3, V4b, and V5. Per-frame as-of membership (T4) would
 remove the invariant that every frame shares one member set, so it is asked of the user when it is proposed.
 
 ## Value-stream handoffs
