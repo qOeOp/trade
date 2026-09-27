@@ -17,6 +17,7 @@ use super::{
 };
 use crate::{
     composer_artifact_family_binding_v3::{
+        begin_composer_replay_request_transaction_v3,
         ensure_composer_artifact_family_binding_for_replay_v3,
         load_composer_artifact_family_binding_for_replay_v3,
     },
@@ -204,16 +205,10 @@ pub(crate) async fn commit_composer_v3(
     pool: &PgPool,
     proposal: ComposerBackedExploratoryReplayProposalV3,
 ) -> Result<ExploratoryReplayCommitResultV2, ExploratoryReplayOwnerError> {
-    let mut transaction = pool.begin().await.map_err(storage)?;
-    sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
-        .execute(&mut *transaction)
-        .await
-        .map_err(storage)?;
-    sqlx::query("SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended($1,0))")
-        .bind(&proposal.request_identity)
-        .execute(&mut *transaction)
-        .await
-        .map_err(storage)?;
+    let mut transaction =
+        begin_composer_replay_request_transaction_v3(pool, &proposal.request_identity)
+            .await
+            .map_err(storage)?;
 
     if let Some(existing) = Box::pin(
         super::composer_readback_v3::resolve_existing_composer_v3_in_transaction(
@@ -238,16 +233,10 @@ pub(crate) async fn commit_composer_v3(
     )
     .await
     .map_err(unavailable)?;
-    let mut transaction = pool.begin().await.map_err(storage)?;
-    sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
-        .execute(&mut *transaction)
-        .await
-        .map_err(storage)?;
-    sqlx::query("SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended($1,0))")
-        .bind(&proposal.request_identity)
-        .execute(&mut *transaction)
-        .await
-        .map_err(storage)?;
+    let mut transaction =
+        begin_composer_replay_request_transaction_v3(pool, &proposal.request_identity)
+            .await
+            .map_err(storage)?;
 
     if let Some(existing) = Box::pin(
         super::composer_readback_v3::resolve_existing_composer_v3_in_transaction(

@@ -1023,6 +1023,13 @@ unavailable 或位于不同 cut 时，只撤回它自己的行与计数。两个
   `null`；读取方从不由其中一种推断另一种。接纳时通过检查、但已不再解析为 Market Data 当前 frontier 中单一成员的身份，
   会在任何 PIT 请求存在之前就被固定成员规则拒绝，因此签发回答 `INSTRUMENT_SCOPE_NOT_ELIGIBLE_AT_ISSUE`，什么也不冻结，
   回读保持 `NOT_ISSUED`：该 Intent 的任何下游都无法消费它，补救办法是发一个后继请求。
+- Research 回读还陈述 `request_schema_version`，即 `2` 或 `3`，取自该请求所依据的 Product Edge admission 的
+  `operation_schema`（`sourced-research-goal-v2` 或 `sourced-research-goal-v3`），以及 `instrument_scope`，即 V3 请求所陈述的
+  范围，与其被接纳和存储时完全一致；V2 请求为 `null`。两个版本的存储请求是同一形状，所以版本从不由它推断。两者必须一致 -
+  恰在请求陈述了范围时是 V3 admission - 二者不一致的回读作为完整性失败被拒绝（`DisagreesWithInstrumentScope`），admission
+  指名其他 schema 的回读同样被拒绝（`UnsupportedOperationSchema`）。被拒绝的 V3 请求仍是 V3 并陈述其范围，即使它正是因范围
+  不规范而被拒绝。本 Owner 不持有当前已接纳请求时（未解析的请求、身份冲突、legacy 隔离的请求），两者都为 `null`，而
+  `null` 不意味着任何版本。
 - Design role intent（schema 2）另外指名该初始 PIT 请求，取自本 Owner 的 custody，从不取自发布调用方，并且只在所记录
   的终态为 `AVAILABLE` 之后才发布。Market Data 针对恰为该请求注册 Design 的声明，而不去搜索一个，因此调用方以伪造的
   `requester_identity` 提交的请求永远不会被选中。同一 Intent 的后继 PIT 请求只由在它之后发布的 role intent 指名；
