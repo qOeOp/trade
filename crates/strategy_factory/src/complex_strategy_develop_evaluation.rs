@@ -554,13 +554,10 @@ async fn revalidate_at_commit_cut(
     .await
     .map_err(|e| ComplexStrategyDevelopEvaluationError::Storage(e.to_string()))?
     .ok_or(ComplexStrategyDevelopEvaluationError::ResearchCustodyUnavailable)?;
-    let admission = crate::research_continuation_v1::initial_research_admission(&custody)
-        .map_err(|_| ComplexStrategyDevelopEvaluationError::ResearchCustodyUnavailable)?;
     let continuation = Box::pin(
-        crate::research_continuation_v1::authorize_research_continuation_in_transaction(
+        crate::research_continuation_v1::authorize_initial_research_continuation_in_transaction(
             transaction,
-            admission.locator(),
-            Some(admission),
+            &custody,
             cut,
         ),
     )

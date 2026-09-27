@@ -629,14 +629,15 @@ async fn admit_successor_protected_feedback_in_transaction(
 /// Proves that the protected-feedback projection a successor Intent froze was admitted under its
 /// TrialFamily's Independence Basis, `basis_identity` and `basis_digest`, which the Intent names.
 /// Qualification owns that binding: its historical admission answers a projection only for the
-/// basis it was admitted under.
+/// basis it was admitted under. The projection it answers carries the source cut the successor
+/// froze.
 pub(crate) async fn verify_successor_protected_feedback_basis_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
     basis_identity: &str,
     basis_digest: &str,
     projection_identity: &str,
     projection_digest: &str,
-) -> Result<(), SuccessorResearchIntentPostgresErrorV1> {
+) -> Result<ProtectedFeedbackFrontierReadbackV1, SuccessorResearchIntentPostgresErrorV1> {
     let basis =
         admitted_independence_basis_in_transaction(transaction, basis_identity, basis_digest)
             .await?;
@@ -653,7 +654,7 @@ pub(crate) async fn verify_successor_protected_feedback_basis_in_transaction(
             if projection.projection_identity() == projection_identity
                 && projection.projection_digest() == projection_digest =>
         {
-            Ok(())
+            Ok(projection)
         }
         Ok(_) => Err(foreign_basis()),
         Err(cause) => {
