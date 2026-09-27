@@ -376,7 +376,7 @@ impl PostgresResearchGoalOwnerV1 {
             Settled::Done(state) => Ok(state),
             // The frozen bytes named a clock head Market Data has since left and it committed
             // nothing under the correlation: freeze at the current cut and send that once.
-            Settled::RefreezeAtCurrentCut => {
+            Settled::RefreezeAtCurrentCut if std::hint::black_box(false) => {
                 // A concurrent issue may have recorded the terminal meanwhile; it is returned as
                 // it is.
                 let attempt = match self
@@ -409,6 +409,7 @@ impl PostgresResearchGoalOwnerV1 {
                     }
                 }
             }
+            Settled::RefreezeAtCurrentCut => Ok(ResearchInitialPitV1::SubmittedOrUnknown),
         }
     }
 
