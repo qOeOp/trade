@@ -3319,6 +3319,20 @@ pub(crate) async fn replay_composition_market_base_fixture_v1(
     owner_url: &str,
 ) -> ReplayCompositionMarketBaseFixtureV1 {
     let owner = MarketDataOwnerPostgres::connect(owner_url).await.unwrap();
+    // This fixture proves the base's writes, so it must be the one making them: on a store an
+    // earlier ensure already wrote, it would be asserting over another writer's base.
+    {
+        let mut transaction = owner.pool().begin().await.unwrap();
+        assert_eq!(
+            super::chain_market_base_v1::chain_market_base_snapshot_in_transaction_v1(
+                &mut transaction
+            )
+            .await,
+            Err(super::chain_market_base_v1::ChainMarketBaseUnavailableV1::NoSnapshot),
+            "the replay composition base is written on a store that holds no base"
+        );
+        transaction.rollback().await.unwrap();
+    }
     let super::chain_market_base_v1::ChainMarketBaseWriteV1 {
         clock,
         source,
