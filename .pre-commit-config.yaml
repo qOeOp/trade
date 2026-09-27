@@ -347,6 +347,13 @@ repos:
             \.github/actions/.+\.yml
           )$
         pass_filenames: false
+      - id: test-workspace-unit-prune
+        name: test the workspace unit prune before main saves
+        description: Only workspace units this run wrote no file of go; dependencies, stash and marker stay
+        entry: python3 -B scripts/ci/workspace_mtimes_prune_test.py
+        language: system
+        files: ^scripts/ci/workspace_mtimes(_prune_test)?\.py$
+        pass_filenames: false
       - id: test-chain-verdict-reuse
         name: test chain verdict reuse
         description: Only the same tree's green whole-chain verdict for its entry count is reused

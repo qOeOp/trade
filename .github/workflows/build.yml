@@ -657,6 +657,9 @@ jobs:
     timeout-minutes: 108
     needs:
       - plan
+    outputs:
+      pruned-entries: ${{ steps.prune.outputs.pruned-entries }}
+      pruned-bytes: ${{ steps.prune.outputs.pruned-bytes }}
     env:
       # `rust-cache` folds every CARGO_* and RUST_* variable into its key, so a job stating a
       # different profile or target directory than the run that saved the cache can never restore
@@ -858,6 +861,17 @@ jobs:
           make cargo-test-toolchain-proofs NEXTEST_PROFILE=ci
           EXTRA_FEATURES="${RUST_TEST_EXTRA_FEATURES}"
           TOOLCHAIN_PROOFS_JUNIT=junit/toolchain-proofs.xml
+
+      - name: Prune the workspace units this run did not build
+        # When main's key changes, the new entry is saved on top of the old one it restored, and
+        # rust-cache's cleanup keeps every workspace unit in it. None of the old ones is reusable:
+        # a pull request sets unchanged sources to T - 1, so a unit older than T rebuilds anyway.
+        # After one key change they were 9.48 of 29.39 GB (run 36350170388). Each unit with no file
+        # written in this run is deleted, on main only, after everything compiled and before the
+        # cache is saved; dependencies, the stash and the marker stay.
+        id: prune
+        if: env.SAVE_BUILD_CACHES == 'true' && github.ref == 'refs/heads/main' && !cancelled()
+        run: python3 scripts/ci/workspace_mtimes.py prune "$CARGO_TARGET_DIR"
 
       - name: Stash the path dependencies the Rust cache drops
         # rust-cache keeps workspace members and packages outside the workspace root, and deletes
@@ -1381,6 +1395,30 @@ jobs:
             REQUIRE_WORKFLOW_JOB_RECOVERY="$recovery" \
               bash scripts/ci/require-workflow-job.bash "$workflow" '*' "$HEAD_SHA" 1800
           done
+
+      # The entry's compressed size exists only once rust-cache's post step has saved it, which is
+      # after the rust tests job's last step, so the one line that reads both is printed here.
+      - name: Report the rust-tests cache entry this run saved
+        if: env.SAVE_BUILD_CACHES == 'true' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRUNED_ENTRIES: ${{ needs.rust-tests-linux-x86.outputs.pruned-entries }}
+          PRUNED_BYTES: ${{ needs.rust-tests-linux-x86.outputs.pruned-bytes }}
+        run: |
+          set -uo pipefail
+          started="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" -q .run_started_at)"
+          listing="repos/${GITHUB_REPOSITORY}/actions/caches?ref=refs/heads/main&sort=created_at&direction=desc&per_page=100"
+          entry="$(gh api "$listing" -q "[.actions_caches[]
+            | select((.key | contains(\"-rust-tests-linux-x86-\")) and .created_at >= \"${started}\")]
+            | if length == 0 then empty else (sort_by(.created_at) | last | \"\(.key) \(.size_in_bytes)\") end")" ||
+            entry="unreadable"
+          case "$entry" in
+            unreadable) saved="the cache listing could not be read" ;;
+            "") saved="no new entry saved (the key was already on main)" ;;
+            *) saved="saved ${entry% *} at ${entry##* } bytes compressed" ;;
+          esac
+          pruned="pruned ${PRUNED_ENTRIES:-no} workspace unit entries, ${PRUNED_BYTES:-0} bytes"
+          echo "rust-tests cache: ${pruned}; ${saved}"
 
       - name: Verify required build graph
         env:
