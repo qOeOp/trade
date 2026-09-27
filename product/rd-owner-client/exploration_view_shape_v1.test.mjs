@@ -47,3 +47,12 @@ test("a structure with a field added or removed is refused", () => {
   assert.equal(validExplorationView(null, exploration), false)
   assert.equal(validExplorationView(composer, null), false)
 })
+
+// The Replay request V2 meaning digest is a BLAKE3 digest by the request contract, so an otherwise
+// well-formed SHA-256 value in its place is refused rather than taken for it.
+test("the Replay request meaning digest is a BLAKE3 digest and nothing else", () => {
+  assert.match(exploration.replay_request_meaning_digest, /^blake3:[0-9a-f]{64}$/)
+  const sha256 = clone(exploration)
+  sha256.replay_request_meaning_digest = `sha256:${"6".repeat(64)}`
+  assert.equal(validExplorationView(composer, sha256), false)
+})
