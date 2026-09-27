@@ -143,7 +143,7 @@ R&D 内的 Develop 能力返回内容寻址 Strategy Artifact 和 Build Receipt�
   Research request 指名，由 Market Data universe selection 在请求时求值，因此既不由 Design 也不由 R&D 选定（该请求
   范围由 R&D Owner 契约陈述）。角色为 `EXACT_INSTRUMENT` 的 Design 在 Owner
   universe 下仍被拒绝，由实现改动引入的具名拒绝 `ExactInstrumentRolesUnderOwnerUniverse` 给出。universe 纵向切片的输入契约（准确
-  一个固定 `OPEN` 与一个固定 `CLOSE` member role）不变；single-threshold 编写面新增 universe-member 形态，其 channel
+  一个固定 `OPEN` 与一个固定 `CLOSE` member role）后来由 Design 声明的角色集取代（见下文 P1）；single-threshold 编写面新增 universe-member 形态，其 channel
   是该成员的日线收盘价，并以承载 input 的方式携带固定的 open role，其程序从不读取它。编写请求在必填的 `scope`
   中写明自己的形态，因此缺少它的请求被拒绝，而不是被当作 exact-instrument 形态读取。该形态只在成员序号 0 上消费每个 role，其 bounded feature program
   仍产出单品种 proposal：在单成员 universe 下，host 把该 proposal 提升为单成员规范 target set，因此该纵向切片仍只提交
@@ -1247,8 +1247,15 @@ custody 会挡住之后的每一次提交，而成本随整个历史增长。
   请求，改成员数只改 scope、加一个角色只改 Design 时，P0 才算完成。它本身不改动任何已准入的界。V2 请求不陈述
   scope，仍是 legacy 的 exact 通道，它的 Design 照旧指名品种；退役它是 T1 之后的一个独立切片，前提是每个在 V2 下
   创建 exact 托管的链路条目都有了陈述 scope 的替身。
-- **P1，角色集来自 Design：** 原生 Plan 契约不再固定为一天周期的 OPEN 与 CLOSE；Design 声明自己的角色、执行周期
-  以及用哪个角色为订单定价。Host 绑不上的角色按名拒绝。
+- **P1，角色集来自 Design：** 原生 Plan 契约不再固定为一天周期的 OPEN 与 CLOSE。Design 用它已有的字段声明自己的
+  角色、执行角色和定价角色，也就是各角色的 field semantic 和 join 的 trigger，不新增字段。universe 角色必须是
+  `I128` 的 Market Data BAR open、high、low、close 或 volume 角色，target-set Host 用自己的原生 bar 核对它；其他角色以
+  `TargetSetRoleNotHostBindable` 拒绝。为订单定价的角色是唯一读 BAR close 的那个角色，它同时也是执行角色：没有这样的
+  角色是 `ExecutionPricingRoleAbsent`，不止一个是 `ExecutionPricingRoleAmbiguous`，由别的角色触发的 join 是
+  `ExecutionRoleNotPricingRole`；今天没有东西构造出后者，因为 universe 角色上的 join 会先被拒绝。Host 从 Plan 读取它的
+  成员角色和定价角色。角色的周期标签仍然只是 provenance，所以这里不从它推出执行周期：Market Data 从自己的 binding
+  取执行角色的 typed 周期，周期不止一种、或者某种日它无法 typed 时按名拒绝。这项调度改动取代
+  `native_replay_scheduling_v1` 里的标签比较，归 Market Data。
 - **P2，报告陈述每个成员：** 报告族陈述 universe 运行的每个成员，把 Backtest 已经做到的一成员陈述推广开。它与 I2
   一同落地，由第一个超过一个成员的运行驱动：I2 之前没有程序读第一个成员以外的成员，陈述每个成员就无物可陈述。
 
