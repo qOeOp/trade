@@ -281,6 +281,8 @@ async fn advance_protected_feedback_generation_preserving_sqlstate_v1(
         .checked_add(1)
         .ok_or_else(|| unavailable("Qualification protected-feedback generation overflowed"))?;
     let committed_at = i64::try_from(committed_at_epoch_ms).map_err(json_storage)?;
+    // MUTATION: the head advances with no logged step.
+    if std::hint::black_box(false) {
     sqlx::query(
         "INSERT INTO public.qualification_protected_feedback_generations_v1 \
          (principal_scope_key,generation,status_fact_identity,status_fact_digest,committed_at_epoch_ms) \
@@ -294,6 +296,7 @@ async fn advance_protected_feedback_generation_preserving_sqlstate_v1(
     .execute(&mut **transaction)
     .await
     .map_err(transaction_storage)?;
+    }
     let moved = sqlx::query(
         "UPDATE public.qualification_protected_feedback_heads_v1 \
          SET source_sequence=$1,source_cut=$2 \
