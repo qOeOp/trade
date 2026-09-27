@@ -393,8 +393,9 @@ stored View must be a legal descendant of it, the cut must lie inside its validi
 operation receipt's Research custody digest must equal the one rebuilt from it. The first three
 failures answer `UNAVAILABLE` at their own coordinates under `research_custody.run_view`; a differing
 digest answers at the existing `operation_receipt` coordinate. A row committed before the
-record existed carries neither fact: it keeps the read against the current View, and once that View
-is no longer current it answers at `research_custody.run_view_unrecorded`, which
+record existed carries neither fact: it keeps the read against the current View. Once that View has
+moved past `INTENT_FROZEN`, or the authority it continues under is no longer current (see below), it
+answers at `research_custody.run_view_unrecorded`, which
 states why the row cannot be read instead of implying that the run is gone. The migration adds the two
 columns by reading the catalog shape first; they freeze when the migration is deployed, not when it
 merges.

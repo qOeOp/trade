@@ -6953,12 +6953,15 @@ pub(crate) mod tests {
             *response
         );
 
-        // After the View's window: the current-View read has nothing to stand on, the recorded
-        // View still does.
+        // After the View's window both still answer: the View's window is a reader's freshness, and
+        // the unrecorded read continues the frozen Intent under an authority that is still current
+        // (`research_continuation_v1`). What stops the unrecorded read is the View moving on, below.
         assert_eq!(&readback_at(Some(expired)).await, response);
         assert_eq!(
-            coordinate(resolve(DevelopComposerRunViewRecordV1::Unrecorded, expired).await),
-            RUN_VIEW_UNRECORDED_COORDINATE_V1
+            resolve(DevelopComposerRunViewRecordV1::Unrecorded, expired)
+                .await
+                .expect("an unrecorded run reads past its View's window under a current authority"),
+            *response
         );
 
         // A recorded View is a claim, checked like any other: its cut must lie in its window, and
@@ -8178,9 +8181,27 @@ pub(crate) mod tests {
     /// window, and refused again, at a cut inside both, once that authorization is revoked. The
     /// route a Design author reads first answers the same way on pinned clocks. The revocation is
     /// this entry's own authorization, which no other entry's request is admitted under.
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[rstest::rstest]
     #[ignore = "requires the ordered canonical Owner PostgreSQL gate"]
-    async fn a_frozen_research_intent_continues_under_its_admission_past_its_views_window() {
+    fn a_frozen_research_intent_continues_under_its_admission_past_its_views_window() {
+        // Admitting custody and re-locking its admission run the Owners' deepest custody paths;
+        // together they overflow the default test stack, as the other custody entries do.
+        std::thread::Builder::new()
+            .stack_size(16 * 1024 * 1024)
+            .spawn(|| {
+                tokio::runtime::Builder::new_multi_thread()
+                    .worker_threads(2)
+                    .enable_all()
+                    .build()
+                    .unwrap()
+                    .block_on(Box::pin(continue_past_the_views_window()));
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
+    async fn continue_past_the_views_window() {
         use crate::research_continuation_v1::{
             RESEARCH_CONTINUATION_AUTHORITY_NOT_CURRENT_COORDINATE_V1,
             continue_initial_research_in_transaction,
