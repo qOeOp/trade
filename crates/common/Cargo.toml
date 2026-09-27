@@ -34,6 +34,9 @@ python = [
   "live",
 ]
 live = ["tokio"]
+# Test helpers (`vibe_common::testing`) and the model stubs they use. Tests enable it through a
+# dev-dependency; no production build does.
+stubs = ["vibe-model/stubs"]
 simulation = ["live", "madsim", "vibe-core/simulation"]
 defi = ["vibe-model/defi", "alloy-primitives"]
 high-precision = [
@@ -46,7 +49,7 @@ tracing-bridge = ["tracing", "tracing-subscriber"]
 [dependencies]
 vibe-core = { workspace = true }
 vibe-indicators = { workspace = true, optional = true }
-vibe-model = { workspace = true, features = ["stubs"] }
+vibe-model = { workspace = true }
 vibe-serialization = { workspace = true, optional = true }
 
 ahash = { workspace = true }
@@ -83,6 +86,8 @@ tracing = { workspace = true, optional = true }
 tracing-subscriber = { workspace = true, optional = true }
 
 [dev-dependencies]
+vibe-model = { workspace = true, features = ["stubs"] }
+
 criterion = { workspace = true }
 futures = { workspace = true, features = ["executor"] }
 iai = { workspace = true }

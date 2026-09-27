@@ -46,7 +46,7 @@ defi = [
 tracing = { workspace = true }
 vibe-common = { workspace = true }
 vibe-core = { workspace = true }
-vibe-model = { workspace = true, features = ["stubs"] }
+vibe-model = { workspace = true }
 vibe-persistence = { workspace = true, optional = true }
 vibe-postgres-connect = { workspace = true }
 vibe-rd-exploratory-replay-custody = { workspace = true, optional = true }
@@ -76,6 +76,8 @@ pyo3 = { workspace = true, optional = true }
 pyo3-stub-gen = { workspace = true, optional = true }
 
 [dev-dependencies]
+vibe-common = { workspace = true, features = ["stubs"] }
+vibe-model = { workspace = true, features = ["stubs"] }
 vibe-serialization = { workspace = true, features = ["arrow"] }
 vibe-testkit = { workspace = true, features = ["postgres"] }
 
