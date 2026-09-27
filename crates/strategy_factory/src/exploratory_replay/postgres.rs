@@ -2,9 +2,9 @@ use std::fmt::Display;
 use vibe_postgres_connect::{PgPoolOptionsExt, PostgresTls};
 
 pub(crate) mod composer_claim_reads_v3;
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+#[cfg(feature = "composer-v3-replay")]
 pub(crate) mod composer_commit_v3;
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+#[cfg(feature = "composer-v3-replay")]
 pub(crate) mod composer_readback_v3;
 
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
@@ -2285,7 +2285,7 @@ pub(crate) async fn migrate(
             .map_err(storage)?;
     }
     publication.commit().await.map_err(storage)?;
-    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+    #[cfg(feature = "composer-v3-replay")]
     composer_commit_v3::migrate_composer_research_view_transitions_v3(pool).await?;
     Ok(())
 }
@@ -3471,7 +3471,7 @@ pub(crate) async fn lock_for_backtest_v2(
 ) -> Result<ExploratoryReplayReadResultV2, ExploratoryReplayOwnerError> {
     validate_backtest_binding(rd_pool, &backtest.pool).await?;
     validate_backtest_binding_v2(&backtest.pool).await?;
-    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+    #[cfg(feature = "composer-v3-replay")]
     if let Some(result) = resolve_composer_v3_read_result(
         rd_pool,
         &locator.request_identity,
@@ -3505,11 +3505,11 @@ pub(crate) enum ReportRequestReadV2 {
     /// The request, read without a row lock.
     Found(Box<SealedExploratoryReplayReadbackV2>),
     /// A COMPOSER_V3 request, read from its own stored claim and checked against that claim alone.
-    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+    #[cfg(feature = "composer-v3-replay")]
     ComposerV3(Box<composer_readback_v3::SelfVerifiedComposerV3ClaimV1>),
     /// A COMPOSER_V3 request in a build without the Composer-backed Replay feature, which is the
     /// only one that can read its claim.
-    #[cfg(not(feature = "sealed-source-intake-composer-acceptance"))]
+    #[cfg(not(feature = "composer-v3-replay"))]
     ComposerV3,
     /// No request at this identity and meaning.
     Absent,
@@ -3561,7 +3561,7 @@ pub(crate) async fn read_for_report_in_transaction_v2(
     })
 }
 
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+#[cfg(feature = "composer-v3-replay")]
 async fn read_composer_v3_for_report(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     selector: &ExploratoryReplayRecoverySelectorV2,
@@ -3580,7 +3580,7 @@ async fn read_composer_v3_for_report(
     )
 }
 
-#[cfg(not(feature = "sealed-source-intake-composer-acceptance"))]
+#[cfg(not(feature = "composer-v3-replay"))]
 #[allow(clippy::unused_async)] // Async to match the feature build, where it reads the claim.
 async fn read_composer_v3_for_report(
     _transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
@@ -3593,7 +3593,7 @@ pub(crate) async fn resolve_for_rd_v2(
     rd_pool: &PgPool,
     selector: &ExploratoryReplayRecoverySelectorV2,
 ) -> Result<ExploratoryReplayReadResultV2, ExploratoryReplayOwnerError> {
-    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+    #[cfg(feature = "composer-v3-replay")]
     if let Some(result) = resolve_composer_v3_read_result(
         rd_pool,
         &selector.request_identity,
@@ -3620,7 +3620,7 @@ pub(crate) async fn resolve_for_rd_v2(
     Ok(result)
 }
 
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+#[cfg(feature = "composer-v3-replay")]
 async fn resolve_composer_v3_read_result(
     rd_pool: &PgPool,
     request_identity: &str,
@@ -3916,14 +3916,14 @@ pub(crate) fn decode_v2_read_result(
     // A COMPOSER_V3 row has its own envelope, returned by its own internal verifier. Only the sealed
     // build commits such a row; any other build answers it as unavailable.
     if replay_envelope_source_v2(&value)? == ReplayEnvelopeSourceV2::ComposerV3 {
-        #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+        #[cfg(feature = "composer-v3-replay")]
         return Ok(composer_readback_v3::decode_composer_v3_read_result(
             expected_request_identity,
             expected_meaning_digest,
             exact_locator,
             &value,
         ));
-        #[cfg(not(feature = "sealed-source-intake-composer-acceptance"))]
+        #[cfg(not(feature = "composer-v3-replay"))]
         return Ok(unavailable_result_v2(expected_request_identity));
     }
     let envelope: LockedEnvelopeV1 = decode_exact(&value)?;

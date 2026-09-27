@@ -630,11 +630,14 @@ Market Data V1 native scheduling seal 封存每一帧，该 seal 现在从帧自
 **IMPLEMENTATION_ADMITTED / NOT_CUT_OVER，生产 Native Replay 入口：** authenticated R&D API 的
 `POST /v2/exploratory-replays` 被准入为生产 route；body 只含准确 sealed request locator 与 attempt identity。
 它尚未切换。handler、它调用的 execution service 与 router 注册仍只在 sealed Develop composition feature 下
-编译，所以今天没有任何已部署镜像提供该 route，验收之外也从未有请求到达过它。切换需要 execution service 作为
-输入所要求的生产 Composer sealed read port：一个能在调用方事务内对任意 locator 锁定并重读证据的
-`DevelopComposerFinalEvidencePortV2` 实现，以及一个 R&D composition root 可构造的
-`PostgresDevelopComposerSealedReadPortV2`。在两者具备之前，feature gate 就是这条 route 与生产之间的全部距离，
-而仅仅移除它并不能编译通过。切换之后，只有 `BACKTEST_OWNER_DATABASE_URL` 准入规范 Backtest Owner principal，
+编译，所以今天没有任何已部署镜像提供该 route，验收之外也从未有请求到达过它。execution service 对 Composer
+的需要已经是无门的生产代码：它的 sealed read port 由生产 Composer
+`PostgresSourceResearchComposerProductionV2` 实现，而这个 Composer 的 final-evidence port
+`LockedOwnerEvidenceV2` 对给定的 locator 锁定并重读证据；不存在、也不需要另一个
+`PostgresDevelopComposerSealedReadPortV2`。把 handler、service 与 router 注册从 sealed Develop feature 移到
+`composer-replay-issuance` 下，在开启 `composer-v3-replay`、不开任何验收 feature 的构建里能编译并通过 clippy
+（2026-09-28 在引入这两个 feature 的那棵树上实测，随后还原）。所以 feature gate 就是这条 route 与一个构建之间的
+全部距离，切换就是让部署镜像带上这样的构建，这是一个部署决定。切换之后，只有 `BACKTEST_OWNER_DATABASE_URL` 准入规范 Backtest Owner principal，
 且 Market Data scheduling capability 存在时，startup 才暴露 execution capability。Coordinator 确认 Result、
 全部 28 份 evidence envelope 与 semantic trace 后，handler 只返回实际持久化的 canonical Result bytes；未获
 确认的提交保持 unavailable。该准入不授予 disposable PostgreSQL acceptance、已部署或正在运行的服务、
@@ -688,8 +691,8 @@ frame；`a_batch_holding_a_second_instant_of_one_role_binds_no_frame` 测的正�
 **那「一个生产调用方」不意味着什么：** 它是一个调用方计数，不是「这条路径会跑」的陈述。今天在任何
 可编译配置下都没有东西签发 `NativeReplayExecutionInputBindingV1`。它的签发收敛到
 `issue_native_replay_execution_input_binding_v1`，而后者唯一的调用方是一个 HTTP handler，
-只在 `rd-owner-api` 这个 crate 自己的 `sealed-develop-composer-acceptance` 下注册，
-而没有任何 Makefile 目标、workflow 或链路脚本打开它；没有 SQL 或脚本直接写那几张绑定表，
+只在 `rd-owner-api` 这个 crate 自己的 `composer-replay-issuance` 下注册，
+部署镜像不开启它，有序链路的构建只经由 `sealed-develop-composer-acceptance` 打开它；没有 SQL 或脚本直接写那几张绑定表，
 也没有测试或客户端提到那条路由。签发者与它旁边的解析者都是 `PostgresResearchGoalOwnerV1` 上
 无门的生产函数，相距四十三行，要的协作者是同一套。所以这条执行路径是没被走到，而不是走不到，
 而一条先签发再解析的有序链路条目就能驱动它，既不必启用 feature 也不必扩任何 union。
@@ -1171,6 +1174,18 @@ default。错误 fact、receipt、terms、venue、account 或 time，以及 nonc
 cross-spliced、tampered 或 ACL-drifted custody 都会在 `ProgramHostV2` 或 Backtest state 存在前失败。既有
 profile canonical bytes 与 digest 保持不变。
 
+一次 Replay 用哪个品种的 terms，按它的请求解析，而不是由它的 family 钉死。economic configuration 的 schema 1
+还钉死了一个品种的 terms（`instrument_terms`：品种、public fact 与 receipt digest、费率与保证金），profile
+binding 随后要求恰好一个成员与之相等。这条规则随 #468 的密封验收配置引入，此前本文没有陈述过。schema 1 对在其下
+密封的每个 family 保持可读，字节与 digest 不变。schema 2 不钉任何品种，只固定跨品种成立的东西：venue、币种、
+杠杆，以及 fill、fee 与 margin model；每次 Replay 的品种 terms，是签发 execution-profile binding 时 Instrument
+Owner 按它的成员、在它窗口起点解析出的那一份。binding 记录它们的 provenance：品种、public fact digest、terms
+receipt、terms digest、费率与保证金。再次解析 terms 的消费方必须恰好遇到这些事实，否则拒绝。因此费率变更是一条
+新的 terms fact，而不是新的 Catalog 版本。不钉 terms 的 schema 1，或钉了 terms 的 schema 2，都以
+`InstrumentTermsPinningMismatch` 拒绝。不钉品种并不放宽 venue：配置未指名的 venue 上的 terms 在 provenance
+存在前就被拒绝，成员位于其他 venue 时 Instrument Owner 什么也解析不出。account scope 是 Owner 为每个成员都持有的
+唯一完整 scope；schema 2 不钉费率档位。
+
 原生 engine materialization 保持 `UNAVAILABLE`。V1 只把 liquidation 表示为 disabled，不携带 numeric ratio；
 adapter 必须另行证明原生 float-only inactive liquidation field 不会被读取，或在 policy meaning 之外绑定
 version-specific inactive constant。materialization 前，一个 version-bound、fail-closed adapter 还必须证明每个
@@ -1474,25 +1489,48 @@ Research scope 与 Design 推导出托管请求；T1 的首个正例只用 CLOSE
 I3；再然后 N1、A2、A3、V4b、V5。按帧 as-of 成员（T4）会移除「每帧共用一个成员集」这条不变式，所以在提出它时再
 问用户。
 
-单阈值编写器接受的一种目标变体，今天在 target-set Host 上跑不过一帧，它是一片，排在 F 之后、T1 之前。它在 `main`
-3a465a537 上实测过：现状为红，在一个随后还原的临时改动下越过了点名的那道检查。在这一片落地之前，编写器以
-`SINGLE_THRESHOLD_TARGET_VARIANT_NOT_RUNNABLE` 按名拒绝它，任一侧都拒，于是只会在第一帧失败的程序根本不会被编写出来；
-这一片落地时移除这个拒绝。
+单阈值编写器接受的每一种目标变体，都能在 target-set Host 上跑过一帧。曾有两种不能，各是一片，排在 F 之后、T1 之前，
+两者都在 `main` 3a465a537 上实测过：现状为红，在一个随后还原的临时改动下越过了点名的那道检查；在各自那一片落地之前，
+编写器按名拒绝它们。
 
-- **Weight 对账。** Host 除 `Keep` 以外对每种目标都解码出一个 reconciliation target，而 target-set 对账要求 weight
-  目标没有，所以 weight 一侧在第一帧就以 `InputCoverage` 失败。临时让解码对 weight 不给出它时，这道检查通过，该帧
-  接着以 `InvalidPositionTransition` 失败：编写器让两侧共用一个为 0 的 target weight，而以 0 权重入场不是迁移。
-  两处都由 Strategy Factory 修复：Host 的解码，以及编写器的 weight，让它像仓位那样跟随各侧。
+- **Rebalance 序号。** Host 按上面那条规则分配序号，编写器写 `0`。常量为 1 时只有第一帧能提升；拿掉 Host 的分配而写
+  `0` 时，连第一帧也不能。`an_authored_rebalance_program_lifts_three_consecutive_frames` 把编写出的程序构建成 Wasm，经
+  target-set Sim 跑三帧，进场、出场、再进场，序号依次为 1、2、3；
+  `a_single_instrument_host_assigns_each_rebalance_the_next_sequence` 守住单品种路径。
+- **Weight 对账。** target-set Host 在对账时从权益与价格推出 weight 成员的 grid 仓位，并拒绝一个已经带着 reconciliation
+  target 的 weight 成员，而 Host 除 `Keep` 以外对每种目标都解码出一个，所以 weight 一侧在第一帧就以 `InputCoverage`
+  失败。越过这道检查后，该帧以 `InvalidPositionTransition` 失败，因为编写器让两侧共用一个为 0 的 target weight。现在
+  Host 对 weight 目标不解码 reconciliation target，每一侧各自声明 `target_weight_micros`：只有 weight 一侧可以给出它
+  （`SINGLE_THRESHOLD_WEIGHT_NOT_READ`），且只能在正负 1,000,000 micros 之内（`SINGLE_THRESHOLD_WEIGHT_OUT_OF_RANGE`）；
+  不给出 weight 的请求字节不变。`an_authored_weight_program_enters_exits_and_enters_again` 让编写出的程序跑同样的三帧。
 
-rebalance 目标曾是第二种这样的变体，它那一片已经落地：Host 按上面那条规则分配序号，编写器写 `0`。常量为 1 时只有第
-一帧能提升；拿掉 Host 的分配而写 `0` 时，连第一帧也不能。`an_authored_rebalance_program_lifts_three_consecutive_frames`
-把编写出的程序构建成 Wasm，经 target-set Sim 跑三帧，进场、出场、再进场，序号依次为 1、2、3；
-`a_single_instrument_host_assigns_each_rebalance_the_next_sequence` 守住单品种路径。
-
-那次运行找到了一个任何变体拒绝都没覆盖的缺陷：编写器让两侧共用一个 protection，即 `keep`，而内核在出场时拒绝
+rebalance 那次运行找到了一个任何变体拒绝都没覆盖的缺陷：编写器让两侧共用一个 protection，即 `keep`，而内核在出场时拒绝
 `keep`，所以没有哪个编写出的程序能出场。现在每一侧的 protection 跟随它的意图：出场清除，其余各侧保持；
 `every_authored_side_runs_through_the_kernel` 把每一个编写出的侧，从它可能被提出的每个仓位，施加到一个真实的生命周期
 内核上，于是一个本该跟随各侧却被共用的终端，会在那里失败，而不是在之后某一帧。
+
+## TARGET - Research 运行到出策略为止，由花费约束
+
+用户于 2026-09-27 决定：Research 不因试验次数停下；每次试验都记账并跨轮累计，Qualification 的折扣随这个计数增长，随机对照
+与留出数据保留，一个用户设定的花费上限约束 Research 的花费。[R&D](../owners/rd/#target---cumulative-trial-accounting-and-the-spend-cap)
+定义一次试验、它累计所跨的血缘、移除与花费上限；
+[Qualification](../owners/qualification/#target---cumulative-trial-deflation-at-candidate-intake) 定义打折。这些都不阻塞 F，
+在 F 之后按以下顺序实现：
+
+| 切片               | Owner                               | 内容                                                                                    | 之后                 |
+| ------------------ | ----------------------------------- | --------------------------------------------------------------------------------------- | -------------------- |
+| TB1 血缘试验计数   | R&D                                 | 生产 census 追加、`trial_count`、在所绑定前驱前沿上的血缘求和                           | Decision composition |
+| TB2 累计打折       | Qualification                       | 在 Candidate Intake 处按推导出的计数打折、跨 family 的保护性尝试计数                    | TB1                  |
+| TB3 随机对照       | Qualification、R&D、Backtest        | 已规定的定义、合成与重放，按此顺序                                                      | 无                   |
+| TB4 花费账本与上限 | R&D、R&D Owner client、Product Edge | 用量采集、预留与结算、`PAUSED_SPEND_CAP_REACHED`、环境设定的上限，然后是 Dashboard 控件 | 无                   |
+| TB5 移除试验上限   | R&D、Product Edge、Dashboard        | 没有预算的 TrialFamily Policy V2，对 V2 family 去掉准入拒绝与 `TRIAL_BUDGET_EXHAUSTED`  | TB1、TB2、TB4        |
+
+TB1 现在还不能开工。它计数的是
+[R&D](../owners/rd/#target--not_admitted---same-cut-decision-and-selection-composition) 中同一截面的 Decision 与 Selection
+composition 所做的 census 追加，而这个 composition 本身是 `TARGET / NOT_ADMITTED`：在它被准入并建成之前，后继迭代没有生产
+路径，也不存在可计数的 census 追加。TB5 排在最后，因为它移除的正是其他几片所替代的约束：TB2 之前没有东西会给长时间的搜索打折，TB4 之前没有东西会约束它的成本。
+TB3 本来就是任何 Eligibility 的条件，所以不论顺序如何它都约束 Qualification。一条血缘停止后接着做什么，即来自 Source Intake
+的新假设，不在这几片之内。
 
 ## 价值流交接
 

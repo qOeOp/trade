@@ -395,9 +395,17 @@ pub(crate) fn materialize_event_replay_execution_profile_v1(
     let runner_input = runner.input();
     let venue = Venue::new_checked(&economic_input.venue_identity)
         .map_err(|_| ReplayNativeExecutionProfileErrorV1::InvalidIdentifier)?;
-    let symbol = Symbol::new_checked(&economic_input.instrument_terms.instrument_identity)
-        .map_err(|_| ReplayNativeExecutionProfileErrorV1::InvalidIdentifier)?;
-    let instrument_id = InstrumentId::new(symbol, venue);
+    // A schema 1 configuration names a primary instrument the binding must hold; a schema 2
+    // configuration names none, and the binding's members are the instruments.
+    let pinned_instrument_id = economic_input
+        .instrument_terms
+        .as_ref()
+        .map(|pinned| {
+            Symbol::new_checked(&pinned.instrument_identity)
+                .map(|symbol| InstrumentId::new(symbol, venue))
+                .map_err(|_| ReplayNativeExecutionProfileErrorV1::InvalidIdentifier)
+        })
+        .transpose()?;
     let instrument_ids = binding.instrument_terms().try_map(|terms| {
         Symbol::new_checked(&terms.instrument_identity)
             .map(|symbol| InstrumentId::new(symbol, venue))
@@ -405,7 +413,7 @@ pub(crate) fn materialize_event_replay_execution_profile_v1(
     })?;
 
     if instrument_ids.windows(2).any(|pair| pair[0] >= pair[1])
-        || !instrument_ids.contains(&instrument_id)
+        || pinned_instrument_id.is_some_and(|pinned| !instrument_ids.contains(&pinned))
     {
         return Err(ReplayNativeExecutionProfileErrorV1::InstrumentTermsMismatch);
     }
@@ -490,22 +498,34 @@ pub(crate) fn materialize_event_replay_execution_profile_v1(
         .map_err(|_| ReplayNativeExecutionProfileErrorV1::NativeConfiguration)?;
 
     let instrument_terms = binding.instrument_terms();
-    let Some(primary_terms) = instrument_terms.iter().find(|terms| {
-        terms.instrument_identity == economic_input.instrument_terms.instrument_identity
-    }) else {
-        return Err(ReplayNativeExecutionProfileErrorV1::InstrumentTermsMismatch);
-    };
+    if let Some(pinned) = economic_input.instrument_terms.as_ref() {
+        let Some(primary_terms) = instrument_terms
+            .iter()
+            .find(|terms| terms.instrument_identity == pinned.instrument_identity)
+        else {
+            return Err(ReplayNativeExecutionProfileErrorV1::InstrumentTermsMismatch);
+        };
 
-    if primary_terms.venue_identity != economic_input.venue_identity
-        || primary_terms.margin_model != InstrumentMarginModelSelectionV1::StandardMarginModel
-        || primary_terms.maker_fee != economic_input.instrument_terms.maker_fee
-        || primary_terms.taker_fee != economic_input.instrument_terms.taker_fee
-        || primary_terms.initial_margin != economic_input.instrument_terms.initial_margin
-        || primary_terms.maintenance_margin != economic_input.instrument_terms.maintenance_margin
-    {
+        if primary_terms.venue_identity != economic_input.venue_identity
+            || primary_terms.margin_model != InstrumentMarginModelSelectionV1::StandardMarginModel
+            || primary_terms.maker_fee != pinned.maker_fee
+            || primary_terms.taker_fee != pinned.taker_fee
+            || primary_terms.initial_margin != pinned.initial_margin
+            || primary_terms.maintenance_margin != pinned.maintenance_margin
+        {
+            return Err(ReplayNativeExecutionProfileErrorV1::InstrumentTermsMismatch);
+        }
+    } else if instrument_terms.iter().any(|terms| {
+        terms.venue_identity != economic_input.venue_identity
+            || terms.margin_model != InstrumentMarginModelSelectionV1::StandardMarginModel
+    }) {
         return Err(ReplayNativeExecutionProfileErrorV1::InstrumentTermsMismatch);
     }
-    let materialization_digest = materialization_digest(&binding, instrument_id, instance_id)?;
+    // The instrument the materialization digest names: the pinned one under schema 1, whose digest
+    // is therefore unchanged, and under schema 2 the binding's first member in canonical order.
+    let digest_instrument_id = pinned_instrument_id.unwrap_or(instrument_ids[0]);
+    let materialization_digest =
+        materialization_digest(&binding, digest_instrument_id, instance_id)?;
     let instrument_terms = binding.into_instrument_terms();
 
     Ok(ReplayNativeExecutionProfileV1 {
@@ -1661,7 +1681,11 @@ mod tests {
         let mut unknown = economic_fixture();
         unknown.starting_balance_currency = "ZZZ".into();
         unknown.common_quote_currency = "ZZZ".into();
-        unknown.instrument_terms.quote_currency = "ZZZ".into();
+        unknown
+            .instrument_terms
+            .as_mut()
+            .expect("the schema 1 fixture pins its terms")
+            .quote_currency = "ZZZ".into();
         let unknown = ReplayEconomicConfigurationV1::seal(unknown).unwrap();
         let runner = ReplayRunnerOperationalProfileV1::seal(runner_fixture()).unwrap();
         assert!(matches!(

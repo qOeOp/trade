@@ -111,11 +111,14 @@ an admission as invalid:
 - **CURRENT - deployed service and the boundary of what it exposes:** `product/rd-workbench/Dockerfile.owner`
   builds `--bin strategy-factory-rd-owner-api` with no `--features` at all; the file's only `--features` is on the
   dashboard binary. So the deployed image is the ungated router in
-  `crates/strategy_factory_rd_owner_api/src/main.rs`, and the six routes registered after it by
-  `#[cfg(feature = "sealed-develop-composer-acceptance")]` and
-  `#[cfg(feature = "sealed-source-intake-composer-acceptance")]` are absent from it:
-  `/v2/exploratory-replay/execution-input-bindings`, `/v3/exploratory-replay-requests/composer-backed`, and the
-  four `/_sealed-acceptance/v1/develop-composer/*` routes. An acceptance route is never evidence of a production
+  `crates/strategy_factory_rd_owner_api/src/main.rs`, and the six routes registered after it are absent from it:
+  `/v2/exploratory-replay/execution-input-bindings` under `#[cfg(feature = "composer-replay-issuance")]`,
+  `/v3/exploratory-replay-requests/composer-backed` under `#[cfg(feature = "composer-v3-replay")]`, and the four
+  `/_sealed-acceptance/v1/develop-composer/*` routes under
+  `#[cfg(feature = "sealed-source-intake-composer-acceptance")]`. The first two features are production surfaces
+  that carry no acceptance fixture, corpus or route; the sealed features include them rather than own them, and in
+  the default build the Composer's own `/v2/develop-composer/runs/{request_identity}/resolve` and `/readback` answer
+  `503` because `composer-replay-issuance` is off. An acceptance route is never evidence of a production
   capability, and the sealed features exist to keep that distinction mechanical rather than remembered.
 - **CURRENT - the deployed Source Intake pipeline stops after admission:** `SourceIntakeEnvironmentPort` has two
   implementations. `SealedSourceIntakeEnvironmentV1` sits behind `sealed-source-intake-acceptance`, which the image
@@ -144,16 +147,23 @@ an admission as invalid:
   a malformed body) the route already answers by name. That no retry changes the answer today is the build's
   missing capability, listed in `UNIMPLEMENTED_PRODUCTION_STAGES`; it is not a property of the request and calls
   for no answer of its own.
-- **CURRENT - the composer-backed Exploratory Replay request path carries no admission label, and what lifts its
-seal is upstream:** `commit_composer_backed_exploratory_replay_request_v3` and its route
-`/v3/exploratory-replay-requests/composer-backed` exist only under `sealed-source-intake-composer-acceptance`,
-which the image above does not build. Nothing in this document, `docs/owners/backtest.md` or
-`docs/architecture/` marks the path `TARGET`, `IMPLEMENTATION_ADMITTED` or any other state, so its state is
+- **CURRENT - the composer-backed Exploratory Replay request path carries no admission label, and what keeps it
+out of the deployed image is the image, not a missing producer:** `commit_composer_backed_exploratory_replay_request_v3`,
+its route `/v3/exploratory-replay-requests/composer-backed`, its tables and their migration exist only under
+`composer-v3-replay`, a production feature that the image above does not build; the default build's
+`--materialize-schema` therefore creates none of those tables. Nothing in this document, `docs/owners/backtest.md`
+or `docs/architecture/` marks the path `TARGET`, `IMPLEMENTATION_ADMITTED` or any other state, so its state is
 read from three statements instead. The deployed-service bullet above says an acceptance route is never evidence
 of a production capability. `docs/guide/dashboard.md` says the boundary lifts when a deployed image carries a
-path that produces Composer artifacts, and that the v2 commit then retires or is replaced by this one. The
-Source Intake bullet above says the deployed pipeline, the first hop toward any Composer artifact, acquires
-nothing. The path is therefore sealed pending a production producer: neither unfinished nor closed by intent.
+path that produces Composer artifacts, and that the v2 commit then retires or is replaced by this one. Such a
+path is compiled and registered in the default build: `/v2/develop-composer/runs` runs the production Composer on
+the Research request's frozen Bounded Feature Program
+(`PostgresSourceResearchComposerProductionV2::run_bounded_feature_program`), which reads the joint freeze and
+Market Data's bindings and does not go through Source Intake, so the Source Intake bullet above no longer names
+the hop in the way. A build that enables `composer-v3-replay` carries that Composer and this commit together and
+no acceptance code. The ordered chain's build is not that build: its acceptance feature includes
+`composer-v3-replay` but also replaces the Composer's run with the fixed corpus. The path is therefore unadmitted into the image: neither unfinished nor closed
+by intent, and what admits it is a deployment decision.
 The ungated v2 commit cannot stand in for it. Native Replay preparation parses the request's `artifact.digest`
 as a `sha256:` digest before it queries Composer, while a v2 commit succeeds only when that digest equals the
 Artifact Build Owner's `blake3:` wasm digest; and the request's `artifact.identity` would have to equal the
@@ -1099,6 +1109,93 @@ Protected measurements, outcomes, categories, and holdout detail never enter Dia
 Purge and embargo derivation, trial-family-aware multiplicity policy, attempt frontier, and protected-decision
 policy are frozen before their results and carried unchanged through Replay Request, Run Result, Iteration
 Decision, Selection, and Candidate. Changing one creates a successor lineage rather than reinterpretation.
+
+### TARGET - Cumulative trial accounting and the spend cap
+
+The user decided on 2026-09-27 that Research runs until it develops a strategy instead of stopping at a trial count.
+In the user's words (translated): "R&D has to keep running until it develops a strategy; otherwise it keeps being
+interrupted for budget reasons and cannot develop an effective strategy, which is a bad experience." The option the
+user chose (translated): "R&D does not stop on the number of trials; every trial is recorded and accumulates across
+rounds, so the more is tried, the heavier the discount at qualification review; the random-strategy control and the
+held-out data stay as they are; only one spend cap you can set remains (API and compute)." Under that authorization
+this removes a stated bound, the sealed trial budget, and relocates what it protected: multiple-testing control
+moves from stopping the search to raising the qualification bar
+([Qualification](./qualification/#target---cumulative-trial-deflation-at-candidate-intake)), and protection against
+uneconomic endless search moves to the spend cap below. The removal lands last, after the accounting, the deflation,
+and the spend cap exist, so no cut holds neither the old bound nor its replacement.
+
+**Today**, measured at `main` 019f231b0. The sealed budget is `TrialFamilyPolicyV1.trial_budget`, which Product Edge
+admits in 1 to 10,000 (`TRIAL_BUDGET_INVALID`) and the Dashboard research form in 1 to 64. It is inside the policy
+digest and therefore the TrialFamily identity. Three rules enforce it: Iteration Result Admission refuses a proposal
+set larger than the remaining budget (`ITERATION_RESULT_ADMISSION_TRIAL_BUDGET_EXCEEDED`); the decision policy
+issues `TRIAL_BUDGET_EXHAUSTED` when the consumed count equals the budget; and that exhaustion preempts candidate
+comparison and `READY_FOR_SELECTION`, so the last budgeted trial can never become a Candidate. One consumed unit is
+one census attempt, an Intent, Request, and Result triple of any terminal disposition, counted per TrialFamily. A
+successor Intent stays in its family, a new Research goal forms a new family whose count starts again, and nothing
+sums counts across families. The census V2 append that advances the count has no production caller, because it
+awaits the Decision composition above, so in a production build every family's count is the 1 its formation writes
+and no family can reach its budget.
+
+**A trial** is one census attempt, exactly as counted today: every exploratory Intent, Request, and Result triple the
+TrialFamily Census admits, whatever its disposition. Losing, rejected, invalid, and unknown attempts count, because
+each is a look at the data; an exact request replay joins its receipt and is not a second trial. The V2 census calls
+the count `trial_count` where it now says `consumed_trial_budget`; V1 readbacks keep the old name.
+
+**The lineage it accumulates across.** A Candidate's cumulative trial count is the sum of `trial_count` at the census
+frontier it binds for its own TrialFamily and for every TrialFamily in its cross-family predecessor frontier,
+transitively:
+
+- successor iterations stay in their family, so they are counted;
+- a replan after Qualification feedback is a successor with cross-family ancestry, so it is counted;
+- declared independence changes neither, just as it cannot grant a fresh holdout budget;
+- a predecessor family that is still accruing is counted at the cut the Candidate binds, and a later append is
+  counted by the next Candidate that binds a later cut.
+
+No caller supplies the count: Qualification derives it from the bound frontiers. A Research goal with no semantic
+predecessor starts a new lineage. The count is bounded by the lineage rather than by every trial a principal has run,
+because what it protects against does not rest on it alone: using a new goal to erase a predecessor is already
+prohibited below, and the same-universe random control compares a Candidate against programs drawn to a definition
+the searcher did not write, so it holds even when the count is understated.
+
+**What changes when the removal lands.** A TrialFamily Policy V2 has no trial budget and its own digest domain, so
+every V1 family keeps its identity and its frozen decision policy. A V1 family that exhausts its sealed budget still
+stops as it committed to, and its lineage continues through a successor family formed under V2, with every V1 trial
+counted. For V2 families:
+
+- Iteration Result Admission drops the remaining-budget refusal;
+- the decision policy version no longer lists `TRIAL_BUDGET_EXHAUSTED` or its preemption of comparison and readiness;
+- the information-value comparison weighs the cumulative trial-count effect where it weighed the remaining
+  family-budget effect;
+- the remaining stops (falsifier, frozen stop rule, input unavailable, economic impossibility, low information
+  value) end a lineage, not Research, and "exhausted budgets" leaves the failures that prevent candidate submission;
+- the Dashboard's trial-budget field and budget columns give way to the cumulative trial count once
+  `docs/guide/dashboard.md` is changed for it.
+
+**The spend cap.** One user-set cap bounds what Research spends, and reaching it pauses Research rather than stopping
+it.
+
+- *What is metered.* Language-model provider calls, by the token usage each response reports, at the user's price
+  for that provider and model; today `artifact_build_v1.ts` reads only the message content and discards the `usage`
+  block. Paid market data, by the cost its provider quotes before the request: Databento's `get_cost` preflight,
+  which today has its own cap `DATABENTO_MAX_PROBE_COST_USD`, is folded into this one. Compute, the seconds of
+  Backtest replay and Develop builds, at a user-set rate that defaults to zero on the single local host the user
+  admitted, so compute counts only if the user prices it.
+- *Who meters.* R&D keeps an append-only Spend Ledger. Before a metered effect it reserves the effect's upper bound,
+  in the transaction that claims the effect: the request's `max_tokens` at the price, the preflight quote, or the
+  declared time limit at the compute rate. After the effect it settles the actual amount against that reservation.
+  An effect whose outcome is unknown stays reserved at its bound until it resolves. Reservations serialize on the
+  ledger head, so two concurrent ones cannot together pass the cap.
+- *When the cap is reached.* A reservation that would take settled plus reserved spend past the cap is refused, and
+  the Research workflow enters `PAUSED_SPEND_CAP_REACHED`, which carries the cap, the settled and reserved amounts,
+  and the refused effect. It is not an Iteration Decision or a stop: no identity closes and nothing is lost, and the
+  same step reserves again once the cap allows it. An effect already reserved completes and settles.
+- *How the user sets it.* The cap is one amount in US dollars per UTC calendar month, resetting on the first of each
+  month, which the user confirmed on 2026-09-28. It is held with its price table as an authorized Product Edge
+  configuration fact that R&D reads at each reservation; a change is a new fact, never an edit. Until the Dashboard admits a control for it, the R&D Owner API reads the cap from its environment, as it
+  reads the Databento cap today.
+
+The slices and their order are in
+[Strategy Factory](../architecture/strategy-factory#target---research-runs-until-a-strategy-bounded-by-spend).
 
 ## Input handoffs
 

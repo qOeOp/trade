@@ -1807,7 +1807,7 @@ impl PostgresResearchGoalOwnerV1 {
             crate::trial_family_postgres::TABLES,
             crate::iteration_decision_postgres::TABLES,
             crate::iteration_result_admission_postgres::TABLES,
-            #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+            #[cfg(feature = "composer-v3-replay")]
             crate::exploratory_replay::postgres::composer_commit_v3::TABLES,
             crate::successor_intent_postgres::TABLES,
             crate::market_data_repair_request_postgres::TABLES,
@@ -2168,7 +2168,7 @@ impl PostgresResearchGoalOwnerV1 {
 
     /// Commits a Composer-backed Replay from exact R&D, Composer, and Market Data Owner facts.
     /// The locator-only proposal cannot provide a positive sealed source or execution profile.
-    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+    #[cfg(feature = "composer-v3-replay")]
     pub async fn commit_composer_backed_exploratory_replay_request_v3(
         &self,
         proposal: crate::exploratory_replay::ComposerBackedExploratoryReplayProposalV3,

@@ -2245,12 +2245,14 @@ struct AuthoredUniverseMemberProgram {
 /// enter at 1 and exit to 0 under `target_variant`, with the entry side above a threshold of
 /// 120.00.
 ///
-/// `open_role` and `close_role` name the Design's two member roles.
+/// `open_role` and `close_role` name the Design's two member roles. A weight side enters at
+/// `entry_weight_micros` and exits at a weight of 0; every other variant takes 0 for both.
 #[cfg(feature = "sealed-strategy-input-acceptance")]
 fn authored_universe_member_program(
     open_role: &str,
     close_role: &str,
     target_variant: &str,
+    entry_weight_micros: i32,
 ) -> AuthoredUniverseMemberProgram {
     use crate::{
         bounded_feature_program_derivation_v1::derive_bounded_feature_program_proposal_v1,
@@ -2272,10 +2274,11 @@ fn authored_universe_member_program(
     use vibe_data::owner::sealed_acceptance::issue_single_member_universe_frame_for_owner_lineage;
     use vibe_indicators_kernel::PrimitiveCatalogV1;
 
-    let outcome = |position_intent: &str, units| SingleThresholdOutcomeV1 {
+    let outcome = |position_intent: &str, units, weight_micros| SingleThresholdOutcomeV1 {
         position_intent_semantic_id: position_intent.to_owned(),
         target_variant_semantic_id: target_variant.to_owned(),
         target_position_units: units,
+        target_weight_micros: weight_micros,
     };
     let (design, meaning) =
         author_single_threshold_program_v1(&SingleThresholdAuthoringRequestV1 {
@@ -2288,8 +2291,8 @@ fn authored_universe_member_program(
             },
             threshold_coefficient: 12_000,
             comparison: BoundedFeaturePredicateV1::Greater,
-            when_true: outcome("kernel.position.enter.v1", 1),
-            otherwise: outcome("kernel.position.exit.v1", 0),
+            when_true: outcome("kernel.position.enter.v1", 1, entry_weight_micros),
+            otherwise: outcome("kernel.position.exit.v1", 0, 0),
             falsifier: "the close never exceeds the threshold in the admitted window".to_owned(),
         })
         .expect("the universe-member statement is authorable");
@@ -2415,7 +2418,7 @@ fn run_authored_universe_member_program(
         artifact,
         owner_frame,
         time,
-    } = authored_universe_member_program(open_role, close_role, "kernel.target.position.v1");
+    } = authored_universe_member_program(open_role, close_role, "kernel.target.position.v1", 0);
     let frame = owner_frame.frame().clone();
     let authority = owner_replay_execution_profile_binding_fixture_v1(
         &plan,
@@ -2578,7 +2581,7 @@ fn an_authored_universe_member_program_enters_once_through_the_target_set_sim() 
 #[ignore = "lowers and builds the authored universe-member program with the pinned local wasm compiler"]
 #[cfg(feature = "sealed-strategy-input-acceptance")]
 fn an_authored_rebalance_program_lifts_three_consecutive_frames() {
-    let trace = run_authored_rebalance_program_over_three_frames()
+    let trace = run_authored_program_over_three_frames("kernel.target.rebalance.v1", 0)
         .expect("the three-frame Sim run completes");
 
     assert_eq!(trace.callback_failure, None);
@@ -2631,10 +2634,68 @@ fn an_authored_rebalance_program_lifts_three_consecutive_frames() {
     assert_eq!(trace.final_member_grid_units.as_deref(), Some(&[1][..]));
 }
 
-/// Runs [`an_authored_rebalance_program_lifts_three_consecutive_frames`]'s three frames, 100 ns
-/// apart, each with a resting book level for its order to fill against.
+/// The authored weight program runs the same three frames: it enters at a weight of 400 micros of
+/// equity, exits at a weight of 0, and enters again.
+///
+/// The target-set Host turns a weight into a grid position from equity and price when it
+/// reconciles, so a weight member reaches it without a reconciliation of its own; when the Host
+/// decoded one anyway, the first frame failed as `InputCoverage`. And each side reads its own
+/// weight: when the author shared one weight of 0 between both sides, the entry derived a grid
+/// position of 0 and the first frame failed as `InvalidPositionTransition`.
+///
+/// The weight is sized to the AAPL fixture's multiplier of 2, which the grid derivation divides
+/// by along with the price: 400 micros of the starting 1,000,000 USD is 400 USD, which over
+/// 187.25 x 2 and 188.00 x 2 is 1.07 and 1.06 units, so one unit each time. 200 micros, measured
+/// first, is 0.53 units and truncates to a grid position of 0.
+///
+/// THE SECOND AND THIRD FRAMES ARE CONSTRUCTED BY THIS TEST, NOT ISSUED BY THE OWNER, as in
+/// [`an_authored_rebalance_program_lifts_three_consecutive_frames`].
+#[rstest]
+#[ignore = "lowers and builds the authored universe-member program with the pinned local wasm compiler"]
 #[cfg(feature = "sealed-strategy-input-acceptance")]
-fn run_authored_rebalance_program_over_three_frames() -> anyhow::Result<TargetSetBacktestTraceV2> {
+fn an_authored_weight_program_enters_exits_and_enters_again() {
+    let trace = run_authored_program_over_three_frames("kernel.target.weight.v1", 400)
+        .expect("the three-frame Sim run completes");
+
+    assert_eq!(trace.callback_failure, None);
+    let targets = trace
+        .canonical_target_sets
+        .iter()
+        .map(|bytes| {
+            let set = InstrumentTargetSetV2::decode_slot(bytes).expect("a committed target set");
+            (set.sequence, set.members()[0].target)
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        targets,
+        [
+            (1, TargetProposalV1::WeightMicros(400)),
+            (2, TargetProposalV1::WeightMicros(0)),
+            (3, TargetProposalV1::WeightMicros(400)),
+        ]
+    );
+    let legs = trace
+        .actual_fill_consumptions
+        .iter()
+        .map(|fill| {
+            (
+                fill.position_intent.as_str(),
+                fill.position_after_grid_units,
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(legs, [("ENTER", 1), ("EXIT", 0), ("ENTER", 1)]);
+    assert_eq!(trace.final_member_grid_units.as_deref(), Some(&[1][..]));
+}
+
+/// Runs the authored program of `target_variant` over three frames 100 ns apart - its close above
+/// the threshold, below it, and above it again - each with a resting book level for its order to
+/// fill against.
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+fn run_authored_program_over_three_frames(
+    target_variant: &str,
+    entry_weight_micros: i32,
+) -> anyhow::Result<TargetSetBacktestTraceV2> {
     let AuthoredUniverseMemberProgram {
         plan,
         artifact,
@@ -2643,7 +2704,8 @@ fn run_authored_rebalance_program_over_three_frames() -> anyhow::Result<TargetSe
     } = authored_universe_member_program(
         "research.input.open.v1",
         "research.input.close.v1",
-        "kernel.target.rebalance.v1",
+        target_variant,
+        entry_weight_micros,
     );
     let member = authored_program_member();
     let bar_type = BarType::new(
