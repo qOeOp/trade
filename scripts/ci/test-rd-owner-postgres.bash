@@ -1464,6 +1464,61 @@ check_failed_entry_warnings() {
   rm -rf -- "$fixtures"
 }
 
+# Every database the chain clones from the template must be in every place a clone has to be: the
+# snapshot the reset rebuilds it from, the SECURITY DEFINER guard, the per-role settings, its REVOKE
+# and GRANT CONNECT, and its own dedicated marker. A clone left out of the snapshot is never reset,
+# and one left out of the guard is never guarded; neither makes anything red at run time, so the
+# chain would carry the gap silently (found reviewing #1185). The clones are read from the
+# `CREATE DATABASE ... WITH TEMPLATE :"test_database"` lines, not listed here, so a new clone is
+# checked without editing this.
+check_chain_clone_lists() {
+  python3 - "${BASH_SOURCE[0]}" << 'PY'
+import re
+import sys
+
+text = open(sys.argv[1], encoding="utf-8").read()
+clones = re.findall(r'^CREATE DATABASE :"(\w+)" WITH TEMPLATE :"test_database"', text, re.M)
+
+
+def block(pattern: str) -> str:
+    match = re.search(pattern, text, re.M | re.S)
+    return match.group(1) if match else ""
+
+
+places = {
+    "the snapshot the reset rebuilds from (chain_snapshot_databases)": set(
+        re.findall(r'"\$(\w+)"', block(r"^chain_snapshot_databases\(\) \{\n(.*?)\n\}")),
+    ),
+    "the SECURITY DEFINER guard (run-security-definer-guard.bash)": set(
+        re.findall(r'"\$(\w+)"', block(r'run-security-definer-guard\.bash" "\$container" \\\n(.*?)\n\n')),
+    ),
+    "the per-role settings (WITH clones(database_name))": set(
+        re.findall(r":'(\w+)'", block(r"^WITH clones\(database_name\) AS \(\n  VALUES (.*?)\n")),
+    ),
+    "REVOKE ... FROM PUBLIC": set(
+        re.findall(r'^REVOKE CONNECT, CREATE, TEMPORARY ON DATABASE :"(\w+)" FROM PUBLIC;', text, re.M),
+    ),
+    "GRANT CONNECT": set(re.findall(r'^GRANT CONNECT ON DATABASE :"(\w+)"$', text, re.M)),
+    "its dedicated marker (SET database_name)": set(
+        re.findall(r"^   SET database_name=:'(\w+)';", text, re.M),
+    ),
+}
+errors = []
+if not clones:
+    errors.append("no template clone found; the CREATE DATABASE pattern no longer matches this script")
+for place, names in places.items():
+    if not names:
+        errors.append(f"{place} could not be read; its pattern no longer matches this script")
+for clone in clones:
+    for place, names in places.items():
+        if names and clone not in names:
+            errors.append(f"{clone} is cloned from the template but missing from {place}")
+for error in errors:
+    print(f"ERROR: {error}", file=sys.stderr)
+sys.exit(1 if errors else 0)
+PY
+}
+
 check_trial_family_candidate_experiment_cutover() {
   local repository_root
   repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -1878,6 +1933,7 @@ if [[ "$chain_reports_only" != true ]]; then
   check_trial_family_candidate_experiment_cutover
   check_composer_acceptance_stays_in_the_chain
   check_chain_node_declarations
+  check_chain_clone_lists
 fi
 check_collected_warning_report
 check_failed_entry_warnings
