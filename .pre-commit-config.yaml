@@ -362,6 +362,13 @@ repos:
         language: system
         files: ^scripts/ci/(test-)?require-latest-workflow-verdict\.bash$
         pass_filenames: false
+      - id: test-source-canary-health
+        name: test the research canary health requirement
+        description: Only the same source failing in the two newest canary runs turns main red
+        entry: python3 -B scripts/ci/require_source_canary_health_test.py
+        language: system
+        files: ^scripts/ci/require_source_canary_health(_test)?\.py$
+        pass_filenames: false
       - id: test-chain-verdict-reuse
         name: test chain verdict reuse
         description: Only the same tree's green whole-chain verdict for its entry count is reused
