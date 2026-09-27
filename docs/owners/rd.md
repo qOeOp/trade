@@ -664,6 +664,16 @@ and a rendering of a document exists for reading only.
   `zscore`, `crosses_above`, `crosses_below`; `compare`, `all_of`, `any_of`, `not`, `if` and `banded`;
   and the states `latch`, `count_while` and `capture`. `if` is not lazy: both branches are evaluated, as
   every node is.
+- *Members (TARGET, with the Strategy shape envelope's I2).* A document is written once over the member set
+  the Research scope names. An expression over a role is broadcast: the compiler unrolls it into one node per
+  member, each reading its input at that member's `member_ordinal`. `across_members` reduces one broadcast
+  expression over every member with `rank`, `mean`, `min`, `max` or `nth`, which lower to the cross-member
+  primitives I2 appends to the catalog: `rank` is the average rank, so tied members share one, and `nth` returns
+  the n-th order statistic's value. The unrolled graph is measured against `graph_bounds` like any other, and
+  the member bound is fixed only after I1.5 measures how N-fold unrolling presses on `max_edges`. A compiled
+  program is valid only for its own member count, so a changed member set is a new Research and a new compile.
+  Until I2 lands, a document that uses `across_members` is refused by name at its path, and one that does not
+  compiles as it does without a member dimension.
 - *States and rules.* A state's name read in an expression is its value at the previous tick, so feedback
   runs only through state and a cycle between definitions is refused. While the program is warming, every
   state keeps its prior value, because the host holds only the warming frame neutral and a state that moved

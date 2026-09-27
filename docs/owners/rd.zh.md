@@ -564,6 +564,13 @@ host 仍 fail closed，绝不替换为 generic toolchain。
   展开式 `variance`、`stddev`、`zscore`、`crosses_above`、`crosses_below`；`compare`、`all_of`、`any_of`、`not`、`if`
   与 `banded`；以及状态 `latch`、`count_while` 与 `capture`。`if` 不是惰性的：两个分支都会被求值，
   和每个节点一样。
+- *成员（TARGET，随 Strategy shape envelope 的 I2）。* 一份文档只写一次，覆盖 Research 范围给出的成员集。
+  对一个角色写的表达式按成员广播：编译器把它展开成每个成员一个节点，各自在该成员的 `member_ordinal` 上读输入。
+  `across_members` 用 `rank`、`mean`、`min`、`max` 或 `nth` 把一个广播表达式在全体成员上归约，它们降为 I2
+  追加到目录的跨成员原语：`rank` 取平均秩，所以并列的成员共享一个秩，`nth` 返回第 n 个顺序统计量的值。
+  展开后的图与其他图一样按 `graph_bounds` 度量，成员数上界要等 I1.5 量出 N 倍展开对 `max_edges` 的压力之后
+  才确定。编译出的程序只对它自己的成员数有效，所以成员集变了就是新的 Research、重新编译。I2 落地之前，用了
+  `across_members` 的文档在它的路径上被按名拒绝，没用的文档照没有成员维度时那样编译。
 - *状态与规则。* 表达式里读到的状态名是它上一拍的值，所以反馈只经过状态，定义之间的环被拒绝。
   程序处于预热时，每个状态保持上一拍的值，因为宿主只把预热帧钉为中性，一个动了的状态会记下一次
   从未被提议过的入场。规则的名字是布尔值「这条规则本拍被选中」：它的条件、它的 `require`，以及
