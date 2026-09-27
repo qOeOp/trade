@@ -26,6 +26,7 @@ vibe-product-edge = { workspace = true }
 rstest = { workspace = true }
 sqlx = { workspace = true }
 tower = { workspace = true }
+vibe-postgres-connect = { workspace = true }
 vibe-product-edge = { workspace = true, features = [
   "sealed-deployment-acceptance",
 ] }

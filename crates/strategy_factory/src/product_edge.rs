@@ -1244,6 +1244,13 @@ pub struct ResearchGoalOwnerResultV2 {
     /// The Intent's initial PIT request: `null` unless this is an accepted V3 request, whose Intent
     /// binds an instrument scope.
     pub(crate) initial_pit: Option<crate::research_initial_pit_v1::ResearchInitialPitV1>,
+    /// The request's version, 2 or 3, as the Product Edge admission it was made under states it.
+    /// `null` where the Owner holds no current admitted request to read it from: an unresolved
+    /// request, an identity conflict, or a legacy quarantined one. Never inferred from another field.
+    pub(crate) request_schema_version: Option<u32>,
+    /// The instrument scope a V3 request states, exactly as it was admitted and stored; `null` for a
+    /// V2 request and wherever `request_schema_version` is `null`.
+    pub(crate) instrument_scope: Option<ResearchInstrumentScopeWireV1>,
 }
 
 impl ResearchGoalOwnerResultV2 {
@@ -1285,6 +1292,96 @@ impl ResearchGoalOwnerResultV2 {
 
     pub fn initial_pit(&self) -> Option<crate::research_initial_pit_v1::ResearchInitialPitV1> {
         self.initial_pit
+    }
+
+    pub fn request_schema_version(&self) -> Option<u32> {
+        self.request_schema_version
+    }
+
+    pub fn instrument_scope(&self) -> Option<&ResearchInstrumentScopeWireV1> {
+        self.instrument_scope.as_ref()
+    }
+}
+
+/// The version and instrument scope of one admitted V2-format request, which a V2 result states.
+///
+/// The version is read from the Product Edge admission, not from the stored request, which is one
+/// shape for V2 and V3; the scope is the stored request's. The two must agree - a V3 admission
+/// exactly when the request states a scope - and a disagreement is refused as an integrity failure
+/// rather than resolved in favour of either.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AdmittedResearchRequestVersionV1 {
+    schema_version: u32,
+    instrument_scope: Option<ResearchInstrumentScopeWireV1>,
+}
+
+/// Why an admitted request's version cannot be stated.
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub(crate) enum ResearchRequestVersionErrorV1 {
+    #[error("research admission operation schema {0} is not a V2 or V3 Research schema")]
+    UnsupportedOperationSchema(String),
+    #[error(
+        "research request version {schema_version} disagrees with its instrument scope \
+         (scope stated: {states_scope})"
+    )]
+    DisagreesWithInstrumentScope {
+        schema_version: u32,
+        states_scope: bool,
+    },
+}
+
+impl From<ResearchRequestVersionErrorV1> for ResearchGoalOwnerError {
+    fn from(error: ResearchRequestVersionErrorV1) -> Self {
+        Self::Storage(error.to_string())
+    }
+}
+
+impl AdmittedResearchRequestVersionV1 {
+    /// The version `admission` states for `request`, checked against the scope `request` states.
+    pub(crate) fn read(
+        admission: &ProductEdgeAdmissionReadbackV1,
+        request: &ProductEdgeResearchGoalRequestV2,
+    ) -> Result<Self, ResearchRequestVersionErrorV1> {
+        Self::from_parts(
+            &admission.request().operation_schema,
+            request.instrument_scope.clone(),
+        )
+    }
+
+    fn from_parts(
+        operation_schema: &str,
+        instrument_scope: Option<ResearchInstrumentScopeWireV1>,
+    ) -> Result<Self, ResearchRequestVersionErrorV1> {
+        let schema_version = match operation_schema {
+            RESEARCH_GOAL_SCHEMA_V2 => 2,
+            RESEARCH_GOAL_SCHEMA_V3 => 3,
+            other => {
+                return Err(ResearchRequestVersionErrorV1::UnsupportedOperationSchema(
+                    other.to_owned(),
+                ));
+            }
+        };
+
+        if (schema_version == 3) != instrument_scope.is_some() {
+            return Err(
+                ResearchRequestVersionErrorV1::DisagreesWithInstrumentScope {
+                    schema_version,
+                    states_scope: instrument_scope.is_some(),
+                },
+            );
+        }
+        Ok(Self {
+            schema_version,
+            instrument_scope,
+        })
+    }
+
+    pub(crate) const fn schema_version(&self) -> u32 {
+        self.schema_version
+    }
+
+    pub(crate) fn into_instrument_scope(self) -> Option<ResearchInstrumentScopeWireV1> {
+        self.instrument_scope
     }
 }
 
@@ -1875,6 +1972,8 @@ pub fn unresolved_result_v2(request_identity: &str) -> ResearchGoalOwnerResultV2
         trial_family: None,
         next_legal_action: ResearchNextLegalAction::ResolveSameRequestIdentity,
         initial_pit: None,
+        request_schema_version: None,
+        instrument_scope: None,
     }
 }
 
@@ -1891,6 +1990,8 @@ pub fn identity_conflict_result_v2(request_identity: &str) -> ResearchGoalOwnerR
         trial_family: None,
         next_legal_action: ResearchNextLegalAction::ResolveSameRequestIdentity,
         initial_pit: None,
+        request_schema_version: None,
+        instrument_scope: None,
     }
 }
 
@@ -2445,22 +2546,25 @@ fn binding_digest_hex(digest: BindingDigest) -> String {
     value
 }
 
+fn lowercase_hex_256(digest: &str) -> bool {
+    digest.len() == 64
+        && digest
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
 fn canonical_sha256_text(value: &str) -> bool {
-    value.strip_prefix("sha256:").is_some_and(|digest| {
-        digest.len() == 64
-            && digest
-                .bytes()
-                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-    })
+    value.strip_prefix("sha256:").is_some_and(lowercase_hex_256)
+}
+
+/// Whether `value` has the form of a Replay request V2 meaning digest, which the request contract
+/// computes with BLAKE3 (`ReplayRequestV2::meaning_digest`).
+fn canonical_blake3_text(value: &str) -> bool {
+    value.strip_prefix("blake3:").is_some_and(lowercase_hex_256)
 }
 
 fn canonical_named_sha256(value: &str, prefix: &str) -> bool {
-    value.strip_prefix(prefix).is_some_and(|digest| {
-        digest.len() == 64
-            && digest
-                .bytes()
-                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-    })
+    value.strip_prefix(prefix).is_some_and(lowercase_hex_256)
 }
 
 /// Validates only the historical View shape. The consuming Owner must separately reread the
@@ -2525,7 +2629,7 @@ pub(crate) fn composer_exploration_research_view_is_valid_v3(
         && composer.census_frontier_identity == exploration.census_frontier_identity
         && composer.census_frontier_digest == exploration.census_frontier_digest
         && !exploration.replay_request_identity.is_empty()
-        && canonical_sha256_text(&exploration.replay_request_meaning_digest)
+        && canonical_blake3_text(&exploration.replay_request_meaning_digest)
         && canonical_sha256_text(&exploration.replay_request_seal_digest)
         && canonical_named_sha256(
             &exploration.replay_receipt_identity,
@@ -2907,7 +3011,7 @@ mod v2_sealing_tests {
             census_frontier_identity: "census-frontier".into(),
             census_frontier_digest: digest('5'),
             replay_request_identity: "replay-request".into(),
-            replay_request_meaning_digest: digest('6'),
+            replay_request_meaning_digest: format!("blake3:{}", "6".repeat(64)),
             replay_request_seal_digest: digest('3'),
             replay_receipt_identity: format!("rd-exploratory-replay-receipt-v2-{}", "8".repeat(64)),
         });
@@ -2915,6 +3019,21 @@ mod v2_sealing_tests {
         view.projection_identity = canonical_research_view_identity_v4(&view).unwrap();
         assert!(
             crate::rd_owner_postgres_custody::validate_historical_view(&view, &initial).is_ok()
+        );
+
+        // The Replay request V2 meaning digest is BLAKE3 by the request contract; a SHA-256 value in
+        // its place is refused rather than taken for it.
+        let mut sha256_meaning = view.clone();
+        sha256_meaning
+            .exploration
+            .as_mut()
+            .unwrap()
+            .replay_request_meaning_digest = digest('6');
+        sha256_meaning.projection_identity =
+            canonical_research_view_identity_v4(&sha256_meaning).unwrap();
+        assert!(
+            crate::rd_owner_postgres_custody::validate_historical_view(&sha256_meaning, &initial)
+                .is_err()
         );
 
         view.attempt_identity = Some("legacy-attempt".into());
@@ -3336,6 +3455,61 @@ mod v2_sealing_tests {
         assert_eq!(
             one.admitted_operation(),
             (RESEARCH_GOAL_OPERATION_V3, RESEARCH_GOAL_SCHEMA_V3)
+        );
+    }
+
+    /// The version is the admission's; the scope only has to agree with it. A padded scope is still
+    /// a V3 request's scope, since a rejected V3 request states exactly what it was admitted with.
+    #[rstest]
+    #[case::v2(RESEARCH_GOAL_SCHEMA_V2, None, 2)]
+    #[case::v3(RESEARCH_GOAL_SCHEMA_V3, Some(scope_wire(&["BTCUSDT-PERP.BINANCE"])), 3)]
+    #[case::v3_not_canonical(RESEARCH_GOAL_SCHEMA_V3, Some(scope_wire(&[" BTCUSDT-PERP.BINANCE"])), 3)]
+    fn an_admitted_request_states_the_version_its_admission_names(
+        #[case] operation_schema: &str,
+        #[case] instrument_scope: Option<ResearchInstrumentScopeWireV1>,
+        #[case] schema_version: u32,
+    ) {
+        let version = AdmittedResearchRequestVersionV1::from_parts(
+            operation_schema,
+            instrument_scope.clone(),
+        )
+        .unwrap();
+        assert_eq!(version.schema_version(), schema_version);
+        assert_eq!(version.into_instrument_scope(), instrument_scope);
+    }
+
+    #[rstest]
+    #[case::v1(RESEARCH_GOAL_SCHEMA_V1, None)]
+    #[case::unknown("sourced-research-goal-v4", Some(scope_wire(&["BTCUSDT-PERP.BINANCE"])))]
+    fn an_admission_under_another_schema_is_refused_by_name(
+        #[case] operation_schema: &str,
+        #[case] instrument_scope: Option<ResearchInstrumentScopeWireV1>,
+    ) {
+        assert_eq!(
+            AdmittedResearchRequestVersionV1::from_parts(operation_schema, instrument_scope),
+            Err(ResearchRequestVersionErrorV1::UnsupportedOperationSchema(
+                operation_schema.to_owned()
+            ))
+        );
+    }
+
+    #[rstest]
+    #[case::v2_with_scope(RESEARCH_GOAL_SCHEMA_V2, Some(scope_wire(&["BTCUSDT-PERP.BINANCE"])), 2, true)]
+    #[case::v3_without_scope(RESEARCH_GOAL_SCHEMA_V3, None, 3, false)]
+    fn a_version_that_disagrees_with_the_scope_is_an_integrity_failure(
+        #[case] operation_schema: &str,
+        #[case] instrument_scope: Option<ResearchInstrumentScopeWireV1>,
+        #[case] schema_version: u32,
+        #[case] states_scope: bool,
+    ) {
+        assert_eq!(
+            AdmittedResearchRequestVersionV1::from_parts(operation_schema, instrument_scope),
+            Err(
+                ResearchRequestVersionErrorV1::DisagreesWithInstrumentScope {
+                    schema_version,
+                    states_scope,
+                }
+            )
         );
     }
 

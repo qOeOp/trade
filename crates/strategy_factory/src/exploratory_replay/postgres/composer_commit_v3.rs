@@ -17,10 +17,13 @@ use super::{
 };
 use crate::{
     composer_artifact_family_binding_v3::{
+        begin_composer_replay_request_transaction_v3,
         ensure_composer_artifact_family_binding_for_replay_v3,
         load_composer_artifact_family_binding_for_replay_v3,
     },
-    composer_replay_intent_v3::resolve_composer_replay_intent_in_transaction,
+    composer_replay_intent_v3::{
+        load_composer_replay_family_cut_v3, resolve_composer_replay_intent_in_transaction,
+    },
     develop_composer_postgres_v2::read_accepted_for_replay_in_transaction,
     exploratory_replay::{
         ComposerBackedExploratoryReplayProposalV3, EXPLORATORY_REPLAY_MUTATION_EFFECT_V3,
@@ -38,7 +41,6 @@ use crate::{
         ResearchViewV1, canonical_research_view_identity_v2,
     },
     source_research_composer_postgres_v2::PostgresSourceResearchComposerBindingOwnerV2,
-    trial_family_postgres::load_trial_family_census_v2_by_family_in_transaction,
 };
 
 pub(super) const RESEARCH_VIEW_TRANSITION_EVENT_V3: &str = "RESEARCH_EXPLORATION_VIEW_ADVANCED_V3";
@@ -204,16 +206,10 @@ pub(crate) async fn commit_composer_v3(
     pool: &PgPool,
     proposal: ComposerBackedExploratoryReplayProposalV3,
 ) -> Result<ExploratoryReplayCommitResultV2, ExploratoryReplayOwnerError> {
-    let mut transaction = pool.begin().await.map_err(storage)?;
-    sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
-        .execute(&mut *transaction)
-        .await
-        .map_err(storage)?;
-    sqlx::query("SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended($1,0))")
-        .bind(&proposal.request_identity)
-        .execute(&mut *transaction)
-        .await
-        .map_err(storage)?;
+    let mut transaction =
+        begin_composer_replay_request_transaction_v3(pool, &proposal.request_identity)
+            .await
+            .map_err(storage)?;
 
     if let Some(existing) = Box::pin(
         super::composer_readback_v3::resolve_existing_composer_v3_in_transaction(
@@ -238,16 +234,10 @@ pub(crate) async fn commit_composer_v3(
     )
     .await
     .map_err(unavailable)?;
-    let mut transaction = pool.begin().await.map_err(storage)?;
-    sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
-        .execute(&mut *transaction)
-        .await
-        .map_err(storage)?;
-    sqlx::query("SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended($1,0))")
-        .bind(&proposal.request_identity)
-        .execute(&mut *transaction)
-        .await
-        .map_err(storage)?;
+    let mut transaction =
+        begin_composer_replay_request_transaction_v3(pool, &proposal.request_identity)
+            .await
+            .map_err(storage)?;
 
     if let Some(existing) = Box::pin(
         super::composer_readback_v3::resolve_existing_composer_v3_in_transaction(
@@ -274,12 +264,6 @@ pub(crate) async fn commit_composer_v3(
     .map_err(unavailable)?;
     verify_admission(&admission, &proposal, first_cut)?;
 
-    let census = load_trial_family_census_v2_by_family_in_transaction(
-        &mut transaction,
-        &proposal.trial_family_identity,
-    )
-    .await
-    .map_err(unavailable)?;
     let composer = read_accepted_for_replay_in_transaction(
         &mut transaction,
         &proposal.composer_locator,
@@ -288,11 +272,18 @@ pub(crate) async fn commit_composer_v3(
     )
     .await
     .map_err(unavailable)?;
+    let cut = load_composer_replay_family_cut_v3(
+        &mut transaction,
+        &proposal.trial_family_identity,
+        &composer,
+        None,
+    )
+    .await?;
     let intent =
-        resolve_composer_replay_intent_in_transaction(&mut transaction, &census, &composer).await?;
+        resolve_composer_replay_intent_in_transaction(&mut transaction, &cut, &composer).await?;
     let artifact_family = load_composer_artifact_family_binding_for_replay_v3(
         &mut transaction,
-        &census,
+        &cut,
         &intent,
         &composer,
     )
@@ -332,7 +323,7 @@ pub(crate) async fn commit_composer_v3(
     }
     let composed = prepare_composer_backed_replay_v3(
         &proposal,
-        &census,
+        &cut,
         &intent,
         &composer,
         &artifact_family,
@@ -341,7 +332,7 @@ pub(crate) async fn commit_composer_v3(
     )?;
     let prepared = prepare_composer_replay_seal_v3(
         composed,
-        &census,
+        &cut,
         old_view.clone(),
         admission.request().semantic_digest().map_err(unavailable)?,
         final_cut,

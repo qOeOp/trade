@@ -332,10 +332,12 @@ fn frozen_event_effective_ns(product: &Product) -> u64 {
     two_bars_ago - (two_bars_ago % product.bar_ns)
 }
 
+// Admitting and answering runs Market Data's admissions end to end; the future is over the
+// `large_futures` threshold at `opt-level = 0`, the profile CI lints with, so it lives on the heap.
 #[tokio::test]
 #[ignore = "requires the disposable PostgreSQL harness and a reachable venue"]
 async fn market_data_answers_one_frozen_request_without_a_credential() {
-    admit_and_answer(&SPOT).await;
+    Box::pin(admit_and_answer(&SPOT)).await;
 }
 
 /// The same seven steps for a perpetual: a different instrument class, a different venue surface,
@@ -347,7 +349,7 @@ async fn market_data_answers_one_frozen_request_without_a_credential() {
 #[tokio::test]
 #[ignore = "requires the disposable PostgreSQL harness and a reachable venue"]
 async fn market_data_answers_one_frozen_perpetual_request_without_a_credential() {
-    admit_and_answer(&PERPETUAL).await;
+    Box::pin(admit_and_answer(&PERPETUAL)).await;
 }
 
 /// The same seven steps for a perpetual's daily bar, which is where the Owner's timeframe word and
@@ -372,7 +374,7 @@ async fn market_data_answers_one_year_of_daily_perpetual_coordinates() {
 #[tokio::test]
 #[ignore = "requires the disposable PostgreSQL harness and a reachable venue"]
 async fn market_data_answers_one_frozen_daily_perpetual_request_without_a_credential() {
-    admit_and_answer(&PERPETUAL_DAILY).await;
+    Box::pin(admit_and_answer(&PERPETUAL_DAILY)).await;
 }
 
 /// Everything one product's admission establishes before any snapshot is requested.
@@ -422,9 +424,7 @@ async fn admit(product: &'static Product) -> Admitted {
     let instrument = instruments
         .admit_fact(instrument_submission(
             product,
-            semantics_identity,
-            proposal.source_frontier.digest,
-            proposal.correction_frontier.digest,
+            &binding_locator,
             effective_ns,
         ))
         .await
@@ -754,9 +754,7 @@ fn universe_locator(
 /// The member as Operations would describe it, under the binding's own semantics and frontiers.
 fn instrument_submission(
     product: &Product,
-    market_semantics_identity: BindingDigest,
-    source_frontier: BindingDigest,
-    correction_frontier: BindingDigest,
+    source_binding: &UntrustedSourceBindingLocator,
     effective_ns: u64,
 ) -> InstrumentMasterFactSubmissionV1 {
     let observed = i128::from(effective_ns) - 1;
@@ -786,9 +784,7 @@ fn instrument_submission(
         lifecycle_frontier: scoped(product, 0x31),
         corporate_action_frontier: scoped(product, 0x32),
         historical_membership_frontier: scoped(product, 0x11),
-        market_semantics_identity,
-        source_frontier,
-        correction_frontier,
+        source_binding: source_binding.clone(),
         effective_from: 1,
         effective_until: None,
         provider_available: observed,

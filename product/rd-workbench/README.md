@@ -51,6 +51,34 @@ compose file does not run it yet. When it does, it needs
 `DEPLOYMENT_STORE_PUBLISHER_DB_PASSWORD` and
 `DEPLOYMENT_STORE_CUSTODIAN_DB_PASSWORD`.
 
+The administrator seals each store manifest and the head that makes it current
+with the store signing key: an Ed25519 seed file of its own, separate from the
+Replay Policy Catalog's, whose public half the deployment pins as its store
+signer. Run both tools on the administrator's machine, not in the stack:
+
+```bash
+DEPLOYMENT_STORE_PUBLICATION_AUTHORING_PATH=/absolute/path/to/private-publication-authoring.json \
+DEPLOYMENT_STORE_SIGNING_KEY_PATH=/absolute/path/to/private-deployment-store-signing-key.hex \
+DEPLOYMENT_STORE_SEALED_PUBLICATION_OUTPUT_PATH=/absolute/path/to/private-sealed-publication.json \
+  cargo run --locked --release -p vibe-strategy-factory-rd-owner-api --bin deployment-store-publication-seal
+```
+
+The authoring names every earlier manifest identity of the scope, oldest first,
+and the head it replaces (none for the first publication). Identities, the
+history digest and both signatures are derived, and the sealer never prints the
+key or overwrites a sealed file. It prints the new head identity, which the
+next publication expects and `DEPLOYMENT_STORE_EXPECTED_HEAD_IDENTITY` names
+once the head is current. Publishing connects as the publisher principal:
+
+```bash
+DEPLOYMENT_STORE_SEALED_PUBLICATION_PATH=/absolute/path/to/private-sealed-publication.json \
+DEPLOYMENT_STORE_PUBLISHER_DATABASE_URL=postgres://deployment_store_publisher:...@host/rd_owner \
+  cargo run --locked --release -p vibe-strategy-factory-rd-owner-api --bin deployment-store-publication-publish
+```
+
+It re-verifies the sealed file before writing, exits zero only for `PUBLISHED`
+or `REPLAYED`, and writes nothing on a head mismatch or a conflict.
+
 ## Start
 
 Create a private environment file outside the repository or copy `.env.example` and replace every

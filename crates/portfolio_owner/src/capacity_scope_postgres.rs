@@ -26,6 +26,7 @@ use std::{
 };
 
 use sqlx::{PgPool, Postgres, Row, Transaction, postgres::PgPoolOptions};
+use vibe_postgres_connect::{PgPoolOptionsExt, PostgresTls};
 
 use crate::capacity_scope::{
     BoundCapacityScopeReadback, CapacityScopeFailure, CapacityScopeResolution,
@@ -272,7 +273,7 @@ impl CapacityScopePostgresV1 {
     ) -> Result<Self, CapacityScopeCustodyError> {
         let pool = PgPoolOptions::new()
             .max_connections(8)
-            .connect(database_url)
+            .connect_url(database_url, PostgresTls::Disabled)
             .await
             .map_err(storage)?;
         Ok(Self { pool, clock })

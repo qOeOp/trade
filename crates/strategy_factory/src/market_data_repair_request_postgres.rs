@@ -157,6 +157,10 @@ async fn publish_market_data_read_port(
     transaction.commit().await.map_err(unavailable)
 }
 
+/// Runs at READ COMMITTED. The Replay cut it resolves reads the R&D source boundary and locks the
+/// Product Edge admission, and both refuse REPEATABLE READ. The composition key is locked before
+/// any row is read, so a concurrent same-action retry reads the committed request and joins it; under
+/// a snapshot isolation the lock statement would fix the snapshot before its wait.
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn compose_market_data_repair_request_v1<P, M, T>(
     pool: &PgPool,
@@ -173,10 +177,6 @@ where
 {
     validate_locator(&request)?;
     let mut transaction = pool.begin().await.map_err(unavailable)?;
-    sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
-        .execute(&mut *transaction)
-        .await
-        .map_err(unavailable)?;
     lock_composition_key(&mut transaction, &request.action_request_identity).await?;
     let inputs = resolve_inputs(
         &mut transaction,

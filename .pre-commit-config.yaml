@@ -257,6 +257,13 @@ repos:
             crates/.*\.rs
           )$
         pass_filenames: false
+      - id: test-chain-entry-count
+        name: test the chain's entry count
+        description: The count equals the chain array, follows an added or removed entry, and needs only bash
+        entry: bash scripts/ci/test-chain-entry-count.bash
+        language: system
+        files: ^scripts/ci/(test-rd-owner-postgres|test-chain-entry-count)\.bash$
+        pass_filenames: false
       - id: test-check-chain-channel-environment
         name: test the chain channel environment check
         description: The check accepts an agreeing pair and refuses each mutation by name
@@ -270,6 +277,33 @@ repos:
         entry: bash scripts/ci/test-cargo-target-in-worktree.bash
         language: system
         files: ^scripts/ci/(cargo-target-in-worktree|test-cargo-target-in-worktree)\.bash$
+        pass_filenames: false
+      - id: check-git-isolation
+        name: check git isolation
+        description: A script that creates, clones or configures a repository must isolate git first
+        entry: python3 scripts/check-git-isolation.py
+        language: system
+        files: \.(sh|bash|py)$
+      - id: test-git-isolation
+        name: test git isolation
+        description: Un-isolated git is refused by name, and the helper keeps a hook off the caller's repository
+        entry: bash scripts/lib/test-git-isolation.bash
+        language: system
+        files: ^scripts/(lib/(git-isolation\.bash|git_isolation\.py|test-git-isolation\.bash)|check-git-isolation\.py)$
+        pass_filenames: false
+      - id: test-chain-verdict-reuse
+        name: test chain verdict reuse
+        description: Only the same tree's green whole-chain verdict for its entry count is reused
+        entry: python3 -B scripts/ci/chain_verdict_reuse_test.py
+        language: system
+        files: ^scripts/ci/chain_verdict_reuse(_test)?\.py$
+        pass_filenames: false
+      - id: test-workspace-mtimes
+        name: test workspace mtimes reuse
+        description: Honest mtimes on reuse; a missed touch of any tracked file fails by name; unproven falls back
+        entry: bash scripts/ci/test-workspace-mtimes.bash
+        language: system
+        files: ^scripts/(ci/(workspace_mtimes\.py|test-workspace-mtimes\.bash)|lib/git-isolation\.bash)$
         pass_filenames: false
       - id: test-owner-chain-lock
         name: test Owner chain machine lock
@@ -596,7 +630,8 @@ repos:
 
             \.pre-commit-config\.yaml|
             scripts/production-producer-check\.py|
-            scripts/flattened-error-variants(_test|_mutations)?\.py
+            scripts/flattened-error-variants(_test|_mutations)?\.py|
+            scripts/lib/git_isolation\.py
 
           )$
         pass_filenames: false

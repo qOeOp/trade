@@ -388,7 +388,11 @@ consumer Owner、backend、endpoint、TLS、server 与 database 或 bucket 与 p
 migration、function、role 与 ACL identity，或 S3 capability 与 version 语义；opaque credential-handle identity、
 audience 与 version；以及 predecessor、generation、validity 与 recovery。positive receipt 必须具备 signature、
 current head、anti-rollback witness、direct measurement、credential lease 与已闭合 rotation fence，不能由 caller
-自写 positive evidence 组装。restart 或 cache loss 必须重验 signature/head 并重新测量目标。任何歧义都不构造
+自写 positive evidence 组装。**唯一信任域只有一台机器的部署上，anti-rollback 性质不成立**：放在这台机器上的 witness
+会和它要看守的 custody store 一起回滚，所以 custodian 改用具名模式 `SingleTrustDomainNoRollbackWitness`。它什么也不观测、
+什么也不约束，检测不到整台机器的回滚；回执里写明这个模式名，而不是 witness 证明。用户只为单机部署授权了这次降级
+（user, 2026-09-27, AskUserQuestion。问题：「防回滚见证需要一个不会跟着本机一起回滚的地方。你有第二个信任域吗？如果只有这一台机器，这条防护按文字实现出来会恒真，等于弱化了一条已写明的性质，这需要你授权。」用户选择：「只有本机，授权降级」，说明为「接受单机部署下不防回滚：文档写明这条性质在单机上不成立，见证不实现或只做形式记录」）。有第二个信任域的部署在那里保留 witness，并按名
+去掉这个模式。restart 或 cache loss 必须重验 signature/head 并重新测量目标。任何歧义都不构造
 Owner repository，也不触发 business retry。
 
 预期的默认 consumer 是 `product/rd-workbench` 的 `rd-owner-api` bootstrap composition。Market Data 在构造

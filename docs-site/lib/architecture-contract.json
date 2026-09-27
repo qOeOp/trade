@@ -3285,6 +3285,7 @@
           "crates/cryptography",
           "crates/infrastructure",
           "crates/network",
+          "crates/postgres_connect",
           "crates/serialization"
         ],
         "disposition": "NON_AUTHORITATIVE_INFRASTRUCTURE",

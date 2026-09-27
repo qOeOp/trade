@@ -27,6 +27,10 @@ import tempfile
 from pathlib import Path
 
 
+sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
+from git_isolation import init_fixture_repository
+
+
 TOOL = Path(
     os.environ.get("FLATTENED_ERROR_VARIANTS_TOOL")
     or Path(__file__).with_name("flattened-error-variants.py"),
@@ -208,28 +212,16 @@ def fixture_repository():
 
     """
     # Run from a git hook, the environment names the enclosing repository (GIT_DIR,
-    # GIT_INDEX_FILE, ...), and every git call below would act on it instead: `git init`
-    # re-initialises it as bare, which breaks every worktree that shares it. Nothing here may
-    # inherit that, and the tool's own reads of the fixture must not either.
-    for name in [name for name in os.environ if name.startswith("GIT_")]:
-        del os.environ[name]
+    # GIT_INDEX_FILE, ...); scripts/lib/git-isolation.bash says what inheriting that does. The
+    # helper clears it for this process, so the tool's own reads of the fixture are clean too.
     directory = tempfile.mkdtemp(prefix="flattened-error-variants-")
+    init_fixture_repository(Path(directory))
     path = Path(directory) / LIB
     path.parent.mkdir(parents=True)
     path.write_text(SOURCE)
     git = shutil.which("git") or "git"
-    identity = ["-c", "user.name=calibration", "-c", "user.email=calibration@invalid"]
-    for arguments in (["init", "-q"], ["add", LIB], [*identity, "commit", "-q", "-m", "fixture"]):
+    for arguments in (["add", LIB], ["commit", "-q", "-m", "fixture"]):
         subprocess.run([git, *arguments], cwd=directory, check=True)
-    toplevel = subprocess.run(
-        [git, "rev-parse", "--show-toplevel"],
-        cwd=directory,
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout.strip()
-    if Path(toplevel).resolve() != Path(directory).resolve():
-        sys.exit(f"the fixture resolves to the repository at {toplevel}, not {directory}")
     rev = subprocess.run(
         [git, "rev-parse", "HEAD"],
         cwd=directory,

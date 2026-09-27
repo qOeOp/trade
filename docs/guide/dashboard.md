@@ -225,7 +225,9 @@ contract refuses.
 `ExploratoryReplayReadbackWorkbench` is the exact `P` surface for `/backtest`. It is an
 `ACTIVE_OBSERVATION / IMPLEMENTATION_ADMITTED` point-read of one previously committed Replay V2 request and,
 when all three result locator fields are supplied, one Backtest-owned canonical result. It is not a replay composer,
-dispatcher, comparison surface, or economic chart. The route uses
+dispatcher, comparison surface, or economic chart. A composer-backed request is the same Replay V2 request; the
+Owner reads it back only in a build that recognizes composer-backed custody, which today is the ordered chain's,
+and a deployed image answers it `UNAVAILABLE`. The route uses
 one full-width `PanelFrame` with no summary strip, historical list/table, split detail pane, or reserved chart
 height. Its header contains the `EXPLORATORY REPLAY` eyebrow, `Replay request` title, one concise purpose,
 and `Refresh`, which is disabled until a valid selector has been opened. The inset body starts with one
@@ -236,8 +238,9 @@ decorative icon.
 An available readback renders three ordered, subtly grouped surfaces. `Request` contains exact request
 identity, availability, namespace and deterministic seed. `Custody` contains meaning digest, receipt
 identity, seal digest, committed time and Owner observation cut. `Replay basis` contains the exact event
-window plus TrialFamily, Artifact, strategy-design, PIT-snapshot, runtime-kernel and simulator identities.
-Long identities remain selectable, expose their complete accessible text and truncate only visually. The
+window plus TrialFamily, Artifact, strategy-design, universe-selection, PIT-snapshot, runtime-kernel and simulator
+identities. The universe-selection identity names the member set the request was bound to; which instrument that
+set held is stated by the run's report, on its own member, and is not derived here. Long identities remain selectable, expose their complete accessible text and truncate only visually. The
 browser receives none of the canonical request bytes, raw receipt, component digests, Product Edge
 admission, protected evidence, source, result bytes or storage fields.
 
@@ -418,9 +421,11 @@ the field and its validator, which is tested against the same vector file as R&D
 the V2 route it was admitted under; and the `INSTRUMENT_SCOPE_NOT_RESOLVABLE` terminal shown by that name, while an
 answer that leaves the scope unresolved stays `SUBMITTED_OR_UNKNOWN`; and the Research readback's `initial_pit`, shown
 as the Owner states it and checked against the same state vectors the Owner's test reads
-(`product/rd-owner-client/fixtures/research_initial_pit_state_vectors_v1.json`). A V2/V3 label on the readback is not
-built: the Owner's readback states no request version yet, and inferring one from which fields are present would read
-a V3 request that was not accepted as V2. A run is admitted only when Product Edge's operation routing
+(`product/rd-owner-client/fixtures/research_initial_pit_state_vectors_v1.json`); and the readback's request version,
+shown as `V2` or `V3` exactly as the Owner states it from the request's Product Edge admission, with the admitted
+instruments beside it. A rejected V3 request shows `V3`; an unresolved request shows its version as unknown, and a
+historical record keeps its historical label with the version unknown; the page never infers a version from which
+fields are present. A run is admitted only when Product Edge's operation routing
 answers `ACTIVE / TRADE_DASHBOARD` for both keys the run depends on, Source Intake and Research V3.
 `product-edge-routing-read-api` answers that lookup and ships in the deployment, but no deployment has committed
 such a binding. Committing one in a deployed or shared environment is a separately gated effect that needs the
@@ -476,9 +481,12 @@ than a connected grid. The header/body color relationship follows the standard c
 The authenticated Owner GET `/v2/develop-composer/runs/{request_identity}/readback` resolves the same identity
 against the Owner's own Strategy Input custody as a zero-effect read: it revalidates the stored positive Composer
 record through the locked Market Data facade the run itself bound, so a run committed in production reads back in
-production. This resolution is `IMPLEMENTATION_ADMITTED / NOT_CUT_OVER`: the adapter behind the route still
-resolves the bindings from the sealed acceptance frame and carries the acceptance feature until that change lands,
-so today a deployment without the feature serves no readback at all. It accepts no request body and returns the existing strict
+production. This resolution is `IMPLEMENTATION_ADMITTED / NOT_CUT_OVER`. Neither the route nor its adapter,
+`PostgresDevelopComposerReadbackOwnerV2`, carries a feature gate, so a deployed read API serves it for runs the
+ungated `POST /v2/develop-composer/runs` committed. It answers only while the Research view is current and
+`INTENT_FROZEN`: once a composer-backed replay commit moves that view to `EXPLORATION_ACTIVE`, the same identity
+reads back `UNAVAILABLE` at coordinate `research_custody`. That is a gap in the Owner read, recorded here so the page
+is not read as the Composer run having vanished. It accepts no request body and returns the existing strict
 `DevelopComposerOperationResponseV2`; the Dashboard BFF path-binds the identity and filters it to the fields above.
 `SUCCESS` requires an operation receipt plus the complete four-field Artifact projection. Every other disposition
 must carry no receipt or Artifact projection. Unknown keys, identity drift, contradictory disposition fields,
@@ -589,6 +597,17 @@ the same gap the Composer readback reports as unavailable today. At that point t
 or is replaced by the composer-backed path, and the reader needs no change: its exact-key check is
 already the terminal shape. Relaxing it to accept the legacy view would encode an absent Composer as
 a present one, and draw a page that reads as though exploration were running.
+
+Where the reader does admit such a view - today only in the ordered chain's build, which compiles that commit for
+acceptance - the page states it as it is. `Availability` reads `Exploration active` and `Next step` reads
+`View exploratory run`, and the research journey reads `Exploration is active` rather than
+`Strategy is ready for build`; none of them falls back to the `Intent frozen` or `Awaiting R&D` wording, which
+describe a request still waiting for its first run. The view names the Composer run and the Replay request the exploration ran, and the page
+links to both on their own admitted routes: `Composer run` opens `/rd/composer?requestIdentity=` with the view's
+`composer_request_identity`, and `Exploratory replay` opens `/backtest?replayRequestIdentity=&meaningDigest=` with
+its `replay_request_identity` and `replay_request_meaning_digest`. Those identities come only from the verified
+view; the page derives none of them. A phase or next legal action outside the four each maps makes the readback
+unavailable rather than shown as another.
 
 When the historical-custody Owner projection is available, the route places one shared compact Bento status card
 before the directory. It organizes the user's R&D workspace into three thin-shoulder groups: `research`, `build`,

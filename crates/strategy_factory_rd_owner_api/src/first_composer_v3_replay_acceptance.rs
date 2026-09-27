@@ -45,6 +45,7 @@ use vibe_data::owner::{
     source_binding::BindingDigest,
     universe_selection_admission_v1::universe_selection_admission_from_environment_v1,
 };
+use vibe_postgres_connect::PgPoolOptionsExt as _;
 use vibe_product_edge::{
     ProductEdgeAdmissionRequestV1,
     deployment_acceptance::{
@@ -397,7 +398,8 @@ pub(crate) async fn ensure_first_composer_v3_replay_acceptance_v1(
     // The snapshot Market Data committed and the Source Binding R&D froze it under, read back rather
     // than restated: the snapshot through Market Data's public correlation read, the binding from
     // the exact submission bytes R&D froze and Market Data checked against its receipt.
-    let rd = sqlx::PgPool::connect(rd_url)
+    let rd = sqlx::postgres::PgPoolOptions::new()
+        .connect_url(rd_url, vibe_postgres_connect::PostgresTls::Disabled)
         .await
         .expect("the R&D Owner pool opens");
     let (correlation, submission_bytes): (Vec<u8>, Vec<u8>) = sqlx::query_as(

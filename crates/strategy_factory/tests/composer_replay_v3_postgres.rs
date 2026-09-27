@@ -77,6 +77,14 @@ async fn request_rows(pool: &PgPool, request_identity: &str) -> (i64, i64, i64) 
     (replay, transition, outbox)
 }
 
+/// A forged Product Edge admission is refused as the admission it is, and nothing is written.
+///
+/// The refusal must name the admission and not the transaction's isolation: Product Edge answers an
+/// admission it never issued as `REQUEST_ADMISSION_UNKNOWN`, which its Rust port reports as
+/// `MISSING for request <request identity>`. While the Composer-backed Replay transactions ran SERIALIZABLE, the Product Edge
+/// admission lock refused every admission, forged or real, as `ISOLATION_NOT_READ_COMMITTED`, and
+/// this test passed for that reason alone: a commit that could never succeed looked like a commit
+/// that refuses forgeries.
 #[tokio::test]
 #[ignore = "requires the canonical disposable Owner PostgreSQL topology"]
 async fn forged_v3_admission_fails_without_replay_transition_or_outbox_write() {
@@ -99,9 +107,15 @@ async fn forged_v3_admission_fails_without_replay_transition_or_outbox_write() {
     let result = owner
         .commit_composer_backed_exploratory_replay_request_v3(proposal.clone())
         .await;
+    let Err(ExploratoryReplayOwnerError::Unavailable(refusal)) = &result else {
+        panic!("an unissued Product Edge admission must fail closed: {result:?}");
+    };
     assert!(
-        matches!(result, Err(ExploratoryReplayOwnerError::Unavailable(_))),
-        "an unissued Product Edge admission must fail closed: {result:?}"
+        refusal.contains(&format!(
+            "Product Edge authority unavailable: MISSING for request {}",
+            proposal.request_identity
+        )) && !refusal.contains("ISOLATION_NOT_READ_COMMITTED"),
+        "the refusal must be the forged admission's, not the transaction's isolation: {refusal}"
     );
     assert_eq!(
         request_rows(rd_pool, &proposal.request_identity).await,

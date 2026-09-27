@@ -1,4 +1,5 @@
 use std::fmt::Display;
+use vibe_postgres_connect::{PgPoolOptionsExt, PostgresTls};
 
 pub(crate) mod composer_claim_reads_v3;
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
@@ -2383,6 +2384,27 @@ pub(crate) async fn commit_market_data_repaired_by_locator_v2(
     .await
 }
 
+/// The refusal of a Market Data repair re-entry whose predecessor is a Composer-backed Replay.
+///
+/// The re-entry forms its successor from the family's sealed policy, whose window equals a legacy
+/// Replay's but only bounds a Composer-backed one's: a Composer-backed Replay spans its facts'
+/// window within the policy window. Forming a successor from such a predecessor would restate a
+/// different window than the predecessor ran, and no repair re-entry for Composer-backed Replays is
+/// designed yet, so one is refused before anything is formed.
+const MARKET_DATA_REPAIR_OF_COMPOSER_V3_AWAITS_DESIGN: &str =
+    "MARKET_DATA_REPAIR_OF_COMPOSER_V3_REPLAY_AWAITS_DESIGN";
+
+fn refuse_repair_of_composer_v3_predecessor(
+    source_kind: &str,
+) -> Result<(), ExploratoryReplayOwnerError> {
+    if source_kind == "COMPOSER_V3" {
+        return Err(ExploratoryReplayOwnerError::Unavailable(
+            MARKET_DATA_REPAIR_OF_COMPOSER_V3_AWAITS_DESIGN.into(),
+        ));
+    }
+    Ok(())
+}
+
 async fn commit_market_data_repaired_with_authority_v2(
     pool: &PgPool,
     predecessor: SealedExploratoryReplayReadbackV2,
@@ -2396,7 +2418,7 @@ async fn commit_market_data_repaired_with_authority_v2(
     binding.verify().map_err(unavailable)?;
 
     let row = sqlx::query(
-        "SELECT frozen_json,v2_canonical_request_bytes,v2_meaning_digest,v2_seal_digest \
+        "SELECT source_kind,frozen_json,v2_canonical_request_bytes,v2_meaning_digest,v2_seal_digest \
            FROM public.rd_sealed_exploratory_replay_requests_v1 \
           WHERE request_identity=$1 AND request_schema_version=2",
     )
@@ -2404,6 +2426,9 @@ async fn commit_market_data_repaired_with_authority_v2(
     .fetch_one(pool)
     .await
     .map_err(storage)?;
+    refuse_repair_of_composer_v3_predecessor(
+        &row.try_get::<String, _>("source_kind").map_err(storage)?,
+    )?;
     let frozen: StoredFrozenV1 = decode_exact(
         &row.try_get::<serde_json::Value, _>("frozen_json")
             .map_err(storage)?,
@@ -3381,7 +3406,7 @@ pub(crate) async fn bind_backtest_read(
 ) -> Result<BoundBacktestReadV1, ExploratoryReplayOwnerError> {
     let pool = sqlx::postgres::PgPoolOptions::new()
         .max_connections(2)
-        .connect(database_url)
+        .connect_url(database_url, PostgresTls::Disabled)
         .await
         .map_err(storage)?;
     validate_backtest_binding(rd_pool, &pool).await?;
@@ -3602,8 +3627,15 @@ async fn resolve_composer_v3_read_result(
     meaning_digest: &str,
     exact_locator: Option<&ExploratoryReplayRequestLocatorV2>,
 ) -> Result<Option<ExploratoryReplayReadResultV2>, ExploratoryReplayOwnerError> {
+    // READ COMMITTED, as the commit it reads back
+    // (`begin_composer_replay_request_transaction_v3`): the readback re-reads the Product Edge
+    // admission and the current Research custody through locks that answer under READ COMMITTED
+    // only (`lock_downstream_admission_v1`, `lock_current_research_for_artifact_v1`), so under
+    // REPEATABLE READ every COMPOSER_V3 request would read back unavailable. It writes nothing;
+    // what it reads is either immutable once committed or read `FOR SHARE`, and a TrialFamily
+    // census torn by a concurrent append is refused by the census loader's own cross-checks.
     let mut transaction = rd_pool.begin().await.map_err(storage)?;
-    sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL READ COMMITTED")
         .execute(&mut *transaction)
         .await
         .map_err(storage)?;
@@ -5547,5 +5579,25 @@ mod source_tests {
             .1
             .strip_suffix("$function$;\n")
             .unwrap_or_else(|| panic!("missing {marker} body end"))
+    }
+}
+
+#[cfg(test)]
+mod repair_predecessor_tests {
+    use rstest::rstest;
+
+    use super::*;
+
+    /// A Composer-backed predecessor is refused by name before a repaired successor is formed; a
+    /// legacy one passes on to the equality the re-entry already checks.
+    #[rstest]
+    fn a_composer_backed_predecessor_is_refused_by_name_before_repair_forms_a_successor() {
+        match refuse_repair_of_composer_v3_predecessor("COMPOSER_V3") {
+            Err(ExploratoryReplayOwnerError::Unavailable(reason)) => {
+                assert_eq!(reason, MARKET_DATA_REPAIR_OF_COMPOSER_V3_AWAITS_DESIGN);
+            }
+            other => panic!("a Composer-backed predecessor must be refused by name: {other:?}"),
+        }
+        assert!(refuse_repair_of_composer_v3_predecessor("LEGACY_ARTIFACT_BUILD_V1").is_ok());
     }
 }

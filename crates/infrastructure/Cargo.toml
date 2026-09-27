@@ -39,6 +39,7 @@ vibe-common = { workspace = true, features = ["live"] }
 vibe-core = { workspace = true }
 vibe-cryptography = { workspace = true }
 vibe-model = { workspace = true, features = ["stubs"] }
+vibe-postgres-connect = { workspace = true }
 
 ahash = { workspace = true }
 anyhow = { workspace = true }

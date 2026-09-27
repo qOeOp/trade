@@ -1,15 +1,11 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-# Everything here works on repositories of its own (fixtures, a temporary bare repository), and an
-# inherited GIT_DIR or GIT_INDEX_FILE - a git hook, `git rebase --exec` - would point those git calls at
-# the repository that called this instead: `git init` re-initialises it, `read-tree` empties its
-# index. So no GIT_* variable is inherited. (A hook's entry must not do this: .pre-commit-config.yaml.)
-while IFS='=' read -r name _; do
-  case "$name" in
-    GIT_*) unset "$name" ;;
-  esac
-done < <(env)
+# Everything here works on repositories of its own (fixtures, a temporary bare repository), so no
+# GIT_* variable is inherited: scripts/lib/git-isolation.bash says why. (A hook's entry must not do
+# this: .pre-commit-config.yaml.)
+# shellcheck source=scripts/lib/git-isolation.bash
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/git-isolation.bash"
 
 repo_root="$(git rev-parse --show-toplevel)"
 fixture_root="$(mktemp -d "${TMPDIR:-/tmp}/trade-ci-plan-tests.XXXXXX")"
@@ -23,7 +19,7 @@ trap 'rm -rf "$fixture_root"' EXIT
 # reports nothing, because the ERR trap follows the same suppression `set -e` does in a condition.
 trap 'echo "test-plan.sh:${LINENO}: this check failed: ${BASH_COMMAND}" >&2' ERR
 
-git init -q --initial-branch=main "$source_repo"
+init_fixture_repository "$source_repo"
 git -C "$source_repo" config user.email ci-plan@example.invalid
 git -C "$source_repo" config user.name ci-plan-test
 mkdir -p \
@@ -992,11 +988,23 @@ PINNED
 bash "$repo_root/scripts/ci/test-pull-pinned-image.bash"
 echo "ok: every PostgreSQL/Redis image CI runs is pinned by digest, PostgreSQL to the deployment's"
 
-# Cache quota: `rust tests` caches dependencies only (its workspace artifacts are rebuilt on every
-# run, because checkout renews every mtime), and a pull request or merge-queue run saves no
-# test-data or prek entry, which no other ref could read. Both kept main's py-stubs entry from
-# being evicted on 2026-09-26.
-[[ "$(sed -n '/^  rust-tests-linux-x86:/,/^  quality:/p' "$build_workflow")" == *'rust-cache-workspace-crates: "false"'* ]]
+# `rust tests` caches its workspace artifacts only together with the mtimes that make them
+# reusable: main records its source before compiling, a pull request or merge-queue run reuses
+# it, and main itself never does. Without both steps the artifacts are rebuilt on every run and
+# only grow the entry. And a pull request or merge-queue run saves no test-data or prek entry,
+# which no other ref could read; that kept main's py-stubs entry from being evicted on 2026-09-26.
+rust_tests_job="$(sed -n '/^  rust-tests-linux-x86:/,/^  quality:/p' "$build_workflow")"
+[[ "$rust_tests_job" == *'rust-cache-workspace-crates: "true"'* ]]
+# shellcheck disable=SC2016 # the workflow's literal `$CARGO_TARGET_DIR`, not this shell's
+record_line='python3 scripts/ci/workspace_mtimes.py record "$CARGO_TARGET_DIR"'
+# shellcheck disable=SC2016
+reuse_line='python3 scripts/ci/workspace_mtimes.py reuse "$CARGO_TARGET_DIR"'
+[[ "$(grep -cF "$record_line" <<< "$rust_tests_job")" -eq 1 ]]
+[[ "$(grep -cF "$reuse_line" <<< "$rust_tests_job")" -eq 1 ]]
+[[ "$(grep -B8 'workspace_mtimes.py reuse' <<< "$rust_tests_job" | grep -c "if: github.event_name == 'pull_request' || github.event_name == 'merge_group'")" -eq 1 ]]
+[[ "$(grep -B4 'workspace_mtimes.py record' <<< "$rust_tests_job" | grep -c "if: env.SAVE_BUILD_CACHES == 'true'")" -eq 1 ]]
+[[ "$(grep -c 'workspace_mtimes.py' "$build_workflow")" -eq 2 ]]
+bash "$repo_root/scripts/ci/test-workspace-mtimes.bash"
 for composite in common-test-data common-setup; do
   file="$repo_root/.github/actions/${composite}/action.yml"
   saves="$(grep -c 'uses: actions/cache@' "$file" || true)"
@@ -1007,6 +1015,23 @@ for composite in common-test-data common-setup; do
     exit 1
   fi
 done
-echo "ok: rust tests caches dependencies only; pull requests save no ref-scoped test-data or prek entry"
+echo "ok: rust tests reuses main's workspace artifacts only on pull requests; pull requests save no ref-scoped test-data or prek entry"
+
+# A pull request build takes the Owner chains' verdict from an owner-chains run only on its exact
+# checkout tree (scripts/ci/chain_verdict_reuse.py), and then runs none of the chain jobs; quality
+# then requires them skipped and the two trees equal, and otherwise requires them green as before.
+chain_plan_job="$(sed -n '/^  postgres-owner-chain-plan-linux-x86:/,/^  postgres-owner-chains-linux-x86:/p' "$build_workflow")"
+[[ "$(grep -A8 'name: Reuse an owner-chains verdict on this exact tree' <<< "$chain_plan_job" | grep -c "if: github.event_name == 'pull_request'")" -eq 1 ]]
+[[ "$(grep -c 'run: python3 scripts/ci/chain_verdict_reuse.py' "$build_workflow")" -eq 1 ]]
+for chain_job in postgres-owner-chain-archive-linux-x86 postgres-owner-chains-linux-x86; do
+  [[ "$(workflow_job_block "$build_workflow" "$chain_job" | grep -c "needs.postgres-owner-chain-plan-linux-x86.outputs.reuse-run == ''")" -eq 1 ]]
+done
+quality_job="$(workflow_job_block "$build_workflow" quality)"
+# shellcheck disable=SC2016 # the workflow's literal shell text, not this shell's
+[[ "$quality_job" == *'test "$CHAIN_REUSE_TREE" = "$CHAIN_THIS_TREE"'* ]]
+# shellcheck disable=SC2016 # the workflow's literal shell text, not this shell's
+[[ "$(grep -c 'test "$POSTGRES_CHAINS_RESULT" = skipped' <<< "$quality_job")" -ge 2 ]]
+python3 -B "$repo_root/scripts/ci/chain_verdict_reuse_test.py" > /dev/null
+echo "ok: a pull request reuses an owner-chains verdict only on its exact tree, and quality checks the reuse"
 
 echo "All CI plan cases passed"

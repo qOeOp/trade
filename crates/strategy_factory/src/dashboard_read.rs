@@ -6,6 +6,7 @@ use async_trait::async_trait;
 use serde::Serialize;
 use sqlx::{PgPool, Row};
 use thiserror::Error;
+use vibe_postgres_connect::{PgPoolOptionsExt, PostgresTls};
 
 use crate::{postgres_error_message::database_message, rd_owner_clock::RdOwnerClockV1};
 
@@ -408,7 +409,7 @@ impl PostgresIterationTimelineOwnerV1 {
     pub async fn connect(database_url: &str) -> Result<Self, DashboardReadErrorV1> {
         let pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(4)
-            .connect(database_url)
+            .connect_url(database_url, PostgresTls::Disabled)
             .await
             .map_err(|e| unavailable(database_message(&e)))?;
         crate::schema_materialization::require_existing_public_tables_for_readback(

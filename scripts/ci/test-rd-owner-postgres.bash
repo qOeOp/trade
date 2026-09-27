@@ -139,6 +139,11 @@ readonly rd_owner_postgres_tests=(
   'vibe-product-edge-routing-api|vibe_product_edge_routing_api|postgres_tests::the_operation_routing_read_port_answers_every_routing_state_over_http'
   'vibe-strategy-factory-rd-owner-api|rd_owner_api_main|research_initial_pit_postgres_tests::a_v3_research_request_issues_its_initial_pit_request_over_http'
   'vibe-strategy-factory-rd-owner-api|rd_owner_api_main|dashboard_run_routing_acceptance::a_dashboard_run_starts_only_on_the_routing_the_writer_committed_and_reaches_the_owner'
+  'vibe-strategy-factory|composer_replay_v3_postgres|forged_v3_admission_fails_without_replay_transition_or_outbox_write'
+  'vibe-strategy-factory|vibe_strategy_factory|trial_family_postgres::postgres_binding_tests::a_census_read_that_meets_an_uncommitted_append_waits_and_reads_one_cut'
+  'vibe-strategy-factory|vibe_strategy_factory|trial_family_postgres::postgres_binding_tests::concurrent_appends_and_admission_census_reads_neither_deadlock_nor_tear'
+  'vibe-strategy-factory|vibe_strategy_factory|product_edge_postgres::tests::a_native_composer_research_view_is_admitted_by_every_custody_scan'
+  'vibe-strategy-factory-rd-owner-api|rd_owner_api_main|native_replay_scheduling_acceptance::tests::the_composed_scheduling_resolver_holds_its_reads_only_while_composed'
   'vibe-strategy-factory-rd-owner-api|rd_owner_api_main|tests::the_first_composer_v3_replay_is_submitted_over_http_and_its_execution_input_binding_reads_back'
   'vibe-strategy-factory|vibe_strategy_factory|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only'
 )
@@ -160,6 +165,15 @@ readonly nextest_graph_args=(
   --lib
   --tests
 )
+# The number of entries in the chain: the N the report judges ("all N entries passed, N
+# recorded"). A caller deciding whether an earlier run's verdict covers this tree compares its N
+# with this one, so it must count the same array the report does, not re-derive it. It answers
+# before any check runs, so it needs no rg, docker or python.
+if [[ "${1:-}" == "--entry-count" ]]; then
+  echo "${#rd_owner_postgres_tests[@]}"
+  exit 0
+fi
+
 # The incoming Makefile union also contains workspace-root features that none of
 # the three selected packages expose. Keep the archive projection package-scoped.
 readonly nextest_archive_features='vibe-strategy-factory/sealed-develop-composer-acceptance,vibe-strategy-factory-rd-owner-api/sealed-source-intake-acceptance,vibe-strategy-factory-rd-owner-api/sealed-artifact-source-browser-acceptance,vibe-strategy-factory-rd-owner-api/sealed-source-intake-composer-acceptance,vibe-product-edge/sealed-deployment-acceptance'
@@ -202,8 +216,8 @@ check_nextest_graph_contract() {
     echo "ERROR: isolated PostgreSQL tests must use the shared nextest graph." >&2
     return 1
   fi
-  if [[ "${#rd_owner_postgres_tests[@]}" -ne 111 ]]; then
-    echo "ERROR: isolated PostgreSQL test selection must retain all 111 ordered tests, found ${#rd_owner_postgres_tests[@]}." >&2
+  if [[ "${#rd_owner_postgres_tests[@]}" -ne 116 ]]; then
+    echo "ERROR: isolated PostgreSQL test selection must retain all 116 ordered tests, found ${#rd_owner_postgres_tests[@]}." >&2
     return 1
   fi
   if [[ "${rd_owner_postgres_tests[0]}" != *'|replay_policy_catalog_postgres_v2::postgres_tests::catalog_admin_and_family_formation_are_atomic_and_fail_closed' ]] ||
@@ -325,8 +339,13 @@ check_nextest_graph_contract() {
     [[ "${rd_owner_postgres_tests[106]}" != *'|postgres_tests::the_operation_routing_read_port_answers_every_routing_state_over_http' ]] ||
     [[ "${rd_owner_postgres_tests[107]}" != *'|research_initial_pit_postgres_tests::a_v3_research_request_issues_its_initial_pit_request_over_http' ]] ||
     [[ "${rd_owner_postgres_tests[108]}" != *'|dashboard_run_routing_acceptance::a_dashboard_run_starts_only_on_the_routing_the_writer_committed_and_reaches_the_owner' ]] ||
-    [[ "${rd_owner_postgres_tests[109]}" != *'|tests::the_first_composer_v3_replay_is_submitted_over_http_and_its_execution_input_binding_reads_back' ]] ||
-    [[ "${rd_owner_postgres_tests[110]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]]; then
+    [[ "${rd_owner_postgres_tests[109]}" != *'|forged_v3_admission_fails_without_replay_transition_or_outbox_write' ]] ||
+    [[ "${rd_owner_postgres_tests[110]}" != *'|trial_family_postgres::postgres_binding_tests::a_census_read_that_meets_an_uncommitted_append_waits_and_reads_one_cut' ]] ||
+    [[ "${rd_owner_postgres_tests[111]}" != *'|trial_family_postgres::postgres_binding_tests::concurrent_appends_and_admission_census_reads_neither_deadlock_nor_tear' ]] ||
+    [[ "${rd_owner_postgres_tests[112]}" != *'|product_edge_postgres::tests::a_native_composer_research_view_is_admitted_by_every_custody_scan' ]] ||
+    [[ "${rd_owner_postgres_tests[113]}" != *'|native_replay_scheduling_acceptance::tests::the_composed_scheduling_resolver_holds_its_reads_only_while_composed' ]] ||
+    [[ "${rd_owner_postgres_tests[114]}" != *'|tests::the_first_composer_v3_replay_is_submitted_over_http_and_its_execution_input_binding_reads_back' ]] ||
+    [[ "${rd_owner_postgres_tests[115]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]]; then
     echo "ERROR: isolated PostgreSQL test ordering must remain fresh-first and destructive-drain-last." >&2
     return 1
   fi
@@ -476,7 +495,7 @@ for line in array_body.splitlines():
     entries.append(tuple(fields))
 # The count lives in one place. Writing it into the message as well lets the two drift, and the
 # drifted form reads as nonsense the moment it fires: "must contain 92 entries, found 92".
-expected_entries = 111
+expected_entries = 116
 if len(entries) != expected_entries:
     raise SystemExit(
         f"ERROR: ordered PostgreSQL test literal must contain {expected_entries} entries, found {len(entries)}."
@@ -1657,10 +1676,14 @@ run_authority_migration_for_database() {
     "$container" sh -s < product/rd-workbench/postgres-init/10-migrate-authority-custody.sh
 }
 
-# `--report-records` judges records and nothing else: it runs where the shard records are merged,
-# a job with the checkout but none of the tools these source checks need (ripgrep among them), and
-# its verdict must not depend on them. It keeps the self-tests of the two readings it uses.
-if [[ "${1:-}" != "--report-records" ]]; then
+# `--report-records` and `--report-partial-records` judge records and nothing else: they run where
+# the shard records are merged, a job with the checkout but none of the tools these source checks
+# need (ripgrep among them), and their verdict must not depend on them. They keep the self-tests of
+# the readings they use.
+chain_reports_only=false
+[[ "${1:-}" != "--report-records" && "${1:-}" != "--report-partial-records" ]] || chain_reports_only=true
+readonly chain_reports_only
+if [[ "$chain_reports_only" != true ]]; then
   check_postgres_containers_run_under_init
   check_static_isolation
   check_nextest_graph_contract
@@ -1800,8 +1823,9 @@ chain_position_of() {
   done
 }
 
+# With a component after the shard, only that component's rows (a partial run's `entry-N`).
 load_chain_shard() {
-  local shard="$1" row_shard component name position replays replay replayed first
+  local shard="$1" only_component="${2:-}" row_shard component name position replays replay replayed first
   local -a components=()
   local -A component_entries=() component_replays=()
   if [[ ! -f "$chain_shard_list" ]]; then
@@ -1810,6 +1834,7 @@ load_chain_shard() {
   fi
   while IFS=$'\t' read -r row_shard component name _; do
     [[ "$row_shard" == "$shard" ]] || continue
+    [[ -z "$only_component" || "$component" == "$only_component" ]] || continue
     position="$(chain_position_of "$name")"
     if [[ -z "$position" ]]; then
       echo "ERROR: shard ${shard} lists ${name}, which is not a chain entry." >&2
@@ -1839,7 +1864,7 @@ load_chain_shard() {
     fi
   done < "$chain_shard_list"
   if [[ "$chain_shard_entry_count" -eq 0 ]]; then
-    echo "ERROR: the shard list names no entry for shard ${shard}." >&2
+    echo "ERROR: the shard list names no entry for shard ${shard}${only_component:+ in component ${only_component}}." >&2
     exit 1
   fi
   for component in "${components[@]}"; do
@@ -1996,14 +2021,29 @@ report_changed_cluster_state() {
 # junit record naming the test the array puts there, with one test run and none failed, errored or
 # skipped: a record under the wrong number, a skip-shaped pass and a missing entry are each named.
 # The two summary lines then come from the same code the serial chain calls.
+# With a label and positions after the directory, it judges only those positions, refuses a record
+# for any other, and says PARTIAL: a partial run must never print the whole chain's verdict line,
+# which is what AGENTS.md accepts and what a caller reusing a verdict looks for.
 report_chain_records() {
-  local record_dir="$1" position selection package binary name record header problems=0
+  local record_dir="$1" partial_label="${2:-}" position selection package binary name record header problems=0
   local expected_count="${#rd_owner_postgres_tests[@]}"
+  local -a expected_positions=()
+  local -A expected_set=()
+  if [[ -n "$partial_label" ]]; then
+    expected_positions=("${@:3}")
+  else
+    mapfile -t expected_positions < <(seq 1 "$expected_count")
+  fi
+  for position in "${expected_positions[@]}"; do expected_set["$position"]=1; done
   if [[ ! -d "$record_dir" ]]; then
     echo "ERROR: no chain record directory at ${record_dir}." >&2
     return 1
   fi
-  for position in $(seq 1 "$expected_count"); do
+  if [[ "${#expected_positions[@]}" -eq 0 ]]; then
+    echo "ERROR: the report was given no positions to judge." >&2
+    return 1
+  fi
+  for position in "${expected_positions[@]}"; do
     selection="${rd_owner_postgres_tests[$((position - 1))]}"
     IFS='|' read -r package binary name <<< "$selection"
     record="$(printf '%s/%03d.xml' "$record_dir" "$position")"
@@ -2027,14 +2067,45 @@ report_chain_records() {
     if [[ ! "$position" =~ ^[0-9]{3}$ ]] || ((10#$position < 1 || 10#$position > expected_count)); then
       echo "ERROR: ${record} is not the record of any of the ${expected_count} entries." >&2
       problems=$((problems + 1))
+    elif [[ -z "${expected_set[$((10#$position))]+set}" ]]; then
+      echo "ERROR: ${record} is the record of entry $((10#$position)), which this run did not select." >&2
+      problems=$((problems + 1))
     fi
   done < <(find "$record_dir" -maxdepth 1 -name '*.xml' -type f | sort)
   if [[ "$problems" -ne 0 ]]; then
     echo "ERROR: ${problems} problem(s) in the chain records at ${record_dir}." >&2
     return 1
   fi
+  if [[ -n "$partial_label" ]]; then
+    echo "=== PARTIAL (${partial_label}): all ${#expected_positions[@]} selected entries passed, ${#expected_positions[@]} recorded; not an ordered-chain verdict"
+    return 0
+  fi
   echo "=== ordered chain: all ${expected_count} entries passed, ${expected_count} recorded"
   report_collected_warnings "$record_dir" "$expected_count"
+}
+
+# The positions a partial run selects, from `<shard>` or `<shard>=<component>` specs read against
+# the shard list: every entry of the shard, or those of its one component.
+chain_selection_positions() {
+  local spec shard component row_shard row_component name position
+  local -a found=()
+  for spec in "$@"; do
+    shard="${spec%%=*}"
+    component=''
+    [[ "$spec" != *=* ]] || component="${spec#*=}"
+    local before="${#found[@]}"
+    while IFS=$'\t' read -r row_shard row_component name _; do
+      [[ "$row_shard" == "$shard" ]] || continue
+      [[ -z "$component" || "$row_component" == "$component" ]] || continue
+      position="$(chain_position_of "$name")"
+      [[ -n "$position" ]] && found+=("$position")
+    done < <(grep -v '^#' "$chain_shard_list")
+    if [[ "${#found[@]}" -eq "$before" ]]; then
+      echo "ERROR: the selection ${spec} names no entry of the shard list." >&2
+      return 1
+    fi
+  done
+  printf '%s\n' "${found[@]}" | sort -n -u
 }
 
 # The record verdict and its positive control, on records built from the array itself. A complete
@@ -2089,8 +2160,61 @@ check_chain_record_report() {
   rm -rf -- "$fixtures"
 }
 
+# A partial run's report on records built from the array: a complete selection passes and says
+# PARTIAL; it never prints the whole chain's verdict line, which is what reuse and acceptance read;
+# a missing selected record and a record outside the selection are each refused by name.
+check_chain_partial_report() {
+  local fixtures report position selection package binary name
+  fixtures="$(mktemp -d)"
+  for position in 2 5; do
+    selection="${rd_owner_postgres_tests[$((position - 1))]}"
+    IFS='|' read -r package binary name <<< "$selection"
+    printf '<testsuites name="nextest-run" tests="1" skipped="0" failures="0" errors="0" time="1">\n<testcase name="%s" classname="%s::%s" time="1"/>\n</testsuites>\n' \
+      "$name" "$package" "$binary" > "$(printf '%s/%03d.xml' "$fixtures" "$position")"
+  done
+  if ! report="$(report_chain_records "$fixtures" probe 2 5 2>&1)" ||
+    [[ "$report" != *"=== PARTIAL (probe): all 2 selected entries passed, 2 recorded; not an ordered-chain verdict"* ]] ||
+    [[ "$report" == *"=== ordered chain:"* ]]; then
+    echo "ERROR: a complete partial selection does not report as PARTIAL, or prints the whole chain's verdict:" >&2
+    echo "$report" >&2
+    return 1
+  fi
+  if report_chain_records "$fixtures" probe 2 5 7 > /dev/null 2>&1; then
+    echo "ERROR: a partial report passed with a selected entry's record missing." >&2
+    return 1
+  fi
+  if report_chain_records "$fixtures" probe 2 > /dev/null 2>&1; then
+    echo "ERROR: a partial report passed with a record outside its selection." >&2
+    return 1
+  fi
+  rm -rf -- "$fixtures"
+}
+
+# The component filter on the real shard list: in a shard that holds more than one component,
+# narrowing to one keeps exactly that component's entries, in order, and none of another's.
+check_chain_component_filter() {
+  local shard first second order
+  read -r shard first second < <(awk -F'\t' '!/^#/ { if (!($1 in seen)) seen[$1] = $2; else if ($2 != seen[$1] && !done[$1]++) { print $1, seen[$1], $2; exit } }' "$chain_shard_list")
+  if [[ -z "$second" ]]; then
+    echo "ERROR: no shard of ${chain_shard_list} holds two components, so the component filter cannot be checked." >&2
+    return 1
+  fi
+  order="$(chain_run_order=() chain_shard_entry_count=0 && load_chain_shard "$shard" "$first" && printf '%s\n' "${chain_run_order[@]}")"
+  local expected
+  expected="$(awk -F'\t' -v s="$shard" -v c="$first" '!/^#/ && $1 == s && $2 == c { print $3 }' "$chain_shard_list" |
+    while read -r name; do chain_position_of "$name"; done | tr '\n' ' ')"
+  if [[ "$(grep '|entry|' <<< "$order" | cut -d'|' -f1 | tr '\n' ' ')" != "$expected" ]] ||
+    grep -q "|${second}\$" <<< "$order"; then
+    echo "ERROR: narrowing ${shard} to one component did not keep exactly that component's entries:" >&2
+    echo "$order" >&2
+    return 1
+  fi
+}
+
 check_chain_record_report
-if [[ "${1:-}" != "--report-records" ]]; then
+check_chain_partial_report
+if [[ "$chain_reports_only" != true ]]; then
+  check_chain_component_filter
   check_postgres_crash_reading
   check_chain_sleep_reading
   check_chain_shard_plan
@@ -2102,6 +2226,16 @@ if [[ "${1:-}" == "--report-records" ]]; then
     exit 2
   fi
   report_chain_records "$2"
+  exit
+fi
+
+if [[ "${1:-}" == "--report-partial-records" ]]; then
+  if [[ "$#" -lt 4 ]]; then
+    echo "usage: $0 --report-partial-records <chain record directory> <label> <shard>[=<component>]..." >&2
+    exit 2
+  fi
+  mapfile -t chain_partial_positions < <(chain_selection_positions "${@:4}")
+  report_chain_records "$2" "$3" "${chain_partial_positions[@]}"
   exit
 fi
 
@@ -2422,8 +2556,12 @@ chain_shard_entry_count=0
 # What the loop runs, in order: `position|entry|component` or `position|replay|component`. Without a
 # shard it is every entry, in chain order.
 chain_run_order=()
+if [[ -n "${RD_OWNER_CHAIN_COMPONENT:-}" && -z "$chain_shard" ]]; then
+  echo "ERROR: RD_OWNER_CHAIN_COMPONENT narrows a shard, and no RD_OWNER_CHAIN_SHARD is set." >&2
+  exit 1
+fi
 if [[ -n "$chain_shard" ]]; then
-  load_chain_shard "$chain_shard"
+  load_chain_shard "$chain_shard" "${RD_OWNER_CHAIN_COMPONENT:-}"
 else
   for chain_position in $(seq 1 "$chain_entry_count"); do
     chain_run_order+=("${chain_position}|entry|")
@@ -3106,12 +3244,13 @@ docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
 CREATE ROLE vibe_test_owner_topology_admin LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD :'test_password';
 CREATE ROLE instrument_economic_intruder LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
 CREATE ROLE instrument_economic_noinherit_intruder LOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+CREATE ROLE vibe_test_role_market_data_reader LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD :'test_password';
 ALTER ROLE market_data_reader PASSWORD :'test_password';
 GRANT replay_policy_catalog_owner, composer_owner TO vibe_test_owner_topology_admin;
 DO $database_access$
 BEGIN
   EXECUTE pg_catalog.format(
-    'GRANT CONNECT ON DATABASE %I TO rd_fact_writer, replay_policy_catalog_admin_writer, vibe_test_owner_topology_admin, instrument_owner',
+    'GRANT CONNECT ON DATABASE %I TO rd_fact_writer, replay_policy_catalog_admin_writer, vibe_test_owner_topology_admin, instrument_owner, vibe_test_role_market_data_reader',
     pg_catalog.current_database()
   );
 END
@@ -4121,6 +4260,10 @@ export RD_FACT_WRITER_TEST_DATABASE_URL="postgresql://rd_fact_writer:${test_pass
 export MARKET_DATA_OWNER_TEST_DATABASE_URL="postgresql://market_data_owner:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
 export REPLAY_POLICY_CATALOG_ADMIN_TEST_DATABASE_URL="postgresql://replay_policy_catalog_admin_writer:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
 export MARKET_DATA_RD_ROLE_SET_TEST_DATABASE_URL="postgresql://market_data_reader:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
+# The test-only principal the sealed acceptance Native Replay scheduling resolver reads as. It
+# starts with no Market Data privilege; an entry grants it exactly the scheduling reads and revokes
+# them after, so a read outside that list is refused rather than answered by an owner connection.
+export MARKET_DATA_READER_TEST_DATABASE_URL="postgresql://vibe_test_role_market_data_reader:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
 export VIBE_TEST_OWNER_TOPOLOGY_ADMIN_DATABASE_URL="postgresql://vibe_test_owner_topology_admin:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
 export RD_OWNER_DRAIN_ALIAS_TEST_DATABASE_URL="postgresql://rd_owner:${test_password}@${postgres_alias_host}:${postgres_alias_port}/${test_database}"
 export QUALIFICATION_TEST_DATABASE_URL="postgresql://qualification_writer:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
