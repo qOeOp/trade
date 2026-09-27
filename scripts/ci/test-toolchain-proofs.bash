@@ -36,6 +36,7 @@ readonly portable_wasm_proofs=(
   'bounded_feature_program_lowerer_v1::tests::generated_candidate_is_a_real_strict_abi_three_module'
   'bounded_feature_program_lowerer_v1::tests::a_divergence_program_carries_its_previous_pivot_through_fixed_point_state'
   'program_host_v2_target_set_backtest_tests::an_authored_universe_member_program_enters_once_through_the_target_set_sim'
+  'program_host_v2_target_set_backtest_tests::an_authored_rebalance_program_lifts_three_consecutive_frames'
 )
 
 # Compiled only on the hosts the sandbox admits (macOS arm64, Linux arm64, Linux x86_64), which are

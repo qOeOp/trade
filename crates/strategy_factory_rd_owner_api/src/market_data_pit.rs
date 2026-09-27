@@ -30,7 +30,8 @@ use vibe_data::owner::{
     },
     instrument_master_admission_v2::{
         InstrumentMasterAdmissionErrorV2, InstrumentMasterAdmissionV2,
-        InstrumentMasterBaselineSubmissionV2,
+        InstrumentMasterBaselineSubmissionV2, InstrumentMasterStatusDeltaErrorV2,
+        InstrumentMasterStatusDeltaSubmissionV2,
     },
     market_semantics_admission_v1::{
         MarketSemanticsAdmissionErrorV1, MarketSemanticsAdmissionV1,
@@ -148,6 +149,10 @@ pub(super) fn router(admissions: MarketDataAdmissions, token_digest: [u8; 32]) -
         .route(
             "/v1/market-data/instrument-master-v2-facts",
             post(admit_instrument_master_baseline),
+        )
+        .route(
+            "/v1/market-data/instrument-master-v2-status-deltas",
+            post(admit_instrument_master_status_delta),
         )
         .route(
             "/v1/market-data/market-semantics",
@@ -719,6 +724,99 @@ fn instrument_master_error(error: InstrumentMasterAdmissionErrorV1) -> Response 
     rejection(status, code)
 }
 
+async fn admit_instrument_master_status_delta(
+    State(state): State<MarketDataPitApiState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    if !authorized(&headers, &state.token_digest) {
+        return rejection(StatusCode::FORBIDDEN, "UNAUTHORIZED_PRODUCT_EDGE");
+    }
+    let Some(instruments) = state.instruments_v2 else {
+        return rejection(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "MARKET_DATA_INSTRUMENT_MASTER_UNAVAILABLE",
+        );
+    };
+    let submission: InstrumentMasterStatusDeltaSubmissionV2 = match serde_json::from_slice(&body) {
+        Ok(submission) => submission,
+        Err(_) => return rejection(StatusCode::BAD_REQUEST, "MALFORMED_TYPED_REQUEST"),
+    };
+
+    match instruments.admit_status_delta(submission).await {
+        Ok(terminal) => (StatusCode::OK, Json(terminal)).into_response(),
+        Err(e) => instrument_master_v2_status_delta_error(e),
+    }
+}
+
+fn instrument_master_v2_status_delta_error(error: InstrumentMasterStatusDeltaErrorV2) -> Response {
+    use InstrumentMasterStatusDeltaErrorV2 as Refused;
+
+    let (status, code) = match error {
+        Refused::InvalidEvent => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "INSTRUMENT_MASTER_V2_INVALID_EVENT",
+        ),
+        Refused::EventSymbolMismatch => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "INSTRUMENT_MASTER_V2_EVENT_SYMBOL_MISMATCH",
+        ),
+        Refused::ContractTypeUnsupported => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "INSTRUMENT_MASTER_V2_CONTRACT_TYPE_UNSUPPORTED",
+        ),
+        Refused::DatasetMismatch => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "INSTRUMENT_MASTER_V2_DATASET_MISMATCH",
+        ),
+        Refused::EventAfterRetrieval => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "INSTRUMENT_MASTER_V2_EVENT_AFTER_RETRIEVAL",
+        ),
+        Refused::StatusUnchanged => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "INSTRUMENT_MASTER_V2_STATUS_UNCHANGED",
+        ),
+        Refused::EventOutOfOrder => (
+            StatusCode::CONFLICT,
+            "INSTRUMENT_MASTER_V2_EVENT_OUT_OF_ORDER",
+        ),
+        Refused::PredecessorUnknown => (
+            StatusCode::CONFLICT,
+            "INSTRUMENT_MASTER_V2_PREDECESSOR_UNKNOWN",
+        ),
+        Refused::PredecessorNotCurrent => (
+            StatusCode::CONFLICT,
+            "INSTRUMENT_MASTER_V2_PREDECESSOR_NOT_CURRENT",
+        ),
+        Refused::SourceBindingUnavailable => (
+            StatusCode::CONFLICT,
+            "INSTRUMENT_MASTER_V2_SOURCE_BINDING_UNAVAILABLE",
+        ),
+        Refused::SourceBindingMismatch => (
+            StatusCode::CONFLICT,
+            "INSTRUMENT_MASTER_V2_SOURCE_BINDING_MISMATCH",
+        ),
+        Refused::RetrievalAfterOwnerClock => (
+            StatusCode::CONFLICT,
+            "INSTRUMENT_MASTER_V2_RETRIEVAL_AFTER_OWNER_CLOCK",
+        ),
+        Refused::AdmissionConflict => (
+            StatusCode::CONFLICT,
+            "INSTRUMENT_MASTER_V2_ADMISSION_CONFLICT",
+        ),
+        Refused::ClockUnavailable => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "MARKET_DATA_CLOCK_UNAVAILABLE",
+        ),
+        Refused::StoreUnavailable => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "MARKET_DATA_OWNER_UNAVAILABLE",
+        ),
+    };
+    rejection(status, code)
+}
+
 fn instrument_master_v2_error(error: InstrumentMasterAdmissionErrorV2) -> Response {
     use InstrumentMasterAdmissionErrorV2 as Refused;
 
@@ -858,10 +956,10 @@ mod tests {
         .unwrap()
     }
 
-    fn baseline_request(authorization: Option<&str>) -> axum::http::Request<axum::body::Body> {
+    fn v2_request(uri: &str, authorization: Option<&str>) -> axum::http::Request<axum::body::Body> {
         let mut request = axum::http::Request::builder()
             .method("POST")
-            .uri("/v1/market-data/instrument-master-v2-facts")
+            .uri(uri)
             .header("content-type", "application/json");
 
         if let Some(value) = authorization {
@@ -870,11 +968,14 @@ mod tests {
         request.body(axum::body::Body::from("{}")).unwrap()
     }
 
-    /// The V2 baseline route is guarded as the V1 intake is: a request without the Product Edge
-    /// bearer token, or with another token, is refused before availability or the body is looked
-    /// at. The authorized control reaches the next check, the route's own availability.
+    /// Both V2 routes are guarded as the V1 intake is: a request without the Product Edge bearer
+    /// token, or with another token, is refused before availability or the body is looked at. The
+    /// authorized control reaches the next check, the route's own availability.
+    #[rstest]
+    #[case::baseline("/v1/market-data/instrument-master-v2-facts")]
+    #[case::status_delta("/v1/market-data/instrument-master-v2-status-deltas")]
     #[tokio::test]
-    async fn the_v2_baseline_route_refuses_a_request_without_the_product_edge_token() {
+    async fn a_v2_route_refuses_a_request_without_the_product_edge_token(#[case] uri: &str) {
         use sha2::Digest as _;
         use tower::ServiceExt as _;
 
@@ -899,7 +1000,7 @@ mod tests {
             Some("product-edge-token"),
         ] {
             let refused = routes()
-                .oneshot(baseline_request(authorization))
+                .oneshot(v2_request(uri, authorization))
                 .await
                 .unwrap();
             assert_eq!(
@@ -909,7 +1010,7 @@ mod tests {
             );
         }
         let authorized = routes()
-            .oneshot(baseline_request(Some("Bearer product-edge-token")))
+            .oneshot(v2_request(uri, Some("Bearer product-edge-token")))
             .await
             .unwrap();
         assert_eq!(
@@ -1007,6 +1108,100 @@ mod tests {
 
         for (refusal, status, name) in expected {
             let response = instrument_master_v2_error(refusal);
+            assert_eq!(code(&response), (status, Some(name)), "{refusal:?}");
+            assert!(codes.insert(name), "{name} names one refusal");
+        }
+    }
+
+    /// Every V2 status-delta refusal is its own documented code, so no two causes read alike.
+    #[rstest]
+    fn every_v2_status_delta_refusal_has_its_documented_code() {
+        use InstrumentMasterStatusDeltaErrorV2 as Refused;
+
+        let unprocessable = StatusCode::UNPROCESSABLE_ENTITY;
+        let conflict = StatusCode::CONFLICT;
+        let unavailable = StatusCode::SERVICE_UNAVAILABLE;
+        let expected = [
+            (
+                Refused::InvalidEvent,
+                unprocessable,
+                "INSTRUMENT_MASTER_V2_INVALID_EVENT",
+            ),
+            (
+                Refused::EventSymbolMismatch,
+                unprocessable,
+                "INSTRUMENT_MASTER_V2_EVENT_SYMBOL_MISMATCH",
+            ),
+            (
+                Refused::ContractTypeUnsupported,
+                unprocessable,
+                "INSTRUMENT_MASTER_V2_CONTRACT_TYPE_UNSUPPORTED",
+            ),
+            (
+                Refused::DatasetMismatch,
+                unprocessable,
+                "INSTRUMENT_MASTER_V2_DATASET_MISMATCH",
+            ),
+            (
+                Refused::EventAfterRetrieval,
+                unprocessable,
+                "INSTRUMENT_MASTER_V2_EVENT_AFTER_RETRIEVAL",
+            ),
+            (
+                Refused::StatusUnchanged,
+                unprocessable,
+                "INSTRUMENT_MASTER_V2_STATUS_UNCHANGED",
+            ),
+            (
+                Refused::EventOutOfOrder,
+                conflict,
+                "INSTRUMENT_MASTER_V2_EVENT_OUT_OF_ORDER",
+            ),
+            (
+                Refused::PredecessorUnknown,
+                conflict,
+                "INSTRUMENT_MASTER_V2_PREDECESSOR_UNKNOWN",
+            ),
+            (
+                Refused::PredecessorNotCurrent,
+                conflict,
+                "INSTRUMENT_MASTER_V2_PREDECESSOR_NOT_CURRENT",
+            ),
+            (
+                Refused::SourceBindingUnavailable,
+                conflict,
+                "INSTRUMENT_MASTER_V2_SOURCE_BINDING_UNAVAILABLE",
+            ),
+            (
+                Refused::SourceBindingMismatch,
+                conflict,
+                "INSTRUMENT_MASTER_V2_SOURCE_BINDING_MISMATCH",
+            ),
+            (
+                Refused::RetrievalAfterOwnerClock,
+                conflict,
+                "INSTRUMENT_MASTER_V2_RETRIEVAL_AFTER_OWNER_CLOCK",
+            ),
+            (
+                Refused::AdmissionConflict,
+                conflict,
+                "INSTRUMENT_MASTER_V2_ADMISSION_CONFLICT",
+            ),
+            (
+                Refused::ClockUnavailable,
+                unavailable,
+                "MARKET_DATA_CLOCK_UNAVAILABLE",
+            ),
+            (
+                Refused::StoreUnavailable,
+                unavailable,
+                "MARKET_DATA_OWNER_UNAVAILABLE",
+            ),
+        ];
+        let mut codes = std::collections::BTreeSet::new();
+
+        for (refusal, status, name) in expected {
+            let response = instrument_master_v2_status_delta_error(refusal);
             assert_eq!(code(&response), (status, Some(name)), "{refusal:?}");
             assert!(codes.insert(name), "{name} names one refusal");
         }
