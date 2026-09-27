@@ -196,6 +196,26 @@ repos:
             \.github/workflows/.*\.yml
           )$
         pass_filenames: false
+      - id: check-production-features
+        name: check production builds carry no test-only feature
+        description: Refuses a test-only feature (vibe-model/vibe-common stubs) in what a production image builds
+        entry: python3 -B scripts/ci/check-production-features.py
+        language: system
+        files: >-
+          (?x)^(
+            Cargo\.(toml|lock)|
+            crates/.*/Cargo\.toml|
+            product/.*Dockerfile[^/]*|
+            scripts/ci/check-production-features\.py
+          )$
+        pass_filenames: false
+      - id: test-production-features
+        name: test the production feature check
+        description: Runs the production feature check against fixed trees in both directions
+        entry: python3 -B scripts/ci/check-production-features.py --self-test
+        language: system
+        files: ^scripts/ci/check-production-features\.py$
+        pass_filenames: false
       - id: check-source-canary
         name: check source canary
         description: Ensures reachability probes separate a refused runner address from a dead source
@@ -346,6 +366,20 @@ repos:
             \.github/workflows/[^/]+\.yml|
             \.github/actions/.+\.yml
           )$
+        pass_filenames: false
+      - id: test-require-latest-workflow-verdict
+        name: test the latest-verdict requirement
+        description: Only a recent green latest run on the branch passes; cancelled runs are no verdict
+        entry: bash scripts/ci/test-require-latest-workflow-verdict.bash
+        language: system
+        files: ^scripts/ci/(test-)?require-latest-workflow-verdict\.bash$
+        pass_filenames: false
+      - id: test-source-canary-health
+        name: test the research canary health requirement
+        description: Only the same source failing in the two newest canary runs turns main red
+        entry: python3 -B scripts/ci/require_source_canary_health_test.py
+        language: system
+        files: ^scripts/ci/require_source_canary_health(_test)?\.py$
         pass_filenames: false
       - id: test-chain-verdict-reuse
         name: test chain verdict reuse

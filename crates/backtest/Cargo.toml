@@ -53,7 +53,7 @@ vibe-common = { workspace = true }
 vibe-core = { workspace = true }
 vibe-data = { workspace = true }
 vibe-execution = { workspace = true }
-vibe-model = { workspace = true, features = ["stubs"] }
+vibe-model = { workspace = true }
 vibe-persistence = { workspace = true, optional = true }
 vibe-portfolio = { workspace = true }
 vibe-risk = { workspace = true }
@@ -78,6 +78,7 @@ serde_json = { workspace = true }
 
 [dev-dependencies]
 vibe-indicators = { workspace = true }
+vibe-model = { workspace = true, features = ["stubs"] }
 vibe-persistence = { workspace = true }
 vibe-testkit = { workspace = true, default-features = false, features = [
   "datasets",

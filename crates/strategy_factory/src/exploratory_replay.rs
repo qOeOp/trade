@@ -125,7 +125,7 @@ pub(crate) fn exploratory_replay_admission_payload_v2(
     Ok(payload)
 }
 
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+#[cfg(feature = "composer-v3-replay")]
 pub(crate) fn exploratory_replay_admission_payload_v3(
     proposal: &ComposerBackedExploratoryReplayProposalV3,
 ) -> Result<serde_json::Value, serde_json::Error> {

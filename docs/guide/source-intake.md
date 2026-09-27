@@ -60,6 +60,13 @@ professional Q&A, institutional feeds, and media extraction may follow only when
 justifies their acquisition and rights cost. Prefer official APIs, feeds, repositories, or author-maintained indexes;
 generic crawling is a fallback that must preserve the same identity, rights, and terminal-outcome evidence.
 
+The research source canary, `scripts/ci/source_canary.py`, probes these connectors from GitHub-hosted runners, not
+from where the product runs: production is the user's own machine, with PostgreSQL in the local compose deployment.
+A runner reading says what the runner's address may reach, not what production may reach. Since 2026-09-22 arXiv
+has answered the runners HTTP 406, on 2026-09-28 on all three attempts, and the canary records a 406 that survives
+its retries as `BLOCKED` rather than `FAILED`. From the user's machine on 2026-09-28, one request in ten got 406 and
+the next request succeeded, so retries absorb it there.
+
 ## Pre-fetch admission
 
 R&D commits one Source Acquisition Binding before any external network invocation. The binding is

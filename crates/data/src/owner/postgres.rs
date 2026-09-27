@@ -33,6 +33,10 @@ mod corporate_action;
 mod instrument_master_admission_v1_tests;
 #[cfg(test)]
 mod instrument_master_admission_v2_tests;
+#[cfg(test)]
+mod instrument_master_snapshot_v2_tests;
+#[cfg(test)]
+mod instrument_master_status_delta_v2_tests;
 mod live_market_stream_v1;
 #[cfg(test)]
 mod market_data_rd_api_authorization_postgres_tests;
@@ -202,6 +206,9 @@ use super::{
     instrument_master_admission_v2::{
         InstrumentMasterAdmissionErrorV2, InstrumentMasterAdmissionTerminalV2,
         InstrumentMasterAdmissionV2, InstrumentMasterBaselineSubmissionV2,
+        InstrumentMasterSnapshotErrorV2, InstrumentMasterSnapshotSubmissionV2,
+        InstrumentMasterSnapshotTerminalV2, InstrumentMasterStatusDeltaErrorV2,
+        InstrumentMasterStatusDeltaSubmissionV2, InstrumentMasterStatusDeltaTerminalV2,
         sealed::Sealed as InstrumentMasterAdmissionSealedV2,
     },
     live_market_fact_v1::{LiveMarketFactSourceV1, LiveMarketFactV1, LiveMarketSubscriptionV1},
@@ -1361,36 +1368,8 @@ impl MarketDataOwnerPostgres {
             .await
             .map_err(|_| SourceBindingAdmissionErrorV1::StoreUnavailable)?;
 
-        let observed_ns = u64::try_from(
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map_err(|_| SourceBindingAdmissionErrorV1::ClockUnavailable)?
-                .as_nanos(),
-        )
-        .map_err(|_| SourceBindingAdmissionErrorV1::ClockUnavailable)?;
-
-        let sequence = match &head {
-            None => 1,
-            Some(current) => {
-                if observed_ns <= current.decision_cut {
-                    return Err(SourceBindingAdmissionErrorV1::ClockUnavailable);
-                }
-                current
-                    .monotonic_sequence
-                    .checked_add(1)
-                    .ok_or(SourceBindingAdmissionErrorV1::ClockUnavailable)?
-            }
-        };
-        seal_owner_clock_admission_v1(
-            OWNER_CLOCK_IDENTITY_V1,
-            OWNER_CLOCK_EPOCH_V1,
-            sequence,
-            observed_ns,
-            OWNER_CLOCK_VALIDITY_WINDOW_NS,
-            OWNER_CLOCK_UNCERTAINTY_BOUND_NS,
-            OWNER_CLOCK_SKEW_BOUND_NS,
-        )
-        .ok_or(SourceBindingAdmissionErrorV1::ClockUnavailable)
+        next_owner_clock_admission_v1(head.as_ref())
+            .ok_or(SourceBindingAdmissionErrorV1::ClockUnavailable)
     }
 
     /// Returns the one canonical clock head this Owner persists with its own facts.
@@ -10756,6 +10735,13 @@ fn pit_instrument_master_request_v1(
     }))
 }
 
+/// A V2 successor admission, built in its entry's synchronous frame rather than the caller's poll
+/// frame: its state, which holds the named fact's chain and the fact it derives, is larger than
+/// clippy's `large_futures` bound, and awaiting `Box::pin(admit(..))` inline would still build that
+/// state in the caller's frame before moving it to the heap.
+type InstrumentMasterV2AdmissionFuture<'a, T, E> =
+    std::pin::Pin<Box<dyn std::future::Future<Output = Result<T, E>> + Send + 'a>>;
+
 type InstrumentMasterAppendFutureV1<'a> = std::pin::Pin<
     Box<
         dyn std::future::Future<Output = Result<InstrumentMasterFactV1, InstrumentMasterError>>
@@ -10787,7 +10773,9 @@ impl MarketDataOwnerPostgres {
 
     /// Admits one instrument's Instrument Master V2 baseline under the Owner's current clock head.
     ///
-    /// One serializable transaction verifies the named Source Binding, selects the Owner's venue row
+    /// One serializable transaction, holding the V2 store's table locks from its first statement so
+    /// a concurrent identical submission rejoins rather than colliding, verifies the named Source
+    /// Binding, selects the Owner's venue row
     /// by that binding's exact dataset mapping, reads the clock head's decision cut as the fact's
     /// Owner observation, derives the baseline from the payload, and appends it as the instrument's
     /// first fact or rejoins the stored baseline that means the same.
@@ -10804,20 +10792,14 @@ impl MarketDataOwnerPostgres {
             InstrumentMasterFactV2, instrument_master_venue_v2,
         };
         use super::instrument_master_v2_postgres::{
-            BaselineAdmissionErrorV2, admit_baseline_in_transaction_v2,
+            BaselineAdmissionErrorV2, admit_baseline_in_transaction_v2, begin_serializable_v2,
         };
         use InstrumentMasterAdmissionErrorV2 as Refused;
 
         if !submission.names_the_admitted_class() {
             return Err(Refused::UnsupportedClass);
         }
-        let mut transaction = self
-            .pool
-            .begin()
-            .await
-            .map_err(|_| Refused::StoreUnavailable)?;
-        sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
-            .execute(&mut *transaction)
+        let mut transaction = begin_serializable_v2(&self.pool)
             .await
             .map_err(|_| Refused::StoreUnavailable)?;
         let locator = &submission.source_binding;
@@ -10879,6 +10861,302 @@ impl MarketDataOwnerPostgres {
         Ok(InstrumentMasterAdmissionTerminalV2::seal(
             fact.canonical_identity().to_owned(),
             fact.identity(),
+            fact.owner_observation_time_ns(),
+            fact.terms_basis(),
+        ))
+    }
+
+    /// Admits one `!contractInfo` status delta as the named V2 fact's direct successor under the
+    /// Owner's current clock head.
+    ///
+    /// One serializable transaction, holding the V2 store's table locks from its first statement so
+    /// a concurrent identical submission rejoins rather than colliding, verifies the binding,
+    /// reads the named fact and whatever
+    /// already follows it, requires the binding to be the one the instrument's baseline names,
+    /// reads the head's decision cut as the Owner observation, and derives the successor through
+    /// [`InstrumentMasterFactV2::usdm_contract_info_delta`] and `apply_contract_info_delta`. When
+    /// the named fact already has a successor, the submission rejoins it if it derives the same
+    /// fact at that successor's own observation, and is refused as not current otherwise.
+    ///
+    /// The returned future resolves to a documented refusal only when nothing was admitted; a
+    /// replayed submission rejoins its fact.
+    ///
+    /// [`InstrumentMasterFactV2::usdm_contract_info_delta`]:
+    /// super::instrument_master_v2::InstrumentMasterFactV2::usdm_contract_info_delta
+    pub(crate) fn admit_instrument_master_status_delta_v2(
+        &self,
+        submission: InstrumentMasterStatusDeltaSubmissionV2,
+    ) -> InstrumentMasterV2AdmissionFuture<
+        '_,
+        InstrumentMasterStatusDeltaTerminalV2,
+        InstrumentMasterStatusDeltaErrorV2,
+    > {
+        Box::pin(self.admit_instrument_master_status_delta_in_frame_v2(submission))
+    }
+
+    async fn admit_instrument_master_status_delta_in_frame_v2(
+        &self,
+        submission: InstrumentMasterStatusDeltaSubmissionV2,
+    ) -> Result<InstrumentMasterStatusDeltaTerminalV2, InstrumentMasterStatusDeltaErrorV2> {
+        use super::instrument_master_v2::{
+            ContractInfoRetrievalV2, FactValue, InstrumentMasterFactV2,
+        };
+        use super::instrument_master_v2_postgres::{
+            SuccessorAppendErrorV2, append_successor_in_transaction_v2, begin_serializable_v2,
+            load_named_fact_in_transaction_v2,
+        };
+        use InstrumentMasterStatusDeltaErrorV2 as Refused;
+
+        let mut transaction = begin_serializable_v2(&self.pool)
+            .await
+            .map_err(|_| Refused::StoreUnavailable)?;
+        let locator = &submission.source_binding;
+        let stored = load_source(&mut transaction, locator.binding_id, false)
+            .await
+            .map_err(|_| Refused::StoreUnavailable)?
+            .ok_or(Refused::SourceBindingUnavailable)?;
+
+        if stored.commit().receipt().locator() != locator
+            || !SourceBindingOwnerReadback::from_verified(&stored).is_admitted()
+        {
+            return Err(Refused::SourceBindingUnavailable);
+        }
+        let named = load_named_fact_in_transaction_v2(
+            &mut transaction,
+            submission.predecessor_fact_identity,
+        )
+        .await
+        .map_err(|_| Refused::StoreUnavailable)?
+        .ok_or(Refused::PredecessorUnknown)?;
+        let baseline = named.fact.baseline_provenance();
+
+        if baseline.source_binding_identity != locator.binding_id
+            || baseline.source_binding_digest != locator.fact_digest
+        {
+            return Err(Refused::SourceBindingMismatch);
+        }
+        let head = load_current_clock_fact_for_update(&mut transaction)
+            .await
+            .map_err(|_| Refused::StoreUnavailable)?
+            .ok_or(Refused::ClockUnavailable)?;
+        let owner_observation_time_ns = i128::from(head.clock().decision_cut);
+
+        if submission.retrieval_time_ns > owner_observation_time_ns {
+            return Err(Refused::RetrievalAfterOwnerClock);
+        }
+        let derive = |owner_observation_time_ns: i128| -> Result<InstrumentMasterFactV2, Refused> {
+            let delta = named.fact.usdm_contract_info_delta(
+                submission.raw_payload.as_bytes(),
+                ContractInfoRetrievalV2 {
+                    retrieval_time_ns: submission.retrieval_time_ns,
+                    owner_observation_time_ns,
+                },
+            )?;
+            Ok(named.fact.apply_contract_info_delta(delta)?)
+        };
+        // Derived first, so a defective event is refused for its defect whatever follows the fact.
+        let candidate = derive(owner_observation_time_ns)?;
+        let fact = match &named.successor {
+            // The Owner-observation instant is the Owner's stamp, not part of what the caller
+            // means, so a replay is recognised at the stored successor's own observation.
+            Some(successor) => match derive(successor.owner_observation_time_ns()) {
+                Ok(rebuilt) if rebuilt.canonical_bytes() == successor.canonical_bytes() => {
+                    successor.clone()
+                }
+                _ => return Err(Refused::PredecessorNotCurrent),
+            },
+            None => {
+                append_successor_in_transaction_v2(&mut transaction, &candidate)
+                    .await
+                    .map_err(|e| match e {
+                        SuccessorAppendErrorV2::PredecessorNotCurrent => {
+                            Refused::PredecessorNotCurrent
+                        }
+                        SuccessorAppendErrorV2::Custody(_) => Refused::StoreUnavailable,
+                    })?;
+                candidate
+            }
+        };
+        let FactValue::Value(contract_status) = &fact.terms().contract_status else {
+            return Err(Refused::AdmissionConflict);
+        };
+        let contract_status = contract_status.clone();
+        transaction
+            .commit()
+            .await
+            .map_err(|_| Refused::StoreUnavailable)?;
+        Ok(InstrumentMasterStatusDeltaTerminalV2::seal(
+            fact.canonical_identity().to_owned(),
+            fact.identity(),
+            submission.predecessor_fact_identity,
+            fact.correction_sequence(),
+            contract_status,
+            fact.owner_observation_time_ns(),
+            fact.terms_basis(),
+        ))
+    }
+
+    /// Admits one later `exchangeInfo` snapshot as the named V2 fact's direct successor, advancing
+    /// the Owner's clock head first when the head has not reached the snapshot's retrieval.
+    ///
+    /// One read-committed transaction, holding the V2 store's table locks from its first statement
+    /// and the clock-state lock before it reads the head, as every clock writer does, verifies the
+    /// binding, reads the named fact and whatever already follows it, requires the binding to be
+    /// the one the instrument's baseline names, and selects the venue row by that binding's dataset
+    /// mapping. The Owner observation is the head's decision cut when the head
+    /// has reached the retrieval; otherwise it is the next clock the Owner mints from its own wall
+    /// observation, which is admitted in the same transaction as a Source Binding admission admits
+    /// its clock, so the head moves only if the fact is appended. The successor is derived through
+    /// [`InstrumentMasterFactV2::usdm_exchange_info_snapshot`] and `apply_exchange_info_snapshot`.
+    /// When the named fact already has a successor, the submission rejoins it if it derives the
+    /// same fact at that successor's own observation, and is refused as not current otherwise; a
+    /// rejoin never moves the head.
+    ///
+    /// The returned future resolves to a documented refusal only when nothing was admitted; a
+    /// replayed submission rejoins its fact.
+    ///
+    /// [`InstrumentMasterFactV2::usdm_exchange_info_snapshot`]:
+    /// super::instrument_master_v2::InstrumentMasterFactV2::usdm_exchange_info_snapshot
+    pub(crate) fn admit_instrument_master_snapshot_v2(
+        &self,
+        submission: InstrumentMasterSnapshotSubmissionV2,
+    ) -> InstrumentMasterV2AdmissionFuture<
+        '_,
+        InstrumentMasterSnapshotTerminalV2,
+        InstrumentMasterSnapshotErrorV2,
+    > {
+        Box::pin(self.admit_instrument_master_snapshot_in_frame_v2(submission))
+    }
+
+    async fn admit_instrument_master_snapshot_in_frame_v2(
+        &self,
+        submission: InstrumentMasterSnapshotSubmissionV2,
+    ) -> Result<InstrumentMasterSnapshotTerminalV2, InstrumentMasterSnapshotErrorV2> {
+        use super::instrument_master_v2::{
+            ExchangeInfoRetrievalV2, FactValue, InstrumentMasterFactV2, instrument_master_venue_v2,
+        };
+        use super::instrument_master_v2_postgres::{
+            SuccessorAppendErrorV2, append_successor_in_transaction_v2, begin_clock_writing_v2,
+            load_named_fact_in_transaction_v2,
+        };
+        use InstrumentMasterSnapshotErrorV2 as Refused;
+
+        let mut transaction = begin_clock_writing_v2(&self.pool)
+            .await
+            .map_err(|_| Refused::StoreUnavailable)?;
+        let locator = &submission.source_binding;
+        let stored = load_source(&mut transaction, locator.binding_id, false)
+            .await
+            .map_err(|_| Refused::StoreUnavailable)?
+            .ok_or(Refused::SourceBindingUnavailable)?;
+
+        if stored.commit().receipt().locator() != locator
+            || !SourceBindingOwnerReadback::from_verified(&stored).is_admitted()
+        {
+            return Err(Refused::SourceBindingUnavailable);
+        }
+        let named = load_named_fact_in_transaction_v2(
+            &mut transaction,
+            submission.predecessor_fact_identity,
+        )
+        .await
+        .map_err(|_| Refused::StoreUnavailable)?
+        .ok_or(Refused::PredecessorUnknown)?;
+        let baseline = named.fact.baseline_provenance();
+
+        if baseline.source_binding_identity != locator.binding_id
+            || baseline.source_binding_digest != locator.fact_digest
+        {
+            return Err(Refused::SourceBindingMismatch);
+        }
+        // The binding is the baseline's, so its dataset has the row the baseline was derived by.
+        let venue =
+            instrument_master_venue_v2(&stored.commit().fact().proposal().adapter.dataset_mapping)
+                .ok_or(Refused::AdmissionConflict)?;
+        // The clock-state lock before the head's row lock, as every other clock writer takes them,
+        // so a snapshot that mints never waits on a writer that waits on it.
+        lock_clock_state(&mut transaction)
+            .await
+            .map_err(|_| Refused::StoreUnavailable)?;
+        let head = load_current_clock_for_update(&mut transaction)
+            .await
+            .map_err(|_| Refused::StoreUnavailable)?
+            .ok_or(Refused::ClockUnavailable)?;
+        let minted = if submission.retrieval_time_ns <= i128::from(head.decision_cut) {
+            None
+        } else {
+            let next =
+                next_owner_clock_admission_v1(Some(&head)).ok_or(Refused::ClockUnavailable)?;
+
+            if submission.retrieval_time_ns > i128::from(next.decision_cut) {
+                return Err(Refused::RetrievalAfterOwnerClock);
+            }
+            Some(next)
+        };
+        let owner_observation_time_ns = i128::from(
+            minted
+                .as_ref()
+                .map_or(head.decision_cut, |next| next.decision_cut),
+        );
+        let derive = |owner_observation_time_ns: i128| -> Result<InstrumentMasterFactV2, Refused> {
+            let successor = named.fact.usdm_exchange_info_snapshot(
+                submission.raw_payload.as_bytes(),
+                venue,
+                ExchangeInfoRetrievalV2 {
+                    source_binding_identity: locator.binding_id,
+                    source_binding_digest: locator.fact_digest,
+                    retrieval_time_ns: submission.retrieval_time_ns,
+                    owner_observation_time_ns,
+                },
+            )?;
+            Ok(named.fact.apply_exchange_info_snapshot(successor)?)
+        };
+        // Derived first, so a defective snapshot is refused for its defect whatever follows the fact.
+        let candidate = derive(owner_observation_time_ns)?;
+        let fact = match &named.successor {
+            // A replay is recognised at the stored successor's own observation, and moves no clock.
+            Some(successor) => match derive(successor.owner_observation_time_ns()) {
+                Ok(rebuilt) if rebuilt.canonical_bytes() == successor.canonical_bytes() => {
+                    successor.clone()
+                }
+                _ => return Err(Refused::PredecessorNotCurrent),
+            },
+            None => {
+                if let Some(next) = &minted {
+                    admit_clock(&mut transaction, next)
+                        .await
+                        .map_err(|e| match e {
+                            SourceBindingError::TrustedClockMismatch => Refused::ClockMismatch,
+                            _ => Refused::StoreUnavailable,
+                        })?;
+                }
+                append_successor_in_transaction_v2(&mut transaction, &candidate)
+                    .await
+                    .map_err(|e| match e {
+                        SuccessorAppendErrorV2::PredecessorNotCurrent => {
+                            Refused::PredecessorNotCurrent
+                        }
+                        SuccessorAppendErrorV2::Custody(_) => Refused::StoreUnavailable,
+                    })?;
+                candidate
+            }
+        };
+        let FactValue::Value(contract_status) = &fact.terms().contract_status else {
+            return Err(Refused::AdmissionConflict);
+        };
+        let contract_status = contract_status.clone();
+        let terms_changed = fact.changes_terms_of(&named.fact);
+        transaction
+            .commit()
+            .await
+            .map_err(|_| Refused::StoreUnavailable)?;
+        Ok(InstrumentMasterSnapshotTerminalV2::seal(
+            fact.canonical_identity().to_owned(),
+            fact.identity(),
+            submission.predecessor_fact_identity,
+            fact.correction_sequence(),
+            contract_status,
+            terms_changed,
             fact.owner_observation_time_ns(),
             fact.terms_basis(),
         ))
@@ -11699,6 +11977,23 @@ impl InstrumentMasterAdmissionV2 for InstrumentMasterAdmissionPostgresV2 {
     ) -> Result<InstrumentMasterAdmissionTerminalV2, InstrumentMasterAdmissionErrorV2> {
         Box::pin(self.owner.admit_instrument_master_baseline_v2(submission)).await
     }
+
+    async fn admit_status_delta(
+        &self,
+        submission: InstrumentMasterStatusDeltaSubmissionV2,
+    ) -> Result<InstrumentMasterStatusDeltaTerminalV2, InstrumentMasterStatusDeltaErrorV2> {
+        self.owner
+            .admit_instrument_master_status_delta_v2(submission)
+            .await
+    }
+    async fn admit_snapshot(
+        &self,
+        submission: InstrumentMasterSnapshotSubmissionV2,
+    ) -> Result<InstrumentMasterSnapshotTerminalV2, InstrumentMasterSnapshotErrorV2> {
+        self.owner
+            .admit_instrument_master_snapshot_v2(submission)
+            .await
+    }
 }
 
 /// The durable intake. It retains the Owner and the Data Client and exposes neither.
@@ -11817,6 +12112,41 @@ fn public_decision_cut_v1(clock: &MarketDataClockAdmission) -> MarketDataDecisio
         uncertainty_bound: NanosV1::from_nanos(clock.uncertainty_bound),
         skew_bound: NanosV1::from_nanos(clock.skew_bound),
     }
+}
+
+/// The Owner clock admission that follows `head`, observed now from the Owner's wall clock.
+///
+/// The cut is the Owner's own wall observation, and the sequence strictly advances `head`. A wall
+/// clock that has not moved past the head mints nothing, because a cut that did not advance would
+/// let two different findings claim the same instant. Every writer that advances the head mints
+/// here: a Source Binding admission, and an Instrument Master V2 snapshot admission whose retrieval
+/// the head has not reached.
+fn next_owner_clock_admission_v1(
+    head: Option<&MarketDataClockAdmission>,
+) -> Option<MarketDataClockAdmission> {
+    let observed_ns = u64::try_from(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .ok()?
+            .as_nanos(),
+    )
+    .ok()?;
+    let sequence = match head {
+        None => 1,
+        Some(current) if observed_ns > current.decision_cut => {
+            current.monotonic_sequence.checked_add(1)?
+        }
+        Some(_) => return None,
+    };
+    seal_owner_clock_admission_v1(
+        OWNER_CLOCK_IDENTITY_V1,
+        OWNER_CLOCK_EPOCH_V1,
+        sequence,
+        observed_ns,
+        OWNER_CLOCK_VALIDITY_WINDOW_NS,
+        OWNER_CLOCK_UNCERTAINTY_BOUND_NS,
+        OWNER_CLOCK_SKEW_BOUND_NS,
+    )
 }
 
 /// The Owner clock identity every Market Data cut is minted under.

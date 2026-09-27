@@ -1392,7 +1392,8 @@ impl ArtifactBuildOwnerPort for PostgresArtifactBuildOwnerV1 {
             view.source_cut = format!("rd-artifact-cut-v1-{}", artifact.identity().artifact_digest);
             view.observed_at_epoch_ms = now;
             view.projection_at_epoch_ms = now;
-            view.valid_through_epoch_ms = now.saturating_add(600_000);
+            view.valid_through_epoch_ms =
+                now.saturating_add(crate::product_edge::RESEARCH_VIEW_FRESHNESS_MS);
             view.projection_identity = canonical_research_view_identity_v2(view);
         }
         let receipt = ArtifactBuildReceiptV1 {

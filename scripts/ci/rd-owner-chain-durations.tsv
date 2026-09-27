@@ -3,7 +3,8 @@
 # next component's database reset), and for the operation-routing entry from the serial build run
 # 36228219698 (tree 137afe272), for the initial PIT issuance entry from the serial owner-chains
 # run 36237148747 (tree 8204c6ef1), and for the Dashboard RUN routing entry from owner-chains run
-# 36235768765 (tree 88c758ea1). Re-measure when the chain changes shape.
+# 36235768765 (tree 88c758ea1). The initial PIT clock-move entry is its sibling's time until its own
+# first run measures it. Re-measure when the chain changes shape.
 replay_policy_catalog_postgres_v2::postgres_tests::catalog_admin_and_family_formation_are_atomic_and_fail_closed	9.7
 legacy_replay_table_is_preserved_while_current_custody_commits_and_reads_back	9.8
 origin_current_replay_table_renames_with_exact_v1_v2_read_continuity	9.3
@@ -112,6 +113,8 @@ deployment_acceptance::tests::deployment_fixture_is_admitted_idempotent_and_refu
 iteration_decision_postgres::postgres_acceptance_tests::legacy_replay_request_passes_the_source_boundary_under_issuance_isolation	4.8
 postgres_tests::the_operation_routing_read_port_answers_every_routing_state_over_http	2.6
 research_initial_pit_postgres_tests::a_v3_research_request_issues_its_initial_pit_request_over_http	37.1
+research_initial_pit_postgres_tests::the_initial_pit_request_refreezes_when_the_clock_head_moves_before_its_send	37.1
 artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only	3.5
 dashboard_run_routing_acceptance::a_dashboard_run_starts_only_on_the_routing_the_writer_committed_and_reaches_the_owner	6.4
 tests::postgres_result_directory_lists_one_requests_results_without_a_row_lock	1.1
+product_edge_postgres::tests::a_frozen_research_intent_continues_under_its_admission_past_its_views_window	3.5

@@ -11,8 +11,9 @@ use super::{
     instrument_master_v2::{
         InstrumentMasterCustodyErrorV2, InstrumentMasterCutLocatorV2, InstrumentMasterCutReceiptV2,
         InstrumentMasterCutRequestV2, InstrumentMasterCutV2, InstrumentMasterFactV2,
-        InstrumentMasterReadbackV2, InstrumentMasterResolverV2, PublicInstrumentClassV2,
-        native_replay_request_identity_v2, require_same_generation_v2, resolver_seal_v2,
+        InstrumentMasterReadbackV2, InstrumentMasterResolverV2, InstrumentTermsBasisV2,
+        PublicInstrumentClassV2, native_replay_request_identity_v2, require_same_generation_v2,
+        resolver_seal_v2,
     },
     postgres::{
         BoundReplayInputsErrorV1, BoundReplayInputsV1,
@@ -303,28 +304,10 @@ impl InstrumentMasterV2PostgresOwner {
         Ok(readback)
     }
 
-    /// Opens this store's one writing transaction: serializable, and holding every table lock.
-    ///
-    /// `lock_all` must be its first statement. A serializable transaction's snapshot is taken by
-    /// its first `SELECT` or data change, and `LOCK TABLE` is neither, so taking the table locks
-    /// first gives a snapshot that already sees whatever the previous lock holder committed. The
-    /// advisory `SELECT` that used to come first took the snapshot before its wait, and the second
-    /// of two concurrent writers then failed its `FOR UPDATE` on `state` with SQLSTATE 40001.
-    /// The table locks conflict with themselves, so they alone serialize every transaction here.
     async fn serializable(
         &self,
     ) -> Result<Transaction<'_, Postgres>, InstrumentMasterCustodyErrorV2> {
-        let mut tx = self
-            .pool
-            .begin()
-            .await
-            .map_err(|cause| store_error(&cause))?;
-        sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
-            .execute(&mut *tx)
-            .await
-            .map_err(|cause| store_error(&cause))?;
-        lock_all(&mut tx).await?;
-        Ok(tx)
+        begin_serializable_v2(&self.pool).await
     }
 
     async fn assert_acl(&self) -> Result<(), InstrumentMasterCustodyErrorV2> {
@@ -425,6 +408,13 @@ async fn issue_cut_in_transaction(
         .any(|fact| !class_has_no_corporate_actions(fact.instrument_class()))
     {
         return Err(InstrumentMasterCustodyErrorV2::MemberClassCarriesCorporateActions);
+    }
+
+    if facts
+        .iter()
+        .any(|fact| fact.terms_basis() != InstrumentTermsBasisV2::RetrievedTermsAssumedSinceListing)
+    {
+        return Err(InstrumentMasterCustodyErrorV2::TermsChanged);
     }
 
     if let Some(v1) = generation_v1 {
@@ -662,6 +652,46 @@ async fn decode_cut_row(
     InstrumentMasterReadbackV2::from_parts(cut, receipt)
 }
 
+/// Opens a writing transaction on this store: serializable, and holding every table lock.
+///
+/// Every writer, the Owner's intakes included, opens its transaction here. `lock_all` must be its
+/// first statement. A serializable transaction's snapshot is taken by its first `SELECT` or data
+/// change, and `LOCK TABLE` is neither, so taking the table locks first gives a snapshot that
+/// already sees whatever the previous lock holder committed. The advisory `SELECT` that used to
+/// come first took the snapshot before its wait, and the second of two concurrent writers then
+/// failed its `FOR UPDATE` on `state` with SQLSTATE 40001; an intake that read the chain before
+/// locking would likewise meet a concurrent identical submission as a unique violation instead
+/// of rejoining it. The table locks conflict with themselves, so they alone serialize every
+/// transaction here.
+pub(super) async fn begin_serializable_v2(
+    pool: &PgPool,
+) -> Result<Transaction<'_, Postgres>, InstrumentMasterCustodyErrorV2> {
+    let mut tx = pool.begin().await.map_err(|cause| store_error(&cause))?;
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+        .execute(&mut *tx)
+        .await
+        .map_err(|cause| store_error(&cause))?;
+    lock_all(&mut tx).await?;
+    Ok(tx)
+}
+
+/// Opens a writing transaction on this store that also writes the Owner's clock: read committed,
+/// and holding every table lock from its first statement.
+///
+/// A clock writer takes the clock-state advisory lock before it reads the clock head, and waits
+/// there for any other clock writer. Under `SERIALIZABLE` the advisory `SELECT` would take the
+/// transaction's snapshot before that wait, so a head another writer moved meanwhile would fail
+/// this transaction with SQLSTATE 40001; under `READ COMMITTED` each statement reads what was
+/// committed before it, as in every other clock writer. The table locks still serialize this
+/// store's writers, so the chain read here cannot change before the append.
+pub(super) async fn begin_clock_writing_v2(
+    pool: &PgPool,
+) -> Result<Transaction<'_, Postgres>, InstrumentMasterCustodyErrorV2> {
+    let mut tx = pool.begin().await.map_err(|cause| store_error(&cause))?;
+    lock_all(&mut tx).await?;
+    Ok(tx)
+}
+
 async fn lock_all(
     tx: &mut Transaction<'_, Postgres>,
 ) -> Result<(), InstrumentMasterCustodyErrorV2> {
@@ -749,6 +779,72 @@ pub(super) async fn admit_baseline_in_transaction_v2(
         Ok(stored.clone())
     } else {
         Err(BaselineAdmissionErrorV2::BaselineExists)
+    }
+}
+
+/// A named V2 fact and the fact that directly follows it, when one does.
+pub(super) struct NamedFactV2 {
+    pub(super) fact: InstrumentMasterFactV2,
+    pub(super) successor: Option<InstrumentMasterFactV2>,
+}
+
+/// Reads the V2 fact whose identity is `identity`, and its direct successor, in the caller's
+/// transaction, or none when no fact has that identity. The store's ownership and privilege
+/// assertion runs first, and the fact's whole chain is decoded, so each fact returned verifies
+/// against its predecessor.
+pub(super) async fn load_named_fact_in_transaction_v2(
+    tx: &mut Transaction<'_, Postgres>,
+    identity: BindingDigest,
+) -> Result<Option<NamedFactV2>, InstrumentMasterCustodyErrorV2> {
+    assert_acl_in_transaction(tx).await?;
+    let canonical: Option<String> = sqlx::query_scalar(
+        "SELECT canonical_identity FROM market_data_instrument_master_v2.facts WHERE fact_identity=$1",
+    )
+    .bind(identity.as_bytes().as_slice())
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(|cause| store_error(&cause))?;
+    let Some(canonical) = canonical else {
+        return Ok(None);
+    };
+    let chain = decode_chain(load_fact_rows(tx, &canonical).await?)?;
+    let at = chain
+        .iter()
+        .position(|fact| fact.identity() == identity)
+        .ok_or(InstrumentMasterCustodyErrorV2::CrossSpliced)?;
+    Ok(Some(NamedFactV2 {
+        fact: chain[at].clone(),
+        successor: chain.get(at + 1).cloned(),
+    }))
+}
+
+/// Why a successor was not appended in the caller's transaction.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum SuccessorAppendErrorV2 {
+    /// Another admission extended the same fact first.
+    PredecessorNotCurrent,
+    /// A custody or store failure.
+    Custody(InstrumentMasterCustodyErrorV2),
+}
+
+/// Appends `successor` after the fact it names, which the caller read with no successor in a
+/// transaction opened by [`begin_serializable_v2`].
+///
+/// The table locks that transaction took first mean no other writer ran between that read and
+/// this insert, so a unique violation is not expected here. Were one to occur, the successor's
+/// identity digests its bytes, which name its predecessor, so it cannot already be stored
+/// elsewhere in the chain: it would mean the same predecessor was extended, or the same
+/// correction sequence taken, by a writer that did not hold the locks.
+pub(super) async fn append_successor_in_transaction_v2(
+    tx: &mut Transaction<'_, Postgres>,
+    successor: &InstrumentMasterFactV2,
+) -> Result<(), SuccessorAppendErrorV2> {
+    match insert_fact(tx, successor).await {
+        Ok(()) => Ok(()),
+        Err(InstrumentMasterCustodyErrorV2::IdentityConflict) => {
+            Err(SuccessorAppendErrorV2::PredecessorNotCurrent)
+        }
+        Err(e) => Err(SuccessorAppendErrorV2::Custody(e)),
     }
 }
 

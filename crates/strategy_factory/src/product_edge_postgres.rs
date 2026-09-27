@@ -1807,7 +1807,7 @@ impl PostgresResearchGoalOwnerV1 {
             crate::trial_family_postgres::TABLES,
             crate::iteration_decision_postgres::TABLES,
             crate::iteration_result_admission_postgres::TABLES,
-            #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+            #[cfg(feature = "composer-v3-replay")]
             crate::exploratory_replay::postgres::composer_commit_v3::TABLES,
             crate::successor_intent_postgres::TABLES,
             crate::market_data_repair_request_postgres::TABLES,
@@ -2168,7 +2168,7 @@ impl PostgresResearchGoalOwnerV1 {
 
     /// Commits a Composer-backed Replay from exact R&D, Composer, and Market Data Owner facts.
     /// The locator-only proposal cannot provide a positive sealed source or execution profile.
-    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+    #[cfg(feature = "composer-v3-replay")]
     pub async fn commit_composer_backed_exploratory_replay_request_v3(
         &self,
         proposal: crate::exploratory_replay::ComposerBackedExploratoryReplayProposalV3,
@@ -5784,11 +5784,15 @@ pub(crate) mod tests {
             .await
             .unwrap()
             .unwrap();
-        let custody = crate::develop_composer_v2::CurrentResearchDevelopCustodyV2::from_verified(
-            &verified,
-            &request_identity,
-            read_cut,
+        let custody = Box::pin(
+            crate::research_continuation_v1::continue_initial_research_in_transaction(
+                &mut preparation,
+                &verified,
+                &request_identity,
+                read_cut,
+            ),
         )
+        .await
         .unwrap();
         preparation.rollback().await.unwrap();
 
@@ -6524,11 +6528,15 @@ pub(crate) mod tests {
             .await
             .unwrap()
             .unwrap();
-        let custody = crate::develop_composer_v2::CurrentResearchDevelopCustodyV2::from_verified(
-            &verified,
-            &request_identity,
-            read_cut,
+        let custody = Box::pin(
+            crate::research_continuation_v1::continue_initial_research_in_transaction(
+                &mut preparation,
+                &verified,
+                &request_identity,
+                read_cut,
+            ),
         )
+        .await
         .unwrap();
         preparation.rollback().await.unwrap();
 
@@ -6945,12 +6953,40 @@ pub(crate) mod tests {
             *response
         );
 
-        // After the View's window: the current-View read has nothing to stand on, the recorded
-        // View still does.
+        // After the View's window both still answer: the View's window is a reader's freshness, and
+        // the unrecorded read continues the frozen Intent under an authority that is still current
+        // (`research_continuation_v1`). What stops the unrecorded read is the View moving on, below.
         assert_eq!(&readback_at(Some(expired)).await, response);
         assert_eq!(
-            coordinate(resolve(DevelopComposerRunViewRecordV1::Unrecorded, expired).await),
-            RUN_VIEW_UNRECORDED_COORDINATE_V1
+            resolve(DevelopComposerRunViewRecordV1::Unrecorded, expired)
+                .await
+                .expect("an unrecorded run reads past its View's window under a current authority"),
+            *response
+        );
+        // Past the authority's own window it refuses, and says so under the continuation's name
+        // rather than folding it into the unrecorded one.
+        let authorization_ends = {
+            let mut transaction = owner.pool.begin().await.unwrap();
+            let verified =
+                crate::rd_owner_postgres_custody::admit_research_v2_custody_read_only_in_transaction(
+                    &mut transaction,
+                    research_request_identity,
+                )
+                .await
+                .unwrap()
+                .expect("the committed run's Research custody");
+            transaction.rollback().await.unwrap();
+            verified
+                .product_edge_admission()
+                .expect("the request's admission")
+                .authorization()
+                .valid_through_epoch_ms()
+        };
+        assert_eq!(
+            coordinate(
+                resolve(DevelopComposerRunViewRecordV1::Unrecorded, authorization_ends).await
+            ),
+            crate::research_continuation_v1::RESEARCH_CONTINUATION_AUTHORITY_NOT_CURRENT_COORDINATE_V1
         );
 
         // A recorded View is a claim, checked like any other: its cut must lie in its window, and
@@ -8160,6 +8196,186 @@ pub(crate) mod tests {
             "{refused}"
         );
         transaction.rollback().await.unwrap();
+    }
+
+    /// A frozen Research Intent continues past its View's window, under the operator authority it
+    /// was admitted under, and only while that authority is current (`research_continuation_v1`).
+    ///
+    /// Two-sided at every step, on one request admitted here under an authorization of its own:
+    /// the continuation that answers past the View's window is refused past the authorization's
+    /// window, and refused again, at a cut inside both, once that authorization is revoked. The
+    /// route a Design author reads first answers the same way on pinned clocks.
+    ///
+    /// Deliberate state side effect: the entry revokes an authorization, and it stays revoked in the
+    /// shared database. It is this entry's own: `bootstrap_admission` issues
+    /// `operator-authorization-{suffix}` for this entry's suffix alone, and the only request
+    /// admitted under it is `research-continuation-{suffix}`, which no other entry names. So no
+    /// later entry reads a revoked authority.
+    #[rstest::rstest]
+    #[ignore = "requires the ordered canonical Owner PostgreSQL gate"]
+    fn a_frozen_research_intent_continues_under_its_admission_past_its_views_window() {
+        // Admitting custody and re-locking its admission run the Owners' deepest custody paths;
+        // together they overflow the default test stack, as the other custody entries do.
+        std::thread::Builder::new()
+            .stack_size(16 * 1024 * 1024)
+            .spawn(|| {
+                tokio::runtime::Builder::new_multi_thread()
+                    .worker_threads(2)
+                    .enable_all()
+                    .build()
+                    .unwrap()
+                    .block_on(Box::pin(continue_past_the_views_window()));
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
+    async fn continue_past_the_views_window() {
+        use crate::research_continuation_v1::{
+            RESEARCH_CONTINUATION_AUTHORITY_NOT_CURRENT_COORDINATE_V1,
+            continue_initial_research_in_transaction,
+        };
+
+        let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
+        #[cfg(feature = "sealed-develop-composer-acceptance")]
+        crate::replay_policy_catalog_postgres_v2::ensure_sealed_acceptance_catalog_v3_for_test(
+            &test_database,
+        )
+        .await;
+        let operator_authorization_database_url = test_database
+            .database_url(CanonicalOwnerTestRoleV1::OperatorAuthorizationWriter)
+            .to_string();
+        let product_edge_database_url = test_database
+            .database_url(CanonicalOwnerTestRoleV1::ProductEdgeOwner)
+            .to_string();
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let request_identity = format!("research-continuation-{suffix}");
+        let (admission, _) = bootstrap_admission(
+            BootstrapAdmissionTopology::Existing {
+                operator_authorization_database_url: &operator_authorization_database_url,
+                product_edge_database_url: &product_edge_database_url,
+            },
+            &request_identity,
+            suffix,
+        )
+        .await;
+        let owner = PostgresResearchGoalOwnerV1::connect(
+            test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
+            test_database.database_url(CanonicalOwnerTestRoleV1::QualificationWriter),
+        )
+        .await
+        .unwrap();
+        let accepted = owner
+            .submit_v2(request(&request_identity, admission))
+            .await
+            .unwrap();
+        assert_eq!(accepted.resolution(), ProductEdgeResolution::Accepted);
+
+        let continue_at = |cut: u64| {
+            let pool = owner.pool.clone();
+            let request_identity = request_identity.clone();
+            async move {
+                let mut transaction = pool.begin().await.unwrap();
+                let verified =
+                    crate::rd_owner_postgres_custody::admit_research_v2_custody_read_only_in_transaction(
+                        &mut transaction,
+                        &request_identity,
+                    )
+                    .await
+                    .unwrap()
+                    .expect("the admitted request's custody");
+                let continued = Box::pin(continue_initial_research_in_transaction(
+                    &mut transaction,
+                    &verified,
+                    &request_identity,
+                    cut,
+                ))
+                .await;
+                transaction.rollback().await.unwrap();
+                (verified, continued)
+            }
+        };
+        let (verified, _) = continue_at(0).await;
+        let view = verified.view().expect("an accepted request's View").clone();
+        let authorization = verified
+            .product_edge_admission()
+            .expect("the request's Product Edge admission")
+            .authorization()
+            .clone();
+        assert!(
+            view.valid_through_epoch_ms < authorization.valid_through_epoch_ms(),
+            "the View's window ends inside the authorization's, so the two cuts below differ"
+        );
+
+        // Inside the View's window, past it, and past the authorization's window.
+        let inside = continue_at(view.projection_at_epoch_ms)
+            .await
+            .1
+            .expect("the Intent continues inside its View's window");
+        let past_the_view = continue_at(view.valid_through_epoch_ms.saturating_add(60_000))
+            .await
+            .1
+            .expect("the Intent continues past its View's window under a current authority");
+        assert_eq!(past_the_view.custody_digest(), inside.custody_digest());
+        let past_the_authorization = continue_at(authorization.valid_through_epoch_ms())
+            .await
+            .1
+            .expect_err("the Intent does not continue once its authority has expired");
+        assert_eq!(
+            past_the_authorization.coordinate,
+            RESEARCH_CONTINUATION_AUTHORITY_NOT_CURRENT_COORDINATE_V1
+        );
+        let before_the_view = continue_at(view.projection_at_epoch_ms - 1)
+            .await
+            .1
+            .expect_err("a cut before the View was projected is refused");
+        assert_eq!(before_the_view.coordinate, "research_custody");
+
+        // The route a Design author reads first, on pinned clocks either side of the same edge.
+        let authoring_at = |cut: u64| {
+            crate::rd_bounded_feature_program_postgres_v1::PostgresResearchBoundedFeatureProgramOwnerV1::with_clock(
+                owner.pool.clone(),
+                crate::rd_owner_clock::RdOwnerClockV1::fixed(move || cut),
+            )
+        };
+        authoring_at(view.valid_through_epoch_ms.saturating_add(60_000))
+            .read_research_authoring_facts_v1(&request_identity)
+            .await
+            .expect("the authoring facts read past the View's window");
+        assert!(matches!(
+            authoring_at(authorization.valid_through_epoch_ms())
+                .read_research_authoring_facts_v1(&request_identity)
+                .await,
+            Err(crate::rd_bounded_feature_program_postgres_v1::ResearchBoundedFeatureProgramOwnerErrorV1::ResearchCustody)
+        ));
+
+        // Revoked: the same cut that continued above no longer does.
+        OperatorAuthorizationIssuerPostgresV1::connect_existing(
+            &operator_authorization_database_url,
+        )
+        .await
+        .unwrap()
+        .revoke(
+            vibe_operator_authorization::OperatorAuthorizationRevocationProposalV1 {
+                authorization: authorization.locator(),
+                expected_frontier_identity: authorization.frontier().frontier_identity().to_owned(),
+                reason_code: "RESEARCH_CONTINUATION_TEST".to_owned(),
+            },
+        )
+        .await
+        .expect("the entry revokes its own authorization");
+        let revoked = continue_at(view.valid_through_epoch_ms.saturating_add(60_000))
+            .await
+            .1
+            .expect_err("a revoked authority continues nothing");
+        assert_eq!(
+            revoked.coordinate,
+            RESEARCH_CONTINUATION_AUTHORITY_NOT_CURRENT_COORDINATE_V1
+        );
     }
 
     /// When Market Data's early check does not admit the scope, the request closes

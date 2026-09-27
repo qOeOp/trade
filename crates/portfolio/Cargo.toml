@@ -29,7 +29,7 @@ python = [
 vibe-analysis = { workspace = true }
 vibe-common = { workspace = true }
 vibe-core = { workspace = true }
-vibe-model = { workspace = true, features = ["stubs"] }
+vibe-model = { workspace = true }
 
 pyo3 = { workspace = true, optional = true }
 pyo3-stub-gen = { workspace = true, optional = true }
@@ -43,6 +43,8 @@ rust_decimal_macros = { workspace = true }
 serde = { workspace = true }
 
 [dev-dependencies]
+vibe-model = { workspace = true, features = ["stubs"] }
+
 criterion = { workspace = true }
 rstest = { workspace = true }
 

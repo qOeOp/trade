@@ -1348,7 +1348,7 @@ jobs:
       # starts after the longest one, by when pre-commit-pr.yml has finished, so the requirement never
       # holds a runner waiting (in the pre-commit job it waited 317 s on #1049's run 36214958737).
       - name: Checkout the requirement script
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
         # https://github.com/actions/checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -1381,6 +1381,28 @@ jobs:
             REQUIRE_WORKFLOW_JOB_RECOVERY="$recovery" \
               bash scripts/ci/require-workflow-job.bash "$workflow" '*' "$HEAD_SHA" 1800
           done
+
+      # security-audit.yml runs on main's pushes and once a day but gated nothing there: from
+      # 2026-09-23 to 09-27 it was red for 53 runs while main's verdicts stayed green. A pull request
+      # that touches what it audits requires it above; this makes main's own verdict carry it. 49
+      # hours covers one missed daily run, since the schedule does skip slots, without letting a
+      # stopped audit keep an old green alive.
+      - name: Require main's latest supply-chain audit
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/ci/require-latest-workflow-verdict.bash security-audit.yml main 49
+
+      # research-source-canary.yml probes the research sources once a week and gated nothing: it was
+      # red from 2026-09-22 with no verdict affected. One failed probe is often a source's bad
+      # minute, so only the same source failing in the two newest runs is red; one failure is a
+      # warning. 15 days covers one missed weekly run without letting a stopped canary keep an old
+      # green alive.
+      - name: Require the research sources to answer
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 -B scripts/ci/require_source_canary_health.py research-source-canary.yml main 15
 
       - name: Verify required build graph
         env:

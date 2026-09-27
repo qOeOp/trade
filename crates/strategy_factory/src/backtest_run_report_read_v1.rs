@@ -721,9 +721,9 @@ fn request_to_report(
 ) -> Result<&ReplayRequestV2, BacktestRunReportRefusalV1> {
     match read {
         ReportRequestReadV2::Found(readback) => Ok(readback.request()),
-        #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+        #[cfg(feature = "composer-v3-replay")]
         ReportRequestReadV2::ComposerV3(claim) => Ok(claim.request()),
-        #[cfg(not(feature = "sealed-source-intake-composer-acceptance"))]
+        #[cfg(not(feature = "composer-v3-replay"))]
         ReportRequestReadV2::ComposerV3 => {
             Err(BacktestRunReportRefusalV1::ReplayRequestV3NotYetReported)
         }
@@ -1614,7 +1614,7 @@ mod tests {
     /// In a build without the Composer-backed Replay feature - the deployed image, and the one that
     /// runs this crate's unit tests - a COMPOSER_V3 request is refused by name, not read and not
     /// reported absent.
-    #[cfg(not(feature = "sealed-source-intake-composer-acceptance"))]
+    #[cfg(not(feature = "composer-v3-replay"))]
     #[rstest]
     fn a_composer_v3_request_is_refused_by_name_without_the_feature() {
         assert!(matches!(

@@ -50,9 +50,9 @@ use super::fixed::{
     raw_scales_match, scaled_raw_to_decimal,
 };
 #[cfg(not(feature = "high-precision"))]
-use super::fixed::{f64_to_fixed_u64, fixed_u64_to_f64};
+use super::fixed::{f64_to_fixed_u64, fixed_u64_at_precision_to_f64};
 #[cfg(feature = "high-precision")]
-use super::fixed::{f64_to_fixed_u128, fixed_u128_to_f64};
+use super::fixed::{f64_to_fixed_u128, fixed_u128_at_precision_to_f64};
 
 // -----------------------------------------------------------------------------
 // QuantityRaw
@@ -370,7 +370,7 @@ impl Quantity {
             "Invalid f64 conversion beyond `MAX_FLOAT_PRECISION` (16)"
         );
 
-        fixed_u128_to_f64(self.raw)
+        fixed_u128_at_precision_to_f64(self.raw, self.precision)
     }
 
     #[cfg(not(feature = "high-precision"))]
@@ -386,7 +386,7 @@ impl Quantity {
             panic!("Invalid f64 conversion beyond `MAX_FLOAT_PRECISION` (16)");
         }
 
-        fixed_u64_to_f64(self.raw)
+        fixed_u64_at_precision_to_f64(self.raw, self.precision)
     }
 
     /// Returns the value of this instance as a `Decimal`.

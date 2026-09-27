@@ -13,11 +13,11 @@
 
 use std::fmt::Display;
 
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+#[cfg(feature = "composer-v3-replay")]
 use sqlx::{Postgres, Transaction};
 use vibe_data::owner::source_binding::BindingDigest;
 
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+#[cfg(feature = "composer-v3-replay")]
 use crate::{
     develop_composer_postgres_v2::SealedDevelopComposerReadbackV2,
     successor_intent_postgres::load_by_intent_in_transaction,
@@ -55,13 +55,13 @@ impl ComposerReplayIntentV3 {
 /// R&D Decision composition appends an attempt (`docs/owners/rd.md`, "same-cut Decision and
 /// Selection composition", TARGET / NOT_ADMITTED), so until it exists a successor Replay has
 /// nothing to compose against.
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+#[cfg(feature = "composer-v3-replay")]
 pub(crate) const SUCCESSOR_CENSUS_AWAITS_DECISION_COMPOSITION_V3: &str =
     "SUCCESSOR_CENSUS_AWAITS_DECISION_COMPOSITION";
 
 /// The TrialFamily state a Composer-backed Replay is composed against.
 #[cfg_attr(
-    not(feature = "sealed-source-intake-composer-acceptance"),
+    not(feature = "composer-v3-replay"),
     expect(
         dead_code,
         reason = "constructed only by the Composer-backed Replay family-cut loader, which that feature carries"
@@ -114,7 +114,7 @@ impl ComposerReplayFamilyCutV3 {
 }
 
 /// Which TrialFamily state a Composer-backed Replay binds.
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+#[cfg(feature = "composer-v3-replay")]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum FamilyCutChoiceV3 {
     FirstGeneration,
@@ -129,7 +129,7 @@ enum FamilyCutChoiceV3 {
 /// first generation may make only while the family has no attempt (`head_schema` 1) and a
 /// successor only once one exists. With `frontier` present it re-derives an existing Replay's
 /// choice, and a first generation's recorded frontier must be the family's formation frontier.
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+#[cfg(feature = "composer-v3-replay")]
 fn choose_family_cut_v3(
     family: &TrialFamilyReadbackV1,
     composer_intent: BindingDigest,
@@ -177,7 +177,7 @@ fn choose_family_cut_v3(
 ///
 /// `Unavailable` when the family or its census cannot be read, and the refusals
 /// [`choose_family_cut_v3`] names.
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+#[cfg(feature = "composer-v3-replay")]
 pub(crate) async fn load_composer_replay_family_cut_v3(
     transaction: &mut Transaction<'_, Postgres>,
     trial_family_identity: &str,
@@ -220,7 +220,7 @@ pub(crate) async fn load_composer_replay_family_cut_v3(
     }
 }
 
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+#[cfg(feature = "composer-v3-replay")]
 pub(crate) async fn resolve_composer_replay_intent_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
     cut: &ComposerReplayFamilyCutV3,

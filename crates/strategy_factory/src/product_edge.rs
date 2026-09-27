@@ -1872,7 +1872,7 @@ pub(crate) fn decide_commit_v2(
         observed_at_epoch_ms: now_epoch_ms,
         projection_at_epoch_ms: now_epoch_ms,
         valid_through_epoch_ms: now_epoch_ms
-            .saturating_add(600_000)
+            .saturating_add(RESEARCH_VIEW_FRESHNESS_MS)
             .min(protected_feedback.valid_through_epoch_ms()),
         availability: ResearchViewAvailability::Available,
         phase: ResearchViewPhase::IntentFrozen,
@@ -2049,7 +2049,7 @@ pub(crate) fn decide_commit(
         source_cut,
         observed_at_epoch_ms: now_epoch_ms,
         projection_at_epoch_ms: now_epoch_ms,
-        valid_through_epoch_ms: now_epoch_ms.saturating_add(600_000),
+        valid_through_epoch_ms: now_epoch_ms.saturating_add(RESEARCH_VIEW_FRESHNESS_MS),
         availability: ResearchViewAvailability::Available,
         phase: ResearchViewPhase::IntentFrozen,
         intent_identity: intent_identity.clone(),
@@ -2077,6 +2077,11 @@ pub(crate) fn decide_commit(
         view: Some(view),
     }
 }
+
+/// How long a Research View reads as current after its projection: a reader's freshness, past which
+/// the View projects `STALE`. It does not bound how long an admitted Intent may be worked on; that
+/// is bounded by the operator authority it was admitted under (`research_continuation_v1`).
+pub(crate) const RESEARCH_VIEW_FRESHNESS_MS: u64 = 600_000;
 
 pub(crate) fn project_research_view_at(
     historical: &ResearchViewV1,
@@ -2599,7 +2604,10 @@ pub(crate) fn composer_exploration_research_view_is_valid_v3(
         && view.next_legal_action == ResearchNextLegalAction::ViewExploratoryRun
         && view.observed_at_epoch_ms == view.projection_at_epoch_ms
         && view.projection_at_epoch_ms >= initial.projection_at_epoch_ms
-        && view.valid_through_epoch_ms == view.projection_at_epoch_ms.saturating_add(600_000)
+        && view.valid_through_epoch_ms
+            == view
+                .projection_at_epoch_ms
+                .saturating_add(RESEARCH_VIEW_FRESHNESS_MS)
         && canonical_sha256_text(&composer.artifact_identity_digest)
         && composer.artifact_locator
             == format!(
@@ -2714,7 +2722,7 @@ pub(crate) fn project_composer_exploration_research_view_v3(
     );
     view.observed_at_epoch_ms = projection_at_epoch_ms;
     view.projection_at_epoch_ms = projection_at_epoch_ms;
-    view.valid_through_epoch_ms = projection_at_epoch_ms.saturating_add(600_000);
+    view.valid_through_epoch_ms = projection_at_epoch_ms.saturating_add(RESEARCH_VIEW_FRESHNESS_MS);
     view.composer_artifact = Some(composer_artifact);
     view.exploration = Some(exploration);
     view.next_legal_action = ResearchNextLegalAction::ViewExploratoryRun;
