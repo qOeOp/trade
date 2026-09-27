@@ -263,6 +263,22 @@ fn parse_filter_quantity(filter: &Value, field: &str) -> anyhow::Result<Quantity
         .map_err(|e| anyhow::anyhow!("Failed to parse {field}='{value}': {e}"))
 }
 
+/// Parses an optional price bound from a filter field. Binance disables a `PRICE_FILTER` bound
+/// whose value is 0, so a zero, like an absent or unreadable field, is no bound.
+fn parse_filter_price_bound(filter: &Value, field: &str) -> Option<Price> {
+    parse_filter_price(filter, field)
+        .ok()
+        .filter(|price| !price.is_zero())
+}
+
+/// Parses an optional quantity bound from a filter field. A zero is no bound, as the spot parser
+/// reads the same `LOT_SIZE` fields; a bound of zero would deny every order.
+fn parse_filter_quantity_bound(filter: &Value, field: &str) -> Option<Quantity> {
+    parse_filter_quantity(filter, field)
+        .ok()
+        .filter(|quantity| !quantity.is_zero())
+}
+
 /// Parses the futures `MIN_NOTIONAL` filter into a `Money` value in `currency`.
 ///
 /// Returns `None` when the filter is absent, the `notional` field cannot be
@@ -413,15 +429,15 @@ pub(crate) fn parse_usdm_instrument_with_fees(
             symbol.symbol,
         );
     }
-    let max_price = parse_filter_price(price_filter, "maxPrice").ok();
-    let min_price = parse_filter_price(price_filter, "minPrice").ok();
+    let max_price = parse_filter_price_bound(price_filter, "maxPrice");
+    let min_price = parse_filter_price_bound(price_filter, "minPrice");
 
     let lot_filter =
         get_filter(&symbol.filters, "LOT_SIZE").context("Missing LOT_SIZE in symbol filters")?;
 
     let step_size = parse_filter_quantity(lot_filter, "stepSize")?;
-    let max_quantity = parse_filter_quantity(lot_filter, "maxQty").ok();
-    let min_quantity = parse_filter_quantity(lot_filter, "minQty").ok();
+    let max_quantity = parse_filter_quantity_bound(lot_filter, "maxQty");
+    let min_quantity = parse_filter_quantity_bound(lot_filter, "minQty");
 
     let min_notional = parse_futures_min_notional(&symbol.filters, quote_currency);
 
@@ -593,15 +609,15 @@ pub(crate) fn parse_coinm_instrument_with_fees(
             symbol.symbol,
         );
     }
-    let max_price = parse_filter_price(price_filter, "maxPrice").ok();
-    let min_price = parse_filter_price(price_filter, "minPrice").ok();
+    let max_price = parse_filter_price_bound(price_filter, "maxPrice");
+    let min_price = parse_filter_price_bound(price_filter, "minPrice");
 
     let lot_filter =
         get_filter(&symbol.filters, "LOT_SIZE").context("Missing LOT_SIZE in symbol filters")?;
 
     let step_size = parse_filter_quantity(lot_filter, "stepSize")?;
-    let max_quantity = parse_filter_quantity(lot_filter, "maxQty").ok();
-    let min_quantity = parse_filter_quantity(lot_filter, "minQty").ok();
+    let max_quantity = parse_filter_quantity_bound(lot_filter, "maxQty");
+    let min_quantity = parse_filter_quantity_bound(lot_filter, "minQty");
 
     // COIN-M has contract_size as the multiplier
     let multiplier = Quantity::from(symbol.contract_size);
@@ -1964,6 +1980,87 @@ mod tests {
             }
             other => panic!("Expected CryptoPerpetual, was {other:?}"),
         }
+    }
+
+    /// The BTCUSDT perpetual exactly as the repository's recorded `exchangeInfo` response carries
+    /// it, with one filter field replaced.
+    fn recorded_usdm_btcusdt_with(
+        filter_type: &str,
+        field: &str,
+        value: &str,
+    ) -> BinanceFuturesUsdSymbol {
+        let info: crate::futures::http::models::BinanceFuturesUsdExchangeInfo =
+            serde_json::from_str(include_str!(
+                "../../test_data/futures/http_json/exchange_info_usdm.json"
+            ))
+            .unwrap();
+        let mut symbol = info
+            .symbols
+            .into_iter()
+            .find(|symbol| symbol.symbol == "BTCUSDT")
+            .unwrap();
+        let filter = symbol
+            .filters
+            .iter_mut()
+            .find(|filter| filter["filterType"] == filter_type)
+            .unwrap();
+        filter[field] = json!(value);
+        symbol
+    }
+
+    /// Binance's filter definitions state that `PRICE_FILTER` bounds are "disabled on `maxPrice` ==
+    /// 0" and "disabled on `minPrice` == 0", so a zero bound is no bound, as the spot parser already
+    /// reads it. Reading it as a bound of zero made the instrument's construction refuse a
+    /// non-positive price, and `CryptoPerpetual::new` panics on that.
+    #[rstest]
+    #[case("PRICE_FILTER", "maxPrice")]
+    #[case("PRICE_FILTER", "minPrice")]
+    #[case("LOT_SIZE", "maxQty")]
+    #[case("LOT_SIZE", "minQty")]
+    fn test_parse_usdm_perpetual_reads_a_zero_bound_as_no_bound(
+        #[case] filter_type: &str,
+        #[case] field: &str,
+    ) {
+        let ts = UnixNanos::from(1_700_000_000_000_000_000u64);
+        let recorded =
+            parse_usdm_instrument(&recorded_usdm_btcusdt_with(filter_type, field, "1"), ts, ts);
+        let zero =
+            parse_usdm_instrument(&recorded_usdm_btcusdt_with(filter_type, field, "0"), ts, ts)
+                .unwrap();
+        let bound = |instrument: &InstrumentAny| match field {
+            "maxPrice" => instrument.max_price().map(|price| price.to_string()),
+            "minPrice" => instrument.min_price().map(|price| price.to_string()),
+            "maxQty" => instrument
+                .max_quantity()
+                .map(|quantity| quantity.to_string()),
+            _ => instrument
+                .min_quantity()
+                .map(|quantity| quantity.to_string()),
+        };
+
+        assert!(recorded.is_ok_and(|instrument| bound(&instrument).is_some()));
+        assert_eq!(bound(&zero), None);
+    }
+
+    /// The COIN-M parser reads the same filters the same way.
+    #[rstest]
+    #[case("PRICE_FILTER", "maxPrice")]
+    #[case("LOT_SIZE", "maxQty")]
+    fn test_parse_coinm_instrument_reads_a_zero_bound_as_no_bound(
+        #[case] filter_type: &str,
+        #[case] field: &str,
+    ) {
+        let ts = UnixNanos::from(1_700_000_000_000_000_000u64);
+        let mut symbol = sample_coinm_symbol();
+        symbol
+            .filters
+            .iter_mut()
+            .find(|filter| filter["filterType"] == filter_type)
+            .unwrap()[field] = json!("0");
+        let instrument = parse_coinm_instrument(&symbol, ts, ts).unwrap();
+
+        assert!(instrument.max_price().is_none() || field != "maxPrice");
+        assert!(instrument.max_quantity().is_none() || field != "maxQty");
     }
 
     #[rstest]
