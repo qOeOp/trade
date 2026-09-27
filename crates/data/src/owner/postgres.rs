@@ -10816,7 +10816,14 @@ impl MarketDataOwnerPostgres {
         if !submission.names_the_admitted_class() {
             return Err(Refused::UnsupportedClass);
         }
-        let mut transaction = begin_serializable_v2(&self.pool)
+        let _ = begin_serializable_v2;
+        let mut transaction = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| Refused::StoreUnavailable)?;
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+            .execute(&mut *transaction)
             .await
             .map_err(|_| Refused::StoreUnavailable)?;
         let locator = &submission.source_binding;
@@ -10914,7 +10921,14 @@ impl MarketDataOwnerPostgres {
         };
         use InstrumentMasterStatusDeltaErrorV2 as Refused;
 
-        let mut transaction = begin_serializable_v2(&self.pool)
+        let _ = begin_serializable_v2;
+        let mut transaction = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| Refused::StoreUnavailable)?;
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+            .execute(&mut *transaction)
             .await
             .map_err(|_| Refused::StoreUnavailable)?;
         let locator = &submission.source_binding;
