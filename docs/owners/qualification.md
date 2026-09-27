@@ -475,7 +475,12 @@ Qualification applies that discount to a trial count it derives, never to one it
   Sharpe Ratio of Bailey and López de Prado on its daily non-annualized return series. It is the statistic
   `analyze_formation_robustness` computes on the legacy formation path (`crates/strategy_factory/src/robustness.rs`),
   whose trial count is a fixed four or two within one formation; that path is the "trial-count corrections on the
-  formation path" named above.
+  formation path" named above. The legacy formation path is being retired, and the file goes with it. TB2 ports it
+  from `crates/strategy_factory/src/robustness.rs` at `main` f2238c09b1e2b89b16a9965104375dbb72748f9d rather than
+  rewriting it: `analyze_formation_robustness` at lines 92 to 181 is the deflated ratio and its PBO bar, lines 183 to
+  354 are its helpers, among them `cscv_pbo` (the CSCV estimate of PBO) at 222 and `daily_risk_return_ratio` at 314,
+  and its tests begin at 355. The port changes N from a fixed four or two to the cumulative count, so those tests are
+  validated again against that count rather than carried over.
 - *N.* The cumulative trial count: the sum of `trial_count` across the census frontiers the Candidate binds for its
   TrialFamily and its cross-family predecessors, plus every protected attempt in that lineage, since each consumed
   holdout is another look. Qualification recomputes it from those frontiers, and an incomplete frontier is

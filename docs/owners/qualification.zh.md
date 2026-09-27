@@ -399,7 +399,11 @@ Research 不再在某个试验次数上停下（[R&D](./rd/#target---cumulative-
 - *折扣对象。* Candidate 的 Research Selection 所指的那个被选中的探索结果，在它的日频非年化收益序列上，用 Bailey 与
   López de Prado 的 Deflated Sharpe Ratio。它就是 `analyze_formation_robustness` 在 legacy formation 路径上计算的统计量
   （`crates/strategy_factory/src/robustness.rs`），那里的试验次数在一次 formation 内固定为四或二；这条路径就是上文所说的
-  「formation 路径上的试验次数修正」。
+  「formation 路径上的试验次数修正」。legacy formation 路径正在退役，这个文件会随之删除。TB2 从 `main`
+  f2238c09b1e2b89b16a9965104375dbb72748f9d 上的 `crates/strategy_factory/src/robustness.rs` 移植它，而不是重写：第 92 至
+  181 行的 `analyze_formation_robustness` 是打折后比率及其 PBO 门槛，第 183 至 354 行是它的辅助函数，其中第 222 行的
+  `cscv_pbo` 是 CSCV 版的 PBO 估计、第 314 行是 `daily_risk_return_ratio`，测试从第 355 行开始。移植把 N 从固定的四或二改为
+  累计计数，所以这些测试要按这个计数重新校验，而不是原样搬过来。
 - *N。* 累计试验次数：Candidate 为其 TrialFamily 与跨 family 前驱所绑定的 census 前沿上的 `trial_count` 之和，再加上这条
   血缘里的每一次保护性尝试，因为每消耗一次留出数据就是又看了一次。Qualification 从这些前沿重新计算它，前沿不完整时照旧是
   `NOT_ADMITTED`。
