@@ -168,6 +168,7 @@ jobs:
       publish_environment: ${{ steps.wheel-publication.outputs.publish_environment }}
       wheel_matrix: ${{ steps.wheel-publication.outputs.wheel_matrix }}
       wheel_version: ${{ steps.wheel-publication.outputs.wheel_version }}
+      path-workflows: ${{ steps.path-workflows.outputs.path-workflows }}
     steps:
       # https://github.com/step-security/harden-runner
       - uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
@@ -217,6 +218,35 @@ jobs:
           else
             bash scripts/ci/plan.sh
           fi
+
+      - name: Name the path-filtered workflows this pull request triggers
+        # docs-pages, product-packages and bilibili-note-mcp run only when a pull request touches
+        # their paths, and nothing required their result: #1100 turned docs-pages red and could
+        # still have merged. quality now requires each one this diff triggers. The script reads
+        # each workflow's own `paths`, and counts anything it cannot decide as triggered. Like
+        # plan.sh it runs from the base branch, so a pull request cannot excuse itself.
+        id: path-workflows
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          script=scripts/ci/path_triggered_workflows.py
+          trusted="${RUNNER_TEMP}/path_triggered_workflows.py"
+          if git show "refs/remotes/origin/${BASE_REF}:${script}" > "$trusted" 2> /dev/null; then
+            echo "using the base branch's ${script}"
+          else
+            cp "$script" "$trusted"
+            echo "the base branch has no ${script} yet; using this pull request's"
+          fi
+          base="$(git merge-base "$BASE_SHA" "$PR_HEAD_SHA")"
+          workflows="$(python3 "$trusted" "$base" "$PR_HEAD_SHA" \
+            .github/workflows/docs-pages.yml \
+            .github/workflows/product-packages.yml \
+            .github/workflows/bilibili-note-mcp.yml | tr '\n' ' ')"
+          echo "path-workflows=${workflows}" >> "$GITHUB_OUTPUT"
 
       - name: Plan security audit
         id: security-audit
@@ -1320,6 +1350,24 @@ jobs:
         run: >-
           bash scripts/ci/require-workflow-job.bash pre-commit-pr.yml
           "pre-commit (no-compile hooks)" "$HEAD_SHA" 1200
+
+      - name: Require the path-filtered workflows this pull request triggers
+        if: github.event_name == 'pull_request' && needs.plan.outputs.path-workflows != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          HEAD_REF: ${{ github.head_ref }}
+          PATH_WORKFLOWS: ${{ needs.plan.outputs.path-workflows }}
+        run: |
+          set -euo pipefail
+          for workflow in $PATH_WORKFLOWS; do
+            recovery="If ${workflow} is red, fix it and push. If it never ran here (the plan counts"
+            recovery+=" anything it cannot decide, such as more than 300 changed files, as triggered),"
+            recovery+=" run it on this head with 'gh workflow run ${workflow} --ref ${HEAD_REF}'"
+            recovery+=" and re-run this job."
+            REQUIRE_WORKFLOW_JOB_RECOVERY="$recovery" \
+              bash scripts/ci/require-workflow-job.bash "$workflow" '*' "$HEAD_SHA" 1800
+          done
 
       - name: Verify required build graph
         env:

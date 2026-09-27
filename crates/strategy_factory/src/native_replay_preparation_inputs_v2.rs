@@ -94,16 +94,58 @@ where
     )
     .await
     .map_err(composer_unavailable)?;
-    let composer = composer_port
-        .read_accepted(&composer_locator)
-        .await
-        .map_err(composer_unavailable)?;
+    let composer = match resolved.composer_transition.as_ref() {
+        None => composer_port
+            .read_accepted(&composer_locator)
+            .await
+            .map_err(composer_unavailable)?,
+        #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+        Some(transition) => {
+            read_composer_at_replay_transition(transaction, &composer_locator, transition).await?
+        }
+        #[cfg(not(feature = "sealed-source-intake-composer-acceptance"))]
+        Some(transition) => match **transition {},
+    };
     issue_native_replay_preparation_inputs_v2(
         resolved.replay,
         resolved.sources,
         composer,
         &resolved.research,
     )
+}
+
+/// Reads the Composer operation a COMPOSER_V3 Replay was composed from, as it stood when the Replay
+/// committed.
+///
+/// The current Composer read refuses it: the Replay has moved the Research View past the
+/// IntentFrozen View the operation ran under, and that read wants the current custody to still be
+/// that View. So it is read the way the Replay's own readback reads it, over the Replay's verified
+/// View transition and in this transaction.
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+async fn read_composer_at_replay_transition(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    locator: &crate::develop_composer_postgres_v2::DevelopComposerSealedReadLocatorV2,
+    transition: &crate::rd_owner_postgres_custody::NativeComposerViewTransitionV3,
+) -> Result<SealedDevelopComposerReadbackV2, NativeReplayPreparationInputsErrorV2> {
+    let new_view = transition.new_view();
+    let (Some(exploration), Some(composer_view)) = (
+        new_view.exploration.as_ref(),
+        new_view.composer_artifact.as_ref(),
+    ) else {
+        return Err(unavailable(
+            "the Replay's View transition names no Composer exploration",
+        ));
+    };
+    crate::develop_composer_postgres_v2::read_accepted_for_replay_historical_in_transaction(
+        transaction,
+        locator,
+        transition.old_view(),
+        new_view,
+        exploration,
+        composer_view,
+    )
+    .await
+    .map_err(composer_unavailable)
 }
 
 fn composer_unavailable(

@@ -4,6 +4,8 @@ import { readFile } from "node:fs/promises"
 import test from "node:test"
 
 const {
+  canonicalResearchViewIdentityV3,
+  canonicalResearchViewIdentityV4,
   projectResearchOwnerResultWithEvidenceV1,
   RESEARCH_OWNER_OPERATION_V2,
   RESEARCH_OWNER_OPERATION_V3,
@@ -230,5 +232,83 @@ test("an unresolved or legacy Research result states no request version", async 
   for (const [version, instrumentScope] of [[2, null], [3, scope], [1, null]]) {
     const stated = await projected({ ...legacy, request_schema_version: version, instrument_scope: instrumentScope })
     assert.equal(stated.projection.resolution, "SUBMITTED_OR_UNKNOWN", String(version))
+  }
+})
+
+// A Research request whose legacy Replay ran: the captured accepted result, whose view is
+// ARTIFACT_AVAILABLE, moved to the schema 2 exploration the ungated legacy Replay V2 commit writes
+// from exactly such a view. Its Replay facts come from the shared v3 vectors, which the Owner's own
+// validator accepts; only this request's identities are its own.
+const legacyVectors = JSON.parse(await readFile(
+  new URL("./fixtures/research_view_identity_vectors_v3.json", import.meta.url), "utf8",
+))
+
+async function legacyExplorationOf(base) {
+  const artifactView = base.research_view
+  const at = artifactView.observed_at_epoch_ms + 1_000
+  const view = {
+    ...artifactView,
+    schema_version: 2,
+    phase: "EXPLORATION_ACTIVE",
+    observed_at_epoch_ms: at,
+    projection_at_epoch_ms: at,
+    valid_through_epoch_ms: at + 600_000,
+    source_cut: legacyVectors.view.source_cut,
+    exploration: {
+      ...legacyVectors.view.exploration,
+      trial_family_identity: base.trial_family.root.trial_family_identity,
+      census_frontier_identity: base.trial_family.census_frontier.frontier_identity,
+      census_frontier_digest: base.trial_family.census_frontier.frontier_digest,
+    },
+    next_legal_action: "VIEW_EXPLORATORY_RUN",
+  }
+  view.projection_identity = await canonicalResearchViewIdentityV3(view)
+  return { ...base, research_view: view, next_legal_action: "VIEW_EXPLORATORY_RUN" }
+}
+
+test("a Research request whose legacy Replay ran projects as an exploration with no Composer", async () => {
+  const result = await projected(await legacyExplorationOf(accepted))
+  assert.equal(result.verified, true)
+  assert.equal(result.projection.resolution, "ACCEPTED")
+  assert.equal(result.projection.research_view.phase, "EXPLORATION_ACTIVE")
+  assert.equal(result.projection.research_view.schema_version, 2)
+  assert.equal("composer_artifact" in result.projection.research_view, false)
+})
+
+// What accepting the legacy shape protects: an absent Composer is never read as a present one.
+test("a legacy exploration is read only as itself", async () => {
+  const legacy = await legacyExplorationOf(accepted)
+  const view = legacy.research_view
+  const composer = {
+    artifact_locator: `rd-strategy-artifact-v2-${"1".repeat(64)}`,
+    artifact_identity_digest: `sha256:${"1".repeat(64)}`,
+    composer_request_identity: "composer-request",
+    composer_operation_receipt_digest: `sha256:${"2".repeat(64)}`,
+    artifact_family_binding_identity: `rd-composer-artifact-family-binding-v3-${"4".repeat(64)}`,
+    artifact_family_binding_digest: `sha256:${"4".repeat(64)}`,
+    artifact_family_binding_receipt_identity: `rd-composer-artifact-family-binding-receipt-v3-${"7".repeat(64)}`,
+    trial_family_identity: view.exploration.trial_family_identity,
+    census_frontier_identity: view.exploration.census_frontier_identity,
+    census_frontier_digest: view.exploration.census_frontier_digest,
+  }
+  const reidentified = async (changed, derive = canonicalResearchViewIdentityV3) => {
+    const next = { ...view, ...changed }
+    next.projection_identity = await derive(next)
+    return { ...legacy, research_view: next }
+  }
+  for (const [name, value] of [
+    ["schema 2 carrying a Composer", await reidentified({ composer_artifact: composer })],
+    ["schema 3 without a Composer", await reidentified({ schema_version: 3 })],
+    ["a composer-backed cut on a legacy view",
+      await reidentified({ source_cut: view.source_cut.replace("rd-exploration-cut-v1-", "rd-composer-exploration-cut-v3-") })],
+    ["a v4 identity on a legacy view", { ...legacy, research_view: { ...view,
+      projection_identity: await canonicalResearchViewIdentityV4({ ...view, composer_artifact: composer }) } }],
+    ["a SHA-256 meaning digest", await reidentified({ exploration: { ...view.exploration,
+      replay_request_meaning_digest: `sha256:${"6".repeat(64)}` } })],
+    ["a legacy exploration without its build artifact",
+      await reidentified({ artifact_review_identity: undefined })],
+  ]) {
+    const result = await projected(JSON.parse(JSON.stringify(value)))
+    assert.equal(result.projection.resolution, "SUBMITTED_OR_UNKNOWN", name)
   }
 })

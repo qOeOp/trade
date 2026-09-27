@@ -5,6 +5,7 @@ mod catalog_contract;
 mod catalog_rows;
 mod catalog_rows_v2;
 mod catalog_rows_v3;
+mod catalog_rows_v4;
 mod catalog_version;
 mod fixed_bar_state;
 mod fixed_features;
@@ -16,6 +17,7 @@ mod fused_rational_v1;
 mod golden_corpus;
 mod golden_corpus_v2;
 mod golden_corpus_v3;
+mod golden_corpus_v4;
 mod golden_execution;
 mod golden_vector;
 mod i256;
@@ -23,6 +25,7 @@ mod primitive_catalog;
 mod required_golden_ids;
 mod required_golden_ids_v2;
 mod required_golden_ids_v3;
+mod required_golden_ids_v4;
 
 pub use catalog_contract::{
     CatalogAvailabilityRuleV1, CatalogClockRuleV1, CatalogContractV1, CatalogInputRuleV1,
@@ -33,7 +36,7 @@ pub use primitive_catalog::{PrimitiveCatalogFailure, PrimitiveCatalogV1};
 
 pub use fixed_bar_state::{FixedBarState, FixedIndicatorUpdate};
 pub use fixed_features::{
-    FixedFeatureFailure, FixedOhlc, ReducedUnitFraction, fixed_range_fraction,
+    FixedFeatureFailure, FixedOhlc, ReducedUnitFraction, fixed_count_ratio, fixed_range_fraction,
     fixed_rsi_from_averages, fixed_window_mean, fixed_window_sum,
 };
 pub use fixed_i128::{

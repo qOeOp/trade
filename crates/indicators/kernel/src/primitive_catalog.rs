@@ -12,12 +12,13 @@ const DOMAIN: &[u8] = b"bfp.primitive-catalog.v1\0";
 const SEMANTIC_DOMAIN: &[u8] = b"bfp.primitive-catalog.semantic.v1\0";
 
 const HEADER: &[u8; 12] = b"BFPC\x01\0\0\0\x01\0\0\0";
-const SOURCES: [(&str, &[u8]); 24] = [
+const SOURCES: [(&str, &[u8]); 27] = [
     ("Cargo.toml", include_bytes!("../Cargo.toml")),
     ("catalog_contract.rs", include_bytes!("catalog_contract.rs")),
     ("catalog_rows.rs", include_bytes!("catalog_rows.rs")),
     ("catalog_rows_v2.rs", include_bytes!("catalog_rows_v2.rs")),
     ("catalog_rows_v3.rs", include_bytes!("catalog_rows_v3.rs")),
+    ("catalog_rows_v4.rs", include_bytes!("catalog_rows_v4.rs")),
     ("catalog_version.rs", include_bytes!("catalog_version.rs")),
     ("fixed_bar_state.rs", include_bytes!("fixed_bar_state.rs")),
     ("fixed_features.rs", include_bytes!("fixed_features.rs")),
@@ -32,6 +33,7 @@ const SOURCES: [(&str, &[u8]); 24] = [
     ("golden_corpus.rs", include_bytes!("golden_corpus.rs")),
     ("golden_corpus_v2.rs", include_bytes!("golden_corpus_v2.rs")),
     ("golden_corpus_v3.rs", include_bytes!("golden_corpus_v3.rs")),
+    ("golden_corpus_v4.rs", include_bytes!("golden_corpus_v4.rs")),
     ("golden_execution.rs", include_bytes!("golden_execution.rs")),
     ("golden_vector.rs", include_bytes!("golden_vector.rs")),
     ("i256.rs", include_bytes!("i256.rs")),
@@ -51,6 +53,10 @@ const SOURCES: [(&str, &[u8]); 24] = [
     (
         "required_golden_ids_v3.rs",
         include_bytes!("required_golden_ids_v3.rs"),
+    ),
+    (
+        "required_golden_ids_v4.rs",
+        include_bytes!("required_golden_ids_v4.rs"),
     ),
 ];
 

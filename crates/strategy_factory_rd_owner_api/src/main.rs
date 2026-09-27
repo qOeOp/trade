@@ -3103,6 +3103,10 @@ mod tests {
     use rstest::rstest;
     use sqlx::Row;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use vibe_data::owner::chain_market_base_v1::{
+        CHAIN_MARKET_DATA_ACCEPTANCE_BASIS_V1, MarketDataAcceptanceBasisPointerV1,
+        MarketDataAcceptanceBasisV1, ensure_market_data_acceptance_basis_v1,
+    };
     use vibe_operator_authorization::{
         OperationManifestBindingV1, OperatorAuthorizationIssuanceProposalV1,
         OperatorAuthorizationIssuerPostgresV1, OperatorAuthorizationScopeV1,
@@ -4961,7 +4965,9 @@ mod tests {
     /// against, so the entry needs no earlier entry to have published it. Alone on a fresh cluster
     /// this creates the head; after another entry has ensured it, it resolves the same head exactly.
     #[cfg(feature = "sealed-source-intake-acceptance")]
-    async fn ensure_sealed_catalog_v3(test_database: &CanonicalOwnerPostgresTestDatabaseV1) {
+    pub(crate) async fn ensure_sealed_catalog_v3(
+        test_database: &CanonicalOwnerPostgresTestDatabaseV1,
+    ) {
         let pool = sqlx::postgres::PgPoolOptions::new()
             .connect_url(
                 test_database
@@ -4973,6 +4979,40 @@ mod tests {
         ensure_replay_policy_catalog_fixture_v3(&pool)
             .await
             .expect("the sealed Catalog V3 head is created or resolved exactly");
+    }
+
+    /// Ensures the chain's Market Data acceptance basis - Source Binding, Instrument Master fact,
+    /// eligible frontier, clock head, base PIT and Market Semantics - for an entry that reads it, so
+    /// the entry needs no earlier entry to have written it. Alone on a fresh cluster this writes the
+    /// basis; after another entry has, it rejoins it exactly and moves no pointer.
+    pub(crate) async fn ensure_market_data_acceptance_basis(
+        test_database: &CanonicalOwnerPostgresTestDatabaseV1,
+    ) -> MarketDataAcceptanceBasisV1 {
+        ensure_market_data_acceptance_basis_v1(
+            test_database.database_url(CanonicalOwnerTestRoleV1::MarketDataOwner),
+            CHAIN_MARKET_DATA_ACCEPTANCE_BASIS_V1,
+        )
+        .await
+        .expect("the chain's Market Data acceptance basis is written or rejoined")
+    }
+
+    /// An entry that reads a current Market Data pointer states it first: another entry in the same
+    /// database may have moved it since the basis was written, and a read that took the moved
+    /// pointer would still pass.
+    pub(crate) async fn require_basis_pointer(
+        test_database: &CanonicalOwnerPostgresTestDatabaseV1,
+        basis: &MarketDataAcceptanceBasisV1,
+        pointer: MarketDataAcceptanceBasisPointerV1,
+    ) {
+        basis
+            .require_current_in(
+                test_database.database_url(CanonicalOwnerTestRoleV1::MarketDataOwner),
+                pointer,
+            )
+            .await
+            .unwrap_or_else(|e| {
+                panic!("Market Data's current {pointer:?} is the acceptance basis's: {e}")
+            });
     }
 
     /// A frozen program replays over HTTP to the same freeze the in-process entry committed.
@@ -5007,6 +5047,9 @@ mod tests {
         };
 
         let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
+        // The Market Data acceptance basis this entry reads, ensured here rather than left to an
+        // earlier entry.
+        let _basis = ensure_market_data_acceptance_basis(&test_database).await;
         #[cfg(feature = "sealed-source-intake-acceptance")]
         ensure_sealed_catalog_v3(&test_database).await;
 
@@ -5423,7 +5466,7 @@ mod tests {
     // the test is `ignore`d anyway.
     #[cfg(feature = "sealed-source-intake-composer-acceptance")]
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    #[ignore = "requires the ordered chain's PostgreSQL and the Market Data basis an earlier entry commits"]
+    #[ignore = "requires the ordered chain's PostgreSQL; it ensures the Market Data basis it reads"]
     async fn an_authored_design_is_published_bound_and_frozen_over_http() {
         use axum::body::Body;
         use axum::extract::Request;
@@ -5438,6 +5481,15 @@ mod tests {
         };
 
         let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
+        // The Market Data acceptance basis this entry reads, ensured here rather than left to an
+        // earlier entry.
+        let basis = ensure_market_data_acceptance_basis(&test_database).await;
+        require_basis_pointer(
+            &test_database,
+            &basis,
+            MarketDataAcceptanceBasisPointerV1::ClockHead,
+        )
+        .await;
 
         let rd_pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(2)

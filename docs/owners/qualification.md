@@ -398,8 +398,8 @@ Owner, draws from a different catalogue digest, universe, or window set, or fixe
 observed is `NOT_ADMITTED` and never reserves holdout.
 
 The control's strength is bounded by that catalogue version, and the bound is stated rather than implied. The
-catalogue carries no square root, variance, correlation, or rank, so volatility-normalized and cross-sectional
-factors are not expressible in the universe: a Candidate that passes this control is shown to be better than a
+catalogue carries a fixed-point square root from version 3 and a trailing-window percent rank from version 4,
+but no correlation and no rank across instruments, so cross-sectional factors are not expressible in the universe: a Candidate that passes this control is shown to be better than a
 sample drawn from one catalogue, not better than every factor. Each primitive family the catalogue gains raises
 that bound.
 

@@ -13,6 +13,8 @@ sys.path.insert(0, str(pathlib.Path(__file__).parent))
 import bfp
 from bfp import ATR
 from bfp import BODY
+from bfp import BSMAX
+from bfp import BSMIN
 from bfp import CMP
 from bfp import CP
 from bfp import DIV
@@ -30,6 +32,8 @@ from bfp import NONE
 from bfp import OS
 from bfp import PD
 from bfp import POS
+from bfp import PRANK
+from bfp import PRANK_TZ
 from bfp import RF
 from bfp import RSI
 from bfp import SEL
@@ -994,11 +998,171 @@ def s1():
     )
 
 
+# ---- catalog version 4: bar counts and a percent rank over one daily channel ----
+RANK_WINDOW = 10
+RANK_CELL = 20 + 324 * RANK_WINDOW
+
+
+def _rank_program(name, nodes, predicate, consts, cells):
+    """
+    Emit one single-channel version 4 program in `s1`'s shape: one daily close, one
+    entry branch, a target-variant constant of its own, and no strategy state cell.
+    """
+    role = ("research.input.close.daily.v1", "1D", "MARKET_DATA.BAR.CLOSE.PRICE.V1", "PRICE", "c")
+    d, p, _ = bfp.base([role])
+    consts = [
+        *consts,
+        {
+            "constant_id": "target-entry-variant",
+            "value": {"kind": "TARGET_VARIANT_V1", "semantic_id": "kernel.target.position.v1"},
+        },
+    ]
+    return bfp.emit(
+        d,
+        p,
+        f"{OUT}/{name}",
+        nodes=nodes,
+        drop_constants={"initial-condition", "threshold"},
+        add_constants=consts,
+        state_cells=[
+            {
+                "state_id": f"st_{node}",
+                "writer_node_id": node,
+                "state_kind": {"kind": "PRIMITIVE"},
+                "initial": "CANONICAL_EMPTY",
+                "max_bytes": RANK_CELL,
+            }
+            for node in cells
+        ],
+        catalog_version=4,
+        state_total=RANK_CELL * len(cells) + 16,
+        branches=[
+            {
+                "priority": 10,
+                "predicate": no(predicate),
+                "overrides": {
+                    "proposal.position-intent.v1": {
+                        "lifecycle_semantic_id": "kernel.position.enter.v1",
+                        "source": co("position"),
+                    },
+                    "proposal.target-variant.v1": {
+                        "lifecycle_semantic_id": "kernel.target.position.v1",
+                        "source": co("target-entry-variant"),
+                    },
+                },
+            },
+        ],
+        bounds={
+            "max_nodes": 8,
+            "max_edges": 48,
+            "max_depth": 4,
+            "max_ports": 16,
+            "max_state_cells": 4,
+            "max_fan_out": 4,
+            "max_constants": 16,
+            "max_state_bytes": RANK_CELL * len(cells) + 16,
+        },
+    )
+
+
+def _window_node(node, primitive, scale, rounding):
+    return op(
+        node,
+        primitive,
+        [bd("value", iv(D))],
+        fx("dimensionless", scale, "WARMING_READY"),
+        {
+            "kind": "WINDOW_AND_OUTPUT_SCALE",
+            "window": RANK_WINDOW,
+            "output_scale": scale,
+            "rounding": rounding,
+        },
+        f"st_{node}",
+        D,
+    )
+
+
+def _rank_constant(constant_id, coefficient):
+    return {
+        "constant_id": constant_id,
+        "value": {
+            "kind": "FIXED_I128",
+            "coefficient": str(coefficient),
+            "unit": "dimensionless",
+            "scale": 2,
+        },
+    }
+
+
+def w1():
+    """
+    Build an up leg with strength: over ten daily closes the highest came after the lowest,
+    and the latest close ranks in the top fifth.
+
+    The first reads both bar counts - the maximum is more recent than the minimum exactly when
+    fewer bars have passed since it - and the second the nearest-rounding percent rank. A
+    Fibonacci retracement is drawn on such a leg, from the low to the later high, which is why
+    the order of the two extrema is a strategy fact rather than a detail.
+    """
+    nodes = [
+        _window_node("since_high", BSMAX, 0, None),
+        _window_node("since_low", BSMIN, 0, None),
+        _window_node("rank", PRANK, 2, "NEAREST_TIES_TO_EVEN"),
+        op(
+            "high_after_low",
+            CMP,
+            [bd("a", no("since_high"), True), bd("b", no("since_low"), True)],
+            bl(),
+            CP("LESS"),
+        ),
+        op(
+            "gated_rank",
+            SEL,
+            [
+                bd("condition", no("high_after_low")),
+                bd("when_true", no("rank"), True),
+                bd("when_false", co("rank-zero")),
+            ],
+            fx("dimensionless", 2),
+            NONE,
+        ),
+        op(
+            "strong",
+            CMP,
+            [bd("a", no("gated_rank")), bd("b", co("rank-floor"))],
+            bl(),
+            CP("GREATER_OR_EQUAL"),
+        ),
+    ]
+    consts = [_rank_constant("rank-floor", 80), _rank_constant("rank-zero", 0)]
+    return _rank_program("w1", nodes, "strong", consts, ["since_high", "since_low", "rank"])
+
+
+def w2():
+    """
+    Build a percentile pullback: the latest daily close ranks in the bottom fifth of the last
+    ten, read with the toward-zero percent rank.
+    """
+    nodes = [
+        _window_node("rank", PRANK_TZ, 2, "TOWARD_ZERO"),
+        op(
+            "weak",
+            CMP,
+            [bd("a", no("rank"), True), bd("b", co("rank-ceiling"))],
+            bl(),
+            CP("LESS_OR_EQUAL"),
+        ),
+    ]
+    return _rank_program("w2", nodes, "weak", [_rank_constant("rank-ceiling", 20)], ["rank"])
+
+
 if __name__ == "__main__":
     build_bases()
     build_all()
     build_a_line()
     ctl8()
     s1()
+    w1()
+    w2()
     written = len({f.name.rsplit("-", 1)[0] for f in pathlib.Path(OUT).glob("*-meaning.json")})
     print(f"{written} programs from one generator")

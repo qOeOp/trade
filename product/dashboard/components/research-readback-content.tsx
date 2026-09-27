@@ -68,7 +68,9 @@ function ExplorationLinks({
   const links = researchExplorationLinksV1(exploration);
   return (
     <FactItem label="Exploration">
-      <FilterLink density="compact" variant="secondary" href={links.composerRun}>Composer run</FilterLink>{" "}
+      {links.composerRun
+        ? <><FilterLink density="compact" variant="secondary" href={links.composerRun}>Composer run</FilterLink>{" "}</>
+        : null}
       <FilterLink density="compact" variant="secondary" href={links.exploratoryReplay}>Exploratory replay</FilterLink>
     </FactItem>
   );

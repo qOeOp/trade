@@ -240,6 +240,16 @@ pub enum CompilationRefusalV2 {
     /// Owner universe the Market Data selection chooses the instruments, so a Design must use
     /// universe-member roles instead.
     ExactInstrumentRolesUnderOwnerUniverse,
+    /// A universe Design has no role whose field is a BAR close, so nothing prices its orders.
+    ExecutionPricingRoleAbsent,
+    /// A universe Design has more than one BAR close role, and nothing in it says which prices its
+    /// orders; none is chosen by position or name.
+    ExecutionPricingRoleAmbiguous,
+    /// A join is triggered by a role other than the one that prices orders, so the execution
+    /// role and the pricing role would differ.
+    ExecutionRoleNotPricingRole,
+    /// A universe role reads a field the target-set Host cannot check against its native bar.
+    TargetSetRoleNotHostBindable,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -920,6 +930,34 @@ impl StrategyPlanV2 {
                 strategy_design_identity,
             ),
         )
+    }
+
+    /// The universe member roles in Design order, each with the BAR field the target-set Host
+    /// checks it against; empty for a Plan that is not over an Owner universe.
+    pub(crate) fn target_set_member_roles_v2(&self) -> Vec<(&str, TargetSetBarFieldV2)> {
+        if self.universe_selection.is_none() {
+            return Vec::new();
+        }
+        self.canonical_design
+            .inputs
+            .iter()
+            .filter_map(|role| {
+                TargetSetBarFieldV2::of_role(role).map(|field| (role.semantic_id.as_str(), field))
+            })
+            .collect()
+    }
+
+    /// The role that prices orders and executes a Plan over an Owner universe, with its BAR field.
+    /// Compilation refused every universe Design that names none or more than one.
+    pub(crate) fn execution_role_v2(&self) -> Option<(&str, TargetSetBarFieldV2)> {
+        self.universe_selection.as_ref()?;
+        let role =
+            derive_execution_role_v2(&self.canonical_design.inputs, &self.canonical_design.joins)
+                .ok()?;
+        Some((
+            role.semantic_id.as_str(),
+            TargetSetBarFieldV2::of_role(role)?,
+        ))
     }
 
     pub(crate) fn canonical_design_durable_bytes(&self) -> Vec<u8> {
@@ -3597,11 +3635,11 @@ pub(crate) const UNIVERSE_OPEN_FIELD_SEMANTIC_ID_V2: &str = "MARKET_DATA.BAR.OPE
 /// Market Data field of the universe vertical's fixed `CLOSE` member role.
 pub(crate) const UNIVERSE_CLOSE_FIELD_SEMANTIC_ID_V2: &str = "MARKET_DATA.BAR.CLOSE.PRICE.V1";
 
-/// One of the universe vertical's two fixed member roles: a daily Market Data price at scale 2,
-/// read for each Owner universe member rather than for a named instrument.
+/// A daily Market Data price at scale 2, read for each Owner universe member rather than for a
+/// named instrument: the role the single-threshold authoring surface emits for its universe form.
 ///
-/// The contract below admits exactly these two roles, and the authoring surface emits them from
-/// here, so what an author writes is by construction what the contract admits.
+/// The universe contract below does not require this shape; it admits any role set the target-set
+/// Host can bind and that names one pricing role.
 pub(crate) fn universe_member_role_v2(semantic_id: &str, field_semantic_id: &str) -> InputRoleV2 {
     InputRoleV2 {
         semantic_id: semantic_id.to_owned(),
@@ -3617,33 +3655,104 @@ pub(crate) fn universe_member_role_v2(semantic_id: &str, field_semantic_id: &str
     }
 }
 
+/// A BAR field the target-set Host reads from its native bar to check an Owner-sealed member value.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum TargetSetBarFieldV2 {
+    Open,
+    High,
+    Low,
+    Close,
+    Volume,
+}
+
+impl TargetSetBarFieldV2 {
+    /// The field a universe role reads, when the Host can bind it: an `I128` Market Data value of
+    /// one of the five BAR fields. Anything else is a role the Host cannot check.
+    fn of_role(role: &InputRoleV2) -> Option<Self> {
+        if role.fact_class != InputFactClassV2::MarketData || role.value_type != ValueTypeV2::I128 {
+            return None;
+        }
+
+        match role.field_semantic_id.as_str() {
+            UNIVERSE_OPEN_FIELD_SEMANTIC_ID_V2 => Some(Self::Open),
+            "MARKET_DATA.BAR.HIGH.PRICE.V1" => Some(Self::High),
+            "MARKET_DATA.BAR.LOW.PRICE.V1" => Some(Self::Low),
+            UNIVERSE_CLOSE_FIELD_SEMANTIC_ID_V2 => Some(Self::Close),
+            "MARKET_DATA.BAR.VOLUME.QUANTITY.V1" => Some(Self::Volume),
+            _ => None,
+        }
+    }
+}
+
+/// The role that prices a universe Design's orders, which is also its execution role.
+///
+/// It is the one role reading the BAR close. A join, where a Design has one, must be triggered by
+/// that role; no universe Design reaches this with a join today, because `validate_joins` refuses a
+/// join over universe roles, so that refusal is the guard for when joins admit them. Every ambiguity is refused by name rather than resolved by position or name, so a
+/// wider member set cannot silently price from whichever role comes first. The role's timeframe
+/// is not read here: its label is provenance only, and Market Data resolves the typed timeframe
+/// of this role from its own binding.
+fn derive_execution_role_v2<'a>(
+    inputs: &'a [InputRoleV2],
+    joins: &[InputJoinV2],
+) -> Result<&'a InputRoleV2, StrategyCompilationV2> {
+    let named = |coordinate: &str, reason: &str, refusal| {
+        StrategyCompilationV2::NeedsResearchRefinement(CompilationIssueV2 {
+            coordinate: coordinate.to_owned(),
+            reason: reason.to_owned(),
+            refusal: Some(refusal),
+        })
+    };
+    let mut closes = inputs
+        .iter()
+        .filter(|input| input.field_semantic_id == UNIVERSE_CLOSE_FIELD_SEMANTIC_ID_V2);
+    let Some(pricing) = closes.next() else {
+        return Err(named(
+            "inputs",
+            "no role reads the BAR close, so nothing prices the Design's orders",
+            CompilationRefusalV2::ExecutionPricingRoleAbsent,
+        ));
+    };
+
+    if closes.next().is_some() {
+        return Err(named(
+            "inputs",
+            "more than one role reads the BAR close, and the Design does not say which prices its orders",
+            CompilationRefusalV2::ExecutionPricingRoleAmbiguous,
+        ));
+    }
+
+    if let Some(join) = joins
+        .iter()
+        .find(|join| join.trigger_input_id != pricing.semantic_id)
+    {
+        return Err(named(
+            &format!("joins.{}.trigger_input_id", join.semantic_id),
+            "a join triggered by a role other than the pricing role would execute on a role that does not price its orders",
+            CompilationRefusalV2::ExecutionRoleNotPricingRole,
+        ));
+    }
+    Ok(pricing)
+}
+
 fn validate_universe_target_set_contract(
     design: &CanonicalDesignV2,
     member_count: Option<usize>,
 ) -> Result<(), StrategyCompilationV2> {
     let is_universe = member_count.is_some();
     if is_universe {
-        let fields = design
+        if let Some(role) = design
             .inputs
             .iter()
-            .map(|input| input.field_semantic_id.as_str())
-            .collect::<BTreeSet<_>>();
-
-        if design.inputs.len() != 2
-            || fields
-                != BTreeSet::from([
-                    UNIVERSE_OPEN_FIELD_SEMANTIC_ID_V2,
-                    UNIVERSE_CLOSE_FIELD_SEMANTIC_ID_V2,
-                ])
-            || design.inputs.iter().any(|input| {
-                *input != universe_member_role_v2(&input.semantic_id, &input.field_semantic_id)
-            })
+            .find(|input| TargetSetBarFieldV2::of_role(input).is_none())
         {
-            return Err(unsupported(
-                "inputs.scope",
-                "the current universe vertical requires exactly one fixed OPEN and one fixed CLOSE member role",
-            ));
+            return Err(StrategyCompilationV2::Unsupported(CompilationIssueV2 {
+                coordinate: format!("inputs.{}.field_semantic_id", role.semantic_id),
+                reason: "the target-set Host binds only I128 Market Data BAR open, high, low, close and volume roles".to_owned(),
+                refusal: Some(CompilationRefusalV2::TargetSetRoleNotHostBindable),
+            }));
         }
+        derive_execution_role_v2(&design.inputs, &design.joins)?;
     }
 
     for reaction in &design.reactions {
@@ -4086,6 +4195,16 @@ fn refinement(coordinate: &str, reason: &str) -> StrategyCompilationV2 {
         reason: reason.to_owned(),
         refusal: None,
     })
+}
+
+/// Derives the execution role from raw roles and joins, which canonicalization would refuse
+/// first when a join names universe roles.
+#[cfg(all(test, feature = "sealed-strategy-input-acceptance"))]
+pub(crate) fn derive_execution_role_for_test(
+    inputs: &[InputRoleV2],
+    joins: &[InputJoinV2],
+) -> Result<String, StrategyCompilationV2> {
+    derive_execution_role_v2(inputs, joins).map(|role| role.semantic_id.clone())
 }
 
 /// Runs the universe target-set contract on a canonicalized Design for a given Owner member count.

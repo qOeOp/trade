@@ -941,6 +941,34 @@ if [[ -z "$required_job" ]] || [[ "$quality_job" != *'bash scripts/ci/require-wo
 fi
 echo "ok: pull requests keep their pre-commit coverage across the two jobs"
 
+# A workflow that runs on a pull request only for some paths gates the merge through quality: plan
+# names the ones the diff triggers and quality requires each whole run. The list plan passes must be
+# every such workflow, so a new path-filtered one cannot stay ungated by default - add it there, or
+# say here why it must not block.
+python3 -B "$repo_root/scripts/ci/path_triggered_workflows_test.py" > /dev/null
+path_filtered="$(
+  python3 - "$repo_root/.github/workflows" << 'PY'
+import sys, yaml
+from pathlib import Path
+for f in sorted(Path(sys.argv[1]).glob("*.yml")):
+    d = yaml.safe_load(f.read_text()); on = d.get(True, d.get("on"))
+    if isinstance(on, dict) and isinstance(on.get("pull_request"), dict) and "paths" in on["pull_request"]:
+        print(f.name)
+PY
+)"
+plan_lists="$(workflow_job_block "$build_workflow" plan | grep -oE '\.github/workflows/[a-z0-9-]+\.yml' | sed 's#.github/workflows/##' | sort -u)"
+if [[ "$path_filtered" != "$plan_lists" ]]; then
+  echo "plan's path-workflows step must name every path-filtered pull_request workflow." >&2
+  echo "  path-filtered: $(tr '\n' ' ' <<< "$path_filtered")" >&2
+  echo "  plan names:    $(tr '\n' ' ' <<< "$plan_lists")" >&2
+  exit 1
+fi
+quality_job="$(workflow_job_block "$build_workflow" quality)"
+# shellcheck disable=SC2016 # the workflow's literal shell text
+[[ "$quality_job" == *'bash scripts/ci/require-workflow-job.bash "$workflow" '"'*'"' "$HEAD_SHA" 1800'* ]]
+[[ "$quality_job" == *"REQUIRE_WORKFLOW_JOB_RECOVERY="* ]]
+echo "ok: every path-filtered pull request workflow the diff triggers is required by quality"
+
 # The merge of the R&D chain shards' records before the whole-chain report. (The shards' wait for
 # the archive has its own pre-commit hook, test-wait-for-run-artifact.)
 bash "$repo_root/scripts/ci/test-merge-chain-shard-records.bash"

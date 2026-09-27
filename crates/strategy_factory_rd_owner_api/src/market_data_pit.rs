@@ -796,6 +796,9 @@ fn admission_error(error: SourceBindingAdmissionErrorV1) -> Response {
             StatusCode::SERVICE_UNAVAILABLE,
             "MARKET_DATA_CLOCK_UNAVAILABLE",
         ),
+        SourceBindingAdmissionErrorV1::ClockMismatch => {
+            (StatusCode::CONFLICT, "SOURCE_BINDING_CLOCK_MISMATCH")
+        }
         SourceBindingAdmissionErrorV1::StoreUnavailable => (
             StatusCode::SERVICE_UNAVAILABLE,
             "MARKET_DATA_OWNER_UNAVAILABLE",
@@ -1007,6 +1010,26 @@ mod tests {
             assert_eq!(code(&response), (status, Some(name)), "{refusal:?}");
             assert!(codes.insert(name), "{name} names one refusal");
         }
+    }
+
+    /// A clock mismatch reaches the caller as its own conflict, not as a malformed proposal.
+    #[rstest]
+    fn a_source_binding_clock_mismatch_is_a_409_by_name() {
+        assert_eq!(
+            code(&admission_error(
+                SourceBindingAdmissionErrorV1::ClockMismatch
+            )),
+            (StatusCode::CONFLICT, Some("SOURCE_BINDING_CLOCK_MISMATCH"))
+        );
+        assert_eq!(
+            code(&admission_error(
+                SourceBindingAdmissionErrorV1::InvalidProposal
+            )),
+            (
+                StatusCode::BAD_REQUEST,
+                Some("INVALID_SOURCE_BINDING_PROPOSAL")
+            )
+        );
     }
 
     /// A body naming an Owner field is refused by that name, as a 422 the caller can act on,

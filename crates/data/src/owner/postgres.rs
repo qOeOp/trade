@@ -62,6 +62,8 @@ pub(super) use replay_market_facts_v2::{
 pub(super) use universe_selection::persist_issued_readback_for_test;
 mod sample_projection_v4;
 mod session;
+#[cfg(test)]
+mod source_availability_rule_v1_tests;
 mod source_sample_custody_v1;
 pub(in crate::owner) mod strategy_input_binding_registry;
 #[cfg(feature = "isolated-event-replay-acceptance")]
