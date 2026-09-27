@@ -1430,19 +1430,23 @@ TARGET below: window selection at the cut and the archiver are not built.
 - **The terms basis.** A snapshot whose terms, the status aside, equal those of the fact it follows keeps the basis
   `RETRIEVED_TERMS_ASSUMED_SINCE_LISTING`: the terms are still the baseline's, now also observed later. One whose terms
   differ gives the fact, and every fact after it, `OBSERVED_SINCE_TERMS_CHANGE`, since what held before that snapshot is
-  not these terms. The terminal says whether the snapshot changed the terms.
+  not these terms. The terminal says whether the snapshot changed the terms. A snapshot does not move the fact's event
+  instant, which the native instrument definition carries as `ts_event`: that stays the latest status delta's event, or
+  the listing, because a snapshot records when it was retrieved, not when anything changed.
 - **The cut refuses a changed member until it selects by window.** A cut reads no Replay window yet, so it cannot tell
-  whether a window lies before or after a change. It refuses a member whose basis is `OBSERVED_SINCE_TERMS_CHANGE` with
-  `TermsChanged` and zero writes, and R&D's execution-input binding answers `INSTRUMENT_MASTER_TERMS_CHANGED` (HTTP
-  409); no retry changes it. Window selection is the only slice that removes this refusal. A member whose snapshots all
-  repeat the baseline's terms resolves as before, on its latest fact.
+  whether a window lies before or after a change. It refuses a member whose fact observed at the selection has the basis
+  `OBSERVED_SINCE_TERMS_CHANGE` with `TermsChanged` and zero writes, and R&D's execution-input binding answers
+  `INSTRUMENT_MASTER_TERMS_CHANGED` (HTTP 409); no retry changes it. Window selection is the only slice that removes
+  this refusal. A member whose snapshots all repeat the baseline's terms resolves as before, on its latest fact.
 - **The clock.** When the head's decision cut is at or after the retrieval, the snapshot's Owner observation is that
   cut. Otherwise the intake mints the next Owner clock from its own wall observation, as a Source Binding admission
   does, and admits it in the same transaction through the path a Source Binding admission uses, so the head moves only
   if the fact is appended; the snapshot's Owner observation is the minted cut. A retrieval later than that wall
-  observation is refused. A clock head needs no owner fact to anchor it: the clock custody checks read only the clock
-  tables. A PIT submission R&D froze at the previous head is then refused as `ClockEvidenceNotCurrent`, as after any
-  Source Binding admission.
+  observation is refused. The transaction is read committed and takes the clock-state lock before it reads the head, as
+  every other clock writer does, so a snapshot that mints and a Source Binding admission at once answer one after the
+  other. A clock head needs no owner fact to anchor it: the clock custody checks read only the clock tables. A PIT
+  submission R&D froze at the previous head is then refused as `ClockEvidenceNotCurrent`, as after any Source Binding
+  admission.
 - **One writer at a time and replay.** The transaction takes the V2 store's table locks as its first statement, as both
   other intakes do. A submission whose derived fact equals the stored direct successor of the named fact, read at that
   successor's own Owner observation, rejoins it and returns the same terminal; a rejoin never mints a clock.
@@ -1475,12 +1479,15 @@ TARGET below: window selection at the cut and the archiver are not built.
     decode.
 - **Proof:** the Market Data PostgreSQL runner proves the intake on bindings committed on the Owner's own clock, sealed
   by the production sealer. A snapshot retrieved after the head mints exactly one clock and takes its cut, and one
-  retrieved before takes the head's. Nine reachable refusals each write neither a fact nor a clock. A snapshot later
-  than the known status sets it. A snapshot that widens the tick is recorded with the changed basis, after which the cut
-  refuses the member and writes nothing while the cut issued before keeps its answer. A replay rejoins and mints
-  nothing, and a later snapshot mints again. A second proof refuses a snapshot past a head on a test clock as
-  `CLOCK_MISMATCH` with nothing written. Unit tests cover the codec, both orders, the basis, every normalizer and
-  successor refusal, and a year of hourly snapshots decoded as one chain.
+  retrieved before takes the head's. Ten reachable refusals each write neither a fact nor a clock, one of them after the
+  intake chose to mint. A snapshot later than the known status sets it. A snapshot that widens the tick is recorded with
+  the changed basis, after which the cut refuses the member and writes nothing while the cut issued before keeps its
+  answer. A replay rejoins and mints nothing, and a later snapshot mints again. A second proof refuses a snapshot past a
+  head on a test clock as `CLOCK_MISMATCH` with nothing written. A third holds the clock-state lock while a Source
+  Binding admission and then a minting snapshot queue for it, and both answer; with the head's row lock taken first, as
+  the intake first did, they deadlock. Two identical minting snapshots at once mint once and answer with one fact. Unit
+  tests cover the codec, both orders, the basis, every normalizer and successor refusal, and a year of hourly snapshots
+  decoded as one chain.
 
 **NOT_ADMITTED:** a change to a V2 fact's executable terms is recorded, by the snapshot intake, but no Replay is priced
 on it: the status delta changes the contract status only, by design, and the cut refuses a member whose terms a snapshot
@@ -1611,12 +1618,13 @@ and admits no other.
   member is the baseline with its current basis, and its bytes do not move; the snapshot intake's slice pins a baseline,
   its status successor and a one-member cut byte for byte, beside the existing two-member cut pin.
 - **Order.** The snapshot successor and its intake came first, with the byte-for-byte pin, and are built. Until the cut
-  selects by window, it refuses by name a member whose terms a snapshot changed, whatever the window, rather than price
-  any window on them; the window selection is the only slice that removes that refusal. Window selection at the cut
-  changes the issuance F's chain relies on, so it starts only after F's chain passes. The archiver is defined but not
-  started, as the compose file does not run the store-custody script yet; running it makes production retrieve from
-  Binance periodically, a public read and no trading, and turning it on is the user's deployment decision. Whether a
-  Replay window whose status is not `TRADING` must be refused is undecided and outside this design.
+  selects by window, it refuses by name a member whose fact observed at the selection follows a snapshot that changed
+  its terms, rather than price any window on them; the window selection is the only slice that removes that refusal.
+  Window selection at the cut changes the issuance F's chain relies on, so it starts only after F's chain passes. The
+  archiver is defined but not started, as the compose file does not run the store-custody script yet; running it makes
+  production retrieve from Binance periodically, a public read and no trading, and turning it on is the user's
+  deployment decision. Whether a Replay window whose status is not `TRADING` must be refused is undecided and outside
+  this design.
 
 ### Native immutable records
 

@@ -675,6 +675,23 @@ pub(super) async fn begin_serializable_v2(
     Ok(tx)
 }
 
+/// Opens a writing transaction on this store that also writes the Owner's clock: read committed,
+/// and holding every table lock from its first statement.
+///
+/// A clock writer takes the clock-state advisory lock before it reads the clock head, and waits
+/// there for any other clock writer. Under `SERIALIZABLE` the advisory `SELECT` would take the
+/// transaction's snapshot before that wait, so a head another writer moved meanwhile would fail
+/// this transaction with SQLSTATE 40001; under `READ COMMITTED` each statement reads what was
+/// committed before it, as in every other clock writer. The table locks still serialize this
+/// store's writers, so the chain read here cannot change before the append.
+pub(super) async fn begin_clock_writing_v2(
+    pool: &PgPool,
+) -> Result<Transaction<'_, Postgres>, InstrumentMasterCustodyErrorV2> {
+    let mut tx = pool.begin().await.map_err(|cause| store_error(&cause))?;
+    lock_all(&mut tx).await?;
+    Ok(tx)
+}
+
 async fn lock_all(
     tx: &mut Transaction<'_, Postgres>,
 ) -> Result<(), InstrumentMasterCustodyErrorV2> {

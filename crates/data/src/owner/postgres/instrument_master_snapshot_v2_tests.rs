@@ -5,10 +5,12 @@
 //! it again. The Source Bindings are committed on the Owner's own clock, sealed by the production
 //! sealer, so the clock the snapshot intake mints from the wall is their ordinary successor.
 
+use std::future::Future;
+
 use super::{
-    MarketDataClockAdmission, MarketDataOwnerPostgres, OWNER_CLOCK_EPOCH_V1,
+    CLOCK_STATE_LOCK_KEY, MarketDataClockAdmission, MarketDataOwnerPostgres, OWNER_CLOCK_EPOCH_V1,
     OWNER_CLOCK_IDENTITY_V1, OWNER_CLOCK_SKEW_BOUND_NS, OWNER_CLOCK_UNCERTAINTY_BOUND_NS,
-    OWNER_CLOCK_VALIDITY_WINDOW_NS,
+    OWNER_CLOCK_VALIDITY_WINDOW_NS, SourceBindingAdmissionPostgresV1,
     instrument_master_admission_v2_tests::{
         FIRST_CUT, SECOND, USDM, commit_binding, commit_binding_on, d, facts,
         research_decision_cut, selection, submission,
@@ -25,7 +27,11 @@ use crate::owner::{
         InstrumentMasterCutRequestV2,
     },
     instrument_master_v2_postgres::InstrumentMasterV2PostgresOwner,
-    source_binding::{BindingDigest, UntrustedSourceBindingLocator},
+    source_binding::{BindingDigest, UntrustedSourceBindingLocator, authority::derive_binding_id},
+    source_binding_admission_v1::{
+        ProviderReachabilityEvidenceV1, ProviderRightsEvidenceV1, SourceBindingAdmissionRequestV1,
+        SourceBindingAdmissionV1,
+    },
 };
 
 /// The Owner's own clock at `instant`, sealed as the Owner seals every cut it mints.
@@ -258,6 +264,16 @@ async fn postgres_a_snapshot_extends_the_v2_fact_and_advances_the_clock_it_needs
             snapshot(baseline.fact_identity(), later, USDM, locator),
             Refused::PredecessorNotCurrent,
         ),
+        (
+            "another listing retrieved after the head, refused after the intake chose to mint",
+            snapshot(
+                unchanged.fact_identity(),
+                wall_now_ns(),
+                &edited(|entry| entry["onboardDate"] = serde_json::json!(1_569_398_400_001_u64)),
+                locator,
+            ),
+            Refused::ListingDiffers,
+        ),
     ];
 
     for (why, submission, refusal) in refusals {
@@ -446,4 +462,141 @@ async fn postgres_a_snapshot_past_a_head_on_another_clock_is_refused_and_writes_
         Err(InstrumentMasterSnapshotErrorV2::ClockMismatch)
     );
     assert_eq!((facts(&owner).await, clock(&owner).await), before);
+}
+
+/// Runs `first` and then `second`, both held behind the Owner's clock-state lock: `second` starts
+/// only once `first` waits on a lock, so `first` queues for the clock-state lock ahead of it, and
+/// both are released once both wait.
+async fn behind_the_clock_state<A: Future, B: Future>(
+    owner: &MarketDataOwnerPostgres,
+    first: A,
+    second: B,
+) -> (A::Output, B::Output) {
+    let waiting = || async {
+        let count: i64 = sqlx::query_scalar(
+            "SELECT pg_catalog.count(*) FROM pg_catalog.pg_stat_activity WHERE datname=pg_catalog.current_database() AND wait_event_type='Lock'",
+        )
+        .fetch_one(owner.pool())
+        .await
+        .unwrap();
+        count
+    };
+    let until = |at_least: i64| async move {
+        tokio::time::timeout(std::time::Duration::from_secs(20), async {
+            while waiting().await < at_least {
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+        })
+        .await
+    };
+    let mut holder = owner.pool().begin().await.unwrap();
+    sqlx::query("SELECT pg_advisory_xact_lock($1)")
+        .bind(CLOCK_STATE_LOCK_KEY)
+        .execute(&mut *holder)
+        .await
+        .unwrap();
+    let later = async {
+        assert!(
+            until(1).await.is_ok(),
+            "the first waits before the second starts"
+        );
+        second.await
+    };
+    let release = async {
+        let queued = until(2).await;
+        holder.rollback().await.unwrap();
+        queued
+    };
+    let (first, second, queued) = tokio::join!(first, later, release);
+    assert!(queued.is_ok(), "both wait before either ends");
+    (first, second)
+}
+
+/// A snapshot that mints the Owner's clock takes the clock-state lock before the head's row lock,
+/// as every other clock writer does. With a Source Binding admission queued for the clock-state
+/// lock ahead of it, both answer, one after the other, rather than one waiting on the other's row
+/// while the other waits on its lock. Two identical minting snapshots at once answer with one fact,
+/// and mint once.
+#[tokio::test]
+#[ignore = "requires a disposable Market Data PostgreSQL database"]
+async fn postgres_a_minting_snapshot_and_another_clock_writer_at_once_both_answer() {
+    let owner_url = std::env::var("MARKET_DATA_OWNER_TEST_DATABASE_URL")
+        .expect("explicit disposable Owner URL");
+    let database =
+        std::env::var("VIBE_POSTGRES_TEST_DATABASE_NAME").expect("disposable database name");
+    assert!(
+        database.starts_with("vibe_test_"),
+        "this proof writes facts and clocks; it runs only against a disposable database"
+    );
+    let owner = MarketDataOwnerPostgres::connect(&owner_url)
+        .await
+        .expect("Owner connects and migrates");
+    InstrumentMasterV2PostgresOwner::install(owner.pool().clone())
+        .await
+        .expect("the V2 store installs");
+    let usdm = commit_binding_on(&owner, "usdm/exchangeInfo", &owner_clock(1, FIRST_CUT)).await;
+    commit_binding_on(
+        &owner,
+        "usdm/exchangeInfo",
+        &owner_clock(2, FIRST_CUT + 2 * SECOND),
+    )
+    .await;
+    let baseline = owner
+        .admit_instrument_master_baseline_v2(submission(&usdm, "BTCUSDT", FIRST_CUT + SECOND, USDM))
+        .await
+        .expect("the baseline intake admits the recorded payload");
+    let locator = usdm.receipt().locator();
+
+    // 1. A Source Binding admission, which mints the Owner's clock, queued ahead of a snapshot that
+    //    mints it too.
+    let admissions = SourceBindingAdmissionPostgresV1 {
+        owner: MarketDataOwnerPostgres::connect(&owner_url).await.unwrap(),
+    };
+    let mut proposal = super::pit_intake_member_count_tests::source_proposal();
+    proposal.semantics.normalization = "normalization-clock-order".to_owned();
+    proposal.claimed_binding_id = derive_binding_id(&proposal);
+    let (handoffs_before, _) = clock(&owner).await;
+    let retrieval = wall_now_ns();
+    let (admitted, snapshotted) = behind_the_clock_state(
+        &owner,
+        admissions.admit(SourceBindingAdmissionRequestV1 {
+            proposal,
+            rights: ProviderRightsEvidenceV1::Granted,
+            reachability: ProviderReachabilityEvidenceV1::Reachable,
+        }),
+        owner.admit_instrument_master_snapshot_v2(snapshot(
+            baseline.fact_identity(),
+            retrieval,
+            USDM,
+            locator,
+        )),
+    )
+    .await;
+    admitted.expect("the Source Binding admission answers with its binding");
+    let snapshotted = snapshotted.expect("the snapshot answers with its fact");
+    let (handoffs_after, head) = clock(&owner).await;
+    assert_eq!(handoffs_after, handoffs_before + 2, "each minted one clock");
+    assert_eq!(snapshotted.owner_observation_time_ns(), i128::from(head));
+
+    // 2. Two identical snapshots that must mint, at once: one mints and appends, the other rejoins.
+    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    let retrieval = wall_now_ns();
+    let submit = || {
+        owner.admit_instrument_master_snapshot_v2(snapshot(
+            snapshotted.fact_identity(),
+            retrieval,
+            USDM,
+            locator,
+        ))
+    };
+    let before = facts(&owner).await.len();
+    let (first, second) = behind_the_clock_state(&owner, submit(), submit()).await;
+    let first = first.expect("the first snapshot answers with its fact");
+    assert_eq!(second, Ok(first), "the second rejoins the first");
+    assert_eq!(facts(&owner).await.len(), before + 1);
+    assert_eq!(
+        clock(&owner).await.0,
+        handoffs_after + 1,
+        "one clock was minted"
+    );
 }

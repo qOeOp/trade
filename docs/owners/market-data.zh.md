@@ -1203,8 +1203,8 @@ V2 fact 的 instrument 提交一条原样公开的 `!contractInfo` 事件。Owne
   clock head 的 decision cut，在准入事务里读取。Source Binding 必须恰以所指名的 locator 被准入，且必须是该 instrument 的
   baseline 所指名的那个 binding。
 - **次序：** 事件时刻必须晚于所指名 fact 已知其状态的时刻，且不晚于取得时刻；取得时刻必须不晚于 head 的 decision cut。
-  baseline 知道的是取得时刻的状态，因为 `exchangeInfo` 陈述的是取得时的状态而非上市时的；delta 知道的是其事件时刻的状态
-  ；由下文快照 intake 准入的之后的 `exchangeInfo` 快照，在它是最新状态证据时，知道的是其取得时刻的状态。迟到的较早事件，
+  baseline 知道的是取得时刻的状态，因为 `exchangeInfo` 陈述的是取得时的状态而非上市时的；delta 知道的是其事件时刻的状态；
+  由下文快照 intake 准入的之后的 `exchangeInfo` 快照，在它是最新状态证据时，知道的是其取得时刻的状态。迟到的较早事件，
   包括上市之后、baseline 取得之前的事件，被拒绝，而不是盖过更新的状态。
 - **链：** 所指名的 fact 必须是该 instrument 当前的 head，所以每条 delta 都说明自己接续什么，两份提交不可能都延伸同一个
   fact。cut 为每个成员解析其 selection 的 Owner observation 时刻上可观测的最新 fact，所以在同一个 decision cut 上，delta
@@ -1272,21 +1272,23 @@ TARGET 的第一片：cut 上的窗口选择与归档器都没有构建。
   时刻边界。
 - **条款依据。** 除状态外条款与所跟随 fact 相等的快照保持依据 `RETRIEVED_TERMS_ASSUMED_SINCE_LISTING`：条款仍是 baseline
   的，只是之后又被观察到了一次。条款不同的快照让该 fact 以及其后的每个 fact 的依据变为 `OBSERVED_SINCE_TERMS_CHANGE`，因
-  为那张快照之前成立的不是这些条款。terminal 会说明快照是否改变了条款。
+  为那张快照之前成立的不是这些条款。terminal 会说明快照是否改变了条款。快照不移动 fact 的事件时刻，即 native instrument
+  定义里的 `ts_event`：它仍是最近一条状态 delta 的事件时刻或上市时刻，因为快照记录的是何时取得，而不是何时发生了什么变化。
 - **在按窗口选择之前，cut 拒绝条款变过的成员。** cut 还不读 Replay 窗口，所以分辨不出窗口在一次变化之前还是之后。它以
-  `TermsChanged` 拒绝依据为 `OBSERVED_SINCE_TERMS_CHANGE` 的成员且零写入，R&D 的 execution-input binding 回答
-  `INSTRUMENT_MASTER_TERMS_CHANGED`（HTTP 409）；重试改变不了答案。窗口选择是唯一移除这条拒绝的切片。所有快照都重复
-  baseline 条款的成员仍像以前一样，解析到其最新 fact。
+  `TermsChanged` 拒绝在 selection 时刻观察到的 fact 依据为 `OBSERVED_SINCE_TERMS_CHANGE` 的成员且零写入，R&D 的
+  execution-input binding 回答 `INSTRUMENT_MASTER_TERMS_CHANGED`（HTTP 409）；重试改变不了答案。窗口选择是唯一移除这条拒
+  绝的切片。所有快照都重复 baseline 条款的成员仍像以前一样，解析到其最新 fact。
 - **时钟。** 当 head 的 decision cut 不早于取得时刻时，快照的 Owner observation 就是该 cut。否则 intake 像 Source
-  Binding 准入那样，以自己的墙钟观察铸出下一个 Owner 时钟，并经 Source Binding 准入所用的同一条路径在同一个事务里准入它
-  ，所以只有 fact 被追加时 head 才会移动；快照的 Owner observation 就是铸出的 cut。晚于该墙钟观察的取得时刻被拒绝。clock
-  head 不需要 owner fact 来锚定：时钟托管检查只读时钟表。R&D 在前一个 head 上冻结的 PIT 提交随之以
-  `ClockEvidenceNotCurrent` 被拒绝，与任何一次 Source Binding 准入之后一样。
+  Binding 准入那样，以自己的墙钟观察铸出下一个 Owner 时钟，并经 Source Binding 准入所用的同一条路径在同一个事务里准入它，
+  所以只有 fact 被追加时 head 才会移动；快照的 Owner observation 就是铸出的 cut。晚于该墙钟观察的取得时刻被拒绝。事务
+  是 read committed，并像其他每个时钟写者一样，在读 head 之前先取 clock-state 锁，所以同时到来的铸时钟快照与 Source
+  Binding 准入会一个接一个地作答。clock head 不需要 owner fact 来锚定：时钟托管检查只读时钟表。R&D 在前一个 head 上冻结
+  的 PIT 提交随之以 `ClockEvidenceNotCurrent` 被拒绝，与任何一次 Source Binding 准入之后一样。
 - **一次一个写者，以及重放。** 事务的第一条语句就取 V2 store 的表锁，与另两条 intake 一样。若提交推出的 fact 等于所指名
   fact 已存的直接后继（按该后继自己的 Owner observation 读取），就 rejoin 它并返回同一个 terminal；rejoin 永远不铸时钟。
 - **F 不变。** 没有快照的 fact 保持原有编码，逐字节不变：快照后继是第三个 lineage 标签，baseline 与状态 delta 的标签没有
-  动。一个单元测试钉住由录制 payload 得出的 baseline（414 字节）、它的状态后继（669 字节）与一个 baseline 上的单成员 cut
-  ，这些值取自快照后继出现之前的代码树，与已有的双成员 cut 钉子并列。
+  动。一个单元测试钉住由录制 payload 得出的 baseline（414 字节）、它的状态后继（669 字节）与一个 baseline 上的单成员 cut，
+  这些值取自快照后继出现之前的代码树，与已有的双成员 cut 钉子并列。
 - **拒绝，均按名给出，且不写入任何东西；每条都说明今天什么提交会走到它：**
   - `UNAUTHORIZED_PRODUCT_EDGE`（HTTP 403）与 `MALFORMED_TYPED_REQUEST`（HTTP 400），与其他 V2 路由相同。
   - `INSTRUMENT_MASTER_V2_INVALID_SUBMISSION`（HTTP 422）：文本不是 `exchangeInfo` 对象。
@@ -1306,11 +1308,13 @@ TARGET 的第一片：cut 上的窗口选择与归档器都没有构建。
   - `INSTRUMENT_MASTER_V2_ADMISSION_CONFLICT`（HTTP 409）：store 对所指名 fact 的说法自相矛盾。任何提交都构造不出它。
   - `MARKET_DATA_OWNER_UNAVAILABLE`（HTTP 503）：store 不可达、拒绝提交，或某条已存的链解码不出来。
 - **证明：** Market Data PostgreSQL runner 在以生产封装器封在 Owner 自己时钟上的 binding 之上证明这条 intake。在 head 之
-  后取回的快照恰好铸出一个时钟并取其 cut，在 head 之前取回的取 head 的 cut。九条走得到的拒绝各自既不写 fact 也不写时钟。
-  晚于已知状态的快照设定状态。放宽 tick 的快照以改变后的依据被记录，此后 cut 拒绝该成员且不写入任何东西，而之前签发的
-  cut 保持原答案。重放 rejoin 且不铸时钟，之后的快照再次铸时钟。另一个证明把越过一个测试时钟上的 head 的快照以
-  `CLOCK_MISMATCH` 拒绝，不写入任何东西。单元测试覆盖编码、两种次序、依据、归一化与后继的每条拒绝，以及把一年的每小时快
-  照作为一条链解码。
+  后取回的快照恰好铸出一个时钟并取其 cut，在 head 之前取回的取 head 的 cut。十条走得到的拒绝各自既不写 fact 也不写时钟，
+  其中一条发生在 intake 已决定铸时钟之后。晚于已知状态的快照设定状态。放宽 tick 的快照以改变后的依据被记录，此后 cut 拒
+  绝该成员且不写入任何东西，而之前签发的 cut 保持原答案。重放 rejoin 且不铸时钟，之后的快照再次铸时钟。另一个证明把越过
+  一个测试时钟上的 head 的快照以 `CLOCK_MISMATCH` 拒绝，不写入任何东西。第三个证明扣住 clock-state 锁，让一次 Source
+  Binding 准入、然后一个铸时钟的快照排队等它，两边都作答；若像 intake 起初那样先取 head 的行锁，它们会死锁。两份相同的铸
+  时钟快照同时到来，只铸一次时钟，以一个 fact 作答。单元测试覆盖编码、两种次序、依据、归一化与后继的每条拒绝，以及把一年
+  的每小时快照作为一条链解码。
 
 **NOT_ADMITTED：** V2 fact 可执行条款的变化由快照 intake 记录下来，但没有任何 Replay 按它定价：状态 delta 按设计只改合约
 状态，而 cut 在按 Replay 窗口选择之前拒绝条款被快照改变过的成员，窗口选择见下文 TARGET，没有构建。状态不是 `TRADING` 的
@@ -1410,11 +1414,11 @@ member 取 selection 时刻观察到的最新 fact。所以 tick 或 lot的变�
 - **F 不变。** 只有一个 baseline、没有之后的快照时，retrieval 之前的每个窗口都落在 `t_0` 之前，member 就是 baseline，
   basis 与今天相同，字节不动；快照 intake 那一片逐字节钉住一个 baseline、它的状态后继与一个单成员 cut，与已有的双成员
   cut 钉子并列。
-- **顺序。** 快照后继及其 intake 已先做完，连同逐字节钉子。在 cut 按窗口选择之前，对条款被快照改变过的 member，无论窗口
-  如何都按名拒绝，而不是在它们上面为任何窗口定价；窗口选择是唯一移除这条拒绝的切片。cut 上的窗口选择会改变 F 链路依赖的
-  签发，所以只在 F 链路通过后开始。归档器已定义但不启动，就像 compose 文件还不运行 store-custody 脚本一样；运行它会让生
-  产周期性地从 Binance 取数，这是公开读取而非交易，是否开启是用户的部署决定。status 不是 `TRADING` 的 Replay 窗口是否必
-  须拒绝尚未决定，不在本设计范围内。
+- **顺序。** 快照后继及其 intake 已先做完，连同逐字节钉子。在 cut 按窗口选择之前，对在 selection 时刻观察到的 fact 跟随
+  了改变其条款的快照的 member 按名拒绝，而不是在它们上面为任何窗口定价；窗口选择是唯一移除这条拒绝的切片。cut 上的窗口选
+  择会改变 F 链路依赖的签发，所以只在 F 链路通过后开始。归档器已定义但不启动，就像 compose 文件还不运行 store-custody 脚
+  本一样；运行它会让生产周期性地从 Binance 取数，这是公开读取而非交易，是否开启是用户的部署决定。status 不是 `TRADING`
+  的 Replay 窗口是否必须拒绝尚未决定，不在本设计范围内。
 
 ### 原生不可变记录
 

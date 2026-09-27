@@ -1900,11 +1900,11 @@ pub enum InstrumentMasterCustodyErrorV2 {
     /// The cut's V2 facts do not describe the instruments the V1 readback its bound PIT snapshot
     /// cites describes; the payload names the rule that failed.
     GenerationMismatch(InstrumentMasterGenerationMismatchV2),
-    /// A member's terms were changed by a later `exchangeInfo` snapshot observed at the selection.
-    /// The cut does not yet read the Replay window, so it cannot tell whether the window lies
-    /// before or after the change, and refuses such a member whatever the window rather than price
-    /// any window on terms that did not hold for all of it. Selecting by window is the only change
-    /// that removes this refusal.
+    /// The fact a member resolves to at the selection's observation follows a later `exchangeInfo`
+    /// snapshot that changed its terms. The cut does not yet read the Replay window, so it cannot
+    /// tell whether the window lies before or after the change, and refuses that member rather than
+    /// price any window on terms that did not hold for all of it. Selecting by window is the only
+    /// change that removes this refusal.
     TermsChanged,
 }
 

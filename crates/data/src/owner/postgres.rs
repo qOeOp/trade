@@ -10999,10 +10999,11 @@ impl MarketDataOwnerPostgres {
     /// Admits one later `exchangeInfo` snapshot as the named V2 fact's direct successor, advancing
     /// the Owner's clock head first when the head has not reached the snapshot's retrieval.
     ///
-    /// One serializable transaction, holding the V2 store's table locks from its first statement,
-    /// verifies the binding, reads the named fact and whatever already follows it, requires the
-    /// binding to be the one the instrument's baseline names, and selects the venue row by that
-    /// binding's dataset mapping. The Owner observation is the head's decision cut when the head
+    /// One read-committed transaction, holding the V2 store's table locks from its first statement
+    /// and the clock-state lock before it reads the head, as every clock writer does, verifies the
+    /// binding, reads the named fact and whatever already follows it, requires the binding to be
+    /// the one the instrument's baseline names, and selects the venue row by that binding's dataset
+    /// mapping. The Owner observation is the head's decision cut when the head
     /// has reached the retrieval; otherwise it is the next clock the Owner mints from its own wall
     /// observation, which is admitted in the same transaction as a Source Binding admission admits
     /// its clock, so the head moves only if the fact is appended. The successor is derived through
@@ -11035,12 +11036,12 @@ impl MarketDataOwnerPostgres {
             ExchangeInfoRetrievalV2, FactValue, InstrumentMasterFactV2, instrument_master_venue_v2,
         };
         use super::instrument_master_v2_postgres::{
-            SuccessorAppendErrorV2, append_successor_in_transaction_v2, begin_serializable_v2,
+            SuccessorAppendErrorV2, append_successor_in_transaction_v2, begin_clock_writing_v2,
             load_named_fact_in_transaction_v2,
         };
         use InstrumentMasterSnapshotErrorV2 as Refused;
 
-        let mut transaction = begin_serializable_v2(&self.pool)
+        let mut transaction = begin_clock_writing_v2(&self.pool)
             .await
             .map_err(|_| Refused::StoreUnavailable)?;
         let locator = &submission.source_binding;
@@ -11072,6 +11073,11 @@ impl MarketDataOwnerPostgres {
         let venue =
             instrument_master_venue_v2(&stored.commit().fact().proposal().adapter.dataset_mapping)
                 .ok_or(Refused::AdmissionConflict)?;
+        // The clock-state lock before the head's row lock, as every other clock writer takes them,
+        // so a snapshot that mints never waits on a writer that waits on it.
+        lock_clock_state(&mut transaction)
+            .await
+            .map_err(|_| Refused::StoreUnavailable)?;
         let head = load_current_clock_for_update(&mut transaction)
             .await
             .map_err(|_| Refused::StoreUnavailable)?
