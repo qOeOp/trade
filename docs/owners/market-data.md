@@ -1429,11 +1429,13 @@ the terms of the day it was retrieved. This design replaces that one assumption 
   is refused. The head therefore moves at most once per archive interval. A PIT submission R&D froze at the previous
   head is then refused as `ClockEvidenceNotCurrent` and recovered by reading its correlation back and freezing again at
   the current cut, as after any other move of the head; a run that has to freeze again repeatedly is the signal to
-  lengthen the cadence. That recovery is driven today only with the refusal injected at an unchanged cut, because the
-  ordered chain's head is a fixture clock that a production advancer cannot move, so the archiver is not turned on until
-  a test moves a head between an R&D freeze and its commit and R&D commits at the new cut. The archiver retries a
-  refused or unanswered submission in retrieval order, and its health check fails when the newest admitted snapshot is
-  older than two cadences, a condition the archiver can now clear itself.
+  lengthen the cadence. That recovery is driven today only with the refusal injected at an unchanged cut: the ordered
+  chain's database is shared and never reset, so no entry there moves its head between a freeze and a commit for the
+  entries after it. The archiver is therefore not turned on until a proof on a database of its own mints a head with the
+  Owner's clock, lets R&D freeze, advances the head through a production admission, and shows R&D recovering and
+  committing at the new cut. The archiver retries a refused or unanswered submission in retrieval order, and its health
+  check fails when the newest admitted snapshot is older than two cadences, a condition the archiver can now clear
+  itself.
 - **F is unchanged.** With one baseline and no later snapshot, every window before its retrieval lies before `t_0`, the
   member is the baseline with its current basis, and its bytes do not move; the snapshot successor's slice pins the
   two-member cut identity and a one-baseline bound-replay cut byte for byte.
