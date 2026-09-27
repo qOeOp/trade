@@ -1496,7 +1496,10 @@ I3；再然后 N1、A2、A3、V4b、V5。按帧 as-of 成员（T4）会移除「
 | TB4 花费账本与上限 | R&D、R&D Owner client、Product Edge | 用量采集、预留与结算、`PAUSED_SPEND_CAP_REACHED`、环境设定的上限，然后是 Dashboard 控件 | 无                   |
 | TB5 移除试验上限   | R&D、Product Edge、Dashboard        | 没有预算的 TrialFamily Policy V2，对 V2 family 去掉准入拒绝与 `TRIAL_BUDGET_EXHAUSTED`  | TB1、TB2、TB4        |
 
-TB5 排在最后，因为它移除的正是其他几片所替代的约束：TB2 之前没有东西会给长时间的搜索打折，TB4 之前没有东西会约束它的成本。
+TB1 现在还不能开工。它计数的是
+[R&D](../owners/rd/#target--not_admitted---same-cut-decision-and-selection-composition) 中同一截面的 Decision 与 Selection
+composition 所做的 census 追加，而这个 composition 本身是 `TARGET / NOT_ADMITTED`：在它被准入并建成之前，后继迭代没有生产
+路径，也不存在可计数的 census 追加。TB5 排在最后，因为它移除的正是其他几片所替代的约束：TB2 之前没有东西会给长时间的搜索打折，TB4 之前没有东西会约束它的成本。
 TB3 本来就是任何 Eligibility 的条件，所以不论顺序如何它都约束 Qualification。一条血缘停止后接着做什么，即来自 Source Intake
 的新假设，不在这几片之内。
 

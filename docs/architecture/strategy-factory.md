@@ -1701,7 +1701,10 @@ deflation. None of it blocks F; it is implemented after F, in this order:
 | TB4 Spend ledger and cap | R&D, R&D Owner client, Product Edge | usage capture, reserve and settle, `PAUSED_SPEND_CAP_REACHED`, the environment‑set cap, then the Dashboard control | none                 |
 | TB5 Remove the trial cap | R&D, Product Edge, Dashboard        | TrialFamily Policy V2 without a budget, the admission refusal and `TRIAL_BUDGET_EXHAUSTED` gone for V2 families    | TB1, TB2, TB4        |
 
-TB5 is last because it removes the bound the others replace: before TB2 nothing would discount a long search, and
+TB1 cannot start yet. It counts the census appends the same-cut Decision and Selection composition in
+[R&D](../owners/rd/#target--not_admitted---same-cut-decision-and-selection-composition) makes, and that composition is
+itself `TARGET / NOT_ADMITTED`: until it is admitted and built, successor iterations have no production path and no
+census append exists to count. TB5 is last because it removes the bound the others replace: before TB2 nothing would discount a long search, and
 before TB4 nothing would bound its cost. TB3 is already a condition of any Eligibility, so it gates Qualification
 whatever the order. What a stopped lineage does next, a new hypothesis from Source Intake, is outside these slices.
 

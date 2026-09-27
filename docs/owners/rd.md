@@ -1105,8 +1105,10 @@ transitively:
   counted by the next Candidate that binds a later cut.
 
 No caller supplies the count: Qualification derives it from the bound frontiers. A Research goal with no semantic
-predecessor starts a new lineage. Using one to erase a predecessor is already prohibited below, and the same-universe
-random control does not depend on the count being complete.
+predecessor starts a new lineage. The count is bounded by the lineage rather than by every trial a principal has run,
+because what it protects against does not rest on it alone: using a new goal to erase a predecessor is already
+prohibited below, and the same-universe random control compares a Candidate against programs drawn to a definition
+the searcher did not write, so it holds even when the count is understated.
 
 **What changes when the removal lands.** A TrialFamily Policy V2 has no trial budget and its own digest domain, so
 every V1 family keeps its identity and its frozen decision policy. A V1 family that exhausts its sealed budget still
@@ -1140,9 +1142,9 @@ it.
   the Research workflow enters `PAUSED_SPEND_CAP_REACHED`, which carries the cap, the settled and reserved amounts,
   and the refused effect. It is not an Iteration Decision or a stop: no identity closes and nothing is lost, and the
   same step reserves again once the cap allows it. An effect already reserved completes and settles.
-- *How the user sets it.* The cap is one amount in US dollars per calendar month (UTC), with its price table, held as
-  an authorized Product Edge configuration fact that R&D reads at each reservation; a change is a new fact, never an
-  edit. Until the Dashboard admits a control for it, the R&D Owner API reads the cap from its environment, as it
+- *How the user sets it.* The cap is one amount in US dollars per UTC calendar month, resetting on the first of each
+  month, which the user confirmed on 2026-09-28. It is held with its price table as an authorized Product Edge
+  configuration fact that R&D reads at each reservation; a change is a new fact, never an edit. Until the Dashboard admits a control for it, the R&D Owner API reads the cap from its environment, as it
   reads the Databento cap today.
 
 The slices and their order are in
