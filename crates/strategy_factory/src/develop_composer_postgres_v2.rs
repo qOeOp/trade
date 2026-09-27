@@ -2712,10 +2712,11 @@ async fn verify_composer_writer_authority_in_transaction(
                    FROM writer
                    JOIN pg_catalog.pg_database database
                      ON database.datname=pg_catalog.current_database())
-              , (SELECT count(*)=2
+              , (SELECT count(*)=3
                         AND bool_and(procedure.oid IN (
                           pg_catalog.to_regprocedure($2),
-                          pg_catalog.to_regprocedure($3)
+                          pg_catalog.to_regprocedure($3),
+                          pg_catalog.to_regprocedure($4)
                         ))
                    FROM writer
                    JOIN pg_catalog.pg_proc procedure
@@ -2727,6 +2728,7 @@ async fn verify_composer_writer_authority_in_transaction(
     .bind(COMPOSER_TABLES_V2.as_slice())
     .bind(COMMIT_FUNCTION_V2)
     .bind(COMMIT_FUNCTION_V3)
+    .bind(RUN_VIEW_RECORD_FUNCTION_V1)
     .fetch_one(&mut **transaction)
     .await?;
 
