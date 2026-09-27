@@ -22,6 +22,7 @@ use crate::owner::{
         CHAIN_FIXTURE_INSTRUMENT_V1, CHAIN_MARKET_BASE_PIT_CORRELATION_V1,
         CHAIN_MARKET_BASE_RESEARCH_REQUEST_V1,
     },
+    declared_bar_timeframe_v1::r0_window_end_over_v1,
     instrument_master::{
         InstrumentMasterReadbackV1, InstrumentMasterResolver, InstrumentMasterScopeV1,
     },
@@ -51,8 +52,8 @@ use crate::owner::{
     shared_time_evidence::{UntrustedClockHeadLocator, build_head_fact},
     source_binding::{
         BindingDigest, MarketDataClockAdmission, SourceBindingOwnerReadback,
-        UntrustedSourceBarCadenceV1, UntrustedSourceBarUnitV1, UntrustedSourceBindingLocator,
-        UntrustedSourceBindingProposal,
+        UntrustedSourceBarCadenceV1, UntrustedSourceBarTimeframeV1, UntrustedSourceBarUnitV1,
+        UntrustedSourceBindingLocator, UntrustedSourceBindingProposal,
         authority::{
             OwnerSourceBindingDecision, SourceBindingCommit, derive_binding_id,
             derive_market_semantics_compatibility_identity_v1,
@@ -859,11 +860,16 @@ async fn rejoin_chain_market_base_v1(
         .map_err(|_| diverged("market_semantics"))?;
     let source_locator = request.source_binding.clone();
     let pit_locator = pit.receipt().locator().clone();
+    // The binding is the base's own, checked above against `expected_source`.
     let semantics_request = market_base_semantics_proposal_v1(
         scope,
         &pit_locator,
         &source_locator,
         base_instrument_locator_v1(),
+        market_base_r0_end_v1(
+            &chain_market_base_source_proposal_v1(&chain_market_base_historical_clock_v1())
+                .bar_timeframes,
+        ),
     )?;
     super::market_semantics::recover_market_semantics_in_transaction_v1(
         &mut transaction,
@@ -1082,6 +1088,7 @@ async fn commit_market_base_snapshot_v1(
 fn market_base_r0_request_v1(
     pit: &UntrustedPitSnapshotLocator,
     source: &UntrustedSourceBindingLocator,
+    r0_end: i128,
 ) -> Result<UntrustedReferenceFactR0RequestV1, MarketDataAcceptanceBasisErrorV1> {
     let mut request = UntrustedReferenceFactR0RequestV1 {
         request_identity: d(BASE_R0_REQUEST),
@@ -1089,9 +1096,9 @@ fn market_base_r0_request_v1(
         pit_locator_bytes: canonical_locator_bytes(pit)?,
         source_binding_locator_bytes: canonical_locator_bytes(source)?,
         replay_start_event_ns: 50,
-        replay_end_event_ns_exclusive: 51,
+        replay_end_event_ns_exclusive: r0_end,
         effective_from_ns: 50,
-        effective_until_ns: Some(51),
+        effective_until_ns: Some(r0_end),
         provider_available_ns: 90,
         retrieval_ns: 92,
         correction_publication_ns: 91,
@@ -1116,6 +1123,20 @@ fn market_base_semantics_value_v1() -> MarketSemanticsValueV1 {
     }
 }
 
+/// Where the base's R0 claim ends under a binding that declares `declarations`: the Owner's rule
+/// over those declarations and the labels of the bars the base's snapshot observes, from the
+/// snapshot's event instant.
+fn market_base_r0_end_v1(declarations: &[UntrustedSourceBarTimeframeV1]) -> i128 {
+    r0_window_end_over_v1(
+        50,
+        declarations,
+        MARKET_BASE_OBSERVATIONS
+            .iter()
+            .map(|(_, _, timeframe, _)| *timeframe),
+    )
+    .expect("the base's R0 claim ends within i128")
+}
+
 /// The base's Market Semantics request, over its snapshot, Source Binding, Instrument Master cut
 /// and Reference Fact R0 request.
 fn market_base_semantics_proposal_v1(
@@ -1123,8 +1144,9 @@ fn market_base_semantics_proposal_v1(
     pit: &UntrustedPitSnapshotLocator,
     source: &UntrustedSourceBindingLocator,
     instrument: MarketDataAcceptanceRequestLocatorV1,
+    r0_end: i128,
 ) -> Result<UntrustedMarketSemanticsProposalV1, MarketDataAcceptanceBasisErrorV1> {
-    let r0 = market_base_r0_request_v1(pit, source)?;
+    let r0 = market_base_r0_request_v1(pit, source, r0_end)?;
     let mut instrument_locator_bytes = Vec::with_capacity(64);
     instrument_locator_bytes.extend_from_slice(instrument.request_identity.as_bytes());
     instrument_locator_bytes.extend_from_slice(instrument.request_meaning_digest.as_bytes());
@@ -1139,7 +1161,7 @@ fn market_base_semantics_proposal_v1(
         predecessor_identity: None,
         value: market_base_semantics_value_v1(),
         effective_from_ns: 50,
-        effective_until_ns: Some(51),
+        effective_until_ns: Some(r0_end),
         effective_instant_ns: 50,
         owner_observation_ns: i128::from(BASE_WRITTEN_AT),
         decision_cut: BASE_WRITTEN_AT,
@@ -1279,8 +1301,9 @@ pub(super) fn commit_market_base_corpus_v1<'a>(
             &stored.rows,
         )
         .map_err(|_| diverged("pit_observation_batch"))?;
+        let r0_end = market_base_r0_end_v1(source.fact().bar_timeframes());
         let r0_request =
-            market_base_r0_request_v1(pit.receipt().locator(), source.receipt().locator())?;
+            market_base_r0_request_v1(pit.receipt().locator(), source.receipt().locator(), r0_end)?;
         let r0 = super::reference_fact_coordinates::resolve_reference_fact_r0_in_transaction_v1(
             &mut transaction,
             &r0_request,
@@ -1316,6 +1339,7 @@ pub(super) fn commit_market_base_corpus_v1<'a>(
             pit.receipt().locator(),
             source.receipt().locator(),
             instrument_locator,
+            r0_end,
         )?;
         let semantics = super::market_semantics::resolve_market_semantics_in_transaction_v1(
             &mut transaction,
@@ -1461,9 +1485,9 @@ fn persist_historical_native_r0_v1<'a>(
             pit_locator_bytes: canonical_locator_bytes(pit.receipt().locator())?,
             source_binding_locator_bytes: canonical_locator_bytes(source.receipt().locator())?,
             replay_start_event_ns: 50,
-            replay_end_event_ns_exclusive: 51,
+            replay_end_event_ns_exclusive: market_base_r0_end_v1(source.fact().bar_timeframes()),
             effective_from_ns: 50,
-            effective_until_ns: Some(51),
+            effective_until_ns: Some(market_base_r0_end_v1(source.fact().bar_timeframes())),
             provider_available_ns: 89,
             retrieval_ns: 91,
             correction_publication_ns: 90,

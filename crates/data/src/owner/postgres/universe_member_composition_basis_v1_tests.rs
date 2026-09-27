@@ -291,15 +291,12 @@ async fn postgres_a_new_snapshot_reads_the_basis_its_universe_composition_issues
         canonical_plan_digest: d(0x63),
         design_digest: d(0x64),
     };
-    let event = i128::from(pit.fact().request().time_evidence.event_effective.value);
     let command = ReplayCompositionLocatorOnlyIssuanceRequestV1::new(
         d(0x65),
         ReplayCompositionUniverseBindingIssuanceRequestV1::from_test_fixture(
             locator.clone(),
             pit_locator.clone(),
             source_locator.clone(),
-            event,
-            event + 1,
             resolved.universe_selection_locator(),
             resolved.reference_fact_r0_locator(),
             resolved.market_semantics_locator(),

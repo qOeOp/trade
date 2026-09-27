@@ -746,20 +746,95 @@ fn conflicting_logical_fact_key_fails_closed() {
     assert!(!issue(1, conflicting));
 }
 
-#[rstest]
-fn kind_specific_interval_outside_replay_window_fails_closed() {
-    let mut invalid_session = cuts(1, true);
-    let session = invalid_session
+fn issue_result(
+    seed: u8,
+    reference_cuts: Vec<ReplayReferenceFactCutProposalV2>,
+) -> Result<(), ReplayMarketFactsErrorV2> {
+    issue_replay_market_facts_v2(
+        &request(seed + 70),
+        ReplayMarketFactsEvidenceV2 {
+            base_dependencies: dependencies(seed),
+            native_chain: native_chain(seed),
+            reference_cuts,
+            stable_correlation: d(seed + 40),
+        },
+    )
+    .map(|_| ())
+}
+
+/// Replaces the fixture's session with one open over `[opens, closes)` and valid exactly while it
+/// is open, the shape the Owner builds a session fact in.
+fn with_session(opens: i128, closes: i128) -> Vec<ReplayReferenceFactCutProposalV2> {
+    let mut cuts = cuts(1, true);
+    let session = cuts
         .iter_mut()
         .find(|cut| cut.kind == ReplayReferenceFactKindV2::Session)
         .expect("session cut");
-    let ReplayReferenceFactValueV2::Session { opens_at_ns, .. } = &mut session.facts[0].value
+    let ReplayReferenceFactValueV2::Session {
+        opens_at_ns,
+        closes_at_ns,
+        ..
+    } = &mut session.facts[0].value
     else {
         panic!("session value")
     };
-    *opens_at_ns = 9;
-    assert!(!issue(1, invalid_session));
+    *opens_at_ns = opens;
+    *closes_at_ns = closes;
+    session.facts[0].time.effective_from_ns = opens;
+    session.facts[0].time.effective_until_ns = Some(closes);
+    cuts
+}
 
+// The fixture's Replay window is [10, 100).
+#[rstest]
+#[case::opens_before_and_closes_after_the_window(5, 120)]
+#[case::opens_before_the_window(5, 90)]
+#[case::closes_after_the_window(10, 120)]
+#[case::shares_only_the_first_instant(0, 11)]
+#[case::shares_only_the_last_instant(99, 120)]
+fn a_session_overlapping_the_replay_window_is_admitted(#[case] opens: i128, #[case] closes: i128) {
+    assert_eq!(issue_result(1, with_session(opens, closes)), Ok(()));
+}
+
+#[rstest]
+#[case::closes_as_the_window_opens(0, 10)]
+#[case::opens_as_the_window_closes(100, 110)]
+#[case::closes_before_the_window(0, 5)]
+fn a_session_sharing_no_instant_with_the_replay_window_is_refused_by_name(
+    #[case] opens: i128,
+    #[case] closes: i128,
+) {
+    assert_eq!(
+        issue_result(1, with_session(opens, closes)),
+        Err(ReplayMarketFactsErrorV2::SessionOutsideReplayWindow)
+    );
+}
+
+/// Look-ahead over a session is not the window check's to refuse: a revised session version that
+/// becomes decidable only after the snapshot's decision cut is refused by the decision-cut check,
+/// though it overlaps the window, and the same version inside the cut is admitted.
+#[rstest]
+fn a_session_revision_decided_after_the_pit_cut_is_refused_by_the_decision_cut() {
+    let revised = |decision_cut| {
+        let mut cuts = with_session(5, 120);
+        let session = cuts
+            .iter_mut()
+            .find(|cut| cut.kind == ReplayReferenceFactKindV2::Session)
+            .expect("session cut");
+        session.facts[0].correction_identity = d(90);
+        session.facts[0].time.correction_publication_ns = 45;
+        session.facts[0].time.decision_cut = decision_cut;
+        cuts
+    };
+    assert_eq!(issue_result(1, revised(50)), Ok(()));
+    assert_eq!(
+        issue_result(1, revised(51)),
+        Err(ReplayMarketFactsErrorV2::InvalidFactCut)
+    );
+}
+
+#[rstest]
+fn a_fact_valid_only_outside_the_replay_window_fails_closed() {
     let mut disjoint_calendar = cuts(1, true);
     let calendar = disjoint_calendar
         .iter_mut()
@@ -767,7 +842,10 @@ fn kind_specific_interval_outside_replay_window_fails_closed() {
         .expect("calendar cut");
     calendar.facts[0].time.effective_from_ns = 100;
     calendar.facts[0].time.effective_until_ns = Some(110);
-    assert!(!issue(1, disjoint_calendar));
+    assert_eq!(
+        issue_result(1, disjoint_calendar),
+        Err(ReplayMarketFactsErrorV2::InvalidFactCut)
+    );
 }
 
 #[rstest]
@@ -1711,5 +1789,134 @@ fn each_issuance_shape_hashes_its_meaning_under_its_own_domain() {
     assert_ne!(
         <ReplayCompositionBindingIssuanceRequestV1 as ReplayCompositionIssuanceCompositionV1>::MEANING_DOMAIN,
         <ReplayCompositionUniverseBindingIssuanceRequestV1 as ReplayCompositionIssuanceCompositionV1>::MEANING_DOMAIN
+    );
+}
+
+/// A Source Binding locator for a body that is only parsed, never resolved.
+fn parse_only_source_locator() -> crate::owner::source_binding::UntrustedSourceBindingLocator {
+    use crate::owner::source_binding::{
+        UntrustedCompleteFrontier, UntrustedCredentialAudienceClaim,
+        UntrustedCredentialCapabilityClaim, UntrustedMarketDataAsOf, UntrustedSourceBindingLocator,
+        UntrustedSourceBindingLocatorFields,
+    };
+
+    let frontier = |byte: u8| UntrustedCompleteFrontier {
+        stream_identity: "test/stream".to_owned(),
+        cut_identity: "test/stream/cut-1".to_owned(),
+        sequence: 1,
+        digest: d(byte),
+    };
+    UntrustedSourceBindingLocator::from_untrusted(UntrustedSourceBindingLocatorFields {
+        owner: "MARKET_DATA_OWNER_V1".to_owned(),
+        lineage_root: d(20),
+        lineage_version: 1,
+        predecessor_binding_id: None,
+        predecessor_fact_digest: None,
+        binding_id: d(21),
+        fact_digest: d(22),
+        credential_handle_identity: d(23),
+        credential_audience: UntrustedCredentialAudienceClaim::MarketData,
+        credential_capabilities: [UntrustedCredentialCapabilityClaim::MarketDataRead]
+            .into_iter()
+            .collect(),
+        source_frontier: frontier(24),
+        correction_frontier: frontier(25),
+        time_evidence: UntrustedMarketDataAsOf {
+            claimed_evidence_identity: d(26),
+            clock_identity: "TEST-CLOCK".to_owned(),
+            clock_epoch: "TEST-EPOCH".to_owned(),
+            monotonic_sequence: 7,
+            restart_continuity_digest: d(9),
+            skew_bound: 1,
+            uncertainty_bound: 1,
+            event_effective: 10,
+            observed_at: 10,
+            effective_at: 10,
+            valid_through: 100,
+            provider_available: 10,
+            retrieval: 10,
+            correction_publication: 10,
+        },
+    })
+}
+
+/// Neither issuance body names a replay window any more: the Owner derives it from the snapshot's
+/// R0 record and the execution bar its Source Binding declares. A body that still names one is
+/// refused at parse, by the field's own name, rather than its window being silently ignored; the
+/// same body without it parses back to itself.
+#[rstest]
+fn an_issuance_body_naming_a_replay_window_is_refused_at_parse() {
+    use super::{
+        ReplayCompositionBindingIssuanceRequestV1, ReplayCompositionContentLocatorV1,
+        ReplayCompositionRequestLocatorV1, ReplayCompositionUniverseBindingIssuanceRequestV1,
+    };
+    use crate::owner::strategy_design_role_set::StrategyDesignRoleSetLocatorV1;
+
+    fn refuses_each_window_field<T>(body: &T)
+    where
+        T: serde::Serialize + serde::de::DeserializeOwned + PartialEq + std::fmt::Debug,
+    {
+        let json = serde_json::to_value(body).unwrap();
+        assert_eq!(
+            &serde_json::from_value::<T>(json.clone()).unwrap(),
+            body,
+            "the body without a window parses back to itself"
+        );
+
+        for field in ["replay_start_event_ns", "replay_end_event_ns_exclusive"] {
+            let mut old = json.clone();
+            old[field] = serde_json::json!(50);
+            let refusal = serde_json::from_value::<T>(old).unwrap_err().to_string();
+            assert!(
+                refusal.contains(&format!("unknown field `{field}`")),
+                "{field}: {refusal}"
+            );
+        }
+    }
+
+    let role_set = StrategyDesignRoleSetLocatorV1 {
+        schema_version: 2,
+        request_identity: "parse-only".into(),
+        operation_receipt_identity: d(1),
+        artifact_locator: "artifact:parse-only".into(),
+        artifact_identity: d(2),
+        canonical_plan_digest: d(3),
+        design_digest: d(4),
+    };
+    let request_locator =
+        |byte| ReplayCompositionRequestLocatorV1::from_untrusted(d(byte), d(byte));
+    let content_locator =
+        |byte| ReplayCompositionContentLocatorV1::from_untrusted(d(byte), d(byte));
+    let pit = request(3).pit_locator().clone();
+
+    refuses_each_window_field(
+        &ReplayCompositionUniverseBindingIssuanceRequestV1::from_test_fixture(
+            role_set.clone(),
+            pit.clone(),
+            parse_only_source_locator(),
+            request_locator(40),
+            request_locator(41),
+            request_locator(42),
+            content_locator(43),
+        ),
+    );
+    refuses_each_window_field(
+        &ReplayCompositionBindingIssuanceRequestV1::from_test_fixture(
+            role_set,
+            pit,
+            parse_only_source_locator(),
+            request_locator(50),
+            request_locator(51),
+            request_locator(52),
+            content_locator(53),
+            content_locator(54),
+            request_locator(55),
+            request_locator(56),
+            request_locator(57),
+            request_locator(58),
+            request_locator(59),
+            content_locator(60),
+            request_locator(61),
+        ),
     );
 }
