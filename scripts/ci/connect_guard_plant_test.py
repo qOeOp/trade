@@ -2,7 +2,7 @@
 """
 Both directions for the check-connect-guard-plant pre-commit hook.
 
-scripts/ci/check-disallowed-connect-outside-union.bash's self-tests append a plant to a real source
+scripts/ci/check-disallowed-connect-outside-union.bash appends a plant on every run to a real source
 file and restore it on exit. A killed run cannot restore it, so the hook refuses any `.rs` file that
 contains the plants' marker. The hook repeats the marker as a literal, so this reads both files and
 checks that:
@@ -52,7 +52,7 @@ def plants() -> tuple[str, list[str]]:
         fail(f"{SCRIPT.name} no longer sets plant_marker and plant_file")
     bodies = re.findall(r'cat >> "\$plant_file" << EOF\n(.*?)\nEOF\n', text, re.DOTALL)
     if len(bodies) != 2:
-        fail(f"expected the two plants (--self-test, --self-test-bisect), found {len(bodies)}")
+        fail(f"expected the two plants (the gate's, --self-test-bisect's), found {len(bodies)}")
     return plant_file.group(1), [
         body.replace("${plant_marker}", marker.group(1)) for body in bodies
     ]
