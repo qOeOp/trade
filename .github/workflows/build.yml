@@ -859,6 +859,15 @@ jobs:
           EXTRA_FEATURES="${RUST_TEST_EXTRA_FEATURES}"
           TOOLCHAIN_PROOFS_JUNIT=junit/toolchain-proofs.xml
 
+      - name: Stash the path dependencies the Rust cache drops
+        # rust-cache keeps workspace members and packages outside the workspace root, and deletes
+        # the units of everything else before it saves. `patches/pyo3-stub-gen` is inside the root
+        # but not a member, so the cache never held it and every pull request recompiled it and the
+        # 37 crates above it. This packs those units, mtimes included, into a CACHEDIR.TAG, the one
+        # file the cleanup keeps; the reuse step above unpacks it. Last, after everything compiled.
+        if: env.SAVE_BUILD_CACHES == 'true' && !cancelled()
+        run: python3 scripts/ci/workspace_mtimes.py stash "$CARGO_TARGET_DIR"
+
       - name: Publish which tests ran
         if: always()
         # https://github.com/actions/upload-artifact

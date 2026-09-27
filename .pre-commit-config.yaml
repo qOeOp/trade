@@ -335,6 +335,18 @@ repos:
             scripts/lib/git-isolation\.bash
           )$
         pass_filenames: false
+      - id: test-path-dependency-stash
+        name: test the path-dependency stash against rust-cache's cleanup
+        description: The stash survives the pinned rust-cache's cleanup; a new pin fails until re-read
+        entry: python3 -B scripts/ci/workspace_mtimes_stash_test.py
+        language: system
+        files: >-
+          (?x)^(
+            scripts/ci/workspace_mtimes(_stash_test)?\.py|
+            \.github/workflows/[^/]+\.yml|
+            \.github/actions/.+\.yml
+          )$
+        pass_filenames: false
       - id: test-chain-verdict-reuse
         name: test chain verdict reuse
         description: Only the same tree's green whole-chain verdict for its entry count is reused

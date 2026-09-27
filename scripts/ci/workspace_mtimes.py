@@ -25,6 +25,16 @@ Whenever `reuse` cannot prove the mapping, it leaves the checkout's mtimes, so e
 rebuilds, and prints why: no marker, the cached commit unreachable, a failed diff, or a change to
 a manifest, the lock file, cargo configuration or the toolchain.
 
+`stash` runs on main after the build, `reuse` unpacks what it stored. rust-cache keeps the units of
+packages outside the workspace root and of workspace members, and deletes everything else before
+saving (Swatinem/rust-cache c19371144, src/save.ts:41-53 and src/cleanup.ts:55-70). A path
+dependency inside the root that is not a member - `patches/pyo3-stub-gen`, which 37 crates depend
+on - falls in neither, so every pull request recompiled it and everything above it (65 of 77 local
+crates on every pull request on 2026-09-27). `stash` packs those packages' build, fingerprint and
+deps files, mtimes included, into a CACHEDIR.TAG, the one file name the cleanup keeps at any depth
+(src/cleanup.ts:10-30); `reuse` unpacks it before it sets any mtime. A source change in such a
+package still rebuilds it: its sources get the new mtime like any other changed file.
+
 `verify` checks the result by a second route, blob by blob between the two trees rather than
 through `git diff`. Every tracked file whose content differs must be newer than T and every
 other tracked file must be exactly T - 1, whatever its type. A file left wrong fails by name.
@@ -35,11 +45,14 @@ other tracked file must be exactly T - 1, whatever its type. A file left wrong f
 from __future__ import annotations
 
 import base64
+import io
+import json
 import os
 import re
 import shutil
 import subprocess
 import sys
+import tarfile
 import time
 from pathlib import Path
 
@@ -60,6 +73,109 @@ GIT = shutil.which("git") or "git"
 
 def git(*args: str, check: bool = True) -> subprocess.CompletedProcess[bytes]:
     return subprocess.run([GIT, *args], capture_output=True, check=check)
+
+
+def stash_path(target_dir: Path) -> Path:
+    return target_dir / "path-dep-stash" / "CACHEDIR.TAG"
+
+
+def stashed_packages() -> list[tuple[str, list[str]]]:
+    """
+    Return (package name, crate names) for every local path package inside this checkout
+    that is not a workspace member.
+    """
+    cargo = shutil.which("cargo") or "cargo"
+    meta = json.loads(
+        subprocess.run(
+            [cargo, "metadata", "--format-version", "1", "--locked"],
+            capture_output=True,
+            check=True,
+        ).stdout,
+    )
+    root = os.path.realpath(meta["workspace_root"]) + os.sep
+    members = set(meta["workspace_members"])
+    packages = []
+    for package in meta["packages"]:
+        manifest = os.path.realpath(package["manifest_path"])
+        if (
+            package.get("source") is None
+            and package["id"] not in members
+            and manifest.startswith(root)
+        ):
+            crates = sorted({t["name"].replace("-", "_") for t in package["targets"]})
+            packages.append((package["name"], crates))
+    return sorted(packages)
+
+
+def unit_files(target_dir: Path, packages: list[tuple[str, list[str]]]) -> list[Path]:
+    """
+    Return every build, fingerprint and deps file those packages left in any profile
+    directory under the target, nested targets included.
+    """
+    names = [name for name, _ in packages]
+    crates = [crate for _, crate_list in packages for crate in crate_list]
+    profiles = []
+    # A walk that never descends into the unit directories themselves: the target holds hundreds
+    # of thousands of files, and a profile directory is recognised by its `.fingerprint` child.
+    for directory, subdirectories, _files in os.walk(target_dir):
+        if ".fingerprint" in subdirectories:
+            profiles.append(Path(directory))
+        subdirectories[:] = [
+            d for d in subdirectories if d not in {".fingerprint", "build", "deps", "incremental"}
+        ]
+    # cargo names a unit `<package>-<16 hex>` and its outputs `[lib]<crate>-<16 hex>[.ext]`. Matching
+    # the whole shape keeps `pyo3-stub-gen-derive`, a different package, out of `pyo3-stub-gen`.
+    unit = re.compile(rf"^(?:{'|'.join(map(re.escape, names))})-[0-9a-f]{{16}}$")
+    output = re.compile(rf"^(?:lib)?(?:{'|'.join(map(re.escape, crates))})-[0-9a-f]{{16}}(?:\.|$)")
+    found = []
+    if not names:
+        return found
+    for profile in profiles:
+        for kind in (".fingerprint", "build"):
+            for entry in (profile / kind).glob("*"):
+                if unit.match(entry.name):
+                    found.extend(p for p in [entry, *entry.rglob("*")] if p.is_file())
+        found.extend(
+            entry
+            for entry in (profile / "deps").glob("*")
+            if entry.is_file() and output.match(entry.name)
+        )
+    return sorted(set(found))
+
+
+def stash(target_dir: Path) -> int:
+    packages = stashed_packages()
+    names = ", ".join(name for name, _ in packages) or "none"
+    files = unit_files(target_dir, packages)
+    buffer = io.BytesIO()
+    with tarfile.open(fileobj=buffer, mode="w") as archive:
+        for path in files:
+            archive.add(path, arcname=str(path.relative_to(target_dir)), recursive=False)
+    path = stash_path(target_dir)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(buffer.getvalue())
+    print(
+        f"{PREFIX} stashed path dependencies outside the members ({names}): "
+        f"{len(files)} file(s), {path.stat().st_size} bytes in {path}",
+    )
+    return 0
+
+
+def unstash(target_dir: Path) -> None:
+    path = stash_path(target_dir)
+    if not path.is_file():
+        print(
+            f"{PREFIX} no path-dependency stash restored ({path} is missing); those crates rebuild",
+        )
+        return
+    with tarfile.open(path) as archive:
+        members = [
+            m for m in archive.getmembers() if m.isfile() and not m.name.startswith(("/", ".."))
+        ]
+        archive.extractall(target_dir, members=members, filter="data")
+    print(
+        f"{PREFIX} unstashed path dependencies: {len(members)} file(s), {path.stat().st_size} bytes from {path}",
+    )
 
 
 def marker_path(target_dir: Path) -> Path:
@@ -143,6 +259,7 @@ def reuse(target_dir: Path) -> int:
     if blocking:
         return full_rebuild(f"{', '.join(blocking[:5])} changed since the cached source {sha}")
 
+    unstash(target_dir)
     unchanged_time = recorded - 1
     now = time.time()
     changed_set = set(changed)
@@ -195,11 +312,11 @@ def verify(target_dir: Path) -> int:
 
 
 def main() -> int:
-    if len(sys.argv) != 3 or sys.argv[1] not in ("record", "reuse", "verify"):
-        print(f"usage: {sys.argv[0]} record|reuse|verify <target-dir>", file=sys.stderr)
+    commands = {"record": record, "reuse": reuse, "verify": verify, "stash": stash}
+    if len(sys.argv) != 3 or sys.argv[1] not in commands:
+        print(f"usage: {sys.argv[0]} {'|'.join(commands)} <target-dir>", file=sys.stderr)
         return 2
-    target_dir = Path(sys.argv[2])
-    return {"record": record, "reuse": reuse, "verify": verify}[sys.argv[1]](target_dir)
+    return commands[sys.argv[1]](Path(sys.argv[2]))
 
 
 if __name__ == "__main__":
