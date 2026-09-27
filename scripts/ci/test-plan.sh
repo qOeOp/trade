@@ -988,11 +988,23 @@ PINNED
 bash "$repo_root/scripts/ci/test-pull-pinned-image.bash"
 echo "ok: every PostgreSQL/Redis image CI runs is pinned by digest, PostgreSQL to the deployment's"
 
-# Cache quota: `rust tests` caches dependencies only (its workspace artifacts are rebuilt on every
-# run, because checkout renews every mtime), and a pull request or merge-queue run saves no
-# test-data or prek entry, which no other ref could read. Both kept main's py-stubs entry from
-# being evicted on 2026-09-26.
-[[ "$(sed -n '/^  rust-tests-linux-x86:/,/^  quality:/p' "$build_workflow")" == *'rust-cache-workspace-crates: "false"'* ]]
+# `rust tests` caches its workspace artifacts only together with the mtimes that make them
+# reusable: main records its source before compiling, a pull request or merge-queue run reuses
+# it, and main itself never does. Without both steps the artifacts are rebuilt on every run and
+# only grow the entry. And a pull request or merge-queue run saves no test-data or prek entry,
+# which no other ref could read; that kept main's py-stubs entry from being evicted on 2026-09-26.
+rust_tests_job="$(sed -n '/^  rust-tests-linux-x86:/,/^  quality:/p' "$build_workflow")"
+[[ "$rust_tests_job" == *'rust-cache-workspace-crates: "true"'* ]]
+# shellcheck disable=SC2016 # the workflow's literal `$CARGO_TARGET_DIR`, not this shell's
+record_line='python3 scripts/ci/workspace_mtimes.py record "$CARGO_TARGET_DIR"'
+# shellcheck disable=SC2016
+reuse_line='python3 scripts/ci/workspace_mtimes.py reuse "$CARGO_TARGET_DIR"'
+[[ "$(grep -cF "$record_line" <<< "$rust_tests_job")" -eq 1 ]]
+[[ "$(grep -cF "$reuse_line" <<< "$rust_tests_job")" -eq 1 ]]
+[[ "$(grep -B8 'workspace_mtimes.py reuse' <<< "$rust_tests_job" | grep -c "if: github.event_name == 'pull_request' || github.event_name == 'merge_group'")" -eq 1 ]]
+[[ "$(grep -B4 'workspace_mtimes.py record' <<< "$rust_tests_job" | grep -c "if: env.SAVE_BUILD_CACHES == 'true'")" -eq 1 ]]
+[[ "$(grep -c 'workspace_mtimes.py' "$build_workflow")" -eq 2 ]]
+bash "$repo_root/scripts/ci/test-workspace-mtimes.bash"
 for composite in common-test-data common-setup; do
   file="$repo_root/.github/actions/${composite}/action.yml"
   saves="$(grep -c 'uses: actions/cache@' "$file" || true)"
@@ -1003,7 +1015,7 @@ for composite in common-test-data common-setup; do
     exit 1
   fi
 done
-echo "ok: rust tests caches dependencies only; pull requests save no ref-scoped test-data or prek entry"
+echo "ok: rust tests reuses main's workspace artifacts only on pull requests; pull requests save no ref-scoped test-data or prek entry"
 
 # A pull request build takes the Owner chains' verdict from an owner-chains run only on its exact
 # checkout tree (scripts/ci/chain_verdict_reuse.py), and then runs none of the chain jobs; quality

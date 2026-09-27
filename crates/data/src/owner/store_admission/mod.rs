@@ -12,6 +12,7 @@
     reason = "private store-admission foundations retain tested unavailable production adapters and S3 stops"
 )]
 
+mod credential_files;
 mod custody_postgres;
 mod postgres;
 mod signature;
@@ -1802,9 +1803,12 @@ trait AntiRollbackWitness: Send + Sync {
 
 #[async_trait]
 trait CredentialResolver: Send + Sync {
+    /// Leases the credential `handle` names. `cut_epoch_ms` is the admission's store-clock cut: a
+    /// lease whose validity is derived rather than issued is cut from it, never from another clock.
     async fn resolve(
         &self,
         handle: &CredentialHandleBinding,
+        cut_epoch_ms: u64,
     ) -> Result<PostgresCredentialLease, ()>;
 }
 
@@ -1972,7 +1976,7 @@ impl Custodian {
 
         let lease = self
             .credentials
-            .resolve(&latest.credential_handle)
+            .resolve(&latest.credential_handle, now)
             .await
             .map_err(|()| {
                 rejection(
@@ -2335,6 +2339,7 @@ impl CredentialResolver for UnavailableCredentialResolver {
     async fn resolve(
         &self,
         _handle: &CredentialHandleBinding,
+        _cut_epoch_ms: u64,
     ) -> Result<PostgresCredentialLease, ()> {
         Err(())
     }
@@ -2511,6 +2516,7 @@ mod tests {
         async fn resolve(
             &self,
             handle: &CredentialHandleBinding,
+            _cut_epoch_ms: u64,
         ) -> Result<PostgresCredentialLease, ()> {
             PostgresCredentialLease::from_resolved_secret(
                 &handle.identity,
@@ -3198,6 +3204,79 @@ mod tests {
         assert_eq!(error.code(), AdmissionFailureCode::RotationFenceOpen);
     }
 
+    /// The custodian over the secret-file resolver: the manifest signs the version the mounted
+    /// secret is, and the lease lapses a fixed time after the store's cut.
+    #[rstest]
+    #[tokio::test]
+    async fn a_mounted_secret_admits_only_at_its_signed_version_and_lapses_from_the_store_cut() {
+        let directory = std::env::temp_dir().join(format!(
+            "vibe-custodian-secret-files-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&directory).unwrap();
+        let secret = b"postgres://market_data_admitted_reader:secret@127.0.0.1:5432/rd_owner\n";
+        std::fs::write(directory.join("market-data-admitted-reader"), secret).unwrap();
+        let admit = |fixture: &Fixture, lease_ms: u64| {
+            let custodian = Custodian::new(
+                Arc::new(fixture.custody()),
+                Arc::new(CountingVerifier::pinned(
+                    SIGNER,
+                    &fixture.signing_key.verifying_key(),
+                    Arc::new(AtomicUsize::new(0)),
+                )),
+                Arc::new(FakeWitness {
+                    observation: fixture.witness.clone(),
+                }),
+                Arc::new(
+                    credential_files::SecretFileCredentialResolver::new(&directory, lease_ms)
+                        .unwrap(),
+                ),
+                Arc::new(FakeMeasurer {
+                    value: fixture.measurement.clone(),
+                    calls: Arc::new(AtomicUsize::new(0)),
+                }),
+            );
+            let scope = fixture.request.scope();
+            async move { custodian.admit(scope).await }
+        };
+        let naming = |identity: &str, version: String| {
+            let mut fixture = Fixture::new();
+            let mut latest = fixture.history.manifests[1].manifest.clone();
+            latest.credential_handle.identity = identity.to_string();
+            latest.credential_handle.version = version;
+            fixture.replace_latest(latest);
+            fixture
+        };
+
+        // Shorter than the witness observation and the manifest, the lease bounds the receipt, and
+        // it lapses exactly its length after the store clock's cut.
+        let signed = naming(
+            "market-data-admitted-reader",
+            credential_files::secret_version(secret),
+        );
+        let receipt = admit(&signed, 1_000).await.unwrap();
+        assert_eq!(receipt.valid_through_epoch_ms, STORE_NOW + 1_000);
+
+        // The secret changed after the manifest was signed: the lease is the file's version, and
+        // the custodian rejects it.
+        let rotated = naming(
+            "market-data-admitted-reader",
+            credential_files::secret_version(b"postgres://before-rotation\n"),
+        );
+        assert_eq!(
+            admit(&rotated, 1_000).await.unwrap_err().code(),
+            AdmissionFailureCode::CredentialLeaseRejected
+        );
+
+        // No secret is mounted under the handle's name.
+        let unmounted = naming("absent-reader", credential_files::secret_version(secret));
+        assert_eq!(
+            admit(&unmounted, 1_000).await.unwrap_err().code(),
+            AdmissionFailureCode::ProductionCredentialResolverUnavailable
+        );
+        std::fs::remove_dir_all(&directory).unwrap();
+    }
+
     #[tokio::test]
     async fn production_and_s3_ports_are_explicitly_unavailable() {
         let fixture = Fixture::new();
@@ -3832,6 +3911,7 @@ mod tests {
         async fn resolve(
             &self,
             handle: &CredentialHandleBinding,
+            _cut_epoch_ms: u64,
         ) -> Result<PostgresCredentialLease, ()> {
             PostgresCredentialLease::from_resolved_secret(
                 handle.identity.clone(),

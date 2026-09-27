@@ -38,6 +38,11 @@ use vibe_rd_source_intake_invocation_custody::{
 use vibe_strategy_factory::product_edge::{
     RESEARCH_GOAL_OPERATION_V2, RESEARCH_GOAL_SCHEMA_V2, RESEARCH_OWNER_V1,
 };
+#[cfg(all(
+    feature = "sealed-source-intake-research-acceptance",
+    feature = "sealed-develop-composer-acceptance"
+))]
+use vibe_strategy_factory::replay_policy_catalog_sealed_acceptance_v2::ensure_replay_policy_catalog_fixture_v3;
 use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
 
 #[cfg(feature = "sealed-source-intake-research-acceptance")]
@@ -1746,6 +1751,14 @@ async fn postgres_sealed_success_atomically_reads_back_distinct_time_heads_and_r
         .expect("canonical disposable Owner database");
     let mutation = database.mutation();
     let rd_owner = mutation.pool(CanonicalOwnerTestRoleV1::RdOwner);
+    // The Catalog V3 head this entry's TrialFamily is formed against, ensured here: alone on a
+    // fresh cluster this creates it, and after another entry has ensured it, it resolves it exactly.
+    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    ensure_replay_policy_catalog_fixture_v3(
+        mutation.pool(CanonicalOwnerTestRoleV1::ReplayPolicyCatalogAdminWriter),
+    )
+    .await
+    .expect("the sealed Catalog V3 head is created or resolved exactly");
 
     install_source_intake_schema(rd_owner).await;
 
@@ -2038,8 +2051,8 @@ async fn postgres_sealed_success_atomically_reads_back_distinct_time_heads_and_r
             "trial_budget": 1,
             "stop_rule": "Stop after the fixed sealed trial.",
             // The Owner forms a TrialFamily only against the current Replay Policy Catalog V3 head
-            // whose cost, slippage and capacity model identities equal the proposal's; the head the
-            // ordered chain publishes names these.
+            // whose cost, slippage and capacity model identities equal the proposal's; the sealed
+            // head this entry ensures above names these.
             "pit_rule_identity": "sealed-pit-rule-v1",
             "cost_model_identity": "cost-model-v1",
             "slippage_model_identity": "slippage-model-v1",

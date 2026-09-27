@@ -732,12 +732,30 @@ jobs:
           rust-cache-workspaces: . -> target/rust-tests-linux-x86
           rust-cache-on-failure: "false"
           rust-cache-save-if: ${{ env.SAVE_BUILD_CACHES }}
-          # Dependencies only. Checkout gives every source file a new mtime, so cargo rebuilds all
-          # 112 workspace crates on every run whatever the entry holds (0 external and 112
-          # workspace `Compiling` lines, run 36241288847); caching their artifacts only grew the
-          # entry, to 5.47 GB on 2026-09-26, and the quota evicted py-stubs for it. Turn this back
-          # on only together with a fix for the mtimes (Option D, option_d_source_mtimes_stopped).
-          rust-cache-workspace-crates: "false"
+          # Workspace artifacts too, which only pay off with the mtimes the next two steps set:
+          # checkout alone gives every source file a new mtime and every workspace crate rebuilds
+          # (74 `Compiling` lines, 10 min 36 s, run 36255351574). Without those steps this only
+          # grows the entry - 5.47 GB against 1.92 GB for dependencies alone, on 2026-09-26.
+          rust-cache-workspace-crates: "true"
+
+      - name: Record the workspace source this run builds
+        # Main's side of the reuse below. Before anything compiles, the commit and the time go
+        # into the cached target, so every workspace artifact this run saves is newer than that
+        # time and every artifact an earlier run left there is older.
+        if: env.SAVE_BUILD_CACHES == 'true'
+        run: python3 scripts/ci/workspace_mtimes.py record "$CARGO_TARGET_DIR"
+
+      - name: Reuse main's workspace artifacts
+        # A pull request rebuilds only the crates its changes reach: files unchanged since the
+        # recorded commit get the recorded time less a second, changed files - any tracked file,
+        # not only .rs - get now. Anything it cannot prove (no marker, a manifest or toolchain
+        # change, an unreachable commit) leaves the checkout's mtimes and rebuilds everything,
+        # printing why; a file left wrong fails this step by name. Main never runs it: its full
+        # build is what records, and it stays the backstop.
+        if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
+        env:
+          GIT_FETCH_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci/workspace_mtimes.py reuse "$CARGO_TARGET_DIR"
 
       # The tests are uniformly small (26353 of them averaging 88ms, one single `slow`), so this
       # job reads the whole machine rather than the `ci` profile's `test-threads = 2`, which came

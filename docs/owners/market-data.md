@@ -136,10 +136,12 @@ never runs in CI.
   measures inside the custodian with the leased credential. It also has the admission receipt cross-bind the trust
   bundle, while `SealedDeploymentStoreAdmissionReceipt` carries the witness identity but no signer key fingerprint
   or bundle identity.
-  Two production adapters now exist, and neither is composed: the pinned Ed25519 signature verifier
-  (`store_admission/signature.rs`) and the PostgreSQL custody store (`store_admission/custody_postgres.rs`, its schema
+  Three production adapters now exist, and none is composed: the pinned Ed25519 signature verifier
+  (`store_admission/signature.rs`), the PostgreSQL custody store (`store_admission/custody_postgres.rs`, its schema
   and its two principals in `product/rd-workbench/postgres-init/20-deployment-store-custody.sh`, which the compose file
-  does not run yet). `admit_rd_owner_market_data_postgres` still wires the `Unavailable*` ports, so `required` still
+  does not run yet), and the secret-file credential resolver (`store_admission/credential_files.rs`). A secret file
+  has no version or expiry of its own: its version is the SHA-256 of its exact bytes, which the signed manifest names,
+  and its lease lapses a fixed time after the admission's store-clock cut. `admit_rd_owner_market_data_postgres` still wires the `Unavailable*` ports, so `required` still
   fails closed at startup. The admission reads time from the custody store's clock alone: every history read carries
   the store's `clock_timestamp()` cut, and the commit judges the receipt's window on that clock.
 - **`B4` consumer not compiled into the deployed image.** `product/rd-workbench/Dockerfile.owner` builds
