@@ -1263,9 +1263,9 @@ not be given one.
   request carries as its own Owner-observation instant, so the cut's rule that a member fact is observable when its Owner
   observation is at or before the selection's compares two values from one clock. Two consequences follow.
   - The fact's own ordering requires the retrieval instant to be at or before its Owner observation. The head only
-    advances when a Source Binding or PIT snapshot submission admits a newer clock. In production a baseline is admitted
-    in this order: retrieve `exchangeInfo`, let a Source Binding or PIT submission advance the head past the retrieval
-    instant, then submit.
+    advances when a Source Binding admission mints a newer clock; a PIT submission admits the current head's clock and
+    does not move it. In production a baseline is admitted in this order: retrieve `exchangeInfo`, let a Source Binding
+    admission advance the head past the retrieval instant, then submit.
   - At one decision cut, a cut issued before the admission and one issued after it answer differently: the first finds no
     fact, the second resolves it. A cut is written once per request key, so no single request ever changes its answer,
     but two requests at one coordinate can disagree when an admission falls between them.
@@ -1375,9 +1375,8 @@ the terms of the day it was retrieved. This design replaces that one assumption 
   whichever is latest. A snapshot also states the status. It becomes the fact's status when the snapshot is later than
   that instant, which then moves to its retrieval; otherwise the fact keeps the newer status it already holds, and the
   snapshot records its terms only. So a snapshot is never refused because a newer status arrived first, and a fact's
-  status is always the newest the Owner has evidence of. A `!contractInfo` event no later than that instant is refused
-  as out of order, as the status delta intake already refuses an event older than what the fact knows; what is lost is
-  the event's exact instant inside one archive interval, which the snapshot after it already observed the status of.
+  status is always the newest the Owner has evidence of. A `!contractInfo` event no later than that instant is refused,
+  as the status instant boundary below states.
 - **What the series lets the Owner say**, over the terms compared, which are every public term but the contract status:
 
   | Interval                                            | The terms there                                                      | Basis                               |
@@ -1391,6 +1390,13 @@ the terms of the day it was retrieved. This design replaces that one assumption 
   terms did not change between them. A change and its reversal inside one archive interval cannot be seen, and that
   interval is the archiver's cadence: a longer cadence makes the boundary coarser, and the unknown interval around a
   real change is as long as one cadence.
+- **Named property, the status instant boundary.** A `!contractInfo` event no later than the instant the fact knows the
+  status at is refused as `INSTRUMENT_MASTER_V2_EVENT_OUT_OF_ORDER`, as the status delta intake already refuses an event
+  older than what the fact knows; a snapshot later than the event now also sets that instant. When a snapshot is
+  admitted before an earlier event reaches the Owner, the event's status is not lost, since the snapshot observed the
+  status after it, but its exact instant is: the Owner then knows only that the status changed within the archive
+  interval before that snapshot. The boundary is as coarse as the cadence, and a status collector that delivers each
+  event within one cadence never meets it.
 - **The cut chooses by the Replay window.** The bound-replay issuance already recovers the composition binding, whose
   record carries the window. Per member, among the facts observed at the selection, a window whose intervals all have a
   basis takes the fact that opens the interval holding the window's start, with the weakest basis among the intervals
@@ -1415,16 +1421,19 @@ the terms of the day it was retrieved. This design replaces that one assumption 
   host as the R&D Owner API's Binance perpetual PIT client (`BINANCE_PERPETUAL_PIT_BASE_URL`), hourly by default, and
   for each instrument with a baseline admits that instrument's entry, sliced byte for byte into a minimal envelope,
   under the baseline's Source Binding.
-- **The snapshot intake advances the Owner clock itself.** Today the head moves only when a Source Binding or PIT
-  submission mints a newer clock, and nothing does so on the archiver's cadence, so a snapshot retrieved after the head
-  could wait indefinitely. When the head's decision cut is earlier than a snapshot's retrieval, the intake mints the
-  next clock admission from the Owner's own wall observation, as a Source Binding admission does, and commits it with
-  the fact in one transaction; the snapshot's Owner observation is that cut. A retrieval later than the Owner's own wall
-  observation is refused. The head therefore moves at most once per archive interval. A PIT submission R&D froze at the
-  previous head is then refused as `ClockEvidenceNotCurrent` and recovered by reading its correlation back and freezing
-  again at the current cut, as after any other move of the head. The archiver retries a refused or unanswered submission
-  in retrieval order, and its health check fails when the newest admitted snapshot is older than two cadences, a
-  condition the archiver can now clear itself.
+- **The snapshot intake advances the Owner clock itself.** Today the head moves only when a Source Binding admission
+  mints a newer clock, and nothing does so on the archiver's cadence, so a snapshot retrieved after the head could wait
+  indefinitely. When the head's decision cut is earlier than a snapshot's retrieval, the intake mints the next clock
+  admission from the Owner's own wall observation, as a Source Binding admission does, and commits it with the fact in
+  one transaction; the snapshot's Owner observation is that cut. A retrieval later than the Owner's own wall observation
+  is refused. The head therefore moves at most once per archive interval. A PIT submission R&D froze at the previous
+  head is then refused as `ClockEvidenceNotCurrent` and recovered by reading its correlation back and freezing again at
+  the current cut, as after any other move of the head; a run that has to freeze again repeatedly is the signal to
+  lengthen the cadence. That recovery is driven today only with the refusal injected at an unchanged cut, because the
+  ordered chain's head is a fixture clock that a production advancer cannot move, so the archiver is not turned on until
+  a test moves a head between an R&D freeze and its commit and R&D commits at the new cut. The archiver retries a
+  refused or unanswered submission in retrieval order, and its health check fails when the newest admitted snapshot is
+  older than two cadences, a condition the archiver can now clear itself.
 - **F is unchanged.** With one baseline and no later snapshot, every window before its retrieval lies before `t_0`, the
   member is the baseline with its current basis, and its bytes do not move; the snapshot successor's slice pins the
   two-member cut identity and a one-baseline bound-replay cut byte for byte.

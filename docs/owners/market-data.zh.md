@@ -1139,9 +1139,9 @@ request-keyed 的 V2 cut 读的就是这张表；它和 V1 intake 一样，在 O
 - **时钟：** Owner-observation 时刻是 clock head 的 decision cut，也就是 R&D 的 Universe Selection 请求作为其自身
   Owner-observation 时刻携带的坐标，因此 cut 的规则（成员 fact 的 Owner observation 不晚于 selection 的即可观测）比较的是同一
   个时钟上的两个值。由此有两个后果。
-  - fact 自身的时序要求取得时刻不晚于其 Owner observation。只有当一次 Source Binding 或 PIT snapshot 提交准入了更新的时钟，
-    head 才推进。生产上一份 baseline 按这个次序准入：取得 `exchangeInfo`，让一次 Source Binding 或 PIT 提交把 head 推过
-    取得时刻，然后提交。
+  - fact 自身的时序要求取得时刻不晚于其 Owner observation。只有当一次 Source Binding 准入铸出更新的时钟，head 才推进；
+    PIT 提交准入的是当前 head 的时钟，不移动它。生产上一份 baseline 按这个次序准入：取得 `exchangeInfo`，让一次 Source
+    Binding 准入把 head 推过取得时刻，然后提交。
   - 在同一个 decision cut 上，准入之前签发的 cut 与之后签发的 cut 答案不同：前者找不到 fact，后者解析到它。cut 按请求键
     写一次，所以同一个请求的答案永不改变，但若两次请求之间发生了准入，同一坐标上的两个请求可以不一致。
 - **重放：** 若提交推出的 fact 等于该 instrument 已存的 baseline（按该 baseline 自己的 Owner-observation 时刻读取），就
@@ -1230,10 +1230,10 @@ retrieval 观察到的条款，并假定自上市起一直如此；cut 为每个
   head 相等的那个，因为不变的快照正是「在它之前什么都没变」的证据。
 - **一条链上的两种次序。** 快照之间按 retrieval 排序：快照的 retrieval 必须晚于该 fact 最近一次快照的 retrieval，或其
   baseline 的。contract status 在两种后继之间只有一种次序，即 fact 已知其状态的时刻：其 baseline 的 retrieval、最近一条
-  delta 的事件时刻、最近一次快照的 retrieval 三者中最晚的那个。快照也陈述状态。快照晚于该时刻时，它的状态成为 fact 的状态，
-  该时刻随之移到它的 retrieval；否则 fact 保留自己已持有的更新的状态，快照只记录它的条款。所以快照永远不会因为更新的状态先到
-  而被拒绝，fact 的状态始终是 Owner 手上最新证据所示的状态。不晚于该时刻的 `!contractInfo` 事件按乱序拒绝，正如状态 delta
-  intake 已经拒绝早于 fact 所知的事件；丢掉的是该事件在一个归档间隔内的精确时刻，而其后的快照已经观察到了那个状态。
+  delta 的事件时刻、最近一次快照的 retrieval 三者中最晚的那个。快照也陈述状态。快照晚于该时刻时，它的状态成为 fact 的状
+  态，该时刻随之移到它的 retrieval；否则 fact 保留自己已持有的更新的状态，快照只记录它的条款。所以快照永远不会因为更新的
+  状态先到而被拒绝，fact 的状态始终是 Owner 手上最新证据所示的状态。不晚于该时刻的 `!contractInfo` 事件被拒绝，见下文的
+  状态时刻边界。
 - **序列让 Owner 能说什么**，比较范围是除 contract status 外的每个公开条款：
 
   | 区间                                        | 那里的条款                             | Basis                               |
@@ -1245,6 +1245,11 @@ retrieval 观察到的条款，并假定自上市起一直如此；cut 为每个
 
 - **具名性质：归档精度边界。** 两个相邻快照条款相等，即视为其间条款没有变化。一次变化及其回退若落在同一个归档间隔内，就
   看不见；这个间隔就是归档器的节奏：节奏越长边界越粗，真实变化周围的未知区间也有一个节奏那么长。
+- **具名性质：状态时刻边界。** 不晚于 fact 已知其状态时刻的 `!contractInfo` 事件以
+  `INSTRUMENT_MASTER_V2_EVENT_OUT_OF_ORDER` 拒绝，正如状态 delta intake 已经拒绝早于 fact 所知的事件；晚于该事件的快照现
+  在也会设定这个时刻。当快照先于一条更早的事件到达 Owner 被准入时，该事件的状态并没有丢，因为快照观察到了它之后的状态，
+  丢的是它的精确时刻：Owner 此后只知道状态在那张快照之前的一个归档间隔内变过。这个边界与节奏一样粗，一个在一个节奏之内送
+  达每条事件的状态采集器永远不会遇到它。
 - **cut 按 Replay 窗口选择。** bound-replay 签发已经会恢复 composition binding，其记录携带窗口。对每个 member，在
   selection 时刻观察到的 fact 中，若窗口相交的区间都有 basis，就取开启窗口起点所在区间的那个 fact，basis 取窗口相交各区间中
   最弱的那个（假定弱于在快照处相等）；这些区间持有同样的条款，因为它们之间若有变化就是一个未知区间。cut 仍为每个 member 持有
@@ -1261,13 +1266,15 @@ retrieval 观察到的条款，并假定自上市起一直如此；cut 为每个
   凭据之下，经 Owner port 准入快照：不经 Product Edge，也不经在生产中未实现的 Source Intake。它从 R&D Owner API 的 Binance
   perpetual PIT client 所用的同一个具名 host（`BINANCE_PERPETUAL_PIT_BASE_URL`）取回 USD-M `exchangeInfo`，默认每小时一次；
   对每个已有 baseline 的 instrument，把该 instrument 的条目逐字节切入最小信封，在 baseline 的 Source Binding 下准入。
-- **快照 intake 自己推进 Owner 时钟。** 今天 head 只在 Source Binding 或 PIT 提交铸出更新的时钟时移动，而没有任何东西按归档
-  节奏这样做，所以在 head 之后取回的快照可能无限期等待。当 head 的 decision cut 早于快照的 retrieval 时，intake 像 Source
-  Binding 准入那样，以 Owner 自己的墙钟观察铸出下一个时钟准入，并在一个事务里与 fact 一起提交；快照的 Owner observation 就是
-  那个 cut。retrieval 晚于 Owner 自己墙钟观察的快照被拒绝。所以 head 每个归档间隔至多移动一次。R&D 在前一个 head 上冻结的
-  PIT 提交随之以 `ClockEvidenceNotCurrent` 被拒绝，并像 head 其他任何一次移动之后那样，通过读回其 correlation、在当前 cut 重新
-  冻结来恢复。归档器按 retrieval 顺序重试被拒绝或没有应答的提交；它的健康检查在最新已准入快照早于两个节奏时失败，这个状态
-  现在归档器自己就能消除。
+- **快照 intake 自己推进 Owner 时钟。** 今天 head 只在 Source Binding 准入铸出更新的时钟时移动，而没有任何东西按归档节奏
+  这样做，所以在 head 之后取回的快照可能无限期等待。当 head 的 decision cut 早于快照的 retrieval 时，intake 像 Source
+  Binding 准入那样，以 Owner 自己的墙钟观察铸出下一个时钟准入，并在一个事务里与 fact 一起提交；快照的 Owner observation
+  就是那个 cut。retrieval 晚于 Owner 自己墙钟观察的快照被拒绝。所以 head 每个归档间隔至多移动一次。R&D 在前一个 head 上
+  冻结的PIT 提交随之以 `ClockEvidenceNotCurrent` 被拒绝，并像 head 其他任何一次移动之后那样，通过读回其 correlation、在
+  当前 cut 重新冻结来恢复；一次 RUN 需要反复重新冻结，就是该拉长节奏的信号。这条恢复路径今天只在注入拒绝、cut 未变的情况
+  下被驱动过，因为有序链路的 head 是 fixture 时钟，生产推进者移动不了它；所以在有一个测试于 R&D 冻结与提交之间移动 head
+  、并让 R&D 在新 cut 上提交之前，归档器不开启。归档器按 retrieval 顺序重试被拒绝或没有应答的提交；它的健康检查在最新已
+  准入快照早于两个节奏时失败，这个状态现在归档器自己就能消除。
 - **F 不变。** 只有一个 baseline、没有之后的快照时，retrieval 之前的每个窗口都落在 `t_0` 之前，member 就是 baseline，
   basis 与今天相同，字节不动；快照后继那一片逐字节钉住两 member 的 cut identity 与一个单 baseline 的 bound-replay cut。
 - **顺序。** 先做快照后继及其 intake，连同逐字节钉子。在 cut 按窗口选择之前，对条款被快照改变过的 member，无论窗口如何都
