@@ -1272,7 +1272,9 @@ not be given one.
 - **Replay:** a submission whose derived fact equals the instrument's stored baseline, read at that baseline's own
   Owner-observation instant, rejoins it and returns the same terminal: the terminal carries the canonical identity, the
   fact identity, the Owner-observation instant and the terms basis, all of which the stored fact holds. The instant the Owner stamps is not part of what
-  the caller means, so a replay after the clock has advanced still rejoins.
+  the caller means, so a replay after the clock has advanced still rejoins. Two identical submissions at once both
+  answer with the one baseline, because the transaction takes the V2 store's table locks before it reads, as the status
+  delta intake's does.
 - **Refusals, each by name, with nothing written; each says how a submission reaches it today:**
   - `UNAUTHORIZED_PRODUCT_EDGE` (HTTP 403): a request without the Product Edge bearer token.
   - `MALFORMED_TYPED_REQUEST` (HTTP 400): a body that is not the submission, including any unknown field.
@@ -1315,11 +1317,100 @@ not be given one.
   derived terms equal the expected values field by field. Replay rejoins, and each refusal a submission can reach is driven
   once by a payload or request built from that fixture.
 
-**NOT_ADMITTED:** a correction of an admitted V2 fact (a `!contractInfo` delta) has no production intake, so a V2 fact has
-one version in production, and a changed instrument cannot be recorded. No V1 fact is derived into V2, no class but the
-crypto perpetual and no venue outside the Owner's table is admitted, and nothing here claims provider ingestion,
-authenticity, deployment or trading. This intake does not compare a V2 fact with any V1 fact; the cut that reads both
-does, as the next paragraph states.
+**CURRENT / PARTIAL, production Instrument Master V2 contract-status delta intake:** one Owner-sealed admission port
+and one route, `POST /v1/market-data/instrument-master-v2-status-deltas`, guarded exactly as the baseline intake is,
+through which Operations submits one raw public `!contractInfo` event for an instrument that already has a V2 fact. The
+Owner appends it as that fact's direct successor through `apply_contract_info_delta`, whose grammar changes the contract
+status and nothing else. It is the second production writer of `market_data_instrument_master_v2.facts`, runs as
+`market_data_owner`, as the baseline intake does, and needs no grant.
+
+- **Only the status changes, by design.** `!contractInfo` carries the contract status, the listing and delivery instants
+  and the leverage brackets; the fact admits the status alone. Brackets are execution-profile authority, which the public
+  fact excludes, and tick, step, lot, multiplier, limits, currencies and inverse semantics stay baseline-owned. A status
+  delta therefore never changes what a Replay is priced on, and it is not a correction of a baseline's terms; see
+  NOT_ADMITTED below.
+- **What the submission states:** the identity of the fact the event follows, which a baseline or an earlier delta
+  terminal returned; the retrieval instant; the exact event text; and the admitted Source Binding it was received under.
+  It states nothing the Owner derives.
+- **What the Owner derives from the event:** it parses the text strictly as one JSON object whose `e` is `contractInfo`.
+  `s` must equal the fact's raw symbol byte for byte, `ct` must be `PERPETUAL`, and `st`, when present, must be `1`, the
+  USD-M system; `2`, COIN-M, contradicts the baseline's dataset. The provider event instant is `E`, milliseconds, as
+  nanoseconds, and the contract status is `cs`, verbatim. Nothing reads `bks`, `dt`, `ot` or `ps`.
+- **What the Owner takes itself:** the instrument, its canonical identity and its baseline from the named fact; the raw
+  event digest, the module's domain-separated digest of the text's exact UTF-8 bytes; the prior raw-event digest and the
+  next correction sequence from the named fact; and the Owner-observation instant, the decision cut of its current clock
+  head read in the admitting transaction. The Source Binding must be admitted under exactly the named locator and must be
+  the binding the instrument's baseline names.
+- **Order:** the event instant must be later than the instant the named fact already knows the status at, and no later
+  than the retrieval; the retrieval must be no later than the head's decision cut. A baseline knows the status as of its
+  retrieval, since `exchangeInfo` states it as retrieved, not as listed; a delta knows it as of its event instant. An
+  older event that arrives late, including one after the listing but before the baseline was retrieved, is refused
+  rather than admitted over a newer status.
+- **The chain:** the named fact must be the instrument's current head, so each delta states what it follows and two
+  submissions cannot both extend one fact. A cut resolves each member's latest fact observed at its selection's Owner
+  observation, so at one decision cut a cut issued before the delta's admission resolves the named fact and one issued
+  after resolves the delta. As with the baseline, a cut is written once per request key, so no single request changes its
+  answer.
+- **Replay:** a submission whose derived fact equals the stored direct successor of the named fact, read at that
+  successor's own Owner-observation instant, rejoins it and returns the same terminal, even after later deltas. Two
+  identical submissions at once are no different: the transaction takes the V2 store's table locks as its first
+  statement, before it reads anything, so the later one reads what the earlier one committed and rejoins it.
+- **Known limit, one writer at a time.** The transaction is `SERIALIZABLE`, and its snapshot is taken by its first
+  read, so the table locks come before it and every read sees what the previous lock holder committed. Those locks
+  serialize every transaction on `market_data_instrument_master_v2`: both intakes, every cut issuance, the
+  bound-replay issuance included, and every cut resolution, which takes the same locks, wait for one another. At
+  today's volume of manual submissions that costs nothing; an hourly snapshot archiver would add to it. Revisit when the
+  wait is measurable: when an intake, a cut issuance or a resolution is observed waiting on these locks for longer than
+  one second.
+- **The generation check is unchanged:** it compares no status, so a status delta neither causes nor clears a
+  `GenerationMismatch`.
+- **Refusals, each by name, with nothing written; each says how a submission reaches it today:**
+  - `UNAUTHORIZED_PRODUCT_EDGE` (HTTP 403): a request without the Product Edge bearer token.
+  - `MALFORMED_TYPED_REQUEST` (HTTP 400): a body that is not the submission, including any unknown field.
+  - `INSTRUMENT_MASTER_V2_INVALID_EVENT` (HTTP 422): the text is not one JSON object whose `e` is `contractInfo`, or
+    `E` is not a non-negative integer, or `cs` is not a status text the fact can hold.
+  - `INSTRUMENT_MASTER_V2_EVENT_SYMBOL_MISMATCH` (HTTP 422): `s` is not the fact's raw symbol.
+  - `INSTRUMENT_MASTER_V2_CONTRACT_TYPE_UNSUPPORTED` (HTTP 422): `ct` is not `PERPETUAL`.
+  - `INSTRUMENT_MASTER_V2_DATASET_MISMATCH` (HTTP 422): `st` is present and not `1`.
+  - `INSTRUMENT_MASTER_V2_EVENT_AFTER_RETRIEVAL` (HTTP 422): the event instant is later than the retrieval instant.
+  - `INSTRUMENT_MASTER_V2_STATUS_UNCHANGED` (HTTP 422): `cs` is the fact's current status. The event changed only what
+    the fact does not hold, such as the brackets, so there is nothing to record. A collector fed the whole stream meets
+    this on every bracket update and should treat it as an expected skip that no retry changes, not as a failure.
+  - `INSTRUMENT_MASTER_V2_EVENT_OUT_OF_ORDER` (HTTP 409): the event instant is not later than the instant the named
+    fact knows the status at: its baseline's retrieval or its latest delta's event.
+  - `INSTRUMENT_MASTER_V2_PREDECESSOR_UNKNOWN` (HTTP 409): no V2 fact has the named identity.
+  - `INSTRUMENT_MASTER_V2_PREDECESSOR_NOT_CURRENT` (HTTP 409): the named fact already has a successor with another
+    meaning, for example after another event was admitted first.
+  - `INSTRUMENT_MASTER_V2_SOURCE_BINDING_UNAVAILABLE` (HTTP 409): no binding is admitted under exactly the named locator.
+  - `INSTRUMENT_MASTER_V2_SOURCE_BINDING_MISMATCH` (HTTP 409): the binding is admitted but is not the one the
+    instrument's baseline names.
+  - `INSTRUMENT_MASTER_V2_RETRIEVAL_AFTER_OWNER_CLOCK` (HTTP 409): the retrieval instant is later than the current head's
+    decision cut; it succeeds once the head has advanced past it.
+  - `MARKET_DATA_CLOCK_UNAVAILABLE` (HTTP 503): the Owner holds no clock head. No submission can construct it, for the
+    reason the baseline intake states.
+  - `INSTRUMENT_MASTER_V2_ADMISSION_CONFLICT` (HTTP 409): the successor derived from the named fact is not one that fact
+    can take, as when the head's decision cut is earlier than the named fact's Owner observation. No submission can
+    construct it: the delta is built from the named fact itself, and the head only advances while the named fact was
+    observed under an earlier head.
+  - `MARKET_DATA_OWNER_UNAVAILABLE` (HTTP 503): the store is unreachable, refuses the commit, or fails its ownership and
+    privilege assertion, or the named fact's chain does not decode, as when a stored row has been altered: every fact in
+    the chain is re-encoded and rehashed before anything is derived from it.
+- **Proof:** the Market Data PostgreSQL runner proves the intake through production paths only. The baseline is admitted
+  through the baseline intake from the recorded `exchangeInfo` fixture, and the clock is advanced by production Source
+  Binding submissions. The event is built in the provider's documented `!contractInfo` shape for the fixture's symbol;
+  no captured event exists in the repository, which the proof says. Before the delta's admission a cut resolves the
+  baseline, and after it a cut resolves the delta with its status. A replay after a second delta rejoins, and each
+  refusal a submission can reach is driven once, with the store unchanged, including an event after the listing and no
+  later than the baseline's retrieval. A second proof holds the clock head row until two identical baseline submissions,
+  and then two identical deltas, both wait on a lock, and each pair answers with one fact.
+
+**NOT_ADMITTED:** a change to a V2 fact's executable terms has no intake: the status delta changes the contract status
+only, by design. Correcting a baseline's terms assumed since listing needs V2 terms that hold over an interval and
+evidence of when they changed, which only an archived `exchangeInfo` snapshot provides; that design is not admitted.
+Whether a Replay over a window whose status is not `TRADING` must be refused is not decided; nothing refuses one today.
+No V1 fact is derived into V2, no class but the crypto perpetual and no venue outside the Owner's table is admitted, and
+nothing here claims provider ingestion, authenticity, deployment or trading. Neither intake compares a V2 fact with any
+V1 fact; the cut that reads both does, as the next paragraph states.
 
 **CURRENT, V1/V2 generation consistency:** while both generations are in use, one instrument is described in each. A PIT
 request names the V1 Instrument Master readback its snapshot was cut under (`instrument_master_digest`), and Market

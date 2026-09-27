@@ -385,6 +385,45 @@ impl ExchangeInfoBaselineV2 {
     }
 }
 
+/// When a `!contractInfo` event was received, as the caller states it, and the Owner's own
+/// observation. Neither is in the event.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ContractInfoRetrievalV2 {
+    pub retrieval_time_ns: i128,
+    pub owner_observation_time_ns: i128,
+}
+
+/// Why a `!contractInfo` event yields no status delta of a fact.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ContractInfoNormalizationErrorV2 {
+    /// The text is not one JSON object whose `e` is `contractInfo`, `E` is not a non-negative
+    /// integer, or `cs` is not a non-empty text.
+    InvalidEvent,
+    /// `s` is not the fact's raw symbol.
+    SymbolMismatch,
+    /// `ct` is not `PERPETUAL`.
+    ContractTypeUnsupported,
+    /// `st` is present and is not `1`, the USD-M system.
+    DatasetMismatch,
+    /// The event instant is later than the retrieval.
+    EventAfterRetrieval,
+    /// The event instant is not later than the fact's latest event instant.
+    EventOutOfOrder,
+    /// `cs` is the fact's current status, so the event changed nothing the fact holds.
+    StatusUnchanged,
+}
+
+const CONTRACT_INFO_PAYLOAD_DOMAIN_V2: &[u8] = b"VIBE_INSTRUMENT_MASTER_CONTRACT_INFO_PAYLOAD_V2";
+
+/// The digest of a `!contractInfo` event's exact bytes, as every V2 status delta records it.
+#[must_use]
+pub fn contract_info_payload_digest_v2(payload: &[u8]) -> BindingDigest {
+    digest(CONTRACT_INFO_PAYLOAD_DOMAIN_V2, payload)
+}
+
+/// One millisecond in nanoseconds: `!contractInfo` states its event instant in milliseconds.
+const NANOS_PER_MILLI: i128 = 1_000_000;
+
 /// One entry's filters by type, each type at most once.
 struct ExchangeInfoFiltersV2<'a>(Vec<(&'a str, &'a serde_json::Map<String, serde_json::Value>)>);
 
@@ -563,6 +602,90 @@ impl InstrumentMasterFactV2 {
         )
     }
 
+    /// Derives the status delta one raw USD-M `!contractInfo` event makes of this fact.
+    ///
+    /// This is the only definition of how `!contractInfo` becomes a V2 delta; the documentation
+    /// describes it. The event must be for this fact's instrument and contract type, later than
+    /// the instant the fact already knows the status at, which is its latest delta's event or a
+    /// baseline's retrieval, and no later than the event's own retrieval, and must change the contract
+    /// status, the one member the delta grammar admits. The raw event digest is computed here from
+    /// the exact bytes, and the source binding, prior raw-event digest and next correction
+    /// sequence are this fact's. The result still has to pass [`Self::apply_contract_info_delta`].
+    ///
+    /// # Errors
+    ///
+    /// Returns the named reason the event yields no status delta of this fact.
+    pub fn usdm_contract_info_delta(
+        &self,
+        payload: &[u8],
+        retrieval: ContractInfoRetrievalV2,
+    ) -> Result<ContractInfoDeltaV2, ContractInfoNormalizationErrorV2> {
+        use ContractInfoNormalizationErrorV2 as Refused;
+
+        let root: serde_json::Value =
+            serde_json::from_slice(payload).map_err(|_| Refused::InvalidEvent)?;
+        let event = root.as_object().ok_or(Refused::InvalidEvent)?;
+
+        if event.get("e").and_then(serde_json::Value::as_str) != Some("contractInfo") {
+            return Err(Refused::InvalidEvent);
+        }
+        let event_ms = event
+            .get("E")
+            .and_then(serde_json::Value::as_u64)
+            .ok_or(Refused::InvalidEvent)?;
+        let status = event
+            .get("cs")
+            .and_then(serde_json::Value::as_str)
+            .filter(|status| !status.is_empty())
+            .ok_or(Refused::InvalidEvent)?;
+
+        if event.get("s").and_then(serde_json::Value::as_str) != Some(self.raw_symbol.as_str()) {
+            return Err(Refused::SymbolMismatch);
+        }
+
+        if event.get("ct").and_then(serde_json::Value::as_str) != Some("PERPETUAL") {
+            return Err(Refused::ContractTypeUnsupported);
+        }
+
+        if event
+            .get("st")
+            .is_some_and(|system| system.as_u64() != Some(1))
+        {
+            return Err(Refused::DatasetMismatch);
+        }
+        let event_ns = i128::from(event_ms) * NANOS_PER_MILLI;
+
+        if event_ns > retrieval.retrieval_time_ns {
+            return Err(Refused::EventAfterRetrieval);
+        }
+
+        if event_ns <= self.known_as_of_ns() {
+            return Err(Refused::EventOutOfOrder);
+        }
+        let status = FactValue::Value(status.to_owned());
+
+        if self.terms.contract_status == status {
+            return Err(Refused::StatusUnchanged);
+        }
+        Ok(ContractInfoDeltaV2 {
+            canonical_identity: self.canonical_identity.clone(),
+            source_binding_identity: self.baseline.source_binding_identity,
+            source_binding_digest: self.baseline.source_binding_digest,
+            predecessor_source_event_digest: self.latest_source_event_digest(),
+            raw_payload_digest: contract_info_payload_digest_v2(payload),
+            correction_sequence: self
+                .correction_sequence
+                .checked_add(1)
+                .ok_or(Refused::InvalidEvent)?,
+            provider_event_time_ns: event_ns,
+            retrieval_time_ns: retrieval.retrieval_time_ns,
+            owner_observation_time_ns: retrieval.owner_observation_time_ns,
+            changes: InstrumentMasterPublicTermsDeltaV2 {
+                contract_status: Some(status),
+            },
+        })
+    }
+
     /// Applies exactly one public `!contractInfo` delta to this fact.
     ///
     /// The delta must name this canonical instrument, the same admitted source binding, this
@@ -595,7 +718,9 @@ impl InstrumentMasterFactV2 {
             return Err(InstrumentMasterV2Error::CorrectionSequenceMismatch);
         }
 
-        if delta.owner_observation_time_ns < self.latest_owner_observation_time_ns() {
+        if delta.owner_observation_time_ns < self.latest_owner_observation_time_ns()
+            || delta.provider_event_time_ns <= self.known_as_of_ns()
+        {
             return Err(InstrumentMasterV2Error::TimeRegression);
         }
 
@@ -827,6 +952,18 @@ impl InstrumentMasterFactV2 {
 
     pub(crate) fn owner_observation_time_ns(&self) -> i128 {
         self.latest_owner_observation_time_ns()
+    }
+
+    /// The latest instant this fact knows the contract status at: its latest delta's event, or,
+    /// for a baseline, its retrieval, since `exchangeInfo` states the status as retrieved and not
+    /// as listed. A delta must be newer than this, so an event older than what the fact already
+    /// observed is never admitted over it.
+    fn known_as_of_ns(&self) -> i128 {
+        self.latest_delta
+            .as_ref()
+            .map_or(self.baseline.retrieval_time_ns, |delta| {
+                delta.provider_event_time_ns
+            })
     }
 
     fn latest_event_time_ns(&self) -> i128 {
@@ -2752,6 +2889,13 @@ pub(crate) mod tests {
             fact.apply_contract_info_delta(delta(id(3), 2, id(9))),
             Err(InstrumentMasterV2Error::SourceBindingMismatch)
         );
+        // The baseline knows its status as of its retrieval at 100; an event then is not newer.
+        let mut stale = delta(id(3), 2, id(1));
+        stale.provider_event_time_ns = 100;
+        assert_eq!(
+            fact.apply_contract_info_delta(stale),
+            Err(InstrumentMasterV2Error::TimeRegression)
+        );
     }
 
     #[rstest]
@@ -3658,5 +3802,265 @@ mod generation_consistency_tests {
                 );
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod contract_info_normalization_tests {
+    use rstest::rstest;
+
+    use super::*;
+
+    /// The recorded USD-M `exchangeInfo` the baseline comes from, as the baseline intake reads it.
+    const USDM: &[u8] = include_bytes!(
+        "../../../adapters/binance/test_data/futures/http_json/exchange_info_usdm.json"
+    );
+    /// The baseline's retrieval and Owner observation.
+    const RETRIEVED_NS: i128 = 1_790_000_000_000_000_000;
+    const OBSERVED_NS: i128 = 1_790_000_000_500_000_000;
+    /// The event's instant, a day after the baseline was observed, in milliseconds as `E` states it.
+    const EVENT_MS: u64 = 1_790_086_400_000;
+
+    /// The `BTCUSDT` baseline admitted from the recorded payload.
+    fn baseline() -> InstrumentMasterFactV2 {
+        let venue = instrument_master_venue_v2("usdm/exchangeInfo").expect("the USD-M row");
+        InstrumentMasterFactV2::from_exchange_info_baseline(
+            ExchangeInfoBaselineV2::from_usdm_exchange_info(
+                USDM,
+                "BTCUSDT",
+                venue,
+                ExchangeInfoRetrievalV2 {
+                    source_binding_identity: BindingDigest::from_untrusted_bytes([7; 32]),
+                    source_binding_digest: BindingDigest::from_untrusted_bytes([8; 32]),
+                    retrieval_time_ns: RETRIEVED_NS,
+                    owner_observation_time_ns: OBSERVED_NS,
+                },
+            )
+            .unwrap(),
+        )
+        .unwrap()
+    }
+
+    /// A `!contractInfo` event in the shape the provider documents for its Contract Info Stream,
+    /// for `BTCUSDT`, with `edit` applied. No captured event exists in this repository, so this is
+    /// the documented shape, not a recording.
+    fn event(edit: impl FnOnce(&mut serde_json::Value)) -> Vec<u8> {
+        let mut event = serde_json::json!({
+            "e": "contractInfo",
+            "E": EVENT_MS,
+            "s": "BTCUSDT",
+            "ct": "PERPETUAL",
+            "dt": 4_133_404_800_000_u64,
+            "ot": 1_569_398_400_000_u64,
+            "cs": "SETTLING",
+            "bks": [{"bs": 1, "bnf": 0, "bnc": 5000, "mmr": 0.01, "cf": 0, "mi": 21, "ma": 50}],
+            "st": 1
+        });
+        edit(&mut event);
+        serde_json::to_vec(&event).unwrap()
+    }
+
+    /// Received a second after the event, and observed by the Owner a minute later.
+    fn received() -> ContractInfoRetrievalV2 {
+        ContractInfoRetrievalV2 {
+            retrieval_time_ns: i128::from(EVENT_MS) * 1_000_000 + 1_000_000_000,
+            owner_observation_time_ns: i128::from(EVENT_MS) * 1_000_000 + 60_000_000_000,
+        }
+    }
+
+    /// The event becomes exactly the next fact: the status is the event's, every other term is
+    /// the baseline's, and the chain coordinates are derived from the fact it follows.
+    #[rstest]
+    fn a_status_event_becomes_the_facts_direct_successor() {
+        let baseline = baseline();
+        let payload = event(|_| {});
+        let delta = baseline
+            .usdm_contract_info_delta(&payload, received())
+            .expect("a status change the fact takes");
+
+        assert_eq!(delta.canonical_identity, "BTCUSDT-PERP.BINANCE");
+        assert_eq!(delta.correction_sequence, 2);
+        assert_eq!(
+            delta.provider_event_time_ns,
+            i128::from(EVENT_MS) * 1_000_000
+        );
+        assert_eq!(
+            delta.raw_payload_digest,
+            contract_info_payload_digest_v2(&payload)
+        );
+        assert_ne!(
+            delta.raw_payload_digest,
+            exchange_info_payload_digest_v2(&payload)
+        );
+        assert_eq!(
+            delta.predecessor_source_event_digest,
+            baseline.latest_source_event_digest()
+        );
+        assert_eq!(
+            (delta.source_binding_identity, delta.source_binding_digest),
+            (
+                baseline.baseline_provenance().source_binding_identity,
+                baseline.baseline_provenance().source_binding_digest
+            )
+        );
+        let successor = baseline.apply_contract_info_delta(delta).unwrap();
+        assert!(successor.is_direct_successor_of(&baseline));
+        assert_eq!(
+            successor.terms().contract_status,
+            FactValue::Value("SETTLING".to_owned())
+        );
+        let mut unchanged = successor.terms().clone();
+        unchanged.contract_status = baseline.terms().contract_status.clone();
+        assert_eq!(&unchanged, baseline.terms(), "only the status changed");
+        assert_eq!(successor.terms_basis(), baseline.terms_basis());
+        assert_eq!(
+            successor.owner_observation_time_ns(),
+            received().owner_observation_time_ns
+        );
+
+        // A later event extends the successor, not the baseline.
+        let later = event(|event| {
+            event["E"] = serde_json::json!(EVENT_MS + 1_000);
+            event["cs"] = serde_json::json!("TRADING");
+        });
+        let mut after = received();
+        after.retrieval_time_ns += 1_000_000_000;
+        after.owner_observation_time_ns += 1_000_000_000;
+        let third = successor
+            .apply_contract_info_delta(successor.usdm_contract_info_delta(&later, after).unwrap())
+            .unwrap();
+        assert_eq!(third.correction_sequence(), 3);
+        assert!(third.is_direct_successor_of(&successor));
+    }
+
+    /// What the event carries besides the status - brackets, listing and delivery instants, the
+    /// pair - is read by nothing, so it moves no term.
+    #[rstest]
+    fn nothing_but_the_status_is_read() {
+        let baseline = baseline();
+        let plain = baseline
+            .apply_contract_info_delta(
+                baseline
+                    .usdm_contract_info_delta(&event(|_| {}), received())
+                    .unwrap(),
+            )
+            .unwrap();
+        let other = baseline
+            .apply_contract_info_delta(
+                baseline
+                    .usdm_contract_info_delta(
+                        &event(|event| {
+                            event["bks"] = serde_json::json!([]);
+                            event["dt"] = serde_json::json!(1);
+                            event["ot"] = serde_json::json!(2);
+                            event["ps"] = serde_json::json!("BTCUSDT");
+                            event.as_object_mut().unwrap().remove("st");
+                        }),
+                        received(),
+                    )
+                    .unwrap(),
+            )
+            .unwrap();
+        assert_eq!(plain.terms(), other.terms());
+    }
+
+    /// Each refusal, driven by one edit of the event or of its reception.
+    #[rstest]
+    #[case::not_json(|_: &mut serde_json::Value| {}, true, ContractInfoNormalizationErrorV2::InvalidEvent)]
+    #[case::another_event(|e: &mut serde_json::Value| e["e"] = serde_json::json!("markPriceUpdate"), false, ContractInfoNormalizationErrorV2::InvalidEvent)]
+    #[case::no_event_instant(|e: &mut serde_json::Value| { e.as_object_mut().unwrap().remove("E"); }, false, ContractInfoNormalizationErrorV2::InvalidEvent)]
+    #[case::negative_event_instant(|e: &mut serde_json::Value| e["E"] = serde_json::json!(-1), false, ContractInfoNormalizationErrorV2::InvalidEvent)]
+    #[case::fractional_event_instant(|e: &mut serde_json::Value| e["E"] = serde_json::json!(1.5), false, ContractInfoNormalizationErrorV2::InvalidEvent)]
+    #[case::no_status(|e: &mut serde_json::Value| { e.as_object_mut().unwrap().remove("cs"); }, false, ContractInfoNormalizationErrorV2::InvalidEvent)]
+    #[case::empty_status(|e: &mut serde_json::Value| e["cs"] = serde_json::json!(""), false, ContractInfoNormalizationErrorV2::InvalidEvent)]
+    #[case::another_symbol(|e: &mut serde_json::Value| e["s"] = serde_json::json!("ETHUSDT"), false, ContractInfoNormalizationErrorV2::SymbolMismatch)]
+    #[case::symbol_case(|e: &mut serde_json::Value| e["s"] = serde_json::json!("btcusdt"), false, ContractInfoNormalizationErrorV2::SymbolMismatch)]
+    #[case::delivery_contract(|e: &mut serde_json::Value| e["ct"] = serde_json::json!("CURRENT_QUARTER"), false, ContractInfoNormalizationErrorV2::ContractTypeUnsupported)]
+    #[case::coin_margined(|e: &mut serde_json::Value| e["st"] = serde_json::json!(2), false, ContractInfoNormalizationErrorV2::DatasetMismatch)]
+    #[case::system_as_text(|e: &mut serde_json::Value| e["st"] = serde_json::json!("1"), false, ContractInfoNormalizationErrorV2::DatasetMismatch)]
+    #[case::before_the_listing(|e: &mut serde_json::Value| e["E"] = serde_json::json!(1_569_398_400_000_u64), false, ContractInfoNormalizationErrorV2::EventOutOfOrder)]
+    #[case::unchanged_status(|e: &mut serde_json::Value| e["cs"] = serde_json::json!("TRADING"), false, ContractInfoNormalizationErrorV2::StatusUnchanged)]
+    fn each_defect_is_refused_by_name(
+        #[case] edit: fn(&mut serde_json::Value),
+        #[case] not_json: bool,
+        #[case] refusal: ContractInfoNormalizationErrorV2,
+    ) {
+        let payload = if not_json {
+            b"contractInfo".to_vec()
+        } else {
+            event(edit)
+        };
+        assert_eq!(
+            baseline().usdm_contract_info_delta(&payload, received()),
+            Err(refusal)
+        );
+    }
+
+    /// An event later than its own reception is refused, whatever else it says.
+    #[rstest]
+    fn an_event_after_its_retrieval_is_refused() {
+        let mut early = received();
+        early.retrieval_time_ns = i128::from(EVENT_MS) * 1_000_000 - 1;
+        assert_eq!(
+            baseline().usdm_contract_info_delta(&event(|_| {}), early),
+            Err(ContractInfoNormalizationErrorV2::EventAfterRetrieval)
+        );
+    }
+
+    /// Once a delta is admitted, an event no later than it is out of order against the new head,
+    /// even though it is later than the baseline.
+    #[rstest]
+    fn an_event_no_later_than_the_latest_delta_is_out_of_order() {
+        let baseline = baseline();
+        let successor = baseline
+            .apply_contract_info_delta(
+                baseline
+                    .usdm_contract_info_delta(&event(|_| {}), received())
+                    .unwrap(),
+            )
+            .unwrap();
+
+        // Each status differs from the head's `SETTLING`, so only the instant can refuse it.
+        for instant in [EVENT_MS, EVENT_MS - 1] {
+            let stale = event(|event| {
+                event["E"] = serde_json::json!(instant);
+                event["cs"] = serde_json::json!("DELIVERING");
+            });
+            assert_eq!(
+                successor.usdm_contract_info_delta(&stale, received()),
+                Err(ContractInfoNormalizationErrorV2::EventOutOfOrder),
+                "{instant}"
+            );
+        }
+    }
+
+    /// A baseline knows the status as of its retrieval, not as of the listing. An event after the
+    /// listing but no later than the retrieval is older than what the baseline already observed,
+    /// so it is refused rather than admitted over the newer status; one a millisecond later is not.
+    #[rstest]
+    fn an_event_after_listing_but_no_later_than_the_baseline_retrieval_is_out_of_order() {
+        let baseline = baseline();
+        let retrieved_ms = u64::try_from(RETRIEVED_NS / 1_000_000).unwrap();
+        assert!(
+            i128::from(retrieved_ms - 1) * 1_000_000
+                > baseline.baseline_provenance().effective_from_ns,
+            "the instants lie after the listing"
+        );
+
+        for instant in [retrieved_ms - 86_400_000, retrieved_ms - 1, retrieved_ms] {
+            assert_eq!(
+                baseline.usdm_contract_info_delta(
+                    &event(|event| event["E"] = serde_json::json!(instant)),
+                    received()
+                ),
+                Err(ContractInfoNormalizationErrorV2::EventOutOfOrder),
+                "{instant}"
+            );
+        }
+        let after = event(|event| event["E"] = serde_json::json!(retrieved_ms + 1));
+        let delta = baseline
+            .usdm_contract_info_delta(&after, received())
+            .expect("an event after the retrieval is newer than the baseline");
+        assert!(baseline.apply_contract_info_delta(delta).is_ok());
     }
 }
