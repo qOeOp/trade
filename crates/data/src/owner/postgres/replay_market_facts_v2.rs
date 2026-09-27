@@ -2272,25 +2272,23 @@ async fn record_issuance_v1(
 /// snapshot's R0 record starts at, for one execution bar - the bar the Source Binding declares for
 /// the Design's execution label - and never past the R0 claim.
 ///
-/// The execution label is the Design's trigger's: the label of the role each of its joins triggers
-/// on, which must be one label. A Design that declares no join executes on the one label its BAR
-/// roles read. The caller names no interval. A binding that declares no bars, or a Design with no
-/// BAR role and no join, gets the event instant alone.
+/// The execution label is the timeframe label of the Design's execution role
+/// (`execution_role_semantic_id_v1`): the role its joins trigger on, or, with no join, the one role
+/// reading the BAR close. The caller names no interval. A binding that declares no bars, or a Design
+/// with no join and no close, gets the event instant alone.
 pub(super) fn owner_replay_request_v1(
     pit: &crate::owner::pit_snapshot::UntrustedPitSnapshotLocator,
     r0: &crate::owner::reference_fact_coordinates::r0::ReferenceFactR0ReadbackV1,
     source: &crate::owner::source_binding::SourceBindingOwnerReadback,
     receipt: &crate::owner::strategy_design_role_set::StrategyDesignRoleSetReceiptV1,
-    role_requests: &[crate::owner::strategy_input_binding::UntrustedStrategyInputBindingRequest],
 ) -> Result<UntrustedReplayMarketFactsRequestV2, ReplayCompositionBindingErrorV1> {
     use crate::owner::declared_bar_timeframe_v1::{
-        ExecutionWindowErrorV1, execution_label_over_v1, execution_label_v1,
-        execution_window_end_v1,
+        ExecutionWindowErrorV1, execution_role_semantic_id_v1, execution_window_end_v1,
     };
 
     let refusal = |e| match e {
-        ExecutionWindowErrorV1::ExecutionTimeframeNotSingle => {
-            ReplayCompositionBindingErrorV1::ExecutionTimeframeNotSingle
+        ExecutionWindowErrorV1::ExecutionRoleAmbiguous => {
+            ReplayCompositionBindingErrorV1::ExecutionRoleAmbiguous
         }
         ExecutionWindowErrorV1::ExecutionTimeframeNotDeclared => {
             ReplayCompositionBindingErrorV1::ExecutionTimeframeNotDeclared
@@ -2299,25 +2297,27 @@ pub(super) fn owner_replay_request_v1(
             ReplayCompositionBindingErrorV1::ExecutionBarExceedsR0Window
         }
     };
-    let execution_label = if receipt.joins.is_empty() {
-        execution_label_v1(role_requests)
-    } else {
-        // The role set's projection already requires each join's trigger to be one of its roles.
-        let triggers = receipt
+    let execution_role = execution_role_semantic_id_v1(
+        receipt
+            .roles
+            .iter()
+            .map(|role| (role.semantic_id.as_str(), role.field_semantic_id.as_str())),
+        receipt
             .joins
             .iter()
-            .map(|join| {
-                receipt
-                    .roles
-                    .iter()
-                    .find(|role| role.semantic_id == join.trigger_input_id)
-                    .map(|role| role.timeframe.as_str())
-                    .ok_or(ReplayCompositionBindingErrorV1::DependencyMismatch)
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        execution_label_over_v1(triggers)
-    }
+            .map(|join| join.trigger_input_id.as_str()),
+    )
     .map_err(refusal)?;
+    let execution_label = execution_role
+        .map(|semantic_id| {
+            receipt
+                .roles
+                .iter()
+                .find(|role| role.semantic_id == semantic_id)
+                .map(|role| role.timeframe.as_str())
+                .ok_or(ReplayCompositionBindingErrorV1::DependencyMismatch)
+        })
+        .transpose()?;
     let start = r0.record().replay_start_event_ns;
     let end = execution_window_end_v1(
         start,
@@ -2577,16 +2577,7 @@ async fn issue_first_corpus_in_transaction_v1(
     if source.locator() != request.source_binding_locator() {
         return Err(ReplayCompositionBindingErrorV1::DependencyMismatch);
     }
-    let replay = owner_replay_request_v1(
-        request.pit_locator(),
-        &r0,
-        &source,
-        receipt,
-        &declarations
-            .iter()
-            .map(|declaration| declaration.request().clone())
-            .collect::<Vec<_>>(),
-    )?;
+    let replay = owner_replay_request_v1(request.pit_locator(), &r0, &source, receipt)?;
     let native_reference_r0s =
         recover_native_reference_r0s_v1(transaction, &calendar, &session, &time_zone).await?;
     let coordinates = coordinates_from_r0(&r0)?;
@@ -4217,7 +4208,7 @@ fn map_admission_reader_error(
         }
         // Raised only while an issuance derives its window, which this reader never does; each
         // says the Design cannot be replayed over this snapshot, not that the store failed.
-        ReplayCompositionBindingErrorV1::ExecutionTimeframeNotSingle
+        ReplayCompositionBindingErrorV1::ExecutionRoleAmbiguous
         | ReplayCompositionBindingErrorV1::ExecutionTimeframeNotDeclared
         | ReplayCompositionBindingErrorV1::ExecutionBarExceedsR0Window => {
             StrategyInputBindingAdmissionErrorV1::BindingUnavailable

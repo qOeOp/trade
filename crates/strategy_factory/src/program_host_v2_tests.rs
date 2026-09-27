@@ -1464,6 +1464,57 @@ fn the_universe_contract_takes_its_role_set_from_the_design() {
     );
 }
 
+/// Market Data derives a Replay's execution window from the execution role it reads off the same
+/// Composer role-set projection, by `execution_role_semantic_id_v1`. Wherever Strategy Factory
+/// defines that role, the two must name the same one: this is what keeps the Market Data rule a
+/// copy of `derive_execution_role_v2` rather than a second definition. Both orders of the roles
+/// are asked, so a rule that took a role by position could not agree with both.
+#[rstest]
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+fn market_data_names_the_execution_role_strategy_factory_derives() {
+    use vibe_data::owner::declared_bar_timeframe_v1::execution_role_semantic_id_v1;
+
+    use super::strategy_design_v2::{
+        INPUT_JOIN_LATEST_NOT_AFTER_TRIGGER_V1, InputJoinV2, InputRoleV2,
+    };
+    use super::strategy_plan_v2::derive_execution_role_for_test as derive;
+
+    const OPEN: &str = "research.input.open.v1";
+    const CLOSE: &str = "research.input.close.v1";
+    let market_data = |inputs: &[InputRoleV2], joins: &[InputJoinV2]| {
+        execution_role_semantic_id_v1(
+            inputs
+                .iter()
+                .map(|input| (input.semantic_id.as_str(), input.field_semantic_id.as_str())),
+            joins.iter().map(|join| join.trigger_input_id.as_str()),
+        )
+        .map(|role| role.map(str::to_owned))
+    };
+    let join = InputJoinV2 {
+        semantic_id: "research.join.members.v1".into(),
+        inputs: vec![CLOSE.into(), OPEN.into()],
+        alignment_semantic_id: INPUT_JOIN_LATEST_NOT_AFTER_TRIGGER_V1.into(),
+        trigger_input_id: CLOSE.into(),
+        max_staleness_ns: 1,
+    };
+    // Slice F's shape: a universe Design of daily open and close, with no join.
+    let design = universe_design();
+    let mut reversed = design.inputs.clone();
+    reversed.reverse();
+
+    for inputs in [&design.inputs, &reversed] {
+        for joins in [&[][..], std::slice::from_ref(&join)] {
+            let strategy_factory = derive(inputs, joins).expect("Strategy Factory defines it");
+            assert_eq!(strategy_factory, CLOSE);
+            assert_eq!(
+                market_data(inputs, joins),
+                Ok(Some(strategy_factory)),
+                "the same Design names the same execution role"
+            );
+        }
+    }
+}
+
 #[rstest]
 fn a_lifted_single_instrument_proposal_is_the_one_member_set_a_plugin_would_propose() {
     use super::program_host_v2::lift_single_instrument_proposal;

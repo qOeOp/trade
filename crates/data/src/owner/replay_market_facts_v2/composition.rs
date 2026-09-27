@@ -854,9 +854,9 @@ pub enum ReplayCompositionBindingErrorV1 {
     /// request's PIT snapshot, its Source Binding lineage, or the members its Universe Selection
     /// includes.
     UniverseFrameMismatch,
-    /// The Design's BAR roles read more than one timeframe label, so the Replay has no single
-    /// execution bar to derive its window from.
-    ExecutionTimeframeNotSingle,
+    /// The Design names no single execution role - its joins trigger on different roles, or, with
+    /// no join, several roles read the BAR close - so the Replay has no execution bar.
+    ExecutionRoleAmbiguous,
     /// The Source Binding declares bars, but none for the label the Design's BAR roles read.
     ExecutionTimeframeNotDeclared,
     /// The execution bar has no fixed duration, or one execution bar after the event instant ends

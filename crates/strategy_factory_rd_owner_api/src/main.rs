@@ -2791,9 +2791,9 @@ fn replay_composition_refusal(error: ReplayCompositionBindingErrorV1) -> Respons
         }
         // The Design cannot be replayed over this snapshot as it stands; each names why, and no
         // retry changes it.
-        ReplayCompositionBindingErrorV1::ExecutionTimeframeNotSingle => (
+        ReplayCompositionBindingErrorV1::ExecutionRoleAmbiguous => (
             StatusCode::UNPROCESSABLE_ENTITY,
-            Some("EXECUTION_TIMEFRAME_NOT_SINGLE"),
+            Some("EXECUTION_ROLE_AMBIGUOUS"),
         ),
         ReplayCompositionBindingErrorV1::ExecutionTimeframeNotDeclared => (
             StatusCode::UNPROCESSABLE_ENTITY,
@@ -6158,10 +6158,10 @@ mod tests {
         StatusCode::UNPROCESSABLE_ENTITY,
         None
     )]
-    #[case::execution_timeframe_not_single(
-        ReplayCompositionBindingErrorV1::ExecutionTimeframeNotSingle,
+    #[case::execution_role_ambiguous(
+        ReplayCompositionBindingErrorV1::ExecutionRoleAmbiguous,
         StatusCode::UNPROCESSABLE_ENTITY,
-        Some("EXECUTION_TIMEFRAME_NOT_SINGLE")
+        Some("EXECUTION_ROLE_AMBIGUOUS")
     )]
     #[case::execution_timeframe_not_declared(
         ReplayCompositionBindingErrorV1::ExecutionTimeframeNotDeclared,

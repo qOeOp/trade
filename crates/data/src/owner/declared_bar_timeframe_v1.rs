@@ -19,6 +19,7 @@ use super::{
         UntrustedSourceBarCadenceV1, UntrustedSourceBarClockV1, UntrustedSourceBarCompletionV1,
         UntrustedSourceBarLabelV1, UntrustedSourceBarTimeframeV1, UntrustedSourceBarUnitV1,
     },
+    strategy_input_binding::MarketDataFieldSemantic,
 };
 
 const ANCHOR_DOMAIN: &[u8] = b"market-data.bar-schedule.anchor.v1\0";
@@ -290,10 +291,10 @@ pub(crate) fn declared_bar_timeframe_for_test_v1(
 /// Why a Replay's execution window could not be derived inside its R0 window.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
 pub enum ExecutionWindowErrorV1 {
-    /// The Design's BAR roles read more than one timeframe label, so no single execution bar
-    /// exists; several timeframes in one Replay belong to Strategy Factory slice T2.
-    #[error("the Design's BAR roles do not read one timeframe")]
-    ExecutionTimeframeNotSingle,
+    /// The Design names no single execution role: its joins trigger on different roles, or, with
+    /// no join, more than one role reads the BAR close.
+    #[error("the Design names no single execution role")]
+    ExecutionRoleAmbiguous,
     /// The Source Binding declares bars, but none for the execution label.
     #[error("the Source Binding declares no bar for the execution label")]
     ExecutionTimeframeNotDeclared,
@@ -362,7 +363,8 @@ pub(crate) fn r0_window_end_over_v1<'a>(
 /// The exclusive end of a Replay's execution window: one execution bar after the event instant
 /// `r0_start`, where the bar is the one `declarations` state for `execution_label`.
 ///
-/// `execution_label` is the one timeframe label the Design's BAR roles read, and `None` when it has
+/// `execution_label` is the timeframe label of the Design's execution role
+/// ([`execution_role_semantic_id_v1`]), and `None` when it has
 /// no BAR role. With no BAR role, or a binding that declares no bars, the window is the event
 /// instant alone. The window must end no later than `r0_end`, the end of the snapshot's R0 claim.
 ///
@@ -401,39 +403,50 @@ pub(crate) fn execution_window_end_v1(
     Ok(end)
 }
 
-/// The one timeframe label the BAR roles of `requests` read, `None` when there is no BAR role.
+/// The semantic identity of a Design's execution role, from its roles' semantic and field
+/// semantic identities and the roles its joins trigger on; `None` for a Design with no join and no
+/// role reading the BAR close.
+///
+/// This is Strategy Factory's rule for the role that executes and prices a Design
+/// (`derive_execution_role_v2`), read here from the same Composer role-set projection: a Design
+/// with joins executes on the role they trigger on, and one without executes on the one role that
+/// reads the BAR close. Where Strategy Factory defines the role - a universe Design, whose join
+/// must be triggered by that pricing role - both answer the same role for the same Design, which
+/// Strategy Factory's agreement test holds. The joined first corpus is defined here only.
 ///
 /// # Errors
 ///
-/// [`ExecutionWindowErrorV1::ExecutionTimeframeNotSingle`] when they read several.
-pub(crate) fn execution_label_v1(
-    requests: &[super::strategy_input_binding::UntrustedStrategyInputBindingRequest],
-) -> Result<Option<&str>, ExecutionWindowErrorV1> {
-    execution_label_over_v1(
-        requests
-            .iter()
-            .filter(|request| request.field_semantic.data_kind() == "BAR")
-            .map(|request| request.timeframe.as_str()),
-    )
-}
-
-/// The one label among `labels` - the labels the BAR roles read, or the labels a Design's joins
-/// trigger on - `None` when there are none.
-///
-/// # Errors
-///
-/// [`ExecutionWindowErrorV1::ExecutionTimeframeNotSingle`] when there are several.
-pub(crate) fn execution_label_over_v1<'a>(
-    bar_labels: impl IntoIterator<Item = &'a str>,
+/// [`ExecutionWindowErrorV1::ExecutionRoleAmbiguous`] when joins trigger on different roles, or a
+/// join triggers on no role of the Design, or no join is declared and several roles read the close.
+pub fn execution_role_semantic_id_v1<'a>(
+    roles: impl IntoIterator<Item = (&'a str, &'a str)>,
+    join_triggers: impl IntoIterator<Item = &'a str>,
 ) -> Result<Option<&'a str>, ExecutionWindowErrorV1> {
-    let mut labels = bar_labels.into_iter().collect::<Vec<_>>();
-    labels.sort_unstable();
-    labels.dedup();
+    let roles = roles.into_iter().collect::<Vec<_>>();
+    let mut triggers = join_triggers.into_iter().collect::<Vec<_>>();
+    triggers.sort_unstable();
+    triggers.dedup();
 
-    match labels.as_slice() {
+    let candidates = if triggers.is_empty() {
+        roles
+            .iter()
+            .filter(|(_, field)| *field == MarketDataFieldSemantic::BarClosePrice.identity())
+            .map(|(semantic_id, _)| *semantic_id)
+            .collect::<Vec<_>>()
+    } else {
+        if triggers
+            .iter()
+            .any(|trigger| !roles.iter().any(|(semantic_id, _)| semantic_id == trigger))
+        {
+            return Err(ExecutionWindowErrorV1::ExecutionRoleAmbiguous);
+        }
+        triggers
+    };
+
+    match candidates.as_slice() {
         [] => Ok(None),
-        [label] => Ok(Some(label)),
-        _ => Err(ExecutionWindowErrorV1::ExecutionTimeframeNotSingle),
+        [role] => Ok(Some(role)),
+        _ => Err(ExecutionWindowErrorV1::ExecutionRoleAmbiguous),
     }
 }
 
@@ -442,7 +455,7 @@ mod window_tests {
     use rstest::rstest;
 
     use super::{
-        ExecutionWindowErrorV1, execution_label_over_v1, execution_window_end_v1,
+        ExecutionWindowErrorV1, execution_role_semantic_id_v1, execution_window_end_v1,
         r0_window_end_over_v1,
     };
     use crate::owner::source_binding::{
@@ -565,15 +578,47 @@ mod window_tests {
         );
     }
 
-    /// The execution bar is the one label every BAR role reads; several labels are several
-    /// timeframes in one Replay, which is slice T2's and refused by name here.
+    const OPEN: &str = "MARKET_DATA.BAR.OPEN.PRICE.V1";
+    const CLOSE: &str = "MARKET_DATA.BAR.CLOSE.PRICE.V1";
+
+    /// A Design executes on the role its joins trigger on, or, with no join, on the one role that
+    /// reads the BAR close; every ambiguity is refused by name.
     #[rstest]
-    fn the_execution_label_is_the_one_label_the_bar_roles_read() {
-        assert_eq!(execution_label_over_v1(["1M", "1M"]), Ok(Some("1M")));
-        assert_eq!(execution_label_over_v1([]), Ok(None));
+    fn the_execution_role_is_the_trigger_or_else_the_one_close() {
+        let first_corpus = [
+            ("minute.open", OPEN),
+            ("minute.close", CLOSE),
+            ("hour.close", CLOSE),
+            ("day.close", CLOSE),
+        ];
         assert_eq!(
-            execution_label_over_v1(["1M", "1D"]),
-            Err(ExecutionWindowErrorV1::ExecutionTimeframeNotSingle)
+            execution_role_semantic_id_v1(first_corpus, ["minute.close", "minute.close"]),
+            Ok(Some("minute.close")),
+            "the joined first corpus executes on its trigger"
+        );
+        assert_eq!(
+            execution_role_semantic_id_v1([("open", OPEN), ("close", CLOSE)], []),
+            Ok(Some("close")),
+            "without a join the close executes, wherever it stands"
+        );
+        assert_eq!(
+            execution_role_semantic_id_v1([("open", OPEN)], []),
+            Ok(None)
+        );
+        assert_eq!(
+            execution_role_semantic_id_v1(first_corpus, []),
+            Err(ExecutionWindowErrorV1::ExecutionRoleAmbiguous),
+            "several closes and no join"
+        );
+        assert_eq!(
+            execution_role_semantic_id_v1(first_corpus, ["minute.close", "day.close"]),
+            Err(ExecutionWindowErrorV1::ExecutionRoleAmbiguous),
+            "joins triggering on different roles"
+        );
+        assert_eq!(
+            execution_role_semantic_id_v1(first_corpus, ["elsewhere"]),
+            Err(ExecutionWindowErrorV1::ExecutionRoleAmbiguous),
+            "a trigger that is no role of the Design"
         );
     }
 }

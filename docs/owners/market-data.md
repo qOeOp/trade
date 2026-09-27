@@ -952,11 +952,17 @@ shape is built and issued. A locator-only `ReplayCompositionUniverseBindingIssua
 Source Binding, the Universe Selection, the Reference Fact R0 record, Market Semantics and the correction policy, and
 nothing else. Neither issuance body names a replay window, and one that does is refused at parse by
 `deny_unknown_fields`. The Owner derives the window: from the event instant the snapshot's R0 record starts at, for one
-execution bar - the bar the Source Binding declares for the Design's execution label - and never past the R0 claim. The
-execution label is the label of the role each of the Design's joins triggers on, so the first corpus's joined `1M`,
-`1H` and session-day roles execute on the `1M` trigger; a Design that declares no join executes on the one label its
-BAR roles read. Several execution labels are refused as `EXECUTION_TIMEFRAME_NOT_SINGLE`, because several execution
-timeframes in one Replay are Strategy Factory slice T2's; a label the binding declares no bar for as
+execution bar - the bar the Source Binding declares for the label of the Design's execution role - and never past the
+R0 claim. The execution role is the role the Design's joins trigger on, or, for a Design that declares no join, the one
+role reading the BAR close; so the first corpus's joined `1M`, `1H` and session-day roles execute on the `1M` trigger.
+This is Strategy Factory's rule (`derive_execution_role_v2`), read from the same Composer role-set projection, and
+Strategy Factory is its authority: for every universe Design, where Strategy Factory defines the role, a Strategy
+Factory test holds the two to the same role for the same Design. The joined first corpus - one exact instrument, a join
+and three close roles - is outside that definition today, so this rule is its only definition; this is a coverage gap
+that Strategy Factory slice T2 closes. **Decision point, owned by T2:** once T2 generalizes the execution role to joined
+and multi-timeframe Designs, the role-set projection carries the execution role's identity, and Market Data reads that
+role's label instead of deriving the role. A Design whose joins trigger on different roles, or that has no join and
+several close roles, is refused as `EXECUTION_ROLE_AMBIGUOUS`; a label the binding declares no bar for as
 `EXECUTION_TIMEFRAME_NOT_DECLARED`; and an
 execution bar with no fixed length, or longer than the R0 claim, as `EXECUTION_BAR_EXCEEDS_R0_WINDOW`; each is
 HTTP 422. A binding that declares no bars, or a Design with no BAR role, gets the event instant alone. The window rests on

@@ -181,7 +181,7 @@ async fn issue_universe_members_in_transaction_v1(
     if source.locator() != request.source_binding_locator() {
         return Err(ReplayCompositionBindingErrorV1::DependencyMismatch);
     }
-    let replay = super::owner_replay_request_v1(pit, &r0, &source, receipt, &role_requests)?;
+    let replay = super::owner_replay_request_v1(pit, &r0, &source, receipt)?;
     let coordinates = coordinates_from_r0(&r0)?;
     let correction = project_first_v1(CorrectionPolicyAuthenticatedInputsV1 {
         source_binding: &source,
