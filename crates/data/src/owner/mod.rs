@@ -78,6 +78,8 @@ pub(crate) mod time_zone;
 #[cfg(any(test, feature = "sealed-strategy-input-acceptance"))]
 pub mod chain_fixture_v1;
 #[cfg(any(test, feature = "sealed-strategy-input-acceptance"))]
+pub use postgres::bar_schedule_acceptance_v1;
+#[cfg(any(test, feature = "sealed-strategy-input-acceptance"))]
 pub use postgres::chain_market_base_v1;
 
 #[cfg(feature = "sealed-strategy-input-acceptance")]

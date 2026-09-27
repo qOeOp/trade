@@ -1518,6 +1518,17 @@ BAR 只能使用下述独立 V3 FRAME projection；其 durable Owner custody 是
 TARGET/UNAVAILABLE。它绝不扩大或重新解释 V2。新增 V4 FRAME/JOINED_CUT 与 BAR lifecycle 是
 TARGET/NOT_ADMITTED，且绝不扩大或重新解释 V2 或 V3。
 
+TARGET 缺口，BAR schedule 的生产提议者：`commit_prepared_bar_schedule_v1` 是 BAR schedule custody 唯一的写者，而没有任
+何生产路径提议 schedule；今天每一个提议都由测试或验收夹具构造。native Replay 的初始读需要一个在它的帧上切出的 schedule，
+所以在生产提议者出现之前，驱动这条读的验收从 sealed 验收提议者 `commit_bar_schedule_for_acceptance_v1` 取 schedule，它
+只存在于带 `sealed-strategy-input-acceptance` 的构建里。给定一个 PIT 快照和在它上面声明的一个 BAR 角色，Owner 从快照受
+验的 batch、该角色的 binding 以及快照绑定的 Instrument Master readback 推出 schedule 的每个字段：标签等于角色周期的那
+个形态、master fact 的区间、区间收盘、完整 bar，以及在快照事件时刻的 cut。schedule 属于品种与周期，不属于角色；帧已经
+读得到的 schedule 会被 rejoin，不再重写。找不到快照、batch 验不过、角色未声明、角色跨多个成员、角色所在行不是 BAR、周
+期没有任何 schedule 单位能陈述，以及 Instrument Master readback 缺失，都按名拒绝。Strategy Factory 的切片 F 依赖它。旁
+边还有两个源缺口：没有 schedule 单位能陈述固定间隔的日，所以像 Binance 永续这样的连续日线今天排不了 schedule；已准入的
+Binance 永续源不提供 QUOTE 行，所以永续 Replay 没有可供成交的报价 cut。
+
 `TimeframeSpecV1` 只有一种 fixed canonical codec，字段顺序是：schema `u16LE = 1`、reserved-zero `u16LE`、
 kind `u8`、正 step `u32LE`、unit `u8`、anchor identity `[u8; 32]`、calendar identity `[u8; 32]`、session
 identity `[u8; 32]`、time-zone identity `[u8; 32]`、label-rule `u8`、partial-bar-rule `u8`；禁止 trailing
