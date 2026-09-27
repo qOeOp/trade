@@ -1,0 +1,139 @@
+{
+  "available": {
+    "data_window": {
+      "cut_identity": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "end_exclusive": "2024-01-05T00:00:00.000000000Z",
+      "granularity": "1D",
+      "instrument": "BTCUSDT-PERP.BINANCE",
+      "snapshot_count": 1,
+      "start": "2024-01-01T00:00:00.000000000Z"
+    },
+    "empty_reason": null,
+    "fill_count": 3,
+    "fills": [
+      {
+        "at": "2024-01-01T03:00:00.000000000Z",
+        "price": "100.51",
+        "quantity": "1",
+        "side": "BUY"
+      },
+      {
+        "at": "2024-01-02T17:00:00.000000000Z",
+        "price": "117.49",
+        "quantity": "1",
+        "side": "SELL"
+      },
+      {
+        "at": "2024-01-03T13:00:00.000000000Z",
+        "price": "109.51",
+        "quantity": "1",
+        "side": "BUY"
+      }
+    ],
+    "max_drawdown": -0.0,
+    "net_return": 0.00003396000000011057,
+    "run": {
+      "attempt_identity": "backtest-attempt-1",
+      "engine_result_digest": "blake3:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "request_identity": "exploratory-request-1",
+      "result_identity": "backtest-result-1"
+    },
+    "series": [
+      {
+        "at": "2024-01-01T00:00:00.000000000Z",
+        "value": 0.000010480000000034906
+      },
+      {
+        "at": "2024-01-02T00:00:00.000000000Z",
+        "value": 6.49993188073239e-6
+      },
+      {
+        "at": "2024-01-03T00:00:00.000000000Z",
+        "value": 5.479906951100233e-6
+      },
+      {
+        "at": "2024-01-04T00:00:00.000000000Z",
+        "value": 0.000011499741715770284
+      }
+    ],
+    "state": "AVAILABLE",
+    "strategy": {
+      "channel": {
+        "field_semantic_id": "MARKET_DATA.BAR.CLOSE.PRICE.V1",
+        "instrument": "BTCUSDT-PERP.BINANCE",
+        "role_semantic_id": "research.input.close.daily.v1",
+        "scale": 2,
+        "timeframe": "1D",
+        "unit": "PRICE"
+      },
+      "comparison": "GREATER",
+      "falsifier": "the channel never crosses the threshold",
+      "family": "SINGLE_THRESHOLD_V1",
+      "otherwise": {
+        "position_intent_semantic_id": "kernel.position.exit.v1",
+        "target_position_units": 0,
+        "target_variant_semantic_id": "kernel.target.position.v1"
+      },
+      "threshold": "100.00",
+      "when_true": {
+        "position_intent_semantic_id": "kernel.position.enter.v1",
+        "target_position_units": 1,
+        "target_variant_semantic_id": "kernel.target.position.v1"
+      }
+    }
+  },
+  "empty": {
+    "data_window": {
+      "cut_identity": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "end_exclusive": "2024-01-05T00:00:00.000000000Z",
+      "granularity": "1D",
+      "instrument": "BTCUSDT-PERP.BINANCE",
+      "snapshot_count": 1,
+      "start": "2024-01-01T00:00:00.000000000Z"
+    },
+    "empty_reason": "MORE_THAN_ONE_EQUITY_CURRENCY",
+    "fill_count": 1,
+    "fills": [
+      {
+        "at": "2024-01-01T01:06:00.000000000Z",
+        "price": "100.01",
+        "quantity": "1",
+        "side": "BUY"
+      }
+    ],
+    "max_drawdown": null,
+    "net_return": null,
+    "run": {
+      "attempt_identity": "backtest-attempt-1",
+      "engine_result_digest": "blake3:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "request_identity": "exploratory-request-1",
+      "result_identity": "backtest-result-1"
+    },
+    "series": [],
+    "state": "EMPTY",
+    "strategy": {
+      "channel": {
+        "field_semantic_id": "MARKET_DATA.BAR.CLOSE.PRICE.V1",
+        "instrument": "BTCUSDT-PERP.BINANCE",
+        "role_semantic_id": "research.input.close.daily.v1",
+        "scale": 2,
+        "timeframe": "1D",
+        "unit": "PRICE"
+      },
+      "comparison": "GREATER",
+      "falsifier": "the channel never crosses the threshold",
+      "family": "SINGLE_THRESHOLD_V1",
+      "otherwise": {
+        "position_intent_semantic_id": "kernel.position.exit.v1",
+        "target_position_units": 0,
+        "target_variant_semantic_id": "kernel.target.position.v1"
+      },
+      "threshold": "100.00",
+      "when_true": {
+        "position_intent_semantic_id": "kernel.position.enter.v1",
+        "target_position_units": 1,
+        "target_variant_semantic_id": "kernel.target.position.v1"
+      }
+    }
+  }
+}
