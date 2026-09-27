@@ -993,6 +993,13 @@ pub(crate) async fn ensure_first_composer_v3_replay_acceptance_v1(
     // The schedule is the one the klines binding declares: a fixed 24-hour UTC day on the Unix epoch
     // grid, continuous, labelled at its close, complete only, and the engine's bar type for it is
     // the canonical `1-DAY` spelling of that duration.
+    //
+    // The fields are compared one by one because the bar name cannot tell this schedule from the
+    // one that matters most to refuse. Declared as a valid exchange session day instead, the klines
+    // binding is still admitted (whether a declaration is true of the market is its author's
+    // statement), the proposer mints a session-day schedule over the Instrument Master's
+    // non-empty calendar and session, and the engine names that bar `1-DAY` too. Only the kind,
+    // unit, step, anchor and clock below differ, so deleting them would let that schedule pass.
     let close_role = design
         .inputs
         .iter()
