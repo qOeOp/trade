@@ -803,7 +803,7 @@ fn fixed_point_decimal(coefficient: i128, scale: u8) -> String {
     }
 }
 
-fn project_engine_result_v1(
+pub(crate) fn project_engine_result_v1(
     engine_result_bytes: &[u8],
 ) -> Result<BacktestRunResultV1, BacktestRunReportRefusalV1> {
     let canonical = CanonicalBacktestResult::from_slice(engine_result_bytes)
@@ -952,6 +952,34 @@ pub(crate) mod report_test_support_v1 {
     /// observation cadence is the engine's default: no snapshot interval is configured, so every
     /// point the series carries is one the engine records for any run of this length.
     pub(crate) fn run_multi_day_round_trip_v1() -> CanonicalBacktestResult {
+        run_quotes_v1(&quotes(InstrumentId::from(INSTRUMENT)))
+    }
+
+    /// Runs the engine, the simulated venue and the portfolio over `prices`, one minute apart from
+    /// `start`, with the same 2/3 EMA cross that buys one unit on a cross up and sells on a cross
+    /// down.
+    pub(crate) fn run_prices_v1(prices: &[f64], start: u64) -> CanonicalBacktestResult {
+        let instrument_id = InstrumentId::from(INSTRUMENT);
+        let quotes = prices
+            .iter()
+            .zip(0_u64..)
+            .map(|(&price, ordinal)| {
+                let ts = start + ordinal * 60_000_000_000;
+                Data::Quote(QuoteTick::new(
+                    instrument_id,
+                    Price::new(price - 0.01, 2),
+                    Price::new(price + 0.01, 2),
+                    Quantity::from("100"),
+                    Quantity::from("100"),
+                    ts.into(),
+                    ts.into(),
+                ))
+            })
+            .collect::<Vec<_>>();
+        run_quotes_v1(&quotes)
+    }
+
+    fn run_quotes_v1(quotes: &[Data]) -> CanonicalBacktestResult {
         let instrument_id = InstrumentId::from(INSTRUMENT);
         let mut engine = BacktestEngine::new(BacktestEngineConfig {
             bypass_logging: true,
@@ -980,7 +1008,7 @@ pub(crate) mod report_test_support_v1 {
             .add_strategy(EmaCross::new(instrument_id, Quantity::from("1"), 2, 3))
             .expect("EMA cross strategy");
         engine
-            .add_data(quotes(instrument_id), None, true, true)
+            .add_data(quotes.to_vec(), None, true, true)
             .expect("constructed quotes");
         engine
             .run(None, None, Some(RUN_CONFIG_ID.to_owned()), false)
@@ -1116,6 +1144,91 @@ mod tests {
         },
         *,
     };
+
+    /// 2024-01-01T01:00:00Z: a real day, away from midnight, so the engine's day buckets are the ones
+    /// a real run gets.
+    const ONE_AM: u64 = 1_704_070_800_000_000_000;
+
+    /// What a report of one real-engine run over `prices` states: its state, its points, its fills.
+    fn report_of_prices(prices: &[f64]) -> BacktestRunResultV1 {
+        let bytes = super::report_test_support_v1::run_prices_v1(prices, ONE_AM)
+            .to_bytes()
+            .expect("canonical bytes");
+        project_engine_result_v1(&bytes).expect("the run projects")
+    }
+
+    /// A run that never trades within one real day still has a return: zero.
+    ///
+    /// The engine files each account's first portfolio snapshot under the previous day, as that
+    /// day's close, so a run with a second snapshot on its own day measures one daily return
+    /// against its starting equity. With nothing traded the equity did not move, and the return is
+    /// exactly zero - a real observation, not an absent one.
+    #[rstest]
+    fn a_day_without_a_fill_reports_one_zero_return() {
+        let report = report_of_prices(&[100.0, 100.5, 101.0, 101.5, 102.0, 102.5]);
+
+        assert_eq!(report.fill_count, 0);
+        assert_eq!(report.state, BacktestRunReportStateV1::Available);
+        assert_eq!(
+            report
+                .series
+                .iter()
+                .map(|point| point.value)
+                .collect::<Vec<_>>(),
+            [0.0]
+        );
+    }
+
+    /// A run that enters once within one real day reports that day's return, which the fill moved.
+    #[rstest]
+    fn a_day_with_one_fill_reports_one_return() {
+        // Down then up: the 2/3 EMA crosses up once, buys one unit, and never crosses down.
+        let report = report_of_prices(&[
+            102.0, 101.0, 100.0, 99.0, 98.0, 99.0, 100.0, 101.0, 102.0, 103.0,
+        ]);
+
+        assert_eq!(report.fill_count, 1);
+        assert_eq!(report.fills[0].side, "BUY");
+        assert_eq!(report.state, BacktestRunReportStateV1::Available);
+        assert_eq!(report.series.len(), 1);
+        assert_ne!(
+            report.series[0].value, 0.0,
+            "the fill moved the day's equity"
+        );
+    }
+
+    /// The one real-time run the engine gives no return: every portfolio snapshot on a midnight.
+    ///
+    /// A run always has at least two snapshots - its account's registration and its end - and a run
+    /// without data is refused, so "one snapshot" is not a run the engine makes. The engine files
+    /// the registration snapshot and any snapshot exactly on a midnight under the previous day, so
+    /// a run whose snapshots are all at one midnight puts them in one day and measures nothing;
+    /// the same single quote a minute later reports a zero return, which is the control.
+    #[rstest]
+    fn a_run_whose_snapshots_all_fall_on_a_midnight_reports_empty() {
+        let at = |start| {
+            let bytes = super::report_test_support_v1::run_prices_v1(&[100.0], start)
+                .to_bytes()
+                .expect("canonical bytes");
+            project_engine_result_v1(&bytes).expect("the run projects")
+        };
+        let midnight = ONE_AM - 3_600_000_000_000;
+
+        let report = at(midnight);
+        assert_eq!(report.state, BacktestRunReportStateV1::Empty);
+        assert!(report.series.is_empty());
+
+        let control = at(midnight + 60_000_000_000);
+        assert_eq!(control.state, BacktestRunReportStateV1::Available);
+        assert_eq!(
+            control
+                .series
+                .iter()
+                .map(|point| point.value)
+                .collect::<Vec<_>>(),
+            [0.0]
+        );
+    }
 
     fn run() -> BacktestRunIdentityV1 {
         BacktestRunIdentityV1 {
