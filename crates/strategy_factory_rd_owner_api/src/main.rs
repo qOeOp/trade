@@ -4941,11 +4941,14 @@ mod tests {
     /// this creates the head; after another entry has ensured it, it resolves the same head exactly.
     #[cfg(feature = "sealed-source-intake-acceptance")]
     async fn ensure_sealed_catalog_v3(test_database: &CanonicalOwnerPostgresTestDatabaseV1) {
-        let pool = sqlx::PgPool::connect(
-            test_database.database_url(CanonicalOwnerTestRoleV1::ReplayPolicyCatalogAdminWriter),
-        )
-        .await
-        .expect("the Catalog administrator connects");
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .connect_url(
+                test_database
+                    .database_url(CanonicalOwnerTestRoleV1::ReplayPolicyCatalogAdminWriter),
+                PostgresTls::Disabled,
+            )
+            .await
+            .expect("the Catalog administrator connects");
         ensure_replay_policy_catalog_fixture_v3(&pool)
             .await
             .expect("the sealed Catalog V3 head is created or resolved exactly");

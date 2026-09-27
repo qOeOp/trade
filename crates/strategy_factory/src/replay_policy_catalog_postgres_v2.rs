@@ -9,6 +9,8 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Postgres, Row, Transaction};
 #[cfg(all(test, feature = "sealed-develop-composer-acceptance"))]
+use vibe_postgres_connect::{PgPoolOptionsExt, PostgresTls};
+#[cfg(all(test, feature = "sealed-develop-composer-acceptance"))]
 use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
 
 #[cfg(feature = "sealed-develop-composer-acceptance")]
@@ -346,11 +348,13 @@ pub(crate) async fn ensure_authenticated_sealed_acceptance_fixture_v3(
 pub(crate) async fn ensure_sealed_acceptance_catalog_v3_for_test(
     database: &CanonicalOwnerPostgresTestDatabaseV1,
 ) {
-    let pool = PgPool::connect(
-        database.database_url(CanonicalOwnerTestRoleV1::ReplayPolicyCatalogAdminWriter),
-    )
-    .await
-    .expect("the Catalog administrator connects");
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .connect_url(
+            database.database_url(CanonicalOwnerTestRoleV1::ReplayPolicyCatalogAdminWriter),
+            PostgresTls::Disabled,
+        )
+        .await
+        .expect("the Catalog administrator connects");
     ensure_authenticated_sealed_acceptance_fixture_v3(&pool)
         .await
         .expect("the sealed Catalog V3 head is created or resolved exactly");
