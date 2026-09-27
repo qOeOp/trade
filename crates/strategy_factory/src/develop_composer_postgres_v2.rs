@@ -4620,11 +4620,15 @@ mod tests {
             .split("async fn verify_rd_owner_composer_writer_authority_in_transaction")
             .next()
             .expect("bounded Composer writer authority");
-        assert!(writer_authority.contains("SELECT count(*)=2"));
+        // The writer executes the two commits and the run-view recorder the commit transaction
+        // calls, and nothing else in the Composer API.
+        assert!(writer_authority.contains("SELECT count(*)=3"));
         assert!(writer_authority.contains("pg_catalog.to_regprocedure($2)"));
         assert!(writer_authority.contains("pg_catalog.to_regprocedure($3)"));
+        assert!(writer_authority.contains("pg_catalog.to_regprocedure($4)"));
         assert!(writer_authority.contains(".bind(COMMIT_FUNCTION_V2)"));
         assert!(writer_authority.contains(".bind(COMMIT_FUNCTION_V3)"));
+        assert!(writer_authority.contains(".bind(RUN_VIEW_RECORD_FUNCTION_V1)"));
         assert_eq!(
             super::versioned_composer_commit_query_v2(2, None).unwrap(),
             super::COMMIT_QUERY_V2
