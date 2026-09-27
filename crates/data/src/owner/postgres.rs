@@ -10656,6 +10656,14 @@ fn pit_instrument_master_request_v1(
     }))
 }
 
+type InstrumentMasterAppendFutureV1<'a> = std::pin::Pin<
+    Box<
+        dyn std::future::Future<Output = Result<InstrumentMasterFactV1, InstrumentMasterError>>
+            + Send
+            + 'a,
+    >,
+>;
+
 impl MarketDataOwnerPostgres {
     /// The locator of the Owner's current clock head, for custody that must bind it exactly.
     pub(crate) async fn current_clock_head_locator_v1(
@@ -10699,13 +10707,27 @@ impl MarketDataOwnerPostgres {
             .await
             .map_err(|_| InstrumentMasterAdmissionErrorV1::ClockUnavailable)?;
         let fact = self
-            .append_instrument_master_fact(proposal, &locator)
+            .append_instrument_master_fact_boxed_v1(proposal, &locator)
             .await?;
         Ok(InstrumentMasterAdmissionTerminalV1::seal(
             fact.canonical_identity().to_owned(),
             fact.digest(),
             locator.head_identity(),
         ))
+    }
+
+    /// `append_instrument_master_fact`, built here rather than in the caller's poll frame.
+    ///
+    /// The append's state is larger than clippy's `large_futures` bound. Awaiting
+    /// `Box::pin(append(..))` inline would still build that state in the admission's own frame
+    /// before moving it to the heap. This synchronous frame returns before the admission polls, so
+    /// the admission holds only the box.
+    fn append_instrument_master_fact_boxed_v1<'a>(
+        &'a self,
+        proposal: InstrumentMasterFactProposalV1,
+        clock_locator: &'a UntrustedClockHeadLocator,
+    ) -> InstrumentMasterAppendFutureV1<'a> {
+        Box::pin(self.append_instrument_master_fact(proposal, clock_locator))
     }
 
     /// The coordinates an Instrument Master fact takes from the admitted Source Binding a

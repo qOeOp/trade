@@ -2476,6 +2476,10 @@ fn storage(error: impl Display) -> IterationDecisionPostgresErrorV1 {
 
 #[cfg(all(test, feature = "sealed-develop-composer-acceptance"))]
 mod postgres_acceptance_tests {
+    use vibe_data::owner::shared_time_evidence::{
+        ClockHeadHandoff, ClockHeadSuccessorReadback, SharedTimeEvidenceError,
+        SharedTimeEvidenceResolver, UntrustedClockHeadLocator,
+    };
     use vibe_data::owner::source_binding::BindingDigest;
     use vibe_postgres_connect::{PgPoolOptionsExt, PostgresTls};
     use vibe_qualification::{
@@ -3219,6 +3223,144 @@ mod postgres_acceptance_tests {
             .expect("golden-loop test thread completion");
     }
 
+    struct ProductionRepairCompositionLocatorsV1 {
+        action_request_identity: String,
+        decision_identity: String,
+        result_identity: String,
+        attempt_identity: String,
+        replay: crate::exploratory_replay::ExploratoryReplayRequestLocatorV2,
+        shared_time_head: UntrustedClockHeadLocator,
+    }
+
+    /// Answers every Shared Time read with one named refusal, so a composition that reaches it has
+    /// already passed every Owner read before it.
+    struct RefusingSharedTimeResolverV1;
+
+    #[async_trait::async_trait]
+    impl SharedTimeEvidenceResolver for RefusingSharedTimeResolverV1 {
+        async fn resolve_clock_head(
+            &self,
+            _locator: &UntrustedClockHeadLocator,
+        ) -> Result<ClockHeadHandoff, SharedTimeEvidenceError> {
+            Err(SharedTimeEvidenceError::StoreUnavailable)
+        }
+
+        async fn resolve_clock_successor(
+            &self,
+            _prior: &ClockHeadHandoff,
+            _successor: &UntrustedClockHeadLocator,
+        ) -> Result<ClockHeadSuccessorReadback, SharedTimeEvidenceError> {
+            Err(SharedTimeEvidenceError::StoreUnavailable)
+        }
+    }
+
+    /// Drives both production repair compositions over the custody this entry committed, through
+    /// the Product Edge admission lock that refuses anything but READ COMMITTED by name.
+    ///
+    /// Neither can finish here: the Market Data composition needs an accepted Composer package,
+    /// which a legacy Replay does not name, and the runtime-kernel composition's Shared Time port
+    /// refuses. Each assertion names the refusal that sits past the Owner locks. Under REPEATABLE
+    /// READ the R&D source boundary refuses first, and under SERIALIZABLE the admission lock
+    /// refuses as `ISOLATION_NOT_READ_COMMITTED`; either replaces the asserted refusal. The
+    /// sealed-evidence composition above never opens these reads, so it cannot stand in for this.
+    ///
+    /// This proves the path only as far as the Owner locks, not a composed request: that needs a
+    /// Composer V3 Replay. The runtime-kernel resolve is not driven at all, because its first read is
+    /// a request table this store does not materialize.
+    fn production_repair_compositions_pass_the_read_committed_owner_locks<'a>(
+        database: &'a CanonicalOwnerPostgresTestDatabaseV1,
+        locators: ProductionRepairCompositionLocatorsV1,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + 'a>> {
+        Box::pin(async move {
+            let rd_database_url = database.database_url(CanonicalOwnerTestRoleV1::RdOwner);
+            let rd_pool = sqlx::PgPool::connect(rd_database_url)
+                .await
+                .expect("R&D Owner pool");
+            Box::pin(
+                crate::develop_composer_postgres_v2::PostgresDevelopComposerStoreV2::materialize_schema(
+                    rd_database_url,
+                ),
+            )
+            .await
+            .expect("the Composer family materializes");
+            let composer = Box::pin(
+                crate::source_research_composer_postgres_v2::PostgresSourceResearchComposerProductionV2::connect(
+                    rd_database_url,
+                    database.database_url(CanonicalOwnerTestRoleV1::RdFactWriter),
+                ),
+            )
+            .await
+            .expect("the production Composer read port opens");
+            // The production Instrument Master port opens only from the deployment environment.
+            // SAFETY: this entry runs alone in its own test process, on one thread.
+            unsafe {
+                std::env::set_var(
+                    "MARKET_DATA_OWNER_DATABASE_URL",
+                    database.database_url(CanonicalOwnerTestRoleV1::MarketDataOwner),
+                );
+            }
+            let instrument_master =
+                vibe_data::owner::instrument_master_v2_postgres_owner_from_environment()
+                    .await
+                    .expect("the production Instrument Master port opens");
+            let market_data =
+                vibe_data::owner::native_replay_scheduling_resolver_for_sealed_acceptance_v1(
+                    database.database_url(CanonicalOwnerTestRoleV1::MarketDataReader),
+                )
+                .expect("the Market Data scheduling port opens");
+
+            let market_data_refusal =
+                Box::pin(crate::market_data_repair_request_postgres::compose_market_data_repair_request_v1(
+                    &rd_pool,
+                    crate::market_data_repair_request_postgres::MarketDataRepairCompositionRequestV1 {
+                        action_request_identity: locators.action_request_identity.clone(),
+                        decision_identity: locators.decision_identity.clone(),
+                        result_identity: locators.result_identity.clone(),
+                        attempt_identity: locators.attempt_identity.clone(),
+                        replay: locators.replay.clone(),
+                        shared_time_head: locators.shared_time_head.clone(),
+                    },
+                    &composer,
+                    &instrument_master,
+                    market_data.as_ref(),
+                    &RefusingSharedTimeResolverV1,
+                ))
+                .await
+                .expect_err("a legacy Replay names no accepted Composer package")
+                .to_string();
+            assert!(
+                market_data_refusal.contains("canonical SHA-256 content digest is unavailable"),
+                "the Market Data composition passed the Owner locks and stopped at the legacy \
+                 Artifact digest: {market_data_refusal}"
+            );
+
+            let runtime_kernel_refusal = Box::pin(
+                crate::repair_action::runtime_kernel_native_request::postgres::compose_runtime_kernel_native_repair_request_v1(
+                    &rd_pool,
+                    crate::repair_action::runtime_kernel_native_request::postgres::RuntimeKernelNativeRepairCompositionRequestV1 {
+                        action_request_identity: locators.action_request_identity,
+                        decision_identity: locators.decision_identity,
+                        result_identity: locators.result_identity,
+                        replay_attempt_identity: locators.attempt_identity,
+                        replay: locators.replay,
+                        shared_time_head: locators.shared_time_head,
+                    },
+                    &RefusingSharedTimeResolverV1,
+                ),
+            )
+            .await
+            .expect_err("the Shared Time port refuses")
+            .to_string();
+            assert!(
+                runtime_kernel_refusal
+                    .contains(&SharedTimeEvidenceError::StoreUnavailable.to_string()),
+                "the runtime-kernel composition passed the Owner locks and stopped at Shared \
+                 Time: {runtime_kernel_refusal}"
+            );
+            rd_pool.close().await;
+        })
+    }
+
     async fn run_repair_decision_action_and_market_data_request_commit_retry_resolve_and_rejection_are_atomic()
      {
         let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
@@ -3484,6 +3626,22 @@ mod postgres_acceptance_tests {
         .await
         .expect("post-rejection Market Data repair counts");
         assert_eq!(market_data_counts_after, (1, 1));
+
+        production_repair_compositions_pass_the_read_committed_owner_locks(
+            &database,
+            ProductionRepairCompositionLocatorsV1 {
+                action_request_identity: first_action
+                    .request()
+                    .action_request_identity()
+                    .to_string(),
+                decision_identity: first.decision().decision_identity().to_string(),
+                result_identity: result_identity.clone(),
+                attempt_identity: first.decision().evidence_cut().attempt_identity.clone(),
+                replay: predecessor.locator(),
+                shared_time_head: market_data_evidence.shared_time().locator().clone(),
+            },
+        )
+        .await;
 
         let market_data_terminal =
             vibe_market_data_repair_custody::issue_market_data_repair_terminal_v1(

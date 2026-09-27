@@ -136,10 +136,12 @@ never runs in CI.
   measures inside the custodian with the leased credential. It also has the admission receipt cross-bind the trust
   bundle, while `SealedDeploymentStoreAdmissionReceipt` carries the witness identity but no signer key fingerprint
   or bundle identity.
-  Two production adapters now exist, and neither is composed: the pinned Ed25519 signature verifier
-  (`store_admission/signature.rs`) and the PostgreSQL custody store (`store_admission/custody_postgres.rs`, its schema
+  Three production adapters now exist, and none is composed: the pinned Ed25519 signature verifier
+  (`store_admission/signature.rs`), the PostgreSQL custody store (`store_admission/custody_postgres.rs`, its schema
   and its two principals in `product/rd-workbench/postgres-init/20-deployment-store-custody.sh`, which the compose file
-  does not run yet). `admit_rd_owner_market_data_postgres` still wires the `Unavailable*` ports, so `required` still
+  does not run yet), and the secret-file credential resolver (`store_admission/credential_files.rs`). A secret file
+  has no version or expiry of its own: its version is the SHA-256 of its exact bytes, which the signed manifest names,
+  and its lease lapses a fixed time after the admission's store-clock cut. `admit_rd_owner_market_data_postgres` still wires the `Unavailable*` ports, so `required` still
   fails closed at startup. The admission reads time from the custody store's clock alone: every history read carries
   the store's `clock_timestamp()` cut, and the commit judges the receipt's window on that clock.
 - **`B4` consumer not compiled into the deployed image.** `product/rd-workbench/Dockerfile.owner` builds
@@ -1635,8 +1637,9 @@ those remain unavailable pending real Time/Scheduler and Execution Owner contrac
 ### CURRENT/PARTIAL EVENT and BAR Owner custody; TARGET BAR product authority
 
 Market Data implements the versioned `TimeframeSpecV1`, `TimeframeProjectionReceiptV1`, `SampleFactV1`, and
-`SampleReceiptV1`, their native exact-receipt resolvers, and durable PostgreSQL custody for `POINT_EVENT`. The code
-also implements durable PostgreSQL custody for BAR schedule fact/cut/receipt/outbox/head state, admitted exact
+`SampleReceiptV1`, their native exact-receipt resolvers, and durable PostgreSQL custody for `POINT_EVENT` samples and
+for the BAR samples the universe sample projection commits for a Replay request's initial frame. The code also
+implements durable PostgreSQL custody for BAR schedule fact/cut/receipt/outbox/head state, admitted exact
 schedule readback, and V3 BAR FRAME projection receipts. These paths are `CURRENT / PARTIAL` Owner authority after
 their isolated dynamic PostgreSQL acceptance. The sealed exact-digest V3 resolver core is likewise
 `CURRENT / PARTIAL`, but the fixed `STRATEGY_FACTORY_RD_OWNER_API_V1` production startup still fails closed because
@@ -2080,8 +2083,9 @@ replays, or retroactively advances predecessor state. An ordinary equal-valued n
 and advances exactly once. For a future admitted BAR path, reusing one 1-hour or exchange-session `1d` sample under
 later 1-minute triggers must return the same receipt and coordinate bytes and cause no second sample-clock advance.
 
-The current POINT_EVENT PostgreSQL path has Owner-owned timeframe-projection-receipt, sample-fact, series-head,
-per-slot correction-head, sample-receipt, and outbox tables plus exact native resolvers. One Market Data transaction
+The current PostgreSQL sample path, for POINT_EVENT samples and for the BAR samples the universe sample projection
+commits, has Owner-owned timeframe-projection-receipt, sample-fact, series-head, per-slot correction-head,
+sample-receipt, and outbox tables plus exact native resolvers. One Market Data transaction
 inserts the fact, receipt, and outbox row
 and compare-and-swap advances both the series and correction heads from the predecessors bound by the fact; an
 ordinary new slot advances its correction head from canonical absence to that first fact. A

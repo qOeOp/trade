@@ -3482,8 +3482,15 @@ async fn resolve_composer_v3_read_result(
     meaning_digest: &str,
     exact_locator: Option<&ExploratoryReplayRequestLocatorV2>,
 ) -> Result<Option<ExploratoryReplayReadResultV2>, ExploratoryReplayOwnerError> {
+    // READ COMMITTED, as the commit it reads back
+    // (`begin_composer_replay_request_transaction_v3`): the readback re-reads the Product Edge
+    // admission and the current Research custody through locks that answer under READ COMMITTED
+    // only (`lock_downstream_admission_v1`, `lock_current_research_for_artifact_v1`), so under
+    // REPEATABLE READ every COMPOSER_V3 request would read back unavailable. It writes nothing;
+    // what it reads is either immutable once committed or read `FOR SHARE`, and a TrialFamily
+    // census torn by a concurrent append is refused by the census loader's own cross-checks.
     let mut transaction = rd_pool.begin().await.map_err(storage)?;
-    sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL READ COMMITTED")
         .execute(&mut *transaction)
         .await
         .map_err(storage)?;
