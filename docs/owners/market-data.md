@@ -1263,9 +1263,9 @@ not be given one.
   request carries as its own Owner-observation instant, so the cut's rule that a member fact is observable when its Owner
   observation is at or before the selection's compares two values from one clock. Two consequences follow.
   - The fact's own ordering requires the retrieval instant to be at or before its Owner observation. The head only
-    advances when a Source Binding or PIT snapshot submission admits a newer clock. In production a baseline is admitted
-    in this order: retrieve `exchangeInfo`, let a Source Binding or PIT submission advance the head past the retrieval
-    instant, then submit.
+    advances when a Source Binding admission mints a newer clock; a PIT submission admits the current head's clock and
+    does not move it. In production a baseline is admitted in this order: retrieve `exchangeInfo`, let a Source Binding
+    admission advance the head past the retrieval instant, then submit.
   - At one decision cut, a cut issued before the admission and one issued after it answer differently: the first finds no
     fact, the second resolves it. A cut is written once per request key, so no single request ever changes its answer,
     but two requests at one coordinate can disagree when an admission falls between them.
@@ -1460,51 +1460,83 @@ the terms of the day it was retrieved. This design replaces that one assumption 
   same linear chain a `!contractInfo` delta extends, so each still names the fact it follows. Its encoding is additive:
   a baseline's bytes, and so its identity, do not change. Every snapshot is recorded, including one whose terms equal
   the head's, because an unchanged snapshot is the evidence that nothing changed before it.
+- **Two orders on one chain.** Snapshots are ordered among themselves by retrieval: a snapshot must be retrieved later
+  than the fact's latest snapshot, or its baseline. The contract status has one order across both kinds, the instant the
+  fact knows the status at: its baseline's retrieval, its latest delta's event, or its latest snapshot's retrieval,
+  whichever is latest. A snapshot also states the status. It becomes the fact's status when the snapshot is later than
+  that instant, which then moves to its retrieval; otherwise the fact keeps the newer status it already holds, and the
+  snapshot records its terms only. So a snapshot is never refused because a newer status arrived first, and a fact's
+  status is always the newest the Owner has evidence of. A `!contractInfo` event no later than that instant is refused,
+  as the status instant boundary below states.
 - **What the series lets the Owner say**, over the terms compared, which are every public term but the contract status:
 
-  | Interval                                            | The terms there                           | Basis                               |
-  | --------------------------------------------------- | ----------------------------------------- | ----------------------------------- |
-  | before `t_0`                                        | `T_0`, assumed back to listing            | `RetrievedTermsAssumedSinceListing` |
-  | `[t_i, t_j]`, every snapshot in it with equal terms | known to be those terms                   | `ObservedBetweenSnapshots`          |
-  | `(t_i, t_{i+1}]` with `T_i` unequal to `T_{i+1}`    | unknown: the change fell somewhere inside | none                                |
-  | after the latest snapshot `t_n`                     | `T_n`, assumed forward                    | `RetrievedTermsAssumedForward`      |
+  | Interval                                            | The terms there                                                      | Basis                               |
+  | --------------------------------------------------- | -------------------------------------------------------------------- | ----------------------------------- |
+  | before `t_0`                                        | `T_0`, assumed back to listing                                       | `RetrievedTermsAssumedSinceListing` |
+  | `[t_i, t_j]`, every snapshot in it with equal terms | equal at every snapshot bounding it, taken as unchanged between them | `EqualAtAdjacentSnapshots`          |
+  | `(t_i, t_{i+1}]` with `T_i` unequal to `T_{i+1}`    | unknown: the change fell somewhere inside                            | none                                |
+  | after the latest snapshot `t_n`                     | `T_n`, assumed forward                                               | `RetrievedTermsAssumedForward`      |
 
-- **Named property, the archive precision boundary.** Two adjacent snapshots with equal terms mean the terms did not
-  change between them. A change and its reversal inside one archive interval cannot be seen, and that interval is the
-  archiver's cadence: a longer cadence makes the boundary coarser, and the unknown interval around a real change is as
-  long as one cadence.
+- **Named property, the archive precision boundary.** Two adjacent snapshots with equal terms are taken to mean the
+  terms did not change between them. A change and its reversal inside one archive interval cannot be seen, and that
+  interval is the archiver's cadence: a longer cadence makes the boundary coarser, and the unknown interval around a
+  real change is as long as one cadence.
+- **Named property, the status instant boundary.** A `!contractInfo` event no later than the instant the fact knows the
+  status at is refused as `INSTRUMENT_MASTER_V2_EVENT_OUT_OF_ORDER`, as the status delta intake already refuses an event
+  older than what the fact knows; a snapshot later than the event now also sets that instant. When a snapshot is
+  admitted before an earlier event reaches the Owner, the event's status is not lost, since the snapshot observed the
+  status after it, but its exact instant is: the Owner then knows only that the status changed within the archive
+  interval before that snapshot. The boundary is as coarse as the cadence, and a status collector that delivers each
+  event within one cadence never meets it.
 - **The cut chooses by the Replay window.** The bound-replay issuance already recovers the composition binding, whose
-  record carries the window. Per member, among the facts observed at the selection, a window inside one interval with a
-  basis takes the fact that opens that interval, with that basis; the cut still holds one fact per member, so no
-  consumer changes. A window that meets an unknown interval is refused with `TermsChangeWithinWindow` and zero writes,
-  and R&D's execution-input binding answers `INSTRUMENT_MASTER_TERMS_CHANGE_WITHIN_WINDOW` (HTTP 409); no retry changes
-  it. A window spanning an assumed and a known interval with equal terms takes the weaker basis. The V1/V2 generation
+  record carries the window. Per member, among the facts observed at the selection, a window whose intervals all have a
+  basis takes the fact that opens the interval holding the window's start, with the weakest basis among the intervals
+  the window meets, where assumed is weaker than equal-at-snapshots; those intervals all hold the same terms, since any
+  change between them is an unknown interval. The cut still holds one fact per member, so no consumer changes. A window
+  that meets an unknown interval is refused with `TermsChangeWithinWindow` and zero writes, and R&D's execution-input
+  binding answers `INSTRUMENT_MASTER_TERMS_CHANGE_WITHIN_WINDOW` (HTTP 409); no retry changes it. The V1/V2 generation
   check compares the fact the window selected, so a V1 fact that was not corrected to match is refused by name as it is
-  today.
-- **Growth, and when to compress.** A baseline fact measures 414 canonical bytes, and a snapshot successor carries the
-  same terms plus its link, estimated at 450. At the default hourly cadence an instrument gains 24 facts a day, 8,760 a
-  year, about 4 MB a year before row overhead. Every cut and every successor admission decodes the member's whole chain,
-  so the cost grows with its length. The snapshot successor's proof measures that decode per fact on the Linux runner,
-  and the trigger for compressing runs of equal-terms snapshots is the chain length at which issuing one member's cut
-  takes longer than one second.
+  today. A cut is written once per request key, as every cut is: one issued on assumed-forward terms keeps that answer
+  after a later snapshot shows them to have changed, and a later request issues a new cut.
+- **Growth, and when to compress.** A baseline fact measures 414 canonical bytes. A snapshot successor carries the
+  baseline's bytes, its predecessor's identity and a 107-byte record, 553 bytes in all, and about 220 more once a status
+  delta is in its chain. At the default hourly cadence an instrument gains 24 facts a day, 8,760 a year, about 4.8 MB a
+  year before row overhead. Every cut and every successor admission decodes the member's whole chain, so the cost grows
+  with its length: a year of hourly snapshots of one instrument decodes, fact by fact against its predecessor, in about
+  20 ms in a release build on a development machine and 120 ms unoptimised. The trigger for compressing runs of
+  equal-terms snapshots is the chain length at which issuing one member's cut takes longer than one second, measured
+  again on the Linux runner when a member's chain passes a year.
 - **The archiver.** A dedicated service, `market-data-exchange-info-archiver`, run from the R&D Owner API image in the
   Market Data Owner's process and credential, admits snapshots through the Owner port, not through Product Edge and not
   through Source Intake, which is unimplemented in production. It retrieves USD-M `exchangeInfo` from the same named
   host as the R&D Owner API's Binance perpetual PIT client (`BINANCE_PERPETUAL_PIT_BASE_URL`), hourly by default, and
   for each instrument with a baseline admits that instrument's entry, sliced byte for byte into a minimal envelope,
-  under the baseline's Source Binding. A snapshot retrieved after the Owner's clock head cannot be admitted yet; the
-  archiver keeps it, in retrieval order, until the head passes it, which loses nothing because no cut sees past the head
-  either. A stalled archiver raises no error and only lengthens the assumed-forward interval, so its health check fails
-  when the newest admitted snapshot is older than two cadences.
+  under the baseline's Source Binding.
+- **The snapshot intake advances the Owner clock itself.** Today the head moves only when a Source Binding admission
+  mints a newer clock, and nothing does so on the archiver's cadence, so a snapshot retrieved after the head could wait
+  indefinitely. When the head's decision cut is earlier than a snapshot's retrieval, the intake mints the next clock
+  admission from the Owner's own wall observation, as a Source Binding admission does, and commits it with the fact in
+  one transaction; the snapshot's Owner observation is that cut. A retrieval later than the Owner's own wall observation
+  is refused. The head therefore moves at most once per archive interval. A PIT submission R&D froze at the previous
+  head is then refused as `ClockEvidenceNotCurrent` and recovered by reading its correlation back and freezing again at
+  the current cut, as after any other move of the head; a run that has to freeze again repeatedly is the signal to
+  lengthen the cadence. That recovery is driven today only with the refusal injected at an unchanged cut: the ordered
+  chain's database is shared and never reset, so no entry there moves its head between a freeze and a commit for the
+  entries after it. The archiver is therefore not turned on until a proof on a database of its own mints a head with the
+  Owner's clock, lets R&D freeze, advances the head through a production admission, and shows R&D recovering and
+  committing at the new cut. The archiver retries a refused or unanswered submission in retrieval order, and its health
+  check fails when the newest admitted snapshot is older than two cadences, a condition the archiver can now clear
+  itself.
 - **F is unchanged.** With one baseline and no later snapshot, every window before its retrieval lies before `t_0`, the
   member is the baseline with its current basis, and its bytes do not move; the snapshot successor's slice pins the
   two-member cut identity and a one-baseline bound-replay cut byte for byte.
-- **Order.** The snapshot successor and its intake come first, with the byte-for-byte pin. Window selection at the cut
-  changes the issuance F's chain relies on, so it starts only after F's chain passes. The archiver is defined but not
-  started, as the compose file does not run the store-custody script yet; running it makes production retrieve from
-  Binance periodically, a public read and no trading, and turning it on is the user's deployment decision. The contract
-  status is not one of the terms compared: it changes only by `!contractInfo` delta, and whether a Replay window whose
-  status is not `TRADING` must be refused is undecided and outside this design.
+- **Order.** The snapshot successor and its intake come first, with the byte-for-byte pin. Until the cut selects by
+  window, it refuses by name a member whose terms a snapshot changed, whatever the window, rather than price any window
+  on them; the window selection is the only slice that removes that refusal. Window selection at the cut changes the
+  issuance F's chain relies on, so it starts only after F's chain passes. The archiver is defined but not started, as
+  the compose file does not run the store-custody script yet; running it makes production retrieve from Binance
+  periodically, a public read and no trading, and turning it on is the user's deployment decision. Whether a Replay
+  window whose status is not `TRADING` must be refused is undecided and outside this design.
 
 ### Native immutable records
 
