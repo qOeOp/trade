@@ -1988,6 +1988,12 @@ impl VerifiedResearchCustodyV1 {
         self.family.as_ref()
     }
 
+    /// The protected-feedback projection the Intent was frozen under, as Qualification's
+    /// historical admission reads it; `None` for a custody that froze no Intent.
+    pub(crate) fn protected_feedback(&self) -> Option<&ProtectedFeedbackFrontierReadbackV1> {
+        self.protected_feedback.as_ref()
+    }
+
     pub(crate) fn product_edge_admission(&self) -> Option<&ProductEdgeAdmissionReadbackV1> {
         match &self.authority {
             VerifiedResearchAuthorityV1::Current(admission) => Some(admission.as_ref()),
