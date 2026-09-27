@@ -98,8 +98,9 @@ never runs in CI.
   `SEALED_ACCEPTANCE_NO_STORE_ADMISSION_V1` where an admitted read carries a receipt; only a build that carries that
   port accepts the marker. Admission itself, including the principal it leases and the grants on that gate, is still
   `B3`. No production role holds that gate today: the deployed ACL cutover revokes `USAGE` on `market_data_private`
-  from every role but the owner, and the scheduling floors a Store Admission measures do not cover the PIT evaluation
-  reads the path makes.
+  from every role but the owner, and no role is yet granted what the admitted ports' measurement floors list. Each
+  port opens only on a measurement that covers the floors of the reads it serves, the native Replay scheduling port's
+  PIT evaluation reads included, and each read checks its own floor again on every admission it reads under.
   Reading a BAR schedule has **two custody strategies**, one per build, and this document has until now described
   neither. A test build opens its own `REPEATABLE READ READ ONLY` transaction and validates the schedule's history
   itself; a production build takes its snapshot from the admitted port's evidence and revalidates before returning.
@@ -1676,6 +1677,22 @@ custody and its sealed exact historical resolver core are CURRENT/PARTIAL, while
 resolution remain TARGET/UNAVAILABLE. It
 never widens or reinterprets V2. Additive V4 FRAME/JOINED_CUT with BAR lifecycle is TARGET/NOT_ADMITTED and never
 widens or reinterprets V2 or V3.
+
+TARGET gap, the BAR schedule's production proposer: `commit_prepared_bar_schedule_v1` is the only writer of BAR
+schedule custody, and no production path proposes a schedule; every proposal today is built by a test or an acceptance
+fixture. A native Replay's initial read needs a schedule cut at its frame, so until a production proposer exists, an
+acceptance that drives that read takes its schedule from the sealed acceptance proposer
+`commit_bar_schedule_for_acceptance_v1`, present only in a build carrying `sealed-strategy-input-acceptance`. Given a
+PIT snapshot and a BAR role declared on it, the Owner derives every schedule field from the snapshot's verified batch,
+the role's binding, and the Instrument Master readback the snapshot binds: the shape whose label is the role's
+timeframe, the master fact's interval, the interval close, complete bars, and a cut at the snapshot's event. The
+schedule is the instrument's and timeframe's, not the role's, and a schedule the frame already reads is rejoined
+rather than written again. It refuses by name a snapshot it cannot find, a batch that does not verify, an undeclared
+role, a role spanning several members, a role whose row is not a BAR, a timeframe no schedule unit states, and a
+missing Instrument Master readback. Strategy Factory slice F depends on it. Two source gaps remain beside it: no
+schedule unit states a fixed-interval day, so a continuous daily bar such as a Binance perpetual's cannot be scheduled
+today; and no admitted Binance perpetual source supplies QUOTE rows, so a perpetual Replay has no quote cut to fill
+from.
 
 `TimeframeSpecV1` has one fixed canonical codec, in this order: schema `u16LE = 1`, reserved-zero `u16LE`, kind
 `u8`, positive step `u32LE`, unit `u8`, anchor identity `[u8; 32]`, calendar identity `[u8; 32]`, session identity

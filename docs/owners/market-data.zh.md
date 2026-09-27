@@ -82,7 +82,8 @@ ACL 拒绝。它不证明供应商真实性，不证明生产装配，也不证�
   它 `NATIVE_REPLAY_SCHEDULING_ACCEPTANCE_GRANTS_V1`；它的 evidence 在已准入读取携带 receipt 的位置携带标记
   `SEALED_ACCEPTANCE_NO_STORE_ADMISSION_V1`，只有携带该读口的构建才接受这个标记。Admission 本身，包括它租用的主体与那道门上的
   授权，仍然是 `B3`。今天没有任何生产角色持有那道门：部署时的 ACL 切换把 `market_data_private` 的 `USAGE` 从 owner 以外的
-  所有角色收回，而 Store Admission 所测量的调度下限也不覆盖该路径所做的 PIT evaluation 读取。
+  所有角色收回，而已准入读口的测量下限所列的对象也还没有授予任何角色。每个读口只在测量覆盖它所服务读取的下限时才打开，
+  原生 Replay 调度读口的 PIT evaluation 读取也在其中；每次读取在它所依据的每次准入上都再核一遍自己的下限。
   读取一份 BAR schedule 有**两套托管策略**，每种构建一套，而本文档此前一套都没描述过。测试构建自行开启
   `REPEATABLE READ READ ONLY` 事务并自验该 schedule 的历史；生产构建的快照由已准入读口的 evidence 承担，并在返回前
   重新校验。两者跑的是同一个 `verify_bar_schedule_storage_evidence`。差别是一致性保证从哪里来，不是强弱：测试那条
@@ -1526,6 +1527,17 @@ BAR 只能使用下述独立 V3 FRAME projection；其 durable Owner custody 是
 其 sealed exact historical resolver core 是 CURRENT/PARTIAL，而 production startup 与产品 resolution 仍为
 TARGET/UNAVAILABLE。它绝不扩大或重新解释 V2。新增 V4 FRAME/JOINED_CUT 与 BAR lifecycle 是
 TARGET/NOT_ADMITTED，且绝不扩大或重新解释 V2 或 V3。
+
+TARGET 缺口，BAR schedule 的生产提议者：`commit_prepared_bar_schedule_v1` 是 BAR schedule custody 唯一的写者，而没有任
+何生产路径提议 schedule；今天每一个提议都由测试或验收夹具构造。native Replay 的初始读需要一个在它的帧上切出的 schedule，
+所以在生产提议者出现之前，驱动这条读的验收从 sealed 验收提议者 `commit_bar_schedule_for_acceptance_v1` 取 schedule，它
+只存在于带 `sealed-strategy-input-acceptance` 的构建里。给定一个 PIT 快照和在它上面声明的一个 BAR 角色，Owner 从快照受
+验的 batch、该角色的 binding 以及快照绑定的 Instrument Master readback 推出 schedule 的每个字段：标签等于角色周期的那
+个形态、master fact 的区间、区间收盘、完整 bar，以及在快照事件时刻的 cut。schedule 属于品种与周期，不属于角色；帧已经
+读得到的 schedule 会被 rejoin，不再重写。找不到快照、batch 验不过、角色未声明、角色跨多个成员、角色所在行不是 BAR、周
+期没有任何 schedule 单位能陈述，以及 Instrument Master readback 缺失，都按名拒绝。Strategy Factory 的切片 F 依赖它。旁
+边还有两个源缺口：没有 schedule 单位能陈述固定间隔的日，所以像 Binance 永续这样的连续日线今天排不了 schedule；已准入的
+Binance 永续源不提供 QUOTE 行，所以永续 Replay 没有可供成交的报价 cut。
 
 `TimeframeSpecV1` 只有一种 fixed canonical codec，字段顺序是：schema `u16LE = 1`、reserved-zero `u16LE`、
 kind `u8`、正 step `u32LE`、unit `u8`、anchor identity `[u8; 32]`、calendar identity `[u8; 32]`、session

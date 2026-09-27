@@ -147,6 +147,12 @@ pub enum ResearchBoundedFeatureProgramOwnerErrorV1 {
     /// can name one, and a role intent of a V3 Intent that names none is never published.
     #[error("the Research request has no AVAILABLE initial PIT request")]
     InitialPitNotAvailable,
+    /// The Research request names its instrument scope, and the Design names an instrument itself.
+    ///
+    /// Only a first write is refused. A Design already published or frozen under this Research
+    /// request reads back as it was committed.
+    #[error("the Design names an instrument, but its Research request already names the scope")]
+    InstrumentNamedUnderResearchScope,
 }
 
 fn owner_error(
@@ -162,6 +168,7 @@ fn owner_error(
         Freeze::SdkSource => Owner::SdkSource,
         Freeze::Unavailable => Owner::Unavailable,
         Freeze::Conflict => Owner::Conflict,
+        Freeze::InstrumentNamedUnderResearchScope => Owner::InstrumentNamedUnderResearchScope,
     }
 }
 
@@ -461,11 +468,21 @@ impl PostgresResearchBoundedFeatureProgramOwnerV1 {
 
         // A V3 Intent's role intent names its initial PIT request, read from this Owner's custody,
         // and is published only once that request's recorded terminal is AVAILABLE.
-        let binds_scope = matches!(
-            verified.intent(),
-            Some(crate::product_edge::FrozenResearchGoalIntent::V2(intent))
-                if intent.instrument_scope.is_some()
-        );
+        let binds_scope =
+            crate::rd_bounded_feature_program_v1::binds_research_instrument_scope_v1(&verified);
+
+        // Only a first publication is refused: a Design already published under this Research
+        // request returns what is stored, so a retry after response loss reads back history.
+        if binds_scope
+            && crate::rd_bounded_feature_program_v1::design_names_an_instrument_v1(design)
+            && !design_role_intent_is_stored_v1(&mut transaction, design).await?
+        {
+            transaction.rollback().await?;
+            return Err(
+                ResearchBoundedFeatureProgramOwnerErrorV1::InstrumentNamedUnderResearchScope,
+            );
+        }
+
         let initial_pit_request = if binds_scope {
             match crate::product_edge_postgres::research_initial_pit::available_initial_pit_request_in_transaction(
                 &mut transaction,
@@ -699,6 +716,29 @@ impl PostgresResearchBoundedFeatureProgramOwnerV1 {
 /// The reasons name a shape mismatch between declared meaning and a Design the caller already
 /// holds, or say that Owner custody did not answer. Neither discloses custody, and discarding them
 /// would leave a caller unable to tell a malformed declaration from an unavailable Owner.
+/// Whether a role intent is already stored for this Design, found by the Design's own identity.
+///
+/// A Design that does not prepare has no identity and so no stored intent; the publication below
+/// refuses it as it always has.
+async fn design_role_intent_is_stored_v1(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    design: &StrategyDesignV2,
+) -> Result<bool, ResearchBoundedFeatureProgramOwnerErrorV1> {
+    let crate::strategy_plan_v2::StrategyDesignPreparationV2::Prepared {
+        design_identity, ..
+    } = crate::strategy_plan_v2::prepare_strategy_design_v2(design)
+    else {
+        return Ok(false);
+    };
+    let stored: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM rd_design_role_intents_v1 WHERE design_identity=$1)",
+    )
+    .bind(design_identity.as_bytes().as_slice())
+    .fetch_one(&mut **transaction)
+    .await?;
+    Ok(stored)
+}
+
 fn assembly_error(
     error: &BoundedFeatureProgramAssemblyErrorV1,
 ) -> ResearchBoundedFeatureProgramOwnerErrorV1 {
