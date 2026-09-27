@@ -281,7 +281,26 @@ history; it says nothing about whether the path has ever run in some other envir
     evidence binds, an Owner-decided state (`AVAILABLE` or `EMPTY`), every return observation the run
     recorded in canonical UTC, net return, maximum drawdown, and every execution with its side and with
     price and quantity exactly as the engine wrote them. It carries no statistics map, because those
-    legitimately hold non-finite values. The strategy and the data window are not in a backtest result,
+    legitimately hold non-finite values. An `EMPTY` report also names why the run recorded no return, as
+    `empty_reason`, derived from those same bytes and nothing else. The engine's own rule decides the set:
+    `Portfolio::statistics` takes daily equity returns from portfolio snapshots on at least two UTC days in
+    one currency, and otherwise the return of each closed position. So a run that closed a position is never
+    `EMPTY`, and a canonical result that is `EMPTY` with a closed position is refused as
+    `ENGINE_RESULT_NONCANONICAL` rather than given a reason. The first of these that holds is the reason,
+    and each is reached today as stated:
+    - `NO_FILL`: the run has no fill. No run reaches it, because the Sim EVENT consumer refuses a run
+      without a native fill before any Result exists; a projection test over a canonical result with no
+      fills does.
+    - `NO_CLOSED_POSITION_WITHIN_ONE_BALANCE_DAY`: the run has a fill, closed no position, and its portfolio
+      snapshots fall on fewer than two UTC days. F's single-frame run reaches it, and so does
+      `an_authored_universe_member_program_enters_once_and_reports_empty`.
+    - `NO_CLOSED_POSITION_WITHOUT_DAILY_EQUITY`: the run has a fill, closed no position, and its snapshots
+      span two or more UTC days that still gave the engine no daily equity series - more than one equity
+      currency, or unpriced snapshots, which the engine skips, leaving fewer than two days. No run reaches it
+      today, because every admitted account holds one currency; a projection test over two days of snapshots
+      in two currencies does.
+
+    An `AVAILABLE` report carries no reason. The strategy and the data window are not in a backtest result,
     so they come from upstream: the replay request the run answered, and the Design and program
     frozen under the Design it names. All three reads run in one transaction the report opens as
     `SERIALIZABLE, READ ONLY, DEFERRABLE`: a safe snapshot the three share, with the request storage

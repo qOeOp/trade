@@ -236,7 +236,21 @@ production write、provider effect、Paper、Live 或交易权威。
     `OwnerBacktestReportV1` 从同一份已提交字节派生出的：该次运行的 result、request 与 attempt 身份，以及其
     结果证据所绑定的引擎结果摘要；由 Owner 判定的状态（`AVAILABLE` 或 `EMPTY`）；该次运行记录的每一个
     收益观测，时间为规范 UTC；净收益；最大回撤；以及每一笔成交的方向，价格与数量按引擎写出的原样给出。
-    它不承载统计量映射，因为那些映射合法地含有非有限值。策略与数据窗口不在回测结果里，所以取自上游：
+    它不承载统计量映射，因为那些映射合法地含有非有限值。`EMPTY` 的报告还会以 `empty_reason` 说出这次运行
+    为什么没有记录收益，只从同一份字节推出，不引入别的输入。取值集合由引擎自己的规则决定：
+    `Portfolio::statistics` 在组合快照落在至少两个 UTC 日且为单一币种时取日权益收益，否则取每个已平仓持仓的
+    收益。所以平过仓的运行永远不会是 `EMPTY`；一份 `EMPTY` 却带已平仓持仓的 canonical result 以
+    `ENGINE_RESULT_NONCANONICAL` 拒绝，而不是给它编一个原因。按下列顺序，第一个成立的就是原因，每一项今天
+    的驱动方式如下：
+    - `NO_FILL`：运行没有成交。没有任何运行能走到它，因为 Sim EVENT 消费者在任何 Result 存在之前就拒绝
+      没有真实成交的运行；由一个对无成交 canonical result 做投影的测试驱动。
+    - `NO_CLOSED_POSITION_WITHIN_ONE_BALANCE_DAY`：运行有成交、没有平仓，且组合快照落在少于两个 UTC 日。
+      F 的单帧运行走到它，`an_authored_universe_member_program_enters_once_and_reports_empty` 也是。
+    - `NO_CLOSED_POSITION_WITHOUT_DAILY_EQUITY`：运行有成交、没有平仓，快照跨两个或更多 UTC 日，但引擎仍
+      没得到日权益序列 - 权益币种不止一种，或者 unpriced 的快照被引擎跳过后剩下的不足两天。今天没有运行走到它，因为每个
+      准入账户都只持一种币种；由一个对两天、两种币种快照做投影的测试驱动。
+
+    `AVAILABLE` 的报告不带原因。策略与数据窗口不在回测结果里，所以取自上游：
     该次运行所回应的 replay 请求，以及冻结在该请求所指 Design 之下的 Design 与程序。三次读取都在报告自己开的
     一个 `SERIALIZABLE, READ ONLY, DEFERRABLE` 事务里：三者共用一个安全快照，同时保留请求存储函数的隔离规则（它只在
     `read committed` 或 `serializable` 下作答，因为在 `repeatable read` 下它的快照早于它的请求栅栏），且 PostgreSQL
