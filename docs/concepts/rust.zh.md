@@ -117,7 +117,7 @@ vibe-trading = { git = "https://github.com/qOeOp/trade.git", branch = "main", fe
 | `defi`           | `vibe-model`    | DeFi 数据类型，并隐式启用 `high-precision`。   |
 
 :::tip
-标准的 9 位精度可以处理大多数传统金融工具。对于价格可能包含很多小数位的加密货币交易场所（例如 `0.00000001`），应启用 `high-precision`。
+标准的 9 位精度可以处理大多数传统金融工具。对于价格可能包含很多小数位的加密货币交易场所（例如 `0.00000001`），应启用 `high-precision`。本产品自己的 crate 总是带着它构建：`vibe-strategy-factory` 在自己的 `vibe-model` 依赖上声明了它。
 :::
 
 ### 内存分配器

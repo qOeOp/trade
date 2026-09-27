@@ -78,10 +78,10 @@ pub(crate) struct ResolvedNativeReplayRdCutV2 {
 
 /// The verified View transition of a COMPOSER_V3 Replay. It exists only in the build that carries
 /// the COMPOSER_V3 routes; elsewhere no Replay can have written one.
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+#[cfg(feature = "composer-v3-replay")]
 pub(crate) type NativeComposerViewTransitionV3 =
     crate::exploratory_replay::postgres::composer_readback_v3::VerifiedResearchViewTransitionV3;
-#[cfg(not(feature = "sealed-source-intake-composer-acceptance"))]
+#[cfg(not(feature = "composer-v3-replay"))]
 pub(crate) type NativeComposerViewTransitionV3 = std::convert::Infallible;
 
 pub(crate) async fn resolve_native_replay_rd_cut_v2_in_transaction(
@@ -572,7 +572,7 @@ async fn native_research_custody_from_boundary(
 /// Replay's receipt. A current View some later Replay has moved on is refused by name rather than
 /// read as this one's, so once a later Replay commits on the same Research, this Replay can no
 /// longer be prepared.
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+#[cfg(feature = "composer-v3-replay")]
 async fn native_composer_view_transition(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     view: &ResearchViewV1,
@@ -603,7 +603,7 @@ async fn native_composer_view_transition(
 }
 
 /// Whether the current native Composer View is the one this Replay's transition wrote.
-#[cfg(any(test, feature = "sealed-source-intake-composer-acceptance"))]
+#[cfg(any(test, feature = "composer-v3-replay"))]
 fn native_composer_view_matches_transition(
     view: &ResearchViewV1,
     replay_request_identity: &str,
@@ -621,7 +621,7 @@ fn native_composer_view_matches_transition(
 }
 
 /// No build without the COMPOSER_V3 routes can have committed a native Composer View.
-#[cfg(not(feature = "sealed-source-intake-composer-acceptance"))]
+#[cfg(not(feature = "composer-v3-replay"))]
 async fn native_composer_view_transition(
     _transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     _view: &ResearchViewV1,

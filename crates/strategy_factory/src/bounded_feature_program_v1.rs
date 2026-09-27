@@ -19,8 +19,8 @@ use crate::strategy_design_v2::{
     InputScopeV2, PluginManifestV2, StrategyDesignV2, ValueRefV2, ValueTypeV2,
 };
 use crate::strategy_plan_v2::{
-    StrategyDesignPreparationV2, plugin_manifest_digest, prepare_strategy_design_v2,
-    strategy_input_role_identity_v2,
+    StrategyDesignPreparationV2, coordinate_port_id, plugin_manifest_digest,
+    prepare_strategy_design_v2, strategy_input_role_identity_v2,
 };
 
 pub const BOUNDED_FEATURE_PROGRAM_SCHEMA_V1: u16 = 1;
@@ -588,21 +588,7 @@ pub fn prepare_bounded_feature_program_v1(
     mut proposal: BoundedFeatureProgramProposalV1,
     design: &StrategyDesignV2,
 ) -> Result<CanonicalBoundedFeatureProgramV1, BoundedFeatureProgramErrorV1> {
-    let catalog = PrimitiveCatalogV1::resolve(proposal.catalog_semantic_version)
-        .map_err(|_| BoundedFeatureProgramErrorV1::Identity)?;
-    validate_identity(&proposal, design, catalog)?;
-    canonicalize_collections(&mut proposal)?;
-    validate_bounds(&proposal)?;
-    let manifest = bound_manifest(&proposal, design)?;
-    let values = validate_inputs_and_constants(&proposal, design, manifest, catalog)?;
-    let graph = validate_graph(&proposal, catalog, values)?;
-    validate_terminals(
-        &proposal,
-        manifest,
-        catalog,
-        &graph.values,
-        &graph.atomic_coordinate_pairs,
-    )?;
+    let graph = validate_program(&mut proposal, design)?;
     let state_layout = canonical_state_layout(&proposal, &graph.values)?;
     let canonical_bytes = encode_program(&proposal)?;
     let digest = BindingDigest::from_untrusted_bytes(domain_digest(&canonical_bytes));
@@ -614,6 +600,75 @@ pub fn prepare_bounded_feature_program_v1(
     };
     validate_canonical_state_layout(value.state_layout())?;
     Ok(value)
+}
+
+/// Validates a proposal as `prepare_bounded_feature_program_v1` does, up to the canonical state
+/// layout, after putting its collections in canonical order.
+fn validate_program(
+    proposal: &mut BoundedFeatureProgramProposalV1,
+    design: &StrategyDesignV2,
+) -> Result<ValidatedGraph, BoundedFeatureProgramErrorV1> {
+    let catalog = PrimitiveCatalogV1::resolve(proposal.catalog_semantic_version)
+        .map_err(|_| BoundedFeatureProgramErrorV1::Identity)?;
+    validate_identity(proposal, design, catalog)?;
+    canonicalize_collections(proposal)?;
+    validate_bounds(proposal)?;
+    let manifest = bound_manifest(proposal, design)?;
+    let values = validate_inputs_and_constants(proposal, design, manifest, catalog)?;
+    let graph = validate_graph(proposal, catalog, values)?;
+    validate_terminals(
+        proposal,
+        manifest,
+        catalog,
+        &graph.values,
+        &graph.atomic_coordinate_pairs,
+    )?;
+    Ok(graph)
+}
+
+/// Measures the shape of a program's graph: every quantity its graph bounds hold it to.
+///
+/// The program is validated exactly as `prepare_bounded_feature_program_v1` validates it, with
+/// each graph bound lifted to the most any program may declare, so its own graph bounds refuse
+/// nothing and every other refusal is the one `prepare` would give. A program whose graph bounds
+/// equal this shape - with a lag or window bound of at least 1, since no bound may be zero -
+/// prepares, and one with any of them below it is refused: as
+/// [`BoundedFeatureProgramErrorV1::Primitive`] for a lag or window, which each node's parameters
+/// are checked against, and as [`BoundedFeatureProgramErrorV1::Bounds`] for every other.
+///
+/// `max_state_bytes` is not lifted: it must equal the state size the Design's plugin manifest
+/// declares, so it is a property of the Design rather than a graph bound, and a program whose
+/// state exceeds it is refused here as `prepare` refuses it. The shape still reports the state
+/// bytes the graph's cells declare, which is the size a Design for it has to state.
+///
+/// # Errors
+///
+/// Returns every [`BoundedFeatureProgramErrorV1`] `prepare` returns except a graph-bound refusal.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the authoring language compiler sets graph_bounds from it (rd.md, authoring language V1)"
+    )
+)]
+pub(crate) fn measure_bounded_feature_program_shape_v1(
+    mut proposal: BoundedFeatureProgramProposalV1,
+    design: &StrategyDesignV2,
+) -> Result<BoundedFeatureProgramShapeV1, BoundedFeatureProgramErrorV1> {
+    proposal.bounds = BoundedFeatureBoundsV1 {
+        max_nodes: MAX_NODES_V1,
+        max_edges: MAX_EDGES_V1,
+        max_depth: MAX_DEPTH_V1,
+        max_ports: MAX_PORTS_V1,
+        max_constants: MAX_CONSTANTS_V1,
+        max_fan_out: MAX_FAN_OUT_V1,
+        max_lag: MAX_LAG_V1,
+        max_window: MAX_WINDOW_V1,
+        max_state_cells: u16::MAX,
+        max_decision_branches: MAX_DECISION_BRANCHES_V1,
+        ..proposal.bounds
+    };
+    Ok(validate_program(&mut proposal, design)?.shape)
 }
 
 /// Parses stored canonical bytes against the catalog version those bytes declare.
@@ -778,6 +833,18 @@ fn canonical_topological_nodes(
     Ok(ordered)
 }
 
+// The most any program may declare for each graph bound.
+const MAX_NODES_V1: u16 = 1_024;
+const MAX_EDGES_V1: u16 = 4_096;
+const MAX_DEPTH_V1: u16 = 64;
+const MAX_PORTS_V1: u16 = 4_096;
+const MAX_CONSTANTS_V1: u16 = 256;
+const MAX_FAN_OUT_V1: u16 = 1_024;
+const MAX_LAG_V1: u32 = 65_535;
+const MAX_WINDOW_V1: u32 = 65_536;
+const MAX_DECISION_BRANCHES_V1: u16 = 256;
+const MAX_STATE_BYTES_V1: u32 = 1_048_576;
+
 fn validate_bounds(
     proposal: &BoundedFeatureProgramProposalV1,
 ) -> Result<(), BoundedFeatureProgramErrorV1> {
@@ -802,17 +869,17 @@ fn validate_bounds(
         || proposal.constants.len() > usize::from(b.max_constants)
         || proposal.state_cells.len() > usize::from(b.max_state_cells)
         || proposal.proposal_decision_table.branches.len() > usize::from(b.max_decision_branches)
-        || proposal.nodes.len() > 1_024
+        || proposal.nodes.len() > usize::from(MAX_NODES_V1)
         || proposal.inputs.len() > 256
-        || proposal.constants.len() > 256
-        || b.max_decision_branches > 256
-        || b.max_edges > 4_096
-        || b.max_ports > 4_096
-        || b.max_depth > 64
-        || b.max_fan_out > 1_024
-        || b.max_lag > 65_535
-        || b.max_window > 65_536
-        || b.max_state_bytes > 1_048_576
+        || proposal.constants.len() > usize::from(MAX_CONSTANTS_V1)
+        || b.max_decision_branches > MAX_DECISION_BRANCHES_V1
+        || b.max_edges > MAX_EDGES_V1
+        || b.max_ports > MAX_PORTS_V1
+        || b.max_depth > MAX_DEPTH_V1
+        || b.max_fan_out > MAX_FAN_OUT_V1
+        || b.max_lag > MAX_LAG_V1
+        || b.max_window > MAX_WINDOW_V1
+        || b.max_state_bytes > MAX_STATE_BYTES_V1
         || b.max_source_bytes > 4 * 1024 * 1024
         || b.max_wasm_bytes > 16 * 1024 * 1024
         || b.max_fuel > 10_000_000
@@ -864,6 +931,50 @@ impl AtomicCoordinatePairs {
 struct ValidatedGraph {
     values: BTreeMap<String, ValueInfo>,
     atomic_coordinate_pairs: AtomicCoordinatePairs,
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "read by measure_bounded_feature_program_shape_v1, whose caller is the authoring compiler"
+        )
+    )]
+    shape: BoundedFeatureProgramShapeV1,
+}
+
+/// The shape of a Bounded Feature Program's graph, one field for each graph bound, measured by
+/// [`measure_bounded_feature_program_shape_v1`].
+///
+/// Edges count every node input and every decision-table reference, as `max_edges` does; fan-out
+/// is the most any one value is consumed; lag and window are the largest declared lag and the
+/// largest period or window, 0 where no node declares one.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct BoundedFeatureProgramShapeV1 {
+    pub(crate) nodes: u16,
+    pub(crate) edges: u16,
+    pub(crate) depth: u16,
+    pub(crate) ports: u16,
+    pub(crate) constants: u16,
+    pub(crate) fan_out: u16,
+    pub(crate) lag: u32,
+    pub(crate) window: u32,
+    pub(crate) state_cells: u16,
+    pub(crate) decision_branches: u16,
+    pub(crate) state_bytes: u32,
+}
+
+/// The declared lag and the period or window of one node's parameters, each 0 where it declares
+/// none; these are what `validate_parameters` holds against `max_lag` and `max_window`.
+const fn parameter_extent(parameters: &BoundedFeatureParametersV1) -> (u32, u32) {
+    match parameters {
+        BoundedFeatureParametersV1::Lag {
+            declared_max_lag, ..
+        } => (*declared_max_lag, 0),
+        BoundedFeatureParametersV1::Period { period, .. }
+        | BoundedFeatureParametersV1::PeriodAndOutputScale { period, .. } => (0, *period),
+        BoundedFeatureParametersV1::Window { window, .. }
+        | BoundedFeatureParametersV1::WindowAndOutputScale { window, .. } => (0, *window),
+        _ => (0, 0),
+    }
 }
 
 fn consume_graph_value(
@@ -1211,6 +1322,9 @@ fn validate_graph(
     let mut written_states = BTreeSet::<String>::new();
     let mut consumed = BTreeMap::<String, u16>::new();
     let mut depth = BTreeMap::<String, u16>::new();
+    let mut max_depth = 0_u16;
+    let mut max_lag = 0_u32;
+    let mut max_window = 0_u32;
     let mut edge_count = 0_u16;
     let mut port_count = 0_u16;
     let mut atomic_coordinate_pairs = AtomicCoordinatePairs::default();
@@ -1234,6 +1348,9 @@ fn validate_graph(
             row.rounding,
             &proposal.bounds,
         )?;
+        let (lag, window) = parameter_extent(&node.parameters);
+        max_lag = max_lag.max(lag);
+        max_window = max_window.max(window);
 
         // A percent rank compares the latest sample against the others, so it needs a second one.
         // The guest kernel refuses a window of one; refusing it here keeps that a preparation
@@ -1297,6 +1414,7 @@ fn validate_graph(
         if node_depth > proposal.bounds.max_depth {
             return Err(BoundedFeatureProgramErrorV1::Bounds);
         }
+        max_depth = max_depth.max(node_depth);
         depth.insert(node.node_id.clone(), node_depth);
         edge_count = edge_count
             .checked_add(
@@ -1451,15 +1569,29 @@ fn validate_graph(
         return Err(BoundedFeatureProgramErrorV1::Bounds);
     }
 
-    if consumed
-        .values()
-        .any(|count| *count > proposal.bounds.max_fan_out)
-    {
+    let fan_out = consumed.values().copied().max().unwrap_or(0);
+
+    if fan_out > proposal.bounds.max_fan_out {
         return Err(BoundedFeatureProgramErrorV1::Bounds);
     }
+    let count = |len: usize| u16::try_from(len).map_err(|_| BoundedFeatureProgramErrorV1::Bounds);
+    let shape = BoundedFeatureProgramShapeV1 {
+        nodes: count(proposal.nodes.len())?,
+        edges: edge_count,
+        depth: max_depth,
+        ports: port_count,
+        constants: count(proposal.constants.len())?,
+        fan_out,
+        lag: max_lag,
+        window: max_window,
+        state_cells: count(proposal.state_cells.len())?,
+        decision_branches: count(proposal.proposal_decision_table.branches.len())?,
+        state_bytes: total_state_bytes,
+    };
     Ok(ValidatedGraph {
         values,
         atomic_coordinate_pairs,
+        shape,
     })
 }
 
@@ -2049,7 +2181,7 @@ fn validate_clock_and_state<'a>(
     }
 }
 
-fn expected_state_bytes(
+pub(crate) fn expected_state_bytes(
     rule: CatalogStateRuleV1,
     parameters: &BoundedFeatureParametersV1,
     bounds: &BoundedFeatureBoundsV1,
@@ -2338,17 +2470,6 @@ const fn gcd(mut a: u32, mut b: u32) -> u32 {
         b = remainder;
     }
     a
-}
-
-pub(crate) fn coordinate_port_id(identity: BindingDigest) -> String {
-    let mut value = String::with_capacity(100);
-    value.push_str("strategy.input.sample-coordinate.v1.");
-
-    for byte in identity.as_bytes() {
-        use std::fmt::Write as _;
-        let _ = write!(value, "{byte:02x}");
-    }
-    value
 }
 
 fn valid_id(value: &str) -> Result<(), BoundedFeatureProgramErrorV1> {

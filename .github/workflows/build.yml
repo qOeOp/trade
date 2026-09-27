@@ -1384,6 +1384,17 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: bash scripts/ci/require-latest-workflow-verdict.bash security-audit.yml main 49
 
+      # research-source-canary.yml probes the research sources once a week and gated nothing: it was
+      # red from 2026-09-22 with no verdict affected. One failed probe is often a source's bad
+      # minute, so only the same source failing in the two newest runs is red; one failure is a
+      # warning. 15 days covers one missed weekly run without letting a stopped canary keep an old
+      # green alive.
+      - name: Require the research sources to answer
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 -B scripts/ci/require_source_canary_health.py research-source-canary.yml main 15
+
       - name: Verify required build graph
         env:
           READY_GATE_RESULT: ${{ needs.ready-gate.result }}

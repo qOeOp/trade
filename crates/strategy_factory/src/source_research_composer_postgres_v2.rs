@@ -47,7 +47,7 @@ use crate::develop_plugin_build_v2::{
     VerifiedDevelopPluginBuildReadV2, source_research_composer_sealed_corpus_verified_build_v2,
 };
 use crate::product_edge::ResearchViewV1;
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+#[cfg(feature = "composer-v3-replay")]
 use crate::product_edge::{
     ResearchComposerArtifactViewV3, ResearchExplorationViewV1,
     composer_exploration_research_view_is_valid_v3,
@@ -2417,7 +2417,7 @@ async fn matching_current_bfp_v3(
 /// Rereads the immutable Research source after its mutable View has advanced to Composer Replay.
 /// The supplied View preimage is only a claim until the append-only Replay transition and current
 /// Owner custody confirm it. The full Composer positive is independently reread below.
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+#[cfg(feature = "composer-v3-replay")]
 async fn lock_historical_research_for_composer_replay_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
     locator: &DevelopComposerDurableEvidenceLocatorV2,
@@ -2485,7 +2485,7 @@ enum RanUnderResearchStepV1 {
 
 impl RanUnderResearchStepV1 {
     #[cfg_attr(
-        not(any(test, feature = "sealed-source-intake-composer-acceptance")),
+        not(any(test, feature = "composer-v3-replay")),
         expect(dead_code, reason = "the Composer-backed Replay readback is sealed")
     )]
     const fn historical_replay_coordinate(self) -> &'static str {
@@ -2638,7 +2638,7 @@ async fn lock_research_ran_under_in_transaction<E>(
     Ok(research)
 }
 
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+#[cfg(feature = "composer-v3-replay")]
 fn validate_historical_descendant_view(
     current: &ResearchViewV1,
     original: &ResearchViewV1,
@@ -2686,7 +2686,7 @@ async fn matching_historical_bfp_v3(
 /// Rebuilds exact immutable evidence for an already committed native Replay. The Composer store
 /// owns the final record readback and sealed return type; this helper never accepts source JSON as
 /// an operation fact.
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+#[cfg(feature = "composer-v3-replay")]
 pub(crate) async fn resolve_composer_record_for_historical_replay_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
     record: &crate::develop_composer_operation_v2::StoredDevelopComposerPositiveV2,
@@ -2765,7 +2765,7 @@ pub(crate) async fn resolve_composer_record_for_historical_replay_in_transaction
 
 /// Verifies a Replay-bound Composer operation using the current BFP restart when that
 /// Research source exists, otherwise the canonical V2 positive-record verifier.
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+#[cfg(feature = "composer-v3-replay")]
 pub(crate) async fn resolve_composer_record_for_replay_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
     record: &crate::develop_composer_operation_v2::StoredDevelopComposerPositiveV2,

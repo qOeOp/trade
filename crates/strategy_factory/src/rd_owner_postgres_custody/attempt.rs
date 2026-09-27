@@ -453,15 +453,23 @@ pub(crate) async fn admit_develop_intent_custody_in_transaction(
         || successor_intent.independence_basis_identity()
             != initial_intent.independence_basis_identity
         || successor_intent.independence_basis_digest() != initial_intent.independence_basis_digest
-        || successor_intent.protected_feedback_projection_identity()
-            != initial_intent.protected_feedback_projection_identity
-        || successor_intent.protected_feedback_projection_digest()
-            != initial_intent.protected_feedback_projection_digest
     {
         return Err(ArtifactBuildError::Storage(
             "successor Intent authority anchor mismatch".into(),
         ));
     }
+    // A successor freezes the protected-feedback projection current when it was created, so its
+    // projection is not the initial Intent's; what anchors it is the family's basis, under which
+    // Qualification must have admitted it.
+    crate::successor_intent_postgres::verify_successor_protected_feedback_basis_in_transaction(
+        transaction,
+        successor_intent.independence_basis_identity(),
+        successor_intent.independence_basis_digest(),
+        successor_intent.protected_feedback_projection_identity(),
+        successor_intent.protected_feedback_projection_digest(),
+    )
+    .await
+    .map_err(|e| ArtifactBuildError::Storage(e.to_string()))?;
 
     let current_frontier = census.census_frontier.frontier_identity()
         == successor_intent.census_frontier_identity()

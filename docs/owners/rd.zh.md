@@ -91,13 +91,19 @@
   只读标题会得到相反的答案，而且两个方向都会错。
 
 - **CURRENT - 已部署的服务，以及它暴露面的边界：** `product/rd-workbench/Dockerfile.owner` 构建
-  `--bin strategy-factory-rd-owner-api` 时完全不带 `--features`，该文件唯一的 `--features` 属于 dashboard
-  那个二进制。所以部署镜像就是 `crates/strategy_factory_rd_owner_api/src/main.rs` 里未加门的那个 router，
-  而其后由 `#[cfg(feature = "sealed-develop-composer-acceptance")]` 与
-  `#[cfg(feature = "sealed-source-intake-composer-acceptance")]` 注册的六条路由不在其中：
-  `/v2/exploratory-replay/execution-input-bindings`、`/v3/exploratory-replay-requests/composer-backed`，
-  以及四条 `/_sealed-acceptance/v1/develop-composer/*`。一条验收路由绝不是生产能力的证据，
+  每一个二进制（包括 `--bin strategy-factory-rd-owner-api`）时都完全不带 `--features`。所以部署镜像就是
+  `crates/strategy_factory_rd_owner_api/src/main.rs` 里未加门的那个 router，
+  而其后注册的六条路由不在其中：`/v2/exploratory-replay/execution-input-bindings` 在
+  `#[cfg(feature = "composer-replay-issuance")]` 之下，`/v3/exploratory-replay-requests/composer-backed` 在
+  `#[cfg(feature = "composer-v3-replay")]` 之下，四条 `/_sealed-acceptance/v1/develop-composer/*` 在
+  `#[cfg(feature = "sealed-source-intake-composer-acceptance")]` 之下。前两个 feature 是生产面，不带任何验收夹具、
+  语料或路由；密封 feature 包含它们而不是拥有它们。在默认构建里，Composer 自己的
+  `/v2/develop-composer/runs/{request_identity}/resolve` 与 `/readback` 返回 `503`，因为
+  `composer-replay-issuance` 是关闭的。一条验收路由绝不是生产能力的证据，
   而密封 feature 的存在就是为了让这个区别是机械的而不是靠记住的。
+  镜像运行在产品的定点精度 `FIXED_PRECISION` 16 上，不靠构建参数：`vibe-strategy-factory` 在自己的
+  `vibe-model` 依赖上声明 `high-precision`，`scripts/ci/check-production-features.py` 会拒绝链接
+  `vibe-model` 却不带它的生产包。
 - **CURRENT - 已部署的 Source Intake 流水线在受理之后就停住：** `SourceIntakeEnvironmentPort` 有两个实现。
   `SealedSourceIntakeEnvironmentV1` 在 `sealed-source-intake-acceptance` 之后，而上面那个镜像不构建它，
   所以随镜像发布的是 `crates/strategy_factory/src/source_intake/owner.rs` 里的 `ProductionEnvironmentV1`。
@@ -120,15 +126,20 @@
   即 Playbook 点名的、缺席的 `LIVE_EXTERNAL` 权威，而不是请求本身；请求本身的拒绝（冲突的 identity、
   畸形的 body）这条路由已经按名回答。今天重试改变不了答案，是这个构建缺少的能力，列在
   `UNIMPLEMENTED_PRODUCTION_STAGES` 里；它不是请求的性质，也不需要一种专属的答复。
-- **CURRENT - composer-backed 的 Exploratory Replay 请求路径没有准入标签，解除它封印的条件在上游：**
-  `commit_composer_backed_exploratory_replay_request_v3` 及其路由
-  `/v3/exploratory-replay-requests/composer-backed` 只存在于 `sealed-source-intake-composer-acceptance`
-  之下，而上面那个镜像不构建它。本文档、`docs/owners/backtest.md` 与 `docs/architecture/` 都没有把这条
-  路径标成 `TARGET`、`IMPLEMENTATION_ADMITTED` 或任何其他状态，所以它的状态只能从三处陈述读出。上面那条
-  已部署服务的条目说，验收路由从来不是生产能力的证据。`docs/guide/dashboard.md` 说，当某个部署镜像带上
-  一条能产出 Composer artifact 的路径时，这条边界就解除，届时 v2 commit 退役或被这条路径取代。上面那条
-  Source Intake 的条目说，已部署的流水线作为通向任何 Composer artifact 的第一跳，什么都取不到。因此这条
-  路径是在等一个生产侧的产出者而被封住的：既不是没做完，也不是有意不开。不带门的 v2 commit 替代不了它。
+- **CURRENT - composer-backed 的 Exploratory Replay 请求路径没有准入标签，把它挡在部署镜像之外的是镜像，而不是缺少产出者：**
+  `commit_composer_backed_exploratory_replay_request_v3`、它的路由
+  `/v3/exploratory-replay-requests/composer-backed`、它的表和这些表的迁移，只存在于 `composer-v3-replay`
+  之下；这是一个生产 feature，而上面那个镜像不构建它，所以默认构建的 `--materialize-schema` 一张这些表也不建。
+  本文档、`docs/owners/backtest.md` 与 `docs/architecture/` 都没有把这条路径标成 `TARGET`、
+  `IMPLEMENTATION_ADMITTED` 或任何其他状态，所以它的状态只能从三处陈述读出。上面那条已部署服务的条目说，
+  验收路由从来不是生产能力的证据。`docs/guide/dashboard.md` 说，当某个部署镜像带上一条能产出 Composer
+  artifact 的路径时，这条边界就解除，届时 v2 commit 退役或被这条路径取代。这样的路径已经编译并注册在默认
+  构建里：`/v2/develop-composer/runs` 在 Research 请求冻结的 Bounded Feature Program 上运行生产 Composer
+  （`PostgresSourceResearchComposerProductionV2::run_bounded_feature_program`），它读的是联合冻结和 Market Data
+  的绑定，不经过 Source Intake，所以上面那条 Source Intake 的条目已不再指出挡路的那一跳。开启
+  `composer-v3-replay` 的构建同时带着这个 Composer 和这条 commit，且不带任何验收代码。有序链路的构建不是这个
+  构建：它的验收 feature 包含 `composer-v3-replay`，但同时把 Composer 的运行换成了固定语料。因此这条路径
+  尚未被准入进镜像：既不是没做完，也不是有意不开，准入它的是一个部署决定。不带门的 v2 commit 替代不了它。
   Native Replay 的准备阶段在查询 Composer 之前就把请求的 `artifact.digest` 当作 `sha256:` 摘要来解析，
   而 v2 commit 只在这个摘要等于 Artifact Build Owner 的 `blake3:` wasm 摘要时才会成功；请求的
   `artifact.identity` 也得同时等于 commit 所要求的 Artifact Build `blake3:` 身份，以及准备阶段所要求的
@@ -639,9 +650,14 @@ position target 与它的 reconciliation target 相等，而两侧曾共用的�
   没有任何东西提议负权重：手写语料里十个权重常量全是正的，`crates/` 下唯一的负权重字面量是
   `crates/strategy_factory/programs/sdk/src/lib.rs` 里的一个编解码往返。
 - *编译。* 编译器只决定编码。单位与标度、状态字节、角色与坐标端口身份，它都调用 Owner 自己的函数，
-  而不持有第二份；为此先要让 `expected_state_bytes` 对它可见、删掉降级器私有的那份
-  `coordinate_port_id`、并把 `prepare_bounded_feature_program_v1` 所做的形状测量抽成两者共用的一个函数。
-  `graph_bounds` 从产出的图上测量；源码与 Wasm 字节上限是语言版本固定的上界。程序从不读的已声明输入
+  而不持有第二份。其中三个已经存在：`expected_state_bytes`；`coordinate_port_id`，在 `strategy_plan_v2.rs`
+  里，是坐标端口 id 的唯一写法，校验器与 Plan 编译器都调用它。降级器保留自己的一份，因为它的源码是冻结的：
+  V3 构建胶囊绑定它的摘要，删掉这一份会让每次构建换身份，所以由一条测试把那一份钉在这一份上；以及
+  `measure_bounded_feature_program_shape_v1`，它像 `prepare_bounded_feature_program_v1` 那样校验程序，只是
+  放开图上限，并返回这些上限据以核对的形状。单位与标度的推导仍是校验器私有的，随调用它的编译器一起公开。
+  `graph_bounds` 就是测得的形状，为 0 的 lag 或 window 声明为 1，而且恰好是程序被拒的地方：任何一项低一，
+  `prepare` 就拒绝。Design 的状态大小属于它的插件清单而不是图上限，程序的状态格不得超过它；源码与 Wasm
+  字节上限是语言版本固定的上界。程序从不读的已声明输入
   被编译进 `carried_input_role_ids`。编译器随后用最新发布的目录推导并 prepare 自己的产物，`prepare`
   拒绝的一律不产出。它自己的拒绝按文档路径点名：未知名字、定义环、未被使用的定义、单位不一致、
   字面量在其标度上不可表示、分数越界、分档不递增、字面量零分母、权重越界、动作等于 `otherwise` 的
@@ -690,6 +706,15 @@ operation）任何重试都改变不了，所以按自己的名字拒绝，绝�
 policy catalog V3 的头缺席时，`submit_v2` 就这样回答，并记下
 `research_goal_owner.submit_v2.replay_policy_catalog_v3.resolve_current`。Owner 不判断一种环境状态会持续
 多久（一分钟后发布的头会让同一请求成功），所以权威不可用不另设专属答复。
+
+后继 Research Intent 不提交自己的 Independence Basis，它绑定其 TrialFamily 准入时的那一个。它仍以同样方式冻结
+创建时当前的受保护反馈投影：Qualification 先在自己的事务里为该 basis 解析投影，创建事务再次准入它，只冻结与之相等
+的投影，并在提交前再准入一次。所以后继从不沿用前驱的投影；一次受保护评估变得可观察之后，下一个后继冻结的是包含它
+的 frontier。后继被准入的 principal 与 scope 必须是该 basis 自己的，否则请求作为无效提案被拒绝，因此一个操作者无法
+冻结另一个操作者的 family 反馈。已存在的后继按它存下的投影重放，不做任何解析。它的 Artifact 构建只在 Qualification
+仍把该投影读作在 family 的 basis 下准入时才绑定它。其余拒绝不写任何东西，答 Owner 不可用，并记在
+`research_goal_owner.compose_successor_v1.protected_feedback` 下：`resolve`、`absent`、`mismatch`、
+`refresh_mismatch` 与 `foreign_basis`。
 
 R&D 的时钟是在使用它的 R&D 事务内读取的 `pg_catalog.clock_timestamp()`。Research Intent 的投影时间、
 `valid_through` 与提交时间都由它盖戳，其锁返回的 `owner_cut` 也是；后继 Research Intent 遵循同一规则。
@@ -937,6 +962,70 @@ Market Data Repair Request 绑定原始 PIT 请求与证明摘要 标的范围 �
 purge 与 embargo 派生规则、TrialFamily-aware multiplicity policy、attempt frontier 和保护决策政策都在
 结果前冻结，并在 Replay Request Run Result Iteration Decision Selection 与 Candidate 之间原样传递。
 其中任一改变都创建后继血缘，不能重新解释旧结果。
+
+### TARGET - 累计试验记账与花费上限
+
+用户于 2026-09-27 决定：Research 一直运行到开发出策略为止，而不是到了试验次数就停。用户原话：「rd 是要在开发出策略前一直
+运行，否则总是因为预算原因中断而无法开发出有效策略，体验很糟」。用户选定的选项：「研发不因试验次数停下；每次试验都记账
+且跨轮累计，试得越多，资格审查的折扣越重；随机策略对照和留出数据照旧；只保留一个你可设的花费上限（API/算力）」。在这一
+授权下，本节移除一条已陈述的约束，即封存的试验预算，并把它保护的东西迁走：多重检验控制从「停止搜索」改为「抬高资格门槛」
+（[Qualification](./qualification/#target---cumulative-trial-deflation-at-candidate-intake)），防止不经济的无尽搜索改由下面
+的花费上限承担。移除最后落地，排在记账、折扣与花费上限都已存在之后，于是没有哪个截面既没有旧约束也没有替代。
+
+**现状**，在 `main` 019f231b0 上实测。封存的预算是 `TrialFamilyPolicyV1.trial_budget`，Product Edge 接受 1 到 10,000
+（`TRIAL_BUDGET_INVALID`），Dashboard 研究表单接受 1 到 64。它在 policy 摘要里，因而也在 TrialFamily 身份里。有三条规则
+执行它：Iteration Result Admission 拒绝大于剩余预算的提案集（`ITERATION_RESULT_ADMISSION_TRIAL_BUDGET_EXCEEDED`）；已消耗
+次数等于预算时，决策策略发出 `TRIAL_BUDGET_EXHAUSTED`；这一耗尽又抢先于候选比较与 `READY_FOR_SELECTION`，所以预算内的最后
+一次试验永远成不了 Candidate。一个消耗单位是一次 census attempt，即任何终态的 Intent、Request 与 Result 三元组，按
+TrialFamily 计数。后继 Intent 留在自己的 family 里，新的 Research 目标会形成新的 family 并从头计数，没有任何地方跨 family
+求和。推进计数的 census V2 追加没有生产调用方，它在等上面的 Decision composition，所以在生产构建里每个 family 的计数都是
+形成时写下的 1，没有 family 能触到预算。
+
+**一次试验**就是一次 census attempt，与今天的计数完全相同：TrialFamily Census 接纳的每一个探索性 Intent、Request 与
+Result 三元组，不论其终态。落败、被拒、无效与未知的 attempt 都计入，因为每一次都看过一次数据；完全相同的请求重放会并入
+它的回执，不算第二次试验。V2 census 把今天叫 `consumed_trial_budget` 的计数改名为 `trial_count`；V1 读回保留旧名。
+
+**它跨越哪条血缘累计。** 一个 Candidate 的累计试验次数，是它为自己的 TrialFamily、以及为其跨 family 前驱前沿里（传递地）
+每一个 TrialFamily 所绑定的 census 前沿上的 `trial_count` 之和：
+
+- 后继迭代留在自己的 family 里，所以被计入；
+- Qualification 反馈之后的重新规划是带跨 family 祖先的后继，所以被计入；
+- 声明独立对两者都不产生影响，正如它不能给自己一份新的留出预算；
+- 仍在增长的前驱 family 按 Candidate 所绑定的截面计入，之后的追加由下一个绑定更晚截面的 Candidate 计入。
+
+计数不由任何调用方提供：Qualification 从所绑定的前沿推导它。没有语义前驱的 Research 目标开始一条新血缘。计数以血缘为界，
+而不是某个主体跑过的全部试验，因为它所防范的东西并不单靠它：用新目标抹掉前驱已经在下文被禁止，而同宇宙随机对照把
+Candidate 与按一个并非由搜索方写下的定义抽取的程序相比较，所以即使计数被低报它也成立。
+
+**移除落地时改变什么。** TrialFamily Policy V2 没有试验预算，并有自己的摘要域，所以每一个 V1 family 保留它的身份与冻结的
+决策策略。一个耗尽了封存预算的 V1 family 仍按它的承诺停止，它的血缘经由在 V2 下形成的后继 family 继续，每一次 V1 试验都计入。
+对 V2 family：
+
+- Iteration Result Admission 去掉剩余预算那条拒绝；
+- 决策策略版本不再列出 `TRIAL_BUDGET_EXHAUSTED` 及其对比较与就绪的抢先；
+- 信息价值比较原先权衡剩余 family 预算的影响，改为权衡累计试验次数的影响；
+- 其余的停止（证伪、冻结的停止规则、输入不可用、经济上不可能、信息价值低）结束的是一条血缘而不是 Research，「预算耗尽」
+  也从阻止提交候选的失败里移除；
+- Dashboard 的试验预算字段与预算列，在 `docs/guide/dashboard.md` 为此修改之后，改为显示累计试验次数。
+
+**花费上限。** 一个用户设定的上限约束 Research 的花费，达到它时 Research 暂停而不是停止。
+
+- *计量什么。* 语言模型提供方调用，按每次响应报告的 token 用量，以用户为该提供方与模型设定的价格计；今天
+  `artifact_build_v1.ts` 只读消息内容，丢弃了 `usage` 块。付费行情数据，按提供方在请求前给出的报价：Databento 的
+  `get_cost` 预检今天有自己的上限 `DATABENTO_MAX_PROBE_COST_USD`，并入这一个上限。算力，即 Backtest 重放与 Develop 构建的
+  秒数，以用户设定的费率计，在用户已准入的单台本机上默认为零，于是只有用户给算力定价时它才计入。
+- *谁来计量。* R&D 维护一本只追加的 Spend Ledger。在一次被计量的效果之前，它在认领该效果的同一事务里预留这次效果的上界：
+  请求的 `max_tokens` 按价格计、预检报价，或声明的时限按算力费率计。效果之后，它按实际金额对这笔预留结算。结果未知的效果
+  按上界保持预留，直到它有了结论。预留在账本头上串行化，所以两次并发的预留不能合起来越过上限。
+- *达到上限时。* 一次会让已结算加已预留的花费越过上限的预留被拒绝，Research 工作流进入 `PAUSED_SPEND_CAP_REACHED`，
+  带着上限、已结算与已预留的金额，以及被拒的那次效果。它不是 Iteration Decision，也不是停止：没有身份被关闭，也不丢任何
+  东西，上限允许时同一步会再次预留。已经预留的效果照常完成并结算。
+- *用户怎么设定。* 上限是按 UTC 自然月计的一个美元金额，每月 1 号清零，这一周期由用户于 2026-09-28 确认。它连同价格表
+  作为一条经授权的 Product Edge 配置事实保存，R&D 在每次预留时读取它；修改是一条新事实，从不是编辑。在 Dashboard 准入一个设定控件之前，R&D Owner API 从它的环境读取
+  上限，正如今天读取 Databento 的上限。
+
+切片与顺序见
+[Strategy Factory](../architecture/strategy-factory#target---research-runs-until-a-strategy-bounded-by-spend)。
 
 ## 输入交接
 

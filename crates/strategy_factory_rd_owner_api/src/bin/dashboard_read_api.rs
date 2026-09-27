@@ -1561,9 +1561,13 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     #[ignore = "requires the ordered chain's committed run report, Dashboard dependencies and Chrome acceptance admission"]
     async fn backtest_run_report_browser_acceptance_reads_the_owner_answer() {
-        if std::env::var("DASHBOARD_STRATEGY_VIEWER_BROWSER_ACCEPTANCE").as_deref() != Ok("1") {
-            return;
-        }
+        // Fail closed like the two inputs below: an early return here reported PASS from any run
+        // that lacked the input, having driven nothing (scripts/ci/chain-entry-early-return.py).
+        assert_eq!(
+            std::env::var("DASHBOARD_STRATEGY_VIEWER_BROWSER_ACCEPTANCE").as_deref(),
+            Ok("1"),
+            "DASHBOARD_STRATEGY_VIEWER_BROWSER_ACCEPTANCE must be exactly 1 for this browser acceptance",
+        );
         let browser_executable = std::env::var("DASHBOARD_STRATEGY_VIEWER_BROWSER_EXECUTABLE")
             .expect("explicit browser executable is required");
         let acceptance_candidate = std::env::var("DASHBOARD_STRATEGY_VIEWER_ACCEPTANCE_CANDIDATE")

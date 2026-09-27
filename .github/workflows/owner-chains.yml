@@ -234,12 +234,12 @@ jobs:
           rust-cache-save-if: "false"
           rust-cache-workspace-crates: "true"
 
-      # The R&D chain's entry 28, `strategy_source_browser_acceptance_reads_canonical_terminal_owner_custody`,
-      # drives the Dashboard strategy viewer in a real browser only when these three inputs are
-      # present; without them it passes in a few milliseconds and proves nothing about the browser.
-      # `build`'s chain job runs it that way, so the only Linux evidence for the browser acceptance
-      # has been `rd-owner-postgres.yml`. This leg carries the same sealed inputs, byte for byte, so
-      # a lane's push exercises the whole entry. The Market Data leg has no browser to drive.
+      # The R&D chain's browser entries, 28 and 100, drive the Dashboard in a real browser with these
+      # three inputs and fail closed without them. build.yml's chain shards install the same inputs
+      # through the same action, and so do rd-owner-postgres.yml and this leg, byte for byte:
+      # entry 28 took 41.6-67.7 s in each of 13 runs across build and owner-chains (for example
+      # build 36345566217 at 64.1 s, owner-chains 36344301072 at 54.3 s), so every channel drives
+      # it. The Market Data leg has no browser to drive.
       - name: Install the sealed Dashboard browser acceptance inputs
         if: matrix.chain.browser == 1
         uses: ./.github/actions/dashboard-browser-acceptance

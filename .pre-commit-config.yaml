@@ -180,7 +180,14 @@ repos:
         description: Names Cargo features that gate code no job compiles, and fails on a new one
         entry: python3 scripts/ci/check-feature-gate-coverage.py
         language: system
-        files: ^(crates/|product/|scripts/ci/check-feature-gate-coverage\.py$|Makefile$|\.github/workflows/)
+        files: >-
+          (?x)^(
+            crates/|
+            product/|
+            scripts/ci/(check-feature-gate-coverage|sealed_carried_features)\.py$|
+            Makefile$|
+            \.github/workflows/
+          )
         pass_filenames: false
       - id: test-feature-gate-coverage
         name: test feature gate coverage resolution
@@ -192,18 +199,26 @@ repos:
 
             \.pre-commit-config\.yaml|
             Makefile|
-            scripts/ci/(check-feature-gate-coverage|test_check_feature_gate_coverage)\.py|
+            scripts/ci/(check-feature-gate-coverage|test_check_feature_gate_coverage|sealed_carried_features)\.py|
             \.github/workflows/.*\.yml
           )$
         pass_filenames: false
+      - id: test-sealed-carried-features
+        name: test sealed carried features
+        description: Proves the features a sealed union carries, and so lints alone, are found by walking feature lists
+        entry: python3 -B scripts/ci/test_sealed_carried_features.py
+        language: system
+        files: ^scripts/ci/(sealed_carried_features|test_sealed_carried_features)\.py$
+        pass_filenames: false
       - id: check-production-features
         name: check production builds carry no test-only feature
-        description: Refuses a test-only feature (vibe-model/vibe-common stubs) in what a production image builds
+        description: Refuses test-only features in production images and a precision other than 16 in the product
         entry: python3 -B scripts/ci/check-production-features.py
         language: system
         files: >-
           (?x)^(
             Cargo\.(toml|lock)|
+            Makefile|
             crates/.*/Cargo\.toml|
             product/.*Dockerfile[^/]*|
             scripts/ci/check-production-features\.py
@@ -274,6 +289,18 @@ repos:
             scripts/ci/test-rd-owner-postgres\.bash|
             product/dashboard/(tests|scripts|lib)/.*|
             product/rd-owner-client/.*|
+            crates/.*\.rs
+          )$
+        pass_filenames: false
+      - id: check-chain-entries-fail-closed
+        name: check no chain entry returns early on an unset input
+        description: A chain entry that returns early without an input would report PASS having driven nothing
+        entry: python3 -B scripts/ci/chain-entry-early-return.py --hook
+        language: system
+        files: >-
+          (?x)^(
+            scripts/ci/(chain-entry-early-return|chain-node-entries)\.py|
+            scripts/ci/test-rd-owner-postgres\.bash|
             crates/.*\.rs
           )$
         pass_filenames: false
@@ -361,6 +388,13 @@ repos:
         entry: bash scripts/ci/test-require-latest-workflow-verdict.bash
         language: system
         files: ^scripts/ci/(test-)?require-latest-workflow-verdict\.bash$
+        pass_filenames: false
+      - id: test-source-canary-health
+        name: test the research canary health requirement
+        description: Only the same source failing in the two newest canary runs turns main red
+        entry: python3 -B scripts/ci/require_source_canary_health_test.py
+        language: system
+        files: ^scripts/ci/require_source_canary_health(_test)?\.py$
         pass_filenames: false
       - id: test-chain-verdict-reuse
         name: test chain verdict reuse
