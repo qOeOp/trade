@@ -50,8 +50,11 @@ use vibe_data::owner::{
         BindingDigest, UntrustedAdapterBinding, UntrustedCompleteFrontier,
         UntrustedCredentialAudienceClaim, UntrustedCredentialCapabilityClaim,
         UntrustedLicensePolicy, UntrustedMarketDataAsOf, UntrustedMarketSemantics,
-        UntrustedOpaqueCredentialHandle, UntrustedSourceBindingLocator,
-        UntrustedSourceBindingProposal, UntrustedTrustPolicy, seal_binding_claim_v1,
+        UntrustedOpaqueCredentialHandle, UntrustedSourceAvailabilityRuleV1,
+        UntrustedSourceBarAnchorV1, UntrustedSourceBarCadenceV1, UntrustedSourceBarClockV1,
+        UntrustedSourceBarCompletionV1, UntrustedSourceBarLabelV1, UntrustedSourceBarTimeframeV1,
+        UntrustedSourceBarUnitV1, UntrustedSourceBindingLocator, UntrustedSourceBindingProposal,
+        UntrustedSourceVisibilityV1, UntrustedTrustPolicy, seal_binding_claim_v1,
     },
     source_binding_admission_v1::{
         ProviderReachabilityEvidenceV1, ProviderRightsEvidenceV1,
@@ -242,12 +245,73 @@ impl Drop for SchedulingGrantsGuardV1 {
     }
 }
 
+/// The two datasets the perpetual's Source Bindings name.
+#[derive(Clone, Copy)]
+enum PerpetualDatasetV1 {
+    /// Daily klines: the BAR rows the PIT intake answers with, labelled "1D" by the source.
+    DailyKlines,
+    /// The venue's `exchangeInfo`, which the Instrument Master V2 intake reads.
+    ExchangeInfo,
+}
+
+impl PerpetualDatasetV1 {
+    const fn mapping(self) -> &'static str {
+        match self {
+            Self::DailyKlines => "usdm/klines/1d",
+            Self::ExchangeInfo => "usdm/exchangeInfo",
+        }
+    }
+
+    /// The klines binding declares what its rows mean as bars, which only schema 2 can; the
+    /// `exchangeInfo` binding serves no BAR row and stays schema 1.
+    const fn schema_version(self) -> u16 {
+        match self {
+            Self::DailyKlines => 2,
+            Self::ExchangeInfo => 1,
+        }
+    }
+
+    /// A kline row is visible one second after its bar closes, and the venue never corrects a
+    /// closed kline. This is the binding author's statement about the source; no-look-ahead in a
+    /// custody-backed Replay rests on it.
+    const fn availability_rule(self) -> Option<UntrustedSourceAvailabilityRuleV1> {
+        match self {
+            Self::DailyKlines => Some(UntrustedSourceAvailabilityRuleV1 {
+                visibility: UntrustedSourceVisibilityV1::AfterBarClose {
+                    lag_ns: 1_000_000_000,
+                },
+                publishes_corrections: false,
+            }),
+            Self::ExchangeInfo => None,
+        }
+    }
+
+    /// The "1D" rows are fixed 24-hour UTC bars on the Unix epoch grid, labelled at their close,
+    /// complete only: a perpetual never closes, so its day is not an exchange session day.
+    fn bar_timeframes(self) -> Vec<UntrustedSourceBarTimeframeV1> {
+        match self {
+            Self::DailyKlines => vec![UntrustedSourceBarTimeframeV1 {
+                row_timeframe: "1D".to_owned(),
+                cadence: UntrustedSourceBarCadenceV1::FixedInterval {
+                    step: 24,
+                    unit: UntrustedSourceBarUnitV1::Hour,
+                },
+                anchor: UntrustedSourceBarAnchorV1::UnixEpoch,
+                clock: UntrustedSourceBarClockV1::Continuous,
+                label: UntrustedSourceBarLabelV1::IntervalClose,
+                completion: UntrustedSourceBarCompletionV1::CompleteOnly,
+            }],
+            Self::ExchangeInfo => Vec::new(),
+        }
+    }
+}
+
 /// The perpetual's Source Binding, as Operations proposes one: a public USD-M feed that needs no
 /// credential. Every clock field is the Owner's and is overwritten on admission; only the effective
 /// instant and its four coordinates are the proposer's.
 fn perpetual_source_proposal(
     effective_ns: u64,
-    dataset_mapping: &str,
+    dataset: PerpetualDatasetV1,
 ) -> UntrustedSourceBindingProposal {
     let frontier = |meaning: &str| UntrustedCompleteFrontier {
         stream_identity: "binance/usdm-klines".to_owned(),
@@ -257,12 +321,12 @@ fn perpetual_source_proposal(
     };
     let mut proposal = UntrustedSourceBindingProposal {
         claimed_binding_id: BindingDigest::from_untrusted_bytes([0; 32]),
-        schema_version: 1,
+        schema_version: dataset.schema_version(),
         adapter: UntrustedAdapterBinding {
             implementation_digest: first_composer_v3_digest("perpetual.adapter.implementation"),
             configuration_digest: first_composer_v3_digest("perpetual.adapter.configuration"),
             authenticated_endpoint_identity: "https://fapi.binance.com".to_owned(),
-            dataset_mapping: dataset_mapping.to_owned(),
+            dataset_mapping: dataset.mapping().to_owned(),
             account_mapping: "binance/public".to_owned(),
         },
         credential_handle: UntrustedOpaqueCredentialHandle::from_untrusted_identity(
@@ -315,8 +379,8 @@ fn perpetual_source_proposal(
             effective_at: effective_ns,
             valid_through: 0,
         },
-        // A schema 1 proposal declares no availability rule (#1126).
-        availability_rule: None,
+        availability_rule: dataset.availability_rule(),
+        bar_timeframes: dataset.bar_timeframes(),
     };
     seal_binding_claim_v1(&mut proposal);
     proposal
@@ -605,8 +669,9 @@ pub(crate) async fn ensure_first_composer_v3_replay_acceptance_v1(
         .current_decision_cut()
         .await
         .expect("H0: Market Data states its decision cut")
-        .decision_cut;
-    let proposal = perpetual_source_proposal(effective_ns, "usdm/klines/1d");
+        .decision_cut
+        .as_epoch_nanos();
+    let proposal = perpetual_source_proposal(effective_ns, PerpetualDatasetV1::DailyKlines);
     let (status, answer) = post(
         &routes,
         "/v1/market-data/source-bindings",
@@ -658,7 +723,10 @@ pub(crate) async fn ensure_first_composer_v3_replay_acceptance_v1(
             "/v1/market-data/source-bindings",
             Some(
                 serde_json::to_value(SourceBindingAdmissionRequestV1 {
-                    proposal: perpetual_source_proposal(effective_ns, "usdm/exchangeInfo"),
+                    proposal: perpetual_source_proposal(
+                        effective_ns,
+                        PerpetualDatasetV1::ExchangeInfo,
+                    ),
                     rights: ProviderRightsEvidenceV1::Granted,
                     reachability: ProviderReachabilityEvidenceV1::Reachable,
                 })
@@ -916,10 +984,13 @@ pub(crate) async fn ensure_first_composer_v3_replay_acceptance_v1(
     // proposer for (`bar_schedule_acceptance_v1`). Market Data derives every schedule field from the
     // snapshot's verified batch, the role's declaration and the snapshot's Instrument Master cut.
     //
-    // UNVERIFIED: the constructor states "1D" as an exchange session day, and a crypto perpetual's
-    // day is a fixed UTC day. The schedule it derives for this role is admitted and read, but its
-    // shape and interval are not yet proved to be the perpetual's; once the fixed UTC day lands
-    // (S1'), this step asserts the schedule's fields one by one.
+    // UNVERIFIED: the klines binding now declares the rows' bar timeframe (a fixed 24-hour UTC day),
+    // and the proposer mints the schedule from that declaration (S1'). What it minted is not yet
+    // asserted: its answer carries only the schedule's identity and digest, the schedule readback
+    // is reachable only through the Store Admission resolver, and the native bar type
+    // (`LINKUSDT-PERP.BINANCE-1-DAY-LAST-EXTERNAL`) is projected only by the initial market read
+    // past H8's Economic Terms. This step asserts the schedule field by field, and that bar type,
+    // once one of those reads is open to it.
     let close_role = design
         .inputs
         .iter()
