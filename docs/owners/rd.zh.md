@@ -334,7 +334,30 @@ Research artifact evidence 必须正是为它封存的（`rd_owner_api.lock_rese
 前三种失败在 `research_custody.run_view` 下各自的 coordinate 处应答 `UNAVAILABLE`；digest 不等时在既有的 `operation_receipt` coordinate 处应答。在这条记录存在之前提交的行两条事实都没有：
 它保留针对当前 View 的读取，一旦该 View 不再当前，就在 `research_custody.run_view_unrecorded`
 处应答，说明这一行为什么不能读，而不是暗示运行消失了。迁移先读目录形状再加这两列；它们在迁移部署时冻结，而不是在合并时。
-运行本身仍需要当前的 View，所以一个 Research request 只能在被接受后十分钟内做 compose；这个界属于运行，不属于这次读回。
+
+**已准入的 Research Intent 在其准入时的授权下继续，而不是在其 View 的窗口内继续。** View 的 `valid_through`
+是读者看到的新鲜度：过了它，View 读作 `STALE`，而且没有任何东西刷新它。它并不界定冻结的 Intent 可以被处理多久。
+下面每一种继续操作都在自己的 cut 上重新锁定该 Intent 自己的 Product Edge 准入，就像下游首次变更那样：
+
+- Composer 运行；
+- `POST /v1/bounded-feature-programs/{declare,freeze}`；
+- 发布 Design role intent；
+- 读取 Research 编写事实；
+- 冻结复杂策略的 develop evaluation。
+
+每一种都只在该准入所指的操作员授权在那一刻仍然当前时才继续：仍然有效、没有被撤销、并处于当前的 policy binding
+与 manifest 窗口之下。否则在 `research_custody.continuation.authority_not_current` 处应答 `UNAVAILABLE`。另外两种拒绝也有名字：
+
+- 重新锁定到的准入若不是该 Intent 准入时的那一个，在 `research_custody.continuation.admission_changed` 处应答；
+- 被隔离的遗留托管没有当前准入，在 `research_custody.continuation.no_admission` 处应答。
+
+冻结的 View 仍然标识这个 Intent：早于其投影的 cut 会被拒绝，而且该 Intent 必须仍然是 `INTENT_FROZEN`。
+受保护反馈只在 Intent 准入时检查一次，之后不再检查。今天受保护反馈前沿没有代际，受保护评估也不会推进它，所以继续操作感知不到冻结之后发生的受保护评估。
+给前沿加上代际、并让每一次继续操作都与 Intent 冻结时的代际比较的那一片，会移除这条性质。在它们各自的切片落地之前，
+有两类检查仍然读取 View 的窗口：
+
+- Replay 提交之后的步骤：Backtest 运行、执行输入绑定和 Market Data 修复；
+- Product Edge 自己的下游准入窗口检查。
 
 **CURRENT/PARTIAL：第一圈已有立足之处。** 封存语料 run 之后，`run_bounded_feature_program` 成为唯一的生产入口，
 而它需要一份已冻结的 joint program。冻结需要 Strategy Input declaration；Market Data 过去只从一份

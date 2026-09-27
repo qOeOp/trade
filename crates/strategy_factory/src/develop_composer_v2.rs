@@ -343,14 +343,15 @@ impl CurrentResearchDevelopCustodyV2 {
         }
     }
 
-    #[allow(
-        dead_code,
-        reason = "the first crate-local vertical has no admitted PostgreSQL composition root"
-    )]
+    /// The Research custody a Develop operation continues under, at the cut `authorized` proves its
+    /// admission's operator authority current at.
+    ///
+    /// The stored View identifies the frozen Intent; its validity window is a reader's freshness and
+    /// does not bound the work (`research_continuation_v1`).
     pub(crate) fn from_verified(
         custody: &VerifiedResearchCustodyV1,
         request_locator: &str,
-        read_cut_epoch_ms: u64,
+        authorized: &crate::research_continuation_v1::ResearchContinuationAuthorizedV1,
     ) -> Result<Self, DevelopComposerTerminalV2> {
         let view = custody.view().ok_or_else(|| {
             DevelopComposerTerminalV2::unavailable(
@@ -358,14 +359,15 @@ impl CurrentResearchDevelopCustodyV2 {
                 "current Research View is unavailable",
             )
         })?;
+        let admission = crate::research_continuation_v1::initial_research_admission(custody)?;
 
-        if !custody.authority_available_at(read_cut_epoch_ms) {
+        if admission.locator().admission_identity != authorized.admission_identity() {
             return Err(DevelopComposerTerminalV2::unavailable(
-                "research_custody",
-                "current Research authority is unavailable at the read cut",
+                crate::research_continuation_v1::RESEARCH_CONTINUATION_ADMISSION_CHANGED_COORDINATE_V1,
+                "the continuation was authorized under another Product Edge admission",
             ));
         }
-        Self::from_verified_with_view(custody, request_locator, view, read_cut_epoch_ms)
+        Self::from_verified_with_view(custody, request_locator, view, authorized.cut_epoch_ms())
     }
 
     /// Rebuilds the original Composer research digest from an independently verified historical
@@ -403,7 +405,6 @@ impl CurrentResearchDevelopCustodyV2 {
             || view.request_identity != request_locator
             || view.intent_identity != intent.intent_identity
             || view.projection_at_epoch_ms > read_cut_epoch_ms
-            || read_cut_epoch_ms >= view.valid_through_epoch_ms
         {
             return Err(DevelopComposerTerminalV2::unavailable(
                 "research_custody",
@@ -452,18 +453,26 @@ impl CurrentResearchDevelopCustodyV2 {
         Ok(value)
     }
 
+    /// The successor Research custody a Develop operation continues under, at the cut `authorized`
+    /// proves the successor's admission current at.
     pub(crate) fn from_verified_successor(
         readback: &SuccessorResearchIntentReadbackV1,
         custody: &SuccessorResearchViewCustodyV1,
         family: &TrialFamilyCensusReadbackV2,
-        read_cut_epoch_ms: u64,
+        authorized: &crate::research_continuation_v1::ResearchContinuationAuthorizedV1,
     ) -> Result<Self, DevelopComposerTerminalV2> {
+        if custody.admission().admission_identity != authorized.admission_identity() {
+            return Err(DevelopComposerTerminalV2::unavailable(
+                crate::research_continuation_v1::RESEARCH_CONTINUATION_ADMISSION_CHANGED_COORDINATE_V1,
+                "the continuation was authorized under another Product Edge admission",
+            ));
+        }
         Self::from_verified_successor_with_view(
             readback,
             custody,
             family,
             custody.view(),
-            read_cut_epoch_ms,
+            authorized.cut_epoch_ms(),
         )
     }
 
@@ -492,7 +501,6 @@ impl CurrentResearchDevelopCustodyV2 {
             || view.request_identity != intent.request_identity()
             || view.intent_identity != intent.intent_identity()
             || view.projection_at_epoch_ms > read_cut_epoch_ms
-            || read_cut_epoch_ms >= view.valid_through_epoch_ms
             || family.census_frontier.trial_family_identity() != intent.trial_family_identity()
             || family.census_frontier.frontier_identity() != intent.census_frontier_identity()
             || family.census_frontier.frontier_digest() != intent.census_frontier_digest()
@@ -1236,7 +1244,7 @@ mod successor_custody_tests {
     }
 
     #[rstest::rstest]
-    fn successor_custody_admits_the_exact_current_family_and_rejects_an_expired_view() {
+    fn successor_custody_admits_the_exact_current_family_past_its_views_window() {
         let falsifier = "Does the filtered signal fail after exact costs?";
         let predecessor_identity = "rd-research-intent-v2-predecessor";
         let predecessor_digest = digest('1');
@@ -1345,8 +1353,17 @@ mod successor_custody_tests {
         let custody =
             SuccessorResearchViewCustodyV1::fixture(&readback, request_semantic_digest, 120, 720);
 
+        let authorized = |cut| {
+            crate::research_continuation_v1::ResearchContinuationAuthorizedV1::for_test(
+                &custody.admission().admission_identity,
+                cut,
+            )
+        };
         let admitted = CurrentResearchDevelopCustodyV2::from_verified_successor(
-            &readback, &custody, &census, 121,
+            &readback,
+            &custody,
+            &census,
+            &authorized(121),
         )
         .expect("current successor custody");
         assert_eq!(
@@ -1355,19 +1372,50 @@ mod successor_custody_tests {
         );
         assert_eq!(admitted.falsifier(), falsifier);
 
-        let expired = CurrentResearchDevelopCustodyV2::from_verified_successor(
-            &readback, &custody, &census, 720,
+        // The View's window is a reader's freshness, not a bound on the work: past it, the frozen
+        // Intent continues under an authority proven current at that cut, and is the same custody.
+        let past_the_window = CurrentResearchDevelopCustodyV2::from_verified_successor(
+            &readback,
+            &custody,
+            &census,
+            &authorized(720 + 86_400_000),
         )
-        .expect_err("expired successor custody must fail closed");
-        assert_eq!(expired.kind, DevelopComposerTerminalKindV2::Unavailable);
-        assert_eq!(expired.coordinate, "research_custody");
+        .expect("a frozen successor Intent continues past its View's window");
+        assert_eq!(past_the_window.custody_digest(), admitted.custody_digest());
+
+        // It still refuses a cut before the View was projected, and a proof for another admission.
+        let before = CurrentResearchDevelopCustodyV2::from_verified_successor(
+            &readback,
+            &custody,
+            &census,
+            &authorized(119),
+        )
+        .expect_err("a cut before the projection is refused");
+        assert_eq!(before.kind, DevelopComposerTerminalKindV2::Unavailable);
+        let other = CurrentResearchDevelopCustodyV2::from_verified_successor(
+            &readback,
+            &custody,
+            &census,
+            &crate::research_continuation_v1::ResearchContinuationAuthorizedV1::for_test(
+                "another-admission",
+                121,
+            ),
+        )
+        .expect_err("a proof for another admission is refused");
+        assert_eq!(
+            other.coordinate,
+            crate::research_continuation_v1::RESEARCH_CONTINUATION_ADMISSION_CHANGED_COORDINATE_V1
+        );
 
         // The custody carries the View and cut it was verified at, for a committed run to record,
-        // and neither enters its digest: a later cut in the same window is the same custody.
+        // and neither enters its digest: a later cut is the same custody.
         let later = CurrentResearchDevelopCustodyV2::from_verified_successor(
-            &readback, &custody, &census, 719,
+            &readback,
+            &custody,
+            &census,
+            &authorized(719),
         )
-        .expect("the last cut of the window");
+        .expect("a later cut");
         assert_eq!(later.custody_digest(), admitted.custody_digest());
         assert_eq!(
             admitted.run_view(),

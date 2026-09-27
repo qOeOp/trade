@@ -1745,7 +1745,9 @@ fn verify_legacy_research_view(
         RESEARCH_VIEW_SCOPE_V1.to_string(),
     ];
     let expected_authorized_scope = expected_authorized_scope.unwrap_or(&baseline_scope);
-    let projection_valid_through_epoch_ms = view.projection_at_epoch_ms.saturating_add(600_000);
+    let projection_valid_through_epoch_ms = view
+        .projection_at_epoch_ms
+        .saturating_add(crate::product_edge::RESEARCH_VIEW_FRESHNESS_MS);
     let valid_through_matches = expected_valid_through_epoch_ms.is_some_and(|snapshot| {
         view.phase == "INTENT_FROZEN" && view.valid_through_epoch_ms == snapshot
     }) || view.valid_through_epoch_ms
@@ -3370,7 +3372,9 @@ pub(crate) fn validate_historical_view(
                 && view.source_cut == format!("rd-artifact-cut-v1-{artifact_identity}")
                 && view.observed_at_epoch_ms == view.projection_at_epoch_ms
                 && view.valid_through_epoch_ms
-                    == view.projection_at_epoch_ms.saturating_add(600_000)
+                    == view
+                        .projection_at_epoch_ms
+                        .saturating_add(crate::product_edge::RESEARCH_VIEW_FRESHNESS_MS)
         }
         crate::product_edge::ResearchViewPhase::ExplorationActive => {
             if view.composer_artifact.is_some() {
@@ -3399,7 +3403,9 @@ pub(crate) fn validate_historical_view(
                         )
                     && view.observed_at_epoch_ms == view.projection_at_epoch_ms
                     && view.valid_through_epoch_ms
-                        == view.projection_at_epoch_ms.saturating_add(600_000)
+                        == view
+                            .projection_at_epoch_ms
+                            .saturating_add(crate::product_edge::RESEARCH_VIEW_FRESHNESS_MS)
             }
         }
         crate::product_edge::ResearchViewPhase::RequestUnresolved => false,

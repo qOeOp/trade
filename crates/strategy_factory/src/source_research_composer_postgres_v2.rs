@@ -2225,11 +2225,15 @@ where
                     &cause,
                 )
             })?;
-        CurrentResearchDevelopCustodyV2::from_verified(
-            &custody,
-            research_request_locator,
-            read_cut_epoch_ms,
+        Box::pin(
+            crate::research_continuation_v1::continue_initial_research_in_transaction(
+                transaction,
+                &custody,
+                research_request_locator,
+                read_cut_epoch_ms,
+            ),
         )
+        .await
     }
 
     async fn lock_resolve_evidence(
@@ -2317,12 +2321,16 @@ pub(crate) async fn lock_current_research_for_composer_replay_in_transaction(
                 &cause,
             )
         })?;
-        let research = CurrentResearchDevelopCustodyV2::from_verified_successor(
-            &successor,
-            &view,
-            &family,
-            read_cut_epoch_ms,
-        )?;
+        let research = Box::pin(
+            crate::research_continuation_v1::continue_successor_research_in_transaction(
+                transaction,
+                &successor,
+                &view,
+                &family,
+                read_cut_epoch_ms,
+            ),
+        )
+        .await?;
 
         if research.research_request_identity() == locator.research_request_identity
             && research.intent_identity() == locator.intent_identity
@@ -2353,11 +2361,17 @@ pub(crate) async fn lock_current_research_for_composer_replay_in_transaction(
                         &cause,
                     )
                 })?;
-            matches.push(CurrentResearchDevelopCustodyV2::from_verified(
-                &custody,
-                &request_locator,
-                read_cut_epoch_ms,
-            )?);
+            matches.push(
+                Box::pin(
+                    crate::research_continuation_v1::continue_initial_research_in_transaction(
+                        transaction,
+                        &custody,
+                        &request_locator,
+                        read_cut_epoch_ms,
+                    ),
+                )
+                .await?,
+            );
         }
     }
 

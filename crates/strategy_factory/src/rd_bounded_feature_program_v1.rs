@@ -207,9 +207,17 @@ async fn current_research_custody(
         .await
         .map_err(|_| ResearchBoundedFeatureProgramFreezeErrorV1::Unavailable)?
         .ok_or(ResearchBoundedFeatureProgramFreezeErrorV1::Unavailable)?;
-    CurrentResearchDevelopCustodyV2::from_verified(&verified, request_locator, read_cut_epoch_ms)
-        .map(|custody| (custody, binds_research_instrument_scope_v1(&verified)))
-        .map_err(|_| ResearchBoundedFeatureProgramFreezeErrorV1::Unavailable)
+    Box::pin(
+        crate::research_continuation_v1::continue_initial_research_in_transaction(
+            transaction,
+            &verified,
+            request_locator,
+            read_cut_epoch_ms,
+        ),
+    )
+    .await
+    .map(|custody| (custody, binds_research_instrument_scope_v1(&verified)))
+    .map_err(|_| ResearchBoundedFeatureProgramFreezeErrorV1::Unavailable)
 }
 
 pub(crate) async fn read_research_bounded_feature_program_in_transaction_v1(
