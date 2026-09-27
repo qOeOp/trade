@@ -1146,7 +1146,8 @@ request-keyed 的 V2 cut 读的就是这张表；它和 V1 intake 一样，在 O
     写一次，所以同一个请求的答案永不改变，但若两次请求之间发生了准入，同一坐标上的两个请求可以不一致。
 - **重放：** 若提交推出的 fact 等于该 instrument 已存的 baseline（按该 baseline 自己的 Owner-observation 时刻读取），就
   rejoin 它并返回同一个 terminal：terminal 带规范 identity、fact identity、Owner-observation 时刻与条款依据，这些都在已存的
-  fact 里。Owner 盖上的时刻不属于调用方表达的含义，所以时钟推进之后的重放仍然 rejoin。
+  fact 里。Owner 盖上的时刻不属于调用方表达的含义，所以时钟推进之后的重放仍然 rejoin。两份相同的提交同时到来，都以同一个
+  baseline 作答，因为事务在读之前就取 V2 store 的表锁，与状态 delta intake 一样。
 - **拒绝，均按名给出，且不写入任何东西；每条都说明今天什么提交会走到它：**
   - `UNAUTHORIZED_PRODUCT_EDGE`（HTTP 403）：请求未带 Product Edge bearer token。
   - `MALFORMED_TYPED_REQUEST`（HTTP 400）：body 不是该提交，包括含任何未知字段。
@@ -1201,14 +1202,20 @@ V2 fact 的 instrument 提交一条原样公开的 `!contractInfo` 事件。Owne
   精确 UTF-8 字节做的域分隔 digest；前一原始事件 digest 与下一个更正序号取自所指名的 fact；Owner-observation 时刻是其当前
   clock head 的 decision cut，在准入事务里读取。Source Binding 必须恰以所指名的 locator 被准入，且必须是该 instrument 的
   baseline 所指名的那个 binding。
-- **次序：** 事件时刻必须晚于所指名 fact 的最新事件时刻（即其 baseline 的生效时刻，或其最近一条 delta 的事件时刻），且
-  不晚于取得时刻；取得时刻必须不晚于 head 的 decision cut。迟到的较早事件被拒绝，而不是乱序套用。
+- **次序：** 事件时刻必须晚于所指名 fact 已知其状态的时刻，且不晚于取得时刻；取得时刻必须不晚于 head 的 decision cut。
+  baseline 知道的是取得时刻的状态，因为 `exchangeInfo` 陈述的是取得时的状态而非上市时的；delta 知道的是其事件时刻的状态。
+  迟到的较早事件，包括上市之后、baseline 取得之前的事件，被拒绝，而不是盖过更新的状态。
 - **链：** 所指名的 fact 必须是该 instrument 当前的 head，所以每条 delta 都说明自己接续什么，两份提交不可能都延伸同一个
   fact。cut 为每个成员解析其 selection 的 Owner observation 时刻上可观测的最新 fact，所以在同一个 decision cut 上，delta
   准入之前签发的 cut 解析出所指名的 fact，之后签发的解析出这条 delta。与 baseline 一样，cut 按请求键写一次，所以同一个请求
   的答案永不改变。
 - **重放：** 若提交推出的 fact 等于所指名 fact 已存的直接后继（按该后继自己的 Owner-observation 时刻读取），就 rejoin 它
-  并返回同一个 terminal，即使其后已有更多 delta。
+  并返回同一个 terminal，即使其后已有更多 delta。两份相同的提交同时到来也一样：事务的第一条语句就取 V2 store 的表锁，在读
+  任何东西之前，所以后一份读到前一份已提交的内容并 rejoin 它。
+- **已知局限：一次一个写者。** 事务是 `SERIALIZABLE`，快照由它的第一次读取决定，所以表锁在快照之前取得，每次读取都看得到
+  前一个持锁者已提交的内容。这些锁让 `market_data_instrument_master_v2` 上的每一个事务串行：两个 intake、每一次 cut 签发（包括
+  bound-replay 签发），以及取同一组锁的每一次 cut 解析，彼此等待。按今天手工提交的量这没有代价；每小时一次的快照归档器会
+  增加它。等待变得可测量时重新评估：即观察到某个 intake、cut 签发或解析等这些锁超过一秒时。
 - **代际检查不变：** 它不比较状态，所以一条状态 delta 既不引起也不消除 `GenerationMismatch`。
 - **拒绝，均按名给出，且不写入任何东西；每条都说明今天什么提交会走到它：**
   - `UNAUTHORIZED_PRODUCT_EDGE`（HTTP 403）：请求未带 Product Edge bearer token。
@@ -1220,8 +1227,10 @@ V2 fact 的 instrument 提交一条原样公开的 `!contractInfo` 事件。Owne
   - `INSTRUMENT_MASTER_V2_DATASET_MISMATCH`（HTTP 422）：`st` 出现且不是 `1`。
   - `INSTRUMENT_MASTER_V2_EVENT_AFTER_RETRIEVAL`（HTTP 422）：事件时刻晚于取得时刻。
   - `INSTRUMENT_MASTER_V2_STATUS_UNCHANGED`（HTTP 422）：`cs` 就是 fact 当前的状态。该事件只改了 fact 不持有的东西，例如
-    分档，所以没有可记录的。
-  - `INSTRUMENT_MASTER_V2_EVENT_OUT_OF_ORDER`（HTTP 409）：事件时刻不晚于所指名 fact 的最新事件时刻。
+    分档，所以没有可记录的。喂入整条流的采集器每次分档更新都会遇到它，应把它当作预期内、任何重试都改变不了的跳过，而不是
+    失败。
+  - `INSTRUMENT_MASTER_V2_EVENT_OUT_OF_ORDER`（HTTP 409）：事件时刻不晚于所指名 fact 已知其状态的时刻：其 baseline 的取得
+    时刻，或其最近一条 delta 的事件时刻。
   - `INSTRUMENT_MASTER_V2_PREDECESSOR_UNKNOWN`（HTTP 409）：没有 V2 fact 带所指名的 identity。
   - `INSTRUMENT_MASTER_V2_PREDECESSOR_NOT_CURRENT`（HTTP 409）：所指名的 fact 已有另一种含义的后继，例如另一条事件先被
     准入。
@@ -1240,7 +1249,9 @@ V2 fact 的 instrument 提交一条原样公开的 `!contractInfo` 事件。Owne
 - **证明：** Market Data PostgreSQL runner 只经生产路径证明这条 intake。baseline 经 baseline intake 从录制的 `exchangeInfo`
   fixture 准入，时钟由生产的 Source Binding 提交推进。事件按 provider 文档所载的 `!contractInfo` 形状、以 fixture 的
   symbol 构造；仓库里没有录制到的事件，证明本身会说明这一点。delta 准入之前 cut 解析出 baseline，之后 cut 解析出带其状态的
-  delta。第二条 delta 之后的重放 rejoin，每一条提交走得到的拒绝都驱动一次，store 保持不变。
+  delta。第二条 delta 之后的重放 rejoin，每一条提交走得到的拒绝都驱动一次，store 保持不变，其中包括上市之后、不晚于
+  baseline 取得时刻的事件。另一个证明扣住 clock head 行，直到两份相同的 baseline 提交、之后两份相同的 delta 都在等锁，
+  每一对都以一个 fact 作答。
 
 **NOT_ADMITTED：** 改变 V2 fact 可执行条款的更正没有 intake：状态 delta 按设计只改合约状态。更正 baseline 自上市起假定的
 条款，需要在一段区间上成立的 V2 条款，以及条款何时改变的证据，而只有归档的 `exchangeInfo` 快照能提供这种证据；那个设计

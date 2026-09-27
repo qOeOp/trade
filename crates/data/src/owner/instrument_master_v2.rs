@@ -606,7 +606,8 @@ impl InstrumentMasterFactV2 {
     ///
     /// This is the only definition of how `!contractInfo` becomes a V2 delta; the documentation
     /// describes it. The event must be for this fact's instrument and contract type, later than
-    /// the fact's latest event and no later than its retrieval, and must change the contract
+    /// the instant the fact already knows the status at, which is its latest delta's event or a
+    /// baseline's retrieval, and no later than the event's own retrieval, and must change the contract
     /// status, the one member the delta grammar admits. The raw event digest is computed here from
     /// the exact bytes, and the source binding, prior raw-event digest and next correction
     /// sequence are this fact's. The result still has to pass [`Self::apply_contract_info_delta`].
@@ -658,7 +659,7 @@ impl InstrumentMasterFactV2 {
             return Err(Refused::EventAfterRetrieval);
         }
 
-        if event_ns <= self.latest_event_time_ns() {
+        if event_ns <= self.known_as_of_ns() {
             return Err(Refused::EventOutOfOrder);
         }
         let status = FactValue::Value(status.to_owned());
@@ -717,7 +718,9 @@ impl InstrumentMasterFactV2 {
             return Err(InstrumentMasterV2Error::CorrectionSequenceMismatch);
         }
 
-        if delta.owner_observation_time_ns < self.latest_owner_observation_time_ns() {
+        if delta.owner_observation_time_ns < self.latest_owner_observation_time_ns()
+            || delta.provider_event_time_ns <= self.known_as_of_ns()
+        {
             return Err(InstrumentMasterV2Error::TimeRegression);
         }
 
@@ -949,6 +952,18 @@ impl InstrumentMasterFactV2 {
 
     pub(crate) fn owner_observation_time_ns(&self) -> i128 {
         self.latest_owner_observation_time_ns()
+    }
+
+    /// The latest instant this fact knows the contract status at: its latest delta's event, or,
+    /// for a baseline, its retrieval, since `exchangeInfo` states the status as retrieved and not
+    /// as listed. A delta must be newer than this, so an event older than what the fact already
+    /// observed is never admitted over it.
+    fn known_as_of_ns(&self) -> i128 {
+        self.latest_delta
+            .as_ref()
+            .map_or(self.baseline.retrieval_time_ns, |delta| {
+                delta.provider_event_time_ns
+            })
     }
 
     fn latest_event_time_ns(&self) -> i128 {
@@ -2874,6 +2889,13 @@ pub(crate) mod tests {
             fact.apply_contract_info_delta(delta(id(3), 2, id(9))),
             Err(InstrumentMasterV2Error::SourceBindingMismatch)
         );
+        // The baseline knows its status as of its retrieval at 100; an event then is not newer.
+        let mut stale = delta(id(3), 2, id(1));
+        stale.provider_event_time_ns = 100;
+        assert_eq!(
+            fact.apply_contract_info_delta(stale),
+            Err(InstrumentMasterV2Error::TimeRegression)
+        );
     }
 
     #[rstest]
@@ -3997,16 +4019,49 @@ mod contract_info_normalization_tests {
                     .unwrap(),
             )
             .unwrap();
-        let same_instant = event(|event| event["cs"] = serde_json::json!("TRADING"));
-        assert_eq!(
-            successor.usdm_contract_info_delta(&same_instant, received()),
-            Err(ContractInfoNormalizationErrorV2::EventOutOfOrder)
-        );
+
+        // Each status differs from the head's `SETTLING`, so only the instant can refuse it.
+        for instant in [EVENT_MS, EVENT_MS - 1] {
+            let stale = event(|event| {
+                event["E"] = serde_json::json!(instant);
+                event["cs"] = serde_json::json!("DELIVERING");
+            });
+            assert_eq!(
+                successor.usdm_contract_info_delta(&stale, received()),
+                Err(ContractInfoNormalizationErrorV2::EventOutOfOrder),
+                "{instant}"
+            );
+        }
+    }
+
+    /// A baseline knows the status as of its retrieval, not as of the listing. An event after the
+    /// listing but no later than the retrieval is older than what the baseline already observed,
+    /// so it is refused rather than admitted over the newer status; one a millisecond later is not.
+    #[rstest]
+    fn an_event_after_listing_but_no_later_than_the_baseline_retrieval_is_out_of_order() {
+        let baseline = baseline();
+        let retrieved_ms = u64::try_from(RETRIEVED_NS / 1_000_000).unwrap();
         assert!(
-            baseline
-                .usdm_contract_info_delta(&same_instant, received())
-                .is_err()
+            i128::from(retrieved_ms - 1) * 1_000_000
+                > baseline.baseline_provenance().effective_from_ns,
+            "the instants lie after the listing"
         );
+
+        for instant in [retrieved_ms - 86_400_000, retrieved_ms - 1, retrieved_ms] {
+            assert_eq!(
+                baseline.usdm_contract_info_delta(
+                    &event(|event| event["E"] = serde_json::json!(instant)),
+                    received()
+                ),
+                Err(ContractInfoNormalizationErrorV2::EventOutOfOrder),
+                "{instant}"
+            );
+        }
+        let after = event(|event| event["E"] = serde_json::json!(retrieved_ms + 1));
+        let delta = baseline
+            .usdm_contract_info_delta(&after, received())
+            .expect("an event after the retrieval is newer than the baseline");
+        assert!(baseline.apply_contract_info_delta(delta).is_ok());
     }
 }
 

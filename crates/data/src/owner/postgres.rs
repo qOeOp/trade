@@ -10790,7 +10790,9 @@ impl MarketDataOwnerPostgres {
 
     /// Admits one instrument's Instrument Master V2 baseline under the Owner's current clock head.
     ///
-    /// One serializable transaction verifies the named Source Binding, selects the Owner's venue row
+    /// One serializable transaction, holding the V2 store's table locks from its first statement so
+    /// a concurrent identical submission rejoins rather than colliding, verifies the named Source
+    /// Binding, selects the Owner's venue row
     /// by that binding's exact dataset mapping, reads the clock head's decision cut as the fact's
     /// Owner observation, derives the baseline from the payload, and appends it as the instrument's
     /// first fact or rejoins the stored baseline that means the same.
@@ -10807,20 +10809,14 @@ impl MarketDataOwnerPostgres {
             InstrumentMasterFactV2, instrument_master_venue_v2,
         };
         use super::instrument_master_v2_postgres::{
-            BaselineAdmissionErrorV2, admit_baseline_in_transaction_v2,
+            BaselineAdmissionErrorV2, admit_baseline_in_transaction_v2, begin_serializable_v2,
         };
         use InstrumentMasterAdmissionErrorV2 as Refused;
 
         if !submission.names_the_admitted_class() {
             return Err(Refused::UnsupportedClass);
         }
-        let mut transaction = self
-            .pool
-            .begin()
-            .await
-            .map_err(|_| Refused::StoreUnavailable)?;
-        sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
-            .execute(&mut *transaction)
+        let mut transaction = begin_serializable_v2(&self.pool)
             .await
             .map_err(|_| Refused::StoreUnavailable)?;
         let locator = &submission.source_binding;
@@ -10890,7 +10886,9 @@ impl MarketDataOwnerPostgres {
     /// Admits one `!contractInfo` status delta as the named V2 fact's direct successor under the
     /// Owner's current clock head.
     ///
-    /// One serializable transaction verifies the binding, reads the named fact and whatever
+    /// One serializable transaction, holding the V2 store's table locks from its first statement so
+    /// a concurrent identical submission rejoins rather than colliding, verifies the binding,
+    /// reads the named fact and whatever
     /// already follows it, requires the binding to be the one the instrument's baseline names,
     /// reads the head's decision cut as the Owner observation, and derives the successor through
     /// [`InstrumentMasterFactV2::usdm_contract_info_delta`] and `apply_contract_info_delta`. When
@@ -10911,18 +10909,12 @@ impl MarketDataOwnerPostgres {
             ContractInfoRetrievalV2, FactValue, InstrumentMasterFactV2,
         };
         use super::instrument_master_v2_postgres::{
-            SuccessorAppendErrorV2, append_successor_in_transaction_v2,
+            SuccessorAppendErrorV2, append_successor_in_transaction_v2, begin_serializable_v2,
             load_named_fact_in_transaction_v2,
         };
         use InstrumentMasterStatusDeltaErrorV2 as Refused;
 
-        let mut transaction = self
-            .pool
-            .begin()
-            .await
-            .map_err(|_| Refused::StoreUnavailable)?;
-        sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
-            .execute(&mut *transaction)
+        let mut transaction = begin_serializable_v2(&self.pool)
             .await
             .map_err(|_| Refused::StoreUnavailable)?;
         let locator = &submission.source_binding;

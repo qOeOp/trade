@@ -303,28 +303,10 @@ impl InstrumentMasterV2PostgresOwner {
         Ok(readback)
     }
 
-    /// Opens this store's one writing transaction: serializable, and holding every table lock.
-    ///
-    /// `lock_all` must be its first statement. A serializable transaction's snapshot is taken by
-    /// its first `SELECT` or data change, and `LOCK TABLE` is neither, so taking the table locks
-    /// first gives a snapshot that already sees whatever the previous lock holder committed. The
-    /// advisory `SELECT` that used to come first took the snapshot before its wait, and the second
-    /// of two concurrent writers then failed its `FOR UPDATE` on `state` with SQLSTATE 40001.
-    /// The table locks conflict with themselves, so they alone serialize every transaction here.
     async fn serializable(
         &self,
     ) -> Result<Transaction<'_, Postgres>, InstrumentMasterCustodyErrorV2> {
-        let mut tx = self
-            .pool
-            .begin()
-            .await
-            .map_err(|cause| store_error(&cause))?;
-        sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
-            .execute(&mut *tx)
-            .await
-            .map_err(|cause| store_error(&cause))?;
-        lock_all(&mut tx).await?;
-        Ok(tx)
+        begin_serializable_v2(&self.pool).await
     }
 
     async fn assert_acl(&self) -> Result<(), InstrumentMasterCustodyErrorV2> {
@@ -662,6 +644,29 @@ async fn decode_cut_row(
     InstrumentMasterReadbackV2::from_parts(cut, receipt)
 }
 
+/// Opens a writing transaction on this store: serializable, and holding every table lock.
+///
+/// Every writer, the Owner's intakes included, opens its transaction here. `lock_all` must be its
+/// first statement. A serializable transaction's snapshot is taken by its first `SELECT` or data
+/// change, and `LOCK TABLE` is neither, so taking the table locks first gives a snapshot that
+/// already sees whatever the previous lock holder committed. The advisory `SELECT` that used to
+/// come first took the snapshot before its wait, and the second of two concurrent writers then
+/// failed its `FOR UPDATE` on `state` with SQLSTATE 40001; an intake that read the chain before
+/// locking would likewise meet a concurrent identical submission as a unique violation instead
+/// of rejoining it. The table locks conflict with themselves, so they alone serialize every
+/// transaction here.
+pub(super) async fn begin_serializable_v2(
+    pool: &PgPool,
+) -> Result<Transaction<'_, Postgres>, InstrumentMasterCustodyErrorV2> {
+    let mut tx = pool.begin().await.map_err(|cause| store_error(&cause))?;
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+        .execute(&mut *tx)
+        .await
+        .map_err(|cause| store_error(&cause))?;
+    lock_all(&mut tx).await?;
+    Ok(tx)
+}
+
 async fn lock_all(
     tx: &mut Transaction<'_, Postgres>,
 ) -> Result<(), InstrumentMasterCustodyErrorV2> {
@@ -797,13 +802,14 @@ pub(super) enum SuccessorAppendErrorV2 {
     Custody(InstrumentMasterCustodyErrorV2),
 }
 
-/// Appends `successor` after the fact it names, which the caller read in this transaction with no
-/// successor.
+/// Appends `successor` after the fact it names, which the caller read with no successor in a
+/// transaction opened by [`begin_serializable_v2`].
 ///
-/// A unique violation can then have one cause only. The successor's identity digests its bytes,
-/// which name its predecessor, so it cannot already be stored elsewhere in the chain; the
-/// violation is a concurrent admission that extended the same predecessor, or took the same
-/// correction sequence, first.
+/// The table locks that transaction took first mean no other writer ran between that read and
+/// this insert, so a unique violation is not expected here. Were one to occur, the successor's
+/// identity digests its bytes, which name its predecessor, so it cannot already be stored
+/// elsewhere in the chain: it would mean the same predecessor was extended, or the same
+/// correction sequence taken, by a writer that did not hold the locks.
 pub(super) async fn append_successor_in_transaction_v2(
     tx: &mut Transaction<'_, Postgres>,
     successor: &InstrumentMasterFactV2,

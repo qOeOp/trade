@@ -6,6 +6,8 @@
 //! the shape the provider documents for its `!contractInfo` stream (developers.binance.com,
 //! "Contract Info Stream"): no captured event exists in this repository, so none is claimed.
 
+use std::future::Future;
+
 use super::{
     MarketDataOwnerPostgres,
     instrument_master_admission_v2_tests::{
@@ -216,6 +218,11 @@ async fn postgres_a_status_delta_extends_the_v2_fact_and_the_cut_after_it_resolv
             Refused::EventOutOfOrder,
         ),
         (
+            "an event after the listing but no later than the baseline's retrieval",
+            with(|e| e["E"] = serde_json::json!((FIRST_CUT + SECOND) / 1_000_000)),
+            Refused::EventOutOfOrder,
+        ),
+        (
             "the status the fact already has",
             delta(
                 baseline.fact_identity(),
@@ -381,4 +388,121 @@ async fn postgres_a_status_delta_extends_the_v2_fact_and_the_cut_after_it_resolv
         before_replay,
         "the altered row is restored"
     );
+}
+
+/// Runs `first` and `second` at once, both held on the Owner's clock head row until both wait on
+/// a lock, then lets them go. The callers box each admission, whose state is larger than clippy's
+/// `large_futures` bound.
+///
+/// Each intake reads the clock head `FOR UPDATE` after it has read the chain, so holding that row
+/// makes both reach it: a read taken before the store's table locks would then have seen no fact
+/// in either submission, and the later one would meet the earlier one's insert.
+async fn at_once<A: Future, B: Future>(
+    owner: &MarketDataOwnerPostgres,
+    first: A,
+    second: B,
+) -> (A::Output, B::Output) {
+    let mut holder = owner.pool().begin().await.unwrap();
+    sqlx::query(
+        "SELECT 1 FROM market_data_private.clock_handoff_head_v1 WHERE singleton FOR UPDATE",
+    )
+    .fetch_one(&mut *holder)
+    .await
+    .unwrap();
+    let release = async {
+        let queued = tokio::time::timeout(std::time::Duration::from_secs(20), async {
+            loop {
+                let waiting: i64 = sqlx::query_scalar(
+                    "SELECT pg_catalog.count(*) FROM pg_catalog.pg_stat_activity WHERE datname=pg_catalog.current_database() AND wait_event_type='Lock'",
+                )
+                .fetch_one(owner.pool())
+                .await
+                .unwrap();
+
+                if waiting == 2 {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+        })
+        .await;
+        holder.rollback().await.unwrap();
+        queued
+    };
+    let (first, second, queued) = tokio::join!(first, second, release);
+    assert!(queued.is_ok(), "both submissions wait before either ends");
+    (first, second)
+}
+
+/// Two identical submissions at once, a baseline and then a status delta, each answer with the
+/// one fact both mean: the intakes take the V2 store's table locks before they read, so the later
+/// one reads what the earlier one committed and rejoins it rather than colliding with it.
+#[tokio::test]
+#[ignore = "requires a disposable Market Data PostgreSQL database"]
+async fn postgres_two_identical_v2_submissions_at_once_both_answer_with_the_one_fact() {
+    let owner_url = std::env::var("MARKET_DATA_OWNER_TEST_DATABASE_URL")
+        .expect("explicit disposable Owner URL");
+    let database =
+        std::env::var("VIBE_POSTGRES_TEST_DATABASE_NAME").expect("disposable database name");
+    assert!(
+        database.starts_with("vibe_test_"),
+        "this proof writes V2 facts; it runs only against a disposable database"
+    );
+    let owner = MarketDataOwnerPostgres::connect(&owner_url)
+        .await
+        .expect("Owner connects and migrates");
+    InstrumentMasterV2PostgresOwner::install(owner.pool().clone())
+        .await
+        .expect("the V2 store installs");
+
+    // An instrument no other proof admits: the recorded `BTCUSDT` entry under another symbol.
+    let mut payload: serde_json::Value = serde_json::from_str(USDM).unwrap();
+    let symbols = payload["symbols"].as_array_mut().unwrap();
+    let mut entry = symbols
+        .iter()
+        .find(|entry| entry["symbol"] == "BTCUSDT")
+        .unwrap()
+        .clone();
+    entry["symbol"] = serde_json::json!("CONCURRENTUSDT");
+    symbols.push(entry);
+    let payload = serde_json::to_string(&payload).unwrap();
+
+    let usdm = commit_binding(&owner, "usdm/exchangeInfo", 1, FIRST_CUT).await;
+    commit_binding(&owner, "usdm/exchangeInfo", 2, FIRST_CUT + 2 * SECOND).await;
+    let baseline = || submission(&usdm, "CONCURRENTUSDT", FIRST_CUT + SECOND, &payload);
+    let before = facts(&owner).await;
+    let (first, second) = at_once(
+        &owner,
+        Box::pin(owner.admit_instrument_master_baseline_v2(baseline())),
+        Box::pin(owner.admit_instrument_master_baseline_v2(baseline())),
+    )
+    .await;
+    let first = first.expect("the first baseline is admitted");
+    assert_eq!(second, Ok(first.clone()), "the second rejoins the first");
+    assert_eq!(facts(&owner).await.len(), before.len() + 1);
+
+    commit_binding(&owner, "usdm/exchangeInfo", 3, FIRST_CUT + 4 * SECOND).await;
+    let settling = || {
+        delta(
+            first.fact_identity(),
+            FIRST_CUT + 3 * SECOND,
+            event(FIRST_CUT + 2 * SECOND, "SETTLING", |event| {
+                event["s"] = serde_json::json!("CONCURRENTUSDT");
+            }),
+            usdm.receipt().locator(),
+        )
+    };
+    let (first_delta, second_delta) = at_once(
+        &owner,
+        Box::pin(owner.admit_instrument_master_status_delta_v2(settling())),
+        Box::pin(owner.admit_instrument_master_status_delta_v2(settling())),
+    )
+    .await;
+    let first_delta = first_delta.expect("the first delta is admitted");
+    assert_eq!(
+        second_delta,
+        Ok(first_delta),
+        "the second rejoins the first"
+    );
+    assert_eq!(facts(&owner).await.len(), before.len() + 2);
 }
