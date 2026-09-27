@@ -699,6 +699,15 @@ policy catalog V3 的头缺席时，`submit_v2` 就这样回答，并记下
 `research_goal_owner.submit_v2.replay_policy_catalog_v3.resolve_current`。Owner 不判断一种环境状态会持续
 多久（一分钟后发布的头会让同一请求成功），所以权威不可用不另设专属答复。
 
+后继 Research Intent 不提交自己的 Independence Basis，它绑定其 TrialFamily 准入时的那一个。它仍以同样方式冻结
+创建时当前的受保护反馈投影：Qualification 先在自己的事务里为该 basis 解析投影，创建事务再次准入它，只冻结与之相等
+的投影，并在提交前再准入一次。所以后继从不沿用前驱的投影；一次受保护评估变得可观察之后，下一个后继冻结的是包含它
+的 frontier。后继被准入的 principal 与 scope 必须是该 basis 自己的，否则请求作为无效提案被拒绝，因此一个操作者无法
+冻结另一个操作者的 family 反馈。已存在的后继按它存下的投影重放，不做任何解析。它的 Artifact 构建只在 Qualification
+仍把该投影读作在 family 的 basis 下准入时才绑定它。其余拒绝不写任何东西，答 Owner 不可用，并记在
+`research_goal_owner.compose_successor_v1.protected_feedback` 下：`resolve`、`absent`、`mismatch`、
+`refresh_mismatch` 与 `foreign_basis`。
+
 R&D 的时钟是在使用它的 R&D 事务内读取的 `pg_catalog.clock_timestamp()`。Research Intent 的投影时间、
 `valid_through` 与提交时间都由它盖戳，其锁返回的 `owner_cut` 也是；后继 Research Intent 遵循同一规则。
 Artifact 构建、有界特征程序与 Composer 来源研究中其余所有与研究视图比较的 R&D cut 都以同样方式读取，

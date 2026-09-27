@@ -847,6 +847,18 @@ head is absent, and records `research_goal_owner.submit_v2.replay_policy_catalog
 not judge how long an environment state will last - a head published a minute later lets the same request succeed -
 so an unavailable authority gets no answer of its own.
 
+A successor Research Intent commits no Independence Basis of its own; it is bound to the one its TrialFamily was
+admitted under. It still freezes the protected-feedback projection that is current when it is created, the same way:
+Qualification resolves the projection for that basis first, in its own transaction, and the creating transaction
+admits it again, freezes only an equal one, and admits it once more before committing. A successor therefore never
+carries its predecessor's projection forward, and after a protected evaluation becomes observable the next successor
+freezes the frontier that includes it. The successor's admitted principal and scope must be the basis's own, or the
+request is refused as an invalid proposal, so one operator cannot freeze another's family feedback. An existing
+successor replays under the projection it stored and resolves nothing. Its Artifact build binds that projection only
+while Qualification still reads it as admitted under the family's basis. The other refusals write nothing, answer the
+Owner unavailable, and are recorded under `research_goal_owner.compose_successor_v1.protected_feedback`: `resolve`,
+`absent`, `mismatch`, `refresh_mismatch` and `foreign_basis`.
+
 R&D's clock is `pg_catalog.clock_timestamp()`, read inside the R&D transaction that uses it. A Research Intent's
 projection time, `valid_through` and commit time are stamped from it, and so is the `owner_cut` its lock returns;
 a successor Research Intent follows the same rule. Every other R&D cut compared with a research view, in Artifact
