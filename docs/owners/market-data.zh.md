@@ -1058,7 +1058,7 @@ request-keyed 的 V2 cut 读的就是这张表；它和 V1 intake 一样，在 O
 这个 schema 及其六张表，store 在每次写入时断言没有别的角色在这些表上持有任何权限，所以这条 intake 不需要授权，也不得被
 授予权限。
 
-- **提交陈述什么：** raw symbol、以规范词写出的 class、取得时刻、原样的 `exchangeInfo` payload 字节，以及取得 payload
+- **提交陈述什么：** raw symbol、以规范词写出的 class、取得时刻、原样的 `exchangeInfo` 响应文本，以及取得 payload
   时所依据的已准入 Source Binding。它不陈述规范 instrument identity、venue、条款、生效时刻、任何 digest，也不陈述
   Owner-observation 时刻。唯一准入的 class 词是 `CRYPTO_PERPETUAL`，也是 V2 仅有的 class。
 - **Owner 的场所常量表：** 所指名 binding 的 `adapter.dataset_mapping` 作为一个完整字符串精确比较，选中一张封闭表中的
@@ -1092,7 +1092,7 @@ request-keyed 的 V2 cut 读的就是这张表；它和 V1 intake 一样，在 O
   是有意的：V2 的 native 投影要求 precision 等于规范 scale，下游 Replay 用的是 V2 的。适配器一侧的一条对照测试同时断言
   increment 相等与这一处差异。
 - **Owner 自己取的：** Source Binding 的 identity 与 digest，取自 Owner 以恰为该 locator 的已准入状态持有的 binding；raw
-  payload digest，由 Owner 对固定 domain 与原样字节计算 SHA-256，不信任任何现成 digest；Owner-observation 时刻，即其当前
+  payload digest，由 Owner 以本模块的 domain 分离 digest 对该文本的原样 UTF-8 字节计算，不信任任何现成 digest；Owner-observation 时刻，即其当前
   clock head 的 decision cut，在准入事务内读取；链上位置，即 correction sequence 1、无 predecessor；以及条款依据
   `RetrievedTermsAssumedSinceListing`。V2 fact 不绑定任何 frontier：与 PIT batch 的 frontier 对账若需要，属于 cut 一侧，不
   属于这条 intake。
@@ -1110,7 +1110,8 @@ request-keyed 的 V2 cut 读的就是这张表；它和 V1 intake 一样，在 O
   - 在同一个 decision cut 上，准入之前签发的 cut 与之后签发的 cut 答案不同：前者找不到 fact，后者解析到它。cut 按请求键
     写一次，所以同一个请求的答案永不改变，但若两次请求之间发生了准入，同一坐标上的两个请求可以不一致。
 - **重放：** 若提交推出的 fact 等于该 instrument 已存的 baseline（按该 baseline 自己的 Owner-observation 时刻读取），就
-  rejoin 它并返回同一个 terminal。Owner 盖上的时刻不属于调用方表达的含义，所以时钟推进之后的重放仍然 rejoin。
+  rejoin 它并返回同一个 terminal：terminal 带规范 identity、fact identity、Owner-observation 时刻与条款依据，这些都在已存的
+  fact 里。Owner 盖上的时刻不属于调用方表达的含义，所以时钟推进之后的重放仍然 rejoin。
 - **拒绝，均按名给出，且不写入任何东西；每条都说明今天什么提交会走到它：**
   - `UNAUTHORIZED_PRODUCT_EDGE`（HTTP 403）：请求未带 Product Edge bearer token。
   - `MALFORMED_TYPED_REQUEST`（HTTP 400）：body 不是该提交，包括含任何未知字段。
@@ -1135,10 +1136,11 @@ request-keyed 的 V2 cut 读的就是这张表；它和 V1 intake 一样，在 O
   - `INSTRUMENT_MASTER_V2_BASELINE_EXISTS`（HTTP 409）：该 instrument 已有另一种含义的 baseline，例如同一 symbol 稍后
     取得时 tick 变了。条款未变、只是重新取得的，也落在这里：取得时刻与 payload digest 都属于 fact，所以重新取得是另一个
     fact 而不是重放，运维不得把它当作幂等重试。baseline 在这里从不被替换。
-  - `MARKET_DATA_CLOCK_UNAVAILABLE`（HTTP 503）：Owner 没有 clock head，例如时钟从未被准入过的 store。
+  - `MARKET_DATA_CLOCK_UNAVAILABLE`（HTTP 503）：Owner 没有 clock head。任何提交都构造不出它：所指名的 binding 先被核验，
+    而 binding 只会与其观测时所依据的时钟一同被准入，所以持有该 binding 的 store 必有 head。它仍是一次拒绝，而不是一个假定。
   - `INSTRUMENT_MASTER_V2_ADMISSION_CONFLICT`（HTTP 409）：以算出的 identity 存着的 fact 字节不同。任何提交都构造不出它，
     因为 identity 就是规范字节的 digest；只有改动已存的行才会走到，且它被拒绝而不是被覆盖。
-  - `MARKET_DATA_STORE_UNAVAILABLE`（HTTP 503）：store 不可达、拒绝提交，或未通过其所有权与权限断言，例如有别的角色被
+  - `MARKET_DATA_OWNER_UNAVAILABLE`（HTTP 503）：store 不可达、拒绝提交，或未通过其所有权与权限断言，例如有别的角色被
     授予了 V2 表上的权限。
 - **证明：** Market Data PostgreSQL runner 只经生产路径证明这条 intake。时钟由一次生产的 Source Binding 提交推进，从不
   直接写 head。对没有已准入 fact 的 instrument，request-keyed cut 以 `MissingFact` 拒绝；准入之后，同一个 cut 为一个 Universe

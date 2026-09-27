@@ -28,6 +28,10 @@ use vibe_data::owner::{
         InstrumentMasterAdmissionErrorV1, InstrumentMasterAdmissionV1,
         InstrumentMasterFactSubmissionV1,
     },
+    instrument_master_admission_v2::{
+        InstrumentMasterAdmissionErrorV2, InstrumentMasterAdmissionV2,
+        InstrumentMasterBaselineSubmissionV2,
+    },
     market_semantics_admission_v1::{
         MarketSemanticsAdmissionErrorV1, MarketSemanticsAdmissionV1,
         MarketSemanticsFactSubmissionV1,
@@ -102,6 +106,18 @@ impl UniverseSelectionSubmissionV1 {
     }
 }
 
+/// The Market Data admissions this API serves, each present only when its store is configured.
+#[derive(Clone)]
+pub(super) struct MarketDataAdmissions {
+    pub(super) intake: Option<Arc<dyn PitMarketSnapshotIntakeV1>>,
+    pub(super) admission: Option<Arc<dyn SourceBindingAdmissionV1>>,
+    pub(super) universe: Option<Arc<dyn UniverseSelectionAdmissionV1>>,
+    pub(super) bindings: Option<Arc<dyn StrategyInputBindingAdmissionV1>>,
+    pub(super) instruments: Option<Arc<dyn InstrumentMasterAdmissionV1>>,
+    pub(super) instruments_v2: Option<Arc<dyn InstrumentMasterAdmissionV2>>,
+    pub(super) semantics: Option<Arc<dyn MarketSemanticsAdmissionV1>>,
+}
+
 #[derive(Clone)]
 struct MarketDataPitApiState {
     intake: Option<Arc<dyn PitMarketSnapshotIntakeV1>>,
@@ -109,23 +125,29 @@ struct MarketDataPitApiState {
     universe: Option<Arc<dyn UniverseSelectionAdmissionV1>>,
     bindings: Option<Arc<dyn StrategyInputBindingAdmissionV1>>,
     instruments: Option<Arc<dyn InstrumentMasterAdmissionV1>>,
+    instruments_v2: Option<Arc<dyn InstrumentMasterAdmissionV2>>,
     semantics: Option<Arc<dyn MarketSemanticsAdmissionV1>>,
     token_digest: [u8; 32],
 }
 
-pub(super) fn router(
-    intake: Option<Arc<dyn PitMarketSnapshotIntakeV1>>,
-    admission: Option<Arc<dyn SourceBindingAdmissionV1>>,
-    universe: Option<Arc<dyn UniverseSelectionAdmissionV1>>,
-    bindings: Option<Arc<dyn StrategyInputBindingAdmissionV1>>,
-    instruments: Option<Arc<dyn InstrumentMasterAdmissionV1>>,
-    semantics: Option<Arc<dyn MarketSemanticsAdmissionV1>>,
-    token_digest: [u8; 32],
-) -> Router {
+pub(super) fn router(admissions: MarketDataAdmissions, token_digest: [u8; 32]) -> Router {
+    let MarketDataAdmissions {
+        intake,
+        admission,
+        universe,
+        bindings,
+        instruments,
+        instruments_v2,
+        semantics,
+    } = admissions;
     Router::new()
         .route(
             "/v1/market-data/instrument-master-facts",
             post(admit_instrument_master_fact),
+        )
+        .route(
+            "/v1/market-data/instrument-master-v2-facts",
+            post(admit_instrument_master_baseline),
         )
         .route(
             "/v1/market-data/market-semantics",
@@ -165,6 +187,7 @@ pub(super) fn router(
             universe,
             bindings,
             instruments,
+            instruments_v2,
             semantics,
             token_digest,
         })
@@ -222,6 +245,38 @@ async fn admit_instrument_master_fact(
     match instruments.admit_fact(submission).await {
         Ok(terminal) => (StatusCode::OK, Json(terminal)).into_response(),
         Err(e) => instrument_master_error(e),
+    }
+}
+
+/// Admits one instrument's Instrument Master V2 baseline from the `exchangeInfo` payload
+/// Operations retrieved.
+///
+/// The guard is the V1 intake's: the Product Edge bearer token, checked before the body is read.
+/// The body names the raw symbol, the class word, the retrieval instant, the exact payload text and
+/// the admitted Source Binding; the Owner derives everything else, and a replayed body rejoins the
+/// baseline it admitted before.
+async fn admit_instrument_master_baseline(
+    State(state): State<MarketDataPitApiState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    if !authorized(&headers, &state.token_digest) {
+        return rejection(StatusCode::FORBIDDEN, "UNAUTHORIZED_PRODUCT_EDGE");
+    }
+    let Some(instruments) = state.instruments_v2 else {
+        return rejection(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "MARKET_DATA_INSTRUMENT_MASTER_UNAVAILABLE",
+        );
+    };
+    let submission: InstrumentMasterBaselineSubmissionV2 = match serde_json::from_slice(&body) {
+        Ok(submission) => submission,
+        Err(_) => return rejection(StatusCode::BAD_REQUEST, "MALFORMED_TYPED_REQUEST"),
+    };
+
+    match instruments.admit_baseline(submission).await {
+        Ok(terminal) => (StatusCode::OK, Json(terminal)).into_response(),
+        Err(e) => instrument_master_v2_error(e),
     }
 }
 
@@ -664,6 +719,71 @@ fn instrument_master_error(error: InstrumentMasterAdmissionErrorV1) -> Response 
     rejection(status, code)
 }
 
+fn instrument_master_v2_error(error: InstrumentMasterAdmissionErrorV2) -> Response {
+    use InstrumentMasterAdmissionErrorV2 as Refused;
+
+    let (status, code) = match error {
+        Refused::InvalidSubmission => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "INSTRUMENT_MASTER_V2_INVALID_SUBMISSION",
+        ),
+        Refused::UnsupportedClass => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "INSTRUMENT_MASTER_V2_UNSUPPORTED_CLASS",
+        ),
+        Refused::UnsupportedVenue => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "INSTRUMENT_MASTER_V2_UNSUPPORTED_VENUE",
+        ),
+        Refused::SymbolAbsent => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "INSTRUMENT_MASTER_V2_SYMBOL_ABSENT",
+        ),
+        Refused::SymbolAmbiguous => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "INSTRUMENT_MASTER_V2_SYMBOL_AMBIGUOUS",
+        ),
+        Refused::ContractTypeUnsupported => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "INSTRUMENT_MASTER_V2_CONTRACT_TYPE_UNSUPPORTED",
+        ),
+        Refused::DatasetMismatch => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "INSTRUMENT_MASTER_V2_DATASET_MISMATCH",
+        ),
+        Refused::OnboardDateUnavailable => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "INSTRUMENT_MASTER_V2_ONBOARD_DATE_UNAVAILABLE",
+        ),
+        Refused::FilterUnavailable => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "INSTRUMENT_MASTER_V2_FILTER_UNAVAILABLE",
+        ),
+        Refused::SourceBindingUnavailable => (
+            StatusCode::CONFLICT,
+            "INSTRUMENT_MASTER_V2_SOURCE_BINDING_UNAVAILABLE",
+        ),
+        Refused::RetrievalAfterOwnerClock => (
+            StatusCode::CONFLICT,
+            "INSTRUMENT_MASTER_V2_RETRIEVAL_AFTER_OWNER_CLOCK",
+        ),
+        Refused::BaselineExists => (StatusCode::CONFLICT, "INSTRUMENT_MASTER_V2_BASELINE_EXISTS"),
+        Refused::AdmissionConflict => (
+            StatusCode::CONFLICT,
+            "INSTRUMENT_MASTER_V2_ADMISSION_CONFLICT",
+        ),
+        Refused::ClockUnavailable => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "MARKET_DATA_CLOCK_UNAVAILABLE",
+        ),
+        Refused::StoreUnavailable => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "MARKET_DATA_OWNER_UNAVAILABLE",
+        ),
+    };
+    rejection(status, code)
+}
+
 fn admission_error(error: SourceBindingAdmissionErrorV1) -> Response {
     let (status, code) = match error {
         SourceBindingAdmissionErrorV1::InvalidProposal => {
@@ -733,6 +853,160 @@ mod tests {
             },
         }))
         .unwrap()
+    }
+
+    fn baseline_request(authorization: Option<&str>) -> axum::http::Request<axum::body::Body> {
+        let mut request = axum::http::Request::builder()
+            .method("POST")
+            .uri("/v1/market-data/instrument-master-v2-facts")
+            .header("content-type", "application/json");
+
+        if let Some(value) = authorization {
+            request = request.header("authorization", value);
+        }
+        request.body(axum::body::Body::from("{}")).unwrap()
+    }
+
+    /// The V2 baseline route is guarded as the V1 intake is: a request without the Product Edge
+    /// bearer token, or with another token, is refused before availability or the body is looked
+    /// at. The authorized control reaches the next check, the route's own availability.
+    #[tokio::test]
+    async fn the_v2_baseline_route_refuses_a_request_without_the_product_edge_token() {
+        use sha2::Digest as _;
+        use tower::ServiceExt as _;
+
+        let routes = || {
+            router(
+                MarketDataAdmissions {
+                    intake: None,
+                    admission: None,
+                    universe: None,
+                    bindings: None,
+                    instruments: None,
+                    instruments_v2: None,
+                    semantics: None,
+                },
+                sha2::Sha256::digest(b"product-edge-token").into(),
+            )
+        };
+
+        for authorization in [
+            None,
+            Some("Bearer another-token"),
+            Some("product-edge-token"),
+        ] {
+            let refused = routes()
+                .oneshot(baseline_request(authorization))
+                .await
+                .unwrap();
+            assert_eq!(
+                code(&refused),
+                (StatusCode::FORBIDDEN, Some("UNAUTHORIZED_PRODUCT_EDGE")),
+                "{authorization:?}"
+            );
+        }
+        let authorized = routes()
+            .oneshot(baseline_request(Some("Bearer product-edge-token")))
+            .await
+            .unwrap();
+        assert_eq!(
+            code(&authorized),
+            (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Some("MARKET_DATA_INSTRUMENT_MASTER_UNAVAILABLE")
+            )
+        );
+    }
+
+    /// Every V2 refusal is its own documented code, so no two causes read alike.
+    #[rstest]
+    fn every_v2_refusal_has_its_documented_code() {
+        use InstrumentMasterAdmissionErrorV2 as Refused;
+
+        let expected = [
+            (
+                Refused::InvalidSubmission,
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "INSTRUMENT_MASTER_V2_INVALID_SUBMISSION",
+            ),
+            (
+                Refused::UnsupportedClass,
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "INSTRUMENT_MASTER_V2_UNSUPPORTED_CLASS",
+            ),
+            (
+                Refused::UnsupportedVenue,
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "INSTRUMENT_MASTER_V2_UNSUPPORTED_VENUE",
+            ),
+            (
+                Refused::SymbolAbsent,
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "INSTRUMENT_MASTER_V2_SYMBOL_ABSENT",
+            ),
+            (
+                Refused::SymbolAmbiguous,
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "INSTRUMENT_MASTER_V2_SYMBOL_AMBIGUOUS",
+            ),
+            (
+                Refused::ContractTypeUnsupported,
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "INSTRUMENT_MASTER_V2_CONTRACT_TYPE_UNSUPPORTED",
+            ),
+            (
+                Refused::DatasetMismatch,
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "INSTRUMENT_MASTER_V2_DATASET_MISMATCH",
+            ),
+            (
+                Refused::OnboardDateUnavailable,
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "INSTRUMENT_MASTER_V2_ONBOARD_DATE_UNAVAILABLE",
+            ),
+            (
+                Refused::FilterUnavailable,
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "INSTRUMENT_MASTER_V2_FILTER_UNAVAILABLE",
+            ),
+            (
+                Refused::SourceBindingUnavailable,
+                StatusCode::CONFLICT,
+                "INSTRUMENT_MASTER_V2_SOURCE_BINDING_UNAVAILABLE",
+            ),
+            (
+                Refused::RetrievalAfterOwnerClock,
+                StatusCode::CONFLICT,
+                "INSTRUMENT_MASTER_V2_RETRIEVAL_AFTER_OWNER_CLOCK",
+            ),
+            (
+                Refused::BaselineExists,
+                StatusCode::CONFLICT,
+                "INSTRUMENT_MASTER_V2_BASELINE_EXISTS",
+            ),
+            (
+                Refused::AdmissionConflict,
+                StatusCode::CONFLICT,
+                "INSTRUMENT_MASTER_V2_ADMISSION_CONFLICT",
+            ),
+            (
+                Refused::ClockUnavailable,
+                StatusCode::SERVICE_UNAVAILABLE,
+                "MARKET_DATA_CLOCK_UNAVAILABLE",
+            ),
+            (
+                Refused::StoreUnavailable,
+                StatusCode::SERVICE_UNAVAILABLE,
+                "MARKET_DATA_OWNER_UNAVAILABLE",
+            ),
+        ];
+        let mut codes = std::collections::BTreeSet::new();
+
+        for (refusal, status, name) in expected {
+            let response = instrument_master_v2_error(refusal);
+            assert_eq!(code(&response), (status, Some(name)), "{refusal:?}");
+            assert!(codes.insert(name), "{name} names one refusal");
+        }
     }
 
     /// A body naming an Owner field is refused by that name, as a 422 the caller can act on,

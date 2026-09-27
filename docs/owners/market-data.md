@@ -1164,8 +1164,8 @@ in the Owner's own process as `market_data_owner`, as the V1 intake does. That r
 and the store asserts on every write that no other role holds a privilege on them, so the intake needs no grant and must
 not be given one.
 
-- **What the submission states:** the raw symbol, the class by its canonical word, the retrieval instant, the exact raw
-  `exchangeInfo` payload bytes, and the admitted Source Binding the payload was retrieved under. It states no canonical
+- **What the submission states:** the raw symbol, the class by its canonical word, the retrieval instant, the exact
+  `exchangeInfo` response text, and the admitted Source Binding the payload was retrieved under. It states no canonical
   identity, no venue, no terms, no effective instant, no digest and no Owner-observation instant. The only class
   word admitted is `CRYPTO_PERPETUAL`, the only class V2 has.
 - **The Owner's venue table:** the named binding's `adapter.dataset_mapping`, compared as one exact string, selects a row
@@ -1203,8 +1203,8 @@ not be given one.
   the canonical scale, and downstream Replay uses V2's. A parity test on the adapter's side asserts both the equal
   increments and this one difference.
 - **What the Owner takes itself:** the Source Binding identity and digest, from the binding it holds admitted under exactly
-  the named locator; the raw payload digest, as the SHA-256 of a fixed domain and the exact bytes, so no digest is taken on
-  trust; the Owner-observation instant, which is the decision cut of its current clock head, read in the admitting
+  the named locator; the raw payload digest, the module's domain-separated digest of the text's exact UTF-8 bytes, so no
+  digest is taken on trust; the Owner-observation instant, which is the decision cut of its current clock head, read in the admitting
   transaction; the chain position, correction sequence 1 with no predecessor; and the terms basis
   `RetrievedTermsAssumedSinceListing`. The V2 fact binds no frontier: any reconciliation with a PIT batch's frontiers
   belongs to the cut, not to this intake.
@@ -1226,7 +1226,8 @@ not be given one.
     fact, the second resolves it. A cut is written once per request key, so no single request ever changes its answer,
     but two requests at one coordinate can disagree when an admission falls between them.
 - **Replay:** a submission whose derived fact equals the instrument's stored baseline, read at that baseline's own
-  Owner-observation instant, rejoins it and returns the same terminal. The instant the Owner stamps is not part of what
+  Owner-observation instant, rejoins it and returns the same terminal: the terminal carries the canonical identity, the
+  fact identity, the Owner-observation instant and the terms basis, all of which the stored fact holds. The instant the Owner stamps is not part of what
   the caller means, so a replay after the clock has advanced still rejoins.
 - **Refusals, each by name, with nothing written; each says how a submission reaches it today:**
   - `UNAUTHORIZED_PRODUCT_EDGE` (HTTP 403): a request without the Product Edge bearer token.
@@ -1254,12 +1255,13 @@ not be given one.
     example the same symbol retrieved later with a changed tick. Terms retrieved again unchanged land here too: the
     retrieval instant and the payload digest are part of the fact, so a fresh retrieval is a different fact, not a replay,
     and an operator must not treat it as an idempotent retry. A baseline is never replaced here.
-  - `MARKET_DATA_CLOCK_UNAVAILABLE` (HTTP 503): the Owner holds no clock head, as in a store whose clock has never been
-    admitted.
+  - `MARKET_DATA_CLOCK_UNAVAILABLE` (HTTP 503): the Owner holds no clock head. No submission can construct it: the named
+    binding is verified first, and a binding is only ever admitted together with the clock it was observed under, so a
+    store that holds the binding holds a head. It remains a refusal rather than an assumption.
   - `INSTRUMENT_MASTER_V2_ADMISSION_CONFLICT` (HTTP 409): a fact with the computed identity is stored with other bytes.
     No submission can construct it, because the identity is the digest of the canonical bytes; it is reached only by
     altering a stored row, and it is refused rather than overwritten.
-  - `MARKET_DATA_STORE_UNAVAILABLE` (HTTP 503): the store is unreachable, refuses the commit, or fails its ownership and
+  - `MARKET_DATA_OWNER_UNAVAILABLE` (HTTP 503): the store is unreachable, refuses the commit, or fails its ownership and
     privilege assertion, as when another role has been granted a privilege on the V2 tables.
 - **Proof:** the Market Data PostgreSQL runner proves the intake through production paths only. The clock is advanced by a
   production Source Binding submission, never by writing the head. The request-keyed cut for an instrument with no
