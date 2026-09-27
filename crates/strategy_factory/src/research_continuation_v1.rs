@@ -15,6 +15,8 @@
 //! Develop, so a continuation cannot skip the check: only
 //! [`authorize_research_continuation_in_transaction`] builds one.
 
+use std::{future::Future, pin::Pin};
+
 use sqlx::{Postgres, Transaction};
 use vibe_product_edge::{
     DownstreamAdmissionModeV1, ProductEdgeAdmissionLocatorV1, ProductEdgeAdmissionReadbackV1,
@@ -247,46 +249,54 @@ pub(crate) async fn continue_successor_research_in_transaction(
 /// Refuses unless the protected-feedback history `frozen` belongs to is still at the source cut
 /// `frozen` states. Every phase fact of the history advances it, so an unequal cut means a
 /// protected evaluation became observable to the Intent after its freeze.
-async fn verify_protected_feedback_not_advanced_in_transaction(
-    transaction: &mut Transaction<'_, Postgres>,
-    frozen: &ProtectedFeedbackFrontierReadbackV1,
-) -> Result<(), DevelopComposerTerminalV2> {
-    match vibe_qualification::read_protected_feedback_generation_in_transaction(
-        transaction,
-        frozen.projection_identity(),
-    )
-    .await
-    {
-        Ok(Some(current)) if current.source_cut() == frozen.source_cut() => Ok(()),
-        Ok(Some(current)) => {
-            crate::storage_diagnostic::refused_by_store(
-                RESEARCH_CONTINUATION_PROTECTED_FEEDBACK_ADVANCED_COORDINATE_V1,
-                &format!(
-                    "the Intent froze {} and its history is at {}",
-                    frozen.source_cut(),
-                    current.source_cut()
-                ),
-            );
-            Err(DevelopComposerTerminalV2::unavailable(
-                RESEARCH_CONTINUATION_PROTECTED_FEEDBACK_ADVANCED_COORDINATE_V1,
-                "a protected evaluation became observable to the Research Intent after it was frozen; iterate through a successor Intent",
-            ))
+///
+/// It returns its future already on the heap: every continuation awaits it inside the Owners'
+/// deepest custody paths, and an inline future would add its whole state to each caller's frame.
+fn verify_protected_feedback_not_advanced_in_transaction<'a, 'c>(
+    transaction: &'a mut Transaction<'c, Postgres>,
+    frozen: &'a ProtectedFeedbackFrontierReadbackV1,
+) -> Pin<Box<dyn Future<Output = Result<(), DevelopComposerTerminalV2>> + Send + 'a>>
+where
+    'c: 'a,
+{
+    Box::pin(async move {
+        match vibe_qualification::read_protected_feedback_generation_in_transaction(
+            transaction,
+            frozen.projection_identity(),
+        )
+        .await
+        {
+            Ok(Some(current)) if current.source_cut() == frozen.source_cut() => Ok(()),
+            Ok(Some(current)) => {
+                crate::storage_diagnostic::refused_by_store(
+                    RESEARCH_CONTINUATION_PROTECTED_FEEDBACK_ADVANCED_COORDINATE_V1,
+                    &format!(
+                        "the Intent froze {} and its history is at {}",
+                        frozen.source_cut(),
+                        current.source_cut()
+                    ),
+                );
+                Err(DevelopComposerTerminalV2::unavailable(
+                    RESEARCH_CONTINUATION_PROTECTED_FEEDBACK_ADVANCED_COORDINATE_V1,
+                    "a protected evaluation became observable to the Research Intent after it was frozen; iterate through a successor Intent",
+                ))
+            }
+            Ok(None) => {
+                crate::storage_diagnostic::refused_by_store(
+                    RESEARCH_CONTINUATION_PROTECTED_FEEDBACK_UNAVAILABLE_COORDINATE_V1,
+                    &"Qualification holds no history for the Intent's frozen projection",
+                );
+                Err(protected_feedback_unavailable())
+            }
+            Err(cause) => {
+                crate::storage_diagnostic::refused_by_store(
+                    RESEARCH_CONTINUATION_PROTECTED_FEEDBACK_UNAVAILABLE_COORDINATE_V1,
+                    &cause,
+                );
+                Err(protected_feedback_unavailable())
+            }
         }
-        Ok(None) => {
-            crate::storage_diagnostic::refused_by_store(
-                RESEARCH_CONTINUATION_PROTECTED_FEEDBACK_UNAVAILABLE_COORDINATE_V1,
-                &"Qualification holds no history for the Intent's frozen projection",
-            );
-            Err(protected_feedback_unavailable())
-        }
-        Err(cause) => {
-            crate::storage_diagnostic::refused_by_store(
-                RESEARCH_CONTINUATION_PROTECTED_FEEDBACK_UNAVAILABLE_COORDINATE_V1,
-                &cause,
-            );
-            Err(protected_feedback_unavailable())
-        }
-    }
+    })
 }
 
 fn protected_feedback_unavailable() -> DevelopComposerTerminalV2 {

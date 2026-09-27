@@ -361,10 +361,16 @@ Research artifact evidence 必须正是为它封存的（`rd_owner_api.lock_rese
 - 重新锁定到的准入若不是该 Intent 准入时的那一个，在 `research_custody.continuation.admission_changed` 处应答；
 - 被隔离的遗留托管没有当前准入，在 `research_custody.continuation.no_admission` 处应答。
 
-冻结的 View 仍然标识这个 Intent：早于其投影的 cut 会被拒绝，而且该 Intent 必须仍然是 `INTENT_FROZEN`。
-受保护反馈只在 Intent 准入时检查一次，之后不再检查。今天受保护反馈前沿没有代际，受保护评估也不会推进它，所以继续操作感知不到冻结之后发生的受保护评估。
-给前沿加上代际、并让每一次继续操作都与 Intent 冻结时的代际比较的那一片，会移除这条性质。在它们各自的切片落地之前，
-有两类检查仍然读取 View 的窗口：
+每一种也都只在该 Intent 冻结之后没有受保护评估变得对它可观察时才继续。principal/scope 历史的每个公开 Qualification
+phase fact 都推进该历史的受保护反馈 generation（见 Qualification 的受保护反馈 generation），所以继续操作为 Intent 冻结的
+投影读取其历史当前的 source cut，并与冻结时的比较。它在继续操作提交之前对该历史的 head 持有 `FOR SHARE`，所以期间不会
+有 phase fact 落进来。更晚的 cut 在 `research_custody.continuation.protected_feedback_advanced` 处应答：此后在该 Intent 上
+的迭代要经过一个后继 Intent，它冻结历史的新 generation（见血缘与保护反馈准入）。冻结的投影或其历史读不到的 Intent 在
+`research_custody.continuation.protected_feedback_unavailable` 处应答。候选自己的 phase fact 同样计数，所以一旦 Intent 的
+候选进入 Qualification，它的继续操作就停止。
+
+冻结的 View 仍然标识这个 Intent：早于其投影的 cut 会被拒绝，而且该 Intent 必须仍然是 `INTENT_FROZEN`。在它们各自的切片
+落地之前，有两类检查仍然读取 View 的窗口：
 
 - Replay 提交之后的步骤：Backtest 运行、执行输入绑定和 Market Data 修复；
 - Product Edge 自己的下游准入窗口检查。
