@@ -943,6 +943,7 @@ echo "ok: adaptive cleanup, Rust cache, doctest isolation, and nextest consumer 
 python3 -B "$repo_root/scripts/ci/check-pr-hook-coverage.py" "$repo_root"
 python3 -B "$repo_root/scripts/ci/check-pr-hook-coverage_test.py"
 bash "$repo_root/scripts/ci/test-require-workflow-job.bash"
+bash "$repo_root/scripts/ci/test-require-latest-workflow-verdict.bash" > /dev/null
 pre_commit_pr="$repo_root/.github/workflows/pre-commit-pr.yml"
 pre_commit_job="$(workflow_job_block "$build_workflow" pre-commit)"
 # Match literal workflow expressions.
@@ -1045,6 +1046,17 @@ quality_job="$(workflow_job_block "$build_workflow" quality)"
 [[ "$quality_job" == *'bash scripts/ci/require-workflow-job.bash "$workflow" '"'*'"' "$HEAD_SHA" 1800'* ]]
 [[ "$quality_job" == *"REQUIRE_WORKFLOW_JOB_RECOVERY="* ]]
 echo "ok: every path-filtered pull request workflow the diff triggers is required by quality"
+# main's own verdict carries security-audit's: its latest completed run on main must be green and
+# recent. The requirement script has to be checked out on main as well, or the step cannot run.
+quality_job="$(workflow_job_block "$build_workflow" quality)"
+# shellcheck disable=SC2016 # the workflow's literal expressions
+if [[ "$quality_job" != *'run: bash scripts/ci/require-latest-workflow-verdict.bash security-audit.yml main '* ]] ||
+  [[ "$quality_job" != *"if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'"* ]] ||
+  [[ "$quality_job" != *"if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'"* ]]; then
+  echo "build.yml's quality must require security-audit's latest verdict on main, with its script checked out there." >&2
+  exit 1
+fi
+echo "ok: main's verdict requires security-audit's latest verdict on main"
 
 # The merge of the R&D chain shards' records before the whole-chain report. (The shards' wait for
 # the archive has its own pre-commit hook, test-wait-for-run-artifact.)

@@ -1056,11 +1056,15 @@ async fn issues_its_initial_pit_request() {
 const CLOCK_MOVE_DATABASE_PREFIX: &str = "vibe_test_rd_initial_pit_clock_move_";
 
 /// The production ports, with Market Data's clock head moved by a production Source Binding
-/// admission after the Owner froze its first attempt and before that attempt reaches Market Data.
-struct ClockMovedBeforeFirstSendV1 {
+/// admission before each of the first `moves` sends reaches Market Data, after the Owner froze
+/// what it sends.
+struct ClockMovedBeforeSendsV1 {
     inner: MarketDataInitialPitPortsV1,
     intake: Arc<dyn PitMarketSnapshotIntakeV1>,
-    moved_to: tokio::sync::Mutex<Option<MarketDataDecisionCutV1>>,
+    /// Distinguishes this port's admissions from every other port's on the same database.
+    tag: u8,
+    moves: usize,
+    moved_to: tokio::sync::Mutex<Vec<MarketDataDecisionCutV1>>,
     sends: AtomicUsize,
     answered: tokio::sync::Mutex<
         Vec<Result<PitMarketSnapshotTerminalV1, PitMarketSnapshotIntakeErrorV1>>,
@@ -1068,7 +1072,7 @@ struct ClockMovedBeforeFirstSendV1 {
 }
 
 #[async_trait]
-impl InitialPitMarketDataPortV1 for ClockMovedBeforeFirstSendV1 {
+impl InitialPitMarketDataPortV1 for ClockMovedBeforeSendsV1 {
     async fn resolve_references(
         &self,
         transaction: &mut Transaction<'_, Postgres>,
@@ -1099,13 +1103,18 @@ impl InitialPitMarketDataPortV1 for ClockMovedBeforeFirstSendV1 {
         submission: PitSnapshotSubmissionV1,
         universe_selection: UntrustedUniverseSelectionLocatorV1,
     ) -> Result<PitMarketSnapshotTerminalV1, PitMarketSnapshotIntakeErrorV1> {
-        if self.sends.fetch_add(1, Ordering::SeqCst) == 0 {
+        let send = self.sends.fetch_add(1, Ordering::SeqCst);
+
+        if send < self.moves {
             let before = self.intake.current_decision_cut().await.unwrap();
             let admitted = source_binding_admission_from_environment_v1()
                 .await
                 .expect("the configured Market Data store opens")
                 .admit(SourceBindingAdmissionRequestV1 {
-                    proposal: wall_clock_source_proposal(0xC0, "rd-initial-pit-clock-move/none"),
+                    proposal: wall_clock_source_proposal(
+                        self.tag.wrapping_add(u8::try_from(send).unwrap()),
+                        &format!("rd-initial-pit-clock-move/none-{}-{send}", self.tag),
+                    ),
                     rights: ProviderRightsEvidenceV1::Granted,
                     reachability: ProviderReachabilityEvidenceV1::Reachable,
                 })
@@ -1121,7 +1130,7 @@ impl InitialPitMarketDataPortV1 for ClockMovedBeforeFirstSendV1 {
                     && after.decision_cut.as_epoch_nanos() > before.decision_cut.as_epoch_nanos(),
                 "the admission moved the head"
             );
-            *self.moved_to.lock().await = Some(after);
+            self.moved_to.lock().await.push(after);
         }
         let answered = self.inner.submit(submission, universe_selection).await;
         self.answered.lock().await.push(answered.clone());
@@ -1318,7 +1327,9 @@ async fn admit_wall_clock_member(
 /// send, through the production advancer, a Source Binding admission minting the Owner's next clock
 /// from its wall. Market Data itself refuses the stale attempt as `ClockEvidenceNotCurrent` and
 /// holds nothing under the correlation, so the Owner freezes a second attempt at the new cut, sends
-/// it once, and records the terminal against it; issuing again changes nothing.
+/// it once, and records the terminal against it; issuing again changes nothing. When the head
+/// moves again after the refreeze, the Owner stops at `SUBMITTED_OR_UNKNOWN` after two sends
+/// rather than chase the clock, and the next issue recovers with a third attempt.
 ///
 /// It runs on a database the chain clones for it alone, because a head it moves stays moved.
 #[rstest]
@@ -1372,10 +1383,12 @@ async fn refreezes_when_the_clock_head_moves() {
 
     // The head moves after the freeze; Market Data refuses the stale attempt; the Owner freezes
     // again at the new cut and sends that once.
-    let moved = ClockMovedBeforeFirstSendV1 {
+    let moved = ClockMovedBeforeSendsV1 {
         inner: ports.clone(),
         intake: intake.clone(),
-        moved_to: tokio::sync::Mutex::new(None),
+        tag: 0xC0,
+        moves: 1,
+        moved_to: tokio::sync::Mutex::new(Vec::new()),
         sends: AtomicUsize::new(0),
         answered: tokio::sync::Mutex::new(Vec::new()),
     };
@@ -1387,7 +1400,8 @@ async fn refreezes_when_the_clock_head_moves() {
         .moved_to
         .lock()
         .await
-        .clone()
+        .first()
+        .cloned()
         .expect("the clock moved before the first send");
     assert_eq!(moved.sends.load(Ordering::SeqCst), 2);
     let answered = moved.answered.lock().await.clone();
@@ -1453,6 +1467,77 @@ async fn refreezes_when_the_clock_head_moves() {
         ),
         before
     );
+
+    // The head moves again after the refreeze: the Owner stops rather than chase the clock. Two
+    // sends, both refused by Market Data itself, two attempts, nothing held under the correlation,
+    // and the request reads SUBMITTED_OR_UNKNOWN.
+    let chased = format!("rd-initial-pit-clock-moves-twice-{suffix}");
+    let chased_correlation = expected_correlation(&intent_of(
+        &accept(&product_edge, &owner, &chased, Some(&scope)).await,
+    ));
+    let twice = ClockMovedBeforeSendsV1 {
+        inner: ports.clone(),
+        intake: intake.clone(),
+        tag: 0xD0,
+        moves: 2,
+        moved_to: tokio::sync::Mutex::new(Vec::new()),
+        sends: AtomicUsize::new(0),
+        answered: tokio::sync::Mutex::new(Vec::new()),
+    };
+    assert_eq!(
+        owner.issue_research_initial_pit_v1(&chased, &twice).await,
+        Ok(ResearchInitialPitV1::SubmittedOrUnknown)
+    );
+    assert_eq!(
+        twice.sends.load(Ordering::SeqCst),
+        2,
+        "one refreeze, not a chase"
+    );
+    assert_eq!(twice.moved_to.lock().await.len(), 2);
+    let answered = twice.answered.lock().await.clone();
+    assert!(
+        matches!(
+            answered.as_slice(),
+            [
+                Err(PitMarketSnapshotIntakeErrorV1::ClockEvidenceNotCurrent),
+                Err(PitMarketSnapshotIntakeErrorV1::ClockEvidenceNotCurrent)
+            ]
+        ),
+        "Market Data itself refused both attempts: {answered:?}"
+    );
+    assert_eq!(attempts(&rd, &chased).await.len(), 2);
+    assert_eq!(intakes(&market_data, chased_correlation).await, 0);
+    let unsettled: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM rd_research_initial_pit_terminals_v1 WHERE request_identity = $1",
+    )
+    .bind(&chased)
+    .fetch_one(&rd)
+    .await
+    .unwrap();
+    assert_eq!(unsettled, 0, "no terminal is recorded");
+    let body = readback(&owner, &chased).await;
+    assert_eq!(
+        body["initial_pit"],
+        serde_json::json!({"state": "SUBMITTED_OR_UNKNOWN"}),
+        "{body}"
+    );
+
+    // The next issue, with the clock still, resends the latest attempt, meets its stale clock
+    // evidence, freezes a third at the current cut and records its terminal.
+    assert_eq!(
+        owner.issue_research_initial_pit_v1(&chased, &ports).await,
+        Ok(available())
+    );
+    assert_eq!(attempts(&rd, &chased).await.len(), 3);
+    assert_eq!(intakes(&market_data, chased_correlation).await, 1);
+    let recorded: i32 = sqlx::query_scalar(
+        "SELECT attempt_ordinal FROM rd_research_initial_pit_terminals_v1 WHERE request_identity = $1",
+    )
+    .bind(&chased)
+    .fetch_one(&rd)
+    .await
+    .unwrap();
+    assert_eq!(recorded, 3);
 }
 
 /// The Universe Selection locator the request's first attempt names.

@@ -392,8 +392,8 @@ Strategy Input custody 上解析同一身份：它经由该次运行自己绑定
 `PostgresDevelopComposerReadbackOwnerV2` 都不带 feature 门，所以部署的 read API 会为未设门的
 `POST /v2/develop-composer/runs` 所提交的运行提供它。它在该运行提交时记下的 Research View 与 read cut 上重新推导这次运行，
 所以该 View 过期、或推进到 `ARTIFACT_AVAILABLE` 或 `EXPLORATION_ACTIVE` 之后，同一身份仍能读回。在这条记录存在之前提交的运行
-只在其 View 当前有效时读回，之后在 coordinate `research_custody.run_view_unrecorded` 读回
-`UNAVAILABLE`，以免页面被读成运行消失了。它不接收 request body，返回既有 strict `DevelopComposerOperationResponseV2`；Dashboard BFF 绑定 path identity，并只投影上述字段。`SUCCESS` 必须同时
+只在其 Research View 尚未推进到 `INTENT_FROZEN` 之后、且其准入所依据的授权仍然当前时读回，否则在 coordinate
+`research_custody.run_view_unrecorded` 读回 `UNAVAILABLE`，以免页面被读成运行消失了。它不接收 request body，返回既有 strict `DevelopComposerOperationResponseV2`；Dashboard BFF 绑定 path identity，并只投影上述字段。`SUCCESS` 必须同时
 带 operation receipt 与完整四字段 Artifact projection；其他 disposition 必须不带 receipt 或 Artifact
 projection。未知 key、identity drift、互相矛盾的 disposition field、非法 digest、超限 response、缺失
 configuration、permission denial、transport failure 或 sealed-custody verification failure 全部 fail closed

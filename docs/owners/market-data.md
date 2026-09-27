@@ -216,25 +216,25 @@ never runs in CI.
 
 ### Per-slice ledger
 
-| Slice                                                     | Status                                                                  | Implementation                                                                                                                                                                                                                           | Blocker    |
-| --------------------------------------------------------- | ----------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
-| PIT Market Snapshot authority and custody                 | `CURRENT / PARTIAL`                                                     | `crates/data/src/owner/pit_snapshot.rs`, `pit_snapshot/authority.rs`, `owner/postgres.rs` `pit_*` relations                                                                                                                              | `B1`       |
-| Source Binding and Owner‑local clock head                 | `CURRENT / PARTIAL`                                                     | `crates/data/src/owner/source_binding.rs`, `owner/postgres.rs`                                                                                                                                                                           | `B1`       |
-| `ResearchPitTerminal` output handoff to R&D               | `CURRENT / PARTIAL`                                                     | `crates/data/src/owner/research_pit_terminal.rs`                                                                                                                                                                                         | `B3`       |
-| Deployment Store Admission private seam                   | `CURRENT / PARTIAL`                                                     | `crates/data/src/owner/store_admission`                                                                                                                                                                                                  | `B3`       |
-| R0 observation evidence and reference‑fact catalog        | `CURRENT / PARTIAL`, including the R0 write                             | `owner/reference_fact_coordinates`, `owner/reference_fact_catalog.rs`                                                                                                                                                                    | `B5`, `B7` |
-| Calendar, Time Zone and Session native authorities        | `CURRENT / PARTIAL`                                                     | `owner/calendar`, `owner/time_zone`, `owner/session`                                                                                                                                                                                     | `B5`       |
-| Market Semantics Owner contract                           | `CURRENT / PARTIAL`, including the fact intake                          | `owner/market_semantics`                                                                                                                                                                                                                 | `B5`, `B7` |
-| Correction Policy private Replay projection               | `CURRENT / PARTIAL`                                                     | `owner/correction_policy_projection`                                                                                                                                                                                                     | `B5`       |
-| Corporate Action Instrument Master sub‑authority          | `CURRENT / PARTIAL`                                                     | `owner/corporate_action`                                                                                                                                                                                                                 | `B5`       |
-| Universe Selection Record                                 | `CURRENT / PARTIAL`                                                     | `owner/universe_selection.rs` with durable custody and in‑transaction rule evaluation in `owner/postgres/universe_selection.rs` (`universe_selection_records_v1`, receipts, outbox, historical‑membership frontier/facts/heads/manifest) | `B1`       |
-| Replay Market Facts V2 foundation                         | `CURRENT / PARTIAL`                                                     | `owner/replay_market_facts_v2`                                                                                                                                                                                                           | `B4`       |
-| Instrument Master V1 and V2 with economic terms           | `CURRENT / PARTIAL`, including the V1 intake and the V2 baseline intake | `owner/instrument_master.rs`, `owner/instrument_master_v2*.rs`, `owner/instrument_economic_terms*_v1.rs`                                                                                                                                 | `B4`, `B7` |
-| Strategy input‑role binding and a Design's PIT coordinate | `CURRENT / PARTIAL`                                                     | `owner/postgres/strategy_input_binding_registry.rs`                                                                                                                                                                                      | `B2`, `B4` |
-| EVENT and BAR Owner custody                               | `CURRENT / PARTIAL`                                                     | `owner/sample_fact.rs`, `owner/sample_projection*.rs`, `owner/bar_schedule.rs`                                                                                                                                                           | `B4`       |
-| Shared Time clock‑head handoff                            | `TARGET`                                                                | `owner/shared_time_evidence.rs`                                                                                                                                                                                                          | `B3`       |
-| Vendor Data Clients                                       | `CURRENT / PARTIAL`                                                     | `crates/adapters/databento/src/pit_observation_source_v1.rs` and `crates/adapters/binance/src/pit_observation_source_v1.rs`, both live‑verified                                                                                          | `B6`       |
-| Live market fact channel to Runtime                       | `CURRENT / PARTIAL`, one channel                                        | `owner/live_market_fact_v1.rs`, `owner/live_market_stream_v1.rs`, `owner/postgres/live_market_stream_v1.rs`, `crates/adapters/bybit/src/live_market_fact_source_v1.rs`                                                                   | `B8`       |
+| Slice                                                     | Status                                                                                              | Implementation                                                                                                                                                                                                                           | Blocker    |
+| --------------------------------------------------------- | --------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
+| PIT Market Snapshot authority and custody                 | `CURRENT / PARTIAL`                                                                                 | `crates/data/src/owner/pit_snapshot.rs`, `pit_snapshot/authority.rs`, `owner/postgres.rs` `pit_*` relations                                                                                                                              | `B1`       |
+| Source Binding and Owner‑local clock head                 | `CURRENT / PARTIAL`                                                                                 | `crates/data/src/owner/source_binding.rs`, `owner/postgres.rs`                                                                                                                                                                           | `B1`       |
+| `ResearchPitTerminal` output handoff to R&D               | `CURRENT / PARTIAL`                                                                                 | `crates/data/src/owner/research_pit_terminal.rs`                                                                                                                                                                                         | `B3`       |
+| Deployment Store Admission private seam                   | `CURRENT / PARTIAL`                                                                                 | `crates/data/src/owner/store_admission`                                                                                                                                                                                                  | `B3`       |
+| R0 observation evidence and reference‑fact catalog        | `CURRENT / PARTIAL`, including the R0 write                                                         | `owner/reference_fact_coordinates`, `owner/reference_fact_catalog.rs`                                                                                                                                                                    | `B5`, `B7` |
+| Calendar, Time Zone and Session native authorities        | `CURRENT / PARTIAL`                                                                                 | `owner/calendar`, `owner/time_zone`, `owner/session`                                                                                                                                                                                     | `B5`       |
+| Market Semantics Owner contract                           | `CURRENT / PARTIAL`, including the fact intake                                                      | `owner/market_semantics`                                                                                                                                                                                                                 | `B5`, `B7` |
+| Correction Policy private Replay projection               | `CURRENT / PARTIAL`                                                                                 | `owner/correction_policy_projection`                                                                                                                                                                                                     | `B5`       |
+| Corporate Action Instrument Master sub‑authority          | `CURRENT / PARTIAL`                                                                                 | `owner/corporate_action`                                                                                                                                                                                                                 | `B5`       |
+| Universe Selection Record                                 | `CURRENT / PARTIAL`                                                                                 | `owner/universe_selection.rs` with durable custody and in‑transaction rule evaluation in `owner/postgres/universe_selection.rs` (`universe_selection_records_v1`, receipts, outbox, historical‑membership frontier/facts/heads/manifest) | `B1`       |
+| Replay Market Facts V2 foundation                         | `CURRENT / PARTIAL`                                                                                 | `owner/replay_market_facts_v2`                                                                                                                                                                                                           | `B4`       |
+| Instrument Master V1 and V2 with economic terms           | `CURRENT / PARTIAL`, including the V1 intake and the V2 baseline, status delta and snapshot intakes | `owner/instrument_master.rs`, `owner/instrument_master_v2*.rs`, `owner/instrument_economic_terms*_v1.rs`                                                                                                                                 | `B4`, `B7` |
+| Strategy input‑role binding and a Design's PIT coordinate | `CURRENT / PARTIAL`                                                                                 | `owner/postgres/strategy_input_binding_registry.rs`                                                                                                                                                                                      | `B2`, `B4` |
+| EVENT and BAR Owner custody                               | `CURRENT / PARTIAL`                                                                                 | `owner/sample_fact.rs`, `owner/sample_projection*.rs`, `owner/bar_schedule.rs`                                                                                                                                                           | `B4`       |
+| Shared Time clock‑head handoff                            | `TARGET`                                                                                            | `owner/shared_time_evidence.rs`                                                                                                                                                                                                          | `B3`       |
+| Vendor Data Clients                                       | `CURRENT / PARTIAL`                                                                                 | `crates/adapters/databento/src/pit_observation_source_v1.rs` and `crates/adapters/binance/src/pit_observation_source_v1.rs`, both live‑verified                                                                                          | `B6`       |
+| Live market fact channel to Runtime                       | `CURRENT / PARTIAL`, one channel                                                                    | `owner/live_market_fact_v1.rs`, `owner/live_market_stream_v1.rs`, `owner/postgres/live_market_stream_v1.rs`, `crates/adapters/bybit/src/live_market_fact_source_v1.rs`                                                                   | `B8`       |
 
 ## Authoritative facts owned
 
@@ -1378,9 +1378,10 @@ status and nothing else. It is the second production writer of `market_data_inst
   the binding the instrument's baseline names.
 - **Order:** the event instant must be later than the instant the named fact already knows the status at, and no later
   than the retrieval; the retrieval must be no later than the head's decision cut. A baseline knows the status as of its
-  retrieval, since `exchangeInfo` states it as retrieved, not as listed; a delta knows it as of its event instant. An
-  older event that arrives late, including one after the listing but before the baseline was retrieved, is refused
-  rather than admitted over a newer status.
+  retrieval, since `exchangeInfo` states it as retrieved, not as listed; a delta knows it as of its event instant; a
+  later `exchangeInfo` snapshot, admitted by the snapshot intake below, knows it as of its retrieval when it is the
+  newest status evidence. An older event that arrives late, including one after the listing but before the baseline was
+  retrieved, is refused rather than admitted over a newer status.
 - **The chain:** the named fact must be the instrument's current head, so each delta states what it follows and two
   submissions cannot both extend one fact. A cut resolves each member's latest fact observed at its selection's Owner
   observation, so at one decision cut a cut issued before the delta's admission resolves the named fact and one issued
@@ -1411,8 +1412,9 @@ status and nothing else. It is the second production writer of `market_data_inst
   - `INSTRUMENT_MASTER_V2_STATUS_UNCHANGED` (HTTP 422): `cs` is the fact's current status. The event changed only what
     the fact does not hold, such as the brackets, so there is nothing to record. A collector fed the whole stream meets
     this on every bracket update and should treat it as an expected skip that no retry changes, not as a failure.
-  - `INSTRUMENT_MASTER_V2_EVENT_OUT_OF_ORDER` (HTTP 409): the event instant is not later than the instant the named
-    fact knows the status at: its baseline's retrieval or its latest delta's event.
+  - `INSTRUMENT_MASTER_V2_EVENT_OUT_OF_ORDER` (HTTP 409): the event instant is not later than the instant the named fact
+    knows the status at: the latest of its baseline's retrieval, its latest delta's event and its latest snapshot's
+    retrieval.
   - `INSTRUMENT_MASTER_V2_PREDECESSOR_UNKNOWN` (HTTP 409): no V2 fact has the named identity.
   - `INSTRUMENT_MASTER_V2_PREDECESSOR_NOT_CURRENT` (HTTP 409): the named fact already has a successor with another
     meaning, for example after another event was admitted first.
@@ -1439,13 +1441,96 @@ status and nothing else. It is the second production writer of `market_data_inst
   later than the baseline's retrieval. A second proof holds the clock head row until two identical baseline submissions,
   and then two identical deltas, both wait on a lock, and each pair answers with one fact.
 
-**NOT_ADMITTED:** a change to a V2 fact's executable terms has no intake: the status delta changes the contract status
-only, by design. Correcting a baseline's terms assumed since listing needs V2 terms that hold over an interval and
-evidence of when they changed, which only an archived `exchangeInfo` snapshot provides; that design is not admitted.
-Whether a Replay over a window whose status is not `TRADING` must be refused is not decided; nothing refuses one today.
-No V1 fact is derived into V2, no class but the crypto perpetual and no venue outside the Owner's table is admitted, and
-nothing here claims provider ingestion, authenticity, deployment or trading. Neither intake compares a V2 fact with any
-V1 fact; the cut that reads both does, as the next paragraph states.
+**CURRENT / PARTIAL, production Instrument Master V2 `exchangeInfo` snapshot intake:** one Owner-sealed admission port
+and one route, `POST /v1/market-data/instrument-master-v2-snapshots`, through which the archiver or Operations submits a
+later raw `exchangeInfo` payload for an instrument that already has a V2 fact. The Owner appends it as that fact's
+direct successor, a snapshot successor, through `apply_exchange_info_snapshot`. It is the third production writer of
+`market_data_instrument_master_v2.facts`, runs as `market_data_owner` and needs no grant. This is the first slice of the
+TARGET below: window selection at the cut and the archiver are not built.
+
+- **What the submission states:** the identity of the fact the snapshot follows, the retrieval instant, the exact
+  payload text and the admitted Source Binding it was retrieved under, which must be the one the instrument's baseline
+  names. It states nothing the Owner derives.
+- **What the Owner derives:** every term through the baseline's own mapping,
+  `ExchangeInfoBaselineV2::from_usdm_exchange_info`, for the fact's raw symbol and the venue row of the binding's
+  dataset. The payload's `onboardDate` must be the baseline's: another listing is not a later snapshot of this one. The
+  record the fact keeps is the payload digest, the retrieval and the Owner observation; the binding is the baseline's
+  and is not repeated.
+- **Two orders.** Snapshots are ordered among themselves: a retrieval must be later than the fact's latest snapshot, or
+  its baseline. The contract status has one order across deltas and snapshots, the instant the fact knows the status at,
+  the latest of its baseline's retrieval, its latest delta's event and its latest snapshot's retrieval. The payload's
+  status becomes the fact's only when the snapshot is later than that instant; otherwise the fact keeps its newer status
+  and the snapshot records its terms only, so a snapshot is never refused because a newer status arrived first. A status
+  delta after a snapshot must be later than that same instant, the status instant boundary the TARGET below names.
+- **The terms basis.** A snapshot whose terms, the status aside, equal those of the fact it follows keeps the basis
+  `RETRIEVED_TERMS_ASSUMED_SINCE_LISTING`: the terms are still the baseline's, now also observed later. One whose terms
+  differ gives the fact, and every fact after it, `OBSERVED_SINCE_TERMS_CHANGE`, since what held before that snapshot is
+  not these terms. The terminal says whether the snapshot changed the terms. A snapshot does not move the fact's event
+  instant, which the native instrument definition carries as `ts_event`: that stays the latest status delta's event, or
+  the listing, because a snapshot records when it was retrieved, not when anything changed.
+- **The cut refuses a changed member until it selects by window.** A cut reads no Replay window yet, so it cannot tell
+  whether a window lies before or after a change. It refuses a member whose fact observed at the selection has the basis
+  `OBSERVED_SINCE_TERMS_CHANGE` with `TermsChanged` and zero writes, and R&D's execution-input binding answers
+  `INSTRUMENT_MASTER_TERMS_CHANGED` (HTTP 409); no retry changes it. Window selection is the only slice that removes
+  this refusal. A member whose snapshots all repeat the baseline's terms resolves as before, on its latest fact.
+- **The clock.** When the head's decision cut is at or after the retrieval, the snapshot's Owner observation is that
+  cut. Otherwise the intake mints the next Owner clock from its own wall observation, as a Source Binding admission
+  does, and admits it in the same transaction through the path a Source Binding admission uses, so the head moves only
+  if the fact is appended; the snapshot's Owner observation is the minted cut. A retrieval later than that wall
+  observation is refused. The transaction is read committed and takes the clock-state lock before it reads the head, as
+  every other clock writer does, so a snapshot that mints and a Source Binding admission at once answer one after the
+  other. A clock head needs no owner fact to anchor it: the clock custody checks read only the clock tables. A PIT
+  submission R&D froze at the previous head is then refused as `ClockEvidenceNotCurrent`, as after any Source Binding
+  admission.
+- **One writer at a time and replay.** The transaction takes the V2 store's table locks as its first statement, as both
+  other intakes do. A submission whose derived fact equals the stored direct successor of the named fact, read at that
+  successor's own Owner observation, rejoins it and returns the same terminal; a rejoin never mints a clock.
+- **F is unchanged.** Facts without a snapshot keep their encoding byte for byte: the snapshot successor is a third
+  lineage tag, and the baseline and status-delta tags are untouched. A unit test pins a baseline from the recorded
+  payload (414 bytes), its status successor (669 bytes) and a one-member cut over the baseline, read from the tree
+  before snapshot successors existed, beside the existing two-member cut pin.
+- **Refusals, each by name, with nothing written; each says how a submission reaches it today:**
+  - `UNAUTHORIZED_PRODUCT_EDGE` (HTTP 403) and `MALFORMED_TYPED_REQUEST` (HTTP 400), as on the other V2 routes.
+  - `INSTRUMENT_MASTER_V2_INVALID_SUBMISSION` (HTTP 422): the text is not an `exchangeInfo` object.
+  - `INSTRUMENT_MASTER_V2_SYMBOL_ABSENT`, `_SYMBOL_AMBIGUOUS`, `_CONTRACT_TYPE_UNSUPPORTED`, `_DATASET_MISMATCH`,
+    `_ONBOARD_DATE_UNAVAILABLE` and `_FILTER_UNAVAILABLE` (HTTP 422): the baseline intake's own mapping refuses the
+    payload, for the reasons and by the payloads the baseline intake states.
+  - `INSTRUMENT_MASTER_V2_LISTING_DIFFERS` (HTTP 422): the entry's `onboardDate` is not the baseline's.
+  - `INSTRUMENT_MASTER_V2_SNAPSHOT_OUT_OF_ORDER` (HTTP 409): the retrieval is not later than the fact's latest snapshot,
+    or its baseline.
+  - `INSTRUMENT_MASTER_V2_PREDECESSOR_UNKNOWN` and `_PREDECESSOR_NOT_CURRENT` (HTTP 409), `_SOURCE_BINDING_UNAVAILABLE`
+    and `_SOURCE_BINDING_MISMATCH` (HTTP 409), as for a status delta.
+  - `INSTRUMENT_MASTER_V2_RETRIEVAL_AFTER_OWNER_CLOCK` (HTTP 409): the retrieval is later than the Owner's own wall
+    observation.
+  - `INSTRUMENT_MASTER_V2_CLOCK_MISMATCH` (HTTP 409): the head is not one the Owner's clock can succeed. No production
+    head is: every cut is minted under the Owner's identity and epoch, the chain's market base included since it was
+    sealed on the Owner's clock. The proof drives it with a head on a test clock.
+  - `MARKET_DATA_CLOCK_UNAVAILABLE` (HTTP 503): the Owner holds no head, or its wall clock has not passed the head. No
+    submission can construct it: a baseline exists only under a head, and the head is the Owner's own earlier wall
+    observation.
+  - `INSTRUMENT_MASTER_V2_ADMISSION_CONFLICT` (HTTP 409): the store disagrees with itself about the named fact. No
+    submission can construct it.
+  - `MARKET_DATA_OWNER_UNAVAILABLE` (HTTP 503): the store is unreachable, refused the commit, or a stored chain does not
+    decode.
+- **Proof:** the Market Data PostgreSQL runner proves the intake on bindings committed on the Owner's own clock, sealed
+  by the production sealer. A snapshot retrieved after the head mints exactly one clock and takes its cut, and one
+  retrieved before takes the head's. Ten reachable refusals each write neither a fact nor a clock, one of them after the
+  intake chose to mint. A snapshot later than the known status sets it. A snapshot that widens the tick is recorded with
+  the changed basis, after which the cut refuses the member and writes nothing while the cut issued before keeps its
+  answer. A replay rejoins and mints nothing, and a later snapshot mints again. A second proof refuses a snapshot past a
+  head on a test clock as `CLOCK_MISMATCH` with nothing written. A third holds the clock-state lock while a Source
+  Binding admission and then a minting snapshot queue for it, and both answer; with the head's row lock taken first, as
+  the intake first did, they deadlock. Two identical minting snapshots at once mint once and answer with one fact. Unit
+  tests cover the codec, both orders, the basis, every normalizer and successor refusal, and a year of hourly snapshots
+  decoded as one chain.
+
+**NOT_ADMITTED:** a change to a V2 fact's executable terms is recorded, by the snapshot intake, but no Replay is priced
+on it: the status delta changes the contract status only, by design, and the cut refuses a member whose terms a snapshot
+changed until it selects by the Replay window, which the TARGET below describes and which is not built. Whether a Replay
+over a window whose status is not `TRADING` must be refused is not decided; nothing refuses one today. No V1 fact is
+derived into V2, no class but the crypto perpetual and no venue outside the Owner's table is admitted, and nothing here
+claims provider ingestion, authenticity, deployment or trading. No intake compares a V2 fact with any V1 fact; the cut
+that reads both does, as the next paragraph states.
 
 **CURRENT, V1/V2 generation consistency:** while both generations are in use, one instrument is described in each. A PIT
 request names the V1 Instrument Master readback its snapshot was cut under (`instrument_master_digest`), and Market
@@ -1481,10 +1566,12 @@ issuance proof issues its cuts over PIT snapshots taken by the production PIT in
 intake admitted to agree with the V2 facts, and one member's V1 fact with a different tick is refused by that term. Each
 rule's refusal is asserted once on the comparison itself.
 
-**TARGET, effective-dated V2 terms from archived `exchangeInfo` snapshots:** not admitted, and nothing here is built. A
-V2 fact records terms observed at one retrieval and assumed back to listing, and the cut takes each member's latest fact
-observed at its selection, so a tick or lot change is never representable and a Replay before the retrieval is priced on
-the terms of the day it was retrieved. This design replaces that one assumption with evidence, and admits no other.
+**TARGET, effective-dated V2 terms from archived `exchangeInfo` snapshots:** the snapshot successor and its intake are
+built, as the CURRENT / PARTIAL paragraph above states; window selection at the cut and the archiver are not admitted
+and not built. A V2 fact records terms observed at one retrieval and assumed back to listing, and the cut takes each
+member's latest fact observed at its selection, so a tick or lot change is never representable and a Replay before the
+retrieval is priced on the terms of the day it was retrieved. This design replaces that one assumption with evidence,
+and admits no other.
 
 - **Evidence is an archived snapshot and nothing else.** Every term the Owner holds for an instrument is derived by
   `ExchangeInfoBaselineV2::from_usdm_exchange_info` from an `exchangeInfo` payload retrieved at a stated instant. No
@@ -1563,15 +1650,16 @@ the terms of the day it was retrieved. This design replaces that one assumption 
   check fails when the newest admitted snapshot is older than two cadences, a condition the archiver can now clear
   itself.
 - **F is unchanged.** With one baseline and no later snapshot, every window before its retrieval lies before `t_0`, the
-  member is the baseline with its current basis, and its bytes do not move; the snapshot successor's slice pins the
-  two-member cut identity and a one-baseline bound-replay cut byte for byte.
-- **Order.** The snapshot successor and its intake come first, with the byte-for-byte pin. Until the cut selects by
-  window, it refuses by name a member whose terms a snapshot changed, whatever the window, rather than price any window
-  on them; the window selection is the only slice that removes that refusal. Window selection at the cut changes the
-  issuance F's chain relies on, so it starts only after F's chain passes. The archiver is defined but not started, as
-  the compose file does not run the store-custody script yet; running it makes production retrieve from Binance
-  periodically, a public read and no trading, and turning it on is the user's deployment decision. Whether a Replay
-  window whose status is not `TRADING` must be refused is undecided and outside this design.
+  member is the baseline with its current basis, and its bytes do not move; the snapshot intake's slice pins a baseline,
+  its status successor and a one-member cut byte for byte, beside the existing two-member cut pin.
+- **Order.** The snapshot successor and its intake came first, with the byte-for-byte pin, and are built. Until the cut
+  selects by window, it refuses by name a member whose fact observed at the selection follows a snapshot that changed
+  its terms, rather than price any window on them; the window selection is the only slice that removes that refusal.
+  Window selection at the cut changes the issuance F's chain relies on, so it starts only after F's chain passes. The
+  archiver is defined but not started, as the compose file does not run the store-custody script yet; running it makes
+  production retrieve from Binance periodically, a public read and no trading, and turning it on is the user's
+  deployment decision. Whether a Replay window whose status is not `TRADING` must be refused is undecided and outside
+  this design.
 
 ### Native immutable records
 

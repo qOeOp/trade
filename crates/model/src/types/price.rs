@@ -47,9 +47,9 @@ use super::fixed::{
     mantissa_exponent_to_raw_checked, raw_scales_match, scaled_raw_to_decimal,
 };
 #[cfg(feature = "high-precision")]
-use super::fixed::{PRECISION_DIFF_SCALAR, f64_to_fixed_i128, fixed_i128_to_f64};
+use super::fixed::{PRECISION_DIFF_SCALAR, f64_to_fixed_i128, fixed_i128_at_precision_to_f64};
 #[cfg(not(feature = "high-precision"))]
-use super::fixed::{f64_to_fixed_i64, fixed_i64_to_f64};
+use super::fixed::{f64_to_fixed_i64, fixed_i64_at_precision_to_f64};
 #[cfg(feature = "defi")]
 use crate::types::fixed::MAX_FLOAT_PRECISION;
 
@@ -399,7 +399,7 @@ impl Price {
             "Invalid f64 conversion beyond `MAX_FLOAT_PRECISION` (16)"
         );
 
-        fixed_i128_to_f64(self.raw)
+        fixed_i128_at_precision_to_f64(self.raw, self.precision)
     }
 
     #[cfg(not(feature = "high-precision"))]
@@ -415,7 +415,7 @@ impl Price {
             panic!("Invalid f64 conversion beyond `MAX_FLOAT_PRECISION` (16)");
         }
 
-        fixed_i64_to_f64(self.raw)
+        fixed_i64_at_precision_to_f64(self.raw, self.precision)
     }
 
     /// Returns the value of this instance as a `Decimal`.

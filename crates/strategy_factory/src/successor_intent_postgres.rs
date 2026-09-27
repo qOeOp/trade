@@ -473,6 +473,9 @@ struct SuccessorArtifactCustodyV1 {
 
 pub(crate) struct SuccessorResearchViewCustodyV1 {
     request_semantic_digest: String,
+    /// The Product Edge admission the successor Intent was admitted under, which every Develop
+    /// continuation re-locks at its own cut.
+    admission: vibe_product_edge::ProductEdgeAdmissionLocatorV1,
     initial_view: ResearchViewV1,
     view: ResearchViewV1,
 }
@@ -480,6 +483,10 @@ pub(crate) struct SuccessorResearchViewCustodyV1 {
 impl SuccessorResearchViewCustodyV1 {
     pub(crate) fn request_semantic_digest(&self) -> &str {
         &self.request_semantic_digest
+    }
+
+    pub(crate) const fn admission(&self) -> &vibe_product_edge::ProductEdgeAdmissionLocatorV1 {
+        &self.admission
     }
 
     pub(crate) const fn view(&self) -> &ResearchViewV1 {
@@ -520,6 +527,11 @@ impl SuccessorResearchViewCustodyV1 {
         };
         Self {
             request_semantic_digest,
+            admission: vibe_product_edge::ProductEdgeAdmissionLocatorV1 {
+                request_identity: intent.request_identity().to_owned(),
+                admission_identity: "successor-admission-test".to_owned(),
+                admission_digest: format!("sha256:{}", "0".repeat(64)),
+            },
             initial_view: view.clone(),
             view,
         }
@@ -561,7 +573,9 @@ fn issue_successor_artifact_custody(
         source_cut,
         observed_at_epoch_ms: receipt.committed_at_epoch_ms(),
         projection_at_epoch_ms: receipt.committed_at_epoch_ms(),
-        valid_through_epoch_ms: receipt.committed_at_epoch_ms().saturating_add(600_000),
+        valid_through_epoch_ms: receipt
+            .committed_at_epoch_ms()
+            .saturating_add(crate::product_edge::RESEARCH_VIEW_FRESHNESS_MS),
         availability: ResearchViewAvailability::Available,
         phase: ResearchViewPhase::IntentFrozen,
         intent_identity: intent.intent_identity().to_string(),
@@ -667,7 +681,9 @@ pub(crate) async fn lock_successor_research_view_in_transaction(
         ),
         observed_at_epoch_ms: receipt.committed_at_epoch_ms(),
         projection_at_epoch_ms: receipt.committed_at_epoch_ms(),
-        valid_through_epoch_ms: receipt.committed_at_epoch_ms().saturating_add(600_000),
+        valid_through_epoch_ms: receipt
+            .committed_at_epoch_ms()
+            .saturating_add(crate::product_edge::RESEARCH_VIEW_FRESHNESS_MS),
         availability: ResearchViewAvailability::Available,
         phase: ResearchViewPhase::IntentFrozen,
         intent_identity: intent.intent_identity().to_string(),
@@ -730,6 +746,7 @@ pub(crate) async fn lock_successor_research_view_in_transaction(
     validate_historical_view(&view, &initial_view)?;
     Ok(SuccessorResearchViewCustodyV1 {
         request_semantic_digest,
+        admission: request.admission,
         initial_view,
         view,
     })

@@ -259,6 +259,7 @@ pub use replay_policy_catalog_v2::{
 pub mod replay_runner_operational_profile_v1;
 mod representative;
 mod research;
+mod research_continuation_v1;
 pub mod research_initial_pit_v1;
 mod research_instrument_scope_check;
 mod robustness;

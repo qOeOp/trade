@@ -11,8 +11,9 @@ use super::{
     instrument_master_v2::{
         InstrumentMasterCustodyErrorV2, InstrumentMasterCutLocatorV2, InstrumentMasterCutReceiptV2,
         InstrumentMasterCutRequestV2, InstrumentMasterCutV2, InstrumentMasterFactV2,
-        InstrumentMasterReadbackV2, InstrumentMasterResolverV2, PublicInstrumentClassV2,
-        native_replay_request_identity_v2, require_same_generation_v2, resolver_seal_v2,
+        InstrumentMasterReadbackV2, InstrumentMasterResolverV2, InstrumentTermsBasisV2,
+        PublicInstrumentClassV2, native_replay_request_identity_v2, require_same_generation_v2,
+        resolver_seal_v2,
     },
     postgres::{
         BoundReplayInputsErrorV1, BoundReplayInputsV1,
@@ -409,6 +410,13 @@ async fn issue_cut_in_transaction(
         return Err(InstrumentMasterCustodyErrorV2::MemberClassCarriesCorporateActions);
     }
 
+    if facts
+        .iter()
+        .any(|fact| fact.terms_basis() != InstrumentTermsBasisV2::RetrievedTermsAssumedSinceListing)
+    {
+        return Err(InstrumentMasterCustodyErrorV2::TermsChanged);
+    }
+
     if let Some(v1) = generation_v1 {
         require_same_generation_v2(v1, &facts)
             .map_err(InstrumentMasterCustodyErrorV2::GenerationMismatch)?;
@@ -663,6 +671,23 @@ pub(super) async fn begin_serializable_v2(
         .execute(&mut *tx)
         .await
         .map_err(|cause| store_error(&cause))?;
+    lock_all(&mut tx).await?;
+    Ok(tx)
+}
+
+/// Opens a writing transaction on this store that also writes the Owner's clock: read committed,
+/// and holding every table lock from its first statement.
+///
+/// A clock writer takes the clock-state advisory lock before it reads the clock head, and waits
+/// there for any other clock writer. Under `SERIALIZABLE` the advisory `SELECT` would take the
+/// transaction's snapshot before that wait, so a head another writer moved meanwhile would fail
+/// this transaction with SQLSTATE 40001; under `READ COMMITTED` each statement reads what was
+/// committed before it, as in every other clock writer. The table locks still serialize this
+/// store's writers, so the chain read here cannot change before the append.
+pub(super) async fn begin_clock_writing_v2(
+    pool: &PgPool,
+) -> Result<Transaction<'_, Postgres>, InstrumentMasterCustodyErrorV2> {
+    let mut tx = pool.begin().await.map_err(|cause| store_error(&cause))?;
     lock_all(&mut tx).await?;
     Ok(tx)
 }
