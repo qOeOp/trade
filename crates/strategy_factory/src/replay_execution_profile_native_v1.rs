@@ -1026,6 +1026,7 @@ mod tests {
         replay_execution_profile_binding_v1::{
             ReplayExecutionProfileFamilyBindingV1, ReplayExecutionProfileRequestBindingV1,
             bind_replay_execution_profiles_v1, instrument_terms_provenance_fixture_v1,
+            instrument_terms_provenance_for_fixture,
         },
         replay_runner_operational_profile_v1::{ReplayRunnerOperationalProfileV1, runner_fixture},
     };
@@ -1558,6 +1559,99 @@ mod tests {
             NATIVE_DISABLED_LIQUIDATION_TRIGGER_RATIO_V1
         );
         assert!(venue.liquidation_cancel_open_orders);
+    }
+
+    /// Schema 2 pins no instrument, and neither the binding nor the native profile reads catalog
+    /// terms: members other than the schema 1 fixture's pinned ETHUSDT-PERP, at fees other than its
+    /// pinned ones, bind and materialize. The same members under the schema 1 configuration are
+    /// refused, because it pins an instrument none of them is.
+    #[rstest]
+    fn schema_2_materializes_members_the_catalog_does_not_name() {
+        let runner = ReplayRunnerOperationalProfileV1::seal(runner_fixture()).unwrap();
+        let rate = |mantissa, scale| {
+            crate::replay_economic_configuration_v1::ReplayFixedDecimalV1 { mantissa, scale }
+        };
+        let members = |economic: &ReplayEconomicConfigurationV1| {
+            BoundedMembers::try_from([
+                instrument_terms_provenance_for_fixture(
+                    economic,
+                    "BTCUSDT-PERP".into(),
+                    [31; 32],
+                    [32; 32],
+                    rate(1, 4),
+                    rate(5, 4),
+                    rate(2, 2),
+                    rate(5, 3),
+                    "SIM-001",
+                    0,
+                    i128::MAX,
+                ),
+                instrument_terms_provenance_for_fixture(
+                    economic,
+                    "SOLUSDT-PERP".into(),
+                    [33; 32],
+                    [34; 32],
+                    rate(2, 4),
+                    rate(5, 4),
+                    rate(5, 2),
+                    rate(1, 2),
+                    "SIM-001",
+                    0,
+                    i128::MAX,
+                ),
+            ])
+            .unwrap()
+        };
+        let bind = |economic: &ReplayEconomicConfigurationV1| {
+            let family = ReplayExecutionProfileFamilyBindingV1 {
+                schema_version: 1,
+                trial_family_identity: "trial-family-1".into(),
+                trial_family_digest: [3; 32],
+                economic_configuration_digest: economic.digest(),
+                runner_operational_profile_digest: runner.digest(),
+            };
+            let request = ReplayExecutionProfileRequestBindingV1 {
+                schema_version: 1,
+                request_identity: "replay-request-1".into(),
+                request_meaning_digest: [4; 32],
+                trial_family_identity: family.trial_family_identity.clone(),
+                trial_family_digest: family.trial_family_digest,
+                economic_configuration_digest: economic.digest(),
+                runner_operational_profile_digest: runner.digest(),
+            };
+            bind_replay_execution_profiles_v1(
+                &family,
+                &request,
+                economic,
+                &runner,
+                members(economic),
+            )
+        };
+
+        let schema_2 = ReplayEconomicConfigurationV1::seal(
+            crate::replay_economic_configuration_v1::economic_fixture_v2("SIM"),
+        )
+        .unwrap();
+        let profile = materialize_event_replay_execution_profile_v1(
+            bind(&schema_2).expect("schema 2 binds members the catalog names nowhere"),
+            &schema_2,
+            &runner,
+        )
+        .expect("schema 2 materializes without reading catalog terms");
+        assert_eq!(
+            profile
+                .instrument_terms()
+                .iter()
+                .map(|terms| (terms.instrument_identity.as_str(), terms.taker_fee))
+                .collect::<Vec<_>>(),
+            [("BTCUSDT-PERP", rate(5, 4)), ("SOLUSDT-PERP", rate(5, 4))]
+        );
+
+        let schema_1 = ReplayEconomicConfigurationV1::seal(economic_fixture()).unwrap();
+        assert!(matches!(
+            bind(&schema_1),
+            Err(crate::replay_execution_profile_binding_v1::ReplayExecutionProfileBindingErrorV1::InstrumentTermsProvenanceMismatch)
+        ));
     }
 
     #[rstest]

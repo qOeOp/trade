@@ -1311,7 +1311,7 @@ pub(crate) fn instrument_terms_provenance_fixture_v1(
     clippy::too_many_arguments,
     reason = "the fixture names every independent sealed Instrument Owner provenance field"
 )]
-fn instrument_terms_provenance_for_fixture(
+pub(crate) fn instrument_terms_provenance_for_fixture(
     economic: &ReplayEconomicConfigurationV1,
     instrument_identity: String,
     instrument_fact_digest: [u8; 32],
@@ -1324,14 +1324,11 @@ fn instrument_terms_provenance_for_fixture(
     valid_from_ns: i128,
     valid_until_ns_exclusive: i128,
 ) -> SealedInstrumentEconomicTermsProvenanceV1 {
-    let profile_terms = economic
-        .input()
-        .instrument_terms
-        .as_ref()
-        .expect("the schema 1 fixture pins its terms");
+    // Schema 1 validation makes the pinned terms' quote currency the common one, so this is the
+    // same value under either schema.
     let terms = InstrumentEconomicTermsBindingV1 {
         instrument_identity: instrument_identity.clone(),
-        quote_currency: profile_terms.quote_currency.clone(),
+        quote_currency: economic.input().common_quote_currency.clone(),
         instrument_fact_digest,
         instrument_receipt_digest,
         maker_fee,
