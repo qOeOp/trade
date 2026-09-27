@@ -1926,8 +1926,11 @@ pub(crate) async fn universe_member_declarations_oracle(
         "refusals write nothing"
     );
 
-    // A second role of the same Design, so its custody re-read covers a role set.
-    let second = universe_request(235);
+    // A second role of the same Design, so its custody re-read covers a role set. It reads the
+    // open: a Design whose two roles both read the close names no execution role, and Strategy
+    // Factory refuses it as `ExecutionPricingRoleAmbiguous` before it could reach a Replay.
+    let mut second = universe_request(235);
+    second.field_semantic = MarketDataFieldSemantic::BarOpenPrice;
     register(&second)
         .await
         .expect("a second universe-member declaration");
