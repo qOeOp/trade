@@ -390,6 +390,33 @@ Eligibility replay 必须绑定 frontier。同一 Fact 身份与内容摘要只�
 Governance 可在每个不同的已授权 lifecycle request evaluation 与 decision frontier 中消费一次仍 current
 的 Fact，而同一 frontier 内重复只加入，绝不恢复资金。
 
+## TARGET - 在 Candidate Intake 处按累计试验打折
+
+Research 不再在某个试验次数上停下（[R&D](./rd/#target---cumulative-trial-accounting-and-the-spend-cap)，用户 2026-09-27
+的决定）；取而代之的是，一条血缘试得越多，它的 Candidate 在这里要过的门槛就越高。Qualification 用的是它自己推导出的试验
+次数，从不是别人告诉它的。
+
+- *折扣对象。* Candidate 的 Research Selection 所指的那个被选中的探索结果，在它的日频非年化收益序列上，用 Bailey 与
+  López de Prado 的 Deflated Sharpe Ratio。它就是 `analyze_formation_robustness` 在 legacy formation 路径上计算的统计量
+  （`crates/strategy_factory/src/robustness.rs`），那里的试验次数在一次 formation 内固定为四或二；这条路径就是上文所说的
+  「formation 路径上的试验次数修正」。
+- *N。* 累计试验次数：Candidate 为其 TrialFamily 与跨 family 前驱所绑定的 census 前沿上的 `trial_count` 之和，再加上这条
+  血缘里的每一次保护性尝试，因为每消耗一次留出数据就是又看了一次。Qualification 从这些前沿重新计算它，前沿不完整时照旧是
+  `NOT_ADMITTED`。
+- *试验比率的离散度。* 血缘中 `TERMINAL_RESULT` 试验的日频比率的样本标准差，这些是探索性证据而非保护性证据，并以一个预注册的
+  最小值为下限。没有终态结果的试验计入 N 但不贡献比率；终态试验少于两个时只用下限。
+- *门槛。* 保护性决策策略版本在观察任何结果之前固定最小的打折后概率与下限。低于它的 Candidate 以
+  `DEFLATED_SHARPE_BELOW_POLICY` 为 `NOT_ADMITTED`，不预留任何留出数据，所以打折不花费任何保护性证据。
+- *确定性。* 这个统计量是每次试验的规范结果字节的函数，其概率以百万分之一为单位向下取整记录，与 formation 报告的记录方式
+  相同。读取试验收益序列的字节，就是它的生产构建写下的那些。
+
+同宇宙随机对照与封存的留出数据保持上文所述。计数被低报时，仍然成立的是对照；留出数据从不向 R&D 返回细节。
+
+**已有什么、缺什么**，在 `main` 019f231b0 上实测。打折统计量只存在于 legacy formation 路径上，试验次数固定且没有 census。
+`crates/qualification` 没有打折、没有随机对照的比较臂，也没有跨 family 的留出计数：它按 Candidate 预留一次留出、按结果关闭，
+而下文的验收要求跨相关 TrialFamily 的累计处置。这个计数属于这一片，因为 N 包含血缘中的保护性尝试。它读取的试验次数需要
+R&D 尚未具备的生产 census 追加。
+
 ## 决策契约
 
 - **输入** - 带准确 `READY_FOR_SELECTION` 血缘的唯一 selected Candidate、穷尽 TrialFamily Census、

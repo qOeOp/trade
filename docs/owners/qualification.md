@@ -465,6 +465,42 @@ new interval; once a successor, expiry, or revocation becomes the Qualification 
 be current again. Governance may consume one still-current Fact once per distinct authorized lifecycle request,
 evaluation, and decision frontier, while duplicates inside that frontier join and never restore capital.
 
+## TARGET - Cumulative trial deflation at Candidate Intake
+
+Research no longer stops at a trial count ([R&D](./rd/#target---cumulative-trial-accounting-and-the-spend-cap),
+user decision of 2026-09-27); instead the more a lineage tries, the higher the bar its Candidate meets here.
+Qualification applies that discount to a trial count it derives, never to one it is told.
+
+- *What is deflated.* The selected exploratory result the Candidate's Research Selection names, by the Deflated
+  Sharpe Ratio of Bailey and López de Prado on its daily non-annualized return series. It is the statistic
+  `analyze_formation_robustness` computes on the legacy formation path (`crates/strategy_factory/src/robustness.rs`),
+  whose trial count is a fixed four or two within one formation; that path is the "trial-count corrections on the
+  formation path" named above.
+- *N.* The cumulative trial count: the sum of `trial_count` across the census frontiers the Candidate binds for its
+  TrialFamily and its cross-family predecessors, plus every protected attempt in that lineage, since each consumed
+  holdout is another look. Qualification recomputes it from those frontiers, and an incomplete frontier is
+  `NOT_ADMITTED` as it already is.
+- *The spread of trial ratios.* The sample standard deviation of the daily ratios of the lineage's
+  `TERMINAL_RESULT` trials, which are exploratory evidence rather than protected, floored at a preregistered minimum.
+  Trials without a terminal result count in N and add no ratio; with fewer than two terminal trials the floor alone
+  is used.
+- *The bar.* The protected decision policy version fixes the minimum deflated probability and the floor before any
+  result is observed. A Candidate below it is `NOT_ADMITTED` as `DEFLATED_SHARPE_BELOW_POLICY` and reserves no
+  holdout, so the deflation spends no protected evidence.
+- *Determinism.* The statistic is a function of the canonical result bytes of each trial, and its probability is
+  recorded in parts per million, floored, as the formation report records it. The bytes a trial's return series is
+  read from are the ones its production build wrote.
+
+The same-universe random control and the sealed holdout stay as specified above. The control is what still holds if
+the count is understated; the holdout never returns detail to R&D.
+
+**What exists and what is missing**, measured at `main` 019f231b0. The deflated statistic exists only on the legacy
+formation path, with a fixed trial count and no census. `crates/qualification` has no deflation, no random-control
+arm, and no cross-family holdout count: it reserves holdout once per Candidate and closes it per result, while the
+acceptance below requires cumulative disposition across related TrialFamilies. That count is part of this slice,
+because N includes the lineage's protected attempts. The trial count it reads needs the production census append R&D
+does not have yet.
+
 ## Decision contract
 
 - **Inputs** - one selected Candidate with exact `READY_FOR_SELECTION` lineage, exhaustive TrialFamily Census,

@@ -1063,6 +1063,91 @@ Purge and embargo derivation, trial-family-aware multiplicity policy, attempt fr
 policy are frozen before their results and carried unchanged through Replay Request, Run Result, Iteration
 Decision, Selection, and Candidate. Changing one creates a successor lineage rather than reinterpretation.
 
+### TARGET - Cumulative trial accounting and the spend cap
+
+The user decided on 2026-09-27 that Research runs until it develops a strategy instead of stopping at a trial count.
+In the user's words (translated): "R&D has to keep running until it develops a strategy; otherwise it keeps being
+interrupted for budget reasons and cannot develop an effective strategy, which is a bad experience." The option the
+user chose (translated): "R&D does not stop on the number of trials; every trial is recorded and accumulates across
+rounds, so the more is tried, the heavier the discount at qualification review; the random-strategy control and the
+held-out data stay as they are; only one spend cap you can set remains (API and compute)." Under that authorization
+this removes a stated bound, the sealed trial budget, and relocates what it protected: multiple-testing control
+moves from stopping the search to raising the qualification bar
+([Qualification](./qualification/#target---cumulative-trial-deflation-at-candidate-intake)), and protection against
+uneconomic endless search moves to the spend cap below. The removal lands last, after the accounting, the deflation,
+and the spend cap exist, so no cut holds neither the old bound nor its replacement.
+
+**Today**, measured at `main` 019f231b0. The sealed budget is `TrialFamilyPolicyV1.trial_budget`, which Product Edge
+admits in 1 to 10,000 (`TRIAL_BUDGET_INVALID`) and the Dashboard research form in 1 to 64. It is inside the policy
+digest and therefore the TrialFamily identity. Three rules enforce it: Iteration Result Admission refuses a proposal
+set larger than the remaining budget (`ITERATION_RESULT_ADMISSION_TRIAL_BUDGET_EXCEEDED`); the decision policy
+issues `TRIAL_BUDGET_EXHAUSTED` when the consumed count equals the budget; and that exhaustion preempts candidate
+comparison and `READY_FOR_SELECTION`, so the last budgeted trial can never become a Candidate. One consumed unit is
+one census attempt, an Intent, Request, and Result triple of any terminal disposition, counted per TrialFamily. A
+successor Intent stays in its family, a new Research goal forms a new family whose count starts again, and nothing
+sums counts across families. The census V2 append that advances the count has no production caller, because it
+awaits the Decision composition above, so in a production build every family's count is the 1 its formation writes
+and no family can reach its budget.
+
+**A trial** is one census attempt, exactly as counted today: every exploratory Intent, Request, and Result triple the
+TrialFamily Census admits, whatever its disposition. Losing, rejected, invalid, and unknown attempts count, because
+each is a look at the data; an exact request replay joins its receipt and is not a second trial. The V2 census calls
+the count `trial_count` where it now says `consumed_trial_budget`; V1 readbacks keep the old name.
+
+**The lineage it accumulates across.** A Candidate's cumulative trial count is the sum of `trial_count` at the census
+frontier it binds for its own TrialFamily and for every TrialFamily in its cross-family predecessor frontier,
+transitively:
+
+- successor iterations stay in their family, so they are counted;
+- a replan after Qualification feedback is a successor with cross-family ancestry, so it is counted;
+- declared independence changes neither, just as it cannot grant a fresh holdout budget;
+- a predecessor family that is still accruing is counted at the cut the Candidate binds, and a later append is
+  counted by the next Candidate that binds a later cut.
+
+No caller supplies the count: Qualification derives it from the bound frontiers. A Research goal with no semantic
+predecessor starts a new lineage. Using one to erase a predecessor is already prohibited below, and the same-universe
+random control does not depend on the count being complete.
+
+**What changes when the removal lands.** A TrialFamily Policy V2 has no trial budget and its own digest domain, so
+every V1 family keeps its identity and its frozen decision policy. A V1 family that exhausts its sealed budget still
+stops as it committed to, and its lineage continues through a successor family formed under V2, with every V1 trial
+counted. For V2 families:
+
+- Iteration Result Admission drops the remaining-budget refusal;
+- the decision policy version no longer lists `TRIAL_BUDGET_EXHAUSTED` or its preemption of comparison and readiness;
+- the information-value comparison weighs the cumulative trial-count effect where it weighed the remaining
+  family-budget effect;
+- the remaining stops (falsifier, frozen stop rule, input unavailable, economic impossibility, low information
+  value) end a lineage, not Research, and "exhausted budgets" leaves the failures that prevent candidate submission;
+- the Dashboard's trial-budget field and budget columns give way to the cumulative trial count once
+  `docs/guide/dashboard.md` is changed for it.
+
+**The spend cap.** One user-set cap bounds what Research spends, and reaching it pauses Research rather than stopping
+it.
+
+- *What is metered.* Language-model provider calls, by the token usage each response reports, at the user's price
+  for that provider and model; today `artifact_build_v1.ts` reads only the message content and discards the `usage`
+  block. Paid market data, by the cost its provider quotes before the request: Databento's `get_cost` preflight,
+  which today has its own cap `DATABENTO_MAX_PROBE_COST_USD`, is folded into this one. Compute, the seconds of
+  Backtest replay and Develop builds, at a user-set rate that defaults to zero on the single local host the user
+  admitted, so compute counts only if the user prices it.
+- *Who meters.* R&D keeps an append-only Spend Ledger. Before a metered effect it reserves the effect's upper bound,
+  in the transaction that claims the effect: the request's `max_tokens` at the price, the preflight quote, or the
+  declared time limit at the compute rate. After the effect it settles the actual amount against that reservation.
+  An effect whose outcome is unknown stays reserved at its bound until it resolves. Reservations serialize on the
+  ledger head, so two concurrent ones cannot together pass the cap.
+- *When the cap is reached.* A reservation that would take settled plus reserved spend past the cap is refused, and
+  the Research workflow enters `PAUSED_SPEND_CAP_REACHED`, which carries the cap, the settled and reserved amounts,
+  and the refused effect. It is not an Iteration Decision or a stop: no identity closes and nothing is lost, and the
+  same step reserves again once the cap allows it. An effect already reserved completes and settles.
+- *How the user sets it.* The cap is one amount in US dollars per calendar month (UTC), with its price table, held as
+  an authorized Product Edge configuration fact that R&D reads at each reservation; a change is a new fact, never an
+  edit. Until the Dashboard admits a control for it, the R&D Owner API reads the cap from its environment, as it
+  reads the Databento cap today.
+
+The slices and their order are in
+[Strategy Factory](../architecture/strategy-factory#target---research-runs-until-a-strategy-bounded-by-spend).
+
 ## Input handoffs
 
 - Product Edge supplies a sourced research request rather than an unsourced instruction to trade. The request commits the bounded protected-feedback frontier already projected to that principal. Research resolves the stable request identity with its own terminal receipt and preserves semantic predecessors without reading protected category or detail; absent receipt remains unknown.
