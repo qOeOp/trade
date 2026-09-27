@@ -1058,11 +1058,14 @@ request-keyed 的 V2 cut 读的就是这张表；它和 V1 intake 一样，在 O
 这个 schema 及其六张表，store 在每次写入时断言没有别的角色在这些表上持有任何权限，所以这条 intake 不需要授权，也不得被
 授予权限。
 
-- **提交陈述什么：** 规范 instrument identity、raw symbol、以规范词写出的 class、取得时刻、原样的 `exchangeInfo` payload
-  字节，以及取得 payload 时所依据的已准入 Source Binding。它不陈述 venue、条款、生效时刻、任何 digest，也不陈述
+- **提交陈述什么：** raw symbol、以规范词写出的 class、取得时刻、原样的 `exchangeInfo` payload 字节，以及取得 payload
+  时所依据的已准入 Source Binding。它不陈述规范 instrument identity、venue、条款、生效时刻、任何 digest，也不陈述
   Owner-observation 时刻。唯一准入的 class 词是 `CRYPTO_PERPETUAL`，也是 V2 仅有的 class。
 - **Owner 的场所常量表：** 所指名 binding 的 `adapter.dataset_mapping` 作为一个完整字符串精确比较，选中一张封闭表中的
-  一行。表中只有一行 `usdm/exchangeInfo`，它给出 venue identity `BINANCE`、inverse `false` 与 contract multiplier `1`。
+  一行。表中只有一行 `usdm/exchangeInfo`，它给出 venue identity `BINANCE`、inverse `false`、contract multiplier `1`，以及
+  规范 identity 的写法：raw symbol 后接 `-PERP.BINANCE`。这一写法与 Instrument Master V1 永续 fact 所用的逐字节相同（raw
+  symbol `BTCUSDT` 对应 `BTCUSDT-PERP.BINANCE`），也与继承来的适配器的 instrument identifier 相同，所以任何提交都无法把
+  一个 symbol 的条款挂到另一个 instrument 名下。
   不解释该字符串的任何前缀或分段，也不用 binding 的 endpoint identity，因为换一个镜像就能改变它而不改变产品。
 - **Owner 从 payload 推出什么：** 它严格解析这些字节，要求恰好一个 `symbols[]` 条目，其 `symbol` 与 raw symbol 逐字节相等、
   `contractType` 为 `PERPETUAL`。生效时刻取该条目的 `onboardDate`，每一项公开条款都来自它的 filter，全部经由同一个函数
@@ -1129,8 +1132,9 @@ request-keyed 的 V2 cut 读的就是这张表；它和 V1 intake 一样，在 O
     的 digest 与所存 binding 的不同。
   - `INSTRUMENT_MASTER_V2_RETRIEVAL_AFTER_OWNER_CLOCK`（HTTP 409）：取得时刻晚于当前 head 的 decision cut。在 head 推过
     取得时刻之前提交就会走到这里，推过之后即可成功。
-  - `INSTRUMENT_MASTER_V2_BASELINE_EXISTS`（HTTP 409）：该 instrument 已有另一种含义的 baseline，例如同一份 payload 稍后
-    取得时 tick 变了。baseline 在这里从不被替换。
+  - `INSTRUMENT_MASTER_V2_BASELINE_EXISTS`（HTTP 409）：该 instrument 已有另一种含义的 baseline，例如同一 symbol 稍后
+    取得时 tick 变了。条款未变、只是重新取得的，也落在这里：取得时刻与 payload digest 都属于 fact，所以重新取得是另一个
+    fact 而不是重放，运维不得把它当作幂等重试。baseline 在这里从不被替换。
   - `MARKET_DATA_CLOCK_UNAVAILABLE`（HTTP 503）：Owner 没有 clock head，例如时钟从未被准入过的 store。
   - `INSTRUMENT_MASTER_V2_ADMISSION_CONFLICT`（HTTP 409）：以算出的 identity 存着的 fact 字节不同。任何提交都构造不出它，
     因为 identity 就是规范字节的 digest；只有改动已存的行才会走到，且它被拒绝而不是被覆盖。
@@ -1139,7 +1143,7 @@ request-keyed 的 V2 cut 读的就是这张表；它和 V1 intake 一样，在 O
 - **证明：** Market Data PostgreSQL runner 只经生产路径证明这条 intake。时钟由一次生产的 Source Binding 提交推进，从不
   直接写 head。对没有已准入 fact 的 instrument，request-keyed cut 以 `MissingFact` 拒绝；准入之后，同一个 cut 为一个 Universe
   Selection 签发，其请求携带的是准入之后读到的 decision cut，它解析出已准入的 fact，且该成员的条款依据是
-  `RetrievedTermsAssumedSinceListing`。payload 是仓库里真实的 Binance USD-M `exchangeInfo` fixture，推出的条款逐字段等于期望
+  `RetrievedTermsAssumedSinceListing`、规范 identity 是 `BTCUSDT-PERP.BINANCE`。payload 是仓库里真实的 Binance USD-M `exchangeInfo` fixture，推出的条款逐字段等于期望
   值。重放 rejoin，每一条提交走得到的拒绝都由一份以该 fixture 构造的 payload 或请求驱动一次。
 
 **NOT_ADMITTED：** 对已准入 V2 fact 的更正（`!contractInfo` delta）没有生产 intake，所以生产上一个 V2 fact 只有一个版本，

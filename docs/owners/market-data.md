@@ -1164,13 +1164,16 @@ in the Owner's own process as `market_data_owner`, as the V1 intake does. That r
 and the store asserts on every write that no other role holds a privilege on them, so the intake needs no grant and must
 not be given one.
 
-- **What the submission states:** the canonical instrument identity, the raw symbol, the class by its canonical word, the
-  retrieval instant, the exact raw `exchangeInfo` payload bytes, and the admitted Source Binding the payload was retrieved
-  under. It states no venue, no terms, no effective instant, no digest and no Owner-observation instant. The only class
+- **What the submission states:** the raw symbol, the class by its canonical word, the retrieval instant, the exact raw
+  `exchangeInfo` payload bytes, and the admitted Source Binding the payload was retrieved under. It states no canonical
+  identity, no venue, no terms, no effective instant, no digest and no Owner-observation instant. The only class
   word admitted is `CRYPTO_PERPETUAL`, the only class V2 has.
 - **The Owner's venue table:** the named binding's `adapter.dataset_mapping`, compared as one exact string, selects a row
-  of a closed table. Its only row is `usdm/exchangeInfo`, which gives venue identity `BINANCE`, inverse `false` and
-  contract multiplier `1`. No prefix or segment of the string is interpreted, and the binding's endpoint identity is not
+  of a closed table. Its only row is `usdm/exchangeInfo`, which gives venue identity `BINANCE`, inverse `false`, contract
+  multiplier `1`, and the canonical identity as the raw symbol followed by `-PERP.BINANCE`. That form is byte for byte
+  the one Instrument Master V1 perpetual facts use (`BTCUSDT-PERP.BINANCE` for the raw symbol `BTCUSDT`), and the one the
+  inherited adapter's instrument identifier uses, so a submission cannot file one symbol's terms under another
+  instrument. No prefix or segment of the string is interpreted, and the binding's endpoint identity is not
   used, because a mirror can change it without changing the product.
 - **What the Owner derives from the payload:** it parses the bytes strictly and requires exactly one `symbols[]` entry
   whose `symbol` equals the raw symbol byte for byte and whose `contractType` is `PERPETUAL`. The effective instant is that
@@ -1248,7 +1251,9 @@ not be given one.
   - `INSTRUMENT_MASTER_V2_RETRIEVAL_AFTER_OWNER_CLOCK` (HTTP 409): the retrieval instant is later than the current head's
     decision cut. It is reached by submitting before the head has advanced past the retrieval, and succeeds once it has.
   - `INSTRUMENT_MASTER_V2_BASELINE_EXISTS` (HTTP 409): the instrument already has a baseline with another meaning, for
-    example the same payload retrieved later with a changed tick. A baseline is never replaced here.
+    example the same symbol retrieved later with a changed tick. Terms retrieved again unchanged land here too: the
+    retrieval instant and the payload digest are part of the fact, so a fresh retrieval is a different fact, not a replay,
+    and an operator must not treat it as an idempotent retry. A baseline is never replaced here.
   - `MARKET_DATA_CLOCK_UNAVAILABLE` (HTTP 503): the Owner holds no clock head, as in a store whose clock has never been
     admitted.
   - `INSTRUMENT_MASTER_V2_ADMISSION_CONFLICT` (HTTP 409): a fact with the computed identity is stored with other bytes.
@@ -1260,7 +1265,7 @@ not be given one.
   production Source Binding submission, never by writing the head. The request-keyed cut for an instrument with no
   admitted fact refuses with `MissingFact`; after admission, the same cut, issued for a Universe Selection whose request
   carries the decision cut read after admission, resolves the admitted fact, and that member's terms basis is
-  `RetrievedTermsAssumedSinceListing`. The payload is the repository's real Binance USD-M `exchangeInfo` fixture, and the
+  `RetrievedTermsAssumedSinceListing` and its canonical identity is `BTCUSDT-PERP.BINANCE`. The payload is the repository's real Binance USD-M `exchangeInfo` fixture, and the
   derived terms equal the expected values field by field. Replay rejoins, and each refusal a submission can reach is driven
   once by a payload or request built from that fixture.
 
