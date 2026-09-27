@@ -274,7 +274,10 @@ whether any protected evaluation has since become observable to it.
   phase fact accounts for fails verification.
 - **Currentness:** a projection is current only while it is fresh and its source sequence is the history's generation.
   `resolve_or_create_for_basis` renews a fresh projection whose generation has been passed, and `admit_in_transaction`
-  refuses it as stale. `admit_historical_projection_in_transaction` still reads a projection at its own cut.
+  refuses it as stale. Candidate intake reads a candidate's feedback frontier the same way: it is current only while it
+  is the history's head, fresh at the intake cut and stating the history's generation, so a candidate whose frontier a
+  phase fact has passed is `NOT_ADMITTED`. `admit_historical_projection_in_transaction` still reads a projection at its
+  own cut.
 - **Read without renewal:** `read_protected_feedback_generation_in_transaction` answers, for the projection a caller
   froze, its history's current generation and source cut, and nothing else. It takes the history's head row `FOR SHARE`
   in the caller's read-committed transaction, so the answer holds until that transaction ends, and it neither checks the

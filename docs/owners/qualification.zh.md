@@ -231,7 +231,9 @@ Research Intent，可以在之后的 Owner cut 上判断此后是否有受保护
   fact 对应的 generation 无法通过校验。
 - **当前性：** projection 只有在新鲜且其 source sequence 等于该历史的 generation 时才是当前的。
   `resolve_or_create_for_basis` 对 generation 已被超过的新鲜 projection 续出新的，`admit_in_transaction` 把它当作过期拒
-  绝。`admit_historical_projection_in_transaction` 仍按 projection 自己的 cut 读取。
+  绝。Candidate intake 以同样方式读取候选的 feedback frontier：只有当它是该历史的 head、在 intake 的 cut 上新鲜、并且等于
+  该历史的 generation 时才是当前的，所以其 frontier 已被某个 phase fact 越过的候选是 `NOT_ADMITTED`。
+  `admit_historical_projection_in_transaction` 仍按 projection 自己的 cut 读取。
 - **不续期的读取：** `read_protected_feedback_generation_in_transaction` 对调用方冻结的那个 projection，只回答其历史当前
   的 generation 与 source cut。它在调用方的 read committed 事务里对该历史的 head 行取 `FOR SHARE`，所以答案在该事务结束
   前一直成立；它既不检查 projection 的有效窗口，也不写任何东西，所以已过窗口的调用方读它既不会把窗口带回来，也不会引起
