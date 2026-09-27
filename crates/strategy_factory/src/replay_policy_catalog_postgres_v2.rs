@@ -8,6 +8,8 @@ use rust_decimal::{Decimal, prelude::ToPrimitive};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Postgres, Row, Transaction};
+#[cfg(all(test, feature = "sealed-develop-composer-acceptance"))]
+use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
 
 #[cfg(feature = "sealed-develop-composer-acceptance")]
 use crate::{
@@ -331,6 +333,27 @@ pub(crate) async fn ensure_authenticated_sealed_acceptance_fixture_v3(
         &verifier_public_key_hex,
     )
     .await
+}
+
+/// Ensures the sealed Catalog V3 head for an ordered-chain entry whose Research request forms its
+/// TrialFamily against the current head.
+///
+/// The entry calls this itself rather than relying on an earlier entry to have published the head.
+/// Alone on a fresh cluster it creates the head; after another entry has ensured it, it resolves the
+/// same head exactly. Either way the entry's assertions meet the same head, so the chain may run it
+/// in any shard, in either order relative to the others that ensure it.
+#[cfg(all(test, feature = "sealed-develop-composer-acceptance"))]
+pub(crate) async fn ensure_sealed_acceptance_catalog_v3_for_test(
+    database: &CanonicalOwnerPostgresTestDatabaseV1,
+) {
+    let pool = PgPool::connect(
+        database.database_url(CanonicalOwnerTestRoleV1::ReplayPolicyCatalogAdminWriter),
+    )
+    .await
+    .expect("the Catalog administrator connects");
+    ensure_authenticated_sealed_acceptance_fixture_v3(&pool)
+        .await
+        .expect("the sealed Catalog V3 head is created or resolved exactly");
 }
 
 #[cfg(feature = "sealed-develop-composer-acceptance")]

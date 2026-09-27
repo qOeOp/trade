@@ -16,6 +16,7 @@ use vibe_data::owner::{
 
 use crate::{
     composer_artifact_family_binding_v3::ComposerArtifactFamilyReadbackV3,
+    composer_replay_intent_v3::ComposerReplayFamilyCutV3,
     composer_replay_intent_v3::{ComposerReplayIntentV3, hex, parse_named_sha256},
     design_input_custody_v1::reread_design_universe_frame_digest_v1,
     develop_composer_postgres_v2::SealedDevelopComposerReadbackV2,
@@ -28,7 +29,6 @@ use crate::{
         canonical_research_view_identity_v2, project_composer_exploration_research_view_v3,
     },
     replay_execution_profile_binding_v1::ReplayExecutionProfileRequestSealV1,
-    trial_family::TrialFamilyCensusReadbackV2,
 };
 
 /// The Composer source of a COMPOSER_V3 Replay.
@@ -137,7 +137,7 @@ pub(super) struct PreparedComposerReplaySealV3 {
 /// Reproduces the canonical Backtest request and family-sealed profile before any Replay write.
 pub(super) fn prepare_composer_replay_seal_v3(
     composed: ComposedComposerBackedReplayV3,
-    census: &TrialFamilyCensusReadbackV2,
+    cut: &ComposerReplayFamilyCutV3,
     pre_transition_research_view: ResearchViewV1,
     product_edge_request_semantic_digest: String,
     committed_at_epoch_ms: u64,
@@ -145,8 +145,8 @@ pub(super) fn prepare_composer_replay_seal_v3(
     let request = ReplayRequestV2::try_from(composed.request).map_err(unavailable)?;
     if request.namespace() != ReplayNamespaceV2::Exploratory
         || request.request_identity().as_str() != composed.source.proposal.request_identity
-        || composed.source.trial_family_root_digest != census.legacy_family.root().root_digest()
-        || composed.source.census_frontier_digest != census.census_frontier.frontier_digest()
+        || composed.source.trial_family_root_digest != cut.legacy_family().root().root_digest()
+        || composed.source.census_frontier_digest != cut.frontier_digest()
     {
         return Err(unavailable("Composer Replay canonical source mismatch"));
     }
@@ -157,7 +157,7 @@ pub(super) fn prepare_composer_replay_seal_v3(
         .as_str()
         .to_owned();
     let execution_profile_seal = ReplayExecutionProfileRequestSealV1::issue(
-        &census.legacy_family,
+        cut.legacy_family(),
         &composed.source.proposal.request_identity,
         &meaning_digest,
     )
@@ -468,7 +468,7 @@ fn universe_frame_dependency(
 
 pub(super) fn prepare_composer_backed_replay_v3(
     proposal: &ComposerBackedExploratoryReplayProposalV3,
-    census: &TrialFamilyCensusReadbackV2,
+    cut: &ComposerReplayFamilyCutV3,
     intent: &ComposerReplayIntentV3,
     composer: &SealedDevelopComposerReadbackV2,
     artifact_family: &ComposerArtifactFamilyReadbackV3,
@@ -476,17 +476,16 @@ pub(super) fn prepare_composer_backed_replay_v3(
     admitted: &AdmittedReplayMarketShapeV3,
 ) -> Result<ComposedComposerBackedReplayV3, ExploratoryReplayOwnerError> {
     let request = compose_composer_backed_replay_request_v3(
-        proposal, census, intent, composer, market, admitted,
+        proposal, cut, intent, composer, market, admitted,
     )?;
-    let family = &census.legacy_family;
+    let family = cut.legacy_family();
     let root = family.root();
     let root_receipt = family.root_receipt();
     let member = family.initial_intent_member();
-    let frontier = &census.census_frontier;
 
     if root_receipt.root_digest() != root.root_digest()
         || root_receipt.intent_identity() != member.fact_identity()
-        || frontier.trial_family_identity() != root.trial_family_identity()
+        || cut.frontier_trial_family_identity() != root.trial_family_identity()
         || artifact_family.binding().artifact_locator() != proposal.artifact_identity
         || artifact_family.binding().composer_request_identity()
             != composer.locator().request_identity
@@ -519,8 +518,8 @@ pub(super) fn prepare_composer_backed_replay_v3(
             trial_family_root_digest: root.root_digest().to_owned(),
             trial_family_member_identity: member.member_identity().to_owned(),
             trial_family_member_digest: member.member_digest().to_owned(),
-            census_frontier_identity: frontier.frontier_identity().to_owned(),
-            census_frontier_digest: frontier.frontier_digest().to_owned(),
+            census_frontier_identity: cut.frontier_identity().to_owned(),
+            census_frontier_digest: cut.frontier_digest().to_owned(),
             composer_request_digest: composer.request_digest(),
             artifact_family_binding_identity: artifact_family.binding().identity().to_owned(),
             artifact_family_binding_digest: artifact_family.binding().digest().to_owned(),
@@ -551,15 +550,14 @@ pub(super) fn prepare_composer_backed_replay_v3(
 
 fn compose_composer_backed_replay_request_v3(
     proposal: &ComposerBackedExploratoryReplayProposalV3,
-    census: &TrialFamilyCensusReadbackV2,
+    cut: &ComposerReplayFamilyCutV3,
     intent: &ComposerReplayIntentV3,
     composer: &SealedDevelopComposerReadbackV2,
     market: &ResolvedReplayCompositionCutV1,
     admitted: &AdmittedReplayMarketShapeV3,
 ) -> Result<ReplayRequestDtoV2, ExploratoryReplayOwnerError> {
-    let family = &census.legacy_family;
+    let family = cut.legacy_family();
     let root = family.root();
-    let frontier = &census.census_frontier;
     let composer_locator = composer.locator();
     let market_facts = market.market_facts().facts();
     let composition = market.binding().record();
@@ -623,8 +621,8 @@ fn compose_composer_backed_replay_request_v3(
         frozen_research_intent: content_from_text(intent.identity(), intent.digest())?,
         trial_family: content_from_text(root.trial_family_identity(), root.root_digest())?,
         trial_family_census_frontier: content_from_text(
-            frontier.frontier_identity(),
-            frontier.frontier_digest(),
+            cut.frontier_identity(),
+            cut.frontier_digest(),
         )?,
         replay_authority: ReplayAuthorityClaimV2::Exploratory,
         strategy_design: sha256_content(
