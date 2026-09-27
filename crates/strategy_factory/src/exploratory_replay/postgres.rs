@@ -3879,6 +3879,31 @@ fn historical_replay_identity(value: &str) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b':' | b'.'))
 }
 
+/// Which verifier's envelope a sealed Replay read returned.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ReplayEnvelopeSourceV2 {
+    /// A legacy row: its verifier's envelope names no source kind.
+    Legacy,
+    /// A COMPOSER_V3 row, whose verifier names its kind.
+    ComposerV3,
+}
+
+/// Tells the two envelopes apart by the kind the COMPOSER_V3 verifier states. A kind this Owner
+/// does not know is refused by name rather than decoded as the legacy envelope it is not.
+fn replay_envelope_source_v2(
+    value: &serde_json::Value,
+) -> Result<ReplayEnvelopeSourceV2, ExploratoryReplayOwnerError> {
+    match value.get("source_kind") {
+        None => Ok(ReplayEnvelopeSourceV2::Legacy),
+        Some(kind) if kind.as_str() == Some("COMPOSER_V3") => {
+            Ok(ReplayEnvelopeSourceV2::ComposerV3)
+        }
+        Some(_) => Err(ExploratoryReplayOwnerError::Unavailable(
+            "sealed Replay envelope names an unknown source kind".into(),
+        )),
+    }
+}
+
 pub(crate) fn decode_v2_read_result(
     expected_request_identity: &str,
     expected_meaning_digest: &str,
@@ -3890,7 +3915,7 @@ pub(crate) fn decode_v2_read_result(
     };
     // A COMPOSER_V3 row has its own envelope, returned by its own internal verifier. Only the sealed
     // build commits such a row; any other build answers it as unavailable.
-    if value.get("source_kind").and_then(serde_json::Value::as_str) == Some("COMPOSER_V3") {
+    if replay_envelope_source_v2(&value)? == ReplayEnvelopeSourceV2::ComposerV3 {
         #[cfg(feature = "sealed-source-intake-composer-acceptance")]
         return Ok(composer_readback_v3::decode_composer_v3_read_result(
             expected_request_identity,
@@ -5402,10 +5427,11 @@ mod source_tests {
     use super::{
         CanonicalStorageRecordV2, INTERNAL_VERIFY_SOURCE_COMPOSER_V3, INTERNAL_VERIFY_SOURCE_V1,
         INTERNAL_VERIFY_SOURCE_V2, INTERNAL_VERIFY_SOURCE_V3, MARKET_DATA_LOCK_SOURCE_V1,
-        NATIVE_SOURCE_STORAGE_SOURCE_V2, READ_SELECTOR_SOURCE_V2, SELECTOR_RESOLVER_SOURCE_V2,
-        StoredHistoricalReplayDispositionV1, StoredHistoricalReplayOperationV1,
-        StoredHistoricalReplayRejectionReceiptV1, StoredReceiptV2,
-        canonical_storage_record_matches, validate_historical_rejection_v1,
+        NATIVE_SOURCE_STORAGE_SOURCE_V2, READ_SELECTOR_SOURCE_V2, ReplayEnvelopeSourceV2,
+        SELECTOR_RESOLVER_SOURCE_V2, StoredHistoricalReplayDispositionV1,
+        StoredHistoricalReplayOperationV1, StoredHistoricalReplayRejectionReceiptV1,
+        StoredReceiptV2, canonical_storage_record_matches, replay_envelope_source_v2,
+        validate_historical_rejection_v1,
     };
     use crate::exploratory_replay::{
         HistoricalExploratoryReplayChannelV1, HistoricalExploratoryReplayRejectionSelectorV1,
@@ -5415,6 +5441,34 @@ mod source_tests {
         "../../../../product/rd-workbench/postgres-init/10-migrate-authority-custody.sh"
     );
 
+    /// A sealed Replay read is decoded by the verifier that answered it: an envelope with no kind is
+    /// the legacy verifier's, `COMPOSER_V3` is the Composer one's, and any other kind is refused by
+    /// name rather than decoded as a legacy envelope.
+    #[rstest::rstest]
+    fn a_sealed_replay_envelope_is_decoded_by_the_verifier_that_answered_it() {
+        assert_eq!(
+            replay_envelope_source_v2(&serde_json::json!({"availability": "AVAILABLE"})).unwrap(),
+            ReplayEnvelopeSourceV2::Legacy
+        );
+        assert_eq!(
+            replay_envelope_source_v2(&serde_json::json!({"source_kind": "COMPOSER_V3"})).unwrap(),
+            ReplayEnvelopeSourceV2::ComposerV3
+        );
+
+        for unknown in [
+            serde_json::json!({"source_kind": "ARTIFACT_BUILD"}),
+            serde_json::json!({"source_kind": null}),
+            serde_json::json!({"source_kind": 3}),
+        ] {
+            let refused = replay_envelope_source_v2(&unknown).unwrap_err();
+            assert!(
+                refused
+                    .to_string()
+                    .contains("sealed Replay envelope names an unknown source kind"),
+                "{unknown}: {refused}"
+            );
+        }
+    }
     #[rstest::rstest]
     fn authenticated_internal_verifier_sources_equal_migration_prosrc() {
         let compared = [

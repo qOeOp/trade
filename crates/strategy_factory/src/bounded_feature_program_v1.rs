@@ -1235,6 +1235,18 @@ fn validate_graph(
             &proposal.bounds,
         )?;
 
+        // A percent rank compares the latest sample against the others, so it needs a second one.
+        // The guest kernel refuses a window of one; refusing it here keeps that a preparation
+        // refusal rather than a run that fails at its first full window.
+        if operation == PrimitiveOperationV1::PercentRank
+            && matches!(
+                node.parameters,
+                BoundedFeatureParametersV1::WindowAndOutputScale { window, .. } if window < 2
+            )
+        {
+            return Err(BoundedFeatureProgramErrorV1::Primitive);
+        }
+
         let expected_inputs = expected_input_ports(operation, contract.input);
         if node.input_bindings.len() != expected_inputs.len()
             || node

@@ -52,9 +52,31 @@ use crate::{
         AdmittedProgramEventV2, OwnerUniverseFrameV1, PreparedBacktestTargetSetV2, ProgramHostV2,
         ProgramHostV2Error, admit_owner_universe_program_event_v2,
     },
-    strategy_plan_v2::StrategyPlanV2,
+    strategy_plan_v2::{StrategyPlanV2, TargetSetBarFieldV2},
     target_set_members::{BoundedMembers, update_member_count_domain},
 };
+
+/// The native bar's own value of the field a member role reads.
+fn bar_field_value(field: TargetSetBarFieldV2, bar: &Bar) -> Decimal {
+    match field {
+        TargetSetBarFieldV2::Open => bar.open.as_decimal(),
+        TargetSetBarFieldV2::High => bar.high.as_decimal(),
+        TargetSetBarFieldV2::Low => bar.low.as_decimal(),
+        TargetSetBarFieldV2::Close => bar.close.as_decimal(),
+        TargetSetBarFieldV2::Volume => bar.volume.as_decimal(),
+    }
+}
+
+/// The native bar's price for the field the execution role reads; a volume is no price.
+fn bar_field_price(field: TargetSetBarFieldV2, bar: &Bar) -> Option<Price> {
+    match field {
+        TargetSetBarFieldV2::Open => Some(bar.open),
+        TargetSetBarFieldV2::High => Some(bar.high),
+        TargetSetBarFieldV2::Low => Some(bar.low),
+        TargetSetBarFieldV2::Close => Some(bar.close),
+        TargetSetBarFieldV2::Volume => None,
+    }
+}
 
 const RECONCILIATION_SNAPSHOT_DOMAIN: &[u8] = b"strategy.backtest.target-set.snapshot.v2\0";
 const RECONCILIATION_CAPABILITY_DOMAIN: &[u8] =
@@ -440,27 +462,40 @@ impl BacktestTargetSetProgramHostStrategyV2 {
             BacktestUniverseFrameV2::Admitted(event) => event.clone(),
         };
 
+        // The roles and the pricing role are the Plan's, derived from the Design at compilation:
+        // every member value the Owner sealed must equal the native bar's own field.
+        let roles = self.plan.target_set_member_roles_v2();
+        anyhow::ensure!(
+            !roles.is_empty(),
+            "the target-set Plan names no member roles"
+        );
+        let (_, pricing) = self
+            .plan
+            .execution_role_v2()
+            .context("the target-set Plan names no execution role")?;
+
         for (ordinal, bar) in bars.iter().enumerate() {
-            let (open, open_scale) = admitted
-                .fixed_i128_member_input_scaled("research.input.open.v1", ordinal as u8)
-                .context("Owner-sealed member OPEN is unavailable")?;
-            let (close, close_scale) = admitted
-                .fixed_i128_member_input_scaled("research.input.close.v1", ordinal as u8)
-                .context("Owner-sealed member CLOSE is unavailable")?;
-            anyhow::ensure!(
-                Decimal::from_i128_with_scale(open, u32::from(open_scale)) == bar.open.as_decimal()
-                    && Decimal::from_i128_with_scale(close, u32::from(close_scale))
-                        == bar.close.as_decimal(),
-                "Owner-sealed target-set BAR values do not match replay data"
-            );
+            for (role, field) in &roles {
+                let (value, scale) = admitted
+                    .fixed_i128_member_input_scaled(role, ordinal as u8)
+                    .with_context(|| format!("Owner-sealed member {role} is unavailable"))?;
+                anyhow::ensure!(
+                    Decimal::from_i128_with_scale(value, u32::from(scale))
+                        == bar_field_value(*field, bar),
+                    "Owner-sealed target-set BAR values do not match replay data"
+                );
+            }
         }
+        let prices = bars.try_map(|bar| {
+            bar_field_price(pricing, bar).context("the execution role does not read a BAR price")
+        })?;
         let checkpoint_before = self.host.checkpoint().digest();
         self.trace.borrow_mut().batch_checkpoint_before = Some(*checkpoint_before.as_bytes());
         let prepared = self
             .host
             .prepare_backtest_admitted_universe_event(&admitted)?;
         let target_set = prepared.canonical_target_set();
-        let snapshot = self.capture_batch_snapshot(bars.map(|bar| bar.close), &prepared)?;
+        let snapshot = self.capture_batch_snapshot(prices, &prepared)?;
         let capability = snapshot.seal_reconciliation(&prepared, target_set)?;
         let grid_targets = capability.derived_grid_targets.clone();
         self.trace

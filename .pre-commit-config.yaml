@@ -291,6 +291,19 @@ repos:
         language: system
         files: ^scripts/(lib/(git-isolation\.bash|git_isolation\.py|test-git-isolation\.bash)|check-git-isolation\.py)$
         pass_filenames: false
+      - id: test-path-triggered-workflows
+        name: test path-triggered workflows
+        description: Path filters are read GitHub's way, and every doubt counts as triggered
+        entry: python -B scripts/ci/path_triggered_workflows_test.py
+        language: python
+        # The no-compile job's python3 has no PyYAML (run 36285417226); this hook declares it.
+        additional_dependencies: [PyYAML==6.0.3]
+        files: >-
+          (?x)^(
+            scripts/ci/path_triggered_workflows(_test)?\.py|
+            \.github/workflows/(docs-pages|product-packages|bilibili-note-mcp)\.yml
+          )$
+        pass_filenames: false
       - id: test-chain-verdict-reuse
         name: test chain verdict reuse
         description: Only the same tree's green whole-chain verdict for its entry count is reused

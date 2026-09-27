@@ -297,6 +297,8 @@ fn perpetual_source_proposal(effective_ns: u64) -> UntrustedSourceBindingProposa
             effective_at: effective_ns,
             valid_through: 0,
         },
+        // A schema 1 proposal declares no availability rule (#1126).
+        availability_rule: None,
     };
     seal_binding_claim_v1(&mut proposal);
     proposal

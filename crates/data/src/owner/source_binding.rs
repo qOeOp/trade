@@ -357,6 +357,38 @@ pub struct UntrustedSourceBindingProposal {
     pub correction_frontier: UntrustedCompleteFrontier,
     /// Complete untrusted `MARKET_DATA_AS_OF` evidence.
     pub time_evidence: UntrustedMarketDataAsOf,
+    /// When the source's rows become visible, and whether it publishes corrections: declared by a
+    /// schema-2 proposal and absent from a schema-1 one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub availability_rule: Option<UntrustedSourceAvailabilityRuleV1>,
+}
+
+/// When a source's rows become visible, as its Source Binding declares it.
+///
+/// This is a declaration, not an observation: a window custody derives each row's availability
+/// from it instead of from the requester's stamped provider-available time, so no-look-ahead in a
+/// custody-backed Backtest rests on it being true of the source.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct UntrustedSourceAvailabilityRuleV1 {
+    /// The instant a row becomes visible.
+    pub visibility: UntrustedSourceVisibilityV1,
+    /// Whether the source publishes corrections to rows it has already served. Only a source that
+    /// does can have a cross-section's publication instant observed from it.
+    pub publishes_corrections: bool,
+}
+
+/// The instant a source's row becomes visible.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub enum UntrustedSourceVisibilityV1 {
+    /// The declared lag after the row's bar closes.
+    AfterBarClose {
+        /// Nanoseconds between the bar's close and the row's availability.
+        lag_ns: u64,
+    },
+    /// The instant Market Data retrieved the row: the source states nothing earlier.
+    AtRetrieval,
 }
 
 /// Seals the binding identity the Owner derives from a proposal's own content.

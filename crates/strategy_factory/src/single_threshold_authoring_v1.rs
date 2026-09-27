@@ -196,11 +196,12 @@ impl SingleThresholdChannelV1 {
 
 /// What the program proposes on one side of the threshold.
 ///
-/// The eleven terminal outputs a frame must carry are not all here. The eight this type leaves
-/// out - weight, rebalance, reconciliation and the five protection terminals - are the same on
-/// both sides of a single threshold, so asking for them twice could only produce a disagreement
-/// the author did not mean. The three that are here are the three that make one side a different
-/// proposal from the other.
+/// The eleven terminal outputs a frame must carry are not all here. The seven this type leaves
+/// out - weight, rebalance and the five protection terminals - are the same on both sides of a
+/// single threshold, so asking for them twice could only produce a disagreement the author did not
+/// mean. The three that are here are the three that make one side a different proposal from the
+/// other, and a fourth follows from them: the reconciliation target, which the kernel requires to
+/// equal a position target, so each frame reads it from its own side's target position.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct SingleThresholdOutcomeV1 {
@@ -596,6 +597,11 @@ fn bounded_reaction(
 }
 
 /// Constant ids. The two sides carry their own three, which is what makes the frames differ.
+///
+/// There is no reconciliation constant. A position target and its reconciliation target must be
+/// equal, and when they were one shared constant for both sides, a program whose sides held
+/// different positions could not enter at all: its entry side proposed a position of 1 reconciled
+/// to 0, and the target-set Host refused it before the first order.
 const THRESHOLD: &str = "threshold";
 const TRUE_POSITION: &str = "when-true-position";
 const TRUE_TARGET: &str = "when-true-target";
@@ -605,7 +611,6 @@ const FALSE_TARGET: &str = "otherwise-target";
 const FALSE_TARGET_POSITION: &str = "otherwise-target-position";
 const TARGET_WEIGHT: &str = "target-weight";
 const REBALANCE: &str = "rebalance";
-const RECONCILIATION: &str = "reconciliation";
 const PROTECTION: &str = "protection";
 const STOP_LOSS: &str = "stop-loss";
 const TAKE_PROFIT: &str = "take-profit";
@@ -716,8 +721,9 @@ fn meaning_for(request: &SingleThresholdAuthoringRequestV1) -> BoundedFeaturePro
             max_depth: 2,
             max_ports: 16,
             max_constants: 15,
-            // Not one. The eight terminals a single threshold does not change are declared once
-            // and consumed by both frames, so every one of them has a fan-out of two.
+            // Not one. The seven terminals a single threshold does not change are declared once
+            // and consumed by both frames, and each side's target position is read by two
+            // terminals of its own frame, so every one of them has a fan-out of two.
             max_fan_out: 16,
             // The graph declares no lag and no rolling window, and a zero bound is refused
             // outright, so both carry the smallest bound a program may state.
@@ -788,10 +794,6 @@ fn constants(request: &SingleThresholdAuthoringRequestV1) -> Vec<BoundedFeatureC
             BoundedFeatureConstantValueV1::U64 { value: 1 },
         ),
         (
-            RECONCILIATION.to_owned(),
-            BoundedFeatureConstantValueV1::I64 { value: 0 },
-        ),
-        (
             PROTECTION.to_owned(),
             BoundedFeatureConstantValueV1::ProtectionVariantV1 {
                 semantic_id: "kernel.protection.keep.v1".to_owned(),
@@ -858,7 +860,7 @@ fn frame(
             (
                 "proposal.reconciliation-target.v1",
                 outcome.target_variant_semantic_id.as_str(),
-                RECONCILIATION,
+                target_position,
             ),
             (
                 "proposal.protection-variant.v1",
@@ -1187,6 +1189,103 @@ mod tests {
         }
     }
 
+    /// Every side an author writes is a proposal the target-set Host can lift into a member target.
+    ///
+    /// The frames' terminals are constants, so each side's target is read from them through the
+    /// Host's own two decoding rules and lifted exactly as the Host lifts a single-instrument
+    /// proposal. The round trip through freezing and recovery never reached this: when the
+    /// reconciliation target was one constant of 0 for both sides, a side proposing a position of
+    /// 1 authored, froze and recovered correctly, and the Host refused it before its first order.
+    #[rstest]
+    #[case::enter_then_exit(("kernel.target.position.v1", 1), ("kernel.target.position.v1", 0))]
+    #[case::enter_then_keep(("kernel.target.position.v1", 2), ("kernel.target.keep.v1", 0))]
+    #[case::keep_then_exit(("kernel.target.keep.v1", 3), ("kernel.target.position.v1", 0))]
+    fn every_authored_side_lifts_into_a_member_target(
+        #[case] when_true: (&str, i64),
+        #[case] otherwise: (&str, i64),
+    ) {
+        use crate::program_host_v2::{
+            lift_single_instrument_proposal, proposal_reconciliation_v2, proposal_target_v2,
+        };
+        use strategy_factory_program_sdk::lifecycle_v1::{
+            PositionIntentV1, ProposalV1, ProtectionProposalV1,
+        };
+
+        let mut authored = request();
+        (
+            authored.when_true.target_variant_semantic_id,
+            authored.when_true.target_position_units,
+        ) = (when_true.0.to_owned(), when_true.1);
+        (
+            authored.otherwise.target_variant_semantic_id,
+            authored.otherwise.target_position_units,
+        ) = (otherwise.0.to_owned(), otherwise.1);
+        let (_, meaning) =
+            author_single_threshold_program_v1(&authored).expect("the request is authorable");
+        let table = &meaning.proposal_decision_table;
+
+        for frame in [&table.branches[0].frame, &table.default_frame] {
+            let value = |port: &str| {
+                let terminal = frame
+                    .terminal_outputs
+                    .iter()
+                    .find(|terminal| terminal.manifest_port_id == port)
+                    .expect("every frame carries all eleven terminals");
+                let BoundedFeatureValueRefV1::Constant { constant_id } = &terminal.source else {
+                    panic!("an authored terminal reads a constant");
+                };
+                &meaning
+                    .constants
+                    .iter()
+                    .find(|constant| &constant.constant_id == constant_id)
+                    .expect("a terminal's constant is declared")
+                    .value
+            };
+            let i64_of = |port| match value(port) {
+                BoundedFeatureConstantValueV1::I64 { value } => *value,
+                other => panic!("{port} is not I64: {other:?}"),
+            };
+            let BoundedFeatureConstantValueV1::TargetVariantV1 { semantic_id } =
+                value("proposal.target-variant.v1")
+            else {
+                panic!("the target variant is a variant");
+            };
+            let BoundedFeatureConstantValueV1::I32 { value: weight } =
+                value("proposal.target-weight.v1")
+            else {
+                panic!("the target weight is I32");
+            };
+            let BoundedFeatureConstantValueV1::U64 { value: sequence } =
+                value("proposal.rebalance-sequence.v1")
+            else {
+                panic!("the rebalance sequence is U64");
+            };
+            let target = proposal_target_v2(
+                semantic_id,
+                i64_of("proposal.target-position.v1"),
+                *weight,
+                *sequence,
+            )
+            .expect("an authored target variant decodes");
+            let proposal = ProposalV1 {
+                intent_identity: [1; 16],
+                proposal_digest: [2; 32],
+                // The lift and the target checks it runs read no intent.
+                position: PositionIntentV1::Hold,
+                target,
+                reconciliation_target_units: proposal_reconciliation_v2(
+                    target,
+                    i64_of("proposal.reconciliation-target.v1"),
+                ),
+                protection: ProtectionProposalV1::Keep,
+                strategy_state_digest: [3; 32],
+                plugin_state_digest: [4; 32],
+            };
+            lift_single_instrument_proposal(&["BTCUSDT-PERP.BINANCE"], None, proposal)
+                .unwrap_or_else(|e| panic!("{semantic_id} does not lift: {e:?}"));
+        }
+    }
+
     /// Owner-shaped custody whose receipts are this test's own, not the request's.
     fn bindings(
         design: &StrategyDesignV2,
@@ -1481,7 +1580,9 @@ mod tests {
             (
                 "726d4aff67eb718382b790353c43011739ede0073048afd9c7bc8dbed2465d28".to_owned(),
                 "4725d44ade0ad56f07f3a47beffb25b373eaf52b7d1af347c48c39d05ee1a05f".to_owned(),
-                "f10012aea9be5dc29cbf37a32ed12ef76682fe908b26f575b3d83f8ba25b0daa".to_owned(),
+                // Moved when each frame's reconciliation target began reading its own side's
+                // target position instead of one shared constant of 0. The Design is unchanged.
+                "afab4501cce13919acff396f5ce04c6f2722ead8f0f47f094b284788cba2a5ed".to_owned(),
             ),
         );
     }

@@ -659,7 +659,12 @@ generator that produced them was measured to be reproducing work that already ex
 slice adds is therefore less than the code it removes. It introduces no new primitive and no execution
 path, and what it emits is checked by the same contract that checks a hand-written declaration. The
 single-threshold author is its first product and stays byte-for-byte what it is; the authoring language
-below is admitted on the same terms and makes that family one of its special cases.
+below is admitted on the same terms and makes that family one of its special cases. Its bytes changed once
+since, on purpose: a side's reconciliation target reads that side's target position, because the kernel
+requires a position target and its reconciliation target to be equal, and the single constant of 0 both sides
+once shared made every program whose sides held different positions unrunnable - the target-set Host refused its
+entry side before the first order. A program frozen from the old bytes could never have run, and it is now
+outside the family.
 
 **IMPLEMENTATION_ADMITTED - authoring language V1:** a document a proposer writes, compiled by a pure
 function into the `design` and `meaning` pair and nothing further. Nothing implements it at this cut, and

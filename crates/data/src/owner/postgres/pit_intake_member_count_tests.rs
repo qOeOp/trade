@@ -63,6 +63,7 @@ pub(super) fn clock() -> MarketDataClockAdmission {
 
 pub(super) fn source_proposal() -> UntrustedSourceBindingProposal {
     let mut proposal = UntrustedSourceBindingProposal {
+        availability_rule: None,
         claimed_binding_id: d(0),
         schema_version: 1,
         adapter: UntrustedAdapterBinding {
