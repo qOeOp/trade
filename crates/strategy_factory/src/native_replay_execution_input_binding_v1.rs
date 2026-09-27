@@ -239,6 +239,13 @@ pub enum NativeReplayExecutionInputBindingErrorV1 {
     /// place, and no retry changes the answer.
     #[error("sealed Replay request names no Market Data composition binding")]
     NoCompositionBinding,
+    /// The Instrument Master V2 cut's facts disagree with the V1 facts the composition binding's
+    /// PIT snapshot cites. The cut's facts are fixed at the selection's observation, so no retry
+    /// changes the answer; Market Data wrote nothing.
+    #[error(
+        "Instrument Master V2 facts disagree with the V1 facts the Replay's PIT snapshot cites"
+    )]
+    InstrumentMasterGenerationMismatch,
     #[error("Native Replay execution-input binding storage unavailable: {0}")]
     Storage(#[source] sqlx::Error),
 }

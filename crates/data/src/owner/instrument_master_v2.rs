@@ -36,7 +36,11 @@ use vibe_model::types::{
     quantity::{Quantity, QuantityRaw, check_positive_quantity},
 };
 
-use super::{ADMITTED_UNIVERSE_MEMBER_COUNTS, source_binding::BindingDigest};
+use super::{
+    ADMITTED_UNIVERSE_MEMBER_COUNTS,
+    instrument_master::{InstrumentClass, InstrumentDecimal, InstrumentMasterFactV1},
+    source_binding::BindingDigest,
+};
 
 // Version 3 adds the terms basis to the snapshot. No production writer produced a version 2 fact.
 const FACT_SCHEMA_VERSION_V2: u16 = 3;
@@ -1456,6 +1460,121 @@ pub enum InstrumentMasterCustodyErrorV2 {
     /// corporate-action cut, because the one class this cut admits has none by definition; a
     /// member of any other class is refused until a corporate-action path exists for it.
     MemberClassCarriesCorporateActions,
+    /// The cut's V2 facts do not describe the instruments the V1 readback its bound PIT snapshot
+    /// cites describes; the payload names the rule that failed.
+    GenerationMismatch(InstrumentMasterGenerationMismatchV2),
+}
+
+/// A V2 term the generation consistency check compares with its V1 counterpart.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum InstrumentMasterGenerationTermV2 {
+    PriceIncrement,
+    QuantityIncrement,
+    ContractMultiplier,
+}
+
+/// The rule of the V1/V2 generation consistency check a cut's members failed.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum InstrumentMasterGenerationMismatchV2 {
+    /// The V1 readback's facts and the cut's members name different canonical identities.
+    MemberSetDiffers,
+    /// The V1 fact is not classed as the V2 fact is.
+    ClassDiffers,
+    /// No V1 mapping is at the V2 fact's venue.
+    VenueMappingAbsent,
+    /// More than one V1 mapping is at the V2 fact's venue.
+    VenueMappingAmbiguous,
+    /// The V1 mapping at the venue names bytes other than the V2 raw symbol.
+    RawSymbolDiffers,
+    /// The V2 term is not a value, so it cannot vouch for the V1 term beside it.
+    TermNotAValue(InstrumentMasterGenerationTermV2),
+    /// The V2 term's mantissa or scale is not the V1 term's.
+    TermDiffers(InstrumentMasterGenerationTermV2),
+}
+
+/// Proves the V2 facts a cut is about to hold describe the instruments the V1 facts a PIT snapshot
+/// cites describe, member by member.
+///
+/// Both generations store a decimal canonically, so equal terms have equal mantissa and scale and
+/// nothing is normalized. A V2 term that is not a value is refused rather than skipped. The rule
+/// is the documentation's V1/V2 generation consistency paragraph; each refusal names its rule.
+pub(crate) fn require_same_generation_v2(
+    v1: &[InstrumentMasterFactV1],
+    v2: &[InstrumentMasterFactV2],
+) -> Result<(), InstrumentMasterGenerationMismatchV2> {
+    use InstrumentMasterGenerationMismatchV2 as Mismatch;
+    use InstrumentMasterGenerationTermV2 as Term;
+
+    let mut v1_members = v1
+        .iter()
+        .map(InstrumentMasterFactV1::canonical_identity)
+        .collect::<Vec<_>>();
+    let mut v2_members = v2
+        .iter()
+        .map(InstrumentMasterFactV2::canonical_identity)
+        .collect::<Vec<_>>();
+    v1_members.sort_unstable();
+    v2_members.sort_unstable();
+    if v1_members != v2_members {
+        return Err(Mismatch::MemberSetDiffers);
+    }
+
+    for current in v2 {
+        let Some(earlier) = v1
+            .iter()
+            .find(|fact| fact.canonical_identity() == current.canonical_identity())
+        else {
+            return Err(Mismatch::MemberSetDiffers);
+        };
+        let class = match current.instrument_class() {
+            PublicInstrumentClassV2::CryptoPerpetual => InstrumentClass::CryptoPerpetual,
+        };
+
+        if earlier.instrument_class() != class {
+            return Err(Mismatch::ClassDiffers);
+        }
+        let mut at_venue = earlier
+            .proposal
+            .mappings
+            .iter()
+            .filter(|mapping| mapping.venue_identity == current.venue_identity());
+        let mapping = at_venue.next().ok_or(Mismatch::VenueMappingAbsent)?;
+        if at_venue.next().is_some() {
+            return Err(Mismatch::VenueMappingAmbiguous);
+        }
+
+        if mapping.source_instrument != current.raw_symbol().as_bytes() {
+            return Err(Mismatch::RawSymbolDiffers);
+        }
+        let terms = current.terms();
+
+        for (term, stated, vouched) in [
+            (
+                Term::PriceIncrement,
+                earlier.proposal.price_increment,
+                &terms.price_increment_from_filter,
+            ),
+            (
+                Term::QuantityIncrement,
+                earlier.proposal.quantity_increment,
+                &terms.quantity_increment_from_filter,
+            ),
+            (
+                Term::ContractMultiplier,
+                earlier.proposal.contract_multiplier,
+                &terms.contract_multiplier,
+            ),
+        ] {
+            let FactValue::Value(vouched) = vouched else {
+                return Err(Mismatch::TermNotAValue(term));
+            };
+            let InstrumentDecimal { mantissa, scale } = stated;
+            if (vouched.mantissa, vouched.scale) != (mantissa, scale) {
+                return Err(Mismatch::TermDiffers(term));
+            }
+        }
+    }
+    Ok(())
 }
 
 impl Display for InstrumentMasterCustodyErrorV2 {
@@ -2446,7 +2565,7 @@ pub(crate) mod tests {
         decimal(mantissa, scale)
     }
 
-    fn complete_terms() -> InstrumentMasterPublicTermsV2 {
+    pub(super) fn complete_terms() -> InstrumentMasterPublicTermsV2 {
         InstrumentMasterPublicTermsV2 {
             base_currency: FactValue::Value("BTC".to_owned()),
             quote_currency: FactValue::Value("USDT".to_owned()),
@@ -2468,7 +2587,7 @@ pub(crate) mod tests {
         }
     }
 
-    fn baseline(terms: InstrumentMasterPublicTermsV2) -> ExchangeInfoBaselineV2 {
+    pub(super) fn baseline(terms: InstrumentMasterPublicTermsV2) -> ExchangeInfoBaselineV2 {
         ExchangeInfoBaselineV2 {
             canonical_identity: "BTCUSDT-PERP.BINANCE".to_owned(),
             venue_identity: "BINANCE".to_owned(),
@@ -3340,6 +3459,204 @@ mod exchange_info_normalization_tests {
 
         for (name, payload, refusal) in cases {
             assert_eq!(normalize(&payload, "BTCUSDT"), Err(refusal), "{name}");
+        }
+    }
+}
+
+#[cfg(test)]
+mod generation_consistency_tests {
+    use rstest::rstest;
+
+    use super::{
+        FactValue, InstrumentMasterFactV2, InstrumentMasterGenerationMismatchV2 as Mismatch,
+        InstrumentMasterGenerationTermV2 as Term, require_same_generation_v2,
+        tests::{baseline, complete_terms, fact_for},
+    };
+    use crate::owner::{
+        instrument_master::{
+            InstrumentClass, InstrumentDecimal, InstrumentMasterFactProposalV1,
+            InstrumentMasterFactV1, InstrumentVenueSourceMapping, authority::build_fact,
+        },
+        shared_time_evidence::build_head_fact,
+        source_binding::{
+            BindingDigest, MarketDataClockAdmission, MarketDataClockComparisonRule,
+            MarketDataClockCutKind,
+        },
+    };
+
+    const BTC: (&str, &str) = ("BTCUSDT-PERP.BINANCE", "BTCUSDT");
+    const ETH: (&str, &str) = ("ETHUSDT-PERP.BINANCE", "ETHUSDT");
+
+    /// A V1 fact built by the V1 authority stating exactly what [`fact_for`] states for the same
+    /// instrument: a crypto perpetual with one `BINANCE` mapping of the raw symbol, a tick of
+    /// 0.01, a step of 0.001 and a multiplier of 1. `edit` changes one statement.
+    fn v1_fact(
+        (canonical, raw): (&str, &str),
+        edit: impl FnOnce(&mut InstrumentMasterFactProposalV1),
+    ) -> InstrumentMasterFactV1 {
+        let head = build_head_fact(
+            &MarketDataClockAdmission {
+                cut_kind: MarketDataClockCutKind::MarketDataAsOf,
+                clock_identity: "12345678901234567890123456789012".into(),
+                clock_epoch: "abcdefghijklmnopqrstuvwxyzABCDEF".into(),
+                monotonic_sequence: 1,
+                wall_observed: 60,
+                decision_cut: 60,
+                valid_through: 100,
+                restart_continuity_digest: BindingDigest::from_untrusted_bytes([30; 32]),
+                uncertainty_bound: 1,
+                skew_bound: 2,
+                comparison_rule: MarketDataClockComparisonRule::ExclusiveValidThrough,
+            },
+            None,
+        )
+        .unwrap();
+        let mut proposal = crate::owner::calendar::tests::instrument_readback("XNYS-CALENDAR-V1")
+            .facts()[0]
+            .proposal
+            .clone();
+        proposal.canonical_identity = canonical.into();
+        proposal.mappings = vec![InstrumentVenueSourceMapping {
+            venue_identity: "BINANCE".into(),
+            source_identity: "USDM".into(),
+            source_instrument: raw.as_bytes().to_vec(),
+        }];
+        proposal.instrument_class = InstrumentClass::CryptoPerpetual;
+        proposal.price_increment = InstrumentDecimal {
+            mantissa: 1,
+            scale: 2,
+        };
+        proposal.quantity_increment = InstrumentDecimal {
+            mantissa: 1,
+            scale: 3,
+        };
+        proposal.contract_multiplier = InstrumentDecimal {
+            mantissa: 1,
+            scale: 0,
+        };
+        edit(&mut proposal);
+        build_fact(proposal, &head.handoff, None).unwrap()
+    }
+
+    fn v2_fact((canonical, raw): (&str, &str), seed: u8) -> InstrumentMasterFactV2 {
+        fact_for(canonical, raw, seed)
+    }
+
+    /// Both generations describing the same instruments pass, in either order, for one member and
+    /// for two; the fixture's two facts agree in every rule, so each refusal below is its edit's.
+    #[rstest]
+    fn the_same_instruments_in_both_generations_pass() {
+        let btc = v2_fact(BTC, 10);
+        let eth = v2_fact(ETH, 20);
+        assert_eq!(
+            require_same_generation_v2(&[v1_fact(BTC, |_| {})], std::slice::from_ref(&btc)),
+            Ok(())
+        );
+        assert_eq!(
+            require_same_generation_v2(&[v1_fact(ETH, |_| {}), v1_fact(BTC, |_| {})], &[btc, eth]),
+            Ok(())
+        );
+    }
+
+    #[rstest]
+    fn a_different_member_set_is_refused() {
+        let btc = v2_fact(BTC, 10);
+        let eth = v2_fact(ETH, 20);
+        assert_eq!(
+            require_same_generation_v2(&[v1_fact(BTC, |_| {})], std::slice::from_ref(&eth)),
+            Err(Mismatch::MemberSetDiffers)
+        );
+        assert_eq!(
+            require_same_generation_v2(
+                &[v1_fact(BTC, |_| {}), v1_fact(ETH, |_| {})],
+                std::slice::from_ref(&btc)
+            ),
+            Err(Mismatch::MemberSetDiffers)
+        );
+        assert_eq!(
+            require_same_generation_v2(&[v1_fact(BTC, |_| {})], &[btc, eth]),
+            Err(Mismatch::MemberSetDiffers)
+        );
+    }
+
+    /// Each rule refuses by its own name, driven by one edit of an otherwise agreeing V1 fact.
+    #[rstest]
+    #[case::class(
+        |p: &mut InstrumentMasterFactProposalV1| p.instrument_class = InstrumentClass::Equity,
+        Mismatch::ClassDiffers
+    )]
+    #[case::no_mapping_at_the_venue(
+        |p: &mut InstrumentMasterFactProposalV1| p.mappings[0].venue_identity = "XNAS".into(),
+        Mismatch::VenueMappingAbsent
+    )]
+    #[case::two_mappings_at_the_venue(
+        |p: &mut InstrumentMasterFactProposalV1| {
+            let mut second = p.mappings[0].clone();
+            second.source_identity = "USDM-MIRROR".into();
+            p.mappings.push(second);
+        },
+        Mismatch::VenueMappingAmbiguous
+    )]
+    #[case::raw_symbol(
+        |p: &mut InstrumentMasterFactProposalV1| p.mappings[0].source_instrument = b"BTCUSD".to_vec(),
+        Mismatch::RawSymbolDiffers
+    )]
+    #[case::tick(
+        |p: &mut InstrumentMasterFactProposalV1| {
+            p.price_increment = InstrumentDecimal { mantissa: 1, scale: 1 };
+        },
+        Mismatch::TermDiffers(Term::PriceIncrement)
+    )]
+    #[case::step(
+        |p: &mut InstrumentMasterFactProposalV1| {
+            p.quantity_increment = InstrumentDecimal { mantissa: 1, scale: 2 };
+        },
+        Mismatch::TermDiffers(Term::QuantityIncrement)
+    )]
+    #[case::multiplier(
+        |p: &mut InstrumentMasterFactProposalV1| {
+            p.contract_multiplier = InstrumentDecimal { mantissa: 10, scale: 0 };
+        },
+        Mismatch::TermDiffers(Term::ContractMultiplier)
+    )]
+    fn each_disagreement_is_refused_by_its_rule(
+        #[case] edit: fn(&mut InstrumentMasterFactProposalV1),
+        #[case] refusal: Mismatch,
+    ) {
+        assert_eq!(
+            require_same_generation_v2(&[v1_fact(BTC, edit)], &[v2_fact(BTC, 10)]),
+            Err(refusal)
+        );
+    }
+
+    /// A V2 term that is not a value cannot vouch for the V1 term, whatever that term is: an
+    /// unavailable, unbounded or not-applicable tick, step or multiplier is refused, not skipped.
+    #[rstest]
+    fn a_term_that_is_not_a_value_is_refused_not_skipped() {
+        for term in [
+            Term::PriceIncrement,
+            Term::QuantityIncrement,
+            Term::ContractMultiplier,
+        ] {
+            for absent in [
+                FactValue::Unavailable,
+                FactValue::Unbounded,
+                FactValue::NotApplicable,
+            ] {
+                let mut terms = complete_terms();
+                *match term {
+                    Term::PriceIncrement => &mut terms.price_increment_from_filter,
+                    Term::QuantityIncrement => &mut terms.quantity_increment_from_filter,
+                    Term::ContractMultiplier => &mut terms.contract_multiplier,
+                } = absent.clone();
+                let v2 =
+                    InstrumentMasterFactV2::from_exchange_info_baseline(baseline(terms)).unwrap();
+                assert_eq!(
+                    require_same_generation_v2(&[v1_fact(BTC, |_| {})], &[v2]),
+                    Err(Mismatch::TermNotAValue(term)),
+                    "{term:?} {absent:?}"
+                );
+            }
         }
     }
 }
