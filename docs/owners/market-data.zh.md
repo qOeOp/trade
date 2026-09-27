@@ -120,6 +120,15 @@ ACL 拒绝。它不证明供应商真实性，不证明生产装配，也不证�
   `deployment-store-publication-publish` 封存并发布历史；步骤见 `product/rd-workbench/README.md`。
   `admit_rd_owner_market_data_postgres` 仍接 `Unavailable*` 端口，所以 `required` 在启动时仍然失败关闭。准入只从 custody
   store 的时钟读时间：每次读历史都带回该库的 `clock_timestamp()` cut，commit 也在同一个时钟上判定回执的窗口。
+  直接测量器的 role identity 覆盖的是租到的角色能做什么，而不只是所列对象的 ACL；所列对象的 ACL 看不到别处的授权。
+  它带一份权限普查（`PRIVILEGE_CENSUS_V1`）：会话角色及其成员关系闭包中每个角色持有的每项权限，无论来自直接授权、
+  `PUBLIC` 还是所有权。数据库只问当前这一个；schema 问除 `pg_catalog` 之外的每一个；对象只在该角色能使用的 schema
+  里问；关系的行类型和隐式数组类型不问，它们不授予任何东西。`pg_catalog` 里，凡该角色、其闭包或 `PUBLIC` 的某项
+  权限与 initdb 的记录不同，都列出来。所以角色在它够得着的任何地方多得或失去一项授权，admission 比较的 identity
+  就会变；授给别的角色的权限、别的数据库上的权限、它用不了的 schema 里的对象，都不会让它变。角色能用、而别人会在
+  其中建对象的 schema 在它够得着的范围内：部署的数据库里 `PUBLIC` 能用 `public`，`product_edge_owner` 能在那里建
+  对象，所以 `public` 里新建一个函数（默认 `PUBLIC` 可执行）会改变普查，admission 需要一份新 manifest。普查按
+  PostgreSQL 16 的权限集列举，其他主版本的服务器会被拒绝，而不是少测。
 - **`B4` 消费者未编入已部署镜像。** `product/rd-workbench/Dockerfile.owner` 以默认 feature 构建
   `strategy-factory-rd-owner-api`，使 `sealed-develop-composer-acceptance` 处于关闭，而 dashboard 读取二进制不触及任何
   Market Data 表面。解除条件：把该消费者移出 acceptance feature。

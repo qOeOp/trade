@@ -158,7 +158,7 @@ The maturity boundary is explicit:
   evaluates at request time, so neither the Design nor R&D chooses it (the R&D Owner contract states that request
   scope). A Design with `EXACT_INSTRUMENT` roles stays refused under an Owner universe, by a named refusal,
   `ExactInstrumentRolesUnderOwnerUniverse`, which the implementing change introduces. The universe vertical's input contract of exactly one fixed `OPEN` and one
-  fixed `CLOSE` member role is unchanged; the single-threshold authoring surface gains a universe-member form whose
+  fixed `CLOSE` member role was later replaced by the role set the Design declares (P1 below); the single-threshold authoring surface gains a universe-member form whose
   channel is the member's daily close and which carries the fixed open role, as a carried input its program never
   reads. The authoring request names its form in a required `scope`, so a request without one is refused rather than
   read as the exact-instrument form. That form consumes each role at member
@@ -303,6 +303,11 @@ implement a formula. The first catalog must include:
 - rolling swing high and low; and
 - `range_fraction(low, high, numerator, denominator)`, where the ratio is a frozen reduced rational, denominator
   is positive, bounds and scale are explicit, and Fibonacci levels are only frozen rational constants.
+
+Later versions only append. Version 2 adds the fused rational, version 3 the fixed-point square root, and
+version 4 the trailing-window bar counts since the maximum and since the minimum, exact integers where the
+latest of equal extrema counts, and the trailing-window percent rank, the latest sample's midrank from 0 at the
+lowest to 1 at the highest over a window of at least two, with one final rounding.
 
 Price-action rules and candlestick patterns are typed compositions of these catalog primitives, not named strategy
 templates, opaque labels, copied formulas, or new Host opcodes.
@@ -1388,9 +1393,18 @@ later submission and the cost grows with the whole history.
   adding a role changes only the Design. It changes no admitted bound by itself. A V2 request states no scope and
   stays the legacy exact channel, whose Designs name their instrument; retiring it is a separate slice after T1,
   once every chain entry that creates exact custody under V2 has a scoped replacement.
-- **P1, the role set comes from the Design:** the native Plan contract stops fixing OPEN and CLOSE on one day; the
-  Design declares its roles, its execution timeframe, and which role prices an order. A role the Host cannot bind is
-  refused by name.
+- **P1, the role set comes from the Design:** the native Plan contract stops fixing OPEN and CLOSE on one day. The
+  Design declares its roles, its execution role and its pricing role through fields it already has, the roles' field
+  semantics and a join's trigger; no field is added. A universe role must be an `I128` Market Data BAR open, high,
+  low, close or volume role, which the target-set Host checks against its native bar; any other is refused as
+  `TargetSetRoleNotHostBindable`. The role that prices orders is the one reading the BAR close, and it is also the
+  execution role: none is `ExecutionPricingRoleAbsent`, more than one is `ExecutionPricingRoleAmbiguous`, and a join
+  triggered by any other role is `ExecutionRoleNotPricingRole`, which nothing constructs today because a join over
+  universe roles is refused first. The Host reads its member roles and its pricing role from the Plan. A role's
+  timeframe label stays provenance only, so the execution timeframe is not derived from it here: Market Data resolves
+  the execution role's typed timeframe from its own binding and refuses more than one timeframe, or a day it cannot
+  type, by name. That scheduling change replaces the label comparison in `native_replay_scheduling_v1` and is Market
+  Data's.
 - **P2, the report states every member:** the report family states each member of a universe run, generalizing the
   one-member statement Backtest already makes. It lands with I2, driven by the first run over more than one member:
   before I2 no program reads a member other than the first, so a statement of every member would have nothing to
@@ -1493,6 +1507,9 @@ including on inputs with ties.
 ### Values, inputs, and actions
 
 - **Values:** catalog V4a appends window rank and percentile, bars since an extremum, and covariance and correlation.
+  Catalog version 4 publishes the first two, and its first users, `w1` and `w2`, are in the authored corpus; a row a
+  later version adds is refused by the build until an authored program uses it. Covariance and correlation need a
+  two-series window state and remain TARGET.
   V4b appends natural logarithm and exponential. The user authorized their numeric rule on 2026-09-27 by choosing, in
   these words (translated): "Introduce ln/exp with a pinned algorithm plus golden test vectors, applying only to new
   catalog rows; this class of operation is exempt from 'one exact expression, one final rounding'." V5 adds two
@@ -1535,6 +1552,9 @@ report over a multi-frame Backtest, proven by its chain entry's test name. The c
 | Pair spread                           | BTC and ETH z score                                                                 | I2, V4a            |
 | Cross sectional rotation              | Top two of eight by momentum                                                        | I2, I3             |
 | Funding rate filter                   | Extreme funding reversal                                                            | N1                 |
+| Momentum divergence                   | Price against RSI or the MACD histogram at two confirmed pivots                     | P1, T1             |
+| Rising and falling wedges             | Lines through the two latest confirmed pivot highs and lows                         | P1, T1             |
+| Three and five pushes                 | A push count over confirmed pivots with a holding structure                         | P1, T1             |
 | Ronnie's drawing rules R1 to R6       | Horizontal and wide bands, trend line bands, Fibonacci, quartering, timeframe roles | See below          |
 
 Ronnie's drawing rules were measured from 2,512 screenshots across 17 of his videos and reduced to six computable
@@ -1561,6 +1581,35 @@ its own prices, and two pixels at that frame's price scale elsewhere. The contro
 one cause: the program's output must equal a direct reference computation of the same rule exactly, which tests the
 compiled program, and that reference must match the measured prices within the tolerance, which tests the rule and
 the parameters the measurement filled in rather than observed. It becomes constructible only after T1 and V5.
+
+Momentum divergence, wedges, and three or five pushes rest on one building block, a confirmed pivot, and need no
+slice beyond P1 and T1:
+
+- **Confirmed pivot:** an order-k pivot high at bar `t - k` is confirmed at bar `t` exactly when `Lag(high, k)`
+  equals `Maximum(high, 2k + 1)`, and a pivot low likewise with `Minimum` over the low. The catalog's `SwingHigh` is
+  the highest bar of a trailing window, so a bar that is still rising qualifies; it is not a pivot. A pivot is known
+  k bars late, and that lag is the definition, not a limit of the implementation.
+- **Divergence:** bearish when a newly confirmed pivot high is strictly above the previous one while the indicator
+  at the new pivot, `Lag(indicator, k)`, is strictly below its value at the previous pivot; bullish is the mirror
+  over lows. The signal is emitted at the confirmation bar. The previous pivot's price and indicator are two
+  fixed-point strategy state cells, which the validator admits and no authored program has used yet, so the first
+  divergence program must write and read them through Wasm, and holding them at their initial value must turn its
+  signal red.
+- **Wedge:** lines through the two latest confirmed pivot highs and the two latest pivot lows. It is rising when both
+  slopes are positive and the lower line is steeper, falling in the mirror case, and it declares a convergence ratio
+  and a breakout tolerance in ATR. A line's value at the current bar is `p2 + (p2 - p1) * a / b`, where `a` is the
+  bars since the later anchor and `b` the bars between the anchors; the subtraction, product, and sum are exact at
+  their declared scales, so the division is the one rounding. Lines through three or more pivots need V5's memory
+  and round once per node, which the definition must declare.
+- **Pushes:** the count rises at each newly confirmed pivot high strictly above the previous push while the pivot low
+  between them stays strictly above the one before, and restarts otherwise; three strategy state cells hold it.
+  Pushes read on 4h with entries on 1h are T2.
+
+Each has a synthetic control that fixes its signal bar exactly - a divergence at the pivot plus k and never earlier,
+no wedge from a parallel channel, a count that restarts at a structure break - and a real-data control: over public
+BTC K-lines, the program's pivots and signals must equal an independent reference implementation of the definition
+exactly. No human-labelled ground truth exists for these three patterns, so what's checked is the program against
+its definition, not the program against the trader.
 
 ### What the envelope assumes of F
 

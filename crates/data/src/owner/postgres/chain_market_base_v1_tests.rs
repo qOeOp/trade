@@ -8,16 +8,13 @@ use sqlx::PgPool;
 
 use super::{
     MarketDataOwnerPostgres, OwnerSourceBindingDecision,
-    acceptance_fixture_v1::{
-        d, instrument_fact, instrument_request, shared_clock, source_proposal,
-    },
+    acceptance_fixture_v1::{d, instrument_fact, instrument_request, source_proposal},
     chain_market_base_v1::{
-        BASE_CLOCK_EPOCH, BASE_CLOCK_IDENTITY, CHAIN_MARKET_DATA_ACCEPTANCE_BASIS_V1,
-        MarketDataAcceptanceBasisErrorV1, MarketDataAcceptanceBasisPointerV1,
-        chain_market_base_clock_v1, chain_market_base_historical_clock_v1,
-        chain_market_base_records_on_v1, chain_market_base_source_proposal_v1,
-        commit_market_base_corpus_v1, ensure_chain_market_base_on_v1,
-        ensure_market_data_acceptance_basis_v1,
+        CHAIN_MARKET_DATA_ACCEPTANCE_BASIS_V1, MarketDataAcceptanceBasisErrorV1,
+        MarketDataAcceptanceBasisPointerV1, chain_market_base_clock_v1,
+        chain_market_base_historical_clock_v1, chain_market_base_records_on_v1,
+        chain_market_base_source_proposal_v1, commit_market_base_corpus_v1,
+        ensure_chain_market_base_on_v1, ensure_market_data_acceptance_basis_v1, owner_clock_at_v1,
     },
     tests::{clock, replay_composition_market_base_fixture_v1},
     universe_selection::persist_historical_membership_frontier_v1,
@@ -162,8 +159,8 @@ async fn the_acceptance_basis_is_written_once_and_rejoined_without_moving_a_poin
     );
     assert_eq!(store_state_v1(owner.pool()).await, moved);
 
-    // The clock head reaches the basis's valid-through: the basis has expired, and is not written
-    // again.
+    // The Owner's own clock reaches the basis's valid-through, as a cut minted from the wall clock
+    // after the base does: the basis has expired, and is not written again.
     let head = {
         let mut transaction = owner.pool().begin().await.unwrap();
         let head = super::load_current_clock_fact_for_update(&mut transaction)
@@ -176,14 +173,16 @@ async fn the_acceptance_basis_is_written_once_and_rejoined_without_moving_a_poin
     owner
         .commit_clock_successor(
             &head.handoff,
-            &shared_clock(BASE_CLOCK_IDENTITY, BASE_CLOCK_EPOCH, 3, 160, d(90), 1, 2),
+            &owner_clock_at_v1(3, chain_market_base_clock_v1().valid_through),
         )
         .await
         .unwrap();
     let expired = store_state_v1(owner.pool()).await;
     assert_eq!(
         ensure_chain_market_base_on_v1(&owner).await,
-        Err(MarketDataAcceptanceBasisErrorV1::Expired { valid_through: 160 })
+        Err(MarketDataAcceptanceBasisErrorV1::Expired {
+            valid_through: chain_market_base_clock_v1().valid_through
+        })
     );
     assert_eq!(store_state_v1(owner.pool()).await, expired);
     assert_eq!(

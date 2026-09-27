@@ -155,6 +155,10 @@ pub enum SourceBindingAdmissionErrorV1 {
     AdmissionConflict,
     /// The Owner could not mint a decision cut.
     ClockUnavailable,
+    /// The cut the Owner minted does not agree with its clock custody: either the proposal's time
+    /// evidence names another clock, or the store's clock head is on a clock the minted cut does
+    /// not succeed.
+    ClockMismatch,
     /// The Owner store is unreachable or refused the commit.
     StoreUnavailable,
 }
@@ -165,6 +169,9 @@ impl Display for SourceBindingAdmissionErrorV1 {
             Self::InvalidProposal => "the Source Binding proposal is malformed",
             Self::AdmissionConflict => "the binding identity is bound to a different decision",
             Self::ClockUnavailable => "Market Data could not mint a decision cut",
+            Self::ClockMismatch => {
+                "the minted decision cut does not agree with Market Data's clock custody"
+            }
             Self::StoreUnavailable => "the Market Data store is unavailable",
         };
         formatter.write_str(text)
@@ -182,6 +189,7 @@ impl From<SourceBindingError> for SourceBindingAdmissionErrorV1 {
             SourceBindingError::StoreUnavailable | SourceBindingError::CommitInterrupted => {
                 Self::StoreUnavailable
             }
+            SourceBindingError::TrustedClockMismatch => Self::ClockMismatch,
             _ => Self::InvalidProposal,
         }
     }
@@ -217,4 +225,26 @@ pub(crate) mod sealed {
 pub async fn source_binding_admission_from_environment_v1()
 -> Result<Arc<dyn SourceBindingAdmissionV1>, SourceBindingAdmissionErrorV1> {
     super::postgres::source_binding_admission_from_environment_v1().await
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+
+    use super::{SourceBindingAdmissionErrorV1, SourceBindingError};
+
+    /// A clock the minted cut cannot stand on keeps its own name on the way out, rather than
+    /// reading as a malformed proposal the caller could fix by editing its body.
+    #[rstest]
+    fn a_clock_mismatch_is_named_and_not_a_malformed_proposal() {
+        assert_eq!(
+            SourceBindingAdmissionErrorV1::from(SourceBindingError::TrustedClockMismatch),
+            SourceBindingAdmissionErrorV1::ClockMismatch
+        );
+        assert_eq!(
+            SourceBindingAdmissionErrorV1::from(SourceBindingError::BindingIdentityMismatch),
+            SourceBindingAdmissionErrorV1::InvalidProposal,
+            "a proposal fault is still the proposal's"
+        );
+    }
 }

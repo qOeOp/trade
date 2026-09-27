@@ -160,6 +160,16 @@
   窗口限定（`docs/architecture/strategy-factory.md`，TrialFamily-owned Replay execution policy V2）；前驱是
   composer-backed Replay 的 Market Data 修复 re-entry 按名被拒，`MARKET_DATA_REPAIR_OF_COMPOSER_V3_REPLAY_AWAITS_DESIGN`，
   因为 re-entry 按 policy 窗口组成它的后继。
+- **CURRENT - Native Replay preparation 如何读 composer-backed Replay 的 Research 托管：** 按 Replay 提交时的
+  样子读，而不是按当前托管读。commit 把 Research View 从 IntentFrozen 推进到指名这个 Replay 的 schema 3
+  View，并把这次推进记成一条只追加的 transition，所以凡是要求当前托管仍是 IntentFrozen 的读，都会拒绝每一个
+  已提交的 Replay。因此 preparation 只把 native Composer View 当作那条 transition 的 new View 来准入，并像
+  Replay 自己的 readback 那样（`read_accepted_for_replay_historical_in_transaction`），在 issuance 事务里按
+  transition 的 old View 读 Composer 操作。当前 View 若已被之后的 Replay 推进走，按名被拒，
+  `native Composer Research View has moved past this Replay`：同一个 Research 上一旦提交了第二个 Replay，
+  第一个就再也无法被 prepare。今天没有 Research 会走到第二个，因为 commit 要求它所推进的那个 IntentFrozen View，而 successor
+  要等下文的 Decision composition。Decision composition 或 successor 迭代被准入时，要重新审视这条规则。不带
+  COMPOSER_V3 路由的构建按名拒绝 native Composer View。
 - **CURRENT - 有一条只读操作只能经由写 API 触达：** Dashboard 的操作登记表声明了十一条 Owner 路由，
   其中十条是 `GET`。第十一条 `research_goal.legacy_quarantine_read.v1` 声明 `effect_set: []`，
   解析到 `POST /v1/research-goals/{request_identity}/resolve`，它注册在
@@ -563,6 +573,10 @@ host 仍 fail closed，绝不替换为 generic toolchain。
 而一个产出它们的生成器被实测为在重做已经存在的事。所以这个切片加的代码少于它删掉的代码。
 它不引入任何新原语、任何执行路径，而它产出的东西由检查手写声明的同一份契约来检查。单阈值编写器
 是它的第一个产物，并且逐字节保持原样；下面的编写语言按同样的条件准入，并把那个族作为它的一个特例。
+此后它的字节有意改过一次：一侧的 reconciliation target 读该侧的 target position，因为 kernel 要求
+position target 与它的 reconciliation target 相等，而两侧曾共用的那个值为 0 的常量，让每个两侧仓位不同的
+程序都无法运行 - target-set Host 在第一笔订单之前就拒绝了它的入场一侧。按旧字节冻结的程序从来不可能运行，
+现在它在这个族之外。
 
 **IMPLEMENTATION_ADMITTED - 编写语言 V1：** 提案者写的一份文档，由一个纯函数编译成 `design` 与
 `meaning` 这一对，再无其他。这个截面上没有任何实现，它的实现排在第一次 COMPOSER_V3 Replay

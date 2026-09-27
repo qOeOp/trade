@@ -329,8 +329,8 @@ fn semantic_digest_is_separated_by_version_number() {
 /// Resolution keys on the requested version and refuses one this kernel does not publish.
 #[rstest::rstest]
 fn resolution_admits_only_published_versions() {
-    assert_eq!(crate::catalog_version::PUBLISHED_V1.len(), 3);
-    assert_eq!(crate::catalog_version::newest().semantic_version, 3);
+    assert_eq!(crate::catalog_version::PUBLISHED_V1.len(), 4);
+    assert_eq!(crate::catalog_version::newest().semantic_version, 4);
     assert_eq!(
         PrimitiveCatalogV1::resolve(1).unwrap().semantic_version(),
         1
@@ -344,10 +344,10 @@ fn resolution_admits_only_published_versions() {
     // than left to be noticed.
     assert_eq!(
         PrimitiveCatalogV1::verify().unwrap(),
-        PrimitiveCatalogV1::resolve(3).unwrap()
+        PrimitiveCatalogV1::resolve(4).unwrap()
     );
 
-    for unpublished in [0_u16, 4, 65_535] {
+    for unpublished in [0_u16, 5, 65_535] {
         assert_eq!(
             PrimitiveCatalogV1::resolve(unpublished),
             Err(PrimitiveCatalogFailure::UnpublishedSemanticVersion),
@@ -431,6 +431,13 @@ const VERSION_3_SEMANTIC_DIGEST: [u8; 32] = [
     0x1e, 0xa8, 0xb4, 0x21, 0xf9, 0x8a, 0xd8, 0x24, 0x0b, 0xf5, 0xd0, 0x4f, 0xfb, 0x50, 0x9d, 0xaa,
 ];
 
+/// Version 4's meaning, pinned for programs frozen against it, the first of which counts bars since
+/// an extremum or ranks a sample within its window.
+const VERSION_4_SEMANTIC_DIGEST: [u8; 32] = [
+    0xb3, 0x86, 0x80, 0x70, 0x0b, 0x22, 0xbc, 0x19, 0x77, 0x6d, 0xae, 0x76, 0x17, 0xfc, 0x8b, 0xd4,
+    0xe4, 0x5d, 0xba, 0x29, 0x13, 0x41, 0xbe, 0x8c, 0x46, 0xdb, 0x09, 0xae, 0x1d, 0x5c, 0x73, 0x36,
+];
+
 /// Every published version after the first keeps its predecessor's meaning and rows.
 ///
 /// `docs/owners/rd.md` states that each version is checked against its predecessor, and until this
@@ -443,6 +450,7 @@ fn every_published_version_keeps_its_predecessors_rows_and_meaning() {
         (1, VERSION_1_SEMANTIC_DIGEST),
         (2, VERSION_2_SEMANTIC_DIGEST),
         (3, VERSION_3_SEMANTIC_DIGEST),
+        (4, VERSION_4_SEMANTIC_DIGEST),
     ];
 
     for (version, digest) in pinned {
@@ -455,7 +463,7 @@ fn every_published_version_keeps_its_predecessors_rows_and_meaning() {
         );
     }
 
-    for (older, newer) in [(1, 2), (2, 3)] {
+    for (older, newer) in [(1, 2), (2, 3), (3, 4)] {
         let older_rows = PrimitiveCatalogV1::resolve(older).unwrap().rows();
         let newer_rows = PrimitiveCatalogV1::resolve(newer).unwrap().rows();
         assert!(newer_rows.len() > older_rows.len());

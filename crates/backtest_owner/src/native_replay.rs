@@ -6,7 +6,7 @@
 //! from the actual ProgramHost/Sim EVENT readback. Until an Owner implementation can produce that
 //! handoff, no production caller can enter the runner.
 
-use std::{collections::BTreeSet, future::Future, pin::Pin, sync::Arc};
+use std::{collections::BTreeSet, fmt::Display, future::Future, pin::Pin, sync::Arc};
 
 use serde::Serialize;
 use sqlx::PgPool;
@@ -579,8 +579,8 @@ fn execute_native_replay_preparation(
     )?;
     validate_execution_request_locator(execution.request_locator(), locator)?;
 
-    let execution_readback = run_program_host_sim_event_consumer_v1(execution)
-        .map_err(|e| NativeReplayRunErrorV2::NativeExecution(e.to_string()))?;
+    let execution_readback =
+        run_program_host_sim_event_consumer_v1(execution).map_err(native_execution_error)?;
     validate_execution_request_locator(
         execution_readback.consumption_census().request_locator(),
         locator,
@@ -628,6 +628,15 @@ fn execute_native_replay_preparation(
         semantic_trace,
         outcome_evidence,
     })
+}
+
+/// Keeps a native execution failure's whole cause chain, not only its outermost message.
+///
+/// The Sim EVENT run reports most failures as context over the failure that caused it, so its
+/// outermost message names the stage and the inner one names why. `to_string` kept only the stage;
+/// the alternate form writes the whole chain.
+fn native_execution_error(error: impl Display) -> NativeReplayRunErrorV2 {
+    NativeReplayRunErrorV2::NativeExecution(format!("{error:#}"))
 }
 
 fn validate_committed_readbacks(
@@ -903,6 +912,22 @@ mod tests {
         assert_eq!(first, repeated);
         assert_ne!(first, changed);
         assert_ne!(first, semantic);
+    }
+
+    /// The Sim EVENT run's failures are context over their cause, and the run error keeps both.
+    #[rstest::rstest]
+    fn a_native_execution_failure_keeps_its_cause_under_its_stage() {
+        let failure = anyhow::anyhow!("callback returned an unsupported frame")
+            .context("ProgramHost Sim EVENT callback failed");
+
+        let NativeReplayRunErrorV2::NativeExecution(message) = native_execution_error(failure)
+        else {
+            panic!("a native execution failure stays one")
+        };
+        assert_eq!(
+            message,
+            "ProgramHost Sim EVENT callback failed: callback returned an unsupported frame"
+        );
     }
 
     #[rstest::rstest]

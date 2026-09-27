@@ -49,8 +49,8 @@ use super::{
     program_host_v2_tests::universe_design,
     strategy_design_v2::{PluginManifestV2, PortContractV2, ValueTypeV2},
     strategy_plan_v2::{
-        StrategyCompilationV2, StrategyPlanV2, compile_strategy_design_v2_for_universe,
-        issue_plugin_implementation_receipt_v2_for_test,
+        StrategyCompilationV2, StrategyPlanV2, TargetSetBarFieldV2,
+        compile_strategy_design_v2_for_universe, issue_plugin_implementation_receipt_v2_for_test,
     },
 };
 #[cfg(feature = "sealed-strategy-input-acceptance")]
@@ -217,6 +217,27 @@ fn owner_bound_profile_drives_bar_signal_then_real_event_fills() {
             .request_locator()
             .request_identity,
         "rd-replay-request-aapl-msft-v2"
+    );
+}
+
+/// The Host reads its member roles and its pricing role from the compiled Plan: they are the
+/// Design's roles, each with the BAR field it is checked against, and the one role reading the
+/// close. Nothing in the Host names a role.
+#[rstest]
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+fn the_host_reads_its_roles_and_pricing_role_from_the_plan() {
+    let (plan, _, _) = fixture().unwrap();
+
+    assert_eq!(
+        plan.target_set_member_roles_v2(),
+        vec![
+            ("research.input.close.v1", TargetSetBarFieldV2::Close),
+            ("research.input.open.v1", TargetSetBarFieldV2::Open),
+        ]
+    );
+    assert_eq!(
+        plan.execution_role_v2(),
+        Some(("research.input.close.v1", TargetSetBarFieldV2::Close))
     );
 }
 

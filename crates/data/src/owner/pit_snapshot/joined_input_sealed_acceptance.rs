@@ -1144,6 +1144,7 @@ fn clock() -> MarketDataClockAdmission {
 
 fn source_proposal(seed: u8) -> UntrustedSourceBindingProposal {
     let mut proposal = UntrustedSourceBindingProposal {
+        availability_rule: None,
         claimed_binding_id: digest_byte(0),
         schema_version: 1,
         adapter: UntrustedAdapterBinding {

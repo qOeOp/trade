@@ -81,6 +81,7 @@ fn pit_read_clock(cut: u64, now: u64, sequence: u64) -> MarketDataClockAdmission
 fn source_proposal(sequence: u64, cut: u64) -> UntrustedSourceBindingProposal {
     let is_successor = sequence > 10;
     let mut proposal = UntrustedSourceBindingProposal {
+        availability_rule: None,
         claimed_binding_id: d(0),
         schema_version: 1,
         adapter: UntrustedAdapterBinding {
