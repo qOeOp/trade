@@ -22,7 +22,9 @@ use super::instrument_economic_terms_v1::{
     InstrumentEconomicTermsLocatorV1, InstrumentEconomicTermsReadbackV1,
     InstrumentEconomicTermsReceiptV1,
 };
-use super::instrument_master_v2::{FactValue, InstrumentMasterReadbackV2};
+use super::instrument_master_v2::{
+    FactValue, InstrumentMasterCutMemberV2, InstrumentMasterFactV2, InstrumentMasterReadbackV2,
+};
 
 const CUSTODY_DOMAIN: &[u8] = b"instrument-owner.private-economic-terms.custody.v1\0";
 const ADVISORY_LOCK_KEY: i64 = 0x4945_5456_3100_0001;
@@ -206,11 +208,11 @@ impl InstrumentEconomicTermsPostgresOwnerV1 {
             return Err(InstrumentEconomicTermsPostgresErrorV1::InvalidSelection);
         }
         let members = instrument_master.cut().members();
-        if members.iter().any(|member| {
-            member.fact().venue_identity() != venue_identity
-                || member.fact().terms().quote_currency
-                    != FactValue::Value(quote_currency.to_owned())
-        }) {
+        if !members_are_at_v1(
+            members.iter().map(InstrumentMasterCutMemberV2::fact),
+            venue_identity,
+            quote_currency,
+        ) {
             return Err(InstrumentEconomicTermsPostgresErrorV1::UnknownSelection);
         }
         let identities = members
@@ -337,6 +339,20 @@ pub enum InstrumentEconomicTermsPostgresErrorV1 {
     MeaningConflict,
     #[error("Instrument economic terms durable readback is corrupt or cross-spliced")]
     CorruptReadback,
+}
+
+/// Whether every member of a Native Replay cut is at the Replay's venue and quotes in its common
+/// currency. Checked before any terms are read, and whatever the Replay's economic configuration
+/// pins or omits: terms for members at another venue are never selected.
+fn members_are_at_v1<'a>(
+    members: impl IntoIterator<Item = &'a InstrumentMasterFactV2>,
+    venue_identity: &str,
+    quote_currency: &str,
+) -> bool {
+    members.into_iter().all(|fact| {
+        fact.venue_identity() == venue_identity
+            && fact.terms().quote_currency == FactValue::Value(quote_currency.to_owned())
+    })
 }
 
 async fn lock_protected_tables_in_transaction(
@@ -575,6 +591,21 @@ mod tests {
         instrument_master_v2_postgres::{InstrumentMasterV2PostgresOwner, tests::selection_of},
     };
     use vibe_postgres_connect::{PgPoolOptionsExt, PostgresTls};
+
+    /// The venue and currency pre-check runs before any terms are read: a cut whose members are at
+    /// another venue, or quote in another currency, selects nothing.
+    #[rstest::rstest]
+    fn members_at_another_venue_or_currency_are_never_selected() {
+        let link = fact_for("LINKUSDT-PERP.BINANCE", "LINKUSDT", 10);
+        let FactValue::Value(quote) = link.terms().quote_currency.clone() else {
+            panic!("the fixture fact states its quote currency");
+        };
+        let venue = link.venue_identity().to_owned();
+
+        assert!(members_are_at_v1([&link], &venue, &quote));
+        assert!(!members_are_at_v1([&link], "SIM", &quote));
+        assert!(!members_are_at_v1([&link], &venue, "USD"));
+    }
 
     /// One member's economic terms under the shared account scope, valid around the replay time.
     fn terms_for(
