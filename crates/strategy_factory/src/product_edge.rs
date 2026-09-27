@@ -2546,22 +2546,25 @@ fn binding_digest_hex(digest: BindingDigest) -> String {
     value
 }
 
+fn lowercase_hex_256(digest: &str) -> bool {
+    digest.len() == 64
+        && digest
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
 fn canonical_sha256_text(value: &str) -> bool {
-    value.strip_prefix("sha256:").is_some_and(|digest| {
-        digest.len() == 64
-            && digest
-                .bytes()
-                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-    })
+    value.strip_prefix("sha256:").is_some_and(lowercase_hex_256)
+}
+
+/// Whether `value` has the form of a Replay request V2 meaning digest, which the request contract
+/// computes with BLAKE3 (`ReplayRequestV2::meaning_digest`).
+fn canonical_blake3_text(value: &str) -> bool {
+    value.strip_prefix("blake3:").is_some_and(lowercase_hex_256)
 }
 
 fn canonical_named_sha256(value: &str, prefix: &str) -> bool {
-    value.strip_prefix(prefix).is_some_and(|digest| {
-        digest.len() == 64
-            && digest
-                .bytes()
-                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-    })
+    value.strip_prefix(prefix).is_some_and(lowercase_hex_256)
 }
 
 /// Validates only the historical View shape. The consuming Owner must separately reread the
@@ -2626,7 +2629,7 @@ pub(crate) fn composer_exploration_research_view_is_valid_v3(
         && composer.census_frontier_identity == exploration.census_frontier_identity
         && composer.census_frontier_digest == exploration.census_frontier_digest
         && !exploration.replay_request_identity.is_empty()
-        && canonical_sha256_text(&exploration.replay_request_meaning_digest)
+        && canonical_blake3_text(&exploration.replay_request_meaning_digest)
         && canonical_sha256_text(&exploration.replay_request_seal_digest)
         && canonical_named_sha256(
             &exploration.replay_receipt_identity,
@@ -3008,7 +3011,7 @@ mod v2_sealing_tests {
             census_frontier_identity: "census-frontier".into(),
             census_frontier_digest: digest('5'),
             replay_request_identity: "replay-request".into(),
-            replay_request_meaning_digest: digest('6'),
+            replay_request_meaning_digest: format!("blake3:{}", "6".repeat(64)),
             replay_request_seal_digest: digest('3'),
             replay_receipt_identity: format!("rd-exploratory-replay-receipt-v2-{}", "8".repeat(64)),
         });
@@ -3016,6 +3019,21 @@ mod v2_sealing_tests {
         view.projection_identity = canonical_research_view_identity_v4(&view).unwrap();
         assert!(
             crate::rd_owner_postgres_custody::validate_historical_view(&view, &initial).is_ok()
+        );
+
+        // The Replay request V2 meaning digest is BLAKE3 by the request contract; a SHA-256 value in
+        // its place is refused rather than taken for it.
+        let mut sha256_meaning = view.clone();
+        sha256_meaning
+            .exploration
+            .as_mut()
+            .unwrap()
+            .replay_request_meaning_digest = digest('6');
+        sha256_meaning.projection_identity =
+            canonical_research_view_identity_v4(&sha256_meaning).unwrap();
+        assert!(
+            crate::rd_owner_postgres_custody::validate_historical_view(&sha256_meaning, &initial)
+                .is_err()
         );
 
         view.attempt_identity = Some("legacy-attempt".into());

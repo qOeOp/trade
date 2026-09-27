@@ -3,6 +3,12 @@ use std::{collections::BTreeSet, env, fmt::Write as _};
 use rstest::rstest;
 use sqlx::{PgPool, Row, postgres::PgPoolOptions};
 
+use super::acceptance_fixture_v1::{
+    TEST_CLOCK_EPOCH_V1, TEST_CLOCK_IDENTITY_V1, instrument_fact, instrument_request,
+    market_base_pit_time_v1, shared_clock,
+};
+pub(super) use super::acceptance_fixture_v1::{d, source_proposal};
+use super::chain_market_base_v1::exact_instrument_identity_v1;
 use super::*;
 use super::{
     NativeReplayCensusFrameV2, NativeReplayCensusSequenceV2,
@@ -23,16 +29,11 @@ use crate::owner::{
         BarScheduleResolverV1, UntrustedBarScheduleLocatorV1, prepare_bar_schedule_commit_v1,
     },
     instrument_master::{
-        BACKTEST_OWNER_V1, InstrumentClass, InstrumentDecimal, InstrumentMasterError,
-        InstrumentMasterFactProposalV1, InstrumentMasterResolver, InstrumentMasterScopeV1,
+        InstrumentMasterError, InstrumentMasterResolver, InstrumentMasterScopeV1,
         InstrumentMasterUniverseMembershipResolver, InstrumentMasterUniverseMembershipV1,
-        InstrumentVenueSourceMapping, UntrustedInstrumentMasterRequestV1, membership_seal,
+        membership_seal,
     },
-    market_semantics::{
-        MarketSemanticsConsumerV1, MarketSemanticsPriceAdjustmentV1,
-        MarketSemanticsTimestampBasisV1, MarketSemanticsValueV1,
-        UntrustedMarketSemanticsProposalV1, authority as market_semantics_authority,
-    },
+    market_semantics::authority as market_semantics_authority,
     pit_snapshot::{
         PitSnapshotOwnerResolver, UntrustedCorrectionPublicationTime, UntrustedEventEffectiveTime,
         UntrustedPitObservation, UntrustedPitObservationBatchProposal,
@@ -40,13 +41,10 @@ use crate::owner::{
         UntrustedPitSnapshotTimeEvidence, UntrustedProviderAvailableTime, UntrustedRetrievalTime,
         UntrustedSnapshotDecisionCut,
         authority::{
-            TestOnlyCanonicalBasisResolver, derive_observation_batch_digest,
-            refresh_request_claims, verify_observation_batch,
+            TestOnlyCanonicalBasisResolver, derive_observation_batch_digest, refresh_request_claims,
         },
     },
-    reference_fact_coordinates::r0::{
-        UntrustedReferenceFactR0RequestV1, request_meaning_digest_v1 as r0_request_meaning_digest,
-    },
+    reference_fact_coordinates::r0::request_meaning_digest_v1 as r0_request_meaning_digest,
     research_pit_terminal::{
         ResearchPitDisposition, ResearchPitTerminalResolver, UntrustedResearchPitTerminalRequest,
         derive_license_binding_digest, derive_provenance_binding_digest,
@@ -62,11 +60,7 @@ use crate::owner::{
         prepare_strategy_input_sample_projection_frame_v2,
     },
     source_binding::{
-        SourceBindingBlocker, SourceBindingOwnerResolver, UntrustedAdapterBinding,
-        UntrustedCompleteFrontier, UntrustedCredentialAudienceClaim,
-        UntrustedCredentialCapabilityClaim, UntrustedLicensePolicy, UntrustedMarketDataAsOf,
-        UntrustedMarketSemantics, UntrustedOpaqueCredentialHandle, UntrustedSourceBindingProposal,
-        UntrustedTrustPolicy,
+        SourceBindingBlocker, SourceBindingOwnerResolver, UntrustedSourceBindingProposal,
         authority::{
             OwnerSourceBindingDecision, SourceBindingCommit, derive_binding_id,
             derive_time_evidence_identity,
@@ -100,15 +94,6 @@ fn sample_projection_v2_migration_closes_kind_registry_to_frame_and_joined_cut()
     }));
 }
 
-pub(super) fn d(byte: u8) -> BindingDigest {
-    BindingDigest::from_untrusted_bytes([byte; 32])
-}
-
-/// The test clock names itself in the 32-byte width the Instrument Master codec binds, exactly as
-/// the production Owner clock does; a shorter name could never admit an instrument fact.
-const TEST_CLOCK_IDENTITY_V1: &str = "market-clock.identity.v1-0000001";
-const TEST_CLOCK_EPOCH_V1: &str = "market-clock.epoch.v1-0000000001";
-
 pub(super) fn clock(cut: u64, sequence: u64) -> MarketDataClockAdmission {
     shared_clock(
         TEST_CLOCK_IDENTITY_V1,
@@ -118,28 +103,6 @@ pub(super) fn clock(cut: u64, sequence: u64) -> MarketDataClockAdmission {
         d(7),
         1,
         2,
-    )
-}
-
-fn shared_clock(
-    clock_identity: &str,
-    epoch: &str,
-    sequence: u64,
-    cut: u64,
-    continuity: BindingDigest,
-    uncertainty: u64,
-    skew: u64,
-) -> MarketDataClockAdmission {
-    MarketDataClockAdmission::seal_for_test(
-        clock_identity,
-        epoch,
-        sequence,
-        cut,
-        cut,
-        cut + 60,
-        continuity,
-        uncertainty,
-        skew,
     )
 }
 
@@ -273,106 +236,6 @@ fn shared_time_raw_history_rejects_tampered_historical_epoch_proof() {
         verify_raw_clock_history_v1(&snapshot),
         Err(SharedTimeEvidenceError::StoreUnavailable)
     ));
-}
-
-/// The semantics every fixture Source Binding here states.
-fn fixture_semantics_v1() -> UntrustedMarketSemantics {
-    UntrustedMarketSemantics {
-        normalization: "normalization-v1".into(),
-        adjustment: "raw-v1".into(),
-        price_meaning: "quote-currency-per-base-v1".into(),
-        calendar_rules: "calendar-v1".into(),
-        session_rules: "session-v1".into(),
-        timezone_rules: "iana-2026a".into(),
-        instrument_lifecycle_rules: "instrument-lifecycle-v1".into(),
-        corporate_action_rules: "corporate-actions-v1".into(),
-        membership_rules: "historical-membership-v1".into(),
-        universe_rules: "requester-rule-evaluation-v1".into(),
-        correction_policy: "successor-only-v1".into(),
-    }
-}
-
-/// The Market Semantics compatibility scope of a fixture Source Binding, derived from its semantics
-/// by the function production admits under. It is derived, never written: an Instrument Master fact
-/// naming any other scope fails the registry key's `InstrumentFactMarketSemantics` condition for
-/// every fact production admits under the binding.
-fn fixture_market_semantics_identity_v1() -> BindingDigest {
-    derive_market_semantics_compatibility_identity_v1(&fixture_semantics_v1())
-}
-
-pub(super) fn source_proposal(sequence: u64, cut: u64) -> UntrustedSourceBindingProposal {
-    let successor = sequence > 10;
-    let mut proposal = UntrustedSourceBindingProposal {
-        claimed_binding_id: d(0),
-        schema_version: 1,
-        adapter: UntrustedAdapterBinding {
-            implementation_digest: d(1),
-            configuration_digest: d(2),
-            authenticated_endpoint_identity: "https://market.example/v1".into(),
-            dataset_mapping: "dataset/trades".into(),
-            account_mapping: "tenant/entitlement".into(),
-        },
-        credential_handle: UntrustedOpaqueCredentialHandle::from_untrusted_identity(
-            d(6),
-            UntrustedCredentialAudienceClaim::MarketData,
-            [
-                UntrustedCredentialCapabilityClaim::MarketDataRead,
-                UntrustedCredentialCapabilityClaim::ReferenceDataRead,
-                UntrustedCredentialCapabilityClaim::MetadataRead,
-            ],
-        ),
-        trust_policy: UntrustedTrustPolicy {
-            identity: "trust-policy".into(),
-            version: 1,
-        },
-        semantics: fixture_semantics_v1(),
-        license: UntrustedLicensePolicy {
-            use_scope: "acquire-cache-archive-backtest-model-display".into(),
-            redistribution_scope: "derived-only".into(),
-            retention_policy: "retain-30d-delete-v1".into(),
-            redaction_policy: "no-licensed-payload-v1".into(),
-        },
-        source_frontier: UntrustedCompleteFrontier {
-            stream_identity: "source-stream".into(),
-            cut_identity: if successor {
-                "source-cut-12"
-            } else {
-                "source-cut-10"
-            }
-            .into(),
-            sequence,
-            digest: if successor { d(8) } else { d(3) },
-        },
-        correction_frontier: UntrustedCompleteFrontier {
-            stream_identity: "correction-stream".into(),
-            cut_identity: format!(
-                "correction-cut-{}",
-                if successor { sequence } else { sequence + 1 }
-            ),
-            sequence: if successor { sequence } else { sequence + 1 },
-            digest: if successor { d(9) } else { d(4) },
-        },
-        time_evidence: UntrustedMarketDataAsOf {
-            claimed_evidence_identity: d(0),
-            clock_identity: TEST_CLOCK_IDENTITY_V1.into(),
-            clock_epoch: TEST_CLOCK_EPOCH_V1.into(),
-            monotonic_sequence: if successor { 2 } else { 1 },
-            restart_continuity_digest: d(7),
-            skew_bound: 2,
-            uncertainty_bound: 1,
-            event_effective: 10,
-            provider_available: if successor { 45 } else { 20 },
-            retrieval: if successor { 49 } else { 30 },
-            correction_publication: if successor { 49 } else { 25 },
-            observed_at: cut,
-            effective_at: cut,
-            valid_through: cut + 60,
-        },
-    };
-    proposal.time_evidence.claimed_evidence_identity =
-        derive_time_evidence_identity(&proposal.time_evidence);
-    proposal.claimed_binding_id = derive_binding_id(&proposal);
-    proposal
 }
 
 fn pit_time(cut: u64, sequence: u64) -> UntrustedPitSnapshotTimeEvidence {
@@ -1923,78 +1786,6 @@ fn instrument_clock() -> MarketDataClockAdmission {
     )
 }
 
-fn instrument_fact(
-    identity: &str,
-    predecessor: Option<BindingDigest>,
-    correction: u8,
-) -> InstrumentMasterFactProposalV1 {
-    InstrumentMasterFactProposalV1 {
-        canonical_identity: identity.into(),
-        predecessor_fact_digest: predecessor,
-        mappings: vec![InstrumentVenueSourceMapping {
-            venue_identity: "XNAS".into(),
-            source_identity: "SIP".into(),
-            source_instrument: identity.as_bytes().to_vec(),
-        }],
-        instrument_class: InstrumentClass::Equity,
-        base_currency: Some("USD".into()),
-        quote_currency: None,
-        settlement_currency: Some("USD".into()),
-        margin_currency: None,
-        price_increment: InstrumentDecimal {
-            mantissa: 1,
-            scale: 2,
-        },
-        quantity_increment: InstrumentDecimal {
-            mantissa: 1,
-            scale: 0,
-        },
-        contract_multiplier: InstrumentDecimal {
-            mantissa: 1,
-            scale: 0,
-        },
-        calendar_identity: "XNYS-CALENDAR-V1".into(),
-        session_identity: "XNYS-REGULAR-V1".into(),
-        time_zone_identity: "Etc/UTC".into(),
-        lifecycle_frontier: d(81),
-        corporate_action_frontier: d(82),
-        historical_membership_frontier: d(83),
-        market_semantics_identity: fixture_market_semantics_identity_v1(),
-        source_frontier: d(85),
-        correction_frontier: d(correction),
-        effective_from: 10,
-        effective_until: Some(200),
-        provider_available: 90,
-        retrieval: 91,
-        correction_publication: 92,
-        owner_observation: 99,
-    }
-}
-
-fn instrument_request(
-    identity: u8,
-    scope: InstrumentMasterScopeV1,
-    locator: UntrustedClockHeadLocator,
-) -> UntrustedInstrumentMasterRequestV1 {
-    UntrustedInstrumentMasterRequestV1 {
-        request_identity: d(identity),
-        request_meaning_digest: d(identity.wrapping_add(1)),
-        consumer_role: BACKTEST_OWNER_V1.into(),
-        scope,
-        effective_instant: 50,
-        owner_observation: 99,
-        decision_cut: 100,
-        clock_head: locator,
-        lifecycle_frontier: d(81),
-        corporate_action_frontier: d(82),
-        historical_membership_frontier: d(83),
-        market_semantics_identity: fixture_market_semantics_identity_v1(),
-        source_frontier: d(85),
-        correction_frontier: d(86),
-        stable_correlation: d(identity.wrapping_add(2)),
-    }
-}
-
 pub(crate) struct ReplayCompositionMarketBaseFixtureV1 {
     /// The clock the base was provisioned on; a later snapshot over the base is minted on it.
     pub(crate) clock: MarketDataClockAdmission,
@@ -2675,17 +2466,6 @@ async fn fixed_member_selection_oracle_v1(
     );
 }
 
-/// The one exact instrument a registry oracle binds: the canonical identity of the single fact its
-/// Instrument Master readback holds, and none when it holds any other number.
-fn exact_instrument_identity_v1(
-    readback: &crate::owner::instrument_master::InstrumentMasterReadbackV1,
-) -> Option<&str> {
-    match readback.facts() {
-        [fact] => Some(fact.canonical_identity()),
-        _ => None,
-    }
-}
-
 #[rstest]
 fn a_registry_oracle_binds_exactly_one_instrument() {
     let readback = || crate::owner::calendar::tests::instrument_readback("XNYS-CALENDAR-V1");
@@ -2702,44 +2482,6 @@ fn a_registry_oracle_binds_exactly_one_instrument() {
     assert_eq!(exact_instrument_identity_v1(&two), None);
 }
 
-/// The time evidence the chain market base mints its snapshots under, on the fixture's `clock`:
-/// after the base's Instrument Master fact is observable, so a snapshot minted with it binds that fact.
-fn market_base_pit_time_v1(clock: &MarketDataClockAdmission) -> UntrustedPitSnapshotTimeEvidence {
-    UntrustedPitSnapshotTimeEvidence {
-        event_effective: UntrustedEventEffectiveTime::from_untrusted(
-            50,
-            &clock.clock_identity,
-            &clock.clock_epoch,
-        ),
-        provider_available: UntrustedProviderAvailableTime::from_untrusted(
-            90,
-            &clock.clock_identity,
-            &clock.clock_epoch,
-        ),
-        retrieval: UntrustedRetrievalTime::from_untrusted(
-            92,
-            &clock.clock_identity,
-            &clock.clock_epoch,
-        ),
-        correction_publication: Some(UntrustedCorrectionPublicationTime::from_untrusted(
-            91,
-            &clock.clock_identity,
-            &clock.clock_epoch,
-        )),
-        decision_cut: UntrustedSnapshotDecisionCut::from_untrusted(
-            100,
-            &clock.clock_identity,
-            &clock.clock_epoch,
-        ),
-        monotonic_sequence: clock.monotonic_sequence,
-        restart_continuity_digest: clock.restart_continuity_digest,
-        skew_bound: clock.skew_bound,
-        uncertainty_bound: clock.uncertainty_bound,
-        observed_at: 100,
-        valid_through: 160,
-    }
-}
-
 async fn strategy_input_binding_registry_postgres_oracle(
     owner: &MarketDataOwnerPostgres,
     source: &SourceBindingCommit,
@@ -2749,9 +2491,30 @@ async fn strategy_input_binding_registry_postgres_oracle(
         crate::owner::reference_fact_coordinates::r0::ReferenceFactR0ReadbackV1,
     >,
 ) -> StrategyInputBindingRegistryFixtureV1 {
-    // The scope production derives for this binding, never a written one.
-    let scope =
-        derive_market_semantics_compatibility_identity_v1(&source.fact().proposal().semantics);
+    let corpus =
+        super::chain_market_base_v1::commit_market_base_corpus_v1(owner, source, instrument, clock)
+            .await
+            .unwrap();
+    Box::pin(strategy_input_binding_registry_oracle_over_corpus(
+        owner,
+        source,
+        instrument,
+        corpus,
+        historical_native_r0,
+    ))
+    .await
+}
+
+/// The registry oracle's own probes, recoveries and declarations over a committed base corpus.
+async fn strategy_input_binding_registry_oracle_over_corpus(
+    owner: &MarketDataOwnerPostgres,
+    source: &SourceBindingCommit,
+    instrument: &crate::owner::instrument_master::InstrumentMasterReadbackV1,
+    corpus: super::chain_market_base_v1::MarketBaseCorpusV1,
+    historical_native_r0: Option<
+        crate::owner::reference_fact_coordinates::r0::ReferenceFactR0ReadbackV1,
+    >,
+) -> StrategyInputBindingRegistryFixtureV1 {
     // The instrument comes from `instrument`, the caller's Instrument Master cut, never from a name
     // written here. This oracle has two callers with two identities - the chain's replay composition
     // base fixture (the chain fixtures' instrument) and the Market Data Instrument Master oracle
@@ -2760,198 +2523,19 @@ async fn strategy_input_binding_registry_postgres_oracle(
     let instrument_identity = exact_instrument_identity_v1(instrument)
         .expect("the registry oracle binds one exact instrument")
         .to_owned();
-    let source_readback = {
-        let mut transaction = owner.pool().begin().await.unwrap();
-        let aggregate = load_source_for_update(&mut transaction, source.fact().binding_id(), false)
-            .await
-            .unwrap()
-            .unwrap();
-        let readback = SourceBindingOwnerReadback::from_verified(&aggregate);
-        transaction.commit().await.unwrap();
-        readback
-    };
-
-    let membership_frontier = d(170);
-    let universe_request = UntrustedUniverseSelectionRequestV1::new(
-        d(171),
-        "RESEARCH_OWNER_V1",
-        d(172),
-        vec![0, 1, 1],
-        membership_frontier,
-        50,
-        99,
-        100,
-        source.fact().lineage_root(),
-        d(86),
-        d(173),
-    );
-    let universe = {
-        let mut transaction = owner.pool().begin().await.unwrap();
-        super::universe_selection::persist_historical_membership_frontier_v1(
-            &mut transaction,
-            membership_frontier,
-            vec![HistoricalMembershipFactProposalV1 {
-                member_key: instrument_identity.as_bytes().to_vec(),
-                instrument: instrument_identity.as_bytes().to_vec(),
-                predecessor_identity: None,
-                effective_from_ns: 1,
-                effective_until_ns: None,
-                provider_available_ns: 90,
-                retrieval_ns: 92,
-                correction_publication_ns: 91,
-                owner_observation_ns: 99,
-                decision_cut: 100,
-                source_binding_lineage_root: source.fact().lineage_root(),
-                correction_frontier_digest: d(86),
-            }],
-        )
-        .await
-        .unwrap();
-        let readback = super::universe_selection::resolve_universe_selection_in_transaction_v1(
-            &mut transaction,
-            &universe_request,
-            Some(&CanonicalUniverseSelectionRuleEvaluatorV1),
-        )
-        .await
-        .unwrap();
-        transaction.commit().await.unwrap();
-        readback
-    };
-
-    let time_evidence = market_base_pit_time_v1(clock);
-    let mut pit_proposal = UntrustedPitSnapshotProposal {
-        request: UntrustedPitSnapshotRequest {
-            claimed_request_identity: d(0),
-            claimed_request_digest: d(0),
-            correlation_identity: BindingDigest::from_untrusted_bytes(
-                crate::owner::chain_fixture_v1::CHAIN_MARKET_BASE_PIT_CORRELATION_V1,
-            ),
-            // The requester R&D writes for the fixture's Research request, so a Design of that
-            // request can name this PIT request as its initial one.
-            requester_identity: crate::owner::pit_snapshot::research_pit_requester_identity_v1(
-                BindingDigest::from_untrusted_bytes(
-                    crate::owner::chain_fixture_v1::CHAIN_MARKET_BASE_RESEARCH_REQUEST_V1,
-                ),
-            ),
-            scope_digest: d(176),
-            source_binding: source.receipt().locator().clone(),
-            instrument_master_digest: instrument.digest(),
-            universe_selection_digest: universe.record().identity(),
-            market_semantics_identity: scope,
-            time_evidence,
-        },
-        evidence: UntrustedPitSnapshotEvidence {
-            normalized_records_digest: d(0),
-            source_frontier: source.receipt().locator().source_frontier.clone(),
-            correction_frontier: source.receipt().locator().correction_frontier.clone(),
-            coverage_complete: true,
-            semantics_compatible: true,
-            source_available: true,
-        },
-    };
-    let observation = UntrustedPitObservationBatchProposal {
-        rows: [
-            ("AAPL.CLOSE.1H", "CLOSE", "1H", 12_301),
-            ("AAPL.CLOSE.1M", "CLOSE", "1M", 12_345),
-            ("AAPL.CLOSE.EXCHANGE_SESSION_1D", "CLOSE", "1D", 12_299),
-            ("AAPL.HIGH.1M", "HIGH", "1M", 12_401),
-            ("AAPL.LOW.1M", "LOW", "1M", 12_211),
-            ("AAPL.OPEN.1M", "OPEN", "1M", 12_251),
-        ]
-        .into_iter()
-        .map(
-            |(symbolic_key, field, timeframe, value_mantissa)| UntrustedPitObservation {
-                symbolic_key: symbolic_key.into(),
-                member_key: instrument_identity.clone(),
-                instrument: instrument_identity.clone(),
-                channel: "MARKET".into(),
-                data_kind: "BAR".into(),
-                timeframe: timeframe.into(),
-                field: field.into(),
-                value_mantissa,
-                value_scale: 2,
-                event_effective: 50,
-                provider_available: 90,
-                retrieval: 92,
-                correction_publication: 91,
-                source_binding_identity: source.fact().binding_id(),
-                source_frontier_digest: d(85),
-                instrument_master_digest: instrument.digest(),
-                universe_selection_digest: universe.record().identity(),
-                market_semantics_identity: scope,
-                correction_stream_identity: source
-                    .receipt()
-                    .locator()
-                    .correction_frontier
-                    .stream_identity
-                    .clone(),
-                correction_sequence: source.receipt().locator().correction_frontier.sequence,
-                correction_frontier_digest: d(86),
-            },
-        )
-        .collect(),
-    };
-    pit_proposal.evidence.normalized_records_digest =
-        derive_observation_batch_digest(&observation).unwrap();
-    refresh_request_claims(&mut pit_proposal.request);
-    let pit_basis = TestOnlyCanonicalBasisResolver::seal_for_test(
-        pit_proposal.request.clone(),
-        pit_proposal.evidence.clone(),
-        clock.clone(),
-    );
-    let pit = owner
-        .commit_pit_initial_with_observation_batch(pit_proposal, observation, &pit_basis, clock)
-        .await
-        .unwrap();
-    let batch = {
-        let mut transaction = owner.pool().begin().await.unwrap();
-        let aggregate =
-            load_pit_for_update(&mut transaction, pit.fact().snapshot_identity(), false)
-                .await
-                .unwrap()
-                .unwrap();
-        let stored = load_pit_observation_batch_for_update(&mut transaction, &aggregate)
-            .await
-            .unwrap()
-            .unwrap();
-        let batch = verify_observation_batch(
-            &aggregate,
-            stored.source_binding_identity,
-            stored.source_binding_lineage_root,
-            stored.source_binding_lineage_version,
-            stored.digest,
-            &stored.bytes,
-            &stored.rows,
-        )
-        .unwrap();
-        transaction.commit().await.unwrap();
-        batch
-    };
-
-    let pit_locator_bytes = serde_json::to_vec(pit.receipt().locator())
-        .unwrap()
-        .into_boxed_slice();
-    let source_locator_bytes = serde_json::to_vec(source.receipt().locator())
-        .unwrap()
-        .into_boxed_slice();
-    let mut r0_request = UntrustedReferenceFactR0RequestV1 {
-        request_identity: d(183),
-        request_meaning_digest: d(0),
-        pit_locator_bytes: pit_locator_bytes.clone(),
-        source_binding_locator_bytes: source_locator_bytes.clone(),
-        replay_start_event_ns: 50,
-        replay_end_event_ns_exclusive: 51,
-        effective_from_ns: 50,
-        effective_until_ns: Some(51),
-        provider_available_ns: 90,
-        retrieval_ns: 92,
-        correction_publication_ns: 91,
-        owner_observation_ns: 100,
-        decision_cut: 100,
-        predecessor_identity: None,
-        stable_correlation: d(179),
-    };
-    r0_request.request_meaning_digest = r0_request_meaning_digest(&r0_request).unwrap();
+    // Everything the base corpus writes, it writes through the production paths the chain's
+    // acceptance basis uses; what follows are this oracle's own refusal probes and recoveries.
+    let super::chain_market_base_v1::MarketBaseCorpusV1 {
+        source_readback,
+        universe,
+        pit,
+        batch,
+        r0_request,
+        r0,
+        semantics_proposal,
+        semantics,
+        ..
+    } = corpus;
     let r0_count_before_splices: i64 =
         sqlx::query_scalar("SELECT COUNT(*) FROM market_data_private.reference_fact_r0_records_v1")
             .fetch_one(owner.pool())
@@ -3012,15 +2596,8 @@ async fn strategy_input_binding_registry_postgres_oracle(
             .await
             .unwrap();
     assert_eq!(r0_count, r0_count_before_splices);
-    let r0 = {
+    let recovered_r0 = {
         let mut transaction = owner.pool().begin().await.unwrap();
-        let issued =
-            super::reference_fact_coordinates::resolve_reference_fact_r0_in_transaction_v1(
-                &mut transaction,
-                &r0_request,
-            )
-            .await
-            .unwrap();
         let recovered =
             super::reference_fact_coordinates::recover_reference_fact_r0_in_transaction_v1(
                 &mut transaction,
@@ -3028,70 +2605,16 @@ async fn strategy_input_binding_registry_postgres_oracle(
             )
             .await
             .unwrap();
-        assert_eq!(issued.canonical_bytes(), recovered.canonical_bytes());
         transaction.commit().await.unwrap();
-        issued
+        recovered
     };
+    assert_eq!(r0.canonical_bytes(), recovered_r0.canonical_bytes());
     let native_r0 = historical_native_r0.unwrap_or_else(|| {
         crate::owner::reference_fact_coordinates::r0::decode_and_verify_readback_v1(
             r0.canonical_bytes(),
         )
         .unwrap()
     });
-    let semantics_value = MarketSemanticsValueV1 {
-        normalization_identity: d(180),
-        price_adjustment: MarketSemanticsPriceAdjustmentV1::Raw,
-        timestamp_basis: MarketSemanticsTimestampBasisV1::EventEffective,
-        price_unit_identity: d(181),
-        size_unit_identity: d(182),
-    };
-    let registry_key = market_semantics_authority::derive_registry_key_v1(
-        scope,
-        &source_readback,
-        &batch,
-        instrument,
-        &r0,
-    )
-    .unwrap();
-    let registry =
-        market_semantics_authority::seal_registry_entry_v1(registry_key, semantics_value, d(187))
-            .unwrap();
-    {
-        let mut transaction = owner.pool().begin().await.unwrap();
-        super::market_semantics::register_market_semantics_registry_entry_v1(
-            &mut transaction,
-            &registry,
-        )
-        .await
-        .unwrap();
-        transaction.commit().await.unwrap();
-    }
-    let mut instrument_locator_bytes = Vec::with_capacity(64);
-    instrument_locator_bytes.extend_from_slice(instrument.request_identity.as_bytes());
-    instrument_locator_bytes.extend_from_slice(instrument.request_meaning_digest.as_bytes());
-    let mut r0_locator_bytes = Vec::with_capacity(64);
-    r0_locator_bytes.extend_from_slice(r0_request.request_identity.as_bytes());
-    r0_locator_bytes.extend_from_slice(r0_request.request_meaning_digest.as_bytes());
-    let mut semantics_proposal = UntrustedMarketSemanticsProposalV1 {
-        request_identity: d(188),
-        request_meaning_digest: d(0),
-        consumer: MarketSemanticsConsumerV1::StrategyInputBindingRegistry,
-        compatibility_scope_identity: scope,
-        predecessor_identity: None,
-        value: semantics_value,
-        effective_from_ns: 50,
-        effective_until_ns: Some(51),
-        effective_instant_ns: 50,
-        owner_observation_ns: 100,
-        decision_cut: 100,
-        pit_locator_bytes,
-        source_binding_locator_bytes: source_locator_bytes,
-        instrument_master_locator_bytes: instrument_locator_bytes.into_boxed_slice(),
-        r0_locator_bytes: r0_locator_bytes.into_boxed_slice(),
-        stable_correlation: d(179),
-    };
-    semantics_proposal.request_meaning_digest =
-        market_semantics_authority::request_meaning_digest_v1(&semantics_proposal).unwrap();
     let before_semantics_sequence: Option<i64> = sqlx::query_scalar(
         "SELECT append_sequence FROM market_data_private.market_semantics_state_v1 WHERE singleton",
     )
@@ -3121,24 +2644,21 @@ async fn strategy_input_binding_registry_postgres_oracle(
     .await
     .unwrap();
     assert_eq!(before_semantics_sequence, after_semantics_sequence);
-    let semantics = {
+    let recovered_semantics = {
         let mut transaction = owner.pool().begin().await.unwrap();
-        let readback = super::market_semantics::resolve_market_semantics_in_transaction_v1(
-            &mut transaction,
-            &semantics_proposal,
-        )
-        .await
-        .unwrap();
         let recovered = super::market_semantics::recover_market_semantics_in_transaction_v1(
             &mut transaction,
             semantics_proposal.locator(),
         )
         .await
         .unwrap();
-        assert_eq!(readback.canonical_bytes(), recovered.canonical_bytes());
         transaction.commit().await.unwrap();
-        readback
+        recovered
     };
+    assert_eq!(
+        semantics.canonical_bytes(),
+        recovered_semantics.canonical_bytes()
+    );
     let [semantics_fact] = semantics.facts() else {
         panic!("one exact MarketSemantics fact");
     };
@@ -3795,326 +3315,24 @@ async fn persisted_strategy_input_custody_postgres_oracle_v1(
     assert_eq!(locked(owner, &claim).await.unwrap(), sealed);
 }
 
-async fn persist_historical_native_r0_fixture_v1(
-    owner: &MarketDataOwnerPostgres,
-    source: &SourceBindingCommit,
-    instrument: &crate::owner::instrument_master::InstrumentMasterReadbackV1,
-    clock: &MarketDataClockAdmission,
-) -> crate::owner::reference_fact_coordinates::r0::ReferenceFactR0ReadbackV1 {
-    // The scope production derives for this binding, never a written one.
-    let scope =
-        derive_market_semantics_compatibility_identity_v1(&source.fact().proposal().semantics);
-    let membership_frontier = d(240);
-    let universe_request = UntrustedUniverseSelectionRequestV1::new(
-        d(241),
-        "RESEARCH_OWNER_V1",
-        d(242),
-        vec![0, 1, 1],
-        membership_frontier,
-        50,
-        98,
-        99,
-        source.fact().lineage_root(),
-        d(86),
-        d(243),
-    );
-    let universe = {
-        let mut transaction = owner.pool().begin().await.unwrap();
-        super::universe_selection::persist_historical_membership_frontier_v1(
-            &mut transaction,
-            membership_frontier,
-            vec![HistoricalMembershipFactProposalV1 {
-                member_key: CHAIN_FIXTURE_INSTRUMENT_V1.as_bytes().to_vec(),
-                instrument: CHAIN_FIXTURE_INSTRUMENT_V1.as_bytes().to_vec(),
-                predecessor_identity: None,
-                effective_from_ns: 1,
-                effective_until_ns: None,
-                provider_available_ns: 89,
-                retrieval_ns: 91,
-                correction_publication_ns: 90,
-                owner_observation_ns: 98,
-                decision_cut: 99,
-                source_binding_lineage_root: source.fact().lineage_root(),
-                correction_frontier_digest: d(86),
-            }],
-        )
-        .await
-        .unwrap();
-        let readback = super::universe_selection::resolve_universe_selection_in_transaction_v1(
-            &mut transaction,
-            &universe_request,
-            Some(&CanonicalUniverseSelectionRuleEvaluatorV1),
-        )
-        .await
-        .unwrap();
-        transaction.commit().await.unwrap();
-        readback
-    };
-    let time_evidence = UntrustedPitSnapshotTimeEvidence {
-        event_effective: UntrustedEventEffectiveTime::from_untrusted(
-            50,
-            &clock.clock_identity,
-            &clock.clock_epoch,
-        ),
-        provider_available: UntrustedProviderAvailableTime::from_untrusted(
-            89,
-            &clock.clock_identity,
-            &clock.clock_epoch,
-        ),
-        retrieval: UntrustedRetrievalTime::from_untrusted(
-            91,
-            &clock.clock_identity,
-            &clock.clock_epoch,
-        ),
-        correction_publication: Some(UntrustedCorrectionPublicationTime::from_untrusted(
-            90,
-            &clock.clock_identity,
-            &clock.clock_epoch,
-        )),
-        decision_cut: UntrustedSnapshotDecisionCut::from_untrusted(
-            99,
-            &clock.clock_identity,
-            &clock.clock_epoch,
-        ),
-        monotonic_sequence: clock.monotonic_sequence,
-        restart_continuity_digest: clock.restart_continuity_digest,
-        skew_bound: clock.skew_bound,
-        uncertainty_bound: clock.uncertainty_bound,
-        observed_at: 99,
-        valid_through: clock.valid_through,
-    };
-    let mut proposal = UntrustedPitSnapshotProposal {
-        request: UntrustedPitSnapshotRequest {
-            claimed_request_identity: d(0),
-            claimed_request_digest: d(0),
-            correlation_identity: d(244),
-            requester_identity: d(245),
-            scope_digest: d(246),
-            source_binding: source.receipt().locator().clone(),
-            instrument_master_digest: instrument.digest(),
-            universe_selection_digest: universe.record().identity(),
-            market_semantics_identity: scope,
-            time_evidence,
-        },
-        evidence: UntrustedPitSnapshotEvidence {
-            normalized_records_digest: d(0),
-            source_frontier: source.receipt().locator().source_frontier.clone(),
-            correction_frontier: source.receipt().locator().correction_frontier.clone(),
-            coverage_complete: true,
-            semantics_compatible: true,
-            source_available: true,
-        },
-    };
-    let observation = UntrustedPitObservationBatchProposal {
-        rows: [
-            ("AAPL.CLOSE.1H", "CLOSE", "1H", 12_301),
-            ("AAPL.CLOSE.1M", "CLOSE", "1M", 12_345),
-            ("AAPL.CLOSE.EXCHANGE_SESSION_1D", "CLOSE", "1D", 12_299),
-            ("AAPL.HIGH.1M", "HIGH", "1M", 12_401),
-            ("AAPL.LOW.1M", "LOW", "1M", 12_211),
-            ("AAPL.OPEN.1M", "OPEN", "1M", 12_251),
-        ]
-        .into_iter()
-        .map(
-            |(symbolic_key, field, timeframe, value_mantissa)| UntrustedPitObservation {
-                symbolic_key: symbolic_key.into(),
-                member_key: CHAIN_FIXTURE_INSTRUMENT_V1.into(),
-                instrument: CHAIN_FIXTURE_INSTRUMENT_V1.into(),
-                channel: "MARKET".into(),
-                data_kind: "BAR".into(),
-                timeframe: timeframe.into(),
-                field: field.into(),
-                value_mantissa,
-                value_scale: 2,
-                event_effective: 50,
-                provider_available: 89,
-                retrieval: 91,
-                correction_publication: 90,
-                source_binding_identity: source.fact().binding_id(),
-                source_frontier_digest: d(85),
-                instrument_master_digest: instrument.digest(),
-                universe_selection_digest: universe.record().identity(),
-                market_semantics_identity: scope,
-                correction_stream_identity: source
-                    .receipt()
-                    .locator()
-                    .correction_frontier
-                    .stream_identity
-                    .clone(),
-                correction_sequence: source.receipt().locator().correction_frontier.sequence,
-                correction_frontier_digest: d(86),
-            },
-        )
-        .collect(),
-    };
-    proposal.evidence.normalized_records_digest =
-        derive_observation_batch_digest(&observation).unwrap();
-    refresh_request_claims(&mut proposal.request);
-    let basis = TestOnlyCanonicalBasisResolver::seal_for_test(
-        proposal.request.clone(),
-        proposal.evidence.clone(),
-        clock.clone(),
-    );
-    let pit = owner
-        .commit_pit_initial_with_observation_batch(proposal, observation, &basis, clock)
-        .await
-        .unwrap();
-    let pit_locator_bytes = serde_json::to_vec(pit.receipt().locator())
-        .unwrap()
-        .into_boxed_slice();
-    let source_locator_bytes = serde_json::to_vec(source.receipt().locator())
-        .unwrap()
-        .into_boxed_slice();
-    let mut request = UntrustedReferenceFactR0RequestV1 {
-        request_identity: d(247),
-        request_meaning_digest: d(0),
-        pit_locator_bytes,
-        source_binding_locator_bytes: source_locator_bytes,
-        replay_start_event_ns: 50,
-        replay_end_event_ns_exclusive: 51,
-        effective_from_ns: 50,
-        effective_until_ns: Some(51),
-        provider_available_ns: 89,
-        retrieval_ns: 91,
-        correction_publication_ns: 90,
-        owner_observation_ns: 99,
-        decision_cut: 99,
-        predecessor_identity: None,
-        stable_correlation: d(248),
-    };
-    request.request_meaning_digest = r0_request_meaning_digest(&request).unwrap();
-    let mut transaction = owner.pool().begin().await.unwrap();
-    let issued = super::reference_fact_coordinates::resolve_reference_fact_r0_in_transaction_v1(
-        &mut transaction,
-        &request,
-    )
-    .await
-    .unwrap();
-    let recovered = super::reference_fact_coordinates::recover_reference_fact_r0_in_transaction_v1(
-        &mut transaction,
-        request.locator(),
-    )
-    .await
-    .unwrap();
-    assert_eq!(issued.canonical_bytes(), recovered.canonical_bytes());
-    transaction.commit().await.unwrap();
-    issued
-}
-
 pub(crate) async fn replay_composition_market_base_fixture_v1(
     owner_url: &str,
 ) -> ReplayCompositionMarketBaseFixtureV1 {
     let owner = MarketDataOwnerPostgres::connect(owner_url).await.unwrap();
-    let historical_clock = shared_clock(
-        "12345678901234567890123456789012",
-        "abcdefghijklmnopqrstuvwxyzABCDEF",
-        1,
-        99,
-        d(90),
-        1,
-        2,
-    );
-    let clock = shared_clock(
-        "12345678901234567890123456789012",
-        "abcdefghijklmnopqrstuvwxyzABCDEF",
-        2,
-        100,
-        d(90),
-        1,
-        2,
-    );
-    let mut source_value = source_proposal(10, 99);
-    source_value.time_evidence.clock_identity = historical_clock.clock_identity.clone();
-    source_value.time_evidence.clock_epoch = historical_clock.clock_epoch.clone();
-    source_value.time_evidence.monotonic_sequence = 1;
-    source_value.time_evidence.restart_continuity_digest = d(90);
-    source_value.time_evidence.skew_bound = 2;
-    source_value.time_evidence.uncertainty_bound = 1;
-    source_value.time_evidence.observed_at = 99;
-    source_value.time_evidence.effective_at = 99;
-    source_value.time_evidence.valid_through = 159;
-    source_value.time_evidence.provider_available = 89;
-    source_value.time_evidence.retrieval = 91;
-    source_value.time_evidence.correction_publication = 90;
-    source_value.source_frontier.cut_identity = "instrument-source-cut-85".into();
-    source_value.source_frontier.digest = d(85);
-    source_value.correction_frontier.cut_identity = "instrument-correction-cut-86".into();
-    source_value.correction_frontier.digest = d(86);
-    source_value.time_evidence.claimed_evidence_identity =
-        derive_time_evidence_identity(&source_value.time_evidence);
-    source_value.claimed_binding_id = derive_binding_id(&source_value);
-    let source = owner
-        .commit_source_initial(
-            source_value,
-            OwnerSourceBindingDecision {
-                blockers: BTreeSet::new(),
-            },
-            &historical_clock,
-        )
+    let super::chain_market_base_v1::ChainMarketBaseWriteV1 {
+        clock,
+        source,
+        instrument,
+        native_r0,
+        corpus,
+    } = super::chain_market_base_v1::write_chain_market_base_v1(&owner)
         .await
         .unwrap();
-    let read = MarketDataReadPostgres::connect(owner_url).await.unwrap();
-    let historical_handoff = read
-        .resolve_clock_head(
-            build_head_fact(&historical_clock, None)
-                .unwrap()
-                .handoff
-                .locator(),
-        )
-        .await
-        .unwrap();
-    let historical_fact = owner
-        .append_instrument_master_fact(
-            instrument_fact(CHAIN_FIXTURE_INSTRUMENT_V1, None, 85),
-            historical_handoff.locator(),
-        )
-        .await
-        .unwrap();
-    let mut historical_exact = instrument_request(
-        107,
-        InstrumentMasterScopeV1::ExactInstrument(CHAIN_FIXTURE_INSTRUMENT_V1.into()),
-        historical_handoff.locator().clone(),
-    );
-    historical_exact.owner_observation = 99;
-    historical_exact.decision_cut = 99;
-    historical_exact.correction_frontier = d(85);
-    let historical_instrument = owner
-        .resolve_instrument_master(&historical_exact, None)
-        .await
-        .unwrap();
-    let native_r0 = Box::pin(persist_historical_native_r0_fixture_v1(
-        &owner,
-        &source,
-        &historical_instrument,
-        &historical_clock,
-    ))
-    .await;
-    let successor = owner
-        .commit_clock_successor(&historical_handoff, &clock)
-        .await
-        .unwrap();
-    owner
-        .append_instrument_master_fact(
-            instrument_fact(
-                CHAIN_FIXTURE_INSTRUMENT_V1,
-                Some(historical_fact.digest()),
-                86,
-            ),
-            successor.handoff().locator(),
-        )
-        .await
-        .unwrap();
-    let exact = instrument_request(
-        110,
-        InstrumentMasterScopeV1::ExactInstrument(CHAIN_FIXTURE_INSTRUMENT_V1.into()),
-        successor.handoff().locator().clone(),
-    );
-    let instrument = owner.resolve_instrument_master(&exact, None).await.unwrap();
-    let fixture = Box::pin(strategy_input_binding_registry_postgres_oracle(
+    let fixture = Box::pin(strategy_input_binding_registry_oracle_over_corpus(
         &owner,
         &source,
         &instrument,
-        &clock,
+        corpus,
         Some(native_r0),
     ))
     .await;

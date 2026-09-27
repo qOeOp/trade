@@ -670,9 +670,18 @@ pub(crate) fn sealed_acceptance_policy()
         runner_operational_profile: versioned("runner-profile-v2")?,
         diagnostic_policy: versioned("diagnostic-policy-v2")?,
         deterministic_seed: 1,
+        // The window bounds every Replay of a family formed under this fixture, and a
+        // Composer-backed Replay spans its facts' window, which starts at the instant Market Data
+        // cut the family's snapshot: its clock head's decision cut. That cut is whatever the clock
+        // head holds when the snapshot is taken - a fixture's instant (the ordered chain's is 100)
+        // or, once a Source Binding is admitted in production, wall-clock nanoseconds - and the
+        // head persists it as `BIGINT CHECK (decision_cut > 0)`. So this window is that column's
+        // whole domain, [1, i64::MAX], with room for the one instant a snapshot's facts cover past
+        // the last cut. A narrower window would hold only while every snapshot's cut happens to
+        // fall inside it, which is a property of the chain's order, not of the fixture.
         window: ReplayWindowV2 {
             start_event_ns: 1,
-            end_event_ns_exclusive: 2,
+            end_event_ns_exclusive: 1 << 63,
         },
         calendar: versioned("calendar-v2")?,
         session: versioned("session-v2")?,
