@@ -84,7 +84,9 @@ ACL 拒绝。它不证明供应商真实性，不证明生产装配，也不证�
   任何东西租用它的主体。那个主体是 `market_data_admitted_reader`。
   `product/rd-workbench/postgres-init/25-market-data-admitted-reader.sh` 把它建成一个可登录、不继承任何东西、在两个方向上
   都没有角色成员关系、并持有数据库 `CONNECT` 的角色；compose 文件还不运行这个脚本。部署时的 ACL 切换把
-  `market_data_private` 与 `market_data_admitted_read` 上的全部权限从 owner 以外的所有角色收回。每一次已准入读取，以及
+  `market_data_private` 与 `market_data_admitted_read` 上的全部权限从它点名的每个角色收回，admitted reader 不在其中。
+  切换在 Owner materialize 之后运行，所以 Owner 迁移授给读者的权限能留下来，靠的只是读者不在那些名单里；
+  `product/rd-workbench/scripts/check/authority.bash` 拒绝点名它的切换。每一次已准入读取，以及
   测量对 Owner 迁移账本的读取，都只经由 `market_data_admitted_read` 到达 Owner。那里的每个函数要么是同名私有函数的
   `SECURITY DEFINER` 直通包装，参数与结果都相同，要么是四个固定的 Owner 行读取之一；每个都是 `STABLE` 并固定
   `search_path`。Owner 迁移只把它们授予一个角色：`market_data_admitted_reader` 存在时，它获得该 schema 的 `USAGE` 与其中

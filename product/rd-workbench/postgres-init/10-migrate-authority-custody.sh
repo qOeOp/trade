@@ -4444,6 +4444,9 @@ ALTER SCHEMA market_data_rd_api OWNER TO market_data_owner;
 ALTER SCHEMA market_data_admitted_read OWNER TO market_data_owner;
 ALTER SCHEMA market_data_instrument_master_v2 OWNER TO market_data_owner;
 REVOKE ALL ON SCHEMA replay_policy_catalog_private, replay_policy_catalog_api, composer_private, composer_owner_api, market_data_private FROM PUBLIC, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, market_data_reader, product_edge_owner, qualification_owner, qualification_writer, operator_authorization_owner, operator_authorization_writer, portfolio_owner, backtest_owner;
+-- market_data_admitted_reader is deliberately absent from every REVOKE list here. The Market Data
+-- Owner migration grants it the market_data_admitted_read wrappers, and this cutover runs after the
+-- Owner has materialized, so naming it here would silently strip that grant. authority.bash refuses it.
 REVOKE ALL ON SCHEMA market_data_rd_api FROM PUBLIC, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, market_data_reader, product_edge_owner, qualification_owner, qualification_writer, operator_authorization_owner, operator_authorization_writer, portfolio_owner, backtest_owner;
 REVOKE ALL ON SCHEMA market_data_admitted_read FROM PUBLIC, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, market_data_reader, product_edge_owner, qualification_owner, qualification_writer, operator_authorization_owner, operator_authorization_writer, portfolio_owner, backtest_owner;
 GRANT USAGE ON SCHEMA market_data_rd_api TO rd_owner;

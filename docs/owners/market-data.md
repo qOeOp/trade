@@ -100,7 +100,10 @@ never runs in CI.
   `market_data_admitted_reader`. `product/rd-workbench/postgres-init/25-market-data-admitted-reader.sh` provisions it as
   a login role that inherits nothing, has no role membership in either direction, and holds `CONNECT` on the database;
   the compose file does not run that script yet. The deployed ACL cutover revokes every privilege on
-  `market_data_private` and `market_data_admitted_read` from every role but the owner. Every admitted read, and the
+  `market_data_private` and `market_data_admitted_read` from every role it names, and the admitted reader is not among
+  them. The cutover runs after the Owner has materialized, so the Owner migration's grant to the reader survives it only
+  because the reader is absent from those lists; `product/rd-workbench/scripts/check/authority.bash` refuses a cutover
+  that names it. Every admitted read, and the
   measurement's read of the Owner's migration ledger, reaches the Owner only through `market_data_admitted_read`. Each
   function there is a `SECURITY DEFINER` pass-through of the private function of its name, with the same parameters and
   result, or one of four fixed reads of Owner rows; each is `STABLE` and pins `search_path`. The Owner migration grants
