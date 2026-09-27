@@ -7,7 +7,10 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import ts from "typescript";
 
-import { canonicalResearchViewIdentityV4 } from "../../rd-owner-client/consumer_projection_v1.ts";
+import {
+  canonicalResearchViewIdentityV3,
+  canonicalResearchViewIdentityV4,
+} from "../../rd-owner-client/consumer_projection_v1.ts";
 import { researchExplorationLinksV1 } from "../lib/research-exploration-links.ts";
 import * as journey from "../lib/research-journey.ts";
 import * as reasons from "../lib/reason-presentation.ts";
@@ -537,4 +540,51 @@ test("the readback page shows an exploration as active and links to what it ran"
   for (const href of [links.composerRun, links.exploratoryReplay]) {
     assert.ok(html.includes(`href="${href.replaceAll("&", "&amp;")}"`), `${href} in ${html}`);
   }
+});
+
+// A Research request whose legacy Replay ran: the captured ARTIFACT_AVAILABLE result moved to the
+// schema 2 exploration the ungated legacy Replay V2 commit writes from it, with its Replay facts from
+// the shared v3 vectors the Owner's validator accepts. It ran on a build artifact, not a Composer.
+const artifactAccepted = JSON.parse(await readFile(
+  new URL("../../rd-owner-client/fixtures/research_accepted_catalog_v3.json", import.meta.url), "utf8",
+));
+const legacyVectors = JSON.parse(await readFile(
+  new URL("../../rd-owner-client/fixtures/research_view_identity_vectors_v3.json", import.meta.url), "utf8",
+));
+
+async function legacyExploration() {
+  const artifactView = artifactAccepted.research_view;
+  const at = artifactView.observed_at_epoch_ms + 1_000;
+  const view = {
+    ...artifactView, schema_version: 2, phase: "EXPLORATION_ACTIVE",
+    observed_at_epoch_ms: at, projection_at_epoch_ms: at, valid_through_epoch_ms: at + 600_000,
+    source_cut: legacyVectors.view.source_cut,
+    exploration: {
+      ...legacyVectors.view.exploration,
+      trial_family_identity: artifactAccepted.trial_family.root.trial_family_identity,
+      census_frontier_identity: artifactAccepted.trial_family.census_frontier.frontier_identity,
+      census_frontier_digest: artifactAccepted.trial_family.census_frontier.frontier_digest,
+    },
+    next_legal_action: "VIEW_EXPLORATORY_RUN",
+  };
+  view.projection_identity = await canonicalResearchViewIdentityV3(view);
+  return { ...artifactAccepted, research_view: view, next_legal_action: "VIEW_EXPLORATORY_RUN" };
+}
+
+test("a legacy exploration is stated as exploring, links to its Replay, and names no Composer run", async () => {
+  const result = await readbackOf(await legacyExploration());
+  assert.equal(result.status, 200, JSON.stringify(result.projection));
+  assert.equal(result.projection.view?.phase, "exploration_active");
+  assert.deepEqual(result.projection.view?.exploration, {
+    composerRequestIdentity: null,
+    replayRequestIdentity: legacyVectors.view.exploration.replay_request_identity,
+    replayMeaningDigest: legacyVectors.view.exploration.replay_request_meaning_digest,
+  });
+  assert.deepEqual(parseResearchReadbackBrowserProjectionV1(result.projection), result.projection);
+  const links = researchExplorationLinksV1(result.projection.view.exploration);
+  assert.equal(links.composerRun, null);
+  const page = (await renderedReadback(result.projection)).replace(/<[^>]+>/gu, " ").replace(/\s+/gu, " ");
+  assert.ok(page.includes("Availability Exploration active"), page);
+  assert.ok(page.includes("Exploration Exploratory replay"), page);
+  assert.ok(!page.includes("Composer run"), page);
 });
