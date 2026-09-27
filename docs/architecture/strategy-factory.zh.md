@@ -275,6 +275,10 @@ state、lifecycle terminal 或 manifest output。
 - `range_fraction(low, high, numerator, denominator)`：ratio 是冻结且约分后的 rational，denominator 为正，
   bounds 与 scale 显式，Fibonacci level 只能使用冻结的有理常量。
 
+之后的版本只追加。版本 2 追加 fused rational，版本 3 追加定点平方根，版本 4 追加 trailing window 内距最大值与距
+最小值的 bar 数（精确整数，相等极值中取最新的那个）以及 trailing window percent rank（最新样本的中位秩，最低为 0、
+最高为 1，窗口至少为二，只做一次最终舍入）。
+
 price-action rule 与 candlestick pattern 是这些 catalog primitive 的类型化组合，不是命名 strategy template、
 opaque label、复制的公式或新 Host opcode。
 
@@ -1319,7 +1323,9 @@ Research scope 是成员集的唯一来源（P0）。一到两个成员的界变
 
 ### 值、输入与动作
 
-- **值：** catalog V4a 追加窗口 rank 与百分位、距极值的 bar 数、协方差与相关。V4b 追加自然对数与指数。用户于
+- **值：** catalog V4a 追加窗口 rank 与百分位、距极值的 bar 数、协方差与相关。catalog 版本 4 发布了前两者，它们的
+  首批使用者 `w1` 与 `w2` 已在手写语料中；之后的版本追加的行，在有手写程序使用之前构建就会拒绝它。协方差与相关需要
+  一个双序列窗口状态，仍是 TARGET。V4b 追加自然对数与指数。用户于
   2026-09-27 选择了下面这个选项，以此授权它们的数值规则：「引入 ln/exp，钉住算法加 golden 测试向量，只适用于新增
   的 catalog 行；这一类运算豁免『一个精确表达式、最后只舍入一次』。」V5 增加两条定槽状态规则：一个定桶数组，以及最近 N 个事件的
   记忆，每个槽存一组冻结的值。把 Bollinger 方差写成
