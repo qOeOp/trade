@@ -33,6 +33,8 @@ mod corporate_action;
 mod instrument_master_admission_v1_tests;
 #[cfg(test)]
 mod instrument_master_admission_v2_tests;
+#[cfg(test)]
+mod instrument_master_status_delta_v2_tests;
 mod live_market_stream_v1;
 #[cfg(test)]
 mod market_data_rd_api_authorization_postgres_tests;
@@ -202,7 +204,8 @@ use super::{
     instrument_master_admission_v2::{
         InstrumentMasterAdmissionErrorV2, InstrumentMasterAdmissionTerminalV2,
         InstrumentMasterAdmissionV2, InstrumentMasterBaselineSubmissionV2,
-        sealed::Sealed as InstrumentMasterAdmissionSealedV2,
+        InstrumentMasterStatusDeltaErrorV2, InstrumentMasterStatusDeltaSubmissionV2,
+        InstrumentMasterStatusDeltaTerminalV2, sealed::Sealed as InstrumentMasterAdmissionSealedV2,
     },
     live_market_fact_v1::{LiveMarketFactSourceV1, LiveMarketFactV1, LiveMarketSubscriptionV1},
     live_market_stream_v1::{
@@ -10884,6 +10887,130 @@ impl MarketDataOwnerPostgres {
         ))
     }
 
+    /// Admits one `!contractInfo` status delta as the named V2 fact's direct successor under the
+    /// Owner's current clock head.
+    ///
+    /// One serializable transaction verifies the binding, reads the named fact and whatever
+    /// already follows it, requires the binding to be the one the instrument's baseline names,
+    /// reads the head's decision cut as the Owner observation, and derives the successor through
+    /// [`InstrumentMasterFactV2::usdm_contract_info_delta`] and `apply_contract_info_delta`. When
+    /// the named fact already has a successor, the submission rejoins it if it derives the same
+    /// fact at that successor's own observation, and is refused as not current otherwise.
+    ///
+    /// # Errors
+    ///
+    /// A documented refusal when nothing was admitted; a replayed submission rejoins its fact.
+    ///
+    /// [`InstrumentMasterFactV2::usdm_contract_info_delta`]:
+    /// super::instrument_master_v2::InstrumentMasterFactV2::usdm_contract_info_delta
+    pub(crate) async fn admit_instrument_master_status_delta_v2(
+        &self,
+        submission: InstrumentMasterStatusDeltaSubmissionV2,
+    ) -> Result<InstrumentMasterStatusDeltaTerminalV2, InstrumentMasterStatusDeltaErrorV2> {
+        use super::instrument_master_v2::{
+            ContractInfoRetrievalV2, FactValue, InstrumentMasterFactV2,
+        };
+        use super::instrument_master_v2_postgres::{
+            SuccessorAppendErrorV2, append_successor_in_transaction_v2,
+            load_named_fact_in_transaction_v2,
+        };
+        use InstrumentMasterStatusDeltaErrorV2 as Refused;
+
+        let mut transaction = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| Refused::StoreUnavailable)?;
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+            .execute(&mut *transaction)
+            .await
+            .map_err(|_| Refused::StoreUnavailable)?;
+        let locator = &submission.source_binding;
+        let stored = load_source(&mut transaction, locator.binding_id, false)
+            .await
+            .map_err(|_| Refused::StoreUnavailable)?
+            .ok_or(Refused::SourceBindingUnavailable)?;
+
+        if stored.commit().receipt().locator() != locator
+            || !SourceBindingOwnerReadback::from_verified(&stored).is_admitted()
+        {
+            return Err(Refused::SourceBindingUnavailable);
+        }
+        let named = load_named_fact_in_transaction_v2(
+            &mut transaction,
+            submission.predecessor_fact_identity,
+        )
+        .await
+        .map_err(|_| Refused::StoreUnavailable)?
+        .ok_or(Refused::PredecessorUnknown)?;
+        let baseline = named.fact.baseline_provenance();
+
+        if baseline.source_binding_identity != locator.binding_id
+            || baseline.source_binding_digest != locator.fact_digest
+        {
+            return Err(Refused::SourceBindingMismatch);
+        }
+        let head = load_current_clock_fact_for_update(&mut transaction)
+            .await
+            .map_err(|_| Refused::StoreUnavailable)?
+            .ok_or(Refused::ClockUnavailable)?;
+        let owner_observation_time_ns = i128::from(head.clock().decision_cut);
+
+        if submission.retrieval_time_ns > owner_observation_time_ns {
+            return Err(Refused::RetrievalAfterOwnerClock);
+        }
+        let derive = |owner_observation_time_ns: i128| -> Result<InstrumentMasterFactV2, Refused> {
+            let delta = named.fact.usdm_contract_info_delta(
+                submission.raw_payload.as_bytes(),
+                ContractInfoRetrievalV2 {
+                    retrieval_time_ns: submission.retrieval_time_ns,
+                    owner_observation_time_ns,
+                },
+            )?;
+            Ok(named.fact.apply_contract_info_delta(delta)?)
+        };
+        // Derived first, so a defective event is refused for its defect whatever follows the fact.
+        let candidate = derive(owner_observation_time_ns)?;
+        let fact = match &named.successor {
+            // The Owner-observation instant is the Owner's stamp, not part of what the caller
+            // means, so a replay is recognised at the stored successor's own observation.
+            Some(successor) => match derive(successor.owner_observation_time_ns()) {
+                Ok(rebuilt) if rebuilt.canonical_bytes() == successor.canonical_bytes() => {
+                    successor.clone()
+                }
+                _ => return Err(Refused::PredecessorNotCurrent),
+            },
+            None => {
+                append_successor_in_transaction_v2(&mut transaction, &candidate)
+                    .await
+                    .map_err(|e| match e {
+                        SuccessorAppendErrorV2::PredecessorNotCurrent => {
+                            Refused::PredecessorNotCurrent
+                        }
+                        SuccessorAppendErrorV2::Custody(_) => Refused::StoreUnavailable,
+                    })?;
+                candidate
+            }
+        };
+        let FactValue::Value(contract_status) = &fact.terms().contract_status else {
+            return Err(Refused::AdmissionConflict);
+        };
+        let contract_status = contract_status.clone();
+        transaction
+            .commit()
+            .await
+            .map_err(|_| Refused::StoreUnavailable)?;
+        Ok(InstrumentMasterStatusDeltaTerminalV2::seal(
+            fact.canonical_identity().to_owned(),
+            fact.identity(),
+            submission.predecessor_fact_identity,
+            fact.correction_sequence(),
+            contract_status,
+            fact.owner_observation_time_ns(),
+            fact.terms_basis(),
+        ))
+    }
+
     /// Admits one Instrument Master V1 fact under the Owner's current clock head.
     ///
     /// The fact's Market Semantics Compatibility identity is the one derived from the named Source
@@ -11698,6 +11825,17 @@ impl InstrumentMasterAdmissionV2 for InstrumentMasterAdmissionPostgresV2 {
         submission: InstrumentMasterBaselineSubmissionV2,
     ) -> Result<InstrumentMasterAdmissionTerminalV2, InstrumentMasterAdmissionErrorV2> {
         Box::pin(self.owner.admit_instrument_master_baseline_v2(submission)).await
+    }
+
+    async fn admit_status_delta(
+        &self,
+        submission: InstrumentMasterStatusDeltaSubmissionV2,
+    ) -> Result<InstrumentMasterStatusDeltaTerminalV2, InstrumentMasterStatusDeltaErrorV2> {
+        Box::pin(
+            self.owner
+                .admit_instrument_master_status_delta_v2(submission),
+        )
+        .await
     }
 }
 

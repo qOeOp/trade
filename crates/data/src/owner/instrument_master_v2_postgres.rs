@@ -752,6 +752,71 @@ pub(super) async fn admit_baseline_in_transaction_v2(
     }
 }
 
+/// A named V2 fact and the fact that directly follows it, when one does.
+pub(super) struct NamedFactV2 {
+    pub(super) fact: InstrumentMasterFactV2,
+    pub(super) successor: Option<InstrumentMasterFactV2>,
+}
+
+/// Reads the V2 fact whose identity is `identity`, and its direct successor, in the caller's
+/// transaction, or none when no fact has that identity. The store's ownership and privilege
+/// assertion runs first, and the fact's whole chain is decoded, so each fact returned verifies
+/// against its predecessor.
+pub(super) async fn load_named_fact_in_transaction_v2(
+    tx: &mut Transaction<'_, Postgres>,
+    identity: BindingDigest,
+) -> Result<Option<NamedFactV2>, InstrumentMasterCustodyErrorV2> {
+    assert_acl_in_transaction(tx).await?;
+    let canonical: Option<String> = sqlx::query_scalar(
+        "SELECT canonical_identity FROM market_data_instrument_master_v2.facts WHERE fact_identity=$1",
+    )
+    .bind(identity.as_bytes().as_slice())
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(|cause| store_error(&cause))?;
+    let Some(canonical) = canonical else {
+        return Ok(None);
+    };
+    let chain = decode_chain(load_fact_rows(tx, &canonical).await?)?;
+    let at = chain
+        .iter()
+        .position(|fact| fact.identity() == identity)
+        .ok_or(InstrumentMasterCustodyErrorV2::CrossSpliced)?;
+    Ok(Some(NamedFactV2 {
+        fact: chain[at].clone(),
+        successor: chain.get(at + 1).cloned(),
+    }))
+}
+
+/// Why a successor was not appended in the caller's transaction.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum SuccessorAppendErrorV2 {
+    /// Another admission extended the same fact first.
+    PredecessorNotCurrent,
+    /// A custody or store failure.
+    Custody(InstrumentMasterCustodyErrorV2),
+}
+
+/// Appends `successor` after the fact it names, which the caller read in this transaction with no
+/// successor.
+///
+/// A unique violation can then have one cause only. The successor's identity digests its bytes,
+/// which name its predecessor, so it cannot already be stored elsewhere in the chain; the
+/// violation is a concurrent admission that extended the same predecessor, or took the same
+/// correction sequence, first.
+pub(super) async fn append_successor_in_transaction_v2(
+    tx: &mut Transaction<'_, Postgres>,
+    successor: &InstrumentMasterFactV2,
+) -> Result<(), SuccessorAppendErrorV2> {
+    match insert_fact(tx, successor).await {
+        Ok(()) => Ok(()),
+        Err(InstrumentMasterCustodyErrorV2::IdentityConflict) => {
+            Err(SuccessorAppendErrorV2::PredecessorNotCurrent)
+        }
+        Err(e) => Err(SuccessorAppendErrorV2::Custody(e)),
+    }
+}
+
 async fn assert_acl_in_transaction(
     tx: &mut Transaction<'_, Postgres>,
 ) -> Result<(), InstrumentMasterCustodyErrorV2> {

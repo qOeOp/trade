@@ -1232,10 +1232,11 @@ V2 fact 的 instrument 提交一条原样公开的 `!contractInfo` 事件。Owne
     即可成功。
   - `MARKET_DATA_CLOCK_UNAVAILABLE`（HTTP 503）：Owner 没有 clock head。任何提交都构造不出它，理由与 baseline intake 所述
     相同。
-  - `INSTRUMENT_MASTER_V2_ADMISSION_CONFLICT`（HTTP 409）：以算出的 identity 存着的 fact 字节不同，或 head 的 decision cut
-    早于所指名 fact 的 Owner observation。任何提交都构造不出这两者：identity 就是规范字节的 digest，而 head 只会前进，
-    所指名的 fact 是在更早的 head 下观测的。两者都只有改动已存的行才会走到。
-  - `MARKET_DATA_OWNER_UNAVAILABLE`（HTTP 503）：store 不可达、拒绝提交，或未通过其所有权与权限断言。
+  - `INSTRUMENT_MASTER_V2_ADMISSION_CONFLICT`（HTTP 409）：从所指名 fact 推出的后继不是该 fact 能接受的，例如 head 的
+    decision cut 早于所指名 fact 的 Owner observation。任何提交都构造不出它：delta 就是从所指名的 fact 本身构造的，而
+    head 只会前进，所指名的 fact 是在更早的 head 下观测的。
+  - `MARKET_DATA_OWNER_UNAVAILABLE`（HTTP 503）：store 不可达、拒绝提交，或未通过其所有权与权限断言，或所指名 fact 的
+    链解码不出来，例如某个已存的行被改过：在从中推出任何东西之前，链上每个 fact 都被重新编码并重新计算 digest。
 - **证明：** Market Data PostgreSQL runner 只经生产路径证明这条 intake。baseline 经 baseline intake 从录制的 `exchangeInfo`
   fixture 准入，时钟由生产的 Source Binding 提交推进。事件按 provider 文档所载的 `!contractInfo` 形状、以 fixture 的
   symbol 构造；仓库里没有录制到的事件，证明本身会说明这一点。delta 准入之前 cut 解析出 baseline，之后 cut 解析出带其状态的

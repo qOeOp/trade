@@ -1374,12 +1374,13 @@ status and nothing else. It is the second production writer of `market_data_inst
     decision cut; it succeeds once the head has advanced past it.
   - `MARKET_DATA_CLOCK_UNAVAILABLE` (HTTP 503): the Owner holds no clock head. No submission can construct it, for the
     reason the baseline intake states.
-  - `INSTRUMENT_MASTER_V2_ADMISSION_CONFLICT` (HTTP 409): a fact with the computed identity is stored with other bytes,
-    or the head's decision cut is earlier than the named fact's Owner observation. No submission can construct either:
-    the identity is the digest of the canonical bytes, and the head only advances, while the named fact was observed
-    under an earlier head. Either is reached only by altering a stored row.
+  - `INSTRUMENT_MASTER_V2_ADMISSION_CONFLICT` (HTTP 409): the successor derived from the named fact is not one that fact
+    can take, as when the head's decision cut is earlier than the named fact's Owner observation. No submission can
+    construct it: the delta is built from the named fact itself, and the head only advances while the named fact was
+    observed under an earlier head.
   - `MARKET_DATA_OWNER_UNAVAILABLE` (HTTP 503): the store is unreachable, refuses the commit, or fails its ownership and
-    privilege assertion.
+    privilege assertion, or the named fact's chain does not decode, as when a stored row has been altered: every fact in
+    the chain is re-encoded and rehashed before anything is derived from it.
 - **Proof:** the Market Data PostgreSQL runner proves the intake through production paths only. The baseline is admitted
   through the baseline intake from the recorded `exchangeInfo` fixture, and the clock is advanced by production Source
   Binding submissions. The event is built in the provider's documented `!contractInfo` shape for the fixture's symbol;
