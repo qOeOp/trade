@@ -113,13 +113,20 @@ function validResearchView(
   // an INTENT_FROZEN view that carries exploration fields as firmly as it refuses an exploration
   // view that lacks them. Reading "whatever is present" would admit a malformed view as a valid one.
   const exploration = ["composer_artifact", "exploration"]
+  // An exploration has two shapes, and the view states which: a composer-backed one (schema 3)
+  // carries the Composer artifact it ran on, and a legacy one (schema 2, written by the legacy Replay
+  // V2 commit) carries the build artifact instead and no Composer at all. Each is read as itself;
+  // neither is taken for the other, so an absent Composer is never read as a present one.
+  const legacy = legacyExplorationView(value, phase)
   const keys = phase === "ARTIFACT_AVAILABLE"
     ? [...base, ...artifact]
-    : phase === "EXPLORATION_ACTIVE" ? [...base, ...exploration] : base
-  // An exploration view is schema 3, and the schema is part of what the phase decides.
-  if (!version(value, phase === "EXPLORATION_ACTIVE" ? 3 : 1) || !exactKeys(value, keys)) return false
-  if (phase === "EXPLORATION_ACTIVE"
-    && !validExplorationView(value.composer_artifact, value.exploration)) return false
+    : phase === "EXPLORATION_ACTIVE"
+      ? legacy ? [...base, ...artifact, "exploration"] : [...base, ...exploration]
+      : base
+  if (!version(value, phase === "EXPLORATION_ACTIVE" ? legacy ? 2 : 3 : 1) || !exactKeys(value, keys)) return false
+  if (phase === "EXPLORATION_ACTIVE" && !(legacy
+    ? validExplorationReferences(value.exploration)
+    : validExplorationView(value.composer_artifact, value.exploration))) return false
   const available = value.availability === "AVAILABLE"
     && value.projection_at_epoch_ms < value.valid_through_epoch_ms
   const stale = allowStale && value.availability === "STALE"
@@ -130,7 +137,12 @@ function validResearchView(
     && text(value.source_cut) && epoch(value.observed_at_epoch_ms) && epoch(value.projection_at_epoch_ms)
     && epoch(value.valid_through_epoch_ms) && (available || stale) && value.phase === phase
     && Array.isArray(value.source_frontier) && value.source_frontier.every(validSource)
-    && (phase !== "ARTIFACT_AVAILABLE" || artifact.every((key) => text(value[key])))
+    && (!(phase === "ARTIFACT_AVAILABLE" || legacy) || artifact.every((key) => text(value[key])))
+}
+
+// Whether an exploration view is the legacy shape: it names no Composer artifact.
+export function legacyExplorationView(value: unknown, phase: string): boolean {
+  return phase === "EXPLORATION_ACTIVE" && object(value) && !("composer_artifact" in value)
 }
 
 // The two structures a schema 3 view carries, and the three facts they must agree on. The equalities
@@ -143,11 +155,7 @@ export function validExplorationView(composerArtifact: unknown, exploration: unk
     "composer_operation_receipt_digest", "artifact_family_binding_identity",
     "artifact_family_binding_digest", "artifact_family_binding_receipt_identity",
     "trial_family_identity", "census_frontier_identity", "census_frontier_digest",
-  ]) || !exactKeys(exploration, [
-    "trial_family_identity", "census_frontier_identity", "census_frontier_digest",
-    "replay_request_identity", "replay_request_meaning_digest", "replay_request_seal_digest",
-    "replay_receipt_identity",
-  ])) return false
+  ]) || !validExplorationReferences(exploration)) return false
   const bare = (digest: unknown) => typeof digest === "string" ? digest.slice("sha256:".length) : ""
   return sha256Digest(composerArtifact.artifact_identity_digest)
     && composerArtifact.artifact_locator
@@ -167,6 +175,16 @@ export function validExplorationView(composerArtifact: unknown, exploration: unk
     && composerArtifact.trial_family_identity === exploration.trial_family_identity
     && composerArtifact.census_frontier_identity === exploration.census_frontier_identity
     && composerArtifact.census_frontier_digest === exploration.census_frontier_digest
+}
+
+// The facts every exploration names about the Replay it ran, whichever shape carries them.
+function validExplorationReferences(exploration: unknown): exploration is Json {
+  return object(exploration) && exactKeys(exploration, [
+    "trial_family_identity", "census_frontier_identity", "census_frontier_digest",
+    "replay_request_identity", "replay_request_meaning_digest", "replay_request_seal_digest",
+    "replay_receipt_identity",
+  ]) && text(exploration.trial_family_identity) && text(exploration.census_frontier_identity)
+    && sha256Digest(exploration.census_frontier_digest)
     && text(exploration.replay_request_identity)
     && blake3Digest(exploration.replay_request_meaning_digest)
     && sha256Digest(exploration.replay_request_seal_digest)
@@ -565,6 +583,7 @@ export async function deriveResearchConsumerProjectionV1(
   const stale = raw.research_view?.availability === "STALE"
   const artifactAvailable = raw.research_view?.phase === "ARTIFACT_AVAILABLE"
   const explorationActive = raw.research_view?.phase === "EXPLORATION_ACTIVE"
+  const legacyExploration = legacyExplorationView(raw.research_view, "EXPLORATION_ACTIVE") && explorationActive
   const viewPhase = artifactAvailable
     ? "ARTIFACT_AVAILABLE"
     : explorationActive ? "EXPLORATION_ACTIVE" : "INTENT_FROZEN"
@@ -574,7 +593,8 @@ export async function deriveResearchConsumerProjectionV1(
   const sourceCutValid = artifactAvailable
     ? raw.research_view?.source_cut === `rd-artifact-cut-v1-${raw.research_view?.artifact_identity}`
     : explorationActive
-      ? raw.research_view?.source_cut === `rd-composer-exploration-cut-v3-${
+      ? raw.research_view?.source_cut === `${legacyExploration
+        ? "rd-exploration-cut-v1-" : "rd-composer-exploration-cut-v3-"}${
         String(raw.research_view?.exploration?.replay_request_seal_digest ?? "").slice("sha256:".length)
       }`
       : raw.research_view?.source_cut === `rd-source-cut-v2-${researchSuffix}`
@@ -625,7 +645,9 @@ export async function deriveResearchConsumerProjectionV1(
   // it, so this side must not accept one either.
   if (!validResearchView(raw.research_view, requestIdentity, intent, viewPhase, !explorationActive)
     || raw.research_view.projection_identity !== (explorationActive
-      ? await canonicalResearchViewIdentityV4(raw.research_view)
+      ? legacyExploration
+        ? await canonicalResearchViewIdentityV3(raw.research_view)
+        : await canonicalResearchViewIdentityV4(raw.research_view)
       : await canonicalResearchViewIdentityV2(raw.research_view))
     || !sourceCutValid || !viewWindowValid || !nextLegalActionValid
     || raw.research_view.trusted_principal !== raw.independence_basis?.principal
@@ -1371,6 +1393,41 @@ export async function canonicalResearchViewIdentityV2(view: Json): Promise<strin
     ? "rd-research-view-terminal-v2"
     : "rd-research-view-v2"
   return canonicalIdentity(prefix, digest)
+}
+
+// The legacy exploration identity. Its envelope names the payload `value`, as `canonicalDigest`
+// does, where the schema 3 (v4) envelope names it `view`; the shared v3 vectors carry the identity
+// the `view` key would produce so the test can assert this does not compute it.
+export async function canonicalResearchViewIdentityV3(view: Json): Promise<string> {
+  const exploration = view.exploration as Json
+  const digest = await canonicalDigest("rd.research-view.identity.v3", {
+    schema_version: view.schema_version,
+    request_identity: view.request_identity,
+    trusted_principal: view.trusted_principal,
+    authorized_scope: view.authorized_scope,
+    authorization_policy_cut: view.authorization_policy_cut,
+    source_owner: view.source_owner,
+    source_cut: view.source_cut,
+    observed_at_epoch_ms: view.observed_at_epoch_ms,
+    valid_through_epoch_ms: view.valid_through_epoch_ms,
+    phase: view.phase,
+    intent_identity: view.intent_identity,
+    source_frontier: view.source_frontier.map(canonicalResearchSourceV1),
+    attempt_identity: view.attempt_identity ?? null,
+    artifact_identity: view.artifact_identity ?? null,
+    build_receipt_identity: view.build_receipt_identity ?? null,
+    artifact_review_identity: view.artifact_review_identity ?? null,
+    exploration: {
+      trial_family_identity: exploration.trial_family_identity,
+      census_frontier_identity: exploration.census_frontier_identity,
+      census_frontier_digest: exploration.census_frontier_digest,
+      replay_request_identity: exploration.replay_request_identity,
+      replay_request_meaning_digest: exploration.replay_request_meaning_digest,
+      replay_request_seal_digest: exploration.replay_request_seal_digest,
+      replay_receipt_identity: exploration.replay_receipt_identity,
+    },
+  })
+  return canonicalIdentity("rd-research-view-v3", digest)
 }
 
 // The schema 3 identity. Its envelope names the payload `view`, where every other canonical digest
