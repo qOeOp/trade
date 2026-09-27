@@ -48,9 +48,9 @@ use vibe_core::{
 };
 
 #[cfg(not(any(feature = "defi", feature = "high-precision")))]
-use super::fixed::{f64_to_fixed_i64, fixed_i64_to_f64};
+use super::fixed::{f64_to_fixed_i64, fixed_i64_at_precision_to_f64};
 #[cfg(any(feature = "defi", feature = "high-precision"))]
-use super::fixed::{f64_to_fixed_i128, fixed_i128_to_f64};
+use super::fixed::{f64_to_fixed_i128, fixed_i128_at_precision_to_f64};
 #[cfg(feature = "defi")]
 use crate::types::fixed::MAX_FLOAT_PRECISION;
 use crate::types::{
@@ -387,7 +387,7 @@ impl Money {
             "Invalid f64 conversion beyond `MAX_FLOAT_PRECISION` (16)"
         );
 
-        fixed_i128_to_f64(self.raw)
+        fixed_i128_at_precision_to_f64(self.raw, self.currency.precision)
     }
 
     #[cfg(not(feature = "high-precision"))]
@@ -403,7 +403,7 @@ impl Money {
             panic!("Invalid f64 conversion beyond `MAX_FLOAT_PRECISION` (16)");
         }
 
-        fixed_i64_to_f64(self.raw)
+        fixed_i64_at_precision_to_f64(self.raw, self.currency.precision)
     }
 
     /// Returns the value of this instance as a `Decimal`.
