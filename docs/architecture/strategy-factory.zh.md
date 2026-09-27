@@ -1439,6 +1439,19 @@ Research scope 与 Design 推导出托管请求；T1 的首个正例只用 CLOSE
 I3；再然后 N1、A2、A3、V4b、V5。按帧 as-of 成员（T4）会移除「每帧共用一个成员集」这条不变式，所以在提出它时再
 问用户。
 
+单阈值编写器接受的两种目标变体，今天在 target-set Host 上跑不过一帧，各是一片，排在 F 之后、T1 之前。两者都在
+`main` 3a465a537 上实测过：现状为红，在一个随后还原的临时改动下越过了点名的那道检查。在各自那一片落地之前，编写器
+以 `SINGLE_THRESHOLD_TARGET_VARIANT_NOT_RUNNABLE` 按名拒绝该变体，任一侧都拒，于是只会在第一帧失败的程序根本不会被
+编写出来。这个拒绝是临时的：下面每一片落地时，各自移除它对自己那个变体的拒绝。
+
+- **Rebalance 序号。** `kernel.target.rebalance.v1` 目标必须带上它被提升进的 target set 的序号，而这个序号每帧加一，
+  编写器却只为它写一个常量。常量 1 只在第一帧能提升，常量 2 只在第二帧能，所以没有哪个常量跑得过两帧：序号必须是
+  Host 在提升时给出的，不是编写器的。由 Strategy Factory 的 Host 修复。
+- **Weight 对账。** Host 除 `Keep` 以外对每种目标都解码出一个 reconciliation target，而 target-set 对账要求 weight
+  目标没有，所以 weight 一侧在第一帧就以 `InputCoverage` 失败。临时让解码对 weight 不给出它时，这道检查通过，该帧
+  接着以 `InvalidPositionTransition` 失败：编写器让两侧共用一个为 0 的 target weight，而以 0 权重入场不是迁移。
+  两处都由 Strategy Factory 修复：Host 的解码，以及编写器的 weight，让它像仓位那样跟随各侧。
+
 ## 价值流交接
 
 R&D、Backtest 与 Qualification 之间的阶段关系恰以下列对象跨越价值流。每个 Owner 页定义自己发出的对象，接收页
