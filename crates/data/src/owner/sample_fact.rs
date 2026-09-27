@@ -56,6 +56,8 @@ const RECEIPT_DOMAIN: &[u8] = b"market-data.sample-receipt.v1\0";
 
 type Identity = [u8; 32];
 
+pub(crate) mod v2;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u8)]
 enum TimeframeKind {
@@ -551,6 +553,12 @@ pub(crate) enum SampleFactUnavailable {
     IdentityMismatch,
     ReceiptMismatch,
     PredecessorMismatch,
+    /// A new bar's event is not after its series head's.
+    EventNotAfterSeriesHead,
+    /// A correction's sequence is not the next one on its slot, or a new bar's is not 1.
+    CorrectionSequenceNotNext,
+    /// A correction is not published after the version it corrects.
+    PublicationNotAfterCorrection,
 }
 
 impl Display for SampleFactUnavailable {

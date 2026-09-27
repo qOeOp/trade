@@ -1728,6 +1728,24 @@ bytes conflict。schedule readback 缺失、含糊、不唯一或非 durable 时
 准确 historical schedule 与 projection；这些改变必须形成新的 Owner schedule fact/cut，不能通过 free-form
 binding label 偷渡。
 
+`SampleFactV2` 是 PIT 窗口托管（切片 T0）的行事实，是与 V1 并列的后继 schema，V1 的字节绝不被重新解释。它的 canonical
+bytes 以 schema `u16LE = 2` 与 reserved-zero `u16LE` 开头，然后按顺序绑定：series identity、slot identity、
+series-predecessor sample identity（series 根处全零）、可选的 correction-predecessor sample identity、series 序号
+`u64LE`、更正序号 `u64LE`、截面版本 identity、canonical-row digest、Owner event identity `[u8; 16]`、instrument、
+channel 与 data-kind 编码、field semantic、timeframe identity、value semantic、unit、fixed-I128 value mantissa 与
+scale、event-effective、available 与 publication 时刻 `u64LE`、Source Binding identity、lineage root 与 version、
+source-frontier digest、correction stream、correction-frontier digest、Instrument Master digest 与 Market Semantics
+identity；可变字段是 `u16LE length || bytes`。fact digest 是 `market-data.sample-fact.v2\0 || bytes` 的 SHA-256，
+sample identity 是 `market-data.sample.identity.v2\0 || fact digest` 的 SHA-256。series identity 沿用 V1 的，所以同一
+个 series 在两个 schema 下指同一个东西。根 slot 是
+`market-data.sample-slot.identity.v2\0 || series identity || event-effective u64LE` 的 SHA-256，不指名任何快照或版本。
+Owner event identity 是 `market-data.sample-event.identity.v2\0` 加上 schema `u16LE = 2`、reserved-zero `u16LE`、截面
+版本 identity、canonical-row digest、event-effective、available 与 publication 时刻、更正序号与 correction stream 的
+SHA-256 前 16 bytes。新 bar 取它 event 的根 slot、更正序号 1 与下一个 series 位置，它的 event 必须晚于 series head；更
+正保持它那根 bar 的 slot 与 series 位置，更正序号必须是 slot head 的加一，发布必须晚于 slot head。否则分别按名拒为
+`EventNotAfterSeriesHead`、`CorrectionSequenceNotNext` 或 `PublicationNotAfterCorrection`；存储的 V2 fact 若其 slot、
+event identity 或链位置不能由它自己的行推出，一律拒绝。
+
 `SampleFactV1`、`SampleReceiptV1` 与 308-byte coordinate 携带的 `Owner event identity` 是新增的
 role-independent Market Data identity，并非既有 V1 frame-trigger event identity。其 canonical preimage 按顺序
 为：schema `u16LE = 1`、reserved-zero `u16LE`、source snapshot identity `[u8; 32]`、source-snapshot fact
