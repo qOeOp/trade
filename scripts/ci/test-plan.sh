@@ -944,6 +944,7 @@ python3 -B "$repo_root/scripts/ci/check-pr-hook-coverage.py" "$repo_root"
 python3 -B "$repo_root/scripts/ci/check-pr-hook-coverage_test.py"
 bash "$repo_root/scripts/ci/test-require-workflow-job.bash"
 bash "$repo_root/scripts/ci/test-require-latest-workflow-verdict.bash" > /dev/null
+python3 -B "$repo_root/scripts/ci/require_source_canary_health_test.py" > /dev/null
 pre_commit_pr="$repo_root/.github/workflows/pre-commit-pr.yml"
 pre_commit_job="$(workflow_job_block "$build_workflow" pre-commit)"
 # Match literal workflow expressions.
@@ -1057,6 +1058,15 @@ if [[ "$quality_job" != *'run: bash scripts/ci/require-latest-workflow-verdict.b
   exit 1
 fi
 echo "ok: main's verdict requires security-audit's latest verdict on main"
+# ...and the research canary's: the same source failing in its two newest runs on main is red.
+quality_step="$(awk '/- name: Require the research sources to answer/{f=1} f&&/^$/{exit} f' <<< "$quality_job")"
+# shellcheck disable=SC2016 # the workflow's literal expressions
+if [[ "$quality_step" != *'run: python3 -B scripts/ci/require_source_canary_health.py research-source-canary.yml main '* ]] ||
+  [[ "$quality_step" != *"if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'"* ]]; then
+  echo "build.yml's quality must require the research canary's health on main, outside pull requests." >&2
+  exit 1
+fi
+echo "ok: main's verdict requires the research sources not to fail twice in a row"
 
 # The merge of the R&D chain shards' records before the whole-chain report. (The shards' wait for
 # the archive has its own pre-commit hook, test-wait-for-run-artifact.)
