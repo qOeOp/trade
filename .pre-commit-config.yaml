@@ -335,6 +335,13 @@ repos:
             scripts/lib/git-isolation\.bash
           )$
         pass_filenames: false
+      - id: test-require-latest-workflow-verdict
+        name: test the latest-verdict requirement
+        description: Only a recent green latest run on the branch passes; cancelled runs are no verdict
+        entry: bash scripts/ci/test-require-latest-workflow-verdict.bash
+        language: system
+        files: ^scripts/ci/(test-)?require-latest-workflow-verdict\.bash$
+        pass_filenames: false
       - id: test-chain-verdict-reuse
         name: test chain verdict reuse
         description: Only the same tree's green whole-chain verdict for its entry count is reused
