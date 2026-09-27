@@ -380,6 +380,15 @@ grep -Fq 'CREATE OR REPLACE FUNCTION rd_owner_api.lock_current_research_for_arti
 # product_edge_postgres.rs on 73ef8b46d): its catalog row, current values included, is asserted
 # exactly in the ordered chain's `fresh_rd_owner_migrates_before_qualification_writer_validates`.
 grep -Fq 'GRANT EXECUTE ON FUNCTION rd_owner_api.lock_current_research_for_artifact_v1(text,text,text) TO product_edge_owner' "$package_dir/../../crates/strategy_factory/src/product_edge_postgres.rs"
+# The `_at_view` artifact pair is the R&D Owner's own: revoked from PUBLIC and granted to nobody.
+# Its catalog rows, owner-only ACL included, are asserted in the same ordered-chain entry.
+grep -Fq 'REVOKE ALL ON FUNCTION rd_owner_api.peek_research_for_artifact_at_view_v1(text,jsonb) FROM PUBLIC' "$package_dir/../../crates/strategy_factory/src/product_edge_postgres.rs"
+grep -Fq 'REVOKE ALL ON FUNCTION rd_owner_api.lock_research_for_artifact_at_view_v1(text,text,text,jsonb) FROM PUBLIC' "$package_dir/../../crates/strategy_factory/src/product_edge_postgres.rs"
+if grep -rEq 'GRANT [A-Z, ]+ ON FUNCTION rd_owner_api\.(peek|lock)_research_for_artifact_at_view_v1' \
+  "$package_dir/../../crates" "$package_dir/postgres-init"; then
+  echo 'the at-View Research artifact functions must grant EXECUTE to nobody' >&2
+  exit 1
+fi
 grep -Fq '.admit_artifact_build_request(' "$package_dir/../../crates/strategy_factory_rd_owner_api/src/main.rs"
 grep -Fq '|| hinted_admission.request.operation != ARTIFACT_BUILD_OPERATION_V1' "$package_dir/../../crates/product_edge/src/postgres.rs"
 if grep -Fq 'ProductEdgeCurrentOwnerEvidence' "$package_dir/../../crates/product_edge/src/lib.rs" ||
