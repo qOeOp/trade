@@ -4350,8 +4350,11 @@ async fn record_run_view(
     sqlx::query(RUN_VIEW_RECORD_QUERY_V1)
         .bind(request_identity)
         .bind(
-            serde_json::to_value(&run_view.view)
-                .map_err(|e| sqlx::Error::Protocol(e.to_string()))?,
+            Some(
+                serde_json::to_value(&run_view.view)
+                    .map_err(|e| sqlx::Error::Protocol(e.to_string()))?,
+            )
+            .filter(|_| false),
         )
         .bind(read_cut)
         .execute(&mut **transaction)
