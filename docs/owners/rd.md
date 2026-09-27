@@ -1120,7 +1120,8 @@ request binds 'the requested instrument or universe scope'."
 - `ProductEdgeResearchGoalRequestV3` is `ProductEdgeResearchGoalRequestV2` plus a required `instrument_scope`, a
   `ResearchInstrumentScopeV1`: one or two distinct canonical Instrument Master identities, such as
   `BTCUSDT-PERP.BINANCE`, in ascending byte order, matching the member counts the universe vertical admits. The
-  single-instrument route states one. Its canonical bytes are schema `u16LE = 1`, the member count `u8`, and each
+  single-instrument route states one. The Strategy shape envelope widens this to N members as a TARGET, which the
+  user authorized on 2026-09-27; until its slice I1 lands, one or two remains the admitted bound. Its canonical bytes are schema `u16LE = 1`, the member count `u8`, and each
   identity length-prefixed (`u16LE`) in order; its identity is SHA-256 over
   `rd.research-instrument-scope.v1\0 || canonical bytes`. On the wire it is the JSON object
   `{"schema_version": 1, "identities": ["BTCUSDT-PERP.BINANCE"]}`; this Owner refuses an unknown schema, an empty,
