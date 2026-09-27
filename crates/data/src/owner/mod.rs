@@ -87,6 +87,11 @@ pub use postgres::bar_joined_cut_acceptance_v1;
 
 mod postgres;
 mod store_admission;
+pub use store_admission::{
+    DeploymentStorePublicationError, DeploymentStorePublicationSummaryV1,
+    DeploymentStorePublishOutcomeV1, publish_sealed_deployment_store_publication_v1,
+    seal_deployment_store_publication_v1,
+};
 
 /// Transaction-scoped re-read of the persisted Market Data strategy input binding custody.
 ///

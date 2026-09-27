@@ -9,14 +9,16 @@
 //! anything is written.
 
 use std::{
-    fs::{self, OpenOptions},
+    fs::OpenOptions,
     io::{self, Write},
     path::Path,
 };
-use vibe_strategy_factory_rd_owner_api::required_env;
+use vibe_strategy_factory_rd_owner_api::{
+    required_env,
+    signing_key_file::{read_bounded_file, read_ed25519_signing_key},
+};
 
 use anyhow::Context;
-use ed25519_dalek::SigningKey;
 use serde::Serialize;
 use vibe_strategy_factory::{
     CatalogAdminCommandKindV3, ReplayPolicyCatalogAdminCommandAuthoringV3,
@@ -27,7 +29,6 @@ const AUTHORING_PATH_ENV: &str = "REPLAY_POLICY_CATALOG_COMMAND_AUTHORING_PATH";
 const SIGNING_KEY_PATH_ENV: &str = "REPLAY_POLICY_CATALOG_SIGNING_KEY_PATH";
 const OUTPUT_PATH_ENV: &str = "REPLAY_POLICY_CATALOG_SEALED_COMMAND_OUTPUT_PATH";
 const MAX_AUTHORING_BYTES: usize = 64 * 1024;
-const MAX_SIGNING_KEY_FILE_BYTES: usize = 128;
 
 /// What the sealer prints: enough to name the command and its verifier, and nothing that
 /// could reconstruct the key.
@@ -52,7 +53,10 @@ fn main() -> anyhow::Result<()> {
     )?;
     let authoring: ReplayPolicyCatalogAdminCommandAuthoringV3 =
         serde_json::from_slice(&authoring_json).context("Catalog command authoring is invalid")?;
-    let signing_key = read_signing_key(Path::new(&required_env(SIGNING_KEY_PATH_ENV)?))?;
+    let signing_key = read_ed25519_signing_key(
+        Path::new(&required_env(SIGNING_KEY_PATH_ENV)?),
+        "Catalog signing key",
+    )?;
     let output_path = required_env(OUTPUT_PATH_ENV)?;
     let mut summary = SealedCommandSummaryV3 {
         schema_version: 3,
@@ -87,84 +91,6 @@ fn require_no_arguments(mut arguments: impl Iterator<Item = String>) -> anyhow::
     Ok(())
 }
 
-fn read_bounded_file(path: &Path, limit: usize, label: &'static str) -> anyhow::Result<Vec<u8>> {
-    let metadata = fs::metadata(path).with_context(|| format!("{label} file is unavailable"))?;
-
-    if !metadata.is_file() {
-        anyhow::bail!("{label} path must identify a regular file");
-    }
-
-    if metadata.len() > limit as u64 {
-        anyhow::bail!("{label} file exceeds its byte bound");
-    }
-    let bytes = fs::read(path).with_context(|| format!("{label} file is unreadable"))?;
-
-    if bytes.len() > limit {
-        anyhow::bail!("{label} file exceeds its byte bound");
-    }
-    Ok(bytes)
-}
-
-/// The signing key file holds the 32-byte seed as exactly 64 lowercase hex characters, with at
-/// most one trailing newline; anything else is refused rather than guessed at.
-fn read_signing_key(path: &Path) -> anyhow::Result<SigningKey> {
-    let bytes = read_bounded_file(path, MAX_SIGNING_KEY_FILE_BYTES, "Catalog signing key")?;
-    let seed = parse_seed_hex(&bytes)?;
-    Ok(SigningKey::from_bytes(&seed))
-}
-
-fn parse_seed_hex(bytes: &[u8]) -> anyhow::Result<[u8; 32]> {
-    let text = std::str::from_utf8(bytes).context("Catalog signing key is not UTF-8")?;
-    let value = text
-        .strip_suffix("\r\n")
-        .or_else(|| text.strip_suffix('\n'))
-        .unwrap_or(text);
-
-    if value.len() != 64
-        || !value
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-    {
-        anyhow::bail!("Catalog signing key must be exactly 64 lowercase hex characters");
-    }
-    let mut seed = [0_u8; 32];
-
-    for (index, chunk) in value.as_bytes().chunks(2).enumerate() {
-        let pair = std::str::from_utf8(chunk).context("Catalog signing key is not UTF-8")?;
-        seed[index] = u8::from_str_radix(pair, 16).context("Catalog signing key is not hex")?;
-    }
-    Ok(seed)
-}
-
 fn lower_hex(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
-}
-
-#[cfg(test)]
-mod tests {
-    use rstest::rstest;
-
-    use super::*;
-
-    #[rstest]
-    fn signing_key_file_requires_exact_lowercase_hex_seed() {
-        let seed_hex = "1d".repeat(32);
-        assert_eq!(parse_seed_hex(seed_hex.as_bytes()).unwrap(), [0x1d; 32]);
-        assert_eq!(
-            parse_seed_hex(format!("{seed_hex}\n").as_bytes()).unwrap(),
-            [0x1d; 32]
-        );
-        assert!(parse_seed_hex(seed_hex.to_uppercase().as_bytes()).is_err());
-        assert!(parse_seed_hex(format!(" {seed_hex}").as_bytes()).is_err());
-        assert!(parse_seed_hex(&seed_hex.as_bytes()[..62]).is_err());
-        assert!(require_no_arguments(std::iter::empty()).is_ok());
-        assert!(require_no_arguments(["unexpected".to_owned()].into_iter()).is_err());
-    }
-
-    #[rstest]
-    fn the_sealer_refuses_to_overwrite_and_never_serializes_the_seed() {
-        let source = include_str!("replay_policy_catalog_command_seal.rs");
-        assert!(source.contains(".create_new(true)"));
-        assert!(!source.contains(&["to_", "bytes()"].concat()));
-    }
 }

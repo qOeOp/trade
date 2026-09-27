@@ -15,11 +15,17 @@
 mod credential_files;
 mod custody_postgres;
 mod postgres;
+mod publication;
 mod signature;
 mod witness;
 pub(super) use postgres::RawSharedTimeEvidenceSnapshotV1;
 #[cfg(test)]
 pub(super) use postgres::RawSharedTimeHistoryRowV1;
+pub use publication::{
+    DeploymentStorePublicationError, DeploymentStorePublicationSummaryV1,
+    DeploymentStorePublishOutcomeV1, publish_sealed_deployment_store_publication_v1,
+    seal_deployment_store_publication_v1,
+};
 
 use std::{
     fmt::{Debug, Display},
@@ -3441,6 +3447,269 @@ mod tests {
         );
     }
 
+    /// One publication's authoring, for `environment`, generation `prior.len() + 1`, with the
+    /// fixture's measurement and windows cut from `time`.
+    fn publication_authoring(
+        environment: &str,
+        prior: &[&str],
+        expected_previous_head: Option<&str>,
+        time: TimeBase,
+    ) -> Vec<u8> {
+        let measured = measurement("role-v1");
+        serde_json::to_vec(&serde_json::json!({
+            "signer_identity": SIGNER,
+            "environment_identity": environment,
+            "deployment_identity": "rd-workbench-test",
+            "endpoint_identity": measured.endpoint_identity,
+            "tls_identity": measured.tls_identity,
+            "server_identity": measured.server_identity,
+            "database_identity": measured.database_identity,
+            "measurement_spec": synthetic_spec(),
+            "expected_measurement": measured,
+            "credential_handle": {
+                "identity": "credential-handle-market-data",
+                "audience": RD_OWNER_API_CONSUMER,
+                "version": format!("credential-v{}", prior.len() + 1),
+            },
+            "prior_manifest_identities": prior,
+            "expected_previous_head_identity": expected_previous_head,
+            "valid_from_epoch_ms": time.now - 1_000,
+            "valid_through_epoch_ms": time.now + 2 * time.horizon_ms,
+            "recovery": {
+                "identity": "restart-reverify-and-remeasure-v1",
+                "restart_requires_reverification": true,
+                "ambiguity_forbids_business_retry": true,
+            },
+            "rotation_fence_identity": format!("rotation-fence-{}", prior.len() + 1),
+            "rotation_fence_closed_at_epoch_ms": time.now - 100,
+        }))
+        .unwrap()
+    }
+
+    fn seal(
+        authoring: &[u8],
+        key: &SigningKey,
+    ) -> (Vec<u8>, publication::DeploymentStorePublicationSummaryV1) {
+        publication::seal_deployment_store_publication_v1(authoring, key).unwrap()
+    }
+
+    /// Two publications sealed by the administrator's tool, the second chained to the first.
+    fn sealed_history(
+        environment: &str,
+        key: &SigningKey,
+        time: TimeBase,
+    ) -> [(Vec<u8>, publication::DeploymentStorePublicationSummaryV1); 2] {
+        let genesis = seal(&publication_authoring(environment, &[], None, time), key);
+        let successor = seal(
+            &publication_authoring(
+                environment,
+                &[&genesis.1.manifest_identity],
+                Some(&genesis.1.head_identity),
+                time,
+            ),
+            key,
+        );
+        [genesis, successor]
+    }
+
+    #[rstest]
+    #[tokio::test]
+    async fn the_custodian_admits_a_history_the_administrator_sealed() {
+        let fixture = Fixture::new();
+        let time = TimeBase {
+            now: NOW,
+            horizon_ms: 5_000,
+        };
+        let [genesis, successor] = sealed_history("test-environment", &fixture.signing_key, time);
+        assert_eq!((genesis.1.generation, successor.1.generation), (1, 2));
+        assert_eq!(
+            successor.1.signer_public_key_hex,
+            signature::lower_hex(fixture.signing_key.verifying_key().as_bytes())
+        );
+        let (first, _, _) = publication::open_sealed(&genesis.0).unwrap();
+        let (second, head, expected_previous) = publication::open_sealed(&successor.0).unwrap();
+        assert_eq!(
+            expected_previous.as_deref(),
+            Some(genesis.1.head_identity.as_str())
+        );
+        assert_eq!(
+            head.head.history_digest,
+            digest_serializable(&[
+                &first.manifest.manifest_identity,
+                &second.manifest.manifest_identity
+            ])
+        );
+
+        let custody = fixture.custody();
+        custody.state.lock().unwrap().history = ResolvedHistory {
+            manifests: vec![first, second],
+            current_heads: vec![head],
+            read_cut_epoch_ms: 0,
+        };
+        let witness = WitnessedFrontier {
+            head_identity: successor.1.head_identity.clone(),
+            manifest_identity: successor.1.manifest_identity.clone(),
+            ..fixture.witness.clone()
+        };
+        custody
+            .state
+            .lock()
+            .unwrap()
+            .current_anti_rollback_proof_identity =
+            digest_serializable(&AntiRollbackObservation::Witnessed(witness.clone()));
+        let custodian = Custodian::new(
+            Arc::new(custody),
+            Arc::new(CountingVerifier::pinned(
+                SIGNER,
+                &fixture.signing_key.verifying_key(),
+                Arc::new(AtomicUsize::new(0)),
+            )),
+            Arc::new(FakeWitness {
+                observation: AntiRollbackObservation::Witnessed(witness),
+            }),
+            Arc::new(FakeCredentials {
+                valid_through_epoch_ms: fixture.lapse_epoch_ms,
+            }),
+            Arc::new(FakeMeasurer {
+                value: measurement("role-v1"),
+                calls: Arc::new(AtomicUsize::new(0)),
+            }),
+        );
+        let request = RdOwnerMarketDataAdmissionRequest::new(
+            "test-environment".to_string(),
+            "rd-workbench-test".to_string(),
+            successor.1.head_identity.clone(),
+        )
+        .unwrap();
+
+        let receipt = custodian.admit(request.scope()).await.unwrap();
+        assert_eq!(receipt.manifest_identity, successor.1.manifest_identity);
+    }
+
+    #[rstest]
+    #[case::genesis_expecting_a_head(&[], Some("sha256:previous"))]
+    #[case::successor_expecting_none(&["sha256:genesis"], None)]
+    fn an_inconsistent_publication_is_not_sealed(
+        #[case] prior: &[&str],
+        #[case] expected_previous_head: Option<&str>,
+    ) {
+        let time = TimeBase {
+            now: NOW,
+            horizon_ms: 5_000,
+        };
+        let key = SigningKey::from_bytes(&[7_u8; 32]);
+
+        assert!(matches!(
+            publication::seal_deployment_store_publication_v1(
+                &publication_authoring("test-environment", prior, expected_previous_head, time),
+                &key,
+            ),
+            Err(publication::DeploymentStorePublicationError::InvalidAuthoring(_))
+        ));
+    }
+
+    #[rstest]
+    fn authoring_that_names_a_derived_field_or_an_unbounded_signer_is_not_sealed() {
+        let time = TimeBase {
+            now: NOW,
+            horizon_ms: 5_000,
+        };
+        let key = SigningKey::from_bytes(&[7_u8; 32]);
+        let mut with_identity: serde_json::Value =
+            serde_json::from_slice(&publication_authoring("test-environment", &[], None, time))
+                .unwrap();
+        with_identity["manifest_identity"] = serde_json::json!("sha256:authored");
+        let mut unbounded_signer = with_identity.clone();
+        unbounded_signer
+            .as_object_mut()
+            .unwrap()
+            .remove("manifest_identity");
+        unbounded_signer["signer_identity"] = serde_json::json!("signer with spaces");
+
+        for authoring in [with_identity, unbounded_signer] {
+            assert!(matches!(
+                publication::seal_deployment_store_publication_v1(
+                    &serde_json::to_vec(&authoring).unwrap(),
+                    &key,
+                ),
+                Err(publication::DeploymentStorePublicationError::InvalidAuthoring(_))
+            ));
+        }
+    }
+
+    #[rstest]
+    #[tokio::test]
+    async fn a_damaged_sealed_publication_is_refused_before_anything_is_written() {
+        let time = TimeBase {
+            now: NOW,
+            horizon_ms: 5_000,
+        };
+        let key = SigningKey::from_bytes(&[7_u8; 32]);
+        let (sealed, _) = seal(
+            &publication_authoring("test-environment", &[], None, time),
+            &key,
+        );
+        let sealed: serde_json::Value = serde_json::from_slice(&sealed).unwrap();
+        let with = |field: &str, value: serde_json::Value| {
+            let mut damaged = sealed.clone();
+            damaged[field] = value;
+            serde_json::to_vec(&damaged).unwrap()
+        };
+        let manifest_json = sealed["manifest_json"].as_str().unwrap();
+        let signature = sealed["manifest_signature_hex"].as_str().unwrap();
+
+        for (damaged, refused_as_signature) in [
+            // A changed value is other bytes than the signed ones.
+            (
+                with(
+                    "manifest_json",
+                    serde_json::json!(manifest_json.replacen(
+                        "\"generation\":1",
+                        "\"generation\":2",
+                        1
+                    )),
+                ),
+                true,
+            ),
+            // Reformatted JSON parses to the same manifest but is not the signed bytes.
+            (
+                with(
+                    "manifest_json",
+                    serde_json::json!(format!(" {manifest_json}")),
+                ),
+                false,
+            ),
+            (
+                with(
+                    "manifest_signature_hex",
+                    serde_json::json!(signature.to_uppercase()),
+                ),
+                false,
+            ),
+            (with("schema_version", serde_json::json!(2)), false),
+        ] {
+            // An unreachable store proves the refusal comes before any connection.
+            let refusal = publication::publish_sealed_deployment_store_publication_v1(
+                "postgres://publisher:secret@127.0.0.1:1/none",
+                &damaged,
+            )
+            .await
+            .unwrap_err();
+
+            if refused_as_signature {
+                assert_eq!(
+                    refusal,
+                    publication::DeploymentStorePublicationError::SignatureInvalid
+                );
+            } else {
+                assert!(matches!(
+                    refusal,
+                    publication::DeploymentStorePublicationError::InvalidSealedPublication(_)
+                ));
+            }
+        }
+    }
+
     #[tokio::test]
     async fn production_and_s3_ports_are_explicitly_unavailable() {
         let fixture = Fixture::new();
@@ -5134,7 +5403,7 @@ mod tests {
 
     #[allow(
         clippy::too_many_lines,
-        reason = "one scenario, one database, five parts"
+        reason = "one scenario, one database, six parts"
     )]
     async fn run_postgres_custody_store_scenario() {
         use custody_postgres::PublishOutcomeV1::{Conflict, HeadMismatch, Published, Replayed};
@@ -5476,5 +5745,79 @@ mod tests {
             AdmissionFailureCode::AdmissionCutExpired
         );
         assert_eq!(receipts_of(&admin, "pg-custody-lapsing").await, 0);
+
+        // 6. What the administrator's tool seals, published through the publisher principal, is
+        //    what the custodian admits: the whole path a deployment's history takes.
+        let sealed_from = store_clock(&admin).await;
+        let time = TimeBase {
+            now: sealed_from,
+            horizon_ms: 600_000,
+        };
+        let sealer = Fixture::at(
+            "pg-custody-sealed",
+            &spec,
+            measurement("role-v1"),
+            sealed_from,
+            600_000,
+        );
+        let [genesis, successor] = sealed_history("pg-custody-sealed", &sealer.signing_key, time);
+        for (sealed, expected) in [
+            (
+                &genesis.0,
+                publication::DeploymentStorePublishOutcomeV1::Published,
+            ),
+            (
+                &genesis.0,
+                publication::DeploymentStorePublishOutcomeV1::Replayed,
+            ),
+            (
+                &successor.0,
+                publication::DeploymentStorePublishOutcomeV1::Published,
+            ),
+            // The genesis publication expects no head; one is current now.
+            (
+                &genesis.0,
+                publication::DeploymentStorePublishOutcomeV1::HeadMismatch,
+            ),
+        ] {
+            assert_eq!(
+                publication::publish_sealed_deployment_store_publication_v1(&publisher_url, sealed)
+                    .await
+                    .unwrap(),
+                expected
+            );
+        }
+        let witnessed = Fixture {
+            witness: WitnessedFrontier {
+                head_identity: successor.1.head_identity.clone(),
+                manifest_identity: successor.1.manifest_identity.clone(),
+                ..sealer.witness.clone()
+            },
+            ..sealer
+        };
+        let custodian = postgres_custodian(
+            &witnessed,
+            &custodian_url,
+            Arc::new(FakeMeasurer {
+                value: measurement("role-v1"),
+                calls: Arc::new(AtomicUsize::new(0)),
+            }),
+        )
+        .await;
+        let request = RdOwnerMarketDataAdmissionRequest::new(
+            "pg-custody-sealed".to_string(),
+            "rd-workbench-test".to_string(),
+            successor.1.head_identity.clone(),
+        )
+        .unwrap();
+        assert_eq!(
+            custodian
+                .admit(request.scope())
+                .await
+                .unwrap()
+                .manifest_identity,
+            successor.1.manifest_identity
+        );
+        assert_eq!(receipts_of(&admin, "pg-custody-sealed").await, 1);
     }
 }

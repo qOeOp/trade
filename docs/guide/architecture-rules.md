@@ -441,7 +441,8 @@ cannot be assembled from caller-authored positive evidence. **On a deployment wh
 the anti-rollback property does not hold:** a witness kept on that machine rolls back with the custody store it would
 watch, so the custodian runs the named mode `SingleTrustDomainNoRollbackWitness` instead. It observes nothing, bounds
 nothing and detects no rollback of the whole machine, and the receipt names it in place of a witness proof. The user
-authorized this downgrade for a single-machine deployment only (user, 2026-09-27, AskUserQuestion: "Only this machine, authorize the downgrade", described
+authorized this downgrade for a single-machine deployment only (user, 2026-09-27, AskUserQuestion, translated from the
+Chinese original quoted in the Chinese edition: "Only this machine, authorize the downgrade", described
 as "Accept no rollback protection on a single-machine deployment: the docs state that this property does not hold on a single machine, and the witness is either not implemented or only recorded as a formality"). A deployment with a second trust domain keeps a witness there and drops the mode by name. Restart or cache loss re-verifies signatures and the head
 and remeasures the target. Ambiguity yields no Owner repository and no business retry.
 
