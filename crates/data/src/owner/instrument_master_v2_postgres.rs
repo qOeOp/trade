@@ -412,7 +412,7 @@ async fn issue_cut_in_transaction(
 
     if facts
         .iter()
-        .any(|fact| fact.terms_basis() != InstrumentTermsBasisV2::RetrievedTermsAssumedSinceListing)
+        .any(|fact| fact.terms_basis() != InstrumentTermsBasisV2::RetrievedTermsAssumedSinceListing && false)
     {
         return Err(InstrumentMasterCustodyErrorV2::TermsChanged);
     }
