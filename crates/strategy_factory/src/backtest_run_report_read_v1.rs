@@ -249,6 +249,29 @@ impl BacktestRunReportStateV1 {
     }
 }
 
+/// Why a run recorded no return, stated for every `EMPTY` report and for no `AVAILABLE` one.
+///
+/// A run records a return from its daily equity, and otherwise from each position it closed, so a
+/// run without one is a run whose portfolio snapshots resolved to no daily return and that closed
+/// no position. Each reason is the engine's own cause for the first half
+/// ([`vibe_analysis::analyzer::SnapshotReturnsUnavailable`]), asked of the snapshots the canonical
+/// result carries, so the report cannot state a reason the engine did not have
+/// (`docs/owners/backtest.md`).
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum BacktestRunEmptyReasonV1 {
+    /// A priced snapshot of one of the run's accounts carries more than one equity, or two carry
+    /// different currencies.
+    MoreThanOneEquityCurrency,
+    /// The run has no account, or one of its accounts has no priced snapshot.
+    AccountWithoutPricedSnapshot,
+    /// The priced snapshots give fewer than two days, as the engine counts days, on which every
+    /// account has had equity.
+    FewerThanTwoEngineDays,
+    /// Two or more such days, but no day's return is defined.
+    NoDefinedDailyReturn,
+}
+
 /// Which committed run a report was read from.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct BacktestRunIdentityV1 {
@@ -369,6 +392,8 @@ pub struct BacktestRunReportProjectionV1 {
 pub struct BacktestRunResultV1 {
     /// Decided by the Owner from the series, so a consumer never infers it.
     pub state: BacktestRunReportStateV1,
+    /// Why an `EMPTY` run recorded no return; `None` exactly when [`Self::state`] is `Available`.
+    pub empty_reason: Option<BacktestRunEmptyReasonV1>,
     /// Every observation the run recorded, strictly ordered by time.
     pub series: Vec<BacktestRunReportPointV1>,
     /// A fraction, where 0.01 is one percent. Absent exactly when [`Self::state`] is `Empty`.
@@ -828,20 +853,90 @@ pub(crate) fn project_engine_result_v1(
 
     // `OwnerBacktestReportV1` sets both quantities exactly when the series is non-empty, so the
     // series alone decides the state.
-    let state = if series.is_empty() {
-        BacktestRunReportStateV1::Empty
+    let (state, empty_reason) = if series.is_empty() {
+        (
+            BacktestRunReportStateV1::Empty,
+            Some(empty_reason_v1(canonical.as_value())?),
+        )
     } else {
-        BacktestRunReportStateV1::Available
+        (BacktestRunReportStateV1::Available, None)
     };
 
     Ok(BacktestRunResultV1 {
         state,
+        empty_reason,
         series,
         net_return: report.net_return,
         max_drawdown: report.max_drawdown,
         fill_count: u64::try_from(fills.len()).unwrap_or(u64::MAX),
         fills,
     })
+}
+
+/// Why a run whose canonical result carries no return recorded none, asked of that result alone.
+///
+/// The engine's statistics fall back to closed-position returns when the snapshots resolve to no
+/// daily return, so a result without a return that closed a position, or whose snapshots resolve
+/// to one, is not a result the engine writes, and is refused rather than given a reason.
+fn empty_reason_v1(
+    document: &serde_json::Value,
+) -> Result<BacktestRunEmptyReasonV1, BacktestRunReportRefusalV1> {
+    use vibe_analysis::analyzer::{PortfolioAnalyzer, SnapshotReturnsUnavailable as Cause};
+    use vibe_model::{events::PortfolioSnapshot, identifiers::AccountId};
+
+    let noncanonical =
+        |why: &str| BacktestRunReportRefusalV1::EngineResultNoncanonical(why.to_owned());
+    let entries = |key: &str| document[key].as_array().into_iter().flatten();
+
+    // The analyzer records a position's return when it closed and realized a PnL.
+    let closed = entries("positions")
+        .chain(entries("position_snapshots"))
+        .any(|position| {
+            position["ts_closed"]
+                .as_str()
+                .and_then(|ts| ts.parse::<u64>().ok())
+                .is_some_and(|ts| ts > 0)
+                && !position["realized_pnl"].is_null()
+        });
+
+    if closed {
+        return Err(noncanonical(
+            "a run that closed a position recorded no return",
+        ));
+    }
+
+    let accounts = entries("accounts")
+        .map(|account| {
+            account
+                .as_object()
+                .and_then(|kinds| kinds.values().next())
+                .and_then(|account| account["base"]["id"].as_str())
+                .map(AccountId::from)
+                .ok_or_else(|| noncanonical("an account carries no identity"))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    // The canonical form renames every event identifier (`event-8`), which is no UUID. The
+    // resolution never reads a snapshot's event identifier, so each is read back as the nil UUID.
+    let mut snapshots = document["portfolio_snapshots"].clone();
+    for snapshot in snapshots.as_array_mut().into_iter().flatten() {
+        snapshot["event_id"] = serde_json::Value::from("00000000-0000-4000-8000-000000000000");
+    }
+    let snapshots: Vec<PortfolioSnapshot> = serde_json::from_value(snapshots)
+        .map_err(|_| noncanonical("the portfolio snapshots do not read back"))?;
+
+    match PortfolioAnalyzer::resolve_snapshot_returns(&accounts, &snapshots) {
+        Ok(_) => Err(noncanonical(
+            "the portfolio snapshots resolve to a daily return the run did not record",
+        )),
+        Err(Cause::MoreThanOneEquityCurrency) => {
+            Ok(BacktestRunEmptyReasonV1::MoreThanOneEquityCurrency)
+        }
+        Err(Cause::NoAccount | Cause::AccountWithoutPricedSnapshot) => {
+            Ok(BacktestRunEmptyReasonV1::AccountWithoutPricedSnapshot)
+        }
+        Err(Cause::FewerThanTwoDays) => Ok(BacktestRunEmptyReasonV1::FewerThanTwoEngineDays),
+        Err(Cause::NoDefinedDailyReturn) => Ok(BacktestRunEmptyReasonV1::NoDefinedDailyReturn),
+    }
 }
 
 /// `OwnerBacktestReportV1` returns the series in timestamp order, so the only way it can fail to be
@@ -1169,6 +1264,7 @@ mod tests {
 
         assert_eq!(report.fill_count, 0);
         assert_eq!(report.state, BacktestRunReportStateV1::Available);
+        assert_eq!(report.empty_reason, None);
         assert_eq!(
             report
                 .series
@@ -1190,6 +1286,7 @@ mod tests {
         assert_eq!(report.fill_count, 1);
         assert_eq!(report.fills[0].side, "BUY");
         assert_eq!(report.state, BacktestRunReportStateV1::Available);
+        assert_eq!(report.empty_reason, None);
         assert_eq!(report.series.len(), 1);
         assert_ne!(
             report.series[0].value, 0.0,
@@ -1216,6 +1313,10 @@ mod tests {
 
         let report = at(midnight);
         assert_eq!(report.state, BacktestRunReportStateV1::Empty);
+        assert_eq!(
+            report.empty_reason,
+            Some(BacktestRunEmptyReasonV1::FewerThanTwoEngineDays)
+        );
         assert!(report.series.is_empty());
 
         let control = at(midnight + 60_000_000_000);
@@ -1227,6 +1328,97 @@ mod tests {
                 .map(|point| point.value)
                 .collect::<Vec<_>>(),
             [0.0]
+        );
+    }
+
+    /// The prices of `a_day_with_one_fill_reports_one_return`: one BUY within one real day.
+    const ONE_FILL: [f64; 10] = [
+        102.0, 101.0, 100.0, 99.0, 98.0, 99.0, 100.0, 101.0, 102.0, 103.0,
+    ];
+
+    /// The one-fill run's canonical result with its return series removed and `edit` applied to
+    /// the document, projected as the report projects any committed result.
+    ///
+    /// No admitted run reaches these reasons, so each is reached by changing what the engine wrote
+    /// in the one way that reason names, and nothing else.
+    fn projected_without_series(
+        prices: &[f64],
+        edit: impl FnOnce(&mut serde_json::Value),
+    ) -> Result<BacktestRunResultV1, BacktestRunReportRefusalV1> {
+        project_engine_result_v1(&without_series(prices, edit))
+    }
+
+    /// The canonical result of a real run over `prices`, with its return series removed and `edit`
+    /// applied.
+    fn without_series(prices: &[f64], edit: impl FnOnce(&mut serde_json::Value)) -> Vec<u8> {
+        let bytes = super::report_test_support_v1::run_prices_v1(prices, ONE_AM)
+            .to_bytes()
+            .expect("canonical bytes");
+        let mut document: serde_json::Value = serde_json::from_slice(&bytes).expect("engine JSON");
+        document["statistics"]["returns_series"] = serde_json::json!([]);
+        edit(&mut document);
+        serde_json::to_vec(&document).expect("edited JSON")
+    }
+
+    /// Makes the last portfolio snapshot's equity another currency's.
+    fn two_currencies(document: &mut serde_json::Value) {
+        let last = snapshots(document).len() - 1;
+        snapshots(document)[last]["total_equity"] = serde_json::json!(["1000000.00 EUR"]);
+    }
+
+    fn snapshots(document: &mut serde_json::Value) -> &mut Vec<serde_json::Value> {
+        document["portfolio_snapshots"]
+            .as_array_mut()
+            .expect("portfolio snapshots")
+    }
+
+    /// Each reason the engine's snapshot resolution can give is the reason the report states.
+    #[rstest]
+    #[case::two_currencies(two_currencies, BacktestRunEmptyReasonV1::MoreThanOneEquityCurrency)]
+    #[case::no_priced_snapshot(
+        |document: &mut serde_json::Value| {
+            for snapshot in snapshots(document) {
+                snapshot["unpriced_instruments"] = serde_json::json!(["BTCUSDT-PERP.SIM"]);
+            }
+        },
+        BacktestRunEmptyReasonV1::AccountWithoutPricedSnapshot
+    )]
+    #[case::zero_opening_equity(
+        |document: &mut serde_json::Value| {
+            snapshots(document)[0]["total_equity"] = serde_json::json!(["0.00 USD"]);
+        },
+        BacktestRunEmptyReasonV1::NoDefinedDailyReturn
+    )]
+    fn an_empty_report_states_the_engine_s_own_cause(
+        #[case] edit: fn(&mut serde_json::Value),
+        #[case] reason: BacktestRunEmptyReasonV1,
+    ) {
+        let report = projected_without_series(&ONE_FILL, edit).expect("the result projects");
+
+        assert_eq!(report.state, BacktestRunReportStateV1::Empty);
+        assert_eq!(report.empty_reason, Some(reason));
+        assert_eq!(report.fill_count, 1);
+    }
+
+    /// A result without a return is refused when the engine would have recorded one: its snapshots
+    /// resolve to a daily return, or it closed a position.
+    #[rstest]
+    fn an_empty_report_the_engine_would_not_write_is_refused() {
+        let resolves = projected_without_series(&ONE_FILL, |_| {});
+        assert!(
+            matches!(resolves, Err(BacktestRunReportRefusalV1::EngineResultNoncanonical(ref why)) if why.contains("resolve to a daily return")),
+            "{resolves:?}"
+        );
+
+        let bytes = run_multi_day_round_trip_v1()
+            .to_bytes()
+            .expect("canonical bytes");
+        let mut document: serde_json::Value = serde_json::from_slice(&bytes).expect("engine JSON");
+        document["statistics"]["returns_series"] = serde_json::json!([]);
+        let closed = project_engine_result_v1(&serde_json::to_vec(&document).expect("edited JSON"));
+        assert!(
+            matches!(closed, Err(BacktestRunReportRefusalV1::EngineResultNoncanonical(ref why)) if why.contains("closed a position")),
+            "{closed:?}"
         );
     }
 
@@ -1271,14 +1463,12 @@ mod tests {
         assert_eq!(result.fill_count, result.fills.len() as u64);
     }
 
+    /// Two equity currencies stand in for any reason the engine gives no daily return; the run's one
+    /// fill is still listed.
     #[rstest]
     fn a_run_that_recorded_no_point_is_empty_and_keeps_its_executions() {
-        let mut document: serde_json::Value =
-            serde_json::from_slice(&engine_bytes()).expect("engine JSON");
-        document["statistics"]["returns_series"] = serde_json::json!([]);
-        let bytes = serde_json::to_vec(&document).expect("edited engine bytes");
-
-        let result = project_engine_result_v1(&bytes).expect("result projection");
+        let result =
+            projected_without_series(&ONE_FILL, two_currencies).expect("result projection");
 
         assert_eq!(result.state, BacktestRunReportStateV1::Empty);
         assert!(result.series.is_empty());
@@ -1537,21 +1727,20 @@ mod tests {
 
     #[rstest]
     fn the_wire_shape_is_the_owner_s_and_keeps_absent_quantities_as_null() {
-        let mut document: serde_json::Value =
-            serde_json::from_slice(&engine_bytes()).expect("engine JSON");
-        let projection = |document: &serde_json::Value| {
+        let projection = |result: BacktestRunResultV1| {
             serde_json::to_value(BacktestRunReportProjectionV1 {
                 run: run(),
                 strategy: strategy(),
                 data_window: data_window(),
-                result: project_engine_result_v1(&serde_json::to_vec(document).expect("bytes"))
-                    .expect("result projection"),
+                result,
             })
             .expect("wire value")
         };
-        let available = projection(&document);
-        document["statistics"]["returns_series"] = serde_json::json!([]);
-        let empty = projection(&document);
+        let available =
+            projection(project_engine_result_v1(&engine_bytes()).expect("result projection"));
+        let empty = projection(
+            projected_without_series(&ONE_FILL, two_currencies).expect("result projection"),
+        );
 
         // Sorted, so the comparison does not depend on whether `serde_json` preserves order in
         // whichever feature set this build unified.
@@ -1568,6 +1757,7 @@ mod tests {
         // One flat object: the result half is flattened into it, not nested under a key.
         let expected = [
             "data_window",
+            "empty_reason",
             "fill_count",
             "fills",
             "max_drawdown",
@@ -1650,6 +1840,77 @@ mod tests {
         assert!(empty["net_return"].is_null());
         assert!(empty["max_drawdown"].is_null());
         assert_eq!(empty["series"], serde_json::json!([]));
+        // The reason is present in both states: null when there are points, a code when not.
+        assert!(available["empty_reason"].is_null());
+        assert_eq!(empty["empty_reason"], "MORE_THAN_ONE_EQUITY_CURRENCY");
+    }
+
+    /// The Dashboard reads this Owner's wire through one shared file, so the consumer's contract is
+    /// held against the projection this module actually serializes rather than against a copy
+    /// someone typed.
+    ///
+    /// Two stages, and only the second is regenerated. The projection's inputs are two committed
+    /// canonical engine results, a real multi-day run and a one-fill run edited to two equity
+    /// currencies. They are fixed inputs, not this build's engine output, because the engine's
+    /// bytes for one run depend on the `vibe-model/high-precision` feature: at `FIXED_PRECISION` 16
+    /// `Money::as_f64` rounds twice, and two of the multi-day run's daily equities move by one ULP,
+    /// so a wire computed from a live run is a different file under each feature set. They were
+    /// produced at `FIXED_PRECISION` 9, without `high-precision` (at b8a10d6bc, with
+    /// `VIBE_WRITE_BACKTEST_RUN_REPORT_ENGINE_INPUTS=1`), which is the precision the production
+    /// images resolve (`Dockerfile.owner` and `Dockerfile.sandbox`, measured by Lane 0 with
+    /// `cargo tree`); the workspace's CI tests build with `high-precision`. What this test holds is
+    /// the projection contract, which is a function of committed bytes, as a report is; whether the
+    /// engine's bytes agree across precision features is its own question. With
+    /// `VIBE_WRITE_BACKTEST_RUN_REPORT_WIRE=1` the wire file is written from those inputs, and
+    /// otherwise the committed wire must hold exactly the values they project to.
+    #[rstest]
+    fn the_dashboard_reads_this_owner_s_wire_from_one_shared_file() {
+        let inputs =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("test_data/backtest_run_report");
+        let available_input = inputs.join("multi_day_round_trip_canonical_result_v1.json");
+        let empty_input = inputs.join("one_fill_two_currencies_canonical_result_v1.json");
+
+        if std::env::var("VIBE_WRITE_BACKTEST_RUN_REPORT_ENGINE_INPUTS").as_deref() == Ok("1") {
+            std::fs::write(&available_input, engine_bytes()).expect("available input written");
+            std::fs::write(&empty_input, without_series(&ONE_FILL, two_currencies))
+                .expect("empty input written");
+        }
+        let projection = |input: &std::path::Path| {
+            let bytes = std::fs::read(input).expect("a committed engine result");
+            serde_json::to_value(BacktestRunReportProjectionV1 {
+                run: run(),
+                strategy: strategy(),
+                data_window: data_window(),
+                result: project_engine_result_v1(&bytes).expect("result projection"),
+            })
+            .expect("wire value")
+        };
+        let wire = serde_json::json!({
+            "available": projection(&available_input),
+            "empty": projection(&empty_input),
+        });
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../product/dashboard/tests/fixtures/backtest_run_report_wire_v1.json");
+        let written = format!(
+            "{}\n",
+            serde_json::to_string_pretty(&wire).expect("the wire serializes")
+        );
+
+        if std::env::var("VIBE_WRITE_BACKTEST_RUN_REPORT_WIRE").as_deref() == Ok("1") {
+            std::fs::write(&path, &written).expect("the shared wire file is written");
+        }
+        // Compared as values: whether `serde_json` keeps key order depends on the feature set this
+        // build unified, and the consumer reads keys by name.
+        let committed: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).expect("the shared wire file"))
+                .expect("the shared wire file parses");
+        assert_eq!(
+            committed, wire,
+            "product/dashboard/tests/fixtures/backtest_run_report_wire_v1.json is not this \
+             Owner's wire; regenerate it with VIBE_WRITE_BACKTEST_RUN_REPORT_WIRE=1"
+        );
+        assert_eq!(wire["available"]["state"], "AVAILABLE");
+        assert_eq!(wire["empty"]["state"], "EMPTY");
     }
 
     #[rstest]

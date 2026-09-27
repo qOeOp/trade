@@ -1555,6 +1555,9 @@ report over a multi-frame Backtest, proven by its chain entry's test name. The c
 | Momentum divergence                   | Price against RSI or the MACD histogram at two confirmed pivots                     | P1, T1             |
 | Rising and falling wedges             | Lines through the two latest confirmed pivot highs and lows                         | P1, T1             |
 | Three and five pushes                 | A push count over confirmed pivots with a holding structure                         | P1, T1             |
+| Fair value gap                        | A gap across three bars held in fixed slots until a later bar trades into it        | P1, T1             |
+| Liquidity sweep                       | A wick through a confirmed pivot with a close back on its near side                 | P1, T1             |
+| Change in state of delivery           | A close through the open of the first bar of the opposing run                       | P1, T1             |
 | Ronnie's drawing rules R1 to R6       | Horizontal and wide bands, trend line bands, Fibonacci, quartering, timeframe roles | See below          |
 
 Ronnie's drawing rules were measured from 2,512 screenshots across 17 of his videos and reduced to six computable
@@ -1611,6 +1614,40 @@ no wedge from a parallel channel, a count that restarts at a structure break - a
 BTC K-lines, the program's pivots and signals must equal an independent reference implementation of the definition
 exactly. No human-labelled ground truth exists for these three patterns, so what's checked is the program against
 its definition, not the program against the trader.
+
+Three ICT patterns - fair value gap, liquidity sweep, and change in state of delivery - need no slice beyond P1 and
+T1 either:
+
+- **Fair value gap:** bullish at bar `t` when the low is strictly above `Lag(high, 2)`, the gap being the interval
+  between them, and bearish in the mirror case. A gap stays open until a later bar trades into it, which is the
+  signal, and is then cleared. Each open gap takes three fixed-point strategy state cells - its upper edge, its
+  lower edge, and whether it is open - and the program declares how many gaps it holds and that a new gap, when
+  every slot is open, replaces the oldest. V5's memory of the last N events is that rule as one declaration;
+  written out with `Select` today, the gap does not wait for V5. It is the next authored program to prove its state
+  through Wasm after `d1`: with two slots a third gap evicts the first, so a later bar trading into the first gap's
+  interval emits nothing, and the same bars with three slots emit the signal.
+- **Liquidity sweep:** bearish at bar `t` when the high is strictly above the latest confirmed pivot high and the
+  close is strictly below it, and bullish in the mirror case over lows; the pivot is one state cell. A bar's high
+  and close do not say when inside the bar the level was crossed, so the signal is at the sweep bar's close;
+  entering at the moment of the sweep needs T2's lower timeframe or quotes. A pivot is known k bars late, so a sweep
+  of a pivot not yet confirmed is not seen.
+- **Change in state of delivery:** a run is consecutive bars that close on one side of their open. Bullish at bar
+  `t` when, after a bearish run of at least a declared length, the close is strictly above the open of the run's
+  first bar, and bearish in the mirror case. A counter and that first open are two state cells, the open captured
+  when the counter leaves zero; it is the same kind of structure as the push count.
+
+Their controls take the form above: a synthetic control fixes the signal bar - a gap no bar trades into emits
+nothing, a wick through a pivot without a close back emits no sweep, and a close equal to the run's first open
+emits no change - and a real-data control holds the program to an independent reference implementation over public
+BTC K-lines.
+
+Two parts of the ICT method are not these shapes. A session window (killzone) cannot be expressed today: no input
+fact is a time of day, and no catalog row turns a sample coordinate, which carries the sample's time, into one. Its
+route is an appended catalog row that reads the UTC hour and minute from a sample coordinate, which takes a catalog
+version and kernel, golden, and lowerer changes; the V3 build capsule binds the catalog and lowerer source digests,
+so every program built after it carries a new build identity. A window stated in New York time moves by one UTC hour
+at each daylight saving change, which that row does not represent, so a Design declares the UTC window it means.
+Composing a higher-timeframe gap with a lower-timeframe change in state of delivery is T2.
 
 ### What the envelope assumes of F
 

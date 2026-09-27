@@ -310,9 +310,9 @@ history; it says nothing about whether the path has ever run in some other envir
     - `ACCOUNT_WITHOUT_PRICED_SNAPSHOT`: the run has no account, or one of its accounts has no priced snapshot,
       because every snapshot of it names an unpriced instrument.
     - `FEWER_THAN_TWO_ENGINE_DAYS`: the priced snapshots give fewer than two days on which every account has had
-      equity, as the engine counts days and carrying each account's equity forward. `snapshot_day_start` files each account's first priced snapshot, and
-      any snapshot exactly on a UTC midnight, under the previous day, so a one-account run has two days as soon
-      as it has a later snapshot not on a midnight. A run without a fill is therefore `AVAILABLE` with a return of
+      equity, as the engine counts days, carrying each account's equity forward. `snapshot_day_start` files each
+      account's first priced snapshot, and any snapshot exactly on a UTC midnight, under the previous day, so a
+      one-account run has two days as soon as it has a later snapshot not on a midnight. A run without a fill is therefore `AVAILABLE` with a return of
       zero, and having a fill is not a reason.
     - `NO_DEFINED_DAILY_RETURN`: two or more such days, but no day's return is defined, because each needs a finite
       ratio to a previous day's non-zero equity.
