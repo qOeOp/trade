@@ -979,7 +979,7 @@ guard_hook=test-disallowed-connect-guard
 for scope in pull-request-full full; do
   scope_args="$(bash "$repo_root/scripts/ci/run-pre-commit.bash" "$scope" --print)"
   if ! grep -qx -- --all-files <<< "$scope_args" ||
-    grep -qx -- "$guard_hook" <<< "$(grep -A1 -x -- --skip <<< "$scope_args")" ||
+    grep -qx -- "$guard_hook" <<< "$(grep -A1 -x -- --skip <<< "$scope_args" || true)" ||
     { [[ "$scope" == pull-request-full ]] && ! grep -qx -- "$guard_hook" <<< "$scope_args"; }; then
     echo "run-pre-commit.bash $scope must run $guard_hook over all files; it is the connection gate." >&2
     exit 1
@@ -1137,7 +1137,13 @@ reuse_line='python3 scripts/ci/workspace_mtimes.py reuse "$CARGO_TARGET_DIR"'
 [[ "$(grep -cF "$reuse_line" <<< "$rust_tests_job")" -eq 1 ]]
 [[ "$(grep -B8 'workspace_mtimes.py reuse' <<< "$rust_tests_job" | grep -c "if: github.event_name == 'pull_request' || github.event_name == 'merge_group'")" -eq 1 ]]
 [[ "$(grep -B4 'workspace_mtimes.py record' <<< "$rust_tests_job" | grep -c "if: env.SAVE_BUILD_CACHES == 'true'")" -eq 1 ]]
-[[ "$(grep -c 'workspace_mtimes.py' "$build_workflow")" -eq 2 ]]
+# The stash packs the path dependencies rust-cache drops (pyo3-stub-gen, which 37 crates sit on), at
+# the end of the job, where main saves; reuse above unpacks it.
+# shellcheck disable=SC2016
+stash_line='python3 scripts/ci/workspace_mtimes.py stash "$CARGO_TARGET_DIR"'
+[[ "$(grep -cF "$stash_line" <<< "$rust_tests_job")" -eq 1 ]]
+[[ "$(grep -B8 'workspace_mtimes.py stash' <<< "$rust_tests_job" | grep -c "if: env.SAVE_BUILD_CACHES == 'true' && !cancelled()")" -eq 1 ]]
+[[ "$(grep -c 'workspace_mtimes.py' "$build_workflow")" -eq 3 ]]
 bash "$repo_root/scripts/ci/test-workspace-mtimes.bash"
 for composite in common-test-data common-setup; do
   file="$repo_root/.github/actions/${composite}/action.yml"
