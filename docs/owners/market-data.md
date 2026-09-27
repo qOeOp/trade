@@ -1430,6 +1430,66 @@ issuance proof issues its cuts over PIT snapshots taken by the production PIT in
 intake admitted to agree with the V2 facts, and one member's V1 fact with a different tick is refused by that term. Each
 rule's refusal is asserted once on the comparison itself.
 
+**TARGET, effective-dated V2 terms from archived `exchangeInfo` snapshots:** not admitted, and nothing here is built. A
+V2 fact records terms observed at one retrieval and assumed back to listing, and the cut takes each member's latest fact
+observed at its selection, so a tick or lot change is never representable and a Replay before the retrieval is priced on
+the terms of the day it was retrieved. This design replaces that one assumption with evidence, and admits no other.
+
+- **Evidence is an archived snapshot and nothing else.** Every term the Owner holds for an instrument is derived by
+  `ExchangeInfoBaselineV2::from_usdm_exchange_info` from an `exchangeInfo` payload retrieved at a stated instant. No
+  submission states a historical term. Letting one would put caller-stated terms back behind the trust boundary the
+  baseline intake closed, which needs the user's authorization.
+- **A snapshot series.** Each admitted snapshot of an instrument is one fact `S_i` with its retrieval instant `t_i`, its
+  payload digest and its derived terms `T_i`; the baseline is `S_0`. A later snapshot is a new successor kind in the
+  same linear chain a `!contractInfo` delta extends, so each still names the fact it follows. Its encoding is additive:
+  a baseline's bytes, and so its identity, do not change. Every snapshot is recorded, including one whose terms equal
+  the head's, because an unchanged snapshot is the evidence that nothing changed before it.
+- **What the series lets the Owner say**, over the terms compared, which are every public term but the contract status:
+
+  | Interval                                            | The terms there                           | Basis                               |
+  | --------------------------------------------------- | ----------------------------------------- | ----------------------------------- |
+  | before `t_0`                                        | `T_0`, assumed back to listing            | `RetrievedTermsAssumedSinceListing` |
+  | `[t_i, t_j]`, every snapshot in it with equal terms | known to be those terms                   | `ObservedBetweenSnapshots`          |
+  | `(t_i, t_{i+1}]` with `T_i` unequal to `T_{i+1}`    | unknown: the change fell somewhere inside | none                                |
+  | after the latest snapshot `t_n`                     | `T_n`, assumed forward                    | `RetrievedTermsAssumedForward`      |
+
+- **Named property, the archive precision boundary.** Two adjacent snapshots with equal terms mean the terms did not
+  change between them. A change and its reversal inside one archive interval cannot be seen, and that interval is the
+  archiver's cadence: a longer cadence makes the boundary coarser, and the unknown interval around a real change is as
+  long as one cadence.
+- **The cut chooses by the Replay window.** The bound-replay issuance already recovers the composition binding, whose
+  record carries the window. Per member, among the facts observed at the selection, a window inside one interval with a
+  basis takes the fact that opens that interval, with that basis; the cut still holds one fact per member, so no
+  consumer changes. A window that meets an unknown interval is refused with `TermsChangeWithinWindow` and zero writes,
+  and R&D's execution-input binding answers `INSTRUMENT_MASTER_TERMS_CHANGE_WITHIN_WINDOW` (HTTP 409); no retry changes
+  it. A window spanning an assumed and a known interval with equal terms takes the weaker basis. The V1/V2 generation
+  check compares the fact the window selected, so a V1 fact that was not corrected to match is refused by name as it is
+  today.
+- **Growth, and when to compress.** A baseline fact measures 414 canonical bytes, and a snapshot successor carries the
+  same terms plus its link, estimated at 450. At the default hourly cadence an instrument gains 24 facts a day, 8,760 a
+  year, about 4 MB a year before row overhead. Every cut and every successor admission decodes the member's whole chain,
+  so the cost grows with its length. The snapshot successor's proof measures that decode per fact on the Linux runner,
+  and the trigger for compressing runs of equal-terms snapshots is the chain length at which issuing one member's cut
+  takes longer than one second.
+- **The archiver.** A dedicated service, `market-data-exchange-info-archiver`, run from the R&D Owner API image in the
+  Market Data Owner's process and credential, admits snapshots through the Owner port, not through Product Edge and not
+  through Source Intake, which is unimplemented in production. It retrieves USD-M `exchangeInfo` from the same named
+  host as the R&D Owner API's Binance perpetual PIT client (`BINANCE_PERPETUAL_PIT_BASE_URL`), hourly by default, and
+  for each instrument with a baseline admits that instrument's entry, sliced byte for byte into a minimal envelope,
+  under the baseline's Source Binding. A snapshot retrieved after the Owner's clock head cannot be admitted yet; the
+  archiver keeps it, in retrieval order, until the head passes it, which loses nothing because no cut sees past the head
+  either. A stalled archiver raises no error and only lengthens the assumed-forward interval, so its health check fails
+  when the newest admitted snapshot is older than two cadences.
+- **F is unchanged.** With one baseline and no later snapshot, every window before its retrieval lies before `t_0`, the
+  member is the baseline with its current basis, and its bytes do not move; the snapshot successor's slice pins the
+  two-member cut identity and a one-baseline bound-replay cut byte for byte.
+- **Order.** The snapshot successor and its intake come first, with the byte-for-byte pin. Window selection at the cut
+  changes the issuance F's chain relies on, so it starts only after F's chain passes. The archiver is defined but not
+  started, as the compose file does not run the store-custody script yet; running it makes production retrieve from
+  Binance periodically, a public read and no trading, and turning it on is the user's deployment decision. The contract
+  status is not one of the terms compared: it changes only by `!contractInfo` delta, and whether a Replay window whose
+  status is not `TRADING` must be refused is undecided and outside this design.
+
 ### Native immutable records
 
 `InstrumentMasterFactV1` is an immutable effective-dated fact. It contains all of the following, with no
