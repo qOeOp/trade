@@ -1328,8 +1328,9 @@ Research scope 是成员集的唯一来源（P0）。一到两个成员的界变
   有标记价、指数价、溢价指数 K 线、metrics、盘口深度与资金费率的历史。强平没有已准入的历史源 - USDⓈ-M 归档没有，
   币本位 `BTCUSD_PERP` 快照止于 2024-10-14 - 所以要它的 Design 以 `INPUT_FACT_UNAVAILABLE_FROM_ADMITTED_SOURCE` 拒绝，今天没有
   任何字段词表能让 Design 走到这里。
-- **动作：** 从代码读出，今天目标集 Host 忽略保护单成交，于是下一帧对账会失败并中止整次运行；只有第二帧才会走到
-  这里，而且还没有测试驱动过它。它的修复
+- **动作：** 今天目标集 Host 忽略保护单成交，于是下一帧对账失败、整次运行中止；只有第二帧才会走到这里。
+  `a_triggered_stop_aborts_the_run_today_until_d1` 在两个真实的 Sim 帧上钉住这个行为，并以「近止损但价格不下破」和
+  「价格下破但够不着远止损」作为两个干净的对照；D1 落地时它翻转为断言运行继续。它的修复
   （D1）给 `kernel.fill.reconcile.v1` 增加一种情形，并与 T1 一同落地。A1 把 `DecisionTime` 与 `AccountEquity`
   （以及按成交计的入场价与持有 bar 数）作为程序可读的 `LifecycleContext` 值开放，其中 `DecisionTime` 是该帧的 decision cut `d_k`；按意图计的入场价与持有 bar 数
   已经能在程序内表达。A2 把止盈下成 reduce-only 限价单。A3 先量「每根 bar 一张限价单」的阶梯，不够才增加内核
