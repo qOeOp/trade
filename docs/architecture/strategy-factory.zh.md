@@ -1477,22 +1477,22 @@ Research scope 与 Design 推导出托管请求；T1 的首个正例只用 CLOSE
 I3；再然后 N1、A2、A3、V4b、V5。按帧 as-of 成员（T4）会移除「每帧共用一个成员集」这条不变式，所以在提出它时再
 问用户。
 
-单阈值编写器接受的一种目标变体，今天在 target-set Host 上跑不过一帧，它是一片，排在 F 之后、T1 之前。它在 `main`
-3a465a537 上实测过：现状为红，在一个随后还原的临时改动下越过了点名的那道检查。在这一片落地之前，编写器以
-`SINGLE_THRESHOLD_TARGET_VARIANT_NOT_RUNNABLE` 按名拒绝它，任一侧都拒，于是只会在第一帧失败的程序根本不会被编写出来；
-这一片落地时移除这个拒绝。
+单阈值编写器接受的每一种目标变体，都能在 target-set Host 上跑过一帧。曾有两种不能，各是一片，排在 F 之后、T1 之前，
+两者都在 `main` 3a465a537 上实测过：现状为红，在一个随后还原的临时改动下越过了点名的那道检查；在各自那一片落地之前，
+编写器按名拒绝它们。
 
-- **Weight 对账。** Host 除 `Keep` 以外对每种目标都解码出一个 reconciliation target，而 target-set 对账要求 weight
-  目标没有，所以 weight 一侧在第一帧就以 `InputCoverage` 失败。临时让解码对 weight 不给出它时，这道检查通过，该帧
-  接着以 `InvalidPositionTransition` 失败：编写器让两侧共用一个为 0 的 target weight，而以 0 权重入场不是迁移。
-  两处都由 Strategy Factory 修复：Host 的解码，以及编写器的 weight，让它像仓位那样跟随各侧。
+- **Rebalance 序号。** Host 按上面那条规则分配序号，编写器写 `0`。常量为 1 时只有第一帧能提升；拿掉 Host 的分配而写
+  `0` 时，连第一帧也不能。`an_authored_rebalance_program_lifts_three_consecutive_frames` 把编写出的程序构建成 Wasm，经
+  target-set Sim 跑三帧，进场、出场、再进场，序号依次为 1、2、3；
+  `a_single_instrument_host_assigns_each_rebalance_the_next_sequence` 守住单品种路径。
+- **Weight 对账。** target-set Host 在对账时从权益与价格推出 weight 成员的 grid 仓位，并拒绝一个已经带着 reconciliation
+  target 的 weight 成员，而 Host 除 `Keep` 以外对每种目标都解码出一个，所以 weight 一侧在第一帧就以 `InputCoverage`
+  失败。越过这道检查后，该帧以 `InvalidPositionTransition` 失败，因为编写器让两侧共用一个为 0 的 target weight。现在
+  Host 对 weight 目标不解码 reconciliation target，每一侧各自声明 `target_weight_micros`：只有 weight 一侧可以给出它
+  （`SINGLE_THRESHOLD_WEIGHT_NOT_READ`），且只能在正负 1,000,000 micros 之内（`SINGLE_THRESHOLD_WEIGHT_OUT_OF_RANGE`）；
+  不给出 weight 的请求字节不变。`an_authored_weight_program_enters_exits_and_enters_again` 让编写出的程序跑同样的三帧。
 
-rebalance 目标曾是第二种这样的变体，它那一片已经落地：Host 按上面那条规则分配序号，编写器写 `0`。常量为 1 时只有第
-一帧能提升；拿掉 Host 的分配而写 `0` 时，连第一帧也不能。`an_authored_rebalance_program_lifts_three_consecutive_frames`
-把编写出的程序构建成 Wasm，经 target-set Sim 跑三帧，进场、出场、再进场，序号依次为 1、2、3；
-`a_single_instrument_host_assigns_each_rebalance_the_next_sequence` 守住单品种路径。
-
-那次运行找到了一个任何变体拒绝都没覆盖的缺陷：编写器让两侧共用一个 protection，即 `keep`，而内核在出场时拒绝
+rebalance 那次运行找到了一个任何变体拒绝都没覆盖的缺陷：编写器让两侧共用一个 protection，即 `keep`，而内核在出场时拒绝
 `keep`，所以没有哪个编写出的程序能出场。现在每一侧的 protection 跟随它的意图：出场清除，其余各侧保持；
 `every_authored_side_runs_through_the_kernel` 把每一个编写出的侧，从它可能被提出的每个仓位，施加到一个真实的生命周期
 内核上，于是一个本该跟随各侧却被共用的终端，会在那里失败，而不是在之后某一帧。
