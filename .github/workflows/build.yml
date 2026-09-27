@@ -765,6 +765,14 @@ jobs:
           # that build into this directory would each get their own multi-GB entry. This job is
           # the only one that builds the whole workspace and the only one that saves, so its
           # entry is the superset the others restore.
+          # Its log carries a pair of `##[error] ENOENT: ... opendir '.../tests/target'` lines on every
+          # save, and on every restore that is not a full match. They are harmless and not a reading:
+          # rust-cache c19371144's cleanup.ts calls cleanTargetDir(tests/target) without `await`,
+          # this target has tests/trybuild but no tests/target, and its uncaughtException handler
+          # logs the rejection while the cleanup and the save carry on (main run 36345566217: both
+          # pairs, then "Saving cache", 5808584353 bytes). A pull request restores on a partial match
+          # whenever main has not yet saved under the current key, for instance after a merge
+          # changes a member's Cargo.toml (#1191), until main's next save.
           rust-cache-shared-key: rust-tests-linux-x86
           rust-cache-workspaces: . -> target/rust-tests-linux-x86
           rust-cache-on-failure: "false"
