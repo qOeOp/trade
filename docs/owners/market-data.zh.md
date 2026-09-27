@@ -80,13 +80,20 @@ ACL 拒绝。它不证明供应商真实性，不证明生产装配，也不证�
   部署的二进制启用它），`native_replay_scheduling_resolver_for_sealed_acceptance_v1` 以已准入 resolver 的原始读取、校验与选择
   走原生 Replay 调度读路径，但读取之前不做准入，读取之后不做重新校验。它以一个测试用的最小权限主体连接，一次性数据库只授予
   它 `NATIVE_REPLAY_SCHEDULING_ACCEPTANCE_GRANTS_V1`；它的 evidence 在已准入读取携带 receipt 的位置携带标记
-  `SEALED_ACCEPTANCE_NO_STORE_ADMISSION_V1`，只有携带该读口的构建才接受这个标记。Admission 本身，包括它租用的主体与那道门上的
-  授权，仍然是 `B3`。今天没有任何生产角色持有那道门：部署时的 ACL 切换把 `market_data_private` 与
-  `market_data_admitted_read` 上的全部权限从 owner 以外的所有角色收回，而已准入读口的测量下限所列的对象也还没有授予任何角色。
-  每一次已准入读取，以及测量对 Owner 迁移账本的读取，都只经由 `market_data_admitted_read` 到达 Owner。那里的每个函数要么是
-  同名私有函数的 `SECURITY DEFINER` 直通包装，参数与结果都相同，要么是四个固定的 Owner 行读取之一；每个都是 `STABLE`、
-  固定 `search_path`，迁移不把它授予任何角色。因此 Store Admission 租用的主体需要该 schema 的 `USAGE` 与它的读取所调用
-  包装的 `EXECUTE`，在 `market_data_private` 上什么都不需要；时区托管检查要求后者除 owner 外没有任何被授权者。每个读口只在
+  `SEALED_ACCEPTANCE_NO_STORE_ADMISSION_V1`，只有携带该读口的构建才接受这个标记。Admission 本身仍然是 `B3`：还没有
+  任何东西租用它的主体。那个主体是 `market_data_admitted_reader`。
+  `product/rd-workbench/postgres-init/25-market-data-admitted-reader.sh` 把它建成一个可登录、不继承任何东西、在两个方向上
+  都没有角色成员关系、并持有数据库 `CONNECT` 的角色；compose 文件还不运行这个脚本。部署时的 ACL 切换把
+  `market_data_private` 与 `market_data_admitted_read` 上的全部权限从 owner 以外的所有角色收回。每一次已准入读取，以及
+  测量对 Owner 迁移账本的读取，都只经由 `market_data_admitted_read` 到达 Owner。那里的每个函数要么是同名私有函数的
+  `SECURITY DEFINER` 直通包装，参数与结果都相同，要么是四个固定的 Owner 行读取之一；每个都是 `STABLE` 并固定
+  `search_path`。Owner 迁移只把它们授予一个角色：`market_data_admitted_reader` 存在时，它获得该 schema 的 `USAGE` 与其中
+  每个函数的 `EXECUTE`，在 `market_data_private` 上什么都不获得；时区托管检查要求后者除 owner 外没有任何被授权者。测量仍然
+  点名私有函数与关系，它按 schema 与存储名在每个角色都能读的 catalog 行里找到每一个，从不经过 `to_regclass` 或
+  `to_regprocedure`，后两者对角色无权使用的 schema 里的限定名会直接拒绝。在迁移最近一次运行之后才建出的读者，会在 Owner 下一次迁移时获得这份授权。除测量自己做的那次账本读取外，每个包装都在某个
+  已准入读取的下限上，所以这份授权恰好是已准入读取与测量所调用的东西。一个单元测试把包装清单钉在各下限与测量的那一次
+  额外调用上，一条 Market Data PostgreSQL 证明把建好的读者的权限普查钉在这份授权上：它以该读者身份测量并准入每一个
+  下限、调用每一个包装，并被 `market_data_private` 拒绝。每个读口只在
   测量覆盖它所服务读取的下限时才打开，原生 Replay 调度读口的 PIT evaluation 读取也在其中；每次读取在它所依据的每次准入上
   都再核一遍自己的下限。
   读取一份 BAR schedule 有**两套托管策略**，每种构建一套，而本文档此前一套都没描述过。测试构建自行开启

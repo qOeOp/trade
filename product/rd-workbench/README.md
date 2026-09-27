@@ -51,6 +51,13 @@ compose file does not run it yet. When it does, it needs
 `DEPLOYMENT_STORE_PUBLISHER_DB_PASSWORD` and
 `DEPLOYMENT_STORE_CUSTODIAN_DB_PASSWORD`.
 
+`postgres-init/25-market-data-admitted-reader.sh` provisions
+`market_data_admitted_reader`, the principal a store admission leases to read
+the Market Data store: a login role with `CONNECT` on the database and nothing
+else. The Market Data Owner's migration grants it the admitted read wrappers
+the next time it runs. The compose file does not run this script yet. When it
+does, it needs `MARKET_DATA_ADMITTED_READER_DB_PASSWORD`.
+
 The administrator seals each store manifest and the head that makes it current
 with the store signing key: an Ed25519 seed file of its own, separate from the
 Replay Policy Catalog's, whose public half the deployment pins as its store

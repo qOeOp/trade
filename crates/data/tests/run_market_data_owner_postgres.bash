@@ -15,6 +15,7 @@ readonly market_data_owner_postgres_tests=(
   owner::store_admission::tests::each_floor_is_the_catalog_closure_of_its_reads
   owner::postgres::admitted_read_api_v1::tests::the_admitted_read_schema_is_what_its_statements_declare
   owner::store_admission::tests::the_role_identity_moves_with_every_privilege_the_role_gains_and_no_other
+  owner::store_admission::tests::the_admitted_reader_holds_every_admitted_read_and_nothing_else
   owner::instrument_master_v2_postgres::tests::postgres_v2_cut_custody_holds_one_or_two_members_and_migrates_a_legacy_table
   owner::instrument_master_v2_postgres::tests::postgres_bound_replay_issuance_keys_each_request_to_one_binding
   owner::instrument_economic_terms_postgres_v1::tests::postgres_economic_terms_resolve_for_one_member_or_two
@@ -136,6 +137,7 @@ owner_password="md_d1_owner_test_only"
 reader_password="md_d1_reader_test_only"
 custody_publisher_password="md_d1_custody_publisher_test_only"
 custody_custodian_password="md_d1_custody_custodian_test_only"
+admitted_reader_password="md_d1_admitted_reader_test_only"
 
 # shellcheck disable=SC2329 # invoked indirectly by the EXIT trap
 cleanup() {
@@ -241,11 +243,21 @@ provision_database() {
     --env DEPLOYMENT_STORE_CUSTODIAN_DB_PASSWORD="$custody_custodian_password" \
     "$container" sh -s < "$repository_root/product/rd-workbench/postgres-init/20-deployment-store-custody.sh" > /dev/null
 
+  # The admitted reader, from the deployment's own init script: the principal Store Admission
+  # leases. The Owner's migration grants it the admitted read wrappers once a proof migrates.
+  docker exec -i \
+    --env POSTGRES_PASSWORD="$admin_password" \
+    --env POSTGRES_HOST=127.0.0.1 \
+    --env POSTGRES_DATABASE="$database" \
+    --env MARKET_DATA_ADMITTED_READER_DB_PASSWORD="$admitted_reader_password" \
+    "$container" sh -s < "$repository_root/product/rd-workbench/postgres-init/25-market-data-admitted-reader.sh" > /dev/null
+
   export MARKET_DATA_ADMIN_TEST_DATABASE_URL="postgres://postgres:$admin_password@127.0.0.1:$port/$database"
   export DEPLOYMENT_STORE_PUBLISHER_TEST_DATABASE_URL="postgres://deployment_store_publisher:$custody_publisher_password@127.0.0.1:$port/$database"
   export DEPLOYMENT_STORE_CUSTODIAN_TEST_DATABASE_URL="postgres://deployment_store_custodian:$custody_custodian_password@127.0.0.1:$port/$database"
   export MARKET_DATA_OWNER_TEST_DATABASE_URL="postgres://vibe_test_role_market_data_owner:$owner_password@127.0.0.1:$port/$database"
   export MARKET_DATA_READER_TEST_DATABASE_URL="postgres://vibe_test_role_market_data_reader:$reader_password@127.0.0.1:$port/$database"
+  export MARKET_DATA_ADMITTED_READER_TEST_DATABASE_URL="postgres://market_data_admitted_reader:$admitted_reader_password@127.0.0.1:$port/$database"
   export VIBE_POSTGRES_TEST_DATABASE_NAME="$database"
   export VIBE_POSTGRES_TEST_INSTANCE_MARKER="$marker"
 }
