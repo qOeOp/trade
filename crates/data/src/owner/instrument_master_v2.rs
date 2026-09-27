@@ -3112,11 +3112,17 @@ pub(crate) mod tests {
         InstrumentDecimalV2 { mantissa, scale }
     }
 
+    /// Widens a raw fixed-point value to `i128`. `MoneyRaw` is `i64` at standard precision and
+    /// already `i128` under `high-precision`, and which one this crate sees follows vibe-model's
+    /// feature, not this crate's, so a `cfg` on this crate's feature picks the wrong branch once
+    /// another crate turns vibe-model's on. Through a generic parameter the one line is right at
+    /// either width.
+    fn widen_raw<T: Into<i128>>(raw: T) -> i128 {
+        raw.into()
+    }
+
     fn canonical_decimal_from_native_money_raw(raw: MoneyRaw) -> InstrumentDecimalV2 {
-        #[cfg(feature = "high-precision")]
-        let mut mantissa = raw;
-        #[cfg(not(feature = "high-precision"))]
-        let mut mantissa = i128::from(raw);
+        let mut mantissa = widen_raw(raw);
         let mut scale = FIXED_PRECISION;
         while scale > 0 && mantissa % 10 == 0 {
             mantissa /= 10;
