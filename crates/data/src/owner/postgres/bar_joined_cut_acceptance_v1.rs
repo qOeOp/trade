@@ -5,7 +5,7 @@
 //! PostgreSQL write and readback paths. The returned fixture is move-only and exposes no database
 //! handle, URL, raw row, writer, or constructor for an authenticated native-join capability.
 
-use std::{collections::BTreeSet, fmt::Debug};
+use std::fmt::Debug;
 
 use super::{
     MarketDataOwnerPostgres, load_pit_for_update, load_pit_observation_batch_for_update,
@@ -16,26 +16,9 @@ use crate::owner::{
         BarScheduleCompletionV1, BarScheduleKindV1, BarScheduleLabelV1, BarScheduleUnitV1,
         UntrustedBarScheduleProposalV1, prepare_bar_schedule_commit_v1,
     },
-    instrument_master::{
-        BACKTEST_OWNER_V1, InstrumentClass, InstrumentDecimal, InstrumentMasterError,
-        InstrumentMasterFactProposalV1, InstrumentMasterReadbackV1, InstrumentMasterResolver,
-        InstrumentMasterScopeV1, InstrumentVenueSourceMapping, UntrustedInstrumentMasterRequestV1,
-    },
+    instrument_master::InstrumentMasterReadbackV1,
     observation_census::UntrustedObservationCensusRequestV1,
-    pit_snapshot::{
-        UntrustedCorrectionPublicationTime, UntrustedEventEffectiveTime, UntrustedPitObservation,
-        UntrustedPitObservationBatchProposal, UntrustedPitSnapshotEvidence,
-        UntrustedPitSnapshotProposal, UntrustedPitSnapshotRequest,
-        UntrustedPitSnapshotTimeEvidence, UntrustedProviderAvailableTime, UntrustedRetrievalTime,
-        UntrustedSnapshotDecisionCut,
-        authority::{
-            TestOnlyCanonicalBasisResolver, derive_observation_batch_digest,
-            refresh_request_claims, verify_observation_batch,
-        },
-    },
-    reference_fact_coordinates::r0::{
-        UntrustedReferenceFactR0RequestV1, request_meaning_digest_v1 as r0_request_meaning_digest,
-    },
+    pit_snapshot::authority::verify_observation_batch,
     replay_market_facts_v2::UntrustedComposerNativeJoinRequestV1,
     sample_fact::{
         SampleFactHeadsV1, prepare_bar_timeframe_projection_v1, prepare_sample_commit_v1,
@@ -46,14 +29,7 @@ use crate::owner::{
     sealed_replay_input::{
         SealedReplayInput, UntrustedSealedReplayInputRequest, seal_replay_input,
     },
-    source_binding::{
-        BindingDigest, MarketDataClockAdmission, SourceBindingError, UntrustedAdapterBinding,
-        UntrustedCompleteFrontier, UntrustedCredentialAudienceClaim,
-        UntrustedCredentialCapabilityClaim, UntrustedLicensePolicy, UntrustedMarketDataAsOf,
-        UntrustedMarketSemantics, UntrustedOpaqueCredentialHandle, UntrustedSourceBindingProposal,
-        UntrustedTrustPolicy,
-        authority::{OwnerSourceBindingDecision, derive_binding_id, derive_time_evidence_identity},
-    },
+    source_binding::BindingDigest,
     strategy_design_role_intent_v1::StrategyDesignRoleIntentV1,
     strategy_design_role_set::{StrategyDesignRoleEntryV1, StrategyDesignRoleSetReceiptV1},
     strategy_input_binding::{
@@ -65,16 +41,13 @@ use crate::owner::{
         StrategyInputJoinRoleClaimV1, StrategyInputJoinedCutReceiptV1,
         UntrustedStrategyInputJoinClaimV1, derive_strategy_input_join_identity_v2,
     },
-    universe_selection::{
-        UniverseSelectionErrorV1, UntrustedUniverseSelectionRequestV1,
-        authority::{
-            CanonicalUniverseSelectionRuleEvaluatorV1, HistoricalMembershipFactProposalV1,
-        },
-    },
 };
 
 // The chain fixtures' instrument, shared with every entry that writes the same custody.
-use super::chain_market_base_v1::ChainMarketBaseSnapshotV1;
+use super::chain_market_base_v1::{
+    ChainMarketBaseRecordsV1, ChainMarketBaseSnapshotV1, MarketDataAcceptanceBasisErrorV1,
+    chain_market_base_records_on_v1, chain_market_base_scope_v1,
+};
 
 const INSTRUMENT: &str = crate::owner::chain_fixture_v1::CHAIN_FIXTURE_INSTRUMENT_V1;
 
@@ -126,22 +99,8 @@ pub enum BarJoinedCutAcceptanceBasisUnavailableV1 {
     Claims,
     #[error("disposable Market Data BAR joined-cut acceptance Owner connection was unavailable")]
     OwnerConnection,
-    #[error("disposable Market Data BAR joined-cut acceptance source was unavailable: {0}")]
-    Source(SourceBindingError),
-    #[error("disposable Market Data BAR joined-cut acceptance clock head was unavailable")]
-    ClockHead,
-    #[error("disposable Market Data BAR joined-cut acceptance instrument append was unavailable")]
-    InstrumentAppend,
-    #[error("disposable Market Data BAR joined-cut acceptance instrument readback was unavailable")]
-    InstrumentReadback,
-    #[error("disposable Market Data BAR joined-cut acceptance universe was unavailable")]
-    Universe,
-    #[error("disposable Market Data BAR joined-cut acceptance PIT was unavailable")]
-    Pit,
-    #[error("disposable Market Data BAR joined-cut acceptance R0 was unavailable")]
-    R0,
-    #[error("disposable Market Data BAR joined-cut acceptance semantics were unavailable")]
-    Semantics,
+    #[error("disposable Market Data BAR joined-cut acceptance market base was unavailable: {0}")]
+    MarketBase(MarketDataAcceptanceBasisErrorV1),
     #[error("disposable Market Data BAR joined-cut acceptance bindings were unavailable")]
     Bindings,
 }
@@ -283,138 +242,16 @@ pub async fn prepare_owner_bar_joined_cut_acceptance_basis_v1(
     let owner = MarketDataOwnerPostgres::connect_existing(owner_url)
         .await
         .map_err(|_| BarJoinedCutAcceptanceBasisUnavailableV1::OwnerConnection)?;
-    let clock = acceptance_clock();
-    let source = owner
-        .commit_source_initial(
-            acceptance_source_proposal(),
-            OwnerSourceBindingDecision {
-                blockers: BTreeSet::new(),
-            },
-            &clock,
-        )
+    // The corpus is the chain's one Market Data base: written here when the store holds none,
+    // rejoined when an earlier entry wrote it, and never provisioned a second time under other
+    // identities.
+    let ChainMarketBaseRecordsV1 {
+        pit,
+        batch,
+        instrument,
+    } = chain_market_base_records_on_v1(&owner)
         .await
-        .map_err(BarJoinedCutAcceptanceBasisUnavailableV1::Source)?;
-    let head = async {
-        let mut transaction = owner.pool.begin().await.map_err(|_| ())?;
-        let head = super::load_current_clock_fact_for_update(&mut transaction)
-            .await
-            .map_err(|_| ())?
-            .ok_or(())?;
-        transaction.commit().await.map_err(|_| ())?;
-        Ok::<_, ()>(head)
-    }
-    .await
-    .map_err(|()| BarJoinedCutAcceptanceBasisUnavailableV1::ClockHead)?;
-    let instrument_request = acceptance_instrument_request(head.handoff.locator().clone());
-    let instrument = match owner
-        .resolve_instrument_master(&instrument_request, None)
-        .await
-    {
-        Ok(instrument) => instrument,
-        Err(InstrumentMasterError::UnknownIdentity) => {
-            owner
-                .append_instrument_master_fact(acceptance_instrument_fact(), head.handoff.locator())
-                .await
-                .map_err(|_| BarJoinedCutAcceptanceBasisUnavailableV1::InstrumentAppend)?;
-            owner
-                .resolve_instrument_master(&instrument_request, None)
-                .await
-                .map_err(|_| BarJoinedCutAcceptanceBasisUnavailableV1::InstrumentReadback)?
-        }
-        Err(_) => return Err(BarJoinedCutAcceptanceBasisUnavailableV1::InstrumentReadback),
-    };
-
-    let membership_frontier = acceptance_identity(170);
-    let universe_request = UntrustedUniverseSelectionRequestV1::new(
-        acceptance_identity(171),
-        "RESEARCH_OWNER_V1",
-        acceptance_identity(172),
-        vec![0, 1, 1],
-        membership_frontier,
-        50,
-        99,
-        100,
-        source.fact().lineage_root(),
-        digest(86),
-        acceptance_identity(173),
-    );
-    let universe = async {
-        let mut transaction = owner
-            .pool
-            .begin()
-            .await
-            .map_err(|_| BarJoinedCutAcceptanceUnavailableV1)?;
-        let readback =
-            match super::universe_selection::resolve_universe_selection_in_transaction_v1(
-                &mut transaction,
-                &universe_request,
-                Some(&CanonicalUniverseSelectionRuleEvaluatorV1),
-            )
-            .await
-            {
-                Ok(readback) => readback,
-                Err(UniverseSelectionErrorV1::UnknownIdentity) => {
-                    super::universe_selection::persist_historical_membership_frontier_v1(
-                        &mut transaction,
-                        membership_frontier,
-                        vec![HistoricalMembershipFactProposalV1 {
-                            member_key: INSTRUMENT.as_bytes().to_vec(),
-                            instrument: INSTRUMENT.as_bytes().to_vec(),
-                            predecessor_identity: None,
-                            effective_from_ns: 1,
-                            effective_until_ns: None,
-                            provider_available_ns: 90,
-                            retrieval_ns: 92,
-                            correction_publication_ns: 91,
-                            owner_observation_ns: 99,
-                            decision_cut: 100,
-                            source_binding_lineage_root: source.fact().lineage_root(),
-                            correction_frontier_digest: digest(86),
-                        }],
-                    )
-                    .await
-                    .map_err(|_| BarJoinedCutAcceptanceUnavailableV1)?;
-                    super::universe_selection::resolve_universe_selection_in_transaction_v1(
-                        &mut transaction,
-                        &universe_request,
-                        Some(&CanonicalUniverseSelectionRuleEvaluatorV1),
-                    )
-                    .await
-                    .map_err(|_| BarJoinedCutAcceptanceUnavailableV1)?
-                }
-                Err(_) => return Err(BarJoinedCutAcceptanceUnavailableV1),
-            };
-        transaction
-            .commit()
-            .await
-            .map_err(|_| BarJoinedCutAcceptanceUnavailableV1)?;
-        Ok::<_, BarJoinedCutAcceptanceUnavailableV1>(readback)
-    }
-    .await
-    .map_err(|_| BarJoinedCutAcceptanceBasisUnavailableV1::Universe)?;
-
-    let (pit, batch) = Box::pin(persist_pit_and_reread(
-        &owner,
-        &clock,
-        &source,
-        &instrument,
-        universe.record().identity(),
-    ))
-    .await
-    .map_err(|_| BarJoinedCutAcceptanceBasisUnavailableV1::Pit)?;
-    let r0 = persist_r0(&owner, &pit, &source)
-        .await
-        .map_err(|_| BarJoinedCutAcceptanceBasisUnavailableV1::R0)?;
-    Box::pin(persist_market_semantics(
-        &owner,
-        &pit,
-        &source,
-        &batch,
-        &instrument,
-        &r0,
-    ))
-    .await
-    .map_err(|_| BarJoinedCutAcceptanceBasisUnavailableV1::Semantics)?;
+        .map_err(BarJoinedCutAcceptanceBasisUnavailableV1::MarketBase)?;
     let binding_requests = acceptance_binding_requests(&claims, &batch);
     let input_bindings = binding_requests
         .iter()
@@ -473,7 +310,7 @@ pub async fn register_bar_joined_cut_declarations_for_published_design_v1(
     // snapshot, which must carry the one fact the base sealed.
     super::chain_market_base_v1::require_chain_market_base_fact_v1(
         &mut transaction,
-        acceptance_market_semantics_identity(),
+        chain_market_base_scope_v1(),
         market_base,
     )
     .await
@@ -934,304 +771,6 @@ fn validate_design_role_set(
     Ok(())
 }
 
-fn acceptance_clock() -> MarketDataClockAdmission {
-    MarketDataClockAdmission::seal_for_test(
-        "12345678901234567890123456789012",
-        "abcdefghijklmnopqrstuvwxyzABCDEF",
-        2,
-        100,
-        100,
-        160,
-        digest(90),
-        1,
-        2,
-    )
-}
-
-/// The corpus's Market Semantics compatibility scope, derived from its Source Binding's semantics
-/// by the function production admits under. A written value would describe a scope no fact admitted
-/// through production for this binding ever carries, and such a fact would then fail against this
-/// corpus's Instrument Master fact.
-fn acceptance_market_semantics_identity() -> BindingDigest {
-    crate::owner::source_binding::authority::derive_market_semantics_compatibility_identity_v1(
-        &acceptance_source_proposal().semantics,
-    )
-}
-
-fn acceptance_source_proposal() -> UntrustedSourceBindingProposal {
-    let mut proposal = UntrustedSourceBindingProposal {
-        claimed_binding_id: digest(0),
-        schema_version: 1,
-        adapter: UntrustedAdapterBinding {
-            implementation_digest: digest(1),
-            configuration_digest: digest(2),
-            authenticated_endpoint_identity: "https://market.example/v1".into(),
-            dataset_mapping: "dataset/trades".into(),
-            account_mapping: "tenant/entitlement".into(),
-        },
-        credential_handle: UntrustedOpaqueCredentialHandle::from_untrusted_identity(
-            digest(6),
-            UntrustedCredentialAudienceClaim::MarketData,
-            [
-                UntrustedCredentialCapabilityClaim::MarketDataRead,
-                UntrustedCredentialCapabilityClaim::ReferenceDataRead,
-                UntrustedCredentialCapabilityClaim::MetadataRead,
-            ],
-        ),
-        trust_policy: UntrustedTrustPolicy {
-            identity: "trust-policy".into(),
-            version: 1,
-        },
-        semantics: UntrustedMarketSemantics {
-            normalization: "normalization-v1".into(),
-            adjustment: "raw-v1".into(),
-            price_meaning: "quote-currency-per-base-v1".into(),
-            calendar_rules: "calendar-v1".into(),
-            session_rules: "session-v1".into(),
-            timezone_rules: "iana-2026a".into(),
-            instrument_lifecycle_rules: "instrument-lifecycle-v1".into(),
-            corporate_action_rules: "corporate-actions-v1".into(),
-            membership_rules: "historical-membership-v1".into(),
-            universe_rules: "requester-rule-evaluation-v1".into(),
-            correction_policy: "successor-only-v1".into(),
-        },
-        license: UntrustedLicensePolicy {
-            use_scope: "acquire-cache-archive-backtest-model-display".into(),
-            redistribution_scope: "derived-only".into(),
-            retention_policy: "retain-30d-delete-v1".into(),
-            redaction_policy: "no-licensed-payload-v1".into(),
-        },
-        source_frontier: UntrustedCompleteFrontier {
-            stream_identity: "source-stream".into(),
-            cut_identity: "instrument-source-cut-85".into(),
-            sequence: 10,
-            digest: digest(85),
-        },
-        correction_frontier: UntrustedCompleteFrontier {
-            stream_identity: "correction-stream".into(),
-            cut_identity: "instrument-correction-cut-86".into(),
-            sequence: 11,
-            digest: digest(86),
-        },
-        time_evidence: UntrustedMarketDataAsOf {
-            claimed_evidence_identity: digest(0),
-            clock_identity: "12345678901234567890123456789012".into(),
-            clock_epoch: "abcdefghijklmnopqrstuvwxyzABCDEF".into(),
-            monotonic_sequence: 2,
-            restart_continuity_digest: digest(90),
-            skew_bound: 2,
-            uncertainty_bound: 1,
-            event_effective: 10,
-            provider_available: 90,
-            retrieval: 92,
-            correction_publication: 91,
-            observed_at: 100,
-            effective_at: 100,
-            valid_through: 160,
-        },
-    };
-    proposal.time_evidence.claimed_evidence_identity =
-        derive_time_evidence_identity(&proposal.time_evidence);
-    proposal.claimed_binding_id = derive_binding_id(&proposal);
-    proposal
-}
-
-fn acceptance_instrument_fact() -> InstrumentMasterFactProposalV1 {
-    InstrumentMasterFactProposalV1 {
-        canonical_identity: INSTRUMENT.into(),
-        predecessor_fact_digest: None,
-        mappings: vec![InstrumentVenueSourceMapping {
-            venue_identity: "XNAS".into(),
-            source_identity: "SIP".into(),
-            source_instrument: INSTRUMENT.as_bytes().to_vec(),
-        }],
-        instrument_class: InstrumentClass::Equity,
-        base_currency: Some("USD".into()),
-        quote_currency: None,
-        settlement_currency: Some("USD".into()),
-        margin_currency: None,
-        price_increment: InstrumentDecimal {
-            mantissa: 1,
-            scale: 2,
-        },
-        quantity_increment: InstrumentDecimal {
-            mantissa: 1,
-            scale: 0,
-        },
-        contract_multiplier: InstrumentDecimal {
-            mantissa: 1,
-            scale: 0,
-        },
-        calendar_identity: "XNYS-CALENDAR-V1".into(),
-        session_identity: "XNYS-REGULAR-V1".into(),
-        time_zone_identity: "Etc/UTC".into(),
-        lifecycle_frontier: digest(81),
-        corporate_action_frontier: digest(82),
-        historical_membership_frontier: digest(83),
-        market_semantics_identity: acceptance_market_semantics_identity(),
-        source_frontier: digest(85),
-        correction_frontier: digest(86),
-        effective_from: 10,
-        effective_until: Some(200),
-        provider_available: 90,
-        retrieval: 91,
-        correction_publication: 92,
-        owner_observation: 99,
-    }
-}
-
-fn acceptance_instrument_request(
-    clock_head: crate::owner::shared_time_evidence::UntrustedClockHeadLocator,
-) -> UntrustedInstrumentMasterRequestV1 {
-    UntrustedInstrumentMasterRequestV1 {
-        request_identity: digest(110),
-        request_meaning_digest: digest(111),
-        consumer_role: BACKTEST_OWNER_V1.into(),
-        scope: InstrumentMasterScopeV1::ExactInstrument(INSTRUMENT.into()),
-        effective_instant: 50,
-        owner_observation: 99,
-        decision_cut: 100,
-        clock_head,
-        lifecycle_frontier: digest(81),
-        corporate_action_frontier: digest(82),
-        historical_membership_frontier: digest(83),
-        market_semantics_identity: acceptance_market_semantics_identity(),
-        source_frontier: digest(85),
-        correction_frontier: digest(86),
-        stable_correlation: digest(112),
-    }
-}
-
-async fn persist_pit_and_reread(
-    owner: &MarketDataOwnerPostgres,
-    clock: &MarketDataClockAdmission,
-    source: &crate::owner::source_binding::authority::SourceBindingCommit,
-    instrument: &InstrumentMasterReadbackV1,
-    universe_identity: BindingDigest,
-) -> Result<
-    (
-        crate::owner::pit_snapshot::PitSnapshotCommitAggregate,
-        crate::owner::pit_snapshot::VerifiedPitObservationBatch,
-    ),
-    BarJoinedCutAcceptanceUnavailableV1,
-> {
-    let scope =
-        crate::owner::source_binding::authority::derive_market_semantics_compatibility_identity_v1(
-            &source.fact().proposal().semantics,
-        );
-    let time_evidence = UntrustedPitSnapshotTimeEvidence {
-        event_effective: UntrustedEventEffectiveTime::from_untrusted(
-            50,
-            &clock.clock_identity,
-            &clock.clock_epoch,
-        ),
-        provider_available: UntrustedProviderAvailableTime::from_untrusted(
-            90,
-            &clock.clock_identity,
-            &clock.clock_epoch,
-        ),
-        retrieval: UntrustedRetrievalTime::from_untrusted(
-            92,
-            &clock.clock_identity,
-            &clock.clock_epoch,
-        ),
-        correction_publication: Some(UntrustedCorrectionPublicationTime::from_untrusted(
-            91,
-            &clock.clock_identity,
-            &clock.clock_epoch,
-        )),
-        decision_cut: UntrustedSnapshotDecisionCut::from_untrusted(
-            100,
-            &clock.clock_identity,
-            &clock.clock_epoch,
-        ),
-        monotonic_sequence: clock.monotonic_sequence,
-        restart_continuity_digest: clock.restart_continuity_digest,
-        skew_bound: clock.skew_bound,
-        uncertainty_bound: clock.uncertainty_bound,
-        observed_at: 100,
-        valid_through: 160,
-    };
-    let mut proposal = UntrustedPitSnapshotProposal {
-        request: UntrustedPitSnapshotRequest {
-            claimed_request_identity: digest(0),
-            claimed_request_digest: digest(0),
-            correlation_identity: acceptance_identity(174),
-            requester_identity: acceptance_identity(175),
-            scope_digest: acceptance_identity(176),
-            source_binding: source.receipt().locator().clone(),
-            instrument_master_digest: instrument.digest(),
-            universe_selection_digest: universe_identity,
-            market_semantics_identity: scope,
-            time_evidence,
-        },
-        evidence: UntrustedPitSnapshotEvidence {
-            normalized_records_digest: digest(0),
-            source_frontier: source.receipt().locator().source_frontier.clone(),
-            correction_frontier: source.receipt().locator().correction_frontier.clone(),
-            coverage_complete: true,
-            semantics_compatible: true,
-            source_available: true,
-        },
-    };
-    let observation = UntrustedPitObservationBatchProposal {
-        rows: [
-            ("AAPL.CLOSE.1H", "CLOSE", "1H", 12_301),
-            ("AAPL.CLOSE.1M", "CLOSE", "1M", 12_345),
-            ("AAPL.CLOSE.EXCHANGE_SESSION_1D", "CLOSE", "1D", 12_299),
-            ("AAPL.HIGH.1M", "HIGH", "1M", 12_401),
-            ("AAPL.LOW.1M", "LOW", "1M", 12_211),
-            ("AAPL.OPEN.1M", "OPEN", "1M", 12_251),
-        ]
-        .into_iter()
-        .map(
-            |(symbolic_key, field, timeframe, value_mantissa)| UntrustedPitObservation {
-                symbolic_key: symbolic_key.into(),
-                member_key: INSTRUMENT.into(),
-                instrument: INSTRUMENT.into(),
-                channel: "MARKET".into(),
-                data_kind: "BAR".into(),
-                timeframe: timeframe.into(),
-                field: field.into(),
-                value_mantissa,
-                value_scale: 2,
-                event_effective: 50,
-                provider_available: 90,
-                retrieval: 92,
-                correction_publication: 91,
-                source_binding_identity: source.fact().binding_id(),
-                source_frontier_digest: digest(85),
-                instrument_master_digest: instrument.digest(),
-                universe_selection_digest: universe_identity,
-                market_semantics_identity: scope,
-                correction_stream_identity: source
-                    .receipt()
-                    .locator()
-                    .correction_frontier
-                    .stream_identity
-                    .clone(),
-                correction_sequence: source.receipt().locator().correction_frontier.sequence,
-                correction_frontier_digest: digest(86),
-            },
-        )
-        .collect(),
-    };
-    proposal.evidence.normalized_records_digest = derive_observation_batch_digest(&observation)
-        .map_err(|_| BarJoinedCutAcceptanceUnavailableV1)?;
-    refresh_request_claims(&mut proposal.request);
-    let basis = TestOnlyCanonicalBasisResolver::seal_for_test(
-        proposal.request.clone(),
-        proposal.evidence.clone(),
-        clock.clone(),
-    );
-    let pit = owner
-        .commit_pit_initial_with_observation_batch(proposal, observation, &basis, clock)
-        .await
-        .map_err(|_| BarJoinedCutAcceptanceUnavailableV1)?;
-    let (_, _, batch) = reread_sealing_inputs(owner, &pit).await?;
-    Ok((pit, batch))
-}
-
 async fn reread_sealing_inputs(
     owner: &MarketDataOwnerPostgres,
     pit: &crate::owner::pit_snapshot::PitSnapshotCommitAggregate,
@@ -1279,193 +818,6 @@ async fn reread_sealing_inputs(
         .await
         .map_err(|_| BarJoinedCutAcceptanceUnavailableV1)?;
     Ok((stored_pit, stored_source, batch))
-}
-
-async fn persist_r0(
-    owner: &MarketDataOwnerPostgres,
-    pit: &crate::owner::pit_snapshot::PitSnapshotCommitAggregate,
-    source: &crate::owner::source_binding::authority::SourceBindingCommit,
-) -> Result<
-    crate::owner::reference_fact_coordinates::r0::ReferenceFactR0ReadbackV1,
-    BarJoinedCutAcceptanceUnavailableV1,
-> {
-    let mut request = UntrustedReferenceFactR0RequestV1 {
-        request_identity: acceptance_identity(183),
-        request_meaning_digest: digest(0),
-        pit_locator_bytes: serde_json::to_vec(pit.receipt().locator())
-            .map_err(|_| BarJoinedCutAcceptanceUnavailableV1)?
-            .into_boxed_slice(),
-        source_binding_locator_bytes: serde_json::to_vec(source.receipt().locator())
-            .map_err(|_| BarJoinedCutAcceptanceUnavailableV1)?
-            .into_boxed_slice(),
-        replay_start_event_ns: 50,
-        replay_end_event_ns_exclusive: 51,
-        effective_from_ns: 50,
-        effective_until_ns: Some(51),
-        provider_available_ns: 90,
-        retrieval_ns: 92,
-        correction_publication_ns: 91,
-        owner_observation_ns: 100,
-        decision_cut: 100,
-        predecessor_identity: None,
-        stable_correlation: acceptance_identity(179),
-    };
-    request.request_meaning_digest =
-        r0_request_meaning_digest(&request).map_err(|_| BarJoinedCutAcceptanceUnavailableV1)?;
-    let mut transaction = owner
-        .pool
-        .begin()
-        .await
-        .map_err(|_| BarJoinedCutAcceptanceUnavailableV1)?;
-    let issued = super::reference_fact_coordinates::resolve_reference_fact_r0_in_transaction_v1(
-        &mut transaction,
-        &request,
-    )
-    .await
-    .map_err(|_| BarJoinedCutAcceptanceUnavailableV1)?;
-    let recovered = super::reference_fact_coordinates::recover_reference_fact_r0_in_transaction_v1(
-        &mut transaction,
-        request.locator(),
-    )
-    .await
-    .map_err(|_| BarJoinedCutAcceptanceUnavailableV1)?;
-    if issued.canonical_bytes() != recovered.canonical_bytes() {
-        return Err(BarJoinedCutAcceptanceUnavailableV1);
-    }
-    transaction
-        .commit()
-        .await
-        .map_err(|_| BarJoinedCutAcceptanceUnavailableV1)?;
-    Ok(issued)
-}
-
-async fn persist_market_semantics(
-    owner: &MarketDataOwnerPostgres,
-    pit: &crate::owner::pit_snapshot::PitSnapshotCommitAggregate,
-    source: &crate::owner::source_binding::authority::SourceBindingCommit,
-    batch: &crate::owner::pit_snapshot::VerifiedPitObservationBatch,
-    instrument: &InstrumentMasterReadbackV1,
-    r0: &crate::owner::reference_fact_coordinates::r0::ReferenceFactR0ReadbackV1,
-) -> Result<(), BarJoinedCutAcceptanceUnavailableV1> {
-    use crate::owner::market_semantics::{
-        MarketSemanticsConsumerV1, MarketSemanticsErrorV1, MarketSemanticsPriceAdjustmentV1,
-        MarketSemanticsTimestampBasisV1, MarketSemanticsValueV1,
-        UntrustedMarketSemanticsProposalV1, authority,
-    };
-    let scope =
-        crate::owner::source_binding::authority::derive_market_semantics_compatibility_identity_v1(
-            &source.fact().proposal().semantics,
-        );
-    let mut transaction = owner
-        .pool
-        .begin()
-        .await
-        .map_err(|_| BarJoinedCutAcceptanceUnavailableV1)?;
-    let aggregate = load_source_for_update(&mut transaction, source.fact().binding_id(), false)
-        .await
-        .map_err(|_| BarJoinedCutAcceptanceUnavailableV1)?
-        .ok_or(BarJoinedCutAcceptanceUnavailableV1)?;
-    let source_readback =
-        crate::owner::source_binding::SourceBindingOwnerReadback::from_verified(&aggregate);
-    transaction
-        .commit()
-        .await
-        .map_err(|_| BarJoinedCutAcceptanceUnavailableV1)?;
-    let value = MarketSemanticsValueV1 {
-        normalization_identity: digest(180),
-        price_adjustment: MarketSemanticsPriceAdjustmentV1::Raw,
-        timestamp_basis: MarketSemanticsTimestampBasisV1::EventEffective,
-        price_unit_identity: digest(181),
-        size_unit_identity: digest(182),
-    };
-    let registry_key =
-        authority::derive_registry_key_v1(scope, &source_readback, batch, instrument, r0)
-            .map_err(|_| BarJoinedCutAcceptanceUnavailableV1)?;
-    let registry = authority::seal_registry_entry_v1(registry_key, value, acceptance_identity(187))
-        .map_err(|_| BarJoinedCutAcceptanceUnavailableV1)?;
-    let mut transaction = owner
-        .pool
-        .begin()
-        .await
-        .map_err(|_| BarJoinedCutAcceptanceUnavailableV1)?;
-    super::market_semantics::register_market_semantics_registry_entry_v1(
-        &mut transaction,
-        &registry,
-    )
-    .await
-    .map_err(|_| BarJoinedCutAcceptanceUnavailableV1)?;
-    transaction
-        .commit()
-        .await
-        .map_err(|_| BarJoinedCutAcceptanceUnavailableV1)?;
-    let mut instrument_locator_bytes = Vec::with_capacity(64);
-    instrument_locator_bytes.extend_from_slice(instrument.request_identity.as_bytes());
-    instrument_locator_bytes.extend_from_slice(instrument.request_meaning_digest.as_bytes());
-    let mut r0_locator_bytes = Vec::with_capacity(64);
-    r0_locator_bytes.extend_from_slice(r0.cut().request_identity.as_bytes());
-    r0_locator_bytes.extend_from_slice(r0.cut().request_meaning_digest.as_bytes());
-    let mut proposal = UntrustedMarketSemanticsProposalV1 {
-        request_identity: acceptance_identity(188),
-        request_meaning_digest: digest(0),
-        consumer: MarketSemanticsConsumerV1::StrategyInputBindingRegistry,
-        compatibility_scope_identity: scope,
-        predecessor_identity: None,
-        value,
-        effective_from_ns: 50,
-        effective_until_ns: Some(51),
-        effective_instant_ns: 50,
-        owner_observation_ns: 100,
-        decision_cut: 100,
-        pit_locator_bytes: serde_json::to_vec(pit.receipt().locator())
-            .map_err(|_| BarJoinedCutAcceptanceUnavailableV1)?
-            .into_boxed_slice(),
-        source_binding_locator_bytes: serde_json::to_vec(source.receipt().locator())
-            .map_err(|_| BarJoinedCutAcceptanceUnavailableV1)?
-            .into_boxed_slice(),
-        instrument_master_locator_bytes: instrument_locator_bytes.into_boxed_slice(),
-        r0_locator_bytes: r0_locator_bytes.into_boxed_slice(),
-        stable_correlation: acceptance_identity(179),
-    };
-    proposal.request_meaning_digest = authority::request_meaning_digest_v1(&proposal)
-        .map_err(|_| BarJoinedCutAcceptanceUnavailableV1)?;
-    let mut transaction = owner
-        .pool
-        .begin()
-        .await
-        .map_err(|_| BarJoinedCutAcceptanceUnavailableV1)?;
-    let readback = match super::market_semantics::resolve_market_semantics_scope_in_transaction_v1(
-        &mut transaction,
-        scope,
-        batch.snapshot_identity(),
-        50,
-        100,
-        100,
-    )
-    .await
-    {
-        Ok(readback) => readback,
-        Err(MarketSemanticsErrorV1::UnknownIdentity) => {
-            super::market_semantics::resolve_market_semantics_in_transaction_v1(
-                &mut transaction,
-                &proposal,
-            )
-            .await
-            .map_err(|_| BarJoinedCutAcceptanceUnavailableV1)?
-        }
-        Err(_) => return Err(BarJoinedCutAcceptanceUnavailableV1),
-    };
-    let [fact] = readback.facts() else {
-        return Err(BarJoinedCutAcceptanceUnavailableV1);
-    };
-
-    if fact.compatibility_scope_identity() != scope || fact.value() != value {
-        return Err(BarJoinedCutAcceptanceUnavailableV1);
-    }
-    transaction
-        .commit()
-        .await
-        .map_err(|_| BarJoinedCutAcceptanceUnavailableV1)?;
-    Ok(())
 }
 
 fn acceptance_binding_requests(
