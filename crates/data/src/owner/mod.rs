@@ -702,7 +702,11 @@ async fn consume_store_admission_bootstrap(
                 .map_err(|_| ResearchPitTerminalBootstrapError {
                     failure: ResearchPitTerminalBootstrapFailure::StoreAdmissionRejected,
                 })?;
-            let port = capability.into_pit_terminal_snapshot_port();
+            let port = capability.into_pit_terminal_snapshot_port().map_err(|_| {
+                ResearchPitTerminalBootstrapError {
+                    failure: ResearchPitTerminalBootstrapFailure::StoreAdmissionRejected,
+                }
+            })?;
             Ok(Some(Arc::new(MarketDataReadPostgres::from_admitted(port))))
         }
     }
@@ -720,7 +724,11 @@ async fn consume_replay_input_store_admission_bootstrap(
                 .map_err(|_| SealedReplayInputBootstrapError {
                     failure: ResearchPitTerminalBootstrapFailure::StoreAdmissionRejected,
                 })?;
-            let port = capability.into_pit_evaluation_snapshot_port();
+            let port = capability
+                .into_pit_evaluation_snapshot_port()
+                .map_err(|_| SealedReplayInputBootstrapError {
+                    failure: ResearchPitTerminalBootstrapFailure::StoreAdmissionRejected,
+                })?;
             Ok(Some(Arc::new(MarketDataReadPostgres::from_admitted(port))))
         }
     }

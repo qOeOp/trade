@@ -82,7 +82,8 @@ ACL 拒绝。它不证明供应商真实性，不证明生产装配，也不证�
   它 `NATIVE_REPLAY_SCHEDULING_ACCEPTANCE_GRANTS_V1`；它的 evidence 在已准入读取携带 receipt 的位置携带标记
   `SEALED_ACCEPTANCE_NO_STORE_ADMISSION_V1`，只有携带该读口的构建才接受这个标记。Admission 本身，包括它租用的主体与那道门上的
   授权，仍然是 `B3`。今天没有任何生产角色持有那道门：部署时的 ACL 切换把 `market_data_private` 的 `USAGE` 从 owner 以外的
-  所有角色收回，而 Store Admission 所测量的调度下限也不覆盖该路径所做的 PIT evaluation 读取。
+  所有角色收回，而已准入读口的测量下限所列的对象也还没有授予任何角色。每个读口只在测量覆盖它所服务读取的下限时才打开，
+  原生 Replay 调度读口的 PIT evaluation 读取也在其中；每次读取在它所依据的每次准入上都再核一遍自己的下限。
   读取一份 BAR schedule 有**两套托管策略**，每种构建一套，而本文档此前一套都没描述过。测试构建自行开启
   `REPEATABLE READ READ ONLY` 事务并自验该 schedule 的历史；生产构建的快照由已准入读口的 evidence 承担，并在返回前
   重新校验。两者跑的是同一个 `verify_bar_schedule_storage_evidence`。差别是一致性保证从哪里来，不是强弱：测试那条
