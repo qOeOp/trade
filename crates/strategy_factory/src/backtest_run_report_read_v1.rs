@@ -1839,6 +1839,54 @@ mod tests {
         assert_eq!(empty["empty_reason"], "MORE_THAN_ONE_EQUITY_CURRENCY");
     }
 
+    /// The Dashboard reads this Owner's wire through one shared file, so the consumer's contract is
+    /// held against the projection this module actually serializes rather than against a copy
+    /// someone typed. The file is this test's output and nothing else: with
+    /// `VIBE_WRITE_BACKTEST_RUN_REPORT_WIRE=1` it writes the file, and otherwise the committed file
+    /// must hold exactly the values it would write.
+    #[rstest]
+    fn the_dashboard_reads_this_owner_s_wire_from_one_shared_file() {
+        let projection = |result: BacktestRunResultV1| {
+            serde_json::to_value(BacktestRunReportProjectionV1 {
+                run: run(),
+                strategy: strategy(),
+                data_window: data_window(),
+                result,
+            })
+            .expect("wire value")
+        };
+        let wire = serde_json::json!({
+            "available": projection(
+                project_engine_result_v1(&engine_bytes()).expect("result projection"),
+            ),
+            "empty": projection(
+                projected_without_series(&ONE_FILL, two_currencies).expect("result projection"),
+            ),
+        });
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../product/dashboard/tests/fixtures/backtest_run_report_wire_v1.json");
+        let written = format!(
+            "{}\n",
+            serde_json::to_string_pretty(&wire).expect("the wire serializes")
+        );
+
+        if std::env::var("VIBE_WRITE_BACKTEST_RUN_REPORT_WIRE").as_deref() == Ok("1") {
+            std::fs::write(&path, &written).expect("the shared wire file is written");
+        }
+        // Compared as values: whether `serde_json` keeps key order depends on the feature set this
+        // build unified, and the consumer reads keys by name.
+        let committed: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).expect("the shared wire file"))
+                .expect("the shared wire file parses");
+        assert_eq!(
+            committed, wire,
+            "product/dashboard/tests/fixtures/backtest_run_report_wire_v1.json is not this \
+             Owner's wire; regenerate it with VIBE_WRITE_BACKTEST_RUN_REPORT_WIRE=1"
+        );
+        assert_eq!(wire["available"]["state"], "AVAILABLE");
+        assert_eq!(wire["empty"]["state"], "EMPTY");
+    }
+
     #[rstest]
     #[case(10_000, 2, "100.00")]
     #[case(-12_345, 2, "-123.45")]
