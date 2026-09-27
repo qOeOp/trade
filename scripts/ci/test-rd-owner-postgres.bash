@@ -222,6 +222,8 @@ readonly candidate_experiment_upgrade_seed_test='trial_family_postgres::postgres
 # - H0's Source Binding admission moves Market Data's clock head to wall-clock time, and the
 #   fixture instrument AAPL.XNAS has a V1 Instrument Master fact valid only in [10, 200) ns, so a
 #   later Research on it is refused as InstrumentScopeNotEligible (measured by Lane 4).
+# F also advances the sealed acceptance Catalog V3 head to a schema 2 record at BINANCE, so a later
+# family would form against it rather than the schema 1 head at SIM.
 # So nothing may run after F on the database F wrote except the entries below, each with the reason
 # it tolerates that state. This holds in the serial run (check_nextest_graph_contract) and in every
 # shard (check_chain_shard_after_f), where a component's entries share F's database only within
