@@ -38,7 +38,8 @@ use vibe_model::types::{
 
 use super::{ADMITTED_UNIVERSE_MEMBER_COUNTS, source_binding::BindingDigest};
 
-const FACT_SCHEMA_VERSION_V2: u16 = 2;
+// Version 3 adds the terms basis to the snapshot. No production writer produced a version 2 fact.
+const FACT_SCHEMA_VERSION_V2: u16 = 3;
 const FACT_RESERVED_V2: u16 = 0;
 const FACT_DOMAIN_V2: &[u8] = b"VIBE_INSTRUMENT_MASTER_PUBLIC_FACT_V2";
 const CUT_DOMAIN_V2: &[u8] = b"VIBE_INSTRUMENT_MASTER_PUBLIC_CUT_V2";
@@ -170,6 +171,333 @@ pub struct ExchangeInfoBaselineV2 {
     pub instrument_class: PublicInstrumentClassV2,
     pub provenance: ExchangeInfoSnapshotProvenanceV2,
     pub terms: InstrumentMasterPublicTermsV2,
+}
+
+/// The temporal basis of a V2 fact's terms.
+///
+/// `exchangeInfo` states an instrument's terms as they are when it is retrieved. A baseline therefore
+/// observes its terms from `retrieval_time_ns` on and assumes them over `[effective_from_ns,
+/// retrieval_time_ns)`, back to the listing. This names that assumption in the fact itself, so a
+/// report can tell a Replay priced before the retrieval, on assumed terms, from one priced after.
+///
+/// It has one value because one kind of fact is produced. A correction intake, when one exists,
+/// adds the value for the terms it observes; no value is reserved for a producer that does not exist.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u8)]
+pub enum InstrumentTermsBasisV2 {
+    /// Terms observed at retrieval and assumed back to the listing.
+    RetrievedTermsAssumedSinceListing = 1,
+}
+
+/// One row of the Owner's closed venue table: what an admitted Source Binding's exact dataset
+/// mapping fixes about every instrument read from it.
+///
+/// The payload states none of these. A linear USD-M perpetual has no inverse flag and no contract
+/// size in `exchangeInfo`, and its canonical identity is a convention, so each comes from the row the
+/// binding selects rather than from the caller or the payload.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct InstrumentMasterVenueV2 {
+    /// The Source Binding's `adapter.dataset_mapping`, compared as one exact string.
+    pub dataset_mapping: &'static str,
+    /// The venue identity every fact from this dataset carries.
+    pub venue_identity: &'static str,
+    /// Appended to the raw symbol to form the canonical identity.
+    pub canonical_identity_suffix: &'static str,
+    /// Whether the dataset's contracts are inverse.
+    pub is_inverse: bool,
+    /// The dataset's contract multiplier.
+    pub contract_multiplier: InstrumentDecimalV2,
+}
+
+/// The Owner's closed venue table.
+///
+/// Its only row is Binance's USD-M `exchangeInfo`. The canonical identity form is the one Instrument
+/// Master V1 perpetual facts and the inherited Binance adapter's instrument identifier use,
+/// `BTCUSDT-PERP.BINANCE` for the raw symbol `BTCUSDT`, so V1 and V2 name one instrument alike.
+pub const INSTRUMENT_MASTER_VENUES_V2: &[InstrumentMasterVenueV2] = &[InstrumentMasterVenueV2 {
+    dataset_mapping: "usdm/exchangeInfo",
+    venue_identity: "BINANCE",
+    canonical_identity_suffix: "-PERP.BINANCE",
+    is_inverse: false,
+    contract_multiplier: InstrumentDecimalV2 {
+        mantissa: 1,
+        scale: 0,
+    },
+}];
+
+/// The row for a Source Binding's exact dataset mapping, or none. No prefix or segment of the
+/// mapping is interpreted.
+#[must_use]
+pub fn instrument_master_venue_v2(
+    dataset_mapping: &str,
+) -> Option<&'static InstrumentMasterVenueV2> {
+    INSTRUMENT_MASTER_VENUES_V2
+        .iter()
+        .find(|venue| venue.dataset_mapping == dataset_mapping)
+}
+
+/// What the Owner states about one `exchangeInfo` retrieval: the binding it holds admitted, the
+/// instant the caller retrieved it, and the Owner's own observation. None of it is in the payload.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ExchangeInfoRetrievalV2 {
+    pub source_binding_identity: BindingDigest,
+    pub source_binding_digest: BindingDigest,
+    pub retrieval_time_ns: i128,
+    pub owner_observation_time_ns: i128,
+}
+
+/// Why an `exchangeInfo` payload yields no baseline for a raw symbol.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ExchangeInfoNormalizationErrorV2 {
+    /// The payload is not a JSON object with a `symbols` array.
+    NotExchangeInfo,
+    /// No `symbols` entry has the raw symbol.
+    SymbolAbsent,
+    /// More than one entry has it.
+    SymbolAmbiguous,
+    /// The entry's `contractType` is not `PERPETUAL`.
+    ContractTypeUnsupported,
+    /// The entry carries `contractSize`, the shape of a COIN-M entry, contradicting the dataset.
+    DatasetMismatch,
+    /// The entry has no `onboardDate`, or it is later than the retrieval.
+    OnboardDateUnavailable,
+    /// A required filter or field is absent, a filter type appears twice, or a decimal breaks the
+    /// accepted syntax or is not positive where the term requires it.
+    FilterUnavailable,
+}
+
+const EXCHANGE_INFO_PAYLOAD_DOMAIN_V2: &[u8] = b"VIBE_INSTRUMENT_MASTER_EXCHANGE_INFO_PAYLOAD_V2";
+
+/// The digest of an `exchangeInfo` payload's exact bytes, as every V2 baseline records it.
+///
+/// This is the one definition: an intake that must show it read the same snapshot as a baseline
+/// compares this digest of the bytes it was given with the baseline's `raw_payload_digest`.
+#[must_use]
+pub fn exchange_info_payload_digest_v2(payload: &[u8]) -> BindingDigest {
+    digest(EXCHANGE_INFO_PAYLOAD_DOMAIN_V2, payload)
+}
+
+impl ExchangeInfoBaselineV2 {
+    /// Derives one instrument's baseline from a raw USD-M `exchangeInfo` payload.
+    ///
+    /// This is the only definition of how `exchangeInfo` becomes V2 terms; the documentation's
+    /// mapping table describes it. The payload's digest is computed here from the exact bytes, the
+    /// effective instant is the entry's `onboardDate`, every term comes from the entry's filters, and
+    /// the venue, inverse flag, contract multiplier and canonical identity come from `venue`. The
+    /// result still has to pass [`InstrumentMasterFactV2::from_exchange_info_baseline`].
+    ///
+    /// # Errors
+    ///
+    /// Returns the named reason the payload yields no baseline for `raw_symbol`.
+    pub fn from_usdm_exchange_info(
+        payload: &[u8],
+        raw_symbol: &str,
+        venue: &InstrumentMasterVenueV2,
+        retrieval: ExchangeInfoRetrievalV2,
+    ) -> Result<Self, ExchangeInfoNormalizationErrorV2> {
+        use ExchangeInfoNormalizationErrorV2 as Refused;
+
+        let root: serde_json::Value =
+            serde_json::from_slice(payload).map_err(|_| Refused::NotExchangeInfo)?;
+        let symbols = root
+            .get("symbols")
+            .and_then(serde_json::Value::as_array)
+            .ok_or(Refused::NotExchangeInfo)?;
+        let mut matching = symbols.iter().filter(|entry| {
+            entry.get("symbol").and_then(serde_json::Value::as_str) == Some(raw_symbol)
+        });
+        let entry = matching.next().ok_or(Refused::SymbolAbsent)?;
+
+        if matching.next().is_some() {
+            return Err(Refused::SymbolAmbiguous);
+        }
+
+        if entry.get("contractSize").is_some() {
+            return Err(Refused::DatasetMismatch);
+        }
+
+        if entry
+            .get("contractType")
+            .and_then(serde_json::Value::as_str)
+            != Some("PERPETUAL")
+        {
+            return Err(Refused::ContractTypeUnsupported);
+        }
+        let onboard_ms = entry
+            .get("onboardDate")
+            .and_then(serde_json::Value::as_i64)
+            .filter(|value| *value > 0)
+            .ok_or(Refused::OnboardDateUnavailable)?;
+        let effective_from_ns = i128::from(onboard_ms) * 1_000_000;
+
+        if effective_from_ns > retrieval.retrieval_time_ns {
+            return Err(Refused::OnboardDateUnavailable);
+        }
+        let text = |field: &str| {
+            entry
+                .get(field)
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned)
+                .ok_or(Refused::FilterUnavailable)
+        };
+        let filters = ExchangeInfoFiltersV2::read(entry)?;
+        let tick = filters.positive("PRICE_FILTER", "tickSize")?;
+        let step = filters.positive("LOT_SIZE", "stepSize")?;
+
+        Ok(Self {
+            canonical_identity: format!("{raw_symbol}{}", venue.canonical_identity_suffix),
+            venue_identity: venue.venue_identity.to_owned(),
+            raw_symbol: raw_symbol.to_owned(),
+            instrument_class: PublicInstrumentClassV2::CryptoPerpetual,
+            provenance: ExchangeInfoSnapshotProvenanceV2 {
+                source_binding_identity: retrieval.source_binding_identity,
+                source_binding_digest: retrieval.source_binding_digest,
+                raw_payload_digest: exchange_info_payload_digest_v2(payload),
+                effective_from_ns,
+                retrieval_time_ns: retrieval.retrieval_time_ns,
+                owner_observation_time_ns: retrieval.owner_observation_time_ns,
+            },
+            terms: InstrumentMasterPublicTermsV2 {
+                base_currency: FactValue::Value(text("baseAsset")?),
+                quote_currency: FactValue::Value(text("quoteAsset")?),
+                settlement_currency: FactValue::Value(text("marginAsset")?),
+                contract_status: FactValue::Value(text("status")?),
+                is_inverse: FactValue::Value(venue.is_inverse),
+                price_precision_from_filter: FactValue::Value(tick.scale),
+                quantity_precision_from_filter: FactValue::Value(step.scale),
+                price_increment_from_filter: FactValue::Value(tick),
+                quantity_increment_from_filter: FactValue::Value(step),
+                contract_multiplier: FactValue::Value(venue.contract_multiplier),
+                lot_size: FactValue::Value(step),
+                minimum_price: filters.bound("PRICE_FILTER", "minPrice")?,
+                maximum_price: filters.bound("PRICE_FILTER", "maxPrice")?,
+                minimum_quantity: filters.bound("LOT_SIZE", "minQty")?,
+                maximum_quantity: filters.bound("LOT_SIZE", "maxQty")?,
+                minimum_notional: filters.optional_bound("MIN_NOTIONAL", "notional")?,
+                // The cap exists; it lives in leverage brackets, which `exchangeInfo` omits.
+                maximum_notional: FactValue::Unavailable,
+            },
+        })
+    }
+}
+
+/// One entry's filters by type, each type at most once.
+struct ExchangeInfoFiltersV2<'a>(Vec<(&'a str, &'a serde_json::Map<String, serde_json::Value>)>);
+
+impl<'a> ExchangeInfoFiltersV2<'a> {
+    fn read(entry: &'a serde_json::Value) -> Result<Self, ExchangeInfoNormalizationErrorV2> {
+        let mut filters: Vec<(&str, &serde_json::Map<String, serde_json::Value>)> = Vec::new();
+
+        for filter in entry
+            .get("filters")
+            .and_then(serde_json::Value::as_array)
+            .ok_or(ExchangeInfoNormalizationErrorV2::FilterUnavailable)?
+        {
+            let filter = filter
+                .as_object()
+                .ok_or(ExchangeInfoNormalizationErrorV2::FilterUnavailable)?;
+            let kind = filter
+                .get("filterType")
+                .and_then(serde_json::Value::as_str)
+                .ok_or(ExchangeInfoNormalizationErrorV2::FilterUnavailable)?;
+
+            if filters.iter().any(|(listed, _)| *listed == kind) {
+                return Err(ExchangeInfoNormalizationErrorV2::FilterUnavailable);
+            }
+            filters.push((kind, filter));
+        }
+        Ok(Self(filters))
+    }
+
+    fn filter(&self, kind: &str) -> Option<&serde_json::Map<String, serde_json::Value>> {
+        self.0
+            .iter()
+            .find(|(listed, _)| *listed == kind)
+            .map(|(_, filter)| *filter)
+    }
+
+    fn decimal(
+        &self,
+        kind: &str,
+        field: &str,
+    ) -> Result<ExchangeInfoDecimalV2, ExchangeInfoNormalizationErrorV2> {
+        let text = self
+            .filter(kind)
+            .and_then(|filter| filter.get(field))
+            .and_then(serde_json::Value::as_str)
+            .ok_or(ExchangeInfoNormalizationErrorV2::FilterUnavailable)?;
+        parse_exchange_info_decimal_v2(text)
+            .ok_or(ExchangeInfoNormalizationErrorV2::FilterUnavailable)
+    }
+
+    /// A term that must be a positive value.
+    fn positive(
+        &self,
+        kind: &str,
+        field: &str,
+    ) -> Result<InstrumentDecimalV2, ExchangeInfoNormalizationErrorV2> {
+        match self.decimal(kind, field)? {
+            ExchangeInfoDecimalV2::Positive(value) => Ok(value),
+            ExchangeInfoDecimalV2::Zero => Err(ExchangeInfoNormalizationErrorV2::FilterUnavailable),
+        }
+    }
+
+    /// A bound: `"0"` sets no limit.
+    fn bound(
+        &self,
+        kind: &str,
+        field: &str,
+    ) -> Result<FactValue<InstrumentDecimalV2>, ExchangeInfoNormalizationErrorV2> {
+        Ok(match self.decimal(kind, field)? {
+            ExchangeInfoDecimalV2::Positive(value) => FactValue::Value(value),
+            ExchangeInfoDecimalV2::Zero => FactValue::Unbounded,
+        })
+    }
+
+    /// A bound whose filter may be absent, which the payload leaves unstated.
+    fn optional_bound(
+        &self,
+        kind: &str,
+        field: &str,
+    ) -> Result<FactValue<InstrumentDecimalV2>, ExchangeInfoNormalizationErrorV2> {
+        if self.filter(kind).is_none() {
+            return Ok(FactValue::Unavailable);
+        }
+        self.bound(kind, field)
+    }
+}
+
+/// An `exchangeInfo` decimal: zero, which a bound uses for "no limit", or a positive value.
+enum ExchangeInfoDecimalV2 {
+    Zero,
+    Positive(InstrumentDecimalV2),
+}
+
+/// Parses an `exchangeInfo` decimal: digits with an optional fraction, nothing else. Returns the
+/// canonical value, with redundant trailing fractional zeros removed.
+fn parse_exchange_info_decimal_v2(text: &str) -> Option<ExchangeInfoDecimalV2> {
+    let (whole, fraction) = text.split_once('.').unwrap_or((text, ""));
+
+    if whole.is_empty()
+        || !whole.bytes().all(|byte| byte.is_ascii_digit())
+        || (text.contains('.') && fraction.is_empty())
+        || !fraction.bytes().all(|byte| byte.is_ascii_digit())
+    {
+        return None;
+    }
+    let fraction = fraction.trim_end_matches('0');
+    let scale = u8::try_from(fraction.len())
+        .ok()
+        .filter(|scale| *scale <= 38)?;
+    let mantissa: i128 = format!("{whole}{fraction}").parse().ok()?;
+
+    if mantissa == 0 {
+        return Some(ExchangeInfoDecimalV2::Zero);
+    }
+    Some(ExchangeInfoDecimalV2::Positive(InstrumentDecimalV2 {
+        mantissa,
+        scale,
+    }))
 }
 
 /// Raw public `!contractInfo` delta and its exact predecessor binding.
@@ -458,6 +786,12 @@ impl InstrumentMasterFactV2 {
     #[must_use]
     pub fn canonical_bytes(&self) -> &[u8] {
         &self.canonical_bytes
+    }
+
+    #[must_use]
+    pub const fn terms_basis(&self) -> InstrumentTermsBasisV2 {
+        // Encoding writes and decoding requires exactly this basis, so it is what the bytes state.
+        InstrumentTermsBasisV2::RetrievedTermsAssumedSinceListing
     }
 
     #[must_use]
@@ -1853,6 +2187,7 @@ fn encode_snapshot(encoder: &mut Encoder, value: &ExchangeInfoSnapshotProvenance
     encoder.i128(value.effective_from_ns);
     encoder.i128(value.retrieval_time_ns);
     encoder.i128(value.owner_observation_time_ns);
+    encoder.u8(InstrumentTermsBasisV2::RetrievedTermsAssumedSinceListing as u8);
 }
 
 fn decode_snapshot(
@@ -1865,6 +2200,14 @@ fn decode_snapshot(
         effective_from_ns: decoder.i128()?,
         retrieval_time_ns: decoder.i128()?,
         owner_observation_time_ns: decoder.i128()?,
+    })
+    .and_then(|snapshot| {
+        // The only basis any producer states; any other byte is not a V2 fact.
+        if decoder.u8()? == InstrumentTermsBasisV2::RetrievedTermsAssumedSinceListing as u8 {
+            Ok(snapshot)
+        } else {
+            Err(InstrumentMasterV2Error::CodecMismatch)
+        }
     })
 }
 
@@ -2526,9 +2869,13 @@ pub(crate) mod tests {
         InstrumentMasterFactV2::from_exchange_info_baseline(input).unwrap()
     }
 
-    /// Admitting one-member cuts changes no two-member byte. The identity below is what `main`
-    /// issued for this cut before the member set was widened (tree `daee7dc73`, 1039 canonical
-    /// bytes); the encoding has always written its member count, and two is still written as two.
+    /// Admitting one-member cuts changes no two-member byte. `main` issued this cut as 1039
+    /// canonical bytes before the member set was widened (tree `daee7dc73`); the encoding has always
+    /// written its member count, and two is still written as two.
+    ///
+    /// Re-pinned for the terms basis: fact schema version 3 appends one basis byte to each member's
+    /// snapshot, so the same two members are 1041 bytes, exactly one byte each more, and the identity
+    /// below is the one those bytes digest to. Nothing else in the cut changed.
     #[rstest::rstest]
     fn a_two_member_cut_keeps_the_bytes_it_had_before_one_member_cuts() {
         let cut = InstrumentMasterCutV2::issue(
@@ -2542,13 +2889,13 @@ pub(crate) mod tests {
             ],
         )
         .unwrap();
-        let pinned = "3381df8e624ccdeddc9bb68012b3e1058751b32fa700a6b1a6967a5e6bf38bee";
+        let pinned = "cfbee9b1d42c13e69ac9bd7886ddbb7445aab51dc8853e97b84f7cd27f7699da";
         let expected = (0..pinned.len())
             .step_by(2)
             .map(|at| u8::from_str_radix(&pinned[at..at + 2], 16).unwrap())
             .collect::<Vec<_>>();
         assert_eq!(cut.identity().as_bytes().as_slice(), expected.as_slice());
-        assert_eq!(cut.canonical_bytes().len(), 1039);
+        assert_eq!(cut.canonical_bytes().len(), 1041);
     }
 
     #[rstest::rstest]
@@ -2695,5 +3042,304 @@ pub(crate) mod tests {
                 .unwrap()
                 .outbox_identity()
         );
+    }
+}
+
+#[cfg(test)]
+mod exchange_info_normalization_tests {
+    use rstest::rstest;
+
+    use super::*;
+
+    /// The inherited Binance adapter's recorded USD-M `exchangeInfo` response (added in #180):
+    /// `BTCUSDT` perpetual, `BTCUSDT_260925` quarterly, `XAUUSDT` `TRADIFI_PERPETUAL`.
+    const USDM: &[u8] = include_bytes!(
+        "../../../adapters/binance/test_data/futures/http_json/exchange_info_usdm.json"
+    );
+    /// Its COIN-M counterpart, whose entry carries `contractSize`.
+    const COINM: &[u8] = include_bytes!(
+        "../../../adapters/binance/test_data/futures/http_json/exchange_info_delivery_coinm.json"
+    );
+    const BTCUSDT_ONBOARD_NS: i128 = 1_569_398_400_000 * 1_000_000;
+
+    fn venue() -> &'static InstrumentMasterVenueV2 {
+        instrument_master_venue_v2("usdm/exchangeInfo").expect("the USD-M row")
+    }
+
+    fn retrieval() -> ExchangeInfoRetrievalV2 {
+        ExchangeInfoRetrievalV2 {
+            source_binding_identity: BindingDigest::from_untrusted_bytes([7; 32]),
+            source_binding_digest: BindingDigest::from_untrusted_bytes([8; 32]),
+            retrieval_time_ns: 1_790_000_000_000_000_000,
+            owner_observation_time_ns: 1_790_000_000_500_000_000,
+        }
+    }
+
+    fn normalize(
+        payload: &[u8],
+        raw_symbol: &str,
+    ) -> Result<ExchangeInfoBaselineV2, ExchangeInfoNormalizationErrorV2> {
+        ExchangeInfoBaselineV2::from_usdm_exchange_info(payload, raw_symbol, venue(), retrieval())
+    }
+
+    /// The real payload with `edit` applied to its `BTCUSDT` entry.
+    fn edited(edit: impl FnOnce(&mut serde_json::Value)) -> Vec<u8> {
+        let mut root: serde_json::Value = serde_json::from_slice(USDM).unwrap();
+        let entry = root["symbols"]
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .find(|entry| entry["symbol"] == "BTCUSDT")
+            .unwrap();
+        edit(entry);
+        serde_json::to_vec(&root).unwrap()
+    }
+
+    fn filter_mut<'a>(entry: &'a mut serde_json::Value, kind: &str) -> &'a mut serde_json::Value {
+        entry["filters"]
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .find(|filter| filter["filterType"] == kind)
+            .unwrap()
+    }
+
+    const fn decimal(mantissa: i128, scale: u8) -> FactValue<InstrumentDecimalV2> {
+        FactValue::Value(InstrumentDecimalV2 { mantissa, scale })
+    }
+
+    #[rstest]
+    fn the_venue_table_is_keyed_by_the_exact_dataset_mapping() {
+        assert_eq!(venue().venue_identity, "BINANCE");
+
+        for other in [
+            "coinm/exchangeInfo",
+            "usdm/exchangeInfo/",
+            "USDM/exchangeInfo",
+            "usdm",
+            "",
+        ] {
+            assert!(instrument_master_venue_v2(other).is_none(), "{other:?}");
+        }
+    }
+
+    /// Every term of `BTCUSDT`, derived from the real payload, field by field.
+    #[rstest]
+    fn a_real_usdm_payload_yields_the_venues_own_terms() {
+        let baseline = normalize(USDM, "BTCUSDT").expect("BTCUSDT is a USD-M perpetual");
+
+        assert_eq!(baseline.canonical_identity, "BTCUSDT-PERP.BINANCE");
+        assert_eq!(baseline.venue_identity, "BINANCE");
+        assert_eq!(baseline.raw_symbol, "BTCUSDT");
+        assert_eq!(
+            baseline.instrument_class,
+            PublicInstrumentClassV2::CryptoPerpetual
+        );
+        assert_eq!(baseline.provenance.effective_from_ns, BTCUSDT_ONBOARD_NS);
+        assert_eq!(
+            baseline.provenance.raw_payload_digest,
+            digest(EXCHANGE_INFO_PAYLOAD_DOMAIN_V2, USDM)
+        );
+        assert_eq!(
+            baseline.terms,
+            InstrumentMasterPublicTermsV2 {
+                base_currency: FactValue::Value("BTC".to_owned()),
+                quote_currency: FactValue::Value("USDT".to_owned()),
+                settlement_currency: FactValue::Value("USDT".to_owned()),
+                contract_status: FactValue::Value("TRADING".to_owned()),
+                is_inverse: FactValue::Value(false),
+                price_precision_from_filter: FactValue::Value(1),
+                quantity_precision_from_filter: FactValue::Value(3),
+                price_increment_from_filter: decimal(1, 1),
+                quantity_increment_from_filter: decimal(1, 3),
+                contract_multiplier: decimal(1, 0),
+                lot_size: decimal(1, 3),
+                minimum_price: decimal(1, 1),
+                maximum_price: decimal(1_000_000, 0),
+                minimum_quantity: decimal(1, 3),
+                maximum_quantity: decimal(1_000, 0),
+                minimum_notional: decimal(5, 0),
+                maximum_notional: FactValue::Unavailable,
+            }
+        );
+
+        let fact = InstrumentMasterFactV2::from_exchange_info_baseline(baseline)
+            .expect("the derived baseline is a valid fact");
+        assert_eq!(
+            fact.terms_basis(),
+            InstrumentTermsBasisV2::RetrievedTermsAssumedSinceListing
+        );
+        assert_eq!(
+            InstrumentMasterFactV2::from_canonical_bytes(fact.canonical_bytes(), None),
+            Ok(fact)
+        );
+    }
+
+    /// The basis is in the canonical bytes: a fact stating any other is not a V2 fact.
+    #[rstest]
+    fn a_fact_stating_another_terms_basis_does_not_decode() {
+        let fact = InstrumentMasterFactV2::from_exchange_info_baseline(
+            normalize(USDM, "BTCUSDT").unwrap(),
+        )
+        .unwrap();
+        let bytes = fact.canonical_bytes();
+        // The basis is the last byte of the snapshot; locate it as the one byte whose change
+        // alone turns a decodable fact into a codec mismatch while it currently reads 1.
+        let mut refused = 0;
+
+        for position in 0..bytes.len() {
+            if bytes[position] != InstrumentTermsBasisV2::RetrievedTermsAssumedSinceListing as u8 {
+                continue;
+            }
+            let mut altered = bytes.to_vec();
+            altered[position] = 2;
+
+            if InstrumentMasterFactV2::from_canonical_bytes(&altered, None)
+                == Err(InstrumentMasterV2Error::CodecMismatch)
+            {
+                refused += 1;
+            }
+        }
+        assert!(
+            refused >= 1,
+            "some byte reading 1 is the basis, and 2 there is refused"
+        );
+    }
+
+    #[rstest]
+    fn bounds_of_zero_are_unbounded_and_an_absent_notional_filter_is_unavailable() {
+        let baseline = normalize(
+            &edited(|entry| {
+                filter_mut(entry, "PRICE_FILTER")["maxPrice"] = "0".into();
+                filter_mut(entry, "LOT_SIZE")["maxQty"] = "0.000".into();
+                filter_mut(entry, "MIN_NOTIONAL")["notional"] = "0".into();
+            }),
+            "BTCUSDT",
+        )
+        .unwrap();
+        assert_eq!(baseline.terms.maximum_price, FactValue::Unbounded);
+        assert_eq!(baseline.terms.maximum_quantity, FactValue::Unbounded);
+        assert_eq!(baseline.terms.minimum_notional, FactValue::Unbounded);
+
+        let without_notional = normalize(
+            &edited(|entry| {
+                entry["filters"]
+                    .as_array_mut()
+                    .unwrap()
+                    .retain(|filter| filter["filterType"] != "MIN_NOTIONAL");
+            }),
+            "BTCUSDT",
+        )
+        .unwrap();
+        assert_eq!(
+            without_notional.terms.minimum_notional,
+            FactValue::Unavailable
+        );
+    }
+
+    /// Each named refusal, reached by a real payload or one edit of it.
+    #[rstest]
+    #[case::not_json(b"exchangeInfo".to_vec(), "BTCUSDT", ExchangeInfoNormalizationErrorV2::NotExchangeInfo)]
+    #[case::no_symbols(b"{}".to_vec(), "BTCUSDT", ExchangeInfoNormalizationErrorV2::NotExchangeInfo)]
+    #[case::absent(USDM.to_vec(), "ETHUSDT", ExchangeInfoNormalizationErrorV2::SymbolAbsent)]
+    #[case::not_byte_equal(USDM.to_vec(), "btcusdt", ExchangeInfoNormalizationErrorV2::SymbolAbsent)]
+    #[case::quarterly(USDM.to_vec(), "BTCUSDT_260925", ExchangeInfoNormalizationErrorV2::ContractTypeUnsupported)]
+    #[case::tradifi(USDM.to_vec(), "XAUUSDT", ExchangeInfoNormalizationErrorV2::ContractTypeUnsupported)]
+    #[case::coinm_shape(COINM.to_vec(), "BTCUSD_260925", ExchangeInfoNormalizationErrorV2::DatasetMismatch)]
+    fn a_real_payload_refuses_by_name(
+        #[case] payload: Vec<u8>,
+        #[case] raw_symbol: &str,
+        #[case] refusal: ExchangeInfoNormalizationErrorV2,
+    ) {
+        assert_eq!(normalize(&payload, raw_symbol), Err(refusal));
+    }
+
+    #[rstest]
+    fn an_edited_payload_refuses_by_name() {
+        use ExchangeInfoNormalizationErrorV2::{
+            DatasetMismatch, FilterUnavailable, OnboardDateUnavailable, SymbolAmbiguous,
+        };
+
+        let mut duplicated: serde_json::Value = serde_json::from_slice(USDM).unwrap();
+        let first = duplicated["symbols"][0].clone();
+        duplicated["symbols"].as_array_mut().unwrap().push(first);
+        assert_eq!(
+            normalize(&serde_json::to_vec(&duplicated).unwrap(), "BTCUSDT"),
+            Err(SymbolAmbiguous)
+        );
+
+        let cases: [(&str, Vec<u8>, ExchangeInfoNormalizationErrorV2); 11] = [
+            (
+                "contractSize present",
+                edited(|entry| entry["contractSize"] = 1.into()),
+                DatasetMismatch,
+            ),
+            (
+                "onboardDate absent",
+                edited(|entry| {
+                    entry.as_object_mut().unwrap().remove("onboardDate");
+                }),
+                OnboardDateUnavailable,
+            ),
+            (
+                "onboardDate after the retrieval",
+                edited(|entry| entry["onboardDate"] = 1_800_000_000_000_i64.into()),
+                OnboardDateUnavailable,
+            ),
+            (
+                "PRICE_FILTER absent",
+                edited(|entry| {
+                    entry["filters"]
+                        .as_array_mut()
+                        .unwrap()
+                        .retain(|filter| filter["filterType"] != "PRICE_FILTER");
+                }),
+                FilterUnavailable,
+            ),
+            (
+                "LOT_SIZE twice",
+                edited(|entry| {
+                    let lot = filter_mut(entry, "LOT_SIZE").clone();
+                    entry["filters"].as_array_mut().unwrap().push(lot);
+                }),
+                FilterUnavailable,
+            ),
+            (
+                "tick in exponent form",
+                edited(|entry| filter_mut(entry, "PRICE_FILTER")["tickSize"] = "1e-1".into()),
+                FilterUnavailable,
+            ),
+            (
+                "negative tick",
+                edited(|entry| filter_mut(entry, "PRICE_FILTER")["tickSize"] = "-0.1".into()),
+                FilterUnavailable,
+            ),
+            (
+                "empty step",
+                edited(|entry| filter_mut(entry, "LOT_SIZE")["stepSize"] = "".into()),
+                FilterUnavailable,
+            ),
+            (
+                "zero step",
+                edited(|entry| filter_mut(entry, "LOT_SIZE")["stepSize"] = "0.000".into()),
+                FilterUnavailable,
+            ),
+            (
+                "tick with a bare point",
+                edited(|entry| filter_mut(entry, "PRICE_FILTER")["tickSize"] = "1.".into()),
+                FilterUnavailable,
+            ),
+            (
+                "status absent",
+                edited(|entry| {
+                    entry.as_object_mut().unwrap().remove("status");
+                }),
+                FilterUnavailable,
+            ),
+        ];
+
+        for (name, payload, refusal) in cases {
+            assert_eq!(normalize(&payload, "BTCUSDT"), Err(refusal), "{name}");
+        }
     }
 }

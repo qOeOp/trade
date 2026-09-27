@@ -42,6 +42,9 @@ use vibe_data::owner::{
     instrument_master_admission_v1::{
         InstrumentMasterAdmissionV1, instrument_master_admission_from_environment_v1,
     },
+    instrument_master_admission_v2::{
+        InstrumentMasterAdmissionV2, instrument_master_admission_from_environment_v2,
+    },
     market_semantics_admission_v1::{
         MarketSemanticsAdmissionV1, market_semantics_admission_from_environment_v1,
     },
@@ -384,6 +387,8 @@ async fn main() -> anyhow::Result<()> {
         bootstrap_market_data_strategy_input_bindings().await?;
     let market_data_instrument_master_admission =
         bootstrap_market_data_instrument_master_admission().await?;
+    let market_data_instrument_master_admission_v2 =
+        bootstrap_market_data_instrument_master_admission_v2().await?;
     let market_data_market_semantics_admission =
         bootstrap_market_data_market_semantics_admission().await?;
     #[cfg(feature = "sealed-develop-composer-acceptance")]
@@ -738,12 +743,15 @@ async fn main() -> anyhow::Result<()> {
         // Market Data answers for itself on the default feature set: these routes ship in the
         // deployed binary rather than behind an acceptance feature.
         .merge(market_data_pit::router(
-            market_data_pit_intake,
-            market_data_source_binding_admission,
-            market_data_universe_selection,
-            market_data_strategy_input_bindings,
-            market_data_instrument_master_admission,
-            market_data_market_semantics_admission,
+            market_data_pit::MarketDataAdmissions {
+                intake: market_data_pit_intake,
+                admission: market_data_source_binding_admission,
+                universe: market_data_universe_selection,
+                bindings: market_data_strategy_input_bindings,
+                instruments: market_data_instrument_master_admission,
+                instruments_v2: market_data_instrument_master_admission_v2,
+                semantics: market_data_market_semantics_admission,
+            },
             token_digest,
         ));
     #[cfg(feature = "sealed-develop-composer-acceptance")]
@@ -953,6 +961,17 @@ async fn bootstrap_market_data_instrument_master_admission()
     }
     Ok(Some(
         instrument_master_admission_from_environment_v1().await?,
+    ))
+}
+
+/// Composes the Market Data Instrument Master V2 baseline admission when its store is configured.
+async fn bootstrap_market_data_instrument_master_admission_v2()
+-> anyhow::Result<Option<Arc<dyn InstrumentMasterAdmissionV2>>> {
+    if env::var("MARKET_DATA_OWNER_DATABASE_URL").is_err() {
+        return Ok(None);
+    }
+    Ok(Some(
+        instrument_master_admission_from_environment_v2().await?,
     ))
 }
 
@@ -5088,18 +5107,23 @@ mod tests {
         );
         let app =
             bounded_feature_program::router(owner, token_digest).merge(market_data_pit::router(
-                bootstrap_market_data_pit_intake().await.unwrap(),
-                bootstrap_market_data_source_binding_admission()
-                    .await
-                    .unwrap(),
-                bootstrap_market_data_universe_selection().await.unwrap(),
-                bindings,
-                bootstrap_market_data_instrument_master_admission()
-                    .await
-                    .unwrap(),
-                bootstrap_market_data_market_semantics_admission()
-                    .await
-                    .unwrap(),
+                market_data_pit::MarketDataAdmissions {
+                    intake: bootstrap_market_data_pit_intake().await.unwrap(),
+                    admission: bootstrap_market_data_source_binding_admission()
+                        .await
+                        .unwrap(),
+                    universe: bootstrap_market_data_universe_selection().await.unwrap(),
+                    bindings,
+                    instruments: bootstrap_market_data_instrument_master_admission()
+                        .await
+                        .unwrap(),
+                    instruments_v2: bootstrap_market_data_instrument_master_admission_v2()
+                        .await
+                        .unwrap(),
+                    semantics: bootstrap_market_data_market_semantics_admission()
+                        .await
+                        .unwrap(),
+                },
                 token_digest,
             ));
 
@@ -5529,18 +5553,23 @@ mod tests {
         let bindings = composed_market_data_binding_admission(&test_database).await;
         let app =
             bounded_feature_program::router(owner, token_digest).merge(market_data_pit::router(
-                bootstrap_market_data_pit_intake().await.unwrap(),
-                bootstrap_market_data_source_binding_admission()
-                    .await
-                    .unwrap(),
-                bootstrap_market_data_universe_selection().await.unwrap(),
-                bindings,
-                bootstrap_market_data_instrument_master_admission()
-                    .await
-                    .unwrap(),
-                bootstrap_market_data_market_semantics_admission()
-                    .await
-                    .unwrap(),
+                market_data_pit::MarketDataAdmissions {
+                    intake: bootstrap_market_data_pit_intake().await.unwrap(),
+                    admission: bootstrap_market_data_source_binding_admission()
+                        .await
+                        .unwrap(),
+                    universe: bootstrap_market_data_universe_selection().await.unwrap(),
+                    bindings,
+                    instruments: bootstrap_market_data_instrument_master_admission()
+                        .await
+                        .unwrap(),
+                    instruments_v2: bootstrap_market_data_instrument_master_admission_v2()
+                        .await
+                        .unwrap(),
+                    semantics: bootstrap_market_data_market_semantics_admission()
+                        .await
+                        .unwrap(),
+                },
                 token_digest,
             ));
 

@@ -786,12 +786,15 @@ async fn issues_its_initial_pit_request() {
         Err(PitSnapshotSubmissionDecodeErrorV1::StatesOwnerField)
     );
     let market_data_routes = market_data_pit::router(
-        Some(intake.clone()),
-        None,
-        Some(universe.clone()),
-        None,
-        None,
-        None,
+        market_data_pit::MarketDataAdmissions {
+            intake: Some(intake.clone()),
+            admission: None,
+            universe: Some(universe.clone()),
+            bindings: None,
+            instruments: None,
+            instruments_v2: None,
+            semantics: None,
+        },
         token_digest,
     );
     let intakes_before = intakes(&market_data, correlation).await;
