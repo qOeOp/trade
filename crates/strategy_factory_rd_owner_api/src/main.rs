@@ -215,6 +215,8 @@ mod log_capture;
 mod market_data_pit;
 #[cfg(feature = "sealed-develop-composer-acceptance")]
 mod market_data_repair;
+#[cfg(all(test, feature = "sealed-develop-composer-acceptance"))]
+mod native_replay_scheduling_acceptance;
 mod research_initial_pit;
 #[cfg(test)]
 mod research_initial_pit_postgres_tests;

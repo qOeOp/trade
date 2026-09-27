@@ -110,3 +110,4 @@ artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atom
 postgres_tests::the_operation_routing_read_port_answers_every_routing_state_over_http	NONE	-	-	-	ABLATE 6d086bdb3 (alone on a fresh cluster: passed, 1 test, 0 skipped)
 dashboard_run_routing_acceptance::a_dashboard_run_starts_only_on_the_routing_the_writer_committed_and_reaches_the_owner	NONE	-	-	-	ABLATE 0b1ee3458 (alone on a fresh local cluster: passed, 1 test, 0 skipped)
 forged_v3_admission_fails_without_replay_transition_or_outbox_write	NONE	-	-	-	PENDING predicted from code: a fresh request identity under a forged admission locator reads and writes nothing another entry sees
+native_replay_scheduling_acceptance::tests::the_composed_scheduling_resolver_holds_its_reads_only_while_composed	NONE	-	-	-	ABLATE 22deb583b + this change (alone on a fresh local cluster: passed, 1 test, 0 skipped)
