@@ -3273,7 +3273,8 @@ mod postgres_acceptance_tests {
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + 'a>> {
         Box::pin(async move {
             let rd_database_url = database.database_url(CanonicalOwnerTestRoleV1::RdOwner);
-            let rd_pool = sqlx::PgPool::connect(rd_database_url)
+            let rd_pool = sqlx::postgres::PgPoolOptions::new()
+                .connect_url(rd_database_url, PostgresTls::Disabled)
                 .await
                 .expect("R&D Owner pool");
             Box::pin(
