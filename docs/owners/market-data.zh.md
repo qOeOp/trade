@@ -81,9 +81,14 @@ ACL 拒绝。它不证明供应商真实性，不证明生产装配，也不证�
   走原生 Replay 调度读路径，但读取之前不做准入，读取之后不做重新校验。它以一个测试用的最小权限主体连接，一次性数据库只授予
   它 `NATIVE_REPLAY_SCHEDULING_ACCEPTANCE_GRANTS_V1`；它的 evidence 在已准入读取携带 receipt 的位置携带标记
   `SEALED_ACCEPTANCE_NO_STORE_ADMISSION_V1`，只有携带该读口的构建才接受这个标记。Admission 本身，包括它租用的主体与那道门上的
-  授权，仍然是 `B3`。今天没有任何生产角色持有那道门：部署时的 ACL 切换把 `market_data_private` 的 `USAGE` 从 owner 以外的
-  所有角色收回，而已准入读口的测量下限所列的对象也还没有授予任何角色。每个读口只在测量覆盖它所服务读取的下限时才打开，
-  原生 Replay 调度读口的 PIT evaluation 读取也在其中；每次读取在它所依据的每次准入上都再核一遍自己的下限。
+  授权，仍然是 `B3`。今天没有任何生产角色持有那道门：部署时的 ACL 切换把 `market_data_private` 与
+  `market_data_admitted_read` 上的全部权限从 owner 以外的所有角色收回，而已准入读口的测量下限所列的对象也还没有授予任何角色。
+  每一次已准入读取，以及测量对 Owner 迁移账本的读取，都只经由 `market_data_admitted_read` 到达 Owner。那里的每个函数要么是
+  同名私有函数的 `SECURITY DEFINER` 直通包装，参数与结果都相同，要么是四个固定的 Owner 行读取之一；每个都是 `STABLE`、
+  固定 `search_path`，迁移不把它授予任何角色。因此 Store Admission 租用的主体需要该 schema 的 `USAGE` 与它的读取所调用
+  包装的 `EXECUTE`，在 `market_data_private` 上什么都不需要；时区托管检查要求后者除 owner 外没有任何被授权者。每个读口只在
+  测量覆盖它所服务读取的下限时才打开，原生 Replay 调度读口的 PIT evaluation 读取也在其中；每次读取在它所依据的每次准入上
+  都再核一遍自己的下限。
   读取一份 BAR schedule 有**两套托管策略**，每种构建一套，而本文档此前一套都没描述过。测试构建自行开启
   `REPEATABLE READ READ ONLY` 事务并自验该 schedule 的历史；生产构建的快照由已准入读口的 evidence 承担，并在返回前
   重新校验。两者跑的是同一个 `verify_bar_schedule_storage_evidence`。差别是一致性保证从哪里来，不是强弱：测试那条

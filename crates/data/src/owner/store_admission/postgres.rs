@@ -7,7 +7,7 @@ use std::fmt::Debug;
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use sqlx::{AssertSqlSafe, Connection, Row, postgres::PgConnectOptions};
+use sqlx::{Connection, Row, postgres::PgConnectOptions};
 use thiserror::Error;
 use url::Url;
 use vibe_postgres_connect::{PostgresTls, StatedConnectOptions, connect_with, with_tls};
@@ -62,6 +62,9 @@ pub(super) struct MeasurementFloor {
 pub(super) const SAMPLE_PROJECTION_FLOOR_V2: MeasurementFloor = MeasurementFloor {
     name: "sample_projection_v2",
     functions: &[
+        "market_data_admitted_read.resolve_sample_receipt_v1(bytea)",
+        "market_data_admitted_read.resolve_strategy_input_sample_projection_v2(bytea)",
+        "market_data_admitted_read.resolve_timeframe_projection_receipt_v1(bytea)",
         "market_data_private.resolve_strategy_input_sample_projection_v2(bytea)",
         "market_data_private.resolve_timeframe_projection_receipt_v1(bytea)",
         "market_data_private.resolve_sample_receipt_v1(bytea)",
@@ -79,6 +82,12 @@ pub(super) const SAMPLE_PROJECTION_FLOOR_V2: MeasurementFloor = MeasurementFloor
 pub(super) const SAMPLE_PROJECTION_FLOOR_V3: MeasurementFloor = MeasurementFloor {
     name: "sample_projection_v3",
     functions: &[
+        "market_data_admitted_read.resolve_bar_schedule_history_v1(text)",
+        "market_data_admitted_read.resolve_bar_schedule_v1(bytea)",
+        "market_data_admitted_read.resolve_sample_receipt_v1(bytea)",
+        "market_data_admitted_read.resolve_strategy_input_sample_projection_schedule_dependencies_v3(bytea)",
+        "market_data_admitted_read.resolve_strategy_input_sample_projection_v3(bytea)",
+        "market_data_admitted_read.resolve_timeframe_projection_receipt_v1(bytea)",
         "market_data_private.resolve_strategy_input_sample_projection_v3(bytea)",
         "market_data_private.resolve_strategy_input_sample_projection_schedule_dependencies_v3(bytea)",
         "market_data_private.resolve_timeframe_projection_receipt_v1(bytea)",
@@ -106,6 +115,9 @@ pub(super) const SAMPLE_PROJECTION_FLOOR_V3: MeasurementFloor = MeasurementFloor
 pub(super) const BAR_SCHEDULE_FLOOR_V1: MeasurementFloor = MeasurementFloor {
     name: "bar_schedule_v1",
     functions: &[
+        "market_data_admitted_read.resolve_bar_schedule_candidates_v1(text)",
+        "market_data_admitted_read.resolve_bar_schedule_history_v1(text)",
+        "market_data_admitted_read.resolve_bar_schedule_v1(bytea)",
         "market_data_private.resolve_bar_schedule_v1(bytea)",
         "market_data_private.resolve_bar_schedule_candidates_v1(text)",
         "market_data_private.resolve_bar_schedule_history_v1(text)",
@@ -125,6 +137,8 @@ pub(super) const BAR_SCHEDULE_FLOOR_V1: MeasurementFloor = MeasurementFloor {
 pub(super) const NATIVE_REPLAY_QUOTE_CUT_FLOOR_V2: MeasurementFloor = MeasurementFloor {
     name: "native_replay_quote_cut_v2",
     functions: &[
+        "market_data_admitted_read.resolve_native_replay_next_frame_v2(bytea,bigint,bigint)",
+        "market_data_admitted_read.resolve_native_replay_quote_cut_census_v2(bytea,bigint,bigint)",
         "market_data_private.resolve_native_replay_quote_cut_census_v2(bytea,bigint,bigint)",
         "market_data_private.resolve_native_replay_next_frame_v2(bytea,bigint,bigint)",
     ],
@@ -138,6 +152,11 @@ pub(super) const NATIVE_REPLAY_QUOTE_CUT_FLOOR_V2: MeasurementFloor = Measuremen
 pub(super) const SHARED_TIME_FLOOR_V1: MeasurementFloor = MeasurementFloor {
     name: "shared_time_v1",
     functions: &[
+        "market_data_admitted_read.resolve_clock_custody_state_v1()",
+        "market_data_admitted_read.resolve_clock_handoff_v1(bytea)",
+        "market_data_admitted_read.resolve_clock_membership_custody_v1()",
+        "market_data_admitted_read.resolve_epoch_successor_proof_v1(bytea)",
+        "market_data_admitted_read.resolve_owner_history_census_custody_v1()",
         "market_data_private.resolve_owner_history_census_custody_v1()",
         "market_data_private.resolve_clock_custody_state_v1()",
         "market_data_private.resolve_clock_membership_custody_v1()",
@@ -167,6 +186,13 @@ pub(super) const SHARED_TIME_FLOOR_V1: MeasurementFloor = MeasurementFloor {
 pub(super) const SOURCE_BINDING_FLOOR_V1: MeasurementFloor = MeasurementFloor {
     name: "source_binding_v1",
     functions: &[
+        "market_data_admitted_read.resolve_clock_custody_state_v1()",
+        "market_data_admitted_read.resolve_clock_handoffs_v1()",
+        "market_data_admitted_read.resolve_owner_history_census_custody_v1()",
+        "market_data_admitted_read.resolve_source_binding_lineage_root_v1(bytea)",
+        "market_data_admitted_read.resolve_source_binding_v1(bytea)",
+        "market_data_admitted_read.resolve_source_lineage_custody_v1(bytea)",
+        "market_data_admitted_read.resolve_source_lineage_members_v1(bytea)",
         "market_data_private.resolve_clock_custody_state_v1()",
         "market_data_private.resolve_owner_history_census_custody_v1()",
         "market_data_private.resolve_source_binding_v1(bytea)",
@@ -196,6 +222,17 @@ pub(super) const SOURCE_BINDING_FLOOR_V1: MeasurementFloor = MeasurementFloor {
 pub(super) const PIT_TERMINAL_FLOOR_V1: MeasurementFloor = MeasurementFloor {
     name: "pit_terminal_v1",
     functions: &[
+        "market_data_admitted_read.resolve_clock_custody_state_v1()",
+        "market_data_admitted_read.resolve_clock_handoffs_v1()",
+        "market_data_admitted_read.resolve_owner_history_census_custody_v1()",
+        "market_data_admitted_read.resolve_pit_lineage_custody_v1(bytea)",
+        "market_data_admitted_read.resolve_pit_lineage_members_v1(bytea)",
+        "market_data_admitted_read.resolve_pit_snapshot_references_v1(bytea)",
+        "market_data_admitted_read.resolve_pit_snapshot_v1(bytea)",
+        "market_data_admitted_read.resolve_source_binding_lineage_root_v1(bytea)",
+        "market_data_admitted_read.resolve_source_binding_v1(bytea)",
+        "market_data_admitted_read.resolve_source_lineage_custody_v1(bytea)",
+        "market_data_admitted_read.resolve_source_lineage_members_v1(bytea)",
         "market_data_private.resolve_clock_custody_state_v1()",
         "market_data_private.resolve_owner_history_census_custody_v1()",
         "market_data_private.resolve_pit_lineage_custody_v1(bytea)",
@@ -229,6 +266,18 @@ pub(super) const PIT_TERMINAL_FLOOR_V1: MeasurementFloor = MeasurementFloor {
 pub(super) const PIT_EVALUATION_FLOOR_V1: MeasurementFloor = MeasurementFloor {
     name: "pit_evaluation_v1",
     functions: &[
+        "market_data_admitted_read.resolve_clock_custody_state_v1()",
+        "market_data_admitted_read.resolve_clock_handoffs_v1()",
+        "market_data_admitted_read.resolve_owner_history_census_custody_v1()",
+        "market_data_admitted_read.resolve_pit_lineage_custody_v1(bytea)",
+        "market_data_admitted_read.resolve_pit_lineage_members_v1(bytea)",
+        "market_data_admitted_read.resolve_pit_observation_batch_v1(bytea)",
+        "market_data_admitted_read.resolve_pit_observation_rows_v1(bytea)",
+        "market_data_admitted_read.resolve_pit_snapshot_references_v1(bytea)",
+        "market_data_admitted_read.resolve_pit_snapshot_v1(bytea)",
+        "market_data_admitted_read.resolve_source_binding_v1(bytea)",
+        "market_data_admitted_read.resolve_source_lineage_custody_v1(bytea)",
+        "market_data_admitted_read.resolve_source_lineage_members_v1(bytea)",
         "market_data_private.resolve_clock_custody_state_v1()",
         "market_data_private.resolve_owner_history_census_custody_v1()",
         "market_data_private.resolve_pit_lineage_custody_v1(bytea)",
@@ -273,6 +322,13 @@ pub(super) const MEASUREMENT_FLOORS: &[MeasurementFloor] = &[
     PIT_TERMINAL_FLOOR_V1,
     PIT_EVALUATION_FLOOR_V1,
 ];
+
+/// The schema every admitted read reaches the Owner through, and so the one a measurement names.
+pub(super) const ADMITTED_READ_SCHEMA: &str = "market_data_admitted_read";
+
+/// The Owner's migration ledger, the one relation a measurement reads rows of, through
+/// `market_data_admitted_read.resolve_owner_migrations_v1()`.
+pub(super) const OWNER_MIGRATION_RELATION: &str = "market_data_private.owner_migrations_v1";
 
 /// Exact catalog surfaces directly measured through the credential lease.
 ///
@@ -345,8 +401,8 @@ impl PostgresMeasurementSpec {
                 .function_signatures
                 .iter()
                 .any(|signature| !canonical_function_signature(signature))
-            || !canonical_identifier(&spec.schema_name)
-            || quoted_qualified_name(&spec.migration_relation).is_none()
+            || spec.schema_name != ADMITTED_READ_SCHEMA
+            || spec.migration_relation != OWNER_MIGRATION_RELATION
             || spec
                 .acl_relations
                 .iter()
@@ -472,7 +528,7 @@ pub(crate) async fn read_market_data_source_binding_snapshot(
         .await
         .map_err(|_| PostgresMeasurementError::TransactionUnavailable)?;
     let custody: bool = sqlx::query_scalar(
-            "SELECT market_data_private.resolve_owner_history_census_custody_v1() AND market_data_private.resolve_source_lineage_custody_v1((SELECT lineage_root FROM market_data_private.source_binding_facts_v1 WHERE binding_id=$1)) AND EXISTS(SELECT 1 FROM market_data_private.resolve_clock_custody_state_v1())",
+            "SELECT market_data_admitted_read.resolve_owner_history_census_custody_v1() AND market_data_admitted_read.resolve_source_lineage_custody_v1((SELECT lineage_root FROM market_data_admitted_read.resolve_source_binding_lineage_root_v1($1))) AND EXISTS(SELECT 1 FROM market_data_admitted_read.resolve_clock_custody_state_v1())",
         )
         .bind(binding_identity.as_slice())
         .fetch_one(&mut *transaction)
@@ -482,7 +538,7 @@ pub(crate) async fn read_market_data_source_binding_snapshot(
         return Err(PostgresMeasurementError::SnapshotUnavailable);
     }
     let member_identities: Vec<Vec<u8>> = sqlx::query_scalar(
-            "SELECT member_identity FROM market_data_private.resolve_source_lineage_members_v1((SELECT lineage_root FROM market_data_private.source_binding_facts_v1 WHERE binding_id=$1))",
+            "SELECT member_identity FROM market_data_admitted_read.resolve_source_lineage_members_v1((SELECT lineage_root FROM market_data_admitted_read.resolve_source_binding_lineage_root_v1($1)))",
         )
         .bind(binding_identity.as_slice())
         .fetch_all(&mut *transaction)
@@ -494,7 +550,7 @@ pub(crate) async fn read_market_data_source_binding_snapshot(
     let mut lineage = Vec::with_capacity(member_identities.len());
     for identity in member_identities {
         let evidence: serde_json::Value = sqlx::query_scalar(
-            "SELECT to_jsonb(e) FROM market_data_private.resolve_source_binding_v1($1) AS e",
+            "SELECT to_jsonb(e) FROM market_data_admitted_read.resolve_source_binding_v1($1) AS e",
         )
         .bind(identity)
         .fetch_one(&mut *transaction)
@@ -506,7 +562,7 @@ pub(crate) async fn read_market_data_source_binding_snapshot(
         );
     }
     let clocks: Vec<serde_json::Value> = sqlx::query_scalar(
-            "SELECT to_jsonb(h) FROM market_data_private.clock_handoffs_v1 AS h ORDER BY h.head_identity LIMIT 10001",
+            "SELECT handoff FROM market_data_admitted_read.resolve_clock_handoffs_v1() ORDER BY head_identity",
         )
         .fetch_all(&mut *transaction)
         .await
@@ -563,7 +619,7 @@ pub(crate) async fn read_shared_time_evidence_snapshot_v1(
         .await
         .map_err(|_| PostgresMeasurementError::TransactionUnavailable)?;
     let custody: bool = sqlx::query_scalar(
-        "SELECT market_data_private.resolve_owner_history_census_custody_v1() AND EXISTS(SELECT 1 FROM market_data_private.resolve_clock_custody_state_v1())",
+        "SELECT market_data_admitted_read.resolve_owner_history_census_custody_v1() AND EXISTS(SELECT 1 FROM market_data_admitted_read.resolve_clock_custody_state_v1())",
     )
     .fetch_one(&mut *transaction)
     .await
@@ -572,7 +628,7 @@ pub(crate) async fn read_shared_time_evidence_snapshot_v1(
         return Err(PostgresMeasurementError::SnapshotUnavailable);
     }
     let rows = sqlx::query(
-        "SELECT to_jsonb(m) AS membership_row,to_jsonb(h) AS handoff_row,to_jsonb(p) AS epoch_proof_row FROM market_data_private.resolve_clock_membership_custody_v1() AS m LEFT JOIN LATERAL market_data_private.resolve_clock_handoff_v1(m.head_identity) AS h ON m.head_identity IS NOT NULL LEFT JOIN LATERAL market_data_private.resolve_epoch_successor_proof_v1(h.head_digest) AS p ON h.head_digest IS NOT NULL ORDER BY m.ordinal NULLS FIRST LIMIT 10001",
+        "SELECT to_jsonb(m) AS membership_row,to_jsonb(h) AS handoff_row,to_jsonb(p) AS epoch_proof_row FROM market_data_admitted_read.resolve_clock_membership_custody_v1() AS m LEFT JOIN LATERAL market_data_admitted_read.resolve_clock_handoff_v1(m.head_identity) AS h ON m.head_identity IS NOT NULL LEFT JOIN LATERAL market_data_admitted_read.resolve_epoch_successor_proof_v1(h.head_digest) AS p ON h.head_digest IS NOT NULL ORDER BY m.ordinal NULLS FIRST LIMIT 10001",
     )
     .fetch_all(&mut *transaction)
     .await
@@ -662,7 +718,7 @@ pub(crate) async fn read_strategy_input_sample_projection_snapshot_v2(
         .map_err(|_| PostgresMeasurementError::TransactionUnavailable)?;
 
     let row = sqlx::query(
-        "SELECT p.*,to_jsonb(p) AS evidence FROM market_data_private.resolve_strategy_input_sample_projection_v2($1) AS p",
+        "SELECT p.*,to_jsonb(p) AS evidence FROM market_data_admitted_read.resolve_strategy_input_sample_projection_v2($1) AS p",
     )
     .bind(receipt_digest.as_slice())
     .fetch_optional(&mut *transaction)
@@ -705,7 +761,7 @@ pub(crate) async fn read_strategy_input_sample_projection_snapshot_v2(
         let sample_receipt_digest = &receipt_bytes
             [entry + SAMPLE_RECEIPT_DIGEST_OFFSET..entry + SAMPLE_RECEIPT_DIGEST_OFFSET + 32];
         let timeframe: serde_json::Value = sqlx::query_scalar(
-            "SELECT to_jsonb(t) FROM market_data_private.resolve_timeframe_projection_receipt_v1($1) AS t",
+            "SELECT to_jsonb(t) FROM market_data_admitted_read.resolve_timeframe_projection_receipt_v1($1) AS t",
         )
         .bind(timeframe_digest)
         .fetch_optional(&mut *transaction)
@@ -713,7 +769,7 @@ pub(crate) async fn read_strategy_input_sample_projection_snapshot_v2(
         .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?
         .ok_or(PostgresMeasurementError::SnapshotUnavailable)?;
         let sample: serde_json::Value = sqlx::query_scalar(
-            "SELECT to_jsonb(s) FROM market_data_private.resolve_sample_receipt_v1($1) AS s",
+            "SELECT to_jsonb(s) FROM market_data_admitted_read.resolve_sample_receipt_v1($1) AS s",
         )
         .bind(sample_receipt_digest)
         .fetch_optional(&mut *transaction)
@@ -778,7 +834,7 @@ pub(crate) async fn read_strategy_input_sample_projection_snapshot_v3(
         .map_err(|_| PostgresMeasurementError::TransactionUnavailable)?;
 
     let row = sqlx::query(
-        "SELECT p.*,to_jsonb(p) AS evidence FROM market_data_private.resolve_strategy_input_sample_projection_v3($1) AS p",
+        "SELECT p.*,to_jsonb(p) AS evidence FROM market_data_admitted_read.resolve_strategy_input_sample_projection_v3($1) AS p",
     )
     .bind(receipt_digest.as_slice())
     .fetch_optional(&mut *transaction)
@@ -811,7 +867,7 @@ pub(crate) async fn read_strategy_input_sample_projection_snapshot_v3(
         return Err(PostgresMeasurementError::SnapshotUnavailable);
     }
     let dependencies = sqlx::query_scalar::<_, serde_json::Value>(
-        "SELECT to_jsonb(d) FROM market_data_private.resolve_strategy_input_sample_projection_schedule_dependencies_v3($1) AS d",
+        "SELECT to_jsonb(d) FROM market_data_admitted_read.resolve_strategy_input_sample_projection_schedule_dependencies_v3($1) AS d",
     )
     .bind(receipt_digest.as_slice())
     .fetch_all(&mut *transaction)
@@ -849,7 +905,7 @@ pub(crate) async fn read_strategy_input_sample_projection_snapshot_v3(
         let sample_receipt_digest = &receipt_bytes
             [entry + SAMPLE_RECEIPT_DIGEST_OFFSET..entry + SAMPLE_RECEIPT_DIGEST_OFFSET + 32];
         let timeframe = sqlx::query_scalar::<_, serde_json::Value>(
-            "SELECT to_jsonb(t) FROM market_data_private.resolve_timeframe_projection_receipt_v1($1) AS t",
+            "SELECT to_jsonb(t) FROM market_data_admitted_read.resolve_timeframe_projection_receipt_v1($1) AS t",
         )
         .bind(timeframe_digest)
         .fetch_optional(&mut *transaction)
@@ -857,7 +913,7 @@ pub(crate) async fn read_strategy_input_sample_projection_snapshot_v3(
         .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?
         .ok_or(PostgresMeasurementError::SnapshotUnavailable)?;
         let sample = sqlx::query_scalar::<_, serde_json::Value>(
-            "SELECT to_jsonb(s) FROM market_data_private.resolve_sample_receipt_v1($1) AS s",
+            "SELECT to_jsonb(s) FROM market_data_admitted_read.resolve_sample_receipt_v1($1) AS s",
         )
         .bind(sample_receipt_digest)
         .fetch_optional(&mut *transaction)
@@ -865,7 +921,7 @@ pub(crate) async fn read_strategy_input_sample_projection_snapshot_v3(
         .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?
         .ok_or(PostgresMeasurementError::SnapshotUnavailable)?;
         let schedule = sqlx::query_scalar::<_, serde_json::Value>(
-            "SELECT to_jsonb(r) FROM market_data_private.resolve_bar_schedule_v1($1) AS r",
+            "SELECT to_jsonb(r) FROM market_data_admitted_read.resolve_bar_schedule_v1($1) AS r",
         )
         .bind(schedule_identity.as_slice())
         .fetch_optional(&mut *transaction)
@@ -874,7 +930,7 @@ pub(crate) async fn read_strategy_input_sample_projection_snapshot_v3(
         .ok_or(PostgresMeasurementError::SnapshotUnavailable)?;
         let canonical_instrument = raw_bar_schedule_canonical_instrument(&schedule)?;
         let history = sqlx::query_scalar::<_, serde_json::Value>(
-            "SELECT to_jsonb(h) FROM market_data_private.resolve_bar_schedule_history_v1($1) AS h",
+            "SELECT to_jsonb(h) FROM market_data_admitted_read.resolve_bar_schedule_history_v1($1) AS h",
         )
         .bind(canonical_instrument)
         .fetch_all(&mut *transaction)
@@ -991,7 +1047,7 @@ pub(super) async fn read_bar_schedule_snapshot_v1(
         .map_err(|_| PostgresMeasurementError::TransactionUnavailable)?;
 
     let Some(readback_json) = sqlx::query_scalar::<_, serde_json::Value>(
-        "SELECT to_jsonb(r) FROM market_data_private.resolve_bar_schedule_v1($1) AS r",
+        "SELECT to_jsonb(r) FROM market_data_admitted_read.resolve_bar_schedule_v1($1) AS r",
     )
     .bind(readback_identity.as_slice())
     .fetch_optional(&mut *transaction)
@@ -1011,7 +1067,7 @@ pub(super) async fn read_bar_schedule_snapshot_v1(
         return Err(PostgresMeasurementError::SnapshotUnavailable);
     }
     let history_json = sqlx::query_scalar::<_, serde_json::Value>(
-        "SELECT to_jsonb(h) FROM market_data_private.resolve_bar_schedule_history_v1($1) AS h",
+        "SELECT to_jsonb(h) FROM market_data_admitted_read.resolve_bar_schedule_history_v1($1) AS h",
     )
     .bind(canonical_instrument)
     .fetch_all(&mut *transaction)
@@ -1072,14 +1128,14 @@ pub(super) async fn read_bar_schedule_candidate_snapshots_v1(
         .await
         .map_err(|_| PostgresMeasurementError::TransactionUnavailable)?;
     let candidates = sqlx::query_scalar::<_, serde_json::Value>(
-        "SELECT to_jsonb(r) FROM market_data_private.resolve_bar_schedule_candidates_v1($1) AS r",
+        "SELECT to_jsonb(r) FROM market_data_admitted_read.resolve_bar_schedule_candidates_v1($1) AS r",
     )
     .bind(canonical_instrument)
     .fetch_all(&mut *transaction)
     .await
     .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
     let history = sqlx::query_scalar::<_, serde_json::Value>(
-        "SELECT to_jsonb(h) FROM market_data_private.resolve_bar_schedule_history_v1($1) AS h",
+        "SELECT to_jsonb(h) FROM market_data_admitted_read.resolve_bar_schedule_history_v1($1) AS h",
     )
     .bind(canonical_instrument)
     .fetch_all(&mut *transaction)
@@ -1178,7 +1234,7 @@ pub(super) async fn read_native_replay_quote_cut_census_snapshot_v2(
         .await
         .map_err(|_| PostgresMeasurementError::TransactionUnavailable)?;
     let next_frame: Option<i64> = sqlx::query_scalar(
-        "SELECT event_effective_ns FROM market_data_private.resolve_native_replay_next_frame_v2($1,$2,$3)",
+        "SELECT event_effective_ns FROM market_data_admitted_read.resolve_native_replay_next_frame_v2($1,$2,$3)",
     )
     .bind(scope_digest.as_slice())
     .bind(frame_time)
@@ -1198,7 +1254,7 @@ pub(super) async fn read_native_replay_quote_cut_census_snapshot_v2(
     let bound = i64::try_from(bound_ns_exclusive)
         .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
     let rows = sqlx::query_scalar::<_, serde_json::Value>(
-        "SELECT to_jsonb(r) FROM market_data_private.resolve_native_replay_quote_cut_census_v2($1,$2,$3) AS r",
+        "SELECT to_jsonb(r) FROM market_data_admitted_read.resolve_native_replay_quote_cut_census_v2($1,$2,$3) AS r",
     )
     .bind(scope_digest.as_slice())
     .bind(frame_time)
@@ -1285,7 +1341,7 @@ pub(crate) async fn read_market_data_pit_terminal_snapshot(
         .map_err(|_| PostgresMeasurementError::TransactionUnavailable)?;
 
     let raw_source_identity: serde_json::Value = sqlx::query_scalar(
-        "SELECT aggregate_json->'fact'->'source_binding_identity' FROM market_data_private.pit_snapshot_facts_v1 WHERE snapshot_identity=$1",
+        "SELECT source_binding_identity FROM market_data_admitted_read.resolve_pit_snapshot_references_v1($1)",
     )
     .bind(snapshot_identity.as_slice())
     .fetch_one(&mut *transaction)
@@ -1293,14 +1349,14 @@ pub(crate) async fn read_market_data_pit_terminal_snapshot(
     .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
     let source_identity = raw_json_digest(&raw_source_identity)?;
     let source_lineage_root: Vec<u8> = sqlx::query_scalar(
-        "SELECT lineage_root FROM market_data_private.source_binding_facts_v1 WHERE binding_id=$1",
+        "SELECT lineage_root FROM market_data_admitted_read.resolve_source_binding_lineage_root_v1($1)",
     )
     .bind(source_identity.as_slice())
     .fetch_one(&mut *transaction)
     .await
     .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
     let custody: bool = sqlx::query_scalar(
-        "SELECT market_data_private.resolve_owner_history_census_custody_v1() AND market_data_private.resolve_pit_lineage_custody_v1((SELECT lineage_root FROM market_data_private.pit_snapshot_facts_v1 WHERE snapshot_identity=$1)) AND market_data_private.resolve_source_lineage_custody_v1($2) AND EXISTS(SELECT 1 FROM market_data_private.resolve_clock_custody_state_v1())",
+        "SELECT market_data_admitted_read.resolve_owner_history_census_custody_v1() AND market_data_admitted_read.resolve_pit_lineage_custody_v1((SELECT lineage_root FROM market_data_admitted_read.resolve_pit_snapshot_references_v1($1))) AND market_data_admitted_read.resolve_source_lineage_custody_v1($2) AND EXISTS(SELECT 1 FROM market_data_admitted_read.resolve_clock_custody_state_v1())",
     )
     .bind(snapshot_identity.as_slice())
     .bind(&source_lineage_root)
@@ -1312,14 +1368,14 @@ pub(crate) async fn read_market_data_pit_terminal_snapshot(
     }
 
     let pit_member_identities: Vec<Vec<u8>> = sqlx::query_scalar(
-        "SELECT member_identity FROM market_data_private.resolve_pit_lineage_members_v1((SELECT lineage_root FROM market_data_private.pit_snapshot_facts_v1 WHERE snapshot_identity=$1))",
+        "SELECT member_identity FROM market_data_admitted_read.resolve_pit_lineage_members_v1((SELECT lineage_root FROM market_data_admitted_read.resolve_pit_snapshot_references_v1($1)))",
     )
     .bind(snapshot_identity.as_slice())
     .fetch_all(&mut *transaction)
     .await
     .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
     let source_member_identities: Vec<Vec<u8>> = sqlx::query_scalar(
-        "SELECT member_identity FROM market_data_private.resolve_source_lineage_members_v1($1)",
+        "SELECT member_identity FROM market_data_admitted_read.resolve_source_lineage_members_v1($1)",
     )
     .bind(&source_lineage_root)
     .fetch_all(&mut *transaction)
@@ -1337,7 +1393,7 @@ pub(crate) async fn read_market_data_pit_terminal_snapshot(
     let mut pit_lineage_rows = Vec::with_capacity(pit_member_identities.len());
     for identity in pit_member_identities {
         let evidence: serde_json::Value = sqlx::query_scalar(
-            "SELECT to_jsonb(e) FROM market_data_private.resolve_pit_snapshot_v1($1) AS e",
+            "SELECT to_jsonb(e) FROM market_data_admitted_read.resolve_pit_snapshot_v1($1) AS e",
         )
         .bind(identity)
         .fetch_one(&mut *transaction)
@@ -1351,7 +1407,7 @@ pub(crate) async fn read_market_data_pit_terminal_snapshot(
     let mut source_lineage_rows = Vec::with_capacity(source_member_identities.len());
     for identity in source_member_identities {
         let evidence: serde_json::Value = sqlx::query_scalar(
-            "SELECT to_jsonb(e) FROM market_data_private.resolve_source_binding_v1($1) AS e",
+            "SELECT to_jsonb(e) FROM market_data_admitted_read.resolve_source_binding_v1($1) AS e",
         )
         .bind(identity)
         .fetch_one(&mut *transaction)
@@ -1363,7 +1419,7 @@ pub(crate) async fn read_market_data_pit_terminal_snapshot(
         );
     }
     let clocks: Vec<serde_json::Value> = sqlx::query_scalar(
-        "SELECT to_jsonb(h) FROM market_data_private.clock_handoffs_v1 AS h ORDER BY h.head_identity LIMIT 10001",
+        "SELECT handoff FROM market_data_admitted_read.resolve_clock_handoffs_v1() ORDER BY head_identity",
     )
     .fetch_all(&mut *transaction)
     .await
@@ -1428,7 +1484,7 @@ pub(crate) async fn read_market_data_pit_evaluation_snapshot(
         .map_err(|_| PostgresMeasurementError::TransactionUnavailable)?;
 
     let header = sqlx::query(
-        "SELECT source_binding_identity,source_binding_lineage_root,source_binding_lineage_version,batch_digest,batch_bytes,row_count FROM market_data_private.resolve_pit_observation_batch_v1($1)",
+        "SELECT source_binding_identity,source_binding_lineage_root,source_binding_lineage_version,batch_digest,batch_bytes,row_count FROM market_data_admitted_read.resolve_pit_observation_batch_v1($1)",
     )
     .bind(snapshot_identity.as_slice())
     .fetch_one(&mut *transaction)
@@ -1473,7 +1529,7 @@ pub(crate) async fn read_market_data_pit_evaluation_snapshot(
     }
 
     let custody: bool = sqlx::query_scalar(
-        "SELECT market_data_private.resolve_owner_history_census_custody_v1() AND market_data_private.resolve_pit_lineage_custody_v1((SELECT lineage_root FROM market_data_private.pit_snapshot_facts_v1 WHERE snapshot_identity=$1)) AND market_data_private.resolve_source_lineage_custody_v1($2) AND EXISTS(SELECT 1 FROM market_data_private.resolve_clock_custody_state_v1())",
+        "SELECT market_data_admitted_read.resolve_owner_history_census_custody_v1() AND market_data_admitted_read.resolve_pit_lineage_custody_v1((SELECT lineage_root FROM market_data_admitted_read.resolve_pit_snapshot_references_v1($1))) AND market_data_admitted_read.resolve_source_lineage_custody_v1($2) AND EXISTS(SELECT 1 FROM market_data_admitted_read.resolve_clock_custody_state_v1())",
     )
     .bind(snapshot_identity.as_slice())
     .bind(&source_lineage_root)
@@ -1485,14 +1541,14 @@ pub(crate) async fn read_market_data_pit_evaluation_snapshot(
     }
 
     let pit_member_identities: Vec<Vec<u8>> = sqlx::query_scalar(
-        "SELECT member_identity FROM market_data_private.resolve_pit_lineage_members_v1((SELECT lineage_root FROM market_data_private.pit_snapshot_facts_v1 WHERE snapshot_identity=$1))",
+        "SELECT member_identity FROM market_data_admitted_read.resolve_pit_lineage_members_v1((SELECT lineage_root FROM market_data_admitted_read.resolve_pit_snapshot_references_v1($1)))",
     )
     .bind(snapshot_identity.as_slice())
     .fetch_all(&mut *transaction)
     .await
     .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
     let source_member_identities: Vec<Vec<u8>> = sqlx::query_scalar(
-        "SELECT member_identity FROM market_data_private.resolve_source_lineage_members_v1($1)",
+        "SELECT member_identity FROM market_data_admitted_read.resolve_source_lineage_members_v1($1)",
     )
     .bind(&source_lineage_root)
     .fetch_all(&mut *transaction)
@@ -1510,7 +1566,7 @@ pub(crate) async fn read_market_data_pit_evaluation_snapshot(
     let mut pit_lineage_rows = Vec::with_capacity(pit_member_identities.len());
     for identity in pit_member_identities {
         let evidence: serde_json::Value = sqlx::query_scalar(
-            "SELECT to_jsonb(e) FROM market_data_private.resolve_pit_snapshot_v1($1) AS e",
+            "SELECT to_jsonb(e) FROM market_data_admitted_read.resolve_pit_snapshot_v1($1) AS e",
         )
         .bind(identity)
         .fetch_one(&mut *transaction)
@@ -1524,7 +1580,7 @@ pub(crate) async fn read_market_data_pit_evaluation_snapshot(
     let mut source_lineage_rows = Vec::with_capacity(source_member_identities.len());
     for identity in source_member_identities {
         let evidence: serde_json::Value = sqlx::query_scalar(
-            "SELECT to_jsonb(e) FROM market_data_private.resolve_source_binding_v1($1) AS e",
+            "SELECT to_jsonb(e) FROM market_data_admitted_read.resolve_source_binding_v1($1) AS e",
         )
         .bind(identity)
         .fetch_one(&mut *transaction)
@@ -1536,7 +1592,7 @@ pub(crate) async fn read_market_data_pit_evaluation_snapshot(
         );
     }
     let clocks: Vec<serde_json::Value> = sqlx::query_scalar(
-        "SELECT to_jsonb(h) FROM market_data_private.clock_handoffs_v1 AS h ORDER BY h.head_identity LIMIT 10001",
+        "SELECT handoff FROM market_data_admitted_read.resolve_clock_handoffs_v1() ORDER BY head_identity",
     )
     .fetch_all(&mut *transaction)
     .await
@@ -1551,7 +1607,7 @@ pub(crate) async fn read_market_data_pit_evaluation_snapshot(
         })
         .collect::<Result<Vec<_>, _>>()?;
     let native_rows = sqlx::query(
-        "SELECT ordinal,symbolic_key,member_key,row_bytes FROM market_data_private.resolve_pit_observation_rows_v1($1) LIMIT 10001",
+        "SELECT ordinal,symbolic_key,member_key,row_bytes FROM market_data_admitted_read.resolve_pit_observation_rows_v1($1) LIMIT 10001",
     )
     .bind(snapshot_identity.as_slice())
     .fetch_all(&mut *transaction)
@@ -1881,15 +1937,14 @@ impl PostgresDirectMeasurer {
                 "default_expression",
             ],
         )?;
-        let migration_relation = quoted_qualified_name(&spec.migration_relation)
-            .ok_or(PostgresMeasurementError::InvalidSpecification)?;
-        let migration_budget_query = format!(
-            "SELECT COUNT(*)::bigint AS row_count, COALESCE(MAX(pg_catalog.octet_length(pg_catalog.to_jsonb(migration_row)::text)), 0)::bigint AS max_row_bytes FROM {migration_relation} AS migration_row"
-        );
-        let migration_budget = sqlx::query(AssertSqlSafe(migration_budget_query))
-            .fetch_one(&mut *transaction)
-            .await
-            .map_err(|_| PostgresMeasurementError::MigrationIdentityUnavailable)?;
+        // The rows are read through the admitted read schema, which `new` pins the migration
+        // relation to, so the measuring principal holds nothing on the Owner's private schema.
+        let migration_budget = sqlx::query(
+            "SELECT COUNT(*)::bigint AS row_count, COALESCE(MAX(pg_catalog.octet_length(row_json)), 0)::bigint AS max_row_bytes FROM market_data_admitted_read.resolve_owner_migrations_v1()",
+        )
+        .fetch_one(&mut *transaction)
+        .await
+        .map_err(|_| PostgresMeasurementError::MigrationIdentityUnavailable)?;
         let migration_row_count: i64 = migration_budget
             .try_get("row_count")
             .map_err(|_| PostgresMeasurementError::IdentityDecodeUnavailable)?;
@@ -1899,13 +1954,12 @@ impl PostgresDirectMeasurer {
         if migration_row_count > 10_000 || migration_max_row_bytes > 65_536 {
             return Err(PostgresMeasurementError::CatalogTargetMismatch);
         }
-        let migration_content_query = format!(
-            "SELECT pg_catalog.to_jsonb(migration_row)::text AS row_json FROM {migration_relation} AS migration_row ORDER BY pg_catalog.to_jsonb(migration_row)::text LIMIT 10001"
-        );
-        let migration_content_rows = sqlx::query(AssertSqlSafe(migration_content_query))
-            .fetch_all(&mut *transaction)
-            .await
-            .map_err(|_| PostgresMeasurementError::MigrationIdentityUnavailable)?;
+        let migration_content_rows = sqlx::query(
+            "SELECT row_json FROM market_data_admitted_read.resolve_owner_migrations_v1() ORDER BY row_json",
+        )
+        .fetch_all(&mut *transaction)
+        .await
+        .map_err(|_| PostgresMeasurementError::MigrationIdentityUnavailable)?;
 
         if migration_content_rows.len() > 10_000 {
             return Err(PostgresMeasurementError::CatalogTargetMismatch);

@@ -12,6 +12,7 @@
 use std::{collections::BTreeSet, fmt::Debug};
 use vibe_postgres_connect::{PgPoolOptionsExt, PostgresTls};
 
+mod admitted_read_api_v1;
 mod authenticated_design_registration_v1;
 #[cfg(feature = "sealed-strategy-input-acceptance")]
 pub mod bar_joined_cut_acceptance_v1;
@@ -1018,6 +1019,14 @@ impl MarketDataOwnerPostgres {
         observation_census::install_observation_census_schema_v1(&mut transaction)
             .await
             .map_err(|_| SourceBindingError::StoreUnavailable)?;
+
+        // Last: a SQL wrapper's body is checked when it is created, so everything it calls exists.
+        for statement in admitted_read_api_v1::ADMITTED_READ_SCHEMA_V1 {
+            sqlx::query(*statement)
+                .execute(&mut *transaction)
+                .await
+                .map_err(|_| SourceBindingError::StoreUnavailable)?;
+        }
         sqlx::query(
             "INSERT INTO market_data_private.owner_migrations_v1(migration_id) VALUES ($1) ON CONFLICT (migration_id) DO NOTHING",
         )
