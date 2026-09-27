@@ -391,8 +391,8 @@ async fn postgres_a_status_delta_extends_the_v2_fact_and_the_cut_after_it_resolv
 }
 
 /// Runs `first` and `second` at once, both held on the Owner's clock head row until both wait on
-/// a lock, then lets them go. The callers box each admission, whose state is larger than clippy's
-/// `large_futures` bound.
+/// a lock, then lets them go. Each admission is passed boxed, since its state is larger than
+/// clippy's `large_futures` bound.
 ///
 /// Each intake reads the clock head `FOR UPDATE` after it has read the chain, so holding that row
 /// makes both reach it: a read taken before the store's table locks would then have seen no fact
@@ -494,8 +494,8 @@ async fn postgres_two_identical_v2_submissions_at_once_both_answer_with_the_one_
     };
     let (first_delta, second_delta) = at_once(
         &owner,
-        Box::pin(owner.admit_instrument_master_status_delta_v2(settling())),
-        Box::pin(owner.admit_instrument_master_status_delta_v2(settling())),
+        owner.admit_instrument_master_status_delta_v2(settling()),
+        owner.admit_instrument_master_status_delta_v2(settling()),
     )
     .await;
     let first_delta = first_delta.expect("the first delta is admitted");

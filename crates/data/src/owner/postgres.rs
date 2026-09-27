@@ -34,6 +34,8 @@ mod instrument_master_admission_v1_tests;
 #[cfg(test)]
 mod instrument_master_admission_v2_tests;
 #[cfg(test)]
+mod instrument_master_snapshot_v2_tests;
+#[cfg(test)]
 mod instrument_master_status_delta_v2_tests;
 mod live_market_stream_v1;
 #[cfg(test)]
@@ -10733,6 +10735,13 @@ fn pit_instrument_master_request_v1(
     }))
 }
 
+/// A V2 successor admission, built in its entry's synchronous frame rather than the caller's poll
+/// frame: its state, which holds the named fact's chain and the fact it derives, is larger than
+/// clippy's `large_futures` bound, and awaiting `Box::pin(admit(..))` inline would still build that
+/// state in the caller's frame before moving it to the heap.
+type InstrumentMasterV2AdmissionFuture<'a, T, E> =
+    std::pin::Pin<Box<dyn std::future::Future<Output = Result<T, E>> + Send + 'a>>;
+
 type InstrumentMasterAppendFutureV1<'a> = std::pin::Pin<
     Box<
         dyn std::future::Future<Output = Result<InstrumentMasterFactV1, InstrumentMasterError>>
@@ -10869,13 +10878,23 @@ impl MarketDataOwnerPostgres {
     /// the named fact already has a successor, the submission rejoins it if it derives the same
     /// fact at that successor's own observation, and is refused as not current otherwise.
     ///
-    /// # Errors
-    ///
-    /// A documented refusal when nothing was admitted; a replayed submission rejoins its fact.
+    /// The returned future resolves to a documented refusal only when nothing was admitted; a
+    /// replayed submission rejoins its fact.
     ///
     /// [`InstrumentMasterFactV2::usdm_contract_info_delta`]:
     /// super::instrument_master_v2::InstrumentMasterFactV2::usdm_contract_info_delta
-    pub(crate) async fn admit_instrument_master_status_delta_v2(
+    pub(crate) fn admit_instrument_master_status_delta_v2(
+        &self,
+        submission: InstrumentMasterStatusDeltaSubmissionV2,
+    ) -> InstrumentMasterV2AdmissionFuture<
+        '_,
+        InstrumentMasterStatusDeltaTerminalV2,
+        InstrumentMasterStatusDeltaErrorV2,
+    > {
+        Box::pin(self.admit_instrument_master_status_delta_in_frame_v2(submission))
+    }
+
+    async fn admit_instrument_master_status_delta_in_frame_v2(
         &self,
         submission: InstrumentMasterStatusDeltaSubmissionV2,
     ) -> Result<InstrumentMasterStatusDeltaTerminalV2, InstrumentMasterStatusDeltaErrorV2> {
@@ -10992,13 +11011,23 @@ impl MarketDataOwnerPostgres {
     /// same fact at that successor's own observation, and is refused as not current otherwise; a
     /// rejoin never moves the head.
     ///
-    /// # Errors
-    ///
-    /// A documented refusal when nothing was admitted; a replayed submission rejoins its fact.
+    /// The returned future resolves to a documented refusal only when nothing was admitted; a
+    /// replayed submission rejoins its fact.
     ///
     /// [`InstrumentMasterFactV2::usdm_exchange_info_snapshot`]:
     /// super::instrument_master_v2::InstrumentMasterFactV2::usdm_exchange_info_snapshot
-    pub(crate) async fn admit_instrument_master_snapshot_v2(
+    pub(crate) fn admit_instrument_master_snapshot_v2(
+        &self,
+        submission: InstrumentMasterSnapshotSubmissionV2,
+    ) -> InstrumentMasterV2AdmissionFuture<
+        '_,
+        InstrumentMasterSnapshotTerminalV2,
+        InstrumentMasterSnapshotErrorV2,
+    > {
+        Box::pin(self.admit_instrument_master_snapshot_in_frame_v2(submission))
+    }
+
+    async fn admit_instrument_master_snapshot_in_frame_v2(
         &self,
         submission: InstrumentMasterSnapshotSubmissionV2,
     ) -> Result<InstrumentMasterSnapshotTerminalV2, InstrumentMasterSnapshotErrorV2> {
@@ -11947,17 +11976,17 @@ impl InstrumentMasterAdmissionV2 for InstrumentMasterAdmissionPostgresV2 {
         &self,
         submission: InstrumentMasterStatusDeltaSubmissionV2,
     ) -> Result<InstrumentMasterStatusDeltaTerminalV2, InstrumentMasterStatusDeltaErrorV2> {
-        Box::pin(
-            self.owner
-                .admit_instrument_master_status_delta_v2(submission),
-        )
-        .await
+        self.owner
+            .admit_instrument_master_status_delta_v2(submission)
+            .await
     }
     async fn admit_snapshot(
         &self,
         submission: InstrumentMasterSnapshotSubmissionV2,
     ) -> Result<InstrumentMasterSnapshotTerminalV2, InstrumentMasterSnapshotErrorV2> {
-        Box::pin(self.owner.admit_instrument_master_snapshot_v2(submission)).await
+        self.owner
+            .admit_instrument_master_snapshot_v2(submission)
+            .await
     }
 }
 

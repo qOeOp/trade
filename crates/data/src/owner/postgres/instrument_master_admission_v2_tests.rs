@@ -70,12 +70,26 @@ pub(super) async fn commit_binding(
     sequence: u64,
     decision_cut: u64,
 ) -> SourceBindingCommit {
+    commit_binding_on(owner, dataset_mapping, &clock(sequence, decision_cut)).await
+}
+
+/// Commits one admitted Source Binding over `dataset_mapping` on exactly `clock`.
+pub(super) async fn commit_binding_on(
+    owner: &MarketDataOwnerPostgres,
+    dataset_mapping: &str,
+    clock: &MarketDataClockAdmission,
+) -> SourceBindingCommit {
+    let sequence = clock.monotonic_sequence;
+    let decision_cut = clock.decision_cut;
     let mut proposal = super::pit_intake_member_count_tests::source_proposal();
     proposal.adapter.dataset_mapping = dataset_mapping.to_owned();
     proposal.semantics.normalization = format!("normalization-{dataset_mapping}-{sequence}");
     let time = &mut proposal.time_evidence;
-    time.clock_identity = CLOCK_IDENTITY.into();
-    time.clock_epoch = CLOCK_EPOCH.into();
+    time.clock_identity.clone_from(&clock.clock_identity);
+    time.clock_epoch.clone_from(&clock.clock_epoch);
+    time.restart_continuity_digest = clock.restart_continuity_digest;
+    time.skew_bound = clock.skew_bound;
+    time.uncertainty_bound = clock.uncertainty_bound;
     time.monotonic_sequence = sequence;
     time.event_effective = decision_cut - 30;
     time.provider_available = decision_cut - 20;
@@ -93,7 +107,7 @@ pub(super) async fn commit_binding(
             OwnerSourceBindingDecision {
                 blockers: BTreeSet::new(),
             },
-            &clock(sequence, decision_cut),
+            clock,
         )
         .await
         .expect("the Owner admits the binding and its clock")
