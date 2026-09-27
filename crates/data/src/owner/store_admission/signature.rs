@@ -65,6 +65,19 @@ impl PinnedEd25519SignatureVerifier {
     }
 }
 
+impl PinnedEd25519SignatureVerifier {
+    /// Whether `signature` is this signer's strict Ed25519 signature over `message`.
+    pub(super) fn verifies(&self, signer_identity: &str, message: &[u8], signature: &[u8]) -> bool {
+        if signer_identity != self.signer_identity {
+            return false;
+        }
+        let Ok(signature) = Signature::try_from(signature) else {
+            return false;
+        };
+        self.key.verify_strict(message, &signature).is_ok()
+    }
+}
+
 #[async_trait]
 impl SignatureVerifier for PinnedEd25519SignatureVerifier {
     async fn verify(
@@ -73,13 +86,7 @@ impl SignatureVerifier for PinnedEd25519SignatureVerifier {
         message: &[u8],
         signature: &[u8],
     ) -> Result<bool, ()> {
-        if signer_identity != self.signer_identity {
-            return Ok(false);
-        }
-        let Ok(signature) = Signature::try_from(signature) else {
-            return Ok(false);
-        };
-        Ok(self.key.verify_strict(message, &signature).is_ok())
+        Ok(self.verifies(signer_identity, message, signature))
     }
 }
 
@@ -100,8 +107,7 @@ fn decode_lower_hex_32(value: &str) -> Result<[u8; 32], PinnedSignerError> {
     Ok(output)
 }
 
-/// Encodes a public key the way a deployment supplies it: 64 lowercase hexadecimal characters.
-#[cfg(test)]
+/// Encodes bytes the way keys and signatures are exchanged here: lowercase hexadecimal.
 pub(super) fn lower_hex(bytes: &[u8]) -> String {
     use std::fmt::Write as _;
 

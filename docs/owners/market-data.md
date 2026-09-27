@@ -144,7 +144,9 @@ never runs in CI.
   and its lease lapses a fixed time after the admission's store-clock cut. The fourth is the single-machine
   anti-rollback mode `SingleTrustDomainNoRollbackWitness` (`store_admission/witness.rs`): on one machine the
   anti-rollback property does not hold, the mode says so in every receipt, and the architecture rules carry the
-  user's 2026-09-27 authorization. `admit_rd_owner_market_data_postgres` still wires the `Unavailable*` ports, so `required` still
+  user's 2026-09-27 authorization. The administrator seals and publishes the history with
+  `deployment-store-publication-seal` and `deployment-store-publication-publish`; `product/rd-workbench/README.md`
+  gives the procedure. `admit_rd_owner_market_data_postgres` still wires the `Unavailable*` ports, so `required` still
   fails closed at startup. The admission reads time from the custody store's clock alone: every history read carries
   the store's `clock_timestamp()` cut, and the commit judges the receipt's window on that clock.
 - **`B4` consumer not compiled into the deployed image.** `product/rd-workbench/Dockerfile.owner` builds
