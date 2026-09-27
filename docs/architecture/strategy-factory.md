@@ -691,11 +691,15 @@ one-instant batch; no proof has yet driven the materialization to completion on 
 `POST /v2/exploratory-replays` is admitted as a production route; its body carries only the exact sealed request
 locator and attempt identity. It is not cut over. The handler, the execution service it calls and the router
 registration are still compiled only under the sealed Develop composition feature, so no deployed image serves this
-route today, and no request has ever reached it outside acceptance. Cutover requires the production Composer sealed
-read port that the execution service takes as an input: a `DevelopComposerFinalEvidencePortV2` implementation that
-locks and rereads evidence for an arbitrary locator inside the caller's transaction, and a
-`PostgresDevelopComposerSealedReadPortV2` the R&D composition root can construct. Until both exist the feature gate
-is what stands between this route and production, and removing it alone would not compile. After cutover, startup
+route today, and no request has ever reached it outside acceptance. What the execution service needs of the
+Composer is ungated production code: its sealed read port is implemented by the production Composer,
+`PostgresSourceResearchComposerProductionV2`, and that Composer's final-evidence port, `LockedOwnerEvidenceV2`,
+locks and rereads the evidence for the locator it is given; no separate `PostgresDevelopComposerSealedReadPortV2`
+exists or is needed. Moving the handler, the service and the router registration from the sealed Develop feature
+onto `composer-replay-issuance` compiles and passes clippy in a build that enables `composer-v3-replay` and no
+acceptance feature (measured 2026-09-28 on the tree that introduced those features, then reverted). The feature
+gate is therefore all that stands between this route and a build, and cutover is the deployed image carrying such a
+build, which is a deployment decision. After cutover, startup
 still exposes the execution capability only when `BACKTEST_OWNER_DATABASE_URL` admits the canonical Backtest Owner
 principal and the Market Data scheduling capability is present. The handler returns only the exact persisted
 canonical Result bytes after the coordinator acknowledges the Result, all 28 evidence envelopes and the semantic
@@ -783,8 +787,8 @@ deserialization nor a struct literal forges one even with the acceptance feature
 path runs. Nothing issues a `NativeReplayExecutionInputBindingV1` in any compilable configuration
 today. Its issuance narrows to `issue_native_replay_execution_input_binding_v1`, whose single
 caller is an HTTP handler registered only under the `rd-owner-api` crate's own
-`sealed-develop-composer-acceptance`, which no Makefile target, workflow or chain script enables;
-no SQL or script writes the binding tables directly, and no test or client names the route. Both
+`composer-replay-issuance`, which the deployed image does not enable and the ordered chain's build turns
+on only through `sealed-develop-composer-acceptance`; no SQL or script writes the binding tables directly, and no test or client names the route. Both
 the issuer and the resolver beside it are ungated production functions on
 `PostgresResearchGoalOwnerV1`, forty-three lines apart, taking the same collaborators. So the
 execution path is unreached rather than unreachable, and one ordered-chain entry that issues and

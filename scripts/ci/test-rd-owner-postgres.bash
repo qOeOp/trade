@@ -146,6 +146,7 @@ readonly rd_owner_postgres_tests=(
   'vibe-strategy-factory|vibe_strategy_factory|product_edge_postgres::tests::a_native_composer_research_view_is_admitted_by_every_custody_scan'
   'vibe-strategy-factory-rd-owner-api|rd_owner_api_main|native_replay_scheduling_acceptance::tests::the_composed_scheduling_resolver_holds_its_reads_only_while_composed'
   'vibe-backtest-owner|vibe_backtest_owner|tests::postgres_result_directory_lists_one_requests_results_without_a_row_lock'
+  'vibe-strategy-factory|vibe_strategy_factory|product_edge_postgres::tests::a_frozen_research_intent_continues_under_its_admission_past_its_views_window'
   'vibe-strategy-factory|vibe_strategy_factory|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only'
 )
 readonly nextest_graph_args=(
@@ -217,8 +218,8 @@ check_nextest_graph_contract() {
     echo "ERROR: isolated PostgreSQL tests must use the shared nextest graph." >&2
     return 1
   fi
-  if [[ "${#rd_owner_postgres_tests[@]}" -ne 117 ]]; then
-    echo "ERROR: isolated PostgreSQL test selection must retain all 117 ordered tests, found ${#rd_owner_postgres_tests[@]}." >&2
+  if [[ "${#rd_owner_postgres_tests[@]}" -ne 118 ]]; then
+    echo "ERROR: isolated PostgreSQL test selection must retain all 118 ordered tests, found ${#rd_owner_postgres_tests[@]}." >&2
     return 1
   fi
   if [[ "${rd_owner_postgres_tests[0]}" != *'|replay_policy_catalog_postgres_v2::postgres_tests::catalog_admin_and_family_formation_are_atomic_and_fail_closed' ]] ||
@@ -347,7 +348,8 @@ check_nextest_graph_contract() {
     [[ "${rd_owner_postgres_tests[113]}" != *'|product_edge_postgres::tests::a_native_composer_research_view_is_admitted_by_every_custody_scan' ]] ||
     [[ "${rd_owner_postgres_tests[114]}" != *'|native_replay_scheduling_acceptance::tests::the_composed_scheduling_resolver_holds_its_reads_only_while_composed' ]] ||
     [[ "${rd_owner_postgres_tests[115]}" != *'|tests::postgres_result_directory_lists_one_requests_results_without_a_row_lock' ]] ||
-    [[ "${rd_owner_postgres_tests[116]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]]; then
+    [[ "${rd_owner_postgres_tests[116]}" != *'|product_edge_postgres::tests::a_frozen_research_intent_continues_under_its_admission_past_its_views_window' ]] ||
+    [[ "${rd_owner_postgres_tests[117]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]]; then
     echo "ERROR: isolated PostgreSQL test ordering must remain fresh-first and destructive-drain-last." >&2
     return 1
   fi
@@ -497,7 +499,7 @@ for line in array_body.splitlines():
     entries.append(tuple(fields))
 # The count lives in one place. Writing it into the message as well lets the two drift, and the
 # drifted form reads as nonsense the moment it fires: "must contain 92 entries, found 92".
-expected_entries = 117
+expected_entries = 118
 if len(entries) != expected_entries:
     raise SystemExit(
         f"ERROR: ordered PostgreSQL test literal must contain {expected_entries} entries, found {len(entries)}."
@@ -1464,6 +1466,61 @@ check_failed_entry_warnings() {
   rm -rf -- "$fixtures"
 }
 
+# Every database the chain clones from the template must be in every place a clone has to be: the
+# snapshot the reset rebuilds it from, the SECURITY DEFINER guard, the per-role settings, its REVOKE
+# and GRANT CONNECT, and its own dedicated marker. A clone left out of the snapshot is never reset,
+# and one left out of the guard is never guarded; neither makes anything red at run time, so the
+# chain would carry the gap silently (found reviewing #1185). The clones are read from the
+# `CREATE DATABASE ... WITH TEMPLATE :"test_database"` lines, not listed here, so a new clone is
+# checked without editing this.
+check_chain_clone_lists() {
+  python3 - "${BASH_SOURCE[0]}" << 'PY'
+import re
+import sys
+
+text = open(sys.argv[1], encoding="utf-8").read()
+clones = re.findall(r'^CREATE DATABASE :"(\w+)" WITH TEMPLATE :"test_database"', text, re.M)
+
+
+def block(pattern: str) -> str:
+    match = re.search(pattern, text, re.M | re.S)
+    return match.group(1) if match else ""
+
+
+places = {
+    "the snapshot the reset rebuilds from (chain_snapshot_databases)": set(
+        re.findall(r'"\$(\w+)"', block(r"^chain_snapshot_databases\(\) \{\n(.*?)\n\}")),
+    ),
+    "the SECURITY DEFINER guard (run-security-definer-guard.bash)": set(
+        re.findall(r'"\$(\w+)"', block(r'run-security-definer-guard\.bash" "\$container" \\\n(.*?)\n\n')),
+    ),
+    "the per-role settings (WITH clones(database_name))": set(
+        re.findall(r":'(\w+)'", block(r"^WITH clones\(database_name\) AS \(\n  VALUES (.*?)\n")),
+    ),
+    "REVOKE ... FROM PUBLIC": set(
+        re.findall(r'^REVOKE CONNECT, CREATE, TEMPORARY ON DATABASE :"(\w+)" FROM PUBLIC;', text, re.M),
+    ),
+    "GRANT CONNECT": set(re.findall(r'^GRANT CONNECT ON DATABASE :"(\w+)"$', text, re.M)),
+    "its dedicated marker (SET database_name)": set(
+        re.findall(r"^   SET database_name=:'(\w+)';", text, re.M),
+    ),
+}
+errors = []
+if not clones:
+    errors.append("no template clone found; the CREATE DATABASE pattern no longer matches this script")
+for place, names in places.items():
+    if not names:
+        errors.append(f"{place} could not be read; its pattern no longer matches this script")
+for clone in clones:
+    for place, names in places.items():
+        if names and clone not in names:
+            errors.append(f"{clone} is cloned from the template but missing from {place}")
+for error in errors:
+    print(f"ERROR: {error}", file=sys.stderr)
+sys.exit(1 if errors else 0)
+PY
+}
+
 check_trial_family_candidate_experiment_cutover() {
   local repository_root
   repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -1878,6 +1935,7 @@ if [[ "$chain_reports_only" != true ]]; then
   check_trial_family_candidate_experiment_cutover
   check_composer_acceptance_stays_in_the_chain
   check_chain_node_declarations
+  check_chain_clone_lists
 fi
 check_collected_warning_report
 check_failed_entry_warnings
@@ -5652,6 +5710,7 @@ BEGIN
     FOREACH qualification_table IN ARRAY ARRAY[
       'qualification_protected_feedback_projections_v1',
       'qualification_protected_feedback_heads_v1',
+      'qualification_protected_feedback_generations_v1',
       'qualification_candidate_intake_receipts_v1',
       'qualification_public_status_facts_v1',
       'qualification_public_status_heads_v1',

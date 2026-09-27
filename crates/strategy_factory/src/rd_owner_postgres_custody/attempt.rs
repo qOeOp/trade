@@ -1003,7 +1003,9 @@ async fn verify_terminal_success_in_transaction(
                         && (view.observed_at_epoch_ms != receipt.committed_at_epoch_ms
                             || view.projection_at_epoch_ms != receipt.committed_at_epoch_ms
                             || view.valid_through_epoch_ms
-                                != receipt.committed_at_epoch_ms.saturating_add(600_000)))
+                                != receipt.committed_at_epoch_ms.saturating_add(
+                                    crate::product_edge::RESEARCH_VIEW_FRESHNESS_MS,
+                                )))
             }))
     {
         return Err(ArtifactBuildError::Storage(

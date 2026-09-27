@@ -230,8 +230,8 @@ contract refuses.
 `ACTIVE_OBSERVATION / IMPLEMENTATION_ADMITTED` point-read of one previously committed Replay V2 request and,
 when all three result locator fields are supplied, one Backtest-owned canonical result. It is not a replay composer,
 dispatcher, comparison surface, or economic chart. A composer-backed request is the same Replay V2 request; the
-Owner reads it back only in a build that recognizes composer-backed custody, which today is the ordered chain's,
-and a deployed image answers it `UNAVAILABLE`. The route uses
+Owner reads it back only in a build that recognizes composer-backed custody, one with `composer-v3-replay`, which
+no deployed image enables, so a deployed image answers it `UNAVAILABLE`. The route uses
 one full-width `PanelFrame` with no summary strip, historical list/table, split detail pane, or reserved chart
 height. Its header contains the `EXPLORATORY REPLAY` eyebrow, `Replay request` title, one concise purpose,
 and `Refresh`, which is disabled until a valid selector has been opened. The inset body starts with one
@@ -496,8 +496,8 @@ production. This resolution is `IMPLEMENTATION_ADMITTED / NOT_CUT_OVER`. Neither
 ungated `POST /v2/develop-composer/runs` committed. It re-derives the run at the Research View and read cut
 the run recorded when it committed, so the same identity keeps reading back after that View expires or moves
 to `ARTIFACT_AVAILABLE` or `EXPLORATION_ACTIVE`. A run committed before that record existed reads back only
-while its View is current, and after that answers `UNAVAILABLE` at coordinate
-`research_custody.run_view_unrecorded`, so the page is not read as the run having vanished. It accepts no
+while its Research View has not moved past `INTENT_FROZEN` and the authority it was admitted under is
+current, and otherwise answers `UNAVAILABLE` at coordinate `research_custody.run_view_unrecorded`, so the page is not read as the run having vanished. It accepts no
 request body and returns the existing strict `DevelopComposerOperationResponseV2`; the Dashboard BFF path-binds the identity and filters it to the fields above.
 `SUCCESS` requires an operation receipt plus the complete four-field Artifact projection. Every other disposition
 must carry no receipt or Artifact projection. Unknown keys, identity drift, contradictory disposition fields,
@@ -602,8 +602,7 @@ ran, and no Composer artifact. Its identity is the `rd-research-view-v3` derivat
 seal under `rd-exploration-cut-v1-`. A composer-backed exploration is a schema 3 view whose `composer_artifact`
 carries exactly ten Composer facts, from the artifact locator and identity digest through the family binding
 receipt to the census frontier digest. Only the composer-backed replay commit produces them, and its route sits
-behind `sealed-source-intake-composer-acceptance`, which no deployed image enables, so today only the ordered
-chain's build shows one.
+behind `composer-v3-replay`, which no deployed image enables, so today only the ordered chain's build shows one.
 
 Neither shape is read as the other. A schema 2 view that carries a Composer artifact, or a schema 3 view that
 carries none, is refused rather than shown. So an absent Composer is never encoded as a present one, and the page

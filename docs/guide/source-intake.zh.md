@@ -54,6 +54,12 @@ Intent 后，解释后的来源才能进入正式研究循环。来源可以启�
 机构来源和媒体提取，只有在具体研究瓶颈足以覆盖获取与权利成本时才进入后续阶段。优先使用官方 API
 feed repository 或作者维护索引；通用抓取只是后备方案，并且必须保留同等身份 权利与终态证据。
 
+研究来源 canary `scripts/ci/source_canary.py` 从 GitHub-hosted runner 探测这些 connector，而不是从产品运行的位置
+探测：生产环境是用户自己的机器，PostgreSQL 在本机 compose 部署里。runner 上的读数说明的是 runner 的地址能到达
+什么，不是生产环境能到达什么。自 2026-09-22 起 arXiv 对 runner 回 HTTP 406，2026-09-28 三次尝试全是 406；
+canary 把重试后仍是 406 的结果记为 `BLOCKED` 而不是 `FAILED`。2026-09-28 在用户机器上十次请求只有一次得到 406，
+下一次请求即成功，所以在那里重试可以吸收它。
+
 ## 获取前准入
 
 R&D 在任何外部网络调用前先提交一个 Source Acquisition Binding。该 binding 同时绑定请求和 Agent

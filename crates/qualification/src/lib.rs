@@ -20,7 +20,8 @@ pub use candidate_intake::{
 };
 pub use postgres::{
     PostgresQualificationOwnerV1, PostgresQualificationPublicStatusReadPortV1,
-    admit_historical_projection_in_transaction, admit_projection_in_transaction,
+    ProtectedFeedbackGenerationV1, admit_historical_projection_in_transaction,
+    admit_projection_in_transaction, read_protected_feedback_generation_in_transaction,
 };
 pub use protected_attempt_disposition::{
     HoldoutClosureDispositionV1, ProtectedAttemptDispositionCommitV1,

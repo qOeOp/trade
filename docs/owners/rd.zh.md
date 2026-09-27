@@ -93,10 +93,13 @@
 - **CURRENT - 已部署的服务，以及它暴露面的边界：** `product/rd-workbench/Dockerfile.owner` 构建
   每一个二进制（包括 `--bin strategy-factory-rd-owner-api`）时都完全不带 `--features`。所以部署镜像就是
   `crates/strategy_factory_rd_owner_api/src/main.rs` 里未加门的那个 router，
-  而其后由 `#[cfg(feature = "sealed-develop-composer-acceptance")]` 与
-  `#[cfg(feature = "sealed-source-intake-composer-acceptance")]` 注册的六条路由不在其中：
-  `/v2/exploratory-replay/execution-input-bindings`、`/v3/exploratory-replay-requests/composer-backed`，
-  以及四条 `/_sealed-acceptance/v1/develop-composer/*`。一条验收路由绝不是生产能力的证据，
+  而其后注册的六条路由不在其中：`/v2/exploratory-replay/execution-input-bindings` 在
+  `#[cfg(feature = "composer-replay-issuance")]` 之下，`/v3/exploratory-replay-requests/composer-backed` 在
+  `#[cfg(feature = "composer-v3-replay")]` 之下，四条 `/_sealed-acceptance/v1/develop-composer/*` 在
+  `#[cfg(feature = "sealed-source-intake-composer-acceptance")]` 之下。前两个 feature 是生产面，不带任何验收夹具、
+  语料或路由；密封 feature 包含它们而不是拥有它们。在默认构建里，Composer 自己的
+  `/v2/develop-composer/runs/{request_identity}/resolve` 与 `/readback` 返回 `503`，因为
+  `composer-replay-issuance` 是关闭的。一条验收路由绝不是生产能力的证据，
   而密封 feature 的存在就是为了让这个区别是机械的而不是靠记住的。
   镜像运行在产品的定点精度 `FIXED_PRECISION` 16 上，不靠构建参数：`vibe-strategy-factory` 在自己的
   `vibe-model` 依赖上声明 `high-precision`，`scripts/ci/check-production-features.py` 会拒绝链接
@@ -123,15 +126,20 @@
   即 Playbook 点名的、缺席的 `LIVE_EXTERNAL` 权威，而不是请求本身；请求本身的拒绝（冲突的 identity、
   畸形的 body）这条路由已经按名回答。今天重试改变不了答案，是这个构建缺少的能力，列在
   `UNIMPLEMENTED_PRODUCTION_STAGES` 里；它不是请求的性质，也不需要一种专属的答复。
-- **CURRENT - composer-backed 的 Exploratory Replay 请求路径没有准入标签，解除它封印的条件在上游：**
-  `commit_composer_backed_exploratory_replay_request_v3` 及其路由
-  `/v3/exploratory-replay-requests/composer-backed` 只存在于 `sealed-source-intake-composer-acceptance`
-  之下，而上面那个镜像不构建它。本文档、`docs/owners/backtest.md` 与 `docs/architecture/` 都没有把这条
-  路径标成 `TARGET`、`IMPLEMENTATION_ADMITTED` 或任何其他状态，所以它的状态只能从三处陈述读出。上面那条
-  已部署服务的条目说，验收路由从来不是生产能力的证据。`docs/guide/dashboard.md` 说，当某个部署镜像带上
-  一条能产出 Composer artifact 的路径时，这条边界就解除，届时 v2 commit 退役或被这条路径取代。上面那条
-  Source Intake 的条目说，已部署的流水线作为通向任何 Composer artifact 的第一跳，什么都取不到。因此这条
-  路径是在等一个生产侧的产出者而被封住的：既不是没做完，也不是有意不开。不带门的 v2 commit 替代不了它。
+- **CURRENT - composer-backed 的 Exploratory Replay 请求路径没有准入标签，把它挡在部署镜像之外的是镜像，而不是缺少产出者：**
+  `commit_composer_backed_exploratory_replay_request_v3`、它的路由
+  `/v3/exploratory-replay-requests/composer-backed`、它的表和这些表的迁移，只存在于 `composer-v3-replay`
+  之下；这是一个生产 feature，而上面那个镜像不构建它，所以默认构建的 `--materialize-schema` 一张这些表也不建。
+  本文档、`docs/owners/backtest.md` 与 `docs/architecture/` 都没有把这条路径标成 `TARGET`、
+  `IMPLEMENTATION_ADMITTED` 或任何其他状态，所以它的状态只能从三处陈述读出。上面那条已部署服务的条目说，
+  验收路由从来不是生产能力的证据。`docs/guide/dashboard.md` 说，当某个部署镜像带上一条能产出 Composer
+  artifact 的路径时，这条边界就解除，届时 v2 commit 退役或被这条路径取代。这样的路径已经编译并注册在默认
+  构建里：`/v2/develop-composer/runs` 在 Research 请求冻结的 Bounded Feature Program 上运行生产 Composer
+  （`PostgresSourceResearchComposerProductionV2::run_bounded_feature_program`），它读的是联合冻结和 Market Data
+  的绑定，不经过 Source Intake，所以上面那条 Source Intake 的条目已不再指出挡路的那一跳。开启
+  `composer-v3-replay` 的构建同时带着这个 Composer 和这条 commit，且不带任何验收代码。有序链路的构建不是这个
+  构建：它的验收 feature 包含 `composer-v3-replay`，但同时把 Composer 的运行换成了固定语料。因此这条路径
+  尚未被准入进镜像：既不是没做完，也不是有意不开，准入它的是一个部署决定。不带门的 v2 commit 替代不了它。
   Native Replay 的准备阶段在查询 Composer 之前就把请求的 `artifact.digest` 当作 `sha256:` 摘要来解析，
   而 v2 commit 只在这个摘要等于 Artifact Build Owner 的 `blake3:` wasm 摘要时才会成功；请求的
   `artifact.identity` 也得同时等于 commit 所要求的 Artifact Build `blake3:` 身份，以及准备阶段所要求的
@@ -335,9 +343,34 @@ join 推断。
 Research artifact evidence 必须正是为它封存的（`rd_owner_api.lock_research_for_artifact_at_view_v1`），已存储的 View
 必须是它的合法后代，cut 必须落在它的有效窗口内，operation receipt 的 Research custody digest 必须等于由它重建的那一个。
 前三种失败在 `research_custody.run_view` 下各自的 coordinate 处应答 `UNAVAILABLE`；digest 不等时在既有的 `operation_receipt` coordinate 处应答。在这条记录存在之前提交的行两条事实都没有：
-它保留针对当前 View 的读取，一旦该 View 不再当前，就在 `research_custody.run_view_unrecorded`
-处应答，说明这一行为什么不能读，而不是暗示运行消失了。迁移先读目录形状再加这两列；它们在迁移部署时冻结，而不是在合并时。
-运行本身仍需要当前的 View，所以一个 Research request 只能在被接受后十分钟内做 compose；这个界属于运行，不属于这次读回。
+它保留针对当前 View 的读取。一旦该 View 已推进到 `INTENT_FROZEN` 之后，或者它继续所依据的授权不再当前（见下文），就在
+`research_custody.run_view_unrecorded` 处应答，说明这一行为什么不能读，而不是暗示运行消失了。因此这样的行在其 Research request
+准入时所依据的操作员授权持续期间都可以读回；一旦该授权过期或被撤销，它就在继续检查自己的 coordinate
+`research_custody.continuation.authority_not_current` 处应答，而不是在未记录的那个 coordinate 处。记下了自己 View 的行完全不依赖该授权。迁移先读目录形状再加这两列；它们在迁移部署时冻结，而不是在合并时。
+
+**已准入的 Research Intent 在其准入时的授权下继续，而不是在其 View 的窗口内继续。** View 的 `valid_through`
+是读者看到的新鲜度：过了它，View 读作 `STALE`，而且没有任何东西刷新它。它并不界定冻结的 Intent 可以被处理多久。
+下面每一种继续操作都在自己的 cut 上重新锁定该 Intent 自己的 Product Edge 准入，就像下游首次变更那样：
+
+- Composer 运行；
+- `POST /v1/bounded-feature-programs/{declare,freeze}`；
+- 发布 Design role intent；
+- 读取 Research 编写事实；
+- 冻结复杂策略的 develop evaluation。
+
+每一种都只在该准入所指的操作员授权在那一刻仍然当前时才继续：仍然有效、没有被撤销、并处于当前的 policy binding
+与 manifest 窗口之下。否则在 `research_custody.continuation.authority_not_current` 处应答 `UNAVAILABLE`。另外两种拒绝也有名字：
+
+- 重新锁定到的准入若不是该 Intent 准入时的那一个，在 `research_custody.continuation.admission_changed` 处应答；
+- 被隔离的遗留托管没有当前准入，在 `research_custody.continuation.no_admission` 处应答。
+
+冻结的 View 仍然标识这个 Intent：早于其投影的 cut 会被拒绝，而且该 Intent 必须仍然是 `INTENT_FROZEN`。
+受保护反馈只在 Intent 准入时检查一次，之后不再检查。今天受保护反馈前沿没有代际，受保护评估也不会推进它，所以继续操作感知不到冻结之后发生的受保护评估。
+给前沿加上代际、并让每一次继续操作都与 Intent 冻结时的代际比较的那一片，会移除这条性质。在它们各自的切片落地之前，
+有两类检查仍然读取 View 的窗口：
+
+- Replay 提交之后的步骤：Backtest 运行、执行输入绑定和 Market Data 修复；
+- Product Edge 自己的下游准入窗口检查。
 
 **CURRENT/PARTIAL：第一圈已有立足之处。** 封存语料 run 之后，`run_bounded_feature_program` 成为唯一的生产入口，
 而它需要一份已冻结的 joint program。冻结需要 Strategy Input declaration；Market Data 过去只从一份

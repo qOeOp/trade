@@ -99,11 +99,11 @@ where
             .read_accepted(&composer_locator)
             .await
             .map_err(composer_unavailable)?,
-        #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+        #[cfg(feature = "composer-v3-replay")]
         Some(transition) => {
             read_composer_at_replay_transition(transaction, &composer_locator, transition).await?
         }
-        #[cfg(not(feature = "sealed-source-intake-composer-acceptance"))]
+        #[cfg(not(feature = "composer-v3-replay"))]
         Some(transition) => match **transition {},
     };
     issue_native_replay_preparation_inputs_v2(
@@ -121,7 +121,7 @@ where
 /// IntentFrozen View the operation ran under, and that read wants the current custody to still be
 /// that View. So it is read the way the Replay's own readback reads it, over the Replay's verified
 /// View transition and in this transaction.
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+#[cfg(feature = "composer-v3-replay")]
 async fn read_composer_at_replay_transition(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     locator: &crate::develop_composer_postgres_v2::DevelopComposerSealedReadLocatorV2,

@@ -78,10 +78,10 @@ pub(crate) struct ResolvedNativeReplayRdCutV2 {
 
 /// The verified View transition of a COMPOSER_V3 Replay. It exists only in the build that carries
 /// the COMPOSER_V3 routes; elsewhere no Replay can have written one.
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+#[cfg(feature = "composer-v3-replay")]
 pub(crate) type NativeComposerViewTransitionV3 =
     crate::exploratory_replay::postgres::composer_readback_v3::VerifiedResearchViewTransitionV3;
-#[cfg(not(feature = "sealed-source-intake-composer-acceptance"))]
+#[cfg(not(feature = "composer-v3-replay"))]
 pub(crate) type NativeComposerViewTransitionV3 = std::convert::Infallible;
 
 pub(crate) async fn resolve_native_replay_rd_cut_v2_in_transaction(
@@ -572,7 +572,7 @@ async fn native_research_custody_from_boundary(
 /// Replay's receipt. A current View some later Replay has moved on is refused by name rather than
 /// read as this one's, so once a later Replay commits on the same Research, this Replay can no
 /// longer be prepared.
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+#[cfg(feature = "composer-v3-replay")]
 async fn native_composer_view_transition(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     view: &ResearchViewV1,
@@ -603,7 +603,7 @@ async fn native_composer_view_transition(
 }
 
 /// Whether the current native Composer View is the one this Replay's transition wrote.
-#[cfg(any(test, feature = "sealed-source-intake-composer-acceptance"))]
+#[cfg(any(test, feature = "composer-v3-replay"))]
 fn native_composer_view_matches_transition(
     view: &ResearchViewV1,
     replay_request_identity: &str,
@@ -621,7 +621,7 @@ fn native_composer_view_matches_transition(
 }
 
 /// No build without the COMPOSER_V3 routes can have committed a native Composer View.
-#[cfg(not(feature = "sealed-source-intake-composer-acceptance"))]
+#[cfg(not(feature = "composer-v3-replay"))]
 async fn native_composer_view_transition(
     _transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     _view: &ResearchViewV1,
@@ -1745,7 +1745,9 @@ fn verify_legacy_research_view(
         RESEARCH_VIEW_SCOPE_V1.to_string(),
     ];
     let expected_authorized_scope = expected_authorized_scope.unwrap_or(&baseline_scope);
-    let projection_valid_through_epoch_ms = view.projection_at_epoch_ms.saturating_add(600_000);
+    let projection_valid_through_epoch_ms = view
+        .projection_at_epoch_ms
+        .saturating_add(crate::product_edge::RESEARCH_VIEW_FRESHNESS_MS);
     let valid_through_matches = expected_valid_through_epoch_ms.is_some_and(|snapshot| {
         view.phase == "INTENT_FROZEN" && view.valid_through_epoch_ms == snapshot
     }) || view.valid_through_epoch_ms
@@ -3370,7 +3372,9 @@ pub(crate) fn validate_historical_view(
                 && view.source_cut == format!("rd-artifact-cut-v1-{artifact_identity}")
                 && view.observed_at_epoch_ms == view.projection_at_epoch_ms
                 && view.valid_through_epoch_ms
-                    == view.projection_at_epoch_ms.saturating_add(600_000)
+                    == view
+                        .projection_at_epoch_ms
+                        .saturating_add(crate::product_edge::RESEARCH_VIEW_FRESHNESS_MS)
         }
         crate::product_edge::ResearchViewPhase::ExplorationActive => {
             if view.composer_artifact.is_some() {
@@ -3399,7 +3403,9 @@ pub(crate) fn validate_historical_view(
                         )
                     && view.observed_at_epoch_ms == view.projection_at_epoch_ms
                     && view.valid_through_epoch_ms
-                        == view.projection_at_epoch_ms.saturating_add(600_000)
+                        == view
+                            .projection_at_epoch_ms
+                            .saturating_add(crate::product_edge::RESEARCH_VIEW_FRESHNESS_MS)
             }
         }
         crate::product_edge::ResearchViewPhase::RequestUnresolved => false,
@@ -3736,9 +3742,10 @@ mod tests {
         );
     }
 
-    #[rstest::rstest]
-    fn legacy_v2_point_read_preserves_quarantine_receipt() {
-        let custody = VerifiedResearchCustodyV1 {
+    /// An accepted schema-2 custody as the legacy missing-request representation verifies it: no
+    /// stored request, no View, and no Product Edge admission (`LegacyQuarantined`).
+    fn legacy_quarantined_v2_custody() -> VerifiedResearchCustodyV1 {
+        VerifiedResearchCustodyV1 {
             request_json: None,
             receipt: ResearchRequestReceiptV1 {
                 schema_version: 1,
@@ -3763,7 +3770,12 @@ mod tests {
             initial_pit: None,
             admitted_version: None,
             terminal_attempt_admission: None,
-        };
+        }
+    }
+
+    #[rstest::rstest]
+    fn legacy_v2_point_read_preserves_quarantine_receipt() {
+        let custody = legacy_quarantined_v2_custody();
 
         let result = custody.into_legacy_quarantined_v2_result().unwrap();
 
@@ -3774,6 +3786,22 @@ mod tests {
         assert_eq!(result.request_identity(), "research-request-v2-test");
         assert!(result.owner_receipt().is_some());
         assert!(result.research_view().is_none());
+    }
+
+    /// A legacy accepted custody has no admission to continue under, so a continuation refuses it
+    /// by name at its first step: `continue_initial_research_in_transaction` asks for the admission
+    /// before it locks anything. BFP reaches it that way for such a request.
+    #[rstest::rstest]
+    fn a_legacy_custody_continues_nothing_and_says_why() {
+        let custody = legacy_quarantined_v2_custody();
+
+        let refused = crate::research_continuation_v1::initial_research_admission(&custody)
+            .expect_err("a legacy custody carries no admission");
+        assert_eq!(
+            refused.coordinate,
+            crate::research_continuation_v1::RESEARCH_CONTINUATION_NO_ADMISSION_COORDINATE_V1
+        );
+        assert!(crate::research_continuation_v1::is_research_continuation_refusal(&refused));
     }
 
     #[rstest::rstest]

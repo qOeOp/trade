@@ -630,11 +630,14 @@ Market Data V1 native scheduling seal 封存每一帧，该 seal 现在从帧自
 **IMPLEMENTATION_ADMITTED / NOT_CUT_OVER，生产 Native Replay 入口：** authenticated R&D API 的
 `POST /v2/exploratory-replays` 被准入为生产 route；body 只含准确 sealed request locator 与 attempt identity。
 它尚未切换。handler、它调用的 execution service 与 router 注册仍只在 sealed Develop composition feature 下
-编译，所以今天没有任何已部署镜像提供该 route，验收之外也从未有请求到达过它。切换需要 execution service 作为
-输入所要求的生产 Composer sealed read port：一个能在调用方事务内对任意 locator 锁定并重读证据的
-`DevelopComposerFinalEvidencePortV2` 实现，以及一个 R&D composition root 可构造的
-`PostgresDevelopComposerSealedReadPortV2`。在两者具备之前，feature gate 就是这条 route 与生产之间的全部距离，
-而仅仅移除它并不能编译通过。切换之后，只有 `BACKTEST_OWNER_DATABASE_URL` 准入规范 Backtest Owner principal，
+编译，所以今天没有任何已部署镜像提供该 route，验收之外也从未有请求到达过它。execution service 对 Composer
+的需要已经是无门的生产代码：它的 sealed read port 由生产 Composer
+`PostgresSourceResearchComposerProductionV2` 实现，而这个 Composer 的 final-evidence port
+`LockedOwnerEvidenceV2` 对给定的 locator 锁定并重读证据；不存在、也不需要另一个
+`PostgresDevelopComposerSealedReadPortV2`。把 handler、service 与 router 注册从 sealed Develop feature 移到
+`composer-replay-issuance` 下，在开启 `composer-v3-replay`、不开任何验收 feature 的构建里能编译并通过 clippy
+（2026-09-28 在引入这两个 feature 的那棵树上实测，随后还原）。所以 feature gate 就是这条 route 与一个构建之间的
+全部距离，切换就是让部署镜像带上这样的构建，这是一个部署决定。切换之后，只有 `BACKTEST_OWNER_DATABASE_URL` 准入规范 Backtest Owner principal，
 且 Market Data scheduling capability 存在时，startup 才暴露 execution capability。Coordinator 确认 Result、
 全部 28 份 evidence envelope 与 semantic trace 后，handler 只返回实际持久化的 canonical Result bytes；未获
 确认的提交保持 unavailable。该准入不授予 disposable PostgreSQL acceptance、已部署或正在运行的服务、
@@ -688,8 +691,8 @@ frame；`a_batch_holding_a_second_instant_of_one_role_binds_no_frame` 测的正�
 **那「一个生产调用方」不意味着什么：** 它是一个调用方计数，不是「这条路径会跑」的陈述。今天在任何
 可编译配置下都没有东西签发 `NativeReplayExecutionInputBindingV1`。它的签发收敛到
 `issue_native_replay_execution_input_binding_v1`，而后者唯一的调用方是一个 HTTP handler，
-只在 `rd-owner-api` 这个 crate 自己的 `sealed-develop-composer-acceptance` 下注册，
-而没有任何 Makefile 目标、workflow 或链路脚本打开它；没有 SQL 或脚本直接写那几张绑定表，
+只在 `rd-owner-api` 这个 crate 自己的 `composer-replay-issuance` 下注册，
+部署镜像不开启它，有序链路的构建只经由 `sealed-develop-composer-acceptance` 打开它；没有 SQL 或脚本直接写那几张绑定表，
 也没有测试或客户端提到那条路由。签发者与它旁边的解析者都是 `PostgresResearchGoalOwnerV1` 上
 无门的生产函数，相距四十三行，要的协作者是同一套。所以这条执行路径是没被走到，而不是走不到，
 而一条先签发再解析的有序链路条目就能驱动它，既不必启用 feature 也不必扩任何 union。

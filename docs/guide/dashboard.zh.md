@@ -172,7 +172,7 @@ Backtest Owner 投影存在。该路由原样转达投影的回答、不添加�
 `ACTIVE_OBSERVATION / IMPLEMENTATION_ADMITTED` 的 Replay V2 已提交请求 point-read；当三个 result locator
 field 齐全时，还可读取一个由 Backtest Owner 持有的 canonical result。它不是 replay composer、dispatcher、
 compare surface 或经济图表。composer-backed 请求是同一种 Replay V2 request；Owner 只在识别 composer-backed
-custody 的构建里读回它，今天那是有序链路的构建，部署镜像对它答 `UNAVAILABLE`。route 只使用一个全宽 `PanelFrame`，
+custody 的构建里读回它，也就是开启 `composer-v3-replay` 的构建，没有任何部署镜像开启它，所以部署镜像对它答 `UNAVAILABLE`。route 只使用一个全宽 `PanelFrame`，
 没有 summary strip、历史列表/表格、左右 detail pane 或预留图表高度。header 包含 `EXPLORATORY REPLAY`
 eyebrow、`Replay request` title、一行简短 purpose 与 `Refresh`；在打开合法 selector 前 Refresh disabled。
 inset body 从一条水平 lookup rail 开始：`Request identity`、`Meaning digest`、`Open readback`。窄屏只让
@@ -392,8 +392,8 @@ Strategy Input custody 上解析同一身份：它经由该次运行自己绑定
 `PostgresDevelopComposerReadbackOwnerV2` 都不带 feature 门，所以部署的 read API 会为未设门的
 `POST /v2/develop-composer/runs` 所提交的运行提供它。它在该运行提交时记下的 Research View 与 read cut 上重新推导这次运行，
 所以该 View 过期、或推进到 `ARTIFACT_AVAILABLE` 或 `EXPLORATION_ACTIVE` 之后，同一身份仍能读回。在这条记录存在之前提交的运行
-只在其 View 当前有效时读回，之后在 coordinate `research_custody.run_view_unrecorded` 读回
-`UNAVAILABLE`，以免页面被读成运行消失了。它不接收 request body，返回既有 strict `DevelopComposerOperationResponseV2`；Dashboard BFF 绑定 path identity，并只投影上述字段。`SUCCESS` 必须同时
+只在其 Research View 尚未推进到 `INTENT_FROZEN` 之后、且其准入所依据的授权仍然当前时读回，否则在 coordinate
+`research_custody.run_view_unrecorded` 读回 `UNAVAILABLE`，以免页面被读成运行消失了。它不接收 request body，返回既有 strict `DevelopComposerOperationResponseV2`；Dashboard BFF 绑定 path identity，并只投影上述字段。`SUCCESS` 必须同时
 带 operation receipt 与完整四字段 Artifact projection；其他 disposition 必须不带 receipt 或 Artifact
 projection。未知 key、identity drift、互相矛盾的 disposition field、非法 digest、超限 response、缺失
 configuration、permission denial、transport failure 或 sealed-custody verification failure 全部 fail closed
@@ -486,7 +486,7 @@ readback 的 phase 是 `EXPLORATION_ACTIVE` 的请求以两种形状之一到达
 它的 cut 在 `rd-exploration-cut-v1-` 下指名 Replay 的 seal。composer-backed exploration 是一份 schema 3 视图，其
 `composer_artifact` 恰好携带十项 Composer 事实：从 artifact locator 与 identity digest，经 family binding receipt，
 直到 census frontier digest。只有 composer-backed 的 replay commit 才产出它们，而那条 route 位于
-`sealed-source-intake-composer-acceptance` 之后，没有任何部署镜像启用该特性，所以今天只有有序链路的构建会显示这种。
+`composer-v3-replay` 之后，没有任何部署镜像启用该特性，所以今天只有有序链路的构建会显示这种。
 
 两种形状互不当作对方。携带 Composer artifact 的 schema 2 视图，或不携带的 schema 3 视图，都被拒绝而不是显示。
 因此缺席的 Composer 从不被编码成在场的 Composer，页面也从不暗示一次并未发生的 Composer 运行。每种形状的身份都经

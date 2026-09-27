@@ -12,11 +12,16 @@ workspace = true
 
 [features]
 default = []
+# The production half of the composer-backed Replay: the COMPOSER_V3 commit, its tables and
+# migration, and every read that recognizes a COMPOSER_V3 Replay. It carries no acceptance
+# fixture or sealed corpus; the acceptance feature below includes it rather than owning it.
+composer-v3-replay = []
 sealed-develop-composer-acceptance = ["sealed-strategy-input-acceptance"]
 sealed-artifact-source-acceptance = []
 sealed-source-intake-acceptance = []
 sealed-source-intake-research-acceptance = ["sealed-source-intake-acceptance"]
 sealed-source-intake-composer-acceptance = [
+  "composer-v3-replay",
   "sealed-source-intake-research-acceptance",
   "sealed-develop-composer-acceptance",
   "vibe-product-edge/sealed-deployment-acceptance",
