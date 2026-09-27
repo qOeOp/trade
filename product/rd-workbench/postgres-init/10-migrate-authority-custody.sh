@@ -5439,6 +5439,8 @@ GRANT EXECUTE ON FUNCTION composer_owner_api.commit_develop_composer_acceptance_
 GRANT EXECUTE ON FUNCTION composer_owner_api.resolve_strategy_design_role_set_attestation_v1(text,integer,bytea,text,bytea,bytea,bytea), composer_owner_api.resolve_strategy_design_native_join_v1(text,integer,bytea,text,bytea,bytea,bytea) TO market_data_reader;
 GRANT EXECUTE ON FUNCTION composer_owner_api.resolve_strategy_design_role_set_attestation_v1(text,integer,bytea,text,bytea,bytea,bytea) TO rd_owner;
 GRANT EXECUTE ON FUNCTION composer_owner_api.lock_replay_composition_cut_v1(text) TO market_data_reader, market_data_owner;
+GRANT EXECUTE ON FUNCTION composer_owner_api.record_develop_composer_run_view_v1(text,jsonb,bigint) TO rd_owner, rd_fact_writer;
+GRANT EXECUTE ON FUNCTION composer_owner_api.read_develop_composer_run_view_v1(text) TO rd_owner;
 \if :composer_acceptance
 SELECT pg_catalog.set_config('vibe.migration.install_composer_acceptance','true',true);
 \else
