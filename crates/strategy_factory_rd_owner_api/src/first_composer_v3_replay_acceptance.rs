@@ -1143,8 +1143,9 @@ pub(crate) async fn ensure_first_composer_v3_replay_acceptance_v1(
             .expect("H6: the issuance answers its binding's locator");
 
     // H7: the COMPOSER_V3 Replay, committed over the production route. Its TrialFamily is the one
-    // H1's Research request formed, and its window is that family's sealed Replay policy window,
-    // which R&D requires the Market Data facts to span exactly.
+    // H1's Research request formed. Its window is the one its Market Data facts were composed over,
+    // which R&D requires to lie within that family's sealed Replay policy window
+    // (`replay_window_within_policy_v3`).
     let family = accepted
         .trial_family()
         .expect("H1: an accepted Research request forms its TrialFamily");
