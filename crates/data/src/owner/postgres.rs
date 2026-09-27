@@ -10974,7 +10974,7 @@ impl MarketDataOwnerPostgres {
         let fact = match &named.successor {
             // The Owner-observation instant is the Owner's stamp, not part of what the caller
             // means, so a replay is recognised at the stored successor's own observation.
-            Some(successor) => match derive(successor.owner_observation_time_ns()) {
+            Some(successor) => match derive(owner_observation_time_ns) {
                 Ok(rebuilt) if rebuilt.canonical_bytes() == successor.canonical_bytes() => {
                     successor.clone()
                 }
