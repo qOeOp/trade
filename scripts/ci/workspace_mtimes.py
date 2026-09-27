@@ -35,6 +35,12 @@ deps files, mtimes included, into a CACHEDIR.TAG, the one file name the cleanup 
 (src/cleanup.ts:10-30); `reuse` unpacks it before it sets any mtime. A source change in such a
 package still rebuilds it: its sources get the new mtime like any other changed file.
 
+`prune` runs on main after everything compiled and before the cache is saved. It deletes every
+workspace unit no file of which this run wrote, which is every one older than T: when main's key
+changes, the new entry is saved on top of the one it restored, and those older units would ride
+along in every later entry although a pull request rebuilds each of them anyway. Units of
+dependencies stay, and so does any file named like one; the stash and the marker are not units.
+
 `verify` checks the result by a second route, blob by blob between the two trees rather than
 through `git diff`. Every tracked file whose content differs must be newer than T and every
 other tracked file must be exactly T - 1, whatever its type. A file left wrong fails by name.
@@ -79,19 +85,41 @@ def stash_path(target_dir: Path) -> Path:
     return target_dir / "path-dep-stash" / "CACHEDIR.TAG"
 
 
-def stashed_packages() -> list[tuple[str, list[str]]]:
-    """
-    Return (package name, crate names) for every local path package inside this checkout
-    that is not a workspace member.
-    """
+def metadata() -> dict:
     cargo = shutil.which("cargo") or "cargo"
-    meta = json.loads(
+    return json.loads(
         subprocess.run(
             [cargo, "metadata", "--format-version", "1", "--locked"],
             capture_output=True,
             check=True,
         ).stdout,
     )
+
+
+LIBRARY_KINDS = frozenset({"lib", "rlib", "dylib", "cdylib", "staticlib", "proc-macro"})
+
+
+def crate_names(
+    package: dict,
+    *,
+    only: frozenset[str] | None = None,
+    exclude: frozenset[str] | set[str] = frozenset(),
+) -> list[str]:
+    return sorted(
+        {
+            t["name"].replace("-", "_")
+            for t in package["targets"]
+            if (only is None or only & set(t["kind"])) and not exclude & set(t["kind"])
+        },
+    )
+
+
+def stashed_packages() -> list[tuple[str, list[str]]]:
+    """
+    Return (package name, crate names) for every local path package inside this checkout
+    that is not a workspace member.
+    """
+    meta = metadata()
     root = os.path.realpath(meta["workspace_root"]) + os.sep
     members = set(meta["workspace_members"])
     packages = []
@@ -102,18 +130,38 @@ def stashed_packages() -> list[tuple[str, list[str]]]:
             and package["id"] not in members
             and manifest.startswith(root)
         ):
-            crates = sorted({t["name"].replace("-", "_") for t in package["targets"]})
-            packages.append((package["name"], crates))
+            packages.append((package["name"], crate_names(package)))
     return sorted(packages)
 
 
-def unit_files(target_dir: Path, packages: list[tuple[str, list[str]]]) -> list[Path]:
+def member_packages() -> tuple[list[tuple[str, list[str]]], set[str]]:
     """
-    Return every build, fingerprint and deps file those packages left in any profile
-    directory under the target, nested targets included.
+    Return (package name, crate names) for every workspace member, and every name a unit
+    from outside the workspace can carry in the target.
     """
-    names = [name for name, _ in packages]
-    crates = [crate for _, crate_list in packages for crate in crate_list]
+    meta = metadata()
+    members = set(meta["workspace_members"])
+    # A build script's binary lives in its unit's build directory, named by package, never in deps.
+    own = sorted(
+        (package["name"], crate_names(package, exclude={"custom-build"}))
+        for package in meta["packages"]
+        if package["id"] in members
+    )
+    # A dependency is built only as its library: its units carry its package name and the crate
+    # name of its library target, never the name of one of its tests or binaries.
+    shared = {
+        name
+        for package in meta["packages"]
+        if package["id"] not in members
+        for name in [package["name"], *crate_names(package, only=LIBRARY_KINDS)]
+    }
+    return own, shared
+
+
+def profile_dirs(target_dir: Path) -> list[Path]:
+    """
+    Return every profile directory under the target, nested targets included.
+    """
     profiles = []
     # A walk that never descends into the unit directories themselves: the target holds hundreds
     # of thousands of files, and a profile directory is recognised by its `.fingerprint` child.
@@ -123,24 +171,89 @@ def unit_files(target_dir: Path, packages: list[tuple[str, list[str]]]) -> list[
         subdirectories[:] = [
             d for d in subdirectories if d not in {".fingerprint", "build", "deps", "incremental"}
         ]
+    return profiles
+
+
+def unit_entries(target_dir: Path, packages: list[tuple[str, list[str]]]) -> list[Path]:
+    """
+    Return every build and fingerprint directory and deps file those packages left in
+    any profile directory under the target.
+    """
+    names = [name for name, _ in packages]
+    crates = [crate for _, crate_list in packages for crate in crate_list]
+    if not names:
+        return []
     # cargo names a unit `<package>-<16 hex>` and its outputs `[lib]<crate>-<16 hex>[.ext]`. Matching
     # the whole shape keeps `pyo3-stub-gen-derive`, a different package, out of `pyo3-stub-gen`.
     unit = re.compile(rf"^(?:{'|'.join(map(re.escape, names))})-[0-9a-f]{{16}}$")
     output = re.compile(rf"^(?:lib)?(?:{'|'.join(map(re.escape, crates))})-[0-9a-f]{{16}}(?:\.|$)")
     found = []
-    if not names:
-        return found
-    for profile in profiles:
+    for profile in profile_dirs(target_dir):
         for kind in (".fingerprint", "build"):
-            for entry in (profile / kind).glob("*"):
-                if unit.match(entry.name):
-                    found.extend(p for p in [entry, *entry.rglob("*")] if p.is_file())
+            found.extend(e for e in (profile / kind).glob("*") if unit.match(e.name))
         found.extend(
             entry
             for entry in (profile / "deps").glob("*")
             if entry.is_file() and output.match(entry.name)
         )
     return sorted(set(found))
+
+
+def unit_files(target_dir: Path, packages: list[tuple[str, list[str]]]) -> list[Path]:
+    """
+    Return every build, fingerprint and deps file those packages left in any profile
+    directory under the target, nested targets included.
+    """
+    found = []
+    for entry in unit_entries(target_dir, packages):
+        found.extend(p for p in [entry, *entry.rglob("*")] if p.is_file())
+    return sorted(set(found))
+
+
+def entry_files(entry: Path) -> list[Path]:
+    return [entry] if entry.is_file() else [p for p in entry.rglob("*") if p.is_file()]
+
+
+def prune(target_dir: Path) -> int:
+    """
+    Delete the workspace units this run did not build, before main saves the target.
+    """
+    marker = read_marker(target_dir)
+    if marker is None:
+        print(f"{PREFIX} no source marker in {target_dir}; nothing pruned")
+        return 0
+    sha, recorded = marker
+    own, shared = member_packages()
+    # A name a dependency's units also carry would match them, and they reuse by hash and must
+    # stay: a member test named `uuid` shares `deps/` with the uuid crate. Such a name is left out,
+    # and with it only that name's files; a package name no member shares today.
+    packages = [
+        (name, [crate for crate in crates if crate not in shared])
+        for name, crates in own
+        if name not in shared
+    ]
+    units = removed = 0
+    for entry in unit_entries(target_dir, packages):
+        files = entry_files(entry)
+        # A unit this run built or re-ran has an output written after T; one it only restored has
+        # none. The pull request would rebuild it anyway: reuse sets unchanged sources to T - 1.
+        if any(f.stat().st_mtime >= recorded for f in files):
+            continue
+        removed += sum(f.stat().st_size for f in files)
+        units += 1
+        if entry.is_dir():
+            shutil.rmtree(entry)
+        else:
+            entry.unlink()
+    print(
+        f"{PREFIX} pruned {units} workspace unit entries, {removed} bytes, that this run did not build "
+        f"(older than {sha[:9]} at {recorded})",
+    )
+    output = os.environ.get("GITHUB_OUTPUT")
+    if output:
+        with open(output, "a", encoding="utf-8") as handle:
+            handle.write(f"pruned-entries={units}\npruned-bytes={removed}\n")
+    return 0
 
 
 def stash(target_dir: Path) -> int:
@@ -312,7 +425,7 @@ def verify(target_dir: Path) -> int:
 
 
 def main() -> int:
-    commands = {"record": record, "reuse": reuse, "verify": verify, "stash": stash}
+    commands = {"record": record, "reuse": reuse, "verify": verify, "stash": stash, "prune": prune}
     if len(sys.argv) != 3 or sys.argv[1] not in commands:
         print(f"usage: {sys.argv[0]} {'|'.join(commands)} <target-dir>", file=sys.stderr)
         return 2
