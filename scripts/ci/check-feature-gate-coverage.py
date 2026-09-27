@@ -56,7 +56,6 @@ EXPECTED_UNCOVERED = {
     "fuzz": "scripts/fuzz-adapter.sh only; run by hand",
     # Gate code in crates whose feature reaches no job.
     "betfair": "crates/pyo3 bindings for a venue the test gate excludes",
-    "owner-recovery": "crates/qualification; no --features string names it",
 }
 
 # POSIX ERE, for `git grep -E`. Not a Python pattern: `re` reads `[[:space:]]` as a nested set.
@@ -95,6 +94,7 @@ SHELL_EXTRA = re.compile(r'EXTRA_FEATURES="([^"$]+)"')
 # `EXTRA_FEATURES` value the workflows set, because that is the only input that varies between them.
 FEATURE_VARIABLES = (
     "CARGO_FEATURES",
+    "CARGO_TEST_FEATURES",
     "RD_OWNER_POSTGRES_FEATURES",
     "CORE_SELECTED_FEATURES",
 )

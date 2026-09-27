@@ -238,7 +238,9 @@ Executable provenance 是独立的效果边界。Qualification 记录实际使�
 通过。同一个函数还钉死了该文件指定行的 SHA-256，因此任何替代文件都无法满足它。而文件本身已从那台机器上消失：
 没有配置 Time Machine 目标，没有本地快照保留它，主目录与任何已挂载卷下都没有携带该 session 标识的文件，
 该产物也从未提交进仓库。于是它的证明
-`isolated_postgres_recovery_is_atomic_fail_closed_and_replay_safe` 在任何地方都无法通过。上文契约继续作为
+`isolated_postgres_recovery_is_atomic_fail_closed_and_replay_safe` 在任何地方都无法通过；用同一个文件重算封存向量的
+`frozen_evidence_recomputes_exact_canonical_vector` 也一样。两者都以 unrunnable 标记为 ignore。该模块的其它测试不读
+这个文件：`make cargo-test` 以 `vibe-qualification/owner-recovery` 构建，所以 workspace 测试 job 会运行它们。上文契约继续作为
 一次已封闭的单一事故重建的记录；它不会因为无法再被执行而扩大成通用 restore 路径，本节也不授权用夹具替代
 被封存的证据。
 
