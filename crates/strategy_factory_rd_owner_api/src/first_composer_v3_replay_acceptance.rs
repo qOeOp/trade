@@ -31,6 +31,7 @@ use axum::{body::Body, extract::Request};
 use tower::ServiceExt;
 use vibe_data::owner::{
     chain_fixture_v1::CHAIN_FIXTURE_INSTRUMENT_V1,
+    instrument_master_v2::{InstrumentMasterCutLocatorV2, InstrumentMasterResolverV2},
     market_semantics_admission_v1::{
         MarketSemanticsFactSubmissionV1, MarketSemanticsValueSubmissionV1,
     },
@@ -101,13 +102,10 @@ pub(crate) struct FirstComposerV3ReplayV1 {
     pub(crate) research_request_identity: String,
     pub(crate) design_identity: String,
     pub(crate) artifact_locator: String,
-    pub(crate) plan_canonical_digest: [u8; 32],
     pub(crate) replay_request: ExploratoryReplayRequestLocatorV2,
-    pub(crate) attempt_identity: String,
     pub(crate) composition_binding: ReplayCompositionBindingLocatorV1,
     pub(crate) execution_input_binding: OwnerRecordLocatorV1,
-    pub(crate) instrument_master_cut: OwnerRecordLocatorV1,
-    pub(crate) universe_selection_identity: [u8; 32],
+    pub(crate) instrument_master_cut: InstrumentMasterCutLocatorV2,
     pub(crate) member_instrument: String,
     /// Whether this call committed the Replay. The prefix asserts `true` on a fresh database; the
     /// body asserts `false`.
@@ -565,12 +563,24 @@ pub(crate) async fn ensure_first_composer_v3_replay_acceptance_v1(
 
     // The R&D Owner API's own state, as `main` composes it, for the two routes below that read it:
     // the universe-member composition issuance and the COMPOSER_V3 commit.
+    let scheduling =
+        crate::native_replay_scheduling_acceptance::composed_native_replay_scheduling_resolver(
+            test_database,
+        )
+        .await;
+    let instrument_master = Arc::new(
+        instrument_master_v2_postgres_owner_from_environment()
+            .await
+            .expect("Market Data's Instrument Master Owner opens"),
+    );
     let app = owner_state_routes().with_state(
         Box::pin(owner_api_state(
             test_database,
             &deployment,
             owner.clone(),
             token_digest,
+            scheduling.resolver(),
+            instrument_master.clone(),
         ))
         .await,
     );
@@ -641,6 +651,14 @@ pub(crate) async fn ensure_first_composer_v3_replay_acceptance_v1(
         .expect("H1: the sealed Replay policy verifies")
         .window;
     let replay_request_identity = format!("{fixture_key}-replay");
+    let created = !sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS (SELECT 1 FROM rd_sealed_exploratory_replay_requests_v1
+                         WHERE request_identity = $1)",
+    )
+    .bind(&replay_request_identity)
+    .fetch_one(&rd)
+    .await
+    .expect("H7: R&D answers whether the Replay is already committed");
     let (status, answer) = post(
         &app,
         "/v3/exploratory-replay-requests/composer-backed",
@@ -667,21 +685,92 @@ pub(crate) async fn ensure_first_composer_v3_replay_acceptance_v1(
         serde_json::from_value(json_of(&answer)["locator"].clone())
             .expect("H7: the commit answers its Replay's locator");
 
-    todo!(
-        "H8: the execution input binding, once a scheduling resolver exists for it, over \
-         {replay_request:?}"
+    // H8: the execution input binding, issued over the production route and read back through the
+    // result route. Market Data issues the request's Instrument Master cut and initial-frame sample
+    // projection under the Replay's composition binding, and answers the scheduling reads through
+    // the composed resolver.
+    let (status, answer) = post(
+        &app,
+        "/v2/exploratory-replay/execution-input-bindings",
+        Some(serde_json::to_value(&replay_request).expect("the Replay locator serializes")),
     )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "H8: the execution input binding: {answer}"
+    );
+    let issued = json_of(&answer);
+    let (status, answer) = post(
+        &exploratory_replay::result_router(owner.clone(), token_digest),
+        "/v2/exploratory-replay/execution-input-bindings/resolve",
+        Some(serde_json::to_value(&replay_request).expect("the Replay locator serializes")),
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "H8: the execution input binding reads back: {answer}"
+    );
+    assert_eq!(
+        json_of(&answer),
+        issued,
+        "H8: the binding read back is the one issued"
+    );
+    let instrument_master_cut = instrument_master
+        .resolve_instrument_master_v2_for_native_replay_request(&replay_request.request_identity)
+        .await
+        .unwrap_or_else(|e| panic!("H8: the Replay's Instrument Master cut resolves: {e:?}"))
+        .locator();
+    scheduling.revoke().await;
+
+    FirstComposerV3ReplayV1 {
+        deployment,
+        research_request_identity,
+        design_identity: published["design_identity"]
+            .as_str()
+            .expect("H3: the role intent names its Design")
+            .to_owned(),
+        artifact_locator: composer_locator.artifact_locator.clone(),
+        member_instrument: CHAIN_FIXTURE_INSTRUMENT_V1.to_owned(),
+        replay_request,
+        composition_binding,
+        execution_input_binding: OwnerRecordLocatorV1 {
+            identity: issued["binding_identity"]
+                .as_str()
+                .expect("H8: the binding names its identity")
+                .to_owned(),
+            digest: issued["binding_digest"]
+                .as_str()
+                .expect("H8: the binding names its digest")
+                .to_owned(),
+        },
+        instrument_master_cut,
+        created,
+    }
 }
 
 /// The R&D Owner API's state for the routes this fixture drives, composed from the deployment the
-/// fixture admitted.
+/// fixture admitted. Market Data's execution-input ports open from the deployment environment, as
+/// `main` opens them; the scheduling resolver is the one the ordered chain composes in place of the
+/// Store Admission one (`native_replay_scheduling_acceptance`).
 async fn owner_api_state(
     test_database: &CanonicalOwnerPostgresTestDatabaseV1,
     deployment: &ProductEdgeDeploymentAcceptanceFixtureV1,
     owner: Arc<PostgresResearchGoalOwnerV1>,
     token_digest: [u8; 32],
+    native_replay_scheduling: Arc<dyn NativeReplaySchedulingResolverV1>,
+    instrument_master: Arc<InstrumentMasterV2PostgresOwner>,
 ) -> ApiState {
     let rd_url = test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner);
+    let develop_composer = Arc::new(
+        SealedPostgresSourceResearchComposerV2::connect(
+            rd_url,
+            test_database.database_url(CanonicalOwnerTestRoleV1::RdFactWriter),
+        )
+        .await
+        .expect("the Composer opens"),
+    );
     // No route this fixture drives builds an Artifact, so the sandbox socket is never dialled.
     let artifact_owner = Arc::new(
         PostgresArtifactBuildOwnerV1::connect(rd_url, SANDBOX_SOCKET_DEFAULT, 600_000)
@@ -712,19 +801,20 @@ async fn owner_api_state(
         request_proof_digest: deployment.request_proof_digest.clone(),
         allow_acceptance_faults: false,
         _market_data_research_pit: None,
-        native_replay_scheduling: None,
-        instrument_master_v2: None,
-        instrument_economic_terms: None,
-        universe_sample_projection: None,
-        develop_composer_read: None,
-        develop_composer: Arc::new(
-            SealedPostgresSourceResearchComposerV2::connect(
-                rd_url,
-                test_database.database_url(CanonicalOwnerTestRoleV1::RdFactWriter),
-            )
-            .await
-            .expect("the Composer opens"),
-        ),
+        native_replay_scheduling: Some(native_replay_scheduling),
+        instrument_master_v2: Some(instrument_master),
+        instrument_economic_terms: Some(Arc::new(
+            instrument_economic_terms_postgres_owner_from_environment_v1()
+                .await
+                .expect("Market Data's instrument economic terms Owner opens"),
+        )),
+        universe_sample_projection: Some(Arc::new(
+            universe_sample_projection_owner_from_environment_v1()
+                .await
+                .expect("Market Data's universe sample projection Owner opens"),
+        )),
+        develop_composer_read: Some(develop_composer.clone()),
+        develop_composer,
         replay_composition: Some(Arc::new(
             ReplayCompositionOwnerV1::connect(
                 test_database.database_url(CanonicalOwnerTestRoleV1::MarketDataOwner),
