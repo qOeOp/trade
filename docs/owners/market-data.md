@@ -952,9 +952,12 @@ shape is built and issued. A locator-only `ReplayCompositionUniverseBindingIssua
 Source Binding, the Universe Selection, the Reference Fact R0 record, Market Semantics and the correction policy, and
 nothing else. Neither issuance body names a replay window, and one that does is refused at parse by
 `deny_unknown_fields`. The Owner derives the window: from the event instant the snapshot's R0 record starts at, for one
-execution bar - the bar the Source Binding declares for the one label the Design's BAR roles read - and never past the
-R0 claim. Several labels are refused as `EXECUTION_TIMEFRAME_NOT_SINGLE`, because several timeframes in one Replay are
-Strategy Factory slice T2's; a label the binding declares no bar for as `EXECUTION_TIMEFRAME_NOT_DECLARED`; and an
+execution bar - the bar the Source Binding declares for the Design's execution label - and never past the R0 claim. The
+execution label is the label of the role each of the Design's joins triggers on, so the first corpus's joined `1M`,
+`1H` and session-day roles execute on the `1M` trigger; a Design that declares no join executes on the one label its
+BAR roles read. Several execution labels are refused as `EXECUTION_TIMEFRAME_NOT_SINGLE`, because several execution
+timeframes in one Replay are Strategy Factory slice T2's; a label the binding declares no bar for as
+`EXECUTION_TIMEFRAME_NOT_DECLARED`; and an
 execution bar with no fixed length, or longer than the R0 claim, as `EXECUTION_BAR_EXCEEDS_R0_WINDOW`; each is
 HTTP 422. A binding that declares no bars, or a Design with no BAR role, gets the event instant alone. The window rests on
 the order PIT with R0, Market Semantics, the role declarations, then the schedule. It runs in the first corpus's two transactions and challenges without the

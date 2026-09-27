@@ -2270,18 +2270,22 @@ async fn record_issuance_v1(
 
 /// The Replay interval an issuance composes, derived by the Owner: from the event instant the
 /// snapshot's R0 record starts at, for one execution bar - the bar the Source Binding declares for
-/// the one label the Design's BAR roles read - and never past the R0 claim.
+/// the Design's execution label - and never past the R0 claim.
 ///
-/// The caller names no interval. A binding that declares no bars, or a Design with no BAR role,
-/// gets the event instant alone.
+/// The execution label is the Design's trigger's: the label of the role each of its joins triggers
+/// on, which must be one label. A Design that declares no join executes on the one label its BAR
+/// roles read. The caller names no interval. A binding that declares no bars, or a Design with no
+/// BAR role and no join, gets the event instant alone.
 pub(super) fn owner_replay_request_v1(
     pit: &crate::owner::pit_snapshot::UntrustedPitSnapshotLocator,
     r0: &crate::owner::reference_fact_coordinates::r0::ReferenceFactR0ReadbackV1,
     source: &crate::owner::source_binding::SourceBindingOwnerReadback,
+    receipt: &crate::owner::strategy_design_role_set::StrategyDesignRoleSetReceiptV1,
     role_requests: &[crate::owner::strategy_input_binding::UntrustedStrategyInputBindingRequest],
 ) -> Result<UntrustedReplayMarketFactsRequestV2, ReplayCompositionBindingErrorV1> {
     use crate::owner::declared_bar_timeframe_v1::{
-        ExecutionWindowErrorV1, execution_label_v1, execution_window_end_v1,
+        ExecutionWindowErrorV1, execution_label_over_v1, execution_label_v1,
+        execution_window_end_v1,
     };
 
     let refusal = |e| match e {
@@ -2295,12 +2299,31 @@ pub(super) fn owner_replay_request_v1(
             ReplayCompositionBindingErrorV1::ExecutionBarExceedsR0Window
         }
     };
+    let execution_label = if receipt.joins.is_empty() {
+        execution_label_v1(role_requests)
+    } else {
+        // The role set's projection already requires each join's trigger to be one of its roles.
+        let triggers = receipt
+            .joins
+            .iter()
+            .map(|join| {
+                receipt
+                    .roles
+                    .iter()
+                    .find(|role| role.semantic_id == join.trigger_input_id)
+                    .map(|role| role.timeframe.as_str())
+                    .ok_or(ReplayCompositionBindingErrorV1::DependencyMismatch)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        execution_label_over_v1(triggers)
+    }
+    .map_err(refusal)?;
     let start = r0.record().replay_start_event_ns;
     let end = execution_window_end_v1(
         start,
         r0.record().replay_end_event_ns_exclusive,
         source.bar_timeframes(),
-        execution_label_v1(role_requests).map_err(refusal)?,
+        execution_label,
     )
     .map_err(refusal)?;
     Ok(UntrustedReplayMarketFactsRequestV2::new(
@@ -2558,6 +2581,7 @@ async fn issue_first_corpus_in_transaction_v1(
         request.pit_locator(),
         &r0,
         &source,
+        receipt,
         &declarations
             .iter()
             .map(|declaration| declaration.request().clone())

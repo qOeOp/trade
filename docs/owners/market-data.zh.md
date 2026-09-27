@@ -870,9 +870,10 @@ locator 的 `ReplayCompositionUniverseBindingIssuanceRequestV1` 走自己的路�
 `market-data.replay-composition-universe-issuance-meaning.v1\0` 下哈希；它指名 Composer attestation、PIT request、
 Source Binding、Universe Selection、Reference Fact R0 record、Market Semantics 与 correction policy，此外什么都不
 指名。两种 issuance body 都不指名 replay 窗口，指名了的 body 在解析时被 `deny_unknown_fields` 拒绝。窗口由 Owner
-推导：从快照 R0 record 的起始事件时刻起，持续一个执行 bar - 即 Source Binding 为 Design 的 BAR 角色所读的那一个标签声明
-的 bar - 且绝不越过 R0 的声明。多个标签以 `EXECUTION_TIMEFRAME_NOT_SINGLE` 拒绝，因为一个 Replay 里的多个周期属于
-Strategy Factory 切片 T2；binding 没有为其声明 bar 的标签以 `EXECUTION_TIMEFRAME_NOT_DECLARED` 拒绝；没有固定长度、
+推导：从快照 R0 record 的起始事件时刻起，持续一个执行 bar - 即 Source Binding 为 Design 的执行标签声明的 bar - 且绝
+不越过 R0 的声明。执行标签是 Design 各个 join 所触发的那个角色的标签，所以第一语料里 join 在一起的 `1M`、`1H` 与
+session 日角色按 `1M` 触发器执行；不声明 join 的 Design 按它的 BAR 角色所读的那一个标签执行。多个执行标签以
+`EXECUTION_TIMEFRAME_NOT_SINGLE` 拒绝，因为一个 Replay 里的多个执行周期属于 Strategy Factory 切片 T2；binding 没有为其声明 bar 的标签以 `EXECUTION_TIMEFRAME_NOT_DECLARED` 拒绝；没有固定长度、
 或长于 R0 声明的执行 bar 以 `EXECUTION_BAR_EXCEEDS_R0_WINDOW` 拒绝；三者都是 HTTP 422。不声明任何 bar 的 binding，
 或没有 BAR 角色的 Design，只得到事件时刻本身。窗口依赖的顺序是：PIT 连同 R0、Market Semantics、角色声明，然后是
 schedule。它在第一语料的两个事务与两个 challenge 中运行，但不做 native-join 读取，并原子地存下 schema 2

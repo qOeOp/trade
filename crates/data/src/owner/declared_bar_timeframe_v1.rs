@@ -417,8 +417,13 @@ pub(crate) fn execution_label_v1(
     )
 }
 
-/// [`execution_label_v1`] over the labels the BAR roles read.
-fn execution_label_over_v1<'a>(
+/// The one label among `labels` - the labels the BAR roles read, or the labels a Design's joins
+/// trigger on - `None` when there are none.
+///
+/// # Errors
+///
+/// [`ExecutionWindowErrorV1::ExecutionTimeframeNotSingle`] when there are several.
+pub(crate) fn execution_label_over_v1<'a>(
     bar_labels: impl IntoIterator<Item = &'a str>,
 ) -> Result<Option<&'a str>, ExecutionWindowErrorV1> {
     let mut labels = bar_labels.into_iter().collect::<Vec<_>>();
