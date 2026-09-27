@@ -5013,6 +5013,8 @@ for chain_step in "${chain_run_order[@]}"; do
   fi
   if [[ "$chain_step_kind" != replay && "$test_name" == 'durable_owner_is_atomic_restart_exact_and_fail_closed' ]]; then
     require_collected_positive_control "$chain_record_dir" "$chain_position"
+    echo "LANE8 PROBE, not for merge: failing entry ${chain_position} on purpose after its record" >&2
+    false
   fi
   if [[ -n "$backtest_result_fault" ]]; then
     restore_backtest_result_fault "$backtest_result_fault"
