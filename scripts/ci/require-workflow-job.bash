@@ -7,7 +7,10 @@
 # a run that ended without success, or none within the timeout, fails here and says which.
 #
 # Usage: require-workflow-job.bash <workflow file> <job name> <commit sha> <timeout seconds>
-# Needs GH_TOKEN with actions: read and GITHUB_REPOSITORY.
+# A job name of `*` requires the whole run instead: its conclusion, which counts skipped jobs as
+# neither success nor failure (docs-pages skips its deploy job on a pull request).
+# Needs GH_TOKEN with actions: read and GITHUB_REPOSITORY. REQUIRE_WORKFLOW_JOB_RECOVERY, when set,
+# is printed after any failure, so whoever is blocked knows how to clear a requirement that was wrong.
 set -Eeuo pipefail
 trap 'echo "require-workflow-job.bash:${LINENO}: this failed: ${BASH_COMMAND}" >&2' ERR
 
@@ -18,14 +21,23 @@ timeout_seconds="${4:?timeout in seconds}"
 interval="${REQUIRE_WORKFLOW_JOB_INTERVAL:-15}"
 repo="repos/${GITHUB_REPOSITORY:?}"
 
+recovery() {
+  if [[ -n "${REQUIRE_WORKFLOW_JOB_RECOVERY:-}" ]]; then
+    echo "$REQUIRE_WORKFLOW_JOB_RECOVERY" >&2
+  fi
+}
 started=$SECONDS
 state=""
 while :; do
   run="$(gh api "${repo}/actions/workflows/${workflow}/runs?head_sha=${sha}&per_page=100" \
     --jq '[.workflow_runs[]] | sort_by(.run_number) | last | .id // empty')"
   if [[ -n "$run" ]]; then
-    state="$(gh api "${repo}/actions/runs/${run}/jobs" --paginate \
-      --jq ".jobs[] | select(.name == \"${job}\") | \"\\(.status) \\(.conclusion)\"" | head -1)"
+    if [[ "$job" == "*" ]]; then
+      state="$(gh api "${repo}/actions/runs/${run}" --jq '"\(.status) \(.conclusion)"')"
+    else
+      state="$(gh api "${repo}/actions/runs/${run}/jobs" --paginate \
+        --jq ".jobs[] | select(.name == \"${job}\") | \"\\(.status) \\(.conclusion)\"" | head -1)"
+    fi
     case "$state" in
       "completed success")
         echo "${workflow} / ${job} succeeded on ${sha} (run ${run}, $((SECONDS - started))s waited)"
@@ -33,6 +45,7 @@ while :; do
         ;;
       completed\ *)
         echo "ERROR: ${workflow} / ${job} ended as '${state#completed }' on ${sha} (run ${run})." >&2
+        recovery
         exit 1
         ;;
     esac
@@ -40,6 +53,7 @@ while :; do
   if ((SECONDS - started >= timeout_seconds)); then
     echo "ERROR: ${workflow} / ${job} did not succeed on ${sha} within ${timeout_seconds}s;" \
       "it is '${state:-not found}'." >&2
+    recovery
     exit 1
   fi
   sleep "$interval"

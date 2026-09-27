@@ -28,7 +28,13 @@ case "$*" in
     run="${line%%|*}"; run="${run// /}"
     if [[ -n "$run" ]]; then echo "$run"; fi
     ;;
-  *"/jobs"*)
+  *"/jobs"* | *"/actions/runs/"*)
+    # A job's state, or with job `*` the whole run's. Only the endpoint the case means answers: a
+    # whole-run case gets nothing from the jobs endpoint, and a job case nothing from the run's.
+    case "$*" in
+      *"/jobs"*) [[ -z "${STANDIN_WHOLE_RUN:-}" ]] || exit 0 ;;
+      *) [[ -n "${STANDIN_WHOLE_RUN:-}" ]] || exit 0 ;;
+    esac
     polls=$(($(cat "$SCENARIO.polls") - 1))
     line="$(sed -n "${polls}p" "$SCENARIO")"; [[ -n "$line" ]] || line="$(tail -1 "$SCENARIO")"
     echo "${line#*| }"
@@ -38,13 +44,13 @@ EOF
 chmod +x "${root}/bin/gh"
 
 run_case() { # name, expected exit, expected output fragment, timeout, scenario lines...
-  local name=$1 want=$2 fragment=$3 timeout=$4
+  local name=$1 want=$2 fragment=$3 timeout=$4 job="${JOB:-pre-commit (no-compile hooks)}"
   shift 4
   export SCENARIO="${root}/${name}"
   printf '%s\n' "$@" > "$SCENARIO"
   local status=0
   # Bounded from outside: a requirement that ignores its own timeout would otherwise hang this test.
-  timeout 20 bash "$REQUIRER" pre-commit-pr.yml "pre-commit (no-compile hooks)" abc123 "$timeout" \
+  timeout 20 bash "$REQUIRER" pre-commit-pr.yml "$job" abc123 "$timeout" \
     > "${root}/${name}.out" 2>&1 || status=$?
   if [[ "$status" -eq 124 ]]; then
     echo "FAIL: ${name}: still waiting after 20s; it ignored its ${timeout}s timeout." >&2
@@ -65,4 +71,19 @@ run_case cancelled 1 "ended as 'cancelled'" 60 "7 | completed cancelled"
 run_case never-ran 1 "did not succeed on abc123 within 0s; it is 'not found'" 0 "| "
 run_case still-running-at-timeout 1 "it is 'in_progress '" 0 "7 | in_progress "
 
-echo "require-workflow-job: waits for the job, fails by name on any other ending and at the timeout"
+# The whole run (`*`): its conclusion decides, and it is read from the run, not from any job.
+JOB='*' STANDIN_WHOLE_RUN=1 run_case whole-run-succeeds 0 "/ * succeeded on abc123 (run 9" 60 "9 | in_progress " "9 | completed success"
+JOB='*' STANDIN_WHOLE_RUN=1 run_case whole-run-fails 1 "/ * ended as 'failure' on abc123 (run 9)" 60 "9 | completed failure"
+# A recovery hint, when given, follows every failure and never a success.
+REQUIRE_WORKFLOW_JOB_RECOVERY="to clear: dispatch it on this head" run_case recovery-on-failure 1 \
+  "to clear: dispatch it on this head" 60 "7 | completed failure"
+REQUIRE_WORKFLOW_JOB_RECOVERY="to clear: dispatch it on this head" run_case recovery-on-timeout 1 \
+  "to clear: dispatch it on this head" 0 "| "
+REQUIRE_WORKFLOW_JOB_RECOVERY="to clear: dispatch it on this head" run_case no-recovery-on-success 0 \
+  "succeeded on abc123" 60 "7 | completed success"
+if grep -qF "to clear" "${root}/no-recovery-on-success.out"; then
+  echo "FAIL: the recovery hint printed on a success" >&2
+  exit 1
+fi
+
+echo "require-workflow-job: waits for the job or the whole run, fails by name on any other ending and at the timeout, and says how to recover"
