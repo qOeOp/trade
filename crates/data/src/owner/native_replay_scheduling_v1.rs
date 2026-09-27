@@ -1683,6 +1683,30 @@ pub(crate) mod tests {
         frame_time_ns: u64,
         window_end_ns_exclusive: u64,
     ) -> NativeReplayInitialMarketReadbackV1 {
+        let (verified, quote_cut, schedules, request) =
+            frame_readback_inputs(seed, frame_time_ns, window_end_ns_exclusive);
+        issue_native_replay_initial_market_readback_v1(
+            verified,
+            quote_cut,
+            schedules,
+            declared_minute(),
+            &request,
+        )
+        .expect("exact initial Market Data readback")
+    }
+
+    /// What [`frame_readback`] issues its readback from: a two-member frame at `frame_time_ns`, its
+    /// quote cut one instant later, both members' schedules, and the request naming the frame.
+    fn frame_readback_inputs(
+        seed: u8,
+        frame_time_ns: u64,
+        window_end_ns_exclusive: u64,
+    ) -> (
+        VerifiedPitObservationBatch,
+        VerifiedPitObservationBatch,
+        [BarScheduleReadbackV1; 2],
+        NativeReplayInitialMarketRequestV1,
+    ) {
         let first = InstrumentId::from("AAA-PERP.SIM");
         let second = InstrumentId::from("BBB-PERP.SIM");
         let mut rows = Vec::new();
@@ -1735,17 +1759,68 @@ pub(crate) mod tests {
             &["AAA-PERP.SIM", "BBB-PERP.SIM"],
             frame_time_ns + 1,
         );
-        issue_native_replay_initial_market_readback_v1(
-            verified,
+        let schedules = [
+            schedule_at("AAA-PERP.SIM", 40, frame_time_ns),
+            schedule_at("BBB-PERP.SIM", 41, frame_time_ns),
+        ];
+        (verified, quote_cut, schedules, request)
+    }
+
+    /// The quote cut reaches only the fill. A frame decided on its own instant, as every intake
+    /// mints one, takes a quote cut published after its decision cut; every strategy input the
+    /// readback binds still comes from the frame's own batch, all of whose rows that cut could see.
+    #[rstest::rstest]
+    fn a_quote_cut_published_after_the_decision_reaches_only_the_fill() {
+        let (frame, quote_cut, schedules, request) = frame_readback_inputs(30, 100, 1_000);
+        let decided_at = |batch: VerifiedPitObservationBatch, cut: u64| {
+            batch.edit_for_test(|fields| {
+                fields.time_evidence.decision_cut =
+                    UntrustedSnapshotDecisionCut::from_untrusted(cut, "clock", "epoch");
+                fields.time_evidence.observed_at = cut;
+            })
+        };
+        let frame = decided_at(frame, 100);
+        let quote_cut = decided_at(quote_cut, 101);
+        let decision_cut = frame.time_evidence().decision_cut.value;
+        assert_eq!(frame.time_evidence().event_effective.value, decision_cut);
+        assert!(
+            frame
+                .observations()
+                .iter()
+                .all(|row| row.event_effective <= decision_cut)
+        );
+        assert!(
+            quote_cut
+                .observations()
+                .iter()
+                .all(|row| row.event_effective > decision_cut),
+            "every Quote follows the decision"
+        );
+        let (frame_snapshot, frame_batch, quote_batch) = (
+            frame.snapshot_identity(),
+            frame.digest(),
+            quote_cut.digest(),
+        );
+
+        let readback = issue_native_replay_initial_market_readback_v1(
+            frame,
             quote_cut,
-            [
-                schedule_at("AAA-PERP.SIM", 40, frame_time_ns),
-                schedule_at("BBB-PERP.SIM", 41, frame_time_ns),
-            ],
+            schedules,
             declared_minute(),
             &request,
         )
-        .expect("exact initial Market Data readback")
+        .expect("the frame takes the quote cut published after its decision");
+        let inputs = readback.universe_frame();
+        assert_eq!(inputs.trigger().snapshot_identity(), frame_snapshot);
+        assert_eq!(inputs.trigger().observation_batch_digest(), frame_batch);
+        assert_eq!(inputs.values().len(), 2, "one input per member");
+        assert!(
+            inputs
+                .values()
+                .iter()
+                .all(|value| value.observation_batch_digest() == frame_batch),
+            "every strategy input is bound from the frame's batch, none from the quote cut ({quote_batch:?})"
+        );
     }
 
     pub(crate) fn window_request(
