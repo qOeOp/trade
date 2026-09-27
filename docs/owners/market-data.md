@@ -98,8 +98,9 @@ never runs in CI.
   `SEALED_ACCEPTANCE_NO_STORE_ADMISSION_V1` where an admitted read carries a receipt; only a build that carries that
   port accepts the marker. Admission itself, including the principal it leases and the grants on that gate, is still
   `B3`. No production role holds that gate today: the deployed ACL cutover revokes `USAGE` on `market_data_private`
-  from every role but the owner, and the scheduling floors a Store Admission measures do not cover the PIT evaluation
-  reads the path makes.
+  from every role but the owner, and no role is yet granted what the admitted ports' measurement floors list. Each
+  port opens only on a measurement that covers the floors of the reads it serves, the native Replay scheduling port's
+  PIT evaluation reads included, and each read checks its own floor again on every admission it reads under.
   Reading a BAR schedule has **two custody strategies**, one per build, and this document has until now described
   neither. A test build opens its own `REPEATABLE READ READ ONLY` transaction and validates the schedule's history
   itself; a production build takes its snapshot from the admitted port's evidence and revalidates before returning.

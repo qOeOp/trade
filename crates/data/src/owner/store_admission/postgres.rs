@@ -48,6 +48,232 @@ impl PostgresTlsIdentity {
     }
 }
 
+/// The catalog surface one admitted read touches: every function it calls, by exact signature, and
+/// every relation those functions or the read itself touch. A port refuses an admission whose
+/// measurement does not cover its floor, because an unmeasured object can change under it unseen.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) struct MeasurementFloor {
+    pub(super) name: &'static str,
+    pub(super) functions: &'static [&'static str],
+    pub(super) relations: &'static [&'static str],
+}
+
+/// The fixed V2 sample-projection snapshot read.
+pub(super) const SAMPLE_PROJECTION_FLOOR_V2: MeasurementFloor = MeasurementFloor {
+    name: "sample_projection_v2",
+    functions: &[
+        "market_data_private.resolve_strategy_input_sample_projection_v2(bytea)",
+        "market_data_private.resolve_timeframe_projection_receipt_v1(bytea)",
+        "market_data_private.resolve_sample_receipt_v1(bytea)",
+    ],
+    relations: &[
+        "market_data_private.strategy_input_sample_projection_receipts_v2",
+        "market_data_private.timeframe_projection_receipts_v1",
+        "market_data_private.sample_facts_v1",
+        "market_data_private.sample_receipts_v1",
+        "market_data_private.sample_outbox_v1",
+    ],
+};
+
+/// The complete fixed V3 BAR projection read.
+pub(super) const SAMPLE_PROJECTION_FLOOR_V3: MeasurementFloor = MeasurementFloor {
+    name: "sample_projection_v3",
+    functions: &[
+        "market_data_private.resolve_strategy_input_sample_projection_v3(bytea)",
+        "market_data_private.resolve_strategy_input_sample_projection_schedule_dependencies_v3(bytea)",
+        "market_data_private.resolve_timeframe_projection_receipt_v1(bytea)",
+        "market_data_private.resolve_sample_receipt_v1(bytea)",
+        "market_data_private.resolve_bar_schedule_v1(bytea)",
+        "market_data_private.resolve_bar_schedule_history_v1(text)",
+    ],
+    relations: &[
+        "market_data_private.strategy_input_sample_projection_receipts_v3",
+        "market_data_private.strategy_input_sample_projection_schedule_dependencies_v3",
+        "market_data_private.timeframe_projection_receipts_v1",
+        "market_data_private.sample_facts_v1",
+        "market_data_private.sample_receipts_v1",
+        "market_data_private.sample_outbox_v1",
+        "market_data_private.bar_schedule_state_v1",
+        "market_data_private.bar_schedule_facts_v1",
+        "market_data_private.bar_schedule_heads_v1",
+        "market_data_private.bar_schedule_cuts_v1",
+        "market_data_private.bar_schedule_receipts_v1",
+        "market_data_private.bar_schedule_outbox_v1",
+    ],
+};
+
+/// The fixed BAR schedule read.
+pub(super) const BAR_SCHEDULE_FLOOR_V1: MeasurementFloor = MeasurementFloor {
+    name: "bar_schedule_v1",
+    functions: &[
+        "market_data_private.resolve_bar_schedule_v1(bytea)",
+        "market_data_private.resolve_bar_schedule_candidates_v1(text)",
+        "market_data_private.resolve_bar_schedule_history_v1(text)",
+    ],
+    relations: &[
+        "market_data_private.bar_schedule_state_v1",
+        "market_data_private.bar_schedule_facts_v1",
+        "market_data_private.bar_schedule_heads_v1",
+        "market_data_private.bar_schedule_cuts_v1",
+        "market_data_private.bar_schedule_receipts_v1",
+        "market_data_private.bar_schedule_outbox_v1",
+    ],
+};
+
+/// A frame's quote cut read: the census of quote cuts it is chosen from and the frame census its
+/// bound is read from.
+pub(super) const NATIVE_REPLAY_QUOTE_CUT_FLOOR_V2: MeasurementFloor = MeasurementFloor {
+    name: "native_replay_quote_cut_v2",
+    functions: &[
+        "market_data_private.resolve_native_replay_quote_cut_census_v2(bytea,bigint,bigint)",
+        "market_data_private.resolve_native_replay_next_frame_v2(bytea,bigint,bigint)",
+    ],
+    relations: &[
+        "market_data_private.native_replay_quote_cut_census_v2",
+        "market_data_private.native_replay_frame_census_v2",
+    ],
+};
+
+/// The fixed Shared Time read.
+pub(super) const SHARED_TIME_FLOOR_V1: MeasurementFloor = MeasurementFloor {
+    name: "shared_time_v1",
+    functions: &[
+        "market_data_private.resolve_owner_history_census_custody_v1()",
+        "market_data_private.resolve_clock_custody_state_v1()",
+        "market_data_private.resolve_clock_membership_custody_v1()",
+        "market_data_private.resolve_clock_handoff_v1(bytea)",
+        "market_data_private.resolve_epoch_successor_proof_v1(bytea)",
+    ],
+    relations: &[
+        "market_data_private.owner_migrations_v1",
+        "market_data_private.owner_history_census_state_v1",
+        "market_data_private.source_binding_lineage_census_v1",
+        "market_data_private.pit_snapshot_lineage_census_v1",
+        "market_data_private.source_binding_facts_v1",
+        "market_data_private.source_binding_heads_v1",
+        "market_data_private.pit_snapshot_facts_v1",
+        "market_data_private.pit_snapshot_heads_v1",
+        "market_data_private.clock_head_v1",
+        "market_data_private.clock_handoffs_v1",
+        "market_data_private.clock_handoff_state_v1",
+        "market_data_private.clock_handoff_membership_v1",
+        "market_data_private.clock_handoff_head_v1",
+        "market_data_private.epoch_successor_proofs_v1",
+    ],
+};
+
+/// The Source Binding snapshot read: its guard, its lineage members and the clock history it is
+/// cut against.
+pub(super) const SOURCE_BINDING_FLOOR_V1: MeasurementFloor = MeasurementFloor {
+    name: "source_binding_v1",
+    functions: &[
+        "market_data_private.resolve_clock_custody_state_v1()",
+        "market_data_private.resolve_owner_history_census_custody_v1()",
+        "market_data_private.resolve_source_binding_v1(bytea)",
+        "market_data_private.resolve_source_lineage_custody_v1(bytea)",
+        "market_data_private.resolve_source_lineage_members_v1(bytea)",
+    ],
+    relations: &[
+        "market_data_private.clock_handoff_head_v1",
+        "market_data_private.clock_handoff_membership_v1",
+        "market_data_private.clock_handoff_state_v1",
+        "market_data_private.clock_handoffs_v1",
+        "market_data_private.clock_head_v1",
+        "market_data_private.epoch_successor_proofs_v1",
+        "market_data_private.owner_history_census_state_v1",
+        "market_data_private.owner_migrations_v1",
+        "market_data_private.pit_snapshot_facts_v1",
+        "market_data_private.pit_snapshot_heads_v1",
+        "market_data_private.pit_snapshot_lineage_census_v1",
+        "market_data_private.source_binding_facts_v1",
+        "market_data_private.source_binding_heads_v1",
+        "market_data_private.source_binding_lineage_census_v1",
+        "market_data_private.source_binding_outbox_v1",
+    ],
+};
+
+/// The PIT terminal read, which a default build's Research PIT terminal resolver makes.
+pub(super) const PIT_TERMINAL_FLOOR_V1: MeasurementFloor = MeasurementFloor {
+    name: "pit_terminal_v1",
+    functions: &[
+        "market_data_private.resolve_clock_custody_state_v1()",
+        "market_data_private.resolve_owner_history_census_custody_v1()",
+        "market_data_private.resolve_pit_lineage_custody_v1(bytea)",
+        "market_data_private.resolve_pit_lineage_members_v1(bytea)",
+        "market_data_private.resolve_pit_snapshot_v1(bytea)",
+        "market_data_private.resolve_source_binding_v1(bytea)",
+        "market_data_private.resolve_source_lineage_custody_v1(bytea)",
+        "market_data_private.resolve_source_lineage_members_v1(bytea)",
+    ],
+    relations: &[
+        "market_data_private.clock_handoff_head_v1",
+        "market_data_private.clock_handoff_membership_v1",
+        "market_data_private.clock_handoff_state_v1",
+        "market_data_private.clock_handoffs_v1",
+        "market_data_private.clock_head_v1",
+        "market_data_private.epoch_successor_proofs_v1",
+        "market_data_private.owner_history_census_state_v1",
+        "market_data_private.owner_migrations_v1",
+        "market_data_private.pit_snapshot_facts_v1",
+        "market_data_private.pit_snapshot_heads_v1",
+        "market_data_private.pit_snapshot_lineage_census_v1",
+        "market_data_private.pit_snapshot_outbox_v1",
+        "market_data_private.source_binding_facts_v1",
+        "market_data_private.source_binding_heads_v1",
+        "market_data_private.source_binding_lineage_census_v1",
+        "market_data_private.source_binding_outbox_v1",
+    ],
+};
+
+/// The PIT evaluation read, which the native Replay scheduling port makes as well.
+pub(super) const PIT_EVALUATION_FLOOR_V1: MeasurementFloor = MeasurementFloor {
+    name: "pit_evaluation_v1",
+    functions: &[
+        "market_data_private.resolve_clock_custody_state_v1()",
+        "market_data_private.resolve_owner_history_census_custody_v1()",
+        "market_data_private.resolve_pit_lineage_custody_v1(bytea)",
+        "market_data_private.resolve_pit_lineage_members_v1(bytea)",
+        "market_data_private.resolve_pit_observation_batch_v1(bytea)",
+        "market_data_private.resolve_pit_observation_rows_v1(bytea)",
+        "market_data_private.resolve_pit_snapshot_v1(bytea)",
+        "market_data_private.resolve_source_binding_v1(bytea)",
+        "market_data_private.resolve_source_lineage_custody_v1(bytea)",
+        "market_data_private.resolve_source_lineage_members_v1(bytea)",
+    ],
+    relations: &[
+        "market_data_private.clock_handoff_head_v1",
+        "market_data_private.clock_handoff_membership_v1",
+        "market_data_private.clock_handoff_state_v1",
+        "market_data_private.clock_handoffs_v1",
+        "market_data_private.clock_head_v1",
+        "market_data_private.epoch_successor_proofs_v1",
+        "market_data_private.owner_history_census_state_v1",
+        "market_data_private.owner_migrations_v1",
+        "market_data_private.pit_observation_batches_v1",
+        "market_data_private.pit_observation_rows_v1",
+        "market_data_private.pit_snapshot_facts_v1",
+        "market_data_private.pit_snapshot_heads_v1",
+        "market_data_private.pit_snapshot_lineage_census_v1",
+        "market_data_private.pit_snapshot_outbox_v1",
+        "market_data_private.source_binding_facts_v1",
+        "market_data_private.source_binding_heads_v1",
+        "market_data_private.source_binding_lineage_census_v1",
+        "market_data_private.source_binding_outbox_v1",
+    ],
+};
+
+/// Every floor a port checks, for the proofs that each one is exactly what its read touches.
+pub(super) const MEASUREMENT_FLOORS: &[MeasurementFloor] = &[
+    SAMPLE_PROJECTION_FLOOR_V2,
+    SAMPLE_PROJECTION_FLOOR_V3,
+    BAR_SCHEDULE_FLOOR_V1,
+    NATIVE_REPLAY_QUOTE_CUT_FLOOR_V2,
+    SHARED_TIME_FLOOR_V1,
+    SOURCE_BINDING_FLOOR_V1,
+    PIT_TERMINAL_FLOOR_V1,
+    PIT_EVALUATION_FLOOR_V1,
+];
+
 /// Exact catalog surfaces directly measured through the credential lease.
 ///
 /// A signed manifest carries one; reading it back goes through [`Self::new`], so stored bytes can
@@ -131,180 +357,14 @@ impl PostgresMeasurementSpec {
         Ok(spec)
     }
 
-    /// Returns whether this exact admitted measurement covers every catalog surface used by the
-    /// fixed V2 sample-projection snapshot consumer.
-    pub(super) fn covers_sample_projection_floor_v2(&self) -> bool {
-        const FUNCTIONS: [&str; 3] = [
-            "market_data_private.resolve_strategy_input_sample_projection_v2(bytea)",
-            "market_data_private.resolve_timeframe_projection_receipt_v1(bytea)",
-            "market_data_private.resolve_sample_receipt_v1(bytea)",
-        ];
-        const RELATIONS: [&str; 5] = [
-            "market_data_private.strategy_input_sample_projection_receipts_v2",
-            "market_data_private.timeframe_projection_receipts_v1",
-            "market_data_private.sample_facts_v1",
-            "market_data_private.sample_receipts_v1",
-            "market_data_private.sample_outbox_v1",
-        ];
-
-        FUNCTIONS.iter().all(|required| {
+    /// Returns whether this exact admitted measurement covers `floor`.
+    pub(super) fn covers(&self, floor: &MeasurementFloor) -> bool {
+        floor.functions.iter().all(|required| {
             self.function_signatures
                 .iter()
                 .any(|value| value == required)
-        }) && RELATIONS
-            .iter()
-            .all(|required| self.acl_relations.iter().any(|value| value == required))
-    }
-
-    /// Returns whether this admitted measurement covers the complete fixed V3 BAR projection read.
-    pub(super) fn covers_sample_projection_floor_v3(&self) -> bool {
-        const FUNCTIONS: [&str; 6] = [
-            "market_data_private.resolve_strategy_input_sample_projection_v3(bytea)",
-            "market_data_private.resolve_strategy_input_sample_projection_schedule_dependencies_v3(bytea)",
-            "market_data_private.resolve_timeframe_projection_receipt_v1(bytea)",
-            "market_data_private.resolve_sample_receipt_v1(bytea)",
-            "market_data_private.resolve_bar_schedule_v1(bytea)",
-            "market_data_private.resolve_bar_schedule_history_v1(text)",
-        ];
-        const RELATIONS: [&str; 12] = [
-            "market_data_private.strategy_input_sample_projection_receipts_v3",
-            "market_data_private.strategy_input_sample_projection_schedule_dependencies_v3",
-            "market_data_private.timeframe_projection_receipts_v1",
-            "market_data_private.sample_facts_v1",
-            "market_data_private.sample_receipts_v1",
-            "market_data_private.sample_outbox_v1",
-            "market_data_private.bar_schedule_state_v1",
-            "market_data_private.bar_schedule_facts_v1",
-            "market_data_private.bar_schedule_heads_v1",
-            "market_data_private.bar_schedule_cuts_v1",
-            "market_data_private.bar_schedule_receipts_v1",
-            "market_data_private.bar_schedule_outbox_v1",
-        ];
-
-        FUNCTIONS.iter().all(|required| {
-            self.function_signatures
-                .iter()
-                .any(|value| value == required)
-        }) && RELATIONS
-            .iter()
-            .all(|required| self.acl_relations.iter().any(|value| value == required))
-    }
-
-    /// Returns whether this admitted measurement covers the additive V4 BAR join snapshot.
-    pub(super) fn covers_sample_projection_floor_v4(&self) -> bool {
-        const FUNCTIONS: [&str; 8] = [
-            "market_data_private.resolve_strategy_input_sample_projection_v4(bytea)",
-            "market_data_private.resolve_strategy_input_sample_projection_dependencies_v4(bytea)",
-            "market_data_private.resolve_strategy_input_sample_projection_v3(bytea)",
-            "market_data_private.resolve_strategy_input_sample_projection_schedule_dependencies_v3(bytea)",
-            "market_data_private.resolve_timeframe_projection_receipt_v1(bytea)",
-            "market_data_private.resolve_sample_receipt_v1(bytea)",
-            "market_data_private.resolve_bar_schedule_v1(bytea)",
-            "market_data_private.resolve_bar_schedule_history_v1(text)",
-        ];
-        const RELATIONS: [&str; 16] = [
-            "market_data_private.strategy_input_sample_projection_receipts_v4",
-            "market_data_private.strategy_input_sample_projection_dependencies_v4",
-            "market_data_private.strategy_input_sample_projection_readbacks_v4",
-            "market_data_private.strategy_input_sample_projection_outbox_v4",
-            "market_data_private.strategy_input_sample_projection_receipts_v3",
-            "market_data_private.strategy_input_sample_projection_schedule_dependencies_v3",
-            "market_data_private.timeframe_projection_receipts_v1",
-            "market_data_private.sample_facts_v1",
-            "market_data_private.sample_receipts_v1",
-            "market_data_private.sample_outbox_v1",
-            "market_data_private.bar_schedule_state_v1",
-            "market_data_private.bar_schedule_facts_v1",
-            "market_data_private.bar_schedule_heads_v1",
-            "market_data_private.bar_schedule_cuts_v1",
-            "market_data_private.bar_schedule_receipts_v1",
-            "market_data_private.bar_schedule_outbox_v1",
-        ];
-        FUNCTIONS.iter().all(|required| {
-            self.function_signatures
-                .iter()
-                .any(|value| value == required)
-        }) && RELATIONS
-            .iter()
-            .all(|required| self.acl_relations.iter().any(|value| value == required))
-    }
-
-    /// Returns whether this exact admitted measurement covers the fixed BAR schedule read.
-    pub(super) fn covers_bar_schedule_floor_v1(&self) -> bool {
-        const FUNCTIONS: [&str; 3] = [
-            "market_data_private.resolve_bar_schedule_v1(bytea)",
-            "market_data_private.resolve_bar_schedule_candidates_v1(text)",
-            "market_data_private.resolve_bar_schedule_history_v1(text)",
-        ];
-        const RELATIONS: [&str; 6] = [
-            "market_data_private.bar_schedule_state_v1",
-            "market_data_private.bar_schedule_facts_v1",
-            "market_data_private.bar_schedule_heads_v1",
-            "market_data_private.bar_schedule_cuts_v1",
-            "market_data_private.bar_schedule_receipts_v1",
-            "market_data_private.bar_schedule_outbox_v1",
-        ];
-
-        FUNCTIONS.iter().all(|required| {
-            self.function_signatures
-                .iter()
-                .any(|value| value == required)
-        }) && RELATIONS
-            .iter()
-            .all(|required| self.acl_relations.iter().any(|value| value == required))
-    }
-
-    /// Returns whether this exact admitted measurement covers the fixed Shared Time read.
-    /// Returns whether this exact admitted measurement covers a frame's quote cut read: the
-    /// census of quote cuts it is chosen from and the frame census its bound is read from.
-    pub(super) fn covers_native_replay_quote_cut_floor_v2(&self) -> bool {
-        const FUNCTIONS: [&str; 2] = [
-            "market_data_private.resolve_native_replay_quote_cut_census_v2(bytea,bigint,bigint)",
-            "market_data_private.resolve_native_replay_next_frame_v2(bytea,bigint,bigint)",
-        ];
-        const RELATIONS: [&str; 2] = [
-            "market_data_private.native_replay_quote_cut_census_v2",
-            "market_data_private.native_replay_frame_census_v2",
-        ];
-
-        FUNCTIONS.iter().all(|required| {
-            self.function_signatures
-                .iter()
-                .any(|value| value == required)
-        }) && RELATIONS
-            .iter()
-            .all(|required| self.acl_relations.iter().any(|value| value == required))
-    }
-
-    pub(super) fn covers_shared_time_floor_v1(&self) -> bool {
-        const FUNCTIONS: [&str; 5] = [
-            "market_data_private.resolve_owner_history_census_custody_v1()",
-            "market_data_private.resolve_clock_custody_state_v1()",
-            "market_data_private.resolve_clock_membership_custody_v1()",
-            "market_data_private.resolve_clock_handoff_v1(bytea)",
-            "market_data_private.resolve_epoch_successor_proof_v1(bytea)",
-        ];
-        const RELATIONS: [&str; 14] = [
-            "market_data_private.owner_migrations_v1",
-            "market_data_private.owner_history_census_state_v1",
-            "market_data_private.source_binding_lineage_census_v1",
-            "market_data_private.pit_snapshot_lineage_census_v1",
-            "market_data_private.source_binding_facts_v1",
-            "market_data_private.source_binding_heads_v1",
-            "market_data_private.pit_snapshot_facts_v1",
-            "market_data_private.pit_snapshot_heads_v1",
-            "market_data_private.clock_head_v1",
-            "market_data_private.clock_handoffs_v1",
-            "market_data_private.clock_handoff_state_v1",
-            "market_data_private.clock_handoff_membership_v1",
-            "market_data_private.clock_handoff_head_v1",
-            "market_data_private.epoch_successor_proofs_v1",
-        ];
-        FUNCTIONS.iter().all(|required| {
-            self.function_signatures
-                .iter()
-                .any(|value| value == required)
-        }) && RELATIONS
+        }) && floor
+            .relations
             .iter()
             .all(|required| self.acl_relations.iter().any(|value| value == required))
     }
