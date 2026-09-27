@@ -85,4 +85,49 @@ if ((claimed_status != 0)); then
   exit 1
 fi
 
-echo "chain-entry-watchdog: an entry past its limit is stopped by name with a record and cleanup; one inside it is left alone; a claimed watchdog never fires"
+# A chain killed outright - SIGKILL, a closed terminal - leaves its armed watchdog asleep for up to its
+# whole limit. The watchdog is not load, so it must not hold the machine's chain lock meanwhile: the
+# lock would outlive the run by up to 900s, and the next chain would be refused and would not reap the
+# dead run's containers. This takes the real lock, arms a long watchdog, kills the chain, and requires
+# the lock to be free while the orphaned watchdog still sleeps.
+LOCK_SCRIPT="${SCRIPT_DIR}/owner-chain-lock.bash"
+export OWNER_CHAIN_LOCK_FILE="${test_root}/owner-chain.lock"
+# Taking the lock also reaps orphaned chain containers; `true` lists none, so this never reaches Docker.
+export OWNER_CHAIN_DOCKER=true
+bash -c '
+  source "$1"
+  source "$2"
+  acquire_owner_chain_lock
+  arm_chain_entry_watchdog 300 "$3/008.timeout" "ordered chain entry 8/9 (an orphaned watchdog)"
+  echo "$chain_entry_watchdog_pid" > "$3/watchdog"
+  touch "$3/armed"
+  exec sleep 300
+' _ "$LOCK_SCRIPT" "$WATCHDOG" "$test_root" 2> "${test_root}/stderr" &
+chain_pid=$!
+for _ in $(seq 600); do
+  [[ -e "${test_root}/armed" ]] && break
+  sleep 0.1
+done
+watchdog_pid="$(cat "${test_root}/watchdog")"
+kill -9 "$chain_pid"
+wait "$chain_pid" 2> /dev/null || true
+lock_status=0
+if kill -0 "$watchdog_pid" 2> /dev/null; then
+  bash -c 'source "$1" && acquire_owner_chain_lock' _ "$LOCK_SCRIPT" 2> "${test_root}/lock" || lock_status=$?
+else
+  lock_status=-1
+fi
+# Only the pids this test started: the orphaned watchdog and what it runs.
+kill -TERM $(pgrep -P "$watchdog_pid") "$watchdog_pid" 2> /dev/null || true
+if ((lock_status == -1)); then
+  echo "FAIL: the orphaned watchdog had already exited, so the lock was not tested against it" >&2
+  exit 1
+fi
+if ((lock_status != 0)); then
+  echo "FAIL: the chain lock was still held after the chain was killed, by its sleeping watchdog:" >&2
+  cat "${test_root}/lock" >&2
+  exit 1
+fi
+
+echo "chain-entry-watchdog: an entry past its limit is stopped by name with a record and cleanup; one inside it is left alone; a claimed watchdog never fires;"
+echo "                      an orphaned watchdog does not hold the chain lock"

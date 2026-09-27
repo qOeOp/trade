@@ -1377,17 +1377,24 @@ later submission and the cost grows with the whole history.
 
 ### Prerequisite slices
 
-- **P0, one source for the shape tuple:** the Research request's scope carries the member set and the window, and the
-  Design carries the role set (P1); every other surface derives them from those two custodies and declares none of
-  them again. An exact instrument is
-  a one-member universe, so the exact and universe input paths become one. Anything that differs by member count,
-  such as Market Data's PIT request preimage domain, is derived from the count rather than declared beside it. P0
-  is complete when changing the member count or adding a role changes exactly one declaration. It changes no admitted bound by itself.
+- **P0, one source for the shape tuple:** a Research request that states its scope carries the member set, the Design
+  carries the role set (P1), and the TrialFamily's sealed replay policy carries the admissible replay range; every
+  other surface derives them and declares none of them again. The run's actual window is derived from the Market
+  Data facts composed within that range, never supplied beside it. Under a stated scope an exact instrument is a
+  one-member universe, so a Design may not name an instrument: publishing, freezing or declaring one that does is
+  refused as `DESIGN_ROLE_NAMES_INSTRUMENT_UNDER_RESEARCH_SCOPE`. Anything that differs by member count, such as
+  Market Data's PIT request preimage domain, is derived from the count rather than declared beside it. P0 is
+  complete when, for a Research request that states its scope, changing the member count changes only the scope and
+  adding a role changes only the Design. It changes no admitted bound by itself. A V2 request states no scope and
+  stays the legacy exact channel, whose Designs name their instrument; retiring it is a separate slice after T1,
+  once every chain entry that creates exact custody under V2 has a scoped replacement.
 - **P1, the role set comes from the Design:** the native Plan contract stops fixing OPEN and CLOSE on one day; the
   Design declares its roles, its execution timeframe, and which role prices an order. A role the Host cannot bind is
   refused by name.
 - **P2, the report states every member:** the report family states each member of a universe run, generalizing the
-  one-member statement Backtest already makes.
+  one-member statement Backtest already makes. It lands with I2, driven by the first run over more than one member:
+  before I2 no program reads a member other than the first, so a statement of every member would have nothing to
+  state.
 
 ### Time: PIT window custody
 
@@ -1403,6 +1410,11 @@ commits, one year of one-minute bars about 520,000, and every frame must share o
   instant its data becomes available under the availability rule declared on the Source Binding, with
   `d_k < e_{k+1}`. Frames are enumerated from the execution timeframe's Owner BAR schedule, never from custody rows,
   so a missing bar refuses its frame instead of skipping it.
+- The last frame `N` has no later frame, so `e_{N+1}` is the next close that same schedule declares after `e_N`,
+  one execution interval later, since only a fixed-interval execution timeframe is admitted. The window ends no
+  earlier than `e_{N+1}`, so the last frame's quote cut has `(d_N, e_{N+1})` to fall in, as every other frame's does.
+  A one-frame run is the case `N = 1`: a window ending at `e_1` plus one nanosecond leaves no instant strictly
+  between the frame and its end, and no quote cut can be derived.
 - The derived view's decision cut is `d_k`, never the custody's minting cut: every reader of a decision cut would
   otherwise see a later cut than the frame had. The view's order check is event ≤ available ≤ publication ≤ `d_k`.
 - A multi-timeframe role (slice T2) resolves, at frame `k`, the bar its own timeframe's Owner schedule last closed
@@ -1563,9 +1575,9 @@ one family would depend on that producer and would be listed separately.
 
 ### Order and what is asked later
 
-P0, P1, P2, and T0 proceed in parallel: T0 is internal to Market Data, and its custody request states its own member
-set and timeframes. T1 depends on all four, because it derives the custody request from the Research scope and the
-Design; its first positive case uses only CLOSE, and D1 lands with it. A1 and V4a proceed in parallel with T1; then T2, I1, I1.5, I2, and I3; then N1, A2, A3, V4b, and V5. Per-frame as-of membership (T4) would
+P0, P1, and T0 proceed in parallel: T0 is internal to Market Data, and its custody request states its own member set
+and timeframes. T1 depends on all three, because it derives the custody request from the Research scope and the
+Design; its first positive case uses only CLOSE and one member, and D1 lands with it. P2 lands with I2. A1 and V4a proceed in parallel with T1; then T2, I1, I1.5, I2, and I3; then N1, A2, A3, V4b, and V5. Per-frame as-of membership (T4) would
 remove the invariant that every frame shares one member set, so it is asked of the user when it is proposed.
 
 ## Value-stream handoffs
