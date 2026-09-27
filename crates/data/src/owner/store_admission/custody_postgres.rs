@@ -127,7 +127,7 @@ impl CustodyStore for PostgresCustodyStore {
             .await
             .map_err(|()| ReceiptCommitError::Unavailable)?;
 
-        if digest_serializable(&observation) != expected_cut.witness_proof_identity {
+        if digest_serializable(&observation) != expected_cut.anti_rollback_proof_identity {
             return Err(ReceiptCommitError::HeadChanged);
         }
         let cut: i64 = sqlx::query_scalar(ADMISSION_CUT_SQL)
