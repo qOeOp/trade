@@ -1616,6 +1616,8 @@ pub(super) enum PostgresMeasurementError {
     AclIdentityUnavailable,
     #[error("PostgreSQL privilege census is unavailable")]
     PrivilegeCensusUnavailable,
+    #[error("PostgreSQL server major is not the one the privilege census names")]
+    PrivilegeCensusServerMajorUnsupported,
     #[error("PostgreSQL catalog target is absent or ambiguous")]
     CatalogTargetMismatch,
     #[error("Market Data Source Binding storage snapshot is unavailable")]
@@ -1640,14 +1642,23 @@ const MAX_PRIVILEGE_CENSUS_ROWS: usize = 262_144;
 ///   membership's inherit or set option;
 /// - `has_*_privilege` answers for each, so a grant to the subject, to a role it inherits, or to
 ///   `PUBLIC`, and ownership, all count;
-/// - every database, and every schema outside `pg_catalog` and the toast and temporary ones, is
-///   asked for its privileges; objects are asked about only in a schema the subject can use, so a
-///   grant the subject cannot reach, or another Owner's migration in a shared database, does not
-///   move the census;
+/// - of the databases, only the current one is asked about: a database created or granted
+///   elsewhere on the server is not this store;
+/// - every schema outside `pg_catalog` and the toast and temporary ones is asked for its
+///   privileges, and objects only in a schema the subject can use, so a grant it cannot reach
+///   does not move the census;
+/// - a relation's row type and an implicit array type are not asked about: using one grants
+///   nothing the relation or its element does not, and every new table would otherwise move it;
 /// - large objects, parameters and default privileges have no `has_*_privilege` on this major, so
 ///   their explicit grants to a subject or to `PUBLIC` are read from their ACLs;
-/// - in `pg_catalog`, every relation, column, function and the schema itself whose ACL differs
-///   from the one initdb recorded in `pg_init_privs` is listed with its ACL.
+/// - in `pg_catalog`, each privilege of a subject or `PUBLIC` that differs from what initdb
+///   recorded in `pg_init_privs` is listed, `+` where it was added and `-` where it was removed,
+///   so a grant to another role does not move it.
+///
+/// A schema the role can use that others create objects in is within its reach. In the deployed
+/// database `PUBLIC` may use `public` and `product_edge_owner` may create there, so a new function
+/// in `public`, which `PUBLIC` may execute by default, moves the census, and admission needs a new
+/// manifest: the role can execute it.
 const PRIVILEGE_CENSUS_V1: &str = r#"
 WITH RECURSIVE subject(oid) AS (
     SELECT role.oid FROM pg_catalog.pg_roles AS role WHERE role.rolname = current_user
@@ -1670,11 +1681,57 @@ usable AS (
   FROM subject_role CROSS JOIN user_schema
   WHERE pg_catalog.has_schema_privilege(subject_role.oid, user_schema.oid, 'USAGE')
 ),
+catalog_acl(kind, object, current_acl, initial_acl) AS (
+  SELECT 'relation', 'pg_catalog.' || relation.relname,
+    COALESCE(relation.relacl, pg_catalog.acldefault('r', relation.relowner)),
+    COALESCE(initial.initprivs, pg_catalog.acldefault('r', relation.relowner))
+  FROM pg_catalog.pg_class AS relation
+  LEFT JOIN pg_catalog.pg_init_privs AS initial ON initial.objoid = relation.oid AND initial.classoid = 'pg_catalog.pg_class'::pg_catalog.regclass AND initial.objsubid = 0
+  WHERE relation.relnamespace = 'pg_catalog'::pg_catalog.regnamespace
+UNION ALL
+  SELECT 'column', 'pg_catalog.' || relation.relname || '.' || attribute.attname,
+    attribute.attacl, initial.initprivs
+  FROM pg_catalog.pg_attribute AS attribute JOIN pg_catalog.pg_class AS relation ON relation.oid = attribute.attrelid
+  LEFT JOIN pg_catalog.pg_init_privs AS initial ON initial.objoid = relation.oid AND initial.classoid = 'pg_catalog.pg_class'::pg_catalog.regclass AND initial.objsubid = attribute.attnum
+  WHERE relation.relnamespace = 'pg_catalog'::pg_catalog.regnamespace AND attribute.attnum > 0 AND (attribute.attacl IS NOT NULL OR initial.initprivs IS NOT NULL)
+UNION ALL
+  SELECT 'function', 'pg_catalog.' || function.proname || '(' || pg_catalog.pg_get_function_identity_arguments(function.oid) || ')',
+    COALESCE(function.proacl, pg_catalog.acldefault('f', function.proowner)),
+    COALESCE(initial.initprivs, pg_catalog.acldefault('f', function.proowner))
+  FROM pg_catalog.pg_proc AS function
+  LEFT JOIN pg_catalog.pg_init_privs AS initial ON initial.objoid = function.oid AND initial.classoid = 'pg_catalog.pg_proc'::pg_catalog.regclass AND initial.objsubid = 0
+  WHERE function.pronamespace = 'pg_catalog'::pg_catalog.regnamespace AND (function.proacl IS NOT NULL OR initial.initprivs IS NOT NULL)
+UNION ALL
+  SELECT 'schema', 'pg_catalog', COALESCE(namespace.nspacl, pg_catalog.acldefault('n', namespace.nspowner)),
+    COALESCE(initial.initprivs, pg_catalog.acldefault('n', namespace.nspowner))
+  FROM pg_catalog.pg_namespace AS namespace
+  LEFT JOIN pg_catalog.pg_init_privs AS initial ON initial.objoid = namespace.oid AND initial.classoid = 'pg_catalog.pg_namespace'::pg_catalog.regclass AND initial.objsubid = 0
+  WHERE namespace.nspname = 'pg_catalog'
+),
+catalog_grant(kind, object, side, grantee, privilege) AS (
+  SELECT catalog.kind, catalog.object, 'now', acl.grantee, acl.privilege_type || CASE WHEN acl.is_grantable THEN ' WITH GRANT OPTION' ELSE '' END
+  FROM catalog_acl AS catalog CROSS JOIN LATERAL pg_catalog.aclexplode(catalog.current_acl) AS acl
+  WHERE acl.grantee IN (SELECT grantee.oid FROM grantee)
+UNION ALL
+  SELECT catalog.kind, catalog.object, 'initdb', acl.grantee, acl.privilege_type || CASE WHEN acl.is_grantable THEN ' WITH GRANT OPTION' ELSE '' END
+  FROM catalog_acl AS catalog CROSS JOIN LATERAL pg_catalog.aclexplode(catalog.initial_acl) AS acl
+  WHERE acl.grantee IN (SELECT grantee.oid FROM grantee)
+),
+catalog_change(kind, object, grantee, privilege) AS (
+  SELECT kind, object, grantee, '+' || privilege FROM (
+    SELECT kind, object, grantee, privilege FROM catalog_grant WHERE side = 'now'
+    EXCEPT SELECT kind, object, grantee, privilege FROM catalog_grant WHERE side = 'initdb') AS added
+UNION ALL
+  SELECT kind, object, grantee, '-' || privilege FROM (
+    SELECT kind, object, grantee, privilege FROM catalog_grant WHERE side = 'initdb'
+    EXCEPT SELECT kind, object, grantee, privilege FROM catalog_grant WHERE side = 'now') AS removed
+),
 census(subject, kind, object, privilege) AS (
   SELECT subject_role.subject, 'database', database.datname::text, privilege.name
   FROM subject_role CROSS JOIN pg_catalog.pg_database AS database
   CROSS JOIN (VALUES ('CONNECT'), ('CREATE'), ('TEMPORARY')) AS privilege(name)
-  WHERE pg_catalog.has_database_privilege(subject_role.oid, database.oid, privilege.name)
+  WHERE database.datname = pg_catalog.current_database()
+    AND pg_catalog.has_database_privilege(subject_role.oid, database.oid, privilege.name)
 UNION ALL
   SELECT subject_role.subject, 'schema', user_schema.nspname, privilege.name
   FROM subject_role CROSS JOIN user_schema CROSS JOIN (VALUES ('USAGE'), ('CREATE')) AS privilege(name)
@@ -1703,7 +1760,10 @@ UNION ALL
 UNION ALL
   SELECT usable.subject, 'type', usable.nspname || '.' || type.typname, 'USAGE'
   FROM usable JOIN pg_catalog.pg_type AS type ON type.typnamespace = usable.namespace_oid
-  WHERE pg_catalog.has_type_privilege(usable.subject_oid, type.oid, 'USAGE')
+  LEFT JOIN pg_catalog.pg_class AS row_relation ON row_relation.oid = type.typrelid
+  WHERE (type.typrelid = 0 OR row_relation.relkind = 'c')
+    AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_type AS element WHERE element.typarray = type.oid)
+    AND pg_catalog.has_type_privilege(usable.subject_oid, type.oid, 'USAGE')
 UNION ALL
   SELECT subject_role.subject, 'language', language.lanname::text, 'USAGE'
   FROM subject_role CROSS JOIN pg_catalog.pg_language AS language
@@ -1738,26 +1798,9 @@ UNION ALL
   CROSS JOIN LATERAL pg_catalog.aclexplode(defaults.defaclacl) AS acl
   WHERE acl.grantee IN (SELECT grantee.oid FROM grantee)
 UNION ALL
-  SELECT 'system', 'relation', namespace.nspname::text || '.' || relation.relname, COALESCE(relation.relacl::text, 'DEFAULT')
-  FROM pg_catalog.pg_class AS relation JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = relation.relnamespace
-  LEFT JOIN pg_catalog.pg_init_privs AS initial ON initial.objoid = relation.oid AND initial.classoid = 'pg_catalog.pg_class'::pg_catalog.regclass AND initial.objsubid = 0
-  WHERE namespace.nspname = 'pg_catalog' AND relation.relacl IS DISTINCT FROM initial.initprivs
-UNION ALL
-  SELECT 'system', 'column', namespace.nspname::text || '.' || relation.relname || '.' || attribute.attname, COALESCE(attribute.attacl::text, 'DEFAULT')
-  FROM pg_catalog.pg_attribute AS attribute JOIN pg_catalog.pg_class AS relation ON relation.oid = attribute.attrelid
-  JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = relation.relnamespace
-  LEFT JOIN pg_catalog.pg_init_privs AS initial ON initial.objoid = relation.oid AND initial.classoid = 'pg_catalog.pg_class'::pg_catalog.regclass AND initial.objsubid = attribute.attnum
-  WHERE namespace.nspname = 'pg_catalog' AND attribute.attnum > 0 AND attribute.attacl IS DISTINCT FROM initial.initprivs
-UNION ALL
-  SELECT 'system', 'function', namespace.nspname::text || '.' || function.proname || '(' || pg_catalog.pg_get_function_identity_arguments(function.oid) || ')', COALESCE(function.proacl::text, 'DEFAULT')
-  FROM pg_catalog.pg_proc AS function JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = function.pronamespace
-  LEFT JOIN pg_catalog.pg_init_privs AS initial ON initial.objoid = function.oid AND initial.classoid = 'pg_catalog.pg_proc'::pg_catalog.regclass AND initial.objsubid = 0
-  WHERE namespace.nspname = 'pg_catalog' AND function.proacl IS DISTINCT FROM initial.initprivs
-UNION ALL
-  SELECT 'system', 'schema', namespace.nspname::text, COALESCE(namespace.nspacl::text, 'DEFAULT')
-  FROM pg_catalog.pg_namespace AS namespace
-  LEFT JOIN pg_catalog.pg_init_privs AS initial ON initial.objoid = namespace.oid AND initial.classoid = 'pg_catalog.pg_namespace'::pg_catalog.regclass AND initial.objsubid = 0
-  WHERE namespace.nspname = 'pg_catalog' AND namespace.nspacl IS DISTINCT FROM initial.initprivs
+  SELECT CASE WHEN change.grantee = 0 THEN 'PUBLIC' ELSE pg_catalog.pg_get_userbyid(change.grantee)::text END,
+    'pg_catalog ' || change.kind, change.object, change.privilege
+  FROM catalog_change AS change
 )
 SELECT census.subject, census.kind, census.object, census.privilege FROM census
 ORDER BY census.subject COLLATE "C", census.kind COLLATE "C", census.object COLLATE "C", census.privilege COLLATE "C"
@@ -1874,7 +1917,7 @@ impl PostgresDirectMeasurer {
         }
 
         if !privilege_census_names_the_privileges_of(&server_version) {
-            return Err(PostgresMeasurementError::CatalogTargetMismatch);
+            return Err(PostgresMeasurementError::PrivilegeCensusServerMajorUnsupported);
         }
         let role_membership_rows = sqlx::query(
             "WITH RECURSIVE membership_path AS (SELECT membership.roleid, membership.member, membership.grantor, membership.admin_option, membership.inherit_option, membership.set_option, ARRAY[membership.member, membership.roleid] AS path, 1::bigint AS depth FROM pg_catalog.pg_auth_members AS membership JOIN pg_catalog.pg_roles AS session_role ON session_role.oid = membership.member WHERE session_role.rolname = current_user UNION ALL SELECT next.roleid, next.member, next.grantor, next.admin_option, next.inherit_option, next.set_option, prior.path || next.roleid, prior.depth + 1 FROM membership_path AS prior JOIN pg_catalog.pg_auth_members AS next ON next.member = prior.roleid WHERE prior.depth < 33 AND NOT next.roleid = ANY(prior.path)) SELECT granted_role.rolname::text AS role_name, pg_catalog.pg_get_userbyid(path.member)::text AS member_name, pg_catalog.pg_get_userbyid(path.grantor)::text AS grantor_name, path.admin_option, path.inherit_option, path.set_option, path.depth, granted_role.rolsuper AS role_super, granted_role.rolinherit AS role_inherit, granted_role.rolcreaterole AS role_create_role, granted_role.rolcreatedb AS role_create_database, granted_role.rolcanlogin AS role_can_login, granted_role.rolreplication AS role_replication, granted_role.rolbypassrls AS role_bypass_rls FROM membership_path AS path JOIN pg_catalog.pg_roles AS granted_role ON granted_role.oid = path.roleid ORDER BY path.depth, role_name, member_name, grantor_name LIMIT 257",

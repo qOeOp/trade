@@ -4388,6 +4388,46 @@ mod tests {
             .unwrap();
     }
 
+    /// Applies each step's statements as the administrator, requires the census to move or to
+    /// stay as the step states, then applies the step's reverse and requires the census to be
+    /// exactly `reference` again.
+    async fn run_privilege_census_steps(
+        admin: &sqlx::PgPool,
+        reader: &mut sqlx::PgConnection,
+        reference: &str,
+        seen: &mut Vec<String>,
+        steps: Vec<(&str, Vec<String>, Vec<String>, bool)>,
+    ) {
+        for (name, gain, lose, moves) in steps {
+            for statement in gain {
+                sqlx::query(sqlx::AssertSqlSafe(statement))
+                    .execute(admin)
+                    .await
+                    .expect("the administrator applies the step");
+            }
+            let gained = postgres::measure_privilege_census(reader).await.unwrap();
+
+            if moves {
+                assert!(!seen.contains(&gained), "{name} moves the census");
+                seen.push(gained);
+            } else {
+                assert_eq!(gained, reference, "{name} leaves the census where it was");
+            }
+
+            for statement in lose {
+                sqlx::query(sqlx::AssertSqlSafe(statement))
+                    .execute(admin)
+                    .await
+                    .expect("the administrator reverses the step");
+            }
+            assert_eq!(
+                postgres::measure_privilege_census(reader).await.unwrap(),
+                reference,
+                "reversing {name} returns the census to what it was"
+            );
+        }
+    }
+
     #[allow(
         clippy::too_many_lines,
         reason = "one database, one reader, each grant beside the revoke that restores it"
@@ -4452,59 +4492,125 @@ mod tests {
             "the census is a function of the grants alone"
         );
         let mut seen = vec![base.clone()];
-        let steps: [(&str, String, String); 6] = [
+        // Outside any schema: each step either moves the census or states that it must not, and
+        // its reverse returns the census to exactly the base. The two that must not are the ones
+        // that would break admission for a change the role has nothing to do with: a privilege on
+        // another database, and a pg_catalog grant to another role. There is no DROP DATABASE
+        // here, because the chain's destructive-SQL check refuses one without dedicated-database
+        // admission, which this runner's principals do not hold. A privilege on the server's
+        // `postgres` database reaches the same enumeration a new database would, and the mutation
+        // that scans every database turns that step red.
+        let outside: Vec<(&str, Vec<String>, Vec<String>, bool)> = vec![
             (
                 "schema usage",
-                format!("GRANT USAGE ON SCHEMA market_data_private TO {READER}"),
-                format!("REVOKE USAGE ON SCHEMA market_data_private FROM {READER}"),
+                vec![format!(
+                    "GRANT USAGE ON SCHEMA market_data_private TO {READER}"
+                )],
+                vec![format!(
+                    "REVOKE USAGE ON SCHEMA market_data_private FROM {READER}"
+                )],
+                true,
             ),
             (
-                "a database privilege",
-                format!("GRANT CREATE ON DATABASE \"{database}\" TO {READER}"),
-                format!("REVOKE CREATE ON DATABASE \"{database}\" FROM {READER}"),
+                "a privilege on this database",
+                vec![format!(
+                    "GRANT CREATE ON DATABASE \"{database}\" TO {READER}"
+                )],
+                vec![format!(
+                    "REVOKE CREATE ON DATABASE \"{database}\" FROM {READER}"
+                )],
+                true,
+            ),
+            (
+                "a privilege on another database",
+                vec![format!("GRANT CREATE ON DATABASE postgres TO {READER}")],
+                vec![format!("REVOKE CREATE ON DATABASE postgres FROM {READER}")],
+                false,
             ),
             (
                 "a pg_catalog function",
-                format!("GRANT EXECUTE ON FUNCTION pg_catalog.pg_ls_dir(text) TO {READER}"),
-                format!("REVOKE EXECUTE ON FUNCTION pg_catalog.pg_ls_dir(text) FROM {READER}"),
+                vec![format!(
+                    "GRANT EXECUTE ON FUNCTION pg_catalog.pg_ls_dir(text) TO {READER}"
+                )],
+                vec![format!(
+                    "REVOKE EXECUTE ON FUNCTION pg_catalog.pg_ls_dir(text) FROM {READER}"
+                )],
+                true,
+            ),
+            (
+                "a pg_catalog function granted to another role",
+                vec![format!(
+                    "GRANT EXECUTE ON FUNCTION pg_catalog.pg_ls_dir(text) TO {OWNER}"
+                )],
+                vec![format!(
+                    "REVOKE EXECUTE ON FUNCTION pg_catalog.pg_ls_dir(text) FROM {OWNER}"
+                )],
+                false,
+            ),
+            (
+                "a pg_catalog function PUBLIC loses",
+                vec![
+                    "REVOKE EXECUTE ON FUNCTION pg_catalog.pg_sleep(double precision) FROM PUBLIC"
+                        .to_owned(),
+                ],
+                vec![
+                    "GRANT EXECUTE ON FUNCTION pg_catalog.pg_sleep(double precision) TO PUBLIC"
+                        .to_owned(),
+                ],
+                true,
             ),
             (
                 "a default privilege",
-                format!(
+                vec![format!(
                     "ALTER DEFAULT PRIVILEGES FOR ROLE {OWNER} GRANT SELECT ON TABLES TO {READER}"
-                ),
-                format!(
+                )],
+                vec![format!(
                     "ALTER DEFAULT PRIVILEGES FOR ROLE {OWNER} REVOKE SELECT ON TABLES FROM {READER}"
-                ),
+                )],
+                true,
             ),
             (
                 "a parameter",
-                format!("GRANT SET ON PARAMETER log_statement TO {READER}"),
-                format!("REVOKE SET ON PARAMETER log_statement FROM {READER}"),
+                vec![format!("GRANT SET ON PARAMETER log_statement TO {READER}")],
+                vec![format!(
+                    "REVOKE SET ON PARAMETER log_statement FROM {READER}"
+                )],
+                true,
             ),
             (
                 "a membership",
-                format!("GRANT {OWNER} TO {READER}"),
-                format!("REVOKE {OWNER} FROM {READER}"),
+                vec![format!("GRANT {OWNER} TO {READER}")],
+                vec![format!("REVOKE {OWNER} FROM {READER}")],
+                true,
+            ),
+            (
+                "a language PUBLIC loses",
+                vec!["REVOKE USAGE ON LANGUAGE plpgsql FROM PUBLIC".to_owned()],
+                vec!["GRANT USAGE ON LANGUAGE plpgsql TO PUBLIC".to_owned()],
+                true,
+            ),
+            (
+                "a foreign-data wrapper",
+                vec![
+                    "CREATE FOREIGN DATA WRAPPER privilege_census_probe_v1".to_owned(),
+                    format!(
+                        "GRANT USAGE ON FOREIGN DATA WRAPPER privilege_census_probe_v1 TO {READER}"
+                    ),
+                ],
+                vec!["DROP FOREIGN DATA WRAPPER privilege_census_probe_v1".to_owned()],
+                true,
+            ),
+            (
+                "a large object",
+                vec![
+                    "SELECT pg_catalog.lo_create(4242420)".to_owned(),
+                    format!("GRANT SELECT ON LARGE OBJECT 4242420 TO {READER}"),
+                ],
+                vec!["SELECT pg_catalog.lo_unlink(4242420)".to_owned()],
+                true,
             ),
         ];
-
-        for (name, gain, lose) in steps {
-            grant(gain).await;
-            let gained = postgres::measure_privilege_census(&mut reader)
-                .await
-                .unwrap();
-            assert!(!seen.contains(&gained), "gaining {name} moves the census");
-            seen.push(gained);
-            grant(lose).await;
-            assert_eq!(
-                postgres::measure_privilege_census(&mut reader)
-                    .await
-                    .unwrap(),
-                base,
-                "losing {name} returns the census to what it was"
-            );
-        }
+        run_privilege_census_steps(&admin, &mut reader, &base, &mut seen, outside).await;
 
         // Inside a schema the reader can use, a relation privilege moves the census from the
         // usage-only value, and the same privilege granted to PUBLIC instead moves it to exactly
@@ -4577,6 +4683,39 @@ mod tests {
             usable,
             "losing it returns the census to what it was"
         );
+        seen.push(usable.clone());
+        let inside: Vec<(&str, Vec<String>, Vec<String>, bool)> = vec![
+            (
+                "a sequence privilege",
+                vec![
+                    "CREATE SEQUENCE market_data_private.privilege_census_probe_v1".to_owned(),
+                    format!(
+                        "GRANT USAGE ON SEQUENCE market_data_private.privilege_census_probe_v1 TO {READER}"
+                    ),
+                ],
+                vec!["DROP SEQUENCE market_data_private.privilege_census_probe_v1".to_owned()],
+                true,
+            ),
+            (
+                "a standalone type PUBLIC may use",
+                vec![
+                    "CREATE TYPE market_data_private.privilege_census_probe_kind_v1 AS ENUM ('probe')"
+                        .to_owned(),
+                ],
+                vec!["DROP TYPE market_data_private.privilege_census_probe_kind_v1".to_owned()],
+                true,
+            ),
+            (
+                "a relation's row type, which grants nothing",
+                vec![
+                    "CREATE VIEW market_data_private.privilege_census_probe_rows_v1 AS SELECT 1 AS id"
+                        .to_owned(),
+                ],
+                vec!["DROP VIEW market_data_private.privilege_census_probe_rows_v1".to_owned()],
+                false,
+            ),
+        ];
+        run_privilege_census_steps(&admin, &mut reader, &usable, &mut seen, inside).await;
         grant(format!(
             "REVOKE USAGE ON SCHEMA market_data_private FROM {READER}"
         ))
