@@ -143,7 +143,7 @@ R&D 内的 Develop 能力返回内容寻址 Strategy Artifact 和 Build Receipt�
   Research request 指名，由 Market Data universe selection 在请求时求值，因此既不由 Design 也不由 R&D 选定（该请求
   范围由 R&D Owner 契约陈述）。角色为 `EXACT_INSTRUMENT` 的 Design 在 Owner
   universe 下仍被拒绝，由实现改动引入的具名拒绝 `ExactInstrumentRolesUnderOwnerUniverse` 给出。universe 纵向切片的输入契约（准确
-  一个固定 `OPEN` 与一个固定 `CLOSE` member role）不变；single-threshold 编写面新增 universe-member 形态，其 channel
+  一个固定 `OPEN` 与一个固定 `CLOSE` member role）后来由 Design 声明的角色集取代（见下文 P1）；single-threshold 编写面新增 universe-member 形态，其 channel
   是该成员的日线收盘价，并以承载 input 的方式携带固定的 open role，其程序从不读取它。编写请求在必填的 `scope`
   中写明自己的形态，因此缺少它的请求被拒绝，而不是被当作 exact-instrument 形态读取。该形态只在成员序号 0 上消费每个 role，其 bounded feature program
   仍产出单品种 proposal：在单成员 universe 下，host 把该 proposal 提升为单成员规范 target set，因此该纵向切片仍只提交
@@ -274,6 +274,10 @@ state、lifecycle terminal 或 manifest output。
 - rolling swing high 与 low；
 - `range_fraction(low, high, numerator, denominator)`：ratio 是冻结且约分后的 rational，denominator 为正，
   bounds 与 scale 显式，Fibonacci level 只能使用冻结的有理常量。
+
+之后的版本只追加。版本 2 追加 fused rational，版本 3 追加定点平方根，版本 4 追加 trailing window 内距最大值与距
+最小值的 bar 数（精确整数，相等极值中取最新的那个）以及 trailing window percent rank（最新样本的中位秩，最低为 0、
+最高为 1，窗口至少为二，只做一次最终舍入）。
 
 price-action rule 与 candlestick pattern 是这些 catalog primitive 的类型化组合，不是命名 strategy template、
 opaque label、复制的公式或新 Host opcode。
@@ -1022,6 +1026,12 @@ semantic effect 或 external effect。
 - fill reconciliation 对应 `kernel.fill.reconcile.v1`，包括 partial fill、rejection、cancellation 和乱序
   readback。
 
+rebalance 目标的序号属于 Host，不属于程序。程序对 `kernel.target.rebalance.v1` 目标在
+`proposal.rebalance-sequence.v1` 上发出 `0`，由 Host 在解码提案时分配序号：在 target-set 路径上，是提案被提升进的
+那个 target set 的序号，提升要求每个成员都带上它；在单品种路径上，是成员内核当前 rebalance 序号加一，内核要求一次
+rebalance 超过它。两条规则都由构造成立，而程序原本只能去猜那个只在一帧上满足它们的数。程序对 rebalance 目标发出
+任何其他值，都以 `REBALANCE_SEQUENCE_IS_HOST_ASSIGNED` 按名拒绝；这个端口仍留在插件 ABI 里，其他目标都不读它。
+
 每个 primitive 都有跨 Backtest 与 Runtime 含义稳定的版本化 semantic ID。内核把 target 与 protection
 转换为 semantic intent record；在 Runtime 中，Risk 仍是最终准入权威，Execution 仍是 order/fill/effect
 权威，Portfolio 仍是 position/account truth。R&D、Backtest、compiler 与 plugin 都不能绕过这些 Owner。
@@ -1243,8 +1253,15 @@ custody 会挡住之后的每一次提交，而成本随整个历史增长。
   请求，改成员数只改 scope、加一个角色只改 Design 时，P0 才算完成。它本身不改动任何已准入的界。V2 请求不陈述
   scope，仍是 legacy 的 exact 通道，它的 Design 照旧指名品种；退役它是 T1 之后的一个独立切片，前提是每个在 V2 下
   创建 exact 托管的链路条目都有了陈述 scope 的替身。
-- **P1，角色集来自 Design：** 原生 Plan 契约不再固定为一天周期的 OPEN 与 CLOSE；Design 声明自己的角色、执行周期
-  以及用哪个角色为订单定价。Host 绑不上的角色按名拒绝。
+- **P1，角色集来自 Design：** 原生 Plan 契约不再固定为一天周期的 OPEN 与 CLOSE。Design 用它已有的字段声明自己的
+  角色、执行角色和定价角色，也就是各角色的 field semantic 和 join 的 trigger，不新增字段。universe 角色必须是
+  `I128` 的 Market Data BAR open、high、low、close 或 volume 角色，target-set Host 用自己的原生 bar 核对它；其他角色以
+  `TargetSetRoleNotHostBindable` 拒绝。为订单定价的角色是唯一读 BAR close 的那个角色，它同时也是执行角色：没有这样的
+  角色是 `ExecutionPricingRoleAbsent`，不止一个是 `ExecutionPricingRoleAmbiguous`，由别的角色触发的 join 是
+  `ExecutionRoleNotPricingRole`；今天没有东西构造出后者，因为 universe 角色上的 join 会先被拒绝。Host 从 Plan 读取它的
+  成员角色和定价角色。角色的周期标签仍然只是 provenance，所以这里不从它推出执行周期：Market Data 从自己的 binding
+  取执行角色的 typed 周期，周期不止一种、或者某种日它无法 typed 时按名拒绝。这项调度改动取代
+  `native_replay_scheduling_v1` 里的标签比较，归 Market Data。
 - **P2，报告陈述每个成员：** 报告族陈述 universe 运行的每个成员，把 Backtest 已经做到的一成员陈述推广开。它与 I2
   一同落地，由第一个超过一个成员的运行驱动：I2 之前没有程序读第一个成员以外的成员，陈述每个成员就无物可陈述。
 
@@ -1328,7 +1345,9 @@ Research scope 是成员集的唯一来源（P0）。一到两个成员的界变
 
 ### 值、输入与动作
 
-- **值：** catalog V4a 追加窗口 rank 与百分位、距极值的 bar 数、协方差与相关。V4b 追加自然对数与指数。用户于
+- **值：** catalog V4a 追加窗口 rank 与百分位、距极值的 bar 数、协方差与相关。catalog 版本 4 发布了前两者，它们的
+  首批使用者 `w1` 与 `w2` 已在手写语料中；之后的版本追加的行，在有手写程序使用之前构建就会拒绝它。协方差与相关需要
+  一个双序列窗口状态，仍是 TARGET。V4b 追加自然对数与指数。用户于
   2026-09-27 选择了下面这个选项，以此授权它们的数值规则：「引入 ln/exp，钉住算法加 golden 测试向量，只适用于新增
   的 catalog 行；这一类运算豁免『一个精确表达式、最后只舍入一次』。」V5 增加两条定槽状态规则：一个定桶数组，以及最近 N 个事件的
   记忆，每个槽存一组冻结的值。把 Bollinger 方差写成
@@ -1367,6 +1386,12 @@ Research scope 是成员集的唯一来源（P0）。一到两个成员的界变
 | 配对价差              | BTC 与 ETH 的 z 分数                         | I2、V4a            |
 | 截面轮动              | 八选二按动能                                 | I2、I3             |
 | 资金费率过滤          | 资金费率极值反向                             | N1                 |
+| 动能背离              | 价格对 RSI 或 MACD 柱在两个已确认拐点上比较  | P1、T1             |
+| 上升与下降楔形        | 过最近两个已确认高点拐点与低点拐点的两条线   | P1、T1             |
+| 三推与五推            | 在已确认拐点上计推动次数，结构须守住         | P1、T1             |
+| 公允价值缺口          | 三根 bar 的缺口占固定槽，直到后来的 bar 回补 | P1、T1             |
+| 流动性扫单            | 影线刺破已确认拐点，收盘回到它的近侧         | P1、T1             |
+| 交付状态转换          | 收盘越过反向序列第一根 bar 的开盘价          | P1、T1             |
 | 罗尼画线规则 R1 至 R6 | 水平与宽区域、趋势线带、斐波、四分、周期角色 | 见下               |
 
 罗尼的画线规则取自他 17 个视频的 2,512 张截图测量，归纳成六条可计算的规则。它们需要这些切片：
@@ -1386,6 +1411,53 @@ Research scope 是成员集的唯一来源（P0）。一到两个成员的界变
 两半，使得一次不符只有一个成因：程序的输出必须与同一条规则的直接参考计算逐位相等，这检验的是编译出的程序；该参考
 必须在容差内符合量出的价格，这检验的是规则本身，以及测量时补上而非观测到的参数。它要在 T1 与 V5 之后才能构造。
 
+动能背离、楔形、三推与五推建立在同一个构件上，即已确认拐点，除 P1 与 T1 外不需要别的切片：
+
+- **已确认拐点：** 位于 bar `t - k` 的 order-k 高点拐点，恰在 `Lag(high, k)` 等于 `Maximum(high, 2k + 1)` 时于 bar
+  `t` 被确认；低点拐点同理，对 low 取 `Minimum`。目录里的 `SwingHigh` 是尾随窗口里最高的那根 bar，仍在上涨的
+  bar 也算，所以它不是拐点。拐点总是晚 k 根 bar 才知道，这个滞后就是定义本身，不是实现的限制。
+- **背离：** 看跌背离是新确认的高点拐点严格高于前一个，而新拐点处的指标 `Lag(indicator, k)` 严格低于前一个拐点
+  处的值；看涨背离在低点上镜像。信号在确认那根 bar 发出。前一个拐点的价格与指标是两个定点策略状态格。`d1` 是
+  日线收盘价上以 RSI(3) 判定的看跌背离，也是第一个声明它们的已编写程序：
+  `a_divergence_program_carries_its_previous_pivot_through_fixed_point_state` 把它构建成 Wasm，它只在第二个
+  拐点之后两根 bar 处出场；每根 bar 前把这两个格放回零种子，出场就消失，而拐点照样被找到。
+- **楔形：** 过最近两个已确认高点拐点与最近两个低点拐点各画一条线。两条斜率都为正且下线更陡时为上升楔形，镜像
+  情形为下降楔形；它声明一个收敛比例和一个以 ATR 计的突破容差。线在当前 bar 的值是 `p2 + (p2 - p1) * a / b`，
+  其中 `a` 是距后一个锚点的 bar 数，`b` 是两个锚点之间的 bar 数；减法、乘法与加法在各自声明的精度上都是精确的，
+  所以除法是唯一一次舍入。过三个及以上拐点的线需要 V5 的记忆，且每个节点各舍入一次，定义必须声明这一点。
+- **推动：** 每当新确认的高点拐点严格高于上一推、且两推之间的低点拐点严格高于再前一个时，计数加一，否则重新
+  开始；由三个策略状态格承载。在 4h 上读推动、在 1h 上进场属于 T2。
+
+每一项都有一个合成正控，把信号 bar 钉死：背离恰在拐点加 k 处、绝不提前；平行通道不产生楔形；结构被破坏时计数
+重新开始。另有一个真实数据正控：在公开的 BTC K 线上，程序的拐点与信号必须与该定义的一份独立参考实现逐一相等。
+这三种形态在这里没有人工标注的真值，所以检验的是程序对它的定义，不是程序对交易员。
+
+三种 ICT 形态，即公允价值缺口、流动性扫单与交付状态转换，同样除 P1 与 T1 外不需要别的切片：
+
+- **公允价值缺口：** 在 bar `t` 上，最低价严格高于 `Lag(high, 2)` 时为看涨缺口，缺口就是两者之间的区间；看跌缺
+  口在镜像情形。缺口保持未回补，直到后来某根 bar 回到缺口里，这就是信号，随后缺口被清掉。每个未回补缺口占三个
+  定点策略状态格：上沿、下沿、是否未回补；程序声明它持有几个缺口，以及所有槽都被占用时新缺口替换最旧的一个。
+  V5 的「最近 N 个事件」记忆就是把这条规则变成一条声明；今天用 `Select` 手写出来，缺口不必等 V5。`g2` 与 `g3`
+  是同一个看涨缺口程序的两个槽与三个槽版本，是继 `d1` 之后经 Wasm 证明其状态的已编写程序：
+  `a_fair_value_gap_program_evicts_the_oldest_gap_only_when_its_slots_are_full` 形成三个缺口，两个槽时第三个挤掉第
+  一个，于是后来回到第一个缺口区间的 bar 不发信号；同样的 bar 在三个槽时发出信号。
+- **流动性扫单：** 在 bar `t` 上，最高价严格高于最近一个已确认高点拐点、而收盘价严格低于它时为看跌扫单；看涨扫
+  单在低点上镜像；拐点占一个状态格。一根 bar 的最高价与收盘价说不出 bar 内部什么时候越过了那个价位，所以信号
+  在扫单那根 bar 收盘时发出；要在刺破的那一刻进场，需要 T2 的更低周期或报价数据。拐点总是晚 k 根 bar 才知道，
+  所以扫过一个尚未确认的拐点是看不到的。
+- **交付状态转换：** 一个序列是收盘价都落在各自开盘价同一侧的连续 bar。在 bar `t` 上，若此前是一段不短于声明
+  长度的看跌序列，而收盘价严格高于该序列第一根 bar 的开盘价，则为看涨转换；看跌转换在镜像情形。一个计数器和
+  那根 bar 的开盘价是两个状态格，开盘价在计数器离开零时捕获；它与推动计数是同一类结构。
+
+它们的正控沿用上面的形式：合成正控把信号 bar 钉死，即没有 bar 回到的缺口不发信号，刺破拐点但收盘没回来的影线
+不算扫单，收盘价等于序列第一根开盘价不算转换；真实数据正控要求程序在公开的 BTC K 线上与一份独立参考实现相等。
+
+ICT 方法里有两部分不属于这些形状。时段窗口（killzone）今天表达不了：没有哪个输入事实是一天中的时刻，也没有
+哪个目录行能把样本坐标（它带着样本的时间）变成时刻。补法是追加一个目录行，从样本坐标读出 UTC 小时与分钟，这
+需要一个新的目录版本，以及 kernel、golden 与 lowerer 的改动；V3 构建胶囊绑定目录与 lowerer 的源码摘要，所以此
+后构建的每个程序都带上新的构建身份。以纽约时间表述的窗口会在每次夏令时切换时移动一个 UTC 小时，这个目录行不
+表示这一点，所以 Design 要声明它指的 UTC 窗口。把高周期的缺口与低周期的交付状态转换组合起来属于 T2。
+
 ### 包络对 F 的假设
 
 包络自己不增加任何生产路径：每个切片都经 F 的验收所建立的路径跑 Backtest。这条路径的第一代 Replay 与 legacy 路径一样，
@@ -1401,6 +1473,26 @@ P0、P1 与 T0 并行推进：T0 在 Market Data 内部，它的托管请求自�
 Research scope 与 Design 推导出托管请求；T1 的首个正例只用 CLOSE 和一个成员，D1 与它一同落地。P2 与 I2 一同落地。A1 与 V4a 与 T1 并行；然后 T2、I1、I1.5、I2、
 I3；再然后 N1、A2、A3、V4b、V5。按帧 as-of 成员（T4）会移除「每帧共用一个成员集」这条不变式，所以在提出它时再
 问用户。
+
+单阈值编写器接受的一种目标变体，今天在 target-set Host 上跑不过一帧，它是一片，排在 F 之后、T1 之前。它在 `main`
+3a465a537 上实测过：现状为红，在一个随后还原的临时改动下越过了点名的那道检查。在这一片落地之前，编写器以
+`SINGLE_THRESHOLD_TARGET_VARIANT_NOT_RUNNABLE` 按名拒绝它，任一侧都拒，于是只会在第一帧失败的程序根本不会被编写出来；
+这一片落地时移除这个拒绝。
+
+- **Weight 对账。** Host 除 `Keep` 以外对每种目标都解码出一个 reconciliation target，而 target-set 对账要求 weight
+  目标没有，所以 weight 一侧在第一帧就以 `InputCoverage` 失败。临时让解码对 weight 不给出它时，这道检查通过，该帧
+  接着以 `InvalidPositionTransition` 失败：编写器让两侧共用一个为 0 的 target weight，而以 0 权重入场不是迁移。
+  两处都由 Strategy Factory 修复：Host 的解码，以及编写器的 weight，让它像仓位那样跟随各侧。
+
+rebalance 目标曾是第二种这样的变体，它那一片已经落地：Host 按上面那条规则分配序号，编写器写 `0`。常量为 1 时只有第
+一帧能提升；拿掉 Host 的分配而写 `0` 时，连第一帧也不能。`an_authored_rebalance_program_lifts_three_consecutive_frames`
+把编写出的程序构建成 Wasm，经 target-set Sim 跑三帧，进场、出场、再进场，序号依次为 1、2、3；
+`a_single_instrument_host_assigns_each_rebalance_the_next_sequence` 守住单品种路径。
+
+那次运行找到了一个任何变体拒绝都没覆盖的缺陷：编写器让两侧共用一个 protection，即 `keep`，而内核在出场时拒绝
+`keep`，所以没有哪个编写出的程序能出场。现在每一侧的 protection 跟随它的意图：出场清除，其余各侧保持；
+`every_authored_side_runs_through_the_kernel` 把每一个编写出的侧，从它可能被提出的每个仓位，施加到一个真实的生命周期
+内核上，于是一个本该跟随各侧却被共用的终端，会在那里失败，而不是在之后某一帧。
 
 ## 价值流交接
 

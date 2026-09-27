@@ -63,7 +63,8 @@ sockudo-ws = { workspace = true, optional = true }
 turmoil = { workspace = true, optional = true }
 
 [dev-dependencies]
-vibe-common = { workspace = true, features = ["live"] }
+
+vibe-common = { workspace = true, features = ["live", "stubs"] }
 
 axum = { workspace = true }
 criterion = { workspace = true }

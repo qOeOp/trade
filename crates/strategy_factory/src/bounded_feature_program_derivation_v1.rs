@@ -468,6 +468,59 @@ mod tests {
         "/test_data/bounded_feature_program_meaning_v1/"
     );
 
+    /// Every row a catalog version from 4 on adds is used by at least one authored program.
+    ///
+    /// A primitive nobody's program reads is a primitive nothing but its golden vector has ever
+    /// exercised through a real declaration. Versions 1 to 3 predate this rule and several of
+    /// their rows are still unused here; this holds only the rows added since, so each new
+    /// version arrives with a program that reaches for it.
+    #[rstest]
+    fn every_row_added_since_version_4_is_used_by_an_authored_program() {
+        let mut used = std::collections::BTreeSet::new();
+
+        for entry in std::fs::read_dir(CORPUS).expect("the corpus directory reads") {
+            let path = entry.expect("a corpus entry").path();
+            let is_meaning = path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.ends_with("-meaning.json"));
+
+            if !is_meaning {
+                continue;
+            }
+            let meaning: BoundedFeatureProgramMeaningV1 = serde_json::from_str(
+                &std::fs::read_to_string(&path).expect("a corpus meaning reads"),
+            )
+            .expect("a corpus meaning parses");
+            used.extend(
+                meaning
+                    .nodes
+                    .into_iter()
+                    .map(|node| node.primitive_semantic_id),
+            );
+        }
+
+        let before = PrimitiveCatalogV1::resolve(3).expect("version 3 is published");
+        let newest = PrimitiveCatalogV1::verify().expect("the newest catalog verifies");
+        let added = newest
+            .rows()
+            .iter()
+            .filter(|row| row.operation.is_some() && before.row(row.semantic_id).is_none())
+            .map(|row| row.semantic_id)
+            .collect::<Vec<_>>();
+        assert!(
+            !added.is_empty(),
+            "version 4 adds rows, so this check has rows to hold"
+        );
+
+        for semantic_id in added {
+            assert!(
+                used.contains(semantic_id),
+                "{semantic_id} was added to the catalog but no authored program uses it"
+            );
+        }
+    }
+
     /// Names the meaning fields on which two declarations disagree, innermost index first.
     ///
     /// `assert_eq!` on the whole struct answers "these two 30 KB values differ", which is true and
@@ -544,10 +597,10 @@ mod tests {
         crate::strategy_plan_v2::verified_strategy_input_bindings_for_test(design, receipts)
     }
 
-    /// Ten independently authored declarations reassemble against the newest published catalog.
+    /// Every independently authored declaration reassembles against the newest published catalog.
     ///
     /// `derivation_reproduces_a_known_good_proposal` proves the claim once, against a proposal
-    /// built in this crate by the same hands as the derivation. These ten were written outside it,
+    /// built in this crate by the same hands as the derivation. These were written outside it,
     /// as declared meaning only, and between them they reach every availability rule, every state
     /// sizing rule and every input rule the catalog has. That is the part a single fixture cannot
     /// carry: a derivation that mishandled one rule would still reproduce a proposal that never
@@ -572,6 +625,11 @@ mod tests {
     #[case::t8("t8", "t7")]
     #[case::t9("t9", "t7")]
     #[case::s1("s1", "s1")]
+    #[case::w1("w1", "w1")]
+    #[case::w2("w2", "w2")]
+    #[case::d1("d1", "d1")]
+    #[case::g2("g2", "g2")]
+    #[case::g3("g3", "g3")]
     fn every_authored_declaration_reassembles(#[case] program: &str, #[case] design_name: &str) {
         let design: StrategyDesignV2 = serde_json::from_str(
             &std::fs::read_to_string(format!("{CORPUS}{design_name}-design.json"))

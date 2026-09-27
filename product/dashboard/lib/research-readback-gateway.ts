@@ -44,9 +44,10 @@ export type ResearchReadbackOutcomeV1 = Readonly<{
   instrumentIdentities: readonly string[] | null;
 }>;
 
-// The Composer run and the Replay request an exploration ran, as the verified view names them.
+// The Composer run and the Replay request an exploration ran, as the verified view names them. A
+// legacy exploration ran on a build artifact, not a Composer run, so it names none.
 export type ResearchReadbackExplorationV1 = Readonly<{
-  composerRequestIdentity: string;
+  composerRequestIdentity: string | null;
   replayRequestIdentity: string;
   replayMeaningDigest: string;
 }>;
@@ -125,7 +126,7 @@ const NEXT_STEPS: Readonly<Record<string, ResearchReadbackViewV1["nextStep"]>> =
 
 function validExploration(value: unknown): value is ResearchReadbackExplorationV1 {
   return object(value) && exactKeys(value, ["composerRequestIdentity", "replayRequestIdentity", "replayMeaningDigest"])
-    && identity(value.composerRequestIdentity)
+    && (value.composerRequestIdentity === null || identity(value.composerRequestIdentity))
     && validExploratoryReplayOpaqueIdentityV2(value.replayRequestIdentity)
     && typeof value.replayMeaningDigest === "string" && REPLAY_MEANING_DIGEST.test(value.replayMeaningDigest);
 }
@@ -193,7 +194,9 @@ function projectResponse(
     ? NEXT_STEPS[researchView.next_legal_action]
     : null;
   const exploration = researchView && phase === "exploration_active" ? {
-    composerRequestIdentity: researchView.composer_artifact?.composer_request_identity,
+    composerRequestIdentity: researchView.composer_artifact
+      ? researchView.composer_artifact.composer_request_identity
+      : null,
     replayRequestIdentity: researchView.exploration?.replay_request_identity,
     replayMeaningDigest: researchView.exploration?.replay_request_meaning_digest,
   } : null;

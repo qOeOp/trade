@@ -158,7 +158,7 @@ The maturity boundary is explicit:
   evaluates at request time, so neither the Design nor R&D chooses it (the R&D Owner contract states that request
   scope). A Design with `EXACT_INSTRUMENT` roles stays refused under an Owner universe, by a named refusal,
   `ExactInstrumentRolesUnderOwnerUniverse`, which the implementing change introduces. The universe vertical's input contract of exactly one fixed `OPEN` and one
-  fixed `CLOSE` member role is unchanged; the single-threshold authoring surface gains a universe-member form whose
+  fixed `CLOSE` member role was later replaced by the role set the Design declares (P1 below); the single-threshold authoring surface gains a universe-member form whose
   channel is the member's daily close and which carries the fixed open role, as a carried input its program never
   reads. The authoring request names its form in a required `scope`, so a request without one is refused rather than
   read as the exact-instrument form. That form consumes each role at member
@@ -303,6 +303,11 @@ implement a formula. The first catalog must include:
 - rolling swing high and low; and
 - `range_fraction(low, high, numerator, denominator)`, where the ratio is a frozen reduced rational, denominator
   is positive, bounds and scale are explicit, and Fibonacci levels are only frozen rational constants.
+
+Later versions only append. Version 2 adds the fused rational, version 3 the fixed-point square root, and
+version 4 the trailing-window bar counts since the maximum and since the minimum, exact integers where the
+latest of equal extrema counts, and the trailing-window percent rank, the latest sample's midrank from 0 at the
+lowest to 1 at the highest over a window of at least two, with one final rounding.
 
 Price-action rules and candlestick patterns are typed compositions of these catalog primitives, not named strategy
 templates, opaque labels, copied formulas, or new Host opcodes.
@@ -1140,6 +1145,15 @@ The kernel, never a Design or plugin, owns these stable semantic primitives and 
 - fill reconciliation under `kernel.fill.reconcile.v1`, including partial fill, rejection, cancellation and
   out-of-order readback handling.
 
+A rebalance target's sequence is the Host's, not the program's. A program emits `0` on
+`proposal.rebalance-sequence.v1` for a `kernel.target.rebalance.v1` target, and the Host assigns the sequence when it
+decodes the proposal: on the target-set path, the sequence of the target set the proposal is lifted into, which the
+lift requires each member to carry; on the single-instrument path, one more than the member kernel's current
+rebalance sequence, which the kernel requires a rebalance to exceed. Both rules hold by construction, where a
+program could only guess the one number that satisfies them on one frame. A program that emits any other value for
+a rebalance target is refused by name as `REBALANCE_SEQUENCE_IS_HOST_ASSIGNED`; the port stays in the plugin ABI,
+and no other target reads it.
+
 Each primitive has a versioned semantic ID whose meaning is stable across Backtest and Runtime. The kernel turns
 targets and protection transitions into semantic intent records; in Runtime, Risk remains the final admission
 authority, Execution remains the order/fill/effect authority, and Portfolio remains the position/account truth.
@@ -1388,9 +1402,18 @@ later submission and the cost grows with the whole history.
   adding a role changes only the Design. It changes no admitted bound by itself. A V2 request states no scope and
   stays the legacy exact channel, whose Designs name their instrument; retiring it is a separate slice after T1,
   once every chain entry that creates exact custody under V2 has a scoped replacement.
-- **P1, the role set comes from the Design:** the native Plan contract stops fixing OPEN and CLOSE on one day; the
-  Design declares its roles, its execution timeframe, and which role prices an order. A role the Host cannot bind is
-  refused by name.
+- **P1, the role set comes from the Design:** the native Plan contract stops fixing OPEN and CLOSE on one day. The
+  Design declares its roles, its execution role and its pricing role through fields it already has, the roles' field
+  semantics and a join's trigger; no field is added. A universe role must be an `I128` Market Data BAR open, high,
+  low, close or volume role, which the target-set Host checks against its native bar; any other is refused as
+  `TargetSetRoleNotHostBindable`. The role that prices orders is the one reading the BAR close, and it is also the
+  execution role: none is `ExecutionPricingRoleAbsent`, more than one is `ExecutionPricingRoleAmbiguous`, and a join
+  triggered by any other role is `ExecutionRoleNotPricingRole`, which nothing constructs today because a join over
+  universe roles is refused first. The Host reads its member roles and its pricing role from the Plan. A role's
+  timeframe label stays provenance only, so the execution timeframe is not derived from it here: Market Data resolves
+  the execution role's typed timeframe from its own binding and refuses more than one timeframe, or a day it cannot
+  type, by name. That scheduling change replaces the label comparison in `native_replay_scheduling_v1` and is Market
+  Data's.
 - **P2, the report states every member:** the report family states each member of a universe run, generalizing the
   one-member statement Backtest already makes. It lands with I2, driven by the first run over more than one member:
   before I2 no program reads a member other than the first, so a statement of every member would have nothing to
@@ -1493,6 +1516,9 @@ including on inputs with ties.
 ### Values, inputs, and actions
 
 - **Values:** catalog V4a appends window rank and percentile, bars since an extremum, and covariance and correlation.
+  Catalog version 4 publishes the first two, and its first users, `w1` and `w2`, are in the authored corpus; a row a
+  later version adds is refused by the build until an authored program uses it. Covariance and correlation need a
+  two-series window state and remain TARGET.
   V4b appends natural logarithm and exponential. The user authorized their numeric rule on 2026-09-27 by choosing, in
   these words (translated): "Introduce ln/exp with a pinned algorithm plus golden test vectors, applying only to new
   catalog rows; this class of operation is exempt from 'one exact expression, one final rounding'." V5 adds two
@@ -1535,6 +1561,12 @@ report over a multi-frame Backtest, proven by its chain entry's test name. The c
 | Pair spread                           | BTC and ETH z score                                                                 | I2, V4a            |
 | Cross sectional rotation              | Top two of eight by momentum                                                        | I2, I3             |
 | Funding rate filter                   | Extreme funding reversal                                                            | N1                 |
+| Momentum divergence                   | Price against RSI or the MACD histogram at two confirmed pivots                     | P1, T1             |
+| Rising and falling wedges             | Lines through the two latest confirmed pivot highs and lows                         | P1, T1             |
+| Three and five pushes                 | A push count over confirmed pivots with a holding structure                         | P1, T1             |
+| Fair value gap                        | A gap across three bars held in fixed slots until a later bar trades into it        | P1, T1             |
+| Liquidity sweep                       | A wick through a confirmed pivot with a close back on its near side                 | P1, T1             |
+| Change in state of delivery           | A close through the open of the first bar of the opposing run                       | P1, T1             |
 | Ronnie's drawing rules R1 to R6       | Horizontal and wide bands, trend line bands, Fibonacci, quartering, timeframe roles | See below          |
 
 Ronnie's drawing rules were measured from 2,512 screenshots across 17 of his videos and reduced to six computable
@@ -1562,6 +1594,72 @@ one cause: the program's output must equal a direct reference computation of the
 compiled program, and that reference must match the measured prices within the tolerance, which tests the rule and
 the parameters the measurement filled in rather than observed. It becomes constructible only after T1 and V5.
 
+Momentum divergence, wedges, and three or five pushes rest on one building block, a confirmed pivot, and need no
+slice beyond P1 and T1:
+
+- **Confirmed pivot:** an order-k pivot high at bar `t - k` is confirmed at bar `t` exactly when `Lag(high, k)`
+  equals `Maximum(high, 2k + 1)`, and a pivot low likewise with `Minimum` over the low. The catalog's `SwingHigh` is
+  the highest bar of a trailing window, so a bar that is still rising qualifies; it is not a pivot. A pivot is known
+  k bars late, and that lag is the definition, not a limit of the implementation.
+- **Divergence:** bearish when a newly confirmed pivot high is strictly above the previous one while the indicator
+  at the new pivot, `Lag(indicator, k)`, is strictly below its value at the previous pivot; bullish is the mirror
+  over lows. The signal is emitted at the confirmation bar. The previous pivot's price and indicator are two
+  fixed-point strategy state cells. `d1`, a bearish divergence on the daily close with RSI(3), is the first authored
+  program to declare them: `a_divergence_program_carries_its_previous_pivot_through_fixed_point_state` builds it as
+  Wasm and it exits only two bars after its second pivot, and putting the two cells back to their zero seeds before
+  every bar removes that exit while the pivots are still found.
+- **Wedge:** lines through the two latest confirmed pivot highs and the two latest pivot lows. It is rising when both
+  slopes are positive and the lower line is steeper, falling in the mirror case, and it declares a convergence ratio
+  and a breakout tolerance in ATR. A line's value at the current bar is `p2 + (p2 - p1) * a / b`, where `a` is the
+  bars since the later anchor and `b` the bars between the anchors; the subtraction, product, and sum are exact at
+  their declared scales, so the division is the one rounding. Lines through three or more pivots need V5's memory
+  and round once per node, which the definition must declare.
+- **Pushes:** the count rises at each newly confirmed pivot high strictly above the previous push while the pivot low
+  between them stays strictly above the one before, and restarts otherwise; three strategy state cells hold it.
+  Pushes read on 4h with entries on 1h are T2.
+
+Each has a synthetic control that fixes its signal bar exactly - a divergence at the pivot plus k and never earlier,
+no wedge from a parallel channel, a count that restarts at a structure break - and a real-data control: over public
+BTC K-lines, the program's pivots and signals must equal an independent reference implementation of the definition
+exactly. No human-labelled ground truth exists for these three patterns, so what's checked is the program against
+its definition, not the program against the trader.
+
+Three ICT patterns - fair value gap, liquidity sweep, and change in state of delivery - need no slice beyond P1 and
+T1 either:
+
+- **Fair value gap:** bullish at bar `t` when the low is strictly above `Lag(high, 2)`, the gap being the interval
+  between them, and bearish in the mirror case. A gap stays open until a later bar trades into it, which is the
+  signal, and is then cleared. Each open gap takes three fixed-point strategy state cells - its upper edge, its
+  lower edge, and whether it is open - and the program declares how many gaps it holds and that a new gap, when
+  every slot is open, replaces the oldest. V5's memory of the last N events is that rule as one declaration;
+  written out with `Select` today, the gap does not wait for V5. `g2` and `g3`, one bullish gap program with two
+  and three slots, are the second authored programs after `d1` whose state is proven through Wasm:
+  `a_fair_value_gap_program_evicts_the_oldest_gap_only_when_its_slots_are_full` forms three gaps, and with two slots
+  the third evicts the first, so a later bar trading into the first gap's interval emits nothing, while the same
+  bars with three slots emit the signal.
+- **Liquidity sweep:** bearish at bar `t` when the high is strictly above the latest confirmed pivot high and the
+  close is strictly below it, and bullish in the mirror case over lows; the pivot is one state cell. A bar's high
+  and close do not say when inside the bar the level was crossed, so the signal is at the sweep bar's close;
+  entering at the moment of the sweep needs T2's lower timeframe or quotes. A pivot is known k bars late, so a sweep
+  of a pivot not yet confirmed is not seen.
+- **Change in state of delivery:** a run is consecutive bars that close on one side of their open. Bullish at bar
+  `t` when, after a bearish run of at least a declared length, the close is strictly above the open of the run's
+  first bar, and bearish in the mirror case. A counter and that first open are two state cells, the open captured
+  when the counter leaves zero; it is the same kind of structure as the push count.
+
+Their controls take the form above: a synthetic control fixes the signal bar - a gap no bar trades into emits
+nothing, a wick through a pivot without a close back emits no sweep, and a close equal to the run's first open
+emits no change - and a real-data control holds the program to an independent reference implementation over public
+BTC K-lines.
+
+Two parts of the ICT method are not these shapes. A session window (killzone) cannot be expressed today: no input
+fact is a time of day, and no catalog row turns a sample coordinate, which carries the sample's time, into one. Its
+route is an appended catalog row that reads the UTC hour and minute from a sample coordinate, which takes a catalog
+version and kernel, golden, and lowerer changes; the V3 build capsule binds the catalog and lowerer source digests,
+so every program built after it carries a new build identity. A window stated in New York time moves by one UTC hour
+at each daylight saving change, which that row does not represent, so a Design declares the UTC window it means.
+Composing a higher-timeframe gap with a lower-timeframe change in state of delivery is T2.
+
 ### What the envelope assumes of F
 
 The envelope adds no production path of its own: every slice runs a Backtest through the path F's acceptance
@@ -1579,6 +1677,32 @@ P0, P1, and T0 proceed in parallel: T0 is internal to Market Data, and its custo
 and timeframes. T1 depends on all three, because it derives the custody request from the Research scope and the
 Design; its first positive case uses only CLOSE and one member, and D1 lands with it. P2 lands with I2. A1 and V4a proceed in parallel with T1; then T2, I1, I1.5, I2, and I3; then N1, A2, A3, V4b, and V5. Per-frame as-of membership (T4) would
 remove the invariant that every frame shares one member set, so it is asked of the user when it is proposed.
+
+One target variant the single-threshold author accepts cannot run past one frame of the target-set Host today, and
+it is a slice after F and before T1. It was measured on `main` 3a465a537, red as it stands and past the named check
+under a temporary change that was then reverted. Until its slice lands, the author refuses it by name as
+`SINGLE_THRESHOLD_TARGET_VARIANT_NOT_RUNNABLE`, on either side, so a program that could only fail on its first frame
+is not authored at all; the slice removes the refusal.
+
+- **Weight reconciliation.** The Host decodes a reconciliation target for every target but `Keep`, and the target-set
+  reconciliation requires none for a weight target, so a weight side fails as `InputCoverage` on its first frame.
+  With the decoding temporarily leaving weight without one, that check passes and the frame then fails as
+  `InvalidPositionTransition`: the author shares one target weight of 0 between both sides, and entering at weight 0
+  is no transition. Strategy Factory fixes both: the Host's decoding, and the author's weight, which follows each
+  side as its position already does.
+
+A rebalance target was the second such variant, and its slice has landed: the Host assigns the sequence as the rule
+above states, and the author writes `0`. With a constant of 1 only the first frame lifts, and with the Host's
+assignment removed and `0` written not even the first does. `an_authored_rebalance_program_lifts_three_consecutive_frames`
+runs the authored program as Wasm through three frames of the target-set Sim, entering, exiting and entering again at
+sequences 1, 2 and 3, and `a_single_instrument_host_assigns_each_rebalance_the_next_sequence` holds the
+single-instrument path.
+
+That run found a defect no variant refusal covered: the author shared one protection, `keep`, between both sides, and
+the kernel refuses `keep` on an exit, so no authored program could exit. Each side's protection now follows its
+intent - an exit clears, every other side keeps - and `every_authored_side_runs_through_the_kernel` applies every
+authored side to a real lifecycle kernel from each position it can be proposed at, so a terminal shared where it must
+follow the side fails there rather than on a later frame.
 
 ## Value-stream handoffs
 

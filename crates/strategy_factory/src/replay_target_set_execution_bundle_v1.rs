@@ -10,8 +10,6 @@ use vibe_data::owner::instrument_master_v2::ValidatedCryptoPerpetualPublicTermsV
 use vibe_data::owner::native_replay_scheduling_v1::NativeReplaySchedulingReadbackV1;
 use vibe_data::owner::native_replay_scheduling_v2::NativeReplayFrameSequenceReadbackV2;
 use vibe_data::owner::strategy_input_binding::StrategyInputEventKind;
-#[cfg(test)]
-use vibe_data::owner::strategy_input_binding::StrategyInputUniverseFrameReceipt;
 use vibe_model::{
     data::{Bar, BarType, Data, HasTsInit, QuoteTick},
     identifiers::{AccountId, StrategyId},
@@ -734,7 +732,7 @@ impl ReplayTargetSetExecutionBundleV1 {
         authority: OwnerIssuedReplayExecutionProfileBindingV1,
         plan: StrategyPlanV2,
         artifact: StrategyArtifactV2,
-        universe_frames: Vec<StrategyInputUniverseFrameReceipt>,
+        universe_frames: Vec<OwnerUniverseFrameV1>,
         strategy_id: StrategyId,
         run_id: String,
         instruments: impl Into<Vec<InstrumentAny>>,
@@ -749,10 +747,7 @@ impl ReplayTargetSetExecutionBundleV1 {
             authority,
             plan,
             artifact,
-            universe_frames
-                .into_iter()
-                .map(OwnerUniverseFrameV1::uncoordinated)
-                .collect(),
+            universe_frames,
             strategy_id,
             run_id,
             instruments,

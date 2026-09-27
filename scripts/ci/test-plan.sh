@@ -262,6 +262,17 @@ run_case planner_self_change \
 run_case security_config_change \
   "printf '# changed\\n' >> .pre-commit-config.yaml" "${fail_closed[@]}"
 run_case empty_change ":" "${fail_closed[@]}"
+# The connection guard's self-test hook runs on the diff even on the narrow route
+# (scripts/ci/check-pr-hook-coverage.py, COMPILED_SINCE). That loses nothing only while every file
+# that triggers it routes a pull request to the full route, which these two cases hold.
+run_case disallowed_lint_config \
+  "printf '# changed\\n' >> clippy.toml" \
+  run_tests=true run_rust_tests=true run_generated_drift=false \
+  run_full_pre_commit=true run_capnp_check=false \
+  codeql_python_impacted=false codeql_rust_impacted=true
+run_case connect_guard_script \
+  "printf '# changed\\n' >> scripts/ci/check-disallowed-connect-outside-union.bash" \
+  "${fail_closed[@]}"
 
 run_push_case pin_only_main_push \
   "printf '{\"schema_version\":2,\"commit\":\"changed\"}\\n' > codex-skills.lock.json" \
@@ -302,15 +313,31 @@ rm -f "$invalid_base_output"
 rm -rf "$invalid_base_checkout"
 echo "ok: invalid base history fails closed"
 
-# The heavy scanners stay paused on pull requests; only `build` gates them.
-for workflow in \
-  "$repo_root/.github/workflows/codeql-analysis.yml" \
-  "$repo_root/.github/workflows/security-audit.yml"; do
-  if grep -Eq '^[[:space:]]+pull_request:' "$workflow"; then
-    echo "PR CI must remain paused in $workflow" >&2
-    exit 1
-  fi
-done
+# CodeQL stays paused on pull requests; only `build` gates it.
+if grep -Eq '^[[:space:]]+pull_request:' "$repo_root/.github/workflows/codeql-analysis.yml"; then
+  echo "PR CI must remain paused in codeql-analysis.yml" >&2
+  exit 1
+fi
+# security-audit runs on a pull request that touches what it audits, so quality requires it there
+# (path_triggered_workflows.py). It ran on main alone until 2026-09-27 and was red for four days
+# with nothing blocked. Its pull request paths are its push paths, and they cover every lockfile
+# and audit configuration it reads, so a dependency change cannot merge without it.
+python3 - "$repo_root/.github/workflows/security-audit.yml" << 'AUDIT'
+import sys
+import yaml
+
+on = yaml.safe_load(open(sys.argv[1]))[True]
+pull, push = on.get("pull_request") or {}, on.get("push") or {}
+if pull.get("paths") != push.get("paths"):
+    sys.exit("security-audit.yml: its pull_request paths must be its push paths")
+required = {
+    "Cargo.lock", "python/uv.lock", "python/pyproject.toml", "services/*/uv.lock",
+    "services/*/pyproject.toml", "deny.toml", ".cargo/audit.toml", "osv-scanner.toml",
+}
+missing = sorted(required - set(pull["paths"]))
+if missing:
+    sys.exit(f"security-audit.yml: pull requests changing {missing} would skip the audit")
+AUDIT
 test ! -e "$repo_root/.github/workflows/pr-fast.yml"
 build_triggers="$(sed -n '/^on:/,/^concurrency:/p' "$repo_root/.github/workflows/build.yml")"
 for branch in test-ci test-pre-commit nightly master; do
@@ -432,7 +459,7 @@ security_triggers="$(sed -n '/^on:/,/^jobs:/p' "$repo_root/.github/workflows/sec
 [[ "$security_triggers" == *'schedule:'* ]]
 [[ "$security_triggers" == *'workflow_dispatch:'* ]]
 grep -Fq 'pull_request_target:' "$repo_root/.github/workflows/pr-title.yml"
-echo "ok: build gates ready pull requests; heavy scanners paused; title validation retained"
+echo "ok: build gates ready pull requests; CodeQL paused, security-audit path-gated; title validation retained"
 
 build_workflow="$repo_root/.github/workflows/build.yml"
 common_setup="$repo_root/.github/actions/common-setup/action.yml"
@@ -916,6 +943,7 @@ echo "ok: adaptive cleanup, Rust cache, doctest isolation, and nextest consumer 
 python3 -B "$repo_root/scripts/ci/check-pr-hook-coverage.py" "$repo_root"
 python3 -B "$repo_root/scripts/ci/check-pr-hook-coverage_test.py"
 bash "$repo_root/scripts/ci/test-require-workflow-job.bash"
+bash "$repo_root/scripts/ci/test-require-latest-workflow-verdict.bash" > /dev/null
 pre_commit_pr="$repo_root/.github/workflows/pre-commit-pr.yml"
 pre_commit_job="$(workflow_job_block "$build_workflow" pre-commit)"
 # Match literal workflow expressions.
@@ -940,6 +968,95 @@ if [[ -z "$required_job" ]] || [[ "$quality_job" != *'bash scripts/ci/require-wo
   exit 1
 fi
 echo "ok: pull requests keep their pre-commit coverage across the two jobs"
+
+# The connection guard outside the sealed union has no step of its own: the hook
+# test-disallowed-connect-guard is the gate. Its step ran wherever `run-full-pre-commit` was true, on
+# every event, and there "Run pre-commit" (which has no condition) takes the pull-request-full scope
+# on a pull request and the full scope otherwise. Both must select the hook over all files, and its
+# `files` must match a path that always exists, or --all-files would select it and run nothing.
+guard_hook=test-disallowed-connect-guard
+for scope in pull-request-full full; do
+  scope_args="$(bash "$repo_root/scripts/ci/run-pre-commit.bash" "$scope" --print)"
+  if ! grep -qx -- --all-files <<< "$scope_args" ||
+    grep -qx -- "$guard_hook" <<< "$(grep -A1 -x -- --skip <<< "$scope_args")" ||
+    { [[ "$scope" == pull-request-full ]] && ! grep -qx -- "$guard_hook" <<< "$scope_args"; }; then
+    echo "run-pre-commit.bash $scope must run $guard_hook over all files; it is the connection gate." >&2
+    exit 1
+  fi
+done
+run_pre_commit_step="$(
+  workflow_job_block "$build_workflow" pre-commit |
+    awk '/^      - name: Run pre-commit$/ {on = 1; print; next} on && /^      - / {exit} on'
+)"
+# shellcheck disable=SC2016 # the workflow's literal expressions and shell text
+if [[ -z "$run_pre_commit_step" ]] || grep -Eq '^        if:' <<< "$run_pre_commit_step" ||
+  [[ "$run_pre_commit_step" != *'FULL_PRE_COMMIT: ${{ needs.plan.outputs.run-full-pre-commit }}'* ]] ||
+  [[ "$run_pre_commit_step" != *'if [[ "$FULL_PRE_COMMIT" == true ]]; then route=full; fi'* ]]; then
+  echo "build.yml's \"Run pre-commit\" must run unconditionally and take the full scope whenever" >&2
+  echo "run-full-pre-commit is true: that is what keeps the connection gate hook on every route its" >&2
+  echo "old step ran on." >&2
+  exit 1
+fi
+if [[ "$(workflow_job_block "$build_workflow" pre-commit)" == *'check-disallowed-connect-outside-union.bash'* ]]; then
+  echo "build.yml's pre-commit job runs the connection gate again as a step; the hook already is the gate." >&2
+  exit 1
+fi
+python3 - "$repo_root" "$guard_hook" << 'GUARD'
+import re
+import sys
+from pathlib import Path
+
+root, hook = Path(sys.argv[1]), sys.argv[2]
+block = re.search(
+    rf"^\s*- id: {re.escape(hook)}\n(.*?)(?=^\s*- id: |\Z)",
+    (root / ".pre-commit-config.yaml").read_text(),
+    re.MULTILINE | re.DOTALL,
+).group(1)
+files = re.search(r"^\s*files: >-\n((?:\s{10}.*\n)+)", block, re.MULTILINE).group(1)
+script = "scripts/ci/check-disallowed-connect-outside-union.bash"
+if not (root / script).is_file() or not re.search(files.strip(), script, re.VERBOSE):
+    sys.exit(f"{hook}'s files must match {script}, which always exists")
+GUARD
+echo "ok: every full route runs the connection gate hook over all files, and build.yml has no second pass"
+
+# A workflow that runs on a pull request only for some paths gates the merge through quality: plan
+# names the ones the diff triggers and quality requires each whole run. The list plan passes must be
+# every such workflow, so a new path-filtered one cannot stay ungated by default - add it there, or
+# say here why it must not block.
+python3 -B "$repo_root/scripts/ci/path_triggered_workflows_test.py" > /dev/null
+path_filtered="$(
+  python3 - "$repo_root/.github/workflows" << 'PY'
+import sys, yaml
+from pathlib import Path
+for f in sorted(Path(sys.argv[1]).glob("*.yml")):
+    d = yaml.safe_load(f.read_text()); on = d.get(True, d.get("on"))
+    if isinstance(on, dict) and isinstance(on.get("pull_request"), dict) and "paths" in on["pull_request"]:
+        print(f.name)
+PY
+)"
+plan_lists="$(workflow_job_block "$build_workflow" plan | grep -oE '\.github/workflows/[a-z0-9-]+\.yml' | sed 's#.github/workflows/##' | sort -u)"
+if [[ "$path_filtered" != "$plan_lists" ]]; then
+  echo "plan's path-workflows step must name every path-filtered pull_request workflow." >&2
+  echo "  path-filtered: $(tr '\n' ' ' <<< "$path_filtered")" >&2
+  echo "  plan names:    $(tr '\n' ' ' <<< "$plan_lists")" >&2
+  exit 1
+fi
+quality_job="$(workflow_job_block "$build_workflow" quality)"
+# shellcheck disable=SC2016 # the workflow's literal shell text
+[[ "$quality_job" == *'bash scripts/ci/require-workflow-job.bash "$workflow" '"'*'"' "$HEAD_SHA" 1800'* ]]
+[[ "$quality_job" == *"REQUIRE_WORKFLOW_JOB_RECOVERY="* ]]
+echo "ok: every path-filtered pull request workflow the diff triggers is required by quality"
+# main's own verdict carries security-audit's: its latest completed run on main must be green and
+# recent. The requirement script has to be checked out on main as well, or the step cannot run.
+quality_job="$(workflow_job_block "$build_workflow" quality)"
+# shellcheck disable=SC2016 # the workflow's literal expressions
+if [[ "$quality_job" != *'run: bash scripts/ci/require-latest-workflow-verdict.bash security-audit.yml main '* ]] ||
+  [[ "$quality_job" != *"if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'"* ]] ||
+  [[ "$quality_job" != *"if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'"* ]]; then
+  echo "build.yml's quality must require security-audit's latest verdict on main, with its script checked out there." >&2
+  exit 1
+fi
+echo "ok: main's verdict requires security-audit's latest verdict on main"
 
 # The merge of the R&D chain shards' records before the whole-chain report. (The shards' wait for
 # the archive has its own pre-commit hook, test-wait-for-run-artifact.)

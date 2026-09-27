@@ -23,7 +23,7 @@ cd "$repository_root"
 readonly nextest_profile="${NEXTEST_PROFILE:-default}"
 readonly wasm_proof_features='sealed-develop-composer-acceptance'
 
-# Proofs that hold on every host the workspace builds for. Both drive the toolchain directly, so
+# Proofs that hold on every host the workspace builds for. Each drives the toolchain directly, so
 # they need the pinned target and nothing else.
 #
 # `two_lowerings_two_builds_and_strict_replay_mint_one_v3_identity` is deliberately absent. It
@@ -34,6 +34,10 @@ readonly wasm_proof_features='sealed-develop-composer-acceptance'
 readonly portable_wasm_proofs=(
   'bounded_feature_program_lowerer_v1::tests::every_executable_operation_builds_and_runs_as_strict_abi_three_wasm'
   'bounded_feature_program_lowerer_v1::tests::generated_candidate_is_a_real_strict_abi_three_module'
+  'bounded_feature_program_lowerer_v1::tests::a_divergence_program_carries_its_previous_pivot_through_fixed_point_state'
+  'bounded_feature_program_lowerer_v1::tests::a_fair_value_gap_program_evicts_the_oldest_gap_only_when_its_slots_are_full'
+  'program_host_v2_target_set_backtest_tests::an_authored_universe_member_program_enters_once_through_the_target_set_sim'
+  'program_host_v2_target_set_backtest_tests::an_authored_rebalance_program_lifts_three_consecutive_frames'
 )
 
 # Compiled only on the hosts the sandbox admits (macOS arm64, Linux arm64, Linux x86_64), which are

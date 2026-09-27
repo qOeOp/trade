@@ -26,7 +26,7 @@ extension-module = [
 python = ["vibe-core/python", "vibe-model/python", "pyo3", "pyo3-stub-gen"]
 [dependencies]
 vibe-core = { workspace = true }
-vibe-model = { workspace = true, features = ["stubs"] }
+vibe-model = { workspace = true }
 
 ahash = { workspace = true }
 anyhow = { workspace = true }
@@ -37,4 +37,6 @@ pyo3 = { workspace = true, optional = true }
 pyo3-stub-gen = { workspace = true, optional = true }
 
 [dev-dependencies]
+vibe-model = { workspace = true, features = ["stubs"] }
+
 rstest = { workspace = true }

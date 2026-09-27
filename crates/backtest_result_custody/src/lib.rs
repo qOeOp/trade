@@ -29,11 +29,15 @@ pub use protected_replay::{
 
 const RESOLVE_FUNCTION_NAME: &str = "resolve_exploratory_replay_result_v2";
 const RESOLVE_V3_FUNCTION_NAME: &str = "resolve_exploratory_replay_result_v3";
+const DIRECTORY_FUNCTION_NAME: &str = "read_exploratory_replay_result_directory_v1";
+/// The most Results one request's directory lists; the function refuses a longer one by name.
+pub const EXPLORATORY_RESULT_DIRECTORY_BOUND_V1: usize = 256;
 const AUTHORITY_LOCK_FUNCTION: &str = "backtest_authority_lock_api.lock_authority_catalogs_v1()";
 const TOPOLOGY_FENCE: &str = "vibe.backtest.result-topology.v2";
 const AUTHORITY_LOCK_FUNCTION_SOURCE: &str = "BEGIN LOCK TABLE pg_catalog.pg_authid, pg_catalog.pg_auth_members IN SHARE MODE; RETURN true; END";
 const FUNCTION_SOURCE: &str = "DECLARE locked_result public.backtest_replay_results_v2%ROWTYPE; locked_receipt public.backtest_replay_result_receipts_v1%ROWTYPE; locked_outbox public.backtest_replay_result_outbox_v1%ROWTYPE; locked_trace public.backtest_native_replay_semantic_traces_v2%ROWTYPE; BEGIN SELECT result.* INTO locked_result FROM public.backtest_replay_results_v2 result WHERE result.result_identity=p_result_identity AND result.request_identity=p_request_identity AND result.attempt_identity=p_attempt_identity; IF NOT FOUND THEN RETURN pg_catalog.jsonb_build_object('schema_version',1,'refusal','EXPLORATORY_RESULT_ABSENT'); END IF; SELECT receipt.* INTO locked_receipt FROM public.backtest_replay_result_receipts_v1 receipt WHERE receipt.result_identity=p_result_identity; IF NOT FOUND THEN RETURN pg_catalog.jsonb_build_object('schema_version',1,'refusal','EXPLORATORY_RECEIPT_ABSENT'); END IF; SELECT outbox.* INTO locked_outbox FROM public.backtest_replay_result_outbox_v1 outbox WHERE outbox.result_identity=p_result_identity; IF NOT FOUND THEN RETURN pg_catalog.jsonb_build_object('schema_version',1,'refusal','EXPLORATORY_OUTBOX_ABSENT'); END IF; SELECT trace.* INTO locked_trace FROM public.backtest_native_replay_semantic_traces_v2 trace WHERE trace.result_identity=p_result_identity; RETURN pg_catalog.jsonb_build_object('schema_version',3,'result',pg_catalog.jsonb_build_object('result_identity',locked_result.result_identity,'result_digest',locked_result.result_digest,'request_identity',locked_result.request_identity,'request_meaning_digest',locked_result.request_meaning_digest,'attempt_identity',locked_result.attempt_identity,'terminal',locked_result.terminal,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_result.canonical_bytes,'base64'),pg_catalog.chr(10),''),'canonical_bytes_blake3',locked_result.canonical_bytes_blake3),'receipt',pg_catalog.jsonb_build_object('result_identity',locked_receipt.result_identity,'receipt_identity',locked_receipt.receipt_identity,'receipt_digest',locked_receipt.receipt_digest,'request_identity',locked_receipt.request_identity,'request_meaning_digest',locked_receipt.request_meaning_digest,'result_digest',locked_receipt.result_digest,'namespace',locked_receipt.namespace,'outbox_event_identity',locked_receipt.outbox_event_identity,'committed_at_epoch_ms',locked_receipt.committed_at_epoch_ms,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_receipt.canonical_bytes,'base64'),pg_catalog.chr(10),''),'canonical_bytes_blake3',locked_receipt.canonical_bytes_blake3),'outbox',pg_catalog.jsonb_build_object('result_identity',locked_outbox.result_identity,'event_identity',locked_outbox.event_identity,'event_digest',locked_outbox.event_digest,'receipt_identity',locked_outbox.receipt_identity,'request_identity',locked_outbox.request_identity,'request_meaning_digest',locked_outbox.request_meaning_digest,'result_digest',locked_outbox.result_digest,'namespace',locked_outbox.namespace,'payload_digest',locked_outbox.payload_digest,'committed_at_epoch_ms',locked_outbox.committed_at_epoch_ms,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_outbox.canonical_bytes,'base64'),pg_catalog.chr(10),''),'canonical_bytes_blake3',locked_outbox.canonical_bytes_blake3),'semantic_trace',CASE WHEN locked_trace.result_identity IS NULL THEN NULL ELSE pg_catalog.jsonb_build_object('result_identity',locked_trace.result_identity,'locator_reference',locked_trace.locator_reference,'locator_digest',locked_trace.locator_digest,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_trace.canonical_bytes,'base64'),pg_catalog.chr(10),'')) END); END";
 const FUNCTION_SOURCE_V3: &str = "DECLARE locked_result public.backtest_replay_results_v2%ROWTYPE; locked_receipt public.backtest_replay_result_receipts_v1%ROWTYPE; locked_outbox public.backtest_replay_result_outbox_v1%ROWTYPE; locked_trace public.backtest_native_replay_semantic_traces_v2%ROWTYPE; locked_evidence public.backtest_native_replay_outcome_evidence_v1%ROWTYPE; locked_evidence_receipt public.backtest_native_replay_outcome_evidence_receipts_v1%ROWTYPE; locked_evidence_outbox public.backtest_native_replay_outcome_evidence_outbox_v1%ROWTYPE; BEGIN SELECT result.* INTO locked_result FROM public.backtest_replay_results_v2 result WHERE result.result_identity=p_result_identity AND result.request_identity=p_request_identity AND result.attempt_identity=p_attempt_identity; IF NOT FOUND THEN RETURN pg_catalog.jsonb_build_object('schema_version',1,'refusal','EXPLORATORY_RESULT_ABSENT'); END IF; SELECT receipt.* INTO locked_receipt FROM public.backtest_replay_result_receipts_v1 receipt WHERE receipt.result_identity=p_result_identity; IF NOT FOUND THEN RETURN pg_catalog.jsonb_build_object('schema_version',1,'refusal','EXPLORATORY_RECEIPT_ABSENT'); END IF; SELECT outbox.* INTO locked_outbox FROM public.backtest_replay_result_outbox_v1 outbox WHERE outbox.result_identity=p_result_identity; IF NOT FOUND THEN RETURN pg_catalog.jsonb_build_object('schema_version',1,'refusal','EXPLORATORY_OUTBOX_ABSENT'); END IF; SELECT trace.* INTO locked_trace FROM public.backtest_native_replay_semantic_traces_v2 trace WHERE trace.result_identity=p_result_identity; IF NOT FOUND THEN RETURN pg_catalog.jsonb_build_object('schema_version',1,'refusal','SEMANTIC_TRACE_ABSENT'); END IF; SELECT evidence.* INTO locked_evidence FROM public.backtest_native_replay_outcome_evidence_v1 evidence WHERE evidence.result_identity=p_result_identity AND evidence.request_identity=p_request_identity AND evidence.attempt_identity=p_attempt_identity; IF NOT FOUND THEN RETURN pg_catalog.jsonb_build_object('schema_version',1,'refusal','OUTCOME_EVIDENCE_ABSENT'); END IF; SELECT receipt.* INTO locked_evidence_receipt FROM public.backtest_native_replay_outcome_evidence_receipts_v1 receipt WHERE receipt.result_identity=p_result_identity; IF NOT FOUND THEN RETURN pg_catalog.jsonb_build_object('schema_version',1,'refusal','OUTCOME_EVIDENCE_RECEIPT_ABSENT'); END IF; SELECT outbox.* INTO locked_evidence_outbox FROM public.backtest_native_replay_outcome_evidence_outbox_v1 outbox WHERE outbox.result_identity=p_result_identity; IF NOT FOUND THEN RETURN pg_catalog.jsonb_build_object('schema_version',1,'refusal','OUTCOME_EVIDENCE_OUTBOX_ABSENT'); END IF; RETURN pg_catalog.jsonb_build_object('schema_version',4,'result',pg_catalog.jsonb_build_object('result_identity',locked_result.result_identity,'result_digest',locked_result.result_digest,'request_identity',locked_result.request_identity,'request_meaning_digest',locked_result.request_meaning_digest,'attempt_identity',locked_result.attempt_identity,'terminal',locked_result.terminal,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_result.canonical_bytes,'base64'),pg_catalog.chr(10),''),'canonical_bytes_blake3',locked_result.canonical_bytes_blake3),'receipt',pg_catalog.jsonb_build_object('result_identity',locked_receipt.result_identity,'receipt_identity',locked_receipt.receipt_identity,'receipt_digest',locked_receipt.receipt_digest,'request_identity',locked_receipt.request_identity,'request_meaning_digest',locked_receipt.request_meaning_digest,'result_digest',locked_receipt.result_digest,'namespace',locked_receipt.namespace,'outbox_event_identity',locked_receipt.outbox_event_identity,'committed_at_epoch_ms',locked_receipt.committed_at_epoch_ms,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_receipt.canonical_bytes,'base64'),pg_catalog.chr(10),''),'canonical_bytes_blake3',locked_receipt.canonical_bytes_blake3),'outbox',pg_catalog.jsonb_build_object('result_identity',locked_outbox.result_identity,'event_identity',locked_outbox.event_identity,'event_digest',locked_outbox.event_digest,'receipt_identity',locked_outbox.receipt_identity,'request_identity',locked_outbox.request_identity,'request_meaning_digest',locked_outbox.request_meaning_digest,'result_digest',locked_outbox.result_digest,'namespace',locked_outbox.namespace,'payload_digest',locked_outbox.payload_digest,'committed_at_epoch_ms',locked_outbox.committed_at_epoch_ms,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_outbox.canonical_bytes,'base64'),pg_catalog.chr(10),''),'canonical_bytes_blake3',locked_outbox.canonical_bytes_blake3),'semantic_trace',pg_catalog.jsonb_build_object('result_identity',locked_trace.result_identity,'locator_reference',locked_trace.locator_reference,'locator_digest',locked_trace.locator_digest,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_trace.canonical_bytes,'base64'),pg_catalog.chr(10),'')),'outcome_evidence',pg_catalog.jsonb_build_object('result_identity',locked_evidence.result_identity,'evidence_identity',locked_evidence.evidence_identity,'evidence_digest',locked_evidence.evidence_digest,'result_digest',locked_evidence.result_digest,'request_identity',locked_evidence.request_identity,'request_meaning_digest',locked_evidence.request_meaning_digest,'attempt_identity',locked_evidence.attempt_identity,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_evidence.canonical_bytes,'base64'),pg_catalog.chr(10),''),'canonical_bytes_blake3',locked_evidence.canonical_bytes_blake3,'engine_canonical_result_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_evidence.engine_canonical_result_bytes,'base64'),pg_catalog.chr(10),''),'engine_canonical_result_bytes_blake3',locked_evidence.engine_canonical_result_bytes_blake3),'outcome_evidence_receipt',pg_catalog.jsonb_build_object('result_identity',locked_evidence_receipt.result_identity,'receipt_identity',locked_evidence_receipt.receipt_identity,'receipt_digest',locked_evidence_receipt.receipt_digest,'evidence_identity',locked_evidence_receipt.evidence_identity,'evidence_digest',locked_evidence_receipt.evidence_digest,'result_digest',locked_evidence_receipt.result_digest,'request_identity',locked_evidence_receipt.request_identity,'request_meaning_digest',locked_evidence_receipt.request_meaning_digest,'attempt_identity',locked_evidence_receipt.attempt_identity,'outbox_event_identity',locked_evidence_receipt.outbox_event_identity,'committed_at_epoch_ms',locked_evidence_receipt.committed_at_epoch_ms,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_evidence_receipt.canonical_bytes,'base64'),pg_catalog.chr(10),''),'canonical_bytes_blake3',locked_evidence_receipt.canonical_bytes_blake3),'outcome_evidence_outbox',pg_catalog.jsonb_build_object('result_identity',locked_evidence_outbox.result_identity,'event_identity',locked_evidence_outbox.event_identity,'event_digest',locked_evidence_outbox.event_digest,'receipt_identity',locked_evidence_outbox.receipt_identity,'evidence_identity',locked_evidence_outbox.evidence_identity,'evidence_digest',locked_evidence_outbox.evidence_digest,'result_digest',locked_evidence_outbox.result_digest,'request_identity',locked_evidence_outbox.request_identity,'request_meaning_digest',locked_evidence_outbox.request_meaning_digest,'attempt_identity',locked_evidence_outbox.attempt_identity,'payload_digest',locked_evidence_outbox.payload_digest,'committed_at_epoch_ms',locked_evidence_outbox.committed_at_epoch_ms,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_evidence_outbox.canonical_bytes,'base64'),pg_catalog.chr(10),''),'canonical_bytes_blake3',locked_evidence_outbox.canonical_bytes_blake3)); END";
+const DIRECTORY_FUNCTION_SOURCE: &str = "DECLARE entry_count bigint; entries jsonb; BEGIN IF EXISTS (SELECT 1 FROM public.backtest_replay_results_v2 result WHERE result.request_identity=p_request_identity AND result.request_meaning_digest<>p_request_meaning_digest) THEN RETURN pg_catalog.jsonb_build_object('schema_version',1,'refusal','EXPLORATORY_REQUEST_MEANING_MISMATCH'); END IF; SELECT pg_catalog.count(*) INTO entry_count FROM public.backtest_replay_results_v2 result WHERE result.request_identity=p_request_identity AND result.request_meaning_digest=p_request_meaning_digest; IF entry_count=0 THEN RETURN pg_catalog.jsonb_build_object('schema_version',1,'refusal','EXPLORATORY_REQUEST_RESULTS_ABSENT'); END IF; IF entry_count>256 THEN RETURN pg_catalog.jsonb_build_object('schema_version',1,'refusal','EXPLORATORY_REQUEST_RESULTS_EXCEED_BOUND'); END IF; IF EXISTS (SELECT 1 FROM public.backtest_replay_results_v2 result WHERE result.request_identity=p_request_identity AND result.request_meaning_digest=p_request_meaning_digest AND NOT EXISTS (SELECT 1 FROM public.backtest_replay_result_receipts_v1 receipt WHERE receipt.result_identity=result.result_identity)) THEN RETURN pg_catalog.jsonb_build_object('schema_version',1,'refusal','EXPLORATORY_RECEIPT_ABSENT'); END IF; IF EXISTS (SELECT 1 FROM public.backtest_replay_results_v2 result WHERE result.request_identity=p_request_identity AND result.request_meaning_digest=p_request_meaning_digest AND NOT EXISTS (SELECT 1 FROM public.backtest_replay_result_outbox_v1 outbox WHERE outbox.result_identity=result.result_identity)) THEN RETURN pg_catalog.jsonb_build_object('schema_version',1,'refusal','EXPLORATORY_OUTBOX_ABSENT'); END IF; SELECT pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object('result_identity',result.result_identity,'result_digest',result.result_digest,'attempt_identity',result.attempt_identity,'terminal',result.terminal,'receipt_identity',receipt.receipt_identity,'receipt_request_identity',receipt.request_identity,'receipt_request_meaning_digest',receipt.request_meaning_digest,'receipt_result_digest',receipt.result_digest,'receipt_namespace',receipt.namespace,'committed_at_epoch_ms',receipt.committed_at_epoch_ms,'outbox_receipt_identity',outbox.receipt_identity,'outbox_request_identity',outbox.request_identity,'outbox_request_meaning_digest',outbox.request_meaning_digest,'outbox_result_digest',outbox.result_digest,'outbox_namespace',outbox.namespace) ORDER BY receipt.committed_at_epoch_ms, result.attempt_identity, result.result_identity) INTO entries FROM public.backtest_replay_results_v2 result JOIN public.backtest_replay_result_receipts_v1 receipt ON receipt.result_identity=result.result_identity JOIN public.backtest_replay_result_outbox_v1 outbox ON outbox.result_identity=result.result_identity WHERE result.request_identity=p_request_identity AND result.request_meaning_digest=p_request_meaning_digest; RETURN pg_catalog.jsonb_build_object('schema_version',1,'request_identity',p_request_identity,'request_meaning_digest',p_request_meaning_digest,'entry_count',entry_count,'entries',entries); END";
 const RESULT_STORAGE_DOMAIN: &str = "vibe.backtest.replay-result-storage.v2";
 const RECEIPT_STORAGE_DOMAIN: &str = "vibe.backtest.result-receipt-storage.v1";
 const OUTBOX_STORAGE_DOMAIN: &str = "vibe.backtest.result-outbox-storage.v1";
@@ -825,6 +829,13 @@ pub enum BacktestReadbackRefusalV1 {
     ProtectedFrontierAmbiguous,
     /// A protected attempt frontier column could not be projected.
     ProtectedFrontierMalformed,
+    /// Backtest holds no Result for this request identity and meaning digest. Backtest keeps no
+    /// request table, so this does not say whether the request exists.
+    ExploratoryRequestResultsAbsent,
+    /// A Result is held under this request identity with another meaning digest.
+    ExploratoryRequestMeaningMismatch,
+    /// The request holds more Results than one directory lists.
+    ExploratoryRequestResultsExceedBound,
 }
 
 impl BacktestReadbackRefusalV1 {
@@ -848,11 +859,16 @@ impl BacktestReadbackRefusalV1 {
             Self::ProtectedFrontierAbsent => "PROTECTED_FRONTIER_ABSENT",
             Self::ProtectedFrontierAmbiguous => "PROTECTED_FRONTIER_AMBIGUOUS",
             Self::ProtectedFrontierMalformed => "PROTECTED_FRONTIER_MALFORMED",
+            Self::ExploratoryRequestResultsAbsent => "EXPLORATORY_REQUEST_RESULTS_ABSENT",
+            Self::ExploratoryRequestMeaningMismatch => "EXPLORATORY_REQUEST_MEANING_MISMATCH",
+            Self::ExploratoryRequestResultsExceedBound => {
+                "EXPLORATORY_REQUEST_RESULTS_EXCEED_BOUND"
+            }
         }
     }
 
     /// Every refusal this vocabulary publishes, in wire order.
-    pub const ALL: [Self; 16] = [
+    pub const ALL: [Self; 19] = [
         Self::ExploratoryResultAbsent,
         Self::ExploratoryReceiptAbsent,
         Self::ExploratoryOutboxAbsent,
@@ -869,6 +885,9 @@ impl BacktestReadbackRefusalV1 {
         Self::ProtectedFrontierAbsent,
         Self::ProtectedFrontierAmbiguous,
         Self::ProtectedFrontierMalformed,
+        Self::ExploratoryRequestResultsAbsent,
+        Self::ExploratoryRequestMeaningMismatch,
+        Self::ExploratoryRequestResultsExceedBound,
     ];
 
     /// Whether the locator addressed no row at all.
@@ -893,6 +912,7 @@ impl BacktestReadbackRefusalV1 {
             Self::ExploratoryResultAbsent
                 | Self::ProtectedResultAbsent
                 | Self::ProtectedFrontierAbsent
+                | Self::ExploratoryRequestResultsAbsent
         )
     }
 }
@@ -1131,6 +1151,180 @@ pub async fn resolve_exploratory_replay_result_v2(
         };
     }
     validate_envelope(value, locator).map(Some)
+}
+
+/// One Result a request's directory lists: the attempt that produced it, its terminal, and when
+/// its receipt was committed.
+///
+/// A listing, not a readback. It carries no Result bytes and no authority; opening the Result
+/// reads and validates it in full through [`resolve_exploratory_replay_result_v2`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExploratoryReplayResultDirectoryEntryV1 {
+    attempt_identity: String,
+    result_identity: String,
+    terminal: ReplayTerminalV2,
+    committed_at_epoch_ms: u64,
+}
+
+impl ExploratoryReplayResultDirectoryEntryV1 {
+    #[must_use]
+    pub fn attempt_identity(&self) -> &str {
+        &self.attempt_identity
+    }
+
+    #[must_use]
+    pub fn result_identity(&self) -> &str {
+        &self.result_identity
+    }
+
+    #[must_use]
+    pub const fn terminal(&self) -> ReplayTerminalV2 {
+        self.terminal
+    }
+
+    #[must_use]
+    pub const fn committed_at_epoch_ms(&self) -> u64 {
+        self.committed_at_epoch_ms
+    }
+}
+
+/// Lists every exploratory Result the Backtest Owner holds for one Replay request, under the
+/// caller's existing R&D transaction.
+///
+/// The list is complete or it is an error: a Result whose receipt or outbox event is missing
+/// refuses the whole read rather than being left out. A request with no Result lists nothing,
+/// since Backtest keeps no request table and cannot tell an unknown request from one without a
+/// Result yet. The read takes no row lock, so it runs inside a `READ ONLY` transaction.
+///
+/// # Errors
+///
+/// Returns [`BacktestResultCustodyErrorV2::Refused`] for a Result held under another meaning
+/// digest, a directory beyond [`EXPLORATORY_RESULT_DIRECTORY_BOUND_V1`], or an incomplete Result;
+/// and `Unavailable` or `Storage` for a topology, envelope or cross-reference that does not hold.
+pub async fn read_exploratory_replay_result_directory_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    request_identity: &str,
+    request_meaning_digest: &str,
+) -> Result<Vec<ExploratoryReplayResultDirectoryEntryV1>, BacktestResultCustodyErrorV2> {
+    if request_identity.trim().is_empty() || request_meaning_digest.trim().is_empty() {
+        return Err(BacktestResultCustodyErrorV2::Unavailable);
+    }
+    acquire_topology_fence(transaction).await?;
+    validate_topology(transaction, "rd_owner").await?;
+    let envelope: Option<serde_json::Value> = sqlx::query_scalar(
+        "SELECT backtest_owner_api.read_exploratory_replay_result_directory_v1($1,$2)",
+    )
+    .bind(request_identity)
+    .bind(request_meaning_digest)
+    .fetch_one(&mut **transaction)
+    .await
+    .map_err(|e| storage(&e))?;
+    // STRICT, and both arguments are non-empty text, so the function always executes.
+    let value = envelope.ok_or(BacktestResultCustodyErrorV2::Unavailable)?;
+
+    match refusal_of(&value)? {
+        Some(BacktestReadbackRefusalV1::ExploratoryRequestResultsAbsent) => Ok(Vec::new()),
+        Some(refusal) => Err(BacktestResultCustodyErrorV2::Refused(refusal)),
+        None => validate_directory(value, request_identity, request_meaning_digest),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DirectoryEnvelopeV1 {
+    schema_version: u32,
+    request_identity: String,
+    request_meaning_digest: String,
+    entry_count: u64,
+    entries: Vec<DirectoryRowV1>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DirectoryRowV1 {
+    result_identity: String,
+    result_digest: String,
+    attempt_identity: String,
+    terminal: String,
+    receipt_identity: String,
+    receipt_request_identity: String,
+    receipt_request_meaning_digest: String,
+    receipt_result_digest: String,
+    receipt_namespace: String,
+    committed_at_epoch_ms: u64,
+    outbox_receipt_identity: String,
+    outbox_request_identity: String,
+    outbox_request_meaning_digest: String,
+    outbox_result_digest: String,
+    outbox_namespace: String,
+}
+
+/// Holds each listed row to the request it was listed for, and its receipt and outbox event to that
+/// Result: the columns the point read later proves from bytes must already agree here, so a row
+/// spliced from another Result is refused instead of listed.
+fn validate_directory(
+    value: serde_json::Value,
+    request_identity: &str,
+    request_meaning_digest: &str,
+) -> Result<Vec<ExploratoryReplayResultDirectoryEntryV1>, BacktestResultCustodyErrorV2> {
+    let envelope: DirectoryEnvelopeV1 =
+        serde_json::from_value(value).map_err(|_| BacktestResultCustodyErrorV2::Unavailable)?;
+    let count = usize::try_from(envelope.entry_count).unwrap_or(usize::MAX);
+    if envelope.schema_version != 1
+        || envelope.request_identity != request_identity
+        || envelope.request_meaning_digest != request_meaning_digest
+        || envelope.entries.is_empty()
+        || envelope.entries.len() != count
+        || count > EXPLORATORY_RESULT_DIRECTORY_BOUND_V1
+    {
+        return Err(BacktestResultCustodyErrorV2::Unavailable);
+    }
+    let mut seen = std::collections::BTreeSet::new();
+    let mut entries = Vec::with_capacity(count);
+
+    for row in envelope.entries {
+        let terminal = terminal_from_text(&row.terminal)
+            .filter(|terminal| *terminal != ReplayTerminalV2::InProgressOrUnknown);
+        let exact = row.receipt_request_identity == request_identity
+            && row.outbox_request_identity == request_identity
+            && row.receipt_request_meaning_digest == request_meaning_digest
+            && row.outbox_request_meaning_digest == request_meaning_digest
+            && row.receipt_result_digest == row.result_digest
+            && row.outbox_result_digest == row.result_digest
+            && row.outbox_receipt_identity == row.receipt_identity
+            && row.receipt_namespace == "EXPLORATORY"
+            && row.outbox_namespace == "EXPLORATORY"
+            && !row.attempt_identity.trim().is_empty()
+            && seen.insert(row.result_identity.clone());
+        let (true, Some(terminal)) = (exact, terminal) else {
+            return Err(BacktestResultCustodyErrorV2::Unavailable);
+        };
+        entries.push(ExploratoryReplayResultDirectoryEntryV1 {
+            attempt_identity: row.attempt_identity,
+            result_identity: row.result_identity,
+            terminal,
+            committed_at_epoch_ms: row.committed_at_epoch_ms,
+        });
+    }
+
+    // The function orders by commit time, then attempt, then Result; a list in any other order
+    // did not come from it.
+    let ordered = entries.windows(2).all(|pair| {
+        (
+            pair[0].committed_at_epoch_ms,
+            &pair[0].attempt_identity,
+            &pair[0].result_identity,
+        ) <= (
+            pair[1].committed_at_epoch_ms,
+            &pair[1].attempt_identity,
+            &pair[1].result_identity,
+        )
+    });
+
+    if !ordered {
+        return Err(BacktestResultCustodyErrorV2::Unavailable);
+    }
+    Ok(entries)
 }
 
 /// Resolves one complete native outcome aggregate under the caller's existing R&D transaction.
@@ -1388,6 +1582,16 @@ async fn validate_topology(
                    'pg_catalog.text'::pg_catalog.regtype,
                    'pg_catalog.text'::pg_catalog.regtype
                  ]::pg_catalog.oidvector
+        ), expected_directory_function AS (
+          SELECT procedure.oid
+            FROM pg_catalog.pg_proc procedure
+            JOIN pg_catalog.pg_namespace namespace ON namespace.oid=procedure.pronamespace
+           WHERE namespace.nspname='backtest_owner_api'
+             AND procedure.proname=$5
+             AND procedure.proargtypes=ARRAY[
+                   'pg_catalog.text'::pg_catalog.regtype,
+                   'pg_catalog.text'::pg_catalog.regtype
+                 ]::pg_catalog.oidvector
         ), expected_protected_function AS (
           SELECT procedure.oid
             FROM pg_catalog.pg_proc procedure
@@ -1413,10 +1617,12 @@ async fn validate_topology(
         SELECT session_user=$3 AND current_user=$3
         AND (SELECT pg_catalog.pg_get_userbyid(namespace.nspowner)='backtest_custodian'
                FROM pg_catalog.pg_namespace namespace WHERE namespace.nspname='backtest_owner_api')
-        AND (SELECT pg_catalog.count(*)=4 AND pg_catalog.bool_and(procedure.oid IN (
+        AND (SELECT pg_catalog.count(*)=5 AND pg_catalog.bool_and(procedure.oid IN (
                   SELECT oid FROM expected_function
                   UNION ALL
                   SELECT oid FROM expected_sibling_function
+                  UNION ALL
+                  SELECT oid FROM expected_directory_function
                   UNION ALL
                   SELECT oid FROM expected_protected_function
                   UNION ALL
@@ -1429,6 +1635,12 @@ async fn validate_topology(
               WHERE namespace.nspname='public' AND relation.relname IN ('backtest_replay_results_v2','backtest_replay_result_receipts_v1','backtest_replay_result_outbox_v1'))
         AND (SELECT pg_catalog.pg_get_userbyid(procedure.proowner)='backtest_custodian' AND procedure.prosecdef AND procedure.proisstrict AND procedure.provolatile='v' AND procedure.proparallel='u' AND procedure.proconfig=ARRAY['search_path=pg_catalog, pg_temp']::text[] AND procedure.prosrc=$1
                FROM pg_catalog.pg_proc procedure WHERE procedure.oid=(SELECT oid FROM expected_function))
+        AND (SELECT pg_catalog.pg_get_userbyid(procedure.proowner)='backtest_custodian' AND procedure.prosecdef AND procedure.proisstrict AND procedure.provolatile='s' AND procedure.proparallel='u' AND procedure.proconfig=ARRAY['search_path=pg_catalog, pg_temp']::text[] AND procedure.prosrc=$6
+               FROM pg_catalog.pg_proc procedure WHERE procedure.oid=(SELECT oid FROM expected_directory_function))
+        AND (SELECT pg_catalog.count(*)=1 AND pg_catalog.bool_and(role.rolname='rd_owner' AND acl.privilege_type='EXECUTE' AND NOT acl.is_grantable AND pg_catalog.pg_get_userbyid(acl.grantor)='backtest_custodian')
+               FROM pg_catalog.pg_proc procedure CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(procedure.proacl,pg_catalog.acldefault('f',procedure.proowner))) acl LEFT JOIN pg_catalog.pg_roles role ON role.oid=acl.grantee
+              WHERE procedure.oid=(SELECT oid FROM expected_directory_function) AND acl.grantee<>procedure.proowner)
+        AND NOT pg_catalog.has_function_privilege('backtest_owner',(SELECT oid FROM expected_directory_function),'EXECUTE')
         AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members membership WHERE membership.roleid IN (SELECT oid FROM pg_catalog.pg_roles WHERE rolname IN ('backtest_custodian','backtest_owner','rd_owner','qualification_writer')) OR membership.member IN (SELECT oid FROM pg_catalog.pg_roles WHERE rolname IN ('backtest_custodian','backtest_owner','rd_owner','qualification_writer')))
         AND (SELECT NOT role.rolcanlogin AND NOT role.rolsuper AND NOT role.rolcreatedb AND NOT role.rolcreaterole AND NOT role.rolreplication AND NOT role.rolbypassrls FROM pg_catalog.pg_roles role WHERE role.rolname='backtest_custodian')
         AND (SELECT role.rolcanlogin AND role.rolinherit AND NOT role.rolsuper AND NOT role.rolcreatedb AND NOT role.rolcreaterole AND NOT role.rolreplication AND NOT role.rolbypassrls FROM pg_catalog.pg_roles role WHERE role.rolname='backtest_owner')
@@ -1466,6 +1678,8 @@ async fn validate_topology(
     .bind(RESOLVE_FUNCTION_NAME)
     .bind(expected_principal)
     .bind(RESOLVE_V3_FUNCTION_NAME)
+    .bind(DIRECTORY_FUNCTION_NAME)
+    .bind(DIRECTORY_FUNCTION_SOURCE)
     .fetch_one(&mut **transaction)
     .await
     .map_err(|e| storage(&e))?;
@@ -2127,6 +2341,17 @@ where
     Ok(value)
 }
 
+fn terminal_from_text(value: &str) -> Option<ReplayTerminalV2> {
+    [
+        ReplayTerminalV2::RunRejected,
+        ReplayTerminalV2::InProgressOrUnknown,
+        ReplayTerminalV2::TerminalResult,
+        ReplayTerminalV2::InvalidReplayEvidence,
+    ]
+    .into_iter()
+    .find(|terminal| terminal_text(*terminal) == value)
+}
+
 fn terminal_text(value: ReplayTerminalV2) -> &'static str {
     match value {
         ReplayTerminalV2::RunRejected => "RUN_REJECTED",
@@ -2780,5 +3005,157 @@ mod tests {
             ),
             Err(BacktestResultCustodyErrorV2::Unavailable)
         ));
+    }
+
+    fn directory_row(result: &str, attempt: &str, committed_at: u64) -> serde_json::Value {
+        serde_json::json!({
+            "result_identity": result, "result_digest": format!("digest-{result}"),
+            "attempt_identity": attempt, "terminal": "TERMINAL_RESULT",
+            "receipt_identity": format!("receipt-{result}"), "receipt_request_identity": "request",
+            "receipt_request_meaning_digest": "meaning", "receipt_result_digest": format!("digest-{result}"),
+            "receipt_namespace": "EXPLORATORY", "committed_at_epoch_ms": committed_at,
+            "outbox_receipt_identity": format!("receipt-{result}"), "outbox_request_identity": "request",
+            "outbox_request_meaning_digest": "meaning", "outbox_result_digest": format!("digest-{result}"),
+            "outbox_namespace": "EXPLORATORY",
+        })
+    }
+
+    fn directory(rows: &[serde_json::Value]) -> serde_json::Value {
+        serde_json::json!({
+            "schema_version": 1, "request_identity": "request", "request_meaning_digest": "meaning",
+            "entry_count": rows.len(), "entries": rows,
+        })
+    }
+
+    #[rstest]
+    fn a_directory_lists_its_results_in_the_order_the_function_states() {
+        let entries = validate_directory(
+            directory(&[
+                directory_row("result-b", "attempt-a", 10),
+                directory_row("result-a", "attempt-b", 10),
+                directory_row("result-c", "attempt-a", 11),
+            ]),
+            "request",
+            "meaning",
+        )
+        .expect("an exact directory");
+        assert_eq!(
+            entries
+                .iter()
+                .map(|entry| (
+                    entry.attempt_identity(),
+                    entry.result_identity(),
+                    entry.committed_at_epoch_ms()
+                ))
+                .collect::<Vec<_>>(),
+            [
+                ("attempt-a", "result-b", 10),
+                ("attempt-b", "result-a", 10),
+                ("attempt-a", "result-c", 11)
+            ]
+        );
+        assert!(
+            entries
+                .iter()
+                .all(|entry| entry.terminal() == ReplayTerminalV2::TerminalResult)
+        );
+    }
+
+    /// Each row names its request, digest and Result three times over; a row where any copy
+    /// disagrees was spliced from another Result and is refused, never listed.
+    #[rstest]
+    #[case::receipt_request("receipt_request_identity", serde_json::json!("another-request"))]
+    #[case::outbox_request("outbox_request_identity", serde_json::json!("another-request"))]
+    #[case::receipt_meaning("receipt_request_meaning_digest", serde_json::json!("another-meaning"))]
+    #[case::outbox_meaning("outbox_request_meaning_digest", serde_json::json!("another-meaning"))]
+    #[case::receipt_result("receipt_result_digest", serde_json::json!("digest-another"))]
+    #[case::outbox_result("outbox_result_digest", serde_json::json!("digest-another"))]
+    #[case::outbox_receipt("outbox_receipt_identity", serde_json::json!("receipt-another"))]
+    #[case::receipt_namespace("receipt_namespace", serde_json::json!("PROTECTED"))]
+    #[case::outbox_namespace("outbox_namespace", serde_json::json!("PROTECTED"))]
+    #[case::in_progress("terminal", serde_json::json!("IN_PROGRESS_OR_UNKNOWN"))]
+    #[case::unknown_terminal("terminal", serde_json::json!("FINISHED"))]
+    #[case::blank_attempt("attempt_identity", serde_json::json!(" "))]
+    fn a_row_that_disagrees_with_its_result_refuses_the_directory(
+        #[case] field: &str,
+        #[case] value: serde_json::Value,
+    ) {
+        let mut row = directory_row("result-a", "attempt-a", 10);
+        row[field] = value;
+        assert!(matches!(
+            validate_directory(directory(&[row]), "request", "meaning"),
+            Err(BacktestResultCustodyErrorV2::Unavailable)
+        ));
+    }
+
+    #[rstest]
+    fn a_directory_that_is_not_the_one_asked_for_is_refused() {
+        let exact = || directory(&[directory_row("result-a", "attempt-a", 10)]);
+        let mut wrong_request = exact();
+        wrong_request["request_identity"] = serde_json::json!("another-request");
+        let mut wrong_count = exact();
+        wrong_count["entry_count"] = serde_json::json!(2);
+        let mut duplicate = directory(&[
+            directory_row("result-a", "attempt-a", 10),
+            directory_row("result-a", "attempt-b", 11),
+        ]);
+        duplicate["entry_count"] = serde_json::json!(2);
+        let out_of_order = directory(&[
+            directory_row("result-b", "attempt-a", 11),
+            directory_row("result-a", "attempt-a", 10),
+        ]);
+        let mut unknown_key = exact();
+        unknown_key["entries"][0]["protected"] = serde_json::json!(true);
+
+        for (name, value) in [
+            ("another request", wrong_request),
+            ("a count the rows disagree with", wrong_count),
+            ("one Result listed twice", duplicate),
+            ("rows out of the function's order", out_of_order),
+            ("an unknown key", unknown_key),
+            ("no rows at all", directory(&[])),
+        ] {
+            assert!(
+                matches!(
+                    validate_directory(value, "request", "meaning"),
+                    Err(BacktestResultCustodyErrorV2::Unavailable)
+                ),
+                "{name}"
+            );
+        }
+        assert!(matches!(
+            validate_directory(exact(), "request", "another-meaning"),
+            Err(BacktestResultCustodyErrorV2::Unavailable)
+        ));
+    }
+
+    #[rstest]
+    fn the_directory_refusals_are_published_and_only_the_empty_one_addresses_no_row() {
+        for (refusal, code, no_row) in [
+            (
+                BacktestReadbackRefusalV1::ExploratoryRequestResultsAbsent,
+                "EXPLORATORY_REQUEST_RESULTS_ABSENT",
+                true,
+            ),
+            (
+                BacktestReadbackRefusalV1::ExploratoryRequestMeaningMismatch,
+                "EXPLORATORY_REQUEST_MEANING_MISMATCH",
+                false,
+            ),
+            (
+                BacktestReadbackRefusalV1::ExploratoryRequestResultsExceedBound,
+                "EXPLORATORY_REQUEST_RESULTS_EXCEED_BOUND",
+                false,
+            ),
+        ] {
+            assert_eq!(refusal.code(), code);
+            assert!(BacktestReadbackRefusalV1::ALL.contains(&refusal));
+            assert_eq!(refusal.addresses_no_row(), no_row, "{code}");
+            // The function writes each code, so the adapter can read back every one it publishes.
+            assert!(
+                DIRECTORY_FUNCTION_SOURCE.contains(&format!("'{code}'")),
+                "{code}"
+            );
+        }
     }
 }

@@ -6,7 +6,8 @@
 //! so an acceptance that drives that read has to put one in custody first. This module does it
 //! from what the store already holds, and nothing else: the caller names a PIT snapshot and one of
 //! the roles declared on it, and every schedule field is derived by the Owner from the snapshot's
-//! verified batch, the role's binding, and the Instrument Master cut the snapshot binds. It exists
+//! verified batch, the bar its Source Binding declares, the role's binding, and the Instrument
+//! Master cut the snapshot binds. It exists
 //! only in a build carrying `sealed-strategy-input-acceptance` (or a test build); a production
 //! build compiles none of it.
 
@@ -16,8 +17,8 @@ use sha2::{Digest, Sha256};
 use sqlx::{Postgres, Transaction};
 
 use super::{
-    MarketDataOwnerPostgres, load_bar_schedule_candidates, load_durable_instrument_readback,
-    load_pit, pit_instrument_master_identity_preimage_v1,
+    MarketDataOwnerPostgres, declared_bar_timeframe_of_batch_v1, load_bar_schedule_candidates,
+    load_durable_instrument_readback, load_pit, pit_instrument_master_identity_preimage_v1,
     strategy_input_binding_registry::{
         load_owner_verified_pit_batch_v1, recover_strategy_input_binding_declaration_v1,
     },
@@ -25,12 +26,12 @@ use super::{
 };
 use crate::owner::{
     bar_schedule::{
-        BarScheduleCompletionV1, BarScheduleError, BarScheduleLabelV1, BarScheduleReadbackV1,
-        UntrustedBarScheduleProposalV1, prepare_bar_schedule_commit_v1,
+        BarScheduleError, BarScheduleReadbackV1, UntrustedBarScheduleProposalV1,
+        prepare_bar_schedule_commit_v1,
     },
     instrument_master::InstrumentMasterReadbackV1,
     native_replay_scheduling_v1::{
-        schedule_bar_specification_at_frame_v1, schedule_shape_for_timeframe_v1,
+        NativeReplaySchedulingErrorV1, schedule_bar_specification_at_frame_v1,
     },
     pit_snapshot::{UntrustedPitSnapshotLocator, VerifiedPitObservationBatch},
     source_binding::BindingDigest,
@@ -38,8 +39,6 @@ use crate::owner::{
         StrategyInputBindingReceipt, UntrustedStrategyInputScope, bind_strategy_input_role,
     },
 };
-
-const SCHEDULE_ANCHOR_DOMAIN: &[u8] = b"market-data.bar-schedule.anchor.acceptance.v1\0";
 
 /// Why no BAR schedule was put in custody for the snapshot and role.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -54,8 +53,10 @@ pub enum BarScheduleAcceptanceErrorV1 {
     ScheduleRoleSpansMembers,
     /// The role's row is not a BAR.
     RoleNotBar,
-    /// The role's timeframe is one no schedule unit can state.
-    TimeframeUnsupported,
+    /// The snapshot's Source Binding declares no bar timeframe, so there is no bar to schedule.
+    SourceBindingDeclaresNoBarTimeframe,
+    /// The role reads rows under a timeframe label other than the one its Source Binding declares.
+    TimeframeNotDeclared,
     /// The snapshot's Instrument Master readback is not in custody under the request the intake
     /// states for it.
     InstrumentMasterUnavailable,
@@ -74,11 +75,16 @@ impl Display for BarScheduleAcceptanceErrorV1 {
 impl std::error::Error for BarScheduleAcceptanceErrorV1 {}
 
 /// The schedule the snapshot's frame reads, and whether it was already in custody.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+///
+/// It carries the exact readback it minted or rejoined, so an acceptance can assert what the
+/// schedule states, field by field, rather than only that one exists. It is a sealed acceptance
+/// return value; production reads a schedule only through the admitted resolver.
+#[derive(Debug, Eq, PartialEq)]
 pub struct BarScheduleAcceptanceV1 {
     readback_identity: BindingDigest,
     fact_digest: BindingDigest,
     rejoined: bool,
+    schedule: BarScheduleReadbackV1,
 }
 
 impl BarScheduleAcceptanceV1 {
@@ -94,17 +100,23 @@ impl BarScheduleAcceptanceV1 {
     pub const fn rejoined(&self) -> bool {
         self.rejoined
     }
+
+    /// The schedule itself, as the store holds it.
+    pub const fn schedule(&self) -> &BarScheduleReadbackV1 {
+        &self.schedule
+    }
 }
 
 /// Puts in custody the BAR schedule the native scheduling read selects for `snapshot`'s frame, for
 /// the role `input_role` of Design `design` declared on it, and answers it.
 ///
-/// The schedule's shape is the one whose label is the role's timeframe; its interval is the
-/// Instrument Master fact's; it closes complete bars at the interval close, is cut at the
-/// snapshot's event instant, and extends the instrument's schedule history. Its anchor is a digest
-/// of the instrument, its master fact, its shape and the binding's lineage root - not of the role,
-/// so two roles of one instrument and timeframe put one schedule in custody. When the store already
-/// holds a schedule the frame reads, that schedule is answered and nothing is written.
+/// The schedule states exactly the bar the snapshot's Source Binding declares - cadence, anchor,
+/// clock, label and completion - and the role's timeframe label only has to be the one that
+/// declaration describes; it is never parsed. Its interval is the Instrument Master fact's; it is
+/// cut at the snapshot's event instant, and extends the instrument's schedule history. Two roles of
+/// one instrument under one declaration put one schedule in custody. When the store already holds a
+/// schedule the frame reads and the declaration admits, that schedule is answered and nothing is
+/// written.
 ///
 /// # Errors
 ///
@@ -161,8 +173,18 @@ pub(super) async fn commit_bar_schedule_on_v1(
         return Err(BarScheduleAcceptanceErrorV1::RoleNotBar);
     }
     let instrument = binding.locator().instrument().to_owned();
-    let (kind, unit, step) = schedule_shape_for_timeframe_v1(binding.locator().timeframe())
-        .ok_or(BarScheduleAcceptanceErrorV1::TimeframeUnsupported)?;
+    let declared =
+        declared_bar_timeframe_of_batch_v1(&mut transaction, &batch, binding.locator().timeframe())
+            .await
+            .map_err(|e| match e {
+                NativeReplaySchedulingErrorV1::SourceBindingDeclaresNoBarTimeframe => {
+                    BarScheduleAcceptanceErrorV1::SourceBindingDeclaresNoBarTimeframe
+                }
+                NativeReplaySchedulingErrorV1::DeclaredBarTimeframeMismatch => {
+                    BarScheduleAcceptanceErrorV1::TimeframeNotDeclared
+                }
+                _ => BarScheduleAcceptanceErrorV1::StoreUnavailable,
+            })?;
     let master = snapshot_instrument_master_v1(&mut transaction, &pit, &batch).await?;
     let event = batch.time_evidence().event_effective.value;
 
@@ -173,11 +195,8 @@ pub(super) async fn commit_bar_schedule_on_v1(
         .await
         .map_err(|_| BarScheduleAcceptanceErrorV1::StoreUnavailable)?;
 
-    if let Some(existing) = candidates.iter().find(|candidate| {
-        let fact = candidate.fact();
-        fact.kind() == kind
-            && fact.unit() == unit
-            && fact.step() == step
+    if let Some(existing) = candidates.into_iter().find(|candidate| {
+        declared.admits_schedule(candidate.fact())
             && schedule_bar_specification_at_frame_v1(candidate, &batch, &instrument, event).is_ok()
     }) {
         transaction
@@ -200,18 +219,13 @@ pub(super) async fn commit_bar_schedule_on_v1(
         predecessor_fact_digest: history,
         effective_from: master_fact.effective_from(),
         effective_until: master_fact.effective_until(),
-        kind,
-        step,
-        unit,
-        anchor_identity: schedule_anchor_v1(
-            &instrument,
-            master_fact.digest(),
-            [kind as u8, unit as u8],
-            step,
-            batch.source_binding_lineage_root(),
-        ),
-        label: BarScheduleLabelV1::IntervalClose,
-        completion: BarScheduleCompletionV1::CompleteOnly,
+        kind: declared.kind(),
+        step: declared.step(),
+        unit: declared.unit(),
+        anchor_identity: declared.anchor_identity(),
+        clock: declared.clock(),
+        label: declared.label(),
+        completion: declared.completion(),
     };
     let prepared = prepare_bar_schedule_commit_v1(proposal, &binding, &batch, &master, &master)
         .map_err(|e| match e {
@@ -226,14 +240,15 @@ pub(super) async fn commit_bar_schedule_on_v1(
         .commit_prepared_bar_schedule_v1(&prepared)
         .await
         .map_err(|_| BarScheduleAcceptanceErrorV1::ScheduleRefused)?;
-    Ok(answer_v1(&stored, false))
+    Ok(answer_v1(stored, false))
 }
 
-fn answer_v1(readback: &BarScheduleReadbackV1, rejoined: bool) -> BarScheduleAcceptanceV1 {
+fn answer_v1(readback: BarScheduleReadbackV1, rejoined: bool) -> BarScheduleAcceptanceV1 {
     BarScheduleAcceptanceV1 {
         readback_identity: BindingDigest::from_untrusted_bytes(*readback.identity().as_bytes()),
         fact_digest: BindingDigest::from_untrusted_bytes(*readback.fact().digest().as_bytes()),
         rejoined,
+        schedule: readback,
     }
 }
 
@@ -297,26 +312,4 @@ async fn snapshot_instrument_master_v1(
         return Err(BarScheduleAcceptanceErrorV1::InstrumentMasterUnavailable);
     }
     Ok(readback)
-}
-
-fn schedule_anchor_v1(
-    instrument: &str,
-    master_fact: BindingDigest,
-    shape: [u8; 2],
-    step: u32,
-    lineage_root: BindingDigest,
-) -> crate::owner::bar_schedule::BarScheduleIdentity {
-    let mut hasher = Sha256::new();
-    hasher.update(SCHEDULE_ANCHOR_DOMAIN);
-    hasher.update(
-        u32::try_from(instrument.len())
-            .unwrap_or(u32::MAX)
-            .to_le_bytes(),
-    );
-    hasher.update(instrument.as_bytes());
-    hasher.update(master_fact.as_bytes());
-    hasher.update(shape);
-    hasher.update(step.to_le_bytes());
-    hasher.update(lineage_root.as_bytes());
-    BindingDigest::from_untrusted_bytes(hasher.finalize().into())
 }

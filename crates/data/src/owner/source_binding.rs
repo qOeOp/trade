@@ -357,6 +357,124 @@ pub struct UntrustedSourceBindingProposal {
     pub correction_frontier: UntrustedCompleteFrontier,
     /// Complete untrusted `MARKET_DATA_AS_OF` evidence.
     pub time_evidence: UntrustedMarketDataAsOf,
+    /// When the source's rows become visible, and whether it publishes corrections: declared by a
+    /// schema-2 proposal and absent from a schema-1 one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub availability_rule: Option<UntrustedSourceAvailabilityRuleV1>,
+    /// What the source's BAR rows mean as bars, one declaration per row label, in strictly
+    /// ascending label order: declared by a schema-2 proposal whose source serves BAR rows, and
+    /// empty in a schema-1 one.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub bar_timeframes: Vec<UntrustedSourceBarTimeframeV1>,
+}
+
+/// The bar a source's BAR rows of one label are, as its Source Binding declares it.
+///
+/// The one typed statement of a bar's timeframe that exists before a schedule does: a schedule is
+/// selected and minted by comparing its typed fields with this declaration, so no row label is
+/// ever parsed or rendered. Whether the declaration is true of the market is the binding author's
+/// statement, as the availability rule is; Market Data refuses only a combination no bar can
+/// have.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct UntrustedSourceBarTimeframeV1 {
+    /// The exact label the source stamps on the BAR rows this declaration describes. It is
+    /// compared by identity, never parsed: a BAR row carrying any other label has no declared
+    /// timeframe.
+    pub row_timeframe: String,
+    /// How long one bar is.
+    pub cadence: UntrustedSourceBarCadenceV1,
+    /// Where the bar grid starts.
+    pub anchor: UntrustedSourceBarAnchorV1,
+    /// Whether bars run on a continuous clock or only within a trading schedule.
+    pub clock: UntrustedSourceBarClockV1,
+    /// Which end of the bar interval a row's event-effective instant is.
+    pub label: UntrustedSourceBarLabelV1,
+    /// Which bars the source serves.
+    pub completion: UntrustedSourceBarCompletionV1,
+}
+
+/// How long one declared bar is.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub enum UntrustedSourceBarCadenceV1 {
+    /// A fixed duration of `step` units; a UTC day is 24 hours.
+    FixedInterval {
+        /// The positive number of units in one bar.
+        step: u32,
+        /// The unit.
+        unit: UntrustedSourceBarUnitV1,
+    },
+    /// One named exchange session day.
+    ExchangeSessionDay,
+}
+
+/// The unit of a fixed-interval bar.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum UntrustedSourceBarUnitV1 {
+    Second,
+    Minute,
+    Hour,
+}
+
+/// Where a declared bar grid starts.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum UntrustedSourceBarAnchorV1 {
+    /// Bars are aligned to the Unix epoch.
+    UnixEpoch,
+    /// Bars are aligned to the opening of the trading session.
+    SessionOpen,
+}
+
+/// The clock a declared bar grid runs on.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum UntrustedSourceBarClockV1 {
+    /// Bars follow each other without a trading calendar.
+    Continuous,
+    /// Bars exist only within the instrument's trading calendar and session.
+    ScheduleBounded,
+}
+
+/// Which end of its interval a declared bar's event-effective instant is.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum UntrustedSourceBarLabelV1 {
+    IntervalOpen,
+    IntervalClose,
+}
+
+/// Which bars a source serves.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum UntrustedSourceBarCompletionV1 {
+    /// Only bars whose interval has closed.
+    CompleteOnly,
+}
+
+/// When a source's rows become visible, as its Source Binding declares it.
+///
+/// This is a declaration, not an observation: a window custody derives each row's availability
+/// from it instead of from the requester's stamped provider-available time, so no-look-ahead in a
+/// custody-backed Backtest rests on it being true of the source.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct UntrustedSourceAvailabilityRuleV1 {
+    /// The instant a row becomes visible.
+    pub visibility: UntrustedSourceVisibilityV1,
+    /// Whether the source publishes corrections to rows it has already served. Only a source that
+    /// does can have a cross-section's publication instant observed from it.
+    pub publishes_corrections: bool,
+}
+
+/// The instant a source's row becomes visible.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub enum UntrustedSourceVisibilityV1 {
+    /// The declared lag after the row's bar closes.
+    AfterBarClose {
+        /// Nanoseconds between the bar's close and the row's availability.
+        lag_ns: u64,
+    },
+    /// The instant Market Data retrieved the row: the source states nothing earlier.
+    AtRetrieval,
 }
 
 /// Seals the binding identity the Owner derives from a proposal's own content.
@@ -475,6 +593,8 @@ pub struct SourceBindingOwnerReadback {
     outbox_digest: BindingDigest,
     admitted: bool,
     locator: UntrustedSourceBindingLocator,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    bar_timeframes: Vec<UntrustedSourceBarTimeframeV1>,
 }
 
 impl SourceBindingOwnerReadback {
@@ -493,7 +613,13 @@ impl SourceBindingOwnerReadback {
             outbox_digest: commit.receipt().outbox_digest(),
             admitted: fact.disposition() == authority::SourceBindingDisposition::Admitted,
             locator: commit.receipt().locator().clone(),
+            bar_timeframes: fact.bar_timeframes().to_vec(),
         }
+    }
+
+    /// Returns the bar timeframes the verified binding declares, one per BAR row label.
+    pub fn bar_timeframes(&self) -> &[UntrustedSourceBarTimeframeV1] {
+        &self.bar_timeframes
     }
 
     /// Returns the canonical immutable binding identity.
@@ -582,6 +708,8 @@ pub enum SourceBindingError {
     ResponseLost,
     /// The untrusted locator is not an exact Owner-store receipt.
     LocatorMismatch,
+    /// The declared bar timeframe is a combination no bar can have.
+    UnsupportedBarTimeframe,
 }
 
 impl Display for SourceBindingError {

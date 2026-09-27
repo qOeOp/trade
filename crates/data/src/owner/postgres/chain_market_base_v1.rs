@@ -12,8 +12,8 @@ use thiserror::Error;
 use super::{
     MarketDataOwnerPostgres,
     acceptance_fixture_v1::{
-        d, instrument_fact, instrument_request, market_base_pit_time_v1, shared_clock,
-        source_proposal,
+        d, declaring_bars_v1, instrument_fact, instrument_request, market_base_pit_time_v1,
+        session_bar_v1, source_proposal,
     },
     public_decision_cut_v1,
 };
@@ -22,6 +22,7 @@ use crate::owner::{
         CHAIN_FIXTURE_INSTRUMENT_V1, CHAIN_MARKET_BASE_PIT_CORRELATION_V1,
         CHAIN_MARKET_BASE_RESEARCH_REQUEST_V1,
     },
+    declared_bar_timeframe_v1::r0_window_end_over_v1,
     instrument_master::{
         InstrumentMasterReadbackV1, InstrumentMasterResolver, InstrumentMasterScopeV1,
     },
@@ -51,10 +52,11 @@ use crate::owner::{
     shared_time_evidence::{UntrustedClockHeadLocator, build_head_fact},
     source_binding::{
         BindingDigest, MarketDataClockAdmission, SourceBindingOwnerReadback,
+        UntrustedSourceBarCadenceV1, UntrustedSourceBarTimeframeV1, UntrustedSourceBarUnitV1,
         UntrustedSourceBindingLocator, UntrustedSourceBindingProposal,
         authority::{
             OwnerSourceBindingDecision, SourceBindingCommit, derive_binding_id,
-            derive_market_semantics_compatibility_identity_v1, derive_time_evidence_identity,
+            derive_market_semantics_compatibility_identity_v1,
         },
     },
     universe_selection::{
@@ -592,34 +594,35 @@ const BASE_R0_REQUEST: u8 = 183;
 /// The Market Semantics request the base's fact is resolved for.
 const BASE_MARKET_SEMANTICS_REQUEST: u8 = 188;
 
-/// The clock identity and epoch the base's two clocks share.
-pub(super) const BASE_CLOCK_IDENTITY: &str = "12345678901234567890123456789012";
-pub(super) const BASE_CLOCK_EPOCH: &str = "abcdefghijklmnopqrstuvwxyzABCDEF";
+/// The Owner's own clock at one base instant, sealed by the production sealer under the identity,
+/// epoch, validity window and bounds every production cut is minted under.
+///
+/// Only the instants are the fixture's. A base on any other clock would be one production can
+/// never succeed: the Owner mints every later cut under this identity and epoch, and a cut on
+/// another clock is not a same-epoch successor (`validate_same_epoch_successor`). On this clock, a
+/// cut the Owner mints from its wall clock after the base is the ordinary successor production
+/// admits after any idle stretch.
+pub(super) fn owner_clock_at_v1(sequence: u64, instant: u64) -> MarketDataClockAdmission {
+    super::seal_owner_clock_admission_v1(
+        super::OWNER_CLOCK_IDENTITY_V1,
+        super::OWNER_CLOCK_EPOCH_V1,
+        sequence,
+        instant,
+        super::OWNER_CLOCK_VALIDITY_WINDOW_NS,
+        super::OWNER_CLOCK_UNCERTAINTY_BOUND_NS,
+        super::OWNER_CLOCK_SKEW_BOUND_NS,
+    )
+    .expect("the base's instants seal on the Owner clock")
+}
 
 /// The clock the base's corpus is written on: the successor of the historical clock.
 pub(super) fn chain_market_base_clock_v1() -> MarketDataClockAdmission {
-    shared_clock(
-        BASE_CLOCK_IDENTITY,
-        BASE_CLOCK_EPOCH,
-        2,
-        BASE_WRITTEN_AT,
-        d(90),
-        1,
-        2,
-    )
+    owner_clock_at_v1(2, BASE_WRITTEN_AT)
 }
 
 /// The clock the base's Source Binding and historical native corpus are written on.
 pub(super) fn chain_market_base_historical_clock_v1() -> MarketDataClockAdmission {
-    shared_clock(
-        BASE_CLOCK_IDENTITY,
-        BASE_CLOCK_EPOCH,
-        1,
-        BASE_HISTORICAL_AT,
-        d(90),
-        1,
-        2,
-    )
+    owner_clock_at_v1(1, BASE_HISTORICAL_AT)
 }
 
 /// The Source Binding the base admits, on the historical clock.
@@ -631,13 +634,13 @@ pub(super) fn chain_market_base_source_proposal_v1(
     time.clock_identity
         .clone_from(&historical_clock.clock_identity);
     time.clock_epoch.clone_from(&historical_clock.clock_epoch);
-    time.monotonic_sequence = 1;
-    time.restart_continuity_digest = d(90);
-    time.skew_bound = 2;
-    time.uncertainty_bound = 1;
+    time.monotonic_sequence = historical_clock.monotonic_sequence;
+    time.restart_continuity_digest = historical_clock.restart_continuity_digest;
+    time.skew_bound = historical_clock.skew_bound;
+    time.uncertainty_bound = historical_clock.uncertainty_bound;
     time.observed_at = BASE_HISTORICAL_AT;
     time.effective_at = BASE_HISTORICAL_AT;
-    time.valid_through = 159;
+    time.valid_through = historical_clock.valid_through;
     time.provider_available = 89;
     time.retrieval = 91;
     time.correction_publication = 90;
@@ -645,10 +648,28 @@ pub(super) fn chain_market_base_source_proposal_v1(
     proposal.source_frontier.digest = d(85);
     proposal.correction_frontier.cut_identity = "instrument-correction-cut-86".into();
     proposal.correction_frontier.digest = d(86);
-    proposal.time_evidence.claimed_evidence_identity =
-        derive_time_evidence_identity(&proposal.time_evidence);
-    proposal.claimed_binding_id = derive_binding_id(&proposal);
-    proposal
+    // The base serves an exchange-listed instrument's one-minute and one-hour bars on its trading
+    // schedule, and its exchange-session day, and says so.
+    declaring_bars_v1(
+        proposal,
+        vec![
+            session_bar_v1("1D", UntrustedSourceBarCadenceV1::ExchangeSessionDay),
+            session_bar_v1(
+                "1H",
+                UntrustedSourceBarCadenceV1::FixedInterval {
+                    step: 1,
+                    unit: UntrustedSourceBarUnitV1::Hour,
+                },
+            ),
+            session_bar_v1(
+                "1M",
+                UntrustedSourceBarCadenceV1::FixedInterval {
+                    step: 1,
+                    unit: UntrustedSourceBarUnitV1::Minute,
+                },
+            ),
+        ],
+    )
 }
 
 /// The Market Semantics compatibility scope of the base's Source Binding, derived from its
@@ -839,11 +860,16 @@ async fn rejoin_chain_market_base_v1(
         .map_err(|_| diverged("market_semantics"))?;
     let source_locator = request.source_binding.clone();
     let pit_locator = pit.receipt().locator().clone();
+    // The binding is the base's own, checked above against `expected_source`.
     let semantics_request = market_base_semantics_proposal_v1(
         scope,
         &pit_locator,
         &source_locator,
         base_instrument_locator_v1(),
+        market_base_r0_end_v1(
+            &chain_market_base_source_proposal_v1(&chain_market_base_historical_clock_v1())
+                .bar_timeframes,
+        ),
     )?;
     super::market_semantics::recover_market_semantics_in_transaction_v1(
         &mut transaction,
@@ -1062,6 +1088,7 @@ async fn commit_market_base_snapshot_v1(
 fn market_base_r0_request_v1(
     pit: &UntrustedPitSnapshotLocator,
     source: &UntrustedSourceBindingLocator,
+    r0_end: i128,
 ) -> Result<UntrustedReferenceFactR0RequestV1, MarketDataAcceptanceBasisErrorV1> {
     let mut request = UntrustedReferenceFactR0RequestV1 {
         request_identity: d(BASE_R0_REQUEST),
@@ -1069,9 +1096,9 @@ fn market_base_r0_request_v1(
         pit_locator_bytes: canonical_locator_bytes(pit)?,
         source_binding_locator_bytes: canonical_locator_bytes(source)?,
         replay_start_event_ns: 50,
-        replay_end_event_ns_exclusive: 51,
+        replay_end_event_ns_exclusive: r0_end,
         effective_from_ns: 50,
-        effective_until_ns: Some(51),
+        effective_until_ns: Some(r0_end),
         provider_available_ns: 90,
         retrieval_ns: 92,
         correction_publication_ns: 91,
@@ -1096,6 +1123,20 @@ fn market_base_semantics_value_v1() -> MarketSemanticsValueV1 {
     }
 }
 
+/// Where the base's R0 claim ends under a binding that declares `declarations`: the Owner's rule
+/// over those declarations and the labels of the bars the base's snapshot observes, from the
+/// snapshot's event instant.
+fn market_base_r0_end_v1(declarations: &[UntrustedSourceBarTimeframeV1]) -> i128 {
+    r0_window_end_over_v1(
+        50,
+        declarations,
+        MARKET_BASE_OBSERVATIONS
+            .iter()
+            .map(|(_, _, timeframe, _)| *timeframe),
+    )
+    .expect("the base's R0 claim ends within i128")
+}
+
 /// The base's Market Semantics request, over its snapshot, Source Binding, Instrument Master cut
 /// and Reference Fact R0 request.
 fn market_base_semantics_proposal_v1(
@@ -1103,8 +1144,9 @@ fn market_base_semantics_proposal_v1(
     pit: &UntrustedPitSnapshotLocator,
     source: &UntrustedSourceBindingLocator,
     instrument: MarketDataAcceptanceRequestLocatorV1,
+    r0_end: i128,
 ) -> Result<UntrustedMarketSemanticsProposalV1, MarketDataAcceptanceBasisErrorV1> {
-    let r0 = market_base_r0_request_v1(pit, source)?;
+    let r0 = market_base_r0_request_v1(pit, source, r0_end)?;
     let mut instrument_locator_bytes = Vec::with_capacity(64);
     instrument_locator_bytes.extend_from_slice(instrument.request_identity.as_bytes());
     instrument_locator_bytes.extend_from_slice(instrument.request_meaning_digest.as_bytes());
@@ -1119,7 +1161,7 @@ fn market_base_semantics_proposal_v1(
         predecessor_identity: None,
         value: market_base_semantics_value_v1(),
         effective_from_ns: 50,
-        effective_until_ns: Some(51),
+        effective_until_ns: Some(r0_end),
         effective_instant_ns: 50,
         owner_observation_ns: i128::from(BASE_WRITTEN_AT),
         decision_cut: BASE_WRITTEN_AT,
@@ -1259,8 +1301,9 @@ pub(super) fn commit_market_base_corpus_v1<'a>(
             &stored.rows,
         )
         .map_err(|_| diverged("pit_observation_batch"))?;
+        let r0_end = market_base_r0_end_v1(source.fact().bar_timeframes());
         let r0_request =
-            market_base_r0_request_v1(pit.receipt().locator(), source.receipt().locator())?;
+            market_base_r0_request_v1(pit.receipt().locator(), source.receipt().locator(), r0_end)?;
         let r0 = super::reference_fact_coordinates::resolve_reference_fact_r0_in_transaction_v1(
             &mut transaction,
             &r0_request,
@@ -1296,6 +1339,7 @@ pub(super) fn commit_market_base_corpus_v1<'a>(
             pit.receipt().locator(),
             source.receipt().locator(),
             instrument_locator,
+            r0_end,
         )?;
         let semantics = super::market_semantics::resolve_market_semantics_in_transaction_v1(
             &mut transaction,
@@ -1441,9 +1485,9 @@ fn persist_historical_native_r0_v1<'a>(
             pit_locator_bytes: canonical_locator_bytes(pit.receipt().locator())?,
             source_binding_locator_bytes: canonical_locator_bytes(source.receipt().locator())?,
             replay_start_event_ns: 50,
-            replay_end_event_ns_exclusive: 51,
+            replay_end_event_ns_exclusive: market_base_r0_end_v1(source.fact().bar_timeframes()),
             effective_from_ns: 50,
-            effective_until_ns: Some(51),
+            effective_until_ns: Some(market_base_r0_end_v1(source.fact().bar_timeframes())),
             provider_available_ns: 89,
             retrieval_ns: 91,
             correction_publication_ns: 90,

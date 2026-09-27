@@ -424,67 +424,6 @@ impl PostgresReplayResultOwnerV2 {
         persist_prepared_result(transaction, result_dto, result_bytes).await
     }
 
-    /// Commits a terminal result while holding the exact R&D-owned Replay V2 request lock.
-    ///
-    /// Request verification and Result/receipt/outbox writes share one PostgreSQL transaction. A
-    /// stale, revoked, mismatched, cross-database, or authority-drifted request therefore creates
-    /// no Backtest row.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error before any write unless the R&D request readback exactly matches the sealed
-    /// result's request identity and meaning digest.
-    pub async fn commit_request_bound_exploratory_replay_result_v2(
-        &self,
-        rd_pool: &PgPool,
-        locator: &ExploratoryReplayRequestLocatorV2,
-        result: &SealedReplayResultV2,
-    ) -> Result<PostgresReplayResultCommitDispositionV2, PostgresReplayResultOwnerErrorV2> {
-        let result_bytes = result
-            .to_canonical_bytes()
-            .map_err(|_| PostgresReplayResultOwnerErrorV2::ResultNotAdmitted)?;
-        let result_dto = ReplayResultDtoV2::from_canonical_bytes(&result_bytes)
-            .map_err(|_| PostgresReplayResultOwnerErrorV2::ResultNotAdmitted)?;
-        validate_sealed_result(result, &result_dto)?;
-        if locator.request_identity != result_dto.request_identity.as_str()
-            || locator.meaning_digest != result_dto.request_meaning_digest.as_str()
-        {
-            return Err(PostgresReplayResultOwnerErrorV2::RequestNotAdmitted);
-        }
-        let mut transaction = self
-            .pool
-            .begin()
-            .await
-            .map_err(|_| PostgresReplayResultOwnerErrorV2::StorageUnavailable)?;
-        validate_transaction_principal(&mut transaction).await?;
-        let locked = lock_for_backtest_v2_in_transaction(rd_pool, &mut transaction, locator)
-            .await
-            .map_err(|_| PostgresReplayResultOwnerErrorV2::CustodyUnavailable)?;
-        if locked.projection().availability != ExploratoryReplayAvailabilityV1::Available {
-            return Err(PostgresReplayResultOwnerErrorV2::RequestNotAdmitted);
-        }
-        let request = locked
-            .readback()
-            .ok_or(PostgresReplayResultOwnerErrorV2::RequestNotAdmitted)?;
-        let locked_meaning = request
-            .request()
-            .meaning_digest()
-            .map_err(|_| PostgresReplayResultOwnerErrorV2::RequestNotAdmitted)?;
-
-        if request.request_identity() != result_dto.request_identity.as_str()
-            || request.meaning_digest() != result_dto.request_meaning_digest.as_str()
-            || locked_meaning != result_dto.request_meaning_digest
-            || request.canonical_request_bytes()
-                != request
-                    .request()
-                    .to_canonical_bytes()
-                    .map_err(|_| PostgresReplayResultOwnerErrorV2::RequestNotAdmitted)?
-        {
-            return Err(PostgresReplayResultOwnerErrorV2::RequestNotAdmitted);
-        }
-        persist_prepared_result(transaction, result_dto, result_bytes).await
-    }
-
     /// Atomically commits a terminal Result with all 28 observation envelopes and semantic trace.
     pub async fn commit_request_bound_native_replay_evidence_v2(
         &self,

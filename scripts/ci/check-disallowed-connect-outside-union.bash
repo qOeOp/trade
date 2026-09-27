@@ -17,8 +17,11 @@
 # Other lints are capped at warn: this gate answers one question, and a lint that only fires under
 # these features is not what it refuses.
 #
-# `--self-test` plants one direct `PgPool::connect` under `owner-recovery` and passes only if the plant
-# is refused by name, so a derivation that silently lints nothing is caught.
+# Every run plants one direct `PgPool::connect` under `owner-recovery` and lints once, over the same
+# packages and features. It passes only if that pass refuses the plant at its own line and finds no
+# other direct connection and no compile error, so a derivation that silently lints nothing fails the
+# gate itself rather than a separate self-test (one lint pass instead of two; #1151's two cost 123 s
+# more). Hits and errors are read from `--message-format json` diagnostics, not from the exit code.
 #
 # When the features do not compile together, nothing was linted, and the gate fails. It then checks
 # each feature on its own and names the ones that do not compile alone, or, when each does, says the
@@ -47,10 +50,9 @@ cd "$repository_root"
 mode=gate
 case "${1:-}" in
   "") ;;
-  --self-test) mode=self-test ;;
   --self-test-bisect) mode=self-test-bisect ;;
   *)
-    echo "usage: $0 [--self-test | --self-test-bisect]" >&2
+    echo "usage: $0 [--self-test-bisect]" >&2
     exit 2
     ;;
 esac
@@ -100,29 +102,43 @@ if [ "${#packages[@]}" -eq 0 ]; then
   exit 1
 fi
 
-if [ "$mode" != gate ]; then
-  if ! git diff --quiet -- "$plant_file"; then
-    echo "ERROR: $mode plants into $plant_file, which has local changes; commit or set them aside first." >&2
-    exit 1
-  fi
-  restore_plant() { git checkout -- "$plant_file"; }
-  trap 'restore_plant' EXIT
+if ! git diff --quiet -- "$plant_file"; then
+  echo "ERROR: this gate plants into $plant_file, which has local changes; commit or set them aside first." >&2
+  exit 1
 fi
+# The plant is removed on every exit, and the file must then be exactly what it was: a hook that runs
+# after this one would otherwise lint the planted tree. A killed run cannot get here, which is what
+# the check-connect-guard-plant hook is for.
+restore_plant() {
+  git checkout -- "$plant_file"
+  if ! git diff --quiet -- "$plant_file"; then
+    echo "ERROR: $plant_file is not back to its committed content after the plant was removed." >&2
+    return 1
+  fi
+}
+on_exit() {
+  local status=$?
+  restore_plant || status=1
+  exit "$status"
+}
+trap on_exit EXIT
 case "$mode" in
-  self-test)
+  gate)
     cat >> "$plant_file" << EOF
 
-#[allow(dead_code, reason = "self-test plant, removed on exit")]
+#[allow(dead_code, reason = "gate plant, removed on exit")]
 async fn ${plant_marker}(url: &str) {
     let _ = sqlx::PgPool::connect(url).await;
 }
 EOF
+    plant_line="$(grep -n 'sqlx::PgPool::connect(url)' "$plant_file" | tail -n 1 | cut -d: -f1)"
     ;;
   self-test-bisect)
     cat >> "$plant_file" << EOF
 
 compile_error!("${plant_marker}: self-test-bisect plant, removed on exit");
 EOF
+    plant_line=0
     ;;
 esac
 
@@ -132,6 +148,12 @@ for package in "${packages[@]}"; do
 done
 export HIGH_PRECISION="${HIGH_PRECISION:-1}"
 profile="${CARGO_CI_PROFILE:-nextest}"
+# `--cap-lints warn` leaves every lint a warning, the disallowed method included, and
+# `.cargo/config.toml` sets `build.warnings = "deny"`, which turns any warning in a workspace crate
+# into a failed build (exit 101). Under it the plant alone failed the build and was blamed on the
+# feature that carries it (run 36305569380). With `warn` a non-zero exit means something did not
+# compile, which the bisect below relies on.
+export CARGO_BUILD_WARNINGS=warn
 
 echo "Refusing direct PostgreSQL connections outside the chain's sealed union"
 echo "  packages: ${packages[*]}"
@@ -139,12 +161,46 @@ echo "  features: $features"
 output="$(mktemp)"
 status=0
 cargo clippy "${package_args[@]}" --locked --all-targets --features "$features" \
-  --profile "$profile" --message-format short -- --cap-lints warn > "$output" 2>&1 || status=$?
-hits="$(grep -E 'use of a disallowed method' "$output" || true)"
-count=0
-if [ -n "$hits" ]; then
-  count="$(printf '%s\n' "$hits" | wc -l | tr -d ' ')"
-fi
+  --profile "$profile" --message-format json -- --cap-lints warn > "$output" 2> "$output.stderr" || status=$?
+
+# One line per finding from the JSON diagnostics: `PLANT <where>` for the disallowed method at the
+# plant's own line, `HIT <where>` for it anywhere else, `ERROR <rendered>` for any error-level
+# diagnostic. Other warnings are not what this gate refuses. The same location reported by two
+# targets (lib and its tests) is one finding.
+readings="$(
+  python3 - "$output" "$plant_file" "$plant_line" << 'PY'
+import json
+import sys
+
+path, plant_file, plant_line = sys.argv[1], sys.argv[2], int(sys.argv[3])
+plant, hits, errors = set(), set(), []
+for line in open(path, encoding="utf-8"):
+    try:
+        entry = json.loads(line)
+    except ValueError:
+        continue
+    if entry.get("reason") != "compiler-message":
+        continue
+    message = entry["message"]
+    code = (message.get("code") or {}).get("code")
+    span = next((s for s in message.get("spans", []) if s.get("is_primary")), None)
+    where = f"{span['file_name']}:{span['line_start']}" if span else "(no location)"
+    if message.get("level", "").startswith("error"):
+        errors.append((message.get("rendered") or message.get("message", "")).strip())
+    elif code == "clippy::disallowed_methods":
+        target = plant if where == f"{plant_file}:{plant_line}" else hits
+        target.add(f"{where}: {message.get('message', '')}")
+for finding in sorted(plant):
+    print(f"PLANT {finding}")
+for finding in sorted(hits):
+    print(f"HIT {finding}")
+for rendered in errors:
+    print("ERROR " + rendered.replace("\n", "\n      "))
+PY
+)"
+plant_found="$(grep -c '^PLANT ' <<< "$readings" || true)"
+hit_count="$(grep -c '^HIT ' <<< "$readings" || true)"
+error_count="$(grep -c '^ERROR ' <<< "$readings" || true)"
 
 # Names the features that do not compile on their own, one clippy run per feature over its own
 # package, and records them in `alone_failures`.
@@ -171,11 +227,12 @@ bisect_compile_failure() {
   done
 }
 
-if [ "$status" -ne 0 ]; then
-  tail -n 40 "$output" >&2
-  rm -f "$output"
-  echo "ERROR: clippy did not finish (exit $status), so nothing here was linted." >&2
-  echo "       Checking each feature on its own to name what does not compile." >&2
+if [ "$status" -ne 0 ] || [ "$error_count" -ne 0 ]; then
+  grep '^ERROR ' <<< "$readings" | head -n 40 >&2 || true
+  tail -n 20 "$output.stderr" >&2
+  rm -f "$output" "$output.stderr"
+  echo "ERROR: clippy did not compile everything (exit $status, $error_count error diagnostic(s)), so this" >&2
+  echo "       pass proves nothing. Checking each feature on its own to name what does not compile." >&2
   bisect_compile_failure
 
   if [ "$mode" = self-test-bisect ]; then
@@ -187,25 +244,22 @@ if [ "$status" -ne 0 ]; then
   fi
   exit 1
 fi
-rm -f "$output"
+rm -f "$output" "$output.stderr"
 
 if [ "$mode" = self-test-bisect ]; then
   echo "ERROR: self-test-bisect: the planted compile error did not stop clippy." >&2
   exit 1
 fi
 
-if [ "$mode" = self-test ]; then
-  if printf '%s\n' "$hits" | grep -q "$plant_file"; then
-    echo "self-test: the planted direct connection was refused: $(printf '%s\n' "$hits" | grep "$plant_file")"
-    exit 0
-  fi
-  echo "ERROR: self-test: the planted direct connection in $plant_file was not refused." >&2
+if [ "$hit_count" -ne 0 ]; then
+  grep '^HIT ' <<< "$readings" | sed 's/^HIT /  /' >&2
+  echo "ERROR: $hit_count direct PostgreSQL connection(s) outside vibe-postgres-connect; state TLS through it." >&2
   exit 1
 fi
-
-if [ "$count" -ne 0 ]; then
-  printf '%s\n' "$hits" >&2
-  echo "ERROR: $count direct PostgreSQL connection(s) outside vibe-postgres-connect; state TLS through it." >&2
+if [ "$plant_found" -ne 1 ]; then
+  echo "ERROR: the connection planted at $plant_file:$plant_line was not refused, so this pass could not" >&2
+  echo "       have refused a real one: no direct connection found proves nothing here." >&2
   exit 1
 fi
+echo "Refused the planted connection at $plant_file:$plant_line, and found no other."
 echo "No direct PostgreSQL connection outside vibe-postgres-connect under: $features"

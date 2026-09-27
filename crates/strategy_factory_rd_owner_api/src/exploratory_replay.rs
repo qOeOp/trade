@@ -13,10 +13,10 @@ use serde_json::json;
 #[cfg(feature = "sealed-develop-composer-acceptance")]
 use vibe_backtest_owner::{
     native_replay::{
-        NativeReplayCommitDispositionV2, PostgresNativeReplayPreparationOwnerV2,
-        run_exploratory_replay_v2,
+        NativeReplayCommitDispositionV2, NativeReplayRunErrorV2,
+        PostgresNativeReplayPreparationOwnerV2, run_exploratory_replay_v2,
     },
-    postgres::PostgresReplayResultOwnerV2,
+    postgres::{PostgresReplayResultOwnerErrorV2, PostgresReplayResultOwnerV2},
 };
 use vibe_backtest_owner_contracts::{
     CanonicalDigestV2, OpaqueIdentityV2, ReplayNamespaceV2, ReplayRequestDtoV2, ReplayRequestV2,
@@ -601,12 +601,25 @@ async fn run_native_replay(
         Ok(disposition) => {
             native_replay_execution_response(service, disposition, &request_identity).await
         }
-        Err(_) => rejection(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "NATIVE_REPLAY_EXECUTION_UNAVAILABLE",
-            &request_identity,
-        ),
+        Err(e) => native_replay_run_error(&e, &request_identity),
     }
+}
+
+/// Every failed run answers the one code its consumers read, and its cause is logged at the match.
+///
+/// The run crosses preparation, the Sim EVENT execution, Result and outcome sealing, and the
+/// commit, and each fails for its own reason. The code cannot carry which: the response stays
+/// `NATIVE_REPLAY_EXECUTION_UNAVAILABLE`. Before this the error was discarded at the match, so the
+/// first failure of a run anywhere in that path reached its caller as that bare code and nothing
+/// else.
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+fn native_replay_run_error(error: &NativeReplayRunErrorV2, request_identity: &str) -> Response {
+    tracing::warn!(%error, %request_identity, "native Replay run failed");
+    rejection(
+        StatusCode::SERVICE_UNAVAILABLE,
+        "NATIVE_REPLAY_EXECUTION_UNAVAILABLE",
+        request_identity,
+    )
 }
 
 #[cfg(feature = "sealed-develop-composer-acceptance")]
@@ -620,7 +633,7 @@ async fn native_replay_execution_response(
     disposition: NativeReplayCommitDispositionV2,
     request_identity: &str,
 ) -> Response {
-    let disposition = match disposition {
+    let recovered = match disposition {
         NativeReplayCommitDispositionV2::Committed { result, .. } => {
             return canonical_result_response(result.result_canonical_bytes());
         }
@@ -628,12 +641,34 @@ async fn native_replay_execution_response(
             recovery.resolve(service.result_owner.as_ref()).await
         }
     };
+    recovered_commit_response(recovered, request_identity)
+}
 
-    match disposition {
+/// The answer to a commit whose outcome was unknown, once recovery has looked for it.
+///
+/// Anything short of the committed aggregate keeps the unknown-outcome code, and each of the three
+/// ways to fall short is logged under its own name.
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+fn recovered_commit_response(
+    recovered: Result<Option<NativeReplayCommitDispositionV2>, PostgresReplayResultOwnerErrorV2>,
+    request_identity: &str,
+) -> Response {
+    match recovered {
         Ok(Some(NativeReplayCommitDispositionV2::Committed { result, .. })) => {
             canonical_result_response(result.result_canonical_bytes())
         }
-        _ => native_replay_submitted_or_unknown_response(request_identity),
+        Ok(Some(NativeReplayCommitDispositionV2::SubmittedOrUnknown(_))) => {
+            tracing::warn!(%request_identity, "native Replay commit is still unknown after recovery");
+            native_replay_submitted_or_unknown_response(request_identity)
+        }
+        Ok(None) => {
+            tracing::warn!(%request_identity, "native Replay commit is absent after recovery");
+            native_replay_submitted_or_unknown_response(request_identity)
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, %request_identity, "native Replay commit recovery failed");
+            native_replay_submitted_or_unknown_response(request_identity)
+        }
     }
 }
 
@@ -1360,6 +1395,16 @@ fn execution_input_binding_error(
             "REPLAY_REQUEST_NAMES_NO_COMPOSITION_BINDING",
             request_identity,
         ),
+        NativeReplayExecutionInputBindingErrorV1::InstrumentMasterGenerationMismatch => rejection(
+            StatusCode::CONFLICT,
+            "INSTRUMENT_MASTER_GENERATION_MISMATCH",
+            request_identity,
+        ),
+        NativeReplayExecutionInputBindingErrorV1::InstrumentMasterTermsChanged => rejection(
+            StatusCode::CONFLICT,
+            "INSTRUMENT_MASTER_TERMS_CHANGED",
+            request_identity,
+        ),
     }
 }
 
@@ -2050,6 +2095,41 @@ mod tests {
         );
     }
 
+    /// A generation mismatch is final, as a conflict is, but it is its own code: the fix is a V1 or
+    /// V2 fact, not the request.
+    #[rstest]
+    fn an_instrument_master_generation_mismatch_is_named_and_final() {
+        let code = |error: &NativeReplayExecutionInputBindingErrorV1| {
+            let response = execution_input_binding_error(error, "request-1");
+            (
+                response.status(),
+                response.headers()["x-rd-rejection-code"]
+                    .to_str()
+                    .unwrap()
+                    .to_owned(),
+            )
+        };
+
+        assert_eq!(
+            code(&NativeReplayExecutionInputBindingErrorV1::InstrumentMasterGenerationMismatch),
+            (
+                StatusCode::CONFLICT,
+                "INSTRUMENT_MASTER_GENERATION_MISMATCH".to_owned()
+            )
+        );
+        assert_ne!(
+            code(&NativeReplayExecutionInputBindingErrorV1::Conflict).1,
+            "INSTRUMENT_MASTER_GENERATION_MISMATCH"
+        );
+        assert_eq!(
+            code(&NativeReplayExecutionInputBindingErrorV1::InstrumentMasterTermsChanged),
+            (
+                StatusCode::CONFLICT,
+                "INSTRUMENT_MASTER_TERMS_CHANGED".to_owned()
+            )
+        );
+    }
+
     /// The two causes are one status and one code on the wire; the log is where they come apart.
     #[rstest]
     #[case::authority(
@@ -2081,5 +2161,64 @@ mod tests {
         assert!(written.contains("WARN"), "{written}");
         assert!(written.contains(detail), "{written}");
         assert!(written.contains(message), "{written}");
+    }
+
+    /// A failed run answers the one code its consumers read, and the log names what failed.
+    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    #[rstest]
+    fn a_failed_native_replay_run_names_its_cause_in_the_log() {
+        let error = NativeReplayRunErrorV2::NativeExecution(
+            "ProgramHost Sim EVENT callback failed: Owner-sealed member OPEN is unavailable".into(),
+        );
+
+        let (response, written) =
+            crate::log_capture::capture(|| native_replay_run_error(&error, "request-1"));
+
+        assert_eq!(
+            response.status(),
+            StatusCode::SERVICE_UNAVAILABLE,
+            "{written}"
+        );
+        assert!(written.contains("WARN"), "{written}");
+        assert!(written.contains("native Replay run failed"), "{written}");
+        assert!(
+            written.contains("Owner-sealed member OPEN is unavailable"),
+            "{written}"
+        );
+        assert!(written.contains("request-1"), "{written}");
+    }
+
+    /// A commit recovery that finds no aggregate, or fails, keeps the unknown-outcome code and
+    /// logs which of the two it was.
+    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    #[rstest]
+    #[case::absent(Ok(None), "native Replay commit is absent after recovery", None)]
+    #[case::failed(
+        Err(PostgresReplayResultOwnerErrorV2::StorageUnavailable),
+        "native Replay commit recovery failed",
+        Some("Backtest Replay V2 persistence is unavailable")
+    )]
+    fn an_unrecovered_commit_names_why_in_the_log(
+        #[case] recovered: Result<
+            Option<NativeReplayCommitDispositionV2>,
+            PostgresReplayResultOwnerErrorV2,
+        >,
+        #[case] message: &str,
+        #[case] cause: Option<&str>,
+    ) {
+        let (response, written) =
+            crate::log_capture::capture(|| recovered_commit_response(recovered, "request-1"));
+
+        assert_eq!(
+            response.status(),
+            StatusCode::SERVICE_UNAVAILABLE,
+            "{written}"
+        );
+        assert!(written.contains("WARN"), "{written}");
+        assert!(written.contains(message), "{written}");
+        assert!(
+            cause.is_none_or(|cause| written.contains(cause)),
+            "{written}"
+        );
     }
 }

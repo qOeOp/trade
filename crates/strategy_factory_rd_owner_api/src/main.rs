@@ -42,6 +42,9 @@ use vibe_data::owner::{
     instrument_master_admission_v1::{
         InstrumentMasterAdmissionV1, instrument_master_admission_from_environment_v1,
     },
+    instrument_master_admission_v2::{
+        InstrumentMasterAdmissionV2, instrument_master_admission_from_environment_v2,
+    },
     market_semantics_admission_v1::{
         MarketSemanticsAdmissionV1, market_semantics_admission_from_environment_v1,
     },
@@ -384,6 +387,8 @@ async fn main() -> anyhow::Result<()> {
         bootstrap_market_data_strategy_input_bindings().await?;
     let market_data_instrument_master_admission =
         bootstrap_market_data_instrument_master_admission().await?;
+    let market_data_instrument_master_admission_v2 =
+        bootstrap_market_data_instrument_master_admission_v2().await?;
     let market_data_market_semantics_admission =
         bootstrap_market_data_market_semantics_admission().await?;
     #[cfg(feature = "sealed-develop-composer-acceptance")]
@@ -738,12 +743,15 @@ async fn main() -> anyhow::Result<()> {
         // Market Data answers for itself on the default feature set: these routes ship in the
         // deployed binary rather than behind an acceptance feature.
         .merge(market_data_pit::router(
-            market_data_pit_intake,
-            market_data_source_binding_admission,
-            market_data_universe_selection,
-            market_data_strategy_input_bindings,
-            market_data_instrument_master_admission,
-            market_data_market_semantics_admission,
+            market_data_pit::MarketDataAdmissions {
+                intake: market_data_pit_intake,
+                admission: market_data_source_binding_admission,
+                universe: market_data_universe_selection,
+                bindings: market_data_strategy_input_bindings,
+                instruments: market_data_instrument_master_admission,
+                instruments_v2: market_data_instrument_master_admission_v2,
+                semantics: market_data_market_semantics_admission,
+            },
             token_digest,
         ));
     #[cfg(feature = "sealed-develop-composer-acceptance")]
@@ -953,6 +961,17 @@ async fn bootstrap_market_data_instrument_master_admission()
     }
     Ok(Some(
         instrument_master_admission_from_environment_v1().await?,
+    ))
+}
+
+/// Composes the Market Data Instrument Master V2 baseline admission when its store is configured.
+async fn bootstrap_market_data_instrument_master_admission_v2()
+-> anyhow::Result<Option<Arc<dyn InstrumentMasterAdmissionV2>>> {
+    if env::var("MARKET_DATA_OWNER_DATABASE_URL").is_err() {
+        return Ok(None);
+    }
+    Ok(Some(
+        instrument_master_admission_from_environment_v2().await?,
     ))
 }
 
@@ -2739,7 +2758,7 @@ fn insert_rejection_code(response: &mut Response, code: &str) {
 /// Answers a replay composition refusal with the status its cause supports.
 ///
 /// A variant leaves 503 only when every site that constructs it on the issuance and recovery paths
-/// is the caller's request or a fact the store declared, never a store failure. Three qualify.
+/// is the caller's request or a fact the store declared, never a store failure. Seven qualify.
 /// `InvalidRequest` is raised only by validation of the caller's command, including a locator that
 /// contradicts the composition it was sent with. `IssuanceIdentityConflict` is raised only where the
 /// Owner has established that the identity and the request disagree with an issuance it holds -
@@ -2747,7 +2766,11 @@ fn insert_rejection_code(response: &mut Response, code: &str) {
 /// which is the conflict this file already answers as `CONFLICTING_SEMANTICS_FOR_REQUEST_IDENTITY`.
 /// `PriceAdjustmentUnknown` is raised only when a Market Semantics fact declares its price
 /// adjustment unknown, a statement about the data that takes the 422 this file gives a well-formed
-/// request the Owner declines on semantics.
+/// request the Owner declines on semantics. `ExecutionRoleAmbiguous`,
+/// `ExecutionTimeframeNotDeclared` and `ExecutionBarExceedsR0Window` are raised only while issuance
+/// derives the Replay window from the Design's roles and the bars the Source Binding declares, and
+/// `SessionOutsideReplayWindow` only while issuance composes the snapshot's sessions against that
+/// window; each is a statement that the Design cannot be replayed over this snapshot as it stands.
 ///
 /// The rest stay 503 because their sites are the store's, and a 4xx would tell a caller its request
 /// is wrong when the store may be at fault. `DigestMismatch` now reports only stored bytes,
@@ -2770,6 +2793,24 @@ fn replay_composition_refusal(error: ReplayCompositionBindingErrorV1) -> Respons
         ReplayCompositionBindingErrorV1::PriceAdjustmentUnknown => {
             (StatusCode::UNPROCESSABLE_ENTITY, None)
         }
+        // The Design cannot be replayed over this snapshot as it stands; each names why, and no
+        // retry changes it.
+        ReplayCompositionBindingErrorV1::ExecutionRoleAmbiguous => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Some("EXECUTION_ROLE_AMBIGUOUS"),
+        ),
+        ReplayCompositionBindingErrorV1::ExecutionTimeframeNotDeclared => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Some("EXECUTION_TIMEFRAME_NOT_DECLARED"),
+        ),
+        ReplayCompositionBindingErrorV1::ExecutionBarExceedsR0Window => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Some("EXECUTION_BAR_EXCEEDS_R0_WINDOW"),
+        ),
+        ReplayCompositionBindingErrorV1::SessionOutsideReplayWindow => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Some("SESSION_OUTSIDE_REPLAY_WINDOW"),
+        ),
         ReplayCompositionBindingErrorV1::ReplayV2Unavailable
         | ReplayCompositionBindingErrorV1::DigestMismatch
         | ReplayCompositionBindingErrorV1::UnknownBinding
@@ -3084,6 +3125,10 @@ mod tests {
     use rstest::rstest;
     use sqlx::Row;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use vibe_data::owner::chain_market_base_v1::{
+        CHAIN_MARKET_DATA_ACCEPTANCE_BASIS_V1, MarketDataAcceptanceBasisPointerV1,
+        MarketDataAcceptanceBasisV1, ensure_market_data_acceptance_basis_v1,
+    };
     use vibe_operator_authorization::{
         OperationManifestBindingV1, OperatorAuthorizationIssuanceProposalV1,
         OperatorAuthorizationIssuerPostgresV1, OperatorAuthorizationScopeV1,
@@ -4942,7 +4987,9 @@ mod tests {
     /// against, so the entry needs no earlier entry to have published it. Alone on a fresh cluster
     /// this creates the head; after another entry has ensured it, it resolves the same head exactly.
     #[cfg(feature = "sealed-source-intake-acceptance")]
-    async fn ensure_sealed_catalog_v3(test_database: &CanonicalOwnerPostgresTestDatabaseV1) {
+    pub(crate) async fn ensure_sealed_catalog_v3(
+        test_database: &CanonicalOwnerPostgresTestDatabaseV1,
+    ) {
         let pool = sqlx::postgres::PgPoolOptions::new()
             .connect_url(
                 test_database
@@ -4954,6 +5001,40 @@ mod tests {
         ensure_replay_policy_catalog_fixture_v3(&pool)
             .await
             .expect("the sealed Catalog V3 head is created or resolved exactly");
+    }
+
+    /// Ensures the chain's Market Data acceptance basis - Source Binding, Instrument Master fact,
+    /// eligible frontier, clock head, base PIT and Market Semantics - for an entry that reads it, so
+    /// the entry needs no earlier entry to have written it. Alone on a fresh cluster this writes the
+    /// basis; after another entry has, it rejoins it exactly and moves no pointer.
+    pub(crate) async fn ensure_market_data_acceptance_basis(
+        test_database: &CanonicalOwnerPostgresTestDatabaseV1,
+    ) -> MarketDataAcceptanceBasisV1 {
+        ensure_market_data_acceptance_basis_v1(
+            test_database.database_url(CanonicalOwnerTestRoleV1::MarketDataOwner),
+            CHAIN_MARKET_DATA_ACCEPTANCE_BASIS_V1,
+        )
+        .await
+        .expect("the chain's Market Data acceptance basis is written or rejoined")
+    }
+
+    /// An entry that reads a current Market Data pointer states it first: another entry in the same
+    /// database may have moved it since the basis was written, and a read that took the moved
+    /// pointer would still pass.
+    pub(crate) async fn require_basis_pointer(
+        test_database: &CanonicalOwnerPostgresTestDatabaseV1,
+        basis: &MarketDataAcceptanceBasisV1,
+        pointer: MarketDataAcceptanceBasisPointerV1,
+    ) {
+        basis
+            .require_current_in(
+                test_database.database_url(CanonicalOwnerTestRoleV1::MarketDataOwner),
+                pointer,
+            )
+            .await
+            .unwrap_or_else(|e| {
+                panic!("Market Data's current {pointer:?} is the acceptance basis's: {e}")
+            });
     }
 
     /// A frozen program replays over HTTP to the same freeze the in-process entry committed.
@@ -4988,6 +5069,9 @@ mod tests {
         };
 
         let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
+        // The Market Data acceptance basis this entry reads, ensured here rather than left to an
+        // earlier entry.
+        let _basis = ensure_market_data_acceptance_basis(&test_database).await;
         #[cfg(feature = "sealed-source-intake-acceptance")]
         ensure_sealed_catalog_v3(&test_database).await;
 
@@ -5045,18 +5129,23 @@ mod tests {
         );
         let app =
             bounded_feature_program::router(owner, token_digest).merge(market_data_pit::router(
-                bootstrap_market_data_pit_intake().await.unwrap(),
-                bootstrap_market_data_source_binding_admission()
-                    .await
-                    .unwrap(),
-                bootstrap_market_data_universe_selection().await.unwrap(),
-                bindings,
-                bootstrap_market_data_instrument_master_admission()
-                    .await
-                    .unwrap(),
-                bootstrap_market_data_market_semantics_admission()
-                    .await
-                    .unwrap(),
+                market_data_pit::MarketDataAdmissions {
+                    intake: bootstrap_market_data_pit_intake().await.unwrap(),
+                    admission: bootstrap_market_data_source_binding_admission()
+                        .await
+                        .unwrap(),
+                    universe: bootstrap_market_data_universe_selection().await.unwrap(),
+                    bindings,
+                    instruments: bootstrap_market_data_instrument_master_admission()
+                        .await
+                        .unwrap(),
+                    instruments_v2: bootstrap_market_data_instrument_master_admission_v2()
+                        .await
+                        .unwrap(),
+                    semantics: bootstrap_market_data_market_semantics_admission()
+                        .await
+                        .unwrap(),
+                },
                 token_digest,
             ));
 
@@ -5399,7 +5488,7 @@ mod tests {
     // the test is `ignore`d anyway.
     #[cfg(feature = "sealed-source-intake-composer-acceptance")]
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    #[ignore = "requires the ordered chain's PostgreSQL and the Market Data basis an earlier entry commits"]
+    #[ignore = "requires the ordered chain's PostgreSQL; it ensures the Market Data basis it reads"]
     async fn an_authored_design_is_published_bound_and_frozen_over_http() {
         use axum::body::Body;
         use axum::extract::Request;
@@ -5414,6 +5503,15 @@ mod tests {
         };
 
         let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
+        // The Market Data acceptance basis this entry reads, ensured here rather than left to an
+        // earlier entry.
+        let basis = ensure_market_data_acceptance_basis(&test_database).await;
+        require_basis_pointer(
+            &test_database,
+            &basis,
+            MarketDataAcceptanceBasisPointerV1::ClockHead,
+        )
+        .await;
 
         let rd_pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(2)
@@ -5477,18 +5575,23 @@ mod tests {
         let bindings = composed_market_data_binding_admission(&test_database).await;
         let app =
             bounded_feature_program::router(owner, token_digest).merge(market_data_pit::router(
-                bootstrap_market_data_pit_intake().await.unwrap(),
-                bootstrap_market_data_source_binding_admission()
-                    .await
-                    .unwrap(),
-                bootstrap_market_data_universe_selection().await.unwrap(),
-                bindings,
-                bootstrap_market_data_instrument_master_admission()
-                    .await
-                    .unwrap(),
-                bootstrap_market_data_market_semantics_admission()
-                    .await
-                    .unwrap(),
+                market_data_pit::MarketDataAdmissions {
+                    intake: bootstrap_market_data_pit_intake().await.unwrap(),
+                    admission: bootstrap_market_data_source_binding_admission()
+                        .await
+                        .unwrap(),
+                    universe: bootstrap_market_data_universe_selection().await.unwrap(),
+                    bindings,
+                    instruments: bootstrap_market_data_instrument_master_admission()
+                        .await
+                        .unwrap(),
+                    instruments_v2: bootstrap_market_data_instrument_master_admission_v2()
+                        .await
+                        .unwrap(),
+                    semantics: bootstrap_market_data_market_semantics_admission()
+                        .await
+                        .unwrap(),
+                },
                 token_digest,
             ));
 
@@ -6062,6 +6165,26 @@ mod tests {
         ReplayCompositionBindingErrorV1::PriceAdjustmentUnknown,
         StatusCode::UNPROCESSABLE_ENTITY,
         None
+    )]
+    #[case::execution_role_ambiguous(
+        ReplayCompositionBindingErrorV1::ExecutionRoleAmbiguous,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        Some("EXECUTION_ROLE_AMBIGUOUS")
+    )]
+    #[case::execution_timeframe_not_declared(
+        ReplayCompositionBindingErrorV1::ExecutionTimeframeNotDeclared,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        Some("EXECUTION_TIMEFRAME_NOT_DECLARED")
+    )]
+    #[case::execution_bar_exceeds_r0_window(
+        ReplayCompositionBindingErrorV1::ExecutionBarExceedsR0Window,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        Some("EXECUTION_BAR_EXCEEDS_R0_WINDOW")
+    )]
+    #[case::session_outside_replay_window(
+        ReplayCompositionBindingErrorV1::SessionOutsideReplayWindow,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        Some("SESSION_OUTSIDE_REPLAY_WINDOW")
     )]
     #[case::replay_v2_unavailable(
         ReplayCompositionBindingErrorV1::ReplayV2Unavailable,

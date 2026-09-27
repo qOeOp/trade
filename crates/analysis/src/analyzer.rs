@@ -29,6 +29,24 @@ use crate::{
 
 pub type Statistic = Arc<dyn PortfolioStatistic<Item = f64> + Send + Sync>;
 
+/// Why daily portfolio returns could not be resolved from a run's snapshots, in the order
+/// [`PortfolioAnalyzer::resolve_snapshot_returns`] checks.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SnapshotReturnsUnavailable {
+    /// No account was given to resolve returns for.
+    NoAccount,
+    /// A priced snapshot of one of the accounts carries more than one equity, or two carry different
+    /// currencies.
+    MoreThanOneEquityCurrency,
+    /// One of the accounts has no priced snapshot.
+    AccountWithoutPricedSnapshot,
+    /// The priced snapshots give fewer than two days on which every account has had equity.
+    FewerThanTwoDays,
+    /// Two or more such days, but no day's return is defined: each needs a finite ratio to a
+    /// previous day's non-zero equity.
+    NoDefinedDailyReturn,
+}
+
 /// Analyzes portfolio performance and calculates various statistics.
 ///
 /// The `PortfolioAnalyzer` tracks account balances, positions, and realized PnLs
@@ -392,9 +410,24 @@ impl PortfolioAnalyzer {
         account_ids: &[AccountId],
         snapshots: impl IntoIterator<Item = &'a PortfolioSnapshot>,
     ) -> Option<Returns> {
+        Self::resolve_snapshot_returns(account_ids, snapshots).ok()
+    }
+
+    /// Resolves daily portfolio returns from snapshots, or names the first reason it cannot.
+    ///
+    /// This is the rule [`Self::set_portfolio_returns_from_snapshots`] applies, with its cause kept:
+    /// a reader of a finished run's snapshots gets the same answer the run's statistics got, and why.
+    ///
+    /// # Errors
+    ///
+    /// Returns the first [`SnapshotReturnsUnavailable`] cause met, in the order the rule checks them.
+    pub fn resolve_snapshot_returns<'a>(
+        account_ids: &[AccountId],
+        snapshots: impl IntoIterator<Item = &'a PortfolioSnapshot>,
+    ) -> Result<Returns, SnapshotReturnsUnavailable> {
         let expected_accounts: IndexSet<AccountId> = account_ids.iter().copied().collect();
         if expected_accounts.is_empty() {
-            return None;
+            return Err(SnapshotReturnsUnavailable::NoAccount);
         }
 
         let mut currency = None;
@@ -410,7 +443,7 @@ impl PortfolioAnalyzer {
             }
 
             if snapshot.total_equity.len() != 1 {
-                return None;
+                return Err(SnapshotReturnsUnavailable::MoreThanOneEquityCurrency);
             }
 
             let equity = snapshot
@@ -419,7 +452,7 @@ impl PortfolioAnalyzer {
 
             if let Some(existing_currency) = currency {
                 if existing_currency != equity.currency {
-                    return None;
+                    return Err(SnapshotReturnsUnavailable::MoreThanOneEquityCurrency);
                 }
             } else {
                 currency = Some(equity.currency);
@@ -434,17 +467,19 @@ impl PortfolioAnalyzer {
         }
 
         if equity_by_account.len() != expected_accounts.len() {
-            return None;
+            return Err(SnapshotReturnsUnavailable::AccountWithoutPricedSnapshot);
         }
 
         let first_day = equity_by_account
             .values()
             .filter_map(|equity| equity.keys().next().copied())
-            .min()?;
+            .min()
+            .ok_or(SnapshotReturnsUnavailable::FewerThanTwoDays)?;
         let last_day = equity_by_account
             .values()
             .filter_map(|equity| equity.keys().next_back().copied())
-            .max()?;
+            .max()
+            .ok_or(SnapshotReturnsUnavailable::FewerThanTwoDays)?;
         let mut daily_equity = BTreeMap::new();
         let mut current_equity = AHashMap::new();
         let mut current_day = first_day;
@@ -474,7 +509,11 @@ impl PortfolioAnalyzer {
             current_day += UnixNanos::from(NANOSECONDS_IN_DAY);
         }
 
+        if daily_equity.len() < 2 {
+            return Err(SnapshotReturnsUnavailable::FewerThanTwoDays);
+        }
         Self::calculate_daily_returns(&daily_equity)
+            .ok_or(SnapshotReturnsUnavailable::NoDefinedDailyReturn)
     }
 
     fn snapshot_day_start(ts_event: UnixNanos, is_registration: bool) -> UnixNanos {

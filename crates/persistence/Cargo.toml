@@ -48,7 +48,7 @@ high-precision = [
 [dependencies]
 vibe-common = { workspace = true, features = ["live"] }
 vibe-core = { workspace = true }
-vibe-model = { workspace = true, features = ["stubs"] }
+vibe-model = { workspace = true }
 vibe-persistence-macros = { workspace = true }
 vibe-serialization = { workspace = true, features = ["arrow"] }
 
@@ -73,6 +73,7 @@ pyo3 = { workspace = true, optional = true }
 pyo3-stub-gen = { workspace = true, optional = true }
 
 [dev-dependencies]
+vibe-model = { workspace = true, features = ["stubs"] }
 vibe-testkit = { workspace = true, default-features = false, features = [
   "datasets",
 ] }

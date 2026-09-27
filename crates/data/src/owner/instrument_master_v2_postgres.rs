@@ -7,13 +7,18 @@ use sqlx::{PgPool, Postgres, Row, Transaction};
 
 use super::{
     ADMITTED_UNIVERSE_MEMBER_COUNTS,
+    instrument_master::InstrumentMasterFactV1,
     instrument_master_v2::{
         InstrumentMasterCustodyErrorV2, InstrumentMasterCutLocatorV2, InstrumentMasterCutReceiptV2,
         InstrumentMasterCutRequestV2, InstrumentMasterCutV2, InstrumentMasterFactV2,
-        InstrumentMasterReadbackV2, InstrumentMasterResolverV2, PublicInstrumentClassV2,
-        native_replay_request_identity_v2, resolver_seal_v2,
+        InstrumentMasterReadbackV2, InstrumentMasterResolverV2, InstrumentTermsBasisV2,
+        PublicInstrumentClassV2, native_replay_request_identity_v2, require_same_generation_v2,
+        resolver_seal_v2,
     },
-    postgres::{BoundUniverseSelectionErrorV1, recover_bound_universe_selection_in_transaction_v1},
+    postgres::{
+        BoundReplayInputsErrorV1, BoundReplayInputsV1,
+        recover_bound_replay_inputs_in_transaction_v1,
+    },
     replay_market_facts_v2::ReplayCompositionBindingLocatorV1,
     source_binding::BindingDigest,
     universe_selection::{UniverseSelectionReadbackV1, verify_universe_selection_readback_v1},
@@ -119,30 +124,21 @@ impl InstrumentMasterV2PostgresOwner {
             Some(previous) if fact.is_direct_successor_of(previous) => {}
             _ => return Err(InstrumentMasterCustodyErrorV2::ChainMismatch),
         }
-        let custody = fact_custody(fact);
-        let result = sqlx::query("INSERT INTO market_data_instrument_master_v2.facts(fact_identity,canonical_identity,predecessor_fact_identity,correction_sequence,owner_observation_ns,fact_bytes,custody_digest) VALUES($1,$2,$3,$4,$5,$6,$7)")
-            .bind(fact.identity().as_bytes().as_slice())
-            .bind(fact.canonical_identity())
-            .bind(fact.predecessor_fact_digest().map(|value| value.as_bytes().to_vec()))
-            .bind(i64::try_from(fact.correction_sequence()).map_err(|_| InstrumentMasterCustodyErrorV2::ChainMismatch)?)
-            .bind(fact.owner_observation_time_ns().to_be_bytes().as_slice())
-            .bind(fact.canonical_bytes())
-            .bind(custody.as_slice())
-            .execute(&mut *tx).await.map_err(|cause| classify_insert(&cause))?;
-
-        if result.rows_affected() != 1 {
-            return Err(InstrumentMasterCustodyErrorV2::StoreUnavailable);
-        }
+        insert_fact(&mut tx, fact).await?;
         tx.commit().await.map_err(|cause| store_error(&cause))
     }
 
     /// Resolves the sealed one- or two-member Universe Selection and atomically appends its cut,
     /// deterministic receipt, and outbox record.
     ///
+    /// Test-only: it compares the members with no V1 readback, so production's only path to a V2
+    /// cut is [`Self::issue_cut_for_bound_replay_v1`], which does.
+    ///
     /// # Errors
     ///
     /// Returns a custody or storage error when the selection is invalid or persistence fails.
-    pub async fn issue_cut(
+    #[cfg(test)]
+    pub(crate) async fn issue_cut(
         &self,
         request: InstrumentMasterCutRequestV2,
         selection: &UniverseSelectionReadbackV1,
@@ -151,7 +147,8 @@ impl InstrumentMasterV2PostgresOwner {
         let mut tx = self.serializable().await?;
         assert_acl_in_transaction(&mut tx).await?;
         assert_complete_ledger(&mut tx).await?;
-        let readback = issue_cut_in_transaction(&mut tx, request, selection, &members).await?;
+        let readback =
+            issue_cut_in_transaction(&mut tx, request, selection, &members, None).await?;
         tx.commit().await.map_err(|cause| store_error(&cause))?;
         Ok(readback)
     }
@@ -166,13 +163,17 @@ impl InstrumentMasterV2PostgresOwner {
     /// credential, and a cut issued under the wrong binding is refused by R&D's consumer, whose
     /// selection and member checks fail closed.
     ///
+    /// Before it writes, the cut's V2 facts must describe the instruments the V1 readback the
+    /// binding's PIT snapshot cites describes, member by member; otherwise the issuance is refused
+    /// with [`InstrumentMasterCustodyErrorV2::GenerationMismatch`] and zero writes.
+    ///
     /// The same key and binding again return the stored cut with zero append. The same key under
     /// a different binding is refused with zero writes even when both bindings share one
     /// selection: the cut's own idempotency compares only the selection, so the recorded binding
     /// is what tells them apart.
     ///
-    /// Everything happens in this Owner's own transaction, which reads the binding and the
-    /// selection without row locks and never calls R&D, so it cannot wait on a lock R&D's open
+    /// Everything happens in this Owner's own transaction, which reads the binding, the selection,
+    /// the snapshot and the V1 readback without row locks and never calls R&D, so it cannot wait on a lock R&D's open
     /// transaction holds. The one remaining wait cycle is a caller that holds an Instrument
     /// Master V2 transaction open across this call; none can, because every method here commits
     /// or rolls back before it returns and none hands a transaction out.
@@ -202,16 +203,19 @@ impl InstrumentMasterV2PostgresOwner {
             tx.commit().await.map_err(|cause| store_error(&cause))?;
             return Ok(readback);
         }
-        let selection = recover_bound_universe_selection_in_transaction_v1(&mut tx, binding)
+        let BoundReplayInputsV1 {
+            selection,
+            instrument_master_v1,
+        } = recover_bound_replay_inputs_in_transaction_v1(&mut tx, binding)
             .await
             .map_err(|e| match e {
-                BoundUniverseSelectionErrorV1::BindingUnavailable => {
+                BoundReplayInputsErrorV1::BindingUnavailable => {
                     InstrumentMasterCustodyErrorV2::BoundReplayBindingUnavailable
                 }
-                BoundUniverseSelectionErrorV1::CustodyMismatch => {
+                BoundReplayInputsErrorV1::CustodyMismatch => {
                     InstrumentMasterCustodyErrorV2::CrossSpliced
                 }
-                BoundUniverseSelectionErrorV1::StoreUnavailable => {
+                BoundReplayInputsErrorV1::StoreUnavailable => {
                     InstrumentMasterCustodyErrorV2::StoreUnavailable
                 }
             })?;
@@ -220,7 +224,14 @@ impl InstrumentMasterV2PostgresOwner {
             selection.record().decision_cut(),
         )?;
         let members = admitted_members(&request, &selection)?;
-        let readback = issue_cut_in_transaction(&mut tx, request, &selection, &members).await?;
+        let readback = issue_cut_in_transaction(
+            &mut tx,
+            request,
+            &selection,
+            &members,
+            Some(instrument_master_v1.facts()),
+        )
+        .await?;
         sqlx::query("INSERT INTO market_data_instrument_master_v2.bound_replay_issuances(request_identity,binding_identity,binding_digest) VALUES($1,$2,$3)")
             .bind(request_identity.as_bytes().as_slice())
             .bind(binding.binding_identity().as_bytes().as_slice())
@@ -293,28 +304,10 @@ impl InstrumentMasterV2PostgresOwner {
         Ok(readback)
     }
 
-    /// Opens this store's one writing transaction: serializable, and holding every table lock.
-    ///
-    /// `lock_all` must be its first statement. A serializable transaction's snapshot is taken by
-    /// its first `SELECT` or data change, and `LOCK TABLE` is neither, so taking the table locks
-    /// first gives a snapshot that already sees whatever the previous lock holder committed. The
-    /// advisory `SELECT` that used to come first took the snapshot before its wait, and the second
-    /// of two concurrent writers then failed its `FOR UPDATE` on `state` with SQLSTATE 40001.
-    /// The table locks conflict with themselves, so they alone serialize every transaction here.
     async fn serializable(
         &self,
     ) -> Result<Transaction<'_, Postgres>, InstrumentMasterCustodyErrorV2> {
-        let mut tx = self
-            .pool
-            .begin()
-            .await
-            .map_err(|cause| store_error(&cause))?;
-        sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
-            .execute(&mut *tx)
-            .await
-            .map_err(|cause| store_error(&cause))?;
-        lock_all(&mut tx).await?;
-        Ok(tx)
+        begin_serializable_v2(&self.pool).await
     }
 
     async fn assert_acl(&self) -> Result<(), InstrumentMasterCustodyErrorV2> {
@@ -381,11 +374,16 @@ fn admitted_members(
 ///
 /// The caller opened `tx` through `serializable`, so it holds every table lock, and has checked
 /// the ACL and the ledger.
+///
+/// `generation_v1` is the V1 facts a bound PIT snapshot cites for these members. A new cut's V2
+/// facts are compared with them before anything is written; a cut already stored under the key is
+/// returned as it is.
 async fn issue_cut_in_transaction(
     tx: &mut Transaction<'_, Postgres>,
     request: InstrumentMasterCutRequestV2,
     selection: &UniverseSelectionReadbackV1,
     members: &[String],
+    generation_v1: Option<&[InstrumentMasterFactV1]>,
 ) -> Result<InstrumentMasterReadbackV2, InstrumentMasterCustodyErrorV2> {
     if let Some(row) = load_cut_by_request(tx, request.request_identity()).await? {
         let readback = decode_cut_row(tx, row).await?;
@@ -410,6 +408,18 @@ async fn issue_cut_in_transaction(
         .any(|fact| !class_has_no_corporate_actions(fact.instrument_class()))
     {
         return Err(InstrumentMasterCustodyErrorV2::MemberClassCarriesCorporateActions);
+    }
+
+    if facts
+        .iter()
+        .any(|fact| fact.terms_basis() != InstrumentTermsBasisV2::RetrievedTermsAssumedSinceListing)
+    {
+        return Err(InstrumentMasterCustodyErrorV2::TermsChanged);
+    }
+
+    if let Some(v1) = generation_v1 {
+        require_same_generation_v2(v1, &facts)
+            .map_err(InstrumentMasterCustodyErrorV2::GenerationMismatch)?;
     }
     let cut = InstrumentMasterCutV2::issue(
         request,
@@ -642,6 +652,46 @@ async fn decode_cut_row(
     InstrumentMasterReadbackV2::from_parts(cut, receipt)
 }
 
+/// Opens a writing transaction on this store: serializable, and holding every table lock.
+///
+/// Every writer, the Owner's intakes included, opens its transaction here. `lock_all` must be its
+/// first statement. A serializable transaction's snapshot is taken by its first `SELECT` or data
+/// change, and `LOCK TABLE` is neither, so taking the table locks first gives a snapshot that
+/// already sees whatever the previous lock holder committed. The advisory `SELECT` that used to
+/// come first took the snapshot before its wait, and the second of two concurrent writers then
+/// failed its `FOR UPDATE` on `state` with SQLSTATE 40001; an intake that read the chain before
+/// locking would likewise meet a concurrent identical submission as a unique violation instead
+/// of rejoining it. The table locks conflict with themselves, so they alone serialize every
+/// transaction here.
+pub(super) async fn begin_serializable_v2(
+    pool: &PgPool,
+) -> Result<Transaction<'_, Postgres>, InstrumentMasterCustodyErrorV2> {
+    let mut tx = pool.begin().await.map_err(|cause| store_error(&cause))?;
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+        .execute(&mut *tx)
+        .await
+        .map_err(|cause| store_error(&cause))?;
+    lock_all(&mut tx).await?;
+    Ok(tx)
+}
+
+/// Opens a writing transaction on this store that also writes the Owner's clock: read committed,
+/// and holding every table lock from its first statement.
+///
+/// A clock writer takes the clock-state advisory lock before it reads the clock head, and waits
+/// there for any other clock writer. Under `SERIALIZABLE` the advisory `SELECT` would take the
+/// transaction's snapshot before that wait, so a head another writer moved meanwhile would fail
+/// this transaction with SQLSTATE 40001; under `READ COMMITTED` each statement reads what was
+/// committed before it, as in every other clock writer. The table locks still serialize this
+/// store's writers, so the chain read here cannot change before the append.
+pub(super) async fn begin_clock_writing_v2(
+    pool: &PgPool,
+) -> Result<Transaction<'_, Postgres>, InstrumentMasterCustodyErrorV2> {
+    let mut tx = pool.begin().await.map_err(|cause| store_error(&cause))?;
+    lock_all(&mut tx).await?;
+    Ok(tx)
+}
+
 async fn lock_all(
     tx: &mut Transaction<'_, Postgres>,
 ) -> Result<(), InstrumentMasterCustodyErrorV2> {
@@ -660,6 +710,141 @@ async fn assert_complete_ledger(
         Err(InstrumentMasterCustodyErrorV2::CrossSpliced)
     } else {
         Ok(())
+    }
+}
+
+async fn insert_fact(
+    tx: &mut Transaction<'_, Postgres>,
+    fact: &InstrumentMasterFactV2,
+) -> Result<(), InstrumentMasterCustodyErrorV2> {
+    let custody = fact_custody(fact);
+    let result = sqlx::query("INSERT INTO market_data_instrument_master_v2.facts(fact_identity,canonical_identity,predecessor_fact_identity,correction_sequence,owner_observation_ns,fact_bytes,custody_digest) VALUES($1,$2,$3,$4,$5,$6,$7)")
+        .bind(fact.identity().as_bytes().as_slice())
+        .bind(fact.canonical_identity())
+        .bind(fact.predecessor_fact_digest().map(|value| value.as_bytes().to_vec()))
+        .bind(i64::try_from(fact.correction_sequence()).map_err(|_| InstrumentMasterCustodyErrorV2::ChainMismatch)?)
+        .bind(fact.owner_observation_time_ns().to_be_bytes().as_slice())
+        .bind(fact.canonical_bytes())
+        .bind(custody.as_slice())
+        .execute(&mut **tx).await.map_err(|cause| classify_insert(&cause))?;
+
+    if result.rows_affected() == 1 {
+        Ok(())
+    } else {
+        Err(InstrumentMasterCustodyErrorV2::StoreUnavailable)
+    }
+}
+
+/// Why a baseline was not admitted in the caller's transaction.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum BaselineAdmissionErrorV2 {
+    /// The instrument's stored baseline means something else.
+    BaselineExists,
+    /// A custody or store failure.
+    Custody(InstrumentMasterCustodyErrorV2),
+}
+
+impl From<InstrumentMasterCustodyErrorV2> for BaselineAdmissionErrorV2 {
+    fn from(error: InstrumentMasterCustodyErrorV2) -> Self {
+        Self::Custody(error)
+    }
+}
+
+/// Admits `candidate` as its instrument's first fact inside the caller's transaction, or rejoins the
+/// stored baseline when the submission means the same.
+///
+/// The Owner-observation instant is the Owner's stamp, not part of what the caller means, so the
+/// comparison rebuilds the candidate at the stored baseline's own observation through `at` and
+/// compares canonical bytes: equal rejoins the stored fact, different is `BaselineExists`, and a
+/// baseline is never replaced. The store's ownership and privilege assertion runs first.
+pub(super) async fn admit_baseline_in_transaction_v2(
+    tx: &mut Transaction<'_, Postgres>,
+    candidate: &InstrumentMasterFactV2,
+    at: impl FnOnce(i128) -> Option<InstrumentMasterFactV2>,
+) -> Result<InstrumentMasterFactV2, BaselineAdmissionErrorV2> {
+    assert_acl_in_transaction(tx).await?;
+    let chain = decode_chain(load_fact_rows(tx, candidate.canonical_identity()).await?)?;
+
+    let Some(stored) = chain.first() else {
+        insert_fact(tx, candidate).await?;
+        return Ok(candidate.clone());
+    };
+    // A submission that cannot even be built at the stored observation, such as one retrieved after
+    // it, means something else.
+    let Some(rebuilt) = at(stored.owner_observation_time_ns()) else {
+        return Err(BaselineAdmissionErrorV2::BaselineExists);
+    };
+
+    if rebuilt.canonical_bytes() == stored.canonical_bytes() {
+        Ok(stored.clone())
+    } else {
+        Err(BaselineAdmissionErrorV2::BaselineExists)
+    }
+}
+
+/// A named V2 fact and the fact that directly follows it, when one does.
+pub(super) struct NamedFactV2 {
+    pub(super) fact: InstrumentMasterFactV2,
+    pub(super) successor: Option<InstrumentMasterFactV2>,
+}
+
+/// Reads the V2 fact whose identity is `identity`, and its direct successor, in the caller's
+/// transaction, or none when no fact has that identity. The store's ownership and privilege
+/// assertion runs first, and the fact's whole chain is decoded, so each fact returned verifies
+/// against its predecessor.
+pub(super) async fn load_named_fact_in_transaction_v2(
+    tx: &mut Transaction<'_, Postgres>,
+    identity: BindingDigest,
+) -> Result<Option<NamedFactV2>, InstrumentMasterCustodyErrorV2> {
+    assert_acl_in_transaction(tx).await?;
+    let canonical: Option<String> = sqlx::query_scalar(
+        "SELECT canonical_identity FROM market_data_instrument_master_v2.facts WHERE fact_identity=$1",
+    )
+    .bind(identity.as_bytes().as_slice())
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(|cause| store_error(&cause))?;
+    let Some(canonical) = canonical else {
+        return Ok(None);
+    };
+    let chain = decode_chain(load_fact_rows(tx, &canonical).await?)?;
+    let at = chain
+        .iter()
+        .position(|fact| fact.identity() == identity)
+        .ok_or(InstrumentMasterCustodyErrorV2::CrossSpliced)?;
+    Ok(Some(NamedFactV2 {
+        fact: chain[at].clone(),
+        successor: chain.get(at + 1).cloned(),
+    }))
+}
+
+/// Why a successor was not appended in the caller's transaction.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum SuccessorAppendErrorV2 {
+    /// Another admission extended the same fact first.
+    PredecessorNotCurrent,
+    /// A custody or store failure.
+    Custody(InstrumentMasterCustodyErrorV2),
+}
+
+/// Appends `successor` after the fact it names, which the caller read with no successor in a
+/// transaction opened by [`begin_serializable_v2`].
+///
+/// The table locks that transaction took first mean no other writer ran between that read and
+/// this insert, so a unique violation is not expected here. Were one to occur, the successor's
+/// identity digests its bytes, which name its predecessor, so it cannot already be stored
+/// elsewhere in the chain: it would mean the same predecessor was extended, or the same
+/// correction sequence taken, by a writer that did not hold the locks.
+pub(super) async fn append_successor_in_transaction_v2(
+    tx: &mut Transaction<'_, Postgres>,
+    successor: &InstrumentMasterFactV2,
+) -> Result<(), SuccessorAppendErrorV2> {
+    match insert_fact(tx, successor).await {
+        Ok(()) => Ok(()),
+        Err(InstrumentMasterCustodyErrorV2::IdentityConflict) => {
+            Err(SuccessorAppendErrorV2::PredecessorNotCurrent)
+        }
+        Err(e) => Err(SuccessorAppendErrorV2::Custody(e)),
     }
 }
 
@@ -1061,48 +1246,46 @@ pub(crate) mod tests {
         counts
     }
 
-    async fn persist_selection(
-        pool: &PgPool,
+    /// A stored Universe Selection's identity and digest, as a binding names it.
+    fn selection_locator(
         selection: &UniverseSelectionReadbackV1,
-        sequence: u64,
-    ) {
-        let mut tx = pool.begin().await.unwrap();
-        crate::owner::postgres::persist_issued_readback_for_test(&mut tx, selection, sequence)
-            .await
-            .expect("the selection is stored");
-        tx.commit().await.unwrap();
+    ) -> (BindingDigest, BindingDigest) {
+        (selection.record().identity(), selection.record().digest())
     }
 
-    /// Stores a binding the Owner issues over `selection` and returns its exact locator.
+    /// Stores a binding the Owner issues over `selection` and the PIT snapshot `snapshot` (identity,
+    /// fact digest), and returns its exact locator.
     async fn persist_binding(
         pool: &PgPool,
         seed: u8,
         selection: &UniverseSelectionReadbackV1,
+        snapshot: (BindingDigest, BindingDigest),
     ) -> ReplayCompositionBindingLocatorV1 {
         persist_binding_readback(
             pool,
             &crate::owner::replay_market_facts_v2::tests::binding_over_universe_selection(
                 seed,
-                selection.record().identity(),
-                selection.record().digest(),
+                selection_locator(selection),
+                snapshot,
             ),
         )
         .await
     }
 
-    /// Stores a universe-member (schema 2) binding over `selection`, which names no Instrument
-    /// Master, and returns its exact locator.
+    /// Stores a universe-member (schema 2) binding over `selection` and `snapshot`, which names no
+    /// Instrument Master, and returns its exact locator.
     async fn persist_universe_member_binding(
         pool: &PgPool,
         seed: u8,
         selection: &UniverseSelectionReadbackV1,
+        snapshot: (BindingDigest, BindingDigest),
     ) -> ReplayCompositionBindingLocatorV1 {
         persist_binding_readback(
             pool,
             &crate::owner::replay_market_facts_v2::tests::universe_member_binding_over_universe_selection(
                 seed,
-                selection.record().identity(),
-                selection.record().digest(),
+                selection_locator(selection),
+                snapshot,
             ),
         )
         .await
@@ -1131,59 +1314,96 @@ pub(crate) mod tests {
             .collect()
     }
 
-    /// A bound-replay issuance keys one cut to one composition binding, atomically.
+    /// A bound-replay issuance keys one cut to one composition binding, atomically, and issues it
+    /// only where the V2 facts agree with the V1 facts the binding's PIT snapshot cites.
+    ///
+    /// Every input is stored by a production intake: each instrument's V1 fact by the V1 intake,
+    /// each selection by the Owner's resolver, and each PIT snapshot by the PIT intake, which cites
+    /// the V1 readback it resolved for the selection's members. The bindings are fixtures over
+    /// those stored inputs. The V1 facts state what the V2 facts state, except SOL's tick.
     ///
     /// The cut is issued over the selection the binding bound, at that selection's decision cut,
     /// and is the one the key-derived resolver returns. Asking again with the same binding
     /// appends nothing. Asking with a second binding over the same selection is refused by name
     /// with nothing written: that is the case the cut's own idempotency cannot see, since it
-    /// compares only the selection. An unknown binding, a three-member selection, and a key whose
-    /// cut was issued over another selection are refused without a write, and a failure after the
-    /// cut row is written leaves no cut. The issuance neither waits on an open transaction that
-    /// holds the binding and selection rows nor collides with concurrent issuances and resolves.
+    /// compares only the selection. SOL, whose V1 tick is not its V2 tick, is refused by that term
+    /// with nothing written, and so is a binding whose PIT snapshot is not stored. An unknown
+    /// binding, a three-member selection, and a key whose cut was issued over another selection
+    /// are refused without a write, and a failure after the cut row is written leaves no cut. The
+    /// issuance neither waits on an open transaction that holds the binding, selection and snapshot
+    /// rows nor collides with concurrent issuances and resolves.
     #[tokio::test]
     #[ignore = "requires a disposable Market Data PostgreSQL database"]
+    #[allow(clippy::too_many_lines)]
     async fn postgres_bound_replay_issuance_keys_each_request_to_one_binding() {
         use std::time::Duration;
 
         use crate::owner::{
-            instrument_master_v2::tests::fact_for,
+            instrument_master_v2::{
+                InstrumentMasterGenerationMismatchV2, InstrumentMasterGenerationTermV2,
+                tests::fact_for_observed_at,
+            },
+            postgres::pit_intake_member_count_tests::{Fixture, d},
             replay_market_facts_v2::tests::binding_over_universe_selection,
         };
 
+        // Each member is keyed by its instrument, as the PIT intake requires.
         const BTC: (&str, &str) = ("BTCUSDT", "BTCUSDT-PERP.BINANCE");
         const ETH: (&str, &str) = ("ETHUSDT", "ETHUSDT-PERP.BINANCE");
         const SOL: (&str, &str) = ("SOLUSDT", "SOLUSDT-PERP.BINANCE");
+        const DOGE: (&str, &str) = ("DOGEUSDT", "DOGEUSDT-PERP.BINANCE");
+        const EVERY_MEMBER: [u8; 3] = [0, 1, 1];
         let bounded = Duration::from_secs(30);
 
-        let owner_url = std::env::var("MARKET_DATA_OWNER_TEST_DATABASE_URL").unwrap();
-        crate::owner::postgres::MarketDataOwnerPostgres::connect(&owner_url)
-            .await
-            .expect("Market Data custody installs");
-        let pool = sqlx::postgres::PgPoolOptions::new()
-            .connect_url(&owner_url, PostgresTls::Disabled)
-            .await
-            .unwrap();
+        let market = Fixture::install().await;
+        let pool = market.owner().pool().clone();
         let owner = InstrumentMasterV2PostgresOwner::install(pool.clone())
             .await
             .unwrap();
 
+        // SOL's V1 tick is 0.1; every V2 tick is 0.01. DOGE has a V1 fact and no V2 fact.
+        for ((symbol, instrument), tick) in
+            [(BTC, (1, 2)), (ETH, (1, 2)), (SOL, (1, 1)), (DOGE, (1, 2))]
+        {
+            market
+                .admit_crypto_perpetual(instrument, symbol, tick)
+                .await;
+        }
+        let (two, two_locator) = market
+            .universe(100, &EVERY_MEMBER, &[(BTC.1, BTC.1), (ETH.1, ETH.1)])
+            .await;
+        let (one, one_locator) = market.universe(110, &EVERY_MEMBER, &[(BTC.1, BTC.1)]).await;
+        let (sol, sol_locator) = market.universe(120, &EVERY_MEMBER, &[(SOL.1, SOL.1)]).await;
+        let (unmastered, unmastered_locator) = market
+            .universe(130, &EVERY_MEMBER, &[(DOGE.1, DOGE.1)])
+            .await;
+        let (three, _) = market
+            .universe(
+                140,
+                &EVERY_MEMBER,
+                &[(BTC.1, BTC.1), (ETH.1, ETH.1), (SOL.1, SOL.1)],
+            )
+            .await;
+        let two_snapshot = market.snapshot(213, &two, two_locator).await;
+        let one_snapshot = market.snapshot(214, &one, one_locator).await;
+        let sol_snapshot = market.snapshot(215, &sol, sol_locator).await;
+        let unmastered_snapshot = market.snapshot(216, &unmastered, unmastered_locator).await;
+        // The V2 facts are observed at the selections' owner observation, so each cut sees them.
+        let observed = two.record().owner_observation_ns();
+
         for (seed, (symbol, instrument)) in [(10, BTC), (20, ETH), (30, SOL)] {
             owner
-                .append_fact(&fact_for(instrument, symbol, seed))
+                .append_fact(&fact_for_observed_at(instrument, symbol, seed, observed))
                 .await
                 .unwrap();
         }
-        let two = selection_with_request(11, &[BTC, ETH]);
-        let one = selection_with_request(12, &[BTC]);
-        let three = selection_with_request(13, &[BTC, ETH, SOL]);
-        for (sequence, selection) in [(1, &two), (2, &one), (3, &three)] {
-            persist_selection(&pool, selection, sequence).await;
-        }
-        let two_binding = persist_binding(&pool, 1, &two).await;
-        let other_two_binding = persist_binding(&pool, 2, &two).await;
-        let one_binding = persist_binding(&pool, 3, &one).await;
-        let three_binding = persist_binding(&pool, 4, &three).await;
+
+        let two_binding = persist_binding(&pool, 1, &two, two_snapshot).await;
+        let other_two_binding = persist_binding(&pool, 2, &two, two_snapshot).await;
+        let one_binding = persist_binding(&pool, 3, &one, one_snapshot).await;
+        // No PIT snapshot can be taken over three members, so this binding names the two-member
+        // one; the member count is refused before any fact is compared.
+        let three_binding = persist_binding(&pool, 4, &three, two_snapshot).await;
         assert_ne!(two_binding, other_two_binding);
 
         let issued = owner
@@ -1235,7 +1455,8 @@ pub(crate) mod tests {
 
         // A universe-member binding names no Instrument Master: the cut it keys is issued over the
         // selection it bound, from that selection's members alone.
-        let universe_one_binding = persist_universe_member_binding(&pool, 6, &one).await;
+        let universe_one_binding =
+            persist_universe_member_binding(&pool, 6, &one, one_snapshot).await;
         let universe_single = owner
             .issue_cut_for_bound_replay_v1("rd-replay-universe-one", universe_one_binding)
             .await
@@ -1250,10 +1471,9 @@ pub(crate) mod tests {
             one.record().decision_cut()
         );
 
-        // A member with no Instrument Master fact is refused by name, with nothing written.
-        let unmastered = selection_with_request(14, &[("DOGEUSDT", "DOGEUSDT-PERP.BINANCE")]);
-        persist_selection(&pool, &unmastered, 4).await;
-        let unmastered_binding = persist_universe_member_binding(&pool, 7, &unmastered).await;
+        // A member with no Instrument Master V2 fact is refused by name, with nothing written.
+        let unmastered_binding =
+            persist_universe_member_binding(&pool, 7, &unmastered, unmastered_snapshot).await;
         let settled = custody_counts(&pool).await;
         assert_eq!(
             owner
@@ -1263,10 +1483,35 @@ pub(crate) mod tests {
         );
         assert_eq!(custody_counts(&pool).await, settled);
 
-        let unstored =
-            binding_over_universe_selection(5, two.record().identity(), two.record().digest())
-                .record()
-                .locator();
+        // A V2 fact that disagrees with the V1 fact the snapshot cites is refused by the term it
+        // disagrees on, with nothing written: SOL's V1 tick is 0.1, its V2 tick 0.01.
+        let sol_binding = persist_universe_member_binding(&pool, 8, &sol, sol_snapshot).await;
+        assert_eq!(
+            owner
+                .issue_cut_for_bound_replay_v1("rd-replay-sol", sol_binding)
+                .await,
+            Err(InstrumentMasterCustodyErrorV2::GenerationMismatch(
+                InstrumentMasterGenerationMismatchV2::TermDiffers(
+                    InstrumentMasterGenerationTermV2::PriceIncrement
+                )
+            ))
+        );
+        assert_eq!(custody_counts(&pool).await, settled);
+
+        // A binding whose PIT snapshot is not stored names no V1 readback to compare with, and is
+        // refused as the store disagreeing with what it bound, with nothing written.
+        let unsnapshotted = persist_universe_member_binding(&pool, 9, &one, (d(250), d(251))).await;
+        assert_eq!(
+            owner
+                .issue_cut_for_bound_replay_v1("rd-replay-unsnapshotted", unsnapshotted)
+                .await,
+            Err(InstrumentMasterCustodyErrorV2::CrossSpliced)
+        );
+        assert_eq!(custody_counts(&pool).await, settled);
+
+        let unstored = binding_over_universe_selection(5, selection_locator(&two), two_snapshot)
+            .record()
+            .locator();
         assert_eq!(
             owner
                 .issue_cut_for_bound_replay_v1("rd-replay-unstored", unstored)
@@ -1348,11 +1593,17 @@ pub(crate) mod tests {
             sqlx::query(statement).execute(&pool).await.unwrap();
         }
 
-        // An open transaction holding the binding rows `FOR SHARE`, as R&D's does, and the
-        // selection rows `FOR UPDATE`, as the selection resolver's does, does not hold it up.
+        // An open transaction holding the binding and snapshot rows `FOR SHARE`, as R&D's does,
+        // and the selection rows `FOR UPDATE`, as the selection resolver's does, does not hold it
+        // up.
         let mut holder = pool.begin().await.unwrap();
         sqlx::query("SELECT 1 FROM market_data_private.replay_composition_bindings_v1 WHERE binding_identity=$1 FOR SHARE")
             .bind(one_binding.binding_identity().as_bytes().as_slice())
+            .fetch_one(&mut *holder)
+            .await
+            .unwrap();
+        sqlx::query("SELECT 1 FROM market_data_private.pit_snapshot_facts_v1 WHERE snapshot_identity=$1 FOR SHARE")
+            .bind(one_snapshot.0.as_bytes().as_slice())
             .fetch_one(&mut *holder)
             .await
             .unwrap();

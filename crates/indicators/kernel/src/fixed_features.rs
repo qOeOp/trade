@@ -210,6 +210,30 @@ pub fn fixed_window_mean(
     )?)
 }
 
+/// Computes `numerator / denominator` for two exact counts, with one final rounding into
+/// `output_scale`.
+///
+/// A count is a scale-0 integer, so the only rounding is the final one, which is what keeps a
+/// ratio of counts inside the catalog's one-exact-expression rule.
+pub fn fixed_count_ratio(
+    numerator: u32,
+    denominator: u32,
+    output_scale: DecimalScale,
+    rounding: Option<RoundingMode>,
+) -> Result<FixedI128, NumericFailure> {
+    if denominator == 0 {
+        return Err(NumericFailure::DivideByZero);
+    }
+
+    finish_at_scale(
+        I256::from_i128(i128::from(numerator)),
+        I256::from_i128(i128::from(denominator)),
+        DecimalScale::new(0)?,
+        output_scale,
+        rounding,
+    )
+}
+
 /// Computes the dimensionless RSI output from validated, externally maintained averages.
 ///
 /// Initial delta accumulation and subsequent Wilder updates are separate state transitions.

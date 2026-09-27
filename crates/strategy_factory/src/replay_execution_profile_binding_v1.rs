@@ -845,35 +845,45 @@ pub(crate) fn owner_replay_execution_profile_binding_fixture_v1(
         issue_sealed_exploratory_replay_readback_with_profiles_for_acceptance_v2(request, &family)
             .expect("sealed Replay Owner fixture");
     let terms = &economic.input().instrument_terms;
-    let provenance = BoundedMembers::try_from([
-        instrument_terms_provenance_for_fixture(
-            &economic,
-            "AAPL".into(),
-            terms.instrument_fact_digest,
-            terms.instrument_receipt_digest,
-            terms.maker_fee,
-            terms.taker_fee,
-            terms.initial_margin,
-            terms.maintenance_margin,
-            "XNAS-001",
-            0,
-            i128::MAX,
-        ),
-        instrument_terms_provenance_for_fixture(
-            &economic,
-            "MSFT".into(),
-            [21; 32],
-            [22; 32],
-            terms.maker_fee,
-            terms.taker_fee,
-            terms.initial_margin,
-            terms.maintenance_margin,
-            "XNAS-001",
-            0,
-            i128::MAX,
-        ),
-    ])
-    .expect("two-member fixture");
+    // One set of terms per member of the frame, in the frame's order. The first member carries the
+    // economic configuration's own fact and receipt digests, each later one digests of its own.
+    let provenance = BoundedMembers::new(
+        universe_frame
+            .selection()
+            .members()
+            .iter()
+            .enumerate()
+            .map(|(ordinal, member)| {
+                let (fact, receipt) = if ordinal == 0 {
+                    (
+                        terms.instrument_fact_digest,
+                        terms.instrument_receipt_digest,
+                    )
+                } else {
+                    let base = u8::try_from(20 * ordinal).expect("a bounded fixture universe");
+                    ([base + 1; 32], [base + 2; 32])
+                };
+                let symbol = member
+                    .instrument()
+                    .split_once('.')
+                    .map_or(member.instrument(), |(symbol, _)| symbol);
+                instrument_terms_provenance_for_fixture(
+                    &economic,
+                    symbol.into(),
+                    fact,
+                    receipt,
+                    terms.maker_fee,
+                    terms.taker_fee,
+                    terms.initial_margin,
+                    terms.maintenance_margin,
+                    "XNAS-001",
+                    0,
+                    i128::MAX,
+                )
+            })
+            .collect(),
+    )
+    .expect("the frame's members");
     issue_owner_replay_execution_profile_binding_for_test_v1(&family, &request, provenance)
         .expect("Owner-issued dual-profile fixture")
 }

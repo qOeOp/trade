@@ -10,7 +10,8 @@ use vibe_backtest_owner_contracts::protected_economic_metric::{
 #[cfg(test)]
 use vibe_backtest_owner_contracts::{CanonicalDigestV2, OpaqueIdentityV2};
 use vibe_backtest_owner_contracts::{
-    DiagnosticCategoryV2, PROTECTED_REPLAY_BINDING_COUNT_V1, ProtectedCellApplicabilityEvidenceV3,
+    DiagnosticCategoryV2, MarketDataEpochNanosV1, MarketDataNanosV1,
+    PROTECTED_REPLAY_BINDING_COUNT_V1, ProtectedCellApplicabilityEvidenceV3,
     ProtectedCellApplicabilityObservationV3, ProtectedConsumedInputLocatorV1,
     ProtectedDiagnosticEvidenceV2, ProtectedEvaluationComparisonRuleV1,
     ProtectedEvaluationEpochSuccessorProofV1, ProtectedEvaluationStageV1,
@@ -697,12 +698,18 @@ pub(crate) fn result_time_evidence(
         clock_identity: handoff.clock_identity().to_string(),
         clock_epoch: handoff.clock_epoch().to_string(),
         monotonic_sequence: handoff.monotonic_sequence(),
-        wall_observed: handoff.wall_observed(),
-        decision_cut: handoff.decision_cut(),
-        valid_through: handoff.valid_through(),
+        wall_observed: MarketDataEpochNanosV1::from_epoch_nanos(
+            handoff.wall_observed().as_epoch_nanos(),
+        ),
+        decision_cut: MarketDataEpochNanosV1::from_epoch_nanos(
+            handoff.decision_cut().as_epoch_nanos(),
+        ),
+        valid_through: MarketDataEpochNanosV1::from_epoch_nanos(
+            handoff.valid_through().as_epoch_nanos(),
+        ),
         restart_continuity_digest: *handoff.restart_continuity_digest().as_bytes(),
-        uncertainty_bound: handoff.uncertainty_bound(),
-        skew_bound: handoff.skew_bound(),
+        uncertainty_bound: MarketDataNanosV1::from_nanos(handoff.uncertainty_bound().as_nanos()),
+        skew_bound: MarketDataNanosV1::from_nanos(handoff.skew_bound().as_nanos()),
         comparison_rule: match handoff.comparison_rule() {
             ClockHeadComparisonRule::ExclusiveValidThrough => {
                 ProtectedEvaluationComparisonRuleV1::ExclusiveValidThrough
@@ -720,7 +727,9 @@ pub(crate) fn result_time_evidence(
                 successor_clock_identity: proof.successor_clock_identity().to_string(),
                 successor_clock_epoch: proof.successor_clock_epoch().to_string(),
                 successor_continuity_digest: *proof.successor_continuity_digest().as_bytes(),
-                commit_cut: proof.commit_cut(),
+                commit_cut: MarketDataEpochNanosV1::from_epoch_nanos(
+                    proof.commit_cut().as_epoch_nanos(),
+                ),
                 comparison_rule: match proof.comparison_rule() {
                     ClockHeadComparisonRule::ExclusiveValidThrough => {
                         ProtectedEvaluationComparisonRuleV1::ExclusiveValidThrough

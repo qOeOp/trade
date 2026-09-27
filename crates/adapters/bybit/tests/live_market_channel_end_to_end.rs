@@ -343,6 +343,8 @@ fn bybit_source_proposal(observed_ns: u64) -> UntrustedSourceBindingProposal {
         digest: digest(digest_byte),
     };
     let mut proposal = UntrustedSourceBindingProposal {
+        availability_rule: None,
+        bar_timeframes: Vec::new(),
         claimed_binding_id: digest(0),
         schema_version: 1,
         adapter: UntrustedAdapterBinding {

@@ -153,6 +153,41 @@ impl PostgresExploratoryReplayReadbackOwnerV2 {
         result
     }
 
+    /// Lists every Backtest-owned Result of one Replay request.
+    ///
+    /// The read takes no row lock, so its transaction is `READ ONLY` from its first statement, which
+    /// turns any row lock a future change to the read might take into an error rather than a wait.
+    /// The transaction is always rolled back.
+    pub async fn read_exploratory_replay_result_directory_v1(
+        &self,
+        request_identity: &str,
+        request_meaning_digest: &str,
+    ) -> Result<
+        Vec<crate::ExploratoryReplayResultDirectoryEntryV1>,
+        crate::BacktestResultCustodyErrorV2,
+    > {
+        let mut transaction = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| crate::BacktestResultCustodyErrorV2::Unavailable)?;
+        sqlx::query("SET TRANSACTION READ ONLY")
+            .execute(&mut *transaction)
+            .await
+            .map_err(|_| crate::BacktestResultCustodyErrorV2::Unavailable)?;
+        let directory = crate::read_exploratory_replay_result_directory_for_rd_in_transaction(
+            &mut transaction,
+            request_identity,
+            request_meaning_digest,
+        )
+        .await;
+        transaction
+            .rollback()
+            .await
+            .map_err(|_| crate::BacktestResultCustodyErrorV2::Unavailable)?;
+        directory
+    }
+
     /// Reads one committed run's report through the Backtest Owner's run-report read.
     ///
     /// The Owner opens its own transaction: `SET TRANSACTION` must be a transaction's first
@@ -486,7 +521,6 @@ fn artifact_evidence_is_sealed_for_view(
 ///
 /// A historical read of an operation the Research View has since moved past names the
 /// pre-transition View; the Owner verifies the evidence against that View, not the stored one.
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
 pub(crate) async fn lock_research_artifact_custody_at_view_in_transaction(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     custody: &crate::rd_owner_postgres_custody::VerifiedResearchCustodyV1,
@@ -506,7 +540,6 @@ enum ArtifactEvidenceViewV1<'a> {
     Current(&'a crate::product_edge::ResearchViewV1),
     /// The View an operation ran under, which the Owner is told
     /// (`rd_owner_api.*_research_for_artifact_at_view_v1`).
-    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
     RanUnder(&'a crate::product_edge::ResearchViewV1),
 }
 
@@ -523,7 +556,6 @@ async fn lock_research_artifact_custody_in_transaction(
     let admission = custody.product_edge_admission().ok_or_else(unavailable)?;
     let (view, named_view): (_, Option<serde_json::Value>) = match evidence_view {
         ArtifactEvidenceViewV1::Current(view) => (view, None),
-        #[cfg(feature = "sealed-source-intake-composer-acceptance")]
         ArtifactEvidenceViewV1::RanUnder(view) => (
             view,
             Some(serde_json::to_value(view).map_err(json_storage)?),
@@ -2308,15 +2340,9 @@ impl PostgresResearchGoalOwnerV1 {
         Option<crate::NativeReplayExecutionInputBindingReadbackV1>,
         crate::NativeReplayExecutionInputBindingErrorV1,
     > {
-        let mut transaction = self
-            .pool
-            .begin()
-            .await
-            .map_err(crate::NativeReplayExecutionInputBindingErrorV1::Storage)?;
-        sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
-            .execute(&mut *transaction)
-            .await
-            .map_err(crate::NativeReplayExecutionInputBindingErrorV1::Storage)?;
+        // The same level issuance runs at, for the same reason: the native source boundary answers
+        // nothing under REPEATABLE READ, so a binding resolved there could never be read back.
+        let mut transaction = self.begin_native_replay_issuance_transaction_v1().await?;
         let result = crate::native_replay_execution_input_binding_v1::resolve_native_replay_execution_input_binding_for_request_v1_in_transaction(
             &mut transaction,
             locator,
@@ -2364,7 +2390,7 @@ impl PostgresResearchGoalOwnerV1 {
         Ok(readback)
     }
 
-    /// Opens the transaction one execution-input binding is issued in.
+    /// Opens the transaction one execution-input binding is issued or resolved in.
     ///
     /// It is READ COMMITTED because that is the one level every Owner read on the way answers
     /// under. The R&D storage functions behind the native source boundary answer only under READ
@@ -4562,7 +4588,9 @@ pub(crate) mod tests {
 
     use rstest::rstest;
     use vibe_data::owner::{
-        shared_time_evidence::UntrustedClockHeadLocator, source_binding::BindingDigest,
+        pit_market_snapshot_intake_v1::MarketDataDecisionCutV1,
+        shared_time_evidence::{EpochNanosV1, NanosV1, UntrustedClockHeadLocator},
+        source_binding::BindingDigest,
     };
 
     use super::*;
@@ -6399,7 +6427,10 @@ pub(crate) mod tests {
                 UntrustedBarJoinedCutAcceptanceDesignClaimsV1,
                 register_bar_joined_cut_declarations_for_published_design_v1,
             },
-            chain_market_base_v1::chain_market_base_snapshot_v1,
+            chain_market_base_v1::{
+                CHAIN_MARKET_DATA_ACCEPTANCE_BASIS_V1, chain_market_base_snapshot_v1,
+                ensure_market_data_acceptance_basis_v1,
+            },
         };
 
         use crate::{
@@ -6432,6 +6463,14 @@ pub(crate) mod tests {
             &test_database,
         )
         .await;
+        // The Market Data acceptance basis whose PIT snapshot and corpus the six BAR bindings are
+        // issued against.
+        ensure_market_data_acceptance_basis_v1(
+            test_database.database_url(CanonicalOwnerTestRoleV1::MarketDataOwner),
+            CHAIN_MARKET_DATA_ACCEPTANCE_BASIS_V1,
+        )
+        .await
+        .expect("the chain's Market Data acceptance basis is written or rejoined");
         let _mutation = test_database.mutation();
         let operator_authorization_database_url = test_database
             .database_url(CanonicalOwnerTestRoleV1::OperatorAuthorizationWriter)
@@ -6535,7 +6574,7 @@ pub(crate) mod tests {
         // Nothing has attested this Design, and nothing can: the Composer operation that would
         // attest it runs over a program whose identity folds in the binding receipts the
         // registration below issues. So R&D publishes what it knows about the Design, and Market
-        // Data binds it to the acceptance corpus this store already carries.
+        // Data binds it to the acceptance corpus of the basis this entry ensured.
         let published = composition_root
             .publish_design_role_intent(&request_identity, &design)
             .await
@@ -6684,9 +6723,30 @@ pub(crate) mod tests {
         )
         .await
         .expect("the production Composer opens against its two R&D roles");
+        let ran_under: crate::product_edge::ResearchViewV1 = serde_json::from_value(
+            sqlx::query_scalar(
+                "SELECT view_json FROM rd_research_request_receipts_v1 WHERE request_identity = $1",
+            )
+            .bind(&request_identity)
+            .fetch_one(&owner.pool)
+            .await
+            .unwrap(),
+        )
+        .unwrap();
+        let owner_clock = || async {
+            let mut transaction = owner.pool.begin().await.unwrap();
+            let reading =
+                crate::rd_owner_clock::owner_clock_epoch_ms_in_transaction(&mut transaction)
+                    .await
+                    .unwrap();
+            transaction.rollback().await.unwrap();
+            reading
+        };
+        let before_run = owner_clock().await;
         let response = Box::pin(composer.run_bounded_feature_program(&request_identity))
             .await
             .expect("the R&D transaction completes");
+        let after_run = owner_clock().await;
 
         assert_eq!(
             response.disposition,
@@ -6761,6 +6821,222 @@ pub(crate) mod tests {
                 .is_err(),
             "a locator naming a different canonical plan resolves nothing"
         );
+
+        Box::pin(composer_run_reads_back_at_the_view_it_ran_under(
+            &owner,
+            &rd_database_url,
+            &request_identity,
+            &response,
+            &ran_under,
+            (before_run, after_run),
+        ))
+        .await;
+    }
+
+    /// The committed run records the View it ran under and the cut it ran at, and its readback
+    /// re-derives it there after that View has expired and after it has moved on.
+    ///
+    /// Two-sided throughout: a run read the way it was read before the record existed - against the
+    /// current View - answers `research_custody.run_view_unrecorded` in both cases, and the recorded
+    /// run answers the committed response in both. The stored View is moved and put back inside
+    /// this entry, so no later entry reads a changed request.
+    #[cfg(feature = "sealed-strategy-input-acceptance")]
+    async fn composer_run_reads_back_at_the_view_it_ran_under(
+        owner: &PostgresResearchGoalOwnerV1,
+        rd_database_url: &str,
+        research_request_identity: &str,
+        response: &crate::develop_composer_operation_v2::DevelopComposerOperationResponseV2,
+        ran_under: &crate::product_edge::ResearchViewV1,
+        (before_run, after_run): (u64, u64),
+    ) {
+        use crate::{
+            develop_composer_operation_v2::{
+                DevelopComposerDurableEvidenceLocatorV2, DevelopComposerReadbackOwnerPortV2,
+            },
+            develop_composer_postgres_v2::{
+                DevelopComposerRunViewRecordV1, PostgresDevelopComposerReadStoreV2,
+                load_run_view_in_transaction,
+            },
+            develop_composer_v2::ResearchRunViewV1,
+            rd_owner_clock::RdOwnerClockV1,
+            source_research_composer_postgres_v2::{
+                PostgresDevelopComposerReadbackOwnerV2,
+                PostgresSourceResearchComposerBindingOwnerV2,
+                RUN_VIEW_CUT_OUTSIDE_VIEW_COORDINATE_V1, RUN_VIEW_NOT_ANCESTOR_COORDINATE_V1,
+                RUN_VIEW_NOT_SEALED_COORDINATE_V1, RUN_VIEW_UNRECORDED_COORDINATE_V1,
+                resolve_committed_record_for_readback,
+            },
+        };
+
+        let operation = response.request_identity.as_str();
+
+        // The writer recorded the View the run was verified under - the request's IntentFrozen
+        // View, byte for byte - and a cut the run's own transaction took, between the two clock
+        // readings around it.
+        let mut transaction = owner.pool.begin().await.unwrap();
+        let recorded = load_run_view_in_transaction(&mut transaction, operation)
+            .await
+            .expect("the committed operation's run View reads back");
+        transaction.rollback().await.unwrap();
+        let DevelopComposerRunViewRecordV1::Recorded(run_view) = recorded else {
+            panic!("a run committed by the production Composer records its View: {recorded:?}");
+        };
+        assert_eq!(&run_view.view, ran_under);
+        assert!(
+            (before_run..=after_run).contains(&run_view.read_cut_epoch_ms),
+            "the recorded cut {} is the run's own, inside [{before_run}, {after_run}]",
+            run_view.read_cut_epoch_ms
+        );
+
+        let expired = ran_under.valid_through_epoch_ms.saturating_add(60_000);
+        let readback_at = |cut: Option<u64>| async move {
+            let readback = PostgresDevelopComposerReadbackOwnerV2::connect(rd_database_url)
+                .await
+                .expect("the Composer readback adapter opens as rd_owner");
+            let readback = match cut {
+                Some(cut) => readback.with_clock(RdOwnerClockV1::fixed(move || cut)),
+                None => readback,
+            };
+            readback
+                .read_develop_composer(operation)
+                .await
+                .expect("the readback transaction completes")
+        };
+        let read_store = PostgresDevelopComposerReadStoreV2::connect(rd_database_url)
+            .await
+            .unwrap();
+        let resolve = |record_view: DevelopComposerRunViewRecordV1, now: u64| {
+            let read_store = &read_store;
+            async move {
+                let mut transaction = read_store.begin_read_transaction().await.unwrap();
+                let record = read_store
+                    .load_record_in_transaction(&mut transaction, operation)
+                    .await
+                    .unwrap()
+                    .expect("the committed operation reads back");
+                let locator = DevelopComposerDurableEvidenceLocatorV2::from_record(&record);
+                let resolved = Box::pin(resolve_committed_record_for_readback(
+                    &PostgresSourceResearchComposerBindingOwnerV2,
+                    &mut transaction,
+                    &record,
+                    &locator,
+                    &record_view,
+                    now,
+                ))
+                .await;
+                transaction.rollback().await.unwrap();
+                resolved
+            }
+        };
+        let coordinate = |resolved: Result<
+            crate::develop_composer_operation_v2::DevelopComposerOperationResponseV2,
+            crate::develop_composer_v2::DevelopComposerTerminalV2,
+        >| resolved.expect_err("the readback refuses").coordinate;
+
+        // Now, inside the View's window: both reads answer.
+        assert_eq!(&readback_at(None).await, response);
+        assert_eq!(
+            resolve(
+                DevelopComposerRunViewRecordV1::Unrecorded,
+                run_view.read_cut_epoch_ms
+            )
+            .await
+            .expect("an unrecorded run still reads against a current View"),
+            *response
+        );
+
+        // After the View's window: the current-View read has nothing to stand on, the recorded
+        // View still does.
+        assert_eq!(&readback_at(Some(expired)).await, response);
+        assert_eq!(
+            coordinate(resolve(DevelopComposerRunViewRecordV1::Unrecorded, expired).await),
+            RUN_VIEW_UNRECORDED_COORDINATE_V1
+        );
+
+        // A recorded View is a claim, checked like any other: its cut must lie in its window, and
+        // the stored View must descend from it.
+        let recorded_with = |view: crate::product_edge::ResearchViewV1, cut: u64| {
+            DevelopComposerRunViewRecordV1::Recorded(Box::new(ResearchRunViewV1 {
+                view,
+                read_cut_epoch_ms: cut,
+            }))
+        };
+        assert_eq!(
+            coordinate(
+                resolve(
+                    recorded_with(ran_under.clone(), ran_under.valid_through_epoch_ms),
+                    expired
+                )
+                .await
+            ),
+            RUN_VIEW_CUT_OUTSIDE_VIEW_COORDINATE_V1
+        );
+        let mut other_principal = ran_under.clone();
+        other_principal.trusted_principal.push('0');
+        assert_eq!(
+            coordinate(
+                resolve(
+                    recorded_with(other_principal.clone(), run_view.read_cut_epoch_ms),
+                    expired
+                )
+                .await
+            ),
+            RUN_VIEW_NOT_ANCESTOR_COORDINATE_V1
+        );
+
+        // Moved on: the Composer-backed Replay commit's View. The recorded run still reads back;
+        // the current-View read now refuses for the View it cannot verify against.
+        let moved = native_composer_research_view(ran_under);
+        let store = |view: &crate::product_edge::ResearchViewV1| {
+            sqlx::query(
+                "UPDATE rd_research_request_receipts_v1 SET view_json = $1 WHERE request_identity = $2",
+            )
+            .bind(serde_json::to_value(view).unwrap())
+            .bind(research_request_identity.to_owned())
+        };
+        assert_eq!(
+            store(&moved)
+                .execute(&owner.pool)
+                .await
+                .unwrap()
+                .rows_affected(),
+            1
+        );
+        let now = moved.projection_at_epoch_ms.saturating_add(1);
+        assert_eq!(&readback_at(Some(now)).await, response);
+        assert_eq!(
+            coordinate(resolve(DevelopComposerRunViewRecordV1::Unrecorded, now).await),
+            RUN_VIEW_UNRECORDED_COORDINATE_V1
+        );
+        // Past IntentFrozen the descendant check no longer pins the View byte for byte, so the
+        // artifact evidence is what refuses a View it was not sealed for, and the operation
+        // receipt what refuses a View whose custody digest differs.
+        let mut other_window = ran_under.clone();
+        other_window.valid_through_epoch_ms = other_window.valid_through_epoch_ms.saturating_add(1);
+        assert_eq!(
+            coordinate(resolve(recorded_with(other_window, run_view.read_cut_epoch_ms), now).await),
+            RUN_VIEW_NOT_SEALED_COORDINATE_V1
+        );
+        assert_eq!(
+            coordinate(
+                resolve(
+                    recorded_with(other_principal, run_view.read_cut_epoch_ms),
+                    now
+                )
+                .await
+            ),
+            RUN_VIEW_NOT_ANCESTOR_COORDINATE_V1
+        );
+        assert_eq!(
+            store(ran_under)
+                .execute(&owner.pool)
+                .await
+                .unwrap()
+                .rows_affected(),
+            1,
+            "the request's View is put back"
+        );
+        assert_eq!(&readback_at(None).await, response);
     }
 
     fn expected_digest_text(digest: BindingDigest) -> String {
@@ -7208,17 +7484,16 @@ pub(crate) mod tests {
         }
     }
 
-    fn market_data_cut() -> vibe_data::owner::pit_market_snapshot_intake_v1::MarketDataDecisionCutV1
-    {
-        vibe_data::owner::pit_market_snapshot_intake_v1::MarketDataDecisionCutV1 {
+    fn market_data_cut() -> MarketDataDecisionCutV1 {
+        MarketDataDecisionCutV1 {
             clock_identity: "market-data-clock-test".to_string(),
             clock_epoch: "epoch-1".to_string(),
-            decision_cut: 1_000,
+            decision_cut: EpochNanosV1::from_epoch_nanos(1_000),
             monotonic_sequence: 7,
             restart_continuity_digest: BindingDigest::from_untrusted_bytes([3; 32]),
-            valid_through: 2_000,
-            uncertainty_bound: 1,
-            skew_bound: 1,
+            valid_through: EpochNanosV1::from_epoch_nanos(2_000),
+            uncertainty_bound: NanosV1::from_nanos(1),
+            skew_bound: NanosV1::from_nanos(1),
         }
     }
 
@@ -8041,20 +8316,45 @@ pub(crate) mod tests {
         .await
         .unwrap();
         let scope = ResearchInstrumentScopeV1::from_wire(scope_wire(&[&unknown])).unwrap();
+        // The precondition, ensured rather than inherited: Market Data answers only once it holds a
+        // clock head and an eligible frontier, which the chain's acceptance basis commits and
+        // admits. Without them the request would stay unresolved.
+        #[cfg(feature = "sealed-strategy-input-acceptance")]
+        {
+            use vibe_data::owner::chain_market_base_v1::{
+                CHAIN_MARKET_DATA_ACCEPTANCE_BASIS_V1, MarketDataAcceptanceBasisPointerV1,
+                ensure_market_data_acceptance_basis_v1,
+            };
 
-        // The precondition, named: Market Data answers only once it holds a clock head, which the
-        // replay composition entry commits. Without it the request would stay unresolved.
-        let answer = {
-            let mut transaction = owner.pool.begin().await.unwrap();
-            let answer = vibe_data::owner::check_research_instrument_scope_v1(
-                &mut transaction,
-                &scope,
+            let market_data_database_url =
+                test_database.database_url(CanonicalOwnerTestRoleV1::MarketDataOwner);
+            let basis = ensure_market_data_acceptance_basis_v1(
+                market_data_database_url,
+                CHAIN_MARKET_DATA_ACCEPTANCE_BASIS_V1,
             )
             .await
-            .expect(
-                "Market Data's clock head, which the replay composition entry commits, must \
-                     precede this entry",
-            );
+            .expect("the chain's Market Data acceptance basis is written or rejoined");
+
+            for pointer in [
+                MarketDataAcceptanceBasisPointerV1::ClockHead,
+                MarketDataAcceptanceBasisPointerV1::EligibleFrontier,
+            ] {
+                basis
+                    .require_current_in(market_data_database_url, pointer)
+                    .await
+                    .unwrap_or_else(|e| {
+                        panic!("Market Data's current {pointer:?} is the acceptance basis's: {e}")
+                    });
+            }
+        }
+        let answer = {
+            let mut transaction = owner.pool.begin().await.unwrap();
+            let answer =
+                vibe_data::owner::check_research_instrument_scope_v1(&mut transaction, &scope)
+                    .await
+                    .expect(
+                        "Market Data answers once the acceptance basis's clock head is current",
+                    );
             transaction.rollback().await.unwrap();
             answer
         };
@@ -8064,8 +8364,7 @@ pub(crate) mod tests {
         );
         assert!(
             answer.eligible_instrument_frontier().is_some(),
-            "Market Data's current eligible frontier, which the replay composition entry admits, \
-             must precede this entry"
+            "Market Data holds a current eligible frontier once the acceptance basis is ensured"
         );
 
         let admission =

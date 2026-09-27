@@ -601,6 +601,95 @@ def emit_v3(args):
     print(f"{len(entries)} version 3 vectors " + ("verified" if args.check else "generated"))
 
 
+V4_CASES = {}
+
+
+def build_v4():
+    """
+    Version 4's own vectors: two bar counts and a percent rank over a window of three.
+
+    Bar counts read the window 30, 10, 20: the maximum is the oldest sample, two after
+    it, and the minimum is the middle one, one after it. Both are exact integers and
+    take no rounding. The percent rank reads 10, 20, 20: the latest 20 has one sample
+    below it and two equal to it counting itself, so its midrank is (2*1+2-1)/(2*2) =
+    3/4. At output scale 0 toward zero truncates that to 0 and nearest carries it to 1,
+    so one example separates the two modes. Every expectation is stated here, not
+    computed by the evaluator under test.
+
+    """
+    counts = [(1, 30), (2, 10), (3, 20)]
+    for owner, kind, expected in (
+        ("bfp.rolling.bars-since-max.full-window.latest-tie.v1", 8, 2),
+        ("bfp.rolling.bars-since-min.full-window.latest-tie.v1", 9, 1),
+    ):
+        name = "bfp.golden.primitive." + owner[4:] + ".success.v1"
+        V4_CASES[name] = (
+            owner,
+            0,
+            READY,
+            window(kind, counts[:-1]),
+            state_input(3, [fixed(20)], 3),
+            state_output(expected),
+            window(kind, counts),
+        )
+    ranks = [(1, 10), (2, 20), (3, 20)]
+    for owner, rounding, expected in (
+        ("bfp.rolling.percent-rank.full-window.midrank.toward-zero.v1", 1, 0),
+        ("bfp.rolling.percent-rank.full-window.midrank.nearest-ties-to-even.v1", 2, 1),
+    ):
+        name = "bfp.golden.primitive." + owner[4:] + ".success.v1"
+        V4_CASES[name] = (
+            owner,
+            rounding,
+            READY,
+            window(10, ranks[:-1], rounding=rounding),
+            state_input(3, [fixed(20)], 3),
+            state_output(expected),
+            window(10, ranks, rounding=rounding),
+        )
+
+
+def emit_v4(args):
+    """
+    Write version 4's own vectors and its registry, referencing the earlier files
+    unchanged.
+    """
+    build_v4()
+    artifacts = {}
+    v1_names = sorted(CASES)
+    v2_names = sorted(V2_CASES)
+    v3_names = sorted(V3_CASES)
+    v4_names = sorted(V4_CASES)
+    entries = []
+    for name in sorted(set(v1_names) | set(V2_CASES) | set(V3_CASES) | set(V4_CASES)):
+        if name in V4_CASES:
+            filename = f"{v4_names.index(name):02}.bfgv"
+            artifacts[ROOT / "src/goldens_v4" / filename] = vector_bytes(name, V4_CASES[name])
+            entries.append(f'    include_bytes!("goldens_v4/{filename}"),')
+        elif name in V3_CASES:
+            entries.append(f'    include_bytes!("goldens_v3/{v3_names.index(name):02}.bfgv"),')
+        elif name in V2_CASES:
+            entries.append(f'    include_bytes!("goldens_v2/{v2_names.index(name):02}.bfgv"),')
+        else:
+            entries.append(f'    include_bytes!("goldens_v1/{v1_names.index(name):02}.bfgv"),')
+    registry = (
+        "//! Literal canonical vectors for catalog version 4, regenerated only by\n"
+        "//! tests/generate_golden_vectors_v1.py. The earlier versions' files are referenced\n"
+        "//! unchanged.\n\n"
+        f"pub(super) const GOLDENS_V4: [&[u8]; {len(entries)}] = [\n"
+        + "\n".join(entries)
+        + "\n];\n"
+    )
+    artifacts[ROOT / "src/golden_corpus_v4.rs"] = registry.encode("ascii")
+    (ROOT / "src/goldens_v4").mkdir(exist_ok=True)
+    for path, contents in artifacts.items():
+        if args.check:
+            assert path.read_bytes() == contents, path
+        else:
+            path.write_bytes(contents)
+    print(f"{len(entries)} version 4 vectors " + ("verified" if args.check else "generated"))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--check", action="store_true")
@@ -631,6 +720,7 @@ def main():
     print("87 canonical vectors verified" if args.check else "87 canonical vectors generated")
     emit_v2(args)
     emit_v3(args)
+    emit_v4(args)
 
 
 if __name__ == "__main__":

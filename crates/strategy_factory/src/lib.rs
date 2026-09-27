@@ -131,6 +131,8 @@ pub use successor_intent_postgres::{
     SuccessorResearchIntentPostgresErrorV1, SuccessorResearchIntentResolutionLocatorV1,
 };
 mod legacy_prepared_attempt_drain;
+#[cfg(test)]
+mod lowered_guest_build_for_test;
 mod native_replay_execution_binding_consumer_v1;
 pub mod native_replay_execution_bundle_owner_v2;
 #[allow(
@@ -223,8 +225,11 @@ pub use native_replay_rd_sources_v2::{
     NativeReplayRdSourcesV2,
 };
 pub use rd_owner_postgres_custody::{
-    BacktestResultCustodyErrorV2, ExploratoryReplayResultLocatorV2,
-    LockedExploratoryReplayResultV2, resolve_exploratory_replay_result_for_rd_in_transaction,
+    BacktestReadbackRefusalV1, BacktestResultCustodyErrorV2,
+    ExploratoryReplayResultDirectoryEntryV1, ExploratoryReplayResultLocatorV2,
+    LockedExploratoryReplayResultV2,
+    read_exploratory_replay_result_directory_for_rd_in_transaction,
+    resolve_exploratory_replay_result_for_rd_in_transaction,
     resolve_native_replay_rd_sources_v2_in_transaction,
 };
 pub mod receipt;

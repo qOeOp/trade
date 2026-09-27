@@ -7,7 +7,10 @@ use std::fmt::Debug;
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use sqlx::{AssertSqlSafe, Connection, Row, postgres::PgConnectOptions};
+use sqlx::{
+    Connection, Row,
+    postgres::{PgConnectOptions, PgConnection},
+};
 use thiserror::Error;
 use url::Url;
 use vibe_postgres_connect::{PostgresTls, StatedConnectOptions, connect_with, with_tls};
@@ -62,6 +65,9 @@ pub(super) struct MeasurementFloor {
 pub(super) const SAMPLE_PROJECTION_FLOOR_V2: MeasurementFloor = MeasurementFloor {
     name: "sample_projection_v2",
     functions: &[
+        "market_data_admitted_read.resolve_sample_receipt_v1(bytea)",
+        "market_data_admitted_read.resolve_strategy_input_sample_projection_v2(bytea)",
+        "market_data_admitted_read.resolve_timeframe_projection_receipt_v1(bytea)",
         "market_data_private.resolve_strategy_input_sample_projection_v2(bytea)",
         "market_data_private.resolve_timeframe_projection_receipt_v1(bytea)",
         "market_data_private.resolve_sample_receipt_v1(bytea)",
@@ -79,6 +85,12 @@ pub(super) const SAMPLE_PROJECTION_FLOOR_V2: MeasurementFloor = MeasurementFloor
 pub(super) const SAMPLE_PROJECTION_FLOOR_V3: MeasurementFloor = MeasurementFloor {
     name: "sample_projection_v3",
     functions: &[
+        "market_data_admitted_read.resolve_bar_schedule_history_v1(text)",
+        "market_data_admitted_read.resolve_bar_schedule_v1(bytea)",
+        "market_data_admitted_read.resolve_sample_receipt_v1(bytea)",
+        "market_data_admitted_read.resolve_strategy_input_sample_projection_schedule_dependencies_v3(bytea)",
+        "market_data_admitted_read.resolve_strategy_input_sample_projection_v3(bytea)",
+        "market_data_admitted_read.resolve_timeframe_projection_receipt_v1(bytea)",
         "market_data_private.resolve_strategy_input_sample_projection_v3(bytea)",
         "market_data_private.resolve_strategy_input_sample_projection_schedule_dependencies_v3(bytea)",
         "market_data_private.resolve_timeframe_projection_receipt_v1(bytea)",
@@ -106,6 +118,9 @@ pub(super) const SAMPLE_PROJECTION_FLOOR_V3: MeasurementFloor = MeasurementFloor
 pub(super) const BAR_SCHEDULE_FLOOR_V1: MeasurementFloor = MeasurementFloor {
     name: "bar_schedule_v1",
     functions: &[
+        "market_data_admitted_read.resolve_bar_schedule_candidates_v1(text)",
+        "market_data_admitted_read.resolve_bar_schedule_history_v1(text)",
+        "market_data_admitted_read.resolve_bar_schedule_v1(bytea)",
         "market_data_private.resolve_bar_schedule_v1(bytea)",
         "market_data_private.resolve_bar_schedule_candidates_v1(text)",
         "market_data_private.resolve_bar_schedule_history_v1(text)",
@@ -125,6 +140,8 @@ pub(super) const BAR_SCHEDULE_FLOOR_V1: MeasurementFloor = MeasurementFloor {
 pub(super) const NATIVE_REPLAY_QUOTE_CUT_FLOOR_V2: MeasurementFloor = MeasurementFloor {
     name: "native_replay_quote_cut_v2",
     functions: &[
+        "market_data_admitted_read.resolve_native_replay_next_frame_v2(bytea,bigint,bigint)",
+        "market_data_admitted_read.resolve_native_replay_quote_cut_census_v2(bytea,bigint,bigint)",
         "market_data_private.resolve_native_replay_quote_cut_census_v2(bytea,bigint,bigint)",
         "market_data_private.resolve_native_replay_next_frame_v2(bytea,bigint,bigint)",
     ],
@@ -138,6 +155,11 @@ pub(super) const NATIVE_REPLAY_QUOTE_CUT_FLOOR_V2: MeasurementFloor = Measuremen
 pub(super) const SHARED_TIME_FLOOR_V1: MeasurementFloor = MeasurementFloor {
     name: "shared_time_v1",
     functions: &[
+        "market_data_admitted_read.resolve_clock_custody_state_v1()",
+        "market_data_admitted_read.resolve_clock_handoff_v1(bytea)",
+        "market_data_admitted_read.resolve_clock_membership_custody_v1()",
+        "market_data_admitted_read.resolve_epoch_successor_proof_v1(bytea)",
+        "market_data_admitted_read.resolve_owner_history_census_custody_v1()",
         "market_data_private.resolve_owner_history_census_custody_v1()",
         "market_data_private.resolve_clock_custody_state_v1()",
         "market_data_private.resolve_clock_membership_custody_v1()",
@@ -167,6 +189,13 @@ pub(super) const SHARED_TIME_FLOOR_V1: MeasurementFloor = MeasurementFloor {
 pub(super) const SOURCE_BINDING_FLOOR_V1: MeasurementFloor = MeasurementFloor {
     name: "source_binding_v1",
     functions: &[
+        "market_data_admitted_read.resolve_clock_custody_state_v1()",
+        "market_data_admitted_read.resolve_clock_handoffs_v1()",
+        "market_data_admitted_read.resolve_owner_history_census_custody_v1()",
+        "market_data_admitted_read.resolve_source_binding_lineage_root_v1(bytea)",
+        "market_data_admitted_read.resolve_source_binding_v1(bytea)",
+        "market_data_admitted_read.resolve_source_lineage_custody_v1(bytea)",
+        "market_data_admitted_read.resolve_source_lineage_members_v1(bytea)",
         "market_data_private.resolve_clock_custody_state_v1()",
         "market_data_private.resolve_owner_history_census_custody_v1()",
         "market_data_private.resolve_source_binding_v1(bytea)",
@@ -196,6 +225,17 @@ pub(super) const SOURCE_BINDING_FLOOR_V1: MeasurementFloor = MeasurementFloor {
 pub(super) const PIT_TERMINAL_FLOOR_V1: MeasurementFloor = MeasurementFloor {
     name: "pit_terminal_v1",
     functions: &[
+        "market_data_admitted_read.resolve_clock_custody_state_v1()",
+        "market_data_admitted_read.resolve_clock_handoffs_v1()",
+        "market_data_admitted_read.resolve_owner_history_census_custody_v1()",
+        "market_data_admitted_read.resolve_pit_lineage_custody_v1(bytea)",
+        "market_data_admitted_read.resolve_pit_lineage_members_v1(bytea)",
+        "market_data_admitted_read.resolve_pit_snapshot_references_v1(bytea)",
+        "market_data_admitted_read.resolve_pit_snapshot_v1(bytea)",
+        "market_data_admitted_read.resolve_source_binding_lineage_root_v1(bytea)",
+        "market_data_admitted_read.resolve_source_binding_v1(bytea)",
+        "market_data_admitted_read.resolve_source_lineage_custody_v1(bytea)",
+        "market_data_admitted_read.resolve_source_lineage_members_v1(bytea)",
         "market_data_private.resolve_clock_custody_state_v1()",
         "market_data_private.resolve_owner_history_census_custody_v1()",
         "market_data_private.resolve_pit_lineage_custody_v1(bytea)",
@@ -229,6 +269,18 @@ pub(super) const PIT_TERMINAL_FLOOR_V1: MeasurementFloor = MeasurementFloor {
 pub(super) const PIT_EVALUATION_FLOOR_V1: MeasurementFloor = MeasurementFloor {
     name: "pit_evaluation_v1",
     functions: &[
+        "market_data_admitted_read.resolve_clock_custody_state_v1()",
+        "market_data_admitted_read.resolve_clock_handoffs_v1()",
+        "market_data_admitted_read.resolve_owner_history_census_custody_v1()",
+        "market_data_admitted_read.resolve_pit_lineage_custody_v1(bytea)",
+        "market_data_admitted_read.resolve_pit_lineage_members_v1(bytea)",
+        "market_data_admitted_read.resolve_pit_observation_batch_v1(bytea)",
+        "market_data_admitted_read.resolve_pit_observation_rows_v1(bytea)",
+        "market_data_admitted_read.resolve_pit_snapshot_references_v1(bytea)",
+        "market_data_admitted_read.resolve_pit_snapshot_v1(bytea)",
+        "market_data_admitted_read.resolve_source_binding_v1(bytea)",
+        "market_data_admitted_read.resolve_source_lineage_custody_v1(bytea)",
+        "market_data_admitted_read.resolve_source_lineage_members_v1(bytea)",
         "market_data_private.resolve_clock_custody_state_v1()",
         "market_data_private.resolve_owner_history_census_custody_v1()",
         "market_data_private.resolve_pit_lineage_custody_v1(bytea)",
@@ -274,6 +326,13 @@ pub(super) const MEASUREMENT_FLOORS: &[MeasurementFloor] = &[
     PIT_EVALUATION_FLOOR_V1,
 ];
 
+/// The schema every admitted read reaches the Owner through, and so the one a measurement names.
+pub(super) const ADMITTED_READ_SCHEMA: &str = "market_data_admitted_read";
+
+/// The Owner's migration ledger, the one relation a measurement reads rows of, through
+/// `market_data_admitted_read.resolve_owner_migrations_v1()`.
+pub(super) const OWNER_MIGRATION_RELATION: &str = "market_data_private.owner_migrations_v1";
+
 /// Exact catalog surfaces directly measured through the credential lease.
 ///
 /// A signed manifest carries one; reading it back goes through [`Self::new`], so stored bytes can
@@ -312,7 +371,8 @@ impl TryFrom<PostgresMeasurementSpecFields> for PostgresMeasurementSpec {
 impl PostgresMeasurementSpec {
     /// Creates a bounded direct-measurement specification.
     ///
-    /// Names are resolved by PostgreSQL catalog functions and are never interpolated into SQL.
+    /// Names are matched against the catalog as bound values, never interpolated into SQL, and never
+    /// resolved through a lookup that needs `USAGE` on their schema.
     ///
     /// # Errors
     ///
@@ -345,8 +405,8 @@ impl PostgresMeasurementSpec {
                 .function_signatures
                 .iter()
                 .any(|signature| !canonical_function_signature(signature))
-            || !canonical_identifier(&spec.schema_name)
-            || quoted_qualified_name(&spec.migration_relation).is_none()
+            || spec.schema_name != ADMITTED_READ_SCHEMA
+            || spec.migration_relation != OWNER_MIGRATION_RELATION
             || spec
                 .acl_relations
                 .iter()
@@ -472,7 +532,7 @@ pub(crate) async fn read_market_data_source_binding_snapshot(
         .await
         .map_err(|_| PostgresMeasurementError::TransactionUnavailable)?;
     let custody: bool = sqlx::query_scalar(
-            "SELECT market_data_private.resolve_owner_history_census_custody_v1() AND market_data_private.resolve_source_lineage_custody_v1((SELECT lineage_root FROM market_data_private.source_binding_facts_v1 WHERE binding_id=$1)) AND EXISTS(SELECT 1 FROM market_data_private.resolve_clock_custody_state_v1())",
+            "SELECT market_data_admitted_read.resolve_owner_history_census_custody_v1() AND market_data_admitted_read.resolve_source_lineage_custody_v1((SELECT lineage_root FROM market_data_admitted_read.resolve_source_binding_lineage_root_v1($1))) AND EXISTS(SELECT 1 FROM market_data_admitted_read.resolve_clock_custody_state_v1())",
         )
         .bind(binding_identity.as_slice())
         .fetch_one(&mut *transaction)
@@ -482,7 +542,7 @@ pub(crate) async fn read_market_data_source_binding_snapshot(
         return Err(PostgresMeasurementError::SnapshotUnavailable);
     }
     let member_identities: Vec<Vec<u8>> = sqlx::query_scalar(
-            "SELECT member_identity FROM market_data_private.resolve_source_lineage_members_v1((SELECT lineage_root FROM market_data_private.source_binding_facts_v1 WHERE binding_id=$1))",
+            "SELECT member_identity FROM market_data_admitted_read.resolve_source_lineage_members_v1((SELECT lineage_root FROM market_data_admitted_read.resolve_source_binding_lineage_root_v1($1)))",
         )
         .bind(binding_identity.as_slice())
         .fetch_all(&mut *transaction)
@@ -494,7 +554,7 @@ pub(crate) async fn read_market_data_source_binding_snapshot(
     let mut lineage = Vec::with_capacity(member_identities.len());
     for identity in member_identities {
         let evidence: serde_json::Value = sqlx::query_scalar(
-            "SELECT to_jsonb(e) FROM market_data_private.resolve_source_binding_v1($1) AS e",
+            "SELECT to_jsonb(e) FROM market_data_admitted_read.resolve_source_binding_v1($1) AS e",
         )
         .bind(identity)
         .fetch_one(&mut *transaction)
@@ -506,7 +566,7 @@ pub(crate) async fn read_market_data_source_binding_snapshot(
         );
     }
     let clocks: Vec<serde_json::Value> = sqlx::query_scalar(
-            "SELECT to_jsonb(h) FROM market_data_private.clock_handoffs_v1 AS h ORDER BY h.head_identity LIMIT 10001",
+            "SELECT handoff FROM market_data_admitted_read.resolve_clock_handoffs_v1() ORDER BY head_identity",
         )
         .fetch_all(&mut *transaction)
         .await
@@ -563,7 +623,7 @@ pub(crate) async fn read_shared_time_evidence_snapshot_v1(
         .await
         .map_err(|_| PostgresMeasurementError::TransactionUnavailable)?;
     let custody: bool = sqlx::query_scalar(
-        "SELECT market_data_private.resolve_owner_history_census_custody_v1() AND EXISTS(SELECT 1 FROM market_data_private.resolve_clock_custody_state_v1())",
+        "SELECT market_data_admitted_read.resolve_owner_history_census_custody_v1() AND EXISTS(SELECT 1 FROM market_data_admitted_read.resolve_clock_custody_state_v1())",
     )
     .fetch_one(&mut *transaction)
     .await
@@ -572,7 +632,7 @@ pub(crate) async fn read_shared_time_evidence_snapshot_v1(
         return Err(PostgresMeasurementError::SnapshotUnavailable);
     }
     let rows = sqlx::query(
-        "SELECT to_jsonb(m) AS membership_row,to_jsonb(h) AS handoff_row,to_jsonb(p) AS epoch_proof_row FROM market_data_private.resolve_clock_membership_custody_v1() AS m LEFT JOIN LATERAL market_data_private.resolve_clock_handoff_v1(m.head_identity) AS h ON m.head_identity IS NOT NULL LEFT JOIN LATERAL market_data_private.resolve_epoch_successor_proof_v1(h.head_digest) AS p ON h.head_digest IS NOT NULL ORDER BY m.ordinal NULLS FIRST LIMIT 10001",
+        "SELECT to_jsonb(m) AS membership_row,to_jsonb(h) AS handoff_row,to_jsonb(p) AS epoch_proof_row FROM market_data_admitted_read.resolve_clock_membership_custody_v1() AS m LEFT JOIN LATERAL market_data_admitted_read.resolve_clock_handoff_v1(m.head_identity) AS h ON m.head_identity IS NOT NULL LEFT JOIN LATERAL market_data_admitted_read.resolve_epoch_successor_proof_v1(h.head_digest) AS p ON h.head_digest IS NOT NULL ORDER BY m.ordinal NULLS FIRST LIMIT 10001",
     )
     .fetch_all(&mut *transaction)
     .await
@@ -662,7 +722,7 @@ pub(crate) async fn read_strategy_input_sample_projection_snapshot_v2(
         .map_err(|_| PostgresMeasurementError::TransactionUnavailable)?;
 
     let row = sqlx::query(
-        "SELECT p.*,to_jsonb(p) AS evidence FROM market_data_private.resolve_strategy_input_sample_projection_v2($1) AS p",
+        "SELECT p.*,to_jsonb(p) AS evidence FROM market_data_admitted_read.resolve_strategy_input_sample_projection_v2($1) AS p",
     )
     .bind(receipt_digest.as_slice())
     .fetch_optional(&mut *transaction)
@@ -705,7 +765,7 @@ pub(crate) async fn read_strategy_input_sample_projection_snapshot_v2(
         let sample_receipt_digest = &receipt_bytes
             [entry + SAMPLE_RECEIPT_DIGEST_OFFSET..entry + SAMPLE_RECEIPT_DIGEST_OFFSET + 32];
         let timeframe: serde_json::Value = sqlx::query_scalar(
-            "SELECT to_jsonb(t) FROM market_data_private.resolve_timeframe_projection_receipt_v1($1) AS t",
+            "SELECT to_jsonb(t) FROM market_data_admitted_read.resolve_timeframe_projection_receipt_v1($1) AS t",
         )
         .bind(timeframe_digest)
         .fetch_optional(&mut *transaction)
@@ -713,7 +773,7 @@ pub(crate) async fn read_strategy_input_sample_projection_snapshot_v2(
         .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?
         .ok_or(PostgresMeasurementError::SnapshotUnavailable)?;
         let sample: serde_json::Value = sqlx::query_scalar(
-            "SELECT to_jsonb(s) FROM market_data_private.resolve_sample_receipt_v1($1) AS s",
+            "SELECT to_jsonb(s) FROM market_data_admitted_read.resolve_sample_receipt_v1($1) AS s",
         )
         .bind(sample_receipt_digest)
         .fetch_optional(&mut *transaction)
@@ -778,7 +838,7 @@ pub(crate) async fn read_strategy_input_sample_projection_snapshot_v3(
         .map_err(|_| PostgresMeasurementError::TransactionUnavailable)?;
 
     let row = sqlx::query(
-        "SELECT p.*,to_jsonb(p) AS evidence FROM market_data_private.resolve_strategy_input_sample_projection_v3($1) AS p",
+        "SELECT p.*,to_jsonb(p) AS evidence FROM market_data_admitted_read.resolve_strategy_input_sample_projection_v3($1) AS p",
     )
     .bind(receipt_digest.as_slice())
     .fetch_optional(&mut *transaction)
@@ -811,7 +871,7 @@ pub(crate) async fn read_strategy_input_sample_projection_snapshot_v3(
         return Err(PostgresMeasurementError::SnapshotUnavailable);
     }
     let dependencies = sqlx::query_scalar::<_, serde_json::Value>(
-        "SELECT to_jsonb(d) FROM market_data_private.resolve_strategy_input_sample_projection_schedule_dependencies_v3($1) AS d",
+        "SELECT to_jsonb(d) FROM market_data_admitted_read.resolve_strategy_input_sample_projection_schedule_dependencies_v3($1) AS d",
     )
     .bind(receipt_digest.as_slice())
     .fetch_all(&mut *transaction)
@@ -849,7 +909,7 @@ pub(crate) async fn read_strategy_input_sample_projection_snapshot_v3(
         let sample_receipt_digest = &receipt_bytes
             [entry + SAMPLE_RECEIPT_DIGEST_OFFSET..entry + SAMPLE_RECEIPT_DIGEST_OFFSET + 32];
         let timeframe = sqlx::query_scalar::<_, serde_json::Value>(
-            "SELECT to_jsonb(t) FROM market_data_private.resolve_timeframe_projection_receipt_v1($1) AS t",
+            "SELECT to_jsonb(t) FROM market_data_admitted_read.resolve_timeframe_projection_receipt_v1($1) AS t",
         )
         .bind(timeframe_digest)
         .fetch_optional(&mut *transaction)
@@ -857,7 +917,7 @@ pub(crate) async fn read_strategy_input_sample_projection_snapshot_v3(
         .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?
         .ok_or(PostgresMeasurementError::SnapshotUnavailable)?;
         let sample = sqlx::query_scalar::<_, serde_json::Value>(
-            "SELECT to_jsonb(s) FROM market_data_private.resolve_sample_receipt_v1($1) AS s",
+            "SELECT to_jsonb(s) FROM market_data_admitted_read.resolve_sample_receipt_v1($1) AS s",
         )
         .bind(sample_receipt_digest)
         .fetch_optional(&mut *transaction)
@@ -865,7 +925,7 @@ pub(crate) async fn read_strategy_input_sample_projection_snapshot_v3(
         .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?
         .ok_or(PostgresMeasurementError::SnapshotUnavailable)?;
         let schedule = sqlx::query_scalar::<_, serde_json::Value>(
-            "SELECT to_jsonb(r) FROM market_data_private.resolve_bar_schedule_v1($1) AS r",
+            "SELECT to_jsonb(r) FROM market_data_admitted_read.resolve_bar_schedule_v1($1) AS r",
         )
         .bind(schedule_identity.as_slice())
         .fetch_optional(&mut *transaction)
@@ -874,7 +934,7 @@ pub(crate) async fn read_strategy_input_sample_projection_snapshot_v3(
         .ok_or(PostgresMeasurementError::SnapshotUnavailable)?;
         let canonical_instrument = raw_bar_schedule_canonical_instrument(&schedule)?;
         let history = sqlx::query_scalar::<_, serde_json::Value>(
-            "SELECT to_jsonb(h) FROM market_data_private.resolve_bar_schedule_history_v1($1) AS h",
+            "SELECT to_jsonb(h) FROM market_data_admitted_read.resolve_bar_schedule_history_v1($1) AS h",
         )
         .bind(canonical_instrument)
         .fetch_all(&mut *transaction)
@@ -991,7 +1051,7 @@ pub(super) async fn read_bar_schedule_snapshot_v1(
         .map_err(|_| PostgresMeasurementError::TransactionUnavailable)?;
 
     let Some(readback_json) = sqlx::query_scalar::<_, serde_json::Value>(
-        "SELECT to_jsonb(r) FROM market_data_private.resolve_bar_schedule_v1($1) AS r",
+        "SELECT to_jsonb(r) FROM market_data_admitted_read.resolve_bar_schedule_v1($1) AS r",
     )
     .bind(readback_identity.as_slice())
     .fetch_optional(&mut *transaction)
@@ -1011,7 +1071,7 @@ pub(super) async fn read_bar_schedule_snapshot_v1(
         return Err(PostgresMeasurementError::SnapshotUnavailable);
     }
     let history_json = sqlx::query_scalar::<_, serde_json::Value>(
-        "SELECT to_jsonb(h) FROM market_data_private.resolve_bar_schedule_history_v1($1) AS h",
+        "SELECT to_jsonb(h) FROM market_data_admitted_read.resolve_bar_schedule_history_v1($1) AS h",
     )
     .bind(canonical_instrument)
     .fetch_all(&mut *transaction)
@@ -1072,14 +1132,14 @@ pub(super) async fn read_bar_schedule_candidate_snapshots_v1(
         .await
         .map_err(|_| PostgresMeasurementError::TransactionUnavailable)?;
     let candidates = sqlx::query_scalar::<_, serde_json::Value>(
-        "SELECT to_jsonb(r) FROM market_data_private.resolve_bar_schedule_candidates_v1($1) AS r",
+        "SELECT to_jsonb(r) FROM market_data_admitted_read.resolve_bar_schedule_candidates_v1($1) AS r",
     )
     .bind(canonical_instrument)
     .fetch_all(&mut *transaction)
     .await
     .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
     let history = sqlx::query_scalar::<_, serde_json::Value>(
-        "SELECT to_jsonb(h) FROM market_data_private.resolve_bar_schedule_history_v1($1) AS h",
+        "SELECT to_jsonb(h) FROM market_data_admitted_read.resolve_bar_schedule_history_v1($1) AS h",
     )
     .bind(canonical_instrument)
     .fetch_all(&mut *transaction)
@@ -1178,7 +1238,7 @@ pub(super) async fn read_native_replay_quote_cut_census_snapshot_v2(
         .await
         .map_err(|_| PostgresMeasurementError::TransactionUnavailable)?;
     let next_frame: Option<i64> = sqlx::query_scalar(
-        "SELECT event_effective_ns FROM market_data_private.resolve_native_replay_next_frame_v2($1,$2,$3)",
+        "SELECT event_effective_ns FROM market_data_admitted_read.resolve_native_replay_next_frame_v2($1,$2,$3)",
     )
     .bind(scope_digest.as_slice())
     .bind(frame_time)
@@ -1198,7 +1258,7 @@ pub(super) async fn read_native_replay_quote_cut_census_snapshot_v2(
     let bound = i64::try_from(bound_ns_exclusive)
         .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
     let rows = sqlx::query_scalar::<_, serde_json::Value>(
-        "SELECT to_jsonb(r) FROM market_data_private.resolve_native_replay_quote_cut_census_v2($1,$2,$3) AS r",
+        "SELECT to_jsonb(r) FROM market_data_admitted_read.resolve_native_replay_quote_cut_census_v2($1,$2,$3) AS r",
     )
     .bind(scope_digest.as_slice())
     .bind(frame_time)
@@ -1285,7 +1345,7 @@ pub(crate) async fn read_market_data_pit_terminal_snapshot(
         .map_err(|_| PostgresMeasurementError::TransactionUnavailable)?;
 
     let raw_source_identity: serde_json::Value = sqlx::query_scalar(
-        "SELECT aggregate_json->'fact'->'source_binding_identity' FROM market_data_private.pit_snapshot_facts_v1 WHERE snapshot_identity=$1",
+        "SELECT source_binding_identity FROM market_data_admitted_read.resolve_pit_snapshot_references_v1($1)",
     )
     .bind(snapshot_identity.as_slice())
     .fetch_one(&mut *transaction)
@@ -1293,14 +1353,14 @@ pub(crate) async fn read_market_data_pit_terminal_snapshot(
     .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
     let source_identity = raw_json_digest(&raw_source_identity)?;
     let source_lineage_root: Vec<u8> = sqlx::query_scalar(
-        "SELECT lineage_root FROM market_data_private.source_binding_facts_v1 WHERE binding_id=$1",
+        "SELECT lineage_root FROM market_data_admitted_read.resolve_source_binding_lineage_root_v1($1)",
     )
     .bind(source_identity.as_slice())
     .fetch_one(&mut *transaction)
     .await
     .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
     let custody: bool = sqlx::query_scalar(
-        "SELECT market_data_private.resolve_owner_history_census_custody_v1() AND market_data_private.resolve_pit_lineage_custody_v1((SELECT lineage_root FROM market_data_private.pit_snapshot_facts_v1 WHERE snapshot_identity=$1)) AND market_data_private.resolve_source_lineage_custody_v1($2) AND EXISTS(SELECT 1 FROM market_data_private.resolve_clock_custody_state_v1())",
+        "SELECT market_data_admitted_read.resolve_owner_history_census_custody_v1() AND market_data_admitted_read.resolve_pit_lineage_custody_v1((SELECT lineage_root FROM market_data_admitted_read.resolve_pit_snapshot_references_v1($1))) AND market_data_admitted_read.resolve_source_lineage_custody_v1($2) AND EXISTS(SELECT 1 FROM market_data_admitted_read.resolve_clock_custody_state_v1())",
     )
     .bind(snapshot_identity.as_slice())
     .bind(&source_lineage_root)
@@ -1312,14 +1372,14 @@ pub(crate) async fn read_market_data_pit_terminal_snapshot(
     }
 
     let pit_member_identities: Vec<Vec<u8>> = sqlx::query_scalar(
-        "SELECT member_identity FROM market_data_private.resolve_pit_lineage_members_v1((SELECT lineage_root FROM market_data_private.pit_snapshot_facts_v1 WHERE snapshot_identity=$1))",
+        "SELECT member_identity FROM market_data_admitted_read.resolve_pit_lineage_members_v1((SELECT lineage_root FROM market_data_admitted_read.resolve_pit_snapshot_references_v1($1)))",
     )
     .bind(snapshot_identity.as_slice())
     .fetch_all(&mut *transaction)
     .await
     .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
     let source_member_identities: Vec<Vec<u8>> = sqlx::query_scalar(
-        "SELECT member_identity FROM market_data_private.resolve_source_lineage_members_v1($1)",
+        "SELECT member_identity FROM market_data_admitted_read.resolve_source_lineage_members_v1($1)",
     )
     .bind(&source_lineage_root)
     .fetch_all(&mut *transaction)
@@ -1337,7 +1397,7 @@ pub(crate) async fn read_market_data_pit_terminal_snapshot(
     let mut pit_lineage_rows = Vec::with_capacity(pit_member_identities.len());
     for identity in pit_member_identities {
         let evidence: serde_json::Value = sqlx::query_scalar(
-            "SELECT to_jsonb(e) FROM market_data_private.resolve_pit_snapshot_v1($1) AS e",
+            "SELECT to_jsonb(e) FROM market_data_admitted_read.resolve_pit_snapshot_v1($1) AS e",
         )
         .bind(identity)
         .fetch_one(&mut *transaction)
@@ -1351,7 +1411,7 @@ pub(crate) async fn read_market_data_pit_terminal_snapshot(
     let mut source_lineage_rows = Vec::with_capacity(source_member_identities.len());
     for identity in source_member_identities {
         let evidence: serde_json::Value = sqlx::query_scalar(
-            "SELECT to_jsonb(e) FROM market_data_private.resolve_source_binding_v1($1) AS e",
+            "SELECT to_jsonb(e) FROM market_data_admitted_read.resolve_source_binding_v1($1) AS e",
         )
         .bind(identity)
         .fetch_one(&mut *transaction)
@@ -1363,7 +1423,7 @@ pub(crate) async fn read_market_data_pit_terminal_snapshot(
         );
     }
     let clocks: Vec<serde_json::Value> = sqlx::query_scalar(
-        "SELECT to_jsonb(h) FROM market_data_private.clock_handoffs_v1 AS h ORDER BY h.head_identity LIMIT 10001",
+        "SELECT handoff FROM market_data_admitted_read.resolve_clock_handoffs_v1() ORDER BY head_identity",
     )
     .fetch_all(&mut *transaction)
     .await
@@ -1428,7 +1488,7 @@ pub(crate) async fn read_market_data_pit_evaluation_snapshot(
         .map_err(|_| PostgresMeasurementError::TransactionUnavailable)?;
 
     let header = sqlx::query(
-        "SELECT source_binding_identity,source_binding_lineage_root,source_binding_lineage_version,batch_digest,batch_bytes,row_count FROM market_data_private.resolve_pit_observation_batch_v1($1)",
+        "SELECT source_binding_identity,source_binding_lineage_root,source_binding_lineage_version,batch_digest,batch_bytes,row_count FROM market_data_admitted_read.resolve_pit_observation_batch_v1($1)",
     )
     .bind(snapshot_identity.as_slice())
     .fetch_one(&mut *transaction)
@@ -1473,7 +1533,7 @@ pub(crate) async fn read_market_data_pit_evaluation_snapshot(
     }
 
     let custody: bool = sqlx::query_scalar(
-        "SELECT market_data_private.resolve_owner_history_census_custody_v1() AND market_data_private.resolve_pit_lineage_custody_v1((SELECT lineage_root FROM market_data_private.pit_snapshot_facts_v1 WHERE snapshot_identity=$1)) AND market_data_private.resolve_source_lineage_custody_v1($2) AND EXISTS(SELECT 1 FROM market_data_private.resolve_clock_custody_state_v1())",
+        "SELECT market_data_admitted_read.resolve_owner_history_census_custody_v1() AND market_data_admitted_read.resolve_pit_lineage_custody_v1((SELECT lineage_root FROM market_data_admitted_read.resolve_pit_snapshot_references_v1($1))) AND market_data_admitted_read.resolve_source_lineage_custody_v1($2) AND EXISTS(SELECT 1 FROM market_data_admitted_read.resolve_clock_custody_state_v1())",
     )
     .bind(snapshot_identity.as_slice())
     .bind(&source_lineage_root)
@@ -1485,14 +1545,14 @@ pub(crate) async fn read_market_data_pit_evaluation_snapshot(
     }
 
     let pit_member_identities: Vec<Vec<u8>> = sqlx::query_scalar(
-        "SELECT member_identity FROM market_data_private.resolve_pit_lineage_members_v1((SELECT lineage_root FROM market_data_private.pit_snapshot_facts_v1 WHERE snapshot_identity=$1))",
+        "SELECT member_identity FROM market_data_admitted_read.resolve_pit_lineage_members_v1((SELECT lineage_root FROM market_data_admitted_read.resolve_pit_snapshot_references_v1($1)))",
     )
     .bind(snapshot_identity.as_slice())
     .fetch_all(&mut *transaction)
     .await
     .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
     let source_member_identities: Vec<Vec<u8>> = sqlx::query_scalar(
-        "SELECT member_identity FROM market_data_private.resolve_source_lineage_members_v1($1)",
+        "SELECT member_identity FROM market_data_admitted_read.resolve_source_lineage_members_v1($1)",
     )
     .bind(&source_lineage_root)
     .fetch_all(&mut *transaction)
@@ -1510,7 +1570,7 @@ pub(crate) async fn read_market_data_pit_evaluation_snapshot(
     let mut pit_lineage_rows = Vec::with_capacity(pit_member_identities.len());
     for identity in pit_member_identities {
         let evidence: serde_json::Value = sqlx::query_scalar(
-            "SELECT to_jsonb(e) FROM market_data_private.resolve_pit_snapshot_v1($1) AS e",
+            "SELECT to_jsonb(e) FROM market_data_admitted_read.resolve_pit_snapshot_v1($1) AS e",
         )
         .bind(identity)
         .fetch_one(&mut *transaction)
@@ -1524,7 +1584,7 @@ pub(crate) async fn read_market_data_pit_evaluation_snapshot(
     let mut source_lineage_rows = Vec::with_capacity(source_member_identities.len());
     for identity in source_member_identities {
         let evidence: serde_json::Value = sqlx::query_scalar(
-            "SELECT to_jsonb(e) FROM market_data_private.resolve_source_binding_v1($1) AS e",
+            "SELECT to_jsonb(e) FROM market_data_admitted_read.resolve_source_binding_v1($1) AS e",
         )
         .bind(identity)
         .fetch_one(&mut *transaction)
@@ -1536,7 +1596,7 @@ pub(crate) async fn read_market_data_pit_evaluation_snapshot(
         );
     }
     let clocks: Vec<serde_json::Value> = sqlx::query_scalar(
-        "SELECT to_jsonb(h) FROM market_data_private.clock_handoffs_v1 AS h ORDER BY h.head_identity LIMIT 10001",
+        "SELECT handoff FROM market_data_admitted_read.resolve_clock_handoffs_v1() ORDER BY head_identity",
     )
     .fetch_all(&mut *transaction)
     .await
@@ -1551,7 +1611,7 @@ pub(crate) async fn read_market_data_pit_evaluation_snapshot(
         })
         .collect::<Result<Vec<_>, _>>()?;
     let native_rows = sqlx::query(
-        "SELECT ordinal,symbolic_key,member_key,row_bytes FROM market_data_private.resolve_pit_observation_rows_v1($1) LIMIT 10001",
+        "SELECT ordinal,symbolic_key,member_key,row_bytes FROM market_data_admitted_read.resolve_pit_observation_rows_v1($1) LIMIT 10001",
     )
     .bind(snapshot_identity.as_slice())
     .fetch_all(&mut *transaction)
@@ -1671,11 +1731,197 @@ pub(super) enum PostgresMeasurementError {
     FunctionIdentityUnavailable,
     #[error("PostgreSQL ACL identity is unavailable")]
     AclIdentityUnavailable,
+    #[error("PostgreSQL privilege census is unavailable")]
+    PrivilegeCensusUnavailable,
+    #[error("PostgreSQL server major is not the one the privilege census names")]
+    PrivilegeCensusServerMajorUnsupported,
     #[error("PostgreSQL catalog target is absent or ambiguous")]
     CatalogTargetMismatch,
     #[error("Market Data Source Binding storage snapshot is unavailable")]
     SnapshotUnavailable,
 }
+
+/// The PostgreSQL major version whose privilege vocabulary [`PRIVILEGE_CENSUS_V1`] names.
+///
+/// Another major can add a privilege (PostgreSQL 17 adds `MAINTAIN` on relations) that the census
+/// would not ask about, so a server of any other major is refused rather than measured short.
+const PRIVILEGE_CENSUS_SERVER_MAJOR: &str = "16";
+
+/// The largest privilege census a measurement accepts.
+const MAX_PRIVILEGE_CENSUS_ROWS: usize = 262_144;
+
+/// Every privilege the session role can exercise, one row per subject, object kind, object and
+/// privilege.
+///
+/// The ACLs of the objects a specification lists cannot show a grant on anything else, so this
+/// measures the role's reach instead of the listed surface:
+/// - the subjects are the session role and every role in its membership closure, whatever the
+///   membership's inherit or set option;
+/// - `has_*_privilege` answers for each, so a grant to the subject, to a role it inherits, or to
+///   `PUBLIC`, and ownership, all count;
+/// - of the databases, only the current one is asked about: a database created or granted
+///   elsewhere on the server is not this store;
+/// - every schema outside `pg_catalog` and the toast and temporary ones is asked for its
+///   privileges, and objects only in a schema the subject can use, so a grant it cannot reach
+///   does not move the census;
+/// - a relation's row type and an implicit array type are not asked about: using one grants
+///   nothing the relation or its element does not, and every new table would otherwise move it;
+/// - large objects, parameters and default privileges have no `has_*_privilege` on this major, so
+///   their explicit grants to a subject or to `PUBLIC` are read from their ACLs;
+/// - in `pg_catalog`, each privilege of a subject or `PUBLIC` that differs from what initdb
+///   recorded in `pg_init_privs` is listed, `+` where it was added and `-` where it was removed,
+///   so a grant to another role does not move it.
+///
+/// A schema the role can use that others create objects in is within its reach. In the deployed
+/// database `PUBLIC` may use `public` and `product_edge_owner` may create there, so a new function
+/// in `public`, which `PUBLIC` may execute by default, moves the census, and admission needs a new
+/// manifest: the role can execute it.
+const PRIVILEGE_CENSUS_V1: &str = r#"
+WITH RECURSIVE subject(oid) AS (
+    SELECT role.oid FROM pg_catalog.pg_roles AS role WHERE role.rolname = current_user
+  UNION
+    SELECT membership.roleid FROM pg_catalog.pg_auth_members AS membership JOIN subject ON membership.member = subject.oid
+),
+subject_role AS (
+  SELECT subject.oid, role.rolname::text AS subject FROM subject JOIN pg_catalog.pg_roles AS role ON role.oid = subject.oid
+),
+grantee AS (
+  SELECT subject.oid FROM subject UNION ALL SELECT 0::oid
+),
+user_schema AS (
+  SELECT namespace.oid, namespace.nspname::text AS nspname FROM pg_catalog.pg_namespace AS namespace
+  WHERE namespace.nspname NOT IN ('pg_catalog', 'pg_toast')
+    AND namespace.nspname NOT LIKE 'pg\_temp\_%' AND namespace.nspname NOT LIKE 'pg\_toast\_temp\_%'
+),
+usable AS (
+  SELECT subject_role.oid AS subject_oid, subject_role.subject, user_schema.oid AS namespace_oid, user_schema.nspname
+  FROM subject_role CROSS JOIN user_schema
+  WHERE pg_catalog.has_schema_privilege(subject_role.oid, user_schema.oid, 'USAGE')
+),
+catalog_acl(kind, object, current_acl, initial_acl) AS (
+  SELECT 'relation', 'pg_catalog.' || relation.relname,
+    COALESCE(relation.relacl, pg_catalog.acldefault('r', relation.relowner)),
+    COALESCE(initial.initprivs, pg_catalog.acldefault('r', relation.relowner))
+  FROM pg_catalog.pg_class AS relation
+  LEFT JOIN pg_catalog.pg_init_privs AS initial ON initial.objoid = relation.oid AND initial.classoid = 'pg_catalog.pg_class'::pg_catalog.regclass AND initial.objsubid = 0
+  WHERE relation.relnamespace = 'pg_catalog'::pg_catalog.regnamespace
+UNION ALL
+  SELECT 'column', 'pg_catalog.' || relation.relname || '.' || attribute.attname,
+    attribute.attacl, initial.initprivs
+  FROM pg_catalog.pg_attribute AS attribute JOIN pg_catalog.pg_class AS relation ON relation.oid = attribute.attrelid
+  LEFT JOIN pg_catalog.pg_init_privs AS initial ON initial.objoid = relation.oid AND initial.classoid = 'pg_catalog.pg_class'::pg_catalog.regclass AND initial.objsubid = attribute.attnum
+  WHERE relation.relnamespace = 'pg_catalog'::pg_catalog.regnamespace AND attribute.attnum > 0 AND (attribute.attacl IS NOT NULL OR initial.initprivs IS NOT NULL)
+UNION ALL
+  SELECT 'function', 'pg_catalog.' || function.proname || '(' || pg_catalog.pg_get_function_identity_arguments(function.oid) || ')',
+    COALESCE(function.proacl, pg_catalog.acldefault('f', function.proowner)),
+    COALESCE(initial.initprivs, pg_catalog.acldefault('f', function.proowner))
+  FROM pg_catalog.pg_proc AS function
+  LEFT JOIN pg_catalog.pg_init_privs AS initial ON initial.objoid = function.oid AND initial.classoid = 'pg_catalog.pg_proc'::pg_catalog.regclass AND initial.objsubid = 0
+  WHERE function.pronamespace = 'pg_catalog'::pg_catalog.regnamespace AND (function.proacl IS NOT NULL OR initial.initprivs IS NOT NULL)
+UNION ALL
+  SELECT 'schema', 'pg_catalog', COALESCE(namespace.nspacl, pg_catalog.acldefault('n', namespace.nspowner)),
+    COALESCE(initial.initprivs, pg_catalog.acldefault('n', namespace.nspowner))
+  FROM pg_catalog.pg_namespace AS namespace
+  LEFT JOIN pg_catalog.pg_init_privs AS initial ON initial.objoid = namespace.oid AND initial.classoid = 'pg_catalog.pg_namespace'::pg_catalog.regclass AND initial.objsubid = 0
+  WHERE namespace.nspname = 'pg_catalog'
+),
+catalog_grant(kind, object, side, grantee, privilege) AS (
+  SELECT catalog.kind, catalog.object, 'now', acl.grantee, acl.privilege_type || CASE WHEN acl.is_grantable THEN ' WITH GRANT OPTION' ELSE '' END
+  FROM catalog_acl AS catalog CROSS JOIN LATERAL pg_catalog.aclexplode(catalog.current_acl) AS acl
+  WHERE acl.grantee IN (SELECT grantee.oid FROM grantee)
+UNION ALL
+  SELECT catalog.kind, catalog.object, 'initdb', acl.grantee, acl.privilege_type || CASE WHEN acl.is_grantable THEN ' WITH GRANT OPTION' ELSE '' END
+  FROM catalog_acl AS catalog CROSS JOIN LATERAL pg_catalog.aclexplode(catalog.initial_acl) AS acl
+  WHERE acl.grantee IN (SELECT grantee.oid FROM grantee)
+),
+catalog_change(kind, object, grantee, privilege) AS (
+  SELECT kind, object, grantee, '+' || privilege FROM (
+    SELECT kind, object, grantee, privilege FROM catalog_grant WHERE side = 'now'
+    EXCEPT SELECT kind, object, grantee, privilege FROM catalog_grant WHERE side = 'initdb') AS added
+UNION ALL
+  SELECT kind, object, grantee, '-' || privilege FROM (
+    SELECT kind, object, grantee, privilege FROM catalog_grant WHERE side = 'initdb'
+    EXCEPT SELECT kind, object, grantee, privilege FROM catalog_grant WHERE side = 'now') AS removed
+),
+census(subject, kind, object, privilege) AS (
+  SELECT subject_role.subject, 'database', database.datname::text, privilege.name
+  FROM subject_role CROSS JOIN pg_catalog.pg_database AS database
+  CROSS JOIN (VALUES ('CONNECT'), ('CREATE'), ('TEMPORARY')) AS privilege(name)
+  WHERE database.datname = pg_catalog.current_database()
+    AND pg_catalog.has_database_privilege(subject_role.oid, database.oid, privilege.name)
+UNION ALL
+  SELECT subject_role.subject, 'schema', user_schema.nspname, privilege.name
+  FROM subject_role CROSS JOIN user_schema CROSS JOIN (VALUES ('USAGE'), ('CREATE')) AS privilege(name)
+  WHERE pg_catalog.has_schema_privilege(subject_role.oid, user_schema.oid, privilege.name)
+UNION ALL
+  SELECT usable.subject, 'relation', usable.nspname || '.' || relation.relname, privilege.name
+  FROM usable JOIN pg_catalog.pg_class AS relation ON relation.relnamespace = usable.namespace_oid AND relation.relkind IN ('r', 'p', 'v', 'm', 'f')
+  CROSS JOIN (VALUES ('SELECT'), ('INSERT'), ('UPDATE'), ('DELETE'), ('TRUNCATE'), ('REFERENCES'), ('TRIGGER')) AS privilege(name)
+  WHERE pg_catalog.has_table_privilege(usable.subject_oid, relation.oid, privilege.name)
+UNION ALL
+  SELECT usable.subject, 'column', usable.nspname || '.' || relation.relname || '.' || attribute.attname, privilege.name
+  FROM usable JOIN pg_catalog.pg_class AS relation ON relation.relnamespace = usable.namespace_oid AND relation.relkind IN ('r', 'p', 'v', 'm', 'f')
+  JOIN pg_catalog.pg_attribute AS attribute ON attribute.attrelid = relation.oid AND attribute.attnum > 0 AND NOT attribute.attisdropped AND attribute.attacl IS NOT NULL
+  CROSS JOIN (VALUES ('SELECT'), ('INSERT'), ('UPDATE'), ('REFERENCES')) AS privilege(name)
+  WHERE pg_catalog.has_column_privilege(usable.subject_oid, relation.oid, attribute.attnum, privilege.name)
+    AND NOT pg_catalog.has_table_privilege(usable.subject_oid, relation.oid, privilege.name)
+UNION ALL
+  SELECT usable.subject, 'sequence', usable.nspname || '.' || relation.relname, privilege.name
+  FROM usable JOIN pg_catalog.pg_class AS relation ON relation.relnamespace = usable.namespace_oid AND relation.relkind = 'S'
+  CROSS JOIN (VALUES ('USAGE'), ('SELECT'), ('UPDATE')) AS privilege(name)
+  WHERE pg_catalog.has_sequence_privilege(usable.subject_oid, relation.oid, privilege.name)
+UNION ALL
+  SELECT usable.subject, 'function', usable.nspname || '.' || function.proname || '(' || pg_catalog.pg_get_function_identity_arguments(function.oid) || ')', 'EXECUTE'
+  FROM usable JOIN pg_catalog.pg_proc AS function ON function.pronamespace = usable.namespace_oid
+  WHERE pg_catalog.has_function_privilege(usable.subject_oid, function.oid, 'EXECUTE')
+UNION ALL
+  SELECT usable.subject, 'type', usable.nspname || '.' || type.typname, 'USAGE'
+  FROM usable JOIN pg_catalog.pg_type AS type ON type.typnamespace = usable.namespace_oid
+  LEFT JOIN pg_catalog.pg_class AS row_relation ON row_relation.oid = type.typrelid
+  WHERE (type.typrelid = 0 OR row_relation.relkind = 'c')
+    AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_type AS element WHERE element.typarray = type.oid)
+    AND pg_catalog.has_type_privilege(usable.subject_oid, type.oid, 'USAGE')
+UNION ALL
+  SELECT subject_role.subject, 'language', language.lanname::text, 'USAGE'
+  FROM subject_role CROSS JOIN pg_catalog.pg_language AS language
+  WHERE pg_catalog.has_language_privilege(subject_role.oid, language.oid, 'USAGE')
+UNION ALL
+  SELECT subject_role.subject, 'foreign-data-wrapper', wrapper.fdwname::text, 'USAGE'
+  FROM subject_role CROSS JOIN pg_catalog.pg_foreign_data_wrapper AS wrapper
+  WHERE pg_catalog.has_foreign_data_wrapper_privilege(subject_role.oid, wrapper.oid, 'USAGE')
+UNION ALL
+  SELECT subject_role.subject, 'foreign-server', server.srvname::text, 'USAGE'
+  FROM subject_role CROSS JOIN pg_catalog.pg_foreign_server AS server
+  WHERE pg_catalog.has_server_privilege(subject_role.oid, server.oid, 'USAGE')
+UNION ALL
+  SELECT subject_role.subject, 'tablespace', tablespace.spcname::text, 'CREATE'
+  FROM subject_role CROSS JOIN pg_catalog.pg_tablespace AS tablespace
+  WHERE pg_catalog.has_tablespace_privilege(subject_role.oid, tablespace.oid, 'CREATE')
+UNION ALL
+  SELECT subject_role.subject, 'large-object', object.oid::text, 'OWNER'
+  FROM subject_role JOIN pg_catalog.pg_largeobject_metadata AS object ON object.lomowner = subject_role.oid
+UNION ALL
+  SELECT CASE WHEN acl.grantee = 0 THEN 'PUBLIC' ELSE pg_catalog.pg_get_userbyid(acl.grantee)::text END, 'large-object', object.oid::text, acl.privilege_type
+  FROM pg_catalog.pg_largeobject_metadata AS object CROSS JOIN LATERAL pg_catalog.aclexplode(object.lomacl) AS acl
+  WHERE acl.grantee IN (SELECT grantee.oid FROM grantee)
+UNION ALL
+  SELECT CASE WHEN acl.grantee = 0 THEN 'PUBLIC' ELSE pg_catalog.pg_get_userbyid(acl.grantee)::text END, 'parameter', parameter.parname::text, acl.privilege_type
+  FROM pg_catalog.pg_parameter_acl AS parameter CROSS JOIN LATERAL pg_catalog.aclexplode(parameter.paracl) AS acl
+  WHERE acl.grantee IN (SELECT grantee.oid FROM grantee)
+UNION ALL
+  SELECT CASE WHEN acl.grantee = 0 THEN 'PUBLIC' ELSE pg_catalog.pg_get_userbyid(acl.grantee)::text END, 'default-privilege',
+    pg_catalog.pg_get_userbyid(defaults.defaclrole)::text || ':' || COALESCE(namespace.nspname::text, '*') || ':' || defaults.defaclobjtype::text, acl.privilege_type
+  FROM pg_catalog.pg_default_acl AS defaults LEFT JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = defaults.defaclnamespace
+  CROSS JOIN LATERAL pg_catalog.aclexplode(defaults.defaclacl) AS acl
+  WHERE acl.grantee IN (SELECT grantee.oid FROM grantee)
+UNION ALL
+  SELECT CASE WHEN change.grantee = 0 THEN 'PUBLIC' ELSE pg_catalog.pg_get_userbyid(change.grantee)::text END,
+    'pg_catalog ' || change.kind, change.object, change.privilege
+  FROM catalog_change AS change
+)
+SELECT census.subject, census.kind, census.object, census.privilege FROM census
+ORDER BY census.subject COLLATE "C", census.kind COLLATE "C", census.object COLLATE "C", census.privilege COLLATE "C"
+"#;
 
 /// Read-only direct PostgreSQL target measurer for a pinned disposable loopback authority.
 #[derive(Clone, Copy, Debug, Default)]
@@ -1786,6 +2032,10 @@ impl PostgresDirectMeasurer {
         if database_name != target.database || role_name != target.role {
             return Err(PostgresMeasurementError::InvalidTarget);
         }
+
+        if !privilege_census_names_the_privileges_of(&server_version) {
+            return Err(PostgresMeasurementError::PrivilegeCensusServerMajorUnsupported);
+        }
         let role_membership_rows = sqlx::query(
             "WITH RECURSIVE membership_path AS (SELECT membership.roleid, membership.member, membership.grantor, membership.admin_option, membership.inherit_option, membership.set_option, ARRAY[membership.member, membership.roleid] AS path, 1::bigint AS depth FROM pg_catalog.pg_auth_members AS membership JOIN pg_catalog.pg_roles AS session_role ON session_role.oid = membership.member WHERE session_role.rolname = current_user UNION ALL SELECT next.roleid, next.member, next.grantor, next.admin_option, next.inherit_option, next.set_option, prior.path || next.roleid, prior.depth + 1 FROM membership_path AS prior JOIN pg_catalog.pg_auth_members AS next ON next.member = prior.roleid WHERE prior.depth < 33 AND NOT next.roleid = ANY(prior.path)) SELECT granted_role.rolname::text AS role_name, pg_catalog.pg_get_userbyid(path.member)::text AS member_name, pg_catalog.pg_get_userbyid(path.grantor)::text AS grantor_name, path.admin_option, path.inherit_option, path.set_option, path.depth, granted_role.rolsuper AS role_super, granted_role.rolinherit AS role_inherit, granted_role.rolcreaterole AS role_create_role, granted_role.rolcreatedb AS role_create_database, granted_role.rolcanlogin AS role_can_login, granted_role.rolreplication AS role_replication, granted_role.rolbypassrls AS role_bypass_rls FROM membership_path AS path JOIN pg_catalog.pg_roles AS granted_role ON granted_role.oid = path.roleid ORDER BY path.depth, role_name, member_name, grantor_name LIMIT 257",
         )
@@ -1824,6 +2074,8 @@ impl PostgresDirectMeasurer {
             ],
         )?;
 
+        let privilege_census_identity = measure_privilege_census(&mut transaction).await?;
+
         let tls = sqlx::query(
             "SELECT ssl, COALESCE(version, '')::text AS protocol, COALESCE(cipher, '')::text AS cipher FROM pg_catalog.pg_stat_ssl WHERE pid = pg_catalog.pg_backend_pid()",
         )
@@ -1856,10 +2108,16 @@ impl PostgresDirectMeasurer {
         }
         let schema_identity = rows_digest(&schema_rows, &["oid", "name", "owner", "acl"])?;
 
+        // Every Owner object is found by joining the catalog on its schema and stored name, never
+        // through `to_regclass` or `to_regprocedure`: those check `USAGE` on a qualified name's
+        // schema and raise rather than miss, and the admitted reader holds nothing on
+        // `market_data_private`.
+        let (migration_schema, migration_name) = catalog_relation_key(&spec.migration_relation)?;
         let migration_rows = sqlx::query(
-            "SELECT class.oid::bigint AS relation_oid, namespace.nspname::text AS schema_name, class.relname::text AS relation_name, class.relkind::text AS relation_kind, pg_catalog.pg_get_userbyid(class.relowner)::text AS owner, attribute.attnum::bigint AS ordinal, attribute.attname::text AS column_name, pg_catalog.format_type(attribute.atttypid, attribute.atttypmod)::text AS column_type, attribute.attnotnull, COALESCE(pg_catalog.pg_get_expr(default_value.adbin, default_value.adrelid), '')::text AS default_expression FROM pg_catalog.pg_class AS class JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = class.relnamespace JOIN pg_catalog.pg_attribute AS attribute ON attribute.attrelid = class.oid AND attribute.attnum > 0 AND NOT attribute.attisdropped LEFT JOIN pg_catalog.pg_attrdef AS default_value ON default_value.adrelid = class.oid AND default_value.adnum = attribute.attnum WHERE class.oid = pg_catalog.to_regclass($1) ORDER BY attribute.attnum",
+            "SELECT class.oid::bigint AS relation_oid, namespace.nspname::text AS schema_name, class.relname::text AS relation_name, class.relkind::text AS relation_kind, pg_catalog.pg_get_userbyid(class.relowner)::text AS owner, attribute.attnum::bigint AS ordinal, attribute.attname::text AS column_name, pg_catalog.format_type(attribute.atttypid, attribute.atttypmod)::text AS column_type, attribute.attnotnull, COALESCE(pg_catalog.pg_get_expr(default_value.adbin, default_value.adrelid), '')::text AS default_expression FROM pg_catalog.pg_class AS class JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = class.relnamespace JOIN pg_catalog.pg_attribute AS attribute ON attribute.attrelid = class.oid AND attribute.attnum > 0 AND NOT attribute.attisdropped LEFT JOIN pg_catalog.pg_attrdef AS default_value ON default_value.adrelid = class.oid AND default_value.adnum = attribute.attnum WHERE namespace.nspname = $1 AND class.relname = $2 ORDER BY attribute.attnum",
         )
-        .bind(&spec.migration_relation)
+        .bind(migration_schema)
+        .bind(migration_name)
         .fetch_all(&mut *transaction)
         .await
         .map_err(|_| PostgresMeasurementError::MigrationIdentityUnavailable)?;
@@ -1881,15 +2139,14 @@ impl PostgresDirectMeasurer {
                 "default_expression",
             ],
         )?;
-        let migration_relation = quoted_qualified_name(&spec.migration_relation)
-            .ok_or(PostgresMeasurementError::InvalidSpecification)?;
-        let migration_budget_query = format!(
-            "SELECT COUNT(*)::bigint AS row_count, COALESCE(MAX(pg_catalog.octet_length(pg_catalog.to_jsonb(migration_row)::text)), 0)::bigint AS max_row_bytes FROM {migration_relation} AS migration_row"
-        );
-        let migration_budget = sqlx::query(AssertSqlSafe(migration_budget_query))
-            .fetch_one(&mut *transaction)
-            .await
-            .map_err(|_| PostgresMeasurementError::MigrationIdentityUnavailable)?;
+        // The rows are read through the admitted read schema, which `new` pins the migration
+        // relation to, so the measuring principal holds nothing on the Owner's private schema.
+        let migration_budget = sqlx::query(
+            "SELECT COUNT(*)::bigint AS row_count, COALESCE(MAX(pg_catalog.octet_length(row_json)), 0)::bigint AS max_row_bytes FROM market_data_admitted_read.resolve_owner_migrations_v1()",
+        )
+        .fetch_one(&mut *transaction)
+        .await
+        .map_err(|_| PostgresMeasurementError::MigrationIdentityUnavailable)?;
         let migration_row_count: i64 = migration_budget
             .try_get("row_count")
             .map_err(|_| PostgresMeasurementError::IdentityDecodeUnavailable)?;
@@ -1899,13 +2156,12 @@ impl PostgresDirectMeasurer {
         if migration_row_count > 10_000 || migration_max_row_bytes > 65_536 {
             return Err(PostgresMeasurementError::CatalogTargetMismatch);
         }
-        let migration_content_query = format!(
-            "SELECT pg_catalog.to_jsonb(migration_row)::text AS row_json FROM {migration_relation} AS migration_row ORDER BY pg_catalog.to_jsonb(migration_row)::text LIMIT 10001"
-        );
-        let migration_content_rows = sqlx::query(AssertSqlSafe(migration_content_query))
-            .fetch_all(&mut *transaction)
-            .await
-            .map_err(|_| PostgresMeasurementError::MigrationIdentityUnavailable)?;
+        let migration_content_rows = sqlx::query(
+            "SELECT row_json FROM market_data_admitted_read.resolve_owner_migrations_v1() ORDER BY row_json",
+        )
+        .fetch_all(&mut *transaction)
+        .await
+        .map_err(|_| PostgresMeasurementError::MigrationIdentityUnavailable)?;
 
         if migration_content_rows.len() > 10_000 {
             return Err(PostgresMeasurementError::CatalogTargetMismatch);
@@ -1916,10 +2172,13 @@ impl PostgresDirectMeasurer {
 
         let mut function_records = Vec::with_capacity(spec.function_signatures.len());
         for signature in &spec.function_signatures {
+            let (schema, name, arguments) = catalog_function_key(signature)?;
             let row = sqlx::query(
-                "SELECT procedure.oid::bigint AS oid, pg_catalog.pg_get_function_identity_arguments(procedure.oid)::text AS arguments, pg_catalog.pg_get_userbyid(procedure.proowner)::text AS owner, procedure.prosecdef, procedure.provolatile::text AS volatility, COALESCE(procedure.proacl::text, 'DEFAULT') AS acl, pg_catalog.pg_get_functiondef(procedure.oid)::text AS definition FROM pg_catalog.pg_proc AS procedure WHERE procedure.oid = pg_catalog.to_regprocedure($1)",
+                "SELECT procedure.oid::bigint AS oid, pg_catalog.pg_get_function_identity_arguments(procedure.oid)::text AS arguments, pg_catalog.pg_get_userbyid(procedure.proowner)::text AS owner, procedure.prosecdef, procedure.provolatile::text AS volatility, COALESCE(procedure.proacl::text, 'DEFAULT') AS acl, pg_catalog.pg_get_functiondef(procedure.oid)::text AS definition FROM pg_catalog.pg_proc AS procedure JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = procedure.pronamespace WHERE namespace.nspname = $1 AND procedure.proname = $2 AND pg_catalog.oidvectortypes(procedure.proargtypes) = $3",
             )
-            .bind(signature)
+            .bind(schema)
+            .bind(name)
+            .bind(arguments)
             .fetch_all(&mut *transaction)
             .await
             .map_err(|_| PostgresMeasurementError::FunctionIdentityUnavailable)?;
@@ -1945,10 +2204,12 @@ impl PostgresDirectMeasurer {
         acl_records.push(schema_identity.clone());
 
         for relation in &spec.acl_relations {
+            let (schema, name) = catalog_relation_key(relation)?;
             let rows = sqlx::query(
-                "SELECT class.oid::bigint AS oid, namespace.nspname::text AS schema_name, class.relname::text AS relation_name, pg_catalog.pg_get_userbyid(class.relowner)::text AS owner, COALESCE(class.relacl::text, 'DEFAULT') AS acl, class.relrowsecurity, class.relforcerowsecurity FROM pg_catalog.pg_class AS class JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = class.relnamespace WHERE class.oid = pg_catalog.to_regclass($1)",
+                "SELECT class.oid::bigint AS oid, namespace.nspname::text AS schema_name, class.relname::text AS relation_name, pg_catalog.pg_get_userbyid(class.relowner)::text AS owner, COALESCE(class.relacl::text, 'DEFAULT') AS acl, class.relrowsecurity, class.relforcerowsecurity FROM pg_catalog.pg_class AS class JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = class.relnamespace WHERE namespace.nspname = $1 AND class.relname = $2",
             )
-            .bind(relation)
+            .bind(schema)
+            .bind(name)
             .fetch_all(&mut *transaction)
             .await
             .map_err(|_| PostgresMeasurementError::AclIdentityUnavailable)?;
@@ -1968,9 +2229,10 @@ impl PostgresDirectMeasurer {
                 ],
             )?);
             let column_rows = sqlx::query(
-                "SELECT attribute.attnum::bigint AS ordinal, attribute.attname::text AS column_name, COALESCE(attribute.attacl::text, 'DEFAULT') AS acl FROM pg_catalog.pg_attribute AS attribute WHERE attribute.attrelid = pg_catalog.to_regclass($1) AND attribute.attnum > 0 AND NOT attribute.attisdropped ORDER BY attribute.attnum",
+                "SELECT attribute.attnum::bigint AS ordinal, attribute.attname::text AS column_name, COALESCE(attribute.attacl::text, 'DEFAULT') AS acl FROM pg_catalog.pg_attribute AS attribute WHERE attribute.attrelid = (SELECT class.oid FROM pg_catalog.pg_class AS class JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = class.relnamespace WHERE namespace.nspname = $1 AND class.relname = $2) AND attribute.attnum > 0 AND NOT attribute.attisdropped ORDER BY attribute.attnum",
             )
-            .bind(relation)
+            .bind(schema)
+            .bind(name)
             .fetch_all(&mut *transaction)
             .await
             .map_err(|_| PostgresMeasurementError::AclIdentityUnavailable)?;
@@ -1979,9 +2241,10 @@ impl PostgresDirectMeasurer {
                 &["ordinal", "column_name", "acl"],
             )?);
             let policy_rows = sqlx::query(
-                "SELECT policy.polname::text AS policy_name, policy.polpermissive, policy.polcmd::text AS command, policy.polroles::text AS roles, LEFT(COALESCE(pg_catalog.pg_get_expr(policy.polqual, policy.polrelid), '')::text, 65537) AS using_expression, LEFT(COALESCE(pg_catalog.pg_get_expr(policy.polwithcheck, policy.polrelid), '')::text, 65537) AS check_expression FROM pg_catalog.pg_policy AS policy WHERE policy.polrelid = pg_catalog.to_regclass($1) ORDER BY policy.polname LIMIT 257",
+                "SELECT policy.polname::text AS policy_name, policy.polpermissive, policy.polcmd::text AS command, policy.polroles::text AS roles, LEFT(COALESCE(pg_catalog.pg_get_expr(policy.polqual, policy.polrelid), '')::text, 65537) AS using_expression, LEFT(COALESCE(pg_catalog.pg_get_expr(policy.polwithcheck, policy.polrelid), '')::text, 65537) AS check_expression FROM pg_catalog.pg_policy AS policy WHERE policy.polrelid = (SELECT class.oid FROM pg_catalog.pg_class AS class JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = class.relnamespace WHERE namespace.nspname = $1 AND class.relname = $2) ORDER BY policy.polname LIMIT 257",
             )
-            .bind(relation)
+            .bind(schema)
+            .bind(name)
             .fetch_all(&mut *transaction)
             .await
             .map_err(|_| PostgresMeasurementError::AclIdentityUnavailable)?;
@@ -2032,7 +2295,11 @@ impl PostgresDirectMeasurer {
             schema_identity,
             migration_identity,
             function_identity,
-            role_identity: digest_serializable(&(role_record, role_membership_identity)),
+            role_identity: digest_serializable(&(
+                role_record,
+                role_membership_identity,
+                privilege_census_identity,
+            )),
             acl_identity,
         })
     }
@@ -2165,6 +2432,50 @@ fn canonical_function_signature(value: &str) -> bool {
         })
 }
 
+/// The longest identifier PostgreSQL stores. SQL may spell a longer one, and `to_regclass` and
+/// `to_regprocedure` truncate it to this before they look it up.
+const STORED_IDENTIFIER_BYTES: usize = 63;
+
+/// `identifier` as the catalog stores it. A specification admits only ASCII identifiers, so a
+/// byte is a character.
+fn stored_identifier(identifier: &str) -> &str {
+    &identifier[..identifier.len().min(STORED_IDENTIFIER_BYTES)]
+}
+
+/// The schema and stored name of a relation a specification names, as the catalog holds them.
+fn catalog_relation_key(qualified: &str) -> Result<(&str, &str), PostgresMeasurementError> {
+    let (schema, relation) = qualified
+        .split_once('.')
+        .ok_or(PostgresMeasurementError::InvalidSpecification)?;
+    Ok((stored_identifier(schema), stored_identifier(relation)))
+}
+
+/// The schema, stored name and argument types of a function a specification names, the types
+/// spelled as `oidvectortypes` spells them. A type spelled by an alias, such as `int8` for
+/// `bigint`, matches no function and is refused as a mismatched target.
+fn catalog_function_key(signature: &str) -> Result<(&str, &str, String), PostgresMeasurementError> {
+    let (qualified, arguments) = signature
+        .split_once('(')
+        .ok_or(PostgresMeasurementError::InvalidSpecification)?;
+    let arguments = arguments
+        .strip_suffix(')')
+        .ok_or(PostgresMeasurementError::InvalidSpecification)?;
+    let (schema, function) = qualified
+        .split_once('.')
+        .ok_or(PostgresMeasurementError::InvalidSpecification)?;
+    let arguments = arguments
+        .split(',')
+        .map(str::trim)
+        .filter(|argument| !argument.is_empty())
+        .collect::<Vec<_>>()
+        .join(", ");
+    Ok((
+        stored_identifier(schema),
+        stored_identifier(function),
+        arguments,
+    ))
+}
+
 fn quoted_qualified_name(value: &str) -> Option<String> {
     let mut parts = value.split('.');
     let schema = parts.next()?;
@@ -2174,6 +2485,48 @@ fn quoted_qualified_name(value: &str) -> Option<String> {
         return None;
     }
     Some(format!("\"{schema}\".\"{relation}\""))
+}
+
+/// Whether [`PRIVILEGE_CENSUS_V1`] names every privilege of the server whose
+/// `server_version_num` is `server_version`: only one of [`PRIVILEGE_CENSUS_SERVER_MAJOR`].
+fn privilege_census_names_the_privileges_of(server_version: &str) -> bool {
+    server_version.len() == 6
+        && server_version.bytes().all(|byte| byte.is_ascii_digit())
+        && server_version.starts_with(PRIVILEGE_CENSUS_SERVER_MAJOR)
+}
+
+/// Reads [`PRIVILEGE_CENSUS_V1`] for the session role and digests it.
+///
+/// # Errors
+///
+/// Returns an error when the census cannot be read or exceeds its bound.
+pub(super) async fn measure_privilege_census(
+    connection: &mut PgConnection,
+) -> Result<String, PostgresMeasurementError> {
+    let rows = sqlx::query(PRIVILEGE_CENSUS_V1)
+        .fetch_all(&mut *connection)
+        .await
+        .map_err(|_| PostgresMeasurementError::PrivilegeCensusUnavailable)?;
+
+    if rows.len() > MAX_PRIVILEGE_CENSUS_ROWS {
+        return Err(PostgresMeasurementError::CatalogTargetMismatch);
+    }
+    rows_digest(&rows, &["subject", "kind", "object", "privilege"])
+}
+
+/// Every row [`PRIVILEGE_CENSUS_V1`] reads for the session role, undigested: `(subject, kind,
+/// object, privilege)`. For a proof that compares what a role was granted with what its census
+/// sees.
+#[cfg(test)]
+pub(super) async fn privilege_census_rows_v1(
+    connection: &mut PgConnection,
+) -> Result<std::collections::BTreeSet<(String, String, String, String)>, PostgresMeasurementError>
+{
+    sqlx::query_as(PRIVILEGE_CENSUS_V1)
+        .fetch_all(&mut *connection)
+        .await
+        .map(|rows| rows.into_iter().collect())
+        .map_err(|_| PostgresMeasurementError::PrivilegeCensusUnavailable)
 }
 
 fn rows_digest(
@@ -2215,4 +2568,28 @@ fn digest_serializable(value: &(impl Serialize + ?Sized)) -> String {
         let _ = write!(output, "{byte:02x}");
     }
     output
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+
+    use super::*;
+
+    #[rstest]
+    #[case::this_major("160010", true)]
+    #[case::its_first_release("160000", true)]
+    #[case::the_next_major("170002", false)]
+    #[case::an_old_major("150008", false)]
+    #[case::a_five_digit_version("90624", false)]
+    #[case::not_a_number("16.10", false)]
+    fn the_census_measures_only_the_major_whose_privileges_it_names(
+        #[case] server_version: &str,
+        #[case] measured: bool,
+    ) {
+        assert_eq!(
+            privilege_census_names_the_privileges_of(server_version),
+            measured
+        );
+    }
 }

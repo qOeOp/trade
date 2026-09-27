@@ -160,6 +160,16 @@
   窗口限定（`docs/architecture/strategy-factory.md`，TrialFamily-owned Replay execution policy V2）；前驱是
   composer-backed Replay 的 Market Data 修复 re-entry 按名被拒，`MARKET_DATA_REPAIR_OF_COMPOSER_V3_REPLAY_AWAITS_DESIGN`，
   因为 re-entry 按 policy 窗口组成它的后继。
+- **CURRENT - Native Replay preparation 如何读 composer-backed Replay 的 Research 托管：** 按 Replay 提交时的
+  样子读，而不是按当前托管读。commit 把 Research View 从 IntentFrozen 推进到指名这个 Replay 的 schema 3
+  View，并把这次推进记成一条只追加的 transition，所以凡是要求当前托管仍是 IntentFrozen 的读，都会拒绝每一个
+  已提交的 Replay。因此 preparation 只把 native Composer View 当作那条 transition 的 new View 来准入，并像
+  Replay 自己的 readback 那样（`read_accepted_for_replay_historical_in_transaction`），在 issuance 事务里按
+  transition 的 old View 读 Composer 操作。当前 View 若已被之后的 Replay 推进走，按名被拒，
+  `native Composer Research View has moved past this Replay`：同一个 Research 上一旦提交了第二个 Replay，
+  第一个就再也无法被 prepare。今天没有 Research 会走到第二个，因为 commit 要求它所推进的那个 IntentFrozen View，而 successor
+  要等下文的 Decision composition。Decision composition 或 successor 迭代被准入时，要重新审视这条规则。不带
+  COMPOSER_V3 路由的构建按名拒绝 native Composer View。
 - **CURRENT - 有一条只读操作只能经由写 API 触达：** Dashboard 的操作登记表声明了十一条 Owner 路由，
   其中十条是 `GET`。第十一条 `research_goal.legacy_quarantine_read.v1` 声明 `effect_set: []`，
   解析到 `POST /v1/research-goals/{request_identity}/resolve`，它注册在
@@ -312,6 +322,19 @@ join 推断。
 （`frozen_program_runs_the_production_composer_to_a_durable_artifact`）。该路由做不到的是发明 Design：
 下面的契约写明这份 Design 由谁撰写。它下游的一切都已存在：生产提交函数、store、写入器、两张 build-receipt
 关系，以及生产 binding 接缝。
+
+**已提交的 Composer 运行在其运行时所处的 View 上读回。** 提交该运行的事务在其 receipt 旁记下这次操作的两条事实：
+它运行时所处的 Research View，以及它运行时的 Owner read cut。没有任何东西改写它们。
+`GET /v2/develop-composer/runs/{request_identity}/readback`
+在该 View、该 cut 上重新推导已存储的正向记录，并在该 cut 上重新锁定 Market Data 绑定，因此在其 Research View
+过期、或推进到 `ARTIFACT_AVAILABLE` 或 `EXPLORATION_ACTIVE` 之后，这次运行仍可读。View 在投影后十分钟过期且没有任何东西
+刷新它，所以没有这条记录时，每次运行都会在其 Research request 被接受后十分钟内变得不可读。记下的 View 不按原样信任：
+Research artifact evidence 必须正是为它封存的（`rd_owner_api.lock_research_for_artifact_at_view_v1`），已存储的 View
+必须是它的合法后代，cut 必须落在它的有效窗口内，operation receipt 的 Research custody digest 必须等于由它重建的那一个。
+前三种失败在 `research_custody.run_view` 下各自的 coordinate 处应答 `UNAVAILABLE`；digest 不等时在既有的 `operation_receipt` coordinate 处应答。在这条记录存在之前提交的行两条事实都没有：
+它保留针对当前 View 的读取，一旦该 View 不再当前，就在 `research_custody.run_view_unrecorded`
+处应答，说明这一行为什么不能读，而不是暗示运行消失了。迁移先读目录形状再加这两列；它们在迁移部署时冻结，而不是在合并时。
+运行本身仍需要当前的 View，所以一个 Research request 只能在被接受后十分钟内做 compose；这个界属于运行，不属于这次读回。
 
 **CURRENT/PARTIAL：第一圈已有立足之处。** 封存语料 run 之后，`run_bounded_feature_program` 成为唯一的生产入口，
 而它需要一份已冻结的 joint program。冻结需要 Strategy Input declaration；Market Data 过去只从一份
@@ -550,6 +573,10 @@ host 仍 fail closed，绝不替换为 generic toolchain。
 而一个产出它们的生成器被实测为在重做已经存在的事。所以这个切片加的代码少于它删掉的代码。
 它不引入任何新原语、任何执行路径，而它产出的东西由检查手写声明的同一份契约来检查。单阈值编写器
 是它的第一个产物，并且逐字节保持原样；下面的编写语言按同样的条件准入，并把那个族作为它的一个特例。
+此后它的字节有意改过一次：一侧的 reconciliation target 读该侧的 target position，因为 kernel 要求
+position target 与它的 reconciliation target 相等，而两侧曾共用的那个值为 0 的常量，让每个两侧仓位不同的
+程序都无法运行 - target-set Host 在第一笔订单之前就拒绝了它的入场一侧。按旧字节冻结的程序从来不可能运行，
+现在它在这个族之外。
 
 **IMPLEMENTATION_ADMITTED - 编写语言 V1：** 提案者写的一份文档，由一个纯函数编译成 `design` 与
 `meaning` 这一对，再无其他。这个截面上没有任何实现，它的实现排在第一次 COMPOSER_V3 Replay

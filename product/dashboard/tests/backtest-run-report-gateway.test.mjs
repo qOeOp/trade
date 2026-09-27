@@ -72,6 +72,7 @@ function report() {
     ],
     net_return: 0.0125,
     max_drawdown: 0,
+    empty_reason: null,
     fill_count: 1,
     fills: [{ at: "2025-01-01T14:30:00.000000000Z", side: "BUY", price: "187.25", quantity: "1" }],
   };
@@ -122,7 +123,14 @@ test("an Owner answer is relayed as the Owner wrote it, including its reason", a
     status: 200,
     body: available,
   });
-  const empty = { ...report(), state: "EMPTY", series: [], net_return: null, max_drawdown: null };
+  const empty = {
+    ...report(),
+    state: "EMPTY",
+    series: [],
+    net_return: null,
+    max_drawdown: null,
+    empty_reason: "FEWER_THAN_TWO_ENGINE_DAYS",
+  };
   assert.deepEqual((await read(200, empty)).body, empty);
   for (const [status, reason] of [[404, "BACKTEST_RUN_ABSENT"], [503, "OUTCOME_EVIDENCE_UNAVAILABLE"]]) {
     const envelope = { state: "UNAVAILABLE", reason };

@@ -24,9 +24,11 @@ use vibe_model::{
 use super::{
     ADMITTED_UNIVERSE_MEMBER_COUNTS,
     bar_schedule::{
-        BarScheduleCompletionV1, BarScheduleKindV1, BarScheduleLabelV1, BarScheduleReadbackV1,
-        BarScheduleUnitV1, UntrustedBarScheduleLocatorV1,
+        BarScheduleClockV1, BarScheduleCompletionV1, BarScheduleFactV1, BarScheduleKindV1,
+        BarScheduleLabelV1, BarScheduleReadbackV1, BarScheduleUnitV1,
+        UntrustedBarScheduleLocatorV1,
     },
+    declared_bar_timeframe_v1::{DeclaredBarAnchorV1, DeclaredBarTimeframeV1, anchor_identity_v1},
     native_replay_quote_cut_v2::{NativeReplayCutCoordinatesV2, verify_native_replay_quote_cut_v2},
     pit_snapshot::{
         UntrustedPitSnapshotLocator, UntrustedPitSnapshotTimeEvidence, VerifiedPitObservation,
@@ -169,6 +171,10 @@ pub enum NativeReplaySchedulingErrorV1 {
     ExactInstrumentRolesUnderOwnerUniverse,
     #[error("native Replay scheduling value is not exactly representable")]
     NativeRepresentation,
+    #[error("the frame's Source Binding declares no bar timeframe")]
+    SourceBindingDeclaresNoBarTimeframe,
+    #[error("no schedule, role or row states the bar the frame's Source Binding declares")]
+    DeclaredBarTimeframeMismatch,
 }
 
 /// Untrusted coordinates for resolving one exact native Replay scheduling projection.
@@ -368,6 +374,7 @@ pub struct NativeReplayInitialMarketReadbackV1 {
     quote_cut: VerifiedPitObservationBatch,
     universe_frame: StrategyInputUniverseFrameReceipt,
     schedules: Vec<BarScheduleReadbackV1>,
+    declared: DeclaredBarTimeframeV1,
     member_instruments: Vec<InstrumentId>,
     frame_time_ns: u64,
     window_end_ns_exclusive: u64,
@@ -529,6 +536,7 @@ impl NativeReplayInitialMarketReadbackV1 {
             quote_cut,
             universe_frame,
             schedules,
+            declared,
             member_instruments,
             frame_time_ns,
             window_end_ns_exclusive,
@@ -537,6 +545,7 @@ impl NativeReplayInitialMarketReadbackV1 {
             batch,
             quote_cut,
             schedules,
+            &declared,
             member_instruments,
             frame_time_ns,
             window_end_ns_exclusive,
@@ -562,6 +571,7 @@ impl NativeReplayInitialMarketReadbackV1 {
             self.batch,
             self.quote_cut,
             self.schedules,
+            &self.declared,
             self.member_instruments,
             self.frame_time_ns,
             self.window_end_ns_exclusive,
@@ -658,6 +668,7 @@ pub(crate) fn issue_native_replay_initial_market_readback_v1(
     batch: VerifiedPitObservationBatch,
     quote_cut: VerifiedPitObservationBatch,
     schedules: impl Into<Vec<BarScheduleReadbackV1>>,
+    declared: DeclaredBarTimeframeV1,
     request: &NativeReplayInitialMarketRequestV1,
 ) -> Result<NativeReplayInitialMarketReadbackV1, NativeReplaySchedulingErrorV1> {
     let schedules = schedules.into();
@@ -688,6 +699,12 @@ pub(crate) fn issue_native_replay_initial_market_readback_v1(
     let timeframe = request
         .schedule_timeframe()
         .ok_or(NativeReplaySchedulingErrorV1::OwnerBindingMismatch)?;
+    // The roles' label is the one the frame's own Source Binding declares its bars under: an
+    // identity check that the roles read that binding's rows, never a parse of what the label says.
+    declared
+        .for_batch(&batch)
+        .and_then(|declared| declared.describes_label(timeframe))
+        .map_err(|_| NativeReplaySchedulingErrorV1::DeclaredBarTimeframeMismatch)?;
 
     for (index, schedule) in schedules.iter().enumerate() {
         validated_bar_type(
@@ -697,8 +714,8 @@ pub(crate) fn issue_native_replay_initial_market_readback_v1(
             request.frame_time_ns,
         )?;
 
-        if schedule_timeframe(schedule.fact()) != timeframe {
-            return Err(NativeReplaySchedulingErrorV1::OwnerBindingMismatch);
+        if !declared.admits_schedule(schedule.fact()) {
+            return Err(NativeReplaySchedulingErrorV1::DeclaredBarTimeframeMismatch);
         }
     }
     let binding_requests = native_replay_universe_binding_requests_v1(request, &batch);
@@ -723,6 +740,7 @@ pub(crate) fn issue_native_replay_initial_market_readback_v1(
         quote_cut,
         universe_frame,
         schedules,
+        declared,
         member_instruments: request.member_instruments.clone(),
         frame_time_ns: request.frame_time_ns,
         window_end_ns_exclusive: request.window_end_ns_exclusive,
@@ -790,34 +808,50 @@ pub(crate) fn select_native_replay_schedule_v1(
     candidates: Vec<BarScheduleReadbackV1>,
     batch: &VerifiedPitObservationBatch,
     instrument: InstrumentId,
-    timeframe: &str,
+    declared: &DeclaredBarTimeframeV1,
     frame_time_ns: u64,
 ) -> Result<BarScheduleReadbackV1, NativeReplaySchedulingErrorV1> {
     select_native_replay_schedule_for_member_v1(
         candidates,
         batch,
         &instrument.to_string(),
-        timeframe,
+        declared,
         frame_time_ns,
     )
 }
 
 /// [`select_native_replay_schedule_v1`] for a member named by its canonical instrument.
+///
+/// A schedule is selected by comparing its typed fields with the bar the frame's own Source Binding
+/// declares, never by a label. A member whose schedules at the frame all state another bar - the
+/// exchange-session day a label `1D` once implied, under a declared 24-hour UTC bar - is refused by
+/// name rather than reported unavailable, because a schedule exists and says the wrong thing.
 pub(crate) fn select_native_replay_schedule_for_member_v1(
     candidates: Vec<BarScheduleReadbackV1>,
     batch: &VerifiedPitObservationBatch,
     canonical_instrument: &str,
-    timeframe: &str,
+    declared: &DeclaredBarTimeframeV1,
     frame_time_ns: u64,
 ) -> Result<BarScheduleReadbackV1, NativeReplaySchedulingErrorV1> {
-    let mut matches = candidates.into_iter().filter(|schedule| {
-        schedule_bar_specification_at_frame_v1(schedule, batch, canonical_instrument, frame_time_ns)
-            .is_ok()
-            && schedule_timeframe(schedule.fact()) == timeframe
-    });
+    let declared = declared
+        .for_batch(batch)
+        .map_err(|_| NativeReplaySchedulingErrorV1::DeclaredBarTimeframeMismatch)?;
+    let at_frame = candidates
+        .into_iter()
+        .filter(|schedule| {
+            schedule_is_at_frame_v1(schedule, batch, canonical_instrument, frame_time_ns).is_ok()
+        })
+        .collect::<Vec<_>>();
+
+    if at_frame.is_empty() {
+        return Err(NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable);
+    }
+    let mut matches = at_frame
+        .into_iter()
+        .filter(|schedule| declared.admits_schedule(schedule.fact()));
     let selected = matches
         .next()
-        .ok_or(NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)?;
+        .ok_or(NativeReplaySchedulingErrorV1::DeclaredBarTimeframeMismatch)?;
 
     if matches.next().is_some() {
         return Err(NativeReplaySchedulingErrorV1::OwnerBindingMismatch);
@@ -839,6 +873,7 @@ pub fn seal_native_replay_scheduling_v1(
     frame: VerifiedPitObservationBatch,
     quote_cut: VerifiedPitObservationBatch,
     schedules: impl Into<Vec<BarScheduleReadbackV1>>,
+    declared: &DeclaredBarTimeframeV1,
     member_instruments: impl Into<Vec<InstrumentId>>,
     frame_time_ns: u64,
     window_end_ns_exclusive: u64,
@@ -852,6 +887,16 @@ pub fn seal_native_replay_scheduling_v1(
     {
         return Err(NativeReplaySchedulingErrorV1::OwnerBindingMismatch);
     }
+    let declared = declared
+        .for_batch(&frame)
+        .map_err(|_| NativeReplaySchedulingErrorV1::DeclaredBarTimeframeMismatch)?;
+
+    if schedules
+        .iter()
+        .any(|schedule| !declared.admits_schedule(schedule.fact()))
+    {
+        return Err(NativeReplaySchedulingErrorV1::DeclaredBarTimeframeMismatch);
+    }
     let instant_ns = quote_cut_instant(&frame, &quote_cut, window_end_ns_exclusive)?;
     let bar_types = schedules
         .iter()
@@ -862,15 +907,13 @@ pub fn seal_native_replay_scheduling_v1(
         .collect::<Result<Vec<_>, _>>()?;
     let mut data = Vec::with_capacity(member_instruments.len() * 2);
 
-    for ((schedule, instrument), bar_type) in
-        schedules.iter().zip(&member_instruments).zip(&bar_types)
-    {
+    for (instrument, bar_type) in member_instruments.iter().zip(&bar_types) {
         data.push(Data::Bar(project_bar(
             &frame,
             *instrument,
             *bar_type,
             frame_time_ns,
-            &schedule_timeframe(schedule.fact()),
+            declared.row_timeframe(),
         )?));
     }
 
@@ -944,15 +987,27 @@ fn validated_bar_type(
     instrument_id: InstrumentId,
     frame_time_ns: u64,
 ) -> Result<BarType, NativeReplaySchedulingErrorV1> {
-    let specification = schedule_bar_specification_at_frame_v1(
-        schedule,
-        batch,
-        &instrument_id.to_string(),
-        frame_time_ns,
-    )?;
+    schedule_is_at_frame_v1(schedule, batch, &instrument_id.to_string(), frame_time_ns)?;
+    native_bar_type_for_schedule_v1(schedule.fact(), instrument_id)
+}
+
+/// The native engine's bar type for the bar `schedule` states, on `instrument`.
+///
+/// The one implementation of a schedule's native bar type: the frame's own seal reaches it, and so
+/// does an acceptance asserting what a schedule will be named, so the two cannot drift. The name
+/// is the engine's encoding of the typed schedule, as `native_bar_specification_v1` describes.
+///
+/// # Errors
+///
+/// Returns `NativeRepresentation` for a bar the engine has no name for, and `OwnerBindingMismatch`
+/// for a schedule shape no native aggregation states.
+pub fn native_bar_type_for_schedule_v1(
+    schedule: &BarScheduleFactV1,
+    instrument: InstrumentId,
+) -> Result<BarType, NativeReplaySchedulingErrorV1> {
     Ok(BarType::new(
-        instrument_id,
-        specification,
+        instrument,
+        native_bar_specification_v1(schedule)?,
         AggregationSource::External,
     ))
 }
@@ -962,13 +1017,30 @@ fn validated_bar_type(
 /// force and cut at the frame's instant, and was admitted over the frame's batch coordinates.
 ///
 /// This is the whole of the rule. The host's frame names its members as native instruments, and
-/// Market Data's own reads name them by canonical instrument; both ask it here.
+/// Market Data's own reads name them by canonical instrument; both ask it here. The seal asks its
+/// two halves directly, so only the sealed acceptance proposer, and tests, ask it whole.
+#[cfg(any(test, feature = "sealed-strategy-input-acceptance"))]
 pub(crate) fn schedule_bar_specification_at_frame_v1(
     schedule: &BarScheduleReadbackV1,
     batch: &VerifiedPitObservationBatch,
     canonical_instrument: &str,
     frame_time_ns: u64,
 ) -> Result<BarSpecification, NativeReplaySchedulingErrorV1> {
+    schedule_is_at_frame_v1(schedule, batch, canonical_instrument, frame_time_ns)?;
+    native_bar_specification_v1(schedule.fact())
+}
+
+/// Whether `schedule` is one of the member's schedules at the frame, before anything is asked
+/// about which bar it states or what the engine calls that bar.
+///
+/// Kept apart from naming so that a schedule which is at the frame but states another bar is
+/// refused as that, rather than disappearing because the engine has no name for it.
+fn schedule_is_at_frame_v1(
+    schedule: &BarScheduleReadbackV1,
+    batch: &VerifiedPitObservationBatch,
+    canonical_instrument: &str,
+    frame_time_ns: u64,
+) -> Result<(), NativeReplaySchedulingErrorV1> {
     let fact = schedule.fact();
     if fact.canonical_instrument() != canonical_instrument
         || fact.label() != BarScheduleLabelV1::IntervalClose
@@ -985,69 +1057,67 @@ pub(crate) fn schedule_bar_specification_at_frame_v1(
     {
         return Err(NativeReplaySchedulingErrorV1::OwnerBindingMismatch);
     }
-    let aggregation = match (fact.kind(), fact.unit()) {
-        (BarScheduleKindV1::FixedInterval, BarScheduleUnitV1::Second) => BarAggregation::Second,
-        (BarScheduleKindV1::FixedInterval, BarScheduleUnitV1::Minute) => BarAggregation::Minute,
-        (BarScheduleKindV1::FixedInterval, BarScheduleUnitV1::Hour) => BarAggregation::Hour,
+    Ok(())
+}
+
+/// The native engine's name for a schedule's bar.
+///
+/// The typed schedule is the bar's meaning; this is only the name the engine gives it, and several
+/// typed bars can share one name. The sequence of a Replay's frames refuses two of them meeting
+/// there (`NativeBarTypeCarriesTwoTimeframes`).
+///
+/// The engine admits a periodic step only - a Second or Minute step dividing 60, an Hour step
+/// dividing 24, never the whole of either (`BarSpecification::validate_step`,
+/// `crates/model/src/data/bar.rs`) - and asks for the next unit instead. A fixed interval on a
+/// continuous clock from the Unix epoch is therefore named in the largest unit that divides its
+/// duration and that the engine admits: 24 hours is `1-DAY`, 60 minutes `1-HOUR`, 5 hours nothing.
+/// The name is exact because the engine takes these bars as `EXTERNAL`: it neither aggregates them
+/// nor derives their instants from the name, which carry the rows' own times. A fixed interval
+/// within a trading schedule keeps its own unit. An exchange session day is named `DAY`, which the
+/// engine cannot tell from a UTC day; that is a stated limitation until the engine models sessions.
+fn native_bar_specification_v1(
+    fact: &BarScheduleFactV1,
+) -> Result<BarSpecification, NativeReplaySchedulingErrorV1> {
+    let named = |step: u64, aggregation| {
+        let step = usize::try_from(step)
+            .map_err(|_| NativeReplaySchedulingErrorV1::NativeRepresentation)?;
+        BarSpecification::new_checked(step, aggregation, PriceType::Last)
+            .map_err(|_| NativeReplaySchedulingErrorV1::NativeRepresentation)
+    };
+    let step = u64::from(fact.step());
+    let unit_seconds = match (fact.kind(), fact.unit()) {
+        (BarScheduleKindV1::FixedInterval, BarScheduleUnitV1::Second) => 1,
+        (BarScheduleKindV1::FixedInterval, BarScheduleUnitV1::Minute) => 60,
+        (BarScheduleKindV1::FixedInterval, BarScheduleUnitV1::Hour) => 3_600,
         (BarScheduleKindV1::ExchangeSession, BarScheduleUnitV1::ExchangeSessionDay) => {
-            BarAggregation::Day
+            return named(step, BarAggregation::Day);
         }
         _ => return Err(NativeReplaySchedulingErrorV1::OwnerBindingMismatch),
     };
-    let step = usize::try_from(fact.step())
-        .map_err(|_| NativeReplaySchedulingErrorV1::NativeRepresentation)?;
-    BarSpecification::new_checked(step, aggregation, PriceType::Last)
-        .map_err(|_| NativeReplaySchedulingErrorV1::NativeRepresentation)
-}
+    let unit = match fact.unit() {
+        BarScheduleUnitV1::Second => BarAggregation::Second,
+        BarScheduleUnitV1::Minute => BarAggregation::Minute,
+        _ => BarAggregation::Hour,
+    };
 
-fn schedule_timeframe(fact: &super::bar_schedule::BarScheduleFactV1) -> String {
-    schedule_timeframe_label_v1(fact.unit(), fact.step())
-}
-
-const fn schedule_unit_suffix_v1(unit: BarScheduleUnitV1) -> &'static str {
-    match unit {
-        BarScheduleUnitV1::Second => "S",
-        BarScheduleUnitV1::Minute => "M",
-        BarScheduleUnitV1::Hour => "H",
-        BarScheduleUnitV1::ExchangeSessionDay => "D",
+    if fact.clock() != BarScheduleClockV1::Continuous
+        || fact.anchor_identity() != anchor_identity_v1(DeclaredBarAnchorV1::UnixEpoch)
+    {
+        return named(step, unit);
     }
-}
-
-/// The timeframe label a schedule of `unit` and `step` answers to, as the scheduling read compares
-/// it with a request's.
-fn schedule_timeframe_label_v1(unit: BarScheduleUnitV1, step: u32) -> String {
-    format!("{step}{}", schedule_unit_suffix_v1(unit))
-}
-
-/// The one schedule shape whose label is `label`, the inverse of [`schedule_timeframe`].
-///
-/// A candidate is accepted only when rendering it gives `label` back, so a label no schedule
-/// renders - `01D`, `1d`, `0H`, or a fixed-interval day, which no schedule unit can state - answers
-/// nothing.
-#[cfg(any(test, feature = "sealed-strategy-input-acceptance"))]
-pub(crate) fn schedule_shape_for_timeframe_v1(
-    label: &str,
-) -> Option<(BarScheduleKindV1, BarScheduleUnitV1, u32)> {
+    let seconds = step
+        .checked_mul(unit_seconds)
+        .ok_or(NativeReplaySchedulingErrorV1::NativeRepresentation)?;
     [
-        (BarScheduleKindV1::FixedInterval, BarScheduleUnitV1::Second),
-        (BarScheduleKindV1::FixedInterval, BarScheduleUnitV1::Minute),
-        (BarScheduleKindV1::FixedInterval, BarScheduleUnitV1::Hour),
-        (
-            BarScheduleKindV1::ExchangeSession,
-            BarScheduleUnitV1::ExchangeSessionDay,
-        ),
+        (86_400, BarAggregation::Day),
+        (3_600, BarAggregation::Hour),
+        (60, BarAggregation::Minute),
+        (1, BarAggregation::Second),
     ]
     .into_iter()
-    .find_map(|(kind, unit)| {
-        let step: u32 = label
-            .strip_suffix(schedule_unit_suffix_v1(unit))?
-            .parse()
-            .ok()?;
-        (step > 0
-            && (kind == BarScheduleKindV1::FixedInterval || step == 1)
-            && schedule_timeframe_label_v1(unit, step) == label)
-            .then_some((kind, unit, step))
-    })
+    .filter(|(unit_seconds, _)| seconds.is_multiple_of(*unit_seconds))
+    .find_map(|(unit_seconds, aggregation)| named(seconds / unit_seconds, aggregation).ok())
+    .ok_or(NativeReplaySchedulingErrorV1::NativeRepresentation)
 }
 
 fn project_bar(
@@ -1306,11 +1376,17 @@ pub(crate) mod tests {
     use super::*;
     use crate::owner::pit_snapshot::UnverifiedBatchFieldsForTest;
     use crate::owner::{
-        bar_schedule::{BarScheduleCutV1, BarScheduleFactV1, BarScheduleReceiptV1},
+        bar_schedule::{BarScheduleCutV1, BarScheduleReceiptV1},
+        declared_bar_timeframe_v1::declared_bar_timeframe_for_test_v1,
         pit_snapshot::{
             UntrustedCorrectionPublicationTime, UntrustedEventEffectiveTime,
             UntrustedPitSnapshotTimeEvidence, UntrustedProviderAvailableTime,
             UntrustedRetrievalTime, UntrustedSnapshotDecisionCut,
+        },
+        source_binding::{
+            UntrustedSourceBarAnchorV1, UntrustedSourceBarCadenceV1, UntrustedSourceBarClockV1,
+            UntrustedSourceBarCompletionV1, UntrustedSourceBarLabelV1,
+            UntrustedSourceBarTimeframeV1, UntrustedSourceBarUnitV1,
         },
     };
 
@@ -1469,6 +1545,32 @@ pub(crate) mod tests {
         })
     }
 
+    /// The bar every fixture schedule states: what the fixture batches' Source Binding declares for
+    /// its `1M` rows.
+    pub(crate) fn declared_minute() -> DeclaredBarTimeframeV1 {
+        declared_minute_for(digest(19))
+    }
+
+    /// The same one-minute bar, declared by the binding fact `binding_fact_digest`.
+    pub(crate) fn declared_minute_for(
+        binding_fact_digest: BindingDigest,
+    ) -> DeclaredBarTimeframeV1 {
+        declared_bar_timeframe_for_test_v1(
+            binding_fact_digest,
+            &UntrustedSourceBarTimeframeV1 {
+                row_timeframe: "1M".to_owned(),
+                cadence: UntrustedSourceBarCadenceV1::FixedInterval {
+                    step: 1,
+                    unit: UntrustedSourceBarUnitV1::Minute,
+                },
+                anchor: UntrustedSourceBarAnchorV1::SessionOpen,
+                clock: UntrustedSourceBarClockV1::ScheduleBounded,
+                label: UntrustedSourceBarLabelV1::IntervalClose,
+                completion: UntrustedSourceBarCompletionV1::CompleteOnly,
+            },
+        )
+    }
+
     fn schedule(instrument: &str, identity: u8) -> BarScheduleReadbackV1 {
         schedule_at(instrument, identity, 100)
     }
@@ -1527,7 +1629,7 @@ pub(crate) mod tests {
             kind: BarScheduleKindV1::FixedInterval,
             step: 1,
             unit: BarScheduleUnitV1::Minute,
-            anchor_identity: digest(30),
+            anchor_identity: anchor_identity_v1(DeclaredBarAnchorV1::SessionOpen),
             calendar_identity: digest(31),
             session_identity: digest(32),
             time_zone_identity: digest(33),
@@ -1640,6 +1742,7 @@ pub(crate) mod tests {
                 schedule_at("AAA-PERP.SIM", 40, frame_time_ns),
                 schedule_at("BBB-PERP.SIM", 41, frame_time_ns),
             ],
+            declared_minute(),
             &request,
         )
         .expect("exact initial Market Data readback")
@@ -1695,7 +1798,7 @@ pub(crate) mod tests {
                 vec![schedule_at("AAA-PERP.SIM", 40, 100)],
                 &verified,
                 instrument,
-                "1M",
+                &declared_minute(),
                 100,
             )
             .map(|selected| selected.digest()),
@@ -1708,7 +1811,7 @@ pub(crate) mod tests {
                 vec![schedule_at("AAA-PERP.SIM", 40, 160)],
                 &verified,
                 instrument,
-                "1M",
+                &declared_minute(),
                 100,
             )
             .err(),
@@ -1724,7 +1827,7 @@ pub(crate) mod tests {
                 ],
                 &verified,
                 instrument,
-                "1M",
+                &declared_minute(),
                 100,
             )
             .err(),
@@ -1737,7 +1840,7 @@ pub(crate) mod tests {
                 vec![schedule_at("BBB-PERP.SIM", 41, 100)],
                 &verified,
                 instrument,
-                "1M",
+                &declared_minute(),
                 100,
             )
             .err(),
@@ -1766,6 +1869,7 @@ pub(crate) mod tests {
             frame,
             quote_cut,
             two_schedules(),
+            &declared_minute(),
             two_members(),
             100,
             200,
@@ -1861,6 +1965,7 @@ pub(crate) mod tests {
             frame,
             quote_cut,
             vec![schedule("AAA-PERP.SIM", 40)],
+            &declared_minute(),
             vec![member],
             100,
             200,
@@ -1900,6 +2005,7 @@ pub(crate) mod tests {
                 frame.clone(),
                 quote_cut.clone(),
                 schedules,
+                &declared_minute(),
                 members,
                 100,
                 200,
@@ -1940,6 +2046,7 @@ pub(crate) mod tests {
             frame,
             quote_cut,
             two_schedules(),
+            &declared_minute(),
             two_members(),
             100,
             200,
@@ -1993,6 +2100,7 @@ pub(crate) mod tests {
                 frame.clone(),
                 quote_cut,
                 two_schedules(),
+                &declared_minute(),
                 two_members(),
                 100,
                 200,
@@ -2081,6 +2189,7 @@ pub(crate) mod tests {
             batch,
             quote_cut,
             [schedule("AAA-PERP.SIM", 40), schedule("BBB-PERP.SIM", 41)],
+            declared_minute(),
             &request,
         )
         .expect("exact initial Market Data readback");
@@ -2099,6 +2208,7 @@ pub(crate) mod tests {
                 frame,
                 at_window_end,
                 [schedule("AAA-PERP.SIM", 40), schedule("BBB-PERP.SIM", 41)],
+                declared_minute(),
                 &request,
             )
             .map(|_| ())
@@ -2160,6 +2270,7 @@ pub(crate) mod tests {
                 batch,
                 quote_cut,
                 vec![schedule("AAA-PERP.SIM", 40), schedule("BBB-PERP.SIM", 41)],
+                declared_minute(),
                 &request,
             )
             .unwrap_err(),
@@ -2183,6 +2294,7 @@ pub(crate) mod tests {
                 frame,
                 quote_cut,
                 two_schedules(),
+                &declared_minute(),
                 two_members(),
                 100,
                 200,
@@ -2210,12 +2322,425 @@ pub(crate) mod tests {
                 frame,
                 quote_cut,
                 two_schedules(),
+                &declared_minute(),
                 two_members(),
                 100,
                 200,
             )
             .unwrap_err(),
             NativeReplaySchedulingErrorV1::FieldCensusMismatch
+        );
+    }
+
+    /// A fixture schedule restated as one typed bar, at the fixture frame on the batch's
+    /// coordinates. A continuous clock binds no calendar and no session.
+    fn schedule_shaped(
+        instrument: &str,
+        identity: u8,
+        (kind, unit, step): (BarScheduleKindV1, BarScheduleUnitV1, u32),
+        anchor: DeclaredBarAnchorV1,
+        clock: BarScheduleClockV1,
+    ) -> BarScheduleReadbackV1 {
+        let mut schedule = schedule_at(instrument, identity, 100);
+        schedule.fact.kind = kind;
+        schedule.fact.unit = unit;
+        schedule.fact.step = step;
+        schedule.fact.anchor_identity = anchor_identity_v1(anchor);
+
+        if clock == BarScheduleClockV1::Continuous {
+            schedule.fact.calendar_identity = BindingDigest::from_untrusted_bytes([0; 32]);
+            schedule.fact.session_identity = BindingDigest::from_untrusted_bytes([0; 32]);
+        }
+        schedule
+    }
+
+    /// What a Binance USD-M perpetual's `1d` klines are: a 24-hour bar on a continuous clock from
+    /// the Unix epoch, which is the shape Strategy Factory slice F declares.
+    fn declared_utc_day() -> DeclaredBarTimeframeV1 {
+        declared_bar_timeframe_for_test_v1(
+            digest(19),
+            &UntrustedSourceBarTimeframeV1 {
+                row_timeframe: "1D".to_owned(),
+                cadence: UntrustedSourceBarCadenceV1::FixedInterval {
+                    step: 24,
+                    unit: UntrustedSourceBarUnitV1::Hour,
+                },
+                anchor: UntrustedSourceBarAnchorV1::UnixEpoch,
+                clock: UntrustedSourceBarClockV1::Continuous,
+                label: UntrustedSourceBarLabelV1::IntervalClose,
+                completion: UntrustedSourceBarCompletionV1::CompleteOnly,
+            },
+        )
+    }
+
+    fn native_name(
+        schedule: &BarScheduleReadbackV1,
+    ) -> Result<String, NativeReplaySchedulingErrorV1> {
+        native_bar_specification_v1(schedule.fact()).map(|specification| specification.to_string())
+    }
+
+    /// The engine admits a periodic step only and asks for the next unit when a step fills one; a
+    /// fixed interval from the Unix epoch on a continuous clock is named in the largest unit that
+    /// divides it and that the engine admits, or refused when none does.
+    #[rstest::rstest]
+    #[case(BarScheduleUnitV1::Second, 1, Ok("1-SECOND-LAST"))]
+    #[case(BarScheduleUnitV1::Minute, 5, Ok("5-MINUTE-LAST"))]
+    #[case(BarScheduleUnitV1::Minute, 60, Ok("1-HOUR-LAST"))]
+    #[case(BarScheduleUnitV1::Minute, 120, Ok("2-HOUR-LAST"))]
+    #[case(BarScheduleUnitV1::Hour, 24, Ok("1-DAY-LAST"))]
+    #[case(BarScheduleUnitV1::Hour, 48, Ok("2-DAY-LAST"))]
+    #[case(
+        BarScheduleUnitV1::Minute,
+        90,
+        Err(NativeReplaySchedulingErrorV1::NativeRepresentation)
+    )]
+    #[case(
+        BarScheduleUnitV1::Hour,
+        5,
+        Err(NativeReplaySchedulingErrorV1::NativeRepresentation)
+    )]
+    fn a_continuous_epoch_bar_is_named_in_the_largest_unit_the_engine_admits(
+        #[case] unit: BarScheduleUnitV1,
+        #[case] step: u32,
+        #[case] expected: Result<&str, NativeReplaySchedulingErrorV1>,
+    ) {
+        let schedule = schedule_shaped(
+            "AAA-PERP.SIM",
+            40,
+            (BarScheduleKindV1::FixedInterval, unit, step),
+            DeclaredBarAnchorV1::UnixEpoch,
+            BarScheduleClockV1::Continuous,
+        );
+
+        assert_eq!(native_name(&schedule).as_deref().map_err(|e| *e), expected);
+    }
+
+    /// Off the epoch grid a bar keeps its own unit: a session-bounded interval is not renamed, and
+    /// an exchange session day is named `DAY`, the stated limitation of an engine without sessions.
+    #[rstest::rstest]
+    fn a_scheduled_bar_keeps_its_own_unit() {
+        let session_hour = schedule_shaped(
+            "AAA-PERP.SIM",
+            40,
+            (BarScheduleKindV1::FixedInterval, BarScheduleUnitV1::Hour, 1),
+            DeclaredBarAnchorV1::SessionOpen,
+            BarScheduleClockV1::ScheduleBounded,
+        );
+        let session_sixty_minutes = schedule_shaped(
+            "AAA-PERP.SIM",
+            40,
+            (
+                BarScheduleKindV1::FixedInterval,
+                BarScheduleUnitV1::Minute,
+                60,
+            ),
+            DeclaredBarAnchorV1::SessionOpen,
+            BarScheduleClockV1::ScheduleBounded,
+        );
+        let session_day = schedule_shaped(
+            "AAA-PERP.SIM",
+            40,
+            (
+                BarScheduleKindV1::ExchangeSession,
+                BarScheduleUnitV1::ExchangeSessionDay,
+                1,
+            ),
+            DeclaredBarAnchorV1::SessionOpen,
+            BarScheduleClockV1::ScheduleBounded,
+        );
+
+        assert_eq!(native_name(&session_hour).as_deref(), Ok("1-HOUR-LAST"));
+        assert_eq!(
+            native_name(&session_sixty_minutes),
+            Err(NativeReplaySchedulingErrorV1::NativeRepresentation)
+        );
+        assert_eq!(native_name(&session_day).as_deref(), Ok("1-DAY-LAST"));
+    }
+
+    /// Slice F's perpetual: the schedule a declared 24-hour UTC bar selects states that bar field by
+    /// field, and the engine names it `1-DAY`.
+    #[rstest::rstest]
+    fn a_perpetual_utc_day_selects_the_schedule_that_states_it() {
+        let verified = two_member_frame();
+        let utc_day = schedule_shaped(
+            "AAA-PERP.SIM",
+            40,
+            (
+                BarScheduleKindV1::FixedInterval,
+                BarScheduleUnitV1::Hour,
+                24,
+            ),
+            DeclaredBarAnchorV1::UnixEpoch,
+            BarScheduleClockV1::Continuous,
+        );
+        let selected = select_native_replay_schedule_v1(
+            vec![utc_day],
+            &verified,
+            InstrumentId::from("AAA-PERP.SIM"),
+            &declared_utc_day(),
+            100,
+        )
+        .expect("the declared bar's schedule");
+        let fact = selected.fact();
+        let zero = BindingDigest::from_untrusted_bytes([0; 32]);
+
+        assert_eq!(fact.kind(), BarScheduleKindV1::FixedInterval);
+        assert_eq!(fact.unit(), BarScheduleUnitV1::Hour);
+        assert_eq!(fact.step(), 24);
+        assert_eq!(
+            fact.anchor_identity(),
+            anchor_identity_v1(DeclaredBarAnchorV1::UnixEpoch)
+        );
+        assert_eq!(fact.clock(), BarScheduleClockV1::Continuous);
+        assert_eq!(fact.calendar_identity(), zero);
+        assert_eq!(fact.session_identity(), zero);
+        assert_ne!(fact.time_zone_identity(), zero);
+        assert_eq!(fact.label(), BarScheduleLabelV1::IntervalClose);
+        assert_eq!(fact.completion(), BarScheduleCompletionV1::CompleteOnly);
+        assert_eq!(native_name(&selected).as_deref(), Ok("1-DAY-LAST"));
+    }
+
+    /// The exchange-session day a label `1D` once implied is a schedule that exists and states
+    /// another bar: under a declared 24-hour UTC bar it is refused by name, not taken and not
+    /// reported missing.
+    #[rstest::rstest]
+    fn the_session_day_a_label_once_implied_is_refused_under_a_utc_day() {
+        let verified = two_member_frame();
+        let session_day = schedule_shaped(
+            "AAA-PERP.SIM",
+            40,
+            (
+                BarScheduleKindV1::ExchangeSession,
+                BarScheduleUnitV1::ExchangeSessionDay,
+                1,
+            ),
+            DeclaredBarAnchorV1::SessionOpen,
+            BarScheduleClockV1::ScheduleBounded,
+        );
+
+        assert_eq!(
+            select_native_replay_schedule_v1(
+                vec![session_day],
+                &verified,
+                InstrumentId::from("AAA-PERP.SIM"),
+                &declared_utc_day(),
+                100,
+            )
+            .err(),
+            Some(NativeReplaySchedulingErrorV1::DeclaredBarTimeframeMismatch)
+        );
+        assert_eq!(
+            select_native_replay_schedule_v1(
+                Vec::new(),
+                &verified,
+                InstrumentId::from("AAA-PERP.SIM"),
+                &declared_utc_day(),
+                100,
+            )
+            .err(),
+            Some(NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable),
+            "with no schedule at the frame at all, the schedule is missing rather than wrong"
+        );
+
+        // A 24-hour bar that differs from the declaration in its anchor alone, or in its clock
+        // alone, is another bar too.
+        for (anchor, clock) in [
+            (
+                DeclaredBarAnchorV1::SessionOpen,
+                BarScheduleClockV1::Continuous,
+            ),
+            (
+                DeclaredBarAnchorV1::UnixEpoch,
+                BarScheduleClockV1::ScheduleBounded,
+            ),
+        ] {
+            let other = schedule_shaped(
+                "AAA-PERP.SIM",
+                40,
+                (
+                    BarScheduleKindV1::FixedInterval,
+                    BarScheduleUnitV1::Hour,
+                    24,
+                ),
+                anchor,
+                clock,
+            );
+            assert_eq!(
+                select_native_replay_schedule_v1(
+                    vec![other],
+                    &verified,
+                    InstrumentId::from("AAA-PERP.SIM"),
+                    &declared_utc_day(),
+                    100,
+                )
+                .err(),
+                Some(NativeReplaySchedulingErrorV1::DeclaredBarTimeframeMismatch),
+                "{anchor:?} {clock:?}"
+            );
+        }
+    }
+
+    /// And the other way round: once the declaration says exchange session day, the 24-hour UTC
+    /// bar a perpetual's `1d` klines are is another bar, refused by name, while the same schedule
+    /// under the UTC-day declaration is selected.
+    #[rstest::rstest]
+    fn a_utc_day_is_refused_under_a_declared_session_day() {
+        let verified = two_member_frame();
+        let utc_day = || {
+            schedule_shaped(
+                "AAA-PERP.SIM",
+                40,
+                (
+                    BarScheduleKindV1::FixedInterval,
+                    BarScheduleUnitV1::Hour,
+                    24,
+                ),
+                DeclaredBarAnchorV1::UnixEpoch,
+                BarScheduleClockV1::Continuous,
+            )
+        };
+        let declared_session_day = declared_bar_timeframe_for_test_v1(
+            digest(19),
+            &UntrustedSourceBarTimeframeV1 {
+                row_timeframe: "1D".to_owned(),
+                cadence: UntrustedSourceBarCadenceV1::ExchangeSessionDay,
+                anchor: UntrustedSourceBarAnchorV1::SessionOpen,
+                clock: UntrustedSourceBarClockV1::ScheduleBounded,
+                label: UntrustedSourceBarLabelV1::IntervalClose,
+                completion: UntrustedSourceBarCompletionV1::CompleteOnly,
+            },
+        );
+
+        assert!(
+            select_native_replay_schedule_v1(
+                vec![utc_day()],
+                &verified,
+                InstrumentId::from("AAA-PERP.SIM"),
+                &declared_utc_day(),
+                100,
+            )
+            .is_ok()
+        );
+        assert_eq!(
+            select_native_replay_schedule_v1(
+                vec![utc_day()],
+                &verified,
+                InstrumentId::from("AAA-PERP.SIM"),
+                &declared_session_day,
+                100,
+            )
+            .err(),
+            Some(NativeReplaySchedulingErrorV1::DeclaredBarTimeframeMismatch)
+        );
+    }
+
+    /// A declaration speaks for its own binding's batch only.
+    #[rstest::rstest]
+    fn another_bindings_declaration_selects_and_seals_nothing() {
+        let verified = two_member_frame();
+        let foreign = declared_minute_for(digest(99));
+
+        assert_eq!(
+            select_native_replay_schedule_v1(
+                vec![schedule_at("AAA-PERP.SIM", 40, 100)],
+                &verified,
+                InstrumentId::from("AAA-PERP.SIM"),
+                &foreign,
+                100,
+            )
+            .err(),
+            Some(NativeReplaySchedulingErrorV1::DeclaredBarTimeframeMismatch)
+        );
+        let quote_cut = quote_cut_for(&verified, &["AAA-PERP.SIM", "BBB-PERP.SIM"], 101);
+        assert_eq!(
+            seal_native_replay_scheduling_v1(
+                verified,
+                quote_cut,
+                two_schedules(),
+                &foreign,
+                two_members(),
+                100,
+                200,
+            )
+            .map(|_| ())
+            .unwrap_err(),
+            NativeReplaySchedulingErrorV1::DeclaredBarTimeframeMismatch
+        );
+    }
+
+    /// The seal takes only schedules that state the declared bar, so a schedule selected any other
+    /// way cannot be sealed.
+    #[rstest::rstest]
+    fn a_schedule_of_another_bar_is_not_sealed() {
+        let frame = two_member_frame();
+        let quote_cut = quote_cut_for(&frame, &["AAA-PERP.SIM", "BBB-PERP.SIM"], 101);
+
+        assert_eq!(
+            seal_native_replay_scheduling_v1(
+                frame,
+                quote_cut,
+                two_schedules(),
+                &declared_utc_day(),
+                two_members(),
+                100,
+                200,
+            )
+            .map(|_| ())
+            .unwrap_err(),
+            NativeReplaySchedulingErrorV1::DeclaredBarTimeframeMismatch
+        );
+    }
+
+    /// A schedule's native bar type has one implementation: the frame's seal and an acceptance
+    /// asserting a schedule's name get the same bar type for the same schedule, and the seal adds
+    /// only that the schedule is the frame's.
+    #[rstest::rstest]
+    fn the_seal_and_the_public_name_agree_on_every_schedule() {
+        let frame = two_member_frame();
+        let instrument = InstrumentId::from("AAA-PERP.SIM");
+        let utc_day = schedule_shaped(
+            "AAA-PERP.SIM",
+            40,
+            (
+                BarScheduleKindV1::FixedInterval,
+                BarScheduleUnitV1::Hour,
+                24,
+            ),
+            DeclaredBarAnchorV1::UnixEpoch,
+            BarScheduleClockV1::Continuous,
+        );
+
+        for schedule in [schedule_at("AAA-PERP.SIM", 40, 100), utc_day] {
+            assert_eq!(
+                validated_bar_type(&schedule, &frame, instrument, 100),
+                native_bar_type_for_schedule_v1(schedule.fact(), instrument)
+            );
+        }
+        let utc_day = schedule_shaped(
+            "AAA-PERP.SIM",
+            40,
+            (
+                BarScheduleKindV1::FixedInterval,
+                BarScheduleUnitV1::Hour,
+                24,
+            ),
+            DeclaredBarAnchorV1::UnixEpoch,
+            BarScheduleClockV1::Continuous,
+        );
+        assert_eq!(
+            native_bar_type_for_schedule_v1(utc_day.fact(), instrument).map(|bar| bar.to_string()),
+            Ok("AAA-PERP.SIM-1-DAY-LAST-EXTERNAL".to_owned())
+        );
+
+        let elsewhere = schedule_at("AAA-PERP.SIM", 40, 160);
+        assert_eq!(
+            validated_bar_type(&elsewhere, &frame, instrument, 100),
+            Err(NativeReplaySchedulingErrorV1::OwnerBindingMismatch),
+            "the seal refuses a schedule that is not the frame's"
+        );
+        assert!(
+            native_bar_type_for_schedule_v1(elsewhere.fact(), instrument).is_ok(),
+            "while the name is the schedule's alone"
         );
     }
 }

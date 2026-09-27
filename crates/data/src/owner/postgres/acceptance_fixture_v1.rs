@@ -21,7 +21,10 @@ use crate::owner::{
         BindingDigest, MarketDataClockAdmission, UntrustedAdapterBinding,
         UntrustedCompleteFrontier, UntrustedCredentialAudienceClaim,
         UntrustedCredentialCapabilityClaim, UntrustedLicensePolicy, UntrustedMarketDataAsOf,
-        UntrustedMarketSemantics, UntrustedOpaqueCredentialHandle, UntrustedSourceBindingProposal,
+        UntrustedMarketSemantics, UntrustedOpaqueCredentialHandle,
+        UntrustedSourceAvailabilityRuleV1, UntrustedSourceBarAnchorV1, UntrustedSourceBarCadenceV1,
+        UntrustedSourceBarClockV1, UntrustedSourceBarCompletionV1, UntrustedSourceBarLabelV1,
+        UntrustedSourceBarTimeframeV1, UntrustedSourceBindingProposal, UntrustedSourceVisibilityV1,
         UntrustedTrustPolicy,
         authority::{
             derive_binding_id, derive_market_semantics_compatibility_identity_v1,
@@ -32,6 +35,41 @@ use crate::owner::{
 
 pub(super) fn d(byte: u8) -> BindingDigest {
     BindingDigest::from_untrusted_bytes([byte; 32])
+}
+
+/// `proposal` restated as the schema-2 binding of a source that serves the BAR rows `bars` declare,
+/// with its claimed identities derived again. A schedule is then chosen by these declarations,
+/// never by a row label.
+pub(super) fn declaring_bars_v1(
+    mut proposal: UntrustedSourceBindingProposal,
+    bars: Vec<UntrustedSourceBarTimeframeV1>,
+) -> UntrustedSourceBindingProposal {
+    proposal.schema_version = 2;
+    proposal.availability_rule = Some(UntrustedSourceAvailabilityRuleV1 {
+        visibility: UntrustedSourceVisibilityV1::AfterBarClose { lag_ns: 0 },
+        publishes_corrections: true,
+    });
+    proposal.bar_timeframes = bars;
+    proposal.time_evidence.claimed_evidence_identity =
+        derive_time_evidence_identity(&proposal.time_evidence);
+    proposal.claimed_binding_id = derive_binding_id(&proposal);
+    proposal
+}
+
+/// An exchange-listed instrument's bar of `cadence` on its trading schedule, from the session
+/// open, whose rows carry `row_timeframe`.
+pub(super) fn session_bar_v1(
+    row_timeframe: &str,
+    cadence: UntrustedSourceBarCadenceV1,
+) -> UntrustedSourceBarTimeframeV1 {
+    UntrustedSourceBarTimeframeV1 {
+        row_timeframe: row_timeframe.to_owned(),
+        cadence,
+        anchor: UntrustedSourceBarAnchorV1::SessionOpen,
+        clock: UntrustedSourceBarClockV1::ScheduleBounded,
+        label: UntrustedSourceBarLabelV1::IntervalClose,
+        completion: UntrustedSourceBarCompletionV1::CompleteOnly,
+    }
 }
 
 /// The test clock names itself in the 32-byte width the Instrument Master codec binds, exactly as
@@ -89,6 +127,8 @@ pub(super) fn fixture_market_semantics_identity_v1() -> BindingDigest {
 pub(super) fn source_proposal(sequence: u64, cut: u64) -> UntrustedSourceBindingProposal {
     let successor = sequence > 10;
     let mut proposal = UntrustedSourceBindingProposal {
+        availability_rule: None,
+        bar_timeframes: Vec::new(),
         claimed_binding_id: d(0),
         schema_version: 1,
         adapter: UntrustedAdapterBinding {
@@ -269,6 +309,6 @@ pub(super) fn market_base_pit_time_v1(
         skew_bound: clock.skew_bound,
         uncertainty_bound: clock.uncertainty_bound,
         observed_at: 100,
-        valid_through: 160,
+        valid_through: clock.valid_through,
     }
 }

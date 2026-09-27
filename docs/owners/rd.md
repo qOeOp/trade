@@ -193,6 +193,18 @@ ordered chain's acceptance build admits nothing in production.
   V2), and a Market Data repair re-entry whose predecessor is a composer-backed Replay is refused by name,
   `MARKET_DATA_REPAIR_OF_COMPOSER_V3_REPLAY_AWAITS_DESIGN`, because the re-entry forms its successor from the
   policy window.
+- **CURRENT - how Native Replay preparation reads a composer-backed Replay's Research custody:** as the Replay
+  committed it, not as the current custody reads. The commit moves the Research View from IntentFrozen to the
+  schema 3 View that names the Replay, and records the move as an append-only transition, so a read that wants the
+  current custody to still be IntentFrozen refuses every committed Replay. Preparation therefore admits a native
+  Composer View only as that transition's new View, and reads the Composer operation over the transition's old
+  View, the way the Replay's own readback does (`read_accepted_for_replay_historical_in_transaction`), in the
+  issuance transaction. A current View that a later Replay has moved on is refused by name,
+  `native Composer Research View has moved past this Replay`: once a second Replay commits on the same Research,
+  the first can no longer be prepared. No Research reaches a second one today, because the commit requires the IntentFrozen View it
+  moves and a successor waits for the Decision composition below. Revisit this rule when the Decision composition
+  or successor iteration is admitted. A build without the COMPOSER_V3 routes refuses a native Composer View by
+  name.
 - **CURRENT - one read-only operation is reachable only through the write API:** the Dashboard's operation
   registry declares eleven Owner routes, and ten are `GET`. The eleventh,
   `research_goal.legacy_quarantine_read.v1`, declares `effect_set: []` and resolves to
@@ -367,6 +379,26 @@ route end to end on the hosted Linux runner
 invent the Design: the contract below states who authors it. Everything downstream of it exists: the
 production commit function, the store, the writer, the two build-receipt relations, and the production
 binding seam.
+
+**A committed Composer run reads back at the View it ran under.** In the transaction that commits
+it, the run records two facts of that operation beside its receipt: the Research View it ran under
+and the Owner read cut it ran at. Nothing rewrites them. `GET /v2/develop-composer/runs/{request_identity}/readback`
+re-derives the stored positive record against that View at that cut and relocks the Market Data
+bindings at that cut, so the run stays readable after its Research View has expired or has moved to
+`ARTIFACT_AVAILABLE` or `EXPLORATION_ACTIVE`. A View expires ten minutes after its projection and
+nothing refreshes it, so without the record every run became unreadable within ten minutes of its
+Research request's acceptance. The recorded View is not trusted as written. The Research artifact
+evidence must have been sealed for it (`rd_owner_api.lock_research_for_artifact_at_view_v1`), the
+stored View must be a legal descendant of it, the cut must lie inside its validity window, and the
+operation receipt's Research custody digest must equal the one rebuilt from it. The first three
+failures answer `UNAVAILABLE` at their own coordinates under `research_custody.run_view`; a differing
+digest answers at the existing `operation_receipt` coordinate. A row committed before the
+record existed carries neither fact: it keeps the read against the current View, and once that View
+is no longer current it answers at `research_custody.run_view_unrecorded`, which
+states why the row cannot be read instead of implying that the run is gone. The migration adds the two
+columns by reading the catalog shape first; they freeze when the migration is deployed, not when it
+merges. The run itself still requires a current View, so a Research request can be composed only
+within ten minutes of its acceptance; that bound belongs to the run, not to this readback.
 
 **CURRENT/PARTIAL - the first cycle now has something to stand on.** Sealing the corpus run leaves
 `run_bounded_feature_program` as the only production entry, and it requires a frozen joint program.
@@ -647,7 +679,12 @@ generator that produced them was measured to be reproducing work that already ex
 slice adds is therefore less than the code it removes. It introduces no new primitive and no execution
 path, and what it emits is checked by the same contract that checks a hand-written declaration. The
 single-threshold author is its first product and stays byte-for-byte what it is; the authoring language
-below is admitted on the same terms and makes that family one of its special cases.
+below is admitted on the same terms and makes that family one of its special cases. Its bytes changed once
+since, on purpose: a side's reconciliation target reads that side's target position, because the kernel
+requires a position target and its reconciliation target to be equal, and the single constant of 0 both sides
+once shared made every program whose sides held different positions unrunnable - the target-set Host refused its
+entry side before the first order. A program frozen from the old bytes could never have run, and it is now
+outside the family.
 
 **IMPLEMENTATION_ADMITTED - authoring language V1:** a document a proposer writes, compiled by a pure
 function into the `design` and `meaning` pair and nothing further. Nothing implements it at this cut, and

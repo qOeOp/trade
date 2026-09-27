@@ -2731,9 +2731,10 @@ fn trial_family_storage(error: &TrialFamilyError) -> ResearchGoalOwnerError {
 }
 
 #[cfg(test)]
-mod v2_sealing_tests {
+pub(crate) mod v2_sealing_tests {
     use super::*;
     use rstest::rstest;
+    use vibe_data::owner::shared_time_evidence::{EpochNanosV1, NanosV1};
 
     fn diagnosis_locator() -> ResearchExploratoryDiagnosisLocatorV1 {
         ResearchExploratoryDiagnosisLocatorV1 {
@@ -3099,6 +3100,99 @@ mod v2_sealing_tests {
         );
     }
 
+    /// Pins the schema 2 legacy exploration identity's byte order against the consumer's, through one
+    /// shared file.
+    ///
+    /// The view is the shape the ungated legacy Replay V2 commit writes: an exploration with no
+    /// Composer artifact. Its envelope names the payload `value`, where the v4 envelope names it
+    /// `view`, so the vectors carry the identity that mix-up produces and both sides refuse it.
+    #[rstest]
+    fn legacy_exploration_research_view_identity_matches_the_shared_vectors() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../product/rd-owner-client/fixtures/research_view_identity_vectors_v3.json");
+        let vectors: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(&path).expect("the shared identity vectors"),
+        )
+        .expect("the shared identity vectors parse");
+        let view: ResearchViewV1 =
+            serde_json::from_value(vectors["view"].clone()).expect("the pinned View deserializes");
+        let initial: ResearchViewV1 = serde_json::from_value(vectors["initial_view"].clone())
+            .expect("the pinned initial View deserializes");
+
+        // The vector is a View this side accepts, not merely JSON that happens to hash.
+        crate::rd_owner_postgres_custody::validate_historical_view(&view, &initial)
+            .expect("the pinned View passes the legacy exploration validator");
+        assert!(view.composer_artifact.is_none());
+        assert_eq!(view.schema_version, 2);
+
+        let identity = vectors["identity"].as_str().expect("the pinned identity");
+        assert_eq!(
+            canonical_research_view_identity_v3(&view).expect("the identity derives"),
+            identity
+        );
+        assert_eq!(view.projection_identity, identity);
+        let canonical = vectors["canonical_bytes"]
+            .as_str()
+            .expect("the pinned bytes");
+        assert_eq!(
+            format!(
+                "rd-research-view-v3-{:x}",
+                Sha256::digest(canonical.as_bytes())
+            ),
+            identity,
+            "the pinned bytes are the ones the identity is taken over"
+        );
+
+        for name in ["order_sensitivity", "envelope_key_sensitivity"] {
+            assert_ne!(
+                vectors[name]["identity"].as_str().unwrap(),
+                identity,
+                "{name}"
+            );
+            assert_ne!(
+                vectors[name]["canonical_bytes"].as_str().unwrap(),
+                canonical,
+                "{name}"
+            );
+        }
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(
+                vectors["order_sensitivity"]["canonical_bytes"]
+                    .as_str()
+                    .unwrap()
+            )
+            .expect("transposed parses")["value"],
+            serde_json::from_str::<serde_json::Value>(canonical).expect("canonical parses")["value"],
+            "the transposed vector must carry the same data",
+        );
+
+        // What the consumer's acceptance of this shape protects: a legacy exploration never carries
+        // a Composer, so the same View with one is not a legacy View this validator accepts.
+        let mut with_composer = view;
+        with_composer.composer_artifact = Some(ResearchComposerArtifactViewV3 {
+            artifact_locator: format!("rd-strategy-artifact-v2-{}", "1".repeat(64)),
+            artifact_identity_digest: format!("sha256:{}", "1".repeat(64)),
+            composer_request_identity: "composer-request".into(),
+            composer_operation_receipt_digest: format!("sha256:{}", "2".repeat(64)),
+            artifact_family_binding_identity: format!(
+                "rd-composer-artifact-family-binding-v3-{}",
+                "4".repeat(64)
+            ),
+            artifact_family_binding_digest: format!("sha256:{}", "4".repeat(64)),
+            artifact_family_binding_receipt_identity: format!(
+                "rd-composer-artifact-family-binding-receipt-v3-{}",
+                "7".repeat(64)
+            ),
+            trial_family_identity: "trial-family".into(),
+            census_frontier_identity: "census-frontier".into(),
+            census_frontier_digest: format!("sha256:{}", "5".repeat(64)),
+        });
+        assert!(
+            crate::rd_owner_postgres_custody::validate_historical_view(&with_composer, &initial)
+                .is_err()
+        );
+    }
+
     #[rstest]
     fn owner_projection_becomes_stale_after_its_valid_through_cut() {
         let view = project_research_view_at(&research_view(1_000, 601_000), 601_001);
@@ -3357,7 +3451,10 @@ mod v2_sealing_tests {
         }
     }
 
-    fn research_view(projection_at_epoch_ms: u64, valid_through_epoch_ms: u64) -> ResearchViewV1 {
+    pub(crate) fn research_view(
+        projection_at_epoch_ms: u64,
+        valid_through_epoch_ms: u64,
+    ) -> ResearchViewV1 {
         ResearchViewV1 {
             schema_version: 1,
             projection_identity: "rd-research-view-test-v1".to_string(),
@@ -3563,12 +3660,12 @@ mod v2_sealing_tests {
         MarketDataDecisionCutV1 {
             clock_identity: "market-data-clock-test".to_string(),
             clock_epoch: "epoch-1".to_string(),
-            decision_cut: 1_000,
+            decision_cut: EpochNanosV1::from_epoch_nanos(1_000),
             monotonic_sequence: 7,
             restart_continuity_digest: BindingDigest::from_untrusted_bytes([3; 32]),
-            valid_through: 2_000,
-            uncertainty_bound: 1,
-            skew_bound: 1,
+            valid_through: EpochNanosV1::from_epoch_nanos(2_000),
+            uncertainty_bound: NanosV1::from_nanos(1),
+            skew_bound: NanosV1::from_nanos(1),
         }
     }
 

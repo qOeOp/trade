@@ -1,5 +1,5 @@
 """
-Specs for the ten programs.
+Specs for the declared-meaning corpus.
 
 Each describes only its own graph and declaration; bfp derives the rest.
 
@@ -13,6 +13,8 @@ sys.path.insert(0, str(pathlib.Path(__file__).parent))
 import bfp
 from bfp import ATR
 from bfp import BODY
+from bfp import BSMAX
+from bfp import BSMIN
 from bfp import CMP
 from bfp import CP
 from bfp import DIV
@@ -30,6 +32,8 @@ from bfp import NONE
 from bfp import OS
 from bfp import PD
 from bfp import POS
+from bfp import PRANK
+from bfp import PRANK_TZ
 from bfp import RF
 from bfp import RSI
 from bfp import SEL
@@ -994,11 +998,625 @@ def s1():
     )
 
 
+# ---- catalog version 4: bar counts and a percent rank over one daily channel ----
+RANK_WINDOW = 10
+RANK_CELL = 20 + 324 * RANK_WINDOW
+
+
+def _rank_program(name, nodes, predicate, consts, cells):
+    """
+    Emit one single-channel version 4 program in `s1`'s shape: one daily close, one
+    entry branch, a target-variant constant of its own, and no strategy state cell.
+    """
+    role = ("research.input.close.daily.v1", "1D", "MARKET_DATA.BAR.CLOSE.PRICE.V1", "PRICE", "c")
+    d, p, _ = bfp.base([role])
+    consts = [
+        *consts,
+        {
+            "constant_id": "target-entry-variant",
+            "value": {"kind": "TARGET_VARIANT_V1", "semantic_id": "kernel.target.position.v1"},
+        },
+    ]
+    return bfp.emit(
+        d,
+        p,
+        f"{OUT}/{name}",
+        nodes=nodes,
+        drop_constants={"initial-condition", "threshold"},
+        add_constants=consts,
+        state_cells=[
+            {
+                "state_id": f"st_{node}",
+                "writer_node_id": node,
+                "state_kind": {"kind": "PRIMITIVE"},
+                "initial": "CANONICAL_EMPTY",
+                "max_bytes": RANK_CELL,
+            }
+            for node in cells
+        ],
+        catalog_version=4,
+        state_total=RANK_CELL * len(cells) + 16,
+        branches=[
+            {
+                "priority": 10,
+                "predicate": no(predicate),
+                "overrides": {
+                    "proposal.position-intent.v1": {
+                        "lifecycle_semantic_id": "kernel.position.enter.v1",
+                        "source": co("position"),
+                    },
+                    "proposal.target-variant.v1": {
+                        "lifecycle_semantic_id": "kernel.target.position.v1",
+                        "source": co("target-entry-variant"),
+                    },
+                },
+            },
+        ],
+        bounds={
+            "max_nodes": 8,
+            "max_edges": 48,
+            "max_depth": 4,
+            "max_ports": 16,
+            "max_state_cells": 4,
+            "max_fan_out": 4,
+            "max_constants": 16,
+            "max_state_bytes": RANK_CELL * len(cells) + 16,
+        },
+    )
+
+
+def _window_node(node, primitive, scale, rounding):
+    return op(
+        node,
+        primitive,
+        [bd("value", iv(D))],
+        fx("dimensionless", scale, "WARMING_READY"),
+        {
+            "kind": "WINDOW_AND_OUTPUT_SCALE",
+            "window": RANK_WINDOW,
+            "output_scale": scale,
+            "rounding": rounding,
+        },
+        f"st_{node}",
+        D,
+    )
+
+
+def _rank_constant(constant_id, coefficient):
+    return {
+        "constant_id": constant_id,
+        "value": {
+            "kind": "FIXED_I128",
+            "coefficient": str(coefficient),
+            "unit": "dimensionless",
+            "scale": 2,
+        },
+    }
+
+
+def w1():
+    """
+    Build an up leg with strength: over ten daily closes the highest came after the lowest,
+    and the latest close ranks in the top fifth.
+
+    The first reads both bar counts - the maximum is more recent than the minimum exactly when
+    fewer bars have passed since it - and the second the nearest-rounding percent rank. A
+    Fibonacci retracement is drawn on such a leg, from the low to the later high, which is why
+    the order of the two extrema is a strategy fact rather than a detail.
+    """
+    nodes = [
+        _window_node("since_high", BSMAX, 0, None),
+        _window_node("since_low", BSMIN, 0, None),
+        _window_node("rank", PRANK, 2, "NEAREST_TIES_TO_EVEN"),
+        op(
+            "high_after_low",
+            CMP,
+            [bd("a", no("since_high"), True), bd("b", no("since_low"), True)],
+            bl(),
+            CP("LESS"),
+        ),
+        op(
+            "gated_rank",
+            SEL,
+            [
+                bd("condition", no("high_after_low")),
+                bd("when_true", no("rank"), True),
+                bd("when_false", co("rank-zero")),
+            ],
+            fx("dimensionless", 2),
+            NONE,
+        ),
+        op(
+            "strong",
+            CMP,
+            [bd("a", no("gated_rank")), bd("b", co("rank-floor"))],
+            bl(),
+            CP("GREATER_OR_EQUAL"),
+        ),
+    ]
+    consts = [_rank_constant("rank-floor", 80), _rank_constant("rank-zero", 0)]
+    return _rank_program("w1", nodes, "strong", consts, ["since_high", "since_low", "rank"])
+
+
+def w2():
+    """
+    Build a percentile pullback: the latest daily close ranks in the bottom fifth of the last
+    ten, read with the toward-zero percent rank.
+    """
+    nodes = [
+        _window_node("rank", PRANK_TZ, 2, "TOWARD_ZERO"),
+        op(
+            "weak",
+            CMP,
+            [bd("a", no("rank"), True), bd("b", co("rank-ceiling"))],
+            bl(),
+            CP("LESS_OR_EQUAL"),
+        ),
+    ]
+    return _rank_program("w2", nodes, "weak", [_rank_constant("rank-ceiling", 20)], ["rank"])
+
+
+# ---- a bearish momentum divergence over fixed-point strategy state ----
+PIVOT_ORDER = 2
+DIVERGENCE_RSI_PERIOD = 3
+
+
+def d1():
+    """
+    Build a bearish momentum divergence on the daily close: a newly confirmed order-2 pivot high
+    above the previous one, while RSI at the new pivot is below its value at the previous one.
+
+    A pivot at bar t - k is confirmed at bar t when the close k bars back equals the highest of
+    the last 2k + 1, so the signal comes k bars after the pivot and never earlier. The previous
+    pivot's close and RSI are two fixed-point strategy state cells, each rewritten only on a
+    confirmed pivot; their zero seeds make the first pivot a reference and never a signal.
+
+    The default frame holds a long and the divergence branch exits it, so the two frames differ
+    in what they emit and a run shows exactly which bars the branch took.
+    """
+    k = PIVOT_ORDER
+    role = ("research.input.close.daily.v1", "1D", "MARKET_DATA.BAR.CLOSE.PRICE.V1", "PRICE", "c")
+    d, p, hexes = bfp.base([role])
+    rsi_state = 384 + 20 + 324 * (DIVERGENCE_RSI_PERIOD + 1)
+    lag_state = 20 + 324 * (k + 1)
+    max_state = 20 + 324 * (2 * k + 1)
+
+    def fixed(constant_id, unit):
+        return {
+            "constant_id": constant_id,
+            "value": {"kind": "FIXED_I128", "coefficient": "0", "unit": unit, "scale": 2},
+        }
+
+    def signal(node, condition, when_true):
+        return op(
+            node,
+            SEL,
+            [bd("condition", condition), bd("when_true", when_true), bd("when_false", co("zero"))],
+            fx("SIGNAL", 0),
+            NONE,
+        )
+
+    nodes = [
+        op(
+            "rsi",
+            RSI,
+            [bd("value", iv(D))],
+            fx("dimensionless", 2, "WARMING_READY"),
+            POS(DIVERGENCE_RSI_PERIOD, 2),
+            "st_rsi",
+            D,
+        ),
+        op(
+            "lag_close",
+            LAG,
+            [bd("value", iv(D))],
+            [*fx("PRICE", 2, "WARMING_READY"), coord_port(hexes[D])],
+            LG(k, k),
+            "st_lag_close",
+            D,
+        ),
+        op(
+            "max_close",
+            MAX,
+            [bd("value", iv(D))],
+            fx("PRICE", 2, "WARMING_READY"),
+            WD(2 * k + 1),
+            "st_max_close",
+            D,
+        ),
+        op(
+            "lag_rsi",
+            LAG,
+            [bd("value", no("rsi"), True)],
+            [*fx("dimensionless", 2, "WARMING_READY"), coord_port(hexes[D])],
+            LG(k, k),
+            "st_lag_rsi",
+            D,
+        ),
+        op(
+            "pivot",
+            CMP,
+            [bd("a", no("lag_close"), True), bd("b", no("max_close"), True)],
+            bl(),
+            CP("EQUAL"),
+        ),
+        op(
+            "higher_close",
+            CMP,
+            [bd("a", no("lag_close"), True), bd("b", ps("prev_close"))],
+            bl(),
+            CP("GREATER"),
+        ),
+        op(
+            "lower_rsi",
+            CMP,
+            [bd("a", no("lag_rsi"), True), bd("b", ps("prev_rsi"))],
+            bl(),
+            CP("LESS"),
+        ),
+        signal("s_higher", no("higher_close"), co("one")),
+        signal("s_lower", no("lower_rsi"), no("s_higher")),
+        signal("s_pivot", no("pivot"), no("s_lower")),
+        op("divergence", CMP, [bd("a", no("s_pivot")), bd("b", co("zero"))], bl(), CP("GREATER")),
+        op(
+            "next_close",
+            SEL,
+            [
+                bd("condition", no("pivot")),
+                bd("when_true", no("lag_close"), True),
+                bd("when_false", ps("prev_close")),
+            ],
+            fx("PRICE", 2),
+            NONE,
+        ),
+        op(
+            "next_rsi",
+            SEL,
+            [
+                bd("condition", no("pivot")),
+                bd("when_true", no("lag_rsi"), True),
+                bd("when_false", ps("prev_rsi")),
+            ],
+            fx("dimensionless", 2),
+            NONE,
+        ),
+    ]
+    consts = [
+        {
+            "constant_id": "one",
+            "value": {"kind": "FIXED_I128", "coefficient": "1", "unit": "SIGNAL", "scale": 0},
+        },
+        {
+            "constant_id": "zero",
+            "value": {"kind": "FIXED_I128", "coefficient": "0", "unit": "SIGNAL", "scale": 0},
+        },
+        fixed("close-seed", "PRICE"),
+        fixed("rsi-seed", "dimensionless"),
+        {
+            "constant_id": "position-exit",
+            "value": {"kind": "POSITION_INTENT_V1", "semantic_id": "kernel.position.exit.v1"},
+        },
+    ]
+
+    def primitive(node, max_bytes):
+        return {
+            "state_id": f"st_{node}",
+            "writer_node_id": node,
+            "state_kind": {"kind": "PRIMITIVE"},
+            "initial": "CANONICAL_EMPTY",
+            "max_bytes": max_bytes,
+        }
+
+    def carried(state_id, writer, unit, seed):
+        return {
+            "state_id": state_id,
+            "writer_node_id": writer,
+            "state_kind": {
+                "kind": "STRATEGY",
+                "value_type": {"kind": "FIXED_I128", "unit": unit, "scale": 2},
+                "source_port_id": "value",
+            },
+            "initial": {"CONSTANT": {"constant_id": seed}},
+            "max_bytes": 16,
+        }
+
+    cells = [
+        primitive("rsi", rsi_state),
+        primitive("lag_close", lag_state),
+        primitive("max_close", max_state),
+        primitive("lag_rsi", lag_state),
+        carried("prev_close", "next_close", "PRICE", "close-seed"),
+        carried("prev_rsi", "next_rsi", "dimensionless", "rsi-seed"),
+    ]
+    state_total = rsi_state + 2 * lag_state + max_state + 32
+    return bfp.emit(
+        d,
+        p,
+        f"{OUT}/d1",
+        nodes=nodes,
+        drop_constants={"initial-condition", "threshold"},
+        add_constants=consts,
+        state_cells=cells,
+        state_total=state_total,
+        branches=[
+            {
+                "priority": 10,
+                "predicate": no("divergence"),
+                "overrides": {
+                    "proposal.position-intent.v1": {
+                        "lifecycle_semantic_id": "kernel.position.exit.v1",
+                        "source": co("position-exit"),
+                    },
+                },
+            },
+        ],
+        bounds={
+            "max_nodes": 16,
+            "max_edges": 96,
+            "max_depth": 8,
+            "max_ports": 48,
+            "max_state_cells": 8,
+            "max_fan_out": 8,
+            "max_constants": 16,
+            "max_state_bytes": state_total,
+        },
+    )
+
+
+FVG_LAG = 2
+
+
+def _fvg_signal(node, condition, when_true, when_false):
+    return op(
+        node,
+        SEL,
+        [bd("condition", condition), bd("when_true", when_true), bd("when_false", when_false)],
+        fx("SIGNAL", 0),
+        NONE,
+    )
+
+
+def _fvg_slot_nodes(i):
+    """
+    Whether slot `i` is open, whether this bar traded into it, and whether it survives.
+    """
+    return [
+        op(f"is_open{i}", CMP, [bd("a", ps(f"open{i}")), bd("b", co("zero"))], bl(), CP("GREATER")),
+        op(
+            f"touched{i}",
+            CMP,
+            [bd("a", iv(LO)), bd("b", ps(f"up{i}"))],
+            bl(),
+            CP("LESS_OR_EQUAL"),
+        ),
+        _fvg_signal(f"open_sig{i}", no(f"is_open{i}"), co("one"), co("zero")),
+        _fvg_signal(f"survive_sig{i}", no(f"touched{i}"), co("zero"), no(f"open_sig{i}")),
+        op(
+            f"survives{i}",
+            CMP,
+            [bd("a", no(f"survive_sig{i}")), bd("b", co("zero"))],
+            bl(),
+            CP("GREATER"),
+        ),
+    ]
+
+
+def _fvg_fire_nodes(slots):
+    """
+    Whether any open gap was traded into, walked from the last slot to the first.
+    """
+    nodes = []
+    hit = co("zero")
+    for i in range(slots, 0, -1):
+        nodes += [
+            _fvg_signal(f"hit_touched{i}", no(f"touched{i}"), co("one"), hit),
+            _fvg_signal(f"hit{i}", no(f"is_open{i}"), no(f"hit_touched{i}"), hit),
+        ]
+        hit = no(f"hit{i}")
+    nodes.append(op("fire", CMP, [bd("a", hit), bd("b", co("zero"))], bl(), CP("GREATER")))
+    return nodes
+
+
+def _fvg_rebuild_nodes(slots):
+    """
+    Rebuild every slot as the new gap, if one formed, then the surviving slots,
+    truncated.
+
+    Node `{field}_{n}_{j}` is the n-th existing candidate among candidates j to `slots`, where
+    candidate 0 is the new gap and candidate i is slot i as it survived this bar.
+
+    """
+    exists = [no("new_gap"), *(no(f"survives{i}") for i in range(1, slots + 1))]
+    slot_ids = range(1, slots + 1)
+    fields = {
+        "up": ("PRICE", 2, [iv(LO), *(ps(f"up{i}") for i in slot_ids)], "price-zero"),
+        "lo": ("PRICE", 2, [no("lag_high"), *(ps(f"lo{i}") for i in slot_ids)], "price-zero"),
+        "open": ("SIGNAL", 0, [co("one"), *(ps(f"open{i}") for i in slot_ids)], "zero"),
+    }
+    nodes = []
+    for field, (unit, scale, values, empty) in fields.items():
+        refs = {}
+        for j in range(slots, -1, -1):
+            for n in range(1, slots + 1):
+                if n > slots + 1 - j:
+                    refs[(n, j)] = co(empty)
+                    continue
+                taken = values[j] if n == 1 else refs.get((n - 1, j + 1), co(empty))
+                node = f"{field}_{n}_{j}"
+                nodes.append(
+                    op(
+                        node,
+                        SEL,
+                        [
+                            bd("condition", exists[j]),
+                            bd("when_true", taken, taken == no("lag_high")),
+                            bd("when_false", refs.get((n, j + 1), co(empty))),
+                        ],
+                        fx(unit, scale),
+                        NONE,
+                    ),
+                )
+                refs[(n, j)] = no(node)
+    return nodes
+
+
+def _fvg_cells(slots, lag_state):
+    def carried(field, slot, unit, scale, seed):
+        # Written by the first rebuilt candidate chain of its field for its slot.
+        return {
+            "state_id": f"{field}{slot}",
+            "writer_node_id": f"{field}_{slot}_0",
+            "state_kind": {
+                "kind": "STRATEGY",
+                "value_type": {"kind": "FIXED_I128", "unit": unit, "scale": scale},
+                "source_port_id": "value",
+            },
+            "initial": {"CONSTANT": {"constant_id": seed}},
+            "max_bytes": 16,
+        }
+
+    cells = [
+        {
+            "state_id": "st_lag_high",
+            "writer_node_id": "lag_high",
+            "state_kind": {"kind": "PRIMITIVE"},
+            "initial": "CANONICAL_EMPTY",
+            "max_bytes": lag_state,
+        },
+    ]
+    for i in range(1, slots + 1):
+        cells += [
+            carried("up", i, "PRICE", 2, "price-zero"),
+            carried("lo", i, "PRICE", 2, "price-zero"),
+            carried("open", i, "SIGNAL", 0, "zero"),
+        ]
+    return cells
+
+
+def _fvg_hold_by_default(constant):
+    if constant["constant_id"] == "position":
+        constant["value"]["semantic_id"] = "kernel.position.hold.v1"
+
+
+def _fvg_default_frame_holds(_design, proposal):
+    for terminal in proposal["proposal_decision_table"]["default_frame"]["terminal_outputs"]:
+        if terminal["manifest_port_id"] == "proposal.position-intent.v1":
+            terminal["lifecycle_semantic_id"] = "kernel.position.hold.v1"
+
+
+FVG_CONSTANTS = [
+    {
+        "constant_id": "one",
+        "value": {"kind": "FIXED_I128", "coefficient": "1", "unit": "SIGNAL", "scale": 0},
+    },
+    {
+        "constant_id": "zero",
+        "value": {"kind": "FIXED_I128", "coefficient": "0", "unit": "SIGNAL", "scale": 0},
+    },
+    {
+        "constant_id": "price-zero",
+        "value": {"kind": "FIXED_I128", "coefficient": "0", "unit": "PRICE", "scale": 2},
+    },
+    {
+        "constant_id": "position-enter",
+        "value": {"kind": "POSITION_INTENT_V1", "semantic_id": "kernel.position.enter.v1"},
+    },
+]
+
+
+def fvg(name, slots):
+    """
+    Build a bullish fair value gap held in `slots` fixed slots.
+
+    It emits an entry on the bar that trades back into a gap it still holds. A gap forms at bar t
+    when the low is strictly above the high two bars back; it spans from that high up to the low.
+    It stays open until a later bar's low reaches its upper edge, which is the signal, and is then
+    cleared. Each slot is three fixed-point strategy state cells - upper edge, lower edge, and
+    whether it is open - kept newest first. Every bar rebuilds the slots as the new gap, if one
+    formed, followed by the gaps that survived this bar, truncated to `slots`: a new gap replaces
+    the oldest only when every slot is open, which is the declared overflow rule.
+
+    `g2` and `g3` differ only in `slots`, so a third gap evicts the first under `g2` and not under
+    `g3`, and a bar that later trades into the first gap's interval signals only under `g3`.
+
+    The template's default frame enters; here it holds, so the branch's entry is the only one and
+    a run shows exactly which bars took it.
+
+    """
+    high = (HI, "1D", "MARKET_DATA.BAR.HIGH.PRICE.V1", "PRICE", "high")
+    low = (LO, "1D", "MARKET_DATA.BAR.LOW.PRICE.V1", "PRICE", "low")
+    d, p, hexes = bfp.base([high, low])
+    lag_state = 20 + 324 * (FVG_LAG + 1)
+    nodes = [
+        op(
+            "lag_high",
+            LAG,
+            [bd("value", iv(HI))],
+            [*fx("PRICE", 2, "WARMING_READY"), coord_port(hexes[HI])],
+            LG(FVG_LAG, FVG_LAG),
+            "st_lag_high",
+            HI,
+        ),
+        op(
+            "new_gap",
+            CMP,
+            [bd("a", iv(LO)), bd("b", no("lag_high"), True)],
+            bl(),
+            CP("GREATER"),
+        ),
+    ]
+    for i in range(1, slots + 1):
+        nodes += _fvg_slot_nodes(i)
+    nodes += _fvg_fire_nodes(slots)
+    nodes += _fvg_rebuild_nodes(slots)
+    cells = _fvg_cells(slots, lag_state)
+    state_total = lag_state + 3 * 16 * slots
+    return bfp.emit(
+        d,
+        p,
+        f"{OUT}/{name}",
+        nodes=nodes,
+        drop_constants={"initial-condition", "threshold"},
+        add_constants=FVG_CONSTANTS,
+        state_cells=cells,
+        state_total=state_total,
+        mutate_constants=_fvg_hold_by_default,
+        after=_fvg_default_frame_holds,
+        branches=[
+            {
+                "priority": 10,
+                "predicate": no("fire"),
+                "overrides": {
+                    "proposal.position-intent.v1": {
+                        "lifecycle_semantic_id": "kernel.position.enter.v1",
+                        "source": co("position-enter"),
+                    },
+                },
+            },
+        ],
+        bounds={
+            "max_nodes": len(nodes),
+            "max_edges": 256,
+            "max_depth": 32,
+            "max_ports": 256,
+            "max_state_cells": len(cells),
+            "max_fan_out": 32,
+            "max_constants": 16,
+            "max_state_bytes": state_total,
+        },
+    )
+
+
 if __name__ == "__main__":
     build_bases()
     build_all()
     build_a_line()
     ctl8()
     s1()
+    w1()
+    w2()
+    d1()
+    fvg("g2", 2)
+    fvg("g3", 3)
     written = len({f.name.rsplit("-", 1)[0] for f in pathlib.Path(OUT).glob("*-meaning.json")})
     print(f"{written} programs from one generator")

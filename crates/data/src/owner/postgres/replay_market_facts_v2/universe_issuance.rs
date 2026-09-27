@@ -88,7 +88,6 @@ async fn issue_universe_members_in_transaction_v1(
     issuance_locator: ReplayCompositionIssuanceLocatorV1,
     request_bytes: &[u8],
 ) -> Result<ReplayCompositionDurableIssuanceResponseV1, ReplayCompositionBindingErrorV1> {
-    let replay = request.replay_request();
     let pit = request.pit_locator();
 
     let r0_locator = request.reference_fact_r0_locator();
@@ -182,6 +181,7 @@ async fn issue_universe_members_in_transaction_v1(
     if source.locator() != request.source_binding_locator() {
         return Err(ReplayCompositionBindingErrorV1::DependencyMismatch);
     }
+    let replay = super::owner_replay_request_v1(pit, &r0, &source, receipt)?;
     let coordinates = coordinates_from_r0(&r0)?;
     let correction = project_first_v1(CorrectionPolicyAuthenticatedInputsV1 {
         source_binding: &source,
@@ -258,7 +258,10 @@ pub(in crate::owner) mod postgres_tests {
     use super::issue_universe_members_in_transaction_v1;
     use crate::owner::{
         correction_policy_projection::{CorrectionPolicyAuthenticatedInputsV1, project_first_v1},
-        instrument_master_v2::{InstrumentMasterCustodyErrorV2, tests::fact_for_observed_at},
+        instrument_master_v2::{
+            InstrumentMasterCustodyErrorV2, InstrumentMasterGenerationMismatchV2,
+            tests::fact_for_observed_at,
+        },
         instrument_master_v2_postgres::InstrumentMasterV2PostgresOwner,
         postgres::{
             MarketDataOwnerPostgres,
@@ -379,7 +382,7 @@ pub(in crate::owner) mod postgres_tests {
             let universe_role_set = role_set(&locator, &requests);
             let command = ReplayCompositionLocatorOnlyIssuanceRequestV1::new(
                 d(0x78),
-                composition(&locator, &base, &correction, 51),
+                composition(&locator, &base, &correction),
             )
             .unwrap();
             let issuance_before = issuance_state(&pool).await;
@@ -413,8 +416,8 @@ pub(in crate::owner) mod postgres_tests {
             }
         }
 
-        fn composition(&self, end: i128) -> ReplayCompositionUniverseBindingIssuanceRequestV1 {
-            composition(&self.locator, &self.base, &self.correction, end)
+        fn composition(&self) -> ReplayCompositionUniverseBindingIssuanceRequestV1 {
+            composition(&self.locator, &self.base, &self.correction)
         }
 
         async fn issue_under(
@@ -505,14 +508,11 @@ pub(in crate::owner) mod postgres_tests {
         locator: &StrategyDesignRoleSetLocatorV1,
         base: &crate::owner::postgres::tests::ReplayCompositionMarketBaseFixtureV1,
         correction: &crate::owner::correction_policy_projection::CorrectionPolicyProjectionV1,
-        end: i128,
     ) -> ReplayCompositionUniverseBindingIssuanceRequestV1 {
         ReplayCompositionUniverseBindingIssuanceRequestV1::from_test_fixture(
             locator.clone(),
             base.pit.receipt().locator().clone(),
             base.source.receipt().locator().clone(),
-            50,
-            end,
             ReplayCompositionRequestLocatorV1::from_untrusted(
                 base.universe.receipt().request_identity(),
                 base.universe.receipt().request_meaning_digest(),
@@ -547,8 +547,11 @@ pub(in crate::owner) mod postgres_tests {
     /// to exactly the frame the binding and its facts carry. A retry returns the stored bytes, the
     /// same identity with another composition is refused by name, and an exact-instrument role set
     /// is refused by name, each writing nothing. The binding then keys the request's Instrument
-    /// Master V2 cut: refused by name with nothing written while the member has no fact, and one
-    /// member once it has.
+    /// Master V2 cut: refused by name with nothing written while the member has no fact, and
+    /// refused by class with nothing written once it has one, because the base's one V1 instrument,
+    /// which the binding's PIT snapshot cites, is an equity and V2 describes only crypto
+    /// perpetuals. That is the generation check on a binding the Owner issued; the bound-replay
+    /// issuance proof issues cuts where the two generations agree.
     #[tokio::test]
     #[ignore = "requires a disposable Market Data PostgreSQL database"]
     #[allow(clippy::too_many_lines)]
@@ -582,7 +585,7 @@ pub(in crate::owner) mod postgres_tests {
                            command: &ReplayCompositionLocatorOnlyIssuanceRequestV1<
             ReplayCompositionUniverseBindingIssuanceRequestV1,
         >| fixture.issue_under(role_set, command).await;
-        let composition = |end: i128| fixture.composition(end);
+        let composition = || fixture.composition();
         let role_set = |requests: &[crate::owner::strategy_input_binding::UntrustedStrategyInputBindingRequest]| {
             role_set(&fixture.locator, requests)
         };
@@ -618,6 +621,21 @@ pub(in crate::owner) mod postgres_tests {
 
         let record = binding.record();
         assert_eq!(record.shape(), ReplayMarketFactsShapeV2::UniverseMembers);
+        // The Owner derived the window: the base's snapshot declares one-minute, one-hour and
+        // session-day bars, so its R0 claim runs for an hour, while the roles execute on `1M`
+        // and the Replay spans exactly one minute of it.
+        let r0 = base.r0.record();
+        assert_eq!(
+            r0.replay_end_event_ns_exclusive - r0.replay_start_event_ns,
+            3_600_000_000_000,
+            "R0 claims the longest declared bar of the snapshot"
+        );
+        assert_eq!(record.replay_start_event_ns(), r0.replay_start_event_ns);
+        assert_eq!(
+            record.replay_end_event_ns_exclusive() - record.replay_start_event_ns(),
+            60_000_000_000,
+            "the Replay is one execution bar, not the R0 claim"
+        );
         assert_eq!(&record.canonical_bytes()[..2], &[0, 2]);
         assert_eq!(record.role_count(), requests.len());
         assert!(
@@ -650,7 +668,7 @@ pub(in crate::owner) mod postgres_tests {
             "the re-read frame is the one the facts carry"
         );
 
-        // A retry returns the stored bytes; another composition under the same identity and an
+        // A retry returns the stored bytes; the same composition under another identity and an
         // exact-instrument role set are refused by name; none of them writes.
         assert_eq!(
             issue(universe_role_set, command)
@@ -662,7 +680,7 @@ pub(in crate::owner) mod postgres_tests {
         assert_eq!(
             issue(
                 universe_role_set,
-                &ReplayCompositionLocatorOnlyIssuanceRequestV1::new(d(0x78), composition(52))
+                &ReplayCompositionLocatorOnlyIssuanceRequestV1::new(d(0x7A), composition())
                     .unwrap()
             )
             .await,
@@ -672,7 +690,7 @@ pub(in crate::owner) mod postgres_tests {
         assert_eq!(
             issue(
                 &exact_role_set,
-                &ReplayCompositionLocatorOnlyIssuanceRequestV1::new(d(0x79), composition(51))
+                &ReplayCompositionLocatorOnlyIssuanceRequestV1::new(d(0x79), composition())
                     .unwrap()
             )
             .await,
@@ -703,26 +721,20 @@ pub(in crate::owner) mod postgres_tests {
             ))
             .await
             .unwrap();
-        let member_cut = instrument_master
-            .issue_cut_for_bound_replay_v1("universe-member-replay", binding_locator)
-            .await
-            .expect("a one-member cut keyed by the universe-member binding");
+        let with_fact = cut_state(pool).await;
         assert_eq!(
-            member_cut
-                .cut()
-                .members()
-                .iter()
-                .map(|member| member.fact().canonical_identity())
-                .collect::<Vec<_>>(),
-            [crate::owner::chain_fixture_v1::CHAIN_FIXTURE_INSTRUMENT_V1]
+            instrument_master
+                .issue_cut_for_bound_replay_v1("universe-member-replay", binding_locator)
+                .await,
+            Err(InstrumentMasterCustodyErrorV2::GenerationMismatch(
+                InstrumentMasterGenerationMismatchV2::ClassDiffers
+            )),
+            "the V2 fact describes a crypto perpetual; the V1 fact the PIT snapshot cites, an equity"
         );
         assert_eq!(
-            member_cut.cut().universe_selection_identity(),
-            base.universe.record().identity()
-        );
-        assert_eq!(
-            member_cut.cut().decision_cut(),
-            base.universe.record().decision_cut()
+            cut_state(pool).await,
+            with_fact,
+            "the refusal writes nothing"
         );
     }
 }

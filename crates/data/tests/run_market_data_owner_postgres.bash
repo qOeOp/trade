@@ -13,6 +13,9 @@ readonly market_data_owner_postgres_tests=(
   owner::store_admission::tests::the_admitted_quote_cut_read_resolves_what_custody_resolves
   owner::store_admission::tests::the_postgres_custody_store_admits_on_its_own_clock_and_refuses_what_moved
   owner::store_admission::tests::each_floor_is_the_catalog_closure_of_its_reads
+  owner::postgres::admitted_read_api_v1::tests::the_admitted_read_schema_is_what_its_statements_declare
+  owner::store_admission::tests::the_role_identity_moves_with_every_privilege_the_role_gains_and_no_other
+  owner::store_admission::tests::the_admitted_reader_holds_every_admitted_read_and_nothing_else
   owner::instrument_master_v2_postgres::tests::postgres_v2_cut_custody_holds_one_or_two_members_and_migrates_a_legacy_table
   owner::instrument_master_v2_postgres::tests::postgres_bound_replay_issuance_keys_each_request_to_one_binding
   owner::instrument_economic_terms_postgres_v1::tests::postgres_economic_terms_resolve_for_one_member_or_two
@@ -36,8 +39,17 @@ readonly market_data_owner_postgres_tests=(
   owner::postgres::universe_sample_projection_v1_tests::postgres_a_universe_frame_issues_one_sample_projection_over_the_host_frame
   owner::postgres::universe_member_composition_basis_v1_tests::postgres_a_new_snapshot_reads_the_basis_its_universe_composition_issues_from
   owner::postgres::instrument_master_admission_v1_tests::postgres_an_instrument_fact_takes_its_scope_and_frontiers_from_the_named_binding
+  owner::postgres::instrument_master_admission_v2_tests::postgres_a_v2_baseline_is_admitted_from_its_payload_and_resolved_at_the_research_cut
+  owner::postgres::instrument_master_status_delta_v2_tests::postgres_a_status_delta_extends_the_v2_fact_and_the_cut_after_it_resolves_it
+  owner::postgres::instrument_master_status_delta_v2_tests::postgres_two_identical_v2_submissions_at_once_both_answer_with_the_one_fact
+  owner::postgres::instrument_master_snapshot_v2_tests::postgres_a_snapshot_extends_the_v2_fact_and_advances_the_clock_it_needs
+  owner::postgres::instrument_master_snapshot_v2_tests::postgres_a_snapshot_past_a_head_on_another_clock_is_refused_and_writes_nothing
+  owner::postgres::instrument_master_snapshot_v2_tests::postgres_a_minting_snapshot_and_another_clock_writer_at_once_both_answer
+  owner::postgres::source_availability_rule_v1_tests::postgres_a_schema_two_binding_stores_its_availability_rule
   owner::postgres::bar_schedule_acceptance_v1_tests::postgres_a_declared_bar_role_gets_the_schedule_its_frame_reads_once
   owner::postgres::bar_schedule_acceptance_v1_tests::postgres_the_schedule_refuses_each_input_it_cannot_derive_from
+  owner::postgres::bar_schedule_acceptance_v1_tests::postgres_a_continuous_declaration_mints_a_schedule_without_calendar_or_session
+  owner::postgres::bar_schedule_acceptance_v1_tests::postgres_no_schedule_is_proposed_for_rows_their_binding_does_not_declare
   owner::store_admission::tests::a_production_build_refuses_evidence_that_names_no_admission
 )
 
@@ -133,6 +145,7 @@ owner_password="md_d1_owner_test_only"
 reader_password="md_d1_reader_test_only"
 custody_publisher_password="md_d1_custody_publisher_test_only"
 custody_custodian_password="md_d1_custody_custodian_test_only"
+admitted_reader_password="md_d1_admitted_reader_test_only"
 
 # shellcheck disable=SC2329 # invoked indirectly by the EXIT trap
 cleanup() {
@@ -238,11 +251,21 @@ provision_database() {
     --env DEPLOYMENT_STORE_CUSTODIAN_DB_PASSWORD="$custody_custodian_password" \
     "$container" sh -s < "$repository_root/product/rd-workbench/postgres-init/20-deployment-store-custody.sh" > /dev/null
 
+  # The admitted reader, from the deployment's own init script: the principal Store Admission
+  # leases. The Owner's migration grants it the admitted read wrappers once a proof migrates.
+  docker exec -i \
+    --env POSTGRES_PASSWORD="$admin_password" \
+    --env POSTGRES_HOST=127.0.0.1 \
+    --env POSTGRES_DATABASE="$database" \
+    --env MARKET_DATA_ADMITTED_READER_DB_PASSWORD="$admitted_reader_password" \
+    "$container" sh -s < "$repository_root/product/rd-workbench/postgres-init/25-market-data-admitted-reader.sh" > /dev/null
+
   export MARKET_DATA_ADMIN_TEST_DATABASE_URL="postgres://postgres:$admin_password@127.0.0.1:$port/$database"
   export DEPLOYMENT_STORE_PUBLISHER_TEST_DATABASE_URL="postgres://deployment_store_publisher:$custody_publisher_password@127.0.0.1:$port/$database"
   export DEPLOYMENT_STORE_CUSTODIAN_TEST_DATABASE_URL="postgres://deployment_store_custodian:$custody_custodian_password@127.0.0.1:$port/$database"
   export MARKET_DATA_OWNER_TEST_DATABASE_URL="postgres://vibe_test_role_market_data_owner:$owner_password@127.0.0.1:$port/$database"
   export MARKET_DATA_READER_TEST_DATABASE_URL="postgres://vibe_test_role_market_data_reader:$reader_password@127.0.0.1:$port/$database"
+  export MARKET_DATA_ADMITTED_READER_TEST_DATABASE_URL="postgres://market_data_admitted_reader:$admitted_reader_password@127.0.0.1:$port/$database"
   export VIBE_POSTGRES_TEST_DATABASE_NAME="$database"
   export VIBE_POSTGRES_TEST_INSTANCE_MARKER="$marker"
 }

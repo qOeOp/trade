@@ -1,13 +1,13 @@
-# Declared Bounded Feature Program meaning: ten authored programs
+# Declared Bounded Feature Program meaning: sixteen authored programs
 
-Ten declarations of `BoundedFeatureProgramMeaningV1`, with the six Strategy Designs they name.
+Sixteen declarations of `BoundedFeatureProgramMeaningV1`, with the twelve Strategy Designs they name.
 `every_authored_declaration_reassembles`, in `src/bounded_feature_program_derivation_v1.rs`, reads
 them: each one is assembled by `derive_bounded_feature_program_proposal_v1` against the newest
 published catalog, exactly as `declare` does, and the assembled proposal is then put through
 `prepare_bounded_feature_program_v1`.
 
 `derivation_reproduces_a_known_good_proposal` next to it proves the same claim once, against a
-proposal this crate builds itself. These ten were written outside it, as declared meaning only.
+proposal this crate builds itself. These sixteen were written outside it, as declared meaning only.
 Between them they reach every availability rule, every state sizing rule and every input rule the
 catalog has, which is the part one fixture cannot carry: a derivation that mishandled a single rule
 would still reproduce a proposal that never used it.
@@ -41,17 +41,47 @@ left four programs with a correct entry and a wrong exit, but it is a structural
 than a semantic one. The family requires only that the two frames differ, which they do.
 
 `a0` and `a0v3` share one Design and differ only in reaching for the square root catalog version 3
-added. `t4`/`t5` and `t7`/`t8`/`t9` likewise share a Design, which is why there are six Designs and
-ten meanings.
+added. `t4`/`t5` and `t7`/`t8`/`t9` likewise share a Design, which is why there are twelve Designs and
+sixteen meanings.
+
+`w1` and `w2` are catalog version 4's first users, one program for each row it added.
+`every_row_added_since_version_4_is_used_by_an_authored_program` holds that: a row a later version
+adds fails the build until a program here reaches for it. `w1` reads an up leg with strength - over
+ten daily closes the highest came after the lowest, which is the leg a Fibonacci retracement is drawn
+on, and the latest close ranks in the top fifth - and so uses both bar counts and the nearest-rounding
+percent rank. `w2` reads a percentile pullback with the toward-zero percent rank.
+
+`d1` is the first program whose strategy state is a fixed-point value rather than a flag. It reads a
+bearish momentum divergence on the daily close: a newly confirmed order-2 pivot high above the
+previous one while RSI(3) at the new pivot is below its value at the previous one, and it exits a
+long when it sees one. The previous pivot's close and RSI are two fixed-point strategy state cells
+seeded at zero, so the first pivot is only a reference. Besides reassembling here, it is the one
+program built and run as Wasm:
+`a_divergence_program_carries_its_previous_pivot_through_fixed_point_state` in
+`src/bounded_feature_program_lowerer_v1_tests.rs` exits exactly two bars after the second pivot,
+and neither when the second high is lower nor when the two cells are put back to their seeds before
+every bar.
+
+`g2` and `g3` are one bullish fair value gap program with two and three slots, and the second programs
+built and run as Wasm. A gap forms when the daily low is above the high two bars back and is cleared
+by the bar whose low reaches its upper edge, which is the entry. Each slot is three fixed-point
+strategy state cells kept newest first, rebuilt every bar as the new gap followed by the gaps that
+survived, so a new gap replaces the oldest only when every slot is open. The template's default frame
+enters; these hold by default, so the branch's entry is the only one. They differ only in the slot
+count, and so in their Designs' state bytes:
+`a_fair_value_gap_program_evicts_the_oldest_gap_only_when_its_slots_are_full`, next to the divergence
+proof, forms three gaps and enters on the bar that trades into the first gap's interval only with
+three slots.
 
 ## Regenerating
 
 ```
-./generator/install.sh
+python3 generator/programs.py
 ```
 
-It regenerates into `generator/out/`, installs the sixteen files here, and leaves `git status`
-showing exactly what moved. Nothing in CI runs it.
+It regenerates every program into `generator/out/`. Copy each program's `-design.json` and
+`-meaning.json` here, and `git status` shows exactly what moved: regenerating an unchanged program
+reproduces its committed files byte for byte. Nothing in CI runs it.
 
 Every program is grown from the Design and proposal in `generator/templates/`, which is why they
 are committed rather than read from a temporary directory: reading them from `/tmp` made

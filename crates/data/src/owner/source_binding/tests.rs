@@ -10,11 +10,15 @@ use super::{
     BindingDigest, MarketDataClockAdmission, SourceBindingBlocker, SourceBindingError,
     UntrustedAdapterBinding, UntrustedCompleteFrontier, UntrustedCredentialAudienceClaim,
     UntrustedCredentialCapabilityClaim, UntrustedLicensePolicy, UntrustedMarketDataAsOf,
-    UntrustedMarketSemantics, UntrustedOpaqueCredentialHandle, UntrustedSourceBindingLocator,
-    UntrustedSourceBindingProposal, UntrustedTrustPolicy,
+    UntrustedMarketSemantics, UntrustedOpaqueCredentialHandle, UntrustedSourceAvailabilityRuleV1,
+    UntrustedSourceBarAnchorV1, UntrustedSourceBarCadenceV1, UntrustedSourceBarClockV1,
+    UntrustedSourceBarCompletionV1, UntrustedSourceBarLabelV1, UntrustedSourceBarTimeframeV1,
+    UntrustedSourceBarUnitV1, UntrustedSourceBindingLocator, UntrustedSourceBindingProposal,
+    UntrustedSourceVisibilityV1, UntrustedTrustPolicy,
     authority::{
         CommitFault, OwnerSourceBindingDecision, SourceBindingDisposition,
-        TestOnlyInMemorySourceBindingOwner, derive_binding_id, derive_time_evidence_identity,
+        TestOnlyInMemorySourceBindingOwner, availability_rule_digest_v1, derive_binding_id,
+        derive_time_evidence_identity,
     },
 };
 
@@ -79,6 +83,8 @@ fn credential_handle() -> UntrustedOpaqueCredentialHandle {
 
 fn proposal() -> UntrustedSourceBindingProposal {
     let mut proposal = UntrustedSourceBindingProposal {
+        availability_rule: None,
+        bar_timeframes: Vec::new(),
         claimed_binding_id: d(0),
         schema_version: 1,
         adapter: UntrustedAdapterBinding {
@@ -886,4 +892,334 @@ fn capability_order_is_canonical_and_opaque_identity_is_redacted() {
             .windows(SECRET_SENTINEL.len())
             .any(|window| window == SECRET_SENTINEL.as_bytes())
     );
+}
+
+fn with_rule(
+    mut value: UntrustedSourceBindingProposal,
+    rule: UntrustedSourceAvailabilityRuleV1,
+) -> UntrustedSourceBindingProposal {
+    value.schema_version = 2;
+    value.availability_rule = Some(rule);
+    refresh_claims(&mut value);
+    value
+}
+
+const fn after_close(
+    lag_ns: u64,
+    publishes_corrections: bool,
+) -> UntrustedSourceAvailabilityRuleV1 {
+    UntrustedSourceAvailabilityRuleV1 {
+        visibility: UntrustedSourceVisibilityV1::AfterBarClose { lag_ns },
+        publishes_corrections,
+    }
+}
+
+/// Bindings minted before availability rules existed keep their identities: a schema-1 proposal
+/// encodes nothing new. The digests are the ones main derived for these fixtures before rules were
+/// added (captured on `6126709dd`).
+#[rstest]
+fn a_schema_one_binding_keeps_the_identity_it_had_before_rules() {
+    let mut initial = proposal();
+    refresh_claims(&mut initial);
+    assert_eq!(
+        derive_binding_id(&initial).as_bytes(),
+        &[
+            34, 22, 209, 83, 214, 187, 172, 221, 64, 59, 191, 79, 42, 8, 226, 218, 187, 246, 52,
+            216, 185, 32, 4, 152, 104, 164, 94, 84, 241, 160, 211, 56
+        ]
+    );
+    assert_eq!(
+        derive_binding_id(&successor_proposal()).as_bytes(),
+        &[
+            187, 80, 237, 132, 157, 80, 19, 40, 55, 138, 59, 0, 139, 220, 0, 78, 51, 55, 204, 109,
+            223, 140, 8, 2, 9, 170, 85, 161, 183, 222, 122, 77
+        ]
+    );
+}
+
+#[rstest]
+fn a_rule_is_declared_by_schema_two_and_only_by_it() {
+    let owner = TestOnlyInMemorySourceBindingOwner::default();
+    let mut rule_under_one = proposal();
+    rule_under_one.availability_rule = Some(after_close(1_000, false));
+    refresh_claims(&mut rule_under_one);
+    let mut none_under_two = proposal();
+    none_under_two.schema_version = 2;
+    refresh_claims(&mut none_under_two);
+
+    for refused in [rule_under_one, none_under_two] {
+        assert!(matches!(
+            owner.commit_initial(refused, decision([]), &commit_clock()),
+            Err(SourceBindingError::InvalidVersionOrSequence(
+                "schema_version"
+            ))
+        ));
+    }
+    let admitted = owner
+        .commit_initial(
+            with_rule(proposal(), after_close(1_000, false)),
+            decision([]),
+            &commit_clock(),
+        )
+        .unwrap();
+    assert_eq!(
+        admitted.fact().availability_rule(),
+        Some(&after_close(1_000, false))
+    );
+}
+
+/// The binding identity states the rule, so two bindings that differ only in their rule are two
+/// bindings; the rule's own digest ignores everything but the rule, so a successor that keeps it
+/// keeps the digest.
+#[rstest]
+fn the_rule_enters_the_identity_and_its_digest_is_the_rule_alone() {
+    let lagged = with_rule(proposal(), after_close(1_000, false));
+    let rules = [
+        after_close(1_000, false),
+        after_close(1_001, false),
+        after_close(1_000, true),
+        UntrustedSourceAvailabilityRuleV1 {
+            visibility: UntrustedSourceVisibilityV1::AtRetrieval,
+            publishes_corrections: false,
+        },
+    ];
+    let identities: BTreeSet<_> = rules
+        .iter()
+        .map(|rule| derive_binding_id(&with_rule(proposal(), rule.clone())))
+        .collect();
+    assert_eq!(identities.len(), rules.len());
+    let digests: BTreeSet<_> = rules.iter().map(availability_rule_digest_v1).collect();
+    assert_eq!(digests.len(), rules.len());
+    assert!(!identities.contains(&derive_binding_id(&proposal())));
+
+    let successor = with_rule(successor_proposal(), after_close(1_000, false));
+    assert_ne!(derive_binding_id(&successor), derive_binding_id(&lagged));
+    assert_eq!(
+        availability_rule_digest_v1(successor.availability_rule.as_ref().unwrap()),
+        availability_rule_digest_v1(lagged.availability_rule.as_ref().unwrap()),
+    );
+}
+
+/// A stored schema-1 binding has no rule field; it reads back as declaring none, and serializes
+/// back without the field, so every stored binding row decodes unchanged.
+#[rstest]
+fn a_stored_schema_one_binding_reads_back_without_a_rule() {
+    let schema_one = proposal();
+    let json = serde_json::to_value(&schema_one).unwrap();
+    assert!(json.get("availability_rule").is_none());
+    let decoded: UntrustedSourceBindingProposal = serde_json::from_value(json).unwrap();
+    assert_eq!(decoded, schema_one);
+    let schema_two = with_rule(proposal(), after_close(1_000, true));
+    let round_trip: UntrustedSourceBindingProposal =
+        serde_json::from_value(serde_json::to_value(&schema_two).unwrap()).unwrap();
+    assert_eq!(round_trip, schema_two);
+}
+
+const fn fixed(step: u32, unit: UntrustedSourceBarUnitV1) -> UntrustedSourceBarCadenceV1 {
+    UntrustedSourceBarCadenceV1::FixedInterval { step, unit }
+}
+
+fn bar(
+    row_timeframe: &str,
+    cadence: UntrustedSourceBarCadenceV1,
+    anchor: UntrustedSourceBarAnchorV1,
+    clock: UntrustedSourceBarClockV1,
+) -> UntrustedSourceBarTimeframeV1 {
+    UntrustedSourceBarTimeframeV1 {
+        row_timeframe: row_timeframe.to_owned(),
+        cadence,
+        anchor,
+        clock,
+        label: UntrustedSourceBarLabelV1::IntervalClose,
+        completion: UntrustedSourceBarCompletionV1::CompleteOnly,
+    }
+}
+
+/// A Binance USD-M perpetual's `1d` klines: 24 hours from the Unix epoch on a continuous clock.
+fn utc_day() -> UntrustedSourceBarTimeframeV1 {
+    bar(
+        "1D",
+        fixed(24, UntrustedSourceBarUnitV1::Hour),
+        UntrustedSourceBarAnchorV1::UnixEpoch,
+        UntrustedSourceBarClockV1::Continuous,
+    )
+}
+
+fn session_minute() -> UntrustedSourceBarTimeframeV1 {
+    bar(
+        "1M",
+        fixed(1, UntrustedSourceBarUnitV1::Minute),
+        UntrustedSourceBarAnchorV1::SessionOpen,
+        UntrustedSourceBarClockV1::ScheduleBounded,
+    )
+}
+
+fn declaring(
+    mut value: UntrustedSourceBindingProposal,
+    bars: Vec<UntrustedSourceBarTimeframeV1>,
+) -> UntrustedSourceBindingProposal {
+    value.bar_timeframes = bars;
+    refresh_claims(&mut value);
+    value
+}
+
+/// Only schema 2 declares bars, and only the three combinations a schedule can state, each label
+/// once and in order. Every other declaration is refused by name.
+#[rstest]
+fn bars_are_declared_by_schema_two_in_the_combinations_a_schedule_states() {
+    let owner = TestOnlyInMemorySourceBindingOwner::default();
+    let under_schema_one = declaring(proposal(), vec![utc_day()]);
+    assert!(matches!(
+        owner.commit_initial(under_schema_one, decision([]), &commit_clock()),
+        Err(SourceBindingError::InvalidVersionOrSequence(
+            "schema_version"
+        ))
+    ));
+
+    let unsupported = [
+        vec![bar(
+            "1M",
+            fixed(0, UntrustedSourceBarUnitV1::Minute),
+            UntrustedSourceBarAnchorV1::UnixEpoch,
+            UntrustedSourceBarClockV1::Continuous,
+        )],
+        vec![bar(
+            "1D",
+            fixed(24, UntrustedSourceBarUnitV1::Hour),
+            UntrustedSourceBarAnchorV1::UnixEpoch,
+            UntrustedSourceBarClockV1::ScheduleBounded,
+        )],
+        vec![bar(
+            "1M",
+            fixed(1, UntrustedSourceBarUnitV1::Minute),
+            UntrustedSourceBarAnchorV1::SessionOpen,
+            UntrustedSourceBarClockV1::Continuous,
+        )],
+        vec![bar(
+            "1D",
+            UntrustedSourceBarCadenceV1::ExchangeSessionDay,
+            UntrustedSourceBarAnchorV1::SessionOpen,
+            UntrustedSourceBarClockV1::Continuous,
+        )],
+        vec![bar(
+            "1D",
+            UntrustedSourceBarCadenceV1::ExchangeSessionDay,
+            UntrustedSourceBarAnchorV1::UnixEpoch,
+            UntrustedSourceBarClockV1::ScheduleBounded,
+        )],
+        vec![UntrustedSourceBarTimeframeV1 {
+            row_timeframe: "1d".to_owned(),
+            ..utc_day()
+        }],
+        vec![UntrustedSourceBarTimeframeV1 {
+            row_timeframe: "TICK".to_owned(),
+            ..utc_day()
+        }],
+        vec![UntrustedSourceBarTimeframeV1 {
+            row_timeframe: "01D".to_owned(),
+            ..utc_day()
+        }],
+        vec![session_minute(), utc_day()],
+        vec![utc_day(), utc_day()],
+    ];
+
+    for bars in unsupported {
+        let refused = declaring(with_rule(proposal(), after_close(0, false)), bars.clone());
+        assert!(
+            matches!(
+                owner.commit_initial(refused, decision([]), &commit_clock()),
+                Err(SourceBindingError::UnsupportedBarTimeframe)
+            ),
+            "{bars:?} is refused by name"
+        );
+    }
+
+    let admitted_bars = vec![
+        utc_day(),
+        bar(
+            "1H",
+            fixed(1, UntrustedSourceBarUnitV1::Hour),
+            UntrustedSourceBarAnchorV1::SessionOpen,
+            UntrustedSourceBarClockV1::ScheduleBounded,
+        ),
+        session_minute(),
+    ];
+    let admitted = owner
+        .commit_initial(
+            declaring(
+                with_rule(proposal(), after_close(0, false)),
+                admitted_bars.clone(),
+            ),
+            decision([]),
+            &commit_clock(),
+        )
+        .unwrap();
+    assert_eq!(admitted.fact().bar_timeframes(), admitted_bars.as_slice());
+    let session_day = declaring(
+        with_rule(proposal(), after_close(0, false)),
+        vec![bar(
+            "1D",
+            UntrustedSourceBarCadenceV1::ExchangeSessionDay,
+            UntrustedSourceBarAnchorV1::SessionOpen,
+            UntrustedSourceBarClockV1::ScheduleBounded,
+        )],
+    );
+    assert!(
+        TestOnlyInMemorySourceBindingOwner::default()
+            .commit_initial(session_day, decision([]), &commit_clock())
+            .is_ok(),
+        "an exchange session day is the third admitted combination"
+    );
+}
+
+/// Every declared field is part of what the binding is: a binding that declares its bars
+/// differently in any field, or declares none, is another binding.
+#[rstest]
+fn each_declared_field_enters_the_binding_identity() {
+    let schema_two = with_rule(proposal(), after_close(0, false));
+    let declarations = [
+        vec![],
+        vec![utc_day()],
+        vec![UntrustedSourceBarTimeframeV1 {
+            row_timeframe: "24H".to_owned(),
+            ..utc_day()
+        }],
+        vec![UntrustedSourceBarTimeframeV1 {
+            cadence: fixed(1440, UntrustedSourceBarUnitV1::Minute),
+            ..utc_day()
+        }],
+        vec![UntrustedSourceBarTimeframeV1 {
+            cadence: fixed(24, UntrustedSourceBarUnitV1::Second),
+            ..utc_day()
+        }],
+        vec![UntrustedSourceBarTimeframeV1 {
+            anchor: UntrustedSourceBarAnchorV1::SessionOpen,
+            clock: UntrustedSourceBarClockV1::ScheduleBounded,
+            ..utc_day()
+        }],
+        vec![UntrustedSourceBarTimeframeV1 {
+            label: UntrustedSourceBarLabelV1::IntervalOpen,
+            ..utc_day()
+        }],
+        vec![utc_day(), session_minute()],
+    ];
+    let identities: BTreeSet<_> = declarations
+        .iter()
+        .map(|bars| derive_binding_id(&declaring(schema_two.clone(), bars.clone())))
+        .collect();
+    assert_eq!(identities.len(), declarations.len());
+}
+
+/// Declarations are stored with the binding and read back as declared; a binding that declares
+/// none carries no field, so every stored row decodes unchanged.
+#[rstest]
+fn declared_bars_round_trip_and_an_undeclared_binding_carries_no_field() {
+    let undeclared = with_rule(proposal(), after_close(0, false));
+    let json = serde_json::to_value(&undeclared).unwrap();
+    assert!(json.get("bar_timeframes").is_none());
+
+    let declared = declaring(undeclared, vec![utc_day(), session_minute()]);
+    let round_trip: UntrustedSourceBindingProposal =
+        serde_json::from_value(serde_json::to_value(&declared).unwrap()).unwrap();
+    assert_eq!(round_trip, declared);
 }

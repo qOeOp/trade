@@ -4,8 +4,8 @@ use rstest::rstest;
 use sqlx::{PgPool, Row, postgres::PgPoolOptions};
 
 use super::acceptance_fixture_v1::{
-    TEST_CLOCK_EPOCH_V1, TEST_CLOCK_IDENTITY_V1, instrument_fact, instrument_request,
-    market_base_pit_time_v1, shared_clock,
+    TEST_CLOCK_EPOCH_V1, TEST_CLOCK_IDENTITY_V1, declaring_bars_v1, instrument_fact,
+    instrument_request, market_base_pit_time_v1, session_bar_v1, shared_clock,
 };
 pub(super) use super::acceptance_fixture_v1::{d, source_proposal};
 use super::chain_market_base_v1::exact_instrument_identity_v1;
@@ -23,6 +23,10 @@ use crate::owner::native_replay_scheduling_v2::{
 };
 use crate::owner::pit_observation_source_v1::{
     PitObservationScopeV1, PitObservationSourceErrorV1, PitObservationSourceV1, VendorObservationV1,
+};
+use crate::owner::{
+    bar_schedule::BarScheduleClockV1,
+    source_binding::{UntrustedSourceBarCadenceV1, UntrustedSourceBarUnitV1},
 };
 use crate::owner::{
     bar_schedule::{
@@ -660,6 +664,22 @@ async fn grant_reader(admin: &PgPool) {
     sqlx::query("GRANT EXECUTE ON FUNCTION market_data_private.resolve_bar_schedule_history_v1(TEXT) TO vibe_test_role_market_data_reader").execute(admin).await.unwrap();
     sqlx::query("GRANT EXECUTE ON FUNCTION market_data_private.resolve_strategy_input_sample_projection_v3(BYTEA) TO vibe_test_role_market_data_reader").execute(admin).await.unwrap();
     sqlx::query("GRANT EXECUTE ON FUNCTION market_data_private.resolve_strategy_input_sample_projection_schedule_dependencies_v3(BYTEA) TO vibe_test_role_market_data_reader").execute(admin).await.unwrap();
+    // The Store Admission sample projection reads reach the Owner only through the admitted read
+    // schema, so the disposable evidence those reads build needs its wrappers, not the functions
+    // above.
+    sqlx::query(
+        "GRANT USAGE ON SCHEMA market_data_admitted_read TO vibe_test_role_market_data_reader",
+    )
+    .execute(admin)
+    .await
+    .unwrap();
+    sqlx::query("GRANT EXECUTE ON FUNCTION market_data_admitted_read.resolve_strategy_input_sample_projection_v2(BYTEA) TO vibe_test_role_market_data_reader").execute(admin).await.unwrap();
+    sqlx::query("GRANT EXECUTE ON FUNCTION market_data_admitted_read.resolve_strategy_input_sample_projection_v3(BYTEA) TO vibe_test_role_market_data_reader").execute(admin).await.unwrap();
+    sqlx::query("GRANT EXECUTE ON FUNCTION market_data_admitted_read.resolve_strategy_input_sample_projection_schedule_dependencies_v3(BYTEA) TO vibe_test_role_market_data_reader").execute(admin).await.unwrap();
+    sqlx::query("GRANT EXECUTE ON FUNCTION market_data_admitted_read.resolve_timeframe_projection_receipt_v1(BYTEA) TO vibe_test_role_market_data_reader").execute(admin).await.unwrap();
+    sqlx::query("GRANT EXECUTE ON FUNCTION market_data_admitted_read.resolve_sample_receipt_v1(BYTEA) TO vibe_test_role_market_data_reader").execute(admin).await.unwrap();
+    sqlx::query("GRANT EXECUTE ON FUNCTION market_data_admitted_read.resolve_bar_schedule_v1(BYTEA) TO vibe_test_role_market_data_reader").execute(admin).await.unwrap();
+    sqlx::query("GRANT EXECUTE ON FUNCTION market_data_admitted_read.resolve_bar_schedule_history_v1(TEXT) TO vibe_test_role_market_data_reader").execute(admin).await.unwrap();
 }
 
 async fn observation_census_schema_oracle(reader_url: &str, admin: &PgPool) {
@@ -1906,8 +1926,11 @@ pub(crate) async fn universe_member_declarations_oracle(
         "refusals write nothing"
     );
 
-    // A second role of the same Design, so its custody re-read covers a role set.
-    let second = universe_request(235);
+    // A second role of the same Design, so its custody re-read covers a role set. It reads the
+    // open: a Design whose two roles both read the close names no execution role, and Strategy
+    // Factory refuses it as `ExecutionPricingRoleAmbiguous` before it could reach a Replay.
+    let mut second = universe_request(235);
+    second.field_semantic = MarketDataFieldSemantic::BarOpenPrice;
     register(&second)
         .await
         .expect("a second universe-member declaration");
@@ -2198,7 +2221,7 @@ async fn research_scope_reads_oracle_v1(
     admit_research_frontier_v1(
         owner,
         d(211),
-        (cut.decision_cut + 1, 98),
+        (cut.decision_cut.as_epoch_nanos() + 1, 98),
         &[(b"AAPL", lineage, d(86))],
     )
     .await;
@@ -2225,7 +2248,7 @@ async fn research_scope_reads_oracle_v1(
                 retrieval_ns: 92,
                 correction_publication_ns: 91,
                 owner_observation_ns: 98,
-                decision_cut: cut.decision_cut + 1,
+                decision_cut: cut.decision_cut.as_epoch_nanos() + 1,
                 source_binding_lineage_root: lineage,
                 correction_frontier_digest: d(86),
             }],
@@ -2375,7 +2398,7 @@ async fn fixed_member_selection_oracle_v1(
 
     let cut = super::public_decision_cut_v1(&owner.current_clock_admission_v1().await.unwrap());
     let lineage = source.fact().lineage_root();
-    let instant = i128::from(cut.decision_cut);
+    let instant = i128::from(cut.decision_cut.as_epoch_nanos());
     let request = |identity: u8, frontier: BindingDigest, identities: &[&str]| {
         let scope = ResearchInstrumentScopeV1::from_identities(
             identities
@@ -2392,7 +2415,7 @@ async fn fixed_member_selection_oracle_v1(
             frontier,
             instant,
             instant,
-            cut.decision_cut,
+            cut.decision_cut.as_epoch_nanos(),
             lineage,
             d(86),
             d(identity),
@@ -4110,6 +4133,7 @@ pub(crate) async fn persist_replay_joined_projection_fixture_v1(
         step: 1,
         unit: BarScheduleUnitV1::Minute,
         anchor_identity: d(206),
+        clock: BarScheduleClockV1::ScheduleBounded,
         label: BarScheduleLabelV1::IntervalClose,
         completion: BarScheduleCompletionV1::CompleteOnly,
     };
@@ -4882,9 +4906,17 @@ async fn owner_r0_readback_v1(
     owner: &MarketDataOwnerPostgres,
     aggregate: &PitSnapshotCommitAggregate,
 ) -> Option<crate::owner::reference_fact_coordinates::r0::ReferenceFactR0ReadbackV1> {
-    let request =
-        super::reference_fact_coordinates::owner_r0_request_for_available_pit_v1(aggregate).ok()?;
     let mut transaction = owner.pool().begin().await.unwrap();
+    let event_end = super::reference_fact_coordinates::owner_r0_window_end_in_transaction_v1(
+        &mut transaction,
+        aggregate,
+    )
+    .await
+    .ok()?;
+    let request = super::reference_fact_coordinates::owner_r0_request_for_available_pit_v1(
+        aggregate, event_end,
+    )
+    .ok()?;
     let readback = super::reference_fact_coordinates::recover_reference_fact_r0_in_transaction_v1(
         &mut transaction,
         request.locator(),
@@ -6781,7 +6813,7 @@ async fn run_postgres_owner_scenario() {
     );
     assert_eq!(epoch_proof.prior_clock_epoch(), TEST_CLOCK_EPOCH_V1);
     assert_eq!(epoch_proof.successor_clock_epoch(), "epoch-2");
-    assert_eq!(epoch_proof.commit_cut(), 90);
+    assert_eq!(epoch_proof.commit_cut().as_epoch_nanos(), 90);
     assert_eq!(epoch_two.handoff().monotonic_sequence(), 1);
     assert!(
         epoch_reader
@@ -6940,7 +6972,7 @@ async fn run_postgres_owner_scenario() {
             .as_bytes()
             .as_slice(),
     )
-    .bind(i64::try_from(epoch_proof.commit_cut()).unwrap())
+    .bind(i64::try_from(epoch_proof.commit_cut().as_epoch_nanos()).unwrap())
     .execute(epoch_owner.pool())
     .await
     .unwrap();
@@ -6956,7 +6988,7 @@ async fn run_postgres_owner_scenario() {
         .bind(epoch_proof.successor_clock_identity())
         .bind(epoch_proof.successor_clock_epoch())
         .bind(epoch_proof.successor_continuity_digest().as_bytes().as_slice())
-        .bind(i64::try_from(epoch_proof.commit_cut()).unwrap())
+        .bind(i64::try_from(epoch_proof.commit_cut().as_epoch_nanos()).unwrap())
         .execute(epoch_owner.pool())
         .await
         .is_err()
@@ -8315,9 +8347,20 @@ pub(crate) struct NativeReplayTwoMemberSnapshotFixtureV1 {
 pub(crate) async fn native_replay_two_member_snapshot_fixture_v1(
     owner: &MarketDataOwnerPostgres,
 ) -> NativeReplayTwoMemberSnapshotFixtureV1 {
+    // The snapshot's rows are one-minute bars, and its binding says what they are, so a scheduling
+    // read over it reaches its schedules.
     let source = owner
         .commit_source_initial(
-            source_proposal(10, 40),
+            declaring_bars_v1(
+                source_proposal(10, 40),
+                vec![session_bar_v1(
+                    "1M",
+                    UntrustedSourceBarCadenceV1::FixedInterval {
+                        step: 1,
+                        unit: UntrustedSourceBarUnitV1::Minute,
+                    },
+                )],
+            ),
             OwnerSourceBindingDecision {
                 blockers: BTreeSet::new(),
             },

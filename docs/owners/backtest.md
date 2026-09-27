@@ -190,6 +190,24 @@ recompose a result, or append a second Result, receipt, or outbox event. Admitte
 proof; it still grants no Dashboard implementation, deployment, production write, provider effect, Paper, Live,
 or trading authority.
 
+The same seam lists one request's Results. `read_exploratory_replay_result_directory_v1` takes the request
+identity and its meaning digest and is the fifth `owner_api` function: fixed, safe-`search_path`, `SECURITY DEFINER`
+and `STABLE`, executable by `rd_owner` alone, and pinned by the same topology census as the others. Each entry
+states `attempt_identity`, `result_identity`, `terminal` and the receipt's `committed_at_epoch_ms`, ordered by that
+time and then by attempt. Backtest keeps no attempt table, so an attempt appears here only as a terminal Result: an
+attempt still in flight, or one that failed before any Result, is R&D's to state, while a rejected run is listed
+with its own terminal. The directory is complete or it is nothing. A listed Result whose receipt or outbox event is
+missing refuses the whole read as `EXPLORATORY_RECEIPT_ABSENT` or `EXPLORATORY_OUTBOX_ABSENT` rather than listing
+fewer Results than exist, and the adapter checks that every entry's receipt and outbox state the same request,
+meaning digest and Result. A request under which Backtest holds no Result answers
+`EXPLORATORY_REQUEST_RESULTS_ABSENT`, read as an empty directory: Backtest holds no request table, so it cannot tell
+an unknown request from one with no Result yet. A Result held under the same request identity and another meaning
+digest refuses the read as `EXPLORATORY_REQUEST_MEANING_MISMATCH`, and more than 256 Results refuse it as
+`EXPLORATORY_REQUEST_RESULTS_EXCEED_BOUND`. The read takes no row lock: it runs inside a `READ ONLY` transaction and
+holds only `AccessShareLock` and the topology fence every Backtest read takes. It states which Results exist and
+their terminals, never whether a report can be stated, which stays the report read's judgement, and it lists no
+Protected Result.
+
 ## Input handoffs
 
 - [R&D](./rd/) submits one frozen Exploratory Replay Request, addressed by an R&D-owned locator carrying the
@@ -281,7 +299,41 @@ history; it says nothing about whether the path has ever run in some other envir
     evidence binds, an Owner-decided state (`AVAILABLE` or `EMPTY`), every return observation the run
     recorded in canonical UTC, net return, maximum drawdown, and every execution with its side and with
     price and quantity exactly as the engine wrote them. It carries no statistics map, because those
-    legitimately hold non-finite values. The strategy and the data window are not in a backtest result,
+    legitimately hold non-finite values. An `EMPTY` report also names why the run recorded no return, as
+    `empty_reason`, derived from those same bytes and nothing else. The engine's own rule decides it:
+    `Portfolio::statistics` takes daily equity returns from the portfolio snapshots
+    (`calculate_snapshot_returns`) and, when those resolve to nothing, the return of each closed position. A run
+    records no return exactly when the snapshots resolve to nothing and it closed no position. The reason is the
+    first cause the engine's snapshot resolution meets, in its own order:
+    - `MORE_THAN_ONE_EQUITY_CURRENCY`: a priced snapshot of one of the run's accounts carries more than one
+      equity, or two such snapshots carry different currencies.
+    - `ACCOUNT_WITHOUT_PRICED_SNAPSHOT`: the run has no account, or one of its accounts has no priced snapshot,
+      because every snapshot of it names an unpriced instrument.
+    - `FEWER_THAN_TWO_ENGINE_DAYS`: the priced snapshots give fewer than two days on which every account has had
+      equity, as the engine counts days, carrying each account's equity forward. `snapshot_day_start` files each
+      account's first priced snapshot, and any snapshot exactly on a UTC midnight, under the previous day, so a
+      one-account run has two days as soon as it has a later snapshot not on a midnight. A run without a fill is therefore `AVAILABLE` with a return of
+      zero, and having a fill is not a reason.
+    - `NO_DEFINED_DAILY_RETURN`: two or more such days, but no day's return is defined, because each needs a finite
+      ratio to a previous day's non-zero equity.
+
+    A canonical result that is `EMPTY` although it closed a position, or although its snapshots resolve to a daily
+    series, is not one the engine writes, and it is refused as `ENGINE_RESULT_NONCANONICAL` rather than given a
+    reason. Every input the rule reads is in the committed bytes: the accounts' identities, each portfolio
+    snapshot's account, `ts_event`, `total_equity`, `base_currency_equity` and `unpriced_instruments`, and each
+    position's `ts_closed` and `realized_pnl`. The projection asks the engine's resolution itself for its cause
+    rather than keeping a second copy of the rule. What reaches each reason today:
+    - `FEWER_THAN_TWO_ENGINE_DAYS`: a run whose snapshots all fall on one midnight, which
+      `a_run_whose_snapshots_all_fall_on_a_midnight_reports_empty` runs with a control a minute later; and any run
+      on the epoch's first day, where the previous day cannot go below day zero, such as the sealed frame at 25 ns
+      that `an_authored_universe_member_program_enters_once_through_the_target_set_sim` uses. F's single frame is
+      not one: its registration snapshot is at the frame's midnight and its fill snapshot after it, so it is
+      `AVAILABLE` with one return.
+    - `MORE_THAN_ONE_EQUITY_CURRENCY`, `ACCOUNT_WITHOUT_PRICED_SNAPSHOT` and `NO_DEFINED_DAILY_RETURN`: no run,
+      because every admitted account holds one currency, prices its instruments and starts with non-zero equity; a
+      projection test over edited snapshots reaches each.
+
+    The key is always present: `null` in an `AVAILABLE` report, one of the set in an `EMPTY` one. The strategy and the data window are not in a backtest result,
     so they come from upstream: the replay request the run answered, and the Design and program
     frozen under the Design it names. All three reads run in one transaction the report opens as
     `SERIALIZABLE, READ ONLY, DEFERRABLE`: a safe snapshot the three share, with the request storage

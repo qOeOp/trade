@@ -112,6 +112,69 @@ pub enum ProtectedEvaluationComparisonRuleV1 {
     ExclusiveValidThrough,
 }
 
+/// Nanoseconds in one millisecond.
+const NANOS_PER_MILLI: u64 = 1_000_000;
+
+/// An instant on Market Data's Owner clock, in Unix-epoch nanoseconds, as this wire carries it.
+///
+/// The unit is carried by the type, not by a field name: four Owners once read these instants as
+/// epoch milliseconds and compared them with their own millisecond clocks, so an expiry check
+/// against a nanosecond bound never fired. Serialized, it is the bare number, so the wire bytes
+/// and every digest over them are unchanged. There is no accessor returning the number without
+/// naming its unit, and no comparison with a millisecond value except
+/// [`Self::may_be_reached_within_epoch_ms`].
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(transparent)]
+pub struct MarketDataEpochNanosV1(u64);
+
+impl MarketDataEpochNanosV1 {
+    #[must_use]
+    pub const fn from_epoch_nanos(nanos: u64) -> Self {
+        Self(nanos)
+    }
+
+    #[must_use]
+    pub const fn as_epoch_nanos(self) -> u64 {
+        self.0
+    }
+
+    /// The epoch millisecond this instant falls in.
+    #[must_use]
+    pub const fn to_epoch_millis_floor(self) -> u64 {
+        self.0 / NANOS_PER_MILLI
+    }
+
+    /// Whether some instant inside epoch millisecond `epoch_ms` is at or after this instant.
+    ///
+    /// A commit stamped in milliseconds happened somewhere in `[epoch_ms·10⁶, epoch_ms·10⁶ +
+    /// 999_999]`. Against an exclusive bound it must count as reached if any of that millisecond
+    /// might be, so the check expires no later than the Owner would: writing `V = k·10⁶ + r` with
+    /// `r < 10⁶`, `epoch_ms·10⁶ + 999_999 >= V` holds exactly when `epoch_ms >= k`, which is what
+    /// this compares. Multiplying `epoch_ms` by 10⁶ instead compares the start of the millisecond
+    /// and accepts a bound passed inside it; do not "simplify" it that way.
+    #[must_use]
+    pub const fn may_be_reached_within_epoch_ms(self, epoch_ms: u64) -> bool {
+        epoch_ms >= self.to_epoch_millis_floor()
+    }
+}
+
+/// A span on Market Data's Owner clock, in nanoseconds, as this wire carries it.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(transparent)]
+pub struct MarketDataNanosV1(u64);
+
+impl MarketDataNanosV1 {
+    #[must_use]
+    pub const fn from_nanos(nanos: u64) -> Self {
+        Self(nanos)
+    }
+
+    #[must_use]
+    pub const fn as_nanos(self) -> u64 {
+        self.0
+    }
+}
+
 /// Direct proof carried only when a protected evaluation advances to a new clock epoch.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -124,7 +187,7 @@ pub struct ProtectedEvaluationEpochSuccessorProofV1 {
     pub successor_clock_identity: String,
     pub successor_clock_epoch: String,
     pub successor_continuity_digest: [u8; 32],
-    pub commit_cut: u64,
+    pub commit_cut: MarketDataEpochNanosV1,
     pub comparison_rule: ProtectedEvaluationComparisonRuleV1,
 }
 
@@ -139,12 +202,12 @@ pub struct ProtectedEvaluationTimeEvidenceV1 {
     pub clock_identity: String,
     pub clock_epoch: String,
     pub monotonic_sequence: u64,
-    pub wall_observed: u64,
-    pub decision_cut: u64,
-    pub valid_through: u64,
+    pub wall_observed: MarketDataEpochNanosV1,
+    pub decision_cut: MarketDataEpochNanosV1,
+    pub valid_through: MarketDataEpochNanosV1,
     pub restart_continuity_digest: [u8; 32],
-    pub uncertainty_bound: u64,
-    pub skew_bound: u64,
+    pub uncertainty_bound: MarketDataNanosV1,
+    pub skew_bound: MarketDataNanosV1,
     pub comparison_rule: ProtectedEvaluationComparisonRuleV1,
     pub direct_predecessor_head_identity: Option<[u8; 32]>,
     pub direct_predecessor_head_digest: Option<[u8; 32]>,
@@ -152,6 +215,16 @@ pub struct ProtectedEvaluationTimeEvidenceV1 {
 }
 
 impl ProtectedEvaluationTimeEvidenceV1 {
+    /// Whether a commit stamped at `committed_at_epoch_ms` may fall at or past this head's
+    /// exclusive validity bound, so it must be refused. It is the only comparison of this
+    /// evidence with a millisecond clock; see
+    /// [`MarketDataEpochNanosV1::may_be_reached_within_epoch_ms`] for the rounding.
+    #[must_use]
+    pub const fn is_expired_at_epoch_ms(&self, committed_at_epoch_ms: u64) -> bool {
+        self.valid_through
+            .may_be_reached_within_epoch_ms(committed_at_epoch_ms)
+    }
+
     pub fn validate_request_root(&self) -> Result<(), ProtectedReplayContractErrorV1> {
         self.validate_common()?;
 
@@ -294,12 +367,12 @@ impl ProtectedEvaluationTimeEvidenceV1 {
             || !valid_identity(&self.clock_identity)
             || !valid_identity(&self.clock_epoch)
             || self.monotonic_sequence == 0
-            || self.wall_observed == 0
-            || self.decision_cut == 0
+            || self.wall_observed.as_epoch_nanos() == 0
+            || self.decision_cut.as_epoch_nanos() == 0
             || self.decision_cut > self.wall_observed
             || self.wall_observed >= self.valid_through
             || self.uncertainty_bound > self.skew_bound
-            || self.skew_bound == 0
+            || self.skew_bound.as_nanos() == 0
             || self.head_identity.iter().all(|byte| *byte == 0)
             || self.head_digest.iter().all(|byte| *byte == 0)
             || self.restart_continuity_digest.iter().all(|byte| *byte == 0)
@@ -1182,7 +1255,10 @@ pub fn protected_result_custody_wires_v3(
     ProtectedReplayContractErrorV1,
 > {
     result.validate()?;
-    if committed_at_epoch_ms >= result.result_time_evidence.valid_through {
+    if result
+        .result_time_evidence
+        .is_expired_at_epoch_ms(committed_at_epoch_ms)
+    {
         return Err(ProtectedReplayContractErrorV1::InvalidResult);
     }
     protected_result_custody_wires(
@@ -2319,6 +2395,33 @@ fn qualification_digest_json<T: Serialize + ?Sized>(
 mod tests {
     use super::*;
 
+    /// The contract's one millisecond comparison is its definition, checked instant by instant:
+    /// some instant of the commit's millisecond is at or after the bound.
+    #[rstest::rstest]
+    #[case::on_a_millisecond(1_790_000_000_005_000_000)]
+    #[case::inside_a_millisecond(1_790_000_000_005_000_500)]
+    #[case::at_its_last_nanosecond(1_790_000_000_005_999_999)]
+    fn the_expiry_comparison_answers_for_the_whole_commit_millisecond(#[case] nanos: u64) {
+        let bound = MarketDataEpochNanosV1::from_epoch_nanos(nanos);
+        let around = nanos / NANOS_PER_MILLI;
+
+        for epoch_ms in around - 2..=around + 2 {
+            let last = u128::from(epoch_ms) * u128::from(NANOS_PER_MILLI)
+                + u128::from(NANOS_PER_MILLI)
+                - 1;
+            assert_eq!(
+                bound.may_be_reached_within_epoch_ms(epoch_ms),
+                last >= u128::from(nanos),
+                "{epoch_ms} against {nanos}"
+            );
+        }
+        assert_eq!(
+            serde_json::to_string(&bound).unwrap(),
+            nanos.to_string(),
+            "the wire carries the bare number"
+        );
+    }
+
     fn identity(value: &str) -> OpaqueIdentityV2 {
         OpaqueIdentityV2::try_from(value.to_string()).unwrap()
     }
@@ -2360,12 +2463,21 @@ mod tests {
         request
     }
 
+    /// A Market Data wall-clock instant in 2026, in epoch nanoseconds, as a real head carries it.
+    const EPOCH_NANOS_2026: u64 = 1_790_000_000_000_000_000;
+    /// The Owner clock's validity window: one hour, in nanoseconds.
+    const HOUR_NANOS: u64 = 3_600_000_000_000;
+    /// Half a millisecond, so every validity bound falls inside a millisecond rather than on one.
+    const HALF_MILLI_NANOS: u64 = 500_000;
+
     fn time_evidence(stage: ProtectedEvaluationStageV1) -> ProtectedEvaluationTimeEvidenceV1 {
-        let (head, predecessor, sequence, observed, valid_through) = match stage {
-            ProtectedEvaluationStageV1::Request => (1, None, 1, 100, 160),
-            ProtectedEvaluationStageV1::Result => (4, Some((1, 2)), 2, 110, 180),
-            ProtectedEvaluationStageV1::Assessment => (6, Some((4, 5)), 3, 120, 200),
+        let (head, predecessor, sequence, offset_ms) = match stage {
+            ProtectedEvaluationStageV1::Request => (1, None, 1, 0),
+            ProtectedEvaluationStageV1::Result => (4, Some((1, 2)), 2, 10),
+            ProtectedEvaluationStageV1::Assessment => (6, Some((4, 5)), 3, 20),
         };
+        let observed = EPOCH_NANOS_2026 + offset_ms * NANOS_PER_MILLI;
+        let valid_through = observed + HOUR_NANOS + HALF_MILLI_NANOS;
         ProtectedEvaluationTimeEvidenceV1 {
             cut_kind: "PROTECTED_EVALUATION".into(),
             stage,
@@ -2374,12 +2486,12 @@ mod tests {
             clock_identity: "clock-identity".into(),
             clock_epoch: "clock-epoch".into(),
             monotonic_sequence: sequence,
-            wall_observed: observed,
-            decision_cut: observed,
-            valid_through,
+            wall_observed: MarketDataEpochNanosV1::from_epoch_nanos(observed),
+            decision_cut: MarketDataEpochNanosV1::from_epoch_nanos(observed),
+            valid_through: MarketDataEpochNanosV1::from_epoch_nanos(valid_through),
             restart_continuity_digest: [3; 32],
-            uncertainty_bound: 1,
-            skew_bound: 2,
+            uncertainty_bound: MarketDataNanosV1::from_nanos(1),
+            skew_bound: MarketDataNanosV1::from_nanos(2),
             comparison_rule: ProtectedEvaluationComparisonRuleV1::ExclusiveValidThrough,
             direct_predecessor_head_identity: predecessor.map(|(identity, _)| [identity; 32]),
             direct_predecessor_head_digest: predecessor.map(|(_, digest)| [digest; 32]),
@@ -2727,20 +2839,28 @@ mod tests {
         assert!(ProtectedReplayRequestDtoV2::from_canonical_bytes(&bytes).is_err());
     }
 
+    /// A result head's validity bound is a Market Data nanosecond instant, and the commit clock is
+    /// in milliseconds. The bound here sits half a millisecond into millisecond `k`, so a commit
+    /// stamped `k` may have happened after it and is refused, even though `k·10⁶` alone is before
+    /// the bound; `k - 1` is wholly before it and is admitted. Both readings are needed: either
+    /// one alone is also satisfied by a check rounding the other way.
     #[rstest::rstest]
-    fn v3_custody_rejects_commit_at_or_after_result_expiry() {
+    fn v3_custody_refuses_a_commit_in_the_millisecond_its_result_expires() {
         let result = result_v3(&request_v2());
+        let bound = result.result_time_evidence.valid_through;
+        let expiry_ms = bound.as_epoch_nanos() / NANOS_PER_MILLI;
         assert!(
-            protected_result_custody_wires_v3(
-                &result,
-                result.result_time_evidence.valid_through - 1,
-            )
-            .is_ok()
+            bound.as_epoch_nanos() > 1_000_000_000_000_000_000,
+            "a real nanosecond head"
         );
-        assert!(
-            protected_result_custody_wires_v3(&result, result.result_time_evidence.valid_through,)
-                .is_err()
+        assert_ne!(bound.as_epoch_nanos() % NANOS_PER_MILLI, 0);
+
+        assert!(protected_result_custody_wires_v3(&result, expiry_ms - 1).is_ok());
+        assert_eq!(
+            protected_result_custody_wires_v3(&result, expiry_ms).map(|_| ()),
+            Err(ProtectedReplayContractErrorV1::InvalidResult)
         );
+        assert!(protected_result_custody_wires_v3(&result, expiry_ms + 1).is_err());
     }
 
     fn request_set(request: &ProtectedReplayRequestDtoV2) -> ProtectedReplayRequestSetSealDtoV1 {
@@ -2947,9 +3067,12 @@ mod tests {
         later.head_identity = [7; 32];
         later.head_digest = [8; 32];
         later.monotonic_sequence += 1;
-        later.wall_observed += 10;
-        later.decision_cut += 10;
-        later.valid_through += 20;
+        later.wall_observed =
+            MarketDataEpochNanosV1::from_epoch_nanos(earlier.wall_observed.as_epoch_nanos() + 10);
+        later.decision_cut =
+            MarketDataEpochNanosV1::from_epoch_nanos(earlier.decision_cut.as_epoch_nanos() + 10);
+        later.valid_through =
+            MarketDataEpochNanosV1::from_epoch_nanos(earlier.valid_through.as_epoch_nanos() + 20);
         later.direct_predecessor_head_identity = Some(earlier.head_identity);
         later.direct_predecessor_head_digest = Some(earlier.head_digest);
 

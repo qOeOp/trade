@@ -130,6 +130,18 @@ grep -Fq 'ALTER DATABASE %I OWNER TO rd_database_owner' "$package_dir/postgres-i
 grep -Fq 'ALTER SCHEMA public OWNER TO rd_database_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'CREATE SCHEMA IF NOT EXISTS replay_policy_catalog_private AUTHORIZATION replay_policy_catalog_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'CREATE SCHEMA IF NOT EXISTS composer_private AUTHORIZATION composer_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'CREATE SCHEMA IF NOT EXISTS market_data_admitted_read AUTHORIZATION market_data_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'ALTER SCHEMA market_data_admitted_read OWNER TO market_data_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'REVOKE ALL ON SCHEMA market_data_admitted_read FROM PUBLIC, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, market_data_reader, product_edge_owner, qualification_owner, qualification_writer, operator_authorization_owner, operator_authorization_writer, portfolio_owner, backtest_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'REVOKE ALL ON ALL FUNCTIONS IN SCHEMA market_data_admitted_read FROM PUBLIC, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, market_data_reader, product_edge_owner, qualification_owner, qualification_writer, operator_authorization_owner, operator_authorization_writer, portfolio_owner, backtest_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq "WHERE namespace.nspname IN ('market_data_private','market_data_rd_api','market_data_admitted_read')" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+# The cutover runs after the Owner has materialized and granted the admitted reader its wrappers, and
+# its REVOKE lists name roles one by one. The reader's grant survives only because no statement names
+# it, so a statement that does would strip it silently. Comments explaining that are allowed.
+if grep -v '^--' "$package_dir/postgres-init/10-migrate-authority-custody.sh" | grep -Fq 'market_data_admitted_reader'; then
+  echo "10-migrate-authority-custody.sh names market_data_admitted_reader, which would revoke the Owner migration's grant to it" >&2
+  exit 1
+fi
 grep -Fq "DO \$private_owner_cutover_gate\$" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq '(catalog_public_count=4 AND catalog_public_exact AND catalog_private_count=0 AND composer_public_count IN (9,11,12,14) AND composer_public_exact AND composer_private_count=0)' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq '(catalog_public_count=0 AND catalog_private_count=4 AND catalog_private_exact AND composer_public_count=0 AND composer_private_count IN (9,11,12,14) AND composer_private_exact)' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
@@ -200,11 +212,13 @@ grep -Fq "ALTER ROLE rd_exploratory_replay_api_owner NOLOGIN NOINHERIT NOSUPERUS
 grep -Fq 'ALTER FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v1(text,text,text) OWNER TO rd_exploratory_replay_api_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'ALTER FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v2(text,text,text,text) OWNER TO rd_exploratory_replay_api_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'ALTER FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v3(text,text,text,text) OWNER TO rd_exploratory_replay_api_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
-for verifier_version in 1 2 3; do
-  test "$(grep -Fc -- "-- BEGIN INTERNAL_VERIFY_SOURCE_V$verifier_version" "$package_dir/postgres-init/10-migrate-authority-custody.sh")" -eq 1
-  test "$(grep -Fc -- "-- END INTERNAL_VERIFY_SOURCE_V$verifier_version" "$package_dir/postgres-init/10-migrate-authority-custody.sh")" -eq 1
+grep -Fq 'ALTER FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_composer_v3(text,text,text,text) OWNER TO rd_exploratory_replay_api_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+for verifier_version in V1 V2 V3 COMPOSER_V3; do
+  test "$(grep -Fc -- "-- BEGIN INTERNAL_VERIFY_SOURCE_$verifier_version" "$package_dir/postgres-init/10-migrate-authority-custody.sh")" -eq 1
+  test "$(grep -Fc -- "-- END INTERNAL_VERIFY_SOURCE_$verifier_version" "$package_dir/postgres-init/10-migrate-authority-custody.sh")" -eq 1
 done
 grep -Fq 'GRANT EXECUTE ON FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v1(text,text,text), rd_owner_api.verify_exploratory_replay_request_internal_v2(text,text,text,text), rd_owner_api.verify_exploratory_replay_request_internal_v3(text,text,text,text) TO rd_owner;' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'GRANT EXECUTE ON FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_composer_v3(text,text,text,text) TO rd_owner;' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 # The dollar-quoted SQL delimiter is intentional literal input.
 # shellcheck disable=SC2016
 grep -Fq 'DO $replay_internal_verifier_acl$' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
