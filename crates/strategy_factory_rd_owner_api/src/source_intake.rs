@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use vibe_postgres_connect::{PgPoolOptionsExt, PostgresTls};
 
 #[cfg(feature = "sealed-source-intake-acceptance")]
 use anyhow::Context;
@@ -361,7 +362,7 @@ pub(super) async fn production_router(
 ) -> anyhow::Result<Router> {
     let owner_pool = sqlx::postgres::PgPoolOptions::new()
         .max_connections(8)
-        .connect(database_url)
+        .connect_url(database_url, PostgresTls::Disabled)
         .await?;
     Ok(router(SourceIntakeApiState {
         owner: Arc::new(SourceIntakeOwnerV1::production(
@@ -382,7 +383,7 @@ pub(super) async fn sealed_acceptance_router(
 ) -> anyhow::Result<Router> {
     let owner_pool = sqlx::postgres::PgPoolOptions::new()
         .max_connections(8)
-        .connect(database_url)
+        .connect_url(database_url, PostgresTls::Disabled)
         .await?;
     require_sealed_source_intake_schema(&owner_pool).await?;
     let environment =
@@ -649,7 +650,7 @@ async fn materialize_sealed_source_intake_schema(owner_pool: &sqlx::PgPool) -> a
 pub(super) async fn materialize_schema(database_url: &str) -> anyhow::Result<()> {
     let pool = sqlx::postgres::PgPoolOptions::new()
         .max_connections(1)
-        .connect(database_url)
+        .connect_url(database_url, PostgresTls::Disabled)
         .await?;
     materialize_sealed_source_intake_schema(&pool).await
 }

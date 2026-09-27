@@ -1,6 +1,7 @@
 //! Composition roots for the R&D Owner and Product Edge HTTP APIs.
 
 pub mod dashboard_read_api;
+pub mod signing_key_file;
 
 /// Reads a required configuration variable, refusing one that is present but carries no value.
 ///

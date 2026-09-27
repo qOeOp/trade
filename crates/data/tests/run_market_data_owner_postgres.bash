@@ -12,6 +12,7 @@ readonly market_data_owner_postgres_tests=(
   owner::store_admission::tests::a_refused_pit_readback_never_reads_schedule_candidates
   owner::store_admission::tests::the_admitted_quote_cut_read_resolves_what_custody_resolves
   owner::store_admission::tests::the_postgres_custody_store_admits_on_its_own_clock_and_refuses_what_moved
+  owner::store_admission::tests::each_floor_is_the_catalog_closure_of_its_reads
   owner::instrument_master_v2_postgres::tests::postgres_v2_cut_custody_holds_one_or_two_members_and_migrates_a_legacy_table
   owner::instrument_master_v2_postgres::tests::postgres_bound_replay_issuance_keys_each_request_to_one_binding
   owner::instrument_economic_terms_postgres_v1::tests::postgres_economic_terms_resolve_for_one_member_or_two
@@ -22,6 +23,11 @@ readonly market_data_owner_postgres_tests=(
   owner::postgres::tests::postgres_each_research_request_under_one_binding_gets_its_own_market_semantics
   owner::postgres::tests::postgres_production_admits_market_semantics_for_the_chain_fixture_instrument
   owner::postgres::tests::the_market_base_corpus_is_named_by_its_snapshot_after_a_production_admission
+  owner::postgres::chain_market_base_v1_tests::the_acceptance_basis_is_written_once_and_rejoined_without_moving_a_pointer
+  owner::postgres::chain_market_base_v1_tests::a_store_on_another_clock_refuses_the_basis_at_its_source_binding
+  owner::postgres::chain_market_base_v1_tests::a_base_snapshot_over_another_source_binding_is_refused_on_rejoin
+  owner::postgres::chain_market_base_v1_tests::the_basis_rejoins_the_base_the_replay_composition_entry_writes
+  owner::postgres::chain_market_base_v1_tests::the_base_records_are_the_same_written_or_rejoined
   owner::postgres::tests::postgres_concurrent_values_under_one_binding_leave_one_value
   owner::postgres::tests::postgres_market_semantics_heads_migrate_to_one_head_per_snapshot
   owner::postgres::pit_initial_intake_correlation_tests::postgres_an_initial_intake_claims_its_correlation_once_and_reads_back_by_it
@@ -30,6 +36,8 @@ readonly market_data_owner_postgres_tests=(
   owner::postgres::universe_sample_projection_v1_tests::postgres_a_universe_frame_issues_one_sample_projection_over_the_host_frame
   owner::postgres::universe_member_composition_basis_v1_tests::postgres_a_new_snapshot_reads_the_basis_its_universe_composition_issues_from
   owner::postgres::instrument_master_admission_v1_tests::postgres_an_instrument_fact_takes_its_scope_and_frontiers_from_the_named_binding
+  owner::postgres::bar_schedule_acceptance_v1_tests::postgres_a_declared_bar_role_gets_the_schedule_its_frame_reads_once
+  owner::postgres::bar_schedule_acceptance_v1_tests::postgres_the_schedule_refuses_each_input_it_cannot_derive_from
   owner::store_admission::tests::a_production_build_refuses_evidence_that_names_no_admission
 )
 

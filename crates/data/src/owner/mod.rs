@@ -2,6 +2,7 @@
 
 #[cfg(not(test))]
 use std::sync::Arc;
+use vibe_postgres_connect::{PgPoolOptionsExt, PostgresTls};
 
 pub mod bar_schedule;
 pub mod calendar;
@@ -77,6 +78,8 @@ pub(crate) mod time_zone;
 #[cfg(any(test, feature = "sealed-strategy-input-acceptance"))]
 pub mod chain_fixture_v1;
 #[cfg(any(test, feature = "sealed-strategy-input-acceptance"))]
+pub use postgres::bar_schedule_acceptance_v1;
+#[cfg(any(test, feature = "sealed-strategy-input-acceptance"))]
 pub use postgres::chain_market_base_v1;
 
 #[cfg(feature = "sealed-strategy-input-acceptance")]
@@ -86,6 +89,11 @@ pub use postgres::bar_joined_cut_acceptance_v1;
 
 mod postgres;
 mod store_admission;
+pub use store_admission::{
+    DeploymentStorePublicationError, DeploymentStorePublicationSummaryV1,
+    DeploymentStorePublishOutcomeV1, publish_sealed_deployment_store_publication_v1,
+    seal_deployment_store_publication_v1,
+};
 
 /// Transaction-scoped re-read of the persisted Market Data strategy input binding custody.
 ///
@@ -165,7 +173,8 @@ pub async fn instrument_economic_terms_postgres_owner_from_environment_v1()
     if url.is_empty() || url.trim() != url {
         return Err(InstrumentEconomicTermsPostgresErrorV1::ConfigurationUnavailable);
     }
-    let pool = sqlx::PgPool::connect(&url)
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .connect_url(&url, PostgresTls::Disabled)
         .await
         .map_err(|_| InstrumentEconomicTermsPostgresErrorV1::StoreUnavailable)?;
     InstrumentEconomicTermsPostgresOwnerV1::install(pool).await
@@ -186,7 +195,8 @@ pub async fn instrument_master_v2_postgres_owner_from_environment()
     if url.is_empty() || url.trim() != url {
         return Err(InstrumentMasterCustodyErrorV2::StoreUnavailable);
     }
-    let pool = sqlx::PgPool::connect(&url)
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .connect_url(&url, PostgresTls::Disabled)
         .await
         .map_err(|_| InstrumentMasterCustodyErrorV2::StoreUnavailable)?;
     InstrumentMasterV2PostgresOwner::install(pool).await
@@ -615,7 +625,8 @@ async fn apply_sealed_acceptance_grants_v1(
     principal: &str,
     statement_of: fn(store_admission::AcceptanceGrantV1, &str) -> String,
 ) -> Result<(), SealedAcceptanceGrantErrorV1> {
-    let owner = sqlx::PgPool::connect(owner_url)
+    let owner = sqlx::postgres::PgPoolOptions::new()
+        .connect_url(owner_url, PostgresTls::Disabled)
         .await
         .map_err(|_| SealedAcceptanceGrantErrorV1::OwnerUnavailable)?;
     let applied = store_admission::apply_native_replay_scheduling_acceptance_grants_v1(
@@ -698,7 +709,11 @@ async fn consume_store_admission_bootstrap(
                 .map_err(|_| ResearchPitTerminalBootstrapError {
                     failure: ResearchPitTerminalBootstrapFailure::StoreAdmissionRejected,
                 })?;
-            let port = capability.into_pit_terminal_snapshot_port();
+            let port = capability.into_pit_terminal_snapshot_port().map_err(|_| {
+                ResearchPitTerminalBootstrapError {
+                    failure: ResearchPitTerminalBootstrapFailure::StoreAdmissionRejected,
+                }
+            })?;
             Ok(Some(Arc::new(MarketDataReadPostgres::from_admitted(port))))
         }
     }
@@ -716,7 +731,11 @@ async fn consume_replay_input_store_admission_bootstrap(
                 .map_err(|_| SealedReplayInputBootstrapError {
                     failure: ResearchPitTerminalBootstrapFailure::StoreAdmissionRejected,
                 })?;
-            let port = capability.into_pit_evaluation_snapshot_port();
+            let port = capability
+                .into_pit_evaluation_snapshot_port()
+                .map_err(|_| SealedReplayInputBootstrapError {
+                    failure: ResearchPitTerminalBootstrapFailure::StoreAdmissionRejected,
+                })?;
             Ok(Some(Arc::new(MarketDataReadPostgres::from_admitted(port))))
         }
     }

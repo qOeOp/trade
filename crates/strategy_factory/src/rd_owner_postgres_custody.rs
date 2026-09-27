@@ -664,6 +664,17 @@ pub(crate) struct VerifiedResearchCustodyV1 {
     terminal_attempt_admission: Option<Box<ProductEdgeAdmissionReadbackV1>>,
 }
 
+impl VerifiedResearchCustodyV1 {
+    /// Whether this custody's View is a native Composer Research View. Such a custody carries no
+    /// legacy Artifact Build attempt lineage; a consumer that needs one refuses it by name rather
+    /// than reading fields that are absent.
+    pub(crate) fn is_native_composer(&self) -> bool {
+        self.view
+            .as_ref()
+            .is_some_and(|view| view.composer_artifact.is_some())
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct VerifiedResearchQuestionV1 {
     pub(crate) hypothesis: String,
@@ -3096,13 +3107,17 @@ async fn complete_research_custody_lineage_in_transaction(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     mut custody: VerifiedResearchCustodyV1,
 ) -> Result<VerifiedResearchCustodyV1, ResearchGoalOwnerError> {
-    if custody
-        .view()
-        .is_some_and(|view| view.composer_artifact.is_some())
-    {
-        return Err(ResearchGoalOwnerError::Storage(
-            "native Composer Research View requires exact Owner readback".into(),
-        ));
+    // A native Composer Research View has no legacy Artifact Build attempt, so its lineage is not
+    // the terminal attempt's. Its View was already checked against the Owner's initial View by
+    // row admission (`validate_historical_view`, whose schema 3 branch is the Composer View's own
+    // validator); its Composer, Artifact-family and Replay dependencies are verified on the
+    // dedicated Replay read path, as `resolve_research_admission_hints` already relies on. What is
+    // left to verify here is the family it was accepted into. Refusing the whole custody instead
+    // made every scan of all custodies refuse, including Research submission, once one such View
+    // existed.
+    if custody.is_native_composer() {
+        load_research_family_in_transaction(transaction, &mut custody).await?;
+        return Ok(custody);
     }
 
     if custody.view().is_some_and(|view| {

@@ -1,6 +1,7 @@
 import {
   RESEARCH_SHADOW_RESOLVE_OPERATION,
 } from "./operation-registry.ts";
+import { validExploratoryReplayOpaqueIdentityV2 } from "./exploratory-replay-identity.ts";
 import { ownerApiTargetForOperationV1 } from "./owner-api-target.ts";
 import {
   validResearchInitialPitV1,
@@ -14,6 +15,9 @@ import {
 
 const IDENTITY = /^[A-Za-z0-9._:/-]{1,192}$/u;
 const DIGEST = /^sha256:[0-9a-f]{64}$/u;
+// A Replay request V2 meaning digest, which the request contract computes with BLAKE3; the Research
+// View states it in that form, and the Owner's validator refuses any other.
+const REPLAY_MEANING_DIGEST = /^blake3:[0-9a-f]{64}$/u;
 const REASON = new Set<ResearchShadowUnavailableReason>([
   "INVALID_REQUEST_IDENTITY",
   "OWNER_CONFIGURATION_UNAVAILABLE",
@@ -40,12 +44,21 @@ export type ResearchReadbackOutcomeV1 = Readonly<{
   instrumentIdentities: readonly string[] | null;
 }>;
 
+// The Composer run and the Replay request an exploration ran, as the verified view names them.
+export type ResearchReadbackExplorationV1 = Readonly<{
+  composerRequestIdentity: string;
+  replayRequestIdentity: string;
+  replayMeaningDigest: string;
+}>;
+
 export type ResearchReadbackViewV1 = Readonly<{
   availability: "available" | "stale";
-  phase: "intent_frozen" | "artifact_available";
+  phase: "intent_frozen" | "artifact_available" | "exploration_active";
   observedAt: string;
   validThrough: string;
-  nextStep: "wait_for_r_and_d_execution" | "review_artifact" | "refresh_same_request";
+  nextStep: "wait_for_r_and_d_execution" | "review_artifact" | "refresh_same_request" | "view_exploratory_run";
+  // Present exactly for `exploration_active`.
+  exploration: ResearchReadbackExplorationV1 | null;
 }>;
 
 export type ResearchReadbackTechnicalV1 = Readonly<{
@@ -93,6 +106,28 @@ function isoTime(value: unknown): string | null {
   if (!Number.isSafeInteger(value) || Number(value) < 0) return null;
   const date = new Date(Number(value));
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
+// Each Owner phase and next legal action maps to exactly one page state. One outside these tables is
+// not shown as a neighbour: an exploration read as `intent_frozen` would say the request is still
+// waiting for its first run.
+const PHASES: Readonly<Record<string, ResearchReadbackViewV1["phase"]>> = {
+  INTENT_FROZEN: "intent_frozen",
+  ARTIFACT_AVAILABLE: "artifact_available",
+  EXPLORATION_ACTIVE: "exploration_active",
+};
+const NEXT_STEPS: Readonly<Record<string, ResearchReadbackViewV1["nextStep"]>> = {
+  WAIT_FOR_R_AND_D_EXECUTION: "wait_for_r_and_d_execution",
+  REVIEW_ARTIFACT: "review_artifact",
+  RESOLVE_SAME_REQUEST_IDENTITY: "refresh_same_request",
+  VIEW_EXPLORATORY_RUN: "view_exploratory_run",
+};
+
+function validExploration(value: unknown): value is ResearchReadbackExplorationV1 {
+  return object(value) && exactKeys(value, ["composerRequestIdentity", "replayRequestIdentity", "replayMeaningDigest"])
+    && identity(value.composerRequestIdentity)
+    && validExploratoryReplayOpaqueIdentityV2(value.replayRequestIdentity)
+    && typeof value.replayMeaningDigest === "string" && REPLAY_MEANING_DIGEST.test(value.replayMeaningDigest);
 }
 
 function unavailable(
@@ -153,16 +188,23 @@ function projectResponse(
   const researchView = accepted ? projection.research_view : null;
   const observedAt = researchView ? isoTime(researchView.observed_at_epoch_ms) : null;
   const validThrough = researchView ? isoTime(researchView.valid_through_epoch_ms) : null;
-  const view = researchView && observedAt && validThrough ? {
+  const phase = researchView && Object.hasOwn(PHASES, researchView.phase) ? PHASES[researchView.phase] : null;
+  const nextStep = researchView && Object.hasOwn(NEXT_STEPS, researchView.next_legal_action)
+    ? NEXT_STEPS[researchView.next_legal_action]
+    : null;
+  const exploration = researchView && phase === "exploration_active" ? {
+    composerRequestIdentity: researchView.composer_artifact?.composer_request_identity,
+    replayRequestIdentity: researchView.exploration?.replay_request_identity,
+    replayMeaningDigest: researchView.exploration?.replay_request_meaning_digest,
+  } : null;
+  const view = researchView && observedAt && validThrough && phase && nextStep
+    && (exploration === null || validExploration(exploration)) ? {
     availability: researchView.availability === "STALE" ? "stale" as const : "available" as const,
-    phase: researchView.phase === "ARTIFACT_AVAILABLE" ? "artifact_available" as const : "intent_frozen" as const,
+    phase,
     observedAt,
     validThrough,
-    nextStep: researchView.next_legal_action === "REVIEW_ARTIFACT"
-      ? "review_artifact" as const
-      : researchView.next_legal_action === "RESOLVE_SAME_REQUEST_IDENTITY"
-        ? "refresh_same_request" as const
-        : "wait_for_r_and_d_execution" as const,
+    nextStep,
+    exploration,
   } : null;
   if (accepted && !view) return unavailable(requestIdentity, "OWNER_RESPONSE_UNAVAILABLE", 502);
   return {
@@ -269,12 +311,17 @@ export function parseResearchReadbackBrowserProjectionV1(
   if (value.outcome.historicalDisposition !== null
     || !identity(value.outcome.intentIdentity) || value.outcome.rejectionCode !== null
     || !object(value.view) || !exactKeys(value.view, [
-      "availability", "phase", "observedAt", "validThrough", "nextStep",
+      "availability", "phase", "observedAt", "validThrough", "nextStep", "exploration",
     ]) || !["available", "stale"].includes(String(value.view.availability))
-    || !["intent_frozen", "artifact_available"].includes(String(value.view.phase))
+    || !Object.values(PHASES).includes(value.view.phase as ResearchReadbackViewV1["phase"])
     || !canonicalTime(value.view.observedAt) || !canonicalTime(value.view.validThrough)
-    || !["wait_for_r_and_d_execution", "review_artifact", "refresh_same_request"]
-      .includes(String(value.view.nextStep))
+    || !Object.values(NEXT_STEPS).includes(value.view.nextStep as ResearchReadbackViewV1["nextStep"])
+    // An exploration is available or it is nothing, it always names what it ran, and only it leads
+    // to its run.
+    || (value.view.phase === "exploration_active") !== validExploration(value.view.exploration)
+    || (value.view.phase !== "exploration_active" && value.view.exploration !== null)
+    || (value.view.phase === "exploration_active") !== (value.view.nextStep === "view_exploratory_run")
+    || (value.view.phase === "exploration_active" && value.view.availability !== "available")
     || !identity(value.technical.projectionIdentity)
     || !identity(value.technical.sourceCut)
     || !identity(value.technical.trialFamilyIdentity)) return null;

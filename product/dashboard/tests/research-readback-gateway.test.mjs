@@ -7,6 +7,8 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import ts from "typescript";
 
+import { canonicalResearchViewIdentityV4 } from "../../rd-owner-client/consumer_projection_v1.ts";
+import { researchExplorationLinksV1 } from "../lib/research-exploration-links.ts";
 import * as journey from "../lib/research-journey.ts";
 import * as reasons from "../lib/reason-presentation.ts";
 
@@ -206,7 +208,9 @@ async function renderedReadback(projection) {
     if (path.includes("research-journey")) return journey;
     if (path.includes("reason-presentation")) return reasons;
     if (path.includes("entity-reference")) return { compactEntityIdentity: (value) => value };
-    return new Proxy({}, { get: (_, key) => String(key).endsWith("Icons") ? new Proxy({}, { get: () => atom }) : atom });
+    if (path.includes("research-exploration-links")) return { researchExplorationLinksV1 };
+    return new Proxy({}, { get: (_, key) => String(key).endsWith("Icons") ? new Proxy({}, { get: () => atom })
+      : key === "FilterLink" ? ({ href, children }) => React.createElement("a", { href }, children) : atom });
   };
   const exports = {};
   new Function("require", "exports", compiled)(load, exports);
@@ -416,4 +420,121 @@ test("browser parser rejects identity drift and contradictory accepted fields", 
     ...result.projection,
     technical: { ...result.projection.technical, semanticDigest: "sha256:not-a-digest" },
   }), null);
+});
+
+// An accepted V3 request whose exploration ran, as the producing side shapes it: the captured
+// accepted result with its view replaced by a schema 3 EXPLORATION_ACTIVE view over the same request,
+// Intent and principal, whose identity is the v4 derivation. No production exploration has been
+// stored yet; F's first green run replaces this with its own bytes.
+const composerRequestIdentity = "rd-develop-composer-request-exploration-1";
+// A Replay request identity is opaque, so this one needs encoding to survive a query string.
+const replayRequestIdentity = "replay request/α&#1";
+// Every digest-shaped fact of the exploration comes from the view the shared identity vectors pin,
+// which the producing Rust side and the Owner client both verify: a change to what the Owner states
+// reaches this test through that file rather than through a value typed here.
+const identityVectors = JSON.parse(await readFile(
+  new URL("../../rd-owner-client/fixtures/research_view_identity_vectors_v4.json", import.meta.url),
+  "utf8",
+));
+const replayMeaningDigest = identityVectors.view.exploration.replay_request_meaning_digest;
+
+async function explorationOf(base) {
+  const at = base.owner_receipt.committed_at_epoch_ms + 1000;
+  const family = { trial_family_identity: base.trial_family.root.trial_family_identity,
+    census_frontier_identity: base.trial_family.census_frontier.frontier_identity,
+    census_frontier_digest: base.trial_family.census_frontier.frontier_digest };
+  const view = {
+    schema_version: 3, projection_identity: "", request_identity: base.request_identity,
+    trusted_principal: base.research_view.trusted_principal, authorized_scope: base.research_view.authorized_scope,
+    authorization_policy_cut: base.research_view.authorization_policy_cut, source_owner: "R_AND_D",
+    source_cut: identityVectors.view.source_cut,
+    observed_at_epoch_ms: at, projection_at_epoch_ms: at, valid_through_epoch_ms: at + 600_000,
+    availability: "AVAILABLE", phase: "EXPLORATION_ACTIVE", intent_identity: base.research_view.intent_identity,
+    source_frontier: base.research_view.source_frontier,
+    // The vectors' own facts, with only this request's identities in place of the vectors'.
+    composer_artifact: {
+      ...identityVectors.view.composer_artifact,
+      composer_request_identity: composerRequestIdentity,
+      ...family,
+    },
+    exploration: {
+      ...identityVectors.view.exploration,
+      ...family,
+      replay_request_identity: replayRequestIdentity,
+    },
+    next_legal_action: "VIEW_EXPLORATORY_RUN",
+  };
+  view.projection_identity = await canonicalResearchViewIdentityV4(view);
+  return { ...base, research_view: view, next_legal_action: "VIEW_EXPLORATORY_RUN",
+    request_schema_version: 3, instrument_scope: scope,
+    initial_pit: { state: "TERMINAL", disposition: "AVAILABLE", primary_blocker: null } };
+}
+
+// An exploration is not a request waiting for its first run: it states its own phase and next step,
+// and names what it ran, never falling back to intent_frozen.
+test("an exploration readback states its phase and what it ran", async () => {
+  const result = await readbackOf(await explorationOf(accepted));
+  assert.equal(result.status, 200, JSON.stringify(result.projection));
+  assert.equal(result.projection.view?.phase, "exploration_active");
+  assert.equal(result.projection.view?.nextStep, "view_exploratory_run");
+  assert.deepEqual(result.projection.view?.exploration, {
+    composerRequestIdentity, replayRequestIdentity, replayMeaningDigest,
+  });
+  assert.equal(result.projection.outcome?.requestVersion, 3);
+  assert.deepEqual(parseResearchReadbackBrowserProjectionV1(result.projection), result.projection);
+  assert.equal(journey.projectResearchJourneyV1(result.projection).summary, "Exploration is active");
+  // Every other phase states no exploration.
+  assert.equal((await readbackOf(accepted)).projection.view?.exploration, null);
+});
+
+test("an exploration's links open its Composer run and Replay request with exactly their identities", () => {
+  const links = researchExplorationLinksV1({ composerRequestIdentity, replayRequestIdentity, replayMeaningDigest });
+  const composer = new URL(links.composerRun, "http://dashboard.test");
+  assert.equal(composer.pathname, "/rd/composer");
+  assert.deepEqual([...composer.searchParams], [["requestIdentity", composerRequestIdentity]]);
+  const replay = new URL(links.exploratoryReplay, "http://dashboard.test");
+  assert.equal(replay.pathname, "/backtest");
+  assert.deepEqual([...replay.searchParams], [
+    ["replayRequestIdentity", replayRequestIdentity], ["meaningDigest", replayMeaningDigest],
+  ]);
+});
+
+test("the browser parser keeps an exploration to the state the Owner states", async () => {
+  const projection = (await readbackOf(await explorationOf(accepted))).projection;
+  const frozen = (await readbackOf(accepted)).projection;
+  for (const [name, value] of [
+    ["an exploration leading anywhere but its run", { ...projection, view: { ...projection.view, nextStep: "wait_for_r_and_d_execution" } }],
+    ["an exploration naming nothing it ran", { ...projection, view: { ...projection.view, exploration: null } }],
+    ["a stale exploration", { ...projection, view: { ...projection.view, availability: "stale" } }],
+    ["an exploration with a malformed meaning digest",
+      { ...projection, view: { ...projection.view, exploration: { ...projection.view.exploration, replayMeaningDigest: "sha256:x" } } }],
+    // The Replay request's meaning digest is BLAKE3; a SHA-256 one is not what the Owner states.
+    ["an exploration with a SHA-256 meaning digest",
+      { ...projection, view: { ...projection.view, exploration: { ...projection.view.exploration, replayMeaningDigest: `sha256:${"6".repeat(64)}` } } }],
+    ["a frozen Intent naming an exploration", { ...frozen, view: { ...frozen.view, exploration: projection.view.exploration } }],
+    ["a frozen Intent leading to an exploratory run", { ...frozen, view: { ...frozen.view, nextStep: "view_exploratory_run" } }],
+    ["a phase the page does not know", { ...projection, view: { ...projection.view, phase: "exploring" } }],
+  ]) {
+    assert.equal(parseResearchReadbackBrowserProjectionV1(value), null, name);
+  }
+  const { exploration: _dropped, ...withoutExploration } = frozen.view;
+  assert.equal(parseResearchReadbackBrowserProjectionV1({ ...frozen, view: withoutExploration }), null);
+});
+
+test("the readback page shows an exploration as active and links to what it ran", async () => {
+  const result = await readbackOf(await explorationOf(accepted));
+  const html = await renderedReadback(result.projection);
+  const page = html.replace(/<[^>]+>/gu, " ").replace(/\s+/gu, " ");
+  // The journey summary is asserted on its projection above; the stubbed atom prints no summary.
+  for (const text of ["Availability Exploration active", "Next step View exploratory run",
+    "Exploration Composer run Exploratory replay"]) {
+    assert.ok(page.includes(text), `${text} in ${page}`);
+  }
+  for (const text of ["Intent frozen", "Awaiting R&D", "ready for build"]) {
+    assert.ok(!page.includes(text), `no ${text} in ${page}`);
+  }
+  const links = researchExplorationLinksV1(result.projection.view.exploration);
+  for (const href of [links.composerRun, links.exploratoryReplay]) {
+    assert.ok(html.includes(`href="${href.replaceAll("&", "&amp;")}"`), `${href} in ${html}`);
+  }
 });

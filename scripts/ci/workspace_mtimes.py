@@ -1,0 +1,206 @@
+#!/usr/bin/env python3
+"""
+Let a pull request reuse the workspace artifacts main cached, by giving cargo honest
+mtimes.
+
+cargo treats a local unit as stale when a file in its dep-info (a source, an `include_str!` or
+`include_bytes!` input, a `rerun-if-changed` path) is newer than the unit's fingerprint. Checkout
+gives every file a new mtime, so without this every workspace crate rebuilds on every run.
+
+`record` runs on main before anything compiles. It writes the commit being built and the time T
+into a nested cache directory the Rust cache keeps (rust-cache deletes every other file at the
+target root before saving, but keeps `CACHEDIR.TAG` in a nested target).
+
+`reuse` runs on a pull request after the cache is restored. It sets every tracked file that is
+unchanged since that commit to T - 1 and every changed file to now:
+
+- a unit main built in the recording run has outputs newer than T, so it stays fresh;
+- a unit an earlier run left in the cache has outputs older than T, so it rebuilds;
+- a unit that reads a changed file rebuilds, whatever kind of file that is.
+
+Commit times are never used. A pull request's commits can predate the cache, which would make a
+changed file older than a stale output and pass the output as fresh.
+
+Whenever `reuse` cannot prove the mapping, it leaves the checkout's mtimes, so everything
+rebuilds, and prints why: no marker, the cached commit unreachable, a failed diff, or a change to
+a manifest, the lock file, cargo configuration or the toolchain.
+
+`verify` checks the result by a second route, blob by blob between the two trees rather than
+through `git diff`. Every tracked file whose content differs must be newer than T and every
+other tracked file must be exactly T - 1, whatever its type. A file left wrong fails by name.
+`reuse` ends by running it.
+
+"""
+
+from __future__ import annotations
+
+import base64
+import os
+import re
+import shutil
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+
+SIGNATURE = "Signature: 8a477f597d28d172789f06886806bc55"
+MARKER_LINE = re.compile(r"^# workspace source ([0-9a-f]{40}) ([0-9]+)$")
+# A change here reaches every crate through something cargo does not tie to one crate's
+# fingerprint: the workspace manifest and lock, cargo configuration, the toolchain, and the build
+# environment make sets. A member crate's own Cargo.toml is not here: cargo fingerprints what it
+# compiles from (features, dependencies and their versions, targets, build scripts), so a change
+# rebuilds exactly that crate's closure (measured field by field; see the pull request).
+FALLBACK_PATHS = re.compile(
+    r"^Cargo\.toml$|^Cargo\.lock$|(^|/)\.cargo/|^rust-toolchain(\.toml)?$|^build-env\.mk$",
+)
+PREFIX = "workspace artifacts:"
+GIT = shutil.which("git") or "git"
+
+
+def git(*args: str, check: bool = True) -> subprocess.CompletedProcess[bytes]:
+    return subprocess.run([GIT, *args], capture_output=True, check=check)
+
+
+def marker_path(target_dir: Path) -> Path:
+    return target_dir / "source-marker" / "CACHEDIR.TAG"
+
+
+def read_marker(target_dir: Path) -> tuple[str, int] | None:
+    try:
+        lines = marker_path(target_dir).read_text().splitlines()
+    except OSError:
+        return None
+    for line in lines:
+        match = MARKER_LINE.match(line)
+        if match:
+            return match.group(1), int(match.group(2))
+    return None
+
+
+def tree(rev: str) -> dict[str, str]:
+    """
+    Return path -> "mode blob" for every file in the commit, submodules excluded.
+    """
+    out = git("ls-tree", "-r", "-z", "--full-tree", rev).stdout.decode()
+    entries = {}
+    for record in filter(None, out.split("\0")):
+        meta, path = record.split("\t", 1)
+        mode, kind, blob = meta.split()
+        if kind == "blob":
+            entries[path] = f"{mode} {blob}"
+    return entries
+
+
+def record(target_dir: Path) -> int:
+    sha = git("rev-parse", "HEAD").stdout.decode().strip()
+    now = int(time.time())
+    path = marker_path(target_dir)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(f"{SIGNATURE}\n# workspace source {sha} {now}\n")
+    print(f"{PREFIX} recorded source {sha} at {now}")
+    return 0
+
+
+def full_rebuild(reason: str) -> int:
+    print(f"{PREFIX} full rebuild: {reason}")
+    return 0
+
+
+def reachable(sha: str) -> bool:
+    if git("cat-file", "-e", f"{sha}^{{tree}}", check=False).returncode == 0:
+        return True
+    fetch = ["fetch", "--no-tags", "--quiet", "--depth=1", "origin", sha]
+    token = os.environ.get("GIT_FETCH_TOKEN", "")
+    if token:
+        credential = base64.b64encode(f"x-access-token:{token}".encode()).decode()
+        fetch = [
+            "-c",
+            f"http.https://github.com/.extraheader=AUTHORIZATION: basic {credential}",
+            *fetch,
+        ]
+    return git(*fetch, check=False).returncode == 0
+
+
+def set_mtime(path: str, seconds: float) -> None:
+    os.utime(path, (seconds, seconds), follow_symlinks=False)
+
+
+def reuse(target_dir: Path) -> int:
+    marker = read_marker(target_dir)
+    if marker is None:
+        return full_rebuild(
+            f"the restored cache carries no source marker ({marker_path(target_dir)})",
+        )
+    sha, recorded = marker
+    if not reachable(sha):
+        return full_rebuild(f"cannot reach the cached source commit {sha}")
+    diff = git("diff", "--name-only", "--no-renames", "-z", sha, "HEAD", check=False)
+    if diff.returncode != 0:
+        return full_rebuild(f"git diff {sha} HEAD failed: {diff.stderr.decode().strip()}")
+    changed = [p for p in diff.stdout.decode().split("\0") if p]
+    blocking = [p for p in changed if FALLBACK_PATHS.search(p)]
+    if blocking:
+        return full_rebuild(f"{', '.join(blocking[:5])} changed since the cached source {sha}")
+
+    unchanged_time = recorded - 1
+    now = time.time()
+    changed_set = set(changed)
+    tracked = tree("HEAD")
+    for path in tracked:
+        if os.path.lexists(path):
+            set_mtime(path, now if path in changed_set else unchanged_time)
+    touched = sum(1 for p in changed if p in tracked)
+    print(
+        f"{PREFIX} reusing main's build of {sha} (recorded {recorded}): "
+        f"{touched} changed file(s) set to now, {len(tracked) - touched} unchanged set to {unchanged_time}",
+    )
+    for path in changed[:20]:
+        print(f"{PREFIX}   changed {path}")
+    return verify(target_dir)
+
+
+def verify(target_dir: Path) -> int:
+    marker = read_marker(target_dir)
+    if marker is None:
+        print(f"{PREFIX} verify: no source marker at {marker_path(target_dir)}", file=sys.stderr)
+        return 1
+    sha, recorded = marker
+    before, after = tree(sha), tree("HEAD")
+    wrong = []
+    for path, entry in after.items():
+        if not os.path.lexists(path):
+            wrong.append(f"{path}: tracked but missing from the checkout")
+            continue
+        mtime = os.lstat(path).st_mtime
+        if before.get(path) != entry:
+            if mtime <= recorded:
+                wrong.append(
+                    f"{path}: content differs from {sha} but its mtime {mtime:.0f} is not after {recorded}",
+                )
+        elif int(mtime) != recorded - 1:
+            wrong.append(
+                f"{path}: unchanged since {sha} but its mtime {mtime:.0f} is not {recorded - 1}",
+            )
+    if wrong:
+        for line in wrong[:50]:
+            print(f"{PREFIX} WRONG MTIME {line}", file=sys.stderr)
+        print(
+            f"{PREFIX} {len(wrong)} tracked file(s) would let cargo reuse or rebuild the wrong artifacts",
+            file=sys.stderr,
+        )
+        return 1
+    print(f"{PREFIX} verified {len(after)} tracked file(s) against {sha}, blob by blob")
+    return 0
+
+
+def main() -> int:
+    if len(sys.argv) != 3 or sys.argv[1] not in ("record", "reuse", "verify"):
+        print(f"usage: {sys.argv[0]} record|reuse|verify <target-dir>", file=sys.stderr)
+        return 2
+    target_dir = Path(sys.argv[2])
+    return {"record": record, "reuse": reuse, "verify": verify}[sys.argv[1]](target_dir)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

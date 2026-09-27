@@ -58,6 +58,7 @@ export type ExploratoryReplayReadbackProjectionV2 = {
     trialFamilyIdentity: string;
     artifactIdentity: string;
     strategyDesignIdentity: string;
+    universeSelectionIdentity: string;
     pitSnapshotIdentity: string;
     runtimeKernelIdentity: string;
     simulatorIdentity: string;
@@ -314,6 +315,7 @@ export function parseExploratoryReplayOwnerV2(
       trialFamilyIdentity: String((request.trial_family as Json).identity),
       artifactIdentity: String((request.artifact as Json).identity),
       strategyDesignIdentity: String((request.strategy_design as Json).identity),
+      universeSelectionIdentity: String((request.universe_selection as Json).identity),
       pitSnapshotIdentity: String((request.pit_snapshot as Json).identity),
       runtimeKernelIdentity: String((models.runtime_kernel as Json).identity),
       simulatorIdentity: String((models.simulator as Json).identity),
@@ -444,8 +446,8 @@ export function parseExploratoryReplayShadowEnvelopeV2(
   if (!object(readback) || !exactKeys(readback, [
     "meaningDigest", "receiptIdentity", "sealDigest", "committedAtEpochMs", "ownerCutEpochMs",
     "namespace", "deterministicSeed", "startEventNs", "endEventNsExclusive", "trialFamilyIdentity",
-    "artifactIdentity", "strategyDesignIdentity", "pitSnapshotIdentity", "runtimeKernelIdentity",
-    "simulatorIdentity",
+    "artifactIdentity", "strategyDesignIdentity", "universeSelectionIdentity", "pitSnapshotIdentity",
+    "runtimeKernelIdentity", "simulatorIdentity",
   ]) || readback.meaningDigest !== value.meaning_digest || !digest(readback.meaningDigest)
     || !identity(readback.receiptIdentity) || !digest(readback.sealDigest)
     || readback.namespace !== "EXPLORATORY" || !validU64String(readback.deterministicSeed)
@@ -454,7 +456,8 @@ export function parseExploratoryReplayShadowEnvelopeV2(
     || !safeUnsignedNumber(readback.committedAtEpochMs) || !safeUnsignedNumber(readback.ownerCutEpochMs)
     || Number(readback.ownerCutEpochMs) < Number(readback.committedAtEpochMs)
     || !identity(readback.trialFamilyIdentity) || !identity(readback.artifactIdentity)
-    || !identity(readback.strategyDesignIdentity) || !identity(readback.pitSnapshotIdentity)
+    || !identity(readback.strategyDesignIdentity) || !identity(readback.universeSelectionIdentity)
+    || !identity(readback.pitSnapshotIdentity)
     || !identity(readback.runtimeKernelIdentity) || !identity(readback.simulatorIdentity)) return null;
   return {
     requestIdentity: value.request_identity,
@@ -473,6 +476,7 @@ export function parseExploratoryReplayShadowEnvelopeV2(
       trialFamilyIdentity: readback.trialFamilyIdentity,
       artifactIdentity: readback.artifactIdentity,
       strategyDesignIdentity: readback.strategyDesignIdentity,
+      universeSelectionIdentity: readback.universeSelectionIdentity,
       pitSnapshotIdentity: readback.pitSnapshotIdentity,
       runtimeKernelIdentity: readback.runtimeKernelIdentity,
       simulatorIdentity: readback.simulatorIdentity,

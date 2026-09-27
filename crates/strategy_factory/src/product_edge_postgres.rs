@@ -12,6 +12,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Row};
+use vibe_postgres_connect::{PgPoolOptionsExt, PostgresTls};
 use vibe_product_edge::{
     DownstreamAdmissionModeV1, ProductEdgeAdmissionLocatorV1, ProductEdgeAdmissionReadbackV1,
     resolve_admission_for_downstream_in_transaction,
@@ -119,7 +120,7 @@ impl PostgresExploratoryReplayReadbackOwnerV2 {
     pub async fn connect(database_url: &str) -> Result<Self, ExploratoryReplayOwnerError> {
         let pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(4)
-            .connect(database_url)
+            .connect_url(database_url, PostgresTls::Disabled)
             .await
             .map_err(|e| ExploratoryReplayOwnerError::Unavailable(e.to_string()))?;
         require_rd_owner_api_schema(&pool)
@@ -180,7 +181,7 @@ impl PostgresResearchReadbackOwnerV1 {
     pub async fn connect(database_url: &str) -> Result<Self, ResearchGoalOwnerError> {
         let pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(4)
-            .connect(database_url)
+            .connect_url(database_url, PostgresTls::Disabled)
             .await
             .map_err(|e| storage(&e))?;
         require_rd_owner_api_schema(&pool)
@@ -455,42 +456,126 @@ pub(crate) async fn lock_current_research_artifact_custody_in_transaction(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     custody: &crate::rd_owner_postgres_custody::VerifiedResearchCustodyV1,
 ) -> Result<(), ResearchGoalOwnerError> {
+    let view = custody.view().ok_or_else(|| {
+        ResearchGoalOwnerError::Storage("current Research artifact custody unavailable".into())
+    })?;
+    lock_research_artifact_custody_in_transaction(
+        transaction,
+        custody,
+        ArtifactEvidenceViewV1::Current(view),
+    )
+    .await
+}
+
+/// Whether artifact evidence was sealed for `view`: it names that View's identity and window.
+///
+/// The evidence is sealed once, when the Research request is accepted, for its IntentFrozen View,
+/// and no View transition reseals it. It therefore matches the current View only while no
+/// transition has happened, and always matches the View an operation ran under.
+fn artifact_evidence_is_sealed_for_view(
+    evidence: &CurrentResearchArtifactEvidenceV1,
+    view: &crate::product_edge::ResearchViewV1,
+) -> bool {
+    evidence.view_identity == view.projection_identity
+        && evidence.projection_at_epoch_ms == view.projection_at_epoch_ms
+        && evidence.valid_through_epoch_ms == view.valid_through_epoch_ms
+}
+
+/// Locks Source and Artifact evidence as sealed for `view`, the View a historical read's operation
+/// ran under, in the consumer's existing Research transaction.
+///
+/// A historical read of an operation the Research View has since moved past names the
+/// pre-transition View; the Owner verifies the evidence against that View, not the stored one.
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+pub(crate) async fn lock_research_artifact_custody_at_view_in_transaction(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    custody: &crate::rd_owner_postgres_custody::VerifiedResearchCustodyV1,
+    view: &crate::product_edge::ResearchViewV1,
+) -> Result<(), ResearchGoalOwnerError> {
+    lock_research_artifact_custody_in_transaction(
+        transaction,
+        custody,
+        ArtifactEvidenceViewV1::RanUnder(view),
+    )
+    .await
+}
+
+/// The View artifact evidence is verified against, and so which Owner read verifies it.
+enum ArtifactEvidenceViewV1<'a> {
+    /// The custody's current View; the Owner reads the stored View itself.
+    Current(&'a crate::product_edge::ResearchViewV1),
+    /// The View an operation ran under, which the Owner is told
+    /// (`rd_owner_api.*_research_for_artifact_at_view_v1`).
+    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+    RanUnder(&'a crate::product_edge::ResearchViewV1),
+}
+
+async fn lock_research_artifact_custody_in_transaction(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    custody: &crate::rd_owner_postgres_custody::VerifiedResearchCustodyV1,
+    evidence_view: ArtifactEvidenceViewV1<'_>,
+) -> Result<(), ResearchGoalOwnerError> {
     let unavailable =
         || ResearchGoalOwnerError::Storage("current Research artifact custody unavailable".into());
     let Some(FrozenResearchGoalIntent::V2(intent)) = custody.intent() else {
         return Err(unavailable());
     };
-    let view = custody.view().ok_or_else(unavailable)?;
     let admission = custody.product_edge_admission().ok_or_else(unavailable)?;
-    let value: Option<serde_json::Value> =
-        sqlx::query_scalar("SELECT rd_owner_api.peek_current_research_for_artifact_v1($1)")
-            .bind(&intent.intent_identity)
-            .fetch_one(&mut **transaction)
-            .await
-            .map_err(|e| storage(&e))?;
+    let (view, named_view): (_, Option<serde_json::Value>) = match evidence_view {
+        ArtifactEvidenceViewV1::Current(view) => (view, None),
+        #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+        ArtifactEvidenceViewV1::RanUnder(view) => (
+            view,
+            Some(serde_json::to_value(view).map_err(json_storage)?),
+        ),
+    };
+    let peek = match &named_view {
+        None => sqlx::query_scalar::<_, Option<serde_json::Value>>(
+            "SELECT rd_owner_api.peek_current_research_for_artifact_v1($1)",
+        )
+        .bind(&intent.intent_identity),
+        Some(named_view) => sqlx::query_scalar::<_, Option<serde_json::Value>>(
+            "SELECT rd_owner_api.peek_research_for_artifact_at_view_v1($1,$2)",
+        )
+        .bind(&intent.intent_identity)
+        .bind(named_view),
+    };
+    let value = peek
+        .fetch_one(&mut **transaction)
+        .await
+        .map_err(|e| storage(&e))?;
     let peeked = decode_current_research_artifact_readback(&value.ok_or_else(unavailable)?, false)?;
     let evidence = &peeked.evidence;
     if evidence.request_identity != custody.receipt().request_identity
         || evidence.semantic_digest != custody.receipt().semantic_digest
         || evidence.receipt_identity != custody.receipt().receipt_identity
         || evidence.intent_identity != intent.intent_identity
-        || evidence.view_identity != view.projection_identity
-        || evidence.projection_at_epoch_ms != view.projection_at_epoch_ms
-        || evidence.valid_through_epoch_ms != view.valid_through_epoch_ms
+        || !artifact_evidence_is_sealed_for_view(evidence, view)
         || &evidence.source_admission != admission.locator()
         || evidence.effective_principal != custody.effective_principal()
         || evidence.authorized_scope != custody.authorized_scope()
     {
         return Err(unavailable());
     }
-    let value: Option<serde_json::Value> =
-        sqlx::query_scalar("SELECT rd_owner_api.lock_current_research_for_artifact_v1($1,$2,$3)")
-            .bind(&intent.intent_identity)
-            .bind(&evidence.evidence_identity)
-            .bind(&peeked.evidence_digest)
-            .fetch_one(&mut **transaction)
-            .await
-            .map_err(|e| storage(&e))?;
+    let lock = match &named_view {
+        None => sqlx::query_scalar::<_, Option<serde_json::Value>>(
+            "SELECT rd_owner_api.lock_current_research_for_artifact_v1($1,$2,$3)",
+        )
+        .bind(&intent.intent_identity)
+        .bind(&evidence.evidence_identity)
+        .bind(&peeked.evidence_digest),
+        Some(named_view) => sqlx::query_scalar::<_, Option<serde_json::Value>>(
+            "SELECT rd_owner_api.lock_research_for_artifact_at_view_v1($1,$2,$3,$4)",
+        )
+        .bind(&intent.intent_identity)
+        .bind(&evidence.evidence_identity)
+        .bind(&peeked.evidence_digest)
+        .bind(named_view),
+    };
+    let value = lock
+        .fetch_one(&mut **transaction)
+        .await
+        .map_err(|e| storage(&e))?;
     let locked = decode_current_research_artifact_readback(&value.ok_or_else(unavailable)?, true)?;
     if locked.evidence != peeked.evidence || locked.evidence_digest != peeked.evidence_digest {
         return Err(unavailable());
@@ -1045,7 +1130,7 @@ impl PostgresResearchGoalOwnerV1 {
     pub async fn materialize_schema(database_url: &str) -> Result<(), ResearchGoalOwnerError> {
         let pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(1)
-            .connect(database_url)
+            .connect_url(database_url, PostgresTls::Disabled)
             .await
             .map_err(|e| storage(&e))?;
         if let Some(admitted) =
@@ -1069,7 +1154,7 @@ impl PostgresResearchGoalOwnerV1 {
     ) -> Result<Self, ResearchGoalOwnerError> {
         let pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(8)
-            .connect(database_url)
+            .connect_url(database_url, PostgresTls::Disabled)
             .await
             .map_err(|e| storage(&e))?;
         Self::verify_public_relation_shapes(&pool, false).await?;
@@ -1247,16 +1332,27 @@ impl PostgresResearchGoalOwnerV1 {
                 .await
                 .map_err(|e| storage(&e))?;
         }
+        // Artifact evidence is sealed once, when the Research request is accepted, for its
+        // IntentFrozen View, and no View transition reseals it. The `_at_view` pair verifies and
+        // locks it against a View the caller names: the historical Composer read names the
+        // pre-transition View its operation ran under, after the Replay commit has moved the stored
+        // View on. They keep every check the current pair makes, the named View's phase and
+        // availability included, so they admit only the View the evidence was sealed for. The
+        // current pair is the `_at_view` pair applied to the stored View, read `FOR SHARE` by the
+        // lock so it cannot move between the two reads. Only the R&D Owner calls the `_at_view`
+        // pair, so it grants EXECUTE to nobody.
         sqlx::query(
             "
-            CREATE OR REPLACE FUNCTION rd_owner_api.peek_current_research_for_artifact_v1(requested_intent_identity text)
+            CREATE OR REPLACE FUNCTION rd_owner_api.peek_research_for_artifact_at_view_v1(
+              requested_intent_identity text, requested_view jsonb
+            )
             RETURNS jsonb LANGUAGE plpgsql STRICT STABLE PARALLEL SAFE SECURITY DEFINER
             SET search_path = pg_catalog, pg_temp
             AS $function$
             DECLARE sealed record; source_handoff jsonb;
             BEGIN
               SELECT request_identity, semantic_digest, request_json, receipt_json, intent_json,
-                     view_json, artifact_evidence_digest, artifact_evidence_json,
+                     artifact_evidence_digest, artifact_evidence_json,
                      source_ancestry_locator_json, source_ancestry_evidence_digest
                 INTO sealed
                 FROM public.rd_research_request_receipts_v1
@@ -1307,17 +1403,17 @@ impl PostgresResearchGoalOwnerV1 {
                  OR sealed.receipt_json->>'disposition' <> 'ACCEPTED'
                  OR sealed.intent_json->>'request_identity' <> sealed.request_identity
                  OR sealed.intent_json->>'semantic_digest' <> sealed.semantic_digest
-                 OR sealed.view_json->>'request_identity' <> sealed.request_identity
-                 OR sealed.view_json->>'intent_identity' <> requested_intent_identity
-                 OR sealed.view_json->>'availability' <> 'AVAILABLE'
-                 OR sealed.view_json->>'phase' <> 'INTENT_FROZEN'
+                 OR requested_view->>'request_identity' <> sealed.request_identity
+                 OR requested_view->>'intent_identity' <> requested_intent_identity
+                 OR requested_view->>'availability' <> 'AVAILABLE'
+                 OR requested_view->>'phase' <> 'INTENT_FROZEN'
                  OR sealed.artifact_evidence_json->>'request_identity' <> sealed.request_identity
                  OR sealed.artifact_evidence_json->>'semantic_digest' <> sealed.semantic_digest
                  OR sealed.artifact_evidence_json->>'intent_identity' <> requested_intent_identity
                  OR sealed.artifact_evidence_json->>'receipt_identity' <> sealed.receipt_json->>'receipt_identity'
-                 OR sealed.artifact_evidence_json->>'view_identity' <> sealed.view_json->>'projection_identity'
-                 OR sealed.artifact_evidence_json->>'projection_at_epoch_ms' <> sealed.view_json->>'projection_at_epoch_ms'
-                 OR sealed.artifact_evidence_json->>'valid_through_epoch_ms' <> sealed.view_json->>'valid_through_epoch_ms'
+                 OR sealed.artifact_evidence_json->>'view_identity' <> requested_view->>'projection_identity'
+                 OR sealed.artifact_evidence_json->>'projection_at_epoch_ms' <> requested_view->>'projection_at_epoch_ms'
+                 OR sealed.artifact_evidence_json->>'valid_through_epoch_ms' <> requested_view->>'valid_through_epoch_ms'
                  OR sealed.artifact_evidence_json->'source_admission' <> sealed.request_json->'request'->'admission'
                  OR sealed.artifact_evidence_json->'source_ancestry_locator'
                     IS DISTINCT FROM sealed.source_ancestry_locator_json
@@ -1328,13 +1424,13 @@ impl PostgresResearchGoalOwnerV1 {
                         'rd-current-research-artifact-evidence-v1-' ||
                         (sealed.receipt_json->>'receipt_identity') || ':' ||
                         (sealed.intent_json->>'intent_identity') || ':' ||
-                        (sealed.view_json->>'projection_identity')
+                        (requested_view->>'projection_identity')
                       ELSE 'rd-current-research-artifact-evidence-v1-' || pg_catalog.substr(
                         rd_owner_api.derive_source_intake_identity_v1(
                           'rd.current-research-artifact-evidence-identity.v1', ARRAY[
                             sealed.receipt_json->>'receipt_identity',
                             sealed.intent_json->>'intent_identity',
-                            sealed.view_json->>'projection_identity',
+                            requested_view->>'projection_identity',
                             sealed.source_ancestry_locator_json->>'request_identity',
                             sealed.source_ancestry_locator_json->>'attempt_identity',
                             sealed.source_ancestry_locator_json->>'terminal_receipt_identity',
@@ -1356,8 +1452,9 @@ impl PostgresResearchGoalOwnerV1 {
         .map_err(|e| storage(&e))?;
         sqlx::query(
             "
-            CREATE OR REPLACE FUNCTION rd_owner_api.lock_current_research_for_artifact_v1(
-              requested_intent_identity text, requested_evidence_identity text, requested_evidence_digest text
+            CREATE OR REPLACE FUNCTION rd_owner_api.lock_research_for_artifact_at_view_v1(
+              requested_intent_identity text, requested_evidence_identity text, requested_evidence_digest text,
+              requested_view jsonb
             ) RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
             SET search_path = pg_catalog, pg_temp
             AS $function$
@@ -1365,7 +1462,7 @@ impl PostgresResearchGoalOwnerV1 {
             BEGIN
               IF pg_catalog.current_setting('transaction_isolation') <> 'read committed' THEN RETURN NULL; END IF;
               SELECT request_identity, semantic_digest, request_json, receipt_json, intent_json,
-                     view_json, artifact_evidence_digest, artifact_evidence_json,
+                     artifact_evidence_digest, artifact_evidence_json,
                      source_ancestry_locator_json, source_ancestry_evidence_digest
                 INTO sealed
                 FROM public.rd_research_request_receipts_v1
@@ -1419,17 +1516,17 @@ impl PostgresResearchGoalOwnerV1 {
                  OR sealed.receipt_json->>'disposition' <> 'ACCEPTED'
                  OR sealed.intent_json->>'request_identity' <> sealed.request_identity
                  OR sealed.intent_json->>'semantic_digest' <> sealed.semantic_digest
-                 OR sealed.view_json->>'request_identity' <> sealed.request_identity
-                 OR sealed.view_json->>'intent_identity' <> requested_intent_identity
-                 OR sealed.view_json->>'availability' <> 'AVAILABLE'
-                 OR sealed.view_json->>'phase' <> 'INTENT_FROZEN'
+                 OR requested_view->>'request_identity' <> sealed.request_identity
+                 OR requested_view->>'intent_identity' <> requested_intent_identity
+                 OR requested_view->>'availability' <> 'AVAILABLE'
+                 OR requested_view->>'phase' <> 'INTENT_FROZEN'
                  OR sealed.artifact_evidence_json->>'request_identity' <> sealed.request_identity
                  OR sealed.artifact_evidence_json->>'semantic_digest' <> sealed.semantic_digest
                  OR sealed.artifact_evidence_json->>'intent_identity' <> requested_intent_identity
                  OR sealed.artifact_evidence_json->>'receipt_identity' <> sealed.receipt_json->>'receipt_identity'
-                 OR sealed.artifact_evidence_json->>'view_identity' <> sealed.view_json->>'projection_identity'
-                 OR sealed.artifact_evidence_json->>'projection_at_epoch_ms' <> sealed.view_json->>'projection_at_epoch_ms'
-                 OR sealed.artifact_evidence_json->>'valid_through_epoch_ms' <> sealed.view_json->>'valid_through_epoch_ms'
+                 OR sealed.artifact_evidence_json->>'view_identity' <> requested_view->>'projection_identity'
+                 OR sealed.artifact_evidence_json->>'projection_at_epoch_ms' <> requested_view->>'projection_at_epoch_ms'
+                 OR sealed.artifact_evidence_json->>'valid_through_epoch_ms' <> requested_view->>'valid_through_epoch_ms'
                  OR sealed.artifact_evidence_json->'source_admission' <> sealed.request_json->'request'->'admission'
                  OR sealed.artifact_evidence_json->'source_ancestry_locator'
                     IS DISTINCT FROM sealed.source_ancestry_locator_json
@@ -1440,13 +1537,13 @@ impl PostgresResearchGoalOwnerV1 {
                         'rd-current-research-artifact-evidence-v1-' ||
                         (sealed.receipt_json->>'receipt_identity') || ':' ||
                         (sealed.intent_json->>'intent_identity') || ':' ||
-                        (sealed.view_json->>'projection_identity')
+                        (requested_view->>'projection_identity')
                       ELSE 'rd-current-research-artifact-evidence-v1-' || pg_catalog.substr(
                         rd_owner_api.derive_source_intake_identity_v1(
                           'rd.current-research-artifact-evidence-identity.v1', ARRAY[
                             sealed.receipt_json->>'receipt_identity',
                             sealed.intent_json->>'intent_identity',
-                            sealed.view_json->>'projection_identity',
+                            requested_view->>'projection_identity',
                             sealed.source_ancestry_locator_json->>'request_identity',
                             sealed.source_ancestry_locator_json->>'attempt_identity',
                             sealed.source_ancestry_locator_json->>'terminal_receipt_identity',
@@ -1467,8 +1564,57 @@ impl PostgresResearchGoalOwnerV1 {
         .execute(pool)
         .await
         .map_err(|e| storage(&e))?;
+        sqlx::query(
+            "
+            CREATE OR REPLACE FUNCTION rd_owner_api.peek_current_research_for_artifact_v1(requested_intent_identity text)
+            RETURNS jsonb LANGUAGE plpgsql STRICT STABLE PARALLEL SAFE SECURITY DEFINER
+            SET search_path = pg_catalog, pg_temp
+            AS $function$
+            DECLARE current_view jsonb;
+            BEGIN
+              SELECT view_json INTO current_view
+                FROM public.rd_research_request_receipts_v1
+               WHERE intent_json->>'intent_identity' = requested_intent_identity;
+              IF NOT FOUND OR current_view IS NULL THEN RETURN NULL; END IF;
+              RETURN rd_owner_api.peek_research_for_artifact_at_view_v1(requested_intent_identity, current_view);
+            END
+            $function$
+            ",
+        )
+        .execute(pool)
+        .await
+        .map_err(|e| storage(&e))?;
+        sqlx::query(
+            "
+            CREATE OR REPLACE FUNCTION rd_owner_api.lock_current_research_for_artifact_v1(
+              requested_intent_identity text, requested_evidence_identity text, requested_evidence_digest text
+            ) RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
+            SET search_path = pg_catalog, pg_temp
+            AS $function$
+            DECLARE current_view jsonb;
+            BEGIN
+              IF pg_catalog.current_setting('transaction_isolation') <> 'read committed' THEN RETURN NULL; END IF;
+              SELECT view_json INTO current_view
+                FROM public.rd_research_request_receipts_v1
+               WHERE intent_json->>'intent_identity' = requested_intent_identity
+               FOR SHARE;
+              IF NOT FOUND OR current_view IS NULL THEN RETURN NULL; END IF;
+              RETURN rd_owner_api.lock_research_for_artifact_at_view_v1(
+                requested_intent_identity, requested_evidence_identity, requested_evidence_digest, current_view
+              );
+            END
+            $function$
+            ",
+        )
+        .execute(pool)
+        .await
+        .map_err(|e| storage(&e))?;
 
         for statement in [
+            "ALTER FUNCTION rd_owner_api.peek_research_for_artifact_at_view_v1(text,jsonb) OWNER TO rd_owner",
+            "ALTER FUNCTION rd_owner_api.lock_research_for_artifact_at_view_v1(text,text,text,jsonb) OWNER TO rd_owner",
+            "REVOKE ALL ON FUNCTION rd_owner_api.peek_research_for_artifact_at_view_v1(text,jsonb) FROM PUBLIC, product_edge_owner, operator_authorization_writer, qualification_writer",
+            "REVOKE ALL ON FUNCTION rd_owner_api.lock_research_for_artifact_at_view_v1(text,text,text,jsonb) FROM PUBLIC, product_edge_owner, operator_authorization_writer, qualification_writer",
             "ALTER FUNCTION rd_owner_api.peek_current_research_for_artifact_v1(text) OWNER TO rd_owner",
             "ALTER FUNCTION rd_owner_api.lock_current_research_for_artifact_v1(text,text,text) OWNER TO rd_owner",
             "REVOKE ALL ON FUNCTION rd_owner_api.peek_current_research_for_artifact_v1(text) FROM PUBLIC, product_edge_owner, operator_authorization_writer, qualification_writer",
@@ -4429,6 +4575,7 @@ pub(crate) mod tests {
         OperationManifestBindingV1, OperatorAuthorizationIssuanceProposalV1,
         OperatorAuthorizationIssuerPostgresV1, OperatorAuthorizationScopeV1,
     };
+    use vibe_postgres_connect::{PgPoolOptionsExt, PostgresTls};
     use vibe_product_edge::{
         AgentOperationManifestProposalV1, ProductEdgeAdmissionRequestV1,
         ProductEdgeAuthorizationTrustV1, ProductEdgeBootstrapProposalV1,
@@ -5152,6 +5299,51 @@ pub(crate) mod tests {
         .await
         .unwrap();
         assert_eq!(privileges, (true, false, false, false));
+
+        // The `_at_view` pair is the R&D Owner's own: definer rights, a pinned search path, and
+        // EXECUTE held by its owner alone - no grantee other than the owner in its ACL.
+        for (signature, volatility, parallel) in [
+            (
+                "rd_owner_api.peek_research_for_artifact_at_view_v1(text,jsonb)",
+                "s",
+                "s",
+            ),
+            (
+                "rd_owner_api.lock_research_for_artifact_at_view_v1(text,text,text,jsonb)",
+                "v",
+                "u",
+            ),
+        ] {
+            let catalog: (String, bool, String, String, bool, Option<Vec<String>>, i64) =
+                sqlx::query_as(
+                    "SELECT role.rolname, procedure.prosecdef, procedure.provolatile::text, procedure.proparallel::text, procedure.proisstrict, procedure.proconfig, (SELECT count(*) FROM aclexplode(COALESCE(procedure.proacl, acldefault('f', procedure.proowner))) acl WHERE acl.grantee <> procedure.proowner) FROM pg_proc procedure JOIN pg_roles role ON role.oid=procedure.proowner WHERE procedure.oid=to_regprocedure($1)",
+                )
+                .bind(signature)
+                .fetch_one(&owner.pool)
+                .await
+                .unwrap_or_else(|e| panic!("{signature} is in the catalog: {e}"));
+            assert_eq!(
+                catalog,
+                (
+                    "rd_owner".into(),
+                    true,
+                    volatility.into(),
+                    parallel.into(),
+                    true,
+                    Some(vec!["search_path=pg_catalog, pg_temp".into()]),
+                    0,
+                ),
+                "{signature}"
+            );
+        }
+        // The same count sees a grant: the current lock's one grantee is Product Edge.
+        let current_lock_grantees: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM pg_proc procedure, aclexplode(COALESCE(procedure.proacl, acldefault('f', procedure.proowner))) acl WHERE procedure.oid=to_regprocedure('rd_owner_api.lock_current_research_for_artifact_v1(text,text,text)') AND acl.grantee <> procedure.proowner",
+        )
+        .fetch_one(&owner.pool)
+        .await
+        .unwrap();
+        assert_eq!(current_lock_grantees, 1);
 
         let basis_catalog: (String, bool, String, String, bool, Option<Vec<String>>) =
             sqlx::query_as(
@@ -6075,8 +6267,12 @@ pub(crate) mod tests {
         // and `qualification_protected_feedback_projections_v1` to Qualification, and no role can
         // read both: that isolation is a property under test here, so a join across it would be
         // asking the database to break the thing this entry exists to observe.
-        let rd_pool = sqlx::PgPool::connect(&rd_database_url).await.unwrap();
-        let qualification_pool = sqlx::PgPool::connect(&qualification_database_url)
+        let rd_pool = sqlx::postgres::PgPoolOptions::new()
+            .connect_url(&rd_database_url, PostgresTls::Disabled)
+            .await
+            .unwrap();
+        let qualification_pool = sqlx::postgres::PgPoolOptions::new()
+            .connect_url(&qualification_database_url, PostgresTls::Disabled)
             .await
             .unwrap();
 
@@ -7123,6 +7319,11 @@ pub(crate) mod tests {
     #[ignore = "requires the ordered canonical Owner PostgreSQL gate"]
     async fn postgres_v3_request_binds_its_instrument_scope_into_the_intent() {
         use crate::product_edge::InstrumentAdmissibilityV1::Admissible;
+        use crate::rd_bounded_feature_program_postgres_v1::{
+            PostgresResearchBoundedFeatureProgramOwnerV1,
+            ResearchBoundedFeatureProgramFreezeRequestV1,
+            ResearchBoundedFeatureProgramOwnerErrorV1,
+        };
         use vibe_data::owner::research_instrument_scope_v1::ResearchInstrumentScopeV1;
 
         // The ordered chain's canonical Owner topology.
@@ -7192,6 +7393,498 @@ pub(crate) mod tests {
                 .await,
             Err(ResearchGoalOwnerError::ConflictingReplay)
         );
+
+        // The scope is the one place this Research request's instrument is declared. A Design that
+        // names an instrument as well - the exact-instrument candidate, restating this custody's
+        // authoring facts so nothing else refuses it - is refused at publication and at the freeze
+        // before either writes a row.
+        let composition_root =
+            PostgresResearchBoundedFeatureProgramOwnerV1::new(owner.pool.clone());
+        let facts = composition_root
+            .read_research_authoring_facts_v1(&request_identity)
+            .await
+            .expect("an accepted V3 request's authoring facts are readable");
+        let (mut design, mut proposal) = crate::bounded_feature_program_v1::tests::candidate();
+        design.research_request_identity = facts.research_request_identity;
+        design.intent_identity = facts.intent_identity;
+        design.intent_digest = facts.intent_digest;
+        design.falsifier = facts.falsifier;
+        let crate::strategy_plan_v2::StrategyDesignPreparationV2::Prepared {
+            design_identity,
+            design_digest,
+        } = crate::strategy_plan_v2::prepare_strategy_design_v2(&design)
+        else {
+            panic!("the exact-instrument candidate prepares, so only the scope refuses it");
+        };
+        proposal.research_request_identity = design.research_request_identity;
+        proposal.intent_identity = design.intent_identity;
+        proposal.intent_digest = design.intent_digest;
+        proposal.design_identity = design_identity;
+        proposal.design_digest = design_digest;
+        assert!(crate::rd_bounded_feature_program_v1::design_names_an_instrument_v1(&design));
+
+        assert!(matches!(
+            composition_root
+                .publish_design_role_intent(&request_identity, &design)
+                .await,
+            Err(ResearchBoundedFeatureProgramOwnerErrorV1::InstrumentNamedUnderResearchScope)
+        ));
+        assert!(matches!(
+            composition_root
+                .freeze(ResearchBoundedFeatureProgramFreezeRequestV1 {
+                    research_request_locator: request_identity.clone(),
+                    design,
+                    proposal,
+                })
+                .await,
+            Err(ResearchBoundedFeatureProgramOwnerErrorV1::InstrumentNamedUnderResearchScope)
+        ));
+
+        let publications: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM rd_design_role_intents_v1 WHERE research_request_identity=$1",
+        )
+        .bind(facts.research_request_identity.as_bytes().as_slice())
+        .fetch_one(&owner.pool)
+        .await
+        .unwrap();
+        let freezes: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM rd_bounded_feature_program_freezes_v1 WHERE request_identity=$1",
+        )
+        .bind(&request_identity)
+        .fetch_one(&owner.pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            (publications, freezes),
+            (0, 0),
+            "a refused Design leaves no publication and no freeze"
+        );
+    }
+
+    /// Artifact evidence is sealed for the View it was issued with, and only that View. After a View
+    /// transition the evidence still matches the View an operation ran under and no longer matches
+    /// the current one, which is why a historical read locks it at the pre-transition View.
+    #[rstest::rstest]
+    fn artifact_evidence_matches_only_the_view_it_was_sealed_for() {
+        use crate::product_edge::{
+            ResearchNextLegalAction, ResearchViewAvailability, ResearchViewPhase, ResearchViewV1,
+        };
+
+        let sealed_for = ResearchViewV1 {
+            schema_version: 1,
+            projection_identity: "rd-research-view-sealed-v1".to_string(),
+            request_identity: "research-request-sealed-v1".to_string(),
+            trusted_principal: "admin".to_string(),
+            authorized_scope: vec![RESEARCH_SCOPE_V1.to_string()],
+            authorization_policy_cut: "operator-frontier-v1".to_string(),
+            source_owner: RESEARCH_OWNER_V1.to_string(),
+            source_cut: "rd-source-cut-v1".to_string(),
+            observed_at_epoch_ms: 1_000,
+            projection_at_epoch_ms: 1_000,
+            valid_through_epoch_ms: 601_000,
+            availability: ResearchViewAvailability::Available,
+            phase: ResearchViewPhase::IntentFrozen,
+            intent_identity: "rd-research-intent-sealed-v1".to_string(),
+            source_frontier: Vec::new(),
+            attempt_identity: None,
+            artifact_identity: None,
+            build_receipt_identity: None,
+            artifact_review_identity: None,
+            composer_artifact: None,
+            exploration: None,
+            next_legal_action: ResearchNextLegalAction::WaitForRAndDExecution,
+        };
+        let evidence = CurrentResearchArtifactEvidenceV1 {
+            schema_version: 1,
+            evidence_identity: "evidence".to_string(),
+            request_identity: sealed_for.request_identity.clone(),
+            semantic_digest: format!("sha256:{}", "1".repeat(64)),
+            source_admission: ProductEdgeAdmissionLocatorV1 {
+                request_identity: sealed_for.request_identity.clone(),
+                admission_identity: "admission".to_string(),
+                admission_digest: format!("sha256:{}", "2".repeat(64)),
+            },
+            effective_principal: "admin".to_string(),
+            authorized_scope: vec![RESEARCH_SCOPE_V1.to_string()],
+            receipt_identity: "receipt".to_string(),
+            intent_identity: sealed_for.intent_identity.clone(),
+            view_identity: sealed_for.projection_identity.clone(),
+            projection_at_epoch_ms: sealed_for.projection_at_epoch_ms,
+            valid_through_epoch_ms: sealed_for.valid_through_epoch_ms,
+            source_ancestry_locator: None,
+            source_ancestry_evidence_digest: None,
+        };
+        assert!(artifact_evidence_is_sealed_for_view(&evidence, &sealed_for));
+
+        let mut transitioned = sealed_for.clone();
+        transitioned.schema_version = 3;
+        transitioned.phase = ResearchViewPhase::ExplorationActive;
+        transitioned.projection_identity = "rd-research-view-after-replay-v4".to_string();
+        transitioned.observed_at_epoch_ms = 2_000;
+        transitioned.projection_at_epoch_ms = 2_000;
+        transitioned.valid_through_epoch_ms = 602_000;
+        assert!(!artifact_evidence_is_sealed_for_view(
+            &evidence,
+            &transitioned
+        ));
+
+        let mut same_identity_other_window = sealed_for;
+        same_identity_other_window.valid_through_epoch_ms += 1;
+        assert!(!artifact_evidence_is_sealed_for_view(
+            &evidence,
+            &same_identity_other_window
+        ));
+    }
+
+    /// A native Composer Research View, as a Composer-backed Replay commit writes it.
+    ///
+    /// It is built from the request's own stored initial View the way that commit projects it, so
+    /// the schema 3 validator accepts it for this exact request.
+    fn native_composer_research_view(
+        initial: &crate::product_edge::ResearchViewV1,
+    ) -> crate::product_edge::ResearchViewV1 {
+        use crate::product_edge::{
+            ResearchComposerArtifactViewV3, ResearchExplorationViewV1, ResearchNextLegalAction,
+            ResearchViewPhase, canonical_research_view_identity_v4,
+        };
+
+        let sha256 = |digit: char| format!("sha256:{}", digit.to_string().repeat(64));
+        let mut view = initial.clone();
+        view.schema_version = 3;
+        view.phase = ResearchViewPhase::ExplorationActive;
+        view.observed_at_epoch_ms = initial.projection_at_epoch_ms + 1;
+        view.projection_at_epoch_ms = initial.projection_at_epoch_ms + 1;
+        view.valid_through_epoch_ms = view.projection_at_epoch_ms + 600_000;
+        view.source_cut = format!("rd-composer-exploration-cut-v3-{}", "3".repeat(64));
+        view.composer_artifact = Some(ResearchComposerArtifactViewV3 {
+            artifact_locator: format!("rd-strategy-artifact-v2-{}", "1".repeat(64)),
+            artifact_identity_digest: sha256('1'),
+            composer_request_identity: "composer-request".into(),
+            composer_operation_receipt_digest: sha256('2'),
+            artifact_family_binding_identity: format!(
+                "rd-composer-artifact-family-binding-v3-{}",
+                "4".repeat(64)
+            ),
+            artifact_family_binding_digest: sha256('4'),
+            artifact_family_binding_receipt_identity: format!(
+                "rd-composer-artifact-family-binding-receipt-v3-{}",
+                "7".repeat(64)
+            ),
+            trial_family_identity: "trial-family".into(),
+            census_frontier_identity: "census-frontier".into(),
+            census_frontier_digest: sha256('5'),
+        });
+        view.exploration = Some(ResearchExplorationViewV1 {
+            trial_family_identity: "trial-family".into(),
+            census_frontier_identity: "census-frontier".into(),
+            census_frontier_digest: sha256('5'),
+            replay_request_identity: "replay-request".into(),
+            replay_request_meaning_digest: format!("blake3:{}", "6".repeat(64)),
+            replay_request_seal_digest: sha256('3'),
+            replay_receipt_identity: format!("rd-exploratory-replay-receipt-v2-{}", "8".repeat(64)),
+        });
+        view.next_legal_action = ResearchNextLegalAction::ViewExploratoryRun;
+        view.projection_identity = canonical_research_view_identity_v4(&view).unwrap();
+        view
+    }
+
+    /// A native Composer Research View no longer stops the scans of every Research custody.
+    ///
+    /// Research submission, the current-Research lock a Composer run takes and the historical
+    /// Composer read each admit every stored custody, and custody admission used to refuse any
+    /// native Composer View outright. One stored View then refused every later submission. Here one
+    /// request's View becomes native; a later request is still accepted, the scan admits the native
+    /// custody as native, and the current-Research lock for the later request still resolves. The
+    /// native request's artifact evidence, sealed for its initial View, is refused by the current
+    /// artifact pair and admitted by the `_at_view` pair at that View only - the historical
+    /// Composer read's shape. A native View changed by one byte is refused by name. The locks and
+    /// the tampered View run inside transactions that are rolled back, so the shared chain
+    /// database keeps no lock and no tampered row.
+    ///
+    /// Deliberate state side effect: the native View it stores stays in the shared database for
+    /// good. Every entry after this one - the rest of its shard, and in the serial run every later
+    /// entry of the chain - scans a custody set that holds one native Composer custody. That is the
+    /// state this entry proves the scans admit; an entry after it that cannot admit such a custody
+    /// is refusing a real production state, not tripping over test residue.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[ignore = "requires the ordered canonical Owner PostgreSQL gate"]
+    async fn a_native_composer_research_view_is_admitted_by_every_custody_scan() {
+        use crate::product_edge::InstrumentAdmissibilityV1::Admissible;
+
+        let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
+        #[cfg(feature = "sealed-develop-composer-acceptance")]
+        crate::replay_policy_catalog_postgres_v2::ensure_sealed_acceptance_catalog_v3_for_test(
+            &test_database,
+        )
+        .await;
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let btc = "BTCUSDT-PERP.BINANCE";
+        let owner = PostgresResearchGoalOwnerV1::connect(
+            test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
+            test_database.database_url(CanonicalOwnerTestRoleV1::QualificationWriter),
+        )
+        .await
+        .unwrap()
+        .bind_instrument_scope_check_for_test(answering(Ok(scope_check(
+            Some([9; 32]),
+            &[(btc, Admissible)],
+        ))));
+
+        let native_identity = format!("research-request-native-composer-{suffix}");
+        let admission =
+            bootstrap_v3_admission(&test_database, &native_identity, suffix, &[btc]).await;
+        assert_eq!(
+            owner
+                .submit_v2(request_v3(&native_identity, admission, &[btc]))
+                .await
+                .unwrap()
+                .resolution(),
+            ProductEdgeResolution::Accepted
+        );
+        let initial: crate::product_edge::ResearchViewV1 = serde_json::from_value(
+            sqlx::query_scalar(
+                "SELECT view_json FROM rd_research_request_receipts_v1 WHERE request_identity = $1",
+            )
+            .bind(&native_identity)
+            .fetch_one(&owner.pool)
+            .await
+            .unwrap(),
+        )
+        .unwrap();
+        let native = native_composer_research_view(&initial);
+        let store = |view: &crate::product_edge::ResearchViewV1| {
+            sqlx::query(
+                "UPDATE rd_research_request_receipts_v1 SET view_json = $1 WHERE request_identity = $2",
+            )
+            .bind(serde_json::to_value(view).unwrap())
+            .bind(native_identity.clone())
+        };
+        assert_eq!(
+            store(&native)
+                .execute(&owner.pool)
+                .await
+                .unwrap()
+                .rows_affected(),
+            1
+        );
+
+        // Research submission scans every custody, the native one included.
+        let later_identity = format!("research-request-after-native-composer-{suffix}");
+        let later_admission =
+            bootstrap_v3_admission(&test_database, &later_identity, suffix + 1, &[btc]).await;
+        let later = owner
+            .submit_v2(request_v3(&later_identity, later_admission, &[btc]))
+            .await
+            .unwrap();
+        assert_eq!(
+            later.resolution(),
+            ProductEdgeResolution::Accepted,
+            "a submission after a native Composer View: {later:?}"
+        );
+
+        let mut transaction = owner.pool.begin().await.unwrap();
+        let custodies =
+            crate::rd_owner_postgres_custody::admit_all_research_custodies_in_transaction(
+                &mut transaction,
+            )
+            .await
+            .expect("every custody is admitted, the native one included");
+        let native_custody = custodies
+            .iter()
+            .find(|custody| custody.receipt().request_identity == native_identity)
+            .expect("the native custody is among them");
+        assert!(native_custody.is_native_composer());
+        assert!(
+            custodies
+                .iter()
+                .filter(|custody| custody.receipt().request_identity != native_identity)
+                .all(|custody| !custody.is_native_composer())
+        );
+
+        // The current-Research lock a Composer run takes for the later request scans them too.
+        #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+        {
+            let later_custody = custodies
+                .iter()
+                .find(|custody| custody.receipt().request_identity == later_identity)
+                .expect("the later custody is among them");
+            let (research_request_identity, intent_identity) =
+                crate::source_research_composer_postgres_v2::durable_research_identities(
+                    later_custody,
+                )
+                .expect("a V3 request states its durable identities");
+            let now_ms = u64::try_from(
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_millis(),
+            )
+            .unwrap();
+            crate::source_research_composer_postgres_v2::lock_current_research_for_composer_replay_in_transaction(
+                &mut transaction,
+                &crate::develop_composer_operation_v2::DevelopComposerDurableEvidenceLocatorV2 {
+                    request_identity: format!("composer-request-{suffix}"),
+                    request_digest: BindingDigest::from_untrusted_bytes([1; 32]),
+                    research_request_identity,
+                    intent_identity,
+                    design_identity: BindingDigest::from_untrusted_bytes([2; 32]),
+                },
+                now_ms,
+            )
+            .await
+            .expect("the later request's current Research custody still locks");
+        }
+        transaction.rollback().await.unwrap();
+
+        // The native request's artifact evidence stays sealed for its initial View, the one its
+        // Composer operation ran under. The current pair refuses it now that the stored View has
+        // moved past IntentFrozen; the `_at_view` pair verifies it against the initial View, and
+        // against no other. The later request, still IntentFrozen, is the current pair's positive.
+        let mut transaction = owner.pool.begin().await.unwrap();
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL READ COMMITTED")
+            .execute(&mut *transaction)
+            .await
+            .unwrap();
+        let later_intent_identity: String = sqlx::query_scalar(
+            "SELECT view_json->>'intent_identity' FROM rd_research_request_receipts_v1 WHERE request_identity = $1",
+        )
+        .bind(&later_identity)
+        .fetch_one(&mut *transaction)
+        .await
+        .unwrap();
+        let peek_current = "SELECT rd_owner_api.peek_current_research_for_artifact_v1($1)";
+        let lock_current = "SELECT rd_owner_api.lock_current_research_for_artifact_v1($1,$2,$3)";
+        let peek_at_view = "SELECT rd_owner_api.peek_research_for_artifact_at_view_v1($1,$2)";
+        let lock_at_view = "SELECT rd_owner_api.lock_research_for_artifact_at_view_v1($1,$2,$3,$4)";
+        let later_sealed: serde_json::Value =
+            sqlx::query_scalar::<_, Option<serde_json::Value>>(peek_current)
+                .bind(&later_intent_identity)
+                .fetch_one(&mut *transaction)
+                .await
+                .unwrap()
+                .expect("the current peek answers for an IntentFrozen View");
+        assert!(
+            sqlx::query_scalar::<_, Option<serde_json::Value>>(lock_current)
+                .bind(&later_intent_identity)
+                .bind(
+                    later_sealed["evidence"]["evidence_identity"]
+                        .as_str()
+                        .unwrap()
+                )
+                .bind(later_sealed["evidence_digest"].as_str().unwrap())
+                .fetch_one(&mut *transaction)
+                .await
+                .unwrap()
+                .is_some(),
+            "the current lock answers for an IntentFrozen View"
+        );
+
+        let sealed: serde_json::Value =
+            sqlx::query_scalar::<_, Option<serde_json::Value>>(peek_at_view)
+                .bind(&initial.intent_identity)
+                .bind(serde_json::to_value(&initial).unwrap())
+                .fetch_one(&mut *transaction)
+                .await
+                .unwrap()
+                .expect("the evidence is sealed for the initial View");
+        assert_eq!(
+            sealed["evidence"]["view_identity"].as_str(),
+            Some(initial.projection_identity.as_str())
+        );
+        let evidence_identity = sealed["evidence"]["evidence_identity"].as_str().unwrap();
+        let evidence_digest = sealed["evidence_digest"].as_str().unwrap();
+        assert_eq!(
+            sqlx::query_scalar::<_, Option<serde_json::Value>>(peek_current)
+                .bind(&initial.intent_identity)
+                .fetch_one(&mut *transaction)
+                .await
+                .unwrap(),
+            None,
+            "the current peek refuses a View past IntentFrozen"
+        );
+        assert_eq!(
+            sqlx::query_scalar::<_, Option<serde_json::Value>>(lock_current)
+                .bind(&initial.intent_identity)
+                .bind(evidence_identity)
+                .bind(evidence_digest)
+                .fetch_one(&mut *transaction)
+                .await
+                .unwrap(),
+            None,
+            "the current lock refuses a View past IntentFrozen"
+        );
+        assert_eq!(
+            sqlx::query_scalar::<_, Option<serde_json::Value>>(peek_at_view)
+                .bind(&initial.intent_identity)
+                .bind(serde_json::to_value(&native).unwrap())
+                .fetch_one(&mut *transaction)
+                .await
+                .unwrap(),
+            None,
+            "the evidence was not sealed for the native View"
+        );
+        let locked = sqlx::query_scalar::<_, Option<serde_json::Value>>(lock_at_view)
+            .bind(&initial.intent_identity)
+            .bind(evidence_identity)
+            .bind(evidence_digest)
+            .bind(serde_json::to_value(&initial).unwrap())
+            .fetch_one(&mut *transaction)
+            .await
+            .unwrap()
+            .expect("the evidence locks against the initial View");
+        assert_eq!(locked["evidence"], sealed["evidence"]);
+
+        let custodies =
+            crate::rd_owner_postgres_custody::admit_all_research_custodies_in_transaction(
+                &mut transaction,
+            )
+            .await
+            .unwrap();
+        let native_custody = custodies
+            .iter()
+            .find(|custody| custody.receipt().request_identity == native_identity)
+            .unwrap();
+        lock_current_research_artifact_custody_in_transaction(&mut transaction, native_custody)
+            .await
+            .expect_err("the current artifact lock refuses the native custody");
+        #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+        lock_research_artifact_custody_at_view_in_transaction(
+            &mut transaction,
+            native_custody,
+            &initial,
+        )
+        .await
+        .expect("the artifact lock at the initial View admits the native custody");
+        transaction.rollback().await.unwrap();
+
+        // A native View changed by one byte is refused by name, and the change is rolled back.
+        let mut tampered = native.clone();
+        tampered
+            .composer_artifact
+            .as_mut()
+            .unwrap()
+            .artifact_locator
+            .push('0');
+        let mut transaction = owner.pool.begin().await.unwrap();
+        store(&tampered).execute(&mut *transaction).await.unwrap();
+        let Err(refused) =
+            crate::rd_owner_postgres_custody::admit_all_research_custodies_in_transaction(
+                &mut transaction,
+            )
+            .await
+        else {
+            panic!("a tampered native View is refused");
+        };
+        assert!(
+            refused
+                .to_string()
+                .contains("research view historical meaning mismatch"),
+            "{refused}"
+        );
+        transaction.rollback().await.unwrap();
     }
 
     /// When Market Data's early check does not admit the scope, the request closes

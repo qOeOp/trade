@@ -12,7 +12,9 @@
 # Every shard the list names must have uploaded records, and nothing else may have: a shard that died
 # before its first entry uploads nothing, and is named here rather than folded into a count.
 #
-# Usage: merge-chain-shard-records.bash <shard records root> <merged dir> <shard list tsv>
+# Usage: merge-chain-shard-records.bash <shard records root> <merged dir> <shard list tsv> [<shard>...]
+#   A partial run names the shards it selected after the list; each must be a shard the list
+#   names, and only those are expected.
 #   <shard records root>/<shard name>/NNN.* per shard; the list is scripts/ci/rd-owner-chain-shards.tsv.
 set -Eeuo pipefail
 trap 'echo "merge-chain-shard-records.bash:${LINENO}: this failed: ${BASH_COMMAND}" >&2' ERR
@@ -22,7 +24,21 @@ merged="${2:?merged directory}"
 list="${3:?shard list}"
 
 shopt -s nullglob
-mapfile -t expected < <(grep -v '^#' "$list" | cut -f1 | sed '/^$/d' | sort -u)
+mapfile -t listed < <(grep -v '^#' "$list" | cut -f1 | sed '/^$/d' | sort -u)
+unexpected_reason="${list} does not name"
+if [[ $# -gt 3 ]]; then
+  unexpected_reason="this partial run did not select"
+  expected=()
+  for shard in "${@:4}"; do
+    if [[ " ${listed[*]} " != *" ${shard} "* ]]; then
+      echo "ERROR: the selection names ${shard}, which ${list} does not." >&2
+      exit 1
+    fi
+    expected+=("$shard")
+  done
+else
+  expected=("${listed[@]}")
+fi
 if [[ ${#expected[@]} -eq 0 ]]; then
   echo "ERROR: ${list} names no shards." >&2
   exit 1
@@ -56,7 +72,7 @@ fi
 for dir in "$root"/*/; do
   shard="$(basename -- "$dir")"
   if [[ " ${expected[*]} " != *" ${shard} "* ]]; then
-    echo "ERROR: records from ${shard}, which ${list} does not name." >&2
+    echo "ERROR: records from ${shard}, which ${unexpected_reason}." >&2
     conflicts=1
   fi
 done

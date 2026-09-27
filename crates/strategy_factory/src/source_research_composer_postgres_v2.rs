@@ -2375,14 +2375,20 @@ async fn lock_historical_research_for_composer_replay_in_transaction(
                 pre_transition_view,
                 expected_current_view,
             )?;
-            lock_current_research_artifact_custody_in_transaction(transaction, &custody)
-                .await
-                .map_err(|e| {
-                    sealed_read_refused(
-                        "develop_composer.historical_research.custody.artifact_lock",
-                        &e,
-                    )
-                })?;
+            // The Composer operation ran under the pre-transition View, which its artifact evidence
+            // was sealed for; the current View is the Replay's, which nothing reseals it for.
+            crate::product_edge_postgres::lock_research_artifact_custody_at_view_in_transaction(
+                transaction,
+                &custody,
+                pre_transition_view,
+            )
+            .await
+            .map_err(|e| {
+                sealed_read_refused(
+                    "develop_composer.historical_research.custody.artifact_lock",
+                    &e,
+                )
+            })?;
             let research = CurrentResearchDevelopCustodyV2::from_verified_with_view(
                 &custody,
                 &custody.receipt().request_identity,
@@ -2914,7 +2920,7 @@ impl DevelopComposerFinalEvidencePortV2 for LockedOwnerEvidenceV2 {
 
 /// Derives only the immutable census keys. Positive custody still comes exclusively from
 /// the matching `CurrentResearchDevelopCustodyV2` constructor after the census is uniquely matched.
-fn durable_research_identities(
+pub(crate) fn durable_research_identities(
     custody: &VerifiedResearchCustodyV1,
 ) -> Option<(BindingDigest, BindingDigest)> {
     let request_identity = domain_digest(

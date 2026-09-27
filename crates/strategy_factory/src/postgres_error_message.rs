@@ -44,6 +44,7 @@ pub(crate) fn database_message(error: &sqlx::Error) -> String {
 #[cfg(test)]
 mod postgres_tests {
     use super::database_message;
+    use vibe_postgres_connect::{PgPoolOptionsExt, PostgresTls};
 
     /// Proves the shared conversion keeps `SQLSTATE` and `DETAIL`, against a real server.
     ///
@@ -77,7 +78,7 @@ mod postgres_tests {
             .expect("RD_OWNER_TEST_DATABASE_URL: this test asserts nothing without a server");
         let pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(1)
-            .connect(&url)
+            .connect_url(&url, PostgresTls::Disabled)
             .await
             .expect("connect");
 
