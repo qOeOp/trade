@@ -1345,13 +1345,19 @@ mod tests {
         prices: &[f64],
         edit: impl FnOnce(&mut serde_json::Value),
     ) -> Result<BacktestRunResultV1, BacktestRunReportRefusalV1> {
+        project_engine_result_v1(&without_series(prices, edit))
+    }
+
+    /// The canonical result of a real run over `prices`, with its return series removed and `edit`
+    /// applied.
+    fn without_series(prices: &[f64], edit: impl FnOnce(&mut serde_json::Value)) -> Vec<u8> {
         let bytes = super::report_test_support_v1::run_prices_v1(prices, ONE_AM)
             .to_bytes()
             .expect("canonical bytes");
         let mut document: serde_json::Value = serde_json::from_slice(&bytes).expect("engine JSON");
         document["statistics"]["returns_series"] = serde_json::json!([]);
         edit(&mut document);
-        project_engine_result_v1(&serde_json::to_vec(&document).expect("edited JSON"))
+        serde_json::to_vec(&document).expect("edited JSON")
     }
 
     /// Makes the last portfolio snapshot's equity another currency's.
@@ -1841,27 +1847,43 @@ mod tests {
 
     /// The Dashboard reads this Owner's wire through one shared file, so the consumer's contract is
     /// held against the projection this module actually serializes rather than against a copy
-    /// someone typed. The file is this test's output and nothing else: with
-    /// `VIBE_WRITE_BACKTEST_RUN_REPORT_WIRE=1` it writes the file, and otherwise the committed file
-    /// must hold exactly the values it would write.
+    /// someone typed.
+    ///
+    /// Two stages, and only the second is regenerated. The projection's inputs are two committed
+    /// canonical engine results, a real multi-day run and a one-fill run edited to two equity
+    /// currencies. They are fixed inputs, not this build's engine output: the same run's return
+    /// values differed in their last bits between macOS arm64, where they were produced (at
+    /// b8a10d6bc, with `VIBE_WRITE_BACKTEST_RUN_REPORT_ENGINE_INPUTS=1`), and Linux x86_64, so a wire
+    /// computed from a live run is a different file on each host. What this test holds is the
+    /// projection contract, which is a function of committed bytes, as a report is; whether the
+    /// engine reproduces a run's bytes across hosts is its own question. With
+    /// `VIBE_WRITE_BACKTEST_RUN_REPORT_WIRE=1` the wire file is written from those inputs, and
+    /// otherwise the committed wire must hold exactly the values they project to.
     #[rstest]
     fn the_dashboard_reads_this_owner_s_wire_from_one_shared_file() {
-        let projection = |result: BacktestRunResultV1| {
+        let inputs =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("test_data/backtest_run_report");
+        let available_input = inputs.join("multi_day_round_trip_canonical_result_v1.json");
+        let empty_input = inputs.join("one_fill_two_currencies_canonical_result_v1.json");
+
+        if std::env::var("VIBE_WRITE_BACKTEST_RUN_REPORT_ENGINE_INPUTS").as_deref() == Ok("1") {
+            std::fs::write(&available_input, engine_bytes()).expect("available input written");
+            std::fs::write(&empty_input, without_series(&ONE_FILL, two_currencies))
+                .expect("empty input written");
+        }
+        let projection = |input: &std::path::Path| {
+            let bytes = std::fs::read(input).expect("a committed engine result");
             serde_json::to_value(BacktestRunReportProjectionV1 {
                 run: run(),
                 strategy: strategy(),
                 data_window: data_window(),
-                result,
+                result: project_engine_result_v1(&bytes).expect("result projection"),
             })
             .expect("wire value")
         };
         let wire = serde_json::json!({
-            "available": projection(
-                project_engine_result_v1(&engine_bytes()).expect("result projection"),
-            ),
-            "empty": projection(
-                projected_without_series(&ONE_FILL, two_currencies).expect("result projection"),
-            ),
+            "available": projection(&available_input),
+            "empty": projection(&empty_input),
         });
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../product/dashboard/tests/fixtures/backtest_run_report_wire_v1.json");
