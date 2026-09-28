@@ -45,10 +45,8 @@ TEST_ONLY = {
 REQUIRED = {"vibe-model": ("high-precision",)}
 
 # The enablers a production build may still carry, by (crate, feature). `rstest` is only ever meant
-# to arrive through `stubs`. The vibe-strategy-factory entry is the legacy formation path's stub
-# instrument (`src/application.rs`); R&D has ruled that path retired, and this entry goes with it.
+# to arrive through `stubs`, so a stray `stubs` is refused once, by its own enabler.
 ALLOWED = {
-    ("vibe-model", "stubs"): {"vibe-strategy-factory"},
     ("vibe-model", "rstest"): {'vibe-model feature "stubs"'},
 }
 
@@ -56,18 +54,34 @@ TREE_LINE = re.compile(r"^(\d+)(.*)$")
 PACKAGE_NODE = re.compile(r"^([A-Za-z0-9_-]+) v\S+")
 
 
-def production_packages(root: Path) -> list[str]:
+def production_packages(root: Path) -> tuple[list[str], list[str]]:
     """
-    Return the packages the Dockerfiles under product/ build, in first-seen order.
+    Return the packages the Dockerfiles under product/ build, in first-seen order, and
+    every cargo command there that names no package.
+
+    A `cargo build`, `cargo install` or `cargo run` is read only through an explicit
+    `-p <package>` or `--package <package>`. One that names none - a bare workspace
+    build, `cargo install --path ...` - is returned unparsed rather than skipped: a
+    command this check cannot read must stop it, or the image it builds would pass
+    unchecked. Images built from files outside product/ are out of scope; the one today,
+    crates/strategy_factory/tools/program-seal.dockerfile, builds a `wasm32v1-none`
+    guest that does not link vibe-model.
+
     """
     packages: list[str] = []
+    unparsed: list[str] = []
     for dockerfile in sorted((root / "product").rglob("Dockerfile*")):
         text = dockerfile.read_text(encoding="utf-8")
-        for match in re.finditer(r"cargo build\b(?:[^\n\\]|\\\n)*", text):
-            for package in re.findall(r"-p\s+([A-Za-z0-9_-]+)", match.group(0)):
+        for match in re.finditer(r"cargo (?:build|install|run)\b(?:[^\n\\]|\\\n)*", text):
+            command = match.group(0)
+            named = re.findall(r"(?:-p|--package)\s+([A-Za-z0-9_-]+)", command)
+            if not named:
+                flat = " ".join(command.replace("\\\n", " ").split())
+                unparsed.append(f"{dockerfile.relative_to(root)}: {flat}")
+            for package in named:
                 if package not in packages:
                     packages.append(package)
-    return packages
+    return packages, unparsed
 
 
 def enablers(tree: str, crate: str) -> dict[str, set[str]]:
@@ -192,14 +206,17 @@ def check(root: Path) -> int:
     Check every production package against every test-only feature and report the
     outcome.
     """
-    packages = production_packages(root)
+    packages, unparsed = production_packages(root)
     if not packages:
         print(
             "ERROR: no `cargo build -p` found in product/**/Dockerfile*; nothing was checked",
             file=sys.stderr,
         )
         return 1
-    problems = []
+    problems = [
+        f"{command}: names no package; extend production_packages() or build it with -p"
+        for command in unparsed
+    ]
     unlinked = []
     for package in packages:
         for crate in sorted(set(TEST_ONLY) | set(REQUIRED)):
@@ -227,8 +244,8 @@ def check(root: Path) -> int:
         )
         return 1
     print(
-        f"production features: no test-only feature in {', '.join(packages)} beyond the named "
-        f"exception; high-precision wherever vibe-model is linked (not linked: "
+        f"production features: no test-only feature in {', '.join(packages)}; "
+        f"high-precision wherever vibe-model is linked (not linked: "
         f"{', '.join(unlinked) or 'none'}); the standard-precision selection resolves without it",
     )
     return 0
@@ -259,8 +276,6 @@ FIXTURE_ALLOWED = """\
 2vibe-analysis v0.62.0 (/w/crates/analysis)
 1vibe-model feature "rstest"
 2vibe-model feature "stubs"
-1vibe-model feature "stubs"
-2vibe-strategy-factory v0.62.0 (/w/crates/strategy_factory)
 """
 FIXTURE_STRAY = """\
 0vibe-model v0.62.0 (/w/crates/model)
@@ -294,15 +309,15 @@ def test_only_feature_failures() -> list[str]:
     """
     failures = []
     if refusals("p", "vibe-model", FIXTURE_ALLOWED):
-        failures.append("the named exception and rstest-through-stubs were refused")
+        failures.append("rstest-through-stubs was refused")
     stray = refusals("p", "vibe-model", FIXTURE_STRAY)
     if stray != [
-        "p: vibe-model feature 'stubs' is enabled in production by: vibe-analysis",
+        "p: vibe-model feature 'stubs' is enabled in production by: vibe-analysis, vibe-strategy-factory",
         "p: vibe-model feature 'rstest' is enabled in production by: vibe-risk",
     ]:
         failures.append(f"a stray stubs and rstest enabler were not both named: {stray}")
     if refusals("p", "vibe-model", FIXTURE_NESTED) != [
-        "p: vibe-model feature 'stubs' is enabled in production by: vibe-risk",
+        "p: vibe-model feature 'stubs' is enabled in production by: vibe-risk, vibe-strategy-factory",
     ]:
         failures.append("an enabler printed under a nested feature line was missed")
     if refusals("p", "vibe-common", FIXTURE_COMMON) != [
@@ -315,9 +330,22 @@ def test_only_feature_failures() -> list[str]:
     with tempfile.TemporaryDirectory() as probe:
         (Path(probe) / "product").mkdir()
         (Path(probe) / "product/Dockerfile.x").write_text(dockerfile, encoding="utf-8")
-        if production_packages(Path(probe)) != ["alpha", "beta"]:
+        if production_packages(Path(probe)) != (["alpha", "beta"], []):
             failures.append(
                 f"the Dockerfile packages were misread: {production_packages(Path(probe))}",
+            )
+        (Path(probe) / "product/Dockerfile.y").write_text(
+            "RUN cargo build --release \\\n    --locked\nRUN cargo install --path crates/tool\n"
+            "RUN cargo build --package gamma\n",
+            encoding="utf-8",
+        )
+        packages, unparsed = production_packages(Path(probe))
+        if packages != ["alpha", "beta", "gamma"] or unparsed != [
+            "product/Dockerfile.y: cargo build --release --locked",
+            "product/Dockerfile.y: cargo install --path crates/tool",
+        ]:
+            failures.append(
+                f"a command naming no package was not held unparsed: {packages} {unparsed}",
             )
     return failures
 
@@ -371,7 +399,7 @@ def self_test() -> int:
             print(f"FAIL: {failure}", file=sys.stderr)
         return 1
     print(
-        "check-production-features: allows the named exception, names every stray enabler, refuses a "
+        "check-production-features: allows rstest through stubs, names every stray enabler, refuses a "
         "tree it did not check, reads continued Dockerfile commands, requires the product's precision, "
         "reads the Makefile's standard-precision selection",
     )

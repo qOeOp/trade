@@ -1,9 +1,7 @@
 //! Minimal Strategy Factory product boundary.
 //!
-//! It owns the frozen intent, deterministic artifact, restricted Wasm boundary,
-//! and the thin application adapter into existing data and trading-engine owners.
+//! It owns the frozen intent, deterministic artifact and restricted Wasm boundary.
 
-mod application;
 pub mod artifact;
 pub mod artifact_build;
 pub mod artifact_build_postgres;
@@ -11,8 +9,6 @@ pub mod artifact_build_sandbox;
 #[allow(dead_code)]
 pub mod artifact_v2;
 pub mod backtest_run_report_read_v1;
-mod binance_program_application;
-mod binance_program_data;
 #[cfg(test)]
 mod bounded_feature_program_canonical_form_v1;
 #[cfg(test)]
@@ -44,7 +40,6 @@ mod composer_artifact_family_binding_v3;
 mod composer_replay_intent_v3;
 pub mod condition_readiness_derivation_v1;
 pub mod dashboard_read;
-mod decision;
 mod design_input_custody_v1;
 #[allow(
     dead_code,
@@ -76,14 +71,10 @@ mod develop_plugin_build_v2_tests;
     reason = "V3 build boundary awaits executable BFP lowering and durable Composer custody"
 )]
 mod develop_plugin_build_v3;
-mod dual_tsmom;
-mod experiment;
 pub mod exploratory_replay;
-mod family;
+#[cfg(any(test, feature = "sealed-artifact-source-acceptance"))]
 mod family_adapters;
-mod formation_adapters;
 pub mod governance_artifact_membership;
-mod holdout;
 pub mod intent;
 pub mod iteration_analysis;
 pub mod iteration_analysis_postgres;
@@ -169,11 +160,8 @@ pub use native_replay_v2::{
 };
 mod owner_backtest_report_v1;
 pub use owner_backtest_report_v1::{OwnerBacktestFillV1, OwnerBacktestReportV1};
-mod pairs_relative_value;
-pub mod pilot;
 pub mod plugin_wire_v2;
 mod postgres_error_message;
-mod producer;
 pub mod product_edge;
 pub mod product_edge_postgres;
 #[allow(dead_code)]
@@ -200,7 +188,6 @@ mod program_host_v2_backtest_tests;
 mod program_host_v2_target_set_backtest_tests;
 #[cfg(test)]
 mod program_host_v2_tests;
-mod program_project;
 mod program_runtime;
 pub mod program_runtime_v2;
 mod program_session;
@@ -236,7 +223,6 @@ pub use rd_owner_postgres_custody::{
     resolve_exploratory_replay_result_for_rd_in_transaction,
     resolve_native_replay_rd_sources_v2_in_transaction,
 };
-pub mod receipt;
 pub mod replay_economic_configuration_v1;
 pub mod replay_execution_policy_v2;
 pub mod replay_execution_profile_binding_v1;
@@ -261,18 +247,13 @@ pub use replay_policy_catalog_v2::{
     ReplayPolicyCatalogBootstrapReceiptV1, ReplayPolicyCatalogErrorV2,
 };
 pub mod replay_runner_operational_profile_v1;
-mod representative;
-mod research;
 mod research_continuation_v1;
 pub mod research_initial_pit_v1;
 mod research_instrument_scope_check;
-mod robustness;
 mod schema_materialization;
-mod software_control;
 pub mod source_bound_research_acceptance_fixture_v1;
 pub mod source_intake;
 pub mod source_research_composer_postgres_v2;
-pub mod status;
 mod storage_diagnostic;
 pub mod strategy_design_v2;
 #[cfg(test)]
@@ -280,46 +261,12 @@ mod strategy_design_v2_tests;
 pub mod strategy_plan_v2;
 #[cfg(test)]
 mod strategy_plan_v2_tests;
-mod successor;
 mod successor_research_custody_postgres_v1;
 pub mod target_set_members;
 pub mod trial_family;
 pub mod trial_family_postgres;
 
-pub use application::{
-    RepresentativeSourceRoots, recover_frozen_complex_formation_status,
-    recover_frozen_dual_tsmom_formation_status,
-    recover_frozen_pairs_relative_value_formation_status, recover_frozen_pilot_status,
-    recover_frozen_representative_formation_status, recover_frozen_secac_formation_status,
-    recover_representative_program_control, run_frozen_complex_formation,
-    run_frozen_dual_tsmom_formation, run_frozen_pairs_relative_value_formation, run_frozen_pilot,
-    run_frozen_representative_formation, run_representative_program_control,
-};
 pub use complex_strategy_ir::{
     COMPLEX_STRATEGY_IR_SCHEMA_V1, COMPLEX_STRATEGY_IR_SCHEMA_VERSION_V1, ComplexStrategyIrError,
     ComplexStrategyIrV1,
-};
-pub use family::{FrozenStrategyFamily, ResearchIntent, StrategyFamilyError, StrategyTrial};
-pub use holdout::{
-    RepresentativeHoldoutIntegrity, RepresentativeHoldoutPhase, RepresentativeHoldoutStatus,
-    recover_representative_2024_holdout_status, verify_representative_holdout_sources,
-};
-pub use producer::NativeProducerVerificationRequest;
-pub use program_project::{
-    FrozenProgramProject, ResearchIntentProposal, StrategyProjectProposal,
-    materialize_strategy_project_scaffold, seal_strategy_project_proposal,
-};
-pub use receipt::{
-    FormationFamilyDisposition, FormationFamilyReceipt, FormationTrialDisposition,
-    RepresentativeProgramControlReceipt,
-};
-pub use research::{
-    ObservationFrame, ObservationFrameDisposition, ObservationFrameError, ObservationFrameGate,
-    ObservationFrameIneligibility, ObservationStamp, REPRESENTATIVE_EXPERIMENT_ID,
-    REPRESENTATIVE_INTENT_ID, REPRESENTATIVE_INTENT_SHA256,
-    ResearchIntent as RepresentativeResearchIntent, ResearchIntentError,
-};
-pub use software_control::verify_representative_software_control;
-pub use status::{
-    ResearchEvidenceReference, ResearchPhase, ResearchStatusSnapshot, SelectedFormationCandidate,
 };
