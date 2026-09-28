@@ -21,8 +21,9 @@ use crate::{
 
 #[derive(Debug, Error)]
 pub(crate) enum NativeReplayInitialOwnerInputsErrorV1 {
-    #[error("Native Replay initial Owner inputs are unavailable")]
-    Unavailable,
+    // PROBE ONLY (never merged): each refusal names its site.
+    #[error("Native Replay initial Owner inputs are unavailable: {0}")]
+    Unavailable(String),
 }
 
 pub(crate) async fn resolve_native_replay_initial_owner_inputs_v1<R>(
@@ -41,26 +42,52 @@ where
     R: NativeReplaySchedulingResolverV1 + ?Sized,
 {
     let replay = preparation.replay().request().as_dto();
-    let selection = plan
-        .universe_selection()
-        .ok_or(NativeReplayInitialOwnerInputsErrorV1::Unavailable)?;
+    let selection = plan.universe_selection().ok_or_else(|| {
+        NativeReplayInitialOwnerInputsErrorV1::Unavailable(format!("PROBE site 1 line {}", line!()))
+    })?;
     let request_selection_identity = parse_sha256(replay.universe_selection.identity.as_str())?;
     let request_selection_digest = parse_sha256(replay.universe_selection.digest.as_str())?;
     let snapshot_identity = parse_sha256(replay.pit_snapshot.identity.as_str())?;
     let snapshot_fact_digest = parse_sha256(replay.pit_snapshot.digest.as_str())?;
     let master_members = instrument_master.cut().members();
 
-    if selection.selection_identity().as_bytes() != &request_selection_identity
-        || selection.selection_digest().as_bytes() != &request_selection_digest
-        || !is_admitted_member_count(selection.members().len())
-        || !members_agree(
-            selection.members().iter().map(|member| member.instrument()),
+    if selection.selection_identity().as_bytes() != &request_selection_identity {
+        return Err(NativeReplayInitialOwnerInputsErrorV1::Unavailable(
+            "PROBE site 2a selection identity".into(),
+        ));
+    }
+
+    if selection.selection_digest().as_bytes() != &request_selection_digest {
+        return Err(NativeReplayInitialOwnerInputsErrorV1::Unavailable(
+            "PROBE site 2b selection digest".into(),
+        ));
+    }
+
+    if !is_admitted_member_count(selection.members().len()) {
+        return Err(NativeReplayInitialOwnerInputsErrorV1::Unavailable(format!(
+            "PROBE site 2c member count {}",
+            selection.members().len()
+        )));
+    }
+
+    if !members_agree(
+        selection.members().iter().map(|member| member.instrument()),
+        master_members
+            .iter()
+            .map(|member| member.fact().canonical_identity()),
+    ) {
+        return Err(NativeReplayInitialOwnerInputsErrorV1::Unavailable(format!(
+            "PROBE site 2d members selected {:?} master {:?}",
+            selection
+                .members()
+                .iter()
+                .map(|member| member.instrument())
+                .collect::<Vec<_>>(),
             master_members
                 .iter()
-                .map(|member| member.fact().canonical_identity()),
-        )
-    {
-        return Err(NativeReplayInitialOwnerInputsErrorV1::Unavailable);
+                .map(|member| member.fact().canonical_identity())
+                .collect::<Vec<_>>()
+        )));
     }
 
     let roles = plan
@@ -70,21 +97,39 @@ where
             if role.fact_class != InputFactClassV2::MarketData
                 || role.scope != InputScopeV2::UniverseMembers
             {
-                return Err(NativeReplayInitialOwnerInputsErrorV1::Unavailable);
+                return Err(NativeReplayInitialOwnerInputsErrorV1::Unavailable(format!(
+                    "PROBE site 3 line {}",
+                    line!()
+                )));
             }
             let field_semantic = MarketDataFieldSemantic::from_identity(&role.field_semantic_id)
-                .ok_or(NativeReplayInitialOwnerInputsErrorV1::Unavailable)?;
+                .ok_or_else(|| {
+                    NativeReplayInitialOwnerInputsErrorV1::Unavailable(format!(
+                        "PROBE site 4 line {}",
+                        line!()
+                    ))
+                })?;
             let channel = match role.channel.as_str() {
                 "MARKET" => StrategyInputChannel::Market,
                 "REFERENCE" => StrategyInputChannel::Reference,
                 "ECONOMIC" => StrategyInputChannel::Economic,
-                _ => return Err(NativeReplayInitialOwnerInputsErrorV1::Unavailable),
+                _ => {
+                    return Err(NativeReplayInitialOwnerInputsErrorV1::Unavailable(format!(
+                        "PROBE site 5 line {}",
+                        line!()
+                    )));
+                }
             };
             let unit = match role.unit.as_str() {
                 "PRICE" => StrategyInputUnit::Price,
                 "QUANTITY" => StrategyInputUnit::Quantity,
                 "SCALAR" => StrategyInputUnit::Scalar,
-                _ => return Err(NativeReplayInitialOwnerInputsErrorV1::Unavailable),
+                _ => {
+                    return Err(NativeReplayInitialOwnerInputsErrorV1::Unavailable(format!(
+                        "PROBE site 6 line {}",
+                        line!()
+                    )));
+                }
             };
             Ok(NativeReplayInitialUniverseRoleV1::new(
                 strategy_input_role_identity_v2(role),
@@ -103,7 +148,12 @@ where
                 .fact()
                 .canonical_identity()
                 .parse::<InstrumentId>()
-                .map_err(|_| NativeReplayInitialOwnerInputsErrorV1::Unavailable)
+                .map_err(|_| {
+                    NativeReplayInitialOwnerInputsErrorV1::Unavailable(format!(
+                        "PROBE site 7 line {}",
+                        line!()
+                    ))
+                })
         })
         .collect::<Result<Vec<_>, _>>()?;
     let request = NativeReplayInitialMarketRequestV1::new(
@@ -130,21 +180,28 @@ where
     let readback = resolver
         .resolve_native_replay_initial_market_inputs_v1(&request)
         .await
-        .map_err(|_| NativeReplayInitialOwnerInputsErrorV1::Unavailable)?;
+        .map_err(|e| {
+            NativeReplayInitialOwnerInputsErrorV1::Unavailable(format!(
+                "PROBE Market Data resolver: {e:?}"
+            ))
+        })?;
     Ok((request, readback))
 }
 
 fn parse_sha256(value: &str) -> Result<[u8; 32], NativeReplayInitialOwnerInputsErrorV1> {
-    let hex = value
-        .strip_prefix("sha256:")
-        .ok_or(NativeReplayInitialOwnerInputsErrorV1::Unavailable)?;
+    let hex = value.strip_prefix("sha256:").ok_or_else(|| {
+        NativeReplayInitialOwnerInputsErrorV1::Unavailable(format!("PROBE site 8 line {}", line!()))
+    })?;
 
     if hex.len() != 64
         || !hex
             .bytes()
             .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
     {
-        return Err(NativeReplayInitialOwnerInputsErrorV1::Unavailable);
+        return Err(NativeReplayInitialOwnerInputsErrorV1::Unavailable(format!(
+            "PROBE site 9 line {}",
+            line!()
+        )));
     }
     let mut bytes = [0_u8; 32];
     for (output, pair) in bytes.iter_mut().zip(hex.as_bytes().chunks_exact(2)) {
