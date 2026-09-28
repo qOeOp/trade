@@ -308,9 +308,10 @@ enum PerpetualDatasetV1 {
     DailyKlines,
     /// The venue's `exchangeInfo`, which the Instrument Master V2 intake reads.
     ExchangeInfo,
-    /// The venue's book ticker. Admitting it is what moves Market Data's clock past the frame
-    /// (H2c); no snapshot here is taken under it.
-    BookTicker,
+    /// Four-hour klines, a feed the Binance Data Client serves. Admitting it is what moves Market
+    /// Data's clock past the frame (`advance_market_data_clock_past_v1`); no snapshot here is taken
+    /// under it.
+    FourHourKlines,
 }
 
 impl PerpetualDatasetV1 {
@@ -318,16 +319,16 @@ impl PerpetualDatasetV1 {
         match self {
             Self::DailyKlines => "usdm/klines/1d",
             Self::ExchangeInfo => "usdm/exchangeInfo",
-            Self::BookTicker => "usdm/bookTicker",
+            Self::FourHourKlines => "usdm/klines/4h",
         }
     }
 
-    /// The klines binding declares what its rows mean as bars, which only schema 2 can; the
-    /// `exchangeInfo` and book-ticker bindings serve no BAR row and stay schema 1.
+    /// The klines bindings declare what their rows mean as bars, which only schema 2 can; the
+    /// `exchangeInfo` binding serves no BAR row and stays schema 1.
     const fn schema_version(self) -> u16 {
         match self {
-            Self::DailyKlines => 2,
-            Self::ExchangeInfo | Self::BookTicker => 1,
+            Self::DailyKlines | Self::FourHourKlines => 2,
+            Self::ExchangeInfo => 1,
         }
     }
 
@@ -336,32 +337,36 @@ impl PerpetualDatasetV1 {
     /// custody-backed Replay rests on it.
     const fn availability_rule(self) -> Option<UntrustedSourceAvailabilityRuleV1> {
         match self {
-            Self::DailyKlines => Some(UntrustedSourceAvailabilityRuleV1 {
+            Self::DailyKlines | Self::FourHourKlines => Some(UntrustedSourceAvailabilityRuleV1 {
                 visibility: UntrustedSourceVisibilityV1::AfterBarClose {
                     lag_ns: 1_000_000_000,
                 },
                 publishes_corrections: false,
             }),
-            Self::ExchangeInfo | Self::BookTicker => None,
+            Self::ExchangeInfo => None,
         }
     }
 
     /// The "1D" rows are fixed 24-hour UTC bars on the Unix epoch grid, labelled at their close,
-    /// complete only: a perpetual never closes, so its day is not an exchange session day.
+    /// complete only: a perpetual never closes, so its day is not an exchange session day. The
+    /// "4H" rows are the same on a four-hour step.
     fn bar_timeframes(self) -> Vec<UntrustedSourceBarTimeframeV1> {
+        let continuous = |row_timeframe: &str, step| UntrustedSourceBarTimeframeV1 {
+            row_timeframe: row_timeframe.to_owned(),
+            cadence: UntrustedSourceBarCadenceV1::FixedInterval {
+                step,
+                unit: UntrustedSourceBarUnitV1::Hour,
+            },
+            anchor: UntrustedSourceBarAnchorV1::UnixEpoch,
+            clock: UntrustedSourceBarClockV1::Continuous,
+            label: UntrustedSourceBarLabelV1::IntervalClose,
+            completion: UntrustedSourceBarCompletionV1::CompleteOnly,
+        };
+
         match self {
-            Self::DailyKlines => vec![UntrustedSourceBarTimeframeV1 {
-                row_timeframe: "1D".to_owned(),
-                cadence: UntrustedSourceBarCadenceV1::FixedInterval {
-                    step: 24,
-                    unit: UntrustedSourceBarUnitV1::Hour,
-                },
-                anchor: UntrustedSourceBarAnchorV1::UnixEpoch,
-                clock: UntrustedSourceBarClockV1::Continuous,
-                label: UntrustedSourceBarLabelV1::IntervalClose,
-                completion: UntrustedSourceBarCompletionV1::CompleteOnly,
-            }],
-            Self::ExchangeInfo | Self::BookTicker => Vec::new(),
+            Self::DailyKlines => vec![continuous("1D", 24)],
+            Self::FourHourKlines => vec![continuous("4H", 4)],
+            Self::ExchangeInfo => Vec::new(),
         }
     }
 }
@@ -993,10 +998,9 @@ pub(crate) async fn ensure_first_composer_v3_replay_acceptance_v1(
     // Semantics - because a quote cut serves a frame on no others, and Market Data freezes it at
     // its own decision cut, which makes the cut the quote's instant.
     //
-    // Market Data's decision cut moves only when the Owner admits something, and nothing has since
-    // the frame was decided, so while the cut still stands on the frame Operations admits the
-    // venue's book-ticker feed; that admission is the Owner's clock passing the frame. A second
-    // call under the same key finds the clock already past it and the quote cut already committed.
+    // Market Data's decision cut moves only when the Owner admits something, so the clock is moved
+    // past the frame first (`advance_market_data_clock_past_v1`). A second call under the same key
+    // finds the clock already past it and the quote cut already committed.
     let quote_routes = market_data_routes(
         Some(
             pit_market_snapshot_intake_from_environment_v1(Arc::new(UniverseMemberQuotesV1))
@@ -1007,43 +1011,7 @@ pub(crate) async fn ensure_first_composer_v3_replay_acceptance_v1(
     )
     .await;
     let frame_ns = submission.time_evidence.event_effective.value;
-    let decision_cut = async || -> MarketDataDecisionCutV1 {
-        let (status, answer) = post(
-            &quote_routes,
-            "/v1/market-data/pit-market-snapshot-requests/decision-cut",
-            None,
-        )
-        .await;
-        assert_eq!(
-            status,
-            StatusCode::OK,
-            "H2c: Market Data's decision cut: {answer}"
-        );
-        serde_json::from_value(json_of(&answer)).expect("H2c: the decision cut decodes")
-    };
-    let mut cut = decision_cut().await;
-
-    if cut.decision_cut.as_epoch_nanos() <= frame_ns {
-        let (status, answer) = post(
-            &routes,
-            "/v1/market-data/source-bindings",
-            Some(
-                serde_json::to_value(SourceBindingAdmissionRequestV1 {
-                    proposal: perpetual_source_proposal(frame_ns, PerpetualDatasetV1::BookTicker),
-                    rights: ProviderRightsEvidenceV1::Granted,
-                    reachability: ProviderReachabilityEvidenceV1::Reachable,
-                })
-                .expect("the binding admission serializes"),
-            ),
-        )
-        .await;
-        assert_eq!(
-            status,
-            StatusCode::OK,
-            "H2c: the book-ticker Source Binding: {answer}"
-        );
-        cut = decision_cut().await;
-    }
+    let cut = advance_market_data_clock_past_v1(&quote_routes, frame_ns).await;
     let quote_ns = cut.decision_cut.as_epoch_nanos();
     assert!(
         quote_ns > frame_ns,
@@ -1452,6 +1420,61 @@ pub(crate) async fn ensure_first_composer_v3_replay_acceptance_v1(
         instrument_master_cut,
         created,
     }
+}
+
+/// Moves Market Data's decision cut past `frame_ns` and returns the cut it then stands on.
+///
+/// A stand-in, named as one, for something production does not have yet. Market Data's clock
+/// advances only when the Owner admits something: a Source Binding (`mint_clock_admission_v1`,
+/// `crates/data/src/owner/postgres.rs`), or an Instrument Master V2 snapshot retrieved after the
+/// head. It never advances because time passes or because a PIT intake runs, so nothing moves it
+/// between a frame and the Quote its fill takes. While the cut still stands on the frame,
+/// Operations admits the perpetual's four-hour klines, a feed the Binance Data Client serves
+/// (`crates/adapters/binance/tests/market_data_end_to_end.rs`), and that admission is the clock
+/// passing the frame. No snapshot is taken under it. A cut already past the frame is returned as
+/// it is.
+async fn advance_market_data_clock_past_v1(
+    routes: &Router,
+    frame_ns: u64,
+) -> MarketDataDecisionCutV1 {
+    let decision_cut = async || -> MarketDataDecisionCutV1 {
+        let (status, answer) = post(
+            routes,
+            "/v1/market-data/pit-market-snapshot-requests/decision-cut",
+            None,
+        )
+        .await;
+        assert_eq!(
+            status,
+            StatusCode::OK,
+            "H2c: Market Data's decision cut: {answer}"
+        );
+        serde_json::from_value(json_of(&answer)).expect("H2c: the decision cut decodes")
+    };
+    let cut = decision_cut().await;
+
+    if cut.decision_cut.as_epoch_nanos() > frame_ns {
+        return cut;
+    }
+    let (status, answer) = post(
+        routes,
+        "/v1/market-data/source-bindings",
+        Some(
+            serde_json::to_value(SourceBindingAdmissionRequestV1 {
+                proposal: perpetual_source_proposal(frame_ns, PerpetualDatasetV1::FourHourKlines),
+                rights: ProviderRightsEvidenceV1::Granted,
+                reachability: ProviderReachabilityEvidenceV1::Reachable,
+            })
+            .expect("the binding admission serializes"),
+        ),
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "H2c: the four-hour klines Source Binding: {answer}"
+    );
+    decision_cut().await
 }
 
 /// Market Data's production routes, composed from the deployment as `main` composes them, with
