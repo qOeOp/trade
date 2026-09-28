@@ -838,6 +838,12 @@ R&D 从 binding 及其 Replay facts 读取的内容，以及在 universe-member 
 | Instrument Master 校验                    | registry，逐个 exact instrument                     | composition 时不绑定；按 request 定键的 cut 签发时校验每个 member 的 V2 fact chain |
 | 每种依赖恰好一个                          | 七种类 frontier                                     | 四种类 frontier：PIT、Source Binding、Universe Selection、universe frame           |
 
+R&D 读取的 `universe_selection` 是 Universe Selection Record 的 identity，它同时也是 digest。它不是 Plan 所绑定的
+strategy-input universe selection；后者从一个帧 batch 的行推出，两者从不相等。Market Data 签发 Replay 的初始行情读回时，
+把两者分别对照该帧已核验的 batch：strategy-input selection 必须是从 batch 行推出的 universe；Record 必须等于 batch 的
+`universe_selection_digest`，因为 intake 只为 submission 所指名的 Record 接纳快照。Record 不一致时按
+`UniverseSelectionRecordMismatch` 拒绝。这次比对不读 Record：同一个 batch 已经把两对键连在一起。
+
 第一语料的 Replay facts 还携带七个 reference cut。universe-member aggregate 只携带其所绑定 authority 覆盖的三个；另外四个
 在每个 member 被解析之处得到证明，而不是被丢弃：
 

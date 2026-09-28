@@ -915,6 +915,14 @@ What R&D reads from a binding and its Replay facts, and where each comes from in
 | Instrument Master verification             | registry, per exact instrument                       | not bound at composition; each member's V2 fact chain when the request‑keyed cut is issued  |
 | every dependency, exactly once             | the seven‑kind frontier                              | the four‑kind frontier: PIT, Source Binding, Universe Selection, universe frame             |
 
+The `universe_selection` R&D reads is the Universe Selection Record's identity, which is also its digest. It is not the
+strategy-input universe selection a Plan is bound under, which is derived from a frame batch's rows, and the two are
+never equal. When Market Data issues a Replay's initial market readback it checks each against the frame's verified
+batch. The strategy-input selection must be the universe derived from the batch's rows. The Record must be the batch's
+`universe_selection_digest`, because intake admits a snapshot only for the Record its submission names. A Record that
+differs is refused as `UniverseSelectionRecordMismatch`. No Record is read for this: the one batch already joins the
+two keys.
+
 The first corpus's Replay facts also carry seven reference cuts. A universe-member aggregate carries the three whose
 authority it binds; each of the other four is proven where each member is resolved, not dropped:
 
