@@ -16,8 +16,8 @@
 //! happen:
 //!
 //! - The Data Client behind Market Data's PIT intake is a stand-in that answers for exactly the
-//!   members Market Data issues, as in the initial PIT entry. The terminal is still Market Data's
-//!   own derivation.
+//!   members Market Data issues, as in the initial PIT entry: a daily BAR for the frame, and a
+//!   Quote for the frame's quote cut. The terminal is still Market Data's own derivation.
 //! - The Composer runs through the library, not `POST /v2/develop-composer/runs`. That route runs
 //!   the frozen program only in the default build, and the sealed build this chain runs - the only
 //!   one carrying the COMPOSER_V3 commit route - routes it to the fixed corpus instead. It is a
@@ -44,12 +44,15 @@ use vibe_data::owner::{
         MarketSemanticsFactSubmissionV1, MarketSemanticsValueSubmissionV1,
     },
     native_replay_scheduling_v1::native_bar_type_for_schedule_v1,
-    pit_market_snapshot_intake_v1::pit_market_snapshot_intake_from_environment_v1,
+    pit_market_snapshot_intake_v1::{
+        MarketDataDecisionCutV1, PitMarketSnapshotIntakeV1,
+        pit_market_snapshot_intake_from_environment_v1,
+    },
     pit_observation_source_v1::{
         PitObservationScopeV1, PitObservationSourceErrorV1, PitObservationSourceV1,
         VendorObservationV1,
     },
-    pit_snapshot::PitSnapshotSubmissionV1,
+    pit_snapshot::{PitSnapshotSubmissionV1, UntrustedPitSnapshotTimeEvidence},
     replay_market_facts_v2::ReplayCompositionBindingLocatorV1,
     research_instrument_scope_v1::ResearchInstrumentScopeWireV1,
     source_binding::{
@@ -67,6 +70,7 @@ use vibe_data::owner::{
         SourceBindingAdmissionDispositionV1, SourceBindingAdmissionRequestV1,
         SourceBindingAdmissionTerminalV1,
     },
+    universe_selection::UntrustedUniverseSelectionLocatorV1,
     universe_selection_admission_v1::{
         HistoricalMembershipAdmissionRequestV1, HistoricalMembershipSubmissionV1,
         universe_selection_admission_from_environment_v1,
@@ -203,6 +207,52 @@ impl PitObservationSourceV1 for UniverseMemberDailyBarsV1 {
     }
 }
 
+/// The Data Client behind the quote cut's intake: one Quote per member Market Data issues, its
+/// bid and ask around the frame's close, at the instant Market Data issues. Values are canonical,
+/// as a real client normalizes them.
+struct UniverseMemberQuotesV1;
+
+#[async_trait]
+impl PitObservationSourceV1 for UniverseMemberQuotesV1 {
+    async fn observe(
+        &self,
+        scope: &PitObservationScopeV1,
+    ) -> Result<Vec<VendorObservationV1>, PitObservationSourceErrorV1> {
+        let mut observations = scope
+            .members()
+            .iter()
+            .flat_map(|member| {
+                [
+                    ("BID_PRICE", 12_344, 2),
+                    ("ASK_PRICE", 12_346, 2),
+                    ("BID_SIZE", 5, 0),
+                    ("ASK_SIZE", 7, 0),
+                ]
+                .map(|(field, value_mantissa, value_scale)| VendorObservationV1 {
+                    symbolic_key: format!("{member}.{field}.TICK"),
+                    member_key: member.clone(),
+                    instrument: member.clone(),
+                    channel: "MARKET".into(),
+                    data_kind: "QUOTE".into(),
+                    timeframe: "TICK".into(),
+                    field: field.into(),
+                    value_mantissa,
+                    value_scale,
+                    event_effective: scope.event_effective(),
+                    provider_available: scope.provider_available(),
+                    retrieval: scope.retrieval(),
+                    correction_publication: scope.correction_publication(),
+                })
+            })
+            .collect::<Vec<_>>();
+        // The same canonical order as the BAR rows: by symbolic key, then member.
+        observations.sort_by(|left, right| {
+            (&left.symbolic_key, &left.member_key).cmp(&(&right.symbolic_key, &right.member_key))
+        });
+        Ok(observations)
+    }
+}
+
 /// Holds the composed acceptance scheduling resolver and revokes its grants however H8 ends.
 ///
 /// While the grants stand, Market Data refuses its own time-zone custody, and the chain store is
@@ -251,13 +301,16 @@ impl Drop for SchedulingGrantsGuardV1 {
     }
 }
 
-/// The two datasets the perpetual's Source Bindings name.
+/// The datasets the perpetual's Source Bindings name.
 #[derive(Clone, Copy)]
 enum PerpetualDatasetV1 {
     /// Daily klines: the BAR rows the PIT intake answers with, labelled "1D" by the source.
     DailyKlines,
     /// The venue's `exchangeInfo`, which the Instrument Master V2 intake reads.
     ExchangeInfo,
+    /// The venue's book ticker. Admitting it is what moves Market Data's clock past the frame
+    /// (H2c); no snapshot here is taken under it.
+    BookTicker,
 }
 
 impl PerpetualDatasetV1 {
@@ -265,15 +318,16 @@ impl PerpetualDatasetV1 {
         match self {
             Self::DailyKlines => "usdm/klines/1d",
             Self::ExchangeInfo => "usdm/exchangeInfo",
+            Self::BookTicker => "usdm/bookTicker",
         }
     }
 
     /// The klines binding declares what its rows mean as bars, which only schema 2 can; the
-    /// `exchangeInfo` binding serves no BAR row and stays schema 1.
+    /// `exchangeInfo` and book-ticker bindings serve no BAR row and stay schema 1.
     const fn schema_version(self) -> u16 {
         match self {
             Self::DailyKlines => 2,
-            Self::ExchangeInfo => 1,
+            Self::ExchangeInfo | Self::BookTicker => 1,
         }
     }
 
@@ -288,7 +342,7 @@ impl PerpetualDatasetV1 {
                 },
                 publishes_corrections: false,
             }),
-            Self::ExchangeInfo => None,
+            Self::ExchangeInfo | Self::BookTicker => None,
         }
     }
 
@@ -307,7 +361,7 @@ impl PerpetualDatasetV1 {
                 label: UntrustedSourceBarLabelV1::IntervalClose,
                 completion: UntrustedSourceBarCompletionV1::CompleteOnly,
             }],
-            Self::ExchangeInfo => Vec::new(),
+            Self::ExchangeInfo | Self::BookTicker => Vec::new(),
         }
     }
 }
@@ -645,32 +699,8 @@ pub(crate) async fn ensure_first_composer_v3_replay_acceptance_v1(
             .expect("the Bounded Feature Program Owner opens"),
     );
     let routes =
-        bounded_feature_program::router(bounded_feature_program_owner.clone(), token_digest).merge(
-            market_data_pit::router(
-                market_data_pit::MarketDataAdmissions {
-                    intake: None,
-                    admission: bootstrap_market_data_source_binding_admission()
-                        .await
-                        .expect("the Source Binding admission composes"),
-                    universe: bootstrap_market_data_universe_selection()
-                        .await
-                        .expect("the Universe Selection admission composes"),
-                    bindings: bootstrap_market_data_strategy_input_bindings()
-                        .await
-                        .expect("the Strategy Input Binding admission composes"),
-                    instruments: bootstrap_market_data_instrument_master_admission()
-                        .await
-                        .expect("the Instrument Master admission composes"),
-                    instruments_v2: bootstrap_market_data_instrument_master_admission_v2()
-                        .await
-                        .expect("the Instrument Master V2 admission composes"),
-                    semantics: bootstrap_market_data_market_semantics_admission()
-                        .await
-                        .expect("the Market Semantics admission composes"),
-                },
-                token_digest,
-            ),
-        );
+        bounded_feature_program::router(bounded_feature_program_owner.clone(), token_digest)
+            .merge(market_data_routes(None, token_digest).await);
 
     // H0: the perpetual, admitted as Operations admits an instrument, through Market Data's
     // production routes: its Source Binding, its Instrument Master fact under that binding, and the
@@ -925,8 +955,15 @@ pub(crate) async fn ensure_first_composer_v3_replay_acceptance_v1(
         .connect_url(rd_url, vibe_postgres_connect::PostgresTls::Disabled)
         .await
         .expect("the R&D Owner pool opens");
-    let (correlation, submission_bytes): (Vec<u8>, Vec<u8>) = sqlx::query_as(
-        "SELECT attempt.correlation_identity, attempt.submission_bytes
+    let (correlation, submission_bytes, selection_request, selection_meaning): (
+        Vec<u8>,
+        Vec<u8>,
+        Vec<u8>,
+        Vec<u8>,
+    ) = sqlx::query_as(
+        "SELECT attempt.correlation_identity, attempt.submission_bytes,
+                attempt.universe_selection_request_identity,
+                attempt.universe_selection_request_meaning_digest
            FROM rd_research_initial_pit_terminals_v1 terminal
            JOIN rd_research_initial_pit_attempts_v1 attempt
              ON attempt.request_identity = terminal.request_identity
@@ -1002,6 +1039,120 @@ pub(crate) async fn ensure_first_composer_v3_replay_acceptance_v1(
         StatusCode::OK,
         "H2b: the snapshot's Market Semantics fact: {answer}"
     );
+
+    // H2c: the frame's quote cut, a PIT snapshot of Quote rows alone that Market Data publishes
+    // after the frame's decision cut; the frame's fill takes its liquidity from it
+    // (`docs/owners/market-data.md`, the quote cut). It is asked for over the production route on
+    // the frame's own coordinates - its scope, Source Binding, universe selection and Market
+    // Semantics - because a quote cut serves a frame on no others, and Market Data freezes it at
+    // its own decision cut, which makes the cut the quote's instant.
+    //
+    // Market Data's decision cut moves only when the Owner admits something, and nothing has since
+    // the frame was decided, so while the cut still stands on the frame Operations admits the
+    // venue's book-ticker feed; that admission is the Owner's clock passing the frame. A second
+    // call under the same key finds the clock already past it and the quote cut already committed.
+    let quote_routes = market_data_routes(
+        Some(
+            pit_market_snapshot_intake_from_environment_v1(Arc::new(UniverseMemberQuotesV1))
+                .await
+                .expect("Market Data's PIT intake opens for the quote cut"),
+        ),
+        token_digest,
+    )
+    .await;
+    let frame_ns = submission.time_evidence.event_effective.value;
+    let decision_cut = async || -> MarketDataDecisionCutV1 {
+        let (status, answer) = post(
+            &quote_routes,
+            "/v1/market-data/pit-market-snapshot-requests/decision-cut",
+            None,
+        )
+        .await;
+        assert_eq!(
+            status,
+            StatusCode::OK,
+            "H2c: Market Data's decision cut: {answer}"
+        );
+        serde_json::from_value(json_of(&answer)).expect("H2c: the decision cut decodes")
+    };
+    let mut cut = decision_cut().await;
+
+    if cut.decision_cut.as_epoch_nanos() <= frame_ns {
+        let (status, answer) = post(
+            &routes,
+            "/v1/market-data/source-bindings",
+            Some(
+                serde_json::to_value(SourceBindingAdmissionRequestV1 {
+                    proposal: perpetual_source_proposal(frame_ns, PerpetualDatasetV1::BookTicker),
+                    rights: ProviderRightsEvidenceV1::Granted,
+                    reachability: ProviderReachabilityEvidenceV1::Reachable,
+                })
+                .expect("the binding admission serializes"),
+            ),
+        )
+        .await;
+        assert_eq!(
+            status,
+            StatusCode::OK,
+            "H2c: the book-ticker Source Binding: {answer}"
+        );
+        cut = decision_cut().await;
+    }
+    let quote_ns = cut.decision_cut.as_epoch_nanos();
+    assert!(
+        quote_ns > frame_ns,
+        "H2c: the quote cut's instant {quote_ns} follows the frame's {frame_ns}"
+    );
+    assert!(
+        quote_ns - frame_ns < 86_400_000_000_000,
+        "H2c: the quote cut's instant {quote_ns} lies inside the frame's one-day window from \
+         {frame_ns}"
+    );
+    assert_ne!(
+        quote_ns % 86_400_000_000_000,
+        0,
+        "H2c: the fill's quote instant {quote_ns} is not on a UTC midnight, so the fill snapshot \
+         falls in a day bucket of its own"
+    );
+    let (status, answer) = post(
+        &quote_routes,
+        "/v1/market-data/pit-market-snapshot-requests",
+        Some(serde_json::json!({
+            "submission": PitSnapshotSubmissionV1 {
+                correlation_identity: first_composer_v3_digest(&format!("{fixture_key}:quote-cut")),
+                time_evidence: UntrustedPitSnapshotTimeEvidence::at_decision_cut_v1(&cut),
+                ..submission.clone()
+            },
+            "universe_selection": UntrustedUniverseSelectionLocatorV1::from_untrusted(
+                BindingDigest::from_untrusted_bytes(
+                    selection_request
+                        .as_slice()
+                        .try_into()
+                        .expect("a selection request identity is 32 bytes"),
+                ),
+                BindingDigest::from_untrusted_bytes(
+                    selection_meaning
+                        .as_slice()
+                        .try_into()
+                        .expect("a selection meaning digest is 32 bytes"),
+                ),
+            ),
+        })),
+    )
+    .await;
+
+    if status == StatusCode::OK {
+        assert_eq!(
+            json_of(&answer)["disposition"],
+            "AVAILABLE",
+            "H2c: Market Data derives an AVAILABLE quote cut: {answer}"
+        );
+    } else {
+        assert!(
+            status == StatusCode::CONFLICT && answer.contains("PIT_CORRELATION_ALREADY_COMMITTED"),
+            "H2c: the frame's quote cut: {answer}"
+        );
+    }
 
     // H3 and H4: the Design, authored by the admitted proposer in its universe-member form from the
     // Research custody's own facts, then published, bound and frozen over the production routes.
@@ -1355,6 +1506,38 @@ pub(crate) async fn ensure_first_composer_v3_replay_acceptance_v1(
         instrument_master_cut,
         created,
     }
+}
+
+/// Market Data's production routes, composed from the deployment as `main` composes them, with
+/// `intake` behind the PIT snapshot routes.
+async fn market_data_routes(
+    intake: Option<Arc<dyn PitMarketSnapshotIntakeV1>>,
+    token_digest: [u8; 32],
+) -> Router {
+    market_data_pit::router(
+        market_data_pit::MarketDataAdmissions {
+            intake,
+            admission: bootstrap_market_data_source_binding_admission()
+                .await
+                .expect("the Source Binding admission composes"),
+            universe: bootstrap_market_data_universe_selection()
+                .await
+                .expect("the Universe Selection admission composes"),
+            bindings: bootstrap_market_data_strategy_input_bindings()
+                .await
+                .expect("the Strategy Input Binding admission composes"),
+            instruments: bootstrap_market_data_instrument_master_admission()
+                .await
+                .expect("the Instrument Master admission composes"),
+            instruments_v2: bootstrap_market_data_instrument_master_admission_v2()
+                .await
+                .expect("the Instrument Master V2 admission composes"),
+            semantics: bootstrap_market_data_market_semantics_admission()
+                .await
+                .expect("the Market Semantics admission composes"),
+        },
+        token_digest,
+    )
 }
 
 /// The R&D Owner API's state for the routes this fixture drives, composed from the deployment the
