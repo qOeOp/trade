@@ -2,7 +2,8 @@
    routine returns and before glibc releases the used part of its stack at exit, it counts the
    stack's resident pages with mincore(). Stack pages are faulted in only when first touched and the
    stack probe touches every page of a large frame, so that count is the thread's peak depth. Only
-   stacks of at least 15 MiB (RUST_MIN_STACK=16777216) are reported. */
+   stacks of at least 3 MiB are reported: the 16 MiB RUST_MIN_STACK threads and the
+   Research setup's own 4 MiB thread (rd_owner_api_main authored_design_research). */
 #define _GNU_SOURCE
 #include <dlfcn.h>
 #include <pthread.h>
@@ -23,7 +24,7 @@ static void record(void) {
   if (pthread_getattr_np(pthread_self(), &attr) != 0) return;
   pthread_attr_getstack(&attr, &base, &size);
   pthread_attr_destroy(&attr);
-  if (size < 15u * 1024 * 1024) return;
+  if (size < 3u * 1024 * 1024) return;
   size_t page = (size_t)sysconf(_SC_PAGESIZE), pages = size / page, resident = 0;
   unsigned char *vector = malloc(pages);
   if (vector == NULL || mincore(base, size, vector) != 0) {
