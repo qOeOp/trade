@@ -1143,7 +1143,25 @@ reuse_line='python3 scripts/ci/workspace_mtimes.py reuse "$CARGO_TARGET_DIR"'
 stash_line='python3 scripts/ci/workspace_mtimes.py stash "$CARGO_TARGET_DIR"'
 [[ "$(grep -cF "$stash_line" <<< "$rust_tests_job")" -eq 1 ]]
 [[ "$(grep -B8 'workspace_mtimes.py stash' <<< "$rust_tests_job" | grep -c "if: env.SAVE_BUILD_CACHES == 'true' && !cancelled()")" -eq 1 ]]
-[[ "$(grep -c 'workspace_mtimes.py' "$build_workflow")" -eq 3 ]]
+# Prune deletes the workspace units a saving run did not build, on main only, after everything
+# compiled and before the save; quality prints what it pruned next to the entry's compressed size.
+# shellcheck disable=SC2016
+prune_line='python3 scripts/ci/workspace_mtimes.py prune "$CARGO_TARGET_DIR"'
+[[ "$(grep -cF "$prune_line" <<< "$rust_tests_job")" -eq 1 ]]
+[[ "$(grep -B10 'workspace_mtimes.py prune' <<< "$rust_tests_job" | grep -c "if: env.SAVE_BUILD_CACHES == 'true' && github.ref == 'refs/heads/main' && !cancelled()")" -eq 1 ]]
+prune_at="$(grep -nF "$prune_line" <<< "$rust_tests_job" | cut -d: -f1)"
+stash_at="$(grep -nF "$stash_line" <<< "$rust_tests_job" | cut -d: -f1)"
+proofs_at="$(grep -n 'make cargo-test-toolchain-proofs' <<< "$rust_tests_job" | cut -d: -f1)"
+[[ "$proofs_at" -lt "$prune_at" && "$prune_at" -lt "$stash_at" ]]
+# shellcheck disable=SC2016
+[[ "$rust_tests_job" == *'pruned-bytes: ${{ steps.prune.outputs.pruned-bytes }}'* ]]
+quality_job="$(workflow_job_block "$build_workflow" quality)"
+report_step="$(awk '/- name: Report the rust-tests cache entry this run saved/{f=1} f&&/^$/{exit} f' <<< "$quality_job")"
+[[ "$report_step" == *"if: env.SAVE_BUILD_CACHES == 'true' && github.ref == 'refs/heads/main'"* ]]
+# shellcheck disable=SC2016
+[[ "$report_step" == *'${{ needs.rust-tests-linux-x86.outputs.pruned-bytes }}'* ]]
+[[ "$(grep -c 'workspace_mtimes.py' "$build_workflow")" -eq 4 ]]
+python3 -B "$repo_root/scripts/ci/workspace_mtimes_prune_test.py" > /dev/null
 bash "$repo_root/scripts/ci/test-workspace-mtimes.bash"
 for composite in common-test-data common-setup; do
   file="$repo_root/.github/actions/${composite}/action.yml"
