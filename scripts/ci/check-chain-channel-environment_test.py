@@ -27,7 +27,34 @@ TOOL = Path(
 
 BUILD = """\
 name: build
+env:
+  SAVE_BUILD_CACHES: >-
+    ${{ github.event_name == 'push' || github.event_name == 'schedule' }}
 jobs:
+  rust-tests-linux-x86:
+    name: rust tests
+    env:
+      CARGO_CI_PROFILE: >-
+        ${{ (github.event_name == 'pull_request'
+        || github.event_name == 'merge_group'
+        || github.ref_name == 'main' || github.ref_name == 'test-ci')
+        && 'ci-pr' || 'nextest' }}
+      CARGO_TARGET_DIR: >-
+        ${{ (github.event_name == 'pull_request'
+        || github.event_name == 'merge_group'
+        || github.ref_name == 'main' || github.ref_name == 'test-ci')
+        && 'target/rust-tests-linux-x86'
+        || '/home/runner/.cache/cargo-target/rust-tests-linux-x86' }}
+      RUST_TEST_EXTRA_FEATURES: capnp,hypersync
+      RUST_BACKTRACE: 1
+      VIBE_TEST_DATA_BASE_URL: ${{ vars.VIBE_TEST_DATA_BASE_URL }}
+    steps:
+      - uses: ./.github/actions/common-setup
+        with:
+          rust-cache-shared-key: rust-tests-linux-x86
+          rust-cache-workspaces: . -> target/rust-tests-linux-x86
+          rust-cache-save-if: ${{ env.SAVE_BUILD_CACHES }}
+      - run: make cargo-test
   postgres-owner-chain-archive-linux-x86:
     name: rd owner archive
     env:
@@ -82,6 +109,8 @@ jobs:
 
 CHAINS = """\
 name: owner-chains
+env:
+  AUDIT_PR: ${{ github.repository == 'qOeOp/trade' }}
 jobs:
   rd-owner-archive:
     env:
@@ -110,6 +139,12 @@ jobs:
       RUST_BACKTRACE: 1
       VIBE_TEST_DATA_BASE_URL: something else entirely
     steps:
+      - uses: ./.github/actions/common-setup
+        with:
+          rust-cache-enabled: ${{ matrix.chain.key != 'rd-owner' && 'true' || 'false' }}
+          rust-cache-shared-key: rust-tests-linux-x86
+          rust-cache-workspaces: . -> target/rust-tests-linux-x86
+          rust-cache-save-if: "false"
       - run: make chain
 
   venue-end-to-end:
@@ -165,6 +200,50 @@ def main() -> int:
         failures.append(f"agreeing pair was refused:\n{agreeing.stderr}")
 
     refused = {
+        "rust tests saves under a variable the restorer lacks": (
+            within(
+                BUILD,
+                "  rust-tests-linux-x86:\n",
+                "      RUST_BACKTRACE: 1\n",
+                "      RUST_BACKTRACE: full\n",
+            ),
+            CHAINS,
+            "restores with RUST_BACKTRACE='1', but build.yml job `rust-tests-linux-x86` saves the entry with 'full'",
+        ),
+        "owner-chains sets a workflow-level CC the saver lacks": (
+            BUILD,
+            mutate(
+                CHAINS,
+                "  AUDIT_PR: ${{ github.repository == 'qOeOp/trade' }}\n",
+                "  AUDIT_PR: ${{ github.repository == 'qOeOp/trade' }}\n  CC: clang\n",
+            ),
+            "restores with CC='clang', but build.yml job `rust-tests-linux-x86` saves the entry with 'unset'",
+        ),
+        "build's workflow-level switch named into the key": (
+            mutate(BUILD, "  SAVE_BUILD_CACHES: >-\n", "  CARGO_SAVE_BUILD_CACHES: >-\n"),
+            CHAINS,
+            "CARGO_SAVE_BUILD_CACHES",
+        ),
+        "owner-chain restores another entry": (
+            BUILD,
+            within(
+                CHAINS,
+                "  owner-chain:\n",
+                "rust-cache-shared-key: rust-tests-linux-x86",
+                "rust-cache-shared-key: owner-chain-linux-x86",
+            ),
+            "restores with rust-cache-shared-key='owner-chain-linux-x86'",
+        ),
+        "owner-chain saves from a test-chain push": (
+            BUILD,
+            within(
+                CHAINS,
+                "  owner-chain:\n",
+                'rust-cache-save-if: "false"',
+                'rust-cache-save-if: "true"',
+            ),
+            "job `owner-chain` sets rust-cache-save-if='\"true\"'; only build.yml job `rust-tests-linux-x86` writes",
+        ),
         "owner-chain profile back to nextest": (
             BUILD,
             within(
