@@ -2096,15 +2096,21 @@ pool 或替代 resolver。缺失、多出、重复、部分、乱序、跨请求
 frame 序号，窗口读回与序列解析按同一顺序读出它。今天缺的是调用方，而且如本段末尾所记，光有调用方还不够。只有核验过的 batch 含 BAR 行的 snapshot 才取
 frame 序号；只含 Quote 行的是报价 cut，记入它自己的 census，永不取序号；两者都不是的不进任何 census。
 Owner 凭自己核验过的 batch 判定这一点，而不是凭请求方的 scope 声明，并且只从那份 census 为帧解析报价
-cut。每个报价 cut 的 correction lineage 先归约为它在请求的 decision cut 时可见的最新更正；必须恰好有一个这样的
-更正严格位于帧的 BAR 与其上界之间，与帧共用 scope、Instrument Master、universe selection、Market Semantics 与
-Source Binding lineage，并且报价的成员恰好是帧的成员。最新更正不能服务该帧的 lineage 什么也不提供，永不退回到
-被那次更正取代的版本。census 按请求方声明的 scope
-分区，所以在帧的全部坐标上都相同的第二个报价 cut 会与第一个冲突并使该帧被拒：这是拒绝服务，永远不会把一个
-Owner 未为它核验的报价 cut 交给它。请求的 decision cut 是该帧自身 PIT snapshot 的 decision cut，即已封存请求
-所指名的那一个，所以日后重读会解析出同一个报价 cut。上界是 Owner 在该 decision cut 时已观察到的、帧所在 scope
-census 中第一个更晚的帧，窗口结束前没有这样的帧时则是窗口末端；更晚才被观察到的帧不会移动它。两者都不由调用方
-给出。现有 PIT correction lineage
+cut。每个报价 cut lineage 只在一个 cut 上读取：帧自身的 decision cut，即已封存请求所指名的那一个；若 Owner
+发布该 lineage 原版的 cut 更晚，则取那个 cut。intake 在 Market Data 的 decision cut 冻结请求，所以它铸出的帧就落在
+自身的 decision cut 上，该 cut 能看见的报价 cut 没有一个位于帧之后；成交在决策之后，正如下文托管报价 cut 对
+`d_k` 所述，所以决策之后发布的报价 cut 仍是该帧的。lineage 先归约为它在其读取 cut 时可见的最新更正；该更正严格
+位于帧的 BAR 与同一 cut 下的上界之间，与帧共用 scope、Instrument Master、universe selection、Market Semantics 与
+Source Binding lineage，并且报价的成员恰好是帧的成员时，它才服务该帧。最新更正不能服务该帧的 lineage 什么也不
+提供，永不退回到被那次更正取代的版本。在能服务的 lineage 中，读取 cut 最早的那一个是该帧的；同在那个 cut 上读取的
+两个会使该帧被拒。census 按请求方声明的 scope
+分区，所以在帧的全部坐标上都相同、又在同一 cut 上读取的第二个报价 cut 会与第一个冲突并使该帧被拒：这是拒绝服务，
+永远不会把一个 Owner 未为它核验的报价 cut 交给它。每个读取 cut 都由 Owner 已持有的 census 确定，所以日后重读会
+解析出同一个报价 cut：在更晚 cut 上发布的 lineage 永远不会取代一个能服务的，只有在 Owner 时钟离开所选 cut 之前、
+恰在该 cut 上发布的报价 cut 仍可能与它冲突。某个读取 cut 下的上界是 Owner 在该 cut 时已观察到的、帧所在 scope
+census 中第一个更晚的帧，窗口结束前没有这样的帧时则是窗口末端；更晚才被观察到的帧不会移动它，而在迟到报价 cut
+之前发布的帧会成为它的上界，使那个报价 cut 归于更晚的帧。报价 cut 只进入成交：帧的策略输入仍只从它自己的 batch
+绑定。这些都不由调用方给出。现有 PIT correction lineage
 记录的是同一请求的修正版本，不是时间后继索引，也不能证明无漏帧，census 因此是一张独立的表而不是对它的
 复用；现有首帧 resolver 与 QuoteTick 投影本身不签发后续帧或独立流动性 receipt。V1 native scheduling seal 从帧的
 batch 取每个成员的 BAR，从帧的报价 cut 取每个成员的 Quote，所有 Quote 都在报价 cut 的时刻上并按成员顺序排列。
