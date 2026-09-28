@@ -175,6 +175,18 @@ pub enum NativeReplaySchedulingErrorV1 {
     SourceBindingDeclaresNoBarTimeframe,
     #[error("no schedule, role or row states the bar the frame's Source Binding declares")]
     DeclaredBarTimeframeMismatch,
+    /// The Replay names another Universe Selection Record than the one the frame's batch binds.
+    ///
+    /// A request names two different universe selections, and each is checked against the same
+    /// verified batch. The strategy-input selection is the one the Plan was bound under: the
+    /// frame's own universe, derived from the batch's rows, is required to be it. The Universe
+    /// Selection Record is the one the Replay's composition depends on: the intake admitted the
+    /// batch's snapshot only for the Record whose identity its submission names, so the batch's
+    /// `universe_selection_digest` is that Record and is required to be the Replay's. No Record is
+    /// read to compare them, because the batch already joins the two: its rows are what the
+    /// selection is derived from, and its Record digest was checked at intake.
+    #[error("the Replay names another Universe Selection Record than the frame's batch binds")]
+    UniverseSelectionRecordMismatch,
 }
 
 /// Untrusted coordinates for resolving one exact native Replay scheduling projection.
@@ -254,8 +266,14 @@ pub struct NativeReplayInitialMarketRequestV1 {
     snapshot_fact_digest: BindingDigest,
     research_request_identity: BindingDigest,
     strategy_design_identity: BindingDigest,
+    /// The strategy-input universe selection the Plan was bound under, derived from a batch's
+    /// rows (`derive_universe_selection`).
     universe_selection_identity: BindingDigest,
     universe_selection_digest: BindingDigest,
+    /// The Universe Selection Record the Replay's composition depends on. Its identity is also its
+    /// digest.
+    universe_selection_record_identity: BindingDigest,
+    universe_selection_record_digest: BindingDigest,
     instrument_master_digest: BindingDigest,
     source_binding_lineage_root: BindingDigest,
     market_semantics_identity: BindingDigest,
@@ -275,6 +293,8 @@ impl NativeReplayInitialMarketRequestV1 {
         strategy_design_identity: BindingDigest,
         universe_selection_identity: BindingDigest,
         universe_selection_digest: BindingDigest,
+        universe_selection_record_identity: BindingDigest,
+        universe_selection_record_digest: BindingDigest,
         instrument_master_digest: BindingDigest,
         source_binding_lineage_root: BindingDigest,
         market_semantics_identity: BindingDigest,
@@ -290,6 +310,8 @@ impl NativeReplayInitialMarketRequestV1 {
             strategy_design_identity,
             universe_selection_identity,
             universe_selection_digest,
+            universe_selection_record_identity,
+            universe_selection_record_digest,
             instrument_master_digest,
             source_binding_lineage_root,
             market_semantics_identity,
@@ -320,6 +342,8 @@ impl NativeReplayInitialMarketRequestV1 {
             strategy_design_identity: self.strategy_design_identity,
             universe_selection_identity: self.universe_selection_identity,
             universe_selection_digest: self.universe_selection_digest,
+            universe_selection_record_identity: self.universe_selection_record_identity,
+            universe_selection_record_digest: self.universe_selection_record_digest,
             instrument_master_digest: self.instrument_master_digest,
             source_binding_lineage_root: self.source_binding_lineage_root,
             market_semantics_identity: self.market_semantics_identity,
@@ -690,11 +714,16 @@ pub(crate) fn issue_native_replay_initial_market_readback_v1(
         || batch.snapshot_identity() != request.snapshot_identity
         || batch.fact_digest() != request.snapshot_fact_digest
         || batch.instrument_master_digest() != request.instrument_master_digest
-        || batch.universe_selection_digest() != request.universe_selection_digest
         || batch.source_binding_lineage_root() != request.source_binding_lineage_root
         || batch.market_semantics_identity() != request.market_semantics_identity
     {
         return Err(NativeReplaySchedulingErrorV1::OwnerBindingMismatch);
+    }
+
+    if request.universe_selection_record_identity != batch.universe_selection_digest()
+        || request.universe_selection_record_digest != batch.universe_selection_digest()
+    {
+        return Err(NativeReplaySchedulingErrorV1::UniverseSelectionRecordMismatch);
     }
     let timeframe = request
         .schedule_timeframe()
@@ -1701,13 +1730,6 @@ pub(crate) mod tests {
             .expect("derived Owner selection");
         let selection_identity = selection.selection_identity();
         let selection_digest = selection.selection_digest();
-        let verified = verified.edit_for_test(|fields| {
-            fields.universe_selection_digest = selection_digest;
-
-            for candidate in &mut fields.observations {
-                candidate.universe_selection_digest = selection_digest;
-            }
-        });
         let request = NativeReplayInitialMarketRequestV1::new(
             digest(seed),
             digest(seed.wrapping_add(1)),
@@ -1715,6 +1737,8 @@ pub(crate) mod tests {
             digest(21),
             selection_identity,
             selection_digest,
+            verified.universe_selection_digest(),
+            verified.universe_selection_digest(),
             digest(5),
             digest(14),
             digest(7),
@@ -1762,6 +1786,8 @@ pub(crate) mod tests {
             digest(21),
             selection.selection_identity(),
             selection.selection_digest(),
+            verified.universe_selection_digest(),
+            verified.universe_selection_digest(),
             digest(5),
             digest(14),
             digest(7),
@@ -2155,13 +2181,6 @@ pub(crate) mod tests {
             .expect("derived Owner selection");
         let selection_identity = selection.selection_identity();
         let selection_digest = selection.selection_digest();
-        let batch = batch.edit_for_test(|fields| {
-            fields.universe_selection_digest = selection_digest;
-
-            for row in &mut fields.observations {
-                row.universe_selection_digest = selection_digest;
-            }
-        });
         let request = NativeReplayInitialMarketRequestV1::new(
             digest(12),
             digest(13),
@@ -2169,6 +2188,8 @@ pub(crate) mod tests {
             digest(21),
             selection_identity,
             selection_digest,
+            batch.universe_selection_digest(),
+            batch.universe_selection_digest(),
             digest(5),
             digest(14),
             digest(7),
@@ -2195,13 +2216,7 @@ pub(crate) mod tests {
         .expect("exact initial Market Data readback");
 
         let source = readback.into_market_data_repair_source();
-        let frame = two_member_frame().edit_for_test(|fields| {
-            fields.universe_selection_digest = selection_digest;
-
-            for row in &mut fields.observations {
-                row.universe_selection_digest = selection_digest;
-            }
-        });
+        let frame = two_member_frame();
         let at_window_end = quote_cut_for(&frame, &["AAA-PERP.SIM", "BBB-PERP.SIM"], 200);
         assert_eq!(
             issue_native_replay_initial_market_readback_v1(
@@ -2220,10 +2235,84 @@ pub(crate) mod tests {
         assert_eq!(source.pit_request_digest(), digest(11));
         assert_eq!(source.correlation_identity(), digest(18));
         assert_eq!(source.instrument_scope_digest(), digest(17));
-        assert_eq!(source.universe_selection_digest(), selection_digest);
+        assert_eq!(
+            source.universe_selection_digest(),
+            digest(6),
+            "the repair scope names the Universe Selection Record the frame's batch binds"
+        );
         assert_eq!(source.source_binding_fact_digest(), digest(19));
         assert_eq!(source.pit_snapshot_identity(), digest(12));
         assert_eq!(source.pit_snapshot_fact_digest(), digest(13));
+    }
+
+    /// A frame's two universe selections are each checked against its batch. Under the same
+    /// strategy-input selection, a Replay naming the Record the batch binds is issued, and one
+    /// naming another Record, by identity, by digest or by both, is refused by name.
+    #[rstest::rstest]
+    #[case::same_record(None, None, None)]
+    #[case::another_identity(
+        Some(99),
+        None,
+        Some(NativeReplaySchedulingErrorV1::UniverseSelectionRecordMismatch)
+    )]
+    #[case::another_digest(
+        None,
+        Some(99),
+        Some(NativeReplaySchedulingErrorV1::UniverseSelectionRecordMismatch)
+    )]
+    #[case::another_record(
+        Some(99),
+        Some(99),
+        Some(NativeReplaySchedulingErrorV1::UniverseSelectionRecordMismatch)
+    )]
+    fn a_replay_is_issued_only_under_the_universe_selection_record_its_batch_binds(
+        #[case] identity: Option<u8>,
+        #[case] record_digest: Option<u8>,
+        #[case] refusal: Option<NativeReplaySchedulingErrorV1>,
+    ) {
+        let batch = two_member_frame();
+        let selection = crate::owner::strategy_input_binding::derive_universe_selection(&batch)
+            .expect("derived Owner selection");
+        let record = batch.universe_selection_digest();
+        assert_ne!(
+            record,
+            selection.selection_digest(),
+            "the batch's Record and its derived selection are different keys, as in production"
+        );
+        let request = NativeReplayInitialMarketRequestV1::new(
+            digest(12),
+            digest(13),
+            digest(20),
+            digest(21),
+            selection.selection_identity(),
+            selection.selection_digest(),
+            identity.map_or(record, digest),
+            record_digest.map_or(record, digest),
+            digest(5),
+            digest(14),
+            digest(7),
+            vec![NativeReplayInitialUniverseRoleV1::new(
+                digest(23),
+                MarketDataFieldSemantic::BarClosePrice,
+                StrategyInputChannel::Market,
+                "1M".to_string(),
+                StrategyInputUnit::Price,
+                2,
+            )],
+            two_members(),
+            100,
+            200,
+        );
+        let quote_cut = quote_cut_for(&batch, &["AAA-PERP.SIM", "BBB-PERP.SIM"], 101);
+        let issued = issue_native_replay_initial_market_readback_v1(
+            batch,
+            quote_cut,
+            two_schedules(),
+            declared_minute(),
+            &request,
+        );
+
+        assert_eq!(issued.map(|_| ()).err(), refusal);
     }
 
     /// A Design whose roles name one exact instrument does not run under an Owner universe. The
@@ -2254,6 +2343,8 @@ pub(crate) mod tests {
             digest(21),
             selection.selection_identity(),
             selection.selection_digest(),
+            batch.universe_selection_digest(),
+            batch.universe_selection_digest(),
             digest(5),
             digest(14),
             digest(7),

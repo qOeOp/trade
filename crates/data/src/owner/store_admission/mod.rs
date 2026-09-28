@@ -6012,6 +6012,8 @@ mod tests {
             BindingDigest::from_untrusted_bytes([91; 32]),
             BindingDigest::from_untrusted_bytes([92; 32]),
             BindingDigest::from_untrusted_bytes([93; 32]),
+            BindingDigest::from_untrusted_bytes([94; 32]),
+            snapshot.universe_selection_digest,
             snapshot.universe_selection_digest,
             snapshot.instrument_master_digest,
             snapshot.source_binding_lineage_root,
