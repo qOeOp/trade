@@ -1804,13 +1804,12 @@ pub(crate) mod tests {
         let frame = decided_at(batch(rows), 100);
         let selection = crate::owner::strategy_input_binding::derive_universe_selection(&frame)
             .expect("derived Owner selection");
-        let frame = frame.edit_for_test(|fields| {
-            fields.universe_selection_digest = selection.selection_digest();
-
-            for row in &mut fields.observations {
-                row.universe_selection_digest = selection.selection_digest();
-            }
-        });
+        let record = frame.universe_selection_digest();
+        assert_ne!(
+            record,
+            selection.selection_digest(),
+            "the batch's Record and its derived selection are different keys, as in production"
+        );
         let quote_cut = decided_at(quote_cut_for(&frame, &members, 101), 101);
         let decision_cut = frame.time_evidence().decision_cut.value;
         let row_digest = crate::owner::strategy_input_binding::canonical_row_digest_for_test;
@@ -1859,6 +1858,8 @@ pub(crate) mod tests {
                 digest(21),
                 selection.selection_identity(),
                 selection.selection_digest(),
+                record,
+                record,
                 digest(5),
                 digest(14),
                 digest(7),
