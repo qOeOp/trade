@@ -2268,6 +2268,12 @@ fn event_kind(data_kind: &str) -> Result<StrategyInputEventKind, StrategyInputBi
     })
 }
 
+/// The digest a value receipt names its row by, so a proof can trace a value to the row it read.
+#[cfg(test)]
+pub(crate) fn canonical_row_digest_for_test(row: &VerifiedPitObservation) -> BindingDigest {
+    digest(&canonical_row_binding_bytes(row))
+}
+
 fn canonical_row_binding_bytes(row: &VerifiedPitObservation) -> Vec<u8> {
     let mut encoder = Encoder::new(b"VIBE_STRATEGY_INPUT_ROW_BINDING_V1");
     encoder.string(row.symbolic_key());
