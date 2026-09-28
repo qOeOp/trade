@@ -1067,6 +1067,18 @@ if [[ "$quality_step" != *'run: python3 -B scripts/ci/require_source_canary_heal
   exit 1
 fi
 echo "ok: main's verdict requires the research sources not to fail twice in a row"
+# quality runs its Python on the Python pre-commit tests it with, set up before any python3 step.
+tested_python="$(grep -m1 -oE 'python-version: "[0-9.]+"' "$pre_commit_pr")"
+# `|| true`: a grep that finds nothing must reach the message below, not end the script in silence.
+quality_setup="$(grep -n 'uses: actions/setup-python@' <<< "$quality_job" | head -n 1 | cut -d: -f1 || true)"
+quality_python="$(grep -n 'python3 ' <<< "$quality_job" | grep -v '^[0-9]*: *#' | cut -d: -f1 | head -n 1 || true)"
+if [[ -z "$quality_setup" ]] ||
+  [[ "$(sed -n "${quality_setup},\$p" <<< "$quality_job" | grep -m1 -oE 'python-version: "[0-9.]+"' || true)" != "$tested_python" ]] ||
+  [[ -n "$quality_python" && "$quality_python" -lt "$quality_setup" ]]; then
+  echo "build.yml's quality must set up ${tested_python} (pre-commit-pr.yml's) before any python3 step." >&2
+  exit 1
+fi
+echo "ok: quality runs its Python on the version pre-commit tests it with"
 
 # The merge of the R&D chain shards' records before the whole-chain report. (The shards' wait for
 # the archive has its own pre-commit hook, test-wait-for-run-artifact.)

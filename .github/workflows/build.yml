@@ -1403,6 +1403,16 @@ jobs:
           persist-credentials: false
           sparse-checkout: scripts/ci
 
+      # The Python the scripts below were tested on. Without it they ran on the runner's system
+      # Python, 3.10 on ubuntu-22.04, whose datetime.fromisoformat refuses GitHub's trailing Z: that
+      # made main's first scheduled build with the canary requirement red (run 36357614937, #1210).
+      - name: Set up the tested Python
+        if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+        # https://github.com/actions/setup-python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+
       - name: Require the no-compile hooks' result for this head
         if: github.event_name == 'pull_request'
         env:
