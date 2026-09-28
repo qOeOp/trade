@@ -4961,11 +4961,11 @@ for chain_step in "${chain_run_order[@]}"; do
   chain_run_index=$((chain_run_index + 1))
   test_selection="${rd_owner_postgres_tests[$((chain_position - 1))]}"
   export LANE8_ENTRY="$chain_position"
-  # A ref `...-e114-<KiB>-serial` runs entry 114 alone on that stack: the bisection pair around its
-  # reading. Every other entry keeps 16 MiB.
-  if [[ "${GITHUB_REF_NAME:-}" =~ -e114-([0-9]+)- && "$chain_position" == 114 ]]; then
-    export RUST_MIN_STACK=$((BASH_REMATCH[1] * 1024))
-    echo "LANE8-E114 RUST_MIN_STACK=${RUST_MIN_STACK}"
+  # A ref containing `-e<entry>-<KiB>-` runs that entry alone on that stack: a bisection point, or
+  # (with `-gdb-`) the stack gdb catches it overflowing on. Every other entry keeps 16 MiB.
+  if [[ "${GITHUB_REF_NAME:-}" =~ -e([0-9]+)-([0-9]+)- && "$chain_position" == "${BASH_REMATCH[1]}" ]]; then
+    export RUST_MIN_STACK=$((BASH_REMATCH[2] * 1024))
+    echo "LANE8-ENTRY-STACK entry=${chain_position} RUST_MIN_STACK=${RUST_MIN_STACK}"
   else
     export RUST_MIN_STACK=16777216
   fi
