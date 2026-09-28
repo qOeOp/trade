@@ -869,12 +869,12 @@ impl PostgresArtifactBuildOwnerV1 {
             )
             .await?
         } else {
-            Box::pin(admit_attempt_with_research_in_transaction(
+            admit_attempt_with_research_in_transaction(
                 &mut transaction,
                 &request.build_request_identity,
                 research,
                 product_edge_admission,
-            ))
+            )
             .await?
         }
         .ok_or_else(|| ArtifactBuildError::Storage("terminal attempt missing".to_string()))?;
@@ -1589,12 +1589,12 @@ impl ArtifactBuildOwnerPort for PostgresArtifactBuildOwnerV1 {
                 )
             })?
         } else {
-            let research = Box::pin(admit_research_custody_in_transaction(
+            let research = admit_research_custody_in_transaction(
                 &mut transaction,
                 crate::rd_owner_postgres_custody::ResearchCustodyLookupV1::Intent(
                     &request.intent_identity,
                 ),
-            ))
+            )
             .await
             .map_err(|e| ArtifactBuildError::Storage(e.to_string()))?
             .ok_or_else(|| {
@@ -1634,12 +1634,12 @@ impl ArtifactBuildOwnerPort for PostgresArtifactBuildOwnerV1 {
             )
             .await?
         } else {
-            Box::pin(admit_attempt_with_research_in_transaction(
+            admit_attempt_with_research_in_transaction(
                 &mut transaction,
                 &request.build_request_identity,
                 refreshed_research,
                 custody.product_edge_admission,
-            ))
+            )
             .await?
         }
         .ok_or_else(|| ArtifactBuildError::Storage("terminal attempt missing".to_string()))?;
