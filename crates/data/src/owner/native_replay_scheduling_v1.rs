@@ -1772,6 +1772,139 @@ pub(crate) mod tests {
         .expect("exact initial Market Data readback")
     }
 
+    /// The quote cut reaches only the fill. A frame decided on its own instant, as every intake
+    /// mints one, holds its members' BAR and Quotes at that instant and takes a quote cut published
+    /// after its decision cut. Whatever roles the readback binds, it either refuses them or binds
+    /// every strategy input from a row of the frame's own batch that its decision cut could see,
+    /// never from a row of the quote cut.
+    ///
+    /// No single change can bind a quote cut row while the binding still succeeds: a readback
+    /// always has a BAR role (`schedule_timeframe`), a quote cut holds Quote rows alone, and a
+    /// universe frame refuses values of another event kind or instant than its first
+    /// (`issue_universe_trigger_receipt`). A Quote role beside the BAR role is therefore refused
+    /// here, and the tracing below is what stands if both of those change at once.
+    #[rstest::rstest]
+    fn a_quote_cut_published_after_the_decision_reaches_only_the_fill() {
+        let decided_at = |batch: VerifiedPitObservationBatch, cut: u64| {
+            batch.edit_for_test(|fields| {
+                fields.time_evidence.event_effective =
+                    UntrustedEventEffectiveTime::from_untrusted(cut, "clock", "epoch");
+                fields.time_evidence.decision_cut =
+                    UntrustedSnapshotDecisionCut::from_untrusted(cut, "clock", "epoch");
+                fields.time_evidence.observed_at = cut;
+            })
+        };
+        let members = ["AAA-PERP.SIM", "BBB-PERP.SIM"];
+        let mut rows = Vec::new();
+
+        for member in members {
+            rows.extend(bar_rows_at(member, 100, 0));
+            rows.extend(quote_rows(member, 100));
+        }
+        let frame = decided_at(batch(rows), 100);
+        let selection = crate::owner::strategy_input_binding::derive_universe_selection(&frame)
+            .expect("derived Owner selection");
+        let record = frame.universe_selection_digest();
+        assert_ne!(
+            record,
+            selection.selection_digest(),
+            "the batch's Record and its derived selection are different keys, as in production"
+        );
+        let quote_cut = decided_at(quote_cut_for(&frame, &members, 101), 101);
+        let decision_cut = frame.time_evidence().decision_cut.value;
+        let row_digest = crate::owner::strategy_input_binding::canonical_row_digest_for_test;
+        let visible_at_the_decision = frame
+            .observations()
+            .iter()
+            .filter(|row| row.event_effective <= decision_cut)
+            .map(row_digest)
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(visible_at_the_decision.len(), frame.observations().len());
+        assert!(
+            quote_cut
+                .observations()
+                .iter()
+                .all(|row| row.event_effective > decision_cut),
+            "every Quote of the quote cut follows the decision"
+        );
+        let quoted_after = quote_cut
+            .observations()
+            .iter()
+            .map(row_digest)
+            .collect::<std::collections::BTreeSet<_>>();
+        let close = NativeReplayInitialUniverseRoleV1::new(
+            digest(23),
+            MarketDataFieldSemantic::BarClosePrice,
+            StrategyInputChannel::Market,
+            "1M".to_string(),
+            StrategyInputUnit::Price,
+            2,
+        );
+        let bid = NativeReplayInitialUniverseRoleV1::new(
+            digest(24),
+            MarketDataFieldSemantic::QuoteBidPrice,
+            StrategyInputChannel::Market,
+            "TICK".to_string(),
+            StrategyInputUnit::Price,
+            2,
+        );
+
+        for roles in [vec![close.clone()], vec![close, bid]] {
+            let with_bid = roles.len() == 2;
+            let request = NativeReplayInitialMarketRequestV1::new(
+                frame.snapshot_identity(),
+                frame.fact_digest(),
+                digest(20),
+                digest(21),
+                selection.selection_identity(),
+                selection.selection_digest(),
+                record,
+                record,
+                digest(5),
+                digest(14),
+                digest(7),
+                roles,
+                members.map(InstrumentId::from).to_vec(),
+                100,
+                1_000,
+            );
+            let issued = issue_native_replay_initial_market_readback_v1(
+                frame.clone(),
+                quote_cut.clone(),
+                [
+                    schedule_at("AAA-PERP.SIM", 40, 100),
+                    schedule_at("BBB-PERP.SIM", 41, 100),
+                ],
+                declared_minute(),
+                &request,
+            );
+
+            match issued {
+                Ok(readback) => {
+                    let inputs = readback.universe_frame();
+                    assert_eq!(
+                        inputs.trigger().snapshot_identity(),
+                        frame.snapshot_identity()
+                    );
+                    assert_eq!(inputs.values().len(), members.len() * request.roles.len());
+
+                    for value in inputs.values() {
+                        assert!(
+                            visible_at_the_decision.contains(&value.canonical_row_digest())
+                                && !quoted_after.contains(&value.canonical_row_digest()),
+                            "{} is bound from a row the decision cut could see",
+                            value.value_type_semantic_id()
+                        );
+                    }
+                }
+                Err(e) => {
+                    assert!(with_bid, "the frame binds its BAR role: {e:?}");
+                    assert_eq!(e, NativeReplaySchedulingErrorV1::OwnerBindingMismatch);
+                }
+            }
+        }
+    }
+
     pub(crate) fn window_request(
         frame_time_ns: u64,
         window_end_ns_exclusive: u64,
