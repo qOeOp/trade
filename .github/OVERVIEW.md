@@ -32,18 +32,7 @@ CI/CD, testing, publishing, and automation within the NautilusTrader repository.
   `main` run on opened, synchronize, and reopened events. Retargeting a pull request's base runs the
   normal graph; other metadata edits neither cancel that graph nor publish `quality`.
 - **cli-binaries.yml**: builds CLI archives for Linux x86, Linux ARM64, macOS ARM64, and Windows
-  x86_64 on nightly pushes and manual dispatch. An isolated manual-only Linux x86 job in
-  `qOeOp/trade` builds and attests the Strategy Factory formation binary, then uploads only that raw
-  binary and its exact bundle in a commit-named Actions artifact. The job does not publish it to R2
-  and deliberately does not package a trusted root; the formation consumer requires an independently
-  operator-custodied root. Nightly pushes publish only the existing CLI artifacts to R2.
-
-  The formation consumer is Linux-only and fixes the verifier at `/usr/bin/gh` and the offline trust
-  anchor at `/etc/qoeop/strategy-factory/trusted_root.jsonl`. Both files and every parent directory
-  must be root-owned and not group/world-writable. An operator obtains the trust anchor independently
-  with `gh attestation trusted-root`, reviews it, and installs it at that path; it must never be copied
-  from the Actions artifact. If the 30-day artifact expires, recovery requires a separately authorized
-  manual dispatch of the same exact source commit, not an automatic retry or a substitute artifact.
+  x86_64 on nightly pushes and manual dispatch. Nightly pushes publish those archives to R2.
 
 - **codeql-analysis.yml**: CodeQL scans the tracked Go, Python, and Rust sources on `main` once a day
   (10:37 UTC, off-peak) and on manual dispatch.

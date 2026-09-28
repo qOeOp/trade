@@ -33,7 +33,6 @@ members = [
   "crates/core",
   "crates/cryptography",
   "crates/data",
-  "crates/deployment_attestation",
   "crates/event_store",
   "crates/execution",
   "crates/execution_owner",
@@ -99,7 +98,6 @@ vibe-common = { path = "crates/common", version = "0.62.0" }
 vibe-core = { path = "crates/core", version = "0.62.0" }
 vibe-cryptography = { path = "crates/cryptography", version = "0.62.0" }
 vibe-data = { path = "crates/data", version = "0.62.0" }
-vibe-deployment-attestation = { path = "crates/deployment_attestation", version = "0.62.0" }
 vibe-execution = { path = "crates/execution", version = "0.62.0" }
 vibe-execution-owner = { path = "crates/execution_owner", version = "0.62.0" }
 vibe-indicators = { path = "crates/indicators", version = "0.62.0" }
@@ -150,7 +148,6 @@ vibe-databento = { path = "crates/adapters/databento", version = "0.62.0", defau
 vibe-deribit = { path = "crates/adapters/deribit", version = "0.62.0", default-features = false }
 vibe-derive = { path = "crates/adapters/derive", version = "0.62.0", default-features = false }
 vibe-dydx = { path = "crates/adapters/dydx", version = "0.62.0", default-features = false }
-vibe-fred = { path = "crates/adapters/fred", version = "0.62.0", default-features = false }
 vibe-hyperliquid = { path = "crates/adapters/hyperliquid", version = "0.62.0", default-features = false }
 vibe-interactive-brokers = { path = "crates/adapters/interactive_brokers", version = "0.62.0" }
 vibe-kraken = { path = "crates/adapters/kraken", version = "0.62.0", default-features = false }
@@ -158,7 +155,6 @@ vibe-lighter = { path = "crates/adapters/lighter", version = "0.62.0", default-f
 vibe-okx = { path = "crates/adapters/okx", version = "0.62.0", default-features = false }
 vibe-polymarket = { path = "crates/adapters/polymarket", version = "0.62.0", default-features = false }
 vibe-sandbox = { path = "crates/adapters/sandbox", version = "0.62.0", default-features = false }
-vibe-scheduled-events = { path = "crates/adapters/scheduled_events", version = "0.62.0", default-features = false }
 vibe-tardis = { path = "crates/adapters/tardis", version = "0.62.0", default-features = false }
 
 # -----------------------------------------------------------------------------
@@ -227,7 +223,6 @@ jiff = { version = "0.2.35", default-features = false, features = [
   "tz-fat",
   "tzdb-bundle-always",
 ] }
-libc = "0.2.183"
 libfuzzer-sys = "0.4.13"
 log = { version = "0.4.33", features = [
   "std",
@@ -326,7 +321,6 @@ sqlx = { version = "0.9.0", default-features = false, features = [
   "derive",
   "rust_decimal",
 ] }
-statrs = { version = "0.19.0", default-features = false }
 strum = { version = "0.28.0", features = ["derive"] }
 sysinfo = { version = "0.39.6", default-features = false, features = [
   "system",
