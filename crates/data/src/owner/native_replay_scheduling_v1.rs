@@ -175,6 +175,18 @@ pub enum NativeReplaySchedulingErrorV1 {
     SourceBindingDeclaresNoBarTimeframe,
     #[error("no schedule, role or row states the bar the frame's Source Binding declares")]
     DeclaredBarTimeframeMismatch,
+    /// The Replay names another Universe Selection Record than the one the frame's batch binds.
+    ///
+    /// A request names two different universe selections, and each is checked against the same
+    /// verified batch. The strategy-input selection is the one the Plan was bound under: the
+    /// frame's own universe, derived from the batch's rows, is required to be it. The Universe
+    /// Selection Record is the one the Replay's composition depends on: the intake admitted the
+    /// batch's snapshot only for the Record whose identity its submission names, so the batch's
+    /// `universe_selection_digest` is that Record and is required to be the Replay's. No Record is
+    /// read to compare them, because the batch already joins the two: its rows are what the
+    /// selection is derived from, and its Record digest was checked at intake.
+    #[error("the Replay names another Universe Selection Record than the frame's batch binds")]
+    UniverseSelectionRecordMismatch,
 }
 
 /// Untrusted coordinates for resolving one exact native Replay scheduling projection.
@@ -254,8 +266,14 @@ pub struct NativeReplayInitialMarketRequestV1 {
     snapshot_fact_digest: BindingDigest,
     research_request_identity: BindingDigest,
     strategy_design_identity: BindingDigest,
+    /// The strategy-input universe selection the Plan was bound under, derived from a batch's
+    /// rows (`derive_universe_selection`).
     universe_selection_identity: BindingDigest,
     universe_selection_digest: BindingDigest,
+    /// The Universe Selection Record the Replay's composition depends on. Its identity is also its
+    /// digest.
+    universe_selection_record_identity: BindingDigest,
+    universe_selection_record_digest: BindingDigest,
     instrument_master_digest: BindingDigest,
     source_binding_lineage_root: BindingDigest,
     market_semantics_identity: BindingDigest,
@@ -275,6 +293,8 @@ impl NativeReplayInitialMarketRequestV1 {
         strategy_design_identity: BindingDigest,
         universe_selection_identity: BindingDigest,
         universe_selection_digest: BindingDigest,
+        universe_selection_record_identity: BindingDigest,
+        universe_selection_record_digest: BindingDigest,
         instrument_master_digest: BindingDigest,
         source_binding_lineage_root: BindingDigest,
         market_semantics_identity: BindingDigest,
@@ -290,6 +310,8 @@ impl NativeReplayInitialMarketRequestV1 {
             strategy_design_identity,
             universe_selection_identity,
             universe_selection_digest,
+            universe_selection_record_identity,
+            universe_selection_record_digest,
             instrument_master_digest,
             source_binding_lineage_root,
             market_semantics_identity,
@@ -320,6 +342,8 @@ impl NativeReplayInitialMarketRequestV1 {
             strategy_design_identity: self.strategy_design_identity,
             universe_selection_identity: self.universe_selection_identity,
             universe_selection_digest: self.universe_selection_digest,
+            universe_selection_record_identity: self.universe_selection_record_identity,
+            universe_selection_record_digest: self.universe_selection_record_digest,
             instrument_master_digest: self.instrument_master_digest,
             source_binding_lineage_root: self.source_binding_lineage_root,
             market_semantics_identity: self.market_semantics_identity,
@@ -690,11 +714,16 @@ pub(crate) fn issue_native_replay_initial_market_readback_v1(
         || batch.snapshot_identity() != request.snapshot_identity
         || batch.fact_digest() != request.snapshot_fact_digest
         || batch.instrument_master_digest() != request.instrument_master_digest
-        || batch.universe_selection_digest() != request.universe_selection_digest
         || batch.source_binding_lineage_root() != request.source_binding_lineage_root
         || batch.market_semantics_identity() != request.market_semantics_identity
     {
         return Err(NativeReplaySchedulingErrorV1::OwnerBindingMismatch);
+    }
+
+    if request.universe_selection_record_identity != batch.universe_selection_digest()
+        || request.universe_selection_record_digest != batch.universe_selection_digest()
+    {
+        return Err(NativeReplaySchedulingErrorV1::UniverseSelectionRecordMismatch);
     }
     let timeframe = request
         .schedule_timeframe()
@@ -1701,13 +1730,6 @@ pub(crate) mod tests {
             .expect("derived Owner selection");
         let selection_identity = selection.selection_identity();
         let selection_digest = selection.selection_digest();
-        let verified = verified.edit_for_test(|fields| {
-            fields.universe_selection_digest = selection_digest;
-
-            for candidate in &mut fields.observations {
-                candidate.universe_selection_digest = selection_digest;
-            }
-        });
         let request = NativeReplayInitialMarketRequestV1::new(
             digest(seed),
             digest(seed.wrapping_add(1)),
@@ -1715,6 +1737,8 @@ pub(crate) mod tests {
             digest(21),
             selection_identity,
             selection_digest,
+            verified.universe_selection_digest(),
+            verified.universe_selection_digest(),
             digest(5),
             digest(14),
             digest(7),
@@ -1748,6 +1772,139 @@ pub(crate) mod tests {
         .expect("exact initial Market Data readback")
     }
 
+    /// The quote cut reaches only the fill. A frame decided on its own instant, as every intake
+    /// mints one, holds its members' BAR and Quotes at that instant and takes a quote cut published
+    /// after its decision cut. Whatever roles the readback binds, it either refuses them or binds
+    /// every strategy input from a row of the frame's own batch that its decision cut could see,
+    /// never from a row of the quote cut.
+    ///
+    /// No single change can bind a quote cut row while the binding still succeeds: a readback
+    /// always has a BAR role (`schedule_timeframe`), a quote cut holds Quote rows alone, and a
+    /// universe frame refuses values of another event kind or instant than its first
+    /// (`issue_universe_trigger_receipt`). A Quote role beside the BAR role is therefore refused
+    /// here, and the tracing below is what stands if both of those change at once.
+    #[rstest::rstest]
+    fn a_quote_cut_published_after_the_decision_reaches_only_the_fill() {
+        let decided_at = |batch: VerifiedPitObservationBatch, cut: u64| {
+            batch.edit_for_test(|fields| {
+                fields.time_evidence.event_effective =
+                    UntrustedEventEffectiveTime::from_untrusted(cut, "clock", "epoch");
+                fields.time_evidence.decision_cut =
+                    UntrustedSnapshotDecisionCut::from_untrusted(cut, "clock", "epoch");
+                fields.time_evidence.observed_at = cut;
+            })
+        };
+        let members = ["AAA-PERP.SIM", "BBB-PERP.SIM"];
+        let mut rows = Vec::new();
+
+        for member in members {
+            rows.extend(bar_rows_at(member, 100, 0));
+            rows.extend(quote_rows(member, 100));
+        }
+        let frame = decided_at(batch(rows), 100);
+        let selection = crate::owner::strategy_input_binding::derive_universe_selection(&frame)
+            .expect("derived Owner selection");
+        let record = frame.universe_selection_digest();
+        assert_ne!(
+            record,
+            selection.selection_digest(),
+            "the batch's Record and its derived selection are different keys, as in production"
+        );
+        let quote_cut = decided_at(quote_cut_for(&frame, &members, 101), 101);
+        let decision_cut = frame.time_evidence().decision_cut.value;
+        let row_digest = crate::owner::strategy_input_binding::canonical_row_digest_for_test;
+        let visible_at_the_decision = frame
+            .observations()
+            .iter()
+            .filter(|row| row.event_effective <= decision_cut)
+            .map(row_digest)
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(visible_at_the_decision.len(), frame.observations().len());
+        assert!(
+            quote_cut
+                .observations()
+                .iter()
+                .all(|row| row.event_effective > decision_cut),
+            "every Quote of the quote cut follows the decision"
+        );
+        let quoted_after = quote_cut
+            .observations()
+            .iter()
+            .map(row_digest)
+            .collect::<std::collections::BTreeSet<_>>();
+        let close = NativeReplayInitialUniverseRoleV1::new(
+            digest(23),
+            MarketDataFieldSemantic::BarClosePrice,
+            StrategyInputChannel::Market,
+            "1M".to_string(),
+            StrategyInputUnit::Price,
+            2,
+        );
+        let bid = NativeReplayInitialUniverseRoleV1::new(
+            digest(24),
+            MarketDataFieldSemantic::QuoteBidPrice,
+            StrategyInputChannel::Market,
+            "TICK".to_string(),
+            StrategyInputUnit::Price,
+            2,
+        );
+
+        for roles in [vec![close.clone()], vec![close, bid]] {
+            let with_bid = roles.len() == 2;
+            let request = NativeReplayInitialMarketRequestV1::new(
+                frame.snapshot_identity(),
+                frame.fact_digest(),
+                digest(20),
+                digest(21),
+                selection.selection_identity(),
+                selection.selection_digest(),
+                record,
+                record,
+                digest(5),
+                digest(14),
+                digest(7),
+                roles,
+                members.map(InstrumentId::from).to_vec(),
+                100,
+                1_000,
+            );
+            let issued = issue_native_replay_initial_market_readback_v1(
+                frame.clone(),
+                quote_cut.clone(),
+                [
+                    schedule_at("AAA-PERP.SIM", 40, 100),
+                    schedule_at("BBB-PERP.SIM", 41, 100),
+                ],
+                declared_minute(),
+                &request,
+            );
+
+            match issued {
+                Ok(readback) => {
+                    let inputs = readback.universe_frame();
+                    assert_eq!(
+                        inputs.trigger().snapshot_identity(),
+                        frame.snapshot_identity()
+                    );
+                    assert_eq!(inputs.values().len(), members.len() * request.roles.len());
+
+                    for value in inputs.values() {
+                        assert!(
+                            visible_at_the_decision.contains(&value.canonical_row_digest())
+                                && !quoted_after.contains(&value.canonical_row_digest()),
+                            "{} is bound from a row the decision cut could see",
+                            value.value_type_semantic_id()
+                        );
+                    }
+                }
+                Err(e) => {
+                    assert!(with_bid, "the frame binds its BAR role: {e:?}");
+                    assert_eq!(e, NativeReplaySchedulingErrorV1::OwnerBindingMismatch);
+                }
+            }
+        }
+    }
+
     pub(crate) fn window_request(
         frame_time_ns: u64,
         window_end_ns_exclusive: u64,
@@ -1762,6 +1919,8 @@ pub(crate) mod tests {
             digest(21),
             selection.selection_identity(),
             selection.selection_digest(),
+            verified.universe_selection_digest(),
+            verified.universe_selection_digest(),
             digest(5),
             digest(14),
             digest(7),
@@ -2155,13 +2314,6 @@ pub(crate) mod tests {
             .expect("derived Owner selection");
         let selection_identity = selection.selection_identity();
         let selection_digest = selection.selection_digest();
-        let batch = batch.edit_for_test(|fields| {
-            fields.universe_selection_digest = selection_digest;
-
-            for row in &mut fields.observations {
-                row.universe_selection_digest = selection_digest;
-            }
-        });
         let request = NativeReplayInitialMarketRequestV1::new(
             digest(12),
             digest(13),
@@ -2169,6 +2321,8 @@ pub(crate) mod tests {
             digest(21),
             selection_identity,
             selection_digest,
+            batch.universe_selection_digest(),
+            batch.universe_selection_digest(),
             digest(5),
             digest(14),
             digest(7),
@@ -2195,13 +2349,7 @@ pub(crate) mod tests {
         .expect("exact initial Market Data readback");
 
         let source = readback.into_market_data_repair_source();
-        let frame = two_member_frame().edit_for_test(|fields| {
-            fields.universe_selection_digest = selection_digest;
-
-            for row in &mut fields.observations {
-                row.universe_selection_digest = selection_digest;
-            }
-        });
+        let frame = two_member_frame();
         let at_window_end = quote_cut_for(&frame, &["AAA-PERP.SIM", "BBB-PERP.SIM"], 200);
         assert_eq!(
             issue_native_replay_initial_market_readback_v1(
@@ -2220,10 +2368,84 @@ pub(crate) mod tests {
         assert_eq!(source.pit_request_digest(), digest(11));
         assert_eq!(source.correlation_identity(), digest(18));
         assert_eq!(source.instrument_scope_digest(), digest(17));
-        assert_eq!(source.universe_selection_digest(), selection_digest);
+        assert_eq!(
+            source.universe_selection_digest(),
+            digest(6),
+            "the repair scope names the Universe Selection Record the frame's batch binds"
+        );
         assert_eq!(source.source_binding_fact_digest(), digest(19));
         assert_eq!(source.pit_snapshot_identity(), digest(12));
         assert_eq!(source.pit_snapshot_fact_digest(), digest(13));
+    }
+
+    /// A frame's two universe selections are each checked against its batch. Under the same
+    /// strategy-input selection, a Replay naming the Record the batch binds is issued, and one
+    /// naming another Record, by identity, by digest or by both, is refused by name.
+    #[rstest::rstest]
+    #[case::same_record(None, None, None)]
+    #[case::another_identity(
+        Some(99),
+        None,
+        Some(NativeReplaySchedulingErrorV1::UniverseSelectionRecordMismatch)
+    )]
+    #[case::another_digest(
+        None,
+        Some(99),
+        Some(NativeReplaySchedulingErrorV1::UniverseSelectionRecordMismatch)
+    )]
+    #[case::another_record(
+        Some(99),
+        Some(99),
+        Some(NativeReplaySchedulingErrorV1::UniverseSelectionRecordMismatch)
+    )]
+    fn a_replay_is_issued_only_under_the_universe_selection_record_its_batch_binds(
+        #[case] identity: Option<u8>,
+        #[case] record_digest: Option<u8>,
+        #[case] refusal: Option<NativeReplaySchedulingErrorV1>,
+    ) {
+        let batch = two_member_frame();
+        let selection = crate::owner::strategy_input_binding::derive_universe_selection(&batch)
+            .expect("derived Owner selection");
+        let record = batch.universe_selection_digest();
+        assert_ne!(
+            record,
+            selection.selection_digest(),
+            "the batch's Record and its derived selection are different keys, as in production"
+        );
+        let request = NativeReplayInitialMarketRequestV1::new(
+            digest(12),
+            digest(13),
+            digest(20),
+            digest(21),
+            selection.selection_identity(),
+            selection.selection_digest(),
+            identity.map_or(record, digest),
+            record_digest.map_or(record, digest),
+            digest(5),
+            digest(14),
+            digest(7),
+            vec![NativeReplayInitialUniverseRoleV1::new(
+                digest(23),
+                MarketDataFieldSemantic::BarClosePrice,
+                StrategyInputChannel::Market,
+                "1M".to_string(),
+                StrategyInputUnit::Price,
+                2,
+            )],
+            two_members(),
+            100,
+            200,
+        );
+        let quote_cut = quote_cut_for(&batch, &["AAA-PERP.SIM", "BBB-PERP.SIM"], 101);
+        let issued = issue_native_replay_initial_market_readback_v1(
+            batch,
+            quote_cut,
+            two_schedules(),
+            declared_minute(),
+            &request,
+        );
+
+        assert_eq!(issued.map(|_| ()).err(), refusal);
     }
 
     /// A Design whose roles name one exact instrument does not run under an Owner universe. The
@@ -2254,6 +2476,8 @@ pub(crate) mod tests {
             digest(21),
             selection.selection_identity(),
             selection.selection_digest(),
+            batch.universe_selection_digest(),
+            batch.universe_selection_digest(),
             digest(5),
             digest(14),
             digest(7),

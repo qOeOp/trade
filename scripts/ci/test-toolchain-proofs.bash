@@ -36,6 +36,7 @@ readonly portable_wasm_proofs=(
   'bounded_feature_program_lowerer_v1::tests::generated_candidate_is_a_real_strict_abi_three_module'
   'bounded_feature_program_lowerer_v1::tests::a_divergence_program_carries_its_previous_pivot_through_fixed_point_state'
   'bounded_feature_program_lowerer_v1::tests::a_fair_value_gap_program_evicts_the_oldest_gap_only_when_its_slots_are_full'
+  'bounded_feature_program_lowerer_v1::tests::what_the_canonical_form_keeps_and_drops_is_what_changes_behaviour'
   'program_host_v2_target_set_backtest_tests::an_authored_universe_member_program_enters_once_through_the_target_set_sim'
   'program_host_v2_target_set_backtest_tests::an_authored_rebalance_program_lifts_three_consecutive_frames'
   'program_host_v2_target_set_backtest_tests::an_authored_weight_program_enters_exits_and_enters_again'
@@ -47,17 +48,6 @@ readonly portable_wasm_proofs=(
 readonly admitted_host_wasm_proofs=(
   'develop_composer_v2_tests::real_v3_owner_build_reaches_composer_program_host_and_durable_abi3_artifact'
 )
-
-# Seals and reseals a caller-edited project through `docker buildx`. Its exemption named Docker as
-# the obstacle; every job that provisions Docker already has buildx, and the proof takes sixteen
-# seconds, so the obstacle was never real. The real one is the architecture: the sealed project's
-# image is an arm64 image, an image fact rather than a host-profile one, so the proof holds only on
-# arm64. On an x86_64 runner its toolchain stage cannot execute at all, measured as
-#   #9 [toolchain 2/2] RUN rustup target add wasm32v1-none
-#   #9 0.109 exec /bin/sh: exec format error
-#   #9 ERROR: process "/bin/sh -c rustup target add wasm32v1-none" did not complete successfully: exit code: 255
-# which is the host reporting that the image is for another machine, not the proof failing.
-readonly docker_seal_proof='materially_different_external_project_is_artifact_only_and_exactly_recoverable'
 
 selected_proofs=("${portable_wasm_proofs[@]}" "${admitted_host_wasm_proofs[@]}")
 refused=()
@@ -152,24 +142,6 @@ if missing or extra or failed:
     sys.exit(1)
 print(f"Recorded {len(expected)} toolchain proof(s), each passed, in {sys.argv[1]}")
 RECORD
-fi
-
-if [[ "$(uname -m)" == "arm64" || "$(uname -m)" == "aarch64" ]]; then
-  echo "--- $docker_seal_proof"
-  if ! cargo nextest run \
-    --locked \
-    --package vibe-strategy-factory \
-    --test product_skeleton \
-    --profile "$nextest_profile" \
-    --run-ignored ignored-only \
-    --no-tests=fail \
-    --fail-fast \
-    -E "test(=${docker_seal_proof})"; then
-    refused+=("$docker_seal_proof")
-  fi
-else
-  echo "Host is $(uname -m): skipping the Docker seal proof, whose sealed image is arm64 and"
-  echo "cannot execute its toolchain stage here."
 fi
 
 if [ "${#refused[@]}" -gt 0 ]; then

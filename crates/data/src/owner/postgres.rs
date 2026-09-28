@@ -225,8 +225,8 @@ use super::{
     native_replay_quote_cut_v2::{
         NativeReplayCutCoordinatesV2, NativeReplayCutKindV2, NativeReplayQuoteCutCandidateV2,
         NativeReplayQuoteCutRefusalV2, classify_native_replay_cut_v2,
-        native_replay_quote_cut_bound_v2, select_native_replay_quote_cut_v2,
-        verify_native_replay_quote_cut_v2,
+        native_replay_quote_cut_bound_v2, native_replay_quote_cut_reading_cuts_v2,
+        select_native_replay_quote_cut_v2, verify_native_replay_quote_cut_v2,
     },
     observation_census::{
         ObservationCensusErrorV1, ObservationCensusReadbackV1, ObservationCensusResolverV1,
@@ -6626,14 +6626,15 @@ async fn load_next_native_replay_frame_v2(
 ///
 /// `docs/owners/market-data.md` takes a frame's liquidity from its quote cut: an Owner-verified
 /// snapshot strictly after the frame's BAR cut and strictly before the next frame's. The caller
-/// names neither. The bound is the first later frame in the frame's scope census, or the window's
-/// end when none precedes it, and the decision cut is the frame's own: the sealed request names
-/// the frame's PIT snapshot, whose decision cut is the only one it fixes, so a later reading
-/// resolves the same quote cut. Frames the Owner observed after that cut do not bound the
-/// interval, and a later frame can only narrow it - which leaves a quote cut missing, never
-/// admits one that is not the frame's. The census is then searched on the frame's coordinates,
-/// exactly one correction lineage must lie in the interval as the Owner saw it at the decision
-/// cut, and its batch is read back and verified before it is compared with the frame's.
+/// names neither. Each quote cut lineage is read at the frame's own decision cut, or at the cut its
+/// original was published at when that is later ([`native_replay_quote_cut_reading_cuts_v2`]), and
+/// the bound at a reading cut is the first later frame the Owner had observed by it in the frame's
+/// scope census, or the window's end when none precedes it. Every reading cut is fixed by history
+/// the Owner holds, so a later reading resolves the same quote cut. The census is read once, under
+/// the bound at the frame's decision cut: a frame observed later can only lower the bound at a
+/// later cut, so that read holds every lineage any reading cut could offer. The census is then
+/// searched on the frame's coordinates, and the chosen quote cut's batch is read back and verified
+/// before it is compared with the frame's.
 ///
 /// # Errors
 ///
@@ -6663,11 +6664,30 @@ async fn resolve_native_replay_quote_cut_in_transaction_v2(
     )
     .await
     .map_err(|_| NativeReplayQuoteCutRefusalV2::CustodyUnavailable)?;
+    let mut bounds = std::collections::BTreeMap::from([(decision_cut_ns, bound_ns_exclusive)]);
+
+    for reading_cut in native_replay_quote_cut_reading_cuts_v2(&candidates, decision_cut_ns) {
+        if bounds.contains_key(&reading_cut) {
+            continue;
+        }
+        let next_frame_ns = load_next_native_replay_frame_v2(
+            transaction,
+            frame_coordinates.scope_digest,
+            frame_coordinates.event_effective_ns,
+            reading_cut,
+        )
+        .await
+        .map_err(|_| NativeReplayQuoteCutRefusalV2::CustodyUnavailable)?;
+        bounds.insert(
+            reading_cut,
+            native_replay_quote_cut_bound_v2(next_frame_ns, window_end_ns_exclusive),
+        );
+    }
     let chosen = select_native_replay_quote_cut_v2(
         &candidates,
         &frame_coordinates,
-        bound_ns_exclusive,
         decision_cut_ns,
+        |reading_cut| bounds.get(&reading_cut).copied(),
     )?;
     let quote_cut = load_verified_observation_batch(
         transaction,
@@ -8588,11 +8608,31 @@ where
         .iter()
         .map(|row| decode_raw_native_replay_quote_cut_candidate_v2(row))
         .collect::<Result<Vec<_>, _>>()?;
+    let mut bounds =
+        std::collections::BTreeMap::from([(decision_cut_ns, census.bound_ns_exclusive)]);
+
+    for reading_cut in native_replay_quote_cut_reading_cuts_v2(&candidates, decision_cut_ns) {
+        if bounds.contains_key(&reading_cut) {
+            continue;
+        }
+        // The census read at a later cut answers the bound the frame census sets at that cut; its
+        // rows are the ones already read, or fewer, and are not read again.
+        let later = port
+            .resolve_native_replay_quote_cut_census_v2(
+                *frame_coordinates.scope_digest.as_bytes(),
+                frame_coordinates.event_effective_ns,
+                reading_cut,
+                window_end_ns_exclusive,
+            )
+            .await
+            .map_err(|_| NativeReplayQuoteCutRefusalV2::CustodyUnavailable)?;
+        bounds.insert(reading_cut, later.bound_ns_exclusive);
+    }
     let chosen = select_native_replay_quote_cut_v2(
         &candidates,
         &frame_coordinates,
-        census.bound_ns_exclusive,
         decision_cut_ns,
+        |reading_cut| bounds.get(&reading_cut).copied(),
     )?;
     let evidence = port
         .resolve_pit_evaluation(*chosen.snapshot_identity.as_bytes())

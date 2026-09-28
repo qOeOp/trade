@@ -113,6 +113,8 @@ where
         plan.design_identity(),
         selection.selection_identity(),
         selection.selection_digest(),
+        BindingDigest::from_untrusted_bytes(request_selection_identity),
+        BindingDigest::from_untrusted_bytes(request_selection_digest),
         selection.instrument_master_digest(),
         selection.source_binding_lineage_root(),
         selection.market_semantics_identity(),

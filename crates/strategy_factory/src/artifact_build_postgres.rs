@@ -799,7 +799,7 @@ impl PostgresArtifactBuildOwnerV1 {
         if custody.attempt.state == AttemptState::Terminal {
             let read_cut = self.now(&mut transaction).await?;
             transaction.commit().await.map_err(storage)?;
-            return result_from_verified(custody, read_cut);
+            return recorded_result(custody, read_cut);
         }
 
         if custody.attempt.state == AttemptState::InvocationReserved {
@@ -811,7 +811,7 @@ impl PostgresArtifactBuildOwnerV1 {
                 (Some(_), None) => {
                     let read_cut = self.now(&mut transaction).await?;
                     transaction.commit().await.map_err(storage)?;
-                    return result_from_verified(custody, read_cut);
+                    return recorded_result(custody, read_cut);
                 }
                 _ => return Err(ArtifactBuildError::ConflictingReplay),
             }
@@ -823,15 +823,26 @@ impl PostgresArtifactBuildOwnerV1 {
             return Err(ArtifactBuildError::ConflictingReplay);
         }
         let write_cut = self.now(&mut transaction).await?;
+        let continuation = if started_binding.is_none() {
+            Box::pin(research_continues_in_transaction(
+                &mut transaction,
+                &custody.research,
+                &custody.intent,
+                write_cut,
+            ))
+            .await?
+        } else {
+            ResearchContinuationAtV1::recorded(&custody, write_cut)
+        };
 
         if started_binding.is_none()
             && (!custody
                 .product_edge_admission
                 .authorizes_first_mutation_at(write_cut)
-                || !research_view_is_available(&custody.research, write_cut))
+                || !continuation.continues)
         {
             transaction.rollback().await.map_err(storage)?;
-            return result_from_verified(custody, write_cut);
+            return result_from_verified(custody, continuation);
         }
         let product_edge_admission = custody.product_edge_admission;
         let research = custody.research;
@@ -858,17 +869,17 @@ impl PostgresArtifactBuildOwnerV1 {
             )
             .await?
         } else {
-            Box::pin(admit_attempt_with_research_in_transaction(
+            admit_attempt_with_research_in_transaction(
                 &mut transaction,
                 &request.build_request_identity,
                 research,
                 product_edge_admission,
-            ))
+            )
             .await?
         }
         .ok_or_else(|| ArtifactBuildError::Storage("terminal attempt missing".to_string()))?;
         transaction.commit().await.map_err(storage)?;
-        result_from_verified(custody, write_cut)
+        result_from_verified(custody, continuation)
     }
 }
 
@@ -929,7 +940,7 @@ impl ArtifactBuildOwnerPort for PostgresArtifactBuildOwnerV1 {
             }
             let read_cut = self.now(&mut transaction).await?;
             transaction.commit().await.map_err(storage)?;
-            return preparation_from_verified(custody, read_cut);
+            return recorded_preparation(custody, read_cut);
         }
         let develop = Box::pin(
             VerifiedAttemptCustodyV1::admit_develop_intent_in_transaction(
@@ -963,7 +974,15 @@ impl ArtifactBuildOwnerPort for PostgresArtifactBuildOwnerV1 {
         }
         verify_artifact_build_admission(&product_edge_admission, &request)?;
 
-        if !research_view_is_available(&research, write_cut) {
+        if !Box::pin(research_continues_in_transaction(
+            &mut transaction,
+            &research,
+            &intent,
+            write_cut,
+        ))
+        .await?
+        .continues
+        {
             transaction.rollback().await.map_err(storage)?;
             return Ok(unavailable_preparation(&request, semantic_digest));
         }
@@ -998,7 +1017,7 @@ impl ArtifactBuildOwnerPort for PostgresArtifactBuildOwnerV1 {
         .ok_or_else(|| ArtifactBuildError::Storage("prepared attempt missing".to_string()))?;
         let response_cut = self.now(&mut transaction).await?;
         transaction.commit().await.map_err(storage)?;
-        preparation_from_verified(custody, response_cut)
+        recorded_preparation(custody, response_cut)
     }
 
     async fn reserve_provider_invocation_custody(
@@ -1044,6 +1063,20 @@ impl ArtifactBuildOwnerPort for PostgresArtifactBuildOwnerV1 {
                     return Err(ArtifactBuildError::ConflictingReplay);
                 }
                 let reserved_at_epoch_ms = self.now(&mut transaction).await?;
+
+                if !Box::pin(research_continues_in_transaction(
+                    &mut transaction,
+                    &custody.research,
+                    &custody.intent,
+                    reserved_at_epoch_ms,
+                ))
+                .await?
+                .continues
+                {
+                    return Err(ArtifactBuildError::Unauthorized(
+                        "current research unavailable at invocation reservation",
+                    ));
+                }
                 let snapshot = seal_invocation_execution_snapshot(
                     &custody,
                     &claim_binding,
@@ -1157,7 +1190,7 @@ impl ArtifactBuildOwnerPort for PostgresArtifactBuildOwnerV1 {
             )
             .await?
             {
-                Some((custody, read_cut)) => result_from_verified(custody, read_cut),
+                Some((custody, read_cut)) => recorded_result(custody, read_cut),
                 None => Ok(unknown_result(
                     &request.build_request_identity,
                     &request.attempt_identity,
@@ -1200,7 +1233,7 @@ impl ArtifactBuildOwnerPort for PostgresArtifactBuildOwnerV1 {
             AttemptState::Terminal => {
                 let read_cut = self.now(&mut transaction).await?;
                 transaction.commit().await.map_err(storage)?;
-                return result_from_verified(custody, read_cut);
+                return recorded_result(custody, read_cut);
             }
             AttemptState::Building => {
                 if custody.attempt.candidate_digest.as_deref() != Some(&digest) {
@@ -1215,11 +1248,20 @@ impl ArtifactBuildOwnerPort for PostgresArtifactBuildOwnerV1 {
                     return Err(ArtifactBuildError::ConflictingReplay);
                 }
                 let transition_cut = self.now(&mut transaction).await?;
-                if started_binding.is_none()
-                    && !research_view_is_available(&custody.research, transition_cut)
-                {
-                    transaction.rollback().await.map_err(storage)?;
-                    return result_from_verified(custody, transition_cut);
+
+                if started_binding.is_none() {
+                    let continuation = Box::pin(research_continues_in_transaction(
+                        &mut transaction,
+                        &custody.research,
+                        &custody.intent,
+                        transition_cut,
+                    ))
+                    .await?;
+
+                    if !continuation.continues {
+                        transaction.rollback().await.map_err(storage)?;
+                        return result_from_verified(custody, continuation);
+                    }
                 }
                 transaction.commit().await.map_err(storage)?;
             }
@@ -1227,7 +1269,7 @@ impl ArtifactBuildOwnerPort for PostgresArtifactBuildOwnerV1 {
                 let Some(started_binding) = started_binding.as_ref() else {
                     let read_cut = self.now(&mut transaction).await?;
                     transaction.commit().await.map_err(storage)?;
-                    return result_from_verified(custody, read_cut);
+                    return recorded_result(custody, read_cut);
                 };
 
                 if !custody
@@ -1249,14 +1291,23 @@ impl ArtifactBuildOwnerPort for PostgresArtifactBuildOwnerV1 {
             AttemptState::Prepared => {
                 let transition_cut = self.now(&mut transaction).await?;
 
-                if started_binding.is_none()
-                    && (!custody
+                if started_binding.is_none() {
+                    let continuation = Box::pin(research_continues_in_transaction(
+                        &mut transaction,
+                        &custody.research,
+                        &custody.intent,
+                        transition_cut,
+                    ))
+                    .await?;
+
+                    if !custody
                         .product_edge_admission
                         .authorizes_first_mutation_at(transition_cut)
-                        || !research_view_is_available(&custody.research, transition_cut))
-                {
-                    transaction.rollback().await.map_err(storage)?;
-                    return result_from_verified(custody, transition_cut);
+                        || !continuation.continues
+                    {
+                        transaction.rollback().await.map_err(storage)?;
+                        return result_from_verified(custody, continuation);
+                    }
                 }
                 let old_attempt = custody.attempt;
                 let mut current = old_attempt.clone();
@@ -1321,7 +1372,7 @@ impl ArtifactBuildOwnerPort for PostgresArtifactBuildOwnerV1 {
         if custody.attempt.state == AttemptState::Terminal {
             let read_cut = self.now(&mut transaction).await?;
             transaction.commit().await.map_err(storage)?;
-            return result_from_verified(custody, read_cut);
+            return recorded_result(custody, read_cut);
         }
 
         if custody.intent != intent {
@@ -1340,17 +1391,20 @@ impl ArtifactBuildOwnerPort for PostgresArtifactBuildOwnerV1 {
             ArtifactBuildIntentV1::Initial(_) => None,
         };
         let now = self.now(&mut transaction).await?;
-        let research_view_available = successor_view_custody.as_ref().map_or_else(
-            || research_view_is_available(&custody.research, now),
-            |successor| {
-                successor.view().availability == ResearchViewAvailability::Available
-                    && now < successor.view().valid_through_epoch_ms
-            },
-        );
 
-        if started_binding.is_none() && !research_view_available {
-            transaction.rollback().await.map_err(storage)?;
-            return result_from_verified(custody, now);
+        if started_binding.is_none() {
+            let continuation = Box::pin(research_continues_in_transaction(
+                &mut transaction,
+                &custody.research,
+                &intent,
+                now,
+            ))
+            .await?;
+
+            if !continuation.continues {
+                transaction.rollback().await.map_err(storage)?;
+                return result_from_verified(custody, continuation);
+            }
         }
 
         if successor_view_custody.as_ref().is_some_and(|successor| {
@@ -1418,20 +1472,23 @@ impl ArtifactBuildOwnerPort for PostgresArtifactBuildOwnerV1 {
         };
         let write_cut = self.now(&mut transaction).await?;
 
-        if started_binding.is_none()
-            && (!custody
+        if started_binding.is_none() {
+            let continuation = Box::pin(research_continues_in_transaction(
+                &mut transaction,
+                &custody.research,
+                &intent,
+                write_cut,
+            ))
+            .await?;
+
+            if !custody
                 .product_edge_admission
                 .authorizes_first_mutation_at(write_cut)
-                || !successor_view_custody.as_ref().map_or_else(
-                    || research_view_is_available(&custody.research, write_cut),
-                    |successor| {
-                        successor.view().availability == ResearchViewAvailability::Available
-                            && write_cut < successor.view().valid_through_epoch_ms
-                    },
-                ))
-        {
-            transaction.rollback().await.map_err(storage)?;
-            return result_from_verified(custody, write_cut);
+                || !continuation.continues
+            {
+                transaction.rollback().await.map_err(storage)?;
+                return result_from_verified(custody, continuation);
+            }
         }
         sqlx::query("INSERT INTO rd_strategy_artifacts_v1 (artifact_digest, intent_identity, attempt_identity, identity_json, wasm_bytes, source_capsule, build_recipe, build_receipt_json, artifact_review_json, committed_at_epoch_ms) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)")
             .bind(&artifact.identity().artifact_digest)
@@ -1532,12 +1589,12 @@ impl ArtifactBuildOwnerPort for PostgresArtifactBuildOwnerV1 {
                 )
             })?
         } else {
-            let research = Box::pin(admit_research_custody_in_transaction(
+            let research = admit_research_custody_in_transaction(
                 &mut transaction,
                 crate::rd_owner_postgres_custody::ResearchCustodyLookupV1::Intent(
                     &request.intent_identity,
                 ),
-            ))
+            )
             .await
             .map_err(|e| ArtifactBuildError::Storage(e.to_string()))?
             .ok_or_else(|| {
@@ -1577,17 +1634,17 @@ impl ArtifactBuildOwnerPort for PostgresArtifactBuildOwnerV1 {
             )
             .await?
         } else {
-            Box::pin(admit_attempt_with_research_in_transaction(
+            admit_attempt_with_research_in_transaction(
                 &mut transaction,
                 &request.build_request_identity,
                 refreshed_research,
                 custody.product_edge_admission,
-            ))
+            )
             .await?
         }
         .ok_or_else(|| ArtifactBuildError::Storage("terminal attempt missing".to_string()))?;
         transaction.commit().await.map_err(storage)?;
-        result_from_verified(custody, now)
+        recorded_result(custody, now)
     }
 
     async fn fail_no_artifact(
@@ -1626,7 +1683,7 @@ impl ArtifactBuildOwnerPort for PostgresArtifactBuildOwnerV1 {
             )
             .await?
             {
-                Some((custody, read_cut)) => result_from_verified(custody, read_cut),
+                Some((custody, read_cut)) => recorded_result(custody, read_cut),
                 None => Ok(unknown_result(
                     &request.build_request_identity,
                     &request.attempt_identity,
@@ -1678,7 +1735,7 @@ impl ArtifactBuildOwnerPort for PostgresArtifactBuildOwnerV1 {
                 .submit_candidate(custody.attempt.request.clone(), candidate, None)
                 .await;
         }
-        result_from_verified(custody, read_cut)
+        recorded_result(custody, read_cut)
     }
 
     async fn resolve_legacy_terminal_quarantined(
@@ -1884,7 +1941,7 @@ async fn read_artifact_from_pool(
     if custody.attempt.request.attempt_identity != attempt_identity {
         return Err(ArtifactBuildError::ConflictingReplay);
     }
-    result_from_verified(custody, read_cut_epoch_ms)
+    recorded_result(custody, read_cut_epoch_ms)
 }
 
 #[async_trait]
@@ -2583,13 +2640,13 @@ fn legacy_terminal_result(legacy: LegacyStoredAttemptV1) -> ArtifactBuildResultV
 
 fn preparation_from_verified(
     custody: VerifiedAttemptCustodyV1,
-    read_cut_epoch_ms: u64,
+    continuation: ResearchContinuationAtV1,
 ) -> Result<ArtifactBuildPreparationV1, ArtifactBuildError> {
     if custody.attempt.state == AttemptState::Terminal {
         let semantic_digest = custody.attempt.request_semantic_digest.clone();
         let intent_identity = Some(custody.intent.intent_identity().to_string());
         let intent_semantic_digest = Some(custody.intent.semantic_digest().to_string());
-        let result = result_from_verified(custody, read_cut_epoch_ms)?;
+        let result = result_from_verified(custody, continuation)?;
         return Ok(ArtifactBuildPreparationV1 {
             schema_version: 1,
             resolution: result.resolution,
@@ -2603,7 +2660,7 @@ fn preparation_from_verified(
             next_legal_action: result.next_legal_action,
         });
     }
-    let research_available = custody.research.authority_available_at(read_cut_epoch_ms);
+    let research_available = continuation.continues;
     let intent = Some(custody.intent.clone());
     let attempt = custody.attempt;
     let (resolution, next) = if matches!(
@@ -2645,11 +2702,101 @@ fn preparation_from_verified(
     })
 }
 
-fn research_view_is_available(
+/// A cut of an Artifact build and whether the Research Intent its attempt develops may be
+/// continued there: what every result and preparation projects its next action from.
+#[derive(Clone, Copy, Debug)]
+struct ResearchContinuationAtV1 {
+    cut_epoch_ms: u64,
+    continues: bool,
+}
+
+impl ResearchContinuationAtV1 {
+    /// A read's answer, from what custody recorded and without taking a lock: the Intent's stored
+    /// View is available and the operator authorization the attempt's admission recorded is in
+    /// force at the cut.
+    /// It is the action a reader may try next, not authority: the mutation that follows proves the
+    /// continuation again under locks and refuses by name.
+    fn recorded(custody: &VerifiedAttemptCustodyV1, cut_epoch_ms: u64) -> Self {
+        let view_available = match &custody.intent {
+            ArtifactBuildIntentV1::Initial(_) => custody
+                .research
+                .view()
+                .is_some_and(|view| view.availability == ResearchViewAvailability::Available),
+            ArtifactBuildIntentV1::Successor(_) => true,
+        };
+        Self {
+            cut_epoch_ms,
+            continues: !custody.research.is_legacy_quarantined()
+                && view_available
+                && custody
+                    .product_edge_admission
+                    .authorization()
+                    .is_current_at(cut_epoch_ms),
+        }
+    }
+}
+
+/// A mutation's answer: the Intent's View is available and `research_continuation_v1` proves, at
+/// `cut_epoch_ms` and in the mutation's own transaction, that the Intent may be continued there:
+/// the initial Intent under its own admission, a successor under the successor's.
+async fn research_continues_in_transaction(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     research: &VerifiedResearchCustodyV1,
+    intent: &ArtifactBuildIntentV1,
+    cut_epoch_ms: u64,
+) -> Result<ResearchContinuationAtV1, ArtifactBuildError> {
+    let continues = match intent {
+        ArtifactBuildIntentV1::Initial(_) => {
+            research
+                .view()
+                .is_some_and(|view| view.availability == ResearchViewAvailability::Available)
+                && Box::pin(
+                    crate::research_continuation_v1::authorize_initial_research_continuation_in_transaction(
+                        transaction,
+                        research,
+                        cut_epoch_ms,
+                    ),
+                )
+                .await
+                .is_ok()
+        }
+        ArtifactBuildIntentV1::Successor(readback) => {
+            let successor = lock_successor_research_view_in_transaction(transaction, readback)
+                .await
+                .map_err(|e| ArtifactBuildError::Storage(e.to_string()))?;
+            successor.view().availability == ResearchViewAvailability::Available
+                && Box::pin(
+                    crate::research_continuation_v1::authorize_successor_research_continuation_in_transaction(
+                        transaction,
+                        readback,
+                        &successor,
+                        cut_epoch_ms,
+                    ),
+                )
+                .await
+                .is_ok()
+        }
+    };
+    Ok(ResearchContinuationAtV1 {
+        cut_epoch_ms,
+        continues,
+    })
+}
+
+fn recorded_result(
+    custody: VerifiedAttemptCustodyV1,
     read_cut_epoch_ms: u64,
-) -> bool {
-    research.authority_available_at(read_cut_epoch_ms)
+) -> Result<ArtifactBuildResultV1, ArtifactBuildError> {
+    let continuation = ResearchContinuationAtV1::recorded(&custody, read_cut_epoch_ms);
+    result_from_verified(custody, continuation)
+}
+
+fn recorded_preparation(
+    custody: VerifiedAttemptCustodyV1,
+    read_cut_epoch_ms: u64,
+) -> Result<ArtifactBuildPreparationV1, ArtifactBuildError> {
+    let continuation = ResearchContinuationAtV1::recorded(&custody, read_cut_epoch_ms);
+    preparation_from_verified(custody, continuation)
 }
 
 fn invocation_binding(
@@ -2738,6 +2885,8 @@ fn seal_invocation_execution_snapshot(
         .research
         .family()
         .ok_or_else(|| ArtifactBuildError::Storage("reservation family missing".to_string()))?;
+    // The View's freshness when the invocation was reserved, recorded as it stood. It bounds
+    // nothing: the reservation proved the Research continuation under locks at its own cut.
     let research_valid_through_epoch_ms = custody
         .research
         .view()
@@ -2745,12 +2894,6 @@ fn seal_invocation_execution_snapshot(
             ArtifactBuildError::Storage("reservation research view missing".to_string())
         })?
         .valid_through_epoch_ms;
-
-    if reserved_at_epoch_ms >= research_valid_through_epoch_ms {
-        return Err(ArtifactBuildError::Unauthorized(
-            "current research unavailable at invocation reservation",
-        ));
-    }
     let canonical_intent_bytes = String::from_utf8(canonical_intent_bytes(intent)?)
         .map_err(|e| ArtifactBuildError::Storage(e.to_string()))?;
     StoredArtifactBuildInvocationSnapshotV1 {
@@ -2811,7 +2954,6 @@ fn execution_custody_from_snapshot(
         && snapshot.custody_digest == reservation.execution_custody_digest
         && reservation.is_complete()
         && reservation.matches_request(&attempt.request)
-        && snapshot.research_valid_through_epoch_ms > snapshot.reserved_at_epoch_ms
         && [
             snapshot.canonical_intent_bytes.as_str(),
             snapshot.intent_semantic_digest.as_str(),
@@ -2875,18 +3017,17 @@ fn unavailable_preparation(
 
 fn result_from_verified(
     custody: VerifiedAttemptCustodyV1,
-    read_cut_epoch_ms: u64,
+    continuation: ResearchContinuationAtV1,
 ) -> Result<ArtifactBuildResultV1, ArtifactBuildError> {
     let has_family = custody.intent.family_binding().is_some();
     let research_view = if custody.intent.is_successor() {
         None
     } else {
-        custody
-            .research
-            .view()
-            .map(|view| crate::product_edge::project_research_view_at(view, read_cut_epoch_ms))
+        custody.research.view().map(|view| {
+            crate::product_edge::project_research_view_at(view, continuation.cut_epoch_ms)
+        })
     };
-    let research_available = custody.research.authority_available_at(read_cut_epoch_ms);
+    let research_available = continuation.continues;
     let artifact_review = custody.artifact_review;
     let attempt = custody.attempt;
     let (resolution, next) = match attempt.receipt.as_ref().map(|receipt| receipt.disposition) {
@@ -4201,6 +4342,27 @@ mod postgres_freshness_tests {
             .unwrap();
     }
 
+    /// Where the operator authority a Research request was admitted under ends: the first cut at
+    /// which its continuation is refused.
+    async fn authority_end(pool: &PgPool, research_request_identity: &str) -> u64 {
+        let mut transaction = pool.begin().await.unwrap();
+        let custody = Box::pin(
+            crate::rd_owner_postgres_custody::admit_research_v2_custody_read_only_in_transaction(
+                &mut transaction,
+                research_request_identity,
+            ),
+        )
+        .await
+        .unwrap()
+        .expect("the admitted request's custody");
+        transaction.rollback().await.unwrap();
+        custody
+            .product_edge_admission()
+            .expect("the request's Product Edge admission")
+            .authorization()
+            .valid_through_epoch_ms()
+    }
+
     #[tokio::test]
     #[ignore = "requires admitted OA/PE/R&D test database URLs"]
     async fn exact_stale_cut_blocks_every_artifact_transition_without_writes() {
@@ -4254,7 +4416,10 @@ mod postgres_freshness_tests {
             .root
             .trial_family_identity()
             .to_string();
-        let valid_through = accepted.research_view().unwrap().valid_through_epoch_ms;
+        // The exact stale cut is where the research's operator authority ends, not where its
+        // View's freshness does: past the View's window the build still continues.
+        let view_valid_through = accepted.research_view().unwrap().valid_through_epoch_ms;
+        let valid_through = Box::pin(authority_end(&pool, &research_request_identity)).await;
         let intent_json: serde_json::Value = sqlx::query_scalar(
             "SELECT intent_json FROM rd_research_request_receipts_v1 WHERE request_identity = $1",
         )
@@ -4286,11 +4451,14 @@ mod postgres_freshness_tests {
             &family_identity,
         )
         .await;
-        let result = owner.prepare(stale_prepare.clone()).await.unwrap();
-        assert_eq!(
-            result.resolution(),
-            ArtifactBuildResolution::SubmittedOrUnknown
-        );
+        // The build request and the Research share one operator authorization here, so at its end
+        // the build's own first-mutation lock refuses before the Research is asked.
+        assert!(matches!(
+            owner.prepare(stale_prepare.clone()).await,
+            Err(ArtifactBuildError::Unauthorized(
+                "Product Edge admission unavailable"
+            ))
+        ));
         assert_eq!(
             state_snapshot(
                 &pool,
@@ -4303,7 +4471,11 @@ mod postgres_freshness_tests {
             before
         );
 
-        let fresh_cut = valid_through.saturating_sub(1);
+        let fresh_cut = view_valid_through + 60_000;
+        assert!(
+            fresh_cut < valid_through,
+            "every fresh transition below runs past the View's window and inside the authority"
+        );
         owner.clock = crate::rd_owner_clock::RdOwnerClockV1::fixed(move || fresh_cut);
         let prepared_request = artifact_request(
             &product_edge,
@@ -4805,11 +4977,10 @@ mod postgres_freshness_tests {
             .root
             .trial_family_identity()
             .to_string();
-        // The exact cut is this research's own validity; the first research's is earlier.
-        let final_valid_through = final_accepted
-            .research_view()
-            .unwrap()
-            .valid_through_epoch_ms;
+        // The exact cut is where this research's own authority ends.
+        let final_valid_through =
+            Box::pin(authority_end(&pool, &final_research_request_identity)).await;
+        assert!(fresh_cut < final_valid_through);
         let final_intent_json: serde_json::Value = sqlx::query_scalar(
             "SELECT intent_json FROM rd_research_request_receipts_v1 WHERE request_identity = $1",
         )
@@ -4856,8 +5027,8 @@ mod postgres_freshness_tests {
         // On that path the Owner reads its clock five times before it can refuse: once
         // re-preparing the already prepared attempt, once admitting custody under providerless
         // acceptance, once for the BUILDING transition, once admitting custody again, and then
-        // for the research view it must find stale. The first four are fresh; the fifth is
-        // this research's own validity.
+        // for the research authority it must find ended. The first four are fresh; the fifth is
+        // where this research's own authority ends.
         owner.allow_providerless_sealed_acceptance = true;
         let cuts = Arc::new(Mutex::new(VecDeque::from([
             fresh_cut,
@@ -5705,8 +5876,10 @@ mod postgres_freshness_tests {
             !deployment_lock_available,
             "PE must hold its deployment lock before waiting on R&D"
         );
-        // Product Edge judges this expiry at its final cut, on the store clock; a cut from this
-        // process's clock would put the two sides of that comparison on different clocks.
+        // The row changes while Product Edge waits on it. Its lock answers only the evidence
+        // Product Edge peeked before waiting, so the resealed row refuses the admission rather than
+        // admitting it under evidence Product Edge never read. The View's window itself refuses
+        // nothing here: it is a reader's freshness, and the R&D Owner proves the continuation.
         let expired_cut =
             crate::rd_owner_clock::owner_clock_epoch_ms_in_transaction(&mut rd_row_gate)
                 .await

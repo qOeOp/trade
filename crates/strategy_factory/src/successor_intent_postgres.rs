@@ -297,7 +297,6 @@ async fn migrate_successor_artifact_read_port(
             extract(epoch FROM pg_catalog.clock_timestamp()) * 1000
           )::bigint;
           IF (envelope#>>'{evidence,projection_at_epoch_ms}')::bigint > owner_cut_epoch_ms
-             OR owner_cut_epoch_ms >= (envelope#>>'{evidence,valid_through_epoch_ms}')::bigint
           THEN RETURN NULL; END IF;
           RETURN pg_catalog.jsonb_build_object('owner_cut_epoch_ms', owner_cut_epoch_ms) || envelope;
         END
@@ -530,12 +529,12 @@ async fn family_independence_basis_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
     census: &TrialFamilyCensusReadbackV2,
 ) -> Result<RdIndependenceBasisLocatorV1, SuccessorResearchIntentPostgresErrorV1> {
-    let custody = Box::pin(admit_research_custody_in_transaction(
+    let custody = admit_research_custody_in_transaction(
         transaction,
         ResearchCustodyLookupV1::Intent(
             census.legacy_family.initial_intent_member().fact_identity(),
         ),
-    ))
+    )
     .await?
     .ok_or_else(|| storage("TrialFamily initial Research Intent custody is missing"))?;
     let Some(FrozenResearchGoalIntent::V2(intent)) = custody.intent() else {
@@ -881,6 +880,32 @@ fn issue_successor_artifact_custody(
     })
 }
 
+/// Reseals a successor's stored View and the artifact evidence Product Edge locks against with
+/// `valid_through_epoch_ms`, and returns the new view, evidence and evidence digest to store.
+#[cfg(all(test, feature = "sealed-develop-composer-acceptance"))]
+pub(crate) fn reseal_successor_artifact_evidence_for_test(
+    view_json: serde_json::Value,
+    evidence_json: serde_json::Value,
+    valid_through_epoch_ms: u64,
+) -> Result<(serde_json::Value, serde_json::Value, String), SuccessorResearchIntentPostgresErrorV1>
+{
+    let mut view: ResearchViewV1 = serde_json::from_value(view_json).map_err(storage)?;
+    let mut evidence: SuccessorCurrentResearchArtifactEvidenceV1 =
+        serde_json::from_value(evidence_json).map_err(storage)?;
+    view.valid_through_epoch_ms = valid_through_epoch_ms;
+    evidence.valid_through_epoch_ms = valid_through_epoch_ms;
+    let evidence_bytes = serde_json::to_vec(&serde_json::json!({
+        "domain": "rd-owner.current-research-artifact-evidence.v1",
+        "evidence": evidence,
+    }))
+    .map_err(storage)?;
+    Ok((
+        serde_json::to_value(view).map_err(storage)?,
+        serde_json::to_value(evidence).map_err(storage)?,
+        format!("sha256:{:x}", Sha256::digest(evidence_bytes)),
+    ))
+}
+
 pub(crate) async fn lock_successor_research_view_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
     readback: &SuccessorResearchIntentReadbackV1,
@@ -1102,10 +1127,10 @@ async fn load_predecessor_context(
     intent_digest: &str,
 ) -> Result<PredecessorContextV1, SuccessorResearchIntentPostgresErrorV1> {
     if intent_identity == census.legacy_family.initial_intent_member().fact_identity() {
-        let custody = Box::pin(admit_research_custody_in_transaction(
+        let custody = admit_research_custody_in_transaction(
             transaction,
             ResearchCustodyLookupV1::Intent(intent_identity),
-        ))
+        )
         .await?
         .ok_or_else(|| storage("predecessor Research Intent custody is missing"))?;
         let FrozenResearchGoalIntent::V2(intent) = custody

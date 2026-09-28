@@ -1,4 +1,5 @@
 use super::*;
+use crate::bounded_feature_program_corpus_for_test::corpus_program;
 use crate::{
     bounded_feature_program_v1::tests::candidate,
     develop_composer_v2::CurrentResearchDevelopCustodyV2,
@@ -9,7 +10,7 @@ use crate::{
     rd_bounded_feature_program_v1::freeze_research_bounded_feature_program_v1,
     strategy_plan_v2::plugin_manifest_digest,
 };
-use std::{ffi::OsStr, fs, path::Path};
+use std::{ffi::OsStr, path::Path};
 
 /// The frozen project, not the surrounding job, decides what a guest compiles under.
 #[rstest::rstest]
@@ -1261,44 +1262,6 @@ const DIVERGENCE_CLOSES: [i128; 16] = [
     100, 102, 104, 106, 108, 110, 120, 115, 112, 113, 114, 121, 118, 116, 117, 119,
 ];
 
-/// The authored program `name` from the declared-meaning corpus, assembled as `declare` does.
-fn corpus_program(name: &str) -> (StrategyDesignV2, BoundedFeatureProgramProposalV1) {
-    use crate::bounded_feature_program_derivation_v1::{
-        BoundedFeatureProgramMeaningV1, derive_bounded_feature_program_proposal_v1,
-    };
-
-    let corpus = concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/test_data/bounded_feature_program_meaning_v1/"
-    );
-    let design: StrategyDesignV2 =
-        serde_json::from_str(&fs::read_to_string(format!("{corpus}{name}-design.json")).unwrap())
-            .unwrap();
-    let declared: BoundedFeatureProgramMeaningV1 =
-        serde_json::from_str(&fs::read_to_string(format!("{corpus}{name}-meaning.json")).unwrap())
-            .unwrap();
-    let receipts = design
-        .inputs
-        .iter()
-        .enumerate()
-        .map(|(index, role)| {
-            let mut bytes = [0x5a_u8; 32];
-            bytes[0] = u8::try_from(index).unwrap();
-            (role.clone(), BindingDigest::from_untrusted_bytes(bytes))
-        })
-        .collect();
-    let bindings =
-        crate::strategy_plan_v2::verified_strategy_input_bindings_for_test(&design, receipts);
-    let proposal = derive_bounded_feature_program_proposal_v1(
-        &design,
-        PrimitiveCatalogV1::verify().unwrap(),
-        &declared,
-        &bindings,
-    )
-    .unwrap_or_else(|e| panic!("{name} assembles: {e}"));
-    (design, proposal)
-}
-
 /// What one run of the divergence program emitted: the bars it exited on, and the previous
 /// pivot's close its fixed-point strategy state held after each bar.
 struct DivergenceRun {
@@ -1608,4 +1571,138 @@ fn the_lowerer_s_frozen_coordinate_port_id_is_the_owner_s() {
             crate::strategy_plan_v2::coordinate_port_id(identity),
         );
     }
+}
+
+/// Daily closes, in whole units, that take `t3` out of warmup and through one entry and one exit.
+///
+/// Six flat bars fill its four-bar mean and RSI. The fall to 94 puts the close more than 2% under
+/// the mean with the RSI under 30, which enters; the recovery to 101 lifts it back over -0.5%,
+/// which exits.
+const T3_CLOSES: [i128; 16] = [
+    100, 100, 100, 100, 100, 100, 98, 96, 94, 95, 97, 99, 101, 102, 100, 97,
+];
+
+/// Every output frame `program` emits over `closes`, as availability and each value's bytes.
+fn t3_behaviour(
+    design: &StrategyDesignV2,
+    program: BoundedFeatureProgramProposalV1,
+    root: &Path,
+    target_dir: &Path,
+    label: &str,
+) -> Vec<(Option<PluginOutputAvailabilityV3>, Vec<Vec<u8>>)> {
+    let custody = CurrentResearchDevelopCustodyV2::joint_bfp_test_fixture(design);
+    let frozen = freeze_research_bounded_feature_program_v1(&custody, design, program)
+        .unwrap_or_else(|e| panic!("{label}: joint Owner freeze: {e}"));
+    let mut guest = BuiltGuest::build(&frozen, root, target_dir, label);
+    let mut state = Vec::new();
+
+    (1_u64..)
+        .zip(T3_CLOSES)
+        .map(|(sample, close)| {
+            let output = guest.invoke(sample, close * 100, &state, label);
+            state = output.state.bytes().to_vec();
+            (
+                output.output_availability,
+                output
+                    .values
+                    .iter()
+                    .map(|value| value.bytes().to_vec())
+                    .collect(),
+            )
+        })
+        .collect()
+}
+
+/// The canonical form's two sides, proven by running the programs.
+///
+/// `docs/owners/rd.md` defines the canonical form a compiled document is compared with its
+/// hand-written program by; each side of that projection is only as good as the behaviour it
+/// stands for. Here `t3` runs as Wasm over one sequence that leaves warmup and both enters and
+/// exits, and so does each program changed in one respect. Renaming its identities, scaling its
+/// priorities and enlarging its bounds leave every output frame as it was, as they leave the form.
+/// A shorter mean window, a nearer entry threshold, a swapped priority order and swapped `sub`
+/// operands each change an output frame, as they change the form.
+#[rstest::rstest]
+#[ignore = "builds and invokes the canonical form's programs with the pinned local wasm compiler"]
+fn what_the_canonical_form_keeps_and_drops_is_what_changes_behaviour() {
+    use crate::bounded_feature_program_canonical_form_v1::{
+        CanonicalBoundedFeatureProgramFormV1, transform,
+    };
+
+    let (design, program) = corpus_program("t3");
+    let root = tempfile::tempdir().expect("private build root");
+    let target_dir = root.path().join("target-out");
+    let form = |program: &BoundedFeatureProgramProposalV1| {
+        CanonicalBoundedFeatureProgramFormV1::of(program).expect("t3 has a canonical form")
+    };
+    let behaviour = |program: BoundedFeatureProgramProposalV1, label: &str| {
+        t3_behaviour(&design, program, root.path(), &target_dir, label)
+    };
+    let baseline = behaviour(program.clone(), "t3");
+    let ready = |intent: &[u8]| {
+        baseline.iter().any(|(availability, values)| {
+            *availability == Some(PluginOutputAvailabilityV3::Ready)
+                && values.iter().any(|value| value.as_slice() == intent)
+        })
+    };
+    assert!(
+        ready(b"kernel.position.enter.v1") && ready(b"kernel.position.exit.v1"),
+        "the sequence leaves warmup and both enters and exits: {baseline:?}"
+    );
+
+    for (change, changed) in [
+        ("renamed", transform::renamed(&program)),
+        ("priorities scaled", transform::priorities_scaled(&program)),
+        ("bounds enlarged", transform::bounds_enlarged(&program)),
+    ] {
+        assert_eq!(form(&changed), form(&program), "{change} keeps the form");
+        assert_eq!(
+            behaviour(changed, change),
+            baseline,
+            "{change} keeps every output frame"
+        );
+    }
+
+    for (change, changed) in [
+        ("window", transform::window_changed(&program, "m", 3)),
+        (
+            "constant",
+            transform::constant_changed(&program, "k_enter", -100),
+        ),
+        ("sub operands", transform::operands_swapped(&program, "dev")),
+    ] {
+        assert_ne!(
+            form(&changed),
+            form(&program),
+            "the {change} changes the form"
+        );
+        assert_ne!(
+            behaviour(changed, change),
+            baseline,
+            "the {change} changes an output frame"
+        );
+    }
+
+    // `t3` gates its entry on being out of position and its exit on being in one, so its two
+    // branches never hold on the same bar and their order cannot show. The form still tells the
+    // orders apart, which errs toward refusing a compiled program rather than admitting one.
+    let swapped = transform::priority_order_swapped(&program);
+    assert_ne!(form(&swapped), form(&program));
+    assert_eq!(behaviour(swapped, "t3 priorities swapped"), baseline);
+
+    // Pointed at the ungated conditions - out of position for the entry, back above -0.5% for the
+    // exit - both branches hold on the flat bars, and the order decides which one is emitted.
+    let overlapping = transform::predicates_rewired(&program, &[(10, "b_npos"), (20, "c_back")]);
+    let overlapping_baseline = behaviour(overlapping.clone(), "overlapping");
+    let swapped = transform::priority_order_swapped(&overlapping);
+    assert_ne!(
+        form(&swapped),
+        form(&overlapping),
+        "the priority order changes the form"
+    );
+    assert_ne!(
+        behaviour(swapped, "overlapping priorities swapped"),
+        overlapping_baseline,
+        "the priority order changes an output frame"
+    );
 }

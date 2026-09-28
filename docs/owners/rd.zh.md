@@ -356,7 +356,9 @@ Research artifact evidence 必须正是为它封存的（`rd_owner_api.lock_rese
 - `POST /v1/bounded-feature-programs/{declare,freeze}`；
 - 发布 Design role intent；
 - 读取 Research 编写事实；
-- 冻结复杂策略的 develop evaluation。
+- 冻结复杂策略的 develop evaluation；
+- Artifact 构建：准备它、预留其 provider 调用、记录其候选并提交其终态结果。后继的构建在后继自己的准入与它冻结的受保护反馈下
+  继续，而不是其家族初始 Intent 的。
 
 每一种都只在该准入所指的操作员授权在那一刻仍然当前时才继续：仍然有效、没有被撤销、并处于当前的 policy binding
 与 manifest 窗口之下。否则在 `research_custody.continuation.authority_not_current` 处应答 `UNAVAILABLE`。另外两种拒绝也有名字：
@@ -372,11 +374,20 @@ phase fact 都推进该历史的受保护反馈 generation（见 Qualification �
 `research_custody.continuation.protected_feedback_unavailable` 处应答。候选自己的 phase fact 同样计数，所以一旦 Intent 的
 候选进入 Qualification，它的继续操作就停止。
 
-冻结的 View 仍然标识这个 Intent：早于其投影的 cut 会被拒绝，而且该 Intent 必须仍然是 `INTENT_FROZEN`。在它们各自的切片
-落地之前，有两类检查仍然读取 View 的窗口：
+冻结的 View 仍然标识这个 Intent：早于其投影的 cut 会被拒绝，而且该 Intent 必须仍然是 `INTENT_FROZEN`。
 
-- Replay 提交之后的步骤：Backtest 运行、执行输入绑定和 Market Data 修复；
-- Product Edge 自己的下游准入窗口检查。
+只投影 Artifact 构建下一步动作的读取（它的回读与 resolve）不取任何锁：它按构建的准入所记录的授权与所存 View 的可用性作答，
+随后的变更会再次证明继续操作，并按名拒绝。在某个操作已经写过的 cut 上的读取，只要求它所记录的 Research 权威覆盖该 cut：
+Backtest 运行、执行输入绑定与 Market Data 修复在其 Replay 的 Owner cut 上读取的 Research 来源即是如此，Replay 提交在那时已
+证明了继续操作。
+
+Product Edge 在 View 的窗口过去之后同样准入新的 Artifact 构建请求。它的准入仍检查 Research 的投影以及 R&D 对它的锁定
+都不晚于其 cut，并检查该 Research 准入时所依据的来源授权在该 cut 上仍然有效且未被撤销。它用来锁定 Research 的 R&D
+函数 `rd_owner_api.lock_research_for_artifact_at_view_v1` 与
+`rd_owner_api.lock_current_successor_research_for_artifact_v1` 也不再拒绝窗口已过的 View。
+
+在它自己的切片落地之前，仍有一处检查读取 View 的窗口：exploratory Replay 提交，其文件由 F 持有，所以在它迁移之前，
+Replay 之后的每一步都只能到达在窗口内提交的 Replay。
 
 **CURRENT/PARTIAL：第一圈已有立足之处。** 封存语料 run 之后，`run_bounded_feature_program` 成为唯一的生产入口，
 而它需要一份已冻结的 joint program。冻结需要 Strategy Input declaration；Market Data 过去只从一份
@@ -671,12 +682,12 @@ position target 与它的 reconciliation target 相等，而两侧曾共用的�
 - *目录。* `meaning` 按完整语义 id 指名原语，不携带目录版本；`declare` 绑定最新版本，重声明沿用冻结的
   那一版。所以一份编译过的文档不会因为发布新目录版本而改变，而这只在每个已发布版本都原样包含
   更早的每一行时成立。这是目录的不变式，逐版本按语义摘要与前一版本核对。
-- *验收。* `crates/strategy_factory/test_data/bounded_feature_program_meaning_v1/` 里的十个手写程序被
-  重写为文档，每一份编译出的程序与手写程序的规范形相等。规范形把每个节点、常量与状态的身份换成
-  按端口顺序取输入的结构摘要，决策优先级只保留相对顺序，并去掉 bounds；编译出的每个 bound 都不超过
-  手写的。这个投影的两侧都要证明：在一条长到走出预热、并产生非中性入场与出场的序列上跑两个程序的
-  Wasm，改一个窗口、一个常量、一个优先级顺序或 `sub` 两个操作数的顺序，必须改变行为与规范形，而重命名
-  身份、放大优先级或放大 bounds 两者都不能改变。语料里加一个做空程序，并一直跑到报告。每一个单阈值
+- *验收。* `crates/strategy_factory/test_data/bounded_feature_program_meaning_v1/` 里的十六个手写程序
+  （十二个 Design）被重写为文档，每一份编译出的程序与手写程序的规范形相等。规范形把每个节点、常量与
+  状态的身份换成按端口顺序取输入的结构摘要，决策优先级只保留相对顺序，并去掉 bounds；编译出的每个
+  bound 都不超过手写的。这个投影的两侧都要证明：在一条长到走出预热、并产生非中性入场与出场的序列上
+  跑两个程序的 Wasm，改一个窗口、一个常量、在同一根 bar 上同时成立的分支之间的优先级顺序，或 `sub`
+  两个操作数的顺序，必须改变行为与规范形，而重命名身份、放大优先级或放大 bounds 两者都不能改变。语料里加一个做空程序，并一直跑到报告。每一个单阈值
   请求经一个全函数翻译成文档后，编译出的字节与 `author_single_threshold_program_v1` 产出的完全相同，
   exact 与 universe-member 两种形态都如此。
 

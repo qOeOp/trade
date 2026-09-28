@@ -31,12 +31,12 @@ import sys
 
 source = open(os.environ["RD_OWNER_API"], encoding="utf-8").read().split("\n")
 
-# `async fn main()` only: reads in other functions belong to other binaries or to helpers this
-# service never reaches on its startup path.
+# `async fn run()` only, the startup path `main` hands to the runtime it builds: reads in other
+# functions belong to other binaries or to helpers this service never reaches on that path.
 try:
-    start = next(i for i, line in enumerate(source) if line.startswith("async fn main()"))
+    start = next(i for i, line in enumerate(source) if line.startswith("async fn run()"))
 except StopIteration:
-    print("owner-api-environment: `async fn main()` not found; the check cannot run", file=sys.stderr)
+    print("owner-api-environment: `async fn run()` not found; the check cannot run", file=sys.stderr)
     raise SystemExit(2)
 
 depth = 0

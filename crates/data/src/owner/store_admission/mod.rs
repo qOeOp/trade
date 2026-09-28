@@ -5507,6 +5507,9 @@ mod tests {
         let snapshot =
             crate::owner::postgres::tests::native_replay_two_member_snapshot_fixture_v1(&owner)
                 .await;
+        let decided =
+            Box::pin(crate::owner::postgres::tests::native_replay_decided_frame_fixture_v1(&owner))
+                .await;
 
         assert!(
             admitted_capability_for(&owner_url, &bar_schedule_measurement_spec())
@@ -5578,6 +5581,44 @@ mod tests {
                 .map(|batch| batch.snapshot_identity()),
             Err(NativeReplayQuoteCutRefusalV2::QuoteCutMissing)
         );
+
+        // Frames decided on their own instant: the port reads each quote cut lineage and the bound
+        // at the cut it was published at, as custody does.
+        for (frame, expected) in [
+            (decided.frame, Ok(decided.quote_cut_snapshot_identity)),
+            (
+                decided.overtaken_frame,
+                Err(NativeReplayQuoteCutRefusalV2::QuoteCutMissing),
+            ),
+            (
+                decided.next_frame,
+                Ok(decided.overtaken_quote_cut_snapshot_identity),
+            ),
+        ] {
+            let evidence = port
+                .resolve_pit_evaluation(*frame.0.as_bytes())
+                .await
+                .expect("the decided frame's evidence");
+            let frame = crate::owner::postgres::verify_admitted_pit_evidence_by_identity_v1(
+                frame.0, frame.1, &evidence,
+            )
+            .expect("the decided frame verifies");
+            let through_port =
+                crate::owner::postgres::resolve_native_replay_quote_cut_through_port_v2(
+                    &port, &frame, 100,
+                )
+                .await
+                .map(|batch| batch.snapshot_identity());
+            assert_eq!(through_port, expected);
+            assert_eq!(
+                owner
+                    .resolve_native_replay_quote_cut_v2(&frame, 100)
+                    .await
+                    .map(|batch| batch.snapshot_identity()),
+                through_port,
+                "the port and custody resolve the same quote cut for a frame decided on its instant"
+            );
+        }
     }
 
     /// The privilege census the principal behind `reader` would be measured with, row by row.
@@ -6012,6 +6053,8 @@ mod tests {
             BindingDigest::from_untrusted_bytes([91; 32]),
             BindingDigest::from_untrusted_bytes([92; 32]),
             BindingDigest::from_untrusted_bytes([93; 32]),
+            BindingDigest::from_untrusted_bytes([94; 32]),
+            snapshot.universe_selection_digest,
             snapshot.universe_selection_digest,
             snapshot.instrument_master_digest,
             snapshot.source_binding_lineage_root,

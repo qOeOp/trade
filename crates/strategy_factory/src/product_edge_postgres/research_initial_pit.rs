@@ -666,10 +666,10 @@ async fn load_subject(
     transaction: &mut Transaction<'_, Postgres>,
     request_identity: &str,
 ) -> Result<InitialPitSubjectV1, ResearchInitialPitErrorV1> {
-    let custody = Box::pin(admit_research_custody_in_transaction(
+    let custody = admit_research_custody_in_transaction(
         transaction,
         ResearchCustodyLookupV1::RequestV2(request_identity),
-    ))
+    )
     .await?
     .ok_or(ResearchInitialPitErrorV1::UnknownRequest)?;
 

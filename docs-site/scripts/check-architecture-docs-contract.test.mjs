@@ -3576,7 +3576,7 @@ function validateDeploymentStoreAdmission(candidate) {
   assert.deepEqual(candidate.firstTargetConsumer, {
     status: 'TARGET_UNTIL_IMPLEMENTED',
     compositionPath: 'product/rd-workbench/docker-compose.yml#services.rd-owner-api',
-    codePath: 'crates/strategy_factory_rd_owner_api/src/main.rs::main',
+    codePath: 'crates/strategy_factory_rd_owner_api/src/main.rs::run',
     consumerService: 'rd-owner-api',
     consumerOwnerId: 'market-data',
     backend: 'postgresql',
@@ -3706,7 +3706,7 @@ function validateD0BilingualDocs({ architectureRules, adoption, marketData }) {
     assert.match(section, /\*\*TARGET \/ UNAVAILABLE/);
     assert.match(section, /\*\*NOT_ADMITTED/);
     assert.match(section, /product\/rd-workbench\/docker-compose\.yml#services\.rd-owner-api/);
-    assert.match(section, /crates\/strategy_factory_rd_owner_api\/src\/main\.rs::main/);
+    assert.match(section, /crates\/strategy_factory_rd_owner_api\/src\/main\.rs::run/);
   }
 
   const marketFacts = [
@@ -5935,7 +5935,7 @@ test('R61 effect outcomes discriminate add-risk liability from decrease-only exp
 test('R61 Capability Adoption separates target-only seams and source-verifies all provider typed ports', () => {
   const adoption = contract.capabilityAdoptionContract;
   assert.equal(adoption.workspaceCapabilityPorts.length, 15);
-  assert.equal(adoption.workspaceCapabilityPorts.find(({ capabilityId }) => capabilityId === 'strategy-factory-trial-receipt').disposition, 'PRESENT');
+  assert.equal(adoption.workspaceCapabilityPorts.find(({ capabilityId }) => capabilityId === 'strategy-factory-trial-receipt').disposition, 'ABSENT_TARGET_ONLY');
   assert.equal(adoption.workspaceCapabilityPorts.find(({ capabilityId }) => capabilityId === 'strategy-factory-formation-receipt').disposition, 'ABSENT_TARGET_ONLY');
   const mappings = new Map(adoption.strategyFactoryMappings.map((mapping) => [mapping.capabilityId, mapping]));
   assert.deepEqual(mappings.get('trial-receipt').destinationObjectIds, ['exploratory-result']);

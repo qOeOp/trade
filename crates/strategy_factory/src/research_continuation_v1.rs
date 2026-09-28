@@ -201,16 +201,16 @@ pub(crate) async fn continue_initial_research_in_transaction(
     )
 }
 
-/// The successor Research custody a Develop operation continues under at `cut_epoch_ms`, on the
-/// same terms as [`continue_initial_research_in_transaction`].
-pub(crate) async fn continue_successor_research_in_transaction(
+/// Proves a successor Research Intent may be continued at `cut_epoch_ms`, on the same terms as
+/// [`authorize_initial_research_continuation_in_transaction`]: the successor's own admission
+/// re-locked there with its operator authority current, and the protected feedback it froze, read
+/// through its family basis, not advanced.
+pub(crate) async fn authorize_successor_research_continuation_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
     readback: &crate::successor_intent::SuccessorResearchIntentReadbackV1,
     custody: &crate::successor_intent_postgres::SuccessorResearchViewCustodyV1,
-    family: &crate::trial_family::TrialFamilyCensusReadbackV2,
     cut_epoch_ms: u64,
-) -> Result<crate::develop_composer_v2::CurrentResearchDevelopCustodyV2, DevelopComposerTerminalV2>
-{
+) -> Result<ResearchContinuationAuthorizedV1, DevelopComposerTerminalV2> {
     let intent = readback.intent();
     let frozen_feedback =
         crate::successor_intent_postgres::verify_successor_protected_feedback_basis_in_transaction(
@@ -228,11 +228,30 @@ pub(crate) async fn continue_successor_research_in_transaction(
             );
             protected_feedback_unavailable()
         })?;
-    let authorized = Box::pin(authorize_research_continuation_in_transaction(
+    Box::pin(authorize_research_continuation_in_transaction(
         transaction,
         custody.admission(),
         None,
         &frozen_feedback,
+        cut_epoch_ms,
+    ))
+    .await
+}
+
+/// The successor Research custody a Develop operation continues under at `cut_epoch_ms`, on the
+/// same terms as [`continue_initial_research_in_transaction`].
+pub(crate) async fn continue_successor_research_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    readback: &crate::successor_intent::SuccessorResearchIntentReadbackV1,
+    custody: &crate::successor_intent_postgres::SuccessorResearchViewCustodyV1,
+    family: &crate::trial_family::TrialFamilyCensusReadbackV2,
+    cut_epoch_ms: u64,
+) -> Result<crate::develop_composer_v2::CurrentResearchDevelopCustodyV2, DevelopComposerTerminalV2>
+{
+    let authorized = Box::pin(authorize_successor_research_continuation_in_transaction(
+        transaction,
+        readback,
+        custody,
         cut_epoch_ms,
     ))
     .await?;
