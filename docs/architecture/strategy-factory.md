@@ -1315,6 +1315,21 @@ receipt, terms, venue, account or time, and noncanonical, partial, extra, cross-
 custody fail before `ProgramHostV2` or Backtest state exists. Existing profile canonical bytes and digest remain
 unchanged.
 
+Which instrument's terms a Replay uses is resolved for its request, not pinned by its family. Schema 1 of the
+economic configuration also pins one instrument's terms (`instrument_terms`: instrument, public fact and receipt
+digests, fees and margins), and the profile binding then requires exactly one member to equal them. That rule arrived
+with the sealed acceptance configuration in #468 and was not stated here before. Schema 1 stays readable, and keeps
+its bytes and digest, for every family sealed under it. Schema 2 pins no instrument. It fixes only what holds across
+instruments - venue, currencies, leverage, and the fill, fee and margin models - and each Replay's instrument terms are
+the ones the Instrument Owner resolves for its members at its window's start when the execution-profile binding is
+issued. The binding records their provenance: instrument, public fact digest, terms receipt, terms digest, fees and
+margins. A consumer that resolves the terms again must meet exactly those facts, or it refuses. A fee change is
+therefore a new terms fact rather than a new Catalog version. Schema 1 without pinned terms, or schema 2 with them, is
+refused as `InstrumentTermsPinningMismatch`. Pinning no instrument does not loosen the venue: terms at a venue the
+configuration does not name are refused before provenance exists, and the Instrument Owner resolves nothing for
+members at another venue. The account scope is the one complete scope the Owner holds for every member; schema 2
+does not pin a fee tier.
+
 Native engine materialization remains `UNAVAILABLE`. V1 represents liquidation only as disabled and supplies no
 numeric ratio; an adapter must separately prove that the native float-only inactive liquidation field is not read,
 or bind a version-specific inactive constant outside policy meaning. Before materialization, one version-bound,

@@ -46,11 +46,34 @@ git commit -q -am change
 # Positive: reuse, then every file carries the mtime its content calls for.
 out="$(python3 "$tool" reuse "$target")" || fail "reuse failed: $out"
 [[ "$out" == *"2 changed file(s)"* ]] || fail "reuse did not report 2 changed files: $out"
+[[ "$out" == *"no path-dependency stash restored"* ]] || fail "reuse without a stash did not say so: $out"
 [[ "$(mtime crate/src/b.rs)" -eq $((recorded - 1)) ]] || fail "unchanged b.rs not set to T - 1"
 [[ "$(mtime crate/Cargo.toml)" -eq $((recorded - 1)) ]] || fail "unchanged Cargo.toml not set to T - 1"
 [[ "$(mtime crate/src/lib.rs)" -gt "$recorded" ]] || fail "changed lib.rs not after T"
 [[ "$(mtime crate/sql/query.sql)" -gt "$recorded" ]] || fail "changed query.sql not after T"
 python3 "$tool" verify "$target" > /dev/null || fail "verify rejected a correct reuse"
+
+# A stashed path dependency is unpacked by reuse, back where main built it.
+python3 - "$target" << 'PY'
+import io, sys, tarfile
+from pathlib import Path
+target = Path(sys.argv[1])
+stash = target / "path-dep-stash" / "CACHEDIR.TAG"
+stash.parent.mkdir(parents=True, exist_ok=True)
+body = b"unit"
+member = tarfile.TarInfo("ci-pr/deps/libpyo3_stub_gen-0123456789abcdef.rlib")
+member.size, member.mtime = len(body), 1790000000
+buffer = io.BytesIO()
+with tarfile.open(fileobj=buffer, mode="w") as archive:
+    archive.addfile(member, io.BytesIO(body))
+stash.write_bytes(buffer.getvalue())
+PY
+out="$(python3 "$tool" reuse "$target")" || fail "reuse failed with a stash: $out"
+[[ "$out" == *"unstashed path dependencies: 1 file(s)"* ]] || fail "reuse did not unstash: $out"
+[[ -f "$target/ci-pr/deps/libpyo3_stub_gen-0123456789abcdef.rlib" ]] || fail "the stashed unit is not back"
+[[ "$(mtime "$target/ci-pr/deps/libpyo3_stub_gen-0123456789abcdef.rlib")" -eq 1790000000 ]] ||
+  fail "the stashed unit came back with another mtime"
+rm -rf "$target/path-dep-stash" "$target/ci-pr"
 
 # Negative, twice: a changed file left at T - 1 fails verify by its name.
 for missed in crate/src/lib.rs crate/sql/query.sql; do
