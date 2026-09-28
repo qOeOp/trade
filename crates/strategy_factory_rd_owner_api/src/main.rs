@@ -4531,6 +4531,25 @@ mod tests {
         let missing_snapshot_rejected =
             start_provider_invocation(State(state.clone()), headers.clone(), start_body.clone())
                 .await;
+        // PROBE, not for merge: an assertion that fails at this point must leave the store clean.
+        let flipped = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            assert_eq!(missing_snapshot_rejected.status(), StatusCode::OK);
+        }));
+        assert!(
+            flipped.is_err(),
+            "PROBE: the flipped assertion did not fail"
+        );
+        let attempt_after_failed_assertion: serde_json::Value = sqlx::query_scalar(
+            "SELECT attempt_json FROM rd_artifact_build_attempts_v1 WHERE build_request_identity=$1",
+        )
+        .bind(&build_request_identity)
+        .fetch_one(rd_owner_pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            attempt_after_failed_assertion, rd_attempt_after_retry,
+            "PROBE: a failed assertion left the tamper in the shared store"
+        );
         assert_eq!(
             missing_snapshot_rejected.status(),
             StatusCode::SERVICE_UNAVAILABLE
