@@ -463,14 +463,16 @@ read at a cut an operation already wrote at asks only that the Research authorit
 that cut: the Research sources that the Backtest run, the execution-input binding and Market Data
 repair read at their Replay's Owner cut, where the Replay commit proved the continuation.
 
-Until their own slices land, two checks still read the View's window:
+Product Edge admits a new Artifact build request past the View's window as well. Its admission
+still checks that the Research was projected, and locked by R&D, no later than its cut, and that the
+source authorization the Research was admitted under is in force and not revoked there. The R&D
+functions it locks the Research through, `rd_owner_api.lock_research_for_artifact_at_view_v1` and
+`rd_owner_api.lock_current_successor_research_for_artifact_v1`, no longer refuse a View past its
+window either.
 
-- the exploratory Replay commit, whose file F holds, so until it moves every step after a Replay
-  reaches only a Replay committed inside the window;
-- Product Edge's own downstream-admission window check, including the R&D functions it calls to
-  lock the Research at its View (`rd_owner_api.lock_research_for_artifact_at_view_v1` and
-  `rd_owner_api.lock_current_successor_research_for_artifact_v1`), so a new Artifact build request
-  is still admitted only inside the window.
+Until its own slice lands, one check still reads the View's window: the exploratory Replay commit,
+whose file F holds, so until it moves every step after a Replay reaches only a Replay committed
+inside the window.
 
 **CURRENT/PARTIAL - the first cycle now has something to stand on.** Sealing the corpus run leaves
 `run_bounded_feature_program` as the only production entry, and it requires a frozen joint program.

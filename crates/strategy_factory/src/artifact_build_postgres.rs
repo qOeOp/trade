@@ -5876,8 +5876,10 @@ mod postgres_freshness_tests {
             !deployment_lock_available,
             "PE must hold its deployment lock before waiting on R&D"
         );
-        // Product Edge judges this expiry at its final cut, on the store clock; a cut from this
-        // process's clock would put the two sides of that comparison on different clocks.
+        // The row changes while Product Edge waits on it. Its lock answers only the evidence
+        // Product Edge peeked before waiting, so the resealed row refuses the admission rather than
+        // admitting it under evidence Product Edge never read. The View's window itself refuses
+        // nothing here: it is a reader's freshness, and the R&D Owner proves the continuation.
         let expired_cut =
             crate::rd_owner_clock::owner_clock_epoch_ms_in_transaction(&mut rd_row_gate)
                 .await
