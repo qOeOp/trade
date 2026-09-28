@@ -26,7 +26,7 @@ pub(crate) fn economic_fixture() -> ReplayEconomicConfigurationInputV1 {
             mantissa: 10,
             scale: 0,
         },
-        instrument_terms: InstrumentEconomicTermsBindingV1 {
+        instrument_terms: Some(InstrumentEconomicTermsBindingV1 {
             instrument_identity: "ETHUSDT-PERP".into(),
             quote_currency: "USDT".into(),
             instrument_fact_digest: [1; 32],
@@ -47,7 +47,7 @@ pub(crate) fn economic_fixture() -> ReplayEconomicConfigurationInputV1 {
                 mantissa: 5,
                 scale: 2,
             },
-        },
+        }),
         margin_model: ReplayMarginModelV1::SealedInstrumentTerms,
         modules: ReplaySimulationModulesV1::None,
         fill_model: ReplayFillModelV1::DeterministicFullFill,
@@ -77,5 +77,18 @@ pub(crate) fn economic_fixture() -> ReplayEconomicConfigurationInputV1 {
         settlement_prices: ReplaySettlementPricesV1::None,
         liquidation_policy: ReplayLiquidationPolicyV1::Disabled,
         liquidation_cancel_open_orders: true,
+    }
+}
+
+/// The acceptance economic configuration under schema 2 at `venue_identity`: the same
+/// cross-instrument choices as [`economic_fixture`], with no instrument pinned, so each Replay's
+/// instrument terms are the ones the Instrument Owner resolves for it.
+#[cfg(test)]
+pub(crate) fn economic_fixture_v2(venue_identity: &str) -> ReplayEconomicConfigurationInputV1 {
+    ReplayEconomicConfigurationInputV1 {
+        schema_version: REPLAY_ECONOMIC_CONFIGURATION_SCHEMA_VERSION_V2,
+        venue_identity: venue_identity.to_owned(),
+        instrument_terms: None,
+        ..economic_fixture()
     }
 }

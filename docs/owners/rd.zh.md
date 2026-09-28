@@ -356,7 +356,9 @@ Research artifact evidence 必须正是为它封存的（`rd_owner_api.lock_rese
 - `POST /v1/bounded-feature-programs/{declare,freeze}`；
 - 发布 Design role intent；
 - 读取 Research 编写事实；
-- 冻结复杂策略的 develop evaluation。
+- 冻结复杂策略的 develop evaluation；
+- Artifact 构建：准备它、预留其 provider 调用、记录其候选并提交其终态结果。后继的构建在后继自己的准入与它冻结的受保护反馈下
+  继续，而不是其家族初始 Intent 的。
 
 每一种都只在该准入所指的操作员授权在那一刻仍然当前时才继续：仍然有效、没有被撤销、并处于当前的 policy binding
 与 manifest 窗口之下。否则在 `research_custody.continuation.authority_not_current` 处应答 `UNAVAILABLE`。另外两种拒绝也有名字：
@@ -364,13 +366,27 @@ Research artifact evidence 必须正是为它封存的（`rd_owner_api.lock_rese
 - 重新锁定到的准入若不是该 Intent 准入时的那一个，在 `research_custody.continuation.admission_changed` 处应答；
 - 被隔离的遗留托管没有当前准入，在 `research_custody.continuation.no_admission` 处应答。
 
-冻结的 View 仍然标识这个 Intent：早于其投影的 cut 会被拒绝，而且该 Intent 必须仍然是 `INTENT_FROZEN`。
-受保护反馈只在 Intent 准入时检查一次，之后不再检查。今天受保护反馈前沿没有代际，受保护评估也不会推进它，所以继续操作感知不到冻结之后发生的受保护评估。
-给前沿加上代际、并让每一次继续操作都与 Intent 冻结时的代际比较的那一片，会移除这条性质。在它们各自的切片落地之前，
-有两类检查仍然读取 View 的窗口：
+每一种也都只在该 Intent 冻结之后没有受保护评估变得对它可观察时才继续。principal/scope 历史的每个公开 Qualification
+phase fact 都推进该历史的受保护反馈 generation（见 Qualification 的受保护反馈 generation），所以继续操作为 Intent 冻结的
+投影读取其历史当前的 source cut，并与冻结时的比较。它在继续操作提交之前对该历史的 head 持有 `FOR SHARE`，所以期间不会
+有 phase fact 落进来。更晚的 cut 在 `research_custody.continuation.protected_feedback_advanced` 处应答：此后在该 Intent 上
+的迭代要经过一个后继 Intent，它冻结历史的新 generation（见血缘与保护反馈准入）。冻结的投影或其历史读不到的 Intent 在
+`research_custody.continuation.protected_feedback_unavailable` 处应答。候选自己的 phase fact 同样计数，所以一旦 Intent 的
+候选进入 Qualification，它的继续操作就停止。
 
-- Replay 提交之后的步骤：Backtest 运行、执行输入绑定和 Market Data 修复；
-- Product Edge 自己的下游准入窗口检查。
+冻结的 View 仍然标识这个 Intent：早于其投影的 cut 会被拒绝，而且该 Intent 必须仍然是 `INTENT_FROZEN`。
+
+只投影 Artifact 构建下一步动作的读取（它的回读与 resolve）不取任何锁：它按构建的准入所记录的授权与所存 View 的可用性作答，
+随后的变更会再次证明继续操作，并按名拒绝。在某个操作已经写过的 cut 上的读取，只要求它所记录的 Research 权威覆盖该 cut：
+Backtest 运行、执行输入绑定与 Market Data 修复在其 Replay 的 Owner cut 上读取的 Research 来源即是如此，Replay 提交在那时已
+证明了继续操作。
+
+在它们各自的切片落地之前，仍有两处检查读取 View 的窗口：
+
+- exploratory Replay 提交，其文件由 F 持有，所以在它迁移之前，Replay 之后的每一步都只能到达在窗口内提交的 Replay；
+- Product Edge 自己的下游准入窗口检查，包括它为在 View 上锁定 Research 而调用的 R&D 函数
+  （`rd_owner_api.lock_research_for_artifact_at_view_v1` 与
+  `rd_owner_api.lock_current_successor_research_for_artifact_v1`），所以新的 Artifact 构建请求仍只在窗口内被准入。
 
 **CURRENT/PARTIAL：第一圈已有立足之处。** 封存语料 run 之后，`run_bounded_feature_program` 成为唯一的生产入口，
 而它需要一份已冻结的 joint program。冻结需要 Strategy Input declaration；Market Data 过去只从一份

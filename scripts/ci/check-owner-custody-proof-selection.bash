@@ -109,6 +109,7 @@ readonly -A unselected_reason=(
   ["every_relational_scalar_is_bound_and_rollback_restores_exact_readback"]="uses DedicatedPostgresTestDatabase, whose marker validation requires every role to be named vibe_test_role_*. That is the dedicated per-Owner harness naming (crates/data/tests/run_market_data_owner_postgres.bash creates vibe_test_role_market_data_owner); the ordered chain exports its canonical role names, so admission refuses with ExpectedIdentityMismatch before the proof runs. Joining this chain would need both a canonical topology and no materialization, since that store is past the cutover"
   ["v2_census_append_restart_readback_and_fail_close_are_atomic"]="uses DedicatedPostgresTestDatabase, whose marker validation requires every role to be named vibe_test_role_*. That is the dedicated per-Owner harness naming (crates/data/tests/run_market_data_owner_postgres.bash creates vibe_test_role_market_data_owner); the ordered chain exports its canonical role names, so admission refuses with ExpectedIdentityMismatch before the proof runs. Joining this chain would need both a canonical topology and no materialization, since that store is past the cutover"
   ["postgres_v2_resolve_uses_exclusive_owner_validity_cut"]="uses DedicatedPostgresTestDatabase, whose marker validation requires every role to be named vibe_test_role_*. That is the dedicated per-Owner harness naming (crates/data/tests/run_market_data_owner_postgres.bash creates vibe_test_role_market_data_owner); the ordered chain exports its canonical role names, so admission refuses with ExpectedIdentityMismatch before the proof runs. Joining this chain would need both a canonical topology and no materialization, since that store is past the cutover"
+  ["isolated_postgres_recovery_is_atomic_fail_closed_and_replay_safe"]="unrunnable: reads the bound evidence session resource, which no longer exists, and verify_evidence accepts no other path and no other bytes. scripts/ci/test-qualification-owner-recovery-postgres.bash names it and no CI job runs that script; docs/owners/qualification.md records this under Incident-specific Owner reconstruction"
   ["frozen_evidence_recomputes_exact_canonical_vector"]="unrunnable: recomputes the sealed incident vector from the bound evidence session resource, which no longer exists, and verify_evidence accepts no other path and no other bytes. docs/owners/qualification.md records this under Incident-specific Owner reconstruction; no chain or script can select it into a pass"
   ["qualification_basis_cannot_terminalize_after_authority_revocation"]="makes the Qualification store unavailable by dropping its relations, which requires owning them. the qualification_owner role owns them and the chain admits qualification_writer, so the drop refuses with 'must be owner of table qualification_owner_outbox_v1' before the proof reaches its subject. Joining this chain needs a qualification_owner principal, or a way to withdraw the store that a writer holds"
   ["qualification_basis_recovers_under_immediate_policy_equivalent_successor"]="makes the Qualification store unavailable by dropping its relations, which requires owning them. the qualification_owner role owns them and the chain admits qualification_writer, so the drop refuses with 'must be owner of table qualification_owner_outbox_v1' before the proof reaches its subject. Joining this chain needs a qualification_owner principal, or a way to withdraw the store that a writer holds"
@@ -134,7 +135,35 @@ echo "Checking that every Owner custody proof is selected or explained..."
 
 selected=$(mktemp)
 ignored_crates="$(mktemp)"
-trap 'rm -f "$selected" "$ignored_crates"' EXIT
+ci_called="$(mktemp)"
+trap 'rm -f "$selected" "$ignored_crates" "$ci_called"' EXIT
+
+# A script that lists proof names selects them only if CI runs it. This check once read
+# `scripts/ci/test-qualification-owner-recovery-postgres.bash` as a selector, and no job has ever
+# run it, so the proof it names read as selected while nothing ran. Every script below is therefore
+# checked against what CI actually executes, derived from the workflows by `ci_called_files.py`,
+# not written here: a source it does not reach fails this check by name.
+python3 scripts/ci/ci_called_files.py > "$ci_called"
+readonly selection_sources=(
+  scripts/ci/test-rd-owner-postgres.bash
+  scripts/ci/test-toolchain-proofs.bash
+  crates/data/tests/run_market_data_owner_postgres.bash
+)
+for script in "${selection_sources[@]}"; do
+  if [ ! -f "$script" ]; then
+    echo "ERROR: the selection source '$script' does not exist." >&2
+    echo "       Every proof it lists would start reporting as unselected, and the error would" >&2
+    echo "       name those proofs rather than this path. Update the path or drop it here." >&2
+    exit 1
+  fi
+
+  if ! grep -qxF "$script" "$ci_called"; then
+    echo "ERROR: the selection source '$script' is not called by CI." >&2
+    echo "       scripts/ci/ci_called_files.py reaches no invocation of it from .github, so the" >&2
+    echo "       proofs it lists would read as selected while nothing runs them." >&2
+    exit 1
+  fi
+done
 
 # Read what each chain actually selects, not merely what its text mentions. A name that survives
 # only in a positional assertion or a comment selects nothing.
@@ -160,20 +189,10 @@ if [ -f scripts/ci/test-toolchain-proofs.bash ]; then
     sed "s/'//g;s/.*:://" >> "$selected" || true
 fi
 
-# A path here that no longer exists would narrow what counts as "selected" without saying so.
-# That errs toward noise rather than silence - proofs those scripts select would start looking
-# unselected - but the noise would be blamed on the proofs, not on the renamed script.
-for script in crates/data/tests/run_market_data_owner_postgres.bash \
-  scripts/ci/test-qualification-owner-recovery-postgres.bash; do
-  if [ ! -f "$script" ]; then
-    echo "ERROR: the selection source '$script' does not exist." >&2
-    echo "       Every proof it lists would start reporting as unselected, and the error would" >&2
-    echo "       name those proofs rather than this path. Update the path or drop it here." >&2
-    exit 1
-  fi
-  rg -o '^[[:space:]]*[a-z_0-9]+(::[a-z_0-9]+)+[[:space:]]*\\?$' "$script" 2> /dev/null |
-    sed 's/[[:space:]]*\\*$//;s/^[[:space:]]*//;s/.*:://' >> "$selected" || true
-done
+# The Market Data chain lists each selector as a path on its own line.
+rg -o '^[[:space:]]*[a-z_0-9]+(::[a-z_0-9]+)+[[:space:]]*\\?$' \
+  crates/data/tests/run_market_data_owner_postgres.bash 2> /dev/null |
+  sed 's/[[:space:]]*\\*$//;s/^[[:space:]]*//;s/.*:://' >> "$selected" || true
 sort -u -o "$selected" "$selected"
 
 # An exemption for a proof that IS selected is never consulted: the loop below checks selection

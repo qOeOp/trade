@@ -2594,6 +2594,7 @@ mod postgres_acceptance_tests {
     struct ReadyDecisionPostgresHarnessV1 {
         database: CanonicalOwnerPostgresTestDatabaseV1,
         qualification: PostgresQualificationOwnerV1,
+        fixture_key: &'static str,
         lineage: ReadyLineageV1,
         suffix: String,
         result_identity: String,
@@ -2679,11 +2680,47 @@ mod postgres_acceptance_tests {
         committed_at_epoch_ms: u64,
     }
 
+    /// One operator: its authorization, its Product Edge deployment and the R&D Owner it submits
+    /// to. Every family persisted under it shares its principal and scope, and so one
+    /// protected-feedback history.
+    struct RepairReplayOperatorV1 {
+        owner: PostgresResearchGoalOwnerV1,
+        deployment_identity: String,
+        trust: ProductEdgeAuthorizationTrustV1,
+        request_proof_digest: String,
+    }
+
+    impl RepairReplayOperatorV1 {
+        async fn edge(
+            &self,
+            database: &CanonicalOwnerPostgresTestDatabaseV1,
+        ) -> ProductEdgePostgresOwnerV1 {
+            ProductEdgePostgresOwnerV1::connect_existing(
+                database.database_url(CanonicalOwnerTestRoleV1::ProductEdgeOwner),
+                &self.deployment_identity,
+                self.trust.clone(),
+            )
+            .await
+            .expect("Product Edge Owner")
+        }
+    }
+
     async fn persist_repair_replay_predecessor(
         database: &CanonicalOwnerPostgresTestDatabaseV1,
         evidence: &SealedAcceptanceMarketDataRepairEvidenceV1,
         suffix: &str,
     ) -> PersistedReplayPredecessorV1 {
+        let operator = Box::pin(persist_repair_replay_operator(database, suffix)).await;
+        Box::pin(persist_repair_replay_family(
+            database, evidence, &operator, suffix,
+        ))
+        .await
+    }
+
+    async fn persist_repair_replay_operator(
+        database: &CanonicalOwnerPostgresTestDatabaseV1,
+        suffix: &str,
+    ) -> RepairReplayOperatorV1 {
         crate::replay_policy_catalog_postgres_v2::ensure_authenticated_sealed_acceptance_fixture_v3(
             database
                 .mutation()
@@ -2767,19 +2804,20 @@ mod postgres_acceptance_tests {
             .await
             .expect("Operator Authorization genesis");
         let deployment_identity = format!("repair-replay-product-edge-{suffix}");
+        let trust = ProductEdgeAuthorizationTrustV1 {
+            issuer_identity,
+            issuer_key_version,
+            audience,
+        };
         let edge = ProductEdgePostgresOwnerV1::connect_existing(
             database.database_url(CanonicalOwnerTestRoleV1::ProductEdgeOwner),
             &deployment_identity,
-            ProductEdgeAuthorizationTrustV1 {
-                issuer_identity,
-                issuer_key_version,
-                audience,
-            },
+            trust.clone(),
         )
         .await
         .expect("Product Edge Owner");
         edge.bootstrap_genesis(ProductEdgeBootstrapProposalV1 {
-            deployment_identity,
+            deployment_identity: deployment_identity.clone(),
             binding_identity: format!("repair-replay-product-edge-binding-{suffix}"),
             expected_history_head: "EMPTY".to_string(),
             generation: 1,
@@ -2803,6 +2841,23 @@ mod postgres_acceptance_tests {
         )
         .await
         .expect("R&D Owner");
+        RepairReplayOperatorV1 {
+            owner,
+            deployment_identity,
+            trust,
+            request_proof_digest,
+        }
+    }
+
+    /// One TrialFamily under `operator`: its Research request, Artifact and Replay predecessor.
+    /// Submits one Research request under `operator` and returns its accepted Owner result: a frozen
+    /// Intent that nothing has built on.
+    async fn submit_repair_replay_research(
+        owner: &PostgresResearchGoalOwnerV1,
+        edge: &ProductEdgePostgresOwnerV1,
+        request_proof_digest: &str,
+        suffix: &str,
+    ) -> crate::product_edge::ResearchGoalOwnerResultV2 {
         let research_request_identity = format!("repair-replay-research-{suffix}");
         let research_payload = ProductEdgeResearchGoalRequestV2 {
             request_identity: research_request_identity.clone(),
@@ -2849,20 +2904,38 @@ mod postgres_acceptance_tests {
                 operation_schema: RESEARCH_GOAL_SCHEMA_V2.to_string(),
                 target_owner: RESEARCH_OWNER_V1.to_string(),
                 requested_effects: vec!["R_AND_D_RESEARCH_MUTATION_V1".to_string()],
-                request_proof_digest: request_proof_digest.clone(),
+                request_proof_digest: request_proof_digest.to_owned(),
                 audit_correlation: format!("test:{research_request_identity}"),
             })
             .await
             .expect("Research Product Edge admission")
             .locator()
             .clone();
-        let accepted = owner
+        owner
             .submit_v2(ProductEdgeResearchGoalRequestV2 {
                 admission: research_admission,
                 ..research_payload
             })
             .await
-            .expect("persisted Research acceptance");
+            .expect("persisted Research acceptance")
+    }
+
+    async fn persist_repair_replay_family(
+        database: &CanonicalOwnerPostgresTestDatabaseV1,
+        evidence: &SealedAcceptanceMarketDataRepairEvidenceV1,
+        operator: &RepairReplayOperatorV1,
+        suffix: &str,
+    ) -> PersistedReplayPredecessorV1 {
+        let owner = operator.owner.clone();
+        let request_proof_digest = operator.request_proof_digest.clone();
+        let edge = operator.edge(database).await;
+        let accepted = Box::pin(submit_repair_replay_research(
+            &owner,
+            &edge,
+            &request_proof_digest,
+            suffix,
+        ))
+        .await;
         let research_receipt = accepted.owner_receipt().expect("Research receipt");
         let independence_basis_locator = accepted
             .independence_basis()
@@ -3891,25 +3964,15 @@ mod postgres_acceptance_tests {
         crossed.rollback().await.expect("foreign-basis rollback");
     }
 
-    #[tokio::test]
-    #[ignore = "requires the canonical disposable R&D and Backtest Owner PostgreSQL topology"]
-    async fn successor_artifact_enters_exploratory_replay_with_exact_owner_custody() {
-        let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
-            .await
-            .expect("canonical disposable topology");
-        let mutation = database.mutation();
-        let rd_pool = mutation.pool(CanonicalOwnerTestRoleV1::RdOwner);
-        let suffix = unique_suffix();
-        let committed_at = current_epoch_ms().expect("test clock");
-        let market_data_evidence =
-            issue_market_data_repair_evidence_v1().expect("sealed Market Data evidence");
-        let harness = Box::pin(persist_repair_replay_predecessor(
-            &database,
-            &market_data_evidence,
-            &suffix,
-        ))
-        .await;
-        let initial_replay = harness.predecessor.request();
+    /// Commits a terminal Result for `harness`'s initial Intent, its census attempt and a
+    /// candidate-comparison Decision that selects one successor experiment, and returns the successor
+    /// request that Decision admits.
+    async fn persist_successor_experiment_decision(
+        rd_pool: &PgPool,
+        harness: &PersistedReplayPredecessorV1,
+        suffix: &str,
+        committed_at: u64,
+    ) -> SuccessorResearchIntentOperationRequestV1 {
         let request_identity = harness.predecessor.request_identity().to_string();
         let request_digest = harness.predecessor.meaning_digest().to_string();
         let attempt_identity = format!("backtest-attempt-successor-{suffix}");
@@ -3919,7 +3982,7 @@ mod postgres_acceptance_tests {
             &attempt_identity,
             &harness.intent_identity,
             &harness.intent_digest,
-            &suffix,
+            suffix,
         );
         let result_identity = result.result_identity.as_str().to_string();
         let result_digest = result.result_digest.as_str().to_string();
@@ -4001,7 +4064,7 @@ mod postgres_acceptance_tests {
             .commit()
             .await
             .expect("Decision commit");
-        let successor_operation = SuccessorResearchIntentOperationRequestV1 {
+        SuccessorResearchIntentOperationRequestV1 {
             request_identity: format!("successor-intent-request-{suffix}"),
             decision_identity: decision.decision().decision_identity().to_string(),
             result_identity,
@@ -4015,7 +4078,35 @@ mod postgres_acceptance_tests {
                 cost_assumption: "frozen cost model".to_string(),
                 capacity_assumption: "frozen capacity model".to_string(),
             },
-        };
+        }
+    }
+
+    #[tokio::test]
+    #[ignore = "requires the canonical disposable R&D and Backtest Owner PostgreSQL topology"]
+    async fn successor_artifact_enters_exploratory_replay_with_exact_owner_custody() {
+        let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
+            .await
+            .expect("canonical disposable topology");
+        let mutation = database.mutation();
+        let rd_pool = mutation.pool(CanonicalOwnerTestRoleV1::RdOwner);
+        let suffix = unique_suffix();
+        let committed_at = current_epoch_ms().expect("test clock");
+        let market_data_evidence =
+            issue_market_data_repair_evidence_v1().expect("sealed Market Data evidence");
+        let harness = Box::pin(persist_repair_replay_predecessor(
+            &database,
+            &market_data_evidence,
+            &suffix,
+        ))
+        .await;
+        let initial_replay = harness.predecessor.request();
+        let successor_operation = Box::pin(persist_successor_experiment_decision(
+            rd_pool,
+            &harness,
+            &suffix,
+            committed_at,
+        ))
+        .await;
         let successor_admission = harness
             .edge
             .admit_request(ProductEdgeAdmissionRequestV1 {
@@ -4957,6 +5048,330 @@ mod postgres_acceptance_tests {
         Box::pin(assert_ready_tamper_closure(&harness)).await;
     }
 
+    /// The fixture key of the entry below, so the READY lineage it mints has identities of its own.
+    const PHASE_FACT_CONTINUATION_FIXTURE_KEY_V1: &str = "iteration_decision_postgres::a_phase_fact_stops_a_frozen_intent_and_its_successor_continues_at_the_new_generation";
+
+    /// One operator, two families: family X, whose Intent is frozen, and family Y, whose Candidate
+    /// Qualification closes `NOT_ADMITTED` at intake. Both share the operator's principal and scope,
+    /// and so one protected-feedback history. Y's phase fact advances it; X's frozen Intent then stops
+    /// continuing, and X's successor freezes the new generation and continues. The history is this
+    /// entry's own: the operator and every identity derive from its fixture key alone.
+    #[rstest::rstest]
+    #[ignore = "requires the canonical disposable R&D and Backtest Owner PostgreSQL topology"]
+    fn a_phase_fact_stops_a_frozen_intent_and_its_successor_continues_at_the_new_generation() {
+        // Two families, a READY lineage and a successor run the Owners' deepest custody paths; together
+        // they overflow the default test stack, as the other custody entries do.
+        std::thread::Builder::new()
+            .stack_size(16 * 1024 * 1024)
+            .spawn(|| {
+                tokio::runtime::Builder::new_multi_thread()
+                    .worker_threads(2)
+                    .enable_all()
+                    .build()
+                    .unwrap()
+                    .block_on(Box::pin(
+                        stop_at_a_phase_fact_and_continue_through_a_successor(),
+                    ));
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
+    async fn stop_at_a_phase_fact_and_continue_through_a_successor() {
+        use crate::research_continuation_v1::RESEARCH_CONTINUATION_PROTECTED_FEEDBACK_ADVANCED_COORDINATE_V1;
+
+        let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
+            .await
+            .expect("canonical disposable topology");
+        let mutation = database.mutation();
+        let rd_pool = mutation.pool(CanonicalOwnerTestRoleV1::RdOwner);
+        let lineage = ReadyLineageV1::InadequatePlan;
+        let suffix =
+            ready_lineage_acceptance_identity_v1(PHASE_FACT_CONTINUATION_FIXTURE_KEY_V1, lineage)
+                .suffix()
+                .to_owned();
+        let operator = Box::pin(persist_repair_replay_operator(&database, &suffix)).await;
+        let market_data_evidence =
+            issue_market_data_repair_evidence_v1().expect("sealed Market Data evidence");
+        let x_suffix = format!("{suffix}-x");
+        let x = Box::pin(persist_repair_replay_family(
+            &database,
+            &market_data_evidence,
+            &operator,
+            &x_suffix,
+        ))
+        .await;
+        let x_projection = x.family_policy.protected_feedback_frontier.clone();
+        // A request of the same operator that nothing has built on: its Intent is still
+        // `INTENT_FROZEN`, so Develop can continue it.
+        let frozen_suffix = format!("{suffix}-frozen");
+        let frozen_intent_identity = Box::pin(submit_repair_replay_research(
+            &operator.owner,
+            &operator.edge(&database).await,
+            &operator.request_proof_digest,
+            &frozen_suffix,
+        ))
+        .await
+        .owner_receipt()
+        .and_then(|receipt| receipt.resulting_research_intent_identity.clone())
+        .expect("the frozen request's Intent");
+        let frozen_request_identity = format!("repair-replay-research-{frozen_suffix}");
+
+        let frozen = protected_feedback_generation(rd_pool, &x_projection).await;
+        continue_initial_research_now(rd_pool, &frozen_request_identity)
+            .await
+            .expect("the frozen Intent continues while its history stays at its generation");
+
+        // Family Y under the same operator: a new request moves the history's head to Y's projection
+        // but no phase fact is committed, so X's Intent still continues.
+        let y = Box::pin(prepare_ready_decision_postgres_harness_under(
+            PHASE_FACT_CONTINUATION_FIXTURE_KEY_V1,
+            lineage,
+            Some(&operator),
+        ))
+        .await;
+        assert_eq!(
+            protected_feedback_generation(rd_pool, &x_projection).await,
+            frozen
+        );
+        continue_initial_research_now(rd_pool, &frozen_request_identity)
+            .await
+            .expect("a request under the same principal is not a phase fact");
+
+        // Y's Candidate closes NOT_ADMITTED at intake, and its replay joins the same receipt: one
+        // phase fact, one step of the shared history.
+        Box::pin(assert_ready_retry_resolve_and_qualification(&y)).await;
+        let advanced = protected_feedback_generation(rd_pool, &x_projection).await;
+        assert_eq!(advanced.generation(), frozen.generation() + 1);
+        assert_ne!(advanced.source_cut(), frozen.source_cut());
+
+        let stopped = continue_initial_research_now(rd_pool, &frozen_request_identity)
+            .await
+            .expect_err("a phase fact after the freeze stops the frozen Intent");
+        assert_eq!(
+            stopped.coordinate,
+            RESEARCH_CONTINUATION_PROTECTED_FEEDBACK_ADVANCED_COORDINATE_V1
+        );
+        // An Artifact build of the stopped Intent is refused by the same continuation, although its
+        // own build admission is current: nothing is prepared.
+        let stopped_build = Box::pin(prepare_artifact_build(
+            &database,
+            &operator,
+            &frozen_intent_identity,
+            &format!("{suffix}-stopped-build"),
+        ))
+        .await;
+        assert_eq!(
+            stopped_build.resolution(),
+            ArtifactBuildResolution::SubmittedOrUnknown
+        );
+        let stopped_attempts: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM rd_artifact_build_attempts_v1 WHERE build_request_identity = $1",
+        )
+        .bind(format!(
+            "phase-fact-artifact-request-{suffix}-stopped-build"
+        ))
+        .fetch_one(rd_pool)
+        .await
+        .expect("stopped build attempt count");
+        assert_eq!(stopped_attempts, 0);
+
+        // X iterates through a successor, which freezes the history's new generation.
+        let committed_at = current_epoch_ms().expect("test clock");
+        let successor_operation = Box::pin(persist_successor_experiment_decision(
+            rd_pool,
+            &x,
+            &x_suffix,
+            committed_at,
+        ))
+        .await;
+        let successor_admission = x
+            .edge
+            .admit_request(ProductEdgeAdmissionRequestV1 {
+                request_identity: successor_operation.request_identity.clone(),
+                typed_payload: serde_json::to_value(&successor_operation)
+                    .expect("successor typed payload"),
+                operation: SUCCESSOR_RESEARCH_INTENT_OPERATION_V1.to_string(),
+                operation_schema: SUCCESSOR_RESEARCH_INTENT_SCHEMA_V1.to_string(),
+                target_owner: RESEARCH_OWNER_V1.to_string(),
+                requested_effects: vec![SUCCESSOR_RESEARCH_INTENT_MUTATION_EFFECT_V1.to_string()],
+                request_proof_digest: x.request_proof_digest.clone(),
+                audit_correlation: format!("test:{}", successor_operation.request_identity),
+            })
+            .await
+            .expect("successor Product Edge admission")
+            .locator()
+            .clone();
+        let successor = x
+            .owner
+            .compose_successor_research_intent_v1(
+                successor_operation.with_admission(successor_admission),
+            )
+            .await
+            .expect("successor Intent custody");
+        let intent = successor.intent();
+        let mut continued = rd_pool
+            .begin()
+            .await
+            .expect("successor continuation transaction");
+        let cut = crate::rd_owner_clock::owner_clock_epoch_ms_in_transaction(&mut continued)
+            .await
+            .expect("R&D Owner clock");
+        crate::successor_research_custody_postgres_v1::lock_successor_research_for_intent_in_transaction_v1(
+            &mut continued,
+            intent.intent_identity(),
+            cut,
+        )
+        .await
+        .expect("the successor continues at the generation it froze");
+        continued
+            .rollback()
+            .await
+            .expect("successor continuation rollback");
+        // Its Artifact build continues under the successor's own authority and the generation it
+        // froze, not the initial Intent's.
+        assert_eq!(
+            Box::pin(prepare_artifact_build(
+                &database,
+                &operator,
+                intent.intent_identity(),
+                &format!("{suffix}-successor-build"),
+            ))
+            .await
+            .resolution(),
+            ArtifactBuildResolution::Prepared
+        );
+
+        assert_ne!(
+            intent.protected_feedback_projection_identity(),
+            x_projection
+        );
+        let mut frozen_by_successor = rd_pool
+            .begin()
+            .await
+            .expect("successor feedback transaction");
+        let successor_feedback =
+            crate::successor_intent_postgres::verify_successor_protected_feedback_basis_in_transaction(
+                &mut frozen_by_successor,
+                intent.independence_basis_identity(),
+                intent.independence_basis_digest(),
+                intent.protected_feedback_projection_identity(),
+                intent.protected_feedback_projection_digest(),
+            )
+            .await
+            .expect("the successor's projection is its family basis's");
+        frozen_by_successor
+            .rollback()
+            .await
+            .expect("successor feedback rollback");
+        assert_eq!(successor_feedback.source_cut(), advanced.source_cut());
+    }
+
+    /// Admits an Artifact build of `intent_identity` under `operator` and prepares it.
+    async fn prepare_artifact_build(
+        database: &CanonicalOwnerPostgresTestDatabaseV1,
+        operator: &RepairReplayOperatorV1,
+        intent_identity: &str,
+        suffix: &str,
+    ) -> crate::artifact_build::ArtifactBuildPreparationV1 {
+        let build_request_identity = format!("phase-fact-artifact-request-{suffix}");
+        let payload = ArtifactBuildRequestV1 {
+            build_request_identity: build_request_identity.clone(),
+            attempt_identity: format!("phase-fact-artifact-attempt-{suffix}"),
+            intent_identity: intent_identity.to_owned(),
+            channel: ProductEdgeChannel::WindmillProductEdge,
+            admission: placeholder_product_edge_admission(&build_request_identity),
+        };
+        let admission = operator
+            .edge(database)
+            .await
+            .admit_artifact_build_request(ProductEdgeAdmissionRequestV1 {
+                request_identity: build_request_identity.clone(),
+                typed_payload: serde_json::json!({
+                    "build_request_identity": payload.build_request_identity,
+                    "attempt_identity": payload.attempt_identity,
+                    "intent_identity": payload.intent_identity,
+                    "channel": payload.channel,
+                }),
+                operation: ARTIFACT_BUILD_OPERATION_V1.to_string(),
+                operation_schema: ARTIFACT_BUILD_SCHEMA_V1.to_string(),
+                target_owner: RESEARCH_OWNER_V1.to_string(),
+                requested_effects: vec![
+                    "R_AND_D_ARTIFACT_BUILD_MUTATION_V1".to_string(),
+                    "R_AND_D_PROVIDER_INVOCATION_V1".to_string(),
+                ],
+                request_proof_digest: operator.request_proof_digest.clone(),
+                audit_correlation: format!("test:{build_request_identity}"),
+            })
+            .await
+            .expect("Artifact Product Edge admission")
+            .locator()
+            .clone();
+        PostgresArtifactBuildOwnerV1::connect(
+            database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
+            "/tmp/unused-phase-fact-sandbox.sock",
+            u64::MAX,
+        )
+        .await
+        .expect("Artifact Owner")
+        .prepare(ArtifactBuildRequestV1 {
+            admission,
+            ..payload
+        })
+        .await
+        .expect("Artifact preparation")
+    }
+
+    async fn protected_feedback_generation(
+        rd_pool: &PgPool,
+        projection_identity: &str,
+    ) -> vibe_qualification::ProtectedFeedbackGenerationV1 {
+        let mut transaction = rd_pool.begin().await.expect("generation read transaction");
+        let generation = vibe_qualification::read_protected_feedback_generation_in_transaction(
+            &mut transaction,
+            projection_identity,
+        )
+        .await
+        .expect("generation read")
+        .expect("the projection's history");
+        transaction
+            .rollback()
+            .await
+            .expect("generation read rollback");
+        generation
+    }
+
+    async fn continue_initial_research_now(
+        rd_pool: &PgPool,
+        request_identity: &str,
+    ) -> Result<(), crate::develop_composer_v2::DevelopComposerTerminalV2> {
+        let mut transaction = rd_pool.begin().await.expect("continuation transaction");
+        let custody =
+            crate::rd_owner_postgres_custody::admit_research_v2_custody_read_only_in_transaction(
+                &mut transaction,
+                request_identity,
+            )
+            .await
+            .expect("Research custody read")
+            .expect("the admitted request's custody");
+        let cut = crate::rd_owner_clock::owner_clock_epoch_ms_in_transaction(&mut transaction)
+            .await
+            .expect("R&D Owner clock");
+        let continued = Box::pin(
+            crate::research_continuation_v1::continue_initial_research_in_transaction(
+                &mut transaction,
+                &custody,
+                request_identity,
+                cut,
+            ),
+        )
+        .await
+        .map(|_| ());
+        transaction.rollback().await.expect("continuation rollback");
+        continued
+    }
+
     /// Execution-input binding issuance opens its transaction at the one isolation every Owner read
     /// on the way answers under.
     ///
@@ -5099,6 +5514,21 @@ mod postgres_acceptance_tests {
     async fn prepare_ready_decision_postgres_harness(
         lineage: ReadyLineageV1,
     ) -> Box<ReadyDecisionPostgresHarnessV1> {
+        Box::pin(prepare_ready_decision_postgres_harness_under(
+            ORDERED_CHAIN_READY_FIXTURE_KEY_V1,
+            lineage,
+            None,
+        ))
+        .await
+    }
+
+    /// The READY lineage `lineage` minted under `fixture_key`, in a family of its own operator or,
+    /// given one, of `operator`, whose protected-feedback history it then shares.
+    async fn prepare_ready_decision_postgres_harness_under(
+        fixture_key: &'static str,
+        lineage: ReadyLineageV1,
+        operator: Option<&RepairReplayOperatorV1>,
+    ) -> Box<ReadyDecisionPostgresHarnessV1> {
         let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
             .await
             .expect("canonical disposable topology");
@@ -5107,10 +5537,9 @@ mod postgres_acceptance_tests {
         let backtest_pool = mutation.pool(CanonicalOwnerTestRoleV1::BacktestOwner);
         // The Qualification entries that consume this lineage compute the same identities from the
         // same key and read exactly it, so every identity minted here derives from them.
-        let suffix =
-            ready_lineage_acceptance_identity_v1(ORDERED_CHAIN_READY_FIXTURE_KEY_V1, lineage)
-                .suffix()
-                .to_owned();
+        let suffix = ready_lineage_acceptance_identity_v1(fixture_key, lineage)
+            .suffix()
+            .to_owned();
         let market_data_evidence =
             issue_market_data_repair_evidence_v1().expect("sealed Market Data evidence");
         let PersistedReplayPredecessorV1 {
@@ -5122,12 +5551,25 @@ mod postgres_acceptance_tests {
             independence_basis_locator,
             research_receipt_identity,
             ..
-        } = Box::pin(persist_repair_replay_predecessor(
-            &database,
-            &market_data_evidence,
-            &suffix,
-        ))
-        .await;
+        } = match operator {
+            Some(operator) => {
+                Box::pin(persist_repair_replay_family(
+                    &database,
+                    &market_data_evidence,
+                    operator,
+                    &suffix,
+                ))
+                .await
+            }
+            None => {
+                Box::pin(persist_repair_replay_predecessor(
+                    &database,
+                    &market_data_evidence,
+                    &suffix,
+                ))
+                .await
+            }
+        };
         let qualification = PostgresQualificationOwnerV1::connect(
             database.database_url(CanonicalOwnerTestRoleV1::QualificationWriter),
         )
@@ -5258,6 +5700,7 @@ mod postgres_acceptance_tests {
         Box::new(ReadyDecisionPostgresHarnessV1 {
             database,
             qualification,
+            fixture_key,
             lineage,
             suffix,
             result_identity,
@@ -5322,7 +5765,7 @@ mod postgres_acceptance_tests {
             .protected_decision_policy;
         let lineage = harness.lineage;
         let intake_request = vibe_qualification::CandidateIntakeRequestV1::new(
-            ready_lineage_acceptance_identity_v1(ORDERED_CHAIN_READY_FIXTURE_KEY_V1, lineage)
+            ready_lineage_acceptance_identity_v1(harness.fixture_key, lineage)
                 .review_request_identity()
                 .to_owned(),
             issued.decision().decision_identity().to_string(),

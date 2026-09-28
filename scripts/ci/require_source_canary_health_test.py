@@ -12,7 +12,9 @@ failing in the two newest runs is red:
 - a source BLOCKED in both runs: green, because only FAILED counts;
 - a receipt that cannot be read twice in a row: red; once: green with a warning;
 - the newest run older than the limit: red;
-- a listing that cannot be read: red.
+- a listing that cannot be read: red;
+- a start time read in UTC, not the local zone, and one that cannot be read: red;
+- no `datetime.fromisoformat`, which the Python quality runs this under cannot read GitHub's times with.
 
 """
 
@@ -90,7 +92,14 @@ def check(label: str, runs: list[tuple[str, str, object]], want: int, fragment: 
             (fixtures / f"{number}.log").write_text(log)
         (fixtures / "listing.json").write_text(json.dumps({"workflow_runs": listing}))
         result = subprocess.run(
-            [sys.executable, "-B", str(SCRIPT), "research-source-canary.yml", "main", "15"],
+            [
+                sys.executable,
+                "-B",
+                str(SCRIPT),
+                "research-source-canary.yml",
+                "main",
+                env.pop("MAX_AGE_DAYS", "15"),
+            ],
             capture_output=True,
             text=True,
             check=False,
@@ -112,6 +121,12 @@ def check(label: str, runs: list[tuple[str, str, object]], want: int, fragment: 
 
 
 def main() -> None:
+    if "fromisoformat(" in SCRIPT.read_text(encoding="utf-8"):
+        sys.exit(
+            "FAIL the script uses datetime.fromisoformat, which refuses GitHub's trailing Z under the "
+            "runner's system Python 3.10 that quality runs it with (run 36357614937)",
+        )
+    print("ok the script parses GitHub's times without fromisoformat")
     check(
         "one failure, then a clean run",
         [
@@ -190,6 +205,19 @@ def main() -> None:
         [("2026-09-11T10:00:00Z", "success", set())],
         1,
         "days old, over 15",
+    )
+    check(
+        "a start time 11.5 hours old, under a 12-hour limit, read in UTC",
+        [("2026-09-27T00:30:00Z", "success", set())],
+        0,
+        "no source failed in two runs in a row",
+        MAX_AGE_DAYS="0.5",
+    )
+    check(
+        "a start time that cannot be read",
+        [("2026-09-27 00:30:00", "success", set())],
+        1,
+        "could not read when",
     )
     check(
         "the listing cannot be read",

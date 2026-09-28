@@ -25,6 +25,22 @@ Whenever `reuse` cannot prove the mapping, it leaves the checkout's mtimes, so e
 rebuilds, and prints why: no marker, the cached commit unreachable, a failed diff, or a change to
 a manifest, the lock file, cargo configuration or the toolchain.
 
+`stash` runs on main after the build, `reuse` unpacks what it stored. rust-cache keeps the units of
+packages outside the workspace root and of workspace members, and deletes everything else before
+saving (Swatinem/rust-cache c19371144, src/save.ts:41-53 and src/cleanup.ts:55-70). A path
+dependency inside the root that is not a member - `patches/pyo3-stub-gen`, which 37 crates depend
+on - falls in neither, so every pull request recompiled it and everything above it (65 of 77 local
+crates on every pull request on 2026-09-27). `stash` packs those packages' build, fingerprint and
+deps files, mtimes included, into a CACHEDIR.TAG, the one file name the cleanup keeps at any depth
+(src/cleanup.ts:10-30); `reuse` unpacks it before it sets any mtime. A source change in such a
+package still rebuilds it: its sources get the new mtime like any other changed file.
+
+`prune` runs on main after everything compiled and before the cache is saved. It deletes every
+workspace unit no file of which this run wrote, which is every one older than T: when main's key
+changes, the new entry is saved on top of the one it restored, and those older units would ride
+along in every later entry although a pull request rebuilds each of them anyway. Units of
+dependencies stay, and so does any file named like one; the stash and the marker are not units.
+
 `verify` checks the result by a second route, blob by blob between the two trees rather than
 through `git diff`. Every tracked file whose content differs must be newer than T and every
 other tracked file must be exactly T - 1, whatever its type. A file left wrong fails by name.
@@ -35,11 +51,14 @@ other tracked file must be exactly T - 1, whatever its type. A file left wrong f
 from __future__ import annotations
 
 import base64
+import io
+import json
 import os
 import re
 import shutil
 import subprocess
 import sys
+import tarfile
 import time
 from pathlib import Path
 
@@ -60,6 +79,216 @@ GIT = shutil.which("git") or "git"
 
 def git(*args: str, check: bool = True) -> subprocess.CompletedProcess[bytes]:
     return subprocess.run([GIT, *args], capture_output=True, check=check)
+
+
+def stash_path(target_dir: Path) -> Path:
+    return target_dir / "path-dep-stash" / "CACHEDIR.TAG"
+
+
+def metadata() -> dict:
+    cargo = shutil.which("cargo") or "cargo"
+    return json.loads(
+        subprocess.run(
+            [cargo, "metadata", "--format-version", "1", "--locked"],
+            capture_output=True,
+            check=True,
+        ).stdout,
+    )
+
+
+LIBRARY_KINDS = frozenset({"lib", "rlib", "dylib", "cdylib", "staticlib", "proc-macro"})
+
+
+def crate_names(
+    package: dict,
+    *,
+    only: frozenset[str] | None = None,
+    exclude: frozenset[str] | set[str] = frozenset(),
+) -> list[str]:
+    return sorted(
+        {
+            t["name"].replace("-", "_")
+            for t in package["targets"]
+            if (only is None or only & set(t["kind"])) and not exclude & set(t["kind"])
+        },
+    )
+
+
+def stashed_packages() -> list[tuple[str, list[str]]]:
+    """
+    Return (package name, crate names) for every local path package inside this checkout
+    that is not a workspace member.
+    """
+    meta = metadata()
+    root = os.path.realpath(meta["workspace_root"]) + os.sep
+    members = set(meta["workspace_members"])
+    packages = []
+    for package in meta["packages"]:
+        manifest = os.path.realpath(package["manifest_path"])
+        if (
+            package.get("source") is None
+            and package["id"] not in members
+            and manifest.startswith(root)
+        ):
+            packages.append((package["name"], crate_names(package)))
+    return sorted(packages)
+
+
+def member_packages() -> tuple[list[tuple[str, list[str]]], set[str]]:
+    """
+    Return (package name, crate names) for every workspace member, and every name a unit
+    from outside the workspace can carry in the target.
+    """
+    meta = metadata()
+    members = set(meta["workspace_members"])
+    # A build script's binary lives in its unit's build directory, named by package, never in deps.
+    own = sorted(
+        (package["name"], crate_names(package, exclude={"custom-build"}))
+        for package in meta["packages"]
+        if package["id"] in members
+    )
+    # A dependency is built only as its library: its units carry its package name and the crate
+    # name of its library target, never the name of one of its tests or binaries.
+    shared = {
+        name
+        for package in meta["packages"]
+        if package["id"] not in members
+        for name in [package["name"], *crate_names(package, only=LIBRARY_KINDS)]
+    }
+    return own, shared
+
+
+def profile_dirs(target_dir: Path) -> list[Path]:
+    """
+    Return every profile directory under the target, nested targets included.
+    """
+    profiles = []
+    # A walk that never descends into the unit directories themselves: the target holds hundreds
+    # of thousands of files, and a profile directory is recognised by its `.fingerprint` child.
+    for directory, subdirectories, _files in os.walk(target_dir):
+        if ".fingerprint" in subdirectories:
+            profiles.append(Path(directory))
+        subdirectories[:] = [
+            d for d in subdirectories if d not in {".fingerprint", "build", "deps", "incremental"}
+        ]
+    return profiles
+
+
+def unit_entries(target_dir: Path, packages: list[tuple[str, list[str]]]) -> list[Path]:
+    """
+    Return every build and fingerprint directory and deps file those packages left in
+    any profile directory under the target.
+    """
+    names = [name for name, _ in packages]
+    crates = [crate for _, crate_list in packages for crate in crate_list]
+    if not names:
+        return []
+    # cargo names a unit `<package>-<16 hex>` and its outputs `[lib]<crate>-<16 hex>[.ext]`. Matching
+    # the whole shape keeps `pyo3-stub-gen-derive`, a different package, out of `pyo3-stub-gen`.
+    unit = re.compile(rf"^(?:{'|'.join(map(re.escape, names))})-[0-9a-f]{{16}}$")
+    output = re.compile(rf"^(?:lib)?(?:{'|'.join(map(re.escape, crates))})-[0-9a-f]{{16}}(?:\.|$)")
+    found = []
+    for profile in profile_dirs(target_dir):
+        for kind in (".fingerprint", "build"):
+            found.extend(e for e in (profile / kind).glob("*") if unit.match(e.name))
+        found.extend(
+            entry
+            for entry in (profile / "deps").glob("*")
+            if entry.is_file() and output.match(entry.name)
+        )
+    return sorted(set(found))
+
+
+def unit_files(target_dir: Path, packages: list[tuple[str, list[str]]]) -> list[Path]:
+    """
+    Return every build, fingerprint and deps file those packages left in any profile
+    directory under the target, nested targets included.
+    """
+    found = []
+    for entry in unit_entries(target_dir, packages):
+        found.extend(p for p in [entry, *entry.rglob("*")] if p.is_file())
+    return sorted(set(found))
+
+
+def entry_files(entry: Path) -> list[Path]:
+    return [entry] if entry.is_file() else [p for p in entry.rglob("*") if p.is_file()]
+
+
+def prune(target_dir: Path) -> int:
+    """
+    Delete the workspace units this run did not build, before main saves the target.
+    """
+    marker = read_marker(target_dir)
+    if marker is None:
+        print(f"{PREFIX} no source marker in {target_dir}; nothing pruned")
+        return 0
+    sha, recorded = marker
+    own, shared = member_packages()
+    # A name a dependency's units also carry would match them, and they reuse by hash and must
+    # stay: a member test named `uuid` shares `deps/` with the uuid crate. Such a name is left out,
+    # and with it only that name's files; a package name no member shares today.
+    packages = [
+        (name, [crate for crate in crates if crate not in shared])
+        for name, crates in own
+        if name not in shared
+    ]
+    units = removed = 0
+    for entry in unit_entries(target_dir, packages):
+        files = entry_files(entry)
+        # A unit this run built or re-ran has an output written after T; one it only restored has
+        # none. The pull request would rebuild it anyway: reuse sets unchanged sources to T - 1.
+        if any(f.stat().st_mtime >= recorded for f in files):
+            continue
+        removed += sum(f.stat().st_size for f in files)
+        units += 1
+        if entry.is_dir():
+            shutil.rmtree(entry)
+        else:
+            entry.unlink()
+    print(
+        f"{PREFIX} pruned {units} workspace unit entries, {removed} bytes, that this run did not build "
+        f"(older than {sha[:9]} at {recorded})",
+    )
+    output = os.environ.get("GITHUB_OUTPUT")
+    if output:
+        with open(output, "a", encoding="utf-8") as handle:
+            handle.write(f"pruned-entries={units}\npruned-bytes={removed}\n")
+    return 0
+
+
+def stash(target_dir: Path) -> int:
+    packages = stashed_packages()
+    names = ", ".join(name for name, _ in packages) or "none"
+    files = unit_files(target_dir, packages)
+    buffer = io.BytesIO()
+    with tarfile.open(fileobj=buffer, mode="w") as archive:
+        for path in files:
+            archive.add(path, arcname=str(path.relative_to(target_dir)), recursive=False)
+    path = stash_path(target_dir)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(buffer.getvalue())
+    print(
+        f"{PREFIX} stashed path dependencies outside the members ({names}): "
+        f"{len(files)} file(s), {path.stat().st_size} bytes in {path}",
+    )
+    return 0
+
+
+def unstash(target_dir: Path) -> None:
+    path = stash_path(target_dir)
+    if not path.is_file():
+        print(
+            f"{PREFIX} no path-dependency stash restored ({path} is missing); those crates rebuild",
+        )
+        return
+    with tarfile.open(path) as archive:
+        members = [
+            m for m in archive.getmembers() if m.isfile() and not m.name.startswith(("/", ".."))
+        ]
+        archive.extractall(target_dir, members=members, filter="data")
+    print(
+        f"{PREFIX} unstashed path dependencies: {len(members)} file(s), {path.stat().st_size} bytes from {path}",
+    )
 
 
 def marker_path(target_dir: Path) -> Path:
@@ -143,6 +372,7 @@ def reuse(target_dir: Path) -> int:
     if blocking:
         return full_rebuild(f"{', '.join(blocking[:5])} changed since the cached source {sha}")
 
+    unstash(target_dir)
     unchanged_time = recorded - 1
     now = time.time()
     changed_set = set(changed)
@@ -195,11 +425,11 @@ def verify(target_dir: Path) -> int:
 
 
 def main() -> int:
-    if len(sys.argv) != 3 or sys.argv[1] not in ("record", "reuse", "verify"):
-        print(f"usage: {sys.argv[0]} record|reuse|verify <target-dir>", file=sys.stderr)
+    commands = {"record": record, "reuse": reuse, "verify": verify, "stash": stash, "prune": prune}
+    if len(sys.argv) != 3 or sys.argv[1] not in commands:
+        print(f"usage: {sys.argv[0]} {'|'.join(commands)} <target-dir>", file=sys.stderr)
         return 2
-    target_dir = Path(sys.argv[2])
-    return {"record": record, "reuse": reuse, "verify": verify}[sys.argv[1]](target_dir)
+    return commands[sys.argv[1]](Path(sys.argv[2]))
 
 
 if __name__ == "__main__":

@@ -427,7 +427,10 @@ downstream first mutation does:
 - `POST /v1/bounded-feature-programs/{declare,freeze}`;
 - publishing the Design role intent;
 - reading the Research authoring facts;
-- freezing a complex-strategy develop evaluation.
+- freezing a complex-strategy develop evaluation;
+- the Artifact build: preparing it, reserving its provider invocation, recording its candidate and
+  committing its terminal result. A successor's build continues under the successor's own admission
+  and the protected feedback it froze, not its family's initial Intent's.
 
 Each continues only while the operator authorization that admission names is current there: in
 force, not revoked, and under a current policy binding and manifest window. Otherwise it answers
@@ -438,17 +441,36 @@ force, not revoked, and under a current policy binding and manifest window. Othe
 - a quarantined legacy custody carries no current admission and answers at
   `research_custody.continuation.no_admission`.
 
-The frozen View still identifies the Intent: a cut before its projection is refused, and the Intent
-must still be `INTENT_FROZEN`. Protected feedback is checked when the Intent is admitted and not
-again. Today the protected-feedback frontier carries no generation, and a protected evaluation does
-not advance it, so a continuation cannot observe a protected evaluation made after the freeze. The
-slice that gives the frontier a generation, and makes every continuation compare it with the one
-the Intent was frozen under, removes this property. Until their own slices land, two kinds of check
-still read the View's window:
+Each also continues only while no protected evaluation has become observable to the Intent since it
+was frozen. Every public Qualification phase fact of the principal/scope history advances that
+history's protected-feedback generation (see Qualification's protected-feedback generation), so the
+continuation reads the history's current source cut for the projection the Intent froze and
+compares it with the one it froze. It holds the history's head `FOR SHARE` until the continuation
+commits, so no phase fact can land in between. A later cut answers at
+`research_custody.continuation.protected_feedback_advanced`: iterating on the Intent then goes
+through a successor Intent, which freezes the history's new generation (Lineage and
+protected-feedback admission). An Intent whose frozen projection or history cannot be read answers
+at `research_custody.continuation.protected_feedback_unavailable`. A candidate's own phase fact
+counts as well, so once the Intent's candidate enters Qualification its continuation stops.
 
-- the steps after a Replay commit: the Backtest run, the execution-input binding and Market Data
-  repair;
-- Product Edge's own downstream-admission window check.
+The frozen View still identifies the Intent: a cut before its projection is refused, and the Intent
+must still be `INTENT_FROZEN`.
+
+A read that only projects an Artifact build's next action, its readback and its resolve, takes no
+lock: it answers from the authorization the build's admission recorded and the stored View's
+availability, and the mutation that follows proves the continuation again and refuses by name. A
+read at a cut an operation already wrote at asks only that the Research authority it recorded covered
+that cut: the Research sources that the Backtest run, the execution-input binding and Market Data
+repair read at their Replay's Owner cut, where the Replay commit proved the continuation.
+
+Until their own slices land, two checks still read the View's window:
+
+- the exploratory Replay commit, whose file F holds, so until it moves every step after a Replay
+  reaches only a Replay committed inside the window;
+- Product Edge's own downstream-admission window check, including the R&D functions it calls to
+  lock the Research at its View (`rd_owner_api.lock_research_for_artifact_at_view_v1` and
+  `rd_owner_api.lock_current_successor_research_for_artifact_v1`), so a new Artifact build request
+  is still admitted only inside the window.
 
 **CURRENT/PARTIAL - the first cycle now has something to stand on.** Sealing the corpus run leaves
 `run_bounded_feature_program` as the only production entry, and it requires a frozen joint program.

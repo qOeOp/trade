@@ -32,12 +32,17 @@ import subprocess
 import sys
 import time
 from datetime import datetime
+from datetime import timezone
 
 
 GH = shutil.which("gh") or "gh"
 SCHEMA = "qoeop-source-canary-receipt/v1"
 TIMESTAMP = re.compile(r"^\d{4}-\d\d-\d\dT[\d:.]+Z ")
 UNREADABLE = "(receipt unreadable)"
+# GitHub's run timestamps. Parsed explicitly: quality runs this under the runner's system Python,
+# 3.10 on ubuntu-22.04, whose datetime.fromisoformat refuses the trailing Z (it made main's first
+# scheduled build with this step red, run 36357614937).
+GITHUB_TIME = "%Y-%m-%dT%H:%M:%SZ"
 
 
 def gh(path: str) -> str:
@@ -108,7 +113,15 @@ def main() -> int:
         return 1
 
     newest = runs[0]
-    created = datetime.fromisoformat(newest["created_at"]).timestamp()
+    try:
+        created = (
+            datetime.strptime(newest["created_at"], GITHUB_TIME)
+            .replace(tzinfo=timezone.utc)  # noqa: UP017 - datetime.UTC is 3.11+; quality runs 3.10
+            .timestamp()
+        )
+    except ValueError as e:
+        print(f"ERROR: could not read when {workflow}'s newest run started ({e}).", file=sys.stderr)
+        return 1
     now = float(os.environ.get("REQUIRE_LATEST_NOW") or time.time())
     age_days = (now - created) / 86400
     if age_days > max_age_days:
