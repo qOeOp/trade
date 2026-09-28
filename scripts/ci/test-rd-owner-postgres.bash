@@ -2527,6 +2527,9 @@ if [[ "${1:-}" == "--check" ]]; then
   exit 0
 fi
 
+# LANE0 PROBE, NOT FOR MERGE: build and run the chain at release codegen. Set here rather than in
+# owner-chains.yml, so the workflow keeps building like build.yml and its cache key is unchanged.
+export CARGO_CI_PROFILE=stack-probe-release
 if [[ -z "${CARGO_CI_PROFILE:-}" ]]; then
   echo "ERROR: CARGO_CI_PROFILE must select a Cargo compile profile." >&2
   exit 1
@@ -4936,10 +4939,27 @@ fi
 # positive Artifact Owner consumer.
 # The positions the local preflight left out and reported SKIP (chain_entry_skipped_locally).
 chain_locally_skipped_entries=()
+# LANE8 PROBE, NOT FOR MERGE: every entry on a 16 MiB stack, with a pthread_create shim that counts
+# each thread stack's resident pages when its start routine returns (its peak depth), after a
+# calibration of the shim against known depths.
+lane8_probe_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lane8-probe"
+export RUST_MIN_STACK=16777216
+export CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER="${lane8_probe_dir}/stack-peak-runner.bash"
+# Outside the checkout: the browser acceptances refuse a worktree with untracked files.
+lane8_scratch="${RUNNER_TEMP:-/tmp}"
+export LANE8_STACK_SHIM="${lane8_scratch}/lane8-stack-shim.so"
+export LANE8_STACK_LOG="${lane8_scratch}/lane8-stack.tsv"
+: > "$LANE8_STACK_LOG"
+gcc -O2 -shared -fPIC -o "$LANE8_STACK_SHIM" "${lane8_probe_dir}/stack-peak-shim.c" -ldl
+gcc -O0 -pthread -o "${lane8_scratch}/lane8-calibrate" "${lane8_probe_dir}/calibrate.c"
+for lane8_kib in 0 256 1536; do
+  LANE8_ENTRY="calibrate-${lane8_kib}" "$CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER" "${lane8_scratch}/lane8-calibrate" "$lane8_kib"
+done
 for chain_step in "${chain_run_order[@]}"; do
   IFS='|' read -r chain_position chain_step_kind chain_step_component <<< "$chain_step"
   chain_run_index=$((chain_run_index + 1))
   test_selection="${rd_owner_postgres_tests[$((chain_position - 1))]}"
+  export LANE8_ENTRY="$chain_position"
   IFS='|' read -r test_package test_binary test_name <<< "$test_selection"
   if [[ -n "$chain_current_component" && "$chain_step_component" != "$chain_current_component" ]]; then
     reset_chain_databases
@@ -5204,6 +5224,9 @@ for chain_step in "${chain_run_order[@]}"; do
 done
 
 legacy_replay_fingerprint_after="$(legacy_replay_fingerprint)"
+while IFS=$'\t' read -r lane8_entry lane8_thread lane8_peak lane8_size; do
+  echo "LANE8-STACK entry=${lane8_entry} peak_kib=${lane8_peak} stack_kib=${lane8_size} thread=${lane8_thread}"
+done < "$LANE8_STACK_LOG"
 readonly legacy_replay_fingerprint_after
 if [[ "$legacy_replay_fingerprint_after" != "$legacy_replay_fingerprint_before" ]]; then
   echo "ERROR: legacy exploratory Replay table data or catalog changed." >&2
