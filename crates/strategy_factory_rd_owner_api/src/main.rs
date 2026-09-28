@@ -3189,6 +3189,12 @@ mod tests {
     use super::*;
     use vibe_strategy_factory::product_edge::ResearchGoalOwnerResultV2;
 
+    /// A step's future, built in the plain function that returns it. In a debug build an async
+    /// fn's poll frame keeps a slot for every temporary in its body while it awaits its callee, so
+    /// a long proof awaited inline stacks every phase's temporaries on its deepest chain; a step
+    /// built this way keeps them only in its own frame while it runs.
+    type Boxed<'a, T> = std::pin::Pin<Box<dyn Future<Output = T> + Send + 'a>>;
+
     #[rstest]
     fn composer_startup_uses_two_owner_urls_without_preissued_native_join() {
         let source = include_str!("main.rs");
@@ -4145,578 +4151,653 @@ mod tests {
         assert_eq!(after, before);
     }
 
+    /// Entry 8. Each phase is a plain function returning its boxed future: the future's state is
+    /// built in a frame that has returned before the body polls it, and the phase's temporaries
+    /// live in its own frame only while it runs. The body holds the fixture and a few handles, so
+    /// its poll frame, live for the whole test, no longer carries every phase's temporaries at
+    /// once. On Linux ci-pr the entry peaked at 1896 KiB of its 2 MiB stack (Lane 8's probe).
     #[tokio::test]
     #[ignore = "requires the disposable canonical OA/PE/R&D/Qualification PostgreSQL topology"]
     async fn same_identity_started_retry_returns_http_ok_with_exact_custody_once() {
-        let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
-        let mutation = test_database.mutation();
-        #[cfg(feature = "sealed-source-intake-acceptance")]
-        {
-            let catalog_admin_pool = sqlx::postgres::PgPoolOptions::new()
-                .connect_url(
-                    test_database
-                        .database_url(CanonicalOwnerTestRoleV1::ReplayPolicyCatalogAdminWriter),
-                    PostgresTls::Disabled,
+        let retry = started_retry_fixture().await;
+        let intent_identity = submit_started_retry_research(&retry).await;
+        let claim_identity = prepare_and_claim_started_retry_build(&retry, intent_identity).await;
+        refuse_started_retry_foreign_research(&retry, &claim_identity).await;
+        let started = start_and_retry_started_retry_invocation(&retry, claim_identity).await;
+        refuse_started_retry_without_invocation_custody(&retry, &started).await;
+        refuse_started_retry_with_tampered_reservation(&retry, &started).await;
+    }
+
+    /// What every phase of entry 8 reads: its store, the API state over it, and the identities its
+    /// requests carry.
+    struct StartedRetryFixtureV1 {
+        test_database: CanonicalOwnerPostgresTestDatabaseV1,
+        state: ApiState,
+        headers: HeaderMap,
+        research_request_identity: String,
+        build_request_identity: String,
+        attempt_identity: String,
+    }
+
+    /// The legitimate start and its retry, as the refusals after them read it.
+    struct StartedRetryInvocationV1 {
+        claim_identity: String,
+        start_body: Bytes,
+        rd_attempt_after_retry: serde_json::Value,
+    }
+
+    fn started_retry_fixture() -> Boxed<'static, StartedRetryFixtureV1> {
+        Box::pin(async move {
+            let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
+            #[cfg(feature = "sealed-source-intake-acceptance")]
+            {
+                let catalog_admin_pool = sqlx::postgres::PgPoolOptions::new()
+                    .connect_url(
+                        test_database
+                            .database_url(CanonicalOwnerTestRoleV1::ReplayPolicyCatalogAdminWriter),
+                        PostgresTls::Disabled,
+                    )
+                    .await
+                    .unwrap();
+                ensure_replay_policy_catalog_fixture_v3(&catalog_admin_pool)
+                    .await
+                    .unwrap();
+            }
+            let token = "rd-owner-api-start-retry-test";
+            let token_digest: [u8; 32] = Sha256::digest(token.as_bytes()).into();
+            let request_proof_digest = format!("sha256:{}", hex_digest(&token_digest));
+            let suffix = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos();
+            let product_edge = Arc::new(
+                bootstrap_api_test_product_edge(
+                    &test_database,
+                    &suffix.to_string(),
+                    &request_proof_digest,
                 )
-                .await
-                .unwrap();
-            ensure_replay_policy_catalog_fixture_v3(&catalog_admin_pool)
-                .await
-                .unwrap();
-        }
-        let token = "rd-owner-api-start-retry-test";
-        let token_digest: [u8; 32] = Sha256::digest(token.as_bytes()).into();
-        let request_proof_digest = format!("sha256:{}", hex_digest(&token_digest));
-        let suffix = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let product_edge = Arc::new(
-            bootstrap_api_test_product_edge(
-                &test_database,
-                &suffix.to_string(),
-                &request_proof_digest,
-            )
-            .await,
-        );
-        let product_edge_pool = mutation.pool(CanonicalOwnerTestRoleV1::ProductEdgeOwner);
-        let owner = Arc::new(
-            PostgresResearchGoalOwnerV1::connect(
-                test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
-                test_database.database_url(CanonicalOwnerTestRoleV1::QualificationWriter),
-            )
-            .await
-            .unwrap(),
-        );
-        let artifact_owner = Arc::new(
-            PostgresArtifactBuildOwnerV1::connect(
-                test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
-                "/tmp/unused-rd-sandbox.sock",
-                u64::MAX,
-            )
-            .await
-            .unwrap(),
-        );
-        let historical_custody_owner = Arc::new(
-            PostgresHistoricalCustodyOwnerV1::connect_read_only(
-                test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
-            )
-            .await
-            .unwrap(),
-        );
-        let state = ApiState {
-            product_edge,
-            owner: owner.clone(),
-            artifact_owner: artifact_owner.clone(),
-            artifact_source_owner: artifact_owner.clone(),
-            artifact_directory_owner: artifact_owner,
-            research_directory_owner: owner.clone(),
-            research_readback_owner: owner.clone(),
-            historical_custody_owner,
-            token_digest,
-            request_proof_digest,
-            allow_acceptance_faults: false,
-            _market_data_research_pit: None,
-            #[cfg(feature = "composer-replay-issuance")]
-            native_replay_scheduling: None,
-            #[cfg(feature = "composer-replay-issuance")]
-            instrument_master_v2: None,
-            #[cfg(feature = "composer-replay-issuance")]
-            instrument_economic_terms: None,
-            #[cfg(feature = "composer-replay-issuance")]
-            universe_sample_projection: None,
-            #[cfg(feature = "composer-replay-issuance")]
-            develop_composer_read: None,
-            #[cfg(all(
-                feature = "sealed-develop-composer-acceptance",
-                not(feature = "sealed-source-intake-composer-acceptance")
-            ))]
-            develop_composer: Arc::new(
-                SealedDevelopComposerAcceptanceV2::connect(
-                    test_database.database_url(CanonicalOwnerTestRoleV1::RdFactWriter),
-                )
-                .await
-                .unwrap(),
-            ),
-            #[cfg(feature = "sealed-source-intake-composer-acceptance")]
-            develop_composer: Arc::new(
-                SealedPostgresSourceResearchComposerV2::connect(
+                .await,
+            );
+            let owner = Arc::new(
+                PostgresResearchGoalOwnerV1::connect(
                     test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
-                    test_database.database_url(CanonicalOwnerTestRoleV1::RdFactWriter),
+                    test_database.database_url(CanonicalOwnerTestRoleV1::QualificationWriter),
                 )
                 .await
                 .unwrap(),
-            ),
-            #[cfg(not(feature = "sealed-develop-composer-acceptance"))]
-            develop_composer: Arc::new(
-                PostgresSourceResearchComposerProductionV2::connect(
+            );
+            let artifact_owner = Arc::new(
+                PostgresArtifactBuildOwnerV1::connect(
                     test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
-                    test_database.database_url(CanonicalOwnerTestRoleV1::RdFactWriter),
+                    "/tmp/unused-rd-sandbox.sock",
+                    u64::MAX,
                 )
                 .await
                 .unwrap(),
-            ),
-            #[cfg(feature = "composer-replay-issuance")]
-            replay_composition: None,
-        };
-        let headers = bearer_headers(token);
-        let research_request_identity = format!("rd-api-retry-research-{suffix}");
-        let research = ProductEdgeOperationRequestV2 {
-            request_identity: research_request_identity.clone(),
-            channel: ProductEdgeChannel::WindmillProductEdge,
-            goal: SourcedResearchGoalV2 {
-                hypothesis: "A bounded point-in-time continuation effect remains after costs."
-                    .to_string(),
-                mechanism: "Slow information diffusion creates bounded continuation.".to_string(),
-                falsification_question: "Does the effect disappear after exact modeled costs?"
-                    .to_string(),
-                expected_observation: "Net continuation remains positive.".to_string(),
-                required_data: vec!["PIT adjusted bars".to_string()],
-                cost_assumption: "Exact test cost model identity.".to_string(),
-                capacity_assumption: "Exact test capacity model identity.".to_string(),
-                sources: vec![ResearchSourceV1 {
-                    locator: "https://example.com/rd-api-retry".to_string(),
-                    content_digest: format!("sha256:{}", "a".repeat(64)),
-                    observed_at: "2026-08-23T00:00:00Z".to_string(),
-                    source_cut: "rd-api-retry-source-cut-v1".to_string(),
-                    license_basis: "public research".to_string(),
-                    interpretation: "Bounded API retry fixture only.".to_string(),
-                }],
-            },
-            trial_family_proposal: TrialFamilyProposalV1 {
-                trial_budget: 2,
-                stop_rule: "Stop on falsifier or unavailable PIT input.".to_string(),
-                pit_rule_identity: "pit-rule-v1".to_string(),
-                cost_model_identity: "cost-model-v1".to_string(),
-                slippage_model_identity: "slippage-model-v1".to_string(),
-                capacity_model_identity: "capacity-model-v1".to_string(),
-                independence_rationale: "Fresh isolated API retry family.".to_string(),
-            },
-        };
-        let research_response = Box::pin(submit_v2(
-            State(state.clone()),
-            headers.clone(),
-            Bytes::from(serde_json::to_vec(&research).unwrap()),
-        ))
-        .await;
-        assert_eq!(research_response.status(), StatusCode::OK);
-        let research_json = response_json(research_response).await;
-        let intent_identity = research_json["owner_receipt"]["resulting_research_intent_identity"]
-            .as_str()
-            .unwrap_or_else(|| {
-                panic!("research API did not return accepted custody: {research_json}")
-            })
-            .to_string();
-
-        let peeked_research: Option<serde_json::Value> =
-            sqlx::query_scalar("SELECT rd_owner_api.peek_current_research_for_artifact_v1($1)")
-                .bind(&intent_identity)
-                .fetch_one(product_edge_pool)
+            );
+            let historical_custody_owner = Arc::new(
+                PostgresHistoricalCustodyOwnerV1::connect_read_only(
+                    test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
+                )
                 .await
-                .unwrap_or_else(|e| panic!("artifact research peek failed: {e:?}"));
-        assert!(
-            peeked_research.is_some(),
-            "artifact research peek returned unavailable"
-        );
+                .unwrap(),
+            );
+            let state = ApiState {
+                product_edge,
+                owner: owner.clone(),
+                artifact_owner: artifact_owner.clone(),
+                artifact_source_owner: artifact_owner.clone(),
+                artifact_directory_owner: artifact_owner,
+                research_directory_owner: owner.clone(),
+                research_readback_owner: owner.clone(),
+                historical_custody_owner,
+                token_digest,
+                request_proof_digest,
+                allow_acceptance_faults: false,
+                _market_data_research_pit: None,
+                #[cfg(feature = "composer-replay-issuance")]
+                native_replay_scheduling: None,
+                #[cfg(feature = "composer-replay-issuance")]
+                instrument_master_v2: None,
+                #[cfg(feature = "composer-replay-issuance")]
+                instrument_economic_terms: None,
+                #[cfg(feature = "composer-replay-issuance")]
+                universe_sample_projection: None,
+                #[cfg(feature = "composer-replay-issuance")]
+                develop_composer_read: None,
+                #[cfg(all(
+                    feature = "sealed-develop-composer-acceptance",
+                    not(feature = "sealed-source-intake-composer-acceptance")
+                ))]
+                develop_composer: Arc::new(
+                    SealedDevelopComposerAcceptanceV2::connect(
+                        test_database.database_url(CanonicalOwnerTestRoleV1::RdFactWriter),
+                    )
+                    .await
+                    .unwrap(),
+                ),
+                #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+                develop_composer: Arc::new(
+                    SealedPostgresSourceResearchComposerV2::connect(
+                        test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
+                        test_database.database_url(CanonicalOwnerTestRoleV1::RdFactWriter),
+                    )
+                    .await
+                    .unwrap(),
+                ),
+                #[cfg(not(feature = "sealed-develop-composer-acceptance"))]
+                develop_composer: Arc::new(
+                    PostgresSourceResearchComposerProductionV2::connect(
+                        test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
+                        test_database.database_url(CanonicalOwnerTestRoleV1::RdFactWriter),
+                    )
+                    .await
+                    .unwrap(),
+                ),
+                #[cfg(feature = "composer-replay-issuance")]
+                replay_composition: None,
+            };
+            StartedRetryFixtureV1 {
+                state,
+                headers: bearer_headers(token),
+                research_request_identity: format!("rd-api-retry-research-{suffix}"),
+                build_request_identity: format!("rd-api-retry-build-{suffix}"),
+                attempt_identity: format!("rd-api-retry-attempt-{suffix}"),
+                test_database,
+            }
+        })
+    }
 
-        let build_request_identity = format!("rd-api-retry-build-{suffix}");
-        let attempt_identity = format!("rd-api-retry-attempt-{suffix}");
-        let build = ArtifactBuildOperationRequestV1 {
-            build_request_identity: build_request_identity.clone(),
-            attempt_identity: attempt_identity.clone(),
-            intent_identity,
-            channel: ProductEdgeChannel::WindmillProductEdge,
-        };
-        let build_body = Bytes::from(serde_json::to_vec(&build).unwrap());
-        let prepared =
-            prepare_artifact_build(State(state.clone()), headers.clone(), build_body.clone()).await;
-        let prepared_status = prepared.status();
-        let prepared_rejection_code = prepared
-            .headers()
-            .get("x-rd-rejection-code")
-            .and_then(|value| value.to_str().ok())
-            .unwrap_or("none")
-            .to_string();
-        let prepared_json = response_json(prepared).await;
-        assert_eq!(
-            prepared_status,
-            StatusCode::OK,
-            "artifact preparation failed: rejection_code={prepared_rejection_code}, body={prepared_json}"
-        );
+    /// Submits the entry's Research and returns the Intent it froze, which the Artifact reads.
+    fn submit_started_retry_research(retry: &StartedRetryFixtureV1) -> Boxed<'_, String> {
+        Box::pin(async move {
+            let research_request_identity = &retry.research_request_identity;
+            let research = ProductEdgeOperationRequestV2 {
+                request_identity: research_request_identity.clone(),
+                channel: ProductEdgeChannel::WindmillProductEdge,
+                goal: SourcedResearchGoalV2 {
+                    hypothesis: "A bounded point-in-time continuation effect remains after costs."
+                        .to_string(),
+                    mechanism: "Slow information diffusion creates bounded continuation."
+                        .to_string(),
+                    falsification_question: "Does the effect disappear after exact modeled costs?"
+                        .to_string(),
+                    expected_observation: "Net continuation remains positive.".to_string(),
+                    required_data: vec!["PIT adjusted bars".to_string()],
+                    cost_assumption: "Exact test cost model identity.".to_string(),
+                    capacity_assumption: "Exact test capacity model identity.".to_string(),
+                    sources: vec![ResearchSourceV1 {
+                        locator: "https://example.com/rd-api-retry".to_string(),
+                        content_digest: format!("sha256:{}", "a".repeat(64)),
+                        observed_at: "2026-08-23T00:00:00Z".to_string(),
+                        source_cut: "rd-api-retry-source-cut-v1".to_string(),
+                        license_basis: "public research".to_string(),
+                        interpretation: "Bounded API retry fixture only.".to_string(),
+                    }],
+                },
+                trial_family_proposal: TrialFamilyProposalV1 {
+                    trial_budget: 2,
+                    stop_rule: "Stop on falsifier or unavailable PIT input.".to_string(),
+                    pit_rule_identity: "pit-rule-v1".to_string(),
+                    cost_model_identity: "cost-model-v1".to_string(),
+                    slippage_model_identity: "slippage-model-v1".to_string(),
+                    capacity_model_identity: "capacity-model-v1".to_string(),
+                    independence_rationale: "Fresh isolated API retry family.".to_string(),
+                },
+            };
+            let research_response = Box::pin(submit_v2(
+                State(retry.state.clone()),
+                retry.headers.clone(),
+                Bytes::from(serde_json::to_vec(&research).unwrap()),
+            ))
+            .await;
+            assert_eq!(research_response.status(), StatusCode::OK);
+            let research_json = response_json(research_response).await;
+            let intent_identity =
+                research_json["owner_receipt"]["resulting_research_intent_identity"]
+                    .as_str()
+                    .unwrap_or_else(|| {
+                        panic!("research API did not return accepted custody: {research_json}")
+                    })
+                    .to_string();
 
-        let custody_response =
-            read_historical_custodies(State(state.clone()), headers.clone()).await;
-        assert_eq!(custody_response.status(), StatusCode::OK);
-        let custody_json = response_json(custody_response).await;
-        assert_eq!(
-            custody_json["operation"],
-            "rd.historical_custody_quarantine.read.v1"
-        );
-        let research_candidates = custody_json["research"].as_array().unwrap();
-        let research_candidate = research_candidates
-            .iter()
-            .find(|candidate| {
-                candidate["request_identity"].as_str() == Some(research_request_identity.as_str())
-            })
-            .unwrap_or_else(|| {
-                panic!("canonical Research custody candidate missing: {custody_json}")
-            });
-        assert_eq!(
-            research_candidate["projection_state"],
-            "POINT_READ_REQUIRED"
-        );
-        assert!(research_candidate.get("resolution").is_none());
-        assert!(research_candidate.get("disposition").is_none());
-        let attempt_candidates = custody_json["artifact_attempts"].as_array().unwrap();
-        let attempt_candidate = attempt_candidates
-            .iter()
-            .find(|candidate| {
-                candidate["build_request_identity"].as_str()
-                    == Some(build_request_identity.as_str())
-                    && candidate["attempt_identity"].as_str() == Some(attempt_identity.as_str())
-            })
-            .unwrap_or_else(|| {
-                panic!("canonical Artifact custody candidate missing: {custody_json}")
-            });
-        assert_eq!(attempt_candidate["projection_state"], "POINT_READ_REQUIRED");
-        assert!(attempt_candidate.get("resolution").is_none());
-        assert!(attempt_candidate.get("disposition").is_none());
+            let mutation = retry.test_database.mutation();
+            let peeked_research: Option<serde_json::Value> =
+                sqlx::query_scalar("SELECT rd_owner_api.peek_current_research_for_artifact_v1($1)")
+                    .bind(&intent_identity)
+                    .fetch_one(mutation.pool(CanonicalOwnerTestRoleV1::ProductEdgeOwner))
+                    .await
+                    .unwrap_or_else(|e| panic!("artifact research peek failed: {e:?}"));
+            assert!(
+                peeked_research.is_some(),
+                "artifact research peek returned unavailable"
+            );
+            intent_identity
+        })
+    }
 
-        let claimed =
-            claim_provider_invocation(State(state.clone()), headers.clone(), build_body).await;
-        assert_eq!(claimed.status(), StatusCode::OK);
-        let claimed_json = response_json(claimed).await;
-        let claim_identity = claimed_json["claim_identity"].as_str().unwrap().to_string();
-
-        let product_edge_state_before_foreign_start: serde_json::Value = sqlx::query_scalar(
-            "SELECT state_json FROM product_edge_effect_invocation_states_v1 WHERE claim_identity=$1",
-        )
-        .bind(&claim_identity)
-        .fetch_one(product_edge_pool)
-        .await
-        .unwrap();
-        let foreign_start_body = Bytes::from(
-            serde_json::to_vec(&serde_json::json!({
-                "build_request_identity": build_request_identity,
-                "attempt_identity": attempt_identity,
-                "research_request_identity": "foreign-research-request",
-            }))
-            .unwrap(),
-        );
-        let foreign_start =
-            start_provider_invocation(State(state.clone()), headers.clone(), foreign_start_body)
-                .await;
-        assert_eq!(foreign_start.status(), StatusCode::CONFLICT);
-        assert_eq!(
-            foreign_start.headers().get("x-rd-rejection-code").unwrap(),
-            "RESEARCH_REQUEST_IDENTITY_CONFLICT"
-        );
-        let product_edge_state_after_foreign_start: serde_json::Value = sqlx::query_scalar(
-            "SELECT state_json FROM product_edge_effect_invocation_states_v1 WHERE claim_identity=$1",
-        )
-        .bind(&claim_identity)
-        .fetch_one(product_edge_pool)
-        .await
-        .unwrap();
-        let foreign_started_events: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM product_edge_owner_outbox_v1 WHERE event_kind='PRODUCT_EDGE_PROVIDER_INVOCATION_STARTED_V1' AND aggregate_identity=$1",
-        )
-        .bind(&claim_identity)
-        .fetch_one(product_edge_pool)
-        .await
-        .unwrap();
-        assert_eq!(
-            product_edge_state_after_foreign_start,
-            product_edge_state_before_foreign_start
-        );
-        assert_eq!(foreign_started_events, 0);
-
-        let start_body = Bytes::from(
-            serde_json::to_vec(&serde_json::json!({
-                "build_request_identity": build_request_identity,
-                "attempt_identity": attempt_identity,
-                "research_request_identity": research_request_identity,
-            }))
-            .unwrap(),
-        );
-        let started =
-            start_provider_invocation(State(state.clone()), headers.clone(), start_body.clone())
-                .await;
-        assert_eq!(started.status(), StatusCode::OK);
-        let started_json = response_json(started).await;
-        assert_eq!(
-            started_json["invocation_start"]["disposition"],
-            "STARTED_NEW"
-        );
-        assert_exact_start_custody(&started_json, &build_request_identity, &attempt_identity);
-        assert_eq!(
-            started_json["execution_custody"]["claim_identity"],
-            claim_identity
-        );
-        let started_events_after_first: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM product_edge_owner_outbox_v1 WHERE event_kind='PRODUCT_EDGE_PROVIDER_INVOCATION_STARTED_V1' AND aggregate_identity=$1",
-        )
-        .bind(&claim_identity)
-        .fetch_one(product_edge_pool)
-        .await
-        .unwrap();
-        assert_eq!(started_events_after_first, 1);
-        let rd_attempt_after_first: serde_json::Value = sqlx::query_scalar(
-            "SELECT attempt_json FROM rd_artifact_build_attempts_v1 WHERE build_request_identity=$1",
-        )
-        .bind(&build_request_identity)
-        .fetch_one(mutation.pool(CanonicalOwnerTestRoleV1::RdOwner))
-        .await
-        .unwrap();
-
-        let retried =
-            start_provider_invocation(State(state.clone()), headers.clone(), start_body.clone())
-                .await;
-        assert_eq!(retried.status(), StatusCode::OK);
-        let retried_json = response_json(retried).await;
-        assert_eq!(
-            retried_json["invocation_start"]["disposition"],
-            "OUTCOME_UNKNOWN"
-        );
-        assert_exact_start_custody(&retried_json, &build_request_identity, &attempt_identity);
-        assert_eq!(
-            retried_json["execution_custody"],
-            started_json["execution_custody"]
-        );
-        let started_events_after_retry: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM product_edge_owner_outbox_v1 WHERE event_kind='PRODUCT_EDGE_PROVIDER_INVOCATION_STARTED_V1' AND aggregate_identity=$1",
-        )
-        .bind(&claim_identity)
-        .fetch_one(product_edge_pool)
-        .await
-        .unwrap();
-        assert_eq!(started_events_after_retry, started_events_after_first);
-        let rd_attempt_after_retry: serde_json::Value = sqlx::query_scalar(
-            "SELECT attempt_json FROM rd_artifact_build_attempts_v1 WHERE build_request_identity=$1",
-        )
-        .bind(&build_request_identity)
-        .fetch_one(mutation.pool(CanonicalOwnerTestRoleV1::RdOwner))
-        .await
-        .unwrap();
-        assert_eq!(rd_attempt_after_retry, rd_attempt_after_first);
-
-        let rd_owner_pool = mutation.pool(CanonicalOwnerTestRoleV1::RdOwner);
-        let mut missing_snapshot_attempt = rd_attempt_after_retry.clone();
-        missing_snapshot_attempt
-            .as_object_mut()
-            .unwrap()
-            .remove("invocation_custody");
-        sqlx::query(
-            "UPDATE rd_artifact_build_attempts_v1 SET attempt_json=$1 WHERE build_request_identity=$2",
-        )
-        .bind(&missing_snapshot_attempt)
-        .bind(&build_request_identity)
-        .execute(rd_owner_pool)
-        .await
-        .unwrap();
-        let product_edge_state_before_missing_snapshot: serde_json::Value = sqlx::query_scalar(
-            "SELECT state_json FROM product_edge_effect_invocation_states_v1 WHERE claim_identity=$1",
-        )
-        .bind(&claim_identity)
-        .fetch_one(product_edge_pool)
-        .await
-        .unwrap();
-        let product_edge_outbox_before_missing_snapshot: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM product_edge_owner_outbox_v1 WHERE aggregate_identity=$1",
-        )
-        .bind(&claim_identity)
-        .fetch_one(product_edge_pool)
-        .await
-        .unwrap();
-        let missing_snapshot_rejected =
-            start_provider_invocation(State(state.clone()), headers.clone(), start_body.clone())
-                .await;
-        assert_eq!(
-            missing_snapshot_rejected.status(),
-            StatusCode::SERVICE_UNAVAILABLE
-        );
-        assert_eq!(
-            missing_snapshot_rejected
+    /// Prepares the build, reads both custodies as candidates, and claims the invocation.
+    fn prepare_and_claim_started_retry_build(
+        retry: &StartedRetryFixtureV1,
+        intent_identity: String,
+    ) -> Boxed<'_, String> {
+        Box::pin(async move {
+            let research_request_identity = &retry.research_request_identity;
+            let build_request_identity = &retry.build_request_identity;
+            let attempt_identity = &retry.attempt_identity;
+            let build = ArtifactBuildOperationRequestV1 {
+                build_request_identity: build_request_identity.clone(),
+                attempt_identity: attempt_identity.clone(),
+                intent_identity,
+                channel: ProductEdgeChannel::WindmillProductEdge,
+            };
+            let build_body = Bytes::from(serde_json::to_vec(&build).unwrap());
+            let prepared = prepare_artifact_build(
+                State(retry.state.clone()),
+                retry.headers.clone(),
+                build_body.clone(),
+            )
+            .await;
+            let prepared_status = prepared.status();
+            let prepared_rejection_code = prepared
                 .headers()
                 .get("x-rd-rejection-code")
-                .unwrap(),
-            "OWNER_OUTCOME_UNKNOWN"
-        );
-        let product_edge_state_after_missing_snapshot: serde_json::Value = sqlx::query_scalar(
-            "SELECT state_json FROM product_edge_effect_invocation_states_v1 WHERE claim_identity=$1",
-        )
-        .bind(&claim_identity)
-        .fetch_one(product_edge_pool)
-        .await
-        .unwrap();
-        let product_edge_outbox_after_missing_snapshot: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM product_edge_owner_outbox_v1 WHERE aggregate_identity=$1",
-        )
-        .bind(&claim_identity)
-        .fetch_one(product_edge_pool)
-        .await
-        .unwrap();
-        let rd_attempt_after_missing_snapshot: serde_json::Value = sqlx::query_scalar(
-            "SELECT attempt_json FROM rd_artifact_build_attempts_v1 WHERE build_request_identity=$1",
-        )
-        .bind(&build_request_identity)
-        .fetch_one(rd_owner_pool)
-        .await
-        .unwrap();
-        assert_eq!(
-            product_edge_state_after_missing_snapshot,
-            product_edge_state_before_missing_snapshot
-        );
-        assert_eq!(
-            product_edge_outbox_after_missing_snapshot,
-            product_edge_outbox_before_missing_snapshot
-        );
-        assert_eq!(rd_attempt_after_missing_snapshot, missing_snapshot_attempt);
-        sqlx::query(
-            "UPDATE rd_artifact_build_attempts_v1 SET attempt_json=$1 WHERE build_request_identity=$2",
-        )
-        .bind(&rd_attempt_after_retry)
-        .bind(&build_request_identity)
-        .execute(rd_owner_pool)
-        .await
-        .unwrap();
+                .and_then(|value| value.to_str().ok())
+                .unwrap_or("none")
+                .to_string();
+            let prepared_json = response_json(prepared).await;
+            assert_eq!(
+                prepared_status,
+                StatusCode::OK,
+                "artifact preparation failed: rejection_code={prepared_rejection_code}, body={prepared_json}"
+            );
 
-        let mut tampered_attempt = rd_attempt_after_retry.clone();
-        let reservation = tampered_attempt["invocation_claim"]
-            .as_object_mut()
-            .unwrap();
-        let tampered_claimed_state_digest = format!("sha256:{}", "b".repeat(64));
-        reservation.insert(
-            "claimed_state_digest".to_string(),
-            tampered_claimed_state_digest.clone().into(),
-        );
-        let request_identity = reservation["request_identity"]
-            .as_str()
-            .unwrap()
-            .to_string();
-        let admission_identity = reservation["admission_identity"]
-            .as_str()
-            .unwrap()
-            .to_string();
-        let reserved_attempt_identity = reservation["attempt_identity"]
-            .as_str()
-            .unwrap()
-            .to_string();
-        let reserved_claim_identity = reservation["claim_identity"].as_str().unwrap().to_string();
-        let claim_digest = reservation["claim_digest"].as_str().unwrap().to_string();
-        let admission_receipt_identity = reservation["invocation_admission_receipt_identity"]
-            .as_str()
-            .unwrap()
-            .to_string();
-        let admission_receipt_digest = reservation["invocation_admission_receipt_digest"]
-            .as_str()
-            .unwrap()
-            .to_string();
-        let execution_custody_digest = reservation["execution_custody_digest"]
-            .as_str()
-            .unwrap()
-            .to_string();
-        let reserved_at_epoch_ms = reservation["reserved_at_epoch_ms"].as_u64().unwrap();
-        let tampered_seal = seal_invocation_reservation(ArtifactInvocationReservationMeaningV1 {
-            request_identity: &request_identity,
-            admission_identity: &admission_identity,
-            attempt_identity: &reserved_attempt_identity,
-            claim_identity: &reserved_claim_identity,
-            claim_digest: &claim_digest,
-            invocation_admission_receipt_identity: &admission_receipt_identity,
-            invocation_admission_receipt_digest: &admission_receipt_digest,
-            claimed_state_digest: &tampered_claimed_state_digest,
-            execution_custody_digest: &execution_custody_digest,
-            reserved_at_epoch_ms,
+            let custody_response =
+                read_historical_custodies(State(retry.state.clone()), retry.headers.clone()).await;
+            assert_eq!(custody_response.status(), StatusCode::OK);
+            let custody_json = response_json(custody_response).await;
+            assert_eq!(
+                custody_json["operation"],
+                "rd.historical_custody_quarantine.read.v1"
+            );
+            let research_candidates = custody_json["research"].as_array().unwrap();
+            let research_candidate = research_candidates
+                .iter()
+                .find(|candidate| {
+                    candidate["request_identity"].as_str()
+                        == Some(research_request_identity.as_str())
+                })
+                .unwrap_or_else(|| {
+                    panic!("canonical Research custody candidate missing: {custody_json}")
+                });
+            assert_eq!(
+                research_candidate["projection_state"],
+                "POINT_READ_REQUIRED"
+            );
+            assert!(research_candidate.get("resolution").is_none());
+            assert!(research_candidate.get("disposition").is_none());
+            let attempt_candidates = custody_json["artifact_attempts"].as_array().unwrap();
+            let attempt_candidate = attempt_candidates
+                .iter()
+                .find(|candidate| {
+                    candidate["build_request_identity"].as_str()
+                        == Some(build_request_identity.as_str())
+                        && candidate["attempt_identity"].as_str() == Some(attempt_identity.as_str())
+                })
+                .unwrap_or_else(|| {
+                    panic!("canonical Artifact custody candidate missing: {custody_json}")
+                });
+            assert_eq!(attempt_candidate["projection_state"], "POINT_READ_REQUIRED");
+            assert!(attempt_candidate.get("resolution").is_none());
+            assert!(attempt_candidate.get("disposition").is_none());
+
+            let claimed = claim_provider_invocation(
+                State(retry.state.clone()),
+                retry.headers.clone(),
+                build_body,
+            )
+            .await;
+            assert_eq!(claimed.status(), StatusCode::OK);
+            let claimed_json = response_json(claimed).await;
+            claimed_json["claim_identity"].as_str().unwrap().to_string()
         })
-        .unwrap();
-        reservation.insert(
-            "reservation_identity".to_string(),
-            tampered_seal.reservation_identity().into(),
-        );
-        reservation.insert(
-            "reservation_digest".to_string(),
-            tampered_seal.reservation_digest().into(),
-        );
-        sqlx::query(
-            "UPDATE rd_artifact_build_attempts_v1 SET attempt_json=$1 WHERE build_request_identity=$2",
-        )
-        .bind(&tampered_attempt)
-        .bind(&build_request_identity)
-        .execute(rd_owner_pool)
-        .await
-        .unwrap();
-        let product_edge_state_before_tampered_retry: serde_json::Value = sqlx::query_scalar(
-            "SELECT state_json FROM product_edge_effect_invocation_states_v1 WHERE claim_identity=$1",
-        )
-        .bind(&claim_identity)
-        .fetch_one(product_edge_pool)
-        .await
-        .unwrap();
-        let product_edge_outbox_before_tampered_retry: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM product_edge_owner_outbox_v1 WHERE aggregate_identity=$1",
-        )
-        .bind(&claim_identity)
-        .fetch_one(product_edge_pool)
-        .await
-        .unwrap();
+    }
 
-        let rejected = start_provider_invocation(State(state), headers, start_body).await;
-        assert_eq!(rejected.status(), StatusCode::SERVICE_UNAVAILABLE);
-        assert_eq!(
-            rejected.headers().get("x-rd-rejection-code").unwrap(),
-            "OWNER_OUTCOME_UNKNOWN"
-        );
-        let product_edge_state_after_tampered_retry: serde_json::Value = sqlx::query_scalar(
-            "SELECT state_json FROM product_edge_effect_invocation_states_v1 WHERE claim_identity=$1",
-        )
-        .bind(&claim_identity)
-        .fetch_one(product_edge_pool)
-        .await
-        .unwrap();
-        let product_edge_outbox_after_tampered_retry: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM product_edge_owner_outbox_v1 WHERE aggregate_identity=$1",
-        )
-        .bind(&claim_identity)
-        .fetch_one(product_edge_pool)
-        .await
-        .unwrap();
-        let rd_attempt_after_tampered_retry: serde_json::Value = sqlx::query_scalar(
-            "SELECT attempt_json FROM rd_artifact_build_attempts_v1 WHERE build_request_identity=$1",
-        )
-        .bind(&build_request_identity)
-        .fetch_one(rd_owner_pool)
-        .await
-        .unwrap();
-        assert_eq!(
-            product_edge_state_after_tampered_retry,
-            product_edge_state_before_tampered_retry
-        );
-        assert_eq!(
-            product_edge_outbox_after_tampered_retry,
-            product_edge_outbox_before_tampered_retry
-        );
-        assert_eq!(rd_attempt_after_tampered_retry, tampered_attempt);
+    /// A start naming another Research is refused and changes neither Product Edge's invocation
+    /// state nor its outbox.
+    fn refuse_started_retry_foreign_research<'a>(
+        retry: &'a StartedRetryFixtureV1,
+        claim_identity: &'a str,
+    ) -> Boxed<'a, ()> {
+        Box::pin(async move {
+            let mutation = retry.test_database.mutation();
+            let product_edge_pool = mutation.pool(CanonicalOwnerTestRoleV1::ProductEdgeOwner);
+            let product_edge_state_before_foreign_start: serde_json::Value = sqlx::query_scalar(
+                "SELECT state_json FROM product_edge_effect_invocation_states_v1 WHERE claim_identity=$1",
+            )
+            .bind(claim_identity)
+            .fetch_one(product_edge_pool)
+            .await
+            .unwrap();
+            let foreign_start_body = Bytes::from(
+                serde_json::to_vec(&serde_json::json!({
+                    "build_request_identity": retry.build_request_identity,
+                    "attempt_identity": retry.attempt_identity,
+                    "research_request_identity": "foreign-research-request",
+                }))
+                .unwrap(),
+            );
+            let foreign_start = start_provider_invocation(
+                State(retry.state.clone()),
+                retry.headers.clone(),
+                foreign_start_body,
+            )
+            .await;
+            assert_eq!(foreign_start.status(), StatusCode::CONFLICT);
+            assert_eq!(
+                foreign_start.headers().get("x-rd-rejection-code").unwrap(),
+                "RESEARCH_REQUEST_IDENTITY_CONFLICT"
+            );
+            let product_edge_state_after_foreign_start: serde_json::Value = sqlx::query_scalar(
+                "SELECT state_json FROM product_edge_effect_invocation_states_v1 WHERE claim_identity=$1",
+            )
+            .bind(claim_identity)
+            .fetch_one(product_edge_pool)
+            .await
+            .unwrap();
+            let foreign_started_events: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM product_edge_owner_outbox_v1 WHERE event_kind='PRODUCT_EDGE_PROVIDER_INVOCATION_STARTED_V1' AND aggregate_identity=$1",
+            )
+            .bind(claim_identity)
+            .fetch_one(product_edge_pool)
+            .await
+            .unwrap();
+            assert_eq!(
+                product_edge_state_after_foreign_start,
+                product_edge_state_before_foreign_start
+            );
+            assert_eq!(foreign_started_events, 0);
+        })
+    }
 
-        // The ordered chain shares one store: a later entry's directory read verifies every
-        // recent attempt and would rightly refuse this tampered seal. Restore the exact custody
-        // the proof found after its own legitimate retry, and prove the restoration reads back.
-        sqlx::query(
-            "UPDATE rd_artifact_build_attempts_v1 SET attempt_json=$1 WHERE build_request_identity=$2",
-        )
-        .bind(&rd_attempt_after_retry)
-        .bind(&build_request_identity)
-        .execute(rd_owner_pool)
-        .await
-        .unwrap();
-        let rd_attempt_after_restore: serde_json::Value = sqlx::query_scalar(
-            "SELECT attempt_json FROM rd_artifact_build_attempts_v1 WHERE build_request_identity=$1",
-        )
-        .bind(&build_request_identity)
-        .fetch_one(rd_owner_pool)
-        .await
-        .unwrap();
-        assert_eq!(rd_attempt_after_restore, rd_attempt_after_retry);
+    /// The first start is STARTED_NEW and its same-identity retry OUTCOME_UNKNOWN with the same
+    /// execution custody, one started event and an unchanged R&D attempt.
+    fn start_and_retry_started_retry_invocation(
+        retry: &StartedRetryFixtureV1,
+        claim_identity: String,
+    ) -> Boxed<'_, StartedRetryInvocationV1> {
+        Box::pin(async move {
+            let build_request_identity = &retry.build_request_identity;
+            let attempt_identity = &retry.attempt_identity;
+            let mutation = retry.test_database.mutation();
+            let product_edge_pool = mutation.pool(CanonicalOwnerTestRoleV1::ProductEdgeOwner);
+            let rd_owner_pool = mutation.pool(CanonicalOwnerTestRoleV1::RdOwner);
+            let start_body = Bytes::from(
+                serde_json::to_vec(&serde_json::json!({
+                    "build_request_identity": build_request_identity,
+                    "attempt_identity": attempt_identity,
+                    "research_request_identity": retry.research_request_identity,
+                }))
+                .unwrap(),
+            );
+            let started = start_provider_invocation(
+                State(retry.state.clone()),
+                retry.headers.clone(),
+                start_body.clone(),
+            )
+            .await;
+            assert_eq!(started.status(), StatusCode::OK);
+            let started_json = response_json(started).await;
+            assert_eq!(
+                started_json["invocation_start"]["disposition"],
+                "STARTED_NEW"
+            );
+            assert_exact_start_custody(&started_json, build_request_identity, attempt_identity);
+            assert_eq!(
+                started_json["execution_custody"]["claim_identity"],
+                claim_identity
+            );
+            let started_events_after_first: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM product_edge_owner_outbox_v1 WHERE event_kind='PRODUCT_EDGE_PROVIDER_INVOCATION_STARTED_V1' AND aggregate_identity=$1",
+            )
+            .bind(&claim_identity)
+            .fetch_one(product_edge_pool)
+            .await
+            .unwrap();
+            assert_eq!(started_events_after_first, 1);
+            let rd_attempt_after_first: serde_json::Value = sqlx::query_scalar(
+                "SELECT attempt_json FROM rd_artifact_build_attempts_v1 WHERE build_request_identity=$1",
+            )
+            .bind(build_request_identity)
+            .fetch_one(rd_owner_pool)
+            .await
+            .unwrap();
+
+            let retried = start_provider_invocation(
+                State(retry.state.clone()),
+                retry.headers.clone(),
+                start_body.clone(),
+            )
+            .await;
+            assert_eq!(retried.status(), StatusCode::OK);
+            let retried_json = response_json(retried).await;
+            assert_eq!(
+                retried_json["invocation_start"]["disposition"],
+                "OUTCOME_UNKNOWN"
+            );
+            assert_exact_start_custody(&retried_json, build_request_identity, attempt_identity);
+            assert_eq!(
+                retried_json["execution_custody"],
+                started_json["execution_custody"]
+            );
+            let started_events_after_retry: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM product_edge_owner_outbox_v1 WHERE event_kind='PRODUCT_EDGE_PROVIDER_INVOCATION_STARTED_V1' AND aggregate_identity=$1",
+            )
+            .bind(&claim_identity)
+            .fetch_one(product_edge_pool)
+            .await
+            .unwrap();
+            assert_eq!(started_events_after_retry, started_events_after_first);
+            let rd_attempt_after_retry: serde_json::Value = sqlx::query_scalar(
+                "SELECT attempt_json FROM rd_artifact_build_attempts_v1 WHERE build_request_identity=$1",
+            )
+            .bind(build_request_identity)
+            .fetch_one(rd_owner_pool)
+            .await
+            .unwrap();
+            assert_eq!(rd_attempt_after_retry, rd_attempt_after_first);
+            StartedRetryInvocationV1 {
+                claim_identity,
+                start_body,
+                rd_attempt_after_retry,
+            }
+        })
+    }
+
+    /// The invocation state and outbox count of `claim_identity`, and the build's R&D attempt.
+    fn started_retry_custody_readback<'a>(
+        retry: &'a StartedRetryFixtureV1,
+        claim_identity: &'a str,
+    ) -> Boxed<'a, (serde_json::Value, i64, serde_json::Value)> {
+        Box::pin(async move {
+            let mutation = retry.test_database.mutation();
+            let product_edge_pool = mutation.pool(CanonicalOwnerTestRoleV1::ProductEdgeOwner);
+            let state: serde_json::Value = sqlx::query_scalar(
+                "SELECT state_json FROM product_edge_effect_invocation_states_v1 WHERE claim_identity=$1",
+            )
+            .bind(claim_identity)
+            .fetch_one(product_edge_pool)
+            .await
+            .unwrap();
+            let outbox: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM product_edge_owner_outbox_v1 WHERE aggregate_identity=$1",
+            )
+            .bind(claim_identity)
+            .fetch_one(product_edge_pool)
+            .await
+            .unwrap();
+            let attempt: serde_json::Value = sqlx::query_scalar(
+                "SELECT attempt_json FROM rd_artifact_build_attempts_v1 WHERE build_request_identity=$1",
+            )
+            .bind(&retry.build_request_identity)
+            .fetch_one(mutation.pool(CanonicalOwnerTestRoleV1::RdOwner))
+            .await
+            .unwrap();
+            (state, outbox, attempt)
+        })
+    }
+
+    /// Writes `attempt_json` over the build's R&D attempt: a tamper, or its exact restoration.
+    fn write_started_retry_attempt<'a>(
+        retry: &'a StartedRetryFixtureV1,
+        attempt_json: &'a serde_json::Value,
+    ) -> Boxed<'a, ()> {
+        Box::pin(async move {
+            let mutation = retry.test_database.mutation();
+            sqlx::query(
+                "UPDATE rd_artifact_build_attempts_v1 SET attempt_json=$1 WHERE build_request_identity=$2",
+            )
+            .bind(attempt_json)
+            .bind(&retry.build_request_identity)
+            .execute(mutation.pool(CanonicalOwnerTestRoleV1::RdOwner))
+            .await
+            .unwrap();
+        })
+    }
+
+    /// A start whose R&D attempt lost its invocation custody is refused as OWNER_OUTCOME_UNKNOWN
+    /// and writes nothing. The attempt is restored before anything is asserted, so a failure here
+    /// cannot leave the tamper in the chain's shared store.
+    fn refuse_started_retry_without_invocation_custody<'a>(
+        retry: &'a StartedRetryFixtureV1,
+        started: &'a StartedRetryInvocationV1,
+    ) -> Boxed<'a, ()> {
+        Box::pin(async move {
+            let mut missing_snapshot_attempt = started.rd_attempt_after_retry.clone();
+            missing_snapshot_attempt
+                .as_object_mut()
+                .unwrap()
+                .remove("invocation_custody");
+            write_started_retry_attempt(retry, &missing_snapshot_attempt).await;
+            let (state_before, outbox_before, _) =
+                started_retry_custody_readback(retry, &started.claim_identity).await;
+            let rejected = start_provider_invocation(
+                State(retry.state.clone()),
+                retry.headers.clone(),
+                started.start_body.clone(),
+            )
+            .await;
+            let (state_after, outbox_after, attempt_after) =
+                started_retry_custody_readback(retry, &started.claim_identity).await;
+            write_started_retry_attempt(retry, &started.rd_attempt_after_retry).await;
+
+            assert_eq!(rejected.status(), StatusCode::SERVICE_UNAVAILABLE);
+            assert_eq!(
+                rejected.headers().get("x-rd-rejection-code").unwrap(),
+                "OWNER_OUTCOME_UNKNOWN"
+            );
+            assert_eq!(state_after, state_before);
+            assert_eq!(outbox_after, outbox_before);
+            assert_eq!(attempt_after, missing_snapshot_attempt);
+        })
+    }
+
+    /// A start whose reservation was re-sealed over a tampered claimed-state digest is refused as
+    /// OWNER_OUTCOME_UNKNOWN and writes nothing.
+    ///
+    /// The ordered chain shares one store: a later entry's directory read verifies every recent
+    /// attempt and would rightly refuse this tampered seal. The exact custody the proof found after
+    /// its own legitimate retry is restored and read back before anything is asserted.
+    fn refuse_started_retry_with_tampered_reservation<'a>(
+        retry: &'a StartedRetryFixtureV1,
+        started: &'a StartedRetryInvocationV1,
+    ) -> Boxed<'a, ()> {
+        Box::pin(async move {
+            let rd_attempt_after_retry = &started.rd_attempt_after_retry;
+            let mut tampered_attempt = rd_attempt_after_retry.clone();
+            let reservation = tampered_attempt["invocation_claim"]
+                .as_object_mut()
+                .unwrap();
+            let tampered_claimed_state_digest = format!("sha256:{}", "b".repeat(64));
+            reservation.insert(
+                "claimed_state_digest".to_string(),
+                tampered_claimed_state_digest.clone().into(),
+            );
+            let request_identity = reservation["request_identity"]
+                .as_str()
+                .unwrap()
+                .to_string();
+            let admission_identity = reservation["admission_identity"]
+                .as_str()
+                .unwrap()
+                .to_string();
+            let reserved_attempt_identity = reservation["attempt_identity"]
+                .as_str()
+                .unwrap()
+                .to_string();
+            let reserved_claim_identity =
+                reservation["claim_identity"].as_str().unwrap().to_string();
+            let claim_digest = reservation["claim_digest"].as_str().unwrap().to_string();
+            let admission_receipt_identity = reservation["invocation_admission_receipt_identity"]
+                .as_str()
+                .unwrap()
+                .to_string();
+            let admission_receipt_digest = reservation["invocation_admission_receipt_digest"]
+                .as_str()
+                .unwrap()
+                .to_string();
+            let execution_custody_digest = reservation["execution_custody_digest"]
+                .as_str()
+                .unwrap()
+                .to_string();
+            let reserved_at_epoch_ms = reservation["reserved_at_epoch_ms"].as_u64().unwrap();
+            let tampered_seal =
+                seal_invocation_reservation(ArtifactInvocationReservationMeaningV1 {
+                    request_identity: &request_identity,
+                    admission_identity: &admission_identity,
+                    attempt_identity: &reserved_attempt_identity,
+                    claim_identity: &reserved_claim_identity,
+                    claim_digest: &claim_digest,
+                    invocation_admission_receipt_identity: &admission_receipt_identity,
+                    invocation_admission_receipt_digest: &admission_receipt_digest,
+                    claimed_state_digest: &tampered_claimed_state_digest,
+                    execution_custody_digest: &execution_custody_digest,
+                    reserved_at_epoch_ms,
+                })
+                .unwrap();
+            reservation.insert(
+                "reservation_identity".to_string(),
+                tampered_seal.reservation_identity().into(),
+            );
+            reservation.insert(
+                "reservation_digest".to_string(),
+                tampered_seal.reservation_digest().into(),
+            );
+            write_started_retry_attempt(retry, &tampered_attempt).await;
+            let (state_before, outbox_before, _) =
+                started_retry_custody_readback(retry, &started.claim_identity).await;
+            let rejected = start_provider_invocation(
+                State(retry.state.clone()),
+                retry.headers.clone(),
+                started.start_body.clone(),
+            )
+            .await;
+            let (state_after, outbox_after, attempt_after) =
+                started_retry_custody_readback(retry, &started.claim_identity).await;
+            write_started_retry_attempt(retry, rd_attempt_after_retry).await;
+            let (_, _, attempt_after_restore) =
+                started_retry_custody_readback(retry, &started.claim_identity).await;
+
+            assert_eq!(rejected.status(), StatusCode::SERVICE_UNAVAILABLE);
+            assert_eq!(
+                rejected.headers().get("x-rd-rejection-code").unwrap(),
+                "OWNER_OUTCOME_UNKNOWN"
+            );
+            assert_eq!(state_after, state_before);
+            assert_eq!(outbox_after, outbox_before);
+            assert_eq!(attempt_after, tampered_attempt);
+            assert_eq!(&attempt_after_restore, rd_attempt_after_retry);
+        })
     }
 
     async fn rd_owned_relation_snapshot(pool: &sqlx::PgPool) -> Vec<(String, serde_json::Value)> {
@@ -5267,7 +5348,7 @@ mod tests {
     /// release build, where these frames are a fraction of the size.
     #[cfg(feature = "sealed-source-intake-composer-acceptance")]
     mod authored_design_research {
-        use std::{future::Future, pin::Pin};
+        use super::Boxed;
 
         use vibe_product_edge::{
             SOURCE_INTAKE_OPERATION_SCHEMA_V1, SOURCE_INTAKE_OPERATION_V1,
@@ -5292,8 +5373,6 @@ mod tests {
         use vibe_testkit::postgres::{
             CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1,
         };
-
-        type Boxed<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
         /// The role URLs the setup connects with, owned so the setup task can outlive the borrow.
         struct OwnerUrlsV1 {

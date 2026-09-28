@@ -5106,13 +5106,16 @@ mod postgres_acceptance_tests {
         // A request of the same operator that nothing has built on: its Intent is still
         // `INTENT_FROZEN`, so Develop can continue it.
         let frozen_suffix = format!("{suffix}-frozen");
-        Box::pin(submit_repair_replay_research(
+        let frozen_intent_identity = Box::pin(submit_repair_replay_research(
             &operator.owner,
             &operator.edge(&database).await,
             &operator.request_proof_digest,
             &frozen_suffix,
         ))
-        .await;
+        .await
+        .owner_receipt()
+        .and_then(|receipt| receipt.resulting_research_intent_identity.clone())
+        .expect("the frozen request's Intent");
         let frozen_request_identity = format!("repair-replay-research-{frozen_suffix}");
 
         let frozen = protected_feedback_generation(rd_pool, &x_projection).await;
@@ -5150,6 +5153,29 @@ mod postgres_acceptance_tests {
             stopped.coordinate,
             RESEARCH_CONTINUATION_PROTECTED_FEEDBACK_ADVANCED_COORDINATE_V1
         );
+        // An Artifact build of the stopped Intent is refused by the same continuation, although its
+        // own build admission is current: nothing is prepared.
+        let stopped_build = Box::pin(prepare_artifact_build(
+            &database,
+            &operator,
+            &frozen_intent_identity,
+            &format!("{suffix}-stopped-build"),
+        ))
+        .await;
+        assert_eq!(
+            stopped_build.resolution(),
+            ArtifactBuildResolution::SubmittedOrUnknown
+        );
+        let stopped_attempts: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM rd_artifact_build_attempts_v1 WHERE build_request_identity = $1",
+        )
+        .bind(format!(
+            "phase-fact-artifact-request-{suffix}-stopped-build"
+        ))
+        .fetch_one(rd_pool)
+        .await
+        .expect("stopped build attempt count");
+        assert_eq!(stopped_attempts, 0);
 
         // X iterates through a successor, which freezes the history's new generation.
         let committed_at = current_epoch_ms().expect("test clock");
@@ -5203,6 +5229,19 @@ mod postgres_acceptance_tests {
             .rollback()
             .await
             .expect("successor continuation rollback");
+        // Its Artifact build continues under the successor's own authority and the generation it
+        // froze, not the initial Intent's.
+        assert_eq!(
+            Box::pin(prepare_artifact_build(
+                &database,
+                &operator,
+                intent.intent_identity(),
+                &format!("{suffix}-successor-build"),
+            ))
+            .await
+            .resolution(),
+            ArtifactBuildResolution::Prepared
+        );
 
         assert_ne!(
             intent.protected_feedback_projection_identity(),
@@ -5227,6 +5266,61 @@ mod postgres_acceptance_tests {
             .await
             .expect("successor feedback rollback");
         assert_eq!(successor_feedback.source_cut(), advanced.source_cut());
+    }
+
+    /// Admits an Artifact build of `intent_identity` under `operator` and prepares it.
+    async fn prepare_artifact_build(
+        database: &CanonicalOwnerPostgresTestDatabaseV1,
+        operator: &RepairReplayOperatorV1,
+        intent_identity: &str,
+        suffix: &str,
+    ) -> crate::artifact_build::ArtifactBuildPreparationV1 {
+        let build_request_identity = format!("phase-fact-artifact-request-{suffix}");
+        let payload = ArtifactBuildRequestV1 {
+            build_request_identity: build_request_identity.clone(),
+            attempt_identity: format!("phase-fact-artifact-attempt-{suffix}"),
+            intent_identity: intent_identity.to_owned(),
+            channel: ProductEdgeChannel::WindmillProductEdge,
+            admission: placeholder_product_edge_admission(&build_request_identity),
+        };
+        let admission = operator
+            .edge(database)
+            .await
+            .admit_artifact_build_request(ProductEdgeAdmissionRequestV1 {
+                request_identity: build_request_identity.clone(),
+                typed_payload: serde_json::json!({
+                    "build_request_identity": payload.build_request_identity,
+                    "attempt_identity": payload.attempt_identity,
+                    "intent_identity": payload.intent_identity,
+                    "channel": payload.channel,
+                }),
+                operation: ARTIFACT_BUILD_OPERATION_V1.to_string(),
+                operation_schema: ARTIFACT_BUILD_SCHEMA_V1.to_string(),
+                target_owner: RESEARCH_OWNER_V1.to_string(),
+                requested_effects: vec![
+                    "R_AND_D_ARTIFACT_BUILD_MUTATION_V1".to_string(),
+                    "R_AND_D_PROVIDER_INVOCATION_V1".to_string(),
+                ],
+                request_proof_digest: operator.request_proof_digest.clone(),
+                audit_correlation: format!("test:{build_request_identity}"),
+            })
+            .await
+            .expect("Artifact Product Edge admission")
+            .locator()
+            .clone();
+        PostgresArtifactBuildOwnerV1::connect(
+            database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
+            "/tmp/unused-phase-fact-sandbox.sock",
+            u64::MAX,
+        )
+        .await
+        .expect("Artifact Owner")
+        .prepare(ArtifactBuildRequestV1 {
+            admission,
+            ..payload
+        })
+        .await
+        .expect("Artifact preparation")
     }
 
     async fn protected_feedback_generation(

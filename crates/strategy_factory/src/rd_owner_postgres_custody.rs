@@ -161,7 +161,7 @@ pub(crate) async fn resolve_native_replay_rd_cut_v2_in_transaction(
     ))
     .await?;
 
-    if !research.authority_available_at(replay.owner_cut_epoch_ms()) {
+    if !research.recorded_authority_at(replay.owner_cut_epoch_ms()) {
         return Err(
             crate::native_replay_rd_sources_v2::NativeReplayRdSourcesErrorV2::Unavailable(
                 "Research custody is unavailable at the Replay Owner cut".into(),
@@ -2013,6 +2013,22 @@ impl VerifiedResearchCustodyV1 {
             self.authority,
             VerifiedResearchAuthorityV1::LegacyQuarantined
         )
+    }
+
+    /// Whether the Research authority this custody recorded covered `read_cut_epoch_ms`: it is not
+    /// quarantined, its View is available, and the operator authorization its admission bound
+    /// was in force at the cut. A historical read uses it for a cut an operation already wrote
+    /// at; that operation proved the continuation under locks then, so no View window and no
+    /// later revocation or phase fact reopens it.
+    pub(crate) fn recorded_authority_at(&self, read_cut_epoch_ms: u64) -> bool {
+        match &self.authority {
+            VerifiedResearchAuthorityV1::LegacyQuarantined => false,
+            VerifiedResearchAuthorityV1::Current(admission) => {
+                self.view.as_ref().is_some_and(|view| {
+                    view.availability == crate::product_edge::ResearchViewAvailability::Available
+                }) && admission.authorization().is_current_at(read_cut_epoch_ms)
+            }
+        }
     }
 
     pub(crate) fn authority_available_at(&self, read_cut_epoch_ms: u64) -> bool {
