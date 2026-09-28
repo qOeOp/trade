@@ -4557,17 +4557,6 @@ mod tests {
         let missing_snapshot_rejected =
             start_provider_invocation(State(state.clone()), headers.clone(), start_body.clone())
                 .await;
-        assert_eq!(
-            missing_snapshot_rejected.status(),
-            StatusCode::SERVICE_UNAVAILABLE
-        );
-        assert_eq!(
-            missing_snapshot_rejected
-                .headers()
-                .get("x-rd-rejection-code")
-                .unwrap(),
-            "OWNER_OUTCOME_UNKNOWN"
-        );
         let product_edge_state_after_missing_snapshot: serde_json::Value = sqlx::query_scalar(
             "SELECT state_json FROM product_edge_effect_invocation_states_v1 WHERE claim_identity=$1",
         )
@@ -4589,6 +4578,29 @@ mod tests {
         .fetch_one(rd_owner_pool)
         .await
         .unwrap();
+        // Everything the refusal is judged on has been read, so the tamper is restored before any
+        // of it is asserted. The ordered chain shares one store and never resets it: asserting
+        // first would leave the tamper behind on exactly the run that fails, and every later
+        // entry that verifies recent attempts would then fail with no apparent cause.
+        sqlx::query(
+            "UPDATE rd_artifact_build_attempts_v1 SET attempt_json=$1 WHERE build_request_identity=$2",
+        )
+        .bind(&rd_attempt_after_retry)
+        .bind(&build_request_identity)
+        .execute(rd_owner_pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            missing_snapshot_rejected.status(),
+            StatusCode::SERVICE_UNAVAILABLE
+        );
+        assert_eq!(
+            missing_snapshot_rejected
+                .headers()
+                .get("x-rd-rejection-code")
+                .unwrap(),
+            "OWNER_OUTCOME_UNKNOWN"
+        );
         assert_eq!(
             product_edge_state_after_missing_snapshot,
             product_edge_state_before_missing_snapshot
@@ -4598,14 +4610,6 @@ mod tests {
             product_edge_outbox_before_missing_snapshot
         );
         assert_eq!(rd_attempt_after_missing_snapshot, missing_snapshot_attempt);
-        sqlx::query(
-            "UPDATE rd_artifact_build_attempts_v1 SET attempt_json=$1 WHERE build_request_identity=$2",
-        )
-        .bind(&rd_attempt_after_retry)
-        .bind(&build_request_identity)
-        .execute(rd_owner_pool)
-        .await
-        .unwrap();
 
         let mut tampered_attempt = rd_attempt_after_retry.clone();
         let reservation = tampered_attempt["invocation_claim"]
@@ -4688,11 +4692,6 @@ mod tests {
         .unwrap();
 
         let rejected = start_provider_invocation(State(state), headers, start_body).await;
-        assert_eq!(rejected.status(), StatusCode::SERVICE_UNAVAILABLE);
-        assert_eq!(
-            rejected.headers().get("x-rd-rejection-code").unwrap(),
-            "OWNER_OUTCOME_UNKNOWN"
-        );
         let product_edge_state_after_tampered_retry: serde_json::Value = sqlx::query_scalar(
             "SELECT state_json FROM product_edge_effect_invocation_states_v1 WHERE claim_identity=$1",
         )
@@ -4714,19 +4713,12 @@ mod tests {
         .fetch_one(rd_owner_pool)
         .await
         .unwrap();
-        assert_eq!(
-            product_edge_state_after_tampered_retry,
-            product_edge_state_before_tampered_retry
-        );
-        assert_eq!(
-            product_edge_outbox_after_tampered_retry,
-            product_edge_outbox_before_tampered_retry
-        );
-        assert_eq!(rd_attempt_after_tampered_retry, tampered_attempt);
 
         // The ordered chain shares one store: a later entry's directory read verifies every
         // recent attempt and would rightly refuse this tampered seal. Restore the exact custody
-        // the proof found after its own legitimate retry, and prove the restoration reads back.
+        // the proof found after its own legitimate retry, and prove the restoration reads back,
+        // before anything about the refusal is asserted, so a failed assertion cannot leave the
+        // tamper behind.
         sqlx::query(
             "UPDATE rd_artifact_build_attempts_v1 SET attempt_json=$1 WHERE build_request_identity=$2",
         )
@@ -4743,6 +4735,20 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(rd_attempt_after_restore, rd_attempt_after_retry);
+        assert_eq!(rejected.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(
+            rejected.headers().get("x-rd-rejection-code").unwrap(),
+            "OWNER_OUTCOME_UNKNOWN"
+        );
+        assert_eq!(
+            product_edge_state_after_tampered_retry,
+            product_edge_state_before_tampered_retry
+        );
+        assert_eq!(
+            product_edge_outbox_after_tampered_retry,
+            product_edge_outbox_before_tampered_retry
+        );
+        assert_eq!(rd_attempt_after_tampered_retry, tampered_attempt);
     }
 
     async fn rd_owned_relation_snapshot(pool: &sqlx::PgPool) -> Vec<(String, serde_json::Value)> {
