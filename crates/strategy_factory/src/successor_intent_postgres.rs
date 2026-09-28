@@ -530,12 +530,12 @@ async fn family_independence_basis_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
     census: &TrialFamilyCensusReadbackV2,
 ) -> Result<RdIndependenceBasisLocatorV1, SuccessorResearchIntentPostgresErrorV1> {
-    let custody = Box::pin(admit_research_custody_in_transaction(
+    let custody = admit_research_custody_in_transaction(
         transaction,
         ResearchCustodyLookupV1::Intent(
             census.legacy_family.initial_intent_member().fact_identity(),
         ),
-    ))
+    )
     .await?
     .ok_or_else(|| storage("TrialFamily initial Research Intent custody is missing"))?;
     let Some(FrozenResearchGoalIntent::V2(intent)) = custody.intent() else {
@@ -1102,10 +1102,10 @@ async fn load_predecessor_context(
     intent_digest: &str,
 ) -> Result<PredecessorContextV1, SuccessorResearchIntentPostgresErrorV1> {
     if intent_identity == census.legacy_family.initial_intent_member().fact_identity() {
-        let custody = Box::pin(admit_research_custody_in_transaction(
+        let custody = admit_research_custody_in_transaction(
             transaction,
             ResearchCustodyLookupV1::Intent(intent_identity),
-        ))
+        )
         .await?
         .ok_or_else(|| storage("predecessor Research Intent custody is missing"))?;
         let FrozenResearchGoalIntent::V2(intent) = custody

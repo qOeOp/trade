@@ -1,8 +1,4 @@
 //! PostgreSQL custody for R&D-owned `REPAIR_INPUTS` Iteration Decisions.
-#![expect(
-    clippy::large_futures,
-    reason = "decision custody keeps the typed repeatable-read transaction state alive across Owner admission"
-)]
 
 use std::fmt::Display;
 
@@ -2475,6 +2471,10 @@ fn storage(error: impl Display) -> IterationDecisionPostgresErrorV1 {
 }
 
 #[cfg(all(test, feature = "sealed-develop-composer-acceptance"))]
+#[expect(
+    clippy::large_futures,
+    reason = "each acceptance scenario keeps its typed Owner readbacks alive across the awaits that check them"
+)]
 mod postgres_acceptance_tests {
     use vibe_data::owner::shared_time_evidence::{
         ClockHeadHandoff, ClockHeadSuccessorReadback, SharedTimeEvidenceError,
