@@ -4912,6 +4912,7 @@ export LANE8_STACK_LOG="${lane8_scratch}/lane8-stack.tsv"
 : > "$LANE8_STACK_LOG"
 gcc -O2 -shared -fPIC -o "$LANE8_STACK_SHIM" "${lane8_probe_dir}/stack-peak-shim.c" -ldl
 if [[ "${GITHUB_REF_NAME:-}" == *-gdb-* ]] && ! command -v gdb > /dev/null; then
+  sudo apt-get update -qq > /dev/null
   sudo apt-get install -y -qq gdb > /dev/null
 fi
 gcc -O0 -pthread -o "${lane8_scratch}/lane8-calibrate" "${lane8_probe_dir}/calibrate.c"
