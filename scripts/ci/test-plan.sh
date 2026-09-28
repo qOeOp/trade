@@ -1067,6 +1067,18 @@ if [[ "$quality_step" != *'run: python3 -B scripts/ci/require_source_canary_heal
   exit 1
 fi
 echo "ok: main's verdict requires the research sources not to fail twice in a row"
+# quality runs its Python on the Python pre-commit tests it with, set up before any python3 step.
+tested_python="$(grep -m1 -oE 'python-version: "[0-9.]+"' "$pre_commit_pr")"
+# `|| true`: a grep that finds nothing must reach the message below, not end the script in silence.
+quality_setup="$(grep -n 'uses: actions/setup-python@' <<< "$quality_job" | head -n 1 | cut -d: -f1 || true)"
+quality_python="$(grep -n 'python3 ' <<< "$quality_job" | grep -v '^[0-9]*: *#' | cut -d: -f1 | head -n 1 || true)"
+if [[ -z "$quality_setup" ]] ||
+  [[ "$(sed -n "${quality_setup},\$p" <<< "$quality_job" | grep -m1 -oE 'python-version: "[0-9.]+"' || true)" != "$tested_python" ]] ||
+  [[ -n "$quality_python" && "$quality_python" -lt "$quality_setup" ]]; then
+  echo "build.yml's quality must set up ${tested_python} (pre-commit-pr.yml's) before any python3 step." >&2
+  exit 1
+fi
+echo "ok: quality runs its Python on the version pre-commit tests it with"
 
 # The merge of the R&D chain shards' records before the whole-chain report. (The shards' wait for
 # the archive has its own pre-commit hook, test-wait-for-run-artifact.)
@@ -1162,6 +1174,17 @@ report_step="$(awk '/- name: Report the rust-tests cache entry this run saved/{f
 [[ "$report_step" == *'${{ needs.rust-tests-linux-x86.outputs.pruned-bytes }}'* ]]
 [[ "$(grep -c 'workspace_mtimes.py' "$build_workflow")" -eq 4 ]]
 python3 -B "$repo_root/scripts/ci/workspace_mtimes_prune_test.py" > /dev/null
+# Main gives the Rust tests cache key a new day (one comment line in .cargo/config.toml, which
+# rust-cache hashes after the prefix pull requests fall back to) and restores the file at once. Both
+# steps run on main only: a pull request carrying the dated key would never match it again.
+main_only="if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'"
+if [[ "$(grep -A1 'name: Date the Rust tests cache key' <<< "$rust_tests_job")" != *"$main_only"* ]] ||
+  [[ "$(grep -A1 'name: Restore the checked-out cargo config' <<< "$rust_tests_job")" != *"$main_only"* ]] ||
+  [[ "$rust_tests_job" != *'git checkout -- .cargo/config.toml'* ]] ||
+  [[ "$(grep -n 'name: Date the Rust tests cache key\|name: Common setup\|name: Restore the checked-out cargo config' <<< "$rust_tests_job" | head -n 3 | cut -d: -f2- | tr -d ' ' | paste -sd'|' -)" != '-name:DatetheRusttestscachekey|-name:Commonsetup|-name:Restorethechecked-outcargoconfig' ]]; then
+  echo "build.yml's rust tests job must date the cache key on main only, just before Common setup, and restore .cargo/config.toml just after." >&2
+  exit 1
+fi
 bash "$repo_root/scripts/ci/test-workspace-mtimes.bash"
 for composite in common-test-data common-setup; do
   file="$repo_root/.github/actions/${composite}/action.yml"
