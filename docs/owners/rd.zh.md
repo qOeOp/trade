@@ -381,12 +381,13 @@ phase fact 都推进该历史的受保护反馈 generation（见 Qualification �
 Backtest 运行、执行输入绑定与 Market Data 修复在其 Replay 的 Owner cut 上读取的 Research 来源即是如此，Replay 提交在那时已
 证明了继续操作。
 
-在它们各自的切片落地之前，仍有两处检查读取 View 的窗口：
+Product Edge 在 View 的窗口过去之后同样准入新的 Artifact 构建请求。它的准入仍检查 Research 的投影以及 R&D 对它的锁定
+都不晚于其 cut，并检查该 Research 准入时所依据的来源授权在该 cut 上仍然有效且未被撤销。它用来锁定 Research 的 R&D
+函数 `rd_owner_api.lock_research_for_artifact_at_view_v1` 与
+`rd_owner_api.lock_current_successor_research_for_artifact_v1` 也不再拒绝窗口已过的 View。
 
-- exploratory Replay 提交，其文件由 F 持有，所以在它迁移之前，Replay 之后的每一步都只能到达在窗口内提交的 Replay；
-- Product Edge 自己的下游准入窗口检查，包括它为在 View 上锁定 Research 而调用的 R&D 函数
-  （`rd_owner_api.lock_research_for_artifact_at_view_v1` 与
-  `rd_owner_api.lock_current_successor_research_for_artifact_v1`），所以新的 Artifact 构建请求仍只在窗口内被准入。
+在它自己的切片落地之前，仍有一处检查读取 View 的窗口：exploratory Replay 提交，其文件由 F 持有，所以在它迁移之前，
+Replay 之后的每一步都只能到达在窗口内提交的 Replay。
 
 **CURRENT/PARTIAL：第一圈已有立足之处。** 封存语料 run 之后，`run_bounded_feature_program` 成为唯一的生产入口，
 而它需要一份已冻结的 joint program。冻结需要 Strategy Input declaration；Market Data 过去只从一份
