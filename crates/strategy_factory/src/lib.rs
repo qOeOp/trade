@@ -74,10 +74,6 @@ mod develop_plugin_build_v2_tests;
 )]
 mod develop_plugin_build_v3;
 pub mod exploratory_replay;
-// The sealed price build the R&D chain's entry 28 submits through its acceptance sandbox; see
-// `VerifiedCargoBuild::verify`. Deleting it breaks that entry.
-#[cfg(any(test, feature = "sealed-artifact-source-acceptance"))]
-mod family_adapters;
 pub mod governance_artifact_membership;
 pub mod iteration_analysis;
 pub mod iteration_analysis_postgres;
@@ -260,6 +256,10 @@ mod successor_research_custody_postgres_v1;
 pub mod target_set_members;
 pub mod trial_family;
 pub mod trial_family_postgres;
+// The sealed price build the R&D chain's entry 28 submits through its acceptance sandbox; see
+// `VerifiedCargoBuild::verify`. Deleting it breaks that entry.
+#[cfg(any(test, feature = "sealed-artifact-source-acceptance"))]
+mod verified_price_build;
 
 pub use complex_strategy_ir::{
     COMPLEX_STRATEGY_IR_SCHEMA_V1, COMPLEX_STRATEGY_IR_SCHEMA_VERSION_V1, ComplexStrategyIrError,

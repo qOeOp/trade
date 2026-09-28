@@ -69,7 +69,7 @@ use crate::{
     cargo_artifact::{
         RD_SANDBOX_DOCKERFILE, RUSTC_COMMIT, RUSTC_RELEASE, SANDBOX_POLICY_V1, TARGET,
     },
-    family_adapters::verified_price_build,
+    verified_price_build::verified_price_build,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -3473,7 +3473,6 @@ mod postgres_freshness_tests {
         cargo_artifact::{
             RD_SANDBOX_DOCKERFILE, RUSTC_COMMIT, RUSTC_RELEASE, SANDBOX_POLICY_V1, TARGET,
         },
-        family_adapters::verified_price_build,
         product_edge::{
             ProductEdgeChannel, ProductEdgeResearchGoalRequestV2, RESEARCH_GOAL_OPERATION_V2,
             RESEARCH_GOAL_SCHEMA_V2, RESEARCH_OWNER_V1, RESEARCH_SCOPE_V1, RESEARCH_VIEW_SCOPE_V1,
@@ -3487,6 +3486,7 @@ mod postgres_freshness_tests {
             TrialFamilyCandidateSetProposalV2,
         },
         trial_family_postgres::append_trial_family_attempt_in_transaction,
+        verified_price_build::verified_price_build,
     };
     use rstest::rstest;
     use sha2::{Digest, Sha256};

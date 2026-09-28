@@ -202,7 +202,7 @@ mod tests {
             Some("blake3:spec".to_string()),
             Some("parameter/full".to_string()),
             Some(b"frozen-parameters".to_vec()),
-            crate::family_adapters::verified_price_build().expect("sealed price build"),
+            crate::verified_price_build::verified_price_build().expect("sealed price build"),
         )
     }
 

@@ -636,7 +636,7 @@ mod tests {
 
     #[rstest]
     fn sandbox_build_rejects_wasm_tamper_nonreproducibility_and_budget() {
-        let build = crate::family_adapters::verified_price_build().unwrap();
+        let build = crate::verified_price_build::verified_price_build().unwrap();
         let valid = SandboxedCargoBuildEvidence {
             wasm_one: &build.wasm,
             wasm_two: &build.wasm,

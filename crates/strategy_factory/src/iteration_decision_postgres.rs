@@ -2539,7 +2539,6 @@ mod postgres_acceptance_tests {
             ExploratoryReplayRequestProposalV2, SealedExploratoryReplayReadbackV2,
             exploratory_replay_admission_payload_v2,
         },
-        family_adapters::verified_price_build,
         iteration_candidate::{
             IterationCandidateAdmissibilityV1, IterationCandidateEvaluationSetV1,
             IterationCandidateEvaluationV1, IterationEvidenceReferenceV1,
@@ -2565,6 +2564,7 @@ mod postgres_acceptance_tests {
             append_trial_family_attempt_in_transaction,
             load_trial_family_census_v2_by_family_in_transaction,
         },
+        verified_price_build::verified_price_build,
     };
 
     mod backtest_run_report_postgres_acceptance_tests;
