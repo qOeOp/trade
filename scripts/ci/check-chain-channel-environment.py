@@ -23,6 +23,15 @@ saved it: a full-match restore still compiled all 792 units (owner-chains run 36
 only added the restore's 225 s (run 36061606498). A test-chain push must not save: only `main`
 writes the entry.
 
+And it pins the jobs that restore `rust tests`'s entry to the key that job saves it under. rust-cache
+hashes every variable whose name starts with CARGO, CC, CFLAGS, CXX, CMAKE or RUST into the key
+(src/config.ts:118 at c19371144), at workflow and job level alike, so one such variable that differs
+on either side makes the restore miss. A missed restore is not an error: the job only runs cold, so
+nothing else would ever say so. Each restorer must name the saving job's shared key and workspaces,
+carry exactly its rust-cache variables with the values it takes on the events that admit to `main`,
+and never save. A workflow-level variable such as SAVE_BUILD_CACHES is in every job's key too, which
+is why its name must not start with one of those prefixes.
+
 Stdlib only: the pre-commit job has no YAML library, and the two blocks read here are plain
 `KEY: value` lines, optionally folded with `>-`.
 
@@ -45,6 +54,11 @@ CONDITIONAL = re.compile(
     r"^\$\{\{\s*\((?P<condition>.*)\)\s*&&\s*'(?P<then>[^']*)'\s*\|\|\s*'[^']*'\s*\}\}$",
 )
 CARGO_ENVIRONMENT = re.compile(r"^(CARGO_|RUST)")
+# The prefixes rust-cache folds into its key (src/config.ts:118 at c19371144).
+RUST_CACHE_ENVIRONMENT = re.compile(r"^(CARGO|CC|CFLAGS|CXX|CMAKE|RUST)")
+# The job that saves the entry, and the jobs that must restore it.
+CACHE_SAVER = ("build.yml", "rust-tests-linux-x86")
+CACHE_RESTORERS = (("owner-chains.yml", "owner-chain"),)
 RUST_CACHE_INPUT = re.compile(r"^\s+(rust-cache-[a-z-]+):\s*(.*)$")
 CHAIN_CACHE = {
     "rust-cache-shared-key": "rd-owner-chain-archive-linux-x86",
@@ -112,6 +126,31 @@ def env_of(text: str, job: str) -> dict[str, str]:
     return env
 
 
+def workflow_env(text: str) -> dict[str, str]:
+    """
+    Read the workflow-level `env:` mapping, joining folded scalars with single spaces.
+    """
+    lines = text.splitlines()
+    if "env:" not in lines:
+        return {}
+    env: dict[str, str] = {}
+    key = None
+    for line in lines[lines.index("env:") + 1 :]:
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        if not line.startswith("  "):
+            break
+        entry = re.match(r"^  ([A-Z][A-Z0-9_]*):\s*(.*)$", line)
+        if entry:
+            key, value = entry.group(1), entry.group(2)
+            env[key] = "" if value == ">-" else value
+        elif key is not None and line.startswith("    "):
+            env[key] = f"{env[key]} {line.strip()}".strip()
+        else:
+            raise SystemExit(f"ERROR: unreadable workflow env line: {line!r}")
+    return env
+
+
 def rust_cache_inputs(text: str, job: str) -> dict[str, str]:
     return {
         match.group(1): match.group(2)
@@ -136,6 +175,49 @@ def archive_cache_failures(texts: dict[str, str]) -> list[str]:
             f"expected {expected.get(name, 'unset')!r}."
             for name in sorted(set(expected) | set(inputs))
             if inputs.get(name) != expected.get(name)
+        )
+    return failures
+
+
+def keyed_env(text: str, job: str, *, acceptance: bool) -> dict[str, str]:
+    """
+    Return the variables rust-cache folds into `job`'s key: workflow level, then job
+    level.
+    """
+    env = {**workflow_env(text), **env_of(text, job)}
+    return {
+        name: on_acceptance(name, value) if acceptance else value
+        for name, value in env.items()
+        if RUST_CACHE_ENVIRONMENT.match(name)
+    }
+
+
+def restorer_failures(texts: dict[str, str]) -> list[str]:
+    saver_workflow, saver = CACHE_SAVER
+    saved = rust_cache_inputs(texts[saver_workflow], saver)
+    saved_env = keyed_env(texts[saver_workflow], saver, acceptance=True)
+    failures = []
+    for workflow, job in CACHE_RESTORERS:
+        inputs = rust_cache_inputs(texts[workflow], job)
+        where = f"{workflow} job `{job}`"
+        failures.extend(
+            f"{where} restores with {name}={inputs.get(name, 'unset')!r}, but {saver_workflow} job "
+            f"`{saver}` saves the entry with {saved.get(name, 'unset')!r}."
+            for name in ("rust-cache-shared-key", "rust-cache-workspaces")
+            if inputs.get(name) != saved.get(name)
+        )
+        if inputs.get("rust-cache-save-if") != '"false"':
+            failures.append(
+                f"{where} sets rust-cache-save-if={inputs.get('rust-cache-save-if', 'unset')!r}; only "
+                f"{saver_workflow} job `{saver}` writes the entry it restores.",
+            )
+        restored_env = keyed_env(texts[workflow], job, acceptance=False)
+        failures.extend(
+            f"{where} restores with {name}={restored_env.get(name, 'unset')!r}, but {saver_workflow} job "
+            f"`{saver}` saves the entry with {saved_env.get(name, 'unset')!r}: rust-cache folds {name} into "
+            "the key, so the restore misses and the job runs cold, which nothing reports."
+            for name in sorted(set(saved_env) | set(restored_env))
+            if restored_env.get(name) != saved_env.get(name)
         )
     return failures
 
@@ -199,7 +281,8 @@ def check(root: Path) -> list[str]:
                 f"{workflow} job `{job}` sets {name}, which build.yml's chain job does not."
                 for name in sorted(set(actual) - set(expected))
             ]
-    return failures + archive_cache_failures({"build.yml": build, "owner-chains.yml": chains})
+    texts = {"build.yml": build, "owner-chains.yml": chains}
+    return failures + archive_cache_failures(texts) + restorer_failures(texts)
 
 
 def main() -> int:
