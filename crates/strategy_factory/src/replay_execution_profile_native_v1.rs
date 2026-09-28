@@ -395,9 +395,17 @@ pub(crate) fn materialize_event_replay_execution_profile_v1(
     let runner_input = runner.input();
     let venue = Venue::new_checked(&economic_input.venue_identity)
         .map_err(|_| ReplayNativeExecutionProfileErrorV1::InvalidIdentifier)?;
-    let symbol = Symbol::new_checked(&economic_input.instrument_terms.instrument_identity)
-        .map_err(|_| ReplayNativeExecutionProfileErrorV1::InvalidIdentifier)?;
-    let instrument_id = InstrumentId::new(symbol, venue);
+    // A schema 1 configuration names a primary instrument the binding must hold; a schema 2
+    // configuration names none, and the binding's members are the instruments.
+    let pinned_instrument_id = economic_input
+        .instrument_terms
+        .as_ref()
+        .map(|pinned| {
+            Symbol::new_checked(&pinned.instrument_identity)
+                .map(|symbol| InstrumentId::new(symbol, venue))
+                .map_err(|_| ReplayNativeExecutionProfileErrorV1::InvalidIdentifier)
+        })
+        .transpose()?;
     let instrument_ids = binding.instrument_terms().try_map(|terms| {
         Symbol::new_checked(&terms.instrument_identity)
             .map(|symbol| InstrumentId::new(symbol, venue))
@@ -405,7 +413,7 @@ pub(crate) fn materialize_event_replay_execution_profile_v1(
     })?;
 
     if instrument_ids.windows(2).any(|pair| pair[0] >= pair[1])
-        || !instrument_ids.contains(&instrument_id)
+        || pinned_instrument_id.is_some_and(|pinned| !instrument_ids.contains(&pinned))
     {
         return Err(ReplayNativeExecutionProfileErrorV1::InstrumentTermsMismatch);
     }
@@ -490,22 +498,34 @@ pub(crate) fn materialize_event_replay_execution_profile_v1(
         .map_err(|_| ReplayNativeExecutionProfileErrorV1::NativeConfiguration)?;
 
     let instrument_terms = binding.instrument_terms();
-    let Some(primary_terms) = instrument_terms.iter().find(|terms| {
-        terms.instrument_identity == economic_input.instrument_terms.instrument_identity
-    }) else {
-        return Err(ReplayNativeExecutionProfileErrorV1::InstrumentTermsMismatch);
-    };
+    if let Some(pinned) = economic_input.instrument_terms.as_ref() {
+        let Some(primary_terms) = instrument_terms
+            .iter()
+            .find(|terms| terms.instrument_identity == pinned.instrument_identity)
+        else {
+            return Err(ReplayNativeExecutionProfileErrorV1::InstrumentTermsMismatch);
+        };
 
-    if primary_terms.venue_identity != economic_input.venue_identity
-        || primary_terms.margin_model != InstrumentMarginModelSelectionV1::StandardMarginModel
-        || primary_terms.maker_fee != economic_input.instrument_terms.maker_fee
-        || primary_terms.taker_fee != economic_input.instrument_terms.taker_fee
-        || primary_terms.initial_margin != economic_input.instrument_terms.initial_margin
-        || primary_terms.maintenance_margin != economic_input.instrument_terms.maintenance_margin
-    {
+        if primary_terms.venue_identity != economic_input.venue_identity
+            || primary_terms.margin_model != InstrumentMarginModelSelectionV1::StandardMarginModel
+            || primary_terms.maker_fee != pinned.maker_fee
+            || primary_terms.taker_fee != pinned.taker_fee
+            || primary_terms.initial_margin != pinned.initial_margin
+            || primary_terms.maintenance_margin != pinned.maintenance_margin
+        {
+            return Err(ReplayNativeExecutionProfileErrorV1::InstrumentTermsMismatch);
+        }
+    } else if instrument_terms.iter().any(|terms| {
+        terms.venue_identity != economic_input.venue_identity
+            || terms.margin_model != InstrumentMarginModelSelectionV1::StandardMarginModel
+    }) {
         return Err(ReplayNativeExecutionProfileErrorV1::InstrumentTermsMismatch);
     }
-    let materialization_digest = materialization_digest(&binding, instrument_id, instance_id)?;
+    // The instrument the materialization digest names: the pinned one under schema 1, whose digest
+    // is therefore unchanged, and under schema 2 the binding's first member in canonical order.
+    let digest_instrument_id = pinned_instrument_id.unwrap_or(instrument_ids[0]);
+    let materialization_digest =
+        materialization_digest(&binding, digest_instrument_id, instance_id)?;
     let instrument_terms = binding.into_instrument_terms();
 
     Ok(ReplayNativeExecutionProfileV1 {
@@ -1006,6 +1026,7 @@ mod tests {
         replay_execution_profile_binding_v1::{
             ReplayExecutionProfileFamilyBindingV1, ReplayExecutionProfileRequestBindingV1,
             bind_replay_execution_profiles_v1, instrument_terms_provenance_fixture_v1,
+            instrument_terms_provenance_for_fixture,
         },
         replay_runner_operational_profile_v1::{ReplayRunnerOperationalProfileV1, runner_fixture},
     };
@@ -1540,6 +1561,99 @@ mod tests {
         assert!(venue.liquidation_cancel_open_orders);
     }
 
+    /// Schema 2 pins no instrument, and neither the binding nor the native profile reads catalog
+    /// terms: members other than the schema 1 fixture's pinned ETHUSDT-PERP, at fees other than its
+    /// pinned ones, bind and materialize. The same members under the schema 1 configuration are
+    /// refused, because it pins an instrument none of them is.
+    #[rstest]
+    fn schema_2_materializes_members_the_catalog_does_not_name() {
+        let runner = ReplayRunnerOperationalProfileV1::seal(runner_fixture()).unwrap();
+        let rate = |mantissa, scale| {
+            crate::replay_economic_configuration_v1::ReplayFixedDecimalV1 { mantissa, scale }
+        };
+        let members = |economic: &ReplayEconomicConfigurationV1| {
+            BoundedMembers::try_from([
+                instrument_terms_provenance_for_fixture(
+                    economic,
+                    "BTCUSDT-PERP".into(),
+                    [31; 32],
+                    [32; 32],
+                    rate(1, 4),
+                    rate(5, 4),
+                    rate(2, 2),
+                    rate(5, 3),
+                    "SIM-001",
+                    0,
+                    i128::MAX,
+                ),
+                instrument_terms_provenance_for_fixture(
+                    economic,
+                    "SOLUSDT-PERP".into(),
+                    [33; 32],
+                    [34; 32],
+                    rate(2, 4),
+                    rate(5, 4),
+                    rate(5, 2),
+                    rate(1, 2),
+                    "SIM-001",
+                    0,
+                    i128::MAX,
+                ),
+            ])
+            .unwrap()
+        };
+        let bind = |economic: &ReplayEconomicConfigurationV1| {
+            let family = ReplayExecutionProfileFamilyBindingV1 {
+                schema_version: 1,
+                trial_family_identity: "trial-family-1".into(),
+                trial_family_digest: [3; 32],
+                economic_configuration_digest: economic.digest(),
+                runner_operational_profile_digest: runner.digest(),
+            };
+            let request = ReplayExecutionProfileRequestBindingV1 {
+                schema_version: 1,
+                request_identity: "replay-request-1".into(),
+                request_meaning_digest: [4; 32],
+                trial_family_identity: family.trial_family_identity.clone(),
+                trial_family_digest: family.trial_family_digest,
+                economic_configuration_digest: economic.digest(),
+                runner_operational_profile_digest: runner.digest(),
+            };
+            bind_replay_execution_profiles_v1(
+                &family,
+                &request,
+                economic,
+                &runner,
+                members(economic),
+            )
+        };
+
+        let schema_2 = ReplayEconomicConfigurationV1::seal(
+            crate::replay_economic_configuration_v1::economic_fixture_v2("SIM"),
+        )
+        .unwrap();
+        let profile = materialize_event_replay_execution_profile_v1(
+            bind(&schema_2).expect("schema 2 binds members the catalog names nowhere"),
+            &schema_2,
+            &runner,
+        )
+        .expect("schema 2 materializes without reading catalog terms");
+        assert_eq!(
+            profile
+                .instrument_terms()
+                .iter()
+                .map(|terms| (terms.instrument_identity.as_str(), terms.taker_fee))
+                .collect::<Vec<_>>(),
+            [("BTCUSDT-PERP", rate(5, 4)), ("SOLUSDT-PERP", rate(5, 4))]
+        );
+
+        let schema_1 = ReplayEconomicConfigurationV1::seal(economic_fixture()).unwrap();
+        assert!(matches!(
+            bind(&schema_1),
+            Err(crate::replay_execution_profile_binding_v1::ReplayExecutionProfileBindingErrorV1::InstrumentTermsProvenanceMismatch)
+        ));
+    }
+
     #[rstest]
     fn same_binding_is_deterministic_and_request_change_changes_native_identity() {
         let (economic, runner) = fixture_profiles();
@@ -1661,7 +1775,11 @@ mod tests {
         let mut unknown = economic_fixture();
         unknown.starting_balance_currency = "ZZZ".into();
         unknown.common_quote_currency = "ZZZ".into();
-        unknown.instrument_terms.quote_currency = "ZZZ".into();
+        unknown
+            .instrument_terms
+            .as_mut()
+            .expect("the schema 1 fixture pins its terms")
+            .quote_currency = "ZZZ".into();
         let unknown = ReplayEconomicConfigurationV1::seal(unknown).unwrap();
         let runner = ReplayRunnerOperationalProfileV1::seal(runner_fixture()).unwrap();
         assert!(matches!(
