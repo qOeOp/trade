@@ -343,8 +343,34 @@ struct ArtifactBuildApiResultV1 {
     provider_invocation: Option<ProductEdgeInvocationClaimReadbackV1>,
 }
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
+/// The stack each runtime worker gets. Axum runs every request on a worker, and tokio's default is
+/// 2 MiB.
+///
+/// Measured at release codegen (opt-level 3, one codegen unit, no LTO) on the serial R&D chain,
+/// whose database holds the custody states that send a V3 Research submission down its deepest
+/// lineage branch (owner-chains run 36362053221, Linux x86): a V3 `submit_v2` peaks at 608 KiB, and
+/// the deepest chain entry at 1000 KiB. Against those readings:
+/// - no LTO: direction unknown;
+/// - hyper, axum and the worker loop around a production request, absent from the reading: the
+///   reading is optimistic;
+/// - the tests unwind where this binary aborts: the reading is, if anything, pessimistic;
+/// - database states the chain never builds: direction unknown.
+///
+/// With two of four biases unknown and one optimistic, the 2 MiB default leaves about 1 MiB of
+/// margin that is partly unmeasured; 4 MiB leaves about 3 MiB. Stacks are committed as they are
+/// touched, so the larger reservation costs address space, not memory. An overflow aborts the whole
+/// process. This size is not the fix for that depth: splitting the deepest futures on the path is.
+const RUNTIME_WORKER_STACK_BYTES: usize = 4 * 1024 * 1024;
+
+fn main() -> anyhow::Result<()> {
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .thread_stack_size(RUNTIME_WORKER_STACK_BYTES)
+        .build()?
+        .block_on(run())
+}
+
+async fn run() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
         .with_target(false)
         .with_env_filter(

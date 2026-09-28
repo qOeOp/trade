@@ -167,7 +167,7 @@ strategy source code do not exist.
   unique signed current head, direct target measurements, immutable admission receipts, rotation fencing, and custody
   incidents. It is not a business `authorityOwner`, Flow or Dashboard node. The intended default deployment/bootstrap
   consumer remains `product/rd-workbench/docker-compose.yml#services.rd-owner-api`, rooted at
-  `crates/strategy_factory_rd_owner_api/src/main.rs::main`. Before Market Data constructs the governed PostgreSQL
+  `crates/strategy_factory_rd_owner_api/src/main.rs::run`. Before Market Data constructs the governed PostgreSQL
   repository, its private seam must consume a sealed receipt bound to the exact environment, deployment,
   Market Data Owner, `rd-owner-api` consumer, PostgreSQL backend, endpoint/TLS/server/database identities,
   schema/migration/function/role/ACL measurements, opaque credential-handle identity/audience/version,
