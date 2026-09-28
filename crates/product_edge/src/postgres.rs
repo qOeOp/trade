@@ -132,11 +132,16 @@ fn unavailable_for(reason: Reason, kind: Subject, identity: &str) -> ProductEdge
 }
 
 /// The values a research window is checked against at a cut.
+///
+/// The research View's `valid_through` is not one of them. It is a reader's freshness, past which
+/// the View reads `STALE`, and it does not bound how long the frozen Intent may be worked on: the
+/// R&D Owner proves, at each of the build's own mutations, that the Research may still be continued
+/// under the authority it was admitted under (`docs/owners/rd.md`). What the window keeps is the
+/// order of the cuts and the source authorization the research was admitted under.
 #[derive(Clone, Copy, Debug)]
 struct ResearchWindowV1 {
     owner_cut_epoch_ms: u64,
     projection_at_epoch_ms: u64,
-    valid_through_epoch_ms: u64,
     source_not_before_epoch_ms: u64,
     source_valid_through_epoch_ms: u64,
     /// Whether the source authorization fails at the cut for anything other than its window,
@@ -158,10 +163,6 @@ impl ResearchWindowV1 {
                 self.projection_at_epoch_ms > cut_epoch_ms,
                 "projection_after_cut",
             ),
-            (
-                cut_epoch_ms >= self.valid_through_epoch_ms,
-                "research_view_expired",
-            ),
             (!within_source_window, "source_authorization_outside_window"),
             (
                 within_source_window && self.source_revoked,
@@ -178,9 +179,9 @@ impl ResearchWindowV1 {
 ///
 /// Four conditions answer to one reason, `WINDOW_NOT_CURRENT`, because they share a repair: the
 /// caller asked at a cut outside the research intent's window. They do not share a cause, and they
-/// share a clock: `owner_cut_epoch_ms`, the projection and the expiry are stamped by the R&D Owner
-/// from the database's `pg_catalog.clock_timestamp()`, and the callers take `cut_epoch_ms` from the
-/// same clock in their own transaction. The refusal carries the conditions that held and every value
+/// share a clock: `owner_cut_epoch_ms` and the projection are stamped by the R&D Owner from the
+/// database's `pg_catalog.clock_timestamp()`, and the callers take `cut_epoch_ms` from the same
+/// clock in their own transaction. The refusal carries the conditions that held and every value
 /// they compared. The reason, the subject and the outward disposition are unchanged.
 fn research_window_refusal(
     locked: &LockedCurrentResearchEnvelopeV1,
@@ -192,7 +193,6 @@ fn research_window_refusal(
     let window = ResearchWindowV1 {
         owner_cut_epoch_ms: locked.owner_cut_epoch_ms,
         projection_at_epoch_ms: evidence.projection_at_epoch_ms,
-        valid_through_epoch_ms: evidence.valid_through_epoch_ms,
         source_not_before_epoch_ms: source_authorization.not_before_epoch_ms(),
         source_valid_through_epoch_ms: source_authorization.valid_through_epoch_ms(),
         source_revoked: !source_authorization.is_current_at(cut_epoch_ms),
@@ -209,11 +209,10 @@ fn research_window_refusal(
             intent_identity,
         )
         .with_cause(format!(
-            "{} at cut {cut_epoch_ms}: owner_cut {}, projection_at {}, valid_through {}, source authorization [{}, {})",
+            "{} at cut {cut_epoch_ms}: owner_cut {}, projection_at {}, source authorization [{}, {})",
             held.join(","),
             locked.owner_cut_epoch_ms,
             evidence.projection_at_epoch_ms,
-            evidence.valid_through_epoch_ms,
             source_authorization.not_before_epoch_ms(),
             source_authorization.valid_through_epoch_ms(),
         )),
@@ -7171,7 +7170,6 @@ mod tests {
             ResearchWindowV1 {
                 owner_cut_epoch_ms: db(locked_at),
                 projection_at_epoch_ms: projection,
-                valid_through_epoch_ms: projection + 600_000,
                 source_not_before_epoch_ms: declared - 3_600_000,
                 source_valid_through_epoch_ms: declared + 3_600_000,
                 source_revoked: false,
@@ -7181,14 +7179,12 @@ mod tests {
     }
 
     /// What a successor research intent meets on its way through: the R&D successor lock first,
-    /// which returns no envelope when `projection_at > owner_cut` or `owner_cut >= valid_through`
+    /// which returns no envelope when `projection_at > owner_cut`
     /// (`rd_owner_api.lock_current_successor_research_for_artifact_v1`), then the window check at
     /// Product Edge's cut.
     fn refusals_under(wiring: ClockWiring, db_ahead_ms: i64) -> Vec<&'static str> {
         let (window, cut) = window_under(wiring, db_ahead_ms);
-        if window.projection_at_epoch_ms > window.owner_cut_epoch_ms
-            || window.owner_cut_epoch_ms >= window.valid_through_epoch_ms
-        {
+        if window.projection_at_epoch_ms > window.owner_cut_epoch_ms {
             return vec!["successor_lock_refused"];
         }
         window.refusals_at(cut)

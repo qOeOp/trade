@@ -5119,6 +5119,17 @@ mod postgres_acceptance_tests {
         let frozen_request_identity = format!("repair-replay-research-{frozen_suffix}");
 
         let frozen = protected_feedback_generation(rd_pool, &x_projection).await;
+        // Product Edge admits a build of the frozen Intent past its View's window: the window is a
+        // reader's freshness, and the R&D Owner proves the continuation at the build's own cuts.
+        Box::pin(admit_artifact_build_past_the_views_window(
+            &database,
+            &operator,
+            &frozen_intent_identity,
+            &format!("{suffix}-frozen-past-window"),
+            false,
+        ))
+        .await
+        .expect("a build of the frozen Intent is admitted past its View's window");
         continue_initial_research_now(rd_pool, &frozen_request_identity)
             .await
             .expect("the frozen Intent continues while its history stays at its generation");
@@ -5229,6 +5240,17 @@ mod postgres_acceptance_tests {
             .rollback()
             .await
             .expect("successor continuation rollback");
+        // Product Edge admits the successor's build past its View's window too, through the
+        // successor's own R&D lock.
+        Box::pin(admit_artifact_build_past_the_views_window(
+            &database,
+            &operator,
+            intent.intent_identity(),
+            &format!("{suffix}-successor-past-window"),
+            true,
+        ))
+        .await
+        .expect("a build of the successor is admitted past its View's window");
         // Its Artifact build continues under the successor's own authority and the generation it
         // froze, not the initial Intent's.
         assert_eq!(
@@ -5275,6 +5297,33 @@ mod postgres_acceptance_tests {
         intent_identity: &str,
         suffix: &str,
     ) -> crate::artifact_build::ArtifactBuildPreparationV1 {
+        let request = Box::pin(admit_artifact_build(
+            database,
+            operator,
+            intent_identity,
+            suffix,
+        ))
+        .await
+        .expect("Artifact Product Edge admission");
+        PostgresArtifactBuildOwnerV1::connect(
+            database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
+            "/tmp/unused-phase-fact-sandbox.sock",
+            u64::MAX,
+        )
+        .await
+        .expect("Artifact Owner")
+        .prepare(request)
+        .await
+        .expect("Artifact preparation")
+    }
+
+    /// Product Edge's admission of an Artifact build of `intent_identity` under `operator`.
+    async fn admit_artifact_build(
+        database: &CanonicalOwnerPostgresTestDatabaseV1,
+        operator: &RepairReplayOperatorV1,
+        intent_identity: &str,
+        suffix: &str,
+    ) -> Result<ArtifactBuildRequestV1, vibe_product_edge::ProductEdgeError> {
         let build_request_identity = format!("phase-fact-artifact-request-{suffix}");
         let payload = ArtifactBuildRequestV1 {
             build_request_identity: build_request_identity.clone(),
@@ -5304,23 +5353,88 @@ mod postgres_acceptance_tests {
                 request_proof_digest: operator.request_proof_digest.clone(),
                 audit_correlation: format!("test:{build_request_identity}"),
             })
-            .await
-            .expect("Artifact Product Edge admission")
+            .await?
             .locator()
             .clone();
-        PostgresArtifactBuildOwnerV1::connect(
-            database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
-            "/tmp/unused-phase-fact-sandbox.sock",
-            u64::MAX,
-        )
-        .await
-        .expect("Artifact Owner")
-        .prepare(ArtifactBuildRequestV1 {
+        Ok(ArtifactBuildRequestV1 {
             admission,
             ..payload
         })
-        .await
-        .expect("Artifact preparation")
+    }
+
+    /// Admits an Artifact build of an Intent whose stored View's window has already passed: its
+    /// `valid_through` moved to `valid_through`, with the artifact evidence Product Edge locks
+    /// against resealed to match. The row is restored before this returns, since the R&D Owner's
+    /// own custody checks tie a View's `valid_through` to its projection.
+    async fn admit_artifact_build_past_the_views_window(
+        database: &CanonicalOwnerPostgresTestDatabaseV1,
+        operator: &RepairReplayOperatorV1,
+        intent_identity: &str,
+        suffix: &str,
+        successor: bool,
+    ) -> Result<ArtifactBuildRequestV1, vibe_product_edge::ProductEdgeError> {
+        let mutation = database.mutation();
+        let rd_pool = mutation.pool(CanonicalOwnerTestRoleV1::RdOwner);
+        let (select, update) = if successor {
+            (
+                "SELECT view_json, artifact_evidence_json, artifact_evidence_digest FROM rd_successor_research_intents_v1 WHERE intent_identity=$1",
+                "UPDATE rd_successor_research_intents_v1 SET view_json=$1, artifact_evidence_json=$2, artifact_evidence_digest=$3 WHERE intent_identity=$4",
+            )
+        } else {
+            (
+                "SELECT view_json, artifact_evidence_json, artifact_evidence_digest FROM rd_research_request_receipts_v1 WHERE intent_json->>'intent_identity'=$1",
+                "UPDATE rd_research_request_receipts_v1 SET view_json=$1, artifact_evidence_json=$2, artifact_evidence_digest=$3 WHERE intent_json->>'intent_identity'=$4",
+            )
+        };
+        let original: (serde_json::Value, serde_json::Value, String) = sqlx::query_as(select)
+            .bind(intent_identity)
+            .fetch_one(rd_pool)
+            .await
+            .expect("stored View and artifact evidence");
+        let projected_at = original.0["projection_at_epoch_ms"]
+            .as_u64()
+            .expect("stored projection time");
+        // One millisecond after its projection: long past by the admission's cut, and still after
+        // the commit a successor's custody requires it to follow.
+        let (view, evidence, digest) = if successor {
+            crate::successor_intent_postgres::reseal_successor_artifact_evidence_for_test(
+                original.0.clone(),
+                original.1.clone(),
+                projected_at + 1,
+            )
+            .expect("resealed successor evidence")
+        } else {
+            crate::product_edge_postgres::reseal_current_research_artifact_evidence_for_test(
+                original.0.clone(),
+                original.1.clone(),
+                projected_at + 1,
+            )
+            .expect("resealed Research evidence")
+        };
+        sqlx::query(update)
+            .bind(view)
+            .bind(evidence)
+            .bind(digest)
+            .bind(intent_identity)
+            .execute(rd_pool)
+            .await
+            .expect("resealed View");
+        let admitted = Box::pin(admit_artifact_build(
+            database,
+            operator,
+            intent_identity,
+            suffix,
+        ))
+        .await;
+        sqlx::query(update)
+            .bind(&original.0)
+            .bind(&original.1)
+            .bind(&original.2)
+            .bind(intent_identity)
+            .execute(rd_pool)
+            .await
+            .expect("restored View");
+        admitted
     }
 
     async fn protected_feedback_generation(
