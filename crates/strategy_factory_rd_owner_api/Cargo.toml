@@ -73,6 +73,8 @@ vibe-strategy-factory = { workspace = true }
 
 [dev-dependencies]
 rstest = { workspace = true }
+# The first COMPOSER_V3 Replay oracle's exact decimal arithmetic.
+rust_decimal = { workspace = true }
 tower = { workspace = true }
 vibe-backtest-result-custody = { workspace = true }
 # The chain fixture's instrument constant, shared with the Market Data fixtures it names.

@@ -212,6 +212,8 @@ mod bounded_feature_program;
 #[cfg(all(test, feature = "sealed-source-intake-acceptance"))]
 mod dashboard_run_routing_acceptance;
 mod exploratory_replay;
+#[cfg(all(test, feature = "sealed-source-intake-composer-acceptance"))]
+mod first_composer_v3_replay_oracle;
 mod iteration_analysis;
 mod iteration_decision;
 mod iteration_result_admission;
