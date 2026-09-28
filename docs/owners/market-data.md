@@ -2384,19 +2384,29 @@ of this paragraph records. Only a snapshot whose verified batch holds BAR rows t
 ordinal; one holding Quote rows and nothing else is a quote cut, recorded in a census of its own
 and never given an ordinal; one holding neither joins no census. The Owner reads this from the
 batch it verified, never from the requester's scope claim, and resolves a frame's quote cut from
-that census alone. Each quote cut's correction lineage is first reduced to its latest correction
-visible at the request's decision cut; exactly one such correction must lie strictly between the
-frame's BAR and its bound, on the frame's scope, Instrument Master, universe selection, Market
-Semantics and Source Binding lineage, and it must quote exactly the frame's members. A lineage
-whose latest correction does not serve the frame contributes nothing and never falls back to the
-version that correction replaced. The
+that census alone. Each quote cut lineage is read at one cut: the frame's own decision cut, the one
+the sealed request names, or the cut the Owner published the lineage's original at when that is
+later. An intake freezes its request at Market Data's decision cut, so a frame it mints sits on its
+own decision cut and no quote cut that cut could see lies after it; the fill follows the decision,
+as the custody quote cut below states for `d_k`, so a quote cut published after the decision is
+still the frame's. The lineage is first reduced to its latest correction visible at its reading cut;
+it serves the frame when that correction lies strictly between the frame's BAR and the bound at the
+same cut, on the frame's scope, Instrument Master, universe selection, Market Semantics and Source
+Binding lineage, and quotes exactly the frame's members. A lineage whose latest correction does not
+serve the frame contributes nothing and never falls back to the version that correction replaced.
+Of the lineages that serve, the one read at the earliest cut is the frame's, and two read at that
+cut refuse the frame. The
 census is keyed by the scope a requester declares, so a second quote cut on every one of a
-frame's coordinates collides with the first and refuses the frame - a denial of service, never a
-quote cut the Owner did not verify for it. The request's decision cut is the decision cut of the
-frame's own PIT snapshot, the one the sealed request names, so a later reading resolves the same
-quote cut. The bound is the first later frame in the frame's scope census that the Owner had
-observed by that decision cut, or the window's end when none lies before it; a frame observed later
-does not move it. The caller names neither. The existing PIT correction lineage records
+frame's coordinates, read at the same cut, collides with the first and refuses the frame - a denial
+of service, never a quote cut the Owner did not verify for it. Each reading cut is fixed by the
+census the Owner already holds, so a later reading resolves the same quote cut: a lineage published
+at a later cut never displaces one that serves, and only one published on the chosen cut before the
+Owner's clock leaves it can still collide with it. The bound at a reading cut is the first later
+frame in the frame's scope census that the Owner had observed by that cut, or the window's end when
+none lies before it; a frame observed later does not move it, and a frame published before a late
+quote cut bounds it, which makes that quote cut the later frame's. The quote cut reaches only the
+fill: the frame's strategy inputs are still bound from its own batch. The caller names none of
+these. The existing PIT correction lineage records
 revisions of one request; it is not a time-successor index and cannot prove a later frame or the
 absence of skipped frames, which is why the census is its own table rather than a reuse of that
 lineage. The current initial-frame resolver and QuoteTick projection do not themselves issue a

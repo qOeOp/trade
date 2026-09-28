@@ -3,8 +3,8 @@
 Both directions for workspace_mtimes.py's path-dependency stash, against rust-cache's
 cleanup.
 
-The stash exists because of how one pinned version of Swatinem/rust-cache cleans the target before
-it saves. The simulation below restates that version's rules and names where each one lives, so a
+The stash, and the daily key build.yml gives the Rust tests cache on main, exist because of how one
+pinned version of Swatinem/rust-cache keys, restores and cleans the target before it saves. The simulation below restates that version's rules and names where each one lives, so a
 new pin must be read against its own source: the test fails while any workflow pins a rust-cache
 other than the one these rules were read from.
 
@@ -125,9 +125,12 @@ def check_pin() -> None:
     if pins != {VERIFIED_RUST_CACHE}:
         fail(
             f"rust-cache is pinned at {sorted(pins)}, but the cleanup rules this stash relies on were "
-            f"read at {VERIFIED_RUST_CACHE}. Re-read src/cleanup.ts (cleanTargetDir, "
-            "cleanProfileTarget, rmExcept) and src/save.ts at the new pin, confirm CACHEDIR.TAG is "
-            "still kept at any depth, then update VERIFIED_RUST_CACHE and simulate_cleanup.",
+            f"read at {VERIFIED_RUST_CACHE}. At the new pin re-read and confirm: src/cleanup.ts "
+            "(cleanTargetDir, cleanProfileTarget, rmExcept) still keeps CACHEDIR.TAG at any depth; "
+            "src/config.ts still hashes .cargo/config.toml into the key after the restore prefix "
+            "(:164, the daily cache key in build.yml); src/restore.ts still pre-cleans a partial "
+            "match only by timestamp (:49-55); src/save.ts still saves under the key the restore "
+            "stored (:24-30, :84). Then update VERIFIED_RUST_CACHE and simulate_cleanup.",
         )
     print(f"ok every rust-cache pin is the verified {VERIFIED_RUST_CACHE[:9]}")
 
