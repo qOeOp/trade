@@ -13,6 +13,10 @@ pub mod artifact_v2;
 pub mod backtest_run_report_read_v1;
 mod binance_program_application;
 mod binance_program_data;
+#[cfg(test)]
+mod bounded_feature_program_canonical_form_v1;
+#[cfg(test)]
+mod bounded_feature_program_corpus_for_test;
 pub mod bounded_feature_program_derivation_v1;
 mod bounded_feature_program_lowerer_v1;
 #[cfg(all(test, feature = "sealed-strategy-input-acceptance"))]

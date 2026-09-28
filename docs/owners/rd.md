@@ -812,16 +812,16 @@ and a rendering of a document exists for reading only.
   a catalog version is published, which holds only while every published version contains every earlier
   row unchanged. That is an invariant of the catalog, checked for each version against its predecessor by
   semantic digest.
-- *Acceptance.* The ten hand-written programs in
+- *Acceptance.* The sixteen hand-written programs, over twelve Designs, in
   `crates/strategy_factory/test_data/bounded_feature_program_meaning_v1/` are rewritten as documents and
   each compiles to a program whose canonical form equals the hand-written one's. The canonical form replaces
   every node, constant and state identity with a structural digest over inputs in port order, keeps decision
   priorities only by relative order, and drops the bounds; every compiled bound is at most the hand-written
   one. Both sides of that projection are proven by running the Wasm of both programs over one sequence long
-  enough to leave warmup and to produce a non-neutral entry and exit: changing a window, a constant, a
-  priority order or the order of `sub`'s operands must change behaviour and canonical form, and renaming
-  identities, scaling priorities or enlarging bounds must change neither. A short program is added to the
-  corpus and run through to a report. Every single-threshold request compiles, through a total translation
+  enough to leave warmup and to produce a non-neutral entry and exit: changing a window, a constant, the
+  priority order of branches that hold on the same bar or the order of `sub`'s operands must change
+  behaviour and canonical form, and renaming identities, scaling priorities or enlarging bounds must change
+  neither. A short program is added to the corpus and run through to a report. Every single-threshold request compiles, through a total translation
   into a document, to exactly the bytes `author_single_threshold_program_v1` produces, in the exact and the
   universe-member forms.
 
