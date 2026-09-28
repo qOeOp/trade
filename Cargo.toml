@@ -535,6 +535,13 @@ codegen-units = 1
 [profile.ci-pr-wheel.package."*"]
 opt-level = 0
 
+# LANE0 PROBE, NOT FOR MERGE: the production release codegen (opt-level 3, one codegen unit, no
+# debug assertions or overflow checks) for the chain's test binaries, without LTO so the whole
+# archive builds inside one job. Test targets always unwind; production aborts on panic.
+[profile.stack-probe-release]
+inherits = "release"
+lto = false
+
 [profile.release]
 opt-level = 3
 debug = false
