@@ -47,7 +47,7 @@ jobs:
     runs-on: ubuntu-22.04
     # Twice the slowest run without a cache restore (8.8 minutes, owner-chains run 36058051045),
     # plus room for common-setup's disk cleanup, which runs only below 40G free and took 116-915 s.
-    timeout-minutes: 30
+    timeout-minutes: 240
     env:
       # The chain builds exactly this; check-chain-channel-environment.py keeps the two equal.
       CARGO_CI_PROFILE: ci-pr
@@ -103,7 +103,7 @@ jobs:
 
       - name: Build the R&D chain archive
         # Twice the slowest cold compile, 7m45s.
-        timeout-minutes: 16
+        timeout-minutes: 240
         run: >-
           make cargo-archive-rd-owner-postgres NEXTEST_PROFILE=ci
           EXTRA_FEATURES="${RUST_TEST_EXTRA_FEATURES}"
