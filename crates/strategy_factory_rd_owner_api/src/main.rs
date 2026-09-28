@@ -219,6 +219,8 @@ mod exploratory_replay;
 mod first_composer_v3_replay_acceptance;
 #[cfg(all(test, feature = "sealed-source-intake-composer-acceptance"))]
 mod first_composer_v3_replay_body_acceptance;
+#[cfg(all(test, feature = "sealed-source-intake-composer-acceptance"))]
+mod first_composer_v3_replay_oracle;
 mod iteration_analysis;
 mod iteration_decision;
 mod iteration_result_admission;
