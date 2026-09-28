@@ -161,7 +161,7 @@ link，不是两种能力。Research 仍是 TrialFamily/Census 唯一 writer，Q
   唯一 signed current head、direct target measurement、immutable admission receipt、rotation fence 与 custody
   incident。它不是业务 `authorityOwner`、Flow 或 Dashboard node。预期的默认 deployment/bootstrap consumer 仍是
   `product/rd-workbench/docker-compose.yml#services.rd-owner-api`，根为
-  `crates/strategy_factory_rd_owner_api/src/main.rs::main`。Market Data 在构造受治理 PostgreSQL repository 前，
+  `crates/strategy_factory_rd_owner_api/src/main.rs::run`。Market Data 在构造受治理 PostgreSQL repository 前，
   其私有 seam 必须消费一个 sealed receipt，绑定准确 environment、deployment、Market Data Owner、
   `rd-owner-api` consumer、PostgreSQL backend、endpoint/TLS/server/database identity、schema/migration/function/
   role/ACL measurement、opaque credential-handle identity/audience/version、predecessor/generation/validity/recovery、

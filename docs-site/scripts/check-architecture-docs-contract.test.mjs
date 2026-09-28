@@ -3576,7 +3576,7 @@ function validateDeploymentStoreAdmission(candidate) {
   assert.deepEqual(candidate.firstTargetConsumer, {
     status: 'TARGET_UNTIL_IMPLEMENTED',
     compositionPath: 'product/rd-workbench/docker-compose.yml#services.rd-owner-api',
-    codePath: 'crates/strategy_factory_rd_owner_api/src/main.rs::main',
+    codePath: 'crates/strategy_factory_rd_owner_api/src/main.rs::run',
     consumerService: 'rd-owner-api',
     consumerOwnerId: 'market-data',
     backend: 'postgresql',
@@ -3706,7 +3706,7 @@ function validateD0BilingualDocs({ architectureRules, adoption, marketData }) {
     assert.match(section, /\*\*TARGET \/ UNAVAILABLE/);
     assert.match(section, /\*\*NOT_ADMITTED/);
     assert.match(section, /product\/rd-workbench\/docker-compose\.yml#services\.rd-owner-api/);
-    assert.match(section, /crates\/strategy_factory_rd_owner_api\/src\/main\.rs::main/);
+    assert.match(section, /crates\/strategy_factory_rd_owner_api\/src\/main\.rs::run/);
   }
 
   const marketFacts = [
