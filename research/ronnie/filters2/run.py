@@ -65,7 +65,7 @@ def main():
             df = H.score(bars, sigs, seed=100 * n + k)
             if df.empty:
                 continue
-            e = np.searchsorted(close_t, df.time.values) + 1
+            e = close_t.searchsorted(pd.DatetimeIndex(df.time)) + 1
             entry = d4.open.values[e]
             stops = {pd.Timestamp(s.time): s.stop for s in sigs}
             df["stop_pct"] = np.abs(entry - df.time.map(stops).values) / entry
