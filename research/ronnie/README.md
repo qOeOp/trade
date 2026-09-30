@@ -232,6 +232,31 @@ zone. Results are in `results/s2b_levels.txt`.
   comparisons with random or displaced controls that carry the same costs, so they hold, but absolute FX avgR figures
   are too low.
 
+## Setup types beyond the breakout (TrialFamily setups-v1)
+
+`setups/INTENT.md` was registered before `setups/run.py` was written. Five setup types on 4h bars, all at declared
+defaults:
+- B1: the S2b breakout.
+- P1: a trend pullback to EMA20.
+- P2: a Fibonacci 38.2-61.8% pullback in the trend.
+- P3: breakout, retest, confirm, his current catch-phrase.
+- R1: a Bollinger range fade in a squeeze with no trend.
+
+Each runs on crypto (BTC, ETH; 0.06% per side) and FX (nine majors; 0.005% per side), and each signal is compared with
+20 random entries of the same geometry. A setup holds when its lead over random is above zero at 95% in sample
+(2017-2022) and at 90% out of sample (2023-2026, read once). Results are in `setups/result.txt`.
+
+| setup | crypto IS | crypto OOS | FX IS | FX OOS |
+|---|---|---|---|---|
+| B1 breakout | +0.22 [+0.10, +0.34] | +0.13 [+0.02, +0.25] | -0.03 | -0.12 (below random) |
+| P1 EMA pullback | +0.02 | -0.06 | -0.02 | -0.07 (below random) |
+| P2 Fibonacci pullback | -0.18 | +0.04 | -0.06 | +0.00 |
+| P3 break-retest-confirm | -0.03 | -0.09 (below random) | -0.09 (below random) | -0.09 (below random) |
+| R1 range fade | -0.01 | -0.01 | -0.09 | -0.08 |
+
+Each cell is avgR minus the random control over the class's signals. Only the breakout on crypto holds. The
+break-retest-confirm entry he now repeats in every video is significantly worse than random in three of four cells.
+
 ## A forward journal for hand-drawn trades
 
 A history test can always be doubted as "not how I draw". `journal/` tests the drawer instead:
