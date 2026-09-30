@@ -1,0 +1,25 @@
+[package]
+name = "engine-replay"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+vibe-backtest = { path = "../../../crates/backtest" }
+vibe-common = { path = "../../../crates/common" }
+vibe-core = { path = "../../../crates/core" }
+vibe-model = { path = "../../../crates/model" }
+vibe-trading = { path = "../../../crates/trading" }
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rust_decimal = "1"
+rust_decimal_macros = "1"
+ustr = "1"
+
+[profile.release]
+opt-level = 2
+debug = false
+
+# Its own workspace, so it never joins the repository workspace.
+[workspace]

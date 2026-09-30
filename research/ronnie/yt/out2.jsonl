@@ -1,0 +1,342 @@
+{"id": "BJ3b39Zsun4", "stance": "NONE", "forward_looking": false, "levels": [{"price": 95000, "role": "EVENT_REACHED", "forward": false}], "methods": [], "timeframes": []}
+{"id": "fVpdoNhX7LQ", "stance": "BULL", "forward_looking": true, "levels": [{"price": 100000, "role": "TARGET_UP", "forward": true}], "methods": [], "timeframes": []}
+{"id": "d6B2r71_A8E", "stance": "BULL", "forward_looking": true, "levels": [{"price": 100000, "role": "TARGET_UP", "forward": true}], "methods": [], "timeframes": []}
+{"id": "8Dxgs9lrjGU", "stance": "NONE", "forward_looking": false, "levels": [{"price": 100000, "role": "OTHER", "forward": false}], "methods": [], "timeframes": []}
+{"id": "5Cel__V_xHA", "stance": "NONE", "forward_looking": false, "levels": [{"price": 93000, "role": "EVENT_BREAK_DOWN", "forward": false}], "methods": [], "timeframes": []}
+{"id": "ePOw1xI1eGs", "stance": "NEUTRAL", "forward_looking": true, "levels": [], "methods": ["RANGE_BOX"], "timeframes": []}
+{"id": "ZFFcK61EHMQ", "stance": "BULL", "forward_looking": true, "levels": [], "methods": [], "timeframes": []}
+{"id": "lMe_uTK_2js", "stance": "NONE", "forward_looking": false, "levels": [], "methods": [], "timeframes": []}
+{"id": "-f7QmsUJ9pI", "stance": "NONE", "forward_looking": false, "levels": [{"price": 100000, "role": "EVENT_REACHED", "forward": false}], "methods": [], "timeframes": []}
+{"id": "turRQWhGmac", "stance": "NONE", "forward_looking": false, "levels": [], "methods": ["MN"], "timeframes": []}
+{"id": "ZisVubiRKDc", "stance": "NONE", "forward_looking": false, "levels": [{"price": 100000, "role": "EVENT_BREAK_UP", "forward": false}], "methods": ["SUPPORT_RESISTANCE"], "timeframes": []}
+{"id": "WrkMOg1nQUc", "stance": "NONE", "forward_looking": false, "levels": [{"price": 100000, "role": "EVENT_BREAK_UP", "forward": false}], "methods": [], "timeframes": []}
+{"id": "Q4hRyia3WqI", "stance": "NEUTRAL", "forward_looking": true, "levels": [], "methods": ["RANGE_BOX"], "timeframes": []}
+{"id": "gP7KdMA2qwE", "stance": "NONE", "forward_looking": false, "levels": [], "methods": [], "timeframes": []}
+{"id": "HK-iwbGQ8OE", "stance": "NONE", "forward_looking": false, "levels": [], "methods": [], "timeframes": []}
+{"id": "NP6u19nEhWw", "stance": "NONE", "forward_looking": false, "levels": [], "methods": [], "timeframes": []}
+{"id": "1c23f_g8mok", "stance": "NONE", "forward_looking": true, "levels": [{"price": 100000, "role": "TARGET_UP", "forward": true}], "methods": [], "timeframes": []}
+{"id": "7-QXCFRielM", "stance": "NEUTRAL", "forward_looking": true, "levels": [], "methods": [], "timeframes": []}
+{"id": "MwpaxoxHGx4", "stance": "NEUTRAL", "forward_looking": true, "levels": [{"price": 97000, "role": "EVENT_BREAK_UP", "forward": false}], "methods": ["RANGE_BOX", "MULTI_TIMEFRAME"], "timeframes": []}
+{"id": "225SxHuWX-s", "stance": "BULL", "forward_looking": true, "levels": [{"price": 100000, "role": "TARGET_UP", "forward": true}], "methods": [], "timeframes": []}
+{"id": "BVnfkVA6oO4", "stance": "BULL", "forward_looking": true, "levels": [], "methods": [], "timeframes": []}
+{"id": "Ra04D8iK0Oc", "stance": "NONE", "forward_looking": false, "levels": [], "methods": [], "timeframes": []}
+{"id": "l4I9njARhe0", "stance": "NONE", "forward_looking": false, "levels": [{"price": 92000, "role": "EVENT_REACHED", "forward": false}], "methods": [], "timeframes": []}
+{"id": "tLZkHxE0wMI", "stance": "NONE", "forward_looking": false, "levels": [{"price": 100000, "role": "EVENT_BREAK_UP", "forward": false}], "methods": [], "timeframes": []}
+{"id": "zvpb76TPdV0", "stance": "NONE", "forward_looking": true, "levels": [], "methods": [], "timeframes": []}
+{"id": "3TdxY6UG_ic", "stance": "NEUTRAL", "forward_looking": true, "levels": [], "methods": ["RANGE_BOX"], "timeframes": []}
+{"id": "mlmH533SrIU", "stance": "NONE", "forward_looking": false, "levels": [], "methods": [], "timeframes": []}
+{"id": "tM_e8J8pvfU", "stance": "NONE", "forward_looking": false, "levels": [], "methods": [], "timeframes": []}
+{"id": "EUjyYVdrX0Q", "stance": "NONE", "forward_looking": false, "levels": [], "methods": [], "timeframes": []}
+{"id": "AnEHqouDvTs", "stance": "BEAR", "forward_looking": true, "levels": [], "methods": ["CHART_PATTERN"], "timeframes": []}
+{"id": "TgLjqXwYGG8", "stance": "BEAR", "forward_looking": true, "levels": [{"price": 83000, "role": "EVENT_BREAK_DOWN", "forward": false}], "methods": [], "timeframes": []}
+{"id": "VW_vjLlfVZ8", "stance": "BEAR", "forward_looking": true, "levels": [{"price": 80000, "role": "EVENT_BREAK_DOWN", "forward": false}], "methods": [], "timeframes": []}
+{"id": "PN3UP5uU0ds", "stance": "NONE", "forward_looking": false, "levels": [{"price": 78000, "role": "EVENT_BREAK_DOWN", "forward": false}], "methods": [], "timeframes": ["1M"]}
+{"id": "XCYWzgrYBr0", "stance": "NONE", "forward_looking": false, "levels": [], "methods": [], "timeframes": []}
+{"id": "VNrb85ZxqNQ", "stance": "NONE", "forward_looking": true, "levels": [{"price": 90000, "role": "EVENT_BREAK_UP", "forward": false}], "methods": ["SUPPORT_RESISTANCE"], "timeframes": []}
+{"id": "VQIdtGpG9fg", "stance": "NONE", "forward_looking": false, "levels": [], "methods": ["RANGE_BOX"], "timeframes": []}
+{"id": "XVBNNaGqReQ", "stance": "BEAR", "forward_looking": true, "levels": [], "methods": [], "timeframes": []}
+{"id": "jXS2qNBBoMs", "stance": "NONE", "forward_looking": false, "levels": [], "methods": [], "timeframes": []}
+{"id": "CZd6CFaNhoM", "stance": "NONE", "forward_looking": false, "levels": [], "methods": [], "timeframes": []}
+{"id": "16YM2rY6U34", "stance": "NONE", "forward_looking": false, "levels": [], "methods": ["SUPPORT_RESISTANCE"], "timeframes": []}
+{"id": "HBGFaSt0zFg", "stance": "NEUTRAL", "forward_looking": true, "levels": [], "methods": ["RANGE_BOX"], "timeframes": []}
+{"id": "MFtfugxgqlo", "stance": "BEAR", "forward_looking": true, "levels": [{"price": 80000, "role": "TARGET_DOWN", "forward": true}], "methods": [], "timeframes": []}
+{"id": "80n7DRwsNGI", "stance": "NONE", "forward_looking": false, "levels": [{"price": 80000, "role": "EVENT_BREAK_DOWN", "forward": false}], "methods": [], "timeframes": []}
+{"id": "zkITNnKJBsM", "stance": "BEAR", "forward_looking": true, "levels": [], "methods": [], "timeframes": []}
+{"id": "8TihKh8e004", "stance": "NONE", "forward_looking": true, "levels": [], "methods": [], "timeframes": []}
+{"id": "Ptmpi2UknHo", "stance": "NEUTRAL", "forward_looking": false, "levels": [], "methods": ["RANGE_BOX"], "timeframes": []}
+{"id": "fcw-Fss6pgE", "stance": "BULL", "forward_looking": true, "levels": [{"price": 88000, "role": "TARGET_UP", "forward": true}], "methods": [], "timeframes": []}
+{"id": "xOKedGe6zgs", "stance": "NONE", "forward_looking": false, "levels": [], "methods": [], "timeframes": []}
+{"id": "qY4iDmKNGck", "stance": "BULL", "forward_looking": true, "levels": [{"price": 93000, "role": "EVENT_BREAK_UP", "forward": false}], "methods": [], "timeframes": []}
+{"id": "KBBU2uc2lMw", "stance": "NEUTRAL", "forward_looking": false, "levels": [], "methods": ["SUPPORT_RESISTANCE", "CANDLE_PATTERN"], "timeframes": []}
+{"id": "R0iR3KElxcA", "stance": "NEUTRAL", "forward_looking": true, "levels": [], "methods": ["RANGE_BOX"], "timeframes": []}
+{"id": "xRAHwK5XFuA", "stance": "NEUTRAL", "forward_looking": true, "levels": [], "methods": ["RANGE_BOX"], "timeframes": []}
+{"id": "L4P4gVQ1WaQ", "stance": "NEUTRAL", "forward_looking": true, "levels": [], "methods": ["RANGE_BOX"], "timeframes": []}
+{"id": "g4PRKEf3MM0", "stance": "BULL", "forward_looking": true, "levels": [], "methods": ["MACRO_NEWS"], "timeframes": []}
+{"id": "h-J-IbyU1y0", "stance": "BULL", "forward_looking": true, "levels": [], "methods": ["RETEST_CONFIRM"], "timeframes": []}
+{"id": "XsHD19X1h10", "stance": "BULL", "forward_looking": true, "levels": [], "methods": ["SUPPORT_RESISTANCE", "RETEST_CONFIRM"], "timeframes": []}
+{"id": "nWn28A8rx1A", "stance": "NONE", "forward_looking": false, "levels": [], "methods": [], "timeframes": []}
+{"id": "TCOCEmEaHKA", "stance": "NONE", "forward_looking": false, "levels": [], "methods": ["SUPPORT_RESISTANCE"], "timeframes": []}
+{"id": "WOzCE0eLThk", "stance": "BULL", "forward_looking": true, "levels": [{"price": 100000, "role": "TARGET_UP", "forward": true}], "methods": [], "timeframes": []}
+{"id": "7SJxmYh70qc", "stance": "NONE", "forward_looking": true, "levels": [{"price": 100000, "role": "EVENT_BREAK_UP", "forward": false}], "methods": [], "timeframes": []}
+{"id": "NNE1YfYp5Fc", "stance": "NONE", "forward_looking": false, "levels": [{"price": 100000, "role": "EVENT_BREAK_UP", "forward": false}], "methods": [], "timeframes": []}
+{"id": "FGKeJ7hqVNM", "stance": "BULL", "forward_looking": true, "levels": [], "methods": [], "timeframes": []}
+{"id": "dLwXZL0pJDE", "stance": "BULL", "forward_looking": true, "levels": [], "methods": [], "timeframes": []}
+{"id": "uWJFfnq4t48", "stance": "NEUTRAL", "forward_looking": true, "levels": [], "methods": ["RANGE_BOX"], "timeframes": []}
+{"id": "ToKZH5MPZCA", "stance": "BULL", "forward_looking": true, "levels": [], "methods": ["RANGE_BOX"], "timeframes": []}
+{"id": "sa9dF4we6sA", "stance": "NONE", "forward_looking": false, "levels": [], "methods": ["SUPPORT_RESISTANCE"], "timeframes": []}
+{"id": "n5WkAN0LvIY", "stance": "BULL", "forward_looking": true, "levels": [], "methods": [], "timeframes": []}
+{"id": "cCp0HXFHIFQ", "stance": "NONE", "forward_looking": false, "levels": [{"price": 110000, "role": "EVENT_BREAK_UP", "forward": false}], "methods": [], "timeframes": []}
+{"id": "bgTXZkB57cI", "stance": "NONE", "forward_looking": false, "levels": [], "methods": ["SUPPORT_RESISTANCE"], "timeframes": []}
+{"id": "o1t-boKb8Uc", "stance": "BULL", "forward_looking": true, "levels": [], "methods": [], "timeframes": []}
+{"id": "905-LW7vV6w", "stance": "NONE", "forward_looking": true, "levels": [], "methods": ["SUPPORT_RESISTANCE"], "timeframes": []}
+{"id": "mLj2MuOfc2Y", "stance": "BEAR", "forward_looking": true, "levels": [], "methods": [], "timeframes": []}
+{"id": "vmmM-cj7Iww", "stance": "NONE", "forward_looking": false, "levels": [], "methods": [], "timeframes": []}
+{"id": "JmcWOapk3Uo", "stance": "NEUTRAL", "forward_looking": false, "levels": [], "methods": ["RANGE_BOX"], "timeframes": []}
+{"id": "5DMCxT3bnsU", "stance": "NONE", "forward_looking": false, "levels": [], "methods": [], "timeframes": []}
+{"id": "krKthKxj6bY", "stance": "BEAR", "forward_looking": true, "levels": [], "methods": [], "timeframes": []}
+{"id": "EqOD2F6GZhM", "stance": "NEUTRAL", "forward_looking": true, "levels": [], "methods": ["RANGE_BOX"], "timeframes": []}
+{"id": "McrwLKQKa-o", "stance": "NONE", "forward_looking": false, "levels": [], "methods": [], "timeframes": []}
+{"id": "Yt9j0MrU-Lg", "stance": "NONE", "forward_looking": false, "levels": [], "methods": [], "timeframes": []}
+{"id": "ez0YrTcVHkk", "stance": "NEUTRAL", "forward_looking": true, "levels": [], "methods": ["RANGE_BOX", "MACRO_NEWS"], "timeframes": []}
+{"id": "3-AuzGYK-ZA", "stance": "NONE", "forward_looking": false, "levels": [], "methods": [], "timeframes": []}
+{"id": "xlSoncon-J4", "stance": "NONE", "forward_looking": false, "levels": [], "methods": [], "timeframes": []}
+{"id": "n44hAsXcJDc", "stance": "NEUTRAL", "forward_looking": true, "levels": [], "methods": ["RANGE_BOX"], "timeframes": []}
+{"id": "xC6L5s8g0TI", "stance": "BULL", "forward_looking": true, "levels": [{"price": 110000, "role": "TARGET_UP", "forward": true}], "methods": ["SUPPORT_RESISTANCE"], "timeframes": ["4H"]}
+{"id": "dOOiy8wEY9E", "stance": "BULL", "forward_looking": true, "levels": [], "methods": ["SUPPORT_RESISTANCE", "BIG_CANDLE"], "timeframes": ["1D"]}
+{"id": "q8VWYOi-Ky4", "stance": "NONE", "forward_looking": false, "levels": [], "methods": ["CANDLE_PATTERN"], "timeframes": []}
+{"id": "xzje_qr4a7w", "stance": "NEUTRAL", "forward_looking": true, "levels": [], "methods": ["RANGE_BOX"], "timeframes": []}
+{"id": "9Q_ihAomyrI", "stance": "NEUTRAL", "forward_looking": true, "levels": [], "methods": ["RANGE_BOX", "MACRO_NEWS"], "timeframes": []}
+{"id": "ffhwh7M-F7c", "stance": "NEUTRAL", "forward_looking": false, "levels": [], "methods": ["RANGE_BOX"], "timeframes": []}
+{"id": "8Bmxb2F9MUQ", "stance": "NEUTRAL", "forward_looking": false, "levels": [], "methods": ["SUPPORT_RESISTANCE"], "timeframes": []}
+{"id": "FIj2WAvon7U", "stance": "NEUTRAL", "forward_looking": false, "levels": [], "methods": ["RANGE_BOX"], "timeframes": []}
+{"id": "LDCudd6Aaz4", "stance": "NEUTRAL", "forward_looking": true, "levels": [], "methods": ["RANGE_BOX"], "timeframes": []}
+{"id": "ZZJ8Zw32jec", "stance": "NONE", "forward_looking": false, "levels": [{"price": 90000, "role": "EVENT_BREAK_DOWN", "forward": false}], "methods": [], "timeframes": []}
+{"id": "goBSJ575wYY", "stance": "BULL", "forward_looking": true, "levels": [], "methods": ["CHART_PATTERN"], "timeframes": []}
+{"id": "CZ_TVa0DfWE", "stance": "NEUTRAL", "forward_looking": true, "levels": [], "methods": ["RANGE_BOX"], "timeframes": []}
+{"id": "dfNT937fTzU", "stance": "BULL", "forward_looking": true, "levels": [], "methods": ["RETEST_CONFIRM"], "timeframes": []}
+{"id": "JA3cFaA1TV8", "stance": "NONE", "forward_looking": false, "levels": [], "methods": ["SUPPORT_RESISTANCE", "TRENDLINE"], "timeframes": []}
+{"id": "SYh-Uu-QECI", "stance": "NEUTRAL", "forward_looking": true, "levels": [], "methods": ["RANGE_BOX"], "timeframes": []}
+{"id": "gkkfsoov1cQ", "stance": "NEUTRAL", "forward_looking": false, "levels": [], "methods": ["RANGE_BOX", "SUPPORT_RESISTANCE"], "timeframes": []}
+{"id": "BvtBQfyBc50", "stance": "NONE", "forward_looking": false, "levels": [], "methods": [], "timeframes": []}
+{"id": "NJDkGnEdIqM", "stance": "BULL", "forward_looking": true, "levels": [], "methods": [], "timeframes": []}
+{"id": "7_JRv8TPQUU", "stance": "BULL", "forward_looking": true, "levels": [{"price": 120000, "role": "TARGET_UP", "forward": true}], "methods": [], "timeframes": []}
+{"id": "Rq9f0nRfE8A", "stance": "BULL", "forward_looking": true, "levels": [], "methods": [], "timeframes": []}
+{"id": "tAqbQcEPMdU", "stance": "NONE", "forward_looking": false, "levels": [{"price": 120000, "role": "EVENT_REACHED", "forward": false}], "methods": [], "timeframes": []}
+{"id": "SIZWOY09xrY", "stance": "NONE", "forward_looking": false, "levels": [], "methods": [], "timeframes": []}
+{"id": "66puV26C-QA", "stance": "NEUTRAL", "forward_looking": false, "levels": [], "methods": ["RANGE_BOX"], "timeframes": []}
+{"id": "C6M5BG0As-U", "stance": "NEUTRAL", "forward_looking": false, "levels": [], "methods": [], "timeframes": []}
+{"id": "lXUtpmpFn-M", "stance": "NONE", "forward_looking": true, "levels": [], "methods": ["SUPPORT_RESISTANCE"], "timeframes": []}
+{"id": "LfYLm7dmp0s", "stance": "NONE", "forward_looking": false, "levels": [], "methods": [], "timeframes": []}
+{"id": "ad9pElq85RM", "stance": "BULL", "forward_looking": true, "levels": [{"price": 120000, "role": "TARGET_UP", "forward": true}], "methods": [], "timeframes": []}
+{"id": "vSiGv70P5Fo", "stance": "NONE", "forward_looking": false, "levels": [], "methods": ["MACRO_NEWS"], "timeframes": []}
+{"id": "cZSQZrb4j_g", "stance": "NONE", "forward_looking": false, "levels": [], "methods": ["BIG_CANDLE"], "timeframes": ["1M"]}
+{"id": "9rl8tuQlgNU", "stance": "NONE", "forward_looking": false, "levels": [], "methods": ["MACRO_NEWS"], "timeframes": []}
+{"id": "Nm1AeIVP9us", "stance": "NONE", "forward_looking": false, "levels": [{"price": 113000, "role": "EVENT_BREAK_DOWN", "forward": false}], "methods": ["MACRO_NEWS"], "timeframes": []}
+{"id": "L8cdG9GcKxg", "stance": "NEUTRAL", "forward_looking": true, "levels": [], "methods": ["RANGE_BOX", "TRENDLINE"], "timeframes": []}
+{"id": "tXQoNB_hasc", "stance": "NEUTRAL", "forward_looking": false, "levels": [], "methods": ["RANGE_BOX"], "timeframes": []}
+{"id": "xqQLwGDtnjI", "stance": "NONE", "forward_looking": true, "levels": [], "methods": [], "timeframes": []}
+{"id": "nqi8cNQ-GU8", "stance": "BULL", "forward_looking": true, "levels": [], "methods": [], "timeframes": []}
+{"id": "QEfRMOY4HVc", "stance": "NONE", "forward_looking": false, "levels": [], "methods": [], "timeframes": []}
+{"id": "429D9040lNY", "stance": "NONE", "forward_looking": false, "levels": [], "methods": [], "timeframes": []}
+{"id": "eDMRD9WeBIc", "stance": "BEAR", "forward_looking": true, "levels": [], "methods": [], "timeframes": []}
+{"id": "7fO5BU7nTWc", "stance": "NONE", "forward_looking": false, "levels": [], "methods": ["SUPPORT_RESISTANCE"], "timeframes": []}
+{"id": "-2AHQMiiPy4", "stance": "NONE", "forward_looking": true, "levels": [{"price": 112000, "role": "SUPPORT", "forward": true}], "methods": ["SUPPORT_RESISTANCE"], "timeframes": []}
+{"id": "f8vPbkPJXyg", "stance": "NONE", "forward_looking": false, "levels": [], "methods": ["SUPPORT_RESISTANCE"], "timeframes": []}
+{"id": "1_8EIypzL2I", "stance": "NONE", "forward_looking": false, "levels": [{"price": 110000, "role": "EVENT_BREAK_DOWN", "forward": false}], "methods": [], "timeframes": []}
+{"id": "0-0Y3dUQZl8", "stance": "NONE", "forward_looking": false, "levels": [], "methods": [], "timeframes": []}
+{"id": "XT0u6rD5P_g", "stance": "NEUTRAL", "forward_looking": false, "levels": [], "methods": ["SUPPORT_RESISTANCE", "RANGE_BOX"], "timeframes": []}
+{"id": "hV-tFNUvmTE", "stance": "BEAR", "forward_looking": false, "levels": [], "methods": [], "timeframes": ["4H"]}
+{"id": "bs5GsFIC0oc", "stance": "NONE", "forward_looking": false, "levels": [], "methods": [], "timeframes": []}
+{"id": "oSOKhfCssko", "stance": "BEAR", "forward_looking": true, "levels": [], "methods": ["CANDLE_PATTERN", "MULTI_TIMEFRAME"], "timeframes": ["1M", "1W"]}
+{"id": "-seTzdGI0g0", "stance": "NONE", "forward_looking": false, "levels": [], "methods": ["SUPPORT_RESISTANCE"], "timeframes": []}
+{"id": "s-StIfhlr6c", "stance": "NONE", "forward_looking": false, "levels": [], "methods": ["TRENDLINE"], "timeframes": []}
+{"id": "OQHWopNmSdA", "stance": "NONE", "forward_looking": false, "levels": [], "methods": ["SUPPORT_RESISTANCE"], "timeframes": []}
+{"id": "VSJCh8QXS8Y", "stance": "NONE", "forward_looking": false, "levels": [], "methods": ["SUPPORT_RESISTANCE"], "timeframes": []}
+{"id": "pz6gMDJw9U4", "stance": "NONE", "forward_looking": false, "levels": [], "methods": [], "timeframes": []}
+{"id": "f2haAjevLwg", "stance": "BULL", "forward_looking": true, "levels": [{"price": 120000, "role": "TARGET_UP", "forward": true}], "methods": [], "timeframes": []}
+{"id": "lML-i5e4Hgo", "stance": "NONE", "forward_looking": false, "levels": [], "methods": [], "timeframes": []}
+{"id": "QfHd1yN36Vk", "stance": "NONE", "forward_looking": false, "levels": [], "methods": ["FIBONACCI"], "timeframes": []}
+{"id": "4oeOWdClLfQ", "stance": "BEAR", "forward_looking": false, "levels": [], "methods": [], "timeframes": []}
+{"id": "3KRJm5qFPP4", "stance": "NONE", "forward_looking": false, "levels": [], "methods": ["SUPPORT_RESISTANCE"], "timeframes": []}
+{"id": "rAKGcFDZdp4", "stance": "BULL", "forward_looking": true, "levels": [], "methods": ["RANGE_BOX"], "timeframes": []}
+{"id": "m7s4-CuU6ug", "stance": "NONE", "forward_looking": true, "levels": [{"price": 114000, "role": "EVENT_BREAK_UP", "forward": false}], "methods": ["BIG_CANDLE"], "timeframes": ["1M"]}
+{"id": "IlHaxKlmHbM", "stance": "BULL", "forward_looking": true, "levels": [{"price": 120000, "role": "TARGET_UP", "forward": true}], "methods": [], "timeframes": []}
+{"id": "cd1OqAj0R94", "stance": "BULL", "forward_looking": true, "levels": [], "methods": [], "timeframes": []}
+{"id": "9hawMSYYkFw", "stance": "NONE", "forward_looking": false, "levels": [], "methods": [], "timeframes": []}
+{"id": "PMOnP7iCx0I", "stance": "NONE", "forward_looking": false, "levels": [], "methods": [], "timeframes": []}
+{"id": "itZpwq1sr0o", "stance": "NONE", "forward_looking": false, "levels": [], "methods": [], "timeframes": []}
+{"id": "k-7NyifEkTk", "stance": "NONE", "forward_looking": false, "levels": [], "methods": [], "timeframes": []}
+{"id": "YlYEtN1Dsic", "stance": "NONE", "forward_looking": false, "levels": [], "methods": [], "timeframes": []}
+{"id": "uKvs46zMX-0", "stance": "NEUTRAL", "forward_looking": false, "levels": [], "methods": ["RANGE_BOX"], "timeframes": []}
+{"id": "fRdHXQBvC9I", "stance": "NONE", "forward_looking": false, "levels": [{"price": 110000, "role": "EVENT_BREAK_UP", "forward": false}], "methods": [], "timeframes": []}
+{"id": "lxZD1yZb55Y", "stance": "NEUTRAL", "forward_looking": false, "levels": [], "methods": ["RANGE_BOX", "SUPPORT_RESISTANCE"], "timeframes": []}
+{"id": "pL_M-zl6f_Y", "stance": "NONE", "forward_looking": true, "levels": [], "methods": [], "timeframes": []}
+{"id": "qkchOaYYeWk", "stance": "NONE", "forward_looking": false, "levels": [], "methods": ["SUPPORT_RESISTANCE"], "timeframes": []}
+{"id": "Y5VoUmomltc", "stance": "NEUTRAL", "forward_looking": true, "levels": [], "methods": ["RANGE_BOX"], "timeframes": []}
+{"id": "VKCo8gpez1w", "stance": "NONE", "forward_looking": false, "levels": [], "methods": [], "timeframes": []}
+{"id": "-dBEGzD26Hc", "stance": "NONE", "forward_looking": false, "levels": [], "methods": ["SUPPORT_RESISTANCE"], "timeframes": []}
+{"id": "ih3k0C9d5Zw", "stance": "NEUTRAL", "forward_looking": true, "levels": [], "methods": ["RANGE_BOX"], "timeframes": []}
+{"id": "HKxVrGiMFrw", "stance": "NONE", "forward_looking": false, "levels": [], "methods": ["SUPPORT_RESISTANCE"], "timeframes": []}
+{"id": "l1JxKKCYOmI", "stance": "BULL", "forward_looking": true, "levels": [{"price": 110000, "role": "TARGET_UP", "forward": true}], "methods": ["RANGE_BOX"], "timeframes": []}
+{"id": "_hDEJ3Z3Wx0", "stance": "NONE", "forward_looking": false, "levels": [], "methods": [], "timeframes": []}
+{"id": "Il8tfJ0hsWk", "stance": "BULL", "forward_looking": true, "levels": [{"price": 100000, "role": "SUPPORT", "forward": true}], "methods": [], "timeframes": []}
+{"id": "52P0vBHXCDY", "stance": "NONE", "forward_looking": false, "levels": [{"price": 100000, "role": "EVENT_BREAK_DOWN", "forward": false}], "methods": [], "timeframes": []}
+{"id": "ioCCY-blH4c", "stance": "NONE", "forward_looking": false, "levels": [], "methods": [], "timeframes": ["1D"]}
+{"id": "UDSv2QUTBcY", "stance": "BEAR", "forward_looking": true, "levels": [{"price": 90000, "role": "SUPPORT", "forward": true}], "methods": [], "timeframes": []}
+{"id": "-9hDIJ-C6kw", "stance": "BEAR", "forward_looking": true, "levels": [], "methods": ["SUPPORT_RESISTANCE"], "timeframes": []}
+{"id": "jFuBw_7TCyg", "stance": "BEAR", "forward_looking": true, "levels": [{"price": 90000, "role": "TARGET_DOWN", "forward": true}], "methods": [], "timeframes": []}
+{"id": "DZ9VY9GRe0M", "stance": "BULL", "forward_looking": true, "levels": [{"price": 90000, "role": "EVENT_REACHED", "forward": false}, {"price": 90000, "role": "SUPPORT", "forward": true}], "methods": ["SUPPORT_RESISTANCE"], "timeframes": []}
+{"id": "3kKDpSBdbvA", "stance": "NONE", "forward_looking": false, "levels": [], "methods": ["SUPPORT_RESISTANCE", "FIBONACCI"], "timeframes": []}
+{"id": "8lkHmvIDbiw", "stance": "NONE", "forward_looking": false, "levels": [], "methods": ["CANDLE_PATTERN"], "timeframes": ["1W"]}
+{"id": "bVoxyjcM_zc", "stance": "NONE", "forward_looking": true, "levels": [], "methods": [], "timeframes": ["1D"]}
+{"id": "NzyAdlh1FWE", "stance": "BULL", "forward_looking": false, "levels": [], "methods": ["BIG_CANDLE", "SUPPORT_RESISTANCE"], "timeframes": ["1W"]}
+{"id": "vkth4WxRlTs", "stance": "BULL", "forward_looking": true, "levels": [{"price": 90000, "role": "TARGET_UP", "forward": true}], "methods": [], "timeframes": []}
+{"id": "F3-T9cjHC-Y", "stance": "NONE", "forward_looking": false, "levels": [{"price": 90000, "role": "EVENT_BREAK_UP", "forward": false}], "methods": [], "timeframes": []}
+{"id": "xozmsLVUmfo", "stance": "NONE", "forward_looking": true, "levels": [], "methods": [], "timeframes": ["1W"]}
+{"id": "TjVQMzHwRds", "stance": "BEAR", "forward_looking": true, "levels": [], "methods": [], "timeframes": []}
+{"id": "K7WFdClk5DI", "stance": "NONE", "forward_looking": false, "levels": [], "methods": [], "timeframes": ["4H"]}
+{"id": "gWR1ABYny5w", "stance": "NONE", "forward_looking": false, "levels": [{"price": 92000, "role": "EVENT_BREAK_UP", "forward": false}], "methods": ["SUPPORT_RESISTANCE"], "timeframes": []}
+{"id": "8_2s9EUcWIs", "stance": "BULL", "forward_looking": true, "levels": [{"price": 96000, "role": "TARGET_UP", "forward": true}], "methods": [], "timeframes": []}
+{"id": "w9xZPjr6CpE", "stance": "BULL", "forward_looking": true, "levels": [{"price": 96000, "role": "TARGET_UP", "forward": true}], "methods": ["RETEST_CONFIRM"], "timeframes": []}
+{"id": "jtOvmepTEds", "stance": "BEAR", "forward_looking": true, "levels": [], "methods": ["SUPPORT_RESISTANCE"], "timeframes": ["1W"]}
+{"id": "2HGqUYO3Kfw", "stance": "NEUTRAL", "forward_looking": false, "levels": [], "methods": ["RANGE_BOX"], "timeframes": []}
+{"id": "cVNzeYazmfY", "stance": "NONE", "forward_looking": false, "levels": [{"price": 94000, "role": "EVENT_BREAK_UP", "forward": false}], "methods": [], "timeframes": []}
+{"id": "rtwuo99RdH4", "stance": "NONE", "forward_looking": false, "levels": [{"price": 90000, "role": "EVENT_BREAK_DOWN", "forward": false}], "methods": ["SUPPORT_RESISTANCE"], "timeframes": []}
+{"id": "nSGVOf-2doM", "stance": "NONE", "forward_looking": false, "levels": [{"price": 90000, "role": "EVENT_BREAK_DOWN", "forward": false}], "methods": [], "timeframes": []}
+{"id": "4eQKZgCuJMw", "stance": "NONE", "forward_looking": false, "levels": [{"price": 85000, "role": "EVENT_BREAK_DOWN", "forward": false}], "methods": [], "timeframes": []}
+{"id": "KZE--ybPhEA", "stance": "NEUTRAL", "forward_looking": false, "levels": [], "methods": ["CANDLE_PATTERN", "RANGE_BOX"], "timeframes": ["1D"]}
+{"id": "41nyOcCXnwE", "stance": "NONE", "forward_looking": false, "levels": [], "methods": [], "timeframes": []}
+{"id": "sAmeVHCMKgk", "stance": "NEUTRAL", "forward_looking": true, "levels": [], "methods": ["CANDLE_PATTERN"], "timeframes": ["1W"]}
+{"id": "RIs4loKmdZU", "stance": "NEUTRAL", "forward_looking": true, "levels": [], "methods": ["RANGE_BOX"], "timeframes": []}
+{"id": "mFgEjhMsMFw", "stance": "NONE", "forward_looking": false, "levels": [], "methods": [], "timeframes": []}
+{"id": "vXVy1bj5ng8", "stance": "NONE", "forward_looking": false, "levels": [], "methods": ["RANGE_BOX", "CHART_PATTERN"], "timeframes": []}
+{"id": "FBAnkP612SY", "stance": "NONE", "forward_looking": false, "levels": [{"price": 90000, "role": "EVENT_BREAK_UP", "forward": false}], "methods": [], "timeframes": []}
+{"id": "BafjgnvB3tY", "stance": "NONE", "forward_looking": false, "levels": [{"price": 93000, "role": "EVENT_BREAK_UP", "forward": false}], "methods": [], "timeframes": []}
+{"id": "Lny1M-tI4dk", "stance": "BULL", "forward_looking": true, "levels": [{"price": 94000, "role": "EVENT_BREAK_UP", "forward": false}], "methods": ["BIG_CANDLE"], "timeframes": []}
+{"id": "kVvIJbtXgt4", "stance": "NONE", "forward_looking": false, "levels": [], "methods": ["SUPPORT_RESISTANCE"], "timeframes": []}
+{"id": "Eer-lkMTCzU", "stance": "BULL", "forward_looking": true, "levels": [], "methods": [], "timeframes": []}
+{"id": "pa0lC_iQOAo", "stance": "NONE", "forward_looking": false, "levels": [], "methods": ["SUPPORT_RESISTANCE"], "timeframes": []}
+{"id": "igd5Klw4U-w", "stance": "NONE", "forward_looking": false, "levels": [], "methods": ["RANGE_BOX"], "timeframes": []}
+{"id": "sfdqU6Cs1_E", "stance": "NONE", "forward_looking": false, "levels": [], "methods": [], "timeframes": []}
+{"id": "odem7wMOq5s", "stance": "NONE", "forward_looking": false, "levels": [{"price": 98000, "role": "EVENT_REACHED", "forward": false}], "methods": [], "timeframes": []}
+{"id": "9FybDlsm-xw", "stance": "BULL", "forward_looking": true, "levels": [], "methods": ["RETEST_CONFIRM"], "timeframes": []}
+{"id": "DlmV-Iz451s", "stance": "NONE", "forward_looking": true, "levels": [], "methods": ["BIG_CANDLE"], "timeframes": ["1W"]}
+{"id": "XzrFPBAQt64", "stance": "NONE", "forward_looking": false, "levels": [], "methods": [], "timeframes": []}
+{"id": "GAJxcvjnqpw", "stance": "BEAR", "forward_looking": true, "levels": [{"price": 90000, "role": "TARGET_DOWN", "forward": true}], "methods": [], "timeframes": []}
+{"id": "I4xZPoVywN4", "stance": "NONE", "forward_looking": false, "levels": [], "methods": [], "timeframes": []}
+{"id": "Rf5B1YZtEt8", "stance": "NONE", "forward_looking": false, "levels": [], "methods": [], "timeframes": []}
+{"id": "DzN9XH2wleY", "stance": "NONE", "forward_looking": true, "levels": [], "methods": [], "timeframes": ["1W"]}
+{"id": "We3KJ0F0s8Y", "stance": "NONE", "forward_looking": false, "levels": [{"price": 86000, "role": "EVENT_REACHED", "forward": false}], "methods": ["TRENDLINE"], "timeframes": ["4H"]}
+{"id": "2T_CGq4UjDM", "stance": "BULL", "forward_looking": true, "levels": [{"price": 90000, "role": "TARGET_UP", "forward": true}], "methods": [], "timeframes": []}
+{"id": "rHZP5gm-mWg", "stance": "NONE", "forward_looking": false, "levels": [], "methods": [], "timeframes": []}
+{"id": "S2C-Hszm5as", "stance": "NONE", "forward_looking": false, "levels": [{"price": 80000, "role": "EVENT_BREAK_DOWN", "forward": false}], "methods": [], "timeframes": []}
+{"id": "-1bpQ1Yx880", "stance": "NONE", "forward_looking": true, "levels": [], "methods": ["SUPPORT_RESISTANCE"], "timeframes": []}
+{"id": "lL38GWUkaag", "stance": "NONE", "forward_looking": true, "levels": [], "methods": ["SUPPORT_RESISTANCE"], "timeframes": []}
+{"id": "JnsQ1dcKLGE", "stance": "NONE", "forward_looking": false, "levels": [], "methods": [], "timeframes": []}
+{"id": "CtdpXrz9nUQ", "stance": "NONE", "forward_looking": false, "levels": [], "methods": [], "timeframes": []}
+{"id": "PirdVi6Wq3U", "stance": "NONE", "forward_looking": false, "levels": [], "methods": ["SUPPORT_RESISTANCE"], "timeframes": []}
+{"id": "ljmrR0za-4c", "stance": "NEUTRAL", "forward_looking": true, "levels": [], "methods": [], "timeframes": []}
+{"id": "E0lT72-Axog", "stance": "NONE", "forward_looking": true, "levels": [{"price": 70000, "role": "OTHER", "forward": false}], "methods": [], "timeframes": []}
+{"id": "tZv5Ws76TD0", "stance": "NEUTRAL", "forward_looking": false, "levels": [], "methods": [], "timeframes": []}
+{"id": "7IVt5xQKjfA", "stance": "NONE", "forward_looking": true, "levels": [], "methods": [], "timeframes": []}
+{"id": "Ur4LvK619DE", "stance": "NONE", "forward_looking": true, "levels": [], "methods": [], "timeframes": []}
+{"id": "1Su-FATtw5k", "stance": "NONE", "forward_looking": false, "levels": [], "methods": [], "timeframes": []}
+{"id": "Kl_mhpzcNcw", "stance": "NONE", "forward_looking": false, "levels": [], "methods": [], "timeframes": []}
+{"id": "L0vAY3psPKk", "stance": "NONE", "forward_looking": false, "levels": [], "methods": ["SUPPORT_RESISTANCE"], "timeframes": []}
+{"id": "tPIgH4h41Sk", "stance": "BULL", "forward_looking": true, "levels": [{"price": 70000, "role": "TARGET_UP", "forward": true}], "methods": [], "timeframes": []}
+{"id": "NBsV8GnMUQ8", "stance": "BEAR", "forward_looking": false, "levels": [], "methods": [], "timeframes": []}
+{"id": "5bxn5OvF0tE", "stance": "NONE", "forward_looking": false, "levels": [{"price": 70000, "role": "EVENT_BREAK_UP", "forward": false}], "methods": [], "timeframes": []}
+{"id": "zM5jrzmWmew", "stance": "NONE", "forward_looking": false, "levels": [{"price": 74000, "role": "EVENT_BREAK_UP", "forward": false}], "methods": [], "timeframes": []}
+{"id": "z-ODrXUb8Dk", "stance": "NONE", "forward_looking": true, "levels": [], "methods": [], "timeframes": []}
+{"id": "CxhS5k0nd_4", "stance": "NONE", "forward_looking": false, "levels": [], "methods": [], "timeframes": []}
+{"id": "CHQw1uuL4Sk", "stance": "NONE", "forward_looking": true, "levels": [], "methods": [], "timeframes": []}
+{"id": "8UXhM-erGCo", "stance": "NONE", "forward_looking": true, "levels": [{"price": 74000, "role": "TARGET_UP", "forward": true}], "methods": ["SUPPORT_RESISTANCE"], "timeframes": []}
+{"id": "aTdMGkDWygM", "stance": "NONE", "forward_looking": false, "levels": [{"price": 75000, "role": "EVENT_BREAK_UP", "forward": false}], "methods": [], "timeframes": []}
+{"id": "OoFg2ZawOQg", "stance": "NONE", "forward_looking": true, "levels": [], "methods": [], "timeframes": []}
+{"id": "BVVdJJDIGsc", "stance": "NONE", "forward_looking": false, "levels": [], "methods": [], "timeframes": []}
+{"id": "Xa-BGgu5fBc", "stance": "NONE", "forward_looking": false, "levels": [{"price": 70000, "role": "EVENT_BREAK_DOWN", "forward": false}], "methods": [], "timeframes": []}
+{"id": "oYVvPBekAtg", "stance": "BEAR", "forward_looking": false, "levels": [], "methods": [], "timeframes": []}
+{"id": "JeUYf71lvQ8", "stance": "NEUTRAL", "forward_looking": true, "levels": [], "methods": [], "timeframes": []}
+{"id": "AhnLpK84PxI", "stance": "NONE", "forward_looking": false, "levels": [], "methods": [], "timeframes": []}
+{"id": "teiMZzi5X78", "stance": "NONE", "forward_looking": true, "levels": [], "methods": ["RANGE_BOX"], "timeframes": []}
+{"id": "ewEf6uMGbBY", "stance": "NONE", "forward_looking": false, "levels": [], "methods": [], "timeframes": ["1H"]}
+{"id": "HBB8rwjRFEQ", "stance": "NONE", "forward_looking": false, "levels": [{"price": 70000, "role": "EVENT_BREAK_UP", "forward": false}], "methods": [], "timeframes": []}
+{"id": "JDfiSUqT0Kw", "stance": "NONE", "forward_looking": false, "levels": [], "methods": [], "timeframes": []}
+{"id": "wDlDZ2iNxik", "stance": "BULL", "forward_looking": true, "levels": [], "methods": ["FIBONACCI", "SUPPORT_RESISTANCE"], "timeframes": []}
+{"id": "WxlmW9LCxHw", "stance": "NONE", "forward_looking": false, "levels": [], "methods": [], "timeframes": []}
+{"id": "N4ak1YihOl8", "stance": "NONE", "forward_looking": false, "levels": [], "methods": ["SUPPORT_RESISTANCE"], "timeframes": []}
+{"id": "vHE-Rp8nllU", "stance": "NONE", "forward_looking": false, "levels": [{"price": 76000, "role": "EVENT_BREAK_UP", "forward": false}], "methods": [], "timeframes": []}
+{"id": "T3CQzp_EXBo", "stance": "BULL", "forward_looking": true, "levels": [], "methods": ["SUPPORT_RESISTANCE", "BIG_CANDLE"], "timeframes": []}
+{"id": "af1v1hE4cTQ", "stance": "NONE", "forward_looking": false, "levels": [], "methods": [], "timeframes": []}
+{"id": "J71WehX1n5g", "stance": "BULL", "forward_looking": true, "levels": [], "methods": ["RETEST_CONFIRM"], "timeframes": []}
+{"id": "Jeu0DGKgQAo", "stance": "BULL", "forward_looking": true, "levels": [{"price": 75000, "role": "SUPPORT", "forward": true}], "methods": [], "timeframes": []}
+{"id": "e7b5_l3U6yM", "stance": "BULL", "forward_looking": true, "levels": [{"price": 80000, "role": "TARGET_UP", "forward": true}], "methods": [], "timeframes": []}
+{"id": "OvJgaFaSBCc", "stance": "NONE", "forward_looking": true, "levels": [{"price": 80000, "role": "TARGET_UP", "forward": true}], "methods": [], "timeframes": []}
+{"id": "1UGNAre8_Ss", "stance": "NONE", "forward_looking": true, "levels": [{"price": 80000, "role": "TARGET_UP", "forward": true}], "methods": ["RANGE_BOX"], "timeframes": []}
+{"id": "cC3aiJo1YIg", "stance": "NONE", "forward_looking": true, "levels": [{"price": 80000, "role": "TARGET_UP", "forward": true}], "methods": [], "timeframes": []}
+{"id": "rbjgoI5M0E0", "stance": "NONE", "forward_looking": false, "levels": [], "methods": ["SUPPORT_RESISTANCE"], "timeframes": []}
+{"id": "JoU52cZh3uU", "stance": "NONE", "forward_looking": true, "levels": [], "methods": [], "timeframes": []}
+{"id": "rzcbtjS5Xwk", "stance": "NONE", "forward_looking": false, "levels": [{"price": 80000, "role": "EVENT_BREAK_UP", "forward": false}], "methods": [], "timeframes": []}
+{"id": "MBFj4UJI-tU", "stance": "NONE", "forward_looking": false, "levels": [], "methods": [], "timeframes": []}
+{"id": "m-J8_Z1IzXk", "stance": "BULL", "forward_looking": true, "levels": [], "methods": [], "timeframes": []}
+{"id": "ul0fihJ9Gdk", "stance": "BULL", "forward_looking": true, "levels": [], "methods": [], "timeframes": []}
+{"id": "Qu4GfqHt5z8", "stance": "NONE", "forward_looking": false, "levels": [{"price": 80000, "role": "EVENT_BREAK_DOWN", "forward": false}], "methods": [], "timeframes": []}
+{"id": "zOc8cdZ4rI4", "stance": "NONE", "forward_looking": true, "levels": [{"price": 80000, "role": "SUPPORT", "forward": true}], "methods": [], "timeframes": []}
+{"id": "_RhOOrcGtoM", "stance": "NONE", "forward_looking": false, "levels": [{"price": 82000, "role": "EVENT_BREAK_UP", "forward": false}], "methods": ["SUPPORT_RESISTANCE"], "timeframes": []}
+{"id": "SJ-RzBxuY8Q", "stance": "BULL", "forward_looking": true, "levels": [], "methods": ["RANGE_BOX"], "timeframes": []}
+{"id": "kauVmWlsKrY", "stance": "BULL", "forward_looking": true, "levels": [{"price": 80000, "role": "EVENT_BREAK_DOWN", "forward": false}, {"price": 78000, "role": "SUPPORT", "forward": true}], "methods": [], "timeframes": []}
+{"id": "nIYPM-ViYgs", "stance": "NEUTRAL", "forward_looking": false, "levels": [], "methods": ["RANGE_BOX", "TRENDLINE"], "timeframes": []}
+{"id": "mG1TR71oGLU", "stance": "NONE", "forward_looking": false, "levels": [{"price": 77000, "role": "EVENT_BREAK_DOWN", "forward": false}], "methods": [], "timeframes": []}
+{"id": "gp59hpNWixk", "stance": "NONE", "forward_looking": true, "levels": [{"price": 75000, "role": "SUPPORT", "forward": true}], "methods": ["SUPPORT_RESISTANCE"], "timeframes": []}
+{"id": "8O_lIgnURjw", "stance": "BEAR", "forward_looking": false, "levels": [], "methods": ["RANGE_BOX"], "timeframes": ["4H"]}
+{"id": "SOWDDtZOVZs", "stance": "NONE", "forward_looking": false, "levels": [], "methods": ["RETEST_CONFIRM"], "timeframes": []}
+{"id": "1LKQU34DDa0", "stance": "NONE", "forward_looking": false, "levels": [], "methods": [], "timeframes": []}
+{"id": "juonWEpnx4A", "stance": "NEUTRAL", "forward_looking": true, "levels": [], "methods": ["SUPPORT_RESISTANCE"], "timeframes": []}
+{"id": "HmpJXCY5BrU", "stance": "NONE", "forward_looking": false, "levels": [{"price": 70000, "role": "EVENT_REACHED", "forward": false}], "methods": [], "timeframes": []}
+{"id": "HHxZALB-LWI", "stance": "NONE", "forward_looking": false, "levels": [{"price": 66000, "role": "EVENT_BREAK_DOWN", "forward": false}], "methods": [], "timeframes": []}
+{"id": "O6KRFlqE92w", "stance": "NONE", "forward_looking": true, "levels": [], "methods": ["TRENDLINE"], "timeframes": ["1W"]}
+{"id": "1yn-jxOXlCE", "stance": "NONE", "forward_looking": true, "levels": [{"price": 62000, "role": "EVENT_REACHED", "forward": false}, {"price": 62000, "role": "SUPPORT", "forward": true}], "methods": ["SUPPORT_RESISTANCE"], "timeframes": []}
+{"id": "lcPVXbwkMNY", "stance": "BULL", "forward_looking": true, "levels": [], "methods": ["CANDLE_PATTERN", "SUPPORT_RESISTANCE"], "timeframes": []}
+{"id": "hBSNgRVGvOM", "stance": "BULL", "forward_looking": true, "levels": [{"price": 67000, "role": "TARGET_UP", "forward": true}], "methods": [], "timeframes": []}
+{"id": "92MCqtHWNE8", "stance": "BULL", "forward_looking": true, "levels": [{"price": 67000, "role": "EVENT_BREAK_UP", "forward": false}, {"price": 68000, "role": "TARGET_UP", "forward": true}], "methods": [], "timeframes": []}
+{"id": "ZYQ3fu82hEU", "stance": "BULL", "forward_looking": true, "levels": [{"price": 68000, "role": "TARGET_UP", "forward": true}, {"price": 69000, "role": "TARGET_UP", "forward": true}], "methods": [], "timeframes": []}
+{"id": "AqVCRCD-lBY", "stance": "NONE", "forward_looking": false, "levels": [], "methods": [], "timeframes": []}
+{"id": "Ixk5e3Tb5P8", "stance": "NONE", "forward_looking": false, "levels": [], "methods": [], "timeframes": []}
+{"id": "zOhWH7CKee8", "stance": "NONE", "forward_looking": false, "levels": [], "methods": [], "timeframes": []}
+{"id": "XJ2o_RgZmHQ", "stance": "NEUTRAL", "forward_looking": true, "levels": [{"price": 64000, "role": "SUPPORT", "forward": true}], "methods": ["RANGE_BOX"], "timeframes": []}
+{"id": "pQKJ0XoJ4FM", "stance": "NONE", "forward_looking": false, "levels": [], "methods": [], "timeframes": []}
+{"id": "NilUSh7A2EE", "stance": "NONE", "forward_looking": false, "levels": [], "methods": ["FALSE_BREAKOUT"], "timeframes": []}
+{"id": "UHXL-mFvk4I", "stance": "NONE", "forward_looking": false, "levels": [], "methods": [], "timeframes": []}
+{"id": "3zzth-qXpdE", "stance": "BEAR", "forward_looking": true, "levels": [], "methods": ["BIG_CANDLE"], "timeframes": ["1W"]}
+{"id": "-SkkCTKzDpo", "stance": "BEAR", "forward_looking": true, "levels": [{"price": 58000, "role": "EVENT_BREAK_DOWN", "forward": false}], "methods": [], "timeframes": []}
+{"id": "5oCIze9xvEY", "stance": "NONE", "forward_looking": false, "levels": [{"price": 60000, "role": "EVENT_BREAK_UP", "forward": false}], "methods": ["MACRO_NEWS"], "timeframes": []}
+{"id": "XBlZsydBSh8", "stance": "BULL", "forward_looking": true, "levels": [{"price": 62000, "role": "EVENT_BREAK_UP", "forward": false}], "methods": ["BIG_CANDLE"], "timeframes": []}
+{"id": "0JcuM0jVe4M", "stance": "NONE", "forward_looking": false, "levels": [{"price": 64000, "role": "EVENT_REACHED", "forward": false}], "methods": ["BIG_CANDLE", "CANDLE_PATTERN"], "timeframes": ["1W"]}
+{"id": "Jzo4cL287-8", "stance": "BULL", "forward_looking": true, "levels": [], "methods": [], "timeframes": []}
+{"id": "lDqWgf_RlgM", "stance": "NEUTRAL", "forward_looking": false, "levels": [], "methods": ["RANGE_BOX"], "timeframes": []}
+{"id": "FLg_WR2ZAFE", "stance": "NONE", "forward_looking": false, "levels": [], "methods": [], "timeframes": []}
+{"id": "DLYKvDeqIaQ", "stance": "NONE", "forward_looking": false, "levels": [{"price": 64000, "role": "EVENT_BREAK_UP", "forward": false}], "methods": [], "timeframes": []}
+{"id": "Vofnr4TW_2I", "stance": "NONE", "forward_looking": true, "levels": [], "methods": ["SUPPORT_RESISTANCE", "CANDLE_PATTERN"], "timeframes": ["1W"]}
+{"id": "GrMaiJsf--k", "stance": "NONE", "forward_looking": true, "levels": [{"price": 62000, "role": "EVENT_BREAK_DOWN", "forward": false}], "methods": ["SUPPORT_RESISTANCE"], "timeframes": []}
+{"id": "uBFjnAuIAVA", "stance": "NONE", "forward_looking": true, "levels": [{"price": 65000, "role": "EVENT_BREAK_UP", "forward": false}], "methods": [], "timeframes": []}
+{"id": "Yui9SsVefAg", "stance": "NONE", "forward_looking": true, "levels": [], "methods": [], "timeframes": []}
+{"id": "EoRr2lPzPVk", "stance": "BULL", "forward_looking": true, "levels": [], "methods": ["RETEST_CONFIRM"], "timeframes": []}
+{"id": "bwCc44z4wwA", "stance": "BULL", "forward_looking": true, "levels": [{"price": 67000, "role": "TARGET_UP", "forward": true}], "methods": [], "timeframes": []}
+{"id": "2jVpJGFN810", "stance": "NONE", "forward_looking": true, "levels": [{"price": 67000, "role": "TARGET_UP", "forward": true}], "methods": [], "timeframes": []}
+{"id": "hhHTtAYMHQo", "stance": "NONE", "forward_looking": false, "levels": [], "methods": ["SUPPORT_RESISTANCE"], "timeframes": []}
+{"id": "sRwYzAKWVMY", "stance": "NONE", "forward_looking": false, "levels": [], "methods": ["RETEST_CONFIRM", "SUPPORT_RESISTANCE"], "timeframes": []}
+{"id": "OFHsCBc5I6g", "stance": "NONE", "forward_looking": false, "levels": [], "methods": ["TRENDLINE", "RETEST_CONFIRM"], "timeframes": []}
+{"id": "nZOdL07tsU4", "stance": "NONE", "forward_looking": false, "levels": [], "methods": [], "timeframes": []}
+{"id": "7wKQYyYaTfU", "stance": "NONE", "forward_looking": true, "levels": [], "methods": ["SUPPORT_RESISTANCE"], "timeframes": []}
+{"id": "3bO2-Ma2Td0", "stance": "BEAR", "forward_looking": true, "levels": [], "methods": [], "timeframes": []}
+{"id": "cmaB89t1eSU", "stance": "NONE", "forward_looking": false, "levels": [], "methods": [], "timeframes": []}
+{"id": "vYlHf31AOZ0", "stance": "NONE", "forward_looking": true, "levels": [], "methods": ["MACRO_NEWS"], "timeframes": []}
+{"id": "uHH22TYd5Ks", "stance": "BULL", "forward_looking": true, "levels": [{"price": 67500, "role": "TARGET_UP", "forward": true}], "methods": [], "timeframes": []}
+{"id": "orivCexJFV0", "stance": "NONE", "forward_looking": true, "levels": [], "methods": ["SUPPORT_RESISTANCE"], "timeframes": []}
+{"id": "6WdWO1engvw", "stance": "NONE", "forward_looking": true, "levels": [], "methods": [], "timeframes": []}
+{"id": "EGrErRRVBgg", "stance": "NONE", "forward_looking": false, "levels": [], "methods": ["SUPPORT_RESISTANCE"], "timeframes": []}
+{"id": "lJu7P5YiVBY", "stance": "NONE", "forward_looking": false, "levels": [{"price": 64000, "role": "EVENT_BREAK_UP", "forward": false}], "methods": [], "timeframes": []}
+{"id": "FtT0JAxuMbk", "stance": "NONE", "forward_looking": true, "levels": [{"price": 65000, "role": "EVENT_BREAK_UP", "forward": false}, {"price": 65000, "role": "SUPPORT", "forward": true}], "methods": ["RETEST_CONFIRM"], "timeframes": []}
+{"id": "2PmYvNJT0Dg", "stance": "NONE", "forward_looking": false, "levels": [], "methods": [], "timeframes": []}
+{"id": "-oDQgONzCwY", "stance": "BULL", "forward_looking": true, "levels": [{"price": 76000, "role": "EVENT_BREAK_UP", "forward": false}], "methods": ["CANDLE_PATTERN"], "timeframes": []}
+{"id": "7Y_rhq_qj1Q", "stance": "BULL", "forward_looking": true, "levels": [{"price": 80000, "role": "TARGET_UP", "forward": true}, {"price": 90000, "role": "TARGET_UP", "forward": true}], "methods": [], "timeframes": []}
+{"id": "O7lh4yCcG8g", "stance": "NONE", "forward_looking": false, "levels": [{"price": 80000, "role": "EVENT_REACHED", "forward": false}], "methods": [], "timeframes": []}
+{"id": "HQ6c61RfJfI", "stance": "NONE", "forward_looking": true, "levels": [{"price": 80000, "role": "RESISTANCE", "forward": true}], "methods": ["SUPPORT_RESISTANCE"], "timeframes": []}
+{"id": "419ZdXdpnCs", "stance": "NONE", "forward_looking": false, "levels": [], "methods": [], "timeframes": []}
+{"id": "_lTZZd3p7GY", "stance": "NONE", "forward_looking": true, "levels": [], "methods": ["BIG_CANDLE", "SUPPORT_RESISTANCE"], "timeframes": []}
+{"id": "AzOhcAST-4o", "stance": "NEUTRAL", "forward_looking": true, "levels": [], "methods": ["BOLLINGER", "RANGE_BOX"], "timeframes": []}
+{"id": "vDo_rUHXSX8", "stance": "NONE", "forward_looking": true, "levels": [], "methods": ["SUPPORT_RESISTANCE"], "timeframes": []}
+{"id": "5IMP6pCm5hw", "stance": "NONE", "forward_looking": true, "levels": [], "methods": [], "timeframes": []}
+{"id": "9pQ_DdkDrM8", "stance": "NONE", "forward_looking": true, "levels": [{"price": 76000, "role": "SUPPORT", "forward": true}], "methods": ["SUPPORT_RESISTANCE"], "timeframes": []}
+{"id": "DBUUoQPnxu0", "stance": "NONE", "forward_looking": false, "levels": [], "methods": ["SUPPORT_RESISTANCE"], "timeframes": []}
+{"id": "AUWFbIsHCtU", "stance": "NONE", "forward_looking": true, "levels": [], "methods": ["SUPPORT_RESISTANCE"], "timeframes": []}
+{"id": "nUfK3XdxNSw", "stance": "NONE", "forward_looking": true, "levels": [], "methods": ["SUPPORT_RESISTANCE"], "timeframes": []}
+{"id": "nD7Az4_9vO0", "stance": "BULL", "forward_looking": true, "levels": [], "methods": [], "timeframes": []}
+{"id": "a9bl3qhYtvU", "stance": "BULL", "forward_looking": true, "levels": [], "methods": ["RANGE_BOX", "SUPPORT_RESISTANCE", "MULTI_TIMEFRAME"], "timeframes": ["1D"]}
+{"id": "N6MpUFHpCEI", "stance": "BULL", "forward_looking": true, "levels": [], "methods": ["BIG_CANDLE"], "timeframes": []}
+{"id": "8xvSA311vW0", "stance": "NONE", "forward_looking": true, "levels": [{"price": 87000, "role": "EVENT_BREAK_UP", "forward": false}], "methods": ["RETEST_CONFIRM"], "timeframes": []}
+{"id": "INZW8VnDtM4", "stance": "NONE", "forward_looking": true, "levels": [], "methods": ["CANDLE_PATTERN"], "timeframes": []}
+{"id": "RFHKleAA4iI", "stance": "NONE", "forward_looking": false, "levels": [], "methods": ["FALSE_BREAKOUT", "RETEST_CONFIRM"], "timeframes": []}
+{"id": "Ox2fMi4wni8", "stance": "BULL", "forward_looking": true, "levels": [{"price": 83000, "role": "EVENT_REACHED", "forward": false}, {"price": 83000, "role": "SUPPORT", "forward": true}], "methods": ["RETEST_CONFIRM"], "timeframes": []}
+{"id": "55ZcKG1S1Oc", "stance": "NONE", "forward_looking": true, "levels": [], "methods": ["RANGE_BOX"], "timeframes": []}
+{"id": "1sd3b9avepY", "stance": "NONE", "forward_looking": true, "levels": [], "methods": ["BOLLINGER"], "timeframes": ["1D"]}

@@ -1,0 +1,32 @@
+                       n   win   avgR     tR   CAGR  maxDD
+k mode       period                                       
+3 confluence IS      349 0.307 -0.220 -3.176 -0.094 -0.469
+             OOS     197 0.330 -0.190 -1.935 -0.075 -0.268
+  zone_only  IS      859 0.320 -0.168 -3.642 -0.171 -0.703
+             OOS     547 0.325 -0.141 -2.312 -0.151 -0.465
+  line_only  IS      721 0.337 -0.123 -2.224 -0.111 -0.609
+             OOS     413 0.295 -0.270 -3.458 -0.206 -0.586
+5 confluence IS      213 0.315 -0.151 -1.580 -0.041 -0.308
+             OOS     114 0.316 -0.190 -1.422 -0.044 -0.186
+  zone_only  IS      693 0.322 -0.146 -2.809 -0.124 -0.613
+             OOS     461 0.310 -0.220 -3.421 -0.189 -0.549
+  line_only  IS      433 0.268 -0.250 -3.161 -0.131 -0.595
+             OOS     264 0.295 -0.288 -2.997 -0.145 -0.535
+
+== k=3 confirmed confluence: stops within 3 bars 0.26; by side:
+        n   win   avgR
+side                  
+-1    245  0.31 -0.206
+ 1    306  0.32 -0.208
+random-entry control avgR median -0.060 [5-95% -0.168,0.041]; real -0.207; share>=real 0.985
+placebo zones IS: real -0.220 | placebo median -0.039 [5-95% -0.200,0.103] | share>=real 0.97 | placebo n median 192
+placebo zones OOS: real -0.190 | placebo median -0.185 [5-95% -0.477,0.121] | share>=real 0.50 | placebo n median 192
+
+== k=5 confirmed confluence: stops within 3 bars 0.27; by side:
+        n    win   avgR
+side                   
+-1    144  0.347 -0.055
+ 1    192  0.302 -0.227
+random-entry control avgR median -0.052 [5-95% -0.171,0.079]; real -0.153; share>=real 0.910
+placebo zones IS: real -0.151 | placebo median -0.077 [5-95% -0.236,0.073] | share>=real 0.73 | placebo n median 151
+placebo zones OOS: real -0.190 | placebo median -0.281 [5-95% -0.559,0.196] | share>=real 0.37 | placebo n median 151
