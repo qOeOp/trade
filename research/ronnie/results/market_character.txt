@@ -1,0 +1,28 @@
+Variance ratios of 4h returns (>1 trending, <1 mean reverting; z robust, |z|>2 about 5%)
+market    period          VR 1 day      z  VR 5 days      z
+BTCUSD    IS 2017-2022       1.006    0.2      0.975   -0.3
+BTCUSD    OOS 2023-2026      1.015    0.4      1.037    0.4
+ETHUSDT   IS 2017-2022       0.999   -0.0      1.006    0.1
+ETHUSDT   OOS 2023-2026      1.035    0.8      1.044    0.5
+EURUSD    IS 2017-2022       0.946   -1.7      0.972   -0.4
+EURUSD    OOS 2023-2026      1.007    0.2      0.886   -1.2
+GBPUSD    IS 2017-2022       0.981   -0.5      1.037    0.4
+GBPUSD    OOS 2023-2026      1.001    0.0      0.912   -0.9
+USDJPY    IS 2017-2022       0.983   -0.4      0.952   -0.5
+USDJPY    OOS 2023-2026      1.010    0.2      0.916   -0.8
+AUDUSD    IS 2017-2022       0.976   -0.5      0.983   -0.1
+AUDUSD    OOS 2023-2026      1.001    0.0      0.866   -1.3
+NZDUSD    IS 2017-2022       0.957   -0.9      0.955   -0.4
+NZDUSD    OOS 2023-2026      1.039    1.0      0.948   -0.6
+USDCAD    IS 2017-2022       0.966   -1.1      0.908   -1.2
+USDCAD    OOS 2023-2026      0.972   -0.7      0.863   -1.4
+USDCHF    IS 2017-2022       0.955   -1.4      1.021    0.3
+USDCHF    OOS 2023-2026      1.023    0.6      0.951   -0.5
+GBPJPY    IS 2017-2022       0.966   -0.9      1.015    0.2
+GBPJPY    OOS 2023-2026      0.954   -1.0      0.838   -1.5
+EURAUD    IS 2017-2022       0.991   -0.1      0.899   -0.8
+EURAUD    OOS 2023-2026      0.943   -1.0      0.842   -1.1
+  crypto IS 2017-2022: mean VR 1 day 1.003, 5 days 0.991
+  crypto OOS 2023-2026: mean VR 1 day 1.025, 5 days 1.041
+  FX     IS 2017-2022: mean VR 1 day 0.969, 5 days 0.971
+  FX     OOS 2023-2026: mean VR 1 day 0.994, 5 days 0.891
