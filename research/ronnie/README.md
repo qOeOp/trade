@@ -514,6 +514,34 @@ half retracement, and a break in the pole's direction. The holdout was 14 unused
   retests and continuation flags have all failed.
 - **FX:** from here on research is crypto only (user decision), so the FX rows in `patterns2/result.txt` are not used.
 
+## Daily trend following and cross-sectional momentum (TrialFamily trend-v1)
+
+**Rules.** `trend/` tests a 50-day close breakout with a 2 ATR stop and a 20-day close exit, on daily bars with fees
+and funding. Four line and timeframe variants are scored paired on the same signals. The weekly cross-sectional
+momentum rule is scored as well (`trend/result.txt`).
+- **Trend following, before:** +1.00R per trade on 17 coins over 2018-2022, +0.43R above random entries with the same
+  exits [-0.08, +1.05].
+- **Trend following, holdout:** +0.07R per trade on 20 coins listed since mid-2023, +0.12R above random [-0.09, +0.38].
+  It fails the 95% rule; the returns are positive but fat-tailed.
+- **Line and timeframe variants:** none is adopted.
+  - The retest entry gives -0.56R and +0.02R against T0.
+  - The stop behind structure gives -0.22R and -0.02R.
+  - The weekly-level target gives -0.09R and -0.07R.
+  - The weekly-trend filter gives +0.48R and -0.28R.
+- **Cross-sectional momentum (top fifth by 28-day return):** +0.84% a week over the universe before (not significant),
+  and -0.02% on the holdout.
+
+**The 17 majors over 2018-2026 (`trend/majors.txt`, descriptive).** These are development coins.
+- **Per coin:** the rule averages above zero on every coin, near zero for LTC, BCH and FIL. Some per-trade averages:
+  - BTC +1.03R over 63 trades;
+  - ETH +0.89R;
+  - SOL +1.90R;
+  - BNB +2.20R.
+- **Recent years:** 2023-2026 still averages +0.33R per trade, +0.25R above random [-0.06, +0.63].
+- **Longs** carry it; shorts are near zero.
+- **Exits:** random entries with the same exits also earned in 2018-2022. Much of the result comes from the exit that
+  lets winners run, not from the entry.
+
 ## Running the survivors together, and a forward record
 
 `combo/portfolio.py` runs B1, trendline_break_strong and line_break_ridge as one book on BTC, ETH and the 15 holdout
