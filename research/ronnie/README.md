@@ -159,7 +159,11 @@ funding:
 - The in-sample grid (`tv_mtf_grid.py`: zone pivot order, reactions per side, line pivot order) misses its declared
   robustness rule. Resonance is positive in 12 of 16 cells but ahead of random entries in only 8.
 - `tv_fx_mtf.py` replicates the same rules on nine FX majors from FXCM hourly candles, in `results/tv_fx_mtf*.txt`.
-  The FX run is still in progress; its results will be added here.
+  It does not replicate. Pooled over the nine pairs, resonance x line makes -0.10R over 138 in-sample trades (3 of 9
+  pairs positive) and -0.17R over 100 out-of-sample trades (1 of 9). Resonance alone makes -0.15R over 388 and -0.32R
+  over 263 (0 of 9 positive out of sample), and daily zone x line -0.07R both ways.
+- Over the BTC grid, random entries give a best cell at least as good as the real best (+0.92R) in 44% of draws
+  (`tv_grid_null.py`). Read together with the FX result, the BTC resonance numbers are small-sample luck.
 
 ## Has his method changed? (2024-2026 videos)
 

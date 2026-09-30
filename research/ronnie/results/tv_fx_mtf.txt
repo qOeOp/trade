@@ -1,0 +1,134 @@
+Cross-timeframe confluence, EURUSD 4h confirmed entries, in-sample 2017-2022 (R net of fees and funding)
+  4h zone x 4h line (S6)       n=  62  win 26%  avgR -0.585  | random entries median -0.222, share >= real 0.99 | displaced zones median -0.382, share >= real 0.80
+  daily zone x 4h line         n=  25  win 32%  avgR -0.297  | random entries median -0.182, share >= real 0.69 | displaced zones median -0.132, share >= real 0.60
+  weekly zone x 4h line        n=   5  win 60%  avgR -0.017  | random entries median +0.086, share >= real 0.59 | displaced zones median -0.311, share >= real 0.23
+  resonance zone x 4h line     n=  16  win 19%  avgR -0.589  | random entries median -0.158, share >= real 0.90 | displaced zones median -0.205, share >= real 0.79
+  resonance zone alone         n=  38  win 32%  avgR -0.169  | random entries median -0.151, share >= real 0.53 | displaced zones median -0.191, share >= real 0.50
+  4h line alone                n= 126  win 22%  avgR -0.719  | random entries median -0.477, share >= real 0.98
+Cross-timeframe confluence, EURUSD 4h confirmed entries, out-of-sample 2023-2026 (R net of fees and funding)
+  4h zone x 4h line (S6)       n=  44  win 45%  avgR +0.157  | random entries median -0.230, share >= real 0.03 | displaced zones median -0.201, share >= real 0.17
+  daily zone x 4h line         n=  17  win 35%  avgR -0.197  | random entries median -0.107, share >= real 0.61 | displaced zones median -0.107, share >= real 0.60
+  weekly zone x 4h line        n=   3  win 33%  avgR -0.206  | random entries median -0.302, share >= real 0.40 | displaced zones median -0.235, share >= real 0.47
+  resonance zone x 4h line     n=  11  win 45%  avgR -0.155  | random entries median -0.099, share >= real 0.55 | displaced zones median -0.354, share >= real 0.40
+  resonance zone alone         n=  31  win 26%  avgR -0.394  | random entries median -0.195, share >= real 0.74 | displaced zones median -0.218, share >= real 0.67
+  4h line alone                n=  75  win 33%  avgR -0.360  | random entries median -0.570, share >= real 0.18
+
+Cross-timeframe confluence, GBPUSD 4h confirmed entries, in-sample 2017-2022 (R net of fees and funding)
+  4h zone x 4h line (S6)       n=  52  win 35%  avgR -0.100  | random entries median -0.132, share >= real 0.44 | displaced zones median -0.191, share >= real 0.37
+  daily zone x 4h line         n=  25  win 32%  avgR -0.373  | random entries median -0.138, share >= real 0.86 | displaced zones median -0.217, share >= real 0.70
+  weekly zone x 4h line        n=  12  win 25%  avgR -0.502  | random entries median -0.138, share >= real 0.86 | displaced zones median -0.103, share >= real 0.87
+  resonance zone x 4h line     n=  11  win 36%  avgR -0.018  | random entries median -0.092, share >= real 0.40 | displaced zones median -0.176, share >= real 0.37
+  resonance zone alone         n=  35  win 31%  avgR -0.402  | random entries median -0.185, share >= real 0.85 | displaced zones median -0.289, share >= real 0.70
+  4h line alone                n= 119  win 33%  avgR -0.312  | random entries median -0.376, share >= real 0.32
+Cross-timeframe confluence, GBPUSD 4h confirmed entries, out-of-sample 2023-2026 (R net of fees and funding)
+  4h zone x 4h line (S6)       n=  39  win 36%  avgR -0.329  | random entries median -0.182, share >= real 0.73 | displaced zones median -0.338, share >= real 0.47
+  daily zone x 4h line         n=  21  win 19%  avgR -0.606  | random entries median -0.193, share >= real 0.95 | displaced zones median -0.451, share >= real 0.63
+  weekly zone x 4h line        n=   1  win 100%  avgR +0.149  | random entries median -0.057, share >= real 0.34 | displaced zones median -0.029, share >= real 0.33
+  resonance zone x 4h line     n=  15  win 20%  avgR -0.578  | random entries median -0.144, share >= real 0.90 | displaced zones median -0.326, share >= real 0.59
+  resonance zone alone         n=  37  win 19%  avgR -0.659  | random entries median -0.212, share >= real 0.99 | displaced zones median -0.134, share >= real 0.87
+  4h line alone                n=  78  win 31%  avgR -0.439  | random entries median -0.422, share >= real 0.54
+
+Cross-timeframe confluence, USDJPY 4h confirmed entries, in-sample 2017-2022 (R net of fees and funding)
+  4h zone x 4h line (S6)       n=  59  win 37%  avgR -0.092  | random entries median -0.230, share >= real 0.18 | displaced zones median -0.310, share >= real 0.17
+  daily zone x 4h line         n=  27  win 26%  avgR -0.266  | random entries median -0.180, share >= real 0.67 | displaced zones median -0.152, share >= real 0.63
+  weekly zone x 4h line        n=   8  win 12%  avgR -0.612  | random entries median +0.071, share >= real 0.96 | displaced zones median -0.197, share >= real 0.93
+  resonance zone x 4h line     n=  20  win 20%  avgR -0.395  | random entries median -0.215, share >= real 0.74 | displaced zones median -0.314, share >= real 0.54
+  resonance zone alone         n=  56  win 32%  avgR -0.267  | random entries median -0.205, share >= real 0.64 | displaced zones median -0.231, share >= real 0.53
+  4h line alone                n= 121  win 23%  avgR -0.731  | random entries median -0.504, share >= real 0.94
+Cross-timeframe confluence, USDJPY 4h confirmed entries, out-of-sample 2023-2026 (R net of fees and funding)
+  4h zone x 4h line (S6)       n=  36  win 33%  avgR -0.170  | random entries median -0.203, share >= real 0.45 | displaced zones median -0.510, share >= real 0.20
+  daily zone x 4h line         n=  15  win 40%  avgR -0.080  | random entries median -0.142, share >= real 0.41 | displaced zones median -0.341, share >= real 0.20
+  weekly zone x 4h line        n=   9  win 44%  avgR +0.070  | random entries median -0.091, share >= real 0.28 | displaced zones median -0.323, share >= real 0.25
+  resonance zone x 4h line     n=   9  win 33%  avgR -0.232  | random entries median -0.196, share >= real 0.53 | displaced zones median -0.633, share >= real 0.38
+  resonance zone alone         n=  28  win 36%  avgR -0.078  | random entries median -0.145, share >= real 0.34 | displaced zones median -0.046, share >= real 0.57
+  4h line alone                n=  75  win 31%  avgR -0.488  | random entries median -0.419, share >= real 0.64
+
+Cross-timeframe confluence, AUDUSD 4h confirmed entries, in-sample 2017-2022 (R net of fees and funding)
+  4h zone x 4h line (S6)       n=  64  win 33%  avgR -0.228  | random entries median -0.156, share >= real 0.68 | displaced zones median -0.393, share >= real 0.37
+  daily zone x 4h line         n=  14  win 43%  avgR +0.188  | random entries median -0.038, share >= real 0.25 | displaced zones median -0.054, share >= real 0.20
+  weekly zone x 4h line        n=   6  win 67%  avgR +0.103  | random entries median -0.003, share >= real 0.37 | displaced zones median -0.046, share >= real 0.27
+  resonance zone x 4h line     n=  12  win 25%  avgR -0.348  | random entries median -0.020, share >= real 0.83 | displaced zones median -0.085, share >= real 0.72
+  resonance zone alone         n=  40  win 40%  avgR -0.032  | random entries median -0.009, share >= real 0.54 | displaced zones median -0.151, share >= real 0.27
+  4h line alone                n= 120  win 28%  avgR -0.473  | random entries median -0.353, share >= real 0.81
+Cross-timeframe confluence, AUDUSD 4h confirmed entries, out-of-sample 2023-2026 (R net of fees and funding)
+  4h zone x 4h line (S6)       n=  24  win 29%  avgR -0.310  | random entries median -0.266, share >= real 0.57 | displaced zones median -0.185, share >= real 0.73
+  daily zone x 4h line         n=  11  win 45%  avgR +0.294  | random entries median -0.226, share >= real 0.10 | displaced zones median -0.132, share >= real 0.23
+  weekly zone x 4h line        n=   9  win 44%  avgR -0.072  | random entries median -0.021, share >= real 0.62 | displaced zones median -0.360, share >= real 0.36
+  resonance zone x 4h line     n=  13  win 31%  avgR -0.026  | random entries median -0.215, share >= real 0.25 | displaced zones median -0.411, share >= real 0.36
+  resonance zone alone         n=  30  win 27%  avgR -0.165  | random entries median -0.186, share >= real 0.43 | displaced zones median +0.083, share >= real 0.63
+  4h line alone                n=  59  win 36%  avgR -0.205  | random entries median -0.357, share >= real 0.20
+
+Cross-timeframe confluence, NZDUSD 4h confirmed entries, in-sample 2017-2022 (R net of fees and funding)
+  4h zone x 4h line (S6)       n=  53  win 42%  avgR +0.075  | random entries median -0.131, share >= real 0.17 | displaced zones median -0.212, share >= real 0.23
+  daily zone x 4h line         n=  18  win 39%  avgR +0.111  | random entries median -0.021, share >= real 0.36 | displaced zones median +0.095, share >= real 0.43
+  weekly zone x 4h line        n=  11  win 18%  avgR -0.521  | random entries median -0.145, share >= real 0.95 | displaced zones median -0.157, share >= real 0.90
+  resonance zone x 4h line     n=   9  win 33%  avgR -0.144  | random entries median -0.085, share >= real 0.57 | displaced zones median -0.322, share >= real 0.47
+  resonance zone alone         n=  33  win 42%  avgR +0.015  | random entries median -0.044, share >= real 0.40 | displaced zones median -0.230, share >= real 0.27
+  4h line alone                n= 111  win 31%  avgR -0.318  | random entries median -0.308, share >= real 0.54
+Cross-timeframe confluence, NZDUSD 4h confirmed entries, out-of-sample 2023-2026 (R net of fees and funding)
+  4h zone x 4h line (S6)       n=  27  win 33%  avgR -0.087  | random entries median -0.178, share >= real 0.39 | displaced zones median -0.212, share >= real 0.30
+  daily zone x 4h line         n=  23  win 52%  avgR +0.164  | random entries median -0.088, share >= real 0.18 | displaced zones median -0.191, share >= real 0.20
+  weekly zone x 4h line        n=  11  win 36%  avgR -0.126  | random entries median +0.100, share >= real 0.79 | displaced zones median -0.205, share >= real 0.48
+  resonance zone x 4h line     n=  16  win 44%  avgR -0.008  | random entries median -0.049, share >= real 0.43 | displaced zones median -0.143, share >= real 0.43
+  resonance zone alone         n=  38  win 32%  avgR -0.271  | random entries median -0.108, share >= real 0.74 | displaced zones median -0.101, share >= real 0.60
+  4h line alone                n=  75  win 31%  avgR -0.369  | random entries median -0.371, share >= real 0.49
+
+Cross-timeframe confluence, USDCAD 4h confirmed entries, in-sample 2017-2022 (R net of fees and funding)
+  4h zone x 4h line (S6)       n=  60  win 22%  avgR -0.674  | random entries median -0.256, share >= real 0.98 | displaced zones median -0.306, share >= real 0.87
+  daily zone x 4h line         n=  22  win 41%  avgR -0.097  | random entries median -0.208, share >= real 0.35 | displaced zones median -0.122, share >= real 0.43
+  weekly zone x 4h line        n=   7  win 29%  avgR -0.221  | random entries median -0.083, share >= real 0.68 | displaced zones median -0.044, share >= real 0.67
+  resonance zone x 4h line     n=  21  win 48%  avgR +0.240  | random entries median -0.202, share >= real 0.06 | displaced zones median -0.553, share >= real 0.28
+  resonance zone alone         n=  49  win 33%  avgR -0.228  | random entries median -0.228, share >= real 0.50 | displaced zones median -0.245, share >= real 0.47
+  4h line alone                n= 115  win 33%  avgR -0.394  | random entries median -0.502, share >= real 0.24
+Cross-timeframe confluence, USDCAD 4h confirmed entries, out-of-sample 2023-2026 (R net of fees and funding)
+  4h zone x 4h line (S6)       n=  35  win 40%  avgR +0.012  | random entries median -0.281, share >= real 0.12 | displaced zones median -0.333, share >= real 0.10
+  daily zone x 4h line         n=  18  win 50%  avgR +0.228  | random entries median -0.218, share >= real 0.07 | displaced zones median -0.309, share >= real 0.17
+  weekly zone x 4h line        n=   7  win 29%  avgR -0.302  | random entries median -0.105, share >= real 0.69 | displaced zones median +0.026, share >= real 0.77
+  resonance zone x 4h line     n=  10  win 50%  avgR +0.274  | random entries median -0.292, share >= real 0.11 | displaced zones median -0.436, share >= real 0.37
+  resonance zone alone         n=  29  win 41%  avgR -0.091  | random entries median -0.249, share >= real 0.28 | displaced zones median -0.375, share >= real 0.30
+  4h line alone                n=  77  win 27%  avgR -0.631  | random entries median -0.648, share >= real 0.47
+
+Cross-timeframe confluence, USDCHF 4h confirmed entries, in-sample 2017-2022 (R net of fees and funding)
+  4h zone x 4h line (S6)       n=  54  win 28%  avgR -0.434  | random entries median -0.254, share >= real 0.82 | displaced zones median -0.292, share >= real 0.70
+  daily zone x 4h line         n=  17  win 41%  avgR +0.005  | random entries median -0.096, share >= real 0.39 | displaced zones median -0.230, share >= real 0.23
+  weekly zone x 4h line        n=  10  win 20%  avgR -0.378  | random entries median +0.033, share >= real 0.91 | displaced zones median +0.022, share >= real 0.87
+  resonance zone x 4h line     n=  15  win 47%  avgR +0.075  | random entries median -0.200, share >= real 0.20 | displaced zones median -0.131, share >= real 0.37
+  resonance zone alone         n=  51  win 39%  avgR -0.005  | random entries median -0.090, share >= real 0.34 | displaced zones median -0.063, share >= real 0.47
+  4h line alone                n= 114  win 34%  avgR -0.335  | random entries median -0.488, share >= real 0.17
+Cross-timeframe confluence, USDCHF 4h confirmed entries, out-of-sample 2023-2026 (R net of fees and funding)
+  4h zone x 4h line (S6)       n=  36  win 31%  avgR -0.400  | random entries median -0.291, share >= real 0.66 | displaced zones median -0.051, share >= real 0.73
+  daily zone x 4h line         n=  17  win 29%  avgR +0.069  | random entries median -0.089, share >= real 0.32 | displaced zones median -0.103, share >= real 0.43
+  weekly zone x 4h line        n=   4  win 50%  avgR -0.150  | random entries median +0.037, share >= real 0.70 | displaced zones median -0.217, share >= real 0.43
+  resonance zone x 4h line     n=  11  win 9%  avgR -0.462  | random entries median -0.088, share >= real 0.81 | displaced zones median -0.020, share >= real 0.74
+  resonance zone alone         n=  29  win 24%  avgR -0.508  | random entries median -0.063, share >= real 0.93 | displaced zones median -0.007, share >= real 0.90
+  4h line alone                n=  67  win 27%  avgR -0.539  | random entries median -0.409, share >= real 0.72
+
+Cross-timeframe confluence, GBPJPY 4h confirmed entries, in-sample 2017-2022 (R net of fees and funding)
+  4h zone x 4h line (S6)       n=  54  win 46%  avgR +0.213  | random entries median -0.162, share >= real 0.03 | displaced zones median -0.061, share >= real 0.30
+  daily zone x 4h line         n=  24  win 38%  avgR -0.115  | random entries median -0.058, share >= real 0.57 | displaced zones median -0.168, share >= real 0.47
+  weekly zone x 4h line        n=  10  win 70%  avgR +0.110  | random entries median -0.044, share >= real 0.30 | displaced zones median -0.068, share >= real 0.30
+  resonance zone x 4h line     n=  16  win 38%  avgR -0.209  | random entries median -0.068, share >= real 0.74 | displaced zones median -0.196, share >= real 0.52
+  resonance zone alone         n=  37  win 35%  avgR -0.027  | random entries median -0.033, share >= real 0.48 | displaced zones median +0.073, share >= real 0.60
+  4h line alone                n= 125  win 33%  avgR -0.363  | random entries median -0.372, share >= real 0.48
+Cross-timeframe confluence, GBPJPY 4h confirmed entries, out-of-sample 2023-2026 (R net of fees and funding)
+  4h zone x 4h line (S6)       n=  26  win 38%  avgR -0.111  | random entries median -0.153, share >= real 0.43 | displaced zones median -0.273, share >= real 0.37
+  daily zone x 4h line         n=  11  win 45%  avgR -0.008  | random entries median -0.144, share >= real 0.41 | displaced zones median -0.380, share >= real 0.37
+  weekly zone x 4h line        n=   4  win 50%  avgR +0.626  | random entries median -0.014, share >= real 0.17 | displaced zones median -0.094, share >= real 0.03
+  resonance zone x 4h line     n=   5  win 40%  avgR -0.062  | random entries median -0.249, share >= real 0.38 | displaced zones median -0.521, share >= real 0.40
+  resonance zone alone         n=  16  win 44%  avgR -0.215  | random entries median -0.137, share >= real 0.65 | displaced zones median -0.245, share >= real 0.43
+  4h line alone                n=  72  win 29%  avgR -0.459  | random entries median -0.352, share >= real 0.71
+
+Cross-timeframe confluence, EURAUD 4h confirmed entries, in-sample 2017-2022 (R net of fees and funding)
+  4h zone x 4h line (S6)       n=  61  win 38%  avgR -0.109  | random entries median -0.220, share >= real 0.30 | displaced zones median -0.133, share >= real 0.47
+  daily zone x 4h line         n=  22  win 64%  avgR +0.466  | random entries median -0.125, share >= real 0.04 | displaced zones median -0.234, share >= real 0.00
+  weekly zone x 4h line        n=  10  win 10%  avgR -0.478  | random entries median -0.172, share >= real 0.92 | displaced zones median +0.112, share >= real 0.97
+  resonance zone x 4h line     n=  18  win 56%  avgR +0.330  | random entries median -0.175, share >= real 0.03 | displaced zones median -0.528, share >= real 0.10
+  resonance zone alone         n=  49  win 37%  avgR -0.159  | random entries median -0.123, share >= real 0.57 | displaced zones median -0.225, share >= real 0.43
+  4h line alone                n= 113  win 32%  avgR -0.366  | random entries median -0.418, share >= real 0.38
+Cross-timeframe confluence, EURAUD 4h confirmed entries, out-of-sample 2023-2026 (R net of fees and funding)
+  4h zone x 4h line (S6)       n=  33  win 27%  avgR -0.419  | random entries median -0.157, share >= real 0.84 | displaced zones median -0.274, share >= real 0.80
+  daily zone x 4h line         n=  15  win 27%  avgR -0.396  | random entries median -0.119, share >= real 0.84 | displaced zones median -0.205, share >= real 0.70
+  weekly zone x 4h line        n=   5  win 60%  avgR +0.057  | random entries median -0.200, share >= real 0.30 | displaced zones median +0.027, share >= real 0.50
+  resonance zone x 4h line     n=  10  win 40%  avgR -0.170  | random entries median +0.012, share >= real 0.65 | displaced zones median -0.366, share >= real 0.48
+  resonance zone alone         n=  25  win 28%  avgR -0.361  | random entries median -0.124, share >= real 0.86 | displaced zones median -0.069, share >= real 0.69
+  4h line alone                n=  66  win 30%  avgR -0.501  | random entries median -0.420, share >= real 0.67
