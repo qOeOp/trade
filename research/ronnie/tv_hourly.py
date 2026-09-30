@@ -117,7 +117,7 @@ def binance_alt_usd(base, t0, t1):
     a, b = binance(f"{base}BTC", t0, t1).set_index("time"), binance("BTCUSDT", t0, t1).set_index("time")
     j = a.join(b, rsuffix="_b", how="inner")
     # a product of two bars' highs is not the hour's high; good enough for ordering, flagged in scale.csv
-    return pd.DataFrame({"time": j.index, **{k: j[k] * j[f"{k}_b"] for k in ("open", "high", "low", "close")}})
+    return pd.DataFrame({"time": j.index.values, **{k: (j[k] * j[f"{k}_b"]).values for k in ("open", "high", "low", "close")}})
 
 
 def bitstamp(t0, t1):
