@@ -1,0 +1,8 @@
+filters-v1 iteration 1: 2796 base events over 11 markets (train 1120, validation 603, test 1073)
+base (no filter): train -0.169 (n=1120), validation -0.120 (n=603), test -0.135 (n=1073)
+selected: resonance + tested + strong_candle: train +0.375 (n=46), validation +0.403 (n=23), test -0.326 (n=44)
+  next eligible by validation avgR: daily_trend+resonance+strong_candle +0.253/22; squeeze+resonance+tested +0.248/45; resonance+strong_candle +0.206/37; squeeze+resonance+strong_candle +0.142/22; calm+resonance+strong_candle +0.134/19; squeeze+resonance +0.121/79; calm+resonance+tested +0.097/39
+placebo-selected test avgR over 47 sets: median -0.299, 95th percentile +0.027
+permutation (secondary): best validation avgR after selection on shuffled outcomes: median +0.162, 95th percentile +0.561; real selected validation +0.403
+falsifier: selected test > base test: False; selected test > placebo 95th percentile: False; decision: FALSIFIED -> STOP
+base events by market (n, avgR): AUDUSD train:86/-0.20 validation:57/-0.24 test:88/-0.35; BTCUSD train:143/-0.00 validation:69/-0.34 test:134/+0.13; ETHUSDT train:100/+0.31 validation:72/+0.11 test:140/-0.08; EURAUD train:97/-0.17 validation:49/-0.09 test:89/-0.13; EURUSD train:102/-0.60 validation:50/-0.15 test:88/+0.08; GBPJPY train:110/+0.00 validation:48/+0.01 test:79/-0.16; GBPUSD train:104/-0.13 validation:53/+0.02 test:94/-0.31; NZDUSD train:97/-0.10 validation:50/-0.28 test:92/-0.16; USDCAD train:96/-0.43 validation:58/-0.40 test:96/-0.34; USDCHF train:93/-0.41 validation:53/-0.00 test:86/-0.07; USDJPY train:92/-0.25 validation:44/+0.12 test:87/-0.24
