@@ -1,0 +1,16 @@
+combo-v2 holdout evaluation of 3 frozen candidate(s): level_break_calm_trend, trendline_break_strong, line_break_ridge
+level_break_calm_trend: development checks passed (BTCUSD look-ahead ok; ETHUSDT look-ahead ok; development signals 588)
+trendline_break_strong: development checks passed (BTCUSD look-ahead ok; ETHUSDT look-ahead ok; development signals 349)
+line_break_ridge: development checks passed (BTCUSD look-ahead ok; ETHUSDT look-ahead ok; development signals 3186)
+level_break_calm_trend: n=2970 avgR +0.107 control +0.021 minus control +0.087 [98.3% coin-then-signal -0.001, +0.174]; coins above control 13/15; avgR minus base avgR +0.138 -> fails
+    diagnostic, overlapping B1: n=1173 minus control +0.117 [95% +0.014, +0.218]
+    diagnostic, not in B1: n=1797 minus control +0.066 [95% -0.039, +0.184]
+trendline_break_strong: n=1653 avgR +0.121 control -0.014 minus control +0.136 [98.3% coin-then-signal +0.017, +0.252]; coins above control 13/15; avgR minus base avgR +0.152 -> HOLDS
+    diagnostic, overlapping B1: n=448 minus control +0.223 [95% +0.051, +0.403]
+    diagnostic, not in B1: n=1205 minus control +0.103 [95% -0.041, +0.240]
+line_break_ridge: n=17764 avgR +0.055 control -0.031 minus control +0.086 [98.3% coin-then-signal +0.049, +0.124]; coins above control 14/15; avgR minus base avgR +0.086 -> HOLDS
+    diagnostic, overlapping B1: n=3402 minus control +0.119 [95% +0.059, +0.180]
+    diagnostic, not in B1: n=14362 minus control +0.078 [95% +0.043, +0.113]
+base_zone_touch: n=3970 avgR -0.031 control +0.000 minus control -0.031 [98.3% coin-then-signal -0.110, +0.051]; coins above control 5/15; avgR minus base avgR +0.000
+    diagnostic, overlapping B1: n=104 minus control +0.185 [95% -0.227, +0.607]
+    diagnostic, not in B1: n=3866 minus control -0.037 [95% -0.098, +0.027]
