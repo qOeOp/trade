@@ -1,6 +1,6 @@
 # Ronnie strategy research (scratch, not product code)
 
-Exploratory backtests of a trading plan distilled from 罗尼交易指南 (Ronnie), on BTC/USD, outside every Owner path.
+Exploratory backtests of a trading plan distilled from the Ronnie Trading Guide (Luoni Jiaoyi Zhinan), on BTC/USD, outside every Owner path.
 Nothing here is admitted, deployed or wired into the product; it is kept on this branch only so a later
 session can resume. Every script runs from this directory after `python fetch_data.py`
 (needs `pandas` and `numpy`).
@@ -95,5 +95,86 @@ Verdict: fitting the map to his drawings makes the plan worse, and his own level
 only drawing that is measurably non-random is the trend line, and the zone x trend line setup (S6) was already negative.
 More drawings of the same kind, such as his Bilibili charts, would refine a map that carries no edge here.
 
-Trial count so far: roughly 43 variants on the same BTC data (E2 added three); deflate any new out-of-sample "winner"
-accordingly.
+## Grading his declared trades (2026-09-30)
+
+`tv/trades_annot.csv` has one hand-checked row per idea: side, market or limit entry, first and final target, and
+stated stop, each value with its source. The source is either a stated number, the extreme of his projected arrows, or
+a "tp" label's position. 114 ideas carry an unconditional trade; two-sided and scenario ideas carry none.
+- `tv_prices.py` fetches TradingView daily bars for every symbol.
+- `tv_hourly.py` builds hourly windows around each trade from four sources: Bitstamp for BTC, FXCM for the FX majors,
+  Binance for altcoins, and Dukascopy for gold, oil and indices. Each window is scaled to his chart's price at publish.
+- Dukascopy served about one file every few minutes, so daily and weekly ideas without an hourly window use daily bars.
+  Eight 4h/1h gold, oil and dollar-index trades stay ungraded.
+- `tv_trades.py` grades 106 trades. Units are his chart's ATR at publish; the horizon is 30 of his chart bars.
+- The control for each trade is a random hour within the 10 chart bars after he published, on his side. Controls
+  drawn before publish flatter trend calls, because his side was read from that stretch; they are kept only for
+  reference.
+- Results are gross of costs, in `results/tv_trades.txt`.
+
+Mean ATR per trade, 83 filled trades with controls (95% bootstrap intervals):
+
+| | his exits | hold 30 bars |
+|---|---|---|
+| his entry | -0.47 [-1.19, +0.19] | -0.15 [-1.07, +0.82] |
+| random moment, his side | -0.43 | -0.29 |
+
+- **Entry:** no better than a random moment on his side: -0.04 ATR under his exits, +0.14 when holding, neither
+  significant. Only 44-58% of trades move his way after 1-20 bars. His entry leads a random moment by +0.41 ATR after
+  10 bars [+0.02, +0.78], but that is one of five horizons and the only one that clears zero.
+- **Limit entries:** fill 56% of the time. 41% miss because the target trades first, so the misses are winners, and the
+  limits do worse than a market entry at publish.
+- **Exit:** 74 of 91 filled trades state no stop. His exits (TP1, no stop, time exit) cost 0.31 ATR per trade against
+  holding. After TP1 price goes a further 2.2 ATR (median), and more than 2 ATR in 55% of hits. Trades that time out
+  reach only 37% of the TP1 distance.
+- **Other exits:** a 1 ATR stop turns the same entries slightly positive (+0.08 to +0.17 ATR) and slightly ahead of
+  random moments. No stop/target cell is significant, and wider stops are worse.
+- **His own labels:** 63% of the 35 trades he labelled "target reached" hit TP1 first within the horizon; 20% never
+  filled at his limit. Only 31% of the 64 trades he never labelled reached TP1.
+
+Verdict: his calls have no edge in direction or timing. His exits (targets near, stops absent) turn a zero-edge entry
+into a loss, and better exits bring it back to about zero, not above it.
+
+## His own line intersections (2026-09-30)
+
+`tv_intersections.py` extends his trend lines and channel borders to the right. It finds where they cross his
+horizontal lines, or each other, within 30 chart bars after publish (83 ideas with prices).
+- Only about a third of those points are ever reached.
+- When reached, they hold no better than the same points moved 1-4 ATR: trend x horizontal 50% vs 49% (6), channel x
+  horizontal 60% vs 71% (5), sloped x sloped 67% vs 62% (15).
+- His horizontal lines alone, all symbols: 58% vs 62% for moved lines (95).
+
+## Cross-timeframe confluence (2026-09-30)
+
+`tv_mtf.py` keeps the confirmed S6 entry and every default, and changes only where the zones come from. The sources are
+4h, daily or weekly bars, or daily zones overlapping a weekly zone ("resonance"). Results on BTC, R net of fees and
+funding:
+
+| zones x 4h trend line | in-sample 2017-2022 | out-of-sample 2023-2026 (run once) |
+|---|---|---|
+| 4h (S6) | 93 trades, -0.11 | not run |
+| daily | 17 trades, +0.50 | 20 trades, +0.06 |
+| resonance | 10 trades, +0.90 | 6 trades, +1.40 |
+| resonance, no line | 28 trades, +0.41 | 17 trades, +0.39 |
+
+- The in-sample grid (`tv_mtf_grid.py`: zone pivot order, reactions per side, line pivot order) misses its declared
+  robustness rule. Resonance is positive in 12 of 16 cells but ahead of random entries in only 8.
+- `tv_fx_mtf.py` replicates the same rules on nine FX majors from FXCM hourly candles, in `results/tv_fx_mtf*.txt`.
+  The FX run is still in progress; its results will be added here.
+
+## Has his method changed? (2024-2026 videos)
+
+No spoken content could be fetched. YouTube refuses anonymous player and transcript requests, and his Bilibili space
+lists no public videos (`yt/recent/routes.json`). `yt/recent/` keeps 149 BTC videos from 2024-01 to 2026-09 and 81
+calls read from their titles, thumbnails and six community posts, plus the method notes in Chinese
+(`methods_zh.json`).
+- **What stayed:** support and resistance at round thousands, trend lines, channels. Fibonacci now appears only in live
+  streams and gold videos.
+- **What is new or louder:** the daily Bollinger middle band as support, weekly closes and candle patterns, a fixed
+  "break, retest, confirm" entry phrase, and small-timeframe versus big-timeframe wording.
+- **What is still missing:** stop size, position size or reward/risk. None appears in any title or thumbnail.
+- **Scoring:** 21 of the 81 calls are after-the-fact claims ("as expected", "precise call").
+- **Grading:** `yt_recent_grade.py` grades the 21 directional title forecasts on Bitstamp. They are right 14/21 after
+  3 days (p 0.09) and 10/20 after 7 and after 14 days.
+
+Trial count so far: roughly 43 variants before this section. The cross-timeframe test added six in-sample variants,
+a 36-cell robustness grid, three out-of-sample runs and the FX replication. Deflate any "winner" accordingly.
