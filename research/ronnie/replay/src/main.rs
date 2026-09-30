@@ -1,7 +1,9 @@
 //! Replays exported order intents through the repository's BacktestEngine and records every outcome.
 //!
 //! usage: engine-replay <bars.csv> <orders.json> <key> <adaptive 0|1> <out.csv>
-//! bars.csv columns: open,high,low,close,volume,ts (ts = bar close, ns)
+//! bars.csv columns: open,high,low,close,volume,ts (ts = bar close, ns); a file name containing "1m" or "1h" selects
+//! one-minute or one-hour bars, otherwise four-hour bars. Prices are read with two decimals, so callers scale small
+//! prices up (R is scale-free).
 
 use std::{
     cell::RefCell,
@@ -277,16 +279,15 @@ fn main() -> anyhow::Result<()> {
     );
     let instrument = InstrumentAny::CryptoPerpetual(instrument);
     let iid = instrument.id();
-    let spec_min: usize = if bars_path.contains("1m") { 1 } else { 4 };
-    let bar_type = BarType::new(
-        iid,
-        if spec_min == 1 {
-            BarSpecification::new(1, BarAggregation::Minute, PriceType::Last)
-        } else {
-            BarSpecification::new(4, BarAggregation::Hour, PriceType::Last)
-        },
-        AggregationSource::External,
-    );
+    // bar spec from the file name: "1m" one minute, "1h" one hour, else four hours
+    let spec = if bars_path.contains("1m") {
+        BarSpecification::new(1, BarAggregation::Minute, PriceType::Last)
+    } else if bars_path.contains("1h") {
+        BarSpecification::new(1, BarAggregation::Hour, PriceType::Last)
+    } else {
+        BarSpecification::new(4, BarAggregation::Hour, PriceType::Last)
+    };
+    let bar_type = BarType::new(iid, spec, AggregationSource::External);
 
     let config = BacktestEngineConfig { bypass_logging: true, run_analysis: false, ..Default::default() };
     let mut engine = BacktestEngine::new(config)?;
