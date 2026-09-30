@@ -458,6 +458,38 @@ and falling wedges. The stop sits beyond the pattern and the target is the measu
   - **Stop just behind the broken line:** -0.010R and -0.036R. That stop is about 0.7 ATR wide and is hit most often.
 - **Conclusion:** a stop placed by a line does no better than a mechanical one.
 
+## Higher-timeframe levels used as practitioners describe, and volume (mtf-v1, volume-v1)
+
+**Practitioner uses of higher-timeframe levels (`mtf/`).** The holdout was 20 unused coins (ICX, ZRX, TRB and others),
+2021-2026. No variant holds (`mtf/result.txt`).
+- **M1, strong-level fade:** fading daily levels with at least two prior touches gives -0.28R against random on BTC and
+  ETH, -0.09R and -0.13R on FX, and -0.02R on the holdout.
+  - **Fresh levels, as a reference:** fading them is significantly worse than random, at -0.25R and -0.06R.
+  - **What it shows:** strong levels lose less than fresh ones, the direction Chung and Bellotti report, but neither
+    pays. Fading touches loses, which fits breaks carrying on.
+- **M2, top-down sweep and change of character:** a daily or weekly level is swept, and a 1h close back through the last
+  swing gives the entry.
+  - **Results:** +0.01R on BTC and ETH, +0.01R and +0.03R on FX, and -0.07R [-0.135, -0.004] on the holdout, which is
+    significantly worse than random.
+  - **Geometry:** the median target was 3.8R.
+- **M3, 4h sweep fade:** -0.08R on BTC and ETH, +0.03R and +0.02R on FX (not significant), and -0.00R on the holdout
+  (15722 signals).
+
+**Volume (`volume/`).** Development was BTC and ETH, and the holdout 20 unused coins (AUDIO, STX, AR and others),
+2022-2026. All three pre-registered claims fail (`volume/result.txt`).
+- **A. Profile nodes:**
+  - **HVNs:** held +6.6% more often than moved copies on development and +4.4% on the holdout.
+  - **LVNs:** held +4.1% and +4.9% more often.
+  - **Decision:** the claim fails, because HVNs did not beat LVNs (+1.3% and -1.1%).
+  - **Unplanned finding:** profile nodes of both kinds hold more than moved lines, on both sets. A hold-rate edge is
+    not yet a trading edge. It is a hypothesis for a new family on unused data.
+- **B. Volume-backed swing levels:** backed minus hollow is -2.4% and -1.6%, so the volume at a swing level does not
+  separate real levels from false ones.
+- **C. Break volume:**
+  - high-volume breaks beat low-volume breaks by +0.24R [+0.11, +0.39] on BTC and ETH;
+  - by +0.003R [-0.03, +0.04] on the holdout.
+  - This is a clean example of an in-sample effect that vanishes on new data.
+
 ## Running the survivors together, and a forward record
 
 `combo/portfolio.py` runs B1, trendline_break_strong and line_break_ridge as one book on BTC, ETH and the 15 holdout
