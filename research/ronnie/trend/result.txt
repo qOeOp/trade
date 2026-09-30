@@ -1,0 +1,26 @@
+trend-v1 (INTENT.md): 50-day close breakout, 2 ATR stop, 20-day close exit; line-guided variants paired
+
+dev (17 coins 2018-2022): 474 trades, median 22 days held
+  T0 avg R +1.004  win 37%  control +0.573  minus control +0.431 [-0.077, +1.051]
+     long  n  246  avg R +1.828  minus control +0.682 [-0.303, +1.866]
+     short n  228  avg R +0.114  minus control +0.160 [-0.002, +0.314]
+  E-line retest entry (miss = 0R)  avg R +0.447  minus T0 -0.556 [-1.218, +0.001], filled 76%
+  S-line stop behind structure     avg R +0.784  minus T0 -0.220 [-0.530, +0.155]
+  X-line target at weekly level    avg R +0.913  minus T0 -0.090 [-0.323, +0.064], target set on 25%
+  F-mtf weekly filter: kept 267 avg R +1.214, dropped 207 avg R +0.733; kept minus dropped +0.480 [-0.628, +1.721]
+
+holdout (20 unused coins 2023-10 to 2026-08): 466 trades, median 18 days held
+  T0 avg R +0.073  win 32%  control -0.043  minus control +0.116 [-0.089, +0.382]
+     long  n  224  avg R +0.128  minus control +0.210 [-0.182, +0.731]
+     short n  242  avg R +0.022  minus control +0.029 [-0.131, +0.215]
+  E-line retest entry (miss = 0R)  avg R +0.091  minus T0 +0.018 [-0.108, +0.115], filled 86%
+  S-line stop behind structure     avg R +0.055  minus T0 -0.018 [-0.131, +0.080]
+  X-line target at weekly level    avg R +0.002  minus T0 -0.071 [-0.264, +0.049], target set on 22%
+  F-mtf weekly filter: kept 284 avg R -0.035, dropped 182 avg R +0.242; kept minus dropped -0.278 [-1.080, +0.309]
+
+C0 dev: 208 weeks, median universe 84 coins; weekly top +2.58%, universe +1.74%, bottom +1.01%
+   top minus universe +0.84% per week [-0.24%, +1.96%]; top minus bottom +1.57% [-0.02%, +3.20%]
+C0 holdout: 152 weeks, median universe 20 coins; weekly top +0.04%, universe +0.06%, bottom +0.07%
+   top minus universe -0.02% per week [-1.03%, +1.04%]; top minus bottom -0.03% [-1.69%, +1.59%]
+
+Decision: T0 fails; E-line not adopted; S-line not adopted; X-line not adopted; F-mtf not adopted; C0 fails
