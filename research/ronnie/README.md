@@ -490,6 +490,30 @@ and falling wedges. The stop sits beyond the pattern and the target is the measu
   - by +0.003R [-0.03, +0.04] on the holdout.
   - This is a clean example of an in-sample effect that vanishes on new data.
 
+## Profile nodes as a trade, and flags after an impulse (volume2-v1, patterns-v2)
+
+**Profile-node fade (`volume2/`).** A limit order at the nearest volume-profile node above and below each day's open,
+stop 1 ATR(4h) beyond, compared with the same order at nodes moved 1-4 ATR. The holdout was 15 unused coins (IMX, ENS,
+JASMY and others), 2022-2026 (`volume2/result.txt`).
+- **Result:** not tradable.
+  - **Target 1 ATR:** nodes average -0.096R. The difference from moved nodes is -0.043R [-0.077, -0.011], which is
+    significantly worse.
+  - **Target 2 ATR:** -0.053R, and -0.016R against moved nodes.
+- **Why the volume-v1 effect does not carry over:** the higher hold rate of volume-v1 does not become a trade. A fill
+  at the node is itself the start of a touch, and the stop sits inside the range where volume-v1 still counted a
+  "hold".
+
+**Flags and pennants after an impulse (`patterns2/`).** A pole of at least 4 ATR, a pause of 4-20 bars with at most a
+half retracement, and a break in the pole's direction. The holdout was 14 unused coins (CVX, SLP, BNT and others),
+2022-2026 (`patterns2/result.txt`).
+- **Result:** both variants fail.
+  - **Raw:** +0.03R [-0.14, +0.22] on BTC and ETH, and +0.12R [-0.03, +0.27] on the holdout.
+  - **With the daily trend:** -0.02R and +0.09R.
+- **Reading:** the point estimates are positive on crypto, in line with momentum, but the intervals include zero.
+- **Decision:** as agreed beforehand, the pattern line stops here. Converging patterns both ways, volume confirmation,
+  retests and continuation flags have all failed.
+- **FX:** from here on research is crypto only (user decision), so the FX rows in `patterns2/result.txt` are not used.
+
 ## Running the survivors together, and a forward record
 
 `combo/portfolio.py` runs B1, trendline_break_strong and line_break_ridge as one book on BTC, ETH and the 15 holdout

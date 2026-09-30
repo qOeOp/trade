@@ -1,0 +1,11 @@
+volume2-v1: profile-node fade as a trade (limit at node, stop 1 ATR4h beyond, target 1 or 2 ATR4h), vs moved nodes
+
+dev (BTC+ETH 2018-2022, already read: not evidence):
+  N1: nodes n   958  win 46.1%  avg R -0.135 [-0.201, -0.067];  moved n  18898  win 47.8%  avg R -0.104;  node minus moved -0.031 [-0.101, +0.039]
+  N2: nodes n   958  win 33.2%  avg R -0.063 [-0.155, +0.033];  moved n  18898  win 32.1%  avg R -0.099;  node minus moved +0.036 [-0.063, +0.130]
+
+holdout (15 unused coins 2022-2026):
+  N1: nodes n  5627  win 47.3%  avg R -0.096 [-0.133, -0.059];  moved n 127602  win 49.5%  avg R -0.052;  node minus moved -0.043 [-0.077, -0.011]
+  N2: nodes n  5627  win 33.0%  avg R -0.053 [-0.106, -0.001];  moved n 127602  win 33.6%  avg R -0.038;  node minus moved -0.016 [-0.067, +0.032]
+
+Decision (N1 on the holdout: node minus moved > 0 and node R > 0): not tradable

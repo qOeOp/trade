@@ -1,0 +1,11 @@
+patterns-v2: flags and pennants after an impulse, with the impulse; avgR net of costs; control = random entries
+variant  set               n     win   avgR    control  minus control [interval]
+F-raw    crypto dev 17-22   240  40%  +0.113  +0.080   +0.033 [-0.140, +0.221] (95%)
+F-raw    fx IS 17-22        840  34%  -0.039  +0.030   -0.069 [-0.167, +0.025] (95%)
+F-raw    fx OOS 23-26       434  38%  +0.029  -0.005   +0.034 [-0.084, +0.155] (90%)
+F-raw    holdout 14 coins   894  38%  +0.086  -0.030   +0.116 [-0.028, +0.266] (95%)
+F-trend  crypto dev 17-22   168  39%  +0.125  +0.148   -0.023 [-0.250, +0.222] (95%)
+F-trend  fx IS 17-22        573  34%  -0.010  +0.053   -0.062 [-0.185, +0.062] (95%)
+F-trend  fx OOS 23-26       303  40%  +0.072  +0.008   +0.064 [-0.083, +0.215] (90%)
+F-trend  holdout 14 coins   652  39%  +0.091  -0.001   +0.092 [-0.069, +0.258] (95%)
+decision: F-raw: crypto fails, FX fails; F-trend: crypto fails, FX fails
