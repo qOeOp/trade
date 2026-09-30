@@ -1,0 +1,17 @@
+Repository BacktestEngine vs the Python simulators, gross R per order (engine fills over the planned stop)
+orders exported: altcoins 4312, fxrevert 4970, setups 7184; engine outcomes: 5546; not closed by the engine: 0 ()
+group                              n  same exit  |dR|<=0.1  mean |dR|   py avgR  engine avgR
+setups BTCUSD 1m                2828      99.5%      98.2%      0.027    +0.079       +0.084
+setups BTCUSD 4h                2830      99.5%      98.2%      0.027    +0.078       +0.083
+
+by setup (closed orders): python avgR -> engine avgR
+  setups BTCUSD 1m               B1  n=  486  +0.317 -> +0.311
+  setups BTCUSD 1m               P1  n=  934  +0.109 -> +0.110
+  setups BTCUSD 1m               P2  n=  120  -0.028 -> -0.023
+  setups BTCUSD 1m               P3  n= 1132  -0.012 -> +0.000
+  setups BTCUSD 1m               R1  n=  156  -0.097 -> -0.089
+  setups BTCUSD 4h               B1  n=  486  +0.317 -> +0.311
+  setups BTCUSD 4h               P1  n=  934  +0.109 -> +0.107
+  setups BTCUSD 4h               P2  n=  120  -0.028 -> -0.022
+  setups BTCUSD 4h               P3  n= 1134  -0.014 -> +0.001
+  setups BTCUSD 4h               R1  n=  156  -0.097 -> -0.089
