@@ -94,7 +94,7 @@ def fxcm(sym, t0, t1):
     return d[(d.time >= t0) & (d.time < t1)]
 
 
-def binance(pair, t0, t1):
+def binance(pair, t0, t1, volume=False):
     rows = []
     for m in months(t0, t1):
         b = get(f"https://data.binance.vision/data/spot/monthly/klines/{pair}/1h/{pair}-1h-{m.year}-{m.month:02d}.zip")
@@ -107,8 +107,8 @@ def binance(pair, t0, t1):
                 continue
             ts = int(x[0])
             ts = ts // 1000 if ts < 10**14 else ts // 10**6
-            rows.append((ts, *map(float, x[1:5])))
-    d = pd.DataFrame(rows, columns=["time", "open", "high", "low", "close"])
+            rows.append((ts, *map(float, x[1:6 if volume else 5])))
+    d = pd.DataFrame(rows, columns=["time", "open", "high", "low", "close"] + (["volume"] if volume else []))
     return d[(d.time >= t0) & (d.time < t1)]
 
 
