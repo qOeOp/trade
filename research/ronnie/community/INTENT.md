@@ -52,3 +52,12 @@ These use 4h bars closed before the publish time only.
   estimate is at least +3 points.
 - **Budget:** one run of A to E. No retuning of thresholds, windows or line rules after the result is read. Any later
   variant is a new family.
+
+## Amendment (2026-09-30, after inspecting the drawing format of eight BTC ideas, before any measure was run)
+
+- **Flat trend lines count as horizontal.** Current charts often draw a horizontal level with the trend-line tool,
+  both anchors at one price. Such a line is treated as a horizontal level, not a trend line.
+- **Chart layouts:** layouts can hold several charts. Drawings are read from every chart whose symbol is the coin's
+  USDT or USD market, and a drawing repeated across charts counts once.
+- **Zones:** rectangle zones are common, so their two edges run through measures A and C as a separate "zone edge" row.
+  They do not enter the decisions above.
