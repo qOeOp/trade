@@ -356,6 +356,48 @@ close through the same line.
 - **Conclusion:** the earlier price and the false breaks cancel. Waiting for the 4h close is not what holds these
   results down, and entering earlier does not lift them.
 
+## A range box, position rules, and long versus short
+
+**Range box (TrialFamily range-v1, `range/`).** Ronnie's range box is a sideways 60-bar box with at least two touches
+of each edge. The rule buys a rejection at the floor and sells one at the ceiling, with the stop 0.5 ATR outside and
+the target at the far edge.
+- **Result:** it fails on every market (`range/result.txt`).
+  - **BTC and ETH:** 51 signals in nine years, -0.67R against random in sample, and +0.50R out of sample (not
+    significant).
+  - **FX:** +0.09R in sample and +0.03R out of sample, both inside zero.
+  - **The 15 altcoins:** -0.08R, with 7 of 15 above zero.
+- **Earlier range tests agree:** the Bollinger fade (R1) and the level-touch entries were at random as well.
+
+**Position rules (TrialFamily risk-v1, `risk/`).** Six rules were tried on the three-strategy crypto book, fixed before
+the run. The design period was 2018-2022 and the check period 2023-2026 (`risk/result.txt`, `risk/fig_risk.png`).
+- **Rules:**
+  - one position per coin;
+  - total risk and same-side caps;
+  - confidence size by daily trend and by strategy agreement;
+  - a drawdown brake;
+  - a volatility target;
+  - confidence plus brake.
+- **Decision:** no rule beats the base on both Sharpe and Calmar in both periods.
+  - **Closest:** confidence sizing lifts the check-period Sharpe from 0.17 to 0.22 and cuts the drawdown from 76% to
+    57%, but loses Calmar in design.
+  - **Confidence plus brake:** it has the best design period (Sharpe 1.64, drawdown 32%) and still does not beat the
+    base's check-period Sharpe.
+- **Why:** in 2023-2026 the book's trades average only +0.02R to +0.04R. Sizing reshapes a drawdown but cannot create
+  an edge.
+- **Agreement:** the one input with information is agreement between strategies.
+  - Trades where two or three strategies fire on the same coin, side and bar average +0.21R in design and +0.08R in
+    check.
+  - Single-strategy trades average +0.08R in design and -0.01R in check.
+  - This was seen in the check period, so it is a hypothesis for the forward record, not a rule.
+
+**Long versus short (descriptive, all book trades).** Shorts are not the weak side.
+- **Shorts:** they averaged above zero every year, and did best in the bear year 2018 (+0.45R).
+- **Longs:** they lost in 2022 (-0.08R), 2025 (-0.06R) and 2026 (-0.13R), yet outnumbered shorts in each of those
+  years.
+- **Weak markets:** below BTC's daily SMA200, both sides weaken, longs from +0.10R to +0.03R and shorts from +0.13R to
+  +0.05R. The bear-year shortfall is fewer good trades plus losing breakout longs, not weak shorts.
+- **B1:** the exception, with shorts at +0.03R against +0.19R for longs.
+
 ## Running the survivors together, and a forward record
 
 `combo/portfolio.py` runs B1, trendline_break_strong and line_break_ridge as one book on BTC, ETH and the 15 holdout

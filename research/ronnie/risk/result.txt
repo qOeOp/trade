@@ -1,0 +1,25 @@
+risk-v1 (INTENT.md): position rules on the crypto book (17 coins, B1 + trendline + ridge)
+
+Confidence inputs, trade-level average R (all strategies, net of fees):
+  design 2018-2022: with daily trend +0.137 (n 5954), against +0.126 (n 8268); one strategy +0.080 (n 8650), two or three +0.208 (n 5572)
+  check 2023-2026: with daily trend +0.038 (n 6035), against +0.022 (n 7711); one strategy -0.005 (n 8137), two or three +0.079 (n 5609)
+
+design 2018-2022:   CAGR     maxDD   Sharpe  Calmar  maxDD at 30% vol
+  V0    +80.5%   -55.7%    1.48    1.45   -39.5%
+  V1    +66.2%   -55.5%    1.40    1.19   -43.2%
+  V2    +26.9%   -35.2%    1.10    0.76   -41.6%
+  V3    +65.2%   -48.1%    1.56    1.36   -41.5%
+  V4    +50.8%   -35.6%    1.34    1.43   -30.9%
+  V5    +58.6%   -47.0%    1.50    1.25   -42.2%
+  V6    +63.2%   -31.7%    1.64    2.00   -29.1%
+
+check 2023-2026:   CAGR     maxDD   Sharpe  Calmar  maxDD at 30% vol
+  V0     -3.8%   -76.2%    0.17   -0.05   -54.9%
+  V1     -8.4%   -66.6%    0.06   -0.13   -47.7%
+  V2    -12.7%   -56.6%   -0.37   -0.22   -61.0%
+  V3     +0.7%   -56.8%    0.22    0.01   -44.2%
+  V4     -4.2%   -39.1%   -0.21   -0.11   -64.0%
+  V5     -4.9%   -61.1%    0.07   -0.08   -50.4%
+  V6     -2.1%   -33.0%   -0.05   -0.06   -54.3%
+
+Decision (beat V0 on Sharpe and Calmar in both periods): none qualifies; keep V0
