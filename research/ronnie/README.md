@@ -338,6 +338,41 @@ A history test can always be doubted as "not how I draw". `journal/` tests the d
   with the same stop and target distances. It excludes rows committed more than an hour after their drawn time and
   reports how many closed trades a +0.2R edge needs, about 60-140 at typical spreads.
 
+## Running the survivors together, and a forward record
+
+`combo/portfolio.py` runs B1, trendline_break_strong and line_break_ridge as one book on BTC, ETH and the 15 holdout
+coins, 2018-01 to 2026-09 (`combo/portfolio.txt`, `combo/fig_portfolio.png`).
+- **Rules:** risk is 0.5% of equity per trade, with at most 10 positions, one per coin and strategy, and at most 3x
+  notional. Costs are 0.06% per side plus funding of 0.01% per 8 hours, always paid.
+- **Evidence status:** descriptive only, because every coin here was already used for evidence.
+
+| Book       | Trades taken | CAGR   | Max DD | Sharpe | 2025 | 2026 to Sep |
+| ---------- | -----------: | -----: | -----: | -----: | ---: | ----------: |
+| B1         |         4026 | +24.5% | -45.2% |   0.97 | -11% |         -1% |
+| trendline  |         1922 | +13.7% | -25.5% |   0.96 |  +1% |        -17% |
+| ridge      |        11585 | +23.4% | -79.3% |   0.69 | -28% |        -33% |
+| all three  |        12717 | +37.9% | -76.2% |   0.90 | -30% |        -42% |
+
+- **The recent years are weak.** Almost all of the gain came in 2018-2021 and 2024. The combined book peaked in early
+  2025 and has since lost about two thirds.
+- **Overlap:** B1 and ridge often take the same trade, which doubles the risk on it.
+- **Partly in sample:** ridge's coefficients were fitted on BTC and ETH for 2017-2022, so part of its early run is
+  in sample.
+- **Trendline:** the trend-line break is the smoothest book, but it earns the least.
+- **Checked jump:** the late-August 2026 jump is real. On 2026-08-21, a broad rally took eleven long positions to target
+  in one bar.
+
+`combo/forward.py` records the three frozen entries on the same 17 coins as they happen, so their future bars test them.
+It places no orders and uses no account.
+- **Logging:** each run takes Binance archive bars plus TradingView's feed and drops the 4h bar still forming. It
+  appends every signal from the last 7 days that is not yet logged to `combo/forward/signals.csv`.
+- **Entry and void rows:** a logged signal enters at the first 4h open after the run, whatever the run frequency. It is
+  marked `void` if its stop or target already traded before the run.
+- **Proof:** commit the file right after each run; the commit time is the proof.
+- **Scoring:** `python combo/forward.py score` scores the matured `open` rows against random controls with the harness
+  fill model. It excludes rows committed more than an hour after `logged_at`.
+- **First run:** the 2026-09-30 run logged 64 signals, 24 of them open.
+
 ## Where this leaves the Ronnie line of research
 
 - **His calls:** his published calls (2018-2021, 106 graded trades) and his recent title forecasts (2024-2026) show no
@@ -345,7 +380,9 @@ A history test can always be doubted as "not how I draw". `journal/` tests the d
 - **His exits:** targets are near and stops mostly absent, which turns a zero-edge entry into a loss.
 - **His drawings:** his lines, his line intersections, a zone map fitted to his lines, cross-timeframe resonance, and
   filters chosen over 176 combinations all fail on held-out data or on other markets.
-- **The one survivor:** S2b, the large-body breakout, does not depend on his drawings.
+- **What survives:** S2b, the large-body breakout, does not depend on his drawings. It holds on crypto only. The blind
+  combo-v2 line breaks also hold on crypto only, at +0.09R to +0.14R per trade, and whether the line itself adds anything
+  there is still open. As a book, all of them lost in 2025-2026, so `combo/forward.py` now gathers future evidence.
 - **Recommendation:** close the drawing-based line.
 
 Trial count so far: roughly 43 variants before the cross-timeframe section. That section added six in-sample variants,
