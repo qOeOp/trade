@@ -19,7 +19,9 @@ export CARGO_INCREMENTAL=0
 (cd "$REPLAY" && cargo build --release)
 BIN="$CARGO_TARGET_DIR/release/engine-replay"
 mkdir -p "$HERE/out"
+PREFIX="${1:-}" # optional: replay only the jobs whose key starts with it
 while read -r key bars; do
+  [[ -n $PREFIX && $key != "$PREFIX"* ]] && continue
   "$BIN" "$HERE/work/$bars" "$HERE/work/$key.json" "$key" 0 "$HERE/out/$key.csv" 2> "$HERE/out/$key.log" || echo "FAILED $key"
   echo "done $key"
 done < "$HERE/work/jobs.txt"

@@ -257,6 +257,41 @@ Each runs on crypto (BTC, ETH; 0.06% per side) and FX (nine majors; 0.005% per s
 Each cell is avgR minus the random control over the class's signals. Only the breakout on crypto holds. The
 break-retest-confirm entry he now repeats in every video is significantly worse than random in three of four cells.
 
+## Breakouts on unseen coins, FX daily mean reversion, and market character
+
+- **`altcoins/` (altcoins-v1, registered first):** the crypto breakout B1 on 15 coins that never took part in finding
+  it: BNB, XRP, ADA, SOL, DOGE, LTC, TRX, LINK, DOT, AVAX, BCH, ETC, XLM, ATOM and FIL, from Binance hourly klines.
+  - It holds. 4,312 signals net of 0.06% per side make +0.11R, +0.10R above random entries of the same geometry
+    [95% coin-then-signal bootstrap +0.05, +0.16].
+  - All 15 coins are above zero and above their control; 7 of 10 years are positive.
+  - Survivorship bias remains: these coins are still listed today.
+- **`fxrevert/` (fxrevert-v1, registered first):** daily Bollinger, RSI(2) and 5-day-stretch fades on the nine FX
+  majors, stop 2 ATR, 0.005% per side.
+  - All three fail the registered rule. They sit near random in 2017-2022.
+  - Out of sample the Bollinger and RSI(2) fades lead random (+0.09R and +0.04R, 90% intervals above zero, 7 of 9
+    pairs). That window's variance ratio helped motivate the test, so this is not independent evidence.
+- **`market_character.py`:** variance ratios of 4h returns.
+  - All nine FX majors sit below 1: at 1 day in sample, and at 5 days out of sample (mean 0.89). FX leans
+    mean-reverting.
+  - BTC and ETH sit at 1.00-1.04.
+  - This fits breakouts working on crypto and failing on FX. The FX reversion is too weak (about -0.02
+    autocorrelation per 4h bar) for the simple 4h rules tested here.
+
+## Cross-check against the repository BacktestEngine
+
+The studies above use Python simulators. `xcheck/` replays every one of their 16,466 orders through the repository's
+`BacktestEngine` (`replay/`, built in a disposable `CARGO_TARGET_DIR` by `xcheck/run.sh`) and compares them order by
+order with `xcheck/compare.py`. The orders cover setups-v1 on BTC (4h and 1-minute bars), EURUSD and USDJPY (hourly),
+fxrevert-v1 on the nine FX majors (hourly) and altcoins-v1 on the 15 coins (hourly). Results are in
+`xcheck/result.txt`.
+- **Agreement:** 99.2-100% of orders exit the same way (target, stop or time). Every group's engine avgR is within
+  0.02R of Python's (0.005R on BTC and the coins), and no setup's conclusion changes.
+- **4h vs 1-minute on BTC:** the two engine runs agree on 99.6% of exit roles. The 4h stop-first assumption moves 2 of
+  545 trades in one lane.
+- **A defect found:** the first fxrevert replay skipped 1,003 orders. The export had placed the unreachable target at
+  entry - 50 ATR, which went negative for shorts in March 2020. The engine rejected that child order, and the replay
+  kept the position open. The target is now capped at half the price, and every order closes.
+
 ## A forward journal for hand-drawn trades
 
 A history test can always be doubted as "not how I draw". `journal/` tests the drawer instead:

@@ -167,7 +167,8 @@ def main():
                 last = min(e + FXR.MAX_DAYS[setup] - 1, len(x) - 1)
                 j_plan = next((j for j in range(e, last + 1) if FXR.exit_hit(setup, side, X, j)), last)
                 risk = FXR.STOP_ATR * X.atr[i]
-                stop, tp = X.open[e] - side * risk, X.open[e] + side * 50 * X.atr[i]
+                # an unreachable target, kept positive: 50 ATR went below zero for shorts in the March 2020 spike
+                stop, tp = X.open[e] - side * risk, X.open[e] + side * min(50 * X.atr[i], 0.5 * X.open[e])
                 r, role = sim(X.open, X.high, X.low, X.close, e, side, stop, tp, j_plan)
                 oid = f"fxrevert:{pair}-{setup}-{i}"
                 orders.append(dict(id=oid, submit_ns=int(ts[i] + 86400) * NS, side=side, kind="MARKET", entry=X.open[e] * s,

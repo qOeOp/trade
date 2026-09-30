@@ -1,17 +1,35 @@
 Repository BacktestEngine vs the Python simulators, gross R per order (engine fills over the planned stop)
-orders exported: altcoins 4312, fxrevert 4970, setups 7184; engine outcomes: 5546; not closed by the engine: 0 ()
+orders exported: altcoins 4312, fxrevert 4970, setups 7184; engine outcomes: 19244; not closed by the engine: 0 ()
 group                              n  same exit  |dR|<=0.1  mean |dR|   py avgR  engine avgR
-setups BTCUSD 1m                2828      99.5%      98.2%      0.027    +0.079       +0.084
-setups BTCUSD 4h                2830      99.5%      98.2%      0.027    +0.078       +0.083
+altcoins 15 coins 1h            4312      99.7%      99.1%      0.015    +0.137       +0.137
+fxrevert 9 FX 1h                4970     100.0%      91.7%      0.026    +0.020       +0.019
+setups BTCUSD 1m                2836      99.5%      98.2%      0.027    +0.076       +0.081
+setups BTCUSD 4h                2836      99.5%      98.2%      0.027    +0.076       +0.081
+setups EURUSD 1h                2233      99.3%      97.9%      0.041    -0.102       -0.081
+setups USDJPY 1h                2371      99.2%      97.8%      0.050    -0.055       -0.042
 
 by setup (closed orders): python avgR -> engine avgR
+  altcoins 15 coins 1h           B1  n= 4312  +0.137 -> +0.137
+  fxrevert 9 FX 1h               M1  n= 1102  +0.035 -> +0.034
+  fxrevert 9 FX 1h               M2  n= 2659  +0.014 -> +0.014
+  fxrevert 9 FX 1h               M3  n= 1209  +0.020 -> +0.016
   setups BTCUSD 1m               B1  n=  486  +0.317 -> +0.311
-  setups BTCUSD 1m               P1  n=  934  +0.109 -> +0.110
+  setups BTCUSD 1m               P1  n=  935  +0.107 -> +0.109
   setups BTCUSD 1m               P2  n=  120  -0.028 -> -0.023
-  setups BTCUSD 1m               P3  n= 1132  -0.012 -> +0.000
+  setups BTCUSD 1m               P3  n= 1139  -0.018 -> -0.006
   setups BTCUSD 1m               R1  n=  156  -0.097 -> -0.089
   setups BTCUSD 4h               B1  n=  486  +0.317 -> +0.311
-  setups BTCUSD 4h               P1  n=  934  +0.109 -> +0.107
+  setups BTCUSD 4h               P1  n=  935  +0.107 -> +0.106
   setups BTCUSD 4h               P2  n=  120  -0.028 -> -0.022
-  setups BTCUSD 4h               P3  n= 1134  -0.014 -> +0.001
+  setups BTCUSD 4h               P3  n= 1139  -0.018 -> -0.003
   setups BTCUSD 4h               R1  n=  156  -0.097 -> -0.089
+  setups EURUSD 1h               B1  n=  354  -0.031 -> -0.031
+  setups EURUSD 1h               P1  n=  633  -0.027 -> -0.007
+  setups EURUSD 1h               P2  n=  117  +0.020 -> +0.020
+  setups EURUSD 1h               P3  n= 1021  -0.165 -> -0.133
+  setups EURUSD 1h               R1  n=  108  -0.323 -> -0.304
+  setups USDJPY 1h               B1  n=  337  -0.064 -> -0.077
+  setups USDJPY 1h               P1  n=  649  -0.064 -> -0.046
+  setups USDJPY 1h               P2  n=  115  -0.193 -> -0.223
+  setups USDJPY 1h               P3  n= 1181  -0.038 -> -0.019
+  setups USDJPY 1h               R1  n=   89  +0.003 -> +0.047
