@@ -1,0 +1,10 @@
+community-v1 (INTENT.md): 2487 ideas fetched, 1113 with a usable horizontal line, 320 with a usable trend line; 3218 horizontal and 782 sloped community lines, and 3689 zone edges, within 5 ATR of price
+
+A. Horizontal agreement: 35% of community levels lie within 0.25 ATR of one of our levels, against 27% for the same levels moved 1-4 ATR (ratio 1.29; median distance 0.51 ATR). Decision rule: ratio >= 1.5 -> we do not draw where people draw.
+   Zone edges (amendment, reported apart): 32% within 0.25 ATR of our levels vs 27% moved (ratio 1.16).
+B. Trend-line agreement: 3% of community trend lines pass within 0.25 ATR of one of our trend lines of the same slope at publish time, against 1% moved (ratio 2.56; 65% had no line of ours with that slope).
+
+C. Community levels after publishing: 1986 resolved of 3218; held 64%, moved copies held 66%; held minus moved -1.7% [-4.2%, +0.7%] -> no information shown
+   Zone edges (amendment, reported apart): 2348 resolved of 3689; held 60%, moved copies held 67%; held minus moved -6.8% [-9.4%, -4.1%] -> no information shown
+D. Our nearest levels at the same moments: 1493 resolved of 2095; held 66%, moved copies held 67%; held minus moved -1.2% [-3.7%, +1.3%] -> no information shown
+E. Consensus levels (>= 3 authors within 0.25 ATR and 72 h): 34 resolved of 41; held 68%, moved copies held 65%; held minus moved +2.3% [-16.0%, +20.8%] -> no information shown

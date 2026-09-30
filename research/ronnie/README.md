@@ -398,6 +398,28 @@ the run. The design period was 2018-2022 and the check period 2023-2026 (`risk/r
   +0.05R. The bear-year shortfall is fewer good trades plus losing breakout longs, not weak shorts.
 - **B1:** the exception, with shorts at +0.03R against +0.19R for longs.
 
+## Other traders' lines (TrialFamily community-v1)
+
+`community/` compares our rule-drawn lines with lines other traders publish.
+- **Sample:** 2487 recent TradingView ideas on the 17 forward coins, 150 sampled per coin from the public listing
+  (`community/INTENT.md`, amended for the drawing format before any measure ran).
+- **Lines:** 3218 horizontal levels, 3689 zone edges and 782 trend lines within 5 ATR of price at publish time.
+- **Scoring:** the reaction test is the E1 test used on Ronnie's lines (`community/result.txt`).
+- **Horizontal agreement:**
+  - 35% of community levels lie within 0.25 ATR of one of our levels, against 27% for the same levels moved 1-4 ATR.
+  - The ratio is 1.29, under the 1.5 bar, so the overlap is real but loose.
+- **Trend lines** rarely match: 3% against 1% moved. Our rule keeps only the last two swings, so 65% of the time we had
+  no line of that slope at all.
+- **Do their lines hold?** No.
+  - **Community levels:** 64% held after publishing, against 66% for moved copies (-1.7% [-4.2%, +0.7%]).
+  - **Zone edges:** held 60% against 67% (-6.8% [-9.4%, -4.1%]). Part of this may be distance, since zones sit
+    close to price.
+  - **Our own nearest levels, at the same moments:** 66% against 67%.
+  - **Consensus levels** (three authors or more within 0.25 ATR and 72 hours, 41 clusters): 68% against 65%, far too
+    few to tell.
+- **Conclusion:** whether we draw "like people do" is not the issue. Neither the community's lines nor ours hold better
+  than the same line moved away, which matches Ronnie's own lines (62% against 64%).
+
 ## Running the survivors together, and a forward record
 
 `combo/portfolio.py` runs B1, trendline_break_strong and line_break_ridge as one book on BTC, ETH and the 15 holdout
