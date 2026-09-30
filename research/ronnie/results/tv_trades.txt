@@ -1,57 +1,60 @@
-9 declared trades with hourly prices (3 limit, 6 market; 1 with a stated stop)
+86 declared trades with hourly prices (26 limit, 60 market; 15 with a stated stop)
 
 Decomposition (mean ATR per trade, 95% bootstrap interval), filled trades with controls:
-  his entry + his exits          -0.87 [-2.89,+1.01] n=8
-  his entry + hold 30 bars       -0.97 [-3.64,+2.17] n=8
-  his entry + hold 10 bars       +0.29 [-1.05,+1.63] n=7
-  random entry + his exits       -1.04 [-2.16,-0.18] n=8
-  random entry + hold 30 bars    -1.59 [-2.67,-0.67] n=8
-  random entry + hold 10 bars    -0.42 [-1.04,+0.13] n=8
-  entry effect under his exits  A-A0 +0.16 [-1.87,+1.79] n=8
-  entry effect under holding    B-B0 +0.62 [-2.37,+3.91] n=8
-  exit effect on his entries    A-B  +0.10 [-1.81,+1.66] n=8
-  exit effect on random entries A0-B0 +0.55 [+0.27,+0.86] n=8
-  market entries only (n=6): A -1.44  B -0.84  A0 -1.47  B0 -2.12  entry effect A-A0 +0.04 [-2.51,+1.94] n=6
+  his entry + his exits          -0.76 [-1.50,-0.06] n=72
+  his entry + hold 30 bars       -0.30 [-1.30,+0.74] n=72
+  his entry + hold 10 bars       +0.09 [-0.55,+0.71] n=68
+  random entry + his exits       -0.65 [-1.32,-0.04] n=72
+  random entry + hold 30 bars    -0.31 [-1.23,+0.66] n=72
+  random entry + hold 10 bars    -0.31 [-0.85,+0.21] n=72
+  entry effect under his exits  A-A0 -0.12 [-0.46,+0.24] n=72
+  entry effect under holding    B-B0 +0.01 [-0.45,+0.46] n=72
+  exit effect on his entries    A-B  -0.46 [-1.08,+0.14] n=72
+  exit effect on random entries A0-B0 -0.33 [-0.94,+0.24] n=72
+  reference, random entries in the 90 days BEFORE publish (n=72): his exits -0.20, hold 30 +0.02; after 20 bars +0.08 ATR (the trend his side was read from)
+  market entries only (n=58): A -0.55  B +0.10  A0 -0.28  B0 +0.17  entry effect A-A0 -0.27 [-0.63,+0.08] n=58
 
 His own closing labels vs the prices (TP1 within 30 bars, stop checked first):
-  labelled target_reached  n= 4: simulated TP1 50%, stop 0%, time 25%, not filled 25%
-  unlabelled trades n=5: simulated TP1 20%
+  labelled closed_manually n= 5: simulated TP1 0%, stop 0%, time 100%, not filled 0%
+  labelled stop_reached    n= 1: simulated TP1 0%, stop 100%, time 0%, not filled 0%
+  labelled target_reached  n=26: simulated TP1 62%, stop 4%, time 15%, not filled 19%
+  unlabelled trades n=54: simulated TP1 30%
 
 Other exits on the same entries (mean ATR; his entry | random entry | difference):
-  his target + 2 ATR stop where none stated: -0.14 | -0.33 | +0.19 [-1.03,+1.37] n=8
-  his target + 3 ATR stop where none stated: -0.52 | -0.54 | +0.02 [-1.46,+1.43] n=8
+  his target + 2 ATR stop where none stated: -0.21 | -0.19 | -0.01 [-0.24,+0.21] n=72
+  his target + 3 ATR stop where none stated: -0.38 | -0.39 | +0.01 [-0.28,+0.29] n=72
   fixed stop/target grid (rows stop ATR, columns target ATR):
     stop\tp                      1                     2                     3                     5
-          1      +0.33|-0.06|+0.43     +0.12|-0.10|+0.22     -0.00|-0.11|+0.11     +0.50|-0.22|+0.72
-          2      +0.50|-0.13|+0.73     -0.28|-0.27|-0.01     -0.53|-0.39|-0.14     -0.03|-0.49|+0.46
-          3      +0.33|-0.20|+0.68     -0.78|-0.47|-0.31     -0.89|-0.62|-0.27     -0.39|-0.76|+0.37
+          1      -0.00|-0.11|+0.02     -0.04|-0.08|-0.05     -0.08|-0.10|-0.04     +0.01|-0.03|+0.04
+          2      -0.04|-0.14|-0.07     -0.33|-0.20|-0.27     -0.30|-0.19|-0.21     -0.18|-0.06|-0.12
+          3      -0.12|-0.23|-0.15     -0.44|-0.31|-0.35     -0.42|-0.28|-0.27     -0.22|-0.16|-0.06
 
 Entry timing, market entry at publish for every trade (signed forward return in ATR):
-  after  1 bars: his +0.34 [-0.18,+1.10] n=9   random -0.03   his-random +0.37 [-0.09,+1.11] n=9   his > 0: 56%
-  after  3 bars: his +0.46 [-0.28,+1.43] n=9   random -0.10   his-random +0.56 [-0.09,+1.45] n=9   his > 0: 78%
-  after  5 bars: his +0.50 [-0.35,+1.44] n=9   random -0.17   his-random +0.66 [-0.00,+1.40] n=9   his > 0: 67%
-  after 10 bars: his +0.25 [-0.84,+1.35] n=9   random -0.30   his-random +0.55 [-0.53,+1.62] n=9   his > 0: 56%
-  after 20 bars: his -0.79 [-2.90,+1.95] n=9   random -0.62   his-random -0.17 [-2.96,+2.91] n=9   his > 0: 33%
-  first 10 bars: max favourable 1.24 ATR, max adverse 1.08 ATR (medians)
+  after  1 bars: his +0.02 [-0.16,+0.23] n=83   random +0.00   his-random +0.01 [-0.17,+0.22] n=83   his > 0: 43%
+  after  3 bars: his -0.03 [-0.30,+0.23] n=83   random +0.02   his-random -0.05 [-0.33,+0.22] n=83   his > 0: 55%
+  after  5 bars: his +0.30 [-0.06,+0.70] n=83   random -0.00   his-random +0.31 [-0.03,+0.65] n=83   his > 0: 49%
+  after 10 bars: his +0.17 [-0.40,+0.80] n=83   random -0.20   his-random +0.36 [-0.04,+0.76] n=83   his > 0: 43%
+  after 20 bars: his -0.18 [-1.02,+0.67] n=83   random -0.30   his-random +0.12 [-0.36,+0.57] n=83   his > 0: 41%
+  first 10 bars: max favourable 1.10 ATR, max adverse 1.32 ATR (medians)
 
-Limit entries (3): filled 67%; not filled because TP traded first 33%, never reached 0%
-  with his exits: limit +0.54 [-1.16,+2.79] n=3 (unfilled = 0)  vs market at publish +0.74 [-2.42,+2.44] n=3
-  holding 30 bars: limit -2.65 [-5.19,+1.47] n=3 vs market -3.80 [-6.76,+0.86] n=3
+Limit entries (26): filled 58%; not filled because TP traded first 38%, never reached 4%
+  with his exits: limit -0.77 [-1.91,+0.17] n=26 (unfilled = 0)  vs market at publish -0.66 [-2.25,+0.76] n=26
+  holding 30 bars: limit -1.46 [-2.49,-0.40] n=26 vs market -1.36 [-3.14,+0.42] n=26
 
 His exits on his own entries:
-  outcome: TP1 38%, stop 12%, time 50%  (random entries with the same distances reach TP1 45%)
-  TP1 distance median 2.8 ATR (quartiles 2.0-2.8); stated stop distance median 1.2 ATR over 1 trades
-  stopped out, then TP1 traded within the horizon: 0% of 1 stops
-  after TP1: price went a further 2.4 ATR (median) beyond it within the horizon; more than 2 ATR in 67%
-  timed out: best excursion reached 53% of the TP1 distance (median) over 4 trades
-  TP1 vs final target: -0.87 [-2.91,+1.04] n=8 vs -0.87 [-3.08,+1.01] n=8
+  outcome: TP1 43%, stop 8%, time 49%  (random entries with the same distances reach TP1 44%)
+  TP1 distance median 2.5 ATR (quartiles 1.5-3.6); stated stop distance median 2.0 ATR over 13 trades
+  stopped out, then TP1 traded within the horizon: 50% of 6 stops
+  after TP1: price went a further 2.3 ATR (median) beyond it within the horizon; more than 2 ATR in 56%
+  timed out: best excursion reached 33% of the TP1 distance (median) over 35 trades
+  TP1 vs final target: -0.70 [-1.42,-0.03] n=75 vs -0.78 [-1.51,-0.06] n=75
 
 By group (A = his entry + his exits; B = hold 30 bars; A0 = random entry + his exits):
-  crypto               n=  2  A +0.77  B +3.82  A0 -1.17  B0 -2.27
-  FX/metals/oil/index  n=  6  A -1.42  B -2.57  A0 -0.99  B0 -1.37
-  1D/1W charts         n=  4  A -2.52  B -3.91  A0 -1.41  B0 -1.79
-  4h/1h charts         n=  4  A +0.77  B +1.96  A0 -0.66  B0 -1.40
-  stated stop          n=  1  A -1.16  B -4.25  A0 +0.54  B0 +0.44
-  no stated stop       n=  7  A -0.83  B -0.51  A0 -1.26  B0 -1.88
-  2018                 n=  8  A -0.87  B -0.97  A0 -1.04  B0 -1.59
-  2019-2021            n=  0  A +nan  B +nan  A0 +nan  B0 +nan
+  crypto               n= 40  A -0.44  B +0.34  A0 -0.49  B0 +0.19
+  FX/metals/oil/index  n= 35  A -1.00  B -1.05  A0 -0.82  B0 -0.88
+  1D/1W charts         n= 52  A -0.62  B -0.18  A0 -0.64  B0 -0.16
+  4h/1h charts         n= 23  A -0.89  B -0.60  A0 -0.67  B0 -0.72
+  stated stop          n= 13  A -0.30  B +0.94  A0 -0.01  B0 +1.07
+  no stated stop       n= 62  A -0.78  B -0.57  A0 -0.77  B0 -0.59
+  2018                 n= 59  A -0.86  B -0.62  A0 -0.80  B0 -0.78
+  2019-2021            n= 16  A -0.13  B +0.84  A0 -0.06  B0 +1.46

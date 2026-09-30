@@ -12,8 +12,9 @@ Decomposition, mean result per trade:
                   his exits   hold 30 bars   hold 10 bars
   his entry           A            B              C
   random entry        A0           B0             C0
-Random entries: same symbol, same side, a random hour in the 90 days before he published, with his target and stop
-distances (in ATR) carried over. Entry effect = A - A0 (and B - B0); exit effect = A - B.
+Random entries: same symbol, same side, a random hour within the 10 chart bars after he published, with his target and
+stop distances (in ATR) carried over; the direction is his, only the moment differs. Entries drawn from the 90 days
+before publish are reported for reference only: his side was read from that stretch, so they flatter trend calls. Entry effect = A - A0 (and B - B0); exit effect = A - B.
 """
 import csv, gzip, os, sys
 from collections import defaultdict
@@ -176,32 +177,40 @@ def trade_rows(T):
             row[f"g{ks}_{kt}"] = R(z)
         for ks in (2, 3):  # his target with a generic stop where he stated none
             row[f"A_sl{ks}"] = R(res(tp1, sl if sl is not None else ref - s * ks * a, decl_limit))
-        # random-time control entries: market, same side, same tp/sl distances
-        lo_t = x["pub"] - 90 * 86400
-        cand = np.where((x["t"] >= lo_t) & (x["t"] < x["pub"] - 3600))[0]
-        cand = cand[cand + cap < len(c)]
-        if len(cand) >= 20:
+        # random-time control entries, market, same side, his tp/sl distances carried over. "_0": a random hour within
+        # the 10 chart bars after he published (direction fixed by him, only the moment differs); "_pre": a random
+        # hour in the 90 days before, the stretch his direction was read from, so it flatters any trend-following call
+        dtp = s * (tp1 - (decl_limit or E)) if tp1 else None
+        dsl = s * ((decl_limit or E) - sl) if sl else None
+        post = np.arange(i0 + 1, i0 + 10 * x["m"] + 1)
+        pre = np.where((x["t"] >= x["pub"] - 90 * 86400) & (x["t"] < x["pub"] - 3600))[0]
+        for suffix, cand, full in (("_0", post, True), ("_pre", pre, False)):
+            cand = cand[cand + cap < len(c)]
+            if len(cand) < 20:
+                continue
             picks = RNG.choice(cand, size=min(RANDOM_N, len(cand)), replace=len(cand) < RANDOM_N)
-            dtp = s * (tp1 - (decl_limit or E)) if tp1 else None
-            dsl = s * ((decl_limit or E) - sl) if sl else None
             acc = defaultdict(list)
             for i in picks:
                 e = o[i]
                 z = simulate(o, h, l, c, i, s, e, e + s * dtp if dtp else None, e - s * dsl if dsl else None, cap)
-                acc["A0"].append(s * (z["exit"] - e) / a)
-                acc["B0"].append(s * (c[i + cap] - e) / a)
-                acc["C0"].append(s * (c[i + 10 * x["m"]] - e) / a)
+                acc["A"].append(s * (z["exit"] - e) / a)
+                acc["B"].append(s * (c[i + cap] - e) / a)
+                acc["C"].append(s * (c[i + 10 * x["m"]] - e) / a)
+                acc["tp_rate"].append(z["why"] == "tp")
                 for k in (1, 3, 5, 10, 20):
-                    acc[f"fwd{k}_0"].append(s * (c[i + k * x["m"] - 1] - e) / a)
-                acc["tp_rate0"].append(z["why"] == "tp")
+                    acc[f"fwd{k}"].append(s * (c[i + k * x["m"] - 1] - e) / a)
+                if not full:
+                    continue
                 for ks, kt in GRID:
                     zz = simulate(o, h, l, c, i, s, e, e + s * kt * a, e - s * ks * a, cap)
-                    acc[f"g{ks}_{kt}_0"].append(s * (zz["exit"] - e) / a)
+                    acc[f"g{ks}_{kt}"].append(s * (zz["exit"] - e) / a)
                 for ks in (2, 3):
                     zz = simulate(o, h, l, c, i, s, e, e + s * dtp if dtp else None,
                                   e - s * dsl if dsl else e - s * ks * a, cap)
-                    acc[f"A_sl{ks}_0"].append(s * (zz["exit"] - e) / a)
-            row.update({k: float(np.mean(v)) for k, v in acc.items()})
+                    acc[f"A_sl{ks}"].append(s * (zz["exit"] - e) / a)
+            row.update({f"{k}{suffix}": float(np.mean(v)) for k, v in acc.items()})
+        for k in ("A", "B", "C"):
+            row[f"{k}0"] = row.get(f"{k}_0", np.nan)
         rows.append(row)
     return pd.DataFrame(rows)
 
@@ -228,6 +237,9 @@ def report(df):
     out.append(f"  entry effect under holding    B-B0 {mean_ci(g.B - g.B0)}")
     out.append(f"  exit effect on his entries    A-B  {mean_ci(g.A - g.B)}")
     out.append(f"  exit effect on random entries A0-B0 {mean_ci(g.A0 - g.B0)}")
+    gp = g.dropna(subset=["A_pre"])
+    out.append(f"  reference, random entries in the 90 days BEFORE publish (n={len(gp)}): his exits {gp.A_pre.mean():+.2f}, "
+               f"hold 30 {gp.B_pre.mean():+.2f}; after 20 bars {gp.fwd20_pre.mean():+.2f} ATR (the trend his side was read from)")
     gm = g[g.entry_kind == "market"]
     out.append(f"  market entries only (n={len(gm)}): A {gm.A.mean():+.2f}  B {gm.B.mean():+.2f}  A0 {gm.A0.mean():+.2f}  B0 {gm.B0.mean():+.2f}"
                f"  entry effect A-A0 {mean_ci(gm.A - gm.A0)}")
@@ -267,7 +279,7 @@ def report(df):
         out.append("")
     out.append("His exits on his own entries:")
     out.append(f"  outcome: TP1 {np.mean(f.why == 'tp'):.0%}, stop {np.mean(f.why == 'sl'):.0%}, time {np.mean(f.why == 'time'):.0%}"
-               f"  (random entries with the same distances reach TP1 {g.tp_rate0.mean():.0%})")
+               f"  (random entries with the same distances reach TP1 {g.tp_rate_0.mean():.0%})")
     out.append(f"  TP1 distance median {f.tp1_atr.median():.1f} ATR (quartiles {f.tp1_atr.quantile(.25):.1f}-{f.tp1_atr.quantile(.75):.1f});"
                f" stated stop distance median {f.sl_atr.median():.1f} ATR over {f.has_sl.sum()} trades")
     if "stopped_then_tp" in f:

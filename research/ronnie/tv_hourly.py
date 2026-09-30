@@ -26,7 +26,7 @@ DUKA = {"XAUUSD": "XAUUSD", "GOLD": "XAUUSD", "USOIL": "LIGHTCMDUSD", "WTIUSD": 
         "NAS100USD": "USATECHIDXUSD", "DXY": "DOLLARIDXUSD"}
 FXCM = {"EURUSD", "GBPUSD", "USDJPY", "NZDUSD", "USDCAD", "AUDUSD", "USDCHF", "GBPJPY", "EURAUD"}
 DUKA_FX = {"USDCNH": "USDCNH", "GBPAUD": "GBPAUD"}
-ALT_USDT = {"ETHUSD": "ETH", "LTCUSD": "LTC", "XRPUSD": "XRP", "EOSUSD": "EOS", "BCHUSD": "BCC", "IOTUSD": "IOTA",
+ALT_USDT = {"ETHUSD": "ETH", "LTCUSD": "LTC", "XRPUSD": "XRP", "EOSUSD": "EOS", "BCHUSD": "BCC|BCHABC|BCH", "IOTUSD": "IOTA",
             "ETCUSD": "ETC", "ADAUSD": "ADA"}
 UA = {"User-Agent": "Mozilla/5.0"}
 
@@ -110,10 +110,12 @@ def binance(pair, t0, t1):
     return d[(d.time >= t0) & (d.time < t1)]
 
 
-def binance_alt_usd(base, t0, t1):
-    d = binance(f"{base}USDT", t0, t1)
-    if len(d) and d.time.min() <= t0 + 86400:
-        return d
+def binance_alt_usd(bases, t0, t1):
+    for base in bases.split("|"):  # Binance renamed some pairs (BCC -> BCHABC -> BCH)
+        d = binance(f"{base}USDT", t0, t1)
+        if len(d) and d.time.min() <= t0 + 86400:
+            return d
+    base = bases.split("|")[0]
     a, b = binance(f"{base}BTC", t0, t1).set_index("time"), binance("BTCUSDT", t0, t1).set_index("time")
     j = a.join(b, rsuffix="_b", how="inner")
     # a product of two bars' highs is not the hour's high; good enough for ordering, flagged in scale.csv
