@@ -1,0 +1,4 @@
+21 directional title forecasts, 18 long
+   3 days: right 14/21 (67%), mean +1.51%, one-sided binomial p vs 50% 0.09
+   7 days: right 10/20 (50%), mean +0.35%, one-sided binomial p vs 50% 0.59
+  14 days: right 10/20 (50%), mean +0.55%, one-sided binomial p vs 50% 0.59

@@ -1,0 +1,16 @@
+{
+"date": "2026-09-30",
+"routes": [
+"Route log (2026-09-30), anonymous endpoints only",
+"1 yt.py transcript(): innertube next (WEB 2.20250101) returns no getTranscriptEndpoint for 562/563 videos; the one exposing it (GoDGvi7eEZI) -> get_transcript HTTP 400 FAILED_PRECONDITION.",
+"2 get_transcript with WEB/MWEB/ANDROID/TVHTML5 (youtubei.googleapis.com and www.youtube.com) and hand-built params -> HTTP 400 FAILED_PRECONDITION.",
+"3 player endpoint WEB/ANDROID/IOS/TVHTML5/MWEB/ANDROID_VR/WEB_CREATOR -> LOGIN_REQUIRED \"\u8bf7\u767b\u5f55\uff0c\u4ee5\u4fbf\u6211\u4eec\u786e\u8ba4\u4f60\u4e0d\u662f\u804a\u5929\u673a\u5668\u4eba\"; WEB_EMBEDDED_PLAYER -> ERROR \u6b64\u89c6\u9891\u4e0d\u80fd\u89c2\u770b; TVHTML5_SIMPLY_EMBEDDED -> ERROR \u4e0d\u518d\u652f\u6301. No captionTracks, no videoDetails.",
+"4 timedtext (youtube.com/api/timedtext, video.google.com/timedtext) -> HTTP 200 empty body.",
+"5 watch page www.youtube.com/watch -> HTTP 429.",
+"6 yt-dlp 2026 (pip, scratchpad) -> \"Sign in to confirm you're not a bot\".",
+"7 Mirrors: inv.nadeko.net captions -> {\"captions\":[]}, videos endpoint disabled; yewtu.be -> browser challenge; invidious.nerdvpn.de -> HTML; pipedapi.kavin.rocks -> 526; api.piped.private.coffee -> connection reset; youtubetranscript.com -> \"YouTube is currently blocking us\".",
+"8 Bilibili (buvid3 cookie from www.bilibili.com, WBI-signed): navnum mid 489629226 -> video:0; wbi/arc/search -> code 0, count 0 (with dm_img params -> -352 \u98ce\u63a7); old arc/search -> HTTP 412; search/type -> 0 results; card -> account exists (fans 23996). No public videos to fetch subtitles for.",
+"9 Worked: innertube next -> absolute dateText + description (description = channel boilerplate for all 563); browse posts tab -> 6 community posts (posts.jsonl); i.ytimg.com thumbnails -> 149/149 downloaded (thumbs/, contact sheets in sheets/).",
+"10 Telegram t.me/s/LNJYZN -> posts are bare YouTube links only."
+]
+}
