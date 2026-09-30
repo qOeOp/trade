@@ -338,6 +338,24 @@ A history test can always be doubted as "not how I draw". `journal/` tests the d
   with the same stop and target distances. It excludes rows committed more than an hour after their drawn time and
   reports how many closed trades a +0.2R edge needs, about 60-140 at typical spreads.
 
+## Acting before the 4h close (TrialFamily timing-v1)
+
+`timing/` tests whether a line break must wait for the 4h close. The alternative is to act on the first 1h, 15m or 5m
+close through the same line.
+- **Setup:** BTCUSDT and ETHUSDT on Binance 5m bars, 2018-2026. All variants use the same lines (as in
+  `line_break_ridge`). The stop is the 4h bar's extreme so far and the target is 2R.
+- **Controls:** each variant is compared with its own random entries, on the same year and side with the same stop in
+  ATR.
+- **Result:** no lower-timeframe trigger beats the 4h close on either market (`timing/result.txt`).
+  - **Edges:** the edge over random is +0.03R to +0.06R for every variant.
+  - **Differences:** every difference from the 4h edge lies inside [-0.07R, +0.07R].
+- **Why the two effects cancel:**
+  - **False breaks:** a lower-timeframe close takes breaks that the 4h close rejects. They are 24-26% of 1h triggers
+    and 41-42% of 5m triggers, and they lose about 0.7-0.8R each.
+  - **Kept breaks:** the breaks that hold earn more for entering earlier, +0.18R at 1h and +0.37-0.40R at 5m.
+- **Conclusion:** the earlier price and the false breaks cancel. Waiting for the 4h close is not what holds these
+  results down, and entering earlier does not lift them.
+
 ## Running the survivors together, and a forward record
 
 `combo/portfolio.py` runs B1, trendline_break_strong and line_break_ridge as one book on BTC, ETH and the 15 holdout

@@ -1,0 +1,21 @@
+timing-v1: line breaks acted on at the 4h close vs the first lower-timeframe close (INTENT.md)
+
+BTCUSDT:
+    4h  n  2658  win 37%  avg R -0.023  control -0.068  edge +0.044 [-0.011, +0.100]  stop 1.12 ATR
+    1h  n  2904  win 36%  avg R -0.065  control -0.109  edge +0.044 [-0.016, +0.098]  stop 0.94 ATR
+        minus 4h edge -0.001 [-0.045, +0.045];  false breaks 24% (avg R -0.825), kept breaks avg R +0.177
+   15m  n  3003  win 37%  avg R -0.065  control -0.120  edge +0.055 [+0.005, +0.105]  stop 0.87 ATR
+        minus 4h edge +0.011 [-0.045, +0.066];  false breaks 35% (avg R -0.744), kept breaks avg R +0.302
+    5m  n  3097  win 37%  avg R -0.078  control -0.133  edge +0.056 [+0.004, +0.109]  stop 0.85 ATR
+        minus 4h edge +0.011 [-0.047, +0.068];  false breaks 41% (avg R -0.736), kept breaks avg R +0.372
+
+ETHUSDT:
+    4h  n  2750  win 37%  avg R +0.009  control -0.050  edge +0.059 [+0.000, +0.117]  stop 1.05 ATR
+    1h  n  3000  win 36%  avg R -0.048  control -0.080  edge +0.032 [-0.017, +0.080]  stop 0.90 ATR
+        minus 4h edge -0.027 [-0.073, +0.021];  false breaks 26% (avg R -0.764), kept breaks avg R +0.198
+   15m  n  3101  win 36%  avg R -0.040  control -0.088  edge +0.048 [-0.008, +0.104]  stop 0.85 ATR
+        minus 4h edge -0.011 [-0.066, +0.045];  false breaks 36% (avg R -0.670), kept breaks avg R +0.321
+    5m  n  3179  win 36%  avg R -0.052  control -0.098  edge +0.046 [-0.002, +0.094]  stop 0.82 ATR
+        minus 4h edge -0.013 [-0.071, +0.046];  false breaks 42% (avg R -0.678), kept breaks avg R +0.395
+
+Decision: no lower-timeframe trigger beats the 4h close on both markets; the 4h close stays
