@@ -292,6 +292,41 @@ fxrevert-v1 on the nine FX majors (hourly) and altcoins-v1 on the 15 coins (hour
   entry - 50 ATR, which went negative for shorts in March 2020. The engine rejected that child order, and the replay
   kept the position open. The target is now capped at half the price, and every order closes.
 
+## Evolved line-based entries, developed blind (TrialFamily combo-v2)
+
+`combo/INTENT.md` was registered before anything else in this family. It separates two roles:
+- **Developer:** a subagent that iterated freely on BTC and ETH only, through `combo/harness.py`. It scored 120 variants
+  and froze three candidates. By its own account it saw 2023-2026 results for about 20 early variants, so only the coin
+  holdout is clean.
+- **Evaluator:** the main agent. It built the holdout (the 15 coins of altcoins-v1, never used for a line-based entry)
+  only after the candidates were committed with their hashes, and scored each candidate once (`combo/evaluate.py`).
+
+The separation rests on instructions and file custody in one container, not a sandbox. All three candidates are
+strong-candle closes through a line, with a stop at the bar's far end, a 2R target and 30 bars:
+- `level_break_calm_trend`: through an intact order-3 swing level, in low volatility, with the daily trend.
+- `trendline_break_strong`: through the line of the last two order-8 swing highs or lows.
+- `line_break_ridge`: through any line (swing levels, trend lines, prior day and week, round numbers), ranked by a
+  frozen ridge model of candle, volume, trend and volatility features; only the top half is traded.
+
+Holdout results (`combo/holdout_result.txt`), net of 0.06% per side, with 98.3% coin-then-signal intervals:
+
+| candidate | signals | avgR | minus random control | coins above control | verdict |
+|---|---|---|---|---|---|
+| trend-line break | 1,653 | +0.121 | +0.136 [+0.017, +0.252] | 13/15 | holds |
+| ranked line break | 17,764 | +0.055 | +0.086 [+0.049, +0.124] | 14/15 | holds |
+| swing-level break, calm and trend | 2,970 | +0.107 | +0.087 [-0.001, +0.174] | 13/15 | fails narrowly |
+| unfiltered zone touch (reference) | 3,970 | -0.031 | -0.031 [-0.110, +0.051] | 5/15 | no edge |
+
+- **Beyond B1 (declared diagnostic):** the ranked line break keeps +0.078R [95% +0.043, +0.113] on its 14,362 signals
+  that do not coincide with B1. The trend-line break keeps +0.103R [-0.04, +0.24] on 1,205, not significant.
+- **Reading:** lines earn their place when price closes through them with conviction, and not when it touches and
+  bounces; the touch has now failed on every universe tested. Whether the line itself adds anything to a strong
+  candle is still open. On development data, strong candles that crossed no line did as well in 2023-2026, and that
+  split was not scored on the holdout. Settling it needs data neither the Developer nor the evaluator has read, which
+  means future bars.
+- **Limits:** each signal was scored alone. Concurrent positions, funding and capacity are not modelled, and the
+  ranked line break's +0.055R average is thin after costs.
+
 ## A forward journal for hand-drawn trades
 
 A history test can always be doubted as "not how I draw". `journal/` tests the drawer instead:
