@@ -89,6 +89,8 @@ def fxcm(sym, t0, t1):
         ts = (pd.to_datetime(d.DateTime, format="%m/%d/%Y %H:%M:%S.%f") - pd.Timestamp(0)) // pd.Timedelta(seconds=1)
         rows.append(pd.DataFrame({"time": ts, "open": d.BidOpen, "high": d.BidHigh, "low": d.BidLow, "close": d.BidClose}))
     d = pd.concat(rows) if rows else pd.DataFrame(columns=["time", "open", "high", "low", "close"])
+    d = d.apply(pd.to_numeric, errors="raise")  # an empty week file makes the concat object-typed
+    d["time"] = d.time.astype("int64")
     return d[(d.time >= t0) & (d.time < t1)]
 
 
