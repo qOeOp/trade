@@ -86,7 +86,8 @@ def simulate(o, h, l, c, i0, side, E, tp, sl, cap, limit=None):
     adv = (entry - ls) if up else (hs - entry)
     if first_sl <= first_tp and np.isfinite(first_sl):
         k = int(first_sl)
-        px = sl if (fresh and k == 0) else (min(sl, os_[k]) if up else max(sl, os_[k]))
+        # on the fill bar the stop fills at its price, or at the entry when the limit filled on a gap beyond the stop
+        px = (min(sl, entry) if up else max(sl, entry)) if (fresh and k == 0) else (min(sl, os_[k]) if up else max(sl, os_[k]))
         why = "sl"
     elif np.isfinite(first_tp):
         k = int(first_tp)

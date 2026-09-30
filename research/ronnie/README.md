@@ -15,7 +15,7 @@ funding is a constant 0.01%/8h estimate. In-sample 2017-2022, out-of-sample 2023
 
 | Script | What | IS avg R | OOS avg R | Verdict |
 |---|---|---|---|---|
-| `ronnie_bt.py` | S2b large-body breakout, 4h, stop at signal bar, 2R, 30-bar exit | +0.29 (217) | +0.24 (172) | Only survivor. Beats 300 random-entry controls (0 of 300), 27/27 parameter cells positive |
+| `ronnie_bt.py` | S2b large-body breakout, 4h, stop at signal bar, 2R, 30-bar exit | +0.29 (217) | +0.24 (172) | Only survivor. Beats 300 random-entry controls (0 of 300), 27/27 parameter cells positive. Crypto only: ETH is positive, nine FX majors are not (see `s2b_levels.py` below) |
 | `ronnie_plan.py` + `run_plan.py` | Full plan: F2 weekly direction, R1/R2/R4/R5 map, F1 Bollinger state, S1-S5 | portfolio Sharpe -0.14 | -0.43 | Fails its own kill rule |
 | `run_controls.py` | Placebo zones, placebo Fibonacci ratios, with/without F1/F2 | | | Zones no better than zones displaced at random; Fibonacci no better than random ratios |
 | `s6_confluence.py` | Zone x trend line confluence, limit at the intersection | -0.21 | -0.35 | Worse than 95% of random entries (adverse selection) |
@@ -215,6 +215,33 @@ market, year and side. Nothing is selected. Results are in `filters/first_passag
   below random.
 
 No stop or target can turn these entries into more than a random entry, so poor exits are not what hides an edge.
+
+## Lines as a map for S2b exits, and S2b beyond BTC
+
+`s2b_levels.py` was declared before its run. It keeps S2b's entries and scores each signal on its own, varying only the
+exit: a 2R target, a target on the first 4h, daily or resonance zone at least 1R away, or a stop behind the nearest 4h
+zone. Results are in `results/s2b_levels.txt`.
+- **Exits on levels:** no level-based exit moves avgR by more than 0.05R from the 2R target, in or out of sample, on
+  BTC or elsewhere. On BTC out of sample every level variant is slightly worse (-0.01 to -0.05R). Lines do not work as
+  a map for exits either.
+- **S2b by market:** BTC is positive in and out of sample (+0.32R over 266 trades, +0.21R over 220), and so is ETH
+  (+0.20R, +0.07R). The nine FX majors are negative in every pair, at about zero even gross of costs: pooled -0.01R in
+  and -0.11R out of sample with no costs, and -0.03R and -0.12R at 0.005% per side.
+- **Cost caveat:** every FX run here used the crypto cost model (about 0.06% per side). With 4h stops near 0.5-0.7% of
+  price, that charges FX about 0.2R more per trade than a realistic spread. The FX conclusions above rest on
+  comparisons with random or displaced controls that carry the same costs, so they hold, but absolute FX avgR figures
+  are too low.
+
+## A forward journal for hand-drawn trades
+
+A history test can always be doubted as "not how I draw". `journal/` tests the drawer instead:
+- **Record:** add one row to `journal/journal.csv` per drawing: time, symbol, chart timeframe, side, market or limit
+  entry, stop, targets and the lines used. `journal/EXAMPLE.csv` has two filled rows.
+- **Commit at once:** commit each row before price reaches the entry; the commit time is the proof.
+- **Score:** `python journal/score.py` fetches TradingView bars and fills trades with the same conservative model as
+  `tv_trades.py`. It compares each trade with 200 random entries on the same side, drawn within the next 10 chart bars,
+  with the same stop and target distances. It excludes rows committed more than an hour after their drawn time and
+  reports how many closed trades a +0.2R edge needs, about 60-140 at typical spreads.
 
 ## Where this leaves the Ronnie line of research
 

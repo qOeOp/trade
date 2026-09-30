@@ -1,0 +1,24 @@
+BTC, in-sample 2017-2022: 266 entries
+  T0  avgR +0.321 [+0.17,+0.48]
+  T1  avgR +0.324 [+0.16,+0.49]  minus T0 +0.003 [-0.01,+0.02]  (target on a level in 2%)
+  T2  avgR +0.305 [+0.15,+0.47]  minus T0 -0.017 [-0.09,+0.04]  (target on a level in 29%)
+  T3  avgR +0.326 [+0.16,+0.49]  minus T0 +0.004 [-0.05,+0.06]  (target on a level in 20%)
+  S1  avgR +0.343 [+0.18,+0.51]  minus T0 +0.021 [-0.04,+0.08]
+BTC, out-of-sample 2023-2026: 220 entries
+  T0  avgR +0.212 [+0.02,+0.39]
+  T1  avgR +0.190 [+0.01,+0.36]  minus T0 -0.022 [-0.06,+0.00]  (target on a level in 5%)
+  T2  avgR +0.191 [+0.00,+0.38]  minus T0 -0.021 [-0.04,+0.00]  (target on a level in 30%)
+  T3  avgR +0.200 [+0.02,+0.38]  minus T0 -0.012 [-0.03,-0.00]  (target on a level in 20%)
+  S1  avgR +0.163 [-0.02,+0.35]  minus T0 -0.049 [-0.10,-0.00]
+ETH + 9 FX (replication), in-sample 2017-2022: 1981 entries
+  T0  avgR -0.165 [-0.22,-0.11]
+  T1  avgR -0.164 [-0.22,-0.11]  minus T0 +0.001 [-0.00,+0.01]  (target on a level in 7%)
+  T2  avgR -0.151 [-0.21,-0.09]  minus T0 +0.015 [-0.00,+0.03]  (target on a level in 33%)
+  T3  avgR -0.161 [-0.22,-0.10]  minus T0 +0.004 [-0.01,+0.02]  (target on a level in 19%)
+  S1  avgR -0.180 [-0.24,-0.12]  minus T0 -0.014 [-0.04,+0.01]
+ETH + 9 FX (replication), out-of-sample 2023-2026: 1132 entries
+  T0  avgR -0.245 [-0.32,-0.17]
+  T1  avgR -0.245 [-0.31,-0.17]  minus T0 -0.000 [-0.01,+0.01]  (target on a level in 6%)
+  T2  avgR -0.241 [-0.31,-0.17]  minus T0 +0.005 [-0.01,+0.02]  (target on a level in 35%)
+  T3  avgR -0.247 [-0.32,-0.17]  minus T0 -0.001 [-0.01,+0.01]  (target on a level in 24%)
+  S1  avgR -0.254 [-0.33,-0.18]  minus T0 -0.008 [-0.04,+0.02]
