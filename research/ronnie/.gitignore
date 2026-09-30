@@ -1,0 +1,6 @@
+# market data rebuilt by fetch_data.py
+btc1m.csv.gz
+btc1m_latest.csv
+btc_1h.csv
+btc_4h.csv
+btc_1d.csv
