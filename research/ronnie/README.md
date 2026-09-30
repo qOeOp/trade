@@ -180,5 +180,39 @@ calls read from their titles, thumbnails and six community posts, plus the metho
 - **Grading:** `yt_recent_grade.py` grades the 21 directional title forecasts on Bitstamp. They are right 14/21 after
   3 days (p 0.09) and 10/20 after 7 and after 14 days.
 
-Trial count so far: roughly 43 variants before this section. The cross-timeframe test added six in-sample variants,
-a 36-cell robustness grid, three out-of-sample runs and the FX replication. Deflate any "winner" accordingly.
+## Filters on the level-touch entry (TrialFamily filters-v1)
+
+`filters/INTENT.md` was registered and committed before the runner (`filters/run.py`) and before any result. It fixes
+the design in advance:
+- **Base signal:** the confirmed zone-touch entry (s6 `zone_only`) on 11 markets: BTC, ETH and nine FX majors.
+- **Filters:** ten candidates, among them weekly and daily trend, calm, squeeze, resonance, trend line, reward/risk,
+  tested level, strong candle and tight stop.
+- **Budget:** every combination of up to three filters, 176 trials, sealed.
+- **Segments:** selection on train (2017-2020) and validation (2021-2022); test (2023-2026) protected and read once.
+- **Falsifier:** the selected combination must beat both the unfiltered base on test and the 95th percentile of the
+  same selection run on placebo events.
+
+Result (`filters/result.txt`, `filters/decision.md`, every trial in `filters/census.csv`):
+- **Base:** 2,796 events, -0.17R on train, -0.12R on validation, -0.14R on test.
+- **Selected combination:** resonance + tested level + strong candle. It made +0.38R on train (46 trades) and +0.40R on
+  validation (23), then -0.33R on test (44).
+- **Placebo:** combinations selected the same way from random entries make a median -0.30R on test, 95th percentile
+  +0.03R.
+- **Permutation:** with outcomes shuffled, selection still reaches a median +0.16R on validation, 95th percentile +0.56R.
+
+Decision: falsified, and the family stops. Picking filters on history finds combinations that look good twice and then
+fail on data they never saw. That is the same pattern as the resonance grid on BTC.
+
+## Where this leaves the Ronnie line of research
+
+- **His calls:** his published calls (2018-2021, 106 graded trades) and his recent title forecasts (2024-2026) show no
+  edge in direction or timing.
+- **His exits:** targets are near and stops mostly absent, which turns a zero-edge entry into a loss.
+- **His drawings:** his lines, his line intersections, a zone map fitted to his lines, cross-timeframe resonance, and
+  filters chosen over 176 combinations all fail on held-out data or on other markets.
+- **The one survivor:** S2b, the large-body breakout, does not depend on his drawings.
+- **Recommendation:** close the drawing-based line.
+
+Trial count so far: roughly 43 variants before the cross-timeframe section. That section added six in-sample variants,
+a 36-cell robustness grid, three out-of-sample runs and the nine-pair FX replication. The filter family added 176
+trials with one protected test read. Deflate any "winner" accordingly.
