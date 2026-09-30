@@ -38,9 +38,35 @@ Support holds 62% vs 60% for random levels; upside targets reached 42% vs 60% fo
 The mechanical zones come from short-term 4h/1h pivots; Ronnie's titles lean on weekly levels, and his lines are
 redrawn as the market moves. His real drawings are published on TradingView as `Ronnie_Dong`
 (tradingview.com/u/Ronnie_Dong, same QQ/TG as the YouTube channel) and in his Bilibili videos
-(space.bilibili.com/489629226). Next: with tradingview.com, *.tradingview.com, bilibili.com, *.bilibili.com,
-*.hdslb.com and *.bilivideo.com allowed in the cloud environment's network settings, scrape every Ronnie_Dong idea
-(publish time, symbol, timeframe, text, every drawing's type and anchor price/time, snapshot), order revisions of the
-same move by time to see how the lines are adjusted, calibrate the R1-R6 rules to his lines, and re-test in-sample only.
+(space.bilibili.com/489629226). The TradingView half is done (below). Bilibili is not scraped yet.
+
+## TradingView ideas (scraped 2026-09-30)
+
+`tv_fetch.py` lists every idea through `tradingview.com/api/v1/ideas/?by=Ronnie_Dong` and reads each idea page's
+embedded record, which carries the full published chart state. It writes:
+
+- `tv/ideas.jsonl`: 158 ideas (the profile's `charts_total`), with publish time, symbol, interval, long/short flag, title,
+  text, and the author's timestamped updates;
+- `tv/drawings.jsonl.gz`: 2,083 drawings, each with its tool type, every anchor's UTC time and price, text, and style.
+  Anchors placed past the chart's future timescale are extrapolated by whole bars and marked `time_est`: 99 callout
+  label boxes and 6 arrows, exact on 24x7 symbols and approximate across FX weekends;
+- `tv/raw/<uuid>.json.gz`: the lossless page record, including the bars shown on the chart at publish time;
+- `tv/snap/<uuid>.webp`: the published snapshot; the full-size PNG is at `image_url`.
+
+What the data shows:
+
+- **Dates:** every idea was published between 2018-03-28 and 2021-01-28 (2018: 103, 2019: 39, 2020: 10, 2021: 6). He has
+  published nothing on TradingView since, so it cannot show how he draws after 2021.
+- **Symbols:** 38 ideas are BTC (Bitfinex, Gemini, Coinbase, BitMEX, Binance). The rest are gold, oil, FX majors, ETH and
+  altcoins.
+- **Timeframes:** mostly daily (89) and 4h (48), then weekly (16) and 1h (5).
+- **Revisions:** there is one chart per idea, so revisions are text only. 303 updates: 225 notes, 60 "target reached",
+  1 "stop reached", 7 manual closes and 10 "trade active". These labels are self-reported and incomplete, so they are
+  not a track record.
+- **Minds:** TradingView's short posts can only be listed per symbol without logging in, so they are not collected.
+
+Next: rebuild each BTC idea's lines (horizontal levels, trend lines, channels, Fibonacci) on the Bitstamp bars, measure
+where they sit against the pivots R1-R6 would pick at that bar, and calibrate on 2018-2021 only. That window is
+in-sample, so the 2023+ out-of-sample set stays untouched.
 
 Trial count so far: roughly 40 variants on the same BTC data; deflate any new out-of-sample "winner" accordingly.
