@@ -28,6 +28,7 @@ from tv_calibrate import load_ideas  # noqa: E402
 CAP = 30
 BAR_H = {"60": 1, "240": 4, "1D": 24}
 RANDOM_N = 200
+GRID = [(ks, kt) for ks in (1, 2, 3) for kt in (1, 2, 3, 5)]  # stop, target in ATR
 RNG = np.random.default_rng(11)
 CRYPTO_SRC = ("bitstamp", "binance")
 
@@ -57,35 +58,46 @@ def simulate(o, h, l, c, i0, side, E, tp, sl, cap, limit=None):
     """-> dict(filled, entry, exit, why, i_fill, i_exit, mfe, mae) in price; i0 = first bar after publish."""
     n = len(c)
     end = min(n - 1, i0 + cap)
-    i_fill, entry = None, None
+    up = side == 1
     if limit is None:
-        i_fill, entry = i0, E
-        fresh = False  # market entry happened before bar i0 opened: bar i0 is a normal bar
+        i_fill, entry, fresh = i0, E, False  # market entry before bar i0 opened: bar i0 is a normal bar
     else:
-        for i in range(i0, end + 1):
-            if tp is not None and (side == 1 and h[i] >= tp or side == -1 and l[i] <= tp):
-                return dict(filled=False, why="tp_before_fill")
-            if side == 1 and l[i] < limit or side == -1 and h[i] > limit:
-                i_fill, entry = i, (min(limit, o[i]) if side == 1 else max(limit, o[i]))
-                break
-        if i_fill is None:
+        seg = slice(i0, end + 1)
+        fill = np.flatnonzero(l[seg] < limit if up else h[seg] > limit)
+        tp_hit = np.flatnonzero(h[seg] >= tp if up else l[seg] <= tp) if tp is not None else np.array([], int)
+        if tp_hit.size and (not fill.size or tp_hit[0] <= fill[0]):
+            return dict(filled=False, why="tp_before_fill")
+        if not fill.size:
             return dict(filled=False, why="never_filled")
-        fresh = True
-    mfe = mae = 0.0
-    for i in range(i_fill, end + 1):
-        hit_sl = sl is not None and (side == 1 and l[i] <= sl or side == -1 and h[i] >= sl)
-        hit_tp = tp is not None and not (fresh and i == i_fill) and (side == 1 and h[i] >= tp or side == -1 and l[i] <= tp)
-        fav = (h[i] - entry) if side == 1 else (entry - l[i])
-        adv = (entry - l[i]) if side == 1 else (h[i] - entry)
-        if hit_sl:
-            px = sl if (fresh and i == i_fill) else (min(sl, o[i]) if side == 1 else max(sl, o[i]))
-            mae = max(mae, adv)
-            return dict(filled=True, entry=entry, exit=px, why="sl", i_fill=i_fill, i_exit=i, mfe=mfe, mae=mae)
-        mfe, mae = max(mfe, fav), max(mae, adv)
-        if hit_tp:
-            px = max(tp, o[i]) if side == 1 else min(tp, o[i])
-            return dict(filled=True, entry=entry, exit=px, why="tp", i_fill=i_fill, i_exit=i, mfe=mfe, mae=mae)
-    return dict(filled=True, entry=entry, exit=c[end], why="time", i_fill=i_fill, i_exit=end, mfe=mfe, mae=mae)
+        i_fill = i0 + int(fill[0])
+        entry, fresh = (min(limit, o[i_fill]) if up else max(limit, o[i_fill])), True
+    seg = slice(i_fill, end + 1)
+    hs, ls, os_ = h[seg], l[seg], o[seg]
+    k_sl = np.flatnonzero(ls <= sl if up else hs >= sl) if sl is not None else np.array([], int)
+    tp_mask = (hs >= tp if up else ls <= tp) if tp is not None else np.zeros(len(hs), bool)
+    if fresh:
+        tp_mask[0] = False  # on the fill bar only the stop counts
+    k_tp = np.flatnonzero(tp_mask)
+    first_sl = k_sl[0] if k_sl.size else np.inf
+    first_tp = k_tp[0] if k_tp.size else np.inf
+    fav = (hs - entry) if up else (entry - ls)
+    adv = (entry - ls) if up else (hs - entry)
+    if first_sl <= first_tp and np.isfinite(first_sl):
+        k = int(first_sl)
+        px = sl if (fresh and k == 0) else (min(sl, os_[k]) if up else max(sl, os_[k]))
+        why = "sl"
+    elif np.isfinite(first_tp):
+        k = int(first_tp)
+        px = max(tp, os_[k]) if up else min(tp, os_[k])
+        why = "tp"
+    else:
+        k = len(hs) - 1
+        px, why = c[end], "time"
+    mfe = float(max(0.0, fav[:k].max())) if k > 0 else 0.0  # before the exit bar
+    if why == "time":
+        mfe = float(max(0.0, fav.max()))
+    mae = float(max(0.0, adv[:k + 1].max()))
+    return dict(filled=True, entry=entry, exit=px, why=why, i_fill=i_fill, i_exit=i_fill + k, mfe=mfe, mae=mae)
 
 
 def load():
@@ -157,6 +169,13 @@ def trade_rows(T):
                 row["beyond_tp_atr"] = (h[after].max() - tp1) / a if s == 1 else (tp1 - l[after].min()) / a
             if his["why"] == "time" and tp1 is not None:
                 row["mfe_share_of_tp"] = his["mfe"] / abs(tp1 - his["entry"])
+        # exit grid on his entry (levels from his entry reference price), no parameter is picked from it
+        ref = decl_limit or E
+        for ks, kt in GRID:
+            z = res(ref + s * kt * a, ref - s * ks * a, decl_limit)
+            row[f"g{ks}_{kt}"] = R(z)
+        for ks in (2, 3):  # his target with a generic stop where he stated none
+            row[f"A_sl{ks}"] = R(res(tp1, sl if sl is not None else ref - s * ks * a, decl_limit))
         # random-time control entries: market, same side, same tp/sl distances
         lo_t = x["pub"] - 90 * 86400
         cand = np.where((x["t"] >= lo_t) & (x["t"] < x["pub"] - 3600))[0]
@@ -175,6 +194,13 @@ def trade_rows(T):
                 for k in (1, 3, 5, 10, 20):
                     acc[f"fwd{k}_0"].append(s * (c[i + k * x["m"] - 1] - e) / a)
                 acc["tp_rate0"].append(z["why"] == "tp")
+                for ks, kt in GRID:
+                    zz = simulate(o, h, l, c, i, s, e, e + s * kt * a, e - s * ks * a, cap)
+                    acc[f"g{ks}_{kt}_0"].append(s * (zz["exit"] - e) / a)
+                for ks in (2, 3):
+                    zz = simulate(o, h, l, c, i, s, e, e + s * dtp if dtp else None,
+                                  e - s * dsl if dsl else e - s * ks * a, cap)
+                    acc[f"A_sl{ks}_0"].append(s * (zz["exit"] - e) / a)
             row.update({k: float(np.mean(v)) for k, v in acc.items()})
         rows.append(row)
     return pd.DataFrame(rows)
@@ -214,6 +240,17 @@ def report(df):
                        f"time {np.mean(z.why == 'time'):.0%}, not filled {np.mean(~z.filled):.0%}")
         out.append(f"  unlabelled trades n={(df.self_label == '').sum()}: simulated TP1 {np.mean(df[df.self_label == ''].why == 'tp'):.0%}")
         out.append("")
+    out.append("Other exits on the same entries (mean ATR; his entry | random entry | difference):")
+    for ks in (2, 3):
+        out.append(f"  his target + {ks} ATR stop where none stated: {g[f'A_sl{ks}'].mean():+.2f} | {g[f'A_sl{ks}_0'].mean():+.2f} | "
+                   f"{mean_ci(g[f'A_sl{ks}'] - g[f'A_sl{ks}_0'])}")
+    out.append("  fixed stop/target grid (rows stop ATR, columns target ATR):")
+    out.append("    stop\\tp " + "".join(f"{kt:>22}" for kt in (1, 2, 3, 5)))
+    for ks in (1, 2, 3):
+        cells = [f"{g[f'g{ks}_{kt}'].mean():+.2f}|{g[f'g{ks}_{kt}_0'].mean():+.2f}|{(g[f'g{ks}_{kt}'] - g[f'g{ks}_{kt}_0']).mean():+.2f}"
+                 for kt in (1, 2, 3, 5)]
+        out.append(f"    {ks:>7} " + "".join(f"{x:>22}" for x in cells))
+    out.append("")
     out.append("Entry timing, market entry at publish for every trade (signed forward return in ATR):")
     h = df.dropna(subset=["fwd1_0"])
     for k in (1, 3, 5, 10, 20):
