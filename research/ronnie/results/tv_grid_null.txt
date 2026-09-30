@@ -1,0 +1,3 @@
+34 grid cells; best real in-sample avgR +0.923; median cell +0.199
+best cell under random entries: median +0.844, 95th percentile +2.439; share of draws whose best cell >= the real best: 0.44
+cells above +0.3R by chance per draw: median 7 of 34; real: 13

@@ -1,0 +1,14 @@
+Cross-timeframe confluence, NZDUSD 4h confirmed entries, in-sample 2017-2022 (R net of fees and funding)
+  4h zone x 4h line (S6)       n=  53  win 42%  avgR +0.075  | random entries median -0.131, share >= real 0.17 | displaced zones median -0.212, share >= real 0.23
+  daily zone x 4h line         n=  18  win 39%  avgR +0.111  | random entries median -0.021, share >= real 0.36 | displaced zones median +0.095, share >= real 0.43
+  weekly zone x 4h line        n=  11  win 18%  avgR -0.521  | random entries median -0.145, share >= real 0.95 | displaced zones median -0.157, share >= real 0.90
+  resonance zone x 4h line     n=   9  win 33%  avgR -0.144  | random entries median -0.085, share >= real 0.57 | displaced zones median -0.322, share >= real 0.47
+  resonance zone alone         n=  33  win 42%  avgR +0.015  | random entries median -0.044, share >= real 0.40 | displaced zones median -0.230, share >= real 0.27
+  4h line alone                n= 111  win 31%  avgR -0.318  | random entries median -0.308, share >= real 0.54
+Cross-timeframe confluence, NZDUSD 4h confirmed entries, out-of-sample 2023-2026 (R net of fees and funding)
+  4h zone x 4h line (S6)       n=  27  win 33%  avgR -0.087  | random entries median -0.178, share >= real 0.39 | displaced zones median -0.212, share >= real 0.30
+  daily zone x 4h line         n=  23  win 52%  avgR +0.164  | random entries median -0.088, share >= real 0.18 | displaced zones median -0.191, share >= real 0.20
+  weekly zone x 4h line        n=  11  win 36%  avgR -0.126  | random entries median +0.100, share >= real 0.79 | displaced zones median -0.205, share >= real 0.48
+  resonance zone x 4h line     n=  16  win 44%  avgR -0.008  | random entries median -0.049, share >= real 0.43 | displaced zones median -0.143, share >= real 0.43
+  resonance zone alone         n=  38  win 32%  avgR -0.271  | random entries median -0.108, share >= real 0.74 | displaced zones median -0.101, share >= real 0.60
+  4h line alone                n=  75  win 31%  avgR -0.369  | random entries median -0.371, share >= real 0.49
