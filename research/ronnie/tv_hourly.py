@@ -36,7 +36,7 @@ def get(url, tries=20):
     path = f"{CACHE}/{url.split('://')[1].replace('/', '_')}"
     if os.path.exists(path):
         return open(path, "rb").read() or None
-    pause = 65 if "dukascopy" in url else 1  # Dukascopy answers 429 to more than about one request a minute
+    pause = 65 if "dukascopy" in url else 0.3  # Dukascopy answers 429 to more than about one request a minute
     for _ in range(tries):
         try:
             with urllib.request.urlopen(urllib.request.Request(url, headers=UA), timeout=60) as r:

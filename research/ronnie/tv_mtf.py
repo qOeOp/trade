@@ -32,12 +32,13 @@ def overlap(a, b):
     return [z for z in a if any(z.lo <= w.hi and w.lo <= z.hi for w in b)]
 
 
-def in_sample(tr):
-    return tr[(tr.entry_time >= IS[0]) & (tr.entry_time < IS[1])] if len(tr) else tr
+def in_sample(tr, per=IS):
+    return tr[(tr.entry_time >= per[0]) & (tr.entry_time < per[1])] if len(tr) else tr
 
 
-def main():
-    d4, d1 = load()
+def main(d4=None, d1=None, label="BTC", periods=(("in-sample 2017-2022", IS),), out_name="tv_mtf.txt"):
+    if d4 is None:
+        d4, d1 = load()
     F = features(d4, d1)
     t4 = d4.index.as_unit("s").asi8 + 4 * 3600
     w1 = weekly(d1)
@@ -54,28 +55,31 @@ def main():
     variants = [("4h zone x 4h line (S6)", "4h", "confluence"), ("daily zone x 4h line", "daily", "confluence"),
                 ("weekly zone x 4h line", "weekly", "confluence"), ("resonance zone x 4h line", "resonance", "confluence"),
                 ("resonance zone alone", "resonance", "zone_only"), ("4h line alone", "4h", "line_only")]
-    out = ["Cross-timeframe confluence, BTC 4h confirmed entries, in-sample 2017-2022 (R net of fees and funding)"]
-    for name, src, mode in variants:
-        tr = S.run_confirm(F, mode, k=3, zone_sched=sched(src))
-        x = in_sample(tr)
-        if x.empty:
-            out.append(f"  {name:<28} no trades")
-            continue
-        rc = np.asarray(s6.random_control(F, x))
-        line = (f"  {name:<28} n={len(x):4d}  win {np.mean(x.R > 0):.0%}  avgR {x.R.mean():+.3f}  | random entries median "
-                f"{np.median(rc):+.3f}, share >= real {np.mean(rc >= x.R.mean()):.2f}")
-        if mode != "line_only":
-            pz = []
-            for s_ in range(30):
-                y = in_sample(S.run_confirm(F, mode, k=3, zone_sched=sched(src, np.random.default_rng(300 + s_))))
-                pz.append(y.R.mean() if len(y) else np.nan)
-            pz = np.array(pz)
-            pz = pz[~np.isnan(pz)]
-            line += f" | displaced zones median {np.median(pz):+.3f}, share >= real {np.mean(pz >= x.R.mean()):.2f}"
-        out.append(line)
+    out = []
+    for pname, per in periods:
+        out.append(f"Cross-timeframe confluence, {label} 4h confirmed entries, {pname} (R net of fees and funding)")
+        for name, src, mode in variants:
+            tr = S.run_confirm(F, mode, k=3, zone_sched=sched(src))
+            x = in_sample(tr, per)
+            if x.empty:
+                out.append(f"  {name:<28} no trades")
+                continue
+            rc = np.asarray(s6.random_control(F, x))
+            line = (f"  {name:<28} n={len(x):4d}  win {np.mean(x.R > 0):.0%}  avgR {x.R.mean():+.3f}  | random entries median "
+                    f"{np.median(rc):+.3f}, share >= real {np.mean(rc >= x.R.mean()):.2f}")
+            if mode != "line_only":
+                pz = []
+                for s_ in range(30):
+                    y = in_sample(S.run_confirm(F, mode, k=3, zone_sched=sched(src, np.random.default_rng(300 + s_))), per)
+                    pz.append(y.R.mean() if len(y) else np.nan)
+                pz = np.array(pz)
+                pz = pz[~np.isnan(pz)]
+                line += f" | displaced zones median {np.median(pz):+.3f}, share >= real {np.mean(pz >= x.R.mean()):.2f}"
+            out.append(line)
     text = "\n".join(out)
     print(text)
-    open(f"{HERE}/results/tv_mtf.txt", "w").write(text + "\n")
+    open(f"{HERE}/results/{out_name}", "w").write(text + "\n")
+    return text
 
 
 if __name__ == "__main__":
