@@ -436,6 +436,28 @@ entries there (`filters2/result.txt`, 24169 signals, 2021-2026).
   - **F3**, not a busy market: -0.019R [-0.074, +0.034]. The busy-month effect in the 17-coin book does not carry over.
   - **F4**, F1 and F2: +0.043R [-0.016, +0.101].
 
+## Triangle and wedge breakouts, and stops behind lines (patterns-v1, stops-v1)
+
+**Converging triangles and wedges (`patterns/`).** The patterns come from the last two order-5 swing highs and lows,
+converging to under 0.6 of their starting width. They cover symmetric, ascending and descending triangles, and rising
+and falling wedges. The stop sits beyond the pattern and the target is the measured move.
+- **Result:** no variant holds on crypto or FX (`patterns/result.txt`). The holdout was 20 unused coins (IOTA, KSM,
+  RUNE and others), 2021-2026.
+  - **Raw breakout:** -0.07R against random on BTC and ETH, -0.03R on FX, and +0.004R on the holdout (2394 signals).
+  - **With a strong, high-volume breakout bar:** +0.04R on BTC and ETH (62 signals), -0.05R and +0.00R on FX, and
+    -0.00R on the holdout.
+  - **Retest entry:** -0.14R on BTC and ETH, -0.03R and -0.06R on FX, and -0.00R on the holdout. It is once again the
+    worst of the three.
+
+**Where to put the stop (`stops/`).** Same entries (B1, trendline, ridge), four stops, and a target of 2R of each stop
+(`stops/result.txt`).
+- **Result:** no stop beats the signal-bar stop on both development and the holdout.
+  - **1.5 ATR stop:** +0.037R [+0.003, +0.072] on BTC and ETH, and +0.014R [-0.007, +0.035] on the holdout.
+  - **Stop behind the nearest support:** -0.064R [-0.113, -0.014] on BTC and ETH, and +0.023R [-0.005, +0.051] on the
+    holdout. That stop is about 3.5 ATR wide.
+  - **Stop just behind the broken line:** -0.010R and -0.036R. That stop is about 0.7 ATR wide and is hit most often.
+- **Conclusion:** a stop placed by a line does no better than a mechanical one.
+
 ## Running the survivors together, and a forward record
 
 `combo/portfolio.py` runs B1, trendline_break_strong and line_break_ridge as one book on BTC, ETH and the 15 holdout

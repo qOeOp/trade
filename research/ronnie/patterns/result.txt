@@ -1,0 +1,15 @@
+patterns-v1: converging triangle/wedge breakouts; avgR net of costs; control = 20 random entries, same geometry
+variant    set               n     win   avgR    control  minus control [interval]
+W-raw      crypto dev 17-22   235  43%  -0.016  +0.054   -0.070 [-0.206, +0.073] (95%)
+W-raw      fx IS 17-22        905  41%  -0.039  -0.008   -0.031 [-0.107, +0.045] (95%)
+W-raw      fx OOS 23-26       464  38%  -0.052  -0.021   -0.031 [-0.128, +0.057] (90%)
+W-raw      holdout 20 coins  2394  44%  +0.000  -0.003   +0.004 [-0.055, +0.067] (95%)
+W-confirm  crypto dev 17-22    62  50%  +0.051  +0.010   +0.041 [-0.189, +0.271] (95%)
+W-confirm  fx IS 17-22        509  41%  -0.057  -0.004   -0.054 [-0.149, +0.032] (95%)
+W-confirm  fx OOS 23-26       254  43%  +0.000  -0.003   +0.003 [-0.108, +0.114] (90%)
+W-confirm  holdout 20 coins   529  46%  +0.007  +0.007   -0.000 [-0.120, +0.114] (95%)
+W-retest   crypto dev 17-22   134  39%  -0.081  +0.060   -0.141 [-0.347, +0.067] (95%)
+W-retest   fx IS 17-22        499  40%  -0.044  -0.015   -0.029 [-0.124, +0.075] (95%)
+W-retest   fx OOS 23-26       259  39%  -0.086  -0.026   -0.060 [-0.174, +0.055] (90%)
+W-retest   holdout 20 coins  1397  43%  -0.013  -0.009   -0.004 [-0.082, +0.071] (95%)
+decision: W-raw: crypto fails, FX fails; W-confirm: crypto fails, FX fails; W-retest: crypto fails, FX fails

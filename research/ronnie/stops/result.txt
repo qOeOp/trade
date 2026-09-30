@@ -1,0 +1,21 @@
+stops-v1: same entries (B1, trendline, ridge), four stops, target 2R of each; avg R net of 0.06%/side
+
+development BTC+ETH 2017-2022: 1907 entries
+  S0  avg R +0.232  win 44%  median stop 1.59 ATR
+  S1  avg R +0.269  win 44%  median stop 1.50 ATR  minus S0 +0.037 [+0.003, +0.072]
+  S2  avg R +0.168  win 48%  median stop 3.54 ATR  minus S0 -0.064 [-0.113, -0.014]
+  S3  avg R +0.222  win 40%  median stop 0.76 ATR  minus S0 -0.010 [-0.074, +0.056]
+    B1         n   407  S0 +0.325  S1 +0.394  S2 +0.268  S3 +0.360
+    ridge      n  1314  S0 +0.187  S1 +0.212  S2 +0.137  S3 +0.145
+    trendline  n   186  S0 +0.351  S1 +0.402  S2 +0.169  S3 +0.462
+
+holdout 20 coins 2021-2026: 16166 entries
+  S0  avg R +0.021  win 37%  median stop 1.52 ATR
+  S1  avg R +0.035  win 37%  median stop 1.50 ATR  minus S0 +0.014 [-0.007, +0.035]
+  S2  avg R +0.044  win 45%  median stop 3.45 ATR  minus S0 +0.023 [-0.005, +0.051]
+  S3  avg R -0.015  win 32%  median stop 0.69 ATR  minus S0 -0.036 [-0.072, +0.002]
+    B1         n  3022  S0 +0.064  S1 +0.060  S2 +0.070  S3 +0.059
+    ridge      n 11781  S0 +0.004  S1 +0.025  S2 +0.038  S3 -0.045
+    trendline  n  1363  S0 +0.066  S1 +0.060  S2 +0.037  S3 +0.079
+
+decision (paired difference above zero on development and holdout): no stop beats the signal-bar stop
