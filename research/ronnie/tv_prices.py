@@ -17,7 +17,7 @@ def _msg(f, p):
     return f"~m~{len(s)}~m~{s}"
 
 
-def fetch(symbol, tf="1D", n=5000):
+def fetch(symbol, tf="1D", n=5000, volume=False):
     ws = websocket.create_connection("wss://data.tradingview.com/socket.io/websocket",
                                      header=["Origin: https://www.tradingview.com"], timeout=60)
     cs = "cs_" + "".join(random.choices(string.ascii_lowercase, k=12))
@@ -39,7 +39,7 @@ def fetch(symbol, tf="1D", n=5000):
     err = re.findall(r"(symbol_error|critical_error|series_error)", buf)
     bars = {}
     for v in re.findall(r'"v":\[([^\]]*)\]', buf):
-        x = [float(a) for a in v.split(",")[:5]]
+        x = [float(a) for a in v.split(",")[:6 if volume else 5]]
         bars[int(x[0])] = x[1:]
     return sorted(bars.items()), err
 

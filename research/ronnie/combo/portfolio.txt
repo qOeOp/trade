@@ -1,0 +1,9 @@
+Portfolio view (descriptive; every coin already used for evidence). Risk 0.5%/trade, <=10 positions, <=3x notional, 0.06%/side, funding 0.01%/8h always paid
+  B1         trades taken  4026 of  5208  CAGR +24.5%  maxDD -45.2%  Sharpe 0.97  total +578%
+      by year: 2018 +47%, 2019 +13%, 2020 +90%, 2021 +77%, 2022 -31%, 2023 +43%, 2024 +39%, 2025 -11%, 2026 -1%
+  trendline  trades taken  1922 of  1982  CAGR +13.7%  maxDD -25.5%  Sharpe 0.96  total +207%
+      by year: 2018 +6%, 2019 +29%, 2020 +46%, 2021 +25%, 2022 +2%, 2023 +8%, 2024 +33%, 2025 +1%, 2026 -17%
+  ridge      trades taken 11585 of 20778  CAGR +23.4%  maxDD -79.3%  Sharpe 0.69  total +528%
+      by year: 2018 +110%, 2019 +53%, 2020 +173%, 2021 +92%, 2022 -24%, 2023 -47%, 2024 +95%, 2025 -28%, 2026 -33%
+  all three  trades taken 12717 of 27968  CAGR +37.9%  maxDD -76.2%  Sharpe 0.90  total +1559%
+      by year: 2018 +127%, 2019 +88%, 2020 +168%, 2021 +153%, 2022 -32%, 2023 -33%, 2024 +209%, 2025 -30%, 2026 -42%
