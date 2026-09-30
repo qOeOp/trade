@@ -1,0 +1,7 @@
+Cross-timeframe confluence, BTC 4h confirmed entries, in-sample 2017-2022 (R net of fees and funding)
+  4h zone x 4h line (S6)       n=  93  win 35%  avgR -0.108  | random entries median +0.037, share >= real 0.85 | displaced zones median +0.013, share >= real 0.73
+  daily zone x 4h line         n=  17  win 59%  avgR +0.500  | random entries median +0.017, share >= real 0.05 | displaced zones median -0.050, share >= real 0.00
+  weekly zone x 4h line        n=  10  win 70%  avgR +0.272  | random entries median -0.014, share >= real 0.21 | displaced zones median +0.049, share >= real 0.13
+  resonance zone x 4h line     n=  10  win 80%  avgR +0.901  | random entries median +0.056, share >= real 0.01 | displaced zones median +0.036, share >= real 0.00
+  resonance zone alone         n=  28  win 61%  avgR +0.410  | random entries median +0.043, share >= real 0.07 | displaced zones median +0.087, share >= real 0.10
+  4h line alone                n= 170  win 36%  avgR +0.033  | random entries median -0.037, share >= real 0.26

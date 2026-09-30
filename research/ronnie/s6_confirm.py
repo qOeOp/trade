@@ -4,7 +4,8 @@ from ronnie_plan import build_zones, load, features, P as PLAN
 import s6_confluence as s6
 C = s6.C
 
-def run_confirm(F, mode="confluence", k=3, zone_rng=None):
+def run_confirm(F, mode="confluence", k=3, zone_rng=None, zone_sched=None):
+    """zone_sched: optional per-bar zone lists known at each bar's close (e.g. daily/weekly zones); replaces the 4h map."""
     o,h,l,c,atr,t = (F[x] for x in ("o","h","l","c","atr","t"))
     n=len(c); highs,lows,hp,lp=[],[],[],[]; zones=[]; trades=[]; pos=None; last_exit=-10**9; order=None
     def line_val(pts, side, i):
@@ -52,6 +53,8 @@ def run_confirm(F, mode="confluence", k=3, zone_rng=None):
             if l[j]==l[j-k:j+k+1].min():
                 lows.append((l[j],min(o[j],c[j]))); lows[:]=lows[-PLAN["reactions_per_side"]:]; lp.append((j,l[j])); lp[:]=lp[-4:]
                 zones=build_zones(highs,lows,atr[i],zone_rng)
+        if zone_sched is not None:
+            zones_prev=zone_sched[i-1] if i>0 else []
         if pos is not None or i<600 or i+1>=n or i-last_exit<C["cooldown"]: continue
         a=atr[i]; pad=C["zone_pad_atr"]*a
         for side in (1,-1):
