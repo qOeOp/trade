@@ -1,0 +1,27 @@
+Zone touch, confirmed (s6 zone_only), 11 markets: 2791 entries. Mean result per entry in ATR, entry minus random control [95% bootstrap]; rows target a, columns stop b
+   a\b                      0.5                     1.0                     1.5                     2.0                     3.0
+   0.5     +0.003 [-0.02,+0.02]    +0.003 [-0.03,+0.03]    +0.004 [-0.03,+0.04]    -0.003 [-0.04,+0.04]    +0.020 [-0.03,+0.07]
+   1.0     +0.014 [-0.01,+0.04]    +0.017 [-0.02,+0.05]    +0.016 [-0.03,+0.06]    -0.005 [-0.06,+0.05]    +0.032 [-0.03,+0.10]
+   1.5     +0.017 [-0.01,+0.05]    +0.017 [-0.03,+0.06]    +0.003 [-0.05,+0.06]    -0.017 [-0.07,+0.05]    +0.006 [-0.07,+0.09]
+   2.0     +0.012 [-0.03,+0.05]    +0.008 [-0.04,+0.06]    +0.007 [-0.06,+0.07]    -0.008 [-0.08,+0.07]    -0.003 [-0.09,+0.09]
+   3.0     +0.008 [-0.04,+0.06]    +0.004 [-0.06,+0.07]    +0.002 [-0.07,+0.08]    -0.014 [-0.10,+0.08]    -0.030 [-0.14,+0.08]
+   5.0     +0.003 [-0.06,+0.07]    +0.024 [-0.06,+0.11]    +0.045 [-0.05,+0.15]    -0.000 [-0.11,+0.11]    -0.027 [-0.16,+0.11]
+  cells whose interval is above zero: 0 of 30; below zero: 0
+  best cell for the entry: +0.045 ATR; raw entry result there +0.094, random +0.048
+  train      n=1120: cells above zero 13/30, mean over cells -0.007, best +0.028, worst -0.071
+  validation n= 603: cells above zero 13/30, mean over cells +0.000, best +0.092, worst -0.073
+  test       n=1068: cells above zero 24/30, mean over cells +0.021, best +0.114, worst -0.031
+
+Zone x trend line, confirmed (s6 confluence), BTC: 135 entries. Mean result per entry in ATR, entry minus random control [95% bootstrap]; rows target a, columns stop b
+   a\b                      0.5                     1.0                     1.5                     2.0                     3.0
+   0.5     -0.099 [-0.18,-0.02]    -0.132 [-0.27,-0.00]    -0.196 [-0.37,-0.03]    -0.209 [-0.41,+0.00]    -0.129 [-0.37,+0.09]
+   1.0     -0.026 [-0.14,+0.10]    -0.081 [-0.26,+0.10]    -0.153 [-0.37,+0.07]    -0.202 [-0.47,+0.05]    -0.082 [-0.40,+0.21]
+   1.5     +0.054 [-0.09,+0.21]    -0.024 [-0.23,+0.20]    -0.090 [-0.36,+0.20]    -0.146 [-0.44,+0.18]    +0.028 [-0.33,+0.39]
+   2.0     +0.034 [-0.14,+0.22]    -0.083 [-0.32,+0.17]    -0.146 [-0.46,+0.17]    -0.204 [-0.56,+0.15]    -0.131 [-0.55,+0.28]
+   3.0     -0.087 [-0.28,+0.13]    -0.188 [-0.49,+0.13]    -0.173 [-0.54,+0.21]    -0.223 [-0.63,+0.22]    -0.199 [-0.69,+0.29]
+   5.0     -0.103 [-0.36,+0.16]    -0.259 [-0.61,+0.14]    -0.205 [-0.65,+0.27]    -0.240 [-0.76,+0.27]    -0.220 [-0.81,+0.38]
+  cells whose interval is above zero: 0 of 30; below zero: 3
+  best cell for the entry: +0.054 ATR; raw entry result there +0.033, random -0.021
+  train      n=  67: cells above zero 9/30, mean over cells -0.043, best +0.100, worst -0.230
+  validation n=  26: cells above zero 0/30, mean over cells -0.391, best -0.106, worst -1.042
+  test       n=  42: cells above zero 6/30, mean over cells -0.109, best +0.190, worst -0.392

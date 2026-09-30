@@ -203,6 +203,19 @@ Result (`filters/result.txt`, `filters/decision.md`, every trial in `filters/cen
 Decision: falsified, and the family stops. Picking filters on history finds combinations that look good twice and then
 fail on data they never saw. That is the same pattern as the resonance grid on BTC.
 
+## Entry or exit? An exit-free test
+
+`filters/first_passage.py` asks whether the entry is fine and only its exits are poor. Every stop/target exit's
+expectancy is set by one question: from the entry, does price reach +a ATR before -b ATR? The script scores that for
+30 (a, b) pairs, from targets of 0.5-5 ATR and stops of 0.5-3 ATR, against 20 random entries per event with the same
+market, year and side. Nothing is selected. Results are in `filters/first_passage.txt`.
+- **Zone touch, 2,791 entries over 11 markets:** every cell lies within +-0.05 ATR of the random entries and none
+  differs significantly. The best cell is +0.045 ATR, less than a round trip's cost.
+- **Zone x trend line on BTC, 135 entries:** the same or worse. Three cells, all with small targets, are significantly
+  below random.
+
+No stop or target can turn these entries into more than a random entry, so poor exits are not what hides an edge.
+
 ## Where this leaves the Ronnie line of research
 
 - **His calls:** his published calls (2018-2021, 106 graded trades) and his recent title forecasts (2024-2026) show no
