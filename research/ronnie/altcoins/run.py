@@ -57,6 +57,8 @@ def events(coin, d4):
 
 
 def main():
+    if "--summary" in sys.argv:  # re-summarise the saved events without re-running the backtest
+        return summarise(pd.read_csv(gzip.open(f"{HERE}/events.csv.gz", "rt"), parse_dates=["entry_time"]))
     rows = []
     for coin in COINS:
         d4 = bars(coin)
@@ -69,6 +71,10 @@ def main():
     ev["diff"] = ev.R - ev.control
     with gzip.GzipFile(f"{HERE}/events.csv.gz", "wb", mtime=0) as f:
         f.write(ev.to_csv(index=False).encode())
+    summarise(ev)
+
+
+def summarise(ev):
     groups = [g["diff"].values for _, g in ev.groupby("coin")]
     boot = []
     for _ in range(2000):
@@ -81,7 +87,7 @@ def main():
            f"[95% coin-then-signal bootstrap {lo:+.3f}, {hi:+.3f}]",
            f"coins with avgR above control: {int((by['diff'] > 0).sum())} of {len(by)}; with avgR above zero: {int((by.avgR > 0).sum())}",
            f"decision: {'HOLDS on unseen coins' if lo > 0 else 'fails on unseen coins'}", "per coin:"]
-    out += [f"  {c:<5} n={r.n:4d}  avgR {r.avgR:+.3f}  control {r.control:+.3f}  minus {r.diff:+.3f}" for c, r in by.iterrows()]
+    out += [f"  {c:<5} n={int(r.n):4d}  avgR {r.avgR:+.3f}  control {r.control:+.3f}  minus {r['diff']:+.3f}" for c, r in by.iterrows()]
     for y, g in ev.groupby(ev.entry_time.dt.year):
         out.append(f"  year {y}: n={len(g):4d} minus control {g['diff'].mean():+.3f}")
     text = "\n".join(out)

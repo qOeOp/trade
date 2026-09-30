@@ -1,0 +1,30 @@
+altcoins-v1: B1 breakout on 15 unseen coins, 4312 signals (cost 0.06% per side)
+pooled avgR +0.111, control +0.007, minus control +0.104 [95% coin-then-signal bootstrap +0.048, +0.159]
+coins with avgR above control: 15 of 15; with avgR above zero: 15
+decision: HOLDS on unseen coins
+per coin:
+  ADA   n= 345  avgR +0.244  control -0.000  minus +0.244
+  ATOM  n= 244  avgR +0.044  control -0.029  minus +0.073
+  AVAX  n= 229  avgR +0.139  control +0.016  minus +0.123
+  BCH   n= 309  avgR +0.097  control +0.021  minus +0.075
+  BNB   n= 372  avgR +0.133  control +0.033  minus +0.100
+  DOGE  n= 254  avgR +0.143  control +0.037  minus +0.106
+  DOT   n= 231  avgR +0.038  control +0.006  minus +0.031
+  ETC   n= 292  avgR +0.074  control -0.035  minus +0.109
+  FIL   n= 224  avgR +0.030  control -0.006  minus +0.036
+  LINK  n= 275  avgR +0.269  control +0.016  minus +0.253
+  LTC   n= 323  avgR +0.008  control -0.004  minus +0.012
+  SOL   n= 250  avgR +0.171  control +0.037  minus +0.135
+  TRX   n= 349  avgR +0.079  control +0.019  minus +0.060
+  XLM   n= 304  avgR +0.090  control -0.022  minus +0.112
+  XRP   n= 311  avgR +0.080  control +0.009  minus +0.071
+  year 2017: n=   5 minus control -0.559
+  year 2018: n= 169 minus control +0.289
+  year 2019: n= 304 minus control +0.028
+  year 2020: n= 486 minus control +0.239
+  year 2021: n= 612 minus control +0.168
+  year 2022: n= 574 minus control -0.068
+  year 2023: n= 504 minus control +0.264
+  year 2024: n= 586 minus control +0.117
+  year 2025: n= 663 minus control -0.019
+  year 2026: n= 409 minus control +0.059
