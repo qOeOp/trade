@@ -1,0 +1,9 @@
+range-v1: R2 range box fade; avgR per signal net of costs; control = 20 random entries, same geometry
+class   period  n      win   avgR    control  minus control [interval]  median target R
+crypto  IS        24  17%  -0.739  -0.072   -0.666 [-0.968, -0.301] (95%)  3.23
+crypto  OOS       27  41%  +0.527  +0.026   +0.501 [-0.177, +1.192] (90%)  3.21
+fx      IS       190  31%  +0.025  -0.060   +0.085 [-0.156, +0.341] (95%)  3.27
+fx      OOS       96  30%  -0.008  -0.039   +0.032 [-0.248, +0.313] (90%)  3.33
+alt     all      320  31%  -0.118  -0.042   -0.075 [-0.230, +0.094] (95%)  3.34
+altcoins with R above control: 7 of 15
+decision: crypto fails; FX fails
