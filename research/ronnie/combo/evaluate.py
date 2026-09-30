@@ -101,6 +101,16 @@ def main(names):
         with gzip.GzipFile(f"{HERE}/holdout_events.csv.gz", "wb", mtime=0) as f:
             f.write(ev.to_csv(index=False).encode())
     base = ev[ev.candidate == "base_zone_touch"]
+    # declared diagnostic, not part of the decision: split each candidate's signals by overlap with B1 (the S2b breakout,
+    # already scored on these coins), matched on coin, signal bar and side
+    import ronnie_bt as RB
+    b1 = set()
+    for c, b in bars_of.items():
+        d4 = b["4h"]
+        lo, sh = RB.signals(d4, RB.features(d4))
+        for i in np.flatnonzero((lo | sh).values):
+            b1.add((c, d4.index[i] + pd.Timedelta(hours=4), 1 if lo.values[i] else -1))
+    ev["b1"] = [(c, t, s) in b1 for c, t, s in zip(ev.coin, ev.time, ev.side)]
     for n in list(mods) + ["base_zone_touch"]:
         z = ev[ev.candidate == n]
         if z.empty:
@@ -111,6 +121,11 @@ def main(names):
         out.append(f"{n}: n={len(z)} avgR {z.R.mean():+.3f} control {z.control.mean():+.3f} minus control {(z.R - z.control).mean():+.3f} "
                    f"[{LEVEL}% coin-then-signal {lo:+.3f}, {hi:+.3f}]; coins above control {int((per > 0).sum())}/{len(per)}; "
                    f"avgR minus base avgR {z.R.mean() - base.R.mean():+.3f}{verdict}")
+        for flag, lab in ((True, "overlapping B1"), (False, "not in B1")):
+            y = z[z.b1 == flag]
+            if len(y) >= 20:
+                l2, h2 = coin_bootstrap(y, 95)
+                out.append(f"    diagnostic, {lab}: n={len(y)} minus control {(y.R - y.control).mean():+.3f} [95% {l2:+.3f}, {h2:+.3f}]")
     text = "\n".join(out)
     print(text)
     if not os.environ.get("DRY_RUN"):
