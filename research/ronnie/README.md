@@ -420,6 +420,22 @@ the run. The design period was 2018-2022 and the check period 2023-2026 (`risk/r
 - **Conclusion:** whether we draw "like people do" is not the issue. Neither the community's lines nor ours hold better
   than the same line moved away, which matches Ronnie's own lines (62% against 64%).
 
+## Filters on 20 unused coins (TrialFamily filters-v2)
+
+`filters2/` tests three filters suggested by the 17-coin book on 20 coins never used before. It also scores the three
+entries there (`filters2/result.txt`, 24169 signals, 2021-2026).
+- **Base replicates:**
+  - all signals beat random by +0.064R [+0.039, +0.089];
+  - B1 +0.060R, ridge +0.065R, trend-line breaks +0.063R (interval crosses zero);
+  - every year from 2021 to 2026 is above zero.
+- **Small in absolute terms:** the average net R is only +0.035, because random entries with the same stops lose
+  -0.029R to fees.
+- **Every filter fails** the pre-registered rule (kept edge above zero and above the dropped edge).
+  - **F1**, stop at least 2% of price: +0.017R over dropped [-0.058, +0.092].
+  - **F2**, two or three strategies agree: +0.039R [-0.021, +0.099]. This is the right direction, but not significant.
+  - **F3**, not a busy market: -0.019R [-0.074, +0.034]. The busy-month effect in the 17-coin book does not carry over.
+  - **F4**, F1 and F2: +0.043R [-0.016, +0.101].
+
 ## Running the survivors together, and a forward record
 
 `combo/portfolio.py` runs B1, trendline_break_strong and line_break_ridge as one book on BTC, ETH and the 15 holdout
