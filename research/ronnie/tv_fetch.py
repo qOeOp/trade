@@ -15,7 +15,7 @@ OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tv")
 UA = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Safari/537.36"}
 # chart-state keys that are rendering noise, not drawing geometry or meaning
 STYLE_KEYS = ("color", "linecolor", "linewidth", "linestyle", "backgroundColor", "fillBackground", "extendLeft",
-              "extendRight", "showPrice", "text", "fontsize", "bold", "icon", "visible", "interval")
+              "extendRight", "reverse", "showPrice", "text", "fontsize", "bold", "icon", "visible", "interval")
 
 
 def get(url, raw=False, tries=4):
@@ -86,8 +86,9 @@ def drawings(uuid, content, interval):
             rows.append({"uuid": uuid, "pane": pane_no, "id": s.get("id"), "type": s["type"],
                          "anchors": anchors,
                          "style": {k: st[k] for k in STYLE_KEYS if k in st},
-                         "levels": [{"coeff": v.get("coeff"), "visible": v.get("visible")}
-                                    for k, v in sorted(st.items()) if re.fullmatch(r"level\d+", k) and isinstance(v, dict)]
+                         # Fibonacci levels are stored as [coeff, color, visible]
+                         "levels": sorted((v[0], v[2]) for k, v in st.items()
+                                          if re.fullmatch(r"level\d+", k) and isinstance(v, list) and len(v) >= 3)
                          or None})
     return rows
 

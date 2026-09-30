@@ -150,7 +150,8 @@ class Trade:
 
 
 # ---------------------------------------------------------------- simulation ---------------------------------
-def simulate(F, *, use_f1=True, use_f2=True, zone_rng=None, fib_levels=None, only=None):
+def simulate(F, *, use_f1=True, use_f2=True, zone_rng=None, fib_levels=None, only=None, zone_sched=None):
+    """zone_sched: optional per-bar zone lists built elsewhere (e.g. from daily pivots); replaces the 4h map."""
     o, h, l, c, atr, bwp, sq, hl, dirn, t = (F[k] for k in ("o", "h", "l", "c", "atr", "bwp", "squeezed", "hi_look", "dirn", "t"))
     n = len(c)
     fib_levels = fib_levels or P["fib_levels"]
@@ -246,8 +247,11 @@ def simulate(F, *, use_f1=True, use_f2=True, zone_rng=None, fib_levels=None, onl
                 lows.append((l[j], min(o[j], c[j]))); lows[:] = lows[-P["reactions_per_side"]:]
                 piv_seq.append((j, "L", l[j])); new = True
             if new:
-                zones = build_zones(highs, lows, atr[i], zone_rng)
+                if zone_sched is None:
+                    zones = build_zones(highs, lows, atr[i], zone_rng)
                 piv_seq[:] = piv_seq[-20:]
+        if zone_sched is not None:
+            zones = zone_sched[i]
 
         # ---- daily loss stop and new orders
         dday = t[i].date()

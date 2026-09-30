@@ -65,8 +65,35 @@ What the data shows:
   not a track record.
 - **Minds:** TradingView's short posts can only be listed per symbol without logging in, so they are not collected.
 
-Next: rebuild each BTC idea's lines (horizontal levels, trend lines, channels, Fibonacci) on the Bitstamp bars, measure
-where they sit against the pivots R1-R6 would pick at that bar, and calibrate on 2018-2021 only. That window is
-in-sample, so the 2023+ out-of-sample set stays untouched.
+## Calibrating the map to his lines (2026-09-30)
 
-Trial count so far: roughly 40 variants on the same BTC data; deflate any new out-of-sample "winner" accordingly.
+`tv_calibrate.py` measures his lines on the bars each idea's chart showed, using all 137 unique ideas across every
+symbol, with distances in ATR of the chart's timeframe. `tv_effect.py` tests BTC only. Outputs are in `results/tv_*.txt`.
+
+- **Horizontal lines:** 85% are typed round numbers (at most 4 significant digits; his clicked text anchors almost never
+  are). They sit only slightly closer to pivots than the same line moved 1-4 ATR: within 0.25 ATR of an order>=5 pivot
+  68% vs 58%, order>=13 35-44% vs 28%. They are touched no more often than the moved lines. The pivot a line matches is
+  old: median 132 bars before publish.
+- **Trend lines, channels and Fibonacci:** these carry structure. A trend line passes through 1.29 order>=5 pivots on
+  average, against 0.31 for the same line moved; 43% pass through two or more, against 4%. Fibonacci anchors sit on
+  order>=21 pivots 70% of the time, against 12% for a random bar.
+- **Zone map vs his lines:** the default map (k=3, 6 reactions per side) covers 28% of his horizontal lines, the same
+  as moved lines (29%). The best grid cell on either half of the ideas is k=2 with 12-24 reactions per side. On the
+  held-out half it reaches recall 43-65% with precision 25-28%, against 26-59% and 15-21% for moved lines. The gain
+  comes mostly from drawing twice as many zones.
+- **His BTC levels after publishing (E1, 24 resolved lines):** price held 62% of his lines, 64% of the same lines moved
+  (500 draws each), 64% of the default map and 63% of the calibrated map. The standard error is about 10 points. This
+  matches the YouTube result (62% vs 60%).
+- **Full plan with the calibrated map (E2, in-sample 2017-2022 only):** portfolio Sharpe falls from -0.14 (default map)
+  to -0.43 with the calibrated map on 4h and -0.39 with it on daily bars. Default parameters on daily bars give -0.43.
+  All 30 zone-placebo runs (zones moved 2-6 ATR) beat the calibrated maps; 29 of 30 beat the default map. The map's own
+  S1+S3 trades average -0.05 to -0.12 R against placebo medians of +0.11 to +0.19 R: limit orders at real structure
+  levels are adversely selected. `ronnie_plan.simulate` takes the zone map through `zone_sched`, and building it that
+  way reproduces the default run exactly (928 trades).
+
+Verdict: fitting the map to his drawings makes the plan worse, and his own levels do not beat nearby random levels. The
+only drawing that is measurably non-random is the trend line, and the zone x trend line setup (S6) was already negative.
+More drawings of the same kind, such as his Bilibili charts, would refine a map that carries no edge here.
+
+Trial count so far: roughly 43 variants on the same BTC data (E2 added three); deflate any new out-of-sample "winner"
+accordingly.

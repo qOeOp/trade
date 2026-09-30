@@ -1,0 +1,19 @@
+E1 BTC level reaction: 23 unique BTC/USD ideas, 33 of his lines
+  his             resolved  24; held 62% (+-10% s.e.)
+  default map     resolved  22; held 64% (+-10% s.e.)
+  calibrated map  resolved  27; held 63% (+-9% s.e.)
+  jittered his lines (same touched lines, 500 draws each): held 64%; his minus jitter -1% over 24 lines
+
+E2 full plan, in-sample 2017-2022 (Sharpe of the portfolio; zone_avgR = S1+S3 trades, which use the map)
+  default map (4h, k=3, 6/side)            Sharpe -0.14  CAGR -1.3%  zone trades  277 avgR -0.052  S1 -0.04/268  S2b +0.89/5  S3 -0.31/9  S4 +0.09/213  S5 -0.12/49
+      placebo zones Sharpe   : median +0.422 [5-95% -0.120, +0.832]  share >= real 0.97
+      placebo zones zone_avgR: median +0.108 [5-95% -0.011, +0.228]  share >= real 1.00
+  calibrated map on 4h (k=2, 12/side)      Sharpe -0.43  CAGR -3.5%  zone trades  279 avgR -0.070  S1 -0.07/265  S2b +0.14/5  S3 -0.05/14  S4 +0.13/256  S5 -0.24/72
+      placebo zones Sharpe   : median +0.521 [5-95% +0.091, +1.095]  share >= real 1.00
+      placebo zones zone_avgR: median +0.120 [5-95% +0.008, +0.283]  share >= real 1.00
+  calibrated map on daily (k=2, 12/side)   Sharpe -0.39  CAGR -1.1%  zone trades   91 avgR -0.120  S1 -0.08/67  S2b +0.26/3  S3 -0.22/24  S4 +0.07/170  S5 -0.27/12
+      placebo zones Sharpe   : median +0.450 [5-95% -0.191, +1.038]  share >= real 1.00
+      placebo zones zone_avgR: median +0.191 [5-95% +0.006, +0.320]  share >= real 1.00
+  default params on daily (k=3, 6/side)    Sharpe -0.43  CAGR -1.2%  zone trades   72 avgR +0.011  S1 +0.07/53  S2b +1.84/2  S3 -0.15/19  S4 -0.03/109  S5 -1.04/4
+      placebo zones Sharpe   : median +0.323 [5-95% -0.251, +0.675]  share >= real 1.00
+      placebo zones zone_avgR: median +0.118 [5-95% -0.064, +0.293]  share >= real 0.70
