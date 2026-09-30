@@ -1,5 +1,5 @@
 His own line intersections after publish, 83 ideas with prices
   channel x horizontal   intersections  17, reached   5 (29%); held 60% (+-22% s.e.); paired n=5: his 60% vs same points moved 1-4 ATR 71%, difference -11%
   horizontal alone       intersections 164, reached  95 (58%); held 58% (+-5% s.e.); paired n=95: his 58% vs same points moved 1-4 ATR 62%, difference -4%
-  sloped x sloped        intersections  55, reached  16 (29%); held 69% (+-12% s.e.); paired n=15: his 67% vs same points moved 1-4 ATR 68%, difference -2%
+  sloped x sloped        intersections  55, reached  16 (29%); held 62% (+-12% s.e.); paired n=15: his 67% vs same points moved 1-4 ATR 62%, difference +5%
   trend x horizontal     intersections  18, reached   6 (33%); held 50% (+-20% s.e.); paired n=6: his 50% vs same points moved 1-4 ATR 49%, difference +1%

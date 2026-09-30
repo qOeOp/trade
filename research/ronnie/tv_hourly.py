@@ -150,11 +150,12 @@ def source(sym):
 def main():
     os.makedirs(OUT, exist_ok=True)
     ideas = {I["it"]["uuid"]: I for I in load_ideas()}
-    trades = [r for r in csv.DictReader(open(f"{HERE}/tv/trades_annot.csv")) if r["side"]]
+    only = set(sys.argv[1:])  # optional uuids: fetch just these
+    trades = [r for r in csv.DictReader(open(f"{HERE}/tv/trades_annot.csv")) if r["side"] and (not only or r["uuid"] in only)]
     sym_of = lambda r: ideas[r["uuid"]]["it"]["chart_symbol"] or ideas[r["uuid"]]["it"]["symbol"]  # noqa: E731
     trades.sort(key=lambda r: source(sym_of(r))[0] == "dukascopy")  # the slow source last
     old = pd.read_csv(f"{OUT}/scale.csv").set_index("uuid") if os.path.exists(f"{OUT}/scale.csv") else None
-    scale_rows = []
+    scale_rows = [] if not only or old is None else [dict(uuid=u, **old.loc[u].to_dict()) for u in old.index if u not in only]
     for r in trades:
         I = ideas[r["uuid"]]
         it = I["it"]

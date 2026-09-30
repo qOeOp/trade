@@ -1,7 +1,8 @@
 """Quality of Ronnie's declared entries and exits: is the shortfall in where he gets in, or in his stops and targets?
 
 Trades: tv/trades_annot.csv (hand-annotated from each idea's title, text and drawings; one row per idea, blank side =
-no unconditional trade). Prices: tv/hourly/<uuid>.csv.gz (tv_hourly.py). Unit: ATR(14) of the chart he drew on, at
+no unconditional trade). Prices: tv/hourly/<uuid>.csv.gz (tv_hourly.py); daily and weekly ideas without hourly bars (gold, oil and index windows
+Dukascopy would not serve in time) use TradingView daily bars from the next day on, with the same stop-first rule. Unit: ATR(14) of the chart he drew on, at
 publish. Horizon: 30 bars of that chart (hourly bars counted as traded: 1W = 168 crypto / 120 FX hourly bars).
 
 Fill model (conservative): market entries at his chart's last price at publish, evaluated from the next full hour;
@@ -101,6 +102,25 @@ def simulate(o, h, l, c, i0, side, E, tp, sl, cap, limit=None):
     return dict(filled=True, entry=entry, exit=px, why=why, i_fill=i_fill, i_exit=i_fill + k, mfe=mfe, mae=mae)
 
 
+DAILY_PROXY = {"FOREXCOM:WTIUSD": "TVC:USOIL"}  # FOREXCOM's daily history starts in December 2018
+
+
+def daily_fallback(I, pub):
+    """TradingView daily bars for a daily or weekly idea without hourly bars; the first bar used opens after publish."""
+    if I["it"]["interval"] not in ("1D", "1W"):
+        return None
+    sym = I["it"]["chart_symbol"] or I["it"]["symbol"]
+    path = f"{HERE}/tv/prices/{DAILY_PROXY.get(sym, sym).replace(':', '_')}.csv.gz"
+    if not os.path.exists(path):
+        return None
+    d = pd.read_csv(gzip.open(path, "rt"))
+    before = d[d.time <= pub]
+    if before.empty:
+        return None
+    d[["open", "high", "low", "close"]] *= I["c"][-1] / before.close.iloc[-1]
+    return d
+
+
 def load():
     ideas = {I["it"]["uuid"]: I for I in load_ideas()}
     scale = pd.read_csv(f"{HERE}/tv/hourly/scale.csv").set_index("uuid")
@@ -109,18 +129,23 @@ def load():
         if not r["side"]:
             continue
         path = f"{HERE}/tv/hourly/{r['uuid']}.csv.gz"
-        if not os.path.exists(path):
-            continue
         I = ideas[r["uuid"]]
-        d = pd.read_csv(gzip.open(path, "rt"))
         side = 1 if r["side"] == "L" else -1
         E = I["c"][-1]
-        crypto = str(scale.loc[r["uuid"], "source"]).startswith(CRYPTO_SRC)
-        m = bar_hours(I["it"]["interval"], crypto)
         pub = int(pd.Timestamp(I["it"]["created_at"]).value // 10**9)
-        out.append(dict(r=r, I=I, side=side, E=E, atr=I["atr"], m=m, cap=CAP * m, pub=pub, crypto=crypto,
+        if os.path.exists(path):
+            d = pd.read_csv(gzip.open(path, "rt"))
+            crypto = str(scale.loc[r["uuid"], "source"]).startswith(CRYPTO_SRC)
+            m, res = bar_hours(I["it"]["interval"], crypto), "hourly"
+        else:
+            d = daily_fallback(I, pub)
+            if d is None:
+                continue
+            crypto = False  # every trade left without hourly bars is FX, a metal, oil or an index
+            m, res = {"1D": 1, "1W": 5}[I["it"]["interval"]], "daily"
+        out.append(dict(r=r, I=I, side=side, E=E, atr=I["atr"], m=m, cap=CAP * m, pub=pub, crypto=crypto, res=res,
                         t=d.time.values, o=d.open.values, h=d.high.values, l=d.low.values, c=d.close.values,
-                        i0=int(np.searchsorted(d.time.values, pub, side="left")),
+                        i0=int(np.searchsorted(d.time.values, pub, side="left" if res == "hourly" else "right")),
                         limit=float(r["limit"]) if r["limit"] else None, now=r["now"] == "1"))
     return out
 
@@ -137,7 +162,7 @@ def trade_rows(T):
         res = lambda tp, sl_, lim=None, cap_=cap: simulate(o, h, l, c, i0, s, E, tp, sl_, cap_, lim)  # noqa: E731
         R = lambda z: s * (z["exit"] - z["entry"]) / a if z.get("filled") else np.nan  # noqa: E731
         his = res(tp1, sl, decl_limit)
-        row = dict(uuid=r["uuid"], date=I["it"]["created_at"][:10], symbol=I["it"]["short"], tf=I["it"]["interval"],
+        row = dict(uuid=r["uuid"], date=I["it"]["created_at"][:10], symbol=I["it"]["short"], tf=I["it"]["interval"], res=x["res"],
                    side=s, crypto=x["crypto"], entry_kind="limit" if decl_limit else "market",
                    tp1_atr=s * (tp1 - (decl_limit or E)) / a if tp1 else np.nan, sl_atr=s * ((decl_limit or E) - sl) / a if sl else np.nan,
                    tp_src=r["tp_src"], has_sl=sl is not None, filled=his["filled"], why=his["why"], A=R(his),
@@ -225,7 +250,8 @@ def mean_ci(v, n_boot=2000):
 
 
 def report(df):
-    out = [f"{len(df)} declared trades with hourly prices ({(df.entry_kind == 'limit').sum()} limit, "
+    out = [f"{len(df)} declared trades with prices ({(df.res == 'hourly').sum()} on hourly bars, {(df.res == 'daily').sum()} on daily bars; "
+           f"{(df.entry_kind == 'limit').sum()} limit, "
            f"{(df.entry_kind == 'market').sum()} market; {df.has_sl.sum()} with a stated stop)", ""]
     f = df[df.filled]
     out.append("Decomposition (mean ATR per trade, 95% bootstrap interval), filled trades with controls:")
