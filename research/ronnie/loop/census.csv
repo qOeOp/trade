@@ -87,3 +87,6 @@ logged_at,loop,candidate,stage,n,edge,lo,hi,passed,note
 2026-10-01T12:44:32+00:00,C-7,familyA,rerun-iteration,29,+0.6654,+0.3665,+0.9355,True,accidental second run to read the header; identical result
 2026-10-01T12:45:14+00:00,C-8,familyA,iteration,632,+0.0743,-0.0545,+0.2038,False,
 2026-10-01T12:46:10+00:00,X-2,overlay,iteration,2,+0.1595,,,False,funding-extreme flag; edge = flagged minus all next-30-day BTC mean
+2026-10-01T12:46:52+00:00,D-2w30,familyA,iteration,218,+0.1029,-0.1086,+0.3030,False,
+2026-10-01T12:47:01+00:00,D-2w120,familyA,iteration,207,+0.1693,-0.0004,+0.3536,False,
+2026-10-01T12:47:08+00:00,D-2w240,familyA,iteration,84,-0.0096,-0.2180,+0.2273,False,

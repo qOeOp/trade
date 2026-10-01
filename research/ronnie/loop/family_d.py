@@ -15,6 +15,7 @@ _spec.loader.exec_module(R3)
 
 BASE = dict(tf="4h", hold=30, sides=(1, -1))
 LOOPS = {"D-1": dict(BASE), "D-1x": dict(BASE, iter_set="iterx")}
+LOOPS.update({f"D-2w{w}": dict(BASE, iter_set="iterx", W=w) for w in (30, 120, 240)})
 
 
 def make(cfg):
@@ -22,6 +23,7 @@ def make(cfg):
 
     def fn(d1, d4):
         d = d4[["open", "high", "low", "close"]]
+        R3.R2.W = cfg.get("W", 60)
         top, bot, a = R3.R2.boxes(d)
         out = []
         for e, side, entry, stop, tgt in R3.x1(d, top, bot, a):

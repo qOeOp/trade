@@ -1272,3 +1272,29 @@ expanding volatility; a stream with no history contributes 0. Logged as a rerun.
 - **B3 with the overlay:** Sharpe 1.52 against 1.78; the same drawdown, a lower return.
 - **Reading:** "crowded longs precede crashes" did not mark either 2021 top on BTC. Two episodes allow no inference,
   and the rule as stated is closed; the trend book's own exit already handles the tops.
+
+## Breakouts D-2: box lookback ensemble (registered before running; external research section 3, Zarattini, Pagani and Barbon)
+
+- **Change:** D-1x (60-bar box, extended iteration tier) re-run with box lengths of 30, 120 and 240 bars, everything
+  else fixed (width 4-15 ATR, two touches a side, stop at the middle, target one width, 30 bars).
+- **Measures:** the edge per lookback, and the pooled edge of the union of all four (week-clustered).
+- **Falsifier (fragility):** the 60-bar edge is the highest and the other three average below half of it; then the
+  D-1 result was a lucky parameter and the lineage is downgraded.
+- **Predicted:** positive edges at every lookback (+0.1 to +0.25), no sharp peak at 60; pooled about +0.15.
+
+**Result D-2:** the fragility falsifier triggers, narrowly.
+
+| box length | trades | edge | week-clustered 95% |
+| --- | --- | --- | --- |
+| 30 | 218 | +0.103 | [-0.10, +0.30] |
+| 60 (D-1x) | 358 | +0.188 | [+0.01, +0.37] |
+| 120 | 207 | +0.169 | [-0.01, +0.36] |
+| 240 | 84 | -0.010 | [-0.20, +0.18] |
+| pooled union | 867 (833 distinct) | +0.143 | [+0.03, +0.26] |
+
+- **The other three average +0.087 against half of 60's, +0.094.** Per the registration, the lineage is downgraded:
+  part of D-1's edge is the choice of 60 bars. The profile is a plateau from 60 to 120 that falls off at 240, where few
+  boxes qualify; it is not a single spike.
+- **The pooled union matches the prediction** (+0.14 against +0.15) and its week-clustered interval excludes zero, but
+  it is an iteration read on data that chose D-1. In the catalogue, D-1 is now "box break, lookbacks 60-120", with
+  its stated edge cut to about +0.14.
