@@ -203,3 +203,6 @@ Input for the product's R&D system. Each note: what happened, why it matters, a 
 38. **Factors can conflict across families.** "More touches" is good for range-edge fades (E-1) and bad for swing-level
     bounces (A3, A9). A ledger keyed by feature name alone would merge them. It needs the construct as part of the key
     (touches of what, counted how).
+39. **The iterating agent's predictions are biased upward.** Registered predictions missed by -0.26R (E-2) and -0.30R
+    (E-3), and only C-6 beat its prediction. A calibration record (prediction against outcome per loop) should feed
+    back as a shrinkage on the agent's next predictions. A prediction that is never scored teaches nothing.

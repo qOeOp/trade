@@ -581,3 +581,24 @@ not travel to the far edge: the median MFE before the stop is 0.28R. H4's re-ent
 - **Power:** about 95 trades expected on the extended tier, a minimum detectable edge of about 0.35R, against a 0.7R
   split in E-1.
 - **Predicted:** edge +0.2, with a lower bound near -0.1.
+
+**Result E-3:** iteration gate fails. 112 trades, avg R -0.160, edge -0.099 [-0.421, +0.265]. E-1's H3 split did not
+replicate on the extended tier; like Family A's small splits, it was noise. The prediction (+0.2) missed by 0.3R.
+
+**Family E: terminal**, now on mechanism-level evidence, not filter exhaustion:
+- a first touch of a box edge usually breaks (E-1, 66% stopped);
+- after a failed break, price returns inside the box but does not travel to the far edge (E-2, median MFE 0.28R);
+- well-tested edges do not hold either (E-3).
+4h box edges in crypto show no reversal power beyond random entries.
+
+## Family F: "the trend line marks the turn" (trend-line breaks, under amendments 4-6)
+
+Start from the surviving trend-line entry, combo-v2 `trendline_break_strong`. It was +0.09-0.14R on crypto and is in
+the forward record. The line runs through the last two confirmed 4h swing pivots of order 8 (falling highs or rising
+lows). A signal is the first close beyond the line by a strong bar (body at least 1 ATR, close in the outer 30%). Stop
+at the signal bar's opposite extreme, target 2R, time limit 30 bars. Final tier: the reserve (amendment 6).
+
+### Loop F-1 (registered before running)
+
+- **Baseline:** `trendline_break_strong` unchanged, on 4h bars of the iteration tier.
+- **Next:** a diagnosis package follows.
