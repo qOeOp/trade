@@ -12,7 +12,7 @@ import attrib  # noqa: E402
 import engine as E  # noqa: E402
 
 BASE = dict(form=126, trade=42, top=5, adf_crit=-3.37, z_in=2.0, z_out=1.0, z_stop=4.0, cost=0.0012, coins="iter")
-LOOPS = {"H-1": dict(BASE)}
+LOOPS = {"H-1": dict(BASE), "H-2": dict(BASE, roll=60)}
 
 
 def adf_t(e):
@@ -35,8 +35,15 @@ def simulate(L, a, b, beta, mu, sd, s, e_end, cfg):
     """Trades on one pair inside [s, e_end): -> list of (entry index, side, net return)."""
     out, i = [], s
     A, B = L[a].values, L[b].values
+    spread = A - beta * B
+    if cfg.get("roll"):  # rolling statistics of the spread, known at each bar
+        sr = pd.Series(spread)
+        rmu, rsd = sr.rolling(cfg["roll"]).mean().values, sr.rolling(cfg["roll"]).std().values
+    else:
+        rmu, rsd = np.full(len(A), mu), np.full(len(A), sd)
+    zf = lambda k: (spread[k] - rmu[k]) / rsd[k] if rsd[k] > 0 else np.nan  # noqa: E731
     while i < e_end - 1:
-        z = (A[i] - beta * B[i] - mu) / sd
+        z = zf(i)
         if np.isnan(z) or abs(z) < cfg["z_in"] or abs(z) >= cfg["z_stop"]:  # never enter beyond the stop
             i += 1
             continue
@@ -46,14 +53,14 @@ def simulate(L, a, b, beta, mu, sd, s, e_end, cfg):
             break
         j = e0
         while j < e_end - 1:
-            zj = (A[j] - beta * B[j] - mu) / sd
+            zj = zf(j)
             if abs(zj) <= cfg["z_out"] or abs(zj) >= cfg["z_stop"] or np.sign(zj) != np.sign(z):
                 break
             j += 1
         w = 1 + abs(beta)
         ret = side * ((A[j] - A[e0]) - beta * (B[j] - B[e0])) / w - cfg["cost"]
         out.append((e0, side, ret))
-        zj = (A[j] - beta * B[j] - mu) / sd
+        zj = zf(j)
         if abs(zj) >= cfg["z_stop"]:  # a diverged pair is not traded again this week
             break
         i = j + 1

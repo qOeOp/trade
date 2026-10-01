@@ -70,3 +70,4 @@ logged_at,loop,candidate,stage,n,edge,lo,hi,passed,note
 2026-10-01T11:05:52+00:00,E-5,ablation: skip persistent approaches (ER >= 0.5),ablation,265,-0.0882,-0.2919,+0.1210,False,
 2026-10-01T11:06:49+00:00,E-5,familyE,diagnosis,271,,,,False,box internal slope and lower highs on E-5 trades (visual hypothesis)
 2026-10-01T11:19:25+00:00,H-1,familyH,iteration,5348,-0.0020,-0.0025,-0.0015,False,market-neutral; edge = mean net return; week-clustered interval
+2026-10-01T11:21:08+00:00,H-1,familyH,rerun-iteration,1185,-0.0042,-0.0061,-0.0024,False,market-neutral; edge = mean net return; week-clustered interval H-1 after the churn-bug fix

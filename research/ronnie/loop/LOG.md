@@ -864,3 +864,25 @@ trading week already beyond |z| 4. The code entered any |z| at least 2, was stop
 next bar, churning costs. Fixed to implement the registered rule as meant: no entry at |z| 4 or beyond, and a pair
 stopped out is not traded again that week (the standard pairs-trading convention). H-1 is rerun under the same
 registration.
+
+**Result H-1 (after the fix):** iteration gate fails, significantly negative. 1,185 trades, mean net -0.423%
+[-0.610%, -0.238%] (week-clustered), win 41%; both halves negative. Random pairs under the same rules lose more
+(-0.646%), so selection helps but does not suffice. The prediction (about 0) missed by -0.42%.
+
+### Diagnosis of H-1 (three explanations)
+
+- **H1, cointegration breaks out of sample:** supported, strongly. Only 6% of the selected pairs stay cointegrated in
+  their trading week (median ADF t -1.72), and 58% end the week beyond |z| 2. The spread's level drifts away from the
+  formation mean.
+- **H2, the entry is early:** partly. Stops (43%, -2.04% gross) outnumber reversions (37%, +1.57%); time exits 19%
+  (-0.33%).
+- **H3, costs:** rejected. The gross is already -0.303% a trade.
+
+### Loop H-2 (registered before running; amendment 4)
+
+- **Structural change (signal):** z is measured against a rolling mean and standard deviation of the last 60 bars
+  (10 days), not the fixed formation statistics. The hedge ratio still comes from the 3-week formation; selection,
+  thresholds and exits are unchanged.
+- **Explanation it rests on:** H1, the drifting spread level. It is a common practice (rolling z-scores, as in Chan,
+  "Algorithmic Trading").
+- **Predicted:** about -0.1% a trade, with a lower bound near -0.3%.
