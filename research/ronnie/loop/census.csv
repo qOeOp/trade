@@ -47,3 +47,4 @@ logged_at,loop,candidate,stage,n,edge,lo,hi,passed,note
 2026-10-01T09:50:41+00:00,E-1,ablation: no close-in-outer-half condition,ablation,280,-0.2148,-0.4940,+0.0832,False,
 2026-10-01T09:51:35+00:00,E-2,familyA,iteration,190,-0.1063,-0.3516,+0.1814,False,
 2026-10-01T09:52:08+00:00,E-3,familyA,iteration,112,-0.0991,-0.4213,+0.2651,False,
+2026-10-01T09:53:28+00:00,F-1,familyA,iteration,994,+0.2297,+0.1059,+0.3494,True,

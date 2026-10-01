@@ -602,3 +602,12 @@ at the signal bar's opposite extreme, target 2R, time limit 30 bars. Final tier:
 
 - **Baseline:** `trendline_break_strong` unchanged, on 4h bars of the iteration tier.
 - **Next:** a diagnosis package follows.
+
+**Result F-1:** the iteration gate passes. 994 trades, avg R +0.222, edge +0.230 [+0.106, +0.349]; 2018-2020 +0.363,
+2021-2022 +0.108. Stops 47%, 14% of them within 2 bars. BTC's trend is reliable and monotone (Q1 +0.01 to Q5 +0.39);
+part of the edge may be beta, which a diagnosis must check.
+
+### F-1 reserve read (registered before running)
+
+The rules are unchanged. The read is once, on the reserve tier (20 never-used coins), PASS/FAIL at 95% (the reserve's
+first read, k = 1). A fresh-context subagent runs `loop/gatekeeper.py family_f F-1 reserve` and relays the verdict line.
