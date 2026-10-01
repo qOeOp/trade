@@ -1,0 +1,123 @@
+Daily trend scan (50-day closing-high breakout, 2 ATR stop, 20-day closing-low exit; long only), closes of 2026-09-30
+universe: 148 Binance USDT perpetuals with spot pairs, top 150 by 24h volume; information only
+
+NEW SIGNALS (0): entry at the next daily open
+
+IN TREND (111): entered earlier, still open
+  BTC        since 2026-09-22 (  9d) entry 86578.8    close 83576.9    open  -0.6R  stop 81734.5    exit level 75599.9    24h vol $14,987M
+  ETH        since 2026-07-23 ( 70d) entry 1933.31    close 2684.68    open  +5.2R  stop 1788.85    exit level 2397.15    24h vol $8,435M
+  SOL        since 2026-09-19 ( 12d) entry 112.73     close 118.05     open  +0.5R  stop 102.594    exit level 96.82      24h vol $2,505M
+  ZEC        since 2026-08-22 ( 40d) entry 734.34     close 1438.11    open  +9.1R  stop 657.239    exit level 1062.13    24h vol $2,268M
+  QNT        since 2026-09-23 (  8d) entry 73.75      close 286.86     open +32.6R  stop 67.2049    exit level 61.04      24h vol $1,300M
+  HYPE       since 2026-09-19 ( 12d) entry 92.6       close 90.965     open  -0.2R  stop 82.9343    exit level 76.955     24h vol $1,223M
+  XRP        since 2026-09-22 (  9d) entry 1.5362     close 1.4892     open  -0.3R  stop 1.37215    exit level 1.2826     24h vol $1,060M
+  MOVR       since 2026-09-30 (  1d) entry 1.2489     close 2.1752     open  +4.1R  stop 1.02371    exit level 0.7235     24h vol $941M
+  NEAR       since 2026-09-05 ( 26d) entry 2.172      close 5.339      open +11.3R  stop 1.8916     exit level 2.296      24h vol $938M
+  DOGE       since 2026-09-22 (  9d) entry 0.09987    close 0.0945     open  -0.5R  stop 0.089878   exit level 0.08003    24h vol $565M
+  SUI        since 2026-09-20 ( 11d) entry 0.8575     close 1.1636     open  +3.1R  stop 0.757586   exit level 0.6865     24h vol $483M
+  ENA        since 2026-09-20 ( 11d) entry 0.20434    close 0.26473    open  +1.9R  stop 0.172853   exit level 0.13601    24h vol $444M
+  WLD        since 2026-09-07 ( 24d) entry 0.42       close 0.5353     open  +1.8R  stop 0.354157   exit level 0.3623     24h vol $404M
+  ARK        since 2026-08-27 ( 35d) entry 0.1121     close 0.2301     open +10.4R  stop 0.100725   exit level 0.1147     24h vol $348M
+  PUMP       since 2026-09-30 (  1d) entry 0.005885   close 0.005923   open  +0.0R  stop 0.00483846 exit level 0.003471   24h vol $332M
+  BNB        since 2026-08-09 ( 53d) entry 601        close 769.73     open  +5.8R  stop 572.108    exit level 712.54     24h vol $308M
+  UNI        since 2026-08-24 ( 38d) entry 4.525      close 8.876      open  +7.4R  stop 3.93787    exit level 6.008      24h vol $276M
+  LINK       since 2026-09-26 (  5d) entry 13.924     close 14.359     open  +0.3R  stop 12.4476    exit level 10.88      24h vol $259M
+  AVAX       since 2026-08-21 ( 41d) entry 7.293      close 10.933     open  +5.6R  stop 6.64279    exit level 7.265      24h vol $241M
+  ONDO       since 2026-09-20 ( 11d) entry 0.4203     close 0.4995     open  +1.6R  stop 0.369238   exit level 0.3279     24h vol $222M
+  ADA        since 2026-09-22 (  9d) entry 0.2451     close 0.2466     open  +0.1R  stop 0.217221   exit level 0.1952     24h vol $221M
+  AAVE       since 2026-09-22 (  9d) entry 145.81     close 159.37     open  +0.8R  stop 129.123    exit level 119.45     24h vol $200M
+  TAO        since 2026-08-22 ( 40d) entry 230.06     close 300.79     open  +3.4R  stop 209.362    exit level 217.8      24h vol $187M
+  HBAR       since 2026-09-21 ( 10d) entry 0.08647    close 0.10473    open  +2.3R  stop 0.0785674  exit level 0.07385    24h vol $175M
+  ARB        since 2026-09-01 ( 30d) entry 0.10937    close 0.20288    open  +6.8R  stop 0.0956081  exit level 0.13294    24h vol $120M
+  LTC        since 2026-09-19 ( 12d) entry 58.17      close 67.19      open  +2.0R  stop 53.7062    exit level 51.24      24h vol $120M
+  XLM        since 2026-09-22 (  9d) entry 0.21557    close 0.22632    open  +0.5R  stop 0.192455   exit level 0.17596    24h vol $120M
+  PENGU      since 2026-09-23 (  8d) entry 0.010057   close 0.009606   open  -0.3R  stop 0.00869759 exit level 0.006845   24h vol $113M
+  FIL        since 2026-09-08 ( 23d) entry 0.8365     close 1.0426     open  +1.9R  stop 0.725246   exit level 0.7854     24h vol $102M
+  ZRO        since 2026-09-23 (  8d) entry 1.3898     close 1.7396     open  +1.7R  stop 1.18209    exit level 0.9829     24h vol $94M
+  NIGHT      since 2026-09-20 ( 11d) entry 0.0249     close 0.03912    open  +4.4R  stop 0.0216451  exit level 0.01979    24h vol $78M
+  XPL        since 2026-09-25 (  6d) entry 0.11078    close 0.09485    open  -0.8R  stop 0.0900853  exit level 0.07775    24h vol $76M
+  PHA        since 2026-09-18 ( 13d) entry 0.03094    close 0.07915    open +10.2R  stop 0.0262111  exit level 0.02554    24h vol $74M
+  FET        since 2026-09-19 ( 12d) entry 0.1856     close 0.229      open  +1.7R  stop 0.160746   exit level 0.1507     24h vol $71M
+  DOT        since 2026-09-07 ( 24d) entry 0.9783     close 1.2228     open  +2.5R  stop 0.881524   exit level 0.9437     24h vol $68M
+  CRV        since 2026-08-09 ( 53d) entry 0.2265     close 0.3945     open  +7.7R  stop 0.204551   exit level 0.3198     24h vol $62M
+  0G         since 2026-09-20 ( 11d) entry 0.2279     close 0.3109     open  +2.3R  stop 0.191945   exit level 0.1867     24h vol $60M
+  APT        since 2026-09-19 ( 12d) entry 0.7311     close 0.77       open  +0.4R  stop 0.637857   exit level 0.5472     24h vol $58M
+  DASH       since 2026-09-01 ( 30d) entry 44.86      close 60.52      open  +2.5R  stop 38.6256    exit level 50.38      24h vol $56M
+  ICP        since 2026-09-06 ( 25d) entry 2.667      close 3.333      open  +2.1R  stop 2.35382    exit level 2.48       24h vol $54M
+  NIL        since 2026-09-21 ( 10d) entry 0.06164    close 0.08626    open  +2.2R  stop 0.0506937  exit level 0.04029    24h vol $53M
+  STX        since 2026-08-22 ( 40d) entry 0.1898     close 0.3717     open  +9.8R  stop 0.171268   exit level 0.2347     24h vol $53M
+  INJ        since 2026-09-19 ( 12d) entry 6.676      close 7.411      open  +0.8R  stop 5.70765    exit level 5.408      24h vol $53M
+  GTC        since 2026-09-26 (  5d) entry 0.09309    close 0.09404    open  +0.1R  stop 0.0828818  exit level 0.07477    24h vol $52M
+  LDO        since 2026-09-21 ( 10d) entry 0.4194     close 0.4574     open  +0.7R  stop 0.36434    exit level 0.3358     24h vol $46M
+  ETHFI      since 2026-08-16 ( 46d) entry 0.4778     close 0.7847     open  +5.0R  stop 0.416946   exit level 0.5851     24h vol $45M
+  BERA       since 2026-09-19 ( 12d) entry 0.1989     close 0.2537     open  +1.9R  stop 0.170352   exit level 0.1774     24h vol $45M
+  SEI        since 2026-09-21 ( 10d) entry 0.05334    close 0.0735     open  +3.5R  stop 0.0475994  exit level 0.04205    24h vol $42M
+  ETC        since 2026-09-22 (  9d) entry 8.894      close 8.888      open  -0.0R  stop 7.95673    exit level 7.188      24h vol $40M
+  OP         since 2026-09-19 ( 12d) entry 0.12056    close 0.12953    open  +0.5R  stop 0.104239   exit level 0.0936     24h vol $40M
+  WIF        since 2026-09-22 (  9d) entry 0.245      close 0.2488     open  +0.1R  stop 0.212087   exit level 0.1779     24h vol $38M
+  VIRTUAL    since 2026-09-26 (  5d) entry 0.7965     close 0.8048     open  +0.1R  stop 0.690844   exit level 0.5847     24h vol $38M
+  NOM        since 2026-09-24 (  7d) entry 0.001988   close 0.002346   open  +1.1R  stop 0.00166658 exit level 0.001552   24h vol $35M
+  NMR        since 2026-09-22 (  9d) entry 9.487      close 11.265     open  +2.1R  stop 8.65487    exit level 8.637      24h vol $32M
+  LSK        since 2026-08-24 ( 38d) entry 0.09297    close 0.28508    open +14.2R  stop 0.0794874  exit level 0.14071    24h vol $30M
+  ALGO       since 2026-09-20 ( 11d) entry 0.10499    close 0.12389    open  +1.6R  stop 0.0928303  exit level 0.08862    24h vol $29M
+  ZEN        since 2026-08-21 ( 41d) entry 4.443      close 7.319      open  +6.9R  stop 4.02568    exit level 6.125      24h vol $28M
+  JUP        since 2026-09-20 ( 11d) entry 0.2814     close 0.3297     open  +1.2R  stop 0.239613   exit level 0.2157     24h vol $26M
+  ZAMA       since 2026-09-19 ( 12d) entry 0.05994    close 0.07844    open  +1.7R  stop 0.0488748  exit level 0.04659    24h vol $23M
+  AERO       since 2026-09-06 ( 25d) entry 0.5502     close 0.8252     open  +4.1R  stop 0.482474   exit level 0.5251     24h vol $23M
+  MUBARAK    since 2026-08-05 ( 57d) entry 0.01349    close 0.0605     open +23.3R  stop 0.0114723  exit level 0.02885    24h vol $22M
+  SAGA       since 2026-09-11 ( 20d) entry 0.01734    close 0.02502    open  +2.6R  stop 0.0143711  exit level 0.01637    24h vol $21M
+  SOMI       since 2026-09-06 ( 25d) entry 0.1243     close 0.2244     open  +5.2R  stop 0.104893   exit level 0.1401     24h vol $21M
+  ATOM       since 2026-09-27 (  4d) entry 1.864      close 1.744      open  -0.6R  stop 1.64884    exit level 1.517      24h vol $21M
+  RENDER     since 2026-09-20 ( 11d) entry 1.574      close 1.913      open  +2.0R  stop 1.40375    exit level 1.318      24h vol $20M
+  PLUME      since 2026-09-22 (  9d) entry 0.01511    close 0.01883    open  +1.7R  stop 0.012867   exit level 0.01241    24h vol $20M
+  EIGEN      since 2026-09-19 ( 12d) entry 0.2324     close 0.2451     open  +0.4R  stop 0.197785   exit level 0.1922     24h vol $20M
+  RUNE       since 2026-08-22 ( 40d) entry 0.4722     close 0.7991     open  +9.1R  stop 0.436425   exit level 0.4886     24h vol $19M
+  PENDLE     since 2026-08-22 ( 40d) entry 1.6544     close 2.3846     open  +4.3R  stop 1.48304    exit level 2.01       24h vol $19M
+  PROM       since 2026-07-08 ( 85d) entry 1.219      close 6.448      open +31.8R  stop 1.05451    exit level 4.942      24h vol $18M
+  REZ        since 2026-08-24 ( 38d) entry 0.003111   close 0.004771   open  +3.8R  stop 0.00267812 exit level 0.003239   24h vol $18M
+  AR         since 2026-09-04 ( 27d) entry 2.616      close 4.109      open  +4.7R  stop 2.30118    exit level 2.502      24h vol $18M
+  GALA       since 2026-09-27 (  4d) entry 0.00225    close 0.002315   open  +0.2R  stop 0.00192236 exit level 0.001624   24h vol $17M
+  TRB        since 2026-09-23 (  8d) entry 20.569     close 21.157     open  +0.2R  stop 18.1351    exit level 16.436     24h vol $17M
+  KSM        since 2026-08-22 ( 40d) entry 3.596      close 5.167      open  +5.0R  stop 3.27931    exit level 3.686      24h vol $16M
+  SUSHI      since 2026-08-21 ( 41d) entry 0.1815     close 0.2714     open  +5.0R  stop 0.163368   exit level 0.2073     24h vol $15M
+  CAKE       since 2026-08-19 ( 43d) entry 1.5286     close 2.5943     open +11.8R  stop 1.43828    exit level 2.1873     24h vol $14M
+  BLUR       since 2026-09-06 ( 25d) entry 0.0169     close 0.02116    open  +2.2R  stop 0.0149453  exit level 0.01657    24h vol $14M
+  RARE       since 2026-09-26 (  5d) entry 0.01577    close 0.0171     open  +0.7R  stop 0.0137434  exit level 0.01138    24h vol $14M
+  HUMA       since 2026-09-27 (  4d) entry 0.028901   close 0.032353   open  +0.8R  stop 0.0244792  exit level 0.022611   24h vol $13M
+  SKY        since 2026-09-25 (  6d) entry 0.07325    close 0.07764    open  +0.5R  stop 0.0636761  exit level 0.05721    24h vol $13M
+  PYTH       since 2026-09-03 ( 28d) entry 0.05728    close 0.07716    open  +2.5R  stop 0.0493626  exit level 0.05082    24h vol $13M
+  GRT        since 2026-09-06 ( 25d) entry 0.01817    close 0.02923    open  +5.4R  stop 0.0161188  exit level 0.01725    24h vol $12M
+  INIT       since 2026-09-01 ( 30d) entry 0.0588     close 0.1037     open  +6.1R  stop 0.0513808  exit level 0.06471    24h vol $11M
+  CELO       since 2026-08-22 ( 40d) entry 0.07407    close 0.10011    open  +3.7R  stop 0.0670957  exit level 0.0748     24h vol $11M
+  ORDI       since 2026-09-19 ( 12d) entry 4.601      close 4.628      open  +0.0R  stop 3.98319    exit level 3.907      24h vol $10M
+  RED        since 2026-09-06 ( 25d) entry 0.1261     close 0.1759     open  +2.4R  stop 0.105108   exit level 0.1269     24h vol $10M
+  COMP       since 2026-08-18 ( 44d) entry 17.72      close 24.75      open  +5.5R  stop 16.4309    exit level 18.76      24h vol $10M
+  AXS        since 2026-09-22 (  9d) entry 1.0834     close 1.1564     open  +0.7R  stop 0.976727   exit level 0.9087     24h vol $9M
+  VTHO       since 2026-08-27 ( 35d) entry 0.0004028  close 0.0006831  open  +7.6R  stop 0.000366045 exit level 0.0005742  24h vol $9M
+  DYDX       since 2026-09-19 ( 12d) entry 0.1267     close 0.1439     open  +1.1R  stop 0.11048    exit level 0.1055     24h vol $9M
+  MET        since 2026-08-20 ( 42d) entry 0.2        close 0.3164     open  +4.3R  stop 0.173209   exit level 0.1962     24h vol $9M
+  ENS        since 2026-09-19 ( 12d) entry 6.264      close 6.992      open  +0.9R  stop 5.44425    exit level 5.315      24h vol $9M
+  SYRUP      since 2026-09-04 ( 27d) entry 0.21268    close 0.22579    open  +0.5R  stop 0.184045   exit level 0.19738    24h vol $9M
+  SPK        since 2026-09-26 (  5d) entry 0.02396    close 0.02491    open  +0.3R  stop 0.0203702  exit level 0.01807    24h vol $9M
+  S          since 2026-09-19 ( 12d) entry 0.03237    close 0.04068    open  +1.9R  stop 0.0280148  exit level 0.02542    24h vol $8M
+  CVC        since 2026-09-04 ( 27d) entry 0.02084    close 0.03132    open  +4.9R  stop 0.0186883  exit level 0.02131    24h vol $8M
+  MINA       since 2026-08-22 ( 40d) entry 0.05595    close 0.14448    open +17.0R  stop 0.0507536  exit level 0.0804     24h vol $8M
+  W          since 2026-09-19 ( 12d) entry 0.011031   close 0.01347    open  +1.7R  stop 0.00960724 exit level 0.009142   24h vol $8M
+  FLOW       since 2026-09-22 (  9d) entry 0.03318    close 0.03118    open  -0.5R  stop 0.0292981  exit level 0.02644    24h vol $8M
+  G          since 2026-08-16 ( 46d) entry 0.003776   close 0.004725   open  +2.0R  stop 0.003312   exit level 0.003685   24h vol $8M
+  GIGGLE     since 2026-09-23 (  8d) entry 42.12      close 37.79      open  -0.7R  stop 35.5644    exit level 33.87      24h vol $8M
+  CHZ        since 2026-09-14 ( 17d) entry 0.01482    close 0.01626    open  +0.9R  stop 0.013138   exit level 0.01361    24h vol $8M
+  JASMY      since 2026-09-28 (  3d) entry 0.005341   close 0.005076   open  -0.4R  stop 0.00465523 exit level 0.003598   24h vol $8M
+  VET        since 2026-08-21 ( 41d) entry 0.005166   close 0.008852   open  +9.1R  stop 0.00476066 exit level 0.007059   24h vol $7M
+  ALICE      since 2026-09-26 (  5d) entry 0.1607     close 0.1689     open  +0.4R  stop 0.140191   exit level 0.1282     24h vol $7M
+  IOTA       since 2026-09-20 ( 11d) entry 0.0478     close 0.05369    open  +1.0R  stop 0.0418608  exit level 0.03872    24h vol $7M
+  MOVE       since 2026-09-26 (  5d) entry 0.009761   close 0.009251   open  -0.4R  stop 0.00835632 exit level 0.007682   24h vol $6M
+  BABY       since 2026-09-23 (  8d) entry 0.01316    close 0.01373    open  +0.2R  stop 0.0108155  exit level 0.01066    24h vol $6M
+  ESP        since 2026-09-20 ( 11d) entry 0.09571    close 0.10511    open  +0.6R  stop 0.0804416  exit level 0.08237    24h vol $6M
+  KMNO       since 2026-08-21 ( 41d) entry 0.02096    close 0.04302    open +11.1R  stop 0.0189645  exit level 0.02463    24h vol $6M
+
+WITHIN 5% OF THE TRIGGER (2)
+  TRX        close 0.33723      trigger 0.34496      (+2.3%) 24h vol $51M
+  ASTER      close 0.7573       trigger 0.7866       (+3.9%) 24h vol $130M
+
+flat and more than 5% below the trigger: 35

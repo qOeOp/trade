@@ -624,6 +624,28 @@ APT, ARB, SUI, OP, INJ, PEPE, SHIB and others (`range4/result.txt`).
 - **Conclusion:** the effect is positive in three independent samples (development +0.31R, 14 unused coins +0.18R,
   37 large caps +0.13R), each short of significance on its own. The forward record decides.
 
+## Buying oversold drops (TrialFamily oversold-v1)
+
+`oversold/` tests four daily oversold entries, long only, on large caps. The development set is the 17 majors over
+2018-2022; the holdout is the 17 majors plus 20 large caps over 2023-2026 (`oversold/result.txt`).
+- **Common exits:** the stop is the signal low minus 0.5 ATR, the target half the drop back, and the time limit 10 days.
+- **O3, capitulation (a 3-day drop of 15% or more, at least 2.5x volume, and a close in the upper half of the day):**
+  +0.34R above random on development [-0.03, +0.78] and +0.62R on the holdout [+0.27, +0.93]. It misses the rule on
+  development, on only 30 signals per set, but it is the strongest result of the family.
+- **O1, a crash of 25% below the 10-day high:** +0.07R and +0.10R, not significant. Raw returns after the signal are
+  above average (1 day +1.2% to +1.9% against +0.1% to +0.2% on all days), but the stop-and-target trade adds little
+  over random.
+- **O2, RSI(2) under 5:** -0.00R and -0.05R.
+- **O4, RSI(2) under 5 above the 200-day mean:** -0.14R and -0.10R.
+- **Next step:** replicate O3 unchanged on further large caps; it is rare, so the forward record matters.
+
+## Market scan with the daily trend rule (`scan/scan.py`)
+
+`scan/scan.py` lists, for the top 150 Binance USDT perpetuals with spot pairs, which coins have a new 50-day breakout
+signal, which are in an open trend (entry, stop, exit level), and which are near the trigger. The 2026-09-30 snapshot
+(`scan/scan_2026-09-30.txt`) shows 111 of 148 coins in an open trend, no new signal on the day, and 2 within 5% of the
+trigger. This is information only.
+
 ## Running the survivors together, and a forward record
 
 `combo/portfolio.py` runs B1, trendline_break_strong and line_break_ridge as one book on BTC, ETH and the 15 holdout
