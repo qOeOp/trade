@@ -1298,3 +1298,16 @@ expanding volatility; a stream with no history contributes 0. Logged as a rerun.
 - **The pooled union matches the prediction** (+0.14 against +0.15) and its week-clustered interval excludes zero, but
   it is an iteration read on data that chose D-1. In the catalogue, D-1 is now "box break, lookbacks 60-120", with
   its stated edge cut to about +0.14.
+
+## Breakouts S-2: funding as a crowding veto (diagnosis, registered before running; section 3, hypothesis 3)
+
+- **Split:** long breaks of F-2, D-1x and G-2 on coins with funding data (17 majors, 2020-2022), by whether the coin's
+  7-day mean funding at the break is above its trailing 365-day 90th percentile.
+- **Falsifier:** the crowded longs' edge is not below the rest by at least 0.2R (week-clustered), consistently in all
+  three lineages.
+- **Predicted:** no consistent effect (S-1 found none for open interest); expected to fail.
+
+**Result S-2:** immaterial, so it cannot be tested. The crowded state (6-8% of coin-days on the majors, 2020-07 to
+2022) covers 5 of 262 F-2 longs and none of the D-1x or G-2 longs. Breaks rarely happen in a crowded week, so a veto
+would change about 2% of trades whatever its effect. Closed; the breakout funding/OI/taker/session line (S-0 to S-2)
+found no conditioning variable.
