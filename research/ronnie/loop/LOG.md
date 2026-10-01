@@ -199,3 +199,18 @@ edge +0.323 [-0.209, +0.917]; 2018-2020 +0.266, 2021-2022 +0.390; stops 46%, 24%
 - **Single change from B-5:** drop the two-close confirmation and enter after the first close beyond the level.
 - **Reason:** B-3 showed the confirmation adds nothing net (edge +0.052 to +0.033) while it costs trades. The mechanism
   under test, the break out of compression, is untouched.
+
+**Result B-6:** iteration gate fails. 103 trades, avg R +0.464, control +0.327, edge +0.137 [-0.383, +0.738]. Stops
+within 2 bars rose from 24% to 39% of stopped trades, so in compression breaks the second close does help. B-3's
+reading did not transfer.
+
+**Power note:** at about 100 trades on the iteration tier, the 95% interval spans about +-0.55R, so only edges above
+about 0.5R can pass. The +0.3R edges seen here cannot be decided at that size.
+
+### Loop B-7 (registered before running)
+
+- **Single change from B-5:** the broken level is the highest close of the prior 20 days (a Donchian channel) instead of
+  a daily swing level.
+- **Reason:** the level's rank (weekly or daily swing) showed no decisive role in either family. The Donchian break is
+  the standard breakout definition (the Turtle rules; volatility-filtered breakouts in the Crabel line), and it raises
+  the sample.

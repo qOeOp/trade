@@ -12,7 +12,8 @@ import family_a as FA  # noqa: E402
 BASE = dict(tf="1d", stop_atr=1.0, rr=3.0, hold=20, spacing=5, level_tf="1w", sides=(1, -1))
 LOOPS = {"B-1": dict(BASE), "B-2": dict(BASE, sides=(1,)), "B-3": dict(BASE, sides=(1,), closes=2), "B-4": dict(BASE, sides=(1,), closes=2, max_vol=1.0),
          "B-5": dict(BASE, sides=(1,), closes=2, max_vol=1.0, level_tf="1d"),
-         "B-6": dict(BASE, sides=(1,), max_vol=1.0, level_tf="1d")}
+         "B-6": dict(BASE, sides=(1,), max_vol=1.0, level_tf="1d"),
+         "B-7": dict(BASE, sides=(1,), closes=2, max_vol=1.0, level_tf="donchian20")}
 
 
 def make(cfg):
@@ -27,6 +28,10 @@ def make(cfg):
             w = d.resample("W-MON", label="left", closed="left").agg({"open": "first", "high": "max", "low": "min", "close": "last"}).dropna()
             wbook = FA.levels(w, 2)
             wi = w.index.searchsorted(d.index, side="right") - 1
+        elif cfg["level_tf"] == "donchian20":  # one level per bar: the highest close of the 20 bars before
+            hc, lc = pd.Series(c).shift(1).rolling(20).max().values, pd.Series(c).shift(1).rolling(20).min().values
+            wbook = [(np.array([hc[j], lc[j]]), np.array([1, -1])) for j in range(len(c))]
+            wi = np.arange(len(d))
         else:
             wbook, wi = FA.levels(d, 3), np.arange(len(d))
         out, last = [], -99
