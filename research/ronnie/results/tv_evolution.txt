@@ -1,0 +1,19 @@
+2018-2021 text ideas: 158 ideas, 1631 unique drawings, 10.3 new per idea
+  chart timeframes: 1D 89, 240 48, 1W 16, 60 5
+  symbols: BITFINEX:BTCUSD 12, FX:XAUUSD 12, FX:EURUSD 11, BITFINEX:ETHUSD 9, FX:USDJPY 8, FX:GBPUSD 8
+  tools (share): Text 31%, Arrow 27%, HorzLine 11%, TrendLine 7%, ParallelChannel 7%, Callout 5%, Icon 3%, FibRetracement 2%, Triangle 2%, TrendBasedFibExtension 1%
+  horizontal lines: 186, two-significant-digit round numbers 20%
+  Fibonacci: 41 drawings, anchor gap median 92.0 days (quartiles 27.6-148.5); under 3 days 2%, over 30 days 70%
+  Fibonacci price span (|p1 - p0| / lower price): median 33%, quartiles 6%-82%; anchors on the same bar 0% (a vertical drag: only the prices matter)
+  visible Fibonacci levels: 0 41, 0.236 41, 0.382 41, 0.5 41, 0.618 41, 0.764 2, 0.786 39, 1 41, 1.618 13, 2.618 3, 3.618 3, 4.236 3
+
+2024-2025 video ideas: 245 ideas, 2887 unique drawings, 11.8 new per idea
+  chart timeframes: 240 125, 1D 113, 60 3, 1W 3, 15 1
+  symbols: BTCUSDT 130, ETHUSDT 23, USOIL 15, SOLUSDT 7, DOGEUSDT 7, BNBUSDT 6
+  tools (share): ArrowMarkUp 25%, ArrowMarkDown 21%, Rectangle 20%, TrendLine 11%, Path 7%, Arrow 4%, ParallelChannel 3%, Icon 3%, FibRetracement 2%, HorzLine 1%
+  horizontal lines: 34, two-significant-digit round numbers 21%
+  Fibonacci: 102 drawings, anchor gap median 0.0 days (quartiles 0.0-96.8); under 3 days 51%, over 30 days 37%
+  Fibonacci price span (|p1 - p0| / lower price): median 98%, quartiles 46%-273%; anchors on the same bar 51% (a vertical drag: only the prices matter)
+  visible Fibonacci levels: 0 102, 0.236 102, 0.382 102, 0.5 102, 0.618 102, 0.764 102, 1 102, 1.618 30, 2.618 8, 3.618 8, 4.618 8
+
+video minutes in total 1904; by year 2024 179, 2025 66

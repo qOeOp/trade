@@ -55,8 +55,10 @@ embedded record, which carries the full published chart state. It writes:
 
 What the data shows:
 
-- **Dates:** every idea was published between 2018-03-28 and 2021-01-28 (2018: 103, 2019: 39, 2020: 10, 2021: 6). He has
-  published nothing on TradingView since, so it cannot show how he draws after 2021.
+- **Dates:** every idea in the ideas API listing was published between 2018-03-28 and 2021-01-28 (2018: 103, 2019:
+  39, 2020: 10, 2021: 6). The listing leaves out his video ideas: 245 more, 2024-01 to 2025-03, were found on
+  2026-10-01 by crawling each idea's `related` list (`tv/video_ideas.jsonl.gz`, section "His drawings and videos,
+  2024-2025" below).
 - **Symbols:** 38 ideas are BTC (Bitfinex, Gemini, Coinbase, BitMEX, Binance). The rest are gold, oil, FX majors, ETH and
   altcoins.
 - **Timeframes:** mostly daily (89) and 4h (48), then weekly (16) and 1h (5).
@@ -892,3 +894,24 @@ It places no orders and uses no account.
 Trial count so far: roughly 43 variants before the cross-timeframe section. That section added six in-sample variants,
 a 36-cell robustness grid, three out-of-sample runs and the nine-pair FX replication. The filter family added 176
 trials with one protected test read. Deflate any "winner" accordingly.
+
+## His drawings and videos, 2024-2025 (2026-10-01)
+
+TradingView's ideas API omits video ideas. Crawling each idea page's `related` list from six seeds found 245 video
+ideas from 2024-01-10 to 2025-03-18 (1,904 minutes; `tv/video_ideas.jsonl.gz`, which keeps the full page records). The
+videos are MP4 files on TradingView's own CDN. YouTube (rate-limited, sign-in required for this host) and Bilibili
+(HTTP 412) could not be read. `tv_evolution.py` compares the drawings, deduplicated by drawing id, because he reuses
+one chart and earlier drawings ride along (`results/tv_evolution.txt`, `tv/video_drawings.jsonl.gz`):
+
+| | 2018-2021 text ideas | 2024-2025 video ideas |
+| --- | --- | --- |
+| Ideas, unique drawings | 158, 1,631 | 245, 2,887 |
+| Chart timeframe | daily 89, 4h 48, weekly 16 | 4h 125, daily 113 |
+| Symbols | BTC, gold, FX majors, ETH | BTC 130, ETH 23, oil 15, SOL, DOGE, BNB |
+| Main tools | text 31%, arrows 27%, horizontal lines 11%, trend lines 7%, channels 7% | up/down arrow marks 46%, rectangles 20%, trend lines 11%, paths 7% |
+| Fibonacci | 41; anchors 92 days apart (median); price span 33% | 102; price span 98% (median); 51% dragged vertically on one bar |
+
+What changed: zones drawn as rectangles replaced horizontal lines; projected paths (arrow marks and paths) became the
+main annotation; Fibonacci moved to even larger, cycle-scale swings; the 4h chart overtook the daily chart; the
+universe narrowed to crypto (and oil). Speech is transcribed locally with faster-whisper (small) for a sample of the
+videos; transcripts stay outside the repository, and only extracted rules with time stamps are recorded.
