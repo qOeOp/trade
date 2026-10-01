@@ -1211,3 +1211,42 @@ expanding volatility; a stream with no history contributes 0. Logged as a rerun.
   the book to significance.
 - **Predicted:** against cash, FAIL (edge positive, interval spans zero); against buy-and-hold, FAIL (edge positive,
   interval spans zero).
+
+### Loop C-7: beta-adjusted residual trigger (registered before running; external research section 4, hypothesis 1)
+
+- **Change from C-6 (one):** the drop is the coin's return minus beta x BTC's return over the same 1-5 days, with beta
+  from daily returns over the 60 days before the window; everything else is C-6 (O3 volume and close filters, stop,
+  target, 10 days, extended iteration tier).
+- **Source:** Blitz, Huij, Lansdorp and Verbeek (2013): reversal on factor residuals beats reversal on raw returns.
+- **Falsifier:** edge below +0.2R.
+- **Predicted:** a similar count to C-6 (about 25-35 trades); high-beta alts lose some BTC-crash signals, so the
+  edge is similar or slightly higher, about +0.5R.
+
+**Result C-7:** the iteration gate passes, and the falsifier is not triggered. 29 trades, avg R +0.530, edge +0.665
+[+0.366, +0.936] (week-clustered [+0.37, +1.07], 14 weeks); 2018-20 +0.57 (n 6), 2021-22 +0.69 (n 23).
+- **Against C-6 (+0.579, 30 trades):** 26 of the 29 trades are the same events (3 new, 4 dropped). The residual
+  definition re-labels the same capitulations, so the +0.09R difference is noise, not a gain.
+- **Reading:** beta adjustment adds nothing measurable on daily majors and mid caps; it is not a new candidate and it
+  spends no holdout. The binding limit stays the event count (14 independent weeks), which is what hypothesis 4 (a 4h
+  event definition) targets.
+- **Census:** an accidental second run (to read the header) is logged as a rerun.
+
+### Loop C-8: the idiosyncratic capitulation on 4h bars (registered before running; section 4, hypothesis 4)
+
+- **Rule:** on a 4h bar, the coin's return minus BTC's over 6-30 bars at most -10%; volume at least 2.5x the mean of
+  the prior 120 bars; a close in the upper half of the bar. Long at the next open; stop at the low minus 0.5 ATR(20);
+  target half way back to the prior 60-bar high (at least 1R); 24 bars (4 days); spacing 30 bars. Extended iteration
+  tier, costs as always.
+- **Falsifier (from the research):** costs erase the edge (edge at or below 0), or events fall in fewer than 25
+  distinct weeks.
+- **Predicted:** about 80-150 trades in 30-50 weeks; edge about +0.2R, smaller than C-6's because a 10% 4h drop is a
+  milder event.
+
+**Result C-8:** the iteration gate fails. 632 trades in 130 weeks, avg R +0.057, edge +0.074 [-0.054, +0.204]
+(week-clustered [-0.14, +0.31]); 2018-20 +0.07 (n 216), 2021-22 +0.08 (n 416); 2021 is negative (-0.08).
+- **Falsifier, as registered:** not triggered (edge above zero, 130 weeks), but the edge is a quarter of C-6's and not
+  significant. Predicted +0.2R on 80-150 trades; it gave 4-5x the trades at a third of the edge.
+- **Decomposition:** 43% stopped (C-6: 7%); a 4h -10% residual is a routine move, not a capitulation.
+- **Reading:** more independent events can be bought only by diluting the event; the edge lives in the rare daily
+  extremes. The capitulation line stays power-limited; its path to more data is more coins (post-2022 listings) on the
+  daily definition, not a faster bar. No successor on 4h.
