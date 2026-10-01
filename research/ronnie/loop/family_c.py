@@ -14,7 +14,8 @@ OS = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(OS)
 
 BASE = dict(tf="1d", hold=10, rule="o3")
-LOOPS = {"C-1": dict(BASE), "C-2": dict(BASE, rule="o3_atr", k_atr=1.8), "C-3": dict(BASE, rule="o3_window"), "C-4": dict(BASE, rule="o3_window", iter_set="iterx")}
+LOOPS = {"C-1": dict(BASE), "C-2": dict(BASE, rule="o3_atr", k_atr=1.8), "C-3": dict(BASE, rule="o3_window"), "C-4": dict(BASE, rule="o3_window", iter_set="iterx"),
+         "C-5": dict(BASE, rule="o3_window", iter_set="iterx", confirm="trigger")}
 
 
 def make(cfg):
@@ -44,11 +45,20 @@ def make(cfg):
                 risk = entry - stop
                 if risk <= 0 or risk > OS.MAX_STOP * a[i] or tgt - entry < risk or i - last < OS.SPACING:
                     continue
-                out.append((i + 1, 1, entry, stop, tgt))
+                e = i + 1
+                if cfg.get("confirm") == "trigger":  # buy stop at the signal day's high, valid for the next 2 bars
+                    e = None
+                    for k in (i + 1, i + 2):
+                        if k < len(c) - 1 and h[k] >= h[i]:
+                            e, entry = k, max(o[k], h[i])
+                            break
+                    if e is None or entry - stop > OS.MAX_STOP * a[i] or tgt - entry < entry - stop:
+                        continue
+                out.append((e, 1, entry, stop, tgt))
                 last = i
         for e, side, entry, stop, tgt in out:
-            i = e - 1
-            feats[(d.index[e], side)] = dict(trend_atr=(c[i] - s200[i]) / a[i - 1], vol_ratio=a[i - 1] / a100[i - 1],
+            i = e - 1 if cfg.get("confirm") != "trigger" else max(k for k in (e - 1, e - 2) if h[k] <= entry or k == e - 2)
+            feats[(E.CURRENT["coin"], d.index[e], side)] = dict(trend_atr=(c[i] - s200[i]) / a[i - 1], vol_ratio=a[i - 1] / a100[i - 1],
                                              touches=0, age=0, depth=(c[i] / c[i - 3] - 1) * 100, n_levels=v[i] / vm[i])
         return out
     return fn, feats

@@ -34,6 +34,7 @@ ITER = (pd.Timestamp("2018-01-01", tz="UTC"), pd.Timestamp("2023-01-01", tz="UTC
 ITER_SPLIT = pd.Timestamp("2021-01-01", tz="UTC")
 VAL = (pd.Timestamp("2023-01-01", tz="UTC"), pd.Timestamp("2026-09-01", tz="UTC"))
 CACHE = os.path.join(HERE, ".cache")
+CURRENT = {"coin": None}  # the coin whose signals are being built; families key their features by it
 CENSUS = os.path.join(HERE, "census.csv")
 
 
@@ -66,6 +67,7 @@ def run(name, signal_fn, tf, hold, sets=("iter",), ts=None):
         for k, coin in enumerate(coins):
             b = bars(coin)
             d = b[tf]
+            CURRENT["coin"] = coin
             sigs = signal_fn(b["1d"], b["4h"])
             scored = score_ts(coin, tf, name, d, sigs, hold, *ts, seed=k) if ts else score(coin, tf, name, d, sigs, hold, seed=k)
             rows += [dict(r, set=s) for r in scored if t0 <= r["time"] < t1]

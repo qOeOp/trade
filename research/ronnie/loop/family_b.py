@@ -68,7 +68,7 @@ def make(cfg):
                 if risk <= 0 or risk > 6 * a[i - 1]:
                     continue
                 out.append((i + 1, side, entry, stop, entry + side * cfg["rr"] * risk))
-                feats[(d.index[i + 1], side)] = dict(trend_atr=(c[i] - s200[i]) / a[i - 1] * side, vol_ratio=a[i - 1] / a100[i - 1],
+                feats[(E.CURRENT["coin"], d.index[i + 1], side)] = dict(trend_atr=(c[i] - s200[i]) / a[i - 1] * side, vol_ratio=a[i - 1] / a100[i - 1],
                                                      touches=0, age=0, depth=(c[i] - y) * side / a[i - 1], n_levels=int(m.sum()))
                 last = i
         return out

@@ -91,7 +91,7 @@ def make(cfg):
                 if risk <= 0 or risk > 6 * a[i - 1] or (tgt - entry) * side < risk:
                     continue
                 out.append((e, side, entry, stop, tgt))
-                feats[(d.index[e], side)] = dict(
+                feats[(E.CURRENT["coin"], d.index[e], side)] = dict(
                     trend_atr=(c[i] - s200[i]) / a[i - 1] * side, touches=int(ts[j]), age=i - int(ls[j]) if ls[j] >= 0 else -1,
                     vol_ratio=a[i - 1] / a100[i - 1], depth=(hh[i] - c[i]) / a[i - 1] if side == 1 else (c[i] - ll[i]) / a[i - 1],
                     n_levels=int(m.sum()))
@@ -123,7 +123,7 @@ def main():
     fn, feats = make(cfg)
     sets = {"iteration": (cfg.get("iter_set", "iter"),), "validate": ("val",), "final": ("final",)}[stage]
     z = E.run(loop, fn, cfg["tf"], cfg["hold"], sets, ts=cfg.get("ts"))
-    f = pd.DataFrame([feats.get((t, s), {}) for t, s in zip(z.time, z.side)])
+    f = pd.DataFrame([feats.get((k, t, s), {}) for k, t, s in zip(z.coin, z.time, z.side)])
     z = pd.concat([z.reset_index(drop=True), f], axis=1)
     os.makedirs(os.path.join(HERE, "out"), exist_ok=True)
     with gzip.GzipFile(os.path.join(HERE, "out", f"{loop}_{stage}.csv.gz"), "wb", mtime=0) as fh:

@@ -281,3 +281,21 @@ at fixed percentage moves set by leverage, not at multiples of volatility.
 - **Change:** no rule change from C-3. The iteration tier is extended under protocol amendment 1 (36 mid and large caps,
   2018-2022).
 - **Reason:** C-1 to C-3 cannot decide at 26-39 trades.
+
+**Result C-4:** iteration gate fails on the halves rule. 76 trades, avg R +0.166, control -0.144, edge +0.310
+[+0.092, +0.552] (the pooled interval passes); 2018-2020 -0.191 (15 trades), 2021-2022 +0.433 (61 trades). Stops 24%,
+61% of them within 2 bars, after a median MFE of 0.06R: the stopped trades die at once, while the crash continues.
+
+**Feature-key bug (workflow note 17):** the attribution features of every loop were keyed by (time, side) without the
+coin, so coins signalling on the same day overwrote each other. Gates and decompositions are unaffected. Recomputed
+terciles (`loop/reattribution.txt`):
+- **A2:** its reason (touched levels lose least in A1) does not survive: corrected, -0.209 against -0.255.
+- **A8:** the low-volatility pattern survives in A2, A3, A6 and A7 (not in A1).
+- **C-2:** its reading (shallow drops lose) survives.
+
+### Loop C-5 (registered before running)
+
+- **Single change from C-4:** a confirmation entry. A buy stop at the signal day's high is valid for the next 2 bars;
+  otherwise the signal is cancelled. Stop, target and time limit as before.
+- **Reason:** the C-4 decomposition shows stopped trades dying within 2 bars with no favourable move. In Family A the
+  same confirmation cut immediate stops from 31% to 12% of stopped trades (A3).

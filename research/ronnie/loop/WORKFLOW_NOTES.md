@@ -74,3 +74,16 @@ Input for the product's R&D system. Each note: what happened, why it matters, a 
 16. **Data latency shapes the loop.** The carry family's funding and kline archives (37 coins x 80 months x 3 files)
     took hours through a throttled downloader, while a strategy loop on cached bars takes about a minute. An R&D
     system needs a market-data layer that is prefetched and shared, so a loop's cost is computation, not download.
+17. **A silent key collision corrupted 20 loops of attribution.** Features were stored in a dict keyed by (time, side).
+    Daily bars share timestamps across coins, so features of different coins overwrote each other. Every tercile
+    table looked plausible. The bug surfaced only when a trade listing showed three coins with identical features.
+    Two loop decisions (A2, and partly C-2) rested on corrupted tables.
+    - **Proposal:** trade records carry their own features at creation (one record per trade, with the instrument in
+      its identity); attribution never joins features back by a partial key. An integrity check flags identical
+      feature vectors across instruments.
+18. **Tercile cuts on tied values invent groups.** The B-family "touches" feature is always 0, yet the table showed
+    three groups with different edges, because ranking with ties split identical values arbitrarily. Attribution
+    should refuse a feature with too few distinct values, or group by value.
+19. **The halves rule ignores power.** C-4 passed the pooled interval, but its first half held 15 trades, and one
+    clustered loss (three coins on 2018-11-22) sank it. Requiring both halves positive is sound against regime luck,
+    but it needs a minimum count per half, or a pooled test with time-clustered resampling instead.
