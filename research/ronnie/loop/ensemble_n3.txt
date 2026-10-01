@@ -1,0 +1,39 @@
+N-3: CSCV over 32 construction variants, 235 weeks in 12 blocks, 924 splits
+
+PBO 0.29; median logit +0.98
+in-sample best Sharpe mean 2.66, its out-of-sample Sharpe mean 2.11
+falsifier (PBO > 0.5): not triggered
+
+full-period Sharpe by variant (lowest, median, highest): 0.75 (T-B1|risk13|cluster), 1.95, 2.52 (T|raw|equal)
+T-B1|risk13|cluster      0.75
+T|risk13|cluster         0.77
+T-G2|risk13|cluster      0.87
+T-B1|risk13|equal        0.87
+T|risk13|equal           0.89
+T-G2|risk13|equal        1.08
+T-noC6|risk13|equal      1.55
+T-noC6|risk13|cluster    1.55
+T-B1|risk52|cluster      1.56
+T-B1|risk26|cluster      1.58
+T-G2|risk26|cluster      1.66
+T-G2|risk52|cluster      1.69
+T|risk52|cluster         1.70
+T|risk26|cluster         1.72
+T-B1|risk26|equal        1.91
+T-B1|risk52|equal        1.94
+T-G2|risk26|equal        1.97
+T-noC6|risk26|cluster    1.99
+T-G2|risk52|equal        2.00
+T-B1|raw|cluster         2.01
+T|risk26|equal           2.04
+T-noC6|risk52|cluster    2.04
+T|risk52|equal           2.08
+T-noC6|risk26|equal      2.16
+T-G2|raw|cluster         2.26
+T|raw|cluster            2.29
+T-noC6|risk52|equal      2.29
+T-B1|raw|equal           2.30
+T-noC6|raw|cluster       2.34
+T-G2|raw|equal           2.47
+T-noC6|raw|equal         2.47
+T|raw|equal              2.52

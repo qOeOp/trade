@@ -1177,3 +1177,37 @@ expanding volatility; a stream with no history contributes 0. Logged as a rerun.
   understated (entry-week booking). C-6's scaled stream is erratic (Sharpe 0.26) because its volatility estimate rests
   on a few trades.
 - **Next (section 6, step 3):** CSCV/PBO over construction variants on the same history, before any holdout read.
+
+## Ensemble N-3: CSCV / probability of backtest overfitting over construction variants (registered before running; section 6, step 3)
+
+- **Variants (24):** a volatility window of 13, 26 or 52 weeks; equal risk or raw (unscaled) streams; the rule set T
+  (B3, D-1, F-2, C-6), T without C-6, T with G-2 for D-1, T with B1 for B3; equal weights or cluster weights (trend, 4h
+  breakouts {D-1 or G-2, F-2}, capitulation, each cluster one share).
+- **CSCV:** the 235 weeks of 2018-07 to 2022 in 12 blocks; all 924 half splits. In each split the in-sample best
+  variant by Sharpe is ranked out of sample; PBO is the share of splits where it ranks below the median.
+- **Falsifier:** PBO above 0.5.
+- **Predicted:** about 0.3; the variants are highly correlated, so selection among them costs little.
+- **Limit, stated:** PBO covers only the construction choice, not the choice of rules, which were selected on this
+  same history.
+
+**Result N-3** (`loop/ensemble.py n3`, `loop/ensemble_n3.txt`): **PBO 0.29**, falsifier not triggered (predicted about
+0.3).
+- **Count deviation:** 32 variants were run, not the 24 registered (4 rule sets x 4 scalings x 2 weightings; the
+  registration miscounted).
+- **In-sample best Sharpe 2.66, out of sample 2.11 on average.** Full-period Sharpe ranges from 0.75 to 2.52, with a
+  median of 1.95; the frozen book (T, risk26, equal) has 2.04, near the median.
+- **The best variants are the "raw" ones;** they divide by a full-sample standard deviation, which is look-ahead, so
+  they are not candidates. The frozen book stays as registered; it is not switched to the in-sample best.
+
+## Ensemble N-4: one read of the frozen book on the majors slice (registered before running; section 6, step 4)
+
+- **Book:** frozen as in N-2 (B3, D-1, F-2, C-6; trailing 26-week equal risk; equal weights), warmed up on the
+  iteration streams. Read once on the 17 majors over 2023-01 to 2026-08 by `loop/gatekeeper_book.py`, run by a
+  fresh-context gatekeeper subagent; details sealed in `loop/sealed/N-4_majors.json`.
+- **Two three-level verdicts at 97.5% (k = 2), weekly bootstrap:** the book's mean weekly return above zero (against
+  cash), and Sharpe(book) minus Sharpe(B0) above zero.
+- **Contamination, stated:** this slice is not clean. F-2, D-1's lineage and C-6 were each read on it ("edge positive,
+  interval spans zero"); B3 was not. So a positive sign is expected. The read asks only whether diversification lifts
+  the book to significance.
+- **Predicted:** against cash, FAIL (edge positive, interval spans zero); against buy-and-hold, FAIL (edge positive,
+  interval spans zero).

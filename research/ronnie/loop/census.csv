@@ -81,3 +81,4 @@ logged_at,loop,candidate,stage,n,edge,lo,hi,passed,note
 2026-10-01T12:39:40+00:00,N-2,book T,iteration,,nan,nan,nan,False,"equal-risk book; edge = Sharpe, interval = Sharpe minus best single"
 2026-10-01T12:39:54+00:00,N-2,book A,iteration,,2.99,-3.13,0.30,False,"equal-risk book; edge = Sharpe, interval = Sharpe minus best single"
 2026-10-01T12:39:54+00:00,N-2,book T,iteration,,2.04,-0.54,1.11,True,"equal-risk book; edge = Sharpe, interval = Sharpe minus best single"
+2026-10-01T12:40:36+00:00,N-3,ensemble,diagnosis,924,0.29,,,True,CSCV PBO over 24 book-construction variants

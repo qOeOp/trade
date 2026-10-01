@@ -154,5 +154,74 @@ def n2():
                                                          "equal-risk book; edge = Sharpe, interval = Sharpe minus best single"])
 
 
+
+def variants(X):
+    sets = {"T": ["B3", "D-1", "F-2", "C-6"], "T-noC6": ["B3", "D-1", "F-2"],
+            "T-G2": ["B3", "G-2", "F-2", "C-6"], "T-B1": ["B1", "D-1", "F-2", "C-6"]}
+    cluster = {"B3": "trend", "B1": "trend", "D-1": "brk", "G-2": "brk", "F-2": "brk", "C-6": "cap"}
+    out = {}
+    for sname, rules in sets.items():
+        for win in (13, 26, 52):
+            for scale in ("risk", "raw"):
+                if scale == "raw" and win != 26:
+                    continue
+                for wt in ("equal", "cluster"):
+                    if scale == "risk":
+                        sd = lambda x: x.rolling(win, min_periods=min(13, win)).std().shift(1)  # noqa: E731
+                        Z = pd.DataFrame({}, index=X.index)
+                        for k in rules:
+                            s = sd(X[k])
+                            s = s.where(s > 0, X[k].expanding(13).std().shift(1))
+                            Z[k] = (X[k] / s).where(s > 0).fillna(0.0)
+                    else:
+                        Z = X[rules] / X[rules].std()
+                    if wt == "equal":
+                        w = {k: 1 / len(rules) for k in rules}
+                    else:
+                        cs = {cluster[k] for k in rules}
+                        w = {k: 1 / len(cs) / sum(cluster[j] == cluster[k] for j in rules) for k in rules}
+                    out[f"{sname}|{scale}{win if scale == 'risk' else ''}|{wt}"] = sum(Z[k] * w[k] for k in rules)
+    return pd.DataFrame(out)
+
+
+def n3(blocks=12):
+    import itertools
+    X = pd.read_csv(os.path.join(HERE, "out", "streams_weekly.csv.gz"), index_col=0, parse_dates=True)
+    V = variants(X)
+    V = V[V.index >= pd.Timestamp("2018-07-01", tz="UTC")]
+    M = V.values
+    edges = np.linspace(0, len(M), blocks + 1).astype(int)
+    parts = [np.arange(edges[i], edges[i + 1]) for i in range(blocks)]
+    sh = lambda a: a.mean(0) / a.std(0)  # noqa: E731
+    logits, deg = [], []
+    for comb in itertools.combinations(range(blocks), blocks // 2):
+        ins = np.concatenate([parts[i] for i in comb])
+        oos = np.concatenate([parts[i] for i in range(blocks) if i not in comb])
+        si, so = sh(M[ins]), sh(M[oos])
+        b = int(np.argmax(si))
+        r = (so < so[b]).sum() + 1  # rank from the bottom, 1..N
+        w = r / (len(so) + 1)
+        logits.append(np.log(w / (1 - w)))
+        deg.append((si[b], so[b]))
+    logits = np.array(logits)
+    pbo = (logits <= 0).mean()
+    d = np.array(deg) * np.sqrt(52)
+    full = pd.Series(sh(M) * np.sqrt(52), index=V.columns).sort_values()
+    lines = [f"N-3: CSCV over {V.shape[1]} construction variants, {len(V)} weeks in {blocks} blocks, "
+             f"{len(logits)} splits", "",
+             f"PBO {pbo:.2f}; median logit {np.median(logits):+.2f}",
+             f"in-sample best Sharpe mean {d[:, 0].mean():.2f}, its out-of-sample Sharpe mean {d[:, 1].mean():.2f}",
+             f"falsifier (PBO > 0.5): {'TRIGGERED' if pbo > 0.5 else 'not triggered'}", "",
+             "full-period Sharpe by variant (lowest, median, highest): "
+             f"{full.iloc[0]:.2f} ({full.index[0]}), {full.median():.2f}, {full.iloc[-1]:.2f} ({full.index[-1]})"]
+    t = "\n".join(lines)
+    print(t)
+    open(os.path.join(HERE, "ensemble_n3.txt"), "w").write(t + "\n" + full.round(2).to_string() + "\n")
+    with open(os.path.join(HERE, "census.csv"), "a", newline="") as f:
+        csv.writer(f, lineterminator="\n").writerow([datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
+                                                     "N-3", "ensemble", "diagnosis", len(logits), f"{pbo:.2f}", "", "",
+                                                     pbo <= 0.5, "CSCV PBO over 24 book-construction variants"])
+
+
 if __name__ == "__main__":
-    n2() if sys.argv[1:] == ["n2"] else main()
+    {"n2": n2, "n3": n3}.get(sys.argv[1] if sys.argv[1:] else "", main)()
