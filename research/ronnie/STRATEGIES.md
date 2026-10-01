@@ -180,7 +180,7 @@ closure audit (`loop/closure_audit.txt`, week-clustered, SESOI +0.10R) and the p
 | Trend B3 book, T0 | active, stage 3 | T-1 and T-2 positive; validation positive, spans zero; cross-asset (X-3, 21 instruments 2008-2026) positive, spans zero |
 | Box break D-1 | active, stage 3 | holdout and majors positive, spans zero; the lookback plateau cuts the edge to +0.14 |
 | Box retest G-2 | absorbed into D-1 | correlation with D-1 +0.39 (+0.61 in bear years) |
-| Trend-line break F-1/F-2 | active, stage 3 | reserve fail, majors positive, spans zero; pooled over 69 holdout coins (P-1): F-1 interval above zero, t below 3 |
+| Trend-line break F-1/F-2 | active, stage 3 | reserve fail, majors positive, spans zero; pooled over 69 holdout coins (P-1): F-1 interval above zero, t below 3; decay diagnosis D-R: within-regime decay -0.23 [-0.45, -0.02] after 2022 |
 | Capitulation O3/C-6 | active but power-capped (parked for proof) | iteration +0.58; final 7 trades; new coins give no events (C-6u) |
 | Pure crash O1 | parked, lowest | R-2 pooled -0.055 [-0.21, +0.103] |
 | B1 4h momentum | active, stage 3 | 15 unseen coins +0.104 [+0.048, +0.159]; at SESOI |

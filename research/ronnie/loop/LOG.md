@@ -1596,3 +1596,45 @@ further pooled read on 2023-2026 crypto is admissible, so new evidence can come 
   tried on this data, because the read is spent; a long-short trend book would be a new registered rule, at stage 0.
 - **For the trend line:** consistent in sign with crypto (T-1, T-2, validation), adding no significance. It stays at
   stage 3 (forward).
+
+## Decay diagnosis D-R (registered before running; the user's question: is the recent weakness regime or decay?)
+
+- **Data (open, already read; no sealed tier is touched):** trendline_break_strong (F-1) on 15 coins
+  (`combo/holdout_events.csv.gz`), B1 on 15 unseen coins (`altcoins/events.csv.gz`), T0 on 37 coins
+  (`trend/trades.csv.gz`); 2018-2022 against 2023-2026.
+- **Regimes at entry, from BTC daily closes known at the entry (thresholds fixed as terciles of 2018-2022):**
+  - volatility: 30-day realised;
+  - trend: 60-day efficiency ratio, |net change| / sum of |daily changes|.
+- **Decomposition:**
+  - expected 2023-2026 edge = the sum over regime cells of (2023-2026 share x 2018-2022 edge in that cell);
+  - "regime shift" = expected minus the 2018-2022 edge;
+  - "within-regime decay" = the actual 2023-2026 edge minus expected, with a week-clustered bootstrap interval from a
+    regression of edge on a post-2022 dummy plus the regime cells.
+- **Reading:**
+  - within-regime decay near zero, with a negative regime shift: the weakness is the market state (it can come back);
+  - significantly negative within-regime decay: the edge itself shrank.
+- **Predicted:** mixed. Trend-type rules (F-1, T0) lose mostly through the regime (fewer efficient trends after 2022);
+  B1 shows some within-regime decay.
+
+**Result D-R** (`loop/decay_diagnosis.py`, `loop/decay_diagnosis.txt`): the prediction was wrong. **The regime did not
+turn against the rules; the edge shrank within the same regimes.**
+- **The market state after 2022:** BTC was in its 2018-2022 low-volatility tercile on 85% of days (33% before). Trend
+  efficiency was unchanged (35/31/34%).
+- **Low volatility was the best cell before 2022** for F-1 (+0.36) and B1 (+0.18), so the regime mix alone predicts
+  better results after 2022 (regime shift +0.14 for F-1, +0.06 for B1, +0.22 for T0).
+- **Within-regime decay (post-2022 coefficient, week-clustered):**
+  - F-1: -0.23 [-0.45, -0.02], significant; low volatility +0.36 to +0.15, high trend +0.35 to +0.06.
+  - B1: -0.07 [-0.26, +0.11], not significant; its overall edge barely moved (+0.111 to +0.099).
+  - T0: -0.51 [-1.30, +0.24], not significant and wide; high-trend cells still best (+1.60 before, +0.47 after).
+- **Reading:**
+  - F-1's timing edge decayed. That is structural or maturity decay (types 2 and 4), not a temporary regime, and refits
+    cannot fix it.
+  - B1's timing edge held; its book losses in 2025-2026 come from market direction, not from timing.
+  - T0 still earns in efficient trends, but they paid less after 2022.
+- **Caveat:** "low volatility" after 2022 is lower than anything in the 2018-2022 tercile, so part of the "decay" could
+  be an extreme-low-volatility state that has no counterpart before 2022.
+- **Consequences, none of them refits:**
+  - F-1/F-2's expected edge in the forward plan is taken at the post-2022 level (about +0.10R), not the development
+    level.
+  - The sequential test's H1 (half the backtest Sharpe) is already close to that.
+  - The catalogue notes the decay.
