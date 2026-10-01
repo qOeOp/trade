@@ -16,6 +16,7 @@ _spec.loader.exec_module(R3)
 BASE = dict(tf="4h", hold=30, sides=(1, -1))
 LOOPS = {"D-1": dict(BASE), "D-1x": dict(BASE, iter_set="iterx")}
 LOOPS.update({f"D-2w{w}": dict(BASE, iter_set="iterx", W=w) for w in (30, 120, 240)})
+LOOPS["D-3"] = dict(BASE, iter_set="iterx", time_only=True)
 
 
 def make(cfg):
@@ -30,6 +31,8 @@ def make(cfg):
             if side not in cfg["sides"]:
                 continue
             i = e - 1
+            if cfg.get("time_only"):  # no target: stop at the box middle or the 30-bar time limit
+                tgt = entry + side * 1000 * abs(entry - stop)
             out.append((e, side, entry, stop, tgt))
             feats[(E.CURRENT["coin"], d.index[e], side)] = dict(depth=(top[i - 1] - bot[i - 1]) / a[i - 1] if a[i - 1] > 0 else np.nan)
         return out

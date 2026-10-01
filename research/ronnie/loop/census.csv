@@ -93,3 +93,4 @@ logged_at,loop,candidate,stage,n,edge,lo,hi,passed,note
 2026-10-01T12:47:58+00:00,S-2,breakouts,diagnosis,,,,,False,"funding crowding veto on long breaks of F-2, D-1x, G-2"
 2026-10-01T12:49:00+00:00,F-3,trendline,diagnosis,994,,,,False,"line-quality attribution: span, slope, age, gap, body"
 2026-10-01T15:20:12+00:00,C-6u,familyC,iteration,7,-0.6058,-0.9203,-0.2739,False,never-used universe coins 2018-2022; week-clustered interval
+2026-10-01T15:21:40+00:00,D-3,familyA,iteration,366,+0.1549,-0.0125,+0.3295,False,

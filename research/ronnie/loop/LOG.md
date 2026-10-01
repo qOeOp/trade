@@ -1391,3 +1391,18 @@ date of 2027-10-01, with per-candidate kill and admit thresholds from bootstrapp
   rarely produce it on liquid volume. The "more coins" route to power is exhausted for the daily definition, and the
   4h route dilutes it (C-8). Under the closure criteria being written, C-6 is parked (positive, under-powered), not
   closed.
+
+### Loop D-3: box break with a time-only exit (registered before running; section 3, hypothesis 5)
+
+- **Change from D-1x (one):** no target; exit at the stop (box middle) or after 30 bars. Same coins, tier and costs.
+- **Sources:** Zarattini and Aziz (SSRN 4416622; a 10R target that is almost never hit, so in practice a time exit);
+  our own F-2 and B1 time-exit results.
+- **Falsifier:** edge not above D-1x's +0.188 (iteration, extended tier).
+- **Predicted:** a small gain, about +0.05R, from letting the right tail run.
+
+**Result D-3:** falsified. 366 trades (358 in D-1x; 8 more pass the target check), avg R +0.214, edge +0.155
+[-0.012, +0.329]; 2018-20 +0.40, 2021-22 +0.03.
+- **Below D-1x's +0.188,** so the one-width target stays.
+- **Reading:** unlike a trend-line break or B1, a box break's move is bounded. One box width is roughly the move it
+  makes, and 13% of the stopped trades had already reached +1R first. The time exit is not a general improvement; it
+  depends on the setup.
