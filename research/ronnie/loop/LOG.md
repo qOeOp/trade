@@ -1570,3 +1570,16 @@ survives Holm**, as predicted.
 - **Predicted:** against cash, PASS (Sharpe 0.4-0.8, long-only trend on commodities and indices over 18 years); against
   the regime book, FAIL (edge positive, interval spans zero). Long-only loses the short side the literature uses, so
   FX contributes little.
+
+**Verdict P-1 (gatekeeper relay):**
+- D-1: stage 4 FAIL (edge positive, interval spans zero)
+- G-2: stage 4 FAIL (edge positive, interval spans zero)
+- F-1: stage 4 FAIL (interval above zero, t below 3 or edge below SESOI)
+- F-2: stage 4 FAIL (edge positive, interval spans zero)
+- C-6: stage 4 FAIL (edge positive, interval spans zero)
+- B1: stage 4 FAIL (edge positive, interval spans zero)
+
+As predicted, no rule reaches t >= 3. Pooled over all 69 post-2022 holdout coins, every rule keeps a positive sign, and
+F-1 is the only one whose pooled week-clustered interval excludes zero. F-1 is the strongest single rule, still short of
+the stage-4 bar. All six stay at stage 3 (forward). The holdout universe is now exhausted for these lineages: no
+further pooled read on 2023-2026 crypto is admissible, so new evidence can come only from forward data.
