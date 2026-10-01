@@ -12,7 +12,7 @@ import attrib  # noqa: E402
 import engine as E  # noqa: E402
 
 BASE = dict(form=126, trade=42, top=5, adf_crit=-3.37, z_in=2.0, z_out=1.0, z_stop=4.0, cost=0.0012, coins="iter")
-LOOPS = {"H-1": dict(BASE), "H-2": dict(BASE, roll=60)}
+LOOPS = {"H-1": dict(BASE), "H-2": dict(BASE, roll=60), "H-3": dict(BASE, tf="1h", form=504, trade=168)}
 
 
 def adf_t(e):
@@ -26,8 +26,8 @@ def adf_t(e):
     return b[1] / np.sqrt(cov[1, 1])
 
 
-def prices(coins, t0, t1):
-    P = pd.DataFrame({c: E.bars(c)["4h"].close for c in coins})
+def prices(coins, t0, t1, tf="4h"):
+    P = pd.DataFrame({c: (E.bars_1h(c) if tf == "1h" else E.bars(c)["4h"]).close for c in coins})
     return np.log(P[(P.index >= t0 - pd.Timedelta(days=30)) & (P.index < t1)])
 
 
@@ -68,7 +68,7 @@ def simulate(L, a, b, beta, mu, sd, s, e_end, cfg):
 
 
 def run(loop, cfg, coins, t0, t1, random_pairs=False, seed=0):
-    L = prices(coins, t0, t1).dropna(how="all")
+    L = prices(coins, t0, t1, cfg.get("tf", "4h")).dropna(how="all")
     rng = np.random.default_rng(seed)
     idx = L.index
     rows = []

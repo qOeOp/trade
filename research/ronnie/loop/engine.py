@@ -42,6 +42,18 @@ CURRENT = {"coin": None}  # the coin whose signals are being built; families key
 CENSUS = os.path.join(HERE, "census.csv")
 
 
+def bars_1h(coin):
+    """Hourly bars (cached separately; only the pairs family needs them)."""
+    os.makedirs(CACHE, exist_ok=True)
+    path = os.path.join(CACHE, f"{coin}_1h.pkl")
+    if os.path.exists(path):
+        return pickle.load(open(path, "rb"))
+    from evaluate import holdout_bars
+    h = holdout_bars(coin)["1h"][["open", "high", "low", "close", "volume"]].astype(float)
+    pickle.dump(h, open(path, "wb"))
+    return h
+
+
 def bars(coin):
     os.makedirs(CACHE, exist_ok=True)
     path = os.path.join(CACHE, f"{coin}.pkl")

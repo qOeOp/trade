@@ -886,3 +886,16 @@ registration.
 - **Explanation it rests on:** H1, the drifting spread level. It is a common practice (rolling z-scores, as in Chan,
   "Algorithmic Trading").
 - **Predicted:** about -0.1% a trade, with a lower bound near -0.3%.
+
+**Result H-2:** iteration gate fails, worse. 1,431 trades, mean net -0.497% [-0.776%, -0.238%], win 53%: small wins
+back to the rolling mean, large divergence losses. The prediction (-0.1%) missed by -0.4%. At 4h, spreads behave more
+like trends than ranges, consistent with Fil and Kristoufek, who find pairs reversion on intraday (5m, 1h) bars and
+not on daily bars.
+
+### Loop H-3 (registered before running; amendment 4)
+
+- **Structural change (timeframe):** 1h bars with Tadi et al.'s windows: 3-week formation (504 bars) and 1-week
+  trading (168 bars). Entry at |z| 2, exit at |z| 1, stop at |z| 4. Fixed formation statistics (H-1's signal; H-2's
+  rolling z did worse).
+- **Explanation it rests on:** the literature locates crypto pairs reversion at intraday frequency.
+- **Predicted:** about -0.2% a trade, with a lower bound near -0.4% (more trades, so costs weigh more).
