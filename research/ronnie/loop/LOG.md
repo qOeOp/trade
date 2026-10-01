@@ -181,3 +181,12 @@ within 2 bars fell from 43% to 31%, and the later entry gave the gain back.
 - **Single change from B-3:** trade a break only when ATR(14) is below ATR(100), that is a break out of compression.
 - **Reason:** Crabel (1990) finds narrow-range days precede range expansion; the Bollinger squeeze breakout is a common
   community setup; and the low-volatility gate helped consistently in Family A.
+
+**Result B-4:** iteration gate fails on 20 trades: avg R +0.800, edge +0.327 [-0.723, +1.346]. The sample cannot decide.
+
+### Loop B-5 (registered before running)
+
+- **Single change from B-4:** daily swing levels (order 3) instead of weekly. Longs only, two-close confirmation and
+  the compression gate are kept.
+- **Reason:** stacking conditions on rare weekly levels left 20 trades. The mechanism under test is the break out of
+  compression (Crabel), not the level's rank, and daily levels give several times the sample.

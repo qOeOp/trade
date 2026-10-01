@@ -55,3 +55,9 @@ Input for the product's R&D system. Each note: what happened, why it matters, a 
     records them, but nothing yet converts that count into a haircut on the reported edge.
     - **Proposal:** report a deflated edge alongside the raw one (for example, a deflated Sharpe ratio or a holdout
       haircut per look).
+13. **One change per loop, applied as a filter, collapses the sample.** Family B went from 350 to 154, 121 and then 20
+    trades as each loop added a condition. The rule "one change per loop" is good for attribution, but with filters it
+    trades statistical power for interpretability, until nothing can be decided.
+    - **Proposal:** before a loop runs, the system estimates its trade count from the predecessor (the share of trades
+      the new condition keeps) and the minimum detectable edge at that count. It warns when the loop cannot reach the
+      gate even if the edge is real.
