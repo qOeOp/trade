@@ -1455,3 +1455,47 @@ Predicted: both close to their holdout estimates (+0.05 to +0.10), so equivalent
 - **R-2 pooled, as registered:** 4,103 trades in 160 weeks, -0.055 [-0.208, +0.103]. **Parked** by the rule, because the
   upper bound is 0.003 above SESOI, even though the estimate is negative. The rule is applied as written, not
   re-read; O1 is parked at the lowest priority, with no revisit planned.
+
+## Bucket audit (registered before running; the user's question: can a test universe of one kind kill a rule that works in another?)
+
+- **Asset buckets:** majors (the 17 iteration coins), mid caps (the 36 extended coins) and small caps (never-used
+  universe coins, where a test reached them). **Context buckets:** BTC above or below its 200-day mean (bull or bear),
+  and volatility above or below its long-run level (ATR(14)/ATR(100) at the entry).
+- **Files:** the closed and parked loop variants with the most data: A8x, A11, A12, B-5x, B-9, B-10, C-8, E-1x, E-4,
+  E-5, G-1, R-1, R-2.
+- **Per cell:** the edge with a week-clustered bootstrap. Per bucket: the interaction (bucket minus the rest of that
+  variant). One-sided p-values, Holm across all cells at 5%.
+- **A bucket hit only means "investigate".** Reviving a rule in one bucket needs a mechanism stated before looking and a
+  confirmation on new coins of that bucket (subgroup-credibility criteria).
+- **Also a coverage table:** which asset classes and buckets each family was ever tested on. A family is closed only for
+  the buckets it was tested on.
+- **Predicted:** no cell survives Holm; one or two nominal hits, as expected by chance across about 100 cells.
+
+**Result, bucket audit** (`loop/bucket_audit.py`, `loop/bucket_audit.txt`): 75 cells across 13 variants. **No cell
+survives Holm**, as predicted.
+- **One nominal hit:** A8x on the majors (+0.41, p 0.03), which is A8's discovery sample, so a selection artifact; the
+  new-coin test answered it (-0.23).
+- **Next strongest:** B-5x in low volatility (+0.29, p 0.07) and C-8 in low volatility (+0.22, p 0.09).
+- **Small caps (R-2):** -0.08.
+- **Bug fixed before reading:** the first Holm computation used the wrong rank inside the running maximum; it did not
+  change any flag.
+
+**Coverage, by asset class** (from the pre-loop audit and the loop files):
+
+| family | crypto majors | crypto mid caps | crypto small caps | FX | gold, commodities | equity indices |
+| --- | --- | --- | --- | --- | --- | --- |
+| A support bounce | yes | yes | no | no | no | no |
+| A12/B-9 round numbers | yes | yes | no | no | no | no |
+| B break continuation | yes | yes | no | no | no | no |
+| E box fade, range v1-v6 | yes | yes | no | yes (range-v1, inconclusive) | no | no |
+| G-1 fading breaks | yes | yes | no | no | no | no |
+| flags F-raw | BTC, ETH | yes | 14 small (holdout) | yes (patterns-v2 FX) | no | no |
+| O1 pure crash | yes | yes | yes | no | no | no |
+| setups B1, P1-P3, R1 | yes | no | 15 unseen | yes | no | no |
+| trend T0, B3 | yes | point-in-time top 20 | no | no | gold, silver (T0 only) | no |
+| capitulation C-6 | yes | yes | yes (7 trades) | no | no | no |
+
+- **Under CRITERIA, a closure covers only the cells it tested.** The loop families A, B, E and G are "closed for crypto
+  majors and mid caps, 2018-2022" and untested elsewhere.
+- **FX is the largest gap with a prior.** Osler's FX order-flow studies predict support/resistance and round-number
+  effects there, which is exactly what families A and A12/B-9 tested in crypto only.
