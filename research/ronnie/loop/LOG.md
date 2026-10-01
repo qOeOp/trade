@@ -42,3 +42,21 @@ Sources:
 - **Single change from A1:** trade only levels with at least two prior touches.
 - **Reason:** the A1 attribution (touched levels lose least), Osler's order clustering at widely watched levels, and
   the community rule that a level tested more often is stronger.
+
+**Result A2:** iteration gate fails. 225 trades, avg R -0.139, edge -0.287 [-0.482, -0.061]. The A1 attribution did not
+carry over: among the A2 trades, more touches were no better, so tercile attribution is chasing noise.
+
+**Attribution A1/A2 (new decomposition, `engine.decompose`):**
+- **When the stops come:** 62% of trades are stopped, but only about 30% of those within 2 bars.
+- **How little the trade moves first:** the median favourable excursion before the stop is 0.26-0.29R, and only 9%
+  of stopped trades first reached +1R.
+- **Reading:** the level "holds" for a day, the bounce has no follow-through, and the level breaks later. This fits
+  Osler: levels interrupt trends rather than reverse them.
+
+### Loop A3 (registered before running)
+
+- **Single change from A1 (A2's touch rule is dropped):** enter only on confirmation. A buy stop at the rejection
+  day's high (a sell stop at its low for shorts) is valid for the next 2 bars and filled at the trigger, or at the open
+  on a gap; otherwise the signal is cancelled. Stop and target are unchanged.
+- **Reason:** the decomposition shows bounces without follow-through. The community's "wait for confirmation" rule
+  and the price-action signal-bar trigger keep only the bounces that move.

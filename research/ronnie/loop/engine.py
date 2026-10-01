@@ -104,3 +104,32 @@ def log(loop, name, stage, stats, passed, note=""):
 def fmt(stats):
     return (f"n {stats['n']}, avg R {stats['avgR']:+.3f}, edge {stats['edge']:+.3f} [{stats['lo']:+.3f}, {stats['hi']:+.3f}], "
             f"2018-20 {stats['edge_2018_20']:+.3f} (n {stats['n_a']}), 2021-22 {stats['edge_2021_22']:+.3f} (n {stats['n_b']})")
+
+
+def decompose(z, tf, hold):
+    """Where a loss happens: for each trade, the bar of exit, the maximum favourable excursion (MFE) before the stop, in R,
+    and whether the stop came within 2 bars. Reconstructed from (coin, time, side, stop_atr, target_R)."""
+    rows = []
+    for coin, g in z.groupby("coin"):
+        d = bars(coin)[tf]
+        o, h, l, c = (d[x].values for x in ("open", "high", "low", "close"))
+        a = MT.atr_of(h, l, c)
+        for t in g.itertuples():
+            e = int(d.index.get_loc(t.time))
+            side, entry = t.side, o[e]
+            risk = t.stop_atr * a[e - 1]
+            stop, tgt = entry - side * risk, entry + side * t.target_R * risk
+            mfe, k_stop = 0.0, None
+            for j in range(e, min(e + hold, len(c))):
+                if (l[j] <= stop) if side == 1 else (h[j] >= stop):
+                    k_stop = j - e
+                    break
+                mfe = max(mfe, ((h[j] - entry) if side == 1 else (entry - l[j])) / risk)
+                if (h[j] >= tgt) if side == 1 else (l[j] <= tgt):
+                    break
+            rows.append(dict(mfe=mfe, k_stop=k_stop))
+    dz = pd.DataFrame(rows)
+    st = dz.k_stop.notna()
+    return (f"  decomposition: stopped {st.mean():.0%} of trades; of the stopped, {(dz.k_stop[st] <= 1).mean():.0%} within 2 bars "
+            f"and {(dz.mfe[st] >= 1).mean():.0%} after first reaching +1R; median MFE before the stop {dz.mfe[st].median():.2f}R; "
+            f"winners' median MFE {dz.mfe[~st].median():.2f}R")

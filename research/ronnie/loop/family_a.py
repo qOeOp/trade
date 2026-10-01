@@ -14,7 +14,7 @@ import engine as E  # noqa: E402
 
 BASE = dict(tf="1d", trend="sma", touch=0.25, stop_atr=1.0, target="hh20", hold=20, confirm="close_above", sides=(1, -1),
             level_tf="1d", spacing=5)
-LOOPS = {"A1": dict(BASE)}
+LOOPS = {"A1": dict(BASE), "A2": dict(BASE, min_touches=2)}
 
 
 def levels(d, k):
@@ -42,7 +42,7 @@ def make(cfg):
                 dn = c[i] < s200[i] and s50[i] < s200[i]
                 if (side == 1 and not up) or (side == -1 and not dn):
                     continue
-                m = S == -side  # supports for longs, resistances for shorts
+                m = (S == -side) & (T >= cfg.get("min_touches", 0))  # supports for longs, resistances for shorts
                 if not m.any():
                     continue
                 ys, ts, ls = Y[m], T[m], L[m]

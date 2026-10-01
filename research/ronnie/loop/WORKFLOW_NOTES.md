@@ -29,3 +29,7 @@ Input for the product's R&D system. Each note: what happened, why it matters, a 
    regime, random entries in the trend's direction earn (+0.13R here), so the bar a trend-aligned setup must clear is
    high. A regime-matched control would answer a different question: does the level add to the trend?
    - **Proposal:** the control is part of the hypothesis registration (year-matched, regime-matched, or both reported).
+6. **The attribution proposal (note 4) was needed at once.** Loop A2 followed the A1 tercile reading and got worse,
+   because that reading did not carry over. A decomposition helper (stops within 2 bars, MFE before the stop) was
+   written mid-run, and it pointed at the entry with a clear mechanism. An R&D system should ship this decomposition
+   as the default attribution, before any feature buckets.
