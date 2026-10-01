@@ -412,3 +412,18 @@ than random entries of the same year and side. The return is the regime (long in
 winners run, not the break as an entry. This matches Family A's beta finding and trend-v1's note that the exit carries
 the trend rule. No flagged factor appeared in any loop, and the cited mechanisms are spent: Osler's cascades at round
 numbers, Crabel's compression, volume confirmation, two-close confirmation and Donchian channels.
+
+## Family D: "a 4h box break runs" (the range-v3 X1 lineage)
+
+Why this family: of the surviving entries it is the closest to significance. It made +0.31R above random on
+development, +0.18R on 14 unused coins and +0.13R on 37 large caps, each short of the 95% rule. Sources: Brock,
+Lakonishok and LeBaron's trading-range break; Osler's stop cascades beyond levels; Crabel's range expansion.
+
+**Tier contamination:** range-v4 read the 37 large caps over 2023-2026, which includes this protocol's validation tier.
+Family D validates on the final tier only.
+
+### Loop D-1 (registered before running)
+
+- **Baseline:** range-v3 X1 unchanged on 4h bars of the iteration tier: a 4h close beyond the 60-bar box known at the
+  bar before, entry at the next open, stop at the box middle, target one box width, time limit 30 bars; targets under
+  1R dropped.
