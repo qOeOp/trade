@@ -585,6 +585,32 @@ starting flat. It places no orders and uses no account.
     0.5 ATR.
 - **Conclusion:** together with range-v1, box fading shows no edge on any timeframe.
 
+## Range boxes, third round: diagnosis, literature and redesign (TrialFamily range-v3)
+
+**Diagnosis (`range3/diagnose.txt`, development data only).** The first two rounds failed because a box edge test is
+usually a break.
+- **Edge tests break:** the box broke on the tested side 48-70% of the time within 30 bars, and on the far side 6-10%.
+- **Limit fills:** 90% were stopped, most on the fill bar.
+- **No exit rescues the fade:** all nine stop and target combinations were negative.
+
+**Literature.**
+- **15-minute reversal:** crypto reversal is pervasive at 15 minutes but about 1.3 bp gross, below costs, and stronger
+  after aggressive taker flow (arXiv 2608.21888).
+- **Bitcoin intraday:** predictability mixes momentum and reversal (Wen et al., 2022).
+
+**Redesign (`range3/result.txt`).** The holdout was 14 unused coins (STRAX, LSK, GTC, DIA, RAY and others), 2022-2026.
+- **X1, trading the box break in its direction (stop at the box middle, target one box width):**
+  - **4h:** +0.31R above random on development [+0.06, +0.55], and +0.18R on the holdout [-0.04, +0.43]. It misses the
+    95% rule on the holdout (150 trades) but is the strongest box result so far.
+  - **1h:** +0.07R and +0.04R, not significant.
+- **X2, fading volume spikes:**
+  - fading 2.5 ATR, 3x volume hourly bars inside a 4h box: -0.23R and +0.13R, small samples;
+  - fading them anywhere is significantly worse than random on development (-0.12R), so such moves tend to continue.
+- **X3, the box fade gated by variance ratio and ADX:** +0.06R and -0.02R on 1h; -0.22R and -0.44R on 4h.
+
+**Next step.** The 4h box breakout is the lead: an unchanged replication on further unused coins, plus the forward
+record.
+
 ## Running the survivors together, and a forward record
 
 `combo/portfolio.py` runs B1, trendline_break_strong and line_break_ridge as one book on BTC, ETH and the 15 holdout
