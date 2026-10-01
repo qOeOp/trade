@@ -80,6 +80,37 @@ Hypotheses (ranked):
    its 90th percentile or open interest is up sharply.
 5. **A faster signal on post-2023 coins** (20/10 or 4h).
 
+## 3. 4h breakouts (box, trend line, B1)
+
+No source tests a 4h crypto breakout filtered by open interest, taker flow or funding; that is an open question.
+- **Zarattini and Aziz, "Can Day Trading Really Be Profitable?"** (SSRN 4416622): a QQQ 5-minute opening-range break
+  with the stop at the bar's opposite extreme and a 10R target, so in practice a time exit. An independent replication
+  (github.com/giovannibrusco/zarattini-2023-orb-qqq) gets Sharpe 1.06 against the paper's 1.12, but net profit reaches
+  zero at about 2.2 cents a share of slippage. This supports our time-exit finding and warns that +0.1 to +0.3R edges
+  can vanish after costs.
+- **Zarattini, Barbon and Aziz, "A Profitable Day Trading Strategy for the U.S. Equity Market"** (SSRN 4729284): the
+  opening-range break only on "stocks in play" (abnormal relative activity), Sharpe about 2.4 in-sample. The edge comes
+  from choosing the asset on abnormal activity, not from confirming the bar.
+- **Zarattini, Pagani and Barbon, "Catching Crypto Trends"** (SSRN 5209907): ensembles across lookbacks reduce
+  parameter fragility, which matters for our single 60-bar box.
+- **Concretum, "Seasonality in Bitcoin Intraday Trend Trading":** BTC intraday trend returns cluster from Sunday about
+  19:00 New York through the next day, 2018-2025, gross, with no out-of-sample test.
+- **Shen, Urquhart and Wang (2022), "Bitcoin intraday time-series momentum"** (Financial Review): the first half hour
+  predicts the last, out of sample, more strongly on high-volume or high-volatility openings.
+- **"The Quarter-Hour Effect"** (arXiv 2607.09426): order imbalance at the start of clock periods predicts returns over
+  the next 4-12 hours on six Binance perpetuals. A new preprint, abstract only.
+- **Background, Hudson and Urquhart (2021):** about 15,000 rules on crypto; channel breakouts did best, but there was no
+  out-of-sample predictability for Bitcoin (snippets only).
+
+Hypotheses (ranked):
+1. **Taker-flow confirmation:** the breakout bar's taker buy/sell ratio in the direction of the break and in the top
+   tercile of its trailing 90 days (metrics, 2021 onward).
+2. **Rising against falling open interest on the break:** rising open interest means new positions; falling means a
+   squeeze that runs out of fuel (it may explain the 77% that return inside the box).
+3. **Funding as a crowding veto:** skip long breaks when funding is above its trailing 90th percentile.
+4. **A session window:** breaks closing between Sunday 23:00 and Monday 23:00 UTC against the rest.
+5. **Ensemble box lookbacks (20/40/60/120) with a time exit**, sized by the number of boxes broken.
+
 ## 4. Capitulation reversals (C-6 / O3)
 
 No primary study tests a capitulation measured against BTC on daily bars, or an open-interest flush as a bottom
@@ -204,3 +235,14 @@ Plan proposed (ranked):
 4. **Spend the clean holdout once on the frozen book:** DSR with N from step 1, and a Romano-Wolf or SPA p-value against
    buy-and-hold and cash.
 5. **Optional:** meta-label sizing with funding, open interest and the volatility regime, counted as new trials.
+
+## Synthesis: hypotheses chosen for loops (agent)
+
+| line | first loops | data | status |
+| --- | --- | --- | --- |
+| Carry K1 | decomposition; entry band above the anchor (K1b) | funding | done: K1b not adopted; decomposition explains the decay |
+| Trend | book comparison (T-1); point-in-time universe (T-2); clean read of the ensemble | daily OHLCV; universe of all USDT pairs | T-1 done (ensemble beats the regime baseline); T-2 waits for the universe download |
+| Breakouts | session window (diagnosis, now); open-interest and taker-flow splits | metrics | the metrics download is running |
+| Capitulation | beta-adjusted residual; open-interest flush; taker-flow reversal | metrics | waits for metrics |
+| Bear markets | cross-sectional funding long-short; funding-extreme overlay | funding | queued |
+| Ensemble | correlation and effective N, a pre-registered book, then PBO/CSCV, DSR | the five rules' trade logs | queued after T-2 |
