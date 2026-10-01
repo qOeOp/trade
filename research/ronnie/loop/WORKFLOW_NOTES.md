@@ -87,3 +87,7 @@ Input for the product's R&D system. Each note: what happened, why it matters, a 
 19. **The halves rule ignores power.** C-4 passed the pooled interval, but its first half held 15 trades, and one
     clustered loss (three coins on 2018-11-22) sank it. Requiring both halves positive is sound against regime luck,
     but it needs a minimum count per half, or a pooled test with time-clustered resampling instead.
+20. **A change can interact with the trade geometry and silently shrink the sample.** C-5's confirmation raised entries
+    and pushed most targets under the 1R floor, so 61 of 76 trades vanished by a filter the loop did not name. The
+    report should break down why candidate signals were dropped (target floor, stop cap, spacing, cancellation), so
+    an unintended filter is visible.

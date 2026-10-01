@@ -299,3 +299,7 @@ terciles (`loop/reattribution.txt`):
   otherwise the signal is cancelled. Stop, target and time limit as before.
 - **Reason:** the C-4 decomposition shows stopped trades dying within 2 bars with no favourable move. In Family A the
   same confirmation cut immediate stops from 31% to 12% of stopped trades (A3).
+
+**Result C-5:** iteration gate fails on 15 trades: avg R +0.160, edge +0.249 [-0.228, +0.728]. Raising the entry to the
+signal day's high left most signals with a target under 1R, so they were dropped. The confirmation that helped Family A
+conflicts with the near target of a capitulation bounce, so it does not transfer.

@@ -786,6 +786,24 @@ tested against skipping the same number of random trades of the same coins (`eve
 - **Conclusion:** the failed strategies do not fail because of event windows. Their losses are spread over the
   calendar.
 
+## Autonomous R&D loop (loop/)
+
+`loop/` runs the R&D loop the user asked for: start from the hypothesis that a strategy works, research papers and
+community practice, test, attribute a failure, and change one thing per loop until the bar is met. The user also uses
+the run to test the workflow; problems met are recorded in `loop/WORKFLOW_NOTES.md`.
+- **Rules:** `loop/PROTOCOL.md` sets the data tiers (iteration, validation, final), the gates, one change per loop with
+  a reason, and a budget of 8 loops per family.
+- **Record:** `loop/LOG.md` holds each loop's registration, result and attribution; `loop/census.csv` holds every
+  scored trial; `loop/engine.py` and `loop/family_*.py` hold the code.
+- **Family A, "support holds in a trend" (8 loops):** the edge against random rose from -0.25R to +0.41R through
+  weekly levels, confirmation entries and a low-volatility gate. It narrowly missed the gate on 51 trades: a near miss
+  with too few trades.
+- **Family B, "a broken level runs" (8 loops):** breaks earn in absolute terms but no more than random entries of the
+  same year and side. A compression-break edge on daily bars vanished on 4h bars (795 trades, +0.03R).
+- **Family C, "a capitulation marks the low" (5 loops so far):** with the iteration tier extended (protocol amendment
+  1), the 1-5 day 15% capitulation gives +0.31R [+0.09, +0.55] on 76 trades, but its 2018-2020 half (15 trades) is
+  negative, so it fails the gate.
+
 ## Running the survivors together, and a forward record
 
 `combo/portfolio.py` runs B1, trendline_break_strong and line_break_ridge as one book on BTC, ETH and the 15 holdout
