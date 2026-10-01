@@ -263,3 +263,17 @@ Input for the product's R&D system. Each note: what happened, why it matters, a 
     fills, queue position and fees, which OHLC bars cannot model. An R&D system needs an execution simulator matched
     to the strategy's horizon (order-book or trade-level data for intraday strategies), or it will either miss such
     edges or credit fills that would not have happened.
+49. **The census leaks verdict bits before the gatekeeper relays them.** The book gatekeeper wrote its two pass/fail
+    bits into a shared census row. The iterating agent saw that row while checking its own census append, before the
+    relay arrived. Here the bits were the same ones the relay carries, but any gatekeeper output written to a shared
+    file is a side channel. Proposal: gatekeeper census rows go to a sealed ledger, and the shared census gets only "read
+    done" until the verdict is relayed.
+50. **Variant counts must be computed, not stated.** N-3 was registered with "24 variants" but its grid produced 32.
+    The deflation and PBO depend on that count, so a hand-stated count is a bug class. Proposal: the registration
+    stores the grid itself, and the runner refuses to run when the grid's size differs from the registered count.
+51. **A filter can be immaterial, not true or false.** The funding veto (S-2) would have touched 2% of breakout
+    trades; no result could change a decision. Proposal: the power check before a filter test (note 33) also
+    computes the share of trades the filter can touch, and skips the test below a set share (for example 10%).
+52. **Sparse streams break volatility scaling.** A trailing 26-week volatility is zero for a rule that trades in 5%
+    of weeks, and the book printed NaN. Event strategies need a scaling defined on their own clock (per trade or an
+    expanding estimate), stated in the book's design before the first run.
