@@ -1343,3 +1343,16 @@ oversold_idio), so the book can be scored from those records without a new scrip
 date of 2027-10-01, with per-candidate kill and admit thresholds from bootstrapped backtest paths.
 - **Power:** book T needs about 2.6 years at half its in-sample Sharpe, B3 5.8, C-6 alone 19, K1 0.7.
 - **K1 is already at its kill line:** its last two holdout years are below the 52-week threshold.
+
+### Loop K1p: carry timed on the premium index (registered before running; external research section 1, hypothesis 2)
+
+- **Rule:** long spot, short perpetual while the premium index says the perpetual trades rich. Enter when the 3-day
+  mean of the daily premium-index close is above 0; exit when the last daily close is below 0. Costs, coins and
+  accounting as K1 (17 majors, development 2020-2022, per notional).
+- **Why:** funding is a lagged, clamped transform of the premium, pinned at the 0.01% anchor for a wide band of
+  premiums (BitMEX Research). The premium itself says directly whether shorts are paid beyond the anchor.
+- **Compared with:** K1 (+20.9% a year [+15.7, +26.4] on development).
+- **Gate:** K1p's annual return above K1's, with a weekly-bootstrap interval of the difference above zero.
+- **If it passes:** one gatekeeper read of the difference on the reserve tier (2023-2026, never used for carry).
+- **Predicted:** no better. The premium is noisier than the 7-day funding mean, so more round trips (0.3% each) eat
+  the gain; about +15-20% a year.
