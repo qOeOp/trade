@@ -80,6 +80,51 @@ Hypotheses (ranked):
    its 90th percentile or open interest is up sharply.
 5. **A faster signal on post-2023 coins** (20/10 or 4h).
 
+## 5. Bear-market and short strategies
+
+Sources (SSRN and Wiley blocked direct fetches; "abstract only" marks details from search snippets):
+- **Schmeling, Schrimpf and Todorov, "Crypto Carry"** (BIS WP 1087). A high basis predicts crashes and liquidations: +10%
+  standardized carry predicts long liquidations equal to 22% of open interest the next month. BTC and ETH only. It
+  supports de-risking timing, not standing shorts.
+- **Borri, Liu, Tsyvinski and Wu (2025), "Cryptocurrency as an Investable Asset Class"** (arXiv 2510.14435).
+  - **Factors:** weekly spreads of 2.6% for momentum (2.1% after 2020), -2.3% for size and -3.5% for value, gross.
+  - **Shortability:** the small-coin and momentum legs are mostly not shortable on Binance.
+  - **Carry decay:** confirmed.
+- **Han, Kang and Ryu, "Time-Series and Cross-Sectional Momentum ... under Realistic Assumptions"** (SSRN 4675565).
+  Time-series momentum is strong; cross-sectional momentum is almost non-existent after costs and the intraday
+  liquidation of leveraged positions; best Sharpe about 1.5. Cost-aware. Abstract only.
+- **Chi, Hao, Hu and Ran (2023), "An Empirical Investigation on Risk Factors in Cryptocurrency Futures"** (Journal of
+  Futures Markets). The basis is the strongest cross-sectional predictor, 2017-2021, majors only; strong daily, weaker
+  weekly. 2022 is out of sample for it.
+- **Howden and Andreev, "Risk-Managed Time-Series Momentum in Crypto Majors"** (SSRN 7115459). 30-day momentum long or
+  cash on 7 majors, exposure halved more than 15% below the peak. Claimed out-of-sample Sharpe 1.41 against 0.70 for
+  buy-and-hold; maximum drawdown -45% (-28% with the overlay) against -84%. An unrefereed preprint with a possibly tuned
+  threshold. Abstract only.
+- **Short-horizon mean reversion** (arXiv 2608.21888): 15-minute reversal after aggressive taker flow in 90% of 183
+  pairs, but about 1.3 bp gross against 5 bp of costs. A negative control.
+- **He, Manela, Ross and von Wachter (2022):** perpetual-spot gaps co-move across coins and shrink over time.
+- **Presto Labs:** funding explains same-week returns (R-squared 0.125) but has about zero next-week R-squared on a
+  single asset.
+- **No rigorous source** was found for open-interest changes or Binance long/short ratios as return predictors; any
+  open-interest hypothesis is original research.
+
+Hypotheses (ranked):
+1. **A cross-sectional basis/funding long-short, daily and beta-neutral:**
+   - long the lowest-funding quintile, short the highest;
+   - scored on price return excluding funding and, separately, including it;
+   - falsified if the spread is at or below zero out of sample after costs, or negative in 2022.
+2. **Long/cash time-series momentum (30-day) with volatility targeting** on majors, earning in bear years by not
+   losing. Falsified if its 2022 drawdown is not below half of buy-and-hold's, or its Sharpe is not above buy-and-hold's
+   with the lookback fixed in advance.
+3. **A funding-extreme crash overlay:** cut longs when BTC's 7-day funding is above its 1-year 90th percentile and open
+   interest is up more than 20% in 14 days. Falsified if the next-30-day lower tail and mean in the flagged state are
+   no worse than unconditional (from 2021).
+4. **An open-interest/price divergence cross-section** (speculative): short coins whose open interest rose most while
+   price fell, and long the reverse.
+
+Note: no source documents a profitable directional short in crypto that survives out of sample. Bear years are earned
+through relative value, carry and stepping out of the market.
+
 ## 6. Weak-signal ensembles, sizing and portfolio-level validation
 
 Sources:
