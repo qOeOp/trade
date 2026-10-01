@@ -45,3 +45,4 @@ logged_at,loop,candidate,stage,n,edge,lo,hi,passed,note
 2026-10-01T09:50:35+00:00,E-1,ablation: target at the box middle,ablation,128,-0.1591,-0.4879,+0.1883,False,
 2026-10-01T09:50:37+00:00,E-1,ablation: stop 1.5 ATR beyond the edge,ablation,169,-0.1971,-0.4224,+0.0303,False,
 2026-10-01T09:50:41+00:00,E-1,ablation: no close-in-outer-half condition,ablation,280,-0.2148,-0.4940,+0.0832,False,
+2026-10-01T09:51:35+00:00,E-2,familyA,iteration,190,-0.1063,-0.3516,+0.1814,False,

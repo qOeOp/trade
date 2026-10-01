@@ -11,7 +11,8 @@ import family_a as FA  # noqa: E402
 
 R2 = E.R2
 BASE = dict(tf="4h", hold=30, rule="C")
-LOOPS = {"E-1": dict(BASE), "E-2": dict(BASE, rule="failed_break", iter_set="iterx")}
+LOOPS = {"E-1": dict(BASE), "E-2": dict(BASE, rule="failed_break", iter_set="iterx"),
+         "E-3": dict(BASE, rule="C", min_touches=3, iter_set="iterx")}
 
 
 def make(cfg):
@@ -19,7 +20,18 @@ def make(cfg):
         d = d4[["open", "high", "low", "close"]]
         top, bot, a = R2.boxes(d)
         if cfg["rule"] == "C":
-            return R2.signals(d, top, bot, a)["C"]
+            sigs = R2.signals(d, top, bot, a)["C"]
+            if cfg.get("min_touches"):
+                h, l = d.high.values, d.low.values
+                keep = []
+                for e, side, entry, stop, tgt in sigs:
+                    i = e - 1
+                    edge, ai = (bot[i] if side == 1 else top[i]), a[i - 1]
+                    n = R2.touches(l[i - R2.W:i], edge, ai, False) if side == 1 else R2.touches(h[i - R2.W:i], edge, ai, True)
+                    if n >= cfg["min_touches"]:
+                        keep.append((e, side, entry, stop, tgt))
+                sigs = keep
+            return sigs
         o, h, l, c = (d[x].values for x in ("open", "high", "low", "close"))
         out, used, busy = [], set(), -1
         for i in range(R2.W + 21, len(c) - 1):

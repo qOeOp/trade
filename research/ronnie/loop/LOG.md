@@ -568,3 +568,16 @@ the worse.
   the price-action "failed breakout", and Osler's stop clustering beyond levels.
 - **Power:** about 60 trades on the 17 majors is too few, so it runs on the extended tier (about 180 expected).
 - **Predicted:** edge +0.15, with a lower bound near -0.1 (uncertain).
+
+**Result E-2:** iteration gate fails. 190 trades, avg R -0.132, edge -0.106 [-0.352, +0.181]; 2018-2020 -0.408,
+2021-2022 +0.036. The prediction (+0.15) missed by 0.26R. Price returns inside the box after a failed break, but it does
+not travel to the far edge: the median MFE before the stop is 0.28R. H4's re-entry is real but not tradeable as an entry.
+
+### Loop E-3 (registered before running; amendment 4)
+
+- **Change from E-1 (a filter, with a power check):** fade only box edges touched at least 3 times in the box window.
+- **Explanation it rests on:** H3 (+0.471 on 31 trades against -0.248 on 145). Osler's clustering at watched levels;
+  the community view that a range edge respected repeatedly is defended.
+- **Power:** about 95 trades expected on the extended tier, a minimum detectable edge of about 0.35R, against a 0.7R
+  split in E-1.
+- **Predicted:** edge +0.2, with a lower bound near -0.1.
