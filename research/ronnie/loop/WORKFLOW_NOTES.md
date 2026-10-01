@@ -189,3 +189,10 @@ Input for the product's R&D system. Each note: what happened, why it matters, a 
     - **Product implication:** the R&D system needs at least two agents with separate memories and a data-access layer
       that enforces which agent sees which tier. A single agent with a protocol cannot hold this line, because its own
       context leaks.
+35. **Ablations that move the stop change the unit.** Edge is measured in R, the trade's own risk. A stop at the broken
+    edge plus 1 ATR is about 1.7 ATR closer than the box middle, so the same price move is worth more R. Comparing
+    stop designs needs a unit-free measure (return per unit of volatility, or percent of price), or the lower bound of
+    the edge against a control with the same geometry, which is what decided here.
+36. **The gatekeeper subagent worked as intended.** It read the sealed file and returned one line. The iterator learned
+    PASS and nothing else. The cost was one extra agent call; the gain is that the final tier of carry K1 can still be
+    audited by the user and was never seen by the agent designing the next loop.

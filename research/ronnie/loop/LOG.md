@@ -495,3 +495,30 @@ little power. The verdict is recorded either way, and the forward record follows
 **Result C-6 final read:** undecided. 7 trades, avg R +0.077, control -0.076, edge +0.153 [-0.595, +0.868] (98.33%
 interval). It fails the bar, but on 7 trades the read has no power. The final tier is spent for this lineage. C-6 joins
 the forward record (`combo/candidates/oversold_idio.py`).
+
+### Diagnosis of D-1 under amendment 4 (`loop/diagnose_d.py`, `loop/diagnose_d.txt`; iteration tier only)
+
+Competing explanations of where the edge is lost:
+- **H1, the target cuts winners:** rejected. The 41 trades that hit the target (median 1.67R) reach a median MFE of
+  2.23R over the full 30 bars; only 17% reach twice the target. The time-only exit lowers the edge (+0.212 against
+  +0.309).
+- **H2, false breaks from narrow boxes or small breakout bars:** rejected. Stopped trades have about the same box width
+  (5.3 against 5.8 ATR), slightly larger breakout bodies (1.47 against 1.29 ATR) and similar volume.
+- **H3, beta:** rejected. Shorts carry more edge than longs (+0.413 against +0.210), and random entries show no BTC-trend
+  pattern (beta check flat).
+
+Ablation, measured by the lower bound of the edge interval (amendment 4):
+- **Time-only exit:** lower bound -0.087.
+- **Stop 1 ATR beyond the broken edge, instead of the box middle:** edge +0.396, lower bound -0.035. The two halves are
+  more balanced (+0.385 and +0.405), but the R unit changes with the stop (workflow note 35).
+- **No entry-beyond-middle condition:** identical trades; the condition never binds.
+
+**Outcome:** no explanation survives, and no ablation raises the lower bound, so the diagnosis admits no structural
+change. D-1 is a local optimum in every direction tested; its limit is sample size, not a flaw. It stays the
+candidate, and its forward record (`box_break`) decides. A loop that ends with "do not change" is a valid outcome.
+
+## Carry K1: final read relayed by the gatekeeper
+
+A fresh-context subagent read `carry/final.txt` and relayed only its decision line: **"K1 on the final tier HOLDS"**.
+K1 has now held on development (17 majors, 2020-2022), on the holdout (37 coins, 2023-2026) and on the final tier
+(12 never-used coins). The iterating agent has not read the final details.

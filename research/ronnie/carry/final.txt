@@ -1,0 +1,5 @@
+carry-v1 final read (12 coins with data, 2023-02-21 to 2026-08-31):
+  K0 always on: +5.4% a year
+  K1 conditional: +7.5% a year [+5.3%, +9.9%], held 22% of coin-days, worst week -0.37%
+  per year: 2023 K0 +8.3% K1 +7.1%, 2024 K0 +12.8% K1 +17.2%, 2025 K0 -0.8% K1 +1.2%, 2026 K0 -1.4% K1 +1.0%
+decision: K1 on the final tier HOLDS
