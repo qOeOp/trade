@@ -1008,3 +1008,13 @@ Next for this lineage:
 - a point-in-time universe (survivorship);
 - a clean read: B3 has never been run on 2023-2026 or on post-2023 listings, but the trend lineage has seen the
   2023-2026 majors, so the post-2023 coins or the forward record are the clean tests.
+
+## Breakouts: session window (diagnosis; external research section 3, hypothesis 4)
+
+Breaks whose bar closes between Sunday 23:00 and Monday 23:00 UTC, against the rest (edge, week-clustered):
+- **F-2:** +0.250 [-0.114, +0.635] (195 trades) against +0.340 [+0.111, +0.594] (799).
+- **D-1x:** -0.005 (51) against +0.219 [+0.047, +0.397] (307).
+- **G-2:** -0.015 (42) against +0.289 [+0.090, +0.488] (260).
+
+The window is worse, not better, in all three; no weekday is consistently favoured. The practitioner claim (BTC
+intraday trend) does not transfer to 4h breaks. Rejected, as predicted (no effect).
