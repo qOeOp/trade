@@ -246,3 +246,66 @@ Plan proposed (ranked):
 | Capitulation | beta-adjusted residual; open-interest flush; taker-flow reversal | metrics | waits for metrics |
 | Bear markets | cross-sectional funding long-short; funding-extreme overlay | funding | queued |
 | Ensemble | correlation and effective N, a pre-registered book, then PBO/CSCV, DSR | the five rules' trade logs | queued after T-2 |
+
+## 7. Faithful drawing of the Ronnie plan's techniques (four research subagents, 2026-10-01)
+
+The user's concern: a wrongly drawn Fibonacci, wrongly drawn multi-timeframe levels or a wrong analysis could
+wrongly reject the plan. Sources were fetched where possible; [S] marks snippet-only.
+
+**Ronnie's own rules** (his TradingView texts and drawings, `tv/`; 2024-2026 video titles, `yt/recent/methods_zh.json`;
+no written course exists on the web):
+- **Fibonacci:** drawn on daily charts across large completed impulses. 38 of 58 Fibonacci drawings are on 1D; the
+  median anchor gap is 98 days; 70% of anchors sit on order>=21 pivots. The entry band is 0.5-0.618 ("strong support"),
+  with targets at the 100% and 161.8% extensions or the prior high.
+- **Direction:** read from weekly and monthly candle closes and patterns, and requires month, week, day and 4h to
+  agree. No moving average.
+- **Levels:** 85% round numbers ("X字头", thousands), plus trend lines and channels through daily pivots.
+- **Bollinger:** the daily middle band as support; an extreme squeeze means "just ranging" (titles only).
+- **Entry:** after 2024, "break, retest, confirm" (a close beyond a level, a retest that closes back on the breakout
+  side); in 2018-2021, limit orders at Fibonacci and support levels.
+- **Exits:** TP1 at the next round number or prior high; stops often absent; position size never stated.
+- **Data gap:** his 2024-2025 TradingView ideas are missing from the scrape.
+
+**Where `ronnie_plan.py` deviates:**
+- Fibonacci impulses come from 4h order-3 pivots (about a day), against his daily swings of about 3 months.
+- Direction is a 20-week mean plus a 12-week return, against his candle-close alignment.
+- The squeeze is read as a breakout setup, against his reading as a range.
+- There is no daily middle band.
+- Zones are clustered 4h pivots, against round numbers on daily or weekly.
+- There is no 1h execution.
+
+**Generic practice and evidence:**
+- **Fibonacci:**
+  - StockCharts ChartSchool: anchor the prior completed move; levels are zones, not lines; require a
+    confirmation.
+  - DiNapoli: 0.382/0.618 with COP/OP/XOP targets.
+  - Boroden: clusters.
+  - Invalidation beyond 0.786.
+  - TradingView Auto Fib uses a ZigZag with an ATR deviation.
+  - Evidence:
+    - Tsinaslanidis et al. (2022, ESWA 187) [S]: Fibonacci zones behave no differently from non-Fibonacci zones.
+    - Batchelor and Ramyar (2006): Fibonacci ratios occur no more often than chance.
+    - Shanaev and Gibson (2022, SSRN 4212430): some levels significant in indices and FX.
+    - No crypto study found.
+- **Multi-timeframe:**
+  - Elder's Triple Screen: about 5x per screen; weekly 13-EMA slope for direction; daily oscillator zone; a trailing
+    buy stop above the prior bar.
+  - The factor of 4-6 means weekly to 1h needs a daily/4h middle screen.
+  - ICT/SMC: a higher-timeframe point of interest, then a lower-timeframe change of character.
+  - Evidence:
+    - Osler (2000, 2003): FX levels and round-number order clustering.
+    - Chung and Bellotti (arXiv 2101.07410): more prior bounces mean more bounces, with decay.
+    - Tsinaslanidis (2023) [S]: crypto bounce strategies are mixed.
+    - No rigorous multi-timeframe-alignment study found.
+  - The main implementation risk is look-ahead from unclosed higher-timeframe bars.
+- **Bollinger:**
+  - Bollinger's rules: a touch is not a signal; the Squeeze is BandWidth at a 6-month low followed by a breakout;
+    Methods I-IV; the middle band as trend support (ChartSchool).
+  - Evidence:
+    - Fang, Jacobsen and Qin (2017, JPM): the edge decayed to zero after 2001.
+    - BTC/ETH daily with Reality Check (2017-2023): in-sample rules failed out of sample.
+- **Lower-timeframe triggers:**
+  - Engulfing, hammer, break of the prior bar's high, BOS/CHoCH with lagged pivots.
+  - Marshall, Young and Rose (2006): candlesticks unprofitable; a 2015 JBF paper: the verdict flips with the exit
+    rule.
+  - Lu, Shiu and Liu (2012): some two-day patterns profitable in Taiwan.

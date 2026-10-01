@@ -1770,3 +1770,47 @@ Every closure stands.
   - S5 parked (upper bound +0.109).
   - Further variant searches on S4 on this data (sides, ratios, filters) would be selection on read data. Its only
     clean next step is a stage-2 read, and the ladder's stage 1 (edge >= SESOI) is not met, so none is spent.
+
+## Loop P-3: the Ronnie plan drawn faithfully, multi-timeframe with 1h execution (registered before running)
+
+Built from EXTERNAL_RESEARCH section 7: Ronnie's own rules first, generic practice where he states none. All higher
+timeframe values come from closed bars only (daily bars close at the next day's start; weekly bars at the week's end).
+- **Direction (two screens; Elder's 5x rule and Ronnie's alignment):** up when the last closed weekly 13-EMA is above
+  the prior week's and the last closed daily close is above its 20-day mean; down when both are reversed. Variants Q-1
+  to Q-3 trade only in that direction; Q-4 ignores it (a range).
+- **Execution:** 1h bars. A 1h trigger is a rejection: the bar reaches the level and closes back on the trade side,
+  with a body in the trade's direction. Entry at the next 1h open. Fee 0.06% a side. One open trade per variant per
+  coin, then a 24-bar spacing.
+- **Variants (4 plus one control):**
+  - **Q-1 big-swing Fibonacci:**
+    - Anchor: the impulse between the last two confirmed daily pivots of order 21 (Ronnie's anchors; the ZigZag-scale
+      swing of the sources), in the direction of the bias.
+    - Entry: a 1h rejection inside the 0.5-0.618 retracement band.
+    - Stop: 0.1 daily ATR beyond 0.786 (the common invalidation).
+    - Target: the impulse extreme (Ronnie's TP1, the prior high).
+    - One trade per impulse.
+  - **Q-1p control:** Q-1 with a non-Fibonacci band 0.42-0.53 and a stop beyond 0.70 (the Tsinaslanidis control).
+  - **Q-2 break, retest, confirm at round numbers (his 2024+ entry):**
+    - Levels: round numbers with a step of a tenth of a decade (BTC 1,000; ETH 100).
+    - A daily close through a level in the bias direction arms it for 10 days.
+    - Entry: a 1h rejection at the level (within 0.25 daily ATR) that closes back beyond it.
+    - Stop: 0.5 daily ATR beyond the level. Target: 2R (he gives the next round number or the prior high; 2R is our
+      stated assumption).
+  - **Q-3 daily middle band as support:**
+    - In the bias direction, with daily BandWidth higher than 5 days before (bands opening).
+    - Entry: a 1h rejection at the daily 20-day mean (within 0.25 daily ATR).
+    - Stop: 0.5 daily ATR beyond the mean. Target: the daily band on the trade side.
+  - **Q-4 squeeze as a range (his reading):**
+    - When daily BandWidth is in the bottom 10% of its last 125 days, fade a 1h rejection at the daily outer band.
+    - Stop: 0.5 daily ATR beyond the band. Target: the middle band. Hold at most 240 1h bars.
+- **Hold:** at most 720 1h bars (30 days) for Q-1 to Q-3.
+- **Data:** the extended iteration tier (53 coins), 2018-2022, hourly from Binance.
+- **Scoring:** matched random entries on 1h bars (same year, side, stop in 1h ATR, target in R, hold); edge,
+  week-clustered interval, CRITERIA status; Holm over Q-1 to Q-4 for "active".
+- **Fibonacci test:** Q-1 minus Q-1p. If within +-0.03R, the levels are not Fibonacci-specific.
+- **Priors and predictions:**
+  - Q-1 inconclusive or slightly positive (the S4 pullback edge was +0.06), with Q-1p about equal.
+  - Q-2 inconclusive (G-2's retest was positive; round-number breaks in crypto and FX were closed).
+  - Q-3 equivalent-null (Bollinger edges decayed, Fang et al.).
+  - Q-4 equivalent-null or harmful (range fades are closed).
+  - No variant active.
