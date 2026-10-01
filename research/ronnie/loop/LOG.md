@@ -1367,3 +1367,27 @@ date of 2027-10-01, with per-candidate kill and admit thresholds from bootstrapp
 - **Carry line, state:** K1b (entry band) and K1p (premium timing) both lose to K1. The decay is structural, as the
   external research says, and K1 is at its forward kill line. The remaining carry ideas (an AR forecast, OI growth)
   refine timing, which these two loops show is not where K1's return comes from; they are deprioritised.
+
+### Loop C-6u: C-6 on coins it has never seen, 2018-2022 (registered before running; section 4, hypothesis 1, "more coins")
+
+- **Sample:** every Binance spot USDT pair in `loop/.cache/universe_1d.csv.gz` (665 symbols, delisted included) except
+  the 53 coins of the extended iteration tier, stablecoins and leveraged tokens; 2018-2022 only, so no holdout tier is
+  touched. A signal counts only if the coin's 30-day median quote volume before it is at least $5M (tradability).
+- **Rule:** C-6 unchanged (daily; coin minus BTC over 1-5 days at most -15%; 2.5x volume on quote volume; close in the
+  upper half; stop at the low minus 0.5 ATR; target half way back; 10 days), scored with the same random-entry control.
+- **Falsifier (research section 4):** edge on the new coins below +0.2R, or its week-clustered interval spanning zero
+  with at least 25 independent weeks.
+- **Predicted:** many more trades (100-200) in more weeks; edge lower than on the iteration tier (smaller, less liquid
+  coins revert less cleanly), about +0.3R, week-clustered interval above zero.
+
+**Result C-6u** (`loop/c6_universe.py`): too few events to read.
+- **Data:** 304 never-used symbols, 280 of them with at least 260 days before 2023. The rule fired 30 times on the
+  first 400 symbols scanned and 9 times after the $5M liquidity filter (a diagnostic count, made to check a
+  suspiciously low result; the data was verified sound, e.g. ICX with 3,002 days and no BTC gaps).
+- **The registered read:** 7 trades on 6 coins in 5 weeks, edge -0.61 (week-clustered [-0.92, -0.27]).
+- **Falsifier:** the 25-week condition cannot be met. On 7 trades no inference is possible, and the sign is not
+  evidence either way.
+- **Reading:** an idiosyncratic capitulation with 2.5x volume and a strong close is a large-cap event; small coins
+  rarely produce it on liquid volume. The "more coins" route to power is exhausted for the daily definition, and the
+  4h route dilutes it (C-8). Under the closure criteria being written, C-6 is parked (positive, under-powered), not
+  closed.
