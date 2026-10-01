@@ -218,3 +218,10 @@ Input for the product's R&D system. Each note: what happened, why it matters, a 
     majors". The tier was chosen for cleanliness alone.
     - **Proposal:** the data ledger stratifies reserve slices by universe (majors, large caps, new listings) and
       period, so each candidate is tested on a clean slice of its own universe.
+42. **The three-level verdict paid off at once.** On the majors slice, all four candidates came back "FAIL (edge
+    positive, interval spans zero)". That one extra bit turned four bare FAILs into a clear next step: gather data (the
+    forward record), not change the mechanism.
+43. **The forward harness cannot record resting orders.** G-2 enters with a limit order at the broken edge, valid for
+    12 bars. The forward record only models a market entry at the next 4h open, so G-2 cannot be paper-tracked
+    as tested. A paper-trading layer for R&D must support the same order types as the backtest (limit, stop,
+    validity window, cancellation), or candidates silently change on their way to the forward test.

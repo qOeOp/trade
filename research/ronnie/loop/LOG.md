@@ -699,3 +699,16 @@ has not seen the details (sealed in `loop/sealed/F-1_reserve.json`).
 **State of the reserve tier:** three candidates that passed iteration (F-1, F-2, G-2) all fail on it. The reserve is
 spent for the box and trend-line lineages. Their candidates (`trendline`, `box_break` and B1 variants) continue in the
 forward record.
+
+**Result of the majors-slice reads (relayed by the gatekeeper subagent, three-level verdicts):**
+- F-1 majors: FAIL (edge positive, interval spans zero) at 98.75% (k=4)
+- F-2 majors: FAIL (edge positive, interval spans zero) at 98.75% (k=4)
+- G-2 majors: FAIL (edge positive, interval spans zero) at 98.75% (k=4)
+- C-6 majors: FAIL (edge positive, interval spans zero) at 98.75% (k=4)
+
+All four point the right way on the strategies' own universe; none is significant at the deflated level. That reads
+"needs data", not "wrong mechanism". The clean data source is the forward record:
+- F-1 (`trendline`) and C-6 (`oversold_idio`) are already in it;
+- F-2 joins as `trendline_time`;
+- G-2 cannot join yet: its limit entry at the broken edge does not fit the forward harness, which supports only market
+  entries at the next open (workflow note 42).

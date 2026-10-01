@@ -58,3 +58,7 @@ logged_at,loop,candidate,stage,n,edge,lo,hi,passed,note
 2026-10-01T10:13:09+00:00,F-1,family_f,final,582,+nan,+nan,+nan,False,sealed; level 95.00
 2026-10-01T10:13:42+00:00,F-2,family_f,final,582,+nan,+nan,+nan,False,sealed; level 97.50
 2026-10-01T10:13:49+00:00,G-2,family_g,final,104,+nan,+nan,+nan,False,sealed; level 98.33
+2026-10-01T10:23:15+00:00,F-1,family_f,majors,951,+nan,+nan,+nan,False,sealed; level 98.75
+2026-10-01T10:23:25+00:00,F-2,family_f,majors,951,+nan,+nan,+nan,False,sealed; level 98.75
+2026-10-01T10:23:29+00:00,G-2,family_g,majors,139,+nan,+nan,+nan,False,sealed; level 98.75
+2026-10-01T10:23:29+00:00,C-6,family_c,majors,1,+nan,+nan,+nan,False,sealed; level 98.75
