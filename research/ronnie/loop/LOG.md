@@ -683,3 +683,12 @@ less risk: under fixed-risk sizing it earns more per trade (+0.29R against +0.22
   edge per unit of risk.
 
 G-2 goes to the reserve tier through the gatekeeper after F-1 and F-2.
+
+**Result F-1 reserve read (relayed by the gatekeeper subagent):** "F-1 final: FAIL at 95.00% (k=1)". The iterating agent
+has not seen the details (sealed in `loop/sealed/F-1_reserve.json`).
+
+### Reserve reads of F-2 and G-2 (registered before running)
+
+- **F-2:** k = 2, PASS/FAIL at 97.5%.
+- **G-2:** k = 3, PASS/FAIL at 98.33%.
+- Both run once each, rules unchanged, by a fresh-context gatekeeper subagent that relays only the verdict lines.
