@@ -18,7 +18,8 @@ LOOPS = {"A1": dict(BASE), "A2": dict(BASE, min_touches=2), "A3": dict(BASE, con
          "A6": dict(BASE, confirm="trigger", level_tf="1w", tf="4h"),
          "A7": dict(BASE, confirm="trigger", level_tf="1w", touch=0.5),
          "A8": dict(BASE, confirm="trigger", level_tf="1w", touch=0.5, max_vol=1.0),
-         "A9": dict(BASE, confirm="trigger", btc_gate=True)}
+         "A9": dict(BASE, confirm="trigger", btc_gate=True),
+         "A10": dict(BASE, confirm="trigger", btc_gate=True, max_touches=0)}
 
 
 def levels(d, k):
@@ -70,7 +71,7 @@ def make(cfg):
                     continue
                 if cfg.get("btc_gate") and not (btc_up[i] if side == 1 else btc_dn[i]):
                     continue
-                m = (S == -side) & (T >= cfg.get("min_touches", 0))  # supports for longs, resistances for shorts
+                m = (S == -side) & (T >= cfg.get("min_touches", 0)) & (T <= cfg.get("max_touches", 99))  # supports for longs, resistances for shorts
                 if not m.any():
                     continue
                 ys, ts, ls = Y[m], T[m], L[m]

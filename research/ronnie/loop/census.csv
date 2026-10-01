@@ -24,3 +24,4 @@ logged_at,loop,candidate,stage,n,edge,lo,hi,passed,note
 2026-10-01T08:02:54+00:00,C-4,familyA,rerun-iteration,76,+0.3101,+0.0923,+0.5518,False,rerun for attribution v2 (same rules and data)
 2026-10-01T08:03:15+00:00,A3,familyA,rerun-iteration,411,-0.1570,-0.2940,-0.0144,False,rerun for attribution v2 (same rules and data)
 2026-10-01T08:03:42+00:00,B-8,familyA,rerun-iteration,795,+0.0303,-0.1228,+0.1814,False,rerun for attribution v2 (same rules and data)
+2026-10-01T08:04:42+00:00,A9,familyA,iteration,321,-0.0853,-0.2404,+0.0862,False,

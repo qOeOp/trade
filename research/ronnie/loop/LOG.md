@@ -316,3 +316,16 @@ The systematic attribution of A3 (411 trades) flags two reliable features:
   mean, shorts only when it is below.
 - **Reason:** BTC's trend is a reliable factor in A3 (market beta: a coin's support holds when the whole market is
   strong). The cut is the natural 200-day line.
+
+**Result A9:** iteration gate fails, but better than A3. 321 trades, avg R +0.071, edge -0.085 [-0.240, +0.086];
+2018-2020 -0.138, 2021-2022 -0.051. In the systematic attribution, BTC's trend stays reliable, but the gain is
+concentrated in its top quintile (+0.41R); prior touches stay reliably negative (Q5-Q1 -0.66R).
+- **Caveat:** the year-matched control does not neutralise the market regime within a year, so BTC's trend may be
+  market timing rather than level skill (workflow note 25).
+
+### Loop A10 (registered before running)
+
+- **Single change from A9:** fresh levels only, with no prior touch.
+- **Reason:** prior touches are reliably negative in A3 and A9. The community's supply-and-demand practice (Seiden)
+  holds that the first retest of a zone is the strongest, because each test absorbs resting orders. It also explains
+  A2's failure.

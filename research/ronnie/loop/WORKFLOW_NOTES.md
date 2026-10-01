@@ -114,3 +114,7 @@ Input for the product's R&D system. Each note: what happened, why it matters, a 
     clustering, or a broader universe.
 24. **Reruns inflate the census.** Re-scoring a loop to produce a new attribution appended a second trial row. Reruns
     are now marked `rerun-*` (environment flag `LOOP_RERUN`), and the validation level counts only real validations.
+25. **A factor can be market timing in disguise.** BTC's trend predicts the support-bounce edge, but the control is
+    random entries of the same year, so a factor that times the market within the year will look like strategy skill.
+    - **Proposal:** attribution also reports each feature's IC with a regime-matched control's outcome (random entries
+      on days in the same feature bucket). A feature that predicts the control too is beta, not skill.
