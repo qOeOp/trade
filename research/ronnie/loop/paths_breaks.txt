@@ -1,0 +1,6 @@
+After a 4h box break (X1), extended iteration tier, 374 breaks:
+  a close back inside the box within 6 / 12 / 30 bars: 56% / 66% / 77%
+  price reaches the box middle within 30 bars: 30%; the far edge: 9%
+  price runs at least half a box width beyond the edge within 30 bars: 60% (before any close back inside: 39%)
+  break close within 0.5 ATR of the edge   n   204: back inside within 12 bars 80%, reaches middle 31%, runs half a width 51%
+  break close 0.5 ATR or more beyond       n   170: back inside within 12 bars 49%, reaches middle 30%, runs half a width 71%

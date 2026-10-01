@@ -627,3 +627,25 @@ first read, k = 1). A fresh-context subagent runs `loop/gatekeeper.py family_f F
 - **Structural change (exit model):** no 2R target; exit at the time limit (30 4h bars) or at the stop.
 - **No ex-ante prediction:** F-2's iteration result is the diagnosis ablation above, seen before this registration. Its
   test is the reserve read: once, PASS/FAIL at 97.5% (the reserve's second read, k = 2), via the gatekeeper subagent.
+
+## Family G: "a box break regresses into the box" (the user's hypothesis after Family E)
+
+**Path statistics after 4h box breaks** (`loop/paths_breaks.py`, `loop/paths_breaks.txt`; extended iteration tier, 374
+breaks; descriptive, recorded as a diagnosis):
+- **Returns:** a close back inside the box within 6 / 12 / 30 bars in 56% / 66% / 77% of breaks.
+- **Depth:** the box middle is reached in 30%, the far edge in 9%.
+- **Runs:** price runs at least half a box width beyond the edge in 60% of breaks (39% before any return).
+- **Marginal breaks** (a close within 0.5 ATR of the edge) return within 12 bars in 80%.
+
+Reading: breaks usually come back, but shallowly. They often run first, retest the edge, and continue. That fits D-1
+(continuation, stop at the middle, which holds 70% of the time) and E-2 (no travel to the far edge).
+
+### Loop G-1 (registered before running; amendment 4)
+
+- **Change (entry model):** fade marginal breaks. After the first 4h close beyond the box (X1 definition), if that close
+  is within 0.5 ATR of the edge, enter against the break at the next open. Stop 0.25 ATR beyond the break bar's extreme;
+  target the box middle; time limit 12 bars. Extended iteration tier.
+- **Explanation:** 80% of marginal breaks return inside within 12 bars (Osler's stop runs just beyond levels; the
+  price-action "failed breakout").
+- **Risk named in advance:** the return is shallow (31% reach the middle).
+- **Predicted** (shrunk for the agent's upward bias, workflow note 39): edge about 0, with a lower bound near -0.2.
