@@ -190,3 +190,12 @@ within 2 bars fell from 43% to 31%, and the later entry gave the gain back.
   the compression gate are kept.
 - **Reason:** stacking conditions on rare weekly levels left 20 trades. The mechanism under test is the break out of
   compression (Crabel), not the level's rank, and daily levels give several times the sample.
+
+**Result B-5** (after the fix in workflow note 14): iteration gate fails. 74 trades, avg R +0.706, control +0.383,
+edge +0.323 [-0.209, +0.917]; 2018-2020 +0.266, 2021-2022 +0.390; stops 46%, 24% of them within 2 bars.
+
+### Loop B-6 (registered before running)
+
+- **Single change from B-5:** drop the two-close confirmation and enter after the first close beyond the level.
+- **Reason:** B-3 showed the confirmation adds nothing net (edge +0.052 to +0.033) while it costs trades. The mechanism
+  under test, the break out of compression, is untouched.

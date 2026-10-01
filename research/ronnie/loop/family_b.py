@@ -11,7 +11,8 @@ import family_a as FA  # noqa: E402
 
 BASE = dict(tf="1d", stop_atr=1.0, rr=3.0, hold=20, spacing=5, level_tf="1w", sides=(1, -1))
 LOOPS = {"B-1": dict(BASE), "B-2": dict(BASE, sides=(1,)), "B-3": dict(BASE, sides=(1,), closes=2), "B-4": dict(BASE, sides=(1,), closes=2, max_vol=1.0),
-         "B-5": dict(BASE, sides=(1,), closes=2, max_vol=1.0, level_tf="1d")}
+         "B-5": dict(BASE, sides=(1,), closes=2, max_vol=1.0, level_tf="1d"),
+         "B-6": dict(BASE, sides=(1,), max_vol=1.0, level_tf="1d")}
 
 
 def make(cfg):
@@ -32,7 +33,8 @@ def make(cfg):
         for i in range(210, len(c) - 1):
             if i - last < cfg["spacing"] or wi[i] < 0:
                 continue
-            Y, S = wbook[wi[i]][0], wbook[wi[i]][1]
+            k = wi[i - cfg.get("closes", 1) + 1]  # levels intact at the open of the first crossing bar
+            Y, S = wbook[k][0], wbook[k][1]
             for side in cfg["sides"]:
                 up = c[i] > s200[i] and s50[i] > s200[i]
                 dn = c[i] < s200[i] and s50[i] < s200[i]

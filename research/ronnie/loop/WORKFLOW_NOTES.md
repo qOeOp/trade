@@ -61,3 +61,10 @@ Input for the product's R&D system. Each note: what happened, why it matters, a 
     - **Proposal:** before a loop runs, the system estimates its trade count from the predecessor (the share of trades
       the new condition keeps) and the minimum detectable edge at that count. It warns when the loop cannot reach the
       gate even if the edge is real.
+14. **A rule that can never fire reports as a crash, not as a finding.** B-5 (daily levels with two-close confirmation)
+    produced zero signals: a daily level crossed by the first close leaves the book before the second close, so the
+    condition was unsatisfiable. It surfaced only as a KeyError in the report code.
+    - **Proposal:** the runner checks signal counts per instrument before scoring and reports "zero signals: condition
+      never satisfied" with a trace of which clause eliminated the candidates.
+    - **Fix here:** the levels are read at the open of the first crossing bar. B-3 and B-4 used the weekly book, where
+      this matters only when the two closes straddle a week boundary; their results stand as run.
