@@ -34,7 +34,7 @@ stated otherwise.
 
 ## Tier 2: positive in several independent samples, not significant alone
 
-### 2. Daily trend on majors (T0 / majors_trend)
+### 2. Daily trend on majors (T0 / majors_trend) and the Donchian ensemble book (B3)
 - **Rule:** buy on a daily close above the prior 50-day closing high; stop at 2 ATR(20); exit on a daily close below the
   20-day closing low; long only.
 - **Evidence:**
@@ -47,13 +47,19 @@ stated otherwise.
   - much of the gain comes from the exit and the regime, not the entry timing;
   - survivorship;
   - 2021 carries the total.
-- **Code:** `trend/run.py`, `trend/portfolio.py`, `crates/strategy_factory/programs/majors_trend`. **Forward:**
-  `trend/forward.py`.
+- **B3, the Donchian ensemble (loops T-1, T-2):** lookbacks 5-360 days, a midpoint trailing stop, 25% volatility
+  target per coin.
+  - 17 majors 2018-2022: Sharpe 1.45 against 1.04 for the 200-day regime book; difference +0.46 [+0.10, +0.80]; max DD
+    -7.6%.
+  - Point-in-time top 20 (70 symbols, delistings included): Sharpe 0.98 against 0.56; difference +0.40 [+0.05, +0.75].
+  - Validation read 2023-2026: FAIL (edge positive, interval spans zero).
+- **Code:** `trend/run.py`, `trend/portfolio.py`, `trend/books.py`, `trend/books_pit.py`,
+  `crates/strategy_factory/programs/majors_trend`. **Forward:** `trend/forward.py` (T0), `trend/forward_b3.py` (B3, from
+  2026-10-01).
 - **Next R&D:**
-  - volatility-sized portfolio;
-  - a point-in-time universe;
+  - the forward record of B3;
   - adding gold;
-  - judging it by book metrics against holding.
+  - funding as a crowding gate is closed (X-2: the flag fired twice in 2021, both before rallies).
 
 ### 3. 4h box breakout (range-v3 X1 / loop D-1) and its retest entry (G-2)
 - **Rule:**
@@ -74,6 +80,10 @@ stated otherwise.
   - per unit of price, the same as the market entry;
   - per unit of risk, better;
   - reserve tier: FAIL; majors: positive, spans zero.
+- **Lookback check (D-2):** the edge is a plateau from 60 to 120 bars (+0.19, +0.17) that falls at 30 (+0.10) and 240
+  (-0.01). The registered fragility test failed narrowly, so the stated edge is cut to the pooled +0.14 [+0.03, +0.26]
+  (week-clustered, iteration).
+- **Conditioning (S-0 to S-2):** the session window, open-interest change, taker flow and a funding veto add nothing.
 - **Code:** `range3/run.py`, `loop/family_d.py`, `loop/family_g.py`. **Forward:** `box_break` (G-2 cannot be tracked:
   limit orders).
 - **Next R&D:**
@@ -94,10 +104,10 @@ stated otherwise.
   - the combo book lost in 2025-2026.
 - **Code:** `combo/candidates/trendline_break_strong.py`, `combo/candidates/trendline_time.py`. **Forward:**
   `trendline`, `trendline_time`.
+- **Line quality (F-3):** span, slope, age, pivot gap and body carry no reliable information (all |t| < 1.4). Closed.
 - **Next R&D:**
-  - line quality (span, slope), which was never tested;
   - long-only;
-  - an ensemble.
+  - its place in the ensemble book (item 7).
 
 ### 5. Capitulation reversal (oversold O3 and its idiosyncratic variant C-6)
 - **Rule (O3):** a 3-day drop of 15% or more, at least 2.5x volume, and a close in the upper half; long; stop at the low
@@ -112,9 +122,11 @@ stated otherwise.
     2014).
 - **Limits:** rare (about 30 signals in five years on 50 coins).
 - **Code:** `oversold/run.py`, `loop/family_c.py`. **Forward:** `oversold_o3`, `oversold_idio`.
+- **Variants (C-7, C-8):** a beta-adjusted residual picks 26 of the same 29 events (+0.67, noise against C-6). A 4h
+  definition gives 632 trades at +0.07, which dilutes the event.
 - **Next R&D:**
-  - funding and liquidation data at the signal (a negative-funding split looked supportive on 34 trades);
-  - a broader universe for power.
+  - a broader universe (post-2022 listings) on the daily definition for power;
+  - open-interest flush data exists only from 2021-12 for alts.
 
 ### 6. B1, the 4h large-body breakout (S2b), and its time-only exit
 - **Evidence:**
@@ -127,6 +139,19 @@ stated otherwise.
 - **Next R&D:**
   - the time exit as default;
   - an ensemble with items 3 and 4.
+
+### 7. The ensemble book of the timing rules (loops N-1 to N-4)
+- **Rule:** B3, D-1, F-2 and C-6 weekly streams, each scaled to equal risk by trailing 26-week volatility, equal
+  weights, no fitted parameters.
+- **Evidence:**
+  - effective N of the five candidate rules (with K1): 4.2; mean bear-year correlation of the timing rules +0.05;
+  - 2018-07 to 2022: Sharpe 2.04 against the best single rule (F-2) at 1.71; difference +0.34 [-0.54, +1.11]; max DD
+    -6.7% at 10% volatility, against -18.1% for buy-and-hold;
+  - PBO over 32 construction variants: 0.29;
+  - one read on the majors slice 2023-2026: see `loop/LOG.md` (N-4).
+- **Limits:** the single-rule streams are in-sample, trades are booked in their entry week (drawdowns understated),
+  and K1 correlates +0.63 with B3 outside crashes.
+- **Code:** `loop/ensemble.py`, `loop/gatekeeper_book.py`.
 
 ## Tier 3: weak, narrow or descriptive
 
@@ -154,11 +179,15 @@ stated otherwise.
 - support bounces (loop A);
 - break continuation over random (loop B);
 - fading breaks (G-1);
-- carry K2 and funding crowding (P1).
+- carry K2 and funding crowding (P1);
+- cross-sectional funding long-short (X-1) and the funding-extreme crash overlay (X-2);
+- pairs trading (H-1 to H-4: reversion only at horizons where execution decides);
+- the box-fade reopening (E-1x to E-5);
+- line quality (F-3) and breakout conditioning on session, OI, taker flow and funding (S-0 to S-2).
 
 ## Cross-cutting next steps
 
-1. Re-read every survivor with a date-clustered bootstrap.
-2. Judge items 2-6 as an ensemble book with volatility sizing (return, Sharpe, drawdown against holding and cash).
+1. Done: survivors re-read with a date-clustered bootstrap; breakout lineages unchanged, capitulation wider.
+2. Done in part: the ensemble book (item 7); next a forward record of the frozen book.
 3. Give each forward candidate a decision date and admit/kill criteria; run the 4h scripts every 4h.
 4. Build a point-in-time universe, and a data layer for OI, liquidations and basis.
