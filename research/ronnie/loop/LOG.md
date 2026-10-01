@@ -1534,3 +1534,39 @@ survives Holm**, as predicted.
 - **Small caps:** reversal in small, illiquid coins has a prior (Ficura 2023), but as a weekly cross-sectional effect,
   a different construct from the box fade. Fieberg et al. (2024) find it economically negligible after costs. It is
   recorded as an untested idea and not opened.
+
+## Stage-4 pooled read P-1 (registered before running; CRITERIA section A, stage 4)
+
+- **Rules (frozen, unchanged):** D-1 box break, G-2 retest, F-1 and F-2 trend-line break (one lineage, two exits), C-6
+  idiosyncratic capitulation, B1 4h momentum.
+- **Pooled data:** every post-2022 holdout coin of the loop: the validation 20, final 12, reserve 20 and majors 17 (69
+  coins), 2023-01 to 2026-08, all included whatever their earlier verdicts. No development data. Trades duplicated
+  across tiers are counted once.
+- **Statistic:** the pooled edge with a week-clustered bootstrap standard error (week clustering handles the same-day
+  correlation across coins); t = edge / SE.
+- **Stage 4 passes** when t >= 3.0 (Harvey, Liu and Zhu) and the edge >= SESOI (+0.10R). Otherwise the stage-2
+  three-level verdict is reported.
+- **Run by a fresh-context gatekeeper** (`loop/gatekeeper_pool.py`); details sealed in `loop/sealed/P-1_pool.json`.
+- **Contamination, stated:** most of these coins were read before, rule by rule. Stage 4 is by definition the pooling of
+  those reads, so this is not a new holdout. It is the joint judgment the criteria require, with no read dropped.
+- **Predicted:** no rule reaches t >= 3. D-1 and F-1 come nearest (t about 2-2.5); C-6 has too few trades; B1 is below
+  SESOI.
+
+## Cross-asset read X-3: the frozen B3 trend book outside crypto (registered before running; CRITERIA C rule 2)
+
+- **Prior:** Moskowitz, Ooi and Pedersen (2012), and Hurst, Ooi and Pedersen (2017). Time-series momentum is positive in
+  every asset class.
+- **Rule:** B3 exactly as in `trend/books.py` (Donchian ensemble 5-360 days, midpoint trailing stop, long only, 25%
+  volatility target per instrument divided by N, gross at most 1), costs 0.03% a side.
+- **Universe (daily, TradingView), in three buckets:**
+  - commodities: gold, silver, WTI, Brent, natural gas, copper;
+  - equity indices: S&P 500, Nasdaq 100, Dow, DAX, Nikkei, FTSE;
+  - FX: the 9 pairs from FXCM hourly data.
+  - Period: 2008-01 to 2026-08 where data exists. All of it is new to B3.
+- **Gates, three-level, weekly bootstrap, Holm over the two:** (1) B3 book Sharpe above zero (against cash); (2) Sharpe(B3)
+  minus Sharpe(B1, the 200-day regime book) above zero. Buckets are reported as Sharpe per bucket, descriptive, with
+  their count disclosed.
+- **Run by the gatekeeper** (`loop/gatekeeper_xasset.py`); details sealed in `loop/sealed/X-3_xasset.json`.
+- **Predicted:** against cash, PASS (Sharpe 0.4-0.8, long-only trend on commodities and indices over 18 years); against
+  the regime book, FAIL (edge positive, interval spans zero). Long-only loses the short side the literature uses, so
+  FX contributes little.
