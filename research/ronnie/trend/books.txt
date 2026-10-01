@@ -1,0 +1,9 @@
+T-1: books on the 17 majors 2018-2022; weight = exposure x (25% / 90d vol) / 17, gross <= 1, 0.1% a side
+
+B0: Sharpe 0.66, CAGR +10.4%, max DD -31.4%, average gross 0.27; 2018 -10%, 2019 +8%, 2020 +43%, 2021 +57%, 2022 -25%
+B1: Sharpe 0.86, CAGR +8.0%, max DD -15.5%, average gross 0.11; 2018 -1%, 2019 +4%, 2020 +20%, 2021 +28%, 2022 -6%
+B2: Sharpe 1.17, CAGR +9.8%, max DD -15.6%, average gross 0.08; 2018 -1%, 2019 +8%, 2020 +27%, 2021 +32%, 2022 -11%
+B3: Sharpe 1.45, CAGR +9.3%, max DD -7.6%, average gross 0.07; 2018 -1%, 2019 +5%, 2020 +19%, 2021 +31%, 2022 -4%
+
+Sharpe B2 - B1 (weekly bootstrap): +0.20 [-0.34, +0.72]
+Sharpe B3 - B1 (weekly bootstrap): +0.46 [+0.10, +0.80]

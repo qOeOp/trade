@@ -986,3 +986,25 @@ validated; K1b is not adopted.
   rule is adopted.
 - **Predicted:** B3 about 0.1-0.2 higher Sharpe than B2 with a smaller drawdown; B1 about equal to B2.
 - **Caveat:** the 17 majors are survivors, so only the relative ranking is evidence here.
+
+**Result T-1** (`trend/books.py`, `trend/books.txt`):
+
+| book | Sharpe | CAGR | max DD | 2022 |
+| --- | --- | --- | --- | --- |
+| B0 buy-and-hold (vol-sized) | 0.66 | +10.4% | -31.4% | -25% |
+| B1 above the 200-day mean | 0.86 | +8.0% | -15.5% | -6% |
+| B2 T0 | 1.17 | +9.8% | -15.6% | -11% |
+| B3 Donchian ensemble, midpoint trail | 1.45 | +9.3% | -7.6% | -4% |
+
+- **Sharpe against B1 (weekly bootstrap):** B2 +0.20 [-0.34, +0.72]; **B3 +0.46 [+0.10, +0.80]**.
+- **B3** is the first trend rule to beat the regime baseline at the portfolio level, with half T0's drawdown. It came
+  directly from the external research.
+- **T0** does not beat the 200-day rule beyond the interval, consistent with the regime diagnosis.
+- **The prediction:** B3 was predicted 0.1-0.2 above B2; it came out 0.28 above.
+- **Levels:** CAGRs are low because the sizing (25% per coin over 17 coins) keeps the average gross at 0.07-0.27. Only
+  Sharpe and drawdown are comparable here.
+
+Next for this lineage:
+- a point-in-time universe (survivorship);
+- a clean read: B3 has never been run on 2023-2026 or on post-2023 listings, but the trend lineage has seen the
+  2023-2026 majors, so the post-2023 coins or the forward record are the clean tests.
