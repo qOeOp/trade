@@ -110,7 +110,7 @@ def compare(z_iter, z_val, feats):
     return "\n".join(lines)
 
 
-def beta_check(z, feature, coins, tf, hold=20, stop_atr=1.5, target_r=1.5, step=3):
+def beta_check(z, feature, coins, tf, hold=20, stop_atr=1.5, target_r=1.5, step=3, feat_fn=None):
     """Workflow note 25: does `feature` also predict random entries with a standard geometry? Random longs (and shorts)
     are opened every `step` bars on every coin; the same quintile cut points as on the trades are applied. If the random
     entries show the same bucket pattern, the factor is market timing, not strategy skill."""
@@ -125,9 +125,11 @@ def beta_check(z, feature, coins, tf, hold=20, stop_atr=1.5, target_r=1.5, step=
         o, h, l, c = (d[x].values for x in ("open", "high", "low", "close"))
         a = E.MT.atr_of(h, l, c)
         idx = np.arange(250, len(c) - hold - 1, step)
-        fake = pd.DataFrame({"coin": coin, "time": d.index[idx], "side": 1, "R": 0.0, "control": 0.0})
-        fake = E.common_features(coin, tf, fake)
+        fake = pd.DataFrame({"coin": coin, "time": d.index[idx], "side": 1, "R": 0.0, "control": 0.0, "stop_atr": stop_atr})
+        fake = feat_fn(coin, fake) if feat_fn else E.common_features(coin, tf, fake)
         for side in (1, -1):
+            if feat_fn:
+                fake = feat_fn(coin, fake.assign(side=side))
             r = [E.walk_ts(o, h, l, c, e, side, o[e], o[e] - side * stop_atr * a[e - 1], o[e] + side * target_r * stop_atr * a[e - 1],
                            hold, 0.0006) for e in idx]
             rows.append(fake.assign(side=side, R=r))

@@ -225,3 +225,15 @@ Input for the product's R&D system. Each note: what happened, why it matters, a 
     12 bars. The forward record only models a market entry at the next 4h open, so G-2 cannot be paper-tracked
     as tested. A paper-trading layer for R&D must support the same order types as the backtest (limit, stop,
     validity window, cancellation), or candidates silently change on their way to the forward test.
+44. **Visual trade review: useful for generating hypotheses, misleading for deciding.** Reviewing the 6 worst and 6 best
+    F-2 trades produced three specific hypotheses in minutes. On all 994 trades, two were rejected (one reversed) and
+    the third was mostly a generic effect that random entries share.
+    - **Proposed pipeline:**
+      1. trade cards for the worst, best and a random sample (the random sample guards against extreme-case
+         narratives);
+      2. failure modes defined as code (immediate stop, stall then fail, gap through the stop, wick-out, target then
+         reversal) and counted;
+      3. every visual hypothesis turned into a metric, then IC and buckets on all trades, then a beta check;
+      4. only a hypothesis that survives (3) may change a rule.
+    - **Breadth:** each loop lists hypotheses across categories (entry, exit, sizing, regime, universe, data source)
+      and records the rejected ones, so narrow one-filter hypotheses do not crowd out structural ones.

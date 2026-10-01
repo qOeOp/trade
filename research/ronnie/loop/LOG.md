@@ -730,3 +730,22 @@ Weekly-block bootstrap next to the coin-clustered one, on development or iterati
 - **T0, O3 (development) and X1 (37 large caps)** still span zero.
 
 Retrospective flaw 1 is real, but it matters mainly for clustered event strategies.
+
+## Visual trade review of F-2 (the user's suggestion; `loop/trade_cards.py`, `loop/visual_hypotheses_f2.py`)
+
+Trade cards (60 bars before and 40 after entry, entry, stop, exit, and BTC below) of F-2's 6 worst and 6 best trades:
+- **Worst:** stopped within 1-2 bars, in wick-heavy chop, with the stop inside normal wick size, and BTC flat.
+- **Best:** a very flat, narrow range for 40-60 bars before the break, a one-way run after it, BTC moving the same way,
+  and a stop tiny relative to the run (10-38R).
+
+Three hypotheses, quantified on all 994 iteration trades, each with a beta check on random entries:
+- **H-a, compression before the break (40-bar range in ATR):** IC -0.080, the same sign in both halves and in all 5
+  years (t -2.88); buckets from about +0.4 (flat) to +0.17 (wide); Q5-Q1 interval spans zero. Random entries show the
+  same gradient (+0.46 to +0.05): mostly generic volatility mean reversion, not trend-line skill. The trades stay
+  positive in every bucket.
+- **H-b, stop inside the noise:** rejected, reversed. The tightest stops relative to noise do best (+0.66): they are
+  stopped more often but win more R. The visual impression was the cost side only.
+- **H-c, BTC moving with the trade:** rejected (IC +0.009).
+
+Reading: visual review generated three concrete hypotheses that tables did not. Judged on extremes, two of the three
+were wrong and the third mostly generic. Visual review is a hypothesis generator, not a decision rule.

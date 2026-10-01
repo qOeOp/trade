@@ -1,0 +1,15 @@
+F-2: hypotheses from the visual review, on all iteration-tier trades: 994 trades, 4 features tested (flag: |t| >= 2.0, IC sign stable across halves, top-minus-bottom interval excludes zero)
+  feature       IC     IC 1st/2nd   yrs  ICIR    t     hit   mono  Q1..Q5 edge (n)                         Q5-Q1 [95%]
+  range40     -0.080  -0.08/-0.08    5  -1.29  -2.88  100%  -0.70  +0.39(199) +0.46(199) +0.41(198) +0.19(199) +0.16(199) -0.225 [-0.771, +0.301]
+  wickiness   -0.031  +0.03/-0.05    5  -0.28  -0.63   40%  -0.80  +0.42(199) +0.71(199) +0.09(198) +0.30(199) +0.09(199) -0.335 [-0.798, +0.104]
+  stop_vs_noise +0.080  +0.14/+0.05    5  +0.64  +1.44   80%  -0.10  +0.66(199) +0.07(199) +0.27(198) +0.34(199) +0.27(199) -0.386 [-1.040, +0.122]
+  btc6        +0.009  +0.02/+0.01    5  +0.35  +0.78   60%  +0.60  +0.22(199) +0.24(199) +0.58(199) +0.31(198) +0.26(199) +0.037 [-0.432, +0.441]
+  beta check for range40 (random entries every 6 bars, stop 1.5 ATR, target 1000.0R, 30 bars):
+    side +1: random R by bucket Q1 +0.463 Q2 +0.211 Q3 +0.186 Q4 +0.219 Q5 +0.048   | trades edge by bucket Q1 +0.63 Q2 +0.62 Q3 +0.53 Q4 +0.31 Q5 +0.55
+    side -1: random R by bucket Q1 +0.092 Q2 +0.070 Q3 +0.133 Q4 +0.106 Q5 -0.025   | trades edge by bucket Q1 +0.18 Q2 +0.33 Q3 +0.30 Q4 +0.09 Q5 -0.19
+  beta check for wickiness (random entries every 6 bars, stop 1.5 ATR, target 1000.0R, 30 bars):
+    side +1: random R by bucket Q1 +0.066 Q2 +0.206 Q3 +0.194 Q4 +0.168 Q5 +0.114   | trades edge by bucket Q1 +0.37 Q2 +1.13 Q3 +0.36 Q4 +0.42 Q5 +0.36
+    side -1: random R by bucket Q1 +0.059 Q2 +0.012 Q3 +0.025 Q4 +0.060 Q5 +0.082   | trades edge by bucket Q1 +0.47 Q2 +0.36 Q3 -0.11 Q4 +0.19 Q5 -0.16
+  beta check for btc6 (random entries every 6 bars, stop 1.5 ATR, target 1000.0R, 30 bars):
+    side +1: random R by bucket Q1 +0.095 Q2 +0.183 Q3 +0.262 Q4 +0.291 Q5 +0.321   | trades edge by bucket Q1 +0.27 Q2 +0.36 Q3 +0.73 Q4 +1.03 Q5 +0.44
+    side -1: random R by bucket Q1 +0.041 Q2 +0.065 Q3 +0.025 Q4 -0.075 Q5 +0.235   | trades edge by bucket Q1 +0.13 Q2 +0.17 Q3 +0.48 Q4 -0.15 Q5 +0.08
