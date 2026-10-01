@@ -480,3 +480,14 @@ condition, -0.070 on 265 trades. Both components carry the edge and stay.
 - **Power:** about 40-50 trades on the extended tier; the minimum detectable edge is about 0.35R.
 - **Predicted:** edge about +0.45R with a lower bound about +0.1. The split was seen on this tier, so the in-sample
   estimate is optimistic; the final tier is the test.
+
+**Result C-6:** the iteration gate passes. 30 trades, avg R +0.417, control -0.162, edge +0.579 [+0.302, +0.854];
+2018-2020 +0.210 (3 trades), 2021-2022 +0.619 (27). Stops 7%. The prediction was +0.45 with a lower bound of +0.1;
+the realised +0.58 with a lower bound of +0.30 is above it, as expected for an in-sample split. The first half holds
+3 trades, so the halves rule tests little there (workflow note 19).
+
+### C-6 final read (registered before running)
+
+The rules are unchanged. The read is once, on the final tier, deflated over the final reads (carry K1, D-1, C-6), so
+k = 3 and the interval is 98.33%. It holds when the interval excludes zero. Capitulations are rare, so the read has
+little power. The verdict is recorded either way, and the forward record follows.
