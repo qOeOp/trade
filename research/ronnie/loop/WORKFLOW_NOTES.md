@@ -254,3 +254,7 @@ Input for the product's R&D system. Each note: what happened, why it matters, a 
       spreads of correlated coins are the series that range.
     - **Proposal (protocol amendment 8):** a live, failure-targeted external search in every loop's hypothesis step,
       with each source recorded with its rule, claimed result and evidence quality.
+47. **A churn bug passes silently unless trade counts are sanity-checked.** H-1's first run had about 20 trades a week
+    on 5 pairs and a 12% win rate, impossible for a mean-reversion rule. The cause was re-entry beyond the stop. The
+    runner should flag implausible statistics before reporting: a trade-count rate far above the design, a holding
+    time of 0 bars for most trades, or a win rate far from the rule's geometry.

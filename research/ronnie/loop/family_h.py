@@ -37,7 +37,7 @@ def simulate(L, a, b, beta, mu, sd, s, e_end, cfg):
     A, B = L[a].values, L[b].values
     while i < e_end - 1:
         z = (A[i] - beta * B[i] - mu) / sd
-        if np.isnan(z) or abs(z) < cfg["z_in"]:
+        if np.isnan(z) or abs(z) < cfg["z_in"] or abs(z) >= cfg["z_stop"]:  # never enter beyond the stop
             i += 1
             continue
         side = -np.sign(z)  # +1: long the spread (long A, short beta B)
@@ -53,6 +53,9 @@ def simulate(L, a, b, beta, mu, sd, s, e_end, cfg):
         w = 1 + abs(beta)
         ret = side * ((A[j] - A[e0]) - beta * (B[j] - B[e0])) / w - cfg["cost"]
         out.append((e0, side, ret))
+        zj = (A[j] - beta * B[j] - mu) / sd
+        if abs(zj) >= cfg["z_stop"]:  # a diverged pair is not traded again this week
+            break
         i = j + 1
     return out
 

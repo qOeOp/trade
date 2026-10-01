@@ -857,3 +857,10 @@ These are priors, not evidence (both are in-sample studies, sensitive to costs).
     positive in both halves (2018-2020 and 2021-2022).
   - Comparison: the same rules on 5 randomly chosen pairs per week (does cointegration selection add value?).
 - **Predicted (shrunk, note 39):** about 0 per trade, with a lower bound near -0.1%.
+
+**H-1 first run discarded (bug, workflow note 47).** -0.197% per trade on 5,348 trades with a 12% win rate. A
+diagnosis showed 465 of 578 sampled exits were stops, 70% on the entry bar. Out of sample, spreads often start the
+trading week already beyond |z| 4. The code entered any |z| at least 2, was stopped at once, and re-entered on the
+next bar, churning costs. Fixed to implement the registered rule as meant: no entry at |z| 4 or beyond, and a pair
+stopped out is not traded again that week (the standard pairs-trading convention). H-1 is rerun under the same
+registration.
