@@ -573,6 +573,18 @@ starting flat. It places no orders and uses no account.
 - **Score:** `python trend/forward.py score` summarises the closed paper trades.
 - **Schedule:** a daily routine runs it, with `combo/forward.py`, and commits the result. The commit time is the proof.
 
+## Multi-timeframe range boxes (TrialFamily range-v2)
+
+`range2/` fades both edges of 60-bar range boxes on 1h, 4h and 1d bars, using the 17 majors. The development period is
+2018-2022 and the check period 2023-2026 (`range2/result.txt`).
+- **Result:** no variant holds.
+  - **L, a limit at the edge (stop 0.5 ATR beyond, target the far edge, about 11R):** it wins 9-14% of the time and is
+    significantly worse than random on 1h and 4h in 2023-2026 (-0.27R and -0.35R).
+  - **C, the rejection close:** from -0.12R to +0.34R, every interval spanning zero. The daily rows rest on 24-37 trades.
+  - **M, the 4h edge matching a daily edge:** it produced no trade, so 4h and 1d boxes almost never share an edge within
+    0.5 ATR.
+- **Conclusion:** together with range-v1, box fading shows no edge on any timeframe.
+
 ## Running the survivors together, and a forward record
 
 `combo/portfolio.py` runs B1, trendline_break_strong and line_break_ridge as one book on BTC, ETH and the 15 holdout
