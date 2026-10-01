@@ -206,3 +206,15 @@ Input for the product's R&D system. Each note: what happened, why it matters, a 
 39. **The iterating agent's predictions are biased upward.** Registered predictions missed by -0.26R (E-2) and -0.30R
     (E-3), and only C-6 beat its prediction. A calibration record (prediction against outcome per loop) should feed
     back as a shrinkage on the agent's next predictions. A prediction that is never scored teaches nothing.
+40. **A verdict-only holdout teaches nothing about why.** F-1, F-2 and G-2 all FAIL on the reserve, and the iterating
+    agent cannot tell a negative edge from a positive but under-powered one, or a regime mismatch.
+    - **Proposal:** the gatekeeper returns a three-level verdict (PASS; FAIL with the edge positive but the interval
+      spanning zero; FAIL with the edge at or below zero). That leaks about one bit more and lets the next loop choose
+      between "needs data" and "wrong mechanism". The level of disclosure is a deliberate, budgeted design parameter,
+      not an accident of the tool.
+41. **A holdout must match the target universe.** The reserve tier is 2024-2025 listings, many of them new tokens and
+    memecoins in their post-listing decline, while the strategies were built and meant for majors and large caps (the
+    user's own rule: big coins). A FAIL there may say "does not transfer to new listings" rather than "no edge on
+    majors". The tier was chosen for cleanliness alone.
+    - **Proposal:** the data ledger stratifies reserve slices by universe (majors, large caps, new listings) and
+      period, so each candidate is tested on a clean slice of its own universe.

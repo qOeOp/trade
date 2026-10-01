@@ -56,3 +56,5 @@ logged_at,loop,candidate,stage,n,edge,lo,hi,passed,note
 2026-10-01T09:59:29+00:00,G-2,familyA,iteration,302,+0.2471,+0.0706,+0.4329,True,
 2026-10-01T09:59:57+00:00,D-1x,familyA,rerun-iteration,358,+0.1875,+0.0276,+0.3440,True,"comparison: D-1 rules on the extended tier, for G-2"
 2026-10-01T10:13:09+00:00,F-1,family_f,final,582,+nan,+nan,+nan,False,sealed; level 95.00
+2026-10-01T10:13:42+00:00,F-2,family_f,final,582,+nan,+nan,+nan,False,sealed; level 97.50
+2026-10-01T10:13:49+00:00,G-2,family_g,final,104,+nan,+nan,+nan,False,sealed; level 98.33

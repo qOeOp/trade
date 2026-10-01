@@ -692,3 +692,10 @@ has not seen the details (sealed in `loop/sealed/F-1_reserve.json`).
 - **F-2:** k = 2, PASS/FAIL at 97.5%.
 - **G-2:** k = 3, PASS/FAIL at 98.33%.
 - Both run once each, rules unchanged, by a fresh-context gatekeeper subagent that relays only the verdict lines.
+
+**Result F-2 and G-2 reserve reads (relayed by the gatekeeper subagent):** "F-2 final: FAIL at 97.50% (k=2)" and
+"G-2 final: FAIL at 98.33% (k=3)". Details are sealed; the iterating agent has not seen them.
+
+**State of the reserve tier:** three candidates that passed iteration (F-1, F-2, G-2) all fail on it. The reserve is
+spent for the box and trend-line lineages. Their candidates (`trendline`, `box_break` and B1 variants) continue in the
+forward record.
