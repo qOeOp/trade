@@ -1,0 +1,16 @@
+Long-only daily trend following on the majors, spot, 0.1%/side, at most 1x invested (descriptive; development coins)
+500 trades on 17 coins, 2018-01 to 2026-08
+
+book                          CAGR     maxDD   Sharpe   total      avg invested
+trend 17 majors, 1% risk       +53.7%   -39.5%    1.26    +4042%    34%
+trend 17 majors, 0.5% risk     +32.8%   -32.4%    1.08    +1068%    23%
+trend BTC+ETH+SOL, 1% risk     +23.4%   -20.1%    1.27     +518%    12%
+hold BTC                       +22.7%   -81.2%    0.64     +487%    100%
+hold 17 equal weight           +23.0%   -79.9%    0.66     +500%    100%
+
+by year: 2018  2019  2020  2021  2022  2023  2024  2025  2026
+  trend 17 majors, 1% risk      -7%  +40%  +160%  +519%  -23%  +48%  +73%  +3%  -2%
+  trend 17 majors, 0.5% risk    -3%  +18%  +67%  +227%  -16%  +41%  +67%  -3%  -2%
+  trend BTC+ETH+SOL, 1% risk    -3%  +18%  +48%  +117%  -9%  +58%  +11%  +0%  +5%
+  hold BTC                      -72%  +94%  +302%  +60%  -64%  +156%  +121%  -6%  -10%
+  hold 17 equal weight          -71%  +34%  +190%  +793%  -70%  +130%  +80%  -34%  -26%

@@ -542,6 +542,27 @@ momentum rule is scored as well (`trend/result.txt`).
 - **Exits:** random entries with the same exits also earned in 2018-2022. Much of the result comes from the exit that
   lets winners run, not from the entry.
 
+**Portfolio view (`trend/portfolio.py`, `trend/portfolio.txt`, `trend/fig_portfolio.png`, descriptive).** The book is
+long only, spot with no leverage or funding, 0.1% per side, at most 1x invested, and one trade per coin, over
+2018-01 to 2026-08.
+
+| Book                       | CAGR   | Max DD | Sharpe | Average invested |
+| -------------------------- | -----: | -----: | -----: | ---------------: |
+| trend, 17 majors, 1% risk  | +53.7% | -39.5% |   1.26 |              34% |
+| trend, 17 majors, 0.5%     | +32.8% | -32.4% |   1.08 |              23% |
+| trend, BTC+ETH+SOL, 1%     | +23.4% | -20.1% |   1.27 |              12% |
+| hold BTC                   | +22.7% | -81.2% |   0.64 |             100% |
+| hold 17, equal weight      | +23.0% | -79.9% |   0.66 |             100% |
+
+- **What the book does:** it sits mostly in cash and loses little in bear years: -23% in 2022, against -64% for BTC
+  and -70% for the equal-weight hold.
+- **Recent years:** since 2023 the 1% book returned +48%, +73%, +3% and -2% (to August 2026).
+- **Caveat, concentration:** 2021 alone (+519%) carries much of the total.
+- **Caveat, survivorship:** the 17 majors are today's survivors, chosen knowing they became majors. On coins listed
+  since 2023 the same rule earned only +0.07R per trade.
+- **Caveat, development data:** these coins were development data, although the rule's parameters are textbook values
+  and were not tuned here.
+
 ## Running the survivors together, and a forward record
 
 `combo/portfolio.py` runs B1, trendline_break_strong and line_break_ridge as one book on BTC, ETH and the 15 holdout
