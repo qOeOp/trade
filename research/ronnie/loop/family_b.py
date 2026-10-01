@@ -15,7 +15,8 @@ LOOPS = {"B-1": dict(BASE), "B-2": dict(BASE, sides=(1,)), "B-3": dict(BASE, sid
          "B-6": dict(BASE, sides=(1,), max_vol=1.0, level_tf="1d"),
          "B-7": dict(BASE, sides=(1,), closes=2, max_vol=1.0, level_tf="donchian20"),
          "B-8": dict(BASE, sides=(1,), closes=2, max_vol=1.0, level_tf="1d", tf="4h"),
-         "B-9": dict(BASE, sides=(1,), level_tf="round", iter_set="iterx")}
+         "B-9": dict(BASE, sides=(1,), level_tf="round", iter_set="iterx"),
+         "B-10": dict(BASE, sides=(1,), min_volx=1.5, iter_set="iterx")}
 
 
 def make(cfg):
@@ -23,7 +24,8 @@ def make(cfg):
 
     def fn(d1, d4):
         d = d1 if cfg["tf"] == "1d" else d4
-        o, h, l, c = (d[x].values for x in ("open", "high", "low", "close"))
+        o, h, l, c, v = (d[x].values for x in ("open", "high", "low", "close", "volume"))
+        vm = pd.Series(v).shift(1).rolling(20).mean().values
         a, a100 = E.MT.atr_of(h, l, c), E.MT.atr_of(h, l, c, 100)
         if cfg["tf"] == "1d":
             s50, s200, cc = \
@@ -68,6 +70,8 @@ def make(cfg):
                 else:
                     crossed = m & ((c[i] - Y) * side > 0) & ((c[i - 1] - Y) * side <= 0)
                 if not crossed.any():
+                    continue
+                if not v[i] >= cfg.get("min_volx", 0) * vm[i]:
                     continue
                 if a[i - 1] / a100[i - 1] >= cfg.get("max_vol", np.inf):
                     continue

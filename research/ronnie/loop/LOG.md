@@ -392,3 +392,14 @@ detectable edge over random entries on daily crypto bars.
   extended iteration tier.
 - **Reason (cited mechanism):** Osler (2003) finds stop-loss orders clustered just beyond round numbers, so crossing
   one triggers a cascade and a fast move. The ledger offers no flagged factor for Family B in 8 loops.
+
+**Result B-9:** iteration gate fails. 1,053 trades, avg R +0.220, edge -0.095 [-0.233, +0.043]; 2018-2020 -0.277,
+2021-2022 +0.011. Stops 59%, 27% of them within 2 bars. Round-number breaks are no better than random.
+
+### Loop B-10 (registered before running)
+
+- **Change from B-2:** the break day's volume must be at least 1.5 times its prior 20-day mean. Run on the extended
+  iteration tier.
+- **Reason (cited mechanism):** "breakouts need volume" (O'Neil's CANSLIM rule; common community practice). The
+  decomposition puts 27-43% of stops within 2 bars (false breaks), the part volume confirmation is meant to remove.
+  The ledger does not support it (the volume ratio's mean IC in Family B is -0.05), so it is the cited-mechanism path.
