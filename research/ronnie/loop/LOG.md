@@ -1683,3 +1683,90 @@ direction.** After 2022, the most volatile coins were the worst.
   The filter is admitted only if that interval is above zero. One year will likely be too short; the record continues
   if it is undecided.
 - **Falsifier:** the calm minus rest difference at or below zero over the first forward year.
+
+## Family P: the original Ronnie trading plan under the new workflow (loop P-1, registered before running)
+
+The plan (`ronnie_plan.py`): F2 weekly direction, the R1/R2/R4/R5 zone map, the F1 Bollinger state, and setups S1-S5.
+It was tested once, on BTC alone (Bitstamp, 2017-2022 and 2023-2026): portfolio Sharpe -0.14 and -0.43, judged failed
+by its own kill rule. Under CRITERIA it is unaudited: one instrument gives no power, and the setups were never judged
+with a random-entry control on a broad universe.
+
+- **Stage 0, priors from this session's research (EXTERNAL_RESEARCH; CRITERIA sources):**
+  - S2b (large-body breakout) is momentum, supported by the breakout and time-series momentum literature; as B1 it is
+    already active.
+  - S1 (zone bounce) and S5 (a sweep of resistance, then a short): support for levels exists only in intraday FX
+    (Osler). Loop A closed bounces in crypto and daily FX, and G-1 closed fading breaks.
+  - S3 (range play) and S4 (layered Fibonacci pullback): Fibonacci ratios were no better than random ratios
+    (`run_controls.py`); no academic support was found.
+- **Rule:** the plan frozen with its declared defaults. Nothing is tuned.
+- **Data:** the extended iteration tier (53 coins, 2018-2022), never used for the plan. Holdout tiers are untouched for
+  S1, S3, S4 and S5.
+- **Scoring:** each plan trade is re-scored by the loop engine at its fill bar (entry, stop and target as filled) with
+  20 matched random entries (same year, side, stop in ATR, target in R, hold). Edge per setup, week-clustered
+  interval, status by CRITERIA (SESOI +0.10R); Holm over the five setups for "active".
+- **Predicted:** S2b active or positive; S1, S3 and S5 equivalent-null or harmful; S4 inconclusive (few trades). The
+  plan as a whole is not positive.
+
+**Rerun P-1 (suspected bug, not the cause):** the stop was rebuilt from the plan's own ATR instead of the engine's.
+Results were identical, so the two ATRs agree and this was not a bug.
+
+**Rerun P-1 (the real cause):** `engine.score` (through `range2/run.py:93`) silently drops trades whose target is below
+1R. 90% of S4's trades have targets below 1R (the impulse extreme lies close to the layered fills), and those earn
++0.12R in the plan's own fills. The engine kept only the 10% with targets of at least 1R, which lose -0.18R, so S4
+looked harmful from selection alone. Family P now scores without that filter, with controls matched on target R as
+before. Every earlier loop had targets of at least 1R by design, so no earlier result is affected (workflow note 54).
+
+**Closure re-check for the silent filter:** families with targets possibly below 1R were rescored without it.
+- E-1x: -0.165 [-0.330, +0.005] (529 trades, 2% previously dropped).
+- E-4: -0.108 [-0.237, +0.024] (6% dropped).
+- E-5: -0.102 [-0.282, +0.079] (5% dropped).
+- G-1: -0.396 [-0.611, -0.144] (none dropped).
+Every closure stands.
+
+**Result P-1** (`loop/family_p.py`, `loop/p-1_plan.txt`; edge against matched random entries, week-clustered):
+
+| setup | trades | edge | interval | status |
+| --- | --- | --- | --- | --- |
+| S1 zone bounce (limit) | 6,656 | -0.058 | [-0.130, +0.013] | closed (equivalent-null), 53 coins |
+| S2b large-body breakout | 135 | +0.289 | [-0.360, +0.901] | inconclusive (starved: as B1 alone it has thousands of trades) |
+| S3 range play | 327 | -0.032 | [-0.126, +0.069] | closed (equivalent-null) |
+| S4 layered Fibonacci pullback | 5,151 | +0.060 | [+0.013, +0.105] | positive but below SESOI; longs +0.10, shorts +0.04 |
+| S5 sweep short | 600 | +0.008 | [-0.100, +0.112] | inconclusive (upper bound 0.012 above SESOI) |
+| the whole plan | 12,869 | -0.004 | | not positive, as predicted |
+
+- **Predictions:** S1 and S3 closed as predicted; S2b inconclusive only because it was starved; S4 better than
+  predicted.
+- **Diagnosis:**
+  - S1 makes half the plan's trades with no edge, and it occupies the risk budget and cooldowns that S2b needs.
+  - S4 carries a small but real timing edge. Two competing explanations: Fibonacci levels matter, or any layered
+    pullback inside the weekly trend works.
+
+### Loop P-2 (registered before running; amendment 4: one structural change plus a discriminating test)
+
+- **P-2a, structural:** the plan without its two closed setups (S1, S3). The same risk rules then allocate to S2b, S4
+  and S5. Prediction: S2b trades rise severalfold, its edge stays positive, and the plan's pooled edge turns positive
+  (about +0.05 to +0.10).
+- **P-2b, discriminating test for S4:** S4 with placebo ratios (0.30, 0.45, 0.70) in place of (0.382, 0.5, 0.618),
+  same weights, inside P-2a.
+  - If the edge is the same (difference within +-0.03), it comes from "a layered pullback inside the trend", not from
+    Fibonacci.
+  - If clearly lower, Fibonacci levels matter.
+  - Prediction: the same; Fibonacci ratios were no better than random ratios on BTC (`run_controls.py`).
+- **Status rule as in P-1.** No holdout is read in this loop.
+
+**Result P-2:**
+- **P-2a (S1 and S3 removed):** the plan's pooled edge turns positive, +0.059 (5,889 trades), as predicted.
+  - S2b stays at 135 trades, so the starvation explanation is wrong. S2b inside the plan is limited by the plan's own
+    filters (F2 weekly direction, the F1 state), not by S1's use of the risk budget.
+  - Standalone (B1) it trades thousands of times and is active.
+- **P-2b (placebo ratios 0.30/0.45/0.70):** S4 +0.056 [+0.012, +0.099] against +0.060 with Fibonacci, a difference
+  within the registered +-0.03. **The edge is not Fibonacci**: it comes from layered limit entries on a pullback inside
+  the weekly trend, as predicted.
+- **State of the plan:**
+  - S1 and S3 closed (53 coins, equivalence).
+  - S2b is better as B1, already active.
+  - S4 is a small, real timing edge, about +0.06, below SESOI, whatever the ratios. Parked as "positive, below SESOI";
+    a candidate for an ensemble at small weight (CARVER), not a strategy alone.
+  - S5 parked (upper bound +0.109).
+  - Further variant searches on S4 on this data (sides, ratios, filters) would be selection on read data. Its only
+    clean next step is a stage-2 read, and the ladder's stage 1 (edge >= SESOI) is not met, so none is spent.

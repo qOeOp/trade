@@ -1,0 +1,5 @@
+P-2b: the Ronnie plan, 53 coins 2018-2022; edge = engine R - 20 matched random entries; week-clustered
+  S2b: n 135, avg R +0.397 (plan's own fill +0.406), edge +0.289 [-0.360, +0.901] -> inconclusive; short +0.46 (89), long -0.05 (46)
+  S4: n 4981, avg R +0.051 (plan's own fill +0.066), edge +0.056 [+0.012, +0.099] -> equivalent-null; short +0.04 (3284), long +0.09 (1697)
+  S5: n 603, avg R -0.197 (plan's own fill -0.115), edge +0.005 [-0.106, +0.109] -> inconclusive; short +0.00 (603)
+  all setups: n 5719, edge +0.056

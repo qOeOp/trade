@@ -282,3 +282,8 @@ Input for the product's R&D system. Each note: what happened, why it matters, a 
     carries one bit of unprotected holdout information. Found by the read-only product mapping on 2026-10-01. The
     validation tier is spent, so no running read is affected. Proposal: a verdict on a reusable holdout must be computed
     from the noised quantity (a noised lower bound), or the tier gives verdicts only once.
+54. **The scorer silently dropped trades with targets below 1R.** `engine.score` inherits a `target >= 1R` filter from
+    `range2/run.py:93`. Rules whose targets are often closer than the stop were scored on a biased remainder; in the
+    Ronnie plan, S4 looked harmful (-0.24) when it was positive (+0.06). Earlier families were re-checked, and no
+    closure changed. Proposal: a scorer never filters trades silently; any exclusion is a rule's explicit condition,
+    counted and reported with the result.

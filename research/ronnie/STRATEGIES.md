@@ -206,7 +206,11 @@ closure audit (`loop/closure_audit.txt`, week-clustered, SESOI +0.10R) and the p
 | Line quality F-3 | closed (as a filter) | span Q5-Q1 upper +0.12 against a predicted positive effect; no reliable feature |
 | Community lines | parked, low | held-minus-moved spans zero, no information |
 | FX reversion (fxrevert) | parked, out of scope | M1 +0.094 on FX |
-| Ronnie's own calls and lines (early descriptive studies) | not audited | descriptive studies without a random-entry interval; a low prior |
+| Ronnie's plan, S1 zone bounce and S3 range play | closed: 53 crypto coins, 2018-2022 | P-1: S1 -0.058 [-0.13, +0.01] on 6,656 trades; S3 -0.032 [-0.13, +0.07] |
+| Ronnie's plan, S4 layered pullback (Fibonacci or not) | parked: positive below SESOI | P-1/P-2: +0.06 [+0.01, +0.10] on about 5,000 trades; placebo ratios give the same edge, so it is not Fibonacci |
+| Ronnie's plan, S5 sweep short | parked | P-1: +0.008 [-0.10, +0.11] |
+| Ronnie's plan, S2b | absorbed into B1 | inside the plan its filters leave 135 trades |
+| Ronnie's own calls (YouTube titles) | not audited | descriptive only; titles are summaries |
 
 ## Cross-cutting next steps
 

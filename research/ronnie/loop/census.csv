@@ -107,3 +107,24 @@ logged_at,loop,candidate,stage,n,edge,lo,hi,passed,note
 2026-10-01T16:14:20+00:00,P-1,F-2,pooled,2935,+nan,+nan,+nan,False,sealed; stage-4 pooled read
 2026-10-01T16:14:21+00:00,P-1,C-6,pooled,17,+nan,+nan,+nan,False,sealed; stage-4 pooled read
 2026-10-01T16:14:23+00:00,P-1,B1,pooled,7633,+nan,+nan,+nan,False,sealed; stage-4 pooled read
+2026-10-01T17:29:59+00:00,P-1-S1,familyP,iteration,6656,-0.0581,-0.1302,+0.0127,False,Ronnie plan setup; week-clustered
+2026-10-01T17:29:59+00:00,P-1-S2b,familyP,iteration,135,+0.2888,-0.3600,+0.9012,False,Ronnie plan setup; week-clustered
+2026-10-01T17:29:59+00:00,P-1-S3,familyP,iteration,62,+0.0723,-0.1769,+0.3274,False,Ronnie plan setup; week-clustered
+2026-10-01T17:29:59+00:00,P-1-S4,familyP,iteration,516,-0.2442,-0.3949,-0.0894,False,Ronnie plan setup; week-clustered
+2026-10-01T17:29:59+00:00,P-1-S5,familyP,iteration,600,+0.0078,-0.1001,+0.1118,False,Ronnie plan setup; week-clustered
+2026-10-01T17:31:16+00:00,P-1-S1,familyP,rerun-iteration,6656,-0.0581,-0.1302,+0.0127,False,Ronnie plan setup; week-clustered stop rebuilt from the plan's ATR
+2026-10-01T17:31:16+00:00,P-1-S2b,familyP,rerun-iteration,135,+0.2888,-0.3600,+0.9012,False,Ronnie plan setup; week-clustered stop rebuilt from the plan's ATR
+2026-10-01T17:31:16+00:00,P-1-S3,familyP,rerun-iteration,62,+0.0723,-0.1769,+0.3274,False,Ronnie plan setup; week-clustered stop rebuilt from the plan's ATR
+2026-10-01T17:31:16+00:00,P-1-S4,familyP,rerun-iteration,516,-0.2442,-0.3949,-0.0894,False,Ronnie plan setup; week-clustered stop rebuilt from the plan's ATR
+2026-10-01T17:31:16+00:00,P-1-S5,familyP,rerun-iteration,600,+0.0078,-0.1001,+0.1118,False,Ronnie plan setup; week-clustered stop rebuilt from the plan's ATR
+2026-10-01T17:32:20+00:00,P-1-S1,familyP,rerun-iteration,6656,-0.0581,-0.1302,+0.0127,False,Ronnie plan setup; week-clustered no target>=1R filter in scoring
+2026-10-01T17:32:20+00:00,P-1-S2b,familyP,rerun-iteration,135,+0.2888,-0.3600,+0.9012,False,Ronnie plan setup; week-clustered no target>=1R filter in scoring
+2026-10-01T17:32:20+00:00,P-1-S3,familyP,rerun-iteration,327,-0.0315,-0.1259,+0.0688,False,Ronnie plan setup; week-clustered no target>=1R filter in scoring
+2026-10-01T17:32:20+00:00,P-1-S4,familyP,rerun-iteration,5151,+0.0597,+0.0127,+0.1049,False,Ronnie plan setup; week-clustered no target>=1R filter in scoring
+2026-10-01T17:32:20+00:00,P-1-S5,familyP,rerun-iteration,600,+0.0078,-0.1001,+0.1118,False,Ronnie plan setup; week-clustered no target>=1R filter in scoring
+2026-10-01T17:34:46+00:00,P-2a-S2b,familyP,iteration,135,+0.2888,-0.3600,+0.9012,False,Ronnie plan setup; week-clustered
+2026-10-01T17:34:46+00:00,P-2a-S4,familyP,iteration,5151,+0.0597,+0.0127,+0.1049,False,Ronnie plan setup; week-clustered
+2026-10-01T17:34:46+00:00,P-2a-S5,familyP,iteration,603,+0.0048,-0.1057,+0.1092,False,Ronnie plan setup; week-clustered
+2026-10-01T17:35:12+00:00,P-2b-S2b,familyP,iteration,135,+0.2888,-0.3600,+0.9012,False,Ronnie plan setup; week-clustered
+2026-10-01T17:35:12+00:00,P-2b-S4,familyP,iteration,4981,+0.0563,+0.0120,+0.0988,False,Ronnie plan setup; week-clustered
+2026-10-01T17:35:12+00:00,P-2b-S5,familyP,iteration,603,+0.0048,-0.1057,+0.1092,False,Ronnie plan setup; week-clustered
