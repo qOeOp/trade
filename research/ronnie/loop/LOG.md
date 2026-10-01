@@ -831,3 +831,29 @@ a decline (lower highs). Quantified:
   time exit, moved the result.
 - **Reading:** both working changes turn the fade toward a short-term momentum trade (enter after price has already
   moved 1 ATR away from the edge, then let it run). The edge reversal itself still shows no power.
+
+## Family H: "the spread of a correlated pair ranges" (pairs mean reversion; from the external search, amendment 8)
+
+Why: single crypto prices trend, which explains a dozen failed single-coin range loops. The series that range are the
+spreads of correlated coins. External priors:
+- **Fil and Kristoufek (2020), "Pairs Trading in Cryptocurrency Markets", 26 Binance coins:** the distance method is
+  about flat on daily bars (-0.07% a month); the cointegration method makes +1.36% a month, Sharpe 1.1; intraday is
+  stronger but sensitive to costs.
+- **Tadi et al. (2023), "Copula-Based Trading of Cointegrated Cryptocurrency Pairs", Binance USDT-M hourly, 2021-2023:**
+  3-week formation, 1-week trading, entry at |z| 2, exit at |z| 1.
+These are priors, not evidence (both are in-sample studies, sensitive to costs).
+
+### Loop H-1 (registered before running; parameters from the literature, not tuned)
+
+- **Bars and coins:** 4h bars of the 17 majors (iteration tier, 2018-2022).
+- **Formation:** each week, regress log A on log B over the prior 3 weeks (126 bars), for every pair (136). Engle-Granger
+  ADF t-statistic on the residual; keep the 5 most negative below -3.37 (the 5% two-variable critical value).
+- **Trading, for the next week (42 bars):** z is the residual over its formation mean and standard deviation.
+  - Enter when |z| reaches 2: short the rich leg, long the cheap leg, hedge ratio beta, gross notional split 1 : |beta|.
+  - Exit when |z| falls to 1, on a stop at |z| 4, or at the end of the trading week.
+- **Costs:** 0.12% of gross notional per round trip (two legs, 0.06% per side).
+- **Score:** net return per trade on gross notional.
+  - Gate (market-neutral, benchmark cash): mean net return above zero with a week-clustered 95% interval above zero,
+    positive in both halves (2018-2020 and 2021-2022).
+  - Comparison: the same rules on 5 randomly chosen pairs per week (does cointegration selection add value?).
+- **Predicted (shrunk, note 39):** about 0 per trade, with a lower bound near -0.1%.
