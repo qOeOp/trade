@@ -116,3 +116,13 @@ them within 2 bars. Weekly levels hold better, but they are touched rarely: the 
 - **Single change from A5:** a touch tolerance of 0.5 ATR instead of 0.25.
 - **Reason:** traders draw levels as zones, not lines, and Osler finds stop orders clustered just beyond levels. A zone
   raises the number of tests of the weekly levels without lowering the level's rank.
+
+**Result A7:** iteration gate fails; the best loop so far. 81 trades, avg R +0.262, edge +0.163 [-0.162, +0.490];
+2018-2020 +0.556, 2021-2022 -0.033. Stops 31%, 8% of them within 2 bars.
+
+### Loop A8 (registered before running; the last loop of the family budget)
+
+- **Single change from A7:** trade only when ATR(14) is below ATR(100), that is volatility below its long-run level.
+- **Reason:** the low-volatility advantage appeared in the same direction in four loops (A2, A3, A6, A7), not once.
+  Mechanism: levels hold in quiet markets and break in volatile ones. The cut is the natural 1.0, not a tercile
+  boundary.

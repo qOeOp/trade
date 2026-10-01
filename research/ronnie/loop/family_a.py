@@ -16,7 +16,8 @@ BASE = dict(tf="1d", trend="sma", touch=0.25, stop_atr=1.0, target="hh20", hold=
             level_tf="1d", spacing=5)
 LOOPS = {"A1": dict(BASE), "A2": dict(BASE, min_touches=2), "A3": dict(BASE, confirm="trigger"), "A4": dict(BASE, confirm="trigger", ts=(5, 1.0)), "A5": dict(BASE, confirm="trigger", level_tf="1w"),
          "A6": dict(BASE, confirm="trigger", level_tf="1w", tf="4h"),
-         "A7": dict(BASE, confirm="trigger", level_tf="1w", touch=0.5)}
+         "A7": dict(BASE, confirm="trigger", level_tf="1w", touch=0.5),
+         "A8": dict(BASE, confirm="trigger", level_tf="1w", touch=0.5, max_vol=1.0)}
 
 
 def levels(d, k):
@@ -73,6 +74,8 @@ def make(cfg):
                     continue
                 j = np.argmax(ys * ok) if side == 1 else np.argmin(np.where(ok, ys, np.inf))
                 y = ys[j]
+                if a[i - 1] / a100[i - 1] >= cfg.get("max_vol", np.inf):
+                    continue
                 e, entry = i + 1, o[i + 1]
                 if cfg["confirm"] == "trigger":
                     trig, e = (h[i] if side == 1 else l[i]), None
