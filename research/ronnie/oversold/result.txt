@@ -1,0 +1,23 @@
+oversold-v1: daily oversold entries on large caps, long only; avg R net of 0.06%/side; control = 20 random entries
+variant set       n     win   avgR    control  minus control [95% coin-then-signal]  median target R
+O1      dev        556  41%  +0.048  -0.022   +0.070 [-0.073, +0.222]  2.27
+O1      holdout    895  38%  -0.032  -0.135   +0.103 [-0.020, +0.230]  2.36
+O2      dev        586  36%  -0.087  -0.084   -0.003 [-0.141, +0.135]  1.74
+O2      holdout   1563  34%  -0.149  -0.102   -0.047 [-0.129, +0.038]  1.92
+O3      dev         30  57%  +0.175  -0.169   +0.344 [-0.025, +0.779]  1.58
+O3      holdout     30  83%  +0.590  -0.026   +0.616 [+0.265, +0.927]  1.28
+O4      dev        157  34%  -0.153  -0.011   -0.143 [-0.398, +0.128]  1.62
+O4      holdout    366  32%  -0.171  -0.073   -0.098 [-0.290, +0.099]  1.88
+decision: O1 fails; O2 fails; O3 fails; O4 fails
+
+raw forward close-to-close return after the signal close (mean over signals; 'all days' = per-coin mean of every day)
+  dev      O1        n   616  1d +1.88%  3d +2.33%  5d +1.85%  10d +3.38%
+  dev      O2        n   636  1d +1.84%  3d +0.74%  5d +0.96%  10d +3.22%
+  dev      O3        n    31  1d +2.87%  3d +2.08%  5d +1.18%  10d +3.87%
+  dev      O4        n   170  1d +4.23%  3d +2.04%  5d +2.98%  10d +10.28%
+  dev      all days  n    17  1d +0.22%  3d +0.65%  5d +1.14%  10d +2.43%
+  holdout  O1        n   925  1d +1.18%  3d +2.10%  5d +2.33%  10d +2.66%
+  holdout  O2        n  1581  1d +0.43%  3d +1.06%  5d +1.01%  10d +1.38%
+  holdout  O3        n    31  1d +6.44%  3d +13.49%  5d +14.72%  10d +11.21%
+  holdout  O4        n   373  1d -0.33%  3d -0.14%  5d +1.35%  10d +1.84%
+  holdout  all days  n    37  1d +0.10%  3d +0.30%  5d +0.50%  10d +1.05%
