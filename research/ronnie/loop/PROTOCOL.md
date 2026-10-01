@@ -133,3 +133,19 @@ a live external search, targeted at the loop's failure mode:
   in-sample or not, costs). Claimed results are priors, never evidence.
 - **Leakage:** a source whose published backtest covers this research's holdout periods is noted in the data ledger.
 - **Breadth:** a source may propose a new family (as pairs trading did), not only a change to the current one.
+
+## Amendment 9: acceptance ladder and closure criteria (written after the user asked when a strategy is done and when a family is closed)
+
+`loop/CRITERIA.md` governs from now on, with sources verified against primary pages.
+- **Statuses:** every read reports one of pass, equivalent-null or inconclusive against a SESOI of +0.10R per trade
+  (or a Sharpe difference of 0.3 for books). Inconclusive parks; it never closes.
+- **Deflation:** holdout deflation uses Holm across each batch of reads (Romano-Wolf where the streams are available),
+  replacing order-dependent Bonferroni.
+- **Registration:** registrations add the SESOI, the list of credible variants and the computed variant count.
+- **Closing a family:** requires equivalence on new data, or a falsified mechanism tested at adequate power with its
+  variants exhausted. Positive near-misses are retested on new coins before any closure.
+- **"Developed":** stage 5 of the ladder: pooled holdout and forward evidence at t >= 3 or DSR >= 0.95, still at least
+  SESOI after a 26-58% decay haircut. Real capital still needs the user's explicit authority.
+
+This amendment tightens closure and leaves acceptance where it was or stricter. It loosens no gate: a parked family
+earns no evidence, only a revisit.

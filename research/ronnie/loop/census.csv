@@ -96,3 +96,5 @@ logged_at,loop,candidate,stage,n,edge,lo,hi,passed,note
 2026-10-01T15:21:40+00:00,D-3,familyA,iteration,366,+0.1549,-0.0125,+0.3295,False,
 2026-10-01T15:23:03+00:00,A8x,familyA,iteration,142,-0.0037,-0.2743,+0.2860,False,
 2026-10-01T15:23:10+00:00,B-5x,familyA,iteration,140,+0.1969,-0.1951,+0.5973,False,
+2026-10-01T15:28:39+00:00,R-2,rescue,iteration,4103,-0.0549,-0.2081,+0.1027,False,pre-loop rescue; parked (inconclusive)
+2026-10-01T15:28:51+00:00,R-1,rescue,iteration,2293,-0.1280,-0.2534,+0.0136,False,pre-loop rescue; closed (equivalent-null)

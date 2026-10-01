@@ -159,32 +159,53 @@ stated otherwise.
 - **Gold long trend (goldtrend-v1):** holds on 2019-2026, but on 16 trades with 2025 dominant. Not in the forward record.
 - **line_break_ridge (combo-v2 ridge):** positive per trade in early tests, but its book's maximum drawdown is -79%; in
   the forward record only as a comparison.
-- **Weekly support bounce with confirmation and low volatility (loop A8):** +0.41 on 51 trades, a near miss. On wider
-  data it resolved into noise and BTC beta (A9-A12). Closed.
+- **Weekly support bounce with confirmation and low volatility (loop A8):** +0.41 on 51 trades, a near miss. The
+  earlier claim that it resolved on wider data was wrong; the A8x retest on 36 new coins gives -0.23 [-0.52, +0.06],
+  so it is closed on evidence.
 
-## Falsified (do not restart without a new mechanism)
+## Family status under `loop/CRITERIA.md` (replaces the old "falsified" list)
 
-- Ronnie's calls and lines;
-- community lines;
-- line intersections and Fibonacci;
-- level fades and range fades (range v1-v6, loop E);
-- sweeps and changes of character;
-- wedges, triangles and flags;
-- volume nodes;
-- line stops;
-- filter searches (filters-v1, v2);
-- cross-sectional momentum;
-- RSI(2) and pure-crash entries;
-- regime-gated shorts (short-v1);
-- event-window filters;
-- support bounces (loop A);
-- break continuation over random (loop B);
-- fading breaks (G-1);
-- carry K2 and funding crowding (P1);
-- cross-sectional funding long-short (X-1) and the funding-extreme crash overlay (X-2);
-- pairs trading (H-1 to H-4: reversion only at horizons where execution decides);
-- the box-fade reopening (E-1x to E-5);
-- line quality (F-3) and breakout conditioning on session, OI, taker flow and funding (S-0 to S-2).
+Statuses: **active** (on the acceptance ladder), **parked** (inconclusive, under-powered), **absorbed** (carried by
+another line), **immaterial**, and **closed**, which needs equivalence or a falsified mechanism. Evidence: the loop
+closure audit (`loop/closure_audit.txt`, week-clustered, SESOI +0.10R) and the pre-loop family audit (LOG,
+"Pre-loop closure audit").
+
+| family | status | evidence for the status |
+| --- | --- | --- |
+| Carry K1 | active, stage 3 (forward) | passed development, holdout and final; at its forward kill line |
+| Carry K1b, K1p | closed (as variants) | K1p -9.4% a year against K1 [-11.1, -7.7]; K1b no gain |
+| Carry K2 | closed | holdout -3.3% a year [-4.1, -2.6] |
+| Carry P1 (funding crowding) | parked, low | holdout +1.4% [-0.3, +3.2] |
+| Trend B3 book, T0 | active, stage 3 | T-1 and T-2 positive; validation positive, spans zero |
+| Box break D-1 | active, stage 3 | holdout and majors positive, spans zero; the lookback plateau cuts the edge to +0.14 |
+| Box retest G-2 | absorbed into D-1 | correlation with D-1 +0.39 (+0.61 in bear years) |
+| Trend-line break F-1/F-2 | active, stage 3 | reserve fail, majors positive, spans zero |
+| Capitulation O3/C-6 | active but power-capped (parked for proof) | iteration +0.58; final 7 trades; new coins give no events (C-6u) |
+| Pure crash O1 | parked, lowest | R-2 pooled -0.055 [-0.21, +0.103] |
+| B1 4h momentum | active, stage 3 | 15 unseen coins +0.104 [+0.048, +0.159]; at SESOI |
+| Ensemble book T | active, stage 3 | N-4 positive, spans zero, against cash and buy-and-hold |
+| Gold long trend | parked | 16 trades |
+| line_break_ridge | parked | +0.086, upper +0.124; its book's drawdown is -79% |
+| Break continuation over random (family B) | absorbed into the trend book | B-5x new coins +0.056 [-0.43, +0.56]; the return is trend exposure |
+| Support bounces (family A) | closed | A1-A4 harmful; A12 equivalent-null on 1,189 trades; A8x new coins upper +0.06 |
+| Range and box fades (range v1-v6, rangex, family E) | closed | E-1x harmful, E-4 equivalent-null, range-v2 L harmful; small inconclusive variants superseded |
+| Fading breaks G-1 | closed | -0.38 [-0.60, -0.12] |
+| Flags F-raw | closed | R-1 new coins -0.128 [-0.25, +0.01] |
+| Wedges and triangles (patterns-v1) | closed | W-raw and W-retest equivalent-null |
+| MTF alignment | closed | M1 and M3 equivalent-null, M2 harmful |
+| Shorts (short-v1) | closed | S1, S2, S4 harmful; S0 equivalent-null |
+| Volume confirmation, volume nodes | closed | volume C holdout +0.015 [-0.016, +0.047]; nodes harmful or equivalent-null |
+| Filters (v1, v2), stops, entry timeframe | closed | all equivalent-null; filters-v2 F4 parked, low |
+| Exits other than the time exit | closed | harmful or equivalent-null; the time exit is active in F-2 and B1 |
+| Pairs (family H) | closed at bar horizons of 1h and above; parked intraday | 4h and daily net returns below zero; intraday needs an execution simulator |
+| Cross-sectional funding X-1 | parked, low | holdout verdict "edge at or below zero" carries no upper bound, so equivalence is unproven |
+| Funding-extreme overlay X-2 | parked | 2 episodes |
+| Breakout conditioning S-0, S-1 | parked, low | small splits, wide intervals |
+| Breakout funding veto S-2 | immaterial | touches 2% of trades |
+| Line quality F-3 | closed (as a filter) | span Q5-Q1 upper +0.12 against a predicted positive effect; no reliable feature |
+| Community lines | parked, low | held-minus-moved spans zero, no information |
+| FX reversion (fxrevert) | parked, out of scope | M1 +0.094 on FX |
+| Ronnie's own calls and lines (early descriptive studies) | not audited | descriptive studies without a random-entry interval; a low prior |
 
 ## Cross-cutting next steps
 

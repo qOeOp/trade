@@ -1429,3 +1429,29 @@ was wrong.
 Both shrank on new coins, as predicted. A8 is now properly closed, on evidence and not by assertion. B-5's
 mechanism (a break out of compression) is not ruled out; it is inconclusive and does not need its own line, because
 the trend book carries breakouts at the portfolio level.
+
+## Pre-loop closure audit and rescues R-1 (flags) and R-2 (pure crash) (registered before running)
+
+The pre-loop family audit (by a subagent, against `loop/CRITERIA.md`) flags two closures that rest on an inconclusive
+positive holdout and were never retested:
+- **patterns-v2 F-raw** (a flag after an impulse, 4h): holdout +0.116 [-0.028, +0.266] on 894 trades.
+- **oversold O1** (close at least 25% below the 10-day high, daily): holdout +0.103 [-0.020, +0.230] on 895 trades.
+
+Both rules are unchanged and run on coins new to each lineage over 2018-2022:
+- **R-1:** F-raw on the extended iteration tier minus BTC and ETH (51 coins; its development used only BTC and ETH).
+- **R-2:** O1 on the 36 extended coins (its development used the 17 majors) plus the never-used universe coins of C-6u
+  with the same $5M liquidity filter.
+
+Status rule (CRITERIA): a week-clustered interval above zero with an estimate of at least +0.10R makes the rule
+active; an upper bound below +0.10R closes it; anything else parks it.
+
+Predicted: both close to their holdout estimates (+0.05 to +0.10), so equivalent-null or parked; neither active.
+
+**Result R-1 / R-2 (week-clustered):**
+- **R-1, F-raw on 51 new coins:** 2,293 trades in 235 weeks, edge -0.128 [-0.253, +0.014]. **Closed**
+  (equivalent-null); the holdout +0.116 does not replicate.
+- **R-2, O1 on the 36 extended coins:** 1,113 trades, +0.011 [-0.149, +0.189] (inconclusive).
+- **R-2, O1 on 169 never-used universe coins:** 2,990 trades, -0.079 [-0.234, +0.086] (equivalent-null).
+- **R-2 pooled, as registered:** 4,103 trades in 160 weeks, -0.055 [-0.208, +0.103]. **Parked** by the rule, because the
+  upper bound is 0.003 above SESOI, even though the estimate is negative. The rule is applied as written, not
+  re-read; O1 is parked at the lowest priority, with no revisit planned.
