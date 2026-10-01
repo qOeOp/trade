@@ -4,6 +4,45 @@ Literature and practitioner sources gathered by six parallel research subagents,
 gives the sources (rule, claimed result, evidence quality) and the testable hypotheses. Claimed results are priors,
 never evidence. The agent's own synthesis and the hypotheses chosen for loops are at the end.
 
+## 1. Funding carry (K1)
+
+Sources:
+- **He, Manela, Ross and von Wachter, "Fundamentals of Perpetual Futures"** (arXiv 2212.06888).
+  - **Rule:** trade the deviation of the perpetual from its no-arbitrage price; close when it returns to zero.
+  - **Claim:** Sharpe 11.65 (BTC) to 19.76 (ADA) before costs; BTC 3.27 at retail costs.
+  - **Decay:** mean deviations shrank after 2022 (BTC 0.69% to 0.17%), partly attributed to Binance portfolio margin
+    (more arbitrage capital).
+  - **Momentum link:** past positive spot returns predict a higher premium.
+  - **Quality:** 5 coins, 2020-2024, costs modelled, no holdout.
+- **Schmeling, Schrimpf and Todorov, "Crypto Carry"** (BIS WP 1087; Management Science). Carry is driven by small
+  investors' trend-chasing and scarce arbitrage capital. High carry predicts crashes, and the arbitrage's risk sits in
+  margin spikes and liquidations of the short leg. Predictive regressions, not a backtest with costs.
+- **Christin, Routledge, Soska and Zetlin-Jones, "The Crypto Carry Trade"** (CMU): Sharpe 8.76 for BTC-USDT, likely
+  before 2022 and in-sample. Figures are from abstracts only.
+- **"Cryptocurrency as an Investable Asset Class: Coming of Age"** (arXiv 2510.14435): carry Sharpe 6.45 over
+  2020-08 to 2025-05, 4.06 in 2024, negative in 2025. This confirms that our decay is market-wide.
+- **BitMEX Research, Q3 2025 derivatives report:** funding was exactly 0.01% for 78% (BTC) and 88% (ETH) of the
+  quarter, the formula's interest anchor. **K1's entry threshold of 0.01% equals that anchor, so K1 enters whenever
+  funding is merely pinned and does not filter for excess demand.**
+- **Inan (2025), "Predictability of Funding Rates"** (SSRN 5576424): double-autoregressive models beat no-change
+  forecasts out of sample (BTC only; abstract only).
+- **Chi et al. (2023), Journal of Futures Markets:** basis, momentum and basis-momentum factors in crypto futures,
+  2017-2021, in-sample.
+- **Presto Labs (practitioner):** lagged funding changes have about zero R-squared for next-week price.
+
+Hypotheses (ranked):
+1. **Decompose K1's P&L** (anchor funding, excess funding, basis change, costs) and **enter only on funding above the
+   anchor:** at least half of the last 21 settlements above 0.01%, or a 7-day mean of at least 0.015%.
+2. **Time entries and exits on the premium index:** enter when its 3-day mean is above 0; exit when the 1-day premium
+   goes below 0, instead of using lagged funding.
+3. **A momentum gate:** hold only when the 30-day spot return is positive; optionally reduce size when funding is in
+   its top 5% (crash and margin risk).
+4. **Open-interest growth:** first test it as a forecast of next-week funding beyond an AR(1); use it only if it adds
+   R-squared of at least 0.02 out of sample.
+5. **An AR-forecast entry:** enter when forecast funding net of amortised costs is positive.
+
+Caveat: none of these reverses the structural decay (more arbitrage capital, portfolio margin, Ethena-type products).
+
 ## 2. Daily trend following on majors
 
 Sources:
