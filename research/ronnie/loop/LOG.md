@@ -151,3 +151,13 @@ weekly levels make the break stronger.
   close had not crossed. Entry at the next open.
 - **Exits:** stop at the broken level minus 1 ATR(14) (back inside); target 3R; time limit 20 days; stops over 6 ATR
   dropped; one signal per coin per 5 days.
+
+**Result B-1:** iteration gate fails. 350 trades, avg R +0.166, but the control earns +0.292, so the edge is -0.126
+[-0.363, +0.130]. Shorts -0.264, longs +0.050. Stops 57%: 32% of them within 2 bars (false breaks), and 22% after first
+reaching +1R.
+
+### Loop B-2 (registered before running)
+
+- **Single change from B-1:** longs only.
+- **Reason:** shorts were weak in B-1 and across earlier families (short-v1, the trend rule's shorts, B1's shorts), a
+  repeated finding consistent with crypto's positive drift, not a one-loop tercile.

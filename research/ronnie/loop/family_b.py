@@ -10,7 +10,7 @@ import engine as E  # noqa: E402
 import family_a as FA  # noqa: E402
 
 BASE = dict(tf="1d", stop_atr=1.0, rr=3.0, hold=20, spacing=5, level_tf="1w", sides=(1, -1))
-LOOPS = {"B-1": dict(BASE)}
+LOOPS = {"B-1": dict(BASE), "B-2": dict(BASE, sides=(1,))}
 
 
 def make(cfg):
