@@ -8,10 +8,12 @@ them and holds the product proposal, which was first published only as a page ("
 
 | File | What it proposes |
 | --- | --- |
-| `loop/WORKFLOW_NOTES.md` | 44 notes on the R&D workflow, each with what happened and a proposal (data ledger, gatekeeper, Thresholdout, three-level verdicts, factor ledger, beta check, visual review pipeline, forward-harness order types, and more) |
+| `loop/WORKFLOW_NOTES.md` | 53 notes on the R&D workflow, each with what happened and a proposal (data ledger, gatekeeper, Thresholdout, three-level verdicts, factor ledger, beta check, visual review pipeline, forward-harness order types, and more) |
 | `loop/RETROSPECTIVE.md` | The review of the whole process; open flaws and the priority list of changes |
 | `loop/PROTOCOL.md` | The R&D loop protocol and its seven amendments (tiers, budgets, ledger rules, loop quality, context separation, reserve tier, majors slice) |
 | `STRATEGIES.md` | The strategy catalogue ranked by usability, with the next R&D step for each strategy |
+| `RD_AUTONOMY.md` | Requirements for an unsupervised production R&D loop: module-by-module product state, prototype reference, defects not to copy, fixed protocol rules, build order |
+| `loop/CRITERIA.md` | Acceptance ladder, closure statuses, data buckets, the usable-at-small-size gate and sequential tests, with verified sources |
 | this file, below | The product proposal: research steps compared with the product's design and deployed state |
 
 ## The highest-leverage proposals (cross-file summary)

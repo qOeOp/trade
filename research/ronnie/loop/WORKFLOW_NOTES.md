@@ -277,3 +277,8 @@ Input for the product's R&D system. Each note: what happened, why it matters, a 
 52. **Sparse streams break volatility scaling.** A trailing 26-week volatility is zero for a rule that trades in 5%
     of weeks, and the book printed NaN. Event strategies need a scaling defined on their own clock (per trade or an
     expanding estimate), stated in the book's design before the first run.
+53. **The validation gatekeeper's PASS bit bypasses Thresholdout.** `loop/gatekeeper.py:57` sets PASS from the raw
+    holdout interval (`lo > 0`), while only the edge goes through Thresholdout's noise. Each validation answer therefore
+    carries one bit of unprotected holdout information. Found by the read-only product mapping on 2026-10-01. The
+    validation tier is spent, so no running read is affected. Proposal: a verdict on a reusable holdout must be computed
+    from the noised quantity (a noised lower bound), or the tier gives verdicts only once.

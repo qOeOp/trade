@@ -791,6 +791,9 @@ tested against skipping the same number of random trades of the same coins (`eve
 - `PROPOSALS.md`: every proposal of the study in one index, and the product proposal (research steps against the
   product's design and deployed state).
 - `STRATEGIES.md`: the strategies ranked by usability, with the next R&D step for each.
+- `RD_AUTONOMY.md`: requirements for an unsupervised production R&D loop, for the main development flow.
+- `loop/CRITERIA.md`: acceptance and closure criteria, data buckets, and the usable-at-small-size gate.
+- `loop/FORWARD_PLAN.md`: forward decision dates, kill lines and the sequential rule.
 - `loop/RETROSPECTIVE.md`: the review of the whole R&D process.
 - `loop/WORKFLOW_NOTES.md`: workflow problems met and proposals.
 
