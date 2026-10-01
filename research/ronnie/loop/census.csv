@@ -36,3 +36,4 @@ logged_at,loop,candidate,stage,n,edge,lo,hi,passed,note
 2026-10-01T08:48:02+00:00,C-4,ablation: no volume condition,ablation,705,-0.1801,-0.2782,-0.0716,False,
 2026-10-01T08:48:03+00:00,C-4,ablation: no close-in-upper-half condition,ablation,265,-0.0698,-0.2616,+0.1269,False,
 2026-10-01T08:48:44+00:00,C-6,familyA,iteration,30,+0.5785,+0.3024,+0.8540,True,
+2026-10-01T08:49:58+00:00,C-6,familyA,final,7,+0.1529,-0.5949,+0.8681,False,level 98.33

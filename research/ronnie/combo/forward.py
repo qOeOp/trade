@@ -4,7 +4,8 @@ Usage: python combo/forward.py          append new signals to combo/forward/sign
        python combo/forward.py score    score the logged signals whose horizon has passed
 
 Strategies: B1 (S2b breakout), trendline_break_strong and line_break_ridge, plus (from 2026-10-01) B1 with the time-only
-exit (b1_time), the 4h box breakout (box_break) and oversold O3 (oversold_o3), frozen as committed (their sha256 is
+exit (b1_time), the 4h box breakout (box_break), oversold O3 (oversold_o3) and, from 2026-10-02, the R&D loop's
+idiosyncratic capitulation C-6 (oversold_idio), frozen as committed (their sha256 is
 logged with every signal). Coins: BTC, ETH and the 15 coins of altcoins-v1, against USDT on Binance. Bars: Binance
 public hourly klines for history, plus TradingView's feed for the latest bars. The 4h bar still forming is dropped.
 Clean by construction, whatever the run frequency: each logged signal enters at the first 4h open after it was
@@ -26,6 +27,7 @@ import b1_time as C4  # noqa: E402
 import box_break as C5  # noqa: E402
 import harness as H  # noqa: E402
 import line_break_ridge as C3  # noqa: E402
+import oversold_idio as C7  # noqa: E402
 import oversold_o3 as C6  # noqa: E402
 import trendline_break_strong as C2  # noqa: E402
 import tv_hourly  # noqa: E402
@@ -42,7 +44,8 @@ STRATS = {"B1": (b1_signals, os.path.join(ROOT, "ronnie_bt.py")),
           "ridge": (C3.signals, os.path.join(HERE, "candidates", "line_break_ridge.py")),
           "b1_time": (C4.signals, os.path.join(HERE, "candidates", "b1_time.py")),
           "box_break": (C5.signals, os.path.join(HERE, "candidates", "box_break.py")),
-          "oversold_o3": (C6.signals, os.path.join(HERE, "candidates", "oversold_o3.py"))}
+          "oversold_o3": (C6.signals, os.path.join(HERE, "candidates", "oversold_o3.py")),
+          "oversold_idio": (C7.signals, os.path.join(HERE, "candidates", "oversold_idio.py"))}
 CALENDAR = os.path.join(ROOT, "events", "calendar.csv")
 
 

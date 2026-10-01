@@ -163,3 +163,13 @@ Input for the product's R&D system. Each note: what happened, why it matters, a 
        points at. A threshold or filter is allowed only with a power check showing the sample stays decidable.
     5. **A predicted effect size recorded before the run, compared after.** The agent's calibration (predicted against
        realised gain) is itself a tracked metric.
+32. **The final tier is too small for rare events, and every lineage spends it.** C-6 drew 7 trades from the 12
+    final-tier coins, so its single clean read decided nothing. Meanwhile each final read tightens the level for the
+    next (k = 3 already).
+    - **Proposal:** size the final tier to the strategy class. Hold back a large reserve of instruments and periods, and
+      allocate a slice per candidate by expected event count. For rare events, use a time-forward holdout (the forward
+      record) as the final tier, with a decision date fixed in advance.
+33. **Amendment 4 raised the slope at once.** The first amendment-4 loop (C-4 diagnosis, then C-6) ran one
+    discriminating diagnostic and one structural change. It moved the lower bound of the edge interval from +0.09 to
+    +0.30 and the stop rate from 24% to 7%, the largest single-loop gain of the run. The earlier filter loops rarely
+    moved the lower bound at all.

@@ -491,3 +491,7 @@ the realised +0.58 with a lower bound of +0.30 is above it, as expected for an i
 The rules are unchanged. The read is once, on the final tier, deflated over the final reads (carry K1, D-1, C-6), so
 k = 3 and the interval is 98.33%. It holds when the interval excludes zero. Capitulations are rare, so the read has
 little power. The verdict is recorded either way, and the forward record follows.
+
+**Result C-6 final read:** undecided. 7 trades, avg R +0.077, control -0.076, edge +0.153 [-0.595, +0.868] (98.33%
+interval). It fails the bar, but on 7 trades the read has no power. The final tier is spent for this lineage. C-6 joins
+the forward record (`combo/candidates/oversold_idio.py`).
