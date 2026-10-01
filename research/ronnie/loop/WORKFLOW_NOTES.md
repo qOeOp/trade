@@ -258,3 +258,8 @@ Input for the product's R&D system. Each note: what happened, why it matters, a 
     on 5 pairs and a 12% win rate, impossible for a mean-reversion rule. The cause was re-entry beyond the stop. The
     runner should flag implausible statistics before reporting: a trade-count rate far above the design, a holding
     time of 0 bars for most trades, or a win rate far from the rule's geometry.
+48. **Some edges live where the backtest cannot see them.** The pairs family moves toward profit as the horizon
+    shortens (4h -0.42%, 1h -0.19% net). The literature's profits are at 5 minutes, where the outcome depends on maker
+    fills, queue position and fees, which OHLC bars cannot model. An R&D system needs an execution simulator matched
+    to the strategy's horizon (order-book or trade-level data for intraday strategies), or it will either miss such
+    edges or credit fills that would not have happened.

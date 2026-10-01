@@ -911,3 +911,23 @@ trip). Random pairs -0.595%. The prediction (-0.2%) was right. Moving from 4h to
 - **Explanation it rests on:** H-1's diagnosis (cointegration from 3 weeks does not persist). A longer formation should
   select relationships that last.
 - **Predicted:** about -0.1% a trade, with a lower bound near -0.25%.
+
+**Result H-4:** iteration gate fails, worse. 536 trades, mean net -0.740% [-1.306%, -0.203%]; random pairs -1.146%. The
+prediction (-0.1%) missed by -0.64%.
+
+**Family H so far:**
+
+| loop | bars | formation / trading | net per trade |
+| --- | --- | --- | --- |
+| H-1 | 4h | 3 weeks / 1 week | -0.423% |
+| H-2 | 4h, rolling z | 3 weeks / 1 week | -0.497% |
+| H-3 | 1h | 3 weeks / 1 week | -0.191% |
+| H-4 | 1h | 90 days / 14 days | -0.740% |
+
+Reading: the shorter the bars and the holding, the better. Longer windows let spreads trend, so crypto pairs reversion
+lives at short horizons, as Fil and Kristoufek found (profits at 5 minutes, none daily). Cointegration selection beats
+random pairs in every loop, so selection carries information, but no loop's gross return covers even maker costs.
+
+**Next admissible step:** 15m or 5m bars, where the literature locates the effect. It needs 15m/5m archives (about
+1,000 monthly files for 17 coins) and an honest execution model: at that frequency the result depends on maker fills,
+which OHLC bars cannot simulate. Without a fill model, a positive gross at 5m would not be evidence of a tradable edge.
