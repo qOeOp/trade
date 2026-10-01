@@ -1841,3 +1841,69 @@ timeframe values come from closed bars only (daily bars close at the next day's 
     edges in the plan remain S2b (as B1) and the layered pullback S4 (+0.06).
   - Big-swing Fibonacci (139 trades) needs about 4x the data to reach a detectable edge of 0.1R. That is the
     resolvable gap, and new coins or forward data are the only clean source.
+
+## Loop P-4: Ronnie's 2024-2025 method from his own videos (registered before running)
+
+Source: `RONNIE_2024_RULES.md` (23 transcripts of his 2024-2025 videos). It differs from P-3: no indicators (P-3's
+Bollinger variants were not his current method); zones from prior highs and lows; trend flips only on a large-bodied
+close through the effective low; limit entries in zones; stops beyond the zone; reward to risk at least 2.
+- **Common (daily bars, 53 coins, 2018-2022):**
+  - Pivots of order 3 (assumption).
+  - Large body: at least 1.5x the median body of the last 20 days.
+  - Trend state: up after a large-bodied close above the last confirmed pivot high; down after one below the last
+    confirmed pivot low; otherwise unchanged (his "effective low" rule).
+  - Limit orders are valid 10 days and fill at the limit, or at the open if it gaps through.
+  - Hold at most 60 days; fee 0.06% a side.
+- **R-1 role reversal (his favourite long):**
+  - Trigger: in an up trend, a large-bodied daily close above a pivot high.
+  - Entry: a limit at that pivot high (the broken level).
+  - Stop: 0.25 ATR below the zone's lower edge (the pivot candle's body top, at most 1 ATR below the high).
+  - Target: 2R.
+  - Down trends are mirrored (with-trend shorts only).
+- **R-2 Fibonacci on the latest move:**
+  - The impulse runs from the effective low (the pivot low before the up flip) to the highest close since, anchored
+    on closes (his 2025 practice).
+  - Entry: a limit at the 0.5 retracement.
+  - Stop: 0.25 ATR beyond the effective low (the trend's invalidation).
+  - Target: the 100% extension from the fill (AB=CD, his stated target), about 2R by construction.
+  - Mirrored for down trends.
+- **R-3:** R-1 on altcoins, only when BTC's trend state agrees ("BTC leads"); BTC itself unfiltered.
+- **Scoring:** matched random entries (same year, side, stop in ATR, target in R), week-clustered; CRITERIA statuses;
+  Holm over R-1 to R-3 for "active".
+- **Predicted:**
+  - R-1 positive but inconclusive (G-2, a retest of a broken box edge, was +0.25 on 4h);
+  - R-2 about zero (the S4 pullback +0.06; Fibonacci itself showed nothing);
+  - R-3 about R-1;
+  - none active.
+
+**Result P-4** (`loop/family_r.py`, `loop/p-4_plan.txt`; week-clustered):
+
+| variant | trades | edge | interval | status |
+| --- | --- | --- | --- | --- |
+| R-1 role reversal (retest of a broken pivot high/low, with the trend) | 650 | +0.211 | [+0.066, +0.364]; Holm level [+0.040, +0.394] | **active (stage 1)** |
+| R-2 Fibonacci 0.5 on the latest move, target 100% extension | 423 | +0.073 | [-0.108, +0.255] | inconclusive |
+| R-3 R-1 with the BTC filter | 613 | +0.235 | Holm level [+0.028, +0.453] | active, not distinct from R-1 |
+
+- **R-1 checks:**
+  - both halves positive (2018-20 +0.24, 2021-22 +0.20);
+  - every year 2019-2022 positive, 2022 bear +0.18 (2018: 10 trades, -0.76);
+  - majors +0.16, mid caps +0.25;
+  - longs +0.32, shorts +0.11;
+  - 41% of trades reach 2R, 58% are stopped.
+  - No look-ahead: pivots are used 3 days after the pivot bar, breaks on closes, limits from the next bar.
+- **Better than predicted** (positive but inconclusive was expected). The first rule from Ronnie's own method to pass
+  stage 1.
+- **Its sibling G-2** (the retest of a broken 4h box edge) was positive on the extended tier and failed its reserve read
+  (sign sealed); P-1 pooled it as positive, interval spanning zero.
+
+### R-1 stage-2 read (registered before running)
+
+- **Data:** R-1 frozen, on all 69 post-2022 holdout coins (validation 20, final 12, reserve 20, majors 17), 2023-01 to
+  2026-08. R-1 was never read there.
+- **Run by a fresh-context gatekeeper** (`loop/gatekeeper_r1.py`); one three-level verdict at 95% (a single candidate in
+  this batch); week-clustered; details sealed in `loop/sealed/R-1_holdout.json`.
+- **Contamination, stated:** the coins were read before for other rules, including the sibling G-2. R-1 itself, its
+  level definition and its trend rule never touched 2023-2026, and its mechanism came from his 2024-2025 videos, which
+  were watched for method, not scored.
+- **Predicted:** FAIL (edge positive, interval spans zero), from the usual shrinkage of 26-58% and the post-2022
+  decay seen in D-R.

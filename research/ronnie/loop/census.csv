@@ -133,3 +133,6 @@ logged_at,loop,candidate,stage,n,edge,lo,hi,passed,note
 2026-10-01T17:48:46+00:00,P-3 Q-2,familyQ,iteration,1566,+0.0195,-0.1009,+0.1423,False,"faithful Ronnie plan, 1h"
 2026-10-01T17:48:46+00:00,P-3 Q-3,familyQ,iteration,804,-0.0574,-0.2193,+0.1229,False,"faithful Ronnie plan, 1h"
 2026-10-01T17:48:46+00:00,P-3 Q-4,familyQ,iteration,794,-0.2052,-0.3310,-0.0704,False,"faithful Ronnie plan, 1h"
+2026-10-01T19:05:39+00:00,P-4 R-1,familyR,iteration,650,+0.2115,+0.0662,+0.3638,True,"Ronnie 2024-25 method, daily"
+2026-10-01T19:05:39+00:00,P-4 R-2,familyR,iteration,423,+0.0728,-0.1076,+0.2548,False,"Ronnie 2024-25 method, daily"
+2026-10-01T19:05:39+00:00,P-4 R-3,familyR,iteration,613,+0.2351,+0.0620,+0.4155,True,"Ronnie 2024-25 method, daily"
