@@ -712,3 +712,21 @@ All four point the right way on the strategies' own universe; none is significan
 - F-2 joins as `trendline_time`;
 - G-2 cannot join yet: its limit entry at the broken edge does not fit the forward harness, which supports only market
   entries at the next open (workflow note 42).
+
+## Date-clustered re-read of the survivors (`loop/reread_clustered.py`, `loop/reread_clustered.txt`)
+
+Weekly-block bootstrap next to the coin-clustered one, on development or iteration data only:
+- **Breakout lineages barely change:**
+  - F-1 [+0.113, +0.353];
+  - F-2 [+0.117, +0.551];
+  - D-1 [+0.092, +0.525];
+  - D-1x [+0.008, +0.367];
+  - G-2 [+0.044, +0.447].
+  Their trades spread over 83-233 weeks.
+- **The capitulation lineage widens most:**
+  - C-4 [+0.017, +0.577] (76 trades in only 21 weeks);
+  - C-6 [+0.160, +0.946] (30 trades in 12 weeks).
+  These are a dozen or two market events, not dozens of independent trades.
+- **T0, O3 (development) and X1 (37 large caps)** still span zero.
+
+Retrospective flaw 1 is real, but it matters mainly for clustered event strategies.

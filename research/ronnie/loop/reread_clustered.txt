@@ -1,0 +1,14 @@
+Coin-clustered vs date-clustered (weekly) 95% intervals of the edge (R - control); development/iteration data
+
+set                                                          n    edge   coin-clustered     week-clustered     weeks  verdict(week)
+F-1 trend-line break                                       994 +0.230   [+0.106, +0.349]   [+0.113, +0.353]    233  above zero
+F-2 trend-line break, time exit                            994 +0.323   [+0.131, +0.559]   [+0.117, +0.551]    233  above zero
+D-1x 4h box break, extended tier                           358 +0.188   [+0.028, +0.344]   [+0.008, +0.367]    142  above zero
+G-2 box-break retest, extended tier                        302 +0.247   [+0.071, +0.433]   [+0.044, +0.447]    133  above zero
+C-4 capitulation 1-5 days, extended tier                    76 +0.310   [+0.092, +0.552]   [+0.017, +0.577]     21  above zero
+C-6 idiosyncratic capitulation, extended tier               30 +0.579   [+0.302, +0.854]   [+0.160, +0.946]     12  above zero
+D-1 4h box break (majors)                                  126 +0.309   [+0.052, +0.554]   [+0.092, +0.525]     83  above zero
+T0 daily trend, development (17 majors 2018-2022)          474 +0.431   [-0.133, +1.162]   [-0.193, +1.235]    152  spans zero
+T0 daily trend, holdout (20 coins 2023-2026)               466 +0.116   [-0.096, +0.379]   [-0.130, +0.392]    131  spans zero
+O3 capitulation, development                                30 +0.344   [-0.025, +0.779]   [-0.126, +0.705]     14  spans zero
+X1 box break, 37 large caps 2023-2026 (range-v4)           380 +0.131   [-0.007, +0.268]   [-0.031, +0.296]    136  spans zero

@@ -141,3 +141,20 @@ def beta_check(z, feature, coins, tf, hold=20, stop_atr=1.5, target_r=1.5, step=
         lines.append(f"    side {side:+d}: random R by bucket " + " ".join(f"Q{k + 1} {v:+.3f}" for k, v in g.items()) +
                      "   | trades edge by bucket " + " ".join(f"Q{int(k) + 1} {v:+.2f}" for k, v in t.items()))
     return "\n".join(lines)
+
+
+def week_boot(z, level=95, reps=4000, seed=4):
+    """Date-clustered bootstrap of the mean edge (R - control): calendar weeks are resampled whole, so trades of
+    different coins on the same days move together (retrospective, flaw 1). -> (lo, hi)."""
+    t = pd.to_datetime(z.time, utc=True)
+    wk = t.dt.tz_convert(None).dt.to_period("W").astype(str).values
+    e = (z.R - z.control).values
+    groups = [e[wk == w] for w in pd.unique(wk)]
+    rng = np.random.default_rng(seed)
+    sums = np.array([g.sum() for g in groups])
+    cnts = np.array([len(g) for g in groups])
+    k = len(groups)
+    idx = rng.integers(0, k, (reps, k))
+    b = sums[idx].sum(1) / cnts[idx].sum(1)
+    q = (100 - level) / 2
+    return np.percentile(b, q), np.percentile(b, 100 - q)
