@@ -14,7 +14,7 @@ OS = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(OS)
 
 BASE = dict(tf="1d", hold=10, rule="o3")
-LOOPS = {"C-1": dict(BASE), "C-2": dict(BASE, rule="o3_atr", k_atr=1.8), "C-3": dict(BASE, rule="o3_window")}
+LOOPS = {"C-1": dict(BASE), "C-2": dict(BASE, rule="o3_atr", k_atr=1.8), "C-3": dict(BASE, rule="o3_window"), "C-4": dict(BASE, rule="o3_window", iter_set="iterx")}
 
 
 def make(cfg):

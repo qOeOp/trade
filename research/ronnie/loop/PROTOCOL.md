@@ -36,3 +36,13 @@ the product's R&D system.
   the next family; that switch is recorded with its reason.
 - **Overfitting guard:** every scored trial is in `loop/census.csv`; the validation level tightens with each
   validated candidate; the validation and final tiers are never used for attribution.
+
+## Amendment 1 (written before loop C-4)
+
+- **What:** for rare-event families, the iteration tier may be extended once, by a coin list fixed before the
+  extension is scored.
+- **Why:** capitulations happen about 30-40 times on the 17 majors over 2018-2022. At that size, only edges above
+  about 0.35R can pass the gate, whatever the rule (workflow note 11).
+- **The list:** `engine.ITER_EXT_COINS`, 36 mid and large caps over 2018-2022. Earlier families used them for other
+  entries, never for an oversold or capitulation rule, and none is in the validation or final tier.
+- **Unchanged:** the validation and final tiers. For Family C validation is the final tier only (LOG, Family C).

@@ -121,7 +121,7 @@ def main():
     stage = sys.argv[2] if len(sys.argv) > 2 else "iteration"
     cfg = LOOPS[loop]
     fn, feats = make(cfg)
-    sets = {"iteration": ("iter",), "validate": ("val",), "final": ("final",)}[stage]
+    sets = {"iteration": (cfg.get("iter_set", "iter"),), "validate": ("val",), "final": ("final",)}[stage]
     z = E.run(loop, fn, cfg["tf"], cfg["hold"], sets, ts=cfg.get("ts"))
     f = pd.DataFrame([feats.get((t, s), {}) for t, s in zip(z.time, z.side)])
     z = pd.concat([z.reset_index(drop=True), f], axis=1)

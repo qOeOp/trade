@@ -272,3 +272,12 @@ at fixed percentage moves set by leverage, not at multiples of volatility.
   those windows), not exactly 3.
 - **Reason:** liquidation cascades unfold over one to several days, and the community describes capitulation as a crash
   "within days", not over exactly three. The absolute 15% is kept (C-2's attribution).
+
+**Result C-3:** iteration gate fails. 39 trades, avg R +0.080, control -0.158, edge +0.239 [-0.071, +0.603];
+2018-2020 -0.343 (8 trades), 2021-2022 +0.389 (31). Deeper drops did best again (the third time).
+
+### Loop C-4 (registered before running)
+
+- **Change:** no rule change from C-3. The iteration tier is extended under protocol amendment 1 (36 mid and large caps,
+  2018-2022).
+- **Reason:** C-1 to C-3 cannot decide at 26-39 trades.

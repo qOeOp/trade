@@ -25,6 +25,11 @@ R2, MT = R4.R2, R4.R2.MT
 
 ITER_COINS, VAL_COINS = R4.MAJORS, R4.LARGE
 FINAL_COINS = ("TON", "RENDER", "JUP", "ENA", "BONK", "WIF", "FLOKI", "PYTH", "ORDI", "CFX", "TAO", "STRK")
+# iteration-tier extension for rare-event families (protocol amendment 1): mid and large caps used by earlier families
+# for other entries, never for an oversold or capitulation rule; not in the validation or final tiers
+ITER_EXT_COINS = ("VET", "SAND", "MANA", "AXS", "EGLD", "THETA", "XTZ", "NEO", "ZEC", "DASH", "CHZ", "GRT", "CRV", "QTUM",
+                  "KSM", "RUNE", "SNX", "COMP", "YFI", "AR", "CAKE", "DYDX", "GALA", "FLOW", "ENS", "MINA", "QNT", "LPT",
+                  "CVX", "IOTA", "BAT", "ZIL", "1INCH", "SUSHI", "ENJ", "KAVA")
 ITER = (pd.Timestamp("2018-01-01", tz="UTC"), pd.Timestamp("2023-01-01", tz="UTC"))
 ITER_SPLIT = pd.Timestamp("2021-01-01", tz="UTC")
 VAL = (pd.Timestamp("2023-01-01", tz="UTC"), pd.Timestamp("2026-09-01", tz="UTC"))
@@ -54,7 +59,8 @@ def score(coin, tf, name, d, sigs, hold, fee=0.0006, seed=0):
 def run(name, signal_fn, tf, hold, sets=("iter",), ts=None):
     """Score signal_fn(d1, d4) -> list of (e, side, entry, stop, tgt) on the chosen sets. -> DataFrame."""
     rows = []
-    spec = {"iter": (ITER_COINS, ITER), "val": (VAL_COINS, VAL), "final": (FINAL_COINS, VAL)}
+    spec = {"iter": (ITER_COINS, ITER), "iterx": (ITER_COINS + ITER_EXT_COINS, ITER), "val": (VAL_COINS, VAL),
+            "final": (FINAL_COINS, VAL)}
     for s in sets:
         coins, (t0, t1) = spec[s]
         for k, coin in enumerate(coins):
@@ -74,7 +80,7 @@ def boot(z, level=95):
 
 def iteration_gate(z):
     """Both halves of the iteration set above zero (edge = R - control) and the pooled 95% interval above zero."""
-    z = z[z.set == "iter"]
+    z = z[z.set.isin(["iter", "iterx"])]
     a, b = z[z.time < ITER_SPLIT], z[z.time >= ITER_SPLIT]
     lo, hi = boot(z)
     ea, eb = (a.R - a.control).mean(), (b.R - b.control).mean()
