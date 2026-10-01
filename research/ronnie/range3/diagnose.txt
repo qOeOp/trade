@@ -1,0 +1,22 @@
+range3 diagnosis (development 2018-2022 only, exploratory): what happens after a box-fade entry
+
+1h C: n 1084, stop 1.40 ATR from entry, box 5.6 ATR wide
+   stopped within 30 bars 66% (median at bar 5); MFE before stop: median 0.91R, >=1R 48%, >=2R 27%
+   box broke on the traded side 48%, on the far side 10%; price reached half the box 38%, the far edge 14%
+   re-exit avg R (stop ATR beyond edge / target fraction of box): stop 0.5/tgt 0.25: -0.13  stop 0.5/tgt 0.5: -0.11  stop 0.5/tgt 1.0: -0.03  stop 1.0/tgt 0.25: -0.10  stop 1.0/tgt 0.5: -0.10  stop 1.0/tgt 1.0: -0.05  stop 2.0/tgt 0.25: -0.06  stop 2.0/tgt 0.5: -0.09  stop 2.0/tgt 1.0: -0.07
+
+1h L: n 1957, stop 0.51 ATR from entry, box 5.7 ATR wide
+   stopped within 30 bars 90% (median at bar 0); MFE before stop: median 0.00R, >=1R 46%, >=2R 38%
+   box broke on the traded side 67%, on the far side 8%; price reached half the box 44%, the far edge 13%
+   re-exit avg R (stop ATR beyond edge / target fraction of box): stop 0.5/tgt 0.25: -0.39  stop 0.5/tgt 0.5: -0.40  stop 0.5/tgt 1.0: -0.36  stop 1.0/tgt 0.25: -0.26  stop 1.0/tgt 0.5: -0.28  stop 1.0/tgt 1.0: -0.24  stop 2.0/tgt 0.25: -0.15  stop 2.0/tgt 0.5: -0.17  stop 2.0/tgt 1.0: -0.16
+
+4h C: n 187, stop 1.35 ATR from entry, box 5.8 ATR wide
+   stopped within 30 bars 66% (median at bar 3); MFE before stop: median 0.88R, >=1R 47%, >=2R 28%
+   box broke on the traded side 49%, on the far side 10%; price reached half the box 35%, the far edge 12%
+   re-exit avg R (stop ATR beyond edge / target fraction of box): stop 0.5/tgt 0.25: -0.23  stop 0.5/tgt 0.5: -0.14  stop 0.5/tgt 1.0: -0.11  stop 1.0/tgt 0.25: -0.16  stop 1.0/tgt 0.5: -0.16  stop 1.0/tgt 1.0: -0.17  stop 2.0/tgt 0.25: -0.07  stop 2.0/tgt 0.5: -0.12  stop 2.0/tgt 1.0: -0.14
+
+4h L: n 361, stop 0.50 ATR from entry, box 5.8 ATR wide
+   stopped within 30 bars 90% (median at bar 0); MFE before stop: median 0.00R, >=1R 44%, >=2R 37%
+   box broke on the traded side 70%, on the far side 6%; price reached half the box 39%, the far edge 10%
+   re-exit avg R (stop ATR beyond edge / target fraction of box): stop 0.5/tgt 0.25: -0.34  stop 0.5/tgt 0.5: -0.32  stop 0.5/tgt 1.0: -0.33  stop 1.0/tgt 0.25: -0.28  stop 1.0/tgt 0.5: -0.32  stop 1.0/tgt 1.0: -0.36  stop 2.0/tgt 0.25: -0.18  stop 2.0/tgt 0.5: -0.24  stop 2.0/tgt 1.0: -0.26
+
