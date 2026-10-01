@@ -161,3 +161,14 @@ reaching +1R.
 - **Single change from B-1:** longs only.
 - **Reason:** shorts were weak in B-1 and across earlier families (short-v1, the trend rule's shorts, B1's shorts), a
   repeated finding consistent with crypto's positive drift, not a one-loop tercile.
+
+**Result B-2:** iteration gate fails. 154 trades, avg R +0.445, but the control earns +0.393, so the edge is +0.052
+[-0.341, +0.552]; 2018-2020 -0.084, 2021-2022 +0.181. In uptrend years random longs earn almost as much: the break adds
+little timing value. Stops 56%, 43% of them within 2 bars.
+
+### Loop B-3 (registered before running)
+
+- **Single change from B-2:** enter after the second consecutive daily close beyond the level (the level not crossed
+  by the close before those two).
+- **Reason:** 43% of stops come within 2 bars, so false breaks reverse fast. "Wait for a second close" is a common
+  community confirmation; it costs a later entry.

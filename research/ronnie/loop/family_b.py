@@ -10,7 +10,7 @@ import engine as E  # noqa: E402
 import family_a as FA  # noqa: E402
 
 BASE = dict(tf="1d", stop_atr=1.0, rr=3.0, hold=20, spacing=5, level_tf="1w", sides=(1, -1))
-LOOPS = {"B-1": dict(BASE), "B-2": dict(BASE, sides=(1,))}
+LOOPS = {"B-1": dict(BASE), "B-2": dict(BASE, sides=(1,)), "B-3": dict(BASE, sides=(1,), closes=2)}
 
 
 def make(cfg):
@@ -35,7 +35,10 @@ def make(cfg):
                 if (side == 1 and not up) or (side == -1 and not dn):
                     continue
                 m = S == side  # resistances for longs, supports for shorts
-                crossed = m & ((c[i] - Y) * side > 0) & ((c[i - 1] - Y) * side <= 0)
+                if cfg.get("closes", 1) == 2:  # the 2nd consecutive close beyond a level the close before had not crossed
+                    crossed = m & ((c[i] - Y) * side > 0) & ((c[i - 1] - Y) * side > 0) & ((c[i - 2] - Y) * side <= 0)
+                else:
+                    crossed = m & ((c[i] - Y) * side > 0) & ((c[i - 1] - Y) * side <= 0)
                 if not crossed.any():
                     continue
                 y = Y[crossed].max() if side == 1 else Y[crossed].min()
