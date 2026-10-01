@@ -51,7 +51,7 @@ def score(coin, tf, name, d, sigs, hold, fee=0.0006, seed=0):
     return R2.score(coin, tf, name, d[["open", "high", "low", "close"]], sigs, a, np.random.default_rng(seed))
 
 
-def run(name, signal_fn, tf, hold, sets=("iter",)):
+def run(name, signal_fn, tf, hold, sets=("iter",), ts=None):
     """Score signal_fn(d1, d4) -> list of (e, side, entry, stop, tgt) on the chosen sets. -> DataFrame."""
     rows = []
     spec = {"iter": (ITER_COINS, ITER), "val": (VAL_COINS, VAL), "final": (FINAL_COINS, VAL)}
@@ -61,7 +61,8 @@ def run(name, signal_fn, tf, hold, sets=("iter",)):
             b = bars(coin)
             d = b[tf]
             sigs = signal_fn(b["1d"], b["4h"])
-            rows += [dict(r, set=s) for r in score(coin, tf, name, d, sigs, hold, seed=k) if t0 <= r["time"] < t1]
+            scored = score_ts(coin, tf, name, d, sigs, hold, *ts, seed=k) if ts else score(coin, tf, name, d, sigs, hold, seed=k)
+            rows += [dict(r, set=s) for r in scored if t0 <= r["time"] < t1]
     return pd.DataFrame(rows)
 
 
@@ -133,3 +134,48 @@ def decompose(z, tf, hold):
     return (f"  decomposition: stopped {st.mean():.0%} of trades; of the stopped, {(dz.k_stop[st] <= 1).mean():.0%} within 2 bars "
             f"and {(dz.mfe[st] >= 1).mean():.0%} after first reaching +1R; median MFE before the stop {dz.mfe[st].median():.2f}R; "
             f"winners' median MFE {dz.mfe[~st].median():.2f}R")
+
+
+def walk_ts(o, h, l, c, e, side, entry, stop, tgt, hold, fee, ts_bars=None, ts_r=None):
+    """One trade: stop first, then target (from the bar after entry), optional time stop at the close of bar e+ts_bars-1
+    when the best excursion so far is below ts_r R; else the close at the time limit. -> R net of fees."""
+    risk = (entry - stop) * side
+    if risk <= 0:
+        return np.nan
+    best, n = 0.0, len(c)
+    for j in range(e, min(e + hold, n)):
+        if (l[j] <= stop) if side == 1 else (h[j] >= stop):
+            px = stop if j == e else (min(o[j], stop) if side == 1 else max(o[j], stop))
+            break
+        if j > e and ((h[j] >= tgt) if side == 1 else (l[j] <= tgt)):
+            px = max(o[j], tgt) if side == 1 else min(o[j], tgt)
+            break
+        best = max(best, ((h[j] - entry) if side == 1 else (entry - l[j])) / risk)
+        if ts_bars and j == e + ts_bars - 1 and best < ts_r:
+            px = c[j]
+            break
+    else:
+        px = c[min(e + hold, n) - 1]
+    return side * (px - entry) / risk - fee * (entry + px) / risk
+
+
+def score_ts(coin, tf, name, d, sigs, hold, ts_bars, ts_r, fee=0.0006, seed=0, controls=20):
+    """Like score(), with a time stop applied to signals and controls alike."""
+    o, h, l, c = (d[x].values for x in ("open", "high", "low", "close"))
+    a = MT.atr_of(h, l, c)
+    years, idx = d.index.year.values, np.arange(len(c))
+    rng = np.random.default_rng(seed)
+    rows = []
+    for e, side, entry, stop, tgt in sigs:
+        risk = (entry - stop) * side
+        if e <= 300 or e + hold >= len(c) or risk <= 0 or (tgt - entry) * side < risk:
+            continue
+        r = walk_ts(o, h, l, c, e, side, entry, stop, tgt, hold, fee, ts_bars, ts_r)
+        sa, tr = risk / a[e - 1], (tgt - entry) * side / risk
+        ctl = []
+        for j in rng.choice(np.flatnonzero((years == years[e]) & (idx > 300) & (idx < len(c) - hold - 2)), controls):
+            rk = sa * a[j - 1]
+            ctl.append(walk_ts(o, h, l, c, j, side, o[j], o[j] - side * rk, o[j] + side * tr * rk, hold, fee, ts_bars, ts_r))
+        rows.append(dict(coin=coin, tf=tf, variant=name, time=d.index[e], side=int(side), R=r, control=float(np.nanmean(ctl)),
+                         stop_atr=sa, target_R=tr))
+    return rows

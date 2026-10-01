@@ -14,7 +14,7 @@ import engine as E  # noqa: E402
 
 BASE = dict(tf="1d", trend="sma", touch=0.25, stop_atr=1.0, target="hh20", hold=20, confirm="close_above", sides=(1, -1),
             level_tf="1d", spacing=5)
-LOOPS = {"A1": dict(BASE), "A2": dict(BASE, min_touches=2)}
+LOOPS = {"A1": dict(BASE), "A2": dict(BASE, min_touches=2), "A3": dict(BASE, confirm="trigger"), "A4": dict(BASE, confirm="trigger", ts=(5, 1.0))}
 
 
 def levels(d, k):
@@ -55,14 +55,22 @@ def make(cfg):
                     continue
                 j = np.argmax(ys * ok) if side == 1 else np.argmin(np.where(ok, ys, np.inf))
                 y = ys[j]
-                entry = o[i + 1]
+                e, entry = i + 1, o[i + 1]
+                if cfg["confirm"] == "trigger":
+                    trig, e = (h[i] if side == 1 else l[i]), None
+                    for k in (i + 1, i + 2):
+                        if k < len(c) - 1 and ((h[k] >= trig) if side == 1 else (l[k] <= trig)):
+                            e, entry = k, (max(o[k], trig) if side == 1 else min(o[k], trig))
+                            break
+                    if e is None:
+                        continue
                 stop = y - side * cfg["stop_atr"] * a[i - 1]
                 tgt = hh[i] if side == 1 else ll[i]
                 risk = (entry - stop) * side
                 if risk <= 0 or risk > 6 * a[i - 1] or (tgt - entry) * side < risk:
                     continue
-                out.append((i + 1, side, entry, stop, tgt))
-                feats[(d.index[i + 1], side)] = dict(
+                out.append((e, side, entry, stop, tgt))
+                feats[(d.index[e], side)] = dict(
                     trend_atr=(c[i] - s200[i]) / a[i - 1] * side, touches=int(ts[j]), age=i - int(ls[j]) if ls[j] >= 0 else -1,
                     vol_ratio=a[i - 1] / a100[i - 1], depth=(hh[i] - c[i]) / a[i - 1] if side == 1 else (c[i] - ll[i]) / a[i - 1],
                     n_levels=int(m.sum()))
@@ -93,7 +101,7 @@ def main():
     cfg = LOOPS[loop]
     fn, feats = make(cfg)
     sets = {"iteration": ("iter",), "validate": ("val",), "final": ("final",)}[stage]
-    z = E.run(loop, fn, cfg["tf"], cfg["hold"], sets)
+    z = E.run(loop, fn, cfg["tf"], cfg["hold"], sets, ts=cfg.get("ts"))
     f = pd.DataFrame([feats.get((t, s), {}) for t, s in zip(z.time, z.side)])
     z = pd.concat([z.reset_index(drop=True), f], axis=1)
     os.makedirs(os.path.join(HERE, "out"), exist_ok=True)
@@ -105,6 +113,7 @@ def main():
         print(f"{loop} iteration gate {'PASS' if passed else 'fail'}: {E.fmt(st)}")
         print("attribution (iteration tier, edge by tercile):")
         print(attribute(z))
+        print(E.decompose(z, cfg["tf"], cfg["hold"]))
     else:
         level, k = E.validation_level() if stage == "validate" else (95, 0)
         lo, hi = E.boot(z, level)

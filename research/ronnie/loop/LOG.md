@@ -60,3 +60,19 @@ carry over: among the A2 trades, more touches were no better, so tercile attribu
   on a gap; otherwise the signal is cancelled. Stop and target are unchanged.
 - **Reason:** the decomposition shows bounces without follow-through. The community's "wait for confirmation" rule
   and the price-action signal-bar trigger keep only the bounces that move.
+
+**Result A3:** iteration gate fails, but it is the best so far. 411 trades, avg R -0.037, edge -0.157 [-0.294, -0.014];
+2018-2020 -0.097, 2021-2022 -0.194.
+
+**Attribution A3:**
+- **Immediate stops fall:** stops within 2 bars drop from 31% to 12% of stopped trades, so confirmation removes the
+  bounces that fail at once.
+- **Stalled trades remain:** 47% of trades are still stopped, after a median MFE of 0.45R. The trade stalls, then
+  fails.
+
+### Loop A4 (registered before running)
+
+- **Single change from A3:** add a time stop. Exit at the close of the 5th bar if the trade has not yet reached +1R.
+  The control trades get the same time stop.
+- **Reason:** the decomposition shows stall-then-fail losses. The time stop ("if it does not work quickly, get out")
+  is a standard practitioner rule (Van Tharp; Brooks).
