@@ -728,6 +728,40 @@ majors over 2018-2022 and the holdout 20 large caps over 2023-2026.
 - **Claim 2 stands:** no exit rescues the box fade. The best, a 3 ATR trail, lifts it from -0.13R to +0.05R on
   development and from -0.15R to -0.01R on the holdout, which is still about zero.
 
+## The trend rule on gold (TrialFamily goldtrend-v1)
+
+`goldtrend/` applies trend-v1 T0 unchanged (50-day close breakout, 2 ATR(20) stop, 20-day close exit) to `TVC:GOLD`
+daily bars, with costs of 0.03% per side and 0.01% per day carry (`goldtrend/result.txt`).
+- **Long, test 2019-2026:** 16 trades, 75% winners, +2.38R per trade, +1.52R above random [+0.09, +3.33]. It holds
+  under the pre-registered rule, but on 16 trades; 2025 alone (+10.8R on 2 trades) carries much of it.
+- **Long, formation 2008-2018:** 29 trades, +0.27R, +0.30R above random [-0.22, +0.87], not significant.
+- **Shorts lose:** -0.28R and -0.67R per trade; in 2019-2026 significantly worse than random.
+- **Silver (cross-check):** longs +1.12R on 2019-2026 but below random (-0.75R); no edge.
+- **Book (1% risk, long only, at most 1x):** 2019-2026 CAGR +5.3%, maximum drawdown -5.9%, Sharpe 0.96, invested 45%
+  of days; buy and hold +17.2%, -26.6%, Sharpe 0.99. The rule cuts the drawdown, not the return per unit of risk.
+- **State on 2026-09-30:** flat. Close 4,189, entry trigger 4,658 (+11.2%), ATR(20) 96.
+
+## Short strategies for weak markets (TrialFamily short-v1)
+
+`short/` scores six short rules on daily bars, with the bear regime defined as BTC below its 200-day mean. The
+development set is the 17 majors over 2018-2022; the holdout is those majors plus 20 large caps over 2023-2026
+(`short/result.txt`).
+- **Result: none holds.**
+  - **S0, ungated 50-day breakdown:** +0.12R above random on development, -0.04R on the holdout.
+  - **S1, S0 only in the bear regime:** +0.12R, then -0.19R [-0.31, -0.06]; the gate makes it worse.
+  - **S2, fast 20/10-day breakdown in the bear regime:** +0.08R, then -0.09R [-0.17, -0.00].
+  - **S3, fading RSI(2) above 95 in a downtrend:** -0.22R and -0.11R.
+  - **S4, failed bounce:** -0.13R (10 trades) and -0.42R [-0.66, -0.12].
+  - **C1, weekly short of the bottom fifth by 28-day return in bear weeks:** short losers -0.54% and -1.79% a week;
+    shorting even the whole universe in bear weeks lost (-0.71% and -1.31%).
+- **By year:** the trend shorts earn in 2018, 2022 and 2026 (S1 +0.92R, +0.13R, +0.30R) and lose badly in 2023-2024,
+  when the bear regime flagged the bottom of the cycle.
+- **Diagnosis (descriptive, BTC):** a close below the 200-day mean does not predict falling prices. Forward returns
+  after bear-regime days stayed positive: over 20 days +0.8% in 2018-2022 and +2.7% in 2023-2026, against +3.6% and
+  +2.7% in the bull regime. A short fights positive drift and violent rallies, and pays funding when crowded.
+- **Conclusion:** in this data the bear-market defence is the trend book's cash (2022: -23% against -64% for BTC), not
+  a short book. Market-neutral carry (funding and basis), which earns in either regime, is the untested alternative.
+
 ## Running the survivors together, and a forward record
 
 `combo/portfolio.py` runs B1, trendline_break_strong and line_break_ridge as one book on BTC, ETH and the 15 holdout
