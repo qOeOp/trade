@@ -1814,3 +1814,30 @@ timeframe values come from closed bars only (daily bars close at the next day's 
   - Q-3 equivalent-null (Bollinger edges decayed, Fang et al.).
   - Q-4 equivalent-null or harmful (range fades are closed).
   - No variant active.
+
+**Result P-3** (`loop/family_q.py`, `loop/p-3_plan.txt`; 53 coins, 2018-2022, 1h execution, week-clustered):
+
+| variant | trades | edge | interval | status |
+| --- | --- | --- | --- | --- |
+| Q-1 big-swing Fibonacci (0.5-0.618, daily order-21 anchors) | 139 | -0.004 | [-0.242, +0.232] | inconclusive (low power) |
+| Q-1p non-Fibonacci control | 184 | -0.045 | [-0.228, +0.160] | inconclusive |
+| Q-2 break, retest, confirm at round numbers | 1,566 | +0.019 | [-0.101, +0.142] | inconclusive |
+| Q-3 daily middle band as support | 804 | -0.057 | [-0.219, +0.123] | inconclusive |
+| Q-4 squeeze as a range (fade the bands) | 794 | -0.205 | [-0.331, -0.070] | harmful |
+
+- **No variant is active,** as predicted.
+- **Q-4 is harmful,** as predicted: a squeeze read as a range loses when fading the bands, consistent with the closed
+  range-fade families.
+- **The Fibonacci test (Q-1 minus Q-1p, +0.041)** is beyond the registered +-0.03, but both intervals span about
+  +-0.2R, so it says nothing either way.
+- **Q-1 sides:** shorts +0.42 (48 trades) and longs -0.23 (91); with this many split cells it is noise by the subgroup
+  rules.
+- **Status:**
+  - Q-4 closed (harmful).
+  - Q-1, Q-2 and Q-3 parked: each upper bound is above SESOI (+0.23, +0.14, +0.12), and the estimates are about zero
+    or negative.
+  - **The faithful drawing did not reveal a hidden edge.** Drawn the way Ronnie and the practitioner sources describe,
+    on 1h execution, the plan's techniques are no better than matched random entries on 53 coins. The only positive
+    edges in the plan remain S2b (as B1) and the layered pullback S4 (+0.06).
+  - Big-swing Fibonacci (139 trades) needs about 4x the data to reach a detectable edge of 0.1R. That is the
+    resolvable gap, and new coins or forward data are the only clean source.
