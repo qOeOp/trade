@@ -966,3 +966,23 @@ was wrong in sign. The band cut churn but gave up the anchor income (about 7-9% 
 K1's return, interest-like or not. The decomposition is the useful result: K1 earns the anchor rate in ordinary times
 and excess funding in overheated phases. Its value therefore depends on the alternative yield on USDT. K1 stays as
 validated; K1b is not adopted.
+
+## Trend line: portfolio-level comparison (from external research, section 2; loop T-1)
+
+### Loop T-1 (registered before running)
+
+- **Books:** daily, long only, on the 17 majors over 2018-2022 (iteration tier), with the same sizing for every book:
+  each coin weighted by a 25% volatility target over its 90-day realised volatility, divided by 17, gross at most 1x,
+  and 0.1% a side on weight changes.
+  - B0: buy-and-hold (volatility-sized).
+  - B1: the regime baseline, long while the close is above its 200-day mean (AQR's point).
+  - B2: T0 as a state, entered on a close above the 50-day closing high and exited on a close below the 20-day closing
+    low.
+  - B3: the Zarattini, Pagani and Barbon ensemble: nine Donchian lookbacks {5, 10, 20, 30, 60, 90, 150, 250, 360}, each
+    trailing a stop at max(prior stop, channel midpoint); exposure is the share of sub-models long.
+- **Measures:** Sharpe, CAGR, maximum drawdown and the 2022 return, plus a weekly block bootstrap of the Sharpe
+  difference of B2 and B3 against B1.
+- **Decision:** if neither B2 nor B3 beats B1 beyond the interval, the trend return is regime exposure, and the simpler
+  rule is adopted.
+- **Predicted:** B3 about 0.1-0.2 higher Sharpe than B2 with a smaller drawdown; B1 about equal to B2.
+- **Caveat:** the 17 majors are survivors, so only the relative ranking is evidence here.
