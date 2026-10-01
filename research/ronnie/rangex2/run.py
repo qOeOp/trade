@@ -11,7 +11,6 @@ ROOT = os.path.dirname(HERE)
 for p in (ROOT, os.path.join(ROOT, "combo")):
     sys.path.insert(0, p)
 import tv_fx_mtf  # noqa: E402
-import tv_hourly  # noqa: E402
 
 _spec = importlib.util.spec_from_file_location("range6_run", os.path.join(ROOT, "range6", "run.py"))
 R6 = importlib.util.module_from_spec(_spec)
@@ -19,7 +18,7 @@ _spec.loader.exec_module(R6)
 R2, R3, MT = R6.R2, R6.R4.R3, R6.MT
 
 FX = ("EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "USDCHF")
-DUKA = {"XAUUSD": "gold", "XAGUSD": "silver", "BRENTCMDUSD": "brent"}
+DUKA = {"XAUUSD": "gold", "XAGUSD": "silver", "BCOUSD": "brent"}  # HistData symbols (see the INTENT amendment)
 CRYPTO = ("BTC", "ETH")
 COST = {"fx": 0.00005, "metal/oil": 0.0002, "crypto": 0.0006}
 FORM = (pd.Timestamp("2018-01-01", tz="UTC"), pd.Timestamp("2022-01-01", tz="UTC"))
@@ -32,9 +31,7 @@ def load(name, cls):
     if cls == "fx":
         h = tv_fx_mtf.hourly(name)
     elif cls == "metal/oil":
-        t0, t1 = int(FORM[0].value // 10**9), int(TEST[1].value // 10**9)
-        h = tv_hourly.dukascopy(name, t0, t1).drop_duplicates("time").sort_values("time")
-        h.index = pd.to_datetime(h.time, unit="s", utc=True)
+        h = pd.read_csv(os.path.join(HERE, "data", f"{name}_1h.csv.gz"), index_col=0, parse_dates=True)
     else:
         from evaluate import holdout_bars
         h = holdout_bars(name)["1h"]
@@ -125,7 +122,7 @@ def main():
         lb, hb = boot(b)
         out.append(f"class {cls:<9}: FADE n {len(f):4d} edge {f.edge.mean():+.3f} [{lf:+.3f}, {hf:+.3f}]   "
                    f"BREAK n {len(b):4d} edge {b.edge.mean():+.3f} [{lb:+.3f}, {hb:+.3f}]")
-    for k in ("BRENTCMDUSD", "XAUUSD"):
+    for k in ("BCOUSD", "XAUUSD"):
         z = ev[ev.asset == k]
         out.append(f"  {DUKA[k]:<6}: FADE edge {z[z.trade == 'FADE'].edge.mean():+.3f} (n {int((z.trade == 'FADE').sum())}), "
                    f"BREAK edge {z[z.trade == 'BREAK'].edge.mean():+.3f} (n {int((z.trade == 'BREAK').sum())}), HOLD {hold[k]:.2f}")
