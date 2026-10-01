@@ -1,0 +1,41 @@
+# Forward plan: decision dates and admit/kill criteria
+
+Fixed on 2026-10-01, before any forward outcome exists. It closes retrospective flaw 4 (forward records without a
+decision date or criteria). Thresholds come from `loop/forward_plan.py` (`loop/forward_plan.txt`): 20,000 block-
+bootstrapped 52-week paths (4-week blocks) of each candidate's backtest weekly stream.
+
+"Admit" here means only "recommended to the user as a proposal". No candidate reaches paper or live execution
+without the user's explicit authority (AGENTS.md); this plan widens nothing.
+
+## Dates
+
+- **Interim, 2027-04-01:** kill checks only; nothing is admitted.
+- **Decision, 2027-10-01:** the kill checks plus the admit criteria below.
+- **At any daily run:** a kill threshold crossed ends the candidate's record (it is kept, marked killed, not deleted).
+
+## Candidates
+
+| candidate | record | kill (any time) | admit at 2027-10-01 | years to decide at half the backtest Sharpe |
+| --- | --- | --- | --- | --- |
+| Book T (B3, box_break, trendline_time, oversold_idio; equal risk) | built from the component records | drawdown beyond the backtest 99th percentile (-8.0% at 10% volatility), or a 52-week sum below the 1st percentile (+0.6%) | Sharpe above 0 and drawdown within the 95th percentile (-6.2%) | 2.6 |
+| B3 Donchian book | `trend/forward/b3_weights.csv` | drawdown beyond -9.3% | Sharpe above 0 and the B3 - B1 difference above 0 | 5.8 |
+| K1 carry | `carry/forward/` | 52-week return per notional below +1.5% (the 1st percentile of 2023-2026) | 52-week return above +2.4% (the 5th percentile) after costs on capital | 0.7 |
+| T0 daily trend | `trend/forward/` | none of its own; it is the comparison for B3 | not a candidate alone | - |
+| box_break, trendline_time, oversold_idio | `combo/forward/signals.csv` | none alone; components of book T | not candidates alone | 5.7, 3.9, 19 |
+| B1, b1_time, trendline, ridge, oversold_o3 | `combo/forward/signals.csv` | comparisons only | not candidates | - |
+
+## Known limits, stated now
+
+- **K1 is already at its kill line.** Its 2025 and 2026 holdout years returned +1.4% and +0.2% per notional, below the
+  +1.5% threshold; the bootstrap ignores the decay. A first forward year below +1.5% kills it, which is the expected
+  outcome unless funding regimes return.
+- **No candidate except K1 can be confirmed in one year.** The book needs about 2.6 years at half its in-sample Sharpe.
+  The 2027-10-01 decision is therefore "consistent with the backtest, keep recording" or "killed", never "proven".
+- **The 4h records run once a day.** Signals are logged up to 24 hours late, and those whose stop or target already
+  traded are voided (about half so far). The book's forward value is therefore biased against the 4h components. The
+  fix is to run `combo/forward.py` every 4 hours. That is a second routine on the user's account, so it waits for the
+  user's go-ahead.
+- **Different coins.** The combo record runs on BTC, ETH and 15 holdout coins; B3 runs on the 17 iteration majors.
+  The book mixes them, as the backtest did not. This is stated, not fixed.
+- **The scorer for book T** (weekly streams from matured, committed records, scaled as in N-2) is written at the
+  interim date, from code frozen in `loop/ensemble.py`, before any record is read for it.

@@ -1336,3 +1336,10 @@ found no conditioning variable.
 Both as predicted. Diversification does not lift the book to significance on 2023-2026 majors (a contaminated slice).
 The frozen book is the next forward candidate: its components are already recorded daily (B3, box_break, trendline_time,
 oversold_idio), so the book can be scored from those records without a new script until a decision date is set.
+
+## Forward plan (decision dates and criteria)
+
+`loop/FORWARD_PLAN.md`, from `loop/forward_plan.py`: an interim date of 2027-04-01 (kill checks only) and a decision
+date of 2027-10-01, with per-candidate kill and admit thresholds from bootstrapped backtest paths.
+- **Power:** book T needs about 2.6 years at half its in-sample Sharpe, B3 5.8, C-6 alone 19, K1 0.7.
+- **K1 is already at its kill line:** its last two holdout years are below the 52-week threshold.

@@ -1,0 +1,8 @@
+candidate: in-sample weekly mean, Sharpe; 52-week sum 5th / 1st percentile; 52-week max drawdown of the cumulative sum, 95th / 99th percentile; years to a one-sided 95% bound above zero at half the Sharpe
+K1 2023-2026 (per notional, read before): mean +0.0011, Sharpe 3.88; 52w sum p5 +0.024 p1 +0.015; drawdown p95 -0.004 p99 -0.005; years 0.7
+book T (10% vol units): mean +0.0034, Sharpe 2.04; 52w sum p5 +0.051 p1 +0.006; drawdown p95 -0.062 p99 -0.080; years 2.6
+B3 (book return): mean +0.0018, Sharpe 1.37; 52w sum p5 -0.028 p1 -0.065; drawdown p95 -0.071 p99 -0.093; years 5.8
+K1 (per notional): mean +0.0040, Sharpe 4.40; 52w sum p5 +0.097 p1 +0.062; drawdown p95 -0.011 p99 -0.015; years 0.6
+D-1 (R per week): mean +0.1749, Sharpe 1.37; 52w sum p5 -1.236 p1 -4.794; drawdown p95 -6.043 p99 -8.228; years 5.7
+F-2 (R per week): mean +1.5571, Sharpe 1.66; 52w sum p5 +9.481 p1 -16.445; drawdown p95 -38.613 p99 -50.768; years 3.9
+C-6 (R per week): mean +0.0479, Sharpe 0.76; 52w sum p5 -1.814 p1 -3.005; drawdown p95 -2.007 p99 -4.013; years 19.0
