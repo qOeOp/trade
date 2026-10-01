@@ -786,6 +786,14 @@ tested against skipping the same number of random trades of the same coins (`eve
 - **Conclusion:** the failed strategies do not fail because of event windows. Their losses are spread over the
   calendar.
 
+## Index of proposals and catalogues
+
+- `PROPOSALS.md`: every proposal of the study in one index, and the product proposal (research steps against the
+  product's design and deployed state).
+- `STRATEGIES.md`: the strategies ranked by usability, with the next R&D step for each.
+- `loop/RETROSPECTIVE.md`: the review of the whole R&D process.
+- `loop/WORKFLOW_NOTES.md`: workflow problems met and proposals.
+
 ## Funding carry (TrialFamily carry-v1)
 
 `carry/` tests market-neutral cash-and-carry on Binance: long spot, short the perpetual, collect funding
