@@ -1328,3 +1328,11 @@ found no conditioning variable.
 - **Body:** IC +0.08 with non-monotone buckets.
 - **Reading:** as with Ronnie's lines, which line is drawn does not matter. What F-1/F-2 capture is a strong 4h bar
   ending a pullback, and the line only times it. No successor.
+
+**Verdict N-4 (gatekeeper relay):**
+- book against cash: FAIL (edge positive, interval spans zero) at 97.50% (k=2);
+- book Sharpe against buy-and-hold: FAIL (edge positive, interval spans zero) at 97.50% (k=2).
+
+Both as predicted. Diversification does not lift the book to significance on 2023-2026 majors (a contaminated slice).
+The frozen book is the next forward candidate: its components are already recorded daily (B3, box_break, trendline_time,
+oversold_idio), so the book can be scored from those records without a new script until a decision date is set.

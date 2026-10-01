@@ -148,7 +148,8 @@ stated otherwise.
   - 2018-07 to 2022: Sharpe 2.04 against the best single rule (F-2) at 1.71; difference +0.34 [-0.54, +1.11]; max DD
     -6.7% at 10% volatility, against -18.1% for buy-and-hold;
   - PBO over 32 construction variants: 0.29;
-  - one read on the majors slice 2023-2026: see `loop/LOG.md` (N-4).
+  - one read on the majors slice 2023-2026 (N-4): against cash and against buy-and-hold, both FAIL (edge positive,
+    interval spans zero) at 97.5%.
 - **Limits:** the single-rule streams are in-sample, trades are booked in their entry week (drawdowns understated),
   and K1 correlates +0.63 with B3 outside crashes.
 - **Code:** `loop/ensemble.py`, `loop/gatekeeper_book.py`.
