@@ -58,3 +58,9 @@ if the strategy works:
 - **The book is the only candidate a forward record can judge in about a year,** which is why gate U is applied to it
   first.
 - **Single rules are judged inside the book,** and their own records are diagnostics.
+
+## Candidate CF, the calm-coin filter (added 2026-10-01)
+
+Signals of B1, b1_time, trendline and trendline_time are tagged at scoring time as calm when the coin's 30-day realised
+volatility before the signal is at or below the cut-off in `loop/calm_filter.json`. The scorer reports calm and other
+signals separately. CF is decided with the others on 2027-10-01 (LOG, "Candidate CF").

@@ -1,0 +1,10 @@
+{
+ "fixed_on": "2026-10-01",
+ "source": "loop/coin_vol_bucket.py, 2018-2022 lower tercile of the coin's 30-day realised volatility (annualised) at entry",
+ "calm_max": {
+  "B1": 0.7879,
+  "b1_time": 0.7879,
+  "trendline": 0.8247,
+  "trendline_time": 0.8247
+ }
+}

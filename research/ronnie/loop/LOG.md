@@ -1670,3 +1670,16 @@ direction.** After 2022, the most volatile coins were the worst.
 - **This matches Ficura (2023):** momentum in large, liquid coins and reversal in small, volatile ones.
 - **Not adopted:** "trade only calm coins" was not the registered direction. As a filter it would be a new rule, to be
   registered and confirmed on new data, not adopted from this split.
+
+## Candidate CF: calm-coin filter (registered for the forward record only; from V-1)
+
+- **Rule:** take a B1, b1_time, trendline or trendline_time signal only when the coin's 30-day realised volatility
+  before the signal is at or below the 2018-2022 lower tercile of that rule. The cut-offs are fixed now in
+  `loop/calm_filter.json`: B1 and b1_time 78.8% a year; trendline and trendline_time 82.5%.
+- **Status:** stage 0. It came from looking at V-1, so no historical data counts as evidence for it. Only forward
+  signals logged after 2026-10-01 count.
+- **Mechanics:** no change to the record. Volatility is computed at scoring time from prices before each signal.
+- **Decision on 2027-10-01** (with the forward plan): the forward edge of calm signals minus the rest, week-clustered.
+  The filter is admitted only if that interval is above zero. One year will likely be too short; the record continues
+  if it is undecided.
+- **Falsifier:** the calm minus rest difference at or below zero over the first forward year.
