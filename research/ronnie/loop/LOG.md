@@ -931,3 +931,31 @@ random pairs in every loop, so selection carries information, but no loop's gros
 **Next admissible step:** 15m or 5m bars, where the literature locates the effect. It needs 15m/5m archives (about
 1,000 monthly files for 17 coins) and an honest execution model: at that frequency the result depends on maker fills,
 which OHLC bars cannot simulate. Without a fill model, a positive gross at 5m would not be evidence of a tradable edge.
+
+## Carry K1: decomposition (diagnosis) and loop K1b (from external research, section 1)
+
+**Decomposition of K1** (annualised per held coin-day; fractions):
+
+| year | anchor | excess | basis | cost | pinned share |
+| --- | --- | --- | --- | --- | --- |
+| 2020 | 0.082 | 0.194 | +0.004 | -0.018 | 41% |
+| 2021 | 0.088 | 0.368 | -0.000 | -0.014 | 32% |
+| 2022 | 0.065 | 0.000 | +0.002 | -0.024 | 50% |
+| 2023 | 0.089 | 0.047 | +0.003 | -0.020 | 42% |
+| 2024 | 0.093 | 0.097 | +0.003 | -0.009 | 34% |
+| 2025 | 0.072 | 0.000 | +0.002 | -0.023 | 38% |
+| 2026 | 0.070 | 0.002 | +0.023 | -0.095 | 28% |
+
+Reading:
+- **The anchor:** K1's return is the funding anchor (about 7-9% a year while held, an interest component) plus excess
+  funding that appears only in overheated bull phases (2020, 2021, 2024).
+- **The decay:** in 2022, 2025 and 2026 the excess is about zero, and K1 churns around the anchor. Its 0.01% entry
+  threshold equals the anchor (external research, section 1), so costs reach -9.5% in 2026.
+
+### Loop K1b (registered before running)
+
+- **Change:** enter when the 7-day mean funding is at least 0.015% per 8h (1.5x the anchor); exit when the 3-day mean
+  falls below 0.01% (the anchor). This puts a band between entry and exit and targets excess demand.
+- **Evidence:** the 17 majors 2020-2022 (development tier of carry-v1), against K1. 2023-2026 has been read before and
+  is shown descriptively only.
+- **Predicted:** close to K1 in 2020-2021, fewer trades and lower costs in 2022, and 1-3 points a year better overall.
