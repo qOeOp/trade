@@ -118,3 +118,9 @@ Input for the product's R&D system. Each note: what happened, why it matters, a 
     random entries of the same year, so a factor that times the market within the year will look like strategy skill.
     - **Proposal:** attribution also reports each feature's IC with a regime-matched control's outcome (random entries
       on days in the same feature bucket). A feature that predicts the control too is beta, not skill.
+26. **Factor stability must be judged across loops, not within one.** The volatility ratio is "reliable" in A10 with a
+    positive sign, while the weekly-level loops favoured low volatility. Each loop's attribution sees only its own
+    trades.
+    - **Proposal:** the R&D system keeps a factor ledger across loops: each feature's IC and sign per loop, with the
+      configuration. It requires a factor to hold its sign across related configurations before it may drive a
+      change (meta-attribution). The per-loop flag is necessary, not sufficient.

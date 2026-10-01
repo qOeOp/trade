@@ -329,3 +329,12 @@ concentrated in its top quintile (+0.41R); prior touches stay reliably negative 
 - **Reason:** prior touches are reliably negative in A3 and A9. The community's supply-and-demand practice (Seiden)
   holds that the first retest of a zone is the strongest, because each test absorbs resting orders. It also explains
   A2's failure.
+
+**Result A10:** iteration gate fails; avg R positive for the first time in this lineage. 142 trades, avg R +0.201,
+edge +0.073 [-0.149, +0.299]; 2018-2020 -0.028, 2021-2022 +0.139. Through flagged factors the edge moved from -0.157
+(A3) to -0.085 (A9) to +0.073 (A10). Stops 37%, 9% of them within 2 bars.
+
+**Family A closes again; A11 is not run.** The only flagged factor in A10 is the volatility ratio, with a positive IC
+(higher volatility better), the opposite of the low-volatility pattern of the weekly-level lineage (A5-A8). It was
+flagged at t 2.01 among 10 features tested, so about one false flag is expected. A factor whose sign flips across
+related configurations does not meet the bar (workflow note 26).
