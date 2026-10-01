@@ -260,3 +260,15 @@ Stops 20%; winners' median MFE 0.82R.
 - **Reason:** a capitulation is extreme relative to a coin's normal moves. Volatility scaling is standard in momentum
   research (Moskowitz, Ooi and Pedersen). The factor 1.8 keeps the average severity at 15%: the median ATR(20) of the
   majors over 2018-2022 is 8.2% of price, and 15/8.2 = 1.84.
+
+**Result C-2:** iteration gate fails. 26 trades, avg R -0.388, edge -0.218 [-0.579, +0.286]. The volatility scaling
+admitted drops of 10-16% on calm coins, and those lost (-0.763 for the shallowest third). Stops 50%, 46% of them within
+2 bars. Attribution: capitulation is an absolute, not a relative, event. That fits the mechanism: liquidations trigger
+at fixed percentage moves set by leverage, not at multiples of volatility.
+
+### Loop C-3 (registered before running)
+
+- **Single change from C-1:** the 15% drop may happen over 1 to 5 days (the largest drop into the signal close over
+  those windows), not exactly 3.
+- **Reason:** liquidation cascades unfold over one to several days, and the community describes capitulation as a crash
+  "within days", not over exactly three. The absolute 15% is kept (C-2's attribution).

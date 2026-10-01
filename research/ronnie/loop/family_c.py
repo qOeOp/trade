@@ -14,7 +14,7 @@ OS = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(OS)
 
 BASE = dict(tf="1d", hold=10, rule="o3")
-LOOPS = {"C-1": dict(BASE), "C-2": dict(BASE, rule="o3_atr", k_atr=1.8)}
+LOOPS = {"C-1": dict(BASE), "C-2": dict(BASE, rule="o3_atr", k_atr=1.8), "C-3": dict(BASE, rule="o3_window")}
 
 
 def make(cfg):
@@ -34,7 +34,10 @@ def make(cfg):
             out, last = [], -99
             for i in range(210, len(c) - 1):
                 rg = h[i] - l[i]
-                drop = (c[i - 3] - c[i]) >= cfg["k_atr"] * a[i - 3]
+                if cfg["rule"] == "o3_window":  # the largest drop into today's close over 1 to 5 days
+                    drop = min(c[i] / c[i - k] - 1 for k in range(1, 6)) <= OS.DROP3
+                else:
+                    drop = (c[i - 3] - c[i]) >= cfg["k_atr"] * a[i - 3]
                 if not (drop and vm[i] > 0 and v[i] >= OS.VOLX * vm[i] and rg > 0 and (c[i] - l[i]) / rg >= 0.5):
                     continue
                 stop, entry, tgt = l[i] - OS.PAD * a[i], o[i + 1], c[i] + 0.5 * (hh[i] - c[i])
