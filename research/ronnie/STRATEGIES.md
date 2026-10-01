@@ -177,10 +177,10 @@ closure audit (`loop/closure_audit.txt`, week-clustered, SESOI +0.10R) and the p
 | Carry K1b, K1p | closed (as variants) | K1p -9.4% a year against K1 [-11.1, -7.7]; K1b no gain |
 | Carry K2 | closed | holdout -3.3% a year [-4.1, -2.6] |
 | Carry P1 (funding crowding) | parked, low | holdout +1.4% [-0.3, +3.2] |
-| Trend B3 book, T0 | active, stage 3 | T-1 and T-2 positive; validation positive, spans zero |
+| Trend B3 book, T0 | active, stage 3 | T-1 and T-2 positive; validation positive, spans zero; cross-asset (X-3, 21 instruments 2008-2026) positive, spans zero |
 | Box break D-1 | active, stage 3 | holdout and majors positive, spans zero; the lookback plateau cuts the edge to +0.14 |
 | Box retest G-2 | absorbed into D-1 | correlation with D-1 +0.39 (+0.61 in bear years) |
-| Trend-line break F-1/F-2 | active, stage 3 | reserve fail, majors positive, spans zero |
+| Trend-line break F-1/F-2 | active, stage 3 | reserve fail, majors positive, spans zero; pooled over 69 holdout coins (P-1): F-1 interval above zero, t below 3 |
 | Capitulation O3/C-6 | active but power-capped (parked for proof) | iteration +0.58; final 7 trades; new coins give no events (C-6u) |
 | Pure crash O1 | parked, lowest | R-2 pooled -0.055 [-0.21, +0.103] |
 | B1 4h momentum | active, stage 3 | 15 unseen coins +0.104 [+0.048, +0.159]; at SESOI |

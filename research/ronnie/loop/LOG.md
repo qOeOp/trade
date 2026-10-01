@@ -1583,3 +1583,16 @@ As predicted, no rule reaches t >= 3. Pooled over all 69 post-2022 holdout coins
 F-1 is the only one whose pooled week-clustered interval excludes zero. F-1 is the strongest single rule, still short of
 the stage-4 bar. All six stay at stage 3 (forward). The holdout universe is now exhausted for these lineages: no
 further pooled read on 2023-2026 crypto is admissible, so new evidence can come only from forward data.
+
+**Verdict X-3 (gatekeeper relay):**
+- B3 cross-asset against cash: FAIL (edge positive, interval spans zero) at 97.5%
+- B3 minus B1 cross-asset: FAIL (edge positive, interval spans zero) at 97.5%
+
+- **The first prediction was wrong:** a PASS against cash was expected. The frozen long-only B3 is positive outside
+  crypto but not significant over 2008-2026 on 21 instruments.
+- **The second verdict is as predicted.**
+- **Reading:** the cross-asset literature's strong result is for long-short trend following on futures, with
+  diversified volatility scaling. B3 is long-only by design (crypto), and some series carry roll jumps. No variant is
+  tried on this data, because the read is spent; a long-short trend book would be a new registered rule, at stage 0.
+- **For the trend line:** consistent in sign with crypto (T-1, T-2, validation), adding no significance. It stays at
+  stage 3 (forward).
