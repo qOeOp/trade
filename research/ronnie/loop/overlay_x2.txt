@@ -1,0 +1,7 @@
+X-2: flag from 2020-11-02 to 2022-12-31; flagged 7 of 790 days, 2 episodes: 2021-02-06, 2021-03-14
+  flagged: next-30-day BTC mean +19.3%, 5th percentile +8.9%, n 7
+  unflagged: next-30-day BTC mean +3.2%, 5th percentile -29.0%, n 783
+  all: next-30-day BTC mean +3.3%, 5th percentile -28.9%, n 790
+  falsifier (flagged no worse than unconditional): TRIGGERED
+  B3: Sharpe 1.78, return +35.3%, max DD -7.6%
+  B3 with overlay: Sharpe 1.52, return +28.5%, max DD -7.6%

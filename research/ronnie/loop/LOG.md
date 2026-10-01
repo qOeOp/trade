@@ -1250,3 +1250,25 @@ expanding volatility; a stream with no history contributes 0. Logged as a rerun.
 - **Reading:** more independent events can be bought only by diluting the event; the edge lives in the rare daily
   extremes. The capitulation line stays power-limited; its path to more data is more coins (post-2022 listings) on the
   daily definition, not a faster bar. No successor on 4h.
+
+## Bear markets X-2: funding-extreme crash overlay (registered before running; external research section 5, hypothesis 3)
+
+- **Flag:** BTC's 7-day mean funding above its trailing 365-day 90th percentile and BTC perpetual open interest up more
+  than 20% over 14 days. Data: BTC funding from 2020, open interest from 2020-09, so the flag exists from 2021-01 to
+  2022-12 (the iteration period; open interest for 2023 onward is not fetched).
+- **Measures:** BTC's next-30-day return (mean and 5th percentile) on flagged against unflagged days; the number of
+  distinct episodes (flags more than 14 days apart); the B3 book (`trend/books.py`) with all exposure cut to zero while
+  flagged, against B3 itself.
+- **Falsifier:** the flagged state's next-30-day mean and lower tail no worse than unconditional.
+- **Predicted:** few episodes (3-6, around the 2021 tops); flagged next-30-day mean worse. With so few episodes no
+  inference is possible either way; a pass would earn only a forward flag, not a rule.
+
+**Result X-2** (`loop/overlay_x2.py`, `loop/overlay_x2.txt`): **falsified.**
+- **The flag fired on 7 of 790 days in 2 episodes** (2021-02-06, 2021-03-14); the window starts 2020-11 because the
+  365-day percentile needs 300 days.
+- **The flagged next-30-day BTC return:** mean +19.3% and 5th percentile +8.9%, against +3.3% and -28.9% on all days.
+  Both episodes were followed by rallies, not crashes; the 2021-04 and 2021-11 tops were never flagged (open interest
+  did not rise 20% in 14 days at the funding peak).
+- **B3 with the overlay:** Sharpe 1.52 against 1.78; the same drawdown, a lower return.
+- **Reading:** "crowded longs precede crashes" did not mark either 2021 top on BTC. Two episodes allow no inference,
+  and the rule as stated is closed; the trend book's own exit already handles the tops.
