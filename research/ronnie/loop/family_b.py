@@ -43,7 +43,7 @@ def make(cfg):
             wbook = []
             for j in range(len(c)):
                 p = c[j - 2] if j > 1 else c[0]
-                step = 10 ** np.floor(np.log10(p)) / 2
+                step = 10 ** np.floor(np.log10(p)) / cfg.get("round_div", 2)  # FX: 200 (Osler 2003)
                 ys = step * np.arange(np.floor(p / step) - 3, np.floor(p / step) + 5)
                 ys = ys[ys > 0]
                 wbook.append((ys, np.where(ys > p, 1, -1)))
