@@ -80,6 +80,45 @@ Hypotheses (ranked):
    its 90th percentile or open interest is up sharply.
 5. **A faster signal on post-2023 coins** (20/10 or 4h).
 
+## 4. Capitulation reversals (C-6 / O3)
+
+No primary study tests a capitulation measured against BTC on daily bars, or an open-interest flush as a bottom
+signal. The closest evidence:
+- **Blitz, Huij, Lansdorp and Verbeek (2013), "Short-term residual reversal"** (Journal of Financial Markets).
+  Reversal ranked on factor residuals earns about 3x the risk-adjusted return of reversal on raw returns. Equities.
+  For us: a beta-adjusted residual may beat the plain coin-minus-BTC difference.
+- **Kitron and Wengrowicz, arXiv 2608.21888:** 15-minute reversal in 90% of 183 Binance pairs, concentrated after
+  aggressive taker flow; order-book depth adds nothing. It reportedly is mostly idiosyncratic, but about 1.3 bp gross,
+  not tradable. Taker volume is the conditioning variable.
+- **Caporale and Plastun, "Price overreactions in the cryptocurrency market":** an unconditional counter-move after
+  overreaction days was not profitable (4 coins, early data). This is consistent with our filters carrying the edge.
+- **Jia, Liu and Yan (2021), Finance Research Letters:** extreme positive returns drive the higher-moment effects;
+  extreme negative returns do not. Reversal after the worst days is weak unconditionally.
+- **Farag, Luo, Yarovaya and Zieba (2025), "Returns from liquidity provision in cryptocurrency markets"** (Journal of
+  Banking and Finance). Short-term reversal pays as a liquidity-provision premium, higher when liquidity is scarce
+  and stress is high. This explains why our trades cluster in stress weeks.
+- **"Perpetual Futures and Basis Risk" (AEA 2026, preliminary, unverified):** forced liquidations are common, and
+  perpetual drawdowns mean-revert quickly.
+- **Practitioner checks (negative):**
+  - a BTC funding z-score below -1.5 buy rule is about zero after fees;
+  - an "open-interest unwind needs taker-buy confirmation" idea is agent-generated, not evidence;
+  - a liquidation-bounce study is synthetic.
+  Our negative-funding split (34 trades) has no outside support.
+
+Hypotheses (ranked):
+1. **A beta-adjusted residual trigger** (r_coin - beta x r_BTC at most -15%, with a trailing 60-day beta), plus more
+   coins (post-2022 listings). Falsified if the edge falls below +0.2R or any gain comes only from added coins.
+2. **Open-interest flush confirmation (2021 onward):** require the perpetual's open interest to fall at least 15-20%
+   over the drop window. Falsified if the split is 0.3R or less (week-clustered).
+3. **Taker-flow reversal on the signal day:** the taker buy/sell ratio over the last 4-8 hours above 1 after a
+   seller-dominated session. Falsified if it removes losers no better than a random filter of the same size.
+4. **A 4h event definition, for more independent events:** residual at most -10% over 6-30 bars, at least 2.5x volume,
+   close in the upper half, held 3-5 days. Falsified if costs erase it or events still fall in fewer than 25 weeks.
+5. **Funding as a filter:** last, expected to fail.
+
+Cautions: count the effective sample in independent weeks, not trades (30 trades in 12 weeks is about 12
+observations), and fix thresholds before any out-of-sample read.
+
 ## 5. Bear-market and short strategies
 
 Sources (SSRN and Wiley blocked direct fetches; "abstract only" marks details from search snippets):
