@@ -31,10 +31,10 @@ without the user's explicit authority (AGENTS.md); this plan widens nothing.
   outcome unless funding regimes return.
 - **No candidate except K1 can be confirmed in one year.** The book needs about 2.6 years at half its in-sample Sharpe.
   The 2027-10-01 decision is therefore "consistent with the backtest, keep recording" or "killed", never "proven".
-- **The 4h records run once a day.** Signals are logged up to 24 hours late, and those whose stop or target already
-  traded are voided (about half so far). The book's forward value is therefore biased against the 4h components. The
-  fix is to run `combo/forward.py` every 4 hours. That is a second routine on the user's account, so it waits for the
-  user's go-ahead.
+- **The 4h records ran once a day until 2026-10-01.** Signals were logged up to 24 hours late, and those whose stop or
+  target had already traded were voided (about half). From 2026-10-01 16:18 UTC, `combo/forward.py` runs every 4 hours
+  in its own routine (the daily routine no longer runs it), so the latency is at most about 4 hours. Records logged
+  before then are kept, marked by their logged_at time, and the book's scorer starts from the first 4-hourly run.
 - **Different coins.** The combo record runs on BTC, ETH and 15 holdout coins; B3 runs on the 17 iteration majors.
   The book mixes them, as the backtest did not. This is stated, not fixed.
 - **The scorer for book T** (weekly streams from matured, committed records, scaled as in N-2) is written at the
