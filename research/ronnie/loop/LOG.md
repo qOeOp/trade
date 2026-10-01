@@ -1119,3 +1119,61 @@ Majors only, 2021-12 to 2022-12 (the metrics archive starts there for alts). Edg
 - **Reading:** the signs disagree across lineages, and the one nominal interval (D-1 taker) rests on 47 trades among
   several looks. OI confirmation ("new money behind the break") is rejected; taker flow is inconclusive. Not adopted as
   a filter; the data is too short to test on alts before 2021-12.
+
+## Ensemble N-1: return streams, correlation and effective N (registered before running; external research section 6, step 1)
+
+- **Streams, weekly, 2018-2022 (carry from 2020):**
+  - K1 carry (17 majors, `carry/daily.csv.gz`);
+  - B3 Donchian-ensemble book and B1 regime book (`trend/books.py`);
+  - D-1 box break, G-2 retest, F-2 trend-line time exit, C-6 idiosyncratic capitulation (iteration trade logs, 1R per
+    trade, booked in the entry week);
+  - B0 buy-and-hold for beta.
+- **Measures:** Pearson correlation of weekly returns, the same in bear years (2018, 2022), and an effective N from the
+  eigenvalues of the correlation matrix of the five candidate rules (K1, B3, D-1, F-2, C-6): (sum l)^2 / sum l^2.
+- **Falsifier:** effective N of 2 or less, or a mean bear-year correlation among the timing rules above 0.8.
+- **Predicted:** D-1 and G-2 correlate strongly (same events), F-2 moderately with them, K1 near zero with all, B3
+  positive with B0; effective N about 3.5.
+- **Approximation, stated:** trades are booked in their entry week, not over their life; that blurs correlation
+  between rules that hold for days.
+
+**Result N-1** (`loop/ensemble.py`, `loop/ensemble_n1.txt`): the falsifier is not triggered.
+- **Effective N of K1, B3, D-1, F-2, C-6: 4.24** (predicted about 3.5).
+- **Mean bear-year correlation among the timing rules: +0.05.**
+- **As predicted:** D-1 and G-2 correlate (+0.39; +0.61 in bear years), so G-2 is a variant, not a new rule; F-2 is
+  nearly independent of them (+0.12).
+- **Not predicted:** K1 correlates +0.63 with B3 over all weeks (both earn in bull phases, when funding is rich) but
+  +0.04 in bear years. K1 is not the diversifier it looked like in a crash, only outside one.
+- **Caveat:** sparse trade streams (C-6 trades in 5% of weeks) have low correlation partly by construction.
+
+## Ensemble N-2: a pre-registered book with no fitted weights (registered before running; section 6, step 2)
+
+- **Construction:** each rule's weekly stream is scaled to 10% annual volatility by its trailing 26-week standard
+  deviation (shifted one week, at least 13 weeks); the book is the plain mean of the scaled streams. No weights are fit.
+- **Book A:** K1, B3, D-1, F-2, C-6 on 2020-2022. **Book T:** the four timing rules on 2018-2022.
+- **Compared with:** each rule alone under the same scaling, and B0. Drawdowns are compared after rescaling every
+  series to 10% realised volatility (descriptive).
+- **Falsifier:** the book's Sharpe not above the best single rule's, or its drawdown not below half of B0's.
+- **Predicted:** Book A fails against K1 alone (K1's Sharpe is very high on 2020-2022); Book T beats B3 (about 1.6
+  against 1.4) with a drawdown well under half of B0's.
+- **Approximations, stated:** trades are booked in the entry week, so drawdowns are understated; overlapping
+  same-coin signals are not merged.
+
+**Rerun N-2 (bug):** the first run divided by a zero trailing volatility for C-6, which trades in 5% of weeks, and
+printed NaN (two census rows with NaN). Fix: where the trailing 26-week volatility is zero or undefined, use the
+expanding volatility; a stream with no history contributes 0. Logged as a rerun.
+
+**Result N-2** (`loop/ensemble.py n2`, `loop/ensemble_n2.txt`):
+
+| book | weeks | Sharpe | best single | book - best (weekly bootstrap) | max DD at 10% vol | B0 max DD |
+| --- | --- | --- | --- | --- | --- | --- |
+| A (K1, B3, D-1, F-2, C-6), 2020-07 to 2022 | 130 | 2.99 | K1 4.34 | -1.38 [-3.13, +0.30] | -6.1% | -15.6% |
+| T (B3, D-1, F-2, C-6), 2018-07 to 2022 | 235 | 2.04 | F-2 1.71 | +0.34 [-0.54, +1.11] | -6.7% | -18.1% |
+
+- **Book A:** falsifier triggered, as predicted: on 2020-2022, K1 alone dominates any mix.
+- **Book T:** falsifier not triggered; above the best single rule and its drawdown under half of B0's, as predicted.
+  The lead is not significant. Book T is positive every year (2018 +1.2%, 2022 +8.3%).
+- **What this does not show:** these are iteration-tier streams on which F-2, D-1 and C-6 were selected, so every
+  single-rule Sharpe here is in-sample; the book's value is the diversification ratio, not the level. Drawdowns are
+  understated (entry-week booking). C-6's scaled stream is erratic (Sharpe 0.26) because its volatility estimate rests
+  on a few trades.
+- **Next (section 6, step 3):** CSCV/PBO over construction variants on the same history, before any holdout read.

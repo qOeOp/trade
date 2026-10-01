@@ -76,3 +76,8 @@ logged_at,loop,candidate,stage,n,edge,lo,hi,passed,note
 2026-10-01T11:23:57+00:00,H-4,familyH,iteration,536,-0.0074,-0.0131,-0.0020,False,market-neutral; edge = mean net return; week-clustered interval
 2026-10-01T11:38:19+00:00,S-0,breakouts,diagnosis,,,,,False,"session window (Sun 23:00-Mon 23:00 UTC) on F-2, D-1x, G-2 iteration trades"
 2026-10-01T12:35:25+00:00,S-1,breakouts,diagnosis,,,,,False,"OI change and taker-flow splits of F-2, D-1, G-2 trades, majors 2021-12 to 2022-12"
+2026-10-01T12:38:59+00:00,N-1,ensemble,diagnosis,,4.24,,,True,"effective N of K1, B3, D-1, F-2, C-6 weekly streams"
+2026-10-01T12:39:40+00:00,N-2,book A,iteration,,nan,nan,nan,False,"equal-risk book; edge = Sharpe, interval = Sharpe minus best single"
+2026-10-01T12:39:40+00:00,N-2,book T,iteration,,nan,nan,nan,False,"equal-risk book; edge = Sharpe, interval = Sharpe minus best single"
+2026-10-01T12:39:54+00:00,N-2,book A,iteration,,2.99,-3.13,0.30,False,"equal-risk book; edge = Sharpe, interval = Sharpe minus best single"
+2026-10-01T12:39:54+00:00,N-2,book T,iteration,,2.04,-0.54,1.11,True,"equal-risk book; edge = Sharpe, interval = Sharpe minus best single"

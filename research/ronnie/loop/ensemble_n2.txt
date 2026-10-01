@@ -1,0 +1,21 @@
+N-2: equal-risk books (each stream at 10% vol by trailing 26 weeks); drawdown at 10% realised vol
+
+Book A (2020-07-06 to 2022-12-26, 130 weeks):
+  K1: Sharpe 4.34, max DD -5.9%
+  B3: Sharpe 1.32, max DD -10.9%
+  D-1: Sharpe 1.17, max DD -5.3%
+  F-2: Sharpe 1.57, max DD -6.5%
+  C-6: Sharpe 0.35, max DD -12.3%
+  B0: Sharpe 0.98, max DD -15.6%
+  book A: Sharpe 2.99, max DD -6.1%
+  Sharpe book - best single (K1): -1.38 [-3.13, +0.30]; falsifier TRIGGERED
+  per year: 2020 +14.6%, 2021 +32.2%, 2022 +8.1%
+Book T (2018-07-02 to 2022-12-26, 235 weeks):
+  B3: Sharpe 1.04, max DD -9.7%
+  D-1: Sharpe 1.18, max DD -3.6%
+  F-2: Sharpe 1.71, max DD -5.2%
+  C-6: Sharpe 0.26, max DD -16.5%
+  B0: Sharpe 0.73, max DD -18.1%
+  book T: Sharpe 2.04, max DD -6.7%
+  Sharpe book - best single (F-2): +0.34 [-0.54, +1.11]; falsifier not triggered
+  per year: 2018 +1.2%, 2019 +27.1%, 2020 +24.0%, 2021 +19.4%, 2022 +8.3%
