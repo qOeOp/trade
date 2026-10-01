@@ -649,3 +649,19 @@ Reading: breaks usually come back, but shallowly. They often run first, retest t
   price-action "failed breakout").
 - **Risk named in advance:** the return is shallow (31% reach the middle).
 - **Predicted** (shrunk for the agent's upward bias, workflow note 39): edge about 0, with a lower bound near -0.2.
+
+**Result G-1:** iteration gate fails, significantly negative. 199 trades, avg R -0.471, edge -0.381 [-0.667, -0.045].
+Stops 81%: 70% of them within 2 bars, with a median MFE of 0.00R before the stop. Marginal breaks run past the break
+bar's extreme first and return later: the regression comes after the run, so a fade is stopped before it. The
+prediction (about 0) missed by -0.38R.
+
+### Loop G-2 (registered before running; amendment 4)
+
+- **Change (entry model, using the regression for the continuation trade):** after an X1 break, place a limit order at
+  the broken edge for 12 bars instead of entering at the next open. Stop at the box middle; target one box width from
+  the edge; time limit 30 bars after the fill. Extended iteration tier.
+- **Explanation:** 77% of breaks return inside, and the middle holds 70% of the time, so a fill at the edge buys the
+  continuation at a better price.
+- **Risk named in advance:** adverse selection. The 23% that never return are the strongest runs, and earlier retest
+  entries (trend-v1 E-line, setups P3) lost to the market entry.
+- **Predicted (shrunk):** edge +0.15, with a lower bound near -0.1.

@@ -52,3 +52,4 @@ logged_at,loop,candidate,stage,n,edge,lo,hi,passed,note
 2026-10-01T09:56:12+00:00,F-1,ablation: time-only exit (no 2R target),ablation,994,+0.3227,+0.1313,+0.5590,True,
 2026-10-01T09:56:45+00:00,F-2,familyA,iteration,994,+0.3227,+0.1313,+0.5590,True,
 2026-10-01T09:57:57+00:00,G-0,path statistics after box breaks,diagnosis,374,+nan,+nan,+nan,False,descriptive; no strategy outcome scored
+2026-10-01T09:58:56+00:00,G-1,familyA,iteration,199,-0.3805,-0.6671,-0.0454,False,

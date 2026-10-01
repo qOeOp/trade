@@ -10,7 +10,7 @@ import family_a as FA  # noqa: E402
 import family_d as FD  # noqa: E402
 
 BASE = dict(tf="4h", hold=12, max_break=0.5, iter_set="iterx")
-LOOPS = {"G-1": dict(BASE)}
+LOOPS = {"G-1": dict(BASE), "G-2": dict(BASE, hold=30, rule="retest")}
 
 
 def make(cfg):
@@ -23,6 +23,15 @@ def make(cfg):
             i = e - 1
             t, b = top[i - 1], bot[i - 1]
             edge = t if side == 1 else b
+            if cfg.get("rule") == "retest":  # limit at the broken edge for 12 bars, then the continuation trade
+                for j in range(e, min(e + 12, len(c) - 1)):
+                    if (l[j] <= edge) if side == 1 else (h[j] >= edge):
+                        fill = min(o[j], edge) if side == 1 else max(o[j], edge)
+                        mid = (t + b) / 2
+                        if (fill - mid) * side > 0:
+                            out.append((j, side, fill, mid, edge + side * (t - b)))
+                        break
+                continue
             if (c[i] - edge) * side >= cfg["max_break"] * a[i - 1]:
                 continue
             fade = -side
