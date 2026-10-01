@@ -160,13 +160,23 @@ def main():
         ev.assign(loop=loop).to_csv(os.path.join(HERE, "out", f"{loop}_attribution.csv"), index=False, float_format="%.4g")
         print(E.decompose(z, cfg["tf"], cfg["hold"]))
     else:
-        level, k = E.validation_level() if stage == "validate" else (95, 0)
+        if stage == "validate":
+            level, k = E.validation_level()
+        else:  # final reads are deflated across candidates too (FINAL_K counts reads made outside the census)
+            k = int(os.environ.get("FINAL_K", 1))
+            level = 100 - 5 / k
         lo, hi = E.boot(z, level)
         st = dict(n=len(z), edge=(z.R - z.control).mean(), lo=lo, hi=hi)
         passed = bool(lo > 0)
         E.log(loop, "familyA", "validation" if stage == "validate" else "final", st, passed, f"level {level:.2f}")
-        print(f"{loop} {stage} ({level:.2f}% interval, k={k}): n {len(z)}, avg R {z.R.mean():+.3f}, edge {st['edge']:+.3f} "
-              f"[{lo:+.3f}, {hi:+.3f}] -> {'PASS' if passed else 'fail'}")
+        print(f"{loop} {stage} ({level:.2f}% interval, k={k}): n {len(z)}, avg R {z.R.mean():+.3f}, control {z.control.mean():+.3f}, "
+              f"edge {st['edge']:+.3f} [{lo:+.3f}, {hi:+.3f}] -> {'PASS' if passed else 'fail'}")
+        print("  per year: " + ", ".join(f"{y} {g.mean():+.3f} (n {len(g)})" for y, g in (z.R - z.control).groupby(z.time.dt.year)))
+        print("  per coin: " + ", ".join(f"{c} {g.mean():+.2f} ({len(g)})" for c, g in (z.R - z.control).groupby(z.coin)))
+        import attrib
+        it = pd.read_csv(os.path.join(HERE, "out", f"{loop}_iteration.csv.gz"), parse_dates=["time"])
+        if "btc_trend" in it:
+            print(attrib.compare(it, z, [f for f in E.COMMON_FEATURES if f in z]))
 
 
 if __name__ == "__main__":

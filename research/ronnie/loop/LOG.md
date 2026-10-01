@@ -427,3 +427,14 @@ Family D validates on the final tier only.
 - **Baseline:** range-v3 X1 unchanged on 4h bars of the iteration tier: a 4h close beyond the 60-bar box known at the
   bar before, entry at the next open, stop at the box middle, target one box width, time limit 30 bars; targets under
   1R dropped.
+
+**Result D-1:** the iteration gate passes, the first loop to do so. 126 trades, avg R +0.362, edge +0.309
+[+0.052, +0.554]; 2018-2020 +0.490, 2021-2022 +0.168. Stops 23%, 3% of them within 2 bars. No factor is flagged.
+The iteration tier is the set on which X1 was found (range-v3 development), so this pass is not independent; the final
+tier is the test.
+
+### D-1 final read (registered before running)
+
+The rules are unchanged. The read is once, on the final tier (12 never-used coins, from listing to 2026-08), at a level
+deflated over the final reads so far: carry K1 and D-1, so k = 2 and the interval is 97.5%. It holds when the interval
+excludes zero. Also reported: per year, per coin, and the IC decay of the common features.
