@@ -1311,3 +1311,20 @@ expanding volatility; a stream with no history contributes 0. Logged as a rerun.
 2022) covers 5 of 262 F-2 longs and none of the D-1x or G-2 longs. Breaks rarely happen in a crowded week, so a veto
 would change about 2% of trades whatever its effect. Closed; the breakout funding/OI/taker/session line (S-0 to S-2)
 found no conditioning variable.
+
+## Trend lines F-3: line quality (attribution, registered before running)
+
+- **Features of each F-2 trade's line:** span (bars between the two pivots), slope (absolute, ATR per bar), age (bars
+  from the second pivot to the break), pivot gap (price difference of the two pivots in ATR), and the break bar's
+  body in ATR.
+- **Test:** the systematic attribution (IC, ICIR, buckets, reliability flag) on the 994 F-2 iteration trades.
+- **Falsifier:** no feature reliable; then line quality is closed, as Ronnie's line rules were.
+- **Predicted:** none reliable; at most a weak positive span IC (longer lines, more traders watching).
+
+**Result F-3** (`loop/diagnose_f3.py`): **no feature is reliable**, so line quality is closed. Every |t| is below 1.4.
+- **Span:** IC -0.03, the opposite of the prediction. The longest-span quintile is the weakest (+0.07 against +0.34 to
+  +0.47), but the Q5-Q1 interval [-0.61, +0.12] spans zero.
+- **Gap and slope:** both slightly negative (steep, deep lines are not better).
+- **Body:** IC +0.08 with non-monotone buckets.
+- **Reading:** as with Ronnie's lines, which line is drawn does not matter. What F-1/F-2 capture is a strong 4h bar
+  ending a pullback, and the line only times it. No successor.
