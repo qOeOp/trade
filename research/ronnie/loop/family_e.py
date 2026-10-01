@@ -13,7 +13,8 @@ R2 = E.R2
 BASE = dict(tf="4h", hold=30, rule="C")
 LOOPS = {"E-1": dict(BASE), "E-1x": dict(BASE, iter_set="iterx"), "E-2": dict(BASE, rule="failed_break", iter_set="iterx"),
          "E-3": dict(BASE, rule="C", min_touches=3, iter_set="iterx"),
-         "E-4": dict(BASE, rule="confirm", iter_set="iterx")}
+         "E-4": dict(BASE, rule="confirm", iter_set="iterx"),
+         "E-5": dict(BASE, rule="confirm", iter_set="iterx", sides=(1,))}
 
 
 def make(cfg):
@@ -41,7 +42,7 @@ def make(cfg):
                     continue
                 t, b, ai = top[i], bot[i], a[i - 1]
                 for side, edge, far in ((1, b, t), (-1, t, b)):
-                    if i - last[side] < R2.SPACING:
+                    if side not in cfg.get("sides", (1, -1)) or i - last[side] < R2.SPACING:
                         continue
                     touch = (l[i] <= edge + R2.TOUCH * ai) if side == 1 else (h[i] >= edge - R2.TOUCH * ai)
                     if not touch:

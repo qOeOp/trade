@@ -794,3 +794,14 @@ Reading: the losses come from entering at the edge while price still carries mom
   side is left for the next loop (one change per loop).
 - **Explanations it rests on:** H1 and H4 above.
 - **Predicted (shrunk, note 39):** edge about -0.05, with a lower bound near -0.25.
+
+**Result E-4:** iteration gate fails, but better on every measure. 516 trades, avg R -0.150, edge -0.111
+[-0.276, +0.053]; the lower bound rose from -0.370 and stops within 2 bars fell from 33% to 21% of stopped trades. The
+prediction (-0.05) missed by -0.06, closer than earlier loops.
+
+### Loop E-5 (registered before running, before looking at E-4 by side)
+
+- **Change from E-4:** longs only.
+- **Reason:** shorts lost significantly in E-1x (H2), and short sides were weak across families (short-v1, trend,
+  B1).
+- **Predicted:** edge about 0, with a lower bound near -0.25.
