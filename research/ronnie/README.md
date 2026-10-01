@@ -710,6 +710,24 @@ silver and Brent (HistData 1-minute bars, after Dukascopy proved too slow), and 
 - **Reading:** oil's range-bound character, where it exists, belongs to months of supply and demand, not to hourly
   boxes. At that horizon it needs another test, such as multi-month mean reversion on daily bars, not a box fade.
 
+## Bar-by-bar exits (TrialFamily exit-v1)
+
+`exits/` keeps the entries fixed and compares nine exits, paired trade by trade (`exits/result.txt`). The entries are
+4h B1, the 4h box breakout, daily trend following and, as a falsification test, the 4h box fade. Development is the
+majors over 2018-2022 and the holdout 20 large caps over 2023-2026.
+- **No exit beats the baseline on both sets, so claim 1 finds nothing adopted.**
+- **Closest:** B1 with a pure 30-bar time exit and no 2R target gives +0.17R over baseline on development
+  [+0.07, +0.30] and +0.07R on the holdout [-0.01, +0.16]. Taking 2R early cuts winners.
+- **Trend following:** its 20-day channel exit beats every alternative. ATR trailing, breakeven, half-at-1R, structure
+  trailing, wick and trend-line exits all cost 0.2R to 1.0R per trade on development.
+- **Support, resistance, wick and trend-line exits:**
+  - trend-line-break exits are significantly worse on every entry and both sets (-0.21R to -1.0R);
+  - structure trailing is significantly worse on the box breakout and on trend following;
+  - wick-rejection exits are neutral to worse;
+  - level targets change little (-0.01R to +0.04R).
+- **Claim 2 stands:** no exit rescues the box fade. The best, a 3 ATR trail, lifts it from -0.13R to +0.05R on
+  development and from -0.15R to -0.01R on the holdout, which is still about zero.
+
 ## Running the survivors together, and a forward record
 
 `combo/portfolio.py` runs B1, trendline_break_strong and line_break_ridge as one book on BTC, ETH and the 15 holdout

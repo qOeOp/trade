@@ -1,0 +1,49 @@
+exit-v1: same entries, nine exits; avg R on the initial risk, net of 0.06%/side; paired difference vs baseline
+(95% coin-then-trade bootstrap); development = 17 majors 2018-2022, holdout = 20 large caps 2023-2026
+
+B1:
+  X0 baseline            dev n  2630 avg R +0.148 [+0.079, +0.215]   |   holdout n  2597 avg R +0.093 [+0.023, +0.162]
+  X1 ATR trail 3         dev avg R +0.159, vs baseline +0.010 [-0.099, +0.136]   |   holdout avg R +0.071, vs baseline -0.022 [-0.096, +0.061]
+  X2 breakeven 1R        dev avg R +0.120, vs baseline -0.028 [-0.061, +0.004]   |   holdout avg R +0.063, vs baseline -0.030 [-0.062, +0.001]
+  X3 half at 1R + trail  dev avg R +0.137, vs baseline -0.011 [-0.075, +0.061]   |   holdout avg R +0.052, vs baseline -0.041 [-0.093, +0.012]
+  X4 time only           dev avg R +0.322, vs baseline +0.174 [+0.065, +0.302]   |   holdout avg R +0.164, vs baseline +0.070 [-0.009, +0.158]
+  X5 structure trail     dev avg R +0.152, vs baseline +0.004 [-0.112, +0.143]   |   holdout avg R +0.001, vs baseline -0.093 [-0.188, +0.032]
+  X6 wick rejection      dev avg R +0.141, vs baseline -0.008 [-0.077, +0.071]   |   holdout avg R +0.044, vs baseline -0.050 [-0.115, +0.019]
+  X7 trend-line break    dev avg R -0.058, vs baseline -0.206 [-0.301, -0.093]   |   holdout avg R -0.122, vs baseline -0.215 [-0.283, -0.140]
+  X8 level target        dev avg R +0.160, vs baseline +0.012 [-0.017, +0.040]   |   holdout avg R +0.080, vs baseline -0.014 [-0.053, +0.029]
+
+BOX:
+  X0 baseline            dev n   130 avg R +0.370 [+0.116, +0.598]   |   holdout n   226 avg R +0.188 [+0.021, +0.360]
+  X1 ATR trail 3         dev avg R +0.175, vs baseline -0.195 [-0.412, +0.015]   |   holdout avg R +0.149, vs baseline -0.038 [-0.185, +0.120]
+  X2 breakeven 1R        dev avg R +0.349, vs baseline -0.021 [-0.099, +0.040]   |   holdout avg R +0.196, vs baseline +0.009 [-0.043, +0.058]
+  X3 half at 1R + trail  dev avg R +0.312, vs baseline -0.059 [-0.252, +0.129]   |   holdout avg R +0.193, vs baseline +0.006 [-0.110, +0.133]
+  X4 time only           dev avg R +0.338, vs baseline -0.032 [-0.215, +0.131]   |   holdout avg R +0.170, vs baseline -0.018 [-0.141, +0.111]
+  X5 structure trail     dev avg R +0.107, vs baseline -0.263 [-0.501, -0.048]   |   holdout avg R +0.032, vs baseline -0.155 [-0.289, -0.021]
+  X6 wick rejection      dev avg R +0.203, vs baseline -0.168 [-0.378, +0.061]   |   holdout avg R +0.162, vs baseline -0.026 [-0.171, +0.115]
+  X7 trend-line break    dev avg R -0.049, vs baseline -0.419 [-0.663, -0.179]   |   holdout avg R -0.042, vs baseline -0.229 [-0.371, -0.076]
+  X8 level target        dev avg R +0.366, vs baseline -0.004 [-0.204, +0.211]   |   holdout avg R +0.227, vs baseline +0.039 [-0.092, +0.181]
+
+TREND:
+  X0 baseline            dev n   473 avg R +1.066 [+0.410, +2.027]   |   holdout n   566 avg R +0.355 [+0.065, +0.691]
+  X1 ATR trail 3         dev avg R +0.337, vs baseline -0.729 [-1.642, -0.148]   |   holdout avg R +0.179, vs baseline -0.176 [-0.432, +0.025]
+  X2 breakeven 1R        dev avg R +0.587, vs baseline -0.479 [-1.360, -0.027]   |   holdout avg R +0.307, vs baseline -0.048 [-0.215, +0.068]
+  X3 half at 1R + trail  dev avg R +0.174, vs baseline -0.892 [-1.820, -0.297]   |   holdout avg R +0.102, vs baseline -0.253 [-0.518, -0.034]
+  X4 time only           dev avg R +0.360, vs baseline -0.706 [-1.612, -0.165]   |   holdout avg R +0.325, vs baseline -0.030 [-0.262, +0.144]
+  X5 structure trail     dev avg R +0.552, vs baseline -0.513 [-1.196, -0.028]   |   holdout avg R +0.123, vs baseline -0.233 [-0.476, -0.054]
+  X6 wick rejection      dev avg R +0.378, vs baseline -0.688 [-1.581, -0.133]   |   holdout avg R +0.113, vs baseline -0.242 [-0.542, +0.006]
+  X7 trend-line break    dev avg R +0.045, vs baseline -1.021 [-1.944, -0.456]   |   holdout avg R +0.037, vs baseline -0.318 [-0.578, -0.112]
+  X8 level target        dev avg R +0.822, vs baseline -0.244 [-0.724, +0.029]   |   holdout avg R +0.145, vs baseline -0.210 [-0.478, +0.003]
+
+FADE:
+  X0 baseline            dev n   187 avg R -0.132 [-0.437, +0.190]   |   holdout n   307 avg R -0.149 [-0.413, +0.145]
+  X1 ATR trail 3         dev avg R +0.049, vs baseline +0.180 [-0.017, +0.428]   |   holdout avg R -0.006, vs baseline +0.143 [-0.007, +0.308]
+  X2 breakeven 1R        dev avg R -0.135, vs baseline -0.004 [-0.160, +0.140]   |   holdout avg R -0.111, vs baseline +0.039 [-0.074, +0.133]
+  X3 half at 1R + trail  dev avg R -0.008, vs baseline +0.124 [-0.042, +0.295]   |   holdout avg R -0.060, vs baseline +0.090 [-0.049, +0.223]
+  X4 time only           dev avg R -0.038, vs baseline +0.094 [-0.022, +0.220]   |   holdout avg R -0.105, vs baseline +0.045 [-0.111, +0.219]
+  X5 structure trail     dev avg R -0.182, vs baseline -0.050 [-0.232, +0.135]   |   holdout avg R +0.314, vs baseline +0.464 [-0.185, +1.990]
+  X6 wick rejection      dev avg R -0.090, vs baseline +0.042 [-0.142, +0.223]   |   holdout avg R -0.029, vs baseline +0.120 [-0.049, +0.284]
+  X7 trend-line break    dev avg R -0.076, vs baseline +0.055 [-0.185, +0.355]   |   holdout avg R -0.206, vs baseline -0.057 [-0.269, +0.145]
+  X8 level target        dev avg R -0.100, vs baseline +0.031 [-0.181, +0.250]   |   holdout avg R -0.123, vs baseline +0.027 [-0.170, +0.213]
+
+decision, claim 1 (exits adopted, beating baseline on both sets): none
+decision, claim 2 (no exit rescues box fades): STANDS
