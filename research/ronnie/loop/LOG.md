@@ -126,3 +126,28 @@ them within 2 bars. Weekly levels hold better, but they are touched rarely: the 
 - **Reason:** the low-volatility advantage appeared in the same direction in four loops (A2, A3, A6, A7), not once.
   Mechanism: levels hold in quiet markets and break in volatile ones. The cut is the natural 1.0, not a tercile
   boundary.
+
+**Result A8:** iteration gate fails narrowly. 51 trades, avg R +0.450, edge +0.407 [-0.041, +0.858]; 2018-2020 +0.609,
+2021-2022 +0.287; stops 35%, 6% of them within 2 bars.
+
+**Family A closes** (budget of 8 loops reached). The edge against random rose from -0.252 (A1) to +0.407 (A8) through
+three changes that each had a mechanism: weekly levels, confirmation entries, and the low-volatility gate. The final
+configuration has too few trades to decide, and it was reached by inspecting the iteration tier eight times, so its
+estimate is optimistic. Under the protocol it is not sent to validation. It is recorded as a near miss for the
+forward record.
+
+## Family B: "a broken level runs" (assume the break continues)
+
+Switch reason: Family A's attribution (levels interrupt rather than reverse; bounces lack follow-through) and Osler's
+second finding: after a level is crossed, clustered stop orders make the move unusually fast. Sources also include
+the trading-range break of Brock, Lakonishok and LeBaron (1992) and crypto time-series momentum. The surviving
+breakout entries of this research (B1, the 4h box break, daily trend) belong to this family; Family B asks whether
+weekly levels make the break stronger.
+
+### Loop B-1 (registered before running)
+
+- **Signal:** in the daily trend of Family A (close and 50-day mean above the 200-day mean for longs; mirror for
+  shorts), the day closes beyond an intact weekly swing level (order 2) in the trend's direction that the prior day's
+  close had not crossed. Entry at the next open.
+- **Exits:** stop at the broken level minus 1 ATR(14) (back inside); target 3R; time limit 20 days; stops over 6 ATR
+  dropped; one signal per coin per 5 days.

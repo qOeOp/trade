@@ -44,3 +44,14 @@ Input for the product's R&D system. Each note: what happened, why it matters, a 
    each series' timeframe and refuse arithmetic across timeframes without an explicit alignment step.
 10. **Small samples pass through.** A5's +0.24R on 58 trades looks like a breakthrough, and its interval spans zero.
     A report should lead with the interval and the per-half split, and say plainly when the sample cannot decide.
+11. **A near miss has no defined path.** A8 passed both halves but missed the pooled interval narrowly, on 51 trades.
+    The protocol has no step for "promising but under-sampled": validation would spend the clean tier on a candidate
+    tuned through eight looks, and a ninth loop breaks the family budget. A forward record is the only clean option,
+    and it is slow.
+    - **Proposal:** the R&D system has a "needs more data" state that routes a near miss to a sample expansion
+      registered in advance: more instruments or an earlier period in the iteration tier, chosen before the expansion
+      is scored. That state is distinct from "failed" and from "validated".
+12. **Loop count is the real multiplicity.** Eight informed looks at one tier make even a pass optimistic. The census
+    records them, but nothing yet converts that count into a haircut on the reported edge.
+    - **Proposal:** report a deflated edge alongside the raw one (for example, a deflated Sharpe ratio or a holdout
+      haircut per look).
