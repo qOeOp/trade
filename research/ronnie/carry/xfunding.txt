@@ -1,0 +1,4 @@
+X-1: daily long 3 lowest-funding / short 3 highest-funding majors, 2020-2022, net of 0.06% a side
+
+price: +139.7% a year [+29.9%, +285.4%] (weekly bootstrap); 2020 +2.2%, 2021-22 +202.3%; by year 2020 +2.2%, 2021 +434.4%, 2022 -29.9%
+total: +183.0% a year [+70.9%, +325.6%] (weekly bootstrap); 2020 +54.7%, 2021-22 +241.3%; by year 2020 +54.7%, 2021 +475.8%, 2022 +6.7%

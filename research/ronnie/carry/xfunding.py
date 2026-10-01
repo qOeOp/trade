@@ -11,6 +11,47 @@ import engine as E  # noqa: E402
 COST, Q = 0.0006, 3
 
 
+def spread(D, q):
+    F = D.pivot_table(index=D.index, columns="coin", values="fund")
+    P = D.pivot_table(index=D.index, columns="coin", values="perp_ret")
+    sig = F.rolling(3).sum()
+    rows, prev_l, prev_s = [], set(), set()
+    for t in range(3, len(F) - 1):
+        s = sig.iloc[t].dropna()
+        if len(s) < 2 * q + 2:
+            continue
+        lo, hi = set(s.nsmallest(q).index), set(s.nlargest(q).index)
+        nxt, fn = P.iloc[t + 1], F.iloc[t + 1]
+        turn = (len(lo - prev_l) + len(hi - prev_s)) / q if prev_l else 2.0
+        price = nxt[list(lo)].mean() - nxt[list(hi)].mean()
+        fund = -fn[list(lo)].mean() + fn[list(hi)].mean()
+        rows.append(dict(time=P.index[t + 1], price=price - COST * turn, total=price + fund - COST * turn))
+        prev_l, prev_s = lo, hi
+    return pd.DataFrame(rows).set_index("time")
+
+
+def validate():
+    """Gatekeeper read: prints only a three-level verdict; details go to loop/sealed/X-1_validate.json."""
+    import json
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("range4_run", os.path.join(os.path.dirname(HERE), "range4", "run.py"))
+    R4 = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(R4)
+    coins = R4.MAJORS + R4.LARGE
+    D = pd.read_csv(os.path.join(HERE, "daily.csv.gz"), index_col=0, parse_dates=True)
+    D = D[D.coin.isin(coins)]
+    Z = spread(D, round(len(coins) * 3 / 17))
+    Z = Z[(Z.index >= pd.Timestamp("2023-01-01")) & (Z.index < pd.Timestamp("2026-09-01"))]
+    wk = Z.price.resample("W-MON").sum()
+    b = np.random.default_rng(5).choice(wk.values, (4000, len(wk))).mean(1) * 52
+    lo, hi, m = np.percentile(b, 2.5), np.percentile(b, 97.5), Z.price.mean() * 365
+    verdict = "PASS" if lo > 0 else ("FAIL (edge positive, interval spans zero)" if m > 0 else "FAIL (edge at or below zero)")
+    sealed = dict(mean=m, lo=lo, hi=hi, by_year={str(y): v * 365 for y, v in Z.price.groupby(Z.index.year).mean().items()},
+                  total=Z.total.mean() * 365)
+    json.dump(sealed, open(os.path.join(os.path.dirname(HERE), "loop", "sealed", "X-1_validate.json"), "w"), indent=1)
+    print(f"X-1 validate: {verdict} at 95%")
+
+
 def main():
     D = pd.read_csv(os.path.join(HERE, "daily.csv.gz"), index_col=0, parse_dates=True)
     D = D[D.coin.isin(E.ITER_COINS)]
@@ -48,4 +89,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    validate() if len(sys.argv) > 1 and sys.argv[1] == "validate" else main()

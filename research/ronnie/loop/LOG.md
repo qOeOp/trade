@@ -1031,3 +1031,30 @@ intraday trend) does not transfer to 4h breaks. Rejected, as predicted (no effec
 - **Sources:** Chi et al. (2023), the basis as the strongest cross-sectional predictor; BIS "Crypto Carry", high carry
   precedes unwinds. Against: Presto Labs, about zero next-week R-squared on a single asset.
 - **Predicted:** price-only about 0 with a negative lower bound; slightly positive including funding.
+
+**Result X-1** (`carry/xfunding.py`, `carry/xfunding.txt`): the gate passes formally, with caveats.
+- **Price only:** +139.7% a year [+29.9%, +285.4%] (weekly bootstrap); 2020 +2.2%, 2021-2022 +202.3%; by year 2020
+  +2.2% (mean basis +12%), 2021 +434%, 2022 -29.9%.
+- **Including funding:** +183.0% [+70.9%, +325.6%]; 2022 +6.7%.
+
+Diagnosis:
+- **Concentration:**
+  - the top 10 days carry 66% of the total (2021-01-28, DOGE in the long leg on its pump, +126% in one day);
+  - without them the result is +0.14% a day (+52% a year), and the daily median is +0.27%;
+  - by coin, DOGE, FIL and BNB lead.
+- **Not a reversal proxy:**
+  - a 3-day-return reversal long-short loses in all three years;
+  - the daily correlation of the two spreads is 0.45, and their short legs overlap 23%.
+  - So funding carries information beyond recent returns.
+- **The bear year (the user's goal):** price-only -30% in 2022; only funding income makes it positive.
+- **Prior against:** carry-v1's P1 (time-series deciles, 7 days) found high funding followed by higher returns on the
+  2023-2026 coins.
+
+### X-1 validation read (registered before running)
+
+- **Data:** the 17 majors plus the 20 large caps, 2023-01 to 2026-08.
+- **Rule:** unchanged, with the legs scaled to the universe (Q = round(N x 3/17), 7 a side for 37 coins). Price-only
+  score.
+- **Contamination, stated:** carry-v1 read these coins and period (K1, K2, P1) with other constructions.
+- **Verdict:** three-level verdict at 95% from `carry/xfunding.py validate`, run by a fresh-context gatekeeper subagent;
+  details sealed in `loop/sealed/X-1_validate.json`.
