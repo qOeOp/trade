@@ -1,0 +1,5 @@
+K1p (premium 3-day mean > 0 in, last close < 0 out) against K1, 17 majors 2020-2022, per notional
+
+K1: +20.9% a year [+15.7%, +26.4%], held 51% of coin-days, 138 entries; 2020 +22.9%, 2021 +38.5%, 2022 +1.2%
+K1p: +11.4% a year [+5.8%, +17.5%], held 43% of coin-days, 456 entries; 2020 +15.2%, 2021 +26.9%, 2022 -7.8%
+difference K1p - K1: -9.4% a year [-11.1%, -7.7%]; gate fail

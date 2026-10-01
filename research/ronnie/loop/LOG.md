@@ -1356,3 +1356,14 @@ date of 2027-10-01, with per-candidate kill and admit thresholds from bootstrapp
 - **If it passes:** one gatekeeper read of the difference on the reserve tier (2023-2026, never used for carry).
 - **Predicted:** no better. The premium is noisier than the 7-day funding mean, so more round trips (0.3% each) eat
   the gain; about +15-20% a year.
+
+**Result K1p** (`carry/k1p.py`, `carry/k1p.txt`): the gate fails, worse than predicted.
+- **K1p:** +11.4% a year [+5.8, +17.5], held 43% of coin-days, 456 entries; 2022 -7.8%.
+- **K1:** +20.9%, 51% held, 138 entries.
+- **Difference:** -9.4% a year [-11.1, -7.7].
+- **Reading:** the daily premium flips sign often, so K1p trades 3.3x as often and pays the 0.3% round trip each time;
+  in 2022 it was short the perpetual into negative-premium days. K1's slow, lagged funding mean is a feature: it keeps
+  the position through noise. No reserve read is spent.
+- **Carry line, state:** K1b (entry band) and K1p (premium timing) both lose to K1. The decay is structural, as the
+  external research says, and K1 is at its forward kill line. The remaining carry ideas (an AR forecast, OI growth)
+  refine timing, which these two loops show is not where K1's return comes from; they are deprioritised.
