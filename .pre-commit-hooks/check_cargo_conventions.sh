@@ -54,6 +54,7 @@ is_portable_no_std_crate() {
       crates/strategy_factory/programs/channel_control/Cargo.toml | \
       crates/strategy_factory/programs/complex/Cargo.toml | \
       crates/strategy_factory/programs/dual_tsmom/Cargo.toml | \
+      crates/strategy_factory/programs/majors_trend/Cargo.toml | \
       crates/strategy_factory/programs/pairs_relative_value/Cargo.toml | \
       crates/strategy_factory/programs/pilot/Cargo.toml | \
       crates/strategy_factory/programs/sdk/Cargo.toml | \
