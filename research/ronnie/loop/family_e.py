@@ -11,7 +11,7 @@ import family_a as FA  # noqa: E402
 
 R2 = E.R2
 BASE = dict(tf="4h", hold=30, rule="C")
-LOOPS = {"E-1": dict(BASE), "E-2": dict(BASE, rule="failed_break", iter_set="iterx"),
+LOOPS = {"E-1": dict(BASE), "E-1x": dict(BASE, iter_set="iterx"), "E-2": dict(BASE, rule="failed_break", iter_set="iterx"),
          "E-3": dict(BASE, rule="C", min_touches=3, iter_set="iterx")}
 
 

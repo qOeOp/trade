@@ -749,3 +749,16 @@ Three hypotheses, quantified on all 994 iteration trades, each with a beta check
 
 Reading: visual review generated three concrete hypotheses that tables did not. Judged on extremes, two of the three
 were wrong and the third mostly generic. Visual review is a hypothesis generator, not a decision rule.
+
+## Family E reopened (the user's instruction: continue box-range R&D), under amendment 4 and the visual pipeline (note 44)
+
+Plan:
+- E-1 on the extended iteration tier (E-1x), for power;
+- trade cards (worst, best and a random sample), with failure modes coded and counted;
+- a hypothesis list across categories (entry, exit, regime, session, approach, data), each quantified by IC and
+  buckets on all trades and beta-checked;
+- then one structural change.
+
+### Loop E-1x (registered before running)
+
+E-1's rule unchanged (range-v2 C on 4h), on the extended iteration tier: the baseline for the reopened family.
