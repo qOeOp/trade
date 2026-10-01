@@ -46,3 +46,10 @@ the product's R&D system.
 - **The list:** `engine.ITER_EXT_COINS`, 36 mid and large caps over 2018-2022. Earlier families used them for other
   entries, never for an oversold or capitulation rule, and none is in the validation or final tier.
 - **Unchanged:** the validation and final tiers. For Family C validation is the final tier only (LOG, Family C).
+
+## Amendment 2 (written before loop A9)
+
+- **What:** a closed family may be reopened once, for at most 3 loops, when the systematic attribution
+  (`loop/attrib.py`, introduced after the family closed) flags a reliable feature that the old attribution could not
+  see. Each reopened loop's change must be a flagged feature, cut at a natural threshold, not at a bucket boundary.
+- **Unchanged:** the validation level keeps tightening with every validated candidate.

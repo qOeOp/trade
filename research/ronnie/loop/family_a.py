@@ -17,7 +17,8 @@ BASE = dict(tf="1d", trend="sma", touch=0.25, stop_atr=1.0, target="hh20", hold=
 LOOPS = {"A1": dict(BASE), "A2": dict(BASE, min_touches=2), "A3": dict(BASE, confirm="trigger"), "A4": dict(BASE, confirm="trigger", ts=(5, 1.0)), "A5": dict(BASE, confirm="trigger", level_tf="1w"),
          "A6": dict(BASE, confirm="trigger", level_tf="1w", tf="4h"),
          "A7": dict(BASE, confirm="trigger", level_tf="1w", touch=0.5),
-         "A8": dict(BASE, confirm="trigger", level_tf="1w", touch=0.5, max_vol=1.0)}
+         "A8": dict(BASE, confirm="trigger", level_tf="1w", touch=0.5, max_vol=1.0),
+         "A9": dict(BASE, confirm="trigger", btc_gate=True)}
 
 
 def levels(d, k):
@@ -50,6 +51,12 @@ def make(cfg):
         else:
             book = levels(d, 3)
         hh, ll = pd.Series(h).shift(1).rolling(20).max().values, pd.Series(l).shift(1).rolling(20).min().values
+        if cfg.get("btc_gate"):  # BTC's last closed day against its 200-day mean, mapped onto these bars
+            bd = E.bars("BTC")["1d"].close
+            above = (bd > bd.rolling(200).mean())
+            bi = bd.index.searchsorted(d.index, side="right") - 2
+            btc_up = np.where(bi >= 0, above.values[np.maximum(bi, 0)], False)
+            btc_dn = np.where(bi >= 0, ~above.values[np.maximum(bi, 0)] & bd.rolling(200).mean().notna().values[np.maximum(bi, 0)], False)
         out, last = [], -99
         for i in range(210, len(c) - 1):
             if i - last < cfg["spacing"]:
@@ -60,6 +67,8 @@ def make(cfg):
                 up = cc > s200[i] and s50[i] > s200[i]
                 dn = cc < s200[i] and s50[i] < s200[i]
                 if (side == 1 and not up) or (side == -1 and not dn):
+                    continue
+                if cfg.get("btc_gate") and not (btc_up[i] if side == 1 else btc_dn[i]):
                     continue
                 m = (S == -side) & (T >= cfg.get("min_touches", 0))  # supports for longs, resistances for shorts
                 if not m.any():

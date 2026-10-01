@@ -303,3 +303,16 @@ terciles (`loop/reattribution.txt`):
 **Result C-5:** iteration gate fails on 15 trades: avg R +0.160, edge +0.249 [-0.228, +0.728]. Raising the entry to the
 signal day's high left most signals with a target under 1R, so they were dropped. The confirmation that helped Family A
 conflicts with the near target of a capitulation bounce, so it does not transfer.
+
+## Family A reopened (protocol amendment 2)
+
+The systematic attribution of A3 (411 trades) flags two reliable features:
+- **BTC's trend:** IC +0.12, ICIR 2.6 over four years, Q5-Q1 +0.47R [+0.23, +0.70]; only the top quintile is positive.
+- **Prior touches:** reliably negative, IC -0.11, Q5-Q1 -0.62R [-0.97, -0.18].
+
+### Loop A9 (registered before running)
+
+- **Single change from A3:** trade only with the market. Longs only when BTC's last daily close is above its 200-day
+  mean, shorts only when it is below.
+- **Reason:** BTC's trend is a reliable factor in A3 (market beta: a coin's support holds when the whole market is
+  strong). The cut is the natural 200-day line.
