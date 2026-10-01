@@ -64,3 +64,8 @@ logged_at,loop,candidate,stage,n,edge,lo,hi,passed,note
 2026-10-01T10:23:29+00:00,C-6,family_c,majors,1,+nan,+nan,+nan,False,sealed; level 98.75
 2026-10-01T11:02:12+00:00,E-1x,familyA,iteration,519,-0.1732,-0.3703,+0.0135,False,
 2026-10-01T11:04:03+00:00,E-4,familyA,iteration,516,-0.1107,-0.2760,+0.0527,False,
+2026-10-01T11:04:31+00:00,E-5,familyA,iteration,271,-0.0842,-0.2918,+0.1251,False,
+2026-10-01T11:05:24+00:00,E-5,ablation: target the box middle,ablation,182,-0.0389,-0.2861,+0.2164,False,
+2026-10-01T11:05:38+00:00,E-5,ablation: time-only exit,ablation,284,+0.0222,-0.2862,+0.4820,False,
+2026-10-01T11:05:52+00:00,E-5,ablation: skip persistent approaches (ER >= 0.5),ablation,265,-0.0882,-0.2919,+0.1210,False,
+2026-10-01T11:06:49+00:00,E-5,familyE,diagnosis,271,,,,False,box internal slope and lower highs on E-5 trades (visual hypothesis)

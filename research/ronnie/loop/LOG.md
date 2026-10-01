@@ -805,3 +805,29 @@ prediction (-0.05) missed by -0.06, closer than earlier loops.
 - **Reason:** shorts lost significantly in E-1x (H2), and short sides were weak across families (short-v1, trend,
   B1).
 - **Predicted:** edge about 0, with a lower bound near -0.25.
+
+**Result E-5:** iteration gate fails. 271 trades, avg R -0.123, edge -0.084 [-0.292, +0.125]. The prediction (0)
+missed by -0.08.
+
+### Diagnosis of E-5 (`loop/diagnose_e5.py`, `loop/diagnose_e5.txt`, trade cards)
+
+Ablations:
+- **Target at the box middle:** edge -0.039 (-0.034 ATR).
+- **Time-only exit:** edge +0.022 [-0.286, +0.482], +0.156 ATR; 2018-2020 -0.257, 2021-2022 +0.152. The first
+  non-negative box-fade variant. It agrees with F-2 and B1: fixed targets cut winners, in three lineages.
+- **Skipping persistent approaches** (efficiency ratio at least 0.5): no change (-0.088).
+
+Visual review: the worst and random losers cluster in the 2022 bear market, with "box bottoms" that look like steps of
+a decline (lower highs). Quantified:
+- **BTC's trend:** IC -0.097. Long fades did best when BTC was deepest below its 200-day mean (Q1 +0.35). This is the
+  reverse of the visual impression; deep-bear bottoms behave like capitulations. Not flagged.
+- **Box internal slope (60 bars) and lower-high count:** IC +0.011 and -0.047, no relation.
+
+**Where Family E stands:**
+- **Slope:** the reopened loops moved the edge from -0.173 (E-1x) to -0.111 (E-4, confirmed entry), to -0.084 (E-5,
+  longs), to +0.022 with a time exit (ablation), with a slope flattening at about zero.
+- **Visual hypotheses:** of seven from three reviews, five were rejected or reversed on all trades. One (persistent
+  approach) held in direction but did not reach the flag. Only the structural changes, the confirmation entry and the
+  time exit, moved the result.
+- **Reading:** both working changes turn the fade toward a short-term momentum trade (enter after price has already
+  moved 1 ATR away from the edge, then let it run). The edge reversal itself still shows no power.

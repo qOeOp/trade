@@ -1,0 +1,5 @@
+Diagnosis of E-5 (confirmed long fades, extended iteration tier): ablations
+
+  target the box middle                      n 182, avg R -0.090, edge -0.039 [-0.286, +0.216], 2018-20 -0.110 (n 51), 2021-22 -0.011 (n 131); edge in ATR -0.034
+  time-only exit                             n 284, avg R +0.020, edge +0.022 [-0.286, +0.482], 2018-20 -0.257 (n 90), 2021-22 +0.152 (n 194); edge in ATR +0.156
+  skip persistent approaches (ER >= 0.5)     n 265, avg R -0.120, edge -0.088 [-0.292, +0.121], 2018-20 -0.125 (n 84), 2021-22 -0.071 (n 181); edge in ATR -0.124

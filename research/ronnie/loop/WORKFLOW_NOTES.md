@@ -237,3 +237,9 @@ Input for the product's R&D system. Each note: what happened, why it matters, a 
       4. only a hypothesis that survives (3) may change a rule.
     - **Breadth:** each loop lists hypotheses across categories (entry, exit, sizing, regime, universe, data source)
       and records the rejected ones, so narrow one-filter hypotheses do not crowd out structural ones.
+45. **Visual hypotheses fail more often than not, so the quantification step is mandatory.** Over three visual reviews
+    (F-2, E-1x, E-5), seven hypotheses were proposed. On all trades, five were rejected or reversed (tight stops, BTC
+    co-movement, sharp spikes revert, bear-regime losses, sloped boxes), one held in direction only, and one (entry
+    depth) was already a flagged factor. The human-like reading of charts favours memorable extremes. The review is
+    still worth its cost because it proposes concrete, testable mechanisms quickly, but it must never shortcut the
+    IC, bucket and beta checks.
