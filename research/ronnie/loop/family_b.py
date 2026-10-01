@@ -14,7 +14,8 @@ LOOPS = {"B-1": dict(BASE), "B-2": dict(BASE, sides=(1,)), "B-3": dict(BASE, sid
          "B-5": dict(BASE, sides=(1,), closes=2, max_vol=1.0, level_tf="1d"),
          "B-6": dict(BASE, sides=(1,), max_vol=1.0, level_tf="1d"),
          "B-7": dict(BASE, sides=(1,), closes=2, max_vol=1.0, level_tf="donchian20"),
-         "B-8": dict(BASE, sides=(1,), closes=2, max_vol=1.0, level_tf="1d", tf="4h")}
+         "B-8": dict(BASE, sides=(1,), closes=2, max_vol=1.0, level_tf="1d", tf="4h"),
+         "B-9": dict(BASE, sides=(1,), level_tf="round", iter_set="iterx")}
 
 
 def make(cfg):
@@ -35,6 +36,15 @@ def make(cfg):
             w = d.resample("W-MON", label="left", closed="left").agg({"open": "first", "high": "max", "low": "min", "close": "last"}).dropna()
             wbook = FA.levels(w, 2)
             wi = w.index.searchsorted(d.index, side="right") - 1
+        elif cfg["level_tf"] == "round":  # half-decade round numbers around the prior close
+            wbook = []
+            for j in range(len(c)):
+                p = c[j - 2] if j > 1 else c[0]
+                step = 10 ** np.floor(np.log10(p)) / 2
+                ys = step * np.arange(np.floor(p / step) - 3, np.floor(p / step) + 5)
+                ys = ys[ys > 0]
+                wbook.append((ys, np.where(ys > p, 1, -1)))
+            wi = np.arange(len(d))
         elif cfg["level_tf"] == "donchian20":  # one level per bar: the highest close of the 20 bars before
             hc, lc = pd.Series(c).shift(1).rolling(20).max().values, pd.Series(c).shift(1).rolling(20).min().values
             wbook = [(np.array([hc[j], lc[j]]), np.array([1, -1])) for j in range(len(c))]

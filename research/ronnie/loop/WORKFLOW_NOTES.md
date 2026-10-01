@@ -131,3 +131,9 @@ Input for the product's R&D system. Each note: what happened, why it matters, a 
 28. **An admissible factor may have no admissible threshold.** The target R passes the ledger, but at the natural cut
     (1:2) it keeps 5 trades. Any other cut would be read off the data. The ledger should report, with each admissible
     factor, the share of trades its natural threshold keeps.
+29. **The beta check overturned the family's best lead.** BTC's trend was flagged in 4 loops with a stable sign, the
+    strongest ledger factor in the research. Random entries showed the same bucket pattern, so it was market timing.
+    Without this check, "support bounces when BTC is strong" would have gone to validation as a strategy.
+    - **Proposal:** the beta check runs automatically for every flagged factor and is part of admissibility: a factor
+      whose bucket pattern also appears in random entries is labelled "regime", and it is offered as a regime filter
+      for an existing regime strategy, never as a source of entry skill.

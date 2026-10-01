@@ -108,3 +108,36 @@ def compare(z_iter, z_val, feats):
         lines.append(f"  {r.feature:<11} IC {r.ic_iter:+.3f} -> {r.ic_val:+.3f}   Q5-Q1 {r.spread_iter:+.3f} -> {r.spread_val:+.3f}   "
                      f"val buckets {r.buckets_val}")
     return "\n".join(lines)
+
+
+def beta_check(z, feature, coins, tf, hold=20, stop_atr=1.5, target_r=1.5, step=3):
+    """Workflow note 25: does `feature` also predict random entries with a standard geometry? Random longs (and shorts)
+    are opened every `step` bars on every coin; the same quintile cut points as on the trades are applied. If the random
+    entries show the same bucket pattern, the factor is market timing, not strategy skill."""
+    import engine as E
+    cuts = z[feature].quantile([0.2, 0.4, 0.6, 0.8]).values
+    rows = []
+    for coin in coins:
+        d = E.bars(coin)[tf]
+        d = d[(d.index >= E.ITER[0]) & (d.index < E.ITER[1])]
+        if len(d) < 400:
+            continue
+        o, h, l, c = (d[x].values for x in ("open", "high", "low", "close"))
+        a = E.MT.atr_of(h, l, c)
+        idx = np.arange(250, len(c) - hold - 1, step)
+        fake = pd.DataFrame({"coin": coin, "time": d.index[idx], "side": 1, "R": 0.0, "control": 0.0})
+        fake = E.common_features(coin, tf, fake)
+        for side in (1, -1):
+            r = [E.walk_ts(o, h, l, c, e, side, o[e], o[e] - side * stop_atr * a[e - 1], o[e] + side * target_r * stop_atr * a[e - 1],
+                           hold, 0.0006) for e in idx]
+            rows.append(fake.assign(side=side, R=r))
+    F = pd.concat(rows).dropna(subset=[feature, "R"])
+    F["bucket"] = np.searchsorted(cuts, F[feature].values)
+    zb = np.searchsorted(cuts, z[feature].values)
+    lines = [f"  beta check for {feature} (random entries every {step} bars, stop {stop_atr} ATR, target {target_r}R, {hold} bars):"]
+    for side in (1, -1):
+        g = F[F.side == side].groupby("bucket").R.mean()
+        t = z[z.side == side].assign(b=zb[z.side.values == side], e=lambda q: q.R - q.control).groupby("b").e.mean()
+        lines.append(f"    side {side:+d}: random R by bucket " + " ".join(f"Q{k + 1} {v:+.3f}" for k, v in g.items()) +
+                     "   | trades edge by bucket " + " ".join(f"Q{int(k) + 1} {v:+.2f}" for k, v in t.items()))
+    return "\n".join(lines)

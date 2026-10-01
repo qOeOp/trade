@@ -368,3 +368,27 @@ of target R is 1.7). Sizing that loop meant looking at those 5 trades' edge on t
   iteration tier.
 - **Reason (cited mechanism):** Osler (2003) finds take-profit orders clustered at round numbers, so trends reverse
   there more often. The ledger offers no admissible factor for Family A at a natural threshold.
+
+**Result A12:** iteration gate fails, significantly negative. 1,189 trades, avg R +0.012, edge -0.131 [-0.221, -0.038].
+Round-number supports do worse than random.
+
+**Beta check of BTC's trend (`attrib.beta_check`, workflow note 25):** random longs opened every 3 days on every coin,
+with a standard geometry, earn +0.274R (A3 coins) and +0.340R (A12 coins) in the top BTC-trend quintile, against about
+zero in the other quintiles. That is the same pattern as the trades. BTC's trend in Family A is market timing, not
+level skill, so A9's gain was beta.
+
+**Family A: terminal.** Every apparent gain over 12 loops resolved into one of three things:
+- small-sample noise: A5-A8, and A10, which does not hold on the extended tier (A11);
+- market timing: A9;
+- a failing mechanism: A12.
+The ledger has no admissible change left that is not beta, and the cited mechanisms tried (Osler's clustering at
+watched levels and at round numbers; community zones; confirmation; fresh zones) are spent. Support bounces show no
+detectable edge over random entries on daily crypto bars.
+
+### Loop B-9 (registered before running)
+
+- **Change from B-2 (longs, weekly breaks):** the broken level is a round number (multiples of half a decade). The
+  rule fires on a daily close above a round number that the prior close was below, in the daily uptrend. Run on the
+  extended iteration tier.
+- **Reason (cited mechanism):** Osler (2003) finds stop-loss orders clustered just beyond round numbers, so crossing
+  one triggers a cascade and a fast move. The ledger offers no flagged factor for Family B in 8 loops.

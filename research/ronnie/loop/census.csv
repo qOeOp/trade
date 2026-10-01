@@ -28,3 +28,4 @@ logged_at,loop,candidate,stage,n,edge,lo,hi,passed,note
 2026-10-01T08:05:11+00:00,A10,familyA,iteration,142,+0.0735,-0.1487,+0.2989,False,
 2026-10-01T08:24:22+00:00,A11,familyA,iteration,346,-0.0814,-0.2360,+0.0737,False,
 2026-10-01T08:25:23+00:00,C-6,familyC,peek,5,+0.2060,nan,nan,False,informal look at C-4 trades with target_R >= 2 (5 trades) to size a loop; not run
+2026-10-01T08:25:29+00:00,A12,familyA,iteration,1189,-0.1313,-0.2208,-0.0382,False,
