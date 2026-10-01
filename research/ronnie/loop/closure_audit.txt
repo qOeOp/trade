@@ -1,0 +1,52 @@
+Closure audit, SESOI +0.10R, week-clustered 95% intervals
+
+   loop    n  weeks   edge     lo     hi  mde80          status fam
+    A10  142     82  0.073 -0.189  0.310  0.357    inconclusive   A
+    A11  346    110 -0.081 -0.319  0.147  0.333    inconclusive   A
+    A12 1189    187 -0.131 -0.285  0.025  0.222 equivalent-null   A
+     A1  781    186 -0.252 -0.401 -0.096  0.218         harmful   A
+     A2  225    109 -0.287 -0.494 -0.067  0.305         harmful   A
+     A3  411    154 -0.157 -0.311 -0.003  0.220         harmful   A
+     A4  411    154 -0.128 -0.231 -0.015  0.155         harmful   A
+     A5   58     40  0.123 -0.228  0.459  0.491    inconclusive   A
+     A6  125     53 -0.032 -0.323  0.270  0.424    inconclusive   A
+     A7   81     49  0.163 -0.156  0.472  0.448    inconclusive   A
+     A8   51     33  0.407 -0.015  0.795  0.578    inconclusive   A
+     A9  321    127 -0.085 -0.279  0.101  0.271    inconclusive   A
+   B-10  192     70 -0.074 -0.378  0.236  0.439    inconclusive   B
+    B-1  350    127 -0.126 -0.337  0.094  0.308 equivalent-null   B
+    B-2  154     67  0.052 -0.210  0.333  0.388    inconclusive   B
+    B-3  121     57  0.033 -0.316  0.401  0.512    inconclusive   B
+    B-4   20     17  0.327 -0.441  1.277  1.227    inconclusive   B
+    B-5   74     43  0.323 -0.162  0.815  0.698    inconclusive   B
+    B-6  103     51  0.137 -0.270  0.557  0.591    inconclusive   B
+    B-7   78     42  0.172 -0.228  0.586  0.581    inconclusive   B
+    B-8  795    143  0.030 -0.143  0.187  0.236    inconclusive   B
+    B-9 1053    157 -0.095 -0.306  0.117  0.302    inconclusive   B
+    C-1   30     14  0.323 -0.136  0.665  0.572    inconclusive   C
+    C-2   26     15 -0.218 -0.564  0.210  0.553    inconclusive   C
+    C-3   39     15  0.239 -0.137  0.574  0.508    inconclusive   C
+    C-4   76     21  0.310  0.017  0.577  0.400        positive   C
+    C-5   15      6  0.249 -0.042  0.778  0.586    inconclusive   C
+    C-6   30     12  0.579  0.160  0.946  0.561        positive   C
+   C-6u    7      5 -0.606 -0.920 -0.274  0.462         harmful   C
+    C-7   29     14  0.665  0.373  1.069  0.497        positive   C
+    C-8  632    130  0.074 -0.138  0.315  0.324    inconclusive   C
+    D-1  126     83  0.309  0.092  0.525  0.310        positive   D
+   D-1x  358    142  0.188  0.008  0.367  0.257        positive   D
+D-2w120  207    100  0.169 -0.014  0.359  0.266    inconclusive   D
+D-2w240   84     51 -0.010 -0.199  0.178  0.269    inconclusive   D
+ D-2w30  218    107  0.103 -0.100  0.303  0.288    inconclusive   D
+    D-3  366    146  0.155 -0.039  0.360  0.285    inconclusive   D
+    E-1  176     93 -0.121 -0.382  0.163  0.390    inconclusive   E
+   E-1x  519    159 -0.173 -0.334 -0.000  0.239         harmful   E
+    E-2  190    107 -0.106 -0.347  0.141  0.349    inconclusive   E
+    E-3  112     66 -0.099 -0.398  0.207  0.433    inconclusive   E
+    E-4  516    165 -0.111 -0.245  0.033  0.199 equivalent-null   E
+    E-5  271    111 -0.084 -0.274  0.110  0.275    inconclusive   E
+    F-1  994    233  0.230  0.113  0.353  0.171        positive   F
+    F-2  994    233  0.323  0.117  0.551  0.310        positive   F
+    G-1  199    108 -0.381 -0.597 -0.115  0.344         harmful   G
+    G-2  302    133  0.247  0.044  0.447  0.288        positive   G
+
+status counts: inconclusive 29, positive 8, harmful 7, equivalent-null 3

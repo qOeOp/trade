@@ -16,7 +16,8 @@ LOOPS = {"B-1": dict(BASE), "B-2": dict(BASE, sides=(1,)), "B-3": dict(BASE, sid
          "B-7": dict(BASE, sides=(1,), closes=2, max_vol=1.0, level_tf="donchian20"),
          "B-8": dict(BASE, sides=(1,), closes=2, max_vol=1.0, level_tf="1d", tf="4h"),
          "B-9": dict(BASE, sides=(1,), level_tf="round", iter_set="iterx"),
-         "B-10": dict(BASE, sides=(1,), min_volx=1.5, iter_set="iterx")}
+         "B-10": dict(BASE, sides=(1,), min_volx=1.5, iter_set="iterx"),
+         "B-5x": dict(BASE, sides=(1,), closes=2, max_vol=1.0, level_tf="1d", iter_set="iterx")}
 
 
 def make(cfg):

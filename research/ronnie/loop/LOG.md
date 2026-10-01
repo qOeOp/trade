@@ -1406,3 +1406,26 @@ date of 2027-10-01, with per-candidate kill and admit thresholds from bootstrapp
 - **Reading:** unlike a trend-line break or B1, a box break's move is bounded. One box width is roughly the move it
   makes, and 13% of the stopped trades had already reached +1R first. The time exit is not a general improvement; it
   depends on the setup.
+
+## Closure audit rescues: A8x and B-5x (registered before running)
+
+The closure audit (`loop/closure_audit.py`) finds two positive near-misses that were never retested at power: A8
+(weekly support bounce in low volatility, +0.41 on 51 trades, 33 weeks) and B-5 (daily-level break out of compression,
++0.32 on 74 trades). STRATEGIES.md said A8 "resolved on wider data (A9-A12)", but A9-A12 tested other variants. That
+was wrong.
+- **Change:** none to the rules; each is run on the extended iteration tier. Only the 36 coins new to the family count
+  as the replication; the 17 discovery coins are reported apart.
+- **Status rule (loop/CRITERIA.md):** on the new coins, a week-clustered interval above zero revives the variant; an
+  upper bound below +0.10R closes it; anything else parks it, with the data needed stated.
+- **Predicted:** both shrink toward zero on new coins (regression to the mean after selection); parked or closed.
+
+**Result of the rescues (week-clustered):**
+
+| variant | new 36 coins | discovery 17 coins | status |
+| --- | --- | --- | --- |
+| A8x | -0.234 (91 trades) [-0.52, +0.06] | +0.407 (51) [-0.02, +0.80] | **closed**: the upper bound on new coins is below +0.10R |
+| B-5x | +0.056 (66) [-0.43, +0.56] | +0.323 (74) [-0.16, +0.82] | **parked**: inconclusive, the detectable edge is about 0.7R |
+
+Both shrank on new coins, as predicted. A8 is now properly closed, on evidence and not by assertion. B-5's
+mechanism (a break out of compression) is not ruled out; it is inconclusive and does not need its own line, because
+the trend book carries breakouts at the portfolio level.
