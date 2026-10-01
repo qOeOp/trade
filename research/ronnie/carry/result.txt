@@ -1,0 +1,20 @@
+carry-v1 (INTENT.md): long spot, short perpetual on Binance; daily hedge return = spot - perp + funding;
+costs 0.30% per open and close; returns per unit of hedge notional (capital is about twice that)
+
+dev (17 coins, 2020-01-02 to 2022-12-31):
+  funding: mean per day +0.0445% (+16.2% a year); share of coin-days with negative funding 20%
+  K0 always on: +15.3% a year, worst week -2.99%, weekly sd 0.74%
+  K1 conditional: +20.9% a year [+15.7%, +26.4%], held 51% of coin-days, invested 83% of days, worst week -0.61%
+  per year: 2020 K0 +15.6% K1 +22.9%, 2021 K0 +36.4% K1 +38.5%, 2022 K0 -6.0% K1 +1.2%
+  K2 top fifth by funding: +20.5% a year vs universe +13.9%; difference +6.7% [+3.6%, +10.1%]
+  P1 next 7 days after funding in the top decile +7.70% (n 174), bottom decile +0.37% (n 426); top minus bottom +7.33% [+2.05%, +14.11%]
+
+holdout (37 coins, 2023-01-01 to 2026-08-31):
+  funding: mean per day +0.0125% (+4.6% a year); share of coin-days with negative funding 25%
+  K0 always on: +4.4% a year, worst week -0.31%, weekly sd 0.22%
+  K1 conditional: +5.9% a year [+4.5%, +7.5%], held 33% of coin-days, invested 67% of days, worst week -0.22%
+  per year: 2023 K0 +5.2% K1 +7.6%, 2024 K0 +11.6% K1 +12.5%, 2025 K0 +0.7% K1 +1.4%, 2026 K0 -1.4% K1 +0.2%
+  K2 top fifth by funding: +1.0% a year vs universe +4.3%; difference -3.3% [-4.1%, -2.6%]
+  P1 next 7 days after funding in the top decile +2.65% (n 898), bottom decile +1.24% (n 1096); top minus bottom +1.41% [-0.33%, +3.18%]
+
+decision: K1 HOLDS; K2 fails; P1 crowding fails

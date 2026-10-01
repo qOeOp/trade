@@ -786,6 +786,25 @@ tested against skipping the same number of random trades of the same coins (`eve
 - **Conclusion:** the failed strategies do not fail because of event windows. Their losses are spread over the
   calendar.
 
+## Funding carry (TrialFamily carry-v1)
+
+`carry/` tests market-neutral cash-and-carry on Binance: long spot, short the perpetual, collect funding
+(`carry/result.txt`). Costs are 0.30% per open and close; returns are per unit of hedge notional, and the real capital
+is about twice that.
+- **K1, the conditional hedge, holds.** It opens when a coin's trailing 7-day funding averages at least 0.01% per 8
+  hours and closes when the 3-day mean turns negative. It made +20.9% a year [+15.7, +26.4] on the 17 majors over
+  2020-2022 and +5.9% [+4.5, +7.5] on 37 coins over 2023-2026, beating the always-on hedge (K0: +15.3% and +4.4%).
+  The worst weeks were -0.61% and -0.22%.
+- **Decay:** by year, K1 made +22.9%, +38.5% and +1.2% (2020-2022), then +7.6%, +12.5%, +1.4% and +0.2% (2023 to
+  2026-08). On capital that is about half, now below cash yields. Exchange and liquidation risk of the short leg is not
+  modelled.
+- **K2, the top fifth of coins by funding, fails:** +6.7% a year above the universe on development, then -3.3% on the
+  holdout.
+- **P1, funding as crowding, fails.** High funding was followed by higher, not lower, 7-day returns on development
+  (+7.7% against +0.4%), and by no significant difference on the holdout.
+- **Reading:** carry is a real market-neutral return that does not lose in bear years, but it is now thin. It suits a
+  defensive allocation switched on when funding is rich, as in an overheated bull market.
+
 ## Autonomous R&D loop (loop/)
 
 `loop/` runs the R&D loop the user asked for: start from the hypothesis that a strategy works, research papers and
