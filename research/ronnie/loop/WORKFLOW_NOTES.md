@@ -124,3 +124,10 @@ Input for the product's R&D system. Each note: what happened, why it matters, a 
     - **Proposal:** the R&D system keeps a factor ledger across loops: each feature's IC and sign per loop, with the
       configuration. It requires a factor to hold its sign across related configurations before it may drive a
       change (meta-attribution). The per-loop flag is necessary, not sufficient.
+27. **Informal looks are trials.** Sizing loop C-6 meant computing its trades' edge on the iteration tier. Nothing
+    records such looks unless the agent writes them down, and they shape decisions as much as a registered run does.
+    - **Proposal:** every query of trade outcomes goes through the R&D system, which logs it as a trial. Sizing
+      questions are answered from counts only, without outcomes.
+28. **An admissible factor may have no admissible threshold.** The target R passes the ledger, but at the natural cut
+    (1:2) it keeps 5 trades. Any other cut would be read off the data. The ledger should report, with each admissible
+    factor, the share of trades its natural threshold keeps.

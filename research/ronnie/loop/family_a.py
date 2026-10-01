@@ -20,7 +20,8 @@ LOOPS = {"A1": dict(BASE), "A2": dict(BASE, min_touches=2), "A3": dict(BASE, con
          "A8": dict(BASE, confirm="trigger", level_tf="1w", touch=0.5, max_vol=1.0),
          "A9": dict(BASE, confirm="trigger", btc_gate=True),
          "A10": dict(BASE, confirm="trigger", btc_gate=True, max_touches=0),
-         "A11": dict(BASE, confirm="trigger", btc_gate=True, max_touches=0, iter_set="iterx")}
+         "A11": dict(BASE, confirm="trigger", btc_gate=True, max_touches=0, iter_set="iterx"),
+         "A12": dict(BASE, confirm="trigger", btc_gate=True, level_tf="round", iter_set="iterx")}
 
 
 def levels(d, k):
@@ -50,6 +51,14 @@ def make(cfg):
             wbook = levels(w, 2)
             wi = w.index.searchsorted(d.index, side="right") - 1
             book = [wbook[k] if k >= 0 else (np.array([]),) * 4 + (np.nan,) for k in wi]
+        elif cfg["level_tf"] == "round":  # half-decade round numbers around the last close, as a synthetic book
+            book = []
+            for j in range(len(c)):
+                p = c[j - 1] if j else c[0]
+                step = 10 ** np.floor(np.log10(p)) / 2
+                ys = step * np.arange(np.floor(p / step) - 3, np.floor(p / step) + 5)
+                ys = ys[ys > 0]
+                book.append((ys, np.where(ys < p, -1, 1), np.zeros(len(ys)), -np.ones(len(ys)), np.nan))
         else:
             book = levels(d, 3)
         hh, ll = pd.Series(h).shift(1).rolling(20).max().values, pd.Series(l).shift(1).rolling(20).min().values

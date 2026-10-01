@@ -352,3 +352,19 @@ The first cross-loop ledger (`loop/ledger.txt`):
 
 - **Change:** no rule change from A10; the sample is expanded to the extended iteration tier (53 coins, 2018-2022).
 - **Reason:** A10's pooled interval spans +-0.22R on 142 trades: the gate fails for power.
+
+**Result A11:** iteration gate fails. 346 trades on 53 coins, avg R +0.055, edge -0.081 [-0.236, +0.074]; 2018-2020
+-0.284, 2021-2022 +0.002. A10's edge does not hold on the wider tier, and no factor is flagged on it.
+
+**Loop C-6 (not run).** The ledger admits the target R for Family C (positive IC in all 5 loops; C-4 Q5-Q1 +0.575
+[+0.079, +1.169]). At the community's natural minimum of 1:2, only 5 of C-4's 76 trades qualify (the 75th percentile
+of target R is 1.7). Sizing that loop meant looking at those 5 trades' edge on the iteration tier (+0.206 against
++0.317 for the rest). The look is recorded in the census as a "peek" trial (workflow note 27).
+
+### Loop A12 (registered before running)
+
+- **Change from A9:** the levels are round numbers instead of swing levels: multiples of half a decade (for a price p,
+  the step is 10^floor(log10 p) / 2), with supports below the close and resistances above. Run on the extended
+  iteration tier.
+- **Reason (cited mechanism):** Osler (2003) finds take-profit orders clustered at round numbers, so trends reverse
+  there more often. The ledger offers no admissible factor for Family A at a natural threshold.
