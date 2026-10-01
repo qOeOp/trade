@@ -1058,3 +1058,8 @@ Diagnosis:
 - **Contamination, stated:** carry-v1 read these coins and period (K1, K2, P1) with other constructions.
 - **Verdict:** three-level verdict at 95% from `carry/xfunding.py validate`, run by a fresh-context gatekeeper subagent;
   details sealed in `loop/sealed/X-1_validate.json`.
+
+**Result X-1 validation read (relayed by the gatekeeper subagent):** "X-1 validate: FAIL (edge at or below zero) at 95%".
+On the 37 coins over 2023-2026, the cross-sectional funding long-short does not earn on price. Its development result
+was a 2021 (and DOGE) effect, as the diagnosis suspected, and it agrees with carry-v1's P1 prior. The bear-market line
+has no surviving short-side or long-short rule; long/cash trend (T-1's ensemble) and carry remain its tools.
