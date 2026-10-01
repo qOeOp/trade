@@ -820,6 +820,14 @@ It places no orders and uses no account.
 - **Scoring:** `python combo/forward.py score` scores the matured `open` rows against random controls with the harness
   fill model. It excludes rows committed more than an hour after `logged_at`.
 - **First run:** the 2026-09-30 run logged 64 signals, 24 of them open.
+- **Added on 2026-10-01:** three more frozen entries.
+  - `b1_time`: B1 with the exit-v1 time-only exit.
+  - `box_break`: the range-v3 X1 4h box breakout.
+  - `oversold_o3`: oversold-v1 O3, scored on 4h bars with a 60-bar limit.
+  - Their wrappers live in `combo/candidates/` and pass the harness look-ahead check on BTC, SOL, ETH and AVAX.
+- **Event split:** `score` also reports each strategy's entries on CPI day or the day after, and within a day of an
+  FOMC decision. These are the two events-v1 observations. Refresh `events/calendar.csv` with `events/fetch_events.py`
+  before scoring.
 
 ## Where this leaves the Ronnie line of research
 

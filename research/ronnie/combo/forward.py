@@ -3,7 +3,8 @@
 Usage: python combo/forward.py          append new signals to combo/forward/signals.csv
        python combo/forward.py score    score the logged signals whose horizon has passed
 
-Strategies: B1 (S2b breakout), trendline_break_strong and line_break_ridge, frozen as committed (their sha256 is
+Strategies: B1 (S2b breakout), trendline_break_strong and line_break_ridge, plus (from 2026-10-01) B1 with the time-only
+exit (b1_time), the 4h box breakout (box_break) and oversold O3 (oversold_o3), frozen as committed (their sha256 is
 logged with every signal). Coins: BTC, ETH and the 15 coins of altcoins-v1, against USDT on Binance. Bars: Binance
 public hourly klines for history, plus TradingView's feed for the latest bars. The 4h bar still forming is dropped.
 Clean by construction, whatever the run frequency: each logged signal enters at the first 4h open after it was
@@ -21,8 +22,11 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 for p in (HERE, os.path.join(HERE, "candidates"), ROOT):
     sys.path.insert(0, p)
+import b1_time as C4  # noqa: E402
+import box_break as C5  # noqa: E402
 import harness as H  # noqa: E402
 import line_break_ridge as C3  # noqa: E402
+import oversold_o3 as C6  # noqa: E402
 import trendline_break_strong as C2  # noqa: E402
 import tv_hourly  # noqa: E402
 from portfolio import b1_signals  # noqa: E402
@@ -35,7 +39,11 @@ FIELDS = ["logged_at", "coin", "strategy", "signal_time", "side", "stop", "targe
 LOOKBACK = pd.Timedelta(days=7)
 STRATS = {"B1": (b1_signals, os.path.join(ROOT, "ronnie_bt.py")),
           "trendline": (C2.signals, os.path.join(HERE, "candidates", "trendline_break_strong.py")),
-          "ridge": (C3.signals, os.path.join(HERE, "candidates", "line_break_ridge.py"))}
+          "ridge": (C3.signals, os.path.join(HERE, "candidates", "line_break_ridge.py")),
+          "b1_time": (C4.signals, os.path.join(HERE, "candidates", "b1_time.py")),
+          "box_break": (C5.signals, os.path.join(HERE, "candidates", "box_break.py")),
+          "oversold_o3": (C6.signals, os.path.join(HERE, "candidates", "oversold_o3.py"))}
+CALENDAR = os.path.join(ROOT, "events", "calendar.csv")
 
 
 def sha(path):
@@ -140,6 +148,13 @@ def score(now):
     ev = pd.concat(out)
     for name, g in ev.groupby("strategy"):
         print(H.summary(g, f"forward {name}"))
+    # events-v1 observations: entries on CPI day or the next, and within a day of an FOMC decision
+    cal = pd.read_csv(CALENDAR, parse_dates=["date"])
+    day = pd.to_datetime(ev.time).dt.tz_convert(None).dt.normalize()
+    near = lambda name, offs: day.isin({d + pd.Timedelta(days=k) for d in cal[cal.event == name].date for k in offs})  # noqa: E731
+    for label, m in (("CPI day or next", near("CPI", (0, 1))), ("FOMC +-1 day", near("FOMC", (-1, 0, 1)))):
+        for name, g in ev[m.values].groupby("strategy"):
+            print(f"  {label}: {name} n {len(g)} avg R {g.R.mean():+.3f} (rest {ev[(~m.values) & (ev.strategy == name)].R.mean():+.3f})")
 
 
 if __name__ == "__main__":
