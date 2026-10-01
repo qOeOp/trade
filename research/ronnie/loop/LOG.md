@@ -611,3 +611,19 @@ part of the edge may be beta, which a diagnosis must check.
 
 The rules are unchanged. The read is once, on the reserve tier (20 never-used coins), PASS/FAIL at 95% (the reserve's
 first read, k = 1). A fresh-context subagent runs `loop/gatekeeper.py family_f F-1 reserve` and relays the verdict line.
+
+### Diagnosis of F-1 (`loop/diagnose_f.py`, `loop/diagnose_f.txt`; iteration tier only)
+
+- **H1, beta:** rejected. Random longs are flat across BTC-trend quintiles 1-4 (+0.13R only in Q5), while the
+  trend-line longs earn in every quintile (+0.27 even in Q1). Longs carry more than shorts (+0.363 against +0.114).
+- **The strong-candle condition carries the edge:** without it, edge +0.102 on 3,552 trades.
+- **H2, the exit:** supported. With a time-only exit (no 2R target), edge +0.323 [+0.131, +0.559], both halves positive
+  (+0.486 and +0.173); the lower bound rises from +0.106. The stop is unchanged, so the R unit is the same. The same
+  finding holds in an independent lineage: exit-v1 found the time-only exit best for B1.
+- **H3, line quality:** not tested in this package.
+
+### Loop F-2 (registered after the F-1 diagnosis)
+
+- **Structural change (exit model):** no 2R target; exit at the time limit (30 4h bars) or at the stop.
+- **No ex-ante prediction:** F-2's iteration result is the diagnosis ablation above, seen before this registration. Its
+  test is the reserve read: once, PASS/FAIL at 97.5% (the reserve's second read, k = 2), via the gatekeeper subagent.

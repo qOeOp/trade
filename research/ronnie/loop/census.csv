@@ -48,3 +48,5 @@ logged_at,loop,candidate,stage,n,edge,lo,hi,passed,note
 2026-10-01T09:51:35+00:00,E-2,familyA,iteration,190,-0.1063,-0.3516,+0.1814,False,
 2026-10-01T09:52:08+00:00,E-3,familyA,iteration,112,-0.0991,-0.4213,+0.2651,False,
 2026-10-01T09:53:28+00:00,F-1,familyA,iteration,994,+0.2297,+0.1059,+0.3494,True,
+2026-10-01T09:56:11+00:00,F-1,ablation: no strong-candle condition,ablation,3552,+0.1017,+nan,+nan,False,
+2026-10-01T09:56:12+00:00,F-1,ablation: time-only exit (no 2R target),ablation,994,+0.3227,+0.1313,+0.5590,True,

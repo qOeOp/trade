@@ -12,13 +12,19 @@ import family_a as FA  # noqa: E402
 import trendline_break_strong as TL  # noqa: E402
 
 BASE = dict(tf="4h", hold=30)
-LOOPS = {"F-1": dict(BASE)}
+LOOPS = {"F-1": dict(BASE), "F-2": dict(BASE, time_only=True)}
 
 
 def make(cfg):
     def fn(d1, d4):
         d = d4
-        sigs = TL.signals({"4h": d4, "1d": d1, "1h": None})
+        saved = TL.RR
+        if cfg.get("time_only"):
+            TL.RR = 1000.0
+        try:
+            sigs = TL.signals({"4h": d4, "1d": d1, "1h": None})
+        finally:
+            TL.RR = saved
         o = d.open.values
         out = []
         for s in sigs:

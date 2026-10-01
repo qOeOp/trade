@@ -1,0 +1,11 @@
+Diagnosis of F-1 (4h trend-line breaks, iteration tier, 994 trades)
+
+side +1: n 461, avg R +0.350, edge +0.363
+side -1: n 533, avg R +0.112, edge +0.114
+  beta check for btc_trend (random entries every 6 bars, stop 1.5 ATR, target 2.0R, 30 bars):
+    side +1: random R by bucket Q1 -0.012 Q2 -0.037 Q3 -0.103 Q4 -0.118 Q5 +0.134   | trades edge by bucket Q1 +0.27 Q2 +0.25 Q3 +0.21 Q4 +0.40 Q5 +0.59
+    side -1: random R by bucket Q1 -0.008 Q2 -0.001 Q3 +0.074 Q4 +0.073 Q5 -0.106   | trades edge by bucket Q1 -0.21 Q2 +0.09 Q3 +0.27 Q4 +0.21 Q5 +0.21
+
+ablation (iteration tier):
+  no strong-candle condition         n 3552, avg R +0.005, edge +0.102 [+nan, +nan], 2018-20 +0.139 (n 1672), 2021-22 +0.069 (n 1880)
+  time-only exit (no 2R target)      n 994, avg R +0.414, edge +0.323 [+0.131, +0.559], 2018-20 +0.486 (n 475), 2021-22 +0.173 (n 519)
