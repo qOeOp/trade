@@ -30,6 +30,10 @@ FINAL_COINS = ("TON", "RENDER", "JUP", "ENA", "BONK", "WIF", "FLOKI", "PYTH", "O
 ITER_EXT_COINS = ("VET", "SAND", "MANA", "AXS", "EGLD", "THETA", "XTZ", "NEO", "ZEC", "DASH", "CHZ", "GRT", "CRV", "QTUM",
                   "KSM", "RUNE", "SNX", "COMP", "YFI", "AR", "CAKE", "DYDX", "GALA", "FLOW", "ENS", "MINA", "QNT", "LPT",
                   "CVX", "IOTA", "BAT", "ZIL", "1INCH", "SUSHI", "ENJ", "KAVA")
+# reserve tier (amendment 6): coins never used anywhere in this research, held by the gatekeeper for the box and
+# trend-line lineages, whose validation and final tiers are contaminated
+RESERVE_COINS = ("PENGU", "ETHFI", "ZRO", "EIGEN", "W", "POL", "JTO", "BLUR", "GMT", "LUNC", "NOT", "BOME", "MANTA", "DYM",
+                 "ZK", "TRUMP", "VIRTUAL", "S", "BERA", "MOVE")
 ITER = (pd.Timestamp("2018-01-01", tz="UTC"), pd.Timestamp("2023-01-01", tz="UTC"))
 ITER_SPLIT = pd.Timestamp("2021-01-01", tz="UTC")
 VAL = (pd.Timestamp("2023-01-01", tz="UTC"), pd.Timestamp("2026-09-01", tz="UTC"))
@@ -61,7 +65,7 @@ def run(name, signal_fn, tf, hold, sets=("iter",), ts=None):
     """Score signal_fn(d1, d4) -> list of (e, side, entry, stop, tgt) on the chosen sets. -> DataFrame."""
     rows = []
     spec = {"iter": (ITER_COINS, ITER), "iterx": (ITER_COINS + ITER_EXT_COINS, ITER), "val": (VAL_COINS, VAL),
-            "final": (FINAL_COINS, VAL)}
+            "final": (FINAL_COINS, VAL), "reserve": (RESERVE_COINS, VAL)}
     for s in sets:
         coins, (t0, t1) = spec[s]
         for k, coin in enumerate(coins):

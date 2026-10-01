@@ -522,3 +522,20 @@ candidate, and its forward record (`box_break`) decides. A loop that ends with "
 A fresh-context subagent read `carry/final.txt` and relayed only its decision line: **"K1 on the final tier HOLDS"**.
 K1 has now held on development (17 majors, 2020-2022), on the holdout (37 coins, 2023-2026) and on the final tier
 (12 never-used coins). The iterating agent has not read the final details.
+
+## Family E: "the box edge holds" (box fade, redone under amendments 4-6)
+
+Earlier rounds (range-v1 to v6, rangex) fell short with filters and preconditions; this family redoes it with the
+diagnosis-first protocol. Final tier: the reserve (amendment 6).
+
+### Loop E-1 (registered before running)
+
+- **Baseline:** range-v2 C on 4h bars of the iteration tier. A bar reaches a 60-bar box edge (within 0.25 ATR) and
+  closes back in its outer half; entry at the next open; stop 0.5 ATR beyond the edge; target the far edge minus
+  0.25 ATR; time limit 30 bars.
+- **Next:** a diagnosis package follows the run, with four competing explanations:
+  - **H1, regime:** fades against the daily trend lose and fades with it win.
+  - **H2, entry timing:** fades after a sweep beyond the edge (Wyckoff spring or upthrust) beat first touches.
+  - **H3, box quality:** boxes with more touches and a longer life hold better.
+  - **H4, stop hunts:** stops 0.5 ATR beyond the edge sit where stop orders cluster (Osler), so price often returns
+    inside the box after the stop.

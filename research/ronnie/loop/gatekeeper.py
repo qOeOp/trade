@@ -10,7 +10,7 @@ only its stdout, which is a verdict:
 Full details (per coin, per year, buckets, IC decay) are written to loop/sealed/<loop>_<stage>.json for audit, a store
 the iterating agent does not read.
 
-Usage: python loop/gatekeeper.py <family module> <loop id> validate|final
+Usage: python loop/gatekeeper.py <family module> <loop id> validate|final|reserve (reserve: PASS/FAIL like final)
 """
 import importlib, json, os, sys
 
@@ -30,7 +30,7 @@ def main():
     fam = importlib.import_module(mod)
     cfg = fam.LOOPS[loop]
     fn, _ = fam.make(cfg)
-    tier = {"validate": "val", "final": "final"}[stage]
+    tier = {"validate": "val", "final": "final", "reserve": "reserve"}[stage]
     z = E.run(loop, fn, cfg["tf"], cfg["hold"], (tier,), ts=cfg.get("ts"))
     it = pd.read_csv(os.path.join(HERE, "out", f"{loop}_iteration.csv.gz"))
     it_edge = float((it.R - it.control).mean())

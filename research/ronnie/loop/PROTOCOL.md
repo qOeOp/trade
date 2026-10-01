@@ -98,3 +98,14 @@ From now on a loop is valid only with these four, in this order:
 - **Sealed store:** `loop/sealed/`, for audit by the user, not read by the iterator.
 - **Already spent:** the D-1 and C-6 final details were read by the iterator before this amendment. Those lineages'
   final tier is spent, and their forward records decide.
+
+## Amendment 6: reserve tier (written before family E or F runs)
+
+- **Why:** the box and trend-line lineages have no clean holdout left. The validation tier was read for 1h box fades
+  (range-v6), and the iterating agent saw box-break outcomes on the final tier (D-1).
+- **The reserve tier:** 20 coins never used anywhere in this research, all with Binance spot data since 2024-2025:
+  PENGU, ETHFI, ZRO, EIGEN, W, POL, JTO, BLUR, GMT, LUNC, NOT, BOME, MANTA, DYM, ZK, TRUMP, VIRTUAL, S, BERA and MOVE,
+  from listing to 2026-08 (`engine.RESERVE_COINS`).
+- **Access:** only the gatekeeper scores it, PASS/FAIL once per candidate, run by a fresh-context subagent.
+- **Use:** the reserve tier is the final tier for families E (box fade) and F (trend lines). These families have no
+  validation stage; the forward record follows.
