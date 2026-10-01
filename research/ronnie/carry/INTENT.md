@@ -46,3 +46,11 @@ unchanged.
 - **P1:** the top-decile minus bottom-decile next 7-day return is tested the same way (coin-then-event bootstrap);
   a negative value at 95% on both sets means high funding predicts lower returns (crowding).
 - Also reported, descriptive: per-year carry, the worst week, and the share of days with negative funding.
+
+## Amendment: final read of K1 (written before carry/final.py exists or any final-tier coin is scored)
+
+K1 held on development and on the holdout. It is read once on the R&D loop's final tier, 12 coins never used in this
+research: TON, RENDER, JUP, ENA, BONK, WIF, FLOKI, PYTH, ORDI, CFX, TAO and STRK, from listing to 2026-08. BONK and
+FLOKI use their 1000-unit perpetuals. The rules are unchanged.
+- **Holds:** K1's annualised net return is above zero at 95% (weekly bootstrap) and above K0's.
+- **Also reported:** per-year returns.
