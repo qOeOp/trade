@@ -611,6 +611,19 @@ usually a break.
 **Next step.** The 4h box breakout is the lead: an unchanged replication on further unused coins, plus the forward
 record.
 
+## The 4h box breakout on large caps (TrialFamily range-v4)
+
+`range4/` replicates range-v3 X1 unchanged on 37 large caps, 2023-01 to 2026-08: the 17 majors plus NEAR, UNI, AAVE,
+APT, ARB, SUI, OP, INJ, PEPE, SHIB and others (`range4/result.txt`).
+- **Overall:** +0.131R above random [-0.007, +0.268] over 380 trades. It misses the 95% rule by a hair, with 25 of 37
+  coins above zero.
+- **Majors:** +0.093R.
+- **Other large caps:** +0.158R.
+- **By year:** 2023 -0.13R, 2024 +0.26R, 2025 +0.05R, 2026 +0.38R.
+- **Per coin:** only about 10 trades each over three and a half years; BTC -0.76R on 9 trades.
+- **Conclusion:** the effect is positive in three independent samples (development +0.31R, 14 unused coins +0.18R,
+  37 large caps +0.13R), each short of significance on its own. The forward record decides.
+
 ## Running the survivors together, and a forward record
 
 `combo/portfolio.py` runs B1, trendline_break_strong and line_break_ridge as one book on BTC, ETH and the 15 holdout

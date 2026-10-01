@@ -1,0 +1,11 @@
+range-v4: 4h box breakout (range-v3 X1, unchanged) on 37 large caps, 2023-01 to 2026-08; avg R net of 0.06%/side
+set                 n     win   avgR    control  minus control [95% coin-then-signal]
+all 37               380  53%  +0.138  +0.007   +0.131 [-0.007, +0.268]
+large caps           219  54%  +0.176  +0.018   +0.158 [-0.017, +0.340]
+majors               161  52%  +0.086  -0.007   +0.093 [-0.129, +0.305]
+BTC                    9  11%  -0.718  +0.042   -0.760
+ETH                    9  56%  +0.202  -0.032   +0.234
+SOL                   10  60%  +0.403  -0.012   +0.416
+by year (all 37): 2023 -0.134 (n 86), 2024 +0.256 (n 110), 2025 +0.052 (n 113), 2026 +0.381 (n 71)
+coins with edge above zero: 25 of 37
+decision: fails (all 37, interval above zero)
