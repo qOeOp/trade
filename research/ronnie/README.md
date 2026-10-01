@@ -693,6 +693,23 @@ dollar index, BTC and ETH. Formation is 2007-2018 and the test 2019-2026 (`range
 - **Next:** a test with enough boxes needs intraday commodity and FX bars (TradingView 4h from 2023, or hourly
   archives).
 
+## Hourly boxes across asset classes (TrialFamily rangex-v2)
+
+`rangex2/` repeats the asset-character test on 1h boxes, where boxes are frequent. It covers six FX pairs (FXCM), gold,
+silver and Brent (HistData 1-minute bars, after Dukascopy proved too slow), and BTC and ETH. HOLD is set over
+2018-2021 and the test runs 2022-2026 (`rangex2/result.txt`, 538 fades and 385 breaks).
+- **At 1h, every asset looks alike.** Formation HOLD runs only from 0.38 to 0.51, against 0.06 to 0.68 across crypto
+  coins on 4h.
+- **Fades lose in every class:** FX -0.21R, metals and oil -0.23R, crypto -0.08R against random.
+  - **Brent:** -0.35R on 41 fades, which reverses the +0.67R of rangex-v1's 7 daily fades.
+- **Type split:** range-type assets fade at -0.12R and trend-type at -0.24R. T2 fails.
+- **Breaks by class:** metals and oil break at +0.06R (gold +0.15R, Brent +0.12R), FX breaks lose (-0.11R), crypto is
+  -0.03R. None is significant.
+- **range-v6 cells out of crypto:** both fail. With no squeeze the edge is -0.18R against -0.19R for the rest; against
+  the daily trend it is -0.24R against -0.13R.
+- **Reading:** oil's range-bound character, where it exists, belongs to months of supply and demand, not to hourly
+  boxes. At that horizon it needs another test, such as multi-month mean reversion on daily bars, not a box fade.
+
 ## Running the survivors together, and a forward record
 
 `combo/portfolio.py` runs B1, trendline_break_strong and line_break_ridge as one book on BTC, ETH and the 15 holdout

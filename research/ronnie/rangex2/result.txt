@@ -1,0 +1,29 @@
+rangex-v2: 1h box fades and breaks; formation 2018-2021 sets HOLD, test 2022-2026; edge = R minus matched control
+costs per side: FX 0.005%, metals/oil 0.02%, crypto 0.06%
+
+asset          class       HOLD (formation tests)   FADE n / avg R / edge        BREAK n / avg R / edge
+USDCAD         fx          0.51 ( 114)              64 / +0.155 / +0.319      37 / -0.067 / -0.036
+USDJPY         fx          0.49 ( 104)              26 / -0.902 / -0.856      28 / -0.052 / -0.105
+USDCHF         fx          0.46 ( 110)              58 / -0.298 / -0.225      39 / -0.031 / +0.034
+XAGUSD         metal/oil   0.46 (  89)              40 / -0.049 / +0.008      28 / -0.055 / -0.094
+GBPUSD         fx          0.46 (  74)              55 / -0.407 / -0.269      36 / -0.117 / -0.080
+XAUUSD         metal/oil   0.44 (  71)              40 / -0.477 / -0.344      28 / +0.125 / +0.145
+ETH            crypto      0.43 (  88)              66 / -0.051 / +0.017      50 / -0.083 / -0.043
+BCOUSD         metal/oil   0.43 (  89)              41 / -0.360 / -0.354      27 / +0.052 / +0.122
+BTC            crypto      0.40 ( 112)              57 / -0.340 / -0.181      41 / -0.077 / -0.011
+EURUSD         fx          0.39 (  87)              48 / -0.169 / -0.179      35 / -0.337 / -0.360
+AUDUSD         fx          0.38 ( 105)              43 / -0.601 / -0.540      36 / -0.237 / -0.158
+
+T1 (reported): Spearman, formation HOLD vs test FADE edge across 11 assets = +0.19
+T2 FADE  range type n   243  avg R -0.227  edge -0.121 [-0.478, +0.226]
+T2 FADE  trend type n   295  avg R -0.307  edge -0.235 [-0.474, -0.008]
+T2 BREAK range type n   168  avg R -0.065  edge -0.050 [-0.202, +0.108]
+T2 BREAK trend type n   217  avg R -0.105  edge -0.062 [-0.247, +0.125]
+T2 decision: FADE on range-type assets fails
+T3 no squeeze (ATR14/ATR100 >= 0.978)   n   286 edge -0.180 [-0.419, +0.081]  vs rest n   252 edge -0.187 [-0.507, +0.109] -> fails
+T3 against the daily trend              n   263 edge -0.237 [-0.512, +0.089]  vs rest n   275 edge -0.132 [-0.378, +0.096] -> fails
+class fx       : FADE n  294 edge -0.209 [-0.532, +0.116]   BREAK n  211 edge -0.114 [-0.287, +0.044]
+class metal/oil: FADE n  121 edge -0.231 [-0.556, +0.107]   BREAK n   83 edge +0.057 [-0.191, +0.318]
+class crypto   : FADE n  123 edge -0.075 [-0.388, +0.255]   BREAK n   91 edge -0.028 [-0.247, +0.199]
+  brent : FADE edge -0.354 (n 41), BREAK edge +0.122 (n 27), HOLD 0.43
+  gold  : FADE edge -0.344 (n 40), BREAK edge +0.145 (n 28), HOLD 0.44

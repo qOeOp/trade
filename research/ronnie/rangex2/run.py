@@ -108,7 +108,7 @@ def main():
     ok2 = res[("FADE", "range type")][0] > 0 and res[("FADE", "range type")][1] > res[("FADE", "trend type")][1]
     out.append(f"T2 decision: FADE on range-type assets {'HOLDS' if ok2 else 'fails'}")
     fz = ev[ev.trade == "FADE"].dropna(subset=["squeeze", "htf"])
-    for label, m in (("no squeeze (ATR14/ATR100 >= 0.978)", fz.squeeze >= SQUEEZE_CUT), ("against the daily trend", fz.htf <= 0)):
+    for label, m in (("no squeeze (ATR14/ATR100 >= 0.978)", fz["squeeze"] >= SQUEEZE_CUT), ("against the daily trend", fz.htf <= 0)):
         a_, b_ = fz[m], fz[~m]
         lo, hi = boot(a_)
         lo2, hi2 = boot(b_)
