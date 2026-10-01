@@ -165,6 +165,7 @@ stated otherwise.
 
 ## Family status under `loop/CRITERIA.md` (replaces the old "falsified" list)
 
+Every status names the buckets it covers (CRITERIA section C); an untested bucket is untested, not closed.
 Statuses: **active** (on the acceptance ladder), **parked** (inconclusive, under-powered), **absorbed** (carried by
 another line), **immaterial**, and **closed**, which needs equivalence or a falsified mechanism. Evidence: the loop
 closure audit (`loop/closure_audit.txt`, week-clustered, SESOI +0.10R) and the pre-loop family audit (LOG,
@@ -186,9 +187,9 @@ closure audit (`loop/closure_audit.txt`, week-clustered, SESOI +0.10R) and the p
 | Ensemble book T | active, stage 3 | N-4 positive, spans zero, against cash and buy-and-hold |
 | Gold long trend | parked | 16 trades |
 | line_break_ridge | parked | +0.086, upper +0.124; its book's drawdown is -79% |
-| Break continuation over random (family B) | absorbed into the trend book | B-5x new coins +0.056 [-0.43, +0.56]; the return is trend exposure |
-| Support bounces (family A) | closed | A1-A4 harmful; A12 equivalent-null on 1,189 trades; A8x new coins upper +0.06 |
-| Range and box fades (range v1-v6, rangex, family E) | closed | E-1x harmful, E-4 equivalent-null, range-v2 L harmful; small inconclusive variants superseded |
+| Break continuation over random (family B) | absorbed into the trend book (round-number breaks closed in daily FX: B-9fx -0.13) | B-5x new coins +0.056 [-0.43, +0.56]; the return is trend exposure |
+| Support bounces (family A) | closed: crypto majors and mid caps, daily FX; intraday FX untested | A1-A4 harmful; A12 equivalent-null on 1,189 trades; A8x new coins upper +0.06; A3fx -0.12, A12fx -0.14 |
+| Range and box fades (range v1-v6, rangex, family E) | closed: crypto majors and mid caps; small caps untested | E-1x harmful, E-4 equivalent-null, range-v2 L harmful; small inconclusive variants superseded |
 | Fading breaks G-1 | closed | -0.38 [-0.60, -0.12] |
 | Flags F-raw | closed | R-1 new coins -0.128 [-0.25, +0.01] |
 | Wedges and triangles (patterns-v1) | closed | W-raw and W-retest equivalent-null |

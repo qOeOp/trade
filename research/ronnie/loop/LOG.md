@@ -1499,3 +1499,38 @@ survives Holm**, as predicted.
   majors and mid caps, 2018-2022" and untested elsewhere.
 - **FX is the largest gap with a prior.** Osler's FX order-flow studies predict support/resistance and round-number
   effects there, which is exactly what families A and A12/B-9 tested in crypto only.
+
+## FX bucket (registered before running; CRITERIA section C, rule 2)
+
+- **Prior:** Osler (2000, 2003). In FX, support/resistance levels interrupt trends, take-profit orders clustered at
+  round numbers make them reverse, and stop-losses just beyond make crossings run. Families A (support bounce) and
+  A12/B-9 (round numbers) were tested on crypto only, where Osler's mechanism has weak support (clustering yes,
+  tradable reversals mostly not).
+- **Variants (3, one-to-one transfers of the crypto rules), on 9 FX pairs, daily, 2017-2022:**
+  - A3fx: A3's swing-level bounce with the trigger entry; no BTC gate.
+  - A12fx: the round-number bounce, round numbers at the big and half figures (a step of 1/200 of a decade:
+    EURUSD 0.005, USDJPY 0.5).
+  - B-9fx: the round-number break continuation, same step.
+- **Costs:** 0.01% a side. **Directions:** all positive (Osler).
+- **Gates:** Holm across the three at 5%; status by CRITERIA (SESOI +0.10R). FX 2023-2026 is kept for one gatekeeper
+  read if any variant becomes active.
+- **Predicted:** inconclusive or null for all three. Osler's effects are intraday and last hours to days, and daily bars
+  with 20-day holds blur them; a 4h or hourly version is the successor if A12fx or B-9fx points positive.
+
+**Result, FX bucket (week-clustered, SESOI +0.10R):**
+
+| variant | trades | edge | interval | status |
+| --- | --- | --- | --- | --- |
+| A3fx swing-level bounce | 325 | -0.121 | [-0.286, +0.048] | closed (equivalent-null) |
+| A12fx round-number bounce | 1,077 | -0.136 | [-0.231, -0.040] | closed (harmful) |
+| B-9fx round-number break | 774 | -0.126 | [-0.250, +0.003] | closed (equivalent-null) |
+
+- **No variant points positive,** so the registered intraday successor does not run.
+- **Pairs:** only single pairs are positive (EURUSD +0.30 in A3fx, AUDUSD +0.29 in B-9fx). Each has about 40 trades, and
+  9 pairs x 3 variants makes 27 cells, so they are chance by the subgroup criteria.
+- **Scope:** the level and round-number families are now closed for crypto majors, mid caps and daily FX 2017-2022.
+  They remain untested in intraday FX (Osler's own horizon, which needs an execution model) and in commodities
+  (no prior, so not opened, per CRITERIA C rule 2).
+- **Small caps:** reversal in small, illiquid coins has a prior (Ficura 2023), but as a weekly cross-sectional effect,
+  a different construct from the box fade. Fieberg et al. (2024) find it economically negligible after costs. It is
+  recorded as an untested idea and not opened.

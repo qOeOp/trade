@@ -76,10 +76,49 @@ Guards against wrongful closure:
    not closed (Family B into the trend book; RETROSPECTIVE "misleading objective").
 5. **Prior and rigour.** A low-prior idea gets a cheap kill test, but the closure condition is the same for all.
 
+
+## C. Data buckets: the same rule can behave differently by universe
+
+Asset class, size and market context are buckets. A pooled null can hide a bucket where the rule works, and a search
+over buckets can manufacture one. Both errors are guarded.
+
+| key | citation | what it gives us |
+| --- | --- | --- |
+| MOP | Moskowitz, Ooi and Pedersen (2012), "Time Series Momentum", *JFE* 104(2):228-250 | All 58 futures show positive time-series momentum, 52 significant; the sign holds in every asset class while the mechanism's strength differs |
+| AMP | Asness, Moskowitz and Pedersen (2013), "Value and Momentum Everywhere", *JF* 68(3):929-985 | Consistency across eight markets is used as evidence, with a common factor structure |
+| HOP | Hurst, Ooi and Pedersen (2017), "A Century of Evidence on Trend-Following Investing", *JPM* 44(1):15-29 | Trend-following is positive in every decade across 67 markets in four asset classes |
+| FIC | Ficura (2023), "Impact of size and volume on cryptocurrency momentum and reversal", FFA WP 5.003 (working paper) | Weekly reversal only in small, illiquid coins; momentum in large, liquid ones. The sign flips by bucket |
+| FLZ | Fieberg, Liedtke and Zaremba (2024), "Cryptocurrency anomalies and economic constraints", *IRFA* 94:103218 (abstract) | Size and volume anomalies come from micro-caps of negligible economic weight; momentum lives in larger coins but costs a lot |
+| OSL | Osler (2000), *FRBNY Economic Policy Review* 6(2); Osler (2003), "Currency Orders and Exchange Rate Dynamics", *JF* 58(5):1791-1819 | FX support/resistance levels predict intraday trend interruptions; take-profit orders cluster at round numbers (reversals) and stop-losses just beyond them (faster trends after a crossing) |
+| SUN | Sun, Briel, Walter and Guyatt (2010), *BMJ* 340:c117; Wang et al. (2007), *NEJM* 357:2189-2194; Schandelmaier et al. (2020), ICEMAN, *CMAJ* 192(32) | Eleven credibility criteria for a subgroup claim (below) |
+| H17 | Harvey (2017), "The Scientific Outlook in Financial Economics", *JF* 72(4):1399-1440 | Choosing subsamples is a form of p-hacking; disclose every split tried; minimum Bayes factors |
+| JKP | as in section A | Partial pooling: estimate bucket effects shrunk toward the pooled effect, not one bucket at a time |
+
+Rules:
+1. **Coverage defines a closure's scope.** A closure covers only the buckets it tested at adequate power. Every status
+   names its buckets, for example "closed: crypto majors and mid caps, 2018-2022; FX, commodities and small caps
+   untested". An untested bucket is "untested", never closed (FIC, FLZ: the sign can flip).
+2. **An untested bucket is opened only with a prior.** A literature or mechanism reason (for example OSL for levels in
+   FX), registered with its direction before the run, and judged by the same acceptance ladder.
+3. **A bucket claim must meet the subgroup criteria (SUN):**
+   - bucket membership fixed before the outcome (size from point-in-time liquidity, not from later success);
+   - hypothesis and direction stated in advance;
+   - one of a few buckets tested, with the count disclosed and Holm applied;
+   - an interaction test (the bucket against the rest), not separate p-values;
+   - consistency with related outcomes and a mechanism;
+   - replication on new members of the same bucket.
+4. **Estimate by partial pooling (JKP).** Report bucket edges shrunk toward the pooled edge. A bucket that looks good
+   only before shrinkage is not a finding.
+5. **Run the bucket audit before closing a family:** `loop/bucket_audit.py`, by asset size and market context, with Holm
+   across all cells. A cell that survives Holm opens a registered replication in that bucket. It does not revive the
+   rule by itself.
+6. **Relevance.** A bucket of "negligible economic importance" (FLZ: micro-caps whose costs exceed the edge) is
+   recorded but not pursued; the liquidity filter is part of the bucket's definition.
+
 ## How the criteria change the protocol
 
 - PROTOCOL gate statuses gain "equivalent-null" and "inconclusive", next to pass and fail.
 - Holdout deflation moves from order-dependent Bonferroni to Holm across each batch of reads.
-- Registration adds SESOI, the credible-variant list and the computed variant count.
+- Registration adds SESOI, the credible-variant list, the computed variant count and the buckets covered.
 - STRATEGIES.md shows each family's status (active, parked, absorbed, immaterial or closed) instead of a single
   "falsified" list.
