@@ -12,7 +12,8 @@ import family_a as FA  # noqa: E402
 R2 = E.R2
 BASE = dict(tf="4h", hold=30, rule="C")
 LOOPS = {"E-1": dict(BASE), "E-1x": dict(BASE, iter_set="iterx"), "E-2": dict(BASE, rule="failed_break", iter_set="iterx"),
-         "E-3": dict(BASE, rule="C", min_touches=3, iter_set="iterx")}
+         "E-3": dict(BASE, rule="C", min_touches=3, iter_set="iterx"),
+         "E-4": dict(BASE, rule="confirm", iter_set="iterx")}
 
 
 def make(cfg):
@@ -33,6 +34,30 @@ def make(cfg):
                 sigs = keep
             return sigs
         o, h, l, c = (d[x].values for x in ("open", "high", "low", "close"))
+        if cfg["rule"] == "confirm":  # touch the edge, then a close back inside by at least 1 ATR within 6 bars
+            out, last = [], {1: -99, -1: -99}
+            for i in range(R2.W + 20, len(c) - 7):
+                if np.isnan(top[i]):
+                    continue
+                t, b, ai = top[i], bot[i], a[i - 1]
+                for side, edge, far in ((1, b, t), (-1, t, b)):
+                    if i - last[side] < R2.SPACING:
+                        continue
+                    touch = (l[i] <= edge + R2.TOUCH * ai) if side == 1 else (h[i] >= edge - R2.TOUCH * ai)
+                    if not touch:
+                        continue
+                    ext = l[i] if side == 1 else h[i]
+                    for j in range(i, i + 7):
+                        ext = min(ext, l[j]) if side == 1 else max(ext, h[j])
+                        if (c[j] - edge) * side >= ai:
+                            entry, stop, tgt = o[j + 1], ext - side * R2.PAD * ai, far - side * R2.TP_PAD * ai
+                            if (entry - stop) * side > 0 and (tgt - entry) * side > 0:
+                                out.append((j + 1, side, entry, stop, tgt))
+                                last[side] = j
+                            break
+                        if (c[j] - edge) * side < -ai:  # closed through the edge: the touch failed
+                            break
+            return out
         out, used, busy = [], set(), -1
         for i in range(R2.W + 21, len(c) - 1):
             t, b = top[i - 1], bot[i - 1]  # the box known at the bar before the break

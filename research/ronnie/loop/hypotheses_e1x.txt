@@ -1,0 +1,19 @@
+E-1x: hypotheses from the visual review, all extended-tier trades: 519 trades, 5 features tested (flag: |t| >= 2.0, IC sign stable across halves, top-minus-bottom interval excludes zero)
+  feature       IC     IC 1st/2nd   yrs  ICIR    t     hit   mono  Q1..Q5 edge (n)                         Q5-Q1 [95%]
+  er20        -0.077  -0.13/-0.07    5  -1.01  -2.27   80%  -0.50  -0.10(104) +0.01(104) -0.25(103) -0.04(104) -0.47(104) -0.372 [-0.795, +0.062]
+  app20       -0.062  -0.14/-0.05    5  -1.02  -2.29   80%  -0.70  -0.08(104) -0.11(104) -0.04(103) -0.29(104) -0.34(104) -0.261 [-0.696, +0.197]
+  spike4      -0.055  -0.12/-0.05    5  -0.67  -1.51   80%  +0.00  -0.20(104) -0.09(104) -0.07(103) +0.02(104) -0.52(104) -0.319 [-0.645, +0.051]
+  btc20       +0.020  -0.01/+0.03    5  -0.14  -0.32   60%  +0.00  -0.37(104) -0.18(104) -0.03(107) +0.28(102) -0.56(102) -0.191 [-0.482, +0.081]
+  depth       +0.153  +0.25/+0.14    5  +2.14  +4.79  100%  +0.90  -0.41(104) -0.33(104) -0.13(103) +0.02(104) -0.02(104) +0.385 [+0.029, +0.751]  <- reliable
+  H2 side +1: n 290, avg R -0.144, edge -0.108 [-0.335, +0.151] (week-clustered)
+  H2 side -1: n 229, avg R -0.327, edge -0.256 [-0.479, -0.013] (week-clustered)
+  H4 in ATR units: edge x stop_atr by depth quintile: Q1 -0.328 Q2 -0.397 Q3 -0.179 Q4 +0.041 Q5 -0.044
+  beta check for er20 (random entries every 8 bars, stop 1.0 ATR, target 2.0R, 30 bars):
+    side +1: random R by bucket Q1 -0.046 Q2 -0.045 Q3 -0.047 Q4 -0.076 Q5 -0.138   | trades edge by bucket Q1 -0.07 Q2 +0.02 Q3 +0.05 Q4 -0.01 Q5 -0.45
+    side -1: random R by bucket Q1 -0.002 Q2 -0.008 Q3 -0.012 Q4 -0.045 Q5 -0.009   | trades edge by bucket Q1 -0.15 Q2 -0.01 Q3 -0.58 Q4 -0.08 Q5 -0.51
+  beta check for spike4 (random entries every 8 bars, stop 1.0 ATR, target 2.0R, 30 bars):
+    side +1: random R by bucket Q1 -0.069 Q2 -0.083 Q3 -0.035 Q4 -0.004 Q5 -0.101   | trades edge by bucket Q1 -0.14 Q2 +0.07 Q3 -0.05 Q4 +0.08 Q5 -0.51
+    side -1: random R by bucket Q1 +0.006 Q2 +0.043 Q3 -0.015 Q4 -0.060 Q5 -0.203   | trades edge by bucket Q1 -0.27 Q2 -0.34 Q3 -0.09 Q4 -0.06 Q5 -0.53
+  beta check for btc20 (random entries every 8 bars, stop 1.0 ATR, target 2.0R, 30 bars):
+    side +1: random R by bucket Q1 -0.035 Q2 -0.055 Q3 -0.067 Q4 +0.005 Q5 -0.361   | trades edge by bucket Q1 -0.50 Q2 -0.07 Q3 +0.11 Q4 +0.42 Q5 -0.57
+    side -1: random R by bucket Q1 +0.025 Q2 -0.029 Q3 -0.049 Q4 +0.018 Q5 -0.132   | trades edge by bucket Q1 -0.20 Q2 -0.30 Q3 -0.20 Q4 +0.05 Q5 -0.56

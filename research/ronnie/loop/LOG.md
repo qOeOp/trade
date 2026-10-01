@@ -762,3 +762,35 @@ Plan:
 ### Loop E-1x (registered before running)
 
 E-1's rule unchanged (range-v2 C on 4h), on the extended iteration tier: the baseline for the reopened family.
+
+**Result E-1x:** iteration gate fails. 519 trades, avg R -0.225, edge -0.173 [-0.370, +0.014]. Reliable factors: the
+stop width (positive; entries deeper inside the box) and the target R (negative), the same geometry seen twice.
+
+**Visual review** (worst, best and random 6):
+- **Losers and the random sample:** price was carried into the edge by a persistent move (a steady rally into the top
+  for shorts, a grind lower into the bottom for longs), often with BTC moving the same way. The edge was just where
+  the trend was going.
+- **Winners:** mostly longs after a sharp few-bar drop into the bottom with a V-shaped reversal.
+
+**Hypotheses quantified** (`loop/hypotheses_e1x.py`, `loop/hypotheses_e1x.txt`, 519 trades, beta-checked):
+- **H1, a persistent approach breaks the edge:** the direction holds (efficiency ratio IC -0.077, t -2.27, the same sign
+  in both halves). The most persistent quintile is at -0.47, the rest at -0.10 to +0.01. Random entries show no such
+  gradient, so the effect is specific, but the Q5-Q1 interval spans zero (not flagged).
+- **H1b, a sharp spike reverts:** rejected, reversed. The strongest 4-bar spike into the edge is the worst quintile
+  (-0.52). The V-shaped winners were chosen extremes.
+- **H2, longs beat shorts:** shorts lose significantly (week-clustered -0.256 [-0.479, -0.013]); longs -0.108, not
+  significant.
+- **H3, BTC toward the edge:** rejected.
+- **H4, entry depth:** reliable, and it survives in ATR units (Q1-Q2 -0.33 and -0.40 ATR, Q4-Q5 +0.04 and -0.04). It is
+  not an R-unit artefact.
+
+Reading: the losses come from entering at the edge while price still carries momentum into it. The entry is too early.
+
+### Loop E-4 (registered before running; amendment 4)
+
+- **Structural change (entry model):** confirm the rejection before entering. After a bar reaches the edge (within
+  0.25 ATR), wait up to 6 bars for a close back inside at least 1 ATR from the edge; enter at the next open. Stop
+  0.5 ATR beyond the extreme of the touch; target the far edge minus 0.25 ATR; time limit 30 bars. Both sides; the long
+  side is left for the next loop (one change per loop).
+- **Explanations it rests on:** H1 and H4 above.
+- **Predicted (shrunk, note 39):** edge about -0.05, with a lower bound near -0.25.
