@@ -91,3 +91,26 @@ Input for the product's R&D system. Each note: what happened, why it matters, a 
     and pushed most targets under the 1R floor, so 61 of 76 trades vanished by a filter the loop did not name. The
     report should break down why candidate signals were dropped (target floor, stop cap, spacing, cancellation), so
     an unintended filter is visible.
+
+## Attribution as factor evaluation (added after the user's review)
+
+21. **The attribution had no system.** Tercile means gave no strength measure, no stability across time, no
+    monotonicity and no multiple-testing control, so a noisy cell could steer a loop (A2). `loop/attrib.py` now reports,
+    per feature:
+    - the rank IC with the edge;
+    - per-year IC with ICIR, t and hit rate;
+    - the IC in each half;
+    - quintile buckets with monotonicity and a coin-clustered Q5-Q1 interval;
+    - a reliability flag (|t| >= 2, the same IC sign in both halves, and a Q5-Q1 interval excluding zero);
+    - the number of features tested;
+    - `compare` for IC decay from iteration to validation.
+    A common feature set (BTC trend, coin trend, 20-bar return, volatility ratio, volume ratio, stop width, target R) is
+    computed by the engine per trade and stored on the trade record, which also removes the cause of note 17.
+22. **What the new attribution found at once.** On A3, BTC's trend is a reliable factor (IC +0.12, ICIR 2.6 over four
+    years, Q5-Q1 +0.47R [+0.23, +0.70]), and the number of prior touches is reliably negative: the opposite of the
+    tercile reading that motivated A2. The tercile tool never offered BTC's trend, because it was not a feature.
+23. **Rare events cannot get a stability measure.** C-4 has only one year with 8 or more trades, so ICIR is not
+    computable. The report says so instead of printing a number. Rare-event families need pooled tests with
+    clustering, or a broader universe.
+24. **Reruns inflate the census.** Re-scoring a loop to produce a new attribution appended a second trial row. Reruns
+    are now marked `rerun-*` (environment flag `LOOP_RERUN`), and the validation level counts only real validations.

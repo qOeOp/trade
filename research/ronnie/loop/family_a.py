@@ -124,6 +124,7 @@ def main():
     sets = {"iteration": (cfg.get("iter_set", "iter"),), "validate": ("val",), "final": ("final",)}[stage]
     z = E.run(loop, fn, cfg["tf"], cfg["hold"], sets, ts=cfg.get("ts"))
     f = pd.DataFrame([feats.get((k, t, s), {}) for k, t, s in zip(z.coin, z.time, z.side)])
+    f = f.drop(columns=[c for c in f.columns if c in z.columns])
     z = pd.concat([z.reset_index(drop=True), f], axis=1)
     os.makedirs(os.path.join(HERE, "out"), exist_ok=True)
     with gzip.GzipFile(os.path.join(HERE, "out", f"{loop}_{stage}.csv.gz"), "wb", mtime=0) as fh:
@@ -132,8 +133,11 @@ def main():
         passed, st = E.iteration_gate(z)
         E.log(loop, "familyA", "iteration", st, passed)
         print(f"{loop} iteration gate {'PASS' if passed else 'fail'}: {E.fmt(st)}")
-        print("attribution (iteration tier, edge by tercile):")
-        print(attribute(z))
+        import attrib
+        fam = [k for k in ("trend_atr", "touches", "age", "depth", "n_levels") if k in z]
+        text, ev = attrib.report(z, list(E.COMMON_FEATURES) + fam, f"{loop} attribution (iteration tier)")
+        print(text)
+        ev.assign(loop=loop).to_csv(os.path.join(HERE, "out", f"{loop}_attribution.csv"), index=False, float_format="%.4g")
         print(E.decompose(z, cfg["tf"], cfg["hold"]))
     else:
         level, k = E.validation_level() if stage == "validate" else (95, 0)

@@ -20,3 +20,7 @@ logged_at,loop,candidate,stage,n,edge,lo,hi,passed,note
 2026-10-01T07:45:50+00:00,C-3,familyA,iteration,39,+0.2386,-0.0712,+0.6028,False,
 2026-10-01T07:46:55+00:00,C-4,familyA,iteration,76,+0.3101,+0.0923,+0.5518,False,
 2026-10-01T07:48:57+00:00,C-5,familyA,iteration,15,+0.2491,-0.2280,+0.7284,False,
+2026-10-01T08:02:46+00:00,C-4,familyA,iteration,76,+0.3101,+0.0923,+0.5518,False,
+2026-10-01T08:02:54+00:00,C-4,familyA,rerun-iteration,76,+0.3101,+0.0923,+0.5518,False,rerun for attribution v2 (same rules and data)
+2026-10-01T08:03:15+00:00,A3,familyA,rerun-iteration,411,-0.1570,-0.2940,-0.0144,False,rerun for attribution v2 (same rules and data)
+2026-10-01T08:03:42+00:00,B-8,familyA,rerun-iteration,795,+0.0303,-0.1228,+0.1814,False,rerun for attribution v2 (same rules and data)

@@ -70,8 +70,33 @@ def run(name, signal_fn, tf, hold, sets=("iter",), ts=None):
             CURRENT["coin"] = coin
             sigs = signal_fn(b["1d"], b["4h"])
             scored = score_ts(coin, tf, name, d, sigs, hold, *ts, seed=k) if ts else score(coin, tf, name, d, sigs, hold, seed=k)
-            rows += [dict(r, set=s) for r in scored if t0 <= r["time"] < t1]
+            part = pd.DataFrame([dict(r, set=s) for r in scored if t0 <= r["time"] < t1])
+            rows += common_features(coin, tf, part).to_dict("records") if len(part) else []
     return pd.DataFrame(rows)
+
+
+COMMON_FEATURES = ("btc_trend", "coin_trend", "ret20", "vol_ratio", "volume_ratio", "stop_atr", "target_R")
+_BTC = {}
+
+
+def common_features(coin, tf, z):
+    """Features every trade carries, computed from the bar before entry and keyed by the trade itself (note 17)."""
+    if z.empty:
+        return z
+    d = bars(coin)[tf]
+    o, h, l, c, v = (d[x].values for x in ("open", "high", "low", "close", "volume"))
+    a, a100 = MT.atr_of(h, l, c), MT.atr_of(h, l, c, 100)
+    s200 = pd.Series(c).rolling(200).mean().values
+    vm = pd.Series(v).rolling(20).mean().values
+    if "d" not in _BTC:
+        bd = bars("BTC")["1d"]
+        _BTC["d"] = (bd.close / bd.close.rolling(200).mean() - 1)
+    bt = _BTC["d"]
+    e = d.index.get_indexer(pd.to_datetime(z.time))
+    i = e - 1
+    btc = bt.reindex(pd.to_datetime(z.time).dt.floor("1D") - pd.Timedelta(days=1)).values
+    return z.assign(btc_trend=btc, coin_trend=c[i] / s200[i] - 1, ret20=c[i] / c[i - 20] - 1, vol_ratio=a[i] / a100[i],
+                    volume_ratio=v[i] / vm[i])
 
 
 def boot(z, level=95):
@@ -100,6 +125,8 @@ def validation_level():
 
 
 def log(loop, name, stage, stats, passed, note=""):
+    if os.environ.get("LOOP_RERUN"):
+        stage, note = f"rerun-{stage}", (note + " " if note else "") + os.environ["LOOP_RERUN"]
     new = not os.path.exists(CENSUS)
     with open(CENSUS, "a", newline="") as f:
         w = csv.writer(f, lineterminator="\n")
