@@ -72,3 +72,4 @@ logged_at,loop,candidate,stage,n,edge,lo,hi,passed,note
 2026-10-01T11:19:25+00:00,H-1,familyH,iteration,5348,-0.0020,-0.0025,-0.0015,False,market-neutral; edge = mean net return; week-clustered interval
 2026-10-01T11:21:08+00:00,H-1,familyH,rerun-iteration,1185,-0.0042,-0.0061,-0.0024,False,market-neutral; edge = mean net return; week-clustered interval H-1 after the churn-bug fix
 2026-10-01T11:22:27+00:00,H-2,familyH,iteration,1431,-0.0050,-0.0078,-0.0024,False,market-neutral; edge = mean net return; week-clustered interval
+2026-10-01T11:23:14+00:00,H-3,familyH,iteration,1565,-0.0019,+nan,+nan,False,market-neutral; edge = mean net return; week-clustered interval

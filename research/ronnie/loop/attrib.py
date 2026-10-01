@@ -148,6 +148,7 @@ def beta_check(z, feature, coins, tf, hold=20, stop_atr=1.5, target_r=1.5, step=
 def week_boot(z, level=95, reps=4000, seed=4):
     """Date-clustered bootstrap of the mean edge (R - control): calendar weeks are resampled whole, so trades of
     different coins on the same days move together (retrospective, flaw 1). -> (lo, hi)."""
+    z = z.dropna(subset=["R", "control"])
     t = pd.to_datetime(z.time, utc=True)
     wk = t.dt.tz_convert(None).dt.to_period("W").astype(str).values
     e = (z.R - z.control).values

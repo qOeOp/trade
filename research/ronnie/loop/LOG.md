@@ -899,3 +899,15 @@ not on daily bars.
   rolling z did worse).
 - **Explanation it rests on:** the literature locates crypto pairs reversion at intraday frequency.
 - **Predicted:** about -0.2% a trade, with a lower bound near -0.4% (more trades, so costs weigh more).
+
+**Result H-3:** iteration gate fails. 1,565 trades, mean net -0.191% [-0.321%, -0.067%] (week-clustered, after a NaN
+fix in `attrib.week_boot`), win 51%; gross -0.071%, so it stays negative even at maker costs (-0.111% at 0.04% a round
+trip). Random pairs -0.595%. The prediction (-0.2%) was right. Moving from 4h to 1h more than halved the loss.
+
+### Loop H-4 (registered before running; amendment 4)
+
+- **Structural change (window):** a 90-day formation (2,160 1h bars) and 14-day trading (336 bars), the windows of the
+  2026 adaptive copula pairs study. Everything else as H-3.
+- **Explanation it rests on:** H-1's diagnosis (cointegration from 3 weeks does not persist). A longer formation should
+  select relationships that last.
+- **Predicted:** about -0.1% a trade, with a lower bound near -0.25%.

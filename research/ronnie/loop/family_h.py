@@ -12,7 +12,8 @@ import attrib  # noqa: E402
 import engine as E  # noqa: E402
 
 BASE = dict(form=126, trade=42, top=5, adf_crit=-3.37, z_in=2.0, z_out=1.0, z_stop=4.0, cost=0.0012, coins="iter")
-LOOPS = {"H-1": dict(BASE), "H-2": dict(BASE, roll=60), "H-3": dict(BASE, tf="1h", form=504, trade=168)}
+LOOPS = {"H-1": dict(BASE), "H-2": dict(BASE, roll=60), "H-3": dict(BASE, tf="1h", form=504, trade=168),
+         "H-4": dict(BASE, tf="1h", form=2160, trade=336)}
 
 
 def adf_t(e):
