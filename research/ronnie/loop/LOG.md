@@ -665,3 +665,21 @@ prediction (about 0) missed by -0.38R.
 - **Risk named in advance:** adverse selection. The 23% that never return are the strongest runs, and earlier retest
   entries (trend-v1 E-line, setups P3) lost to the market entry.
 - **Predicted (shrunk):** edge +0.15, with a lower bound near -0.1.
+
+**Result G-2:** the iteration gate passes (extended tier). 302 trades, avg R +0.294, edge +0.247 [+0.071, +0.433];
+2018-2020 +0.423, 2021-2022 +0.157. Stops 44%, 13% of them within 2 bars. The prediction (+0.15, lower bound -0.1) was
+beaten.
+
+**Comparison with the market entry on the same coins (D-1x, recorded as a comparison):** 358 trades, avg R +0.219,
+edge +0.188 [+0.028, +0.344]; 2021-2022 +0.070. In R, the retest looks better, but its stop is closer (median 2.60
+against 3.16 ATR), which inflates R (workflow note 35). In ATR units the two entries are alike: edge +0.615 against
++0.590 ATR, return +0.756 against +0.705 ATR. So the retest does not catch more of the move. It buys the same move with
+less risk: under fixed-risk sizing it earns more per trade (+0.29R against +0.22R, about 89R against 78R in total).
+
+**The user's hypothesis, answered:**
+- **Breaks do regress:** 77% close back inside within 30 bars.
+- **But shallowly and after a run,** so fading them loses (G-1).
+- **The regression is useful as an entry for the continuation (G-2),** at the same edge per unit of price and a better
+  edge per unit of risk.
+
+G-2 goes to the reserve tier through the gatekeeper after F-1 and F-2.

@@ -14,7 +14,7 @@ R3 = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(R3)
 
 BASE = dict(tf="4h", hold=30, sides=(1, -1))
-LOOPS = {"D-1": dict(BASE)}
+LOOPS = {"D-1": dict(BASE), "D-1x": dict(BASE, iter_set="iterx")}
 
 
 def make(cfg):
