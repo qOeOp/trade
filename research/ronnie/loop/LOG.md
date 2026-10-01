@@ -224,3 +224,27 @@ Donchian level did not raise the sample.
   and compression gate are kept in bar units. The trend is the daily trend at the last closed day.
 - **Reason:** Crabel's compression work is short-horizon; the 4h box breakout was positive in three samples; 4h bars
   give an order of magnitude more breaks, which the power note says is needed.
+
+**Result B-8:** iteration gate fails. 795 trades, avg R +0.126, control +0.096, edge +0.030 [-0.123, +0.181];
+2018-2020 +0.128, 2021-2022 -0.055. With enough trades, the compression-break edge vanishes.
+
+**Family B closes** (budget reached). Breaks of levels in the trend's direction earn in absolute terms (+0.45R a trade
+on daily bars, longs) but no more than random longs of the same year. The compression gate with two-close confirmation
+looked like +0.3R on daily bars (74 trades) and was +0.03R on 4h bars (795 trades), so the daily figure is most likely
+small-sample noise.
+
+## Family C: "a capitulation marks the low" (assume the selling climax holds)
+
+Switch reason: Families A and B both found little timing value in trend-context entries. The one entry in this research
+that passed a holdout on its own is oversold O3, a capitulation: a 3-day drop of 15% or more on at least 2.5 times the
+20-day volume, closing in the upper half of the day. Its holdout edge was +0.62R [+0.27, +0.93], but each set held
+only 30 trades. Sources: Wyckoff's selling climax; liquidation cascades in crypto (forced selling that exhausts the
+sell side); short-term reversal in crypto. The family aims to raise the sample without changing the mechanism.
+
+**Tier contamination:** O3's holdout (the 17 majors and the 20 large caps, 2023-2026) overlaps this protocol's
+validation tier, which has therefore already been read for this lineage. Family C validates on the final tier only.
+
+### Loop C-1 (registered before running)
+
+- **Baseline:** O3 exactly as in oversold-v1 (`oversold/run.py`), on the iteration tier: stop at the signal low minus
+  0.5 ATR(20), target half way back to the prior 10-day high, time limit 10 days.

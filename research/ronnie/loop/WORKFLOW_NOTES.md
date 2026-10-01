@@ -68,3 +68,9 @@ Input for the product's R&D system. Each note: what happened, why it matters, a 
       never satisfied" with a trace of which clause eliminated the candidates.
     - **Fix here:** the levels are read at the open of the first crossing bar. B-3 and B-4 used the weekly book, where
       this matters only when the two closes straddle a week boundary; their results stand as run.
+15. **Earlier families contaminate the tiers of later ones.** O3 was read on 2023-2026 large caps before this protocol
+    existed, so the protocol's validation tier is already spent for that lineage. Only a ledger of reads per lineage
+    (note 1) can tell this; here it was caught by memory.
+16. **Data latency shapes the loop.** The carry family's funding and kline archives (37 coins x 80 months x 3 files)
+    took hours through a throttled downloader, while a strategy loop on cached bars takes about a minute. An R&D
+    system needs a market-data layer that is prefetched and shared, so a loop's cost is computation, not download.

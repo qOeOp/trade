@@ -14,3 +14,4 @@ logged_at,loop,candidate,stage,n,edge,lo,hi,passed,note
 2026-10-01T07:42:35+00:00,B-5,familyA,iteration,74,+0.3230,-0.2091,+0.9170,False,
 2026-10-01T07:42:52+00:00,B-6,familyA,iteration,103,+0.1368,-0.3834,+0.7384,False,
 2026-10-01T07:43:25+00:00,B-7,familyA,iteration,78,+0.1717,-0.3950,+0.7527,False,
+2026-10-01T07:44:13+00:00,B-8,familyA,iteration,795,+0.0303,-0.1228,+0.1814,False,
