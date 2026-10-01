@@ -65,7 +65,7 @@ def run(name, signal_fn, tf, hold, sets=("iter",), ts=None):
     """Score signal_fn(d1, d4) -> list of (e, side, entry, stop, tgt) on the chosen sets. -> DataFrame."""
     rows = []
     spec = {"iter": (ITER_COINS, ITER), "iterx": (ITER_COINS + ITER_EXT_COINS, ITER), "val": (VAL_COINS, VAL),
-            "final": (FINAL_COINS, VAL), "reserve": (RESERVE_COINS, VAL)}
+            "final": (FINAL_COINS, VAL), "reserve": (RESERVE_COINS, VAL), "majors": (ITER_COINS, VAL)}
     for s in sets:
         coins, (t0, t1) = spec[s]
         for k, coin in enumerate(coins):

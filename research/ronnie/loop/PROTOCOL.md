@@ -109,3 +109,14 @@ From now on a loop is valid only with these four, in this order:
 - **Access:** only the gatekeeper scores it, PASS/FAIL once per candidate, run by a fresh-context subagent.
 - **Use:** the reserve tier is the final tier for families E (box fade) and F (trend lines). These families have no
   validation stage; the forward record follows.
+
+## Amendment 7: the majors slice (written before the reads; the user's instruction: test on the majors)
+
+- **The slice:** the 17 majors, 2023-01 to 2026-08 (`engine` tier "majors"), the universe the strategies are meant for.
+- **Contamination, stated:** the lineages were seen there before. range-v4 scored X1 box breaks on these coins over this
+  period, and the combo book showed the trend-line book's yearly results. The variants F-2 (time-only exit), G-2
+  (retest entry) and C-6 (idiosyncratic capitulation) were never scored there. F-1 is the combo trend-line rule itself,
+  seen as part of a book.
+- **The reads:** F-1, F-2, G-2 and C-6, once each, Bonferroni over the four (98.75%).
+- **Verdict:** three levels (workflow note 40): PASS; FAIL with the edge positive and the interval spanning zero; FAIL
+  with the edge at or below zero. Relayed by a fresh-context gatekeeper subagent. Details stay sealed.

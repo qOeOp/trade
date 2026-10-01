@@ -30,7 +30,7 @@ def main():
     fam = importlib.import_module(mod)
     cfg = fam.LOOPS[loop]
     fn, _ = fam.make(cfg)
-    tier = {"validate": "val", "final": "final", "reserve": "reserve"}[stage]
+    tier = {"validate": "val", "final": "final", "reserve": "reserve", "majors": "majors"}[stage]
     z = E.run(loop, fn, cfg["tf"], cfg["hold"], (tier,), ts=cfg.get("ts"))
     it = pd.read_csv(os.path.join(HERE, "out", f"{loop}_iteration.csv.gz"))
     it_edge = float((it.R - it.control).mean())
@@ -65,8 +65,14 @@ def main():
         level = 100 - 5 / k
         lo, hi = E.boot(z, level) if len(z) >= 5 else (np.nan, np.nan)
         passed = bool(lo > 0)
-        E.log(loop, mod, "final", dict(n=len(z), edge=np.nan, lo=np.nan, hi=np.nan), passed, f"sealed; level {level:.2f}")
-        print(f"{loop} final: {'PASS' if passed else 'FAIL'} at {level:.2f}% (k={k})")
+        E.log(loop, mod, stage if stage != "validate" else "final", dict(n=len(z), edge=np.nan, lo=np.nan, hi=np.nan), passed,
+              f"sealed; level {level:.2f}")
+        if os.environ.get("VERDICT_LEVELS") == "3":  # workflow note 40: one more bit, by design
+            e = sealed.get("edge", np.nan)
+            verdict = "PASS" if passed else ("FAIL (edge positive, interval spans zero)" if e > 0 else "FAIL (edge at or below zero)")
+        else:
+            verdict = "PASS" if passed else "FAIL"
+        print(f"{loop} {stage}: {verdict} at {level:.2f}% (k={k})")
         sealed.update(level=level, lo=float(lo), hi=float(hi), passed=passed)
     json.dump(sealed, open(os.path.join(HERE, "sealed", f"{loop}_{stage}.json"), "w"), indent=1)
 
