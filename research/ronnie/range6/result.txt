@@ -1,0 +1,18 @@
+range-v6: preconditions for box fades (range-v2 C), selected on development (17 majors 2018-2022, 1h+4h),
+read once on 1h fades of 20 large caps 2023-2026; edge = R minus matched random control
+
+development: 1229 fades, edge +0.034; per-cell edge (tercile 1 = lowest values):
+  char90   T1 +0.110 (n 207)   T2 +0.150 (n 294)   T3 +0.069 (n 263)   cuts 0.333 / 0.538
+  touches  T1 +nan (n 0)   T2 +nan (n 0)   T3 +0.034 (n 1229)   cuts 2 / 2
+  width    T1 +0.106 (n 410)   T2 +0.025 (n 409)   T3 -0.029 (n 410)   cuts 5.34 / 6.18
+  squeeze  T1 -0.186 (n 410)   T2 +0.104 (n 409)   T3 +0.184 (n 410)   cuts 0.831 / 0.978
+  speed    T1 +0.044 (n 410)   T2 +0.082 (n 409)   T3 -0.024 (n 410)   cuts 0.789 / 1.56
+  volume   T1 +0.084 (n 410)   T2 +0.022 (n 409)   T3 -0.005 (n 410)   cuts 0.98 / 1.59
+  htf      T1 +nan (n 0)   T2 +0.169 (n 605)   T3 -0.097 (n 624)   cuts -1 / 1
+
+selected rule: squeeze tercile 3 AND char90 tercile 2; development edge +0.547 (n 102)
+shuffle null of the whole selection (200 runs): selected edge beats 97% of null selections (null 95th percentile +0.496)
+
+holdout baseline (all 1h fades): n 1219, avg R -0.132, edge -0.039 [-0.173, +0.102]
+holdout with the rule:            n 168, avg R -0.234, edge -0.148 [-0.419, +0.132]
+decision: fails (holdout interval above zero and selection beyond the 95th null percentile)

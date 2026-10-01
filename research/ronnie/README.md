@@ -665,6 +665,34 @@ tests that reached the box middle, VR the daily variance ratio. The runs walk fo
 - **Conclusion:** coins differ in range-bound character, and the difference persists a little. But even on the most
   range-bound coins, box fading does not beat random after costs. The break remains the useful box trade.
 
+## Preconditions for ranging boxes, and the cross-asset check (range-v6, rangex-v1)
+
+**Preconditions (`range6/`).** Seven candidate preconditions for box fades: the coin's 90-day character, touches, box
+width, volatility squeeze, approach speed, test volume and daily trend. A fixed procedure picks the best one or two
+tercile cells on the development set (the majors, 2018-2022, 1h and 4h), checks them against 200 shuffles of the whole
+selection, and reads the holdout once: 1h fades on 20 large caps, 2023-2026 (`range6/result.txt`).
+- **Development:** ATR(14) at or above ATR(100) together with a middling 90-day character gave +0.55R on 102 fades.
+  That beats 97% of the shuffle null.
+- **Holdout:** the same rule gave -0.15R [-0.42, +0.13], against a baseline of -0.04R for all fades. **It fails.**
+- **Lesson:** a selection that even clears its own shuffle null did not transfer, so the 3% left to chance was enough.
+- **Single cells on development:** fades against the daily trend (+0.17R) beat fades with it (-0.10R), and fades with
+  no volatility squeeze beat those in a squeeze (+0.18R against -0.19R). Neither was tested on the holdout.
+- **A defect in the feature set:** the touches feature was constant (every box has exactly two touches per edge under
+  the box rule), so it carried no information.
+
+**Cross-asset (`rangex/`).** Daily boxes on Brent, gold, silver, natural gas, copper, six FX pairs, Nasdaq 100, the
+dollar index, BTC and ETH. Formation is 2007-2018 and the test 2019-2026 (`rangex/result.txt`).
+- **Too few boxes to decide:** daily 60-bar boxes are rare, with 1-7 test trades per asset and 1-19 formation tests
+  per asset, so the HOLD scores are noise. T2 fails.
+- **Brent against gold:** both point the way the user expected, on tiny samples.
+  - Brent: fade +0.67R on 7 trades, break -0.62R on 2.
+  - Gold: fade -0.35R on 5, break +0.81R on 3.
+- **By class:** FX fades +0.35R and FX breaks +0.04R (27 and 21 trades), against commodity breaks +0.18R and index
+  breaks +0.33R. This is consistent with FX variance ratios below 1, but the earlier 4h FX test (range-v1) was not
+  significant.
+- **Next:** a test with enough boxes needs intraday commodity and FX bars (TradingView 4h from 2023, or hourly
+  archives).
+
 ## Running the survivors together, and a forward record
 
 `combo/portfolio.py` runs B1, trendline_break_strong and line_break_ridge as one book on BTC, ETH and the 15 holdout
