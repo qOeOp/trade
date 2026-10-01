@@ -1,0 +1,33 @@
+range-v5: instrument character as a factor (37 large caps + PAXG, 4h boxes, walk-forward 2019-2026)
+
+T1 persistence: 139 coin-years with a prior-year score and at least 3 fades
+  prior-year HOLD vs this year's FADE edge: Spearman +0.122 [+0.003, +0.259]
+  prior-year -VR  vs this year's FADE edge: Spearman -0.020 [-0.168, +0.145]
+  does the score itself persist? HOLD year to year +0.186 [+0.055, +0.306]; VR year to year -0.114 [-0.285, +0.048]
+  T1 decision: character PERSISTS as a predictor of fade results
+
+T2 allocation by prior-year HOLD:
+  FADE  all coins      n   749  avg R -0.144  edge -0.103 [-0.286, +0.084]
+  FADE  range third    n   238  avg R -0.270  edge -0.210 [-0.456, +0.053]
+  FADE  middle third   n   237  avg R -0.115  edge -0.112 [-0.452, +0.265]
+  FADE  trend third    n   274  avg R -0.059  edge -0.002 [-0.304, +0.318]
+  BREAK all coins      n   536  avg R +0.140  edge +0.130 [+0.013, +0.253]
+  BREAK range third    n   185  avg R +0.194  edge +0.180 [-0.011, +0.358]
+  BREAK middle third   n   164  avg R +0.175  edge +0.154 [-0.050, +0.366]
+  BREAK trend third    n   187  avg R +0.054  edge +0.059 [-0.179, +0.313]
+  T2 decision: fade on the range third fails; break on the trend third fails
+
+T2 allocation by prior-year VR (not decided):
+  FADE  all coins      n   705  avg R -0.155  edge -0.111 [-0.301, +0.088]
+  FADE  range third    n   241  avg R -0.115  edge -0.072 [-0.368, +0.222]
+  FADE  middle third   n   264  avg R -0.044  edge +0.021 [-0.274, +0.367]
+  FADE  trend third    n   200  avg R -0.351  edge -0.333 [-0.584, -0.061]
+  BREAK all coins      n   509  avg R +0.148  edge +0.135 [+0.016, +0.253]
+  BREAK range third    n   165  avg R +0.083  edge +0.104 [-0.096, +0.324]
+  BREAK middle third   n   200  avg R +0.150  edge +0.107 [-0.087, +0.303]
+  BREAK trend third    n   144  avg R +0.220  edge +0.209 [-0.024, +0.467]
+
+coin character, averaged over years (HOLD: share of box-edge tests reaching the middle; VR(5) of daily returns):
+  most range-bound by HOLD: XRP 0.68/0.94, ICP 0.63/1.02, HBAR 0.63/0.88, IMX 0.59/0.93, ATOM 0.55/0.90, INJ 0.54/0.91, FET 0.53/0.99, FIL 0.53/0.93
+  least range-bound:        TIA 0.30/0.86, ETH 0.30/0.96, NEAR 0.29/0.99, SOL 0.29/0.97, LINK 0.24/0.92, SHIB 0.23/0.97, ADA 0.22/0.97, AVAX 0.06/1.01
+  PAXG (gold token): HOLD 0.40, VR 0.90; rank 22 of 38

@@ -646,6 +646,25 @@ signal, which are in an open trend (entry, stop, exit level), and which are near
 (`scan/scan_2026-09-30.txt`) shows 111 of 148 coins in an open trend, no new signal on the day, and 2 within 5% of the
 trigger. This is information only.
 
+## The instrument as a factor (TrialFamily range-v5)
+
+The user's point: instruments differ in character, so a range strategy belongs on range-bound instruments.
+`range5/` scores each of 37 large caps plus PAXG (a gold token) on its prior year: HOLD is the share of 4h box-edge
+tests that reached the box middle, VR the daily variance ratio. The runs walk forward through 2019-2026
+(`range5/result.txt`).
+- **Character exists and persists modestly:** HOLD runs from 0.68 (XRP) and 0.63 (ICP, HBAR) down to 0.06 (AVAX), and
+  its year-to-year rank correlation is +0.19 [+0.06, +0.31].
+- **T1 passes by a hair:** prior-year HOLD predicts this year's fade result at Spearman +0.12 [+0.003, +0.26]. VR
+  does not (-0.02).
+- **T2 fails, because the predictive power is too weak to trade:**
+  - fading boxes on the most range-bound third still loses, at -0.21R against random [-0.46, +0.05];
+  - the box breakout on the most trending third gives +0.06R, below its all-coin +0.13R.
+- **The breakout over every coin:** +0.13R [+0.01, +0.25] over these coin-years. This overlaps data already used, so it
+  is not new evidence.
+- **PAXG** sits in the middle (HOLD 0.40, rank 22 of 38).
+- **Conclusion:** coins differ in range-bound character, and the difference persists a little. But even on the most
+  range-bound coins, box fading does not beat random after costs. The break remains the useful box trade.
+
 ## Running the survivors together, and a forward record
 
 `combo/portfolio.py` runs B1, trendline_break_strong and line_break_ridge as one book on BTC, ETH and the 15 holdout
