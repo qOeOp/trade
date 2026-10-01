@@ -403,3 +403,12 @@ detectable edge over random entries on daily crypto bars.
 - **Reason (cited mechanism):** "breakouts need volume" (O'Neil's CANSLIM rule; common community practice). The
   decomposition puts 27-43% of stops within 2 bars (false breaks), the part volume confirmation is meant to remove.
   The ledger does not support it (the volume ratio's mean IC in Family B is -0.05), so it is the cited-mechanism path.
+
+**Result B-10:** iteration gate fails. 192 trades, avg R +0.341, edge -0.074 [-0.395, +0.283]. Volume did not remove
+false breaks: stops within 2 bars rose to 44% of stopped trades.
+
+**Family B: terminal.** Over 10 loops, breaks in the trend's direction earned +0.2R to +0.5R a trade but never more
+than random entries of the same year and side. The return is the regime (long in an uptrend) and the exit that lets
+winners run, not the break as an entry. This matches Family A's beta finding and trend-v1's note that the exit carries
+the trend rule. No flagged factor appeared in any loop, and the cited mechanisms are spent: Osler's cascades at round
+numbers, Crabel's compression, volume confirmation, two-close confirmation and Donchian channels.
