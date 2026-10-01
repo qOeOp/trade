@@ -15,6 +15,9 @@ _spec.loader.exec_module(C)
 rows = []
 for coin in E.ITER_EXT_COINS:
     f = C.monthly("fund", f"{coin}USDT", "2020-01-01", "2023-01-01")
+    if not f:
+        print(coin, "no funding archive", flush=True)
+        continue
     s = pd.Series([float(x[2]) for x in f], index=[C.ts(x[0]) - pd.Timedelta(seconds=1) for x in f], dtype=float)
     s = s.groupby(s.index.normalize()).sum()
     rows.append(pd.DataFrame({"coin": coin, "date": s.index, "fund": s.values}))
