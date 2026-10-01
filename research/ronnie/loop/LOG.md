@@ -1018,3 +1018,16 @@ Breaks whose bar closes between Sunday 23:00 and Monday 23:00 UTC, against the r
 
 The window is worse, not better, in all three; no weekday is consistently favoured. The practitioner claim (BTC
 intraday trend) does not transfer to 4h breaks. Rejected, as predicted (no effect).
+
+## Bear-market line: cross-sectional funding long-short (loop X-1; external research section 5, hypothesis 1)
+
+### Loop X-1 (registered before running)
+
+- **Rule:** each day, rank the 17 majors by trailing 3-day funding (sum of settlements). Long the 3 lowest and short the
+  3 highest, equal dollar weights, perpetual prices, rebalanced daily, 0.06% a side on turnover.
+- **Score:** daily return, price only (excluding funding) and, separately, including the funding paid and received.
+- **Gate:** the price-only mean is above zero with a week-clustered 95% interval above zero, and it is positive in both
+  halves (2020; 2021-2022), on the iteration tier (17 majors, 2020-2022).
+- **Sources:** Chi et al. (2023), the basis as the strongest cross-sectional predictor; BIS "Crypto Carry", high carry
+  precedes unwinds. Against: Presto Labs, about zero next-week R-squared on a single asset.
+- **Predicted:** price-only about 0 with a negative lower bound; slightly positive including funding.
