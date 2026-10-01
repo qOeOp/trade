@@ -563,6 +563,16 @@ long only, spot with no leverage or funding, 0.1% per side, at most 1x invested,
 - **Caveat, development data:** these coins were development data, although the rule's parameters are textbook values
   and were not tuned here.
 
+**Forward record (`trend/forward.py`).** It records long-only daily trend following on the 17 majors from 2026-10-01,
+starting flat. It places no orders and uses no account.
+- **Events:** each daily run appends newly known events to `trend/forward/events.csv`. There are three kinds:
+  - signal, at the close;
+  - entry, at the next open;
+  - exit, at the stop or at the close.
+- **State:** each run rewrites `trend/forward/state.csv`, with each coin's status, entry trigger and exit level.
+- **Score:** `python trend/forward.py score` summarises the closed paper trades.
+- **Schedule:** a daily routine runs it, with `combo/forward.py`, and commits the result. The commit time is the proof.
+
 ## Running the survivors together, and a forward record
 
 `combo/portfolio.py` runs B1, trendline_break_strong and line_break_ridge as one book on BTC, ETH and the 15 holdout
