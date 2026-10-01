@@ -287,3 +287,7 @@ Input for the product's R&D system. Each note: what happened, why it matters, a 
     Ronnie plan, S4 looked harmful (-0.24) when it was positive (+0.06). Earlier families were re-checked, and no
     closure changed. Proposal: a scorer never filters trades silently; any exclusion is a rule's explicit condition,
     counted and reported with the result.
+55. **A gatekeeper verdict must carry every condition of its stage.** The R-1 read printed PASS from the interval alone,
+    while stage 2 also requires the estimate to reach SESOI. The missing bit sat in the sealed file, and a second relay
+    to fetch it was rightly denied because it reads the sealed store. Proposal: the gatekeeper's verdict function is
+    generated from the stage definition in CRITERIA, so a verdict cannot omit a condition.

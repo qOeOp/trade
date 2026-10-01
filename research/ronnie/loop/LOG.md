@@ -1907,3 +1907,13 @@ close through the effective low; limit entries in zones; stops beyond the zone; 
   were watched for method, not scored.
 - **Predicted:** FAIL (edge positive, interval spans zero), from the usual shrinkage of 26-58% and the post-2022
   decay seen in D-R.
+
+**Verdict R-1 holdout (gatekeeper relay):** PASS at 95%, meaning the week-clustered interval is above zero on the 69
+post-2022 holdout coins. This beats the prediction (FAIL, edge positive, interval spans zero).
+- **CRITERIA stage 2 also requires the estimate to be at least SESOI (+0.10R).** The gatekeeper script printed only
+  the interval verdict and wrote the SESOI bit to the sealed file.
+- **A follow-up relay of that bit was denied** by the permission system: it reads the sealed file directly. It was not
+  retried by any other route and is surfaced to the user. Until then, R-1's stage-2 status is "interval above zero,
+  SESOI unconfirmed".
+- **Process defect (workflow note 55):** the gatekeeper's printed verdict must carry every condition of the stage it
+  judges.
