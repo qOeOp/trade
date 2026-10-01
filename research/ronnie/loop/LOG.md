@@ -1063,3 +1063,16 @@ Diagnosis:
 On the 37 coins over 2023-2026, the cross-sectional funding long-short does not earn on price. Its development result
 was a 2021 (and DOGE) effect, as the diagnosis suspected, and it agrees with carry-v1's P1 prior. The bear-market line
 has no surviving short-side or long-short rule; long/cash trend (T-1's ensemble) and carry remain its tools.
+
+## Trend line: point-in-time universe (loop T-2; external research section 2, hypothesis 2)
+
+### Loop T-2 (registered before running)
+
+- **Universe:** each month, the 20 Binance spot USDT pairs with the highest median daily quote volume over the prior 30
+  days, among pairs listed at least 365 days, delisted pairs included (`loop/fetch_universe.py`, 665 symbols).
+  Stablecoins and leveraged tokens are excluded.
+- **Books:** T-1's books (B0 buy-and-hold, B1 above the 200-day mean, B2 T0, B3 Donchian ensemble), with the same sizing
+  (25% volatility target per coin over 20), over 2018-2022. A coin leaving the universe is exited at the month's change.
+- **Gate:** B3's Sharpe above B1's, with a weekly-bootstrap interval of the difference above zero.
+- **Predicted:** all levels lower than T-1 (survivorship removed); B3 about 0.3 above B1, with a lower bound near zero.
+- **If it passes:** one gatekeeper read on the same construction over 2023-2026 (three-level verdict).
