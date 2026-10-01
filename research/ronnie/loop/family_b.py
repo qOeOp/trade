@@ -13,17 +13,24 @@ BASE = dict(tf="1d", stop_atr=1.0, rr=3.0, hold=20, spacing=5, level_tf="1w", si
 LOOPS = {"B-1": dict(BASE), "B-2": dict(BASE, sides=(1,)), "B-3": dict(BASE, sides=(1,), closes=2), "B-4": dict(BASE, sides=(1,), closes=2, max_vol=1.0),
          "B-5": dict(BASE, sides=(1,), closes=2, max_vol=1.0, level_tf="1d"),
          "B-6": dict(BASE, sides=(1,), max_vol=1.0, level_tf="1d"),
-         "B-7": dict(BASE, sides=(1,), closes=2, max_vol=1.0, level_tf="donchian20")}
+         "B-7": dict(BASE, sides=(1,), closes=2, max_vol=1.0, level_tf="donchian20"),
+         "B-8": dict(BASE, sides=(1,), closes=2, max_vol=1.0, level_tf="1d", tf="4h")}
 
 
 def make(cfg):
     feats = {}
 
     def fn(d1, d4):
-        d = d1
+        d = d1 if cfg["tf"] == "1d" else d4
         o, h, l, c = (d[x].values for x in ("open", "high", "low", "close"))
         a, a100 = E.MT.atr_of(h, l, c), E.MT.atr_of(h, l, c, 100)
-        s50, s200 = (pd.Series(c).rolling(k).mean().values for k in (50, 200))
+        if cfg["tf"] == "1d":
+            s50, s200, cc = \
+                (pd.Series(c).rolling(50).mean().values, pd.Series(c).rolling(200).mean().values, c)
+        else:  # the daily trend at the last closed day, mapped onto 4h bars
+            di = np.maximum(d1.index.searchsorted(d.index, side="right") - 2, 0)
+            dc = d1.close
+            s50, s200, cc = dc.rolling(50).mean().values[di], dc.rolling(200).mean().values[di], dc.values[di]
         if cfg["level_tf"] == "1w":
             w = d.resample("W-MON", label="left", closed="left").agg({"open": "first", "high": "max", "low": "min", "close": "last"}).dropna()
             wbook = FA.levels(w, 2)
@@ -41,8 +48,8 @@ def make(cfg):
             k = wi[i - cfg.get("closes", 1) + 1]  # levels intact at the open of the first crossing bar
             Y, S = wbook[k][0], wbook[k][1]
             for side in cfg["sides"]:
-                up = c[i] > s200[i] and s50[i] > s200[i]
-                dn = c[i] < s200[i] and s50[i] < s200[i]
+                up = cc[i] > s200[i] and s50[i] > s200[i]
+                dn = cc[i] < s200[i] and s50[i] < s200[i]
                 if (side == 1 and not up) or (side == -1 and not dn):
                     continue
                 m = S == side  # resistances for longs, supports for shorts

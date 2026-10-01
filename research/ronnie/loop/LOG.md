@@ -214,3 +214,13 @@ about 0.5R can pass. The +0.3R edges seen here cannot be decided at that size.
 - **Reason:** the level's rank (weekly or daily swing) showed no decisive role in either family. The Donchian break is
   the standard breakout definition (the Turtle rules; volatility-filtered breakouts in the Crabel line), and it raises
   the sample.
+
+**Result B-7:** iteration gate fails. 78 trades, avg R +0.494, control +0.322, edge +0.172 [-0.395, +0.753]. The
+Donchian level did not raise the sample.
+
+### Loop B-8 (registered before running; the last loop of the family budget)
+
+- **Single change from B-5:** execute on 4h bars. The levels are 4h swings of order 3, and the two-close confirmation
+  and compression gate are kept in bar units. The trend is the daily trend at the last closed day.
+- **Reason:** Crabel's compression work is short-horizon; the 4h box breakout was positive in three samples; 4h bars
+  give an order of magnitude more breaks, which the power note says is needed.
