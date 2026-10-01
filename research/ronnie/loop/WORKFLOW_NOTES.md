@@ -196,3 +196,10 @@ Input for the product's R&D system. Each note: what happened, why it matters, a 
 36. **The gatekeeper subagent worked as intended.** It read the sealed file and returned one line. The iterator learned
     PASS and nothing else. The cost was one extra agent call; the gain is that the final tier of carry K1 can still be
     audited by the user and was never seen by the agent designing the next loop.
+37. **A feature can be undefined for the construct.** "Box age" assumed persistent boxes, but the 60-bar rolling box
+    shifts every bar, so the feature was 0 for every trade. The diagnosis printed a split with an empty side. Feature
+    definitions need a validity check (variance and distinct values) before they enter a diagnosis, as note 18 asks
+    for attribution.
+38. **Factors can conflict across families.** "More touches" is good for range-edge fades (E-1) and bad for swing-level
+    bounces (A3, A9). A ledger keyed by feature name alone would merge them. It needs the construct as part of the key
+    (touches of what, counted how).

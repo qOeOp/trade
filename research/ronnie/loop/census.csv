@@ -41,3 +41,7 @@ logged_at,loop,candidate,stage,n,edge,lo,hi,passed,note
 2026-10-01T08:57:38+00:00,D-1,ablation: stop 1 ATR beyond the broken edge,ablation,129,+0.3962,-0.0355,+0.8773,False,
 2026-10-01T08:57:41+00:00,D-1,ablation: no entry-beyond-middle condition,ablation,126,+0.3085,+0.0524,+0.5536,True,
 2026-10-01T08:58:25+00:00,K1,carry,final,,,,,True,"carry/final.py, pre-registered; verdict relayed by gatekeeper subagent; details sealed in carry/final.txt"
+2026-10-01T09:49:44+00:00,E-1,familyA,iteration,176,-0.1213,-0.4688,+0.2354,False,
+2026-10-01T09:50:35+00:00,E-1,ablation: target at the box middle,ablation,128,-0.1591,-0.4879,+0.1883,False,
+2026-10-01T09:50:37+00:00,E-1,ablation: stop 1.5 ATR beyond the edge,ablation,169,-0.1971,-0.4224,+0.0303,False,
+2026-10-01T09:50:41+00:00,E-1,ablation: no close-in-outer-half condition,ablation,280,-0.2148,-0.4940,+0.0832,False,

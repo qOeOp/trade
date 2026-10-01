@@ -539,3 +539,32 @@ diagnosis-first protocol. Final tier: the reserve (amendment 6).
   - **H3, box quality:** boxes with more touches and a longer life hold better.
   - **H4, stop hunts:** stops 0.5 ATR beyond the edge sit where stop orders cluster (Osler), so price often returns
     inside the box after the stop.
+
+**Result E-1:** iteration gate fails. 176 trades, avg R -0.165, edge -0.121 [-0.469, +0.235]. Stops 66%: 35% of them
+within 2 bars, 21% after first reaching +1R. The target R is reliably negative (IC -0.19): the farther the far edge,
+the worse.
+
+### Diagnosis of E-1 (`loop/diagnose_e.py`, `loop/diagnose_e.txt`)
+
+- **H1, regime:** rejected. Fades with the daily trend -0.149, against it -0.099.
+- **H2, sweep on the signal bar:** rejected, reversed. Fades whose signal bar swept beyond the edge -0.234 (76% stopped),
+  others -0.066.
+- **H3, faded edge touched 3 or more times:** +0.471 (31 trades, 52% stopped) against -0.248 (145, 70%). A strong split,
+  but small. It conflicts in sign with Family A's prior-touch factor (different constructs: tests of a range edge here,
+  retests of a swing level there). Box age is unusable: the rolling box shifts every bar, so the measure was always 0
+  (workflow note 37).
+- **H4, stop hunts:** supported. 63% of stopped trades closed back inside the box within 6 bars of the stop. A wider
+  stop (1.5 ATR) did worse (-0.197), so the stop's distance is not the cure.
+- **Ablations:** a target at the box middle (-0.159) and dropping the close condition (-0.215) both do worse.
+- **Beta check:** no consistent BTC-trend pattern.
+
+### Loop E-2 (registered before running; amendment 4)
+
+- **Structural change (entry model):** trade the failed break instead of the first touch. A 4h close beyond the box
+  edge (the box known at the bar before the break) is followed within 6 bars by a close back inside the box. Entry at
+  the next open, toward the far edge; stop 0.25 ATR beyond the extreme of the break excursion; target the far edge
+  minus 0.25 ATR; time limit 30 bars.
+- **Explanation it rests on:** H4 (63% of stopped fades re-entered the box). Sources: Wyckoff's spring and upthrust,
+  the price-action "failed breakout", and Osler's stop clustering beyond levels.
+- **Power:** about 60 trades on the 17 majors is too few, so it runs on the extended tier (about 180 expected).
+- **Predicted:** edge +0.15, with a lower bound near -0.1 (uncertain).

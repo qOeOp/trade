@@ -1,0 +1,62 @@
+Diagnosis of E-1 (4h box fade, iteration tier)
+
+worst 20:
+coin          time  side     R  edge  target_R  align  swept  touches  box_age  reentry
+ BNB 2022-10-10 12     1 -1.22 -2.22     14.85   -1.0   True        2        0      0.0
+DOGE 2020-04-19 00    -1 -1.16 -0.20     11.59   -1.0   True        3       16      1.0
+ TRX 2022-12-10 08    -1 -1.15 -1.82      5.39    1.0  False        2        1      1.0
+ BNB 2020-12-17 04    -1 -1.11 -0.75     11.31   -1.0   True        2        0      1.0
+ ETH 2019-10-18 12     1 -1.11 -1.36     12.95   -1.0   True        2        0      1.0
+DOGE 2022-10-11 04     1 -1.11 -1.96     11.93   -1.0   True        2        0      1.0
+ BTC 2022-10-11 04     1 -1.10 -1.40      6.05   -1.0  False        2        0      1.0
+ LTC 2022-04-24 16     1 -1.09 -1.24      7.40   -1.0   True        2        1      1.0
+ BTC 2019-03-07 16    -1 -1.09 -1.41      3.80   -1.0  False        2        0      1.0
+ ADA 2018-07-30 20     1 -1.09 -1.10     12.55    1.0   True        3        0      0.0
+ DOT 2022-12-11 04     1 -1.09 -0.54      6.05   -1.0  False        2        7      0.0
+ ADA 2020-11-06 16    -1 -1.08 -0.84     11.00    1.0   True        2        0      1.0
+ ADA 2022-09-03 20    -1 -1.08 -1.79      7.19    1.0   True        2        2      0.0
+ BNB 2020-12-15 04    -1 -1.07 -1.19      6.36   -1.0   True        2        1      0.0
+ DOT 2022-12-10 00     1 -1.07 -0.31      4.67   -1.0  False        2        0      0.0
+ BTC 2021-11-16 12     1 -1.06 -2.47      7.14    1.0   True        2        1      1.0
+ LTC 2019-04-24 04     1 -1.06 -0.51      7.72    1.0   True        2        0      0.0
+ BNB 2022-03-19 04    -1 -1.06 -1.03      4.85   -1.0  False        2        0      1.0
+ ETH 2021-12-29 16     1 -1.06 -1.42      4.59   -1.0   True        2        1      0.0
+ TRX 2022-11-30 04    -1 -1.06 -1.24      4.42    1.0  False        2        3      1.0
+
+best 20:
+coin          time  side    R  edge  target_R  align  swept  touches  box_age  reentry
+ BNB 2021-01-11 20     1 5.00  5.34      6.20    1.0   True        2        0      NaN
+ BNB 2022-07-26 20     1 4.99  4.53      5.04    1.0  False        2        0      NaN
+ XRP 2020-09-17 04    -1 4.88  4.58      4.95    1.0   True        2        0      NaN
+ATOM 2021-11-28 12     1 3.98  4.23      5.11   -1.0  False        3        0      NaN
+ XLM 2021-11-28 16     1 3.98  4.08      4.01   -1.0  False        2        0      NaN
+ DOT 2022-09-07 04     1 3.94  4.31      3.98   -1.0   True        4        1      NaN
+ XRP 2019-01-10 04    -1 3.02  2.92      3.07   -1.0   True        2        9      NaN
+ LTC 2018-07-12 12     1 2.94  3.41      5.20   -1.0  False        2        0      NaN
+ATOM 2021-01-11 20     1 2.82  2.84      2.83    1.0   True        3        7      NaN
+ LTC 2019-06-05 00     1 2.78  2.67      2.80    1.0  False        2        0      NaN
+ATOM 2021-04-23 04     1 2.76  2.37      6.18   -1.0   True        2       11      NaN
+ TRX 2019-08-25 12    -1 2.72  2.65      2.76    1.0  False        2        2      NaN
+ DOT 2021-06-15 04    -1 2.69  2.87      3.02    1.0  False        2        0      NaN
+ATOM 2022-08-29 04     1 2.57  2.82      4.21   -1.0  False        3        7      NaN
+ BNB 2020-03-06 16    -1 2.55  2.88      2.57   -1.0  False        2        0      NaN
+ TRX 2022-11-03 04     1 2.49  2.32      2.56   -1.0  False        2        0      NaN
+AVAX 2022-07-01 20     1 2.39  2.56      4.80   -1.0  False        2        8      NaN
+ DOT 2020-10-12 20    -1 2.38  2.91      4.33    1.0  False        2        0      NaN
+ BCH 2020-05-09 20    -1 2.35  2.43      2.37   -1.0  False        2        1      NaN
+ TRX 2020-05-09 20    -1 1.95  1.87      1.98   -1.0  False        4        1      NaN
+
+competing explanations:
+  H1 fade with the daily trend                 yes: edge -0.149 (n 78), stopped 67%   no: edge -0.099 (n 98), stopped 67%
+  H2 signal bar swept beyond the edge          yes: edge -0.234 (n 58), stopped 76%   no: edge -0.066 (n 118), stopped 63%
+  H3 faded edge touched 3+ times               yes: edge +0.471 (n 31), stopped 52%   no: edge -0.248 (n 145), stopped 70%
+  H3 box age at least the median (0 bars)      yes: edge -0.121 (n 176), stopped 67%   no: edge +nan (n 0), stopped nan%
+  H4 stopped trades whose price closed back inside the box within 6 bars: 63% (n 117)
+  beta check for btc_trend (random entries every 6 bars, stop 1.5 ATR, target 2.0R, 30 bars):
+    side +1: random R by bucket Q1 -0.013 Q2 -0.052 Q3 -0.087 Q4 -0.136 Q5 +0.134   | trades edge by bucket Q1 +0.10 Q2 -0.36 Q3 -0.84 Q4 +0.05 Q5 +0.27
+    side -1: random R by bucket Q1 -0.009 Q2 +0.002 Q3 +0.077 Q4 +0.084 Q5 -0.106   | trades edge by bucket Q1 -0.24 Q2 -0.93 Q3 -0.26 Q4 +0.57 Q5 -0.00
+
+ablation (iteration tier):
+  target at the box middle               n 128, avg R -0.274, edge -0.159 [-0.488, +0.188], 2018-20 -0.281 (n 55), 2021-22 -0.067 (n 73)
+  stop 1.5 ATR beyond the edge           n 169, avg R -0.204, edge -0.197 [-0.422, +0.030], 2018-20 -0.162 (n 73), 2021-22 -0.223 (n 96)
+  no close-in-outer-half condition       n 280, avg R -0.253, edge -0.215 [-0.494, +0.083], 2018-20 -0.283 (n 128), 2021-22 -0.157 (n 152)
