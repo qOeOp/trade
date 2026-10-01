@@ -1,0 +1,37 @@
+screen-v1 (INTENT.md): room = distance to the nearest intact 4h/daily/weekly level ahead, in R; guard = a level
+between stop and entry; score = R under the baseline exit X0; kept minus dropped with a 95% coin-then-trade bootstrap
+
+B1:
+  dev: n 2630, mean R +0.148, median room 0.44R (none ahead 8%), guard 40%
+  holdout: n 2597, mean R +0.093, median room 0.43R (none ahead 3%), guard 36%
+  G1 dev kept  396 (15%) +0.241 dropped +0.132 diff +0.109 [-0.076, +0.315] | holdout kept  267 (10%) -0.080 dropped +0.113 diff -0.193 [-0.401, +0.032]
+  G2 dev kept  792 (30%) +0.146 dropped +0.149 diff -0.004 [-0.145, +0.155] | holdout kept  688 (26%) -0.030 dropped +0.138 diff -0.168 [-0.327, -0.007]
+  G3 dev kept 1040 (40%) +0.223 dropped +0.099 diff +0.124 [-0.034, +0.284] | holdout kept  945 (36%) +0.090 dropped +0.095 diff -0.005 [-0.154, +0.144]
+  G4 dev kept  158 (6%) +0.376 dropped +0.134 diff +0.242 [-0.068, +0.560] | holdout kept  108 (4%) -0.150 dropped +0.104 diff -0.254 [-0.559, +0.067]
+
+BOX:
+  dev: n 130, mean R +0.370, median room 0.21R (none ahead 2%), guard 68%
+  holdout: n 226, mean R +0.188, median room 0.38R (none ahead 0%), guard 73%
+  G1 dev kept    5 (4%) +0.232 dropped +0.376 diff -0.143 [-1.338, +1.399] | holdout kept    6 (3%) -0.005 dropped +0.193 diff -0.197 [-1.311, +1.343]
+  G2 dev kept   18 (14%) +0.025 dropped +0.426 diff -0.401 [-1.137, +0.392] | holdout kept   40 (18%) +0.198 dropped +0.186 diff +0.012 [-0.431, +0.465]
+  G3 dev kept   89 (68%) +0.409 dropped +0.286 diff +0.124 [-0.421, +0.708] | holdout kept  165 (73%) +0.204 dropped +0.144 diff +0.060 [-0.375, +0.492]
+  G4 dev kept 3 dropped 127: too few | holdout kept    5 (2%) +0.198 dropped +0.187 diff +0.011 [-1.298, +1.509]
+
+TREND:
+  dev: n 473, mean R +1.066, median room 0.11R (none ahead 4%), guard 81%
+  holdout: n 566, mean R +0.355, median room 0.11R (none ahead 1%), guard 79%
+  G1 dev kept   18 (4%) +0.053 dropped +1.106 diff -1.053 [-2.303, -0.021] | holdout kept   11 (2%) +0.208 dropped +0.358 diff -0.150 [-1.335, +1.292]
+  G2 dev kept   29 (6%) +0.197 dropped +1.123 diff -0.926 [-2.193, +0.129] | holdout kept   24 (4%) +0.473 dropped +0.350 diff +0.123 [-1.049, +1.669]
+  G3 dev kept  383 (81%) +1.178 dropped +0.590 diff +0.587 [-0.940, +2.126] | holdout kept  448 (79%) +0.381 dropped +0.256 diff +0.125 [-0.740, +0.819]
+  G4 dev kept   13 (3%) +0.434 dropped +1.084 diff -0.650 [-2.145, +0.782] | holdout kept   11 (2%) +0.208 dropped +0.358 diff -0.150 [-1.335, +1.292]
+
+FADE:
+  dev: n 187, mean R -0.132, median room 1.89R (none ahead 0%), guard 91%
+  holdout: n 307, mean R -0.149, median room 1.76R (none ahead 0%), guard 93%
+  G1 dev kept   88 (47%) -0.380 dropped +0.089 diff -0.469 [-1.052, +0.159] | holdout kept  127 (41%) -0.311 dropped -0.035 diff -0.276 [-0.707, +0.155]
+  G2 dev kept  151 (81%) -0.157 dropped -0.024 diff -0.133 [-0.786, +0.450] | holdout kept  225 (73%) -0.210 dropped +0.018 diff -0.229 [-0.787, +0.252]
+  G3 dev kept  170 (91%) -0.154 dropped +0.088 diff -0.242 [-2.059, +1.045] | holdout kept  285 (93%) -0.120 dropped -0.523 diff +0.402 [-0.603, +1.063]
+  G4 dev kept   79 (42%) -0.478 dropped +0.122 diff -0.600 [-1.171, +0.013] | holdout kept  116 (38%) -0.340 dropped -0.034 diff -0.306 [-0.714, +0.148]
+
+decision, screens that hold (kept minus dropped above zero at 95% on both sets): none
+decision, box fade rescued: no
