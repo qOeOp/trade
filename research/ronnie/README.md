@@ -762,6 +762,30 @@ development set is the 17 majors over 2018-2022; the holdout is those majors plu
 - **Conclusion:** in this data the bear-market defence is the trend book's cash (2022: -23% against -64% for BTC), not
   a short book. Market-neutral carry (funding and basis), which earns in either regime, is the untested alternative.
 
+## Calendar and macro event windows (TrialFamily events-v1)
+
+`events/` asks whether strategies lose mainly around FOMC decisions, CPI releases, month turns or year ends, and would
+work if those entries were skipped. The FOMC dates come from federalreserve.gov and the CPI release dates from ALFRED
+vintage dates (`events/fetch_events.py`, `events/calendar.csv`), both fetched before scoring. Each skip filter is
+tested against skipping the same number of random trades of the same coins (`events/result.txt`).
+- **Adopted filters:** one, out of 30 strategy-event pairs. For the shorts, skipping September and October (the worst
+  months on 2018-2022) helps on the holdout too, +0.035R. The kept holdout shorts still average -0.057R, so nothing is
+  rescued.
+- **Caveat on the month filter:** trades of different coins in the same month share one market move. The within-coin
+  shuffle treats them as independent, so its p-values are too small for month windows.
+- **CPI:** on the holdout, trades entered on CPI day or the day after did worse for every strategy, with skip
+  p < 0.05 for TREND, B1, BOX, FADE and SHORT. On 2018-2022 the effect is absent or reversed, so it may be a
+  2023-2026 regime (inflation-driven markets). It is a new hypothesis for the forward record, not a rule.
+- **FOMC, the reverse:** B1 trades entered within a day of an FOMC decision did better on both sets (+0.36R and +0.35R
+  against +0.13R and +0.07R; window trades better, p 0.02 and 0.003). Volatility events help a momentum entry rather
+  than hurt it.
+- **Development-chosen months (M1):** they look strong on development for every strategy, by construction. On the
+  holdout they help nothing except the shorts above, and hurt BOX (-0.08R).
+- **Year end and month turn:** no consistent effect.
+- **Halvings:** descriptive only, two events.
+- **Conclusion:** the failed strategies do not fail because of event windows. Their losses are spread over the
+  calendar.
+
 ## Running the survivors together, and a forward record
 
 `combo/portfolio.py` runs B1, trendline_break_strong and line_break_ridge as one book on BTC, ETH and the 15 holdout
