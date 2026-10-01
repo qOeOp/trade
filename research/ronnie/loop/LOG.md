@@ -101,3 +101,18 @@ them within 2 bars. Weekly levels hold better, but they are touched rarely: the 
   limit (20 bars) keep their bar-unit definitions.
 - **Reason:** higher-timeframe location with a lower-timeframe trigger is the multi-timeframe practice of Ronnie and the
   community. It raises the number of tests of the weekly levels without loosening the level definition.
+
+**Result A6:** iteration gate fails. 125 trades, avg R +0.014, edge -0.032 [-0.342, +0.250]; 2018-2020 +0.099,
+2021-2022 -0.113. The 4h execution diluted A5.
+
+**Attribution so far (A1-A6):**
+- **Level size:** weekly levels beat daily swings (A5 against A3).
+- **Entry:** confirmation beats a next-open entry (A3 against A1).
+- **Volatility:** low-volatility tests (ATR14 below ATR100) did best in A2, A3 and A6.
+- **Period:** 2018-2020 beats 2021-2022 in every loop.
+
+### Loop A7 (registered before running)
+
+- **Single change from A5:** a touch tolerance of 0.5 ATR instead of 0.25.
+- **Reason:** traders draw levels as zones, not lines, and Osler finds stop orders clustered just beyond levels. A zone
+  raises the number of tests of the weekly levels without lowering the level's rank.

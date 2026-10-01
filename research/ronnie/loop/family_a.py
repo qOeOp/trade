@@ -15,7 +15,8 @@ import engine as E  # noqa: E402
 BASE = dict(tf="1d", trend="sma", touch=0.25, stop_atr=1.0, target="hh20", hold=20, confirm="close_above", sides=(1, -1),
             level_tf="1d", spacing=5)
 LOOPS = {"A1": dict(BASE), "A2": dict(BASE, min_touches=2), "A3": dict(BASE, confirm="trigger"), "A4": dict(BASE, confirm="trigger", ts=(5, 1.0)), "A5": dict(BASE, confirm="trigger", level_tf="1w"),
-         "A6": dict(BASE, confirm="trigger", level_tf="1w", tf="4h")}
+         "A6": dict(BASE, confirm="trigger", level_tf="1w", tf="4h"),
+         "A7": dict(BASE, confirm="trigger", level_tf="1w", touch=0.5)}
 
 
 def levels(d, k):
