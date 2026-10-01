@@ -1,0 +1,41 @@
+goldtrend-v1 (INTENT.md): trend-v1 T0 on TVC:GOLD daily; costs 0.03%/side + 0.01%/day carry;
+control = 20 random entries, same year and side, same stop and exits; trade bootstrap
+
+TVC:GOLD: data 2006-12-17 to 2026-08-31
+  formation 2008-2018  long  n  29  win 38%  avg R +0.267  control -0.036  minus control +0.303 [-0.218, +0.873]  median days 21
+  formation 2008-2018  short n  30  win 23%  avg R -0.277  control -0.112  minus control -0.165 [-0.660, +0.453]  median days 16
+  test 2019-2026       long  n  16  win 75%  avg R +2.376  control +0.860  minus control +1.517 [+0.092, +3.332]  median days 56
+  test 2019-2026       short n  16  win 19%  avg R -0.668  control -0.399  minus control -0.268 [-0.511, -0.010]  median days 16
+  per year (long n / avg R | short n / avg R):
+    2008: long  2 / -0.85 | short  4 / -0.82
+    2009: long  3 / +0.86 | short  1 / -1.04
+    2010: long  2 / +2.45 | short  3 / -1.03
+    2011: long  3 / +1.45 | short  2 / -1.06
+    2012: long  2 / +0.59 | short  3 / -0.73
+    2013: long  1 / -1.05 | short  3 / +2.35
+    2014: long  2 / -0.14 | short  3 / -0.41
+    2015: long  3 / -0.84 | short  3 / +0.11
+    2016: long  4 / +0.27 | short  3 / -0.24
+    2017: long  5 / -0.44 | short  3 / -1.09
+    2018: long  2 / +0.68 | short  2 / +0.62
+    2019: long  2 / +3.46 | short  2 / -0.77
+    2020: long  2 / +1.42 | short  2 / -0.94
+    2021: long  2 / -0.13 | short  4 / -0.72
+    2022: long  2 / +1.18 | short  3 / -0.29
+    2023: long  2 / +0.16 | short  3 / -0.92
+    2024: long  3 / +1.71 | short  0 / +nan
+    2025: long  2 / +10.84 | short  0 / +nan
+    2026: long  1 / -0.98 | short  2 / -0.38
+  book 2008-2026: trend 1% risk long-only CAGR +2.9% maxDD -6.5% Sharpe 0.66 invested 37% | buy and hold CAGR +9.2% maxDD -44.6% Sharpe 0.58
+  book 2019-2026: trend 1% risk long-only CAGR +5.3% maxDD -5.9% Sharpe 0.96 invested 45% | buy and hold CAGR +17.2% maxDD -26.6% Sharpe 0.99
+  book by year (trend / hold): 2008 +3%/+6%, 2009 +2%/+25%, 2010 +7%/+30%, 2011 +3%/+10%, 2012 +1%/+7%, 2013 -1%/-28%, 2014 -0%/-2%, 2015 -2%/-10%, 2016 +1%/+8%, 2017 -2%/+13%, 2018 +2%/-2%, 2019 +8%/+18%, 2020 +4%/+25%, 2021 -0%/-4%, 2022 +2%/-0%, 2023 +3%/+13%, 2024 +4%/+27%, 2025 +17%/+65%, 2026 +4%/+0%
+
+TVC:SILVER: data 2006-12-17 to 2026-08-31
+  formation 2008-2018  long  n  30  win 37%  avg R +0.225  control +0.019  minus control +0.206 [-0.485, +1.094]  median days 22
+  formation 2008-2018  short n  28  win 29%  avg R +0.148  control -0.033  minus control +0.181 [-0.420, +0.885]  median days 20
+  test 2019-2026       long  n  20  win 30%  avg R +1.123  control +1.877  minus control -0.754 [-2.885, +1.396]  median days 16
+  test 2019-2026       short n  20  win 20%  avg R -0.509  control -0.376  minus control -0.133 [-0.448, +0.288]  median days 18
+
+decision: the long rule on gold HOLDS (test-period R minus control above zero at 95%)
+
+current state (last closed bar 2026-09-30): close 4189.3; entry trigger (50-day close high) 4657.8 (+11.2%); 20-day close low 4115.5; ATR(20) 95.7
