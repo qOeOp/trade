@@ -576,7 +576,9 @@ impl MajorsTrend {
             .position(|leg| leg.order.is_some_and(|order| order.handle == handle))
             .ok_or(ProgramFault::ProgramRejected)?;
         let mut order = self.legs[leg].order.ok_or(ProgramFault::ProgramRejected)?;
-        if side != order.side as u8
+        // an opening order kept only for its fill price takes no further event
+        if order.filled == order.quantity
+            || side != order.side as u8
             || !filled.is_finite()
             || filled < 0.0
             || !price.is_finite()

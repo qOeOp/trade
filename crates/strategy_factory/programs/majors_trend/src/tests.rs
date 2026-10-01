@@ -585,6 +585,11 @@ fn order_events_fail_closed_and_the_single_drain_flattens_residuals() {
         .is_err()
     );
 
+    for code in [oe::ACCEPTED, oe::CANCELED, oe::REJECTED] {
+        assert!(evt(&mut duplicate, 1, code, OrderSide::Buy, 0.0, 0.0).is_err());
+    }
+    assert_eq!(duplicate.mode, Mode::Active);
+
     for (handle, side, filled, price) in [
         (99, OrderSide::Buy, 0.01, 1.0),
         (2, OrderSide::Sell, 0.3, 1.0),
