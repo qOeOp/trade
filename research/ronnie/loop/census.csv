@@ -75,3 +75,4 @@ logged_at,loop,candidate,stage,n,edge,lo,hi,passed,note
 2026-10-01T11:23:14+00:00,H-3,familyH,iteration,1565,-0.0019,+nan,+nan,False,market-neutral; edge = mean net return; week-clustered interval
 2026-10-01T11:23:57+00:00,H-4,familyH,iteration,536,-0.0074,-0.0131,-0.0020,False,market-neutral; edge = mean net return; week-clustered interval
 2026-10-01T11:38:19+00:00,S-0,breakouts,diagnosis,,,,,False,"session window (Sun 23:00-Mon 23:00 UTC) on F-2, D-1x, G-2 iteration trades"
+2026-10-01T12:35:25+00:00,S-1,breakouts,diagnosis,,,,,False,"OI change and taker-flow splits of F-2, D-1, G-2 trades, majors 2021-12 to 2022-12"

@@ -1098,3 +1098,24 @@ The same construction over 2023-01 to 2026-08, once, via `trend/books_pit.py val
 gatekeeper subagent. Three-level verdict on Sharpe(B3) - Sharpe(B1) at 95%; details sealed in
 `loop/sealed/T-2_validate.json`. Contamination, stated: the trend lineage has seen the 2023-2026 majors (T0
 descriptive and the majors slice); B3 itself was never run there.
+
+**Verdict T-2 validate:** FAIL (edge positive, interval spans zero) at 95%. B3's lead over the regime baseline
+replicates in sign on 2023-2026 but is not significant there; details sealed. B3 joins the forward record on the 17
+majors (`trend/forward_b3.py`, daily weights from 2026-10-01, scored on closed days) so the question is decided on data
+no one has seen.
+
+## Breakouts: OI change and taker flow at the break (diagnosis S-1; external research section 3)
+
+Majors only, 2021-12 to 2022-12 (the metrics archive starts there for alts). Edge against random, week-clustered:
+
+| lineage | n | OI rising | OI falling | taker top tercile in break direction | rest |
+| --- | --- | --- | --- | --- | --- |
+| F-2 | 295 | +0.014 | +0.022 | +0.130 [-0.50, +1.09] | -0.060 |
+| D-1 | 47 | +0.020 | +0.173 | -0.076 | +0.172 |
+| G-2 | 35 | +0.121 | +0.260 | +0.117 (n 7) | +0.216 |
+
+- **IC of taker flow in the break direction:** F-2 -0.03, D-1 +0.23 (Q5-Q1 +1.13 [+0.13, +2.19]), G-2 +0.19.
+- **IC of OI change:** F-2 -0.12, D-1 -0.25, G-2 -0.07.
+- **Reading:** the signs disagree across lineages, and the one nominal interval (D-1 taker) rests on 47 trades among
+  several looks. OI confirmation ("new money behind the break") is rejected; taker flow is inconclusive. Not adopted as
+  a filter; the data is too short to test on alts before 2021-12.
