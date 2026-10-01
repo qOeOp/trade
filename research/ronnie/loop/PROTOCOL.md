@@ -87,3 +87,14 @@ From now on a loop is valid only with these four, in this order:
    thresholds need a power check: the expected sample keeps the gate's minimum detectable edge below the expected effect.
 4. **Prediction:** the expected edge change is registered before the run. Progress is measured by the lower bound of
    the edge interval, not by the raw edge.
+
+## Amendment 5: context separation (written after the user's review, before any further validation or final read)
+
+- **The iterating agent never reads validation or final details:** no per-coin, per-year, bucket or IC output.
+- **Only `loop/gatekeeper.py` scores those tiers.** It is run by a fresh-context subagent that receives the loop id and
+  returns the script's verdict line only.
+- **Validation is reusable by Thresholdout:** threshold 0.10R, Laplace noise 0.03R, budget 10 over-threshold answers.
+- **Final:** PASS/FAIL once per candidate at the deflated level.
+- **Sealed store:** `loop/sealed/`, for audit by the user, not read by the iterator.
+- **Already spent:** the D-1 and C-6 final details were read by the iterator before this amendment. Those lineages'
+  final tier is spent, and their forward records decide.

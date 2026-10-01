@@ -173,3 +173,19 @@ Input for the product's R&D system. Each note: what happened, why it matters, a 
     discriminating diagnostic and one structural change. It moved the lower bound of the edge interval from +0.09 to
     +0.30 and the stop rate from 24% to 7%, the largest single-loop gain of the run. The earlier filter loops rarely
     moved the lower bound at all.
+
+34. **Correction to note 32 (the user's review): the problem is a contaminated context, not a small final tier.** The
+    iterating agent read the final tier's per-coin, per-year and IC-decay details (D-1, C-6). Anything read enters the
+    context that designs the next loop, so the final tier became a second iteration tier. With 100 loops, any finite
+    holdout is exhausted this way, whatever its size.
+    - **Fix (protocol amendment 5):** separate roles and contexts. The iterator sees only the iteration tier. A
+      gatekeeper (`loop/gatekeeper.py`), run by a fresh-context evaluator that never sees the iterator's reasoning,
+      holds the validation and final tiers and relays only a verdict.
+    - **The validation tier becomes reusable** through Thresholdout (Dwork et al., 2015): the iteration estimate comes
+      back unless the holdout disagrees by more than a noisy threshold. Each disagreement spends a fixed budget.
+    - **Sealed store:** details are written for audit to `loop/sealed/`, which the iterator does not read. Here that
+      boundary is prose-enforced; in the product it should be access control.
+    - **Renewable final tier:** the forward record.
+    - **Product implication:** the R&D system needs at least two agents with separate memories and a data-access layer
+      that enforces which agent sees which tier. A single agent with a protocol cannot hold this line, because its own
+      context leaks.
