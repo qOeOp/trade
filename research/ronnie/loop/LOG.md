@@ -438,3 +438,12 @@ tier is the test.
 The rules are unchanged. The read is once, on the final tier (12 never-used coins, from listing to 2026-08), at a level
 deflated over the final reads so far: carry K1 and D-1, so k = 2 and the interval is 97.5%. It holds when the interval
 excludes zero. Also reported: per year, per coin, and the IC decay of the common features.
+
+**Result D-1 final read:** fails at the deflated level. 109 trades on the 12 never-used coins, avg R +0.241, control
++0.016, edge +0.225 [-0.090, +0.542] (97.5% interval).
+- **By year:** 2023 -0.429 (5 trades), 2024 +0.310, 2025 +0.211, 2026 +0.285.
+- **By coin:** 8 of 12 coins positive.
+- **IC decay:** no common feature keeps its iteration relation.
+- **Lineage:** X1 is now positive in four independent samples (development +0.31, 14 unused coins +0.18, 37 large caps
+  +0.13, final tier +0.23), each short of its own bar. The final tier is spent for this lineage; the forward record
+  (`combo/forward.py`, `box_break`) is the remaining clean test.
