@@ -248,3 +248,15 @@ validation tier, which has therefore already been read for this lineage. Family 
 
 - **Baseline:** O3 exactly as in oversold-v1 (`oversold/run.py`), on the iteration tier: stop at the signal low minus
   0.5 ATR(20), target half way back to the prior 10-day high, time limit 10 days.
+
+**Result C-1:** iteration gate fails. 30 trades, avg R +0.175, control -0.148, edge +0.323 [-0.039, +0.732]; it
+reproduces oversold-v1's development figure. Deeper drops did best (drops of 26-40%: +0.635; drops of 16-21%: +0.038).
+Stops 20%; winners' median MFE 0.82R.
+
+### Loop C-2 (registered before running)
+
+- **Single change from C-1:** the 3-day drop is measured in the coin's own volatility: at least 1.8 ATR(20), the ATR
+  taken at the start of the drop. Volume, close position and exits are unchanged.
+- **Reason:** a capitulation is extreme relative to a coin's normal moves. Volatility scaling is standard in momentum
+  research (Moskowitz, Ooi and Pedersen). The factor 1.8 keeps the average severity at 15%: the median ATR(20) of the
+  majors over 2018-2022 is 8.2% of price, and 15/8.2 = 1.84.

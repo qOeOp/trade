@@ -14,7 +14,7 @@ OS = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(OS)
 
 BASE = dict(tf="1d", hold=10, rule="o3")
-LOOPS = {"C-1": dict(BASE)}
+LOOPS = {"C-1": dict(BASE), "C-2": dict(BASE, rule="o3_atr", k_atr=1.8)}
 
 
 def make(cfg):
@@ -26,8 +26,23 @@ def make(cfg):
         a, a100 = E.MT.atr_of(h, l, c, 20), E.MT.atr_of(h, l, c, 100)
         s200 = pd.Series(c).rolling(200).mean().values
         vm = pd.Series(v).shift(1).rolling(20).mean().values
-        sig, _ = OS.signals(d)
-        out = sig["O3"]
+        if cfg["rule"] == "o3":
+            sig, _ = OS.signals(d)
+            out = sig["O3"]
+        else:  # O3 with the 3-day drop measured in ATR(20) units known before the drop
+            hh = pd.Series(h).shift(1).rolling(OS.LOOK).max().values
+            out, last = [], -99
+            for i in range(210, len(c) - 1):
+                rg = h[i] - l[i]
+                drop = (c[i - 3] - c[i]) >= cfg["k_atr"] * a[i - 3]
+                if not (drop and vm[i] > 0 and v[i] >= OS.VOLX * vm[i] and rg > 0 and (c[i] - l[i]) / rg >= 0.5):
+                    continue
+                stop, entry, tgt = l[i] - OS.PAD * a[i], o[i + 1], c[i] + 0.5 * (hh[i] - c[i])
+                risk = entry - stop
+                if risk <= 0 or risk > OS.MAX_STOP * a[i] or tgt - entry < risk or i - last < OS.SPACING:
+                    continue
+                out.append((i + 1, 1, entry, stop, tgt))
+                last = i
         for e, side, entry, stop, tgt in out:
             i = e - 1
             feats[(d.index[e], side)] = dict(trend_atr=(c[i] - s200[i]) / a[i - 1], vol_ratio=a[i - 1] / a100[i - 1],
