@@ -1638,3 +1638,35 @@ turn against the rules; the edge shrank within the same regimes.**
     level.
   - The sequential test's H1 (half the backtest Sharpe) is already close to that.
   - The catalogue notes the decay.
+
+## Coin-volatility bucket V-1 (registered before running; the user's hypothesis)
+
+- **Hypothesis (direction stated):** after 2022, the rules earn more on coins whose own volatility is high (volatile new
+  or small coins) than on calm coins.
+- **Data:** the same open sets as D-R (F-1 on 15 coins, B1 on 15 unseen coins, T0 on 37 coins). The coin's own 30-day
+  realised volatility at entry comes from `loop/.cache/universe_1d.csv.gz`, with terciles fixed within each rule on
+  2018-2022.
+- **Test:** the post-2022 interaction (high-volatility tercile minus the rest), week-clustered bootstrap; Holm over the
+  three rules.
+- **Prior against:** Ficura (2023), momentum in large, liquid coins and reversal in small ones; Fieberg et al. (2024),
+  small-coin effects vanish after costs; D-R, the rules were worst on high BTC-volatility days.
+- **Predicted:** no positive interaction survives Holm; the high-volatility tercile is no better, and possibly worse.
+- **Limit, stated:** these are Binance-listed coins only. Nothing here transfers to on-chain DEX tokens (rug pulls, MEV,
+  liquidity withdrawal).
+
+**Result V-1** (`loop/coin_vol_bucket.py`, `loop/coin_vol_bucket.txt`): **the hypothesis is rejected in the opposite
+direction.** After 2022, the most volatile coins were the worst.
+
+| rule | low vol, 2018-22 / 2023-26 | mid | high | post-2022 high minus rest |
+| --- | --- | --- | --- | --- |
+| B1 | +0.18 / +0.16 | +0.10 / +0.05 | +0.06 / -0.20 | -0.33 [-0.62, -0.05] |
+| F-1 | +0.26 / +0.18 | +0.17 / -0.02 | +0.13 / -0.43 | -0.56 [-0.88, -0.23] |
+| T0 | +1.04 / +0.24 | -0.47 / +0.15 | +0.72 / -0.03 | -0.22 [-0.68, +0.19] |
+
+- **No positive interaction** (Holm p = 1 for all three).
+- **The reverse is consistent across rules and periods:** the calmest tercile is the best or near-best for the two 4h
+  rules before and after 2022, and it decays least (B1 +0.18 to +0.16). High-volatility coins went from weak to clearly
+  negative.
+- **This matches Ficura (2023):** momentum in large, liquid coins and reversal in small, volatile ones.
+- **Not adopted:** "trade only calm coins" was not the registered direction. As a filter it would be a new rule, to be
+  registered and confirmed on new data, not adopted from this split.

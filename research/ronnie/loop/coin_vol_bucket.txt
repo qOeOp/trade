@@ -1,0 +1,12 @@
+V-1: matched coin volatility for 6879 of 6897 trades
+
+B1 momentum: edge by coin-volatility tercile, 2018-22 / 2023-26 (n): low +0.18 (713) / +0.16 (1427), mid +0.10 (713) / +0.05 (517), high +0.06 (713) / -0.20 (218)
+  post-2022 high minus rest: -0.329 [-0.616, -0.050], one-sided p 0.992
+
+F-1 trendline: edge by coin-volatility tercile, 2018-22 / 2023-26 (n): low +0.26 (272) / +0.18 (580), mid +0.17 (271) / -0.02 (184), high +0.13 (272) / -0.43 (59)
+  post-2022 high minus rest: -0.561 [-0.884, -0.229], one-sided p 0.999
+
+T0 daily trend: edge by coin-volatility tercile, 2018-22 / 2023-26 (n): low +1.04 (158) / +0.24 (156), mid -0.47 (158) / +0.15 (141), high +0.72 (158) / -0.03 (169)
+  post-2022 high minus rest: -0.221 [-0.679, +0.192], one-sided p 0.844
+
+Holm-adjusted p (sorted): 1.000, 1.000, 1.000
