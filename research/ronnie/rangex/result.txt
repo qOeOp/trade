@@ -1,0 +1,32 @@
+rangex-v1: daily box fades and breaks across asset classes; formation 2007-2018 sets each asset's HOLD,
+test 2019-2026; edge = R minus matched random control (costs 0.03%/side, crypto 0.06%)
+
+asset              class      HOLD (formation)  FADE n / edge     BREAK n / edge
+TVC:DXY            index      1.00 (  5)          2 / -0.203       2 / -0.908
+TVC:SILVER         commodity  0.75 (  4)          5 / -0.339       7 / +0.146
+TVC:NDQ            index      0.70 ( 10)          1 / -1.101       4 / +0.941
+TVC:GOLD           commodity  0.67 (  9)          5 / -0.348       3 / +0.808
+FX:EURUSD          fx         0.57 ( 14)          6 / +0.247       3 / -0.219
+FX:USDCAD          fx         0.55 ( 11)          5 / +1.934       4 / -0.188
+FX:GBPUSD          fx         0.54 ( 13)          2 / +0.957       3 / -0.150
+COMEX:HG1!         commodity  0.53 ( 15)          5 / -0.030       4 / +0.184
+BITSTAMP:BTCUSD    crypto     0.50 (  2)          2 / +1.277       2 / -0.037
+FX:USDJPY          fx         0.50 (  4)          4 / -0.847       3 / -0.206
+TVC:UKOIL          commodity  0.44 (  9)          7 / +0.669       2 / -0.621
+FX:AUDUSD          fx         0.37 ( 19)          3 / -0.949       4 / +0.400
+NYMEX:NG1!         commodity  0.25 ( 12)          1 / -0.327       4 / +0.179
+FX:USDCHF          fx         0.11 (  9)          7 / +0.375       4 / +0.427
+BITSTAMP:ETHUSD    crypto     0.00 (  1)          0 / +nan       4 / +1.377
+
+T1 (reported): Spearman across assets, formation HOLD vs test FADE edge = -0.18 (14 assets)
+T2 FADE  range type n   26  avg R +0.063  edge +0.313 [-0.459, +1.322]
+T2 FADE  trend type n   29  avg R -0.056  edge +0.109 [-0.632, +0.872]
+T2 BREAK range type n   26  avg R +0.246  edge +0.136 [-0.371, +0.636]
+T2 BREAK trend type n   27  avg R +0.410  edge +0.309 [-0.164, +0.759]
+T2 decision: FADE on range-type assets fails
+by class commodity: FADE edge +0.034 (n 23), BREAK edge +0.183 (n 20)
+by class fx       : FADE edge +0.350 (n 27), BREAK edge +0.040 (n 21)
+by class index    : FADE edge -0.502 (n 3), BREAK edge +0.325 (n 6)
+by class crypto   : FADE edge +1.277 (n 2), BREAK edge +0.906 (n 6)
+
+oil vs gold: HOLD 0.44 vs 0.67; FADE edge +0.669 vs -0.348; BREAK edge -0.621 vs +0.808
