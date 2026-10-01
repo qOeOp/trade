@@ -14,7 +14,8 @@ import engine as E  # noqa: E402
 
 BASE = dict(tf="1d", trend="sma", touch=0.25, stop_atr=1.0, target="hh20", hold=20, confirm="close_above", sides=(1, -1),
             level_tf="1d", spacing=5)
-LOOPS = {"A1": dict(BASE), "A2": dict(BASE, min_touches=2), "A3": dict(BASE, confirm="trigger"), "A4": dict(BASE, confirm="trigger", ts=(5, 1.0)), "A5": dict(BASE, confirm="trigger", level_tf="1w")}
+LOOPS = {"A1": dict(BASE), "A2": dict(BASE, min_touches=2), "A3": dict(BASE, confirm="trigger"), "A4": dict(BASE, confirm="trigger", ts=(5, 1.0)), "A5": dict(BASE, confirm="trigger", level_tf="1w"),
+         "A6": dict(BASE, confirm="trigger", level_tf="1w", tf="4h")}
 
 
 def levels(d, k):
@@ -29,7 +30,15 @@ def make(cfg):
         o, h, l, c, v = (d[x].values for x in ("open", "high", "low", "close", "volume"))
         a = E.MT.atr_of(h, l, c)
         a100 = E.MT.atr_of(h, l, c, 100)
-        s50, s200 = (pd.Series(c).rolling(k).mean().values for k in (50, 200))
+        if cfg["tf"] == "1d":
+            s50, s200 = (pd.Series(c).rolling(k).mean().values for k in (50, 200))
+        else:  # the daily trend, known at the open of the 4h bar (last closed day), mapped onto 4h bars
+            dc = d1.close
+            m50, m200 = dc.rolling(50).mean(), dc.rolling(200).mean()
+            di = d1.index.searchsorted(d.index, side="right") - 2
+            s50 = np.where(di >= 0, m50.values[np.maximum(di, 0)], np.nan)
+            s200 = np.where(di >= 0, m200.values[np.maximum(di, 0)], np.nan)
+            c_d = np.where(di >= 0, dc.values[np.maximum(di, 0)], np.nan)
         if cfg["level_tf"] == "1w":
             w = d.resample("W-MON", label="left", closed="left").agg(
                 {"open": "first", "high": "max", "low": "min", "close": "last"}).dropna()
@@ -45,8 +54,9 @@ def make(cfg):
                 continue
             Y, S, T, L, _ = book[i]  # levels known at the open of bar i (built from bars before i)
             for side in cfg["sides"]:
-                up = c[i] > s200[i] and s50[i] > s200[i]
-                dn = c[i] < s200[i] and s50[i] < s200[i]
+                cc = c[i] if cfg["tf"] == "1d" else c_d[i]
+                up = cc > s200[i] and s50[i] > s200[i]
+                dn = cc < s200[i] and s50[i] < s200[i]
                 if (side == 1 and not up) or (side == -1 and not dn):
                     continue
                 m = (S == -side) & (T >= cfg.get("min_touches", 0))  # supports for longs, resistances for shorts

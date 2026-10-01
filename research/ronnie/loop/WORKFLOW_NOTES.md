@@ -39,3 +39,8 @@ Input for the product's R&D system. Each note: what happened, why it matters, a 
 8. **A relative gain can hide an absolute loss.** A4 narrowed the gap to the control because the control got worse
    under the same time stop. The report should show both R and control side by side, and flag a "gain" made by
    lowering the control.
+9. **Multi-timeframe features need explicit time alignment.** In A5 the level age was computed as a daily index minus a
+   weekly index. Nothing flagged it; the tercile table printed plausible-looking numbers. A feature layer should carry
+   each series' timeframe and refuse arithmetic across timeframes without an explicit alignment step.
+10. **Small samples pass through.** A5's +0.24R on 58 trades looks like a breakthrough, and its interval spans zero.
+    A report should lead with the interval and the per-half split, and say plainly when the sample cannot decide.

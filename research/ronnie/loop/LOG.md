@@ -88,3 +88,16 @@ result got worse. The time stop is dropped.
 - **Reason:** Ronnie's titles lean on weekly levels; the community holds that higher-timeframe levels are stronger;
   that fits Osler's mechanism of orders clustering at widely watched levels. The daily swings tested so far are minor
   levels.
+
+**Result A5:** iteration gate fails, but it is the first positive loop. 58 trades, avg R +0.240, edge +0.123
+[-0.265, +0.518]; 2018-2020 +0.649 (21 trades), 2021-2022 -0.175 (37 trades). Stops fall to 34% of trades, 10% of
+them within 2 bars. Weekly levels hold better, but they are touched rarely: the sample is too small to decide.
+(The "age" feature mixes weekly and daily bar indices here and is not usable.)
+
+### Loop A6 (registered before running)
+
+- **Single change from A5:** execute on 4h bars. The levels stay weekly and the trend stays daily (the last closed
+  day). Touch, confirmation, stop (level minus 1 ATR of the execution bars), target (the prior 20-bar high) and time
+  limit (20 bars) keep their bar-unit definitions.
+- **Reason:** higher-timeframe location with a lower-timeframe trigger is the multi-timeframe practice of Ronnie and the
+  community. It raises the number of tests of the weekly levels without loosening the level definition.
