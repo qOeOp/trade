@@ -33,3 +33,9 @@ Input for the product's R&D system. Each note: what happened, why it matters, a 
    because that reading did not carry over. A decomposition helper (stops within 2 bars, MFE before the stop) was
    written mid-run, and it pointed at the entry with a clear mechanism. An R&D system should ship this decomposition
    as the default attribution, before any feature buckets.
+7. **Attribution must use the run's exit model.** The decomposition helper re-walked trades with the plain exits, so
+   for A4 (time stop) it reported the A3 figures. Any attribution must take the exact trade model of the run, ideally
+   from the trade records the run itself writes (exit bar, exit reason, MFE), not a reconstruction.
+8. **A relative gain can hide an absolute loss.** A4 narrowed the gap to the control because the control got worse
+   under the same time stop. The report should show both R and control side by side, and flag a "gain" made by
+   lowering the control.

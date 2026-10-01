@@ -14,7 +14,7 @@ import engine as E  # noqa: E402
 
 BASE = dict(tf="1d", trend="sma", touch=0.25, stop_atr=1.0, target="hh20", hold=20, confirm="close_above", sides=(1, -1),
             level_tf="1d", spacing=5)
-LOOPS = {"A1": dict(BASE), "A2": dict(BASE, min_touches=2), "A3": dict(BASE, confirm="trigger"), "A4": dict(BASE, confirm="trigger", ts=(5, 1.0))}
+LOOPS = {"A1": dict(BASE), "A2": dict(BASE, min_touches=2), "A3": dict(BASE, confirm="trigger"), "A4": dict(BASE, confirm="trigger", ts=(5, 1.0)), "A5": dict(BASE, confirm="trigger", level_tf="1w")}
 
 
 def levels(d, k):
@@ -30,7 +30,14 @@ def make(cfg):
         a = E.MT.atr_of(h, l, c)
         a100 = E.MT.atr_of(h, l, c, 100)
         s50, s200 = (pd.Series(c).rolling(k).mean().values for k in (50, 200))
-        book = levels(d, 3)
+        if cfg["level_tf"] == "1w":
+            w = d.resample("W-MON", label="left", closed="left").agg(
+                {"open": "first", "high": "max", "low": "min", "close": "last"}).dropna()
+            wbook = levels(w, 2)
+            wi = w.index.searchsorted(d.index, side="right") - 1
+            book = [wbook[k] if k >= 0 else (np.array([]),) * 4 + (np.nan,) for k in wi]
+        else:
+            book = levels(d, 3)
         hh, ll = pd.Series(h).shift(1).rolling(20).max().values, pd.Series(l).shift(1).rolling(20).min().values
         out, last = [], -99
         for i in range(210, len(c) - 1):

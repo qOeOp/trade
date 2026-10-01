@@ -76,3 +76,15 @@ carry over: among the A2 trades, more touches were no better, so tercile attribu
   The control trades get the same time stop.
 - **Reason:** the decomposition shows stall-then-fail losses. The time stop ("if it does not work quickly, get out")
   is a standard practitioner rule (Van Tharp; Brooks).
+
+**Result A4:** iteration gate fails. 411 trades, avg R -0.069, edge -0.128 [-0.230, -0.026]. The time stop lowered
+both the trades and their controls (control +0.059 from +0.120), so the narrower gap is not progress: the absolute
+result got worse. The time stop is dropped.
+
+### Loop A5 (registered before running)
+
+- **Single change from A3:** levels from weekly swing points (order 2 on weekly bars, known at the open of the week),
+  instead of daily order-3 swings. Confirmation entry, stop, target and time limit as in A3.
+- **Reason:** Ronnie's titles lean on weekly levels; the community holds that higher-timeframe levels are stronger;
+  that fits Osler's mechanism of orders clustering at widely watched levels. The daily swings tested so far are minor
+  levels.
