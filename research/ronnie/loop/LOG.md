@@ -1076,3 +1076,25 @@ has no surviving short-side or long-short rule; long/cash trend (T-1's ensemble)
 - **Gate:** B3's Sharpe above B1's, with a weekly-bootstrap interval of the difference above zero.
 - **Predicted:** all levels lower than T-1 (survivorship removed); B3 about 0.3 above B1, with a lower bound near zero.
 - **If it passes:** one gatekeeper read on the same construction over 2023-2026 (three-level verdict).
+
+**Result T-2** (`trend/books_pit.py`, `trend/books_pit.txt`): the gate passes.
+- **The universe:** 70 symbols passed through it over 2018-2022, including later collapses and delistings (LUNA, FTT,
+  BCHABC, ERD and others).
+
+| book | Sharpe | CAGR | max DD | 2022 |
+| --- | --- | --- | --- | --- |
+| B0 buy-and-hold | 0.40 | +5.5% | -32.4% | -27% |
+| B1 above the 200-day mean | 0.56 | +5.5% | -19.0% | -10% |
+| B2 T0 | 0.91 | +7.4% | -15.2% | -10% |
+| B3 Donchian ensemble | 0.98 | +6.2% | -9.0% | -6% |
+
+- **Sharpe against B1:** B2 +0.33 [-0.18, +0.84]; **B3 +0.40 [+0.05, +0.75]**.
+- **Levels drop with survivorship removed** (B3's Sharpe from 1.45 to 0.98), but B3's lead over the regime baseline
+  holds (+0.46 to +0.40), as predicted (about +0.3).
+
+### T-2 validation read (registered before running)
+
+The same construction over 2023-01 to 2026-08, once, via `trend/books_pit.py validate` and a fresh-context
+gatekeeper subagent. Three-level verdict on Sharpe(B3) - Sharpe(B1) at 95%; details sealed in
+`loop/sealed/T-2_validate.json`. Contamination, stated: the trend lineage has seen the 2023-2026 majors (T0
+descriptive and the majors slice); B3 itself was never run there.

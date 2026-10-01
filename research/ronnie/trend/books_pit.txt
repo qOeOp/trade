@@ -1,0 +1,8 @@
+T-2: point-in-time top-20 universe, 2018-2022 (70 symbols ever in it: ADA, ALGO, ATOM, AVAX, AXS, BAND, BAT, BCHABC, BCH, BNB, BTC, BTT, CHR, CHZ, COMP, CRV, DASH, DENT, DOGE, DOT, DYDX, ENJ, EOS, ERD, ETC, ETH, FET, FIL, FTM, FTT, HOT, ICX, IOST, IOTA, LINK, LRC, LTC, LUNA, MANA, MASK, MATIC, NEAR, NEO, NULS, OMG, ONE, ONT, QTUM, REN, ROSE, RUNE, SAND, SHIB, SLP, SOL, SXP, TFUEL, THETA, TRX, UNI, VET, WAVES, WIN, XLM, XMR, XRP, XTZ, ZEC, ZIL, ZRX)
+
+B0: Sharpe 0.40, CAGR +5.5%, max DD -32.4%; 2018 -2%, 2019 -4%, 2020 +41%, 2021 +36%, 2022 -27%
+B1: Sharpe 0.56, CAGR +5.5%, max DD -19.0%; 2018 +0%, 2019 +0%, 2020 +17%, 2021 +25%, 2022 -10%
+B2: Sharpe 0.91, CAGR +7.4%, max DD -15.2%; 2018 +0%, 2019 +4%, 2020 +29%, 2021 +18%, 2022 -10%
+B3: Sharpe 0.98, CAGR +6.2%, max DD -9.0%; 2018 -0%, 2019 +2%, 2020 +19%, 2021 +18%, 2022 -6%
+Sharpe B2 - B1: +0.33 [-0.18, +0.84]
+Sharpe B3 - B1: +0.40 [+0.05, +0.75]
