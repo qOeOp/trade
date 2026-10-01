@@ -75,3 +75,15 @@ the product's R&D system.
 - **Sample expansion:** any family may run its current best rule once on the extended iteration tier
   (`engine.ITER_EXT_COINS`, amendment 1), registered before scoring, when the gate fails for power (pooled interval
   wider than +-0.3R).
+
+## Amendment 4: loop quality (written after the user's review, before any further loop)
+
+From now on a loop is valid only with these four, in this order:
+1. **Diagnosis package:** loss decomposition, case review of the 20 worst and 20 best trades, beta check, factor ledger,
+   and component ablation.
+2. **Explanations:** at least three competing explanations, each with a predicted data signature, and a discriminating
+   diagnostic run before any rule change.
+3. **The change:** structural (entry model, exit model, or regime), chosen by the surviving explanation. Filters and
+   thresholds need a power check: the expected sample keeps the gate's minimum detectable edge below the expected effect.
+4. **Prediction:** the expected edge change is registered before the run. Progress is measured by the lower bound of
+   the edge interval, not by the raw edge.

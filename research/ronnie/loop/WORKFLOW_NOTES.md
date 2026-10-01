@@ -137,3 +137,29 @@ Input for the product's R&D system. Each note: what happened, why it matters, a 
     - **Proposal:** the beta check runs automatically for every flagged factor and is part of admissibility: a factor
       whose bucket pattern also appears in random entries is labelled "regime", and it is offered as a regime filter
       for an existing regime strategy, never as a source of entry skill.
+
+## Iteration quality (the user's review after 33 loops)
+
+30. **Most loops were small steps along noisy directions, not mechanism changes.** The census shows it:
+    - **Edge rose as samples shrank:** A8 +0.41 on 51 trades, B-4 +0.33 on 20, B-5 +0.32 on 74. It fell back when the
+      sample grew: A11 -0.08 on 346, B-8 +0.03 on 795, B-9 -0.10 on 1,053. That is selection of lucky subsets.
+    - **Kinds of change:** of 33 loops, about 20 added or tightened a filter, 4 changed the level definition, 3
+      changed the entry model, 1 changed an exit, and 3 expanded the sample. None changed the trade's thesis on the
+      evidence of a discriminating test.
+    - **Pace:** each loop took a few minutes of reasoning on one attribution table, with no look at individual trades
+      and no competing explanations.
+    - **Proposal:** measure progress by the lower bound of the edge interval (or the t-statistic), not the raw edge,
+      so a gain made by shrinking the sample shows as no gain. Track the slope per loop on that measure.
+31. **What a high-slope loop needs** (adopted as protocol amendment 4):
+    1. **A diagnosis package before any change:**
+       - the loss decomposition;
+       - a review of the 20 worst and 20 best trades (what the chart looked like);
+       - the beta check;
+       - the factor ledger;
+       - ablation: remove each component of the rule in turn and measure what it carries.
+    2. **Competing explanations:** at least three for the failure, each with a signature it predicts in the data.
+    3. **A discriminating diagnostic run first:** it tests those signatures without changing the strategy.
+    4. **A structural change:** to the entry model, the exit model or the regime, the one the surviving explanation
+       points at. A threshold or filter is allowed only with a power check showing the sample stays decidable.
+    5. **A predicted effect size recorded before the run, compared after.** The agent's calibration (predicted against
+       realised gain) is itself a tracked metric.
