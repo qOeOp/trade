@@ -15,7 +15,8 @@ _spec.loader.exec_module(OS)
 
 BASE = dict(tf="1d", hold=10, rule="o3")
 LOOPS = {"C-1": dict(BASE), "C-2": dict(BASE, rule="o3_atr", k_atr=1.8), "C-3": dict(BASE, rule="o3_window"), "C-4": dict(BASE, rule="o3_window", iter_set="iterx"),
-         "C-5": dict(BASE, rule="o3_window", iter_set="iterx", confirm="trigger")}
+         "C-5": dict(BASE, rule="o3_window", iter_set="iterx", confirm="trigger"),
+         "C-6": dict(BASE, rule="o3_idio", iter_set="iterx")}
 
 
 def make(cfg):
@@ -32,10 +33,13 @@ def make(cfg):
             out = sig["O3"]
         else:  # O3 with the 3-day drop measured in ATR(20) units known before the drop
             hh = pd.Series(h).shift(1).rolling(OS.LOOK).max().values
+            bc = E.bars("BTC")["1d"].close.reindex(d.index).ffill().values
             out, last = [], -99
             for i in range(210, len(c) - 1):
                 rg = h[i] - l[i]
-                if cfg["rule"] == "o3_window":  # the largest drop into today's close over 1 to 5 days
+                if cfg["rule"] == "o3_idio":  # the largest 1-5 day drop minus BTC's return over the same window
+                    drop = min(c[i] / c[i - k] - 1 - (bc[i] / bc[i - k] - 1) for k in range(1, 6)) <= OS.DROP3
+                elif cfg["rule"] == "o3_window":  # the largest drop into today's close over 1 to 5 days
                     drop = min(c[i] / c[i - k] - 1 for k in range(1, 6)) <= OS.DROP3
                 else:
                     drop = (c[i - 3] - c[i]) >= cfg["k_atr"] * a[i - 3]

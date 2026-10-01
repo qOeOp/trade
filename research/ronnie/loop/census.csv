@@ -33,3 +33,5 @@ logged_at,loop,candidate,stage,n,edge,lo,hi,passed,note
 2026-10-01T08:28:32+00:00,B-10,familyA,iteration,192,-0.0736,-0.3951,+0.2832,False,
 2026-10-01T08:31:18+00:00,D-1,familyA,iteration,126,+0.3085,+0.0524,+0.5536,True,
 2026-10-01T08:42:40+00:00,D-1,familyA,final,109,+0.2253,-0.0898,+0.5417,False,level 97.50
+2026-10-01T08:48:02+00:00,C-4,ablation: no volume condition,ablation,705,-0.1801,-0.2782,-0.0716,False,
+2026-10-01T08:48:03+00:00,C-4,ablation: no close-in-upper-half condition,ablation,265,-0.0698,-0.2616,+0.1269,False,

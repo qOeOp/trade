@@ -447,3 +447,36 @@ excludes zero. Also reported: per year, per coin, and the IC decay of the common
 - **Lineage:** X1 is now positive in four independent samples (development +0.31, 14 unused coins +0.18, 37 large caps
   +0.13, final tier +0.23), each short of its own bar. The final tier is spent for this lineage; the forward record
   (`combo/forward.py`, `box_break`) is the remaining clean test.
+
+### Diagnosis of C-4 under amendment 4 (`loop/diagnose_c.py`, `loop/diagnose_c.txt`; no rule change)
+
+Three competing explanations of the stopped trades (61% of stops come within 2 bars):
+- **H1, the market is still crashing:** BTC's concurrent 3-day drop and the breadth of signals.
+- **H2, longs are not flushed:** funding is still positive.
+- **H3, an idiosyncratic collapse that keeps going:** a large coin-minus-BTC drop.
+
+Discriminating splits (edge, stop rate):
+- **BTC 3-day return at or below -10%:** -0.019, 47% stopped (36 trades). Otherwise +0.606, 8% stopped (40).
+- **Coin drop minus BTC drop at or below -15%:** +0.612, 10% stopped (41). Otherwise -0.043, 46% stopped (35).
+- **Funding:** 3-day funding below zero gives +0.480 (46 trades), otherwise +0.263 (19). A weak split.
+- **Breadth:** 3 or more coins signalling within a day gives +0.373 (61 trades), otherwise +0.053 (15). This is the
+  opposite of H1's breadth signature.
+
+Reading: H1 and H3 point at one mechanism. A capitulation that rides a BTC crash continues; an idiosyncratic
+capitulation against a steadier market reverts. H3 as stated (idiosyncratic collapses keep going) is rejected, and
+breadth is not the problem: BTC's own crash is. This matches Da, Liu and Schaumburg (2014, "A closer look at the
+short-term return reversal"): short-term reversal lives in the residual, not in the market component, which carries
+momentum.
+
+Ablation: without the volume condition, edge -0.180 [-0.278, -0.072] on 705 trades; without the close-in-upper-half
+condition, -0.070 on 265 trades. Both components carry the edge and stay.
+
+### Loop C-6 (registered before running; amendment 4)
+
+- **Structural change from C-4:** the signal is an idiosyncratic capitulation. The coin's largest drop over 1 to 5 days,
+  minus BTC's return over the same window, is at most -15%. The 15% threshold is reused, not re-chosen. Volume, close
+  position and exits are unchanged.
+- **Explanation it rests on:** H1/H3 above, with Da, Liu and Schaumburg (2014).
+- **Power:** about 40-50 trades on the extended tier; the minimum detectable edge is about 0.35R.
+- **Predicted:** edge about +0.45R with a lower bound about +0.1. The split was seen on this tier, so the in-sample
+  estimate is optimistic; the final tier is the test.
