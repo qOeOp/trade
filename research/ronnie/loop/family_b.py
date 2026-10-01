@@ -10,7 +10,7 @@ import engine as E  # noqa: E402
 import family_a as FA  # noqa: E402
 
 BASE = dict(tf="1d", stop_atr=1.0, rr=3.0, hold=20, spacing=5, level_tf="1w", sides=(1, -1))
-LOOPS = {"B-1": dict(BASE), "B-2": dict(BASE, sides=(1,)), "B-3": dict(BASE, sides=(1,), closes=2)}
+LOOPS = {"B-1": dict(BASE), "B-2": dict(BASE, sides=(1,)), "B-3": dict(BASE, sides=(1,), closes=2), "B-4": dict(BASE, sides=(1,), closes=2, max_vol=1.0)}
 
 
 def make(cfg):
@@ -40,6 +40,8 @@ def make(cfg):
                 else:
                     crossed = m & ((c[i] - Y) * side > 0) & ((c[i - 1] - Y) * side <= 0)
                 if not crossed.any():
+                    continue
+                if a[i - 1] / a100[i - 1] >= cfg.get("max_vol", np.inf):
                     continue
                 y = Y[crossed].max() if side == 1 else Y[crossed].min()
                 entry = o[i + 1]

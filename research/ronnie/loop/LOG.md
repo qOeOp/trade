@@ -172,3 +172,12 @@ little timing value. Stops 56%, 43% of them within 2 bars.
   by the close before those two).
 - **Reason:** 43% of stops come within 2 bars, so false breaks reverse fast. "Wait for a second close" is a common
   community confirmation; it costs a later entry.
+
+**Result B-3:** iteration gate fails. 121 trades, avg R +0.471, control +0.438, edge +0.033 [-0.295, +0.386]. Stops
+within 2 bars fell from 43% to 31%, and the later entry gave the gain back.
+
+### Loop B-4 (registered before running)
+
+- **Single change from B-3:** trade a break only when ATR(14) is below ATR(100), that is a break out of compression.
+- **Reason:** Crabel (1990) finds narrow-range days precede range expansion; the Bollinger squeeze breakout is a common
+  community setup; and the low-volatility gate helped consistently in Family A.
