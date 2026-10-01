@@ -19,7 +19,8 @@ LOOPS = {"A1": dict(BASE), "A2": dict(BASE, min_touches=2), "A3": dict(BASE, con
          "A7": dict(BASE, confirm="trigger", level_tf="1w", touch=0.5),
          "A8": dict(BASE, confirm="trigger", level_tf="1w", touch=0.5, max_vol=1.0),
          "A9": dict(BASE, confirm="trigger", btc_gate=True),
-         "A10": dict(BASE, confirm="trigger", btc_gate=True, max_touches=0)}
+         "A10": dict(BASE, confirm="trigger", btc_gate=True, max_touches=0),
+         "A11": dict(BASE, confirm="trigger", btc_gate=True, max_touches=0, iter_set="iterx")}
 
 
 def levels(d, k):

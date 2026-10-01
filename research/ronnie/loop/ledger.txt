@@ -1,0 +1,40 @@
+Cross-loop factor ledger (protocol amendment 3). admissible = flagged in >= 2 loops of the family, one sign
+wherever flagged, no opposite-sign flag
+
+Family A:
+  age          loops 10  flagged  0                                          mean IC -0.067, IC sign agrees in 70% of loops  
+  btc_trend    loops 10  flagged  3 (A3:+0.12, A4:+0.05, A9:+0.11)           mean IC +0.087, IC sign agrees in 90% of loops  ADMISSIBLE
+  coin_trend   loops 10  flagged  2 (A3:+0.05, A9:+0.09)                     mean IC +0.040, IC sign agrees in 70% of loops  ADMISSIBLE
+  depth        loops 10  flagged  0                                          mean IC -0.038, IC sign agrees in 60% of loops  
+  n_levels     loops 10  flagged  0                                          mean IC -0.131, IC sign agrees in 100% of loops  
+  ret20        loops 10  flagged  0                                          mean IC +0.033, IC sign agrees in 60% of loops  
+  stop_atr     loops 10  flagged  0                                          mean IC -0.017, IC sign agrees in 40% of loops  
+  target_R     loops 10  flagged  0                                          mean IC -0.022, IC sign agrees in 60% of loops  
+  touches      loops  5  flagged  2 (A3:-0.11, A9:-0.11)                     mean IC -0.081, IC sign agrees in 80% of loops  ADMISSIBLE
+  trend_atr    loops 10  flagged  0                                          mean IC +0.037, IC sign agrees in 60% of loops  
+  vol_ratio    loops 10  flagged  2 (A9:+0.07, A10:+0.14)                    mean IC -0.018, IC sign agrees in 40% of loops  ADMISSIBLE
+  volume_ratio loops 10  flagged  0                                          mean IC -0.041, IC sign agrees in 50% of loops  
+
+Family B:
+  btc_trend    loops  8  flagged  0                                          mean IC -0.086, IC sign agrees in 50% of loops  
+  coin_trend   loops  8  flagged  0                                          mean IC -0.014, IC sign agrees in 50% of loops  
+  depth        loops  8  flagged  0                                          mean IC +0.052, IC sign agrees in 75% of loops  
+  n_levels     loops  7  flagged  0                                          mean IC +0.007, IC sign agrees in 43% of loops  
+  ret20        loops  8  flagged  0                                          mean IC +0.093, IC sign agrees in 75% of loops  
+  stop_atr     loops  8  flagged  0                                          mean IC +0.069, IC sign agrees in 75% of loops  
+  trend_atr    loops  8  flagged  0                                          mean IC -0.003, IC sign agrees in 38% of loops  
+  vol_ratio    loops  8  flagged  0                                          mean IC -0.025, IC sign agrees in 62% of loops  
+  volume_ratio loops  8  flagged  0                                          mean IC -0.052, IC sign agrees in 62% of loops  
+
+Family C:
+  btc_trend    loops  5  flagged  0                                          mean IC -0.107, IC sign agrees in 60% of loops  
+  coin_trend   loops  5  flagged  0                                          mean IC -0.115, IC sign agrees in 80% of loops  
+  depth        loops  5  flagged  0                                          mean IC -0.068, IC sign agrees in 80% of loops  
+  n_levels     loops  5  flagged  0                                          mean IC -0.027, IC sign agrees in 80% of loops  
+  ret20        loops  5  flagged  0                                          mean IC -0.309, IC sign agrees in 80% of loops  
+  stop_atr     loops  5  flagged  0                                          mean IC -0.447, IC sign agrees in 100% of loops  
+  target_R     loops  5  flagged  0                                          mean IC +0.161, IC sign agrees in 100% of loops  
+  trend_atr    loops  5  flagged  0                                          mean IC +0.001, IC sign agrees in 40% of loops  
+  vol_ratio    loops  5  flagged  0                                          mean IC +0.030, IC sign agrees in 80% of loops  
+  volume_ratio loops  5  flagged  0                                          mean IC +0.023, IC sign agrees in 60% of loops  
+

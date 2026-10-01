@@ -338,3 +338,17 @@ edge +0.073 [-0.149, +0.299]; 2018-2020 -0.028, 2021-2022 +0.139. Through flagge
 (higher volatility better), the opposite of the low-volatility pattern of the weekly-level lineage (A5-A8). It was
 flagged at t 2.01 among 10 features tested, so about one false flag is expected. A factor whose sign flips across
 related configurations does not meet the bar (workflow note 26).
+
+## Ledger-driven loops (protocol amendment 3: no budget)
+
+The first cross-loop ledger (`loop/ledger.txt`):
+- **Family A, admissible factors:** BTC's trend (flagged in A3, A4 and A9, positive), the coin's trend (A3 and A9,
+  positive) and prior touches (A3 and A9, negative). The volatility ratio is excluded by the refinement.
+- **Family B:** no factor is flagged in any loop.
+- **Family C:** nothing can be flagged (rare events). Under the rare-event rule, the stop width has a negative IC in all
+  5 loops (mean -0.45), and the target R a positive IC in all 5 (mean +0.16).
+
+### Loop A11 (registered before running)
+
+- **Change:** no rule change from A10; the sample is expanded to the extended iteration tier (53 coins, 2018-2022).
+- **Reason:** A10's pooled interval spans +-0.22R on 142 trades: the gate fails for power.

@@ -53,3 +53,25 @@ the product's R&D system.
   (`loop/attrib.py`, introduced after the family closed) flags a reliable feature that the old attribution could not
   see. Each reopened loop's change must be a flagged feature, cut at a natural threshold, not at a bucket boundary.
 - **Unchanged:** the validation level keeps tightening with every validated candidate.
+
+## Amendment 3 (written before the ledger-driven loops; the user's instruction: no budget, iterate until done)
+
+- **No loop budget.** A family loops until a candidate passes iteration, validation and final, or until the ledger
+  offers no admissible change and no cited source remains (a terminal state, recorded with its reason).
+- **Admissible change.** A change must be one of:
+  - a factor in the cross-loop factor ledger (`loop/ledger.csv`), flagged reliable in at least 2 loops of the family,
+    with the same IC sign in every loop where it is flagged and no opposite-sign flag, cut at a natural threshold;
+  - a mechanism from a cited paper or community practice, with the loss decomposition pointing at the part it fixes.
+- **Guards replacing the budget:**
+  - the validation level tightens with every validated candidate (Bonferroni over k);
+  - the validation report carries a haircut for the number of iteration loops (the raw and the deflated edge);
+  - validation and final are read once each and never used for attribution;
+  - every loop and every rerun is in the census.
+- **Refinement (written after the first ledger, before it drives any loop):** an admissible factor's mean IC across all
+  loops of the family must have the flagged sign. The first ledger showed the volatility ratio flagged twice (+) while
+  its mean IC was negative and its sign agreed in only 40% of loops: noise that passes a per-loop flag (note 26).
+- **Rare-event families (no per-year ICIR):** a factor is admissible when its IC has one sign in every loop of the
+  family (at least 4 loops) and its pooled Q5-Q1 interval on the latest loop excludes zero.
+- **Sample expansion:** any family may run its current best rule once on the extended iteration tier
+  (`engine.ITER_EXT_COINS`, amendment 1), registered before scoring, when the gate fails for power (pooled interval
+  wider than +-0.3R).
