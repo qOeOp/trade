@@ -120,3 +120,16 @@ From now on a loop is valid only with these four, in this order:
 - **The reads:** F-1, F-2, G-2 and C-6, once each, Bonferroni over the four (98.75%).
 - **Verdict:** three levels (workflow note 40): PASS; FAIL with the edge positive and the interval spanning zero; FAIL
   with the edge at or below zero. Relayed by a fresh-context gatekeeper subagent. Details stay sealed.
+
+## Amendment 8: an external research step in every loop (written after the user asked whether loops searched outside)
+
+Until now, loops cited literature from the agent's memory (Osler, Crabel, Da-Liu-Schaumburg, Wyckoff, O'Neil, Brooks,
+Seiden), with only four live searches in the whole loop phase. From now on, the hypothesis list of each loop includes
+a live external search, targeted at the loop's failure mode:
+- **Papers:** arXiv, SSRN and journal pages, for the mechanism and its evidence.
+- **Practitioner strategies:** public strategy code and write-ups (Freqtrade, Jesse and QuantConnect repositories,
+  TradingView scripts), for exact rules and parameters.
+- **A record per source:** the source, the rule, the claimed result, and its evidence quality (single asset or period,
+  in-sample or not, costs). Claimed results are priors, never evidence.
+- **Leakage:** a source whose published backtest covers this research's holdout periods is noted in the data ledger.
+- **Breadth:** a source may propose a new family (as pairs trading did), not only a change to the current one.

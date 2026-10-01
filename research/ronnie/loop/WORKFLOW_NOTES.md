@@ -243,3 +243,14 @@ Input for the product's R&D system. Each note: what happened, why it matters, a 
     depth) was already a flagged factor. The human-like reading of charts favours memorable extremes. The review is
     still worth its cost because it proposes concrete, testable mechanisms quickly, but it must never shortcut the
     IC, bucket and beta checks.
+46. **The loop barely looked outside.** Hypotheses came from the agent's memory and the loop's own attribution, so they
+    circled the same ideas, and memory citations may be imprecise. One targeted search for the box-range failure
+    returned the following.
+    - **Already tested here:** the Bollinger 2-sigma fade with an ADX gate (Freqtrade "Bollinger Reverter 4h"), and
+      Hurst or variance-ratio regime gates.
+    - **Untested:** a low-volume regime for mean reversion.
+    - **A new family, missed entirely:** mean reversion of the spread between correlated coins (pairs trading with a
+      Hurst or ADF test). It explains the dozen failed single-coin range loops: single crypto prices trend, while
+      spreads of correlated coins are the series that range.
+    - **Proposal (protocol amendment 8):** a live, failure-targeted external search in every loop's hypothesis step,
+      with each source recorded with its rule, claimed result and evidence quality.
