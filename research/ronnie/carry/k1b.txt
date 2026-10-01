@@ -1,0 +1,8 @@
+K1b (entry 7d mean >= 0.015%, exit 3d mean < 0.01%) against K1 (entry >= 0.01%, exit < 0); per notional
+
+development (17 majors, 2020-2022) K1: +20.9% a year [+15.7%, +26.4%], held 51% of coin-days; 2020 +22.9%, 2021 +38.5%, 2022 +1.2%
+development (17 majors, 2020-2022) K1b: +19.9% a year [+14.6%, +25.6%], held 35% of coin-days; 2020 +23.8%, 2021 +35.8%, 2022 +0.0%
+
+holdout (37 coins, 2023-2026; read before, descriptive) K1: +5.9% a year [+4.5%, +7.5%], held 33% of coin-days; 2023 +7.6%, 2024 +12.5%, 2025 +1.4%, 2026 +0.2%
+holdout (37 coins, 2023-2026; read before, descriptive) K1b: +4.2% a year [+2.6%, +5.9%], held 13% of coin-days; 2023 +6.4%, 2024 +8.9%, 2025 +0.0%, 2026 -0.1%
+

@@ -959,3 +959,10 @@ Reading:
 - **Evidence:** the 17 majors 2020-2022 (development tier of carry-v1), against K1. 2023-2026 has been read before and
   is shown descriptively only.
 - **Predicted:** close to K1 in 2020-2021, fewer trades and lower costs in 2022, and 1-3 points a year better overall.
+
+**Result K1b:** no improvement, slightly worse. Development: +19.9% a year [+14.6%, +25.6%] against K1's +20.9%,
+holding 35% of coin-days against 51%. 2023-2026 (descriptive): +4.2% against +5.9%. The prediction (+1 to +3 points)
+was wrong in sign. The band cut churn but gave up the anchor income (about 7-9% a year while held), which is part of
+K1's return, interest-like or not. The decomposition is the useful result: K1 earns the anchor rate in ordinary times
+and excess funding in overheated phases. Its value therefore depends on the alternative yield on USDT. K1 stays as
+validated; K1b is not adopted.
