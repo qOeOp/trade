@@ -39,3 +39,22 @@ without the user's explicit authority (AGENTS.md); this plan widens nothing.
   The book mixes them, as the backtest did not. This is stated, not fixed.
 - **The scorer for book T** (weekly streams from matured, committed records, scaled as in N-2) is written at the
   interim date, from code frozen in `loop/ensemble.py`, before any record is read for it.
+
+## Sequential rule (CRITERIA section D), added 2026-10-01
+
+The fixed decision date stays. In addition, each candidate's weekly forward returns feed Wald's sequential test (H0:
+Sharpe 0; H1: half the backtest Sharpe; alpha 5%, power 80%; bounds +2.77 and -1.56). Expected time to the scale-up bound
+if the strategy works:
+
+| candidate | backtest Sharpe | if the live Sharpe equals the backtest | if it is half the backtest | fixed-length test at half |
+| --- | --- | --- | --- | --- |
+| Book T | 2.04 | 0.9 years | 3.7 years | 5.9 years |
+| F-2 | 1.66 | 1.4 | 5.5 | 9.0 |
+| D-1 | 1.37 | 2.0 | 8.1 | 13.2 |
+| B3 | 1.37 | 2.0 | 8.1 | 13.2 |
+| B1 | 0.97 | 4.1 | 16.2 | 26.3 |
+| C-6 | 0.76 | 6.6 | 26.4 | 42.8 |
+
+- **The book is the only candidate a forward record can judge in about a year,** which is why gate U is applied to it
+  first.
+- **Single rules are judged inside the book,** and their own records are diagnostics.

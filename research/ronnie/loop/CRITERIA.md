@@ -115,6 +115,34 @@ Rules:
 6. **Relevance.** A bucket of "negligible economic importance" (FLZ: micro-caps whose costs exceed the edge) is
    recorded but not pursued; the liquidity filter is part of the bucket's definition.
 
+
+## D. Two gates: usable at small size, and developed
+
+Section A's stage 5 is a proof standard (t >= 3), which a single crypto rule needs years of forward data to meet.
+Waiting for proof before any use is itself an error with a cost (HL20 weighs missed discoveries against false ones),
+and practitioners stage capital by evidence instead (CFM: 10% of the target allocation first; CARVER: weak rules kept at
+small weight). So a strategy has two gates.
+
+**Gate U, usable at small size (proposal; real money needs the user's explicit authority for each strategy and size,
+AGENTS.md):**
+1. **Independent evidence:** positive in at least three independent samples (development counts as one), with no read
+   whose estimate is negative. A pooled holdout interval above zero may stand in for a read whose sign was sealed.
+2. **Expected edge:** after the decay haircut (MP: 26-58%), still above zero net of the modelled costs.
+3. **Size:** at most 10% of the eventual target allocation (CFM), with a maximum loss budget fixed in advance.
+4. **Sequential kill and scale rule:** the forward record runs a sequential test (below). Crossing the kill bound stops
+   the strategy; crossing the scale bound earns the next step of size.
+5. **Execution:** the agent never places orders or uses exchange credentials. Execution is the user's, or a product
+   execution path admitted separately under AGENTS.md.
+
+**Gate D, developed:** section A stage 5 (pooled t >= 3 or DSR >= 0.95, edge >= SESOI after the haircut).
+
+**The sequential test** (Wald (1945), "Sequential Tests of Statistical Hypotheses", *Annals of Mathematical
+Statistics* 16(2):117-186):
+- On weekly returns: H0, Sharpe = 0, against H1, Sharpe = half the backtest Sharpe (the haircut).
+- The log-likelihood ratio accumulates (mu1 / sigma^2) x (x_t - mu1 / 2) each week, with sigma from the backtest.
+- Scale up at ln((1 - beta) / alpha) = 2.77 (alpha 5%, power 80%); kill at ln(beta / (1 - alpha)) = -1.56.
+- On average this needs about 40% less time than a fixed-length test at the same error rates.
+
 ## How the criteria change the protocol
 
 - PROTOCOL gate statuses gain "equivalent-null" and "inconclusive", next to pass and fail.
