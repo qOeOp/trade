@@ -264,10 +264,10 @@ ordered chain's acceptance build admits nothing in production.
   outside `crates/data`. The resolver is additionally optional: `bootstrap_deployment_store_admission` returns
   `Option`, so the field may hold `None` in a deployment. Closing this needs a consumer in this Owner, not a
   wider read from Market Data.
-- **TARGET / ISOLATED_ACCEPTANCE_ONLY - the exploratory replay production entry:** the only caller of
+- **IMPLEMENTATION_ADMITTED / NOT_CUT_OVER - the exploratory replay production entry:** the only caller of
   `run_exploratory_replay_v2` outside `vibe-backtest-owner` is inside `run_native_replay`, which carries
-  `#[cfg(feature = "sealed-develop-composer-acceptance")]` with no `cfg(not(...))` twin anywhere in the
-  repository. With the deployed image built without features, that path is unreachable in what is deployed. This
+  `#[cfg(feature = "native-replay-execution")]`, a production feature with no acceptance code, with no
+  `cfg(not(...))` twin anywhere in the repository. With the deployed image built without features, that path is unreachable in what is deployed. This
   measures the deployment artifact, not history.
 
 ## Modules
@@ -1111,6 +1111,12 @@ The exact development flow is **Run Result → Diagnosis → Iteration Decision 
    with the same decision-policy version, TrialFamily Census, and evidence cut; a stop state and selection cannot
    coexist.
 
+**TARGET - matched-entry control and clustered interval in Diagnosis.** Diagnosis reads the exploratory Result's
+matched-entry control and its date-clustered interval (Backtest, "TARGET - Exploratory matched-entry control and
+clustered interval") and shows the run's edge over random entries of the same shape with that interval, labelled as a
+control. It is a control, not a selection criterion: the Iteration Decision does not select, order, or stop candidates
+by it, and it never stands in for Qualification's holdout or same-universe random control.
+
 `REPAIR_INPUTS` routes by category and never means "retry anything." It is an immutable terminal disposition for
 the consumed result and by itself creates no Selection, successor Intent, Artifact, Replay Request, or repair
 effect. `MARKET_DATA` targets Market Data and is the only category that may emit a correlated Market Data Repair
@@ -1242,6 +1248,66 @@ it.
 
 The slices and their order are in
 [Strategy Factory](../architecture/strategy-factory#target---research-runs-until-a-strategy-bounded-by-spend).
+
+### TARGET - Production trial ledger and data-read ledger
+
+This section states a contract with no implementation; it grants no permission to build or deploy it.
+
+**Today**, measured at `main` 81d72a8fb by callers rather than references:
+
+- **The census append has no production caller.** `append_trial_family_attempt_in_transaction` is defined in
+  production code (`crates/strategy_factory/src/trial_family_postgres.rs:729`), and its twelve call sites all sit in
+  test modules. The census tables have two writers, that function and `persist_initial_family`, which writes the
+  family's first member at Research admission. A production family's count therefore stays at the 1 its formation
+  writes, as stated above, however many exploratory Results it has.
+- **The candidate count is stated, not derived.** A candidate set's `expected_cardinality` is checked only against
+  the length of the candidate list the proposer supplies (`trial_family.rs:1628-1635`). Its generation rule is stored
+  as an identity and digest and never expanded.
+
+**Every look is a trial.** The production census append runs in the transaction that admits an exploratory Result's
+terminal disposition, so the count moves with the Results it counts. A trial is one census attempt, exactly as
+counted above:
+
+- a run of a new request is a trial, and so is a rerun whose meaning differs in any way;
+- a failed, rejected, invalid or unknown run is a trial;
+- an exact replay of a request joins its receipt and is not a second trial;
+- a look at outcomes made for any other purpose is a trial too. An outcome is never computed except through a
+  counted request. Diagnosis, Compare and the Dashboard read only Results that already exist, and a question about
+  size or sample is answered from counts, not outcomes.
+
+The production append must land no later than exploratory replay in deployment, since a Result committed with no
+census attempt is an uncounted look.
+
+**The data-read ledger.** R&D records every read of market data:
+
+- what is recorded: the lineage, the trial or agent session that made it, the instrument, the half-open period, and
+  the universe stratum the instrument falls in (majors, large caps, or new listings);
+- where the rows come from: the point-in-time scope each trial binds, and every read an agent makes through the R&D
+  tool surface, so an informal look leaves the same row a registered run does.
+
+**Untouched slices.** The ledger hands out slices nobody in the lineage has read:
+
+- A validation stage asks it for a slice of its own universe stratum and period that the lineage has never read, and
+  gets one or a named refusal.
+- Once handed out, the slice is reserved. A second read refuses.
+- A slice read by an earlier lineage that shares the Candidate's predecessor frontier counts as read, so an earlier
+  family's contamination is visible rather than remembered.
+- The ledger never hands out a slice inside Qualification's sealed holdout partition.
+
+**The census carries no verdict.** A census row records that a trial ran and its exploratory disposition. It never
+records a Qualification outcome or any pass or fail bit from an evaluator; Qualification counts its own protected
+attempts into N ([Qualification](./qualification/#target---cumulative-trial-deflation-at-candidate-intake)) and
+publishes outcomes only through its public phases.
+
+**Counts are computed.** A candidate set's generation rule is stored as the grid it expands to, not as an opaque
+digest. The Owner expands it and refuses by name when the expansion's size differs from `expected_cardinality` or
+when the listed candidates differ from the expansion. A count a registrant states is never trusted.
+
+**How it feeds the deflation.** Qualification's cumulative N is the sum of `trial_count` across the census frontiers
+a Candidate binds, plus the lineage's protected attempts. The spread of trial ratios comes from the lineage's
+`TERMINAL_RESULT` trials. Both are therefore only as complete as this append. The Deflated Sharpe Ratio and its CSCV
+estimate of PBO are ported from `crates/strategy_factory/src/robustness.rs` at `main` f2238c09b, as Qualification
+states, with N the cumulative count in place of the formation path's fixed four or two.
 
 ## Input handoffs
 

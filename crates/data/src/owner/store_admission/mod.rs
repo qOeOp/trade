@@ -728,6 +728,7 @@ impl AdmittedMarketDataSnapshotPort {
     pub(super) async fn resolve_native_replay_quote_cut_census_v2(
         &self,
         scope_digest: [u8; 32],
+        frame_snapshot_identity: [u8; 32],
         frame_time_ns: u64,
         decision_cut_ns: u64,
         window_end_ns_exclusive: u64,
@@ -738,6 +739,7 @@ impl AdmittedMarketDataSnapshotPort {
         let raw = postgres::read_native_replay_quote_cut_census_snapshot_v2(
             &before.credential_lease,
             &scope_digest,
+            &frame_snapshot_identity,
             frame_time_ns,
             decision_cut_ns,
             window_end_ns_exclusive,
@@ -1127,6 +1129,7 @@ pub(super) trait NativeReplaySchedulingReadPortV1: Send + Sync {
     async fn resolve_native_replay_quote_cut_census_v2(
         &self,
         scope_digest: [u8; 32],
+        frame_snapshot_identity: [u8; 32],
         frame_time_ns: u64,
         decision_cut_ns: u64,
         window_end_ns_exclusive: u64,
@@ -1152,6 +1155,7 @@ impl NativeReplaySchedulingReadPortV1 for AdmittedMarketDataSnapshotPort {
     async fn resolve_native_replay_quote_cut_census_v2(
         &self,
         scope_digest: [u8; 32],
+        frame_snapshot_identity: [u8; 32],
         frame_time_ns: u64,
         decision_cut_ns: u64,
         window_end_ns_exclusive: u64,
@@ -1159,6 +1163,7 @@ impl NativeReplaySchedulingReadPortV1 for AdmittedMarketDataSnapshotPort {
         Self::resolve_native_replay_quote_cut_census_v2(
             self,
             scope_digest,
+            frame_snapshot_identity,
             frame_time_ns,
             decision_cut_ns,
             window_end_ns_exclusive,
@@ -1266,6 +1271,7 @@ impl NativeReplaySchedulingReadPortV1 for UnadmittedAcceptanceSnapshotPortV1 {
     async fn resolve_native_replay_quote_cut_census_v2(
         &self,
         scope_digest: [u8; 32],
+        frame_snapshot_identity: [u8; 32],
         frame_time_ns: u64,
         decision_cut_ns: u64,
         window_end_ns_exclusive: u64,
@@ -1273,6 +1279,7 @@ impl NativeReplaySchedulingReadPortV1 for UnadmittedAcceptanceSnapshotPortV1 {
         postgres::read_native_replay_quote_cut_census_snapshot_v2(
             &self.lease,
             &scope_digest,
+            &frame_snapshot_identity,
             frame_time_ns,
             decision_cut_ns,
             window_end_ns_exclusive,
@@ -1364,7 +1371,7 @@ pub(super) const NATIVE_REPLAY_SCHEDULING_ACCEPTANCE_GRANTS_V1: &[AcceptanceGran
         "market_data_admitted_read.resolve_bar_schedule_history_v1(text)",
     ),
     AcceptanceGrantV1::FunctionExecute(
-        "market_data_admitted_read.resolve_native_replay_quote_cut_census_v2(bytea,bigint,bigint)",
+        "market_data_admitted_read.resolve_native_replay_quote_cut_census_v2(bytea,bytea,bigint,bigint)",
     ),
     AcceptanceGrantV1::FunctionExecute(
         "market_data_admitted_read.resolve_native_replay_next_frame_v2(bytea,bigint,bigint)",
@@ -5701,6 +5708,7 @@ mod tests {
 
         if port
             .resolve_native_replay_quote_cut_census_v2(
+                *snapshot.snapshot_identity.as_bytes(),
                 *snapshot.snapshot_identity.as_bytes(),
                 snapshot.frame_time_ns,
                 snapshot.frame_time_ns + 1_000,

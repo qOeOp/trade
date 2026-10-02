@@ -39,9 +39,9 @@ use crate::owner::{
     },
 };
 
-const CLOCK_IDENTITY: &str = "market-clock.identity.v1-0000001";
-const CLOCK_EPOCH: &str = "market-clock.epoch.v1-0000000001";
-const DECISION_CUT: u64 = 40;
+pub(super) const CLOCK_IDENTITY: &str = "market-clock.identity.v1-0000001";
+pub(super) const CLOCK_EPOCH: &str = "market-clock.epoch.v1-0000000001";
+pub(super) const DECISION_CUT: u64 = 40;
 
 pub(in crate::owner) fn d(byte: u8) -> BindingDigest {
     BindingDigest::from_untrusted_bytes([byte; 32])

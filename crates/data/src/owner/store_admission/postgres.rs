@@ -141,8 +141,8 @@ pub(super) const NATIVE_REPLAY_QUOTE_CUT_FLOOR_V2: MeasurementFloor = Measuremen
     name: "native_replay_quote_cut_v2",
     functions: &[
         "market_data_admitted_read.resolve_native_replay_next_frame_v2(bytea,bigint,bigint)",
-        "market_data_admitted_read.resolve_native_replay_quote_cut_census_v2(bytea,bigint,bigint)",
-        "market_data_private.resolve_native_replay_quote_cut_census_v2(bytea,bigint,bigint)",
+        "market_data_admitted_read.resolve_native_replay_quote_cut_census_v2(bytea,bytea,bigint,bigint)",
+        "market_data_private.resolve_native_replay_quote_cut_census_v2(bytea,bytea,bigint,bigint)",
         "market_data_private.resolve_native_replay_next_frame_v2(bytea,bigint,bigint)",
     ],
     relations: &[
@@ -1197,7 +1197,8 @@ pub(super) async fn read_bar_schedule_candidate_snapshots_v1(
 
 /// One frame's quote cut census as the Owner held it in one read: the bound the first later frame
 /// the Owner had observed by the frame's decision cut sets, and the census rows of every quote cut
-/// lineage with a version between the frame and that bound.
+/// lineage with a version between the frame and that bound, each carrying the frame's own
+/// Instrument Master key beside its own.
 pub(crate) struct RawNativeReplayQuoteCutCensusV2 {
     pub(crate) bound_ns_exclusive: u64,
     pub(crate) rows: Vec<Vec<u8>>,
@@ -1210,6 +1211,7 @@ pub(crate) struct RawNativeReplayQuoteCutCensusV2 {
 pub(super) async fn read_native_replay_quote_cut_census_snapshot_v2(
     lease: &PostgresCredentialLease,
     scope_digest: &[u8; 32],
+    frame_snapshot_identity: &[u8; 32],
     frame_time_ns: u64,
     decision_cut_ns: u64,
     window_end_ns_exclusive: u64,
@@ -1258,9 +1260,10 @@ pub(super) async fn read_native_replay_quote_cut_census_snapshot_v2(
     let bound = i64::try_from(bound_ns_exclusive)
         .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
     let rows = sqlx::query_scalar::<_, serde_json::Value>(
-        "SELECT to_jsonb(r) FROM market_data_admitted_read.resolve_native_replay_quote_cut_census_v2($1,$2,$3) AS r",
+        "SELECT to_jsonb(r) FROM market_data_admitted_read.resolve_native_replay_quote_cut_census_v2($1,$2,$3,$4) AS r",
     )
     .bind(scope_digest.as_slice())
+    .bind(frame_snapshot_identity.as_slice())
     .bind(frame_time)
     .bind(bound)
     .fetch_all(&mut *transaction)

@@ -146,8 +146,8 @@ ACL 拒绝。它不证明供应商真实性，不证明生产装配，也不证�
 - **`B4` 消费者未编入已部署镜像。** `product/rd-workbench/Dockerfile.owner` 以默认 feature 构建
   `strategy-factory-rd-owner-api`，使 `composer-replay-issuance` 处于关闭，而 dashboard 读取二进制不触及任何
   Market Data 表面。native Replay scheduling 消费者位于这个生产 feature 之后，而不是 acceptance feature 之后；
-  修复循环的 shared time-evidence 消费者仍在 `sealed-develop-composer-acceptance` 之后。解除条件：部署镜像开启这个
-  生产 feature，这是一个部署决定。
+  修复循环的 shared time-evidence 消费者位于 `native-replay-execution` 之后，它同样是生产 feature。解除条件：部署镜像开启
+  这些生产 feature，这是一个部署决定。
 - **`B5` 无跨 Owner 消费者。** 该模块的唯一消费者是同一 crate 内的 Replay V2 组合与 PostgreSQL 写入者，且此类模块多数
   在 `crates/data` 内还是 `pub(crate)`。解除条件：一个由本文档点名的固定消费者。
 - **`B6` 还没有任何部署准入过供应商。** 整条链路已端到端验证：2026-09-17 的一次性 PostgreSQL 运行里，准入了
@@ -2102,7 +2102,11 @@ cut。每个报价 cut lineage 只在一个 cut 上读取：帧自身的 decisio
 `d_k` 所述，所以决策之后发布的报价 cut 仍是该帧的。lineage 先归约为它在其读取 cut 时可见的最新更正；该更正严格
 位于帧的 BAR 与同一 cut 下的上界之间，与帧共用 scope、Instrument Master、universe selection、Market Semantics 与
 Source Binding lineage，并且报价的成员恰好是帧的成员时，它才服务该帧。最新更正不能服务该帧的 lineage 什么也不
-提供，永不退回到被那次更正取代的版本。在能服务的 lineage 中，读取 cut 最早的那一个是该帧的；同在那个 cut 上读取的
+提供，永不退回到被那次更正取代的版本。Instrument Master 按每个 census 行记录的键比较：intake 为该快照成员解析出的
+facts 的摘要，凡解析到同一组 facts 的请求都共用它。它从不按 batch 携带的 readback digest 比较，因为每个 intake
+请求都会解析出自己的 readback，并封在该请求的 correlation、event 时刻与 decision cut 之上，所以任何两个快照都不
+共用它。不解析 facts 的提交（测试或 sealed 夹具的，从不是生产路径）以请求自身的 digest 为键；在有这个键之前记录
+的行没有键，不服务任何帧。在能服务的 lineage 中，读取 cut 最早的那一个是该帧的；同在那个 cut 上读取的
 两个会使该帧被拒。census 按请求方声明的 scope
 分区，所以在帧的全部坐标上都相同、又在同一 cut 上读取的第二个报价 cut 会与第一个冲突并使该帧被拒：这是拒绝服务，
 永远不会把一个 Owner 未为它核验的报价 cut 交给它。每个读取 cut 都由 Owner 已持有的 census 确定，所以日后重读会

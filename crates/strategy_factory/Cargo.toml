@@ -16,7 +16,14 @@ default = []
 # migration, and every read that recognizes a COMPOSER_V3 Replay. It carries no acceptance
 # fixture or sealed corpus; the acceptance feature below includes it rather than owning it.
 composer-v3-replay = []
-sealed-develop-composer-acceptance = ["sealed-strategy-input-acceptance"]
+# The R&D Owner's Market Data repair request composition and resolution, which the Native Replay
+# execution surface serves. Production code with no acceptance fixture; the acceptance feature below
+# includes it rather than owning it.
+native-replay-execution = []
+sealed-develop-composer-acceptance = [
+  "native-replay-execution",
+  "sealed-strategy-input-acceptance",
+]
 sealed-artifact-source-acceptance = []
 sealed-source-intake-acceptance = []
 sealed-source-intake-research-acceptance = ["sealed-source-intake-acceptance"]

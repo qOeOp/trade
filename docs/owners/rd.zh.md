@@ -221,9 +221,10 @@
   然后从不读它，下划线是唯一的现场标记，而 `crates/data` 之外没有任何一处调用该解析器的 trait 方法。
   该解析器还是可选的：`bootstrap_deployment_store_admission` 返回 `Option`，
   所以部署中该字段可能持有 `None`。补上这条需要本 Owner 出一个消费方，不是要 Market Data 开更多读。
-- **TARGET / ISOLATED_ACCEPTANCE_ONLY - 探索重放的生产入口：** `run_exploratory_replay_v2` 在
+- **IMPLEMENTATION_ADMITTED / NOT_CUT_OVER - 探索重放的生产入口：** `run_exploratory_replay_v2` 在
   `vibe-backtest-owner` 之外唯一的调用者位于 `run_native_replay` 内，而后者带
-  `#[cfg(feature = "sealed-develop-composer-acceptance")]`，且全仓没有任何 `cfg(not(...))` 孪生体。
+  `#[cfg(feature = "native-replay-execution")]`，这是不带任何验收代码的生产 feature，且全仓没有任何
+  `cfg(not(...))` 孪生体。
   在部署镜像不带 feature 的前提下，该路径在已部署产物里不可达。这测的是部署产物，不是历史。
 
 ## 模块
@@ -941,6 +942,11 @@ dimension，并从以下九个 typed dimension 中选择：
    唯一 `READY_FOR_SELECTION` 决定及相同 decision-policy version TrialFamily Census 与证据截面；停止
    状态与选择不能并存。
 
+**TARGET - Diagnosis 中的匹配入场对照与聚类区间。** Diagnosis 读取探索性 Result 的匹配入场对照及其按日期聚类的区间
+（Backtest「TARGET - 探索性匹配入场对照与聚类区间」），连同该区间展示运行相对于同样形状随机入场的优势，并标为对照。它是
+对照，不是选择依据：Iteration Decision 不据它选择、排列或停止候选，它也从不替代 Qualification 的 holdout 或同宇宙随机
+对照。
+
 `REPAIR_INPUTS` 按类别路由，绝不表示任意重试。它是所消费结果的不可变终态处置，本身不创建
 Selection 后继 Intent Artifact Replay Request 或修复效果。`MARKET_DATA` 指向 Market Data，也是唯一能
 在决定提交后产生关联 Market Data Repair Request 的类别；`ARTIFACT` 指向 Research 经 Develop 重建并
@@ -1043,6 +1049,55 @@ Candidate 与按一个并非由搜索方写下的定义抽取的程序相比较�
 
 切片与顺序见
 [Strategy Factory](../architecture/strategy-factory#target---research-runs-until-a-strategy-bounded-by-spend)。
+
+### TARGET - 生产试验台账与数据读取台账
+
+本节陈述的是一份尚无实现的契约；它不授予构建或部署的任何许可。
+
+**今天**，在 `main` 81d72a8fb 上按调用者而不是按引用测得：
+
+- **census 追加没有生产调用者。** `append_trial_family_attempt_in_transaction` 定义在生产代码中
+  （`crates/strategy_factory/src/trial_family_postgres.rs:729`），它的十二个调用点全都在测试模块里。census 的表只有两个写入者：
+  这个函数，以及在 Research 准入时写入 family 第一个成员的 `persist_initial_family`。所以生产上一个 family 的计数，无论它有
+  多少个探索性 Result，都停在形成时写入的 1，如上文所述。
+- **候选数是声明的，不是推导的。** 候选集的 `expected_cardinality` 只与提议方提供的候选列表长度比对
+  （`trial_family.rs:1628-1635`）。它的生成规则只以身份和摘要保存，从不展开。
+
+**每一次查看都是一次试验。** 生产 census 追加在准入探索性 Result 终态处置的那个事务里运行，所以计数随它计数的 Result 一起
+推进。一次试验就是一次 census attempt，与上文的计法完全相同：
+
+- 一个新请求的运行是一次试验，含义有任何不同的重跑也是；
+- 失败、被拒绝、无效或未知的运行都是试验；
+- 对某个请求的精确重放加入它的回执，不是第二次试验；
+- 为任何其他目的查看结果，同样是一次试验。结果只能经由一个被计数的请求来计算。Diagnosis、Compare 与 Dashboard 只读取
+  已存在的 Result，关于规模或样本的问题用计数回答，而不是用结果回答。
+
+生产追加必须不晚于部署中的探索性回放落地，因为一个没有 census attempt 而被提交的 Result，就是一次未被计数的查看。
+
+**数据读取台账。** R&D 记录对市场数据的每一次读取：
+
+- 记录什么：血缘、发起读取的试验或 agent 会话、标的、半开区间，以及该标的所属的标的层级（主流币、大市值或新上市）；
+- 行从哪里来：每个试验绑定的点时范围，以及 agent 经由 R&D 工具面所做的每一次读取，所以一次非正式的查看留下的行，与一次
+  登记过的运行相同。
+
+**未被读过的切片。** 台账分发血缘中没有任何人读过的切片：
+
+- 验证阶段向它请求一个属于自己标的层级与时段、且该血缘从未读过的切片，得到一个切片或一个具名拒绝。
+- 一旦分发，该切片即被预留，第二次读取会被拒绝。
+- 与 Candidate 的前驱 frontier 共享的更早血缘读过的切片，算作已读，所以更早 family 造成的污染是可见的，而不是靠记忆。
+- 台账从不分发位于 Qualification 封存 holdout 分区之内的切片。
+
+**census 不带任何判决。** census 行记录一次试验跑过了以及它的探索性处置。它从不记录 Qualification 的结果，也不记录评估方
+给出的任何通过或失败位；Qualification 把自己的受保护尝试计入 N
+（[Qualification](./qualification/#target---cumulative-trial-deflation-at-candidate-intake)），并且只经由它的公开阶段发布结果。
+
+**计数是算出来的。** 候选集的生成规则以它展开成的网格保存，而不是以一个不透明的摘要保存。Owner 展开它，当展开的大小与
+`expected_cardinality` 不同、或列出的候选与展开不同时，按名拒绝。登记方声明的计数从不被信任。
+
+**它如何接入打折。** Qualification 的累计 N 是 Candidate 绑定的各 census frontier 上 `trial_count` 之和，加上该血缘的受保护
+尝试；试验比率的离散度取自该血缘的 `TERMINAL_RESULT` 试验。所以两者都只能与这个追加一样完整。Deflated Sharpe Ratio 及其
+CSCV 的 PBO 估计，按 Qualification 所述，从 `main` f2238c09b 的 `crates/strategy_factory/src/robustness.rs` 移植，用累计计数
+取代形成路径上固定的四或二作为 N。
 
 ## 输入交接
 
