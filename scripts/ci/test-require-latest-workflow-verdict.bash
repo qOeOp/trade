@@ -6,7 +6,8 @@
 # - a newer failure over an older success fails, naming that run;
 # - a success older than the limit fails;
 # - a branch whose runs are all cancelled or on other branches fails;
-# - an unreadable or failed listing fails.
+# - an unreadable or failed listing fails;
+# - a stale page followed by a current one decides on the current one; two stale pages still fail.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -15,12 +16,21 @@ root="$(mktemp -d)"
 trap 'rm -rf "$root"' EXIT
 export GITHUB_REPOSITORY=o/r PATH="${root}/bin:${PATH}"
 # 2026-09-27T12:00:00Z
-export REQUIRE_LATEST_NOW=1790510400
+export REQUIRE_LATEST_NOW=1790510400 REQUIRE_LATEST_RETRY_SECONDS=0
 mkdir -p "${root}/bin"
 cat > "${root}/bin/gh" << 'EOF'
 #!/usr/bin/env bash
 [[ "${STANDIN_FAIL:-}" != 1 ]] || exit 1
-cat "$STANDIN_LISTING"
+# The request must not filter by status: the script filters itself (build 37022012743).
+[[ "$*" != *"status="* ]] || { echo "stand-in: the request filters by status: $*" >&2; exit 1; }
+# A second listing, when given, answers every request after the first.
+calls="${STANDIN_LISTING}.calls"
+echo x >> "$calls"
+if [[ -n "${STANDIN_LISTING_AFTER:-}" && "$(wc -l < "$calls")" -gt 1 ]]; then
+  cat "$STANDIN_LISTING_AFTER"
+else
+  cat "$STANDIN_LISTING"
+fi
 EOF
 chmod +x "${root}/bin/gh"
 
@@ -58,4 +68,9 @@ check other-branch-only 1 "has no completed run on main" \
   "$(listing "$(run 4 success 2026-09-27T11:00:00Z feature)" "$(run 3 cancelled 2026-09-27T10:00:00Z main)")"
 check unreadable 1 "listing on main is unreadable" '<html>rate limited</html>'
 STANDIN_FAIL=1 check listing-failed 1 "could not list security-audit.yml's runs on main" '{}'
+printf '%s' "$(listing "$(run 5 failure 2026-09-27T10:00:00Z main)")" > "${root}/current.json"
+STANDIN_LISTING_AFTER="${root}/current.json" check stale-page-then-current 1 \
+  "latest verdict on main is failure: run 5" "$(listing "$(run 1 success 2026-08-30T16:05:40Z main)")"
+STANDIN_LISTING_AFTER="${root}/stale-page-then-current.json" check stale-page-twice 1 \
+  "is 667.9 hours old, over 49" "$(listing "$(run 1 success 2026-08-30T16:05:40Z main)")"
 echo "ok: only a recent green latest verdict passes"
