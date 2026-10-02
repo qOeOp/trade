@@ -2076,6 +2076,11 @@ mod tests {
         );
         assert_eq!(owner.is_inverse, FactValue::Value(adapter.is_inverse));
         assert_eq!(
+            (adapter.max_notional, &owner.maximum_notional),
+            (None, &FactValue::Unbounded),
+            "neither states a per-order notional cap: exchangeInfo has none"
+        );
+        assert_eq!(
             owner.quantity_precision_from_filter,
             FactValue::Value(adapter.size_precision)
         );
