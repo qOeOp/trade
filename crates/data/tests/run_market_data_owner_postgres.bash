@@ -16,6 +16,7 @@ readonly market_data_owner_postgres_tests=(
   owner::postgres::admitted_read_api_v1::tests::the_admitted_read_schema_is_what_its_statements_declare
   owner::store_admission::tests::the_role_identity_moves_with_every_privilege_the_role_gains_and_no_other
   owner::store_admission::tests::the_admitted_reader_holds_every_admitted_read_and_nothing_else
+  owner::store_admission::tests::the_pinned_tls_measurer_and_its_reads_reach_the_store_only_over_the_pinned_root
   owner::instrument_master_v2_postgres::tests::postgres_v2_cut_custody_holds_one_or_two_members_and_migrates_a_legacy_table
   owner::instrument_master_v2_postgres::tests::postgres_bound_replay_issuance_keys_each_request_to_one_binding
   owner::instrument_economic_terms_postgres_v1::tests::postgres_economic_terms_resolve_for_one_member_or_two
@@ -147,6 +148,8 @@ reader_password="md_d1_reader_test_only"
 custody_publisher_password="md_d1_custody_publisher_test_only"
 custody_custodian_password="md_d1_custody_custodian_test_only"
 admitted_reader_password="md_d1_admitted_reader_test_only"
+tls_only_password="md_d1_tls_only_test_only"
+readonly tls_dir="$repository_root/target/nextest/market-data-tls"
 
 # shellcheck disable=SC2329 # invoked indirectly by the EXIT trap
 cleanup() {
@@ -220,10 +223,53 @@ if [[ "$consecutive_ready" -lt "$required_consecutive_ready" ]]; then
 fi
 
 port="$(docker port "$container" 5432/tcp | sed -E 's/.*:([0-9]+)$/\1/')"
+
+# TLS for Store Admission's pinned measurer: a throwaway root, and a certificate for 127.0.0.1 it
+# issues, which the server presents once `ssl` is on. Every other connection here states plaintext
+# and is still admitted. One role, vibe_test_role_market_data_tls_only, is admitted over TLS alone,
+# so a proof that reaches the store as it can only have reached it over TLS.
+rm -rf -- "$tls_dir"
+mkdir -p -- "$tls_dir"
+openssl req -x509 -new -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -days 2 \
+  -subj "/CN=vibe test market data root" -keyout "$tls_dir/root.key" -out "$tls_dir/root.crt" \
+  -addext "basicConstraints=critical,CA:TRUE" -addext "keyUsage=critical,keyCertSign" 2> /dev/null
+openssl req -new -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes \
+  -subj "/CN=127.0.0.1" -keyout "$tls_dir/server.key" -out "$tls_dir/server.csr" 2> /dev/null
+printf '%s\n' "basicConstraints=critical,CA:FALSE" "keyUsage=critical,digitalSignature" \
+  "extendedKeyUsage=serverAuth" "subjectAltName=IP:127.0.0.1" > "$tls_dir/server.ext"
+openssl x509 -req -in "$tls_dir/server.csr" -CA "$tls_dir/root.crt" -CAkey "$tls_dir/root.key" \
+  -CAcreateserial -days 2 -extfile "$tls_dir/server.ext" -out "$tls_dir/server.crt" 2> /dev/null
+docker cp "$tls_dir/server.crt" "$container:/var/lib/postgresql/server.crt" > /dev/null
+docker cp "$tls_dir/server.key" "$container:/var/lib/postgresql/server.key" > /dev/null
+docker exec "$container" sh -c 'chown postgres:postgres /var/lib/postgresql/server.crt /var/lib/postgresql/server.key && chmod 600 /var/lib/postgresql/server.key'
+# First match wins, so this line goes above the image's own `host all all all scram-sha-256`.
+docker exec "$container" sh -c 'hba=/var/lib/postgresql/data/pg_hba.conf && { echo "hostnossl all vibe_test_role_market_data_tls_only all reject"; cat "$hba"; } > "$hba.next" && cat "$hba.next" > "$hba" && rm "$hba.next"'
+for setting in "ssl_cert_file = '/var/lib/postgresql/server.crt'" \
+  "ssl_key_file = '/var/lib/postgresql/server.key'" "ssl = on"; do
+  docker exec "$container" psql -v ON_ERROR_STOP=1 -U postgres -d postgres -c "ALTER SYSTEM SET $setting" > /dev/null
+done
+docker exec "$container" psql -v ON_ERROR_STOP=1 -U postgres -d postgres -Atqc "SELECT pg_catalog.pg_reload_conf()" > /dev/null
+# A reload is asynchronous: wait until a TLS session is admitted, and fail here if none ever is.
+tls_ready=""
+for _ in $(seq 1 20); do
+  tls_ready="$(docker exec --env PGPASSWORD="$admin_password" "$container" \
+    psql "host=127.0.0.1 user=postgres dbname=postgres sslmode=require" -Atqc \
+    "SELECT ssl FROM pg_catalog.pg_stat_ssl WHERE pid = pg_catalog.pg_backend_pid()" 2> /dev/null || true)"
+  [[ "$tls_ready" == "t" ]] && break
+  sleep 0.5
+done
+
+if [[ "$tls_ready" != "t" ]]; then
+  echo "market-data bootstrap: ${container} never admitted a TLS session after ssl was turned on" >&2
+  docker logs --tail 50 "$container" >&2 || true
+  exit 1
+fi
 docker exec "$container" psql -v ON_ERROR_STOP=1 -U postgres -d postgres \
   -c "CREATE ROLE vibe_test_role_market_data_owner LOGIN PASSWORD '$owner_password' NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS"
 docker exec "$container" psql -v ON_ERROR_STOP=1 -U postgres -d postgres \
   -c "CREATE ROLE vibe_test_role_market_data_reader LOGIN PASSWORD '$reader_password' NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS"
+docker exec "$container" psql -v ON_ERROR_STOP=1 -U postgres -d postgres \
+  -c "CREATE ROLE vibe_test_role_market_data_tls_only LOGIN PASSWORD '$tls_only_password' NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS"
 
 # Provisions one database the way the deployment's Market Data store is admitted: owned by the
 # Owner role, with a private schema the reader cannot even see and an immutable admin marker the
@@ -267,6 +313,9 @@ provision_database() {
   export MARKET_DATA_OWNER_TEST_DATABASE_URL="postgres://vibe_test_role_market_data_owner:$owner_password@127.0.0.1:$port/$database"
   export MARKET_DATA_READER_TEST_DATABASE_URL="postgres://vibe_test_role_market_data_reader:$reader_password@127.0.0.1:$port/$database"
   export MARKET_DATA_ADMITTED_READER_TEST_DATABASE_URL="postgres://market_data_admitted_reader:$admitted_reader_password@127.0.0.1:$port/$database"
+  export MARKET_DATA_TLS_ONLY_TEST_DATABASE_URL="postgres://vibe_test_role_market_data_tls_only:$tls_only_password@127.0.0.1:$port/$database"
+  export MARKET_DATA_TLS_ROOT_CERTIFICATE_FILE="$tls_dir/root.crt"
+  export MARKET_DATA_TLS_SERVER_CERTIFICATE_FILE="$tls_dir/server.crt"
   export VIBE_POSTGRES_TEST_DATABASE_NAME="$database"
   export VIBE_POSTGRES_TEST_INSTANCE_MARKER="$marker"
 }

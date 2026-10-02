@@ -83,7 +83,9 @@ vibe-testkit = { workspace = true, features = ["postgres"] }
 
 criterion = { workspace = true }
 proptest = { workspace = true }
+rcgen = { workspace = true }
 rstest = { workspace = true }
+rustls = { workspace = true }
 tokio = { workspace = true, features = ["test-util", "macros", "rt"] }
 
 # Run with `cargo bench -p vibe-data --bench engine`

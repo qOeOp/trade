@@ -127,13 +127,20 @@ ACL 拒绝。它不证明供应商真实性，不证明生产装配，也不证�
   下文 `ISOLATED_EVENT_REPLAY_ACCEPTANCE_V1` 有两处表述与代码尚不一致；都不挡生产路线。该档要求由单独执行的主体测量
   目标，而 `DirectMeasurer` 是在 custodian 内用租到的凭据测量。该档还要求准入回执交叉绑定 trust bundle，而
   `SealedDeploymentStoreAdmissionReceipt` 带 witness identity，却没有 signer key fingerprint 或 bundle identity。
-  已有四个生产适配器，但都还没有接入组合根：pin 住一把公钥的 Ed25519 签名验证器（`store_admission/signature.rs`）、
+  已有五个生产适配器，但都还没有接入组合根：pin 住一把公钥的 Ed25519 签名验证器（`store_admission/signature.rs`）、
   PostgreSQL custody store（`store_admission/custody_postgres.rs`；其 schema 与两个主体在
   `product/rd-workbench/postgres-init/20-deployment-store-custody.sh`，compose 文件还没有运行它），以及 secret 文件凭据
   resolver（`store_admission/credential_files.rs`）。secret 文件自身没有版本也没有过期时间：其版本是文件原样字节的
   SHA-256，由签名 manifest 指名；其租约在准入的 store 时钟 cut 之后一段固定时长到期。第四个是单机部署的 anti-rollback
   模式 `SingleTrustDomainNoRollbackWitness`（`store_admission/witness.rs`）：单机上 anti-rollback 性质不成立，每张回执都写明
-  这个模式，用户 2026-09-27 的授权载于架构规则。管理员用 `deployment-store-publication-seal` 与
+  这个模式，用户 2026-09-27 的授权载于架构规则。第五个是部署库的直接测量器
+  `PinnedTlsPostgresDirectMeasurer`（`store_admission/postgres.rs`，其 TLS 一段在 `crates/postgres_connect/src/pinned_tls.rs`）。
+  sqlx 报不出会话的服务端出示了哪张证书，它的校验模式又会在给定根之外信任公网 Web PKI，所以测量器自己建连：发出
+  PostgreSQL 的 `SSLRequest`，完成只信任一个 PEM 文件所钉之根的 TLS 1.3，再经一个私有 Unix socket 把 sqlx 的会话转送到
+  服务端。它的 TLS identity 写明该服务端出示的证书与所钉的根，且服务端的 `pg_stat_ssl` 必须在 TLS、协议与 cipher 上
+  与之一致。每个准入后的读都以同样方式到达库：准入记下测量器的传输方式，并绑定到它测得的证书；每次读都在其上开会话，服务端
+  出示的若不是那张证书就拒绝。部署的 PostgreSQL
+  还没有开启 TLS；开启它属于把这些适配器接入组合根的那一步。管理员用 `deployment-store-publication-seal` 与
   `deployment-store-publication-publish` 封存并发布历史；步骤见 `product/rd-workbench/README.md`。
   `admit_rd_owner_market_data_postgres` 仍接 `Unavailable*` 端口，所以 `required` 在启动时仍然失败关闭。准入只从 custody
   store 的时钟读时间：每次读历史都带回该库的 `clock_timestamp()` cut，commit 也在同一个时钟上判定回执的窗口。
