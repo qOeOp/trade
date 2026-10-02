@@ -74,6 +74,9 @@ mod develop_plugin_build_v2_tests;
 )]
 mod develop_plugin_build_v3;
 pub mod exploratory_replay;
+mod exploratory_result_census_postgres;
+pub use exploratory_result_census_postgres::ExploratoryResultCensusErrorV1;
+pub use trial_family_postgres::TrialFamilyAttemptCountV2;
 pub mod governance_artifact_membership;
 pub mod iteration_analysis;
 pub mod iteration_analysis_postgres;

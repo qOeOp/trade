@@ -109,6 +109,12 @@ pub enum BacktestRunReportRefusalV1 {
     /// missing pieces is named.
     #[error("the Backtest Owner refused the outcome readback: {0}")]
     OutcomeEvidenceRefused(BacktestReadbackRefusalV1),
+    /// R&D does not show this run, because its TrialFamily census does not count it.
+    #[error("the run is not counted in its TrialFamily census")]
+    ResultNotCounted,
+    /// Whether the census counts this run could not be read.
+    #[error("the run's TrialFamily census is unavailable: {0}")]
+    ResultCensusUnavailable(String),
     /// The Backtest Owner's custody could not be read at all.
     #[error("the Backtest Owner outcome readback is unavailable: {0}")]
     OutcomeEvidenceUnavailable(String),
@@ -185,8 +191,10 @@ impl BacktestRunReportRefusalV1 {
             | Self::ReplayRequestUnavailable(_)
             | Self::FrozenDesignUnavailable
             | Self::ArtifactBuildReceiptsUnavailable
-            | Self::UniverseSelectionUnavailable => false,
+            | Self::UniverseSelectionUnavailable
+            | Self::ResultCensusUnavailable(_) => false,
             Self::OutcomeEvidenceRefused(_)
+            | Self::ResultNotCounted
             | Self::EngineResultNoncanonical(_)
             | Self::NonFiniteValue(_)
             | Self::DuplicateSeriesTime(_)
@@ -205,6 +213,8 @@ impl BacktestRunReportRefusalV1 {
     pub const fn code(&self) -> &'static str {
         match self {
             Self::OutcomeEvidenceRefused(refusal) => refusal.code(),
+            Self::ResultNotCounted => "EXPLORATORY_RESULT_NOT_COUNTED",
+            Self::ResultCensusUnavailable(_) => "EXPLORATORY_RESULT_CENSUS_UNAVAILABLE",
             Self::OutcomeEvidenceUnavailable(_) => "OUTCOME_EVIDENCE_UNAVAILABLE",
             Self::EngineResultNoncanonical(_) => "ENGINE_RESULT_NONCANONICAL",
             Self::NonFiniteValue(_) => "NON_FINITE_VALUE",
@@ -511,6 +521,18 @@ pub(crate) async fn read_report_in_transaction(
     let Some(read) = resolve_backtest_run_result_v1(transaction, locator).await? else {
         return Ok(None);
     };
+    crate::exploratory_result_census_postgres::require_counted_exploratory_result_in_transaction(
+        transaction,
+        &read.run.request_identity,
+        &read.request_meaning_digest,
+    )
+    .await
+    .map_err(|e| match e {
+        crate::ExploratoryResultCensusErrorV1::NotCounted => {
+            BacktestRunReportRefusalV1::ResultNotCounted
+        }
+        other => BacktestRunReportRefusalV1::ResultCensusUnavailable(other.to_string()),
+    })?;
     let read_request = read_for_report_in_transaction_v2(
         transaction,
         &ExploratoryReplayRecoverySelectorV2 {

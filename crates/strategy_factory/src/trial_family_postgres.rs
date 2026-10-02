@@ -8,7 +8,8 @@ use crate::{
     product_edge::ResearchRequestReceiptV1,
     trial_family::{
         ArtifactTrialFamilyReadbackV1, TrialFamilyAttemptAppendV2, TrialFamilyAttemptFrontierV2,
-        TrialFamilyCandidateExperimentReadbackV1, TrialFamilyCandidateSetFrontierV2,
+        TrialFamilyAttemptTerminalDispositionV2, TrialFamilyCandidateExperimentReadbackV1,
+        TrialFamilyCandidateSetFrontierV2, TrialFamilyCandidateSetProposalV2,
         TrialFamilyCensusFrontierV2, TrialFamilyCensusReadbackV2, TrialFamilyError,
         TrialFamilyReadbackV1, admit_stored_artifact_binding, admit_stored_candidate_experiment_v1,
         admit_stored_census_member_v2, admit_stored_family,
@@ -665,6 +666,25 @@ pub(crate) async fn load_trial_family_by_family_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
     trial_family_identity: &str,
 ) -> Result<TrialFamilyReadbackV1, TrialFamilyError> {
+    let (intent_identity, research_receipt_identity) =
+        family_locator_in_transaction(transaction, trial_family_identity).await?;
+    let family =
+        load_trial_family_in_transaction(transaction, &intent_identity, &research_receipt_identity)
+            .await?;
+
+    if family.root().trial_family_identity() != trial_family_identity {
+        return Err(TrialFamilyError::Unavailable(
+            "TrialFamily locator resolved a different family".to_string(),
+        ));
+    }
+    Ok(family)
+}
+
+/// Resolves a family to the formation Intent and Research receipt its frozen outbox names.
+async fn family_locator_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    trial_family_identity: &str,
+) -> Result<(String, String), TrialFamilyError> {
     let family_rows = sqlx::query(
         "SELECT intent_identity FROM rd_trial_families_v1 WHERE trial_family_identity = $1 FOR SHARE",
     )
@@ -704,28 +724,141 @@ pub(crate) async fn load_trial_family_by_family_in_transaction(
             "TrialFamily locator/outbox cross-binding mismatch".to_string(),
         ));
     }
-    let family = load_trial_family_in_transaction(
-        transaction,
-        &intent_identity,
-        &payload.research_receipt_identity,
-    )
-    .await?;
-
-    if family.root().trial_family_identity() != trial_family_identity {
-        return Err(TrialFamilyError::Unavailable(
-            "TrialFamily locator resolved a different family".to_string(),
-        ));
-    }
-    Ok(family)
+    Ok((intent_identity, payload.research_receipt_identity))
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "TrialFamily Census V2 awaits the admitted R&D Decision composition consumer"
+/// The Owner-read facts one exploratory attempt is counted from.
+pub(crate) struct TrialFamilyAttemptFactsV2 {
+    pub(crate) intent_identity: String,
+    pub(crate) intent_digest: String,
+    pub(crate) request_identity: String,
+    pub(crate) request_digest: String,
+    pub(crate) result_identity: String,
+    pub(crate) result_digest: String,
+    pub(crate) terminal_disposition: TrialFamilyAttemptTerminalDispositionV2,
+}
+
+/// What counting one exploratory attempt did to its family's census.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TrialFamilyAttemptCountV2 {
+    /// The census held no attempt of this request, and now holds one.
+    Appended,
+    /// The census already counted this request: the Result is an exact replay of it, joins that
+    /// attempt, and changes nothing.
+    Joined,
+}
+
+/// Counts one exploratory attempt in its family's census, once per request meaning.
+///
+/// The family's head is locked before its census is read, so a concurrent count of the same
+/// request waits here and then joins the attempt the first one appended. The attempt takes the
+/// next ordinal, records that ordinal plus one as the consumed budget, and proposes no candidate.
+pub(crate) async fn count_trial_family_attempt_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    trial_family_identity: &str,
+    attempt: TrialFamilyAttemptFactsV2,
+    now_epoch_ms: u64,
+) -> Result<TrialFamilyAttemptCountV2, TrialFamilyError> {
+    let (intent_identity, research_receipt_identity) =
+        family_locator_in_transaction(transaction, trial_family_identity).await?;
+    let head: Option<serde_json::Value> = sqlx::query_scalar(
+        "SELECT frontier_json FROM rd_trial_family_heads_v1 WHERE trial_family_identity = $1 FOR UPDATE",
     )
-)]
+    .bind(trial_family_identity)
+    .fetch_optional(&mut **transaction)
+    .await
+    .map_err(storage)?;
+    let schema_version = head
+        .as_ref()
+        .and_then(|frontier| frontier.get("schema_version"))
+        .and_then(serde_json::Value::as_u64)
+        .ok_or_else(|| TrialFamilyError::Unavailable("family census head missing".to_string()))?;
+    let attempt_ordinal = match schema_version {
+        1 => 0,
+        2 => {
+            let census = load_trial_family_census_v2_in_transaction(
+                transaction,
+                &intent_identity,
+                &research_receipt_identity,
+            )
+            .await?;
+
+            if census.counts_request(&attempt.request_identity, &attempt.request_digest) {
+                return Ok(TrialFamilyAttemptCountV2::Joined);
+            }
+            census.attempt_count()?
+        }
+        _ => {
+            return Err(TrialFamilyError::Unavailable(
+                "family head schema is unsupported".to_string(),
+            ));
+        }
+    };
+    let consumed_trial_budget = attempt_ordinal
+        .checked_add(1)
+        .ok_or(TrialFamilyError::InvalidPolicy("TRIAL_BUDGET_OVERFLOW"))?;
+    append_trial_family_attempt_in_transaction(
+        transaction,
+        &intent_identity,
+        &research_receipt_identity,
+        TrialFamilyAttemptAppendV2 {
+            intent_identity: attempt.intent_identity,
+            intent_digest: attempt.intent_digest,
+            request_identity: attempt.request_identity,
+            request_digest: attempt.request_digest,
+            result_identity: attempt.result_identity,
+            result_digest: attempt.result_digest,
+            terminal_disposition: attempt.terminal_disposition,
+            consumed_trial_budget,
+            candidate_set: TrialFamilyCandidateSetProposalV2::none_at_result_admission()?,
+        },
+        now_epoch_ms,
+    )
+    .await?;
+    Ok(TrialFamilyAttemptCountV2::Appended)
+}
+
+/// Whether the family's census counts this exact Replay request.
+///
+/// It takes no row lock, so a `READ ONLY` transaction can ask it. Counting only ever adds to a
+/// census, so a `true` here is never withdrawn by a later commit.
+pub(crate) async fn census_counts_request_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    trial_family_identity: &str,
+    request_identity: &str,
+    request_digest: &str,
+) -> Result<bool, TrialFamilyError> {
+    let head: Option<serde_json::Value> = sqlx::query_scalar(
+        "SELECT frontier_json FROM rd_trial_family_heads_v1 WHERE trial_family_identity = $1",
+    )
+    .bind(trial_family_identity)
+    .fetch_optional(&mut **transaction)
+    .await
+    .map_err(storage)?;
+
+    match head
+        .as_ref()
+        .and_then(|frontier| frontier.get("schema_version"))
+        .and_then(serde_json::Value::as_u64)
+    {
+        Some(1) => Ok(false),
+        Some(2) => Ok(
+            load_trial_family_census_v2_by_family_snapshot_in_transaction(
+                transaction,
+                trial_family_identity,
+            )
+            .await?
+            .counts_request(request_identity, request_digest),
+        ),
+        Some(_) => Err(TrialFamilyError::Unavailable(
+            "family head schema is unsupported".to_string(),
+        )),
+        None => Err(TrialFamilyError::Unavailable(
+            "family census head missing".to_string(),
+        )),
+    }
+}
+
 pub(crate) async fn append_trial_family_attempt_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
     intent_identity: &str,

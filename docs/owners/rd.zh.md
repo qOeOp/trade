@@ -164,9 +164,11 @@
   没有 SQL 函数读这两列里的 source 子对象；将来要读的函数必须先按 source schema 分支。
 - **CURRENT - composer-backed Replay 绑定哪一份 TrialFamily 状态：** 与 legacy exploratory Replay 绑定的相同。
   对家族成形 Intent 的 Replay 绑定家族成形时的样子，即成形时的 census frontier，且只在家族还没有任何 attempt
-  时被准入；successor 绑定家族的 V2 census。一个 attempt 是在 Result 之后记录的一次 Replay，所以家族的第一次
-  Replay 永远不可能对着 V2 census 组合。只有下文的 Decision composition 会追加 attempt，在它被准入之前，
-  successor 按名被拒，`SUCCESSOR_CENSUS_AWAITS_DECISION_COMPOSITION`。commit 与历史 readback 用同一条规则做这个
+  时被准入；successor 绑定家族的 V2 census。一个 attempt 是在 Result 之后记录的一次 Replay，R&D 在计数该
+  Result 时记下它（见下文「CURRENT - 每个已提交的探索性 Result 都被计数」），所以家族的第一次 Replay 永远不可能对着
+  V2 census 组合；该 Replay 的 Result 一经计数，对成形 Intent 的新 Replay 即被拒绝。家族还没有已计数 attempt 时，
+  successor 按名被拒，`SUCCESSOR_CENSUS_AWAITS_DECISION_COMPOSITION`；successor Intent 只能由针对已计数 Result
+  的 Iteration Decision 提交，所以它的家族一定有一个。commit 与历史 readback 用同一条规则做这个
   选择；第一代 Replay 的 readback 从家族的 root 重新读出成形 frontier，所以之后追加的 attempt 不会改变它。它的 replay window 是它所组合的 facts 的窗口，由家族的 policy
   窗口限定（`docs/architecture/strategy-factory.md`，TrialFamily-owned Replay execution policy V2）；前驱是
   composer-backed Replay 的 Market Data 修复 re-entry 按名被拒，`MARKET_DATA_REPAIR_OF_COMPOSER_V3_REPLAY_AWAITS_DESIGN`，
@@ -997,8 +999,9 @@ purge 与 embargo 派生规则、TrialFamily-aware multiplicity policy、attempt
 次数等于预算时，决策策略发出 `TRIAL_BUDGET_EXHAUSTED`；这一耗尽又抢先于候选比较与 `READY_FOR_SELECTION`，所以预算内的最后
 一次试验永远成不了 Candidate。一个消耗单位是一次 census attempt，即任何终态的 Intent、Request 与 Result 三元组，按
 TrialFamily 计数。后继 Intent 留在自己的 family 里，新的 Research 目标会形成新的 family 并从头计数，没有任何地方跨 family
-求和。推进计数的 census V2 追加没有生产调用方，它在等上面的 Decision composition，所以在生产构建里每个 family 的计数都是
-形成时写下的 1，没有 family 能触到预算。
+求和。R&D 对原生 Replay 运行路由提交的每个 Result 计数（见下文「CURRENT - 每个已提交的探索性
+Result 都被计数」）。形成时写下的 1 预留了 family 的第一次 attempt，所以对这次 attempt 的 Result 计数后，计数仍是 1；
+family 的计数要到它第一个 successor 的 Result 才首次到 2。
 
 **一次试验**就是一次 census attempt，与今天的计数完全相同：TrialFamily Census 接纳的每一个探索性 Intent、Request 与
 Result 三元组，不论其终态。落败、被拒、无效与未知的 attempt 都计入，因为每一次都看过一次数据；完全相同的请求重放会并入
@@ -1046,21 +1049,58 @@ Candidate 与按一个并非由搜索方写下的定义抽取的程序相比较�
 切片与顺序见
 [Strategy Factory](../architecture/strategy-factory#target---research-runs-until-a-strategy-bounded-by-spend)。
 
+### CURRENT - 每个已提交的探索性 Result 都被计数
+
+原生 Replay 运行路由（`POST /v2/exploratory-replays`，由 `native-replay-execution` feature 携带）在应答之前，对
+Backtest Owner 已提交的 Result 计数。计数在 Backtest 提交之后、R&D 自己的事务里进行，因为它无法在该提交之中或之前
+计数：
+
+- Backtest 提交运行在 `backtest_owner` 会话中，它只能经由 `rd_owner_api` 授予的加锁请求读取进入 R&D；
+- census 追加是 R&D 自己的规范编码，换成 SQL 函数就得把它重写一遍；
+- successor 的提交重锁要求它冻结时所对着的 census head，所以在提交之前追加，会让该提交拒绝它自己。
+
+**计数什么。** 计数像 Iteration Result Admission 那样，经由 Backtest custody 适配器锁定 Result。它从密封请求的规范
+字节读出 family 与 Intent，并对照 Result 所绑定的含义摘要重算该字节的含义摘要。随后它锁定 family 的 census head，追加
+一次 attempt：Intent、请求与 Result，Result 的终态一一对应计入（`TERMINAL_RESULT`；`RUN_REJECTED` 计为 `REJECTED`；
+`INVALID_REPLAY_EVIDENCE` 计为 `INVALID`）。这次 attempt 的已消耗计数是它的序号加一。它的候选集为空，归在唯一的规则
+`rd-candidate-generation-none-at-result-admission-v1` 之下，因为还没有任何 Decision 读过这个 Result。若 census 已经
+计数了某个 Result 的请求身份与含义摘要，该 Result 就是一次精确重放：无论 Backtest 给它什么 attempt 身份，它都加入那次
+attempt，不写任何东西。
+
+**计数是多少。** 形成时写下的 1 预留了 family 的第一次 attempt，所以对它的 Result 计数后，计数仍是 1。改变的是 family
+的 head 移到 V2 census，它的 attempt frontier 绑定这个请求与 Result。此后对成形 Intent 的新 Replay 被拒绝，计数要到某个
+successor 的 Result 才首次到 2。
+
+**未计数的 Result 不会被展示。** 在 Backtest 提交与计数之间，Result 以未计数的状态存在。计数失败时，路由应答的是计数的
+拒绝而不是 Result；以同一请求与 attempt 再运行一次，会恢复已提交的 Result 并对它计数。凡是展示 Result 或其产出的 R&D
+读取，都以 `EXPLORATORY_RESULT_NOT_COUNTED` 拒绝 census 没有计数的 Result：
+
+- 写 API 的 Result 与 run-evidence 读取，以及读 API 的 Result 读取，以 409 拒绝；
+- 运行报告，其拒绝携带同一代码；
+- Iteration Result Admission，以 `ITERATION_RESULT_ADMISSION_RESULT_NOT_COUNTED` 拒绝。
+
+这项检查不取行锁，所以读 API 的 `READ ONLY` 事务可以做它。diagnosis gate、iteration analysis 与每个 Decision 本就要求
+census 最新的 attempt 恰是这个 Result。Result 目录只列出身份、终态与提交时间，不含任何结果，保持不变。请求没有被任何
+R&D 请求密封的 Result 不属于任何 family，以 `EXPLORATORY_RESULT_REQUEST_UNAVAILABLE` 拒绝。
+
+**没有测试驱动的部分。** 没有任何有序链路条目运行原生 Replay，所以没有测试触及运行路由的计数；第一个执行原生 Replay
+的条目会断言它。也没有条目驱动 Iteration Result Admission 的首次准入。计数、加入以及上面每一项拒绝，由运行报告条目
+`backtest_run_report_reads_back_every_point_a_real_run_committed` 在经链路自己的 Backtest 写入者提交的 Result 上证明。
+原生运行只提交 `TERMINAL_RESULT`：在提交之前失败的运行不留下 Result，也没有可计数的东西。
+
 ### TARGET - 生产试验台账与数据读取台账
 
 本节陈述的是一份尚无实现的契约；它不授予构建或部署的任何许可。
 
-**今天**，在 `main` 81d72a8fb 上按调用者而不是按引用测得：
+**今天**，按调用者而不是按引用：
 
-- **census 追加没有生产调用者。** `append_trial_family_attempt_in_transaction` 定义在生产代码中
-  （`crates/strategy_factory/src/trial_family_postgres.rs:729`），它的十二个调用点全都在测试模块里。census 的表只有两个写入者：
-  这个函数，以及在 Research 准入时写入 family 第一个成员的 `persist_initial_family`。所以生产上一个 family 的计数，无论它有
-  多少个探索性 Result，都停在形成时写入的 1，如上文所述。
+- **只有已提交的 Result 被计数。** 上文「CURRENT - 每个已提交的探索性 Result 都被计数」对原生 Replay 运行路由提交的每个
+  Result 计数。在提交之前失败的运行没有可计数的东西，Backtest Owner 也不会为它提交 `RUN_REJECTED` 或
+  `INVALID_REPLAY_EVIDENCE` Result。
 - **候选数是声明的，不是推导的。** 候选集的 `expected_cardinality` 只与提议方提供的候选列表长度比对
-  （`trial_family.rs:1628-1635`）。它的生成规则只以身份和摘要保存，从不展开。
+  （`crates/strategy_factory/src/trial_family.rs:1655-1662`）。它的生成规则只以身份和摘要保存，从不展开。
 
-**每一次查看都是一次试验。** 生产 census 追加在准入探索性 Result 终态处置的那个事务里运行，所以计数随它计数的 Result 一起
-推进。一次试验就是一次 census attempt，与上文的计法完全相同：
+**每一次查看都是一次试验。** 一次试验就是一次 census attempt，与上文的计法完全相同：
 
 - 一个新请求的运行是一次试验，含义有任何不同的重跑也是；
 - 失败、被拒绝、无效或未知的运行都是试验；
@@ -1068,7 +1108,8 @@ Candidate 与按一个并非由搜索方写下的定义抽取的程序相比较�
 - 为任何其他目的查看结果，同样是一次试验。结果只能经由一个被计数的请求来计算。Diagnosis、Compare 与 Dashboard 只读取
   已存在的 Result，关于规模或样本的问题用计数回答，而不是用结果回答。
 
-生产追加必须不晚于部署中的探索性回放落地，因为一个没有 census attempt 而被提交的 Result，就是一次未被计数的查看。
+失败的运行在 Backtest Owner 为它提交 `RUN_REJECTED` 或 `INVALID_REPLAY_EVIDENCE` Result 时被计数，上面的计数已经映射了
+这两种终态。
 
 **数据读取台账。** R&D 记录对市场数据的每一次读取：
 

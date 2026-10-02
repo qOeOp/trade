@@ -63,10 +63,11 @@
   `[features]` 表，因此这条 custody 路径在任何构建里都是同一份代码。
 - **CURRENT_PARTIAL - 向 Product Edge 提供的探索 Run Result 视图：** Dashboard 读 API 通过
   `resolve_exploratory_replay_result_v2` 解析准确的规范 Result 字节，它位于
-  `crates/strategy_factory_rd_owner_api/src/bin/dashboard_read_api.rs`；`product/rd-workbench/Dockerfile.owner`
-  构建并安装该二进制；有序链路以
-  `replay_result_dashboard_read_api_returns_exact_canonical_bytes` 覆盖这道缝。这是 Backtest 唯一一条在已部署
-  产物里端到端可触达的输出交接。
+  `crates/strategy_factory_rd_owner_api/src/bin/dashboard_read_api.rs`，且只对其 TrialFamily census 已计数的 Result
+  这样做（[R&D](./rd/)，「CURRENT - 每个已提交的探索性 Result 都被计数」）。`product/rd-workbench/Dockerfile.owner`
+  构建并安装该二进制。有序链路以 `replay_result_dashboard_read_api_refuses_a_result_no_census_counts` 覆盖拒绝，
+  以 `backtest_run_report_browser_acceptance_reads_the_owner_answer` 覆盖已计数的 Result 经已部署的读 API 被打开。
+  这是 Backtest 唯一一条在已部署产物里端到端可触达的输出交接。
 - **CURRENT_PARTIAL - 探索重放的生产入口：** 重放本身已实现并已证明，而已部署产物里没有任何东西能进入它。
   `run_exploratory_replay_v2` 在自身 crate 之外恰有一个调用方，即
   `crates/strategy_factory_rd_owner_api/src/exploratory_replay.rs`，而该调用方位于

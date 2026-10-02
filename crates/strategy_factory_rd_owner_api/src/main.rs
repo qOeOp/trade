@@ -4833,9 +4833,15 @@ mod tests {
         .await
     }
 
+    /// The Result this entry reads is the Backtest Owner's own fixture: no R&D request seals its
+    /// request, so no TrialFamily census can count it. The custody adapter still locks it and
+    /// returns it exactly, and the HTTP read refuses it by name rather than show a Result no
+    /// census counts. A counted Result reading back is proven by the run report entry, which counts
+    /// its run, and by the browser entry after it, which opens that Result through the read API.
     #[tokio::test]
     #[ignore = "requires the canonical Backtest result commit immediately before this R&D HTTP consumer"]
-    async fn exploratory_replay_result_http_readback_is_exact_locked_and_rd_read_only() {
+    async fn exploratory_replay_result_http_read_locks_exact_custody_and_refuses_an_uncounted_result()
+     {
         let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
         let mutation = test_database.mutation();
         let backtest_pool = mutation.pool(CanonicalOwnerTestRoleV1::BacktestOwner);
@@ -4883,20 +4889,33 @@ mod tests {
             .await
             .unwrap(),
         );
-        let locked = owner
-            .resolve_exploratory_replay_result_v2(ExploratoryReplayResultLocatorV2 {
-                result_identity: &result_identity,
-                request_identity: &request_identity,
-                attempt_identity: &attempt_identity,
-            })
+        let rd_pool = mutation.pool(CanonicalOwnerTestRoleV1::RdOwner);
+        let locator = ExploratoryReplayResultLocatorV2 {
+            result_identity: &result_identity,
+            request_identity: &request_identity,
+            attempt_identity: &attempt_identity,
+        };
+        let mut custody = rd_pool.begin().await.unwrap();
+        let locked =
+            vibe_strategy_factory::resolve_exploratory_replay_result_for_rd_in_transaction(
+                &mut custody,
+                locator,
+            )
             .await
             .expect("canonical Backtest aggregate must pass locked R&D resolution")
             .expect("exact result locator must resolve");
+        custody.rollback().await.unwrap();
         assert_eq!(locked.result_canonical_bytes(), result_bytes);
         assert_eq!(locked.receipt_canonical_bytes(), receipt_bytes);
         assert_eq!(locked.outbox_canonical_bytes(), outbox_bytes);
+        assert!(
+            matches!(
+                owner.resolve_exploratory_replay_result_v2(locator).await,
+                Err(vibe_strategy_factory::ExploratoryResultCensusErrorV1::RequestUnavailable(_))
+            ),
+            "a Result no R&D request seals is not shown"
+        );
 
-        let rd_pool = mutation.pool(CanonicalOwnerTestRoleV1::RdOwner);
         let before = rd_owned_relation_snapshot(rd_pool).await;
         let token = "rd-exploratory-result-consumer-test";
         let token_digest: [u8; 32] = Sha256::digest(token.as_bytes()).into();
@@ -4919,8 +4938,11 @@ mod tests {
             None,
         )
         .await;
-        assert_eq!(status, StatusCode::OK);
-        assert_eq!(body, result_bytes);
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&body).unwrap()["error"],
+            "EXPLORATORY_RESULT_REQUEST_UNAVAILABLE"
+        );
 
         for (result, request, attempt) in [
             (

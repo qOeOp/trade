@@ -197,9 +197,11 @@ ordered chain's acceptance build admits nothing in production.
 - **CURRENT - which TrialFamily state a composer-backed Replay binds:** the same state the legacy exploratory
   Replay binds. A Replay of the family's formation Intent binds the family as it formed, with its formation census
   frontier, and is admitted only while the family has no attempt; a successor binds the family's V2 census. An
-  attempt is one Replay recorded after its Result, so a family's first Replay can never compose against a V2 census.
-  Only the Decision composition below appends an attempt, and until it is admitted a successor is refused by name,
-  `SUCCESSOR_CENSUS_AWAITS_DECISION_COMPOSITION`. The commit and the historical readback take the choice from one
+  attempt is one Replay recorded after its Result, which R&D records when it counts that Result ("CURRENT - every
+  committed exploratory Result is counted", below), so a family's first Replay can never compose against a V2 census,
+  and once that Replay's Result is counted a new Replay of the formation Intent is refused. A successor of a family
+  with no counted attempt is refused by name, `SUCCESSOR_CENSUS_AWAITS_DECISION_COMPOSITION`; a successor Intent is
+  committed only from an Iteration Decision on a counted Result, so its family has one. The commit and the historical readback take the choice from one
   rule, and the readback of a first-generation Replay re-reads the formation frontier from the family's root, so a
   later attempt does not change it. Its replay window is the window of the facts it was composed from, which the
   family's policy window bounds (`docs/architecture/strategy-factory.md`, TrialFamily-owned Replay execution policy
@@ -1181,9 +1183,10 @@ issues `TRIAL_BUDGET_EXHAUSTED` when the consumed count equals the budget; and t
 comparison and `READY_FOR_SELECTION`, so the last budgeted trial can never become a Candidate. One consumed unit is
 one census attempt, an Intent, Request, and Result triple of any terminal disposition, counted per TrialFamily. A
 successor Intent stays in its family, a new Research goal forms a new family whose count starts again, and nothing
-sums counts across families. The census V2 append that advances the count has no production caller, because it
-awaits the Decision composition above, so in a production build every family's count is the 1 its formation writes
-and no family can reach its budget.
+sums counts across families. R&D counts every Result the native Replay run route commits ("CURRENT - every
+committed exploratory Result is counted", below). The 1 the formation writes reserves the family's first attempt, so
+counting that attempt's Result leaves the count at 1, and a family's count first reaches 2 at the Result of its first
+successor.
 
 **A trial** is one census attempt, exactly as counted today: every exploratory Intent, Request, and Result triple the
 TrialFamily Census admits, whatever its disposition. Losing, rejected, invalid, and unknown attempts count, because
@@ -1246,24 +1249,67 @@ it.
 The slices and their order are in
 [Strategy Factory](../architecture/strategy-factory#target---research-runs-until-a-strategy-bounded-by-spend).
 
+### CURRENT - every committed exploratory Result is counted
+
+The native Replay run route (`POST /v2/exploratory-replays`, carried by the `native-replay-execution` feature)
+counts the Result the Backtest Owner committed before it answers. It counts in R&D's own transaction, after the
+Backtest commit, because it cannot count in or before that commit:
+
+- the Backtest commit runs in a `backtest_owner` session, which reaches R&D only through the locked request read
+  `rd_owner_api` grants it;
+- the census append is R&D's own canonical encoding, which a SQL function would have to restate;
+- a successor's commit relock requires the census head the successor was frozen against, so an append before the
+  commit would make the commit refuse itself.
+
+**What is counted.** The count locks the Result through the Backtest custody adapter, as Iteration Result Admission
+does. It reads the family and Intent from the sealed request's canonical bytes, recomputing their meaning digest
+against the one the Result binds. It then locks the family's census head and appends one attempt: the Intent, the
+request and the Result, with the Result's terminal counted one for one (`TERMINAL_RESULT`, `RUN_REJECTED` as
+`REJECTED`, `INVALID_REPLAY_EVIDENCE` as `INVALID`). The attempt's consumed count is its ordinal plus one. Its
+candidate set is empty under the one rule `rd-candidate-generation-none-at-result-admission-v1`, because no Decision
+has read the Result yet. A Result whose request identity and meaning digest the census already counts is an exact
+replay: it joins that attempt and writes nothing, whatever attempt identity Backtest gave it.
+
+**What the count is.** The 1 the formation writes reserves the family's first attempt, so counting its Result leaves
+the count at 1. What changes is that the family's head moves to the V2 census and its attempt frontier binds this
+request and Result. A new Replay of the formation Intent is then refused, and the count first reaches 2 at a
+successor's Result.
+
+**No Result is shown before it is counted.** Between the Backtest commit and the count the Result exists uncounted.
+If the count fails, the route answers the count's refusal rather than the Result, and running the same request and
+attempt again recovers the committed Result and counts it. Every R&D read that shows a Result or what it produced
+refuses one its census does not count, as `EXPLORATORY_RESULT_NOT_COUNTED`:
+
+- the write API's Result and run-evidence reads and the read API's Result read, with 409;
+- the run report, whose refusal carries the same code;
+- Iteration Result Admission, as `ITERATION_RESULT_ADMISSION_RESULT_NOT_COUNTED`.
+
+The check takes no row lock, so the read API's `READ ONLY` transactions make it. The diagnosis gate, iteration
+analysis and every Decision already require the census's latest attempt to be this exact Result. The Result
+directory lists identities, terminals and commit times and no outcome, and it is unchanged. A Result whose request no
+R&D request seals belongs to no family and is refused as `EXPLORATORY_RESULT_REQUEST_UNAVAILABLE`.
+
+**What no test drives.** No ordered-chain entry runs a native Replay, so no test reaches the run route's count; the
+first entry that executes one asserts it. No entry drives Iteration Result Admission's first admission either. The
+count, the join and every refusal above are proven by the run report entry,
+`backtest_run_report_reads_back_every_point_a_real_run_committed`, on a Result committed through the chain's own
+Backtest writer. A native run commits only `TERMINAL_RESULT`: a run that fails before its commit leaves no Result and
+nothing to count.
+
 ### TARGET - Production trial ledger and data-read ledger
 
 This section states a contract with no implementation; it grants no permission to build or deploy it.
 
-**Today**, measured at `main` 81d72a8fb by callers rather than references:
+**Today**, by callers rather than references:
 
-- **The census append has no production caller.** `append_trial_family_attempt_in_transaction` is defined in
-  production code (`crates/strategy_factory/src/trial_family_postgres.rs:729`), and its twelve call sites all sit in
-  test modules. The census tables have two writers, that function and `persist_initial_family`, which writes the
-  family's first member at Research admission. A production family's count therefore stays at the 1 its formation
-  writes, as stated above, however many exploratory Results it has.
+- **Only a committed Result is counted.** "CURRENT - every committed exploratory Result is counted", above, counts
+  every Result the native Replay run route commits. A run that fails before its commit leaves nothing to count, and
+  the Backtest Owner commits no `RUN_REJECTED` or `INVALID_REPLAY_EVIDENCE` Result for one.
 - **The candidate count is stated, not derived.** A candidate set's `expected_cardinality` is checked only against
-  the length of the candidate list the proposer supplies (`trial_family.rs:1628-1635`). Its generation rule is stored
-  as an identity and digest and never expanded.
+  the length of the candidate list the proposer supplies (`crates/strategy_factory/src/trial_family.rs:1655-1662`).
+  Its generation rule is stored as an identity and digest and never expanded.
 
-**Every look is a trial.** The production census append runs in the transaction that admits an exploratory Result's
-terminal disposition, so the count moves with the Results it counts. A trial is one census attempt, exactly as
-counted above:
+**Every look is a trial.** A trial is one census attempt, exactly as counted above:
 
 - a run of a new request is a trial, and so is a rerun whose meaning differs in any way;
 - a failed, rejected, invalid or unknown run is a trial;
@@ -1272,8 +1318,8 @@ counted above:
   counted request. Diagnosis, Compare and the Dashboard read only Results that already exist, and a question about
   size or sample is answered from counts, not outcomes.
 
-The production append must land no later than exploratory replay in deployment, since a Result committed with no
-census attempt is an uncounted look.
+A failed run is counted once the Backtest Owner commits a `RUN_REJECTED` or `INVALID_REPLAY_EVIDENCE` Result for
+it, which the count above already maps.
 
 **The data-read ledger.** R&D records every read of market data:
 

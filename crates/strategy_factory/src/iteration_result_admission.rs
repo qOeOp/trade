@@ -304,6 +304,8 @@ pub enum IterationResultAdmissionErrorV1 {
     IdentityMismatch,
     #[error("the candidate proposal set exceeds the remaining sealed trial budget")]
     BudgetExceeded,
+    #[error("the Result is not counted in its TrialFamily census")]
+    ResultNotCounted,
     #[error("iteration result admission conflicts with existing custody")]
     Conflict,
     #[error("iteration result admission Owner custody is unavailable: {0}")]
