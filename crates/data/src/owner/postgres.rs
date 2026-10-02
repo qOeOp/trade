@@ -8628,12 +8628,54 @@ where
             .map_err(|_| NativeReplayQuoteCutRefusalV2::CustodyUnavailable)?;
         bounds.insert(reading_cut, later.bound_ns_exclusive);
     }
+    // PROBE ONLY: every sub-condition of quote cut selection, side by side with the frame's.
+    let short = |digest: &BindingDigest| {
+        let bytes = digest.as_bytes();
+        format!(
+            "{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
+            bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5]
+        )
+    };
+    tracing::warn!(
+        "PROBE quote-cut frame: event={} decision_cut={} window_end={} census_bound={} bounds={:?} scope={} im={} selection={} semantics={} lineage={} members={:?} candidates={}",
+        frame_coordinates.event_effective_ns,
+        decision_cut_ns,
+        window_end_ns_exclusive,
+        census.bound_ns_exclusive,
+        bounds,
+        short(&frame_coordinates.scope_digest),
+        short(&frame_coordinates.instrument_master_digest),
+        short(&frame_coordinates.universe_selection_digest),
+        short(&frame_coordinates.market_semantics_identity),
+        short(&frame_coordinates.source_binding_lineage_root),
+        frame_coordinates.members,
+        candidates.len(),
+    );
+
+    for candidate in &candidates {
+        tracing::warn!(
+            "PROBE quote-cut candidate: snapshot={} event={} decision_cut={} lineage_version={} after_frame={} scope_eq={} im_eq={} ({}) selection_eq={} ({}) semantics_eq={} lineage_eq={}",
+            short(&candidate.snapshot_identity),
+            candidate.event_effective_ns,
+            candidate.decision_cut_ns,
+            candidate.correction_lineage_version,
+            candidate.event_effective_ns > frame_coordinates.event_effective_ns,
+            candidate.scope_digest == frame_coordinates.scope_digest,
+            candidate.instrument_master_digest == frame_coordinates.instrument_master_digest,
+            short(&candidate.instrument_master_digest),
+            candidate.universe_selection_digest == frame_coordinates.universe_selection_digest,
+            short(&candidate.universe_selection_digest),
+            candidate.market_semantics_identity == frame_coordinates.market_semantics_identity,
+            candidate.source_binding_lineage_root == frame_coordinates.source_binding_lineage_root,
+        );
+    }
     let chosen = select_native_replay_quote_cut_v2(
         &candidates,
         &frame_coordinates,
         decision_cut_ns,
         |reading_cut| bounds.get(&reading_cut).copied(),
-    )?;
+    )
+    .inspect_err(|refusal| tracing::warn!("PROBE quote-cut selection refused: {refusal:?}"))?;
     let evidence = port
         .resolve_pit_evaluation(*chosen.snapshot_identity.as_bytes())
         .await
