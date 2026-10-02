@@ -1,0 +1,5 @@
+all R-1 trades: n 2031, avg +0.324R, win 44%
+late re-entry at the same limit (price came back within the 10-day window): n 1243, avg +0.184R, win 40%
+  re-entry avg 95% interval [+0.102, +0.262] (trade bootstrap, not clustered)
+  of which the trade had first run +1R or more in its favour: n 507, avg +0.314R, win 44%
+  interval [+0.183, +0.438]

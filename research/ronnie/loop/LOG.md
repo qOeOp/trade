@@ -2098,3 +2098,12 @@ His four uses (`RONNIE_2024_RULES.md`): an entry zone (0.382, 0.5-0.618), a stop
   not matter (1.15 equals 1.00). A split exit is a new rule, and the development and holdout data are already read.
 - **Decision on 2027-10-01:** the paired per-trade difference R-1s minus R-1u, week-clustered, above zero. Reported
   beside R-1x.
+
+## R-1 late entry at the same limit (exploratory, development only; 2026-10-02)
+
+Question from a live case (LIT, a filled short whose price ran +1.6R and could come back to the limit): what does an
+entry at the same limit earn if price returns inside the order's 10-day window while the original trade is open? The
+late entry shares the stop and target, so its R is the original trade's R. `loop/r1_retouch.py`, iteration coins,
+fills 2018-2022, raw R without fees or controls: all R-1 trades +0.324R (2,031); late entries +0.184R [+0.10, +0.26]
+(1,243); late entries after the trade first ran at least +1R +0.314R [+0.18, +0.44] (507). Not a registered rule and
+not adopted; a registered version would need controls, week clusters and the extended tier before any forward record.
