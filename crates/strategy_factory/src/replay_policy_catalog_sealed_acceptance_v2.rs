@@ -40,3 +40,16 @@ pub async fn ensure_replay_policy_catalog_fixture_v3(
     )
     .await
 }
+
+/// Advances the sealed acceptance head to a schema 2 economic configuration at `venue_identity`,
+/// for a consumer that replays an instrument the Instrument Owner holds terms for at that venue.
+pub async fn ensure_replay_policy_catalog_schema_2_fixture_v3(
+    pool: &PgPool,
+    venue_identity: &str,
+) -> Result<ReplayPolicyCatalogBindingV3, ReplayPolicyCatalogErrorV2> {
+    crate::replay_policy_catalog_postgres_v2::ensure_sealed_acceptance_schema_2_catalog_v3(
+        pool,
+        venue_identity,
+    )
+    .await
+}
