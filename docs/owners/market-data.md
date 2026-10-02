@@ -1280,7 +1280,7 @@ not be given one.
   | minimum and maximum price                                | `PRICE_FILTER.minPrice`, `maxPrice`; `"0"` is `UNBOUNDED`                       |
   | minimum and maximum quantity                             | `LOT_SIZE.minQty`, `maxQty`; `"0"` is `UNBOUNDED`                               |
   | minimum notional                                         | `MIN_NOTIONAL.notional`; `"0"` is `UNBOUNDED`, an absent filter `UNAVAILABLE`   |
-  | maximum notional                                         | `UNAVAILABLE`: the cap exists but lives in leverage brackets, not this payload  |
+  | maximum notional                                         | `UNBOUNDED`: no filter caps an order's notional                                 |
   | venue, inverse, contract multiplier                      | the Owner's venue table row, not the payload                                    |
 
   A decimal is accepted only as digits with an optional fraction, canonicalized by removing trailing fractional zeros; an
@@ -1290,6 +1290,11 @@ not be given one.
   gives two. The increments are equal and the difference is intentional: V2's native projection requires the precision to equal
   the canonical scale, and downstream Replay uses V2's. A parity test on the adapter's side asserts both the equal
   increments and this one difference.
+  The maximum notional is the cap on one order, which is what native `max_notional` means. `exchangeInfo` states every
+  order filter the venue applies and none caps notional, so the term is `UNBOUNDED`, as the adapter's `None` also says.
+  The leverage brackets cap a position's notional at a leverage, per account. They are execution-profile authority, not a
+  public term, and the public fact does not carry them. Stating the term `UNAVAILABLE` refused every USD-M perpetual at the
+  native validation, which admits no `UNAVAILABLE` limit.
 - **What the Owner takes itself:** the Source Binding identity and digest, from the binding it holds admitted under exactly
   the named locator; the raw payload digest, the module's domain-separated digest of the text's exact UTF-8 bytes, so no
   digest is taken on trust. It proves which bytes were submitted and that the terms were derived from them; it does not
