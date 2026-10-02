@@ -1019,6 +1019,28 @@ mod tests {
         assert!(SystemPortfolioOwnerClock.now_epoch_ms().unwrap() > 0);
     }
 
+    /// PROBE, not for merge: polls a boxed future with its panic caught, so the probe can read the
+    /// store after a check fails.
+    struct ProbeCatch<F>(std::pin::Pin<Box<F>>);
+
+    impl<F: std::future::Future> std::future::Future for ProbeCatch<F> {
+        type Output = std::thread::Result<F::Output>;
+
+        fn poll(
+            mut self: std::pin::Pin<&mut Self>,
+            cx: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<Self::Output> {
+            let inner = &mut self.0;
+
+            match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| inner.as_mut().poll(cx)))
+            {
+                Ok(std::task::Poll::Pending) => std::task::Poll::Pending,
+                Ok(std::task::Poll::Ready(value)) => std::task::Poll::Ready(Ok(value)),
+                Err(panic) => std::task::Poll::Ready(Err(panic)),
+            }
+        }
+    }
+
     #[tokio::test]
     #[ignore = "requires the admitted canonical Owner PostgreSQL test topology"]
     async fn postgres_capacity_scope_registry_is_append_only_and_seals_one_bound_scope() {
@@ -1040,6 +1062,27 @@ mod tests {
         let alpha = definition(&suffix, "pool-alpha");
         let beta = definition(&format!("{suffix}-b"), "pool-beta");
         let census = vec![alpha.clone(), beta.clone()];
+        // PROBE, not for merge: main's order, a check failing right after the head moved.
+        let displaced_for_probe = displaced_head.clone();
+        let caught = ProbeCatch(Box::pin(async {
+            let first = owner
+                .commit_registry_cut(census.clone(), 9_000)
+                .await
+                .unwrap();
+            assert!(first.proof_frontier_sequence() > 0);
+            assert_eq!(1, 2, "PROBE: forced check failure");
+        }))
+        .await;
+        assert!(caught.is_err(), "PROBE: the forced check did not fail");
+        assert_eq!(
+            registry_head(&pool).await,
+            displaced_for_probe,
+            "PROBE: a failed check left the registry head displaced"
+        );
+
+        if std::hint::black_box(true) {
+            return;
+        }
         let first = owner
             .commit_registry_cut(census.clone(), 9_000)
             .await
