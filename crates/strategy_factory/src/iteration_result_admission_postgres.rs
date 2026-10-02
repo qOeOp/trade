@@ -658,7 +658,9 @@ fn map_product_edge_error(error: ProductEdgeError) -> IterationResultAdmissionEr
 mod tests {
     use rstest::rstest;
     use vibe_product_edge::ProductEdgeAdmissionLocatorV1;
-    use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
+    use vibe_testkit::postgres::{
+        CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1, restore_after_checks,
+    };
 
     use super::*;
     use crate::iteration_result_admission::tests::{
@@ -996,20 +998,28 @@ mod tests {
         .execute(&pool)
         .await
         .expect("scalar tamper fixture");
-        assert!(matches!(
-            resolve_iteration_result_admission_v1(&pool, &locator).await,
-            Err(IterationResultAdmissionErrorV1::Storage(_))
-        ));
-        sqlx::query(
-            "UPDATE public.rd_iteration_result_admissions_v1 SET admitted_proposal_count=$2 WHERE result_identity=$1",
+        restore_after_checks(
+            async {
+                assert!(matches!(
+                    resolve_iteration_result_admission_v1(&pool, &locator).await,
+                    Err(IterationResultAdmissionErrorV1::Storage(_))
+                ));
+            },
+            async {
+                sqlx::query(
+                    "UPDATE public.rd_iteration_result_admissions_v1 SET admitted_proposal_count=$2 WHERE result_identity=$1",
+                )
+                .bind(&locator.result_identity)
+                .bind(i32::from(
+                    u8::try_from(readback.receipt().admitted_proposal_count())
+                        .expect("fixture count"),
+                ))
+                .execute(&pool)
+                .await
+                .expect("scalar restore");
+            },
         )
-        .bind(&locator.result_identity)
-        .bind(i32::from(
-            u8::try_from(readback.receipt().admitted_proposal_count()).expect("fixture count"),
-        ))
-        .execute(&pool)
-        .await
-        .expect("scalar restore");
+        .await;
         assert!(
             resolve_iteration_result_admission_v1(&pool, &locator)
                 .await

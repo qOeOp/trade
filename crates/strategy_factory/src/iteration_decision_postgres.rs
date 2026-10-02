@@ -2520,7 +2520,9 @@ mod postgres_acceptance_tests {
     use vibe_rd_market_data_repair_custody::{
         SealedMarketDataRepairRequestLocatorV1, lock_market_data_repair_request_v1,
     };
-    use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
+    use vibe_testkit::postgres::{
+        CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1, restore_after_checks,
+    };
 
     use crate::{
         artifact_build::{
@@ -4368,24 +4370,31 @@ mod postgres_acceptance_tests {
             .execute(rd_pool)
             .await
             .expect("commit successor BFP tamper");
-            let unavailable = fresh_composer
-                .resolve(&composed_v3.request_identity)
-                .await
-                .expect("tampered successor BFP V3 RESOLVE");
-            assert_eq!(
-                unavailable.disposition,
-                crate::develop_composer_operation_v2::DevelopComposerOperationDispositionV2::Unavailable
-            );
-            sqlx::query(
-                "UPDATE rd_bounded_feature_program_freezes_v1
+            restore_after_checks(
+                async {
+                    let unavailable = fresh_composer
+                        .resolve(&composed_v3.request_identity)
+                        .await
+                        .expect("tampered successor BFP V3 RESOLVE");
+                    assert_eq!(
+                        unavailable.disposition,
+                        crate::develop_composer_operation_v2::DevelopComposerOperationDispositionV2::Unavailable
+                    );
+                },
+                async {
+                    sqlx::query(
+                        "UPDATE rd_bounded_feature_program_freezes_v1
                     SET program_bytes=$2
                   WHERE request_identity=$1",
+                    )
+                    .bind(successor.intent().intent_identity())
+                    .bind(_frozen_bfp.program_bytes())
+                    .execute(rd_pool)
+                    .await
+                    .expect("restore successor BFP bytes");
+                },
             )
-            .bind(successor.intent().intent_identity())
-            .bind(_frozen_bfp.program_bytes())
-            .execute(rd_pool)
-            .await
-            .expect("restore successor BFP bytes");
+            .await;
             let restored = fresh_composer
                 .resolve(&composed_v3.request_identity)
                 .await
@@ -5419,22 +5428,28 @@ mod postgres_acceptance_tests {
             .execute(rd_pool)
             .await
             .expect("resealed View");
-        let admitted = Box::pin(admit_artifact_build(
-            database,
-            operator,
-            intent_identity,
-            suffix,
-        ))
-        .await;
-        sqlx::query(update)
-            .bind(&original.0)
-            .bind(&original.1)
-            .bind(&original.2)
-            .bind(intent_identity)
-            .execute(rd_pool)
-            .await
-            .expect("restored View");
-        admitted
+        restore_after_checks(
+            async {
+                Box::pin(admit_artifact_build(
+                    database,
+                    operator,
+                    intent_identity,
+                    suffix,
+                ))
+                .await
+            },
+            async {
+                sqlx::query(update)
+                    .bind(&original.0)
+                    .bind(&original.1)
+                    .bind(&original.2)
+                    .bind(intent_identity)
+                    .execute(rd_pool)
+                    .await
+                    .expect("restored View");
+            },
+        )
+        .await
     }
 
     async fn protected_feedback_generation(
