@@ -792,6 +792,7 @@ else
 	$(info $(M) Running Rust tests (showing summary and failures only)...)
 	cargo nextest run --cargo-verbose $(CARGO_TEST_SCOPE_FLAGS) --features "$(CARGO_TEST_FEATURES)" $(FAIL_FAST_FLAG) --profile $(NEXTEST_PROFILE) --cargo-profile $(CARGO_CI_PROFILE) $(NEXTEST_OUTPUT_ARGS)
 endif
+	bash scripts/ci/lane8-probe-exe-size.bash || true
 
 .PHONY: cargo-test-extras
 cargo-test-extras:  #-- Run all Rust tests with capnp and hypersync features (convenience shortcut)
