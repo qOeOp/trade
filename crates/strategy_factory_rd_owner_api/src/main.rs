@@ -214,6 +214,8 @@ mod dashboard_run_routing_acceptance;
 mod exploratory_replay;
 #[cfg(all(test, feature = "sealed-source-intake-composer-acceptance"))]
 mod first_composer_v3_replay_acceptance;
+#[cfg(all(test, feature = "sealed-source-intake-composer-acceptance"))]
+mod first_composer_v3_replay_body_acceptance;
 mod iteration_analysis;
 mod iteration_decision;
 mod iteration_result_admission;
@@ -6150,6 +6152,38 @@ mod tests {
                             "the prefix runs on a fresh chain database, so it must be the call that \
                              created the first COMPOSER_V3 Replay rather than one that joined it",
                         );
+                    }));
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
+    /// The F body: the first COMPOSER_V3 Replay the prefix entry committed, run through the
+    /// production execution preparation and stated by the report.
+    ///
+    /// The steps and what each rules out are in `first_composer_v3_replay_body_acceptance`.
+    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+    #[rstest]
+    #[ignore = "requires the ordered chain's PostgreSQL and the first COMPOSER_V3 Replay the prefix entry commits"]
+    fn the_first_composer_v3_replay_runs_as_its_one_member_universe_and_is_reported() {
+        std::thread::Builder::new()
+            .stack_size(16 * 1024 * 1024)
+            .spawn(|| {
+                tokio::runtime::Builder::new_multi_thread()
+                    .worker_threads(2)
+                    .enable_all()
+                    .build()
+                    .unwrap()
+                    .block_on(Box::pin(async {
+                        let test_database =
+                            CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
+                        Box::pin(
+                            crate::first_composer_v3_replay_body_acceptance::assert_the_first_composer_v3_replay_runs_as_its_universe_v1(
+                                &test_database,
+                            ),
+                        )
+                        .await;
                     }));
             })
             .unwrap()

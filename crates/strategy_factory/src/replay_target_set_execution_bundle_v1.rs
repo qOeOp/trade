@@ -364,6 +364,14 @@ impl ReplayTargetSetExecutionBundleV1 {
         self.census.native_materialization_digest()
     }
 
+    /// Returns the census this bundle was built from: its Plan, universe selection, members,
+    /// instrument terms and scheduling data counts, which an acceptance states against the Owner
+    /// facts it expected rather than against the census digest alone.
+    #[must_use]
+    pub const fn census(&self) -> &ReplayTargetSetExecutionCensusV1 {
+        &self.census
+    }
+
     /// Returns how many Owner-sealed universe frames this bundle was built from.
     ///
     /// It is one for a bundle built through [`Self::new_from_single_frame_v1`] and at least two for

@@ -155,6 +155,8 @@ pub(crate) struct FirstComposerV3ReplayV1 {
     /// which R&D stores as `rd_bounded_feature_program_freezes_v1.design_identity` BYTEA.
     pub(crate) design_identity: BindingDigest,
     pub(crate) artifact_locator: String,
+    /// The Plan's canonical digest, as the Composer issued it.
+    pub(crate) plan_canonical_digest: BindingDigest,
     pub(crate) replay_request: ExploratoryReplayRequestLocatorV2,
     pub(crate) composition_binding: ReplayCompositionBindingLocatorV1,
     pub(crate) execution_input_binding: OwnerRecordLocatorV1,
@@ -1404,6 +1406,7 @@ pub(crate) async fn ensure_first_composer_v3_replay_acceptance_v1(
         design_identity: serde_json::from_value(published["design_identity"].clone())
             .expect("H3: the role intent names its Design"),
         artifact_locator: composer_locator.artifact_locator.clone(),
+        plan_canonical_digest: composer_locator.canonical_plan_digest,
         member_instrument: PERPETUAL_V1.to_owned(),
         replay_request,
         composition_binding,
