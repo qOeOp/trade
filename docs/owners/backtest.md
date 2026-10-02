@@ -233,7 +233,8 @@ same-universe random control and holdout apply, and neither replaces them.
 - **Interval.** The run's edge is the mean over entries of the entry's result minus its control value, in units of
   the entry's risk. Its interval is a bootstrap that resamples whole calendar weeks, or whole calendar days when the
   request states days, so entries on different instruments in the same days move together. The Result records the
-  cluster unit, the resample count, the level and the seed.
+  cluster unit, the resample count, the level and the seed. Clustering by date is deliberate: clustering by instrument
+  treats entries on different instruments in the same week as independent, and the interval it gives is too narrow.
 - **A control, not a selection criterion.** The control says whether a run's entries beat random entries of the
   same shape. It ranks nothing: no Iteration Decision selects or orders candidates by it, and it never stands in for
   Qualification's holdout or same-universe random control.
