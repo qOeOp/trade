@@ -86,9 +86,9 @@ never runs in CI.
 - **`B3` Deployment Store Admission disabled.** `DEPLOYMENT_STORE_ADMISSION_MODE` is `disabled` in
   `product/rd-workbench/.env.example` and `product/rd-workbench/docker-compose.yml`, so every sealed read port
   resolves to `None`, and `crates/strategy_factory_rd_owner_api/src/main.rs` retains the resolver in the unread
-  field `_market_data_research_pit`. Cleared by the production resolver, signer, anti-rollback witness, credential
-  resolver and direct-measurement adapters named in `docs/guide/architecture-rules.md`, plus one consumer that
-  reads the port.
+  field `_market_data_research_pit`. The production ports `docs/guide/architecture-rules.md` names now exist and
+  compose the `required` seam. Cleared when a deployment turns `required` on by the procedure in
+  `product/rd-workbench/README.md`, plus one consumer that reads the port.
   The acceptance chain covers the segment after Store Admission, and not Admission itself. In a build that enables
   `sealed-strategy-input-acceptance`, which no deployed binary does,
   `native_replay_scheduling_resolver_for_sealed_acceptance_v1` runs the native Replay scheduling read path with the
@@ -132,15 +132,17 @@ never runs in CI.
   module and `AdmittedCapability` leaves it by one exit, so no consumer outside that module can construct the port
   a production read requires.
   One further fact about that gate, which a reader of the code gets backwards by default:
-  **the production form of `MarketDataReadPostgres` is never constructed today.** Its only production constructor is
-  `from_admitted`, gated `cfg(not(test))`, and its seven callers all sit behind
+  **the production form of `MarketDataReadPostgres` is constructed only in `required` mode.** Its only production
+  constructor is `from_admitted`, gated `cfg(not(test))`, and its seven callers all sit behind
   `RdOwnerStoreAdmissionBootstrap::Required`; with no environment configuration that branch is `Disabled` and
-  returns `Ok(None)`. The composition root behind `Required` builds its custodian from five `Unavailable*`
-  placeholders, so it answers `Err` unconditionally. All three layers name themselves placeholders, which makes this
-  **a seam that declares its own incompleteness** rather than a defect - but the whole `cfg(not(test))` impl block
-  exists for the day that changes, not because anything runs it now. Whether a real deployment sets `Required` is a
-  question about deployment configuration that the code cannot answer; either way `from_admitted` is unreachable
-  while the admission fails closed.
+  returns `Ok(None)`. The composition root behind `Required` builds its custodian from the five production ports the
+  deployment's configuration names (`store_admission/composition.rs`), and refuses under the first one it cannot
+  build. The Market Data proof `the_production_seam_admits_what_the_administrator_measured_sealed_and_published`
+  drives that root end to end on a disposable PostgreSQL - measured, authored, sealed, published, admitted, and read
+  through the scheduling port - so **a seam that declares its own incompleteness** no longer describes it. The BAR
+  schedule census it reads there is empty; the production strategy over real schedule rows has still never run.
+  Whether a real deployment sets `Required` is a question about deployment configuration that the code cannot
+  answer.
   **Clearing `B3` proves which store `rd-owner-api` reached; it does not keep credentials out of that process.**
   The same process starts with two raw DSNs: `MARKET_DATA_OWNER_DATABASE_URL`, the Owner's write principal
   `market_data_owner`, which `product/rd-workbench/docker-compose.yml` requires, and
@@ -159,12 +161,15 @@ never runs in CI.
   measures inside the custodian with the leased credential. It also has the admission receipt cross-bind the trust
   bundle, while `SealedDeploymentStoreAdmissionReceipt` carries the witness identity but no signer key fingerprint
   or bundle identity.
-  Five production adapters now exist, and none is composed: the pinned Ed25519 signature verifier
-  (`store_admission/signature.rs`), the PostgreSQL custody store (`store_admission/custody_postgres.rs`, its schema
-  and its two principals in `product/rd-workbench/postgres-init/20-deployment-store-custody.sh`, which the compose file
-  does not run yet), and the secret-file credential resolver (`store_admission/credential_files.rs`). A secret file
-  has no version or expiry of its own: its version is the SHA-256 of its exact bytes, which the signed manifest names,
-  and its lease lapses a fixed time after the admission's store-clock cut. The fourth is the single-machine
+  Five production adapters exist, and `store_admission/composition.rs` composes them from the files the deployment's
+  configuration names: the pinned Ed25519 signature verifier (`store_admission/signature.rs`), the PostgreSQL custody
+  store (`store_admission/custody_postgres.rs`, its schema and its two principals in
+  `product/rd-workbench/postgres-init/20-deployment-store-custody.sh`, which the compose file's
+  `deployment-store-provision` service runs), and the secret-file credential resolver
+  (`store_admission/credential_files.rs`). A secret file has no version or expiry of its own: its version is the
+  SHA-256 of its exact bytes, which the signed manifest names, and its lease lapses at the end of the fixed-length lease
+  period the admission's store-clock cut falls in, so every admission and revalidation within one period seals or
+  rejoins one receipt. The fourth is the single-machine
   anti-rollback mode `SingleTrustDomainNoRollbackWitness` (`store_admission/witness.rs`): on one machine the
   anti-rollback property does not hold, the mode says so in every receipt, and the architecture rules carry the
   user's 2026-09-27 authorization. The fifth is the direct measurer for a deployment's store,
@@ -179,11 +184,12 @@ never runs in CI.
   exists only between the handshake and the one session it accepts, in a directory only this process's user can
   enter; the relay carries nothing for any process but this one, and a server under another root or with another
   certificate is refused before the socket exists, so no byte of a session reaches it. The
-  deployment's PostgreSQL does not serve TLS yet; turning it on belongs to composing these adapters.
-  The administrator seals and publishes the history with
-  `deployment-store-publication-seal` and `deployment-store-publication-publish`; `product/rd-workbench/README.md`
-  gives the procedure. `admit_rd_owner_market_data_postgres` still wires the `Unavailable*` ports, so `required` still
-  fails closed at startup. The admission reads time from the custody store's clock alone: every history read carries
+  deployment's PostgreSQL serves TLS once the compose file's `postgres-tls-install` service has run.
+  The administrator measures the store and completes a draft with `deployment-store-publication-author`, from where
+  the deployment reaches the store, then seals and publishes the history with `deployment-store-publication-seal` and
+  `deployment-store-publication-publish`; `product/rd-workbench/README.md` gives the procedure. A receipt's slot
+  carries its lapse: under the single-machine mode, whose observation never changes, a slot named only by head and
+  observation made every admission after the first a conflict. The admission reads time from the custody store's clock alone: every history read carries
   the store's `clock_timestamp()` cut, and the commit judges the receipt's window on that clock.
   The direct measurer's role identity covers what the leased role can do, not only the listed surface's ACLs,
   which cannot show a grant on anything else. It carries a privilege census (`PRIVILEGE_CENSUS_V1`): every
@@ -2157,8 +2163,8 @@ derived by the candidate, caller, consumer, or tested process
 cannot mint the request locator, resolver, event, or readback. Missing, stale, superseded, or mismatched head, rotation,
 ACL, credential, measurement, request, role, projection, event, locator, or readback fails before `ProgramHost` or
 Backtest state mutation and produces no positive resolver or terminal result. Successful proof authorizes only this
-disposable profile; production resolver, signer, anti-rollback witness, credential-resolver, and direct-measurement
-adapters and the default product entry remain `UNAVAILABLE`. It establishes no provider authenticity, production
+disposable profile; it admits nothing for the default product entry, whose production adapters compose only from a
+deployment's own configuration. It establishes no provider authenticity, production
 readiness or deployment authority, Dashboard, Paper, Live, real trading, or other production write.
 
 The runtime handoff consumes the existing static receipts plus one verified batch and re-resolves each selection;

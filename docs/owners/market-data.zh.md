@@ -74,8 +74,8 @@ ACL 拒绝。它不证明供应商真实性，不证明生产装配，也不证�
 - **`B3` Deployment Store Admission 处于关闭。** `DEPLOYMENT_STORE_ADMISSION_MODE` 在
   `product/rd-workbench/.env.example` 与 `product/rd-workbench/docker-compose.yml` 中为 `disabled`，因此每个密封读口
   都解析为 `None`，而 `crates/strategy_factory_rd_owner_api/src/main.rs` 把 resolver 留在从不读取的字段
-  `_market_data_research_pit` 里。解除条件：`docs/guide/architecture-rules.md` 点名的生产 resolver、signer、
-  anti-rollback witness、credential resolver 与直接测量适配器，外加一个真正读取该读口的消费者。
+  `_market_data_research_pit` 里。`docs/guide/architecture-rules.md` 点名的生产端口现已存在，并组成 `required` 那条缝。
+  解除条件：某个部署按 `product/rd-workbench/README.md` 的步骤开启 `required`，外加一个真正读取该读口的消费者。
   验收链路覆盖 Store Admission 之后的那一段，不覆盖 Admission 本身。在启用 `sealed-strategy-input-acceptance` 的构建中（没有任何
   部署的二进制启用它），`native_replay_scheduling_resolver_for_sealed_acceptance_v1` 以已准入 resolver 的原始读取、校验与选择
   走原生 Replay 调度读路径，但读取之前不做准入，读取之后不做重新校验。它以一个测试用的最小权限主体连接，一次性数据库只授予
@@ -106,13 +106,15 @@ ACL 拒绝。它不证明供应商真实性，不证明生产装配，也不证�
   集成测试碰过 BAR schedule。所以 `B3` 挡住的不只是一次部署 - 那道门后的第一段代码从未被执行过。挡住测试够到它的是
   可见性而不是权限：`Custodian::new` 对 store-admission 模块私有，`AdmittedCapability` 只有一个出口，所以该模块之外
   的消费方构造不出生产读所需的那个 port。
-  关于这道门还有一条事实，读代码的人默认会读反：**`MarketDataReadPostgres` 的生产形态今天从不被构造。**它唯一的生产
-  构造器是 `from_admitted`，带 `cfg(not(test))` 门，而它的七个调用点全都位于
+  关于这道门还有一条事实，读代码的人默认会读反：**`MarketDataReadPostgres` 的生产形态只在 `required` 模式下被构造。**它唯一的
+  生产构造器是 `from_admitted`，带 `cfg(not(test))` 门，而它的七个调用点全都位于
   `RdOwnerStoreAdmissionBootstrap::Required` 之后；没有环境配置时该分支是 `Disabled`，返回 `Ok(None)`。
-  `Required` 之后的那个合成根用五个 `Unavailable*` 占位构造 custodian，因此它无条件返回 `Err`。三层都把自己命名成
-  占位，所以这是**一条自述未建的缝**而不是缺陷 - 但整片 `cfg(not(test))` 实现的存在理由是"等那天"，不是"今天在跑"。
-  真实部署会不会设成 `Required` 是一个关于部署配置的问题，代码里答不出；而无论哪种，只要准入恒为失败，
-  `from_admitted` 就到不了。
+  `Required` 之后的那个合成根用部署配置所指名的五个生产端口构造 custodian（`store_admission/composition.rs`），
+  建不出其中任何一个就以它的失败码拒绝。Market Data 的证明
+  `the_production_seam_admits_what_the_administrator_measured_sealed_and_published` 在一次性 PostgreSQL 上把这个合成根
+  端到端走了一遍 - 测量、补全、封存、发布、准入，再经 scheduling 读口读取 - 所以**一条自述未建的缝**已不再是它的写照。
+  它在那里读到的 BAR schedule 普查是空的；生产策略在真实 schedule 行上仍从未运行过。真实部署会不会设成 `Required`
+  是一个关于部署配置的问题，代码里答不出。
   **解除 `B3` 证明的是 `rd-owner-api` 连到了哪个库，并不把凭据挡在这个进程之外**。同一进程启动时就持有两条裸 DSN：
   `MARKET_DATA_OWNER_DATABASE_URL`，即 Owner 的写主体 `market_data_owner`，`product/rd-workbench/docker-compose.yml`
   要求必填；以及 `MARKET_DATA_RD_ROLE_SET_DATABASE_URL`，即读者 `market_data_reader`。其默认构建里有六个 Market Data
@@ -127,11 +129,12 @@ ACL 拒绝。它不证明供应商真实性，不证明生产装配，也不证�
   下文 `ISOLATED_EVENT_REPLAY_ACCEPTANCE_V1` 有两处表述与代码尚不一致；都不挡生产路线。该档要求由单独执行的主体测量
   目标，而 `DirectMeasurer` 是在 custodian 内用租到的凭据测量。该档还要求准入回执交叉绑定 trust bundle，而
   `SealedDeploymentStoreAdmissionReceipt` 带 witness identity，却没有 signer key fingerprint 或 bundle identity。
-  已有五个生产适配器，但都还没有接入组合根：pin 住一把公钥的 Ed25519 签名验证器（`store_admission/signature.rs`）、
-  PostgreSQL custody store（`store_admission/custody_postgres.rs`；其 schema 与两个主体在
-  `product/rd-workbench/postgres-init/20-deployment-store-custody.sh`，compose 文件还没有运行它），以及 secret 文件凭据
-  resolver（`store_admission/credential_files.rs`）。secret 文件自身没有版本也没有过期时间：其版本是文件原样字节的
-  SHA-256，由签名 manifest 指名；其租约在准入的 store 时钟 cut 之后一段固定时长到期。第四个是单机部署的 anti-rollback
+  已有五个生产适配器，由 `store_admission/composition.rs` 从部署配置所指名的文件组合起来：pin 住一把公钥的 Ed25519
+  签名验证器（`store_admission/signature.rs`）、PostgreSQL custody store（`store_admission/custody_postgres.rs`；其 schema
+  与两个主体在 `product/rd-workbench/postgres-init/20-deployment-store-custody.sh`，由 compose 文件的
+  `deployment-store-provision` 服务运行），以及 secret 文件凭据 resolver（`store_admission/credential_files.rs`）。
+  secret 文件自身没有版本也没有过期时间：其版本是文件原样字节的 SHA-256，由签名 manifest 指名；其租约在准入的 store
+  时钟 cut 所在的那个固定长度租期的期末到期，所以同一租期内的每次准入与 revalidation 都封存或重新加入同一张回执。第四个是单机部署的 anti-rollback
   模式 `SingleTrustDomainNoRollbackWitness`（`store_admission/witness.rs`）：单机上 anti-rollback 性质不成立，每张回执都写明
   这个模式，用户 2026-09-27 的授权载于架构规则。第五个是部署库的直接测量器
   `PinnedTlsPostgresDirectMeasurer`（`store_admission/postgres.rs`，其 TLS 一段在 `crates/postgres_connect/src/pinned_tls.rs`）。
@@ -141,9 +144,10 @@ ACL 拒绝。它不证明供应商真实性，不证明生产装配，也不证�
   与之一致。每个准入后的读都以同样方式到达库：准入记下测量器的传输方式，并绑定到它测得的证书；每次读都在其上开会话，服务端
   出示的若不是那张证书就拒绝。两段之间的 socket 只存在于握手完成到它接受的那一个会话之间，所在目录只有本进程的用户能进入；
   中继只为本进程转送；另一个根下的服务端、或出示另一张证书的服务端，在 socket 建立之前就被拒绝，会话的任何字节都到不了它。
-  部署的 PostgreSQL 还没有开启 TLS；开启它属于把这些适配器接入组合根的那一步。管理员用 `deployment-store-publication-seal` 与
-  `deployment-store-publication-publish` 封存并发布历史；步骤见 `product/rd-workbench/README.md`。
-  `admit_rd_owner_market_data_postgres` 仍接 `Unavailable*` 端口，所以 `required` 在启动时仍然失败关闭。准入只从 custody
+  compose 文件的 `postgres-tls-install` 服务运行之后，部署的 PostgreSQL 即提供 TLS。管理员在部署到达库的位置用
+  `deployment-store-publication-author` 测量该库并补全草稿，再用 `deployment-store-publication-seal` 与
+  `deployment-store-publication-publish` 封存并发布历史；步骤见 `product/rd-workbench/README.md`。回执的 slot 带着它的
+  到期时刻：单机模式的观测永不变化，只按 head 与观测命名的 slot 会让第一次之后的每次准入都成为冲突。准入只从 custody
   store 的时钟读时间：每次读历史都带回该库的 `clock_timestamp()` cut，commit 也在同一个时钟上判定回执的窗口。
   直接测量器的 role identity 覆盖的是租到的角色能做什么，而不只是所列对象的 ACL；所列对象的 ACL 看不到别处的授权。
   它带一份权限普查（`PRIVILEGE_CENSUS_V1`）：会话角色及其成员关系闭包中每个角色持有的每项权限，无论来自直接授权、
@@ -1896,8 +1900,7 @@ caller digest、DSN、fixture、fixed corpus、in-memory/temp-file writer，以�
 request locator、resolver、event 或 readback。head、rotation、ACL、credential、measurement、request、role、
 projection、event、locator 或 readback 任一缺失、过期、已取代或不匹配，都必须在 `ProgramHost` 或 Backtest
 state mutation 前失败，且不产生正向 resolver 或 terminal result。成功证明只授权该 disposable profile；
-production resolver、signer、anti-rollback witness、credential-resolver、direct-measurement adapter 与默认产品
-入口仍保持 `UNAVAILABLE`。它不证明 provider authenticity、production readiness/deployment authority、
+它不为默认产品入口准入任何东西，后者的生产 adapter 只从部署自身的配置组合。它不证明 provider authenticity、production readiness/deployment authority、
 Dashboard、Paper、Live、real trading 或其他 production write。
 
 runtime handoff 使用既有静态 receipts 与一个 verified batch 重新解析每个 selection；frame 只携带
