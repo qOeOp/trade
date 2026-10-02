@@ -2502,6 +2502,28 @@ timeframe。两个数与价格来自同一个 kline 响应，所以不增加请�
 - **状态。** 两个 client 今天都会给出这两行，任何指定它们的部署都会得到。帧投影仍然受上文 Binance quote 缺口的阻挡。这些行由交易所替身测试、
   两个 live 源测试，以及无凭据的 Market Data 端到端证明断言。
 
+### TARGET Binance 永续持仓量行
+
+Binance USD-M 永续 Data Client 在成员最后一根已收盘的 bar 旁边，陈述在该坐标当时或之前最后发布的持仓量。共三行，channel 为
+`MARKET`、data kind 为 `SCALAR`、timeframe 为 `TICK`：
+
+- `OPEN_INTEREST`：合约数。
+- `OPEN_INTEREST_VALUE`：以计价资产计的名义价值。
+- `OPEN_INTEREST_TIME`：以纳秒计的快照时刻。
+
+时刻按公开端点的约定陈述，归档把同一个快照标早五分钟。
+
+- **在快照时刻之后五分钟可知。** 交易所每五分钟采样一次持仓量，约两分钟后发布每个样本（2026-10-02 实测 104 到 144 秒）。因此时刻为
+  `T` 的快照，只有在 `T + 5 minutes <= c` 时才对坐标 `c` 可见。
+- **两条路由，按年龄选择。** 路由取决于坐标相对 scope 检索时刻有多旧。29 天以内的坐标由无签名的 `futures/data/openInterestHist`
+  端点回答，它只提供最近 30 天。更旧的坐标由公开归档中包含该快照那一天的每日 `metrics` 文件回答，连同它的 `.CHECKSUM` 侧文件一起取回，
+  SHA-256 不一致就拒绝。
+  - 两条路由陈述的是同样的数。BTCUSDT 在 2026-10-01 的 288 个快照中，把归档的 `create_time` 向后挪五分钟后有 287 个相等；不挪则每一个都不同。
+  - 归档里的 taker 比例列遵循另一种约定，所以这里不读取它。
+- **缺席就是没有行。** 当坐标前十五分钟内没有可见快照时，成员没有持仓量行，这同时涵盖交易所样本的空缺与归档某一天没有该快照的情况。
+  归档文件缺失或不一致、端点不可达、数值不是十进制数，都会拒绝整次检索。
+- **与 funding 一样不用凭据。** 两条路由都不签名任何请求，也不发送 key。
+
 ### CURRENT/PARTIAL Binance 永续已结算 funding 行
 
 `crates/adapters/binance/src/futures_pit_observation_source_v1.rs` 中的 Binance USD-M 永续 Data Client 回答一个

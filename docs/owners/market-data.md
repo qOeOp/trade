@@ -2881,6 +2881,32 @@ request is added.
   on the Binance quote gap above. The rows are asserted by a stand-in venue test, by both live source tests, and by
   the credential-free Market Data end-to-end proof.
 
+### TARGET Binance perpetual open interest rows
+
+Beside a member's last closed bar, the Binance USD-M perpetual Data Client states the open interest last published at
+or before the coordinate. These are three rows on channel `MARKET`, data kind `SCALAR` and timeframe `TICK`:
+
+- `OPEN_INTEREST`: contracts.
+- `OPEN_INTEREST_VALUE`: notional in the quote asset.
+- `OPEN_INTEREST_TIME`: the snapshot instant in nanoseconds.
+
+The instant is stated in the public endpoint's convention. The archive stamps the same snapshot five minutes earlier.
+
+- **Knowable five minutes after its instant.** The venue samples open interest every five minutes and publishes each
+  sample about two minutes later (measured 104 to 144 seconds on 2026-10-02). A snapshot at instant `T` is therefore
+  visible to a coordinate `c` only when `T + 5 minutes <= c`.
+- **Two routes, chosen by age.** The route depends on how old the coordinate is relative to the scope's retrieval
+  instant. A coordinate within 29 days is answered from the unsigned `futures/data/openInterestHist` endpoint, which
+  serves only the last 30 days. An older one is answered from the public archive's daily `metrics` file for the day
+  holding the snapshot, fetched with its `.CHECKSUM` sidecar and refused unless the SHA-256 matches.
+  - The two routes state the same numbers. For BTCUSDT on 2026-10-01, 287 of 288 snapshots are equal once the
+    archive's `create_time` is moved forward five minutes, and every one differs without that move.
+  - The archive's taker ratio column follows the other convention, so it is not read here.
+- **Absence is the absence of rows.** A member has no open interest rows when no snapshot is visible within fifteen
+  minutes of the coordinate, which covers both a gap in the venue's samples and an archive day that holds none. A
+  missing or mismatched archive file, an unreachable endpoint and a non-decimal value refuse the whole retrieval.
+- **No credential, as for funding.** Neither route signs a request or sends a key.
+
 ### CURRENT/PARTIAL Binance perpetual settled funding rows
 
 The Binance USD-M perpetual Data Client in `crates/adapters/binance/src/futures_pit_observation_source_v1.rs`
