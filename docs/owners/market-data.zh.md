@@ -200,6 +200,7 @@ ACL 拒绝。它不证明供应商真实性，不证明生产装配，也不证�
 | Shared Time clock‑head 交接                       | `TARGET`                                                                           | `owner/shared_time_evidence.rs`                                                                                                                                                                                 | `B3`       |
 | 供应商 Data Clients                               | `CURRENT / PARTIAL`                                                                | `crates/adapters/databento/src/pit_observation_source_v1.rs` 与 `crates/adapters/binance/src/pit_observation_source_v1.rs`，均已实盘验证                                                                        | `B6`       |
 | 面向 Runtime 的实时行情事实通道                   | `CURRENT / PARTIAL`，一条通道                                                      | `owner/live_market_fact_v1.rs`、`owner/live_market_stream_v1.rs`、`owner/postgres/live_market_stream_v1.rs`、`crates/adapters/bybit/src/live_market_fact_source_v1.rs`                                          | `B8`       |
+| Binance 永续已结算 funding 行                     | `TARGET`                                                                           | `crates/adapters/binance/src/futures_pit_observation_source_v1.rs`                                                                                                                                              | `B6`       |
 
 ## 拥有的权威事实
 
@@ -2485,6 +2486,24 @@ sample 与已接纳 correction 各推进一次；restart 后返回相同 native 
 executable maturity、Backtest 产品闭合（包括 inverse/quanto target-consumption 语义）、
 Dashboard/default-database 准入或 trading authority。这些 Backtest 限制不创建 Market Data instrument-class
 rejection。
+
+### TARGET Binance 永续已结算 funding 行
+
+`crates/adapters/binance/src/futures_pit_observation_source_v1.rs` 中的 Binance USD-M 永续 Data Client 回答一个
+scope 时，给出每个成员最后一根已收盘的 bar，并在旁边给出该成员最后一次已结算的 funding。funding 是两行，channel
+为 `MARKET`、data kind 为 `SCALAR`、timeframe 为 `TICK`：字段 `FUNDING_RATE` 是交易所发布的原样十进制数，字段
+`FUNDING_TIME` 是以纳秒计的结算时刻。两者都来自无签名的公开 `fundingRate` 端点，取 scope 的 event-effective 坐标
+当时或之前的最后两次结算，所以恰在该坐标的结算被包含，晚一毫秒的不被包含。
+
+- **在结算时刻可知。** 已结算费率在它自己的结算时刻可知。公开归档的 `calc_time` 与端点的 `fundingTime` 相等，费率也相等，
+  2024-01 的 93 次 BTCUSDT 结算全部如此。
+- **缺席就是没有行，绝不是一个值。** 成员第一次结算之前，以及最后两次结算所推出的下一次结算在该坐标已经逾期时，该成员没有
+  funding 行，client 也绝不以零费率代替。需要 funding 的消费方因缺这个字段而拒绝。端点不可达或拒绝调用、费率不是十进制数、
+  结算时刻晚于坐标，这三种情况各自按有界类别拒绝整次检索。
+- **不用凭据。** client 拒绝建立在持有凭据的 HTTP client 之上，它的请求不带 `X-MBX-APIKEY` header，也不带
+  `signature` 参数。
+- **不陈述的内容。** 结算间隔不是一行：端点不陈述它，所以 timeframe 是 `TICK`，而不是猜出来的间隔。来自
+  `premiumIndex` 的实时估计、Replay 中的 funding 计提，以及 Design 可以引用的 funding 字段语义，是各自独立的切片。
 
 ## 输入交接
 
