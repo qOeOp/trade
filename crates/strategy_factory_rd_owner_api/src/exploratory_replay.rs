@@ -620,6 +620,7 @@ async fn run_native_replay(
 #[cfg(feature = "native-replay-execution")]
 fn native_replay_run_error(error: &NativeReplayRunErrorV2, request_identity: &str) -> Response {
     tracing::warn!(%error, %request_identity, "native Replay run failed");
+    eprintln!("PROBE native Replay run failed: {error}\n{error:?}");
     rejection(
         StatusCode::SERVICE_UNAVAILABLE,
         "NATIVE_REPLAY_EXECUTION_UNAVAILABLE",
@@ -684,6 +685,7 @@ async fn counted_result_response(
         }
         Err(e) => {
             tracing::warn!(error = %e, %request_identity, "committed exploratory Result was not counted");
+            eprintln!("PROBE committed exploratory Result was not counted: {e}");
             rejection(StatusCode::SERVICE_UNAVAILABLE, e.code(), request_identity)
         }
     }
