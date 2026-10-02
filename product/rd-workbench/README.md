@@ -91,10 +91,10 @@ or `REPLAYED`, and writes nothing on a head mismatch or a conflict.
 Create a private environment file outside the repository or copy `.env.example` and replace every
 placeholder with a local value. `RD_OWNER_DATABASE_URL`, `RD_FACT_WRITER_DATABASE_URL`,
 `MARKET_DATA_OWNER_DATABASE_URL`, `MARKET_DATA_RD_ROLE_SET_DATABASE_URL`,
-`QUALIFICATION_OWNER_DATABASE_URL`, `OPERATOR_AUTHORIZATION_DATABASE_URL`,
-`PRODUCT_EDGE_DATABASE_URL`, and `REPLAY_POLICY_CATALOG_ADMIN_DATABASE_URL` must be private
-PostgreSQL connection URLs for the Compose `postgres` service, with credentials matching the
-`*_DB_PASSWORD` values. Do not commit it.
+`INSTRUMENT_OWNER_DATABASE_URL`, `QUALIFICATION_OWNER_DATABASE_URL`,
+`OPERATOR_AUTHORIZATION_DATABASE_URL`, `PRODUCT_EDGE_DATABASE_URL`, and
+`REPLAY_POLICY_CATALOG_ADMIN_DATABASE_URL` must be private PostgreSQL connection URLs for the
+Compose `postgres` service, with credentials matching the `*_DB_PASSWORD` values. Do not commit it.
 
 Operator Authorization and Product Edge genesis remain explicit administrative
 operations and never run as part of service startup. Replay Policy Catalog

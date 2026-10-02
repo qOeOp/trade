@@ -264,10 +264,10 @@ ordered chain's acceptance build admits nothing in production.
   outside `crates/data`. The resolver is additionally optional: `bootstrap_deployment_store_admission` returns
   `Option`, so the field may hold `None` in a deployment. Closing this needs a consumer in this Owner, not a
   wider read from Market Data.
-- **TARGET / ISOLATED_ACCEPTANCE_ONLY - the exploratory replay production entry:** the only caller of
+- **IMPLEMENTATION_ADMITTED / NOT_CUT_OVER - the exploratory replay production entry:** the only caller of
   `run_exploratory_replay_v2` outside `vibe-backtest-owner` is inside `run_native_replay`, which carries
-  `#[cfg(feature = "sealed-develop-composer-acceptance")]` with no `cfg(not(...))` twin anywhere in the
-  repository. With the deployed image built without features, that path is unreachable in what is deployed. This
+  `#[cfg(feature = "native-replay-execution")]`, a production feature with no acceptance code, with no
+  `cfg(not(...))` twin anywhere in the repository. With the deployed image built without features, that path is unreachable in what is deployed. This
   measures the deployment artifact, not history.
 
 ## Modules
@@ -511,16 +511,13 @@ R&D does not derive a Design from research prose. No rule in this repository tur
 mechanism and falsification question into input roles and a reaction graph, and none is intended:
 that translation is a judgement, and a judgement an Owner makes is a fact the Owner invented.
 
-**Two different things are called a Research Intent here, and the prohibition stands because the
-Composer path holds the one with nothing to project.**
+**The Composer path holds a Research Intent with nothing to project, and that is why the prohibition
+stands.**
 
-`ResearchIntent` in `crates/strategy_factory/src/research.rs` does carry `data.channels`, each
-declaring its `role`, `asset_id`, `timeframe`, requiredness, source and staleness bound, with
-`data.decision_clock_channel` naming which one advances the decision. Projecting those would choose
-nothing. But that type has exactly one constructor, `frozen_representative()`, which parses a
-compile-time constant and then refuses anything whose SHA-256, identity, revision and schema version
-are not the frozen ones; its only callers are the formation path in `family_adapters.rs`,
-`representative.rs` and `formation_adapters.rs`. The Composer path never holds it.
+No Research Intent in this repository declares channels. The formation path's `ResearchIntent` did
+(`data.channels`, each with its role, asset, timeframe and staleness bound), but it was only ever
+built from one frozen compile-time representative, never reached the Composer path, and was removed
+with the formation retirement.
 
 What the Composer path holds is `CurrentResearchDevelopCustodyV2`, whose fourteen fields are
 locators, identities and digests plus one `falsifier` string, and behind it the stored

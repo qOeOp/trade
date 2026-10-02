@@ -2063,12 +2063,12 @@
       },
       {
         "capabilityId": "strategy-factory-research-intent",
-        "existingLocator": "crates/strategy_factory/src/intent.rs",
-        "existingSymbolOrPort": "ResearchIntent",
+        "existingLocator": "crates/strategy_factory/src/product_edge.rs",
+        "existingSymbolOrPort": "FrozenResearchGoalIntentV2",
         "disposition": "PRESENT",
         "canonicalOwnerId": "rd",
         "canonicalObjectId": "research-intent",
-        "singleWriterOrNoAuthority": "R&D remains the sole writer of frozen Intent identity and the current Strategy Factory type is only a migration source",
+        "singleWriterOrNoAuthority": "R&D is the sole writer of frozen Intent identity: decide_commit_v2 builds the FrozenResearchGoalIntentV2 that the R&D Owner's submit_v2 commits",
         "readerOwnerIds": [
           "backtest",
           "qualification"
@@ -2084,12 +2084,12 @@
       },
       {
         "capabilityId": "strategy-factory-intent-family-counters",
-        "existingLocator": "crates/strategy_factory/src/intent.rs",
-        "existingSymbolOrPort": "IntentFamily",
+        "existingLocator": "crates/strategy_factory/src/trial_family.rs",
+        "existingSymbolOrPort": "TrialFamilyRootV1",
         "disposition": "PRESENT",
         "canonicalOwnerId": "rd",
         "canonicalObjectId": "trial-family-census-frontier",
-        "singleWriterOrNoAuthority": "R&D remains the sole writer of TrialFamily identity and the current pilot-local counters are migration evidence only",
+        "singleWriterOrNoAuthority": "R&D is the sole writer of TrialFamily identity and census: submit_v2 commits the TrialFamilyRootV1 with its Intent and the R&D Owner alone appends census members",
         "readerOwnerIds": [
           "qualification"
         ],
@@ -2126,8 +2126,8 @@
       },
       {
         "capabilityId": "strategy-factory-restricted-decision-runtime",
-        "existingLocator": "crates/strategy_factory/src/program_runtime.rs",
-        "existingSymbolOrPort": "StrategyProgramV1",
+        "existingLocator": "crates/strategy_factory/src/program_runtime_v2.rs",
+        "existingSymbolOrPort": "ProgramPluginRuntimeV2",
         "disposition": "PRESENT",
         "canonicalOwnerId": "rd",
         "canonicalObjectId": "artifact-security-admission",
@@ -3381,18 +3381,23 @@
     "strategyFactoryMappings": [
       {
         "capabilityId": "research-intent",
-        "sourceAvailability": "PRESENT",
+        "sourceAvailability": "PARTIAL",
         "sourceCapabilityPortIds": [
           "strategy-factory-research-intent"
         ],
         "verifiedPublicSurfaceLocators": [
-          "crates/strategy_factory/src/intent.rs",
+          "crates/strategy_factory/src/product_edge.rs",
           "crates/strategy_factory/src/lib.rs"
         ],
         "presentSourceFacets": [
-          "ResearchIntent frozen canonical representation"
+          "FrozenResearchGoalIntentV2 frozen canonical representation committed by the R&D Owner",
+          "sourced goal: hypothesis, mechanism, falsification question, cost and capacity assumptions",
+          "source frontier with content digest and cut, independence basis, protected-feedback projection and V3 instrument scope",
+          "TrialFamily identity and policy digest binding PIT rule, cost slippage and capacity model identities, budget, stop rule and predecessor frontier"
         ],
-        "missingSourceFacets": [],
+        "missingSourceFacets": [
+          "bounded alternative interpretation set and differentiating predictions: the frozen Intent binds one interpretation per source"
+        ],
         "disposition": "ADAPT",
         "destinationOwnerIds": [
           "rd"
@@ -3410,16 +3415,18 @@
           "strategy-factory-intent-family-counters"
         ],
         "verifiedPublicSurfaceLocators": [
-          "crates/strategy_factory/src/intent.rs",
+          "crates/strategy_factory/src/trial_family.rs",
           "crates/strategy_factory/src/lib.rs"
         ],
         "presentSourceFacets": [
-          "IntentFamily pilot-local bounded artifact attempt parameter tuple and successor counters"
+          "TrialFamilyRootV1 durable family identity, one per Intent, committed by submit_v2",
+          "policy digest over trial budget, stop rule, PIT rule, cost slippage and capacity model identities and the semantic-predecessor and protected-feedback frontiers",
+          "census members appended at a unique family ordinal with terminal dispositions including rejected, invalid and unknown attempts",
+          "attempt frontier with frontier identity, terminal member digests and consumed trial budget, read through load_trial_family_census_v2_by_family_in_transaction"
         ],
         "missingSourceFacets": [
-          "durable TrialFamily identity",
-          "append-only TrialFamily Census Frontier",
-          "family rename and ancestry authority"
+          "recorded frontier states: the head row advances in place and no OPEN_APPEND_ONLY, FROZEN_FOR_CANDIDATE or SUPERSEDED state is stored",
+          "database-enforced append-only membership: members are insert-only in the R&D Owner's code, and the database enforces only a unique family ordinal"
         ],
         "disposition": "ADAPT",
         "destinationOwnerIds": [
@@ -3467,8 +3474,8 @@
         ],
         "presentSourceFacets": [
           "restricted no_std program SDK ABI",
-          "StrategyProgramV1",
-          "restricted Wasm validation and execution"
+          "ProgramPluginRuntimeV2 restricted plugin execution",
+          "restricted Wasm candidate validation"
         ],
         "missingSourceFacets": [
           "independent ProgramHost product boundary",

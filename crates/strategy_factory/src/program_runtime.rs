@@ -5,12 +5,10 @@ use std::ops::Range;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use wasmi::{
-    Config, Engine, Error as WasmiError, Instance, Linker, Memory, Module, Store, TrapCode,
-    TypedFunc,
+    Config, Engine, Error as WasmiError, Instance, Linker, Module, Store, TrapCode, TypedFunc,
 };
 use wasmparser::{Encoding, ExternalKind, Operator, Parser, Payload, Validator, WasmFeatures};
 
-use crate::artifact::StrategyArtifact;
 use crate::strategy_design_v2::PluginManifestV2;
 
 const MEMORY_EXPORT: &str = "memory";
@@ -64,15 +62,6 @@ pub(crate) struct ProgramRuntimeBudget {
     pub fuel: u64,
 }
 
-pub(crate) struct StrategyProgramV1 {
-    store: Store<()>,
-    memory: Memory,
-    on_event: TypedFunc<i32, i32>,
-    frame: Range<usize>,
-    proposal: Range<usize>,
-    fuel: u64,
-}
-
 #[derive(Debug, Error, PartialEq, Eq)]
 pub(crate) enum ProgramRuntimeError {
     #[error("strategy program module is invalid: {0}")]
@@ -85,12 +74,6 @@ pub(crate) enum ProgramRuntimeError {
     Abi(&'static str),
     #[error("strategy program memory layout is invalid: {0}")]
     MemoryLayout(&'static str),
-    #[error("frame length {0} exceeds program capacity {1}")]
-    FrameTooLarge(usize, usize),
-    #[error("strategy program returned guest fault {0}")]
-    GuestFault(i32),
-    #[error("strategy program returned proposal length {0} above capacity {1}")]
-    ProposalLength(usize, usize),
     #[error("strategy program exhausted its fuel budget")]
     OutOfFuel,
     #[error("strategy program trapped: {0}")]
@@ -99,102 +82,52 @@ pub(crate) enum ProgramRuntimeError {
     Execution(String),
 }
 
-impl StrategyProgramV1 {
-    fn new(wasm: &[u8], budget: ProgramRuntimeBudget) -> Result<Self, ProgramRuntimeError> {
-        validate_module(wasm, budget)?;
-        let engine = engine();
-        let module = Module::new(&engine, wasm)
-            .map_err(|e| ProgramRuntimeError::InvalidModule(e.to_string()))?;
-        let mut store = Store::new(&engine, ());
-        let instance = Linker::new(&engine)
-            .instantiate_and_start(&mut store, &module)
-            .map_err(execution_error)?;
-        let memory = instance
-            .get_memory(&store, MEMORY_EXPORT)
-            .ok_or(ProgramRuntimeError::Abi("memory export"))?;
-        let frame_ptr = abi_i32(instance, &store, FRAME_PTR_EXPORT)?;
-        let frame_capacity = abi_i32(instance, &store, FRAME_CAPACITY_EXPORT)?;
-        let proposal_ptr = abi_i32(instance, &store, PROPOSAL_PTR_EXPORT)?;
-        let proposal_capacity = abi_i32(instance, &store, PROPOSAL_CAPACITY_EXPORT)?;
-        let on_event = instance
-            .get_typed_func::<i32, i32>(&store, ON_EVENT_EXPORT)
-            .map_err(|_| ProgramRuntimeError::Abi("on_event signature"))?;
-
-        store.set_fuel(budget.fuel).map_err(execution_error)?;
-        let frame = checked_range(
-            frame_ptr.call(&mut store, ()).map_err(execution_error)?,
-            frame_capacity
-                .call(&mut store, ())
-                .map_err(execution_error)?,
-            memory.data_size(&store),
-        )?;
-        let proposal = checked_range(
-            proposal_ptr.call(&mut store, ()).map_err(execution_error)?,
-            proposal_capacity
-                .call(&mut store, ())
-                .map_err(execution_error)?,
-            memory.data_size(&store),
-        )?;
-
-        if frame.start < proposal.end && proposal.start < frame.end {
-            return Err(ProgramRuntimeError::MemoryLayout("buffers overlap"));
-        }
-        Ok(Self {
-            store,
-            memory,
-            on_event,
-            frame,
-            proposal,
-            fuel: budget.fuel,
-        })
-    }
-
-    pub(crate) fn invoke(&mut self, frame: &[u8]) -> Result<Vec<u8>, ProgramRuntimeError> {
-        let frame_capacity = self.frame.len();
-        if frame.len() > frame_capacity {
-            return Err(ProgramRuntimeError::FrameTooLarge(
-                frame.len(),
-                frame_capacity,
-            ));
-        }
-        self.memory
-            .write(&mut self.store, self.frame.start, frame)
-            .map_err(|e| ProgramRuntimeError::Execution(e.to_string()))?;
-
-        self.store.set_fuel(self.fuel).map_err(execution_error)?;
-        let length = self
-            .on_event
-            .call(&mut self.store, frame.len() as i32)
-            .map_err(execution_error)?;
-
-        if length < 0 {
-            return Err(ProgramRuntimeError::GuestFault(length));
-        }
-        let length = length as usize;
-        if length > self.proposal.len() {
-            return Err(ProgramRuntimeError::ProposalLength(
-                length,
-                self.proposal.len(),
-            ));
-        }
-        let mut output = vec![0; length];
-        self.memory
-            .read(&self.store, self.proposal.start, &mut output)
-            .map_err(|e| ProgramRuntimeError::Execution(e.to_string()))?;
-        Ok(output)
-    }
-
-    pub(crate) fn from_artifact(artifact: &StrategyArtifact) -> Result<Self, ProgramRuntimeError> {
-        let profile = artifact.program_profile();
-        Self::new(artifact.wasm(), profile.runtime_budget)
-    }
-}
-
+/// Admits a V1 program candidate: the module envelope, then instantiation, the SDK ABI exports and
+/// non-overlapping frame and proposal buffers, all within the fuel budget. Nothing is kept: no V1
+/// program is executed after admission.
 pub(crate) fn validate_candidate_for_artifact(
     wasm: &[u8],
     budget: ProgramRuntimeBudget,
 ) -> Result<(), ProgramRuntimeError> {
-    StrategyProgramV1::new(wasm, budget).map(drop)
+    validate_module(wasm, budget)?;
+    let engine = engine();
+    let module = Module::new(&engine, wasm)
+        .map_err(|e| ProgramRuntimeError::InvalidModule(e.to_string()))?;
+    let mut store = Store::new(&engine, ());
+    let instance = Linker::new(&engine)
+        .instantiate_and_start(&mut store, &module)
+        .map_err(execution_error)?;
+    let memory = instance
+        .get_memory(&store, MEMORY_EXPORT)
+        .ok_or(ProgramRuntimeError::Abi("memory export"))?;
+    let frame_ptr = abi_i32(instance, &store, FRAME_PTR_EXPORT)?;
+    let frame_capacity = abi_i32(instance, &store, FRAME_CAPACITY_EXPORT)?;
+    let proposal_ptr = abi_i32(instance, &store, PROPOSAL_PTR_EXPORT)?;
+    let proposal_capacity = abi_i32(instance, &store, PROPOSAL_CAPACITY_EXPORT)?;
+    instance
+        .get_typed_func::<i32, i32>(&store, ON_EVENT_EXPORT)
+        .map_err(|_| ProgramRuntimeError::Abi("on_event signature"))?;
+
+    store.set_fuel(budget.fuel).map_err(execution_error)?;
+    let frame = checked_range(
+        frame_ptr.call(&mut store, ()).map_err(execution_error)?,
+        frame_capacity
+            .call(&mut store, ())
+            .map_err(execution_error)?,
+        memory.data_size(&store),
+    )?;
+    let proposal = checked_range(
+        proposal_ptr.call(&mut store, ()).map_err(execution_error)?,
+        proposal_capacity
+            .call(&mut store, ())
+            .map_err(execution_error)?,
+        memory.data_size(&store),
+    )?;
+
+    if frame.start < proposal.end && proposal.start < frame.end {
+        return Err(ProgramRuntimeError::MemoryLayout("buffers overlap"));
+    }
+    Ok(())
 }
 
 /// Validates only the sealed V2 plugin module envelope. Invocation ownership remains with ProgramHost.
@@ -564,10 +497,9 @@ fn execution_error(error: WasmiError) -> ProgramRuntimeError {
 
 #[cfg(test)]
 mod tests {
-    use std::{ffi::OsStr, fs, path::Path, process::Command, sync::OnceLock};
+    use std::{ffi::OsStr, fs, path::Path, process::Command};
 
     use rstest::rstest;
-    use strategy_factory_program_sdk::{FrameEncoder, ProgramRunScope};
 
     use super::*;
     use crate::strategy_design_v2::{PluginStateContractV2, PortContractV2, ValueTypeV2};
@@ -587,9 +519,7 @@ mod tests {
     #[derive(Clone, Copy)]
     enum EventBody {
         Return(i32),
-        Trap,
         Grow,
-        Spin,
     }
 
     #[derive(Clone, Copy)]
@@ -629,36 +559,6 @@ mod tests {
     }
 
     #[rstest]
-    fn real_channel_control_and_pilot_programs_execute_sdk_start_frames() {
-        let (channel, pilot) = real_programs();
-        let mut channel_parameters = [0_u8; 32];
-        channel_parameters[..8].copy_from_slice(&((1_u64 << 1) | (1_u64 << 10)).to_le_bytes());
-        channel_parameters[8..12].copy_from_slice(&1_u32.to_le_bytes());
-        channel_parameters[12..16].copy_from_slice(&2_u32.to_le_bytes());
-        channel_parameters[16..20].copy_from_slice(&1_024_u32.to_le_bytes());
-        channel_parameters[20..24].copy_from_slice(&10_u32.to_le_bytes());
-        channel_parameters[24..32].copy_from_slice(&1_f64.to_bits().to_le_bytes());
-        let mut pilot_parameters = [0_u8; 56];
-        pilot_parameters[..4].copy_from_slice(&1_u32.to_le_bytes());
-        pilot_parameters[4..8].copy_from_slice(&2_u32.to_le_bytes());
-        for (offset, value) in [(8, 2_u16), (10, 3), (12, 2), (14, 2)] {
-            pilot_parameters[offset..offset + 2].copy_from_slice(&value.to_le_bytes());
-        }
-        pilot_parameters[16..24].copy_from_slice(&1_f64.to_bits().to_le_bytes());
-        for (offset, value) in [(24, 1_u64), (32, 10), (40, 5), (48, 1)] {
-            pilot_parameters[offset..offset + 8].copy_from_slice(&value.to_le_bytes());
-        }
-
-        for (wasm, parameters) in [
-            (channel.as_slice(), channel_parameters.as_slice()),
-            (pilot.as_slice(), pilot_parameters.as_slice()),
-        ] {
-            let mut runtime = StrategyProgramV1::new(wasm, budget(1_000_000)).unwrap();
-            assert!(runtime.invoke(&start_frame(parameters)).unwrap().is_empty());
-        }
-    }
-
-    #[rstest]
     fn real_program_builds_ignore_ci_rustflags_and_keep_explicit_warning_discipline() {
         let injected_env = [
             ("RUSTFLAGS", "-D warnings"),
@@ -689,7 +589,7 @@ mod tests {
 
         let (channel, pilot) = build_real_programs(&injected_env);
         for wasm in [&channel, &pilot] {
-            StrategyProgramV1::new(wasm, budget(1_000_000)).unwrap();
+            validate_candidate_for_artifact(wasm, budget(1_000_000)).unwrap();
         }
     }
 
@@ -1030,64 +930,17 @@ mod tests {
             },
         ] {
             assert!(matches!(
-                StrategyProgramV1::new(&module(spec), budget(10_000)),
+                validate_candidate_for_artifact(&module(spec), budget(10_000)),
                 Err(ProgramRuntimeError::MemoryLayout(_))
             ));
         }
     }
 
-    #[rstest]
-    fn guest_fault_proposal_capacity_trap_and_fuel_are_explicit() {
-        let cases = [
-            (EventBody::Return(-5), ProgramRuntimeError::GuestFault(-5)),
-            (
-                EventBody::Return(4097),
-                ProgramRuntimeError::ProposalLength(4097, 4096),
-            ),
-            (
-                EventBody::Trap,
-                ProgramRuntimeError::Trap("wasm `unreachable` instruction executed".to_owned()),
-            ),
-            (EventBody::Spin, ProgramRuntimeError::OutOfFuel),
-        ];
-
-        for (event, expected) in cases {
-            let mut runtime = StrategyProgramV1::new(
-                &module(ModuleSpec {
-                    event,
-                    ..ModuleSpec::valid()
-                }),
-                budget(10_000),
-            )
-            .unwrap();
-            assert_eq!(runtime.invoke(&[]).unwrap_err(), expected);
-        }
-    }
-
-    fn start_frame(parameters: &[u8]) -> Vec<u8> {
-        let mut frame = vec![0_u8; 48 + parameters.len()];
-        let len = FrameEncoder::start(
-            &mut frame,
-            1,
-            ProgramRunScope::new(1, 1, 2).unwrap(),
-            parameters,
-        )
-        .unwrap()
-        .finish();
-        frame.truncate(len);
-        frame
-    }
-
     fn new_error(wasm: &[u8], budget: ProgramRuntimeBudget) -> ProgramRuntimeError {
-        match StrategyProgramV1::new(wasm, budget) {
-            Ok(_) => panic!("module unexpectedly admitted"),
+        match validate_candidate_for_artifact(wasm, budget) {
+            Ok(()) => panic!("module unexpectedly admitted"),
             Err(e) => e,
         }
-    }
-
-    fn real_programs() -> &'static (Vec<u8>, Vec<u8>) {
-        static PROGRAMS: OnceLock<(Vec<u8>, Vec<u8>)> = OnceLock::new();
-        PROGRAMS.get_or_init(|| build_real_programs(&[]))
     }
 
     fn build_real_programs(injected_env: &[(&str, &str)]) -> (Vec<u8>, Vec<u8>) {
@@ -1366,9 +1219,7 @@ mod tests {
         }
         let event = match spec.event {
             EventBody::Return(value) => i32_const(value),
-            EventBody::Trap => vec![0x00],
             EventBody::Grow => vec![0x41, 1, 0x40, 0, 0x1a, 0x41, 0],
-            EventBody::Spin => vec![0x03, 0x40, 0x0c, 0, 0x0b, 0x41, 0],
         };
         body(&mut code, &event);
         section(&mut wasm, 10, &code);

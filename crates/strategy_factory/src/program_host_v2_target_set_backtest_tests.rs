@@ -1710,7 +1710,7 @@ fn fixture_with_target_sets(
     else {
         anyhow::bail!("target-set fixture did not compile")
     };
-    let artifact = StrategyArtifactV2::issue(&plan, vec![build])
+    let artifact = StrategyArtifactV2::issue_versioned(&plan, vec![build.into()])
         .map_err(|error: StrategyArtifactV2Error| anyhow::anyhow!(error))?;
     Ok((*plan, artifact, frame))
 }

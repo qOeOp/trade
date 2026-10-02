@@ -3245,13 +3245,56 @@ async fn postgres_readback_rejects_tampered_raw_payload() {
     .execute(rd_owner)
     .await
     .unwrap();
-    let rejected: Option<serde_json::Value> =
+    // The raw payload is restored the way it was tampered, under a disabled immutability guard:
+    // the ordered chain shares one store, and a later entry reading this intake would otherwise
+    // meet the forged bytes.
+    restore_after_checks(
+        async {
+            let rejected: Option<serde_json::Value> =
+                sqlx::query_scalar("SELECT rd_owner_api.read_source_intake_v1($1)")
+                    .bind(&binding.request_identity)
+                    .fetch_one(rd_owner)
+                    .await
+                    .unwrap();
+            assert!(rejected.is_none());
+        },
+        async {
+            sqlx::query(
+                "ALTER TABLE public.rd_source_raw_payloads_v1 DISABLE TRIGGER rd_source_raw_payload_immutable_v1",
+            )
+            .execute(rd_owner)
+            .await
+            .unwrap();
+            sqlx::query(
+                "UPDATE public.rd_source_raw_payloads_v1 SET raw_payload=$2 WHERE content_digest=$1",
+            )
+            .bind(content_digest)
+            .bind(&raw_payload)
+            .execute(rd_owner)
+            .await
+            .unwrap();
+            sqlx::query(
+                "ALTER TABLE public.rd_source_raw_payloads_v1 ENABLE TRIGGER rd_source_raw_payload_immutable_v1",
+            )
+            .execute(rd_owner)
+            .await
+            .unwrap();
+        },
+    )
+    .await;
+    let restored: Option<serde_json::Value> =
         sqlx::query_scalar("SELECT rd_owner_api.read_source_intake_v1($1)")
             .bind(&binding.request_identity)
             .fetch_one(rd_owner)
             .await
             .unwrap();
-    assert!(rejected.is_none());
+    assert_eq!(
+        restored
+            .as_ref()
+            .and_then(|value| value["content_digest"].as_str()),
+        Some(content_digest),
+        "restoring the raw payload did not restore the readback",
+    );
 }
 
 #[rstest]

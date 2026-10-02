@@ -80,7 +80,7 @@ use vibe_data::owner::{
     universe_sample_projection_owner_from_environment_v1,
 };
 // The Market Data repair loop is the only reader of the shared time evidence resolver.
-#[cfg(feature = "sealed-develop-composer-acceptance")]
+#[cfg(feature = "native-replay-execution")]
 use vibe_data::owner::shared_time_evidence_resolver_from_store_admission_environment_v1;
 use vibe_data::owner::{
     research_pit_terminal::ResearchPitTerminalResolver,
@@ -218,7 +218,7 @@ mod iteration_result_admission;
 #[cfg(test)]
 mod log_capture;
 mod market_data_pit;
-#[cfg(feature = "sealed-develop-composer-acceptance")]
+#[cfg(feature = "native-replay-execution")]
 mod market_data_repair;
 #[cfg(all(test, feature = "sealed-develop-composer-acceptance"))]
 mod native_replay_scheduling_acceptance;
@@ -425,7 +425,7 @@ async fn run() -> anyhow::Result<()> {
     #[cfg(feature = "composer-replay-issuance")]
     let native_replay_scheduling =
         native_replay_scheduling_resolver_v1_from_store_admission_environment().await?;
-    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    #[cfg(feature = "native-replay-execution")]
     let shared_time = shared_time_evidence_resolver_from_store_admission_environment_v1().await?;
     #[cfg(feature = "composer-replay-issuance")]
     let instrument_master_v2 =
@@ -525,7 +525,7 @@ async fn run() -> anyhow::Result<()> {
         not(feature = "sealed-develop-composer-acceptance")
     ))]
     let develop_composer_read: Arc<dyn DevelopComposerSealedReadPortV2> = develop_composer.clone();
-    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    #[cfg(feature = "native-replay-execution")]
     let native_replay_execution = match env::var("BACKTEST_OWNER_DATABASE_URL") {
         Err(env::VarError::NotPresent) => None,
         Err(e) => return Err(e.into()),
@@ -553,7 +553,7 @@ async fn run() -> anyhow::Result<()> {
             ))
         }
     };
-    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    #[cfg(feature = "native-replay-execution")]
     let market_data_repair = market_data_repair::production_router(
         owner.clone(),
         develop_composer_read.clone(),
@@ -791,14 +791,14 @@ async fn run() -> anyhow::Result<()> {
             },
             token_digest,
         ));
-    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    #[cfg(feature = "native-replay-execution")]
     let app = app.merge(exploratory_replay::execution_router(
         native_replay_execution,
         token_digest,
     ));
     // The Market Data repair loop is a separate surface with its own admission; keeping its merge
     // in its own statement is what lets the Native Replay route lose its gate on its own.
-    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    #[cfg(feature = "native-replay-execution")]
     let app = app.merge(market_data_repair);
     let address = env_or("RD_OWNER_LISTEN", "0.0.0.0:8080");
     let listener = TcpListener::bind(&address).await?;

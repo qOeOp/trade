@@ -142,6 +142,7 @@ impl DevelopPluginBuildReceiptV2 {
         self.implementation_capsule_digest
     }
 
+    #[cfg(test)]
     pub(crate) const fn module_digest(&self) -> BindingDigest {
         self.module_digest
     }
@@ -563,7 +564,14 @@ impl DevelopPluginBuildProducerV2 {
     }
 }
 
-#[cfg(all(test, feature = "sealed-develop-composer-acceptance"))]
+// Its only callers regenerate the sealed corpus with the pinned local wasm compiler, which exists only
+// on macOS aarch64 (`develop_composer_sealed_acceptance_v2.rs`, `source_research_composer_postgres_v2.rs`).
+#[cfg(all(
+    test,
+    feature = "sealed-develop-composer-acceptance",
+    target_os = "macos",
+    target_arch = "aarch64"
+))]
 pub(crate) fn generate_sealed_corpus_artifacts_v2(
     manifest: &PluginManifestV2,
     capsule: &UntrustedDevelopPluginCapsuleV2,

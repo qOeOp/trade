@@ -221,9 +221,10 @@
   然后从不读它，下划线是唯一的现场标记，而 `crates/data` 之外没有任何一处调用该解析器的 trait 方法。
   该解析器还是可选的：`bootstrap_deployment_store_admission` 返回 `Option`，
   所以部署中该字段可能持有 `None`。补上这条需要本 Owner 出一个消费方，不是要 Market Data 开更多读。
-- **TARGET / ISOLATED_ACCEPTANCE_ONLY - 探索重放的生产入口：** `run_exploratory_replay_v2` 在
+- **IMPLEMENTATION_ADMITTED / NOT_CUT_OVER - 探索重放的生产入口：** `run_exploratory_replay_v2` 在
   `vibe-backtest-owner` 之外唯一的调用者位于 `run_native_replay` 内，而后者带
-  `#[cfg(feature = "sealed-develop-composer-acceptance")]`，且全仓没有任何 `cfg(not(...))` 孪生体。
+  `#[cfg(feature = "native-replay-execution")]`，这是不带任何验收代码的生产 feature，且全仓没有任何
+  `cfg(not(...))` 孪生体。
   在部署镜像不带 feature 的前提下，该路径在已部署产物里不可达。这测的是部署产物，不是历史。
 
 ## 模块
@@ -420,15 +421,11 @@ R&D 不从研究散文导出 Design。本仓库没有任何规则把 hypothesis�
 question 变成输入角色与 reaction graph，也不打算有：那项转换是一次判断，而 Owner 作出的判断
 就是 Owner 发明的事实。
 
-**本仓库里有两样东西都叫 Research Intent，而这条禁止仍然成立，因为 Composer 路径握着的是
-没有东西可投影的那一样。**
+**Composer 路径握着的 Research Intent 没有东西可投影，这条禁止因此成立。**
 
-`crates/strategy_factory/src/research.rs` 里的 `ResearchIntent` 确实带 `data.channels`，
-每条 channel 声明了自己的 `role`、`asset_id`、`timeframe`、是否必需、来源与陈旧度上界，
-`data.decision_clock_channel` 点名其中哪一条推进决策。投影这些不会选择任何东西。但这个类型
-只有一个构造器 `frozen_representative()`，它解析一个编译期常量，然后拒绝任何 SHA-256、identity、
-revision 与 schema 版本不等于冻结值的东西；它的调用方只有 formation 路径
-（`family_adapters.rs`、`representative.rs`、`formation_adapters.rs`）。Composer 路径从不握着它。
+本仓库里没有任何 Research Intent 声明 channel。formation 路径的 `ResearchIntent` 曾经声明过
+（`data.channels`，每条带自己的 role、asset、timeframe 与陈旧度上界），但它只从一个冻结的
+编译期代表构造，从未到达 Composer 路径，已随 formation 退役一并删除。
 
 Composer 路径握着的是 `CurrentResearchDevelopCustodyV2`，它的十四个字段是定位符、身份与摘要，
 外加一个 `falsifier` 字符串；它背后存着的 `intent_json` 反序列化成 `FrozenResearchGoalIntentV2`，

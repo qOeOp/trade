@@ -533,9 +533,9 @@ Qualification applies that discount to a trial count it derives, never to one it
 
 - *What is deflated.* The selected exploratory result the Candidate's Research Selection names, by the Deflated
   Sharpe Ratio of Bailey and López de Prado on its daily non-annualized return series. It is the statistic
-  `analyze_formation_robustness` computes on the legacy formation path (`crates/strategy_factory/src/robustness.rs`),
-  whose trial count is a fixed four or two within one formation; that path is the "trial-count corrections on the
-  formation path" named above. The legacy formation path is being retired, and the file goes with it. TB2 ports it
+  `analyze_formation_robustness` computed on the legacy formation path (`crates/strategy_factory/src/robustness.rs`),
+  whose trial count was a fixed four or two within one formation; that path is the "trial-count corrections on the
+  formation path" named above. The legacy formation path was retired in #1207, and the file with it. TB2 ports it
   from `crates/strategy_factory/src/robustness.rs` at `main` f2238c09b1e2b89b16a9965104375dbb72748f9d rather than
   rewriting it: `analyze_formation_robustness` at lines 92 to 181 is the deflated ratio and its PBO bar, lines 183 to
   354 are its helpers, among them `cscv_pbo` (the CSCV estimate of PBO) at 222 and `daily_risk_return_ratio` at 314,

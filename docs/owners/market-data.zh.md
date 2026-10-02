@@ -119,7 +119,10 @@ ACL 拒绝。它不证明供应商真实性，不证明生产装配，也不证�
   admission 直接用它们连接，而不经过 store-admission custodian - PIT intake、Source Binding、universe selection、
   strategy-input binding（两条 DSN 都用）、Instrument Master 与 Market Semantics，由 `main.rs` 中的
   `bootstrap_market_data_*` 函数组装。它们唯一的门是角色与拓扑检查 `MarketDataOwnerPostgres::ADMISSION_SQL_V1`。
-  在这两条 DSN 以租用句柄的形式搬到 custodian 之后以前，`B3` 带来的是防替换 - 一个签过名、处于当前、经直接测量的库 -
+  带 `composer-replay-issuance` 的构建还持有第三条：`INSTRUMENT_OWNER_DATABASE_URL`，即主体 `instrument_owner`，
+  `instrument_economic_terms_postgres_owner_from_environment_v1` 用它同样直接打开 economic-terms Owner。compose
+  文件对每个镜像都要求它，因为带这个 feature 的构建缺了它就起不来。在这些 DSN 以租用句柄的形式搬到 custodian
+  之后以前，`B3` 带来的是防替换 - 一个签过名、处于当前、经直接测量的库 -
   而不是凭据隔离。
   下文 `ISOLATED_EVENT_REPLAY_ACCEPTANCE_V1` 有两处表述与代码尚不一致；都不挡生产路线。该档要求由单独执行的主体测量
   目标，而 `DirectMeasurer` 是在 custodian 内用租到的凭据测量。该档还要求准入回执交叉绑定 trust bundle，而
@@ -137,8 +140,8 @@ ACL 拒绝。它不证明供应商真实性，不证明生产装配，也不证�
   服务端。它的 TLS identity 写明该服务端出示的证书与所钉的根，且服务端的 `pg_stat_ssl` 必须在 TLS、协议与 cipher 上
   与之一致。每个准入后的读都以同样方式到达库：准入记下测量器的传输方式，并绑定到它测得的证书；每次读都在其上开会话，服务端
   出示的若不是那张证书就拒绝。两段之间的 socket 只存在于握手完成到它接受的那一个会话之间，所在目录只有本进程的用户能进入；
-  中继只为本进程转送；另一个根下的服务端、或出示另一张证书的服务端，在 socket 建立之前就被拒绝，会话的任何字节都到不了它。部署的 PostgreSQL
-  还没有开启 TLS；开启它属于把这些适配器接入组合根的那一步。管理员用 `deployment-store-publication-seal` 与
+  中继只为本进程转送；另一个根下的服务端、或出示另一张证书的服务端，在 socket 建立之前就被拒绝，会话的任何字节都到不了它。
+  部署的 PostgreSQL 还没有开启 TLS；开启它属于把这些适配器接入组合根的那一步。管理员用 `deployment-store-publication-seal` 与
   `deployment-store-publication-publish` 封存并发布历史；步骤见 `product/rd-workbench/README.md`。
   `admit_rd_owner_market_data_postgres` 仍接 `Unavailable*` 端口，所以 `required` 在启动时仍然失败关闭。准入只从 custody
   store 的时钟读时间：每次读历史都带回该库的 `clock_timestamp()` cut，commit 也在同一个时钟上判定回执的窗口。
@@ -154,8 +157,8 @@ ACL 拒绝。它不证明供应商真实性，不证明生产装配，也不证�
 - **`B4` 消费者未编入已部署镜像。** `product/rd-workbench/Dockerfile.owner` 以默认 feature 构建
   `strategy-factory-rd-owner-api`，使 `composer-replay-issuance` 处于关闭，而 dashboard 读取二进制不触及任何
   Market Data 表面。native Replay scheduling 消费者位于这个生产 feature 之后，而不是 acceptance feature 之后；
-  修复循环的 shared time-evidence 消费者仍在 `sealed-develop-composer-acceptance` 之后。解除条件：部署镜像开启这个
-  生产 feature，这是一个部署决定。
+  修复循环的 shared time-evidence 消费者位于 `native-replay-execution` 之后，它同样是生产 feature。解除条件：部署镜像开启
+  这些生产 feature，这是一个部署决定。
 - **`B5` 无跨 Owner 消费者。** 该模块的唯一消费者是同一 crate 内的 Replay V2 组合与 PostgreSQL 写入者，且此类模块多数
   在 `crates/data` 内还是 `pub(crate)`。解除条件：一个由本文档点名的固定消费者。
 - **`B6` 还没有任何部署准入过供应商。** 整条链路已端到端验证：2026-09-17 的一次性 PostgreSQL 运行里，准入了
@@ -2110,7 +2113,11 @@ cut。每个报价 cut lineage 只在一个 cut 上读取：帧自身的 decisio
 `d_k` 所述，所以决策之后发布的报价 cut 仍是该帧的。lineage 先归约为它在其读取 cut 时可见的最新更正；该更正严格
 位于帧的 BAR 与同一 cut 下的上界之间，与帧共用 scope、Instrument Master、universe selection、Market Semantics 与
 Source Binding lineage，并且报价的成员恰好是帧的成员时，它才服务该帧。最新更正不能服务该帧的 lineage 什么也不
-提供，永不退回到被那次更正取代的版本。在能服务的 lineage 中，读取 cut 最早的那一个是该帧的；同在那个 cut 上读取的
+提供，永不退回到被那次更正取代的版本。Instrument Master 按每个 census 行记录的键比较：intake 为该快照成员解析出的
+facts 的摘要，凡解析到同一组 facts 的请求都共用它。它从不按 batch 携带的 readback digest 比较，因为每个 intake
+请求都会解析出自己的 readback，并封在该请求的 correlation、event 时刻与 decision cut 之上，所以任何两个快照都不
+共用它。不解析 facts 的提交（测试或 sealed 夹具的，从不是生产路径）以请求自身的 digest 为键；在有这个键之前记录
+的行没有键，不服务任何帧。在能服务的 lineage 中，读取 cut 最早的那一个是该帧的；同在那个 cut 上读取的
 两个会使该帧被拒。census 按请求方声明的 scope
 分区，所以在帧的全部坐标上都相同、又在同一 cut 上读取的第二个报价 cut 会与第一个冲突并使该帧被拒：这是拒绝服务，
 永远不会把一个 Owner 未为它核验的报价 cut 交给它。每个读取 cut 都由 Owner 已持有的 census 确定，所以日后重读会

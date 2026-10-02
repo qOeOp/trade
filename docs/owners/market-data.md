@@ -148,8 +148,12 @@ never runs in CI.
   build connect with them directly instead of through the store-admission custodian - PIT intake, Source Binding,
   universe selection, strategy-input binding (both DSNs), Instrument Master and Market Semantics, composed by the
   `bootstrap_market_data_*` functions in `main.rs`. Their only gate is the role and topology check
-  `MarketDataOwnerPostgres::ADMISSION_SQL_V1`. Until those DSNs move behind the custodian as leased handles, `B3` adds
-  anti-substitution - a signed, current, directly measured store - and no credential isolation.
+  `MarketDataOwnerPostgres::ADMISSION_SQL_V1`. A build with `composer-replay-issuance` holds a third:
+  `INSTRUMENT_OWNER_DATABASE_URL`, the principal `instrument_owner`, from which
+  `instrument_economic_terms_postgres_owner_from_environment_v1` opens the economic-terms Owner directly as well. The
+  compose file requires it of every image, because a build with that feature cannot start without it. Until those DSNs move
+  behind the custodian as leased handles, `B3` adds anti-substitution - a signed, current, directly measured store - and
+  no credential isolation.
   Two statements of `ISOLATED_EVENT_REPLAY_ACCEPTANCE_V1` below do not yet match the code; neither blocks the
   production route. That profile has the target measured by a separately executed principal, while `DirectMeasurer`
   measures inside the custodian with the leased credential. It also has the admission receipt cross-bind the trust
@@ -196,8 +200,8 @@ never runs in CI.
 - **`B4` consumer not compiled into the deployed image.** `product/rd-workbench/Dockerfile.owner` builds
   `strategy-factory-rd-owner-api` with default features, which leaves `composer-replay-issuance` off, and the
   dashboard read binary touches no Market Data surface. The native Replay scheduling consumer is behind that
-  production feature rather than an acceptance one; the repair loop's shared time-evidence consumer is still behind
-  `sealed-develop-composer-acceptance`. Cleared by the deployed image enabling the production feature, which is a
+  production feature rather than an acceptance one; the repair loop's shared time-evidence consumer is behind
+  `native-replay-execution`, also a production feature. Cleared by the deployed image enabling those production features, which is a
   deployment decision.
 - **`B5` no cross-Owner consumer.** The module's only consumers are the same crate's Replay V2 composition and
   PostgreSQL writers, and most such modules are additionally `pub(crate)` inside `crates/data`. Cleared by one
@@ -2415,8 +2419,14 @@ it serves the frame when that correction lies strictly between the frame's BAR a
 same cut, on the frame's scope, Instrument Master, universe selection, Market Semantics and Source
 Binding lineage, and quotes exactly the frame's members. A lineage whose latest correction does not
 serve the frame contributes nothing and never falls back to the version that correction replaced.
-Of the lineages that serve, the one read at the earliest cut is the frame's, and two read at that
-cut refuse the frame. The
+The Instrument Master is compared by the key each census row records: the digest of the facts the
+intake resolved for the snapshot's members, which every request that resolves those facts shares.
+It is never compared by the readback digest a batch carries, because every intake request resolves
+a readback of its own, sealed over its correlation, event instant and decision cut, so no two
+snapshots share one. A commit that resolves no facts (a test's or a sealed fixture's, never a
+production path) keys its row by its request's digest, and a row recorded before the key existed has
+none and serves no frame. Of the lineages that serve, the one read at the earliest cut is the
+frame's, and two read at that cut refuse the frame. The
 census is keyed by the scope a requester declares, so a second quote cut on every one of a
 frame's coordinates, read at the same cut, collides with the first and refuses the frame - a denial
 of service, never a quote cut the Owner did not verify for it. Each reading cut is fixed by the
