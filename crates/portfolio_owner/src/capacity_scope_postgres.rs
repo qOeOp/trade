@@ -1040,9 +1040,13 @@ mod tests {
         let execution_pool_for_residue = mutation.pool(CanonicalOwnerTestRoleV1::ExecutionWriter);
         let execution_pool = mutation.pool(CanonicalOwnerTestRoleV1::ExecutionWriter);
         assert_eq!(own_counts(&pool, &suffix).await, (0, 0, 0));
+        // Set once Execution's custody has connected, which is what migrates its relations: a check
+        // failing before that leaves nothing of this proof's in Execution, and on a store no earlier
+        // entry migrated, the Execution cleanup would itself fail before the head is restored.
+        let execution_connected = std::sync::OnceLock::new();
 
         // Everything below displaces the single global registry head this proof captured above, so
-        // the cleanup and the head's restore run whatever a check does: the ordered chain shares
+        // the head's restore and the cleanup run whatever a check does: the ordered chain shares
         // one store, and a displaced head would fail every later Portfolio entry.
         restore_after_checks(
             async {
@@ -1322,6 +1326,9 @@ mod tests {
                 )
                 .await
                 .unwrap();
+                execution_connected
+                    .set(())
+                    .expect("Execution's custody connects once");
                 assert_eq!(
                     execution_reservation_residue(execution_pool_for_residue, &execution_scope_identity)
                         .await,
@@ -1572,15 +1579,19 @@ mod tests {
                 );
             },
             async {
-                cleanup(
-                    &pool,
-                    execution_pool,
-                    &suffix,
-                    &execution_scope_identity,
-                    &format!("execution-node-{suffix}"),
-                )
-                .await;
+                // The head first: it is the one row every later entry reads, and once it no longer
+                // names this proof's cut, nothing below can fail on it.
                 restore_registry_head(&pool, displaced_head).await;
+                cleanup(&pool, &suffix).await;
+
+                if execution_connected.get().is_some() {
+                    cleanup_execution_scope(
+                        execution_pool,
+                        &execution_scope_identity,
+                        &format!("execution-node-{suffix}"),
+                    )
+                    .await;
+                }
             },
         )
         .await;
@@ -1690,13 +1701,7 @@ mod tests {
         .unwrap()
     }
 
-    async fn cleanup(
-        pool: &PgPool,
-        execution: &PgPool,
-        marker: &str,
-        scope_identity: &str,
-        node_identity: &str,
-    ) {
+    async fn cleanup(pool: &PgPool, marker: &str) {
         let like = format!("%{marker}%");
 
         for statement in [
@@ -1721,7 +1726,6 @@ mod tests {
                 .await
                 .unwrap();
         }
-        cleanup_execution_scope(execution, scope_identity, node_identity).await;
     }
 
     /// Removes the Execution facts this proof asked Execution's own custody to commit.

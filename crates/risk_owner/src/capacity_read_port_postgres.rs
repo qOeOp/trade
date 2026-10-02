@@ -794,10 +794,11 @@ mod postgres_proof {
         // than appending, so it is captured before anything commits and put back at cleanup.
         let displaced_head = registry_head(portfolio_pool).await;
 
-        // Set once this proof's bound scope exists, so the restore below can remove what the proof
-        // wrote whatever a check does. Before that, nothing of this proof's is in Risk, and its
-        // Portfolio rows carry its own suffix.
-        let bound_cleanup: std::sync::OnceLock<(PgPool, String)> = std::sync::OnceLock::new();
+        // Each is set once this proof has connected that Owner's custody, which is what migrates its
+        // relations, so the restore below cleans exactly the Owners a failed check can have reached.
+        // Portfolio's relations already exist: the head was read from them above.
+        let execution_connected = std::sync::OnceLock::new();
+        let bound_scope: std::sync::OnceLock<(PgPool, String)> = std::sync::OnceLock::new();
 
         // Everything below moves the single global registry head captured above, so the cleanup
         // and the head's restore run whatever a check does: the ordered chain shares one store,
@@ -817,6 +818,9 @@ mod postgres_proof {
                 )
                 .await
                 .unwrap();
+                execution_connected
+                    .set(())
+                    .expect("Execution's custody connects once");
                 let binding = execution
                     .commit(binding_draft(&scope_identity, clock.get()))
                     .await
@@ -867,7 +871,7 @@ mod postgres_proof {
                 .await
                 .unwrap();
                 let pool = risk.pool().clone();
-                bound_cleanup
+                bound_scope
                     .set((pool.clone(), bound.capacity_scope_identity().to_owned()))
                     .expect("the bound scope is recorded once");
                 let request_identity = bound.fingerprint().request_identity().to_string();
@@ -971,10 +975,18 @@ mod postgres_proof {
                 // mean dropping another Owner's schema, which is destroying state this proof does not own.
             },
             async {
-                if let Some((pool, scope_identity)) = bound_cleanup.get() {
-                    cleanup(pool, portfolio_pool, execution_pool, &suffix, scope_identity).await;
-                }
+                // The head first: it is the one row every later entry reads, and once it no longer
+                // names this proof's cut, nothing below can fail on it.
                 restore_registry_head(portfolio_pool, displaced_head).await;
+                cleanup(
+                    bound_scope
+                        .get()
+                        .map(|(pool, scope_identity)| (pool, scope_identity.as_str())),
+                    portfolio_pool,
+                    execution_connected.get().map(|()| execution_pool),
+                    &suffix,
+                )
+                .await;
             },
         )
         .await;
@@ -997,21 +1009,25 @@ mod postgres_proof {
     /// columns that do carry a caller-supplied string - `request_identity` on the readback and the
     /// marker inside `registry_json` - and everything else is joined to those. This Owner's own
     /// row is deleted by the exact scope identity the observation sealed, which the caller holds.
+    ///
+    /// Risk and Execution are passed only once the proof connected their custody; before that, the
+    /// proof wrote nothing there.
     async fn cleanup(
-        risk: &PgPool,
+        risk: Option<(&PgPool, &str)>,
         portfolio: &PgPool,
-        execution: &PgPool,
+        execution: Option<&PgPool>,
         marker: &str,
-        scope_identity: &str,
     ) {
-        sqlx::query(
-            "DELETE FROM risk_private.risk_capacity_observations_v1 \
-              WHERE capacity_scope_identity = $1",
-        )
-        .bind(scope_identity)
-        .execute(risk)
-        .await
-        .unwrap();
+        if let Some((risk, scope_identity)) = risk {
+            sqlx::query(
+                "DELETE FROM risk_private.risk_capacity_observations_v1 \
+                  WHERE capacity_scope_identity = $1",
+            )
+            .bind(scope_identity)
+            .execute(risk)
+            .await
+            .unwrap();
+        }
 
         let like = format!("%{marker}%");
 
@@ -1042,6 +1058,9 @@ mod postgres_proof {
                 .await
                 .unwrap();
         }
+        let Some(execution) = execution else {
+            return;
+        };
         let stream = format!("execution.paper-adapter-binding.execution-node-{marker}");
 
         for statement in [
