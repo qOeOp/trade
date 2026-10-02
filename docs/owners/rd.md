@@ -1111,6 +1111,12 @@ The exact development flow is **Run Result → Diagnosis → Iteration Decision 
    with the same decision-policy version, TrialFamily Census, and evidence cut; a stop state and selection cannot
    coexist.
 
+**TARGET - matched-entry control and clustered interval in Diagnosis.** Diagnosis reads the exploratory Result's
+matched-entry control and its date-clustered interval (Backtest, "TARGET - Exploratory matched-entry control and
+clustered interval") and shows the run's edge over random entries of the same shape with that interval, labelled as a
+control. It is a control, not a selection criterion: the Iteration Decision does not select, order, or stop candidates
+by it, and it never stands in for Qualification's holdout or same-universe random control.
+
 `REPAIR_INPUTS` routes by category and never means "retry anything." It is an immutable terminal disposition for
 the consumed result and by itself creates no Selection, successor Intent, Artifact, Replay Request, or repair
 effect. `MARKET_DATA` targets Market Data and is the only category that may emit a correlated Market Data Repair

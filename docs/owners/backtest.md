@@ -128,6 +128,9 @@ admitted set requires changing this document first.
   recording that custody is never repaired, and `BACKTEST_RUNNER_SERVICE` appears in no Rust file while
   `product/dashboard/lib/rd-iteration-timeline-client.ts` already lists it as a legal repair target. The consumer
   vocabulary exists and the producer does not.
+- **TARGET - exploratory matched-entry control and clustered interval:** no exploratory Result carries a matched-entry
+  control or an interval, and no exploratory replay accrues funding. The contract is under the section of that name
+  below.
 
 ## Shared strategy lifecycle contract
 
@@ -207,6 +210,37 @@ digest refuses the read as `EXPLORATORY_REQUEST_MEANING_MISMATCH`, and more than
 holds only `AccessShareLock` and the topology fence every Backtest read takes. It states which Results exist and
 their terminals, never whether a report can be stated, which stays the report read's judgement, and it lists no
 Protected Result.
+
+## TARGET - Exploratory matched-entry control and clustered interval
+
+This section states a contract with no implementation; it grants no permission to build or deploy either part.
+
+An exploratory Result carries, beside the run's own trades, a matched-entry control and a date-clustered interval of
+the run's edge over it. Both are exploratory measurements. Neither appears on the protected path, where Qualification's
+same-universe random control and holdout apply, and neither replaces them.
+
+- **Matched entries.** For each entry the run filled, Backtest replays 20 entries on the same instrument at bars drawn
+  at random from the same calendar year, among the bars that leave room for the time limit, without regard to the
+  strategy's signals. Each takes the entry's side and enters at its bar's open, and keeps the entry's geometry: a stop
+  at the same multiple of the average true range measured on the bar before entry, a target at the same multiple of
+  that risk, and the same time limit. The draw's seed derives from the request identity, so the requester chooses
+  nothing and a replay of the same request draws the same entries. An entry's control value is the mean result of its
+  20 matched entries. An entry with no stop has no risk unit and gets no control; the Result reports it as such
+  rather than dropping it.
+- **Same simulator, same economics.** Matched entries run through the run's simulator with its cost, slippage and
+  capacity models and, for a perpetual instrument, the funding a position accrues over its holding period, exactly as
+  the entry's own trade does. A control priced without funding is not a control for a perpetual's trade.
+- **Interval.** The run's edge is the mean over entries of the entry's result minus its control value, in units of
+  the entry's risk. Its interval is a bootstrap that resamples whole calendar weeks, or whole calendar days when the
+  request states days, so entries on different instruments in the same days move together. The Result records the
+  cluster unit, the resample count, the level and the seed.
+- **A control, not a selection criterion.** The control says whether a run's entries beat random entries of the
+  same shape. It ranks nothing: no Iteration Decision selects or orders candidates by it, and it never stands in for
+  Qualification's holdout or same-universe random control.
+
+It depends on what the exploratory replay does not yet do: no exploratory replay accrues perpetual funding, so the
+cost model must first carry funding facts from Market Data (public Binance funding archives are an authorized
+deployment source); and a run with exits needs multi-frame replay.
 
 ## Input handoffs
 
