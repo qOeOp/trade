@@ -40,6 +40,9 @@ def main():
     e = float(x.mean())
     v = "PASS" if lo > 0 else ("FAIL (edge positive, interval spans zero)" if e > 0 else "FAIL (edge at or below zero)")
     print(f"R-1 holdout: {v} at 95%")
+    # CRITERIA stage 2 needs both the interval above zero and the estimate at or above SESOI (workflow note 55)
+    stage2 = "stage 2 PASS" if (lo > 0 and e >= 0.10) else ("stage 2 FAIL (interval above zero, estimate below SESOI)" if lo > 0 else "stage 2 FAIL")
+    print(f"R-1 holdout: {stage2}")
     json.dump(dict(loop="R-1", stage="holdout", n=len(z), coins=int(z.coin.nunique()), weeks=len(keys), edge=e,
                    lo=float(lo), hi=float(hi), meets_sesoi=bool(lo > 0 and e >= 0.10),
                    per_year={str(k_): float(v_) for k_, v_ in (z.R - z.control).groupby(pd.to_datetime(z.time).dt.year).mean().items()},

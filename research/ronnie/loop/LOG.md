@@ -1917,3 +1917,7 @@ post-2022 holdout coins. This beats the prediction (FAIL, edge positive, interva
   SESOI unconfirmed".
 - **Process defect (workflow note 55):** the gatekeeper's printed verdict must carry every condition of the stage it
   judges.
+
+**Rerun of the R-1 holdout read (authorized by the user on 2026-10-02):** the gatekeeper script now also prints the
+stage-2 verdict with both conditions (interval above zero and estimate at least SESOI). It recomputes from the raw
+data; the sealed file is not read. A deterministic rerun of the same registered read, logged as a rerun.
