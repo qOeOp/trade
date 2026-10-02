@@ -1551,8 +1551,9 @@ including on inputs with ties.
   values. Bollinger variance written as `Mean(x²) − Mean(x)²` must guard its radicand with `Select`,
   because the two terms round separately.
 - **Inputs:** funding rate and open interest extend the existing Binance futures PIT source with appended row
-  fields and field semantics (N1). The settled funding rows are in place (Market Data's "Binance perpetual settled
-  funding rows"); open interest's rows and the field semantics a Design names are not. Binance's public archive holds history for mark, index, and premium klines,
+  fields and field semantics (N1). The settled funding and open interest rows are in place (Market Data's
+  "Binance perpetual settled funding rows" and "Binance perpetual open interest rows"); the field semantics a Design
+  names are not. Binance's public archive holds history for mark, index, and premium klines,
   metrics, book depth, and funding rate. Liquidations have no admitted historical source - the USDⓈ-M archive holds
   none and the coin-margined `BTCUSD_PERP` snapshot ends on 2024-10-14 - so a Design that asks for them is refused as
   `INPUT_FACT_UNAVAILABLE_FROM_ADMITTED_SOURCE`, which no field vocabulary lets a Design reach today.

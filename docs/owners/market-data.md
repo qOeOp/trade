@@ -263,6 +263,7 @@ never runs in CI.
 | Vendor Data Clients                                       | `CURRENT / PARTIAL`                                                                                 | `crates/adapters/databento/src/pit_observation_source_v1.rs` and `crates/adapters/binance/src/pit_observation_source_v1.rs`, both live‑verified                                                                                          | `B6`       |
 | Live market fact channel to Runtime                       | `CURRENT / PARTIAL`, one channel                                                                    | `owner/live_market_fact_v1.rs`, `owner/live_market_stream_v1.rs`, `owner/postgres/live_market_stream_v1.rs`, `crates/adapters/bybit/src/live_market_fact_source_v1.rs`                                                                   | `B8`       |
 | Binance perpetual settled funding rows                    | `CURRENT / PARTIAL`                                                                                 | `crates/adapters/binance/src/futures_pit_observation_source_v1.rs`                                                                                                                                                                       | `B6`       |
+| Binance perpetual open interest rows                      | `CURRENT / PARTIAL`                                                                                 | `crates/adapters/binance/src/futures_pit_observation_source_v1.rs`                                                                                                                                                                       | `B6`       |
 | Binance bar volume and taker buy volume                   | `CURRENT / PARTIAL`                                                                                 | `crates/adapters/binance/src/pit_observation_source_v1.rs`, `futures_pit_observation_source_v1.rs`                                                                                                                                       | `B6`       |
 
 ## Authoritative facts owned
@@ -2892,7 +2893,7 @@ request is added.
   on the Binance quote gap above. The rows are asserted by a stand-in venue test, by both live source tests, and by
   the credential-free Market Data end-to-end proof.
 
-### TARGET Binance perpetual open interest rows
+### CURRENT/PARTIAL Binance perpetual open interest rows
 
 Beside a member's last closed bar, the Binance USD-M perpetual Data Client states the open interest last published at
 or before the coordinate. These are three rows on channel `MARKET`, data kind `SCALAR` and timeframe `TICK`:
@@ -2917,6 +2918,10 @@ The instant is stated in the public endpoint's convention. The archive stamps th
   minutes of the coordinate, which covers both a gap in the venue's samples and an archive day that holds none. A
   missing or mismatched archive file, an unreachable endpoint and a non-decimal value refuse the whole retrieval.
 - **No credential, as for funding.** Neither route signs a request or sends a key.
+- **Status.** A deployment that names `binance-perpetual` commits these rows today, and no consumer reads them yet.
+  Unit tests drive both routes against a local stand-in for the venue and its archive host. The live source test
+  reads a 2025 coordinate from the real archive. The credential-free Market Data end-to-end proof reads a recent
+  coordinate from the endpoint.
 
 ### CURRENT/PARTIAL Binance perpetual settled funding rows
 

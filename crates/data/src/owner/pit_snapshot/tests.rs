@@ -1342,7 +1342,7 @@ fn untrusted_observation(row: &VerifiedPitObservation) -> UntrustedPitObservatio
 }
 
 #[rstest]
-fn a_settled_funding_row_is_a_canonical_observation_and_an_unadmitted_field_is_not() {
+fn funding_and_open_interest_rows_are_canonical_observations_and_an_unadmitted_field_is_not() {
     // The Binance perpetual Data Client states a settlement as two SCALAR rows at TICK. Both must
     // survive the canonical round trip every batch takes before it is digested, and the field
     // vocabulary must stay closed: a field nobody admitted is refused, not carried.
@@ -1351,6 +1351,9 @@ fn a_settled_funding_row_is_a_canonical_observation_and_an_unadmitted_field_is_n
     for (field, value_mantissa, value_scale) in [
         ("FUNDING_RATE", 6_972, 8),
         ("FUNDING_TIME", 1_790_985_600_000_000_000, 0),
+        ("OPEN_INTEREST", 74_006_266, 3),
+        ("OPEN_INTEREST_VALUE", 31_314_937_388_974, 4),
+        ("OPEN_INTEREST_TIME", 1_790_985_300_000_000_000, 0),
     ] {
         let row = VerifiedPitObservation {
             symbolic_key: format!("BTCUSDT-PERP.BINANCE.{field}.TICK"),

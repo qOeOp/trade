@@ -135,9 +135,9 @@ struct Product {
     /// directly would hand a second product on the same surface the first one's symbols and
     /// interval - silently, and with every assertion below still passing.
     observations: fn(&'static Self, String) -> Arc<dyn PitObservationSourceV1>,
-    /// The funding rows the Data Client states beside each member's bar: a rate and its
-    /// settlement instant on a perpetual, nothing on a spot pair, which never settles funding.
-    funding_rows: usize,
+    /// The rows the Data Client states beside each member's bar at an instant rather than over it:
+    /// on a perpetual, the settled funding and the open interest; nothing on a spot pair.
+    scalar_rows: usize,
 }
 
 /// The spot pair, read from the venue's public-data mirror.
@@ -164,7 +164,7 @@ static SPOT: Product = Product {
     price_meaning: "decimal-string/usdt",
     digest_tag: 0x01,
     observations: spot_observations,
-    funding_rows: 0,
+    scalar_rows: 0,
 };
 
 /// The USD-M linear perpetual, read from the venue's futures host.
@@ -197,7 +197,7 @@ static PERPETUAL: Product = Product {
     price_meaning: "decimal-string/usdt",
     digest_tag: 0x02,
     observations: futures_observations,
-    funding_rows: 2,
+    scalar_rows: 5,
 };
 
 /// The host this run will actually call: the product's own, unless the environment names another.
@@ -249,7 +249,7 @@ static PERPETUAL_DAILY: Product = Product {
     price_meaning: "decimal-string/usdc",
     digest_tag: 0x03,
     observations: futures_observations,
-    funding_rows: 2,
+    scalar_rows: 5,
 };
 
 fn spot_observations(
@@ -517,7 +517,7 @@ async fn admit(product: &'static Product) -> Admitted {
         .expect("the venue answers the admitted member's scope");
     assert_eq!(
         rows.len(),
-        6 + product.funding_rows,
+        6 + product.scalar_rows,
         "one closed bar states its prices, its volume and its taker buy volume, and a perpetual its funding"
     );
 
@@ -540,20 +540,34 @@ async fn admit(product: &'static Product) -> Admitted {
             "the symbolic key is the member, the field and the row's timeframe"
         );
     }
-    let funding = rows
+    let scalars = rows
         .iter()
         .filter(|row| row.data_kind == "SCALAR")
         .map(|row| row.field.as_str())
         .collect::<Vec<_>>();
-    let expected_funding: &[&str] = if product.funding_rows == 0 {
+    let expected_scalars: &[&str] = if product.scalar_rows == 0 {
         &[]
     } else {
-        &["FUNDING_RATE", "FUNDING_TIME"]
+        &[
+            "FUNDING_RATE",
+            "FUNDING_TIME",
+            "OPEN_INTEREST",
+            "OPEN_INTEREST_TIME",
+            "OPEN_INTEREST_VALUE",
+        ]
     };
     assert_eq!(
-        funding, expected_funding,
-        "the funding fields, in key order"
+        scalars, expected_scalars,
+        "the funding and open interest fields, in key order"
     );
+
+    if let Some(sampled) = rows.iter().find(|row| row.field == "OPEN_INTEREST_TIME") {
+        let visible_after_ns = 5 * 60 * 1_000_000_000_i128;
+        assert!(
+            sampled.value_mantissa + visible_after_ns <= i128::from(effective_ns),
+            "the open interest stated is a sample already published at the coordinate"
+        );
+    }
 
     if let Some(settled) = rows.iter().find(|row| row.field == "FUNDING_TIME") {
         assert!(
