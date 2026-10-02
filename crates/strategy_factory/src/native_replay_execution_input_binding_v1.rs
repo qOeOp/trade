@@ -747,6 +747,51 @@ fn validate_verified(
     verified: &VerifiedNativeReplayExecutionInputConstituentsV1,
 ) -> Result<(), NativeReplayExecutionInputBindingErrorV1> {
     let request = &verified.request_locator;
+    eprintln!(
+        "PROBE validate_verified: request_identity={} meaning={} receipt={} seal={} family={} artifact={} plan={} im_cut={} frame={} order={} distinct={}",
+        valid_text(&request.request_identity),
+        valid_sha256(&request.meaning_digest),
+        valid_text(&request.receipt_identity),
+        valid_sha256(&request.seal_digest),
+        valid_named(&verified.trial_family),
+        valid_named(&verified.artifact),
+        valid_named(&verified.strategy_plan),
+        valid_instrument_master_cut_locator(verified.public_instrument_master_cut),
+        valid_locator(verified.universe_frame_receipt),
+        !verified.members.windows(2).any(|pair| pair[0].member_key >= pair[1].member_key),
+        verified.members.iter().map(|member| &member.public_instrument_identity).collect::<BTreeSet<_>>().len() == verified.members.len(),
+    );
+    eprintln!(
+        "PROBE validate_verified texts: receipt_identity={:?} meaning={:?} seal={:?}",
+        request.receipt_identity, request.meaning_digest, request.seal_digest,
+    );
+    for member in &verified.members {
+        eprintln!(
+            "PROBE member {:?}: key={} instrument={} digest={} venue={} account={} schedule={} terms_fact={} terms_receipt={} bar_cut={} bar_receipt={}",
+            member.member_key,
+            valid_text(&member.member_key),
+            valid_text(&member.public_instrument_identity),
+            member.public_instrument_digest != [0; 32],
+            valid_text(&member.venue_identity),
+            valid_text(&member.account_scope_identity),
+            member.schedule_identity != [0; 32],
+            valid_locator(member.instrument_economic_terms_fact),
+            valid_locator(member.instrument_economic_terms_receipt),
+            valid_locator(member.bar_schedule_cut),
+            valid_locator(member.bar_schedule_receipt),
+        );
+    }
+    {
+        let seals = &verified.execution_profile_seals;
+        eprintln!(
+            "PROBE seals nonzero: catalog={} family={} request={} economic={} runner={}",
+            seals.catalog_binding_digest != [0; 32],
+            seals.family_binding_digest != [0; 32],
+            seals.request_binding_digest != [0; 32],
+            seals.economic_configuration_digest != [0; 32],
+            seals.runner_operational_profile_digest != [0; 32],
+        );
+    }
     if !valid_text(&request.request_identity)
         || !valid_sha256(&request.meaning_digest)
         || !valid_text(&request.receipt_identity)
