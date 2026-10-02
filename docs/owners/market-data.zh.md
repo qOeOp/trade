@@ -208,6 +208,7 @@ ACL 拒绝。它不证明供应商真实性，不证明生产装配，也不证�
 | 供应商 Data Clients                               | `CURRENT / PARTIAL`                                                                | `crates/adapters/databento/src/pit_observation_source_v1.rs` 与 `crates/adapters/binance/src/pit_observation_source_v1.rs`，均已实盘验证                                                                        | `B6`       |
 | 面向 Runtime 的实时行情事实通道                   | `CURRENT / PARTIAL`，一条通道                                                      | `owner/live_market_fact_v1.rs`、`owner/live_market_stream_v1.rs`、`owner/postgres/live_market_stream_v1.rs`、`crates/adapters/bybit/src/live_market_fact_source_v1.rs`                                          | `B8`       |
 | Binance 永续已结算 funding 行                     | `CURRENT / PARTIAL`                                                                | `crates/adapters/binance/src/futures_pit_observation_source_v1.rs`                                                                                                                                              | `B6`       |
+| Binance bar 成交量与 taker 买入量                 | `CURRENT / PARTIAL`                                                                | `crates/adapters/binance/src/pit_observation_source_v1.rs`、`futures_pit_observation_source_v1.rs`                                                                                                              | `B6`       |
 
 ## 拥有的权威事实
 
@@ -2493,7 +2494,7 @@ executable maturity、Backtest 产品闭合（包括 inverse/quanto target-consu
 Dashboard/default-database 准入或 trading authority。这些 Backtest 限制不创建 Market Data instrument-class
 rejection。
 
-### TARGET Binance bar 成交量与 taker 买入量
+### CURRENT/PARTIAL Binance bar 成交量与 taker 买入量
 
 两个 Binance Data Client，即现货（`crates/adapters/binance/src/pit_observation_source_v1.rs`）与 USD-M 永续，都在已收盘
 bar 的 `OPEN`、`HIGH`、`LOW`、`CLOSE` 旁边陈述它的 `VOLUME` 与 `TAKER_BUY_VOLUME`，以基础资产为单位，用 bar 自己的
@@ -2504,6 +2505,8 @@ timeframe。两个数与价格来自同一个 kline 响应，所以不增加请�
   没有 `VOLUME`，从 Binance 快照铸出的帧一个都投影不出来。
 - **taker 卖出量不是一行。** 它等于 `VOLUME - TAKER_BUY_VOLUME`，在消费方第一次需要它的地方推导，不陈述两次。
 - **数值按发布原样。** 永续的数量是交易所的十进制字符串；现货的数量是交易所的 128 位 mantissa，配响应中的数量指数。
+- **状态。** 两个 client 今天都会给出这两行，任何指定它们的部署都会得到。帧投影仍然受上文 Binance quote 缺口的阻挡。这些行由交易所替身测试、
+  两个 live 源测试，以及无凭据的 Market Data 端到端证明断言。
 
 ### CURRENT/PARTIAL Binance 永续已结算 funding 行
 
