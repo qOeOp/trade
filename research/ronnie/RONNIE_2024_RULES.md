@@ -129,3 +129,23 @@ is looser than his two-step rule. The difference is recorded, not fitted.
 - **Outcome:** against the mirrored plan the drawn direction shows no detectable skill (plan minus mirror -0.05R
   [-0.57, +0.47] at a 1-ATR stop; n 107 filled pairs). The sample is small and the stops are assumed, so this is
   inconclusive, not a closure. It reads 2024-2025 prices; any exit change it informs goes forward-only.
+
+## His written plans, all sources (2026-10-02)
+
+- **2024-2025 video ideas:** one of 245 carries a written plan (the five text labels in all 245 charts belong to the
+  2025-02-25 BTC idea). The red horizontal lines in 13 other ideas are support and resistance levels, not plans. The
+  public ideas API lists only the 158 text ideas of 2018-2021; the video ideas were reached through `related` lists, and
+  the newest found is 2025-03-18.
+- **2018-2021 text ideas:** already graded (README, "Grading his declared trades"); 20 of 106 graded trades state a stop.
+- **Geometry against R-1 (daily ATR at entry):**
+
+| | stop from entry | first target | target / stop |
+| --- | --- | --- | --- |
+| his 2018-2021 written stops (20; chart ATR, mostly daily) | median 1.85 (IQR 1.27-2.22) | median 1.66 | median 0.96R |
+| his 2025-02-25 plan, first limit 91,888 | 0.62 | TP1 2.55R, TP2 4.92R | |
+| his 2025-02-25 plan, second limit 89,666 | 1.27 | TP1 0.73R, TP2 1.88R | |
+| R-1 (2,309 development trades) | median 0.75 (IQR 0.56-1.07) | 2R = median 1.51 | 2R |
+
+- **Reading:** his first targets sit close (about 1R in the old ideas), which the old grading found costly; R-1's fixed
+  2R target is farther in R and similar in ATR. The sample of written plans is too small to fit his stop or target
+  rule; spoken plans in the videos point at levels without prices, so they need frame reading, not transcripts.
