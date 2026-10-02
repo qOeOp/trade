@@ -29,6 +29,7 @@ use vibe_data::owner::{
     native_replay_scheduling_v1::NativeReplaySchedulingResolverV1,
     universe_sample_projection_owner_from_environment_v1,
 };
+use vibe_postgres_connect::PgPoolOptionsExt as _;
 use vibe_strategy_factory::{
     backtest_run_report_read_v1::resolve_backtest_run_report_v1,
     develop_composer_postgres_v2::DevelopComposerSealedReadPortV2,
@@ -65,7 +66,11 @@ pub(crate) async fn assert_the_first_composer_v3_replay_runs_as_its_universe_v1(
         !replay.created,
         "the body joins the Replay the prefix committed; it created one, so the prefix did not run"
     );
-    let rd_pool = PgPool::connect(test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner))
+    let rd_pool = sqlx::postgres::PgPoolOptions::new()
+        .connect_url(
+            test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
+            vibe_postgres_connect::PostgresTls::Disabled,
+        )
         .await
         .expect("the R&D Owner pool");
 
