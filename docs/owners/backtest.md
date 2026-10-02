@@ -71,10 +71,12 @@ admitted set requires changing this document first.
   declares a `[features]` table, so this custody path is the same code in every build.
 - **CURRENT_PARTIAL - exploratory Run Result views to Product Edge:** the Dashboard read API resolves exact
   canonical Result bytes through `resolve_exploratory_replay_result_v2` in
-  `crates/strategy_factory_rd_owner_api/src/bin/dashboard_read_api.rs`, `product/rd-workbench/Dockerfile.owner`
-  builds and installs that binary, and the ordered chain covers the seam with
-  `replay_result_dashboard_read_api_returns_exact_canonical_bytes`. This is the one Backtest output handoff that
-  is reachable end to end in what is deployed.
+  `crates/strategy_factory_rd_owner_api/src/bin/dashboard_read_api.rs`, and only for a Result its TrialFamily census
+  counts ([R&D](./rd/), "CURRENT - every committed exploratory Result is counted").
+  `product/rd-workbench/Dockerfile.owner` builds and installs that binary. The ordered chain covers the refusal with
+  `replay_result_dashboard_read_api_refuses_a_result_no_census_counts`, and a counted Result opening through the
+  deployed read API with `backtest_run_report_browser_acceptance_reads_the_owner_answer`. This is the one Backtest
+  output handoff that is reachable end to end in what is deployed.
 - **CURRENT_PARTIAL - production entry for exploratory replay:** the replay is implemented and proven, and nothing
   in the deployed artifact can enter it. `run_exploratory_replay_v2` has exactly one caller outside its own crate,
   `crates/strategy_factory_rd_owner_api/src/exploratory_replay.rs`, and that caller sits under
