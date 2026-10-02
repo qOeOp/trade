@@ -1,0 +1,5 @@
+L-3: cycle Fibonacci targets on R-1u, development (53 coins, 2018-2022), 4300 trades
+  a Fibonacci target found on 2772 trades (64%); its distance median 2.11R
+  R per trade on those trades: 2R +0.224, Fibonacci target +0.243; paired difference +0.020 [-0.007, +0.044]
+  placebo ratios: found on 2740 trades; paired difference -0.001
+  verdict: fail (interval above zero and above the placebo)

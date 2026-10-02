@@ -1,0 +1,16 @@
+Fidelity of automatic trend lines to Ronnie's lines: 60 lines of his near price (29 calibration, 31 check)
+top calibration cells:
+k through touches n span look anchor  half  recall  moved  fidelity  lines
+3     0.0       2 2   20 2000   wick calib   0.414  0.000     0.414     29
+5     0.0       2 2   20 2000   wick calib   0.448  0.034     0.414     29
+3     0.0       2 4   20 2000   wick calib   0.448  0.034     0.414     29
+5     0.0       2 4   20 2000   wick calib   0.448  0.052     0.397     29
+3     0.0       3 2   20 2000   wick calib   0.379  0.000     0.379     29
+5     0.0       2 2   20  700   wick calib   0.379  0.000     0.379     29
+5     0.0       2 4   20  700   wick calib   0.379  0.000     0.379     29
+3     0.0       3 4   20 2000   wick calib   0.414  0.034     0.379     29
+
+chosen on calibration: k 3, through <= 0.0, touches >= 2, top 2 per side, span >= 20, look 2000, wick
+mean fidelity by look-back: 700 +13%, 2000 +10%; by anchor: body +9%, wick +14%
+  check half: recall 26%, moved lines 3%, fidelity +23%
+L-1's own drawer (the last two order-5 pivot lows if rising, highs if falling): check recall 3% moved 0%; calib recall 0% moved 0%

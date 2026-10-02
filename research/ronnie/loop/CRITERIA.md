@@ -75,6 +75,12 @@ Guards against wrongful closure:
 4. **Check the objective.** A rule that fails "edge over random" but earns its return from trend exposure is absorbed,
    not closed (Family B into the trend book; RETROSPECTIVE "misleading objective").
 5. **Prior and rigour.** A low-prior idea gets a cheap kill test, but the closure condition is the same for all.
+6. **Fidelity before verdict.** A family taken from a person or a source is judged only after its encoding is shown to
+   reproduce that source: the drawn lines, levels or calls match the source's own (recall) clearly more often than the
+   same drawings moved (a placebo), on cases not used to tune the encoding. An encoding with low fidelity tests our
+   rule, not theirs: its result is reported against the encoding, and the source's technique stays parked with the
+   fidelity gap as its revisit trigger. (L-1's trend lines reproduced 0-3% of Ronnie's lines; R-1 worked only after
+   his 2024-2026 method was read correctly.)
 
 
 ## C. Data buckets: the same rule can behave differently by universe

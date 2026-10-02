@@ -157,3 +157,7 @@ logged_at,loop,candidate,stage,n,edge,lo,hi,passed,note
 2026-10-02T17:28:07+00:00,L-1 L2,R-1 lines,iteration,4300,+0.0284,-0.0585,+nan,False,placebo +0.099; p 0.258
 2026-10-02T17:28:07+00:00,L-1 L4,R-1 lines,iteration,4300,+0.1103,-0.0421,+nan,False,placebo +0.067; p 0.076
 2026-10-02T17:28:07+00:00,L-1 L3,R-1 lines,iteration,4300,+0.0231,-0.0372,+nan,False,placebo +0.052; p 0.243
+2026-10-02T19:49:26+00:00,L-2 L1,R-1 lines (calibrated drawer),iteration,4300,-0.2918,+nan,+nan,False,placebo -0.114; p 0.993
+2026-10-02T19:49:26+00:00,L-2 L2,R-1 lines (calibrated drawer),iteration,4300,-0.0035,+nan,+nan,False,placebo +0.014; p 0.519
+2026-10-02T19:49:26+00:00,L-2 L3,R-1 lines (calibrated drawer),iteration,4300,+0.2119,+nan,+nan,False,placebo +0.166; p 0.002
+2026-10-02T19:50:10+00:00,L-3,R-1 cycle Fibonacci target,iteration,2772,+0.0197,-0.0075,+0.0441,False,placebo -0.001

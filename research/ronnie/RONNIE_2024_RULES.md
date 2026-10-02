@@ -180,3 +180,8 @@ is looser than his two-step rule. The difference is recorded, not fitted.
 - **Tested on R-1u (loop L-1, development, with placebos):** none of trend-line confluence, trend-line bias, a channel
   target or a cycle Fibonacci tag beats its placebo (LOG). Published evidence agrees: no after-cost support for
   diagonal lines or channels, Fibonacci no better than placebo ratios.
+- **Fidelity re-test (loop L-2, L-3):** a line drawer calibrated on half his charts reproduces 23-26% of his near-price
+  lines (L-1's drawer: 0-3%). With it, R-1 orders at a trend-line confluence do worse (-0.29R, 3% of trades); a
+  channel rail as target helps only because it is far (a fixed 6R does the same, at a lower Sharpe than 2R); his
+  cycle-swing Fibonacci levels as targets (as in his 2025-02-25 plan) beat placebo ratios by a margin too small to use
+  (+0.02R).

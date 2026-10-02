@@ -2170,3 +2170,57 @@ Holm over the four: none passes (smallest p 0.076 for L4 against 0.0125). Nothin
 is parked: trend lines as drawn by his rules rarely meet R-1's levels (1%), the trend-line bias adds less than lines
 moved 1 ATR, a channel target is no better than 2R, and the cycle Fibonacci tag's lift is mostly reproduced by
 non-Fibonacci ratios.
+
+## Fidelity check of L-1's trend lines, and loop L-2 (registered 2026-10-02, before running)
+
+- **Why:** the user asked whether L-1 tested his technique or our encoding of it. `tv_line_fidelity.py` measures how
+  many of his 60 near-price trend lines and channel borders an automatic drawer reproduces (within 0.5 ATR at
+  publish and 1 ATR 100 bars earlier), minus the same for his lines moved 1.5 ATR.
+- **Result:** L-1's drawer (the last two order-5 pivots) reproduces 0% (calibration half) and 3% (check half) of his
+  lines: L-1 tested a different object. The best calibrated drawer (order-3 pivots, never closed through, top two
+  lines per side by touches, look-back 2,000 bars) reproduces 41% and 26% against 0% and 3% for moved lines. The
+  feasible drawer D (order-5 pivots, look-back 700 bars, otherwise the same) reproduces 38% and 23% against 0% and 2%.
+  Fibonacci needs no such fix: his anchors sit on order-20 swing extremes (79% within 0.25 ATR), which L4 used.
+- **Loop L-2:** L1-L3 of L-1 repeated with drawer D, computed at the arming bar from bars before it; same trades,
+  statistic, placebos, Holm (now over three) and adoption rule as L-1.
+  - L1' confluence: the limit within 0.5 ATR of one of D's two lines on the trade side.
+  - L2' bias: one of D's two opposite-side lines known 20 bars before arming was closed through in the trade's
+    direction within those 20 bars (a recent break of a respected line).
+  - L3' channel target: the far rail of D's best trade-side line (parallel through the extreme since its first pivot).
+
+## Loop L-3: cycle Fibonacci levels as targets (registered 2026-10-02, before running)
+
+- **Fidelity source:** his only written plan (BTC, 2025-02-25) sets TP1 86,500 and TP2 81,500 on his chart's Fibonacci
+  of the 52,536-109,702 swing: the 0.382 level is 87,866 and the 0.5 level 81,119. His anchors sit on order-20 swing
+  extremes (`tv_line_method.py`). R-F tested extensions of R-1's small impulse and L4 tested entry confluence, never
+  cycle-swing levels as targets.
+- **Rule:** the cycle swing is the latest pair of confirmed order-20 pivots of opposite type (A, then B), span at least
+  5 ATR, known at the arming bar. Levels: B, A, the retracements 0.236, 0.382, 0.5, 0.618, 0.764 from B toward A, and
+  the extensions 1.272 and 1.618 beyond B. The target is the first level beyond the fill price in the trade's direction
+  that is at least 1R away; if none lies within 6R, the 2R target stays.
+- **Placebo:** the same with ratios 0.20, 0.32, 0.44, 0.56, 0.70 and extensions 1.35 and 1.80.
+- **Statistic:** the paired per-trade R difference (Fibonacci target minus 2R) on the trades where a level is found,
+  week-clustered, development (53 coins, 2018-2022), R-1u trades. Pass: interval above zero and above the placebo's
+  estimate. A pass joins the R-1 forward record as a paired exit (like R-1s); nothing changes R-1u.
+
+### Loop L-2 and L-3 results (2026-10-02; `loop/r1_lines2.txt`, `loop/r1_fibtgt.txt`)
+
+| test | covered | difference [95%, week-clustered] | placebo | status |
+| --- | --- | --- | --- | --- |
+| L1' confluence with drawer D | 135 (3%) | -0.292 [-0.510, -0.056] | -0.114 | harmful but immaterial (under 10% of trades) |
+| L2' recent break of a D line | 2,666 (62%) | -0.004 [-0.105, +0.108] | +0.014 | parked (inconclusive, below placebo) |
+| L3' far rail of D's channel as target | 2,259 (53%) | +0.212R [+0.058, +0.365] | +0.166R | passed as registered (Holm p 0.002); absorbed, see below |
+| L-3 cycle Fibonacci levels as targets | 2,772 (64%) | +0.020R [-0.007, +0.044] | -0.001R | Fibonacci-specific but immaterial: upper bound below SESOI |
+
+- **Fidelity changed the answer:** with lines that reproduce his drawings, the trend-line confluence is not "too rare to
+  measure" (L-1) but harmful: R-1 orders where a respected trend line meets the broken level lose 0.29R against the
+  rest, the adverse selection S6 found on his zone-line intersections.
+- **L3' is a target-distance effect, not a channel effect (diagnosis after the registered test):** the rail sits a
+  median 9.3R away (IQR 4.2-23), so most such trades exit on time. A fixed 6R target on the same trades earns the same
+  (+0.402 against +0.406), and trades without any D line gain as much from a farther target (2R +0.247, 6R +0.447).
+  Over all R-1u trades a farther target raises mean R (2R +0.219, 3R +0.255, 4R +0.329, 6R +0.421) but lowers win rate
+  (41% to 24%) and weekly Sharpe (2.27 to 2.09). The 2R exit was chosen on Sharpe (X-R1) and stays; the "let part of
+  it run" question is already in the forward record as R-1s. Status absorbed (into the exit-distance question). By its
+  registration L3' would join the forward record; it does not, because a fixed far target reproduces it exactly and
+  R-1s already carries that comparison. This deviation is stated here and to the user.
+- **L-3:** the first Fibonacci result that beats its placebo (+0.020 against -0.001), and too small to matter.

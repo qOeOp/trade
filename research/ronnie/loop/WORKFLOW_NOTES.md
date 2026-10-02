@@ -303,4 +303,10 @@ Input for the product's R&D system. Each note: what happened, why it matters, a 
     plan. Proposal: an event-driven simulator (orders resting through time, fills processed in time order) is the only
     implementation of any rule with resting orders, shared by backtest and forward; and a per-trade chart is part of
     every rule's review package.
+58. **A technique was judged through an encoding nobody checked against its source.** L-1 tested Ronnie's trend lines
+    with lines through the last two swing pivots; those reproduce 0-3% of the lines he actually draws, against 23-26%
+    for a drawer calibrated on half his charts. The user raised the pattern: "a technique is declared useless, and
+    later iteration finds it was used wrongly" (R-1, Fibonacci, now trend lines). Proposal: a fidelity check (recall of
+    the source's own drawings or calls against a moved placebo, on held-out cases) is a gate before any verdict on a
+    sourced technique (CRITERIA B6), and the fidelity number is reported with the result.
 

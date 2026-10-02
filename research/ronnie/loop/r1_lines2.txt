@@ -1,0 +1,5 @@
+L-2: L-1 repeated with the calibrated drawer D, development (53 coins, 2018-2022), 4300 trades, R-1u edge +0.221
+  L1' tag: 135 tagged (3%), edge -0.062 vs +0.230: difference -0.292 [-0.510, -0.056]; placebo -0.114 (placebo tagged 20%)
+  L2' tag: 2666 tagged (62%), edge +0.219 vs +0.223: difference -0.004 [-0.105, +0.108]; placebo +0.014 (placebo tagged 62%)
+  L3' channel target: 2259 trades (53%); far rail minus 2R +0.212R [+0.058, +0.365]; placebo rails +0.166R
+  Holm (95%, three tests): L3' p 0.002 vs 0.0167 -> PASS, L2' p 0.519 vs 0.0250 -> fail, L1' p 0.993 vs 0.0500 -> fail
