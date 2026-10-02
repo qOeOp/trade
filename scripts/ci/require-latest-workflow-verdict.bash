@@ -11,6 +11,11 @@
 # stopped schedule must not keep an old green alive), when no completed run is listed, and when the
 # listing cannot be read at all.
 #
+# The listing asks for no `status` filter: the script filters completed runs itself, and once in eight
+# runs the filtered listing answered with a page of August runs, so main's verdict named a run 791
+# hours old while a day-old failure was the newest (build 37022012743; the seven others named it). An
+# answer of "too old" or "none" is the one a stale page gives, so it is read once more before it stands.
+#
 # Usage: require-latest-workflow-verdict.bash <workflow file> <branch> <max age in hours>
 # Needs GH_TOKEN with actions: read and GITHUB_REPOSITORY. REQUIRE_LATEST_NOW (epoch seconds) stands
 # in for the clock in tests.
@@ -23,13 +28,13 @@ max_age_hours="${3:?max age in hours}"
 listing="$(mktemp)"
 trap 'rm -f "$listing"' EXIT
 
-if ! gh api "repos/${GITHUB_REPOSITORY:?}/actions/workflows/${workflow}/runs?branch=${branch}&status=completed&per_page=30" \
-  > "$listing" 2> /dev/null; then
-  echo "ERROR: could not list ${workflow}'s runs on ${branch}, so its verdict is unknown." >&2
-  exit 1
-fi
-
-python3 - "$listing" "$workflow" "$branch" "$max_age_hours" << 'PY'
+decide() {
+  if ! gh api "repos/${GITHUB_REPOSITORY:?}/actions/workflows/${workflow}/runs?branch=${branch}&per_page=50" \
+    > "$listing" 2> /dev/null; then
+    echo "ERROR: could not list ${workflow}'s runs on ${branch}, so its verdict is unknown." >&2
+    return 1
+  fi
+  python3 - "$listing" "$workflow" "$branch" "$max_age_hours" << 'PY'
 import json
 import os
 import sys
@@ -53,7 +58,8 @@ verdicts = sorted(
     reverse=True,
 )
 if not verdicts:
-    sys.exit(f"ERROR: {workflow} has no completed run on {branch} among the last {len(runs)} listed.")
+    print(f"ERROR: {workflow} has no completed run on {branch} among the last {len(runs)} listed.", file=sys.stderr)
+    sys.exit(3)
 latest = verdicts[0]
 created = datetime.fromisoformat(latest["created_at"].replace("Z", "+00:00")).timestamp()
 now = float(os.environ.get("REQUIRE_LATEST_NOW") or time.time())
@@ -65,9 +71,25 @@ where = (
 if latest.get("conclusion") != "success":
     sys.exit(f"ERROR: {workflow}'s latest verdict on {branch} is {latest.get('conclusion')}: {where}")
 if age_hours > max_age_hours:
-    sys.exit(
+    print(
         f"ERROR: {workflow}'s latest verdict on {branch} is {age_hours:.1f} hours old, over "
         f"{max_age_hours:g}: {where}",
+        file=sys.stderr,
     )
+    sys.exit(3)
 print(f"{workflow}'s latest verdict on {branch} is success, {age_hours:.1f} hours old: {where}")
 PY
+}
+
+# 3 is "too old" or "none", the answer a stale page gives: read the listing once more before it stands.
+status=0
+decide 2> "${listing}.err" || status=$?
+if [[ "$status" -eq 3 ]]; then
+  echo "${workflow}: the listing gave no recent verdict on ${branch}; reading it once more." >&2
+  sleep "${REQUIRE_LATEST_RETRY_SECONDS:-5}"
+  status=0
+  decide 2> "${listing}.err" || status=$?
+fi
+cat "${listing}.err" >&2
+rm -f "${listing}.err"
+[[ "$status" -eq 0 ]] || exit 1

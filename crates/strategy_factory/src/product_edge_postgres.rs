@@ -4628,7 +4628,7 @@ pub(crate) mod tests {
     };
     use vibe_testkit::postgres::{
         CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1,
-        DedicatedPostgresTestDatabase,
+        DedicatedPostgresTestDatabase, restore_after_checks,
     };
 
     #[rstest]
@@ -5847,34 +5847,43 @@ pub(crate) mod tests {
         .execute(&owner.pool)
         .await
         .unwrap();
-        let mut failed = owner.pool.begin().await.unwrap();
-        assert_eq!(
-            Box::pin(crate::rd_bounded_feature_program_v1::commit_research_bounded_feature_program_in_transaction_v1(
-                &mut failed,
-                &request_identity,
-                read_cut,
-                read_cut,
-                &design,
-                proposal.clone()
-))
-            .await,
-            Err(crate::rd_bounded_feature_program_v1::ResearchBoundedFeatureProgramFreezeErrorV1::Unavailable)
-        );
-        failed.rollback().await.unwrap();
-        let frozen_rows: i64 = sqlx::query_scalar(
-            "SELECT count(*) FROM rd_bounded_feature_program_freezes_v1 WHERE request_identity=$1",
+        restore_after_checks(
+            async {
+                let mut failed = owner.pool.begin().await.unwrap();
+                assert_eq!(
+                    Box::pin(crate::rd_bounded_feature_program_v1::commit_research_bounded_feature_program_in_transaction_v1(
+                        &mut failed,
+                        &request_identity,
+                        read_cut,
+                        read_cut,
+                        &design,
+                        proposal.clone()
+        ))
+                    .await,
+                    Err(crate::rd_bounded_feature_program_v1::ResearchBoundedFeatureProgramFreezeErrorV1::Unavailable)
+                );
+                failed.rollback().await.unwrap();
+                let frozen_rows: i64 = sqlx::query_scalar(
+                    "SELECT count(*) FROM rd_bounded_feature_program_freezes_v1 WHERE request_identity=$1",
+                )
+                .bind(&request_identity)
+                .fetch_one(&owner.pool)
+                .await
+                .unwrap();
+                assert_eq!(frozen_rows, 0);
+            },
+            async {
+                sqlx::query(
+                    "DELETE FROM rd_owner_outbox_v1 WHERE aggregate_identity=$1 AND event_kind=$2",
+                )
+                .bind(&request_identity)
+                .bind(crate::rd_bounded_feature_program_v1::JOINT_FREEZE_EVENT_KIND_V1)
+                .execute(&owner.pool)
+                .await
+                .unwrap();
+            },
         )
-        .bind(&request_identity)
-        .fetch_one(&owner.pool)
-        .await
-        .unwrap();
-        assert_eq!(frozen_rows, 0);
-        sqlx::query("DELETE FROM rd_owner_outbox_v1 WHERE aggregate_identity=$1 AND event_kind=$2")
-            .bind(&request_identity)
-            .bind(crate::rd_bounded_feature_program_v1::JOINT_FREEZE_EVENT_KIND_V1)
-            .execute(&owner.pool)
-            .await
-            .unwrap();
+        .await;
 
         let mut first = owner.pool.begin().await.unwrap();
         let committed = Box::pin(crate::rd_bounded_feature_program_v1::commit_research_bounded_feature_program_in_transaction_v1(
@@ -6109,36 +6118,42 @@ pub(crate) mod tests {
         .await
         .unwrap()
         .rows_affected();
-        assert_eq!(tampered_rows, 1);
-        let mut tampered = owner.pool.begin().await.unwrap();
-        assert_eq!(
-            Box::pin(crate::rd_bounded_feature_program_v1::read_research_bounded_feature_program_in_transaction_v1(
-                &mut tampered,
-                &request_identity,
-                read_cut
-))
-            .await,
-            Err(crate::rd_bounded_feature_program_v1::ResearchBoundedFeatureProgramFreezeErrorV1::Unavailable)
-        );
-        tampered.rollback().await.unwrap();
+        restore_after_checks(
+            async {
+                assert_eq!(tampered_rows, 1);
+                let mut tampered = owner.pool.begin().await.unwrap();
+                assert_eq!(
+                    Box::pin(crate::rd_bounded_feature_program_v1::read_research_bounded_feature_program_in_transaction_v1(
+                        &mut tampered,
+                        &request_identity,
+                        read_cut
+        ))
+                    .await,
+                    Err(crate::rd_bounded_feature_program_v1::ResearchBoundedFeatureProgramFreezeErrorV1::Unavailable)
+                );
+                tampered.rollback().await.unwrap();
 
-        // Tampered stored bytes must close the production lowering path as well, since the
-        // lowerer reaches them only through the same verifying readback.
-        assert!(matches!(
-            composition_root.lower(&request_identity).await,
-            Err(crate::rd_bounded_feature_program_postgres_v1::ResearchBoundedFeatureProgramLoweringErrorV1::Unavailable)
-        ));
-
-        let restored_rows = sqlx::query(
-            "UPDATE rd_bounded_feature_program_freezes_v1 SET program_bytes=$2 WHERE request_identity=$1",
+                // Tampered stored bytes must close the production lowering path as well, since the
+                // lowerer reaches them only through the same verifying readback.
+                assert!(matches!(
+                    composition_root.lower(&request_identity).await,
+                    Err(crate::rd_bounded_feature_program_postgres_v1::ResearchBoundedFeatureProgramLoweringErrorV1::Unavailable)
+                ));
+            },
+            async {
+                let restored_rows = sqlx::query(
+                    "UPDATE rd_bounded_feature_program_freezes_v1 SET program_bytes=$2 WHERE request_identity=$1",
+                )
+                .bind(&request_identity)
+                .bind(&original_program_bytes)
+                .execute(&owner.pool)
+                .await
+                .unwrap()
+                .rows_affected();
+                assert_eq!(restored_rows, 1);
+            },
         )
-        .bind(&request_identity)
-        .bind(&original_program_bytes)
-        .execute(&owner.pool)
-        .await
-        .unwrap()
-        .rows_affected();
-        assert_eq!(restored_rows, 1);
+        .await;
         let restored_row_digest: String = sqlx::query_scalar(freeze_row_digest)
             .bind(&request_identity)
             .fetch_one(&owner.pool)
@@ -7055,40 +7070,50 @@ pub(crate) mod tests {
                 .rows_affected(),
             1
         );
-        let now = moved.projection_at_epoch_ms.saturating_add(1);
-        assert_eq!(&readback_at(Some(now)).await, response);
-        assert_eq!(
-            coordinate(resolve(DevelopComposerRunViewRecordV1::Unrecorded, now).await),
-            RUN_VIEW_UNRECORDED_COORDINATE_V1
-        );
-        // Past IntentFrozen the descendant check no longer pins the View byte for byte, so the
-        // artifact evidence is what refuses a View it was not sealed for, and the operation
-        // receipt what refuses a View whose custody digest differs.
-        let mut other_window = ran_under.clone();
-        other_window.valid_through_epoch_ms = other_window.valid_through_epoch_ms.saturating_add(1);
-        assert_eq!(
-            coordinate(resolve(recorded_with(other_window, run_view.read_cut_epoch_ms), now).await),
-            RUN_VIEW_NOT_SEALED_COORDINATE_V1
-        );
-        assert_eq!(
-            coordinate(
-                resolve(
-                    recorded_with(other_principal, run_view.read_cut_epoch_ms),
-                    now
-                )
-                .await
-            ),
-            RUN_VIEW_NOT_ANCESTOR_COORDINATE_V1
-        );
-        assert_eq!(
-            store(ran_under)
-                .execute(&owner.pool)
-                .await
-                .unwrap()
-                .rows_affected(),
-            1,
-            "the request's View is put back"
-        );
+        restore_after_checks(
+            async {
+                let now = moved.projection_at_epoch_ms.saturating_add(1);
+                assert_eq!(&readback_at(Some(now)).await, response);
+                assert_eq!(
+                    coordinate(resolve(DevelopComposerRunViewRecordV1::Unrecorded, now).await),
+                    RUN_VIEW_UNRECORDED_COORDINATE_V1
+                );
+                // Past IntentFrozen the descendant check no longer pins the View byte for byte, so
+                // the artifact evidence is what refuses a View it was not sealed for, and the
+                // operation receipt what refuses a View whose custody digest differs.
+                let mut other_window = ran_under.clone();
+                other_window.valid_through_epoch_ms =
+                    other_window.valid_through_epoch_ms.saturating_add(1);
+                assert_eq!(
+                    coordinate(
+                        resolve(recorded_with(other_window, run_view.read_cut_epoch_ms), now).await
+                    ),
+                    RUN_VIEW_NOT_SEALED_COORDINATE_V1
+                );
+                assert_eq!(
+                    coordinate(
+                        resolve(
+                            recorded_with(other_principal, run_view.read_cut_epoch_ms),
+                            now
+                        )
+                        .await
+                    ),
+                    RUN_VIEW_NOT_ANCESTOR_COORDINATE_V1
+                );
+            },
+            async {
+                assert_eq!(
+                    store(ran_under)
+                        .execute(&owner.pool)
+                        .await
+                        .unwrap()
+                        .rows_affected(),
+                    1,
+                    "the request's View is put back"
+                );
+            },
+        )
+        .await;
         assert_eq!(&readback_at(None).await, response);
     }
 

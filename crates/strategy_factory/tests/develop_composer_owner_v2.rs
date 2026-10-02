@@ -7,7 +7,9 @@ use vibe_strategy_factory::{
         SEALED_DEVELOP_COMPOSER_REQUEST_IDENTITY_V2, SealedDevelopComposerAcceptanceV2,
     },
 };
-use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
+use vibe_testkit::postgres::{
+    CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1, restore_after_checks,
+};
 
 const OWNER_ROW_COUNTS: &[(&str, &str)] = &[
     (
@@ -168,25 +170,31 @@ async fn durable_owner_is_atomic_restart_exact_and_fail_closed() {
     .await
     .expect("arm deferred commit failure");
 
-    let failed_commit = owner.run().await.expect("topology drift is typed");
-    assert_eq!(
-        failed_commit.disposition,
-        DevelopComposerOperationDispositionV2::Unavailable
-    );
-    assert!(failed_commit.receipt_identity.is_none());
-    assert!(failed_commit.artifact.is_none());
-    assert_owner_row_counts(pool, 0).await;
-
-    sqlx::query(
-        "DROP TRIGGER rd_develop_reject_commit_v2 ON composer_private.rd_develop_outbox_v2",
+    restore_after_checks(
+        async {
+            let failed_commit = owner.run().await.expect("topology drift is typed");
+            assert_eq!(
+                failed_commit.disposition,
+                DevelopComposerOperationDispositionV2::Unavailable
+            );
+            assert!(failed_commit.receipt_identity.is_none());
+            assert!(failed_commit.artifact.is_none());
+            assert_owner_row_counts(pool, 0).await;
+        },
+        async {
+            sqlx::query(
+                "DROP TRIGGER rd_develop_reject_commit_v2 ON composer_private.rd_develop_outbox_v2",
+            )
+            .execute(pool)
+            .await
+            .expect("disarm deferred commit failure");
+            sqlx::query("DROP FUNCTION composer_private.rd_develop_reject_commit_v2()")
+                .execute(pool)
+                .await
+                .expect("remove deferred failure function");
+        },
     )
-    .execute(pool)
-    .await
-    .expect("disarm deferred commit failure");
-    sqlx::query("DROP FUNCTION composer_private.rd_develop_reject_commit_v2()")
-        .execute(pool)
-        .await
-        .expect("remove deferred failure function");
+    .await;
     drop(owner);
 
     let first_owner = SealedDevelopComposerAcceptanceV2::connect(database_url)
@@ -256,29 +264,37 @@ async fn durable_owner_is_atomic_restart_exact_and_fail_closed() {
         .execute(pool)
         .await
         .expect("remove only disposable outbox custody");
-    drop(restarted_owner);
-    let restarted_owner = SealedDevelopComposerAcceptanceV2::connect(database_url)
-        .await
-        .expect("restarted owner with incomplete custody");
-    let incomplete = restarted_owner
-        .resolve(SEALED_DEVELOP_COMPOSER_REQUEST_IDENTITY_V2)
-        .await
-        .expect("incomplete custody is typed");
-    assert_eq!(
-        incomplete.disposition,
-        DevelopComposerOperationDispositionV2::Unavailable
-    );
-    assert!(incomplete.receipt_identity.is_none());
-    assert!(incomplete.artifact.is_none());
-    sqlx::query(
-        "INSERT INTO composer_private.rd_develop_outbox_v2 (request_identity, canonical_bytes)
+    let restarted_owner = restore_after_checks(
+        async {
+            drop(restarted_owner);
+            let restarted_owner = SealedDevelopComposerAcceptanceV2::connect(database_url)
+                .await
+                .expect("restarted owner with incomplete custody");
+            let incomplete = restarted_owner
+                .resolve(SEALED_DEVELOP_COMPOSER_REQUEST_IDENTITY_V2)
+                .await
+                .expect("incomplete custody is typed");
+            assert_eq!(
+                incomplete.disposition,
+                DevelopComposerOperationDispositionV2::Unavailable
+            );
+            assert!(incomplete.receipt_identity.is_none());
+            assert!(incomplete.artifact.is_none());
+            restarted_owner
+        },
+        async {
+            sqlx::query(
+                "INSERT INTO composer_private.rd_develop_outbox_v2 (request_identity, canonical_bytes)
          VALUES ($1,$2)",
+            )
+            .bind(SEALED_DEVELOP_COMPOSER_REQUEST_IDENTITY_V2)
+            .bind(&outbox_bytes)
+            .execute(pool)
+            .await
+            .expect("restore disposable outbox custody");
+        },
     )
-    .bind(SEALED_DEVELOP_COMPOSER_REQUEST_IDENTITY_V2)
-    .bind(&outbox_bytes)
-    .execute(pool)
-    .await
-    .expect("restore disposable outbox custody");
+    .await;
     let restored = restarted_owner
         .resolve(SEALED_DEVELOP_COMPOSER_REQUEST_IDENTITY_V2)
         .await
@@ -307,26 +323,33 @@ async fn durable_owner_is_atomic_restart_exact_and_fail_closed() {
     .execute(pool)
     .await
     .expect("corrupt only disposable Design bytes");
-    let corrupt = restarted_owner
-        .resolve(SEALED_DEVELOP_COMPOSER_REQUEST_IDENTITY_V2)
-        .await
-        .expect("corrupt RESOLVE is typed");
-    assert_eq!(
-        corrupt.disposition,
-        DevelopComposerOperationDispositionV2::Unavailable
-    );
-    assert!(corrupt.receipt_identity.is_none());
-    assert!(corrupt.artifact.is_none());
-    sqlx::query(
-        "UPDATE composer_private.rd_develop_designs_v2
+    restore_after_checks(
+        async {
+            let corrupt = restarted_owner
+                .resolve(SEALED_DEVELOP_COMPOSER_REQUEST_IDENTITY_V2)
+                .await
+                .expect("corrupt RESOLVE is typed");
+            assert_eq!(
+                corrupt.disposition,
+                DevelopComposerOperationDispositionV2::Unavailable
+            );
+            assert!(corrupt.receipt_identity.is_none());
+            assert!(corrupt.artifact.is_none());
+        },
+        async {
+            sqlx::query(
+                "UPDATE composer_private.rd_develop_designs_v2
             SET canonical_bytes=$1
           WHERE design_identity=$2",
+            )
+            .bind(&original_design_bytes)
+            .bind(&design_identity)
+            .execute(pool)
+            .await
+            .expect("restore disposable Design bytes");
+        },
     )
-    .bind(&original_design_bytes)
-    .bind(&design_identity)
-    .execute(pool)
-    .await
-    .expect("restore disposable Design bytes");
+    .await;
 
     let original_request_digest: Vec<u8> = sqlx::query_scalar(
         "SELECT request_digest FROM composer_private.rd_develop_operations_v2 WHERE request_identity=$1",
@@ -344,26 +367,32 @@ async fn durable_owner_is_atomic_restart_exact_and_fail_closed() {
     .execute(pool)
     .await
     .expect("bind disposable request identity to conflicting meaning");
-    let conflict = restarted_owner.run().await.expect("conflict is typed");
-    assert_eq!(
-        conflict.disposition,
-        DevelopComposerOperationDispositionV2::Conflict
-    );
-    assert!(conflict.receipt_identity.is_none());
-    assert!(conflict.artifact.is_none());
-    assert_owner_row_counts(pool, 1).await;
-
-    // The sealed request identity is one fixed value shared by every sealed run, and the
-    // ordered chain shares one store: left bound to conflicting meaning, it would turn every
-    // later sealed run into this conflict. Restore the meaning and prove the exact replay.
-    sqlx::query(
-        "UPDATE composer_private.rd_develop_operations_v2 SET request_digest=$2 WHERE request_identity=$1",
+    restore_after_checks(
+        async {
+            let conflict = restarted_owner.run().await.expect("conflict is typed");
+            assert_eq!(
+                conflict.disposition,
+                DevelopComposerOperationDispositionV2::Conflict
+            );
+            assert!(conflict.receipt_identity.is_none());
+            assert!(conflict.artifact.is_none());
+            assert_owner_row_counts(pool, 1).await;
+        },
+        // The sealed request identity is one fixed value shared by every sealed run, and the
+        // ordered chain shares one store: left bound to conflicting meaning, it would turn every
+        // later sealed run into this conflict. Restore the meaning and prove the exact replay.
+        async {
+            sqlx::query(
+                "UPDATE composer_private.rd_develop_operations_v2 SET request_digest=$2 WHERE request_identity=$1",
+            )
+            .bind(SEALED_DEVELOP_COMPOSER_REQUEST_IDENTITY_V2)
+            .bind(&original_request_digest)
+            .execute(pool)
+            .await
+            .expect("restore disposable request identity meaning");
+        },
     )
-    .bind(SEALED_DEVELOP_COMPOSER_REQUEST_IDENTITY_V2)
-    .bind(&original_request_digest)
-    .execute(pool)
-    .await
-    .expect("restore disposable request identity meaning");
+    .await;
     let restored = restarted_owner
         .run()
         .await

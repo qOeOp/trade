@@ -56,7 +56,9 @@ use vibe_strategy_factory::{
     },
     product_edge_postgres::PostgresResearchGoalOwnerV1,
 };
-use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
+use vibe_testkit::postgres::{
+    CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1, restore_after_checks,
+};
 
 #[cfg(not(feature = "sealed-develop-composer-acceptance"))]
 use vibe_strategy_factory::replay_execution_policy_v2::ReplayExecutionPolicyV2;
@@ -446,29 +448,36 @@ async fn run_legacy_replay_table_is_preserved_while_current_custody_commits() {
         "rd_exploratory_replay_request_custody_v1",
     )
     .await;
-    let renamed_oid: i64 = sqlx::query_scalar(
-        "SELECT 'public.rd_exploratory_replay_request_custody_v1'::pg_catalog.regclass::oid::bigint",
-    )
-    .fetch_one(rd_pool)
-    .await
-    .expect("renamed internal Replay custody oid");
-    PostgresResearchGoalOwnerV1::connect_with_backtest(
-        &fixture.rd_url,
-        &fixture.qualification_url,
-        &fixture.backtest_url,
-    )
-    .await
-    .expect_err("runtime connect must fail closed while canonical Replay custody is absent");
-    let source_oid_after_failed_connect: i64 = sqlx::query_scalar(
-        "SELECT 'public.rd_exploratory_replay_request_custody_v1'::pg_catalog.regclass::oid::bigint",
-    )
-    .fetch_one(rd_pool)
-    .await
-    .expect("renamed internal Replay custody oid after runtime rejection");
-    assert_eq!(source_oid_after_failed_connect, renamed_oid);
-    restore_sealed_exploratory_replay_fixture(
-        &fixture.database,
-        "rd_exploratory_replay_request_custody_v1",
+    let renamed_oid = restore_after_checks(
+        async {
+            let renamed_oid: i64 = sqlx::query_scalar(
+                "SELECT 'public.rd_exploratory_replay_request_custody_v1'::pg_catalog.regclass::oid::bigint",
+            )
+            .fetch_one(rd_pool)
+            .await
+            .expect("renamed internal Replay custody oid");
+            PostgresResearchGoalOwnerV1::connect_with_backtest(
+                &fixture.rd_url,
+                &fixture.qualification_url,
+                &fixture.backtest_url,
+            )
+            .await
+            .expect_err(
+                "runtime connect must fail closed while canonical Replay custody is absent",
+            );
+            let source_oid_after_failed_connect: i64 = sqlx::query_scalar(
+                "SELECT 'public.rd_exploratory_replay_request_custody_v1'::pg_catalog.regclass::oid::bigint",
+            )
+            .fetch_one(rd_pool)
+            .await
+            .expect("renamed internal Replay custody oid after runtime rejection");
+            assert_eq!(source_oid_after_failed_connect, renamed_oid);
+            renamed_oid
+        },
+        restore_sealed_exploratory_replay_fixture(
+            &fixture.database,
+            "rd_exploratory_replay_request_custody_v1",
+        ),
     )
     .await;
     let restored_oid: i64 = sqlx::query_scalar(
@@ -553,29 +562,32 @@ async fn run_legacy_replay_table_is_preserved_while_current_custody_commits() {
     )
     .await;
 
-    let duplicate_before = [
-        replay_candidate_fingerprint(rd_pool, ReplayCandidateTable::Internal).await,
-        replay_candidate_fingerprint(rd_pool, ReplayCandidateTable::Sealed).await,
-    ];
-    assert!(
-        PostgresResearchGoalOwnerV1::connect_with_backtest(
-            &fixture.rd_url,
-            &fixture.qualification_url,
-            &fixture.backtest_url,
-        )
-        .await
-        .is_err(),
-        "duplicate internal and sealed Replay candidates must fail closed"
-    );
-    let duplicate_after = [
-        replay_candidate_fingerprint(rd_pool, ReplayCandidateTable::Internal).await,
-        replay_candidate_fingerprint(rd_pool, ReplayCandidateTable::Sealed).await,
-    ];
-    assert_eq!(duplicate_after, duplicate_before);
-
-    remove_duplicate_exploratory_replay_fixture(
-        &fixture.database,
-        &fixture.proposal.request_identity,
+    restore_after_checks(
+        async {
+            let duplicate_before = [
+                replay_candidate_fingerprint(rd_pool, ReplayCandidateTable::Internal).await,
+                replay_candidate_fingerprint(rd_pool, ReplayCandidateTable::Sealed).await,
+            ];
+            assert!(
+                PostgresResearchGoalOwnerV1::connect_with_backtest(
+                    &fixture.rd_url,
+                    &fixture.qualification_url,
+                    &fixture.backtest_url,
+                )
+                .await
+                .is_err(),
+                "duplicate internal and sealed Replay candidates must fail closed"
+            );
+            let duplicate_after = [
+                replay_candidate_fingerprint(rd_pool, ReplayCandidateTable::Internal).await,
+                replay_candidate_fingerprint(rd_pool, ReplayCandidateTable::Sealed).await,
+            ];
+            assert_eq!(duplicate_after, duplicate_before);
+        },
+        remove_duplicate_exploratory_replay_fixture(
+            &fixture.database,
+            &fixture.proposal.request_identity,
+        ),
     )
     .await;
 }
@@ -620,29 +632,36 @@ async fn run_origin_current_replay_table_renames_with_exact_v1_v2_read_continuit
         "rd_exploratory_replay_requests_v1",
     )
     .await;
-    let renamed_oid: i64 = sqlx::query_scalar(
-        "SELECT 'public.rd_exploratory_replay_requests_v1'::pg_catalog.regclass::oid::bigint",
-    )
-    .fetch_one(rd_pool)
-    .await
-    .expect("renamed Origin-current Replay custody oid");
-    PostgresResearchGoalOwnerV1::connect_with_backtest(
-        &fixture.rd_url,
-        &fixture.qualification_url,
-        &fixture.backtest_url,
-    )
-    .await
-    .expect_err("runtime connect must fail closed while canonical Replay custody is absent");
-    let source_oid_after_failed_connect: i64 = sqlx::query_scalar(
-        "SELECT 'public.rd_exploratory_replay_requests_v1'::pg_catalog.regclass::oid::bigint",
-    )
-    .fetch_one(rd_pool)
-    .await
-    .expect("renamed Origin-current Replay custody oid after runtime rejection");
-    assert_eq!(source_oid_after_failed_connect, renamed_oid);
-    restore_sealed_exploratory_replay_fixture(
-        &fixture.database,
-        "rd_exploratory_replay_requests_v1",
+    let renamed_oid = restore_after_checks(
+        async {
+            let renamed_oid: i64 = sqlx::query_scalar(
+                "SELECT 'public.rd_exploratory_replay_requests_v1'::pg_catalog.regclass::oid::bigint",
+            )
+            .fetch_one(rd_pool)
+            .await
+            .expect("renamed Origin-current Replay custody oid");
+            PostgresResearchGoalOwnerV1::connect_with_backtest(
+                &fixture.rd_url,
+                &fixture.qualification_url,
+                &fixture.backtest_url,
+            )
+            .await
+            .expect_err(
+                "runtime connect must fail closed while canonical Replay custody is absent",
+            );
+            let source_oid_after_failed_connect: i64 = sqlx::query_scalar(
+                "SELECT 'public.rd_exploratory_replay_requests_v1'::pg_catalog.regclass::oid::bigint",
+            )
+            .fetch_one(rd_pool)
+            .await
+            .expect("renamed Origin-current Replay custody oid after runtime rejection");
+            assert_eq!(source_oid_after_failed_connect, renamed_oid);
+            renamed_oid
+        },
+        restore_sealed_exploratory_replay_fixture(
+            &fixture.database,
+            "rd_exploratory_replay_requests_v1",
+        ),
     )
     .await;
     let restored_oid: i64 = sqlx::query_scalar(
@@ -982,20 +1001,27 @@ async fn assert_rd_owner_resolves_only_prior_same_identity_replay_v2_custody() {
     .execute(rd_pool)
     .await
     .expect("forced late V2 outbox conflict");
-    assert!(
-        fixture
-            .owner
-            .commit_exploratory_replay_request_v2(fixture.proposal_v2.clone())
+    restore_after_checks(
+        async {
+            assert!(
+                fixture
+                    .owner
+                    .commit_exploratory_replay_request_v2(fixture.proposal_v2.clone())
+                    .await
+                    .is_err()
+            );
+        },
+        async {
+            sqlx::query(
+                "DELETE FROM public.rd_owner_outbox_v1 WHERE aggregate_identity=$1 AND event_kind='EXPLORATORY_REPLAY_REQUEST_FROZEN_V2'",
+            )
+            .bind(&request_identity)
+            .execute(rd_pool)
             .await
-            .is_err()
-    );
-    sqlx::query(
-        "DELETE FROM public.rd_owner_outbox_v1 WHERE aggregate_identity=$1 AND event_kind='EXPLORATORY_REPLAY_REQUEST_FROZEN_V2'",
+            .expect("forced late V2 outbox conflict removed");
+        },
     )
-    .bind(&request_identity)
-    .execute(rd_pool)
-    .await
-    .expect("forced late V2 outbox conflict removed");
+    .await;
     assert_eq!(
         request_counts_v2(rd_pool, &request_identity).await,
         [0, 0, 0]
@@ -1095,19 +1121,26 @@ async fn assert_rd_owner_resolves_only_prior_same_identity_replay_v2_custody() {
                 .execute(rd_pool)
                 .await
                 .expect(concat!("tamper ", $label));
-            assert!(
-                rd_only_owner
-                    .read_research_v2(&fixture.research_request_identity)
-                    .await
-                    .is_err(),
-                concat!("Research readback must fail closed for tampered ", $label)
-            );
-            sqlx::query($restore_sql)
-                .bind(&request_identity)
-                .bind($original)
-                .execute(rd_pool)
-                .await
-                .expect(concat!("restore ", $label));
+            restore_after_checks(
+                async {
+                    assert!(
+                        rd_only_owner
+                            .read_research_v2(&fixture.research_request_identity)
+                            .await
+                            .is_err(),
+                        concat!("Research readback must fail closed for tampered ", $label)
+                    );
+                },
+                async {
+                    sqlx::query($restore_sql)
+                        .bind(&request_identity)
+                        .bind($original)
+                        .execute(rd_pool)
+                        .await
+                        .expect(concat!("restore ", $label));
+                },
+            )
+            .await;
         }};
     }
 
@@ -1364,11 +1397,18 @@ async fn run_market_data_owner_sealed_request_port() {
         .execute(rd_pool)
         .await
         .unwrap();
-    let missing_select = market_data_serializable_read(market_pool, &locator).await;
-    sqlx::query("GRANT SELECT ON public.rd_owner_outbox_v1 TO rd_exploratory_replay_api_owner")
-        .execute(rd_pool)
-        .await
-        .unwrap();
+    let missing_select = restore_after_checks(
+        market_data_serializable_read(market_pool, &locator),
+        async {
+            sqlx::query(
+                "GRANT SELECT ON public.rd_owner_outbox_v1 TO rd_exploratory_replay_api_owner",
+            )
+            .execute(rd_pool)
+            .await
+            .unwrap();
+        },
+    )
+    .await;
     assert!(matches!(
         missing_select,
         Err(ExploratoryReplayCustodyError::Unavailable)
@@ -1378,11 +1418,18 @@ async fn run_market_data_owner_sealed_request_port() {
         .execute(rd_pool)
         .await
         .unwrap();
-    let excess_update = market_data_serializable_read(market_pool, &locator).await;
-    sqlx::query("REVOKE UPDATE ON public.rd_owner_outbox_v1 FROM rd_exploratory_replay_api_owner")
-        .execute(rd_pool)
-        .await
-        .unwrap();
+    let excess_update = restore_after_checks(
+        market_data_serializable_read(market_pool, &locator),
+        async {
+            sqlx::query(
+                "REVOKE UPDATE ON public.rd_owner_outbox_v1 FROM rd_exploratory_replay_api_owner",
+            )
+            .execute(rd_pool)
+            .await
+            .unwrap();
+        },
+    )
+    .await;
     assert!(matches!(
         excess_update,
         Err(ExploratoryReplayCustodyError::Unavailable)
@@ -1394,13 +1441,18 @@ async fn run_market_data_owner_sealed_request_port() {
     .execute(rd_pool)
     .await
     .unwrap();
-    let excess_column_update = market_data_serializable_read(market_pool, &locator).await;
-    sqlx::query(
-        "REVOKE UPDATE (event_kind) ON public.rd_owner_outbox_v1 FROM rd_exploratory_replay_api_owner",
+    let excess_column_update = restore_after_checks(
+        market_data_serializable_read(market_pool, &locator),
+        async {
+            sqlx::query(
+                "REVOKE UPDATE (event_kind) ON public.rd_owner_outbox_v1 FROM rd_exploratory_replay_api_owner",
+            )
+            .execute(rd_pool)
+            .await
+            .unwrap();
+        },
     )
-    .execute(rd_pool)
-    .await
-    .unwrap();
+    .await;
     assert!(matches!(
         excess_column_update,
         Err(ExploratoryReplayCustodyError::Unavailable)
@@ -1410,12 +1462,18 @@ async fn run_market_data_owner_sealed_request_port() {
         .execute(rd_pool)
         .await
         .unwrap();
-    let excess_market_data_column_select =
-        market_data_serializable_read(market_pool, &locator).await;
-    sqlx::query("REVOKE SELECT (payload_json) ON public.rd_owner_outbox_v1 FROM market_data_owner")
-        .execute(rd_pool)
-        .await
-        .unwrap();
+    let excess_market_data_column_select = restore_after_checks(
+        market_data_serializable_read(market_pool, &locator),
+        async {
+            sqlx::query(
+                "REVOKE SELECT (payload_json) ON public.rd_owner_outbox_v1 FROM market_data_owner",
+            )
+            .execute(rd_pool)
+            .await
+            .unwrap();
+        },
+    )
+    .await;
     assert!(matches!(
         excess_market_data_column_select,
         Err(ExploratoryReplayCustodyError::Unavailable)
@@ -1535,23 +1593,32 @@ async fn run_market_data_owner_sealed_request_port() {
             .execute(topology_pool)
             .await
             .unwrap();
-        assert!(matches!(
-            market_data_serializable_read(market_pool, &locator).await,
-            Err(ExploratoryReplayCustodyError::Unavailable)
-        ));
-        let sentinel_count: i64 = sqlx::query_scalar(
-            "SELECT count(*) FROM vibe_test_admin.rd_exploratory_replay_routine_sentinel_v1",
+        restore_after_checks(
+            async {
+                assert!(matches!(
+                    market_data_serializable_read(market_pool, &locator).await,
+                    Err(ExploratoryReplayCustodyError::Unavailable)
+                ));
+                let sentinel_count: i64 = sqlx::query_scalar(
+                    "SELECT count(*) FROM vibe_test_admin.rd_exploratory_replay_routine_sentinel_v1",
+                )
+                .fetch_one(topology_pool)
+                .await
+                .unwrap();
+                assert_eq!(sentinel_count, 0);
+            },
+            async {
+                sqlx::query(
+                    "SELECT vibe_test_admin.drift_rd_exploratory_replay_routine_v1($1,$2,true)",
+                )
+                .bind(&marker)
+                .bind(target)
+                .execute(topology_pool)
+                .await
+                .unwrap();
+            },
         )
-        .fetch_one(topology_pool)
-        .await
-        .unwrap();
-        assert_eq!(sentinel_count, 0);
-        sqlx::query("SELECT vibe_test_admin.drift_rd_exploratory_replay_routine_v1($1,$2,true)")
-            .bind(&marker)
-            .bind(target)
-            .execute(topology_pool)
-            .await
-            .unwrap();
+        .await;
         assert_eq!(
             market_data_serializable_read(market_pool, &locator)
                 .await
@@ -1832,35 +1899,44 @@ async fn run_frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_
     .unwrap();
     sqlx::query("UPDATE public.rd_sealed_exploratory_replay_requests_v1 SET v2_canonical_request_bytes=v2_canonical_request_bytes||decode('20','hex') WHERE request_identity=$1")
         .bind(proposal_v2.request.request_identity.as_str()).execute(rd_pool).await.unwrap();
-    assert_unavailable_v2(&owner, sealed_v2.locator()).await;
-    sqlx::query("UPDATE public.rd_sealed_exploratory_replay_requests_v1 SET v2_canonical_request_bytes=$2 WHERE request_identity=$1")
-        .bind(proposal_v2.request.request_identity.as_str()).bind(&original_v2_bytes).execute(rd_pool).await.unwrap();
+    restore_after_checks(assert_unavailable_v2(&owner, sealed_v2.locator()), async {
+        sqlx::query("UPDATE public.rd_sealed_exploratory_replay_requests_v1 SET v2_canonical_request_bytes=$2 WHERE request_identity=$1")
+            .bind(proposal_v2.request.request_identity.as_str()).bind(&original_v2_bytes).execute(rd_pool).await.unwrap();
+    })
+    .await;
 
     sqlx::query("UPDATE public.rd_sealed_exploratory_replay_requests_v1 SET v2_canonical_request_bytes=NULL,v2_meaning_digest=NULL,v2_seal_digest=NULL,v2_receipt_json=NULL,request_schema_version=1 WHERE request_identity=$1")
         .bind(proposal_v2.request.request_identity.as_str()).execute(rd_pool).await.unwrap();
-    assert!(matches!(
-        owner
-            .commit_exploratory_replay_request_v1(legacy_projection)
-            .await,
-        Err(ExploratoryReplayOwnerError::Unavailable(_))
-    ));
-    assert_unavailable(&owner, &legacy_v1_locator).await;
-    assert_unavailable_v2(&owner, sealed_v2.locator()).await;
-    assert_eq!(
-        request_counts_v2(
-            mutation.pool(CanonicalOwnerTestRoleV1::RdOwner),
-            proposal_v2.request.request_identity.as_str(),
-        )
-        .await,
-        [1, 1, 1]
-    );
-    sqlx::query("UPDATE public.rd_sealed_exploratory_replay_requests_v1 SET v2_canonical_request_bytes=$2,v2_meaning_digest=$3,v2_seal_digest=$4,v2_receipt_json=$5,request_schema_version=2 WHERE request_identity=$1")
-        .bind(proposal_v2.request.request_identity.as_str())
-        .bind(&original_v2_bytes)
-        .bind(original_v2_meaning)
-        .bind(original_v2_seal)
-        .bind(original_v2_receipt)
-        .execute(rd_pool).await.unwrap();
+    restore_after_checks(
+        async {
+            assert!(matches!(
+                owner
+                    .commit_exploratory_replay_request_v1(legacy_projection)
+                    .await,
+                Err(ExploratoryReplayOwnerError::Unavailable(_))
+            ));
+            assert_unavailable(&owner, &legacy_v1_locator).await;
+            assert_unavailable_v2(&owner, sealed_v2.locator()).await;
+            assert_eq!(
+                request_counts_v2(
+                    mutation.pool(CanonicalOwnerTestRoleV1::RdOwner),
+                    proposal_v2.request.request_identity.as_str(),
+                )
+                .await,
+                [1, 1, 1]
+            );
+        },
+        async {
+            sqlx::query("UPDATE public.rd_sealed_exploratory_replay_requests_v1 SET v2_canonical_request_bytes=$2,v2_meaning_digest=$3,v2_seal_digest=$4,v2_receipt_json=$5,request_schema_version=2 WHERE request_identity=$1")
+                .bind(proposal_v2.request.request_identity.as_str())
+                .bind(&original_v2_bytes)
+                .bind(original_v2_meaning)
+                .bind(original_v2_seal)
+                .bind(original_v2_receipt)
+                .execute(rd_pool).await.unwrap();
+        },
+    )
+    .await;
 
     let legacy_only = ExploratoryReplayRequestLocatorV2 {
         request_identity: proposal.request_identity.clone(),
@@ -1874,28 +1950,37 @@ async fn run_frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_
     wrong_revoked_locator.seal_digest = format!("sha256:{}", "0".repeat(64));
     sqlx::query("UPDATE public.rd_sealed_exploratory_replay_requests_v1 SET lifecycle_state='REVOKED' WHERE request_identity=$1")
         .bind(proposal_v2.request.request_identity.as_str()).execute(rd_pool).await.unwrap();
-    assert_backtest_unavailable_v2(&owner, &wrong_revoked_locator).await;
-    assert_recovery_stale_v2(&owner, &wrong_revoked_locator).await;
-    sqlx::query("UPDATE public.rd_sealed_exploratory_replay_requests_v1 SET v2_canonical_request_bytes=v2_canonical_request_bytes||decode('20','hex') WHERE request_identity=$1")
-        .bind(proposal_v2.request.request_identity.as_str()).execute(rd_pool).await.unwrap();
-    assert_unavailable_v2(&owner, sealed_v2.locator()).await;
-    sqlx::query("UPDATE public.rd_sealed_exploratory_replay_requests_v1 SET v2_canonical_request_bytes=$2 WHERE request_identity=$1")
-        .bind(proposal_v2.request.request_identity.as_str()).bind(&original_v2_bytes).execute(rd_pool).await.unwrap();
-    let stale_v2 = owner
-        .lock_exploratory_replay_request_for_backtest_v2(sealed_v2.locator())
-        .await
-        .unwrap();
-    assert_eq!(
-        stale_v2.projection().availability,
-        ExploratoryReplayAvailabilityV1::Stale
-    );
-    assert_eq!(
-        stale_v2.projection().next_legal_action,
-        ExploratoryReplayNextLegalActionV1::ResolveOwnerCustody
-    );
-    assert!(stale_v2.readback().is_none());
-    sqlx::query("UPDATE public.rd_sealed_exploratory_replay_requests_v1 SET lifecycle_state='FROZEN' WHERE request_identity=$1")
-        .bind(proposal_v2.request.request_identity.as_str()).execute(rd_pool).await.unwrap();
+    restore_after_checks(
+        async {
+            assert_backtest_unavailable_v2(&owner, &wrong_revoked_locator).await;
+            assert_recovery_stale_v2(&owner, &wrong_revoked_locator).await;
+            sqlx::query("UPDATE public.rd_sealed_exploratory_replay_requests_v1 SET v2_canonical_request_bytes=v2_canonical_request_bytes||decode('20','hex') WHERE request_identity=$1")
+                .bind(proposal_v2.request.request_identity.as_str()).execute(rd_pool).await.unwrap();
+            restore_after_checks(assert_unavailable_v2(&owner, sealed_v2.locator()), async {
+                sqlx::query("UPDATE public.rd_sealed_exploratory_replay_requests_v1 SET v2_canonical_request_bytes=$2 WHERE request_identity=$1")
+                    .bind(proposal_v2.request.request_identity.as_str()).bind(&original_v2_bytes).execute(rd_pool).await.unwrap();
+            })
+            .await;
+            let stale_v2 = owner
+                .lock_exploratory_replay_request_for_backtest_v2(sealed_v2.locator())
+                .await
+                .unwrap();
+            assert_eq!(
+                stale_v2.projection().availability,
+                ExploratoryReplayAvailabilityV1::Stale
+            );
+            assert_eq!(
+                stale_v2.projection().next_legal_action,
+                ExploratoryReplayNextLegalActionV1::ResolveOwnerCustody
+            );
+            assert!(stale_v2.readback().is_none());
+        },
+        async {
+            sqlx::query("UPDATE public.rd_sealed_exploratory_replay_requests_v1 SET lifecycle_state='FROZEN' WHERE request_identity=$1")
+                .bind(proposal_v2.request.request_identity.as_str()).execute(rd_pool).await.unwrap();
+        },
+    )
+    .await;
 
     let first = owner
         .commit_exploratory_replay_request_v1(proposal.clone())
@@ -2128,47 +2213,79 @@ async fn run_frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_
             .execute(rd_pool)
             .await
             .unwrap();
-        assert_unavailable(&owner, first.locator()).await;
-        assert_available_v2(&owner, sealed_v2.locator()).await;
-        sqlx::query(restore_sql)
-            .bind(&proposal.request_identity)
-            .execute(rd_pool)
-            .await
-            .unwrap();
+        restore_after_checks(
+            async {
+                assert_unavailable(&owner, first.locator()).await;
+                assert_available_v2(&owner, sealed_v2.locator()).await;
+            },
+            async {
+                sqlx::query(restore_sql)
+                    .bind(&proposal.request_identity)
+                    .execute(rd_pool)
+                    .await
+                    .unwrap();
+            },
+        )
+        .await;
     }
     sqlx::query("UPDATE public.rd_sealed_exploratory_replay_requests_v1 SET frozen_json=jsonb_set(frozen_json,'{proposal,dataset,digest}',to_jsonb('sha256:tampered'::text)) WHERE request_identity=$1")
         .bind(&proposal.request_identity).execute(rd_pool).await.unwrap();
-    assert_unavailable(&owner, first.locator()).await;
-    assert_available_v2(&owner, sealed_v2.locator()).await;
-    sqlx::query("UPDATE public.rd_sealed_exploratory_replay_requests_v1 SET frozen_json=jsonb_set(frozen_json,'{proposal,dataset,digest}',to_jsonb($2::text)) WHERE request_identity=$1")
-        .bind(&proposal.request_identity).bind(&proposal.dataset.digest).execute(rd_pool).await.unwrap();
+    restore_after_checks(
+        async {
+            assert_unavailable(&owner, first.locator()).await;
+            assert_available_v2(&owner, sealed_v2.locator()).await;
+        },
+        async {
+            sqlx::query("UPDATE public.rd_sealed_exploratory_replay_requests_v1 SET frozen_json=jsonb_set(frozen_json,'{proposal,dataset,digest}',to_jsonb($2::text)) WHERE request_identity=$1")
+                .bind(&proposal.request_identity).bind(&proposal.dataset.digest).execute(rd_pool).await.unwrap();
+        },
+    )
+    .await;
     sqlx::query("UPDATE public.rd_sealed_exploratory_replay_requests_v1 SET frozen_json=jsonb_set(frozen_json,'{proposal,admission,admission_digest}',to_jsonb('sha256:tampered'::text)) WHERE request_identity=$1")
         .bind(&proposal.request_identity).execute(rd_pool).await.unwrap();
-    assert_unavailable(&owner, first.locator()).await;
-    sqlx::query("UPDATE public.rd_sealed_exploratory_replay_requests_v1 SET frozen_json=jsonb_set(frozen_json,'{proposal,admission,admission_digest}',to_jsonb($2::text)) WHERE request_identity=$1")
-        .bind(&proposal.request_identity).bind(&proposal.admission.admission_digest).execute(rd_pool).await.unwrap();
+    restore_after_checks(assert_unavailable(&owner, first.locator()), async {
+        sqlx::query("UPDATE public.rd_sealed_exploratory_replay_requests_v1 SET frozen_json=jsonb_set(frozen_json,'{proposal,admission,admission_digest}',to_jsonb($2::text)) WHERE request_identity=$1")
+            .bind(&proposal.request_identity).bind(&proposal.admission.admission_digest).execute(rd_pool).await.unwrap();
+    })
+    .await;
     let product_edge_request_semantic_digest =
         internal_envelope["frozen"]["product_edge_request_semantic_digest"]
             .as_str()
             .unwrap();
     sqlx::query("UPDATE public.rd_sealed_exploratory_replay_requests_v1 SET frozen_json=jsonb_set(frozen_json,'{product_edge_request_semantic_digest}',to_jsonb('sha256:tampered'::text)) WHERE request_identity=$1")
         .bind(&proposal.request_identity).execute(rd_pool).await.unwrap();
-    assert_unavailable(&owner, first.locator()).await;
-    sqlx::query("UPDATE public.rd_sealed_exploratory_replay_requests_v1 SET frozen_json=jsonb_set(frozen_json,'{product_edge_request_semantic_digest}',to_jsonb($2::text)) WHERE request_identity=$1")
-        .bind(&proposal.request_identity).bind(product_edge_request_semantic_digest).execute(rd_pool).await.unwrap();
+    restore_after_checks(assert_unavailable(&owner, first.locator()), async {
+        sqlx::query("UPDATE public.rd_sealed_exploratory_replay_requests_v1 SET frozen_json=jsonb_set(frozen_json,'{product_edge_request_semantic_digest}',to_jsonb($2::text)) WHERE request_identity=$1")
+            .bind(&proposal.request_identity).bind(product_edge_request_semantic_digest).execute(rd_pool).await.unwrap();
+    })
+    .await;
     sqlx::query("UPDATE public.rd_owner_outbox_v1 SET event_kind='MISSING_FOR_TEST' WHERE aggregate_identity=$1 AND event_kind='EXPLORATORY_REPLAY_REQUEST_FROZEN_V1'")
         .bind(&proposal.request_identity).execute(rd_pool).await.unwrap();
-    assert_unavailable(&owner, first.locator()).await;
-    assert_available_v2(&owner, sealed_v2.locator()).await;
-    sqlx::query("UPDATE public.rd_owner_outbox_v1 SET event_kind='EXPLORATORY_REPLAY_REQUEST_FROZEN_V1' WHERE aggregate_identity=$1 AND event_kind='MISSING_FOR_TEST'")
-        .bind(&proposal.request_identity).execute(rd_pool).await.unwrap();
+    restore_after_checks(
+        async {
+            assert_unavailable(&owner, first.locator()).await;
+            assert_available_v2(&owner, sealed_v2.locator()).await;
+        },
+        async {
+            sqlx::query("UPDATE public.rd_owner_outbox_v1 SET event_kind='EXPLORATORY_REPLAY_REQUEST_FROZEN_V1' WHERE aggregate_identity=$1 AND event_kind='MISSING_FOR_TEST'")
+                .bind(&proposal.request_identity).execute(rd_pool).await.unwrap();
+        },
+    )
+    .await;
 
     sqlx::query("UPDATE public.rd_artifact_trial_family_bindings_v1 SET binding_digest=binding_digest||'-tampered' WHERE binding_identity=$1")
         .bind(&proposal.artifact_family_binding_identity).execute(rd_pool).await.unwrap();
-    assert_unavailable(&owner, first.locator()).await;
-    assert_unavailable_v2(&owner, sealed_v2.locator()).await;
-    sqlx::query("UPDATE public.rd_artifact_trial_family_bindings_v1 SET binding_digest=binding_json->>'binding_digest' WHERE binding_identity=$1")
-        .bind(&proposal.artifact_family_binding_identity).execute(rd_pool).await.unwrap();
+    restore_after_checks(
+        async {
+            assert_unavailable(&owner, first.locator()).await;
+            assert_unavailable_v2(&owner, sealed_v2.locator()).await;
+        },
+        async {
+            sqlx::query("UPDATE public.rd_artifact_trial_family_bindings_v1 SET binding_digest=binding_json->>'binding_digest' WHERE binding_identity=$1")
+                .bind(&proposal.artifact_family_binding_identity).execute(rd_pool).await.unwrap();
+        },
+    )
+    .await;
 
     for (break_sql, restore_sql, aggregate_identity) in [
         (
@@ -2207,24 +2324,31 @@ async fn run_frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_
             .execute(rd_pool)
             .await
             .unwrap();
-        assert!(matches!(
-            owner
-                .commit_exploratory_replay_request_v1(proposal.clone())
-                .await,
-            Err(ExploratoryReplayOwnerError::Unavailable(_))
-        ));
-        assert_unavailable(&owner, first.locator()).await;
-        assert_unavailable_v2(&owner, sealed_v2.locator()).await;
-        assert_eq!(
-            request_counts(rd_pool, &proposal.request_identity).await,
-            [1, 1]
-        );
-        sqlx::query(restore_sql)
-            .bind(aggregate_identity)
-            .bind(&proposal.request_identity)
-            .execute(rd_pool)
-            .await
-            .unwrap();
+        restore_after_checks(
+            async {
+                assert!(matches!(
+                    owner
+                        .commit_exploratory_replay_request_v1(proposal.clone())
+                        .await,
+                    Err(ExploratoryReplayOwnerError::Unavailable(_))
+                ));
+                assert_unavailable(&owner, first.locator()).await;
+                assert_unavailable_v2(&owner, sealed_v2.locator()).await;
+                assert_eq!(
+                    request_counts(rd_pool, &proposal.request_identity).await,
+                    [1, 1]
+                );
+            },
+            async {
+                sqlx::query(restore_sql)
+                    .bind(aggregate_identity)
+                    .bind(&proposal.request_identity)
+                    .execute(rd_pool)
+                    .await
+                    .unwrap();
+            },
+        )
+        .await;
         let restored = owner
             .commit_exploratory_replay_request_v1(proposal.clone())
             .await
@@ -2254,28 +2378,35 @@ async fn run_frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_
             .execute(rd_pool)
             .await
             .unwrap();
-        assert!(matches!(
-            owner
-                .commit_exploratory_replay_request_v1(proposal.clone())
-                .await,
-            Err(ExploratoryReplayOwnerError::Unavailable(_))
-        ));
-        assert_unavailable(&owner, first.locator()).await;
-        assert_raw_lock_not_available(
-            mutation.pool(CanonicalOwnerTestRoleV1::BacktestOwner),
-            first.locator(),
+        restore_after_checks(
+            async {
+                assert!(matches!(
+                    owner
+                        .commit_exploratory_replay_request_v1(proposal.clone())
+                        .await,
+                    Err(ExploratoryReplayOwnerError::Unavailable(_))
+                ));
+                assert_unavailable(&owner, first.locator()).await;
+                assert_raw_lock_not_available(
+                    mutation.pool(CanonicalOwnerTestRoleV1::BacktestOwner),
+                    first.locator(),
+                )
+                .await;
+                assert_eq!(
+                    request_counts(rd_pool, &proposal.request_identity).await,
+                    [1, 1]
+                );
+            },
+            async {
+                sqlx::query(restore_sql)
+                    .bind(aggregate_identity)
+                    .bind(restored_value)
+                    .execute(rd_pool)
+                    .await
+                    .unwrap();
+            },
         )
         .await;
-        assert_eq!(
-            request_counts(rd_pool, &proposal.request_identity).await,
-            [1, 1]
-        );
-        sqlx::query(restore_sql)
-            .bind(aggregate_identity)
-            .bind(restored_value)
-            .execute(rd_pool)
-            .await
-            .unwrap();
         let restored = owner
             .commit_exploratory_replay_request_v1(proposal.clone())
             .await
@@ -2302,26 +2433,33 @@ async fn run_frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_
         .bind(tampered_family_payload)
         .bind(dependency_payload_digest(&tampered_family))
         .execute(rd_pool).await.unwrap();
-    assert!(matches!(
-        owner
-            .commit_exploratory_replay_request_v1(proposal.clone())
-            .await,
-        Err(ExploratoryReplayOwnerError::Unavailable(_))
-    ));
-    assert_unavailable(&owner, first.locator()).await;
-    assert_unavailable_v2(&owner, sealed_v2.locator()).await;
-    assert_raw_lock_not_available(
-        mutation.pool(CanonicalOwnerTestRoleV1::BacktestOwner),
-        first.locator(),
+    restore_after_checks(
+        async {
+            assert!(matches!(
+                owner
+                    .commit_exploratory_replay_request_v1(proposal.clone())
+                    .await,
+                Err(ExploratoryReplayOwnerError::Unavailable(_))
+            ));
+            assert_unavailable(&owner, first.locator()).await;
+            assert_unavailable_v2(&owner, sealed_v2.locator()).await;
+            assert_raw_lock_not_available(
+                mutation.pool(CanonicalOwnerTestRoleV1::BacktestOwner),
+                first.locator(),
+            )
+            .await;
+            assert_eq!(
+                request_counts(rd_pool, &proposal.request_identity).await,
+                [1, 1]
+            );
+        },
+        async {
+            sqlx::query("UPDATE public.rd_owner_outbox_v1 SET payload_json=$2,payload_digest=$3 WHERE aggregate_identity=$1 AND event_kind='TRIAL_FAMILY_FROZEN_V1'")
+                .bind(&proposal.trial_family_identity).bind(family_payload).bind(family_digest)
+                .execute(rd_pool).await.unwrap();
+        },
     )
     .await;
-    assert_eq!(
-        request_counts(rd_pool, &proposal.request_identity).await,
-        [1, 1]
-    );
-    sqlx::query("UPDATE public.rd_owner_outbox_v1 SET payload_json=$2,payload_digest=$3 WHERE aggregate_identity=$1 AND event_kind='TRIAL_FAMILY_FROZEN_V1'")
-        .bind(&proposal.trial_family_identity).bind(family_payload).bind(family_digest)
-        .execute(rd_pool).await.unwrap();
 
     let (artifact_payload, artifact_digest): (serde_json::Value, String) = sqlx::query_as(
         "SELECT payload_json,payload_digest FROM public.rd_owner_outbox_v1 WHERE aggregate_identity=$1 AND event_kind='ARTIFACT_TRIAL_FAMILY_BOUND_V1'",
@@ -2339,25 +2477,32 @@ async fn run_frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_
         .bind(tampered_artifact_payload)
         .bind(dependency_payload_digest(&tampered_artifact))
         .execute(rd_pool).await.unwrap();
-    assert!(matches!(
-        owner
-            .commit_exploratory_replay_request_v1(proposal.clone())
-            .await,
-        Err(ExploratoryReplayOwnerError::Unavailable(_))
-    ));
-    assert_unavailable(&owner, first.locator()).await;
-    assert_raw_lock_not_available(
-        mutation.pool(CanonicalOwnerTestRoleV1::BacktestOwner),
-        first.locator(),
+    restore_after_checks(
+        async {
+            assert!(matches!(
+                owner
+                    .commit_exploratory_replay_request_v1(proposal.clone())
+                    .await,
+                Err(ExploratoryReplayOwnerError::Unavailable(_))
+            ));
+            assert_unavailable(&owner, first.locator()).await;
+            assert_raw_lock_not_available(
+                mutation.pool(CanonicalOwnerTestRoleV1::BacktestOwner),
+                first.locator(),
+            )
+            .await;
+            assert_eq!(
+                request_counts(rd_pool, &proposal.request_identity).await,
+                [1, 1]
+            );
+        },
+        async {
+            sqlx::query("UPDATE public.rd_owner_outbox_v1 SET payload_json=$2,payload_digest=$3 WHERE aggregate_identity=$1 AND event_kind='ARTIFACT_TRIAL_FAMILY_BOUND_V1'")
+                .bind(&proposal.artifact_identity).bind(artifact_payload).bind(artifact_digest)
+                .execute(rd_pool).await.unwrap();
+        },
     )
     .await;
-    assert_eq!(
-        request_counts(rd_pool, &proposal.request_identity).await,
-        [1, 1]
-    );
-    sqlx::query("UPDATE public.rd_owner_outbox_v1 SET payload_json=$2,payload_digest=$3 WHERE aggregate_identity=$1 AND event_kind='ARTIFACT_TRIAL_FAMILY_BOUND_V1'")
-        .bind(&proposal.artifact_identity).bind(artifact_payload).bind(artifact_digest)
-        .execute(rd_pool).await.unwrap();
     let restored = owner
         .commit_exploratory_replay_request_v1(proposal.clone())
         .await
@@ -2376,30 +2521,44 @@ async fn run_frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_
     .unwrap();
     sqlx::query("UPDATE public.rd_strategy_artifacts_v1 SET wasm_bytes=wasm_bytes||decode('00','hex') WHERE artifact_digest=$1")
         .bind(&proposal.artifact_identity).execute(rd_pool).await.unwrap();
-    assert_unavailable(&owner, first.locator()).await;
-    assert_unavailable_v2(&owner, sealed_v2.locator()).await;
-    sqlx::query(
-        "UPDATE public.rd_strategy_artifacts_v1 SET wasm_bytes=$2 WHERE artifact_digest=$1",
+    restore_after_checks(
+        async {
+            assert_unavailable(&owner, first.locator()).await;
+            assert_unavailable_v2(&owner, sealed_v2.locator()).await;
+        },
+        async {
+            sqlx::query(
+                "UPDATE public.rd_strategy_artifacts_v1 SET wasm_bytes=$2 WHERE artifact_digest=$1",
+            )
+            .bind(&proposal.artifact_identity)
+            .bind(wasm_bytes)
+            .execute(rd_pool)
+            .await
+            .unwrap();
+        },
     )
-    .bind(&proposal.artifact_identity)
-    .bind(wasm_bytes)
-    .execute(rd_pool)
-    .await
-    .unwrap();
+    .await;
 
     sqlx::query("UPDATE public.rd_sealed_exploratory_replay_requests_v1 SET lifecycle_state='REVOKED' WHERE request_identity=$1")
         .bind(&proposal.request_identity).execute(rd_pool).await.unwrap();
-    let stale = owner
-        .lock_exploratory_replay_request_for_backtest_v1(first.locator())
-        .await
-        .unwrap();
-    assert_eq!(
-        stale.projection().availability,
-        ExploratoryReplayAvailabilityV1::Stale
-    );
-    assert!(stale.readback().is_none());
-    sqlx::query("UPDATE public.rd_sealed_exploratory_replay_requests_v1 SET lifecycle_state='FROZEN' WHERE request_identity=$1")
-        .bind(&proposal.request_identity).execute(rd_pool).await.unwrap();
+    restore_after_checks(
+        async {
+            let stale = owner
+                .lock_exploratory_replay_request_for_backtest_v1(first.locator())
+                .await
+                .unwrap();
+            assert_eq!(
+                stale.projection().availability,
+                ExploratoryReplayAvailabilityV1::Stale
+            );
+            assert!(stale.readback().is_none());
+        },
+        async {
+            sqlx::query("UPDATE public.rd_sealed_exploratory_replay_requests_v1 SET lifecycle_state='FROZEN' WHERE request_identity=$1")
+                .bind(&proposal.request_identity).execute(rd_pool).await.unwrap();
+        },
+    )
+    .await;
 
     let restarted = PostgresResearchGoalOwnerV1::connect_with_backtest(
         &rd_url,

@@ -9,8 +9,8 @@
 [Product Edge](../architecture/product-edge/) 把一个有界目标从入口推进到权威结果及其下一个合法动作，
 而不需要手工拼接 Owner 数据库、回执、日志或终端输出时，面向用户的产品闭环才成立。
 
-- `CURRENT/PARTIAL` - `crates/strategy_factory` 提供从窄范围冻结 `ResearchIntent` 到 `StrategyArtifact`、
-  native replay 和 `TrialReceipt` 的 pilot。它是 `SURVIVED_NOT_ADMITTED`，不是完整 R&D 产品。
+- `CURRENT` - `crates/strategy_factory` 原先提供的从窄范围冻结 `ResearchIntent` 到 `StrategyArtifact`、
+  native replay 和 `TrialReceipt` 的 pilot，已随旧 formation 路径在 #1207 退役。
 - `TARGET` - 产品表面是 `product/dashboard` 里 Trade 自有的 Dashboard，展示 Source 与 Hypothesis、
   冻结 Intent、Artifact 与 Build Receipt、探索 Run Detail 与 Compare、Diagnosis、Iteration Decision，
   以及准确的停止、修复、后继或 Qualification 交接动作。Dashboard 与它的 `/api/mcp` 调用同一组带版本
