@@ -116,6 +116,12 @@ jobs:
               split[key] = split.get(key, 0) + old
           for (kind, state), old in sorted(split.items()):
               print(f"LANE8-P old bytes in {kind} entries, {state}: {old / 1e9:.3f} GB")
+          largest = sorted(
+              ((old, "/".join(entry)) for (kind, entry), (old, new, fresh) in entries.items() if kind == "deps" and not fresh),
+              reverse=True,
+          )[:20]
+          for old, name in largest:
+              print(f"LANE8-P old deps entry {old / 1e6:9.1f} MB  {name}")
           gb = lambda b: f"{b / 1e9:.2f} GB"
           print(f"LANE8-P marker {sha[:9]} at {t}")
           print(f"LANE8-P restored target {gb(total)}: workspace units built in the saving run {gb(ws_new)}, workspace units older than the marker {gb(ws_old)} (prunable), external {gb(ext)}")
