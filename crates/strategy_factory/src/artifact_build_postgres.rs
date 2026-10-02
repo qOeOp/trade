@@ -3507,7 +3507,7 @@ mod postgres_freshness_tests {
     };
     use vibe_testkit::postgres::{
         CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerPostgresTestMutationV1,
-        CanonicalOwnerTestRoleV1,
+        CanonicalOwnerTestRoleV1, restore_after_checks,
     };
 
     async fn legacy_drain_family_snapshot(pool: &PgPool) -> serde_json::Value {
@@ -3699,19 +3699,26 @@ mod postgres_freshness_tests {
         sqlx::query("UPDATE rd_artifact_build_attempts_v1 SET attempt_json=$1 WHERE build_request_identity=$2")
             .bind(serde_json::to_value(&nonterminal).unwrap()).bind(&build_request_identity)
             .execute(&owner.pool).await.unwrap();
-        assert!(matches!(
-            PostgresArtifactBuildOwnerV1::connect(
-                &database_url,
-                "/tmp/unused-rd-sandbox.sock",
-                u64::MAX,
-            )
-            .await,
-            Err(ArtifactBuildError::Storage(message))
-                if message.contains("undrained legacy nonterminal")
-        ));
-        sqlx::query("UPDATE rd_artifact_build_attempts_v1 SET attempt_json=$1 WHERE build_request_identity=$2")
-            .bind(terminal_json).bind(&build_request_identity)
-            .execute(&owner.pool).await.unwrap();
+        restore_after_checks(
+            async {
+                assert!(matches!(
+                    PostgresArtifactBuildOwnerV1::connect(
+                        &database_url,
+                        "/tmp/unused-rd-sandbox.sock",
+                        u64::MAX,
+                    )
+                    .await,
+                    Err(ArtifactBuildError::Storage(message))
+                        if message.contains("undrained legacy nonterminal")
+                ));
+            },
+            async {
+                sqlx::query("UPDATE rd_artifact_build_attempts_v1 SET attempt_json=$1 WHERE build_request_identity=$2")
+                    .bind(terminal_json).bind(&build_request_identity)
+                    .execute(&owner.pool).await.unwrap();
+            },
+        )
+        .await;
         assert_eq!(
             owner
                 .resolve_legacy_terminal_quarantined(&build_request_identity, &attempt_identity)
@@ -4316,30 +4323,38 @@ mod postgres_freshness_tests {
         sqlx::query("UPDATE rd_artifact_build_attempts_v1 SET attempt_json=$1 WHERE build_request_identity=$2")
             .bind(nonterminal).bind(&build_request_identity)
             .execute(&owner.pool).await.unwrap();
-        assert!(matches!(
-            owner.assert_activation_safe().await,
-            Err(ArtifactBuildError::Storage(message))
-                if message.contains("undrained legacy nonterminal")
-        ));
+        restore_after_checks(
+            async {
+                assert!(matches!(
+                    owner.assert_activation_safe().await,
+                    Err(ArtifactBuildError::Storage(message))
+                        if message.contains("undrained legacy nonterminal")
+                ));
 
-        let mut unknown = terminal_json;
-        unknown["unrecognized_custody"] = serde_json::json!(true);
-        sqlx::query("UPDATE rd_artifact_build_attempts_v1 SET attempt_json=$1 WHERE build_request_identity=$2")
-            .bind(unknown).bind(&build_request_identity)
-            .execute(&owner.pool).await.unwrap();
-        assert!(matches!(
-            owner.assert_activation_safe().await,
-            Err(ArtifactBuildError::Storage(message))
-                if message.contains("unclassified legacy attempt custody")
-        ));
-
-        // The ordered chain shares one store, and unclassified legacy custody blocks every later
-        // Owner activation. Remove the row this proof wrote.
-        sqlx::query("DELETE FROM rd_artifact_build_attempts_v1 WHERE build_request_identity=$1")
-            .bind(&build_request_identity)
-            .execute(&owner.pool)
-            .await
-            .unwrap();
+                let mut unknown = terminal_json;
+                unknown["unrecognized_custody"] = serde_json::json!(true);
+                sqlx::query("UPDATE rd_artifact_build_attempts_v1 SET attempt_json=$1 WHERE build_request_identity=$2")
+                    .bind(unknown).bind(&build_request_identity)
+                    .execute(&owner.pool).await.unwrap();
+                assert!(matches!(
+                    owner.assert_activation_safe().await,
+                    Err(ArtifactBuildError::Storage(message))
+                        if message.contains("unclassified legacy attempt custody")
+                ));
+            },
+            async {
+                // The ordered chain shares one store, and unclassified legacy custody blocks every
+                // later Owner activation. Remove the row this proof wrote.
+                sqlx::query(
+                    "DELETE FROM rd_artifact_build_attempts_v1 WHERE build_request_identity=$1",
+                )
+                .bind(&build_request_identity)
+                .execute(&owner.pool)
+                .await
+                .unwrap();
+            },
+        )
+        .await;
     }
 
     /// Where the operator authority a Research request was admitted under ends: the first cut at
@@ -5615,17 +5630,24 @@ mod postgres_freshness_tests {
                 .execute(&rd_pool)
                 .await
                 .unwrap();
-            assert!(matches!(
-                restarted_reader
-                    .read_governance_artifact_membership(&locator)
-                    .await,
-                Err(GovernanceArtifactMembershipReadErrorV1::Unavailable)
-            ));
-            sqlx::query(restore)
-                .bind(identity)
-                .execute(&rd_pool)
-                .await
-                .unwrap();
+            restore_after_checks(
+                async {
+                    assert!(matches!(
+                        restarted_reader
+                            .read_governance_artifact_membership(&locator)
+                            .await,
+                        Err(GovernanceArtifactMembershipReadErrorV1::Unavailable)
+                    ));
+                },
+                async {
+                    sqlx::query(restore)
+                        .bind(identity)
+                        .execute(&rd_pool)
+                        .await
+                        .unwrap();
+                },
+            )
+            .await;
             restarted_reader
                 .read_governance_artifact_membership(&locator)
                 .await
@@ -5645,23 +5667,30 @@ mod postgres_freshness_tests {
         .execute(&rd_pool)
         .await
         .unwrap();
-        assert!(matches!(
-            restarted_reader
-                .read_governance_artifact_membership(&locator)
-                .await,
-            Err(GovernanceArtifactMembershipReadErrorV1::Unavailable)
-        ));
-        sqlx::query(
-            "UPDATE rd_owner_outbox_v1 SET canonical_payload_bytes=$2,canonical_payload_storage_digest=$3,canonical_envelope_bytes=$4,canonical_envelope_storage_digest=$5 WHERE aggregate_identity=$1 AND event_kind='TRIAL_FAMILY_FROZEN_V1'",
+        restore_after_checks(
+            async {
+                assert!(matches!(
+                    restarted_reader
+                        .read_governance_artifact_membership(&locator)
+                        .await,
+                    Err(GovernanceArtifactMembershipReadErrorV1::Unavailable)
+                ));
+            },
+            async {
+                sqlx::query(
+                    "UPDATE rd_owner_outbox_v1 SET canonical_payload_bytes=$2,canonical_payload_storage_digest=$3,canonical_envelope_bytes=$4,canonical_envelope_storage_digest=$5 WHERE aggregate_identity=$1 AND event_kind='TRIAL_FAMILY_FROZEN_V1'",
+                )
+                .bind(&locator.trial_family_identity)
+                .bind(historical_outbox_custody.0)
+                .bind(historical_outbox_custody.1)
+                .bind(historical_outbox_custody.2)
+                .bind(historical_outbox_custody.3)
+                .execute(&rd_pool)
+                .await
+                .unwrap();
+            },
         )
-        .bind(&locator.trial_family_identity)
-        .bind(historical_outbox_custody.0)
-        .bind(historical_outbox_custody.1)
-        .bind(historical_outbox_custody.2)
-        .bind(historical_outbox_custody.3)
-        .execute(&rd_pool)
-        .await
-        .unwrap();
+        .await;
         restarted_reader
             .read_governance_artifact_membership(&locator)
             .await
@@ -5680,20 +5709,27 @@ mod postgres_freshness_tests {
         .execute(&rd_pool)
         .await
         .unwrap();
-        assert!(matches!(
-            restarted_reader
-                .read_governance_artifact_membership(&locator)
-                .await,
-            Err(GovernanceArtifactMembershipReadErrorV1::Unavailable)
-        ));
-        sqlx::query(
-            "UPDATE rd_trial_families_v1 SET root_storage_bytes=$2 WHERE trial_family_identity=$1",
+        restore_after_checks(
+            async {
+                assert!(matches!(
+                    restarted_reader
+                        .read_governance_artifact_membership(&locator)
+                        .await,
+                    Err(GovernanceArtifactMembershipReadErrorV1::Unavailable)
+                ));
+            },
+            async {
+                sqlx::query(
+                    "UPDATE rd_trial_families_v1 SET root_storage_bytes=$2 WHERE trial_family_identity=$1",
+                )
+                .bind(&locator.trial_family_identity)
+                .bind(historical_root_storage)
+                .execute(&rd_pool)
+                .await
+                .unwrap();
+            },
         )
-        .bind(&locator.trial_family_identity)
-        .bind(historical_root_storage)
-        .execute(&rd_pool)
-        .await
-        .unwrap();
+        .await;
         restarted_reader
             .read_governance_artifact_membership(&locator)
             .await
@@ -5894,30 +5930,38 @@ mod postgres_freshness_tests {
             .bind(expired.0).bind(expired.1).bind(expired.2).bind(&research_request_identity)
             .execute(&mut *rd_row_gate).await.unwrap();
         rd_row_gate.commit().await.unwrap();
-        assert!(matches!(
-            tokio::time::timeout(std::time::Duration::from_secs(5), &mut waiting)
+        restore_after_checks(
+            async {
+                assert!(matches!(
+                    tokio::time::timeout(std::time::Duration::from_secs(5), &mut waiting)
+                        .await
+                        .unwrap(),
+                    Err(vibe_product_edge::ProductEdgeError::Unavailable(_))
+                ));
+                let after_failure: (i64, i64, i64, i64, i64) = sqlx::query_as(
+                    "SELECT (SELECT COUNT(*) FROM product_edge_request_admissions_v1), (SELECT COUNT(*) FROM product_edge_owner_outbox_v1), (SELECT COUNT(*) FROM product_edge_effect_invocation_admissions_v1), (SELECT COUNT(*) FROM product_edge_effect_invocation_claims_v1), (SELECT COUNT(*) FROM product_edge_effect_invocation_states_v1)",
+                )
+                .fetch_one(pe_pool)
                 .await
-                .unwrap(),
-            Err(vibe_product_edge::ProductEdgeError::Unavailable(_))
-        ));
-        let after_failure: (i64, i64, i64, i64, i64) = sqlx::query_as(
-            "SELECT (SELECT COUNT(*) FROM product_edge_request_admissions_v1), (SELECT COUNT(*) FROM product_edge_owner_outbox_v1), (SELECT COUNT(*) FROM product_edge_effect_invocation_admissions_v1), (SELECT COUNT(*) FROM product_edge_effect_invocation_claims_v1), (SELECT COUNT(*) FROM product_edge_effect_invocation_states_v1)",
+                .unwrap();
+                assert_eq!(after_failure, before);
+                assert_eq!(
+                    sqlx::query_scalar::<_, i64>(
+                        "SELECT COUNT(*) FROM rd_artifact_build_attempts_v1",
+                    )
+                    .fetch_one(rd_pool)
+                    .await
+                    .unwrap(),
+                    rd_attempts_before
+                );
+            },
+            async {
+                sqlx::query("UPDATE rd_research_request_receipts_v1 SET view_json=$1, artifact_evidence_json=$2, artifact_evidence_digest=$3 WHERE request_identity=$4")
+                    .bind(&original.0).bind(&original.1).bind(&original.2).bind(&research_request_identity)
+                    .execute(rd_pool).await.unwrap();
+            },
         )
-        .fetch_one(pe_pool)
-        .await
-        .unwrap();
-        assert_eq!(after_failure, before);
-        assert_eq!(
-            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM rd_artifact_build_attempts_v1",)
-                .fetch_one(rd_pool)
-                .await
-                .unwrap(),
-            rd_attempts_before
-        );
-
-        sqlx::query("UPDATE rd_research_request_receipts_v1 SET view_json=$1, artifact_evidence_json=$2, artifact_evidence_digest=$3 WHERE request_identity=$4")
-            .bind(&original.0).bind(&original.1).bind(&original.2).bind(&research_request_identity)
-            .execute(rd_pool).await.unwrap();
+        .await;
         let admission = product_edge
             .admit_artifact_build_request(exact_request.clone())
             .await
@@ -5979,29 +6023,43 @@ mod postgres_freshness_tests {
         .bind(claim.claim_identity()).fetch_one(pe_pool).await.unwrap();
         sqlx::query("UPDATE product_edge_effect_invocation_admissions_v1 SET receipt_digest='sha256:corrupt' WHERE claim_identity=$1")
             .bind(claim.claim_identity()).execute(pe_pool).await.unwrap();
-        assert!(matches!(
-            product_edge
-                .claim_provider_invocation(claim_request.clone())
-                .await,
-            Err(vibe_product_edge::ProductEdgeError::Unavailable(_))
-        ));
-        sqlx::query("UPDATE product_edge_effect_invocation_admissions_v1 SET receipt_digest=$1, receipt_json=$2 WHERE claim_identity=$3")
-            .bind(&receipt_row.0).bind(&receipt_row.1).bind(claim.claim_identity())
-            .execute(pe_pool).await.unwrap();
+        restore_after_checks(
+            async {
+                assert!(matches!(
+                    product_edge
+                        .claim_provider_invocation(claim_request.clone())
+                        .await,
+                    Err(vibe_product_edge::ProductEdgeError::Unavailable(_))
+                ));
+            },
+            async {
+                sqlx::query("UPDATE product_edge_effect_invocation_admissions_v1 SET receipt_digest=$1, receipt_json=$2 WHERE claim_identity=$3")
+                    .bind(&receipt_row.0).bind(&receipt_row.1).bind(claim.claim_identity())
+                    .execute(pe_pool).await.unwrap();
+            },
+        )
+        .await;
         let original_claim_digest: String = sqlx::query_scalar(
             "SELECT claim_digest FROM product_edge_effect_invocation_claims_v1 WHERE claim_identity=$1",
         )
         .bind(claim.claim_identity()).fetch_one(pe_pool).await.unwrap();
         sqlx::query("UPDATE product_edge_effect_invocation_claims_v1 SET claim_digest='sha256:corrupt' WHERE claim_identity=$1")
             .bind(claim.claim_identity()).execute(pe_pool).await.unwrap();
-        assert!(matches!(
-            product_edge
-                .claim_provider_invocation(claim_request.clone())
-                .await,
-            Err(vibe_product_edge::ProductEdgeError::Unavailable(_))
-        ));
-        sqlx::query("UPDATE product_edge_effect_invocation_claims_v1 SET claim_digest=$1 WHERE claim_identity=$2")
-            .bind(&original_claim_digest).bind(claim.claim_identity()).execute(pe_pool).await.unwrap();
+        restore_after_checks(
+            async {
+                assert!(matches!(
+                    product_edge
+                        .claim_provider_invocation(claim_request.clone())
+                        .await,
+                    Err(vibe_product_edge::ProductEdgeError::Unavailable(_))
+                ));
+            },
+            async {
+                sqlx::query("UPDATE product_edge_effect_invocation_claims_v1 SET claim_digest=$1 WHERE claim_identity=$2")
+                    .bind(&original_claim_digest).bind(claim.claim_identity()).execute(pe_pool).await.unwrap();
+            },
+        )
+        .await;
 
         let reservation_claim = product_edge
             .claim_provider_invocation(claim_request.clone())
@@ -6035,38 +6093,45 @@ mod postgres_freshness_tests {
         .execute(rd_pool)
         .await
         .unwrap();
-        let before_rejected_start: (serde_json::Value, i64) = sqlx::query_as(
-            "SELECT state_json, (SELECT COUNT(*) FROM product_edge_owner_outbox_v1) FROM product_edge_effect_invocation_states_v1 WHERE claim_identity=$1",
+        restore_after_checks(
+            async {
+                let before_rejected_start: (serde_json::Value, i64) = sqlx::query_as(
+                    "SELECT state_json, (SELECT COUNT(*) FROM product_edge_owner_outbox_v1) FROM product_edge_effect_invocation_states_v1 WHERE claim_identity=$1",
+                )
+                .bind(claim.claim_identity())
+                .fetch_one(pe_pool)
+                .await
+                .unwrap();
+                assert!(matches!(
+                    product_edge
+                        .start_provider_invocation(tampered_start_reservation)
+                        .await,
+                    Err(vibe_product_edge::ProductEdgeError::Unavailable(_))
+                ));
+                let after_rejected_start: (serde_json::Value, i64) = sqlx::query_as(
+                    "SELECT state_json, (SELECT COUNT(*) FROM product_edge_owner_outbox_v1) FROM product_edge_effect_invocation_states_v1 WHERE claim_identity=$1",
+                )
+                .bind(claim.claim_identity())
+                .fetch_one(pe_pool)
+                .await
+                .unwrap();
+                assert_eq!(
+                    after_rejected_start, before_rejected_start,
+                    "a reservation that no longer resolves canonically must not start or emit an outbox event"
+                );
+            },
+            async {
+                sqlx::query(
+                    "UPDATE rd_artifact_build_attempts_v1 SET attempt_json=$1 WHERE build_request_identity=$2",
+                )
+                .bind(&original_attempt_json)
+                .bind(&build_request_identity)
+                .execute(rd_pool)
+                .await
+                .unwrap();
+            },
         )
-        .bind(claim.claim_identity())
-        .fetch_one(pe_pool)
-        .await
-        .unwrap();
-        assert!(matches!(
-            product_edge
-                .start_provider_invocation(tampered_start_reservation)
-                .await,
-            Err(vibe_product_edge::ProductEdgeError::Unavailable(_))
-        ));
-        let after_rejected_start: (serde_json::Value, i64) = sqlx::query_as(
-            "SELECT state_json, (SELECT COUNT(*) FROM product_edge_owner_outbox_v1) FROM product_edge_effect_invocation_states_v1 WHERE claim_identity=$1",
-        )
-        .bind(claim.claim_identity())
-        .fetch_one(pe_pool)
-        .await
-        .unwrap();
-        assert_eq!(
-            after_rejected_start, before_rejected_start,
-            "a reservation that no longer resolves canonically must not start or emit an outbox event"
-        );
-        sqlx::query(
-            "UPDATE rd_artifact_build_attempts_v1 SET attempt_json=$1 WHERE build_request_identity=$2",
-        )
-        .bind(&original_attempt_json)
-        .bind(&build_request_identity)
-        .execute(rd_pool)
-        .await
-        .unwrap();
+        .await;
         let start_claim = product_edge
             .claim_provider_invocation(claim_request.clone())
             .await
@@ -6090,134 +6155,150 @@ mod postgres_freshness_tests {
         sqlx::query("UPDATE rd_research_request_receipts_v1 SET view_json=$1, artifact_evidence_json=$2, artifact_evidence_digest=$3 WHERE request_identity=$4")
             .bind(historical_expired.0).bind(historical_expired.1).bind(historical_expired.2)
             .bind(&research_request_identity).execute(rd_pool).await.unwrap();
-        let started_events_before: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM product_edge_owner_outbox_v1 WHERE event_kind='PRODUCT_EDGE_PROVIDER_INVOCATION_STARTED_V1' AND aggregate_identity=$1",
-        )
-        .bind(claim.claim_identity())
-        .fetch_one(pe_pool)
-        .await
-        .unwrap();
-        let mut rd_start_gate = rd_pool.begin().await.unwrap();
-        sqlx::query(
-            "SELECT build_request_identity FROM rd_artifact_build_attempts_v1 WHERE build_request_identity=$1 FOR UPDATE",
-        )
-        .bind(&build_request_identity)
-        .fetch_one(&mut *rd_start_gate)
-        .await
-        .unwrap();
-        let starting = product_edge.start_provider_invocation(start_reservation);
-        tokio::pin!(starting);
-        assert!(
-            tokio::time::timeout(std::time::Duration::from_millis(100), &mut starting)
+        restore_after_checks(
+            async {
+                let started_events_before: i64 = sqlx::query_scalar(
+                    "SELECT COUNT(*) FROM product_edge_owner_outbox_v1 WHERE event_kind='PRODUCT_EDGE_PROVIDER_INVOCATION_STARTED_V1' AND aggregate_identity=$1",
+                )
+                .bind(claim.claim_identity())
+                .fetch_one(pe_pool)
                 .await
-                .is_err(),
-            "Product Edge start must wait for canonical R&D reservation custody"
-        );
-        let lock_error = sqlx::query_scalar::<_, i64>(
-            "SELECT 1 FROM product_edge_effect_invocation_states_v1 WHERE claim_identity=$1 FOR UPDATE NOWAIT",
-        )
-        .bind(claim.claim_identity())
-        .fetch_one(pe_pool)
-        .await
-        .unwrap_err();
-        assert_eq!(
-            lock_error
-                .as_database_error()
-                .and_then(|e| e.code())
-                .as_deref(),
-            Some("55P03"),
-            "Product Edge must hold its state lock before waiting on R&D"
-        );
-        rd_start_gate.commit().await.unwrap();
-        let started = tokio::time::timeout(std::time::Duration::from_secs(5), &mut starting)
-            .await
-            .unwrap()
-            .unwrap();
-        assert_eq!(
-            started.disposition(),
-            vibe_product_edge::ProductEdgeInvocationStartDispositionV1::StartedNew
-        );
-        let started_events_after_first: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM product_edge_owner_outbox_v1 WHERE event_kind='PRODUCT_EDGE_PROVIDER_INVOCATION_STARTED_V1' AND aggregate_identity=$1",
-        )
-        .bind(claim.claim_identity())
-        .fetch_one(pe_pool)
-        .await
-        .unwrap();
-        assert_eq!(started_events_after_first, started_events_before + 1);
-        let retry_claim = product_edge
-            .claim_provider_invocation(claim_request.clone())
-            .await
-            .unwrap();
-        let retry_reservation = artifact_owner
-            .reserve_provider_invocation_custody(
-                &build_request_identity,
-                &attempt_identity,
-                retry_claim,
-            )
-            .await
-            .unwrap();
-        let (retry_start_reservation, _invocation_custody) = retry_reservation.into_parts();
-        assert_eq!(
-            product_edge
-                .start_provider_invocation(retry_start_reservation)
+                .unwrap();
+                let mut rd_start_gate = rd_pool.begin().await.unwrap();
+                sqlx::query(
+                    "SELECT build_request_identity FROM rd_artifact_build_attempts_v1 WHERE build_request_identity=$1 FOR UPDATE",
+                )
+                .bind(&build_request_identity)
+                .fetch_one(&mut *rd_start_gate)
                 .await
-                .unwrap()
-                .disposition(),
-            vibe_product_edge::ProductEdgeInvocationStartDispositionV1::OutcomeUnknown
-        );
-        let started_events_after_retry: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM product_edge_owner_outbox_v1 WHERE event_kind='PRODUCT_EDGE_PROVIDER_INVOCATION_STARTED_V1' AND aggregate_identity=$1",
-        )
-        .bind(claim.claim_identity())
-        .fetch_one(pe_pool)
-        .await
-        .unwrap();
-        assert_eq!(started_events_after_retry, started_events_after_first);
-        let state_row: (String, serde_json::Value) = sqlx::query_as(
-            "SELECT state_digest, state_json FROM product_edge_effect_invocation_states_v1 WHERE claim_identity=$1",
-        )
-        .bind(claim.claim_identity()).fetch_one(pe_pool).await.unwrap();
-        sqlx::query("UPDATE product_edge_effect_invocation_states_v1 SET state_digest='sha256:corrupt' WHERE claim_identity=$1")
-            .bind(claim.claim_identity()).execute(pe_pool).await.unwrap();
-        assert!(matches!(
-            product_edge
-                .claim_provider_invocation(claim_request.clone())
-                .await,
-            Err(vibe_product_edge::ProductEdgeError::Unavailable(_))
-        ));
-        sqlx::query("UPDATE product_edge_effect_invocation_states_v1 SET state_digest=$1, state_json=$2 WHERE claim_identity=$3")
-            .bind(&state_row.0).bind(&state_row.1).bind(claim.claim_identity())
-            .execute(pe_pool).await.unwrap();
-        let after_started: (i64, i64, i64, i64, i64) = sqlx::query_as(
-            "SELECT (SELECT COUNT(*) FROM product_edge_request_admissions_v1), (SELECT COUNT(*) FROM product_edge_owner_outbox_v1), (SELECT COUNT(*) FROM product_edge_effect_invocation_admissions_v1), (SELECT COUNT(*) FROM product_edge_effect_invocation_claims_v1), (SELECT COUNT(*) FROM product_edge_effect_invocation_states_v1)",
-        )
-        .fetch_one(pe_pool).await.unwrap();
-        assert_eq!(
-            product_edge
-                .admit_artifact_build_request(exact_request)
+                .unwrap();
+                let starting = product_edge.start_provider_invocation(start_reservation);
+                tokio::pin!(starting);
+                assert!(
+                    tokio::time::timeout(std::time::Duration::from_millis(100), &mut starting)
+                        .await
+                        .is_err(),
+                    "Product Edge start must wait for canonical R&D reservation custody"
+                );
+                let lock_error = sqlx::query_scalar::<_, i64>(
+                    "SELECT 1 FROM product_edge_effect_invocation_states_v1 WHERE claim_identity=$1 FOR UPDATE NOWAIT",
+                )
+                .bind(claim.claim_identity())
+                .fetch_one(pe_pool)
                 .await
-                .unwrap(),
-            admission,
-            "historical exact replay must not refresh current R&D authority"
-        );
-        let after_replay: (i64, i64, i64, i64, i64) = sqlx::query_as(
-            "SELECT (SELECT COUNT(*) FROM product_edge_request_admissions_v1), (SELECT COUNT(*) FROM product_edge_owner_outbox_v1), (SELECT COUNT(*) FROM product_edge_effect_invocation_admissions_v1), (SELECT COUNT(*) FROM product_edge_effect_invocation_claims_v1), (SELECT COUNT(*) FROM product_edge_effect_invocation_states_v1)",
-        )
-        .fetch_one(pe_pool)
-        .await
-        .unwrap();
-        assert_eq!(after_replay, after_started);
-        assert_eq!(
-            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM rd_artifact_build_attempts_v1",)
-                .fetch_one(rd_pool)
+                .unwrap_err();
+                assert_eq!(
+                    lock_error
+                        .as_database_error()
+                        .and_then(|e| e.code())
+                        .as_deref(),
+                    Some("55P03"),
+                    "Product Edge must hold its state lock before waiting on R&D"
+                );
+                rd_start_gate.commit().await.unwrap();
+                let started =
+                    tokio::time::timeout(std::time::Duration::from_secs(5), &mut starting)
+                        .await
+                        .unwrap()
+                        .unwrap();
+                assert_eq!(
+                    started.disposition(),
+                    vibe_product_edge::ProductEdgeInvocationStartDispositionV1::StartedNew
+                );
+                let started_events_after_first: i64 = sqlx::query_scalar(
+                    "SELECT COUNT(*) FROM product_edge_owner_outbox_v1 WHERE event_kind='PRODUCT_EDGE_PROVIDER_INVOCATION_STARTED_V1' AND aggregate_identity=$1",
+                )
+                .bind(claim.claim_identity())
+                .fetch_one(pe_pool)
                 .await
-                .unwrap(),
-            rd_attempts_before + 1
-        );
-        sqlx::query("UPDATE rd_research_request_receipts_v1 SET view_json=$1, artifact_evidence_json=$2, artifact_evidence_digest=$3 WHERE request_identity=$4")
-            .bind(&original.0).bind(&original.1).bind(&original.2).bind(&research_request_identity)
-            .execute(rd_pool).await.unwrap();
+                .unwrap();
+                assert_eq!(started_events_after_first, started_events_before + 1);
+                let retry_claim = product_edge
+                    .claim_provider_invocation(claim_request.clone())
+                    .await
+                    .unwrap();
+                let retry_reservation = artifact_owner
+                    .reserve_provider_invocation_custody(
+                        &build_request_identity,
+                        &attempt_identity,
+                        retry_claim,
+                    )
+                    .await
+                    .unwrap();
+                let (retry_start_reservation, _invocation_custody) =
+                    retry_reservation.into_parts();
+                assert_eq!(
+                    product_edge
+                        .start_provider_invocation(retry_start_reservation)
+                        .await
+                        .unwrap()
+                        .disposition(),
+                    vibe_product_edge::ProductEdgeInvocationStartDispositionV1::OutcomeUnknown
+                );
+                let started_events_after_retry: i64 = sqlx::query_scalar(
+                    "SELECT COUNT(*) FROM product_edge_owner_outbox_v1 WHERE event_kind='PRODUCT_EDGE_PROVIDER_INVOCATION_STARTED_V1' AND aggregate_identity=$1",
+                )
+                .bind(claim.claim_identity())
+                .fetch_one(pe_pool)
+                .await
+                .unwrap();
+                assert_eq!(started_events_after_retry, started_events_after_first);
+                let state_row: (String, serde_json::Value) = sqlx::query_as(
+                    "SELECT state_digest, state_json FROM product_edge_effect_invocation_states_v1 WHERE claim_identity=$1",
+                )
+                .bind(claim.claim_identity()).fetch_one(pe_pool).await.unwrap();
+                sqlx::query("UPDATE product_edge_effect_invocation_states_v1 SET state_digest='sha256:corrupt' WHERE claim_identity=$1")
+                    .bind(claim.claim_identity()).execute(pe_pool).await.unwrap();
+                restore_after_checks(
+                    async {
+                        assert!(matches!(
+                            product_edge
+                                .claim_provider_invocation(claim_request.clone())
+                                .await,
+                            Err(vibe_product_edge::ProductEdgeError::Unavailable(_))
+                        ));
+                    },
+                    async {
+                        sqlx::query("UPDATE product_edge_effect_invocation_states_v1 SET state_digest=$1, state_json=$2 WHERE claim_identity=$3")
+                            .bind(&state_row.0).bind(&state_row.1).bind(claim.claim_identity())
+                            .execute(pe_pool).await.unwrap();
+                    },
+                )
+                .await;
+                let after_started: (i64, i64, i64, i64, i64) = sqlx::query_as(
+                    "SELECT (SELECT COUNT(*) FROM product_edge_request_admissions_v1), (SELECT COUNT(*) FROM product_edge_owner_outbox_v1), (SELECT COUNT(*) FROM product_edge_effect_invocation_admissions_v1), (SELECT COUNT(*) FROM product_edge_effect_invocation_claims_v1), (SELECT COUNT(*) FROM product_edge_effect_invocation_states_v1)",
+                )
+                .fetch_one(pe_pool).await.unwrap();
+                assert_eq!(
+                    product_edge
+                        .admit_artifact_build_request(exact_request)
+                        .await
+                        .unwrap(),
+                    admission,
+                    "historical exact replay must not refresh current R&D authority"
+                );
+                let after_replay: (i64, i64, i64, i64, i64) = sqlx::query_as(
+                    "SELECT (SELECT COUNT(*) FROM product_edge_request_admissions_v1), (SELECT COUNT(*) FROM product_edge_owner_outbox_v1), (SELECT COUNT(*) FROM product_edge_effect_invocation_admissions_v1), (SELECT COUNT(*) FROM product_edge_effect_invocation_claims_v1), (SELECT COUNT(*) FROM product_edge_effect_invocation_states_v1)",
+                )
+                .fetch_one(pe_pool)
+                .await
+                .unwrap();
+                assert_eq!(after_replay, after_started);
+                assert_eq!(
+                    sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM rd_artifact_build_attempts_v1",)
+                        .fetch_one(rd_pool)
+                        .await
+                        .unwrap(),
+                    rd_attempts_before + 1
+                );
+            },
+            async {
+                sqlx::query("UPDATE rd_research_request_receipts_v1 SET view_json=$1, artifact_evidence_json=$2, artifact_evidence_digest=$3 WHERE request_identity=$4")
+                    .bind(&original.0).bind(&original.1).bind(&original.2).bind(&research_request_identity)
+                    .execute(rd_pool).await.unwrap();
+            },
+        )
+        .await;
     }
 
     #[derive(Debug, PartialEq)]

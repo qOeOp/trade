@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Self-test for scripts/ci/workspace_mtimes.py. Each case must answer both ways:
 # - reuse sets unchanged files to T - 1 and changed files, of any kind, to after T;
+# - reuse sets a directory to after T when a path below it changed or went away, and to T - 1
+#   otherwise, and verify names a directory left wrong either way;
 # - verify fails by name when a changed file is left at T - 1, for a source file and for a file
 #   only `include_str!` reads (a missed touch there is the same false green);
 # - a member crate's manifest is an ordinary changed file, while a workspace manifest change, a
@@ -25,11 +27,14 @@ fail() {
 source "$repo_root/scripts/lib/git-isolation.bash"
 init_fixture_repository "$work"
 cd "$work"
-mkdir -p crate/src crate/sql
+mkdir -p crate/src crate/sql crate/schemas/nested crate/gone
 printf '[package]\nname = "c"\n' > crate/Cargo.toml
 printf 'pub fn a() {}\n' > crate/src/lib.rs
 printf 'pub fn b() {}\n' > crate/src/b.rs
 printf 'SELECT 1;\n' > crate/sql/query.sql
+printf 'struct A {}\n' > crate/schemas/nested/a.capnp
+printf 'kept\n' > crate/gone/kept.txt
+printf 'removed\n' > crate/gone/removed.txt
 git add -A
 git commit -q -m cached
 
@@ -41,6 +46,7 @@ sleep 1
 
 printf 'pub fn a() { let _ = 1; }\n' > crate/src/lib.rs
 printf 'SELECT 2;\n' > crate/sql/query.sql
+git rm -q crate/gone/removed.txt
 git commit -q -am change
 
 # Positive: reuse, then every file carries the mtime its content calls for.
@@ -51,6 +57,11 @@ out="$(python3 "$tool" reuse "$target")" || fail "reuse failed: $out"
 [[ "$(mtime crate/Cargo.toml)" -eq $((recorded - 1)) ]] || fail "unchanged Cargo.toml not set to T - 1"
 [[ "$(mtime crate/src/lib.rs)" -gt "$recorded" ]] || fail "changed lib.rs not after T"
 [[ "$(mtime crate/sql/query.sql)" -gt "$recorded" ]] || fail "changed query.sql not after T"
+[[ "$(mtime crate/schemas)" -eq $((recorded - 1)) ]] || fail "unchanged directory crate/schemas not set to T - 1"
+[[ "$(mtime crate/schemas/nested)" -eq $((recorded - 1)) ]] || fail "unchanged directory crate/schemas/nested not T - 1"
+[[ "$(mtime crate/src)" -gt "$recorded" ]] || fail "crate/src, above a changed file, not after T"
+[[ "$(mtime crate/gone)" -gt "$recorded" ]] || fail "crate/gone, which lost a file, not after T"
+[[ "$(mtime crate)" -gt "$recorded" ]] || fail "crate, above every change, not after T"
 python3 "$tool" verify "$target" > /dev/null || fail "verify rejected a correct reuse"
 
 # A stashed path dependency is unpacked by reuse, back where main built it.
@@ -84,6 +95,21 @@ for missed in crate/src/lib.rs crate/sql/query.sql; do
   fi
   [[ "$err" == *"WRONG MTIME $missed:"* ]] || fail "verify did not name $missed: $err"
 done
+python3 "$tool" reuse "$target" > /dev/null
+
+# A directory left wrong fails by name both ways: one that lost a file left at T - 1 hides the
+# removal, and an unchanged one left at checkout time rebuilds whatever watches it.
+python3 -c 'import os, sys; t = int(sys.argv[2]); os.utime(sys.argv[1], (t, t))' crate/gone $((recorded - 1))
+if err="$(python3 "$tool" verify "$target" 2>&1)"; then
+  fail "verify passed with crate/gone left at T - 1"
+fi
+[[ "$err" == *"WRONG MTIME crate/gone/:"* ]] || fail "verify did not name crate/gone: $err"
+python3 "$tool" reuse "$target" > /dev/null
+touch crate/schemas/nested
+if err="$(python3 "$tool" verify "$target" 2>&1)"; then
+  fail "verify passed with unchanged crate/schemas/nested set to now"
+fi
+[[ "$err" == *"WRONG MTIME crate/schemas/nested/:"* ]] || fail "verify did not name crate/schemas/nested: $err"
 python3 "$tool" reuse "$target" > /dev/null
 
 # An unchanged file bumped to now also fails: it would rebuild, but it means the mapping is off.
