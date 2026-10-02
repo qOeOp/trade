@@ -10107,8 +10107,10 @@ dependencies = [
  "proptest",
  "pyo3",
  "pyo3-stub-gen",
+ "rcgen",
  "rstest",
  "rust_decimal",
+ "rustls",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -11008,8 +11010,15 @@ dependencies = [
 name = "vibe-postgres-connect"
 version = "0.62.0"
 dependencies = [
+ "rcgen",
  "rstest",
+ "rustls",
+ "sha2 0.10.9",
  "sqlx",
+ "tempfile",
+ "thiserror 2.0.19",
+ "tokio",
+ "tokio-rustls",
 ]
 
 [[package]]
