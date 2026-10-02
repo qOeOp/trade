@@ -138,3 +138,4 @@ logged_at,loop,candidate,stage,n,edge,lo,hi,passed,note
 2026-10-01T19:05:39+00:00,P-4 R-3,familyR,iteration,613,+0.2351,+0.0620,+0.4155,True,"Ronnie 2024-25 method, daily"
 2026-10-01T19:06:49+00:00,R-1,familyR,holdout,922,+nan,+nan,+nan,True,sealed; stage-2 read
 2026-10-02T01:28:55+00:00,R-1,familyR,rerun-holdout,922,+nan,+nan,+nan,True,"sealed; stage-2 read stage-2 verdict with SESOI, user-authorized"
+2026-10-02T02:37:45+00:00,X-R1,R-1 exits,iteration,862,+1.9522,+nan,+nan,True,"exit grid of 45; plateau choice (np.float64(0.5), np.float64(0.5), '1.5R'); PBO 0.45; edge column holds the Sharpe"

@@ -2,6 +2,9 @@
 daily close through a confirmed daily pivot high (low) in the daily trend's direction, a limit order at the broken level,
 valid 10 days; stop 0.25 ATR beyond the zone; target 2R; at most 60 days. Records only: no orders, no exchange account.
 
+R-1x (added 2026-10-02): the same orders with the X-R1 plateau exit (zone cap 0.5 ATR, buffer 0.5 ATR, target 1.5R),
+scored as a paired comparison against R-1.
+
 Usage: python roleflip/forward.py          log new resting limit orders armed at the last closed UTC day
                                            (roleflip/forward/orders.csv; the commit is the timestamp proof)
        python roleflip/forward.py score    fills after logging, then stop / target / 60-day exit, in R; fee 0.06% a side
@@ -25,7 +28,8 @@ from tv_prices import fetch  # noqa: E402
 COINS = tuple(E.ITER_COINS) + tuple(E.VAL_COINS)
 START = pd.Timestamp("2026-10-02", tz="UTC")
 OUT = os.path.join(HERE, "forward", "orders.csv")
-FIELDS = ["logged_at", "coin", "side", "break_day", "limit", "stop", "target", "valid_until", "code"]
+FIELDS = ["logged_at", "coin", "side", "break_day", "limit", "stop", "target", "valid_until", "code", "stop_x", "target_x"]
+CAP_X, BUF_X, TGT_X = 0.5, 0.5, 1.5  # R-1x, the X-R1 plateau choice (loop/LOG.md)
 FEE = 0.0006
 
 
@@ -59,8 +63,11 @@ def armed(d):
         lower = max(edge, lvl - a) if side == 1 else min(edge, lvl + a)
         stop = lower - side * FR.BUF * a
         risk = abs(lvl - stop)
+        lower_x = max(edge, lvl - CAP_X * a) if side == 1 else min(edge, lvl + CAP_X * a)
+        stop_x = lower_x - side * BUF_X * a
         out.append(dict(side=side, break_day=str(d.index[i].date()), limit=lvl, stop=stop,
-                        target=lvl + side * 2 * risk, valid_until=str((d.index[i] + pd.Timedelta(days=FR.VALID)).date())))
+                        target=lvl + side * 2 * risk, valid_until=str((d.index[i] + pd.Timedelta(days=FR.VALID)).date()),
+                        stop_x=stop_x, target_x=lvl + side * TGT_X * abs(lvl - stop_x)))
     return out
 
 

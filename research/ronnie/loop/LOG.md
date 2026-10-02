@@ -1935,3 +1935,40 @@ estimate is at least SESOI on the 69 post-2022 holdout coins.
   - If the live edge equals the development edge (+0.21R; per-trade standard deviation about 1.4R), the scale-up bound
     is reached in about 170 trades, roughly two years.
   - At half the edge, about 680 trades, roughly seven years.
+
+## Exit iteration X-R1: R-1's stop and target (registered before running; the user asked for our own stop and target iteration)
+
+- **Entries unchanged** (R-1's trigger and limit). Only the stop and target vary.
+- **Grid (45):**
+  - zone cap of 0.25, 0.5 or 1.0 daily ATR (0.25 is his measured zone width; 1.0 is R-1);
+  - stop buffer of 0.1, 0.25 or 0.5 ATR;
+  - target of 1.5R, 2R, 3R, structure (the nearest confirmed pivot beyond the entry; 3R if none; his stated target)
+    or none (the 60-day exit).
+- **Data:** development only (53 coins, 2018-2022).
+- **Metric:** Sharpe of the weekly R stream at a fixed risk per trade, which is comparable across stop widths (not R per
+  trade).
+- **Selection rule (fixed now):** the variant with the best mean Sharpe over itself and its neighbours (one step in zone
+  cap or buffer, same target). A plateau, not the peak.
+- **Overfitting check:** CSCV PBO over the 45 variants, 12 blocks. If PBO > 0.5, no variant is adopted and R-1 stays.
+- **Validation:** none on the holdout, which R-1 already spent. The chosen variant (R-1x) is recorded forward beside
+  R-1. Entries are identical, so the decision on 2027-10-01 is the paired per-trade difference, week-clustered, above
+  zero.
+- **Predicted:** a narrower zone (0.25-0.5) with a structure or 2-3R target edges out R-1. PBO about 0.3. The gain is
+  modest (Sharpe +0.1 to +0.3).
+
+**Result X-R1** (`loop/r1_exits.py`, `loop/r1_exits.txt`):
+- **Grid baseline:** R-1 as registered (zone cap 1.0, buffer 0.25, 2R) has Sharpe 1.80 on 862 trades. The grid scores
+  from the first bar with its own walk, so its counts differ from P-4's 650.
+- **Plateau choice (0.5, 0.5, 1.5R):** Sharpe 1.95, neighbourhood 1.90. The best single cell is (0.5, 0.25, 2R) at 1.99.
+- **PBO 0.45:** under the 0.5 bar but close to a coin flip, so the differences between exits are mostly noise.
+- **By dimension:**
+  - targets: 1.5R 1.63, 2R 1.59, 3R 1.52, none 1.43, structure (his prior-high target) 1.12;
+  - buffers: 0.1 1.21, 0.25 1.59, 0.5 1.58;
+  - zone caps: 0.25 (his measured width) 1.41, 0.5 1.51, 1.0 1.46.
+- **Reading:**
+  - Fixed 1.5-2R targets beat his structure targets clearly.
+  - Stops tighter than 0.25 ATR beyond the zone hurt.
+  - His narrow zones are no better.
+  - R-1's registered exit sits on the plateau already.
+- **Per the registered rule, R-1x (0.5, 0.5, 1.5R) joins the forward record beside R-1.** Same orders, so the
+  2027-10-01 decision is the paired per-trade difference. The predicted gain was +0.1 to +0.3 Sharpe; +0.15 came.
