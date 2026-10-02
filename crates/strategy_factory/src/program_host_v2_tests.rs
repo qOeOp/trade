@@ -744,7 +744,7 @@ fn fixture_from_design_and_body(
     else {
         panic!("fixture compiles")
     };
-    let artifact = StrategyArtifactV2::issue(&plan, vec![build]).unwrap();
+    let artifact = StrategyArtifactV2::issue_versioned(&plan, vec![build.into()]).unwrap();
     (*plan, artifact)
 }
 
@@ -806,7 +806,7 @@ fn universe_fixture_with_frame(
     else {
         panic!("actual sealed universe selection compiles")
     };
-    let artifact = StrategyArtifactV2::issue(&plan, vec![build]).unwrap();
+    let artifact = StrategyArtifactV2::issue_versioned(&plan, vec![build.into()]).unwrap();
     (*plan, artifact, frame.frame().clone())
 }
 

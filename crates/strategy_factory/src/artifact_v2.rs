@@ -359,13 +359,6 @@ impl StrategyArtifactV2 {
         self.profile.profile_identity = BindingDigest::from_untrusted_bytes([0xa5; 32]);
     }
 
-    pub(crate) fn issue(
-        plan: &StrategyPlanV2,
-        builds: Vec<VerifiedPluginCargoBuildV2>,
-    ) -> Result<Self, StrategyArtifactV2Error> {
-        Self::issue_versioned(plan, builds.into_iter().map(Into::into).collect())
-    }
-
     pub(crate) fn issue_versioned(
         plan: &StrategyPlanV2,
         mut builds: Vec<VerifiedPluginArtifactBuildV2OrV3>,
@@ -718,7 +711,7 @@ mod tests {
     #[rstest]
     fn artifact_binds_canonical_plan_receipt_module_and_profile() {
         let (plan, builds) = compiled_plan_and_builds(false);
-        let artifact = StrategyArtifactV2::issue(&plan, builds).expect("sealed artifact");
+        let artifact = issue_v2(&plan, builds).expect("sealed artifact");
         assert_eq!(artifact.canonical_plan(), plan.canonical_bytes());
         assert_eq!(
             artifact.canonical_plan_digest(),
@@ -790,28 +783,6 @@ mod tests {
     }
 
     #[rstest]
-    fn pure_v2_wrapper_preserves_versioned_package_and_identity_bytes() {
-        let (plan, builds) = compiled_plan_and_builds(false);
-        let wrapped = StrategyArtifactV2::issue(&plan, builds.clone()).expect("V2 wrapper");
-        let versioned = StrategyArtifactV2::issue_versioned(
-            &plan,
-            builds.into_iter().map(Into::into).collect(),
-        )
-        .expect("versioned V2 issuance");
-
-        assert_eq!(wrapped.identity(), versioned.identity());
-        assert_eq!(wrapped.profile(), versioned.profile());
-        assert_eq!(
-            wrapped.durable_package_bytes(),
-            versioned.durable_package_bytes()
-        );
-        assert_eq!(
-            wrapped.private_module_bytes(),
-            versioned.private_module_bytes()
-        );
-    }
-
-    #[rstest]
     fn abi3_artifact_binds_capsule_source_set_receipt_and_wire_profile() {
         let (plan, _) = compiled_plan_and_builds(false);
         let (manifest, build, receipt) = verified_v3_build_and_receipt();
@@ -876,31 +847,31 @@ mod tests {
     fn module_coverage_corruption_and_shared_content_fail_closed() {
         let (plan, builds) = compiled_plan_and_builds(false);
         assert_eq!(
-            StrategyArtifactV2::issue(&plan, vec![]),
+            issue_v2(&plan, vec![]),
             Err(StrategyArtifactV2Error::ModuleCoverage)
         );
         let mut corrupt = builds.clone();
         corrupt[0].corrupt_source_entry_digest_for_test();
         assert_eq!(
-            StrategyArtifactV2::issue(&plan, corrupt),
+            issue_v2(&plan, corrupt),
             Err(StrategyArtifactV2Error::ReceiptMismatch)
         );
         let mut corrupt = builds.clone();
         corrupt[0].corrupt_wasm_for_test();
         assert_eq!(
-            StrategyArtifactV2::issue(&plan, corrupt),
+            issue_v2(&plan, corrupt),
             Err(StrategyArtifactV2Error::ReceiptMismatch)
         );
         let mut extra = builds;
         extra.push(extra[0].clone());
         assert_eq!(
-            StrategyArtifactV2::issue(&plan, extra),
+            issue_v2(&plan, extra),
             Err(StrategyArtifactV2Error::ModuleCoverage)
         );
 
         let (shared_plan, shared_builds) = compiled_plan_and_builds(true);
         assert_eq!(
-            StrategyArtifactV2::issue(&shared_plan, shared_builds),
+            issue_v2(&shared_plan, shared_builds),
             Err(StrategyArtifactV2Error::SharedModuleIdentity)
         );
     }
@@ -909,7 +880,7 @@ mod tests {
     fn unordered_builds_are_mapped_only_by_sealed_receipts() {
         let (plan, mut builds) = compiled_two_plugin_plan(false);
         builds.reverse();
-        let artifact = StrategyArtifactV2::issue(&plan, builds).expect("unordered builds");
+        let artifact = issue_v2(&plan, builds).expect("unordered builds");
         assert!(
             artifact
                 .modules()
@@ -931,14 +902,13 @@ mod tests {
     #[rstest]
     fn canonical_plan_change_rebinds_artifact_and_profile() {
         let (first_plan, first_builds) = compile(design(), false);
-        let first = StrategyArtifactV2::issue(&first_plan, first_builds).expect("first artifact");
+        let first = issue_v2(&first_plan, first_builds).expect("first artifact");
         let mut changed_design = design();
         changed_design
             .falsifier
             .push_str("; changed frozen falsifier");
         let (second_plan, second_builds) = compile(changed_design, false);
-        let second =
-            StrategyArtifactV2::issue(&second_plan, second_builds).expect("second artifact");
+        let second = issue_v2(&second_plan, second_builds).expect("second artifact");
         assert_ne!(
             first.canonical_plan_digest(),
             second.canonical_plan_digest()
@@ -977,6 +947,14 @@ mod tests {
                 .is_err()
             );
         }
+    }
+
+    /// Issues from V2-only builds through the one issuance path, `issue_versioned`.
+    fn issue_v2(
+        plan: &StrategyPlanV2,
+        builds: Vec<VerifiedPluginCargoBuildV2>,
+    ) -> Result<StrategyArtifactV2, StrategyArtifactV2Error> {
+        StrategyArtifactV2::issue_versioned(plan, builds.into_iter().map(Into::into).collect())
     }
 
     fn compiled_plan_and_builds(

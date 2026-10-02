@@ -5363,8 +5363,12 @@ test('R58 migration and Strategy Factory adoption mappings preserve one authorit
   const trialFamily = mappings.find(({ capabilityId }) => capabilityId === 'trial-family');
   assert.equal(trialFamily.sourceAvailability, 'PARTIAL');
   assert.ok(trialFamily.sourceCapabilityPortIds.includes('strategy-factory-intent-family-counters'));
-  assert.match(trialFamily.presentSourceFacets.join('\n'), /pilot-local bounded/);
-  assert.match(trialFamily.missingSourceFacets.join('\n'), /append-only TrialFamily Census Frontier/);
+  assert.match(trialFamily.presentSourceFacets.join('\n'), /TrialFamilyRootV1 durable family identity/);
+  assert.match(trialFamily.missingSourceFacets.join('\n'), /database-enforced append-only membership/);
+  const researchIntent = mappings.find(({ capabilityId }) => capabilityId === 'research-intent');
+  assert.equal(researchIntent.sourceAvailability, 'PARTIAL');
+  assert.ok(researchIntent.sourceCapabilityPortIds.includes('strategy-factory-research-intent'));
+  assert.match(researchIntent.missingSourceFacets.join('\n'), /alternative interpretation set/);
   for (const port of capabilityPorts) {
     if (port.disposition === 'ABSENT_TARGET_ONLY') {
       assert.equal(port.existingLocator, 'ABSENT_TARGET_ONLY');
@@ -5707,12 +5711,15 @@ test('R60 source rights are admitted before fetch and PIT requests reject change
   assert.match(contract.relations.find(({ id }) => id === 'data-rd').semantics.replay, /changed PIT request scope/);
 });
 
-test('R60 Strategy Factory pilot inventory covers the verified intent family counter port exactly once', () => {
+test('R60 Strategy Factory pilot inventory covers the TrialFamily census port exactly once', () => {
   const adoption = contract.capabilityAdoptionContract;
   const inventory = adoption.workspaceMemberInventory.find(({ inventoryId }) => inventoryId === 'strategy-factory-pilot');
   const capabilityId = 'strategy-factory-intent-family-counters';
   assert.equal(inventory.capabilityPortIds.filter((id) => id === capabilityId).length, 1);
-  assert.equal(adoption.workspaceCapabilityPorts.filter((port) => port.capabilityId === capabilityId).length, 1);
+  const ports = adoption.workspaceCapabilityPorts.filter((port) => port.capabilityId === capabilityId);
+  assert.equal(ports.length, 1);
+  assert.equal(ports[0].existingSymbolOrPort, 'TrialFamilyRootV1');
+  assert.equal(ports[0].canonicalObjectId, 'trial-family-census-frontier');
   assert.ok(adoption.strategyFactoryMappings.find(({ capabilityId: id }) => id === 'trial-family').sourceCapabilityPortIds.includes(capabilityId));
   assert.equal(inventory.capabilityPortIds.length, 8);
 });

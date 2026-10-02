@@ -1,15 +1,6 @@
-use std::{
-    cell::{Cell, RefCell},
-    rc::Rc,
-};
-
 use rstest::rstest;
 use strategy_factory_program_sdk::lifecycle_v1::{
     EnvelopePayloadV1, EventOrderKeyV1, LifecycleEnvelopeV1, LifecycleKind,
-};
-use vibe_backtest::{
-    config::{BacktestEngineConfig, SimulatedVenueConfig},
-    engine::BacktestEngine,
 };
 use vibe_data::owner::chain_fixture_v1::CHAIN_FIXTURE_INSTRUMENT_V1;
 use vibe_data::owner::{
@@ -19,16 +10,6 @@ use vibe_data::owner::{
     source_binding::BindingDigest,
     strategy_input_binding::StrategyInputBindingReceipt,
     strategy_input_joined_cut::StrategyInputJoinedCutUnavailable,
-};
-use vibe_model::{
-    data::{Bar, BarSpecification, BarType, BookOrder, Data, OrderBookDelta, TradeTick},
-    enums::{
-        AccountType, AggregationSource, AggressorSide, BarAggregation, BookAction, BookType,
-        OmsType, OrderSide, PriceType,
-    },
-    identifiers::{InstrumentId, StrategyId, TradeId, Venue},
-    instruments::{Instrument, InstrumentAny, stubs::crypto_perpetual_ethusdt},
-    types::{Money, Price, Quantity},
 };
 
 use super::{
@@ -45,7 +26,6 @@ use crate::{
         VerifiedPluginCargoBuildV3,
     },
     plugin_wire_v2::PLUGIN_FRAME_ABI_V3,
-    program_host_backtest_v2::{BacktestProgramHostStrategyV2, BacktestProgramHostTraceV2},
     program_host_v2_backtest_tests::stateful_plugin_module,
     program_host_v2_tests::hold_plugin_module,
     strategy_design_v2::{
@@ -229,205 +209,6 @@ fn joined_host_checkpoint_restore_has_an_equal_execution_suffix() {
     }
     assert_eq!(uninterrupted_suffix, restored_suffix);
     assert_eq!(uninterrupted.checkpoint(), restored.checkpoint());
-}
-
-#[rstest]
-fn owner_join_drives_the_real_isolated_backtest_sim_exchange_repeatably() {
-    let first = run_backtest_join_corpus().expect("first joined Backtest/Sim run");
-    let repeated = run_backtest_join_corpus().expect("repeated joined Backtest/Sim run");
-    assert_eq!(first, repeated);
-}
-
-fn run_backtest_join_corpus() -> anyhow::Result<Vec<u8>> {
-    let (plan, artifact, corpus) = fixture();
-    let instrument = InstrumentAny::CryptoPerpetual(crypto_perpetual_ethusdt());
-    let instrument_id = instrument.id();
-    let bar_type = BarType::new(
-        instrument_id,
-        BarSpecification::new(1, BarAggregation::Minute, PriceType::Last),
-        AggregationSource::External,
-    );
-    let mut events = Vec::with_capacity(corpus.events().len());
-    let mut data = Vec::with_capacity(corpus.events().len() * 6);
-    for (offset, joined) in corpus.events().iter().enumerate() {
-        let event = super::admit_market_data_joined_program_event_v2(&plan, joined)?;
-        let open = event
-            .fixed_i128_input(AAPL_OPEN)
-            .ok_or_else(|| anyhow::anyhow!("joined event omitted AAPL open"))?;
-        let close_mantissa = event
-            .fixed_i128_input(AAPL_CLOSE)
-            .ok_or_else(|| anyhow::anyhow!("joined event omitted AAPL close"))?;
-        let time = event.envelope().order_key.logical_time_ns;
-        let open = price_from_scaled(open)?;
-        let close = price_from_scaled(close_mantissa)?;
-        let cents = i64::try_from(close_mantissa)?;
-        let sequence = (offset as u64 + 1) * 10;
-        data.extend([
-            Data::Delta(OrderBookDelta::clear(
-                instrument_id,
-                sequence,
-                time.into(),
-                time.into(),
-            )),
-            book_level(
-                instrument_id,
-                OrderSide::Buy,
-                cents,
-                100,
-                sequence * 10 + 1,
-                sequence + 1,
-                time,
-            ),
-            book_level(
-                instrument_id,
-                OrderSide::Sell,
-                cents,
-                100,
-                sequence * 10 + 2,
-                sequence + 2,
-                time,
-            ),
-            Data::Bar(Bar::new(
-                bar_type,
-                open,
-                open.max(close),
-                open.min(close),
-                close,
-                Quantity::from("100.000"),
-                time.into(),
-                time.into(),
-            )),
-            trade_fill(
-                instrument_id,
-                cents,
-                5,
-                &format!("INPUT-JOIN-{offset}-1"),
-                time + 1,
-            ),
-            trade_fill(
-                instrument_id,
-                cents,
-                3,
-                &format!("INPUT-JOIN-{offset}-2"),
-                time + 2,
-            ),
-        ]);
-        events.push(event);
-    }
-
-    let trace = Rc::new(RefCell::new(BacktestProgramHostTraceV2::default()));
-    let restored = Rc::new(Cell::new(false));
-    let host = ProgramHostV2::new(plan, artifact)?;
-    let strategy = BacktestProgramHostStrategyV2::new(
-        StrategyId::from("STRATEGY-DESIGN-V2-INPUT-JOIN-001"),
-        host,
-        instrument_id,
-        bar_type,
-        events,
-        false,
-        restored,
-        Rc::clone(&trace),
-    )?;
-    let mut engine = BacktestEngine::new(BacktestEngineConfig {
-        bypass_logging: true,
-        run_analysis: false,
-        ..Default::default()
-    })?;
-    engine.add_venue(
-        SimulatedVenueConfig::builder()
-            .venue(Venue::from("BINANCE"))
-            .oms_type(OmsType::Netting)
-            .account_type(AccountType::Margin)
-            .book_type(BookType::L2_MBP)
-            .starting_balances(vec![Money::from("1_000_000 USDT")])
-            .bar_execution(false)
-            .liquidity_consumption(true)
-            .use_random_ids(false)
-            .build()?,
-    )?;
-    engine.add_instrument(&instrument)?;
-    engine.add_strategy(strategy)?;
-    engine.add_data(data, None, true, true)?;
-    engine.run(None, None, Some("input-join-v2-corpus".into()), false)?;
-    let trace = trace.borrow().clone();
-    anyhow::ensure!(
-        trace.callback_failure.is_none(),
-        "joined Backtest callback failed: {:?}",
-        trace.callback_failure
-    );
-    let bar_intents = trace
-        .host_transitions
-        .iter()
-        .filter(|transition| transition.lifecycle == "BAR")
-        .map(|transition| transition.position_intent.as_str())
-        .collect::<Vec<_>>();
-    anyhow::ensure!(
-        bar_intents == ["ENTER", "ADD", "REDUCE"],
-        "joined regime state did not drive the expected atomic target sequence: {bar_intents:?}"
-    );
-    anyhow::ensure!(
-        trace
-            .native_order_observations
-            .iter()
-            .any(|observation| !observation.protection_order && observation.event == "SUBMITTED"),
-        "Sim Exchange did not observe the Host-sealed target intent"
-    );
-    Ok(serde_json::to_vec(&(
-        trace,
-        engine.get_canonical_result()?.to_bytes()?,
-    ))?)
-}
-
-fn trade_fill(
-    instrument_id: InstrumentId,
-    cents: i64,
-    units: u64,
-    trade_id: &str,
-    time_ns: u64,
-) -> Data {
-    let text = format!("{}.{:02}", cents / 100, cents.unsigned_abs() % 100);
-    Data::Trade(TradeTick::new(
-        instrument_id,
-        Price::from(text.as_str()),
-        Quantity::new(units as f64, 3),
-        AggressorSide::NoAggressor,
-        TradeId::from(trade_id),
-        time_ns.into(),
-        time_ns.into(),
-    ))
-}
-
-fn price_from_scaled(value: i128) -> anyhow::Result<Price> {
-    let cents = i64::try_from(value)?;
-    let text = format!("{}.{:02}", cents / 100, cents.unsigned_abs() % 100);
-    Ok(Price::from(text.as_str()))
-}
-
-#[allow(clippy::too_many_arguments)]
-fn book_level(
-    instrument_id: InstrumentId,
-    side: OrderSide,
-    cents: i64,
-    units: u64,
-    order_id: u64,
-    sequence: u64,
-    time_ns: u64,
-) -> Data {
-    let text = format!("{}.{:02}", cents / 100, cents.unsigned_abs() % 100);
-    Data::Delta(OrderBookDelta::new(
-        instrument_id,
-        BookAction::Add,
-        BookOrder::new(
-            side,
-            Price::from(text.as_str()),
-            Quantity::new(units as f64, 3),
-            order_id,
-        ),
-        0,
-        sequence,
-        time_ns.into(),
-        time_ns.into(),
-    ))
 }
 
 fn assert_unchanged(
@@ -742,7 +523,7 @@ fn plan_and_artifact(
         StrategyCompilationV2::Compiled(plan) => plan,
         other => panic!("exact Owner-bound joined design compiles: {other:?}"),
     };
-    let artifact = StrategyArtifactV2::issue(&plan, vec![build])
+    let artifact = StrategyArtifactV2::issue_versioned(&plan, vec![build.into()])
         .map_err(|error: StrategyArtifactV2Error| error.to_string())
         .expect("joined strategy artifact");
     (*plan, artifact)

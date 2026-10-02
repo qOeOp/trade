@@ -421,15 +421,11 @@ R&D 不从研究散文导出 Design。本仓库没有任何规则把 hypothesis�
 question 变成输入角色与 reaction graph，也不打算有：那项转换是一次判断，而 Owner 作出的判断
 就是 Owner 发明的事实。
 
-**本仓库里有两样东西都叫 Research Intent，而这条禁止仍然成立，因为 Composer 路径握着的是
-没有东西可投影的那一样。**
+**Composer 路径握着的 Research Intent 没有东西可投影，这条禁止因此成立。**
 
-`crates/strategy_factory/src/research.rs` 里的 `ResearchIntent` 确实带 `data.channels`，
-每条 channel 声明了自己的 `role`、`asset_id`、`timeframe`、是否必需、来源与陈旧度上界，
-`data.decision_clock_channel` 点名其中哪一条推进决策。投影这些不会选择任何东西。但这个类型
-只有一个构造器 `frozen_representative()`，它解析一个编译期常量，然后拒绝任何 SHA-256、identity、
-revision 与 schema 版本不等于冻结值的东西；它的调用方只有 formation 路径
-（`family_adapters.rs`、`representative.rs`、`formation_adapters.rs`）。Composer 路径从不握着它。
+本仓库里没有任何 Research Intent 声明 channel。formation 路径的 `ResearchIntent` 曾经声明过
+（`data.channels`，每条带自己的 role、asset、timeframe 与陈旧度上界），但它只从一个冻结的
+编译期代表构造，从未到达 Composer 路径，已随 formation 退役一并删除。
 
 Composer 路径握着的是 `CurrentResearchDevelopCustodyV2`，它的十四个字段是定位符、身份与摘要，
 外加一个 `falsifier` 字符串；它背后存着的 `intent_json` 反序列化成 `FrozenResearchGoalIntentV2`，

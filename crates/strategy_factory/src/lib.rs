@@ -6,7 +6,6 @@ pub mod artifact;
 pub mod artifact_build;
 pub mod artifact_build_postgres;
 pub mod artifact_build_sandbox;
-#[allow(dead_code)]
 pub mod artifact_v2;
 pub mod backtest_run_report_read_v1;
 #[cfg(test)]
@@ -18,8 +17,11 @@ mod bounded_feature_program_lowerer_v1;
 #[cfg(all(test, feature = "sealed-strategy-input-acceptance"))]
 mod bounded_feature_program_six_role_bar_fixture_v1;
 pub mod bounded_feature_program_v1;
-#[allow(dead_code)]
 mod cargo_artifact;
+// The legacy ComplexStrategy V1 compiler and program have no production caller, and they stay on
+// purpose: docs/architecture/strategy-factory.md deletes them only "After the new corpus proves the
+// sole BFP-to-Wasm path equivalent where legacy behavior is still admitted", and that corpus does not
+// exist yet. Deleting them now would drop the path the equivalence proof must compare against.
 #[allow(dead_code)]
 mod complex_strategy_compiler;
 #[cfg(test)]
@@ -28,6 +30,7 @@ pub mod complex_strategy_develop_evaluation;
 mod complex_strategy_ir;
 #[cfg(test)]
 mod complex_strategy_ir_tests;
+// Kept with the compiler above, under the same deletion precondition.
 #[allow(dead_code)]
 mod complex_strategy_program;
 #[cfg(test)]
@@ -61,7 +64,6 @@ pub mod develop_composer_sealed_acceptance_v2;
 pub mod develop_composer_v2;
 #[cfg(test)]
 mod develop_composer_v2_tests;
-#[allow(dead_code)]
 mod develop_plugin_build_v2;
 mod develop_plugin_build_v2_sandbox;
 #[cfg(test)]
@@ -72,10 +74,7 @@ mod develop_plugin_build_v2_tests;
 )]
 mod develop_plugin_build_v3;
 pub mod exploratory_replay;
-#[cfg(any(test, feature = "sealed-artifact-source-acceptance"))]
-mod family_adapters;
 pub mod governance_artifact_membership;
-pub mod intent;
 pub mod iteration_analysis;
 pub mod iteration_analysis_postgres;
 #[allow(
@@ -164,12 +163,7 @@ pub mod plugin_wire_v2;
 mod postgres_error_message;
 pub mod product_edge;
 pub mod product_edge_postgres;
-#[allow(dead_code)]
-mod program_host;
-#[allow(dead_code)]
 mod program_host_backtest_target_set_v2;
-#[allow(dead_code)]
-mod program_host_backtest_v2;
 mod program_host_bar_joined_cut_backtest_v1;
 pub mod repair_action;
 pub use program_host_bar_joined_cut_backtest_v1::{
@@ -178,8 +172,6 @@ pub use program_host_bar_joined_cut_backtest_v1::{
 };
 #[cfg(all(test, feature = "sealed-strategy-input-acceptance"))]
 mod program_host_bar_joined_cut_postgres_acceptance_tests;
-#[allow(dead_code)]
-mod program_host_event_corpus_backtest_v1;
 pub mod program_host_sim_event_consumer_v1;
 pub mod program_host_v2;
 #[cfg(test)]
@@ -190,7 +182,6 @@ mod program_host_v2_target_set_backtest_tests;
 mod program_host_v2_tests;
 mod program_runtime;
 pub mod program_runtime_v2;
-mod program_session;
 pub mod rd_bounded_feature_program_postgres_v1;
 mod rd_bounded_feature_program_v1;
 pub mod rd_design_role_intent_v1;
@@ -265,6 +256,10 @@ mod successor_research_custody_postgres_v1;
 pub mod target_set_members;
 pub mod trial_family;
 pub mod trial_family_postgres;
+// The sealed price build the R&D chain's entry 28 submits through its acceptance sandbox; see
+// `VerifiedCargoBuild::verify`. Deleting it breaks that entry.
+#[cfg(any(test, feature = "sealed-artifact-source-acceptance"))]
+mod verified_price_build;
 
 pub use complex_strategy_ir::{
     COMPLEX_STRATEGY_IR_SCHEMA_V1, COMPLEX_STRATEGY_IR_SCHEMA_VERSION_V1, ComplexStrategyIrError,
