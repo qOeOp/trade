@@ -10,8 +10,8 @@ User-facing closure exists only when [Product Edge](../architecture/product-edge
 goal from entry to an authoritative result and its next legal action without manually joining Owner databases,
 receipts, logs, or terminal output.
 
-- `CURRENT/PARTIAL` - `crates/strategy_factory` provides a narrow frozen `ResearchIntent` to `StrategyArtifact`
-  to native replay and `TrialReceipt` pilot. It is `SURVIVED_NOT_ADMITTED`, not a complete R&D product.
+- `CURRENT` - the narrow frozen `ResearchIntent` to `StrategyArtifact` to native replay and `TrialReceipt` pilot
+  that `crates/strategy_factory` provided was retired with the legacy formation path in #1207.
 - `TARGET` - the product surface is the Trade-owned Dashboard in `product/dashboard`. It presents Source and
   Hypothesis, frozen Intent, Artifact and Build Receipt, exploratory Run Detail and Compare, Diagnosis, Iteration
   Decision, and the exact stop, repair, successor, or Qualification handoff action. The Dashboard and its
@@ -84,26 +84,41 @@ A frozen submission enters Qualification with preregistered trials, costs, capac
 holdout rules. Protected Evaluation is isolated. Qualification publishes eligibility or revocation facts;
 it never activates a strategy and never teaches the same research loop from protected results.
 
-## 4. Govern the lifecycle
+## 4. Record forward evidence
+
+`TARGET`. A `QUALIFIED` candidate is not yet proposed for paper trading. It first runs a record-only forward stage
+owned by Qualification. Before the first forward cut, the candidate's Forward Registration fixes an interim date and a
+decision date, kill lines, admit lines, and the parameters of Wald's sequential test, each with how it was derived.
+Backtest replays the candidate's Artifact on each newly observed point-in-time cut with the same event-driven
+simulator that qualified it: the same order types (limit, stop, validity and expiry, cancel), the same decision
+cadence, and the same cost, slippage and capacity models, with simulated orders and positions carried from one cut to
+the next. The stage touches no Runtime, Strategy Instance, Execution adapter, credential or capital. Crossing a kill
+line or the test's kill bound revokes the candidate's eligibility. At the decision date a candidate is admitted,
+killed, or kept recording, and admitted means only that it may be proposed for paper activation. Every registered
+candidate's record and outcome is reported, killed ones included.
+
+## 5. Govern the lifecycle
 
 Strategy Governance combines eligibility, performance, exposure, incidents, reconciliation drift, and capital
 policy. It owns authorization, lifecycle state, permitted capital share, and effective time. Every accepted
 generation decision preserves the complete request Authorization Lineage and binds a separate Autonomous Policy
 Authorization for unattended trading. Runtime separately proves `APPLIED`. Reduce, pause, and retire use a
-decrease-only effect chain and unknown effect enters Recovery.
+decrease-only effect chain and unknown effect enters Recovery. A paper `INITIAL_ACTIVATION` additionally requires the
+candidate's current positive Forward Decision (`TARGET`); it is necessary, never sufficient, and every authorization
+the activation already requires still applies.
 
 Active status is renewed only from fresh required Eligibility, Performance, Exposure, and degradation evidence.
 Loss or staleness commits `DE_RISK_PENDING`, removes new-risk authority, and keeps decrease-only safety actions
 available until the generation is reduced, paused, retired, or recovered.
 
-## 5. Find deployment opportunities
+## 6. Find deployment opportunities
 
 Scanner is a scheduled slow track. It loads deployable artifact references and activation conditions,
 freezes a market snapshot, matches current conditions, and submits an auditable proposal to Governance.
 Each strategy is evaluated independently: insufficient data blocks only that strategy, while complete matches may still
 produce one batch proposal. Scanner never starts Runtime.
 
-## 6. Trade through one control chain
+## 7. Trade through one control chain
 
 Paper and live share the same Strategy Instance, trade intent, Risk decision, one-use reservation, order
 command, effect journal, reconciliation, and Portfolio feedback semantics. Runtime is the only normal intent
@@ -111,7 +126,7 @@ writer. The simulated or live Execution adapter is the only mode-specific bounda
 complete request Authorization Lineage; unattended effects additionally preserve Autonomous Policy Authorization
 from Governance through final Execution readback.
 
-## 7. Recover to known closure
+## 8. Recover to known closure
 
 Recovery classifies each initiating cause as `RUNTIME_NOT_READY`, `RUNTIME_INCIDENT`,
 `RECONCILIATION_DRIFT`, or `RISK_HARD_STOP`.

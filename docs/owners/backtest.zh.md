@@ -114,6 +114,10 @@
   不存在。
 - **TARGET - 探索性匹配入场对照与聚类区间：** 没有任何探索性 Result 带匹配入场对照或区间，也没有任何探索性回放累计资金
   费。契约见下文同名一节。
+- **TARGET - Forward Replay：** 尚不存在 Forward Replay。Forward Replay 在 Qualification Forward Record 的每个新观察到的
+  cut 上，按登记的确切 Runtime kernel、模拟器、成本、滑点与容量身份增量回放一个冻结的 Artifact。挂单与未平仓位在 Backtest
+  的托管中从一个 cut 延续到下一个 cut，成交只能来自订单存在之后观察到的数据。它使用受保护回放所用的同一个 Sim Exchange，
+  从不使用另一套前向实现，不产生任何 Execution 效果，也不声称修复 Runtime kernel 或 Simulator。
 
 ## 共享策略生命周期契约
 

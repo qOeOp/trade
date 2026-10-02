@@ -35,7 +35,7 @@ use vibe_strategy_factory::{
 };
 use vibe_testkit::postgres::{
     CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerPostgresTestMutationV1,
-    CanonicalOwnerTestRoleV1,
+    CanonicalOwnerTestRoleV1, restore_after_checks,
 };
 
 #[cfg(feature = "sealed-develop-composer-acceptance")]
@@ -449,46 +449,58 @@ async fn invalid_successor_cannot_poison_heads_and_verified_lineage_never_skips_
             .execute(&pool)
             .await
             .unwrap();
+        restore_after_checks(
+            assert_lineage_unavailable_without_writes(
+                &owner,
+                &edge,
+                &pool,
+                &qualification_pool,
+                &c_request,
+            ),
+            async {
+                sqlx::query(restore)
+                    .bind(&a_request)
+                    .bind(original)
+                    .execute(&pool)
+                    .await
+                    .unwrap();
+            },
+        )
+        .await;
+    }
+
+    sqlx::query("UPDATE rd_research_request_receipts_v1 SET semantic_digest = semantic_digest || '-corrupt' WHERE request_identity = $1")
+        .bind(&a_request).execute(&pool).await.unwrap();
+    restore_after_checks(
         assert_lineage_unavailable_without_writes(
             &owner,
             &edge,
             &pool,
             &qualification_pool,
             &c_request,
-        )
-        .await;
-        sqlx::query(restore)
-            .bind(&a_request)
-            .bind(original)
-            .execute(&pool)
-            .await
-            .unwrap();
-    }
-
-    sqlx::query("UPDATE rd_research_request_receipts_v1 SET semantic_digest = semantic_digest || '-corrupt' WHERE request_identity = $1")
-        .bind(&a_request).execute(&pool).await.unwrap();
-    assert_lineage_unavailable_without_writes(
-        &owner,
-        &edge,
-        &pool,
-        &qualification_pool,
-        &c_request,
+        ),
+        async {
+            sqlx::query("UPDATE rd_research_request_receipts_v1 SET semantic_digest = $2 WHERE request_identity = $1")
+                .bind(&a_request).bind(&original_digest).execute(&pool).await.unwrap();
+        },
     )
     .await;
-    sqlx::query("UPDATE rd_research_request_receipts_v1 SET semantic_digest = $2 WHERE request_identity = $1")
-        .bind(&a_request).bind(&original_digest).execute(&pool).await.unwrap();
     sqlx::query("UPDATE rd_research_request_receipts_v1 SET committed_at_epoch_ms = committed_at_epoch_ms + 1 WHERE request_identity = $1")
         .bind(&a_request).execute(&pool).await.unwrap();
-    assert_lineage_unavailable_without_writes(
-        &owner,
-        &edge,
-        &pool,
-        &qualification_pool,
-        &c_request,
+    restore_after_checks(
+        assert_lineage_unavailable_without_writes(
+            &owner,
+            &edge,
+            &pool,
+            &qualification_pool,
+            &c_request,
+        ),
+        async {
+            sqlx::query("UPDATE rd_research_request_receipts_v1 SET committed_at_epoch_ms = $2 WHERE request_identity = $1")
+                .bind(&a_request).bind(original_time).execute(&pool).await.unwrap();
+        },
     )
     .await;
-    sqlx::query("UPDATE rd_research_request_receipts_v1 SET committed_at_epoch_ms = $2 WHERE request_identity = $1")
-        .bind(&a_request).bind(original_time).execute(&pool).await.unwrap();
 
     let accepted_c = owner
         .submit_v2(edge.admit_v2(request(&c_request)).await)
@@ -1054,25 +1066,32 @@ async fn exhaustive_lineage_waits_for_row_mutation_and_recovers_after_restore() 
         [0, 0, 0, 0]
     );
     mutation.commit().await.unwrap();
-    assert_eq!(
-        tokio::time::timeout(Duration::from_secs(5), submit)
-            .await
-            .unwrap()
-            .unwrap()
-            .unwrap()
-            .resolution(),
-        ProductEdgeResolution::SubmittedOrUnknown
-    );
-    assert_eq!(
-        rejected_authority_counts(&pool, &qualification_pool, &c_request).await,
-        [0, 0, 0, 0]
-    );
-    sqlx::query("UPDATE rd_research_request_receipts_v1 SET semantic_digest = $2 WHERE request_identity = $1")
-        .bind(&a_request)
-        .bind(original_digest)
-        .execute(&pool)
-        .await
-        .unwrap();
+    restore_after_checks(
+        async {
+            assert_eq!(
+                tokio::time::timeout(Duration::from_secs(5), submit)
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .unwrap()
+                    .resolution(),
+                ProductEdgeResolution::SubmittedOrUnknown
+            );
+            assert_eq!(
+                rejected_authority_counts(&pool, &qualification_pool, &c_request).await,
+                [0, 0, 0, 0]
+            );
+        },
+        async {
+            sqlx::query("UPDATE rd_research_request_receipts_v1 SET semantic_digest = $2 WHERE request_identity = $1")
+                .bind(&a_request)
+                .bind(original_digest)
+                .execute(&pool)
+                .await
+                .unwrap();
+        },
+    )
+    .await;
     let accepted_c = owner.submit_v2(admitted_c).await.unwrap();
     assert_eq!(accepted_c.resolution(), ProductEdgeResolution::Accepted);
     let c_family = accepted_c
@@ -1160,27 +1179,35 @@ async fn stored_request_meaning_corruption_is_unavailable_until_exact_restoratio
         .execute(&pool)
         .await
         .unwrap();
-    assert_eq!(
-        owner
-            .resolve_v2(&request_identity, &admitted_request.admission)
-            .await
-            .unwrap()
-            .resolution(),
-        ProductEdgeResolution::SubmittedOrUnknown
-    );
-    assert_eq!(
-        owner_counts(&pool, &request_identity, &intent_identity, &family_identity,).await,
-        before
-    );
 
-    sqlx::query(
-        "UPDATE rd_research_request_receipts_v1 SET request_json = $2 WHERE request_identity = $1",
+    restore_after_checks(
+        async {
+            assert_eq!(
+                owner
+                    .resolve_v2(&request_identity, &admitted_request.admission)
+                    .await
+                    .unwrap()
+                    .resolution(),
+                ProductEdgeResolution::SubmittedOrUnknown
+            );
+            assert_eq!(
+                owner_counts(&pool, &request_identity, &intent_identity, &family_identity,).await,
+                before
+            );
+        },
+        async {
+            sqlx::query(
+                "UPDATE rd_research_request_receipts_v1 SET request_json = $2 WHERE request_identity = $1",
+            )
+            .bind(&request_identity)
+            .bind(original)
+            .execute(&pool)
+            .await
+            .unwrap();
+        },
     )
-    .bind(&request_identity)
-    .bind(original)
-    .execute(&pool)
-    .await
-    .unwrap();
+    .await;
+
     assert_eq!(
         owner
             .resolve_v2(&request_identity, &admitted_request.admission)
@@ -1198,52 +1225,61 @@ async fn stored_request_meaning_corruption_is_unavailable_until_exact_restoratio
     .unwrap();
     sqlx::query("UPDATE rd_independence_bases_v1 SET principal = principal || '-corrupt' WHERE basis_identity = $1")
         .bind(&basis_identity).execute(&pool).await.unwrap();
-    assert_eq!(
-        owner
-            .resolve_v2(&request_identity, &admitted_request.admission)
+
+    let (artifact_owner, artifact_request) = restore_after_checks(
+        async {
+            assert_eq!(
+                owner
+                    .resolve_v2(&request_identity, &admitted_request.admission)
+                    .await
+                    .unwrap()
+                    .resolution(),
+                ProductEdgeResolution::SubmittedOrUnknown
+            );
+            let artifact_owner = PostgresArtifactBuildOwnerV1::connect(
+                &database_url,
+                "/tmp/unused-rd-sandbox.sock",
+                u64::MAX,
+            )
             .await
-            .unwrap()
-            .resolution(),
-        ProductEdgeResolution::SubmittedOrUnknown
-    );
-    let artifact_owner = PostgresArtifactBuildOwnerV1::connect(
-        &database_url,
-        "/tmp/unused-rd-sandbox.sock",
-        u64::MAX,
+            .unwrap();
+            let artifact_suffix = unique_suffix();
+            let artifact_request = edge
+                .admit_artifact(artifact_request(
+                    &artifact_suffix,
+                    &intent_identity,
+                    "authority-corrupt",
+                ))
+                .await;
+            assert_eq!(
+                artifact_owner
+                    .prepare(artifact_request.clone())
+                    .await
+                    .unwrap()
+                    .resolution(),
+                ArtifactBuildResolution::SubmittedOrUnknown
+            );
+            assert_eq!(
+                count(
+                    &pool,
+                    "SELECT COUNT(*) FROM rd_artifact_build_attempts_v1 WHERE build_request_identity = $1",
+                    &artifact_request.build_request_identity
+                )
+                .await,
+                0
+            );
+            (artifact_owner, artifact_request)
+        },
+        async {
+            sqlx::query("UPDATE rd_independence_bases_v1 SET principal = $2 WHERE basis_identity = $1")
+                .bind(&basis_identity)
+                .bind(original_principal)
+                .execute(&pool)
+                .await
+                .unwrap();
+        },
     )
-    .await
-    .unwrap();
-    let artifact_suffix = unique_suffix();
-    let artifact_request = edge
-        .admit_artifact(artifact_request(
-            &artifact_suffix,
-            &intent_identity,
-            "authority-corrupt",
-        ))
-        .await;
-    assert_eq!(
-        artifact_owner
-            .prepare(artifact_request.clone())
-            .await
-            .unwrap()
-            .resolution(),
-        ArtifactBuildResolution::SubmittedOrUnknown
-    );
-    assert_eq!(
-        count(
-            &pool,
-            "SELECT COUNT(*) FROM rd_artifact_build_attempts_v1 WHERE build_request_identity = $1",
-            &artifact_request.build_request_identity
-        )
-        .await,
-        0
-    );
-    sqlx::query("UPDATE rd_independence_bases_v1 SET principal = $2 WHERE basis_identity = $1")
-        .bind(&basis_identity)
-        .bind(original_principal)
-        .execute(&pool)
-        .await
-        .unwrap();
+    .await;
 
     let original_qualification_outbox_digest: String = sqlx::query_scalar(
         "SELECT payload_digest FROM qualification_owner_outbox_v1 WHERE aggregate_identity = $1",
@@ -1254,33 +1290,42 @@ async fn stored_request_meaning_corruption_is_unavailable_until_exact_restoratio
     .unwrap();
     sqlx::query("UPDATE qualification_owner_outbox_v1 SET payload_digest = 'sha256:corrupt' WHERE aggregate_identity = $1")
         .bind(&projection_identity).execute(&qualification_pool).await.unwrap();
-    assert_eq!(
-        owner
-            .resolve_v2(&request_identity, &admitted_request.admission)
-            .await
-            .unwrap()
-            .resolution(),
-        ProductEdgeResolution::SubmittedOrUnknown
-    );
-    assert_eq!(
-        artifact_owner
-            .prepare(artifact_request.clone())
-            .await
-            .unwrap()
-            .resolution(),
-        ArtifactBuildResolution::SubmittedOrUnknown
-    );
-    assert_eq!(
-        count(
-            &pool,
-            "SELECT COUNT(*) FROM rd_artifact_build_attempts_v1 WHERE build_request_identity = $1",
-            &artifact_request.build_request_identity
-        )
-        .await,
-        0
-    );
-    sqlx::query("UPDATE qualification_owner_outbox_v1 SET payload_digest = $2 WHERE aggregate_identity = $1")
-        .bind(&projection_identity).bind(original_qualification_outbox_digest).execute(&qualification_pool).await.unwrap();
+
+    restore_after_checks(
+        async {
+            assert_eq!(
+                owner
+                    .resolve_v2(&request_identity, &admitted_request.admission)
+                    .await
+                    .unwrap()
+                    .resolution(),
+                ProductEdgeResolution::SubmittedOrUnknown
+            );
+            assert_eq!(
+                artifact_owner
+                    .prepare(artifact_request.clone())
+                    .await
+                    .unwrap()
+                    .resolution(),
+                ArtifactBuildResolution::SubmittedOrUnknown
+            );
+            assert_eq!(
+                count(
+                    &pool,
+                    "SELECT COUNT(*) FROM rd_artifact_build_attempts_v1 WHERE build_request_identity = $1",
+                    &artifact_request.build_request_identity
+                )
+                .await,
+                0
+            );
+        },
+        async {
+            sqlx::query("UPDATE qualification_owner_outbox_v1 SET payload_digest = $2 WHERE aggregate_identity = $1")
+                .bind(&projection_identity).bind(original_qualification_outbox_digest).execute(&qualification_pool).await.unwrap();
+        },
+    )
+    .await;
+
     assert_eq!(
         owner
             .resolve_v2(&request_identity, &admitted_request.admission)

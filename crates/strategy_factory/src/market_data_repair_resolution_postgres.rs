@@ -867,7 +867,9 @@ fn unavailable(error: impl Display) -> MarketDataRepairResolutionPostgresErrorV1
 #[cfg(test)]
 mod tests {
     use super::*;
-    use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
+    use vibe_testkit::postgres::{
+        CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1, restore_after_checks,
+    };
 
     #[rstest::rstest]
     fn repaired_projection_recomputes_the_owner_resolution_digest() {
@@ -991,14 +993,21 @@ mod tests {
             .execute(&pool)
             .await
             .expect("tamper fixture");
-        let mut transaction = pool.begin().await.expect("tampered transaction");
-        assert!(
-            verify_repaired_readback_in_transaction(&mut transaction, &bytes, 1_000)
-                .await
-                .is_err()
-        );
-        transaction.rollback().await.expect("tampered rollback");
-        clear_repair_resolution_custody(&pool).await;
+        restore_after_checks(
+            async {
+                let mut transaction = pool.begin().await.expect("tampered transaction");
+                assert!(
+                    verify_repaired_readback_in_transaction(&mut transaction, &bytes, 1_000)
+                        .await
+                        .is_err()
+                );
+                transaction.rollback().await.expect("tampered rollback");
+            },
+            async {
+                clear_repair_resolution_custody(&pool).await;
+            },
+        )
+        .await;
     }
 
     #[tokio::test]
@@ -1077,19 +1086,29 @@ mod tests {
             .execute(pool)
             .await
             .expect("tamper fixture");
-        let tampered = resolve(
-            pool,
-            MarketDataRepairResolutionLocatorV1 {
-                resolution_identity: first.resolution().resolution_identity().to_owned(),
-                repair_request_identity: first.resolution().repair_request_identity().to_owned(),
+        restore_after_checks(
+            async {
+                let tampered = resolve(
+                    pool,
+                    MarketDataRepairResolutionLocatorV1 {
+                        resolution_identity: first.resolution().resolution_identity().to_owned(),
+                        repair_request_identity: first
+                            .resolution()
+                            .repair_request_identity()
+                            .to_owned(),
+                    },
+                    crate::market_data_repair_resolution::tests::unavailable_resolution_fixture(),
+                )
+                .await;
+                assert!(matches!(
+                    tampered,
+                    Err(MarketDataRepairResolutionPostgresErrorV1::Unavailable(_))
+                ));
             },
-            crate::market_data_repair_resolution::tests::unavailable_resolution_fixture(),
+            async {
+                clear_repair_resolution_custody(pool).await;
+            },
         )
         .await;
-        assert!(matches!(
-            tampered,
-            Err(MarketDataRepairResolutionPostgresErrorV1::Unavailable(_))
-        ));
-        clear_repair_resolution_custody(pool).await;
     }
 }

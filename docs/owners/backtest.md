@@ -131,6 +131,12 @@ admitted set requires changing this document first.
 - **TARGET - exploratory matched-entry control and clustered interval:** no exploratory Result carries a matched-entry
   control or an interval, and no exploratory replay accrues funding. The contract is under the section of that name
   below.
+- **TARGET - Forward Replay:** no Forward Replay exists. A Forward Replay replays one frozen Artifact incrementally
+  over each newly observed cut of a Qualification Forward Record, on exactly the registered Runtime kernel,
+  simulator, cost, slippage and capacity identities. Resting orders and open positions carry from cut to cut in
+  Backtest custody, and a fill is admitted only from data observed after its order existed. It uses the one Sim
+  Exchange the protected replay used, never a separate forward implementation, creates no Execution effect, and claims
+  no Runtime kernel or Simulator repair.
 
 ## Shared strategy lifecycle contract
 

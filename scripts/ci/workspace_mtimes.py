@@ -12,11 +12,17 @@ into a nested cache directory the Rust cache keeps (rust-cache deletes every oth
 target root before saving, but keeps `CACHEDIR.TAG` in a nested target).
 
 `reuse` runs on a pull request after the cache is restored. It sets every tracked file that is
-unchanged since that commit to T - 1 and every changed file to now:
+unchanged since that commit to T - 1 and every changed file to now, and does the same for every
+directory holding a tracked file, by whether any path below it changed. A `rerun-if-changed` that
+names a directory makes cargo compare the newest mtime in that tree, directories included, and a
+directory keeps its checkout time otherwise (vibe-serialization's `schemas/capnp` rebuilt all 52
+member crates on a pull request that changed one shell script, run 37041880456). A file removed
+from such a directory shows only in the directory's mtime, which is why a deletion counts too:
 
 - a unit main built in the recording run has outputs newer than T, so it stays fresh;
 - a unit an earlier run left in the cache has outputs older than T, so it rebuilds;
-- a unit that reads a changed file rebuilds, whatever kind of file that is.
+- a unit that reads a changed file rebuilds, whatever kind of file that is;
+- a unit that watches a directory rebuilds when a file below it changed, appeared or went away.
 
 Commit times are never used. A pull request's commits can predate the cache, which would make a
 changed file older than a stale output and pass the output as fresh.
@@ -35,15 +41,28 @@ deps files, mtimes included, into a CACHEDIR.TAG, the one file name the cleanup 
 (src/cleanup.ts:10-30); `reuse` unpacks it before it sets any mtime. A source change in such a
 package still rebuilds it: its sources get the new mtime like any other changed file.
 
+Mtimes cannot keep a member's test or binary executables: rust-cache keeps only the `lib` and
+`proc-macro` targets of a member in `deps/` (src/workspace.ts:6, :24, src/cleanup.ts:65-75), so
+every integration test and binary rebuilds on every pull request while its fingerprint survives
+(115 of 175 such units on main's entry of 2026-10-02, run 37044773386). The executables kept are
+the ones named like a kept library.
+
 `prune` runs on main after everything compiled and before the cache is saved. It deletes every
 workspace unit no file of which this run wrote, which is every one older than T: when main's key
 changes, the new entry is saved on top of the one it restored, and those older units would ride
 along in every later entry although a pull request rebuilds each of them anyway. Units of
-dependencies stay, and so does any file named like one; the stash and the marker are not units.
+dependencies stay, and so does any file named like one, except an executable: a dependency is
+built only as its library, so its deps files are `lib<name>-<hash>.rlib`, `.rmeta`, `.so` and
+`<name>-<hash>.d`, and an extension-less file without the `lib` prefix is a member's test or
+binary even under a shared name (`futures-<hash>` and `redb-<hash>` test executables, 1.4 GB of
+an entry, were kept that way until 2026-10-03, run 37040324308). The stash and the marker are not
+units.
 
 `verify` checks the result by a second route, blob by blob between the two trees rather than
 through `git diff`. Every tracked file whose content differs must be newer than T and every
-other tracked file must be exactly T - 1, whatever its type. A file left wrong fails by name.
+other tracked file must be exactly T - 1, whatever its type; a directory above a differing or
+removed path must be newer than T and every other one exactly T - 1. A path left wrong fails by
+name.
 `reuse` ends by running it.
 
 """
@@ -199,6 +218,22 @@ def unit_entries(target_dir: Path, packages: list[tuple[str, list[str]]]) -> lis
     return sorted(set(found))
 
 
+def member_executables(target_dir: Path, crates: list[str]) -> list[Path]:
+    """
+    Return every member test or binary executable those crate names left in deps, in any
+    profile directory under the target: no `lib` prefix and no extension.
+    """
+    if not crates:
+        return []
+    executable = re.compile(rf"^(?:{'|'.join(map(re.escape, crates))})-[0-9a-f]{{16}}$")
+    return sorted(
+        entry
+        for profile in profile_dirs(target_dir)
+        for entry in (profile / "deps").glob("*")
+        if entry.is_file() and executable.match(entry.name)
+    )
+
+
 def unit_files(target_dir: Path, packages: list[tuple[str, list[str]]]) -> list[Path]:
     """
     Return every build, fingerprint and deps file those packages left in any profile
@@ -226,14 +261,17 @@ def prune(target_dir: Path) -> int:
     own, shared = member_packages()
     # A name a dependency's units also carry would match them, and they reuse by hash and must
     # stay: a member test named `uuid` shares `deps/` with the uuid crate. Such a name is left out,
-    # and with it only that name's files; a package name no member shares today.
+    # and with it only that name's files; a package name no member shares today. Its executables
+    # are the exception: a dependency never leaves one.
     packages = [
         (name, [crate for crate in crates if crate not in shared])
         for name, crates in own
         if name not in shared
     ]
+    collided = sorted({crate for _, crates in own for crate in crates if crate in shared})
+    entries = unit_entries(target_dir, packages) + member_executables(target_dir, collided)
     units = removed = 0
-    for entry in unit_entries(target_dir, packages):
+    for entry in entries:
         files = entry_files(entry)
         # A unit this run built or re-ran has an output written after T; one it only restored has
         # none. The pull request would rebuild it anyway: reuse sets unchanged sources to T - 1.
@@ -351,6 +389,19 @@ def reachable(sha: str) -> bool:
     return git(*fetch, check=False).returncode == 0
 
 
+def directories(paths: set[str] | dict[str, str]) -> set[str]:
+    """
+    Return every directory above those paths, the checkout root excluded.
+    """
+    found = set()
+    for path in paths:
+        parent = os.path.dirname(path)
+        while parent and parent not in found:
+            found.add(parent)
+            parent = os.path.dirname(parent)
+    return found
+
+
 def set_mtime(path: str, seconds: float) -> None:
     os.utime(path, (seconds, seconds), follow_symlinks=False)
 
@@ -380,14 +431,34 @@ def reuse(target_dir: Path) -> int:
     for path in tracked:
         if os.path.lexists(path):
             set_mtime(path, now if path in changed_set else unchanged_time)
+    # Setting a file's mtime leaves its directory's alone, so the directories go after the files.
+    above_changed = directories(changed_set)
+    folders = directories(tracked)
+    for folder in folders:
+        set_mtime(folder, now if folder in above_changed else unchanged_time)
     touched = sum(1 for p in changed if p in tracked)
+    moved = len(folders & above_changed)
     print(
         f"{PREFIX} reusing main's build of {sha} (recorded {recorded}): "
-        f"{touched} changed file(s) set to now, {len(tracked) - touched} unchanged set to {unchanged_time}",
+        f"{touched} changed file(s) set to now, {len(tracked) - touched} unchanged set to {unchanged_time}; "
+        f"{moved} directories above a change set to now, {len(folders) - moved} set to {unchanged_time}",
     )
     for path in changed[:20]:
         print(f"{PREFIX}   changed {path}")
     return verify(target_dir)
+
+
+def wrong_mtime(label: str, differs: bool, why: str, sha: str, recorded: int) -> str | None:
+    """
+    Describe a path whose mtime is not the one its content calls for, else None.
+    """
+    mtime = os.lstat(label.rstrip("/")).st_mtime
+    if differs:
+        if mtime <= recorded:
+            return f"{label}: {why} differs from {sha} but its mtime {mtime:.0f} is not after {recorded}"
+    elif int(mtime) != recorded - 1:
+        return f"{label}: {why} is unchanged since {sha} but its mtime {mtime:.0f} is not {recorded - 1}"
+    return None
 
 
 def verify(target_dir: Path) -> int:
@@ -397,30 +468,37 @@ def verify(target_dir: Path) -> int:
         return 1
     sha, recorded = marker
     before, after = tree(sha), tree("HEAD")
-    wrong = []
-    for path, entry in after.items():
-        if not os.path.lexists(path):
-            wrong.append(f"{path}: tracked but missing from the checkout")
-            continue
-        mtime = os.lstat(path).st_mtime
-        if before.get(path) != entry:
-            if mtime <= recorded:
-                wrong.append(
-                    f"{path}: content differs from {sha} but its mtime {mtime:.0f} is not after {recorded}",
-                )
-        elif int(mtime) != recorded - 1:
-            wrong.append(
-                f"{path}: unchanged since {sha} but its mtime {mtime:.0f} is not {recorded - 1}",
-            )
+    wrong = [
+        f"{path}: tracked but missing from the checkout"
+        for path in after
+        if not os.path.lexists(path)
+    ]
+    wrong += [
+        wrong_mtime(path, before.get(path) != entry, "its content", sha, recorded)
+        for path, entry in after.items()
+        if os.path.lexists(path)
+    ]
+    differing = {
+        path for path in before.keys() | after.keys() if before.get(path) != after.get(path)
+    }
+    above_differing = directories(differing)
+    folders = directories(after)
+    wrong += [
+        wrong_mtime(f"{folder}/", folder in above_differing, "the tree below it", sha, recorded)
+        for folder in sorted(folders)
+    ]
+    wrong = [line for line in wrong if line]
     if wrong:
         for line in wrong[:50]:
             print(f"{PREFIX} WRONG MTIME {line}", file=sys.stderr)
         print(
-            f"{PREFIX} {len(wrong)} tracked file(s) would let cargo reuse or rebuild the wrong artifacts",
+            f"{PREFIX} {len(wrong)} tracked path(s) would let cargo reuse or rebuild the wrong artifacts",
             file=sys.stderr,
         )
         return 1
-    print(f"{PREFIX} verified {len(after)} tracked file(s) against {sha}, blob by blob")
+    print(
+        f"{PREFIX} verified {len(after)} tracked file(s) and {len(folders)} directories against {sha}, blob by blob",
+    )
     return 0
 
 
