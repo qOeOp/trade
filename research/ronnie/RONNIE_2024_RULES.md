@@ -94,3 +94,22 @@ itself cannot be read from this host.
 **Trend reversal by structure (2026-08-11):** a trend-line break alone is not a reversal; it takes a break of the prior
 low followed by a lower high. R-1's flip (a large-bodied close beyond the last confirmed pivot) points the same way but
 is looser than his two-step rule. The difference is recorded, not fitted.
+
+**Third 2026 video (2026-09-29, 1sd3b9avepY, AI summary with quotes):**
+- **Right-side entries:** wait for the price to reach support and confirm, rather than guessing a bottom. This shifts
+  from 2024's resting limits; R-1 is a resting limit (left side).
+- **"Double support":** confluence of a rising 4h trend line, a large horizontal support, a Fibonacci retracement and
+  the daily Bollinger middle band. The middle band is used as dynamic support in confluence, not only the weekly band.
+- **Stops:** beyond the prior low and the key Fibonacci level. 76.4% is the deepest retracement; a break of it means
+  the move continues.
+- **Targets:** take profit at the prior high. "Position control matters ten thousand times more than direction"; size
+  and stop are fixed before entry.
+- **Still unstated:** stop distance in numbers, risk per trade, and the partial-exit split.
+
+**His zone width, measured from his drawings:**
+- 73 dated rectangles on BTC and ETH in the 2024-2025 video ideas (most rectangles carry no time).
+- Median height about 1% of price: 0.27 daily ATR on BTC and 0.16 on ETH (quartiles 0.11-0.49).
+- These zones are narrower than R-1's assumed zone, which can reach 1 daily ATR, so his stops are probably closer than
+  R-1's.
+- R-1 has passed its holdout and stays frozen; a narrow-zone variant would be a new rule (stage 0).
+- He never uses TradingView's long/short position tool, so no drawn entry, stop and target triplets exist.
