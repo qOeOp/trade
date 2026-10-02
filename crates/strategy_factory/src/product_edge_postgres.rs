@@ -77,7 +77,7 @@ use crate::{
     },
 };
 use vibe_data::owner::pit_snapshot::PitSnapshotOwnerReadback;
-#[cfg(feature = "sealed-develop-composer-acceptance")]
+#[cfg(feature = "native-replay-execution")]
 use vibe_data::owner::shared_time_evidence::SharedTimeEvidenceResolver;
 use vibe_data::owner::{
     UniverseSampleProjectionOwnerV1,
@@ -2066,7 +2066,7 @@ impl PostgresResearchGoalOwnerV1 {
     }
 
     /// Commits one effect-free Market Data repair request from exact Owner readbacks.
-    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    #[cfg(feature = "native-replay-execution")]
     pub async fn compose_market_data_repair_request_v1<P, M, T>(
         &self,
         request: crate::MarketDataRepairCompositionRequestV1,
@@ -2095,7 +2095,7 @@ impl PostgresResearchGoalOwnerV1 {
     }
 
     /// Re-resolves existing Market Data repair request custody without creating a replacement.
-    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    #[cfg(feature = "native-replay-execution")]
     pub async fn resolve_market_data_repair_request_v1<P, M, T>(
         &self,
         request: crate::MarketDataRepairCompositionRequestV1,

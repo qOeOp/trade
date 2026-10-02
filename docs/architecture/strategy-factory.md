@@ -690,14 +690,13 @@ one-instant batch; no proof has yet driven the materialization to completion on 
 **IMPLEMENTATION_ADMITTED / NOT_CUT_OVER, production Native Replay entry:** the authenticated R&D API's
 `POST /v2/exploratory-replays` is admitted as a production route; its body carries only the exact sealed request
 locator and attempt identity. It is not cut over. The handler, the execution service it calls and the router
-registration are still compiled only under the sealed Develop composition feature, so no deployed image serves this
-route today, and no request has ever reached it outside acceptance. What the execution service needs of the
+registration are compiled under `native-replay-execution`, a production feature with no acceptance code that the
+deployed image does not enable, so no deployed image serves this route today, and no request has ever reached it outside acceptance. What the execution service needs of the
 Composer is ungated production code: its sealed read port is implemented by the production Composer,
 `PostgresSourceResearchComposerProductionV2`, and that Composer's final-evidence port, `LockedOwnerEvidenceV2`,
 locks and rereads the evidence for the locator it is given; no separate `PostgresDevelopComposerSealedReadPortV2`
-exists or is needed. Moving the handler, the service and the router registration from the sealed Develop feature
-onto `composer-replay-issuance` compiles and passes clippy in a build that enables `composer-v3-replay` and no
-acceptance feature (measured 2026-09-28 on the tree that introduced those features, then reverted). The feature
+exists or is needed. A build that enables `composer-v3-replay` and `native-replay-execution` carries them and no acceptance
+code, which `scripts/ci/check-production-features.py` checks for whatever features the image builds. The feature
 gate is therefore all that stands between this route and a build, and cutover is the deployed image carrying such a
 build, which is a deployment decision. After cutover, startup
 still exposes the execution capability only when `BACKTEST_OWNER_DATABASE_URL` admits the canonical Backtest Owner
