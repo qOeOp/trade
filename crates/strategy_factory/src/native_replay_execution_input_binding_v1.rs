@@ -417,8 +417,60 @@ pub enum NativeReplayExecutionInputBindingCauseV1 {
     RequestNotSealed,
     /// The binding tables' ownership, persistence or ACL is not the Owner's alone.
     StorageBoundaryInvalid,
-    /// A constituent locator is empty, out of order, duplicated or zero.
-    ConstituentsInvalid,
+    // The constituents the binding records, each checked before it is encoded: one cause per
+    // check, in order.
+    /// The request identity is empty, blank or longer than 512 bytes.
+    BindingRequestIdentityInvalid,
+    /// The request's meaning digest is not a canonical `sha256:` digest.
+    BindingRequestMeaningDigestInvalid,
+    /// The request's receipt identity is empty, blank or longer than 512 bytes.
+    BindingRequestReceiptIdentityInvalid,
+    /// The request's seal digest is not a canonical `sha256:` digest.
+    BindingRequestSealDigestInvalid,
+    /// The TrialFamily locator's identity is not valid text, or its digest is zero.
+    BindingTrialFamilyLocatorInvalid,
+    /// The artifact locator's identity is not valid text, or its digest is zero.
+    BindingArtifactLocatorInvalid,
+    /// The Plan locator's identity is not valid text, or its digest is zero.
+    BindingStrategyPlanLocatorInvalid,
+    /// One of the Instrument Master cut locator's four identities is zero.
+    BindingInstrumentMasterCutLocatorInvalid,
+    /// The universe frame receipt's identity or digest is zero.
+    BindingUniverseFrameReceiptInvalid,
+    /// The members are not in strictly ascending member-key order.
+    BindingMembersOutOfOrder,
+    /// Two members name the same public instrument.
+    BindingMembersRepeatAnInstrument,
+    /// A member's key is empty, blank or longer than 512 bytes.
+    BindingMemberKeyInvalid,
+    /// A member's public instrument identity is empty, blank or longer than 512 bytes.
+    BindingMemberInstrumentIdentityInvalid,
+    /// A member's public instrument digest is zero.
+    BindingMemberInstrumentDigestZero,
+    /// A member's venue identity is empty, blank or longer than 512 bytes.
+    BindingMemberVenueInvalid,
+    /// A member's account scope identity is empty, blank or longer than 512 bytes.
+    BindingMemberAccountScopeInvalid,
+    /// A member's BAR schedule identity is zero.
+    BindingMemberScheduleIdentityZero,
+    /// A member's economic terms fact locator has a zero identity or digest.
+    BindingMemberEconomicTermsFactInvalid,
+    /// A member's economic terms receipt locator has a zero identity or digest.
+    BindingMemberEconomicTermsReceiptInvalid,
+    /// A member's BAR schedule cut locator has a zero identity or digest.
+    BindingMemberBarScheduleCutInvalid,
+    /// A member's BAR schedule receipt locator has a zero identity or digest.
+    BindingMemberBarScheduleReceiptInvalid,
+    /// The execution profile seal's Replay Policy Catalog binding digest is zero.
+    CatalogBindingSealZero,
+    /// The execution profile seal's TrialFamily binding digest is zero.
+    FamilyBindingSealZero,
+    /// The execution profile seal's request binding digest is zero.
+    RequestBindingSealZero,
+    /// The execution profile's economic configuration digest is zero.
+    EconomicConfigurationDigestZero,
+    /// The execution profile's runner operational profile digest is zero.
+    RunnerOperationalProfileDigestZero,
     /// A text, count or the whole binding exceeds its canonical encoding's bounds.
     BindingNotEncodable,
     /// A stored binding, receipt or outbox row does not decode or does not reproduce its digests.
@@ -523,7 +575,44 @@ impl NativeReplayExecutionInputBindingCauseV1 {
             Self::RequestLocatorMismatch => "REQUEST_LOCATOR_MISMATCH",
             Self::RequestNotSealed => "REQUEST_NOT_SEALED",
             Self::StorageBoundaryInvalid => "STORAGE_BOUNDARY_INVALID",
-            Self::ConstituentsInvalid => "CONSTITUENTS_INVALID",
+            Self::BindingRequestIdentityInvalid => "BINDING_REQUEST_IDENTITY_INVALID",
+            Self::BindingRequestMeaningDigestInvalid => "BINDING_REQUEST_MEANING_DIGEST_INVALID",
+            Self::BindingRequestReceiptIdentityInvalid => {
+                "BINDING_REQUEST_RECEIPT_IDENTITY_INVALID"
+            }
+            Self::BindingRequestSealDigestInvalid => "BINDING_REQUEST_SEAL_DIGEST_INVALID",
+            Self::BindingTrialFamilyLocatorInvalid => "BINDING_TRIAL_FAMILY_LOCATOR_INVALID",
+            Self::BindingArtifactLocatorInvalid => "BINDING_ARTIFACT_LOCATOR_INVALID",
+            Self::BindingStrategyPlanLocatorInvalid => "BINDING_STRATEGY_PLAN_LOCATOR_INVALID",
+            Self::BindingInstrumentMasterCutLocatorInvalid => {
+                "BINDING_INSTRUMENT_MASTER_CUT_LOCATOR_INVALID"
+            }
+            Self::BindingUniverseFrameReceiptInvalid => "BINDING_UNIVERSE_FRAME_RECEIPT_INVALID",
+            Self::BindingMembersOutOfOrder => "BINDING_MEMBERS_OUT_OF_ORDER",
+            Self::BindingMembersRepeatAnInstrument => "BINDING_MEMBERS_REPEAT_AN_INSTRUMENT",
+            Self::BindingMemberKeyInvalid => "BINDING_MEMBER_KEY_INVALID",
+            Self::BindingMemberInstrumentIdentityInvalid => {
+                "BINDING_MEMBER_INSTRUMENT_IDENTITY_INVALID"
+            }
+            Self::BindingMemberInstrumentDigestZero => "BINDING_MEMBER_INSTRUMENT_DIGEST_ZERO",
+            Self::BindingMemberVenueInvalid => "BINDING_MEMBER_VENUE_INVALID",
+            Self::BindingMemberAccountScopeInvalid => "BINDING_MEMBER_ACCOUNT_SCOPE_INVALID",
+            Self::BindingMemberScheduleIdentityZero => "BINDING_MEMBER_SCHEDULE_IDENTITY_ZERO",
+            Self::BindingMemberEconomicTermsFactInvalid => {
+                "BINDING_MEMBER_ECONOMIC_TERMS_FACT_INVALID"
+            }
+            Self::BindingMemberEconomicTermsReceiptInvalid => {
+                "BINDING_MEMBER_ECONOMIC_TERMS_RECEIPT_INVALID"
+            }
+            Self::BindingMemberBarScheduleCutInvalid => "BINDING_MEMBER_BAR_SCHEDULE_CUT_INVALID",
+            Self::BindingMemberBarScheduleReceiptInvalid => {
+                "BINDING_MEMBER_BAR_SCHEDULE_RECEIPT_INVALID"
+            }
+            Self::CatalogBindingSealZero => "CATALOG_BINDING_SEAL_ZERO",
+            Self::FamilyBindingSealZero => "FAMILY_BINDING_SEAL_ZERO",
+            Self::RequestBindingSealZero => "REQUEST_BINDING_SEAL_ZERO",
+            Self::EconomicConfigurationDigestZero => "ECONOMIC_CONFIGURATION_DIGEST_ZERO",
+            Self::RunnerOperationalProfileDigestZero => "RUNNER_OPERATIONAL_PROFILE_DIGEST_ZERO",
             Self::BindingNotEncodable => "BINDING_NOT_ENCODABLE",
             Self::StoredBindingCorrupt => "STORED_BINDING_CORRUPT",
             Self::ReResolutionDiffers => "RE_RESOLUTION_DIFFERS",
@@ -1048,48 +1137,93 @@ fn recover_rows(
 fn validate_verified(
     verified: &VerifiedNativeReplayExecutionInputConstituentsV1,
 ) -> Result<(), NativeReplayExecutionInputBindingErrorV1> {
+    // One check, one cause, in the order the single condition they replace evaluated them.
+    let refuse = |refused: bool, cause: Cause| {
+        if refused {
+            Err(NativeReplayExecutionInputBindingErrorV1::Unavailable(cause))
+        } else {
+            Ok(())
+        }
+    };
     let request = &verified.request_locator;
-    if !valid_text(&request.request_identity)
-        || !valid_sha256(&request.meaning_digest)
-        || !valid_text(&request.receipt_identity)
-        || !valid_sha256(&request.seal_digest)
-        || !valid_named(&verified.trial_family)
-        || !valid_named(&verified.artifact)
-        || !valid_named(&verified.strategy_plan)
-        || !valid_instrument_master_cut_locator(verified.public_instrument_master_cut)
-        || !valid_locator(verified.universe_frame_receipt)
-        || verified
+    refuse(
+        !valid_text(&request.request_identity),
+        Cause::BindingRequestIdentityInvalid,
+    )?;
+    refuse(
+        !valid_sha256(&request.meaning_digest),
+        Cause::BindingRequestMeaningDigestInvalid,
+    )?;
+    refuse(
+        !valid_text(&request.receipt_identity),
+        Cause::BindingRequestReceiptIdentityInvalid,
+    )?;
+    refuse(
+        !valid_sha256(&request.seal_digest),
+        Cause::BindingRequestSealDigestInvalid,
+    )?;
+    refuse(
+        !valid_named(&verified.trial_family),
+        Cause::BindingTrialFamilyLocatorInvalid,
+    )?;
+    refuse(
+        !valid_named(&verified.artifact),
+        Cause::BindingArtifactLocatorInvalid,
+    )?;
+    refuse(
+        !valid_named(&verified.strategy_plan),
+        Cause::BindingStrategyPlanLocatorInvalid,
+    )?;
+    refuse(
+        !valid_instrument_master_cut_locator(verified.public_instrument_master_cut),
+        Cause::BindingInstrumentMasterCutLocatorInvalid,
+    )?;
+    refuse(
+        !valid_locator(verified.universe_frame_receipt),
+        Cause::BindingUniverseFrameReceiptInvalid,
+    )?;
+    refuse(
+        verified
             .members
             .windows(2)
-            .any(|pair| pair[0].member_key >= pair[1].member_key)
-        || verified
+            .any(|pair| pair[0].member_key >= pair[1].member_key),
+        Cause::BindingMembersOutOfOrder,
+    )?;
+    refuse(
+        verified
             .members
             .iter()
             .map(|member| &member.public_instrument_identity)
             .collect::<BTreeSet<_>>()
             .len()
-            != verified.members.len()
-        || !verified.members.iter().all(valid_member)
-    {
-        return Err(NativeReplayExecutionInputBindingErrorV1::Unavailable(
-            Cause::ConstituentsInvalid,
-        ));
+            != verified.members.len(),
+        Cause::BindingMembersRepeatAnInstrument,
+    )?;
+
+    if let Some(cause) = verified.members.iter().find_map(member_refusal) {
+        return Err(NativeReplayExecutionInputBindingErrorV1::Unavailable(cause));
     }
     let seals = &verified.execution_profile_seals;
-    if [
-        seals.catalog_binding_digest,
-        seals.family_binding_digest,
-        seals.request_binding_digest,
-        seals.economic_configuration_digest,
-        seals.runner_operational_profile_digest,
-    ]
-    .contains(&[0; 32])
-    {
-        return Err(NativeReplayExecutionInputBindingErrorV1::Unavailable(
-            Cause::ConstituentsInvalid,
-        ));
-    }
-    Ok(())
+    refuse(
+        seals.catalog_binding_digest == [0; 32],
+        Cause::CatalogBindingSealZero,
+    )?;
+    refuse(
+        seals.family_binding_digest == [0; 32],
+        Cause::FamilyBindingSealZero,
+    )?;
+    refuse(
+        seals.request_binding_digest == [0; 32],
+        Cause::RequestBindingSealZero,
+    )?;
+    refuse(
+        seals.economic_configuration_digest == [0; 32],
+        Cause::EconomicConfigurationDigestZero,
+    )?;
+    refuse(
+        seals.runner_operational_profile_digest == [0; 32],
+        Cause::RunnerOperationalProfileDigestZero,
+    )
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1426,17 +1560,52 @@ fn valid_instrument_master_cut_locator(value: InstrumentMasterCutLocatorBindingV
     .all(|identity| identity != [0; 32])
 }
 
-fn valid_member(value: &NativeReplayExecutionInputMemberV1) -> bool {
-    valid_text(&value.member_key)
-        && valid_text(&value.public_instrument_identity)
-        && value.public_instrument_digest != [0; 32]
-        && valid_text(&value.venue_identity)
-        && valid_text(&value.account_scope_identity)
-        && value.schedule_identity != [0; 32]
-        && valid_locator(value.instrument_economic_terms_fact)
-        && valid_locator(value.instrument_economic_terms_receipt)
-        && valid_locator(value.bar_schedule_cut)
-        && valid_locator(value.bar_schedule_receipt)
+/// The first of a binding member's locators that is empty, blank, oversized or zero, named.
+fn member_refusal(value: &NativeReplayExecutionInputMemberV1) -> Option<Cause> {
+    [
+        (
+            valid_text(&value.member_key),
+            Cause::BindingMemberKeyInvalid,
+        ),
+        (
+            valid_text(&value.public_instrument_identity),
+            Cause::BindingMemberInstrumentIdentityInvalid,
+        ),
+        (
+            value.public_instrument_digest != [0; 32],
+            Cause::BindingMemberInstrumentDigestZero,
+        ),
+        (
+            valid_text(&value.venue_identity),
+            Cause::BindingMemberVenueInvalid,
+        ),
+        (
+            valid_text(&value.account_scope_identity),
+            Cause::BindingMemberAccountScopeInvalid,
+        ),
+        (
+            value.schedule_identity != [0; 32],
+            Cause::BindingMemberScheduleIdentityZero,
+        ),
+        (
+            valid_locator(value.instrument_economic_terms_fact),
+            Cause::BindingMemberEconomicTermsFactInvalid,
+        ),
+        (
+            valid_locator(value.instrument_economic_terms_receipt),
+            Cause::BindingMemberEconomicTermsReceiptInvalid,
+        ),
+        (
+            valid_locator(value.bar_schedule_cut),
+            Cause::BindingMemberBarScheduleCutInvalid,
+        ),
+        (
+            valid_locator(value.bar_schedule_receipt),
+            Cause::BindingMemberBarScheduleReceiptInvalid,
+        ),
+    ]
+    .into_iter()
+    .find_map(|(valid, cause)| (!valid).then_some(cause))
 }
 
 fn valid_text(value: &str) -> bool {
