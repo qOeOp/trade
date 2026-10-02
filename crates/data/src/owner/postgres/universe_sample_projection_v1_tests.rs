@@ -61,7 +61,7 @@ fn delta(after: &[i64], before: &[i64]) -> Vec<i64> {
 /// One universe frame, one projection, over the frame the host admits.
 ///
 /// - While the member has no BAR schedule at the frame, the issuance is refused by name as
-///   `ScheduleUnavailable` and writes nothing.
+///   `ScheduleAbsent` and writes nothing.
 /// - A frame that already holds a different projection is refused by name as `SubjectConflict`
 ///   and writes nothing; a stored projection that does not verify reads back as an error, never as
 ///   absent.
@@ -160,7 +160,7 @@ async fn postgres_a_universe_frame_issues_one_sample_projection_over_the_host_fr
     let before = projection_state(pool).await;
     assert_eq!(
         issue(binding).await,
-        Err(UniverseSampleProjectionIssuanceErrorV1::ScheduleUnavailable)
+        Err(UniverseSampleProjectionIssuanceErrorV1::ScheduleAbsent)
     );
     assert_eq!(
         projection_state(pool).await,

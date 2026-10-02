@@ -5882,16 +5882,16 @@ mod tests {
         );
         reader.close().await;
 
-        // The resolver composes the same read path. It cannot tell this proof which case it is in:
-        // the fixture seeds no schedule, and selection names a member with no candidate exactly as
-        // it names a refused read. The discriminating measurements are the reads above and below;
-        // the path with schedules is the ordered chain's, where the Replay fixtures seed them.
+        // The resolver composes the same read path. The fixture seeds no schedule, and every read
+        // above was answered, so selection finds no candidate for the member and names that: a
+        // refused read would be `OwnerReadbackUnavailable` instead. The path with schedules is the
+        // ordered chain's, where the Replay fixtures seed them.
         assert_eq!(
             resolver
                 .resolve_native_replay_initial_market_inputs_v1(&request)
                 .await
                 .map(|_| ()),
-            Err(NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)
+            Err(NativeReplaySchedulingErrorV1::NoBarScheduleAtFrame)
         );
 
         let evidence = resolver
