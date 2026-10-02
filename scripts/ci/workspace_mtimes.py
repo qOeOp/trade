@@ -41,6 +41,12 @@ deps files, mtimes included, into a CACHEDIR.TAG, the one file name the cleanup 
 (src/cleanup.ts:10-30); `reuse` unpacks it before it sets any mtime. A source change in such a
 package still rebuilds it: its sources get the new mtime like any other changed file.
 
+Mtimes cannot keep a member's test or binary executables: rust-cache keeps only the `lib` and
+`proc-macro` targets of a member in `deps/` (src/workspace.ts:6, :24, src/cleanup.ts:65-75), so
+every integration test and binary rebuilds on every pull request while its fingerprint survives
+(115 of 175 such units on main's entry of 2026-10-02, run 37044773386). The executables kept are
+the ones named like a kept library.
+
 `prune` runs on main after everything compiled and before the cache is saved. It deletes every
 workspace unit no file of which this run wrote, which is every one older than T: when main's key
 changes, the new entry is saved on top of the one it restored, and those older units would ride
