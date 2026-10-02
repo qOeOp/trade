@@ -379,13 +379,13 @@ fn sealed_acceptance_catalog_command_v3(
 
 /// Advances the sealed acceptance Catalog V3 head to a record whose economic configuration is
 /// schema 2 at `venue_identity`: its Replays take each instrument's terms as the Instrument Owner
-/// resolves them. The base head is ensured first; the successor names it as predecessor. Once the
-/// successor is the head, a later call resolves it exactly without touching the base.
+/// resolves them. The base head is ensured first; the successor names it as predecessor.
 #[cfg(feature = "sealed-develop-composer-acceptance")]
 pub(crate) async fn ensure_sealed_acceptance_schema_2_catalog_v3(
     pool: &PgPool,
     venue_identity: &str,
 ) -> Result<ReplayPolicyCatalogBindingV3, ReplayPolicyCatalogErrorV2> {
+    ensure_authenticated_sealed_acceptance_fixture_v3(pool).await?;
     let signing_key = SigningKey::from_bytes(&[11_u8; 32]);
     let record = format!(
         "sealed-acceptance-replay-policy-v3-schema-2-{}",
@@ -410,29 +410,12 @@ pub(crate) async fn ensure_sealed_acceptance_schema_2_catalog_v3(
         CatalogAdminCommandKindV3::Advance,
         &format!("{record}-advance"),
     )?;
-    let verifier_key = bytes_hex(signing_key.verifying_key().as_bytes());
-    // Once this record is the head, ensuring it again resolves it exactly. Re-ensuring the base
-    // head first would conflict, because the head has moved past it: the F body joins the Replay
-    // the prefix formed against this head, and calls this a second time on the same store.
-    if let Ok(current) = read_current_replay_policy_catalog_v3(pool).await
-        && current
-            == create_authenticated_replay_policy_catalog_v3(
-                pool,
-                &create,
-                "rd-catalog-sealed-acceptance-verifier-v3",
-                &verifier_key,
-            )
-            .await?
-    {
-        return Ok(current);
-    }
-    ensure_authenticated_sealed_acceptance_fixture_v3(pool).await?;
     ensure_authenticated_replay_policy_catalog_v3(
         pool,
         &create,
         &advance,
         "rd-catalog-sealed-acceptance-verifier-v3",
-        &verifier_key,
+        &bytes_hex(signing_key.verifying_key().as_bytes()),
     )
     .await
 }

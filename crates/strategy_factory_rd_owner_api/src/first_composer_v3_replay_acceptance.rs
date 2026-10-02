@@ -146,7 +146,7 @@ pub(crate) struct OwnerRecordLocatorV1 {
 #[derive(Debug)]
 #[expect(
     dead_code,
-    reason = "the prefix entry asserts the fields the body does not read, and its body is not written yet"
+    reason = "the prefix records every locator it was issued; the body reads the ones it asserts against"
 )]
 pub(crate) struct FirstComposerV3ReplayV1 {
     pub(crate) deployment: ProductEdgeDeploymentAcceptanceFixtureV1,
@@ -162,8 +162,7 @@ pub(crate) struct FirstComposerV3ReplayV1 {
     pub(crate) execution_input_binding: OwnerRecordLocatorV1,
     pub(crate) instrument_master_cut: InstrumentMasterCutLocatorV2,
     pub(crate) member_instrument: String,
-    /// Whether this call committed the Replay. The prefix asserts `true` on a fresh database; the
-    /// body asserts `false`.
+    /// Whether this call committed the Replay. F asserts `true` on a fresh database.
     pub(crate) created: bool,
 }
 

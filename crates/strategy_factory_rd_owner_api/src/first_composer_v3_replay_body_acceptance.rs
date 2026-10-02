@@ -1,12 +1,7 @@
-//! What the ordered chain proves about the first COMPOSER_V3 Replay once the prefix has committed
-//! it: that R&D's own universe Design produced it, that the production execution preparation runs
-//! it as the one-member, one-frame universe it is, and that the report states it.
-//!
-//! The rest of the body needs this crate's view inside the claim read, which the report and the
-//! locking readback each open their own transaction for: the lock-free read holding no row lock,
-//! and each stored change to the claim refused by name inside the transaction that made it. That
-//! half is `the_first_composer_v3_claim_reads_without_a_lock_and_refuses_each_stored_change_by_name`
-//! in `vibe-strategy-factory`, the chain entry after this one.
+//! What the ordered chain proves about the first COMPOSER_V3 Replay once the prefix, in the same
+//! entry, has committed it: that R&D's own universe Design produced it, that the production
+//! execution preparation runs it as the one-member, one-frame universe it is, and that the report
+//! states it.
 //!
 //! Each step says what it rules out. A green here before the universe sample projection is attached
 //! in production is a false green: until then the host refuses a coordinate Plan's frame as
@@ -42,10 +37,7 @@ use vibe_strategy_factory::{
 use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
 
 use crate::exploratory_replay::{NativeReplayExecutionServiceV2, execution_router};
-use crate::first_composer_v3_replay_acceptance::{
-    FIRST_COMPOSER_V3_REPLAY_FIXTURE_KEY_V1, FirstComposerV3ReplayV1,
-    ensure_first_composer_v3_replay_acceptance_v1,
-};
+use crate::first_composer_v3_replay_acceptance::FirstComposerV3ReplayV1;
 use crate::native_replay_scheduling_acceptance::composed_native_replay_scheduling_resolver;
 
 /// The one attempt the body runs the Replay under. A second run of the same request and attempt
@@ -54,18 +46,8 @@ const FIRST_COMPOSER_V3_REPLAY_ATTEMPT_V1: &str = "f-first-composer-v3-replay-at
 
 pub(crate) async fn assert_the_first_composer_v3_replay_runs_as_its_universe_v1(
     test_database: &CanonicalOwnerPostgresTestDatabaseV1,
+    replay: &FirstComposerV3ReplayV1,
 ) {
-    let replay = ensure_first_composer_v3_replay_acceptance_v1(
-        test_database,
-        FIRST_COMPOSER_V3_REPLAY_FIXTURE_KEY_V1,
-    )
-    .await;
-    // A second call that created is a statement about the prefix entry: it did not run, or it
-    // committed under another key, and every step below would then prove a Replay this entry made.
-    assert!(
-        !replay.created,
-        "the body joins the Replay the prefix committed; it created one, so the prefix did not run"
-    );
     let rd_pool = sqlx::postgres::PgPoolOptions::new()
         .connect_url(
             test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
@@ -74,19 +56,19 @@ pub(crate) async fn assert_the_first_composer_v3_replay_runs_as_its_universe_v1(
         .await
         .expect("the R&D Owner pool");
 
-    assert_the_design_is_rd_authored_over_universe_members(&rd_pool, &replay).await;
+    assert_the_design_is_rd_authored_over_universe_members(&rd_pool, replay).await;
     // Store Admission (`B3`) admits no scheduling resolver in any deployment, so this entry
     // composes the sealed acceptance one and passes it where production passes its own.
     let scheduling = composed_native_replay_scheduling_resolver(test_database).await;
     let owners = production_execution_owners(test_database, scheduling.resolver()).await;
-    assert_the_production_preparation_executes_one_member_one_frame(&owners, &replay).await;
-    let result_identity = run_over_http(test_database, &owners, &replay).await;
+    assert_the_production_preparation_executes_one_member_one_frame(&owners, replay).await;
+    let result_identity = run_over_http(test_database, &owners, replay).await;
     let locator = ExploratoryReplayResultLocatorV2 {
         result_identity: &result_identity,
         request_identity: &replay.replay_request.request_identity,
         attempt_identity: FIRST_COMPOSER_V3_REPLAY_ATTEMPT_V1,
     };
-    assert_the_report_states_the_run(&rd_pool, locator, &replay).await;
+    assert_the_report_states_the_run(&rd_pool, locator, replay).await;
     scheduling.revoke().await;
 }
 

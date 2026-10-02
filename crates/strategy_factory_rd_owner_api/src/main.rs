@@ -6116,17 +6116,19 @@ mod tests {
         );
     }
 
-    /// The F prefix: the first COMPOSER_V3 Replay, committed through the production routes from a
-    /// V3 Research request to an execution input binding that reads back.
+    /// F: the first COMPOSER_V3 Replay, committed through the production routes from a V3 Research
+    /// request to an execution input binding that reads back (the prefix), then run through the
+    /// production execution route and stated by the report (the body).
     ///
-    /// The steps, and the two places it departs from a route, are in
-    /// `first_composer_v3_replay_acceptance`. This entry asserts only that it was the one that
-    /// created the Replay: the F body calls the same fixture with the same key and must join it.
+    /// One entry, because the body runs what the prefix just committed. Joining it from a second
+    /// entry would have to replay the prefix's admissions, and those take Market Data's clock
+    /// head, which has moved: the replayed Instrument Master fact is no successor and is refused.
+    /// The steps are in `first_composer_v3_replay_acceptance` and
+    /// `first_composer_v3_replay_body_acceptance`.
     #[cfg(feature = "sealed-source-intake-composer-acceptance")]
     #[rstest]
     #[ignore = "requires the ordered chain's PostgreSQL, entry 6's Market Data fixture and the pinned local wasm compiler"]
-    fn the_first_composer_v3_replay_is_submitted_over_http_and_its_execution_input_binding_reads_back()
-     {
+    fn the_first_composer_v3_replay_runs_as_its_one_member_universe_and_is_reported() {
         // Accepting a request, issuing its PIT request and composing run the Owners' deepest
         // custody paths; together they overflow the default test stack, as the other V3 entries do.
         std::thread::Builder::new()
@@ -6149,38 +6151,13 @@ mod tests {
                         .await;
                         assert!(
                             replay.created,
-                            "the prefix runs on a fresh chain database, so it must be the call that \
-                             created the first COMPOSER_V3 Replay rather than one that joined it",
+                            "F runs on a fresh chain database, so it must be the call that created \
+                             the first COMPOSER_V3 Replay rather than one that joined it",
                         );
-                    }));
-            })
-            .unwrap()
-            .join()
-            .unwrap();
-    }
-
-    /// The F body: the first COMPOSER_V3 Replay the prefix entry committed, run through the
-    /// production execution preparation and stated by the report.
-    ///
-    /// The steps and what each rules out are in `first_composer_v3_replay_body_acceptance`.
-    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
-    #[rstest]
-    #[ignore = "requires the ordered chain's PostgreSQL and the first COMPOSER_V3 Replay the prefix entry commits"]
-    fn the_first_composer_v3_replay_runs_as_its_one_member_universe_and_is_reported() {
-        std::thread::Builder::new()
-            .stack_size(16 * 1024 * 1024)
-            .spawn(|| {
-                tokio::runtime::Builder::new_multi_thread()
-                    .worker_threads(2)
-                    .enable_all()
-                    .build()
-                    .unwrap()
-                    .block_on(Box::pin(async {
-                        let test_database =
-                            CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
                         Box::pin(
                             crate::first_composer_v3_replay_body_acceptance::assert_the_first_composer_v3_replay_runs_as_its_universe_v1(
                                 &test_database,
+                                &replay,
                             ),
                         )
                         .await;
