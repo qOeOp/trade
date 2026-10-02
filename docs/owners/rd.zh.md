@@ -162,6 +162,20 @@
   在它之前签不出 universe-member composition binding，所以没有存量行是这种形状，也不回填。commit 与历史
   readback 都通过生产 binding Owner 绑定 Composer 的输入，它重读 Market Data 托管，而不是验收语料的固定帧。
   没有 SQL 函数读这两列里的 source 子对象；将来要读的函数必须先按 source schema 分支。
+- **CURRENT - execution-input binding 签发如何拒绝：** `/v2/exploratory-replay/execution-input-bindings` 及其
+  `/resolve` 有五种拒绝各有自己的状态和代码：与已签发 binding 的冲突和两种 Instrument Master 拒绝（`409`），
+  请求没有 composition binding（`422`），以及 resolve 找不到 binding（`404`）。其余每一种拒绝都是 `503`
+  `NATIVE_REPLAY_EXECUTION_INPUT_BINDING_UNAVAILABLE`，并且都在 body 的 `cause` 和 `x-rd-rejection-cause`
+  header 里写明成因。成因是
+  `NativeReplayExecutionInputBindingCauseV1`，一份封闭的清单，线上名字的匹配不带通配符：签发的每个阶段一个，
+  核对各 Owner 读回彼此一致、且与请求一致的那项检查的每一条子句一个，binding 自身的每项托管检查一个。
+  服务另加数据库错误的 `STORE_UNAVAILABLE`，以及组装时缺的每个 Owner 端口各一个。部署镜像组装了除 Market Data
+  scheduling 之外的全部端口；scheduling 只能经由 `B3` 要建的 Store Admission 获得，所以在那之前它的回答是
+  `MARKET_DATA_SCHEDULING_NOT_ADMITTED`。scheduling 已准入、而某成员在该帧没有提交 BAR schedule 时，回答是
+  `BAR_SCHEDULE_ABSENT`：Market Data 把这种缺席命名为 `NoBarScheduleAtFrame` 和 `ScheduleAbsent`，与读取失败
+  分开。每个成因的状态都是 `503`。要把某个成因移出 `503`，需要做 `replay_composition_refusal` 为它自己的拒绝
+  记录的那种逐变体分析。签发各阶段还会把 Owner 的细节记在 `native_replay_initial_binding.<stage>` 下；成因本身
+  不带 Owner 细节。
 - **CURRENT - composer-backed Replay 绑定哪一份 TrialFamily 状态：** 与 legacy exploratory Replay 绑定的相同。
   对家族成形 Intent 的 Replay 绑定家族成形时的样子，即成形时的 census frontier，且只在家族还没有任何 attempt
   时被准入；successor 绑定家族的 V2 census。一个 attempt 是在 Result 之后记录的一次 Replay，R&D 在计数该

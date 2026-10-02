@@ -198,8 +198,8 @@ pub use native_replay_execution_bundle_owner_v2::{
     compose_native_replay_execution_bundle_v2, prepare_native_replay_execution_prerequisites_v2,
 };
 pub use native_replay_execution_input_binding_v1::{
-    NativeReplayExecutionInputBindingErrorV1, NativeReplayExecutionInputBindingLocatorV1,
-    NativeReplayExecutionInputBindingReadbackV1,
+    NativeReplayExecutionInputBindingCauseV1, NativeReplayExecutionInputBindingErrorV1,
+    NativeReplayExecutionInputBindingLocatorV1, NativeReplayExecutionInputBindingReadbackV1,
     resolve_native_replay_execution_input_binding_v1_in_transaction,
 };
 pub use native_replay_preparation_inputs_v2::{
