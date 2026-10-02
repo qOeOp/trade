@@ -660,7 +660,9 @@ pub(crate) async fn ensure_first_composer_v3_replay_acceptance_v1(
     // economic configuration at BINANCE. The base head is schema 1 at SIM and pins ETHUSDT-PERP's
     // terms; schema 2 pins no instrument, so the Replay's terms are the perpetual's own, as the
     // Instrument Owner resolves them for its window. Nothing after F in the chain forms a family.
-    super::tests::ensure_sealed_catalog_v3(test_database).await;
+    // The schema 2 ensure ensures the base itself while the head is not yet its record, and
+    // resolves its record exactly once it is. Ensuring the base here as well would conflict on the
+    // body's second call, once the head has moved past it.
     let catalog_admin = sqlx::postgres::PgPoolOptions::new()
         .connect_url(
             test_database.database_url(CanonicalOwnerTestRoleV1::ReplayPolicyCatalogAdminWriter),
