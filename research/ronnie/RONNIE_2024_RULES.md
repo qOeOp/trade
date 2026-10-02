@@ -59,3 +59,22 @@ uuid prefix and a time stamp in seconds; quotes are translated. Extracted by two
 - Limit validity: 10 bars.
 - Stop buffer: 0.25 ATR.
 - Exits: partial exits versus one target.
+
+## 2026 check (one video, 2026-09-30, from a third-party AI summary the user supplied)
+
+Evidence quality: an AI summary (WayinVideo) of one YouTube video (rO6RJ2QQvss), not his words; YouTube itself cannot
+be read from this host.
+- **Unchanged:**
+  - wait for a pullback to a trend line, horizontal support or Fibonacci retracement rather than chase;
+  - a broken prior high retested as support (BNB), and broken support as resistance (BTC 4h);
+  - no trades in the middle of a range (SOL);
+  - 4h structure for timing;
+  - reward to risk judged explicitly (a 1:1 short is "not high conviction");
+  - light size.
+- **New or louder:**
+  - Bollinger Bands are back as context: the weekly close below the weekly middle band as bearish (BTC), and band
+    opening and outside-band closes (oil). This differs from 2024-2025's "no indicators".
+  - Confluence of a trend line, horizontal support and Fibonacci 0.382/0.5/0.618 for entries (ETH, HYPE).
+  - New coins (HYPE).
+- **Consequence:** R-1's core rule is still his main method, so R-1 stays frozen. The two new elements are tracked as
+  forward-only tags on R-1's records (FORWARD_PLAN, "R-1 tags"), not fitted on read data.

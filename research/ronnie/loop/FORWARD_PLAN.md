@@ -72,3 +72,15 @@ signals separately. CF is decided with the others on 2027-10-01 (LOG, "Candidate
 - **Gate U review** (usable at small size, which needs the user's authority) once the forward record is positive with
   at least 30 closed trades.
 - **Decision date:** 2027-10-01 with the others.
+
+## R-1 tags from his 2026 video (registered 2026-10-02, forward-only)
+
+Computed at scoring time from data before each order; every R-1 order is still recorded and scored.
+- **W (weekly regime):** a long is aligned when the last closed weekly close is above the weekly Bollinger middle band
+  (20-week mean); a short when it is below.
+- **F (Fibonacci confluence):** the broken level lies within 0.25 daily ATR of the 0.382, 0.5 or 0.618 retracement of
+  the latest daily impulse (from the last confirmed order-3 pivot low to the highest close since, mirrored for
+  shorts).
+- **Decision on 2027-10-01:** for each tag, the forward edge of tagged orders minus untagged orders, week-clustered,
+  with Holm over the two. A tag is adopted only if its interval is above zero; otherwise it is reported and dropped.
+  Neither tag is tested on 2018-2026 data, because those years were read for R-1.
