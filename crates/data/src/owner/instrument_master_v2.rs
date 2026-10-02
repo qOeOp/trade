@@ -393,8 +393,11 @@ impl ExchangeInfoBaselineV2 {
                 minimum_quantity: filters.bound("LOT_SIZE", "minQty")?,
                 maximum_quantity: filters.bound("LOT_SIZE", "maxQty")?,
                 minimum_notional: filters.optional_bound("MIN_NOTIONAL", "notional")?,
-                // The cap exists; it lives in leverage brackets, which `exchangeInfo` omits.
-                maximum_notional: FactValue::Unavailable,
+                // `exchangeInfo` states every order filter the venue applies, and none caps an
+                // order's notional, so the per-order cap is unbounded. The leverage brackets cap a
+                // position's notional at a leverage, per account; they are execution-profile
+                // authority, which the public fact excludes, not this term.
+                maximum_notional: FactValue::Unbounded,
             },
         })
     }
@@ -3851,12 +3854,18 @@ mod exchange_info_normalization_tests {
                 minimum_quantity: decimal(1, 3),
                 maximum_quantity: decimal(1_000, 0),
                 minimum_notional: decimal(5, 0),
-                maximum_notional: FactValue::Unavailable,
+                maximum_notional: FactValue::Unbounded,
             }
         );
 
         let fact = InstrumentMasterFactV2::from_exchange_info_baseline(baseline)
             .expect("the derived baseline is a valid fact");
+        // The fact the production intake derives is one a native Replay can be priced on: every
+        // limit's disposition is explicit, so the public/native validation admits it.
+        let native = fact
+            .validate_native_crypto_perpetual_public_terms()
+            .expect("a derived USD-M baseline validates as native perpetual terms");
+        assert_eq!(native.maximum_notional(), None);
         assert_eq!(
             fact.terms_basis(),
             InstrumentTermsBasisV2::RetrievedTermsAssumedSinceListing
@@ -4988,9 +4997,11 @@ mod exchange_info_snapshot_tests {
     }
 
     /// F's case: a baseline from the recorded payload, the status successor B1 admits after it,
-    /// and a one-member cut over the baseline keep the exact bytes they had before snapshot
-    /// successors existed. These were read from that tree, so a codec change that is not additive
-    /// moves one of them.
+    /// and a one-member cut over the baseline keep their exact bytes, so a codec change that is not
+    /// additive moves one of them. The bytes were first read from the tree before snapshot
+    /// successors existed. They were read again when the derived maximum notional became
+    /// `UNBOUNDED`: that changed a derived term, which this pin also moves by design, and left
+    /// every length unchanged.
     #[rstest]
     fn a_baseline_its_status_successor_and_its_cut_keep_their_bytes() {
         let baseline = baseline_of("BTCUSDT");
@@ -5024,7 +5035,7 @@ mod exchange_info_snapshot_tests {
             ),
             (
                 414,
-                "eb7ca6f83437082c6e838d88c2d70827e9f8c460848ae9587894f5b8f0383144"
+                "b47332be172c6bcc94dc4d3c7df3fa201a5c6c7438905a9e5a8baa61fb35da23"
             )
         );
         assert_eq!(
@@ -5034,14 +5045,14 @@ mod exchange_info_snapshot_tests {
             ),
             (
                 669,
-                "c849c3b0b9ccbe39e1fbd5f1c6f2457b21ff7a938a99e3cfe43e53b97f6dc5e2"
+                "146a667e678332f6f17077eb5aad22bc7b3100f248dc5df04d0e403cf7c366f0"
             )
         );
         assert_eq!(
             (cut.canonical_bytes().len(), hex(cut.identity()).as_str()),
             (
                 669,
-                "2cf8cc2bb714c0ec23bfc5445a7816e199d5936ef375a9c1510a1da1262f270d"
+                "e180b3ada35f83707411af604ea3810f8ca8ee5a735dfc402249c04f3be0207d"
             )
         );
     }
