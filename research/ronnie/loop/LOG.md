@@ -2032,3 +2032,56 @@ fill appears in family_r (R-1, R-2; fixed) and family_q (P-3: 720 1h bars, 240 f
 
 The lock under-stated R-1 but did not hide an edge in P-3. With 4.6x the trades, the round-number break-and-retest
 excludes a meaningful edge.
+
+## Loop R-F: Ronnie's four Fibonacci uses on R-1u (registered before running; the user's request)
+
+His four uses (`RONNIE_2024_RULES.md`): an entry zone (0.382, 0.5-0.618), a stop beyond 0.786, targets at the 100% and
+161.8% extensions, and Fibonacci as part of a confluence.
+- **Impulse for each R-1u break:** A is the last confirmed order-3 pivot low before the break (mirrored for shorts); B
+  is the most extreme high from A through the break bar. All known at the break.
+- **Variants (11), each with the same R-1u orders unless stated:**
+
+| id | change from R-1u | placebo (non-Fibonacci ratios) |
+| --- | --- | --- |
+| base | R-1u (zone stop, 2R) | - |
+| F1 | target = fill + 1.00 x (B - A) | F1p: 1.15 x |
+| F2 | stop 0.1 ATR beyond the 0.786 retracement of A-B | F2p: 0.86 |
+| F3 | only orders whose broken level lies within 0.25 ATR of the 0.382/0.5/0.618 retracement | F3p: 0.32/0.44/0.70 |
+| F4 | limit at the 0.5 retracement instead of the broken level; stop beyond 0.786; target 1.00 extension | F4p: 0.44 / 0.86 / 1.15 |
+| FULL | F3 filter + F2 stop + F1 target | FULLp: all placebo ratios |
+
+- **Data:** development (53 coins, 2018-2022); slot freed at the exit; matched random-entry controls.
+- **Metrics:** Sharpe of weekly R at fixed risk (exits), edge against random entries (filters); week-clustered.
+  CSCV PBO over the 11.
+- **Fibonacci-specific value:** each variant minus its placebo.
+- **Adoption (forward-only, paired with R-1u; the holdout is spent):** a variant whose Sharpe is above R-1u's and
+  above its placebo's, with PBO <= 0.5.
+- **Predicted:**
+  - F1 a little below R-1u (a fixed 2R beat structure targets in X-R1);
+  - F2 about equal;
+  - F3 and F4 no better than their placebos;
+  - FULL about R-1u;
+  - each variant minus placebo about 0.
+  - No adoption expected.
+
+**Result R-F** (`loop/r1_fib.py`, `loop/r1_fib.txt`; development, Sharpe of weekly R at fixed risk):
+
+| variant | trades | avg R | edge | Sharpe | placebo Sharpe |
+| --- | --- | --- | --- | --- | --- |
+| base R-1u | 3,781 | +0.335 | +0.338 | 3.02 | - |
+| F1 target 1.00 extension | 2,721 | +0.613 | +0.464 | 2.79 | 2.78 (1.15) |
+| F2 stop beyond 0.786 | 1,631 | +0.337 | +0.232 | 2.10 | 2.12 (0.86) |
+| F3 confluence filter | 2,138 | +0.261 | +0.296 | 2.31 | 2.50 |
+| F4 entry at 0.5 | 1,626 | +0.235 | +0.134 | 1.30 | 1.58 |
+| FULL | 1,430 | +0.313 | +0.218 | 1.85 | 1.92 |
+
+- **PBO 0.01:** the in-sample best is R-1u in nearly every split.
+- **No variant adopted,** as predicted.
+- **Fibonacci-specific value** (variant minus placebo) is -0.28 to +0.02: the ratios carry nothing beyond nearby
+  non-Fibonacci numbers, consistent with S4 and P-3.
+- **The ideas behind his uses do carry something:**
+  - Extension targets raise R per trade (+0.61 against +0.34), but 1.15 does the same as 1.00. The value is "let the
+    trade run the impulse's length", not the ratio.
+  - It costs trades, because the coin's slot stays occupied longer.
+- **A split exit** (part at 2R, the rest to the impulse extension; his partial profit-taking) is a new rule. It is not
+  tested on read data and would be forward-only.
