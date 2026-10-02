@@ -2224,3 +2224,22 @@ non-Fibonacci ratios.
   registration L3' would join the forward record; it does not, because a fixed far target reproduces it exactly and
   R-1s already carries that comparison. This deviation is stated here and to the user.
 - **L-3:** the first Fibonacci result that beats its placebo (+0.020 against -0.001), and too small to matter.
+
+## Loop L-4: entry on a test of his kind of trend line (registered 2026-10-02, before running)
+
+- **Source:** "a test of the trend line is your entry" (transcripts); earlier touch entries failed everywhere, but none
+  used a drawer checked for fidelity. Drawer D (`loop/r1_lines2.py`, fidelity 23% against 2% moved on held-out charts).
+- **Rule (daily, development 53 coins 2018-2022):** while R-1's trend state is up, a limit for the next bar at D's best
+  support line extended one bar (mirrored for shorts with resistance when the trend is down); filled if the bar trades
+  through it, at the better of the open and the limit. Stop a fixed distance beyond the line, target 2R, 60-day hold,
+  one trade per coin with the slot freed at the exit. Variants: stop 0.5 ATR (L-4a) and 1.0 ATR (L-4b), Holm over two.
+- **Placebo:** the same rule with the line moved 1 ATR away from price (L-4p, each stop).
+- **Statistic:** edge against 20 matched random entries, week-clustered. Pass at stage 1: interval above zero, edge at
+  least 0.10R, and above the placebo's edge. A pass is a new family (stage 1), not a change to R-1.
+
+### Fidelity of R-1's trend state to his direction (2026-10-02, diagnostic)
+
+On the 187 drawn 2024-2025 plans, R-1's daily trend state at the last close agrees with the side he drew 71% of the
+time against 68% by chance (he draws longs 90% of the time; in 43 of the 51 cases R-1 calls a downtrend he drew a long).
+R-1's trend filter is therefore ours, not his. That is not a reason to change it: his direction calls carry no edge
+(README, "Grading his declared trades"; `tv_plan_grade.py`), and R-1's filter is judged on its own results.
