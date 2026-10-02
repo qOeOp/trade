@@ -194,6 +194,21 @@ ordered chain's acceptance build admits nothing in production.
   and the historical readback both bind the Composer's inputs through the production binding Owner, which re-reads
   Market Data custody, never the acceptance corpus's fixed frame. No SQL function reads the source sub-object of
   either column; one that starts to must branch on the source schema first.
+- **CURRENT - how execution-input binding issuance refuses:** `/v2/exploratory-replay/execution-input-bindings` and
+  its `/resolve` give five refusals their own status and code: a conflict with an issued binding and the two
+  Instrument Master refusals (`409`), a request that names no composition binding (`422`), and a resolve that finds
+  no binding (`404`). Every other refusal is `503` `NATIVE_REPLAY_EXECUTION_INPUT_BINDING_UNAVAILABLE`, and each
+  names its cause in the body's `cause` and the `x-rd-rejection-cause` header. The causes are `NativeReplayExecutionInputBindingCauseV1`, a closed list
+  whose wire names are matched with no wildcard: one for each issuance stage, one for each clause of the check that
+  the Owner readbacks agree with each other and with the request, and one for each custody check on the binding
+  itself. The service adds `STORE_UNAVAILABLE` for a database error, and one cause for each Owner port it was
+  composed without. A deployed image composes every port except Market Data scheduling, which it gains only
+  through the Store Admission that `B3` builds, so until then its answer is `MARKET_DATA_SCHEDULING_NOT_ADMITTED`.
+  With scheduling admitted and no BAR schedule committed for a member at the frame, the answer is
+  `BAR_SCHEDULE_ABSENT`: Market Data names that absence as `NoBarScheduleAtFrame` and `ScheduleAbsent`, apart from
+  a read that failed. The status is `503` for every cause. Moving one off `503` needs the per-variant analysis that
+  `replay_composition_refusal` records for its own refusals. The issuance stages also log the Owner's detail under
+  `native_replay_initial_binding.<stage>`; the cause itself carries no Owner detail.
 - **CURRENT - which TrialFamily state a composer-backed Replay binds:** the same state the legacy exploratory
   Replay binds. A Replay of the family's formation Intent binds the family as it formed, with its formation census
   frontier, and is admitted only while the family has no attempt; a successor binds the family's V2 census. An
