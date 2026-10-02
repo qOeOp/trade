@@ -812,7 +812,6 @@ fn verify_owner_readbacks(
         .ok_or_else(|| crate::probe_unavailable!())?;
     let request_plan_digest = parse_sha256(request.strategy_plan.digest.as_str())?;
     let request_artifact_digest = parse_sha256(request.artifact.digest.as_str())?;
-    let request_universe_identity = parse_sha256(request.universe_selection.identity.as_str())?;
     let request_universe_digest = parse_sha256(request.universe_selection.digest.as_str())?;
     let artifact_modules = artifact.private_module_bytes();
 
@@ -842,8 +841,13 @@ fn verify_owner_readbacks(
             .any(|pair| pair[0].member_key() >= pair[1].member_key())
         || instrument_terms.len() != selection.members().len()
         || schedules.len() != selection.members().len()
-        || plan_selection.selection_identity().as_bytes() != &request_universe_identity
-        || plan_selection.selection_digest().as_bytes() != &request_universe_digest
+        // The Replay's `universe_selection` is the Universe Selection Record its composition
+        // depends on, not the strategy-input selection the Plan was bound under, and the two never
+        // share an identity. So the Plan's selection is held only against the frame's, here. The
+        // Record is checked by Market Data against the frame's verified batch, refused by name as
+        // `UniverseSelectionRecordMismatch`, when `resolve_native_replay_initial_owner_inputs_v1`
+        // produced the frame this function is given. Comparing the Record with the Plan's
+        // selection here refuses every production Replay.
         || selection.selection_identity() != plan_selection.selection_identity()
         || selection.selection_digest() != plan_selection.selection_digest()
         || selection.members().len() != plan_selection.members().len()
