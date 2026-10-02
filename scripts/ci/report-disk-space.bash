@@ -17,3 +17,5 @@ echo "::endgroup::"
 
 available_gb=$(($(df -Pk "$disk_path" | awk 'NR == 2 {print $4}') / 1024 / 1024))
 echo "Available on the filesystem containing ${disk_path} ${label}: ${available_gb}G"
+
+# LANE8 PROBE, not for merge: a no-op line so a pull request measures what rust tests recompiles.
