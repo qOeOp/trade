@@ -19,7 +19,7 @@ use tokio::net::TcpListener;
 use vibe_binance::{
     common::enums::{BinanceEnvironment, BinanceProductType},
     futures::http::client::BinanceFuturesHttpClient,
-    futures_pit_observation_source_v1::BinanceFuturesBarObservationSourceV1,
+    futures_pit_observation_source_v1::BinanceFuturesObservationSourceV1,
     pit_observation_source_v1::BinanceSpotBarObservationSourceV1,
     spot::http::client::BinanceSpotHttpClient,
 };
@@ -906,7 +906,8 @@ fn binance_member_mapping(
 /// would let the deployment's network decide what a snapshot records as its provenance. A
 /// deployment that must use another host says so, and that host is then what the binding carries.
 ///
-/// The public kline endpoint is unsigned, so no credential is read here.
+/// The public kline and funding endpoints are unsigned, so no credential is read here, and the
+/// Data Client refuses an HTTP client that holds one.
 fn binance_perpetual_observation_source() -> anyhow::Result<Arc<dyn PitObservationSourceV1>> {
     let mapping = binance_member_mapping("BINANCE_PERPETUAL_PIT_MEMBERS")?;
     let interval = required_env("BINANCE_PERPETUAL_PIT_INTERVAL")?;
@@ -926,7 +927,7 @@ fn binance_perpetual_observation_source() -> anyhow::Result<Arc<dyn PitObservati
         false,
     )?;
     Ok(Arc::new(
-        BinanceFuturesBarObservationSourceV1::new(client, mapping, &interval)
+        BinanceFuturesObservationSourceV1::new(client, mapping, &interval)
             .map_err(|e| anyhow::anyhow!("the Binance USD-M Data Client is unusable: {e}"))?,
     ))
 }

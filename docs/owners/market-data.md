@@ -251,7 +251,7 @@ never runs in CI.
 | Shared Time clock‑head handoff                            | `TARGET`                                                                                            | `owner/shared_time_evidence.rs`                                                                                                                                                                                                          | `B3`       |
 | Vendor Data Clients                                       | `CURRENT / PARTIAL`                                                                                 | `crates/adapters/databento/src/pit_observation_source_v1.rs` and `crates/adapters/binance/src/pit_observation_source_v1.rs`, both live‑verified                                                                                          | `B6`       |
 | Live market fact channel to Runtime                       | `CURRENT / PARTIAL`, one channel                                                                    | `owner/live_market_fact_v1.rs`, `owner/live_market_stream_v1.rs`, `owner/postgres/live_market_stream_v1.rs`, `crates/adapters/bybit/src/live_market_fact_source_v1.rs`                                                                   | `B8`       |
-| Binance perpetual settled funding rows                    | `TARGET`                                                                                            | `crates/adapters/binance/src/futures_pit_observation_source_v1.rs`                                                                                                                                                                       | `B6`       |
+| Binance perpetual settled funding rows                    | `CURRENT / PARTIAL`                                                                                 | `crates/adapters/binance/src/futures_pit_observation_source_v1.rs`                                                                                                                                                                       | `B6`       |
 
 ## Authoritative facts owned
 
@@ -2862,7 +2862,7 @@ BFP executable maturity, Backtest product closure including inverse or quanto ta
 Dashboard/default-database admission, or trading authority. These Backtest limitations do not create a Market Data
 instrument-class rejection.
 
-### TARGET Binance perpetual settled funding rows
+### CURRENT/PARTIAL Binance perpetual settled funding rows
 
 The Binance USD-M perpetual Data Client in `crates/adapters/binance/src/futures_pit_observation_source_v1.rs`
 answers a scope with each member's last closed bar and, beside it, the member's last settled funding. Funding is two
@@ -2881,6 +2881,10 @@ settlement at exactly that coordinate is included and one a millisecond later is
   retrieval by its bounded category.
 - **No credential.** The client refuses to be built over an HTTP client that holds a credential, and its requests
   carry no `X-MBX-APIKEY` header and no `signature` parameter.
+- **Status.** The client is the one `MARKET_DATA_OBSERVATION_SOURCE=binance-perpetual` composes, so a deployment
+  that names it commits funding rows today; no consumer reads them yet. Unit tests in that file drive it against a
+  local stand-in for the venue, and the credential-free Market Data end-to-end proof asserts the rows on the live
+  endpoint.
 - **Not stated.** The settlement interval is not a row: the endpoint does not state it, so the timeframe is `TICK`
   rather than a guessed interval. The live estimate from `premiumIndex`, funding accrual in a Replay, and a funding
   field semantic a Design can name are separate slices.

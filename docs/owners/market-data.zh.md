@@ -200,7 +200,7 @@ ACL 拒绝。它不证明供应商真实性，不证明生产装配，也不证�
 | Shared Time clock‑head 交接                       | `TARGET`                                                                           | `owner/shared_time_evidence.rs`                                                                                                                                                                                 | `B3`       |
 | 供应商 Data Clients                               | `CURRENT / PARTIAL`                                                                | `crates/adapters/databento/src/pit_observation_source_v1.rs` 与 `crates/adapters/binance/src/pit_observation_source_v1.rs`，均已实盘验证                                                                        | `B6`       |
 | 面向 Runtime 的实时行情事实通道                   | `CURRENT / PARTIAL`，一条通道                                                      | `owner/live_market_fact_v1.rs`、`owner/live_market_stream_v1.rs`、`owner/postgres/live_market_stream_v1.rs`、`crates/adapters/bybit/src/live_market_fact_source_v1.rs`                                          | `B8`       |
-| Binance 永续已结算 funding 行                     | `TARGET`                                                                           | `crates/adapters/binance/src/futures_pit_observation_source_v1.rs`                                                                                                                                              | `B6`       |
+| Binance 永续已结算 funding 行                     | `CURRENT / PARTIAL`                                                                | `crates/adapters/binance/src/futures_pit_observation_source_v1.rs`                                                                                                                                              | `B6`       |
 
 ## 拥有的权威事实
 
@@ -2487,7 +2487,7 @@ executable maturity、Backtest 产品闭合（包括 inverse/quanto target-consu
 Dashboard/default-database 准入或 trading authority。这些 Backtest 限制不创建 Market Data instrument-class
 rejection。
 
-### TARGET Binance 永续已结算 funding 行
+### CURRENT/PARTIAL Binance 永续已结算 funding 行
 
 `crates/adapters/binance/src/futures_pit_observation_source_v1.rs` 中的 Binance USD-M 永续 Data Client 回答一个
 scope 时，给出每个成员最后一根已收盘的 bar，并在旁边给出该成员最后一次已结算的 funding。funding 是两行，channel
@@ -2502,6 +2502,9 @@ scope 时，给出每个成员最后一根已收盘的 bar，并在旁边给出�
   结算时刻晚于坐标，这三种情况各自按有界类别拒绝整次检索。
 - **不用凭据。** client 拒绝建立在持有凭据的 HTTP client 之上，它的请求不带 `X-MBX-APIKEY` header，也不带
   `signature` 参数。
+- **状态。** 这个 client 就是 `MARKET_DATA_OBSERVATION_SOURCE=binance-perpetual` 组装的那一个，所以指定它的部署今天就会提交
+  funding 行；还没有消费方读取它们。该文件中的单元测试用一个本地的交易所替身驱动它，无凭据的 Market Data 端到端证明在实时端点上
+  断言这些行。
 - **不陈述的内容。** 结算间隔不是一行：端点不陈述它，所以 timeframe 是 `TICK`，而不是猜出来的间隔。来自
   `premiumIndex` 的实时估计、Replay 中的 funding 计提，以及 Design 可以引用的 funding 字段语义，是各自独立的切片。
 

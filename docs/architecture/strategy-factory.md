@@ -1550,8 +1550,9 @@ including on inputs with ties.
   fixed-slot state rules: a bucket array, and a memory of the last N events whose slots each hold a frozen set of
   values. Bollinger variance written as `Mean(x²) − Mean(x)²` must guard its radicand with `Select`,
   because the two terms round separately.
-- **Inputs:** funding rate and open interest extend the existing Binance futures PIT source with two appended row
-  fields and field semantics (N1). Binance's public archive holds history for mark, index, and premium klines,
+- **Inputs:** funding rate and open interest extend the existing Binance futures PIT source with appended row
+  fields and field semantics (N1). The settled funding rows are in place (Market Data's "Binance perpetual settled
+  funding rows"); open interest's rows and the field semantics a Design names are not. Binance's public archive holds history for mark, index, and premium klines,
   metrics, book depth, and funding rate. Liquidations have no admitted historical source - the USDⓈ-M archive holds
   none and the coin-margined `BTCUSD_PERP` snapshot ends on 2024-10-14 - so a Design that asks for them is refused as
   `INPUT_FACT_UNAVAILABLE_FROM_ADMITTED_SOURCE`, which no field vocabulary lets a Design reach today.
