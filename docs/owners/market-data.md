@@ -252,6 +252,7 @@ never runs in CI.
 | Vendor Data Clients                                       | `CURRENT / PARTIAL`                                                                                 | `crates/adapters/databento/src/pit_observation_source_v1.rs` and `crates/adapters/binance/src/pit_observation_source_v1.rs`, both live‑verified                                                                                          | `B6`       |
 | Live market fact channel to Runtime                       | `CURRENT / PARTIAL`, one channel                                                                    | `owner/live_market_fact_v1.rs`, `owner/live_market_stream_v1.rs`, `owner/postgres/live_market_stream_v1.rs`, `crates/adapters/bybit/src/live_market_fact_source_v1.rs`                                                                   | `B8`       |
 | Binance perpetual settled funding rows                    | `CURRENT / PARTIAL`                                                                                 | `crates/adapters/binance/src/futures_pit_observation_source_v1.rs`                                                                                                                                                                       | `B6`       |
+| Binance bar volume and taker buy volume                   | `CURRENT / PARTIAL`                                                                                 | `crates/adapters/binance/src/pit_observation_source_v1.rs`, `futures_pit_observation_source_v1.rs`                                                                                                                                       | `B6`       |
 
 ## Authoritative facts owned
 
@@ -2862,7 +2863,7 @@ BFP executable maturity, Backtest product closure including inverse or quanto ta
 Dashboard/default-database admission, or trading authority. These Backtest limitations do not create a Market Data
 instrument-class rejection.
 
-### TARGET Binance bar volume and taker buy volume
+### CURRENT/PARTIAL Binance bar volume and taker buy volume
 
 Both Binance Data Clients, spot (`crates/adapters/binance/src/pit_observation_source_v1.rs`) and USD-M perpetual,
 state a closed bar's `VOLUME` and `TAKER_BUY_VOLUME` beside its `OPEN`, `HIGH`, `LOW` and `CLOSE`, in base-asset
@@ -2876,6 +2877,9 @@ request is added.
   needs it, not stated twice.
 - **Values as published.** Perpetual quantities are the venue's decimal strings. Spot quantities are the venue's
   128-bit mantissas under the response's quantity exponent.
+- **Status.** Both clients state the two rows today, for any deployment that names them. Frame projection still waits
+  on the Binance quote gap above. The rows are asserted by a stand-in venue test, by both live source tests, and by
+  the credential-free Market Data end-to-end proof.
 
 ### CURRENT/PARTIAL Binance perpetual settled funding rows
 

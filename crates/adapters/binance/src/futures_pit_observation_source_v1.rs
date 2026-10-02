@@ -199,11 +199,15 @@ impl PitObservationSourceV1 for BinanceFuturesObservationSourceV1 {
                 continue;
             };
 
+            // Volume and taker buy volume are base-asset quantities from the same response, and a
+            // native Replay frame cannot project a bar without the volume.
             for (field, quoted) in [
                 ("OPEN", &bar.open),
                 ("HIGH", &bar.high),
                 ("LOW", &bar.low),
                 ("CLOSE", &bar.close),
+                ("VOLUME", &bar.volume),
+                ("TAKER_BUY_VOLUME", &bar.taker_buy_base_volume),
             ] {
                 let (value_mantissa, value_scale) = exact_decimal(quoted)?;
                 rows.push(VendorObservationV1 {
@@ -732,10 +736,22 @@ mod funding_tests {
             ],
             "the settlement in force, as published, at its own instant"
         );
+        let bar = rows
+            .iter()
+            .filter(|row| row.data_kind == DATA_KIND)
+            .map(|row| (row.field.as_str(), row.value_mantissa, row.value_scale))
+            .collect::<Vec<_>>();
         assert_eq!(
-            rows.iter().filter(|row| row.data_kind == DATA_KIND).count(),
-            4,
-            "the bar beside it is unchanged"
+            bar,
+            [
+                ("CLOSE", 425_035, 1),
+                ("HIGH", 426_032, 1),
+                ("LOW", 422_896, 1),
+                ("OPEN", 42_314, 0),
+                ("TAKER_BUY_VOLUME", 4_687_976, 3),
+                ("VOLUME", 8_459_477, 3),
+            ],
+            "the bar beside it, its volumes as the venue spelled them"
         );
         assert!(rows.iter().all(|row| row.channel == CHANNEL));
 
@@ -772,7 +788,7 @@ mod funding_tests {
             rows.iter().all(|row| row.data_kind == DATA_KIND),
             "no funding row is invented for a member that never settled"
         );
-        assert_eq!(rows.len(), 4, "the bar is still stated");
+        assert_eq!(rows.len(), 6, "the bar is still stated");
     }
 
     #[tokio::test]
@@ -870,8 +886,8 @@ mod live_tests {
         let rows = source.observe(&scope).await.expect("the endpoint answers");
         assert_eq!(
             rows.len(),
-            6,
-            "one closed bar yields open, high, low and close, and a settlement its rate and time"
+            8,
+            "one closed bar yields its prices and volumes, and a settlement its rate and time"
         );
         let funding_rows = rows
             .iter()
@@ -891,7 +907,12 @@ mod live_tests {
                 row.timeframe, "4H",
                 "a continuous-clock venue's four hours, not a session bar"
             );
-            assert!(row.value_mantissa > 0, "an admitted price is positive");
+
+            if row.field.ends_with("VOLUME") {
+                assert!(row.value_mantissa >= 0, "a volume is never negative");
+            } else {
+                assert!(row.value_mantissa > 0, "an admitted price is positive");
+            }
             assert_eq!(row.event_effective, effective);
             assert_eq!(row.retrieval, effective);
         }
