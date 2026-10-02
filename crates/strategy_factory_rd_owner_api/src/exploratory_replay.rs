@@ -512,6 +512,14 @@ pub(super) async fn issue_execution_input_binding(
         state.universe_sample_projection.as_deref(),
     )
     else {
+        eprintln!(
+            "PROBE issue ports absent: scheduling={} composer={} instrument_master={} terms={} universe_sample={}",
+            state.native_replay_scheduling.is_some(),
+            state.develop_composer_read.is_some(),
+            state.instrument_master_v2.is_some(),
+            state.instrument_economic_terms.is_some(),
+            state.universe_sample_projection.is_some(),
+        );
         return rejection(
             StatusCode::SERVICE_UNAVAILABLE,
             "NATIVE_REPLAY_EXECUTION_INPUT_BINDING_UNAVAILABLE",
@@ -548,7 +556,10 @@ pub(super) async fn issue_execution_input_binding(
             )
                 .into_response()
         }
-        Err(e) => execution_input_binding_error(&e, &request_identity),
+        Err(e) => {
+            eprintln!("PROBE issue error: {e:?}");
+            execution_input_binding_error(&e, &request_identity)
+        }
     }
 }
 

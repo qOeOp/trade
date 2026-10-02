@@ -2,6 +2,20 @@
 //!
 //! It owns the frozen intent, deterministic artifact and restricted Wasm boundary.
 
+
+/// PROBE ONLY: names the site that answered `Unavailable`, and what it swallowed.
+#[macro_export]
+macro_rules! probe_unavailable {
+    () => {{
+        eprintln!("PROBE Unavailable at {}:{}", file!(), line!());
+        $crate::NativeReplayExecutionInputBindingErrorV1::Unavailable
+    }};
+    ($error:expr) => {{
+        eprintln!("PROBE Unavailable at {}:{}: {:?}", file!(), line!(), $error);
+        $crate::NativeReplayExecutionInputBindingErrorV1::Unavailable
+    }};
+}
+
 pub mod artifact;
 pub mod artifact_build;
 pub mod artifact_build_postgres;

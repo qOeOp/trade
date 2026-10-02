@@ -2458,7 +2458,7 @@ impl PostgresResearchGoalOwnerV1 {
             run_id,
         )
         .await
-        .map_err(|_| crate::NativeReplayExecutionInputBindingErrorV1::Unavailable)?
+        .map_err(|probe_error| crate::probe_unavailable!(probe_error))?
         .into_execution();
         Ok(execution)
     }
