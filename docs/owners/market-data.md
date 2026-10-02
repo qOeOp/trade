@@ -171,7 +171,10 @@ never runs in CI.
   the server through a private Unix socket. Its TLS identity names the certificate that server presented and the pinned
   root, and the server's `pg_stat_ssl` must agree on TLS, protocol and cipher. Every admitted read reaches the store
   the same way: the admission records the measurer's transport, bound to the certificate it measured, and each read
-  opens its session over it and is refused unless its server presents that certificate. The
+  opens its session over it and is refused unless its server presents that certificate. The socket between the two legs
+  exists only between the handshake and the one session it accepts, in a directory only this process's user can
+  enter; the relay carries nothing for any process but this one, and a server under another root or with another
+  certificate is refused before the socket exists, so no byte of a session reaches it. The
   deployment's PostgreSQL does not serve TLS yet; turning it on belongs to composing these adapters.
   The administrator seals and publishes the history with
   `deployment-store-publication-seal` and `deployment-store-publication-publish`; `product/rd-workbench/README.md`

@@ -7,8 +7,22 @@
 //! carries that one session's bytes over the pinned connection. The certificate it records is the
 //! one the session's own server presented, and no other root can stand in for the pinned one.
 //!
-//! sqlx's own leg states plaintext, because it ends inside this process. Like every connection here,
-//! this one sets no deadline of its own.
+//! sqlx's own leg states plaintext, because it ends inside this process. The bridge between the two
+//! is itself a surface, and three things hold it shut:
+//!
+//! - **One socket, for one session, briefly.** The socket is made in a directory only this
+//!   process's user can enter (mode 0700) and only once the pinned handshake has completed. The
+//!   relay accepts exactly one connection, then removes the listener and the directory; if no
+//!   session ever arrives, dropping the relay removes them.
+//! - **Only this process.** The relay asks the kernel which process connected and carries nothing
+//!   for any other: a same-user process that wins the race to the socket gets the connection
+//!   closed, and the session it displaced fails rather than travel any other way.
+//! - **Nothing before the server is the right one.** A failed handshake, a server certificate under
+//!   another root, or one other than the certificate the caller expects ends the attempt before the
+//!   socket exists, so no byte of the session, its startup message or its password exchange
+//!   included, is ever written to that server.
+//!
+//! Like every connection here, this one sets no deadline of its own.
 
 use std::{fmt::Debug, sync::Arc};
 
@@ -57,6 +71,12 @@ pub enum PinnedTlsError {
     /// The private socket sqlx connects to could not be made.
     #[error("the local socket for the session is unavailable")]
     LocalSocket,
+    /// The server presented a certificate under the pinned root, but not the one expected.
+    #[error("the server presented another certificate than the one expected")]
+    UnexpectedPeer,
+    /// A process other than this one connected to the session's socket.
+    #[error("another process connected to the session's socket")]
+    ForeignPeer,
     /// sqlx could not open its session over the pinned connection.
     #[error("the PostgreSQL session over the pinned connection is unavailable")]
     Session,
@@ -149,7 +169,9 @@ impl Drop for PinnedRelay {
 /// Opens one sqlx session to `host:port` over TLS that trusts only `root`.
 ///
 /// `options` names the role, password, database and application; this sets where it connects and
-/// how. Returns the session, what the handshake observed, and the relay that carries it.
+/// how. With `expected_peer`, the server must also present exactly that certificate
+/// (`sha256:<hex>` of its DER, as [`ObservedPinnedTls`] names it). Returns the session, what the
+/// handshake observed, and the relay that carries it.
 ///
 /// # Errors
 ///
@@ -159,44 +181,112 @@ pub async fn connect_pinned(
     port: u16,
     options: PgConnectOptions,
     root: &PinnedPostgresRoot,
+    expected_peer: Option<&str>,
 ) -> Result<(PgConnection, ObservedPinnedTls, PinnedRelay), PinnedTlsError> {
-    let server_name =
-        ServerName::try_from(host.to_owned()).map_err(|_| PinnedTlsError::InvalidServerName)?;
-    let mut tcp = TcpStream::connect((host, port))
-        .await
-        .map_err(|_| PinnedTlsError::Unreachable)?;
-    tcp.write_all(&SSL_REQUEST)
-        .await
-        .map_err(|_| PinnedTlsError::Unreachable)?;
-    // Exactly one byte. Anything the server sends after `S` and before the handshake is read by the
-    // TLS layer as a record, and fails it.
-    let answer = tcp
-        .read_u8()
-        .await
-        .map_err(|_| PinnedTlsError::Unreachable)?;
-
-    if answer != b'S' {
-        return Err(PinnedTlsError::TlsRefused);
-    }
-    let tls = TlsConnector::from(Arc::clone(&root.config))
-        .connect(server_name, tcp)
-        .await
-        .map_err(|_| PinnedTlsError::TlsRefused)?;
-    let observed = observe(tls.get_ref().1)?;
-    let socket_directory = private_socket_directory().map_err(|_| PinnedTlsError::LocalSocket)?;
-    let listener = UnixListener::bind(socket_directory.path().join(format!(".s.PGSQL.{port}")))
-        .map_err(|_| PinnedTlsError::LocalSocket)?;
+    let bridge = Bridge::open(host, port, root, expected_peer).await?;
     let options = with_tls(
-        options.socket(socket_directory.path()).port(port),
+        options.socket(bridge.socket_directory.path()).port(port),
         PostgresTls::Disabled,
     );
+    let observed = bridge.observed.clone();
 
-    let relay = PinnedRelay(tokio::spawn(carry(listener, socket_directory, tls)));
+    let relay = bridge.spawn();
     let connection = connect_with(&options)
         .await
         .map_err(|_| PinnedTlsError::Session)?;
 
     Ok((connection, observed, relay))
+}
+
+/// The pinned connection and the socket it will carry one session from, before any session.
+struct Bridge {
+    socket_directory: tempfile::TempDir,
+    listener: UnixListener,
+    tls: TlsStream<TcpStream>,
+    observed: ObservedPinnedTls,
+}
+
+impl Bridge {
+    /// Completes the pinned handshake and checks the server's certificate; only then makes the
+    /// socket.
+    async fn open(
+        host: &str,
+        port: u16,
+        root: &PinnedPostgresRoot,
+        expected_peer: Option<&str>,
+    ) -> Result<Self, PinnedTlsError> {
+        let server_name =
+            ServerName::try_from(host.to_owned()).map_err(|_| PinnedTlsError::InvalidServerName)?;
+        let mut tcp = TcpStream::connect((host, port))
+            .await
+            .map_err(|_| PinnedTlsError::Unreachable)?;
+        tcp.write_all(&SSL_REQUEST)
+            .await
+            .map_err(|_| PinnedTlsError::Unreachable)?;
+        // Exactly one byte. Anything the server sends after `S` and before the handshake is read
+        // by the TLS layer as a record, and fails it.
+        let answer = tcp
+            .read_u8()
+            .await
+            .map_err(|_| PinnedTlsError::Unreachable)?;
+
+        if answer != b'S' {
+            return Err(PinnedTlsError::TlsRefused);
+        }
+        let tls = TlsConnector::from(Arc::clone(&root.config))
+            .connect(server_name, tcp)
+            .await
+            .map_err(|_| PinnedTlsError::TlsRefused)?;
+        let observed = observe(tls.get_ref().1)?;
+
+        if expected_peer.is_some_and(|expected| expected != observed.peer_certificate_identity) {
+            return Err(PinnedTlsError::UnexpectedPeer);
+        }
+        let socket_directory =
+            private_socket_directory().map_err(|_| PinnedTlsError::LocalSocket)?;
+        let listener = UnixListener::bind(socket_directory.path().join(format!(".s.PGSQL.{port}")))
+            .map_err(|_| PinnedTlsError::LocalSocket)?;
+        Ok(Self {
+            socket_directory,
+            listener,
+            tls,
+            observed,
+        })
+    }
+
+    /// Carries the one session on a task of its own.
+    fn spawn(self) -> PinnedRelay {
+        PinnedRelay(tokio::spawn(self.carry()))
+    }
+
+    /// Accepts the one local session and carries it until either side closes, if this process
+    /// opened it.
+    async fn carry(self) -> Result<(), PinnedTlsError> {
+        let Self {
+            socket_directory,
+            listener,
+            mut tls,
+            ..
+        } = self;
+        let accepted = listener.accept().await;
+        // One connection, whoever made it: no second one can reach the socket, and nothing else
+        // needs the directory.
+        drop(listener);
+        drop(socket_directory);
+        let (mut local, _) = accepted.map_err(|_| PinnedTlsError::LocalSocket)?;
+        let peer = local
+            .peer_cred()
+            .map_err(|_| PinnedTlsError::ForeignPeer)?
+            .pid();
+
+        if peer.is_none() || peer != i32::try_from(std::process::id()).ok() {
+            return Err(PinnedTlsError::ForeignPeer);
+        }
+        tokio::io::copy_bidirectional(&mut local, &mut tls)
+            .await
+            .map_err(|_| PinnedTlsError::Session)?;
+        tls.shutdown().await.map_err(|_| PinnedTlsError::Session)
+    }
 }
 
 /// A directory only this process's user can enter (mode 0700), for the one socket sqlx is handed.
@@ -207,25 +297,6 @@ fn private_socket_directory() -> std::io::Result<tempfile::TempDir> {
         .prefix("vibe-postgres-pinned-")
         .permissions(std::fs::Permissions::from_mode(0o700))
         .tempdir()
-}
-
-/// Accepts the one local session and carries it until either side closes.
-async fn carry(
-    listener: UnixListener,
-    socket_directory: tempfile::TempDir,
-    mut tls: TlsStream<TcpStream>,
-) -> Result<(), PinnedTlsError> {
-    let (mut local, _) = listener
-        .accept()
-        .await
-        .map_err(|_| PinnedTlsError::LocalSocket)?;
-    // No second session can reach the socket, and nothing else needs the directory.
-    drop(listener);
-    drop(socket_directory);
-    tokio::io::copy_bidirectional(&mut local, &mut tls)
-        .await
-        .map_err(|_| PinnedTlsError::Session)?;
-    tls.shutdown().await.map_err(|_| PinnedTlsError::Session)
 }
 
 fn observe(connection: &rustls::ClientConnection) -> Result<ObservedPinnedTls, PinnedTlsError> {
@@ -352,9 +423,16 @@ mod tests {
             let Ok(mut tls) = TlsAcceptor::from(Arc::new(config)).accept(tcp).await else {
                 return;
             };
-            let length = tls.read_u32().await.unwrap();
+            // A client that sends nothing leaves the channel unsent: the test reads that as "no
+            // byte of a session reached this server".
+            let Ok(length) = tls.read_u32().await else {
+                return;
+            };
             let mut startup = vec![0_u8; length as usize - 4];
-            tls.read_exact(&mut startup).await.unwrap();
+
+            if tls.read_exact(&mut startup).await.is_err() {
+                return;
+            }
             startup_sender.send(startup).unwrap();
             // AuthenticationOk, BackendKeyData, ReadyForQuery (idle).
             tls.write_all(&[b'R', 0, 0, 0, 8, 0, 0, 0, 0])
@@ -387,14 +465,15 @@ mod tests {
         let (port, startup) = serve(Server::Tls13, certificate, key).await;
         let pinned = PinnedPostgresRoot::from_pem(root.pem.as_bytes()).unwrap();
 
-        let (connection, observed, relay) = connect_pinned("127.0.0.1", port, options(), &pinned)
-            .await
-            .unwrap();
+        let (connection, observed, relay) =
+            connect_pinned("127.0.0.1", port, options(), &pinned, Some(&expected_peer))
+                .await
+                .unwrap();
 
         assert_eq!(
             observed,
             ObservedPinnedTls {
-                peer_certificate_identity: expected_peer,
+                peer_certificate_identity: expected_peer.clone(),
                 protocol: PINNED_TLS_PROTOCOL,
                 cipher: PINNED_TLS_CIPHER,
             }
@@ -414,14 +493,29 @@ mod tests {
         drop(relay);
     }
 
+    /// No session opens, and no byte of one reaches the server, unless the server completes TLS 1.3
+    /// under the pinned root and presents the certificate expected.
     #[rstest]
-    #[case::another_root(Server::Tls13, true)]
-    #[case::the_server_refuses_tls(Server::RefusesTls, false)]
-    #[case::the_server_offers_only_tls_1_2(Server::Tls12Only, false)]
+    #[case::another_root(Server::Tls13, true, false, PinnedTlsError::TlsRefused)]
+    #[case::the_server_refuses_tls(Server::RefusesTls, false, false, PinnedTlsError::TlsRefused)]
+    #[case::the_server_offers_only_tls_1_2(
+        Server::Tls12Only,
+        false,
+        false,
+        PinnedTlsError::TlsRefused
+    )]
+    #[case::another_certificate_under_the_root(
+        Server::Tls13,
+        false,
+        true,
+        PinnedTlsError::UnexpectedPeer
+    )]
     #[tokio::test]
-    async fn no_session_opens_outside_the_pinned_root_and_tls_1_3(
+    async fn no_byte_of_a_session_reaches_a_server_outside_the_pin(
         #[case] behaviour: Server,
         #[case] signed_by_another_root: bool,
+        #[case] expect_another_certificate: bool,
+        #[case] refusal: PinnedTlsError,
     ) {
         let pinned = authority("pinned root");
         let other = authority("another root");
@@ -431,14 +525,20 @@ mod tests {
             &pinned
         };
         let (certificate, key) = server_certificate(issuer);
-        let (port, _) = serve(behaviour, certificate, key).await;
+        let (port, startup) = serve(behaviour, certificate, key).await;
         let root = PinnedPostgresRoot::from_pem(pinned.pem.as_bytes()).unwrap();
+        let another_certificate = format!("sha256:{}", "0".repeat(64));
+        let expected_peer = expect_another_certificate.then_some(another_certificate.as_str());
 
         assert_eq!(
-            connect_pinned("127.0.0.1", port, options(), &root)
+            connect_pinned("127.0.0.1", port, options(), &root, expected_peer)
                 .await
                 .map(|_| ()),
-            Err(PinnedTlsError::TlsRefused)
+            Err(refusal)
+        );
+        assert!(
+            startup.await.is_err(),
+            "the server read no startup message, so no byte of the session"
         );
     }
 
@@ -483,17 +583,125 @@ mod tests {
         );
     }
 
-    #[rstest]
-    fn the_socket_directory_is_private() {
-        let directory = private_socket_directory().unwrap();
+    /// The socket exists only between the pinned handshake and the one session it accepts, in a
+    /// directory only this process's user can enter; a bridge no session reaches leaves nothing.
+    #[tokio::test]
+    async fn the_socket_lives_for_one_session_in_a_private_directory() {
+        let root = authority("pinned root");
+        let pinned = PinnedPostgresRoot::from_pem(root.pem.as_bytes()).unwrap();
 
+        // Accepted: the directory is private while the socket waits, and gone once it is used.
+        let (certificate, key) = server_certificate(&root);
+        let (port, startup) = serve(Server::Tls13, certificate, key).await;
+        let bridge = Bridge::open("127.0.0.1", port, &pinned, None)
+            .await
+            .unwrap();
+        let directory = bridge.socket_directory.path().to_owned();
+        let socket = directory.join(format!(".s.PGSQL.{port}"));
         assert_eq!(
-            std::fs::metadata(directory.path())
-                .unwrap()
-                .permissions()
-                .mode()
-                & 0o777,
+            std::fs::metadata(&directory).unwrap().permissions().mode() & 0o777,
             0o700
+        );
+        assert!(socket.exists());
+
+        let relay = bridge.spawn();
+        let connection = connect_with(&with_tls(
+            options().socket(&directory).port(port),
+            PostgresTls::Disabled,
+        ))
+        .await
+        .unwrap();
+        assert!(startup.await.is_ok());
+        assert!(
+            !directory.exists(),
+            "the socket and its directory go with the one session they carried"
+        );
+        drop(connection);
+        drop(relay);
+
+        // Never reached: dropping the bridge, or the relay waiting on it, removes the directory.
+        let (certificate, key) = server_certificate(&root);
+        let (port, _) = serve(Server::Tls13, certificate, key).await;
+        let bridge = Bridge::open("127.0.0.1", port, &pinned, None)
+            .await
+            .unwrap();
+        let directory = bridge.socket_directory.path().to_owned();
+        drop(bridge);
+        assert!(!directory.exists());
+        let (certificate, key) = server_certificate(&root);
+        let (port, _) = serve(Server::Tls13, certificate, key).await;
+        let bridge = Bridge::open("127.0.0.1", port, &pinned, None)
+            .await
+            .unwrap();
+        let directory = bridge.socket_directory.path().to_owned();
+        drop(bridge.spawn());
+
+        for _ in 0..100 {
+            if !directory.exists() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        assert!(!directory.exists(), "an aborted relay removes its socket");
+    }
+
+    /// Another process that reaches the socket first is carried nowhere: the relay closes its
+    /// connection without a byte to or from the server, and the session it displaced fails rather
+    /// than travel any other way.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn another_process_on_the_machine_cannot_use_the_bridge() {
+        let root = authority("pinned root");
+        let pinned = PinnedPostgresRoot::from_pem(root.pem.as_bytes()).unwrap();
+        let (certificate, key) = server_certificate(&root);
+        let (port, startup) = serve(Server::Tls13, certificate, key).await;
+        let bridge = Bridge::open("127.0.0.1", port, &pinned, None)
+            .await
+            .unwrap();
+        let directory = bridge.socket_directory.path().to_owned();
+        let socket = directory.join(format!(".s.PGSQL.{port}"));
+
+        let mut relay = bridge.spawn();
+
+        // A separate process: it connects, writes, and reports how many bytes came back.
+        let intruder = tokio::task::spawn_blocking(move || {
+            std::process::Command::new("python3")
+                .arg("-c")
+                .arg(
+                    "import socket, sys\n\
+                     s = socket.socket(socket.AF_UNIX)\n\
+                     s.connect(sys.argv[1])\n\
+                     s.sendall(b'\\x00\\x00\\x00\\x08\\x04\\xd2\\x16\\x2f')\n\
+                     print(len(s.recv(64)))",
+                )
+                .arg(&socket)
+                .output()
+                .unwrap()
+        })
+        .await
+        .unwrap();
+
+        assert!(intruder.status.success(), "{intruder:?}");
+        assert_eq!(
+            String::from_utf8(intruder.stdout).unwrap().trim(),
+            "0",
+            "the relay closed the other process's connection without answering"
+        );
+        assert_eq!(
+            (&mut relay.0).await.unwrap(),
+            Err(PinnedTlsError::ForeignPeer)
+        );
+        assert!(
+            startup.await.is_err(),
+            "nothing the other process wrote reached the server"
+        );
+        assert!(
+            connect_with(&with_tls(
+                options().socket(&directory).port(port),
+                PostgresTls::Disabled,
+            ))
+            .await
+            .is_err(),
+            "the displaced session fails rather than reach the server some other way"
         );
     }
 }

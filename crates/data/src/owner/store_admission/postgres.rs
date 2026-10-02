@@ -2097,24 +2097,23 @@ async fn open_store_session(
                     .database(&target.database)
                     .application_name(application_name),
                 trust,
+                // Checked before the session's socket exists, so no byte of a session, its
+                // password exchange included, reaches a server the admission did not measure.
+                peer_certificate_identity.as_deref(),
             )
             .await
             .map_err(|failure| match failure {
-                PinnedTlsError::InvalidRoot | PinnedTlsError::TlsRefused => {
+                PinnedTlsError::InvalidRoot
+                | PinnedTlsError::TlsRefused
+                | PinnedTlsError::UnexpectedPeer => {
                     PostgresMeasurementError::TlsIdentityUnavailable
                 }
                 PinnedTlsError::InvalidServerName => PostgresMeasurementError::InvalidTarget,
                 PinnedTlsError::Unreachable
                 | PinnedTlsError::LocalSocket
+                | PinnedTlsError::ForeignPeer
                 | PinnedTlsError::Session => PostgresMeasurementError::ConnectionUnavailable,
             })?;
-
-            if peer_certificate_identity
-                .as_ref()
-                .is_some_and(|expected| *expected != observed.peer_certificate_identity)
-            {
-                return Err(PostgresMeasurementError::TlsIdentityUnavailable);
-            }
             Ok(StoreSession {
                 connection,
                 target,

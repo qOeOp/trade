@@ -136,7 +136,8 @@ ACL 拒绝。它不证明供应商真实性，不证明生产装配，也不证�
   PostgreSQL 的 `SSLRequest`，完成只信任一个 PEM 文件所钉之根的 TLS 1.3，再经一个私有 Unix socket 把 sqlx 的会话转送到
   服务端。它的 TLS identity 写明该服务端出示的证书与所钉的根，且服务端的 `pg_stat_ssl` 必须在 TLS、协议与 cipher 上
   与之一致。每个准入后的读都以同样方式到达库：准入记下测量器的传输方式，并绑定到它测得的证书；每次读都在其上开会话，服务端
-  出示的若不是那张证书就拒绝。部署的 PostgreSQL
+  出示的若不是那张证书就拒绝。两段之间的 socket 只存在于握手完成到它接受的那一个会话之间，所在目录只有本进程的用户能进入；
+  中继只为本进程转送；另一个根下的服务端、或出示另一张证书的服务端，在 socket 建立之前就被拒绝，会话的任何字节都到不了它。部署的 PostgreSQL
   还没有开启 TLS；开启它属于把这些适配器接入组合根的那一步。管理员用 `deployment-store-publication-seal` 与
   `deployment-store-publication-publish` 封存并发布历史；步骤见 `product/rd-workbench/README.md`。
   `admit_rd_owner_market_data_postgres` 仍接 `Unavailable*` 端口，所以 `required` 在启动时仍然失败关闭。准入只从 custody
