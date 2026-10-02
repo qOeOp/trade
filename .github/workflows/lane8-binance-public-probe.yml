@@ -1,0 +1,43 @@
+# yamllint disable rule:line-length
+# LANE8 PROBE, NOT FOR MERGE: which Binance public data hosts a GitHub-hosted runner can reach.
+name: lane8-binance-public-probe
+
+on:
+  push:
+    branches:
+      - lane8-probe/binance-public
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - name: Status code per host and path
+        run: |-
+          set -uo pipefail
+          now=$(( $(date +%s) * 1000 ))
+          probe() {
+            code=$(curl -s -o /tmp/body -w '%{http_code}' --max-time 20 "$1") || code="curl-failed"
+            printf 'LANE8-B %-4s %s  %s\n' "$code" "$1" "$(head -c 90 /tmp/body | tr '\n' ' ')"
+          }
+          # Controls: a host that answers everyone, and the host memory says answers runners 451.
+          probe "https://api.github.com/zen"
+          probe "https://api.binance.com/api/v3/time"
+          # Public archive.
+          probe "https://data.binance.vision/data/futures/um/monthly/fundingRate/BTCUSDT/BTCUSDT-fundingRate-2024-01.zip"
+          probe "https://data.binance.vision/data/futures/um/daily/metrics/BTCUSDT/BTCUSDT-metrics-2024-01-01.zip"
+          probe "https://s3-ap-northeast-1.amazonaws.com/data.binance.vision?prefix=data/futures/um/monthly/fundingRate/BTCUSDT/&max-keys=2"
+          # Canonical futures host and the www proxy, for each public endpoint family.
+          for host in https://fapi.binance.com https://www.binance.com; do
+            probe "$host/fapi/v1/fundingRate?symbol=BTCUSDT&limit=1"
+            probe "$host/fapi/v1/premiumIndex?symbol=BTCUSDT"
+            probe "$host/fapi/v1/openInterest?symbol=BTCUSDT"
+            probe "$host/futures/data/openInterestHist?symbol=BTCUSDT&period=5m&limit=1"
+            probe "$host/futures/data/globalLongShortAccountRatio?symbol=BTCUSDT&period=5m&limit=1"
+            probe "$host/futures/data/takerlongshortRatio?symbol=BTCUSDT&period=5m&limit=1"
+            probe "$host/fapi/v1/klines?symbol=BTCUSDT&interval=1h&limit=1"
+          done
+          echo "LANE8-B probed at $now"
