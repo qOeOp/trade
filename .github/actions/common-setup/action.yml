@@ -75,6 +75,13 @@ inputs:
     required: false
     default: "true"
 
+outputs:
+  rust-cache-hit:
+    description: >-
+      rust-cache's cache-hit: "true" only when the exact key matched, which is also the one case in
+      which it does not save. Empty when the Rust cache is off.
+    value: ${{ steps.rust-cache.outputs.cache-hit }}
+
 runs:
   using: "composite"
   steps:
@@ -190,6 +197,7 @@ runs:
         override: true
 
     - name: Rust cache
+      id: rust-cache
       if: inputs.rust-cache-enabled == 'true'
       # https://github.com/Swatinem/rust-cache
       uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1

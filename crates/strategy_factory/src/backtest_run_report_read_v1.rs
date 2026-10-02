@@ -721,9 +721,9 @@ fn request_to_report(
 ) -> Result<&ReplayRequestV2, BacktestRunReportRefusalV1> {
     match read {
         ReportRequestReadV2::Found(readback) => Ok(readback.request()),
-        #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+        #[cfg(feature = "composer-v3-replay")]
         ReportRequestReadV2::ComposerV3(claim) => Ok(claim.request()),
-        #[cfg(not(feature = "sealed-source-intake-composer-acceptance"))]
+        #[cfg(not(feature = "composer-v3-replay"))]
         ReportRequestReadV2::ComposerV3 => {
             Err(BacktestRunReportRefusalV1::ReplayRequestV3NotYetReported)
         }
@@ -1592,6 +1592,7 @@ mod tests {
             position_intent_semantic_id: position.to_owned(),
             target_variant_semantic_id: "kernel.target.position.v1".to_owned(),
             target_position_units: units,
+            target_weight_micros: 0,
         };
         BacktestRunStrategyV1 {
             family: SINGLE_THRESHOLD_FAMILY_V1,
@@ -1614,7 +1615,7 @@ mod tests {
     /// In a build without the Composer-backed Replay feature - the deployed image, and the one that
     /// runs this crate's unit tests - a COMPOSER_V3 request is refused by name, not read and not
     /// reported absent.
-    #[cfg(not(feature = "sealed-source-intake-composer-acceptance"))]
+    #[cfg(not(feature = "composer-v3-replay"))]
     #[rstest]
     fn a_composer_v3_request_is_refused_by_name_without_the_feature() {
         assert!(matches!(
@@ -1666,6 +1667,7 @@ mod tests {
             position_intent_semantic_id: position.to_owned(),
             target_variant_semantic_id: "kernel.target.position.v1".to_owned(),
             target_position_units: units,
+            target_weight_micros: 0,
         };
         let (design, _) = author_single_threshold_program_v1(&SingleThresholdAuthoringRequestV1 {
             research_request_identity: BindingDigest::from_untrusted_bytes([1; 32]),

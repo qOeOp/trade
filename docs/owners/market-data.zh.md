@@ -144,8 +144,10 @@ ACL 拒绝。它不证明供应商真实性，不证明生产装配，也不证�
   对象，所以 `public` 里新建一个函数（默认 `PUBLIC` 可执行）会改变普查，admission 需要一份新 manifest。普查按
   PostgreSQL 16 的权限集列举，其他主版本的服务器会被拒绝，而不是少测。
 - **`B4` 消费者未编入已部署镜像。** `product/rd-workbench/Dockerfile.owner` 以默认 feature 构建
-  `strategy-factory-rd-owner-api`，使 `sealed-develop-composer-acceptance` 处于关闭，而 dashboard 读取二进制不触及任何
-  Market Data 表面。解除条件：把该消费者移出 acceptance feature。
+  `strategy-factory-rd-owner-api`，使 `composer-replay-issuance` 处于关闭，而 dashboard 读取二进制不触及任何
+  Market Data 表面。native Replay scheduling 消费者位于这个生产 feature 之后，而不是 acceptance feature 之后；
+  修复循环的 shared time-evidence 消费者仍在 `sealed-develop-composer-acceptance` 之后。解除条件：部署镜像开启这个
+  生产 feature，这是一个部署决定。
 - **`B5` 无跨 Owner 消费者。** 该模块的唯一消费者是同一 crate 内的 Replay V2 组合与 PostgreSQL 写入者，且此类模块多数
   在 `crates/data` 内还是 `pub(crate)`。解除条件：一个由本文档点名的固定消费者。
 - **`B6` 还没有任何部署准入过供应商。** 整条链路已端到端验证：2026-09-17 的一次性 PostgreSQL 运行里，准入了
@@ -835,6 +837,12 @@ R&D 从 binding 及其 Replay facts 读取的内容，以及在 universe-member 
 | Design identity、非空 role set            | binding record                                      | binding record；role set 绝不为空                                                  |
 | Instrument Master 校验                    | registry，逐个 exact instrument                     | composition 时不绑定；按 request 定键的 cut 签发时校验每个 member 的 V2 fact chain |
 | 每种依赖恰好一个                          | 七种类 frontier                                     | 四种类 frontier：PIT、Source Binding、Universe Selection、universe frame           |
+
+R&D 读取的 `universe_selection` 是 Universe Selection Record 的 identity，它同时也是 digest。它不是 Plan 所绑定的
+strategy-input universe selection；后者从一个帧 batch 的行推出，两者从不相等。Market Data 签发 Replay 的初始行情读回时，
+把两者分别对照该帧已核验的 batch：strategy-input selection 必须是从 batch 行推出的 universe；Record 必须等于 batch 的
+`universe_selection_digest`，因为 intake 只为 submission 所指名的 Record 接纳快照。Record 不一致时按
+`UniverseSelectionRecordMismatch` 拒绝。这次比对不读 Record：同一个 batch 已经把两对键连在一起。
 
 第一语料的 Replay facts 还携带七个 reference cut。universe-member aggregate 只携带其所绑定 authority 覆盖的三个；另外四个
 在每个 member 被解析之处得到证明，而不是被丢弃：
@@ -2088,15 +2096,21 @@ pool 或替代 resolver。缺失、多出、重复、部分、乱序、跨请求
 frame 序号，窗口读回与序列解析按同一顺序读出它。今天缺的是调用方，而且如本段末尾所记，光有调用方还不够。只有核验过的 batch 含 BAR 行的 snapshot 才取
 frame 序号；只含 Quote 行的是报价 cut，记入它自己的 census，永不取序号；两者都不是的不进任何 census。
 Owner 凭自己核验过的 batch 判定这一点，而不是凭请求方的 scope 声明，并且只从那份 census 为帧解析报价
-cut。每个报价 cut 的 correction lineage 先归约为它在请求的 decision cut 时可见的最新更正；必须恰好有一个这样的
-更正严格位于帧的 BAR 与其上界之间，与帧共用 scope、Instrument Master、universe selection、Market Semantics 与
-Source Binding lineage，并且报价的成员恰好是帧的成员。最新更正不能服务该帧的 lineage 什么也不提供，永不退回到
-被那次更正取代的版本。census 按请求方声明的 scope
-分区，所以在帧的全部坐标上都相同的第二个报价 cut 会与第一个冲突并使该帧被拒：这是拒绝服务，永远不会把一个
-Owner 未为它核验的报价 cut 交给它。请求的 decision cut 是该帧自身 PIT snapshot 的 decision cut，即已封存请求
-所指名的那一个，所以日后重读会解析出同一个报价 cut。上界是 Owner 在该 decision cut 时已观察到的、帧所在 scope
-census 中第一个更晚的帧，窗口结束前没有这样的帧时则是窗口末端；更晚才被观察到的帧不会移动它。两者都不由调用方
-给出。现有 PIT correction lineage
+cut。每个报价 cut lineage 只在一个 cut 上读取：帧自身的 decision cut，即已封存请求所指名的那一个；若 Owner
+发布该 lineage 原版的 cut 更晚，则取那个 cut。intake 在 Market Data 的 decision cut 冻结请求，所以它铸出的帧就落在
+自身的 decision cut 上，该 cut 能看见的报价 cut 没有一个位于帧之后；成交在决策之后，正如下文托管报价 cut 对
+`d_k` 所述，所以决策之后发布的报价 cut 仍是该帧的。lineage 先归约为它在其读取 cut 时可见的最新更正；该更正严格
+位于帧的 BAR 与同一 cut 下的上界之间，与帧共用 scope、Instrument Master、universe selection、Market Semantics 与
+Source Binding lineage，并且报价的成员恰好是帧的成员时，它才服务该帧。最新更正不能服务该帧的 lineage 什么也不
+提供，永不退回到被那次更正取代的版本。在能服务的 lineage 中，读取 cut 最早的那一个是该帧的；同在那个 cut 上读取的
+两个会使该帧被拒。census 按请求方声明的 scope
+分区，所以在帧的全部坐标上都相同、又在同一 cut 上读取的第二个报价 cut 会与第一个冲突并使该帧被拒：这是拒绝服务，
+永远不会把一个 Owner 未为它核验的报价 cut 交给它。每个读取 cut 都由 Owner 已持有的 census 确定，所以日后重读会
+解析出同一个报价 cut：在更晚 cut 上发布的 lineage 永远不会取代一个能服务的，只有在 Owner 时钟离开所选 cut 之前、
+恰在该 cut 上发布的报价 cut 仍可能与它冲突。某个读取 cut 下的上界是 Owner 在该 cut 时已观察到的、帧所在 scope
+census 中第一个更晚的帧，窗口结束前没有这样的帧时则是窗口末端；更晚才被观察到的帧不会移动它，而在迟到报价 cut
+之前发布的帧会成为它的上界，使那个报价 cut 归于更晚的帧。报价 cut 只进入成交：帧的策略输入仍只从它自己的 batch
+绑定。这些都不由调用方给出。现有 PIT correction lineage
 记录的是同一请求的修正版本，不是时间后继索引，也不能证明无漏帧，census 因此是一张独立的表而不是对它的
 复用；现有首帧 resolver 与 QuoteTick 投影本身不签发后续帧或独立流动性 receipt。V1 native scheduling seal 从帧的
 batch 取每个成员的 BAR，从帧的报价 cut 取每个成员的 Quote，所有 Quote 都在报价 cut 的时刻上并按成员顺序排列。

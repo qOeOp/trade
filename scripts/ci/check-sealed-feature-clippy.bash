@@ -12,6 +12,12 @@
 # chain with nothing going red. The packages are likewise derived, not listed: every workspace package
 # whose resolved features include a sealed feature under that union is linted with all its targets, so a
 # package that starts compiling sealed code is picked up without editing this file.
+#
+# A sealed feature may also carry a feature that is meant to stand alone: a production surface the
+# acceptance includes rather than owns. Under the union that feature only ever compiles with the
+# acceptance code beside it, so a dependency on an acceptance symbol behind it would stay green here
+# and break the first build that enables it alone. Each carried feature (sealed_carried_features.py)
+# is therefore also linted on its own, with its package's default features and all targets.
 
 set -Eeuo pipefail
 
@@ -80,3 +86,14 @@ echo "  packages: ${packages[*]}"
 echo "  features: $features"
 cargo clippy "${package_args[@]}" --locked --all-targets --features "$features" \
   --profile "$profile" -- -D warnings
+
+carried="$(python3 "$repository_root/scripts/ci/sealed_carried_features.py" "$features")"
+if [ -z "$carried" ]; then
+  echo "The union carries no feature of its own to lint alone"
+  exit 0
+fi
+while read -r package feature; do
+  echo "Linting $package with $feature alone, outside the union that carries it"
+  cargo clippy --package "$package" --locked --all-targets --features "$feature" \
+    --profile "$profile" -- -D warnings
+done <<< "$carried"

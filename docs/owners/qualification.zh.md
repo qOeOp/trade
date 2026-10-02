@@ -210,6 +210,44 @@ source sequence/cut clock epoch projection time 和半开有效期。它不包�
 parameter holdout detail 或可解引用 evidence。未来任何保护反馈写入都必须重复预提交 basis 关系。相同
 basis 与规范 source cut 重放准确相同字节；改变 basis 或 source cut 不能加入。
 
+### 受保护反馈 generation
+
+每个 principal/scope 历史带一个受保护反馈 generation：该历史产生过的公开 Qualification phase fact 的计数，projection 把
+它陈述为 source sequence。它就是 Qualification Status Summary 推进的观察前沿，所以一个在某个 projection 下冻结的
+Research Intent，可以在之后的 Owner cut 上判断此后是否有受保护评估变得对它可观察。
+
+- **什么推进它：** 候选的受保护反馈 frontier 属于该历史的每个公开状态 phase fact 首次提交时，各推进一步：`NOT_ADMITTED`、
+  `ADMITTED`、`EVALUATING`、`CLOSED_NOT_QUALIFIED` 与 `QUALIFIED`。phase fact 是 R&D 对受保护评估所能观察到的东西，所以
+  generation 计的就是它。重放的 phase fact 不推进。
+- **什么不推进：** projection 的创建或续期、十分钟有效窗口、读取，以及事故重建。续期取 generation 的当前值，所以单凭时间
+  永远不会改变它。
+- **原子性：** 这一步写在提交 phase fact 的事务里，持有 projection 写入同样会取的 principal/scope 锁与该历史 head 行锁。
+  每个受保护关闭，无论 attempt disposition 还是 assessment，都在自己的 serializable 事务里提交 phase fact，并在同一事务
+  里读取 Protected Replay Attempt Frontier，所以 generation、phase fact 与它记录的受保护状态一起提交或一起回滚。
+- **每一步都有证据：** 每一步是一行只追加的记录，写明它的历史、它的 generation 以及导致它的 phase fact，从一开始连续编号、
+  不留空档。head 的 source sequence 是该历史最新的 generation，其 source cut 是
+  `qualification-protected-feedback-cut-v1-<generation>`，genesis cut 就是 generation 零。历史校验要求 head 等于最新记录
+  的那一步，每条记录都指向该历史一个已存的 phase fact，且每个 projection 的 source sequence 不大于其后继的；没有 phase
+  fact 对应的 generation 无法通过校验。
+- **当前性：** projection 只有在新鲜且其 source sequence 等于该历史的 generation 时才是当前的。
+  `resolve_or_create_for_basis` 对 generation 已被超过的新鲜 projection 续出新的，`admit_in_transaction` 把它当作过期拒
+  绝。Candidate intake 以同样方式读取候选的 feedback frontier：只有当它是该历史的 head、在 intake 的 cut 上新鲜、并且等于
+  该历史的 generation 时才是当前的，所以其 frontier 已被某个 phase fact 越过的候选是 `NOT_ADMITTED`。
+  `admit_historical_projection_in_transaction` 仍按 projection 自己的 cut 读取。
+- **不续期的读取：** `read_protected_feedback_generation_in_transaction` 对调用方冻结的那个 projection，只回答其历史当前
+  的 generation 与 source cut。它在调用方的 read committed 事务里对该历史的 head 行取 `FOR SHARE`，所以答案在该事务结束
+  前一直成立；它既不检查 projection 的有效窗口，也不写任何东西，所以已过窗口的调用方读它既不会把窗口带回来，也不会引起
+  Qualification 写入。其 SQL 函数只向 `rd_owner` 授予 `EXECUTE`。调用方比较自己冻结的 source cut 与读到的：不相等即表示
+  冻结之后该历史有 phase fact 变得可观察。
+- **候选自己的 phase fact 也计数：** 一个 Research 请求自己的候选一旦进入 Qualification，它的第一个 phase fact（
+  `ADMITTED` 或 `NOT_ADMITTED`）及其后的每一个，都会推进该请求冻结的 generation。这是有意的：Qualification 一旦观察过这个
+  候选，在它上面的迭代就要经过一次新的冻结。有两项后果依赖本 Owner 之外的工作，要等那些工作落地才成立。R&D 通过它的延续检查
+  拒绝冻结的 source cut 已被 generation 越过的延续，该检查排在 slice 1 之后。继续迭代要经过一个在家族 basis 下冻结当前投影
+  的后继 Intent，即 slice 1，qOeOp/trade#1197。slice 1 之前，后继 Intent 复制前驱的投影，因而也复制它冻结的 source cut。
+- **从部署开始计数：** generation 存在之前提交的 phase fact 不计入，也不为它们重建任何一步。首次部署时每个历史的
+  generation 都是零，即使此前已经发生过受保护评估，所以 generation 比较的是部署之后的两个时刻，对部署之前的历史不作任何
+  陈述。部署前冻结的 Intent 冻结的是 genesis cut，部署后其历史的第一个 phase fact 就会让它的延续被拒绝：比较结果偏向停止。
+
 ## 特定事故 Owner 重建
 
 Qualification 只能执行为 2026-08-21 本地保护反馈丢失授权并封闭的
@@ -238,7 +276,9 @@ Executable provenance 是独立的效果边界。Qualification 记录实际使�
 通过。同一个函数还钉死了该文件指定行的 SHA-256，因此任何替代文件都无法满足它。而文件本身已从那台机器上消失：
 没有配置 Time Machine 目标，没有本地快照保留它，主目录与任何已挂载卷下都没有携带该 session 标识的文件，
 该产物也从未提交进仓库。于是它的证明
-`isolated_postgres_recovery_is_atomic_fail_closed_and_replay_safe` 在任何地方都无法通过。上文契约继续作为
+`isolated_postgres_recovery_is_atomic_fail_closed_and_replay_safe` 在任何地方都无法通过；用同一个文件重算封存向量的
+`frozen_evidence_recomputes_exact_canonical_vector` 也一样。两者都以 unrunnable 标记为 ignore。该模块的其它测试不读
+这个文件：`make cargo-test` 以 `vibe-qualification/owner-recovery` 构建，所以 workspace 测试 job 会运行它们。上文契约继续作为
 一次已封闭的单一事故重建的记录；它不会因为无法再被执行而扩大成通用 restore 路径，本节也不授权用夹具替代
 被封存的证据。
 
@@ -389,6 +429,37 @@ Eligibility replay 必须绑定 frontier。同一 Fact 身份与内容摘要只�
 和新区间的新不可变 Fact；一旦后继 过期或撤销成为 Qualification head，前驱永远不能重新成为 current。
 Governance 可在每个不同的已授权 lifecycle request evaluation 与 decision frontier 中消费一次仍 current
 的 Fact，而同一 frontier 内重复只加入，绝不恢复资金。
+
+## TARGET - 在 Candidate Intake 处按累计试验打折
+
+Research 不再在某个试验次数上停下（[R&D](./rd/#target---cumulative-trial-accounting-and-the-spend-cap)，用户 2026-09-27
+的决定）；取而代之的是，一条血缘试得越多，它的 Candidate 在这里要过的门槛就越高。Qualification 用的是它自己推导出的试验
+次数，从不是别人告诉它的。
+
+- *折扣对象。* Candidate 的 Research Selection 所指的那个被选中的探索结果，在它的日频非年化收益序列上，用 Bailey 与
+  López de Prado 的 Deflated Sharpe Ratio。它就是 `analyze_formation_robustness` 在 legacy formation 路径上计算的统计量
+  （`crates/strategy_factory/src/robustness.rs`），那里的试验次数在一次 formation 内固定为四或二；这条路径就是上文所说的
+  「formation 路径上的试验次数修正」。legacy formation 路径正在退役，这个文件会随之删除。TB2 从 `main`
+  f2238c09b1e2b89b16a9965104375dbb72748f9d 上的 `crates/strategy_factory/src/robustness.rs` 移植它，而不是重写：第 92 至
+  181 行的 `analyze_formation_robustness` 是打折后比率及其 PBO 门槛，第 183 至 354 行是它的辅助函数，其中第 222 行的
+  `cscv_pbo` 是 CSCV 版的 PBO 估计、第 314 行是 `daily_risk_return_ratio`，测试从第 355 行开始。移植把 N 从固定的四或二改为
+  累计计数，所以这些测试要按这个计数重新校验，而不是原样搬过来。
+- *N。* 累计试验次数：Candidate 为其 TrialFamily 与跨 family 前驱所绑定的 census 前沿上的 `trial_count` 之和，再加上这条
+  血缘里的每一次保护性尝试，因为每消耗一次留出数据就是又看了一次。Qualification 从这些前沿重新计算它，前沿不完整时照旧是
+  `NOT_ADMITTED`。
+- *试验比率的离散度。* 血缘中 `TERMINAL_RESULT` 试验的日频比率的样本标准差，这些是探索性证据而非保护性证据，并以一个预注册的
+  最小值为下限。没有终态结果的试验计入 N 但不贡献比率；终态试验少于两个时只用下限。
+- *门槛。* 保护性决策策略版本在观察任何结果之前固定最小的打折后概率与下限。低于它的 Candidate 以
+  `DEFLATED_SHARPE_BELOW_POLICY` 为 `NOT_ADMITTED`，不预留任何留出数据，所以打折不花费任何保护性证据。
+- *确定性。* 这个统计量是每次试验的规范结果字节的函数，其概率以百万分之一为单位向下取整记录，与 formation 报告的记录方式
+  相同。读取试验收益序列的字节，就是它的生产构建写下的那些。
+
+同宇宙随机对照与封存的留出数据保持上文所述。计数被低报时，仍然成立的是对照；留出数据从不向 R&D 返回细节。
+
+**已有什么、缺什么**，在 `main` 019f231b0 上实测。打折统计量只存在于 legacy formation 路径上，试验次数固定且没有 census。
+`crates/qualification` 没有打折、没有随机对照的比较臂，也没有跨 family 的留出计数：它按 Candidate 预留一次留出、按结果关闭，
+而下文的验收要求跨相关 TrialFamily 的累计处置。这个计数属于这一片，因为 N 包含血缘中的保护性尝试。它读取的试验次数需要
+R&D 尚未具备的生产 census 追加。
 
 ## 决策契约
 

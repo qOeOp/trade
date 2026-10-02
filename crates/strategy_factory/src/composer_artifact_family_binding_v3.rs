@@ -6,16 +6,16 @@
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+#[cfg(feature = "composer-v3-replay")]
 use sqlx::{PgPool, Postgres, Row, Transaction};
 use std::fmt::Display;
 use vibe_data::owner::source_binding::BindingDigest;
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+#[cfg(feature = "composer-v3-replay")]
 use vibe_product_edge::{
     DownstreamAdmissionModeV1, resolve_admission_for_downstream_in_transaction,
 };
 
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+#[cfg(feature = "composer-v3-replay")]
 use crate::trial_family_postgres::{persist_outbox, verify_outbox_storage};
 use crate::{
     composer_replay_intent_v3::{
@@ -24,7 +24,7 @@ use crate::{
     develop_composer_postgres_v2::SealedDevelopComposerReadbackV2,
     trial_family::TrialFamilyError,
 };
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+#[cfg(feature = "composer-v3-replay")]
 use crate::{
     composer_replay_intent_v3::{
         load_composer_replay_family_cut_v3, resolve_composer_replay_intent_in_transaction,
@@ -40,7 +40,7 @@ use crate::{
 };
 
 const SCHEMA_VERSION: u16 = 3;
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+#[cfg(feature = "composer-v3-replay")]
 const BOUND_EVENT_V3: &str = "COMPOSER_ARTIFACT_TRIAL_FAMILY_BOUND_V3";
 
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
@@ -104,7 +104,7 @@ struct ReceiptMeaning<'a> {
     committed_at_epoch_ms: u64,
 }
 
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+#[cfg(feature = "composer-v3-replay")]
 #[derive(Debug, Eq, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct ComposerArtifactFamilyOutboxV3 {
@@ -120,7 +120,7 @@ struct ComposerArtifactFamilyOutboxV3 {
     committed_at_epoch_ms: u64,
 }
 
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+#[cfg(feature = "composer-v3-replay")]
 impl ComposerArtifactFamilyOutboxV3 {
     fn from_readback(readback: &ComposerArtifactFamilyReadbackV3) -> Self {
         let binding = &readback.binding;
@@ -313,7 +313,7 @@ pub(crate) fn admit_stored_composer_artifact_family_binding_v3(
 /// lock; and the TrialFamily head is read `FOR SHARE`, so it cannot advance under the commit once
 /// read. The census loader reads that head last, so an append committed while it reads can tear
 /// its members from its head; the loader's cross-checks refuse that read rather than return it.
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+#[cfg(feature = "composer-v3-replay")]
 pub(crate) async fn begin_composer_replay_request_transaction_v3(
     pool: &PgPool,
     request_identity: &str,
@@ -331,7 +331,7 @@ pub(crate) async fn begin_composer_replay_request_transaction_v3(
 
 /// Issues the Composer Artifact-family fact in its own authorized R&D transaction.
 /// The Replay transaction must subsequently reread it before its first INSERT.
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+#[cfg(feature = "composer-v3-replay")]
 pub(crate) async fn ensure_composer_artifact_family_binding_for_replay_v3<B>(
     pool: &PgPool,
     proposal: &ComposerBackedExploratoryReplayProposalV3,
@@ -396,7 +396,7 @@ where
     Ok(binding)
 }
 
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+#[cfg(feature = "composer-v3-replay")]
 fn verify_composer_replay_admission_v3(
     admission: &vibe_product_edge::ProductEdgeAdmissionReadbackV1,
     proposal: &ComposerBackedExploratoryReplayProposalV3,
@@ -423,7 +423,7 @@ fn verify_composer_replay_admission_v3(
     Ok(())
 }
 
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+#[cfg(feature = "composer-v3-replay")]
 async fn database_now_epoch_ms(
     transaction: &mut Transaction<'_, Postgres>,
 ) -> Result<u64, TrialFamilyError> {
@@ -437,7 +437,7 @@ async fn database_now_epoch_ms(
 }
 
 /// Reads one already committed binding under the caller's R&D transaction.
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+#[cfg(feature = "composer-v3-replay")]
 pub(crate) async fn load_composer_artifact_family_binding_for_replay_v3(
     transaction: &mut Transaction<'_, Postgres>,
     cut: &ComposerReplayFamilyCutV3,
@@ -502,7 +502,7 @@ pub(crate) async fn load_composer_artifact_family_binding_for_replay_v3(
 
 /// Persists only after the caller authenticates the required Owner admission.
 /// An exact retry against the same current Owner cut returns the original bytes without a write.
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+#[cfg(feature = "composer-v3-replay")]
 async fn persist_preverified_composer_artifact_family_binding_v3(
     transaction: &mut Transaction<'_, Postgres>,
     cut: &ComposerReplayFamilyCutV3,
@@ -545,7 +545,7 @@ async fn persist_preverified_composer_artifact_family_binding_v3(
     Ok(readback)
 }
 
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+#[cfg(feature = "composer-v3-replay")]
 async fn verify_binding_outbox_v3(
     transaction: &mut Transaction<'_, Postgres>,
     readback: &ComposerArtifactFamilyReadbackV3,
@@ -593,7 +593,7 @@ async fn verify_binding_outbox_v3(
     Ok(())
 }
 
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+#[cfg(feature = "composer-v3-replay")]
 fn binding_outbox_identity(binding: &ComposerArtifactFamilyBindingV3) -> String {
     identity("rd-owner-outbox-v1", &binding.binding_digest)
 }

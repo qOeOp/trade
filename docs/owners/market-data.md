@@ -181,9 +181,11 @@ never runs in CI.
   default, changes the census and admission needs a new manifest. The census names PostgreSQL 16's privileges,
   and a server of another major is refused rather than measured short.
 - **`B4` consumer not compiled into the deployed image.** `product/rd-workbench/Dockerfile.owner` builds
-  `strategy-factory-rd-owner-api` with default features, which leaves `sealed-develop-composer-acceptance` off, and
-  the dashboard read binary touches no Market Data surface. Cleared by moving the consumer out of an acceptance
-  feature.
+  `strategy-factory-rd-owner-api` with default features, which leaves `composer-replay-issuance` off, and the
+  dashboard read binary touches no Market Data surface. The native Replay scheduling consumer is behind that
+  production feature rather than an acceptance one; the repair loop's shared time-evidence consumer is still behind
+  `sealed-develop-composer-acceptance`. Cleared by the deployed image enabling the production feature, which is a
+  deployment decision.
 - **`B5` no cross-Owner consumer.** The module's only consumers are the same crate's Replay V2 composition and
   PostgreSQL writers, and most such modules are additionally `pub(crate)` inside `crates/data`. Cleared by one
   fixed consumer named by this document.
@@ -912,6 +914,14 @@ What R&D reads from a binding and its Replay facts, and where each comes from in
 | Design identity, non‑empty role set        | binding record                                       | binding record; the role set is never empty                                                 |
 | Instrument Master verification             | registry, per exact instrument                       | not bound at composition; each member's V2 fact chain when the request‑keyed cut is issued  |
 | every dependency, exactly once             | the seven‑kind frontier                              | the four‑kind frontier: PIT, Source Binding, Universe Selection, universe frame             |
+
+The `universe_selection` R&D reads is the Universe Selection Record's identity, which is also its digest. It is not the
+strategy-input universe selection a Plan is bound under, which is derived from a frame batch's rows, and the two are
+never equal. When Market Data issues a Replay's initial market readback it checks each against the frame's verified
+batch. The strategy-input selection must be the universe derived from the batch's rows. The Record must be the batch's
+`universe_selection_digest`, because intake admits a snapshot only for the Record its submission names. A Record that
+differs is refused as `UniverseSelectionRecordMismatch`. No Record is read for this: the one batch already joins the
+two keys.
 
 The first corpus's Replay facts also carry seven reference cuts. A universe-member aggregate carries the three whose
 authority it binds; each of the other four is proven where each member is resolved, not dropped:
@@ -2382,19 +2392,29 @@ of this paragraph records. Only a snapshot whose verified batch holds BAR rows t
 ordinal; one holding Quote rows and nothing else is a quote cut, recorded in a census of its own
 and never given an ordinal; one holding neither joins no census. The Owner reads this from the
 batch it verified, never from the requester's scope claim, and resolves a frame's quote cut from
-that census alone. Each quote cut's correction lineage is first reduced to its latest correction
-visible at the request's decision cut; exactly one such correction must lie strictly between the
-frame's BAR and its bound, on the frame's scope, Instrument Master, universe selection, Market
-Semantics and Source Binding lineage, and it must quote exactly the frame's members. A lineage
-whose latest correction does not serve the frame contributes nothing and never falls back to the
-version that correction replaced. The
+that census alone. Each quote cut lineage is read at one cut: the frame's own decision cut, the one
+the sealed request names, or the cut the Owner published the lineage's original at when that is
+later. An intake freezes its request at Market Data's decision cut, so a frame it mints sits on its
+own decision cut and no quote cut that cut could see lies after it; the fill follows the decision,
+as the custody quote cut below states for `d_k`, so a quote cut published after the decision is
+still the frame's. The lineage is first reduced to its latest correction visible at its reading cut;
+it serves the frame when that correction lies strictly between the frame's BAR and the bound at the
+same cut, on the frame's scope, Instrument Master, universe selection, Market Semantics and Source
+Binding lineage, and quotes exactly the frame's members. A lineage whose latest correction does not
+serve the frame contributes nothing and never falls back to the version that correction replaced.
+Of the lineages that serve, the one read at the earliest cut is the frame's, and two read at that
+cut refuse the frame. The
 census is keyed by the scope a requester declares, so a second quote cut on every one of a
-frame's coordinates collides with the first and refuses the frame - a denial of service, never a
-quote cut the Owner did not verify for it. The request's decision cut is the decision cut of the
-frame's own PIT snapshot, the one the sealed request names, so a later reading resolves the same
-quote cut. The bound is the first later frame in the frame's scope census that the Owner had
-observed by that decision cut, or the window's end when none lies before it; a frame observed later
-does not move it. The caller names neither. The existing PIT correction lineage records
+frame's coordinates, read at the same cut, collides with the first and refuses the frame - a denial
+of service, never a quote cut the Owner did not verify for it. Each reading cut is fixed by the
+census the Owner already holds, so a later reading resolves the same quote cut: a lineage published
+at a later cut never displaces one that serves, and only one published on the chosen cut before the
+Owner's clock leaves it can still collide with it. The bound at a reading cut is the first later
+frame in the frame's scope census that the Owner had observed by that cut, or the window's end when
+none lies before it; a frame observed later does not move it, and a frame published before a late
+quote cut bounds it, which makes that quote cut the later frame's. The quote cut reaches only the
+fill: the frame's strategy inputs are still bound from its own batch. The caller names none of
+these. The existing PIT correction lineage records
 revisions of one request; it is not a time-successor index and cannot prove a later frame or the
 absence of skipped frames, which is why the census is its own table rather than a reuse of that
 lineage. The current initial-frame resolver and QuoteTick projection do not themselves issue a

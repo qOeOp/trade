@@ -37,12 +37,16 @@ pub(crate) async fn lock_successor_research_for_intent_in_transaction_v1(
     )
     .await
     .map_err(|_| research_unavailable())?;
-    CurrentResearchDevelopCustodyV2::from_verified_successor(
-        &successor,
-        &view,
-        &family,
-        read_cut_epoch_ms,
+    Box::pin(
+        crate::research_continuation_v1::continue_successor_research_in_transaction(
+            transaction,
+            &successor,
+            &view,
+            &family,
+            read_cut_epoch_ms,
+        ),
     )
+    .await
 }
 
 fn research_unavailable() -> DevelopComposerTerminalV2 {

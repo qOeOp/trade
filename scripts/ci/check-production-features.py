@@ -12,6 +12,13 @@ This reads the packages the Dockerfiles under product/ build, resolves each one'
 graph with `cargo tree`, and fails when a test-only feature is enabled by anything other than an
 enabler named in ALLOWED. Every refusal names the package and what enabled the feature.
 
+It also holds the product's precision. The product runs at FIXED_PRECISION 16 (`high-precision`),
+declared by vibe-strategy-factory itself, so every production package that links vibe-model must
+resolve it with REQUIRED; a package that does not link vibe-model at all is named as such. And the
+Makefile's standard-precision selection, which checks the inherited crates at 9, must resolve
+vibe-model without it: a product crate that reached that selection would run at 16 under a
+standard-precision name.
+
 Usage: check-production-features.py [--self-test]
 
 """
@@ -34,11 +41,12 @@ TEST_ONLY = {
     "vibe-common": ("stubs",),
 }
 
+# Features every production package that links the crate must resolve: the product's precision.
+REQUIRED = {"vibe-model": ("high-precision",)}
+
 # The enablers a production build may still carry, by (crate, feature). `rstest` is only ever meant
-# to arrive through `stubs`. The vibe-strategy-factory entry is the legacy formation path's stub
-# instrument (`src/application.rs`); R&D has ruled that path retired, and this entry goes with it.
+# to arrive through `stubs`, so a stray `stubs` is refused once, by its own enabler.
 ALLOWED = {
-    ("vibe-model", "stubs"): {"vibe-strategy-factory"},
     ("vibe-model", "rstest"): {'vibe-model feature "stubs"'},
 }
 
@@ -46,18 +54,34 @@ TREE_LINE = re.compile(r"^(\d+)(.*)$")
 PACKAGE_NODE = re.compile(r"^([A-Za-z0-9_-]+) v\S+")
 
 
-def production_packages(root: Path) -> list[str]:
+def production_packages(root: Path) -> tuple[list[str], list[str]]:
     """
-    Return the packages the Dockerfiles under product/ build, in first-seen order.
+    Return the packages the Dockerfiles under product/ build, in first-seen order, and
+    every cargo command there that names no package.
+
+    A `cargo build`, `cargo install` or `cargo run` is read only through an explicit
+    `-p <package>` or `--package <package>`. One that names none - a bare workspace
+    build, `cargo install --path ...` - is returned unparsed rather than skipped: a
+    command this check cannot read must stop it, or the image it builds would pass
+    unchecked. Images built from files outside product/ are out of scope; the one today,
+    crates/strategy_factory/tools/program-seal.dockerfile, builds a `wasm32v1-none`
+    guest that does not link vibe-model.
+
     """
     packages: list[str] = []
+    unparsed: list[str] = []
     for dockerfile in sorted((root / "product").rglob("Dockerfile*")):
         text = dockerfile.read_text(encoding="utf-8")
-        for match in re.finditer(r"cargo build\b(?:[^\n\\]|\\\n)*", text):
-            for package in re.findall(r"-p\s+([A-Za-z0-9_-]+)", match.group(0)):
+        for match in re.finditer(r"cargo (?:build|install|run)\b(?:[^\n\\]|\\\n)*", text):
+            command = match.group(0)
+            named = re.findall(r"(?:-p|--package)\s+([A-Za-z0-9_-]+)", command)
+            if not named:
+                flat = " ".join(command.replace("\\\n", " ").split())
+                unparsed.append(f"{dockerfile.relative_to(root)}: {flat}")
+            for package in named:
                 if package not in packages:
                     packages.append(package)
-    return packages
+    return packages, unparsed
 
 
 def enablers(tree: str, crate: str) -> dict[str, set[str]]:
@@ -112,19 +136,55 @@ def refusals(package: str, crate: str, tree: str) -> list[str]:
     return out
 
 
+def missing_required(package: str, crate: str, tree: str) -> list[str]:
+    """
+    Return one refusal per REQUIRED feature of `crate` that `package` does not resolve.
+    """
+    found = enablers(tree, crate)
+    return [
+        f"{package}: {crate} resolves without {feature!r}, the product's precision"
+        for feature in REQUIRED.get(crate, ())
+        if feature not in found
+    ]
+
+
+def makefile_standard_precision_selection(makefile: str) -> list[str]:
+    """
+    Return the Makefile's STANDARD_PRECISION_ARGS as `cargo tree` arguments.
+
+    `--lib` and `--tests` select targets, which `cargo tree` expresses as `-e
+    normal,dev`.
+
+    """
+    variables = dict(re.findall(r"^(STANDARD_PRECISION_[A-Z]+) := (.*)$", makefile, re.MULTILINE))
+    if "STANDARD_PRECISION_ARGS" not in variables:
+        return []
+    args = variables["STANDARD_PRECISION_ARGS"]
+    for name, value in variables.items():
+        args = args.replace(f"$({name})", value)
+    words = re.findall(r'"[^"]*"|\S+', args)
+    return [word.strip('"') for word in words if word not in ("--lib", "--tests")]
+
+
 def cargo_tree(package: str, crate: str) -> str:
     """
     Resolve `package`'s normal dependencies, inverted at `crate`, as cargo tree prints
     them.
     """
+    return cargo_tree_of(["-p", package], "normal,features", crate)
+
+
+def cargo_tree_of(selection: list[str], edges: str, crate: str) -> str:
+    """
+    Resolve `selection`'s dependency graph over `edges`, inverted at `crate`.
+    """
     command = [
         "cargo",
         "tree",
         "--locked",
-        "-p",
-        package,
+        *selection,
         "-e",
-        "normal,features",
+        edges,
         "--target",
         TARGET,
         "-i",
@@ -146,32 +206,68 @@ def check(root: Path) -> int:
     Check every production package against every test-only feature and report the
     outcome.
     """
-    packages = production_packages(root)
+    packages, unparsed = production_packages(root)
     if not packages:
         print(
             "ERROR: no `cargo build -p` found in product/**/Dockerfile*; nothing was checked",
             file=sys.stderr,
         )
         return 1
-    problems = []
+    problems = [
+        f"{command}: names no package; extend production_packages() or build it with -p"
+        for command in unparsed
+    ]
+    unlinked = []
     for package in packages:
-        for crate in TEST_ONLY:
+        for crate in sorted(set(TEST_ONLY) | set(REQUIRED)):
             tree = cargo_tree(package, crate)
-            if tree:
+            if not tree:
+                if crate in REQUIRED:
+                    unlinked.append(package)
+                continue
+            if crate in TEST_ONLY:
                 problems.extend(refusals(package, crate, tree))
+            problems.extend(missing_required(package, crate, tree))
+    problems.extend(standard_precision_refusals(root))
     if problems:
-        print("ERROR: a production image builds with a test-only feature:", file=sys.stderr)
+        print(
+            "ERROR: a production image or the standard-precision selection has the wrong features:",
+            file=sys.stderr,
+        )
         for problem in problems:
             print(f"  {problem}", file=sys.stderr)
         print(
-            "Move the feature to [dev-dependencies]; a production path must not need test stubs.",
+            "A test-only feature belongs in [dev-dependencies]; high-precision belongs to the product "
+            "crate's vibe-model dependency; a crate that brings high-precision into the standard-precision "
+            "selection belongs in STANDARD_PRECISION_EXCLUDES.",
             file=sys.stderr,
         )
         return 1
     print(
-        f"production features: no test-only feature in {', '.join(packages)} beyond the named exception",
+        f"production features: no test-only feature in {', '.join(packages)}; "
+        f"high-precision wherever vibe-model is linked (not linked: "
+        f"{', '.join(unlinked) or 'none'}); the standard-precision selection resolves without it",
     )
     return 0
+
+
+def standard_precision_refusals(root: Path) -> list[str]:
+    """
+    Return a refusal when the Makefile's standard-precision selection is missing or
+    resolves vibe-model with `high-precision`.
+    """
+    selection = makefile_standard_precision_selection(
+        (root / "Makefile").read_text(encoding="utf-8"),
+    )
+    if not selection:
+        return ["Makefile: STANDARD_PRECISION_ARGS was not found; nothing was checked"]
+    tree = cargo_tree_of(selection, "normal,dev,features", "vibe-model")
+    if "high-precision" in enablers(tree, "vibe-model"):
+        return [
+            "Makefile: STANDARD_PRECISION_ARGS resolves vibe-model with 'high-precision'; exclude "
+            "the crate that brings it in, or the standard-precision check runs at 16",
+        ]
+    return []
 
 
 FIXTURE_ALLOWED = """\
@@ -180,8 +276,6 @@ FIXTURE_ALLOWED = """\
 2vibe-analysis v0.62.0 (/w/crates/analysis)
 1vibe-model feature "rstest"
 2vibe-model feature "stubs"
-1vibe-model feature "stubs"
-2vibe-strategy-factory v0.62.0 (/w/crates/strategy_factory)
 """
 FIXTURE_STRAY = """\
 0vibe-model v0.62.0 (/w/crates/model)
@@ -209,21 +303,21 @@ FIXTURE_COMMON = """\
 """
 
 
-def self_test() -> int:
+def test_only_feature_failures() -> list[str]:
     """
-    Run the parser and the verdict against fixed trees in both directions.
+    Return what the test-only feature rule gets wrong on fixed trees and Dockerfiles.
     """
     failures = []
     if refusals("p", "vibe-model", FIXTURE_ALLOWED):
-        failures.append("the named exception and rstest-through-stubs were refused")
+        failures.append("rstest-through-stubs was refused")
     stray = refusals("p", "vibe-model", FIXTURE_STRAY)
     if stray != [
-        "p: vibe-model feature 'stubs' is enabled in production by: vibe-analysis",
+        "p: vibe-model feature 'stubs' is enabled in production by: vibe-analysis, vibe-strategy-factory",
         "p: vibe-model feature 'rstest' is enabled in production by: vibe-risk",
     ]:
         failures.append(f"a stray stubs and rstest enabler were not both named: {stray}")
     if refusals("p", "vibe-model", FIXTURE_NESTED) != [
-        "p: vibe-model feature 'stubs' is enabled in production by: vibe-risk",
+        "p: vibe-model feature 'stubs' is enabled in production by: vibe-risk, vibe-strategy-factory",
     ]:
         failures.append("an enabler printed under a nested feature line was missed")
     if refusals("p", "vibe-common", FIXTURE_COMMON) != [
@@ -236,16 +330,78 @@ def self_test() -> int:
     with tempfile.TemporaryDirectory() as probe:
         (Path(probe) / "product").mkdir()
         (Path(probe) / "product/Dockerfile.x").write_text(dockerfile, encoding="utf-8")
-        if production_packages(Path(probe)) != ["alpha", "beta"]:
+        if production_packages(Path(probe)) != (["alpha", "beta"], []):
             failures.append(
                 f"the Dockerfile packages were misread: {production_packages(Path(probe))}",
             )
+        (Path(probe) / "product/Dockerfile.y").write_text(
+            "RUN cargo build --release \\\n    --locked\nRUN cargo install --path crates/tool\n"
+            "RUN cargo build --package gamma\n",
+            encoding="utf-8",
+        )
+        packages, unparsed = production_packages(Path(probe))
+        if packages != ["alpha", "beta", "gamma"] or unparsed != [
+            "product/Dockerfile.y: cargo build --release --locked",
+            "product/Dockerfile.y: cargo install --path crates/tool",
+        ]:
+            failures.append(
+                f"a command naming no package was not held unparsed: {packages} {unparsed}",
+            )
+    return failures
+
+
+def precision_failures() -> list[str]:
+    """
+    Return what the precision rules get wrong on fixed trees and Makefiles.
+    """
+    failures = []
+    if missing_required("p", "vibe-model", FIXTURE_ALLOWED) != [
+        "p: vibe-model resolves without 'high-precision', the product's precision",
+    ]:
+        failures.append("a production vibe-model without high-precision was not refused")
+    if missing_required(
+        "p",
+        "vibe-model",
+        FIXTURE_ALLOWED + '1vibe-model feature "high-precision"\n',
+    ):
+        failures.append("a production vibe-model with high-precision was refused")
+    makefile = (
+        "STANDARD_PRECISION_EXCLUDES := --exclude a --exclude b\n"
+        "STANDARD_PRECISION_ARGS := --workspace $(STANDARD_PRECISION_EXCLUDES) "
+        '--no-default-features --lib --tests --features "ffi,python"\n'
+    )
+    expected = [
+        "--workspace",
+        "--exclude",
+        "a",
+        "--exclude",
+        "b",
+        "--no-default-features",
+        "--features",
+        "ffi,python",
+    ]
+    if makefile_standard_precision_selection(makefile) != expected:
+        failures.append(
+            f"the Makefile selection was misread: {makefile_standard_precision_selection(makefile)}",
+        )
+    if makefile_standard_precision_selection("OTHER := x\n"):
+        failures.append("a Makefile without the selection read as a selection")
+    return failures
+
+
+def self_test() -> int:
+    """
+    Run the parsers and the verdicts against fixed trees in both directions.
+    """
+    failures = test_only_feature_failures() + precision_failures()
     if failures:
         for failure in failures:
             print(f"FAIL: {failure}", file=sys.stderr)
         return 1
     print(
-        "check-production-features: allows the named exception, names every stray enabler, refuses a tree it did not check, reads continued Dockerfile commands",
+        "check-production-features: allows rstest through stubs, names every stray enabler, refuses a "
+        "tree it did not check, reads continued Dockerfile commands, requires the product's precision, "
+        "reads the Makefile's standard-precision selection",
     )
     return 0
 

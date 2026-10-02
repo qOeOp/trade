@@ -27,7 +27,7 @@ use vibe_core::time::get_atomic_clock_realtime;
 // `ReplayCompositionOwnerV1` is imported without the gate because `--materialize-schema` calls it
 // in every build; the two locator types below it are only used by the acceptance surface.
 use vibe_data::owner::replay_market_facts_v2::ReplayCompositionOwnerV1;
-#[cfg(feature = "sealed-develop-composer-acceptance")]
+#[cfg(feature = "composer-replay-issuance")]
 use vibe_data::owner::replay_market_facts_v2::{
     ReplayCompositionBindingErrorV1, ReplayCompositionDurableIssuanceResponseV1,
     ReplayCompositionIssuanceLocatorV1, ReplayCompositionLocatorOnlyIssuanceRequestV1,
@@ -69,7 +69,7 @@ use vibe_databento::{
 
 /// The stable correlation every Market Data probe attempt repeats.
 const MARKET_DATA_PROBE_CORRELATION_V1: [u8; 32] = *b"vibe.market-data.pit-probe.v1\0\0\0";
-#[cfg(feature = "sealed-develop-composer-acceptance")]
+#[cfg(feature = "composer-replay-issuance")]
 use vibe_data::owner::{
     UniverseSampleProjectionOwnerV1, instrument_economic_terms_postgres_owner_from_environment_v1,
     instrument_economic_terms_postgres_v1::InstrumentEconomicTermsPostgresOwnerV1,
@@ -77,9 +77,11 @@ use vibe_data::owner::{
     instrument_master_v2_postgres_owner_from_environment,
     native_replay_scheduling_resolver_v1_from_store_admission_environment,
     native_replay_scheduling_v1::NativeReplaySchedulingResolverV1,
-    shared_time_evidence_resolver_from_store_admission_environment_v1,
     universe_sample_projection_owner_from_environment_v1,
 };
+// The Market Data repair loop is the only reader of the shared time evidence resolver.
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+use vibe_data::owner::shared_time_evidence_resolver_from_store_admission_environment_v1;
 use vibe_data::owner::{
     research_pit_terminal::ResearchPitTerminalResolver,
     research_pit_terminal_resolver_from_store_admission_environment,
@@ -121,7 +123,7 @@ use vibe_strategy_factory::{
 use vibe_strategy_factory::develop_composer_operation_v2::DevelopComposerOperationDispositionV2;
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
 use vibe_strategy_factory::develop_composer_postgres_v2::DevelopComposerSealedReadLocatorV2;
-#[cfg(feature = "sealed-develop-composer-acceptance")]
+#[cfg(feature = "composer-replay-issuance")]
 use vibe_strategy_factory::develop_composer_postgres_v2::DevelopComposerSealedReadPortV2;
 #[cfg(all(
     feature = "sealed-develop-composer-acceptance",
@@ -138,7 +140,7 @@ use vibe_strategy_factory::develop_composer_sealed_acceptance_v2::SEALED_DEVELOP
     not(feature = "sealed-source-intake-composer-acceptance")
 ))]
 use vibe_strategy_factory::develop_composer_sealed_acceptance_v2::SealedDevelopComposerAcceptanceV2;
-#[cfg(feature = "sealed-develop-composer-acceptance")]
+#[cfg(feature = "composer-replay-issuance")]
 use vibe_strategy_factory::develop_composer_sealed_acceptance_v2::submitted_or_unknown_response;
 #[cfg(not(feature = "sealed-develop-composer-acceptance"))]
 use vibe_strategy_factory::source_research_composer_postgres_v2::PostgresSourceResearchComposerProductionV2;
@@ -240,15 +242,15 @@ struct ApiState {
     request_proof_digest: String,
     allow_acceptance_faults: bool,
     _market_data_research_pit: Option<Arc<dyn ResearchPitTerminalResolver>>,
-    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    #[cfg(feature = "composer-replay-issuance")]
     native_replay_scheduling: Option<Arc<dyn NativeReplaySchedulingResolverV1>>,
-    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    #[cfg(feature = "composer-replay-issuance")]
     instrument_master_v2: Option<Arc<InstrumentMasterV2PostgresOwner>>,
-    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    #[cfg(feature = "composer-replay-issuance")]
     instrument_economic_terms: Option<Arc<InstrumentEconomicTermsPostgresOwnerV1>>,
-    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    #[cfg(feature = "composer-replay-issuance")]
     universe_sample_projection: Option<Arc<UniverseSampleProjectionOwnerV1>>,
-    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    #[cfg(feature = "composer-replay-issuance")]
     develop_composer_read: Option<Arc<dyn DevelopComposerSealedReadPortV2>>,
     #[cfg(all(
         feature = "sealed-develop-composer-acceptance",
@@ -259,7 +261,7 @@ struct ApiState {
     develop_composer: Arc<SealedPostgresSourceResearchComposerV2>,
     #[cfg(not(feature = "sealed-develop-composer-acceptance"))]
     develop_composer: Arc<PostgresSourceResearchComposerProductionV2>,
-    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    #[cfg(feature = "composer-replay-issuance")]
     replay_composition: Option<Arc<ReplayCompositionOwnerV1>>,
 }
 
@@ -341,8 +343,34 @@ struct ArtifactBuildApiResultV1 {
     provider_invocation: Option<ProductEdgeInvocationClaimReadbackV1>,
 }
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
+/// The stack each runtime worker gets. Axum runs every request on a worker, and tokio's default is
+/// 2 MiB.
+///
+/// Measured at release codegen (opt-level 3, one codegen unit, no LTO) on the serial R&D chain,
+/// whose database holds the custody states that send a V3 Research submission down its deepest
+/// lineage branch (owner-chains run 36362053221, Linux x86): a V3 `submit_v2` peaks at 608 KiB, and
+/// the deepest chain entry at 1000 KiB. Against those readings:
+/// - no LTO: direction unknown;
+/// - hyper, axum and the worker loop around a production request, absent from the reading: the
+///   reading is optimistic;
+/// - the tests unwind where this binary aborts: the reading is, if anything, pessimistic;
+/// - database states the chain never builds: direction unknown.
+///
+/// With two of four biases unknown and one optimistic, the 2 MiB default leaves about 1 MiB of
+/// margin that is partly unmeasured; 4 MiB leaves about 3 MiB. Stacks are committed as they are
+/// touched, so the larger reservation costs address space, not memory. An overflow aborts the whole
+/// process. This size is not the fix for that depth: splitting the deepest futures on the path is.
+const RUNTIME_WORKER_STACK_BYTES: usize = 4 * 1024 * 1024;
+
+fn main() -> anyhow::Result<()> {
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .thread_stack_size(RUNTIME_WORKER_STACK_BYTES)
+        .build()?
+        .block_on(run())
+}
+
+async fn run() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
         .with_target(false)
         .with_env_filter(
@@ -391,18 +419,18 @@ async fn main() -> anyhow::Result<()> {
         bootstrap_market_data_instrument_master_admission_v2().await?;
     let market_data_market_semantics_admission =
         bootstrap_market_data_market_semantics_admission().await?;
-    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    #[cfg(feature = "composer-replay-issuance")]
     let native_replay_scheduling =
         native_replay_scheduling_resolver_v1_from_store_admission_environment().await?;
     #[cfg(feature = "sealed-develop-composer-acceptance")]
     let shared_time = shared_time_evidence_resolver_from_store_admission_environment_v1().await?;
-    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    #[cfg(feature = "composer-replay-issuance")]
     let instrument_master_v2 =
         Arc::new(instrument_master_v2_postgres_owner_from_environment().await?);
-    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    #[cfg(feature = "composer-replay-issuance")]
     let instrument_economic_terms =
         Arc::new(instrument_economic_terms_postgres_owner_from_environment_v1().await?);
-    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    #[cfg(feature = "composer-replay-issuance")]
     let universe_sample_projection =
         Arc::new(universe_sample_projection_owner_from_environment_v1().await?);
     let database_url = required_env("RD_OWNER_DATABASE_URL")?;
@@ -441,7 +469,7 @@ async fn main() -> anyhow::Result<()> {
     );
     let historical_custody_owner =
         Arc::new(PostgresHistoricalCustodyOwnerV1::connect_read_only(&database_url).await?);
-    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    #[cfg(feature = "composer-replay-issuance")]
     let replay_composition = Arc::new(
         ReplayCompositionOwnerV1::connect(
             &required_env("MARKET_DATA_OWNER_DATABASE_URL")?,
@@ -488,6 +516,11 @@ async fn main() -> anyhow::Result<()> {
         .await?,
     );
     #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+    let develop_composer_read: Arc<dyn DevelopComposerSealedReadPortV2> = develop_composer.clone();
+    #[cfg(all(
+        feature = "composer-replay-issuance",
+        not(feature = "sealed-develop-composer-acceptance")
+    ))]
     let develop_composer_read: Arc<dyn DevelopComposerSealedReadPortV2> = develop_composer.clone();
     #[cfg(feature = "sealed-develop-composer-acceptance")]
     let native_replay_execution = match env::var("BACKTEST_OWNER_DATABASE_URL") {
@@ -541,21 +574,21 @@ async fn main() -> anyhow::Result<()> {
         request_proof_digest: request_proof_digest.clone(),
         allow_acceptance_faults,
         _market_data_research_pit: market_data_research_pit,
-        #[cfg(feature = "sealed-develop-composer-acceptance")]
+        #[cfg(feature = "composer-replay-issuance")]
         native_replay_scheduling,
-        #[cfg(feature = "sealed-develop-composer-acceptance")]
+        #[cfg(feature = "composer-replay-issuance")]
         instrument_master_v2: Some(instrument_master_v2),
-        #[cfg(feature = "sealed-develop-composer-acceptance")]
+        #[cfg(feature = "composer-replay-issuance")]
         instrument_economic_terms: Some(instrument_economic_terms),
-        #[cfg(feature = "sealed-develop-composer-acceptance")]
+        #[cfg(feature = "composer-replay-issuance")]
         universe_sample_projection: Some(universe_sample_projection),
-        #[cfg(feature = "sealed-develop-composer-acceptance")]
+        #[cfg(feature = "composer-replay-issuance")]
         develop_composer_read: Some(develop_composer_read),
         #[cfg(feature = "sealed-develop-composer-acceptance")]
         develop_composer,
         #[cfg(not(feature = "sealed-develop-composer-acceptance"))]
         develop_composer,
-        #[cfg(feature = "sealed-develop-composer-acceptance")]
+        #[cfg(feature = "composer-replay-issuance")]
         replay_composition: Some(replay_composition),
     };
     #[cfg(not(feature = "sealed-source-intake-acceptance"))]
@@ -668,17 +701,18 @@ async fn main() -> anyhow::Result<()> {
             "/v2/develop-composer/runs/{request_identity}/resolve",
             post(resolve_develop_composer),
         );
-    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    #[cfg(feature = "composer-replay-issuance")]
     let app = app.route(
         "/v2/exploratory-replay/execution-input-bindings",
         post(exploratory_replay::issue_execution_input_binding),
     );
+    #[cfg(feature = "composer-v3-replay")]
+    let app = app.route(
+        "/v3/exploratory-replay-requests/composer-backed",
+        post(exploratory_replay::submit_composer_backed_v3),
+    );
     #[cfg(feature = "sealed-source-intake-composer-acceptance")]
     let app = app
-        .route(
-            "/v3/exploratory-replay-requests/composer-backed",
-            post(exploratory_replay::submit_composer_backed_v3),
-        )
         .route(
             "/_sealed-acceptance/v1/develop-composer/a0-executions",
             get(develop_composer_a0_executions),
@@ -1135,12 +1169,12 @@ async fn issue_replay_composition(
     if !authorized(&headers, &state.token_digest) {
         return StatusCode::FORBIDDEN.into_response();
     }
-    #[cfg(not(feature = "sealed-develop-composer-acceptance"))]
+    #[cfg(not(feature = "composer-replay-issuance"))]
     {
         let _ = body;
         StatusCode::SERVICE_UNAVAILABLE.into_response()
     }
-    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    #[cfg(feature = "composer-replay-issuance")]
     {
         let command: ReplayCompositionLocatorOnlyIssuanceRequestV1 =
             match serde_json::from_slice(&body) {
@@ -1166,12 +1200,12 @@ async fn issue_universe_member_replay_composition(
     if !authorized(&headers, &state.token_digest) {
         return StatusCode::FORBIDDEN.into_response();
     }
-    #[cfg(not(feature = "sealed-develop-composer-acceptance"))]
+    #[cfg(not(feature = "composer-replay-issuance"))]
     {
         let _ = body;
         StatusCode::SERVICE_UNAVAILABLE.into_response()
     }
-    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    #[cfg(feature = "composer-replay-issuance")]
     {
         let command: ReplayCompositionLocatorOnlyIssuanceRequestV1<
             ReplayCompositionUniverseBindingIssuanceRequestV1,
@@ -1190,7 +1224,7 @@ async fn issue_universe_member_replay_composition(
     }
 }
 
-#[cfg(feature = "sealed-develop-composer-acceptance")]
+#[cfg(feature = "composer-replay-issuance")]
 fn replay_composition_issuance_response(
     issued: Result<ReplayCompositionDurableIssuanceResponseV1, ReplayCompositionBindingErrorV1>,
 ) -> Response {
@@ -1216,12 +1250,12 @@ async fn resolve_replay_composition(
     if !authorized(&headers, &state.token_digest) {
         return StatusCode::FORBIDDEN.into_response();
     }
-    #[cfg(not(feature = "sealed-develop-composer-acceptance"))]
+    #[cfg(not(feature = "composer-replay-issuance"))]
     {
         let _ = body;
         StatusCode::SERVICE_UNAVAILABLE.into_response()
     }
-    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    #[cfg(feature = "composer-replay-issuance")]
     {
         let locator: ReplayCompositionIssuanceLocatorV1 = match serde_json::from_slice(&body) {
             Ok(locator) => locator,
@@ -1389,7 +1423,7 @@ async fn resolve_develop_composer(
         );
     }
 
-    #[cfg(not(feature = "sealed-develop-composer-acceptance"))]
+    #[cfg(not(feature = "composer-replay-issuance"))]
     {
         let _ = body;
         composer_response(
@@ -1419,7 +1453,13 @@ async fn resolve_develop_composer(
         }
     }
 
-    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+    #[cfg(all(
+        feature = "composer-replay-issuance",
+        any(
+            feature = "sealed-source-intake-composer-acceptance",
+            not(feature = "sealed-develop-composer-acceptance")
+        )
+    ))]
     {
         if !body.is_empty() {
             return composer_response(
@@ -1450,7 +1490,7 @@ async fn read_develop_composer(
         );
     }
 
-    #[cfg(not(feature = "sealed-develop-composer-acceptance"))]
+    #[cfg(not(feature = "composer-replay-issuance"))]
     {
         let _ = state;
         composer_response(
@@ -1459,7 +1499,7 @@ async fn read_develop_composer(
         )
     }
 
-    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    #[cfg(feature = "composer-replay-issuance")]
     {
         match state.develop_composer.resolve(&request_identity).await {
             Ok(response) => composer_operation_response(response),
@@ -2782,7 +2822,7 @@ fn insert_rejection_code(response: &mut Response, code: &str) {
 /// Owner assembled that does not match the request it issues for. `AmbiguousBinding` and
 /// `LegacyUnbound` are not constructed at all. Moving any of these off 503 needs the variant split
 /// where it is raised.
-#[cfg(feature = "sealed-develop-composer-acceptance")]
+#[cfg(feature = "composer-replay-issuance")]
 fn replay_composition_refusal(error: ReplayCompositionBindingErrorV1) -> Response {
     let (status, code) = match error {
         ReplayCompositionBindingErrorV1::InvalidRequest => (StatusCode::BAD_REQUEST, None),
@@ -3626,9 +3666,13 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     #[ignore = "requires explicit local PostgreSQL, Dashboard dependencies, and Chrome acceptance admission"]
     async fn strategy_source_browser_acceptance_reads_canonical_terminal_owner_custody() {
-        if env::var("DASHBOARD_STRATEGY_VIEWER_BROWSER_ACCEPTANCE").as_deref() != Ok("1") {
-            return;
-        }
+        // Fail closed like the two inputs below: an early return here reported PASS from any run
+        // that lacked the input, having driven nothing (scripts/ci/chain-entry-early-return.py).
+        assert_eq!(
+            env::var("DASHBOARD_STRATEGY_VIEWER_BROWSER_ACCEPTANCE").as_deref(),
+            Ok("1"),
+            "DASHBOARD_STRATEGY_VIEWER_BROWSER_ACCEPTANCE must be exactly 1 for this browser acceptance",
+        );
 
         install_acceptance_tracing();
 
@@ -3732,15 +3776,15 @@ mod tests {
             request_proof_digest,
             allow_acceptance_faults: false,
             _market_data_research_pit: None,
-            #[cfg(feature = "sealed-develop-composer-acceptance")]
+            #[cfg(feature = "composer-replay-issuance")]
             native_replay_scheduling: None,
-            #[cfg(feature = "sealed-develop-composer-acceptance")]
+            #[cfg(feature = "composer-replay-issuance")]
             instrument_master_v2: None,
-            #[cfg(feature = "sealed-develop-composer-acceptance")]
+            #[cfg(feature = "composer-replay-issuance")]
             instrument_economic_terms: None,
-            #[cfg(feature = "sealed-develop-composer-acceptance")]
+            #[cfg(feature = "composer-replay-issuance")]
             universe_sample_projection: None,
-            #[cfg(feature = "sealed-develop-composer-acceptance")]
+            #[cfg(feature = "composer-replay-issuance")]
             develop_composer_read: None,
             #[cfg(all(
                 feature = "sealed-develop-composer-acceptance",
@@ -3771,7 +3815,7 @@ mod tests {
                 .await
                 .unwrap(),
             ),
-            #[cfg(feature = "sealed-develop-composer-acceptance")]
+            #[cfg(feature = "composer-replay-issuance")]
             replay_composition: None,
         };
         let headers = bearer_headers(token);
@@ -4199,15 +4243,15 @@ mod tests {
             request_proof_digest,
             allow_acceptance_faults: false,
             _market_data_research_pit: None,
-            #[cfg(feature = "sealed-develop-composer-acceptance")]
+            #[cfg(feature = "composer-replay-issuance")]
             native_replay_scheduling: None,
-            #[cfg(feature = "sealed-develop-composer-acceptance")]
+            #[cfg(feature = "composer-replay-issuance")]
             instrument_master_v2: None,
-            #[cfg(feature = "sealed-develop-composer-acceptance")]
+            #[cfg(feature = "composer-replay-issuance")]
             instrument_economic_terms: None,
-            #[cfg(feature = "sealed-develop-composer-acceptance")]
+            #[cfg(feature = "composer-replay-issuance")]
             universe_sample_projection: None,
-            #[cfg(feature = "sealed-develop-composer-acceptance")]
+            #[cfg(feature = "composer-replay-issuance")]
             develop_composer_read: None,
             #[cfg(all(
                 feature = "sealed-develop-composer-acceptance",
@@ -4238,7 +4282,7 @@ mod tests {
                 .await
                 .unwrap(),
             ),
-            #[cfg(feature = "sealed-develop-composer-acceptance")]
+            #[cfg(feature = "composer-replay-issuance")]
             replay_composition: None,
         };
         let headers = bearer_headers(token);
@@ -4513,17 +4557,6 @@ mod tests {
         let missing_snapshot_rejected =
             start_provider_invocation(State(state.clone()), headers.clone(), start_body.clone())
                 .await;
-        assert_eq!(
-            missing_snapshot_rejected.status(),
-            StatusCode::SERVICE_UNAVAILABLE
-        );
-        assert_eq!(
-            missing_snapshot_rejected
-                .headers()
-                .get("x-rd-rejection-code")
-                .unwrap(),
-            "OWNER_OUTCOME_UNKNOWN"
-        );
         let product_edge_state_after_missing_snapshot: serde_json::Value = sqlx::query_scalar(
             "SELECT state_json FROM product_edge_effect_invocation_states_v1 WHERE claim_identity=$1",
         )
@@ -4545,6 +4578,29 @@ mod tests {
         .fetch_one(rd_owner_pool)
         .await
         .unwrap();
+        // Everything the refusal is judged on has been read, so the tamper is restored before any
+        // of it is asserted. The ordered chain shares one store and never resets it: asserting
+        // first would leave the tamper behind on exactly the run that fails, and every later
+        // entry that verifies recent attempts would then fail with no apparent cause.
+        sqlx::query(
+            "UPDATE rd_artifact_build_attempts_v1 SET attempt_json=$1 WHERE build_request_identity=$2",
+        )
+        .bind(&rd_attempt_after_retry)
+        .bind(&build_request_identity)
+        .execute(rd_owner_pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            missing_snapshot_rejected.status(),
+            StatusCode::SERVICE_UNAVAILABLE
+        );
+        assert_eq!(
+            missing_snapshot_rejected
+                .headers()
+                .get("x-rd-rejection-code")
+                .unwrap(),
+            "OWNER_OUTCOME_UNKNOWN"
+        );
         assert_eq!(
             product_edge_state_after_missing_snapshot,
             product_edge_state_before_missing_snapshot
@@ -4554,14 +4610,6 @@ mod tests {
             product_edge_outbox_before_missing_snapshot
         );
         assert_eq!(rd_attempt_after_missing_snapshot, missing_snapshot_attempt);
-        sqlx::query(
-            "UPDATE rd_artifact_build_attempts_v1 SET attempt_json=$1 WHERE build_request_identity=$2",
-        )
-        .bind(&rd_attempt_after_retry)
-        .bind(&build_request_identity)
-        .execute(rd_owner_pool)
-        .await
-        .unwrap();
 
         let mut tampered_attempt = rd_attempt_after_retry.clone();
         let reservation = tampered_attempt["invocation_claim"]
@@ -4644,11 +4692,6 @@ mod tests {
         .unwrap();
 
         let rejected = start_provider_invocation(State(state), headers, start_body).await;
-        assert_eq!(rejected.status(), StatusCode::SERVICE_UNAVAILABLE);
-        assert_eq!(
-            rejected.headers().get("x-rd-rejection-code").unwrap(),
-            "OWNER_OUTCOME_UNKNOWN"
-        );
         let product_edge_state_after_tampered_retry: serde_json::Value = sqlx::query_scalar(
             "SELECT state_json FROM product_edge_effect_invocation_states_v1 WHERE claim_identity=$1",
         )
@@ -4670,19 +4713,12 @@ mod tests {
         .fetch_one(rd_owner_pool)
         .await
         .unwrap();
-        assert_eq!(
-            product_edge_state_after_tampered_retry,
-            product_edge_state_before_tampered_retry
-        );
-        assert_eq!(
-            product_edge_outbox_after_tampered_retry,
-            product_edge_outbox_before_tampered_retry
-        );
-        assert_eq!(rd_attempt_after_tampered_retry, tampered_attempt);
 
         // The ordered chain shares one store: a later entry's directory read verifies every
         // recent attempt and would rightly refuse this tampered seal. Restore the exact custody
-        // the proof found after its own legitimate retry, and prove the restoration reads back.
+        // the proof found after its own legitimate retry, and prove the restoration reads back,
+        // before anything about the refusal is asserted, so a failed assertion cannot leave the
+        // tamper behind.
         sqlx::query(
             "UPDATE rd_artifact_build_attempts_v1 SET attempt_json=$1 WHERE build_request_identity=$2",
         )
@@ -4699,6 +4735,20 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(rd_attempt_after_restore, rd_attempt_after_retry);
+        assert_eq!(rejected.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(
+            rejected.headers().get("x-rd-rejection-code").unwrap(),
+            "OWNER_OUTCOME_UNKNOWN"
+        );
+        assert_eq!(
+            product_edge_state_after_tampered_retry,
+            product_edge_state_before_tampered_retry
+        );
+        assert_eq!(
+            product_edge_outbox_after_tampered_retry,
+            product_edge_outbox_before_tampered_retry
+        );
+        assert_eq!(rd_attempt_after_tampered_retry, tampered_attempt);
     }
 
     async fn rd_owned_relation_snapshot(pool: &sqlx::PgPool) -> Vec<(String, serde_json::Value)> {
@@ -5558,11 +5608,13 @@ mod tests {
                     position_intent_semantic_id: "kernel.position.enter.v1".to_owned(),
                     target_variant_semantic_id: "kernel.target.position.v1".to_owned(),
                     target_position_units: 1,
+                    target_weight_micros: 0,
                 },
                 otherwise: SingleThresholdOutcomeV1 {
                     position_intent_semantic_id: "kernel.position.exit.v1".to_owned(),
                     target_variant_semantic_id: "kernel.target.position.v1".to_owned(),
                     target_position_units: 0,
+                    target_weight_micros: 0,
                 },
                 // From custody, not invented. The freeze compares four fields against the
                 // accepted Research custody and the falsifier is the fourth: an authored one
@@ -6149,7 +6201,7 @@ mod tests {
         assert_eq!(value["next_legal_action"], "RESOLVE_SAME_ATTEMPT_IDENTITY");
     }
 
-    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    #[cfg(feature = "composer-replay-issuance")]
     #[rstest]
     #[case::invalid_request(
         ReplayCompositionBindingErrorV1::InvalidRequest,

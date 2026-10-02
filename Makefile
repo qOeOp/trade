@@ -157,14 +157,18 @@ CORE_SELECTED_FEATURE_LIST := $(filter-out hypersync,$(subst $(comma),$(space),$
 CORE_SELECTED_FEATURES := $(subst $(space),$(comma),$(strip $(CORE_SELECTED_FEATURE_LIST))),vibe-serialization/sbe,vibe-infrastructure/postgres
 
 # Standard-precision (64-bit) selection, shared by the test and clippy targets.
-# Two independent routes re-enable high precision, and both must be closed or the build
+# Three independent routes re-enable high precision, and each must be closed or the build
 # silently runs high precision under a standard-precision name:
 #   --no-default-features       most adapters declare default = [..., "high-precision"]
 #   --exclude vibe-blockchain   it depends on vibe-model/defi, which implies high-precision
-# `cargo tree` does not reflect either route reliably here. Verify a change by deleting an
-# `#[allow(clippy::useless_conversion)]` in crates/model/src/types/quantity.rs and confirming
-# clippy reports it under this selection.
-STANDARD_PRECISION_ARGS := --workspace --exclude vibe-blockchain --no-default-features --lib --tests --features "ffi,python"
+#   --exclude the product crates  vibe-strategy-factory declares high-precision as the product's
+#                                 precision; it and every crate depending on it run at 16 only
+# So this selection covers the inherited, non-product crates. The product crates are deliberately
+# no longer checked at standard precision: the product runs at 16 alone.
+# scripts/ci/check-production-features.py --standard-precision resolves this selection and fails
+# if vibe-model comes out with high-precision.
+STANDARD_PRECISION_EXCLUDES := --exclude vibe-blockchain --exclude vibe-strategy-factory --exclude vibe-backtest-owner --exclude vibe-strategy-factory-rd-owner-api
+STANDARD_PRECISION_ARGS := --workspace $(STANDARD_PRECISION_EXCLUDES) --no-default-features --lib --tests --features "ffi,python"
 
 CARGO_BUILD_JOB_TARGETS := install install-debug build build-debug build-wheel py-stubs check-code \
 	check-code-standard-precision \
@@ -205,7 +209,7 @@ endif
 
 # Core crates (excludes adapters/* and workspace members without tests)
 CORE_CRATES := vibe-analysis vibe-backtest vibe-backtest-owner vibe-backtest-owner-contracts vibe-backtest-result-custody vibe-common vibe-core \
-    vibe-cryptography vibe-data vibe-deployment-attestation vibe-event-store vibe-execution vibe-execution-owner \
+    vibe-cryptography vibe-data vibe-event-store vibe-execution vibe-execution-owner \
     vibe-indicators vibe-indicators-kernel vibe-infrastructure vibe-live vibe-market-data-repair-custody vibe-model vibe-scanner vibe-scanner-custody \
     vibe-network vibe-observability vibe-persistence vibe-persistence-macros \
     vibe-operator-authorization vibe-plugin vibe-portfolio vibe-portfolio-owner vibe-postgres-connect vibe-product-edge vibe-product-edge-admin vibe-product-edge-claim-custody vibe-product-edge-contracts vibe-product-edge-routing-api vibe-qualification vibe-risk vibe-risk-owner vibe-rd-artifact-invocation-custody vibe-rd-exploratory-replay-custody vibe-rd-market-data-repair-custody vibe-rd-source-intake-invocation-custody vibe-runtime vibe-serialization \
@@ -759,6 +763,11 @@ CARGO_TEST_EXCLUDE_FLAGS := $(addprefix --exclude ,$(CARGO_TEST_EXCLUDED_PACKAGE
 # The packages and targets `cargo-test` builds. `cargo-test-toolchain-proofs` runs in the same build,
 # so it takes these flags, CARGO_FEATURES and CARGO_CI_PROFILE from here rather than spelling its own.
 CARGO_TEST_SCOPE_FLAGS := --workspace $(CARGO_TEST_EXCLUDE_FLAGS) --lib --tests
+# The features `cargo-test` tests with: CARGO_FEATURES plus the package features that gate tests
+# and nothing else. `vibe-qualification/owner-recovery` gates the incident reconstruction module,
+# whose unit tests no job ran before. It is added here and not to CARGO_FEATURES, so clippy, the
+# merge-tree compile gate and the Owner chains keep the build they have.
+CARGO_TEST_FEATURES := $(CARGO_FEATURES),vibe-qualification/owner-recovery
 
 # trybuild asks `cargo metadata` for the target directory from the directory nextest runs a test in,
 # which is that test's own crate. A relative CARGO_TARGET_DIR - CI's `target/rust-tests-linux-x86` -
@@ -778,10 +787,10 @@ cargo-test: check-nextest-installed cargo-fetch-strategy-factory-programs
 cargo-test:  #-- Run all Rust tests (use EXTRA_FEATURES="feature1 feature2" or HYPERSYNC=true)
 ifeq ($(NEXTEST_VERBOSE),true)
 	$(info $(M) Running Rust tests with verbose output...)
-	cargo nextest run $(CARGO_TEST_SCOPE_FLAGS) --features "$(CARGO_FEATURES)" $(FAIL_FAST_FLAG) --profile $(NEXTEST_PROFILE) --cargo-profile $(CARGO_CI_PROFILE) $(NEXTEST_OUTPUT_ARGS)
+	cargo nextest run $(CARGO_TEST_SCOPE_FLAGS) --features "$(CARGO_TEST_FEATURES)" $(FAIL_FAST_FLAG) --profile $(NEXTEST_PROFILE) --cargo-profile $(CARGO_CI_PROFILE) $(NEXTEST_OUTPUT_ARGS)
 else
 	$(info $(M) Running Rust tests (showing summary and failures only)...)
-	cargo nextest run $(CARGO_TEST_SCOPE_FLAGS) --features "$(CARGO_FEATURES)" $(FAIL_FAST_FLAG) --profile $(NEXTEST_PROFILE) --cargo-profile $(CARGO_CI_PROFILE) $(NEXTEST_OUTPUT_ARGS)
+	cargo nextest run $(CARGO_TEST_SCOPE_FLAGS) --features "$(CARGO_TEST_FEATURES)" $(FAIL_FAST_FLAG) --profile $(NEXTEST_PROFILE) --cargo-profile $(CARGO_CI_PROFILE) $(NEXTEST_OUTPUT_ARGS)
 endif
 
 .PHONY: cargo-test-extras
@@ -858,7 +867,7 @@ cargo-test-market-data-end-to-end: check-nextest-installed  #-- Run the credenti
 cargo-test-toolchain-proofs:  #-- Run the Owner proofs that need a real tool and no database
 	NEXTEST_PROFILE="$(NEXTEST_PROFILE)" \
 	CARGO_TEST_SCOPE_FLAGS="$(CARGO_TEST_SCOPE_FLAGS)" \
-	CARGO_FEATURES="$(CARGO_FEATURES)" \
+	CARGO_FEATURES="$(CARGO_TEST_FEATURES)" \
 	CARGO_CI_PROFILE="$(CARGO_CI_PROFILE)" \
 	TOOLCHAIN_PROOFS_JUNIT="$(TOOLCHAIN_PROOFS_JUNIT)" \
 	bash scripts/ci/test-toolchain-proofs.bash

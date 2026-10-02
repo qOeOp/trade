@@ -396,11 +396,15 @@ pub struct ArtifactTrialFamilyBindingReceiptV1 {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct TrialFamilyReadbackV1 {
-    pub(crate) root: TrialFamilyRootV1,
-    pub(crate) root_receipt: TrialFamilyRootReceiptV1,
+    // The three large parts are boxed so the readback stays small by value. Custody results carry it
+    // through long chains of debug-build poll frames, each of which keeps a slot for every move of
+    // it; unboxed, this struct alone sized those slots at 2.8 KB and helped overflow a 2 MiB test
+    // stack on the custody scan (chain entry 114).
+    pub(crate) root: Box<TrialFamilyRootV1>,
+    pub(crate) root_receipt: Box<TrialFamilyRootReceiptV1>,
     pub(crate) initial_intent_member: TrialFamilyCensusMemberV1,
     pub(crate) membership_receipt: TrialFamilyMembershipReceiptV1,
-    pub(crate) census_frontier: TrialFamilyCensusFrontierV1,
+    pub(crate) census_frontier: Box<TrialFamilyCensusFrontierV1>,
 }
 
 /// ```compile_fail
@@ -1093,11 +1097,11 @@ pub(crate) fn admit_stored_family(
         decode_stored(membership_receipt_json)?;
     let stored_frontier: StoredTrialFamilyCensusFrontierV1 = decode_stored(frontier_json)?;
     let family = TrialFamilyReadbackV1 {
-        root: stored_root.into(),
-        root_receipt: stored_root_receipt.into(),
+        root: Box::new(stored_root.into()),
+        root_receipt: Box::new(stored_root_receipt.into()),
         initial_intent_member: stored_member.into(),
         membership_receipt: stored_membership_receipt.into(),
-        census_frontier: stored_frontier.into(),
+        census_frontier: Box::new(stored_frontier.into()),
     };
     verify_family(&family)?;
     Ok(family)
@@ -1121,8 +1125,8 @@ pub(crate) fn admit_stored_legacy_family_without_frontier(
         stored_root.created_at_epoch_ms,
     )?;
 
-    if expected.root != stored_root.into()
-        || expected.root_receipt != stored_root_receipt.into()
+    if *expected.root != stored_root.into()
+        || *expected.root_receipt != stored_root_receipt.into()
         || expected.initial_intent_member != stored_member.into()
         || expected.membership_receipt != stored_membership_receipt.into()
     {
@@ -1340,11 +1344,11 @@ pub(crate) fn form_initial_family(
         frontier_digest,
     };
     Ok(TrialFamilyReadbackV1 {
-        root,
-        root_receipt,
+        root: Box::new(root),
+        root_receipt: Box::new(root_receipt),
         initial_intent_member: member,
         membership_receipt,
-        census_frontier,
+        census_frontier: Box::new(census_frontier),
     })
 }
 

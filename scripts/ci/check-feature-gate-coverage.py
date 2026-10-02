@@ -14,6 +14,11 @@ there. A gated feature in neither fails this check, so adding one is a decision 
 down rather than a silence - and so is a feature that becomes compiled, because its entry then
 contradicts Cargo and this check says so.
 
+Compiled is not the same as compiled alone. A feature that CI turns on only because a sealed
+acceptance feature includes it never compiles without that acceptance code beside it, so it counts
+as covered only when `check-sealed-feature-clippy.bash` lints it on its own, which it does for every
+feature `sealed_carried_features.py` names.
+
 """
 
 import collections
@@ -23,6 +28,11 @@ import re
 import shutil
 import subprocess
 import sys
+
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+from sealed_carried_features import SEALED
+from sealed_carried_features import carried
 
 
 # Linted by `scripts/clippy-changed.sh`: DESIRED_FEATURES, intersected per package, plus the four
@@ -56,7 +66,6 @@ EXPECTED_UNCOVERED = {
     "fuzz": "scripts/fuzz-adapter.sh only; run by hand",
     # Gate code in crates whose feature reaches no job.
     "betfair": "crates/pyo3 bindings for a venue the test gate excludes",
-    "owner-recovery": "crates/qualification; no --features string names it",
 }
 
 # POSIX ERE, for `git grep -E`. Not a Python pattern: `re` reads `[[:space:]]` as a nested set.
@@ -95,6 +104,7 @@ SHELL_EXTRA = re.compile(r'EXTRA_FEATURES="([^"$]+)"')
 # `EXTRA_FEATURES` value the workflows set, because that is the only input that varies between them.
 FEATURE_VARIABLES = (
     "CARGO_FEATURES",
+    "CARGO_TEST_FEATURES",
     "RD_OWNER_POSTGRES_FEATURES",
     "CORE_SELECTED_FEATURES",
 )
@@ -170,14 +180,14 @@ def ci_feature_strings() -> set[str]:
     return strings
 
 
-def compiled_features() -> set[str]:
+def compiled_features(strings: set[str] | None = None) -> set[str]:
     """
-    Every feature Cargo turns on for a workspace crate under any of CI's `--features`
-    strings.
+    Every feature Cargo turns on for a workspace crate under any of these `--features`
+    strings, CI's by default.
     """
     cargo = tool("cargo")
     enabled: set[str] = set()
-    for features in sorted(ci_feature_strings()):
+    for features in sorted(ci_feature_strings() if strings is None else strings):
         proc = subprocess.run(
             [cargo, "metadata", "--format-version", "1", "--features", features],
             capture_output=True,
@@ -205,11 +215,59 @@ def compiled_features() -> set[str]:
     return enabled
 
 
+def without_sealed(features: str) -> str:
+    """
+    Drop the sealed acceptance entries from one `--features` string.
+    """
+    return ",".join(
+        entry for entry in features.split(",") if not entry.split("/")[-1].startswith(SEALED)
+    )
+
+
+def carried_alone(strings: set[str]) -> set[str]:
+    """
+    Name the features `check-sealed-feature-clippy.bash` lints on their own.
+    """
+    union = {
+        entry
+        for features in strings
+        for entry in features.split(",")
+        if "/" in entry and entry.split("/")[-1].startswith(SEALED)
+    }
+    if not union:
+        sys.exit(
+            "ERROR: no CI feature string names a sealed acceptance feature. The chain's union is "
+            "no longer among the strings read here, so what arrives only through it is unknown.",
+        )
+    proc = subprocess.run(
+        [tool("cargo"), "metadata", "--format-version", "1", "--locked", "--no-deps"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if proc.returncode != 0:
+        sys.exit(f"ERROR: `cargo metadata --no-deps` failed:\n{proc.stderr}")
+    try:
+        return {feature for _, feature in carried(json.loads(proc.stdout), sorted(union))}
+    except ValueError as e:
+        sys.exit(f"ERROR: {e}")
+
+
 def main() -> int:
     found = gated_features()
+    strings = ci_feature_strings()
     # `LINTED` joins them because `scripts/clippy-changed.sh` builds what it lints, so a feature
     # that job names is compiled by it even when no test string turns it on.
-    compiled = compiled_features() | LINTED
+    compiled = compiled_features(strings) | LINTED
+    # What CI would still compile if no string named a sealed feature. A gated feature outside it
+    # compiles only because a sealed feature includes it, and is covered only if it is linted alone.
+    direct = compiled_features({without_sealed(s) for s in strings}) | LINTED
+    alone = carried_alone(strings)
+    union_only = {
+        f: c
+        for f, c in found.items()
+        if f in compiled and f not in direct and not f.startswith(SEALED)
+    }
     uncovered = {f: c for f, c in found.items() if f not in compiled}
     unlinted = {f: c for f, c in found.items() if f in compiled and f not in LINTED}
 
@@ -228,7 +286,13 @@ def main() -> int:
             f"    {feature:48s} {count:4d} sites  {EXPECTED_UNCOVERED.get(feature, 'unexplained')}",
         )
 
+    print(f"  only inside the union {len(union_only)}  ({sum(union_only.values())} sites)")
+    for feature, count in sorted(union_only.items(), key=lambda kv: -kv[1]):
+        state = "linted alone" if feature in alone else "never compiled alone"
+        print(f"    {feature:48s} {count:4d} sites  {state}")
+
     unexplained = sorted(f for f in uncovered if f not in EXPECTED_UNCOVERED)
+    not_alone = sorted(f for f in union_only if f not in alone)
     stale = sorted(f for f in EXPECTED_UNCOVERED if f not in uncovered)
 
     for feature in unexplained:
@@ -244,7 +308,16 @@ def main() -> int:
             file=sys.stderr,
         )
 
-    if unexplained or stale:
+    for feature in not_alone:
+        print(
+            f"ERROR: `{feature}` gates {union_only[feature]} cfg sites and compiles only because a "
+            f"sealed acceptance feature includes it, and nothing compiles it without one. "
+            f"sealed_carried_features.py does not name it, so check-sealed-feature-clippy.bash "
+            f"does not lint it alone.",
+            file=sys.stderr,
+        )
+
+    if unexplained or stale or not_alone:
         return 1
     print("ok: every gated feature is compiled, or is listed with the reason it is not")
     return 0

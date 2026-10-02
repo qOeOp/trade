@@ -1024,10 +1024,10 @@ impl PostgresResearchGoalOwnerV1 {
             .execute(&mut *transaction)
             .await
             .map_err(|e| storage(&e))?;
-        let custody = Box::pin(admit_research_custody_in_transaction(
+        let custody = admit_research_custody_in_transaction(
             &mut transaction,
             ResearchCustodyLookupV1::RequestV2(&proposal.request_identity),
-        ))
+        )
         .await?;
         let Some(custody) = custody else {
             let staged = load_basis_stage_custody_for_request_in_transaction(
@@ -1807,7 +1807,7 @@ impl PostgresResearchGoalOwnerV1 {
             crate::trial_family_postgres::TABLES,
             crate::iteration_decision_postgres::TABLES,
             crate::iteration_result_admission_postgres::TABLES,
-            #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+            #[cfg(feature = "composer-v3-replay")]
             crate::exploratory_replay::postgres::composer_commit_v3::TABLES,
             crate::successor_intent_postgres::TABLES,
             crate::market_data_repair_request_postgres::TABLES,
@@ -1990,8 +1990,12 @@ impl PostgresResearchGoalOwnerV1 {
         crate::successor_intent::SuccessorResearchIntentReadbackV1,
         crate::SuccessorResearchIntentPostgresErrorV1,
     > {
-        crate::successor_intent_postgres::compose_successor_research_intent_v1(&self.pool, request)
-            .await
+        crate::successor_intent_postgres::compose_successor_research_intent_v1(
+            &self.pool,
+            &self.qualification,
+            request,
+        )
+        .await
     }
 
     /// Resolves exact successor Intent custody without creating first custody.
@@ -2168,7 +2172,7 @@ impl PostgresResearchGoalOwnerV1 {
 
     /// Commits a Composer-backed Replay from exact R&D, Composer, and Market Data Owner facts.
     /// The locator-only proposal cannot provide a positive sealed source or execution profile.
-    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+    #[cfg(feature = "composer-v3-replay")]
     pub async fn commit_composer_backed_exploratory_replay_request_v3(
         &self,
         proposal: crate::exploratory_replay::ComposerBackedExploratoryReplayProposalV3,
@@ -2507,10 +2511,10 @@ impl PostgresResearchGoalOwnerV1 {
     ) -> Result<ResearchGoalOwnerResultV1, ResearchGoalOwnerError> {
         let mut transaction = self.pool.begin().await.map_err(|e| storage(&e))?;
         let read_cut = owner_clock_epoch_ms_in_transaction(&mut transaction).await?;
-        let custody = Box::pin(admit_research_custody_in_transaction(
+        let custody = admit_research_custody_in_transaction(
             &mut transaction,
             ResearchCustodyLookupV1::RequestV1(request_identity),
-        ))
+        )
         .await?;
         transaction.commit().await.map_err(|e| storage(&e))?;
 
@@ -2537,10 +2541,10 @@ impl PostgresResearchGoalOwnerV1 {
             .begin()
             .await
             .map_err(|e| TrialFamilyError::Unavailable(e.to_string()))?;
-        let custody = Box::pin(admit_research_custody_in_transaction(
+        let custody = admit_research_custody_in_transaction(
             &mut transaction,
             ResearchCustodyLookupV1::Intent(intent_identity),
-        ))
+        )
         .await
         .map_err(|e| TrialFamilyError::Unavailable(e.to_string()))?
         .ok_or_else(|| TrialFamilyError::Unavailable("research custody missing".to_string()))?;
@@ -2601,10 +2605,10 @@ impl PostgresResearchGoalOwnerV1 {
             .execute(&mut *transaction)
             .await
             .map_err(|e| storage(&e))?;
-        let custody = match Box::pin(admit_research_custody_in_transaction(
+        let custody = match admit_research_custody_in_transaction(
             &mut transaction,
             ResearchCustodyLookupV1::RequestV2(request_identity),
-        ))
+        )
         .await
         {
             Ok(custody) => custody,
@@ -2869,74 +2873,86 @@ async fn lock_principal_scope(
     Ok(key)
 }
 
-async fn resolve_lineage_in_transaction(
-    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    principal: &str,
-    scope: &[String],
-) -> Result<(ResearchLineageResolutionV1, Vec<String>, String), ResearchGoalOwnerError> {
-    let custodies = admit_all_research_custodies_in_transaction(transaction).await?;
-    let mut ordered = Vec::new();
-    let mut unique = std::collections::BTreeSet::new();
+/// A resolved lineage: its resolution, the semantic predecessor frontier and the lineage digest.
+type ResolvedLineageV1 = (ResearchLineageResolutionV1, Vec<String>, String);
 
-    for custody in custodies {
-        if custody.receipt().disposition
-            != crate::product_edge::ResearchRequestDisposition::Accepted
-            || custody.effective_principal() != principal
-            || custody.authorized_scope() != scope
-        {
-            continue;
-        }
+fn resolve_lineage_in_transaction<'a>(
+    transaction: &'a mut sqlx::Transaction<'_, sqlx::Postgres>,
+    principal: &'a str,
+    scope: &'a [String],
+) -> crate::rd_owner_postgres_custody::BoxedCustodyStep<
+    'a,
+    Result<ResolvedLineageV1, ResearchGoalOwnerError>,
+> {
+    Box::pin(async move {
+        let custodies = admit_all_research_custodies_in_transaction(transaction).await?;
+        let mut ordered = Vec::new();
+        let mut unique = std::collections::BTreeSet::new();
 
-        if custody.request_schema_version() == 1 {
-            return Err(ResearchGoalOwnerError::Storage(
-                "canonical V1 research lineage is unavailable for TrialFamily formation".into(),
+        for custody in custodies {
+            if custody.receipt().disposition
+                != crate::product_edge::ResearchRequestDisposition::Accepted
+                || custody.effective_principal() != principal
+                || custody.authorized_scope() != scope
+            {
+                continue;
+            }
+
+            if custody.request_schema_version() == 1 {
+                return Err(ResearchGoalOwnerError::Storage(
+                    "canonical V1 research lineage is unavailable for TrialFamily formation".into(),
+                ));
+            }
+            let intent = custody.intent().ok_or_else(|| {
+                ResearchGoalOwnerError::Storage("accepted R&D lineage intent missing".into())
+            })?;
+
+            if !intent.is_v2() || !unique.insert(intent.intent_identity().to_string()) {
+                return Err(ResearchGoalOwnerError::Storage(
+                    "R&D lineage intent is ambiguous".into(),
+                ));
+            }
+            ordered.push((
+                custody.receipt().committed_at_epoch_ms,
+                custody.receipt().request_identity.clone(),
+                intent.intent_identity().to_string(),
             ));
         }
-        let intent = custody.intent().ok_or_else(|| {
-            ResearchGoalOwnerError::Storage("accepted R&D lineage intent missing".into())
-        })?;
-
-        if !intent.is_v2() || !unique.insert(intent.intent_identity().to_string()) {
-            return Err(ResearchGoalOwnerError::Storage(
-                "R&D lineage intent is ambiguous".into(),
-            ));
-        }
-        ordered.push((
-            custody.receipt().committed_at_epoch_ms,
-            custody.receipt().request_identity.clone(),
-            intent.intent_identity().to_string(),
-        ));
-    }
-    ordered.sort();
-    let frontier: Vec<String> = ordered
-        .into_iter()
-        .map(|(_, _, intent_identity)| intent_identity)
-        .collect();
-    let resolution = if frontier.is_empty() {
-        ResearchLineageResolutionV1::GenesisEmpty
-    } else {
-        ResearchLineageResolutionV1::CompleteFrontier
-    };
-    let lineage_digest = canonical_digest(
-        "rd.semantic-predecessor-frontier.v1",
-        &(principal, scope, resolution, &frontier),
-    )?;
-    Ok((resolution, frontier, lineage_digest))
+        ordered.sort();
+        let frontier: Vec<String> = ordered
+            .into_iter()
+            .map(|(_, _, intent_identity)| intent_identity)
+            .collect();
+        let resolution = if frontier.is_empty() {
+            ResearchLineageResolutionV1::GenesisEmpty
+        } else {
+            ResearchLineageResolutionV1::CompleteFrontier
+        };
+        let lineage_digest = canonical_digest(
+            "rd.semantic-predecessor-frontier.v1",
+            &(principal, scope, resolution, &frontier),
+        )?;
+        Ok((resolution, frontier, lineage_digest))
+    })
 }
 
-async fn load_or_create_basis_in_transaction(
-    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    request: &ProductEdgeResearchGoalRequestV2,
-    request_semantic_digest: &str,
-    admission: &ProductEdgeAdmissionReadbackV1,
-    source_submission: Option<&SourceBoundResearchSubmissionV1>,
+fn load_or_create_basis_in_transaction<'a>(
+    transaction: &'a mut sqlx::Transaction<'_, sqlx::Postgres>,
+    request: &'a ProductEdgeResearchGoalRequestV2,
+    request_semantic_digest: &'a str,
+    admission: &'a ProductEdgeAdmissionReadbackV1,
+    source_submission: Option<&'a SourceBoundResearchSubmissionV1>,
     now_epoch_ms: u64,
-) -> Result<IndependenceBasisReadbackV1, ResearchGoalOwnerError> {
-    let principal = admission.effective_principal();
-    let scope = admission.authorized_scope();
-    let key = lock_principal_scope(transaction, principal, scope).await?;
+) -> crate::rd_owner_postgres_custody::BoxedCustodyStep<
+    'a,
+    Result<IndependenceBasisReadbackV1, ResearchGoalOwnerError>,
+> {
+    Box::pin(async move {
+        let principal = admission.effective_principal();
+        let scope = admission.authorized_scope();
+        let key = lock_principal_scope(transaction, principal, scope).await?;
 
-    if let Some(existing_row) = sqlx::query(
+        if let Some(existing_row) = sqlx::query(
         "SELECT basis_identity FROM rd_independence_bases_v1 WHERE request_identity = $1 FOR SHARE",
     )
     .bind(&request.request_identity)
@@ -2972,185 +2988,185 @@ async fn load_or_create_basis_in_transaction(
         }
         return Ok(existing.basis);
     }
-    let (lineage_resolution, frontier, lineage_digest) =
-        resolve_lineage_in_transaction(transaction, principal, scope).await?;
-    let head = sqlx::query("SELECT basis_identity, lineage_digest, principal, request_scope_json FROM rd_independence_basis_heads_v1 WHERE principal_scope_key = $1 FOR UPDATE")
+        let (lineage_resolution, frontier, lineage_digest) =
+            resolve_lineage_in_transaction(transaction, principal, scope).await?;
+        let head = sqlx::query("SELECT basis_identity, lineage_digest, principal, request_scope_json FROM rd_independence_basis_heads_v1 WHERE principal_scope_key = $1 FOR UPDATE")
         .bind(&key)
         .fetch_optional(&mut **transaction)
         .await
         .map_err(|e| storage(&e))?;
-    if let Some(head) = head {
-        let head_lineage: String = head.try_get("lineage_digest").map_err(|e| storage(&e))?;
-        let head_basis: String = head.try_get("basis_identity").map_err(|e| storage(&e))?;
-        let head_principal: String = head.try_get("principal").map_err(|e| storage(&e))?;
-        let head_scope: Vec<String> = serde_json::from_value(
-            head.try_get("request_scope_json")
-                .map_err(|e| storage(&e))?,
-        )
-        .map_err(json_storage)?;
-
-        if head_principal != *principal || head_scope != *scope {
-            return Err(ResearchGoalOwnerError::Storage(
-                "R&D basis head scope mismatch".into(),
-            ));
-        }
-
-        // The head is keyed by `principal_scope_key` and the lineage is resolved from
-        // `(principal, scope)`, so neither names a request. `head_lineage == lineage_digest`
-        // therefore means only that *some* request of this principal and scope committed a basis
-        // at this lineage. The replay branch at the top of this function is the one that means
-        // *this* request did, and it always returns.
-        //
-        // Without the check below, a second request of the same principal and scope - a normal
-        // thing, and the state a failed submit leaves behind, because the basis commits a whole
-        // transaction before the nineteen paths that can still refuse - took this branch and was
-        // answered `R&D basis-stage custody missing`. That named a store defect for what is an
-        // ordinary new request, and it was the only outcome this branch could produce: the
-        // custody load reads `rd_independence_bases_v1` on `request_identity`, the same table and
-        // key the replay branch above has already found empty, so it could only return `None`.
-        //
-        // The branch is kept rather than deleted because it fails toward refusing. A head that
-        // does name this request here cannot be constructed today - reaching this line means this
-        // request has no basis row, and the head's `basis_identity` references one - so this is a
-        // corruption guard, not a reachable path. If storage ever does present that, answering it
-        // by writing a second basis would be worse than refusing.
-        let head_request_identity: Option<String> = sqlx::query_scalar(
-            "SELECT request_identity FROM rd_independence_bases_v1 WHERE basis_identity = $1",
-        )
-        .bind(&head_basis)
-        .fetch_optional(&mut **transaction)
-        .await
-        .map_err(|e| storage(&e))?;
-
-        if head_lineage == lineage_digest
-            && head_request_identity.as_deref() == Some(request.request_identity.as_str())
-        {
-            let existing = load_basis_stage_custody_for_request_in_transaction(
-                transaction,
-                &request.request_identity,
+        if let Some(head) = head {
+            let head_lineage: String = head.try_get("lineage_digest").map_err(|e| storage(&e))?;
+            let head_basis: String = head.try_get("basis_identity").map_err(|e| storage(&e))?;
+            let head_principal: String = head.try_get("principal").map_err(|e| storage(&e))?;
+            let head_scope: Vec<String> = serde_json::from_value(
+                head.try_get("request_scope_json")
+                    .map_err(|e| storage(&e))?,
             )
-            .await?
-            .ok_or_else(|| {
-                ResearchGoalOwnerError::Storage("R&D basis-stage custody missing".into())
-            })?;
+            .map_err(json_storage)?;
 
-            if existing.basis.basis_identity() != head_basis
-                || existing.basis.stored().request_identity != request.request_identity
-                || existing.request_semantic_digest != request_semantic_digest
-                || &existing.admission != admission.locator()
-                || existing.source_ancestry.as_ref()
-                    != source_submission.map(|source| &source.ancestry)
-                || existing.source_ancestry_evidence_digest.as_deref()
-                    != source_submission.map(|source| source.evidence_digest.as_str())
-                || existing.basis.stored().rationale_digest
-                    != canonical_digest(
-                        "rd.independence-rationale.v1",
-                        &request.trial_family_proposal.independence_rationale,
-                    )?
-            {
-                return Err(ResearchGoalOwnerError::ConflictingReplay);
+            if head_principal != *principal || head_scope != *scope {
+                return Err(ResearchGoalOwnerError::Storage(
+                    "R&D basis head scope mismatch".into(),
+                ));
             }
-            return Ok(existing.basis);
-        }
-    }
 
-    let rationale_digest = canonical_digest(
-        "rd.independence-rationale.v1",
-        &request.trial_family_proposal.independence_rationale,
-    )?;
-    let disposition = if frontier.is_empty() {
-        TrialFamilyIndependenceDispositionV1::Independent
-    } else {
-        TrialFamilyIndependenceDispositionV1::Related
-    };
-    let mut stored = StoredIndependenceBasisV1 {
-        schema_version: 1,
-        basis_identity: String::new(),
-        request_identity: request.request_identity.clone(),
-        principal: principal.to_string(),
-        request_scope: scope.to_vec(),
-        rationale_digest,
-        independence_disposition: disposition,
-        lineage_resolution,
-        semantic_predecessor_frontier: frontier,
-        lineage_digest,
-        basis_digest: String::new(),
-    };
-    stored.basis_digest = canonical_digest(
-        "rd.independence-basis.v1",
-        &BasisMeaningV1 {
+            // The head is keyed by `principal_scope_key` and the lineage is resolved from
+            // `(principal, scope)`, so neither names a request. `head_lineage == lineage_digest`
+            // therefore means only that *some* request of this principal and scope committed a basis
+            // at this lineage. The replay branch at the top of this function is the one that means
+            // *this* request did, and it always returns.
+            //
+            // Without the check below, a second request of the same principal and scope - a normal
+            // thing, and the state a failed submit leaves behind, because the basis commits a whole
+            // transaction before the nineteen paths that can still refuse - took this branch and was
+            // answered `R&D basis-stage custody missing`. That named a store defect for what is an
+            // ordinary new request, and it was the only outcome this branch could produce: the
+            // custody load reads `rd_independence_bases_v1` on `request_identity`, the same table and
+            // key the replay branch above has already found empty, so it could only return `None`.
+            //
+            // The branch is kept rather than deleted because it fails toward refusing. A head that
+            // does name this request here cannot be constructed today - reaching this line means this
+            // request has no basis row, and the head's `basis_identity` references one - so this is a
+            // corruption guard, not a reachable path. If storage ever does present that, answering it
+            // by writing a second basis would be worse than refusing.
+            let head_request_identity: Option<String> = sqlx::query_scalar(
+                "SELECT request_identity FROM rd_independence_bases_v1 WHERE basis_identity = $1",
+            )
+            .bind(&head_basis)
+            .fetch_optional(&mut **transaction)
+            .await
+            .map_err(|e| storage(&e))?;
+
+            if head_lineage == lineage_digest
+                && head_request_identity.as_deref() == Some(request.request_identity.as_str())
+            {
+                let existing = load_basis_stage_custody_for_request_in_transaction(
+                    transaction,
+                    &request.request_identity,
+                )
+                .await?
+                .ok_or_else(|| {
+                    ResearchGoalOwnerError::Storage("R&D basis-stage custody missing".into())
+                })?;
+
+                if existing.basis.basis_identity() != head_basis
+                    || existing.basis.stored().request_identity != request.request_identity
+                    || existing.request_semantic_digest != request_semantic_digest
+                    || &existing.admission != admission.locator()
+                    || existing.source_ancestry.as_ref()
+                        != source_submission.map(|source| &source.ancestry)
+                    || existing.source_ancestry_evidence_digest.as_deref()
+                        != source_submission.map(|source| source.evidence_digest.as_str())
+                    || existing.basis.stored().rationale_digest
+                        != canonical_digest(
+                            "rd.independence-rationale.v1",
+                            &request.trial_family_proposal.independence_rationale,
+                        )?
+                {
+                    return Err(ResearchGoalOwnerError::ConflictingReplay);
+                }
+                return Ok(existing.basis);
+            }
+        }
+
+        let rationale_digest = canonical_digest(
+            "rd.independence-rationale.v1",
+            &request.trial_family_proposal.independence_rationale,
+        )?;
+        let disposition = if frontier.is_empty() {
+            TrialFamilyIndependenceDispositionV1::Independent
+        } else {
+            TrialFamilyIndependenceDispositionV1::Related
+        };
+        let mut stored = StoredIndependenceBasisV1 {
             schema_version: 1,
-            request_identity: &stored.request_identity,
-            principal: &stored.principal,
-            request_scope: &stored.request_scope,
-            rationale_digest: &stored.rationale_digest,
-            independence_disposition: &stored.independence_disposition,
-            lineage_resolution: &stored.lineage_resolution,
-            semantic_predecessor_frontier: &stored.semantic_predecessor_frontier,
-            lineage_digest: &stored.lineage_digest,
-        },
-    )?;
-    stored.basis_identity = identity("rd-independence-basis-v1", &stored.basis_digest);
-    let receipt_digest = canonical_digest(
-        "rd.independence-basis-receipt.v1",
-        &BasisReceiptMeaningV1 {
+            basis_identity: String::new(),
+            request_identity: request.request_identity.clone(),
+            principal: principal.to_string(),
+            request_scope: scope.to_vec(),
+            rationale_digest,
+            independence_disposition: disposition,
+            lineage_resolution,
+            semantic_predecessor_frontier: frontier,
+            lineage_digest,
+            basis_digest: String::new(),
+        };
+        stored.basis_digest = canonical_digest(
+            "rd.independence-basis.v1",
+            &BasisMeaningV1 {
+                schema_version: 1,
+                request_identity: &stored.request_identity,
+                principal: &stored.principal,
+                request_scope: &stored.request_scope,
+                rationale_digest: &stored.rationale_digest,
+                independence_disposition: &stored.independence_disposition,
+                lineage_resolution: &stored.lineage_resolution,
+                semantic_predecessor_frontier: &stored.semantic_predecessor_frontier,
+                lineage_digest: &stored.lineage_digest,
+            },
+        )?;
+        stored.basis_identity = identity("rd-independence-basis-v1", &stored.basis_digest);
+        let receipt_digest = canonical_digest(
+            "rd.independence-basis-receipt.v1",
+            &BasisReceiptMeaningV1 {
+                schema_version: 1,
+                basis_identity: &stored.basis_identity,
+                basis_digest: &stored.basis_digest,
+                committed_at_epoch_ms: now_epoch_ms,
+            },
+        )?;
+        let receipt = IndependenceBasisReceiptV1::new(
+            identity("rd-independence-basis-receipt-v1", &receipt_digest),
+            stored.basis_identity.clone(),
+            stored.basis_digest.clone(),
+            now_epoch_ms,
+        );
+        let mut stage_custody = StoredBasisStageCustodyV1 {
             schema_version: 1,
-            basis_identity: &stored.basis_identity,
-            basis_digest: &stored.basis_digest,
+            basis_identity: stored.basis_identity.clone(),
+            basis_digest: stored.basis_digest.clone(),
+            request_identity: stored.request_identity.clone(),
+            request_semantic_digest: request_semantic_digest.to_string(),
+            request: request.clone(),
+            admission: admission.locator().clone(),
+            admission_lineage_digest: canonical_digest(
+                "rd.product-edge-admission-lineage.v1",
+                &admission.immutable_lineage(),
+            )?,
+            source_ancestry: source_submission.map(|source| source.ancestry.clone()),
+            source_ancestry_evidence_digest: source_submission
+                .map(|source| source.evidence_digest.clone()),
             committed_at_epoch_ms: now_epoch_ms,
-        },
-    )?;
-    let receipt = IndependenceBasisReceiptV1::new(
-        identity("rd-independence-basis-receipt-v1", &receipt_digest),
-        stored.basis_identity.clone(),
-        stored.basis_digest.clone(),
-        now_epoch_ms,
-    );
-    let mut stage_custody = StoredBasisStageCustodyV1 {
-        schema_version: 1,
-        basis_identity: stored.basis_identity.clone(),
-        basis_digest: stored.basis_digest.clone(),
-        request_identity: stored.request_identity.clone(),
-        request_semantic_digest: request_semantic_digest.to_string(),
-        request: request.clone(),
-        admission: admission.locator().clone(),
-        admission_lineage_digest: canonical_digest(
-            "rd.product-edge-admission-lineage.v1",
-            &admission.immutable_lineage(),
-        )?,
-        source_ancestry: source_submission.map(|source| source.ancestry.clone()),
-        source_ancestry_evidence_digest: source_submission
-            .map(|source| source.evidence_digest.clone()),
-        committed_at_epoch_ms: now_epoch_ms,
-        custody_digest: String::new(),
-    };
-    stage_custody.custody_digest = canonical_digest(
-        "rd.independence-basis-stage-custody.v1",
-        &BasisStageCustodyMeaningV1 {
-            schema_version: stage_custody.schema_version,
-            basis_identity: &stage_custody.basis_identity,
-            basis_digest: &stage_custody.basis_digest,
-            request_identity: &stage_custody.request_identity,
-            request_semantic_digest: &stage_custody.request_semantic_digest,
-            request: &stage_custody.request,
-            admission: &stage_custody.admission,
-            admission_lineage_digest: &stage_custody.admission_lineage_digest,
-            source_ancestry: stage_custody.source_ancestry.as_ref(),
-            source_ancestry_evidence_digest: stage_custody
-                .source_ancestry_evidence_digest
-                .as_deref(),
-            committed_at_epoch_ms: stage_custody.committed_at_epoch_ms,
-        },
-    )?;
-    let basis_json = serde_json::to_value(&stored).map_err(json_storage)?;
-    let receipt_json = serde_json::to_value(&receipt).map_err(json_storage)?;
-    sqlx::query("INSERT INTO rd_independence_bases_v1 (basis_identity, request_identity, principal, request_scope_json, lineage_digest, basis_digest, basis_json, receipt_json, committed_at_epoch_ms) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)")
+            custody_digest: String::new(),
+        };
+        stage_custody.custody_digest = canonical_digest(
+            "rd.independence-basis-stage-custody.v1",
+            &BasisStageCustodyMeaningV1 {
+                schema_version: stage_custody.schema_version,
+                basis_identity: &stage_custody.basis_identity,
+                basis_digest: &stage_custody.basis_digest,
+                request_identity: &stage_custody.request_identity,
+                request_semantic_digest: &stage_custody.request_semantic_digest,
+                request: &stage_custody.request,
+                admission: &stage_custody.admission,
+                admission_lineage_digest: &stage_custody.admission_lineage_digest,
+                source_ancestry: stage_custody.source_ancestry.as_ref(),
+                source_ancestry_evidence_digest: stage_custody
+                    .source_ancestry_evidence_digest
+                    .as_deref(),
+                committed_at_epoch_ms: stage_custody.committed_at_epoch_ms,
+            },
+        )?;
+        let basis_json = serde_json::to_value(&stored).map_err(json_storage)?;
+        let receipt_json = serde_json::to_value(&receipt).map_err(json_storage)?;
+        sqlx::query("INSERT INTO rd_independence_bases_v1 (basis_identity, request_identity, principal, request_scope_json, lineage_digest, basis_digest, basis_json, receipt_json, committed_at_epoch_ms) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)")
         .bind(&stored.basis_identity).bind(&stored.request_identity).bind(&stored.principal)
         .bind(serde_json::to_value(&stored.request_scope).map_err(json_storage)?)
         .bind(&stored.lineage_digest).bind(&stored.basis_digest).bind(basis_json).bind(receipt_json)
         .bind(i64::try_from(now_epoch_ms).map_err(json_storage)?)
         .execute(&mut **transaction).await.map_err(|e| storage(&e))?;
-    sqlx::query("INSERT INTO rd_independence_basis_admissions_v1 (basis_identity, request_identity, request_semantic_digest, admission_json, admission_lineage_digest, custody_digest, custody_json, committed_at_epoch_ms) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)")
+        sqlx::query("INSERT INTO rd_independence_basis_admissions_v1 (basis_identity, request_identity, request_semantic_digest, admission_json, admission_lineage_digest, custody_digest, custody_json, committed_at_epoch_ms) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)")
         .bind(&stage_custody.basis_identity)
         .bind(&stage_custody.request_identity)
         .bind(&stage_custody.request_semantic_digest)
@@ -3162,27 +3178,28 @@ async fn load_or_create_basis_in_transaction(
         .execute(&mut **transaction)
         .await
         .map_err(|e| storage(&e))?;
-    sqlx::query("INSERT INTO rd_independence_basis_heads_v1 (principal_scope_key, principal, request_scope_json, basis_identity, lineage_digest, committed_at_epoch_ms) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (principal_scope_key) DO UPDATE SET basis_identity=EXCLUDED.basis_identity, lineage_digest=EXCLUDED.lineage_digest, committed_at_epoch_ms=EXCLUDED.committed_at_epoch_ms")
+        sqlx::query("INSERT INTO rd_independence_basis_heads_v1 (principal_scope_key, principal, request_scope_json, basis_identity, lineage_digest, committed_at_epoch_ms) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (principal_scope_key) DO UPDATE SET basis_identity=EXCLUDED.basis_identity, lineage_digest=EXCLUDED.lineage_digest, committed_at_epoch_ms=EXCLUDED.committed_at_epoch_ms")
         .bind(&key).bind(principal).bind(serde_json::to_value(scope).map_err(json_storage)?)
         .bind(&stored.basis_identity).bind(&stored.lineage_digest)
         .bind(i64::try_from(now_epoch_ms).map_err(json_storage)?)
         .execute(&mut **transaction).await.map_err(|e| storage(&e))?;
-    let payload = BasisOutboxPayloadV1 {
-        schema_version: 1,
-        basis_identity: &stored.basis_identity,
-        basis_digest: &stored.basis_digest,
-        receipt_identity: receipt.receipt_identity(),
-        principal,
-        request_scope: scope,
-        lineage_digest: &stored.lineage_digest,
-    };
-    let payload_digest = canonical_digest("rd.owner-outbox.payload.v1", &payload)?;
-    sqlx::query("INSERT INTO rd_owner_outbox_v1 (event_identity, aggregate_identity, event_kind, payload_digest, payload_json, committed_at_epoch_ms) VALUES ($1,$2,'INDEPENDENCE_BASIS_PRECOMMITTED_V1',$3,$4,$5)")
+        let payload = BasisOutboxPayloadV1 {
+            schema_version: 1,
+            basis_identity: &stored.basis_identity,
+            basis_digest: &stored.basis_digest,
+            receipt_identity: receipt.receipt_identity(),
+            principal,
+            request_scope: scope,
+            lineage_digest: &stored.lineage_digest,
+        };
+        let payload_digest = canonical_digest("rd.owner-outbox.payload.v1", &payload)?;
+        sqlx::query("INSERT INTO rd_owner_outbox_v1 (event_identity, aggregate_identity, event_kind, payload_digest, payload_json, committed_at_epoch_ms) VALUES ($1,$2,'INDEPENDENCE_BASIS_PRECOMMITTED_V1',$3,$4,$5)")
         .bind(identity("rd-owner-event-v1", &payload_digest)).bind(&stored.basis_identity)
         .bind(payload_digest).bind(serde_json::to_value(payload).map_err(json_storage)?)
         .bind(i64::try_from(now_epoch_ms).map_err(json_storage)?)
         .execute(&mut **transaction).await.map_err(|e| storage(&e))?;
-    Ok(IndependenceBasisReadbackV1::from_stored(stored, receipt))
+        Ok(IndependenceBasisReadbackV1::from_stored(stored, receipt))
+    })
 }
 
 async fn load_basis_stage_custody_for_request_in_transaction(
@@ -3411,10 +3428,10 @@ impl PostgresResearchGoalOwnerV1 {
             .execute(&mut *transaction)
             .await
             .map_err(|e| storage(&e))?;
-        let custody = Box::pin(admit_research_custody_in_transaction(
+        let custody = admit_research_custody_in_transaction(
             &mut transaction,
             ResearchCustodyLookupV1::RequestV2(&request_identity),
-        ))
+        )
         .await?
         .ok_or_else(|| {
             ResearchGoalOwnerError::Storage("committed rejected S1 V2 custody missing".to_string())
@@ -3651,10 +3668,10 @@ impl ResearchQuestionDirectoryOwnerPortV1 for PostgresResearchReadbackOwnerV1 {
                     .map_err(|e| DashboardReadErrorV1::Unavailable(e.to_string()))?,
             )
             .map_err(|e| DashboardReadErrorV1::Unavailable(e.to_string()))?;
-            let custody = Box::pin(admit_research_custody_in_transaction(
+            let custody = admit_research_custody_in_transaction(
                 &mut transaction,
                 ResearchCustodyLookupV1::RequestAny(&request_identity),
-            ))
+            )
             .await
             .map_err(|e| DashboardReadErrorV1::Unavailable(e.to_string()))?;
             let question = if let Some(custody) = custody {
@@ -3842,10 +3859,10 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
             .execute(&mut *transaction)
             .await
             .map_err(|e| storage(&e))?;
-        let existing = match Box::pin(admit_research_custody_in_transaction(
+        let existing = match admit_research_custody_in_transaction(
             &mut transaction,
             ResearchCustodyLookupV1::RequestV2(&request_identity),
-        ))
+        )
         .await
         {
             Ok(existing) => existing,
@@ -3983,14 +4000,14 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
             }
             self.verify_admission_v2(&product_edge_admission, validated.request())?;
 
-            match Box::pin(load_or_create_basis_in_transaction(
+            match load_or_create_basis_in_transaction(
                 &mut transaction,
                 validated.request(),
                 &digest,
                 &product_edge_admission,
                 self.source_submission.as_deref(),
                 basis_cut,
-            ))
+            )
             .await
             {
                 Ok(basis) => basis,
@@ -4060,10 +4077,10 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
             .execute(&mut *transaction)
             .await
             .map_err(|e| storage(&e))?;
-        let existing = match Box::pin(admit_research_custody_in_transaction(
+        let existing = match admit_research_custody_in_transaction(
             &mut transaction,
             ResearchCustodyLookupV1::RequestV2(&request_identity),
-        ))
+        )
         .await
         {
             Ok(existing) => existing,
@@ -4461,10 +4478,10 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
                 .await
                 .map_err(|e| trial_family_storage(&e))?;
         }
-        let custody = Box::pin(admit_research_custody_in_transaction(
+        let custody = admit_research_custody_in_transaction(
             &mut transaction,
             ResearchCustodyLookupV1::RequestV2(&commit.receipt.request_identity),
-        ))
+        )
         .await?
         .ok_or_else(|| {
             ResearchGoalOwnerError::Storage("committed S1 V2 custody missing".to_string())
@@ -5784,11 +5801,15 @@ pub(crate) mod tests {
             .await
             .unwrap()
             .unwrap();
-        let custody = crate::develop_composer_v2::CurrentResearchDevelopCustodyV2::from_verified(
-            &verified,
-            &request_identity,
-            read_cut,
+        let custody = Box::pin(
+            crate::research_continuation_v1::continue_initial_research_in_transaction(
+                &mut preparation,
+                &verified,
+                &request_identity,
+                read_cut,
+            ),
         )
+        .await
         .unwrap();
         preparation.rollback().await.unwrap();
 
@@ -6524,11 +6545,15 @@ pub(crate) mod tests {
             .await
             .unwrap()
             .unwrap();
-        let custody = crate::develop_composer_v2::CurrentResearchDevelopCustodyV2::from_verified(
-            &verified,
-            &request_identity,
-            read_cut,
+        let custody = Box::pin(
+            crate::research_continuation_v1::continue_initial_research_in_transaction(
+                &mut preparation,
+                &verified,
+                &request_identity,
+                read_cut,
+            ),
         )
+        .await
         .unwrap();
         preparation.rollback().await.unwrap();
 
@@ -6945,12 +6970,40 @@ pub(crate) mod tests {
             *response
         );
 
-        // After the View's window: the current-View read has nothing to stand on, the recorded
-        // View still does.
+        // After the View's window both still answer: the View's window is a reader's freshness, and
+        // the unrecorded read continues the frozen Intent under an authority that is still current
+        // (`research_continuation_v1`). What stops the unrecorded read is the View moving on, below.
         assert_eq!(&readback_at(Some(expired)).await, response);
         assert_eq!(
-            coordinate(resolve(DevelopComposerRunViewRecordV1::Unrecorded, expired).await),
-            RUN_VIEW_UNRECORDED_COORDINATE_V1
+            resolve(DevelopComposerRunViewRecordV1::Unrecorded, expired)
+                .await
+                .expect("an unrecorded run reads past its View's window under a current authority"),
+            *response
+        );
+        // Past the authority's own window it refuses, and says so under the continuation's name
+        // rather than folding it into the unrecorded one.
+        let authorization_ends = {
+            let mut transaction = owner.pool.begin().await.unwrap();
+            let verified =
+                crate::rd_owner_postgres_custody::admit_research_v2_custody_read_only_in_transaction(
+                    &mut transaction,
+                    research_request_identity,
+                )
+                .await
+                .unwrap()
+                .expect("the committed run's Research custody");
+            transaction.rollback().await.unwrap();
+            verified
+                .product_edge_admission()
+                .expect("the request's admission")
+                .authorization()
+                .valid_through_epoch_ms()
+        };
+        assert_eq!(
+            coordinate(
+                resolve(DevelopComposerRunViewRecordV1::Unrecorded, authorization_ends).await
+            ),
+            crate::research_continuation_v1::RESEARCH_CONTINUATION_AUTHORITY_NOT_CURRENT_COORDINATE_V1
         );
 
         // A recorded View is a claim, checked like any other: its cut must lie in its window, and
@@ -8160,6 +8213,186 @@ pub(crate) mod tests {
             "{refused}"
         );
         transaction.rollback().await.unwrap();
+    }
+
+    /// A frozen Research Intent continues past its View's window, under the operator authority it
+    /// was admitted under, and only while that authority is current (`research_continuation_v1`).
+    ///
+    /// Two-sided at every step, on one request admitted here under an authorization of its own:
+    /// the continuation that answers past the View's window is refused past the authorization's
+    /// window, and refused again, at a cut inside both, once that authorization is revoked. The
+    /// route a Design author reads first answers the same way on pinned clocks.
+    ///
+    /// Deliberate state side effect: the entry revokes an authorization, and it stays revoked in the
+    /// shared database. It is this entry's own: `bootstrap_admission` issues
+    /// `operator-authorization-{suffix}` for this entry's suffix alone, and the only request
+    /// admitted under it is `research-continuation-{suffix}`, which no other entry names. So no
+    /// later entry reads a revoked authority.
+    #[rstest::rstest]
+    #[ignore = "requires the ordered canonical Owner PostgreSQL gate"]
+    fn a_frozen_research_intent_continues_under_its_admission_past_its_views_window() {
+        // Admitting custody and re-locking its admission run the Owners' deepest custody paths;
+        // together they overflow the default test stack, as the other custody entries do.
+        std::thread::Builder::new()
+            .stack_size(16 * 1024 * 1024)
+            .spawn(|| {
+                tokio::runtime::Builder::new_multi_thread()
+                    .worker_threads(2)
+                    .enable_all()
+                    .build()
+                    .unwrap()
+                    .block_on(Box::pin(continue_past_the_views_window()));
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
+    async fn continue_past_the_views_window() {
+        use crate::research_continuation_v1::{
+            RESEARCH_CONTINUATION_AUTHORITY_NOT_CURRENT_COORDINATE_V1,
+            continue_initial_research_in_transaction,
+        };
+
+        let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
+        #[cfg(feature = "sealed-develop-composer-acceptance")]
+        crate::replay_policy_catalog_postgres_v2::ensure_sealed_acceptance_catalog_v3_for_test(
+            &test_database,
+        )
+        .await;
+        let operator_authorization_database_url = test_database
+            .database_url(CanonicalOwnerTestRoleV1::OperatorAuthorizationWriter)
+            .to_string();
+        let product_edge_database_url = test_database
+            .database_url(CanonicalOwnerTestRoleV1::ProductEdgeOwner)
+            .to_string();
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let request_identity = format!("research-continuation-{suffix}");
+        let (admission, _) = bootstrap_admission(
+            BootstrapAdmissionTopology::Existing {
+                operator_authorization_database_url: &operator_authorization_database_url,
+                product_edge_database_url: &product_edge_database_url,
+            },
+            &request_identity,
+            suffix,
+        )
+        .await;
+        let owner = PostgresResearchGoalOwnerV1::connect(
+            test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
+            test_database.database_url(CanonicalOwnerTestRoleV1::QualificationWriter),
+        )
+        .await
+        .unwrap();
+        let accepted = owner
+            .submit_v2(request(&request_identity, admission))
+            .await
+            .unwrap();
+        assert_eq!(accepted.resolution(), ProductEdgeResolution::Accepted);
+
+        let continue_at = |cut: u64| {
+            let pool = owner.pool.clone();
+            let request_identity = request_identity.clone();
+            async move {
+                let mut transaction = pool.begin().await.unwrap();
+                let verified =
+                    crate::rd_owner_postgres_custody::admit_research_v2_custody_read_only_in_transaction(
+                        &mut transaction,
+                        &request_identity,
+                    )
+                    .await
+                    .unwrap()
+                    .expect("the admitted request's custody");
+                let continued = Box::pin(continue_initial_research_in_transaction(
+                    &mut transaction,
+                    &verified,
+                    &request_identity,
+                    cut,
+                ))
+                .await;
+                transaction.rollback().await.unwrap();
+                (verified, continued)
+            }
+        };
+        let (verified, _) = continue_at(0).await;
+        let view = verified.view().expect("an accepted request's View").clone();
+        let authorization = verified
+            .product_edge_admission()
+            .expect("the request's Product Edge admission")
+            .authorization()
+            .clone();
+        assert!(
+            view.valid_through_epoch_ms < authorization.valid_through_epoch_ms(),
+            "the View's window ends inside the authorization's, so the two cuts below differ"
+        );
+
+        // Inside the View's window, past it, and past the authorization's window.
+        let inside = continue_at(view.projection_at_epoch_ms)
+            .await
+            .1
+            .expect("the Intent continues inside its View's window");
+        let past_the_view = continue_at(view.valid_through_epoch_ms.saturating_add(60_000))
+            .await
+            .1
+            .expect("the Intent continues past its View's window under a current authority");
+        assert_eq!(past_the_view.custody_digest(), inside.custody_digest());
+        let past_the_authorization = continue_at(authorization.valid_through_epoch_ms())
+            .await
+            .1
+            .expect_err("the Intent does not continue once its authority has expired");
+        assert_eq!(
+            past_the_authorization.coordinate,
+            RESEARCH_CONTINUATION_AUTHORITY_NOT_CURRENT_COORDINATE_V1
+        );
+        let before_the_view = continue_at(view.projection_at_epoch_ms - 1)
+            .await
+            .1
+            .expect_err("a cut before the View was projected is refused");
+        assert_eq!(before_the_view.coordinate, "research_custody");
+
+        // The route a Design author reads first, on pinned clocks either side of the same edge.
+        let authoring_at = |cut: u64| {
+            crate::rd_bounded_feature_program_postgres_v1::PostgresResearchBoundedFeatureProgramOwnerV1::with_clock(
+                owner.pool.clone(),
+                crate::rd_owner_clock::RdOwnerClockV1::fixed(move || cut),
+            )
+        };
+        authoring_at(view.valid_through_epoch_ms.saturating_add(60_000))
+            .read_research_authoring_facts_v1(&request_identity)
+            .await
+            .expect("the authoring facts read past the View's window");
+        assert!(matches!(
+            authoring_at(authorization.valid_through_epoch_ms())
+                .read_research_authoring_facts_v1(&request_identity)
+                .await,
+            Err(crate::rd_bounded_feature_program_postgres_v1::ResearchBoundedFeatureProgramOwnerErrorV1::ResearchCustody)
+        ));
+
+        // Revoked: the same cut that continued above no longer does.
+        OperatorAuthorizationIssuerPostgresV1::connect_existing(
+            &operator_authorization_database_url,
+        )
+        .await
+        .unwrap()
+        .revoke(
+            vibe_operator_authorization::OperatorAuthorizationRevocationProposalV1 {
+                authorization: authorization.locator(),
+                expected_frontier_identity: authorization.frontier().frontier_identity().to_owned(),
+                reason_code: "RESEARCH_CONTINUATION_TEST".to_owned(),
+            },
+        )
+        .await
+        .expect("the entry revokes its own authorization");
+        let revoked = continue_at(view.valid_through_epoch_ms.saturating_add(60_000))
+            .await
+            .1
+            .expect_err("a revoked authority continues nothing");
+        assert_eq!(
+            revoked.coordinate,
+            RESEARCH_CONTINUATION_AUTHORITY_NOT_CURRENT_COORDINATE_V1
+        );
     }
 
     /// When Market Data's early check does not admit the scope, the request closes

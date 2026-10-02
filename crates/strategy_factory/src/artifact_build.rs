@@ -438,6 +438,10 @@ pub enum GeneratedDirectionV1 {
 #[serde(deny_unknown_fields)]
 pub struct ArtifactBuildPreparationV1 {
     pub(crate) schema_version: u32,
+    /// `PREPARED` for an attempt that already existed says the operator authorization its build
+    /// admission recorded still covered the read's cut and the Research View was available. It is
+    /// not a statement that the authority is current now: the mutation that follows proves the
+    /// Research continuation again under locks and refuses by name.
     pub(crate) resolution: ArtifactBuildResolution,
     pub(crate) build_request_identity: String,
     pub(crate) attempt_identity: String,
@@ -446,6 +450,7 @@ pub struct ArtifactBuildPreparationV1 {
     pub(crate) intent_identity: Option<String>,
     pub(crate) intent_semantic_digest: Option<String>,
     pub(crate) owner_receipt: Option<ArtifactBuildReceiptV1>,
+    /// The action the caller may try next, on the terms `resolution` states.
     pub(crate) next_legal_action: ArtifactBuildNextLegalAction,
 }
 
@@ -555,11 +560,18 @@ pub struct ArtifactBuildResultV1 {
     pub(crate) legacy_prepared_attempt_drain: Option<LegacyPreparedAttemptDrainReadbackV1>,
     pub(crate) research_view: Option<ResearchViewV1>,
     pub(crate) artifact_review: Option<ArtifactReviewV1>,
+    /// Present only when the Research may be continued, on the terms `next_legal_action` states.
     pub(crate) artifact_review_actions: Option<ArtifactReviewActionProjectionV1>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) trial_family_resolution: Option<TrialFamilyResolutionV1>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) artifact_trial_family: Option<ArtifactTrialFamilyReadbackV1>,
+    /// The action the caller may try next. A read (the readback or a resolve) projects it without a
+    /// lock from the operator authorization the build's admission recorded, as still covering the
+    /// read's cut, and the stored Research View's availability: it does not say the authority is
+    /// current now. A mutation's own result projects the continuation it proved at its cut. Either
+    /// way the mutation the action leads to proves the Research continuation again under locks and
+    /// refuses by name.
     pub(crate) next_legal_action: ArtifactBuildNextLegalAction,
 }
 
