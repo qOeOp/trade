@@ -1,4 +1,5 @@
 # yamllint disable rule:line-length
+# Re-read after #1227 (prune deletes collided member executables), on main's entry of 2026-10-02T21:11Z.
 # LANE8 PROBE, NOT FOR MERGE: how much of main's rust-tests entry is workspace units the saving
 # run did not rebuild. D rebuilds every such unit anyway (its outputs predate the recorded time T),
 # so they are dead weight; external dependencies reuse by hash and are not counted as prunable.
