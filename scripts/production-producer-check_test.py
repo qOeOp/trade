@@ -234,15 +234,19 @@ def main():
 
     # An attribute directly above an item belongs to that item, and an attribute a few
     # lines above usually belongs to the item before it. Both must be distinguished.
-    inner = definition_gates("for_verified_test")
-    outer = definition_gates("compile_from_owner_source_resolution")
+    # The outer item must open its block on its signature line and sit within six lines of
+    # the `#[cfg(test)]` item before it, in the same file: only then does an attribute
+    # window that ignores item boundaries hand it that gate. Its own module must also be
+    # ungated, so the reading is the file's alone and not a neighbour in a `mod` list.
+    inner = definition_gates("canonical_row_digest_for_test")
+    outer = definition_gates("canonical_row_binding_bytes")
     check(
         inner and all(g for g in inner),
-        "for_verified_test: its own #[cfg(test)] was not attributed to it",
+        "canonical_row_digest_for_test: its own #[cfg(test)] was not attributed to it",
     )
     check(
         outer and not any(g for g in outer),
-        "compile_from_owner_source_resolution: it inherited the previous item's #[cfg(test)]",
+        "canonical_row_binding_bytes: it inherited the previous item's #[cfg(test)]",
     )
 
     if failures:
