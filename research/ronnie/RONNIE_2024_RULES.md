@@ -60,10 +60,10 @@ uuid prefix and a time stamp in seconds; quotes are translated. Extracted by two
 - Stop buffer: 0.25 ATR.
 - Exits: partial exits versus one target.
 
-## 2026 check (one video, 2026-09-30, from a third-party AI summary the user supplied)
+## 2026 check (two videos, 2026-08-11 and 2026-09-30, from third-party AI summaries the user supplied)
 
-Evidence quality: an AI summary (WayinVideo) of one YouTube video (rO6RJ2QQvss), not his words; YouTube itself cannot
-be read from this host.
+Evidence quality: AI summaries (WayinVideo) of two YouTube videos (doz72-I2LKM, rO6RJ2QQvss), not his words; YouTube
+itself cannot be read from this host.
 - **Unchanged:**
   - wait for a pullback to a trend line, horizontal support or Fibonacci retracement rather than chase;
   - a broken prior high retested as support (BNB), and broken support as resistance (BTC 4h);
@@ -78,3 +78,19 @@ be read from this host.
   - New coins (HYPE).
 - **Consequence:** R-1's core rule is still his main method, so R-1 stays frozen. The two new elements are tracked as
   forward-only tags on R-1's records (FORWARD_PLAN, "R-1 tags"), not fitted on read data.
+
+**Bollinger Bands in 2026, consistent across both videos:**
+- **The weekly middle band (20-week mean) is the trend divide:** BTC's weekly close below it is bearish; for gold,
+  a large-bodied weekly close above it would confirm strength.
+- **Daily closes outside the bands mean a strong trend:** hold, take profits in parts, do not counter-trade.
+  Shrinking bodies warn that momentum is fading and that price may pull back to the band. This matches Bollinger's own
+  rule that closes outside the bands are continuation signals.
+- **Entries still come from levels, trend lines and range edges,** not from the bands.
+- **Implications:**
+  - P-3's band setups (Q-3 the daily middle band as support; Q-4 fading the bands in a squeeze, harmful) were not his
+    usage, and Q-4's harm agrees with his "do not counter-trade outside the bands".
+  - The forward tag W (the weekly middle band) is the right test of his 2026 use.
+
+**Trend reversal by structure (2026-08-11):** a trend-line break alone is not a reversal; it takes a break of the prior
+low followed by a lower high. R-1's flip (a large-bodied close beyond the last confirmed pivot) points the same way but
+is looser than his two-step rule. The difference is recorded, not fitted.
