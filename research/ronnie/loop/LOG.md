@@ -1921,3 +1921,17 @@ post-2022 holdout coins. This beats the prediction (FAIL, edge positive, interva
 **Rerun of the R-1 holdout read (authorized by the user on 2026-10-02):** the gatekeeper script now also prints the
 stage-2 verdict with both conditions (interval above zero and estimate at least SESOI). It recomputes from the raw
 data; the sealed file is not read. A deterministic rerun of the same registered read, logged as a rerun.
+
+**Verdict R-1 holdout (rerun relay):** PASS at 95%; **stage 2 PASS**, meaning the interval is above zero and the
+estimate is at least SESOI on the 69 post-2022 holdout coins.
+- **R-1 is the second rule of the study to pass a holdout read** (after carry K1), and the first from Ronnie's own
+  method.
+- **It moves to stage 3, forward:** `roleflip/forward.py` logs the resting limit orders armed at each daily close
+  (37 coins: the 17 majors and the 20 validation large caps), and scores fills after logging. This is the forward
+  harness's first limit-order record (workflow note 43). It runs in the daily routine.
+- **Gate U (CRITERIA D):** not yet met. R-1 has two independent positive samples (development and holdout), and gate U
+  needs three; the forward record is the third.
+- **Sequential test:** about 90 trades a year on 37 coins.
+  - If the live edge equals the development edge (+0.21R; per-trade standard deviation about 1.4R), the scale-up bound
+    is reached in about 170 trades, roughly two years.
+  - At half the edge, about 680 trades, roughly seven years.

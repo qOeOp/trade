@@ -64,3 +64,11 @@ if the strategy works:
 Signals of B1, b1_time, trendline and trendline_time are tagged at scoring time as calm when the coin's 30-day realised
 volatility before the signal is at or below the cut-off in `loop/calm_filter.json`. The scorer reports calm and other
 signals separately. CF is decided with the others on 2027-10-01 (LOG, "Candidate CF").
+
+## R-1, the role-reversal retest (added 2026-10-02, after its stage-2 pass)
+
+- **Record:** `roleflip/forward.py` logs resting limit orders at each daily close; only fills after the log count.
+- **Kill:** a sequential-test kill bound crossing, or 30 closed trades with a mean R below zero.
+- **Gate U review** (usable at small size, which needs the user's authority) once the forward record is positive with
+  at least 30 closed trades.
+- **Decision date:** 2027-10-01 with the others.
