@@ -1266,8 +1266,8 @@ does. It reads the family and Intent from the sealed request's canonical bytes, 
 against the one the Result binds. It then locks the family's census head and appends one attempt: the Intent, the
 request and the Result, with the Result's terminal counted one for one (`TERMINAL_RESULT`, `RUN_REJECTED` as
 `REJECTED`, `INVALID_REPLAY_EVIDENCE` as `INVALID`). The attempt's consumed count is its ordinal plus one. Its
-candidate set is empty under the one rule `rd-candidate-generation-none-at-result-admission-v1`, because no Decision
-has read the Result yet. A Result whose request identity and meaning digest the census already counts is an exact
+candidate set is the expansion of the empty grid ("CURRENT - candidate counts are computed from their grid", below),
+because no Decision has read the Result yet. A Result whose request identity and meaning digest the census already counts is an exact
 replay: it joins that attempt and writes nothing, whatever attempt identity Backtest gave it.
 
 **What the count is.** The 1 the formation writes reserves the family's first attempt, so counting its Result leaves
@@ -1296,6 +1296,26 @@ count, the join and every refusal above are proven by the run report entry,
 Backtest writer. A native run commits only `TERMINAL_RESULT`: a run that fails before its commit leaves no Result and
 nothing to count.
 
+### CURRENT - candidate counts are computed from their grid
+
+A candidate set is stated as the grid that generates it, `CandidateGenerationGridV1`, and the Owner expands it. Each
+listed hypothesis dimension is one `SINGLE_DIMENSION` candidate, and each frozen finite-joint contract is one
+`PREREGISTERED_FINITE_JOINT` candidate. Both lists are strictly ascending, so a grid has one representation and lists no
+member twice. The rule's identity and digest are computed from the grid, never supplied, and the TrialFamily census
+stores the grid in the candidate-set frontier and recomputes both on every readback.
+
+Wherever a candidate set is admitted, in the census and in Iteration Result Admission's proposal set, the registered
+count is held to the expansion and the listed candidates to its members, and each disagreement is refused by name:
+
+- `CANDIDATE_GENERATION_GRID_INVALID`: the grid repeats a member or lists one out of order;
+- `CANDIDATE_GENERATION_CARDINALITY_MISMATCH`: the registered `expected_cardinality` is not the expansion's size;
+- `CANDIDATE_SET_DIFFERS_FROM_GENERATION_RULE`: the listed experiments are not the expansion.
+
+A proposal's `candidate_digest` is computed from its identity and experiment as well, and Iteration Result Admission
+refuses a stated one that differs as `ITERATION_RESULT_ADMISSION_IDENTITY_MISMATCH`. A grid has no other kind of member:
+when the authoring layer generates candidates another way, a parameter sweep for instance, that is a new kind of
+member with its own named expansion, never a string the Owner takes as stated.
+
 ### TARGET - Production trial ledger and data-read ledger
 
 This section states a contract with no implementation; it grants no permission to build or deploy it.
@@ -1305,9 +1325,6 @@ This section states a contract with no implementation; it grants no permission t
 - **Only a committed Result is counted.** "CURRENT - every committed exploratory Result is counted", above, counts
   every Result the native Replay run route commits. A run that fails before its commit leaves nothing to count, and
   the Backtest Owner commits no `RUN_REJECTED` or `INVALID_REPLAY_EVIDENCE` Result for one.
-- **The candidate count is stated, not derived.** A candidate set's `expected_cardinality` is checked only against
-  the length of the candidate list the proposer supplies (`crates/strategy_factory/src/trial_family.rs:1655-1662`).
-  Its generation rule is stored as an identity and digest and never expanded.
 
 **Every look is a trial.** A trial is one census attempt, exactly as counted above:
 
@@ -1341,10 +1358,6 @@ it, which the count above already maps.
 records a Qualification outcome or any pass or fail bit from an evaluator; Qualification counts its own protected
 attempts into N ([Qualification](./qualification/#target---cumulative-trial-deflation-at-candidate-intake)) and
 publishes outcomes only through its public phases.
-
-**Counts are computed.** A candidate set's generation rule is stored as the grid it expands to, not as an opaque
-digest. The Owner expands it and refuses by name when the expansion's size differs from `expected_cardinality` or
-when the listed candidates differ from the expansion. A count a registrant states is never trusted.
 
 **How it feeds the deflation.** Qualification's cumulative N is the sum of `trial_count` across the census frontiers
 a Candidate binds, plus the lineage's protected attempts. The spread of trial ratios comes from the lineage's
