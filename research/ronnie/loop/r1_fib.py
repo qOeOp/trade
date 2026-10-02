@@ -35,7 +35,7 @@ def signals(d):
     o, h, l, c, a, tr = S["o"], S["h"], S["l"], S["c"], S["a"], S["trend"]
     pl, ph = pivots_low_high(h, l)
     out = {v: [] for v in VARIANTS}
-    busy = {v: -1 for v in VARIANTS}
+    cand = {v: [] for v in VARIANTS}
     for i, kind, p in S["events"]:
         if kind not in ("break_high", "break_low") or i + 1 >= len(c) or np.isnan(a[i]):
             continue
@@ -58,14 +58,19 @@ def signals(d):
                 continue
             limit = B - side * cfg["entry"]["entry"] * span if "entry" in cfg else lvl
             k, px = FR.fill(S, i + 1, side, limit)
-            if k is None or k <= busy[v]:
+            if k is None:
                 continue
             stop = (B - side * cfg["sl"]["stop"] * span - side * 0.1 * ai) if "sl" in cfg else zone_stop
             if (px - stop) * side <= 0:
                 continue
             tgt = (px + side * cfg["tp"]["ext"] * span) if "tp" in cfg else px + side * 2 * abs(px - stop)
-            out[v].append((k, side, px, stop, tgt))
-            busy[v] = FR.exit_bar(S, k, side, stop, tgt)
+            cand[v].append((k, side, px, stop, tgt))
+    for v, rows in cand.items():  # the first fill takes the slot, which frees at the exit (as loop/family_r.signals)
+        busy = -1
+        for sig in sorted(rows, key=lambda x: x[0]):
+            if sig[0] > busy:
+                out[v].append(sig)
+                busy = FR.exit_bar(S, sig[0], sig[1], sig[3], sig[4])
     return out
 
 

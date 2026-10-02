@@ -86,5 +86,6 @@ Computed at scoring time from data before each order; every R-1 order is still r
   Neither tag is tested on 2018-2026 data, because those years were read for R-1.
 
 **R-1u (2026-10-02):** the official R-1 record is the corrected rule, with one open trade per coin and the slot freed at
-the exit. The 60-day-slot version is dropped. Gate U review comes at 30 closed R-1u trades with a positive mean, or at a
+the exit, the slot going to the first fill (LOG, "R-1 fill-order fix"). The 60-day-slot version is dropped. R-1x is
+(zone cap 0.5, buffer 0.25, 1.5R), the X-R1 plateau choice after that fix. Gate U review comes at 30 closed R-1u trades with a positive mean, or at a
 sequential scale-up crossing, whichever is first.

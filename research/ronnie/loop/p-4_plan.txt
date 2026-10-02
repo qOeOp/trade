@@ -1,4 +1,4 @@
 P-4: Ronnie's 2024-2025 method (daily, limit entries in zones), 53 coins 2018-2022; edge vs matched random entries
-  R-1: n 3781, avg R +0.335, edge +0.338 [+0.255, +0.428] -> active; short +0.27 (1651), long +0.39 (2130)
+  R-1: n 4300, avg R +0.219, edge +0.221 [+0.142, +0.297] -> active; short +0.17 (1832), long +0.26 (2468)
   R-2: n 654, avg R +0.088, edge +0.052 [-0.088, +0.204] -> inconclusive; short -0.02 (219), long +0.09 (435)
-  R-3: n 3044, avg R +0.384, edge +0.379 [+0.264, +0.490] -> active; short +0.32 (1218), long +0.41 (1826)
+  R-3: n 3416, avg R +0.245, edge +0.239 [+0.135, +0.340] -> active; short +0.21 (1330), long +0.25 (2086)

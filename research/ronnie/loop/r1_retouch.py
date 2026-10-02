@@ -15,14 +15,18 @@ T0,T1=pd.Timestamp("2018-01-01",tz="UTC"),pd.Timestamp("2023-01-01",tz="UTC")
 allR,reR,reR1=[],[],[]
 for coin in E.ITER_COINS:
     d=E.bars(coin)["1d"]; S=FR.state(d); o,h,l,c,a,tr=S["o"],S["h"],S["l"],S["c"],S["a"],S["trend"]
-    busy=-1
+    cand=[]
     for i,kind,p in S["events"]:
         if kind not in("break_high","break_low") or i+1>=len(c) or np.isnan(a[i]): continue
         side=1 if kind=="break_high" else -1
         if tr[i]!=side: continue
         lvl,edge=p[1],p[2]; lower=max(edge,lvl-a[i]) if side==1 else min(edge,lvl+a[i]); stop=lower-side*FR.BUF*a[i]
         k,px=FR.fill(S,i+1,side,lvl)
-        if k is None or (px-stop)*side<=0 or k<=busy: continue
+        if k is None or (px-stop)*side<=0: continue
+        cand.append((k,i,side,lvl,px,stop))
+    busy=-1
+    for k,i,side,lvl,px,stop in sorted(cand,key=lambda x:x[0]):  # the first fill takes the slot (as family_r.signals)
+        if k<=busy: continue
         tgt=px+side*2*abs(px-stop); ex=FR.exit_bar(S,k,side,stop,tgt); busy=ex
         if not(T0<=d.index[k]<T1): continue
         risk=abs(px-stop); e=min(ex,len(c)-1)
@@ -30,11 +34,10 @@ for coin in E.ITER_COINS:
         hit=(side==1 and h[e]>=tgt) or (side==-1 and l[e]<=tgt)
         R=-1 if stopped else (2 if hit and e>k else (c[e]-px)*side/risk)
         allR.append(R)
-        # a later bar, before the order expires (i+10) and before the exit, trades back through the limit
+        # a later bar, before the order expires (i+10) and before the exit, trades back through the limit;
+        # the late entry shares the stop and target, and an exit on that bar counts against it (stop first)
         for m in range(k+1,min(i+1+FR.VALID,e+1)):
             if (side==1 and l[m]<=lvl) or (side==-1 and h[m]>=lvl):
-                # entry at the limit on bar m; same stop and target, so the rest of the trade is shared;
-                # the original's exit on bar m itself counts against the late entry (stop first)
                 reR.append(R)
                 mfe=max(((px-l[q]) if side==-1 else (h[q]-px)) for q in range(k,m))/risk
                 if mfe>=1.0: reR1.append(R)

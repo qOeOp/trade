@@ -83,6 +83,7 @@ def signals(d, btc_trend=None):
     out = {"R-1": [], "R-2": [], "R-3": []}
     busy = {k: -1 for k in out}
     flip = None  # (bar, side, effective extreme price)
+    cand = []  # R-1/R-3 fills before the slot rule: (signal, BTC trend agrees)
     for i, kind, p in S["events"]:
         if i + 1 >= len(c) or np.isnan(a[i]):
             continue
@@ -96,13 +97,8 @@ def signals(d, btc_trend=None):
             k, px = fill(S, i + 1, side, lvl)
             if k is None or (px - stop) * side <= 0:
                 continue
-            sig = (k, side, px, stop, px + side * 2 * abs(px - stop))
-            for v in ("R-1", "R-3"):
-                if v == "R-3" and btc_trend is not None and btc_trend[i] != side:
-                    continue
-                if k > busy[v]:
-                    out[v].append(sig)
-                    busy[v] = exit_bar(S, k, side, sig[3], sig[4]) if SLOT == "exit" else k + HOLD
+            cand.append(((k, side, px, stop, px + side * 2 * abs(px - stop)),
+                         btc_trend is None or btc_trend[i] == side))
         elif kind in ("flip_up", "flip_down") and p is not None:
             side = 1 if kind == "flip_up" else -1
             flip = (i, side, p[1], p[0])
@@ -126,6 +122,13 @@ def signals(d, btc_trend=None):
                         busy["R-2"] = exit_bar(S, k2, side, stop, px + side * abs(best - ext)) if SLOT == "exit" else k2 + HOLD
                     break
             flip = None
+    # the slot goes to whichever order fills first, not to the order armed first (loop/LOG.md, "R-1 fill-order fix")
+    for sig, btc_ok in sorted(cand, key=lambda x: x[0][0]):
+        for v in ("R-1", "R-3"):
+            if (v == "R-3" and not btc_ok) or sig[0] <= busy[v]:
+                continue
+            out[v].append(sig)
+            busy[v] = exit_bar(S, sig[0], sig[1], sig[3], sig[4]) if SLOT == "exit" else sig[0] + HOLD
     return out, tr
 
 

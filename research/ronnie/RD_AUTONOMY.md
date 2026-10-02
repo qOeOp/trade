@@ -68,6 +68,9 @@ on a schedule, not the results; the loop may propose protocol changes, but only 
 5. **Survivor universes** in most tiers; only T-2 used a point-in-time universe (RETROSPECTIVE flaw 2).
 6. **Forward records are signal logs, not paper execution,** and cannot hold resting limit orders (note 43).
 7. **Hand-stated variant counts** were wrong once (note 50).
+8. **Slot logic in arming order, not fill order** (note 57): an order that filled later voided one that filled earlier,
+   lifting R-1's development edge from +0.22 to +0.34; the forward harness had it right, so the two disagreed silently.
+   Rules with resting orders need one event-driven simulator shared by backtest and forward.
 
 ## 5. Protocol rules to fix from day one (not negotiable by the loop)
 

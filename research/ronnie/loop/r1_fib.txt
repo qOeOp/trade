@@ -1,20 +1,20 @@
 R-F: Ronnie's Fibonacci uses on R-1u, 53 coins 2018-2022 (each with a non-Fibonacci placebo)
 variant   n     avg R   edge  [week-clustered 95%]     Sharpe(weekly R)
-base    3781  +0.335  +0.338 [+0.255, +0.428]   3.02
-F1      2721  +0.613  +0.464 [+0.295, +0.636]   2.79
-F1p     2544  +0.646  +0.475 [+0.292, +0.662]   2.78
-F2      1631  +0.337  +0.232 [+0.115, +0.351]   2.10
-F2p     1441  +0.343  +0.219 [+0.096, +0.347]   2.12
-F3      2138  +0.261  +0.296 [+0.199, +0.398]   2.31
-F3p     2660  +0.275  +0.290 [+0.199, +0.383]   2.50
-F4      1626  +0.235  +0.134 [-0.018, +0.290]   1.30
-F4p     1421  +0.281  +0.153 [+0.021, +0.296]   1.58
-FULL    1430  +0.313  +0.218 [+0.070, +0.369]   1.85
-FULLp   1364  +0.331  +0.223 [+0.089, +0.360]   1.92
+base    4300  +0.219  +0.221 [+0.142, +0.297]   2.18
+F1      3068  +0.382  +0.219 [+0.053, +0.378]   1.93
+F1p     2882  +0.381  +0.199 [+0.029, +0.376]   1.84
+F2      1578  +0.252  +0.140 [+0.014, +0.275]   1.53
+F2p     1394  +0.251  +0.127 [-0.001, +0.263]   1.52
+F3      2277  +0.214  +0.245 [+0.149, +0.344]   1.96
+F3p     2832  +0.186  +0.215 [+0.129, +0.303]   1.80
+F4      1641  +0.168  +0.061 [-0.082, +0.210]   0.97
+F4p     1426  +0.227  +0.095 [-0.035, +0.239]   1.31
+FULL    1441  +0.243  +0.137 [+0.006, +0.272]   1.54
+FULLp   1353  +0.254  +0.122 [-0.014, +0.254]   1.50
 
-F1: Sharpe 2.79 vs base 3.02 vs placebo 2.78; Fibonacci-specific (variant - placebo) +0.02; not adopted
-F2: Sharpe 2.10 vs base 3.02 vs placebo 2.12; Fibonacci-specific (variant - placebo) -0.02; not adopted
-F3: Sharpe 2.31 vs base 3.02 vs placebo 2.50; Fibonacci-specific (variant - placebo) -0.19; not adopted
-F4: Sharpe 1.30 vs base 3.02 vs placebo 1.58; Fibonacci-specific (variant - placebo) -0.28; not adopted
-FULL: Sharpe 1.85 vs base 3.02 vs placebo 1.92; Fibonacci-specific (variant - placebo) -0.06; not adopted
-PBO over the 11 variants: 0.01
+F1: Sharpe 1.93 vs base 2.18 vs placebo 1.84; Fibonacci-specific (variant - placebo) +0.09; not adopted
+F2: Sharpe 1.53 vs base 2.18 vs placebo 1.52; Fibonacci-specific (variant - placebo) +0.01; not adopted
+F3: Sharpe 1.96 vs base 2.18 vs placebo 1.80; Fibonacci-specific (variant - placebo) +0.16; not adopted
+F4: Sharpe 0.97 vs base 2.18 vs placebo 1.31; Fibonacci-specific (variant - placebo) -0.34; not adopted
+FULL: Sharpe 1.54 vs base 2.18 vs placebo 1.50; Fibonacci-specific (variant - placebo) +0.04; not adopted
+PBO over the 11 variants: 0.17

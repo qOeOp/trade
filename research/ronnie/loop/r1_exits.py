@@ -43,8 +43,7 @@ def trades(coin):
     d = E.bars(coin)["1d"]
     S = FR.state(d)
     ph, pl = pivots(S["h"], S["l"])
-    out = {}
-    busy = {}
+    out, cand = {}, {}
     for i, kind, p in S["events"]:
         if kind not in ("break_high", "break_low") or i + 1 >= len(S["c"]) or np.isnan(S["a"][i]):
             continue
@@ -57,8 +56,6 @@ def trades(coin):
             continue
         for cap, buf, tg in itertools.product(CAPS, BUFS, TGTS):
             v = (cap, buf, tg)
-            if k <= busy.get(v, -1):
-                continue
             lower = max(edge, lvl - cap * a) if side == 1 else min(edge, lvl + cap * a)
             stop = lower - side * buf * a
             if (px - stop) * side <= 0:
@@ -72,7 +69,14 @@ def trades(coin):
             else:
                 tgt = px + side * float(tg[:-1]) * risk
             R, m = walk(S, k, side, px, stop, tgt)
-            busy[v] = k + FR.HOLD
+            cand.setdefault(v, []).append((k, m, R))
+    # one trade per coin: the first fill takes the slot, which frees at the exit (as loop/family_r.signals)
+    for v, rows in cand.items():
+        busy = -1
+        for k, m, R in sorted(rows, key=lambda x: x[0]):
+            if k <= busy:
+                continue
+            busy = m
             if T0 <= d.index[k] < T1:
                 out.setdefault(v, []).append((d.index[k], R))
     return out

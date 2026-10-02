@@ -2,7 +2,7 @@
 daily close through a confirmed daily pivot high (low) in the daily trend's direction, a limit order at the broken level,
 valid 10 days; stop 0.25 ATR beyond the zone; target 2R; at most 60 days. Records only: no orders, no exchange account.
 
-R-1x (added 2026-10-02): the same orders with the X-R1 plateau exit (zone cap 0.5 ATR, buffer 0.5 ATR, target 1.5R),
+R-1x (added 2026-10-02): the same orders with the X-R1 plateau exit (zone cap 0.5 ATR, buffer 0.25 ATR, target 1.5R; buffer 0.5 before the fill-order fix),
 scored as a paired comparison against R-1.
 
 Usage: python roleflip/forward.py          log new resting limit orders armed at the last closed UTC day
@@ -30,7 +30,7 @@ START = pd.Timestamp("2026-10-02", tz="UTC")
 OUT = os.path.join(HERE, "forward", "orders.csv")
 FIELDS = ["logged_at", "coin", "side", "break_day", "limit", "stop", "target", "valid_until", "code", "stop_x", "target_x",
           "impulse"]
-CAP_X, BUF_X, TGT_X = 0.5, 0.5, 1.5  # R-1x, the X-R1 plateau choice (loop/LOG.md)
+CAP_X, BUF_X, TGT_X = 0.5, 0.25, 1.5  # R-1x, the X-R1 plateau choice after the fill-order fix (loop/LOG.md)
 FEE = 0.0006
 
 
@@ -188,7 +188,7 @@ def score(now):
         for coin, g in z.dropna(subset=["fill_day"]).sort_values("fill_day").groupby("coin"):
             until = None
             for ix, r in g.iterrows():
-                if until is not None and r.fill_day < until:
+                if until is not None and r.fill_day <= until:  # a fill on the exit day is not taken, as in the backtest
                     z.loc[ix, "slot_ok"] = False
                 else:
                     until = r.exit_day if pd.notna(r.exit_day) else r.fill_day + pd.Timedelta(days=FR.HOLD)

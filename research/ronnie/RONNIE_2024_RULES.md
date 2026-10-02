@@ -112,7 +112,11 @@ is looser than his two-step rule. The difference is recorded, not fitted.
 - These zones are narrower than R-1's assumed zone, which can reach 1 daily ATR, so his stops are probably closer than
   R-1's.
 - R-1 has passed its holdout and stays frozen; a narrow-zone variant would be a new rule (stage 0).
-- He never uses TradingView's long/short position tool, so no drawn entry, stop and target triplets exist.
+- He never uses TradingView's long/short position tool, but some snapshots write a plan as labelled horizontal lines
+  (the labels are part of the image, not the drawing data). Example, BTC on 2025-02-25: sell limits 91,888 (1.5%) and
+  89,666 (1%), stop 94,000, targets 86,500 and 81,500. Both filled and stopped in one 4h bar on 2025-03-02 (high
+  95,000) before price reached 81,500. R-1's stop for the same zone sat at 98,070 and survived
+  (`results/r1_charts/BTC_2025-02-25_vs_ronnie.png`).
 
 ## His drawn plans, measured (2026-10-02, `tv_plan_grade.py`, `results/tv_plan_grade.txt`)
 

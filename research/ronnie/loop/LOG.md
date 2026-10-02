@@ -2104,6 +2104,26 @@ His four uses (`RONNIE_2024_RULES.md`): an entry zone (0.382, 0.5-0.618), a stop
 Question from a live case (LIT, a filled short whose price ran +1.6R and could come back to the limit): what does an
 entry at the same limit earn if price returns inside the order's 10-day window while the original trade is open? The
 late entry shares the stop and target, so its R is the original trade's R. `loop/r1_retouch.py`, iteration coins,
-fills 2018-2022, raw R without fees or controls: all R-1 trades +0.324R (2,031); late entries +0.184R [+0.10, +0.26]
-(1,243); late entries after the trade first ran at least +1R +0.314R [+0.18, +0.44] (507). Not a registered rule and
-not adopted; a registered version would need controls, week clusters and the extended tier before any forward record.
+fills 2018-2022, raw R without fees or controls. After the fill-order fix below: all R-1 trades +0.223R (2,309); late
+entries +0.041R [-0.03, +0.11] (1,499); late entries after the trade first ran at least +1R +0.129R [+0.02, +0.24]
+(638). (Before the fix: +0.324, +0.184 and +0.314; superseded.) Not a registered rule and not adopted; a registered version would need controls, week clusters and the extended tier before any forward record.
+
+## R-1 fill-order fix (2026-10-02)
+
+- **Defect:** `family_r.signals` gave a coin's slot to orders in arming order, not fill order. An order armed first but
+  filled later voided an order armed at the same time or later that filled earlier, so the backtest used the future
+  fill of one order to drop another. The forward harness (`roleflip/forward.py`) already took fills in date order.
+  Found while drawing BTC on 2025-02-25: the 92,232 short filled on 02-25 but was void because the 94,150 order armed
+  the same day filled on 03-02.
+- **Fix:** candidates are collected first and the slot goes to the first fill (`family_r.signals`, `r1_exits.py`,
+  `r1_fib.py`, `r1_retouch.py`, `roleflip/replay.py`). The forward harness now also refuses a fill on the previous
+  trade's exit day, as the backtest does.
+- **R-1u development (rerun):** edge +0.221 [+0.142, +0.297] on 4,300 trades, avg R +0.219 (was +0.338 on 3,781);
+  long +0.26, short +0.17. Still above the SESOI with the interval above zero. R-3 +0.239 [+0.135, +0.340].
+- **R-1 holdout (rerun, verdict only, run by the iterating agent directly; contaminated by the earlier reads):**
+  PASS at 95% and stage 2 PASS.
+- **X-R1 (rerun):** plateau choice now cap 0.5, buffer 0.25, 1.5R (Sharpe 2.91 vs R-1 as registered 2.60; PBO 0.05).
+  By the registered rule R-1x becomes (0.5, 0.25, 1.5R); no R-1x forward order had been logged, so the change precedes
+  any forward outcome. Fixed targets still beat structure targets (1.5R 2.55, 2R 2.49, structure 2.20).
+- **R-F (rerun):** unchanged conclusions: no Fibonacci variant beats its placebo or the base; PBO 0.17.
+- **Earlier R-1 portfolio figures** (CAGR and drawdown at 1% risk) were computed with the defect and are withdrawn.

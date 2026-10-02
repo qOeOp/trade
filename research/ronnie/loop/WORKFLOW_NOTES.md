@@ -296,3 +296,11 @@ Input for the product's R&D system. Each note: what happened, why it matters, a 
     per 60 days. Nobody chose that, and a live implementation would naturally free the slot after an exit. Proposal:
     position and slot logic are explicit, registered parameters of a rule (reported with its result), and the forward
     harness is generated from the same rule object as the backtest, so they cannot diverge.
+57. **Slot logic processed orders in arming order, not fill order.** With several resting limit orders per coin, the
+    backtest let an order that filled later void one that filled earlier, a look-ahead that lifted R-1's development
+    edge from +0.22 to +0.34. Note 56's fix touched the same lines and missed it, and the forward harness had it right
+    all along, so the two disagreed silently. It surfaced only when a chart drew the rule's trades next to a human's
+    plan. Proposal: an event-driven simulator (orders resting through time, fills processed in time order) is the only
+    implementation of any rule with resting orders, shared by backtest and forward; and a per-trade chart is part of
+    every rule's review package.
+
