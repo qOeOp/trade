@@ -790,7 +790,7 @@ ifeq ($(NEXTEST_VERBOSE),true)
 	cargo nextest run $(CARGO_TEST_SCOPE_FLAGS) --features "$(CARGO_TEST_FEATURES)" $(FAIL_FAST_FLAG) --profile $(NEXTEST_PROFILE) --cargo-profile $(CARGO_CI_PROFILE) $(NEXTEST_OUTPUT_ARGS)
 else
 	$(info $(M) Running Rust tests (showing summary and failures only)...)
-	cargo nextest run $(CARGO_TEST_SCOPE_FLAGS) --features "$(CARGO_TEST_FEATURES)" $(FAIL_FAST_FLAG) --profile $(NEXTEST_PROFILE) --cargo-profile $(CARGO_CI_PROFILE) $(NEXTEST_OUTPUT_ARGS)
+	cargo nextest run --cargo-verbose $(CARGO_TEST_SCOPE_FLAGS) --features "$(CARGO_TEST_FEATURES)" $(FAIL_FAST_FLAG) --profile $(NEXTEST_PROFILE) --cargo-profile $(CARGO_CI_PROFILE) $(NEXTEST_OUTPUT_ARGS)
 endif
 
 .PHONY: cargo-test-extras
