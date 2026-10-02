@@ -1021,6 +1021,28 @@ mod tests {
         assert!(SystemPortfolioOwnerClock.now_epoch_ms().unwrap() > 0);
     }
 
+    /// PROBE, not for merge: polls a boxed future with its panic caught, so the probe can read the
+    /// store after a check fails.
+    struct ProbeCatch<F>(std::pin::Pin<Box<F>>);
+
+    impl<F: std::future::Future> std::future::Future for ProbeCatch<F> {
+        type Output = std::thread::Result<F::Output>;
+
+        fn poll(
+            mut self: std::pin::Pin<&mut Self>,
+            cx: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<Self::Output> {
+            let inner = &mut self.0;
+
+            match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| inner.as_mut().poll(cx)))
+            {
+                Ok(std::task::Poll::Pending) => std::task::Poll::Pending,
+                Ok(std::task::Poll::Ready(value)) => std::task::Poll::Ready(Ok(value)),
+                Err(panic) => std::task::Poll::Ready(Err(panic)),
+            }
+        }
+    }
+
     #[tokio::test]
     #[ignore = "requires the admitted canonical Owner PostgreSQL test topology"]
     async fn postgres_capacity_scope_registry_is_append_only_and_seals_one_bound_scope() {
@@ -1044,7 +1066,8 @@ mod tests {
         // Everything below displaces the single global registry head this proof captured above, so
         // the cleanup and the head's restore run whatever a check does: the ordered chain shares
         // one store, and a displaced head would fail every later Portfolio entry.
-        restore_after_checks(
+        let displaced_for_probe = displaced_head.clone();
+        let caught = ProbeCatch(Box::pin(restore_after_checks(
             async {
                 // One complete census of two disjoint scopes commits once; an exact replay joins it.
                 let alpha = definition(&suffix, "pool-alpha");
@@ -1055,6 +1078,7 @@ mod tests {
                     .await
                     .unwrap();
                 assert!(first.proof_frontier_sequence() > 0);
+                assert_eq!(1, 2, "PROBE: forced check failure");
                 assert_eq!(first.published_scopes().len(), 2);
                 assert_eq!(
                     owner
@@ -1582,8 +1606,14 @@ mod tests {
                 .await;
                 restore_registry_head(&pool, displaced_head).await;
             },
-        )
+        )))
         .await;
+        assert!(caught.is_err(), "PROBE: the forced check did not fail");
+        assert_eq!(
+            registry_head(&pool).await,
+            displaced_for_probe,
+            "PROBE: a failed check left the registry head displaced"
+        );
         assert_eq!(own_counts(&pool, &suffix).await, (0, 0, 0));
         assert_eq!(
             execution_reservation_residue(execution_pool_for_residue, &execution_scope_identity)
