@@ -12,6 +12,9 @@
     reason = "private store-admission foundations retain tested unavailable production adapters and S3 stops"
 )]
 
+#[cfg(unix)]
+mod composition;
+
 mod credential_files;
 mod custody_postgres;
 mod postgres;
@@ -21,6 +24,8 @@ mod witness;
 pub(super) use postgres::RawSharedTimeEvidenceSnapshotV1;
 #[cfg(test)]
 pub(super) use postgres::RawSharedTimeHistoryRowV1;
+#[cfg(unix)]
+pub use publication::author_deployment_store_publication_v1;
 pub use publication::{
     DeploymentStorePublicationError, DeploymentStorePublicationSummaryV1,
     DeploymentStorePublishOutcomeV1, publish_sealed_deployment_store_publication_v1,
@@ -1075,25 +1080,41 @@ impl Display for DeploymentStoreAdmissionError {
 
 impl std::error::Error for DeploymentStoreAdmissionError {}
 
-/// Runs the exact production `rd-owner-api` seam.
-///
-/// The current production resolver is intentionally unavailable. Consequently this function can
-/// return no positive receipt until a separately evidenced production adapter is implemented.
+/// Runs the exact production `rd-owner-api` seam, over the ports the process environment names.
 ///
 /// # Errors
 ///
-/// Returns a typed fail-closed custody incident while production ports remain unavailable.
+/// Returns a typed fail-closed custody incident when a port cannot be built from the deployment's
+/// configuration, or the admission itself refuses.
 pub(super) async fn admit_rd_owner_market_data_postgres(
     request: &RdOwnerMarketDataAdmissionRequest,
 ) -> Result<AdmittedMarketDataPostgresCapability, DeploymentStoreAdmissionError> {
-    let custodian = Custodian::new(
-        Arc::new(UnavailableCustodyStore),
-        Arc::new(UnavailableSignatureVerifier),
-        Arc::new(UnavailableAntiRollbackWitness),
-        Arc::new(UnavailableCredentialResolver),
-        Arc::new(UnavailableDirectMeasurer),
-    );
-    custodian.admit_capability(request.scope()).await
+    admit_rd_owner_market_data_postgres_with(request, |name| std::env::var(name).ok()).await
+}
+
+/// The production seam over the ports a supplied configuration names: `composition` builds every
+/// one of them or refuses under the code of the first it cannot build. A platform without Unix
+/// sockets has no pinned measurer, so there the admission refuses at the measurer.
+async fn admit_rd_owner_market_data_postgres_with(
+    request: &RdOwnerMarketDataAdmissionRequest,
+    lookup: impl FnMut(&str) -> Option<String>,
+) -> Result<AdmittedMarketDataPostgresCapability, DeploymentStoreAdmissionError> {
+    #[cfg(unix)]
+    {
+        composition::production_custodian(lookup)
+            .await
+            .map_err(|code| rejection(&request.scope(), code))?
+            .admit_capability(request.scope())
+            .await
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = lookup;
+        Err(rejection(
+            &request.scope(),
+            AdmissionFailureCode::DirectMeasurementUnavailable,
+        ))
+    }
 }
 
 /// The evidence one PIT evaluation read returns, under the receipt the read was made against.
@@ -2117,8 +2138,14 @@ fn seal_receipt_at(
     receipt
 }
 
-/// The one receipt slot an exact commit cut of `scope` occupies: a replay of the same signed head,
-/// history and witness frontier lands in it again.
+/// The one receipt slot a commit cut of `scope` occupies: a replay of the same signed head, history,
+/// witness observation and validity lands in it again.
+///
+/// The receipt's `valid_through` is part of the slot. Without it, a slot named only a head and an
+/// observation, and the single-machine mode's observation never changes, while a secret file's
+/// lease lapses a fixed time after each admission's cut: every admission after the first against
+/// one head landed in the first one's slot with another lapse, and was refused as a conflict. That
+/// is every revalidation an admitted port makes before and after its reads.
 fn receipt_slot(scope: &AdmissionScope, cut: &AdmissionCommitCut) -> String {
     digest_serializable(&(
         &scope.environment_identity,
@@ -2129,6 +2156,7 @@ fn receipt_slot(scope: &AdmissionScope, cut: &AdmissionCommitCut) -> String {
         &cut.signed_head_proof_identity,
         &cut.signed_history_proof_identity,
         &cut.anti_rollback_proof_identity,
+        cut.valid_through_epoch_ms,
     ))
 }
 
@@ -2154,80 +2182,6 @@ fn rejection(scope: &AdmissionScope, code: AdmissionFailureCode) -> DeploymentSt
     DeploymentStoreAdmissionError {
         code,
         incident: Box::new(incident),
-    }
-}
-
-struct UnavailableCustodyStore;
-struct UnavailableSignatureVerifier;
-struct UnavailableAntiRollbackWitness;
-struct UnavailableCredentialResolver;
-struct UnavailableDirectMeasurer;
-
-#[async_trait]
-impl CustodyStore for UnavailableCustodyStore {
-    async fn resolve_history(
-        &self,
-        _scope: &AdmissionScope,
-    ) -> Result<ResolvedHistory, ResolveHistoryError> {
-        Err(ResolveHistoryError::Unavailable)
-    }
-
-    async fn commit_receipt_if_current(
-        &self,
-        _scope: &AdmissionScope,
-        _expected_cut: &AdmissionCommitCut,
-        _receipt: SealedDeploymentStoreAdmissionReceipt,
-    ) -> Result<SealedDeploymentStoreAdmissionReceipt, ReceiptCommitError> {
-        Err(ReceiptCommitError::Unavailable)
-    }
-}
-
-#[async_trait]
-impl SignatureVerifier for UnavailableSignatureVerifier {
-    async fn verify(
-        &self,
-        _signer_identity: &str,
-        _message: &[u8],
-        _signature: &[u8],
-    ) -> Result<bool, ()> {
-        Err(())
-    }
-}
-
-#[async_trait]
-impl AntiRollbackWitness for UnavailableAntiRollbackWitness {
-    async fn observe(
-        &self,
-        _scope: &AdmissionScope,
-        _head: &StoreHead,
-    ) -> Result<AntiRollbackObservation, ()> {
-        Err(())
-    }
-}
-
-#[async_trait]
-impl CredentialResolver for UnavailableCredentialResolver {
-    async fn resolve(
-        &self,
-        _handle: &CredentialHandleBinding,
-        _cut_epoch_ms: u64,
-    ) -> Result<PostgresCredentialLease, ()> {
-        Err(())
-    }
-}
-
-#[async_trait]
-impl DirectMeasurer for UnavailableDirectMeasurer {
-    async fn measure(
-        &self,
-        _lease: &PostgresCredentialLease,
-        _spec: &PostgresMeasurementSpec,
-    ) -> Result<PostgresMeasurement, ()> {
-        Err(())
-    }
-
-    fn transport(&self) -> postgres::StoreTransport {
-        postgres::StoreTransport::DisposableLoopback
     }
 }
 
@@ -3123,10 +3077,11 @@ mod tests {
     }
 
     /// The custodian over the secret-file resolver: the manifest signs the version the mounted
-    /// secret is, and the lease lapses a fixed time after the store's cut.
+    /// secret is, and the lease lapses at the end of the lease period the store's cut falls in.
     #[rstest]
     #[tokio::test]
-    async fn a_mounted_secret_admits_only_at_its_signed_version_and_lapses_from_the_store_cut() {
+    async fn a_mounted_secret_admits_only_at_its_signed_version_and_lapses_with_the_store_cuts_period()
+     {
         let directory = std::env::temp_dir().join(format!(
             "vibe-custodian-secret-files-{}",
             std::process::id()
@@ -3167,13 +3122,14 @@ mod tests {
         };
 
         // Shorter than the witness observation and the manifest, the lease bounds the receipt, and
-        // it lapses exactly its length after the store clock's cut.
+        // it lapses at the end of the period of its length that the store clock's cut falls in.
         let signed = naming(
             "market-data-admitted-reader",
             credential_files::secret_version(secret),
         );
         let receipt = admit(&signed, 1_000).await.unwrap();
-        assert_eq!(receipt.valid_through_epoch_ms, STORE_NOW + 1_000);
+        assert_eq!(STORE_NOW, 1_000_010);
+        assert_eq!(receipt.valid_through_epoch_ms, 1_001_000);
 
         // The secret changed after the manifest was signed: the lease is the file's version, and
         // the custodian rejects it.
@@ -3257,6 +3213,59 @@ mod tests {
             custodian.admit(fixture.request.scope()).await.unwrap(),
             receipt
         );
+    }
+
+    /// A secret file's lease lapses a fixed time after each admission's cut, so under the
+    /// single-trust-domain mode, whose observation never changes, every readmission against one head
+    /// seals a receipt with its own lapse. Each is admitted in a slot of its own: a port revalidates
+    /// before and after every read, and refusing the second admission refused every read.
+    #[rstest]
+    #[tokio::test]
+    async fn a_readmission_under_a_lease_that_lapses_from_its_cut_is_admitted_again() {
+        struct LapsingCredentials;
+
+        #[async_trait]
+        impl CredentialResolver for LapsingCredentials {
+            async fn resolve(
+                &self,
+                handle: &CredentialHandleBinding,
+                cut_epoch_ms: u64,
+            ) -> Result<PostgresCredentialLease, ()> {
+                PostgresCredentialLease::from_resolved_secret(
+                    &handle.identity,
+                    &handle.audience,
+                    &handle.version,
+                    cut_epoch_ms + 1,
+                    "postgres://test:secret@127.0.0.1:5432/disposable".to_string(),
+                )
+                .map_err(|_| ())
+            }
+        }
+
+        let fixture = Fixture::new();
+        let custody = single_trust_domain_custody(&fixture);
+        let custodian = Custodian::new(
+            Arc::new(custody.clone()),
+            Arc::new(CountingVerifier::pinned(
+                SIGNER,
+                &fixture.signing_key.verifying_key(),
+                Arc::new(AtomicUsize::new(0)),
+            )),
+            Arc::new(witness::SingleTrustDomainNoRollbackWitness),
+            Arc::new(LapsingCredentials),
+            Arc::new(FakeMeasurer {
+                value: fixture.measurement.clone(),
+                calls: Arc::new(AtomicUsize::new(0)),
+            }),
+        );
+
+        let first = custodian.admit(fixture.request.scope()).await.unwrap();
+        custody.state.lock().unwrap().now_epoch_ms = STORE_NOW + 10;
+        let second = custodian.admit(fixture.request.scope()).await.unwrap();
+
+        assert_eq!(first.valid_through_epoch_ms, STORE_NOW + 1);
+        assert_eq!(second.valid_through_epoch_ms, STORE_NOW + 11);
+        assert_eq!(custody.state.lock().unwrap().receipts.len(), 2);
     }
 
     /// The property the single-trust-domain mode gives up, pinned so that it is read rather than
@@ -3573,14 +3582,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn production_and_s3_ports_are_explicitly_unavailable() {
+    async fn an_unconfigured_production_seam_and_s3_are_unavailable() {
         let fixture = Fixture::new();
-        let production = admit_rd_owner_market_data_postgres(&fixture.request)
+        let production = admit_rd_owner_market_data_postgres_with(&fixture.request, |_| None)
             .await
             .unwrap_err();
         assert_eq!(
             production.code(),
-            AdmissionFailureCode::ProductionResolverUnavailable
+            AdmissionFailureCode::ProductionAntiRollbackWitnessUnavailable
         );
         assert_eq!(
             unavailable_s3_admission(&fixture.request)
@@ -5480,6 +5489,201 @@ mod tests {
             0,
             "no schedule is declared for an instrument nothing wrote"
         );
+    }
+
+    /// The production seam admits end to end, over the five production ports and nothing else.
+    ///
+    /// The administrator's side runs as the deployment's runbook does: the store is measured over
+    /// the pinned connection as the admitted reader, through its secret file, and the draft is
+    /// completed into authoring, sealed with a fresh store key and published as the publisher.
+    /// The deployment's side is `admit_rd_owner_market_data_postgres_with` over a configuration of
+    /// files: the custody store as the custodian, the key's public half, the single-machine mode,
+    /// the secrets directory and the pinned root. Its capability opens the scheduling port, which
+    /// reads. The same configuration with any other signer key, or without the mode named, admits
+    /// nothing.
+    #[cfg(unix)]
+    #[rstest]
+    #[ignore = "requires the crates/data disposable PostgreSQL harness"]
+    fn the_production_seam_admits_what_the_administrator_measured_sealed_and_published() {
+        std::thread::Builder::new()
+            .name("market-data-production-seam".into())
+            .stack_size(16 * 1024 * 1024)
+            .spawn(|| {
+                tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .unwrap()
+                    .block_on(run_production_seam_scenario());
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
+    #[cfg(unix)]
+    async fn run_production_seam_scenario() {
+        use std::collections::HashMap;
+
+        use vibe_postgres_connect::{PgPoolOptionsExt, PostgresTls};
+
+        const CREDENTIAL: &str = "market-data-admitted-reader";
+        let env = |name: &str| std::env::var(name).unwrap_or_else(|_| panic!("{name} is set"));
+        let admin_url = env("MARKET_DATA_ADMIN_TEST_DATABASE_URL");
+        let owner_url = env("MARKET_DATA_OWNER_TEST_DATABASE_URL");
+        let reader_url = env("MARKET_DATA_ADMITTED_READER_TEST_DATABASE_URL");
+        let publisher_url = env("DEPLOYMENT_STORE_PUBLISHER_TEST_DATABASE_URL");
+        let custodian_url = env("DEPLOYMENT_STORE_CUSTODIAN_TEST_DATABASE_URL");
+        let root_file = env("MARKET_DATA_TLS_ROOT_CERTIFICATE_FILE");
+        drop(
+            crate::owner::postgres::MarketDataOwnerPostgres::connect(&owner_url)
+                .await
+                .expect("Owner connects and migrates"),
+        );
+        let admin = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(1)
+            .connect_url(&admin_url, PostgresTls::Disabled)
+            .await
+            .unwrap();
+        let now = store_clock(&admin).await;
+        let files = tempfile::tempdir().unwrap();
+        let write = |name: &str, contents: &[u8]| {
+            let path = files.path().join(name);
+            std::fs::write(&path, contents).unwrap();
+            path.to_string_lossy().into_owned()
+        };
+        // The secrets directory holds the reader's credential under its handle's name, and the
+        // custodian's in a file of its own.
+        let credential = format!("{reader_url}\n");
+        write(CREDENTIAL, credential.as_bytes());
+        let custodian_file = write("custodian-url", format!("{custodian_url}\n").as_bytes());
+
+        // The administrator: measure and author, seal, publish.
+        let draft = serde_json::json!({
+            "signer_identity": "deployment-store-signer-v1",
+            "environment_identity": "md-production-seam",
+            "deployment_identity": "md-production-seam-deployment",
+            "prior_manifest_identities": [],
+            "expected_previous_head_identity": null,
+            "valid_from_epoch_ms": now - 60_000,
+            "valid_through_epoch_ms": now + 3_600_000,
+            "recovery": {
+                "identity": "md-production-seam-recovery",
+                "restart_requires_reverification": true,
+                "ambiguity_forbids_business_retry": true,
+            },
+            "rotation_fence_identity": "md-production-seam-rotation",
+            "rotation_fence_closed_at_epoch_ms": now - 60_000,
+        });
+        let authoring = author_deployment_store_publication_v1(
+            &serde_json::to_vec(&draft).unwrap(),
+            CREDENTIAL,
+            credential.as_bytes(),
+            &std::fs::read(&root_file).unwrap(),
+        )
+        .await
+        .expect("the administrator measures the store over the pinned connection");
+        let signing_key = SigningKey::from_bytes(&[42; 32]);
+        let (sealed, summary) = seal_deployment_store_publication_v1(&authoring, &signing_key)
+            .expect("the authored publication seals");
+        assert_eq!(
+            publish_sealed_deployment_store_publication_v1(&publisher_url, &sealed).await,
+            Ok(DeploymentStorePublishOutcomeV1::Published)
+        );
+
+        // The deployment: every port from its configuration.
+        let configuration = HashMap::from([
+            (
+                composition::ANTI_ROLLBACK_MODE_ENV,
+                composition::SINGLE_TRUST_DOMAIN_MODE.to_owned(),
+            ),
+            (
+                composition::SIGNER_IDENTITY_ENV,
+                "deployment-store-signer-v1".to_owned(),
+            ),
+            (
+                composition::SIGNER_PUBLIC_KEY_PATH_ENV,
+                write(
+                    "signer.hex",
+                    format!("{}\n", summary.signer_public_key_hex).as_bytes(),
+                ),
+            ),
+            (
+                composition::LEASED_FILES_DIRECTORY_ENV,
+                files.path().to_string_lossy().into_owned(),
+            ),
+            // A day-long lease period: the scenario's admissions share one, so its revalidations
+            // rejoin the receipt the port was admitted on.
+            (composition::LEASE_PERIOD_MS_ENV, "86400000".to_owned()),
+            (
+                composition::POSTGRES_ROOT_CERTIFICATE_PATH_ENV,
+                root_file.clone(),
+            ),
+            (composition::CUSTODIAN_CONNECTION_FILE_ENV, custodian_file),
+        ]);
+        let request = RdOwnerMarketDataAdmissionRequest::new(
+            summary.environment_identity.clone(),
+            summary.deployment_identity.clone(),
+            summary.head_identity.clone(),
+        )
+        .unwrap();
+        let port = admit_rd_owner_market_data_postgres_with(&request, |name| {
+            configuration.get(name).cloned()
+        })
+        .await
+        .expect("the production seam admits the published store")
+        .into_native_replay_scheduling_snapshot_port_v2()
+        .expect("the deployment's measurement covers the scheduling floors");
+        assert_eq!(
+            port.resolve_bar_schedule_candidates_v1("VIBE-PRODUCTION-SEAM")
+                .await
+                .map(|candidates| candidates.len()),
+            Ok(0),
+            "the admitted port reads the store"
+        );
+
+        // Another signer's key, or no mode named, admits nothing.
+        let mut another_signer = configuration.clone();
+        another_signer.insert(
+            composition::SIGNER_PUBLIC_KEY_PATH_ENV,
+            write(
+                "another-signer.hex",
+                signature::lower_hex(SigningKey::from_bytes(&[43; 32]).verifying_key().as_bytes())
+                    .as_bytes(),
+            ),
+        );
+        assert_eq!(
+            admit_rd_owner_market_data_postgres_with(&request, |name| {
+                another_signer.get(name).cloned()
+            })
+            .await
+            .map(|_| ())
+            .unwrap_err()
+            .code(),
+            AdmissionFailureCode::InvalidSignature
+        );
+        let mut no_mode = configuration.clone();
+        no_mode.remove(composition::ANTI_ROLLBACK_MODE_ENV);
+        assert_eq!(
+            admit_rd_owner_market_data_postgres_with(&request, |name| no_mode.get(name).cloned())
+                .await
+                .map(|_| ())
+                .unwrap_err()
+                .code(),
+            AdmissionFailureCode::ProductionAntiRollbackWitnessUnavailable
+        );
+    }
+
+    /// A deployment's manifest binds one measurement, so it must cover every floor any port checks,
+    /// and be exactly their union.
+    #[rstest]
+    fn the_deployment_measurement_covers_every_floor_and_nothing_else() {
+        let spec = postgres::deployment_measurement_spec_v1().unwrap();
+
+        for floor in postgres::MEASUREMENT_FLOORS {
+            assert!(spec.covers(floor), "{} is covered", floor.name);
+        }
+        let all_floors = postgres::MEASUREMENT_FLOORS.iter().collect::<Vec<_>>();
+        assert_eq!(spec, measurement_spec_covering(&all_floors));
     }
 
     /// Each port opens on exactly the floors its resolver's reads stand on, and refuses a measurement
