@@ -149,3 +149,18 @@ is looser than his two-step rule. The difference is recorded, not fitted.
 - **Reading:** his first targets sit close (about 1R in the old ideas), which the old grading found costly; R-1's fixed
   2R target is farther in R and similar in ATR. The sample of written plans is too small to fit his stop or target
   rule; spoken plans in the videos point at levels without prices, so they need frame reading, not transcripts.
+
+## His spoken plans read from video frames (pilot, 2026-10-02; `tv_frame_plans.py`, `results/tv_frame_plans.txt`)
+
+- **Method:** at transcript moments where he says "stop here" or "target here", frames every 2-3 seconds show the
+  horizontal line he draws or the cursor's price on the axis. Fourteen moments in ten videos gave twelve plans (nine
+  he takes, three he turns down); two moments had no readable level.
+- **Stop placement:** beyond the zone edge or swing extreme he names, by a median 0.32 daily ATR (range 0.04-0.98). R-1
+  places its stop 0.25 ATR beyond the zone. From entry the stop is 0.2-0.3 daily ATR on his 1h and 4h plans and
+  1.0-1.6 on his daily plans (R-1, daily: median 0.75).
+- **Targets:** the next zone or prior high; first target a median 2.2R on the plans he takes, often stepped further.
+- **What he turns down:** first targets of 0.37R, 0.45R and 1.25R ("the range is too narrow", "chasing, the stop must go
+  below the low"). His rule in words: the stop sits where the structure is wrong, not where it is small, and a trade is
+  taken only if the next level pays about 2R or more for that stop.
+- **Reading:** this matches R-1's geometry (stop just beyond the zone, fixed 2R) more closely than any earlier source.
+  Twelve plans read by hand from one analyst's frames are a description, not a test; nothing here changes R-1.
