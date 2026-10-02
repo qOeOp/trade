@@ -12,11 +12,17 @@ into a nested cache directory the Rust cache keeps (rust-cache deletes every oth
 target root before saving, but keeps `CACHEDIR.TAG` in a nested target).
 
 `reuse` runs on a pull request after the cache is restored. It sets every tracked file that is
-unchanged since that commit to T - 1 and every changed file to now:
+unchanged since that commit to T - 1 and every changed file to now, and does the same for every
+directory holding a tracked file, by whether any path below it changed. A `rerun-if-changed` that
+names a directory makes cargo compare the newest mtime in that tree, directories included, and a
+directory keeps its checkout time otherwise (vibe-serialization's `schemas/capnp` rebuilt all 52
+member crates on a pull request that changed one shell script, run 37041880456). A file removed
+from such a directory shows only in the directory's mtime, which is why a deletion counts too:
 
 - a unit main built in the recording run has outputs newer than T, so it stays fresh;
 - a unit an earlier run left in the cache has outputs older than T, so it rebuilds;
-- a unit that reads a changed file rebuilds, whatever kind of file that is.
+- a unit that reads a changed file rebuilds, whatever kind of file that is;
+- a unit that watches a directory rebuilds when a file below it changed, appeared or went away.
 
 Commit times are never used. A pull request's commits can predate the cache, which would make a
 changed file older than a stale output and pass the output as fresh.
@@ -43,7 +49,9 @@ dependencies stay, and so does any file named like one; the stash and the marker
 
 `verify` checks the result by a second route, blob by blob between the two trees rather than
 through `git diff`. Every tracked file whose content differs must be newer than T and every
-other tracked file must be exactly T - 1, whatever its type. A file left wrong fails by name.
+other tracked file must be exactly T - 1, whatever its type; a directory above a differing or
+removed path must be newer than T and every other one exactly T - 1. A path left wrong fails by
+name.
 `reuse` ends by running it.
 
 """
@@ -351,6 +359,19 @@ def reachable(sha: str) -> bool:
     return git(*fetch, check=False).returncode == 0
 
 
+def directories(paths: set[str] | dict[str, str]) -> set[str]:
+    """
+    Return every directory above those paths, the checkout root excluded.
+    """
+    found = set()
+    for path in paths:
+        parent = os.path.dirname(path)
+        while parent and parent not in found:
+            found.add(parent)
+            parent = os.path.dirname(parent)
+    return found
+
+
 def set_mtime(path: str, seconds: float) -> None:
     os.utime(path, (seconds, seconds), follow_symlinks=False)
 
@@ -380,14 +401,34 @@ def reuse(target_dir: Path) -> int:
     for path in tracked:
         if os.path.lexists(path):
             set_mtime(path, now if path in changed_set else unchanged_time)
+    # Setting a file's mtime leaves its directory's alone, so the directories go after the files.
+    above_changed = directories(changed_set)
+    folders = directories(tracked)
+    for folder in folders:
+        set_mtime(folder, now if folder in above_changed else unchanged_time)
     touched = sum(1 for p in changed if p in tracked)
+    moved = len(folders & above_changed)
     print(
         f"{PREFIX} reusing main's build of {sha} (recorded {recorded}): "
-        f"{touched} changed file(s) set to now, {len(tracked) - touched} unchanged set to {unchanged_time}",
+        f"{touched} changed file(s) set to now, {len(tracked) - touched} unchanged set to {unchanged_time}; "
+        f"{moved} directories above a change set to now, {len(folders) - moved} set to {unchanged_time}",
     )
     for path in changed[:20]:
         print(f"{PREFIX}   changed {path}")
     return verify(target_dir)
+
+
+def wrong_mtime(label: str, differs: bool, why: str, sha: str, recorded: int) -> str | None:
+    """
+    Describe a path whose mtime is not the one its content calls for, else None.
+    """
+    mtime = os.lstat(label.rstrip("/")).st_mtime
+    if differs:
+        if mtime <= recorded:
+            return f"{label}: {why} differs from {sha} but its mtime {mtime:.0f} is not after {recorded}"
+    elif int(mtime) != recorded - 1:
+        return f"{label}: {why} is unchanged since {sha} but its mtime {mtime:.0f} is not {recorded - 1}"
+    return None
 
 
 def verify(target_dir: Path) -> int:
@@ -397,30 +438,37 @@ def verify(target_dir: Path) -> int:
         return 1
     sha, recorded = marker
     before, after = tree(sha), tree("HEAD")
-    wrong = []
-    for path, entry in after.items():
-        if not os.path.lexists(path):
-            wrong.append(f"{path}: tracked but missing from the checkout")
-            continue
-        mtime = os.lstat(path).st_mtime
-        if before.get(path) != entry:
-            if mtime <= recorded:
-                wrong.append(
-                    f"{path}: content differs from {sha} but its mtime {mtime:.0f} is not after {recorded}",
-                )
-        elif int(mtime) != recorded - 1:
-            wrong.append(
-                f"{path}: unchanged since {sha} but its mtime {mtime:.0f} is not {recorded - 1}",
-            )
+    wrong = [
+        f"{path}: tracked but missing from the checkout"
+        for path in after
+        if not os.path.lexists(path)
+    ]
+    wrong += [
+        wrong_mtime(path, before.get(path) != entry, "its content", sha, recorded)
+        for path, entry in after.items()
+        if os.path.lexists(path)
+    ]
+    differing = {
+        path for path in before.keys() | after.keys() if before.get(path) != after.get(path)
+    }
+    above_differing = directories(differing)
+    folders = directories(after)
+    wrong += [
+        wrong_mtime(f"{folder}/", folder in above_differing, "the tree below it", sha, recorded)
+        for folder in sorted(folders)
+    ]
+    wrong = [line for line in wrong if line]
     if wrong:
         for line in wrong[:50]:
             print(f"{PREFIX} WRONG MTIME {line}", file=sys.stderr)
         print(
-            f"{PREFIX} {len(wrong)} tracked file(s) would let cargo reuse or rebuild the wrong artifacts",
+            f"{PREFIX} {len(wrong)} tracked path(s) would let cargo reuse or rebuild the wrong artifacts",
             file=sys.stderr,
         )
         return 1
-    print(f"{PREFIX} verified {len(after)} tracked file(s) against {sha}, blob by blob")
+    print(
+        f"{PREFIX} verified {len(after)} tracked file(s) and {len(folders)} directories against {sha}, blob by blob",
+    )
     return 0
 
 
