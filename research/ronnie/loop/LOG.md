@@ -2085,3 +2085,16 @@ His four uses (`RONNIE_2024_RULES.md`): an entry zone (0.382, 0.5-0.618), a stop
   - It costs trades, because the coin's slot stays occupied longer.
 - **A split exit** (part at 2R, the rest to the impulse extension; his partial profit-taking) is a new rule. It is not
   tested on read data and would be forward-only.
+
+## R-1s, a split exit (registered 2026-10-02, forward-only; the user's decision)
+
+- **Orders:** the same as R-1u.
+- **First half:** exits at 2R, or at the original stop.
+- **Second half:** targets the fill plus one impulse length, 1.00 x (B - A) as in R-F, or 2R if that is closer. Once
+  the first half has taken 2R, the second half's stop moves to the entry (breakeven), Ronnie's "take TP1, let the rest
+  run". The 60-day limit applies to both halves.
+- **R per trade** is the average of the two halves, net of fees; the coin's slot frees when both halves are out.
+- **Why forward-only:** R-F showed that extension targets raise R per trade but cost trades, and that the ratio does
+  not matter (1.15 equals 1.00). A split exit is a new rule, and the development and holdout data are already read.
+- **Decision on 2027-10-01:** the paired per-trade difference R-1s minus R-1u, week-clustered, above zero. Reported
+  beside R-1x.
