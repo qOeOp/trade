@@ -9,6 +9,7 @@ use std::collections::BTreeSet;
 use sha2::{Digest, Sha256};
 use sqlx::{Postgres, Row, Transaction};
 use thiserror::Error;
+use vibe_backtest_owner_contracts::CanonicalDigestV2;
 use vibe_data::owner::{
     bar_schedule::BarScheduleReadbackV1,
     instrument_economic_terms_v1::{
@@ -747,8 +748,11 @@ fn validate_verified(
     verified: &VerifiedNativeReplayExecutionInputConstituentsV1,
 ) -> Result<(), NativeReplayExecutionInputBindingErrorV1> {
     let request = &verified.request_locator;
+    // The meaning digest is whatever the Replay contract mints, and `meaning_digest()` mints
+    // `blake3:`. Validating it as `sha256:` here refused every production Replay; the contract's
+    // own type is the one definition of a valid digest.
     if !valid_text(&request.request_identity)
-        || !valid_sha256(&request.meaning_digest)
+        || CanonicalDigestV2::try_from(request.meaning_digest.clone()).is_err()
         || !valid_text(&request.receipt_identity)
         || !valid_sha256(&request.seal_digest)
         || !valid_named(&verified.trial_family)
@@ -1305,6 +1309,18 @@ mod tests {
             outbox_committed_at_epoch_ms: readback.receipt.committed_at_epoch_ms as i64,
             committed_at_epoch_ms: readback.receipt.committed_at_epoch_ms as i64,
         }
+    }
+
+    #[rstest::rstest]
+    fn a_production_meaning_digest_is_admitted() {
+        // `ExploratoryReplayRequestV2::meaning_digest` mints `blake3:`, never `sha256:`.
+        let mut production = verified();
+        production.request_locator.meaning_digest = format!("blake3:{}", "1".repeat(64));
+        prepare_rows(production, 17).expect("a production-shaped meaning digest is admitted");
+
+        let mut malformed = verified();
+        malformed.request_locator.meaning_digest = format!("md5:{}", "1".repeat(64));
+        assert!(prepare_rows(malformed, 17).is_err());
     }
 
     #[rstest::rstest]
