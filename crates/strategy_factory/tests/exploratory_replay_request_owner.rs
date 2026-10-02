@@ -2230,17 +2230,31 @@ async fn run_frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_
     }
     sqlx::query("UPDATE public.rd_sealed_exploratory_replay_requests_v1 SET frozen_json=jsonb_set(frozen_json,'{proposal,dataset,digest}',to_jsonb('sha256:tampered'::text)) WHERE request_identity=$1")
         .bind(&proposal.request_identity).execute(rd_pool).await.unwrap();
-    restore_after_checks(
+    // PROBE, not for merge: a check that fails here must leave the digest restored.
+    let caught = ProbeCatch(Box::pin(restore_after_checks(
         async {
             assert_unavailable(&owner, first.locator()).await;
+            assert_eq!(1, 2, "PROBE: forced check failure");
             assert_available_v2(&owner, sealed_v2.locator()).await;
         },
         async {
             sqlx::query("UPDATE public.rd_sealed_exploratory_replay_requests_v1 SET frozen_json=jsonb_set(frozen_json,'{proposal,dataset,digest}',to_jsonb($2::text)) WHERE request_identity=$1")
                 .bind(&proposal.request_identity).bind(&proposal.dataset.digest).execute(rd_pool).await.unwrap();
         },
-    )
+    )))
     .await;
+    assert!(caught.is_err(), "PROBE: the forced check did not fail");
+    let digest_after: String = sqlx::query_scalar(
+        "SELECT frozen_json#>>'{proposal,dataset,digest}' FROM public.rd_sealed_exploratory_replay_requests_v1 WHERE request_identity=$1",
+    )
+    .bind(&proposal.request_identity)
+    .fetch_one(rd_pool)
+    .await
+    .unwrap();
+    assert_ne!(
+        digest_after, "sha256:tampered",
+        "PROBE: a failed check left the tamper in the shared store"
+    );
     sqlx::query("UPDATE public.rd_sealed_exploratory_replay_requests_v1 SET frozen_json=jsonb_set(frozen_json,'{proposal,admission,admission_digest}',to_jsonb('sha256:tampered'::text)) WHERE request_identity=$1")
         .bind(&proposal.request_identity).execute(rd_pool).await.unwrap();
     restore_after_checks(assert_unavailable(&owner, first.locator()), async {
@@ -3644,4 +3658,25 @@ fn now() -> u64 {
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_millis() as u64
+}
+
+/// PROBE, not for merge: polls a boxed future with its panic caught, so the probe can read the
+/// store after a check fails.
+struct ProbeCatch<F>(std::pin::Pin<Box<F>>);
+
+impl<F: std::future::Future> std::future::Future for ProbeCatch<F> {
+    type Output = std::thread::Result<F::Output>;
+
+    fn poll(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Self::Output> {
+        let inner = &mut self.0;
+
+        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| inner.as_mut().poll(cx))) {
+            Ok(std::task::Poll::Pending) => std::task::Poll::Pending,
+            Ok(std::task::Poll::Ready(value)) => std::task::Poll::Ready(Ok(value)),
+            Err(panic) => std::task::Poll::Ready(Err(panic)),
+        }
+    }
 }
