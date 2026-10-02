@@ -1972,3 +1972,10 @@ estimate is at least SESOI on the 69 post-2022 holdout coins.
   - R-1's registered exit sits on the plateau already.
 - **Per the registered rule, R-1x (0.5, 0.5, 1.5R) joins the forward record beside R-1.** Same orders, so the
   2027-10-01 decision is the paired per-trade difference. The predicted gain was +0.1 to +0.3 Sharpe; +0.15 came.
+
+**R-1 slot note (found 2026-10-02 while building the scan):** `family_r.signals` marks a coin busy for 60 days from
+each fill (`busy = k + HOLD`), even after an early stop or target. The rule that passed stages 1 and 2 is therefore
+"at most one R-1 trade per coin per 60 days". This was not intended and is not Ronnie's rule, but it is the tested rule.
+- The forward scorer now applies it.
+- Every armed order stays logged, so the lock-free version can be reported as an untested diagnostic.
+- Workflow note 56.

@@ -291,3 +291,8 @@ Input for the product's R&D system. Each note: what happened, why it matters, a 
     while stage 2 also requires the estimate to reach SESOI. The missing bit sat in the sealed file, and a second relay
     to fetch it was rightly denied because it reads the sealed store. Proposal: the gatekeeper's verdict function is
     generated from the stage definition in CRITERIA, so a verdict cannot omit a condition.
+56. **A position-slot side effect became part of the validated rule.** R-1's backtest kept a coin busy for the full
+    60-day hold after any fill, even an early stop, so the rule that passed its holdout trades each coin at most once
+    per 60 days. Nobody chose that, and a live implementation would naturally free the slot after an exit. Proposal:
+    position and slot logic are explicit, registered parameters of a rule (reported with its result), and the forward
+    harness is generated from the same rule object as the backtest, so they cannot diverge.

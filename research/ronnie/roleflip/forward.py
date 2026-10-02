@@ -136,12 +136,25 @@ def score(now):
             R, status = (path.close.iloc[-1] - px) * side / risk, "time"
         if R is not None:
             R -= 2 * FEE * px / risk
-        rows.append(dict(coin=coin, status=status, R=R))
+        rows.append(dict(coin=coin, status=status, R=R, fill_day=t0))
     z = pd.DataFrame(rows)
+    # the tested rule holds one trade per coin per 60 days from each fill, even after an early exit (loop/LOG.md, the
+    # R-1 slot note); fills inside a coin's slot are reported as the untested "unlocked" variant only
+    if "fill_day" in z:
+        z["slot_ok"] = True
+        for coin, g in z.dropna(subset=["fill_day"]).sort_values("fill_day").groupby("coin"):
+            until = None
+            for ix, r in g.iterrows():
+                if until is not None and r.fill_day < until:
+                    z.loc[ix, "slot_ok"] = False
+                else:
+                    until = r.fill_day + pd.Timedelta(days=FR.HOLD)
     print(z.status.value_counts().to_dict())
     done = z.dropna(subset=["R"]) if "R" in z else z.iloc[0:0]
     if len(done):
-        print(f"closed trades {len(done)}, mean R {done.R.mean():+.3f}")
+        ok = done[done.slot_ok] if "slot_ok" in done else done
+        print(f"R-1 as tested (one slot per coin per 60 days): closed {len(ok)}, mean R {ok.R.mean():+.3f}" if len(ok) else "R-1 as tested: none closed")
+        print(f"unlocked variant (every order, untested): closed {len(done)}, mean R {done.R.mean():+.3f}")
 
 
 if __name__ == "__main__":
