@@ -1,0 +1,7 @@
+L-4: entry on a test of drawer D's trend line in R-1's trend state, development (53 coins, 2018-2022)
+  L-4a: n 2528, avg R -0.115, edge -0.040 [-0.129, +0.052]
+  L-4a placebo: n 504, avg R -0.267, edge -0.200 [-0.334, -0.047]
+  L-4b: n 1576, avg R -0.075, edge -0.141 [-0.258, -0.009]
+  L-4b placebo: n 478, avg R -0.069, edge -0.128 [-0.312, +0.070]
+  L-4a: fail at stage 1 (placebo edge -0.200); equivalent-null
+  L-4b: fail at stage 1 (placebo edge -0.128); harmful

@@ -2243,3 +2243,15 @@ On the 187 drawn 2024-2025 plans, R-1's daily trend state at the last close agre
 time against 68% by chance (he draws longs 90% of the time; in 43 of the 51 cases R-1 calls a downtrend he drew a long).
 R-1's trend filter is therefore ours, not his. That is not a reason to change it: his direction calls carry no edge
 (README, "Grading his declared trades"; `tv_plan_grade.py`), and R-1's filter is judged on its own results.
+
+### Loop L-4 result (2026-10-02; `loop/family_tl.txt`)
+
+| variant | trades | avg R | edge [95%, week-clustered] | placebo edge (line moved 1 ATR) | status |
+| --- | --- | --- | --- | --- | --- |
+| L-4a stop 0.5 ATR | 2,528 | -0.115 | -0.040 [-0.129, +0.052] | -0.200 [-0.334, -0.047] | equivalent-null |
+| L-4b stop 1.0 ATR | 1,576 | -0.075 | -0.141 [-0.258, -0.009] | -0.128 | harmful |
+
+His kind of trend line is better than a line moved 1 ATR (L-4a -0.04 against -0.20: price does react at it), but a
+limit at the line earns no more than a random entry of the same geometry, and less with the wider stop. With a drawer
+that reproduces his lines, the trend-line test entry joins every other touch entry: the reaction is real and priced
+in. Family closed for daily crypto (equivalence on L-4a, harm on L-4b); fidelity 23% is its stated limit.

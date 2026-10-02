@@ -161,3 +161,5 @@ logged_at,loop,candidate,stage,n,edge,lo,hi,passed,note
 2026-10-02T19:49:26+00:00,L-2 L2,R-1 lines (calibrated drawer),iteration,4300,-0.0035,+nan,+nan,False,placebo +0.014; p 0.519
 2026-10-02T19:49:26+00:00,L-2 L3,R-1 lines (calibrated drawer),iteration,4300,+0.2119,+nan,+nan,False,placebo +0.166; p 0.002
 2026-10-02T19:50:10+00:00,L-3,R-1 cycle Fibonacci target,iteration,2772,+0.0197,-0.0075,+0.0441,False,placebo -0.001
+2026-10-02T19:55:45+00:00,L-4a,trend-line test entry,iteration,2528,-0.0403,-0.1294,+0.0515,False,placebo -0.200
+2026-10-02T19:55:45+00:00,L-4b,trend-line test entry,iteration,1576,-0.1408,-0.2580,-0.0093,False,placebo -0.128
