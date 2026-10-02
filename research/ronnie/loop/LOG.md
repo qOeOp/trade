@@ -2013,3 +2013,22 @@ each fill (`busy = k + HOLD`), even after an early stop or target. The rule that
 - **Forward pace:** about 14 trades per coin-year in development, so about 500 a year on the 37 forward coins. At the
   development edge the sequential scale-up bound is near 70 trades (about two months); at half the edge, near 260
   (about six months). Clustering (61% follow-on trades) makes the effective count lower than the raw count.
+
+**Slot audit across all families (2026-10-02, the user's question):** a lock held for the whole hold period after a
+fill appears in family_r (R-1, R-2; fixed) and family_q (P-3: 720 1h bars, 240 for Q-4).
+- Every other family uses a signal spacing (A, B, C, O3/C-6, range), one trade per box or line (D, F, G), a lock to
+  the fill bar (E), a lock to the exit (T0), or real positions (the Ronnie plan's simulator, the combo portfolio).
+  None of these suppresses trades after an exit.
+- P-3 is rerun with the slot freed at the exit (logged as reruns). Prediction: more trades, the statuses unchanged
+  (Q-1 to Q-3 parked, Q-4 harmful).
+
+**Result, P-3 rerun with the slot freed at the exit:**
+- Q-1: 149 trades, -0.020 [-0.248, +0.205]; parked.
+- Q-1p: 199 trades, -0.049.
+- Q-2: 7,280 trades, -0.057 [-0.137, +0.027]; **now closed (equivalent-null)**, from parked.
+- Q-3: 1,423 trades, -0.025 [-0.165, +0.125]; parked.
+- Q-4: 1,393 trades, -0.214 [-0.319, -0.104]; harmful.
+- Fibonacci test: +0.030.
+
+The lock under-stated R-1 but did not hide an edge in P-3. With 4.6x the trades, the round-number break-and-retest
+excludes a meaningful edge.

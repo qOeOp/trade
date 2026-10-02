@@ -91,7 +91,17 @@ def signals(d1, h1):
                 return
             out[v].append((i + 1, side, entry, stop, tgt))
             last[v] = i
-            busy[v] = i + (HOLD_RANGE if v == "Q-4" else HOLD)
+            # the slot frees at the trade's exit (the 30-day lock from the fill was a side effect; loop/LOG.md, P-3 rerun)
+            hold = HOLD_RANGE if v == "Q-4" else HOLD
+            ex = i + 1 + hold
+            for m in range(i + 1, min(i + 1 + hold, len(c))):
+                if (side == 1 and l[m] <= stop) or (side == -1 and h[m] >= stop):
+                    ex = m
+                    break
+                if m > i + 1 and ((side == 1 and h[m] >= tgt) or (side == -1 and l[m] <= tgt)):
+                    ex = m
+                    break
+            busy[v] = ex
 
         # Q-1 / Q-1p: big-swing retracement in the bias direction
         if bias != 0 and len(conf) >= 2:

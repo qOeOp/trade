@@ -212,6 +212,7 @@ closure audit (`loop/closure_audit.txt`, week-clustered, SESOI +0.10R) and the p
 | Ronnie's plan, S2b | absorbed into B1 | inside the plan its filters leave 135 trades |
 | **Ronnie's 2024-2025 role-reversal retest R-1u** | **active, stage 3 (forward)** | development (53 coins, 2018-2022) +0.338 [+0.255, +0.428] on 3,781 trades (the original R-1, with a 60-day slot side effect: +0.211 on 650); holdout (69 coins, 2023-2026) stage 2 PASS for both; `roleflip/forward.py`, `roleflip/scan.py` |
 | Ronnie's 2024-2025 Fibonacci on the latest move R-2 | parked | +0.073 [-0.108, +0.255] |
+| Ronnie plan drawn faithfully, 1h execution (P-3) | Q-2 round-number break-retest closed; Q-1 big-swing Fibonacci and Q-3 daily middle band parked; Q-4 squeeze fade harmful | rerun with the slot freed at exit: Q-2 -0.057 [-0.137, +0.027] on 7,280 trades; Q-4 -0.214 |
 | Ronnie's own calls (YouTube titles) | not audited | descriptive only; titles are summaries |
 
 ## Cross-cutting next steps

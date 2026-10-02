@@ -143,3 +143,8 @@ logged_at,loop,candidate,stage,n,edge,lo,hi,passed,note
 2026-10-02T02:53:48+00:00,P-4 R-2,familyR,rerun-iteration,654,+0.0515,-0.0881,+0.2040,False,"Ronnie 2024-25 method, daily slot freed at exit (bug fix), user decision"
 2026-10-02T02:53:48+00:00,P-4 R-3,familyR,rerun-iteration,3044,+0.3786,+0.2643,+0.4900,True,"Ronnie 2024-25 method, daily slot freed at exit (bug fix), user decision"
 2026-10-02T02:54:41+00:00,R-1,familyR,rerun-holdout,5589,+nan,+nan,+nan,True,"sealed; stage-2 read R-1u, slot freed at exit (bug fix)"
+2026-10-02T03:00:30+00:00,P-3 Q-1,familyQ,rerun-iteration,149,-0.0195,-0.2478,+0.2045,False,"faithful Ronnie plan, 1h slot freed at exit"
+2026-10-02T03:00:30+00:00,P-3 Q-1p,familyQ,rerun-iteration,199,-0.0493,-0.2319,+0.1468,False,"faithful Ronnie plan, 1h slot freed at exit"
+2026-10-02T03:00:30+00:00,P-3 Q-2,familyQ,rerun-iteration,7280,-0.0568,-0.1369,+0.0268,False,"faithful Ronnie plan, 1h slot freed at exit"
+2026-10-02T03:00:30+00:00,P-3 Q-3,familyQ,rerun-iteration,1423,-0.0252,-0.1654,+0.1254,False,"faithful Ronnie plan, 1h slot freed at exit"
+2026-10-02T03:00:30+00:00,P-3 Q-4,familyQ,rerun-iteration,1393,-0.2141,-0.3186,-0.1042,False,"faithful Ronnie plan, 1h slot freed at exit"
