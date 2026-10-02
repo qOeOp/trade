@@ -23,8 +23,10 @@ const LEASED_FILE_PATH_ENV: &str = "DEPLOYMENT_STORE_LEASED_FILE_PATH";
 const ROOT_CERTIFICATE_PATH_ENV: &str = "DEPLOYMENT_STORE_POSTGRES_ROOT_CERTIFICATE_PATH";
 const OUTPUT_PATH_ENV: &str = "DEPLOYMENT_STORE_PUBLICATION_AUTHORING_OUTPUT_PATH";
 const MAX_DRAFT_BYTES: usize = 64 * 1024;
+// The deployment's own bounds on the files it reads (`credential_files::read_regular_file`), so a
+// publication is never authored from a file the deployment would refuse.
 const MAX_CREDENTIAL_BYTES: usize = 4 * 1024;
-const MAX_ROOT_CERTIFICATE_BYTES: usize = 64 * 1024;
+const MAX_ROOT_CERTIFICATE_BYTES: usize = 4 * 1024;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {

@@ -1,15 +1,16 @@
 //! Fail-closed custody for admitting an external deployment store.
 //!
 //! This private boundary is deliberately not a business Owner. It can seal a store-admission receipt only
-//! after resolving and verifying custodian-owned signed history, consulting an independent
-//! anti-rollback witness, resolving an opaque credential lease, and directly measuring the target.
-//! The production signature verifier pins one Ed25519 public key (`signature`); the production
-//! resolver, witness, and credential resolver are intentionally unavailable until their deployment
-//! authorities exist, and the composition root still wires the unavailable verifier until then.
+//! after resolving and verifying custodian-owned signed history, consulting the anti-rollback port,
+//! resolving an opaque credential lease, and directly measuring the target. `composition` builds
+//! the production ports from the deployment's configuration: the custody store, the pinned Ed25519
+//! verifier (`signature`), the single-machine anti-rollback mode (`witness`), which observes
+//! nothing and says so in every receipt, the secret-file credential resolver (`credential_files`)
+//! and the pinned-TLS direct measurer (`postgres`).
 
 #![allow(
     dead_code,
-    reason = "private store-admission foundations retain tested unavailable production adapters and S3 stops"
+    reason = "private store-admission foundations retain tested acceptance and S3 stops no production build reaches"
 )]
 
 #[cfg(unix)]
@@ -674,10 +675,16 @@ impl MarketDataSourceBindingStorageEvidence {
 }
 
 impl AdmittedMarketDataSnapshotPort {
-    /// Admits again and refuses unless that admission still covers `floor` at this port's cut.
+    /// Admits again and refuses unless that admission still names the store this port was opened
+    /// on and covers `floor`. With `same_cut_as`, the admission before a read, it also refuses
+    /// unless this is that same receipt: the read happened within one snapshot cut.
+    ///
+    /// The store is compared without the receipt's window, which moves with each lease period, so a
+    /// port outlives the period it was opened in; the window is compared only across one read.
     async fn readmit_covering(
         &self,
         floor: &postgres::MeasurementFloor,
+        same_cut_as: Option<&SealedDeploymentStoreAdmissionReceipt>,
     ) -> Result<AdmittedMarketDataPostgresCapability, DeploymentStoreAdmissionError> {
         let current = self
             .revalidator
@@ -690,6 +697,13 @@ impl AdmittedMarketDataSnapshotPort {
             &current.measurement_spec,
             floor,
         )?;
+
+        if same_cut_as.is_some_and(|before| !same_snapshot_cut(before, &current.receipt)) {
+            return Err(rejection(
+                &self.scope,
+                AdmissionFailureCode::AdmissionCutExpired,
+            ));
+        }
         Ok(current)
     }
 
@@ -698,7 +712,7 @@ impl AdmittedMarketDataSnapshotPort {
         &self,
     ) -> Result<postgres::RawSharedTimeEvidenceSnapshotV1, DeploymentStoreAdmissionError> {
         let before = self
-            .readmit_covering(&postgres::SHARED_TIME_FLOOR_V1)
+            .readmit_covering(&postgres::SHARED_TIME_FLOOR_V1, None)
             .await?;
         let raw = postgres::read_shared_time_evidence_snapshot_v1(
             &before.credential_lease,
@@ -711,7 +725,7 @@ impl AdmittedMarketDataSnapshotPort {
                 AdmissionFailureCode::DirectMeasurementUnavailable,
             )
         })?;
-        self.readmit_covering(&postgres::SHARED_TIME_FLOOR_V1)
+        self.readmit_covering(&postgres::SHARED_TIME_FLOOR_V1, Some(&before.receipt))
             .await?;
         Ok(raw)
     }
@@ -722,7 +736,7 @@ impl AdmittedMarketDataSnapshotPort {
         canonical_instrument: &str,
     ) -> Result<Vec<BarScheduleStorageEvidenceV1>, DeploymentStoreAdmissionError> {
         let before = self
-            .readmit_covering(&postgres::BAR_SCHEDULE_FLOOR_V1)
+            .readmit_covering(&postgres::BAR_SCHEDULE_FLOOR_V1, None)
             .await?;
         let raw = postgres::read_bar_schedule_candidate_snapshots_v1(
             &before.credential_lease,
@@ -736,7 +750,7 @@ impl AdmittedMarketDataSnapshotPort {
                 AdmissionFailureCode::DirectMeasurementUnavailable,
             )
         })?;
-        self.readmit_covering(&postgres::BAR_SCHEDULE_FLOOR_V1)
+        self.readmit_covering(&postgres::BAR_SCHEDULE_FLOOR_V1, Some(&before.receipt))
             .await?;
         Ok(bar_schedule_candidate_evidence_v1(raw))
     }
@@ -751,7 +765,7 @@ impl AdmittedMarketDataSnapshotPort {
         window_end_ns_exclusive: u64,
     ) -> Result<postgres::RawNativeReplayQuoteCutCensusV2, DeploymentStoreAdmissionError> {
         let before = self
-            .readmit_covering(&postgres::NATIVE_REPLAY_QUOTE_CUT_FLOOR_V2)
+            .readmit_covering(&postgres::NATIVE_REPLAY_QUOTE_CUT_FLOOR_V2, None)
             .await?;
         let raw = postgres::read_native_replay_quote_cut_census_snapshot_v2(
             &before.credential_lease,
@@ -769,8 +783,11 @@ impl AdmittedMarketDataSnapshotPort {
                 AdmissionFailureCode::DirectMeasurementUnavailable,
             )
         })?;
-        self.readmit_covering(&postgres::NATIVE_REPLAY_QUOTE_CUT_FLOOR_V2)
-            .await?;
+        self.readmit_covering(
+            &postgres::NATIVE_REPLAY_QUOTE_CUT_FLOOR_V2,
+            Some(&before.receipt),
+        )
+        .await?;
         Ok(raw)
     }
 
@@ -780,7 +797,7 @@ impl AdmittedMarketDataSnapshotPort {
         readback_identity: [u8; 32],
     ) -> Result<Option<BarScheduleStorageEvidenceV1>, DeploymentStoreAdmissionError> {
         let before = self
-            .readmit_covering(&postgres::BAR_SCHEDULE_FLOOR_V1)
+            .readmit_covering(&postgres::BAR_SCHEDULE_FLOOR_V1, None)
             .await?;
         let raw = postgres::read_bar_schedule_snapshot_v1(
             &before.credential_lease,
@@ -794,7 +811,7 @@ impl AdmittedMarketDataSnapshotPort {
                 AdmissionFailureCode::DirectMeasurementUnavailable,
             )
         })?;
-        self.readmit_covering(&postgres::BAR_SCHEDULE_FLOOR_V1)
+        self.readmit_covering(&postgres::BAR_SCHEDULE_FLOOR_V1, Some(&before.receipt))
             .await?;
         Ok(raw.map(|raw| BarScheduleStorageEvidenceV1 {
             readback_row: raw.readback_row,
@@ -806,7 +823,7 @@ impl AdmittedMarketDataSnapshotPort {
     pub(super) async fn revalidate_bar_schedule_v1_before_return(
         &self,
     ) -> Result<(), DeploymentStoreAdmissionError> {
-        self.readmit_covering(&postgres::BAR_SCHEDULE_FLOOR_V1)
+        self.readmit_covering(&postgres::BAR_SCHEDULE_FLOOR_V1, None)
             .await
             .map(|_| ())
     }
@@ -817,7 +834,7 @@ impl AdmittedMarketDataSnapshotPort {
         receipt_digest: [u8; 32],
     ) -> Result<StrategyInputSampleProjectionStorageEvidenceV2, DeploymentStoreAdmissionError> {
         let before = self
-            .readmit_covering(&postgres::SAMPLE_PROJECTION_FLOOR_V2)
+            .readmit_covering(&postgres::SAMPLE_PROJECTION_FLOOR_V2, None)
             .await?;
         let raw = postgres::read_strategy_input_sample_projection_snapshot_v2(
             &before.credential_lease,
@@ -831,7 +848,7 @@ impl AdmittedMarketDataSnapshotPort {
                 AdmissionFailureCode::DirectMeasurementUnavailable,
             )
         })?;
-        self.readmit_covering(&postgres::SAMPLE_PROJECTION_FLOOR_V2)
+        self.readmit_covering(&postgres::SAMPLE_PROJECTION_FLOOR_V2, Some(&before.receipt))
             .await?;
         Ok(StrategyInputSampleProjectionStorageEvidenceV2 {
             projection_row: raw.projection_row,
@@ -844,7 +861,7 @@ impl AdmittedMarketDataSnapshotPort {
     pub(super) async fn revalidate_sample_projection_v2_before_return(
         &self,
     ) -> Result<(), DeploymentStoreAdmissionError> {
-        self.readmit_covering(&postgres::SAMPLE_PROJECTION_FLOOR_V2)
+        self.readmit_covering(&postgres::SAMPLE_PROJECTION_FLOOR_V2, None)
             .await
             .map(|_| ())
     }
@@ -855,7 +872,7 @@ impl AdmittedMarketDataSnapshotPort {
         receipt_digest: [u8; 32],
     ) -> Result<StrategyInputSampleProjectionStorageEvidenceV3, DeploymentStoreAdmissionError> {
         let before = self
-            .readmit_covering(&postgres::SAMPLE_PROJECTION_FLOOR_V3)
+            .readmit_covering(&postgres::SAMPLE_PROJECTION_FLOOR_V3, None)
             .await?;
         let raw = postgres::read_strategy_input_sample_projection_snapshot_v3(
             &before.credential_lease,
@@ -869,7 +886,7 @@ impl AdmittedMarketDataSnapshotPort {
                 AdmissionFailureCode::DirectMeasurementUnavailable,
             )
         })?;
-        self.readmit_covering(&postgres::SAMPLE_PROJECTION_FLOOR_V3)
+        self.readmit_covering(&postgres::SAMPLE_PROJECTION_FLOOR_V3, Some(&before.receipt))
             .await?;
         Ok(StrategyInputSampleProjectionStorageEvidenceV3 {
             projection_row: raw.projection_row,
@@ -885,7 +902,7 @@ impl AdmittedMarketDataSnapshotPort {
     pub(super) async fn revalidate_sample_projection_v3_before_return(
         &self,
     ) -> Result<(), DeploymentStoreAdmissionError> {
-        self.readmit_covering(&postgres::SAMPLE_PROJECTION_FLOOR_V3)
+        self.readmit_covering(&postgres::SAMPLE_PROJECTION_FLOOR_V3, None)
             .await
             .map(|_| ())
     }
@@ -896,7 +913,7 @@ impl AdmittedMarketDataSnapshotPort {
         binding_identity: [u8; 32],
     ) -> Result<MarketDataSourceBindingStorageEvidence, DeploymentStoreAdmissionError> {
         let before = self
-            .readmit_covering(&postgres::SOURCE_BINDING_FLOOR_V1)
+            .readmit_covering(&postgres::SOURCE_BINDING_FLOOR_V1, None)
             .await?;
         let (lineage_rows, clock_rows) = postgres::read_market_data_source_binding_snapshot(
             &before.credential_lease,
@@ -910,7 +927,7 @@ impl AdmittedMarketDataSnapshotPort {
                 AdmissionFailureCode::DirectMeasurementUnavailable,
             )
         })?;
-        self.readmit_covering(&postgres::SOURCE_BINDING_FLOOR_V1)
+        self.readmit_covering(&postgres::SOURCE_BINDING_FLOOR_V1, Some(&before.receipt))
             .await?;
         Ok(MarketDataSourceBindingStorageEvidence {
             admission_receipt_identity: self.receipt.receipt_identity.clone(),
@@ -925,7 +942,7 @@ impl AdmittedMarketDataSnapshotPort {
         snapshot_identity: [u8; 32],
     ) -> Result<MarketDataPitEvaluationStorageEvidence, DeploymentStoreAdmissionError> {
         let before = self
-            .readmit_covering(&postgres::PIT_EVALUATION_FLOOR_V1)
+            .readmit_covering(&postgres::PIT_EVALUATION_FLOOR_V1, None)
             .await?;
         let raw = postgres::read_market_data_pit_evaluation_snapshot(
             &before.credential_lease,
@@ -939,7 +956,7 @@ impl AdmittedMarketDataSnapshotPort {
                 AdmissionFailureCode::DirectMeasurementUnavailable,
             )
         })?;
-        self.readmit_covering(&postgres::PIT_EVALUATION_FLOOR_V1)
+        self.readmit_covering(&postgres::PIT_EVALUATION_FLOOR_V1, Some(&before.receipt))
             .await?;
         Ok(pit_evaluation_evidence_v1(
             self.receipt.receipt_identity.clone(),
@@ -956,7 +973,7 @@ impl AdmittedMarketDataSnapshotPort {
         snapshot_identity: [u8; 32],
     ) -> Result<MarketDataPitTerminalStorageEvidence, DeploymentStoreAdmissionError> {
         let before = self
-            .readmit_covering(&postgres::PIT_TERMINAL_FLOOR_V1)
+            .readmit_covering(&postgres::PIT_TERMINAL_FLOOR_V1, None)
             .await?;
         let raw = postgres::read_market_data_pit_terminal_snapshot(
             &before.credential_lease,
@@ -970,7 +987,7 @@ impl AdmittedMarketDataSnapshotPort {
                 AdmissionFailureCode::DirectMeasurementUnavailable,
             )
         })?;
-        self.readmit_covering(&postgres::PIT_TERMINAL_FLOOR_V1)
+        self.readmit_covering(&postgres::PIT_TERMINAL_FLOOR_V1, Some(&before.receipt))
             .await?;
         Ok(MarketDataPitTerminalStorageEvidence {
             admission_receipt_identity: self.receipt.receipt_identity.clone(),
@@ -988,7 +1005,7 @@ fn same_snapshot_cut(
     expected == observed
 }
 
-/// Refuses a re-admission that no longer covers `floor` or no longer stands at the expected cut.
+/// Refuses a re-admission that no longer covers `floor` or no longer admits the store `expected` did.
 fn validate_revalidation(
     scope: &AdmissionScope,
     expected: &SealedDeploymentStoreAdmissionReceipt,
@@ -1003,10 +1020,27 @@ fn validate_revalidation(
         ));
     }
 
-    if !same_snapshot_cut(expected, observed) {
+    if !same_admitted_store(expected, observed) {
         return Err(rejection(scope, AdmissionFailureCode::AdmissionCutExpired));
     }
     Ok(())
+}
+
+/// Whether two receipts admit the same store under the same custody: every field but the window
+/// (`admitted_at`, `valid_through`) and the identities derived from it.
+fn same_admitted_store(
+    original: &SealedDeploymentStoreAdmissionReceipt,
+    observed: &SealedDeploymentStoreAdmissionReceipt,
+) -> bool {
+    let unwindowed = |receipt: &SealedDeploymentStoreAdmissionReceipt| {
+        let mut receipt = receipt.clone();
+        receipt.receipt_identity.clear();
+        receipt.replay_identity.clear();
+        receipt.admitted_at_epoch_ms = 0;
+        receipt.valid_through_epoch_ms = 0;
+        receipt
+    };
+    unwindowed(original) == unwindowed(observed)
 }
 
 /// Stable failure categories at the custody boundary.
@@ -1089,7 +1123,18 @@ impl std::error::Error for DeploymentStoreAdmissionError {}
 pub(super) async fn admit_rd_owner_market_data_postgres(
     request: &RdOwnerMarketDataAdmissionRequest,
 ) -> Result<AdmittedMarketDataPostgresCapability, DeploymentStoreAdmissionError> {
-    admit_rd_owner_market_data_postgres_with(request, |name| std::env::var(name).ok()).await
+    let admitted =
+        admit_rd_owner_market_data_postgres_with(request, |name| std::env::var(name).ok()).await;
+
+    // The bootstraps keep only a category, so the code naming the port or check that refused is
+    // logged here, where it still exists.
+    if let Err(refusal) = &admitted {
+        crate::owner::storage_diagnostic::refused_by_store(
+            "deployment_store_admission.admit_rd_owner_market_data_postgres",
+            refusal,
+        );
+    }
+    admitted
 }
 
 /// The production seam over the ports a supplied configuration names: `composition` builds every
@@ -2142,8 +2187,8 @@ fn seal_receipt_at(
 /// witness observation and validity lands in it again.
 ///
 /// The receipt's `valid_through` is part of the slot. Without it, a slot named only a head and an
-/// observation, and the single-machine mode's observation never changes, while a secret file's
-/// lease lapses a fixed time after each admission's cut: every admission after the first against
+/// observation, and the single-machine mode's observation never changes, while a lease's lapse moves
+/// with the cut or the period each admission falls in: every admission after the first against
 /// one head landed in the first one's slot with another lapse, and was refused as a conflict. That
 /// is every revalidation an admitted port makes before and after its reads.
 fn receipt_slot(scope: &AdmissionScope, cut: &AdmissionCommitCut) -> String {
@@ -3215,7 +3260,7 @@ mod tests {
         );
     }
 
-    /// A secret file's lease lapses a fixed time after each admission's cut, so under the
+    /// A lease that lapses a fixed time after each admission's cut, so under the
     /// single-trust-domain mode, whose observation never changes, every readmission against one head
     /// seals a receipt with its own lapse. Each is admitted in a slot of its own: a port revalidates
     /// before and after every read, and refusing the second admission refused every read.
@@ -3266,6 +3311,88 @@ mod tests {
         assert_eq!(first.valid_through_epoch_ms, STORE_NOW + 1);
         assert_eq!(second.valid_through_epoch_ms, STORE_NOW + 11);
         assert_eq!(custody.state.lock().unwrap().receipts.len(), 2);
+    }
+
+    /// A port lives as long as its process, across lease periods: each period seals a receipt of
+    /// its own, and a port compares a readmission with the receipt it opened on by the store and its
+    /// custody, not by the window. Across one read the window is compared too: the admissions before
+    /// and after it must be one receipt, so a read straddling a period boundary is refused.
+    #[rstest]
+    #[tokio::test]
+    async fn a_port_outlives_its_lease_period_and_refuses_a_read_that_straddles_one() {
+        struct PeriodCredentials;
+
+        #[async_trait]
+        impl CredentialResolver for PeriodCredentials {
+            async fn resolve(
+                &self,
+                handle: &CredentialHandleBinding,
+                cut_epoch_ms: u64,
+            ) -> Result<PostgresCredentialLease, ()> {
+                PostgresCredentialLease::from_resolved_secret(
+                    &handle.identity,
+                    &handle.audience,
+                    &handle.version,
+                    (cut_epoch_ms / 1_000 + 1) * 1_000,
+                    "postgres://test:secret@127.0.0.1:5432/disposable".to_string(),
+                )
+                .map_err(|_| ())
+            }
+        }
+
+        let all_floors = postgres::MEASUREMENT_FLOORS.iter().collect::<Vec<_>>();
+        let fixture = Fixture::with_spec(&measurement_spec_covering(&all_floors));
+        let custody = single_trust_domain_custody(&fixture);
+        let port = Custodian::new(
+            Arc::new(custody.clone()),
+            Arc::new(CountingVerifier::pinned(
+                SIGNER,
+                &fixture.signing_key.verifying_key(),
+                Arc::new(AtomicUsize::new(0)),
+            )),
+            Arc::new(witness::SingleTrustDomainNoRollbackWitness),
+            Arc::new(PeriodCredentials),
+            Arc::new(FakeMeasurer {
+                value: fixture.measurement.clone(),
+                calls: Arc::new(AtomicUsize::new(0)),
+            }),
+        )
+        .admit_capability(fixture.request.scope())
+        .await
+        .unwrap()
+        .into_native_replay_scheduling_snapshot_port_v2()
+        .unwrap();
+        let floor = &postgres::BAR_SCHEDULE_FLOOR_V1;
+        let set_clock = |epoch_ms: u64| custody.state.lock().unwrap().now_epoch_ms = epoch_ms;
+        assert_eq!(port.receipt.valid_through_epoch_ms, 1_001_000);
+
+        // The next period: a receipt of its own, admitted for the port opened in the last one.
+        set_clock(1_001_010);
+        let before = port.readmit_covering(floor, None).await.unwrap();
+        assert_eq!(before.receipt.valid_through_epoch_ms, 1_002_000);
+        assert!(
+            port.readmit_covering(floor, Some(&before.receipt))
+                .await
+                .is_ok(),
+            "a read within one period is admitted after it"
+        );
+
+        // A read whose admissions straddle the period boundary is refused.
+        set_clock(1_002_010);
+        assert_eq!(
+            port.readmit_covering(floor, Some(&before.receipt))
+                .await
+                .map(|_| ())
+                .unwrap_err()
+                .code(),
+            AdmissionFailureCode::AdmissionCutExpired
+        );
+
+        // A receipt for another store is never the port's, whatever its window.
+        let mut another = port.receipt.clone();
+        another.measurement_digest = "sha256:another-measurement".to_owned();
+        assert!(!same_admitted_store(&port.receipt, &another));
+        assert!(same_admitted_store(&port.receipt, &before.receipt));
     }
 
     /// The property the single-trust-domain mode gives up, pinned so that it is read rather than
@@ -4927,7 +5054,12 @@ mod tests {
 
         for method in block.split("\n    pub(super) async fn ").skip(1) {
             let name = &method[..method.find('(').expect("a method")];
-            let floors = identifiers_after(method, "readmit_covering(&postgres::")
+            // Without whitespace, so a call rustfmt wraps reads like one it does not.
+            let compact = method
+                .chars()
+                .filter(|c| !c.is_whitespace())
+                .collect::<String>();
+            let floors = identifiers_after(&compact, "readmit_covering(&postgres::")
                 .into_iter()
                 .map(|constant| constant.to_ascii_lowercase().replace("_floor", ""))
                 .collect::<Vec<_>>();
@@ -5639,6 +5771,30 @@ mod tests {
                 .map(|candidates| candidates.len()),
             Ok(0),
             "the admitted port reads the store"
+        );
+
+        // A port outlives the lease period it was opened in: under a two-second period, a read just
+        // after the next boundary is admitted on a receipt of its own and reads the store.
+        let mut short_period = configuration.clone();
+        short_period.insert(composition::LEASE_PERIOD_MS_ENV, "2000".to_owned());
+        let port = admit_rd_owner_market_data_postgres_with(&request, |name| {
+            short_period.get(name).cloned()
+        })
+        .await
+        .expect("the production seam admits under a short lease period")
+        .into_native_replay_scheduling_snapshot_port_v2()
+        .unwrap();
+        let now = store_clock(&admin).await;
+        tokio::time::sleep(std::time::Duration::from_millis(
+            (now / 2_000 + 1) * 2_000 - now + 50,
+        ))
+        .await;
+        assert_eq!(
+            port.resolve_bar_schedule_candidates_v1("VIBE-PRODUCTION-SEAM")
+                .await
+                .map(|candidates| candidates.len()),
+            Ok(0),
+            "a port opened in one lease period reads in the next"
         );
 
         // Another signer's key, or no mode named, admits nothing.

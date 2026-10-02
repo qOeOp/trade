@@ -169,7 +169,9 @@ never runs in CI.
   (`store_admission/credential_files.rs`). A secret file has no version or expiry of its own: its version is the
   SHA-256 of its exact bytes, which the signed manifest names, and its lease lapses at the end of the fixed-length lease
   period the admission's store-clock cut falls in, so every admission and revalidation within one period seals or
-  rejoins one receipt. The fourth is the single-machine
+  rejoins one receipt. An admitted port compares each re-admission with the receipt it opened on by the store and its
+  custody, not by that window, so it outlives the period it opened in; only the admissions before and after one read
+  must be the same receipt, and a read that straddles a period boundary is refused. The fourth is the single-machine
   anti-rollback mode `SingleTrustDomainNoRollbackWitness` (`store_admission/witness.rs`): on one machine the
   anti-rollback property does not hold, the mode says so in every receipt, and the architecture rules carry the
   user's 2026-09-27 authorization. The fifth is the direct measurer for a deployment's store,

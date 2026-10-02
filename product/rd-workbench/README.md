@@ -49,7 +49,11 @@ mounts read-only:
   the store only over TLS that trusts exactly that root.
 
 Without any one of them `required` mode fails closed during startup, naming the
-port that could not be built, and `rd-owner-api` does not listen.
+port that could not be built in its log, and `rd-owner-api` does not listen.
+Each admission seals a receipt for its lease period; an admitted port re-admits
+before and after every read, and a read whose two admissions fall in different
+periods is refused once and succeeds when retried. Choose a period far longer
+than a read.
 
 `required` would not take credentials out of `rd-owner-api`. The service also
 reads `MARKET_DATA_OWNER_DATABASE_URL` (`market_data_owner`, required by the
@@ -108,10 +112,12 @@ container. Each step refuses rather than writes on anything unexpected.
    docker compose restart rd-owner-api
    ```
 
-4. Write the two connection files the deployment leases. They name the
-   principals provisioned in step 3, at `postgres:5432/rd_owner`:
+4. Write the two connection files the deployment leases, readable by you
+   alone. They name the principals provisioned in step 3, at
+   `postgres:5432/rd_owner`:
 
    ```bash
+   umask 077
    mkdir -p "$DEPLOYMENT_STORE_FILES_DIRECTORY/leased"
    printf 'postgres://market_data_admitted_reader:%s@postgres:5432/rd_owner\n' "$MARKET_DATA_ADMITTED_READER_DB_PASSWORD" \
      > "$DEPLOYMENT_STORE_FILES_DIRECTORY/leased/market-data-admitted-reader"
@@ -195,8 +201,16 @@ container. Each step refuses rather than writes on anything unexpected.
 The measurement names the endpoint as `rd-owner-api` reaches it, including the
 address the store answers on. A stack recreated with a different address, a
 changed role, function or grant, or a rotated certificate no longer matches the
-manifest, and `required` refuses at startup. Repeat steps 6 to 9 as the next
-publication, naming the current manifest and head in the draft.
+manifest, and `required` refuses at startup. The next publication repeats steps
+6 to 9, naming every earlier manifest and the current head in the draft. Take
+the files back first, and move the last publication's files aside, since the
+author and the sealer never overwrite one:
+
+```bash
+sudo chown -R "$(id -u):$(id -g)" "$DEPLOYMENT_STORE_FILES_DIRECTORY"
+mv "$DEPLOYMENT_STORE_ADMIN_DIRECTORY/authoring.json" "$DEPLOYMENT_STORE_ADMIN_DIRECTORY/authoring.previous.json"
+mv "$DEPLOYMENT_STORE_ADMIN_DIRECTORY/sealed.json" "$DEPLOYMENT_STORE_ADMIN_DIRECTORY/sealed.previous.json"
+```
 
 ## Start
 

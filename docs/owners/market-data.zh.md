@@ -134,7 +134,9 @@ ACL 拒绝。它不证明供应商真实性，不证明生产装配，也不证�
   与两个主体在 `product/rd-workbench/postgres-init/20-deployment-store-custody.sh`，由 compose 文件的
   `deployment-store-provision` 服务运行），以及 secret 文件凭据 resolver（`store_admission/credential_files.rs`）。
   secret 文件自身没有版本也没有过期时间：其版本是文件原样字节的 SHA-256，由签名 manifest 指名；其租约在准入的 store
-  时钟 cut 所在的那个固定长度租期的期末到期，所以同一租期内的每次准入与 revalidation 都封存或重新加入同一张回执。第四个是单机部署的 anti-rollback
+  时钟 cut 所在的那个固定长度租期的期末到期，所以同一租期内的每次准入与 revalidation 都封存或重新加入同一张回执。
+  已准入的读口按库及其托管、而不是按那段窗口，把每次重新准入与它开启时的回执相比，所以它活过开启时的那个租期；只有一次读
+  前后的两次准入必须是同一张回执，跨过租期边界的那次读被拒绝。第四个是单机部署的 anti-rollback
   模式 `SingleTrustDomainNoRollbackWitness`（`store_admission/witness.rs`）：单机上 anti-rollback 性质不成立，每张回执都写明
   这个模式，用户 2026-09-27 的授权载于架构规则。第五个是部署库的直接测量器
   `PinnedTlsPostgresDirectMeasurer`（`store_admission/postgres.rs`，其 TLS 一段在 `crates/postgres_connect/src/pinned_tls.rs`）。

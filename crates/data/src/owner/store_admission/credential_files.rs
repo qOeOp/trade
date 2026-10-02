@@ -4,8 +4,9 @@
 //! A static file carries no expiry and no version of its own, so both are derived rather than
 //! assumed. The version is the SHA-256 of the file's exact bytes: the signed manifest names the
 //! version it admits, so a changed secret is a new version, and only a newly signed manifest admits
-//! it. The lease lapses a fixed time after the admission's store-clock cut, never on this process's
-//! clock, because the custody store judges the receipt's window on the store's clock.
+//! it. The lease lapses at the end of the fixed-length lease period the admission's store-clock cut
+//! falls in, never on this process's clock, because the custody store judges the receipt's window
+//! on the store's clock.
 
 use std::{
     io::Read,
