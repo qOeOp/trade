@@ -51,7 +51,12 @@ the ones named like a kept library.
 workspace unit no file of which this run wrote, which is every one older than T: when main's key
 changes, the new entry is saved on top of the one it restored, and those older units would ride
 along in every later entry although a pull request rebuilds each of them anyway. Units of
-dependencies stay, and so does any file named like one; the stash and the marker are not units.
+dependencies stay, and so does any file named like one, except an executable: a dependency is
+built only as its library, so its deps files are `lib<name>-<hash>.rlib`, `.rmeta`, `.so` and
+`<name>-<hash>.d`, and an extension-less file without the `lib` prefix is a member's test or
+binary even under a shared name (`futures-<hash>` and `redb-<hash>` test executables, 1.4 GB of
+an entry, were kept that way until 2026-10-03, run 37040324308). The stash and the marker are not
+units.
 
 `verify` checks the result by a second route, blob by blob between the two trees rather than
 through `git diff`. Every tracked file whose content differs must be newer than T and every
@@ -213,6 +218,22 @@ def unit_entries(target_dir: Path, packages: list[tuple[str, list[str]]]) -> lis
     return sorted(set(found))
 
 
+def member_executables(target_dir: Path, crates: list[str]) -> list[Path]:
+    """
+    Return every member test or binary executable those crate names left in deps, in any
+    profile directory under the target: no `lib` prefix and no extension.
+    """
+    if not crates:
+        return []
+    executable = re.compile(rf"^(?:{'|'.join(map(re.escape, crates))})-[0-9a-f]{{16}}$")
+    return sorted(
+        entry
+        for profile in profile_dirs(target_dir)
+        for entry in (profile / "deps").glob("*")
+        if entry.is_file() and executable.match(entry.name)
+    )
+
+
 def unit_files(target_dir: Path, packages: list[tuple[str, list[str]]]) -> list[Path]:
     """
     Return every build, fingerprint and deps file those packages left in any profile
@@ -240,14 +261,17 @@ def prune(target_dir: Path) -> int:
     own, shared = member_packages()
     # A name a dependency's units also carry would match them, and they reuse by hash and must
     # stay: a member test named `uuid` shares `deps/` with the uuid crate. Such a name is left out,
-    # and with it only that name's files; a package name no member shares today.
+    # and with it only that name's files; a package name no member shares today. Its executables
+    # are the exception: a dependency never leaves one.
     packages = [
         (name, [crate for crate in crates if crate not in shared])
         for name, crates in own
         if name not in shared
     ]
+    collided = sorted({crate for _, crates in own for crate in crates if crate in shared})
+    entries = unit_entries(target_dir, packages) + member_executables(target_dir, collided)
     units = removed = 0
-    for entry in unit_entries(target_dir, packages):
+    for entry in entries:
         files = entry_files(entry)
         # A unit this run built or re-ran has an output written after T; one it only restored has
         # none. The pull request would rebuild it anyway: reuse sets unchanged sources to T - 1.
