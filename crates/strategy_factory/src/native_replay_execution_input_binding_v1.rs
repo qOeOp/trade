@@ -816,59 +816,46 @@ fn verify_owner_readbacks(
     let request_universe_digest = parse_sha256(request.universe_selection.digest.as_str())?;
     let artifact_modules = artifact.private_module_bytes();
 
-    let probe_checks: [(&str, bool); 26] = [
-        ("00 !profile.matches_request_locator(&replay.locator())", !profile.matches_request_locator(&replay.locator())),
-        ("01 profile.trial_family_identity() != preparation.family().root().trial_family_identity()", profile.trial_family_identity() != preparation.family().root().trial_family_identity()),
-        ("02 profile.trial_family_digest() != parse_sha256(preparation.family().root().root_digest())?", profile.trial_family_digest() != parse_sha256(preparation.family().root().root_digest())?),
-        ("03 request.strategy_plan.identity.as_str() != profile.request_strategy_plan_identity()", request.strategy_plan.identity.as_str() != profile.request_strategy_plan_identity()),
-        ("04 request_plan_digest != profile.request_strategy_plan_digest()", request_plan_digest != profile.request_strategy_plan_digest()),
-        ("05 request_plan_digest != *plan.canonical_plan_digest().as_bytes()", request_plan_digest != *plan.canonical_plan_digest().as_bytes()),
-        ("06 request.artifact.identity.as_str() != profile.request_artifact_identity()", request.artifact.identity.as_str() != profile.request_artifact_identity()),
-        ("07 request_artifact_digest != profile.request_artifact_digest()", request_artifact_digest != profile.request_artifact_digest()),
-        ("08 request_artifact_digest != *artifact.identity().as_bytes()", request_artifact_digest != *artifact.identity().as_bytes()),
-        ("09 request.universe_selection.identity.as_str() != profile.request_universe_selection_identit", request.universe_selection.identity.as_str()
-            != profile.request_universe_selection_identity()),
-        ("10 request_universe_digest != profile.request_universe_selection_digest()", request_universe_digest != profile.request_universe_selection_digest()),
-        ("11 !profile.matches_instrument_terms_readbacks(instrument_terms)", !profile.matches_instrument_terms_readbacks(instrument_terms)),
-        ("12 composer.plan_bytes() != plan.durable_bytes()", composer.plan_bytes() != plan.durable_bytes()),
-        ("13 composer.artifact_package_bytes() != artifact.durable_package_bytes()", composer.artifact_package_bytes() != artifact.durable_package_bytes()),
-        ("14 !composer .module_bytes() .eq(artifact_modules.iter().map(|bytes| bytes.as_ref()))", !composer
+    if !profile.matches_request_locator(&replay.locator())
+        || profile.trial_family_identity() != preparation.family().root().trial_family_identity()
+        || profile.trial_family_digest() != parse_sha256(preparation.family().root().root_digest())?
+        || request.strategy_plan.identity.as_str() != profile.request_strategy_plan_identity()
+        || request_plan_digest != profile.request_strategy_plan_digest()
+        || request_plan_digest != *plan.canonical_plan_digest().as_bytes()
+        || request.artifact.identity.as_str() != profile.request_artifact_identity()
+        || request_artifact_digest != profile.request_artifact_digest()
+        || request_artifact_digest != *artifact.identity().as_bytes()
+        || request.universe_selection.identity.as_str()
+            != profile.request_universe_selection_identity()
+        || request_universe_digest != profile.request_universe_selection_digest()
+        || !profile.matches_instrument_terms_readbacks(instrument_terms)
+        || composer.plan_bytes() != plan.durable_bytes()
+        || composer.artifact_package_bytes() != artifact.durable_package_bytes()
+        || !composer
             .module_bytes()
-            .eq(artifact_modules.iter().map(|bytes| bytes.as_ref()))),
-        ("15 artifact.validate_for_plan(plan).is_err()", artifact.validate_for_plan(plan).is_err()),
-        ("16 !is_admitted_member_count(selection.members().len())", !is_admitted_member_count(selection.members().len())),
-        ("17 selection .members() .windows(2) .any(|pair| pair[0].member_key() >= pair[1].member_key())", selection
+            .eq(artifact_modules.iter().map(|bytes| bytes.as_ref()))
+        || artifact.validate_for_plan(plan).is_err()
+        || !is_admitted_member_count(selection.members().len())
+        || selection
             .members()
             .windows(2)
-            .any(|pair| pair[0].member_key() >= pair[1].member_key())),
-        ("18 instrument_terms.len() != selection.members().len()", instrument_terms.len() != selection.members().len()),
-        ("19 schedules.len() != selection.members().len()", schedules.len() != selection.members().len()),
-        ("20 plan_selection.selection_identity().as_bytes() != &request_universe_identity", plan_selection.selection_identity().as_bytes() != &request_universe_identity),
-        ("21 plan_selection.selection_digest().as_bytes() != &request_universe_digest", plan_selection.selection_digest().as_bytes() != &request_universe_digest),
-        ("22 selection.selection_identity() != plan_selection.selection_identity()", selection.selection_identity() != plan_selection.selection_identity()),
-        ("23 selection.selection_digest() != plan_selection.selection_digest()", selection.selection_digest() != plan_selection.selection_digest()),
-        ("24 selection.members().len() != plan_selection.members().len()", selection.members().len() != plan_selection.members().len()),
-        ("25 !selection .members() .iter() .zip(plan_selection.members()) .all(|(owner, planned)| { own", !selection
+            .any(|pair| pair[0].member_key() >= pair[1].member_key())
+        || instrument_terms.len() != selection.members().len()
+        || schedules.len() != selection.members().len()
+        || plan_selection.selection_identity().as_bytes() != &request_universe_identity
+        || plan_selection.selection_digest().as_bytes() != &request_universe_digest
+        || selection.selection_identity() != plan_selection.selection_identity()
+        || selection.selection_digest() != plan_selection.selection_digest()
+        || selection.members().len() != plan_selection.members().len()
+        || !selection
             .members()
             .iter()
             .zip(plan_selection.members())
             .all(|(owner, planned)| {
                 owner.member_key() == planned.member_key()
                     && owner.instrument() == planned.instrument()
-            })),
-    ];
-    let probe_failed: Vec<&str> = probe_checks.iter().filter(|(_, failed)| *failed).map(|(name, _)| *name).collect();
-    if !probe_failed.is_empty() {
-        eprintln!("PROBE verify_owner_readbacks failed clauses: {probe_failed:#?}");
-        eprintln!(
-            "PROBE universe keys: request identity {:02x?} digest {:02x?}; plan identity {:02x?} digest {:02x?}; frame identity {:02x?} digest {:02x?}",
-            request_universe_identity,
-            request_universe_digest,
-            plan_selection.selection_identity().as_bytes(),
-            plan_selection.selection_digest().as_bytes(),
-            selection.selection_identity().as_bytes(),
-            selection.selection_digest().as_bytes(),
-        );
+            })
+    {
         return Err(crate::probe_unavailable!());
     }
 
