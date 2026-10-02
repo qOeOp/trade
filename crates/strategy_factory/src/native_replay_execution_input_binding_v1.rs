@@ -221,7 +221,7 @@ impl NativeReplayExecutionInputBindingReadbackV1 {
                 member.instrument_economic_terms_fact.identity,
                 member.instrument_economic_terms_receipt.identity,
             )
-            .map_err(|_| NativeReplayExecutionInputBindingErrorV1::Unavailable)
+            .map_err(|probe_error| crate::probe_unavailable!(probe_error))
         };
         self.binding.members.try_map(locator)
     }
@@ -331,7 +331,7 @@ pub(crate) fn verify_re_resolved_native_replay_execution_inputs_v1(
     )?;
     let expected = prepare_rows(verified, stored.receipt.committed_at_epoch_ms)?;
     if &expected != stored {
-        return Err(NativeReplayExecutionInputBindingErrorV1::Unavailable);
+        return Err(crate::probe_unavailable!());
     }
     Ok(())
 }
@@ -346,7 +346,7 @@ pub(crate) async fn issue_native_replay_execution_input_binding_v1_in_transactio
     verified: VerifiedNativeReplayExecutionInputConstituentsV1,
 ) -> Result<NativeReplayExecutionInputBindingReadbackV1, NativeReplayExecutionInputBindingErrorV1> {
     if verified.request_locator != replay.locator() {
-        return Err(NativeReplayExecutionInputBindingErrorV1::Unavailable);
+        return Err(crate::probe_unavailable!());
     }
     validate_storage_boundary(transaction).await?;
     let prepared = prepare_rows(verified, replay.owner_cut_epoch_ms())?;
@@ -393,7 +393,7 @@ pub(crate) async fn issue_native_replay_execution_input_binding_v1_in_transactio
     .bind(prepared.binding.binding_identity.as_slice())
     .bind(prepared.binding.binding_digest.as_slice())
     .bind(&prepared.binding.canonical_bytes)
-    .bind(i64::try_from(prepared.receipt.committed_at_epoch_ms).map_err(|_| NativeReplayExecutionInputBindingErrorV1::Unavailable)?)
+    .bind(i64::try_from(prepared.receipt.committed_at_epoch_ms).map_err(|probe_error| crate::probe_unavailable!(probe_error))?)
     .bind(prepared.receipt.receipt_identity.as_slice())
     .bind(digest(RECEIPT_DOMAIN, &prepared.receipt.canonical_bytes).as_slice())
     .bind(&prepared.receipt.canonical_bytes)
@@ -404,7 +404,7 @@ pub(crate) async fn issue_native_replay_execution_input_binding_v1_in_transactio
     .await
     .map_err(NativeReplayExecutionInputBindingErrorV1::Storage)?;
     if inserted != Some(1) {
-        return Err(NativeReplayExecutionInputBindingErrorV1::Unavailable);
+        return Err(crate::probe_unavailable!());
     }
     Ok(prepared)
 }
@@ -502,7 +502,7 @@ async fn validate_storage_boundary(
     .await
     .map_err(NativeReplayExecutionInputBindingErrorV1::Storage)?;
     if !valid {
-        return Err(NativeReplayExecutionInputBindingErrorV1::Unavailable);
+        return Err(crate::probe_unavailable!());
     }
     Ok(())
 }
@@ -581,7 +581,7 @@ fn prepare_rows(
     writer.locator(verified.universe_frame_receipt);
     writer.u16(
         u16::try_from(verified.members.len())
-            .map_err(|_| NativeReplayExecutionInputBindingErrorV1::Unavailable)?,
+            .map_err(|probe_error| crate::probe_unavailable!(probe_error))?,
     );
 
     for member in &verified.members {
@@ -654,7 +654,7 @@ fn recover_rows(
 ) -> Result<NativeReplayExecutionInputBindingReadbackV1, NativeReplayExecutionInputBindingErrorV1> {
     let mut decoder = CanonicalDecoder::new(&rows.binding_bytes);
     if decoder.u16()? != SCHEMA_VERSION {
-        return Err(NativeReplayExecutionInputBindingErrorV1::Unavailable);
+        return Err(crate::probe_unavailable!());
     }
     let request_locator = decoder.request_locator()?;
     let trial_family = decoder.named()?;
@@ -671,18 +671,18 @@ fn recover_rows(
     let universe_frame_receipt = decoder.locator()?;
     let member_count = usize::from(decoder.u16()?);
     if !is_admitted_member_count(member_count) {
-        return Err(NativeReplayExecutionInputBindingErrorV1::Unavailable);
+        return Err(crate::probe_unavailable!());
     }
     let members = (0..member_count)
         .map(|_| decoder.member())
         .collect::<Result<Vec<_>, _>>()?;
     let members = BoundedMembers::new(members)
-        .map_err(|_| NativeReplayExecutionInputBindingErrorV1::Unavailable)?;
+        .map_err(|probe_error| crate::probe_unavailable!(probe_error))?;
     decoder.finish()?;
     let binding_identity = array(&rows.binding_identity)?;
     let binding_digest = array(&rows.binding_digest)?;
     let committed_at_epoch_ms = u64::try_from(rows.committed_at_epoch_ms)
-        .map_err(|_| NativeReplayExecutionInputBindingErrorV1::Unavailable)?;
+        .map_err(|probe_error| crate::probe_unavailable!(probe_error))?;
 
     let mut receipt_decoder = CanonicalDecoder::new(&rows.receipt_bytes);
     if receipt_decoder.u16()? != SCHEMA_VERSION
@@ -690,7 +690,7 @@ fn recover_rows(
         || receipt_decoder.digest()? != binding_digest
         || receipt_decoder.u64()? != committed_at_epoch_ms
     {
-        return Err(NativeReplayExecutionInputBindingErrorV1::Unavailable);
+        return Err(crate::probe_unavailable!());
     }
     receipt_decoder.finish()?;
     let receipt_identity = array(&rows.receipt_identity)?;
@@ -701,7 +701,7 @@ fn recover_rows(
         || outbox_decoder.digest()? != binding_identity
         || outbox_decoder.digest()? != receipt_identity
     {
-        return Err(NativeReplayExecutionInputBindingErrorV1::Unavailable);
+        return Err(crate::probe_unavailable!());
     }
     outbox_decoder.finish()?;
 
@@ -720,7 +720,7 @@ fn recover_rows(
         || array(&rows.payload_digest)? != digest(OUTBOX_DOMAIN, &rows.payload_bytes)
         || rows.outbox_committed_at_epoch_ms != rows.committed_at_epoch_ms
     {
-        return Err(NativeReplayExecutionInputBindingErrorV1::Unavailable);
+        return Err(crate::probe_unavailable!());
     }
 
     let verified = VerifiedNativeReplayExecutionInputConstituentsV1 {
@@ -738,7 +738,7 @@ fn recover_rows(
         || expected.receipt.canonical_bytes != rows.receipt_bytes
         || expected.outbox.canonical_bytes != rows.payload_bytes
     {
-        return Err(NativeReplayExecutionInputBindingErrorV1::Unavailable);
+        return Err(crate::probe_unavailable!());
     }
     Ok(expected)
 }
@@ -769,7 +769,7 @@ fn validate_verified(
             != verified.members.len()
         || !verified.members.iter().all(valid_member)
     {
-        return Err(NativeReplayExecutionInputBindingErrorV1::Unavailable);
+        return Err(crate::probe_unavailable!());
     }
     let seals = &verified.execution_profile_seals;
     if [
@@ -781,7 +781,7 @@ fn validate_verified(
     ]
     .contains(&[0; 32])
     {
-        return Err(NativeReplayExecutionInputBindingErrorV1::Unavailable);
+        return Err(crate::probe_unavailable!());
     }
     Ok(())
 }
@@ -806,10 +806,10 @@ fn verify_owner_readbacks(
     let selection = universe_frame.selection();
     let plan_selection = plan
         .universe_selection()
-        .ok_or(NativeReplayExecutionInputBindingErrorV1::Unavailable)?;
+        .ok_or_else(|| crate::probe_unavailable!())?;
     let seal = replay
         .execution_profile_seal()
-        .ok_or(NativeReplayExecutionInputBindingErrorV1::Unavailable)?;
+        .ok_or_else(|| crate::probe_unavailable!())?;
     let request_plan_digest = parse_sha256(request.strategy_plan.digest.as_str())?;
     let request_artifact_digest = parse_sha256(request.artifact.digest.as_str())?;
     let request_universe_identity = parse_sha256(request.universe_selection.identity.as_str())?;
@@ -856,16 +856,16 @@ fn verify_owner_readbacks(
                     && owner.instrument() == planned.instrument()
             })
     {
-        return Err(NativeReplayExecutionInputBindingErrorV1::Unavailable);
+        return Err(crate::probe_unavailable!());
     }
 
     let cut_members = instrument_master.cut().members();
     if instrument_master.cut().request_identity()
         != native_replay_request_identity_v2(request.request_identity.as_str())
-            .map_err(|_| NativeReplayExecutionInputBindingErrorV1::Unavailable)?
+            .map_err(|probe_error| crate::probe_unavailable!(probe_error))?
         || cut_members.len() != selection.members().len()
     {
-        return Err(NativeReplayExecutionInputBindingErrorV1::Unavailable);
+        return Err(crate::probe_unavailable!());
     }
     let mut members = Vec::with_capacity(cut_members.len());
     for index in 0..cut_members.len() {
@@ -876,7 +876,7 @@ fn verify_owner_readbacks(
         let schedule = schedules[index];
         let public_terms = public_fact
             .validate_native_crypto_perpetual_public_terms()
-            .map_err(|_| NativeReplayExecutionInputBindingErrorV1::Unavailable)?;
+            .map_err(|probe_error| crate::probe_unavailable!(probe_error))?;
         let event_time = i128::from(request.window.start_event_ns);
 
         if selected.instrument() != public_fact.canonical_identity()
@@ -890,7 +890,7 @@ fn verify_owner_readbacks(
             || schedule.fact().canonical_instrument() != public_fact.canonical_identity()
             || schedule.fact().cut_effective_instant() != event_time
         {
-            return Err(NativeReplayExecutionInputBindingErrorV1::Unavailable);
+            return Err(crate::probe_unavailable!());
         }
         let economic_locator = economic.locator();
         members.push(NativeReplayExecutionInputMemberV1 {
@@ -923,10 +923,10 @@ fn verify_owner_readbacks(
         .windows(2)
         .any(|pair| pair[0].account_scope_identity != pair[1].account_scope_identity)
     {
-        return Err(NativeReplayExecutionInputBindingErrorV1::Unavailable);
+        return Err(crate::probe_unavailable!());
     }
     let members = BoundedMembers::new(members)
-        .map_err(|_| NativeReplayExecutionInputBindingErrorV1::Unavailable)?;
+        .map_err(|probe_error| crate::probe_unavailable!(probe_error))?;
     let master_locator = instrument_master.locator();
     Ok(VerifiedNativeReplayExecutionInputConstituentsV1 {
         request_locator: replay.locator(),
@@ -966,14 +966,14 @@ fn verify_owner_readbacks(
 fn parse_sha256(value: &str) -> Result<[u8; 32], NativeReplayExecutionInputBindingErrorV1> {
     let hex = value
         .strip_prefix("sha256:")
-        .ok_or(NativeReplayExecutionInputBindingErrorV1::Unavailable)?;
+        .ok_or_else(|| crate::probe_unavailable!())?;
 
     if hex.len() != 64
         || !hex
             .bytes()
             .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
     {
-        return Err(NativeReplayExecutionInputBindingErrorV1::Unavailable);
+        return Err(crate::probe_unavailable!());
     }
     let mut bytes = [0_u8; 32];
     for (output, pair) in bytes.iter_mut().zip(hex.as_bytes().chunks_exact(2)) {
@@ -1039,7 +1039,7 @@ fn digest(domain: &[u8], bytes: &[u8]) -> [u8; 32] {
 fn array(bytes: &[u8]) -> Result<[u8; 32], NativeReplayExecutionInputBindingErrorV1> {
     bytes
         .try_into()
-        .map_err(|_| NativeReplayExecutionInputBindingErrorV1::Unavailable)
+        .map_err(|probe_error| crate::probe_unavailable!(probe_error))
 }
 
 struct CanonicalWriter(Vec<u8>);
@@ -1059,7 +1059,7 @@ impl CanonicalWriter {
     }
     fn text(&mut self, value: &str) -> Result<(), NativeReplayExecutionInputBindingErrorV1> {
         let length = u16::try_from(value.len())
-            .map_err(|_| NativeReplayExecutionInputBindingErrorV1::Unavailable)?;
+            .map_err(|probe_error| crate::probe_unavailable!(probe_error))?;
         self.u16(length);
         self.0.extend_from_slice(value.as_bytes());
         Ok(())
@@ -1093,7 +1093,7 @@ impl CanonicalWriter {
     }
     fn finish(self) -> Result<Vec<u8>, NativeReplayExecutionInputBindingErrorV1> {
         if self.0.is_empty() || self.0.len() > MAX_CANONICAL_BYTES {
-            return Err(NativeReplayExecutionInputBindingErrorV1::Unavailable);
+            return Err(crate::probe_unavailable!());
         }
         Ok(self.0)
     }
@@ -1115,11 +1115,11 @@ impl<'a> CanonicalDecoder<'a> {
         let end = self
             .offset
             .checked_add(length)
-            .ok_or(NativeReplayExecutionInputBindingErrorV1::Unavailable)?;
+            .ok_or_else(|| crate::probe_unavailable!())?;
         let value = self
             .bytes
             .get(self.offset..end)
-            .ok_or(NativeReplayExecutionInputBindingErrorV1::Unavailable)?;
+            .ok_or_else(|| crate::probe_unavailable!())?;
         self.offset = end;
         Ok(value)
     }
@@ -1135,9 +1135,9 @@ impl<'a> CanonicalDecoder<'a> {
     fn text(&mut self) -> Result<String, NativeReplayExecutionInputBindingErrorV1> {
         let length = self.u16()? as usize;
         let value = std::str::from_utf8(self.take(length)?)
-            .map_err(|_| NativeReplayExecutionInputBindingErrorV1::Unavailable)?;
+            .map_err(|probe_error| crate::probe_unavailable!(probe_error))?;
         if !valid_text(value) {
-            return Err(NativeReplayExecutionInputBindingErrorV1::Unavailable);
+            return Err(crate::probe_unavailable!());
         }
         Ok(value.to_owned())
     }
@@ -1191,7 +1191,7 @@ impl<'a> CanonicalDecoder<'a> {
     }
     fn finish(self) -> Result<(), NativeReplayExecutionInputBindingErrorV1> {
         if self.offset != self.bytes.len() {
-            return Err(NativeReplayExecutionInputBindingErrorV1::Unavailable);
+            return Err(crate::probe_unavailable!());
         }
         Ok(())
     }
@@ -1200,13 +1200,13 @@ impl<'a> CanonicalDecoder<'a> {
 fn array2(bytes: &[u8]) -> Result<[u8; 2], NativeReplayExecutionInputBindingErrorV1> {
     bytes
         .try_into()
-        .map_err(|_| NativeReplayExecutionInputBindingErrorV1::Unavailable)
+        .map_err(|probe_error| crate::probe_unavailable!(probe_error))
 }
 
 fn array8(bytes: &[u8]) -> Result<[u8; 8], NativeReplayExecutionInputBindingErrorV1> {
     bytes
         .try_into()
-        .map_err(|_| NativeReplayExecutionInputBindingErrorV1::Unavailable)
+        .map_err(|probe_error| crate::probe_unavailable!(probe_error))
 }
 
 #[cfg(test)]
