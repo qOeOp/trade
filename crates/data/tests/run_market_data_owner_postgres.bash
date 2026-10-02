@@ -242,7 +242,7 @@ docker cp "$tls_dir/server.crt" "$container:/var/lib/postgresql/server.crt" > /d
 docker cp "$tls_dir/server.key" "$container:/var/lib/postgresql/server.key" > /dev/null
 docker exec "$container" sh -c 'chown postgres:postgres /var/lib/postgresql/server.crt /var/lib/postgresql/server.key && chmod 600 /var/lib/postgresql/server.key'
 # First match wins, so this line goes above the image's own `host all all all scram-sha-256`.
-docker exec "$container" sh -c 'hba=/var/lib/postgresql/data/pg_hba.conf && { echo "hostnossl all vibe_test_role_market_data_tls_only all reject"; cat "$hba"; } > "$hba.next" && cat "$hba.next" > "$hba" && rm "$hba.next"'
+# MUTATION, not for merge: the TLS-only rule is gone.
 for setting in "ssl_cert_file = '/var/lib/postgresql/server.crt'" \
   "ssl_key_file = '/var/lib/postgresql/server.key'" "ssl = on"; do
   docker exec "$container" psql -v ON_ERROR_STOP=1 -U postgres -d postgres -c "ALTER SYSTEM SET $setting" > /dev/null
