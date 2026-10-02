@@ -18,6 +18,8 @@ use vibe_strategy_factory::{
     },
     develop_composer_sealed_acceptance_v2::SealedDevelopComposerAcceptanceV2,
 };
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+use vibe_testkit::postgres::restore_after_checks;
 use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
 
 /// Every Composer Owner API routine runs as its owner, so each one searches `pg_catalog` and then
@@ -1090,11 +1092,16 @@ async fn transaction_bound_read_rejects_wrong_owner_acl_and_stale_custody() {
         .execute(topology_admin_pool)
         .await
         .expect("inject public ACL");
-    assert_transactional_read_unavailable(&owner, rd_pool, &locator).await;
-    sqlx::query("REVOKE SELECT ON composer_private.rd_develop_operations_v2 FROM PUBLIC")
-        .execute(topology_admin_pool)
-        .await
-        .expect("restore public ACL");
+    restore_after_checks(
+        assert_transactional_read_unavailable(&owner, rd_pool, &locator),
+        async {
+            sqlx::query("REVOKE SELECT ON composer_private.rd_develop_operations_v2 FROM PUBLIC")
+                .execute(topology_admin_pool)
+                .await
+                .expect("restore public ACL");
+        },
+    )
+    .await;
 
     let mut transaction = rd_pool.begin().await.expect("begin restored-ACL read");
     owner
@@ -1112,13 +1119,18 @@ async fn transaction_bound_read_rejects_wrong_owner_acl_and_stale_custody() {
     .execute(topology_admin_pool)
     .await
     .expect("inject public routine ACL");
-    assert_transactional_read_unavailable(&owner, rd_pool, &locator).await;
-    sqlx::query(
-        "REVOKE EXECUTE ON FUNCTION composer_owner_api.lock_accepted_develop_composer_v2(text) FROM PUBLIC",
+    restore_after_checks(
+        assert_transactional_read_unavailable(&owner, rd_pool, &locator),
+        async {
+            sqlx::query(
+                "REVOKE EXECUTE ON FUNCTION composer_owner_api.lock_accepted_develop_composer_v2(text) FROM PUBLIC",
+            )
+            .execute(topology_admin_pool)
+            .await
+            .expect("restore routine ACL");
+        },
     )
-    .execute(topology_admin_pool)
-    .await
-    .expect("restore routine ACL");
+    .await;
 
     sqlx::query(
         "ALTER FUNCTION composer_owner_api.lock_accepted_develop_composer_v2(text) SET search_path=public",
@@ -1126,13 +1138,18 @@ async fn transaction_bound_read_rejects_wrong_owner_acl_and_stale_custody() {
     .execute(topology_admin_pool)
     .await
     .expect("inject unsafe routine metadata");
-    assert_transactional_read_unavailable(&owner, rd_pool, &locator).await;
-    sqlx::query(
-        "ALTER FUNCTION composer_owner_api.lock_accepted_develop_composer_v2(text) SET search_path=pg_catalog, pg_temp",
+    restore_after_checks(
+        assert_transactional_read_unavailable(&owner, rd_pool, &locator),
+        async {
+            sqlx::query(
+                "ALTER FUNCTION composer_owner_api.lock_accepted_develop_composer_v2(text) SET search_path=pg_catalog, pg_temp",
+            )
+            .execute(topology_admin_pool)
+            .await
+            .expect("restore routine metadata");
+        },
     )
-    .execute(topology_admin_pool)
-    .await
-    .expect("restore routine metadata");
+    .await;
 
     // Past the cutover no foreign role holds CREATE on composer_private, and PostgreSQL gives a
     // relation only to a role that does: the wrong owner cannot be injected at all. The read
@@ -1184,19 +1201,25 @@ async fn transaction_bound_read_rejects_wrong_owner_acl_and_stale_custody() {
     .execute(topology_admin_pool)
     .await
     .expect("inject stale Research binding");
-    assert_transactional_read_unavailable(&owner, rd_pool, &locator).await;
-    assert_eq!(custody_counts(topology_admin_pool).await, before);
-
-    // The store is shared with every later sealed read; the binding goes back exactly, and the
-    // read that was refused is positive again.
-    sqlx::query(
-        "UPDATE composer_private.rd_develop_operations_v2 SET research_request_identity=$1 WHERE request_identity=$2",
+    restore_after_checks(
+        async {
+            assert_transactional_read_unavailable(&owner, rd_pool, &locator).await;
+            assert_eq!(custody_counts(topology_admin_pool).await, before);
+        },
+        // The store is shared with every later sealed read; the binding goes back exactly, and the
+        // read that was refused is positive again.
+        async {
+            sqlx::query(
+                "UPDATE composer_private.rd_develop_operations_v2 SET research_request_identity=$1 WHERE request_identity=$2",
+            )
+            .bind(&original_research_request_identity)
+            .bind(&locator.request_identity)
+            .execute(topology_admin_pool)
+            .await
+            .expect("restore Research binding");
+        },
     )
-    .bind(&original_research_request_identity)
-    .bind(&locator.request_identity)
-    .execute(topology_admin_pool)
-    .await
-    .expect("restore Research binding");
+    .await;
     let mut transaction = rd_pool.begin().await.expect("caller transaction");
     owner
         .read_accepted_in_transaction(&mut transaction, &locator)

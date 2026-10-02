@@ -4,8 +4,12 @@ use std::{
     env,
     fmt::{Debug, Display},
     fs::OpenOptions,
+    future::Future,
     io::Write,
+    panic::{AssertUnwindSafe, catch_unwind, resume_unwind},
+    pin::Pin,
     sync::{Mutex, OnceLock},
+    task::{Context, Poll},
 };
 
 use sqlx::{PgPool, postgres::PgPoolOptions};
@@ -716,6 +720,61 @@ pub async fn assert_statement_is_refused(
     observed
 }
 
+/// Runs a proof's checks against state it tampered with, then restores that state whatever the
+/// checks did, and only then returns their value or resumes their panic.
+///
+/// The ordered chain shares one database and never resets it between entries. A proof that
+/// tampers with a row, asserts the Owner's refusal and then restores the row leaves the tamper
+/// behind on exactly the run whose assertion fails, and every later entry that reads that row
+/// fails with no visible cause. Running the checks through this function makes the restore
+/// unconditional: an assertion that fails, an `unwrap` on an unexpected error, anything that
+/// panics inside `checks` is held until `restore` has completed.
+///
+/// Write the tamper, then call this with every read and assertion that depends on it as `checks`
+/// and the exact restoration (with its read-back, where the proof has one) as `restore`.
+///
+/// Both futures are boxed as soon as this is called and the future it returns is a box, so a
+/// proof's checks, however large, never sit in its own poll frame or in the future it awaits.
+///
+/// # Panics
+///
+/// The returned future resumes the panic `checks` raised, after `restore` has completed, and
+/// panics if `restore` panics.
+pub fn restore_after_checks<'a, T: 'a>(
+    checks: impl Future<Output = T> + 'a,
+    restore: impl Future<Output = ()> + 'a,
+) -> Pin<Box<dyn Future<Output = T> + 'a>> {
+    let checks = Box::pin(checks);
+    let restore = Box::pin(restore);
+    Box::pin(async move {
+        let outcome = CaughtPanic(checks).await;
+        restore.await;
+
+        match outcome {
+            Ok(value) => value,
+            Err(panic) => resume_unwind(panic),
+        }
+    })
+}
+
+/// A boxed future polled with any panic inside it caught, so its caller can clean up before the
+/// panic continues. The box keeps it `Unpin`, so reaching the future needs no pinning projection.
+struct CaughtPanic<F>(Pin<Box<F>>);
+
+impl<F: Future> Future for CaughtPanic<F> {
+    type Output = std::thread::Result<F::Output>;
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let inner = &mut self.0;
+
+        match catch_unwind(AssertUnwindSafe(|| inner.as_mut().poll(cx))) {
+            Ok(Poll::Pending) => Poll::Pending,
+            Ok(Poll::Ready(value)) => Poll::Ready(Ok(value)),
+            Err(panic) => Poll::Ready(Err(panic)),
+        }
+    }
+}
+
 struct EnvironmentValues {
     test_urls: Vec<TestUrlValue>,
     production_urls: Vec<(&'static str, String)>,
@@ -1014,6 +1073,48 @@ mod tests {
     use rstest::rstest;
 
     use super::*;
+
+    fn block_on<T>(future: impl Future<Output = T>) -> T {
+        tokio::runtime::Builder::new_current_thread()
+            .build()
+            .expect("test runtime")
+            .block_on(future)
+    }
+
+    #[rstest]
+    fn restore_after_checks_restores_before_it_resumes_the_checks_panic() {
+        let restored = std::sync::atomic::AtomicBool::new(false);
+        let outcome = catch_unwind(AssertUnwindSafe(|| {
+            block_on(restore_after_checks(
+                async {
+                    tokio::task::yield_now().await;
+                    panic!("a check failed");
+                },
+                async {
+                    restored.store(true, std::sync::atomic::Ordering::SeqCst);
+                },
+            ));
+        }));
+        let panic = outcome.expect_err("the checks' panic must reach the caller");
+        assert_eq!(panic.downcast_ref::<&str>(), Some(&"a check failed"));
+        assert!(restored.load(std::sync::atomic::Ordering::SeqCst));
+    }
+
+    #[rstest]
+    fn restore_after_checks_returns_the_checks_value_after_restoring() {
+        let order = Mutex::new(Vec::new());
+        let value = block_on(restore_after_checks(
+            async {
+                order.lock().unwrap().push("checks");
+                7
+            },
+            async {
+                order.lock().unwrap().push("restore");
+            },
+        ));
+        assert_eq!(value, 7);
+        assert_eq!(*order.lock().unwrap(), ["checks", "restore"]);
+    }
 
     fn values() -> EnvironmentValues {
         EnvironmentValues {
