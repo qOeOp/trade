@@ -221,9 +221,10 @@
   然后从不读它，下划线是唯一的现场标记，而 `crates/data` 之外没有任何一处调用该解析器的 trait 方法。
   该解析器还是可选的：`bootstrap_deployment_store_admission` 返回 `Option`，
   所以部署中该字段可能持有 `None`。补上这条需要本 Owner 出一个消费方，不是要 Market Data 开更多读。
-- **TARGET / ISOLATED_ACCEPTANCE_ONLY - 探索重放的生产入口：** `run_exploratory_replay_v2` 在
+- **IMPLEMENTATION_ADMITTED / NOT_CUT_OVER - 探索重放的生产入口：** `run_exploratory_replay_v2` 在
   `vibe-backtest-owner` 之外唯一的调用者位于 `run_native_replay` 内，而后者带
-  `#[cfg(feature = "sealed-develop-composer-acceptance")]`，且全仓没有任何 `cfg(not(...))` 孪生体。
+  `#[cfg(feature = "native-replay-execution")]`，这是不带任何验收代码的生产 feature，且全仓没有任何
+  `cfg(not(...))` 孪生体。
   在部署镜像不带 feature 的前提下，该路径在已部署产物里不可达。这测的是部署产物，不是历史。
 
 ## 模块

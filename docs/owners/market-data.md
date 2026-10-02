@@ -183,8 +183,8 @@ never runs in CI.
 - **`B4` consumer not compiled into the deployed image.** `product/rd-workbench/Dockerfile.owner` builds
   `strategy-factory-rd-owner-api` with default features, which leaves `composer-replay-issuance` off, and the
   dashboard read binary touches no Market Data surface. The native Replay scheduling consumer is behind that
-  production feature rather than an acceptance one; the repair loop's shared time-evidence consumer is still behind
-  `sealed-develop-composer-acceptance`. Cleared by the deployed image enabling the production feature, which is a
+  production feature rather than an acceptance one; the repair loop's shared time-evidence consumer is behind
+  `native-replay-execution`, also a production feature. Cleared by the deployed image enabling those production features, which is a
   deployment decision.
 - **`B5` no cross-Owner consumer.** The module's only consumers are the same crate's Replay V2 composition and
   PostgreSQL writers, and most such modules are additionally `pub(crate)` inside `crates/data`. Cleared by one
