@@ -604,7 +604,9 @@ only from data observed after the order existed, and slots and occupancy follow 
 that resolves them for the backtest resolves them here. A log of signals is not a Forward Record: it cannot hold a
 resting order, and it scores a signal whose stop or target had already traded. Nor is a forward harness that resolves
 occupancy apart from the backtest: slots in arming order rather than fill order once raised a rule's backtest edge from
-+0.22 to +0.34 while the forward harness disagreed silently.
++0.22 to +0.34 while the forward harness disagreed silently. Whether Forward Replay is driven by each Market Data cut
+or batched on the record's own cadence is open; the contract fixes only that each cut the cadence consumes is replayed
+exactly once, in order.
 
 Each record ends in one terminal Forward Decision:
 
