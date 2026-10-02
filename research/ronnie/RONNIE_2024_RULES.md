@@ -113,3 +113,15 @@ is looser than his two-step rule. The difference is recorded, not fitted.
   R-1's.
 - R-1 has passed its holdout and stays frozen; a narrow-zone variant would be a new rule (stage 0).
 - He never uses TradingView's long/short position tool, so no drawn entry, stop and target triplets exist.
+
+## His drawn plans, measured (2026-10-02, `tv_plan_grade.py`, `results/tv_plan_grade.txt`)
+
+- **Source:** the 178 forward-looking projected paths and arrows in his 2024-2025 video ideas (24 symbols). Video frames
+  at the moments he says "stop" or "target" confirm the pattern: zone rectangles, a stop line just beyond the zone or the
+  prior swing ("a stop inside the zone is a gift"), and targets at the next zone or prior high, often stepped.
+- **Geometry:** 90% long; 48% of plans wait for a pullback (median depth 1.7 daily ATR), the rest enter now. The target
+  sits a median 3.2 daily ATR from the entry (IQR 1.9-4.7); the drawn horizon is a median 24 days. With a stop 1 ATR
+  beyond the entry that is about 3R, close to his spoken "two to three times".
+- **Outcome:** against the mirrored plan the drawn direction shows no detectable skill (plan minus mirror -0.05R
+  [-0.57, +0.47] at a 1-ATR stop; n 107 filled pairs). The sample is small and the stops are assumed, so this is
+  inconclusive, not a closure. It reads 2024-2025 prices; any exit change it informs goes forward-only.

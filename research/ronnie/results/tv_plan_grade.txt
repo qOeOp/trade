@@ -1,0 +1,5 @@
+Ronnie's drawn plans 2024-2025: 178 plans, 24 symbols, 2024-01-12 to 2025-03-18
+  long 90%; pullback entries 48% (median depth 1.74 ATR); target from entry median 3.16 ATR [IQR 1.94-4.72]; drawn horizon median 24 days
+  stop 0.5 ATR (target 6.3R at the median): n 107, plan -0.115R, mirror +0.063R, plan minus mirror -0.178 [-0.868, +0.530] (publish-day clusters), plan wins 21%
+  stop 1.0 ATR (target 3.2R at the median): n 107, plan -0.019R, mirror +0.029R, plan minus mirror -0.048 [-0.568, +0.467] (publish-day clusters), plan wins 35%
+  stop 1.5 ATR (target 2.1R at the median): n 107, plan -0.074R, mirror -0.076R, plan minus mirror +0.003 [-0.401, +0.410] (publish-day clusters), plan wins 41%
