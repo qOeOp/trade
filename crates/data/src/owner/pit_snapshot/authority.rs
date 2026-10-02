@@ -1591,6 +1591,10 @@ fn decode_observation(bytes: &[u8]) -> Result<VerifiedPitObservation, PitSnapsho
             // A perpetual's settled funding: the rate as published and the settlement instant.
             "FUNDING_RATE",
             "FUNDING_TIME",
+            // A perpetual's open interest: contracts, notional and the snapshot instant.
+            "OPEN_INTEREST",
+            "OPEN_INTEREST_VALUE",
+            "OPEN_INTEREST_TIME",
         ])?,
         value_mantissa: decoder.i128()?,
         value_scale: decoder.u8()?,

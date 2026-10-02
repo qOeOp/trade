@@ -876,8 +876,43 @@ pub fn authenticate_monthly_klines(
         });
     }
 
-    let csv_bytes = read_single_csv_member(binding, archive_bytes)?;
+    let csv_bytes = read_single_csv_member(&binding.member_name, archive_bytes)?;
     parse_authenticated_csv(binding, actual_sidecar_sha256, &csv_bytes)
+}
+
+/// Checks one archive fetched beside its `.CHECKSUM` sidecar and returns its only member's bytes.
+///
+/// The sidecar is served by the same host as the archive, so a match proves the bytes arrived as
+/// that host published them, not who published them; [`authenticate_monthly_klines`] is the path
+/// that pins a digest from outside the host.
+///
+/// # Errors
+///
+/// Returns [`BinanceVisionArchiveError`] for an oversized archive, a sidecar that is not one exact
+/// entry for `archive_name`, a digest mismatch, or anything but one regular member named
+/// `member_name`.
+pub(crate) fn checksummed_single_member(
+    archive_name: &str,
+    member_name: &str,
+    archive_bytes: &[u8],
+    sidecar_bytes: &[u8],
+) -> Result<Vec<u8>, BinanceVisionArchiveError> {
+    if archive_bytes.len() > MAX_ARCHIVE_BYTES {
+        return Err(BinanceVisionArchiveError::ArchiveTooLarge {
+            actual: archive_bytes.len(),
+            limit: MAX_ARCHIVE_BYTES,
+        });
+    }
+    let declared = parse_sidecar(sidecar_bytes, archive_name)?;
+    let actual = sha256(archive_bytes);
+
+    if actual != declared {
+        return Err(BinanceVisionArchiveError::ArchiveDigestMismatch {
+            expected: declared,
+            actual,
+        });
+    }
+    read_single_csv_member(member_name, archive_bytes)
 }
 
 fn validate_binding_names(
@@ -1036,7 +1071,7 @@ fn parse_sidecar(
 }
 
 fn read_single_csv_member(
-    binding: &BinanceVisionArchiveBinding,
+    member_name: &str,
     archive_bytes: &[u8],
 ) -> Result<Vec<u8>, BinanceVisionArchiveError> {
     let mut archive = ZipArchive::new(Cursor::new(archive_bytes))
@@ -1052,8 +1087,8 @@ fn read_single_csv_member(
         let member = archive
             .by_index_raw(0)
             .map_err(|e| BinanceVisionArchiveError::InvalidZip(e.to_string()))?;
-        if member.name() != binding.member_name
-            || member.enclosed_name().as_deref() != Some(Path::new(&binding.member_name))
+        if member.name() != member_name
+            || member.enclosed_name().as_deref() != Some(Path::new(member_name))
         {
             return Err(BinanceVisionArchiveError::UnsupportedZipTopology(format!(
                 "unexpected or unsafe member {:?}",

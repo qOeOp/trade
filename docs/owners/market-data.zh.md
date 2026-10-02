@@ -201,6 +201,7 @@ ACL 拒绝。它不证明供应商真实性，不证明生产装配，也不证�
 | 供应商 Data Clients                               | `CURRENT / PARTIAL`                                                                | `crates/adapters/databento/src/pit_observation_source_v1.rs` 与 `crates/adapters/binance/src/pit_observation_source_v1.rs`，均已实盘验证                                                                        | `B6`       |
 | 面向 Runtime 的实时行情事实通道                   | `CURRENT / PARTIAL`，一条通道                                                      | `owner/live_market_fact_v1.rs`、`owner/live_market_stream_v1.rs`、`owner/postgres/live_market_stream_v1.rs`、`crates/adapters/bybit/src/live_market_fact_source_v1.rs`                                          | `B8`       |
 | Binance 永续已结算 funding 行                     | `CURRENT / PARTIAL`                                                                | `crates/adapters/binance/src/futures_pit_observation_source_v1.rs`                                                                                                                                              | `B6`       |
+| Binance 永续持仓量行                              | `CURRENT / PARTIAL`                                                                | `crates/adapters/binance/src/futures_pit_observation_source_v1.rs`                                                                                                                                              | `B6`       |
 | Binance bar 成交量与 taker 买入量                 | `CURRENT / PARTIAL`                                                                | `crates/adapters/binance/src/pit_observation_source_v1.rs`、`futures_pit_observation_source_v1.rs`                                                                                                              | `B6`       |
 
 ## 拥有的权威事实
@@ -2502,7 +2503,7 @@ timeframe。两个数与价格来自同一个 kline 响应，所以不增加请�
 - **状态。** 两个 client 今天都会给出这两行，任何指定它们的部署都会得到。帧投影仍然受上文 Binance quote 缺口的阻挡。这些行由交易所替身测试、
   两个 live 源测试，以及无凭据的 Market Data 端到端证明断言。
 
-### TARGET Binance 永续持仓量行
+### CURRENT/PARTIAL Binance 永续持仓量行
 
 Binance USD-M 永续 Data Client 在成员最后一根已收盘的 bar 旁边，陈述在该坐标当时或之前最后发布的持仓量。共三行，channel 为
 `MARKET`、data kind 为 `SCALAR`、timeframe 为 `TICK`：
@@ -2523,6 +2524,8 @@ Binance USD-M 永续 Data Client 在成员最后一根已收盘的 bar 旁边，
 - **缺席就是没有行。** 当坐标前十五分钟内没有可见快照时，成员没有持仓量行，这同时涵盖交易所样本的空缺与归档某一天没有该快照的情况。
   归档文件缺失或不一致、端点不可达、数值不是十进制数，都会拒绝整次检索。
 - **与 funding 一样不用凭据。** 两条路由都不签名任何请求，也不发送 key。
+- **状态。** 指定 `binance-perpetual` 的部署今天就会提交这些行，还没有消费方读取它们。单元测试用一个本地的交易所与归档主机替身驱动两条路由；
+  live 源测试从真实归档读取一个 2025 年的坐标；无凭据的 Market Data 端到端证明从端点读取一个近期坐标。
 
 ### CURRENT/PARTIAL Binance 永续已结算 funding 行
 
