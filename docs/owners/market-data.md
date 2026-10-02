@@ -2402,8 +2402,14 @@ it serves the frame when that correction lies strictly between the frame's BAR a
 same cut, on the frame's scope, Instrument Master, universe selection, Market Semantics and Source
 Binding lineage, and quotes exactly the frame's members. A lineage whose latest correction does not
 serve the frame contributes nothing and never falls back to the version that correction replaced.
-Of the lineages that serve, the one read at the earliest cut is the frame's, and two read at that
-cut refuse the frame. The
+The Instrument Master is compared by the key each census row records: the digest of the facts the
+intake resolved for the snapshot's members, which every request that resolves those facts shares.
+It is never compared by the readback digest a batch carries, because every intake request resolves
+a readback of its own, sealed over its correlation, event instant and decision cut, so no two
+snapshots share one. A commit that resolves no facts (a test's or a sealed fixture's, never a
+production path) keys its row by its request's digest, and a row recorded before the key existed has
+none and serves no frame. Of the lineages that serve, the one read at the earliest cut is the
+frame's, and two read at that cut refuse the frame. The
 census is keyed by the scope a requester declares, so a second quote cut on every one of a
 frame's coordinates, read at the same cut, collides with the first and refuses the frame - a denial
 of service, never a quote cut the Owner did not verify for it. Each reading cut is fixed by the
