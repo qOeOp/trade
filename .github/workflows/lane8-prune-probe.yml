@@ -86,6 +86,36 @@ jobs:
                           ws_new += st.st_size
                   else:
                       ext += st.st_size
+          # Split the old bytes: an entry (fingerprint dir, build dir, deps file) that holds any file
+          # written at or after T is kept whole by prune; one with none would have been deleted.
+          entries = {}
+          for dirpath, _, files in os.walk(target):
+              for f in files:
+                  path = Path(dirpath) / f
+                  rel = path.relative_to(target).parts
+                  kind = next((k for k in ("deps", ".fingerprint", "build") if k in rel), None)
+                  if kind is None:
+                      continue
+                  i = rel.index(kind)
+                  entry = rel[: i + 2]
+                  if pkg_of(rel[i + 1]) not in names:
+                      continue
+                  try:
+                      st = path.lstat()
+                  except OSError:
+                      continue
+                  e = entries.setdefault((kind, entry), [0, 0, False])
+                  if st.st_mtime < t:
+                      e[0] += st.st_size
+                  else:
+                      e[1] += st.st_size
+                      e[2] = True
+          split = {}
+          for (kind, entry), (old, new, fresh) in entries.items():
+              key = (kind, "kept (has a fresh file)" if fresh else "all old")
+              split[key] = split.get(key, 0) + old
+          for (kind, state), old in sorted(split.items()):
+              print(f"LANE8-P old bytes in {kind} entries, {state}: {old / 1e9:.3f} GB")
           gb = lambda b: f"{b / 1e9:.2f} GB"
           print(f"LANE8-P marker {sha[:9]} at {t}")
           print(f"LANE8-P restored target {gb(total)}: workspace units built in the saving run {gb(ws_new)}, workspace units older than the marker {gb(ws_old)} (prunable), external {gb(ext)}")
