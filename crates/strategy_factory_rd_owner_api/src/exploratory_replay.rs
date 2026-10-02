@@ -16,7 +16,9 @@ use vibe_backtest_owner::{
         NativeReplayCommitDispositionV2, NativeReplayRunErrorV2,
         PostgresNativeReplayPreparationOwnerV2, run_exploratory_replay_v2,
     },
-    postgres::{PostgresReplayResultOwnerErrorV2, PostgresReplayResultOwnerV2},
+    postgres::{
+        PostgresReplayResultOwnerErrorV2, PostgresReplayResultOwnerV2, ReplayResultReadbackV2,
+    },
 };
 use vibe_backtest_owner_contracts::{
     CanonicalDigestV2, OpaqueIdentityV2, ReplayNamespaceV2, ReplayRequestDtoV2, ReplayRequestV2,
@@ -33,7 +35,6 @@ use vibe_data::owner::{
 #[cfg(feature = "native-replay-execution")]
 use vibe_postgres_connect::{PgPoolOptionsExt, PostgresTls};
 use vibe_product_edge::{ProductEdgeAdmissionRequestV1, ProductEdgeError};
-#[cfg(any(test, feature = "composer-replay-issuance"))]
 use vibe_strategy_factory::NativeReplayExecutionInputBindingErrorV1;
 #[cfg(feature = "composer-v3-replay")]
 use vibe_strategy_factory::exploratory_replay::{
@@ -45,7 +46,8 @@ use vibe_strategy_factory::exploratory_replay::{
     ExploratoryReplayAvailabilityV1, ExploratoryReplayNextLegalActionV1,
 };
 use vibe_strategy_factory::{
-    ExploratoryReplayResultLocatorV2, MarketDataRepairResolutionLocatorV1,
+    ExploratoryReplayResultLocatorV2, ExploratoryResultCensusErrorV1,
+    MarketDataRepairResolutionLocatorV1,
     exploratory_replay::{
         EXPLORATORY_REPLAY_MUTATION_EFFECT_V2, EXPLORATORY_REPLAY_OPERATION_V2,
         EXPLORATORY_REPLAY_SCHEMA_V2, ExploratoryReplayCommitResultV2, ExploratoryReplayOwnerError,
@@ -197,6 +199,7 @@ struct ExploratoryReplayDiagnosisQueryV1 {
 pub(super) struct NativeReplayExecutionServiceV2 {
     preparation_owner: Arc<PostgresNativeReplayPreparationOwnerV2>,
     result_owner: Arc<PostgresReplayResultOwnerV2>,
+    census_owner: Arc<PostgresResearchGoalOwnerV1>,
 }
 
 #[cfg(feature = "native-replay-execution")]
@@ -228,7 +231,7 @@ impl NativeReplayExecutionServiceV2 {
         let result_owner =
             Arc::new(PostgresReplayResultOwnerV2::from_admitted_pool(backtest_pool).await?);
         let resolver = Arc::new(PostgresNativeReplayExecutionPreparationResolverV2::new(
-            research_owner,
+            research_owner.clone(),
             composer,
             instrument_master_owner,
             instrument_terms_owner,
@@ -242,6 +245,7 @@ impl NativeReplayExecutionServiceV2 {
         Ok(Self {
             preparation_owner,
             result_owner,
+            census_owner: research_owner,
         })
     }
 }
@@ -455,11 +459,7 @@ async fn resolve_execution_input_binding(
             "NATIVE_REPLAY_EXECUTION_INPUT_BINDING_UNAVAILABLE",
             &request_identity,
         ),
-        Err(_) => rejection(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "NATIVE_REPLAY_EXECUTION_INPUT_BINDING_UNAVAILABLE",
-            &request_identity,
-        ),
+        Err(e) => execution_input_binding_error(&e, &request_identity),
     }
 }
 
@@ -499,24 +499,27 @@ pub(super) async fn issue_execution_input_binding(
         );
     }
     let (
-        Some(market_data),
-        Some(composer),
-        Some(instrument_master),
-        Some(instrument_economic_terms),
-        Some(universe_sample_projection),
-    ) = (
+        market_data,
+        composer,
+        instrument_master,
+        instrument_economic_terms,
+        universe_sample_projection,
+    ) = match issuance_ports(
         state.native_replay_scheduling.as_deref(),
         state.develop_composer_read.as_deref(),
         state.instrument_master_v2.as_deref(),
         state.instrument_economic_terms.as_deref(),
         state.universe_sample_projection.as_deref(),
-    )
-    else {
-        return rejection(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "NATIVE_REPLAY_EXECUTION_INPUT_BINDING_UNAVAILABLE",
-            &request_identity,
-        );
+    ) {
+        Ok(ports) => ports,
+        Err(cause) => {
+            return rejection_with_cause(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "NATIVE_REPLAY_EXECUTION_INPUT_BINDING_UNAVAILABLE",
+                cause,
+                &request_identity,
+            );
+        }
     };
 
     match state
@@ -635,13 +638,53 @@ async fn native_replay_execution_response(
 ) -> Response {
     let recovered = match disposition {
         NativeReplayCommitDispositionV2::Committed { result, .. } => {
-            return canonical_result_response(result.result_canonical_bytes());
+            return counted_result_response(service, &result, request_identity).await;
         }
         NativeReplayCommitDispositionV2::SubmittedOrUnknown(recovery) => {
             recovery.resolve(service.result_owner.as_ref()).await
         }
     };
-    recovered_commit_response(recovered, request_identity)
+
+    match recovered {
+        Ok(Some(NativeReplayCommitDispositionV2::Committed { result, .. })) => {
+            counted_result_response(service, &result, request_identity).await
+        }
+        other => recovered_commit_response(other, request_identity),
+    }
+}
+
+/// Answers a committed Result only once its TrialFamily census counts it.
+///
+/// Backtest has committed the Result by now, in a transaction R&D cannot join, so the count is
+/// R&D's own transaction after it. If the count fails the Result is not returned: it stays
+/// unshown, because every read refuses an uncounted Result, until the same request and attempt
+/// run again, recover this committed Result, and count it.
+#[cfg(feature = "native-replay-execution")]
+async fn counted_result_response(
+    service: &NativeReplayExecutionServiceV2,
+    result: &ReplayResultReadbackV2,
+    request_identity: &str,
+) -> Response {
+    let readback = result.result();
+
+    match service
+        .census_owner
+        .count_exploratory_replay_result_v2(ExploratoryReplayResultLocatorV2 {
+            result_identity: readback.result_identity.as_str(),
+            request_identity: readback.request_identity.as_str(),
+            attempt_identity: readback.attempt_identity.as_str(),
+        })
+        .await
+    {
+        Ok(count) => {
+            tracing::info!(?count, %request_identity, "committed exploratory Result counted");
+            canonical_result_response(result.result_canonical_bytes())
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, %request_identity, "committed exploratory Result was not counted");
+            rejection(StatusCode::SERVICE_UNAVAILABLE, e.code(), request_identity)
+        }
+    }
 }
 
 /// The answer to a commit whose outcome was unknown, once recovery has looked for it.
@@ -679,6 +722,19 @@ fn native_replay_submitted_or_unknown_response(request_identity: &str) -> Respon
         "NATIVE_REPLAY_RESULT_SUBMITTED_OR_UNKNOWN",
         request_identity,
     )
+}
+
+/// A Result its census does not count is a conflict, refused by its own name; every other
+/// failure to show one is unavailable, under the code of what failed.
+fn result_read_error(error: &ExploratoryResultCensusErrorV1, request_identity: &str) -> Response {
+    let status = match error {
+        ExploratoryResultCensusErrorV1::NotCounted => StatusCode::CONFLICT,
+        _ => {
+            tracing::warn!(%error, %request_identity, "exploratory Result read unavailable");
+            StatusCode::SERVICE_UNAVAILABLE
+        }
+    };
+    rejection(status, error.code(), request_identity)
 }
 
 #[cfg(feature = "native-replay-execution")]
@@ -753,11 +809,7 @@ async fn read_result(
             "EXPLORATORY_REPLAY_RESULT_UNAVAILABLE",
             &request_identity,
         ),
-        Err(_) => rejection(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "EXPLORATORY_REPLAY_RESULT_UNAVAILABLE",
-            &request_identity,
-        ),
+        Err(e) => result_read_error(&e, &request_identity),
     }
 }
 
@@ -812,11 +864,7 @@ async fn read_run_evidence(
             "EXPLORATORY_REPLAY_RESULT_UNAVAILABLE",
             &request_identity,
         ),
-        Err(_) => rejection(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "EXPLORATORY_REPLAY_RESULT_UNAVAILABLE",
-            &request_identity,
-        ),
+        Err(e) => result_read_error(&e, &request_identity),
     }
 }
 
@@ -1362,11 +1410,41 @@ fn product_edge_error(error: &ProductEdgeError, request_identity: &str) -> Respo
     }
 }
 
-/// A request whose Owner inputs no longer reproduce the binding already issued for it is refused
-/// for good, so it answers `409` rather than a `503` that invites the same retry forever.
-/// `Unavailable` recorded its stage in the R&D Owner before it got here; `Storage` has no such
-/// record, so its detail is logged at the match.
+/// Market Data scheduling, the Composer read, Instrument Master, economic terms and the universe
+/// sample projection, in the order issuance takes them.
 #[cfg(any(test, feature = "composer-replay-issuance"))]
+type IssuancePorts<S, C, M, T, P> = (S, C, M, T, P);
+
+/// The five Owner ports issuance needs, in the order the issue handler passes them, or the cause
+/// naming the first one this process lacks.
+///
+/// A deployed image always composes the last four. Market Data scheduling is composed only once a
+/// Store Admission admits it, which is `B3`, so until then `MARKET_DATA_SCHEDULING_NOT_ADMITTED`
+/// is the answer a deployment gives.
+#[cfg(any(test, feature = "composer-replay-issuance"))]
+fn issuance_ports<S, C, M, T, P>(
+    scheduling: Option<S>,
+    composer: Option<C>,
+    instrument_master: Option<M>,
+    economic_terms: Option<T>,
+    sample_projection: Option<P>,
+) -> Result<IssuancePorts<S, C, M, T, P>, &'static str> {
+    Ok((
+        scheduling.ok_or("MARKET_DATA_SCHEDULING_NOT_ADMITTED")?,
+        composer.ok_or("COMPOSER_READ_ABSENT")?,
+        instrument_master.ok_or("INSTRUMENT_MASTER_OWNER_ABSENT")?,
+        economic_terms.ok_or("ECONOMIC_TERMS_OWNER_ABSENT")?,
+        sample_projection.ok_or("SAMPLE_PROJECTION_OWNER_ABSENT")?,
+    ))
+}
+
+/// Answers an execution-input binding refusal.
+///
+/// A conflict with a binding already issued is refused for good, so it answers `409` rather than a
+/// `503` that invites the same retry forever, and so do the two Instrument Master refusals. Every
+/// 503 names its cause, in the body's `cause` and the `x-rd-rejection-cause` header beside the
+/// unchanged code: `Unavailable` carries the cause that refused it, and `Storage`, a database error
+/// whose detail is logged here rather than answered, is `STORE_UNAVAILABLE`.
 fn execution_input_binding_error(
     error: &NativeReplayExecutionInputBindingErrorV1,
     request_identity: &str,
@@ -1379,15 +1457,17 @@ fn execution_input_binding_error(
         ),
         NativeReplayExecutionInputBindingErrorV1::Storage(detail) => {
             tracing::warn!(%detail, %request_identity, "execution-input binding storage unavailable");
-            rejection(
+            rejection_with_cause(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "NATIVE_REPLAY_EXECUTION_INPUT_BINDING_UNAVAILABLE",
+                "STORE_UNAVAILABLE",
                 request_identity,
             )
         }
-        NativeReplayExecutionInputBindingErrorV1::Unavailable => rejection(
+        NativeReplayExecutionInputBindingErrorV1::Unavailable(cause) => rejection_with_cause(
             StatusCode::SERVICE_UNAVAILABLE,
             "NATIVE_REPLAY_EXECUTION_INPUT_BINDING_UNAVAILABLE",
+            cause.code(),
             request_identity,
         ),
         NativeReplayExecutionInputBindingErrorV1::NoCompositionBinding => rejection(
@@ -1433,6 +1513,30 @@ fn owner_error(error: &ExploratoryReplayOwnerError, request_identity: &str) -> R
     }
 }
 
+/// A rejection that also names why, for a code that covers more than one cause.
+fn rejection_with_cause(
+    status: StatusCode,
+    code: &str,
+    cause: &'static str,
+    request_identity: &str,
+) -> Response {
+    let mut response = (
+        status,
+        Json(json!({
+            "request_identity": request_identity,
+            "error": code,
+            "cause": cause,
+        })),
+    )
+        .into_response();
+    insert_rejection_code(&mut response, code);
+    response.headers_mut().insert(
+        "x-rd-rejection-cause",
+        axum::http::HeaderValue::from_static(cause),
+    );
+    response
+}
+
 fn rejection(status: StatusCode, code: &str, request_identity: &str) -> Response {
     let mut response = (
         status,
@@ -1458,6 +1562,7 @@ mod tests {
     use vibe_product_edge::{
         ProductEdgeSubjectKindV1, ProductEdgeUnavailableReasonV1, ProductEdgeUnavailableV1,
     };
+    use vibe_strategy_factory::NativeReplayExecutionInputBindingCauseV1;
 
     #[cfg(feature = "sealed-source-intake-composer-acceptance")]
     #[rstest]
@@ -2079,7 +2184,9 @@ mod tests {
         );
         assert_eq!(
             execution_input_binding_error(
-                &NativeReplayExecutionInputBindingErrorV1::Unavailable,
+                &NativeReplayExecutionInputBindingErrorV1::Unavailable(
+                    NativeReplayExecutionInputBindingCauseV1::BarScheduleAbsent
+                ),
                 "request-1"
             )
             .status(),
@@ -2092,6 +2199,88 @@ mod tests {
             )
             .status(),
             StatusCode::SERVICE_UNAVAILABLE
+        );
+    }
+
+    /// Every 503 names its cause beside the unchanged code, in the header and in the body.
+    #[rstest]
+    #[case::refused_check(
+        NativeReplayExecutionInputBindingErrorV1::Unavailable(
+            NativeReplayExecutionInputBindingCauseV1::BarScheduleAbsent
+        ),
+        "BAR_SCHEDULE_ABSENT"
+    )]
+    #[case::another_refused_check(
+        NativeReplayExecutionInputBindingErrorV1::Unavailable(
+            NativeReplayExecutionInputBindingCauseV1::EconomicTermsNotYetInForce
+        ),
+        "ECONOMIC_TERMS_NOT_YET_IN_FORCE"
+    )]
+    #[case::store(
+        NativeReplayExecutionInputBindingErrorV1::Storage(sqlx::Error::PoolTimedOut),
+        "STORE_UNAVAILABLE"
+    )]
+    #[tokio::test]
+    async fn every_unavailable_execution_input_binding_names_its_cause(
+        #[case] error: NativeReplayExecutionInputBindingErrorV1,
+        #[case] cause: &str,
+    ) {
+        let response = execution_input_binding_error(&error, "request-1");
+
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(
+            response.headers()["x-rd-rejection-code"],
+            "NATIVE_REPLAY_EXECUTION_INPUT_BINDING_UNAVAILABLE"
+        );
+        assert_eq!(response.headers()["x-rd-rejection-cause"], cause);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(
+            body,
+            json!({
+                "request_identity": "request-1",
+                "error": "NATIVE_REPLAY_EXECUTION_INPUT_BINDING_UNAVAILABLE",
+                "cause": cause,
+            })
+        );
+    }
+
+    /// Each absent port is named, and Market Data scheduling, the one a deployment lacks until
+    /// `B3`, is named first whatever else is absent.
+    #[rstest]
+    fn an_absent_issuance_port_is_named() {
+        let none: Option<u8> = None;
+        let all = (Some(1), Some(2), Some(3), Some(4), Some(5));
+
+        assert_eq!(
+            issuance_ports(all.0, all.1, all.2, all.3, all.4),
+            Ok((1, 2, 3, 4, 5))
+        );
+        assert_eq!(
+            issuance_ports(none, none, none, none, none),
+            Err("MARKET_DATA_SCHEDULING_NOT_ADMITTED")
+        );
+        assert_eq!(
+            issuance_ports(none, all.1, all.2, all.3, all.4),
+            Err("MARKET_DATA_SCHEDULING_NOT_ADMITTED")
+        );
+        assert_eq!(
+            issuance_ports(all.0, none, all.2, all.3, all.4),
+            Err("COMPOSER_READ_ABSENT")
+        );
+        assert_eq!(
+            issuance_ports(all.0, all.1, none, all.3, all.4),
+            Err("INSTRUMENT_MASTER_OWNER_ABSENT")
+        );
+        assert_eq!(
+            issuance_ports(all.0, all.1, all.2, none, all.4),
+            Err("ECONOMIC_TERMS_OWNER_ABSENT")
+        );
+        assert_eq!(
+            issuance_ports(all.0, all.1, all.2, all.3, none),
+            Err("SAMPLE_PROJECTION_OWNER_ABSENT")
         );
     }
 

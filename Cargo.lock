@@ -11382,6 +11382,7 @@ dependencies = [
  "sha2 0.10.9",
  "sqlx",
  "strategy-factory-program-sdk",
+ "strum 0.28.0",
  "tar",
  "tempfile",
  "thiserror 2.0.19",

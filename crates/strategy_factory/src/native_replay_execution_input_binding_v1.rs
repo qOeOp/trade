@@ -20,6 +20,7 @@ use vibe_data::owner::{
 };
 
 use crate::{
+    NativeReplayExecutionInputBindingCauseV1 as Cause,
     artifact_v2::StrategyArtifactV2,
     exploratory_replay::{ExploratoryReplayRequestLocatorV2, SealedExploratoryReplayReadbackV2},
     native_replay_preparation_inputs_v2::NativeReplayPreparationInputsV2,
@@ -222,7 +223,9 @@ impl NativeReplayExecutionInputBindingReadbackV1 {
                 member.instrument_economic_terms_fact.identity,
                 member.instrument_economic_terms_receipt.identity,
             )
-            .map_err(|_| NativeReplayExecutionInputBindingErrorV1::Unavailable)
+            .map_err(|_| {
+                NativeReplayExecutionInputBindingErrorV1::Unavailable(Cause::StoredBindingCorrupt)
+            })
         };
         self.binding.members.try_map(locator)
     }
@@ -231,8 +234,10 @@ impl NativeReplayExecutionInputBindingReadbackV1 {
 /// Redacted fail-closed outcome for issuance and recovery.
 #[derive(Debug, Error)]
 pub enum NativeReplayExecutionInputBindingErrorV1 {
-    #[error("Native Replay execution-input binding unavailable")]
-    Unavailable,
+    /// Issuance or recovery cannot answer, for the named reason. The cause carries no Owner
+    /// detail: issuance records that under its stage's coordinate.
+    #[error("Native Replay execution-input binding unavailable: {}", .0.code())]
+    Unavailable(NativeReplayExecutionInputBindingCauseV1),
     #[error("Native Replay execution-input binding custody conflict")]
     Conflict,
     /// The sealed Replay request has no Composer-backed V3 record, so it names no Market Data
@@ -255,6 +260,366 @@ pub enum NativeReplayExecutionInputBindingErrorV1 {
     InstrumentMasterTermsChanged,
     #[error("Native Replay execution-input binding storage unavailable: {0}")]
     Storage(#[source] sqlx::Error),
+}
+
+/// Why an execution-input binding is `Unavailable`: one name for each check that refuses it.
+///
+/// The list is closed. [`Self::code`] matches it with no wildcard, so a site cannot refuse
+/// without naming one of these, and a new one is a new variant with its own code. A code is a
+/// stable wire name; the HTTP answer stays 503 for every one of them.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[cfg_attr(test, derive(strum::EnumIter))]
+pub enum NativeReplayExecutionInputBindingCauseV1 {
+    // Issuance, in the order its stages run.
+    /// The sealed Replay request, its family or its Composer readback could not be resolved.
+    PreparationUnresolved,
+    /// The Composer's Plan bytes do not decode to the Plan projection issuance needs.
+    PlanProjectionUndecodable,
+    /// The request identity cannot key an Instrument Master cut.
+    RequestIdentityInvalid,
+    /// The request's Market Data composition binding could not be read.
+    CompositionBindingUnreadable,
+    /// Market Data did not issue the request-keyed Instrument Master cut.
+    InstrumentMasterCutNotIssued,
+    /// A member has no admitted BAR schedule at the frame. Until Market Data commits one, no
+    /// retry changes the answer.
+    BarScheduleAbsent,
+    /// A member's BAR schedule for the frame cannot be chosen: two answer it, or the frame's roles
+    /// read more than one bar label.
+    BarScheduleUnavailable,
+    /// The frame's Source Binding declares no bar timeframe, so no schedule can be chosen.
+    SourceBindingDeclaresNoBarTimeframe,
+    /// A role's timeframe, or every schedule of a member at the frame, is not the bar the frame's
+    /// Source Binding declares.
+    DeclaredBarTimeframeMismatch,
+    /// Market Data did not issue the initial frame's universe sample projection, for a reason
+    /// other than the schedule ones above.
+    SampleProjectionNotIssued,
+    /// The request-keyed Instrument Master cut could not be resolved.
+    InstrumentMasterUnresolved,
+    /// The resolved Instrument Master cut belongs to another Replay request.
+    InstrumentMasterCutForeign,
+    /// The sealed Replay policy carries no Replay Policy Catalog V3.
+    ReplayPolicyCatalogAbsent,
+    /// The Replay Policy Catalog V3 does not verify.
+    ReplayPolicyCatalogInvalid,
+    /// No economic terms apply to every member at the Replay's venue, quote currency and window
+    /// start. A member listed at another venue has none there either.
+    EconomicTermsAbsent,
+    /// More than one terms fact or account scope could apply to the same members.
+    EconomicTermsAmbiguous,
+    /// The economic terms could not be resolved: the store, its ACL or its readback failed.
+    EconomicTermsUnresolved,
+    /// The Owner-issued execution profile could not be issued from the family and the terms.
+    ExecutionProfileNotIssued,
+    /// The Plan states an input role the initial frame cannot read: not a universe Market Data
+    /// role, or one with an unknown field, channel or unit.
+    PlanRolesUnsupported,
+    /// Market Data did not resolve the initial frame's market inputs, for a reason other than the
+    /// schedule ones above.
+    MarketInputsUnresolved,
+    /// The initial frame's sample projection names another universe frame than the one resolved.
+    SampleProjectionNamesAnotherFrame,
+    /// The Plan does not revalidate against the resolved universe frame.
+    PlanRevalidationRefused,
+    /// The artifact does not revalidate against the Plan.
+    ArtifactRevalidationRefused,
+
+    // Verification that the Owner readbacks agree with each other and with the request: one cause
+    // for each clause, in the order they are checked.
+    /// The Plan binds no Owner universe selection.
+    PlanHasNoUniverseSelection,
+    /// The sealed Replay carries no execution profile seal.
+    ReplayHasNoExecutionProfileSeal,
+    /// A digest the request or the family states is not a canonical `sha256:` digest.
+    DigestNotCanonical,
+    /// The execution profile was issued for another Replay request.
+    ExecutionProfileNamesAnotherRequest,
+    /// The execution profile names another TrialFamily than the request's.
+    ExecutionProfileNamesAnotherFamily,
+    /// The execution profile's TrialFamily digest is not the family root's.
+    ExecutionProfileFamilyDigestDiffers,
+    /// The execution profile names another Plan than the request.
+    ExecutionProfileNamesAnotherPlan,
+    /// The execution profile's Plan digest is not the request's.
+    ExecutionProfilePlanDigestDiffers,
+    /// The Plan's canonical digest is not the one the request names.
+    PlanDigestDiffersFromRequest,
+    /// The execution profile names another artifact than the request.
+    ExecutionProfileNamesAnotherArtifact,
+    /// The execution profile's artifact digest is not the request's.
+    ExecutionProfileArtifactDigestDiffers,
+    /// The artifact's identity is not the digest the request names.
+    ArtifactDigestDiffersFromRequest,
+    /// The execution profile names another universe selection than the request.
+    ExecutionProfileNamesAnotherUniverseSelection,
+    /// The execution profile's universe selection digest is not the request's.
+    ExecutionProfileUniverseSelectionDigestDiffers,
+    /// The execution profile was issued over other economic terms than the ones resolved.
+    ExecutionProfileNamesOtherEconomicTerms,
+    /// The Composer's Plan bytes are not the Plan's durable bytes.
+    ComposerPlanBytesDiffer,
+    /// The Composer's artifact package bytes are not the artifact's.
+    ComposerArtifactPackageDiffers,
+    /// The Composer's module bytes are not the artifact's modules.
+    ComposerModulesDiffer,
+    /// The artifact does not validate for the Plan.
+    ArtifactInvalidForPlan,
+    /// The universe frame holds a member count no native Replay admits.
+    MemberCountNotAdmitted,
+    /// The universe frame's members are not in strictly ascending member-key order.
+    UniverseFrameMembersOutOfOrder,
+    /// There is not exactly one economic terms readback for each member.
+    EconomicTermsCountDiffers,
+    /// There is not exactly one BAR schedule for each member.
+    BarScheduleCountDiffers,
+    /// The universe frame's selection identity is not the Plan's.
+    UniverseFrameSelectionIdentityDiffersFromPlan,
+    /// The universe frame's selection digest is not the Plan's.
+    UniverseFrameSelectionDigestDiffersFromPlan,
+    /// The universe frame holds another member count than the Plan's selection.
+    UniverseFrameMemberCountDiffersFromPlan,
+    /// A universe frame member's key or instrument is not the Plan's at the same position.
+    UniverseFrameMembersDifferFromPlan,
+    /// The Instrument Master cut was issued for another Replay request.
+    InstrumentMasterCutNamesAnotherRequest,
+    /// The Instrument Master cut holds another member count than the universe frame.
+    InstrumentMasterCutMemberCountDiffers,
+    /// A member's public instrument fact states no valid native crypto perpetual terms.
+    PublicTermsInvalid,
+    /// A universe frame member is not the Instrument Master cut's instrument at the same position.
+    InstrumentMasterCutMemberDiffers,
+    /// A member's economic terms name another instrument.
+    EconomicTermsNameAnotherInstrument,
+    /// A member's economic terms cite another public instrument fact.
+    EconomicTermsCiteAnotherPublicFact,
+    /// A member's economic terms name another venue than its public fact.
+    EconomicTermsNameAnotherVenue,
+    /// A member's economic terms name another quote currency than its public terms.
+    EconomicTermsNameAnotherQuoteCurrency,
+    /// A member's economic terms take effect after the Replay window's start.
+    EconomicTermsNotYetInForce,
+    /// A member's economic terms end at or before the Replay window's start.
+    EconomicTermsNoLongerInForce,
+    /// A member's economic terms readback does not verify.
+    EconomicTermsDoNotVerify,
+    /// A member's BAR schedule names another instrument.
+    BarScheduleNamesAnotherInstrument,
+    /// A member's BAR schedule is cut at another instant than the Replay window's start.
+    BarScheduleCutAtAnotherInstant,
+    /// The members' economic terms name more than one account scope.
+    AccountScopesDiffer,
+
+    // Custody of the binding itself.
+    /// The verified constituents name another request than the sealed Replay being issued for.
+    RequestLocatorMismatch,
+    /// No frozen V2 request matches the locator's meaning, receipt and seal, so nothing was
+    /// appended.
+    RequestNotSealed,
+    /// The binding tables' ownership, persistence or ACL is not the Owner's alone.
+    StorageBoundaryInvalid,
+    // The constituents the binding records, each checked before it is encoded: one cause per
+    // check, in order.
+    /// The request identity is empty, blank or longer than 512 bytes.
+    BindingRequestIdentityInvalid,
+    /// The request's meaning digest is not a canonical `sha256:` digest.
+    BindingRequestMeaningDigestInvalid,
+    /// The request's receipt identity is empty, blank or longer than 512 bytes.
+    BindingRequestReceiptIdentityInvalid,
+    /// The request's seal digest is not a canonical `sha256:` digest.
+    BindingRequestSealDigestInvalid,
+    /// The TrialFamily locator's identity is not valid text, or its digest is zero.
+    BindingTrialFamilyLocatorInvalid,
+    /// The artifact locator's identity is not valid text, or its digest is zero.
+    BindingArtifactLocatorInvalid,
+    /// The Plan locator's identity is not valid text, or its digest is zero.
+    BindingStrategyPlanLocatorInvalid,
+    /// One of the Instrument Master cut locator's four identities is zero.
+    BindingInstrumentMasterCutLocatorInvalid,
+    /// The universe frame receipt's identity or digest is zero.
+    BindingUniverseFrameReceiptInvalid,
+    /// The members are not in strictly ascending member-key order.
+    BindingMembersOutOfOrder,
+    /// Two members name the same public instrument.
+    BindingMembersRepeatAnInstrument,
+    /// A member's key is empty, blank or longer than 512 bytes.
+    BindingMemberKeyInvalid,
+    /// A member's public instrument identity is empty, blank or longer than 512 bytes.
+    BindingMemberInstrumentIdentityInvalid,
+    /// A member's public instrument digest is zero.
+    BindingMemberInstrumentDigestZero,
+    /// A member's venue identity is empty, blank or longer than 512 bytes.
+    BindingMemberVenueInvalid,
+    /// A member's account scope identity is empty, blank or longer than 512 bytes.
+    BindingMemberAccountScopeInvalid,
+    /// A member's BAR schedule identity is zero.
+    BindingMemberScheduleIdentityZero,
+    /// A member's economic terms fact locator has a zero identity or digest.
+    BindingMemberEconomicTermsFactInvalid,
+    /// A member's economic terms receipt locator has a zero identity or digest.
+    BindingMemberEconomicTermsReceiptInvalid,
+    /// A member's BAR schedule cut locator has a zero identity or digest.
+    BindingMemberBarScheduleCutInvalid,
+    /// A member's BAR schedule receipt locator has a zero identity or digest.
+    BindingMemberBarScheduleReceiptInvalid,
+    /// The execution profile seal's Replay Policy Catalog binding digest is zero.
+    CatalogBindingSealZero,
+    /// The execution profile seal's TrialFamily binding digest is zero.
+    FamilyBindingSealZero,
+    /// The execution profile seal's request binding digest is zero.
+    RequestBindingSealZero,
+    /// The execution profile's economic configuration digest is zero.
+    EconomicConfigurationDigestZero,
+    /// The execution profile's runner operational profile digest is zero.
+    RunnerOperationalProfileDigestZero,
+    /// A text, count or the whole binding exceeds its canonical encoding's bounds.
+    BindingNotEncodable,
+    /// A stored binding, receipt or outbox row does not decode or does not reproduce its digests.
+    StoredBindingCorrupt,
+    /// A fresh Owner resolution does not reproduce the stored binding.
+    ReResolutionDiffers,
+    /// An issued binding could not be re-resolved into a native execution bundle.
+    ExecutionBundleUnresolved,
+}
+
+impl NativeReplayExecutionInputBindingCauseV1 {
+    /// The cause's stable wire name.
+    #[must_use]
+    pub const fn code(self) -> &'static str {
+        match self {
+            Self::PreparationUnresolved => "PREPARATION_UNRESOLVED",
+            Self::PlanProjectionUndecodable => "PLAN_PROJECTION_UNDECODABLE",
+            Self::RequestIdentityInvalid => "REQUEST_IDENTITY_INVALID",
+            Self::CompositionBindingUnreadable => "COMPOSITION_BINDING_UNREADABLE",
+            Self::InstrumentMasterCutNotIssued => "INSTRUMENT_MASTER_CUT_NOT_ISSUED",
+            Self::BarScheduleAbsent => "BAR_SCHEDULE_ABSENT",
+            Self::BarScheduleUnavailable => "BAR_SCHEDULE_UNAVAILABLE",
+            Self::SourceBindingDeclaresNoBarTimeframe => "SOURCE_BINDING_DECLARES_NO_BAR_TIMEFRAME",
+            Self::DeclaredBarTimeframeMismatch => "DECLARED_BAR_TIMEFRAME_MISMATCH",
+            Self::SampleProjectionNotIssued => "SAMPLE_PROJECTION_NOT_ISSUED",
+            Self::InstrumentMasterUnresolved => "INSTRUMENT_MASTER_UNRESOLVED",
+            Self::InstrumentMasterCutForeign => "INSTRUMENT_MASTER_CUT_FOREIGN",
+            Self::ReplayPolicyCatalogAbsent => "REPLAY_POLICY_CATALOG_ABSENT",
+            Self::ReplayPolicyCatalogInvalid => "REPLAY_POLICY_CATALOG_INVALID",
+            Self::EconomicTermsAbsent => "ECONOMIC_TERMS_ABSENT",
+            Self::EconomicTermsAmbiguous => "ECONOMIC_TERMS_AMBIGUOUS",
+            Self::EconomicTermsUnresolved => "ECONOMIC_TERMS_UNRESOLVED",
+            Self::ExecutionProfileNotIssued => "EXECUTION_PROFILE_NOT_ISSUED",
+            Self::PlanRolesUnsupported => "PLAN_ROLES_UNSUPPORTED",
+            Self::MarketInputsUnresolved => "MARKET_INPUTS_UNRESOLVED",
+            Self::SampleProjectionNamesAnotherFrame => "SAMPLE_PROJECTION_NAMES_ANOTHER_FRAME",
+            Self::PlanRevalidationRefused => "PLAN_REVALIDATION_REFUSED",
+            Self::ArtifactRevalidationRefused => "ARTIFACT_REVALIDATION_REFUSED",
+            Self::PlanHasNoUniverseSelection => "PLAN_HAS_NO_UNIVERSE_SELECTION",
+            Self::ReplayHasNoExecutionProfileSeal => "REPLAY_HAS_NO_EXECUTION_PROFILE_SEAL",
+            Self::DigestNotCanonical => "DIGEST_NOT_CANONICAL",
+            Self::ExecutionProfileNamesAnotherRequest => "EXECUTION_PROFILE_NAMES_ANOTHER_REQUEST",
+            Self::ExecutionProfileNamesAnotherFamily => "EXECUTION_PROFILE_NAMES_ANOTHER_FAMILY",
+            Self::ExecutionProfileFamilyDigestDiffers => "EXECUTION_PROFILE_FAMILY_DIGEST_DIFFERS",
+            Self::ExecutionProfileNamesAnotherPlan => "EXECUTION_PROFILE_NAMES_ANOTHER_PLAN",
+            Self::ExecutionProfilePlanDigestDiffers => "EXECUTION_PROFILE_PLAN_DIGEST_DIFFERS",
+            Self::PlanDigestDiffersFromRequest => "PLAN_DIGEST_DIFFERS_FROM_REQUEST",
+            Self::ExecutionProfileNamesAnotherArtifact => {
+                "EXECUTION_PROFILE_NAMES_ANOTHER_ARTIFACT"
+            }
+            Self::ExecutionProfileArtifactDigestDiffers => {
+                "EXECUTION_PROFILE_ARTIFACT_DIGEST_DIFFERS"
+            }
+            Self::ArtifactDigestDiffersFromRequest => "ARTIFACT_DIGEST_DIFFERS_FROM_REQUEST",
+            Self::ExecutionProfileNamesAnotherUniverseSelection => {
+                "EXECUTION_PROFILE_NAMES_ANOTHER_UNIVERSE_SELECTION"
+            }
+            Self::ExecutionProfileUniverseSelectionDigestDiffers => {
+                "EXECUTION_PROFILE_UNIVERSE_SELECTION_DIGEST_DIFFERS"
+            }
+            Self::ExecutionProfileNamesOtherEconomicTerms => {
+                "EXECUTION_PROFILE_NAMES_OTHER_ECONOMIC_TERMS"
+            }
+            Self::ComposerPlanBytesDiffer => "COMPOSER_PLAN_BYTES_DIFFER",
+            Self::ComposerArtifactPackageDiffers => "COMPOSER_ARTIFACT_PACKAGE_DIFFERS",
+            Self::ComposerModulesDiffer => "COMPOSER_MODULES_DIFFER",
+            Self::ArtifactInvalidForPlan => "ARTIFACT_INVALID_FOR_PLAN",
+            Self::MemberCountNotAdmitted => "MEMBER_COUNT_NOT_ADMITTED",
+            Self::UniverseFrameMembersOutOfOrder => "UNIVERSE_FRAME_MEMBERS_OUT_OF_ORDER",
+            Self::EconomicTermsCountDiffers => "ECONOMIC_TERMS_COUNT_DIFFERS",
+            Self::BarScheduleCountDiffers => "BAR_SCHEDULE_COUNT_DIFFERS",
+            Self::UniverseFrameSelectionIdentityDiffersFromPlan => {
+                "UNIVERSE_FRAME_SELECTION_IDENTITY_DIFFERS_FROM_PLAN"
+            }
+            Self::UniverseFrameSelectionDigestDiffersFromPlan => {
+                "UNIVERSE_FRAME_SELECTION_DIGEST_DIFFERS_FROM_PLAN"
+            }
+            Self::UniverseFrameMemberCountDiffersFromPlan => {
+                "UNIVERSE_FRAME_MEMBER_COUNT_DIFFERS_FROM_PLAN"
+            }
+            Self::UniverseFrameMembersDifferFromPlan => "UNIVERSE_FRAME_MEMBERS_DIFFER_FROM_PLAN",
+            Self::InstrumentMasterCutNamesAnotherRequest => {
+                "INSTRUMENT_MASTER_CUT_NAMES_ANOTHER_REQUEST"
+            }
+            Self::InstrumentMasterCutMemberCountDiffers => {
+                "INSTRUMENT_MASTER_CUT_MEMBER_COUNT_DIFFERS"
+            }
+            Self::PublicTermsInvalid => "PUBLIC_TERMS_INVALID",
+            Self::InstrumentMasterCutMemberDiffers => "INSTRUMENT_MASTER_CUT_MEMBER_DIFFERS",
+            Self::EconomicTermsNameAnotherInstrument => "ECONOMIC_TERMS_NAME_ANOTHER_INSTRUMENT",
+            Self::EconomicTermsCiteAnotherPublicFact => "ECONOMIC_TERMS_CITE_ANOTHER_PUBLIC_FACT",
+            Self::EconomicTermsNameAnotherVenue => "ECONOMIC_TERMS_NAME_ANOTHER_VENUE",
+            Self::EconomicTermsNameAnotherQuoteCurrency => {
+                "ECONOMIC_TERMS_NAME_ANOTHER_QUOTE_CURRENCY"
+            }
+            Self::EconomicTermsNotYetInForce => "ECONOMIC_TERMS_NOT_YET_IN_FORCE",
+            Self::EconomicTermsNoLongerInForce => "ECONOMIC_TERMS_NO_LONGER_IN_FORCE",
+            Self::EconomicTermsDoNotVerify => "ECONOMIC_TERMS_DO_NOT_VERIFY",
+            Self::BarScheduleNamesAnotherInstrument => "BAR_SCHEDULE_NAMES_ANOTHER_INSTRUMENT",
+            Self::BarScheduleCutAtAnotherInstant => "BAR_SCHEDULE_CUT_AT_ANOTHER_INSTANT",
+            Self::AccountScopesDiffer => "ACCOUNT_SCOPES_DIFFER",
+            Self::RequestLocatorMismatch => "REQUEST_LOCATOR_MISMATCH",
+            Self::RequestNotSealed => "REQUEST_NOT_SEALED",
+            Self::StorageBoundaryInvalid => "STORAGE_BOUNDARY_INVALID",
+            Self::BindingRequestIdentityInvalid => "BINDING_REQUEST_IDENTITY_INVALID",
+            Self::BindingRequestMeaningDigestInvalid => "BINDING_REQUEST_MEANING_DIGEST_INVALID",
+            Self::BindingRequestReceiptIdentityInvalid => {
+                "BINDING_REQUEST_RECEIPT_IDENTITY_INVALID"
+            }
+            Self::BindingRequestSealDigestInvalid => "BINDING_REQUEST_SEAL_DIGEST_INVALID",
+            Self::BindingTrialFamilyLocatorInvalid => "BINDING_TRIAL_FAMILY_LOCATOR_INVALID",
+            Self::BindingArtifactLocatorInvalid => "BINDING_ARTIFACT_LOCATOR_INVALID",
+            Self::BindingStrategyPlanLocatorInvalid => "BINDING_STRATEGY_PLAN_LOCATOR_INVALID",
+            Self::BindingInstrumentMasterCutLocatorInvalid => {
+                "BINDING_INSTRUMENT_MASTER_CUT_LOCATOR_INVALID"
+            }
+            Self::BindingUniverseFrameReceiptInvalid => "BINDING_UNIVERSE_FRAME_RECEIPT_INVALID",
+            Self::BindingMembersOutOfOrder => "BINDING_MEMBERS_OUT_OF_ORDER",
+            Self::BindingMembersRepeatAnInstrument => "BINDING_MEMBERS_REPEAT_AN_INSTRUMENT",
+            Self::BindingMemberKeyInvalid => "BINDING_MEMBER_KEY_INVALID",
+            Self::BindingMemberInstrumentIdentityInvalid => {
+                "BINDING_MEMBER_INSTRUMENT_IDENTITY_INVALID"
+            }
+            Self::BindingMemberInstrumentDigestZero => "BINDING_MEMBER_INSTRUMENT_DIGEST_ZERO",
+            Self::BindingMemberVenueInvalid => "BINDING_MEMBER_VENUE_INVALID",
+            Self::BindingMemberAccountScopeInvalid => "BINDING_MEMBER_ACCOUNT_SCOPE_INVALID",
+            Self::BindingMemberScheduleIdentityZero => "BINDING_MEMBER_SCHEDULE_IDENTITY_ZERO",
+            Self::BindingMemberEconomicTermsFactInvalid => {
+                "BINDING_MEMBER_ECONOMIC_TERMS_FACT_INVALID"
+            }
+            Self::BindingMemberEconomicTermsReceiptInvalid => {
+                "BINDING_MEMBER_ECONOMIC_TERMS_RECEIPT_INVALID"
+            }
+            Self::BindingMemberBarScheduleCutInvalid => "BINDING_MEMBER_BAR_SCHEDULE_CUT_INVALID",
+            Self::BindingMemberBarScheduleReceiptInvalid => {
+                "BINDING_MEMBER_BAR_SCHEDULE_RECEIPT_INVALID"
+            }
+            Self::CatalogBindingSealZero => "CATALOG_BINDING_SEAL_ZERO",
+            Self::FamilyBindingSealZero => "FAMILY_BINDING_SEAL_ZERO",
+            Self::RequestBindingSealZero => "REQUEST_BINDING_SEAL_ZERO",
+            Self::EconomicConfigurationDigestZero => "ECONOMIC_CONFIGURATION_DIGEST_ZERO",
+            Self::RunnerOperationalProfileDigestZero => "RUNNER_OPERATIONAL_PROFILE_DIGEST_ZERO",
+            Self::BindingNotEncodable => "BINDING_NOT_ENCODABLE",
+            Self::StoredBindingCorrupt => "STORED_BINDING_CORRUPT",
+            Self::ReResolutionDiffers => "RE_RESOLUTION_DIFFERS",
+            Self::ExecutionBundleUnresolved => "EXECUTION_BUNDLE_UNRESOLVED",
+        }
+    }
 }
 
 /// Private, move-only proof that all exact constituent Owner readbacks were verified together.
@@ -332,7 +697,9 @@ pub(crate) fn verify_re_resolved_native_replay_execution_inputs_v1(
     )?;
     let expected = prepare_rows(verified, stored.receipt.committed_at_epoch_ms)?;
     if &expected != stored {
-        return Err(NativeReplayExecutionInputBindingErrorV1::Unavailable);
+        return Err(NativeReplayExecutionInputBindingErrorV1::Unavailable(
+            Cause::ReResolutionDiffers,
+        ));
     }
     Ok(())
 }
@@ -347,7 +714,9 @@ pub(crate) async fn issue_native_replay_execution_input_binding_v1_in_transactio
     verified: VerifiedNativeReplayExecutionInputConstituentsV1,
 ) -> Result<NativeReplayExecutionInputBindingReadbackV1, NativeReplayExecutionInputBindingErrorV1> {
     if verified.request_locator != replay.locator() {
-        return Err(NativeReplayExecutionInputBindingErrorV1::Unavailable);
+        return Err(NativeReplayExecutionInputBindingErrorV1::Unavailable(
+            Cause::RequestLocatorMismatch,
+        ));
     }
     validate_storage_boundary(transaction).await?;
     let prepared = prepare_rows(verified, replay.owner_cut_epoch_ms())?;
@@ -394,7 +763,7 @@ pub(crate) async fn issue_native_replay_execution_input_binding_v1_in_transactio
     .bind(prepared.binding.binding_identity.as_slice())
     .bind(prepared.binding.binding_digest.as_slice())
     .bind(&prepared.binding.canonical_bytes)
-    .bind(i64::try_from(prepared.receipt.committed_at_epoch_ms).map_err(|_| NativeReplayExecutionInputBindingErrorV1::Unavailable)?)
+    .bind(i64::try_from(prepared.receipt.committed_at_epoch_ms).map_err(|_| NativeReplayExecutionInputBindingErrorV1::Unavailable(Cause::BindingNotEncodable))?)
     .bind(prepared.receipt.receipt_identity.as_slice())
     .bind(digest(RECEIPT_DOMAIN, &prepared.receipt.canonical_bytes).as_slice())
     .bind(&prepared.receipt.canonical_bytes)
@@ -405,7 +774,9 @@ pub(crate) async fn issue_native_replay_execution_input_binding_v1_in_transactio
     .await
     .map_err(NativeReplayExecutionInputBindingErrorV1::Storage)?;
     if inserted != Some(1) {
-        return Err(NativeReplayExecutionInputBindingErrorV1::Unavailable);
+        return Err(NativeReplayExecutionInputBindingErrorV1::Unavailable(
+            Cause::RequestNotSealed,
+        ));
     }
     Ok(prepared)
 }
@@ -503,7 +874,9 @@ async fn validate_storage_boundary(
     .await
     .map_err(NativeReplayExecutionInputBindingErrorV1::Storage)?;
     if !valid {
-        return Err(NativeReplayExecutionInputBindingErrorV1::Unavailable);
+        return Err(NativeReplayExecutionInputBindingErrorV1::Unavailable(
+            Cause::StorageBoundaryInvalid,
+        ));
     }
     Ok(())
 }
@@ -580,10 +953,9 @@ fn prepare_rows(
     );
     writer.instrument_master_cut_locator(verified.public_instrument_master_cut);
     writer.locator(verified.universe_frame_receipt);
-    writer.u16(
-        u16::try_from(verified.members.len())
-            .map_err(|_| NativeReplayExecutionInputBindingErrorV1::Unavailable)?,
-    );
+    writer.u16(u16::try_from(verified.members.len()).map_err(|_| {
+        NativeReplayExecutionInputBindingErrorV1::Unavailable(Cause::BindingNotEncodable)
+    })?);
 
     for member in &verified.members {
         writer.text(&member.member_key)?;
@@ -655,7 +1027,9 @@ fn recover_rows(
 ) -> Result<NativeReplayExecutionInputBindingReadbackV1, NativeReplayExecutionInputBindingErrorV1> {
     let mut decoder = CanonicalDecoder::new(&rows.binding_bytes);
     if decoder.u16()? != SCHEMA_VERSION {
-        return Err(NativeReplayExecutionInputBindingErrorV1::Unavailable);
+        return Err(NativeReplayExecutionInputBindingErrorV1::Unavailable(
+            Cause::StoredBindingCorrupt,
+        ));
     }
     let request_locator = decoder.request_locator()?;
     let trial_family = decoder.named()?;
@@ -672,18 +1046,22 @@ fn recover_rows(
     let universe_frame_receipt = decoder.locator()?;
     let member_count = usize::from(decoder.u16()?);
     if !is_admitted_member_count(member_count) {
-        return Err(NativeReplayExecutionInputBindingErrorV1::Unavailable);
+        return Err(NativeReplayExecutionInputBindingErrorV1::Unavailable(
+            Cause::StoredBindingCorrupt,
+        ));
     }
     let members = (0..member_count)
         .map(|_| decoder.member())
         .collect::<Result<Vec<_>, _>>()?;
-    let members = BoundedMembers::new(members)
-        .map_err(|_| NativeReplayExecutionInputBindingErrorV1::Unavailable)?;
+    let members = BoundedMembers::new(members).map_err(|_| {
+        NativeReplayExecutionInputBindingErrorV1::Unavailable(Cause::StoredBindingCorrupt)
+    })?;
     decoder.finish()?;
     let binding_identity = array(&rows.binding_identity)?;
     let binding_digest = array(&rows.binding_digest)?;
-    let committed_at_epoch_ms = u64::try_from(rows.committed_at_epoch_ms)
-        .map_err(|_| NativeReplayExecutionInputBindingErrorV1::Unavailable)?;
+    let committed_at_epoch_ms = u64::try_from(rows.committed_at_epoch_ms).map_err(|_| {
+        NativeReplayExecutionInputBindingErrorV1::Unavailable(Cause::StoredBindingCorrupt)
+    })?;
 
     let mut receipt_decoder = CanonicalDecoder::new(&rows.receipt_bytes);
     if receipt_decoder.u16()? != SCHEMA_VERSION
@@ -691,7 +1069,9 @@ fn recover_rows(
         || receipt_decoder.digest()? != binding_digest
         || receipt_decoder.u64()? != committed_at_epoch_ms
     {
-        return Err(NativeReplayExecutionInputBindingErrorV1::Unavailable);
+        return Err(NativeReplayExecutionInputBindingErrorV1::Unavailable(
+            Cause::StoredBindingCorrupt,
+        ));
     }
     receipt_decoder.finish()?;
     let receipt_identity = array(&rows.receipt_identity)?;
@@ -702,7 +1082,9 @@ fn recover_rows(
         || outbox_decoder.digest()? != binding_identity
         || outbox_decoder.digest()? != receipt_identity
     {
-        return Err(NativeReplayExecutionInputBindingErrorV1::Unavailable);
+        return Err(NativeReplayExecutionInputBindingErrorV1::Unavailable(
+            Cause::StoredBindingCorrupt,
+        ));
     }
     outbox_decoder.finish()?;
 
@@ -721,7 +1103,9 @@ fn recover_rows(
         || array(&rows.payload_digest)? != digest(OUTBOX_DOMAIN, &rows.payload_bytes)
         || rows.outbox_committed_at_epoch_ms != rows.committed_at_epoch_ms
     {
-        return Err(NativeReplayExecutionInputBindingErrorV1::Unavailable);
+        return Err(NativeReplayExecutionInputBindingErrorV1::Unavailable(
+            Cause::StoredBindingCorrupt,
+        ));
     }
 
     let verified = VerifiedNativeReplayExecutionInputConstituentsV1 {
@@ -734,12 +1118,19 @@ fn recover_rows(
         universe_frame_receipt,
         members,
     };
-    let expected = prepare_rows(verified, committed_at_epoch_ms)?;
+    // The constituents were decoded from stored bytes, so any refusal to re-prepare them is the
+    // stored row's, not an encoding limit or invalid input.
+    let expected = prepare_rows(verified, committed_at_epoch_ms).map_err(|_| {
+        NativeReplayExecutionInputBindingErrorV1::Unavailable(Cause::StoredBindingCorrupt)
+    })?;
+
     if expected.binding.canonical_bytes != rows.binding_bytes
         || expected.receipt.canonical_bytes != rows.receipt_bytes
         || expected.outbox.canonical_bytes != rows.payload_bytes
     {
-        return Err(NativeReplayExecutionInputBindingErrorV1::Unavailable);
+        return Err(NativeReplayExecutionInputBindingErrorV1::Unavailable(
+            Cause::StoredBindingCorrupt,
+        ));
     }
     Ok(expected)
 }
@@ -747,47 +1138,96 @@ fn recover_rows(
 fn validate_verified(
     verified: &VerifiedNativeReplayExecutionInputConstituentsV1,
 ) -> Result<(), NativeReplayExecutionInputBindingErrorV1> {
+    // One check, one cause, in the order the single condition they replace evaluated them.
+    let refuse = |refused: bool, cause: Cause| {
+        if refused {
+            Err(NativeReplayExecutionInputBindingErrorV1::Unavailable(cause))
+        } else {
+            Ok(())
+        }
+    };
     let request = &verified.request_locator;
+    refuse(
+        !valid_text(&request.request_identity),
+        Cause::BindingRequestIdentityInvalid,
+    )?;
     // The meaning digest is whatever the Replay contract mints, and `meaning_digest()` mints
     // `blake3:`. Validating it as `sha256:` here refused every production Replay; the contract's
     // own type is the one definition of a valid digest.
-    if !valid_text(&request.request_identity)
-        || CanonicalDigestV2::try_from(request.meaning_digest.clone()).is_err()
-        || !valid_text(&request.receipt_identity)
-        || !valid_sha256(&request.seal_digest)
-        || !valid_named(&verified.trial_family)
-        || !valid_named(&verified.artifact)
-        || !valid_named(&verified.strategy_plan)
-        || !valid_instrument_master_cut_locator(verified.public_instrument_master_cut)
-        || !valid_locator(verified.universe_frame_receipt)
-        || verified
+    refuse(
+        CanonicalDigestV2::try_from(request.meaning_digest.clone()).is_err(),
+        Cause::BindingRequestMeaningDigestInvalid,
+    )?;
+    refuse(
+        !valid_text(&request.receipt_identity),
+        Cause::BindingRequestReceiptIdentityInvalid,
+    )?;
+    refuse(
+        !valid_sha256(&request.seal_digest),
+        Cause::BindingRequestSealDigestInvalid,
+    )?;
+    refuse(
+        !valid_named(&verified.trial_family),
+        Cause::BindingTrialFamilyLocatorInvalid,
+    )?;
+    refuse(
+        !valid_named(&verified.artifact),
+        Cause::BindingArtifactLocatorInvalid,
+    )?;
+    refuse(
+        !valid_named(&verified.strategy_plan),
+        Cause::BindingStrategyPlanLocatorInvalid,
+    )?;
+    refuse(
+        !valid_instrument_master_cut_locator(verified.public_instrument_master_cut),
+        Cause::BindingInstrumentMasterCutLocatorInvalid,
+    )?;
+    refuse(
+        !valid_locator(verified.universe_frame_receipt),
+        Cause::BindingUniverseFrameReceiptInvalid,
+    )?;
+    refuse(
+        verified
             .members
             .windows(2)
-            .any(|pair| pair[0].member_key >= pair[1].member_key)
-        || verified
+            .any(|pair| pair[0].member_key >= pair[1].member_key),
+        Cause::BindingMembersOutOfOrder,
+    )?;
+    refuse(
+        verified
             .members
             .iter()
             .map(|member| &member.public_instrument_identity)
             .collect::<BTreeSet<_>>()
             .len()
-            != verified.members.len()
-        || !verified.members.iter().all(valid_member)
-    {
-        return Err(NativeReplayExecutionInputBindingErrorV1::Unavailable);
+            != verified.members.len(),
+        Cause::BindingMembersRepeatAnInstrument,
+    )?;
+
+    if let Some(cause) = verified.members.iter().find_map(member_refusal) {
+        return Err(NativeReplayExecutionInputBindingErrorV1::Unavailable(cause));
     }
     let seals = &verified.execution_profile_seals;
-    if [
-        seals.catalog_binding_digest,
-        seals.family_binding_digest,
-        seals.request_binding_digest,
-        seals.economic_configuration_digest,
-        seals.runner_operational_profile_digest,
-    ]
-    .contains(&[0; 32])
-    {
-        return Err(NativeReplayExecutionInputBindingErrorV1::Unavailable);
-    }
-    Ok(())
+    refuse(
+        seals.catalog_binding_digest == [0; 32],
+        Cause::CatalogBindingSealZero,
+    )?;
+    refuse(
+        seals.family_binding_digest == [0; 32],
+        Cause::FamilyBindingSealZero,
+    )?;
+    refuse(
+        seals.request_binding_digest == [0; 32],
+        Cause::RequestBindingSealZero,
+    )?;
+    refuse(
+        seals.economic_configuration_digest == [0; 32],
+        Cause::EconomicConfigurationDigestZero,
+    )?;
+    refuse(
+        seals.runner_operational_profile_digest == [0; 32],
+        Cause::RunnerOperationalProfileDigestZero,
+    )
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -808,73 +1248,157 @@ fn verify_owner_readbacks(
     let request = replay.request().as_dto();
     let composer = preparation.composer();
     let selection = universe_frame.selection();
+    let unavailable = NativeReplayExecutionInputBindingErrorV1::Unavailable;
     let plan_selection = plan
         .universe_selection()
-        .ok_or(NativeReplayExecutionInputBindingErrorV1::Unavailable)?;
+        .ok_or(unavailable(Cause::PlanHasNoUniverseSelection))?;
     let seal = replay
         .execution_profile_seal()
-        .ok_or(NativeReplayExecutionInputBindingErrorV1::Unavailable)?;
+        .ok_or(unavailable(Cause::ReplayHasNoExecutionProfileSeal))?;
     let request_plan_digest = parse_sha256(request.strategy_plan.digest.as_str())?;
     let request_artifact_digest = parse_sha256(request.artifact.digest.as_str())?;
     let request_universe_digest = parse_sha256(request.universe_selection.digest.as_str())?;
     let artifact_modules = artifact.private_module_bytes();
 
-    if !profile.matches_request_locator(&replay.locator())
-        || profile.trial_family_identity() != preparation.family().root().trial_family_identity()
-        || profile.trial_family_digest() != parse_sha256(preparation.family().root().root_digest())?
-        || request.strategy_plan.identity.as_str() != profile.request_strategy_plan_identity()
-        || request_plan_digest != profile.request_strategy_plan_digest()
-        || request_plan_digest != *plan.canonical_plan_digest().as_bytes()
-        || request.artifact.identity.as_str() != profile.request_artifact_identity()
-        || request_artifact_digest != profile.request_artifact_digest()
-        || request_artifact_digest != *artifact.identity().as_bytes()
-        || request.universe_selection.identity.as_str()
-            != profile.request_universe_selection_identity()
-        || request_universe_digest != profile.request_universe_selection_digest()
-        || !profile.matches_instrument_terms_readbacks(instrument_terms)
-        || composer.plan_bytes() != plan.durable_bytes()
-        || composer.artifact_package_bytes() != artifact.durable_package_bytes()
-        || !composer
+    // One check, one cause: each clause refuses under its own name, so a refusal says which
+    // agreement failed without a probe. The clauses are pure comparisons in the order the single
+    // condition they replace evaluated them, so splitting it changes no outcome, only the name.
+    let refuse = |refused: bool, cause: Cause| {
+        if refused {
+            Err(unavailable(cause))
+        } else {
+            Ok(())
+        }
+    };
+    let family_root = preparation.family().root();
+    refuse(
+        !profile.matches_request_locator(&replay.locator()),
+        Cause::ExecutionProfileNamesAnotherRequest,
+    )?;
+    refuse(
+        profile.trial_family_identity() != family_root.trial_family_identity(),
+        Cause::ExecutionProfileNamesAnotherFamily,
+    )?;
+    refuse(
+        profile.trial_family_digest() != parse_sha256(family_root.root_digest())?,
+        Cause::ExecutionProfileFamilyDigestDiffers,
+    )?;
+    refuse(
+        request.strategy_plan.identity.as_str() != profile.request_strategy_plan_identity(),
+        Cause::ExecutionProfileNamesAnotherPlan,
+    )?;
+    refuse(
+        request_plan_digest != profile.request_strategy_plan_digest(),
+        Cause::ExecutionProfilePlanDigestDiffers,
+    )?;
+    refuse(
+        request_plan_digest != *plan.canonical_plan_digest().as_bytes(),
+        Cause::PlanDigestDiffersFromRequest,
+    )?;
+    refuse(
+        request.artifact.identity.as_str() != profile.request_artifact_identity(),
+        Cause::ExecutionProfileNamesAnotherArtifact,
+    )?;
+    refuse(
+        request_artifact_digest != profile.request_artifact_digest(),
+        Cause::ExecutionProfileArtifactDigestDiffers,
+    )?;
+    refuse(
+        request_artifact_digest != *artifact.identity().as_bytes(),
+        Cause::ArtifactDigestDiffersFromRequest,
+    )?;
+    refuse(
+        request.universe_selection.identity.as_str()
+            != profile.request_universe_selection_identity(),
+        Cause::ExecutionProfileNamesAnotherUniverseSelection,
+    )?;
+    refuse(
+        request_universe_digest != profile.request_universe_selection_digest(),
+        Cause::ExecutionProfileUniverseSelectionDigestDiffers,
+    )?;
+    refuse(
+        !profile.matches_instrument_terms_readbacks(instrument_terms),
+        Cause::ExecutionProfileNamesOtherEconomicTerms,
+    )?;
+    refuse(
+        composer.plan_bytes() != plan.durable_bytes(),
+        Cause::ComposerPlanBytesDiffer,
+    )?;
+    refuse(
+        composer.artifact_package_bytes() != artifact.durable_package_bytes(),
+        Cause::ComposerArtifactPackageDiffers,
+    )?;
+    refuse(
+        !composer
             .module_bytes()
-            .eq(artifact_modules.iter().map(|bytes| bytes.as_ref()))
-        || artifact.validate_for_plan(plan).is_err()
-        || !is_admitted_member_count(selection.members().len())
-        || selection
+            .eq(artifact_modules.iter().map(|bytes| bytes.as_ref())),
+        Cause::ComposerModulesDiffer,
+    )?;
+    refuse(
+        artifact.validate_for_plan(plan).is_err(),
+        Cause::ArtifactInvalidForPlan,
+    )?;
+    refuse(
+        !is_admitted_member_count(selection.members().len()),
+        Cause::MemberCountNotAdmitted,
+    )?;
+    refuse(
+        selection
             .members()
             .windows(2)
-            .any(|pair| pair[0].member_key() >= pair[1].member_key())
-        || instrument_terms.len() != selection.members().len()
-        || schedules.len() != selection.members().len()
-        // The Replay's `universe_selection` is the Universe Selection Record its composition
-        // depends on, not the strategy-input selection the Plan was bound under, and the two never
-        // share an identity. So the Plan's selection is held only against the frame's, here. The
-        // Record is checked by Market Data against the frame's verified batch, refused by name as
-        // `UniverseSelectionRecordMismatch`, when `resolve_native_replay_initial_owner_inputs_v1`
-        // produced the frame this function is given. Comparing the Record with the Plan's
-        // selection here refuses every production Replay.
-        || selection.selection_identity() != plan_selection.selection_identity()
-        || selection.selection_digest() != plan_selection.selection_digest()
-        || selection.members().len() != plan_selection.members().len()
-        || !selection
+            .any(|pair| pair[0].member_key() >= pair[1].member_key()),
+        Cause::UniverseFrameMembersOutOfOrder,
+    )?;
+    refuse(
+        instrument_terms.len() != selection.members().len(),
+        Cause::EconomicTermsCountDiffers,
+    )?;
+    refuse(
+        schedules.len() != selection.members().len(),
+        Cause::BarScheduleCountDiffers,
+    )?;
+    // The Replay's `universe_selection` is the Universe Selection Record its composition depends
+    // on, not the strategy-input selection the Plan was bound under, and the two never share an
+    // identity. So the Plan's selection is held only against the frame's, here. The Record is
+    // checked by Market Data against the frame's verified batch, refused by name as
+    // `UniverseSelectionRecordMismatch`, when `resolve_native_replay_initial_owner_inputs_v1`
+    // produced the frame this function is given. Comparing the Record with the Plan's selection
+    // here refuses every production Replay.
+    refuse(
+        selection.selection_identity() != plan_selection.selection_identity(),
+        Cause::UniverseFrameSelectionIdentityDiffersFromPlan,
+    )?;
+    refuse(
+        selection.selection_digest() != plan_selection.selection_digest(),
+        Cause::UniverseFrameSelectionDigestDiffersFromPlan,
+    )?;
+    refuse(
+        selection.members().len() != plan_selection.members().len(),
+        Cause::UniverseFrameMemberCountDiffersFromPlan,
+    )?;
+    refuse(
+        !selection
             .members()
             .iter()
             .zip(plan_selection.members())
             .all(|(owner, planned)| {
                 owner.member_key() == planned.member_key()
                     && owner.instrument() == planned.instrument()
-            })
-    {
-        return Err(NativeReplayExecutionInputBindingErrorV1::Unavailable);
-    }
+            }),
+        Cause::UniverseFrameMembersDifferFromPlan,
+    )?;
 
     let cut_members = instrument_master.cut().members();
-    if instrument_master.cut().request_identity()
-        != native_replay_request_identity_v2(request.request_identity.as_str())
-            .map_err(|_| NativeReplayExecutionInputBindingErrorV1::Unavailable)?
-        || cut_members.len() != selection.members().len()
-    {
-        return Err(NativeReplayExecutionInputBindingErrorV1::Unavailable);
-    }
+    refuse(
+        instrument_master.cut().request_identity()
+            != native_replay_request_identity_v2(request.request_identity.as_str())
+                .map_err(|_| unavailable(Cause::RequestIdentityInvalid))?,
+        Cause::InstrumentMasterCutNamesAnotherRequest,
+    )?;
+    refuse(
+        cut_members.len() != selection.members().len(),
+        Cause::InstrumentMasterCutMemberCountDiffers,
+    )?;
     let mut members = Vec::with_capacity(cut_members.len());
     for index in 0..cut_members.len() {
         let selected = &selection.members()[index];
@@ -884,22 +1408,46 @@ fn verify_owner_readbacks(
         let schedule = schedules[index];
         let public_terms = public_fact
             .validate_native_crypto_perpetual_public_terms()
-            .map_err(|_| NativeReplayExecutionInputBindingErrorV1::Unavailable)?;
+            .map_err(|_| unavailable(Cause::PublicTermsInvalid))?;
         let event_time = i128::from(request.window.start_event_ns);
 
-        if selected.instrument() != public_fact.canonical_identity()
-            || economic_input.instrument_identity != public_fact.canonical_identity()
-            || economic_input.instrument_public_fact_digest != *public_fact.identity().as_bytes()
-            || economic_input.venue_identity != public_fact.venue_identity()
-            || economic_input.quote_currency != public_terms.quote_currency()
-            || economic_input.valid_from_ns > event_time
-            || event_time >= economic_input.valid_until_ns_exclusive
-            || !economic.verify()
-            || schedule.fact().canonical_instrument() != public_fact.canonical_identity()
-            || schedule.fact().cut_effective_instant() != event_time
-        {
-            return Err(NativeReplayExecutionInputBindingErrorV1::Unavailable);
-        }
+        refuse(
+            selected.instrument() != public_fact.canonical_identity(),
+            Cause::InstrumentMasterCutMemberDiffers,
+        )?;
+        refuse(
+            economic_input.instrument_identity != public_fact.canonical_identity(),
+            Cause::EconomicTermsNameAnotherInstrument,
+        )?;
+        refuse(
+            economic_input.instrument_public_fact_digest != *public_fact.identity().as_bytes(),
+            Cause::EconomicTermsCiteAnotherPublicFact,
+        )?;
+        refuse(
+            economic_input.venue_identity != public_fact.venue_identity(),
+            Cause::EconomicTermsNameAnotherVenue,
+        )?;
+        refuse(
+            economic_input.quote_currency != public_terms.quote_currency(),
+            Cause::EconomicTermsNameAnotherQuoteCurrency,
+        )?;
+        refuse(
+            economic_input.valid_from_ns > event_time,
+            Cause::EconomicTermsNotYetInForce,
+        )?;
+        refuse(
+            event_time >= economic_input.valid_until_ns_exclusive,
+            Cause::EconomicTermsNoLongerInForce,
+        )?;
+        refuse(!economic.verify(), Cause::EconomicTermsDoNotVerify)?;
+        refuse(
+            schedule.fact().canonical_instrument() != public_fact.canonical_identity(),
+            Cause::BarScheduleNamesAnotherInstrument,
+        )?;
+        refuse(
+            schedule.fact().cut_effective_instant() != event_time,
+            Cause::BarScheduleCutAtAnotherInstant,
+        )?;
         let economic_locator = economic.locator();
         members.push(NativeReplayExecutionInputMemberV1 {
             member_key: selected.member_key().to_owned(),
@@ -931,10 +1479,10 @@ fn verify_owner_readbacks(
         .windows(2)
         .any(|pair| pair[0].account_scope_identity != pair[1].account_scope_identity)
     {
-        return Err(NativeReplayExecutionInputBindingErrorV1::Unavailable);
+        return Err(unavailable(Cause::AccountScopesDiffer));
     }
-    let members = BoundedMembers::new(members)
-        .map_err(|_| NativeReplayExecutionInputBindingErrorV1::Unavailable)?;
+    let members =
+        BoundedMembers::new(members).map_err(|_| unavailable(Cause::MemberCountNotAdmitted))?;
     let master_locator = instrument_master.locator();
     Ok(VerifiedNativeReplayExecutionInputConstituentsV1 {
         request_locator: replay.locator(),
@@ -972,16 +1520,18 @@ fn verify_owner_readbacks(
 }
 
 fn parse_sha256(value: &str) -> Result<[u8; 32], NativeReplayExecutionInputBindingErrorV1> {
-    let hex = value
-        .strip_prefix("sha256:")
-        .ok_or(NativeReplayExecutionInputBindingErrorV1::Unavailable)?;
+    let hex = value.strip_prefix("sha256:").ok_or(
+        NativeReplayExecutionInputBindingErrorV1::Unavailable(Cause::DigestNotCanonical),
+    )?;
 
     if hex.len() != 64
         || !hex
             .bytes()
             .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
     {
-        return Err(NativeReplayExecutionInputBindingErrorV1::Unavailable);
+        return Err(NativeReplayExecutionInputBindingErrorV1::Unavailable(
+            Cause::DigestNotCanonical,
+        ));
     }
     let mut bytes = [0_u8; 32];
     for (output, pair) in bytes.iter_mut().zip(hex.as_bytes().chunks_exact(2)) {
@@ -1014,17 +1564,52 @@ fn valid_instrument_master_cut_locator(value: InstrumentMasterCutLocatorBindingV
     .all(|identity| identity != [0; 32])
 }
 
-fn valid_member(value: &NativeReplayExecutionInputMemberV1) -> bool {
-    valid_text(&value.member_key)
-        && valid_text(&value.public_instrument_identity)
-        && value.public_instrument_digest != [0; 32]
-        && valid_text(&value.venue_identity)
-        && valid_text(&value.account_scope_identity)
-        && value.schedule_identity != [0; 32]
-        && valid_locator(value.instrument_economic_terms_fact)
-        && valid_locator(value.instrument_economic_terms_receipt)
-        && valid_locator(value.bar_schedule_cut)
-        && valid_locator(value.bar_schedule_receipt)
+/// The first of a binding member's locators that is empty, blank, oversized or zero, named.
+fn member_refusal(value: &NativeReplayExecutionInputMemberV1) -> Option<Cause> {
+    [
+        (
+            valid_text(&value.member_key),
+            Cause::BindingMemberKeyInvalid,
+        ),
+        (
+            valid_text(&value.public_instrument_identity),
+            Cause::BindingMemberInstrumentIdentityInvalid,
+        ),
+        (
+            value.public_instrument_digest != [0; 32],
+            Cause::BindingMemberInstrumentDigestZero,
+        ),
+        (
+            valid_text(&value.venue_identity),
+            Cause::BindingMemberVenueInvalid,
+        ),
+        (
+            valid_text(&value.account_scope_identity),
+            Cause::BindingMemberAccountScopeInvalid,
+        ),
+        (
+            value.schedule_identity != [0; 32],
+            Cause::BindingMemberScheduleIdentityZero,
+        ),
+        (
+            valid_locator(value.instrument_economic_terms_fact),
+            Cause::BindingMemberEconomicTermsFactInvalid,
+        ),
+        (
+            valid_locator(value.instrument_economic_terms_receipt),
+            Cause::BindingMemberEconomicTermsReceiptInvalid,
+        ),
+        (
+            valid_locator(value.bar_schedule_cut),
+            Cause::BindingMemberBarScheduleCutInvalid,
+        ),
+        (
+            valid_locator(value.bar_schedule_receipt),
+            Cause::BindingMemberBarScheduleReceiptInvalid,
+        ),
+    ]
+    .into_iter()
+    .find_map(|(valid, cause)| (!valid).then_some(cause))
 }
 
 fn valid_text(value: &str) -> bool {
@@ -1045,9 +1630,9 @@ fn digest(domain: &[u8], bytes: &[u8]) -> [u8; 32] {
 }
 
 fn array(bytes: &[u8]) -> Result<[u8; 32], NativeReplayExecutionInputBindingErrorV1> {
-    bytes
-        .try_into()
-        .map_err(|_| NativeReplayExecutionInputBindingErrorV1::Unavailable)
+    bytes.try_into().map_err(|_| {
+        NativeReplayExecutionInputBindingErrorV1::Unavailable(Cause::StoredBindingCorrupt)
+    })
 }
 
 struct CanonicalWriter(Vec<u8>);
@@ -1066,8 +1651,9 @@ impl CanonicalWriter {
         self.0.extend_from_slice(&value);
     }
     fn text(&mut self, value: &str) -> Result<(), NativeReplayExecutionInputBindingErrorV1> {
-        let length = u16::try_from(value.len())
-            .map_err(|_| NativeReplayExecutionInputBindingErrorV1::Unavailable)?;
+        let length = u16::try_from(value.len()).map_err(|_| {
+            NativeReplayExecutionInputBindingErrorV1::Unavailable(Cause::BindingNotEncodable)
+        })?;
         self.u16(length);
         self.0.extend_from_slice(value.as_bytes());
         Ok(())
@@ -1101,7 +1687,9 @@ impl CanonicalWriter {
     }
     fn finish(self) -> Result<Vec<u8>, NativeReplayExecutionInputBindingErrorV1> {
         if self.0.is_empty() || self.0.len() > MAX_CANONICAL_BYTES {
-            return Err(NativeReplayExecutionInputBindingErrorV1::Unavailable);
+            return Err(NativeReplayExecutionInputBindingErrorV1::Unavailable(
+                Cause::BindingNotEncodable,
+            ));
         }
         Ok(self.0)
     }
@@ -1120,14 +1708,12 @@ impl<'a> CanonicalDecoder<'a> {
         &mut self,
         length: usize,
     ) -> Result<&'a [u8], NativeReplayExecutionInputBindingErrorV1> {
-        let end = self
-            .offset
-            .checked_add(length)
-            .ok_or(NativeReplayExecutionInputBindingErrorV1::Unavailable)?;
-        let value = self
-            .bytes
-            .get(self.offset..end)
-            .ok_or(NativeReplayExecutionInputBindingErrorV1::Unavailable)?;
+        let end = self.offset.checked_add(length).ok_or(
+            NativeReplayExecutionInputBindingErrorV1::Unavailable(Cause::StoredBindingCorrupt),
+        )?;
+        let value = self.bytes.get(self.offset..end).ok_or(
+            NativeReplayExecutionInputBindingErrorV1::Unavailable(Cause::StoredBindingCorrupt),
+        )?;
         self.offset = end;
         Ok(value)
     }
@@ -1142,10 +1728,14 @@ impl<'a> CanonicalDecoder<'a> {
     }
     fn text(&mut self) -> Result<String, NativeReplayExecutionInputBindingErrorV1> {
         let length = self.u16()? as usize;
-        let value = std::str::from_utf8(self.take(length)?)
-            .map_err(|_| NativeReplayExecutionInputBindingErrorV1::Unavailable)?;
+        let value = std::str::from_utf8(self.take(length)?).map_err(|_| {
+            NativeReplayExecutionInputBindingErrorV1::Unavailable(Cause::StoredBindingCorrupt)
+        })?;
+
         if !valid_text(value) {
-            return Err(NativeReplayExecutionInputBindingErrorV1::Unavailable);
+            return Err(NativeReplayExecutionInputBindingErrorV1::Unavailable(
+                Cause::StoredBindingCorrupt,
+            ));
         }
         Ok(value.to_owned())
     }
@@ -1199,27 +1789,58 @@ impl<'a> CanonicalDecoder<'a> {
     }
     fn finish(self) -> Result<(), NativeReplayExecutionInputBindingErrorV1> {
         if self.offset != self.bytes.len() {
-            return Err(NativeReplayExecutionInputBindingErrorV1::Unavailable);
+            return Err(NativeReplayExecutionInputBindingErrorV1::Unavailable(
+                Cause::StoredBindingCorrupt,
+            ));
         }
         Ok(())
     }
 }
 
 fn array2(bytes: &[u8]) -> Result<[u8; 2], NativeReplayExecutionInputBindingErrorV1> {
-    bytes
-        .try_into()
-        .map_err(|_| NativeReplayExecutionInputBindingErrorV1::Unavailable)
+    bytes.try_into().map_err(|_| {
+        NativeReplayExecutionInputBindingErrorV1::Unavailable(Cause::StoredBindingCorrupt)
+    })
 }
 
 fn array8(bytes: &[u8]) -> Result<[u8; 8], NativeReplayExecutionInputBindingErrorV1> {
-    bytes
-        .try_into()
-        .map_err(|_| NativeReplayExecutionInputBindingErrorV1::Unavailable)
+    bytes.try_into().map_err(|_| {
+        NativeReplayExecutionInputBindingErrorV1::Unavailable(Cause::StoredBindingCorrupt)
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[rstest::rstest]
+    fn every_cause_has_its_own_screaming_snake_wire_name() {
+        use strum::IntoEnumIterator as _;
+
+        let codes = Cause::iter().map(Cause::code).collect::<Vec<_>>();
+        assert_eq!(
+            codes.iter().collect::<BTreeSet<_>>().len(),
+            codes.len(),
+            "two causes share a wire name: {codes:?}"
+        );
+
+        for code in &codes {
+            assert!(
+                !code.is_empty()
+                    && code
+                        .bytes()
+                        .all(|byte| byte.is_ascii_uppercase() || byte == b'_')
+                    && !code.starts_with('_')
+                    && !code.ends_with('_'),
+                "{code} is not a SCREAMING_SNAKE wire name"
+            );
+        }
+        assert_eq!(
+            NativeReplayExecutionInputBindingErrorV1::Unavailable(Cause::BarScheduleAbsent)
+                .to_string(),
+            "Native Replay execution-input binding unavailable: BAR_SCHEDULE_ABSENT"
+        );
+    }
 
     fn d(value: u8) -> [u8; 32] {
         [value; 32]
@@ -1320,7 +1941,12 @@ mod tests {
 
         let mut malformed = verified();
         malformed.request_locator.meaning_digest = format!("md5:{}", "1".repeat(64));
-        assert!(prepare_rows(malformed, 17).is_err());
+        assert!(matches!(
+            prepare_rows(malformed, 17),
+            Err(NativeReplayExecutionInputBindingErrorV1::Unavailable(
+                Cause::BindingRequestMeaningDigestInvalid
+            ))
+        ));
     }
 
     #[rstest::rstest]
