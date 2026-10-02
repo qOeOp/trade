@@ -166,10 +166,12 @@ pub(crate) struct FirstComposerV3ReplayV1 {
     pub(crate) created: bool,
 }
 
-/// The Data Client behind Market Data's PIT intake: one daily open and close per member Market Data
-/// issues, which are the two fields the universe vertical fixes. What Market Data makes of them is
-/// its own derivation. Values are in canonical form (no trailing zero at a nonzero scale), as a
-/// real client normalizes them; Market Data refuses any other row as not canonical.
+/// The Data Client behind Market Data's PIT intake: one daily kline per member Market Data issues,
+/// as a kline source answers it, with its open, high, low, close and volume. The universe vertical
+/// reads the open and the close; the native scheduling Market Data issues for the Replay builds
+/// each frame's BAR from all five, and refuses a frame without them as a field census mismatch.
+/// Values are in canonical form (no trailing zero at a nonzero scale), as a real client normalizes
+/// them; Market Data refuses any other row as not canonical.
 struct UniverseMemberDailyBarsV1;
 
 #[async_trait]
@@ -182,22 +184,27 @@ impl PitObservationSourceV1 for UniverseMemberDailyBarsV1 {
             .members()
             .iter()
             .flat_map(|member| {
-                [("OPEN", 12_301), ("CLOSE", 12_345)].map(|(field, value_mantissa)| {
-                    VendorObservationV1 {
-                        symbolic_key: format!("{member}.{field}.1D"),
-                        member_key: member.clone(),
-                        instrument: member.clone(),
-                        channel: "MARKET".into(),
-                        data_kind: "BAR".into(),
-                        timeframe: "1D".into(),
-                        field: field.into(),
-                        value_mantissa,
-                        value_scale: 2,
-                        event_effective: scope.event_effective(),
-                        provider_available: scope.provider_available(),
-                        retrieval: scope.retrieval(),
-                        correction_publication: scope.correction_publication(),
-                    }
+                [
+                    ("OPEN", 12_301, 2),
+                    ("HIGH", 12_399, 2),
+                    ("LOW", 12_287, 2),
+                    ("CLOSE", 12_345, 2),
+                    ("VOLUME", 98_765, 0),
+                ]
+                .map(|(field, value_mantissa, value_scale)| VendorObservationV1 {
+                    symbolic_key: format!("{member}.{field}.1D"),
+                    member_key: member.clone(),
+                    instrument: member.clone(),
+                    channel: "MARKET".into(),
+                    data_kind: "BAR".into(),
+                    timeframe: "1D".into(),
+                    field: field.into(),
+                    value_mantissa,
+                    value_scale,
+                    event_effective: scope.event_effective(),
+                    provider_available: scope.provider_available(),
+                    retrieval: scope.retrieval(),
+                    correction_publication: scope.correction_publication(),
                 })
             })
             .collect::<Vec<_>>();
