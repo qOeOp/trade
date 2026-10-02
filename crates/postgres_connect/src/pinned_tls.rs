@@ -662,7 +662,9 @@ mod tests {
 
         let mut relay = bridge.spawn();
 
-        // A separate process: it connects, writes, and reports how many bytes came back.
+        // A separate process: it connects, writes, and reports how many bytes came back. The relay
+        // may close the connection before the write or the read, and a broken pipe or a reset is
+        // that refusal arriving, so it counts as nothing received rather than as a failure.
         let intruder = tokio::task::spawn_blocking(move || {
             std::process::Command::new("python3")
                 .arg("-c")
@@ -670,8 +672,13 @@ mod tests {
                     "import socket, sys\n\
                      s = socket.socket(socket.AF_UNIX)\n\
                      s.connect(sys.argv[1])\n\
-                     s.sendall(b'\\x00\\x00\\x00\\x08\\x04\\xd2\\x16\\x2f')\n\
-                     print(len(s.recv(64)))",
+                     received = 0\n\
+                     try:\n    \
+                         s.sendall(b'\\x00\\x00\\x00\\x08\\x04\\xd2\\x16\\x2f')\n    \
+                         received = len(s.recv(64))\n\
+                     except (BrokenPipeError, ConnectionResetError):\n    \
+                         pass\n\
+                     print(received)",
                 )
                 .arg(&socket)
                 .output()
@@ -680,11 +687,10 @@ mod tests {
         .await
         .unwrap();
 
-        assert!(intruder.status.success(), "{intruder:?}");
         assert_eq!(
-            String::from_utf8(intruder.stdout).unwrap().trim(),
+            String::from_utf8_lossy(&intruder.stdout).trim(),
             "0",
-            "the relay closed the other process's connection without answering"
+            "the relay closed the other process's connection without answering: {intruder:?}"
         );
         assert_eq!(
             (&mut relay.0).await.unwrap(),

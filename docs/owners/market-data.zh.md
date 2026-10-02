@@ -1169,7 +1169,7 @@ request-keyed 的 V2 cut 读的就是这张表；它和 V1 intake 一样，在 O
   | 最小与最大价格                      | `PRICE_FILTER.minPrice`、`maxPrice`；`"0"` 为 `UNBOUNDED`                  |
   | 最小与最大数量                      | `LOT_SIZE.minQty`、`maxQty`；`"0"` 为 `UNBOUNDED`                          |
   | 最小名义                            | `MIN_NOTIONAL.notional`；`"0"` 为 `UNBOUNDED`，filter 缺失为 `UNAVAILABLE` |
-  | 最大名义                            | `UNAVAILABLE`：上限存在，但在 leverage bracket 里，不在这份 payload 里     |
+  | 最大名义                            | `UNBOUNDED`：没有 filter 限制单笔订单的名义                                |
   | venue、inverse、contract multiplier | Owner 场所常量表中的那一行，不取自 payload                                 |
 
   十进制只接受由数字组成、可带小数部分的写法，去掉小数部分的尾随 0 后规范化；指数写法、正负号、空串一律拒绝。数量界是
@@ -1177,6 +1177,10 @@ request-keyed 的 V2 cut 读的就是这张表；它和 V1 intake 一样，在 O
   Binance 适配器（`crates/adapters/binance/src/common/parse.rs`）按原字符串取 precision，得 2。两者的 increment 相等，这处差异
   是有意的：V2 的 native 投影要求 precision 等于规范 scale，下游 Replay 用的是 V2 的。适配器一侧的一条对照测试同时断言
   increment 相等与这一处差异。
+  最大名义是单笔订单的上限，也就是 native `max_notional` 的含义。`exchangeInfo` 列出了场所施加的全部订单 filter，没有一条限制名义，
+  所以这一项是 `UNBOUNDED`，与适配器的 `None` 一致。leverage bracket 按账户限制某一杠杆下持仓的名义，是 execution-profile
+  authority，不是公开条款，公开 fact 不承载它。把这一项记成 `UNAVAILABLE`，会让每个 USD-M 永续都在 native 校验处被拒，因为
+  该校验不接纳任何 `UNAVAILABLE` 的 limit。
 - **Owner 自己取的：** Source Binding 的 identity 与 digest，取自 Owner 以恰为该 locator 的已准入状态持有的 binding；raw
   payload digest，由 Owner 以本模块的 domain 分离 digest 对该文本的原样 UTF-8 字节计算，不信任任何现成 digest。它证明的是提交了
   哪些字节、条款由这些字节推出；它不声称这些字节就是供应方的完整原始响应，Owner 无法核实这一点；Owner-observation 时刻，即其当前

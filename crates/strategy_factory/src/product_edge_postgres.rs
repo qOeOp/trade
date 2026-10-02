@@ -132,25 +132,14 @@ impl PostgresExploratoryReplayReadbackOwnerV2 {
     /// Reads one complete Backtest-owned result through the existing R&D locked-read function.
     ///
     /// This narrow adapter exposes no R&D mutation method. Its transaction is always rolled back,
-    /// including after a successful canonical result read.
+    /// including after a successful canonical result read. A Result its TrialFamily census does
+    /// not count is refused, never shown.
     pub async fn resolve_exploratory_replay_result_v2(
         &self,
         locator: crate::ExploratoryReplayResultLocatorV2<'_>,
-    ) -> Result<Option<crate::LockedExploratoryReplayResultV2>, crate::BacktestResultCustodyErrorV2>
+    ) -> Result<Option<crate::LockedExploratoryReplayResultV2>, crate::ExploratoryResultCensusErrorV1>
     {
-        let mut transaction = self
-            .pool
-            .begin()
-            .await
-            .map_err(|_| crate::BacktestResultCustodyErrorV2::Unavailable)?;
-        let result =
-            resolve_exploratory_replay_result_for_rd_in_transaction(&mut transaction, locator)
-                .await;
-        transaction
-            .rollback()
-            .await
-            .map_err(|_| crate::BacktestResultCustodyErrorV2::Unavailable)?;
-        result
+        resolve_counted_exploratory_result(&self.pool, locator).await
     }
 
     /// Lists every Backtest-owned Result of one Replay request.
@@ -225,6 +214,23 @@ impl PostgresResearchReadbackOwnerV1 {
         verify_research_readback_relation(&pool).await?;
         Ok(Self { pool })
     }
+}
+
+/// Reads one exploratory Result for display in a transaction that is always rolled back.
+async fn resolve_counted_exploratory_result(
+    pool: &PgPool,
+    locator: crate::ExploratoryReplayResultLocatorV2<'_>,
+) -> Result<Option<crate::LockedExploratoryReplayResultV2>, crate::ExploratoryResultCensusErrorV1> {
+    let storage = |e: sqlx::Error| crate::ExploratoryResultCensusErrorV1::Storage(e.to_string());
+    let mut transaction = pool.begin().await.map_err(storage)?;
+    let result =
+        crate::exploratory_result_census_postgres::resolve_counted_exploratory_result_in_transaction(
+            &mut transaction,
+            locator,
+        )
+        .await;
+    transaction.rollback().await.map_err(storage)?;
+    result
 }
 
 async fn verify_research_readback_relation(pool: &PgPool) -> Result<(), ResearchGoalOwnerError> {
@@ -2247,26 +2253,36 @@ impl PostgresResearchGoalOwnerV1 {
     /// Reads one complete Backtest-owned exploratory result inside an R&D transaction.
     ///
     /// The returned value exists only when the canonical Result, receipt, and outbox aggregate
-    /// passes the neutral custody validator. The transaction is always rolled back so this
-    /// consumer cannot create an R&D fact.
+    /// passes the neutral custody validator and the Result's TrialFamily census counts it. The
+    /// transaction is always rolled back so this consumer cannot create an R&D fact.
     pub async fn resolve_exploratory_replay_result_v2(
         &self,
         locator: crate::ExploratoryReplayResultLocatorV2<'_>,
-    ) -> Result<Option<crate::LockedExploratoryReplayResultV2>, crate::BacktestResultCustodyErrorV2>
+    ) -> Result<Option<crate::LockedExploratoryReplayResultV2>, crate::ExploratoryResultCensusErrorV1>
     {
-        let mut transaction = self
-            .pool
-            .begin()
-            .await
-            .map_err(|_| crate::BacktestResultCustodyErrorV2::Unavailable)?;
-        let result =
-            resolve_exploratory_replay_result_for_rd_in_transaction(&mut transaction, locator)
-                .await;
-        transaction
-            .rollback()
-            .await
-            .map_err(|_| crate::BacktestResultCustodyErrorV2::Unavailable)?;
-        result
+        resolve_counted_exploratory_result(&self.pool, locator).await
+    }
+
+    /// Counts one committed exploratory Result in its TrialFamily census, in its own R&D
+    /// transaction.
+    ///
+    /// Counting a Result whose request the census already counts writes nothing, so a caller
+    /// that lost the answer counts again.
+    pub async fn count_exploratory_replay_result_v2(
+        &self,
+        locator: crate::ExploratoryReplayResultLocatorV2<'_>,
+    ) -> Result<crate::TrialFamilyAttemptCountV2, crate::ExploratoryResultCensusErrorV1> {
+        let storage =
+            |e: sqlx::Error| crate::ExploratoryResultCensusErrorV1::Storage(e.to_string());
+        let mut transaction = self.pool.begin().await.map_err(storage)?;
+        let count =
+            crate::exploratory_result_census_postgres::count_exploratory_result_in_transaction(
+                &mut transaction,
+                locator,
+            )
+            .await?;
+        transaction.commit().await.map_err(storage)?;
+        Ok(count)
     }
 
     /// Joins the current R&D TrialFamily Census to one locked exploratory Backtest Result and
@@ -2458,7 +2474,11 @@ impl PostgresResearchGoalOwnerV1 {
             run_id,
         )
         .await
-        .map_err(|_| crate::NativeReplayExecutionInputBindingErrorV1::Unavailable)?
+        .map_err(|_| {
+            crate::NativeReplayExecutionInputBindingErrorV1::Unavailable(
+                crate::NativeReplayExecutionInputBindingCauseV1::ExecutionBundleUnresolved,
+            )
+        })?
         .into_execution();
         Ok(execution)
     }

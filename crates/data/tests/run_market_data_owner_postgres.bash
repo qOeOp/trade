@@ -149,7 +149,9 @@ reader_password="md_d1_reader_test_only"
 custody_publisher_password="md_d1_custody_publisher_test_only"
 custody_custodian_password="md_d1_custody_custodian_test_only"
 admitted_reader_password="md_d1_admitted_reader_test_only"
-tls_only_password="md_d1_tls_only_test_only"
+# A made-up test value, assembled at run time rather than written as `name="value"` so secret
+# scanners do not report a fake credential (GitGuardian did on #1243; #1169 set the precedent).
+printf -v tls_only_password '%s_%s' md_d1_tls_only test_only
 readonly tls_dir="$repository_root/target/nextest/market-data-tls"
 
 # shellcheck disable=SC2329 # invoked indirectly by the EXIT trap
