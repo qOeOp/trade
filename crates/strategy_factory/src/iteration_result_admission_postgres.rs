@@ -219,6 +219,20 @@ async fn compose_locked_input(
             "the exact exploratory Backtest Result is unavailable".to_owned(),
         )
     })?;
+    // An uncounted Result is one nobody may consume: the census must count it before any
+    // proposal it seeds is admitted against the census's budget.
+    crate::exploratory_result_census_postgres::require_counted_exploratory_result_in_transaction(
+        transaction,
+        &locator.request_identity,
+        locked.replay().result().request_meaning_digest.as_str(),
+    )
+    .await
+    .map_err(|e| match e {
+        crate::ExploratoryResultCensusErrorV1::NotCounted => {
+            IterationResultAdmissionErrorV1::ResultNotCounted
+        }
+        other => IterationResultAdmissionErrorV1::Unavailable(other.to_string()),
+    })?;
     let backtest = project_locked_backtest_result_v1(
         locked.replay().result(),
         &owner_storage_digest(
