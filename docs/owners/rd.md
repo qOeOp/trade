@@ -264,10 +264,10 @@ ordered chain's acceptance build admits nothing in production.
   outside `crates/data`. The resolver is additionally optional: `bootstrap_deployment_store_admission` returns
   `Option`, so the field may hold `None` in a deployment. Closing this needs a consumer in this Owner, not a
   wider read from Market Data.
-- **TARGET / ISOLATED_ACCEPTANCE_ONLY - the exploratory replay production entry:** the only caller of
+- **IMPLEMENTATION_ADMITTED / NOT_CUT_OVER - the exploratory replay production entry:** the only caller of
   `run_exploratory_replay_v2` outside `vibe-backtest-owner` is inside `run_native_replay`, which carries
-  `#[cfg(feature = "sealed-develop-composer-acceptance")]` with no `cfg(not(...))` twin anywhere in the
-  repository. With the deployed image built without features, that path is unreachable in what is deployed. This
+  `#[cfg(feature = "native-replay-execution")]`, a production feature with no acceptance code, with no
+  `cfg(not(...))` twin anywhere in the repository. With the deployed image built without features, that path is unreachable in what is deployed. This
   measures the deployment artifact, not history.
 
 ## Modules
