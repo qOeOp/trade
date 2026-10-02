@@ -905,7 +905,9 @@ mod tests {
     };
 
     use rstest::rstest;
-    use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
+    use vibe_testkit::postgres::{
+        CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1, restore_after_checks,
+    };
 
     use super::*;
     use crate::adapter_binding::{
@@ -1140,18 +1142,25 @@ mod tests {
         .execute(&pool)
         .await
         .unwrap();
-        assert_eq!(
-            owner.commit(draft(&beta)).await,
-            Err(AdapterBindingError::NamespaceAlreadyReserved)
-        );
-        assert_eq!(own_counts(&pool, &stream_identity).await, (1, 1, 0, 2));
-        sqlx::query(
-            "DELETE FROM execution_private.execution_paper_namespace_reservations_v1 WHERE namespace = $1",
+        restore_after_checks(
+            async {
+                assert_eq!(
+                    owner.commit(draft(&beta)).await,
+                    Err(AdapterBindingError::NamespaceAlreadyReserved)
+                );
+                assert_eq!(own_counts(&pool, &stream_identity).await, (1, 1, 0, 2));
+            },
+            async {
+                sqlx::query(
+                    "DELETE FROM execution_private.execution_paper_namespace_reservations_v1 WHERE namespace = $1",
+                )
+                .bind(draft(&beta).account_namespace)
+                .execute(&pool)
+                .await
+                .unwrap();
+            },
         )
-        .bind(draft(&beta).account_namespace)
-        .execute(&pool)
-        .await
-        .unwrap();
+        .await;
 
         // The simulated account opens exactly once under the admitted binding.
         let opening = PaperAccountOpeningDraft {
@@ -1326,22 +1335,29 @@ mod tests {
         .execute(&pool)
         .await
         .unwrap();
-        assert_eq!(
-            owner
-                .resolve_admitted(&current.locator, &capabilities())
-                .await,
-            Err(AdapterBindingError::LocatorMismatch)
-        );
-        sqlx::query(
-            "UPDATE execution_private.execution_paper_adapter_binding_facts_v1
+        restore_after_checks(
+            async {
+                assert_eq!(
+                    owner
+                        .resolve_admitted(&current.locator, &capabilities())
+                        .await,
+                    Err(AdapterBindingError::LocatorMismatch)
+                );
+            },
+            async {
+                sqlx::query(
+                    "UPDATE execution_private.execution_paper_adapter_binding_facts_v1
                 SET locator_json = jsonb_set(locator_json, '{content_digest}', to_jsonb($2::text))
               WHERE fact_identity = $1",
+                )
+                .bind(&current.locator.fact_identity)
+                .bind(&current.locator.content_digest)
+                .execute(&pool)
+                .await
+                .unwrap();
+            },
         )
-        .bind(&current.locator.fact_identity)
-        .bind(&current.locator.content_digest)
-        .execute(&pool)
-        .await
-        .unwrap();
+        .await;
         sqlx::query(
             "UPDATE execution_private.execution_paper_adapter_binding_facts_v1
                 SET meaning_json = jsonb_set(meaning_json, '{state}', '\"REVOKED\"'::jsonb)
@@ -1351,21 +1367,28 @@ mod tests {
         .execute(&pool)
         .await
         .unwrap();
-        assert_eq!(
-            owner
-                .resolve_admitted(&current.locator, &capabilities())
-                .await,
-            Err(AdapterBindingError::StoreUnavailable)
-        );
-        sqlx::query(
-            "UPDATE execution_private.execution_paper_adapter_binding_facts_v1
+        restore_after_checks(
+            async {
+                assert_eq!(
+                    owner
+                        .resolve_admitted(&current.locator, &capabilities())
+                        .await,
+                    Err(AdapterBindingError::StoreUnavailable)
+                );
+            },
+            async {
+                sqlx::query(
+                    "UPDATE execution_private.execution_paper_adapter_binding_facts_v1
                 SET meaning_json = jsonb_set(meaning_json, '{state}', '\"ADMITTED\"'::jsonb)
               WHERE fact_identity = $1",
+                )
+                .bind(&current.locator.fact_identity)
+                .execute(&pool)
+                .await
+                .unwrap();
+            },
         )
-        .bind(&current.locator.fact_identity)
-        .execute(&pool)
-        .await
-        .unwrap();
+        .await;
         assert_eq!(
             owner
                 .resolve_admitted(&current.locator, &capabilities())
