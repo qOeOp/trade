@@ -1314,15 +1314,23 @@ REVOKE ALL ON TABLE
   public.rd_trial_family_members_v1,
   public.rd_successor_research_intents_v1
 FROM market_data_owner, market_data_reader;
--- Only a build with `sealed-source-intake-composer-acceptance` materializes this relation, so it
--- is granted when present. Its migration grants nothing: materialization verifies every public
--- relation with no runtime reader yet, and runtime readers arrive at cutover, as the grant above does.
--- It stays outside that grant and its matching revoke: `scripts/check/authority.bash` reads the pair
--- as one statement each, and this one is conditional. Unlike those tables it needs no matching
--- revoke from market_data_owner or market_data_reader: nothing grants it to either. In a deployed
--- database the switch is unset and the table never exists, so this block does nothing there.
+-- The composer-backed Replay's view transitions, which an image built with `composer-v3-replay`
+-- verifies at startup and writes. `--materialize-schema` creates the table only before cutover: its
+-- migration needs the pre-cutover phase, so a database materialized by an image without that feature,
+-- or cut over since, could never gain it, and an image with the feature would then refuse to start
+-- (measured 2026-10-03 on a cut-over database). It is therefore created here when absent, exactly as
+-- `migrate_composer_research_view_transitions_v3` creates it, then owned, revoked and granted to its
+-- runtime reader, which arrives at cutover. Every statement is idempotent, so a second run changes
+-- nothing. It stays outside the grant and revoke pair above, which `scripts/check/authority.bash`
+-- reads as one statement each; nothing grants it to market_data_owner or market_data_reader.
 DO $view_transitions_v3$ BEGIN
+  IF pg_catalog.to_regclass('public.rd_research_view_transitions_v3') IS NULL
+     AND pg_catalog.to_regclass('public.rd_sealed_exploratory_replay_requests_v1') IS NOT NULL THEN
+    CREATE TABLE public.rd_research_view_transitions_v3 (replay_request_identity TEXT PRIMARY KEY REFERENCES public.rd_sealed_exploratory_replay_requests_v1(request_identity), research_request_identity TEXT NOT NULL, intent_identity TEXT NOT NULL, transition_digest TEXT NOT NULL UNIQUE, old_view_json JSONB NOT NULL, new_view_json JSONB NOT NULL, transition_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL);
+  END IF;
   IF pg_catalog.to_regclass('public.rd_research_view_transitions_v3') IS NOT NULL THEN
+    ALTER TABLE public.rd_research_view_transitions_v3 OWNER TO rd_owner;
+    REVOKE ALL ON TABLE public.rd_research_view_transitions_v3 FROM PUBLIC, product_edge_owner, operator_authorization_writer, qualification_owner, qualification_writer;
     GRANT SELECT ON TABLE public.rd_research_view_transitions_v3 TO rd_exploratory_replay_api_owner;
   END IF;
 END $view_transitions_v3$;

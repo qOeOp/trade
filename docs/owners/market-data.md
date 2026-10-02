@@ -148,8 +148,12 @@ never runs in CI.
   build connect with them directly instead of through the store-admission custodian - PIT intake, Source Binding,
   universe selection, strategy-input binding (both DSNs), Instrument Master and Market Semantics, composed by the
   `bootstrap_market_data_*` functions in `main.rs`. Their only gate is the role and topology check
-  `MarketDataOwnerPostgres::ADMISSION_SQL_V1`. Until those DSNs move behind the custodian as leased handles, `B3` adds
-  anti-substitution - a signed, current, directly measured store - and no credential isolation.
+  `MarketDataOwnerPostgres::ADMISSION_SQL_V1`. A build with `composer-replay-issuance` holds a third:
+  `INSTRUMENT_OWNER_DATABASE_URL`, the principal `instrument_owner`, from which
+  `instrument_economic_terms_postgres_owner_from_environment_v1` opens the economic-terms Owner directly as well. The
+  compose file requires it of every image, because a build with that feature cannot start without it. Until those DSNs move
+  behind the custodian as leased handles, `B3` adds anti-substitution - a signed, current, directly measured store - and
+  no credential isolation.
   Two statements of `ISOLATED_EVENT_REPLAY_ACCEPTANCE_V1` below do not yet match the code; neither blocks the
   production route. That profile has the target measured by a separately executed principal, while `DirectMeasurer`
   measures inside the custodian with the leased credential. It also has the admission receipt cross-bind the trust
