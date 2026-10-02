@@ -62,6 +62,21 @@ def fill(S, start, side, limit):
     return None, None
 
 
+SLOT = "exit"  # "exit": a coin's slot frees at the trade's exit (the corrected rule); "hold": 60 days from the fill (the
+#                original side effect, loop/LOG.md "R-1 slot note")
+
+
+def exit_bar(S, k, side, stop, tgt):
+    """Bar index at which a trade filled at bar k leaves: stop first, target from the next bar, else the hold limit."""
+    h, l = S["h"], S["l"]
+    for m in range(k, min(k + HOLD, len(h))):
+        if (side == 1 and l[m] <= stop) or (side == -1 and h[m] >= stop):
+            return m
+        if m > k and ((side == 1 and h[m] >= tgt) or (side == -1 and l[m] <= tgt)):
+            return m
+    return k + HOLD
+
+
 def signals(d, btc_trend=None):
     S = state(d)
     c, a, tr = S["c"], S["a"], S["trend"]
@@ -87,7 +102,7 @@ def signals(d, btc_trend=None):
                     continue
                 if k > busy[v]:
                     out[v].append(sig)
-                    busy[v] = k + HOLD
+                    busy[v] = exit_bar(S, k, side, sig[3], sig[4]) if SLOT == "exit" else k + HOLD
         elif kind in ("flip_up", "flip_down") and p is not None:
             side = 1 if kind == "flip_up" else -1
             flip = (i, side, p[1], p[0])
@@ -108,7 +123,7 @@ def signals(d, btc_trend=None):
                     stop = ext - side * BUF * a[fi]
                     if (px - stop) * side > 0:
                         out["R-2"].append((k2, side, px, stop, px + side * abs(best - ext)))
-                        busy["R-2"] = k2 + HOLD
+                        busy["R-2"] = exit_bar(S, k2, side, stop, px + side * abs(best - ext)) if SLOT == "exit" else k2 + HOLD
                     break
             flip = None
     return out, tr

@@ -1979,3 +1979,27 @@ each fill (`busy = k + HOLD`), even after an early stop or target. The rule that
 - The forward scorer now applies it.
 - Every armed order stays logged, so the lock-free version can be reported as an untested diagnostic.
 - Workflow note 56.
+
+### R-1 with the slot side effect removed (R-1u; registered before running; the user's decision)
+
+- **The bug:** the slot was held 60 days from each fill. The corrected rule frees a coin's slot at the trade's exit
+  (stop, target or 60-day limit): at most one open R-1 trade per coin. Nothing else changes.
+- `family_r.SLOT = "exit"` is now the default; "hold" reproduces the old runs.
+- **Development rerun (P-4, logged as a rerun):** prediction: more trades (about 1.5x) and a similar edge, +0.15 to
+  +0.25.
+- **Holdout rerun by the gatekeeper (logged as a rerun):** the corrected rule on the same 69 coins.
+  - Contamination, stated: R-1's read on these coins passed, and R-1u shares most of its trades. This read checks that
+    the correction does not break the result; it is not new independent evidence.
+  - Prediction: stage 2 PASS.
+- **If both hold,** R-1u replaces R-1 as the forward record's official rule; the 60-day slot version is no longer
+  reported.
+
+**Result, development rerun of R-1u:** 3,781 trades (650 before), edge +0.338 [+0.255, +0.428]; longs +0.39, shorts
++0.27.
+- **Better than predicted** (about 1.5x the trades and +0.15 to +0.25 were expected).
+- **By year:** 2018 -0.25 (52 trades); 2019-2022 +0.31, +0.39, +0.38, +0.30.
+- **Clustering check:** 61% of trades follow the same coin's previous trade within 10 days. These are staircase
+  re-entries: break, retest, the next break. At most one trade per coin per day.
+  - First trade of each 10-day cluster: +0.250 [+0.136, +0.367] (1,475).
+  - Follow-on trades: +0.395 [+0.309, +0.482] (2,306).
+- **Reading:** the 60-day slot was suppressing the strategy's own continuation entries, not hiding a defect.
