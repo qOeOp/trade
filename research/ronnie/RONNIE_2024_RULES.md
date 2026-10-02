@@ -164,3 +164,19 @@ is looser than his two-step rule. The difference is recorded, not fitted.
   taken only if the next level pays about 2R or more for that stop.
 - **Reading:** this matches R-1's geometry (stop just beyond the zone, fixed 2R) more closely than any earlier source.
   Twelve plans read by hand from one analyst's frames are a description, not a test; nothing here changes R-1.
+
+## How he draws and uses trend lines, channels and Fibonacci (2026-10-02; `tv_line_method.py`, loop L-1)
+
+- **Trend lines (272 measured):** he drags long lines (median span 700 bars) and clicks the end points anywhere on
+  them, so the anchors are not pivots. The line itself touches order-3 pivots: two or more touches on 43% of lines
+  against 23% for the same line moved 1-2 ATR; 70% of touches are by the wick; closes cut through about 9% of bars.
+  63% are support lines. In speech (78 mentions): a test of a rising line is an entry, best with horizontal support; a
+  broken line turns the bias and he redraws the line.
+- **Channels (70):** width about 4 ATR; borders touched twice (median) against 1.25 moved. In speech (31 mentions):
+  price "walks along the channel", the far rail is a target, the stop goes below the channel.
+- **Fibonacci (87):** anchored exactly on major swing extremes (both anchors within 0.25 ATR of an order-20 pivot in
+  79%; median 0.03 ATR), spanning about 11 ATR: cycle-scale swings. Levels 0.236-0.764 shown, extensions to 1.618.
+  He never names Fibonacci in the 22 transcribed videos.
+- **Tested on R-1u (loop L-1, development, with placebos):** none of trend-line confluence, trend-line bias, a channel
+  target or a cycle Fibonacci tag beats its placebo (LOG). Published evidence agrees: no after-cost support for
+  diagonal lines or channels, Fibonacci no better than placebo ratios.

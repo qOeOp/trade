@@ -2127,3 +2127,46 @@ entries +0.041R [-0.03, +0.11] (1,499); late entries after the trade first ran a
   any forward outcome. Fixed targets still beat structure targets (1.5R 2.55, 2R 2.49, structure 2.20).
 - **R-F (rerun):** unchanged conclusions: no Fibonacci variant beats its placebo or the base; PBO 0.17.
 - **Earlier R-1 portfolio figures** (CAGR and drawdown at 1% risk) were computed with the defect and are withdrawn.
+
+## Loop L-1: his trend lines, channels and cycle Fibonacci on R-1u (registered 2026-10-02, before running)
+
+- **Source of the rules:** `tv_line_method.py` (how he draws: lines touch order-3 pivots, 70% by the wick, closes
+  through about 9% of bars; channel width about 4 ATR; Fibonacci anchored on order-20 swing extremes, span about
+  11 ATR) and 78 trend-line and 31 channel mentions in 22 transcripts (enter on a test of a rising trend line, best
+  with horizontal support; a broken trend line turns the bias; a channel's far rail is the target).
+- **External evidence (web, 2026-10-02):** no peer-reviewed after-cost test supports diagonal trend lines or channels
+  as filter, target or trend state; Fibonacci matches placebo ratios in the tests found (Tsinaslanidis et al. 2021,
+  read through search snippets only; ForexOp; our R-F). Horizontal levels have weak, decaying bounce evidence (Osler
+  2000, Chung & Bellotti 2021, Tsinaslanidis 2024). Low prior: this is a cheap kill test.
+- **Lines, computed at the arming bar from confirmed order-5 pivots:** support = the line through the last two
+  confirmed pivot lows when the later one is higher, unbroken (no close more than 0.1 ATR below it since the later
+  pivot); resistance mirrored. Channel = the support line plus a parallel through the highest high since the first
+  pivot (mirrored for shorts).
+- **Tests, each on the R-1u development trades (53 coins, 2018-2022, first fill takes the slot):**
+  - L1 confluence tag: the limit is within 0.5 ATR of the trade-side line at the arming bar. Placebo: the same line
+    moved 1 ATR up or down.
+  - L2 trend-line bias tag: the last trend-line event before arming is a close through the opposite-side line in the
+    trade's direction (a close above the latest falling resistance line for longs).
+    Placebo: the same events with the lines moved 1 ATR.
+  - L3 channel target: where a channel exists, the target is the far rail at the arming bar if that is at least 1R
+    away, else 2R; paired against 2R on the same trades. Placebo: rails at 0.7 and 1.3 times the width.
+  - L4 cycle Fibonacci tag: the limit is within 0.25 ATR of the 0.382, 0.5 or 0.618 retracement of the latest
+    confirmed order-20 swing (span at least 5 ATR). Placebo ratios 0.32, 0.44 and 0.70.
+- **Statistic:** for tags, the edge (R minus matched random control) of tagged minus untagged trades, week-clustered,
+  and the same for the placebo; for L3, the paired per-trade R difference. Holm over the four at 95%.
+- **Adoption:** none on this data. A test passes only if its interval is above zero and above its placebo's estimate;
+  a passing tag or exit joins the R-1 forward record as a tag, decided with the others on 2027-10-01.
+
+### Loop L-1 result (2026-10-02; `loop/r1_lines.py`, `loop/r1_lines.txt`)
+
+| test | tagged or covered | difference [95%, week-clustered] | placebo | status (SESOI 0.10R) |
+| --- | --- | --- | --- | --- |
+| L1 trend-line confluence tag | 48 of 4,300 (1%) | +0.010 [-0.333, +0.374] | -0.066 | inconclusive (too rare to measure) |
+| L2 trend-line bias tag | 2,764 (64%) | +0.028 [-0.058, +0.120] | +0.099 | inconclusive; below its placebo |
+| L3 channel far-rail target | 1,623 (38%) | +0.023R [-0.037, +0.084] paired | +0.052R | equivalent-null (upper bound below 0.10) |
+| L4 cycle Fibonacci tag | 340 (8%) | +0.110 [-0.042, +0.248] | +0.067 | inconclusive; most of it is in the placebo too |
+
+Holm over the four: none passes (smallest p 0.076 for L4 against 0.0125). Nothing joins the forward record. The family
+is parked: trend lines as drawn by his rules rarely meet R-1's levels (1%), the trend-line bias adds less than lines
+moved 1 ATR, a channel target is no better than 2R, and the cycle Fibonacci tag's lift is mostly reproduced by
+non-Fibonacci ratios.

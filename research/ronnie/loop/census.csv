@@ -153,3 +153,7 @@ logged_at,loop,candidate,stage,n,edge,lo,hi,passed,note
 2026-10-02T05:28:27+00:00,P-4 R-3,familyR,rerun-iteration,3416,+0.2389,+0.1351,+0.3399,True,"Ronnie 2024-25 method, daily R-1 fill-order fix: the slot goes to the first fill"
 2026-10-02T05:30:04+00:00,X-R1,R-1 exits,rerun-iteration,6978,+2.9133,+nan,+nan,True,"exit grid of 45; plateau choice (np.float64(0.5), np.float64(0.25), '1.5R'); PBO 0.05; edge column holds the Sharpe R-1 fill-order fix"
 2026-10-02T05:30:47+00:00,R-1,familyR,rerun-holdout,6432,+nan,+nan,+nan,True,sealed; stage-2 read R-1 fill-order fix: the slot goes to the first fill
+2026-10-02T17:28:07+00:00,L-1 L1,R-1 lines,iteration,4300,+0.0096,-0.3326,+nan,False,placebo -0.066; p 0.474
+2026-10-02T17:28:07+00:00,L-1 L2,R-1 lines,iteration,4300,+0.0284,-0.0585,+nan,False,placebo +0.099; p 0.258
+2026-10-02T17:28:07+00:00,L-1 L4,R-1 lines,iteration,4300,+0.1103,-0.0421,+nan,False,placebo +0.067; p 0.076
+2026-10-02T17:28:07+00:00,L-1 L3,R-1 lines,iteration,4300,+0.0231,-0.0372,+nan,False,placebo +0.052; p 0.243

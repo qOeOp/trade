@@ -1,0 +1,7 @@
+L-1: trend lines, channels and cycle Fibonacci on R-1u, development (53 coins, 2018-2022), 4300 trades
+  R-1u edge +0.221
+  L1 tag: 48 tagged (1%), tagged edge +0.230 vs untagged +0.221: difference +0.010 [-0.333, +0.374]; placebo difference -0.066 (placebo tagged 10%)
+  L2 tag: 2764 tagged (64%), tagged edge +0.231 vs untagged +0.202: difference +0.028 [-0.058, +0.120]; placebo difference +0.099 (placebo tagged 63%)
+  L4 tag: 340 tagged (8%), tagged edge +0.322 vs untagged +0.212: difference +0.110 [-0.042, +0.248]; placebo difference +0.067 (placebo tagged 11%)
+  L3 channel target: 1623 trades with a channel (38%); far rail minus 2R, paired +0.023R [-0.037, +0.084]; placebo rails (0.7x, 1.3x) +0.052R
+  Holm (95%, four tests): L4 p 0.076 vs 0.0125 -> fail, L3 p 0.243 vs 0.0167 -> fail, L2 p 0.258 vs 0.0250 -> fail, L1 p 0.474 vs 0.0500 -> fail

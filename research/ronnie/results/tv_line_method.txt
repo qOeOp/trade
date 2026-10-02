@@ -1,0 +1,14 @@
+Ronnie's 2024-2025 trend lines, channels and Fibonacci, measured on the chart timeframe they were drawn on
+(a touch: an order-3 pivot low (support) or high (resistance) within 0.2 ATR of the line; moved: the same line
+ shifted 1 and 2 ATR up and down)
+TREND LINES: 272 ({'4h': 141, '1d': 131}); support 63%; rising 51%
+  touches median 1.00 (IQR 0.00-3.00) vs moved median 1.00 (IQR 0.50-1.75); two or more 43% vs moved 23%
+  touch by the wick 70%, by the body edge 30%
+  closes through the line median 8.69 (IQR 2.57-19.97)% of bars; span median 717.50 (IQR 237.75-2408.25) bars; bars since the last touch at publish median 204.00 (IQR 46.00-1719.00)
+  distance from price at publish median 16.79 (IQR 4.05-90.94) ATR; within 1 ATR 5%
+CHANNEL BORDERS: 140 ({'4h': 92, '1d': 48}); width median 4.23 (IQR 1.70-6.82) ATR
+  touches median 2.00 (IQR 1.00-3.00) vs moved median 1.25 (IQR 1.00-2.06); touch by the wick 68%; closes through median 4.44 (IQR 0.09-13.66)%
+FIBONACCI: 87 ({'FibRetracement': 62, 'TrendBasedFibExtension': 25}, {'1d': 57, '4h': 30})
+  anchor prices vs the nearest order-20 pivot extreme (ATR): median 0.03 (IQR 0.01-0.10) and median 0.03 (IQR 0.01-0.07) vs moved median 0.29 (IQR 0.12-0.58); both within 0.25 ATR 79%
+  span median 10.96 (IQR 6.83-16.58) ATR; drawn on an up-move 71%; price at publish as a retracement median 0.23 (IQR -0.22-0.54)
+  enabled levels: FibRetracement 0 62, FibRetracement 0.236 62, FibRetracement 0.382 62, FibRetracement 0.5 62, FibRetracement 0.618 62, FibRetracement 0.764 62, FibRetracement 1 62, TrendBasedFibExtension 0 25, TrendBasedFibExtension 0.236 25, TrendBasedFibExtension 0.382 25, TrendBasedFibExtension 0.5 25, TrendBasedFibExtension 0.618 25, TrendBasedFibExtension 0.764 25, TrendBasedFibExtension 1 25, TrendBasedFibExtension 1.618 25, TrendBasedFibExtension 2.618 5, TrendBasedFibExtension 3.618 5, TrendBasedFibExtension 4.618 5
