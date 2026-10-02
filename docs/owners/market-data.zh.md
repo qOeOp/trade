@@ -165,11 +165,11 @@ ACL 拒绝。它不证明供应商真实性，不证明生产装配，也不证�
   其中建对象的 schema 在它够得着的范围内：部署的数据库里 `PUBLIC` 能用 `public`，`product_edge_owner` 能在那里建
   对象，所以 `public` 里新建一个函数（默认 `PUBLIC` 可执行）会改变普查，admission 需要一份新 manifest。普查按
   PostgreSQL 16 的权限集列举，其他主版本的服务器会被拒绝，而不是少测。
-- **`B4` 消费者未编入已部署镜像。** `product/rd-workbench/Dockerfile.owner` 以默认 feature 构建
-  `strategy-factory-rd-owner-api`，使 `composer-replay-issuance` 处于关闭，而 dashboard 读取二进制不触及任何
-  Market Data 表面。native Replay scheduling 消费者位于这个生产 feature 之后，而不是 acceptance feature 之后；
-  修复循环的 shared time-evidence 消费者位于 `native-replay-execution` 之后，它同样是生产 feature。解除条件：部署镜像开启
-  这些生产 feature，这是一个部署决定。
+- **`B4` 消费者部分编入已部署镜像。** `product/rd-workbench/Dockerfile.owner` 以 `composer-v3-replay` 构建
+  `strategy-factory-rd-owner-api`，它包含 `composer-replay-issuance`，所以 native Replay scheduling 消费者已在镜像里；
+  在没有已准入的库（`B3`）时它没有解析器，签发回答 `MARKET_DATA_SCHEDULING_NOT_ADMITTED`。修复循环的
+  shared time-evidence 消费者位于 `native-replay-execution` 之后，而镜像不构建它。解除条件：部署镜像开启该
+  生产 feature，这是在 `B3` 之后的一个部署决定。
 - **`B5` 无跨 Owner 消费者。** 该模块的唯一消费者是同一 crate 内的 Replay V2 组合与 PostgreSQL 写入者，且此类模块多数
   在 `crates/data` 内还是 `pub(crate)`。解除条件：一个由本文档点名的固定消费者。
 - **`B6` 还没有任何部署准入过供应商。** 整条链路已端到端验证：2026-09-17 的一次性 PostgreSQL 运行里，准入了

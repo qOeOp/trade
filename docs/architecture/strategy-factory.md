@@ -790,8 +790,8 @@ deserialization nor a struct literal forges one even with the acceptance feature
 path runs. Nothing issues a `NativeReplayExecutionInputBindingV1` in any compilable configuration
 today. Its issuance narrows to `issue_native_replay_execution_input_binding_v1`, whose single
 caller is an HTTP handler registered only under the `rd-owner-api` crate's own
-`composer-replay-issuance`, which the deployed image does not enable and the ordered chain's build turns
-on only through `sealed-develop-composer-acceptance`; no SQL or script writes the binding tables directly, and no test or client names the route. Both
+`composer-replay-issuance`, which the deployed image enables through `composer-v3-replay` and the ordered
+chain's build turns on through `sealed-develop-composer-acceptance`; no SQL or script writes the binding tables directly, and no test or client names the route. Both
 the issuer and the resolver beside it are ungated production functions on
 `PostgresResearchGoalOwnerV1`, forty-three lines apart, taking the same collaborators. So the
 execution path is unreached rather than unreachable, and one ordered-chain entry that issues and
