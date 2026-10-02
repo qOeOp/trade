@@ -148,6 +148,8 @@ rather than repeating it, so there is one place to keep in step.
   and has neither a producer nor a consumer. Nothing publishes a control-set definition, nothing synthesizes
   comparison programs from one, and `crates/qualification` has no comparison arm. The order in which it must be
   built is part of that clause, not a note on it.
+- **TARGET - Forward Record:** no Forward Registration, Forward Replay request, Forward Decision or forward census
+  exists, and Eligibility has no forward-kill revocation cause. The contract is under TARGET - Forward Record below.
 
 ## Behaviours the ordered gate cannot reach
 
@@ -399,6 +401,11 @@ its absence here is a boundary rather than a dead relation.
   qualified capacity ceiling, effective time, and non-dereferenceable committed evidence references only.
   Expiry, revocation, missing-current, and unknown-current are explicit downstream states; none permits Governance
   to silently retain add-risk authority for an active generation.
+- `TARGET` - to [Backtest](./backtest/): one Forward Replay request per newly observed cut of a registered Forward
+  Record, bound to the registration's exact identities. A request this Owner did not create is not a forward request.
+- `TARGET` - to [Strategy Governance](./strategy-governance/): the current Forward Decision with exact Forward
+  Registration and Eligibility Fact versions. Only `FORWARD_ADMITTED` with a current `QUALIFIED` Eligibility State
+  permits a paper `INITIAL_ACTIVATION` proposal; every other, missing or unknown decision permits none.
 - To Event Rail: a wake-up hint only after the qualification fact is committed. Its protected payload contains
   only the public terminal outcome, a type-opaque non-dereferenceable reference, and source-frontier freshness.
   Protected phase, latency, terminal timing, and timing-derived fields are forbidden. It never emits internal
@@ -558,6 +565,70 @@ arm, and no cross-family holdout count: it reserves holdout once per Candidate a
 acceptance below requires cumulative disposition across related TrialFamilies. That count is part of this slice,
 because N includes the lineage's protected attempts. The trial count it reads needs the production census append R&D
 does not have yet.
+
+## TARGET - Forward Record
+
+This section states a contract with no implementation; it grants no permission to build, deploy, or drive a
+forward record.
+
+A Forward Record starts only from a current `QUALIFIED` Eligibility Fact and ends in one terminal Forward Decision. It
+is record-only: it creates no Strategy Instance, Runtime generation, trade intent, order command, or Execution effect,
+reads no credential, and holds no capital. Governance consumes its decision; it never runs Governance's chain.
+
+A write-once Forward Registration, committed before the first forward cut, binds:
+
+- the exact Eligibility Fact, Candidate, Artifact and protected policy pair;
+- the Runtime kernel, simulator, cost, slippage and capacity-model identities of the qualifying Protected Replay
+  Request;
+- the instrument and venue scope and the decision cadence;
+- an interim date and a decision date;
+- kill lines and admit lines, each with how it was derived (for example, percentiles of a stated number of
+  block-bootstrapped paths of the qualifying weekly stream, with the block length), and any minimum closed-trade
+  count;
+- the sequential test below, and the forward start cut.
+
+No field changes once the first forward cut is recorded. A changed registration is a new registration with its own
+record, and both are reported.
+
+Wald's sequential probability ratio test (Wald, 1945) runs on the record's weekly returns. H0 is Sharpe 0; H1 is the
+registered haircut times the qualifying Sharpe, with one half the default a registration must state, not assume. σ is
+fixed from the qualifying stream, and each week adds (μ1 / σ²) · (xₜ − μ1 / 2) to the log-likelihood ratio. The test
+kills at ln(β / (1 − α)) and reaches its scale-up bound at ln((1 − β) / α): −1.56 and +2.77 at α = 5% and power 80%.
+The registration states α, β, the haircut, σ and the observation unit. Crossing the scale-up bound does not by itself
+admit a candidate; it brings the admit review forward to that cut.
+
+Backtest replays the frozen Artifact on each newly observed point-in-time cut (Forward Replay) on exactly the
+registered identities, with the order types (limit, stop, validity and expiry, cancel) and decision cadence that
+qualified it. Resting orders and open positions carry from one cut to the next in Backtest custody, a fill is admitted
+only from data observed after the order existed, and slots and occupancy follow fill order because the one simulator
+that resolves them for the backtest resolves them here. A log of signals is not a Forward Record: it cannot hold a
+resting order, and it scores a signal whose stop or target had already traded. Nor is a forward harness that resolves
+occupancy apart from the backtest: slots in arming order rather than fill order once raised a rule's backtest edge from
++0.22 to +0.34 while the forward harness disagreed silently.
+
+Each record ends in one terminal Forward Decision:
+
+- `FORWARD_KILLED`, at any cut where a kill line or the kill bound is crossed; it also commits `REVOKED` on the
+  Eligibility Fact, with the forward kill as its cause;
+- `FORWARD_ADMITTED`, at the decision date or at the scale-up bound's admit review, when every admit line holds; it
+  means only that the candidate may be proposed for paper activation;
+- `FORWARD_WITHDRAWN`, when the record ends for any other reason, such as an expired or revoked Eligibility Fact, a
+  replaced registration, or a source that stopped.
+
+The interim date checks kill lines only. A decision date that finds neither a kill nor every admit line holding commits
+`FORWARD_CONTINUES` with the next registered date, a phase fact rather than a terminal decision. Killed and withdrawn
+records are kept, never deleted.
+
+Qualification reports every Forward Registration with its current phase or terminal decision, and any report of
+admitted candidates states the whole registered census and every outcome, so incubation bias cannot select survivors
+by omission. The forward record and its measurements are protected like any Qualification result: R&D sees only the
+public phase (`FORWARD_RECORDING`, `FORWARD_CONTINUES`, `FORWARD_KILLED`, `FORWARD_ADMITTED`, `FORWARD_WITHDRAWN`), and
+each first commit of one is a public phase fact that advances the candidate's protected-feedback generation.
+
+Forward Replay needs what the product does not yet supply in deployment: point-in-time cuts as the data arrives, which
+needs the Market Data Owner clock to follow intake; a quote cut for each frame's fills; multi-frame replay; and, for
+rules with resting orders, the product path's limit entry with an expiry, take-profit and target ladder, and stop and
+target fill reconciliation.
 
 ## Decision contract
 

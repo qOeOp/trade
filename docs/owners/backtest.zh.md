@@ -112,6 +112,10 @@
   `BACKTEST_RUNNER_SERVICE` 不出现在任何 Rust 文件里，而
   `product/dashboard/lib/rd-iteration-timeline-client.ts` 已经把它列为合法修复目标。消费侧词汇存在，生产方
   不存在。
+- **TARGET - Forward Replay：** 尚不存在 Forward Replay。Forward Replay 在 Qualification Forward Record 的每个新观察到的
+  cut 上，按登记的确切 Runtime kernel、模拟器、成本、滑点与容量身份增量回放一个冻结的 Artifact。挂单与未平仓位在 Backtest
+  的托管中从一个 cut 延续到下一个 cut，成交只能来自订单存在之后观察到的数据。它使用受保护回放所用的同一个 Sim Exchange，
+  从不使用另一套前向实现，不产生任何 Execution 效果，也不声称修复 Runtime kernel 或 Simulator。
 
 ## 共享策略生命周期契约
 
