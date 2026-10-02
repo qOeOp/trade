@@ -97,3 +97,24 @@ on a schedule, not the results; the loop may propose protocol changes, but only 
 3. **M6 and M5:** the acceptance and closure engine and the diagnosis package.
 4. **M9:** the record-only forward stage with sequential tests.
 5. **M8, M7, then M10:** the orchestrator comes last, once every gate it would call exists and is tested.
+
+## 8. Order mechanics the validated rule needs, against the product (checked 2026-10-02)
+
+The study's only stage-2 rule besides carry, R-1u (and its forward variants R-1x and R-1s), needs:
+- a resting limit entry valid 10 days;
+- a stop and a target on the position (OCO);
+- a partial exit (half at 2R, half at a farther target);
+- moving the remaining stop to breakeven after the first target;
+- a 60-day time exit;
+- one position per coin.
+
+| layer | state |
+| --- | --- |
+| Generic engine (`crates/execution`, `crates/backtest`) | supports all of it: GTD expiry, brackets and OCO, modify, trailing orders |
+| V1 raw-order program SDK (`programs/sdk`, e.g. `majors_trend`) | expressible by hand (GTC limits with manual expiry, reduce-only targets, `Action::Modify`), but Backtest does not admit raw-order programs (`docs/owners/backtest.md:139`), and such programs cannot be sealed or run |
+| Product path (StrategyDesignV2 / BFP, ProgramHostV2, exploratory replay) | only one position per instrument and a single movable stop. Missing: limit-entry placement and an expiry field, take-profit orders (A2), a target ladder (A3), stop and target fill reconciliation (D1), multi-frame replay (T1, so no exit can be backtested yet), bars-held context (A1), the authoring language V1 implementation, and deployment enablement of exploratory replay (user authority) |
+
+Requirement for M3 and M9: the product's exploratory replay and forward stage must carry these order mechanics
+before any rule of this kind can be reproduced inside the product. Until then the research harness
+(`loop/family_r.py`, `roleflip/forward.py`) is the only implementation, and the research crate `replay/` (generic
+engine with non-default flags) is the reference for matching it to the engine.
