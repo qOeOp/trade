@@ -7,7 +7,9 @@ use vibe_data::owner::{
         InstrumentEconomicTermsLocatorV1, InstrumentMarginMeaningV1,
     },
 };
-use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
+use vibe_testkit::postgres::{
+    CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1, restore_after_checks,
+};
 
 fn fact() -> InstrumentEconomicTermsFactV1 {
     InstrumentEconomicTermsFactV1::seal(InstrumentEconomicTermsInputV1 {
@@ -101,31 +103,40 @@ async fn atomic_exact_replay_restart_tamper_and_acl_fail_closed() {
         .execute(&pool)
         .await
         .unwrap();
-    assert_eq!(
-        restarted.resolve(first.locator()).await,
-        Err(InstrumentEconomicTermsPostgresErrorV1::CorruptReadback)
-    );
-    let mut displaced_meaning_conflict = fact.input().clone();
-    displaced_meaning_conflict.maker_fee.mantissa = 3;
-    assert_eq!(
-        restarted
-            .issue(&InstrumentEconomicTermsFactV1::seal(displaced_meaning_conflict).unwrap(),)
-            .await,
-        Err(InstrumentEconomicTermsPostgresErrorV1::CorruptReadback)
-    );
-    let row_counts_after: (i64, i64) = sqlx::query_as(
-        "SELECT (SELECT count(*) FROM instrument_owner_private.economic_terms_facts_v1),(SELECT count(*) FROM instrument_owner_private.economic_terms_receipts_v1)",
+    restore_after_checks(
+        async {
+            assert_eq!(
+                restarted.resolve(first.locator()).await,
+                Err(InstrumentEconomicTermsPostgresErrorV1::CorruptReadback)
+            );
+            let mut displaced_meaning_conflict = fact.input().clone();
+            displaced_meaning_conflict.maker_fee.mantissa = 3;
+            assert_eq!(
+                restarted
+                    .issue(
+                        &InstrumentEconomicTermsFactV1::seal(displaced_meaning_conflict).unwrap(),
+                    )
+                    .await,
+                Err(InstrumentEconomicTermsPostgresErrorV1::CorruptReadback)
+            );
+            let row_counts_after: (i64, i64) = sqlx::query_as(
+                "SELECT (SELECT count(*) FROM instrument_owner_private.economic_terms_facts_v1),(SELECT count(*) FROM instrument_owner_private.economic_terms_receipts_v1)",
+            )
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+            assert_eq!(row_counts_before, row_counts_after);
+        },
+        async {
+            sqlx::query("UPDATE instrument_owner_private.economic_terms_facts_v1 SET meaning_identity=$1 WHERE fact_identity=$2")
+                .bind(fact.meaning_identity().as_slice())
+                .bind(first.locator().fact_identity().as_slice())
+                .execute(&pool)
+                .await
+                .unwrap();
+        },
     )
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-    assert_eq!(row_counts_before, row_counts_after);
-    sqlx::query("UPDATE instrument_owner_private.economic_terms_facts_v1 SET meaning_identity=$1 WHERE fact_identity=$2")
-        .bind(fact.meaning_identity().as_slice())
-        .bind(first.locator().fact_identity().as_slice())
-        .execute(&pool)
-        .await
-        .unwrap();
+    .await;
     assert_eq!(
         restarted.resolve(first.locator()).await.unwrap().locator(),
         first.locator()
@@ -151,18 +162,25 @@ async fn atomic_exact_replay_restart_tamper_and_acl_fail_closed() {
     .execute(&pool)
     .await
     .unwrap();
-    assert_eq!(
-        restarted.resolve(first.locator()).await,
-        Err(InstrumentEconomicTermsPostgresErrorV1::CorruptReadback)
-    );
-    sqlx::query("INSERT INTO instrument_owner_private.economic_terms_receipts_v1(receipt_identity,fact_identity,receipt_bytes,custody_digest) VALUES($1,$2,$3,$4)")
-        .bind(&deleted_second_receipt.0)
-        .bind(second.locator().fact_identity().as_slice())
-        .bind(&deleted_second_receipt.1)
-        .bind(&deleted_second_receipt.2)
-        .execute(&pool)
-        .await
-        .unwrap();
+    restore_after_checks(
+        async {
+            assert_eq!(
+                restarted.resolve(first.locator()).await,
+                Err(InstrumentEconomicTermsPostgresErrorV1::CorruptReadback)
+            );
+        },
+        async {
+            sqlx::query("INSERT INTO instrument_owner_private.economic_terms_receipts_v1(receipt_identity,fact_identity,receipt_bytes,custody_digest) VALUES($1,$2,$3,$4)")
+                .bind(&deleted_second_receipt.0)
+                .bind(second.locator().fact_identity().as_slice())
+                .bind(&deleted_second_receipt.1)
+                .bind(&deleted_second_receipt.2)
+                .execute(&pool)
+                .await
+                .unwrap();
+        },
+    )
+    .await;
     assert_eq!(
         restarted.resolve(first.locator()).await.unwrap().locator(),
         first.locator()
@@ -181,18 +199,25 @@ async fn atomic_exact_replay_restart_tamper_and_acl_fail_closed() {
         .execute(database.owner_topology_admin_pool())
         .await
         .unwrap();
-    assert_eq!(
-        restarted.resolve(first.locator()).await,
-        Err(InstrumentEconomicTermsPostgresErrorV1::CorruptReadback)
-    );
-    sqlx::query("INSERT INTO instrument_owner_private.economic_terms_facts_v1(fact_identity,meaning_identity,fact_bytes,custody_digest) VALUES($1,$2,$3,$4)")
-        .bind(&deleted_second_fact.0)
-        .bind(&deleted_second_fact.1)
-        .bind(&deleted_second_fact.2)
-        .bind(&deleted_second_fact.3)
-        .execute(&pool)
-        .await
-        .unwrap();
+    restore_after_checks(
+        async {
+            assert_eq!(
+                restarted.resolve(first.locator()).await,
+                Err(InstrumentEconomicTermsPostgresErrorV1::CorruptReadback)
+            );
+        },
+        async {
+            sqlx::query("INSERT INTO instrument_owner_private.economic_terms_facts_v1(fact_identity,meaning_identity,fact_bytes,custody_digest) VALUES($1,$2,$3,$4)")
+                .bind(&deleted_second_fact.0)
+                .bind(&deleted_second_fact.1)
+                .bind(&deleted_second_fact.2)
+                .bind(&deleted_second_fact.3)
+                .execute(&pool)
+                .await
+                .unwrap();
+        },
+    )
+    .await;
     assert_eq!(
         restarted.resolve(first.locator()).await.unwrap().locator(),
         first.locator()
@@ -218,43 +243,51 @@ async fn atomic_exact_replay_restart_tamper_and_acl_fail_closed() {
         .execute(&pool)
         .await
         .unwrap();
-    let orphan_row_counts_before: (i64, i64) = sqlx::query_as(
-        "SELECT (SELECT count(*) FROM instrument_owner_private.economic_terms_facts_v1),(SELECT count(*) FROM instrument_owner_private.economic_terms_receipts_v1)",
-    )
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-    let mut orphan_displaced_meaning_conflict = fact.input().clone();
-    orphan_displaced_meaning_conflict.maker_fee.mantissa = 3;
-    assert_eq!(
-        restarted
-            .issue(
-                &InstrumentEconomicTermsFactV1::seal(orphan_displaced_meaning_conflict).unwrap(),
+    restore_after_checks(
+        async {
+            let orphan_row_counts_before: (i64, i64) = sqlx::query_as(
+                "SELECT (SELECT count(*) FROM instrument_owner_private.economic_terms_facts_v1),(SELECT count(*) FROM instrument_owner_private.economic_terms_receipts_v1)",
             )
-            .await,
-        Err(InstrumentEconomicTermsPostgresErrorV1::CorruptReadback)
-    );
-    let orphan_row_counts_after: (i64, i64) = sqlx::query_as(
-        "SELECT (SELECT count(*) FROM instrument_owner_private.economic_terms_facts_v1),(SELECT count(*) FROM instrument_owner_private.economic_terms_receipts_v1)",
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+            let mut orphan_displaced_meaning_conflict = fact.input().clone();
+            orphan_displaced_meaning_conflict.maker_fee.mantissa = 3;
+            assert_eq!(
+                restarted
+                    .issue(
+                        &InstrumentEconomicTermsFactV1::seal(orphan_displaced_meaning_conflict)
+                            .unwrap(),
+                    )
+                    .await,
+                Err(InstrumentEconomicTermsPostgresErrorV1::CorruptReadback)
+            );
+            let orphan_row_counts_after: (i64, i64) = sqlx::query_as(
+                "SELECT (SELECT count(*) FROM instrument_owner_private.economic_terms_facts_v1),(SELECT count(*) FROM instrument_owner_private.economic_terms_receipts_v1)",
+            )
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+            assert_eq!(orphan_row_counts_before, orphan_row_counts_after);
+        },
+        async {
+            sqlx::query("UPDATE instrument_owner_private.economic_terms_facts_v1 SET meaning_identity=$1 WHERE fact_identity=$2")
+                .bind(fact.meaning_identity().as_slice())
+                .bind(first.locator().fact_identity().as_slice())
+                .execute(&pool)
+                .await
+                .unwrap();
+            sqlx::query("INSERT INTO instrument_owner_private.economic_terms_receipts_v1(receipt_identity,fact_identity,receipt_bytes,custody_digest) VALUES($1,$2,$3,$4)")
+                .bind(&deleted_receipt.0)
+                .bind(first.locator().fact_identity().as_slice())
+                .bind(&deleted_receipt.1)
+                .bind(&deleted_receipt.2)
+                .execute(&pool)
+                .await
+                .unwrap();
+        },
     )
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-    assert_eq!(orphan_row_counts_before, orphan_row_counts_after);
-    sqlx::query("UPDATE instrument_owner_private.economic_terms_facts_v1 SET meaning_identity=$1 WHERE fact_identity=$2")
-        .bind(fact.meaning_identity().as_slice())
-        .bind(first.locator().fact_identity().as_slice())
-        .execute(&pool)
-        .await
-        .unwrap();
-    sqlx::query("INSERT INTO instrument_owner_private.economic_terms_receipts_v1(receipt_identity,fact_identity,receipt_bytes,custody_digest) VALUES($1,$2,$3,$4)")
-        .bind(&deleted_receipt.0)
-        .bind(first.locator().fact_identity().as_slice())
-        .bind(&deleted_receipt.1)
-        .bind(&deleted_receipt.2)
-        .execute(&pool)
-        .await
-        .unwrap();
+    .await;
     assert_eq!(
         restarted.resolve(first.locator()).await.unwrap().locator(),
         first.locator()
@@ -278,57 +311,71 @@ async fn atomic_exact_replay_restart_tamper_and_acl_fail_closed() {
     .execute(&pool)
     .await
     .unwrap();
-    let mut suppressed_receipt_input = fact.input().clone();
-    suppressed_receipt_input.instrument_identity = "XRPUSDT-PERP".into();
-    assert_eq!(
-        restarted
-            .issue(&InstrumentEconomicTermsFactV1::seal(suppressed_receipt_input).unwrap())
-            .await,
-        Err(InstrumentEconomicTermsPostgresErrorV1::AclUnavailable)
-    );
-    let counts_after_suppressed_receipt: (i64, i64) = sqlx::query_as(
-        "SELECT (SELECT count(*) FROM instrument_owner_private.economic_terms_facts_v1),(SELECT count(*) FROM instrument_owner_private.economic_terms_receipts_v1)",
+    restore_after_checks(
+        async {
+            let mut suppressed_receipt_input = fact.input().clone();
+            suppressed_receipt_input.instrument_identity = "XRPUSDT-PERP".into();
+            assert_eq!(
+                restarted
+                    .issue(&InstrumentEconomicTermsFactV1::seal(suppressed_receipt_input).unwrap())
+                    .await,
+                Err(InstrumentEconomicTermsPostgresErrorV1::AclUnavailable)
+            );
+            let counts_after_suppressed_receipt: (i64, i64) = sqlx::query_as(
+                "SELECT (SELECT count(*) FROM instrument_owner_private.economic_terms_facts_v1),(SELECT count(*) FROM instrument_owner_private.economic_terms_receipts_v1)",
+            )
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+            assert_eq!(
+                counts_before_suppressed_receipt,
+                counts_after_suppressed_receipt
+            );
+        },
+        async {
+            sqlx::query(
+                "DROP TRIGGER suppress_economic_receipt_v1 ON instrument_owner_private.economic_terms_receipts_v1",
+            )
+            .execute(&pool)
+            .await
+            .unwrap();
+            sqlx::query("DROP FUNCTION instrument_owner_private.suppress_economic_receipt_v1()")
+                .execute(&pool)
+                .await
+                .unwrap();
+        },
     )
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-    assert_eq!(
-        counts_before_suppressed_receipt,
-        counts_after_suppressed_receipt
-    );
-    sqlx::query(
-        "DROP TRIGGER suppress_economic_receipt_v1 ON instrument_owner_private.economic_terms_receipts_v1",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
-    sqlx::query("DROP FUNCTION instrument_owner_private.suppress_economic_receipt_v1()")
-        .execute(&pool)
-        .await
-        .unwrap();
+    .await;
 
     sqlx::query("GRANT SELECT(fact_bytes) ON instrument_owner_private.economic_terms_facts_v1 TO instrument_economic_intruder")
         .execute(&pool)
         .await
         .unwrap();
-    let derived_column_select: bool = sqlx::query_scalar("SELECT has_column_privilege('instrument_economic_intruder','instrument_owner_private.economic_terms_facts_v1','fact_bytes','SELECT')")
-        .fetch_one(&pool)
-        .await
-        .unwrap();
-    assert!(derived_column_select);
-    let derived_table_select: bool = sqlx::query_scalar("SELECT has_table_privilege('instrument_economic_intruder','instrument_owner_private.economic_terms_facts_v1','SELECT')")
-        .fetch_one(&pool)
-        .await
-        .unwrap();
-    assert!(!derived_table_select);
-    assert_eq!(
-        restarted.resolve(first.locator()).await,
-        Err(InstrumentEconomicTermsPostgresErrorV1::AclUnavailable)
-    );
-    sqlx::query("REVOKE SELECT(fact_bytes) ON instrument_owner_private.economic_terms_facts_v1 FROM instrument_economic_intruder")
-        .execute(&pool)
-        .await
-        .unwrap();
+    restore_after_checks(
+        async {
+            let derived_column_select: bool = sqlx::query_scalar("SELECT has_column_privilege('instrument_economic_intruder','instrument_owner_private.economic_terms_facts_v1','fact_bytes','SELECT')")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+            assert!(derived_column_select);
+            let derived_table_select: bool = sqlx::query_scalar("SELECT has_table_privilege('instrument_economic_intruder','instrument_owner_private.economic_terms_facts_v1','SELECT')")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+            assert!(!derived_table_select);
+            assert_eq!(
+                restarted.resolve(first.locator()).await,
+                Err(InstrumentEconomicTermsPostgresErrorV1::AclUnavailable)
+            );
+        },
+        async {
+            sqlx::query("REVOKE SELECT(fact_bytes) ON instrument_owner_private.economic_terms_facts_v1 FROM instrument_economic_intruder")
+                .execute(&pool)
+                .await
+                .unwrap();
+        },
+    )
+    .await;
     assert_eq!(
         restarted.resolve(first.locator()).await.unwrap().locator(),
         first.locator()
@@ -337,14 +384,21 @@ async fn atomic_exact_replay_restart_tamper_and_acl_fail_closed() {
         .execute(&pool)
         .await
         .unwrap();
-    assert_eq!(
-        restarted.resolve(first.locator()).await,
-        Err(InstrumentEconomicTermsPostgresErrorV1::AclUnavailable)
-    );
-    sqlx::query("REVOKE INSERT ON instrument_owner_private.economic_terms_facts_v1 FROM instrument_economic_intruder")
-        .execute(&pool)
-        .await
-        .unwrap();
+    restore_after_checks(
+        async {
+            assert_eq!(
+                restarted.resolve(first.locator()).await,
+                Err(InstrumentEconomicTermsPostgresErrorV1::AclUnavailable)
+            );
+        },
+        async {
+            sqlx::query("REVOKE INSERT ON instrument_owner_private.economic_terms_facts_v1 FROM instrument_economic_intruder")
+                .execute(&pool)
+                .await
+                .unwrap();
+        },
+    )
+    .await;
     sqlx::query(
         "SELECT vibe_test_admin.set_instrument_economic_builtin_membership_v1($1,'instrument_economic_intruder',true)",
     )
@@ -352,22 +406,29 @@ async fn atomic_exact_replay_restart_tamper_and_acl_fail_closed() {
         .execute(database.owner_topology_admin_pool())
         .await
         .unwrap();
-    let derived_insert: bool = sqlx::query_scalar("SELECT has_table_privilege('instrument_economic_intruder','instrument_owner_private.economic_terms_facts_v1','INSERT')")
-        .fetch_one(&pool)
-        .await
-        .unwrap();
-    assert!(derived_insert);
-    assert_eq!(
-        restarted.resolve(first.locator()).await,
-        Err(InstrumentEconomicTermsPostgresErrorV1::AclUnavailable)
-    );
-    sqlx::query(
-        "SELECT vibe_test_admin.set_instrument_economic_builtin_membership_v1($1,'instrument_economic_intruder',false)",
+    restore_after_checks(
+        async {
+            let derived_insert: bool = sqlx::query_scalar("SELECT has_table_privilege('instrument_economic_intruder','instrument_owner_private.economic_terms_facts_v1','INSERT')")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+            assert!(derived_insert);
+            assert_eq!(
+                restarted.resolve(first.locator()).await,
+                Err(InstrumentEconomicTermsPostgresErrorV1::AclUnavailable)
+            );
+        },
+        async {
+            sqlx::query(
+                "SELECT vibe_test_admin.set_instrument_economic_builtin_membership_v1($1,'instrument_economic_intruder',false)",
+            )
+                .bind(mutation.marker_identity())
+                .execute(database.owner_topology_admin_pool())
+                .await
+                .unwrap();
+        },
     )
-        .bind(mutation.marker_identity())
-        .execute(database.owner_topology_admin_pool())
-        .await
-        .unwrap();
+    .await;
     sqlx::query(
         "SELECT vibe_test_admin.set_instrument_economic_builtin_membership_v1($1,'instrument_economic_noinherit_intruder',true)",
     )
@@ -375,29 +436,36 @@ async fn atomic_exact_replay_restart_tamper_and_acl_fail_closed() {
         .execute(database.owner_topology_admin_pool())
         .await
         .unwrap();
-    let immediate_insert: bool = sqlx::query_scalar("SELECT has_table_privilege('instrument_economic_noinherit_intruder','instrument_owner_private.economic_terms_facts_v1','INSERT')")
-        .fetch_one(&pool)
-        .await
-        .unwrap();
-    assert!(!immediate_insert);
-    let can_set_role: bool = sqlx::query_scalar(
-        "SELECT pg_has_role('instrument_economic_noinherit_intruder','pg_write_all_data','SET')",
+    restore_after_checks(
+        async {
+            let immediate_insert: bool = sqlx::query_scalar("SELECT has_table_privilege('instrument_economic_noinherit_intruder','instrument_owner_private.economic_terms_facts_v1','INSERT')")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+            assert!(!immediate_insert);
+            let can_set_role: bool = sqlx::query_scalar(
+                "SELECT pg_has_role('instrument_economic_noinherit_intruder','pg_write_all_data','SET')",
+            )
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+            assert!(can_set_role);
+            assert_eq!(
+                restarted.resolve(first.locator()).await,
+                Err(InstrumentEconomicTermsPostgresErrorV1::AclUnavailable)
+            );
+        },
+        async {
+            sqlx::query(
+                "SELECT vibe_test_admin.set_instrument_economic_builtin_membership_v1($1,'instrument_economic_noinherit_intruder',false)",
+            )
+                .bind(mutation.marker_identity())
+                .execute(database.owner_topology_admin_pool())
+                .await
+                .unwrap();
+        },
     )
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-    assert!(can_set_role);
-    assert_eq!(
-        restarted.resolve(first.locator()).await,
-        Err(InstrumentEconomicTermsPostgresErrorV1::AclUnavailable)
-    );
-    sqlx::query(
-        "SELECT vibe_test_admin.set_instrument_economic_builtin_membership_v1($1,'instrument_economic_noinherit_intruder',false)",
-    )
-        .bind(mutation.marker_identity())
-        .execute(database.owner_topology_admin_pool())
-        .await
-        .unwrap();
+    .await;
     assert_eq!(
         restarted.resolve(first.locator()).await.unwrap().locator(),
         first.locator()
@@ -412,16 +480,23 @@ async fn atomic_exact_replay_restart_tamper_and_acl_fail_closed() {
     .unwrap();
     sqlx::query("UPDATE instrument_owner_private.economic_terms_facts_v1 SET custody_digest=decode(repeat('00',32),'hex') WHERE fact_identity=$1")
         .bind(first.locator().fact_identity().as_slice()).execute(&pool).await.unwrap();
-    assert_eq!(
-        restarted.resolve(first.locator()).await,
-        Err(InstrumentEconomicTermsPostgresErrorV1::CorruptReadback)
-    );
-    sqlx::query("UPDATE instrument_owner_private.economic_terms_facts_v1 SET custody_digest=$1 WHERE fact_identity=$2")
-        .bind(&original_custody)
-        .bind(first.locator().fact_identity().as_slice())
-        .execute(&pool)
-        .await
-        .unwrap();
+    restore_after_checks(
+        async {
+            assert_eq!(
+                restarted.resolve(first.locator()).await,
+                Err(InstrumentEconomicTermsPostgresErrorV1::CorruptReadback)
+            );
+        },
+        async {
+            sqlx::query("UPDATE instrument_owner_private.economic_terms_facts_v1 SET custody_digest=$1 WHERE fact_identity=$2")
+                .bind(&original_custody)
+                .bind(first.locator().fact_identity().as_slice())
+                .execute(&pool)
+                .await
+                .unwrap();
+        },
+    )
+    .await;
     assert_eq!(
         restarted.resolve(first.locator()).await.unwrap().locator(),
         first.locator()
@@ -431,38 +506,68 @@ async fn atomic_exact_replay_restart_tamper_and_acl_fail_closed() {
         .execute(&pool)
         .await
         .unwrap();
-    sqlx::query("CREATE TABLE instrument_economic_inheritance_intruder.facts_child_v1 (LIKE instrument_owner_private.economic_terms_facts_v1 INCLUDING ALL)")
-        .execute(&pool)
-        .await
-        .unwrap();
-    let mut topology_guard = pool.begin().await.unwrap();
-    sqlx::query(
-        "LOCK TABLE instrument_owner_private.economic_terms_facts_v1 IN SHARE ROW EXCLUSIVE MODE",
+    // The intruder schema and its child table, inherited from the shared facts table, are removed
+    // whatever a check does: the ordered chain shares one store, and a child inheriting the facts
+    // table would change what every later entry reads from it. A check can fail before the child
+    // exists, so the removal tolerates either state.
+    restore_after_checks(
+        async {
+            sqlx::query("CREATE TABLE instrument_economic_inheritance_intruder.facts_child_v1 (LIKE instrument_owner_private.economic_terms_facts_v1 INCLUDING ALL)")
+                .execute(&pool)
+                .await
+                .unwrap();
+            let mut topology_guard = pool.begin().await.unwrap();
+            sqlx::query(
+                "LOCK TABLE instrument_owner_private.economic_terms_facts_v1 IN SHARE ROW EXCLUSIVE MODE",
+            )
+            .execute(&mut *topology_guard)
+            .await
+            .unwrap();
+            let mut topology_mutator = pool.begin().await.unwrap();
+            sqlx::query("SET LOCAL lock_timeout='100ms'")
+                .execute(&mut *topology_mutator)
+                .await
+                .unwrap();
+            let blocked = sqlx::query("ALTER TABLE instrument_economic_inheritance_intruder.facts_child_v1 INHERIT instrument_owner_private.economic_terms_facts_v1")
+                .execute(&mut *topology_mutator)
+                .await
+                .unwrap_err();
+            assert!(matches!(
+                blocked.as_database_error().and_then(|e| e.code()),
+                Some(code) if code == "55P03"
+            ));
+            topology_mutator.rollback().await.unwrap();
+            topology_guard.rollback().await.unwrap();
+            sqlx::query("ALTER TABLE instrument_economic_inheritance_intruder.facts_child_v1 INHERIT instrument_owner_private.economic_terms_facts_v1")
+                .execute(&pool)
+                .await
+                .unwrap();
+            assert_eq!(
+                restarted.resolve(first.locator()).await,
+                Err(InstrumentEconomicTermsPostgresErrorV1::AclUnavailable)
+            );
+        },
+        async {
+            sqlx::query("DROP TABLE IF EXISTS instrument_economic_inheritance_intruder.facts_child_v1")
+                .execute(&pool)
+                .await
+                .unwrap();
+            sqlx::query("DROP SCHEMA IF EXISTS instrument_economic_inheritance_intruder")
+                .execute(&pool)
+                .await
+                .unwrap();
+        },
     )
-    .execute(&mut *topology_guard)
+    .await;
+    let intruder_left: bool = sqlx::query_scalar(
+        "SELECT pg_catalog.to_regnamespace('instrument_economic_inheritance_intruder') IS NOT NULL",
+    )
+    .fetch_one(&pool)
     .await
     .unwrap();
-    let mut topology_mutator = pool.begin().await.unwrap();
-    sqlx::query("SET LOCAL lock_timeout='100ms'")
-        .execute(&mut *topology_mutator)
-        .await
-        .unwrap();
-    let blocked = sqlx::query("ALTER TABLE instrument_economic_inheritance_intruder.facts_child_v1 INHERIT instrument_owner_private.economic_terms_facts_v1")
-        .execute(&mut *topology_mutator)
-        .await
-        .unwrap_err();
-    assert!(matches!(
-        blocked.as_database_error().and_then(|e| e.code()),
-        Some(code) if code == "55P03"
-    ));
-    topology_mutator.rollback().await.unwrap();
-    topology_guard.rollback().await.unwrap();
-    sqlx::query("ALTER TABLE instrument_economic_inheritance_intruder.facts_child_v1 INHERIT instrument_owner_private.economic_terms_facts_v1")
-        .execute(&pool)
-        .await
-        .unwrap();
+    assert!(!intruder_left, "the inheritance intruder must be removed");
     assert_eq!(
-        restarted.resolve(first.locator()).await,
-        Err(InstrumentEconomicTermsPostgresErrorV1::AclUnavailable)
+        restarted.resolve(first.locator()).await.unwrap().locator(),
+        first.locator()
     );
 }

@@ -2677,7 +2677,9 @@ mod tests {
         UntrustedCanonicalPortfolioResourceGrantEvidenceV1,
     };
     use rstest::rstest;
-    use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
+    use vibe_testkit::postgres::{
+        CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1, restore_after_checks,
+    };
     use vibe_testkit::source_guard::{crate_production_sources, process_clock_reads};
 
     /// The store clock Operator Authorization compares with, read the way the Owner reads it. A
@@ -3234,21 +3236,29 @@ mod tests {
             .execute(owner.pool())
             .await
             .unwrap();
-        let invalid_hint_fingerprint = oa_table_fingerprint(owner.pool()).await;
-        assert!(matches!(
-            resolve_grant(&consumer, &request_for(&reverse, &reverse_proposal.content)).await,
-            PortfolioResourceGrantResolutionV1::Unavailable { .. }
-        ));
-        assert_eq!(
-            oa_table_fingerprint(owner.pool()).await,
-            invalid_hint_fingerprint
-        );
-        sqlx::query("UPDATE operator_authorization_private.portfolio_resource_grant_issuances_v1 SET resource_digest=$1 WHERE grant_identity=$2")
-            .bind(&reverse_digest)
-            .bind(&reverse.locator().grant_identity)
-            .execute(owner.pool())
-            .await
-            .unwrap();
+        restore_after_checks(
+            async {
+                let invalid_hint_fingerprint = oa_table_fingerprint(owner.pool()).await;
+                assert!(matches!(
+                    resolve_grant(&consumer, &request_for(&reverse, &reverse_proposal.content))
+                        .await,
+                    PortfolioResourceGrantResolutionV1::Unavailable { .. }
+                ));
+                assert_eq!(
+                    oa_table_fingerprint(owner.pool()).await,
+                    invalid_hint_fingerprint
+                );
+            },
+            async {
+                sqlx::query("UPDATE operator_authorization_private.portfolio_resource_grant_issuances_v1 SET resource_digest=$1 WHERE grant_identity=$2")
+                    .bind(&reverse_digest)
+                    .bind(&reverse.locator().grant_identity)
+                    .execute(owner.pool())
+                    .await
+                    .unwrap();
+            },
+        )
+        .await;
         assert_eq!(
             oa_table_fingerprint(owner.pool()).await,
             before_invalid_locator
@@ -3408,27 +3418,34 @@ mod tests {
                 .execute(owner.pool())
                 .await
                 .unwrap();
-            let corrupted = oa_table_fingerprint(owner.pool()).await;
-            assert_eq!(
-                resolve_current(&owner, &legacy, owner_now_ms(&owner.pool).await)
-                    .await
-                    .is_err(),
-                legacy_must_fail
-            );
-            assert_eq!(
-                matches!(
-                    resolve_grant(&consumer, &request).await,
-                    PortfolioResourceGrantResolutionV1::Unavailable { .. }
-                ),
-                !legacy_must_fail
-            );
-            assert_eq!(oa_table_fingerprint(owner.pool()).await, corrupted);
-            sqlx::query(restore_sql)
-                .bind(&original_digest)
-                .bind(&legacy.locator().authorization_identity)
-                .execute(owner.pool())
-                .await
-                .unwrap();
+            restore_after_checks(
+                async {
+                    let corrupted = oa_table_fingerprint(owner.pool()).await;
+                    assert_eq!(
+                        resolve_current(&owner, &legacy, owner_now_ms(&owner.pool).await)
+                            .await
+                            .is_err(),
+                        legacy_must_fail
+                    );
+                    assert_eq!(
+                        matches!(
+                            resolve_grant(&consumer, &request).await,
+                            PortfolioResourceGrantResolutionV1::Unavailable { .. }
+                        ),
+                        !legacy_must_fail
+                    );
+                    assert_eq!(oa_table_fingerprint(owner.pool()).await, corrupted);
+                },
+                async {
+                    sqlx::query(restore_sql)
+                        .bind(&original_digest)
+                        .bind(&legacy.locator().authorization_identity)
+                        .execute(owner.pool())
+                        .await
+                        .unwrap();
+                },
+            )
+            .await;
             assert_eq!(oa_table_fingerprint(owner.pool()).await, collision_baseline);
 
             let duplicate_identity = format!("duplicate-{legacy_must_fail}-{suffix}");
@@ -3439,26 +3456,33 @@ mod tests {
                 .execute(owner.pool())
                 .await
                 .unwrap();
-            let duplicated = oa_table_fingerprint(owner.pool()).await;
-            assert_eq!(
-                resolve_current(&owner, &legacy, owner_now_ms(&owner.pool).await)
-                    .await
-                    .is_err(),
-                legacy_must_fail
-            );
-            assert_eq!(
-                matches!(
-                    resolve_grant(&consumer, &request).await,
-                    PortfolioResourceGrantResolutionV1::Unavailable { .. }
-                ),
-                !legacy_must_fail
-            );
-            assert_eq!(oa_table_fingerprint(owner.pool()).await, duplicated);
-            sqlx::query(delete_sql)
-                .bind(&duplicate_identity)
-                .execute(owner.pool())
-                .await
-                .unwrap();
+            restore_after_checks(
+                async {
+                    let duplicated = oa_table_fingerprint(owner.pool()).await;
+                    assert_eq!(
+                        resolve_current(&owner, &legacy, owner_now_ms(&owner.pool).await)
+                            .await
+                            .is_err(),
+                        legacy_must_fail
+                    );
+                    assert_eq!(
+                        matches!(
+                            resolve_grant(&consumer, &request).await,
+                            PortfolioResourceGrantResolutionV1::Unavailable { .. }
+                        ),
+                        !legacy_must_fail
+                    );
+                    assert_eq!(oa_table_fingerprint(owner.pool()).await, duplicated);
+                },
+                async {
+                    sqlx::query(delete_sql)
+                        .bind(&duplicate_identity)
+                        .execute(owner.pool())
+                        .await
+                        .unwrap();
+                },
+            )
+            .await;
             assert_eq!(oa_table_fingerprint(owner.pool()).await, collision_baseline);
         }
         let before_read_cut: i64 = sqlx::query_scalar(
@@ -4140,22 +4164,32 @@ mod tests {
             .execute(owner.pool())
             .await
             .unwrap();
-        let invalid_hint_fingerprint = oa_table_fingerprint(owner.pool()).await;
-        assert!(matches!(
-            resolve_autonomous_policy(&consumer, &request_for(&reverse, &reverse_proposal.content))
-                .await,
-            AutonomousPolicyAuthorizationResolutionV1::Unavailable { .. }
-        ));
-        assert_eq!(
-            oa_table_fingerprint(owner.pool()).await,
-            invalid_hint_fingerprint
-        );
-        sqlx::query("UPDATE operator_authorization_private.autonomous_policy_authorization_issuances_v1 SET resource_digest=$1 WHERE grant_identity=$2")
-            .bind(&reverse_digest)
-            .bind(&reverse.locator().grant_identity)
-            .execute(owner.pool())
-            .await
-            .unwrap();
+        restore_after_checks(
+            async {
+                let invalid_hint_fingerprint = oa_table_fingerprint(owner.pool()).await;
+                assert!(matches!(
+                    resolve_autonomous_policy(
+                        &consumer,
+                        &request_for(&reverse, &reverse_proposal.content),
+                    )
+                    .await,
+                    AutonomousPolicyAuthorizationResolutionV1::Unavailable { .. }
+                ));
+                assert_eq!(
+                    oa_table_fingerprint(owner.pool()).await,
+                    invalid_hint_fingerprint
+                );
+            },
+            async {
+                sqlx::query("UPDATE operator_authorization_private.autonomous_policy_authorization_issuances_v1 SET resource_digest=$1 WHERE grant_identity=$2")
+                    .bind(&reverse_digest)
+                    .bind(&reverse.locator().grant_identity)
+                    .execute(owner.pool())
+                    .await
+                    .unwrap();
+            },
+        )
+        .await;
         assert_eq!(
             oa_table_fingerprint(owner.pool()).await,
             before_invalid_locator
@@ -4314,27 +4348,34 @@ mod tests {
                 .execute(owner.pool())
                 .await
                 .unwrap();
-            let corrupted = oa_table_fingerprint(owner.pool()).await;
-            assert_eq!(
-                resolve_current(&owner, &legacy, owner_now_ms(&owner.pool).await)
-                    .await
-                    .is_err(),
-                legacy_must_fail
-            );
-            assert_eq!(
-                matches!(
-                    resolve_autonomous_policy(&consumer, &request).await,
-                    AutonomousPolicyAuthorizationResolutionV1::Unavailable { .. }
-                ),
-                !legacy_must_fail
-            );
-            assert_eq!(oa_table_fingerprint(owner.pool()).await, corrupted);
-            sqlx::query(restore_sql)
-                .bind(&original_digest)
-                .bind(&legacy.locator().authorization_identity)
-                .execute(owner.pool())
-                .await
-                .unwrap();
+            restore_after_checks(
+                async {
+                    let corrupted = oa_table_fingerprint(owner.pool()).await;
+                    assert_eq!(
+                        resolve_current(&owner, &legacy, owner_now_ms(&owner.pool).await)
+                            .await
+                            .is_err(),
+                        legacy_must_fail
+                    );
+                    assert_eq!(
+                        matches!(
+                            resolve_autonomous_policy(&consumer, &request).await,
+                            AutonomousPolicyAuthorizationResolutionV1::Unavailable { .. }
+                        ),
+                        !legacy_must_fail
+                    );
+                    assert_eq!(oa_table_fingerprint(owner.pool()).await, corrupted);
+                },
+                async {
+                    sqlx::query(restore_sql)
+                        .bind(&original_digest)
+                        .bind(&legacy.locator().authorization_identity)
+                        .execute(owner.pool())
+                        .await
+                        .unwrap();
+                },
+            )
+            .await;
             assert_eq!(oa_table_fingerprint(owner.pool()).await, collision_baseline);
 
             let duplicate_identity = format!("duplicate-{legacy_must_fail}-{suffix}");
@@ -4345,26 +4386,33 @@ mod tests {
                 .execute(owner.pool())
                 .await
                 .unwrap();
-            let duplicated = oa_table_fingerprint(owner.pool()).await;
-            assert_eq!(
-                resolve_current(&owner, &legacy, owner_now_ms(&owner.pool).await)
-                    .await
-                    .is_err(),
-                legacy_must_fail
-            );
-            assert_eq!(
-                matches!(
-                    resolve_autonomous_policy(&consumer, &request).await,
-                    AutonomousPolicyAuthorizationResolutionV1::Unavailable { .. }
-                ),
-                !legacy_must_fail
-            );
-            assert_eq!(oa_table_fingerprint(owner.pool()).await, duplicated);
-            sqlx::query(delete_sql)
-                .bind(&duplicate_identity)
-                .execute(owner.pool())
-                .await
-                .unwrap();
+            restore_after_checks(
+                async {
+                    let duplicated = oa_table_fingerprint(owner.pool()).await;
+                    assert_eq!(
+                        resolve_current(&owner, &legacy, owner_now_ms(&owner.pool).await)
+                            .await
+                            .is_err(),
+                        legacy_must_fail
+                    );
+                    assert_eq!(
+                        matches!(
+                            resolve_autonomous_policy(&consumer, &request).await,
+                            AutonomousPolicyAuthorizationResolutionV1::Unavailable { .. }
+                        ),
+                        !legacy_must_fail
+                    );
+                    assert_eq!(oa_table_fingerprint(owner.pool()).await, duplicated);
+                },
+                async {
+                    sqlx::query(delete_sql)
+                        .bind(&duplicate_identity)
+                        .execute(owner.pool())
+                        .await
+                        .unwrap();
+                },
+            )
+            .await;
             assert_eq!(oa_table_fingerprint(owner.pool()).await, collision_baseline);
         }
         let before_read_cut: i64 = sqlx::query_scalar(
@@ -4960,12 +5008,19 @@ mod tests {
         .unwrap();
         sqlx::query("UPDATE operator_authorization_private.operator_authorization_revocation_heads_v1 SET frontier_digest='sha256:corrupt' WHERE scope_digest=$1")
             .bind(&scope_digest).execute(owner.pool()).await.unwrap();
-        assert!(matches!(
-            resolve_current(&owner, &admitted, now).await,
-            Err(OperatorAuthorizationError::Unavailable(_))
-        ));
-        sqlx::query("UPDATE operator_authorization_private.operator_authorization_revocation_heads_v1 SET frontier_digest=$1 WHERE scope_digest=$2")
-            .bind(&original_head_digest).bind(&scope_digest).execute(owner.pool()).await.unwrap();
+        restore_after_checks(
+            async {
+                assert!(matches!(
+                    resolve_current(&owner, &admitted, now).await,
+                    Err(OperatorAuthorizationError::Unavailable(_))
+                ));
+            },
+            async {
+                sqlx::query("UPDATE operator_authorization_private.operator_authorization_revocation_heads_v1 SET frontier_digest=$1 WHERE scope_digest=$2")
+                    .bind(&original_head_digest).bind(&scope_digest).execute(owner.pool()).await.unwrap();
+            },
+        )
+        .await;
         assert_eq!(
             resolve_current(&owner, &admitted, now).await.unwrap(),
             admitted
@@ -4978,12 +5033,19 @@ mod tests {
         .bind(&frontier_identity).fetch_one(owner.pool()).await.unwrap();
         sqlx::query("UPDATE operator_authorization_private.operator_authorization_revocation_frontiers_v1 SET frontier_json=jsonb_set(frontier_json, '{unexpected}', 'true'::jsonb) WHERE frontier_identity=$1")
             .bind(&frontier_identity).execute(owner.pool()).await.unwrap();
-        assert!(matches!(
-            resolve_current(&owner, &admitted, now).await,
-            Err(OperatorAuthorizationError::Unavailable(_))
-        ));
-        sqlx::query("UPDATE operator_authorization_private.operator_authorization_revocation_frontiers_v1 SET frontier_json=$1 WHERE frontier_identity=$2")
-            .bind(&original_frontier_json).bind(&frontier_identity).execute(owner.pool()).await.unwrap();
+        restore_after_checks(
+            async {
+                assert!(matches!(
+                    resolve_current(&owner, &admitted, now).await,
+                    Err(OperatorAuthorizationError::Unavailable(_))
+                ));
+            },
+            async {
+                sqlx::query("UPDATE operator_authorization_private.operator_authorization_revocation_frontiers_v1 SET frontier_json=$1 WHERE frontier_identity=$2")
+                    .bind(&original_frontier_json).bind(&frontier_identity).execute(owner.pool()).await.unwrap();
+            },
+        )
+        .await;
         assert_eq!(
             resolve_current(&owner, &admitted, now).await.unwrap(),
             admitted
@@ -4996,12 +5058,19 @@ mod tests {
         .bind(&authorization_identity).fetch_one(owner.pool()).await.unwrap();
         sqlx::query("UPDATE operator_authorization_private.operator_authorization_issuances_v1 SET semantic_digest='sha256:corrupt' WHERE authorization_identity=$1")
             .bind(&authorization_identity).execute(owner.pool()).await.unwrap();
-        assert!(matches!(
-            resolve_current(&owner, &admitted, now).await,
-            Err(OperatorAuthorizationError::Unavailable(_))
-        ));
-        sqlx::query("UPDATE operator_authorization_private.operator_authorization_issuances_v1 SET semantic_digest=$1 WHERE authorization_identity=$2")
-            .bind(&original_issuance_digest).bind(&authorization_identity).execute(owner.pool()).await.unwrap();
+        restore_after_checks(
+            async {
+                assert!(matches!(
+                    resolve_current(&owner, &admitted, now).await,
+                    Err(OperatorAuthorizationError::Unavailable(_))
+                ));
+            },
+            async {
+                sqlx::query("UPDATE operator_authorization_private.operator_authorization_issuances_v1 SET semantic_digest=$1 WHERE authorization_identity=$2")
+                    .bind(&original_issuance_digest).bind(&authorization_identity).execute(owner.pool()).await.unwrap();
+            },
+        )
+        .await;
         assert_eq!(
             resolve_current(&owner, &admitted, now).await.unwrap(),
             admitted
@@ -5042,23 +5111,30 @@ mod tests {
                 .execute(owner.pool())
                 .await
                 .unwrap();
-            assert!(matches!(
-                resolve_current(&owner, &admitted, now).await,
-                Err(OperatorAuthorizationError::Unavailable(_))
-            ));
-            sqlx::query("UPDATE operator_authorization_private.operator_authorization_issuances_v1 SET issuer_identity=$2, principal=$3, audience=$4, scope_digest=$5, issuance_json=$6, receipt_json=$7, semantic_digest=$8, committed_at_epoch_ms=$9 WHERE authorization_identity=$1")
-                .bind(&authorization_identity)
-                .bind(&original_issuance_row.0)
-                .bind(&original_issuance_row.1)
-                .bind(&original_issuance_row.2)
-                .bind(&original_issuance_row.3)
-                .bind(&original_issuance_row.4)
-                .bind(&original_issuance_row.5)
-                .bind(&original_issuance_digest)
-                .bind(original_issuance_row.6)
-                .execute(owner.pool())
-                .await
-                .unwrap();
+            restore_after_checks(
+                async {
+                    assert!(matches!(
+                        resolve_current(&owner, &admitted, now).await,
+                        Err(OperatorAuthorizationError::Unavailable(_))
+                    ));
+                },
+                async {
+                    sqlx::query("UPDATE operator_authorization_private.operator_authorization_issuances_v1 SET issuer_identity=$2, principal=$3, audience=$4, scope_digest=$5, issuance_json=$6, receipt_json=$7, semantic_digest=$8, committed_at_epoch_ms=$9 WHERE authorization_identity=$1")
+                        .bind(&authorization_identity)
+                        .bind(&original_issuance_row.0)
+                        .bind(&original_issuance_row.1)
+                        .bind(&original_issuance_row.2)
+                        .bind(&original_issuance_row.3)
+                        .bind(&original_issuance_row.4)
+                        .bind(&original_issuance_row.5)
+                        .bind(&original_issuance_digest)
+                        .bind(original_issuance_row.6)
+                        .execute(owner.pool())
+                        .await
+                        .unwrap();
+                },
+            )
+            .await;
             assert_eq!(
                 resolve_current(&owner, &admitted, now).await.unwrap(),
                 admitted
@@ -5069,15 +5145,22 @@ mod tests {
         sqlx::query("INSERT INTO operator_authorization_private.operator_authorization_owner_outbox_v1 (event_identity, aggregate_identity, event_kind, payload_digest, payload_json, committed_at_epoch_ms) VALUES ($1,$2,'UNEXPECTED_V1','sha256:corrupt','{}'::jsonb,$3)")
             .bind(&extra_event).bind(&authorization_identity).bind(to_i64(now).unwrap())
             .execute(owner.pool()).await.unwrap();
-        assert!(matches!(
-            resolve_current(&owner, &admitted, now).await,
-            Err(OperatorAuthorizationError::Unavailable(_))
-        ));
-        sqlx::query("DELETE FROM operator_authorization_private.operator_authorization_owner_outbox_v1 WHERE event_identity=$1")
-            .bind(&extra_event)
-            .execute(owner.pool())
-            .await
-            .unwrap();
+        restore_after_checks(
+            async {
+                assert!(matches!(
+                    resolve_current(&owner, &admitted, now).await,
+                    Err(OperatorAuthorizationError::Unavailable(_))
+                ));
+            },
+            async {
+                sqlx::query("DELETE FROM operator_authorization_private.operator_authorization_owner_outbox_v1 WHERE event_identity=$1")
+                    .bind(&extra_event)
+                    .execute(owner.pool())
+                    .await
+                    .unwrap();
+            },
+        )
+        .await;
         assert_eq!(
             resolve_current(&owner, &admitted, now).await.unwrap(),
             admitted

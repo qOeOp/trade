@@ -7119,7 +7119,9 @@ mod tests {
         ProductEdgeManifestBindingV1, STRATEGY_GOVERNANCE_AUDIENCE_V1,
     };
     use vibe_postgres_connect::with_tls;
-    use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
+    use vibe_testkit::postgres::{
+        CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1, restore_after_checks,
+    };
     use vibe_testkit::source_guard::{crate_production_sources, process_clock_reads};
 
     /// The body of the first item after `signature`, up to the next item at the same indentation.
@@ -9954,21 +9956,28 @@ mod tests {
         .execute(pe_pool)
         .await
         .unwrap();
-        assert!(matches!(
-            admission_reader
-                .resolve_admission_observation(&first_wake)
-                .await,
-            Err(ProductEdgeError::Unavailable(_))
-        ));
-        assert_eq!(frontier_before_failure, first_observation.next_cursor());
-        sqlx::query(
-            "UPDATE product_edge_request_admissions_v1 SET admission_json=$1 WHERE request_identity=$2",
+        restore_after_checks(
+            async {
+                assert!(matches!(
+                    admission_reader
+                        .resolve_admission_observation(&first_wake)
+                        .await,
+                    Err(ProductEdgeError::Unavailable(_))
+                ));
+                assert_eq!(frontier_before_failure, first_observation.next_cursor());
+            },
+            async {
+                sqlx::query(
+                    "UPDATE product_edge_request_admissions_v1 SET admission_json=$1 WHERE request_identity=$2",
+                )
+                .bind(&original_admission_json)
+                .bind(&request_identity)
+                .execute(pe_pool)
+                .await
+                .unwrap();
+            },
         )
-        .bind(&original_admission_json)
-        .bind(&request_identity)
-        .execute(pe_pool)
-        .await
-        .unwrap();
+        .await;
 
         let original_admission_digest: String = sqlx::query_scalar(
             "SELECT admission_digest FROM product_edge_request_admissions_v1 WHERE request_identity=$1",
@@ -9976,18 +9985,25 @@ mod tests {
         .bind(&request_identity).fetch_one(pe_pool).await.unwrap();
         sqlx::query("UPDATE product_edge_request_admissions_v1 SET admission_digest='sha256:corrupt' WHERE request_identity=$1")
             .bind(&request_identity).execute(pe_pool).await.unwrap();
-        assert!(matches!(
-            owner
-                .resolve_admission(&request_identity, "sha256:test-proof")
-                .await,
-            Err(ProductEdgeError::Unavailable(_))
-        ));
-        assert!(matches!(
-            owner.resolve_admission_observation(&first_wake).await,
-            Err(ProductEdgeError::Unavailable(_))
-        ));
-        sqlx::query("UPDATE product_edge_request_admissions_v1 SET admission_digest=$1 WHERE request_identity=$2")
-            .bind(&original_admission_digest).bind(&request_identity).execute(pe_pool).await.unwrap();
+        restore_after_checks(
+            async {
+                assert!(matches!(
+                    owner
+                        .resolve_admission(&request_identity, "sha256:test-proof")
+                        .await,
+                    Err(ProductEdgeError::Unavailable(_))
+                ));
+                assert!(matches!(
+                    owner.resolve_admission_observation(&first_wake).await,
+                    Err(ProductEdgeError::Unavailable(_))
+                ));
+            },
+            async {
+                sqlx::query("UPDATE product_edge_request_admissions_v1 SET admission_digest=$1 WHERE request_identity=$2")
+                    .bind(&original_admission_digest).bind(&request_identity).execute(pe_pool).await.unwrap();
+            },
+        )
+        .await;
         let admission_event_identity: String = sqlx::query_scalar(
             "SELECT event_identity FROM product_edge_owner_outbox_v1 WHERE aggregate_identity=$1 AND event_kind=$2",
         )
@@ -10138,29 +10154,43 @@ mod tests {
         .unwrap();
         sqlx::query("UPDATE product_edge_deployment_heads_v1 SET binding_digest='sha256:corrupt' WHERE deployment_identity=$1")
             .bind(owner.deployment_identity.as_str()).execute(pe_pool).await.unwrap();
-        assert!(matches!(
-            owner
-                .resolve_admission(&request_identity, "sha256:test-proof")
-                .await,
-            Err(ProductEdgeError::Unavailable(_))
-        ));
-        sqlx::query("UPDATE product_edge_deployment_heads_v1 SET binding_digest=$1 WHERE deployment_identity=$2")
-            .bind(&original_head_digest).bind(owner.deployment_identity.as_str())
-            .execute(pe_pool).await.unwrap();
+        restore_after_checks(
+            async {
+                assert!(matches!(
+                    owner
+                        .resolve_admission(&request_identity, "sha256:test-proof")
+                        .await,
+                    Err(ProductEdgeError::Unavailable(_))
+                ));
+            },
+            async {
+                sqlx::query("UPDATE product_edge_deployment_heads_v1 SET binding_digest=$1 WHERE deployment_identity=$2")
+                    .bind(&original_head_digest).bind(owner.deployment_identity.as_str())
+                    .execute(pe_pool).await.unwrap();
+            },
+        )
+        .await;
         let original_supersession_json: serde_json::Value = sqlx::query_scalar(
             "SELECT supersession_json FROM product_edge_deployment_supersessions_v1 WHERE binding_identity=$1",
         )
         .bind(&first_binding).fetch_one(pe_pool).await.unwrap();
         sqlx::query("UPDATE product_edge_deployment_supersessions_v1 SET supersession_json=jsonb_set(supersession_json, '{unexpected}', 'true'::jsonb) WHERE binding_identity=$1")
             .bind(&first_binding).execute(pe_pool).await.unwrap();
-        assert!(matches!(
-            owner
-                .resolve_admission(&request_identity, "sha256:test-proof")
-                .await,
-            Err(ProductEdgeError::Unavailable(_))
-        ));
-        sqlx::query("UPDATE product_edge_deployment_supersessions_v1 SET supersession_json=$1 WHERE binding_identity=$2")
-            .bind(&original_supersession_json).bind(&first_binding).execute(pe_pool).await.unwrap();
+        restore_after_checks(
+            async {
+                assert!(matches!(
+                    owner
+                        .resolve_admission(&request_identity, "sha256:test-proof")
+                        .await,
+                    Err(ProductEdgeError::Unavailable(_))
+                ));
+            },
+            async {
+                sqlx::query("UPDATE product_edge_deployment_supersessions_v1 SET supersession_json=$1 WHERE binding_identity=$2")
+                    .bind(&original_supersession_json).bind(&first_binding).execute(pe_pool).await.unwrap();
+            },
+        )
+        .await;
         let manifest_identity = admission.manifest_identity().to_string();
         let original_manifest_digest: String = sqlx::query_scalar(
             "SELECT manifest_digest FROM product_edge_operation_manifests_v1 WHERE manifest_identity=$1",
@@ -10168,14 +10198,21 @@ mod tests {
         .bind(&manifest_identity).fetch_one(pe_pool).await.unwrap();
         sqlx::query("UPDATE product_edge_operation_manifests_v1 SET manifest_digest='sha256:corrupt' WHERE manifest_identity=$1")
             .bind(&manifest_identity).execute(pe_pool).await.unwrap();
-        assert!(matches!(
-            owner
-                .resolve_admission(&request_identity, "sha256:test-proof")
-                .await,
-            Err(ProductEdgeError::Unavailable(_))
-        ));
-        sqlx::query("UPDATE product_edge_operation_manifests_v1 SET manifest_digest=$1 WHERE manifest_identity=$2")
-            .bind(&original_manifest_digest).bind(&manifest_identity).execute(pe_pool).await.unwrap();
+        restore_after_checks(
+            async {
+                assert!(matches!(
+                    owner
+                        .resolve_admission(&request_identity, "sha256:test-proof")
+                        .await,
+                    Err(ProductEdgeError::Unavailable(_))
+                ));
+            },
+            async {
+                sqlx::query("UPDATE product_edge_operation_manifests_v1 SET manifest_digest=$1 WHERE manifest_identity=$2")
+                    .bind(&original_manifest_digest).bind(&manifest_identity).execute(pe_pool).await.unwrap();
+            },
+        )
+        .await;
 
         let after_cutover_identity = format!("generic-request-after-cutover-{suffix}");
         owner

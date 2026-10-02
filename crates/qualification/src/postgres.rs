@@ -7445,58 +7445,67 @@ mod postgres_tests {
         .execute(&owner.pool)
         .await
         .expect("simulate an Origin ADMITTED intake upgraded without treatment registration");
-        let legacy_retry_request = CandidateIntakeRequestV1::new(
-            intake.review_request_identity().to_string(),
-            intake.decision_identity().to_string(),
-            intake.result_identity().to_string(),
-            intake.candidate_identity().to_string(),
-            serde_json::to_value(&intake).expect("intake receipt serialises")["selection_identity"]
-                .as_str()
-                .expect("selection identity")
-                .to_string(),
-            intake.protected_decision_policy_identity().to_string(),
-            intake.protected_decision_policy_version(),
+        let (mut bindings, request_identity, proposal) = vibe_testkit::postgres::restore_after_checks(
+            async {
+                let legacy_retry_request = CandidateIntakeRequestV1::new(
+                    intake.review_request_identity().to_string(),
+                    intake.decision_identity().to_string(),
+                    intake.result_identity().to_string(),
+                    intake.candidate_identity().to_string(),
+                    serde_json::to_value(&intake).expect("intake receipt serialises")
+                        ["selection_identity"]
+                        .as_str()
+                        .expect("selection identity")
+                        .to_string(),
+                    intake.protected_decision_policy_identity().to_string(),
+                    intake.protected_decision_policy_version(),
+                )
+                .expect("legacy retry request");
+                let legacy_retry = owner
+                    .submit_candidate_intake_v1(&legacy_retry_request)
+                    .await
+                    .expect("Origin intake exact replay remains available after upgrade");
+                assert_eq!(legacy_retry, intake);
+                let source = authority_source_for_intake(&owner, &intake).await;
+                let bindings = chain_protected_bindings(&source);
+                let request_identity = format!(
+                    "qualification-protected-request-{}",
+                    intake.receipt_identity()
+                );
+                let proposal = ProtectedReplayRequestProposalV1::new(
+                    request_identity.clone(),
+                    intake.review_request_identity().to_string(),
+                    intake.receipt_identity().to_string(),
+                    intake.receipt_digest().to_string(),
+                    0,
+                    bindings.clone(),
+                )
+                .expect("canonical protected proposal");
+                assert!(matches!(
+                    owner.submit_protected_replay_request_v1(&proposal).await,
+                    Err(QualificationOwnerError::Unavailable(message))
+                        if message == "Candidate Intake has no preregistered holdout treatment"
+                ));
+                (bindings, request_identity, proposal)
+            },
+            async {
+                sqlx::query(
+                    "INSERT INTO public.qualification_holdout_treatment_registrations_v1 \
+                     (reservation_identity,treatment_policy_identity,treatment_policy_digest,closure_disposition,registration_json,committed_at_epoch_ms) \
+                     VALUES ($1,$2,$3,$4,$5,$6)",
+                )
+                .bind(&reservation_identity)
+                .bind(&registration.0)
+                .bind(&registration.1)
+                .bind(&registration.2)
+                .bind(&registration.3)
+                .bind(registration.4)
+                .execute(&owner.pool)
+                .await
+                .expect("restore current preregistration fixture");
+            },
         )
-        .expect("legacy retry request");
-        let legacy_retry = owner
-            .submit_candidate_intake_v1(&legacy_retry_request)
-            .await
-            .expect("Origin intake exact replay remains available after upgrade");
-        assert_eq!(legacy_retry, intake);
-        let source = authority_source_for_intake(&owner, &intake).await;
-        let mut bindings = chain_protected_bindings(&source);
-        let request_identity = format!(
-            "qualification-protected-request-{}",
-            intake.receipt_identity()
-        );
-        let proposal = ProtectedReplayRequestProposalV1::new(
-            request_identity.clone(),
-            intake.review_request_identity().to_string(),
-            intake.receipt_identity().to_string(),
-            intake.receipt_digest().to_string(),
-            0,
-            bindings.clone(),
-        )
-        .expect("canonical protected proposal");
-        assert!(matches!(
-            owner.submit_protected_replay_request_v1(&proposal).await,
-            Err(QualificationOwnerError::Unavailable(message))
-                if message == "Candidate Intake has no preregistered holdout treatment"
-        ));
-        sqlx::query(
-            "INSERT INTO public.qualification_holdout_treatment_registrations_v1 \
-             (reservation_identity,treatment_policy_identity,treatment_policy_digest,closure_disposition,registration_json,committed_at_epoch_ms) \
-             VALUES ($1,$2,$3,$4,$5,$6)",
-        )
-        .bind(&reservation_identity)
-        .bind(&registration.0)
-        .bind(&registration.1)
-        .bind(&registration.2)
-        .bind(&registration.3)
-        .bind(registration.4)
-        .execute(&owner.pool)
-        .await
-        .expect("restore current preregistration fixture");
+        .await;
         let first = owner
             .submit_protected_replay_request_v1(&proposal)
             .await
@@ -8420,24 +8429,31 @@ mod postgres_tests {
         .execute(&owner.pool)
         .await
         .expect("tamper mutable preexisting reservation fixture");
-        assert!(
-            owner
-                .close_negative_protected_attempt_v1(ProtectedReplayResultLocatorV1 {
-                    result_identity: &result_identity,
-                    request_identity: &request_identity,
-                    attempt_identity: &attempt_identity,
-                })
+        vibe_testkit::postgres::restore_after_checks(
+            async {
+                assert!(
+                    owner
+                        .close_negative_protected_attempt_v1(ProtectedReplayResultLocatorV1 {
+                            result_identity: &result_identity,
+                            request_identity: &request_identity,
+                            attempt_identity: &attempt_identity,
+                        })
+                        .await
+                        .is_err()
+                );
+            },
+            async {
+                sqlx::query(
+                    "UPDATE public.qualification_holdout_reservations_v1 SET reservation_json=$1 WHERE reservation_identity=$2",
+                )
+                .bind(&original_request.2)
+                .bind(first.disposition().holdout_reservation_identity())
+                .execute(&owner.pool)
                 .await
-                .is_err()
-        );
-        sqlx::query(
-            "UPDATE public.qualification_holdout_reservations_v1 SET reservation_json=$1 WHERE reservation_identity=$2",
+                .expect("restore reservation fixture");
+            },
         )
-        .bind(&original_request.2)
-        .bind(first.disposition().holdout_reservation_identity())
-        .execute(&owner.pool)
-        .await
-        .expect("restore reservation fixture");
+        .await;
 
         assert!(
             owner
