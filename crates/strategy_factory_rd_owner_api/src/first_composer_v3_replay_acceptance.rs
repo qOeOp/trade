@@ -151,7 +151,9 @@ pub(crate) struct OwnerRecordLocatorV1 {
 pub(crate) struct FirstComposerV3ReplayV1 {
     pub(crate) deployment: ProductEdgeDeploymentAcceptanceFixtureV1,
     pub(crate) research_request_identity: String,
-    pub(crate) design_identity: String,
+    /// The published Design's identity, as the role intent route returns it: a 32-byte digest,
+    /// which R&D stores as `rd_bounded_feature_program_freezes_v1.design_identity` BYTEA.
+    pub(crate) design_identity: BindingDigest,
     pub(crate) artifact_locator: String,
     pub(crate) replay_request: ExploratoryReplayRequestLocatorV2,
     pub(crate) composition_binding: ReplayCompositionBindingLocatorV1,
@@ -1399,10 +1401,8 @@ pub(crate) async fn ensure_first_composer_v3_replay_acceptance_v1(
     FirstComposerV3ReplayV1 {
         deployment,
         research_request_identity,
-        design_identity: published["design_identity"]
-            .as_str()
-            .expect("H3: the role intent names its Design")
-            .to_owned(),
+        design_identity: serde_json::from_value(published["design_identity"].clone())
+            .expect("H3: the role intent names its Design"),
         artifact_locator: composer_locator.artifact_locator.clone(),
         member_instrument: PERPETUAL_V1.to_owned(),
         replay_request,
