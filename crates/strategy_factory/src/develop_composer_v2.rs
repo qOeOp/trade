@@ -1319,8 +1319,7 @@ mod successor_custody_tests {
                 terminal_disposition: TrialFamilyAttemptTerminalDispositionV2::TerminalResult,
                 consumed_trial_budget: 1,
                 candidate_set: TrialFamilyCandidateSetProposalV2 {
-                    generation_rule_identity: "candidate-generation-rule-v1".to_owned(),
-                    generation_rule_digest: digest('4'),
+                    generation_rule: crate::CandidateGenerationGridV1::default(),
                     expected_cardinality: 0,
                     candidates: Vec::new(),
                 },

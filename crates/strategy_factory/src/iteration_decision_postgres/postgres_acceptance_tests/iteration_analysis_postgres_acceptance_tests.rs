@@ -582,8 +582,7 @@ async fn analysis_request_completion_resolve_restart_and_tamper_are_atomic() {
     let candidate_identity = format!("analysis-candidate-{suffix}");
     let candidate_set: TrialFamilyCandidateSetProposalV2 =
         serde_json::from_value(serde_json::json!({
-            "generation_rule_identity": format!("analysis-generation-rule-{suffix}"),
-            "generation_rule_digest": digest('c'),
+            "generation_rule": {"single_dimensions": ["RETURN_MECHANISM"], "finite_joints": []},
             "expected_cardinality": 1,
             "candidates": [{
                 "candidate_identity": candidate_identity,

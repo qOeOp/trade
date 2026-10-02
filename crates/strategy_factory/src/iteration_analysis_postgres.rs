@@ -164,27 +164,6 @@ struct LockedReplayRowV1 {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct LockedCandidateFrontierV1 {
-    schema_version: u32,
-    frontier_identity: String,
-    trial_family_identity: String,
-    attempt_ordinal: u32,
-    generation_rule_identity: String,
-    generation_rule_digest: String,
-    expected_cardinality: u32,
-    candidates: Vec<LockedCandidateV1>,
-    frontier_digest: String,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct LockedCandidateV1 {
-    candidate_identity: String,
-    candidate_digest: String,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct StoredIterationAnalysisRequestV1 {
     schema_version: u16,
     analysis_request_identity: String,
@@ -1135,14 +1114,11 @@ async fn compose_locked_input(
     let intent_bytes = canonical_intent_bytes(actual_intent).map_err(map_artifact_build_error)?;
     let canonical_intent_json =
         String::from_utf8(intent_bytes.clone()).map_err(|e| unavailable(e.to_string()))?;
-    let candidate: LockedCandidateFrontierV1 = serde_json::from_value(
-        serde_json::to_value(&census.candidate_set_frontier).map_err(storage)?,
-    )
-    .map_err(storage)?;
+    // The census verified this frontier as it read it, schema included, so it is read through
+    // its own accessors rather than decoded a second time.
+    let candidate = &census.candidate_set_frontier;
 
-    if candidate.schema_version != 2
-        || candidate.trial_family_identity != locator.trial_family_identity
-    {
+    if candidate.trial_family_identity() != locator.trial_family_identity {
         return Err(unavailable("candidate frontier custody is cross-spliced"));
     }
     let decision_policy = census
@@ -1196,23 +1172,23 @@ async fn compose_locked_input(
             family_binding_digest: binding.binding_digest().to_string(),
         },
         candidate_frontier: IterationAnalysisCandidateFrontierV1 {
-            frontier_identity: candidate.frontier_identity,
-            frontier_digest: candidate.frontier_digest,
-            attempt_ordinal: candidate.attempt_ordinal,
-            generation_rule_identity: candidate.generation_rule_identity,
-            generation_rule_digest: candidate.generation_rule_digest,
-            expected_cardinality: candidate.expected_cardinality,
+            frontier_identity: candidate.frontier_identity().to_owned(),
+            frontier_digest: candidate.frontier_digest().to_owned(),
+            attempt_ordinal: candidate.attempt_ordinal(),
+            generation_rule_identity: candidate.generation_rule_identity().to_owned(),
+            generation_rule_digest: candidate.generation_rule_digest().to_owned(),
+            expected_cardinality: candidate.expected_cardinality(),
             candidates: candidate
-                .candidates
-                .into_iter()
+                .candidates()
+                .iter()
                 .map(|candidate| {
                     let experiment = candidate_experiments
                         .iter()
                         .find(|readback| {
                             readback.experiment().candidate_identity()
-                                == candidate.candidate_identity
+                                == candidate.candidate_identity()
                                 && readback.experiment().candidate_digest()
-                                    == candidate.candidate_digest
+                                    == candidate.candidate_digest()
                         })
                         .ok_or_else(|| unavailable("candidate experiment custody is missing"))?;
                     Ok(IterationAnalysisCandidateFrontierMemberV1 {
@@ -1233,8 +1209,8 @@ async fn compose_locked_input(
                             .experiment()
                             .candidate_set_frontier_digest()
                             .to_string(),
-                        candidate_identity: candidate.candidate_identity,
-                        candidate_digest: candidate.candidate_digest,
+                        candidate_identity: candidate.candidate_identity().to_owned(),
+                        candidate_digest: candidate.candidate_digest().to_owned(),
                         committed_at_epoch_ms: experiment.experiment().committed_at_epoch_ms(),
                         receipt_identity: experiment.receipt().receipt_identity().to_string(),
                         receipt_digest: experiment.receipt().receipt_digest().to_string(),
