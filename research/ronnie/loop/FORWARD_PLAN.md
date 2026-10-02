@@ -84,3 +84,7 @@ Computed at scoring time from data before each order; every R-1 order is still r
 - **Decision on 2027-10-01:** for each tag, the forward edge of tagged orders minus untagged orders, week-clustered,
   with Holm over the two. A tag is adopted only if its interval is above zero; otherwise it is reported and dropped.
   Neither tag is tested on 2018-2026 data, because those years were read for R-1.
+
+**R-1u (2026-10-02):** the official R-1 record is the corrected rule, with one open trade per coin and the slot freed at
+the exit. The 60-day-slot version is dropped. Gate U review comes at 30 closed R-1u trades with a positive mean, or at a
+sequential scale-up crossing, whichever is first.

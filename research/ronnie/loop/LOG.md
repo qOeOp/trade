@@ -2003,3 +2003,13 @@ each fill (`busy = k + HOLD`), even after an early stop or target. The rule that
   - First trade of each 10-day cluster: +0.250 [+0.136, +0.367] (1,475).
   - Follow-on trades: +0.395 [+0.309, +0.482] (2,306).
 - **Reading:** the 60-day slot was suppressing the strategy's own continuation entries, not hiding a defect.
+
+**Verdict, R-1u holdout rerun (gatekeeper relay):** PASS at 95%; stage 2 PASS (69 post-2022 coins).
+- **The correction holds** on the read the original rule passed (contaminated as stated; not new independent
+  evidence).
+- **R-1u replaces R-1 as the official rule:** one open trade per coin, with the slot freed at the exit. The forward
+  scorer and `roleflip/scan.py` use it.
+- **R-1x** (the X-R1 exit) was chosen on the locked version; it stays a paired forward comparison on the same orders.
+- **Forward pace:** about 14 trades per coin-year in development, so about 500 a year on the 37 forward coins. At the
+  development edge the sequential scale-up bound is near 70 trades (about two months); at half the edge, near 260
+  (about six months). Clustering (61% follow-on trades) makes the effective count lower than the raw count.

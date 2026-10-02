@@ -210,7 +210,7 @@ closure audit (`loop/closure_audit.txt`, week-clustered, SESOI +0.10R) and the p
 | Ronnie's plan, S4 layered pullback (Fibonacci or not) | parked: positive below SESOI | P-1/P-2: +0.06 [+0.01, +0.10] on about 5,000 trades; placebo ratios give the same edge, so it is not Fibonacci |
 | Ronnie's plan, S5 sweep short | parked | P-1: +0.008 [-0.10, +0.11] |
 | Ronnie's plan, S2b | absorbed into B1 | inside the plan its filters leave 135 trades |
-| **Ronnie's 2024-2025 role-reversal retest R-1** | **active, stage 3 (forward)** | development (53 coins, 2018-2022) +0.211 [+0.066, +0.364] on 650 trades; holdout (69 coins, 2023-2026) stage 2 PASS; `roleflip/forward.py` |
+| **Ronnie's 2024-2025 role-reversal retest R-1u** | **active, stage 3 (forward)** | development (53 coins, 2018-2022) +0.338 [+0.255, +0.428] on 3,781 trades (the original R-1, with a 60-day slot side effect: +0.211 on 650); holdout (69 coins, 2023-2026) stage 2 PASS for both; `roleflip/forward.py`, `roleflip/scan.py` |
 | Ronnie's 2024-2025 Fibonacci on the latest move R-2 | parked | +0.073 [-0.108, +0.255] |
 | Ronnie's own calls (YouTube titles) | not audited | descriptive only; titles are summaries |
 

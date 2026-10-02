@@ -29,7 +29,7 @@ def scan(coin, now):
     for k, side, px, stop, tgt in sig["R-1"]:
         if k + FR.HOLD <= last:
             continue
-        free_from = str((d.index[k] + pd.Timedelta(days=FR.HOLD + 1)).date())
+        free_from = "after this trade exits"
         done = None
         for m in range(k, last + 1):
             if (side == 1 and l[m] <= stop) or (side == -1 and h[m] >= stop):
@@ -41,7 +41,7 @@ def scan(coin, now):
         pos = dict(side="long" if side == 1 else "short", entry_day=str(d.index[k].date()), entry=px, stop=stop, target=tgt,
                    status=done or "open")
     row["position"] = pos
-    busy = pos is not None  # the tested rule: one trade per coin per 60 days, even after an early exit
+    busy = pos is not None and pos["status"] == "open"  # one open R-1 trade per coin; the slot frees at the exit
     row["free_from"] = free_from
     orders = []
     for i, kind, p in S["events"]:
@@ -90,7 +90,7 @@ if __name__ == "__main__":
         print(f"{coin} ({r['day']} close {r['close']:.6g}, daily ATR {r['atr_pct']:.1%}): trend {r['trend']}; {r['next_trigger']}")
         if r["position"]:
             q = r["position"]
-            print(f"   last trade {q['side']} {q['entry_day']} at {q['entry']:.6g}, stop {q['stop']:.6g}, target {q['target']:.6g}: {q['status']}; no new R-1 trade until {r['free_from']}")
+            print(f"   last trade {q['side']} {q['entry_day']} at {q['entry']:.6g}, stop {q['stop']:.6g}, target {q['target']:.6g}: {q['status']}" + ("; no new R-1 trade until it exits" if q['status'] == 'open' else ""))
         for o in r["orders"]:
             print(f"   resting R-1 {o['side']}: limit {o['limit']:.6g} ({o['dist']:.1f} ATR from close), stop {o['stop']:.6g}, 2R target {o['target_2R']:.6g} | "
                   f"R-1x stop {o['stop_x']:.6g}, 1.5R target {o['target_x']:.6g}; armed {o['break_day']}, valid to {o['valid_until']}")

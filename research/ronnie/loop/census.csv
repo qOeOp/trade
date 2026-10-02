@@ -142,3 +142,4 @@ logged_at,loop,candidate,stage,n,edge,lo,hi,passed,note
 2026-10-02T02:53:48+00:00,P-4 R-1,familyR,rerun-iteration,3781,+0.3383,+0.2553,+0.4278,True,"Ronnie 2024-25 method, daily slot freed at exit (bug fix), user decision"
 2026-10-02T02:53:48+00:00,P-4 R-2,familyR,rerun-iteration,654,+0.0515,-0.0881,+0.2040,False,"Ronnie 2024-25 method, daily slot freed at exit (bug fix), user decision"
 2026-10-02T02:53:48+00:00,P-4 R-3,familyR,rerun-iteration,3044,+0.3786,+0.2643,+0.4900,True,"Ronnie 2024-25 method, daily slot freed at exit (bug fix), user decision"
+2026-10-02T02:54:41+00:00,R-1,familyR,rerun-holdout,5589,+nan,+nan,+nan,True,"sealed; stage-2 read R-1u, slot freed at exit (bug fix)"

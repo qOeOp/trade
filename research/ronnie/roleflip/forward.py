@@ -123,23 +123,24 @@ def score(now):
         t0, px = fill
         path = d[d.index >= t0].iloc[:FR.HOLD]
         risk, R, status = abs(px - stop), None, "open"
+        exit_t = pd.NaT
         for t, b in path.iterrows():
             hit_s = b.low <= stop if side == 1 else b.high >= stop
             hit_t = b.high >= tgt if side == 1 else b.low <= tgt
             if hit_s:
-                R, status = (stop - px) * side / risk, "stop"
+                R, status, exit_t = (stop - px) * side / risk, "stop", t
                 break
             if hit_t and t > t0:
-                R, status = (tgt - px) * side / risk, "target"
+                R, status, exit_t = (tgt - px) * side / risk, "target", t
                 break
         if R is None and len(path) >= FR.HOLD:
             R, status = (path.close.iloc[-1] - px) * side / risk, "time"
         if R is not None:
             R -= 2 * FEE * px / risk
-        rows.append(dict(coin=coin, status=status, R=R, fill_day=t0))
+        rows.append(dict(coin=coin, status=status, R=R, fill_day=t0, exit_day=exit_t))
     z = pd.DataFrame(rows)
-    # the tested rule holds one trade per coin per 60 days from each fill, even after an early exit (loop/LOG.md, the
-    # R-1 slot note); fills inside a coin's slot are reported as the untested "unlocked" variant only
+    # one open R-1 trade per coin: a fill while the coin's previous trade is still open is outside the rule (R-1u,
+    # loop/LOG.md); such fills are reported only in the "every order" line
     if "fill_day" in z:
         z["slot_ok"] = True
         for coin, g in z.dropna(subset=["fill_day"]).sort_values("fill_day").groupby("coin"):
@@ -148,13 +149,13 @@ def score(now):
                 if until is not None and r.fill_day < until:
                     z.loc[ix, "slot_ok"] = False
                 else:
-                    until = r.fill_day + pd.Timedelta(days=FR.HOLD)
+                    until = r.exit_day if pd.notna(r.exit_day) else r.fill_day + pd.Timedelta(days=FR.HOLD)
     print(z.status.value_counts().to_dict())
     done = z.dropna(subset=["R"]) if "R" in z else z.iloc[0:0]
     if len(done):
         ok = done[done.slot_ok] if "slot_ok" in done else done
-        print(f"R-1 as tested (one slot per coin per 60 days): closed {len(ok)}, mean R {ok.R.mean():+.3f}" if len(ok) else "R-1 as tested: none closed")
-        print(f"unlocked variant (every order, untested): closed {len(done)}, mean R {done.R.mean():+.3f}")
+        print(f"R-1u (one open trade per coin): closed {len(ok)}, mean R {ok.R.mean():+.3f}" if len(ok) else "R-1u: none closed")
+        print(f"every logged order (diagnostic): closed {len(done)}, mean R {done.R.mean():+.3f}")
 
 
 if __name__ == "__main__":
