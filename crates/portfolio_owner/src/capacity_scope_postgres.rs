@@ -896,7 +896,9 @@ mod tests {
         adapter_binding_postgres::{ExecutionOwnerClock, PaperAdapterBindingPostgresV1},
         paper_account_opening::{PAPER_ACCOUNT_OPENING_SCHEMA_VERSION, PaperAccountOpeningDraft},
     };
-    use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
+    use vibe_testkit::postgres::{
+        CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1, restore_after_checks,
+    };
 
     use super::*;
     use crate::capacity_scope::{
@@ -1034,526 +1036,554 @@ mod tests {
         // Captured before this proof commits any cut, so it is the head this proof displaces and
         // never the one it created.
         let displaced_head = registry_head(&pool).await;
-        assert_eq!(own_counts(&pool, &suffix).await, (0, 0, 0));
-
-        // One complete census of two disjoint scopes commits once; an exact replay joins it.
-        let alpha = definition(&suffix, "pool-alpha");
-        let beta = definition(&format!("{suffix}-b"), "pool-beta");
-        let census = vec![alpha.clone(), beta.clone()];
-        let first = owner
-            .commit_registry_cut(census.clone(), 9_000)
-            .await
-            .unwrap();
-        assert!(first.proof_frontier_sequence() > 0);
-        assert_eq!(first.published_scopes().len(), 2);
-        assert_eq!(
-            owner
-                .commit_registry_cut(census.clone(), 9_000)
-                .await
-                .unwrap(),
-            first
-        );
-        assert_eq!(own_counts(&pool, &suffix).await, (1, 0, 1));
-        assert_eq!(
-            owner.read_current_registry_cut().await.unwrap().as_ref(),
-            Some(&first)
-        );
-
-        // A census whose shared constraint appears twice is refused before any write.
-        let mut overlapping = beta.clone();
-        overlapping
-            .shared_constraint_identities
-            .clone_from(&alpha.shared_constraint_identities);
-        assert!(matches!(
-            owner
-                .commit_registry_cut(vec![alpha.clone(), overlapping], 9_000)
-                .await,
-            Err(CapacityScopeCustodyError::InvalidRegistry(
-                CapacityScopeFailure::SharedConstraintOverlap { .. }
-            ))
-        ));
-        // A census naming the same account, mode and pool twice has no unique membership.
-        assert!(matches!(
-            owner
-                .commit_registry_cut(vec![alpha.clone(), alpha.clone()], 9_000)
-                .await,
-            Err(CapacityScopeCustodyError::InvalidRegistry(
-                CapacityScopeFailure::ScopeMembershipUnknown
-            ))
-        ));
-        assert_eq!(own_counts(&pool, &suffix).await, (1, 0, 1));
-
-        // Only the Owner's own derivation seals a BOUND readback.
-        let published = first
-            .published_scopes()
-            .iter()
-            .find(|scope| scope.account_namespace == alpha.account_namespace)
-            .unwrap()
-            .clone();
-        let guessed = request(&suffix, &alpha, &first, "sha256:guessed", 1_000);
-        let CapacityScopeResolution::Unavailable(refused) =
-            owner.resolve_bound_capacity_scope(&guessed).await.unwrap()
-        else {
-            unreachable!("a guessed scope identity can never bind")
-        };
-        assert_eq!(
-            refused.failures(),
-            [CapacityScopeFailure::IdentityMismatch {
-                field: CapacityScopeIdentityField::CapacityScope
-            }]
-        );
-        assert_eq!(own_counts(&pool, &suffix).await, (1, 0, 1));
-
-        let exact = request(
-            &suffix,
-            &alpha,
-            &first,
-            &published.capacity_scope_identity,
-            1_000,
-        );
-        let CapacityScopeResolution::Bound(bound) =
-            owner.resolve_bound_capacity_scope(&exact).await.unwrap()
-        else {
-            unreachable!("the exact Owner-derived request must bind")
-        };
-        assert_eq!(bound.state(), CapacityScopeState::Bound);
-        assert_eq!(bound.maturity(), CapacityScopeMaturity::OwnerCustody);
-        assert_eq!(
-            bound.capacity_scope_identity(),
-            published.capacity_scope_identity
-        );
-        assert_eq!(bound.account_namespace(), alpha.account_namespace);
-        assert_eq!(bound.mode(), CapacityScopeMode::Paper);
-        assert_eq!(
-            bound.proof_frontier_identity(),
-            first.proof_frontier_identity()
-        );
-        assert_eq!(
-            bound.proof_frontier_sequence(),
-            first.proof_frontier_sequence()
-        );
-        assert_eq!(own_counts(&pool, &suffix).await, (1, 1, 1));
-        // Exact replay of the same request joins the same sealed readback.
-        let CapacityScopeResolution::Bound(replayed) =
-            owner.resolve_bound_capacity_scope(&exact).await.unwrap()
-        else {
-            unreachable!("exact replay must rebind")
-        };
-        assert_eq!(replayed, bound);
-        assert_eq!(own_counts(&pool, &suffix).await, (1, 1, 1));
-
-        // Governance reads the sealed readback through the Owner's read-only API function.
-        let api: serde_json::Value =
-            sqlx::query_scalar("SELECT portfolio_api.read_bound_capacity_scope_v1($1)")
-                .bind(exact.request_identity.clone())
-                .fetch_one(&pool)
-                .await
-                .unwrap();
-        assert_eq!(api["state"], "BOUND");
-        assert_eq!(
-            api["capacity_scope_identity"],
-            published.capacity_scope_identity
-        );
-
-        // Every caller expectation is checked against the Owner's own identity.
-        for (mutate, field) in [
-            (
-                Box::new(|request: &mut UntrustedCapacityScopeRequest| {
-                    request.expected_registry_cut_identity = "sha256:other".to_string();
-                }) as Box<dyn Fn(&mut UntrustedCapacityScopeRequest)>,
-                CapacityScopeIdentityField::RegistryCut,
-            ),
-            (
-                Box::new(|request| {
-                    request.expected_source_binding_identity = "source-other".to_string();
-                }),
-                CapacityScopeIdentityField::SourceBinding,
-            ),
-            (
-                Box::new(|request| {
-                    request.expected_adapter_binding_identity = "adapter-other".to_string();
-                }),
-                CapacityScopeIdentityField::AdapterBinding,
-            ),
-            (
-                Box::new(|request| {
-                    request.expected_membership_proof_identity = "sha256:other".to_string();
-                }),
-                CapacityScopeIdentityField::MembershipProof,
-            ),
-            (
-                Box::new(|request| {
-                    request.expected_proof_frontier_identity = "frontier-other".to_string();
-                }),
-                CapacityScopeIdentityField::ProofFrontier,
-            ),
-            (
-                Box::new(|request| request.expected_proof_frontier_sequence = u64::MAX),
-                CapacityScopeIdentityField::ProofFrontierSequence,
-            ),
-        ] {
-            let mut forged = exact.clone();
-            forged.request_identity = format!("{}-{field:?}", exact.request_identity);
-            mutate(&mut forged);
-            let CapacityScopeResolution::Unavailable(readback) =
-                owner.resolve_bound_capacity_scope(&forged).await.unwrap()
-            else {
-                unreachable!("a mismatched expectation can never bind")
-            };
-            assert_eq!(
-                readback.failures(),
-                [CapacityScopeFailure::IdentityMismatch { field }]
-            );
-        }
-        assert_eq!(own_counts(&pool, &suffix).await, (1, 1, 1));
-
-        // A proof outside its validity window is stale; the Owner samples the decision time.
-        clock.set(9_000);
-        let stale = request(
-            &suffix,
-            &alpha,
-            &first,
-            &published.capacity_scope_identity,
-            9_000,
-        );
-        let CapacityScopeResolution::Unavailable(expired) =
-            owner.resolve_bound_capacity_scope(&stale).await.unwrap()
-        else {
-            unreachable!("a proof at its exclusive bound is stale")
-        };
-        assert_eq!(expired.failures(), [CapacityScopeFailure::ProofStale]);
-        clock.set(1_000);
-
-        // The registry is append-only: a successor census advances the head and the old cut stays.
-        clock.set(2_000);
-        let gamma = definition(&format!("{suffix}-c"), "pool-gamma");
-        let second = owner
-            .commit_registry_cut(vec![alpha.clone(), beta.clone(), gamma], 9_000)
-            .await
-            .unwrap();
-        assert_eq!(
-            second.proof_frontier_sequence(),
-            first.proof_frontier_sequence() + 1
-        );
-        assert_ne!(
-            second.registry_cut_identity(),
-            first.registry_cut_identity()
-        );
-        assert_eq!(own_counts(&pool, &suffix).await, (2, 1, 2));
-        let retained: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM portfolio_private.portfolio_capacity_scope_registry_cuts_v1
-              WHERE proof_frontier_identity = $1",
-        )
-        .bind(first.proof_frontier_identity())
-        .fetch_one(&pool)
-        .await
-        .unwrap();
-        assert_eq!(retained, 1, "an earlier cut is never rewritten");
-        assert_eq!(
-            owner.read_current_registry_cut().await.unwrap().as_ref(),
-            Some(&second)
-        );
-        // A request bound to the superseded frontier no longer matches the head.
-        let superseded = request(
-            &format!("{suffix}-old"),
-            &alpha,
-            &first,
-            &published.capacity_scope_identity,
-            2_000,
-        );
-        let CapacityScopeResolution::Unavailable(old) = owner
-            .resolve_bound_capacity_scope(&superseded)
-            .await
-            .unwrap()
-        else {
-            unreachable!("a superseded frontier cannot bind against the current head")
-        };
-        assert_eq!(
-            old.failures(),
-            [CapacityScopeFailure::IdentityMismatch {
-                field: CapacityScopeIdentityField::RegistryCut
-            }]
-        );
-
-        // A Capacity View projects the ceiling from Execution's own committed opening fact, and
-        // binds the frontier that is current when it is measured.
-        clock.set(2_000);
-        let current_published = second
-            .published_scopes()
-            .iter()
-            .find(|scope| scope.account_namespace == alpha.account_namespace)
-            .unwrap()
-            .clone();
-        let current_request = request(
-            &format!("{suffix}-view"),
-            &alpha,
-            &second,
-            &current_published.capacity_scope_identity,
-            2_000,
-        );
-        let bound_alpha = match owner
-            .resolve_bound_capacity_scope(&current_request)
-            .await
-            .unwrap()
-        {
-            CapacityScopeResolution::Bound(readback) => *readback,
-            CapacityScopeResolution::Unavailable(refused) => {
-                unreachable!(
-                    "alpha is bound at the current head: {:?}",
-                    refused.failures()
-                )
-            }
-        };
-        // Execution's own custody publishes the account, through its own production path.
-        let execution = PaperAdapterBindingPostgresV1::connect(
-            test_database.database_url(CanonicalOwnerTestRoleV1::ExecutionWriter),
-            format!("execution-node-{suffix}"),
-            clock.clone(),
-        )
-        .await
-        .unwrap();
         let execution_scope_identity = format!("paper-scope-{suffix}");
         let execution_pool_for_residue = mutation.pool(CanonicalOwnerTestRoleV1::ExecutionWriter);
-        assert_eq!(
-            execution_reservation_residue(execution_pool_for_residue, &execution_scope_identity)
-                .await,
-            0,
-            "this proof's Execution Scope identity must hold no namespace reservation yet"
-        );
-        let mode = PaperMode::Paper;
-        let binding = execution
-            .commit(PaperAdapterBindingDraft {
-                schema_version: 1,
-                binding_version: 1,
-                generation: 1,
-                mode,
-                account_namespace: derive_paper_account_namespace(mode, &execution_scope_identity)
-                    .unwrap(),
-                effect_namespace: derive_paper_effect_namespace(mode, &execution_scope_identity)
-                    .unwrap(),
-                execution_scope_identity: execution_scope_identity.clone(),
-                source_account_identity: format!("strategy-account-{suffix}"),
-                simulator_account_identity: format!("sim-account-{suffix}"),
-                simulator_endpoint_identity: format!("simulator:endpoint:{suffix}"),
-                implementation_digest: "11".repeat(32),
-                configuration_digest: "22".repeat(32),
-                required_capabilities: vec![
-                    PaperAdapterCapability::SubmitOrder,
-                    PaperAdapterCapability::CancelOrder,
-                    PaperAdapterCapability::OrderReadback,
-                    PaperAdapterCapability::AccountReadback,
-                    PaperAdapterCapability::EnforceableReduceOnly,
-                ],
-                reduce_only_policy: ReduceOnlyPolicy::SimulatorRejectIncreaseOrCrossZero,
-                credential_handle_identity: CredentialHandleIdentity::parse(format!(
-                    "credential-handle-{suffix}"
-                ))
-                .unwrap(),
-                trust_policy_identity: "execution-paper-trust-v1".to_string(),
-                state: AdapterBindingState::Admitted,
-                effective_at_epoch_ms: 1_000,
-                observed_at_epoch_ms: 1_900,
-                exclusive_valid_through_epoch_ms: 900_000,
-                clock_epoch: 7,
-            })
-            .await
-            .unwrap();
-
-        // With Execution's read API present but no fact, there is nothing to project from.
-        assert_eq!(
-            owner
-                .commit_capacity_view(&bound_alpha, 5_000)
-                .await
-                .unwrap(),
-            Err(CapacityViewFailure::AccountFactUnavailable)
-        );
-        let opening = execution
-            .commit_account_opening_fact(PaperAccountOpeningDraft {
-                schema_version: PAPER_ACCOUNT_OPENING_SCHEMA_VERSION,
-                binding_locator: binding.locator.clone(),
-                collateral_currency: "USDT".to_string(),
-                collateral_amount: "100000.5".to_string(),
-                observed_at_epoch_ms: 1_950,
-                clock_epoch: 7,
-            })
-            .await
-            .unwrap();
-
-        let view = owner
-            .commit_capacity_view(&bound_alpha, 5_000)
-            .await
-            .unwrap()
-            .unwrap();
-        assert_eq!(
-            view.capacity_scope_identity(),
-            bound_alpha.capacity_scope_identity()
-        );
-        assert!(view.candidate_neutral());
-        assert_eq!(view.notional_gross_ceiling(), 100_000_500_000);
-        assert_eq!(view.gross_ceilings().len(), 1);
-        assert_eq!(view.gross_ceilings()[0].unit, "USDT");
-        assert_eq!(
-            view.pool_methodology_version(),
-            PAPER_COLLATERAL_GROSS_CEILING_V1
-        );
-        assert_eq!(view.liquidity_input_cut_identity(), NO_LIQUIDITY_INPUT_V1);
-        assert_eq!(
-            view.account_fact_cut().sequence,
-            opening.sequence(),
-            "the view cites Execution's own stream sequence"
-        );
-        assert_eq!(
-            view.account_fact_cut().fact_identity,
-            opening.fact_identity()
-        );
-        assert_eq!(
-            view.proof_frontier_identity(),
-            second.proof_frontier_identity()
-        );
-        // Recommitting the same view joins the stored one.
-        assert_eq!(
-            owner
-                .commit_capacity_view(&bound_alpha, 5_000)
-                .await
-                .unwrap()
-                .unwrap(),
-            view
-        );
-        // Governance reads the current ceiling through the Owner's read-only API.
-        let api_view: serde_json::Value =
-            sqlx::query_scalar("SELECT portfolio_api.read_current_capacity_view_v1($1, $2)")
-                .bind(bound_alpha.capacity_scope_identity())
-                .bind(2_500_i64)
-                .fetch_one(&pool)
-                .await
-                .unwrap();
-        assert_eq!(api_view["view_identity"], view.view_identity());
-        let expired: Option<serde_json::Value> =
-            sqlx::query_scalar("SELECT portfolio_api.read_current_capacity_view_v1($1, $2)")
-                .bind(bound_alpha.capacity_scope_identity())
-                .bind(5_000_i64)
-                .fetch_one(&pool)
-                .await
-                .unwrap();
-        assert!(expired.is_none(), "a view past its deadline is not current");
-
-        let untampered = owner
-            .commit_capacity_view(&bound_alpha, 5_000)
-            .await
-            .unwrap();
         let execution_pool = mutation.pool(CanonicalOwnerTestRoleV1::ExecutionWriter);
+        assert_eq!(own_counts(&pool, &suffix).await, (0, 0, 0));
 
-        // A pool denominated in another currency needs a Market Data valuation fact.
-        tamper_opening_collateral(execution_pool, &alpha.account_namespace, "USDC", "100000.5")
-            .await;
-        assert_eq!(
-            owner
-                .commit_capacity_view(&bound_alpha, 5_000)
+        // Everything below displaces the single global registry head this proof captured above, so
+        // the cleanup and the head's restore run whatever a check does: the ordered chain shares
+        // one store, and a displaced head would fail every later Portfolio entry.
+        restore_after_checks(
+            async {
+                // One complete census of two disjoint scopes commits once; an exact replay joins it.
+                let alpha = definition(&suffix, "pool-alpha");
+                let beta = definition(&format!("{suffix}-b"), "pool-beta");
+                let census = vec![alpha.clone(), beta.clone()];
+                let first = owner
+                    .commit_registry_cut(census.clone(), 9_000)
+                    .await
+                    .unwrap();
+                assert!(first.proof_frontier_sequence() > 0);
+                assert_eq!(first.published_scopes().len(), 2);
+                assert_eq!(
+                    owner
+                        .commit_registry_cut(census.clone(), 9_000)
+                        .await
+                        .unwrap(),
+                    first
+                );
+                assert_eq!(own_counts(&pool, &suffix).await, (1, 0, 1));
+                assert_eq!(
+                    owner.read_current_registry_cut().await.unwrap().as_ref(),
+                    Some(&first)
+                );
+
+                // A census whose shared constraint appears twice is refused before any write.
+                let mut overlapping = beta.clone();
+                overlapping
+                    .shared_constraint_identities
+                    .clone_from(&alpha.shared_constraint_identities);
+                assert!(matches!(
+                    owner
+                        .commit_registry_cut(vec![alpha.clone(), overlapping], 9_000)
+                        .await,
+                    Err(CapacityScopeCustodyError::InvalidRegistry(
+                        CapacityScopeFailure::SharedConstraintOverlap { .. }
+                    ))
+                ));
+                // A census naming the same account, mode and pool twice has no unique membership.
+                assert!(matches!(
+                    owner
+                        .commit_registry_cut(vec![alpha.clone(), alpha.clone()], 9_000)
+                        .await,
+                    Err(CapacityScopeCustodyError::InvalidRegistry(
+                        CapacityScopeFailure::ScopeMembershipUnknown
+                    ))
+                ));
+                assert_eq!(own_counts(&pool, &suffix).await, (1, 0, 1));
+
+                // Only the Owner's own derivation seals a BOUND readback.
+                let published = first
+                    .published_scopes()
+                    .iter()
+                    .find(|scope| scope.account_namespace == alpha.account_namespace)
+                    .unwrap()
+                    .clone();
+                let guessed = request(&suffix, &alpha, &first, "sha256:guessed", 1_000);
+                let CapacityScopeResolution::Unavailable(refused) =
+                    owner.resolve_bound_capacity_scope(&guessed).await.unwrap()
+                else {
+                    unreachable!("a guessed scope identity can never bind")
+                };
+                assert_eq!(
+                    refused.failures(),
+                    [CapacityScopeFailure::IdentityMismatch {
+                        field: CapacityScopeIdentityField::CapacityScope
+                    }]
+                );
+                assert_eq!(own_counts(&pool, &suffix).await, (1, 0, 1));
+
+                let exact = request(
+                    &suffix,
+                    &alpha,
+                    &first,
+                    &published.capacity_scope_identity,
+                    1_000,
+                );
+                let CapacityScopeResolution::Bound(bound) =
+                    owner.resolve_bound_capacity_scope(&exact).await.unwrap()
+                else {
+                    unreachable!("the exact Owner-derived request must bind")
+                };
+                assert_eq!(bound.state(), CapacityScopeState::Bound);
+                assert_eq!(bound.maturity(), CapacityScopeMaturity::OwnerCustody);
+                assert_eq!(
+                    bound.capacity_scope_identity(),
+                    published.capacity_scope_identity
+                );
+                assert_eq!(bound.account_namespace(), alpha.account_namespace);
+                assert_eq!(bound.mode(), CapacityScopeMode::Paper);
+                assert_eq!(
+                    bound.proof_frontier_identity(),
+                    first.proof_frontier_identity()
+                );
+                assert_eq!(
+                    bound.proof_frontier_sequence(),
+                    first.proof_frontier_sequence()
+                );
+                assert_eq!(own_counts(&pool, &suffix).await, (1, 1, 1));
+                // Exact replay of the same request joins the same sealed readback.
+                let CapacityScopeResolution::Bound(replayed) =
+                    owner.resolve_bound_capacity_scope(&exact).await.unwrap()
+                else {
+                    unreachable!("exact replay must rebind")
+                };
+                assert_eq!(replayed, bound);
+                assert_eq!(own_counts(&pool, &suffix).await, (1, 1, 1));
+
+                // Governance reads the sealed readback through the Owner's read-only API function.
+                let api: serde_json::Value =
+                    sqlx::query_scalar("SELECT portfolio_api.read_bound_capacity_scope_v1($1)")
+                        .bind(exact.request_identity.clone())
+                        .fetch_one(&pool)
+                        .await
+                        .unwrap();
+                assert_eq!(api["state"], "BOUND");
+                assert_eq!(
+                    api["capacity_scope_identity"],
+                    published.capacity_scope_identity
+                );
+
+                // Every caller expectation is checked against the Owner's own identity.
+                for (mutate, field) in [
+                    (
+                        Box::new(|request: &mut UntrustedCapacityScopeRequest| {
+                            request.expected_registry_cut_identity = "sha256:other".to_string();
+                        }) as Box<dyn Fn(&mut UntrustedCapacityScopeRequest)>,
+                        CapacityScopeIdentityField::RegistryCut,
+                    ),
+                    (
+                        Box::new(|request| {
+                            request.expected_source_binding_identity = "source-other".to_string();
+                        }),
+                        CapacityScopeIdentityField::SourceBinding,
+                    ),
+                    (
+                        Box::new(|request| {
+                            request.expected_adapter_binding_identity = "adapter-other".to_string();
+                        }),
+                        CapacityScopeIdentityField::AdapterBinding,
+                    ),
+                    (
+                        Box::new(|request| {
+                            request.expected_membership_proof_identity = "sha256:other".to_string();
+                        }),
+                        CapacityScopeIdentityField::MembershipProof,
+                    ),
+                    (
+                        Box::new(|request| {
+                            request.expected_proof_frontier_identity = "frontier-other".to_string();
+                        }),
+                        CapacityScopeIdentityField::ProofFrontier,
+                    ),
+                    (
+                        Box::new(|request| request.expected_proof_frontier_sequence = u64::MAX),
+                        CapacityScopeIdentityField::ProofFrontierSequence,
+                    ),
+                ] {
+                    let mut forged = exact.clone();
+                    forged.request_identity = format!("{}-{field:?}", exact.request_identity);
+                    mutate(&mut forged);
+                    let CapacityScopeResolution::Unavailable(readback) =
+                        owner.resolve_bound_capacity_scope(&forged).await.unwrap()
+                    else {
+                        unreachable!("a mismatched expectation can never bind")
+                    };
+                    assert_eq!(
+                        readback.failures(),
+                        [CapacityScopeFailure::IdentityMismatch { field }]
+                    );
+                }
+                assert_eq!(own_counts(&pool, &suffix).await, (1, 1, 1));
+
+                // A proof outside its validity window is stale; the Owner samples the decision time.
+                clock.set(9_000);
+                let stale = request(
+                    &suffix,
+                    &alpha,
+                    &first,
+                    &published.capacity_scope_identity,
+                    9_000,
+                );
+                let CapacityScopeResolution::Unavailable(expired) =
+                    owner.resolve_bound_capacity_scope(&stale).await.unwrap()
+                else {
+                    unreachable!("a proof at its exclusive bound is stale")
+                };
+                assert_eq!(expired.failures(), [CapacityScopeFailure::ProofStale]);
+                clock.set(1_000);
+
+                // The registry is append-only: a successor census advances the head and the old cut stays.
+                clock.set(2_000);
+                let gamma = definition(&format!("{suffix}-c"), "pool-gamma");
+                let second = owner
+                    .commit_registry_cut(vec![alpha.clone(), beta.clone(), gamma], 9_000)
+                    .await
+                    .unwrap();
+                assert_eq!(
+                    second.proof_frontier_sequence(),
+                    first.proof_frontier_sequence() + 1
+                );
+                assert_ne!(
+                    second.registry_cut_identity(),
+                    first.registry_cut_identity()
+                );
+                assert_eq!(own_counts(&pool, &suffix).await, (2, 1, 2));
+                let retained: i64 = sqlx::query_scalar(
+                    "SELECT COUNT(*) FROM portfolio_private.portfolio_capacity_scope_registry_cuts_v1
+                      WHERE proof_frontier_identity = $1",
+                )
+                .bind(first.proof_frontier_identity())
+                .fetch_one(&pool)
                 .await
-                .unwrap(),
-            Err(CapacityViewFailure::ValuationUnavailable {
-                pool_currency: "USDT".to_string(),
-                collateral_currency: "USDC".to_string(),
-            })
-        );
-        // Collateral finer than the fixed ceiling scale is not representable.
-        tamper_opening_collateral(
-            execution_pool,
-            &alpha.account_namespace,
-            "USDT",
-            "1.0000005",
+                .unwrap();
+                assert_eq!(retained, 1, "an earlier cut is never rewritten");
+                assert_eq!(
+                    owner.read_current_registry_cut().await.unwrap().as_ref(),
+                    Some(&second)
+                );
+                // A request bound to the superseded frontier no longer matches the head.
+                let superseded = request(
+                    &format!("{suffix}-old"),
+                    &alpha,
+                    &first,
+                    &published.capacity_scope_identity,
+                    2_000,
+                );
+                let CapacityScopeResolution::Unavailable(old) = owner
+                    .resolve_bound_capacity_scope(&superseded)
+                    .await
+                    .unwrap()
+                else {
+                    unreachable!("a superseded frontier cannot bind against the current head")
+                };
+                assert_eq!(
+                    old.failures(),
+                    [CapacityScopeFailure::IdentityMismatch {
+                        field: CapacityScopeIdentityField::RegistryCut
+                    }]
+                );
+
+                // A Capacity View projects the ceiling from Execution's own committed opening fact, and
+                // binds the frontier that is current when it is measured.
+                clock.set(2_000);
+                let current_published = second
+                    .published_scopes()
+                    .iter()
+                    .find(|scope| scope.account_namespace == alpha.account_namespace)
+                    .unwrap()
+                    .clone();
+                let current_request = request(
+                    &format!("{suffix}-view"),
+                    &alpha,
+                    &second,
+                    &current_published.capacity_scope_identity,
+                    2_000,
+                );
+                let bound_alpha = match owner
+                    .resolve_bound_capacity_scope(&current_request)
+                    .await
+                    .unwrap()
+                {
+                    CapacityScopeResolution::Bound(readback) => *readback,
+                    CapacityScopeResolution::Unavailable(refused) => {
+                        unreachable!(
+                            "alpha is bound at the current head: {:?}",
+                            refused.failures()
+                        )
+                    }
+                };
+                // Execution's own custody publishes the account, through its own production path.
+                let execution = PaperAdapterBindingPostgresV1::connect(
+                    test_database.database_url(CanonicalOwnerTestRoleV1::ExecutionWriter),
+                    format!("execution-node-{suffix}"),
+                    clock.clone(),
+                )
+                .await
+                .unwrap();
+                assert_eq!(
+                    execution_reservation_residue(execution_pool_for_residue, &execution_scope_identity)
+                        .await,
+                    0,
+                    "this proof's Execution Scope identity must hold no namespace reservation yet"
+                );
+                let mode = PaperMode::Paper;
+                let binding = execution
+                    .commit(PaperAdapterBindingDraft {
+                        schema_version: 1,
+                        binding_version: 1,
+                        generation: 1,
+                        mode,
+                        account_namespace: derive_paper_account_namespace(mode, &execution_scope_identity)
+                            .unwrap(),
+                        effect_namespace: derive_paper_effect_namespace(mode, &execution_scope_identity)
+                            .unwrap(),
+                        execution_scope_identity: execution_scope_identity.clone(),
+                        source_account_identity: format!("strategy-account-{suffix}"),
+                        simulator_account_identity: format!("sim-account-{suffix}"),
+                        simulator_endpoint_identity: format!("simulator:endpoint:{suffix}"),
+                        implementation_digest: "11".repeat(32),
+                        configuration_digest: "22".repeat(32),
+                        required_capabilities: vec![
+                            PaperAdapterCapability::SubmitOrder,
+                            PaperAdapterCapability::CancelOrder,
+                            PaperAdapterCapability::OrderReadback,
+                            PaperAdapterCapability::AccountReadback,
+                            PaperAdapterCapability::EnforceableReduceOnly,
+                        ],
+                        reduce_only_policy: ReduceOnlyPolicy::SimulatorRejectIncreaseOrCrossZero,
+                        credential_handle_identity: CredentialHandleIdentity::parse(format!(
+                            "credential-handle-{suffix}"
+                        ))
+                        .unwrap(),
+                        trust_policy_identity: "execution-paper-trust-v1".to_string(),
+                        state: AdapterBindingState::Admitted,
+                        effective_at_epoch_ms: 1_000,
+                        observed_at_epoch_ms: 1_900,
+                        exclusive_valid_through_epoch_ms: 900_000,
+                        clock_epoch: 7,
+                    })
+                    .await
+                    .unwrap();
+
+                // With Execution's read API present but no fact, there is nothing to project from.
+                assert_eq!(
+                    owner
+                        .commit_capacity_view(&bound_alpha, 5_000)
+                        .await
+                        .unwrap(),
+                    Err(CapacityViewFailure::AccountFactUnavailable)
+                );
+                let opening = execution
+                    .commit_account_opening_fact(PaperAccountOpeningDraft {
+                        schema_version: PAPER_ACCOUNT_OPENING_SCHEMA_VERSION,
+                        binding_locator: binding.locator.clone(),
+                        collateral_currency: "USDT".to_string(),
+                        collateral_amount: "100000.5".to_string(),
+                        observed_at_epoch_ms: 1_950,
+                        clock_epoch: 7,
+                    })
+                    .await
+                    .unwrap();
+
+                let view = owner
+                    .commit_capacity_view(&bound_alpha, 5_000)
+                    .await
+                    .unwrap()
+                    .unwrap();
+                assert_eq!(
+                    view.capacity_scope_identity(),
+                    bound_alpha.capacity_scope_identity()
+                );
+                assert!(view.candidate_neutral());
+                assert_eq!(view.notional_gross_ceiling(), 100_000_500_000);
+                assert_eq!(view.gross_ceilings().len(), 1);
+                assert_eq!(view.gross_ceilings()[0].unit, "USDT");
+                assert_eq!(
+                    view.pool_methodology_version(),
+                    PAPER_COLLATERAL_GROSS_CEILING_V1
+                );
+                assert_eq!(view.liquidity_input_cut_identity(), NO_LIQUIDITY_INPUT_V1);
+                assert_eq!(
+                    view.account_fact_cut().sequence,
+                    opening.sequence(),
+                    "the view cites Execution's own stream sequence"
+                );
+                assert_eq!(
+                    view.account_fact_cut().fact_identity,
+                    opening.fact_identity()
+                );
+                assert_eq!(
+                    view.proof_frontier_identity(),
+                    second.proof_frontier_identity()
+                );
+                // Recommitting the same view joins the stored one.
+                assert_eq!(
+                    owner
+                        .commit_capacity_view(&bound_alpha, 5_000)
+                        .await
+                        .unwrap()
+                        .unwrap(),
+                    view
+                );
+                // Governance reads the current ceiling through the Owner's read-only API.
+                let api_view: serde_json::Value =
+                    sqlx::query_scalar("SELECT portfolio_api.read_current_capacity_view_v1($1, $2)")
+                        .bind(bound_alpha.capacity_scope_identity())
+                        .bind(2_500_i64)
+                        .fetch_one(&pool)
+                        .await
+                        .unwrap();
+                assert_eq!(api_view["view_identity"], view.view_identity());
+                let expired: Option<serde_json::Value> =
+                    sqlx::query_scalar("SELECT portfolio_api.read_current_capacity_view_v1($1, $2)")
+                        .bind(bound_alpha.capacity_scope_identity())
+                        .bind(5_000_i64)
+                        .fetch_one(&pool)
+                        .await
+                        .unwrap();
+                assert!(expired.is_none(), "a view past its deadline is not current");
+
+                let untampered = owner
+                    .commit_capacity_view(&bound_alpha, 5_000)
+                    .await
+                    .unwrap();
+
+                // A pool denominated in another currency needs a Market Data valuation fact.
+                tamper_opening_collateral(execution_pool, &alpha.account_namespace, "USDC", "100000.5")
+                    .await;
+                restore_after_checks(
+                    async {
+                        assert_eq!(
+                            owner
+                                .commit_capacity_view(&bound_alpha, 5_000)
+                                .await
+                                .unwrap(),
+                            Err(CapacityViewFailure::ValuationUnavailable {
+                                pool_currency: "USDT".to_string(),
+                                collateral_currency: "USDC".to_string(),
+                            })
+                        );
+                        // Collateral finer than the fixed ceiling scale is not representable.
+                        tamper_opening_collateral(
+                            execution_pool,
+                            &alpha.account_namespace,
+                            "USDT",
+                            "1.0000005",
+                        )
+                        .await;
+                        assert_eq!(
+                            owner
+                                .commit_capacity_view(&bound_alpha, 5_000)
+                                .await
+                                .unwrap(),
+                            Err(CapacityViewFailure::CollateralNotRepresentable {
+                                amount: "1.0000005".to_string()
+                            })
+                        );
+                    },
+                    // Restoring Execution's own values reads back the same view.
+                    async {
+                        tamper_opening_collateral(
+                            execution_pool,
+                            &alpha.account_namespace,
+                            "USDT",
+                            "100000.5",
+                        )
+                        .await;
+                    },
+                )
+                .await;
+                assert_eq!(
+                    owner
+                        .commit_capacity_view(&bound_alpha, 5_000)
+                        .await
+                        .unwrap(),
+                    untampered
+                );
+
+                // Native tampering fails closed, and exact restoration reads back identically.
+                let before_tamper = owner.read_current_registry_cut().await.unwrap();
+                sqlx::query(
+                    "UPDATE portfolio_private.portfolio_capacity_scope_registry_cuts_v1
+                        SET registry_cut_identity = $2
+                      WHERE proof_frontier_identity = $1",
+                )
+                .bind(second.proof_frontier_identity())
+                .bind(format!("sha256:{}", "0".repeat(64)))
+                .execute(&pool)
+                .await
+                .unwrap();
+                restore_after_checks(
+                    async {
+                        assert_eq!(
+                            owner.read_current_registry_cut().await,
+                            Err(CapacityScopeCustodyError::StoreUnavailable)
+                        );
+                    },
+                    async {
+                        sqlx::query(
+                            "UPDATE portfolio_private.portfolio_capacity_scope_registry_cuts_v1
+                        SET registry_cut_identity = $2
+                      WHERE proof_frontier_identity = $1",
+                        )
+                        .bind(second.proof_frontier_identity())
+                        .bind(second.registry_cut_identity())
+                        .execute(&pool)
+                        .await
+                        .unwrap();
+                    },
+                )
+                .await;
+                assert_eq!(
+                    owner.read_current_registry_cut().await.unwrap(),
+                    before_tamper
+                );
+
+                // Foreign Owner roles hold no privilege over Portfolio custody.
+                for role in ["rd_owner", "product_edge_owner", "backtest_owner"] {
+                    let usage: bool = sqlx::query_scalar(
+                        "SELECT pg_catalog.has_schema_privilege($1, 'portfolio_private', 'USAGE')",
+                    )
+                    .bind(role)
+                    .fetch_one(&pool)
+                    .await
+                    .unwrap();
+                    assert!(!usage, "{role} must not use portfolio_private");
+                }
+                assert_eq!(
+                    CapacityScopePostgresV1::connect_existing(
+                        test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
+                        clock.clone()
+                    )
+                    .await
+                    .map(|_| ()),
+                    Err(CapacityScopeCustodyError::StoreUnavailable)
+                );
+                assert!(
+                    sqlx::query(
+                        "SELECT COUNT(*) FROM portfolio_private.portfolio_capacity_scope_registry_cuts_v1"
+                    )
+                    .fetch_one(mutation.pool(CanonicalOwnerTestRoleV1::RdOwner))
+                    .await
+                    .is_err(),
+                    "rd_owner must be denied on Portfolio custody"
+                );
+            },
+            async {
+                cleanup(
+                    &pool,
+                    execution_pool,
+                    &suffix,
+                    &execution_scope_identity,
+                    &format!("execution-node-{suffix}"),
+                )
+                .await;
+                restore_registry_head(&pool, displaced_head).await;
+            },
         )
         .await;
-        assert_eq!(
-            owner
-                .commit_capacity_view(&bound_alpha, 5_000)
-                .await
-                .unwrap(),
-            Err(CapacityViewFailure::CollateralNotRepresentable {
-                amount: "1.0000005".to_string()
-            })
-        );
-        // Restoring Execution's own values reads back the same view.
-        tamper_opening_collateral(execution_pool, &alpha.account_namespace, "USDT", "100000.5")
-            .await;
-        assert_eq!(
-            owner
-                .commit_capacity_view(&bound_alpha, 5_000)
-                .await
-                .unwrap(),
-            untampered
-        );
-
-        // Native tampering fails closed, and exact restoration reads back identically.
-        let before_tamper = owner.read_current_registry_cut().await.unwrap();
-        sqlx::query(
-            "UPDATE portfolio_private.portfolio_capacity_scope_registry_cuts_v1
-                SET registry_cut_identity = $2
-              WHERE proof_frontier_identity = $1",
-        )
-        .bind(second.proof_frontier_identity())
-        .bind(format!("sha256:{}", "0".repeat(64)))
-        .execute(&pool)
-        .await
-        .unwrap();
-        assert_eq!(
-            owner.read_current_registry_cut().await,
-            Err(CapacityScopeCustodyError::StoreUnavailable)
-        );
-        sqlx::query(
-            "UPDATE portfolio_private.portfolio_capacity_scope_registry_cuts_v1
-                SET registry_cut_identity = $2
-              WHERE proof_frontier_identity = $1",
-        )
-        .bind(second.proof_frontier_identity())
-        .bind(second.registry_cut_identity())
-        .execute(&pool)
-        .await
-        .unwrap();
-        assert_eq!(
-            owner.read_current_registry_cut().await.unwrap(),
-            before_tamper
-        );
-
-        // Foreign Owner roles hold no privilege over Portfolio custody.
-        for role in ["rd_owner", "product_edge_owner", "backtest_owner"] {
-            let usage: bool = sqlx::query_scalar(
-                "SELECT pg_catalog.has_schema_privilege($1, 'portfolio_private', 'USAGE')",
-            )
-            .bind(role)
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-            assert!(!usage, "{role} must not use portfolio_private");
-        }
-        assert_eq!(
-            CapacityScopePostgresV1::connect_existing(
-                test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
-                clock.clone()
-            )
-            .await
-            .map(|_| ()),
-            Err(CapacityScopeCustodyError::StoreUnavailable)
-        );
-        assert!(
-            sqlx::query(
-                "SELECT COUNT(*) FROM portfolio_private.portfolio_capacity_scope_registry_cuts_v1"
-            )
-            .fetch_one(mutation.pool(CanonicalOwnerTestRoleV1::RdOwner))
-            .await
-            .is_err(),
-            "rd_owner must be denied on Portfolio custody"
-        );
-
-        cleanup(
-            &pool,
-            execution_pool,
-            &suffix,
-            &execution_scope_identity,
-            &format!("execution-node-{suffix}"),
-        )
-        .await;
-        restore_registry_head(&pool, displaced_head).await;
         assert_eq!(own_counts(&pool, &suffix).await, (0, 0, 0));
         assert_eq!(
             execution_reservation_residue(execution_pool_for_residue, &execution_scope_identity)

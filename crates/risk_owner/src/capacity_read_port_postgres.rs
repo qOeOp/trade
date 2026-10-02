@@ -584,7 +584,9 @@ mod postgres_proof {
             CapacityScopeRegistryCutReceipt, PortfolioOwnerClock,
         },
     };
-    use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
+    use vibe_testkit::postgres::{
+        CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1, restore_after_checks,
+    };
 
     use super::*;
 
@@ -792,171 +794,190 @@ mod postgres_proof {
         // than appending, so it is captured before anything commits and put back at cleanup.
         let displaced_head = registry_head(portfolio_pool).await;
 
-        let clock = FixtureClock::new(1_000_000);
-        let scope_identity = format!("paper-scope-{suffix}");
-        let account_namespace =
-            derive_paper_account_namespace(PaperMode::Paper, &scope_identity).unwrap();
+        // Set once this proof's bound scope exists, so the restore below can remove what the proof
+        // wrote whatever a check does. Before that, nothing of this proof's is in Risk, and its
+        // Portfolio rows carry its own suffix.
+        let bound_cleanup: std::sync::OnceLock<(PgPool, String)> = std::sync::OnceLock::new();
 
-        // Execution commits its own binding and opening collateral fact, through its own custody.
-        let execution = PaperAdapterBindingPostgresV1::connect(
-            test_database.database_url(CanonicalOwnerTestRoleV1::ExecutionWriter),
-            format!("execution-node-{suffix}"),
-            clock.clone(),
-        )
-        .await
-        .unwrap();
-        let binding = execution
-            .commit(binding_draft(&scope_identity, clock.get()))
-            .await
-            .unwrap();
-        execution
-            .commit_account_opening_fact(PaperAccountOpeningDraft {
-                schema_version: PAPER_ACCOUNT_OPENING_SCHEMA_VERSION,
-                binding_locator: binding.locator.clone(),
-                collateral_currency: "USDT".to_string(),
-                collateral_amount: "100000.5".to_string(),
-                observed_at_epoch_ms: clock.get(),
-                clock_epoch: 7,
-            })
-            .await
-            .unwrap();
+        // Everything below moves the single global registry head captured above, so the cleanup
+        // and the head's restore run whatever a check does: the ordered chain shares one store,
+        // and a displaced head would fail every later Portfolio and Risk entry.
+        restore_after_checks(
+            async {
+                let clock = FixtureClock::new(1_000_000);
+                let scope_identity = format!("paper-scope-{suffix}");
+                let account_namespace =
+                    derive_paper_account_namespace(PaperMode::Paper, &scope_identity).unwrap();
 
-        // Portfolio binds the scope and projects the view, through its own custody.
-        let portfolio = CapacityScopePostgresV1::connect(
-            test_database.database_url(CanonicalOwnerTestRoleV1::PortfolioWriter),
-            clock.clone(),
-        )
-        .await
-        .unwrap();
-        let definition = CapacityScopeDefinitionProposal {
-            account_namespace: account_namespace.clone(),
-            mode: CapacityScopeMode::Paper,
-            economic_pool_identity: format!("pool-{suffix}"),
-            economic_pool_currency: "USDT".to_string(),
-            source_binding_identity: format!("source-binding-{suffix}"),
-            adapter_binding_identity: binding.locator.fact_identity.clone(),
-            shared_constraint_identities: vec![format!("constraint-{suffix}")],
-        };
-        let cut = portfolio
-            .commit_registry_cut(vec![definition.clone()], clock.get() + 200_000)
-            .await
-            .unwrap();
-        let bound = bind_capacity_scope(&portfolio, &definition, &cut, clock.get(), &suffix).await;
-        let view = portfolio
-            .commit_capacity_view(&bound, clock.get() + 50_000)
-            .await
-            .unwrap()
-            .unwrap();
-
-        let risk = RiskCapacityReadPortPostgresV1::connect(
-            test_database.database_url(CanonicalOwnerTestRoleV1::RiskWriter),
-            clock.clone(),
-        )
-        .await
-        .unwrap();
-        let pool = risk.pool().clone();
-        let request_identity = bound.fingerprint().request_identity().to_string();
-        assert_eq!(own_count(&pool, bound.capacity_scope_identity()).await, 0);
-
-        // The positive path: one observation, sealed from what Portfolio currently publishes.
-        let CapacityObservation::Sealed(sealed) =
-            risk.observe_capacity(&request_identity).await.unwrap()
-        else {
-            panic!("Portfolio publishes a current view, so this must seal");
-        };
-        assert_eq!(
-            sealed.capacity_scope_identity,
-            bound.capacity_scope_identity()
-        );
-        assert_eq!(sealed.account_namespace, account_namespace);
-        assert_eq!(
-            sealed.portfolio_proof_frontier_identity,
-            view.proof_frontier_identity()
-        );
-        assert_eq!(
-            sealed.account_fact_identity,
-            view.account_fact_cut().fact_identity
-        );
-        assert_eq!(sealed.valid_through_epoch_ms, clock.get() + 50_000);
-        assert_eq!(own_count(&pool, bound.capacity_scope_identity()).await, 1);
-
-        // Observing the same evidence cut again joins the first row rather than appending one,
-        // because the identity is derived from observed content and never from observation time.
-        let CapacityObservation::Replayed(replayed) =
-            risk.observe_capacity(&request_identity).await.unwrap()
-        else {
-            panic!("a second observation of one evidence cut is the same fact");
-        };
-        assert_eq!(replayed.observation_identity, sealed.observation_identity);
-        assert_eq!(own_count(&pool, bound.capacity_scope_identity()).await, 1);
-
-        // Each refusal names its own cause. A single `Unavailable` could not tell a caller
-        // whether the fact is missing, expired, or shaped in a way this Owner cannot read.
-        assert_eq!(
-            risk.observe_capacity(&format!("absent-request-{suffix}"))
+                // Execution commits its own binding and opening collateral fact, through its own custody.
+                let execution = PaperAdapterBindingPostgresV1::connect(
+                    test_database.database_url(CanonicalOwnerTestRoleV1::ExecutionWriter),
+                    format!("execution-node-{suffix}"),
+                    clock.clone(),
+                )
                 .await
-                .unwrap(),
-            CapacityObservation::Refused(CapacityObservationRefusal::FactUnavailable)
-        );
+                .unwrap();
+                let binding = execution
+                    .commit(binding_draft(&scope_identity, clock.get()))
+                    .await
+                    .unwrap();
+                execution
+                    .commit_account_opening_fact(PaperAccountOpeningDraft {
+                        schema_version: PAPER_ACCOUNT_OPENING_SCHEMA_VERSION,
+                        binding_locator: binding.locator.clone(),
+                        collateral_currency: "USDT".to_string(),
+                        collateral_amount: "100000.5".to_string(),
+                        observed_at_epoch_ms: clock.get(),
+                        clock_epoch: 7,
+                    })
+                    .await
+                    .unwrap();
 
-        // Past the view's validity the fact is present but no longer current. Portfolio's read
-        // function returns NULL for both that and "no view at all", so this Owner asks a second
-        // question to tell them apart rather than refusing under one name.
-        clock.set(1_000_000 + 60_000);
-        assert_eq!(
-            risk.observe_capacity(&request_identity).await.unwrap(),
-            CapacityObservation::Refused(CapacityObservationRefusal::FactExpired)
-        );
-        clock.set(1_000_000);
+                // Portfolio binds the scope and projects the view, through its own custody.
+                let portfolio = CapacityScopePostgresV1::connect(
+                    test_database.database_url(CanonicalOwnerTestRoleV1::PortfolioWriter),
+                    clock.clone(),
+                )
+                .await
+                .unwrap();
+                let definition = CapacityScopeDefinitionProposal {
+                    account_namespace: account_namespace.clone(),
+                    mode: CapacityScopeMode::Paper,
+                    economic_pool_identity: format!("pool-{suffix}"),
+                    economic_pool_currency: "USDT".to_string(),
+                    source_binding_identity: format!("source-binding-{suffix}"),
+                    adapter_binding_identity: binding.locator.fact_identity.clone(),
+                    shared_constraint_identities: vec![format!("constraint-{suffix}")],
+                };
+                let cut = portfolio
+                    .commit_registry_cut(vec![definition.clone()], clock.get() + 200_000)
+                    .await
+                    .unwrap();
+                let bound = bind_capacity_scope(&portfolio, &definition, &cut, clock.get(), &suffix).await;
+                let view = portfolio
+                    .commit_capacity_view(&bound, clock.get() + 50_000)
+                    .await
+                    .unwrap()
+                    .unwrap();
 
-        // A readback this Owner cannot interpret refuses under its own name and writes nothing.
-        // The tamper is restored immediately: the chain database is shared and never reset.
-        let original: serde_json::Value = sqlx::query_scalar(
-            "SELECT view_json FROM portfolio_private.portfolio_capacity_views_v1 \
-              WHERE capacity_scope_identity = $1",
-        )
-        .bind(bound.capacity_scope_identity())
-        .fetch_one(portfolio_pool)
-        .await
-        .unwrap();
-        sqlx::query(
-            "UPDATE portfolio_private.portfolio_capacity_views_v1 \
-                SET view_json = view_json - 'gross_ceilings' \
-              WHERE capacity_scope_identity = $1",
-        )
-        .bind(bound.capacity_scope_identity())
-        .execute(portfolio_pool)
-        .await
-        .unwrap();
-        assert_eq!(
-            risk.observe_capacity(&request_identity).await.unwrap(),
-            CapacityObservation::Refused(CapacityObservationRefusal::ReadbackMalformed)
-        );
-        assert_eq!(own_count(&pool, bound.capacity_scope_identity()).await, 1);
-        sqlx::query(
-            "UPDATE portfolio_private.portfolio_capacity_views_v1 SET view_json = $2 \
-              WHERE capacity_scope_identity = $1",
-        )
-        .bind(bound.capacity_scope_identity())
-        .bind(&original)
-        .execute(portfolio_pool)
-        .await
-        .unwrap();
+                let risk = RiskCapacityReadPortPostgresV1::connect(
+                    test_database.database_url(CanonicalOwnerTestRoleV1::RiskWriter),
+                    clock.clone(),
+                )
+                .await
+                .unwrap();
+                let pool = risk.pool().clone();
+                bound_cleanup
+                    .set((pool.clone(), bound.capacity_scope_identity().to_owned()))
+                    .expect("the bound scope is recorded once");
+                let request_identity = bound.fingerprint().request_identity().to_string();
+                assert_eq!(own_count(&pool, bound.capacity_scope_identity()).await, 0);
 
-        // `UpstreamCustodyNotDeployed` is deliberately not asserted here. It needs a database
-        // where `portfolio_api` does not exist, and on the ordered chain's shared database
-        // Portfolio's custody is already materialised before this entry runs. Driving it would
-        // mean dropping another Owner's schema, which is destroying state this proof does not own.
+                // The positive path: one observation, sealed from what Portfolio currently publishes.
+                let CapacityObservation::Sealed(sealed) =
+                    risk.observe_capacity(&request_identity).await.unwrap()
+                else {
+                    panic!("Portfolio publishes a current view, so this must seal");
+                };
+                assert_eq!(
+                    sealed.capacity_scope_identity,
+                    bound.capacity_scope_identity()
+                );
+                assert_eq!(sealed.account_namespace, account_namespace);
+                assert_eq!(
+                    sealed.portfolio_proof_frontier_identity,
+                    view.proof_frontier_identity()
+                );
+                assert_eq!(
+                    sealed.account_fact_identity,
+                    view.account_fact_cut().fact_identity
+                );
+                assert_eq!(sealed.valid_through_epoch_ms, clock.get() + 50_000);
+                assert_eq!(own_count(&pool, bound.capacity_scope_identity()).await, 1);
 
-        cleanup(
-            &pool,
-            portfolio_pool,
-            execution_pool,
-            &suffix,
-            bound.capacity_scope_identity(),
+                // Observing the same evidence cut again joins the first row rather than appending one,
+                // because the identity is derived from observed content and never from observation time.
+                let CapacityObservation::Replayed(replayed) =
+                    risk.observe_capacity(&request_identity).await.unwrap()
+                else {
+                    panic!("a second observation of one evidence cut is the same fact");
+                };
+                assert_eq!(replayed.observation_identity, sealed.observation_identity);
+                assert_eq!(own_count(&pool, bound.capacity_scope_identity()).await, 1);
+
+                // Each refusal names its own cause. A single `Unavailable` could not tell a caller
+                // whether the fact is missing, expired, or shaped in a way this Owner cannot read.
+                assert_eq!(
+                    risk.observe_capacity(&format!("absent-request-{suffix}"))
+                        .await
+                        .unwrap(),
+                    CapacityObservation::Refused(CapacityObservationRefusal::FactUnavailable)
+                );
+
+                // Past the view's validity the fact is present but no longer current. Portfolio's read
+                // function returns NULL for both that and "no view at all", so this Owner asks a second
+                // question to tell them apart rather than refusing under one name.
+                clock.set(1_000_000 + 60_000);
+                assert_eq!(
+                    risk.observe_capacity(&request_identity).await.unwrap(),
+                    CapacityObservation::Refused(CapacityObservationRefusal::FactExpired)
+                );
+                clock.set(1_000_000);
+
+                // A readback this Owner cannot interpret refuses under its own name and writes nothing.
+                // The tamper is restored immediately: the chain database is shared and never reset.
+                let original: serde_json::Value = sqlx::query_scalar(
+                    "SELECT view_json FROM portfolio_private.portfolio_capacity_views_v1 \
+                      WHERE capacity_scope_identity = $1",
+                )
+                .bind(bound.capacity_scope_identity())
+                .fetch_one(portfolio_pool)
+                .await
+                .unwrap();
+                sqlx::query(
+                    "UPDATE portfolio_private.portfolio_capacity_views_v1 \
+                        SET view_json = view_json - 'gross_ceilings' \
+                      WHERE capacity_scope_identity = $1",
+                )
+                .bind(bound.capacity_scope_identity())
+                .execute(portfolio_pool)
+                .await
+                .unwrap();
+                restore_after_checks(
+                    async {
+                        assert_eq!(
+                            risk.observe_capacity(&request_identity).await.unwrap(),
+                            CapacityObservation::Refused(CapacityObservationRefusal::ReadbackMalformed)
+                        );
+                        assert_eq!(own_count(&pool, bound.capacity_scope_identity()).await, 1);
+                    },
+                    async {
+                        sqlx::query(
+                            "UPDATE portfolio_private.portfolio_capacity_views_v1 SET view_json = $2 \
+                      WHERE capacity_scope_identity = $1",
+                        )
+                        .bind(bound.capacity_scope_identity())
+                        .bind(&original)
+                        .execute(portfolio_pool)
+                        .await
+                        .unwrap();
+                    },
+                )
+                .await;
+
+                // `UpstreamCustodyNotDeployed` is deliberately not asserted here. It needs a database
+                // where `portfolio_api` does not exist, and on the ordered chain's shared database
+                // Portfolio's custody is already materialised before this entry runs. Driving it would
+                // mean dropping another Owner's schema, which is destroying state this proof does not own.
+            },
+            async {
+                if let Some((pool, scope_identity)) = bound_cleanup.get() {
+                    cleanup(pool, portfolio_pool, execution_pool, &suffix, scope_identity).await;
+                }
+                restore_registry_head(portfolio_pool, displaced_head).await;
+            },
         )
         .await;
-        restore_registry_head(portfolio_pool, displaced_head).await;
         assert_eq!(
             (
                 schema_snapshot(risk_pool, "risk_private").await,

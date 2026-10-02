@@ -10,7 +10,9 @@ use vibe_scanner::{
     AttemptId, DueSlotBoundary, LocalDateTime, OpaqueId, ScannerReceipt, Version,
     VersionedIdentity, encode_attempt_id_v1, parse_untrusted_terminal_receipt_v1,
 };
-use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
+use vibe_testkit::postgres::{
+    CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1, restore_after_checks,
+};
 
 use crate::vectors::{CANONICAL_ATTEMPT_KEY_V1_HEX, CANONICAL_RECEIPT_V1_HEX, bytes};
 use crate::{
@@ -131,49 +133,58 @@ async fn terminal_receipt_custody_commits_joins_refuses_and_reads_back_to_produc
     .execute(&audit)
     .await
     .expect("the writer may place a row under its own key");
-    let fault = reader_store
-        .product_edge_terminal_receipts()
-        .read(&unrelated_attempt())
-        .await
-        .expect_err("bytes that do not reconstruct are a custody fault");
-    assert!(
-        matches!(
-            fault,
-            ProductEdgeReceiptReadError::StoreSemanticConflict { .. }
-        ),
-        "a held row that is not a receipt must not read as an absent one, found {fault:?}"
-    );
+    restore_after_checks(
+        async {
+            let fault = reader_store
+                .product_edge_terminal_receipts()
+                .read(&unrelated_attempt())
+                .await
+                .expect_err("bytes that do not reconstruct are a custody fault");
+            assert!(
+                matches!(
+                    fault,
+                    ProductEdgeReceiptReadError::StoreSemanticConflict { .. }
+                ),
+                "a held row that is not a receipt must not read as an absent one, found {fault:?}"
+            );
 
-    // Offering a different receipt for an attempt custody already holds is refused, not overwritten.
-    let conflicting = ScannerTerminalReceiptCustodyV1::connect(writer_url)
-        .await
-        .expect("a second writer connection");
-    sqlx::query(sqlx::AssertSqlSafe(
-        "UPDATE scanner_private.terminal_receipts_v1 SET canonical_bytes = $2 \
+            // Offering a different receipt for an attempt custody already holds is refused, not
+            // overwritten.
+            let conflicting = ScannerTerminalReceiptCustodyV1::connect(writer_url)
+                .await
+                .expect("a second writer connection");
+            sqlx::query(sqlx::AssertSqlSafe(
+                "UPDATE scanner_private.terminal_receipts_v1 SET canonical_bytes = $2 \
          WHERE attempt_key = $1"
-            .to_owned(),
-    ))
-    .bind(&key)
-    .bind(b"a different receipt for the same attempt".to_vec())
-    .execute(&audit)
-    .await
-    .expect("the writer may tamper with its own row");
-    assert!(
-        matches!(
-            conflicting.commit_or_join_receipt(&receipt).await,
-            Err(TerminalReceiptCustodyError::ConflictingReceipt { .. })
-        ),
-        "custody refuses to replace a receipt it already holds"
-    );
-
-    // Clean up exactly the two keys this proof wrote, and prove it by the same count it opened with.
-    sqlx::query(sqlx::AssertSqlSafe(
-        "DELETE FROM scanner_private.terminal_receipts_v1 WHERE attempt_key = ANY($1)".to_owned(),
-    ))
-    .bind(&owned_keys)
-    .execute(&audit)
-    .await
-    .expect("this proof removes what it wrote");
+                    .to_owned(),
+            ))
+            .bind(&key)
+            .bind(b"a different receipt for the same attempt".to_vec())
+            .execute(&audit)
+            .await
+            .expect("the writer may tamper with its own row");
+            assert!(
+                matches!(
+                    conflicting.commit_or_join_receipt(&receipt).await,
+                    Err(TerminalReceiptCustodyError::ConflictingReceipt { .. })
+                ),
+                "custody refuses to replace a receipt it already holds"
+            );
+        },
+        async {
+            // Clean up exactly the two keys this proof wrote, and prove it by the same count it
+            // opened with.
+            sqlx::query(sqlx::AssertSqlSafe(
+                "DELETE FROM scanner_private.terminal_receipts_v1 WHERE attempt_key = ANY($1)"
+                    .to_owned(),
+            ))
+            .bind(&owned_keys)
+            .execute(&audit)
+            .await
+            .expect("this proof removes what it wrote");
+        },
+    )
+    .await;
     let after = rows_for_proof_keys(&audit, &owned_keys).await;
     assert_eq!(
         after, before,
