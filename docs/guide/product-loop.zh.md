@@ -79,30 +79,41 @@ R&D 拥有 Strategy Artifact 身份并包含 Develop 能力。独立 Backtest Ow
 Protected Evaluation 与研发隔离。Qualification 只发布资格或撤销事实，既不启动策略，也不把
 保护结果反馈同一个研发循环。
 
-## 4. 管理策略生命周期
+## 4. 记录前向证据
+
+`TARGET`。一个 `QUALIFIED` 的候选还不会被提议进入模拟盘。它先经过一个由 Qualification 拥有、只做记录的前向阶段。在第一个
+前向 cut 之前，候选的 Forward Registration 固定中期日与决策日、淘汰线、准入线以及 Wald 序贯检验的参数，并写明每一项的推导
+方式。Backtest 在每个新观察到的点时 cut 上，用为它资格评估时的同一个事件驱动模拟器回放候选的 Artifact：同样的订单类型
+（限价、止损、有效期与到期、撤单）、同样的决策节奏，以及同样的成本、滑点与容量模型，模拟的订单与持仓从一个 cut 延续到
+下一个 cut。这一阶段不触碰 Runtime、Strategy Instance、Execution 适配器、凭据或资金。越过淘汰线或检验的淘汰边界即撤销
+该候选的资格。到决策日，候选被准入、被淘汰或继续记录，准入只表示它可以被提议进行模拟盘激活。每个登记过的候选，其记录
+与结果都要报告，被淘汰的也不例外。
+
+## 5. 管理策略生命周期
 
 Strategy Governance 综合资格 表现 暴露 事故 对账差异和资金政策。它拥有授权 生命周期状态 允许资金
 比例和生效时间。每个已接受 generation 决定保留完整请求 Authorization Lineage，无人值守交易还
 绑定独立 Autonomous Policy Authorization；Runtime 单独证明 `APPLIED`。降权 暂停和退役使用只减
-不增效果链，未知效果进入 Recovery。
+不增效果链，未知效果进入 Recovery。模拟盘的 `INITIAL_ACTIVATION` 另外要求该候选当前有一个正向的 Forward Decision
+（`TARGET`）；它是必要条件，从来不是充分条件，激活原本要求的每一项授权仍然适用。
 
 活动状态只有绑定新鲜必需 Eligibility Performance Exposure degradation 证据才能续期。任一证据
 丢失或过期都提交 `DE_RISK_PENDING` 并移除新增风险权限，同时保留 decrease-only 安全动作直到
 generation 降权 暂停 退役或完成恢复。
 
-## 5. 寻找部署机会
+## 6. 寻找部署机会
 
 Scanner 是定时运行的慢轨。它加载可部署工件引用与激活条件，冻结市场快照，匹配当前条件，
 再向 Governance 提交可审计提案。逐策略隔离评估，数据不足只阻断对应策略，其他完整匹配仍可进入同一 batch 提案。Scanner 永不启动 Runtime。
 
-## 6. 经过唯一控制链交易
+## 7. 经过唯一控制链交易
 
 模拟与实盘共享同一个 Strategy Instance、交易意图、Risk 决定、一次性预留、订单命令、
 效果日志、对账和 Portfolio 反馈语义。Runtime 是正常交易意图的唯一写入者，只有 Execution
 适配器会因模拟或实盘模式而不同。每个效果都保留完整请求 Authorization Lineage；无人值守效果还
 必须从 Governance 一直保留 Autonomous Policy Authorization 到最终 Execution 回读。
 
-## 7. 恢复到已知闭合
+## 8. 恢复到已知闭合
 
 Recovery 把每个 initiating cause 分类为 `RUNTIME_NOT_READY` `RUNTIME_INCIDENT`
 `RECONCILIATION_DRIFT` 或 `RISK_HARD_STOP`。不同已准入原因同时出现时在同一 Recovery Case 组合，但不要求另一分支的证据。Runtime

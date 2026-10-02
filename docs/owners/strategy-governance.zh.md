@@ -98,10 +98,11 @@ testkit 或 acceptance feature 的生产路径；其余各行不授予任何东�
   Product Edge 点名的字段，以及绑定它的 Product Edge 生命周期请求入口。
 - **TARGET - 交接与持久化：** 没有通向 Qualification、Scanner、Portfolio、Runtime、Execution 或 Risk 的 port，也没有
   任何 Governance 事实的持久关系。
+- **TARGET - 模拟盘激活的 Forward Decision 关卡：** 静态的 `INITIAL_ACTIVATION` 切片不读取任何 Forward Decision。
 
 ## 输入交接
 
-- [Qualification](./qualification/) 提供绑定准确 Candidate 事实 经济条件 已评估成本容量模型和资格容量版本的已提交 Eligibility State 与 Revocation 事实。
+- [Qualification](./qualification/) 提供绑定准确 Candidate 事实 经济条件 已评估成本容量模型和资格容量版本的已提交 Eligibility State 与 Revocation 事实。`TARGET`：它还提供当前的 Forward Decision，模拟盘 `INITIAL_ACTIVATION` 要绑定同一 Eligibility Fact 当前的 `FORWARD_ADMITTED` 决策；其他、缺失或未知的 Forward Decision 一律提交 `REJECTED_NO_WRITE`。
 - [Scanner](./scanner/) 每轮提交一个终态 Scanner Receipt；条件激活必须绑定与决定目标拥有相同策略条目 ArtifactRef 和条件版本的准确 matched proposal member。
 - [Portfolio](./portfolio/) 提供 Portfolio Lifecycle Evidence Receipt。`INITIAL_ACTIVATION` 绑定预先存在
   Capacity Scope 的新鲜候选无关 gross Capacity View；`PROMOTION` 还必须按自身 `PROMOTION`
