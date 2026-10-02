@@ -183,17 +183,6 @@ impl StrategyArtifact {
     pub(crate) fn wasm(&self) -> &[u8] {
         &self.wasm
     }
-
-    pub(crate) fn program_profile(&self) -> &ProgramProfileV1 {
-        &self.profile
-    }
-
-    pub(crate) fn verify_parameters(&self, parameters: &[u8]) -> Result<(), ArtifactError> {
-        if self.identity.parameters_digest.as_deref() != Some(digest(parameters).as_str()) {
-            return Err(ArtifactError::Binding);
-        }
-        Ok(())
-    }
 }
 
 pub(crate) fn digest(bytes: &[u8]) -> String {
@@ -213,7 +202,7 @@ mod tests {
             Some("blake3:spec".to_string()),
             Some("parameter/full".to_string()),
             Some(b"frozen-parameters".to_vec()),
-            crate::family_adapters::verified_price_build().expect("sealed price build"),
+            crate::verified_price_build::verified_price_build().expect("sealed price build"),
         )
     }
 

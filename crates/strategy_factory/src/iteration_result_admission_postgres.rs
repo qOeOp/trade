@@ -1041,16 +1041,46 @@ mod tests {
                 .is_some()
         );
 
+        // The outbox tamper is restored too: the ordered chain shares one store, and a later entry
+        // that reads this admission's event would otherwise meet the forged digest.
+        let original_payload_digest: String = sqlx::query_scalar(
+            "SELECT payload_digest FROM rd_owner_outbox_v1 WHERE aggregate_identity=$1",
+        )
+        .bind(readback.admission().admission_identity())
+        .fetch_one(&pool)
+        .await
+        .expect("outbox digest before the tamper");
         sqlx::query("UPDATE rd_owner_outbox_v1 SET payload_digest=$2 WHERE aggregate_identity=$1")
             .bind(readback.admission().admission_identity())
             .bind(format!("sha256:{}", "f".repeat(64)))
             .execute(&pool)
             .await
             .expect("outbox tamper fixture");
-        assert!(matches!(
-            resolve_iteration_result_admission_v1(&pool, &locator).await,
-            Err(IterationResultAdmissionErrorV1::Storage(_))
-        ));
+        restore_after_checks(
+            async {
+                assert!(matches!(
+                    resolve_iteration_result_admission_v1(&pool, &locator).await,
+                    Err(IterationResultAdmissionErrorV1::Storage(_))
+                ));
+            },
+            async {
+                sqlx::query(
+                    "UPDATE rd_owner_outbox_v1 SET payload_digest=$2 WHERE aggregate_identity=$1",
+                )
+                .bind(readback.admission().admission_identity())
+                .bind(&original_payload_digest)
+                .execute(&pool)
+                .await
+                .expect("outbox restore");
+            },
+        )
+        .await;
+        assert!(
+            resolve_iteration_result_admission_v1(&pool, &locator)
+                .await
+                .expect("admission resolves after the outbox restore")
+                .is_some()
+        );
     }
 
     #[tokio::test]

@@ -119,7 +119,10 @@ ACL 拒绝。它不证明供应商真实性，不证明生产装配，也不证�
   admission 直接用它们连接，而不经过 store-admission custodian - PIT intake、Source Binding、universe selection、
   strategy-input binding（两条 DSN 都用）、Instrument Master 与 Market Semantics，由 `main.rs` 中的
   `bootstrap_market_data_*` 函数组装。它们唯一的门是角色与拓扑检查 `MarketDataOwnerPostgres::ADMISSION_SQL_V1`。
-  在这两条 DSN 以租用句柄的形式搬到 custodian 之后以前，`B3` 带来的是防替换 - 一个签过名、处于当前、经直接测量的库 -
+  带 `composer-replay-issuance` 的构建还持有第三条：`INSTRUMENT_OWNER_DATABASE_URL`，即主体 `instrument_owner`，
+  `instrument_economic_terms_postgres_owner_from_environment_v1` 用它同样直接打开 economic-terms Owner。compose
+  文件对每个镜像都要求它，因为带这个 feature 的构建缺了它就起不来。在这些 DSN 以租用句柄的形式搬到 custodian
+  之后以前，`B3` 带来的是防替换 - 一个签过名、处于当前、经直接测量的库 -
   而不是凭据隔离。
   下文 `ISOLATED_EVENT_REPLAY_ACCEPTANCE_V1` 有两处表述与代码尚不一致；都不挡生产路线。该档要求由单独执行的主体测量
   目标，而 `DirectMeasurer` 是在 custodian 内用租到的凭据测量。该档还要求准入回执交叉绑定 trust bundle，而
