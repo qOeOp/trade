@@ -165,12 +165,13 @@ never runs in CI.
   anti-rollback property does not hold, the mode says so in every receipt, and the architecture rules carry the
   user's 2026-09-27 authorization. The fifth is the direct measurer for a deployment's store,
   `PinnedTlsPostgresDirectMeasurer` (`store_admission/postgres.rs`, with its TLS leg in
-  `store_admission/tls_relay.rs`). sqlx cannot report which certificate a session's server presented, and its verified
+  `crates/postgres_connect/src/pinned_tls.rs`). sqlx cannot report which certificate a session's server presented, and its verified
   modes trust the public web PKI beside any root they are given, so the measurer connects on its own: it sends
   PostgreSQL's `SSLRequest`, completes TLS 1.3 trusting only the root one PEM file pins, and carries sqlx's session to
   the server through a private Unix socket. Its TLS identity names the certificate that server presented and the pinned
   root, and the server's `pg_stat_ssl` must agree on TLS, protocol and cipher. Every admitted read reaches the store
-  the same way, because the admission records the measurer's transport and each read opens its session over it. The
+  the same way: the admission records the measurer's transport, bound to the certificate it measured, and each read
+  opens its session over it and is refused unless its server presents that certificate. The
   deployment's PostgreSQL does not serve TLS yet; turning it on belongs to composing these adapters.
   The administrator seals and publishes the history with
   `deployment-store-publication-seal` and `deployment-store-publication-publish`; `product/rd-workbench/README.md`

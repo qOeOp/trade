@@ -12,9 +12,9 @@
 //! make: options parsed or built elsewhere, whatever they carry, reach no connection until they
 //! state their TLS. A mode the URL carries is overridden by the stated one, and so is `PGSSLMODE`.
 //!
-//! One connection is verified TLS: [`pinned_tls::connect_pinned`], whose TLS trusts exactly one
-//! pinned root. It does not use a sqlx TLS backend, which would trust the public web PKI beside
-//! that root; it carries a plaintext sqlx leg over its own pinned connection instead.
+//! One connection is verified TLS: `pinned_tls::connect_pinned` (Unix only), whose TLS trusts
+//! exactly one pinned root. It does not use a sqlx TLS backend, which would trust the public web
+//! PKI beside that root; it carries a plaintext sqlx leg over its own pinned connection instead.
 
 // This crate is the one place those entry points are allowed.
 #![allow(
@@ -36,7 +36,7 @@ pub mod pinned_tls;
 pub enum PostgresTls {
     /// Plaintext. No TLS backend is compiled into the workspace, so a connection sqlx makes is
     /// plaintext; this says so where it happens. A connection that needs verified TLS is opened by
-    /// [`pinned_tls::connect_pinned`], whose own sqlx leg is this one, ending inside the process.
+    /// `pinned_tls::connect_pinned`, whose own sqlx leg is this one, ending inside the process.
     Disabled,
 }
 

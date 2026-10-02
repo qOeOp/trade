@@ -1944,7 +1944,11 @@ impl Custodian {
         Ok(AdmittedMarketDataPostgresCapability {
             receipt,
             credential_lease: lease,
-            store_transport: self.measurer.transport(),
+            // Every read then requires its own session's server to present the measured certificate.
+            store_transport: self
+                .measurer
+                .transport()
+                .bound_to(&measurement.tls_identity),
             measurement_spec: latest.measurement_spec.clone(),
             revalidator: self.revalidator(),
             scope,
@@ -3922,14 +3926,24 @@ mod tests {
         );
     }
 
+    /// The plaintext transport reaches only a loopback `vibe_test_` database, and no URL parameter
+    /// moves it: the measurer and an admitted read alike refuse before connecting.
+    #[rstest]
+    #[case::an_override_parameter(
+        "postgresql://rd_owner@127.0.0.1/vibe_test_decoy?hostaddr=192.0.2.1"
+    )]
+    #[case::a_remote_host("postgresql://rd_owner@db.example/vibe_test_decoy")]
+    #[case::a_database_not_for_tests("postgresql://rd_owner@127.0.0.1/rd_owner")]
     #[tokio::test]
-    async fn postgres_target_override_parameters_fail_before_connection() {
+    async fn the_plaintext_transport_refuses_any_target_but_a_loopback_test_database(
+        #[case] database_url: &str,
+    ) {
         let lease = PostgresCredentialLease::from_resolved_secret(
             "test-handle",
             RD_OWNER_API_CONSUMER,
             "test-v1",
             NOW + 1,
-            "postgresql://rd_owner@127.0.0.1/vibe_test_decoy?hostaddr=192.0.2.1".to_string(),
+            database_url.to_string(),
         )
         .unwrap();
         let spec = PostgresMeasurementSpec::new(
@@ -3942,6 +3956,16 @@ mod tests {
 
         assert_eq!(
             PostgresDirectMeasurer.measure(&lease, &spec).await,
+            Err(PostgresMeasurementError::InvalidTarget)
+        );
+        assert_eq!(
+            postgres::read_bar_schedule_candidate_snapshots_v1(
+                &lease,
+                &postgres::StoreTransport::DisposableLoopback,
+                "VIBE-TARGET-POLICY",
+            )
+            .await
+            .map(|_| ()),
             Err(PostgresMeasurementError::InvalidTarget)
         );
     }
@@ -5409,6 +5433,35 @@ mod tests {
         .admit_capability(fixture.request.scope())
         .await
         .expect("the pinned measurement satisfies the recorded manifest");
+        // The capability's transport is bound to the certificate measured: a read whose server
+        // presents any other is refused, and one bound to the measured certificate reads.
+        let postgres::StoreTransport::PinnedTls { root, .. } = pinned.transport() else {
+            unreachable!("the pinned measurer's transport is pinned")
+        };
+        let bound_elsewhere = postgres::StoreTransport::PinnedTls {
+            root,
+            peer_certificate_identity: Some(format!("sha256:{}", "0".repeat(64))),
+        };
+        assert_eq!(
+            postgres::read_bar_schedule_candidate_snapshots_v1(
+                &tls_only,
+                &bound_elsewhere,
+                "VIBE-PINNED-TLS-PROOF",
+            )
+            .await
+            .map(|_| ()),
+            Err(PostgresMeasurementError::TlsIdentityUnavailable)
+        );
+        assert_eq!(
+            postgres::read_bar_schedule_candidate_snapshots_v1(
+                &tls_only,
+                &pinned.transport().bound_to(&expected_tls),
+                "VIBE-PINNED-TLS-PROOF",
+            )
+            .await
+            .map(|candidates| candidates.len()),
+            Ok(0)
+        );
         let port = capability
             .into_native_replay_scheduling_snapshot_port_v2()
             .expect("the measurement covers the scheduling floors");

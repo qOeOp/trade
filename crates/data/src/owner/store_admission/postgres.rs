@@ -1978,7 +1978,10 @@ impl PinnedTlsPostgresDirectMeasurer {
     /// How this measurer, and every read admitted under its measurement, reaches the store.
     #[must_use]
     pub(super) fn transport(&self) -> StoreTransport {
-        StoreTransport::PinnedTls(self.trust.clone())
+        StoreTransport::PinnedTls {
+            root: self.trust.clone(),
+            peer_certificate_identity: None,
+        }
     }
 
     /// Connects with the resolved lease over the pinned leg and measures the target in one
@@ -2010,9 +2013,29 @@ impl PinnedTlsPostgresDirectMeasurer {
 pub(super) enum StoreTransport {
     /// A disposable loopback `vibe_test_` database, in plaintext.
     DisposableLoopback,
-    /// A deployment's store, over the measurer's own leg pinned to one root.
+    /// A deployment's store, over a connection pinned to one root. Once bound to an admitted
+    /// measurement, its server must also present the certificate that measurement recorded.
     #[cfg(unix)]
-    PinnedTls(PinnedPostgresRoot),
+    PinnedTls {
+        root: PinnedPostgresRoot,
+        peer_certificate_identity: Option<String>,
+    },
+}
+
+impl StoreTransport {
+    /// This transport, requiring from now on the server certificate `measured` recorded. Two
+    /// servers can hold certificates from the same root; a read must reach the one measured.
+    #[must_use]
+    pub(super) fn bound_to(self, measured: &PostgresTlsIdentity) -> Self {
+        match self {
+            Self::DisposableLoopback => Self::DisposableLoopback,
+            #[cfg(unix)]
+            Self::PinnedTls { root, .. } => Self::PinnedTls {
+                root,
+                peer_certificate_identity: Some(measured.peer_certificate_identity.clone()),
+            },
+        }
+    }
 }
 
 /// One open session to the store a lease names, over the transport it was opened with.
@@ -2056,7 +2079,10 @@ async fn open_store_session(
             })
         }
         #[cfg(unix)]
-        StoreTransport::PinnedTls(trust) => {
+        StoreTransport::PinnedTls {
+            root: trust,
+            peer_certificate_identity,
+        } => {
             let target = parse_target(lease.database_url(), TargetPolicy::Deployment)?;
 
             if ambient_pg_configuration_present() {
@@ -2082,6 +2108,13 @@ async fn open_store_session(
                 | PinnedTlsError::LocalSocket
                 | PinnedTlsError::Session => PostgresMeasurementError::ConnectionUnavailable,
             })?;
+
+            if peer_certificate_identity
+                .as_ref()
+                .is_some_and(|expected| *expected != observed.peer_certificate_identity)
+            {
+                return Err(PostgresMeasurementError::TlsIdentityUnavailable);
+            }
             Ok(StoreSession {
                 connection,
                 target,
