@@ -10,8 +10,8 @@ User-facing closure exists only when [Product Edge](../architecture/product-edge
 goal from entry to an authoritative result and its next legal action without manually joining Owner databases,
 receipts, logs, or terminal output.
 
-- `CURRENT/PARTIAL` - `crates/strategy_factory` provides a narrow frozen `ResearchIntent` to `StrategyArtifact`
-  to native replay and `TrialReceipt` pilot. It is `SURVIVED_NOT_ADMITTED`, not a complete R&D product.
+- `CURRENT` - the narrow frozen `ResearchIntent` to `StrategyArtifact` to native replay and `TrialReceipt` pilot
+  that `crates/strategy_factory` provided was retired with the legacy formation path in #1207.
 - `TARGET` - the product surface is the Trade-owned Dashboard in `product/dashboard`. It presents Source and
   Hypothesis, frozen Intent, Artifact and Build Receipt, exploratory Run Detail and Compare, Diagnosis, Iteration
   Decision, and the exact stop, repair, successor, or Qualification handoff action. The Dashboard and its
