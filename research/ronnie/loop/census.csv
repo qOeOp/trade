@@ -137,3 +137,4 @@ logged_at,loop,candidate,stage,n,edge,lo,hi,passed,note
 2026-10-01T19:05:39+00:00,P-4 R-2,familyR,iteration,423,+0.0728,-0.1076,+0.2548,False,"Ronnie 2024-25 method, daily"
 2026-10-01T19:05:39+00:00,P-4 R-3,familyR,iteration,613,+0.2351,+0.0620,+0.4155,True,"Ronnie 2024-25 method, daily"
 2026-10-01T19:06:49+00:00,R-1,familyR,holdout,922,+nan,+nan,+nan,True,sealed; stage-2 read
+2026-10-02T01:28:55+00:00,R-1,familyR,rerun-holdout,922,+nan,+nan,+nan,True,"sealed; stage-2 read stage-2 verdict with SESOI, user-authorized"
