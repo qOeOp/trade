@@ -7,7 +7,8 @@ Both directions for workspace_mtimes.py's prune, against a stand-in target.
 - a workspace unit with any file written at or after T stays whole, older files included;
 - an external dependency's unit stays, however old;
 - a member's file named like a dependency's unit stays, however old, while that member's other
-  units still go;
+  units still go; its old test or binary executable under that name goes, since a dependency
+  leaves only `lib`-prefixed files and `.d` files in deps;
 - the path-dependency stash and the source marker stay;
 - the counts it prints are the counts it writes for the next job;
 - with no marker nothing is pruned, and it says so;
@@ -56,6 +57,8 @@ def fixture(target: Path) -> tuple[list[Path], list[Path]]:
     profile = target / "ci-pr"
     go = [
         write(profile / "deps" / f"vibe_alias-{HASH_A}", b"bin", OLD),
+        # A member test executable under a name a dependency's library also uses.
+        write(profile / "deps" / f"alias_crate-{HASH_A}", b"test executable", OLD),
         write(profile / ".fingerprint" / f"vibe-core-{HASH_A}" / "lib-vibe_core", b"fp", OLD),
         write(profile / "build" / f"vibe-core-{HASH_A}" / "out" / "generated.rs", b"out", OLD),
         write(profile / "deps" / f"libvibe_core-{HASH_A}.rlib", b"rlib" * 100, OLD),
@@ -76,6 +79,12 @@ def fixture(target: Path) -> tuple[list[Path], list[Path]]:
         # A member test whose crate name a dependency's library also uses: that name's files stay,
         # while the same member's other units, below, still go.
         write(profile / "deps" / f"libalias_crate-{HASH_A}.rlib", b"rlib", OLD),
+        write(profile / "deps" / f"libalias_crate-{HASH_A}.so", b"proc-macro", OLD),
+        write(profile / "deps" / f"alias_crate-{HASH_A}.d", b"d", OLD),
+        # The prefix alone keeps a file, whatever its extension says.
+        write(profile / "deps" / f"libalias_crate-{HASH_A}", b"lib", OLD),
+        # The same executable name, built by this run.
+        write(profile / "deps" / f"alias_crate-{HASH_B}", b"test executable", NEW),
         # The stash and the marker.
         write(w.stash_path(target), b"tar", OLD),
         marker,
@@ -111,10 +120,10 @@ def check_prune(scratch: Path) -> None:
     print(
         "ok a unit this run built stays whole; externals, a shared name, the stash and marker stay",
     )
-    expected = f"pruned 5 workspace unit entries, {size} bytes"
+    expected = f"pruned 6 workspace unit entries, {size} bytes"
     if expected not in out.getvalue():
         fail(f"prune said {out.getvalue()!r}, expected {expected!r}")
-    if output.read_text() != f"pruned-entries=5\npruned-bytes={size}\n":
+    if output.read_text() != f"pruned-entries=6\npruned-bytes={size}\n":
         fail(f"prune wrote {output.read_text()!r} for the next job")
     print("ok the counts it prints are the counts it hands on")
 
