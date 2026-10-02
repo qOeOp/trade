@@ -2493,6 +2493,18 @@ executable maturity、Backtest 产品闭合（包括 inverse/quanto target-consu
 Dashboard/default-database 准入或 trading authority。这些 Backtest 限制不创建 Market Data instrument-class
 rejection。
 
+### TARGET Binance bar 成交量与 taker 买入量
+
+两个 Binance Data Client，即现货（`crates/adapters/binance/src/pit_observation_source_v1.rs`）与 USD-M 永续，都在已收盘
+bar 的 `OPEN`、`HIGH`、`LOW`、`CLOSE` 旁边陈述它的 `VOLUME` 与 `TAKER_BUY_VOLUME`，以基础资产为单位，用 bar 自己的
+timeframe。两个数与价格来自同一个 kline 响应，所以不增加请求。
+
+- **为什么需要 `VOLUME`。** 每个原生 Replay 帧都恰好用 `OPEN`、`HIGH`、`LOW`、`CLOSE` 与 `VOLUME` 投影出一根 bar
+  （`native_replay_scheduling_v1.rs` 与 `native_replay_scheduling_v2.rs` 中的 `BAR_FIELDS`），census 缺其中任何一个的成员都会被拒绝。
+  没有 `VOLUME`，从 Binance 快照铸出的帧一个都投影不出来。
+- **taker 卖出量不是一行。** 它等于 `VOLUME - TAKER_BUY_VOLUME`，在消费方第一次需要它的地方推导，不陈述两次。
+- **数值按发布原样。** 永续的数量是交易所的十进制字符串；现货的数量是交易所的 128 位 mantissa，配响应中的数量指数。
+
 ### CURRENT/PARTIAL Binance 永续已结算 funding 行
 
 `crates/adapters/binance/src/futures_pit_observation_source_v1.rs` 中的 Binance USD-M 永续 Data Client 回答一个

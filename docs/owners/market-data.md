@@ -2873,6 +2873,21 @@ BFP executable maturity, Backtest product closure including inverse or quanto ta
 Dashboard/default-database admission, or trading authority. These Backtest limitations do not create a Market Data
 instrument-class rejection.
 
+### TARGET Binance bar volume and taker buy volume
+
+Both Binance Data Clients, spot (`crates/adapters/binance/src/pit_observation_source_v1.rs`) and USD-M perpetual,
+state a closed bar's `VOLUME` and `TAKER_BUY_VOLUME` beside its `OPEN`, `HIGH`, `LOW` and `CLOSE`, in base-asset
+units and under the bar's own timeframe. Both numbers arrive in the same kline response the prices come from, so no
+request is added.
+
+- **Why `VOLUME` is required.** Every native Replay frame projects a bar from exactly `OPEN`, `HIGH`, `LOW`, `CLOSE`
+  and `VOLUME` (`BAR_FIELDS` in `native_replay_scheduling_v1.rs` and `native_replay_scheduling_v2.rs`), and refuses a
+  member whose census lacks one. Without `VOLUME`, no frame minted from a Binance snapshot can be projected.
+- **Taker sell volume is not a row.** It is `VOLUME - TAKER_BUY_VOLUME`, and it is derived where a consumer first
+  needs it, not stated twice.
+- **Values as published.** Perpetual quantities are the venue's decimal strings. Spot quantities are the venue's
+  128-bit mantissas under the response's quantity exponent.
+
 ### CURRENT/PARTIAL Binance perpetual settled funding rows
 
 The Binance USD-M perpetual Data Client in `crates/adapters/binance/src/futures_pit_observation_source_v1.rs`
