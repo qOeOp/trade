@@ -941,6 +941,11 @@ dimension，并从以下九个 typed dimension 中选择：
    唯一 `READY_FOR_SELECTION` 决定及相同 decision-policy version TrialFamily Census 与证据截面；停止
    状态与选择不能并存。
 
+**TARGET - Diagnosis 中的匹配入场对照与聚类区间。** Diagnosis 读取探索性 Result 的匹配入场对照及其按日期聚类的区间
+（Backtest「TARGET - 探索性匹配入场对照与聚类区间」），连同该区间展示运行相对于同样形状随机入场的优势，并标为对照。它是
+对照，不是选择依据：Iteration Decision 不据它选择、排列或停止候选，它也从不替代 Qualification 的 holdout 或同宇宙随机
+对照。
+
 `REPAIR_INPUTS` 按类别路由，绝不表示任意重试。它是所消费结果的不可变终态处置，本身不创建
 Selection 后继 Intent Artifact Replay Request 或修复效果。`MARKET_DATA` 指向 Market Data，也是唯一能
 在决定提交后产生关联 Market Data Repair Request 的类别；`ARTIFACT` 指向 Research 经 Develop 重建并
