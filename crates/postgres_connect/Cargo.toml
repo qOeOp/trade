@@ -16,5 +16,17 @@ name = "vibe_postgres_connect"
 [dependencies]
 sqlx = { workspace = true }
 
+# `pinned_tls`: a connection whose TLS trusts exactly one root, carried over a private Unix socket.
+[target.'cfg(unix)'.dependencies]
+rustls = { workspace = true }
+sha2 = { workspace = true }
+tempfile = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tokio-rustls = { workspace = true }
+
 [dev-dependencies]
 rstest = { workspace = true }
+
+[target.'cfg(unix)'.dev-dependencies]
+rcgen = { workspace = true }

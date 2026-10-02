@@ -2214,10 +2214,10 @@ where
             )
             .await;
         }
-        let custody = Box::pin(admit_research_custody_in_transaction(
+        let custody = admit_research_custody_in_transaction(
             transaction,
             ResearchCustodyLookupV1::RequestV2(research_request_locator),
-        ))
+        )
         .await
         .map_err(|cause| {
             research_custody_refused(
@@ -2348,7 +2348,7 @@ pub(crate) async fn lock_current_research_for_composer_replay_in_transaction(
         }
     }
 
-    let custodies = Box::pin(admit_all_research_custodies_in_transaction(transaction))
+    let custodies = admit_all_research_custodies_in_transaction(transaction)
         .await
         .map_err(|cause| {
             research_custody_refused(
@@ -2590,7 +2590,7 @@ async fn lock_research_ran_under_in_transaction<E>(
         }
     }
 
-    let custodies = Box::pin(admit_all_research_custodies_in_transaction(transaction))
+    let custodies = admit_all_research_custodies_in_transaction(transaction)
         .await
         .map_err(|e| refuse(RanUnderResearchStepV1::CustodiesAdmit, &e))?;
 

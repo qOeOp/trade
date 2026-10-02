@@ -13,7 +13,7 @@ workspace = true
 [features]
 default = []
 # Production surfaces that no deployed image carries yet; adding one to the image is a deployment
-# decision (docs/owners/rd.md, "deployed service"). Neither carries an acceptance fixture, sealed
+# decision (docs/owners/rd.md, "deployed service"). None of them carries an acceptance fixture, sealed
 # corpus or acceptance route: the sealed features below include them rather than own them.
 # The Composer's resolve and readback, and the Replay composition and execution-input-binding
 # issuance over the production Composer's sealed read port.
@@ -22,6 +22,13 @@ composer-replay-issuance = []
 composer-v3-replay = [
   "composer-replay-issuance",
   "vibe-strategy-factory/composer-v3-replay",
+]
+# The Native Replay execution route (`POST /v2/exploratory-replays`) and its service, which write
+# the Backtest Owner's run result, and Market Data repair. A production surface with no acceptance
+# fixture, corpus or route; the image does not build it until the Native Replay cut-over.
+native-replay-execution = [
+  "composer-replay-issuance",
+  "vibe-strategy-factory/native-replay-execution",
 ]
 sealed-artifact-source-browser-acceptance = [
   "vibe-strategy-factory/sealed-artifact-source-acceptance",
@@ -39,7 +46,7 @@ sealed-source-intake-composer-acceptance = [
   "vibe-product-edge/sealed-deployment-acceptance",
 ]
 sealed-develop-composer-acceptance = [
-  "composer-replay-issuance",
+  "native-replay-execution",
   "vibe-strategy-factory/sealed-develop-composer-acceptance",
 ]
 

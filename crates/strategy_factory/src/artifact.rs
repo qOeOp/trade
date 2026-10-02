@@ -37,12 +37,6 @@ pub struct StrategyArtifactIdentity {
 }
 
 #[derive(Clone, PartialEq, Eq)]
-/// ```compile_fail
-/// use vibe_strategy_factory::FrozenStrategyFamily;
-/// let family = FrozenStrategyFamily::frozen_price_only().unwrap();
-/// let artifact = family.materialize(&family.trials()[0]).unwrap();
-/// let _ = artifact.wasm();
-/// ```
 pub struct StrategyArtifact {
     identity: StrategyArtifactIdentity,
     wasm: Box<[u8]>,
@@ -113,26 +107,6 @@ impl<'a> ArtifactIssuance<'a> {
             parameters,
             build,
         }
-    }
-
-    pub(crate) fn intent_digest(&self) -> String {
-        digest(self.intent_bytes)
-    }
-
-    pub(crate) fn trial_id(&self) -> Option<&str> {
-        self.trial_id.as_deref()
-    }
-
-    pub(crate) fn parameters_digest(&self) -> Option<String> {
-        self.parameters.as_deref().map(digest)
-    }
-
-    pub(crate) fn strategy_spec_digest(&self) -> Option<&str> {
-        self.strategy_spec_digest.as_deref()
-    }
-
-    pub(crate) const fn verified_build(&self) -> &'a VerifiedCargoBuild {
-        self.build
     }
 }
 
@@ -209,17 +183,6 @@ impl StrategyArtifact {
     pub(crate) fn wasm(&self) -> &[u8] {
         &self.wasm
     }
-
-    pub(crate) fn program_profile(&self) -> &ProgramProfileV1 {
-        &self.profile
-    }
-
-    pub(crate) fn verify_parameters(&self, parameters: &[u8]) -> Result<(), ArtifactError> {
-        if self.identity.parameters_digest.as_deref() != Some(digest(parameters).as_str()) {
-            return Err(ArtifactError::Binding);
-        }
-        Ok(())
-    }
 }
 
 pub(crate) fn digest(bytes: &[u8]) -> String {
@@ -239,7 +202,7 @@ mod tests {
             Some("blake3:spec".to_string()),
             Some("parameter/full".to_string()),
             Some(b"frozen-parameters".to_vec()),
-            crate::pilot::verified_pilot_build().expect("sealed pilot build"),
+            crate::verified_price_build::verified_price_build().expect("sealed price build"),
         )
     }
 

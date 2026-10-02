@@ -150,7 +150,7 @@
       "firstTargetConsumer": {
         "status": "TARGET_UNTIL_IMPLEMENTED",
         "compositionPath": "product/rd-workbench/docker-compose.yml#services.rd-owner-api",
-        "codePath": "crates/strategy_factory_rd_owner_api/src/main.rs::main",
+        "codePath": "crates/strategy_factory_rd_owner_api/src/main.rs::run",
         "consumerService": "rd-owner-api",
         "consumerOwnerId": "market-data",
         "backend": "postgresql",
@@ -2063,12 +2063,12 @@
       },
       {
         "capabilityId": "strategy-factory-research-intent",
-        "existingLocator": "crates/strategy_factory/src/intent.rs",
-        "existingSymbolOrPort": "ResearchIntent",
+        "existingLocator": "crates/strategy_factory/src/product_edge.rs",
+        "existingSymbolOrPort": "FrozenResearchGoalIntentV2",
         "disposition": "PRESENT",
         "canonicalOwnerId": "rd",
         "canonicalObjectId": "research-intent",
-        "singleWriterOrNoAuthority": "R&D remains the sole writer of frozen Intent identity and the current Strategy Factory type is only a migration source",
+        "singleWriterOrNoAuthority": "R&D is the sole writer of frozen Intent identity: decide_commit_v2 builds the FrozenResearchGoalIntentV2 that the R&D Owner's submit_v2 commits",
         "readerOwnerIds": [
           "backtest",
           "qualification"
@@ -2084,12 +2084,12 @@
       },
       {
         "capabilityId": "strategy-factory-intent-family-counters",
-        "existingLocator": "crates/strategy_factory/src/intent.rs",
-        "existingSymbolOrPort": "IntentFamily",
+        "existingLocator": "crates/strategy_factory/src/trial_family.rs",
+        "existingSymbolOrPort": "TrialFamilyRootV1",
         "disposition": "PRESENT",
         "canonicalOwnerId": "rd",
         "canonicalObjectId": "trial-family-census-frontier",
-        "singleWriterOrNoAuthority": "R&D remains the sole writer of TrialFamily identity and the current pilot-local counters are migration evidence only",
+        "singleWriterOrNoAuthority": "R&D is the sole writer of TrialFamily identity and census: submit_v2 commits the TrialFamilyRootV1 with its Intent and the R&D Owner alone appends census members",
         "readerOwnerIds": [
           "qualification"
         ],
@@ -2126,8 +2126,8 @@
       },
       {
         "capabilityId": "strategy-factory-restricted-decision-runtime",
-        "existingLocator": "crates/strategy_factory/src/program_runtime.rs",
-        "existingSymbolOrPort": "StrategyProgramV1",
+        "existingLocator": "crates/strategy_factory/src/program_runtime_v2.rs",
+        "existingSymbolOrPort": "ProgramPluginRuntimeV2",
         "disposition": "PRESENT",
         "canonicalOwnerId": "rd",
         "canonicalObjectId": "artifact-security-admission",
@@ -2148,12 +2148,12 @@
       },
       {
         "capabilityId": "strategy-factory-trial-receipt",
-        "existingLocator": "crates/strategy_factory/src/receipt.rs",
-        "existingSymbolOrPort": "TrialReceipt",
-        "disposition": "PRESENT",
+        "existingLocator": "ABSENT_TARGET_ONLY",
+        "existingSymbolOrPort": "ABSENT_TARGET_ONLY",
+        "disposition": "ABSENT_TARGET_ONLY",
         "canonicalOwnerId": "backtest",
         "canonicalObjectId": "exploratory-result",
-        "singleWriterOrNoAuthority": "Backtest remains the sole writer of exploratory replay results and the current TrialReceipt is only migration evidence",
+        "singleWriterOrNoAuthority": "Backtest remains the sole writer of exploratory replay results; the formation TrialReceipt was retired with the legacy formation path and no source port remains",
         "readerOwnerIds": [
           "rd"
         ],
@@ -2190,12 +2190,12 @@
       },
       {
         "capabilityId": "strategy-factory-frozen-pilot-data-admission",
-        "existingLocator": "crates/strategy_factory/src/application.rs",
-        "existingSymbolOrPort": "run_frozen_pilot",
-        "disposition": "PRESENT",
+        "existingLocator": "ABSENT_TARGET_ONLY",
+        "existingSymbolOrPort": "ABSENT_TARGET_ONLY",
+        "disposition": "ABSENT_TARGET_ONLY",
         "canonicalOwnerId": "market-data",
         "canonicalObjectId": "pit-market-snapshot",
-        "singleWriterOrNoAuthority": "Market Data remains the sole writer of admitted market facts and the fixed pilot loader is only a bounded migration source",
+        "singleWriterOrNoAuthority": "Market Data remains the sole writer of admitted market facts; the fixed pilot loader was retired with the legacy formation path and no source port remains",
         "readerOwnerIds": [
           "rd",
           "backtest"
@@ -2211,12 +2211,12 @@
       },
       {
         "capabilityId": "strategy-factory-native-backtest-pilot",
-        "existingLocator": "crates/strategy_factory/src/application.rs",
-        "existingSymbolOrPort": "run_frozen_pilot",
-        "disposition": "PRESENT",
+        "existingLocator": "ABSENT_TARGET_ONLY",
+        "existingSymbolOrPort": "ABSENT_TARGET_ONLY",
+        "disposition": "ABSENT_TARGET_ONLY",
         "canonicalOwnerId": "backtest",
         "canonicalObjectId": "exploratory-result",
-        "singleWriterOrNoAuthority": "Backtest remains the sole writer of replay facts and the frozen pilot integration cannot become another engine",
+        "singleWriterOrNoAuthority": "Backtest remains the sole writer of replay facts; the frozen pilot integration was retired with the legacy formation path and no source port remains",
         "readerOwnerIds": [
           "rd"
         ],
@@ -2856,20 +2856,6 @@
         "noAuthorityBasis": "Strategy Factory is a value stream and never a second Research Backtest Qualification Scanner Portfolio Governance or Runtime authority"
       },
       {
-        "inventoryId": "deployment-attestation",
-        "memberPaths": [
-          "crates/deployment_attestation"
-        ],
-        "disposition": "NON_AUTHORITATIVE_INFRASTRUCTURE",
-        "destinationIds": [
-          "strategy-factory"
-        ],
-        "capabilityPortIds": [],
-        "providerMemberPortEvidence": [],
-        "adoptionRule": "Verify Strategy Factory formation artifacts through the fixed sealed policy at the executable use boundary",
-        "noAuthorityBasis": "Verification evidence is a consumer input and grants no deployment business Owner provider effect or trading authority"
-      },
-      {
         "inventoryId": "observability-projection",
         "memberPaths": [
           "crates/observability"
@@ -3395,18 +3381,23 @@
     "strategyFactoryMappings": [
       {
         "capabilityId": "research-intent",
-        "sourceAvailability": "PRESENT",
+        "sourceAvailability": "PARTIAL",
         "sourceCapabilityPortIds": [
           "strategy-factory-research-intent"
         ],
         "verifiedPublicSurfaceLocators": [
-          "crates/strategy_factory/src/intent.rs",
+          "crates/strategy_factory/src/product_edge.rs",
           "crates/strategy_factory/src/lib.rs"
         ],
         "presentSourceFacets": [
-          "ResearchIntent frozen canonical representation"
+          "FrozenResearchGoalIntentV2 frozen canonical representation committed by the R&D Owner",
+          "sourced goal: hypothesis, mechanism, falsification question, cost and capacity assumptions",
+          "source frontier with content digest and cut, independence basis, protected-feedback projection and V3 instrument scope",
+          "TrialFamily identity and policy digest binding PIT rule, cost slippage and capacity model identities, budget, stop rule and predecessor frontier"
         ],
-        "missingSourceFacets": [],
+        "missingSourceFacets": [
+          "bounded alternative interpretation set and differentiating predictions: the frozen Intent binds one interpretation per source"
+        ],
         "disposition": "ADAPT",
         "destinationOwnerIds": [
           "rd"
@@ -3424,16 +3415,18 @@
           "strategy-factory-intent-family-counters"
         ],
         "verifiedPublicSurfaceLocators": [
-          "crates/strategy_factory/src/intent.rs",
+          "crates/strategy_factory/src/trial_family.rs",
           "crates/strategy_factory/src/lib.rs"
         ],
         "presentSourceFacets": [
-          "IntentFamily pilot-local bounded artifact attempt parameter tuple and successor counters"
+          "TrialFamilyRootV1 durable family identity, one per Intent, committed by submit_v2",
+          "policy digest over trial budget, stop rule, PIT rule, cost slippage and capacity model identities and the semantic-predecessor and protected-feedback frontiers",
+          "census members appended at a unique family ordinal with terminal dispositions including rejected, invalid and unknown attempts",
+          "attempt frontier with frontier identity, terminal member digests and consumed trial budget, read through load_trial_family_census_v2_by_family_in_transaction"
         ],
         "missingSourceFacets": [
-          "durable TrialFamily identity",
-          "append-only TrialFamily Census Frontier",
-          "family rename and ancestry authority"
+          "recorded frontier states: the head row advances in place and no OPEN_APPEND_ONLY, FROZEN_FOR_CANDIDATE or SUPERSEDED state is stored",
+          "database-enforced append-only membership: members are insert-only in the R&D Owner's code, and the database enforces only a unique family ordinal"
         ],
         "disposition": "ADAPT",
         "destinationOwnerIds": [
@@ -3481,8 +3474,8 @@
         ],
         "presentSourceFacets": [
           "restricted no_std program SDK ABI",
-          "StrategyProgramV1",
-          "restricted Wasm validation and execution"
+          "ProgramPluginRuntimeV2 restricted plugin execution",
+          "restricted Wasm candidate validation"
         ],
         "missingSourceFacets": [
           "independent ProgramHost product boundary",
@@ -3501,22 +3494,17 @@
       },
       {
         "capabilityId": "trial-receipt",
-        "sourceAvailability": "PARTIAL",
-        "sourceCapabilityPortIds": [
-          "strategy-factory-trial-receipt"
-        ],
+        "sourceAvailability": "ABSENT_TARGET_ONLY",
+        "sourceCapabilityPortIds": [],
         "verifiedPublicSurfaceLocators": [
-          "crates/strategy_factory/src/receipt.rs",
           "crates/strategy_factory/src/lib.rs"
         ],
-        "presentSourceFacets": [
-          "TrialReceipt for one frozen pilot"
-        ],
+        "presentSourceFacets": [],
         "missingSourceFacets": [
           "canonical Backtest-owned exploratory result port",
           "complete negative and unknown dispositions"
         ],
-        "disposition": "MIGRATE_PRESENT_FACET_ONLY",
+        "disposition": "DO_NOT_CREATE_SECOND_AUTHORITY",
         "destinationOwnerIds": [
           "backtest"
         ],
@@ -3603,22 +3591,18 @@
       },
       {
         "capabilityId": "data-adapters-and-admission",
-        "sourceAvailability": "PARTIAL",
-        "sourceCapabilityPortIds": [
-          "strategy-factory-frozen-pilot-data-admission"
-        ],
+        "sourceAvailability": "ABSENT_TARGET_ONLY",
+        "sourceCapabilityPortIds": [],
         "verifiedPublicSurfaceLocators": [
           "crates/strategy_factory/src/lib.rs"
         ],
-        "presentSourceFacets": [
-          "fixed Binance Vision pilot archive loading and bounded event normalization"
-        ],
+        "presentSourceFacets": [],
         "missingSourceFacets": [
           "generic Market Data connector port",
           "source-license authority",
           "four-time PIT and correction-frontier contract"
         ],
-        "disposition": "SPLIT_AND_ADAPT",
+        "disposition": "DO_NOT_CREATE_SECOND_AUTHORITY",
         "destinationOwnerIds": [
           "market-data"
         ],
@@ -3631,22 +3615,18 @@
       },
       {
         "capabilityId": "backtest-reuse",
-        "sourceAvailability": "PARTIAL",
-        "sourceCapabilityPortIds": [
-          "strategy-factory-native-backtest-pilot"
-        ],
+        "sourceAvailability": "ABSENT_TARGET_ONLY",
+        "sourceCapabilityPortIds": [],
         "verifiedPublicSurfaceLocators": [
           "crates/strategy_factory/src/lib.rs"
         ],
-        "presentSourceFacets": [
-          "one frozen pilot integration with the native Backtest engine"
-        ],
+        "presentSourceFacets": [],
         "missingSourceFacets": [
           "general exploratory Replay Request port",
           "protected namespace isolation",
           "canonical Backtest result authority migration"
         ],
-        "disposition": "ADOPT_THROUGH_OWNER",
+        "disposition": "DO_NOT_CREATE_SECOND_AUTHORITY",
         "destinationOwnerIds": [
           "backtest"
         ],

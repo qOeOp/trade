@@ -41,6 +41,8 @@ mod live_market_stream_v1;
 #[cfg(test)]
 mod market_data_rd_api_authorization_postgres_tests;
 mod market_semantics;
+#[cfg(test)]
+mod native_replay_quote_cut_intake_tests;
 mod observation_census;
 #[cfg(test)]
 mod pit_empty_observation_tests;
@@ -225,8 +227,8 @@ use super::{
     native_replay_quote_cut_v2::{
         NativeReplayCutCoordinatesV2, NativeReplayCutKindV2, NativeReplayQuoteCutCandidateV2,
         NativeReplayQuoteCutRefusalV2, classify_native_replay_cut_v2,
-        native_replay_quote_cut_bound_v2, select_native_replay_quote_cut_v2,
-        verify_native_replay_quote_cut_v2,
+        native_replay_quote_cut_bound_v2, native_replay_quote_cut_reading_cuts_v2,
+        select_native_replay_quote_cut_v2, verify_native_replay_quote_cut_v2,
     },
     observation_census::{
         ObservationCensusErrorV1, ObservationCensusReadbackV1, ObservationCensusResolverV1,
@@ -397,6 +399,12 @@ const MIGRATION_STATEMENTS: &[&str] = &[
     "CREATE TABLE IF NOT EXISTS market_data_private.native_replay_quote_cut_census_v2 (snapshot_identity BYTEA PRIMARY KEY REFERENCES market_data_private.pit_snapshot_facts_v1(snapshot_identity) ON DELETE RESTRICT, scope_digest BYTEA NOT NULL CHECK (octet_length(scope_digest) = 32), snapshot_fact_digest BYTEA NOT NULL CHECK (octet_length(snapshot_fact_digest) = 32), event_effective_ns BIGINT NOT NULL CHECK (event_effective_ns >= 0), decision_cut_ns BIGINT NOT NULL CHECK (decision_cut_ns >= 0), instrument_master_digest BYTEA NOT NULL CHECK (octet_length(instrument_master_digest) = 32), universe_selection_digest BYTEA NOT NULL CHECK (octet_length(universe_selection_digest) = 32), market_semantics_identity BYTEA NOT NULL CHECK (octet_length(market_semantics_identity) = 32), source_binding_lineage_root BYTEA NOT NULL CHECK (octet_length(source_binding_lineage_root) = 32), correction_lineage_root BYTEA NOT NULL CHECK (octet_length(correction_lineage_root) = 32), correction_lineage_version BIGINT NOT NULL CHECK (correction_lineage_version > 0))",
     "CREATE INDEX IF NOT EXISTS native_replay_quote_cut_census_v2_by_scope_and_time ON market_data_private.native_replay_quote_cut_census_v2 (scope_digest, event_effective_ns)",
     "CREATE INDEX IF NOT EXISTS native_replay_quote_cut_census_v2_by_lineage ON market_data_private.native_replay_quote_cut_census_v2 (correction_lineage_root, correction_lineage_version)",
+    // The Instrument Master each snapshot was committed under, as quote cut selection compares it:
+    // the facts the intake resolved, which every request that sees them shares, where the readback
+    // digest a batch carries is the request's own. Rows recorded before the key was kept have none
+    // and serve no frame, as no intake-minted quote cut could before.
+    "ALTER TABLE market_data_private.native_replay_frame_census_v2 ADD COLUMN IF NOT EXISTS instrument_master_key BYTEA NULL CHECK (instrument_master_key IS NULL OR octet_length(instrument_master_key) = 32)",
+    "ALTER TABLE market_data_private.native_replay_quote_cut_census_v2 ADD COLUMN IF NOT EXISTS instrument_master_key BYTEA NULL CHECK (instrument_master_key IS NULL OR octet_length(instrument_master_key) = 32)",
     "CREATE TABLE IF NOT EXISTS market_data_private.native_replay_frame_sequences_v2 (sequence_identity BYTEA PRIMARY KEY CHECK (octet_length(sequence_identity) = 32), request_identity BYTEA NOT NULL UNIQUE CHECK (octet_length(request_identity) = 32), v1_binding_identity BYTEA NOT NULL CHECK (octet_length(v1_binding_identity) = 32), window_start_ns BIGINT NOT NULL CHECK (window_start_ns >= 0), window_end_ns_exclusive BIGINT NOT NULL CHECK (window_end_ns_exclusive > window_start_ns), first_snapshot_identity BYTEA NOT NULL CHECK (octet_length(first_snapshot_identity) = 32), second_snapshot_identity BYTEA NOT NULL CHECK (octet_length(second_snapshot_identity) = 32), sequence_bytes BYTEA NOT NULL CHECK (octet_length(sequence_bytes) > 0), receipt_identity BYTEA NOT NULL UNIQUE CHECK (octet_length(receipt_identity) = 32), receipt_bytes BYTEA NOT NULL CHECK (octet_length(receipt_bytes) > 0), CHECK (first_snapshot_identity <> second_snapshot_identity))",
     "CREATE TABLE IF NOT EXISTS market_data_private.native_replay_frame_sequence_outbox_v2 (outbox_identity BYTEA PRIMARY KEY CHECK (octet_length(outbox_identity) = 32), sequence_identity BYTEA NOT NULL UNIQUE REFERENCES market_data_private.native_replay_frame_sequences_v2(sequence_identity) ON DELETE RESTRICT, payload_digest BYTEA NOT NULL CHECK (octet_length(payload_digest) = 32), payload BYTEA NOT NULL CHECK (octet_length(payload) > 0))",
     "CREATE OR REPLACE FUNCTION market_data_private.native_replay_frame_sequence_append_only() RETURNS trigger LANGUAGE plpgsql AS $native_replay_frame_sequence_append_only$ BEGIN RAISE EXCEPTION 'native replay frame sequence custody is append-only'; END $native_replay_frame_sequence_append_only$",
@@ -430,7 +438,11 @@ const MIGRATION_STATEMENTS: &[&str] = &[
     "CREATE OR REPLACE FUNCTION market_data_private.resolve_strategy_input_sample_projection_v3(p_receipt_digest BYTEA) RETURNS TABLE(receipt_digest BYTEA,kind SMALLINT,lifecycle SMALLINT,subject_identity BYTEA,component_count BIGINT,receipt_bytes BYTEA,custody_digest BYTEA) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path=pg_catalog, pg_temp AS $function$ SELECT p.receipt_digest,p.kind,p.lifecycle,p.subject_identity,p.component_count,p.receipt_bytes,p.custody_digest FROM market_data_private.strategy_input_sample_projection_receipts_v3 AS p WHERE p.receipt_digest=p_receipt_digest $function$",
     "CREATE OR REPLACE FUNCTION market_data_private.resolve_strategy_input_sample_projection_schedule_dependencies_v3(p_receipt_digest BYTEA) RETURNS TABLE(component_ordinal BIGINT,role_identity BYTEA,binding_receipt_digest BYTEA,schedule_readback_identity BYTEA,schedule_fact_digest BYTEA,schedule_cut_identity BYTEA,schedule_cut_digest BYTEA,schedule_receipt_identity BYTEA) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path=pg_catalog, pg_temp AS $function$ SELECT d.component_ordinal,d.role_identity,d.binding_receipt_digest,d.schedule_readback_identity,d.schedule_fact_digest,d.schedule_cut_identity,d.schedule_cut_digest,d.schedule_receipt_identity FROM market_data_private.strategy_input_sample_projection_schedule_dependencies_v3 AS d WHERE d.receipt_digest=p_receipt_digest ORDER BY d.component_ordinal $function$",
     "CREATE OR REPLACE FUNCTION market_data_private.resolve_pit_role_coordinate_v1(p_instrument TEXT, p_channel TEXT, p_data_kind TEXT, p_field TEXT, p_timeframe TEXT, p_value_scale SMALLINT, p_decision_cut_at_or_before BIGINT) RETURNS TABLE(decision_cut BIGINT, lineage_root BYTEA, snapshot_identity BYTEA) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $function$ WITH matched AS (SELECT i.decision_cut, i.lineage_root, i.lineage_version FROM market_data_private.pit_role_coordinate_index_v1 AS i WHERE i.instrument = p_instrument AND i.channel = p_channel AND i.data_kind = p_data_kind AND i.field = p_field AND i.timeframe = p_timeframe AND i.value_scale = p_value_scale AND i.decision_cut <= p_decision_cut_at_or_before) SELECT m.decision_cut, m.lineage_root, h.snapshot_identity FROM matched AS m JOIN market_data_private.pit_snapshot_heads_v1 AS h ON h.lineage_root = m.lineage_root AND h.lineage_version = m.lineage_version WHERE m.decision_cut = (SELECT MAX(decision_cut) FROM matched) ORDER BY m.lineage_root $function$",
-    "CREATE OR REPLACE FUNCTION market_data_private.resolve_native_replay_quote_cut_census_v2(p_scope_digest BYTEA, p_after_ns BIGINT, p_before_ns BIGINT) RETURNS TABLE(snapshot_identity BYTEA,snapshot_fact_digest BYTEA,scope_digest BYTEA,event_effective_ns BIGINT,decision_cut_ns BIGINT,instrument_master_digest BYTEA,universe_selection_digest BYTEA,market_semantics_identity BYTEA,source_binding_lineage_root BYTEA,correction_lineage_root BYTEA,correction_lineage_version BIGINT) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $function$ SELECT c.snapshot_identity,c.snapshot_fact_digest,c.scope_digest,c.event_effective_ns,c.decision_cut_ns,c.instrument_master_digest,c.universe_selection_digest,c.market_semantics_identity,c.source_binding_lineage_root,c.correction_lineage_root,c.correction_lineage_version FROM market_data_private.native_replay_quote_cut_census_v2 AS c WHERE c.correction_lineage_root IN (SELECT i.correction_lineage_root FROM market_data_private.native_replay_quote_cut_census_v2 AS i WHERE i.scope_digest = p_scope_digest AND i.event_effective_ns > p_after_ns AND i.event_effective_ns < p_before_ns) ORDER BY c.correction_lineage_root,c.correction_lineage_version,c.snapshot_identity $function$",
+    // The census gained the frame it is read for and both Instrument Master keys; the earlier
+    // signature is dropped so no caller can read the census without them.
+    "DROP FUNCTION IF EXISTS market_data_admitted_read.resolve_native_replay_quote_cut_census_v2(BYTEA,BIGINT,BIGINT)",
+    "DROP FUNCTION IF EXISTS market_data_private.resolve_native_replay_quote_cut_census_v2(BYTEA,BIGINT,BIGINT)",
+    "CREATE OR REPLACE FUNCTION market_data_private.resolve_native_replay_quote_cut_census_v2(p_scope_digest BYTEA, p_frame_snapshot_identity BYTEA, p_after_ns BIGINT, p_before_ns BIGINT) RETURNS TABLE(snapshot_identity BYTEA,snapshot_fact_digest BYTEA,scope_digest BYTEA,event_effective_ns BIGINT,decision_cut_ns BIGINT,instrument_master_key BYTEA,frame_instrument_master_key BYTEA,universe_selection_digest BYTEA,market_semantics_identity BYTEA,source_binding_lineage_root BYTEA,correction_lineage_root BYTEA,correction_lineage_version BIGINT) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $function$ SELECT c.snapshot_identity,c.snapshot_fact_digest,c.scope_digest,c.event_effective_ns,c.decision_cut_ns,c.instrument_master_key,(SELECT f.instrument_master_key FROM market_data_private.native_replay_frame_census_v2 AS f WHERE f.snapshot_identity = p_frame_snapshot_identity),c.universe_selection_digest,c.market_semantics_identity,c.source_binding_lineage_root,c.correction_lineage_root,c.correction_lineage_version FROM market_data_private.native_replay_quote_cut_census_v2 AS c WHERE c.correction_lineage_root IN (SELECT i.correction_lineage_root FROM market_data_private.native_replay_quote_cut_census_v2 AS i WHERE i.scope_digest = p_scope_digest AND i.event_effective_ns > p_after_ns AND i.event_effective_ns < p_before_ns) ORDER BY c.correction_lineage_root,c.correction_lineage_version,c.snapshot_identity $function$",
     "CREATE OR REPLACE FUNCTION market_data_private.resolve_native_replay_next_frame_v2(p_scope_digest BYTEA, p_after_ns BIGINT, p_decision_cut_ns BIGINT) RETURNS TABLE(event_effective_ns BIGINT) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $function$ SELECT f.event_effective_ns FROM market_data_private.native_replay_frame_census_v2 AS f WHERE f.scope_digest = p_scope_digest AND f.event_effective_ns > p_after_ns AND f.decision_cut_ns <= p_decision_cut_ns ORDER BY f.event_effective_ns LIMIT 1 $function$",
     // The current snapshot of every lineage a PIT request identity answers, with the request digest
     // that head carries: a Design names its initial PIT request by that pair and nothing is searched.
@@ -462,7 +474,7 @@ const MIGRATION_STATEMENTS: &[&str] = &[
     "REVOKE ALL ON FUNCTION market_data_private.resolve_bar_schedule_history_v1(TEXT) FROM PUBLIC",
     "REVOKE ALL ON FUNCTION market_data_private.resolve_strategy_input_sample_projection_v3(BYTEA) FROM PUBLIC",
     "REVOKE ALL ON FUNCTION market_data_private.resolve_strategy_input_sample_projection_schedule_dependencies_v3(BYTEA) FROM PUBLIC",
-    "REVOKE ALL ON FUNCTION market_data_private.resolve_native_replay_quote_cut_census_v2(BYTEA,BIGINT,BIGINT) FROM PUBLIC",
+    "REVOKE ALL ON FUNCTION market_data_private.resolve_native_replay_quote_cut_census_v2(BYTEA,BYTEA,BIGINT,BIGINT) FROM PUBLIC",
     "REVOKE ALL ON FUNCTION market_data_private.resolve_native_replay_next_frame_v2(BYTEA,BIGINT,BIGINT) FROM PUBLIC",
 ];
 
@@ -1274,6 +1286,7 @@ impl MarketDataOwnerPostgres {
             clock,
             fault,
             PitPersistCompanionV1::None,
+            NativeReplayInstrumentMasterKeyV1::RequestDigest,
         ))
         .await
     }
@@ -1338,6 +1351,7 @@ impl MarketDataOwnerPostgres {
             clock,
             fault,
             PitPersistCompanionV1::None,
+            NativeReplayInstrumentMasterKeyV1::RequestDigest,
         ))
         .await
     }
@@ -1465,7 +1479,7 @@ impl MarketDataOwnerPostgres {
         // The Instrument Master digest is the Owner's own resolution for the scoped instruments at
         // this decision cut, and the request identity is sealed over it: the submission carries
         // neither, so nothing the requester states is overwritten.
-        let instrument_master_digest =
+        let (instrument_master_digest, instrument_master_key) =
             Box::pin(self.resolve_instrument_master_digest_for_pit_request_v1(
                 &submission,
                 &members,
@@ -1587,6 +1601,7 @@ impl MarketDataOwnerPostgres {
             clock,
             PostgresCommitFault::None,
             PitPersistCompanionV1::OwnerR0RecordAndInitialCorrelation,
+            instrument_master_key,
         ))
         .await
     }
@@ -1678,6 +1693,7 @@ impl MarketDataOwnerPostgres {
             clock,
             PostgresCommitFault::None,
             PitPersistCompanionV1::OwnerR0Record,
+            NativeReplayInstrumentMasterKeyV1::RequestDigest,
         ))
         .await
     }
@@ -1736,6 +1752,7 @@ impl MarketDataOwnerPostgres {
             clock,
             PostgresCommitFault::None,
             PitPersistCompanionV1::None,
+            NativeReplayInstrumentMasterKeyV1::RequestDigest,
         ))
         .await
     }
@@ -1794,6 +1811,7 @@ impl MarketDataOwnerPostgres {
             clock,
             PostgresCommitFault::None,
             PitPersistCompanionV1::None,
+            NativeReplayInstrumentMasterKeyV1::RequestDigest,
         ))
         .await
     }
@@ -2172,6 +2190,59 @@ enum PitPersistCompanionV1 {
     /// The intake's R0 record, and the claim of the request's correlation for this initial
     /// snapshot.
     OwnerR0RecordAndInitialCorrelation,
+}
+
+/// The Instrument Master a snapshot's census row keys it under, which quote cut selection compares.
+///
+/// The batch's own `instrument_master_digest` cannot serve: it is the readback the snapshot's intake
+/// request resolved, and every request resolves one of its own, sealed over its correlation, event
+/// instant and decision cut. Two snapshots on the same facts therefore never share it, and a quote
+/// cut could never be its frame's.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum NativeReplayInstrumentMasterKeyV1 {
+    /// The intake resolved these facts for the request's members. Every request that resolves
+    /// the same facts gets the same key, and a request that sees another fact for a member does not.
+    ResolvedFacts(BindingDigest),
+    /// A commit that resolved no facts, which no production path makes: the tests and sealed
+    /// fixtures that commit a proposal directly. Its request's own digest stands in, as the census
+    /// compared before the key existed.
+    RequestDigest,
+}
+
+const NATIVE_REPLAY_INSTRUMENT_MASTER_KEY_DOMAIN_V1: &[u8] =
+    b"vibe.market-data.native-replay-instrument-master-key.v1\0";
+
+/// How many census keys a test build has taken from a request's digest rather than from facts.
+#[cfg(test)]
+pub(super) static NATIVE_REPLAY_REQUEST_DIGEST_KEYS_FOR_TEST: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+
+impl NativeReplayInstrumentMasterKeyV1 {
+    /// The key over `selected`, the facts the intake resolved, one per member in canonical order.
+    fn resolved_facts(selected: &[InstrumentMasterFactV1]) -> Self {
+        let mut digest = Sha256::new();
+        digest.update(NATIVE_REPLAY_INSTRUMENT_MASTER_KEY_DOMAIN_V1);
+        digest.update((selected.len() as u64).to_le_bytes());
+
+        for fact in selected {
+            digest.update(fact.digest().as_bytes());
+        }
+        Self::ResolvedFacts(BindingDigest::from_untrusted_bytes(
+            digest.finalize().into(),
+        ))
+    }
+
+    fn of(self, fact: &PitSnapshotFact) -> BindingDigest {
+        match self {
+            Self::ResolvedFacts(key) => key,
+            Self::RequestDigest => {
+                #[cfg(test)]
+                NATIVE_REPLAY_REQUEST_DIGEST_KEYS_FOR_TEST
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                fact.request().instrument_master_digest
+            }
+        }
+    }
 }
 
 /// The constraint whose violation, and only whose violation, means another initial intake already
@@ -6026,6 +6097,7 @@ async fn persist_pit(
     clock: &MarketDataClockAdmission,
     fault: PostgresCommitFault,
     companion: PitPersistCompanionV1,
+    instrument_master_key: NativeReplayInstrumentMasterKeyV1,
 ) -> Result<PitSnapshotCommitAggregate, PitSnapshotError> {
     let fact = aggregate.fact();
     lock_digests(
@@ -6129,10 +6201,20 @@ async fn persist_pit(
 
     match classify_native_replay_cut_v2(rows) {
         NativeReplayCutKindV2::Frame => {
-            admit_native_replay_frame_census(&mut transaction, aggregate.fact()).await?;
+            admit_native_replay_frame_census(
+                &mut transaction,
+                aggregate.fact(),
+                instrument_master_key,
+            )
+            .await?;
         }
         NativeReplayCutKindV2::QuoteCut => {
-            admit_native_replay_quote_cut_census(&mut transaction, aggregate.fact()).await?;
+            admit_native_replay_quote_cut_census(
+                &mut transaction,
+                aggregate.fact(),
+                instrument_master_key,
+            )
+            .await?;
         }
         NativeReplayCutKindV2::Neither => {}
     }
@@ -6494,6 +6576,7 @@ fn census_digest(
 async fn admit_native_replay_frame_census(
     transaction: &mut Transaction<'_, Postgres>,
     fact: &PitSnapshotFact,
+    instrument_master_key: NativeReplayInstrumentMasterKeyV1,
 ) -> Result<(), PitSnapshotError> {
     let time = &fact.request().time_evidence;
     let event_effective = i64::try_from(time.event_effective.value)
@@ -6501,7 +6584,7 @@ async fn admit_native_replay_frame_census(
     let decision_cut = i64::try_from(time.decision_cut.value)
         .map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
     sqlx::query(
-        "INSERT INTO market_data_private.native_replay_frame_census_v2(scope_digest,frame_ordinal,snapshot_identity,snapshot_fact_digest,event_effective_ns,decision_cut_ns,correction_branch_digest) SELECT $1, COALESCE(MAX(frame_ordinal),0)+1, $2, $3, $4, $5, $6 FROM market_data_private.native_replay_frame_census_v2 WHERE scope_digest=$1 ON CONFLICT (snapshot_identity) DO NOTHING",
+        "INSERT INTO market_data_private.native_replay_frame_census_v2(scope_digest,frame_ordinal,snapshot_identity,snapshot_fact_digest,event_effective_ns,decision_cut_ns,correction_branch_digest,instrument_master_key) SELECT $1, COALESCE(MAX(frame_ordinal),0)+1, $2, $3, $4, $5, $6, $7 FROM market_data_private.native_replay_frame_census_v2 WHERE scope_digest=$1 ON CONFLICT (snapshot_identity) DO NOTHING",
     )
     .bind(fact.request().scope_digest.as_bytes().as_slice())
     .bind(fact.snapshot_identity().as_bytes().as_slice())
@@ -6509,6 +6592,7 @@ async fn admit_native_replay_frame_census(
     .bind(event_effective)
     .bind(decision_cut)
     .bind(fact.lineage_root().as_bytes().as_slice())
+    .bind(instrument_master_key.of(fact).as_bytes().as_slice())
     .execute(&mut **transaction)
     .await
     .map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
@@ -6518,6 +6602,7 @@ async fn admit_native_replay_frame_census(
 async fn admit_native_replay_quote_cut_census(
     transaction: &mut Transaction<'_, Postgres>,
     fact: &PitSnapshotFact,
+    instrument_master_key: NativeReplayInstrumentMasterKeyV1,
 ) -> Result<(), PitSnapshotError> {
     let time = &fact.request().time_evidence;
     let event_effective = i64::try_from(time.event_effective.value)
@@ -6525,7 +6610,7 @@ async fn admit_native_replay_quote_cut_census(
     let decision_cut = i64::try_from(time.decision_cut.value)
         .map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
     sqlx::query(
-        "INSERT INTO market_data_private.native_replay_quote_cut_census_v2(snapshot_identity,scope_digest,snapshot_fact_digest,event_effective_ns,decision_cut_ns,instrument_master_digest,universe_selection_digest,market_semantics_identity,source_binding_lineage_root,correction_lineage_root,correction_lineage_version) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT (snapshot_identity) DO NOTHING",
+        "INSERT INTO market_data_private.native_replay_quote_cut_census_v2(snapshot_identity,scope_digest,snapshot_fact_digest,event_effective_ns,decision_cut_ns,instrument_master_digest,universe_selection_digest,market_semantics_identity,source_binding_lineage_root,correction_lineage_root,correction_lineage_version,instrument_master_key) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) ON CONFLICT (snapshot_identity) DO NOTHING",
     )
     .bind(fact.snapshot_identity().as_bytes().as_slice())
     .bind(fact.request().scope_digest.as_bytes().as_slice())
@@ -6541,6 +6626,7 @@ async fn admit_native_replay_quote_cut_census(
         i64::try_from(fact.lineage_version())
             .map_err(|_| PitSnapshotError::PersistenceUnavailable)?,
     )
+    .bind(instrument_master_key.of(fact).as_bytes().as_slice())
     .execute(&mut **transaction)
     .await
     .map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
@@ -6558,22 +6644,29 @@ async fn admit_native_replay_quote_cut_census(
 async fn load_native_replay_quote_cut_census_v2(
     transaction: &mut Transaction<'_, Postgres>,
     scope_digest: BindingDigest,
+    frame_snapshot_identity: BindingDigest,
     after_ns: u64,
     before_ns_exclusive: u64,
-) -> Result<Vec<NativeReplayQuoteCutCandidateV2>, PitSnapshotError> {
+) -> Result<(Vec<NativeReplayQuoteCutCandidateV2>, Option<BindingDigest>), PitSnapshotError> {
     let after = i64::try_from(after_ns).map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
     let before =
         i64::try_from(before_ns_exclusive).map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
     let rows = sqlx::query(
-        "SELECT * FROM market_data_private.resolve_native_replay_quote_cut_census_v2($1,$2,$3)",
+        "SELECT * FROM market_data_private.resolve_native_replay_quote_cut_census_v2($1,$2,$3,$4)",
     )
     .bind(scope_digest.as_bytes().as_slice())
+    .bind(frame_snapshot_identity.as_bytes().as_slice())
     .bind(after)
     .bind(before)
     .fetch_all(&mut **transaction)
     .await
     .map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
-    rows.iter()
+    let frame_key = native_replay_frame_instrument_master_key_v2(
+        rows.iter()
+            .map(|row| census_optional_digest(row, "frame_instrument_master_key")),
+    )?;
+    let candidates = rows
+        .iter()
         .map(|row| {
             let nanos = |column: &str| -> Result<u64, PitSnapshotError> {
                 let value: i64 = row
@@ -6585,7 +6678,7 @@ async fn load_native_replay_quote_cut_census_v2(
                 snapshot_identity: census_digest(row, "snapshot_identity")?,
                 snapshot_fact_digest: census_digest(row, "snapshot_fact_digest")?,
                 scope_digest: census_digest(row, "scope_digest")?,
-                instrument_master_digest: census_digest(row, "instrument_master_digest")?,
+                instrument_master_key: census_optional_digest(row, "instrument_master_key")?,
                 universe_selection_digest: census_digest(row, "universe_selection_digest")?,
                 market_semantics_identity: census_digest(row, "market_semantics_identity")?,
                 source_binding_lineage_root: census_digest(row, "source_binding_lineage_root")?,
@@ -6595,7 +6688,45 @@ async fn load_native_replay_quote_cut_census_v2(
                 correction_lineage_version: nanos("correction_lineage_version")?,
             })
         })
-        .collect()
+        .collect::<Result<Vec<_>, PitSnapshotError>>()?;
+    Ok((candidates, frame_key))
+}
+
+/// The frame's Instrument Master key, which every census row read for it repeats.
+///
+/// No row leaves it unknown, and selection then has no candidate to compare it with. Rows that
+/// disagree on it were not read for one frame, and nothing is claimed.
+fn native_replay_frame_instrument_master_key_v2<E>(
+    keys: impl IntoIterator<Item = Result<Option<BindingDigest>, E>>,
+) -> Result<Option<BindingDigest>, E> {
+    let mut frame_key = None;
+
+    for key in keys {
+        let key = key?;
+        match frame_key {
+            None => frame_key = Some(key),
+            Some(seen) if seen == key => {}
+            Some(_) => return Ok(None),
+        }
+    }
+    Ok(frame_key.flatten())
+}
+
+fn census_optional_digest(
+    row: &sqlx::postgres::PgRow,
+    column: &str,
+) -> Result<Option<BindingDigest>, PitSnapshotError> {
+    let bytes: Option<Vec<u8>> = row
+        .try_get(column)
+        .map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
+    bytes
+        .map(|bytes| {
+            bytes
+                .try_into()
+                .map(BindingDigest::from_untrusted_bytes)
+                .map_err(|_| PitSnapshotError::PersistenceUnavailable)
+        })
+        .transpose()
 }
 
 /// Reads the event time of the first frame after `after_ns` in `scope_digest` that the Owner had
@@ -6626,14 +6757,15 @@ async fn load_next_native_replay_frame_v2(
 ///
 /// `docs/owners/market-data.md` takes a frame's liquidity from its quote cut: an Owner-verified
 /// snapshot strictly after the frame's BAR cut and strictly before the next frame's. The caller
-/// names neither. The bound is the first later frame in the frame's scope census, or the window's
-/// end when none precedes it, and the decision cut is the frame's own: the sealed request names
-/// the frame's PIT snapshot, whose decision cut is the only one it fixes, so a later reading
-/// resolves the same quote cut. Frames the Owner observed after that cut do not bound the
-/// interval, and a later frame can only narrow it - which leaves a quote cut missing, never
-/// admits one that is not the frame's. The census is then searched on the frame's coordinates,
-/// exactly one correction lineage must lie in the interval as the Owner saw it at the decision
-/// cut, and its batch is read back and verified before it is compared with the frame's.
+/// names neither. Each quote cut lineage is read at the frame's own decision cut, or at the cut its
+/// original was published at when that is later ([`native_replay_quote_cut_reading_cuts_v2`]), and
+/// the bound at a reading cut is the first later frame the Owner had observed by it in the frame's
+/// scope census, or the window's end when none precedes it. Every reading cut is fixed by history
+/// the Owner holds, so a later reading resolves the same quote cut. The census is read once, under
+/// the bound at the frame's decision cut: a frame observed later can only lower the bound at a
+/// later cut, so that read holds every lineage any reading cut could offer. The census is then
+/// searched on the frame's coordinates, and the chosen quote cut's batch is read back and verified
+/// before it is compared with the frame's.
 ///
 /// # Errors
 ///
@@ -6655,19 +6787,40 @@ async fn resolve_native_replay_quote_cut_in_transaction_v2(
     .map_err(|_| NativeReplayQuoteCutRefusalV2::CustodyUnavailable)?;
     let bound_ns_exclusive =
         native_replay_quote_cut_bound_v2(next_frame_ns, window_end_ns_exclusive);
-    let candidates = load_native_replay_quote_cut_census_v2(
+    let (candidates, frame_instrument_master_key) = load_native_replay_quote_cut_census_v2(
         transaction,
         frame_coordinates.scope_digest,
+        frame.snapshot_identity(),
         frame_coordinates.event_effective_ns,
         bound_ns_exclusive,
     )
     .await
     .map_err(|_| NativeReplayQuoteCutRefusalV2::CustodyUnavailable)?;
+    let mut bounds = std::collections::BTreeMap::from([(decision_cut_ns, bound_ns_exclusive)]);
+
+    for reading_cut in native_replay_quote_cut_reading_cuts_v2(&candidates, decision_cut_ns) {
+        if bounds.contains_key(&reading_cut) {
+            continue;
+        }
+        let next_frame_ns = load_next_native_replay_frame_v2(
+            transaction,
+            frame_coordinates.scope_digest,
+            frame_coordinates.event_effective_ns,
+            reading_cut,
+        )
+        .await
+        .map_err(|_| NativeReplayQuoteCutRefusalV2::CustodyUnavailable)?;
+        bounds.insert(
+            reading_cut,
+            native_replay_quote_cut_bound_v2(next_frame_ns, window_end_ns_exclusive),
+        );
+    }
     let chosen = select_native_replay_quote_cut_v2(
         &candidates,
         &frame_coordinates,
-        bound_ns_exclusive,
+        frame_instrument_master_key,
         decision_cut_ns,
+        |reading_cut| bounds.get(&reading_cut).copied(),
     )?;
     let quote_cut = load_verified_observation_batch(
         transaction,
@@ -8577,6 +8730,7 @@ where
     let census = port
         .resolve_native_replay_quote_cut_census_v2(
             *frame_coordinates.scope_digest.as_bytes(),
+            *frame.snapshot_identity().as_bytes(),
             frame_coordinates.event_effective_ns,
             decision_cut_ns,
             window_end_ns_exclusive,
@@ -8588,11 +8742,39 @@ where
         .iter()
         .map(|row| decode_raw_native_replay_quote_cut_candidate_v2(row))
         .collect::<Result<Vec<_>, _>>()?;
+    let frame_instrument_master_key = native_replay_frame_instrument_master_key_v2(
+        census
+            .rows
+            .iter()
+            .map(|row| raw_optional_census_digest(row, "frame_instrument_master_key")),
+    )?;
+    let mut bounds =
+        std::collections::BTreeMap::from([(decision_cut_ns, census.bound_ns_exclusive)]);
+
+    for reading_cut in native_replay_quote_cut_reading_cuts_v2(&candidates, decision_cut_ns) {
+        if bounds.contains_key(&reading_cut) {
+            continue;
+        }
+        // The census read at a later cut answers the bound the frame census sets at that cut; its
+        // rows are the ones already read, or fewer, and are not read again.
+        let later = port
+            .resolve_native_replay_quote_cut_census_v2(
+                *frame_coordinates.scope_digest.as_bytes(),
+                *frame.snapshot_identity().as_bytes(),
+                frame_coordinates.event_effective_ns,
+                reading_cut,
+                window_end_ns_exclusive,
+            )
+            .await
+            .map_err(|_| NativeReplayQuoteCutRefusalV2::CustodyUnavailable)?;
+        bounds.insert(reading_cut, later.bound_ns_exclusive);
+    }
     let chosen = select_native_replay_quote_cut_v2(
         &candidates,
         &frame_coordinates,
-        census.bound_ns_exclusive,
+        frame_instrument_master_key,
         decision_cut_ns,
+        |reading_cut| bounds.get(&reading_cut).copied(),
     )?;
     let evidence = port
         .resolve_pit_evaluation(*chosen.snapshot_identity.as_bytes())
@@ -8638,7 +8820,7 @@ fn decode_raw_native_replay_quote_cut_candidate_v2(
         snapshot_identity: digest("snapshot_identity")?,
         snapshot_fact_digest: digest("snapshot_fact_digest")?,
         scope_digest: digest("scope_digest")?,
-        instrument_master_digest: digest("instrument_master_digest")?,
+        instrument_master_key: raw_optional_census_digest(row, "instrument_master_key")?,
         universe_selection_digest: digest("universe_selection_digest")?,
         market_semantics_identity: digest("market_semantics_identity")?,
         source_binding_lineage_root: digest("source_binding_lineage_root")?,
@@ -8647,6 +8829,25 @@ fn decode_raw_native_replay_quote_cut_candidate_v2(
         correction_lineage_root: digest("correction_lineage_root")?,
         correction_lineage_version: nanos("correction_lineage_version")?,
     })
+}
+
+/// A census digest the port's read returned that may be absent: `null` is no digest.
+fn raw_optional_census_digest(
+    row: &[u8],
+    field: &str,
+) -> Result<Option<BindingDigest>, NativeReplayQuoteCutRefusalV2> {
+    let value: Value = serde_json::from_slice(row)
+        .map_err(|_| NativeReplayQuoteCutRefusalV2::CustodyUnavailable)?;
+
+    match value
+        .get(field)
+        .ok_or(NativeReplayQuoteCutRefusalV2::CustodyUnavailable)?
+    {
+        Value::Null => Ok(None),
+        present => raw_digest(present)
+            .map(Some)
+            .map_err(|_| NativeReplayQuoteCutRefusalV2::CustodyUnavailable),
+    }
 }
 
 /// What a quote cut refusal means to the frame that needed it.
@@ -11261,7 +11462,7 @@ impl MarketDataOwnerPostgres {
         members: &[String],
         universe: Option<&UniverseSelectionReadbackV1>,
         clock: &MarketDataClockAdmission,
-    ) -> Result<BindingDigest, PitSnapshotError> {
+    ) -> Result<(BindingDigest, NativeReplayInstrumentMasterKeyV1), PitSnapshotError> {
         let (universe, members) = pit_instrument_master_members_v1(universe, members)?;
         let time = &submission.time_evidence;
         let effective = i128::from(time.event_effective.value);
@@ -11324,7 +11525,10 @@ impl MarketDataOwnerPostgres {
                 );
                 PitSnapshotError::InstrumentMasterUnavailable
             })?;
-        Ok(readback.digest())
+        Ok((
+            readback.digest(),
+            NativeReplayInstrumentMasterKeyV1::resolved_facts(&selected),
+        ))
     }
 }
 

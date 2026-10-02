@@ -3,6 +3,7 @@ use std::fmt::Display;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
+use vibe_backtest_owner_contracts::ReplayTerminalV2;
 
 const MAX_IDENTITY_BYTES: usize = 256;
 const MAX_FRONTIER_MEMBERS: usize = 4_096;
@@ -116,6 +117,29 @@ pub(crate) enum TrialFamilyAttemptTerminalDispositionV2 {
     Rejected,
     Invalid,
     Unknown,
+}
+
+impl TrialFamilyAttemptTerminalDispositionV2 {
+    /// The Backtest terminal an attempt of this disposition records, one for one.
+    pub(crate) const fn replay_terminal(self) -> ReplayTerminalV2 {
+        match self {
+            Self::TerminalResult => ReplayTerminalV2::TerminalResult,
+            Self::Rejected => ReplayTerminalV2::RunRejected,
+            Self::Invalid => ReplayTerminalV2::InvalidReplayEvidence,
+            Self::Unknown => ReplayTerminalV2::InProgressOrUnknown,
+        }
+    }
+
+    /// The disposition a Backtest terminal is counted under: the inverse of
+    /// [`Self::replay_terminal`].
+    pub(crate) const fn of_replay_terminal(terminal: ReplayTerminalV2) -> Self {
+        match terminal {
+            ReplayTerminalV2::TerminalResult => Self::TerminalResult,
+            ReplayTerminalV2::RunRejected => Self::Rejected,
+            ReplayTerminalV2::InvalidReplayEvidence => Self::Invalid,
+            ReplayTerminalV2::InProgressOrUnknown => Self::Unknown,
+        }
+    }
 }
 
 pub(crate) struct TrialFamilyLatestAttemptBindingV2<'a> {
@@ -281,13 +305,6 @@ pub(crate) struct TrialFamilyCensusFrontierV2 {
     frontier_digest: String,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "TrialFamily Census V2 awaits the admitted R&D Decision composition consumer"
-    )
-)]
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct TrialFamilyAttemptAppendV2 {
@@ -309,6 +326,34 @@ pub(crate) struct TrialFamilyCandidateSetProposalV2 {
     pub generation_rule_digest: String,
     pub expected_cardinality: u32,
     pub candidates: Vec<TrialFamilyCandidateExperimentProposalV1>,
+}
+
+impl TrialFamilyCandidateSetProposalV2 {
+    /// The candidate set of an attempt counted when R&D admits its exploratory Result: empty.
+    ///
+    /// R&D counts a Result before any Decision has read it, so no candidate has been generated
+    /// yet. The attempt's candidate-set frontier is therefore fixed empty, under one named rule
+    /// whose digest covers its identity and its cardinality, rather than a caller-chosen one.
+    pub(crate) fn none_at_result_admission() -> Result<Self, TrialFamilyError> {
+        const RULE: &str = "rd-candidate-generation-none-at-result-admission-v1";
+        #[derive(Serialize)]
+        struct RuleMeaning {
+            generation_rule_identity: &'static str,
+            expected_cardinality: u32,
+        }
+        Ok(Self {
+            generation_rule_identity: RULE.to_owned(),
+            generation_rule_digest: canonical_digest(
+                "rd.trial-family.candidate-generation-rule.v1",
+                &RuleMeaning {
+                    generation_rule_identity: RULE,
+                    expected_cardinality: 0,
+                },
+            )?,
+            expected_cardinality: 0,
+            candidates: Vec::new(),
+        })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -396,11 +441,15 @@ pub struct ArtifactTrialFamilyBindingReceiptV1 {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct TrialFamilyReadbackV1 {
-    pub(crate) root: TrialFamilyRootV1,
-    pub(crate) root_receipt: TrialFamilyRootReceiptV1,
+    // The three large parts are boxed so the readback stays small by value. Custody results carry it
+    // through long chains of debug-build poll frames, each of which keeps a slot for every move of
+    // it; unboxed, this struct alone sized those slots at 2.8 KB and helped overflow a 2 MiB test
+    // stack on the custody scan (chain entry 114).
+    pub(crate) root: Box<TrialFamilyRootV1>,
+    pub(crate) root_receipt: Box<TrialFamilyRootReceiptV1>,
     pub(crate) initial_intent_member: TrialFamilyCensusMemberV1,
     pub(crate) membership_receipt: TrialFamilyMembershipReceiptV1,
-    pub(crate) census_frontier: TrialFamilyCensusFrontierV1,
+    pub(crate) census_frontier: Box<TrialFamilyCensusFrontierV1>,
 }
 
 /// ```compile_fail
@@ -879,13 +928,6 @@ impl TrialFamilyReadbackV1 {
     }
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "TrialFamily Census V2 awaits the admitted R&D Decision composition consumer"
-    )
-)]
 impl TrialFamilyCensusMemberV2 {
     pub(crate) fn member_identity(&self) -> &str {
         &self.member_identity
@@ -934,13 +976,6 @@ impl TrialFamilyAttemptFrontierV2 {
     }
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "TrialFamily Census V2 awaits the admitted R&D Decision composition consumer"
-    )
-)]
 impl TrialFamilyCandidateSetFrontierV2 {
     pub(crate) fn frontier_identity(&self) -> &str {
         &self.frontier_identity
@@ -1012,6 +1047,23 @@ impl TrialFamilyCensusReadbackV2 {
 
     pub(crate) fn consumed_trial_budget(&self) -> u32 {
         self.census_frontier.consumed_trial_budget
+    }
+
+    /// Whether an attempt already binds this exact Replay request.
+    ///
+    /// A request is counted once. Every later Result of the same request meaning is an exact
+    /// replay: it joins the attempt that counted the request and is not a second trial.
+    pub(crate) fn counts_request(&self, request_identity: &str, request_digest: &str) -> bool {
+        self.members.iter().any(|member| {
+            member.member_kind == TrialFamilyCensusMemberKindV2::Request
+                && member.fact_identity == request_identity
+                && member.fact_digest == request_digest
+        })
+    }
+
+    /// How many attempts the census holds, which is the ordinal the next attempt takes.
+    pub(crate) fn attempt_count(&self) -> Result<u32, TrialFamilyError> {
+        u32::try_from(self.attempt_frontier.terminal_member_digests.len()).map_err(unavailable)
     }
 
     pub(crate) fn latest_attempt_binding(
@@ -1093,11 +1145,11 @@ pub(crate) fn admit_stored_family(
         decode_stored(membership_receipt_json)?;
     let stored_frontier: StoredTrialFamilyCensusFrontierV1 = decode_stored(frontier_json)?;
     let family = TrialFamilyReadbackV1 {
-        root: stored_root.into(),
-        root_receipt: stored_root_receipt.into(),
+        root: Box::new(stored_root.into()),
+        root_receipt: Box::new(stored_root_receipt.into()),
         initial_intent_member: stored_member.into(),
         membership_receipt: stored_membership_receipt.into(),
-        census_frontier: stored_frontier.into(),
+        census_frontier: Box::new(stored_frontier.into()),
     };
     verify_family(&family)?;
     Ok(family)
@@ -1121,8 +1173,8 @@ pub(crate) fn admit_stored_legacy_family_without_frontier(
         stored_root.created_at_epoch_ms,
     )?;
 
-    if expected.root != stored_root.into()
-        || expected.root_receipt != stored_root_receipt.into()
+    if *expected.root != stored_root.into()
+        || *expected.root_receipt != stored_root_receipt.into()
         || expected.initial_intent_member != stored_member.into()
         || expected.membership_receipt != stored_membership_receipt.into()
     {
@@ -1340,21 +1392,14 @@ pub(crate) fn form_initial_family(
         frontier_digest,
     };
     Ok(TrialFamilyReadbackV1 {
-        root,
-        root_receipt,
+        root: Box::new(root),
+        root_receipt: Box::new(root_receipt),
         initial_intent_member: member,
         membership_receipt,
-        census_frontier,
+        census_frontier: Box::new(census_frontier),
     })
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "TrialFamily Census V2 awaits the admitted R&D Decision composition consumer"
-    )
-)]
 pub(crate) fn append_attempt_to_census_v2(
     legacy_family: TrialFamilyReadbackV1,
     prior: Option<&TrialFamilyCensusReadbackV2>,
@@ -1528,13 +1573,6 @@ pub(crate) fn append_attempt_to_census_v2(
     Ok(readback)
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "TrialFamily Census V2 awaits the admitted R&D Decision composition consumer"
-    )
-)]
 #[derive(Clone, Copy)]
 struct AppendMemberInputV2<'a> {
     trial_family_identity: &'a str,
@@ -1546,13 +1584,6 @@ struct AppendMemberInputV2<'a> {
     now_epoch_ms: u64,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "TrialFamily Census V2 awaits the admitted R&D Decision composition consumer"
-    )
-)]
 fn push_census_member_v2(
     members: &mut Vec<TrialFamilyCensusMemberV2>,
     receipts: &mut Vec<TrialFamilyMembershipReceiptV1>,
@@ -2810,6 +2841,31 @@ mod tests {
                 expected_cardinality: u32::try_from(candidates.len()).unwrap(),
                 candidates,
             },
+        }
+    }
+
+    #[rstest]
+    fn every_backtest_terminal_is_counted_under_its_own_disposition() {
+        let dispositions = [
+            TrialFamilyAttemptTerminalDispositionV2::TerminalResult,
+            TrialFamilyAttemptTerminalDispositionV2::Rejected,
+            TrialFamilyAttemptTerminalDispositionV2::Invalid,
+            TrialFamilyAttemptTerminalDispositionV2::Unknown,
+        ];
+        let terminals = dispositions.map(TrialFamilyAttemptTerminalDispositionV2::replay_terminal);
+
+        for (disposition, terminal) in dispositions.into_iter().zip(terminals) {
+            assert_eq!(
+                TrialFamilyAttemptTerminalDispositionV2::of_replay_terminal(terminal),
+                disposition
+            );
+        }
+
+        for (index, terminal) in terminals.iter().enumerate() {
+            assert!(
+                !terminals[index + 1..].contains(terminal),
+                "no two dispositions record the same terminal"
+            );
         }
     }
 

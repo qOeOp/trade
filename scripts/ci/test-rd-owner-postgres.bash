@@ -45,8 +45,8 @@ readonly rd_owner_postgres_tests=(
   'vibe-strategy-factory|exploratory_replay_request_owner|replay_at_or_after_valid_through_writes_no_frozen_row_or_outbox'
   'vibe-strategy-factory|source_intake|postgres_readback_rejects_tampered_raw_payload'
   'vibe-backtest-owner|vibe_backtest_owner|tests::postgres_result_owner_is_atomic_restart_exact_and_rd_locked_read_only'
-  'vibe-strategy-factory-rd-owner-api|rd_owner_api_main|tests::exploratory_replay_result_http_readback_is_exact_locked_and_rd_read_only'
-  'vibe-strategy-factory-rd-owner-api|dashboard_read_api|tests::replay_result_dashboard_read_api_returns_exact_canonical_bytes'
+  'vibe-strategy-factory-rd-owner-api|rd_owner_api_main|tests::exploratory_replay_result_http_read_locks_exact_custody_and_refuses_an_uncounted_result'
+  'vibe-strategy-factory-rd-owner-api|dashboard_read_api|tests::replay_result_dashboard_read_api_refuses_a_result_no_census_counts'
   'vibe-backtest-owner|vibe_backtest_owner|tests::postgres_result_rd_read_rejects_function_source_drift'
   'vibe-backtest-owner|vibe_backtest_owner|tests::postgres_result_rd_read_rejects_owner_api_routine_sibling'
   'vibe-backtest-owner|vibe_backtest_owner|tests::postgres_result_rd_read_rejects_raw_table_acl_drift'
@@ -270,8 +270,8 @@ check_nextest_graph_contract() {
     [[ "${rd_owner_postgres_tests[12]}" != *'|replay_at_or_after_valid_through_writes_no_frozen_row_or_outbox' ]] ||
     [[ "${rd_owner_postgres_tests[13]}" != *'|postgres_readback_rejects_tampered_raw_payload' ]] ||
     [[ "${rd_owner_postgres_tests[14]}" != *'|tests::postgres_result_owner_is_atomic_restart_exact_and_rd_locked_read_only' ]] ||
-    [[ "${rd_owner_postgres_tests[15]}" != *'|tests::exploratory_replay_result_http_readback_is_exact_locked_and_rd_read_only' ]] ||
-    [[ "${rd_owner_postgres_tests[16]}" != *'|tests::replay_result_dashboard_read_api_returns_exact_canonical_bytes' ]] ||
+    [[ "${rd_owner_postgres_tests[15]}" != *'|tests::exploratory_replay_result_http_read_locks_exact_custody_and_refuses_an_uncounted_result' ]] ||
+    [[ "${rd_owner_postgres_tests[16]}" != *'|tests::replay_result_dashboard_read_api_refuses_a_result_no_census_counts' ]] ||
     [[ "${rd_owner_postgres_tests[17]}" != *'|tests::postgres_result_rd_read_rejects_function_source_drift' ]] ||
     [[ "${rd_owner_postgres_tests[18]}" != *'|tests::postgres_result_rd_read_rejects_owner_api_routine_sibling' ]] ||
     [[ "${rd_owner_postgres_tests[19]}" != *'|tests::postgres_result_rd_read_rejects_raw_table_acl_drift' ]] ||

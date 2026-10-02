@@ -10,27 +10,29 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-#[cfg(feature = "sealed-develop-composer-acceptance")]
+#[cfg(feature = "native-replay-execution")]
 use vibe_backtest_owner::{
     native_replay::{
         NativeReplayCommitDispositionV2, NativeReplayRunErrorV2,
         PostgresNativeReplayPreparationOwnerV2, run_exploratory_replay_v2,
     },
-    postgres::{PostgresReplayResultOwnerErrorV2, PostgresReplayResultOwnerV2},
+    postgres::{
+        PostgresReplayResultOwnerErrorV2, PostgresReplayResultOwnerV2, ReplayResultReadbackV2,
+    },
 };
 use vibe_backtest_owner_contracts::{
     CanonicalDigestV2, OpaqueIdentityV2, ReplayNamespaceV2, ReplayRequestDtoV2, ReplayRequestV2,
 };
 #[cfg(feature = "composer-v3-replay")]
 use vibe_data::owner::source_binding::BindingDigest;
-#[cfg(feature = "sealed-develop-composer-acceptance")]
+#[cfg(feature = "native-replay-execution")]
 use vibe_data::owner::{
     UniverseSampleProjectionOwnerV1,
     instrument_economic_terms_postgres_v1::InstrumentEconomicTermsPostgresOwnerV1,
     instrument_master_v2_postgres::InstrumentMasterV2PostgresOwner,
     native_replay_scheduling_v1::NativeReplaySchedulingResolverV1,
 };
-#[cfg(feature = "sealed-develop-composer-acceptance")]
+#[cfg(feature = "native-replay-execution")]
 use vibe_postgres_connect::{PgPoolOptionsExt, PostgresTls};
 use vibe_product_edge::{ProductEdgeAdmissionRequestV1, ProductEdgeError};
 #[cfg(any(test, feature = "composer-replay-issuance"))]
@@ -45,7 +47,8 @@ use vibe_strategy_factory::exploratory_replay::{
     ExploratoryReplayAvailabilityV1, ExploratoryReplayNextLegalActionV1,
 };
 use vibe_strategy_factory::{
-    ExploratoryReplayResultLocatorV2, MarketDataRepairResolutionLocatorV1,
+    ExploratoryReplayResultLocatorV2, ExploratoryResultCensusErrorV1,
+    MarketDataRepairResolutionLocatorV1,
     exploratory_replay::{
         EXPLORATORY_REPLAY_MUTATION_EFFECT_V2, EXPLORATORY_REPLAY_OPERATION_V2,
         EXPLORATORY_REPLAY_SCHEMA_V2, ExploratoryReplayCommitResultV2, ExploratoryReplayOwnerError,
@@ -61,7 +64,7 @@ use vibe_strategy_factory::{
     },
     product_edge_postgres::PostgresResearchGoalOwnerV1,
 };
-#[cfg(feature = "sealed-develop-composer-acceptance")]
+#[cfg(feature = "native-replay-execution")]
 use vibe_strategy_factory::{
     develop_composer_postgres_v2::DevelopComposerSealedReadPortV2,
     native_replay_execution_preparation_resolver_v2::PostgresNativeReplayExecutionPreparationResolverV2,
@@ -193,20 +196,21 @@ struct ExploratoryReplayDiagnosisQueryV1 {
     attempt_identity: String,
 }
 
-#[cfg(feature = "sealed-develop-composer-acceptance")]
+#[cfg(feature = "native-replay-execution")]
 pub(super) struct NativeReplayExecutionServiceV2 {
     preparation_owner: Arc<PostgresNativeReplayPreparationOwnerV2>,
     result_owner: Arc<PostgresReplayResultOwnerV2>,
+    census_owner: Arc<PostgresResearchGoalOwnerV1>,
 }
 
-#[cfg(feature = "sealed-develop-composer-acceptance")]
+#[cfg(feature = "native-replay-execution")]
 #[derive(Clone)]
 struct NativeReplayExecutionApiStateV2 {
     service: Option<Arc<NativeReplayExecutionServiceV2>>,
     token_digest: [u8; 32],
 }
 
-#[cfg(feature = "sealed-develop-composer-acceptance")]
+#[cfg(feature = "native-replay-execution")]
 impl NativeReplayExecutionServiceV2 {
     #[allow(clippy::too_many_arguments)]
     pub(super) async fn connect(
@@ -228,7 +232,7 @@ impl NativeReplayExecutionServiceV2 {
         let result_owner =
             Arc::new(PostgresReplayResultOwnerV2::from_admitted_pool(backtest_pool).await?);
         let resolver = Arc::new(PostgresNativeReplayExecutionPreparationResolverV2::new(
-            research_owner,
+            research_owner.clone(),
             composer,
             instrument_master_owner,
             instrument_terms_owner,
@@ -242,11 +246,12 @@ impl NativeReplayExecutionServiceV2 {
         Ok(Self {
             preparation_owner,
             result_owner,
+            census_owner: research_owner,
         })
     }
 }
 
-#[cfg(feature = "sealed-develop-composer-acceptance")]
+#[cfg(feature = "native-replay-execution")]
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct NativeReplayExecutionRequestV2 {
@@ -254,7 +259,7 @@ struct NativeReplayExecutionRequestV2 {
     attempt_identity: OpaqueIdentityV2,
 }
 
-#[cfg(feature = "sealed-develop-composer-acceptance")]
+#[cfg(feature = "native-replay-execution")]
 pub(super) fn execution_router(
     service: Option<Arc<NativeReplayExecutionServiceV2>>,
     token_digest: [u8; 32],
@@ -552,7 +557,7 @@ pub(super) async fn issue_execution_input_binding(
     }
 }
 
-#[cfg(feature = "sealed-develop-composer-acceptance")]
+#[cfg(feature = "native-replay-execution")]
 async fn run_native_replay(
     State(state): State<NativeReplayExecutionApiStateV2>,
     headers: HeaderMap,
@@ -612,7 +617,7 @@ async fn run_native_replay(
 /// `NATIVE_REPLAY_EXECUTION_UNAVAILABLE`. Before this the error was discarded at the match, so the
 /// first failure of a run anywhere in that path reached its caller as that bare code and nothing
 /// else.
-#[cfg(feature = "sealed-develop-composer-acceptance")]
+#[cfg(feature = "native-replay-execution")]
 fn native_replay_run_error(error: &NativeReplayRunErrorV2, request_identity: &str) -> Response {
     tracing::warn!(%error, %request_identity, "native Replay run failed");
     rejection(
@@ -622,12 +627,12 @@ fn native_replay_run_error(error: &NativeReplayRunErrorV2, request_identity: &st
     )
 }
 
-#[cfg(feature = "sealed-develop-composer-acceptance")]
+#[cfg(feature = "native-replay-execution")]
 fn require_send_future<F: std::future::Future + Send>(future: F) -> F {
     future
 }
 
-#[cfg(feature = "sealed-develop-composer-acceptance")]
+#[cfg(feature = "native-replay-execution")]
 async fn native_replay_execution_response(
     service: &NativeReplayExecutionServiceV2,
     disposition: NativeReplayCommitDispositionV2,
@@ -635,20 +640,60 @@ async fn native_replay_execution_response(
 ) -> Response {
     let recovered = match disposition {
         NativeReplayCommitDispositionV2::Committed { result, .. } => {
-            return canonical_result_response(result.result_canonical_bytes());
+            return counted_result_response(service, &result, request_identity).await;
         }
         NativeReplayCommitDispositionV2::SubmittedOrUnknown(recovery) => {
             recovery.resolve(service.result_owner.as_ref()).await
         }
     };
-    recovered_commit_response(recovered, request_identity)
+
+    match recovered {
+        Ok(Some(NativeReplayCommitDispositionV2::Committed { result, .. })) => {
+            counted_result_response(service, &result, request_identity).await
+        }
+        other => recovered_commit_response(other, request_identity),
+    }
+}
+
+/// Answers a committed Result only once its TrialFamily census counts it.
+///
+/// Backtest has committed the Result by now, in a transaction R&D cannot join, so the count is
+/// R&D's own transaction after it. If the count fails the Result is not returned: it stays
+/// unshown, because every read refuses an uncounted Result, until the same request and attempt
+/// run again, recover this committed Result, and count it.
+#[cfg(feature = "native-replay-execution")]
+async fn counted_result_response(
+    service: &NativeReplayExecutionServiceV2,
+    result: &ReplayResultReadbackV2,
+    request_identity: &str,
+) -> Response {
+    let readback = result.result();
+
+    match service
+        .census_owner
+        .count_exploratory_replay_result_v2(ExploratoryReplayResultLocatorV2 {
+            result_identity: readback.result_identity.as_str(),
+            request_identity: readback.request_identity.as_str(),
+            attempt_identity: readback.attempt_identity.as_str(),
+        })
+        .await
+    {
+        Ok(count) => {
+            tracing::info!(?count, %request_identity, "committed exploratory Result counted");
+            canonical_result_response(result.result_canonical_bytes())
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, %request_identity, "committed exploratory Result was not counted");
+            rejection(StatusCode::SERVICE_UNAVAILABLE, e.code(), request_identity)
+        }
+    }
 }
 
 /// The answer to a commit whose outcome was unknown, once recovery has looked for it.
 ///
 /// Anything short of the committed aggregate keeps the unknown-outcome code, and each of the three
 /// ways to fall short is logged under its own name.
-#[cfg(feature = "sealed-develop-composer-acceptance")]
+#[cfg(feature = "native-replay-execution")]
 fn recovered_commit_response(
     recovered: Result<Option<NativeReplayCommitDispositionV2>, PostgresReplayResultOwnerErrorV2>,
     request_identity: &str,
@@ -672,7 +717,7 @@ fn recovered_commit_response(
     }
 }
 
-#[cfg(feature = "sealed-develop-composer-acceptance")]
+#[cfg(feature = "native-replay-execution")]
 fn native_replay_submitted_or_unknown_response(request_identity: &str) -> Response {
     rejection(
         StatusCode::SERVICE_UNAVAILABLE,
@@ -681,7 +726,20 @@ fn native_replay_submitted_or_unknown_response(request_identity: &str) -> Respon
     )
 }
 
-#[cfg(feature = "sealed-develop-composer-acceptance")]
+/// A Result its census does not count is a conflict, refused by its own name; every other
+/// failure to show one is unavailable, under the code of what failed.
+fn result_read_error(error: &ExploratoryResultCensusErrorV1, request_identity: &str) -> Response {
+    let status = match error {
+        ExploratoryResultCensusErrorV1::NotCounted => StatusCode::CONFLICT,
+        _ => {
+            tracing::warn!(%error, %request_identity, "exploratory Result read unavailable");
+            StatusCode::SERVICE_UNAVAILABLE
+        }
+    };
+    rejection(status, error.code(), request_identity)
+}
+
+#[cfg(feature = "native-replay-execution")]
 fn canonical_result_response(bytes: &[u8]) -> Response {
     (
         StatusCode::OK,
@@ -753,11 +811,7 @@ async fn read_result(
             "EXPLORATORY_REPLAY_RESULT_UNAVAILABLE",
             &request_identity,
         ),
-        Err(_) => rejection(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "EXPLORATORY_REPLAY_RESULT_UNAVAILABLE",
-            &request_identity,
-        ),
+        Err(e) => result_read_error(&e, &request_identity),
     }
 }
 
@@ -812,11 +866,7 @@ async fn read_run_evidence(
             "EXPLORATORY_REPLAY_RESULT_UNAVAILABLE",
             &request_identity,
         ),
-        Err(_) => rejection(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "EXPLORATORY_REPLAY_RESULT_UNAVAILABLE",
-            &request_identity,
-        ),
+        Err(e) => result_read_error(&e, &request_identity),
     }
 }
 
@@ -1825,7 +1875,7 @@ mod tests {
         }
     }
 
-    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    #[cfg(feature = "native-replay-execution")]
     #[rstest]
     fn native_replay_execution_request_accepts_only_exact_owner_locators() {
         let request = json!({
@@ -1849,7 +1899,7 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    #[cfg(feature = "native-replay-execution")]
     #[tokio::test]
     async fn native_replay_unknown_result_preserves_request_correlation() {
         let response = native_replay_submitted_or_unknown_response("request-1");
@@ -1866,7 +1916,7 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    #[cfg(feature = "native-replay-execution")]
     #[tokio::test]
     async fn native_replay_router_is_authenticated_and_fail_closed_without_service() {
         let token = "native-replay-router-test";
@@ -2164,7 +2214,7 @@ mod tests {
     }
 
     /// A failed run answers the one code its consumers read, and the log names what failed.
-    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    #[cfg(feature = "native-replay-execution")]
     #[rstest]
     fn a_failed_native_replay_run_names_its_cause_in_the_log() {
         let error = NativeReplayRunErrorV2::NativeExecution(
@@ -2190,7 +2240,7 @@ mod tests {
 
     /// A commit recovery that finds no aggregate, or fails, keeps the unknown-outcome code and
     /// logs which of the two it was.
-    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    #[cfg(feature = "native-replay-execution")]
     #[rstest]
     #[case::absent(Ok(None), "native Replay commit is absent after recovery", None)]
     #[case::failed(

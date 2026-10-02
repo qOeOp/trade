@@ -15,6 +15,7 @@ use vibe_backtest_owner_contracts::{CanonicalDigestV2, OpaqueIdentityV2};
 use vibe_strategy_factory::{
     BacktestReadbackRefusalV1, BacktestResultCustodyErrorV2,
     ExploratoryReplayResultDirectoryEntryV1, ExploratoryReplayResultLocatorV2,
+    ExploratoryResultCensusErrorV1,
     artifact_build::{
         ArtifactBuildError, ArtifactBuildResultV1, ArtifactDirectoryCursorV1,
         ArtifactDirectoryOwnerPort, ArtifactDirectoryReadbackV1, ArtifactReadbackOwnerPortV1,
@@ -125,7 +126,7 @@ pub trait ExploratoryReplayResultReadbackOwnerPortV2: Send + Sync {
         result_identity: &str,
         request_identity: &str,
         attempt_identity: &str,
-    ) -> Result<Option<Vec<u8>>, BacktestResultCustodyErrorV2>;
+    ) -> Result<Option<Vec<u8>>, ExploratoryResultCensusErrorV1>;
 
     /// Every Result the Backtest Owner holds for one Replay request, in its order.
     async fn read_exploratory_replay_result_directory(
@@ -186,7 +187,7 @@ impl ExploratoryReplayResultReadbackOwnerPortV2 for PostgresExploratoryReplayRea
         result_identity: &str,
         request_identity: &str,
         attempt_identity: &str,
-    ) -> Result<Option<Vec<u8>>, BacktestResultCustodyErrorV2> {
+    ) -> Result<Option<Vec<u8>>, ExploratoryResultCensusErrorV1> {
         self.resolve_exploratory_replay_result_v2(ExploratoryReplayResultLocatorV2 {
             result_identity,
             request_identity,
@@ -318,8 +319,10 @@ impl ExploratoryReplayResultReadbackOwnerPortV2 for UnavailableExploratoryReplay
         _result_identity: &str,
         _request_identity: &str,
         _attempt_identity: &str,
-    ) -> Result<Option<Vec<u8>>, BacktestResultCustodyErrorV2> {
-        Err(BacktestResultCustodyErrorV2::Unavailable)
+    ) -> Result<Option<Vec<u8>>, ExploratoryResultCensusErrorV1> {
+        Err(ExploratoryResultCensusErrorV1::Custody(
+            BacktestResultCustodyErrorV2::Unavailable,
+        ))
     }
 
     async fn read_exploratory_replay_result_directory(
@@ -1171,6 +1174,11 @@ pub async fn read_exploratory_replay_result(
         )
             .into_response(),
         Ok(None) => StatusCode::NOT_FOUND.into_response(),
+        // A Result its TrialFamily census does not count is refused and never shown.
+        Err(e @ ExploratoryResultCensusErrorV1::NotCounted) => {
+            tracing::warn!(%e, code = e.code(), "Exploratory Replay result Dashboard read refused");
+            StatusCode::CONFLICT.into_response()
+        }
         Err(e) => {
             tracing::warn!(%e, "Exploratory Replay result Dashboard read unavailable");
             StatusCode::SERVICE_UNAVAILABLE.into_response()

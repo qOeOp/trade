@@ -16,7 +16,14 @@ default = []
 # migration, and every read that recognizes a COMPOSER_V3 Replay. It carries no acceptance
 # fixture or sealed corpus; the acceptance feature below includes it rather than owning it.
 composer-v3-replay = []
-sealed-develop-composer-acceptance = ["sealed-strategy-input-acceptance"]
+# The R&D Owner's Market Data repair request composition and resolution, which the Native Replay
+# execution surface serves. Production code with no acceptance fixture; the acceptance feature below
+# includes it rather than owning it.
+native-replay-execution = []
+sealed-develop-composer-acceptance = [
+  "native-replay-execution",
+  "sealed-strategy-input-acceptance",
+]
 sealed-artifact-source-acceptance = []
 sealed-source-intake-acceptance = []
 sealed-source-intake-research-acceptance = ["sealed-source-intake-acceptance"]
@@ -49,7 +56,6 @@ serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
 sqlx = { workspace = true }
-statrs = { workspace = true }
 strategy-factory-program-sdk = { path = "programs/sdk" }
 tar = { workspace = true }
 tempfile = { workspace = true }
@@ -60,13 +66,10 @@ vibe-analysis = { workspace = true }
 vibe-backtest = { workspace = true, features = ["streaming"] }
 vibe-backtest-owner-contracts = { workspace = true }
 vibe-backtest-result-custody = { workspace = true }
-vibe-binance = { workspace = true }
 vibe-common = { workspace = true }
 vibe-core = { workspace = true }
 vibe-data = { workspace = true }
-vibe-deployment-attestation = { workspace = true }
 vibe-execution = { workspace = true }
-vibe-fred = { workspace = true }
 vibe-indicators-kernel = { workspace = true }
 vibe-market-data-repair-custody = { workspace = true }
 # `high-precision` is the product's precision (FIXED_PRECISION 16), a property of the product crate
@@ -74,13 +77,7 @@ vibe-market-data-repair-custody = { workspace = true }
 # CI, the Owner chain and the production images - converts and stores fixed-point values the same
 # way. scripts/ci/check-production-features.py requires it of every production package that links
 # vibe-model.
-#
-# `stubs` in a normal dependency is the one exception production builds carry: the legacy formation
-# path builds its instrument from `vibe_model::instruments::stubs::currency_pair_btcusdt`
-# (`src/application.rs`). R&D has ruled that path retired; this goes with it.
-# scripts/ci/check-production-features.py allows this edge and no other.
-vibe-model = { workspace = true, features = ["high-precision", "stubs"] }
-vibe-persistence = { workspace = true }
+vibe-model = { workspace = true, features = ["high-precision"] }
 vibe-portfolio = { workspace = true }
 vibe-postgres-connect = { workspace = true }
 vibe-product-edge = { workspace = true }
@@ -90,7 +87,6 @@ vibe-rd-exploratory-replay-custody = { workspace = true }
 vibe-rd-market-data-repair-custody = { workspace = true }
 vibe-rd-source-intake-invocation-custody = { workspace = true }
 vibe-risk = { workspace = true }
-vibe-scheduled-events = { workspace = true }
 vibe-trading = { workspace = true }
 wasmi = { workspace = true }
 wasmparser = { workspace = true }
@@ -113,12 +109,6 @@ vibe-trading = { workspace = true, features = ["examples"] }
 [[bin]]
 name = "strategy-factory-author-role-intent"
 path = "src/bin/author_role_intent.rs"
-doc = false
-test = false
-
-[[bin]]
-name = "strategy-factory-formation"
-path = "src/bin/strategy_factory_formation.rs"
 doc = false
 test = false
 

@@ -148,14 +148,18 @@ never runs in CI.
   build connect with them directly instead of through the store-admission custodian - PIT intake, Source Binding,
   universe selection, strategy-input binding (both DSNs), Instrument Master and Market Semantics, composed by the
   `bootstrap_market_data_*` functions in `main.rs`. Their only gate is the role and topology check
-  `MarketDataOwnerPostgres::ADMISSION_SQL_V1`. Until those DSNs move behind the custodian as leased handles, `B3` adds
-  anti-substitution - a signed, current, directly measured store - and no credential isolation.
+  `MarketDataOwnerPostgres::ADMISSION_SQL_V1`. A build with `composer-replay-issuance` holds a third:
+  `INSTRUMENT_OWNER_DATABASE_URL`, the principal `instrument_owner`, from which
+  `instrument_economic_terms_postgres_owner_from_environment_v1` opens the economic-terms Owner directly as well. The
+  compose file requires it of every image, because a build with that feature cannot start without it. Until those DSNs move
+  behind the custodian as leased handles, `B3` adds anti-substitution - a signed, current, directly measured store - and
+  no credential isolation.
   Two statements of `ISOLATED_EVENT_REPLAY_ACCEPTANCE_V1` below do not yet match the code; neither blocks the
   production route. That profile has the target measured by a separately executed principal, while `DirectMeasurer`
   measures inside the custodian with the leased credential. It also has the admission receipt cross-bind the trust
   bundle, while `SealedDeploymentStoreAdmissionReceipt` carries the witness identity but no signer key fingerprint
   or bundle identity.
-  Four production adapters now exist, and none is composed: the pinned Ed25519 signature verifier
+  Five production adapters now exist, and none is composed: the pinned Ed25519 signature verifier
   (`store_admission/signature.rs`), the PostgreSQL custody store (`store_admission/custody_postgres.rs`, its schema
   and its two principals in `product/rd-workbench/postgres-init/20-deployment-store-custody.sh`, which the compose file
   does not run yet), and the secret-file credential resolver (`store_admission/credential_files.rs`). A secret file
@@ -163,7 +167,17 @@ never runs in CI.
   and its lease lapses a fixed time after the admission's store-clock cut. The fourth is the single-machine
   anti-rollback mode `SingleTrustDomainNoRollbackWitness` (`store_admission/witness.rs`): on one machine the
   anti-rollback property does not hold, the mode says so in every receipt, and the architecture rules carry the
-  user's 2026-09-27 authorization. The administrator seals and publishes the history with
+  user's 2026-09-27 authorization. The fifth is the direct measurer for a deployment's store,
+  `PinnedTlsPostgresDirectMeasurer` (`store_admission/postgres.rs`, with its TLS leg in
+  `crates/postgres_connect/src/pinned_tls.rs`). sqlx cannot report which certificate a session's server presented, and its verified
+  modes trust the public web PKI beside any root they are given, so the measurer connects on its own: it sends
+  PostgreSQL's `SSLRequest`, completes TLS 1.3 trusting only the root one PEM file pins, and carries sqlx's session to
+  the server through a private Unix socket. Its TLS identity names the certificate that server presented and the pinned
+  root, and the server's `pg_stat_ssl` must agree on TLS, protocol and cipher. Every admitted read reaches the store
+  the same way: the admission records the measurer's transport, bound to the certificate it measured, and each read
+  opens its session over it and is refused unless its server presents that certificate. The
+  deployment's PostgreSQL does not serve TLS yet; turning it on belongs to composing these adapters.
+  The administrator seals and publishes the history with
   `deployment-store-publication-seal` and `deployment-store-publication-publish`; `product/rd-workbench/README.md`
   gives the procedure. `admit_rd_owner_market_data_postgres` still wires the `Unavailable*` ports, so `required` still
   fails closed at startup. The admission reads time from the custody store's clock alone: every history read carries
@@ -183,8 +197,8 @@ never runs in CI.
 - **`B4` consumer not compiled into the deployed image.** `product/rd-workbench/Dockerfile.owner` builds
   `strategy-factory-rd-owner-api` with default features, which leaves `composer-replay-issuance` off, and the
   dashboard read binary touches no Market Data surface. The native Replay scheduling consumer is behind that
-  production feature rather than an acceptance one; the repair loop's shared time-evidence consumer is still behind
-  `sealed-develop-composer-acceptance`. Cleared by the deployed image enabling the production feature, which is a
+  production feature rather than an acceptance one; the repair loop's shared time-evidence consumer is behind
+  `native-replay-execution`, also a production feature. Cleared by the deployed image enabling those production features, which is a
   deployment decision.
 - **`B5` no cross-Owner consumer.** The module's only consumers are the same crate's Replay V2 composition and
   PostgreSQL writers, and most such modules are additionally `pub(crate)` inside `crates/data`. Cleared by one
@@ -915,6 +929,14 @@ What R&D reads from a binding and its Replay facts, and where each comes from in
 | Instrument Master verification             | registry, per exact instrument                       | not bound at composition; each member's V2 fact chain when the request‑keyed cut is issued  |
 | every dependency, exactly once             | the seven‑kind frontier                              | the four‑kind frontier: PIT, Source Binding, Universe Selection, universe frame             |
 
+The `universe_selection` R&D reads is the Universe Selection Record's identity, which is also its digest. It is not the
+strategy-input universe selection a Plan is bound under, which is derived from a frame batch's rows, and the two are
+never equal. When Market Data issues a Replay's initial market readback it checks each against the frame's verified
+batch. The strategy-input selection must be the universe derived from the batch's rows. The Record must be the batch's
+`universe_selection_digest`, because intake admits a snapshot only for the Record its submission names. A Record that
+differs is refused as `UniverseSelectionRecordMismatch`. No Record is read for this: the one batch already joins the
+two keys.
+
 The first corpus's Replay facts also carry seven reference cuts. A universe-member aggregate carries the three whose
 authority it binds; each of the other four is proven where each member is resolved, not dropped:
 
@@ -1272,7 +1294,7 @@ not be given one.
   | minimum and maximum price                                | `PRICE_FILTER.minPrice`, `maxPrice`; `"0"` is `UNBOUNDED`                       |
   | minimum and maximum quantity                             | `LOT_SIZE.minQty`, `maxQty`; `"0"` is `UNBOUNDED`                               |
   | minimum notional                                         | `MIN_NOTIONAL.notional`; `"0"` is `UNBOUNDED`, an absent filter `UNAVAILABLE`   |
-  | maximum notional                                         | `UNAVAILABLE`: the cap exists but lives in leverage brackets, not this payload  |
+  | maximum notional                                         | `UNBOUNDED`: no filter caps an order's notional                                 |
   | venue, inverse, contract multiplier                      | the Owner's venue table row, not the payload                                    |
 
   A decimal is accepted only as digits with an optional fraction, canonicalized by removing trailing fractional zeros; an
@@ -1282,6 +1304,11 @@ not be given one.
   gives two. The increments are equal and the difference is intentional: V2's native projection requires the precision to equal
   the canonical scale, and downstream Replay uses V2's. A parity test on the adapter's side asserts both the equal
   increments and this one difference.
+  The maximum notional is the cap on one order, which is what native `max_notional` means. `exchangeInfo` states every
+  order filter the venue applies and none caps notional, so the term is `UNBOUNDED`, as the adapter's `None` also says.
+  The leverage brackets cap a position's notional at a leverage, per account. They are execution-profile authority, not a
+  public term, and the public fact does not carry them. Stating the term `UNAVAILABLE` refused every USD-M perpetual at the
+  native validation, which admits no `UNAVAILABLE` limit.
 - **What the Owner takes itself:** the Source Binding identity and digest, from the binding it holds admitted under exactly
   the named locator; the raw payload digest, the module's domain-separated digest of the text's exact UTF-8 bytes, so no
   digest is taken on trust. It proves which bytes were submitted and that the terms were derived from them; it does not
@@ -2384,19 +2411,35 @@ of this paragraph records. Only a snapshot whose verified batch holds BAR rows t
 ordinal; one holding Quote rows and nothing else is a quote cut, recorded in a census of its own
 and never given an ordinal; one holding neither joins no census. The Owner reads this from the
 batch it verified, never from the requester's scope claim, and resolves a frame's quote cut from
-that census alone. Each quote cut's correction lineage is first reduced to its latest correction
-visible at the request's decision cut; exactly one such correction must lie strictly between the
-frame's BAR and its bound, on the frame's scope, Instrument Master, universe selection, Market
-Semantics and Source Binding lineage, and it must quote exactly the frame's members. A lineage
-whose latest correction does not serve the frame contributes nothing and never falls back to the
-version that correction replaced. The
+that census alone. Each quote cut lineage is read at one cut: the frame's own decision cut, the one
+the sealed request names, or the cut the Owner published the lineage's original at when that is
+later. An intake freezes its request at Market Data's decision cut, so a frame it mints sits on its
+own decision cut and no quote cut that cut could see lies after it; the fill follows the decision,
+as the custody quote cut below states for `d_k`, so a quote cut published after the decision is
+still the frame's. The lineage is first reduced to its latest correction visible at its reading cut;
+it serves the frame when that correction lies strictly between the frame's BAR and the bound at the
+same cut, on the frame's scope, Instrument Master, universe selection, Market Semantics and Source
+Binding lineage, and quotes exactly the frame's members. A lineage whose latest correction does not
+serve the frame contributes nothing and never falls back to the version that correction replaced.
+The Instrument Master is compared by the key each census row records: the digest of the facts the
+intake resolved for the snapshot's members, which every request that resolves those facts shares.
+It is never compared by the readback digest a batch carries, because every intake request resolves
+a readback of its own, sealed over its correlation, event instant and decision cut, so no two
+snapshots share one. A commit that resolves no facts (a test's or a sealed fixture's, never a
+production path) keys its row by its request's digest, and a row recorded before the key existed has
+none and serves no frame. Of the lineages that serve, the one read at the earliest cut is the
+frame's, and two read at that cut refuse the frame. The
 census is keyed by the scope a requester declares, so a second quote cut on every one of a
-frame's coordinates collides with the first and refuses the frame - a denial of service, never a
-quote cut the Owner did not verify for it. The request's decision cut is the decision cut of the
-frame's own PIT snapshot, the one the sealed request names, so a later reading resolves the same
-quote cut. The bound is the first later frame in the frame's scope census that the Owner had
-observed by that decision cut, or the window's end when none lies before it; a frame observed later
-does not move it. The caller names neither. The existing PIT correction lineage records
+frame's coordinates, read at the same cut, collides with the first and refuses the frame - a denial
+of service, never a quote cut the Owner did not verify for it. Each reading cut is fixed by the
+census the Owner already holds, so a later reading resolves the same quote cut: a lineage published
+at a later cut never displaces one that serves, and only one published on the chosen cut before the
+Owner's clock leaves it can still collide with it. The bound at a reading cut is the first later
+frame in the frame's scope census that the Owner had observed by that cut, or the window's end when
+none lies before it; a frame observed later does not move it, and a frame published before a late
+quote cut bounds it, which makes that quote cut the later frame's. The quote cut reaches only the
+fill: the frame's strategy inputs are still bound from its own batch. The caller names none of
+these. The existing PIT correction lineage records
 revisions of one request; it is not a time-successor index and cannot prove a later frame or the
 absence of skipped frames, which is why the census is its own table rather than a reuse of that
 lineage. The current initial-frame resolver and QuoteTick projection do not themselves issue a

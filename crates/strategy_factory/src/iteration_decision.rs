@@ -19,8 +19,7 @@ use crate::{
     },
     rd_owner_postgres_custody::{LockedExploratoryReplayResultV3, VerifiedResearchCustodyV1},
     trial_family::{
-        TrialFamilyAttemptTerminalDispositionV2, TrialFamilyCensusReadbackV2, TrialFamilyError,
-        TrialFamilyIndependenceDispositionV1,
+        TrialFamilyCensusReadbackV2, TrialFamilyError, TrialFamilyIndependenceDispositionV1,
     },
 };
 
@@ -2975,12 +2974,7 @@ fn gate_result(
         return Err(IterationDecisionErrorV1::ProtectedResultForbidden);
     }
     let latest = census.latest_attempt_binding()?;
-    let expected_terminal = match latest.terminal_disposition {
-        TrialFamilyAttemptTerminalDispositionV2::TerminalResult => ReplayTerminalV2::TerminalResult,
-        TrialFamilyAttemptTerminalDispositionV2::Rejected => ReplayTerminalV2::RunRejected,
-        TrialFamilyAttemptTerminalDispositionV2::Invalid => ReplayTerminalV2::InvalidReplayEvidence,
-        TrialFamilyAttemptTerminalDispositionV2::Unknown => ReplayTerminalV2::InProgressOrUnknown,
-    };
+    let expected_terminal = latest.terminal_disposition.replay_terminal();
 
     if latest.request_identity != result.request_identity.as_str()
         || latest.request_digest != result.request_meaning_digest.as_str()
@@ -3154,6 +3148,7 @@ pub(crate) mod tests {
     use crate::replay_runner_operational_profile_v1::{
         ReplayRunnerOperationalProfileV1, runner_fixture,
     };
+    use crate::trial_family::TrialFamilyAttemptTerminalDispositionV2;
     use crate::trial_family::{
         TrialFamilyAttemptAppendV2, TrialFamilyCandidateSetProposalV2,
         TrialFamilyIndependenceDispositionV1, TrialFamilyPolicyV1, append_attempt_to_census_v2,

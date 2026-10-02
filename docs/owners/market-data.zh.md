@@ -119,18 +119,28 @@ ACL 拒绝。它不证明供应商真实性，不证明生产装配，也不证�
   admission 直接用它们连接，而不经过 store-admission custodian - PIT intake、Source Binding、universe selection、
   strategy-input binding（两条 DSN 都用）、Instrument Master 与 Market Semantics，由 `main.rs` 中的
   `bootstrap_market_data_*` 函数组装。它们唯一的门是角色与拓扑检查 `MarketDataOwnerPostgres::ADMISSION_SQL_V1`。
-  在这两条 DSN 以租用句柄的形式搬到 custodian 之后以前，`B3` 带来的是防替换 - 一个签过名、处于当前、经直接测量的库 -
+  带 `composer-replay-issuance` 的构建还持有第三条：`INSTRUMENT_OWNER_DATABASE_URL`，即主体 `instrument_owner`，
+  `instrument_economic_terms_postgres_owner_from_environment_v1` 用它同样直接打开 economic-terms Owner。compose
+  文件对每个镜像都要求它，因为带这个 feature 的构建缺了它就起不来。在这些 DSN 以租用句柄的形式搬到 custodian
+  之后以前，`B3` 带来的是防替换 - 一个签过名、处于当前、经直接测量的库 -
   而不是凭据隔离。
   下文 `ISOLATED_EVENT_REPLAY_ACCEPTANCE_V1` 有两处表述与代码尚不一致；都不挡生产路线。该档要求由单独执行的主体测量
   目标，而 `DirectMeasurer` 是在 custodian 内用租到的凭据测量。该档还要求准入回执交叉绑定 trust bundle，而
   `SealedDeploymentStoreAdmissionReceipt` 带 witness identity，却没有 signer key fingerprint 或 bundle identity。
-  已有四个生产适配器，但都还没有接入组合根：pin 住一把公钥的 Ed25519 签名验证器（`store_admission/signature.rs`）、
+  已有五个生产适配器，但都还没有接入组合根：pin 住一把公钥的 Ed25519 签名验证器（`store_admission/signature.rs`）、
   PostgreSQL custody store（`store_admission/custody_postgres.rs`；其 schema 与两个主体在
   `product/rd-workbench/postgres-init/20-deployment-store-custody.sh`，compose 文件还没有运行它），以及 secret 文件凭据
   resolver（`store_admission/credential_files.rs`）。secret 文件自身没有版本也没有过期时间：其版本是文件原样字节的
   SHA-256，由签名 manifest 指名；其租约在准入的 store 时钟 cut 之后一段固定时长到期。第四个是单机部署的 anti-rollback
   模式 `SingleTrustDomainNoRollbackWitness`（`store_admission/witness.rs`）：单机上 anti-rollback 性质不成立，每张回执都写明
-  这个模式，用户 2026-09-27 的授权载于架构规则。管理员用 `deployment-store-publication-seal` 与
+  这个模式，用户 2026-09-27 的授权载于架构规则。第五个是部署库的直接测量器
+  `PinnedTlsPostgresDirectMeasurer`（`store_admission/postgres.rs`，其 TLS 一段在 `crates/postgres_connect/src/pinned_tls.rs`）。
+  sqlx 报不出会话的服务端出示了哪张证书，它的校验模式又会在给定根之外信任公网 Web PKI，所以测量器自己建连：发出
+  PostgreSQL 的 `SSLRequest`，完成只信任一个 PEM 文件所钉之根的 TLS 1.3，再经一个私有 Unix socket 把 sqlx 的会话转送到
+  服务端。它的 TLS identity 写明该服务端出示的证书与所钉的根，且服务端的 `pg_stat_ssl` 必须在 TLS、协议与 cipher 上
+  与之一致。每个准入后的读都以同样方式到达库：准入记下测量器的传输方式，并绑定到它测得的证书；每次读都在其上开会话，服务端
+  出示的若不是那张证书就拒绝。部署的 PostgreSQL
+  还没有开启 TLS；开启它属于把这些适配器接入组合根的那一步。管理员用 `deployment-store-publication-seal` 与
   `deployment-store-publication-publish` 封存并发布历史；步骤见 `product/rd-workbench/README.md`。
   `admit_rd_owner_market_data_postgres` 仍接 `Unavailable*` 端口，所以 `required` 在启动时仍然失败关闭。准入只从 custody
   store 的时钟读时间：每次读历史都带回该库的 `clock_timestamp()` cut，commit 也在同一个时钟上判定回执的窗口。
@@ -146,8 +156,8 @@ ACL 拒绝。它不证明供应商真实性，不证明生产装配，也不证�
 - **`B4` 消费者未编入已部署镜像。** `product/rd-workbench/Dockerfile.owner` 以默认 feature 构建
   `strategy-factory-rd-owner-api`，使 `composer-replay-issuance` 处于关闭，而 dashboard 读取二进制不触及任何
   Market Data 表面。native Replay scheduling 消费者位于这个生产 feature 之后，而不是 acceptance feature 之后；
-  修复循环的 shared time-evidence 消费者仍在 `sealed-develop-composer-acceptance` 之后。解除条件：部署镜像开启这个
-  生产 feature，这是一个部署决定。
+  修复循环的 shared time-evidence 消费者位于 `native-replay-execution` 之后，它同样是生产 feature。解除条件：部署镜像开启
+  这些生产 feature，这是一个部署决定。
 - **`B5` 无跨 Owner 消费者。** 该模块的唯一消费者是同一 crate 内的 Replay V2 组合与 PostgreSQL 写入者，且此类模块多数
   在 `crates/data` 内还是 `pub(crate)`。解除条件：一个由本文档点名的固定消费者。
 - **`B6` 还没有任何部署准入过供应商。** 整条链路已端到端验证：2026-09-17 的一次性 PostgreSQL 运行里，准入了
@@ -838,6 +848,12 @@ R&D 从 binding 及其 Replay facts 读取的内容，以及在 universe-member 
 | Instrument Master 校验                    | registry，逐个 exact instrument                     | composition 时不绑定；按 request 定键的 cut 签发时校验每个 member 的 V2 fact chain |
 | 每种依赖恰好一个                          | 七种类 frontier                                     | 四种类 frontier：PIT、Source Binding、Universe Selection、universe frame           |
 
+R&D 读取的 `universe_selection` 是 Universe Selection Record 的 identity，它同时也是 digest。它不是 Plan 所绑定的
+strategy-input universe selection；后者从一个帧 batch 的行推出，两者从不相等。Market Data 签发 Replay 的初始行情读回时，
+把两者分别对照该帧已核验的 batch：strategy-input selection 必须是从 batch 行推出的 universe；Record 必须等于 batch 的
+`universe_selection_digest`，因为 intake 只为 submission 所指名的 Record 接纳快照。Record 不一致时按
+`UniverseSelectionRecordMismatch` 拒绝。这次比对不读 Record：同一个 batch 已经把两对键连在一起。
+
 第一语料的 Replay facts 还携带七个 reference cut。universe-member aggregate 只携带其所绑定 authority 覆盖的三个；另外四个
 在每个 member 被解析之处得到证明，而不是被丢弃：
 
@@ -1146,7 +1162,7 @@ request-keyed 的 V2 cut 读的就是这张表；它和 V1 intake 一样，在 O
   | 最小与最大价格                      | `PRICE_FILTER.minPrice`、`maxPrice`；`"0"` 为 `UNBOUNDED`                  |
   | 最小与最大数量                      | `LOT_SIZE.minQty`、`maxQty`；`"0"` 为 `UNBOUNDED`                          |
   | 最小名义                            | `MIN_NOTIONAL.notional`；`"0"` 为 `UNBOUNDED`，filter 缺失为 `UNAVAILABLE` |
-  | 最大名义                            | `UNAVAILABLE`：上限存在，但在 leverage bracket 里，不在这份 payload 里     |
+  | 最大名义                            | `UNBOUNDED`：没有 filter 限制单笔订单的名义                                |
   | venue、inverse、contract multiplier | Owner 场所常量表中的那一行，不取自 payload                                 |
 
   十进制只接受由数字组成、可带小数部分的写法，去掉小数部分的尾随 0 后规范化；指数写法、正负号、空串一律拒绝。数量界是
@@ -1154,6 +1170,10 @@ request-keyed 的 V2 cut 读的就是这张表；它和 V1 intake 一样，在 O
   Binance 适配器（`crates/adapters/binance/src/common/parse.rs`）按原字符串取 precision，得 2。两者的 increment 相等，这处差异
   是有意的：V2 的 native 投影要求 precision 等于规范 scale，下游 Replay 用的是 V2 的。适配器一侧的一条对照测试同时断言
   increment 相等与这一处差异。
+  最大名义是单笔订单的上限，也就是 native `max_notional` 的含义。`exchangeInfo` 列出了场所施加的全部订单 filter，没有一条限制名义，
+  所以这一项是 `UNBOUNDED`，与适配器的 `None` 一致。leverage bracket 按账户限制某一杠杆下持仓的名义，是 execution-profile
+  authority，不是公开条款，公开 fact 不承载它。把这一项记成 `UNAVAILABLE`，会让每个 USD-M 永续都在 native 校验处被拒，因为
+  该校验不接纳任何 `UNAVAILABLE` 的 limit。
 - **Owner 自己取的：** Source Binding 的 identity 与 digest，取自 Owner 以恰为该 locator 的已准入状态持有的 binding；raw
   payload digest，由 Owner 以本模块的 domain 分离 digest 对该文本的原样 UTF-8 字节计算，不信任任何现成 digest。它证明的是提交了
   哪些字节、条款由这些字节推出；它不声称这些字节就是供应方的完整原始响应，Owner 无法核实这一点；Owner-observation 时刻，即其当前
@@ -2090,15 +2110,25 @@ pool 或替代 resolver。缺失、多出、重复、部分、乱序、跨请求
 frame 序号，窗口读回与序列解析按同一顺序读出它。今天缺的是调用方，而且如本段末尾所记，光有调用方还不够。只有核验过的 batch 含 BAR 行的 snapshot 才取
 frame 序号；只含 Quote 行的是报价 cut，记入它自己的 census，永不取序号；两者都不是的不进任何 census。
 Owner 凭自己核验过的 batch 判定这一点，而不是凭请求方的 scope 声明，并且只从那份 census 为帧解析报价
-cut。每个报价 cut 的 correction lineage 先归约为它在请求的 decision cut 时可见的最新更正；必须恰好有一个这样的
-更正严格位于帧的 BAR 与其上界之间，与帧共用 scope、Instrument Master、universe selection、Market Semantics 与
-Source Binding lineage，并且报价的成员恰好是帧的成员。最新更正不能服务该帧的 lineage 什么也不提供，永不退回到
-被那次更正取代的版本。census 按请求方声明的 scope
-分区，所以在帧的全部坐标上都相同的第二个报价 cut 会与第一个冲突并使该帧被拒：这是拒绝服务，永远不会把一个
-Owner 未为它核验的报价 cut 交给它。请求的 decision cut 是该帧自身 PIT snapshot 的 decision cut，即已封存请求
-所指名的那一个，所以日后重读会解析出同一个报价 cut。上界是 Owner 在该 decision cut 时已观察到的、帧所在 scope
-census 中第一个更晚的帧，窗口结束前没有这样的帧时则是窗口末端；更晚才被观察到的帧不会移动它。两者都不由调用方
-给出。现有 PIT correction lineage
+cut。每个报价 cut lineage 只在一个 cut 上读取：帧自身的 decision cut，即已封存请求所指名的那一个；若 Owner
+发布该 lineage 原版的 cut 更晚，则取那个 cut。intake 在 Market Data 的 decision cut 冻结请求，所以它铸出的帧就落在
+自身的 decision cut 上，该 cut 能看见的报价 cut 没有一个位于帧之后；成交在决策之后，正如下文托管报价 cut 对
+`d_k` 所述，所以决策之后发布的报价 cut 仍是该帧的。lineage 先归约为它在其读取 cut 时可见的最新更正；该更正严格
+位于帧的 BAR 与同一 cut 下的上界之间，与帧共用 scope、Instrument Master、universe selection、Market Semantics 与
+Source Binding lineage，并且报价的成员恰好是帧的成员时，它才服务该帧。最新更正不能服务该帧的 lineage 什么也不
+提供，永不退回到被那次更正取代的版本。Instrument Master 按每个 census 行记录的键比较：intake 为该快照成员解析出的
+facts 的摘要，凡解析到同一组 facts 的请求都共用它。它从不按 batch 携带的 readback digest 比较，因为每个 intake
+请求都会解析出自己的 readback，并封在该请求的 correlation、event 时刻与 decision cut 之上，所以任何两个快照都不
+共用它。不解析 facts 的提交（测试或 sealed 夹具的，从不是生产路径）以请求自身的 digest 为键；在有这个键之前记录
+的行没有键，不服务任何帧。在能服务的 lineage 中，读取 cut 最早的那一个是该帧的；同在那个 cut 上读取的
+两个会使该帧被拒。census 按请求方声明的 scope
+分区，所以在帧的全部坐标上都相同、又在同一 cut 上读取的第二个报价 cut 会与第一个冲突并使该帧被拒：这是拒绝服务，
+永远不会把一个 Owner 未为它核验的报价 cut 交给它。每个读取 cut 都由 Owner 已持有的 census 确定，所以日后重读会
+解析出同一个报价 cut：在更晚 cut 上发布的 lineage 永远不会取代一个能服务的，只有在 Owner 时钟离开所选 cut 之前、
+恰在该 cut 上发布的报价 cut 仍可能与它冲突。某个读取 cut 下的上界是 Owner 在该 cut 时已观察到的、帧所在 scope
+census 中第一个更晚的帧，窗口结束前没有这样的帧时则是窗口末端；更晚才被观察到的帧不会移动它，而在迟到报价 cut
+之前发布的帧会成为它的上界，使那个报价 cut 归于更晚的帧。报价 cut 只进入成交：帧的策略输入仍只从它自己的 batch
+绑定。这些都不由调用方给出。现有 PIT correction lineage
 记录的是同一请求的修正版本，不是时间后继索引，也不能证明无漏帧，census 因此是一张独立的表而不是对它的
 复用；现有首帧 resolver 与 QuoteTick 投影本身不签发后续帧或独立流动性 receipt。V1 native scheduling seal 从帧的
 batch 取每个成员的 BAR，从帧的报价 cut 取每个成员的 Quote，所有 Quote 都在报价 cut 的时刻上并按成员顺序排列。

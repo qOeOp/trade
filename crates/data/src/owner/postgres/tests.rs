@@ -7862,7 +7862,212 @@ async fn run_postgres_owner_scenario() {
     Box::pin(native_replay_frame_sequence_custody_oracle(&census_owner)).await;
     Box::pin(native_replay_two_member_frame_supply_oracle(&census_owner)).await;
     Box::pin(native_replay_quote_cut_census_oracle(&census_owner)).await;
+    // The frame below is decided on its own instant, which needs the clock unadvanced again.
+    sqlx::query("DROP SCHEMA market_data_private CASCADE")
+        .execute(&admin)
+        .await
+        .unwrap();
+    materialize_disposable_owner_schema(&admin).await;
+    let decided_owner = MarketDataOwnerPostgres::connect(&owner_url).await.unwrap();
+    Box::pin(native_replay_quote_cut_after_the_decision_oracle(
+        &decided_owner,
+    ))
+    .await;
     admin.close().await;
+}
+
+/// A frame decided on its own instant takes the first quote cut the Owner published after it.
+///
+/// This is the frame every intake mints: R&D's initial PIT freezes its request at Market Data's
+/// decision cut, so its BAR's instant is that cut. No quote cut the frame's decision cut could see
+/// lies after it, because every snapshot is observed at or before its own cut. A quote cut is
+/// therefore read at the cut its original was published at, and the frame census bounding it is
+/// read at that same cut, so a frame published in between still takes the quote cut from it.
+async fn native_replay_quote_cut_after_the_decision_oracle(owner: &MarketDataOwnerPostgres) {
+    let fixture = Box::pin(native_replay_decided_frame_fixture_v1(owner)).await;
+    let verified = async |(snapshot, fact): (BindingDigest, BindingDigest)| {
+        super::load_verified_observation_batch_from_pool(owner.pool(), snapshot, fact)
+            .await
+            .expect("the Owner reads back what it admitted")
+    };
+    let frame = verified(fixture.frame).await;
+    assert_eq!(
+        (
+            frame.time_evidence().event_effective.value,
+            frame.time_evidence().decision_cut.value
+        ),
+        (40, 40),
+        "the frame is decided on its own instant"
+    );
+    let resolve = async |batch: &crate::owner::pit_snapshot::VerifiedPitObservationBatch,
+                         window_end: u64| {
+        owner
+            .resolve_native_replay_quote_cut_v2(batch, window_end)
+            .await
+            .map(|quote_cut| quote_cut.snapshot_identity())
+    };
+
+    assert_eq!(
+        resolve(&frame, 100).await,
+        Ok(fixture.quote_cut_snapshot_identity),
+        "the quote cut published after the decision is the frame's"
+    );
+    assert_eq!(
+        resolve(&frame, 100).await,
+        Ok(fixture.quote_cut_snapshot_identity),
+        "and a second reading resolves the same quote cut"
+    );
+    assert_eq!(
+        resolve(&frame, 45).await,
+        Err(NativeReplayQuoteCutRefusalV2::QuoteCutMissing),
+        "the window's end still bounds it: a quote cut on the end is refused"
+    );
+    assert_eq!(
+        resolve(&frame, 46).await,
+        Ok(fixture.quote_cut_snapshot_identity)
+    );
+    assert_eq!(
+        resolve(&verified(fixture.overtaken_frame).await, 100).await,
+        Err(NativeReplayQuoteCutRefusalV2::QuoteCutMissing),
+        "a frame published before the quote cut bounds the frame decided before both"
+    );
+    assert_eq!(
+        resolve(&verified(fixture.next_frame).await, 100).await,
+        Ok(fixture.overtaken_quote_cut_snapshot_identity),
+        "the quote cut after the next frame is the next frame's"
+    );
+}
+
+/// Frames decided on their own instant, as every intake mints one, and the quote cuts the Owner
+/// published after their decision. A frame is named by `(snapshot identity, fact digest)`.
+pub(crate) struct NativeReplayDecidedFrameFixtureV1 {
+    /// Decided at 40 on its own instant.
+    pub(crate) frame: (BindingDigest, BindingDigest),
+    /// Its quote cut, at 45, published at 50.
+    pub(crate) quote_cut_snapshot_identity: BindingDigest,
+    /// Decided at 40 on its own instant, in a scope of its own.
+    pub(crate) overtaken_frame: (BindingDigest, BindingDigest),
+    /// A frame at 42 in that scope, published at 50: after the first frame's decision, before the
+    /// quote cut.
+    pub(crate) next_frame: (BindingDigest, BindingDigest),
+    /// The quote cut at 45 in that scope, published at 50.
+    pub(crate) overtaken_quote_cut_snapshot_identity: BindingDigest,
+}
+
+/// Commits [`NativeReplayDecidedFrameFixtureV1`]'s snapshots, one member each.
+///
+/// The Source Binding is the one [`native_replay_two_member_snapshot_fixture_v1`] commits, so in a
+/// database that fixture already filled it is the same binding again. Everything after the
+/// decision is published under the binding's successor, which advances the clock to 50 and keeps
+/// the lineage, so it stays on the frames' coordinates.
+pub(crate) async fn native_replay_decided_frame_fixture_v1(
+    owner: &MarketDataOwnerPostgres,
+) -> NativeReplayDecidedFrameFixtureV1 {
+    const BTC: (&str, &str) = ("BTCUSDT", "BTCUSDT-PERP.BINANCE");
+    let declaring_minutes = |proposal| {
+        declaring_bars_v1(
+            proposal,
+            vec![session_bar_v1(
+                "1M",
+                UntrustedSourceBarCadenceV1::FixedInterval {
+                    step: 1,
+                    unit: UntrustedSourceBarUnitV1::Minute,
+                },
+            )],
+        )
+    };
+    let source = owner
+        .commit_source_initial(
+            declaring_minutes(source_proposal(10, 40)),
+            OwnerSourceBindingDecision {
+                blockers: BTreeSet::new(),
+            },
+            &clock(40, 1),
+        )
+        .await
+        .expect("source binding for the frames decided on their own instant");
+    // Every coordinate on the cut, as `UntrustedPitSnapshotTimeEvidence::at_decision_cut_v1`
+    // freezes an intake request.
+    let decided_frame = async |scope: BindingDigest, correlation_byte: u8| {
+        let mut proposal = pit_proposal_at(&source, correlation_byte, scope, 40);
+        let time = &mut proposal.request.time_evidence;
+        time.provider_available = UntrustedProviderAvailableTime::from_untrusted(
+            40,
+            TEST_CLOCK_IDENTITY_V1,
+            TEST_CLOCK_EPOCH_V1,
+        );
+        time.correction_publication = Some(UntrustedCorrectionPublicationTime::from_untrusted(
+            40,
+            TEST_CLOCK_IDENTITY_V1,
+            TEST_CLOCK_EPOCH_V1,
+        ));
+        time.retrieval =
+            UntrustedRetrievalTime::from_untrusted(40, TEST_CLOCK_IDENTITY_V1, TEST_CLOCK_EPOCH_V1);
+        let observation = observation_batch_of(&source, &proposal, &[BTC], &["BAR"]);
+        proposal.evidence.normalized_records_digest =
+            derive_observation_batch_digest(&observation).unwrap();
+        refresh_request_claims(&mut proposal.request);
+        let basis = basis(&proposal);
+        owner
+            .commit_pit_initial_with_observation_batch(proposal, observation, &basis, &clock(40, 1))
+            .await
+            .expect("a frame decided on its own instant")
+    };
+    let on_its_own_instant = d(160);
+    let overtaken = d(161);
+    let frame = decided_frame(on_its_own_instant, 100).await;
+    let overtaken_frame = decided_frame(overtaken, 101).await;
+
+    let successor = owner
+        .commit_source_successor(
+            source.receipt().locator(),
+            declaring_minutes(source_proposal(12, 50)),
+            OwnerSourceBindingDecision {
+                blockers: BTreeSet::new(),
+            },
+            &clock(50, 2),
+        )
+        .await
+        .expect("the binding's successor in the same lineage");
+    let published_at_50 =
+        async |scope: BindingDigest, correlation_byte: u8, time: u64, kind: &str| {
+            let mut proposal = pit_correction(
+                &pit_proposal_at(&successor, correlation_byte, scope, time),
+                &successor,
+            );
+            proposal.request.time_evidence.event_effective =
+                UntrustedEventEffectiveTime::from_untrusted(
+                    time,
+                    TEST_CLOCK_IDENTITY_V1,
+                    TEST_CLOCK_EPOCH_V1,
+                );
+            let observation = observation_batch_of(&successor, &proposal, &[BTC], &[kind]);
+            proposal.evidence.normalized_records_digest =
+                derive_observation_batch_digest(&observation).unwrap();
+            refresh_request_claims(&mut proposal.request);
+            let basis = basis_at(&proposal, &clock(50, 2));
+            Box::pin(owner.commit_pit_initial_with_observation_batch(
+                proposal,
+                observation,
+                &basis,
+                &clock(50, 2),
+            ))
+            .await
+            .expect("a snapshot published after the decision")
+        };
+    let quote_cut = published_at_50(on_its_own_instant, 102, 45, "QUOTE").await;
+    let next_frame = published_at_50(overtaken, 103, 42, "BAR").await;
+    let overtaken_quote_cut = published_at_50(overtaken, 104, 45, "QUOTE").await;
+    let locator = |commit: &PitSnapshotCommitAggregate| {
+        (commit.fact().snapshot_identity(), commit.fact().digest())
+    };
+    NativeReplayDecidedFrameFixtureV1 {
+        frame: locator(&frame),
+        quote_cut_snapshot_identity: quote_cut.fact().snapshot_identity(),
+        overtaken_frame: locator(&overtaken_frame),
+        next_frame: locator(&next_frame),
+        overtaken_quote_cut_snapshot_identity: overtaken_quote_cut.fact().snapshot_identity(),
+    }
 }
 
 /// A frame takes its liquidity from its own quote cut, and the Owner tells the two apart by the

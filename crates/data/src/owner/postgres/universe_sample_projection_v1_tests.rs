@@ -117,6 +117,10 @@ async fn postgres_a_universe_frame_issues_one_sample_projection_over_the_host_fr
         crate::owner::strategy_input_binding::derive_universe_selection(&base.batch)
             .unwrap()
             .selection_identity(),
+        crate::owner::strategy_input_binding::derive_universe_selection(&base.batch)
+            .unwrap()
+            .selection_digest(),
+        base.batch.universe_selection_digest(),
         base.batch.universe_selection_digest(),
         base.batch.instrument_master_digest(),
         base.batch.source_binding_lineage_root(),

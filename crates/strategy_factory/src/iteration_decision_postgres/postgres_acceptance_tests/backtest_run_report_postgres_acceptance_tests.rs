@@ -91,6 +91,15 @@ async fn backtest_run_report_reads_back_every_point_a_real_run_committed() {
         request_identity: &request_identity,
         attempt_identity: &attempt_identity,
     };
+    Box::pin(assert_the_run_is_counted_once_and_only_then_shown(
+        &harness,
+        rd_pool,
+        backtest_pool,
+        locator,
+        &result_bytes,
+        &suffix,
+    ))
+    .await;
     // The result half, read the way the report reads it: in its `SERIALIZABLE, READ ONLY,
     // DEFERRABLE` transaction, where PostgreSQL refuses any row lock.
     let mut transaction = begin_report_read_v1(rd_pool, REPORT_STATEMENT_TIMEOUT_MS_V1)
@@ -167,6 +176,163 @@ async fn backtest_run_report_reads_back_every_point_a_real_run_committed() {
     assert!(committed_fills > 0, "the real run must have traded");
     assert_eq!(read.result.fills.len(), committed_fills);
     assert_eq!(read.result.fill_count, committed_fills as u64);
+}
+
+/// R&D shows a committed run only once its TrialFamily census counts it, and counts it once.
+///
+/// The run reaches custody through this module's writer, so it is committed and uncounted, the
+/// state the production run route leaves a Result in when its count fails. Every read refuses it
+/// by name until the census counts it. The first count appends one attempt and the second joins
+/// it; so does the count of a second Result of the same request, an exact replay under another
+/// attempt. The formation already wrote the consumed count of 1 for the family's first attempt,
+/// so counting that attempt leaves it at 1: what changes is that the census now binds this exact
+/// request and Result.
+async fn assert_the_run_is_counted_once_and_only_then_shown(
+    harness: &PersistedReplayPredecessorV1,
+    rd_pool: &PgPool,
+    backtest_pool: &PgPool,
+    locator: ExploratoryReplayResultLocatorV2<'_>,
+    result_bytes: &[u8],
+    suffix: &str,
+) {
+    use crate::{
+        ExploratoryResultCensusErrorV1, TrialFamilyAttemptCountV2,
+        trial_family::TrialFamilyAttemptTerminalDispositionV2,
+    };
+
+    let census = || async {
+        let mut transaction = rd_pool.begin().await.expect("census read");
+        let schema: i64 = sqlx::query_scalar(
+            "SELECT (frontier_json->>'schema_version')::bigint FROM rd_trial_family_heads_v1 WHERE trial_family_identity=$1",
+        )
+        .bind(&harness.family_identity)
+        .fetch_one(&mut *transaction)
+        .await
+        .expect("family head schema");
+        let census = if schema == 2 {
+            Some(
+                load_trial_family_census_v2_by_family_in_transaction(
+                    &mut transaction,
+                    &harness.family_identity,
+                )
+                .await
+                .expect("family census"),
+            )
+        } else {
+            None
+        };
+        transaction.rollback().await.expect("census read rollback");
+        (schema, census)
+    };
+
+    let (schema, uncounted) = census().await;
+    assert_eq!((schema, uncounted), (1, None), "the run starts uncounted");
+    assert_eq!(
+        resolve_backtest_run_report_v1(rd_pool, locator)
+            .await
+            .expect_err("an uncounted run has no report")
+            .code(),
+        "EXPLORATORY_RESULT_NOT_COUNTED"
+    );
+    assert!(matches!(
+        harness
+            .owner
+            .resolve_exploratory_replay_result_v2(locator)
+            .await,
+        Err(ExploratoryResultCensusErrorV1::NotCounted)
+    ));
+
+    assert_eq!(
+        harness
+            .owner
+            .count_exploratory_replay_result_v2(locator)
+            .await
+            .expect("the committed run is counted"),
+        TrialFamilyAttemptCountV2::Appended
+    );
+    let (schema, counted) = census().await;
+    let counted = counted.expect("the count wrote the V2 census");
+    assert_eq!(schema, 2);
+    assert_eq!(counted.attempt_count().expect("attempts"), 1);
+    assert_eq!(counted.consumed_trial_budget(), 1);
+    let intent = counted.latest_intent_binding().expect("latest Intent");
+    assert_eq!(
+        (intent.intent_identity, intent.intent_digest),
+        (
+            harness.intent_identity.as_str(),
+            harness.intent_digest.as_str()
+        )
+    );
+    let attempt = counted.latest_attempt_binding().expect("latest attempt");
+    let committed = harness
+        .owner
+        .resolve_exploratory_replay_result_v2(locator)
+        .await
+        .expect("a counted run reads")
+        .expect("the counted run is present");
+    assert_eq!(committed.result_canonical_bytes(), result_bytes);
+    let result = committed.result();
+    assert_eq!(
+        (
+            attempt.request_identity,
+            attempt.request_digest,
+            attempt.result_identity,
+            attempt.result_digest,
+            attempt.terminal_disposition,
+        ),
+        (
+            result.request_identity.as_str(),
+            result.request_meaning_digest.as_str(),
+            result.result_identity.as_str(),
+            result.result_digest.as_str(),
+            TrialFamilyAttemptTerminalDispositionV2::of_replay_terminal(result.terminal),
+        )
+    );
+
+    assert_eq!(
+        harness
+            .owner
+            .count_exploratory_replay_result_v2(locator)
+            .await
+            .expect("a recount"),
+        TrialFamilyAttemptCountV2::Joined
+    );
+    let replay_attempt = format!("{}-exact-replay", locator.attempt_identity);
+    let replay = positive_result(
+        locator.request_identity,
+        harness.predecessor.meaning_digest(),
+        &replay_attempt,
+        &harness.intent_identity,
+        &harness.intent_digest,
+        suffix,
+    );
+    let replay_bytes = replay
+        .to_canonical_bytes()
+        .expect("canonical replay Result");
+    persist_backtest_result(
+        backtest_pool,
+        &replay,
+        &replay_bytes,
+        current_epoch_ms().expect("test clock"),
+    )
+    .await;
+    assert_eq!(
+        harness
+            .owner
+            .count_exploratory_replay_result_v2(ExploratoryReplayResultLocatorV2 {
+                result_identity: replay.result_identity.as_str(),
+                request_identity: locator.request_identity,
+                attempt_identity: &replay_attempt,
+            })
+            .await
+            .expect("an exact replay's count"),
+        TrialFamilyAttemptCountV2::Joined
+    );
+    assert_eq!(
+        census().await,
+        (2, Some(counted)),
+        "neither a recount nor an exact replay changes the census"
+    );
 }
 
 /// One Design frozen in R&D custody, and the Composer artifact composed from it if there is one.

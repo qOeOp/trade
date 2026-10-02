@@ -80,7 +80,7 @@ use vibe_data::owner::{
     universe_sample_projection_owner_from_environment_v1,
 };
 // The Market Data repair loop is the only reader of the shared time evidence resolver.
-#[cfg(feature = "sealed-develop-composer-acceptance")]
+#[cfg(feature = "native-replay-execution")]
 use vibe_data::owner::shared_time_evidence_resolver_from_store_admission_environment_v1;
 use vibe_data::owner::{
     research_pit_terminal::ResearchPitTerminalResolver,
@@ -220,7 +220,7 @@ mod iteration_result_admission;
 #[cfg(test)]
 mod log_capture;
 mod market_data_pit;
-#[cfg(feature = "sealed-develop-composer-acceptance")]
+#[cfg(feature = "native-replay-execution")]
 mod market_data_repair;
 #[cfg(all(test, feature = "sealed-develop-composer-acceptance"))]
 mod native_replay_scheduling_acceptance;
@@ -345,8 +345,37 @@ struct ArtifactBuildApiResultV1 {
     provider_invocation: Option<ProductEdgeInvocationClaimReadbackV1>,
 }
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
+/// The stack each runtime worker gets. Axum runs every request on a worker, and tokio's default is
+/// 2 MiB.
+///
+/// Measured at release codegen (opt-level 3, one codegen unit, no LTO) on the serial R&D chain,
+/// whose database holds the custody states that send a V3 Research submission down its deepest
+/// lineage branch (Linux x86). On main 90facb147 (owner-chains run 37038610356) a V3 `submit_v2`
+/// peaks at 336 KiB, the Source Intake V3 submission at 384 KiB, and the deepest chain entry at
+/// 600 KiB. Before #1219 split the deepest futures on that path, the same probe read 608 KiB and
+/// 1000 KiB (run 36362053221). Against these readings:
+/// - no LTO: direction unknown;
+/// - hyper, axum and the worker loop around a production request, absent from the reading: the
+///   reading is optimistic;
+/// - the tests unwind where this binary aborts: the reading is, if anything, pessimistic;
+/// - database states the chain never builds: direction unknown.
+///
+/// With two of four biases unknown and one optimistic, the 2 MiB default leaves about 1.4 MiB of
+/// margin that is partly unmeasured; 4 MiB leaves about 3.4 MiB. Stacks are committed as they are
+/// touched, so the larger reservation costs address space, not memory. An overflow aborts the whole
+/// process. The depth itself is kept down by keeping the deepest futures off one stack (#1219);
+/// this size covers what the measurement cannot see.
+const RUNTIME_WORKER_STACK_BYTES: usize = 4 * 1024 * 1024;
+
+fn main() -> anyhow::Result<()> {
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .thread_stack_size(RUNTIME_WORKER_STACK_BYTES)
+        .build()?
+        .block_on(run())
+}
+
+async fn run() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
         .with_target(false)
         .with_env_filter(
@@ -398,7 +427,7 @@ async fn main() -> anyhow::Result<()> {
     #[cfg(feature = "composer-replay-issuance")]
     let native_replay_scheduling =
         native_replay_scheduling_resolver_v1_from_store_admission_environment().await?;
-    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    #[cfg(feature = "native-replay-execution")]
     let shared_time = shared_time_evidence_resolver_from_store_admission_environment_v1().await?;
     #[cfg(feature = "composer-replay-issuance")]
     let instrument_master_v2 =
@@ -498,7 +527,7 @@ async fn main() -> anyhow::Result<()> {
         not(feature = "sealed-develop-composer-acceptance")
     ))]
     let develop_composer_read: Arc<dyn DevelopComposerSealedReadPortV2> = develop_composer.clone();
-    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    #[cfg(feature = "native-replay-execution")]
     let native_replay_execution = match env::var("BACKTEST_OWNER_DATABASE_URL") {
         Err(env::VarError::NotPresent) => None,
         Err(e) => return Err(e.into()),
@@ -526,7 +555,7 @@ async fn main() -> anyhow::Result<()> {
             ))
         }
     };
-    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    #[cfg(feature = "native-replay-execution")]
     let market_data_repair = market_data_repair::production_router(
         owner.clone(),
         develop_composer_read.clone(),
@@ -643,14 +672,14 @@ async fn main() -> anyhow::Result<()> {
             },
             token_digest,
         ));
-    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    #[cfg(feature = "native-replay-execution")]
     let app = app.merge(exploratory_replay::execution_router(
         native_replay_execution,
         token_digest,
     ));
     // The Market Data repair loop is a separate surface with its own admission; keeping its merge
     // in its own statement is what lets the Native Replay route lose its gate on its own.
-    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    #[cfg(feature = "native-replay-execution")]
     let app = app.merge(market_data_repair);
     let address = env_or("RD_OWNER_LISTEN", "0.0.0.0:8080");
     let listener = TcpListener::bind(&address).await?;
@@ -4542,17 +4571,6 @@ mod tests {
         let missing_snapshot_rejected =
             start_provider_invocation(State(state.clone()), headers.clone(), start_body.clone())
                 .await;
-        assert_eq!(
-            missing_snapshot_rejected.status(),
-            StatusCode::SERVICE_UNAVAILABLE
-        );
-        assert_eq!(
-            missing_snapshot_rejected
-                .headers()
-                .get("x-rd-rejection-code")
-                .unwrap(),
-            "OWNER_OUTCOME_UNKNOWN"
-        );
         let product_edge_state_after_missing_snapshot: serde_json::Value = sqlx::query_scalar(
             "SELECT state_json FROM product_edge_effect_invocation_states_v1 WHERE claim_identity=$1",
         )
@@ -4574,6 +4592,29 @@ mod tests {
         .fetch_one(rd_owner_pool)
         .await
         .unwrap();
+        // Everything the refusal is judged on has been read, so the tamper is restored before any
+        // of it is asserted. The ordered chain shares one store and never resets it: asserting
+        // first would leave the tamper behind on exactly the run that fails, and every later
+        // entry that verifies recent attempts would then fail with no apparent cause.
+        sqlx::query(
+            "UPDATE rd_artifact_build_attempts_v1 SET attempt_json=$1 WHERE build_request_identity=$2",
+        )
+        .bind(&rd_attempt_after_retry)
+        .bind(&build_request_identity)
+        .execute(rd_owner_pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            missing_snapshot_rejected.status(),
+            StatusCode::SERVICE_UNAVAILABLE
+        );
+        assert_eq!(
+            missing_snapshot_rejected
+                .headers()
+                .get("x-rd-rejection-code")
+                .unwrap(),
+            "OWNER_OUTCOME_UNKNOWN"
+        );
         assert_eq!(
             product_edge_state_after_missing_snapshot,
             product_edge_state_before_missing_snapshot
@@ -4583,14 +4624,6 @@ mod tests {
             product_edge_outbox_before_missing_snapshot
         );
         assert_eq!(rd_attempt_after_missing_snapshot, missing_snapshot_attempt);
-        sqlx::query(
-            "UPDATE rd_artifact_build_attempts_v1 SET attempt_json=$1 WHERE build_request_identity=$2",
-        )
-        .bind(&rd_attempt_after_retry)
-        .bind(&build_request_identity)
-        .execute(rd_owner_pool)
-        .await
-        .unwrap();
 
         let mut tampered_attempt = rd_attempt_after_retry.clone();
         let reservation = tampered_attempt["invocation_claim"]
@@ -4673,11 +4706,6 @@ mod tests {
         .unwrap();
 
         let rejected = start_provider_invocation(State(state), headers, start_body).await;
-        assert_eq!(rejected.status(), StatusCode::SERVICE_UNAVAILABLE);
-        assert_eq!(
-            rejected.headers().get("x-rd-rejection-code").unwrap(),
-            "OWNER_OUTCOME_UNKNOWN"
-        );
         let product_edge_state_after_tampered_retry: serde_json::Value = sqlx::query_scalar(
             "SELECT state_json FROM product_edge_effect_invocation_states_v1 WHERE claim_identity=$1",
         )
@@ -4699,19 +4727,12 @@ mod tests {
         .fetch_one(rd_owner_pool)
         .await
         .unwrap();
-        assert_eq!(
-            product_edge_state_after_tampered_retry,
-            product_edge_state_before_tampered_retry
-        );
-        assert_eq!(
-            product_edge_outbox_after_tampered_retry,
-            product_edge_outbox_before_tampered_retry
-        );
-        assert_eq!(rd_attempt_after_tampered_retry, tampered_attempt);
 
         // The ordered chain shares one store: a later entry's directory read verifies every
         // recent attempt and would rightly refuse this tampered seal. Restore the exact custody
-        // the proof found after its own legitimate retry, and prove the restoration reads back.
+        // the proof found after its own legitimate retry, and prove the restoration reads back,
+        // before anything about the refusal is asserted, so a failed assertion cannot leave the
+        // tamper behind.
         sqlx::query(
             "UPDATE rd_artifact_build_attempts_v1 SET attempt_json=$1 WHERE build_request_identity=$2",
         )
@@ -4728,6 +4749,20 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(rd_attempt_after_restore, rd_attempt_after_retry);
+        assert_eq!(rejected.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(
+            rejected.headers().get("x-rd-rejection-code").unwrap(),
+            "OWNER_OUTCOME_UNKNOWN"
+        );
+        assert_eq!(
+            product_edge_state_after_tampered_retry,
+            product_edge_state_before_tampered_retry
+        );
+        assert_eq!(
+            product_edge_outbox_after_tampered_retry,
+            product_edge_outbox_before_tampered_retry
+        );
+        assert_eq!(rd_attempt_after_tampered_retry, tampered_attempt);
     }
 
     async fn rd_owned_relation_snapshot(pool: &sqlx::PgPool) -> Vec<(String, serde_json::Value)> {
@@ -4809,9 +4844,15 @@ mod tests {
         .await
     }
 
+    /// The Result this entry reads is the Backtest Owner's own fixture: no R&D request seals its
+    /// request, so no TrialFamily census can count it. The custody adapter still locks it and
+    /// returns it exactly, and the HTTP read refuses it by name rather than show a Result no
+    /// census counts. A counted Result reading back is proven by the run report entry, which counts
+    /// its run, and by the browser entry after it, which opens that Result through the read API.
     #[tokio::test]
     #[ignore = "requires the canonical Backtest result commit immediately before this R&D HTTP consumer"]
-    async fn exploratory_replay_result_http_readback_is_exact_locked_and_rd_read_only() {
+    async fn exploratory_replay_result_http_read_locks_exact_custody_and_refuses_an_uncounted_result()
+     {
         let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
         let mutation = test_database.mutation();
         let backtest_pool = mutation.pool(CanonicalOwnerTestRoleV1::BacktestOwner);
@@ -4859,20 +4900,33 @@ mod tests {
             .await
             .unwrap(),
         );
-        let locked = owner
-            .resolve_exploratory_replay_result_v2(ExploratoryReplayResultLocatorV2 {
-                result_identity: &result_identity,
-                request_identity: &request_identity,
-                attempt_identity: &attempt_identity,
-            })
+        let rd_pool = mutation.pool(CanonicalOwnerTestRoleV1::RdOwner);
+        let locator = ExploratoryReplayResultLocatorV2 {
+            result_identity: &result_identity,
+            request_identity: &request_identity,
+            attempt_identity: &attempt_identity,
+        };
+        let mut custody = rd_pool.begin().await.unwrap();
+        let locked =
+            vibe_strategy_factory::resolve_exploratory_replay_result_for_rd_in_transaction(
+                &mut custody,
+                locator,
+            )
             .await
             .expect("canonical Backtest aggregate must pass locked R&D resolution")
             .expect("exact result locator must resolve");
+        custody.rollback().await.unwrap();
         assert_eq!(locked.result_canonical_bytes(), result_bytes);
         assert_eq!(locked.receipt_canonical_bytes(), receipt_bytes);
         assert_eq!(locked.outbox_canonical_bytes(), outbox_bytes);
+        assert!(
+            matches!(
+                owner.resolve_exploratory_replay_result_v2(locator).await,
+                Err(vibe_strategy_factory::ExploratoryResultCensusErrorV1::RequestUnavailable(_))
+            ),
+            "a Result no R&D request seals is not shown"
+        );
 
-        let rd_pool = mutation.pool(CanonicalOwnerTestRoleV1::RdOwner);
         let before = rd_owned_relation_snapshot(rd_pool).await;
         let token = "rd-exploratory-result-consumer-test";
         let token_digest: [u8; 32] = Sha256::digest(token.as_bytes()).into();
@@ -4895,8 +4949,11 @@ mod tests {
             None,
         )
         .await;
-        assert_eq!(status, StatusCode::OK);
-        assert_eq!(body, result_bytes);
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&body).unwrap()["error"],
+            "EXPLORATORY_RESULT_REQUEST_UNAVAILABLE"
+        );
 
         for (result, request, attempt) in [
             (

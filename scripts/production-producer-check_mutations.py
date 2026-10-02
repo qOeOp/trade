@@ -99,8 +99,8 @@ MUTATIONS = [
         "label": "attributes taken from a fixed window above the item",
         "old": '        if text == "" or text.endswith(("}", ";")):\n            break',
         "new": "        if cursor < index - 6:\n            break",
-        "probe": lambda m, rev: definition_gates(m, rev, "compile_from_owner_source_resolution"),
-        "expect": "compile_from_owner_source_resolution: it inherited the previous item's",
+        "probe": lambda m, rev: definition_gates(m, rev, "canonical_row_binding_bytes"),
+        "expect": "canonical_row_binding_bytes: it inherited the previous item's",
     },
     {
         "label": "an item's own gate dropped on its signature line",

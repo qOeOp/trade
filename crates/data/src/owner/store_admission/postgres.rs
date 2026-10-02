@@ -13,6 +13,10 @@ use sqlx::{
 };
 use thiserror::Error;
 use url::Url;
+#[cfg(unix)]
+use vibe_postgres_connect::pinned_tls::{
+    ObservedPinnedTls, PinnedPostgresRoot, PinnedRelay, PinnedTlsError, connect_pinned,
+};
 use vibe_postgres_connect::{PostgresTls, StatedConnectOptions, connect_with, with_tls};
 use zeroize::Zeroizing;
 
@@ -41,6 +45,25 @@ impl PostgresTlsIdentity {
             verification_mode: "DISPOSABLE_LOOPBACK_ONLY".to_string(),
             peer_certificate_identity: "UNAVAILABLE_DISPOSABLE_PLAINTEXT".to_string(),
             trust_policy_identity: "PINNED_DISPOSABLE_POSTGRES_V1".to_string(),
+        }
+    }
+
+    /// The identity of a session carried over the measurer's own leg pinned to one root.
+    #[cfg(unix)]
+    #[must_use]
+    fn pinned_relay(
+        server_name: impl Into<String>,
+        observed: &ObservedPinnedTls,
+        trust_policy_identity: impl Into<String>,
+    ) -> Self {
+        Self {
+            enabled: true,
+            server_name: server_name.into(),
+            protocol: observed.protocol.to_string(),
+            cipher: observed.cipher.to_string(),
+            verification_mode: "PINNED_ROOT_EXCLUSIVE_RELAY_V1".to_string(),
+            peer_certificate_identity: observed.peer_certificate_identity.clone(),
+            trust_policy_identity: trust_policy_identity.into(),
         }
     }
 
@@ -141,8 +164,8 @@ pub(super) const NATIVE_REPLAY_QUOTE_CUT_FLOOR_V2: MeasurementFloor = Measuremen
     name: "native_replay_quote_cut_v2",
     functions: &[
         "market_data_admitted_read.resolve_native_replay_next_frame_v2(bytea,bigint,bigint)",
-        "market_data_admitted_read.resolve_native_replay_quote_cut_census_v2(bytea,bigint,bigint)",
-        "market_data_private.resolve_native_replay_quote_cut_census_v2(bytea,bigint,bigint)",
+        "market_data_admitted_read.resolve_native_replay_quote_cut_census_v2(bytea,bytea,bigint,bigint)",
+        "market_data_private.resolve_native_replay_quote_cut_census_v2(bytea,bytea,bigint,bigint)",
         "market_data_private.resolve_native_replay_next_frame_v2(bytea,bigint,bigint)",
     ],
     relations: &[
@@ -512,17 +535,12 @@ impl Debug for PostgresCredentialLease {
 
 pub(crate) async fn read_market_data_source_binding_snapshot(
     lease: &PostgresCredentialLease,
+    transport: &StoreTransport,
     binding_identity: &[u8; 32],
 ) -> Result<(Vec<Vec<u8>>, Vec<Vec<u8>>), PostgresMeasurementError> {
-    let target = parse_target(lease.database_url())?;
-
-    if ambient_pg_configuration_present() {
-        return Err(PostgresMeasurementError::InvalidTarget);
-    }
-    let options = connect_options(&target, "vibe-market-data-source-binding-v1");
-    let mut connection = connect_with(&options)
-        .await
-        .map_err(|_| PostgresMeasurementError::ConnectionUnavailable)?;
+    let mut session =
+        open_store_session(lease, transport, "vibe-market-data-source-binding-v1").await?;
+    let connection = &mut session.connection;
     let mut transaction = connection
         .begin()
         .await
@@ -604,16 +622,11 @@ pub(crate) struct RawSharedTimeHistoryRowV1 {
 
 pub(crate) async fn read_shared_time_evidence_snapshot_v1(
     lease: &PostgresCredentialLease,
+    transport: &StoreTransport,
 ) -> Result<RawSharedTimeEvidenceSnapshotV1, PostgresMeasurementError> {
-    let target = parse_target(lease.database_url())?;
-
-    if ambient_pg_configuration_present() {
-        return Err(PostgresMeasurementError::InvalidTarget);
-    }
-    let options = connect_options(&target, "vibe-market-data-shared-time-v1");
-    let mut connection = connect_with(&options)
-        .await
-        .map_err(|_| PostgresMeasurementError::ConnectionUnavailable)?;
+    let mut session =
+        open_store_session(lease, transport, "vibe-market-data-shared-time-v1").await?;
+    let connection = &mut session.connection;
     let mut transaction = connection
         .begin()
         .await
@@ -693,6 +706,7 @@ pub(crate) struct RawStrategyInputSampleProjectionSnapshotV3 {
 /// Reads one bounded projection dependency set inside one PostgreSQL snapshot.
 pub(crate) async fn read_strategy_input_sample_projection_snapshot_v2(
     lease: &PostgresCredentialLease,
+    transport: &StoreTransport,
     receipt_digest: &[u8; 32],
 ) -> Result<RawStrategyInputSampleProjectionSnapshotV2, PostgresMeasurementError> {
     const HEADER_LEN: usize = 41;
@@ -703,15 +717,9 @@ pub(crate) async fn read_strategy_input_sample_projection_snapshot_v2(
     const MAX_EVIDENCE_ROW_BYTES: usize = 8 * 1024 * 1024;
     const MAX_EVIDENCE_BYTES: usize = 64 * 1024 * 1024;
 
-    let target = parse_target(lease.database_url())?;
-
-    if ambient_pg_configuration_present() {
-        return Err(PostgresMeasurementError::InvalidTarget);
-    }
-    let options = connect_options(&target, "vibe-market-data-sample-projection-v2");
-    let mut connection = connect_with(&options)
-        .await
-        .map_err(|_| PostgresMeasurementError::ConnectionUnavailable)?;
+    let mut session =
+        open_store_session(lease, transport, "vibe-market-data-sample-projection-v2").await?;
+    let connection = &mut session.connection;
     let mut transaction = connection
         .begin()
         .await
@@ -809,6 +817,7 @@ pub(crate) async fn read_strategy_input_sample_projection_snapshot_v2(
 /// Reads one exact V3 BAR projection and its complete dependency graph in one read-only snapshot.
 pub(crate) async fn read_strategy_input_sample_projection_snapshot_v3(
     lease: &PostgresCredentialLease,
+    transport: &StoreTransport,
     receipt_digest: &[u8; 32],
 ) -> Result<RawStrategyInputSampleProjectionSnapshotV3, PostgresMeasurementError> {
     const HEADER_LEN: usize = 42;
@@ -819,15 +828,9 @@ pub(crate) async fn read_strategy_input_sample_projection_snapshot_v3(
     const MAX_EVIDENCE_ROW_BYTES: usize = 8 * 1024 * 1024;
     const MAX_EVIDENCE_BYTES: usize = 64 * 1024 * 1024;
 
-    let target = parse_target(lease.database_url())?;
-
-    if ambient_pg_configuration_present() {
-        return Err(PostgresMeasurementError::InvalidTarget);
-    }
-    let options = connect_options(&target, "vibe-market-data-sample-projection-v3");
-    let mut connection = connect_with(&options)
-        .await
-        .map_err(|_| PostgresMeasurementError::ConnectionUnavailable)?;
+    let mut session =
+        open_store_session(lease, transport, "vibe-market-data-sample-projection-v3").await?;
+    let connection = &mut session.connection;
     let mut transaction = connection
         .begin()
         .await
@@ -1026,21 +1029,16 @@ pub(crate) struct RawBarScheduleSnapshotV1 {
 /// functions. There is no caller-supplied SQL, relation, or kind selector.
 pub(super) async fn read_bar_schedule_snapshot_v1(
     lease: &PostgresCredentialLease,
+    transport: &StoreTransport,
     readback_identity: &[u8; 32],
 ) -> Result<Option<RawBarScheduleSnapshotV1>, PostgresMeasurementError> {
     const MAX_HISTORY_ROWS: usize = 10_000;
     const MAX_EVIDENCE_ROW_BYTES: usize = 8 * 1024 * 1024;
     const MAX_EVIDENCE_BYTES: usize = 64 * 1024 * 1024;
 
-    let target = parse_target(lease.database_url())?;
-
-    if ambient_pg_configuration_present() {
-        return Err(PostgresMeasurementError::InvalidTarget);
-    }
-    let options = connect_options(&target, "vibe-market-data-bar-schedule-v1");
-    let mut connection = connect_with(&options)
-        .await
-        .map_err(|_| PostgresMeasurementError::ConnectionUnavailable)?;
+    let mut session =
+        open_store_session(lease, transport, "vibe-market-data-bar-schedule-v1").await?;
+    let connection = &mut session.connection;
     let mut transaction = connection
         .begin()
         .await
@@ -1108,6 +1106,7 @@ pub(super) async fn read_bar_schedule_snapshot_v1(
 /// fixed read-only snapshot.
 pub(super) async fn read_bar_schedule_candidate_snapshots_v1(
     lease: &PostgresCredentialLease,
+    transport: &StoreTransport,
     canonical_instrument: &str,
 ) -> Result<Vec<RawBarScheduleSnapshotV1>, PostgresMeasurementError> {
     const MAX_CANDIDATES: usize = 10_000;
@@ -1118,11 +1117,13 @@ pub(super) async fn read_bar_schedule_candidate_snapshots_v1(
     if canonical_instrument.is_empty() || ambient_pg_configuration_present() {
         return Err(PostgresMeasurementError::InvalidTarget);
     }
-    let target = parse_target(lease.database_url())?;
-    let options = connect_options(&target, "vibe-market-data-bar-schedule-candidates-v1");
-    let mut connection = connect_with(&options)
-        .await
-        .map_err(|_| PostgresMeasurementError::ConnectionUnavailable)?;
+    let mut session = open_store_session(
+        lease,
+        transport,
+        "vibe-market-data-bar-schedule-candidates-v1",
+    )
+    .await?;
+    let connection = &mut session.connection;
     let mut transaction = connection
         .begin()
         .await
@@ -1197,7 +1198,8 @@ pub(super) async fn read_bar_schedule_candidate_snapshots_v1(
 
 /// One frame's quote cut census as the Owner held it in one read: the bound the first later frame
 /// the Owner had observed by the frame's decision cut sets, and the census rows of every quote cut
-/// lineage with a version between the frame and that bound.
+/// lineage with a version between the frame and that bound, each carrying the frame's own
+/// Instrument Master key beside its own.
 pub(crate) struct RawNativeReplayQuoteCutCensusV2 {
     pub(crate) bound_ns_exclusive: u64,
     pub(crate) rows: Vec<Vec<u8>>,
@@ -1209,7 +1211,9 @@ pub(crate) struct RawNativeReplayQuoteCutCensusV2 {
 /// between the two reads cannot move the bound after the rows were chosen by it.
 pub(super) async fn read_native_replay_quote_cut_census_snapshot_v2(
     lease: &PostgresCredentialLease,
+    transport: &StoreTransport,
     scope_digest: &[u8; 32],
+    frame_snapshot_identity: &[u8; 32],
     frame_time_ns: u64,
     decision_cut_ns: u64,
     window_end_ns_exclusive: u64,
@@ -1224,11 +1228,13 @@ pub(super) async fn read_native_replay_quote_cut_census_snapshot_v2(
         i64::try_from(frame_time_ns).map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
     let decision_cut = i64::try_from(decision_cut_ns)
         .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
-    let target = parse_target(lease.database_url())?;
-    let options = connect_options(&target, "vibe-market-data-native-replay-quote-cut-v2");
-    let mut connection = connect_with(&options)
-        .await
-        .map_err(|_| PostgresMeasurementError::ConnectionUnavailable)?;
+    let mut session = open_store_session(
+        lease,
+        transport,
+        "vibe-market-data-native-replay-quote-cut-v2",
+    )
+    .await?;
+    let connection = &mut session.connection;
     let mut transaction = connection
         .begin()
         .await
@@ -1258,9 +1264,10 @@ pub(super) async fn read_native_replay_quote_cut_census_snapshot_v2(
     let bound = i64::try_from(bound_ns_exclusive)
         .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
     let rows = sqlx::query_scalar::<_, serde_json::Value>(
-        "SELECT to_jsonb(r) FROM market_data_admitted_read.resolve_native_replay_quote_cut_census_v2($1,$2,$3) AS r",
+        "SELECT to_jsonb(r) FROM market_data_admitted_read.resolve_native_replay_quote_cut_census_v2($1,$2,$3,$4) AS r",
     )
     .bind(scope_digest.as_slice())
+    .bind(frame_snapshot_identity.as_slice())
     .bind(frame_time)
     .bind(bound)
     .fetch_all(&mut *transaction)
@@ -1324,17 +1331,12 @@ pub(crate) struct RawPitTerminalSnapshot {
 
 pub(crate) async fn read_market_data_pit_terminal_snapshot(
     lease: &PostgresCredentialLease,
+    transport: &StoreTransport,
     snapshot_identity: &[u8; 32],
 ) -> Result<RawPitTerminalSnapshot, PostgresMeasurementError> {
-    let target = parse_target(lease.database_url())?;
-
-    if ambient_pg_configuration_present() {
-        return Err(PostgresMeasurementError::InvalidTarget);
-    }
-    let options = connect_options(&target, "vibe-market-data-pit-terminal-v1");
-    let mut connection = connect_with(&options)
-        .await
-        .map_err(|_| PostgresMeasurementError::ConnectionUnavailable)?;
+    let mut session =
+        open_store_session(lease, transport, "vibe-market-data-pit-terminal-v1").await?;
+    let connection = &mut session.connection;
     let mut transaction = connection
         .begin()
         .await
@@ -1467,17 +1469,12 @@ fn raw_json_digest(value: &serde_json::Value) -> Result<[u8; 32], PostgresMeasur
 
 pub(crate) async fn read_market_data_pit_evaluation_snapshot(
     lease: &PostgresCredentialLease,
+    transport: &StoreTransport,
     snapshot_identity: &[u8; 32],
 ) -> Result<RawPitEvaluationSnapshot, PostgresMeasurementError> {
-    let target = parse_target(lease.database_url())?;
-
-    if ambient_pg_configuration_present() {
-        return Err(PostgresMeasurementError::InvalidTarget);
-    }
-    let options = connect_options(&target, "vibe-market-data-pit-evaluation-v1");
-    let mut connection = connect_with(&options)
-        .await
-        .map_err(|_| PostgresMeasurementError::ConnectionUnavailable)?;
+    let mut session =
+        open_store_session(lease, transport, "vibe-market-data-pit-evaluation-v1").await?;
+    let connection = &mut session.connection;
     let mut transaction = connection
         .begin()
         .await
@@ -1930,9 +1927,9 @@ pub(super) struct PostgresDirectMeasurer;
 impl PostgresDirectMeasurer {
     /// Connects with the resolved lease and measures the target in one read-only transaction.
     ///
-    /// Non-loopback, non-test-database, and TLS targets fail closed. Authenticated production TLS
-    /// remains unavailable until a peer-certificate and trust-policy measuring adapter exists. No
-    /// DDL, role, credential, provider, or application mutation is performed.
+    /// Non-loopback, non-test-database, and TLS targets fail closed: a deployment's store is
+    /// measured by `PinnedTlsPostgresDirectMeasurer`. No DDL, role, credential, provider, or
+    /// application mutation is performed.
     ///
     /// # Errors
     ///
@@ -1942,367 +1939,612 @@ impl PostgresDirectMeasurer {
         lease: &PostgresCredentialLease,
         spec: &PostgresMeasurementSpec,
     ) -> Result<PostgresMeasurement, PostgresMeasurementError> {
-        let target = parse_target(lease.database_url())?;
-
-        if ambient_pg_configuration_present() {
-            return Err(PostgresMeasurementError::InvalidTarget);
-        }
-        let options = connect_options(&target, "vibe-market-data-store-admission-disposable-v1");
-        let mut connection = connect_with(&options)
-            .await
-            .map_err(|_| PostgresMeasurementError::ConnectionUnavailable)?;
-        let mut transaction = connection
-            .begin()
-            .await
-            .map_err(|_| PostgresMeasurementError::TransactionUnavailable)?;
-        sqlx::query("SET TRANSACTION READ ONLY")
-            .execute(&mut *transaction)
-            .await
-            .map_err(|_| PostgresMeasurementError::TransactionUnavailable)?;
-        sqlx::query("SET LOCAL statement_timeout = '5000ms'")
-            .execute(&mut *transaction)
-            .await
-            .map_err(|_| PostgresMeasurementError::TransactionUnavailable)?;
-        sqlx::query("SET LOCAL lock_timeout = '1000ms'")
-            .execute(&mut *transaction)
-            .await
-            .map_err(|_| PostgresMeasurementError::TransactionUnavailable)?;
-
-        let identity = sqlx::query(
-            "SELECT (pg_catalog.pg_control_system()).system_identifier::text AS system_identifier, pg_catalog.current_setting('server_version_num')::text AS server_version, pg_catalog.inet_server_addr()::text AS server_address, pg_catalog.inet_server_port()::bigint AS server_port, pg_catalog.current_database()::text AS database_name, database.oid::bigint AS database_oid, current_user::text AS role_name, role.oid::bigint AS role_oid, role.rolsuper, role.rolinherit, role.rolcreaterole, role.rolcreatedb, role.rolcanlogin, role.rolreplication, role.rolbypassrls FROM pg_catalog.pg_database AS database JOIN pg_catalog.pg_roles AS role ON role.rolname = current_user WHERE database.datname = pg_catalog.current_database()",
+        let mut session = open_store_session(
+            lease,
+            &StoreTransport::DisposableLoopback,
+            "vibe-market-data-store-admission-disposable-v1",
         )
-        .fetch_one(&mut *transaction)
-        .await
-        .map_err(|_| PostgresMeasurementError::IdentityQueryUnavailable)?;
-        let server_version: String = identity
-            .try_get("server_version")
-            .map_err(|_| PostgresMeasurementError::IdentityDecodeUnavailable)?;
-        let system_identifier: String = identity
-            .try_get("system_identifier")
-            .map_err(|_| PostgresMeasurementError::IdentityDecodeUnavailable)?;
-        let database_name: String = identity
-            .try_get("database_name")
-            .map_err(|_| PostgresMeasurementError::IdentityDecodeUnavailable)?;
-        let database_oid: i64 = identity
-            .try_get("database_oid")
-            .map_err(|_| PostgresMeasurementError::IdentityDecodeUnavailable)?;
-        let server_address: String = identity
-            .try_get("server_address")
-            .map_err(|_| PostgresMeasurementError::IdentityDecodeUnavailable)?;
-        let server_port: i64 = identity
-            .try_get("server_port")
-            .map_err(|_| PostgresMeasurementError::IdentityDecodeUnavailable)?;
-        let role_name: String = identity
-            .try_get("role_name")
-            .map_err(|_| PostgresMeasurementError::IdentityDecodeUnavailable)?;
-        let role_attributes = (
-            identity.try_get::<i64, _>("role_oid"),
-            identity.try_get::<bool, _>("rolsuper"),
-            identity.try_get::<bool, _>("rolinherit"),
-            identity.try_get::<bool, _>("rolcreaterole"),
-            identity.try_get::<bool, _>("rolcreatedb"),
-            identity.try_get::<bool, _>("rolcanlogin"),
-            identity.try_get::<bool, _>("rolreplication"),
-            identity.try_get::<bool, _>("rolbypassrls"),
-        );
-        let role_record = match role_attributes {
-            (
-                Ok(role_oid),
-                Ok(superuser),
-                Ok(inherit),
-                Ok(create_role),
-                Ok(create_database),
-                Ok(can_login),
-                Ok(replication),
-                Ok(bypass_rls),
-            ) => (
-                role_name.clone(),
-                role_oid,
-                superuser,
-                inherit,
-                create_role,
-                create_database,
-                can_login,
-                replication,
-                bypass_rls,
-            ),
-            _ => return Err(PostgresMeasurementError::IdentityDecodeUnavailable),
-        };
+        .await?;
+        measure_session(&mut session, spec).await
+    }
+}
 
-        if database_name != target.database || role_name != target.role {
-            return Err(PostgresMeasurementError::InvalidTarget);
-        }
+/// Read-only direct PostgreSQL target measurer for a deployment's store, over TLS pinned to the one
+/// root the deployment trusts.
+///
+/// The session sqlx opens never leaves this process in plaintext: it reaches a private Unix socket,
+/// and a pinned connection (`vibe_postgres_connect::pinned_tls`) carries it to the server over TLS
+/// 1.3 that trusts only the pinned root. The measurement records the certificate that connection's
+/// server presented and the pinned root's identity, and requires the server's own view of the
+/// session, `pg_stat_ssl`, to agree on TLS, protocol and cipher. Every admitted read reaches the
+/// store the same way.
+#[cfg(unix)]
+#[derive(Clone, Debug)]
+pub(super) struct PinnedTlsPostgresDirectMeasurer {
+    trust: PinnedPostgresRoot,
+}
 
-        if !privilege_census_names_the_privileges_of(&server_version) {
-            return Err(PostgresMeasurementError::PrivilegeCensusServerMajorUnsupported);
-        }
-        let role_membership_rows = sqlx::query(
-            "WITH RECURSIVE membership_path AS (SELECT membership.roleid, membership.member, membership.grantor, membership.admin_option, membership.inherit_option, membership.set_option, ARRAY[membership.member, membership.roleid] AS path, 1::bigint AS depth FROM pg_catalog.pg_auth_members AS membership JOIN pg_catalog.pg_roles AS session_role ON session_role.oid = membership.member WHERE session_role.rolname = current_user UNION ALL SELECT next.roleid, next.member, next.grantor, next.admin_option, next.inherit_option, next.set_option, prior.path || next.roleid, prior.depth + 1 FROM membership_path AS prior JOIN pg_catalog.pg_auth_members AS next ON next.member = prior.roleid WHERE prior.depth < 33 AND NOT next.roleid = ANY(prior.path)) SELECT granted_role.rolname::text AS role_name, pg_catalog.pg_get_userbyid(path.member)::text AS member_name, pg_catalog.pg_get_userbyid(path.grantor)::text AS grantor_name, path.admin_option, path.inherit_option, path.set_option, path.depth, granted_role.rolsuper AS role_super, granted_role.rolinherit AS role_inherit, granted_role.rolcreaterole AS role_create_role, granted_role.rolcreatedb AS role_create_database, granted_role.rolcanlogin AS role_can_login, granted_role.rolreplication AS role_replication, granted_role.rolbypassrls AS role_bypass_rls FROM membership_path AS path JOIN pg_catalog.pg_roles AS granted_role ON granted_role.oid = path.roleid ORDER BY path.depth, role_name, member_name, grantor_name LIMIT 257",
-        )
-        .fetch_all(&mut *transaction)
-        .await
-        .map_err(|_| PostgresMeasurementError::IdentityQueryUnavailable)?;
-        if role_membership_rows.len() > 256 {
-            return Err(PostgresMeasurementError::CatalogTargetMismatch);
-        }
-
-        for row in &role_membership_rows {
-            let depth: i64 = row
-                .try_get("depth")
-                .map_err(|_| PostgresMeasurementError::IdentityDecodeUnavailable)?;
-            if depth > 32 {
-                return Err(PostgresMeasurementError::CatalogTargetMismatch);
-            }
-        }
-        let role_membership_identity = rows_digest(
-            &role_membership_rows,
-            &[
-                "role_name",
-                "member_name",
-                "grantor_name",
-                "admin_option",
-                "inherit_option",
-                "set_option",
-                "depth",
-                "role_super",
-                "role_inherit",
-                "role_create_role",
-                "role_create_database",
-                "role_can_login",
-                "role_replication",
-                "role_bypass_rls",
-            ],
-        )?;
-
-        let privilege_census_identity = measure_privilege_census(&mut transaction).await?;
-
-        let tls = sqlx::query(
-            "SELECT ssl, COALESCE(version, '')::text AS protocol, COALESCE(cipher, '')::text AS cipher FROM pg_catalog.pg_stat_ssl WHERE pid = pg_catalog.pg_backend_pid()",
-        )
-        .fetch_one(&mut *transaction)
-        .await
-        .map_err(|_| PostgresMeasurementError::TlsIdentityUnavailable)?;
-        let tls_enabled: bool = tls
-            .try_get("ssl")
-            .map_err(|_| PostgresMeasurementError::TlsIdentityUnavailable)?;
-        let protocol: String = tls
-            .try_get("protocol")
-            .map_err(|_| PostgresMeasurementError::TlsIdentityUnavailable)?;
-        let cipher: String = tls
-            .try_get("cipher")
-            .map_err(|_| PostgresMeasurementError::TlsIdentityUnavailable)?;
-        if tls_enabled || !protocol.is_empty() || !cipher.is_empty() {
-            return Err(PostgresMeasurementError::TlsIdentityUnavailable);
-        }
-        let tls_identity = PostgresTlsIdentity::disposable_plaintext(&target.host);
-
-        let schema_rows = sqlx::query(
-            "SELECT namespace.oid::bigint AS oid, namespace.nspname::text AS name, pg_catalog.pg_get_userbyid(namespace.nspowner)::text AS owner, COALESCE(namespace.nspacl::text, 'DEFAULT') AS acl FROM pg_catalog.pg_namespace AS namespace WHERE namespace.nspname = $1",
-        )
-        .bind(&spec.schema_name)
-        .fetch_all(&mut *transaction)
-        .await
-        .map_err(|_| PostgresMeasurementError::SchemaIdentityUnavailable)?;
-        if schema_rows.len() != 1 {
-            return Err(PostgresMeasurementError::CatalogTargetMismatch);
-        }
-        let schema_identity = rows_digest(&schema_rows, &["oid", "name", "owner", "acl"])?;
-
-        // Every Owner object is found by joining the catalog on its schema and stored name, never
-        // through `to_regclass` or `to_regprocedure`: those check `USAGE` on a qualified name's
-        // schema and raise rather than miss, and the admitted reader holds nothing on
-        // `market_data_private`.
-        let (migration_schema, migration_name) = catalog_relation_key(&spec.migration_relation)?;
-        let migration_rows = sqlx::query(
-            "SELECT class.oid::bigint AS relation_oid, namespace.nspname::text AS schema_name, class.relname::text AS relation_name, class.relkind::text AS relation_kind, pg_catalog.pg_get_userbyid(class.relowner)::text AS owner, attribute.attnum::bigint AS ordinal, attribute.attname::text AS column_name, pg_catalog.format_type(attribute.atttypid, attribute.atttypmod)::text AS column_type, attribute.attnotnull, COALESCE(pg_catalog.pg_get_expr(default_value.adbin, default_value.adrelid), '')::text AS default_expression FROM pg_catalog.pg_class AS class JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = class.relnamespace JOIN pg_catalog.pg_attribute AS attribute ON attribute.attrelid = class.oid AND attribute.attnum > 0 AND NOT attribute.attisdropped LEFT JOIN pg_catalog.pg_attrdef AS default_value ON default_value.adrelid = class.oid AND default_value.adnum = attribute.attnum WHERE namespace.nspname = $1 AND class.relname = $2 ORDER BY attribute.attnum",
-        )
-        .bind(migration_schema)
-        .bind(migration_name)
-        .fetch_all(&mut *transaction)
-        .await
-        .map_err(|_| PostgresMeasurementError::MigrationIdentityUnavailable)?;
-        if migration_rows.is_empty() {
-            return Err(PostgresMeasurementError::CatalogTargetMismatch);
-        }
-        let migration_definition_identity = rows_digest(
-            &migration_rows,
-            &[
-                "relation_oid",
-                "schema_name",
-                "relation_name",
-                "relation_kind",
-                "owner",
-                "ordinal",
-                "column_name",
-                "column_type",
-                "attnotnull",
-                "default_expression",
-            ],
-        )?;
-        // The rows are read through the admitted read schema, which `new` pins the migration
-        // relation to, so the measuring principal holds nothing on the Owner's private schema.
-        let migration_budget = sqlx::query(
-            "SELECT COUNT(*)::bigint AS row_count, COALESCE(MAX(pg_catalog.octet_length(row_json)), 0)::bigint AS max_row_bytes FROM market_data_admitted_read.resolve_owner_migrations_v1()",
-        )
-        .fetch_one(&mut *transaction)
-        .await
-        .map_err(|_| PostgresMeasurementError::MigrationIdentityUnavailable)?;
-        let migration_row_count: i64 = migration_budget
-            .try_get("row_count")
-            .map_err(|_| PostgresMeasurementError::IdentityDecodeUnavailable)?;
-        let migration_max_row_bytes: i64 = migration_budget
-            .try_get("max_row_bytes")
-            .map_err(|_| PostgresMeasurementError::IdentityDecodeUnavailable)?;
-        if migration_row_count > 10_000 || migration_max_row_bytes > 65_536 {
-            return Err(PostgresMeasurementError::CatalogTargetMismatch);
-        }
-        let migration_content_rows = sqlx::query(
-            "SELECT row_json FROM market_data_admitted_read.resolve_owner_migrations_v1() ORDER BY row_json",
-        )
-        .fetch_all(&mut *transaction)
-        .await
-        .map_err(|_| PostgresMeasurementError::MigrationIdentityUnavailable)?;
-
-        if migration_content_rows.len() > 10_000 {
-            return Err(PostgresMeasurementError::CatalogTargetMismatch);
-        }
-        let migration_content_identity = rows_digest(&migration_content_rows, &["row_json"])?;
-        let migration_identity =
-            digest_serializable(&(migration_definition_identity, migration_content_identity));
-
-        let mut function_records = Vec::with_capacity(spec.function_signatures.len());
-        for signature in &spec.function_signatures {
-            let (schema, name, arguments) = catalog_function_key(signature)?;
-            let row = sqlx::query(
-                "SELECT procedure.oid::bigint AS oid, pg_catalog.pg_get_function_identity_arguments(procedure.oid)::text AS arguments, pg_catalog.pg_get_userbyid(procedure.proowner)::text AS owner, procedure.prosecdef, procedure.provolatile::text AS volatility, COALESCE(procedure.proacl::text, 'DEFAULT') AS acl, pg_catalog.pg_get_functiondef(procedure.oid)::text AS definition FROM pg_catalog.pg_proc AS procedure JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = procedure.pronamespace WHERE namespace.nspname = $1 AND procedure.proname = $2 AND pg_catalog.oidvectortypes(procedure.proargtypes) = $3",
-            )
-            .bind(schema)
-            .bind(name)
-            .bind(arguments)
-            .fetch_all(&mut *transaction)
-            .await
-            .map_err(|_| PostgresMeasurementError::FunctionIdentityUnavailable)?;
-            if row.len() != 1 {
-                return Err(PostgresMeasurementError::CatalogTargetMismatch);
-            }
-            function_records.push(rows_digest(
-                &row,
-                &[
-                    "oid",
-                    "arguments",
-                    "owner",
-                    "prosecdef",
-                    "volatility",
-                    "acl",
-                    "definition",
-                ],
-            )?);
-        }
-        let function_identity = digest_parts(&function_records);
-
-        let mut acl_records = Vec::with_capacity(spec.acl_relations.len() + 1);
-        acl_records.push(schema_identity.clone());
-
-        for relation in &spec.acl_relations {
-            let (schema, name) = catalog_relation_key(relation)?;
-            let rows = sqlx::query(
-                "SELECT class.oid::bigint AS oid, namespace.nspname::text AS schema_name, class.relname::text AS relation_name, pg_catalog.pg_get_userbyid(class.relowner)::text AS owner, COALESCE(class.relacl::text, 'DEFAULT') AS acl, class.relrowsecurity, class.relforcerowsecurity FROM pg_catalog.pg_class AS class JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = class.relnamespace WHERE namespace.nspname = $1 AND class.relname = $2",
-            )
-            .bind(schema)
-            .bind(name)
-            .fetch_all(&mut *transaction)
-            .await
-            .map_err(|_| PostgresMeasurementError::AclIdentityUnavailable)?;
-            if rows.len() != 1 {
-                return Err(PostgresMeasurementError::CatalogTargetMismatch);
-            }
-            acl_records.push(rows_digest(
-                &rows,
-                &[
-                    "oid",
-                    "schema_name",
-                    "relation_name",
-                    "owner",
-                    "acl",
-                    "relrowsecurity",
-                    "relforcerowsecurity",
-                ],
-            )?);
-            let column_rows = sqlx::query(
-                "SELECT attribute.attnum::bigint AS ordinal, attribute.attname::text AS column_name, COALESCE(attribute.attacl::text, 'DEFAULT') AS acl FROM pg_catalog.pg_attribute AS attribute WHERE attribute.attrelid = (SELECT class.oid FROM pg_catalog.pg_class AS class JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = class.relnamespace WHERE namespace.nspname = $1 AND class.relname = $2) AND attribute.attnum > 0 AND NOT attribute.attisdropped ORDER BY attribute.attnum",
-            )
-            .bind(schema)
-            .bind(name)
-            .fetch_all(&mut *transaction)
-            .await
-            .map_err(|_| PostgresMeasurementError::AclIdentityUnavailable)?;
-            acl_records.push(rows_digest(
-                &column_rows,
-                &["ordinal", "column_name", "acl"],
-            )?);
-            let policy_rows = sqlx::query(
-                "SELECT policy.polname::text AS policy_name, policy.polpermissive, policy.polcmd::text AS command, policy.polroles::text AS roles, LEFT(COALESCE(pg_catalog.pg_get_expr(policy.polqual, policy.polrelid), '')::text, 65537) AS using_expression, LEFT(COALESCE(pg_catalog.pg_get_expr(policy.polwithcheck, policy.polrelid), '')::text, 65537) AS check_expression FROM pg_catalog.pg_policy AS policy WHERE policy.polrelid = (SELECT class.oid FROM pg_catalog.pg_class AS class JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = class.relnamespace WHERE namespace.nspname = $1 AND class.relname = $2) ORDER BY policy.polname LIMIT 257",
-            )
-            .bind(schema)
-            .bind(name)
-            .fetch_all(&mut *transaction)
-            .await
-            .map_err(|_| PostgresMeasurementError::AclIdentityUnavailable)?;
-            if policy_rows.len() > 256 {
-                return Err(PostgresMeasurementError::CatalogTargetMismatch);
-            }
-
-            for row in &policy_rows {
-                let using_expression: String = row
-                    .try_get("using_expression")
-                    .map_err(|_| PostgresMeasurementError::IdentityDecodeUnavailable)?;
-                let check_expression: String = row
-                    .try_get("check_expression")
-                    .map_err(|_| PostgresMeasurementError::IdentityDecodeUnavailable)?;
-                if using_expression.len() > 65_536 || check_expression.len() > 65_536 {
-                    return Err(PostgresMeasurementError::CatalogTargetMismatch);
-                }
-            }
-            acl_records.push(rows_digest(
-                &policy_rows,
-                &[
-                    "policy_name",
-                    "polpermissive",
-                    "command",
-                    "roles",
-                    "using_expression",
-                    "check_expression",
-                ],
-            )?);
-        }
-        let acl_identity = digest_parts(&acl_records);
-
-        transaction
-            .rollback()
-            .await
-            .map_err(|_| PostgresMeasurementError::TransactionUnavailable)?;
-
-        Ok(PostgresMeasurement {
-            endpoint_identity: format!(
-                "postgresql-requested://{}:{};observed://{server_address}:{server_port}",
-                target.host, target.port
-            ),
-            tls_identity,
-            server_identity: format!(
-                "postgres-system:{system_identifier}:server:{server_version}@{server_address}:{server_port}"
-            ),
-            database_identity: format!("postgres-database:{database_name}:{database_oid}"),
-            schema_identity,
-            migration_identity,
-            function_identity,
-            role_identity: digest_serializable(&(
-                role_record,
-                role_membership_identity,
-                privilege_census_identity,
-            )),
-            acl_identity,
+#[cfg(unix)]
+impl PinnedTlsPostgresDirectMeasurer {
+    /// Pins the root a PEM file holds: exactly one certificate.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PostgresMeasurementError::TlsIdentityUnavailable`] for any other file.
+    pub(super) fn from_root_pem(pem: &[u8]) -> Result<Self, PostgresMeasurementError> {
+        Ok(Self {
+            trust: PinnedPostgresRoot::from_pem(pem)
+                .map_err(|_| PostgresMeasurementError::TlsIdentityUnavailable)?,
         })
     }
+
+    /// How this measurer, and every read admitted under its measurement, reaches the store.
+    #[must_use]
+    pub(super) fn transport(&self) -> StoreTransport {
+        StoreTransport::PinnedTls {
+            root: self.trust.clone(),
+            peer_certificate_identity: None,
+        }
+    }
+
+    /// Connects with the resolved lease over the pinned leg and measures the target in one
+    /// read-only transaction. No DDL, role, credential, provider, or application mutation is
+    /// performed.
+    ///
+    /// # Errors
+    ///
+    /// Returns a redacted failure when the pinned leg, the connection, or any exact catalog
+    /// identity is unavailable.
+    pub(super) async fn measure(
+        &self,
+        lease: &PostgresCredentialLease,
+        spec: &PostgresMeasurementSpec,
+    ) -> Result<PostgresMeasurement, PostgresMeasurementError> {
+        let mut session = open_store_session(
+            lease,
+            &self.transport(),
+            "vibe-market-data-store-admission-pinned-tls-v1",
+        )
+        .await?;
+        measure_session(&mut session, spec).await
+    }
+}
+
+/// How a store session reaches its server: the one decision a measurement and the reads admitted
+/// under it must share.
+#[derive(Clone, Debug)]
+pub(super) enum StoreTransport {
+    /// A disposable loopback `vibe_test_` database, in plaintext.
+    DisposableLoopback,
+    /// A deployment's store, over a connection pinned to one root. Once bound to an admitted
+    /// measurement, its server must also present the certificate that measurement recorded.
+    #[cfg(unix)]
+    PinnedTls {
+        root: PinnedPostgresRoot,
+        peer_certificate_identity: Option<String>,
+    },
+}
+
+impl StoreTransport {
+    /// This transport, requiring from now on the server certificate `measured` recorded. Two
+    /// servers can hold certificates from the same root; a read must reach the one measured.
+    #[must_use]
+    pub(super) fn bound_to(self, measured: &PostgresTlsIdentity) -> Self {
+        match self {
+            Self::DisposableLoopback => Self::DisposableLoopback,
+            #[cfg(unix)]
+            Self::PinnedTls { root, .. } => Self::PinnedTls {
+                root,
+                peer_certificate_identity: Some(measured.peer_certificate_identity.clone()),
+            },
+        }
+    }
+}
+
+/// One open session to the store a lease names, over the transport it was opened with.
+pub(super) struct StoreSession {
+    // Declared before the relay, so the session closes before the relay is aborted.
+    connection: PgConnection,
+    target: ParsedTarget,
+    tls: SessionTls,
+    #[cfg(unix)]
+    relay: Option<PinnedRelay>,
+}
+
+/// Opens one session to the store `lease` names, over `transport`.
+///
+/// # Errors
+///
+/// Returns a redacted failure when the lease's target is outside what `transport` accepts, ambient
+/// PostgreSQL configuration is present, or the connection is unavailable.
+async fn open_store_session(
+    lease: &PostgresCredentialLease,
+    transport: &StoreTransport,
+    application_name: &str,
+) -> Result<StoreSession, PostgresMeasurementError> {
+    match transport {
+        StoreTransport::DisposableLoopback => {
+            let target = parse_target(lease.database_url(), TargetPolicy::DisposableLoopback)?;
+
+            if ambient_pg_configuration_present() {
+                return Err(PostgresMeasurementError::InvalidTarget);
+            }
+            let options = connect_options(&target, application_name);
+            let connection = connect_with(&options)
+                .await
+                .map_err(|_| PostgresMeasurementError::ConnectionUnavailable)?;
+            Ok(StoreSession {
+                connection,
+                target,
+                tls: SessionTls::DisposablePlaintext,
+                #[cfg(unix)]
+                relay: None,
+            })
+        }
+        #[cfg(unix)]
+        StoreTransport::PinnedTls {
+            root: trust,
+            peer_certificate_identity,
+        } => {
+            let target = parse_target(lease.database_url(), TargetPolicy::Deployment)?;
+
+            if ambient_pg_configuration_present() {
+                return Err(PostgresMeasurementError::InvalidTarget);
+            }
+            let (connection, observed, relay) = connect_pinned(
+                &target.host,
+                target.port,
+                PgConnectOptions::new_without_pgpass()
+                    .username(&target.role)
+                    .password(target.password.as_str())
+                    .database(&target.database)
+                    .application_name(application_name),
+                trust,
+            )
+            .await
+            .map_err(|failure| match failure {
+                PinnedTlsError::InvalidRoot | PinnedTlsError::TlsRefused => {
+                    PostgresMeasurementError::TlsIdentityUnavailable
+                }
+                PinnedTlsError::InvalidServerName => PostgresMeasurementError::InvalidTarget,
+                PinnedTlsError::Unreachable
+                | PinnedTlsError::LocalSocket
+                | PinnedTlsError::Session => PostgresMeasurementError::ConnectionUnavailable,
+            })?;
+
+            if peer_certificate_identity
+                .as_ref()
+                .is_some_and(|expected| *expected != observed.peer_certificate_identity)
+            {
+                return Err(PostgresMeasurementError::TlsIdentityUnavailable);
+            }
+            Ok(StoreSession {
+                connection,
+                target,
+                tls: SessionTls::PinnedRelay {
+                    observed,
+                    trust_policy_identity: trust.trust_policy_identity().to_owned(),
+                },
+                relay: Some(relay),
+            })
+        }
+    }
+}
+
+/// How the measured session reached its server, which decides the TLS identity it may report.
+enum SessionTls {
+    /// A disposable loopback test database, in plaintext.
+    DisposablePlaintext,
+    /// The measurer's own leg, pinned to one root.
+    #[cfg(unix)]
+    PinnedRelay {
+        observed: ObservedPinnedTls,
+        trust_policy_identity: String,
+    },
+}
+
+impl SessionTls {
+    /// The session's TLS identity, from what the server reports of it in `pg_stat_ssl`.
+    fn identity(
+        &self,
+        server_name: &str,
+        enabled: bool,
+        protocol: &str,
+        cipher: &str,
+    ) -> Result<PostgresTlsIdentity, PostgresMeasurementError> {
+        match self {
+            Self::DisposablePlaintext => {
+                if enabled || !protocol.is_empty() || !cipher.is_empty() {
+                    return Err(PostgresMeasurementError::TlsIdentityUnavailable);
+                }
+                Ok(PostgresTlsIdentity::disposable_plaintext(server_name))
+            }
+            #[cfg(unix)]
+            Self::PinnedRelay {
+                observed,
+                trust_policy_identity,
+            } => {
+                if !enabled || protocol != observed.protocol || cipher != observed.cipher {
+                    return Err(PostgresMeasurementError::TlsIdentityUnavailable);
+                }
+                Ok(PostgresTlsIdentity::pinned_relay(
+                    server_name,
+                    observed,
+                    trust_policy_identity.as_str(),
+                ))
+            }
+        }
+    }
+}
+
+/// Measures the target over an open session in one read-only transaction, which it rolls back.
+async fn measure_session(
+    session: &mut StoreSession,
+    spec: &PostgresMeasurementSpec,
+) -> Result<PostgresMeasurement, PostgresMeasurementError> {
+    let StoreSession {
+        connection,
+        target,
+        tls: session_tls,
+        ..
+    } = session;
+    let mut transaction = connection
+        .begin()
+        .await
+        .map_err(|_| PostgresMeasurementError::TransactionUnavailable)?;
+    sqlx::query("SET TRANSACTION READ ONLY")
+        .execute(&mut *transaction)
+        .await
+        .map_err(|_| PostgresMeasurementError::TransactionUnavailable)?;
+    sqlx::query("SET LOCAL statement_timeout = '5000ms'")
+        .execute(&mut *transaction)
+        .await
+        .map_err(|_| PostgresMeasurementError::TransactionUnavailable)?;
+    sqlx::query("SET LOCAL lock_timeout = '1000ms'")
+        .execute(&mut *transaction)
+        .await
+        .map_err(|_| PostgresMeasurementError::TransactionUnavailable)?;
+
+    let identity = sqlx::query(
+        "SELECT (pg_catalog.pg_control_system()).system_identifier::text AS system_identifier, pg_catalog.current_setting('server_version_num')::text AS server_version, pg_catalog.inet_server_addr()::text AS server_address, pg_catalog.inet_server_port()::bigint AS server_port, pg_catalog.current_database()::text AS database_name, database.oid::bigint AS database_oid, current_user::text AS role_name, role.oid::bigint AS role_oid, role.rolsuper, role.rolinherit, role.rolcreaterole, role.rolcreatedb, role.rolcanlogin, role.rolreplication, role.rolbypassrls FROM pg_catalog.pg_database AS database JOIN pg_catalog.pg_roles AS role ON role.rolname = current_user WHERE database.datname = pg_catalog.current_database()",
+    )
+    .fetch_one(&mut *transaction)
+    .await
+    .map_err(|_| PostgresMeasurementError::IdentityQueryUnavailable)?;
+    let server_version: String = identity
+        .try_get("server_version")
+        .map_err(|_| PostgresMeasurementError::IdentityDecodeUnavailable)?;
+    let system_identifier: String = identity
+        .try_get("system_identifier")
+        .map_err(|_| PostgresMeasurementError::IdentityDecodeUnavailable)?;
+    let database_name: String = identity
+        .try_get("database_name")
+        .map_err(|_| PostgresMeasurementError::IdentityDecodeUnavailable)?;
+    let database_oid: i64 = identity
+        .try_get("database_oid")
+        .map_err(|_| PostgresMeasurementError::IdentityDecodeUnavailable)?;
+    let server_address: String = identity
+        .try_get("server_address")
+        .map_err(|_| PostgresMeasurementError::IdentityDecodeUnavailable)?;
+    let server_port: i64 = identity
+        .try_get("server_port")
+        .map_err(|_| PostgresMeasurementError::IdentityDecodeUnavailable)?;
+    let role_name: String = identity
+        .try_get("role_name")
+        .map_err(|_| PostgresMeasurementError::IdentityDecodeUnavailable)?;
+    let role_attributes = (
+        identity.try_get::<i64, _>("role_oid"),
+        identity.try_get::<bool, _>("rolsuper"),
+        identity.try_get::<bool, _>("rolinherit"),
+        identity.try_get::<bool, _>("rolcreaterole"),
+        identity.try_get::<bool, _>("rolcreatedb"),
+        identity.try_get::<bool, _>("rolcanlogin"),
+        identity.try_get::<bool, _>("rolreplication"),
+        identity.try_get::<bool, _>("rolbypassrls"),
+    );
+    let role_record = match role_attributes {
+        (
+            Ok(role_oid),
+            Ok(superuser),
+            Ok(inherit),
+            Ok(create_role),
+            Ok(create_database),
+            Ok(can_login),
+            Ok(replication),
+            Ok(bypass_rls),
+        ) => (
+            role_name.clone(),
+            role_oid,
+            superuser,
+            inherit,
+            create_role,
+            create_database,
+            can_login,
+            replication,
+            bypass_rls,
+        ),
+        _ => return Err(PostgresMeasurementError::IdentityDecodeUnavailable),
+    };
+
+    if database_name != target.database || role_name != target.role {
+        return Err(PostgresMeasurementError::InvalidTarget);
+    }
+
+    if !privilege_census_names_the_privileges_of(&server_version) {
+        return Err(PostgresMeasurementError::PrivilegeCensusServerMajorUnsupported);
+    }
+    let role_membership_rows = sqlx::query(
+        "WITH RECURSIVE membership_path AS (SELECT membership.roleid, membership.member, membership.grantor, membership.admin_option, membership.inherit_option, membership.set_option, ARRAY[membership.member, membership.roleid] AS path, 1::bigint AS depth FROM pg_catalog.pg_auth_members AS membership JOIN pg_catalog.pg_roles AS session_role ON session_role.oid = membership.member WHERE session_role.rolname = current_user UNION ALL SELECT next.roleid, next.member, next.grantor, next.admin_option, next.inherit_option, next.set_option, prior.path || next.roleid, prior.depth + 1 FROM membership_path AS prior JOIN pg_catalog.pg_auth_members AS next ON next.member = prior.roleid WHERE prior.depth < 33 AND NOT next.roleid = ANY(prior.path)) SELECT granted_role.rolname::text AS role_name, pg_catalog.pg_get_userbyid(path.member)::text AS member_name, pg_catalog.pg_get_userbyid(path.grantor)::text AS grantor_name, path.admin_option, path.inherit_option, path.set_option, path.depth, granted_role.rolsuper AS role_super, granted_role.rolinherit AS role_inherit, granted_role.rolcreaterole AS role_create_role, granted_role.rolcreatedb AS role_create_database, granted_role.rolcanlogin AS role_can_login, granted_role.rolreplication AS role_replication, granted_role.rolbypassrls AS role_bypass_rls FROM membership_path AS path JOIN pg_catalog.pg_roles AS granted_role ON granted_role.oid = path.roleid ORDER BY path.depth, role_name, member_name, grantor_name LIMIT 257",
+    )
+    .fetch_all(&mut *transaction)
+    .await
+    .map_err(|_| PostgresMeasurementError::IdentityQueryUnavailable)?;
+    if role_membership_rows.len() > 256 {
+        return Err(PostgresMeasurementError::CatalogTargetMismatch);
+    }
+
+    for row in &role_membership_rows {
+        let depth: i64 = row
+            .try_get("depth")
+            .map_err(|_| PostgresMeasurementError::IdentityDecodeUnavailable)?;
+        if depth > 32 {
+            return Err(PostgresMeasurementError::CatalogTargetMismatch);
+        }
+    }
+    let role_membership_identity = rows_digest(
+        &role_membership_rows,
+        &[
+            "role_name",
+            "member_name",
+            "grantor_name",
+            "admin_option",
+            "inherit_option",
+            "set_option",
+            "depth",
+            "role_super",
+            "role_inherit",
+            "role_create_role",
+            "role_create_database",
+            "role_can_login",
+            "role_replication",
+            "role_bypass_rls",
+        ],
+    )?;
+
+    let privilege_census_identity = measure_privilege_census(&mut transaction).await?;
+
+    let tls = sqlx::query(
+        "SELECT ssl, COALESCE(version, '')::text AS protocol, COALESCE(cipher, '')::text AS cipher FROM pg_catalog.pg_stat_ssl WHERE pid = pg_catalog.pg_backend_pid()",
+    )
+    .fetch_one(&mut *transaction)
+    .await
+    .map_err(|_| PostgresMeasurementError::TlsIdentityUnavailable)?;
+    let tls_enabled: bool = tls
+        .try_get("ssl")
+        .map_err(|_| PostgresMeasurementError::TlsIdentityUnavailable)?;
+    let protocol: String = tls
+        .try_get("protocol")
+        .map_err(|_| PostgresMeasurementError::TlsIdentityUnavailable)?;
+    let cipher: String = tls
+        .try_get("cipher")
+        .map_err(|_| PostgresMeasurementError::TlsIdentityUnavailable)?;
+    let tls_identity = session_tls.identity(&target.host, tls_enabled, &protocol, &cipher)?;
+
+    let schema_rows = sqlx::query(
+        "SELECT namespace.oid::bigint AS oid, namespace.nspname::text AS name, pg_catalog.pg_get_userbyid(namespace.nspowner)::text AS owner, COALESCE(namespace.nspacl::text, 'DEFAULT') AS acl FROM pg_catalog.pg_namespace AS namespace WHERE namespace.nspname = $1",
+    )
+    .bind(&spec.schema_name)
+    .fetch_all(&mut *transaction)
+    .await
+    .map_err(|_| PostgresMeasurementError::SchemaIdentityUnavailable)?;
+    if schema_rows.len() != 1 {
+        return Err(PostgresMeasurementError::CatalogTargetMismatch);
+    }
+    let schema_identity = rows_digest(&schema_rows, &["oid", "name", "owner", "acl"])?;
+
+    // Every Owner object is found by joining the catalog on its schema and stored name, never
+    // through `to_regclass` or `to_regprocedure`: those check `USAGE` on a qualified name's
+    // schema and raise rather than miss, and the admitted reader holds nothing on
+    // `market_data_private`.
+    let (migration_schema, migration_name) = catalog_relation_key(&spec.migration_relation)?;
+    let migration_rows = sqlx::query(
+        "SELECT class.oid::bigint AS relation_oid, namespace.nspname::text AS schema_name, class.relname::text AS relation_name, class.relkind::text AS relation_kind, pg_catalog.pg_get_userbyid(class.relowner)::text AS owner, attribute.attnum::bigint AS ordinal, attribute.attname::text AS column_name, pg_catalog.format_type(attribute.atttypid, attribute.atttypmod)::text AS column_type, attribute.attnotnull, COALESCE(pg_catalog.pg_get_expr(default_value.adbin, default_value.adrelid), '')::text AS default_expression FROM pg_catalog.pg_class AS class JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = class.relnamespace JOIN pg_catalog.pg_attribute AS attribute ON attribute.attrelid = class.oid AND attribute.attnum > 0 AND NOT attribute.attisdropped LEFT JOIN pg_catalog.pg_attrdef AS default_value ON default_value.adrelid = class.oid AND default_value.adnum = attribute.attnum WHERE namespace.nspname = $1 AND class.relname = $2 ORDER BY attribute.attnum",
+    )
+    .bind(migration_schema)
+    .bind(migration_name)
+    .fetch_all(&mut *transaction)
+    .await
+    .map_err(|_| PostgresMeasurementError::MigrationIdentityUnavailable)?;
+    if migration_rows.is_empty() {
+        return Err(PostgresMeasurementError::CatalogTargetMismatch);
+    }
+    let migration_definition_identity = rows_digest(
+        &migration_rows,
+        &[
+            "relation_oid",
+            "schema_name",
+            "relation_name",
+            "relation_kind",
+            "owner",
+            "ordinal",
+            "column_name",
+            "column_type",
+            "attnotnull",
+            "default_expression",
+        ],
+    )?;
+    // The rows are read through the admitted read schema, which `new` pins the migration
+    // relation to, so the measuring principal holds nothing on the Owner's private schema.
+    let migration_budget = sqlx::query(
+        "SELECT COUNT(*)::bigint AS row_count, COALESCE(MAX(pg_catalog.octet_length(row_json)), 0)::bigint AS max_row_bytes FROM market_data_admitted_read.resolve_owner_migrations_v1()",
+    )
+    .fetch_one(&mut *transaction)
+    .await
+    .map_err(|_| PostgresMeasurementError::MigrationIdentityUnavailable)?;
+    let migration_row_count: i64 = migration_budget
+        .try_get("row_count")
+        .map_err(|_| PostgresMeasurementError::IdentityDecodeUnavailable)?;
+    let migration_max_row_bytes: i64 = migration_budget
+        .try_get("max_row_bytes")
+        .map_err(|_| PostgresMeasurementError::IdentityDecodeUnavailable)?;
+    if migration_row_count > 10_000 || migration_max_row_bytes > 65_536 {
+        return Err(PostgresMeasurementError::CatalogTargetMismatch);
+    }
+    let migration_content_rows = sqlx::query(
+        "SELECT row_json FROM market_data_admitted_read.resolve_owner_migrations_v1() ORDER BY row_json",
+    )
+    .fetch_all(&mut *transaction)
+    .await
+    .map_err(|_| PostgresMeasurementError::MigrationIdentityUnavailable)?;
+
+    if migration_content_rows.len() > 10_000 {
+        return Err(PostgresMeasurementError::CatalogTargetMismatch);
+    }
+    let migration_content_identity = rows_digest(&migration_content_rows, &["row_json"])?;
+    let migration_identity =
+        digest_serializable(&(migration_definition_identity, migration_content_identity));
+
+    let mut function_records = Vec::with_capacity(spec.function_signatures.len());
+    for signature in &spec.function_signatures {
+        let (schema, name, arguments) = catalog_function_key(signature)?;
+        let row = sqlx::query(
+            "SELECT procedure.oid::bigint AS oid, pg_catalog.pg_get_function_identity_arguments(procedure.oid)::text AS arguments, pg_catalog.pg_get_userbyid(procedure.proowner)::text AS owner, procedure.prosecdef, procedure.provolatile::text AS volatility, COALESCE(procedure.proacl::text, 'DEFAULT') AS acl, pg_catalog.pg_get_functiondef(procedure.oid)::text AS definition FROM pg_catalog.pg_proc AS procedure JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = procedure.pronamespace WHERE namespace.nspname = $1 AND procedure.proname = $2 AND pg_catalog.oidvectortypes(procedure.proargtypes) = $3",
+        )
+        .bind(schema)
+        .bind(name)
+        .bind(arguments)
+        .fetch_all(&mut *transaction)
+        .await
+        .map_err(|_| PostgresMeasurementError::FunctionIdentityUnavailable)?;
+        if row.len() != 1 {
+            return Err(PostgresMeasurementError::CatalogTargetMismatch);
+        }
+        function_records.push(rows_digest(
+            &row,
+            &[
+                "oid",
+                "arguments",
+                "owner",
+                "prosecdef",
+                "volatility",
+                "acl",
+                "definition",
+            ],
+        )?);
+    }
+    let function_identity = digest_parts(&function_records);
+
+    let mut acl_records = Vec::with_capacity(spec.acl_relations.len() + 1);
+    acl_records.push(schema_identity.clone());
+
+    for relation in &spec.acl_relations {
+        let (schema, name) = catalog_relation_key(relation)?;
+        let rows = sqlx::query(
+            "SELECT class.oid::bigint AS oid, namespace.nspname::text AS schema_name, class.relname::text AS relation_name, pg_catalog.pg_get_userbyid(class.relowner)::text AS owner, COALESCE(class.relacl::text, 'DEFAULT') AS acl, class.relrowsecurity, class.relforcerowsecurity FROM pg_catalog.pg_class AS class JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = class.relnamespace WHERE namespace.nspname = $1 AND class.relname = $2",
+        )
+        .bind(schema)
+        .bind(name)
+        .fetch_all(&mut *transaction)
+        .await
+        .map_err(|_| PostgresMeasurementError::AclIdentityUnavailable)?;
+        if rows.len() != 1 {
+            return Err(PostgresMeasurementError::CatalogTargetMismatch);
+        }
+        acl_records.push(rows_digest(
+            &rows,
+            &[
+                "oid",
+                "schema_name",
+                "relation_name",
+                "owner",
+                "acl",
+                "relrowsecurity",
+                "relforcerowsecurity",
+            ],
+        )?);
+        let column_rows = sqlx::query(
+            "SELECT attribute.attnum::bigint AS ordinal, attribute.attname::text AS column_name, COALESCE(attribute.attacl::text, 'DEFAULT') AS acl FROM pg_catalog.pg_attribute AS attribute WHERE attribute.attrelid = (SELECT class.oid FROM pg_catalog.pg_class AS class JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = class.relnamespace WHERE namespace.nspname = $1 AND class.relname = $2) AND attribute.attnum > 0 AND NOT attribute.attisdropped ORDER BY attribute.attnum",
+        )
+        .bind(schema)
+        .bind(name)
+        .fetch_all(&mut *transaction)
+        .await
+        .map_err(|_| PostgresMeasurementError::AclIdentityUnavailable)?;
+        acl_records.push(rows_digest(
+            &column_rows,
+            &["ordinal", "column_name", "acl"],
+        )?);
+        let policy_rows = sqlx::query(
+            "SELECT policy.polname::text AS policy_name, policy.polpermissive, policy.polcmd::text AS command, policy.polroles::text AS roles, LEFT(COALESCE(pg_catalog.pg_get_expr(policy.polqual, policy.polrelid), '')::text, 65537) AS using_expression, LEFT(COALESCE(pg_catalog.pg_get_expr(policy.polwithcheck, policy.polrelid), '')::text, 65537) AS check_expression FROM pg_catalog.pg_policy AS policy WHERE policy.polrelid = (SELECT class.oid FROM pg_catalog.pg_class AS class JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = class.relnamespace WHERE namespace.nspname = $1 AND class.relname = $2) ORDER BY policy.polname LIMIT 257",
+        )
+        .bind(schema)
+        .bind(name)
+        .fetch_all(&mut *transaction)
+        .await
+        .map_err(|_| PostgresMeasurementError::AclIdentityUnavailable)?;
+        if policy_rows.len() > 256 {
+            return Err(PostgresMeasurementError::CatalogTargetMismatch);
+        }
+
+        for row in &policy_rows {
+            let using_expression: String = row
+                .try_get("using_expression")
+                .map_err(|_| PostgresMeasurementError::IdentityDecodeUnavailable)?;
+            let check_expression: String = row
+                .try_get("check_expression")
+                .map_err(|_| PostgresMeasurementError::IdentityDecodeUnavailable)?;
+            if using_expression.len() > 65_536 || check_expression.len() > 65_536 {
+                return Err(PostgresMeasurementError::CatalogTargetMismatch);
+            }
+        }
+        acl_records.push(rows_digest(
+            &policy_rows,
+            &[
+                "policy_name",
+                "polpermissive",
+                "command",
+                "roles",
+                "using_expression",
+                "check_expression",
+            ],
+        )?);
+    }
+    let acl_identity = digest_parts(&acl_records);
+
+    transaction
+        .rollback()
+        .await
+        .map_err(|_| PostgresMeasurementError::TransactionUnavailable)?;
+
+    Ok(PostgresMeasurement {
+        endpoint_identity: format!(
+            "postgresql-requested://{}:{};observed://{server_address}:{server_port}",
+            target.host, target.port
+        ),
+        tls_identity,
+        server_identity: format!(
+            "postgres-system:{system_identifier}:server:{server_version}@{server_address}:{server_port}"
+        ),
+        database_identity: format!("postgres-database:{database_name}:{database_oid}"),
+        schema_identity,
+        migration_identity,
+        function_identity,
+        role_identity: digest_serializable(&(
+            role_record,
+            role_membership_identity,
+            privilege_census_identity,
+        )),
+        acl_identity,
+    })
+}
+
+/// Which targets a measurer accepts.
+#[derive(Clone, Copy)]
+enum TargetPolicy {
+    /// Only a `vibe_test_` database on loopback.
+    DisposableLoopback,
+    /// A deployment's store, wherever the lease names it.
+    Deployment,
 }
 
 struct ParsedTarget {
@@ -2328,7 +2570,11 @@ fn connect_options(target: &ParsedTarget, application_name: &str) -> StatedConne
     )
 }
 
-fn parse_target(database_url: &str) -> Result<ParsedTarget, PostgresMeasurementError> {
+fn parse_target(
+    database_url: &str,
+    policy: TargetPolicy,
+) -> Result<ParsedTarget, PostgresMeasurementError> {
+    let disposable = matches!(policy, TargetPolicy::DisposableLoopback);
     let parsed = Url::parse(database_url).map_err(|_| PostgresMeasurementError::InvalidTarget)?;
     let database = parsed.path().trim_start_matches('/');
     let role = parsed.username();
@@ -2337,7 +2583,7 @@ fn parse_target(database_url: &str) -> Result<ParsedTarget, PostgresMeasurementE
         || parsed.host_str().is_none()
         || !safe_opaque_identity(role)
         || !safe_opaque_identity(database)
-        || !database.starts_with("vibe_test_")
+        || (disposable && !database.starts_with("vibe_test_"))
         || parsed.query().is_some()
         || parsed.fragment().is_some()
         || role.contains('%')
@@ -2352,7 +2598,7 @@ fn parse_target(database_url: &str) -> Result<ParsedTarget, PostgresMeasurementE
         .trim_matches(['[', ']'])
         .to_ascii_lowercase();
 
-    if !matches!(host.as_str(), "127.0.0.1" | "localhost" | "::1") {
+    if disposable && !matches!(host.as_str(), "127.0.0.1" | "localhost" | "::1") {
         return Err(PostgresMeasurementError::InvalidTarget);
     }
     Ok(ParsedTarget {

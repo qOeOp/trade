@@ -219,6 +219,20 @@ async fn compose_locked_input(
             "the exact exploratory Backtest Result is unavailable".to_owned(),
         )
     })?;
+    // An uncounted Result is one nobody may consume: the census must count it before any
+    // proposal it seeds is admitted against the census's budget.
+    crate::exploratory_result_census_postgres::require_counted_exploratory_result_in_transaction(
+        transaction,
+        &locator.request_identity,
+        locked.replay().result().request_meaning_digest.as_str(),
+    )
+    .await
+    .map_err(|e| match e {
+        crate::ExploratoryResultCensusErrorV1::NotCounted => {
+            IterationResultAdmissionErrorV1::ResultNotCounted
+        }
+        other => IterationResultAdmissionErrorV1::Unavailable(other.to_string()),
+    })?;
     let backtest = project_locked_backtest_result_v1(
         locked.replay().result(),
         &owner_storage_digest(
@@ -658,7 +672,9 @@ fn map_product_edge_error(error: ProductEdgeError) -> IterationResultAdmissionEr
 mod tests {
     use rstest::rstest;
     use vibe_product_edge::ProductEdgeAdmissionLocatorV1;
-    use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
+    use vibe_testkit::postgres::{
+        CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1, restore_after_checks,
+    };
 
     use super::*;
     use crate::iteration_result_admission::tests::{
@@ -996,20 +1012,28 @@ mod tests {
         .execute(&pool)
         .await
         .expect("scalar tamper fixture");
-        assert!(matches!(
-            resolve_iteration_result_admission_v1(&pool, &locator).await,
-            Err(IterationResultAdmissionErrorV1::Storage(_))
-        ));
-        sqlx::query(
-            "UPDATE public.rd_iteration_result_admissions_v1 SET admitted_proposal_count=$2 WHERE result_identity=$1",
+        restore_after_checks(
+            async {
+                assert!(matches!(
+                    resolve_iteration_result_admission_v1(&pool, &locator).await,
+                    Err(IterationResultAdmissionErrorV1::Storage(_))
+                ));
+            },
+            async {
+                sqlx::query(
+                    "UPDATE public.rd_iteration_result_admissions_v1 SET admitted_proposal_count=$2 WHERE result_identity=$1",
+                )
+                .bind(&locator.result_identity)
+                .bind(i32::from(
+                    u8::try_from(readback.receipt().admitted_proposal_count())
+                        .expect("fixture count"),
+                ))
+                .execute(&pool)
+                .await
+                .expect("scalar restore");
+            },
         )
-        .bind(&locator.result_identity)
-        .bind(i32::from(
-            u8::try_from(readback.receipt().admitted_proposal_count()).expect("fixture count"),
-        ))
-        .execute(&pool)
-        .await
-        .expect("scalar restore");
+        .await;
         assert!(
             resolve_iteration_result_admission_v1(&pool, &locator)
                 .await
@@ -1017,16 +1041,46 @@ mod tests {
                 .is_some()
         );
 
+        // The outbox tamper is restored too: the ordered chain shares one store, and a later entry
+        // that reads this admission's event would otherwise meet the forged digest.
+        let original_payload_digest: String = sqlx::query_scalar(
+            "SELECT payload_digest FROM rd_owner_outbox_v1 WHERE aggregate_identity=$1",
+        )
+        .bind(readback.admission().admission_identity())
+        .fetch_one(&pool)
+        .await
+        .expect("outbox digest before the tamper");
         sqlx::query("UPDATE rd_owner_outbox_v1 SET payload_digest=$2 WHERE aggregate_identity=$1")
             .bind(readback.admission().admission_identity())
             .bind(format!("sha256:{}", "f".repeat(64)))
             .execute(&pool)
             .await
             .expect("outbox tamper fixture");
-        assert!(matches!(
-            resolve_iteration_result_admission_v1(&pool, &locator).await,
-            Err(IterationResultAdmissionErrorV1::Storage(_))
-        ));
+        restore_after_checks(
+            async {
+                assert!(matches!(
+                    resolve_iteration_result_admission_v1(&pool, &locator).await,
+                    Err(IterationResultAdmissionErrorV1::Storage(_))
+                ));
+            },
+            async {
+                sqlx::query(
+                    "UPDATE rd_owner_outbox_v1 SET payload_digest=$2 WHERE aggregate_identity=$1",
+                )
+                .bind(readback.admission().admission_identity())
+                .bind(&original_payload_digest)
+                .execute(&pool)
+                .await
+                .expect("outbox restore");
+            },
+        )
+        .await;
+        assert!(
+            resolve_iteration_result_admission_v1(&pool, &locator)
+                .await
+                .expect("admission resolves after the outbox restore")
+                .is_some()
+        );
     }
 
     #[tokio::test]

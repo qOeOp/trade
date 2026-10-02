@@ -755,15 +755,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 
 [[package]]
-name = "approx"
-version = "0.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cab112f0a86d568ea0e627cc1d6be74a1e9cd55214684db5561995f6dad897c6"
-dependencies = [
- "num-traits",
-]
-
-[[package]]
 name = "arbitrary"
 version = "1.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8392,17 +8383,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
-name = "statrs"
-version = "0.19.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c1837f9a1bd13dabbdbb04489c39451482d3cdd35a6e1a0d0f3570dea2b8c8be"
-dependencies = [
- "approx",
- "num-traits",
- "thiserror 2.0.19",
-]
-
-[[package]]
 name = "strategy-factory-program-sdk"
 version = "0.1.0"
 dependencies = [
@@ -10127,8 +10107,10 @@ dependencies = [
  "proptest",
  "pyo3",
  "pyo3-stub-gen",
+ "rcgen",
  "rstest",
  "rust_decimal",
+ "rustls",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -10189,20 +10171,6 @@ dependencies = [
  "vibe-system",
  "vibe-testkit",
  "zeroize",
-]
-
-[[package]]
-name = "vibe-deployment-attestation"
-version = "0.62.0"
-dependencies = [
- "blake3",
- "libc",
- "rstest",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "tempfile",
- "trybuild",
 ]
 
 [[package]]
@@ -11042,8 +11010,15 @@ dependencies = [
 name = "vibe-postgres-connect"
 version = "0.62.0"
 dependencies = [
+ "rcgen",
  "rstest",
+ "rustls",
+ "sha2 0.10.9",
  "sqlx",
+ "tempfile",
+ "thiserror 2.0.19",
+ "tokio",
+ "tokio-rustls",
 ]
 
 [[package]]
@@ -11406,7 +11381,6 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "sqlx",
- "statrs",
  "strategy-factory-program-sdk",
  "tar",
  "tempfile",
@@ -11418,18 +11392,14 @@ dependencies = [
  "vibe-backtest",
  "vibe-backtest-owner-contracts",
  "vibe-backtest-result-custody",
- "vibe-binance",
  "vibe-common",
  "vibe-core",
  "vibe-data",
- "vibe-deployment-attestation",
  "vibe-execution",
- "vibe-fred",
  "vibe-indicators-kernel",
  "vibe-market-data-repair-custody",
  "vibe-model",
  "vibe-operator-authorization",
- "vibe-persistence",
  "vibe-portfolio",
  "vibe-postgres-connect",
  "vibe-product-edge",
@@ -11439,7 +11409,6 @@ dependencies = [
  "vibe-rd-market-data-repair-custody",
  "vibe-rd-source-intake-invocation-custody",
  "vibe-risk",
- "vibe-scheduled-events",
  "vibe-testkit",
  "vibe-trading",
  "wasmi",

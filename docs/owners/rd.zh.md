@@ -164,9 +164,11 @@
   没有 SQL 函数读这两列里的 source 子对象；将来要读的函数必须先按 source schema 分支。
 - **CURRENT - composer-backed Replay 绑定哪一份 TrialFamily 状态：** 与 legacy exploratory Replay 绑定的相同。
   对家族成形 Intent 的 Replay 绑定家族成形时的样子，即成形时的 census frontier，且只在家族还没有任何 attempt
-  时被准入；successor 绑定家族的 V2 census。一个 attempt 是在 Result 之后记录的一次 Replay，所以家族的第一次
-  Replay 永远不可能对着 V2 census 组合。只有下文的 Decision composition 会追加 attempt，在它被准入之前，
-  successor 按名被拒，`SUCCESSOR_CENSUS_AWAITS_DECISION_COMPOSITION`。commit 与历史 readback 用同一条规则做这个
+  时被准入；successor 绑定家族的 V2 census。一个 attempt 是在 Result 之后记录的一次 Replay，R&D 在计数该
+  Result 时记下它（见下文「CURRENT - 每个已提交的探索性 Result 都被计数」），所以家族的第一次 Replay 永远不可能对着
+  V2 census 组合；该 Replay 的 Result 一经计数，对成形 Intent 的新 Replay 即被拒绝。家族还没有已计数 attempt 时，
+  successor 按名被拒，`SUCCESSOR_CENSUS_AWAITS_DECISION_COMPOSITION`；successor Intent 只能由针对已计数 Result
+  的 Iteration Decision 提交，所以它的家族一定有一个。commit 与历史 readback 用同一条规则做这个
   选择；第一代 Replay 的 readback 从家族的 root 重新读出成形 frontier，所以之后追加的 attempt 不会改变它。它的 replay window 是它所组合的 facts 的窗口，由家族的 policy
   窗口限定（`docs/architecture/strategy-factory.md`，TrialFamily-owned Replay execution policy V2）；前驱是
   composer-backed Replay 的 Market Data 修复 re-entry 按名被拒，`MARKET_DATA_REPAIR_OF_COMPOSER_V3_REPLAY_AWAITS_DESIGN`，
@@ -221,9 +223,10 @@
   然后从不读它，下划线是唯一的现场标记，而 `crates/data` 之外没有任何一处调用该解析器的 trait 方法。
   该解析器还是可选的：`bootstrap_deployment_store_admission` 返回 `Option`，
   所以部署中该字段可能持有 `None`。补上这条需要本 Owner 出一个消费方，不是要 Market Data 开更多读。
-- **TARGET / ISOLATED_ACCEPTANCE_ONLY - 探索重放的生产入口：** `run_exploratory_replay_v2` 在
+- **IMPLEMENTATION_ADMITTED / NOT_CUT_OVER - 探索重放的生产入口：** `run_exploratory_replay_v2` 在
   `vibe-backtest-owner` 之外唯一的调用者位于 `run_native_replay` 内，而后者带
-  `#[cfg(feature = "sealed-develop-composer-acceptance")]`，且全仓没有任何 `cfg(not(...))` 孪生体。
+  `#[cfg(feature = "native-replay-execution")]`，这是不带任何验收代码的生产 feature，且全仓没有任何
+  `cfg(not(...))` 孪生体。
   在部署镜像不带 feature 的前提下，该路径在已部署产物里不可达。这测的是部署产物，不是历史。
 
 ## 模块
@@ -356,7 +359,9 @@ Research artifact evidence 必须正是为它封存的（`rd_owner_api.lock_rese
 - `POST /v1/bounded-feature-programs/{declare,freeze}`；
 - 发布 Design role intent；
 - 读取 Research 编写事实；
-- 冻结复杂策略的 develop evaluation。
+- 冻结复杂策略的 develop evaluation；
+- Artifact 构建：准备它、预留其 provider 调用、记录其候选并提交其终态结果。后继的构建在后继自己的准入与它冻结的受保护反馈下
+  继续，而不是其家族初始 Intent 的。
 
 每一种都只在该准入所指的操作员授权在那一刻仍然当前时才继续：仍然有效、没有被撤销、并处于当前的 policy binding
 与 manifest 窗口之下。否则在 `research_custody.continuation.authority_not_current` 处应答 `UNAVAILABLE`。另外两种拒绝也有名字：
@@ -372,11 +377,20 @@ phase fact 都推进该历史的受保护反馈 generation（见 Qualification �
 `research_custody.continuation.protected_feedback_unavailable` 处应答。候选自己的 phase fact 同样计数，所以一旦 Intent 的
 候选进入 Qualification，它的继续操作就停止。
 
-冻结的 View 仍然标识这个 Intent：早于其投影的 cut 会被拒绝，而且该 Intent 必须仍然是 `INTENT_FROZEN`。在它们各自的切片
-落地之前，有两类检查仍然读取 View 的窗口：
+冻结的 View 仍然标识这个 Intent：早于其投影的 cut 会被拒绝，而且该 Intent 必须仍然是 `INTENT_FROZEN`。
 
-- Replay 提交之后的步骤：Backtest 运行、执行输入绑定和 Market Data 修复；
-- Product Edge 自己的下游准入窗口检查。
+只投影 Artifact 构建下一步动作的读取（它的回读与 resolve）不取任何锁：它按构建的准入所记录的授权与所存 View 的可用性作答，
+随后的变更会再次证明继续操作，并按名拒绝。在某个操作已经写过的 cut 上的读取，只要求它所记录的 Research 权威覆盖该 cut：
+Backtest 运行、执行输入绑定与 Market Data 修复在其 Replay 的 Owner cut 上读取的 Research 来源即是如此，Replay 提交在那时已
+证明了继续操作。
+
+Product Edge 在 View 的窗口过去之后同样准入新的 Artifact 构建请求。它的准入仍检查 Research 的投影以及 R&D 对它的锁定
+都不晚于其 cut，并检查该 Research 准入时所依据的来源授权在该 cut 上仍然有效且未被撤销。它用来锁定 Research 的 R&D
+函数 `rd_owner_api.lock_research_for_artifact_at_view_v1` 与
+`rd_owner_api.lock_current_successor_research_for_artifact_v1` 也不再拒绝窗口已过的 View。
+
+在它自己的切片落地之前，仍有一处检查读取 View 的窗口：exploratory Replay 提交，其文件由 F 持有，所以在它迁移之前，
+Replay 之后的每一步都只能到达在窗口内提交的 Replay。
 
 **CURRENT/PARTIAL：第一圈已有立足之处。** 封存语料 run 之后，`run_bounded_feature_program` 成为唯一的生产入口，
 而它需要一份已冻结的 joint program。冻结需要 Strategy Input declaration；Market Data 过去只从一份
@@ -409,15 +423,11 @@ R&D 不从研究散文导出 Design。本仓库没有任何规则把 hypothesis�
 question 变成输入角色与 reaction graph，也不打算有：那项转换是一次判断，而 Owner 作出的判断
 就是 Owner 发明的事实。
 
-**本仓库里有两样东西都叫 Research Intent，而这条禁止仍然成立，因为 Composer 路径握着的是
-没有东西可投影的那一样。**
+**Composer 路径握着的 Research Intent 没有东西可投影，这条禁止因此成立。**
 
-`crates/strategy_factory/src/research.rs` 里的 `ResearchIntent` 确实带 `data.channels`，
-每条 channel 声明了自己的 `role`、`asset_id`、`timeframe`、是否必需、来源与陈旧度上界，
-`data.decision_clock_channel` 点名其中哪一条推进决策。投影这些不会选择任何东西。但这个类型
-只有一个构造器 `frozen_representative()`，它解析一个编译期常量，然后拒绝任何 SHA-256、identity、
-revision 与 schema 版本不等于冻结值的东西；它的调用方只有 formation 路径
-（`family_adapters.rs`、`representative.rs`、`formation_adapters.rs`）。Composer 路径从不握着它。
+本仓库里没有任何 Research Intent 声明 channel。formation 路径的 `ResearchIntent` 曾经声明过
+（`data.channels`，每条带自己的 role、asset、timeframe 与陈旧度上界），但它只从一个冻结的
+编译期代表构造，从未到达 Composer 路径，已随 formation 退役一并删除。
 
 Composer 路径握着的是 `CurrentResearchDevelopCustodyV2`，它的十四个字段是定位符、身份与摘要，
 外加一个 `falsifier` 字符串；它背后存着的 `intent_json` 反序列化成 `FrozenResearchGoalIntentV2`，
@@ -671,12 +681,12 @@ position target 与它的 reconciliation target 相等，而两侧曾共用的�
 - *目录。* `meaning` 按完整语义 id 指名原语，不携带目录版本；`declare` 绑定最新版本，重声明沿用冻结的
   那一版。所以一份编译过的文档不会因为发布新目录版本而改变，而这只在每个已发布版本都原样包含
   更早的每一行时成立。这是目录的不变式，逐版本按语义摘要与前一版本核对。
-- *验收。* `crates/strategy_factory/test_data/bounded_feature_program_meaning_v1/` 里的十个手写程序被
-  重写为文档，每一份编译出的程序与手写程序的规范形相等。规范形把每个节点、常量与状态的身份换成
-  按端口顺序取输入的结构摘要，决策优先级只保留相对顺序，并去掉 bounds；编译出的每个 bound 都不超过
-  手写的。这个投影的两侧都要证明：在一条长到走出预热、并产生非中性入场与出场的序列上跑两个程序的
-  Wasm，改一个窗口、一个常量、一个优先级顺序或 `sub` 两个操作数的顺序，必须改变行为与规范形，而重命名
-  身份、放大优先级或放大 bounds 两者都不能改变。语料里加一个做空程序，并一直跑到报告。每一个单阈值
+- *验收。* `crates/strategy_factory/test_data/bounded_feature_program_meaning_v1/` 里的十六个手写程序
+  （十二个 Design）被重写为文档，每一份编译出的程序与手写程序的规范形相等。规范形把每个节点、常量与
+  状态的身份换成按端口顺序取输入的结构摘要，决策优先级只保留相对顺序，并去掉 bounds；编译出的每个
+  bound 都不超过手写的。这个投影的两侧都要证明：在一条长到走出预热、并产生非中性入场与出场的序列上
+  跑两个程序的 Wasm，改一个窗口、一个常量、在同一根 bar 上同时成立的分支之间的优先级顺序，或 `sub`
+  两个操作数的顺序，必须改变行为与规范形，而重命名身份、放大优先级或放大 bounds 两者都不能改变。语料里加一个做空程序，并一直跑到报告。每一个单阈值
   请求经一个全函数翻译成文档后，编译出的字节与 `author_single_threshold_program_v1` 产出的完全相同，
   exact 与 universe-member 两种形态都如此。
 
@@ -930,6 +940,11 @@ dimension，并从以下九个 typed dimension 中选择：
    唯一 `READY_FOR_SELECTION` 决定及相同 decision-policy version TrialFamily Census 与证据截面；停止
    状态与选择不能并存。
 
+**TARGET - Diagnosis 中的匹配入场对照与聚类区间。** Diagnosis 读取探索性 Result 的匹配入场对照及其按日期聚类的区间
+（Backtest「TARGET - 探索性匹配入场对照与聚类区间」），连同该区间展示运行相对于同样形状随机入场的优势，并标为对照。它是
+对照，不是选择依据：Iteration Decision 不据它选择、排列或停止候选，它也从不替代 Qualification 的 holdout 或同宇宙随机
+对照。
+
 `REPAIR_INPUTS` 按类别路由，绝不表示任意重试。它是所消费结果的不可变终态处置，本身不创建
 Selection 后继 Intent Artifact Replay Request 或修复效果。`MARKET_DATA` 指向 Market Data，也是唯一能
 在决定提交后产生关联 Market Data Repair Request 的类别；`ARTIFACT` 指向 Research 经 Develop 重建并
@@ -984,8 +999,9 @@ purge 与 embargo 派生规则、TrialFamily-aware multiplicity policy、attempt
 次数等于预算时，决策策略发出 `TRIAL_BUDGET_EXHAUSTED`；这一耗尽又抢先于候选比较与 `READY_FOR_SELECTION`，所以预算内的最后
 一次试验永远成不了 Candidate。一个消耗单位是一次 census attempt，即任何终态的 Intent、Request 与 Result 三元组，按
 TrialFamily 计数。后继 Intent 留在自己的 family 里，新的 Research 目标会形成新的 family 并从头计数，没有任何地方跨 family
-求和。推进计数的 census V2 追加没有生产调用方，它在等上面的 Decision composition，所以在生产构建里每个 family 的计数都是
-形成时写下的 1，没有 family 能触到预算。
+求和。R&D 对原生 Replay 运行路由提交的每个 Result 计数（见下文「CURRENT - 每个已提交的探索性
+Result 都被计数」）。形成时写下的 1 预留了 family 的第一次 attempt，所以对这次 attempt 的 Result 计数后，计数仍是 1；
+family 的计数要到它第一个 successor 的 Result 才首次到 2。
 
 **一次试验**就是一次 census attempt，与今天的计数完全相同：TrialFamily Census 接纳的每一个探索性 Intent、Request 与
 Result 三元组，不论其终态。落败、被拒、无效与未知的 attempt 都计入，因为每一次都看过一次数据；完全相同的请求重放会并入
@@ -1032,6 +1048,93 @@ Candidate 与按一个并非由搜索方写下的定义抽取的程序相比较�
 
 切片与顺序见
 [Strategy Factory](../architecture/strategy-factory#target---research-runs-until-a-strategy-bounded-by-spend)。
+
+### CURRENT - 每个已提交的探索性 Result 都被计数
+
+原生 Replay 运行路由（`POST /v2/exploratory-replays`，由 `native-replay-execution` feature 携带）在应答之前，对
+Backtest Owner 已提交的 Result 计数。计数在 Backtest 提交之后、R&D 自己的事务里进行，因为它无法在该提交之中或之前
+计数：
+
+- Backtest 提交运行在 `backtest_owner` 会话中，它只能经由 `rd_owner_api` 授予的加锁请求读取进入 R&D；
+- census 追加是 R&D 自己的规范编码，换成 SQL 函数就得把它重写一遍；
+- successor 的提交重锁要求它冻结时所对着的 census head，所以在提交之前追加，会让该提交拒绝它自己。
+
+**计数什么。** 计数像 Iteration Result Admission 那样，经由 Backtest custody 适配器锁定 Result。它从密封请求的规范
+字节读出 family 与 Intent，并对照 Result 所绑定的含义摘要重算该字节的含义摘要。随后它锁定 family 的 census head，追加
+一次 attempt：Intent、请求与 Result，Result 的终态一一对应计入（`TERMINAL_RESULT`；`RUN_REJECTED` 计为 `REJECTED`；
+`INVALID_REPLAY_EVIDENCE` 计为 `INVALID`）。这次 attempt 的已消耗计数是它的序号加一。它的候选集为空，归在唯一的规则
+`rd-candidate-generation-none-at-result-admission-v1` 之下，因为还没有任何 Decision 读过这个 Result。若 census 已经
+计数了某个 Result 的请求身份与含义摘要，该 Result 就是一次精确重放：无论 Backtest 给它什么 attempt 身份，它都加入那次
+attempt，不写任何东西。
+
+**计数是多少。** 形成时写下的 1 预留了 family 的第一次 attempt，所以对它的 Result 计数后，计数仍是 1。改变的是 family
+的 head 移到 V2 census，它的 attempt frontier 绑定这个请求与 Result。此后对成形 Intent 的新 Replay 被拒绝，计数要到某个
+successor 的 Result 才首次到 2。
+
+**未计数的 Result 不会被展示。** 在 Backtest 提交与计数之间，Result 以未计数的状态存在。计数失败时，路由应答的是计数的
+拒绝而不是 Result；以同一请求与 attempt 再运行一次，会恢复已提交的 Result 并对它计数。凡是展示 Result 或其产出的 R&D
+读取，都以 `EXPLORATORY_RESULT_NOT_COUNTED` 拒绝 census 没有计数的 Result：
+
+- 写 API 的 Result 与 run-evidence 读取，以及读 API 的 Result 读取，以 409 拒绝；
+- 运行报告，其拒绝携带同一代码；
+- Iteration Result Admission，以 `ITERATION_RESULT_ADMISSION_RESULT_NOT_COUNTED` 拒绝。
+
+这项检查不取行锁，所以读 API 的 `READ ONLY` 事务可以做它。diagnosis gate、iteration analysis 与每个 Decision 本就要求
+census 最新的 attempt 恰是这个 Result。Result 目录只列出身份、终态与提交时间，不含任何结果，保持不变。请求没有被任何
+R&D 请求密封的 Result 不属于任何 family，以 `EXPLORATORY_RESULT_REQUEST_UNAVAILABLE` 拒绝。
+
+**没有测试驱动的部分。** 没有任何有序链路条目运行原生 Replay，所以没有测试触及运行路由的计数；第一个执行原生 Replay
+的条目会断言它。也没有条目驱动 Iteration Result Admission 的首次准入。计数、加入以及上面每一项拒绝，由运行报告条目
+`backtest_run_report_reads_back_every_point_a_real_run_committed` 在经链路自己的 Backtest 写入者提交的 Result 上证明。
+原生运行只提交 `TERMINAL_RESULT`：在提交之前失败的运行不留下 Result，也没有可计数的东西。
+
+### TARGET - 生产试验台账与数据读取台账
+
+本节陈述的是一份尚无实现的契约；它不授予构建或部署的任何许可。
+
+**今天**，按调用者而不是按引用：
+
+- **只有已提交的 Result 被计数。** 上文「CURRENT - 每个已提交的探索性 Result 都被计数」对原生 Replay 运行路由提交的每个
+  Result 计数。在提交之前失败的运行没有可计数的东西，Backtest Owner 也不会为它提交 `RUN_REJECTED` 或
+  `INVALID_REPLAY_EVIDENCE` Result。
+- **候选数是声明的，不是推导的。** 候选集的 `expected_cardinality` 只与提议方提供的候选列表长度比对
+  （`crates/strategy_factory/src/trial_family.rs:1655-1662`）。它的生成规则只以身份和摘要保存，从不展开。
+
+**每一次查看都是一次试验。** 一次试验就是一次 census attempt，与上文的计法完全相同：
+
+- 一个新请求的运行是一次试验，含义有任何不同的重跑也是；
+- 失败、被拒绝、无效或未知的运行都是试验；
+- 对某个请求的精确重放加入它的回执，不是第二次试验；
+- 为任何其他目的查看结果，同样是一次试验。结果只能经由一个被计数的请求来计算。Diagnosis、Compare 与 Dashboard 只读取
+  已存在的 Result，关于规模或样本的问题用计数回答，而不是用结果回答。
+
+失败的运行在 Backtest Owner 为它提交 `RUN_REJECTED` 或 `INVALID_REPLAY_EVIDENCE` Result 时被计数，上面的计数已经映射了
+这两种终态。
+
+**数据读取台账。** R&D 记录对市场数据的每一次读取：
+
+- 记录什么：血缘、发起读取的试验或 agent 会话、标的、半开区间，以及该标的所属的标的层级（主流币、大市值或新上市）；
+- 行从哪里来：每个试验绑定的点时范围，以及 agent 经由 R&D 工具面所做的每一次读取，所以一次非正式的查看留下的行，与一次
+  登记过的运行相同。
+
+**未被读过的切片。** 台账分发血缘中没有任何人读过的切片：
+
+- 验证阶段向它请求一个属于自己标的层级与时段、且该血缘从未读过的切片，得到一个切片或一个具名拒绝。
+- 一旦分发，该切片即被预留，第二次读取会被拒绝。
+- 与 Candidate 的前驱 frontier 共享的更早血缘读过的切片，算作已读，所以更早 family 造成的污染是可见的，而不是靠记忆。
+- 台账从不分发位于 Qualification 封存 holdout 分区之内的切片。
+
+**census 不带任何判决。** census 行记录一次试验跑过了以及它的探索性处置。它从不记录 Qualification 的结果，也不记录评估方
+给出的任何通过或失败位；Qualification 把自己的受保护尝试计入 N
+（[Qualification](./qualification/#target---cumulative-trial-deflation-at-candidate-intake)），并且只经由它的公开阶段发布结果。
+
+**计数是算出来的。** 候选集的生成规则以它展开成的网格保存，而不是以一个不透明的摘要保存。Owner 展开它，当展开的大小与
+`expected_cardinality` 不同、或列出的候选与展开不同时，按名拒绝。登记方声明的计数从不被信任。
+
+**它如何接入打折。** Qualification 的累计 N 是 Candidate 绑定的各 census frontier 上 `trial_count` 之和，加上该血缘的受保护
+尝试；试验比率的离散度取自该血缘的 `TERMINAL_RESULT` 试验。所以两者都只能与这个追加一样完整。Deflated Sharpe Ratio 及其
+CSCV 的 PBO 估计，按 Qualification 所述，从 `main` f2238c09b 的 `crates/strategy_factory/src/robustness.rs` 移植，用累计计数
+取代形成路径上固定的四或二作为 N。
 
 ## 输入交接
 

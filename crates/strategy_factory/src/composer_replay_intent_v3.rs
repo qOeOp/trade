@@ -51,10 +51,11 @@ impl ComposerReplayIntentV3 {
     }
 }
 
-/// The refusal of a successor Replay while its family has no V2 census to bind. Only an admitted
-/// R&D Decision composition appends an attempt (`docs/owners/rd.md`, "same-cut Decision and
-/// Selection composition", TARGET / NOT_ADMITTED), so until it exists a successor Replay has
-/// nothing to compose against.
+/// The refusal of a successor Replay while its family has no V2 census to bind. A family's census
+/// gains its first attempt when R&D counts the family's first Result (`docs/owners/rd.md`, "every
+/// committed exploratory Result is counted"), and a successor Intent is committed only from a
+/// Decision on a counted Result, so a successor whose family has no attempt has nothing to compose
+/// against.
 #[cfg(feature = "composer-v3-replay")]
 pub(crate) const SUCCESSOR_CENSUS_AWAITS_DECISION_COMPOSITION_V3: &str =
     "SUCCESSOR_CENSUS_AWAITS_DECISION_COMPOSITION";

@@ -256,6 +256,10 @@ fn owner_error(error: &IterationResultAdmissionErrorV1, result_identity: &str) -
             StatusCode::CONFLICT,
             "ITERATION_RESULT_ADMISSION_TRIAL_BUDGET_EXCEEDED",
         ),
+        IterationResultAdmissionErrorV1::ResultNotCounted => (
+            StatusCode::CONFLICT,
+            "ITERATION_RESULT_ADMISSION_RESULT_NOT_COUNTED",
+        ),
         IterationResultAdmissionErrorV1::Conflict => {
             (StatusCode::CONFLICT, "ITERATION_RESULT_ADMISSION_CONFLICT")
         }
@@ -555,6 +559,10 @@ mod tests {
         StatusCode::CONFLICT
     )]
     #[case(IterationResultAdmissionErrorV1::BudgetExceeded, StatusCode::CONFLICT)]
+    #[case(
+        IterationResultAdmissionErrorV1::ResultNotCounted,
+        StatusCode::CONFLICT
+    )]
     #[case(IterationResultAdmissionErrorV1::Conflict, StatusCode::CONFLICT)]
     fn every_owner_refusal_keeps_its_own_correlated_rejection(
         #[case] error: IterationResultAdmissionErrorV1,

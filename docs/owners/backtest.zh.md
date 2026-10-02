@@ -63,14 +63,15 @@
   `[features]` 表，因此这条 custody 路径在任何构建里都是同一份代码。
 - **CURRENT_PARTIAL - 向 Product Edge 提供的探索 Run Result 视图：** Dashboard 读 API 通过
   `resolve_exploratory_replay_result_v2` 解析准确的规范 Result 字节，它位于
-  `crates/strategy_factory_rd_owner_api/src/bin/dashboard_read_api.rs`；`product/rd-workbench/Dockerfile.owner`
-  构建并安装该二进制；有序链路以
-  `replay_result_dashboard_read_api_returns_exact_canonical_bytes` 覆盖这道缝。这是 Backtest 唯一一条在已部署
-  产物里端到端可触达的输出交接。
+  `crates/strategy_factory_rd_owner_api/src/bin/dashboard_read_api.rs`，且只对其 TrialFamily census 已计数的 Result
+  这样做（[R&D](./rd/)，「CURRENT - 每个已提交的探索性 Result 都被计数」）。`product/rd-workbench/Dockerfile.owner`
+  构建并安装该二进制。有序链路以 `replay_result_dashboard_read_api_refuses_a_result_no_census_counts` 覆盖拒绝，
+  以 `backtest_run_report_browser_acceptance_reads_the_owner_answer` 覆盖已计数的 Result 经已部署的读 API 被打开。
+  这是 Backtest 唯一一条在已部署产物里端到端可触达的输出交接。
 - **CURRENT_PARTIAL - 探索重放的生产入口：** 重放本身已实现并已证明，而已部署产物里没有任何东西能进入它。
   `run_exploratory_replay_v2` 在自身 crate 之外恰有一个调用方，即
   `crates/strategy_factory_rd_owner_api/src/exploratory_replay.rs`，而该调用方位于
-  `#[cfg(feature = "sealed-develop-composer-acceptance")]` 之下；镜像构建
+  生产 feature `#[cfg(feature = "native-replay-execution")]` 之下；镜像构建
   `--bin strategy-factory-rd-owner-api` 时根本不带 `--features` 参数。这量的是部署产物，不是历史。另一条公开
   提交路径 `commit_exploratory_replay_result_v2` 的调用方只存在于
   `crates/backtest_owner/src/lib.rs` 的 `#[cfg(test)]` 模块内。
@@ -112,6 +113,12 @@
   `BACKTEST_RUNNER_SERVICE` 不出现在任何 Rust 文件里，而
   `product/dashboard/lib/rd-iteration-timeline-client.ts` 已经把它列为合法修复目标。消费侧词汇存在，生产方
   不存在。
+- **TARGET - 探索性匹配入场对照与聚类区间：** 没有任何探索性 Result 带匹配入场对照或区间，也没有任何探索性回放累计资金
+  费。契约见下文同名一节。
+- **TARGET - Forward Replay：** 尚不存在 Forward Replay。Forward Replay 在 Qualification Forward Record 的每个新观察到的
+  cut 上，按登记的确切 Runtime kernel、模拟器、成本、滑点与容量身份增量回放一个冻结的 Artifact。挂单与未平仓位在 Backtest
+  的托管中从一个 cut 延续到下一个 cut，成交只能来自订单存在之后观察到的数据。它使用受保护回放所用的同一个 Sim Exchange，
+  从不使用另一套前向实现，不产生任何 Execution 效果，也不声称修复 Runtime kernel 或 Simulator。
 
 ## 共享策略生命周期契约
 
@@ -179,6 +186,29 @@ Result 时以 `EXPLORATORY_REQUEST_RESULTS_EXCEED_BOUND` 拒绝。该读取不�
 `AccessShareLock` 与每次 Backtest 读取都会取的 topology fence。它只陈述哪些 Result 存在及其 terminal，从不陈述报告
 能否被陈述，那仍是报告读取的判断；它也不列出任何 Protected Result。
 
+## TARGET - 探索性匹配入场对照与聚类区间
+
+本节陈述的是一份尚无实现的契约；它不授予构建或部署其中任何部分的许可。
+
+探索性 Result 在运行自身的成交之外，还带一个匹配入场对照，以及运行相对于它的优势的按日期聚类区间。两者都是探索性度量。
+它们都不出现在受保护路径上，那里适用 Qualification 的同宇宙随机对照与 holdout，它们也不取代后者。
+
+- **匹配入场。** 对运行成交的每一笔入场，Backtest 在同一标的上回放 20 笔入场，入场 bar 从同一日历年中、留得下时间限制的
+  bar 里随机抽取，与策略的信号无关。每一笔取该入场的方向，在其 bar 的开盘价入场，并保持该入场的几何：止损在入场前一根 bar
+  上测得的平均真实波幅的同一倍数处，目标在该风险的同一倍数处，时间限制相同。抽取的种子由请求身份派生，所以请求方不选择
+  任何东西，同一请求的重放抽到同样的入场。一笔入场的对照值是其 20 笔匹配入场结果的均值。没有止损的入场没有风险单位，
+  不配对照；Result 如实报告这一点，而不是把它丢掉。
+- **同一模拟器、同一经济。** 匹配入场与该入场自身的成交一样，经过运行的模拟器及其成本、滑点与容量模型；对永续合约，
+  还计入持仓期间累积的资金费。不计资金费的对照不是永续成交的对照。
+- **区间。** 运行的优势是各入场结果减去其对照值、以该入场风险为单位的均值。其区间用整周日历重抽样的 bootstrap 计算，
+  请求写明按日时则按整个日历日重抽样，使不同标的在同一些日子里的入场一起移动。Result 记录聚类单位、重抽样次数、置信
+  水平与种子。按日期聚类是有意的选择：按标的聚类会把同一周里不同标的的入场当作相互独立，得到的区间过窄。
+- **是对照，不是选择依据。** 对照说明运行的入场是否胜过同样形状的随机入场。它不给任何东西排序：没有任何 Iteration
+  Decision 据它选择或排列候选，它也从不替代 Qualification 的 holdout 或同宇宙随机对照。
+
+它依赖探索性回放尚未做到的事：目前没有任何探索性回放累计永续资金费，所以成本模型须先承载来自 Market Data 的资金费事实
+（Binance 公开资金费档案是已获授权的部署来源）；带出场的运行还需要多帧回放。
+
 ## 输入交接
 
 - [R&D](./rd/) 提交一个冻结 Exploratory Replay Request，由一个 R&D 拥有的定位符寻址，该定位符携带请求身份
@@ -215,7 +245,7 @@ Result 时以 `EXPLORATORY_REQUEST_RESULTS_EXCEED_BOUND` 拒绝。该读取不�
 这两条上游契约的准入程度不高于上游自己的记载：对应的 [Market Data](./market-data/) 输出交接把直连
 `BACKTEST_OWNER_V1` Instrument Master 解析标为 **TARGET**，因此此处任何内容都不得读作一条已准入的消费路径。
 探索路径在已部署的产物里同样不可达：`run_exploratory_replay_v2` 在其自身 crate 之外唯一的调用者位于
-`#[cfg(feature = "sealed-develop-composer-acceptance")]` 之下，而 `product/rd-workbench/Dockerfile.owner`
+生产 feature `#[cfg(feature = "native-replay-execution")]` 之下，而 `product/rd-workbench/Dockerfile.owner`
 构建 `strategy-factory-rd-owner-api` 时完全不带任何 feature 开关。这测的是部署产物而不是历史；它没有断言
 该路径是否曾在别的环境里跑过。
 

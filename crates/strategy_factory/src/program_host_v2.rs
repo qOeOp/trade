@@ -366,22 +366,6 @@ impl AdmittedProgramEventV2 {
         self.envelope
     }
 
-    pub(crate) const fn is_joined_input(&self) -> bool {
-        self.input_join_identity.is_some()
-    }
-
-    pub(crate) fn fixed_i128_input(&self, role_semantic_id: &str) -> Option<i128> {
-        let input = self
-            .inputs
-            .iter()
-            .find(|input| input.role_semantic_id == role_semantic_id)?;
-        if input.value.value_type() != ValueTypeV2::I128 {
-            return None;
-        }
-        let bytes = input.value.bytes().try_into().ok()?;
-        Some(i128::from_le_bytes(bytes))
-    }
-
     pub(crate) fn fixed_i128_member_input_scaled(
         &self,
         role_semantic_id: &str,
@@ -539,7 +523,7 @@ impl AdmittedProgramEventV2 {
         event
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, feature = "sealed-strategy-input-acceptance"))]
     pub(crate) const fn admitted_identity(&self) -> BindingDigest {
         self.identity
     }
@@ -2003,14 +1987,6 @@ impl ProgramHostV2 {
         envelope: LifecycleEnvelopeV1,
     ) -> Result<AdmittedProgramEventV2, ProgramHostV2Error> {
         admit_backtest_lifecycle_event_v2(&self.plan, envelope)
-    }
-
-    pub(crate) fn input_role_scale(&self, semantic_id: &str) -> Option<u8> {
-        self.plan
-            .input_roles()
-            .iter()
-            .find(|role| role.semantic_id == semantic_id)
-            .map(|role| role.scale)
     }
 
     /// Admits and applies one Market Data Owner-sealed BAR or EVENT frame.
