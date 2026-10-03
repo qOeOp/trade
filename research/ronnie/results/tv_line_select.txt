@@ -1,0 +1,10 @@
+Learning which lines Ronnie keeps: 60 lines of his, 488539 candidate lines on 45 charts, 24928 candidates match one of his
+logistic weights (standardised features, fitted on the calibration half):
+  t_same +0.23, t_opp +0.24, t_recent -0.36, through +0.06, through_recent -0.27, cross -0.53, log_span -0.61, log_age +0.89, dist +0.16, slope_ok -0.83, body +0.07
+  top 2 per side, calibration: recall 14%, moved 2%, fidelity +12% (29 lines)
+  top 2 per side, check: recall 6%, moved 0%, fidelity +6% (31 lines)
+  top 3 per side, calibration: recall 14%, moved 5%, fidelity +9% (29 lines)
+  top 3 per side, check: recall 19%, moved 2%, fidelity +18% (31 lines)
+  top 4 per side, calibration: recall 17%, moved 7%, fidelity +10% (29 lines)
+  top 4 per side, check: recall 26%, moved 2%, fidelity +24% (31 lines)
+reference (tv_line_fidelity.py): never-broken drawer, check half recall 26%, moved 3%
