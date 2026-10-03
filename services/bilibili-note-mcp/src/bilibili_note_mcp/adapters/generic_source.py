@@ -7,11 +7,11 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-from bilibili_note_mcp.adapters.bilibili_media_ytdlp import (
-    _probe,
-    _run_worker,
-    _sha256_file,
-    _worker_environment,
+from bilibili_note_mcp.adapters.media_acquisition import (
+    media_worker_environment,
+    probe_downloaded_media,
+    run_media_worker,
+    sha256_file,
 )
 from bilibili_note_mcp.adapters.source_acquisition import SourceAcquisition
 from bilibili_note_mcp.adapters.strict_json import decode_strict_json_object
@@ -53,12 +53,12 @@ class GenericSource:
     ) -> AcquiredSource:
         parsed = validate_generic_url(url)
         canonical = parsed.canonical_url()
-        code, raw = await _run_worker(
+        code, raw = await run_media_worker(
             (sys.executable, "-m", "bilibili_note_mcp.adapters._generic_worker"),
             json.dumps({"schema": _SCHEMA, "url": canonical, "workspace": str(workspace)}).encode(),
             timeout_seconds=360,
             grace_seconds=2,
-            env=_worker_environment(),
+            env=media_worker_environment(),
         )
         try:
             data = decode_strict_json_object(raw)
@@ -74,7 +74,7 @@ class GenericSource:
             if path.is_symlink():
                 raise ValueError("generic_media_invalid")
             require_progressive_container(path)
-            duration, width, height = await _probe(path)
+            duration, width, height = await probe_downloaded_media(path)
             date = None
             if data["date"] is not None:
                 date = (
@@ -99,7 +99,7 @@ class GenericSource:
             raise BilibiliNoteFailure("SOURCE_UNAVAILABLE", "generic_acquisition_failed") from e
         artifact = SourceMediaArtifact(
             media_path=path,
-            media_sha256=await asyncio.to_thread(_sha256_file, path),
+            media_sha256=await asyncio.to_thread(sha256_file, path),
             observed_duration_ms=duration,
             width=width,
             height=height,

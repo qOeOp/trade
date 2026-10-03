@@ -18,7 +18,7 @@ from bilibili_note_mcp.adapters.bilibili_media_ytdlp import YtDlpBilibiliMedia
 from bilibili_note_mcp.adapters.bilibili_search import BilibiliSearch
 from bilibili_note_mcp.adapters.bilibili_source import BilibiliSource
 from bilibili_note_mcp.adapters.direct_notes import DirectDistiller
-from bilibili_note_mcp.adapters.distillers import DeterministicDistiller
+from bilibili_note_mcp.adapters.fixture_distiller import DeterministicDistiller
 from bilibili_note_mcp.adapters.fixture_search import FixtureSearch
 from bilibili_note_mcp.adapters.fixture_source import FixtureSource
 from bilibili_note_mcp.adapters.generic_source import GenericSource

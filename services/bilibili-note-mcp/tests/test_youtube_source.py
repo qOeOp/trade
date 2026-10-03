@@ -189,7 +189,7 @@ async def test_worker_rejects_unknown_receipt_fields(monkeypatch):
 
     monkeypatch.setattr(
         youtube_source,
-        "_run_worker",
+        "run_media_worker",
         AsyncMock(
             return_value=(
                 0,

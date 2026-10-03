@@ -161,15 +161,15 @@ async def test_each_generic_request_transcribes_current_download(monkeypatch, tm
             }
         ).encode()
 
-    monkeypatch.setattr(module, "_run_worker", worker)
-    monkeypatch.setattr(module, "_probe", AsyncMock(return_value=(1000, 1280, 720)))
+    monkeypatch.setattr(module, "run_media_worker", worker)
+    monkeypatch.setattr(module, "probe_downloaded_media", AsyncMock(return_value=(1000, 1280, 720)))
     transcript = AsyncMock()
     source = GenericSource(transcript)
     a = await source.acquire(URL, tmp_path, NullProgressReporter())
     b = await source.acquire(URL, tmp_path, NullProgressReporter())
     assert a.source_snapshot_ref != b.source_snapshot_ref
     assert transcript.transcribe.await_count == 2
-    monkeypatch.setattr(module, "_probe", AsyncMock(return_value=(1000, 640, 360)))
+    monkeypatch.setattr(module, "probe_downloaded_media", AsyncMock(return_value=(1000, 640, 360)))
     with pytest.raises(BilibiliNoteFailure, match="source_below_hd_floor"):
         await source.acquire(URL, tmp_path, NullProgressReporter())
     assert transcript.transcribe.await_count == 2
@@ -213,7 +213,7 @@ def test_generic_render_preserves_query_and_does_not_invent_seek(draft):
 
 
 async def test_manifest_disguised_as_file_cannot_probe_remote_stream(tmp_path):
-    from bilibili_note_mcp.adapters.bilibili_media_ytdlp import _probe
+    from bilibili_note_mcp.adapters.media_acquisition import probe_downloaded_media
 
     path = tmp_path / "source.mp4"
     path.write_text(
@@ -221,7 +221,7 @@ async def test_manifest_disguised_as_file_cannot_probe_remote_stream(tmp_path):
         "https://127.0.0.1/private.ts\n#EXT-X-ENDLIST\n"
     )
     with pytest.raises(BilibiliNoteFailure):
-        await _probe(path)
+        await probe_downloaded_media(path)
 
 
 def test_generic_refuses_local_playlist_before_decoder(tmp_path):

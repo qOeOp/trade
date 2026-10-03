@@ -8,8 +8,8 @@ import pytest
 from PIL import Image
 
 from bilibili_note_mcp.adapters.direct_notes import DirectDistiller, Summary, chunks, sheets
-from bilibili_note_mcp.application.create_note import CreateBilibiliNote
 from bilibili_note_mcp.application.errors import BilibiliNoteFailure
+from bilibili_note_mcp.application.note_validation import validate_note
 from bilibili_note_mcp.application.ports import AcquiredSource, TranscriptResult, TranscriptSegment
 from bilibili_note_mcp.domain.models import GroundedText, NoteChapter, VideoNote
 
@@ -174,7 +174,7 @@ async def test_bad_optional_image_keeps_all_prose_and_valid_images_without_regen
             return authored
 
     with pytest.raises(BilibiliNoteFailure, match="chapter_frame_binding_invalid"):
-        CreateBilibiliNote.validate_note(authored, source(draft), frames)
+        validate_note(authored, source(draft), frames)
     provider = Provider()
     note = await provider.distill(source(draft), frames)
     assert provider.calls == 1
@@ -185,7 +185,7 @@ async def test_bad_optional_image_keeps_all_prose_and_valid_images_without_regen
     assert note.chapters[0].screenshots == (first.screenshots if fault == "duplicate" else ())
     assert note.chapters[1] == second
     assert authored.chapters[0].screenshots == choices
-    CreateBilibiliNote.validate_note(note, source(draft), frames)
+    validate_note(note, source(draft), frames)
 
 
 async def test_all_images_invalid_keeps_complete_text_without_fabricating_replacements(draft):
@@ -211,7 +211,7 @@ async def test_all_images_invalid_keeps_complete_text_without_fabricating_replac
     note = await Provider().distill(source(draft), draft.frames)
     assert all(not c.screenshots for c in note.chapters)
     assert [c.points for c in note.chapters] == [c.points for c in authored.chapters]
-    CreateBilibiliNote.validate_note(note, source(draft), draft.frames)
+    validate_note(note, source(draft), draft.frames)
 
 
 async def test_schema_retry_identifies_shape_without_echoing_invalid_input(draft):

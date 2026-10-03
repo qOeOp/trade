@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import io
 import json
 import ssl
@@ -12,28 +11,18 @@ import httpx
 import pytest
 from PIL import Image
 
-from bilibili_note_mcp.adapters import asr_siliconflow, distillers
+from bilibili_note_mcp.adapters import asr_siliconflow, model_client
 from bilibili_note_mcp.adapters.asr_siliconflow import SiliconFlowAsr
-from bilibili_note_mcp.adapters.distillers import _content, _Provider
+from bilibili_note_mcp.adapters.direct_notes import DirectDistiller
+from bilibili_note_mcp.adapters.model_client import JsonModelClient
 from bilibili_note_mcp.application.errors import BilibiliNoteFailure
 from bilibili_note_mcp.application.ports import (
     AcquiredSource,
-    FrameAsset,
     TranscriptResult,
-    TranscriptSegment,
 )
 from bilibili_note_mcp.application.progress import NullProgressReporter
 from bilibili_note_mcp.config import ModelProfile
-from bilibili_note_mcp.domain.models import SourceV1, VideoNote
-
-
-class NoteResponseProbe(_Provider):
-    """Exercise provider envelope/image boundaries without the multi-stage author."""
-
-    async def distill(self, source, frames):
-        return await self.request(
-            "Return a grounded JSON note.", _content(source, frames), VideoNote
-        )
+from bilibili_note_mcp.domain.models import VideoNote
 
 
 def _profile() -> ModelProfile:
@@ -45,51 +34,6 @@ def _profile() -> ModelProfile:
         api_key_env="TEST_SILICONFLOW_KEY",
         timeout_seconds=1,
         max_output_tokens=100,
-    )
-
-
-def _source() -> AcquiredSource:
-    return AcquiredSource(
-        source=SourceV1(
-            platform="bilibili",
-            requested_url="https://www.bilibili.com/video/BV1bK411W797?p=1",
-            canonical_url="https://www.bilibili.com/video/BV1bK411W797?p=1",
-            video_id="BV1bK411W797",
-            part_id="1",
-            part_index=1,
-            title="fixture",
-            author_name="fixture",
-            published_at="2026-08-11T00:00:00Z",
-            duration_ms=30000,
-        ),
-        media_path=Path("unused.mp4"),
-        transcript=TranscriptResult(
-            method="platform_subtitle",
-            provider_ref=None,
-            language="zh-CN",
-            segments=(TranscriptSegment("E001", 0, 30000, "看这里的支撑区域"),),
-        ),
-        source_snapshot_ref="bs_" + "a" * 64,
-    )
-
-
-def _frames() -> tuple[FrameAsset, ...]:
-    output = io.BytesIO()
-    Image.new("RGB", (1920, 1080), "white").save(output, format="PNG")
-    png = output.getvalue()
-    return tuple(
-        FrameAsset(
-            frame_id=f"F{index:02d}",
-            group_id=f"G{index:02d}",
-            timestamp_ms=index * 10000,
-            width=1920,
-            height=1080,
-            png_bytes=png,
-            asset_ref=hashlib.sha256(png).hexdigest(),
-            transcript_refs=("E001",),
-            selection_reason="deictic_cue",
-        )
-        for index in (1, 2)
     )
 
 
@@ -153,10 +97,9 @@ async def test_distiller_maps_low_level_tls_failure_to_stable_domain_error(
     def respond(request: httpx.Request) -> httpx.Response:
         raise ssl.SSLError("record layer failure")
 
-    frames = _frames()
     with pytest.raises(BilibiliNoteFailure) as failure:
-        await NoteResponseProbe(profile=_profile(), transport=httpx.MockTransport(respond)).distill(
-            _source(), frames
+        await JsonModelClient(profile=_profile(), transport=httpx.MockTransport(respond)).request(
+            "Return a note.", [], VideoNote
         )
     assert failure.value.code == "DISTILLATION_FAILED"
     assert failure.value.reason == "provider_response_invalid"
@@ -511,7 +454,7 @@ async def test_asr_failure_event_is_emitted_only_after_client_close(
 
 async def test_vision_request_is_bounded_before_network(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("TEST_SILICONFLOW_KEY", "secret")
-    monkeypatch.setattr(distillers, "VISION_REQUEST_BYTES", 1)
+    monkeypatch.setattr(model_client, "VISION_REQUEST_BYTES", 1)
     called = False
 
     def respond(request: httpx.Request) -> httpx.Response:
@@ -520,8 +463,8 @@ async def test_vision_request_is_bounded_before_network(monkeypatch: pytest.Monk
         return httpx.Response(500)
 
     with pytest.raises(BilibiliNoteFailure) as failure:
-        await NoteResponseProbe(profile=_profile(), transport=httpx.MockTransport(respond)).distill(
-            _source(), _frames()
+        await JsonModelClient(profile=_profile(), transport=httpx.MockTransport(respond)).request(
+            "Return a note.", [], VideoNote
         )
     assert failure.value.reason == "vision_request_too_large"
     assert called is False
@@ -532,7 +475,7 @@ async def test_vision_response_is_bounded_before_json_parse(
     monkeypatch: pytest.MonkeyPatch, declared: bool
 ) -> None:
     monkeypatch.setenv("TEST_SILICONFLOW_KEY", "secret")
-    monkeypatch.setattr(distillers, "VISION_RESPONSE_BYTES", 16)
+    monkeypatch.setattr(model_client, "VISION_RESPONSE_BYTES", 16)
 
     def respond(request: httpx.Request) -> httpx.Response:
         payload = b"x" * 17
@@ -545,8 +488,8 @@ async def test_vision_response_is_bounded_before_json_parse(
         )
 
     with pytest.raises(BilibiliNoteFailure) as failure:
-        await NoteResponseProbe(profile=_profile(), transport=httpx.MockTransport(respond)).distill(
-            _source(), _frames()
+        await JsonModelClient(profile=_profile(), transport=httpx.MockTransport(respond)).request(
+            "Return a note.", [], VideoNote
         )
     assert failure.value.reason == "vision_response_too_large"
 
@@ -556,8 +499,12 @@ async def test_provider_receives_full_evidence_and_accepts_exact_contract(
     monkeypatch, draft, strict_thinking
 ):
     monkeypatch.setenv("TEST_SILICONFLOW_KEY", "secret")
-    source = _source()
-    source = replace(source, transcript=replace(source.transcript, segments=draft.transcript))
+    source = AcquiredSource(
+        draft.source,
+        Path("unused.mp4"),
+        TranscriptResult("platform_subtitle", None, "zh-CN", draft.transcript),
+        "bs_" + "a" * 64,
+    )
     value = draft.note
     requests = []
 
@@ -574,7 +521,7 @@ async def test_provider_receives_full_evidence_and_accepts_exact_contract(
             },
         )
 
-    adapter = NoteResponseProbe(
+    adapter = DirectDistiller(
         profile=replace(
             _profile(),
             enable_thinking=strict_thinking,
@@ -583,6 +530,7 @@ async def test_provider_receives_full_evidence_and_accepts_exact_contract(
         ),
         transport=httpx.MockTransport(respond),
     )
+    originals = tuple(f.png_bytes for f in draft.frames)
     result = await adapter.distill(source, draft.frames)
     assert result == value
     assert len(requests) == 1
@@ -592,7 +540,7 @@ async def test_provider_receives_full_evidence_and_accepts_exact_contract(
         {"evidence_id": s.evidence_id, "start_ms": s.start_ms, "end_ms": s.end_ms, "text": s.text}
         for s in draft.transcript
     ]
-    assert sum(x["type"] == "image_url" for x in content) == 2
+    assert sum(x["type"] == "image_url" for x in content) == 1
     for item in content:
         if item["type"] == "image_url":
             import base64
@@ -600,8 +548,9 @@ async def test_provider_receives_full_evidence_and_accepts_exact_contract(
             prefix, payload = item["image_url"]["url"].split(",", 1)
             assert prefix == "data:image/jpeg;base64"
             with Image.open(io.BytesIO(base64.b64decode(payload))) as decoded:
-                assert decoded.size == (1280, 720)
+                assert decoded.size == (2880, 572)
                 assert decoded.format == "JPEG"
+    assert tuple(f.png_bytes for f in draft.frames) == originals
     assert all(f.png_bytes.startswith(b"\x89PNG") for f in draft.frames)
     assert requests[0]["enable_thinking"] is strict_thinking
     if strict_thinking:
@@ -609,7 +558,9 @@ async def test_provider_receives_full_evidence_and_accepts_exact_contract(
         format_ = requests[0]["response_format"]
         assert format_["type"] == "json_schema"
         assert format_["json_schema"]["strict"] is True
-        assert format_["json_schema"]["schema"] == type(value).model_json_schema()
+        expected = type(value).model_json_schema()
+        expected["$defs"]["NoteChapter"]["properties"]["screenshots"]["maxItems"] = 2
+        assert format_["json_schema"]["schema"] == expected
     else:
         assert "thinking_budget" not in requests[0]
         assert requests[0]["response_format"] == {"type": "json_object"}
@@ -647,12 +598,12 @@ async def test_provider_roles_reject_ambiguous_json(monkeypatch, variant, draft)
         nested_key="text",
     )
     raw = raw.replace(b'"message":', b'"finish_reason":"stop","message":')
-    adapter = NoteResponseProbe(
+    adapter = JsonModelClient(
         profile=_profile(),
         transport=httpx.MockTransport(lambda r: httpx.Response(200, content=raw)),
     )
     with pytest.raises(BilibiliNoteFailure, match="provider_response_invalid"):
-        await adapter.distill(_source(), draft.frames)
+        await adapter.request("Return a note.", [], VideoNote)
 
 
 @pytest.mark.parametrize(
@@ -690,12 +641,12 @@ async def test_provider_rejects_wrong_identity_incomplete_or_open_contract(
         envelope["choices"][0]["finish_reason"] = "length"
     if mutation == "missing_content":
         envelope["choices"][0]["message"] = {}
-    adapter = NoteResponseProbe(
+    adapter = JsonModelClient(
         profile=_profile(),
         transport=httpx.MockTransport(lambda r: httpx.Response(200, json=envelope)),
     )
     with pytest.raises(BilibiliNoteFailure, match="provider_response_invalid"):
-        await adapter.distill(_source(), draft.frames)
+        await adapter.request("Return a note.", [], VideoNote)
 
 
 @pytest.mark.parametrize("reported", [True, False])
@@ -703,7 +654,7 @@ async def test_provider_usage_is_reported_not_estimated(monkeypatch, draft, repo
     monkeypatch.setenv("TEST_SILICONFLOW_KEY", "private-test-key")
     events = []
     monkeypatch.setattr(
-        distillers, "emit_operator_event", lambda event, **fields: events.append((event, fields))
+        model_client, "emit_operator_event", lambda event, **fields: events.append((event, fields))
     )
 
     def respond(request):
@@ -717,7 +668,9 @@ async def test_provider_usage_is_reported_not_estimated(monkeypatch, draft, repo
             envelope["usage"] = {"prompt_tokens": 123, "completion_tokens": 45, "total_tokens": 168}
         return httpx.Response(200, json=envelope)
 
-    await NoteResponseProbe(_profile(), httpx.MockTransport(respond)).distill(_source(), _frames())
+    await JsonModelClient(_profile(), httpx.MockTransport(respond)).request(
+        "Return a note.", [], VideoNote
+    )
     if reported:
         assert len(events) == 1
         assert events[0][1]["total_tokens"] == 168
@@ -734,7 +687,7 @@ async def test_provider_rate_limit_retries_bounded_then_is_explicit(monkeypatch)
     async def no_wait(delay):
         pass
 
-    monkeypatch.setattr(distillers.asyncio, "sleep", no_wait)
+    monkeypatch.setattr(model_client.asyncio, "sleep", no_wait)
 
     def respond(request):
         nonlocal calls
@@ -742,8 +695,8 @@ async def test_provider_rate_limit_retries_bounded_then_is_explicit(monkeypatch)
         return httpx.Response(429, json={"code": 50602})
 
     with pytest.raises(BilibiliNoteFailure) as e:
-        await NoteResponseProbe(_profile(), httpx.MockTransport(respond)).distill(
-            _source(), _frames()
+        await JsonModelClient(_profile(), httpx.MockTransport(respond)).request(
+            "Return a note.", [], VideoNote
         )
     assert e.value.code == "RATE_LIMITED"
     assert calls == 3
@@ -768,10 +721,10 @@ async def test_strict_mode_still_rejects_bad_output_without_fallback(monkeypatch
         )
 
     with pytest.raises(BilibiliNoteFailure):
-        await NoteResponseProbe(
+        await JsonModelClient(
             replace(_profile(), response_format="json_schema", enable_thinking=True),
             httpx.MockTransport(respond),
-        ).distill(_source(), _frames())
+        ).request("Return a note.", [], VideoNote)
     assert len(calls) == 1
 
 
