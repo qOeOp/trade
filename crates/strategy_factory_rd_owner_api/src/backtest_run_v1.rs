@@ -290,7 +290,9 @@ async fn submit_backtest_research_goal_v1(
         cost_assumption: "backtest.run's own cost model.".to_owned(),
         capacity_assumption: "backtest.run's own capacity model.".to_owned(),
         sources: vec![ResearchSourceV1 {
-            locator: "backtest.run".to_owned(),
+            // Research sources must be either an https:// URL or a urn: - validate_goal_fields
+            // (crates/strategy_factory/src/product_edge.rs) refuses any other scheme by name.
+            locator: "urn:backtest-run:v1".to_owned(),
             content_digest: format!("sha256:{}", "0".repeat(64)),
             observed_at: "2026-10-04T00:00:00Z".to_owned(),
             source_cut: "backtest-run-v1".to_owned(),
