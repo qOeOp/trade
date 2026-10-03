@@ -180,7 +180,8 @@ pub(super) async fn commit_bar_schedule_on_v1(
                 NativeReplaySchedulingErrorV1::SourceBindingDeclaresNoBarTimeframe => {
                     BarScheduleAcceptanceErrorV1::SourceBindingDeclaresNoBarTimeframe
                 }
-                NativeReplaySchedulingErrorV1::DeclaredBarTimeframeMismatch => {
+                NativeReplaySchedulingErrorV1::DeclaredBarTimeframeMismatch
+                | NativeReplaySchedulingErrorV1::ExecutionTimeframeNotDeclared => {
                     BarScheduleAcceptanceErrorV1::TimeframeNotDeclared
                 }
                 _ => BarScheduleAcceptanceErrorV1::StoreUnavailable,

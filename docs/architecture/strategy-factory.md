@@ -1433,7 +1433,11 @@ later submission and the cost grows with the whole history.
   refused as `DESIGN_ROLE_NAMES_INSTRUMENT_UNDER_RESEARCH_SCOPE`. Anything that differs by member count, such as
   Market Data's PIT request preimage domain, is derived from the count rather than declared beside it. P0 is
   complete when, for a Research request that states its scope, changing the member count changes only the scope and
-  adding a role changes only the Design. It changes no admitted bound by itself. A V2 request states no scope and
+  adding a role changes only the Design. It changes no admitted bound by itself. The Develop Composer's run request
+  no longer restates the role set: it carries the Design and the plugin sources, and no binding claim beside them.
+  The production frozen-program run admits the Design's roles by name instead - one input scope, Market prices under
+  a field semantic Market Data defines, an instrument named exactly under an exact scope - and the custody each role
+  reads stays the binding Owner's re-read. A V2 request states no scope and
   stays the legacy exact channel, whose Designs name their instrument; retiring it is a separate slice after T1,
   once every chain entry that creates exact custody under V2 has a scoped replacement.
 - **P1, the role set comes from the Design:** the native Plan contract stops fixing OPEN and CLOSE on one day. The
@@ -1447,7 +1451,9 @@ later submission and the cost grows with the whole history.
   timeframe label stays provenance only, so the execution timeframe is not derived from it here: Market Data resolves
   the execution role's typed timeframe from its own binding and refuses more than one timeframe, or a day it cannot
   type, by name. That scheduling change replaces the label comparison in `native_replay_scheduling_v1` and is Market
-  Data's.
+  Data's. Market Data derives the execution role itself from the request's roles, by the same rule, so no caller names
+  it; its refusals are `EXECUTION_ROLE_ABSENT`, `EXECUTION_ROLE_AMBIGUOUS`, `MORE_THAN_ONE_ROLE_TIMEFRAME` and
+  `EXECUTION_TIMEFRAME_NOT_DECLARED` (Market Data owner page).
 - **P2, the report states every member:** the report family states each member of a universe run, generalizing the
   one-member statement Backtest already makes. It lands with I2, driven by the first run over more than one member:
   before I2 no program reads a member other than the first, so a statement of every member would have nothing to
@@ -1565,11 +1571,20 @@ including on inputs with ties.
   metrics, book depth, and funding rate. Liquidations have no admitted historical source - the USDⓈ-M archive holds
   none and the coin-margined `BTCUSD_PERP` snapshot ends on 2024-10-14 - so a Design that asks for them is refused as
   `INPUT_FACT_UNAVAILABLE_FROM_ADMITTED_SOURCE`, which no field vocabulary lets a Design reach today.
-- **Actions:** the target-set Host ignores a protective fill today, so the next frame's reconciliation fails and
-  aborts the run; only a second frame reaches it. `a_triggered_stop_aborts_the_run_today_until_d1` pins that behavior
-  over two real Sim frames, with a close stop that does not fall and a fall that misses a far stop as its clean
-  controls, and flips to asserting the run continues when D1 lands. Its repair (D1) adds a `kernel.fill.reconcile.v1` case and lands
-  with T1. A1 exposes `DecisionTime` and `AccountEquity` (and fill-based entry price and bars held) as
+- **Actions:** a protective order that fills between frames is reconciled under `kernel.fill.reconcile.v1` (D1).
+  Before D1 the target-set Host ignored such a fill, so the next frame's reconciliation failed and aborted the run.
+  A FILL now names the leg it advances - the pending intent, the stop-loss, or the take-profit - in an envelope byte
+  every earlier FILL left zero, so earlier envelopes keep their bytes and digests. The kernel admits a protective fill
+  only while its leg is armed, nothing proposed is pending, and the fill reduces the position without passing zero,
+  and refuses each other case by name: `ProtectiveLegNotArmed`, `ProtectiveFillWithPendingIntent`, and
+  `ProtectiveFillDoesNotReduce`. A part-filled protective order holds the fill frontier until it fills or its rest is
+  canceled, and no proposal may open an intent beside it (`ProtectiveFillInProgress`). A leg that closes the position
+  clears the protection, and the Host places only the protection the kernel holds. The Native Replay readback reports
+  protective fills apart from target-set fills, binds each to its FILL transition in the ordered trace, and counts
+  it as a round-trip exit; a run in which none filled serializes as it did before.
+  `a_triggered_stop_reconciles_the_member_flat_and_the_run_continues` runs two real Sim frames: the stop fills, the
+  exit frame sees the member flat, and a program that exits it anyway is refused as `InvalidPositionTransition`; a
+  close stop that does not fall and a fall that misses a far stop are its clean controls. A1 exposes `DecisionTime` and `AccountEquity` (and fill-based entry price and bars held) as
   `LifecycleContext` values the program may read, where `DecisionTime` is the frame's decision cut `d_k`; intended entry price and bars held are expressible inside the
   program already. A2 places take-profit as reduce-only limit orders. A3 first measures a one-limit-per-bar ladder
   and adds a kernel ladder only if that is not enough.
@@ -1710,7 +1725,7 @@ one family would depend on that producer and would be listed separately.
 
 P0, P1, and T0 proceed in parallel: T0 is internal to Market Data, and its custody request states its own member set
 and timeframes. T1 depends on all three, because it derives the custody request from the Research scope and the
-Design; its first positive case uses only CLOSE and one member, and D1 lands with it. P2 lands with I2. A1 and V4a proceed in parallel with T1; then T2, I1, I1.5, I2, and I3; then N1, A2, A3, V4b, and V5. Per-frame as-of membership (T4) would
+Design; its first positive case uses only CLOSE and one member, and D1, which it needs, has landed ahead of it. P2 lands with I2. A1 and V4a proceed in parallel with T1; then T2, I1, I1.5, I2, and I3; then N1, A2, A3, V4b, and V5. Per-frame as-of membership (T4) would
 remove the invariant that every frame shares one member set, so it is asked of the user when it is proposed.
 
 Every target variant the single-threshold author accepts runs past one frame of the target-set Host. Two could not,

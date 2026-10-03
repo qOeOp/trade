@@ -722,12 +722,41 @@ pub mod lifecycle_v1 {
         Buy = 1,
     }
 
+    /// Which order a FILL advances: the pending intent a proposal opened, or one of the
+    /// protective legs the checkpoint's protection arms.
+    ///
+    /// A protective leg is placed by the Host from the kernel's protection state, never proposed,
+    /// so its fill reaches the kernel with no pending intent behind it. `Intent` is `0` on the
+    /// wire, which is what every FILL encoded before the protective legs existed carries.
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+    #[repr(u8)]
+    pub enum FillLegV1 {
+        #[default]
+        Intent = 0,
+        /// The stop that `kernel.protection.stop-loss.v1` or a trailing adjustment arms.
+        StopLoss = 1,
+        /// The limit that `kernel.protection.take-profit.v1` arms.
+        TakeProfit = 2,
+    }
+
+    const fn decode_fill_leg(byte: u8) -> Option<FillLegV1> {
+        match byte {
+            0 => Some(FillLegV1::Intent),
+            1 => Some(FillLegV1::StopLoss),
+            2 => Some(FillLegV1::TakeProfit),
+            _ => None,
+        }
+    }
+
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     pub struct FillEventV1 {
+        /// The pending intent's identity, or, for a protective leg, the identity the Host derives
+        /// for the protective order.
         pub intent_identity: StableIdentity,
         pub side: FillSideV1,
         pub disposition: FillDispositionV1,
         pub cumulative_filled_units: u64,
+        pub leg: FillLegV1,
     }
 
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -832,6 +861,7 @@ pub mod lifecycle_v1 {
         KindPayloadMismatch,
         UnknownFillSide,
         UnknownFillDisposition,
+        UnknownFillLeg,
         NonZeroReserved,
         MissingOrderCoordinate,
         MalformedEnvelope,
@@ -876,6 +906,7 @@ pub mod lifecycle_v1 {
                 FillSideV1::Sell => 2,
             };
             output[105] = fill.disposition as u8;
+            output[106] = fill.leg as u8;
             put_u64(&mut output, 112, fill.cumulative_filled_units);
         }
 
@@ -923,7 +954,7 @@ pub mod lifecycle_v1 {
                 EnvelopePayloadV1::Event
             }
             LifecycleKind::Fill => {
-                require_envelope_zero(&bytes[106..112])?;
+                require_envelope_zero(&bytes[107..112])?;
                 EnvelopePayloadV1::Fill(FillEventV1 {
                     intent_identity: envelope_read(bytes, 88)?,
                     side: match bytes[104] {
@@ -939,6 +970,7 @@ pub mod lifecycle_v1 {
                         _ => return Err(EnvelopeCodecFaultV1::UnknownFillDisposition),
                     },
                     cumulative_filled_units: envelope_read_u64(bytes, 112)?,
+                    leg: decode_fill_leg(bytes[106]).ok_or(EnvelopeCodecFaultV1::UnknownFillLeg)?,
                 })
             }
             LifecycleKind::Timer => {
@@ -1739,6 +1771,9 @@ pub mod lifecycle_v1 {
         pub intent_identity: StableIdentity,
         pub cumulative_filled_units: u64,
         pub terminal_disposition: Option<FillDispositionV1>,
+        /// The leg the frontier's order is. A protective leg's frontier may stay open with no
+        /// pending intent, because nothing a proposal opened is waiting on it.
+        pub leg: FillLegV1,
     }
 
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1781,6 +1816,7 @@ pub mod lifecycle_v1 {
         InvalidProtectionSemantics,
         UnknownTarget,
         UnknownFillDisposition,
+        UnknownFillLeg,
         UnknownFillSide,
         InvalidCheckpoint,
         NonCanonicalEncoding,
@@ -2006,6 +2042,17 @@ pub mod lifecycle_v1 {
         IdentityMismatch,
         InvalidCheckpoint,
         StaleAdmission,
+        /// A protective leg filled while a proposal's intent is still pending. The pending
+        /// intent's expected units were taken against a position the fill has since changed, so
+        /// the kernel refuses rather than guess which of the two the venue applied first.
+        ProtectiveFillWithPendingIntent,
+        /// A protective fill names a leg the checkpoint's protection does not arm.
+        ProtectiveLegNotArmed,
+        /// A protective fill would open, grow or flip the position rather than reduce it.
+        ProtectiveFillDoesNotReduce,
+        /// A proposal would open an intent while a protective order is part filled and still
+        /// working: two orders would then move the position with no order between them.
+        ProtectiveFillInProgress,
     }
 
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -2316,6 +2363,10 @@ pub mod lifecycle_v1 {
             if checkpoint.pending_intent.is_some() {
                 return Err(KernelFaultV1::PendingFill);
             }
+
+            if protective_frontier_is_open(checkpoint.fill_frontier) {
+                return Err(KernelFaultV1::ProtectiveFillInProgress);
+            }
             let target = signed_target.ok_or(KernelFaultV1::InvalidTarget)?;
             let delta = target
                 .checked_sub(checkpoint.reconciled_position_units)
@@ -2475,10 +2526,17 @@ pub mod lifecycle_v1 {
         Ok(())
     }
 
+    const fn protective_frontier_is_open(frontier: FillFrontierV1) -> bool {
+        !matches!(frontier.leg, FillLegV1::Intent) && frontier.terminal_disposition.is_none()
+    }
+
     fn reconcile_fill(
         checkpoint: &mut CheckpointV1,
         fill: FillEventV1,
     ) -> Result<(), KernelFaultV1> {
+        if fill.leg != FillLegV1::Intent {
+            return reconcile_protective_fill(checkpoint, fill);
+        }
         let pending = checkpoint
             .pending_intent
             .ok_or(KernelFaultV1::FillWithoutIntent)?;
@@ -2521,6 +2579,7 @@ pub mod lifecycle_v1 {
             intent_identity: fill.intent_identity,
             cumulative_filled_units: fill.cumulative_filled_units,
             terminal_disposition: terminal.then_some(fill.disposition),
+            leg: FillLegV1::Intent,
         };
         checkpoint.pending_intent = if terminal {
             None
@@ -2533,13 +2592,103 @@ pub mod lifecycle_v1 {
         Ok(())
     }
 
+    /// Reconciles a fill of a protective leg: `kernel.fill.reconcile.v1` for an order the Host
+    /// placed from the checkpoint's protection rather than from a proposal.
+    ///
+    /// The leg must be armed, nothing proposed may be pending, and the fill may only move the
+    /// position toward zero, never past it. Progress is tracked on the fill frontier under the
+    /// protective order's own identity, so a partial fill leaves the frontier open and a later
+    /// fill of the same order continues it. A position the leg closes is flat with no protection
+    /// left, because protection guards a position and there is none: a later entry arms its own.
+    fn reconcile_protective_fill(
+        checkpoint: &mut CheckpointV1,
+        fill: FillEventV1,
+    ) -> Result<(), KernelFaultV1> {
+        if checkpoint.pending_intent.is_some() {
+            return Err(KernelFaultV1::ProtectiveFillWithPendingIntent);
+        }
+        let protection = checkpoint.protection;
+        let armed = match fill.leg {
+            FillLegV1::StopLoss => {
+                protection.stop_loss_ticks.is_some() || protection.trailing_stop_ticks.is_some()
+            }
+            FillLegV1::TakeProfit => protection.take_profit_ticks.is_some(),
+            FillLegV1::Intent => false,
+        };
+
+        if !armed {
+            return Err(KernelFaultV1::ProtectiveLegNotArmed);
+        }
+        let frontier = checkpoint.fill_frontier;
+        let continues = protective_frontier_is_open(frontier);
+
+        if continues
+            && (frontier.intent_identity != fill.intent_identity || frontier.leg != fill.leg)
+        {
+            return Err(KernelFaultV1::FillIdentityMismatch);
+        }
+
+        if !continues && fill.intent_identity == frontier.intent_identity {
+            return Err(KernelFaultV1::FillIdentityMismatch);
+        }
+        let previous = if continues {
+            frontier.cumulative_filled_units
+        } else {
+            0
+        };
+        let terminal = match fill.disposition {
+            FillDispositionV1::PartiallyFilled | FillDispositionV1::Filled => {
+                if fill.cumulative_filled_units <= previous {
+                    return Err(KernelFaultV1::InvalidFillProgress);
+                }
+                fill.disposition == FillDispositionV1::Filled
+            }
+            // Only an order that has filled in part has an open frontier to close. One that never
+            // filled moved nothing the kernel holds, and the Host does not report it.
+            FillDispositionV1::Rejected | FillDispositionV1::Canceled => {
+                if !continues || fill.cumulative_filled_units != previous {
+                    return Err(KernelFaultV1::InvalidFillProgress);
+                }
+                true
+            }
+        };
+        let position = checkpoint.reconciled_position_units;
+        let reducing_side = match position.signum() {
+            1 => FillSideV1::Sell,
+            -1 => FillSideV1::Buy,
+            _ => return Err(KernelFaultV1::ProtectiveFillDoesNotReduce),
+        };
+        let delta = fill.cumulative_filled_units - previous;
+
+        if fill.side != reducing_side || delta > position.unsigned_abs() {
+            return Err(KernelFaultV1::ProtectiveFillDoesNotReduce);
+        }
+        let signed_delta = i64::try_from(delta).map_err(|_| KernelFaultV1::PositionOverflow)?
+            * i64::from(fill.side as i8);
+        checkpoint.reconciled_position_units = position
+            .checked_add(signed_delta)
+            .ok_or(KernelFaultV1::PositionOverflow)?;
+        checkpoint.fill_frontier = FillFrontierV1 {
+            intent_identity: fill.intent_identity,
+            cumulative_filled_units: fill.cumulative_filled_units,
+            terminal_disposition: terminal.then_some(fill.disposition),
+            leg: fill.leg,
+        };
+
+        if checkpoint.reconciled_position_units == 0 {
+            checkpoint.protection = ProtectionStateV1::default();
+        }
+        Ok(())
+    }
+
     fn validate_checkpoint(checkpoint: &CheckpointV1) -> Result<(), KernelFaultV1> {
         checkpoint.identities.validate()?;
         checkpoint.protection.validate()?;
         if !target_state_in_canonical_domain(checkpoint.target)
             || is_zero(&checkpoint.fill_frontier.intent_identity)
                 && (checkpoint.fill_frontier.cumulative_filled_units != 0
-                    || checkpoint.fill_frontier.terminal_disposition.is_some())
+                    || checkpoint.fill_frontier.terminal_disposition.is_some()
+                    || checkpoint.fill_frontier.leg != FillLegV1::Intent)
         {
             return Err(KernelFaultV1::InvalidCheckpoint);
         }
@@ -2607,6 +2756,13 @@ pub mod lifecycle_v1 {
         if checkpoint.pending_intent.is_none()
             && !is_zero(&checkpoint.fill_frontier.intent_identity)
             && checkpoint.fill_frontier.terminal_disposition.is_none()
+            && checkpoint.fill_frontier.leg == FillLegV1::Intent
+        {
+            return Err(KernelFaultV1::InvalidCheckpoint);
+        }
+
+        if checkpoint.pending_intent.is_some()
+            && protective_frontier_is_open(checkpoint.fill_frontier)
         {
             return Err(KernelFaultV1::InvalidCheckpoint);
         }
@@ -2779,11 +2935,12 @@ pub mod lifecycle_v1 {
     fn decode_checkpoint_fill_frontier(
         bytes: &[u8],
     ) -> Result<FillFrontierV1, CheckpointCodecFaultV1> {
-        require_checkpoint_zero(&bytes[25..])?;
+        require_checkpoint_zero(&bytes[26..])?;
         Ok(FillFrontierV1 {
             intent_identity: checkpoint_read(bytes, 0)?,
             cumulative_filled_units: checkpoint_read_u64(bytes, 16)?,
             terminal_disposition: decode_checkpoint_fill_disposition(bytes[24])?,
+            leg: decode_fill_leg(bytes[25]).ok_or(CheckpointCodecFaultV1::UnknownFillLeg)?,
         })
     }
 
@@ -3145,6 +3302,7 @@ pub mod lifecycle_v1 {
         output[..16].copy_from_slice(&value.intent_identity);
         put_u64(output, 16, value.cumulative_filled_units);
         output[24] = value.terminal_disposition.map_or(0, |item| item as u8);
+        output[25] = value.leg as u8;
     }
 
     fn encode_pending(output: &mut [u8], value: Option<PendingIntentV1>) {
@@ -3890,7 +4048,72 @@ mod tests {
                 side,
                 disposition,
                 cumulative_filled_units,
+                leg: FillLegV1::Intent,
             })
+        }
+
+        fn protective(
+            order: u8,
+            leg: FillLegV1,
+            side: FillSideV1,
+            disposition: FillDispositionV1,
+            cumulative_filled_units: u64,
+        ) -> EnvelopePayloadV1 {
+            EnvelopePayloadV1::Fill(FillEventV1 {
+                intent_identity: identity(200 + order),
+                side,
+                disposition,
+                cumulative_filled_units,
+                leg,
+            })
+        }
+
+        /// Starts a kernel holding a filled long of `units` whose protection is `protection`.
+        fn long_position(units: i64, protection: ProtectionStateV1) -> LifecycleKernelV1 {
+            let mut kernel = LifecycleKernelV1::new(identities()).unwrap();
+            kernel
+                .apply(
+                    envelope(1, LifecycleKind::Start, EnvelopePayloadV1::Start),
+                    None,
+                )
+                .unwrap();
+            kernel
+                .apply(
+                    envelope(2, LifecycleKind::Bar, EnvelopePayloadV1::Bar),
+                    Some(proposal(
+                        1,
+                        PositionIntentV1::Enter,
+                        TargetProposalV1::Position(units),
+                        Some(units),
+                        ProtectionProposalV1::Replace(protection),
+                    )),
+                )
+                .unwrap();
+            kernel
+                .apply(
+                    envelope(
+                        3,
+                        LifecycleKind::Fill,
+                        fill(
+                            1,
+                            FillSideV1::Buy,
+                            FillDispositionV1::Filled,
+                            units.unsigned_abs(),
+                        ),
+                    ),
+                    None,
+                )
+                .unwrap();
+            kernel
+        }
+
+        const fn stop_at(ticks: i64) -> ProtectionStateV1 {
+            ProtectionStateV1 {
+                stop_loss_ticks: Some(ticks),
+                take_profit_ticks: None,
+                trailing_distance_ticks: None,
+                trailing_stop_ticks: None,
+            }
         }
 
         fn host_step(
@@ -3932,6 +4155,26 @@ mod tests {
                 (
                     LifecycleKind::Fill,
                     fill(1, FillSideV1::Sell, FillDispositionV1::Canceled, 2),
+                ),
+                (
+                    LifecycleKind::Fill,
+                    protective(
+                        1,
+                        FillLegV1::StopLoss,
+                        FillSideV1::Sell,
+                        FillDispositionV1::PartiallyFilled,
+                        2,
+                    ),
+                ),
+                (
+                    LifecycleKind::Fill,
+                    protective(
+                        1,
+                        FillLegV1::TakeProfit,
+                        FillSideV1::Buy,
+                        FillDispositionV1::Filled,
+                        4,
+                    ),
                 ),
                 (LifecycleKind::Timer, EnvelopePayloadV1::Timer),
                 (LifecycleKind::Stop, EnvelopePayloadV1::Stop),
@@ -4017,10 +4260,15 @@ mod tests {
             ))
             .unwrap();
 
+            // An intent fill leaves the leg byte zero, so every FILL encoded before the protective
+            // legs existed keeps its bytes and therefore its envelope digest.
+            assert_eq!(fill_bytes[106..112], [0; 6]);
+
             for (offset, value, expected) in [
                 (104, 0, EnvelopeCodecFaultV1::UnknownFillSide),
                 (105, 0, EnvelopeCodecFaultV1::UnknownFillDisposition),
-                (106, 1, EnvelopeCodecFaultV1::NonZeroReserved),
+                (106, 3, EnvelopeCodecFaultV1::UnknownFillLeg),
+                (107, 1, EnvelopeCodecFaultV1::NonZeroReserved),
             ] {
                 let mut malformed = fill_bytes;
                 malformed[offset] = value;
@@ -4934,6 +5182,443 @@ mod tests {
         }
 
         #[rstest]
+        fn a_protective_stop_reduces_then_closes_the_position_and_clears_its_protection() {
+            let mut kernel = long_position(5, stop_at(90));
+            let entered = kernel.checkpoint();
+            assert_eq!(entered.reconciled_position_units, 5);
+            assert_eq!(entered.fill_frontier.leg, FillLegV1::Intent);
+            assert_eq!(entered.fill_frontier.cumulative_filled_units, 5);
+            assert_eq!(
+                entered.encode()[513],
+                0,
+                "an intent frontier keeps its bytes"
+            );
+
+            let partial = kernel
+                .apply(
+                    envelope(
+                        4,
+                        LifecycleKind::Fill,
+                        protective(
+                            1,
+                            FillLegV1::StopLoss,
+                            FillSideV1::Sell,
+                            FillDispositionV1::PartiallyFilled,
+                            2,
+                        ),
+                    ),
+                    None,
+                )
+                .unwrap()
+                .trace;
+            assert_eq!(
+                (partial.position_before_units, partial.position_after_units),
+                (5, 3)
+            );
+            assert_eq!(
+                partial.fill_disposition,
+                Some(FillDispositionV1::PartiallyFilled)
+            );
+            let open = kernel.checkpoint();
+            assert_eq!(
+                open.fill_frontier,
+                FillFrontierV1 {
+                    intent_identity: identity(201),
+                    cumulative_filled_units: 2,
+                    terminal_disposition: None,
+                    leg: FillLegV1::StopLoss,
+                }
+            );
+            assert_eq!(open.pending_intent, None);
+            assert_eq!(
+                open.protection,
+                stop_at(90),
+                "a part-closed position stays guarded"
+            );
+
+            // An open protective frontier is a valid checkpoint: it decodes, restores and
+            // re-encodes to the same bytes.
+            let bytes = open.encode();
+            let decoded = CheckpointV1::decode(&bytes).unwrap();
+            assert_eq!(decoded, open);
+            let restored = LifecycleKernelV1::restore(identities(), decoded).unwrap();
+            assert_eq!(restored.checkpoint().encode(), bytes);
+
+            let closed = kernel
+                .apply(
+                    envelope(
+                        5,
+                        LifecycleKind::Fill,
+                        protective(
+                            1,
+                            FillLegV1::StopLoss,
+                            FillSideV1::Sell,
+                            FillDispositionV1::Filled,
+                            5,
+                        ),
+                    ),
+                    None,
+                )
+                .unwrap()
+                .trace;
+            assert_eq!(
+                (closed.position_before_units, closed.position_after_units),
+                (3, 0)
+            );
+            let flat = kernel.checkpoint();
+            assert_eq!(flat.reconciled_position_units, 0);
+            assert_eq!(flat.protection, ProtectionStateV1::default());
+            assert_eq!(
+                flat.fill_frontier.terminal_disposition,
+                Some(FillDispositionV1::Filled)
+            );
+            assert_eq!(
+                LifecycleKernelV1::restore(identities(), flat)
+                    .unwrap()
+                    .checkpoint(),
+                flat
+            );
+
+            // Flat again, the program may enter afresh, and the old stop no longer guards it.
+            kernel
+                .apply(
+                    envelope(6, LifecycleKind::Bar, EnvelopePayloadV1::Bar),
+                    Some(proposal(
+                        2,
+                        PositionIntentV1::Enter,
+                        TargetProposalV1::Position(4),
+                        Some(4),
+                        ProtectionProposalV1::Keep,
+                    )),
+                )
+                .unwrap();
+            assert_eq!(kernel.checkpoint().protection, ProtectionStateV1::default());
+        }
+
+        #[rstest]
+        fn a_take_profit_leg_closes_a_short() {
+            let protection = ProtectionStateV1 {
+                stop_loss_ticks: Some(110),
+                take_profit_ticks: Some(80),
+                trailing_distance_ticks: None,
+                trailing_stop_ticks: None,
+            };
+            let mut kernel = LifecycleKernelV1::new(identities()).unwrap();
+            kernel
+                .apply(
+                    envelope(1, LifecycleKind::Start, EnvelopePayloadV1::Start),
+                    None,
+                )
+                .unwrap();
+            kernel
+                .apply(
+                    envelope(2, LifecycleKind::Bar, EnvelopePayloadV1::Bar),
+                    Some(proposal(
+                        1,
+                        PositionIntentV1::Enter,
+                        TargetProposalV1::Position(-3),
+                        Some(-3),
+                        ProtectionProposalV1::Replace(protection),
+                    )),
+                )
+                .unwrap();
+            kernel
+                .apply(
+                    envelope(
+                        3,
+                        LifecycleKind::Fill,
+                        fill(1, FillSideV1::Sell, FillDispositionV1::Filled, 3),
+                    ),
+                    None,
+                )
+                .unwrap();
+            let short = kernel.checkpoint().encode();
+            assert_eq!(
+                kernel.apply(
+                    envelope(
+                        4,
+                        LifecycleKind::Fill,
+                        protective(
+                            1,
+                            FillLegV1::TakeProfit,
+                            FillSideV1::Sell,
+                            FillDispositionV1::Filled,
+                            3,
+                        ),
+                    ),
+                    None
+                ),
+                Err(KernelFaultV1::ProtectiveFillDoesNotReduce),
+                "a short is reduced by buying"
+            );
+            assert_eq!(kernel.checkpoint().encode(), short);
+            kernel
+                .apply(
+                    envelope(
+                        4,
+                        LifecycleKind::Fill,
+                        protective(
+                            1,
+                            FillLegV1::TakeProfit,
+                            FillSideV1::Buy,
+                            FillDispositionV1::Filled,
+                            3,
+                        ),
+                    ),
+                    None,
+                )
+                .unwrap();
+            assert_eq!(kernel.checkpoint().reconciled_position_units, 0);
+            assert_eq!(kernel.checkpoint().fill_frontier.leg, FillLegV1::TakeProfit);
+            assert_eq!(kernel.checkpoint().protection, ProtectionStateV1::default());
+        }
+
+        #[rstest]
+        fn protective_fills_the_checkpoint_cannot_account_for_are_refused_by_name() {
+            let stop = |order, side, disposition, cumulative| {
+                protective(order, FillLegV1::StopLoss, side, disposition, cumulative)
+            };
+            let refused = |kernel: &mut LifecycleKernelV1,
+                           sequence: u64,
+                           payload: EnvelopePayloadV1,
+                           expected: KernelFaultV1| {
+                let before = kernel.checkpoint().encode();
+                assert_eq!(
+                    kernel.apply(envelope(sequence, LifecycleKind::Fill, payload), None),
+                    Err(expected)
+                );
+                assert_eq!(kernel.checkpoint().encode(), before, "{expected:?}");
+            };
+
+            let mut kernel = long_position(5, stop_at(90));
+            refused(
+                &mut kernel,
+                4,
+                protective(
+                    1,
+                    FillLegV1::TakeProfit,
+                    FillSideV1::Sell,
+                    FillDispositionV1::Filled,
+                    5,
+                ),
+                KernelFaultV1::ProtectiveLegNotArmed,
+            );
+            refused(
+                &mut kernel,
+                4,
+                // The same stop reported as an intent fill has no pending intent to advance.
+                protective(
+                    1,
+                    FillLegV1::Intent,
+                    FillSideV1::Sell,
+                    FillDispositionV1::Filled,
+                    5,
+                ),
+                KernelFaultV1::FillWithoutIntent,
+            );
+            refused(
+                &mut kernel,
+                4,
+                stop(1, FillSideV1::Buy, FillDispositionV1::Filled, 1),
+                KernelFaultV1::ProtectiveFillDoesNotReduce,
+            );
+            refused(
+                &mut kernel,
+                4,
+                stop(1, FillSideV1::Sell, FillDispositionV1::Filled, 6),
+                KernelFaultV1::ProtectiveFillDoesNotReduce,
+            );
+            refused(
+                &mut kernel,
+                4,
+                stop(1, FillSideV1::Sell, FillDispositionV1::Canceled, 0),
+                KernelFaultV1::InvalidFillProgress,
+            );
+            refused(
+                &mut kernel,
+                4,
+                stop(1, FillSideV1::Sell, FillDispositionV1::Filled, 0),
+                KernelFaultV1::InvalidFillProgress,
+            );
+
+            let unprotected = &mut long_position(5, ProtectionStateV1::default());
+            refused(
+                unprotected,
+                4,
+                stop(1, FillSideV1::Sell, FillDispositionV1::Filled, 5),
+                KernelFaultV1::ProtectiveLegNotArmed,
+            );
+
+            // A part-filled stop holds the frontier: only the same order may continue or close it,
+            // and nothing may open an intent beside it.
+            kernel
+                .apply(
+                    envelope(
+                        4,
+                        LifecycleKind::Fill,
+                        stop(1, FillSideV1::Sell, FillDispositionV1::PartiallyFilled, 2),
+                    ),
+                    None,
+                )
+                .unwrap();
+            let open = kernel.checkpoint().encode();
+
+            for (payload, expected) in [
+                (
+                    stop(2, FillSideV1::Sell, FillDispositionV1::Filled, 1),
+                    KernelFaultV1::FillIdentityMismatch,
+                ),
+                (
+                    protective(
+                        1,
+                        FillLegV1::TakeProfit,
+                        FillSideV1::Sell,
+                        FillDispositionV1::Filled,
+                        3,
+                    ),
+                    KernelFaultV1::ProtectiveLegNotArmed,
+                ),
+                (
+                    stop(1, FillSideV1::Sell, FillDispositionV1::PartiallyFilled, 2),
+                    KernelFaultV1::InvalidFillProgress,
+                ),
+                (
+                    stop(1, FillSideV1::Sell, FillDispositionV1::Canceled, 3),
+                    KernelFaultV1::InvalidFillProgress,
+                ),
+            ] {
+                assert_eq!(
+                    kernel.apply(envelope(5, LifecycleKind::Fill, payload), None),
+                    Err(expected)
+                );
+                assert_eq!(kernel.checkpoint().encode(), open, "{expected:?}");
+            }
+            assert_eq!(
+                kernel.apply(
+                    envelope(5, LifecycleKind::Bar, EnvelopePayloadV1::Bar),
+                    Some(proposal(
+                        2,
+                        PositionIntentV1::Exit,
+                        TargetProposalV1::Position(0),
+                        Some(0),
+                        ProtectionProposalV1::Clear,
+                    )),
+                ),
+                Err(KernelFaultV1::ProtectiveFillInProgress)
+            );
+            assert_eq!(kernel.checkpoint().encode(), open);
+
+            // Canceling the rest of the stop closes its frontier and keeps what filled.
+            kernel
+                .apply(
+                    envelope(
+                        5,
+                        LifecycleKind::Fill,
+                        stop(1, FillSideV1::Sell, FillDispositionV1::Canceled, 2),
+                    ),
+                    None,
+                )
+                .unwrap();
+            assert_eq!(kernel.checkpoint().reconciled_position_units, 3);
+            assert_eq!(
+                kernel.checkpoint().fill_frontier.terminal_disposition,
+                Some(FillDispositionV1::Canceled)
+            );
+            refused(
+                &mut kernel,
+                6,
+                stop(1, FillSideV1::Sell, FillDispositionV1::Filled, 3),
+                KernelFaultV1::FillIdentityMismatch,
+            );
+        }
+
+        #[rstest]
+        fn a_protective_fill_waits_for_a_pending_intent() {
+            let mut kernel = long_position(5, stop_at(90));
+            kernel
+                .apply(
+                    envelope(4, LifecycleKind::Bar, EnvelopePayloadV1::Bar),
+                    Some(proposal(
+                        2,
+                        PositionIntentV1::Add,
+                        TargetProposalV1::Position(8),
+                        Some(8),
+                        ProtectionProposalV1::Keep,
+                    )),
+                )
+                .unwrap();
+            let pending = kernel.checkpoint().encode();
+            assert_eq!(
+                kernel.apply(
+                    envelope(
+                        5,
+                        LifecycleKind::Fill,
+                        protective(
+                            1,
+                            FillLegV1::StopLoss,
+                            FillSideV1::Sell,
+                            FillDispositionV1::Filled,
+                            5,
+                        ),
+                    ),
+                    None
+                ),
+                Err(KernelFaultV1::ProtectiveFillWithPendingIntent)
+            );
+            assert_eq!(kernel.checkpoint().encode(), pending);
+        }
+
+        #[rstest]
+        fn restore_refuses_a_protective_frontier_the_kernel_could_not_have_written() {
+            let mut kernel = long_position(5, stop_at(90));
+            kernel
+                .apply(
+                    envelope(
+                        4,
+                        LifecycleKind::Fill,
+                        protective(
+                            1,
+                            FillLegV1::StopLoss,
+                            FillSideV1::Sell,
+                            FillDispositionV1::PartiallyFilled,
+                            2,
+                        ),
+                    ),
+                    None,
+                )
+                .unwrap();
+            let open = kernel.checkpoint();
+
+            let mut intent_left_open = open;
+            intent_left_open.fill_frontier.leg = FillLegV1::Intent;
+            intent_left_open.last_trace.fill_frontier = intent_left_open.fill_frontier;
+            assert_eq!(
+                LifecycleKernelV1::restore(identities(), intent_left_open),
+                Err(KernelFaultV1::InvalidCheckpoint)
+            );
+
+            let mut beside_a_pending_intent = open;
+            beside_a_pending_intent.pending_intent = Some(PendingIntentV1 {
+                intent_identity: identity(150),
+                side: FillSideV1::Buy,
+                expected_units: 1,
+                cumulative_filled_units: 0,
+            });
+            assert_eq!(
+                LifecycleKernelV1::restore(identities(), beside_a_pending_intent),
+                Err(KernelFaultV1::InvalidCheckpoint)
+            );
+
+            let initial = LifecycleKernelV1::new(identities()).unwrap().checkpoint();
+            let mut leg_without_identity = initial;
+            leg_without_identity.fill_frontier.leg = FillLegV1::StopLoss;
+            assert_eq!(
+                LifecycleKernelV1::restore(identities(), leg_without_identity),
+                Err(KernelFaultV1::InvalidCheckpoint)
+            );
+        }
+
+        #[rstest]
         fn restore_rejects_identity_and_checkpoint_mismatch() {
             let mut kernel = LifecycleKernelV1::new(identities()).unwrap();
             kernel
@@ -5092,6 +5777,18 @@ mod tests {
             assert_eq!(
                 CheckpointV1::decode(&bad),
                 Err(CheckpointCodecFaultV1::UnknownFillDisposition)
+            );
+            bad = bytes;
+            bad[513] = 3;
+            assert_eq!(
+                CheckpointV1::decode(&bad),
+                Err(CheckpointCodecFaultV1::UnknownFillLeg)
+            );
+            bad = bytes;
+            bad[514] = 1;
+            assert_eq!(
+                CheckpointV1::decode(&bad),
+                Err(CheckpointCodecFaultV1::NonZeroReserved)
             );
             bad = bytes;
             bad[560] = 2;

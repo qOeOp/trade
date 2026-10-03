@@ -148,6 +148,7 @@ readonly rd_owner_postgres_tests=(
   'vibe-backtest-owner|vibe_backtest_owner|tests::postgres_result_directory_lists_one_requests_results_without_a_row_lock'
   'vibe-strategy-factory|vibe_strategy_factory|product_edge_postgres::tests::a_frozen_research_intent_continues_under_its_admission_past_its_views_window'
   'vibe-strategy-factory|vibe_strategy_factory|iteration_decision_postgres::postgres_acceptance_tests::a_phase_fact_stops_a_frozen_intent_and_its_successor_continues_at_the_new_generation'
+  'vibe-strategy-factory-rd-owner-api|rd_owner_api_main|tests::the_first_composer_v3_replay_runs_as_its_one_member_universe_and_is_reported'
   'vibe-strategy-factory|vibe_strategy_factory|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only'
 )
 readonly nextest_graph_args=(
@@ -214,13 +215,44 @@ fi
 readonly nextest_execution_args=(--fail-fast --run-ignored ignored-only --success-output final --no-tests=fail)
 readonly candidate_experiment_upgrade_seed_test='trial_family_postgres::postgres_binding_tests::canonical_candidate_experiment_upgrade_seed_is_owner_issued_and_locked_readback_exact'
 
+# The first COMPOSER_V3 Replay (F, `first_composer_v3_replay_acceptance`) leaves the shared chain
+# store unusable for starting Research on any other instrument, in two ways that have no way back:
+# - H0 admits LINKUSDT-PERP.BINANCE's historical membership as Market Data's newest eligible
+#   frontier, so the current frontier names only that perpetual; a later Research scope naming
+#   another instrument is refused at the scope check as NotInEligibleFrontier;
+# - H0's Source Binding admission moves Market Data's clock head to wall-clock time, and the
+#   fixture instrument AAPL.XNAS has a V1 Instrument Master fact valid only in [10, 200) ns, so a
+#   later Research on it is refused as InstrumentScopeNotEligible (measured by Lane 4).
+# F also advances the sealed acceptance Catalog V3 head to a schema 2 record at BINANCE, so a later
+# family would form against it rather than the schema 1 head at SIM.
+# So nothing may run after F on the database F wrote except the entries below, each with the reason
+# it tolerates that state. This holds in the serial run (check_nextest_graph_contract) and in every
+# shard (check_chain_shard_after_f), where a component's entries share F's database only within
+# F's own component; the next component starts from the rebuilt template. A new entry goes before F
+# unless it is added here with its reason. Removing this guard lets such an entry pass locally in
+# isolation and fail only on the shared chain, at a refusal that names the instrument, not F.
+readonly chain_f_entry='|tests::the_first_composer_v3_replay_runs_as_its_one_member_universe_and_is_reported'
+readonly chain_after_f_allowed=(
+  # The destructive drain reads and drains legacy prepared Artifact rows only; it starts no
+  # Research and reads no Market Data frontier or Instrument Master fact.
+  '|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only'
+)
+
+chain_entry_may_follow_f() {
+  local allowed
+  for allowed in "${chain_after_f_allowed[@]}"; do
+    [[ "$1" == *"$allowed" ]] && return 0
+  done
+  return 1
+}
+
 check_nextest_graph_contract() {
   if rg -n '^[[:space:]]*cargo[[:space:]]+test([[:space:]]|$)' "${BASH_SOURCE[0]}"; then
     echo "ERROR: isolated PostgreSQL tests must use the shared nextest graph." >&2
     return 1
   fi
-  if [[ "${#rd_owner_postgres_tests[@]}" -ne 119 ]]; then
-    echo "ERROR: isolated PostgreSQL test selection must retain all 119 ordered tests, found ${#rd_owner_postgres_tests[@]}." >&2
+  if [[ "${#rd_owner_postgres_tests[@]}" -ne 120 ]]; then
+    echo "ERROR: isolated PostgreSQL test selection must retain all 120 ordered tests, found ${#rd_owner_postgres_tests[@]}." >&2
     return 1
   fi
   if [[ "${rd_owner_postgres_tests[0]}" != *'|replay_policy_catalog_postgres_v2::postgres_tests::catalog_admin_and_family_formation_are_atomic_and_fail_closed' ]] ||
@@ -351,8 +383,22 @@ check_nextest_graph_contract() {
     [[ "${rd_owner_postgres_tests[115]}" != *'|tests::postgres_result_directory_lists_one_requests_results_without_a_row_lock' ]] ||
     [[ "${rd_owner_postgres_tests[116]}" != *'|product_edge_postgres::tests::a_frozen_research_intent_continues_under_its_admission_past_its_views_window' ]] ||
     [[ "${rd_owner_postgres_tests[117]}" != *'|iteration_decision_postgres::postgres_acceptance_tests::a_phase_fact_stops_a_frozen_intent_and_its_successor_continues_at_the_new_generation' ]] ||
-    [[ "${rd_owner_postgres_tests[118]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]]; then
+    [[ "${rd_owner_postgres_tests[118]}" != *'|tests::the_first_composer_v3_replay_runs_as_its_one_member_universe_and_is_reported' ]] ||
+    [[ "${rd_owner_postgres_tests[119]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]]; then
     echo "ERROR: isolated PostgreSQL test ordering must remain fresh-first and destructive-drain-last." >&2
+    return 1
+  fi
+  # The serial run: only `chain_after_f_allowed` may follow F (see its declaration).
+  local f_seen=0 entry
+  for entry in "${rd_owner_postgres_tests[@]}"; do
+    if ((f_seen)) && ! chain_entry_may_follow_f "$entry"; then
+      echo "ERROR: ${entry##*|} follows the first COMPOSER_V3 Replay, which leaves the shared store unusable for any other instrument's Research; order it before that entry." >&2
+      return 1
+    fi
+    [[ "$entry" == *"$chain_f_entry" ]] && f_seen=1
+  done
+  if ((!f_seen)); then
+    echo "ERROR: the first COMPOSER_V3 Replay entry the after-F guard orders around is missing." >&2
     return 1
   fi
   if [[ "${nextest_graph_args[*]}" != '--locked --package vibe-strategy-factory --package vibe-strategy-factory-rd-owner-api --package vibe-product-edge --package vibe-operator-authorization --package vibe-backtest-owner --package vibe-data --package vibe-qualification --package vibe-execution-owner --package vibe-portfolio-owner --package vibe-strategy-governance --package vibe-scanner-custody --package vibe-risk-owner --package vibe-product-edge-routing-api --lib --tests' ]] ||
@@ -501,7 +547,7 @@ for line in array_body.splitlines():
     entries.append(tuple(fields))
 # The count lives in one place. Writing it into the message as well lets the two drift, and the
 # drifted form reads as nonsense the moment it fires: "must contain 92 entries, found 92".
-expected_entries = 119
+expected_entries = 120
 if len(entries) != expected_entries:
     raise SystemExit(
         f"ERROR: ordered PostgreSQL test literal must contain {expected_entries} entries, found {len(entries)}."
@@ -2495,10 +2541,32 @@ check_chain_component_filter() {
   fi
 }
 
+# Every shard: after F's own step, nothing else of F's component runs unless it may follow F. Other
+# components start from the rebuilt template, so only F's component shares its database.
+check_chain_shard_after_f() {
+  local shard order position kind component f_component='' selection
+  while IFS= read -r shard; do
+    order="$(chain_run_order=() chain_shard_entry_count=0 && load_chain_shard "$shard" && printf '%s\n' "${chain_run_order[@]}")"
+    f_component=''
+    while IFS='|' read -r position kind component; do
+      selection="${rd_owner_postgres_tests[$((position - 1))]}"
+      if [[ -n "$f_component" && "$component" == "$f_component" ]] &&
+        ! chain_entry_may_follow_f "$selection"; then
+        echo "ERROR: in ${shard}, ${selection##*|} runs after the first COMPOSER_V3 Replay on the database it wrote; order it before that entry or put it in another component." >&2
+        return 1
+      fi
+      if [[ "$kind" == entry && "$selection" == *"$chain_f_entry" ]]; then
+        f_component="$component"
+      fi
+    done <<< "$order"
+  done < <(awk -F'\t' '!/^#/ { print $1 }' "$chain_shard_list" | sort -u)
+}
+
 check_chain_record_report
 check_chain_partial_report
 if [[ "$chain_reports_only" != true ]]; then
   check_chain_component_filter
+  check_chain_shard_after_f
   check_postgres_crash_reading
   check_chain_sleep_reading
   check_chain_shard_plan

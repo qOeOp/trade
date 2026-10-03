@@ -243,21 +243,55 @@ class FfmpegMedia:
                 )
             )
 
-        # Two broad anchors protect non-deictic videos from a cue-only blind spot.
-        for ratio in (1 / 3, 2 / 3):
-            if requested_frames >= 5:
+        # Cover the complete timeline, including the ending; never truncate the tail.
+        target_count = min(
+            48, max(5, requested_frames, math.ceil(source.source.duration_ms / 6000))
+        )
+        # Prefer sentence-bound samples, so silence does not create a false text binding.
+        covered = {segment.evidence_id for segment in selected_segments}
+        centers = [(segment.start_ms + segment.end_ms) // 2 for segment in selected_segments]
+        probes = sorted(
+            {(s.start_ms + s.end_ms) // 2 for s in source.transcript.segments}
+            | {
+                source.source.duration_ms * index // target_count
+                for index in range(1, target_count)
+            }
+        )
+        for _ in range(target_count - requested_frames):
+            choices = [
+                (
+                    timestamp,
+                    min(
+                        source.transcript.segments,
+                        key=lambda s: max(s.start_ms - timestamp, timestamp - s.end_ms + 1, 0),
+                    ),
+                )
+                for timestamp in probes
+                if timestamp not in centers
+            ]
+            if not choices:
                 break
-            timestamp = min(
-                source.source.duration_ms - 1,
-                max(0, int(source.source.duration_ms * ratio)),
-            )
-            segment = min(
-                source.transcript.segments,
-                key=lambda item: (
-                    0
-                    if item.start_ms <= timestamp <= item.end_ms
-                    else min(abs(timestamp - item.start_ms), abs(timestamp - item.end_ms))
+            timestamp, segment = max(
+                choices,
+                key=lambda pair: (
+                    pair[1].evidence_id not in covered,
+                    min(
+                        (abs(pair[0] - center) for center in centers),
+                        default=source.source.duration_ms,
+                    ),
+                    -pair[0],
                 ),
+            )
+            timestamp = min(max(timestamp, segment.start_ms), segment.end_ms - 1)
+            centers.append(timestamp)
+            covered.add(segment.evidence_id)
+            # Let short spoken steps finish before sampling their completed visual state.
+            # Sparse/coarse transcripts retain the time grid instead of collapsing frames.
+            decode_timestamp = (
+                max(segment.start_ms, segment.end_ms - 150)
+                if len(source.transcript.segments) >= target_count
+                and segment.end_ms - segment.start_ms <= 10_000
+                else timestamp
             )
             ordinal += 1
             requested_frames += 1
@@ -269,7 +303,7 @@ class FfmpegMedia:
                     retain_ordered=False,
                     decoded=self._decode(
                         source.media_path,
-                        timestamp,
+                        decode_timestamp,
                         workspace,
                         f"coverage-{ordinal}",
                         width,
@@ -368,7 +402,7 @@ class FfmpegMedia:
                     )
                 )
         group_count = len({frame.group_id for frame in frames})
-        if not 2 <= len(frames) <= 5 or not 2 <= group_count <= 5:
+        if not 2 <= len(frames) <= 48 or not 2 <= group_count <= 48:
             raise BilibiliNoteFailure("VISUAL_EVIDENCE_INCOMPLETE", "visual_count_invalid")
         return tuple(frames)
 

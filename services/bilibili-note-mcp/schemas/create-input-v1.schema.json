@@ -1,6 +1,16 @@
 {
   "additionalProperties": false,
   "properties": {
+    "quality": {
+      "default": "standard",
+      "enum": [
+        "fast",
+        "standard",
+        "precise"
+      ],
+      "title": "Quality",
+      "type": "string"
+    },
     "url": {
       "maxLength": 2048,
       "minLength": 1,

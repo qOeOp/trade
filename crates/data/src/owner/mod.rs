@@ -25,6 +25,7 @@ pub mod observation_census;
 pub mod pit_market_snapshot_intake_v1;
 pub mod pit_observation_source_v1;
 pub mod pit_snapshot;
+pub mod pit_window_custody_v1;
 pub mod replay_market_facts_v2;
 pub mod research_instrument_scope_v1;
 pub mod research_pit_references_v1;

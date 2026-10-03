@@ -915,3 +915,28 @@ def test_worker_request_rejects_noncanonical_or_symlink_workspace(tmp_path: Path
 
 def test_termination_signal_is_posix_process_group_signal() -> None:
     assert signal.SIGTERM != signal.SIGKILL
+
+
+def test_pinned_http_downloader_flattened_short_read_keeps_bounded_retry_classification():
+    from yt_dlp import YoutubeDL
+    from yt_dlp.downloader.http import HttpFD
+
+    with YoutubeDL({"quiet": True, "logger": worker._QuietLogger()}) as downloader:
+        with pytest.raises(DownloadError) as failure:
+            HttpFD(downloader, {}).report_retry(ContentTooShortError(1571863, 17971064), 1, 0)
+    classified = worker._classify_failure(failure.value)
+    assert classified.cause == "transient"
+    assert classified.failure_family == "content_short"
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "Downloaded 1 bytes, expected 2 bytes",
+        "ERROR: [download] Got error: Downloaded 2 bytes, expected 1 bytes",
+        "ERROR: [download] Got error: Downloaded 1 bytes, expected 999999999999 bytes",
+        "ERROR: [download] Got error: Downloaded 1 bytes, expected 2 bytes http://private.invalid",
+    ],
+)
+def test_short_read_retry_does_not_accept_lookalike_upstream_text(message):
+    assert worker._classify_failure(DownloadError(message)).failure_family == "unknown"

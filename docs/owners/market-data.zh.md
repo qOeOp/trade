@@ -213,6 +213,7 @@ ACL 拒绝。它不证明供应商真实性，不证明生产装配，也不证�
 | 供应商 Data Clients                               | `CURRENT / PARTIAL`                                                                | `crates/adapters/databento/src/pit_observation_source_v1.rs` 与 `crates/adapters/binance/src/pit_observation_source_v1.rs`，均已实盘验证                                                                        | `B6`       |
 | 面向 Runtime 的实时行情事实通道                   | `CURRENT / PARTIAL`，一条通道                                                      | `owner/live_market_fact_v1.rs`、`owner/live_market_stream_v1.rs`、`owner/postgres/live_market_stream_v1.rs`、`crates/adapters/bybit/src/live_market_fact_source_v1.rs`                                          | `B8`       |
 | Binance 永续已结算 funding 行                     | `CURRENT / PARTIAL`                                                                | `crates/adapters/binance/src/futures_pit_observation_source_v1.rs`                                                                                                                                              | `B6`       |
+| Binance bar 成交量与 taker 买入量                 | `CURRENT / PARTIAL`                                                                | `crates/adapters/binance/src/pit_observation_source_v1.rs`、`futures_pit_observation_source_v1.rs`                                                                                                              | `B6`       |
 | Owner 时钟随 PIT 摄入推进                         | `TARGET`，排在 U1 之后                                                             | 无；PIT 摄入在当前时钟 head 上提交（`owner/postgres.rs`）                                                                                                                                                       | 无         |
 | 只发布 bar 的来源的成交 bar 报价 cut              | `TARGET`，在 U1 路径上                                                             | 无；报价 cut 只装观测到的 Quote 行（`owner/native_replay_quote_cut_v2.rs`）                                                                                                                                     | 无         |
 | 伴随报价 lineage                                  | `TARGET`，排在 U1 之后                                                             | 无                                                                                                                                                                                                              | 无         |
@@ -2070,9 +2071,15 @@ sealed 验收提议者：帧的 batch 指明它的 Source Binding fact，角色�
 必须逐字段陈述所声明的 cadence、anchor、clock、label 与 completion。角色标签、行标签与声明的 `row_timeframe` 都作为
 provenance 字符串比较：相等只确认角色读的正是这条声明所说的那些行，并不说明标签的含义。schedule 的 anchor identity 是
 `market-data.bar-schedule.anchor.v1\0 || anchor tag` 的 SHA-256，所以同一个 anchor 在每个 schedule 上含义相同；连续时
-钟无论 Instrument Master 写什么，都绑定为零的 calendar 与 session identity，交易日程时钟两者都绑定。该读按名拒绝没有
-声明任何 bar 周期的 binding（`SourceBindingDeclaresNoBarTimeframe`），并按名拒绝没有对应声明的角色标签、来自其他
-binding 的声明，以及在帧上所有 schedule 都陈述别的 bar 的成员（`DeclaredBarTimeframeMismatch`）。一个角色有多个周
+钟无论 Instrument Master 写什么，都绑定为零的 calendar 与 session identity，交易日程时钟两者都绑定。在 native Replay
+排程读中，行标签是执行角色的：Market Data 用 `execution_role_semantic_id_v1` 从请求的角色自行推出该角色，这是 Strategy
+Factory 的规则（`derive_execution_role_v2`）：universe Design 不声明 join，所以执行角色就是唯一读 BAR 收盘的那个角色。
+调用方不指名它。该读按名拒绝没有读收盘的角色的请求（`ExecutionRoleAbsent`）、读收盘的角色多于一个的请求
+（`ExecutionRoleAmbiguous`），以及另有 BAR 角色读不同标签的请求（`MoreThanOneRoleTimeframe`）：在 Strategy Factory 切片
+T2 为每个角色解析其自己的最近一次收盘之前，每个角色都按执行角色的 bar 读取。它按名拒绝没有声明任何 bar 周期的
+binding（`SourceBindingDeclaresNoBarTimeframe`），以及 binding 没有为其声明 bar、因而无法定型的执行标签
+（`ExecutionTimeframeNotDeclared`）；来自其他 binding 的声明，或在帧上所有 schedule 都陈述别的 bar 的成员，为
+`DeclaredBarTimeframeMismatch`。一个角色有多个周
 期无法构造：一个角色只有一个标签，一个标签只有一条声明。一个 Design 里的多个周期就是多个角色，或者在同一条 binding
 的不同标签下（如下面已准入的 joined-cut 语料），或者在不同 binding 下（例如同一品种的 1 小时源与 1 日源）；Strategy
 Factory 切片 T2 正是按这个形状为每个角色解析其最近一次收盘。声明是否符合市场，是 binding 作者的陈述，与 availability
@@ -2317,6 +2324,29 @@ Backtest 的组合与 Market Data 之外的每个读者也属于 T1；T2（多�
   来的更正取代掉的那个版本。它的版本是在报价时刻自己的可得时刻之前发布的最高序号，更晚的更正也只在那个时刻取代它：成交
   在决策之后，而在 `d_k` 上没有报价能入选，因为报价的事件在 `d_k` 之后。这只关乎成交报价。帧 `k` 的策略输入仍然截在
   `d_k`，所以在 `d_k` 与报价可得时刻之间发布的更正会到达成交报价，绝不到达帧 `k` 的输入。
+- **接口：** `crates/data/src/owner/pit_window_custody_v1.rs` 冻结回填写入方提交的内容，以及多帧消费方如何找到一次运行的
+  帧；在托管聚合与派生视图实现它的两个 sealed 端口之前，没有任何东西能构造回执或帧坐标。
+  - 托管请求指名它的 Source Binding、Market Semantics fact、Universe Selection record、一到两个成员、窗口、执行周期、
+    输入周期与可选的成交周期。执行周期由托管指名，不由运行指名，因为托管的提交会铸出窗口 schedule；滞后不低于其间隔的，
+    在提交时拒绝，不严格细于它的成交周期也一样。同时又是输入周期的成交周期按名拒绝为
+    `FILL_TIMEFRAME_IS_AN_INPUT_TIMEFRAME`，否则成交行会到达策略输入。`WINDOW_MEMBER_NOT_VALID_THROUGHOUT` 同时覆盖
+    Instrument Master 有效期与请求所指名的 Universe 成员资格。
+  - 每个 cross-section 版本陈述它的种类（原始、更正或撤回，撤回不带任何行）、它的序号以及它所替换的版本。只有发布更正的
+    来源才陈述发布时刻；其余来源由 Owner 把它推导为该版本的可得时刻，陈述了的按
+    `CROSS_SECTION_CORRECTION_NOT_PUBLISHED_BY_SOURCE` 拒绝。
+  - 每一行都带着它被真实取回的时刻与来处，作为托管证据，不进任何 identity，所以带着别的取回证据重新提交同样的版本会
+    rejoin，并返回原来的回执与铸造 cut。在 availability rule 设为取回时刻时，行的可得时刻是托管的铸造 cut，绝不是调用方
+    陈述的取回时刻；在这个 cut 之后取回的行按 `RETRIEVAL_AFTER_MINTING_CUT` 拒绝。
+  - 运行以托管链的根指名一条链，这是一个不受信的声明，由 Owner 解析到链的 head，并陈述它自己落在托管窗口之内的窗口。它的
+    帧以坐标返回：序号、`e_k` 与 `d_k`，其中 `d_k` 是帧 `k` 的执行 cross-section 推导出的可得时刻，从它指名的 head 上读出。
+    之后每一帧的输入与报价 cut 经原生 Replay resolver 解析，它的请求在派生视图那一片获得托管帧来源。这个来源指名链根、读出这些
+    帧的 head 以及 `e_k`，所以在枚举与逐帧读取之间提交的更正不会把两个 head 混进同一次运行；不在该链上的 head 会被拒绝。每个间隙都有它的报价
+    cut，最后一个以运行的结束为界，缺报价 cut 的间隙让运行按 `QuoteCutMissing` 拒绝。
+  - batch 的来源是已提交的快照、托管视图或托管报价 cut。托管视图指名它所在链的根而不是 head，并带着视图 identity、`e_k`、
+    `d_k` 与派生 frontier，所以一次更正只改变选中它的那些视图。托管报价 cut 只装 Quote 行，绝不装成交 bar，并指名它的
+    派生方式。
+  - funding 结算这类事件行不由 T0 持有：一个 binding 只陈述一条 availability rule，而它们没有可以锚定规则的 bar 收盘。
+    它们以后在自己的 binding 下进入托管。
 
 在 CURRENT/PARTIAL BAR schedule 路径中，只有具备 custody verification 的 readback 才能授权以准确 V1
 binding-receipt digest 为键的新增 immutable `TimeframeProjectionReceiptV1`。其既有 canonical bytes 与 domain
@@ -2612,6 +2642,20 @@ executable maturity、Backtest 产品闭合（包括 inverse/quanto target-consu
 Dashboard/default-database 准入或 trading authority。这些 Backtest 限制不创建 Market Data instrument-class
 rejection。
 
+### CURRENT/PARTIAL Binance bar 成交量与 taker 买入量
+
+两个 Binance Data Client，即现货（`crates/adapters/binance/src/pit_observation_source_v1.rs`）与 USD-M 永续，都在已收盘
+bar 的 `OPEN`、`HIGH`、`LOW`、`CLOSE` 旁边陈述它的 `VOLUME` 与 `TAKER_BUY_VOLUME`，以基础资产为单位，用 bar 自己的
+timeframe。两个数与价格来自同一个 kline 响应，所以不增加请求。
+
+- **为什么需要 `VOLUME`。** 每个原生 Replay 帧都恰好用 `OPEN`、`HIGH`、`LOW`、`CLOSE` 与 `VOLUME` 投影出一根 bar
+  （`native_replay_scheduling_v1.rs` 与 `native_replay_scheduling_v2.rs` 中的 `BAR_FIELDS`），census 缺其中任何一个的成员都会被拒绝。
+  没有 `VOLUME`，从 Binance 快照铸出的帧一个都投影不出来。
+- **taker 卖出量不是一行。** 它等于 `VOLUME - TAKER_BUY_VOLUME`，在消费方第一次需要它的地方推导，不陈述两次。
+- **数值按发布原样。** 永续的数量是交易所的十进制字符串；现货的数量是交易所的 128 位 mantissa，配响应中的数量指数。
+- **状态。** 两个 client 今天都会给出这两行，任何指定它们的部署都会得到。帧投影仍然受上文 Binance quote 缺口的阻挡。这些行由交易所替身测试、
+  两个 live 源测试，以及无凭据的 Market Data 端到端证明断言。
+
 ### CURRENT/PARTIAL Binance 永续已结算 funding 行
 
 `crates/adapters/binance/src/futures_pit_observation_source_v1.rs` 中的 Binance USD-M 永续 Data Client 回答一个
@@ -2663,6 +2707,12 @@ U1 的历史以 T0 窗口托管的形式进入：每个成员在整个窗口上�
 - **可续跑且幂等。** 每个取回的文件以其归档名保存在分片目录中，旁边放它的侧文件；只有字节与侧文件一致的分片才算数。重跑时校验
   已有的分片，只取回缺失或不一致的，每个新分片经临时文件加改名写入。托管在它的全部分片都齐了之后提交一次，T0 的提交对相同的
   重复提交 rejoin。
+- **状态。** 取回一侧在 `crates/adapters/binance/src/vision_backfill_v1.rs`。
+  - 执行月份经已校验的分片读取，复用时不再取回任何东西。
+  - 损坏或不一致的分片会被重新取回；不一致的归档会被拒绝，也绝不保留。
+  - 成交 bar 严格取在其间隙之内，不用凭据。
+  - live 测试读取真实的无表头 2021-06 月份、有表头的 2025-12 月份与一根真实的成交 bar。
+  - 把这些 bar 映射到 T0 的托管请求并提交，要等 T0 的请求类型。
 - **取回发生在今天。** 托管的取回时刻是取回运行时的墙钟。可见性来自 Source Binding 的可用性规则，绝不来自一个历史的取回坐标。
 
 ## 输入交接

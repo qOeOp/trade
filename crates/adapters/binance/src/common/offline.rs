@@ -500,6 +500,15 @@ pub fn authenticate_monthly_kline_dataset(
 }
 
 impl AuthenticatedBinanceVisionKlines {
+    /// The ordinary USD-M klines, or `None` for a spot archive.
+    #[must_use]
+    pub(crate) fn usdm_klines(&self) -> Option<&[BinanceFuturesKline]> {
+        match &self.klines {
+            AuthenticatedKlines::UsdM(klines) => Some(klines),
+            AuthenticatedKlines::Spot(_) => None,
+        }
+    }
+
     /// Returns authenticated archive metadata.
     #[must_use]
     pub const fn metadata(&self) -> &BinanceVisionArchiveMetadata {
@@ -1004,6 +1013,24 @@ fn sha256(bytes: &[u8]) -> Sha256Digest {
         .try_into()
         .expect("SHA-256 output length is fixed");
     Sha256Digest(bytes)
+}
+
+/// The archive digest a `.CHECKSUM` sidecar declares for `archive_name`.
+///
+/// # Errors
+///
+/// Returns [`BinanceVisionArchiveError::InvalidSidecar`] unless the sidecar is one exact entry
+/// naming `archive_name`.
+pub(crate) fn sidecar_digest(
+    bytes: &[u8],
+    archive_name: &str,
+) -> Result<Sha256Digest, BinanceVisionArchiveError> {
+    parse_sidecar(bytes, archive_name)
+}
+
+/// The SHA-256 digest of `bytes`.
+pub(crate) fn archive_digest(bytes: &[u8]) -> Sha256Digest {
+    sha256(bytes)
 }
 
 fn parse_sidecar(

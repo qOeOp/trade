@@ -1275,7 +1275,10 @@ custody 会挡住之后的每一次提交，而成本随整个历史增长。
   facts 推导，绝不在旁边另行给出。在陈述了 scope 的请求下，精确品种就是一成员 universe，所以 Design 不得指名品种：
   发布、冻结或声明这样的 Design 以 `DESIGN_ROLE_NAMES_INSTRUMENT_UNDER_RESEARCH_SCOPE` 拒绝。凡是随成员数不同的
   东西，例如 Market Data 的 PIT 请求 preimage 域，都由成员数推导，不在旁边另行声明。对陈述了 scope 的 Research
-  请求，改成员数只改 scope、加一个角色只改 Design 时，P0 才算完成。它本身不改动任何已准入的界。V2 请求不陈述
+  请求，改成员数只改 scope、加一个角色只改 Design 时，P0 才算完成。它本身不改动任何已准入的界。Develop Composer
+  的运行请求已不再重复声明角色集：它只带 Design 与插件源码，旁边没有任何绑定声明。生产的冻结程序运行改为按名接纳
+  Design 的角色 - 单一输入 scope、Market Data 定义了 field semantic 的 Market 价格、只在 exact scope 下指名品种 -
+  每个角色读取的托管仍由绑定 Owner 重读。V2 请求不陈述
   scope，仍是 legacy 的 exact 通道，它的 Design 照旧指名品种；退役它是 T1 之后的一个独立切片，前提是每个在 V2 下
   创建 exact 托管的链路条目都有了陈述 scope 的替身。
 - **P1，角色集来自 Design：** 原生 Plan 契约不再固定为一天周期的 OPEN 与 CLOSE。Design 用它已有的字段声明自己的
@@ -1286,7 +1289,9 @@ custody 会挡住之后的每一次提交，而成本随整个历史增长。
   `ExecutionRoleNotPricingRole`；今天没有东西构造出后者，因为 universe 角色上的 join 会先被拒绝。Host 从 Plan 读取它的
   成员角色和定价角色。角色的周期标签仍然只是 provenance，所以这里不从它推出执行周期：Market Data 从自己的 binding
   取执行角色的 typed 周期，周期不止一种、或者某种日它无法 typed 时按名拒绝。这项调度改动取代
-  `native_replay_scheduling_v1` 里的标签比较，归 Market Data。
+  `native_replay_scheduling_v1` 里的标签比较，归 Market Data。Market Data 按同一条规则从请求的角色自行推出执行角色，
+  调用方不指名它；其拒绝为 `EXECUTION_ROLE_ABSENT`、`EXECUTION_ROLE_AMBIGUOUS`、`MORE_THAN_ONE_ROLE_TIMEFRAME` 与
+  `EXECUTION_TIMEFRAME_NOT_DECLARED`（见 Market Data owner 页）。
 - **P2，报告陈述每个成员：** 报告族陈述 universe 运行的每个成员，把 Backtest 已经做到的一成员陈述推广开。它与 I2
   一同落地，由第一个超过一个成员的运行驱动：I2 之前没有程序读第一个成员以外的成员，陈述每个成员就无物可陈述。
 
@@ -1382,10 +1387,16 @@ Research scope 是成员集的唯一来源（P0）。一到两个成员的界变
   有标记价、指数价、溢价指数 K 线、metrics、盘口深度与资金费率的历史。强平没有已准入的历史源 - USDⓈ-M 归档没有，
   币本位 `BTCUSD_PERP` 快照止于 2024-10-14 - 所以要它的 Design 以 `INPUT_FACT_UNAVAILABLE_FROM_ADMITTED_SOURCE` 拒绝，今天没有
   任何字段词表能让 Design 走到这里。
-- **动作：** 今天目标集 Host 忽略保护单成交，于是下一帧对账失败、整次运行中止；只有第二帧才会走到这里。
-  `a_triggered_stop_aborts_the_run_today_until_d1` 在两个真实的 Sim 帧上钉住这个行为，并以「近止损但价格不下破」和
-  「价格下破但够不着远止损」作为两个干净的对照；D1 落地时它翻转为断言运行继续。它的修复
-  （D1）给 `kernel.fill.reconcile.v1` 增加一种情形，并与 T1 一同落地。A1 把 `DecisionTime` 与 `AccountEquity`
+- **动作：** 两帧之间成交的保护单在 `kernel.fill.reconcile.v1` 下对账（D1）。D1 之前目标集 Host 忽略这种成交，
+  于是下一帧对账失败、整次运行中止。现在 FILL 用信封里的一个字节写明它推进的是哪条腿 - 待成交意图、止损或止盈；
+  此前的 FILL 这个字节都为零，所以此前的信封字节与摘要都不变。内核只在该腿已布防、没有待成交的提议、且成交只减仓
+  不越过零时接纳保护单成交，其余情形各按名拒绝：`ProtectiveLegNotArmed`、`ProtectiveFillWithPendingIntent`、
+  `ProtectiveFillDoesNotReduce`。部分成交的保护单占住成交前沿，直到它成交完或余量被撤销，期间任何提议都不能在旁边
+  开出意图（`ProtectiveFillInProgress`）。把仓位平掉的那条腿会清除保护，Host 只下内核持有的保护。Native Replay 读回
+  把保护单成交与目标集成交分开上报，在有序轨迹里把每笔绑定到它的 FILL 转换，并把它算作往返的退出；没有保护单
+  成交的运行序列化结果与之前相同。`a_triggered_stop_reconciles_the_member_flat_and_the_run_continues` 跑两个真实
+  的 Sim 帧：止损成交，退出帧看到该成员已平仓，而照样要退出它的程序以 `InvalidPositionTransition` 被拒；
+  「近止损但价格不下破」和「价格下破但够不着远止损」是它的两个干净对照。A1 把 `DecisionTime` 与 `AccountEquity`
   （以及按成交计的入场价与持有 bar 数）作为程序可读的 `LifecycleContext` 值开放，其中 `DecisionTime` 是该帧的 decision cut `d_k`；按意图计的入场价与持有 bar 数
   已经能在程序内表达。A2 把止盈下成 reduce-only 限价单。A3 先量「每根 bar 一张限价单」的阶梯，不够才增加内核
   阶梯。
@@ -1496,7 +1507,7 @@ Replay 不需要 attempt cut，也不需要 R&D Decision composition，上面每
 ### 顺序与以后要问的
 
 P0、P1 与 T0 并行推进：T0 在 Market Data 内部，它的托管请求自己陈述成员集与周期。T1 依赖这三项，因为它从
-Research scope 与 Design 推导出托管请求；T1 的首个正例只用 CLOSE 和一个成员，D1 与它一同落地。P2 与 I2 一同落地。A1 与 V4a 与 T1 并行；然后 T2、I1、I1.5、I2、
+Research scope 与 Design 推导出托管请求；T1 的首个正例只用 CLOSE 和一个成员，它需要的 D1 已先行落地。P2 与 I2 一同落地。A1 与 V4a 与 T1 并行；然后 T2、I1、I1.5、I2、
 I3；再然后 N1、A2、A3、V4b、V5。按帧 as-of 成员（T4）会移除「每帧共用一个成员集」这条不变式，所以在提出它时再
 问用户。
 
