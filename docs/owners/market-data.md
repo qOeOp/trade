@@ -2573,6 +2573,35 @@ Backtest.
   instant: the fill follows the decision, and at `d_k` no quote could qualify, since its event follows `d_k`. This
   concerns the fill quote alone. Frame `k`'s strategy inputs are still cut at `d_k`, so a correction published between
   `d_k` and the quote's availability reaches the fill quote and never frame `k`'s inputs.
+- **Interface:** `crates/data/src/owner/pit_window_custody_v1.rs` freezes what a backfill writer commits and how a
+  multi-frame consumer finds a run's frames; until the custody aggregate and the derived view implement its two sealed
+  ports, nothing constructs a receipt or a frame coordinate.
+  - A custody request names its Source Binding, Market Semantics fact, Universe Selection record, one or two members,
+    window, execution timeframe, input timeframes and an optional fill timeframe. The execution timeframe is named by
+    the custody, not by a run, because the custody's commit mints the window schedule; a lag not below its interval is
+    refused at commit, and so is a fill timeframe not strictly finer than it. A fill timeframe that is also an input
+    timeframe is refused by name as `FILL_TIMEFRAME_IS_AN_INPUT_TIMEFRAME`, since fill rows would then reach strategy
+    inputs. `WINDOW_MEMBER_NOT_VALID_THROUGHOUT` covers both the Instrument Master validity and the Universe membership
+    the request names.
+  - Each cross-section version states its kind - original, correction or withdrawal, a withdrawal carrying no rows -
+    its sequence and the version it replaces. Its publication instant is stated only by a source that publishes
+    corrections; for any other the Owner derives it as the version's availability, and a stated one is refused as
+    `CROSS_SECTION_CORRECTION_NOT_PUBLISHED_BY_SOURCE`.
+  - Each row carries the true instant it was retrieved and from where, as custody evidence outside every identity, so
+    the same versions resubmitted with other retrieval evidence rejoin and return the original receipt and minting
+    cut. Under an availability rule set to the retrieval instant, a row's availability is the custody's minting cut,
+    never a caller-stated retrieval, and a row retrieved after that cut is refused as `RETRIEVAL_AFTER_MINTING_CUT`.
+  - A run names a custody chain by its root, as an untrusted claim the Owner resolves to the chain's head, and states
+    its own window inside the custody's. Its frames come back as coordinates - ordinal, `e_k` and `d_k`, where `d_k` is
+    the derived availability of frame `k`'s execution cross-section - read from the head it names. Each frame's inputs
+    and quote cut are then resolved through the native Replay resolver, whose request gains a custody frame source in
+    the derived view slice. Every gap has its quote cut, the last bounded by the run's end, and a gap without one
+    refuses the run as `QuoteCutMissing`.
+  - A batch's source is a committed snapshot, a custody view or a custody quote cut. A custody view names its chain's
+    root, not its head, with its view identity, `e_k`, `d_k` and derived frontier, so a correction changes only the
+    views that select it. A custody quote cut holds Quote rows only, never fill bars, and names its derivation.
+  - Event rows such as funding settlements are not held by T0: one binding states one availability rule, and they have
+    no bar close to anchor it. They enter a custody later under a binding of their own.
 
 In the CURRENT/PARTIAL BAR schedule path, only a custody-verified readback may authorize the additive immutable
 `TimeframeProjectionReceiptV1` keyed by the exact V1 binding-receipt digest. Its existing canonical bytes and domain
