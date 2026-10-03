@@ -1,7 +1,7 @@
 //! Canonical bounded storage encoding for a Strategy Input Binding declaration.
 
 use super::{
-    MarketDataFieldSemantic, StrategyInputChannel, StrategyInputUnit,
+    MarketDataFieldSemantic, StrategyInputBatchSourceV1, StrategyInputChannel, StrategyInputUnit,
     UntrustedStrategyInputBindingRequest, UntrustedStrategyInputScope, validate_request,
 };
 use crate::owner::source_binding::BindingDigest;
@@ -58,8 +58,17 @@ pub(crate) fn encode_request_v1(
     encoder.u8(request.scale);
     encoder.digest(request.pit_request_identity);
     encoder.digest(request.pit_request_digest);
-    encoder.digest(request.snapshot_identity);
-    encoder.digest(request.snapshot_fact_digest);
+    // A declaration is stored only for a snapshot source: no custody view is persisted as a
+    // declaration until a reader of one exists (slice T1).
+    let StrategyInputBatchSourceV1::Snapshot {
+        snapshot_identity,
+        snapshot_fact_digest,
+    } = request.source
+    else {
+        return Err(CodecError::InvalidRequest);
+    };
+    encoder.digest(snapshot_identity);
+    encoder.digest(snapshot_fact_digest);
     encoder.digest(request.observation_batch_digest);
     encoder.digest(request.source_binding_identity);
     encoder.digest(request.source_frontier_digest);
@@ -123,8 +132,10 @@ pub(crate) fn decode_request_v1(
         scale,
         pit_request_identity: decoder.digest()?,
         pit_request_digest: decoder.digest()?,
-        snapshot_identity: decoder.digest()?,
-        snapshot_fact_digest: decoder.digest()?,
+        source: StrategyInputBatchSourceV1::Snapshot {
+            snapshot_identity: decoder.digest()?,
+            snapshot_fact_digest: decoder.digest()?,
+        },
         observation_batch_digest: decoder.digest()?,
         source_binding_identity: decoder.digest()?,
         source_frontier_digest: decoder.digest()?,

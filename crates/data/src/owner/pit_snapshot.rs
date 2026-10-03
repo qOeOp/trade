@@ -39,9 +39,13 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
-use super::source_binding::{
-    BindingDigest, MarketDataClockAdmission, UntrustedCompleteFrontier,
-    UntrustedSourceBindingLocator,
+use super::{
+    pit_window_custody_v1::PitObservationBatchSourceV1,
+    source_binding::{
+        BindingDigest, MarketDataClockAdmission, UntrustedCompleteFrontier,
+        UntrustedSourceBindingLocator,
+    },
+    strategy_input_binding::StrategyInputBatchSourceV1,
 };
 
 #[cfg(feature = "sealed-strategy-input-acceptance")]
@@ -653,8 +657,7 @@ pub struct VerifiedPitObservationBatch {
     request_digest: BindingDigest,
     correlation_identity: BindingDigest,
     scope_digest: BindingDigest,
-    snapshot_identity: BindingDigest,
-    fact_digest: BindingDigest,
+    source: PitObservationBatchSourceV1,
     source_binding_identity: BindingDigest,
     source_binding_fact_digest: BindingDigest,
     source_binding_lineage_root: BindingDigest,
@@ -678,8 +681,7 @@ pub(crate) struct UnverifiedBatchFieldsForTest {
     pub(crate) request_digest: BindingDigest,
     pub(crate) correlation_identity: BindingDigest,
     pub(crate) scope_digest: BindingDigest,
-    pub(crate) snapshot_identity: BindingDigest,
-    pub(crate) fact_digest: BindingDigest,
+    pub(crate) source: PitObservationBatchSourceV1,
     pub(crate) source_binding_identity: BindingDigest,
     pub(crate) source_binding_fact_digest: BindingDigest,
     pub(crate) source_binding_lineage_root: BindingDigest,
@@ -695,6 +697,27 @@ pub(crate) struct UnverifiedBatchFieldsForTest {
 }
 
 #[cfg(test)]
+impl UnverifiedBatchFieldsForTest {
+    /// The snapshot identity of a test batch that is a committed snapshot's, to edit in place.
+    pub(crate) fn snapshot_identity_mut_for_test(&mut self) -> &mut BindingDigest {
+        match &mut self.source {
+            PitObservationBatchSourceV1::CommittedSnapshot {
+                snapshot_identity, ..
+            } => snapshot_identity,
+            _ => panic!("the test batch is a committed snapshot's"),
+        }
+    }
+
+    /// The snapshot fact digest of a test batch that is a committed snapshot's, to edit in place.
+    pub(crate) fn fact_digest_mut_for_test(&mut self) -> &mut BindingDigest {
+        match &mut self.source {
+            PitObservationBatchSourceV1::CommittedSnapshot { fact_digest, .. } => fact_digest,
+            _ => panic!("the test batch is a committed snapshot's"),
+        }
+    }
+}
+
+#[cfg(test)]
 impl VerifiedPitObservationBatch {
     /// Builds a batch from `fields` without verifying anything.
     pub(crate) fn from_fields_for_test(fields: UnverifiedBatchFieldsForTest) -> Self {
@@ -703,8 +726,7 @@ impl VerifiedPitObservationBatch {
             request_digest,
             correlation_identity,
             scope_digest,
-            snapshot_identity,
-            fact_digest,
+            source,
             source_binding_identity,
             source_binding_fact_digest,
             source_binding_lineage_root,
@@ -723,8 +745,7 @@ impl VerifiedPitObservationBatch {
             request_digest,
             correlation_identity,
             scope_digest,
-            snapshot_identity,
-            fact_digest,
+            source,
             source_binding_identity,
             source_binding_fact_digest,
             source_binding_lineage_root,
@@ -751,8 +772,7 @@ impl VerifiedPitObservationBatch {
             request_digest,
             correlation_identity,
             scope_digest,
-            snapshot_identity,
-            fact_digest,
+            source,
             source_binding_identity,
             source_binding_fact_digest,
             source_binding_lineage_root,
@@ -771,8 +791,7 @@ impl VerifiedPitObservationBatch {
             request_digest,
             correlation_identity,
             scope_digest,
-            snapshot_identity,
-            fact_digest,
+            source,
             source_binding_identity,
             source_binding_fact_digest,
             source_binding_lineage_root,
@@ -804,11 +823,39 @@ impl VerifiedPitObservationBatch {
     pub const fn scope_digest(&self) -> BindingDigest {
         self.scope_digest
     }
-    pub const fn snapshot_identity(&self) -> BindingDigest {
-        self.snapshot_identity
+    /// Where the batch comes from: a committed snapshot or a custody view or quote cut.
+    pub const fn source(&self) -> PitObservationBatchSourceV1 {
+        self.source
     }
-    pub const fn fact_digest(&self) -> BindingDigest {
-        self.fact_digest
+    /// `(snapshot identity, snapshot fact digest)` for a batch of a committed snapshot; `None` for
+    /// one derived from custody. A reader keyed by a snapshot refuses the `None`.
+    pub(crate) const fn committed_snapshot(&self) -> Option<(BindingDigest, BindingDigest)> {
+        match self.source {
+            PitObservationBatchSourceV1::CommittedSnapshot {
+                snapshot_identity,
+                fact_digest,
+            } => Some((snapshot_identity, fact_digest)),
+            _ => None,
+        }
+    }
+    /// The snapshot identity of a test batch that is a committed snapshot's.
+    #[cfg(test)]
+    pub(crate) fn snapshot_identity_for_test(&self) -> BindingDigest {
+        self.committed_snapshot()
+            .expect("the test batch is a committed snapshot's")
+            .0
+    }
+    /// The snapshot fact digest of a test batch that is a committed snapshot's.
+    #[cfg(test)]
+    pub(crate) fn fact_digest_for_test(&self) -> BindingDigest {
+        self.committed_snapshot()
+            .expect("the test batch is a committed snapshot's")
+            .1
+    }
+    /// The source a strategy-input binding request names this batch by; `None` for a quote cut,
+    /// which no strategy input reads.
+    pub(crate) const fn binding_request_source_v1(&self) -> Option<StrategyInputBatchSourceV1> {
+        super::strategy_input_binding::binding_request_source_of_v1(self.source)
     }
     pub const fn source_binding_identity(&self) -> BindingDigest {
         self.source_binding_identity

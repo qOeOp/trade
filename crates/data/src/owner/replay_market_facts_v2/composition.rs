@@ -1104,8 +1104,7 @@ pub(crate) fn universe_frame_binds_request_v2(
     let mut selected_members = selected_members.to_vec();
     selected_members.sort_unstable();
 
-    frame.trigger().snapshot_identity() == pit_snapshot_identity
-        && frame.trigger().snapshot_fact_digest() == pit_fact_digest
+    frame.trigger().committed_snapshot() == Some((pit_snapshot_identity, pit_fact_digest))
         && frame.selection().source_binding_lineage_root() == source_binding_lineage_root
         && frame_members == selected_members
 }

@@ -7,8 +7,8 @@ use rstest::rstest;
 use vibe_data::owner::{
     source_binding::BindingDigest,
     strategy_input_binding::{
-        MarketDataFieldSemantic, StrategyInputChannel, StrategyInputUnit,
-        UntrustedStrategyInputBindingRequest, UntrustedStrategyInputScope,
+        MarketDataFieldSemantic, StrategyInputBatchSourceV1, StrategyInputChannel,
+        StrategyInputUnit, UntrustedStrategyInputBindingRequest, UntrustedStrategyInputScope,
     },
 };
 
@@ -645,8 +645,10 @@ fn binding_request(
         scale: input.scale,
         pit_request_identity: digest(seed + 1),
         pit_request_digest: digest(seed + 2),
-        snapshot_identity: digest(seed + 3),
-        snapshot_fact_digest: digest(seed + 4),
+        source: StrategyInputBatchSourceV1::Snapshot {
+            snapshot_identity: digest(seed + 3),
+            snapshot_fact_digest: digest(seed + 4),
+        },
         observation_batch_digest: digest(seed + 5),
         source_binding_identity: digest(seed + 6),
         source_frontier_digest: digest(seed + 7),

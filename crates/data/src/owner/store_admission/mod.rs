@@ -6231,7 +6231,7 @@ mod tests {
         .await
         .expect("the port resolves the frame's quote cut");
         assert_eq!(
-            through_port.snapshot_identity(),
+            through_port.snapshot_identity_for_test(),
             snapshot.quote_cut_snapshot_identity
         );
         assert_eq!(
@@ -6247,8 +6247,8 @@ mod tests {
             .await
             .expect("custody resolves the frame's quote cut");
         assert_eq!(
-            through_custody.snapshot_identity(),
-            through_port.snapshot_identity(),
+            through_custody.snapshot_identity_for_test(),
+            through_port.snapshot_identity_for_test(),
             "the port and custody resolve the same quote cut"
         );
 
@@ -6260,14 +6260,14 @@ mod tests {
                 snapshot.quote_cut_instant_ns,
             )
             .await
-            .map(|batch| batch.snapshot_identity()),
+            .map(|batch| batch.snapshot_identity_for_test()),
             Err(NativeReplayQuoteCutRefusalV2::QuoteCutMissing)
         );
         assert_eq!(
             owner
                 .resolve_native_replay_quote_cut_v2(&frame, snapshot.quote_cut_instant_ns)
                 .await
-                .map(|batch| batch.snapshot_identity()),
+                .map(|batch| batch.snapshot_identity_for_test()),
             Err(NativeReplayQuoteCutRefusalV2::QuoteCutMissing)
         );
 
@@ -6297,13 +6297,13 @@ mod tests {
                     &port, &frame, 100,
                 )
                 .await
-                .map(|batch| batch.snapshot_identity());
+                .map(|batch| batch.snapshot_identity_for_test());
             assert_eq!(through_port, expected);
             assert_eq!(
                 owner
                     .resolve_native_replay_quote_cut_v2(&frame, 100)
                     .await
-                    .map(|batch| batch.snapshot_identity()),
+                    .map(|batch| batch.snapshot_identity_for_test()),
                 through_port,
                 "the port and custody resolve the same quote cut for a frame decided on its instant"
             );
@@ -6596,7 +6596,7 @@ mod tests {
         .await
         .expect("the acceptance port resolves the frame's quote cut");
         assert_eq!(
-            through_port.snapshot_identity(),
+            through_port.snapshot_identity_for_test(),
             snapshot.quote_cut_snapshot_identity
         );
         assert_eq!(
@@ -6604,8 +6604,8 @@ mod tests {
                 .resolve_native_replay_quote_cut_v2(&frame, window_end)
                 .await
                 .expect("custody resolves the frame's quote cut")
-                .snapshot_identity(),
-            through_port.snapshot_identity(),
+                .snapshot_identity_for_test(),
+            through_port.snapshot_identity_for_test(),
             "the acceptance port and custody resolve the same quote cut"
         );
 
@@ -6707,7 +6707,7 @@ mod tests {
                 snapshot.snapshot_fact_digest,
                 &evidence.with_admission_receipt_identity_for_test(ACCEPTANCE_MARKER),
             )
-            .map(|batch| batch.snapshot_identity()),
+            .map(|batch| batch.snapshot_identity_for_test()),
             Err(crate::owner::pit_snapshot::PitSnapshotError::PersistenceUnavailable)
         );
     }

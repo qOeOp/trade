@@ -110,8 +110,8 @@ async fn postgres_a_universe_frame_issues_one_sample_projection_over_the_host_fr
         readback.record().universe_frame_digest().unwrap()
     };
     let host_request = NativeReplayInitialMarketRequestV1::new(
-        base.batch.snapshot_identity(),
-        base.batch.fact_digest(),
+        base.batch.snapshot_identity_for_test(),
+        base.batch.fact_digest_for_test(),
         fixture.requests[0].research_request_identity,
         fixture.requests[0].strategy_design_identity,
         crate::owner::strategy_input_binding::derive_universe_selection(&base.batch)
@@ -146,7 +146,7 @@ async fn postgres_a_universe_frame_issues_one_sample_projection_over_the_host_fr
         51,
     );
     let host_frame = bind_strategy_input_universe_frame(
-        &native_replay_universe_binding_requests_v1(&host_request, &base.batch),
+        &native_replay_universe_binding_requests_v1(&host_request, &base.batch).unwrap(),
         &base.batch,
     )
     .expect("the host's builder binds the frame");

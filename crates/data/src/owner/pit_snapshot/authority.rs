@@ -14,6 +14,7 @@ use super::{
     UntrustedPitSnapshotTimeEvidence, UntrustedProviderAvailableTime, UntrustedRetrievalTime,
     UntrustedSnapshotDecisionCut, VerifiedPitObservation, VerifiedPitObservationBatch,
 };
+use crate::owner::pit_window_custody_v1::PitObservationBatchSourceV1;
 use crate::owner::source_binding::{
     MarketDataClockAdmission, MarketDataClockComparisonRule, MarketDataClockCutKind,
     UntrustedCompleteFrontier, UntrustedCredentialAudienceClaim,
@@ -1445,8 +1446,10 @@ pub(crate) fn verify_observation_batch(
         request_digest: fact.request_digest(),
         correlation_identity: fact.request().correlation_identity,
         scope_digest: fact.request().scope_digest,
-        snapshot_identity: fact.snapshot_identity(),
-        fact_digest: fact.digest(),
+        source: PitObservationBatchSourceV1::CommittedSnapshot {
+            snapshot_identity: fact.snapshot_identity(),
+            fact_digest: fact.digest(),
+        },
         source_binding_identity: fact.source_binding_identity(),
         source_binding_fact_digest: fact.request().source_binding.fact_digest(),
         source_binding_lineage_root: fact.source_binding_lineage_root(),

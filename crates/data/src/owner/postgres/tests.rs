@@ -2718,8 +2718,10 @@ async fn strategy_input_binding_registry_oracle_over_corpus(
         scale: 2,
         pit_request_identity: batch.request_identity(),
         pit_request_digest: batch.request_digest(),
-        snapshot_identity: batch.snapshot_identity(),
-        snapshot_fact_digest: batch.fact_digest(),
+        source: crate::owner::strategy_input_binding::StrategyInputBatchSourceV1::Snapshot {
+            snapshot_identity: batch.snapshot_identity_for_test(),
+            snapshot_fact_digest: batch.fact_digest_for_test(),
+        },
         observation_batch_digest: batch.digest(),
         source_binding_identity: batch.source_binding_identity(),
         source_frontier_digest: batch.source_frontier_digest(),
@@ -7904,7 +7906,7 @@ async fn native_replay_quote_cut_after_the_decision_oracle(owner: &MarketDataOwn
         owner
             .resolve_native_replay_quote_cut_v2(batch, window_end)
             .await
-            .map(|quote_cut| quote_cut.snapshot_identity())
+            .map(|quote_cut| quote_cut.snapshot_identity_for_test())
     };
 
     assert_eq!(
@@ -8181,7 +8183,7 @@ async fn native_replay_quote_cut_census_oracle(owner: &MarketDataOwnerPostgres) 
         .await
         .expect("the frame's one quote cut");
     assert_eq!(
-        resolved.snapshot_identity(),
+        resolved.snapshot_identity_for_test(),
         quote_cut.fact().snapshot_identity(),
         "the quote cut on another Instrument Master in the same interval is set aside"
     );
@@ -8221,7 +8223,7 @@ async fn native_replay_quote_cut_census_oracle(owner: &MarketDataOwnerPostgres) 
         owner
             .resolve_native_replay_quote_cut_v2(&frame_batch, 20)
             .await
-            .map(|batch| batch.snapshot_identity()),
+            .map(|batch| batch.snapshot_identity_for_test()),
         Ok(quote_cut.fact().snapshot_identity()),
         "the next frame bounds the interval"
     );
@@ -8229,7 +8231,7 @@ async fn native_replay_quote_cut_census_oracle(owner: &MarketDataOwnerPostgres) 
         owner
             .resolve_native_replay_quote_cut_v2(&verified(&next_frame).await, 20)
             .await
-            .map(|batch| batch.snapshot_identity()),
+            .map(|batch| batch.snapshot_identity_for_test()),
         Ok(second_quote_cut.fact().snapshot_identity()),
         "and the quote cut after it is the next frame's"
     );
@@ -8416,7 +8418,7 @@ async fn native_replay_quote_cut_census_oracle(owner: &MarketDataOwnerPostgres) 
         owner
             .resolve_native_replay_quote_cut_v2(&verified(frame).await, 20)
             .await
-            .map(|batch| batch.snapshot_identity())
+            .map(|batch| batch.snapshot_identity_for_test())
     };
     let snapshot = |commit: &PitSnapshotCommitAggregate| commit.fact().snapshot_identity();
 
@@ -8466,7 +8468,7 @@ async fn native_replay_quote_cut_census_oracle(owner: &MarketDataOwnerPostgres) 
         owner
             .resolve_native_replay_quote_cut_v2(&frame_batch, 20)
             .await
-            .map(|batch| batch.snapshot_identity()),
+            .map(|batch| batch.snapshot_identity_for_test()),
         Ok(quote_cut.fact().snapshot_identity()),
         "a frame the decision cut could not see does not move the bound"
     );
@@ -9152,8 +9154,10 @@ pub(super) async fn declare_close_role_v1(
         scale: 2,
         pit_request_identity: batch.request_identity(),
         pit_request_digest: batch.request_digest(),
-        snapshot_identity: batch.snapshot_identity(),
-        snapshot_fact_digest: batch.fact_digest(),
+        source: crate::owner::strategy_input_binding::StrategyInputBatchSourceV1::Snapshot {
+            snapshot_identity: batch.snapshot_identity_for_test(),
+            snapshot_fact_digest: batch.fact_digest_for_test(),
+        },
         observation_batch_digest: batch.digest(),
         source_binding_identity: batch.source_binding_identity(),
         source_frontier_digest: batch.source_frontier_digest(),

@@ -21,7 +21,7 @@ use crate::owner::{
     source_binding::{BindingDigest, SourceBindingOwnerReadback},
     strategy_design_role_set::{StrategyDesignRoleEntryV1, StrategyDesignRoleSetReceiptV1},
     strategy_input_binding::{
-        StrategyInputBindingReceipt, StrategyInputBindingUnavailable,
+        StrategyInputBatchSourceV1, StrategyInputBindingReceipt, StrategyInputBindingUnavailable,
         StrategyInputCustodyDeclarationV1, StrategyInputCustodyReadbackV1,
         StrategyInputCustodyUnavailableV1, StrategyInputEventFrameReceipt,
         StrategyInputUniverseCustodyDeclarationV1, StrategyInputUniverseCustodyReadbackV1,
@@ -1340,12 +1340,17 @@ async fn resolve_native_market_semantics(
     batch: &VerifiedPitObservationBatch,
     mode: DependencyReadModeV1,
 ) -> Result<MarketSemanticsReadbackV1, StrategyInputBindingRegistryErrorV1> {
+    // Market Semantics is recorded per snapshot; a custody view's is recorded per chain (T0-4c).
+    let (snapshot_identity, _) = batch
+        .committed_snapshot()
+        .ok_or(StrategyInputBindingRegistryErrorV1::MarketSemanticsUnavailable)?;
+
     match mode {
         DependencyReadModeV1::LockRows => {
             super::market_semantics::resolve_market_semantics_scope_in_transaction_v1(
                 transaction,
                 request.market_semantics_identity,
-                batch.snapshot_identity(),
+                snapshot_identity,
                 i128::from(batch.time_evidence().event_effective.value),
                 i128::from(batch.time_evidence().observed_at),
                 request.decision_cut,
@@ -1356,7 +1361,7 @@ async fn resolve_native_market_semantics(
             super::market_semantics::resolve_market_semantics_scope_read_only_in_transaction_v1(
                 transaction,
                 request.market_semantics_identity,
-                batch.snapshot_identity(),
+                snapshot_identity,
                 i128::from(batch.time_evidence().event_effective.value),
                 i128::from(batch.time_evidence().observed_at),
                 request.decision_cut,
@@ -1367,7 +1372,7 @@ async fn resolve_native_market_semantics(
             super::market_semantics::resolve_market_semantics_scope_for_rd_strategy_input_v1(
                 transaction,
                 request.market_semantics_identity,
-                batch.snapshot_identity(),
+                snapshot_identity,
                 i128::from(batch.time_evidence().event_effective.value),
                 i128::from(batch.time_evidence().observed_at),
                 request.decision_cut,
@@ -1387,8 +1392,7 @@ fn validate_native_market_semantics(
     fact: &crate::owner::market_semantics::MarketSemanticsFactV1,
 ) -> Result<(), StrategyInputBindingRegistryErrorV1> {
     if fact.compatibility_scope_identity != request.market_semantics_identity
-        || fact.pit_snapshot_identity != batch.snapshot_identity()
-        || fact.pit_fact_digest != batch.fact_digest()
+        || batch.committed_snapshot() != Some((fact.pit_snapshot_identity, fact.pit_fact_digest))
         || fact.source_binding_identity != batch.source_binding_identity()
         || fact.source_binding_lineage_root != batch.source_binding_lineage_root()
         || fact.source_binding_lineage_version != batch.source_binding_lineage_version()
@@ -1405,7 +1409,14 @@ async fn resolve_native_pit(
     request: &UntrustedStrategyInputBindingRequest,
     mode: DependencyReadModeV1,
 ) -> Result<VerifiedPitObservationBatch, StrategyInputBindingRegistryErrorV1> {
-    load_verified_pit_batch(transaction, request.snapshot_identity, mode).await
+    // A declaration is stored only for a snapshot source.
+    let StrategyInputBatchSourceV1::Snapshot {
+        snapshot_identity, ..
+    } = request.source
+    else {
+        return Err(StrategyInputBindingRegistryErrorV1::PitUnavailable);
+    };
+    load_verified_pit_batch(transaction, snapshot_identity, mode).await
 }
 
 /// Re-reads and re-verifies one snapshot's complete observation batch.
@@ -1773,8 +1784,10 @@ mod tests {
             scale: 4,
             pit_request_identity: d(4),
             pit_request_digest: d(5),
-            snapshot_identity: d(6),
-            snapshot_fact_digest: d(7),
+            source: crate::owner::strategy_input_binding::StrategyInputBatchSourceV1::Snapshot {
+                snapshot_identity: d(6),
+                snapshot_fact_digest: d(7),
+            },
             observation_batch_digest: d(8),
             source_binding_identity: d(9),
             source_frontier_digest: d(10),

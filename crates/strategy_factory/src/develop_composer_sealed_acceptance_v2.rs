@@ -68,8 +68,8 @@ mod sealed {
     use vibe_data::owner::{
         sealed_acceptance::issue_strategy_input_exact_instrument_bar_frame,
         strategy_input_binding::{
-            MarketDataFieldSemantic, StrategyInputChannel, StrategyInputUnit,
-            UntrustedStrategyInputBindingRequest, UntrustedStrategyInputScope,
+            MarketDataFieldSemantic, StrategyInputBatchSourceV1, StrategyInputChannel,
+            StrategyInputUnit, UntrustedStrategyInputBindingRequest, UntrustedStrategyInputScope,
         },
     };
 
@@ -317,8 +317,10 @@ mod sealed {
             scale: input.scale,
             pit_request_identity: digest(seed + 11),
             pit_request_digest: digest(seed + 21),
-            snapshot_identity: digest(seed + 31),
-            snapshot_fact_digest: digest(seed + 41),
+            source: StrategyInputBatchSourceV1::Snapshot {
+                snapshot_identity: digest(seed + 31),
+                snapshot_fact_digest: digest(seed + 41),
+            },
             observation_batch_digest: digest(seed + 51),
             source_binding_identity: digest(seed + 61),
             source_frontier_digest: digest(seed + 71),

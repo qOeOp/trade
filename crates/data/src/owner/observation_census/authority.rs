@@ -420,8 +420,11 @@ pub(crate) fn issue_observation_census_and_joined_cut_v1(
     }
     let expected_batch = frames[0].trigger().observation_batch_digest();
     if frames.iter().any(|frame| {
-        frame.trigger().snapshot_identity() != request.pit_locator.snapshot_identity
-            || frame.trigger().snapshot_fact_digest() != request.pit_locator.fact_digest
+        frame.trigger().committed_snapshot()
+            != Some((
+                request.pit_locator.snapshot_identity,
+                request.pit_locator.fact_digest,
+            ))
             || frame.trigger().observation_batch_digest() != expected_batch
     }) {
         return Err(ObservationCensusErrorV1::IncompleteCensus);

@@ -258,7 +258,10 @@ async fn scenario() {
         .resolve_native_replay_quote_cut_v2(&aapl_frame_batch, 1_000)
         .await
         .expect("the frame takes the quote cut its intake minted on the same facts");
-    assert_eq!(aapl_quote_cut_batch.snapshot_identity(), aapl_quote_cut);
+    assert_eq!(
+        aapl_quote_cut_batch.snapshot_identity_for_test(),
+        aapl_quote_cut
+    );
     assert_ne!(
         aapl_quote_cut_batch.instrument_master_digest(),
         aapl_frame_batch.instrument_master_digest(),
@@ -278,7 +281,7 @@ async fn scenario() {
         owner
             .resolve_native_replay_quote_cut_v2(&msft_frame_batch, 1_000)
             .await
-            .map(|batch| batch.snapshot_identity()),
+            .map(|batch| batch.snapshot_identity_for_test()),
         Err(NativeReplayQuoteCutRefusalV2::QuoteCutMissing),
         "a quote cut on other Instrument Master facts is not the frame's"
     );

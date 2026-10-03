@@ -6792,10 +6792,15 @@ async fn resolve_native_replay_quote_cut_in_transaction_v2(
     .map_err(|_| NativeReplayQuoteCutRefusalV2::CustodyUnavailable)?;
     let bound_ns_exclusive =
         native_replay_quote_cut_bound_v2(next_frame_ns, window_end_ns_exclusive);
+    // The census is keyed by the frame's snapshot; a custody frame's quote cut is derived from its
+    // custody instead.
+    let (frame_snapshot, _) = frame
+        .committed_snapshot()
+        .ok_or(NativeReplayQuoteCutRefusalV2::CoordinateMismatch)?;
     let (candidates, frame_instrument_master_key) = load_native_replay_quote_cut_census_v2(
         transaction,
         frame_coordinates.scope_digest,
-        frame.snapshot_identity(),
+        frame_snapshot,
         frame_coordinates.event_effective_ns,
         bound_ns_exclusive,
     )
@@ -8732,10 +8737,13 @@ where
 {
     let frame_coordinates = NativeReplayCutCoordinatesV2::of(frame);
     let decision_cut_ns = frame.time_evidence().decision_cut.value;
+    let (frame_snapshot, _) = frame
+        .committed_snapshot()
+        .ok_or(NativeReplayQuoteCutRefusalV2::CoordinateMismatch)?;
     let census = port
         .resolve_native_replay_quote_cut_census_v2(
             *frame_coordinates.scope_digest.as_bytes(),
-            *frame.snapshot_identity().as_bytes(),
+            *frame_snapshot.as_bytes(),
             frame_coordinates.event_effective_ns,
             decision_cut_ns,
             window_end_ns_exclusive,
@@ -8765,7 +8773,7 @@ where
         let later = port
             .resolve_native_replay_quote_cut_census_v2(
                 *frame_coordinates.scope_digest.as_bytes(),
-                *frame.snapshot_identity().as_bytes(),
+                *frame_snapshot.as_bytes(),
                 frame_coordinates.event_effective_ns,
                 reading_cut,
                 window_end_ns_exclusive,

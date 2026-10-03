@@ -25,7 +25,7 @@ use vibe_data::owner::pit_snapshot::sealed_acceptance::{
 };
 use vibe_data::owner::source_binding::BindingDigest;
 use vibe_data::owner::strategy_input_binding::{
-    MarketDataFieldSemantic, StrategyInputChannel, StrategyInputUnit,
+    MarketDataFieldSemantic, StrategyInputBatchSourceV1, StrategyInputChannel, StrategyInputUnit,
     UntrustedStrategyInputBindingRequest, UntrustedStrategyInputScope,
 };
 use vibe_indicators_kernel::PrimitiveCatalogV1;
@@ -687,8 +687,10 @@ fn bfp_binding_request(
         scale: input.scale,
         pit_request_identity: a2_digest(seed.wrapping_add(11)),
         pit_request_digest: a2_digest(seed.wrapping_add(21)),
-        snapshot_identity: a2_digest(seed.wrapping_add(31)),
-        snapshot_fact_digest: a2_digest(seed.wrapping_add(41)),
+        source: StrategyInputBatchSourceV1::Snapshot {
+            snapshot_identity: a2_digest(seed.wrapping_add(31)),
+            snapshot_fact_digest: a2_digest(seed.wrapping_add(41)),
+        },
         observation_batch_digest: a2_digest(seed.wrapping_add(51)),
         source_binding_identity: a2_digest(seed.wrapping_add(61)),
         source_frontier_digest: a2_digest(seed.wrapping_add(71)),
@@ -856,10 +858,21 @@ fn tamper_source_research_composer_request_v2(
             binding.pit_request_digest = changed_digest;
         }
         SourceResearchComposerAcceptanceTamperV2::BindingSnapshotIdentity => {
-            binding.snapshot_identity = changed_digest;
+            if let StrategyInputBatchSourceV1::Snapshot {
+                snapshot_identity, ..
+            } = &mut binding.source
+            {
+                *snapshot_identity = changed_digest;
+            }
         }
         SourceResearchComposerAcceptanceTamperV2::BindingSnapshotFactDigest => {
-            binding.snapshot_fact_digest = changed_digest;
+            if let StrategyInputBatchSourceV1::Snapshot {
+                snapshot_fact_digest,
+                ..
+            } = &mut binding.source
+            {
+                *snapshot_fact_digest = changed_digest;
+            }
         }
         SourceResearchComposerAcceptanceTamperV2::BindingObservationBatchDigest => {
             binding.observation_batch_digest = changed_digest;
@@ -1008,8 +1021,10 @@ fn a2_fixed_binding_request(
         scale: input.scale,
         pit_request_identity: a2_digest(seed + 11),
         pit_request_digest: a2_digest(seed + 21),
-        snapshot_identity: a2_digest(seed + 31),
-        snapshot_fact_digest: a2_digest(seed + 41),
+        source: StrategyInputBatchSourceV1::Snapshot {
+            snapshot_identity: a2_digest(seed + 31),
+            snapshot_fact_digest: a2_digest(seed + 41),
+        },
         observation_batch_digest: a2_digest(seed + 51),
         source_binding_identity: a2_digest(seed + 61),
         source_frontier_digest: a2_digest(seed + 71),
@@ -3480,8 +3495,27 @@ mod tests {
         assert_binding_mutation_rejected!(scale, 3);
         assert_binding_mutation_rejected!(pit_request_identity, zero);
         assert_binding_mutation_rejected!(pit_request_digest, zero);
-        assert_binding_mutation_rejected!(snapshot_identity, zero);
-        assert_binding_mutation_rejected!(snapshot_fact_digest, zero);
+        let StrategyInputBatchSourceV1::Snapshot {
+            snapshot_identity,
+            snapshot_fact_digest,
+        } = sealed.binding_requests[0].source
+        else {
+            panic!("the sealed request names a snapshot");
+        };
+        assert_binding_mutation_rejected!(
+            source,
+            StrategyInputBatchSourceV1::Snapshot {
+                snapshot_identity: zero,
+                snapshot_fact_digest,
+            }
+        );
+        assert_binding_mutation_rejected!(
+            source,
+            StrategyInputBatchSourceV1::Snapshot {
+                snapshot_identity,
+                snapshot_fact_digest: zero,
+            }
+        );
         assert_binding_mutation_rejected!(observation_batch_digest, zero);
         assert_binding_mutation_rejected!(source_binding_identity, zero);
         assert_binding_mutation_rejected!(source_frontier_digest, zero);
@@ -3920,8 +3954,10 @@ mod bfp_binding_claim_tests {
                 scale: 2,
                 pit_request_identity: a2_digest(14),
                 pit_request_digest: a2_digest(24),
-                snapshot_identity: a2_digest(34),
-                snapshot_fact_digest: a2_digest(44),
+                source: StrategyInputBatchSourceV1::Snapshot {
+                    snapshot_identity: a2_digest(34),
+                    snapshot_fact_digest: a2_digest(44),
+                },
                 observation_batch_digest: a2_digest(54),
                 source_binding_identity: a2_digest(64),
                 source_frontier_digest: a2_digest(74),

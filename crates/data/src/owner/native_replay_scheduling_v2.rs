@@ -271,9 +271,12 @@ pub(crate) fn verify_native_replay_frame_evidence_v2(
         )?);
     }
 
+    let (snapshot_identity, snapshot_fact_digest) = batch
+        .committed_snapshot()
+        .ok_or(NativeReplaySchedulingErrorV1::OwnerBindingMismatch)?;
     Ok(NativeReplayFrameEvidenceV2 {
-        snapshot_identity: batch.snapshot_identity(),
-        snapshot_fact_digest: batch.fact_digest(),
+        snapshot_identity,
+        snapshot_fact_digest,
         observation_batch_digest: batch.digest(),
         source_frontier_digest: batch.source_frontier_digest(),
         correction_frontier_digest: batch.correction_frontier_digest(),

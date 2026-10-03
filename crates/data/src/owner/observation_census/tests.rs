@@ -113,8 +113,8 @@ fn positive_census_core_is_default_build_reachable_and_rejects_cross_pit_frames(
         );
     let mut request = request(close_frame.trigger().lifecycle().logical_time());
     request.join_claim.strategy_design_identity = open_binding.locator().strategy_design_identity();
-    request.pit_locator.snapshot_identity = close_frame.trigger().snapshot_identity();
-    request.pit_locator.fact_digest = close_frame.trigger().snapshot_fact_digest();
+    request.pit_locator.snapshot_identity = close_frame.trigger().snapshot_identity_for_test();
+    request.pit_locator.fact_digest = close_frame.trigger().snapshot_fact_digest_for_test();
     request.request_meaning_digest = authority::request_meaning_digest(&request).unwrap();
     let (census, joined) = authority::issue_observation_census_and_joined_cut_v1(
         &request,

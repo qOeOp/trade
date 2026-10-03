@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{
     pit_snapshot::{VerifiedPitObservation, VerifiedPitObservationBatch},
+    pit_window_custody_v1::PitObservationBatchSourceV1,
     source_binding::BindingDigest,
     strategy_design_role_set::StrategyDesignRoleEntryV1,
 };
@@ -277,9 +278,241 @@ impl StrategyInputUnit {
     }
 }
 
+/// The batch a strategy-input binding request reads, as the request names it.
+///
+/// A committed snapshot is named by its identity and fact digest, exactly as before a batch had a
+/// source; one frame's view of a custody chain is named by its chain root, view identity, `e_k`,
+/// `d_k` and derived frontier. No field of one arm ever carries a value of the other.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub enum StrategyInputBatchSourceV1 {
+    Snapshot {
+        snapshot_identity: BindingDigest,
+        snapshot_fact_digest: BindingDigest,
+    },
+    CustodyView {
+        chain_root: BindingDigest,
+        view_identity: BindingDigest,
+        event_ns: u64,
+        decision_cut_ns: u64,
+        derived_frontier_digest: BindingDigest,
+    },
+}
+
+#[cfg(test)]
+impl UntrustedStrategyInputBindingRequest {
+    /// The snapshot identity of a test request that names a snapshot, to edit in place.
+    pub(crate) fn snapshot_identity_mut_for_test(&mut self) -> &mut BindingDigest {
+        match &mut self.source {
+            StrategyInputBatchSourceV1::Snapshot {
+                snapshot_identity, ..
+            } => snapshot_identity,
+            StrategyInputBatchSourceV1::CustodyView { .. } => {
+                panic!("the test request names a snapshot")
+            }
+        }
+    }
+
+    /// The snapshot fact digest of a test request that names a snapshot, to edit in place.
+    pub(crate) fn snapshot_fact_digest_mut_for_test(&mut self) -> &mut BindingDigest {
+        match &mut self.source {
+            StrategyInputBatchSourceV1::Snapshot {
+                snapshot_fact_digest,
+                ..
+            } => snapshot_fact_digest,
+            StrategyInputBatchSourceV1::CustodyView { .. } => {
+                panic!("the test request names a snapshot")
+            }
+        }
+    }
+}
+
+/// The source a binding request names a batch of `source` by; `None` for a quote cut, which no
+/// strategy input reads.
+pub(crate) const fn binding_request_source_of_v1(
+    source: PitObservationBatchSourceV1,
+) -> Option<StrategyInputBatchSourceV1> {
+    match source {
+        PitObservationBatchSourceV1::CommittedSnapshot {
+            snapshot_identity,
+            fact_digest,
+        } => Some(StrategyInputBatchSourceV1::Snapshot {
+            snapshot_identity,
+            snapshot_fact_digest: fact_digest,
+        }),
+        PitObservationBatchSourceV1::CustodyView {
+            chain_root,
+            view_identity,
+            event_ns,
+            decision_cut_ns,
+            derived_frontier_digest,
+        } => Some(StrategyInputBatchSourceV1::CustodyView {
+            chain_root,
+            view_identity,
+            event_ns,
+            decision_cut_ns,
+            derived_frontier_digest,
+        }),
+        PitObservationBatchSourceV1::CustodyQuoteCut { .. } => None,
+    }
+}
+
+/// The custody view arm of a binding request's wire.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+struct CustodyViewSourceWireV1 {
+    chain_root: BindingDigest,
+    view_identity: BindingDigest,
+    event_ns: u64,
+    decision_cut_ns: u64,
+    derived_frontier_digest: BindingDigest,
+}
+
+/// The JSON wire of a binding request. A snapshot source keeps the two fields it always had, so a
+/// snapshot request's wire, and every digest taken over it, is unchanged; a custody view source is
+/// one field of its own beside them, and a request stating both, or neither, is refused.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct UntrustedStrategyInputBindingRequestWireV1 {
+    research_request_identity: BindingDigest,
+    strategy_design_identity: BindingDigest,
+    input_role_identity: BindingDigest,
+    scope: UntrustedStrategyInputScope,
+    field_semantic: MarketDataFieldSemantic,
+    channel: StrategyInputChannel,
+    timeframe: String,
+    unit: StrategyInputUnit,
+    scale: u8,
+    pit_request_identity: BindingDigest,
+    pit_request_digest: BindingDigest,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    snapshot_identity: Option<BindingDigest>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    snapshot_fact_digest: Option<BindingDigest>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    custody_view: Option<CustodyViewSourceWireV1>,
+    observation_batch_digest: BindingDigest,
+    source_binding_identity: BindingDigest,
+    source_frontier_digest: BindingDigest,
+    correction_frontier_digest: BindingDigest,
+    instrument_master_digest: BindingDigest,
+    universe_selection_digest: BindingDigest,
+    market_semantics_identity: BindingDigest,
+    decision_cut: u64,
+}
+
+impl TryFrom<UntrustedStrategyInputBindingRequestWireV1> for UntrustedStrategyInputBindingRequest {
+    type Error = String;
+
+    fn try_from(wire: UntrustedStrategyInputBindingRequestWireV1) -> Result<Self, Self::Error> {
+        let source = match (
+            wire.snapshot_identity,
+            wire.snapshot_fact_digest,
+            wire.custody_view,
+        ) {
+            (Some(snapshot_identity), Some(snapshot_fact_digest), None) => {
+                StrategyInputBatchSourceV1::Snapshot {
+                    snapshot_identity,
+                    snapshot_fact_digest,
+                }
+            }
+            (None, None, Some(view)) => StrategyInputBatchSourceV1::CustodyView {
+                chain_root: view.chain_root,
+                view_identity: view.view_identity,
+                event_ns: view.event_ns,
+                decision_cut_ns: view.decision_cut_ns,
+                derived_frontier_digest: view.derived_frontier_digest,
+            },
+            _ => {
+                return Err(
+                    "a binding request names exactly one source: a snapshot or a custody view"
+                        .to_owned(),
+                );
+            }
+        };
+        Ok(Self {
+            research_request_identity: wire.research_request_identity,
+            strategy_design_identity: wire.strategy_design_identity,
+            input_role_identity: wire.input_role_identity,
+            scope: wire.scope,
+            field_semantic: wire.field_semantic,
+            channel: wire.channel,
+            timeframe: wire.timeframe,
+            unit: wire.unit,
+            scale: wire.scale,
+            pit_request_identity: wire.pit_request_identity,
+            pit_request_digest: wire.pit_request_digest,
+            source,
+            observation_batch_digest: wire.observation_batch_digest,
+            source_binding_identity: wire.source_binding_identity,
+            source_frontier_digest: wire.source_frontier_digest,
+            correction_frontier_digest: wire.correction_frontier_digest,
+            instrument_master_digest: wire.instrument_master_digest,
+            universe_selection_digest: wire.universe_selection_digest,
+            market_semantics_identity: wire.market_semantics_identity,
+            decision_cut: wire.decision_cut,
+        })
+    }
+}
+
+impl From<UntrustedStrategyInputBindingRequest> for UntrustedStrategyInputBindingRequestWireV1 {
+    fn from(request: UntrustedStrategyInputBindingRequest) -> Self {
+        let (snapshot_identity, snapshot_fact_digest, custody_view) = match request.source {
+            StrategyInputBatchSourceV1::Snapshot {
+                snapshot_identity,
+                snapshot_fact_digest,
+            } => (Some(snapshot_identity), Some(snapshot_fact_digest), None),
+            StrategyInputBatchSourceV1::CustodyView {
+                chain_root,
+                view_identity,
+                event_ns,
+                decision_cut_ns,
+                derived_frontier_digest,
+            } => (
+                None,
+                None,
+                Some(CustodyViewSourceWireV1 {
+                    chain_root,
+                    view_identity,
+                    event_ns,
+                    decision_cut_ns,
+                    derived_frontier_digest,
+                }),
+            ),
+        };
+        Self {
+            research_request_identity: request.research_request_identity,
+            strategy_design_identity: request.strategy_design_identity,
+            input_role_identity: request.input_role_identity,
+            scope: request.scope,
+            field_semantic: request.field_semantic,
+            channel: request.channel,
+            timeframe: request.timeframe,
+            unit: request.unit,
+            scale: request.scale,
+            pit_request_identity: request.pit_request_identity,
+            pit_request_digest: request.pit_request_digest,
+            snapshot_identity,
+            snapshot_fact_digest,
+            custody_view,
+            observation_batch_digest: request.observation_batch_digest,
+            source_binding_identity: request.source_binding_identity,
+            source_frontier_digest: request.source_frontier_digest,
+            correction_frontier_digest: request.correction_frontier_digest,
+            instrument_master_digest: request.instrument_master_digest,
+            universe_selection_digest: request.universe_selection_digest,
+            market_semantics_identity: request.market_semantics_identity,
+            decision_cut: request.decision_cut,
+        }
+    }
+}
+
 /// Untrusted request to bind one Research-declared market/reference role.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(deny_unknown_fields)]
+#[serde(
+    try_from = "UntrustedStrategyInputBindingRequestWireV1",
+    into = "UntrustedStrategyInputBindingRequestWireV1"
+)]
 pub struct UntrustedStrategyInputBindingRequest {
     /// Caller-proposed R&D request identity; Market Data binds but does not verify R&D authority.
     pub research_request_identity: BindingDigest,
@@ -303,10 +536,8 @@ pub struct UntrustedStrategyInputBindingRequest {
     pub pit_request_identity: BindingDigest,
     /// Exact PIT request content digest expected by the caller.
     pub pit_request_digest: BindingDigest,
-    /// Exact PIT snapshot identity expected by the caller.
-    pub snapshot_identity: BindingDigest,
-    /// Exact PIT fact digest expected by the caller.
-    pub snapshot_fact_digest: BindingDigest,
+    /// Exact batch source expected by the caller: a committed snapshot or a custody view.
+    pub source: StrategyInputBatchSourceV1,
     /// Exact complete observation-batch digest expected by the caller.
     pub observation_batch_digest: BindingDigest,
     /// Exact source identity expected by the caller.
@@ -537,8 +768,7 @@ impl StrategyInputLifecycleProjection {
 pub struct StrategyInputEventTriggerReceipt {
     lifecycle: StrategyInputLifecycleProjection,
     observation_batch_digest: BindingDigest,
-    snapshot_identity: BindingDigest,
-    snapshot_fact_digest: BindingDigest,
+    source: PitObservationBatchSourceV1,
     digest: BindingDigest,
 }
 
@@ -549,11 +779,31 @@ impl StrategyInputEventTriggerReceipt {
     pub const fn observation_batch_digest(&self) -> BindingDigest {
         self.observation_batch_digest
     }
-    pub const fn snapshot_identity(&self) -> BindingDigest {
-        self.snapshot_identity
+    /// The batch the frame was read from.
+    pub const fn source(&self) -> PitObservationBatchSourceV1 {
+        self.source
     }
-    pub const fn snapshot_fact_digest(&self) -> BindingDigest {
-        self.snapshot_fact_digest
+    #[cfg(test)]
+    pub(crate) fn snapshot_identity_for_test(&self) -> BindingDigest {
+        self.committed_snapshot()
+            .expect("the test frame is a committed snapshot's")
+            .0
+    }
+    #[cfg(test)]
+    pub(crate) fn snapshot_fact_digest_for_test(&self) -> BindingDigest {
+        self.committed_snapshot()
+            .expect("the test frame is a committed snapshot's")
+            .1
+    }
+    /// `(snapshot identity, fact digest)` for a frame of a committed snapshot, `None` otherwise.
+    pub(crate) const fn committed_snapshot(&self) -> Option<(BindingDigest, BindingDigest)> {
+        match self.source {
+            PitObservationBatchSourceV1::CommittedSnapshot {
+                snapshot_identity,
+                fact_digest,
+            } => Some((snapshot_identity, fact_digest)),
+            _ => None,
+        }
     }
     pub const fn digest(&self) -> BindingDigest {
         self.digest
@@ -1032,8 +1282,7 @@ pub(super) fn seal_strategy_input_custody_v1(
 
     let trigger = frame.trigger();
     if trigger.observation_batch_digest() != first.observation_batch_digest
-        || trigger.snapshot_identity() != first.snapshot_identity
-        || trigger.snapshot_fact_digest() != first.snapshot_fact_digest
+        || binding_request_source_of_v1(trigger.source()) != Some(first.source)
     {
         return Err(StrategyInputCustodyUnavailableV1::LineageDrift);
     }
@@ -1273,8 +1522,7 @@ pub(super) fn seal_strategy_input_universe_custody_v1(
 
     let trigger = frame.trigger();
     if trigger.observation_batch_digest() != first.observation_batch_digest
-        || trigger.snapshot_identity() != first.snapshot_identity
-        || trigger.snapshot_fact_digest() != first.snapshot_fact_digest
+        || binding_request_source_of_v1(trigger.source()) != Some(first.source)
     {
         return Err(StrategyInputCustodyUnavailableV1::LineageDrift);
     }
@@ -1327,8 +1575,7 @@ fn shares_custody_lineage_cut_v1(
     candidate: &UntrustedStrategyInputBindingRequest,
 ) -> bool {
     first.pit_request_digest == candidate.pit_request_digest
-        && first.snapshot_identity == candidate.snapshot_identity
-        && first.snapshot_fact_digest == candidate.snapshot_fact_digest
+        && first.source == candidate.source
         && first.observation_batch_digest == candidate.observation_batch_digest
         && first.source_binding_identity == candidate.source_binding_identity
         && first.source_frontier_digest == candidate.source_frontier_digest
@@ -1713,15 +1960,20 @@ pub(crate) fn derive_universe_selection(
     let mut digest_bytes = Encoder::new(b"VIBE_STRATEGY_INPUT_UNIVERSE_SELECTION_DIGEST_V1");
     digest_bytes.bytes(&static_meaning);
     let selection_digest = digest(&digest_bytes.finish());
-    let mut receipt_bytes = Encoder::new(b"VIBE_STRATEGY_INPUT_UNIVERSE_SELECTION_RECEIPT_V1");
+    let source = binding_request_source_of_v1(batch.source())
+        .ok_or(StrategyInputBindingUnavailable::StaleBatch)?;
+    let mut receipt_bytes = Encoder::for_source(
+        b"VIBE_STRATEGY_INPUT_UNIVERSE_SELECTION_RECEIPT_V1",
+        b"VIBE_STRATEGY_INPUT_UNIVERSE_SELECTION_RECEIPT_CUSTODY_VIEW_V1",
+        source,
+    );
     receipt_bytes.digest(selection_identity);
     receipt_bytes.digest(selection_digest);
     // Provenance only: this digest originates in the untrusted PIT request and is never selection
     // authority. The verified batch still binds it dynamically for exact request replay.
     receipt_bytes.digest(batch.universe_selection_digest());
     receipt_bytes.digest(batch.instrument_master_digest());
-    receipt_bytes.digest(batch.snapshot_identity());
-    receipt_bytes.digest(batch.fact_digest());
+    receipt_bytes.source(source);
     receipt_bytes.digest(batch.digest());
     receipt_bytes.digest(batch.source_binding_identity());
     receipt_bytes.digest(batch.source_binding_lineage_root());
@@ -1922,8 +2174,6 @@ fn validate_request(
         ("input_role_identity", request.input_role_identity),
         ("pit_request_identity", request.pit_request_identity),
         ("pit_request_digest", request.pit_request_digest),
-        ("snapshot_identity", request.snapshot_identity),
-        ("snapshot_fact_digest", request.snapshot_fact_digest),
         ("observation_batch_digest", request.observation_batch_digest),
         ("source_binding_identity", request.source_binding_identity),
         ("source_frontier_digest", request.source_frontier_digest),
@@ -1942,8 +2192,29 @@ fn validate_request(
         ),
     ];
 
+    let source_identities = match request.source {
+        StrategyInputBatchSourceV1::Snapshot {
+            snapshot_identity,
+            snapshot_fact_digest,
+        } => vec![
+            ("snapshot_identity", snapshot_identity),
+            ("snapshot_fact_digest", snapshot_fact_digest),
+        ],
+        StrategyInputBatchSourceV1::CustodyView {
+            chain_root,
+            view_identity,
+            derived_frontier_digest,
+            ..
+        } => vec![
+            ("chain_root", chain_root),
+            ("view_identity", view_identity),
+            ("derived_frontier_digest", derived_frontier_digest),
+        ],
+    };
+
     if let Some((name, _)) = identities
         .into_iter()
+        .chain(source_identities)
         .find(|(_, digest)| digest.as_bytes() == &[0; 32])
     {
         return Err(StrategyInputBindingUnavailable::MissingField(name));
@@ -1974,8 +2245,7 @@ fn batch_matches_request(
 ) -> bool {
     request.pit_request_identity == batch.request_identity()
         && request.pit_request_digest == batch.request_digest()
-        && request.snapshot_identity == batch.snapshot_identity()
-        && request.snapshot_fact_digest == batch.fact_digest()
+        && binding_request_source_of_v1(batch.source()) == Some(request.source)
         && request.observation_batch_digest == batch.digest()
         && request.source_binding_identity == batch.source_binding_identity()
         && request.source_frontier_digest == batch.source_frontier_digest()
@@ -2034,9 +2304,14 @@ fn issue_event_trigger_receipt(
     {
         return Err(StrategyInputBindingUnavailable::MissingLifecycleCoordinate);
     }
-    let mut canonical = Encoder::new(b"VIBE_STRATEGY_INPUT_EVENT_FRAME_V1");
-    canonical.digest(batch.snapshot_identity());
-    canonical.digest(batch.fact_digest());
+    let source = binding_request_source_of_v1(batch.source())
+        .ok_or(StrategyInputBindingUnavailable::StaleBatch)?;
+    let mut canonical = Encoder::for_source(
+        b"VIBE_STRATEGY_INPUT_EVENT_FRAME_V1",
+        b"VIBE_STRATEGY_INPUT_EVENT_FRAME_CUSTODY_VIEW_V1",
+        source,
+    );
+    canonical.source(source);
     canonical.digest(batch.digest());
     canonical.u8(match kind {
         StrategyInputEventKind::Bar => 1,
@@ -2067,8 +2342,7 @@ fn issue_event_trigger_receipt(
             event_identity,
         },
         observation_batch_digest: batch.digest(),
-        snapshot_identity: batch.snapshot_identity(),
-        snapshot_fact_digest: batch.fact_digest(),
+        source: batch.source(),
         digest,
     })
 }
@@ -2104,10 +2378,15 @@ fn issue_universe_trigger_receipt(
     {
         return Err(StrategyInputBindingUnavailable::MissingLifecycleCoordinate);
     }
-    let mut canonical = Encoder::new(b"VIBE_STRATEGY_INPUT_UNIVERSE_EVENT_FRAME_V1");
+    let source = binding_request_source_of_v1(batch.source())
+        .ok_or(StrategyInputBindingUnavailable::StaleBatch)?;
+    let mut canonical = Encoder::for_source(
+        b"VIBE_STRATEGY_INPUT_UNIVERSE_EVENT_FRAME_V1",
+        b"VIBE_STRATEGY_INPUT_UNIVERSE_EVENT_FRAME_CUSTODY_VIEW_V1",
+        source,
+    );
     canonical.digest(selection.digest());
-    canonical.digest(batch.snapshot_identity());
-    canonical.digest(batch.fact_digest());
+    canonical.source(source);
     canonical.digest(batch.digest());
     canonical.digest(batch.source_binding_lineage_root());
     canonical.digest(batch.market_semantics_identity());
@@ -2141,8 +2420,7 @@ fn issue_universe_trigger_receipt(
             event_identity,
         },
         observation_batch_digest: batch.digest(),
-        snapshot_identity: batch.snapshot_identity(),
-        snapshot_fact_digest: batch.fact_digest(),
+        source: batch.source(),
         digest,
     })
 }
@@ -2403,6 +2681,46 @@ impl Encoder {
         self.0.extend_from_slice(&value.to_be_bytes());
     }
 
+    /// An encoder under `snapshot_domain` for a snapshot source and `custody_domain` for a custody
+    /// view, so a custody receipt can never share a preimage with a snapshot one.
+    fn for_source(
+        snapshot_domain: &[u8],
+        custody_domain: &[u8],
+        source: StrategyInputBatchSourceV1,
+    ) -> Self {
+        match source {
+            StrategyInputBatchSourceV1::Snapshot { .. } => Self::new(snapshot_domain),
+            StrategyInputBatchSourceV1::CustodyView { .. } => Self::new(custody_domain),
+        }
+    }
+
+    /// A snapshot source writes exactly the two digests a snapshot receipt always held; a custody
+    /// view writes its chain root, view identity, `e_k`, `d_k` and derived frontier.
+    fn source(&mut self, source: StrategyInputBatchSourceV1) {
+        match source {
+            StrategyInputBatchSourceV1::Snapshot {
+                snapshot_identity,
+                snapshot_fact_digest,
+            } => {
+                self.digest(snapshot_identity);
+                self.digest(snapshot_fact_digest);
+            }
+            StrategyInputBatchSourceV1::CustodyView {
+                chain_root,
+                view_identity,
+                event_ns,
+                decision_cut_ns,
+                derived_frontier_digest,
+            } => {
+                self.digest(chain_root);
+                self.digest(view_identity);
+                self.u64(event_ns);
+                self.u64(decision_cut_ns);
+                self.digest(derived_frontier_digest);
+            }
+        }
+    }
+
     fn digest(&mut self, value: BindingDigest) {
         self.bytes(value.as_bytes());
     }
@@ -2414,6 +2732,12 @@ mod tests {
 
     use super::*;
     use crate::owner::pit_snapshot::UnverifiedBatchFieldsForTest;
+
+    const PINNED_CUSTODY_RECEIPTS: [&str; 3] = [
+        "2401a6b13d451ccd03c89217a70488524a0a06797674af04235538dde8a40e4f",
+        "f0c98263aa6706a6c72b31b919a6c95ff73c94e5d3219a274c84fa29c0918b27",
+        "f8f18aee830a51a11fc964ef52563071730085fb6948ca482b84e350bb524627",
+    ];
     use crate::owner::pit_snapshot::{
         UntrustedCorrectionPublicationTime, UntrustedEventEffectiveTime,
         UntrustedPitSnapshotTimeEvidence, UntrustedProviderAvailableTime, UntrustedRetrievalTime,
@@ -2505,8 +2829,10 @@ mod tests {
             request_digest: d(2),
             correlation_identity: d(21),
             scope_digest: d(20),
-            snapshot_identity: d(3),
-            fact_digest: d(4),
+            source: crate::owner::pit_window_custody_v1::PitObservationBatchSourceV1::CommittedSnapshot {
+                snapshot_identity: d(3),
+                fact_digest: d(4),
+            },
             source_binding_identity: d(6),
             source_binding_fact_digest: d(22),
             source_binding_lineage_root: d(16),
@@ -2548,8 +2874,10 @@ mod tests {
             scale: 2,
             pit_request_identity: d(1),
             pit_request_digest: d(2),
-            snapshot_identity: d(3),
-            snapshot_fact_digest: d(4),
+            source: crate::owner::strategy_input_binding::StrategyInputBatchSourceV1::Snapshot {
+                snapshot_identity: d(3),
+                snapshot_fact_digest: d(4),
+            },
             observation_batch_digest: d(5),
             source_binding_identity: d(6),
             source_frontier_digest: d(7),
@@ -2862,8 +3190,8 @@ mod tests {
         let verified = batch(complete_universe_rows());
         let frame =
             bind_strategy_input_universe_frame(&universe_requests(&verified), &verified).unwrap();
-        let snapshot = frame.trigger().snapshot_identity();
-        let fact = frame.trigger().snapshot_fact_digest();
+        let snapshot = frame.trigger().snapshot_identity_for_test();
+        let fact = frame.trigger().snapshot_fact_digest_for_test();
         let lineage = frame.selection().source_binding_lineage_root();
         let members: [(&[u8], &[u8]); 2] = [
             (b"MSFT".as_slice(), b"MSFT.XNAS".as_slice()),
@@ -3046,8 +3374,8 @@ mod tests {
         let (bindings, frame) = custody_evidence(&requests);
         let mutations: &[fn(&mut UntrustedStrategyInputBindingRequest)] = &[
             |v| v.pit_request_digest = d(90),
-            |v| v.snapshot_identity = d(90),
-            |v| v.snapshot_fact_digest = d(90),
+            |v| *v.snapshot_identity_mut_for_test() = d(90),
+            |v| *v.snapshot_fact_digest_mut_for_test() = d(90),
             |v| v.observation_batch_digest = d(90),
             |v| v.source_binding_identity = d(90),
             |v| v.source_frontier_digest = d(90),
@@ -3397,8 +3725,8 @@ mod tests {
         assert_ne!(first.selection_digest(), second.selection_digest());
 
         let renewable_batch = first_batch.clone().edit_for_test(|fields| {
-            fields.snapshot_identity = d(80);
-            fields.fact_digest = d(81);
+            *fields.snapshot_identity_mut_for_test() = d(80);
+            *fields.fact_digest_mut_for_test() = d(81);
             fields.digest = d(82);
             fields.source_binding_identity = d(83);
             fields.source_binding_lineage_version += 1;
@@ -3567,6 +3895,189 @@ mod tests {
         }
     }
 
+    fn hex(digest: BindingDigest) -> String {
+        use std::fmt::Write as _;
+
+        digest
+            .as_bytes()
+            .iter()
+            .fold(String::new(), |mut hex, byte| {
+                write!(hex, "{byte:02x}").expect("writing to a String succeeds");
+                hex
+            })
+    }
+
+    /// Every snapshot receipt keeps the bytes it had before a batch named its source: the
+    /// universe selection, both trigger receipts, the universe frame, and a binding declaration's
+    /// stored encoding and JSON wire. Pinned on the tree before the change.
+    /// The scheduling receipt is pinned by `a_receipt_keeps_its_bytes`.
+    #[rstest]
+    fn the_snapshot_receipts_keep_their_bytes() {
+        let universe = batch(complete_universe_rows());
+        let selection = derive_universe_selection(&universe).unwrap();
+        let universe_frame =
+            bind_strategy_input_universe_frame(&universe_requests(&universe), &universe).unwrap();
+        let event_frame = issue_frame(&custody_requests(), &custody_batch()).unwrap();
+        let declaration = codec::encode_request_v1(&request()).unwrap();
+        let wire = serde_json::to_vec(&request()).unwrap();
+        let actual = [
+            hex(selection.digest()),
+            hex(universe_frame.trigger().digest()),
+            hex(event_frame.trigger().digest()),
+            hex(digest(&declaration)),
+            hex(digest(&wire)),
+            hex(universe_frame.digest()),
+        ];
+        assert_eq!(
+            actual,
+            [
+                "7c63948250dd949ba3b60356db322d2a161ad0a0b05ad4fbe4e6bbe2dc18d375",
+                "c9f42ddc247365c5eabc2c932d26261029fe9d524b29135fc71fbe64b7ce3db5",
+                "4ab68f23db72f0fc83941209610216a65e6981cb42b8e50a0b28c05b5cb7a209",
+                "ae6a3d889799dcca0e974d184386eb5f774d43288a7365ba0a30069dc1a7a1ea",
+                "3968ec05e1c79634a7505b7b3d8b799a1f6636448e253fd1ae4128f2b66ac36b",
+                "7039451abbc48363586cec19aca8540b096338e786d42a8bd0cc5483cd0af755",
+            ]
+        );
+    }
+
+    fn custody_view() -> StrategyInputBatchSourceV1 {
+        StrategyInputBatchSourceV1::CustodyView {
+            chain_root: d(60),
+            view_identity: d(61),
+            event_ns: 10,
+            decision_cut_ns: 40,
+            derived_frontier_digest: d(62),
+        }
+    }
+
+    /// `verified` read as one frame's custody view rather than a committed snapshot.
+    fn as_custody_view(verified: VerifiedPitObservationBatch) -> VerifiedPitObservationBatch {
+        verified.edit_for_test(|fields| {
+            fields.source = PitObservationBatchSourceV1::CustodyView {
+                chain_root: d(60),
+                view_identity: d(61),
+                event_ns: 10,
+                decision_cut_ns: 40,
+                derived_frontier_digest: d(62),
+            };
+        })
+    }
+
+    fn with_custody_view(
+        mut requests: Vec<UntrustedStrategyInputBindingRequest>,
+    ) -> Vec<UntrustedStrategyInputBindingRequest> {
+        for request in &mut requests {
+            request.source = custody_view();
+        }
+        requests
+    }
+
+    /// A custody view's receipts are sealed under domains of their own over the view's coordinates,
+    /// so none shares a preimage with a snapshot receipt. Pinned when they were first sealed.
+    #[rstest]
+    fn the_custody_view_receipts_have_their_own_domains_and_bytes() {
+        let universe = as_custody_view(batch(complete_universe_rows()));
+        let selection = derive_universe_selection(&universe).unwrap();
+        let universe_frame = bind_strategy_input_universe_frame(
+            &with_custody_view(universe_requests(&universe).to_vec()),
+            &universe,
+        )
+        .unwrap();
+        let event_frame = issue_frame(
+            &with_custody_view(custody_requests().to_vec()),
+            &as_custody_view(custody_batch()),
+        )
+        .unwrap();
+        let actual = [
+            hex(selection.digest()),
+            hex(universe_frame.trigger().digest()),
+            hex(event_frame.trigger().digest()),
+        ];
+        let snapshot = batch(complete_universe_rows());
+        assert_ne!(
+            selection.digest(),
+            derive_universe_selection(&snapshot).unwrap().digest()
+        );
+        assert_eq!(universe_frame.trigger().source(), universe.source());
+        assert_eq!(actual, PINNED_CUSTODY_RECEIPTS);
+    }
+
+    /// A binding request naming a snapshot binds no custody view, and the reverse.
+    #[rstest]
+    fn a_request_binds_only_the_source_it_names() {
+        let custody = as_custody_view(custody_batch());
+        assert_eq!(
+            issue_frame(&custody_requests(), &custody),
+            Err(StrategyInputBindingUnavailable::StaleBatch)
+        );
+        assert_eq!(
+            issue_frame(
+                &with_custody_view(custody_requests().to_vec()),
+                &custody_batch()
+            ),
+            Err(StrategyInputBindingUnavailable::StaleBatch)
+        );
+    }
+
+    /// A quote cut is read by no strategy input: it names no binding source and derives no
+    /// universe selection.
+    #[rstest]
+    fn a_quote_cut_batch_binds_no_strategy_input() {
+        let quote_cut = batch(complete_universe_rows()).edit_for_test(|fields| {
+            fields.source = PitObservationBatchSourceV1::CustodyQuoteCut {
+                chain_root: d(60),
+                quote_cut_identity: d(63),
+                instant_ns: 41,
+                derivation: crate::owner::pit_window_custody_v1::QuoteDerivationV1::ObservedBbo,
+            };
+        });
+        assert_eq!(quote_cut.binding_request_source_v1(), None);
+        assert_eq!(
+            derive_universe_selection(&quote_cut).map(|selection| selection.digest()),
+            Err(StrategyInputBindingUnavailable::StaleBatch)
+        );
+    }
+
+    /// A custody view request crosses JSON as one field beside the snapshot's two, which it never
+    /// states; a request naming both sources, or neither, is refused. No declaration stores one.
+    #[rstest]
+    fn a_custody_view_request_has_its_own_wire_and_is_never_stored() {
+        let mut custody = request();
+        custody.source = custody_view();
+        let value = serde_json::to_value(&custody).unwrap();
+        let object = value.as_object().unwrap();
+        assert!(object.contains_key("custody_view"));
+        assert!(!object.contains_key("snapshot_identity"));
+        assert!(!object.contains_key("snapshot_fact_digest"));
+        assert_eq!(
+            serde_json::from_value::<UntrustedStrategyInputBindingRequest>(value.clone()).unwrap(),
+            custody
+        );
+        assert!(
+            !serde_json::to_value(request())
+                .unwrap()
+                .as_object()
+                .unwrap()
+                .contains_key("custody_view")
+        );
+
+        let mut both = value.clone();
+        let snapshot_wire = serde_json::to_value(request()).unwrap();
+        both["snapshot_identity"] = snapshot_wire["snapshot_identity"].clone();
+        both["snapshot_fact_digest"] = snapshot_wire["snapshot_fact_digest"].clone();
+        assert!(serde_json::from_value::<UntrustedStrategyInputBindingRequest>(both).is_err());
+
+        let mut neither = value;
+        neither.as_object_mut().unwrap().remove("custody_view");
+        assert!(serde_json::from_value::<UntrustedStrategyInputBindingRequest>(neither).is_err());
+
+        assert_eq!(
+            codec::encode_request_v1(&custody),
+            Err(codec::CodecError::InvalidRequest)
+        );
+    }
+
     #[rstest]
     fn request_deserialization_denies_unknown_fields_and_has_no_row_keys() {
         let value = serde_json::to_value(request()).expect("serialize request");
@@ -3670,8 +4181,8 @@ mod tests {
         let mutations: &[fn(&mut UntrustedStrategyInputBindingRequest)] = &[
             |v| v.pit_request_identity = d(31),
             |v| v.pit_request_digest = d(32),
-            |v| v.snapshot_identity = d(33),
-            |v| v.snapshot_fact_digest = d(34),
+            |v| *v.snapshot_identity_mut_for_test() = d(33),
+            |v| *v.snapshot_fact_digest_mut_for_test() = d(34),
             |v| v.observation_batch_digest = d(35),
             |v| v.source_binding_identity = d(36),
             |v| v.source_frontier_digest = d(37),
@@ -3771,8 +4282,8 @@ mod tests {
         let next_batch = batch(vec![next_row]).edit_for_test(|fields| {
             fields.request_identity = d(72);
             fields.request_digest = d(73);
-            fields.snapshot_identity = d(74);
-            fields.fact_digest = d(75);
+            *fields.snapshot_identity_mut_for_test() = d(74);
+            *fields.fact_digest_mut_for_test() = d(75);
             fields.source_binding_identity = d(76);
             fields.source_binding_lineage_version = 2;
             fields.source_frontier_digest = d(70);
@@ -3784,8 +4295,8 @@ mod tests {
         let mut next_request = first_request;
         next_request.pit_request_identity = next_batch.request_identity();
         next_request.pit_request_digest = next_batch.request_digest();
-        next_request.snapshot_identity = next_batch.snapshot_identity();
-        next_request.snapshot_fact_digest = next_batch.fact_digest();
+        *next_request.snapshot_identity_mut_for_test() = next_batch.snapshot_identity_for_test();
+        *next_request.snapshot_fact_digest_mut_for_test() = next_batch.fact_digest_for_test();
         next_request.observation_batch_digest = next_batch.digest();
         next_request.source_binding_identity = next_batch.source_binding_identity();
         next_request.source_frontier_digest = next_batch.source_frontier_digest();

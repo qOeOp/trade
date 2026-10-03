@@ -402,6 +402,8 @@ impl NativeReplayInitialMarketRequestV1 {
 #[derive(Debug)]
 pub struct NativeReplayInitialMarketReadbackV1 {
     batch: VerifiedPitObservationBatch,
+    /// The committed snapshot the batch is of, as issuance checked it against the request.
+    snapshot: (BindingDigest, BindingDigest),
     quote_cut: VerifiedPitObservationBatch,
     universe_frame: StrategyInputUniverseFrameReceipt,
     schedules: Vec<BarScheduleReadbackV1>,
@@ -532,7 +534,7 @@ impl NativeReplayInitialMarketReadbackV1 {
     /// repair request. The original observations and executable schedules are not returned.
     #[must_use]
     pub fn into_market_data_repair_source(self) -> MarketDataRepairSourceV1 {
-        market_data_repair_source_from_verified_batch(self.batch)
+        market_data_repair_source_from_verified_batch(self.batch, self.snapshot)
     }
 
     #[must_use]
@@ -564,6 +566,7 @@ impl NativeReplayInitialMarketReadbackV1 {
     > {
         let Self {
             batch,
+            snapshot: _,
             quote_cut,
             universe_frame,
             schedules,
@@ -617,13 +620,14 @@ impl NativeReplayInitialMarketReadbackV1 {
 )]
 pub(crate) fn market_data_repair_source_from_verified_batch(
     batch: VerifiedPitObservationBatch,
+    (pit_snapshot_identity, pit_snapshot_fact_digest): (BindingDigest, BindingDigest),
 ) -> MarketDataRepairSourceV1 {
     MarketDataRepairSourceV1 {
         pit_request_identity: batch.request_identity(),
         pit_request_digest: batch.request_digest(),
         correlation_identity: batch.correlation_identity(),
-        pit_snapshot_identity: batch.snapshot_identity(),
-        pit_snapshot_fact_digest: batch.fact_digest(),
+        pit_snapshot_identity,
+        pit_snapshot_fact_digest,
         instrument_scope_digest: batch.scope_digest(),
         source_binding_identity: batch.source_binding_identity(),
         source_binding_fact_digest: batch.source_binding_fact_digest(),
@@ -718,8 +722,8 @@ pub(crate) fn issue_native_replay_initial_market_readback_v1(
         || !canonical_members(&request.member_instruments)
         || schedules.len() != request.member_instruments.len()
         || request.frame_time_ns >= request.window_end_ns_exclusive
-        || batch.snapshot_identity() != request.snapshot_identity
-        || batch.fact_digest() != request.snapshot_fact_digest
+        || batch.committed_snapshot()
+            != Some((request.snapshot_identity, request.snapshot_fact_digest))
         || batch.instrument_master_digest() != request.instrument_master_digest
         || batch.source_binding_lineage_root() != request.source_binding_lineage_root
         || batch.market_semantics_identity() != request.market_semantics_identity
@@ -754,7 +758,8 @@ pub(crate) fn issue_native_replay_initial_market_readback_v1(
             return Err(NativeReplaySchedulingErrorV1::DeclaredBarTimeframeMismatch);
         }
     }
-    let binding_requests = native_replay_universe_binding_requests_v1(request, &batch);
+    let binding_requests = native_replay_universe_binding_requests_v1(request, &batch)
+        .ok_or(NativeReplaySchedulingErrorV1::OwnerBindingMismatch)?;
     let universe_frame = bind_strategy_input_universe_frame(&binding_requests, &batch)
         .map_err(|_| NativeReplaySchedulingErrorV1::OwnerBindingMismatch)?;
     let members = universe_frame.selection().members();
@@ -773,6 +778,7 @@ pub(crate) fn issue_native_replay_initial_market_readback_v1(
     quote_cut_instant(&batch, &quote_cut, request.window_end_ns_exclusive)?;
     Ok(NativeReplayInitialMarketReadbackV1 {
         batch,
+        snapshot: (request.snapshot_identity, request.snapshot_fact_digest),
         quote_cut,
         universe_frame,
         schedules,
@@ -791,8 +797,9 @@ pub(crate) fn issue_native_replay_initial_market_readback_v1(
 pub(crate) fn native_replay_universe_binding_requests_v1(
     request: &NativeReplayInitialMarketRequestV1,
     batch: &VerifiedPitObservationBatch,
-) -> Vec<UntrustedStrategyInputBindingRequest> {
-    request
+) -> Option<Vec<UntrustedStrategyInputBindingRequest>> {
+    let source = batch.binding_request_source_v1()?;
+    let requests = request
         .roles
         .iter()
         .map(|role| UntrustedStrategyInputBindingRequest {
@@ -809,8 +816,7 @@ pub(crate) fn native_replay_universe_binding_requests_v1(
             scale: role.scale,
             pit_request_identity: batch.request_identity(),
             pit_request_digest: batch.request_digest(),
-            snapshot_identity: batch.snapshot_identity(),
-            snapshot_fact_digest: batch.fact_digest(),
+            source,
             observation_batch_digest: batch.digest(),
             source_binding_identity: batch.source_binding_identity(),
             source_frontier_digest: batch.source_frontier_digest(),
@@ -820,7 +826,8 @@ pub(crate) fn native_replay_universe_binding_requests_v1(
             market_semantics_identity: batch.market_semantics_identity(),
             decision_cut: batch.time_evidence().decision_cut.value,
         })
-        .collect()
+        .collect();
+    Some(requests)
 }
 
 #[cfg_attr(
@@ -967,9 +974,12 @@ pub fn seal_native_replay_scheduling_v1(
         .iter()
         .map(BarScheduleReadbackV1::digest)
         .collect::<Vec<_>>();
+    let (quote_snapshot, quote_fact) = quote_cut
+        .committed_snapshot()
+        .ok_or(NativeReplaySchedulingErrorV1::OwnerBindingMismatch)?;
     let quote_cut = NativeReplayQuoteCutReadbackV1 {
-        snapshot_identity: quote_cut.snapshot_identity(),
-        snapshot_fact_digest: quote_cut.fact_digest(),
+        snapshot_identity: quote_snapshot,
+        snapshot_fact_digest: quote_fact,
         observation_batch_digest: quote_cut.digest(),
         instant_ns,
     };
@@ -1492,11 +1502,11 @@ pub(crate) mod tests {
         rows: Vec<VerifiedPitObservation>,
         instant: u64,
     ) -> VerifiedPitObservationBatch {
-        let seed = frame.snapshot_identity().as_bytes()[0];
+        let seed = frame.snapshot_identity_for_test().as_bytes()[0];
         let selection = frame.universe_selection_digest();
         batch(rows).edit_for_test(|fields| {
-            fields.snapshot_identity = digest(seed.wrapping_add(100));
-            fields.fact_digest = digest(seed.wrapping_add(101));
+            *fields.snapshot_identity_mut_for_test() = digest(seed.wrapping_add(100));
+            *fields.fact_digest_mut_for_test() = digest(seed.wrapping_add(101));
             fields.digest = digest(seed.wrapping_add(102));
             fields.universe_selection_digest = selection;
             fields.time_evidence.event_effective =
@@ -1549,8 +1559,10 @@ pub(crate) mod tests {
             request_digest: digest(11),
             correlation_identity: digest(18),
             scope_digest: digest(17),
-            snapshot_identity: digest(12),
-            fact_digest: digest(13),
+            source: crate::owner::pit_window_custody_v1::PitObservationBatchSourceV1::CommittedSnapshot {
+                snapshot_identity: digest(12),
+                fact_digest: digest(13),
+            },
             source_binding_identity: digest(3),
             source_binding_fact_digest: digest(19),
             source_binding_lineage_root: digest(14),
@@ -1729,8 +1741,8 @@ pub(crate) mod tests {
         }
 
         let verified = batch(rows).edit_for_test(|fields| {
-            fields.snapshot_identity = digest(seed);
-            fields.fact_digest = digest(seed.wrapping_add(1));
+            *fields.snapshot_identity_mut_for_test() = digest(seed);
+            *fields.fact_digest_mut_for_test() = digest(seed.wrapping_add(1));
             fields.time_evidence.event_effective =
                 UntrustedEventEffectiveTime::from_untrusted(frame_time_ns, "clock", "epoch");
         });
@@ -1860,8 +1872,8 @@ pub(crate) mod tests {
         for roles in [vec![close.clone()], vec![close, bid]] {
             let with_bid = roles.len() == 2;
             let request = NativeReplayInitialMarketRequestV1::new(
-                frame.snapshot_identity(),
-                frame.fact_digest(),
+                frame.snapshot_identity_for_test(),
+                frame.fact_digest_for_test(),
                 digest(20),
                 digest(21),
                 selection.selection_identity(),
@@ -1891,8 +1903,8 @@ pub(crate) mod tests {
                 Ok(readback) => {
                     let inputs = readback.universe_frame();
                     assert_eq!(
-                        inputs.trigger().snapshot_identity(),
-                        frame.snapshot_identity()
+                        inputs.trigger().snapshot_identity_for_test(),
+                        frame.snapshot_identity_for_test()
                     );
                     assert_eq!(inputs.values().len(), members.len() * request.roles.len());
 

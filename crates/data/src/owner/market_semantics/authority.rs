@@ -41,11 +41,12 @@ pub(crate) fn derive_registry_key_v1(
         ),
         (
             MarketSemanticsRegistryDependencyV1::R0PitSnapshotIdentity,
-            pit.snapshot_identity() == evidence.pit_snapshot_identity,
+            pit.committed_snapshot().map(|(snapshot, _)| snapshot)
+                == Some(evidence.pit_snapshot_identity),
         ),
         (
             MarketSemanticsRegistryDependencyV1::R0PitFactDigest,
-            pit.fact_digest() == evidence.pit_fact_digest,
+            pit.committed_snapshot().map(|(_, fact)| fact) == Some(evidence.pit_fact_digest),
         ),
         (
             MarketSemanticsRegistryDependencyV1::R0ObservationBatchDigest,
@@ -112,8 +113,8 @@ pub(crate) fn derive_registry_key_v1(
         r0_record_digest: r0.record().digest(),
         r0_cut_identity: r0.cut().identity(),
         r0_cut_digest: r0.cut().digest(),
-        pit_snapshot_identity: pit.snapshot_identity(),
-        pit_fact_digest: pit.fact_digest(),
+        pit_snapshot_identity: evidence.pit_snapshot_identity,
+        pit_fact_digest: evidence.pit_fact_digest,
         source_binding_identity: source.binding_id(),
         source_binding_fact_digest: source.fact_digest(),
         source_binding_lineage_root: source.lineage_root(),

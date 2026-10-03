@@ -123,8 +123,10 @@ async fn declare_universe_role(
         scale: 2,
         pit_request_identity: batch.request_identity(),
         pit_request_digest: batch.request_digest(),
-        snapshot_identity: batch.snapshot_identity(),
-        snapshot_fact_digest: batch.fact_digest(),
+        source: crate::owner::strategy_input_binding::StrategyInputBatchSourceV1::Snapshot {
+            snapshot_identity: batch.snapshot_identity_for_test(),
+            snapshot_fact_digest: batch.fact_digest_for_test(),
+        },
         observation_batch_digest: batch.digest(),
         source_binding_identity: batch.source_binding_identity(),
         source_frontier_digest: batch.source_frontier_digest(),
