@@ -93,6 +93,8 @@ wasmparser = { workspace = true }
 
 [dev-dependencies]
 rstest = { workspace = true }
+# Enumerates a closed refusal list in its tests, so a new variant is covered without a hand list.
+strum = { workspace = true }
 tracing-subscriber = { workspace = true }
 vibe-operator-authorization = { workspace = true }
 vibe-portfolio = { workspace = true }

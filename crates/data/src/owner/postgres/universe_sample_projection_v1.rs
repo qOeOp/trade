@@ -93,7 +93,11 @@ pub enum UniverseSampleProjectionIssuanceErrorV1 {
     /// The binding's recorded roles, their declarations and the frame's batch do not re-derive the
     /// universe frame the binding sealed.
     FrameMismatch,
-    /// A BAR member's schedule for the frame is missing, or two would answer it.
+    /// A BAR member has no admitted schedule at the frame. Until one is committed, no retry
+    /// changes the answer.
+    ScheduleAbsent,
+    /// Two of a BAR member's schedules would answer the frame, the frame's roles read more than one
+    /// bar label, or a row the frame reads is of a member no schedule was selected for.
     ScheduleUnavailable,
     /// The frame's Source Binding declares no bar timeframe, so no schedule can be chosen for it.
     SourceBindingDeclaresNoBarTimeframe,
@@ -116,7 +120,8 @@ impl Display for UniverseSampleProjectionIssuanceErrorV1 {
             Self::CompositionShapeMismatch => "the binding composes no universe frame",
             Self::BindingConflict => "the request was issued under another binding",
             Self::FrameMismatch => "the binding's roles do not re-derive its universe frame",
-            Self::ScheduleUnavailable => "a member's BAR schedule for the frame is unavailable",
+            Self::ScheduleAbsent => "a member has no admitted BAR schedule at the frame",
+            Self::ScheduleUnavailable => "a member's BAR schedule for the frame cannot be chosen",
             Self::SourceBindingDeclaresNoBarTimeframe => {
                 "the frame's Source Binding declares no bar timeframe"
             }
@@ -495,6 +500,7 @@ async fn member_schedules(
                 frame_time_ns,
             )
             .map_err(|e| match e {
+                NativeReplaySchedulingErrorV1::NoBarScheduleAtFrame => E::ScheduleAbsent,
                 NativeReplaySchedulingErrorV1::DeclaredBarTimeframeMismatch => {
                     E::DeclaredBarTimeframeMismatch
                 }
