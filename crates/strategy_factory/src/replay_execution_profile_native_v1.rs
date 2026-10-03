@@ -262,6 +262,12 @@ impl ReplayNativeExecutionProfileV1 {
         AccountId::from(format!("{}-001", self.venue_config.venue).as_str())
     }
 
+    /// The venue's one starting balance, as the engine is configured with it.
+    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+    pub(crate) fn starting_balance(&self) -> Option<Money> {
+        self.venue_config.starting_balances.first().copied()
+    }
+
     pub(crate) const fn instrument_terms(&self) -> &BoundedMembers<BoundInstrumentEconomicTermsV1> {
         &self.instrument_terms
     }
