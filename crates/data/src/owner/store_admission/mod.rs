@@ -5775,20 +5775,37 @@ mod tests {
 
         // A port outlives the lease period it was opened in: under a two-second period, a read just
         // after the next boundary is admitted on a receipt of its own and reads the store.
+        //
+        // The admission itself must fall inside one period, because a lease lapses at its period's
+        // end and an admission that straddles a boundary is refused as `AdmissionCutExpired`, as it
+        // should be. Started at an arbitrary instant it straddled one with a probability of its
+        // duration over the period, and failed CI that way twice in one hour, so it starts just
+        // after a boundary and has the whole period.
         let mut short_period = configuration.clone();
-        short_period.insert(composition::LEASE_PERIOD_MS_ENV, "2000".to_owned());
-        let port = admit_rd_owner_market_data_postgres_with(&request, |name| {
+        short_period.insert(
+            composition::LEASE_PERIOD_MS_ENV,
+            SHORT_LEASE_PERIOD_MS.to_string(),
+        );
+        sleep_past_next_lease_boundary(&admin).await;
+        let started = store_clock(&admin).await;
+        let admitted = admit_rd_owner_market_data_postgres_with(&request, |name| {
             short_period.get(name).cloned()
         })
-        .await
-        .expect("the production seam admits under a short lease period")
-        .into_native_replay_scheduling_snapshot_port_v2()
-        .unwrap();
-        let now = store_clock(&admin).await;
-        tokio::time::sleep(std::time::Duration::from_millis(
-            (now / 2_000 + 1) * 2_000 - now + 50,
-        ))
         .await;
+        let elapsed = store_clock(&admin).await - started;
+        eprintln!(
+            "short-period admission took {elapsed} ms of a {SHORT_LEASE_PERIOD_MS} ms period"
+        );
+        let port = admitted
+            .unwrap_or_else(|refusal| {
+                panic!(
+                    "the production seam admits under a short lease period: {refusal:?} after {elapsed} ms, started {} ms into a {SHORT_LEASE_PERIOD_MS} ms period",
+                    started % SHORT_LEASE_PERIOD_MS
+                )
+            })
+            .into_native_replay_scheduling_snapshot_port_v2()
+            .unwrap();
+        sleep_past_next_lease_boundary(&admin).await;
         assert_eq!(
             port.resolve_bar_schedule_candidates_v1("VIBE-PRODUCTION-SEAM")
                 .await
@@ -7089,6 +7106,19 @@ mod tests {
         custody_postgres::publish_signed_v1(database_url, manifest, head, expected_previous_head)
             .await
             .unwrap()
+    }
+
+    /// The lease period the production seam's boundary-crossing leg runs under.
+    const SHORT_LEASE_PERIOD_MS: u64 = 2_000;
+
+    /// Sleeps until 50 ms past the next boundary of a `SHORT_LEASE_PERIOD_MS` lease period, by the
+    /// store's clock, which is the clock leases are cut on.
+    async fn sleep_past_next_lease_boundary(admin: &sqlx::PgPool) {
+        let now = store_clock(admin).await;
+        tokio::time::sleep(std::time::Duration::from_millis(
+            (now / SHORT_LEASE_PERIOD_MS + 1) * SHORT_LEASE_PERIOD_MS - now + 50,
+        ))
+        .await;
     }
 
     async fn store_clock(admin: &sqlx::PgPool) -> u64 {
