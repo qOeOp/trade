@@ -341,17 +341,22 @@ Source 与 Research 动作、探索性 Replay 动作、Develop Composer 动作�
 **`market-data`**，由 Market Data 提供：
 
 - `list_instruments()` → 已准入的标的。
-- `describe_instrument(instrument)` → tick size、lot size 与当前费率条款，或 `INSTRUMENT_UNKNOWN`。
-- `admit_instrument(instrument)` → 准入回执，或按名给出的准入拒绝。
+- `describe_instrument(instrument)` → tick size、lot size 与当前经济条款（费率与保证金），或 `INSTRUMENT_UNKNOWN`。
+- `admit_instrument(symbol)` → 交易所 symbol（例如 `BTCUSDT`）的准入回执，由 Market Data 映射到其 canonical 标的；
+  或按名给出的准入拒绝。
 - `backfill(instrument, timeframe, range)` → 一个 `job_id`。拒绝：`INSTRUMENT_UNKNOWN`、`TIMEFRAME_UNSUPPORTED`、
   `RANGE_INVALID`。
 - `job_status(job_id)` → 任务状态，取 `QUEUED`、`RUNNING`、`SUCCEEDED` 或 `FAILED` 之一；`SUCCEEDED` 时给出新增的覆盖；
   `FAILED` 时按名给出成因。未知任务为 `JOB_UNKNOWN`。
 - `coverage(instrument)` → 每个周期已覆盖的区间。
 - `get_bars(instrument, timeframe, range, format)` → 小段数据内联返回 bar，否则返回 `dataset_ref`。拒绝：
-  `RANGE_NOT_COVERED`，以及 `format` 要求内联时的 `RANGE_TOO_LARGE_FOR_INLINE`。
-- `get_funding(instrument, range)` → 资金费率，按同一规则内联或以 `dataset_ref` 返回。
-- 每个返回行情数值的工具都在作答前写入其数据读取台账行，写不进去就拒绝（R&D 的「TARGET - 生产试验台账与数据读取台账」）。
+  `RANGE_NOT_COVERED`、`format` 要求内联时的 `RANGE_TOO_LARGE_FOR_INLINE`，以及 `HOLDOUT_PARTITION_UNDEFINED`。
+- `get_funding(instrument, range)` → 资金费率，按同一规则与同一组拒绝内联或以 `dataset_ref` 返回。
+- 在 Qualification 按值、向下把其 holdout 分区登记到 Market Data 之前，这两个工具对每个请求都以
+  `HOLDOUT_PARTITION_UNDEFINED` 拒绝：登记之前的答案是全部拒绝，从不是全部放行。
+- 每个返回行情数值的工具都在作答的同一事务里把这次读取追加到 Market Data 的代理数据读取台账，写不进去就拒绝
+  （[Market Data](../owners/market-data/) 中的「Agent data-read ledger」）。试验行仍归 R&D，其 census 向下读取 Market Data
+  的台账。
 - 单独验收的条件：代理能在一次性 store 上对一个标的端到端地完成列出、描述、准入、回填与读取，且每个拒绝都被驱动到一次。
 
 **`strategy`**，由 R&D 提供：

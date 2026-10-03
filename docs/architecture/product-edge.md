@@ -397,18 +397,24 @@ custody.
 **`market-data`**, served by Market Data:
 
 - `list_instruments()` → the admitted instruments.
-- `describe_instrument(instrument)` → tick size, lot size and the current fee terms, or `INSTRUMENT_UNKNOWN`.
-- `admit_instrument(instrument)` → the admission receipt, or the admission refusal by name.
+- `describe_instrument(instrument)` → tick size, lot size and the current economic terms (fees and margin), or
+  `INSTRUMENT_UNKNOWN`.
+- `admit_instrument(symbol)` → the admission receipt for the venue symbol (such as `BTCUSDT`), which Market Data maps
+  to its canonical instrument, or the admission refusal by name.
 - `backfill(instrument, timeframe, range)` → a `job_id`. Refusals: `INSTRUMENT_UNKNOWN`, `TIMEFRAME_UNSUPPORTED`,
   `RANGE_INVALID`.
 - `job_status(job_id)` → the job's state, one of `QUEUED`, `RUNNING`, `SUCCEEDED` or `FAILED`; the coverage it added
   once `SUCCEEDED`; and the cause by name once `FAILED`. An unknown job is `JOB_UNKNOWN`.
 - `coverage(instrument)` → the covered ranges for each timeframe.
 - `get_bars(instrument, timeframe, range, format)` → the bars inline when the slice is small, otherwise a
-  `dataset_ref`. Refusals: `RANGE_NOT_COVERED`, `RANGE_TOO_LARGE_FOR_INLINE` when `format` demands inline.
-- `get_funding(instrument, range)` → funding rates, inline or by `dataset_ref` under the same rule.
-- Every tool that returns market values writes its data-read ledger rows before it answers, and refuses when it cannot
-  (R&D's "TARGET - Production trial ledger and data-read ledger").
+  `dataset_ref`. Refusals: `RANGE_NOT_COVERED`, `RANGE_TOO_LARGE_FOR_INLINE` when `format` demands inline, and
+  `HOLDOUT_PARTITION_UNDEFINED`.
+- `get_funding(instrument, range)` → funding rates, inline or by `dataset_ref` under the same rule and refusals.
+- Until Qualification registers its holdout partition with Market Data, by value and downward, both tools refuse every
+  request as `HOLDOUT_PARTITION_UNDEFINED`: the answer before registration is refuse all, never allow all.
+- Every tool that returns market values appends its read to Market Data's agent data-read ledger in the transaction
+  that answers, and refuses when it cannot ("Agent data-read ledger" in [Market Data](../owners/market-data/)). Trial
+  rows stay with R&D, whose census reads Market Data's ledger downward.
 - Accepted on its own when an agent can list, describe, admit, backfill and read one instrument end to end against a
   disposable store, with each refusal driven once.
 
