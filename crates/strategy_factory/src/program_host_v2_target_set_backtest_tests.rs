@@ -2966,12 +2966,14 @@ struct AuthoredUniverseMemberProgram {
 ///
 /// `open_role` and `close_role` name the Design's two member roles. A weight side enters at
 /// `entry_weight_micros` and exits at a weight of 0; every other variant takes 0 for both.
+/// `exits` names the statement's exits, if any.
 #[cfg(feature = "sealed-strategy-input-acceptance")]
 fn authored_universe_member_program(
     open_role: &str,
     close_role: &str,
     target_variant: &str,
     entry_weight_micros: i32,
+    exits: fn(&mut crate::single_threshold_authoring_v1::SingleThresholdAuthoringRequestV1),
 ) -> AuthoredUniverseMemberProgram {
     use crate::{
         bounded_feature_program_derivation_v1::derive_bounded_feature_program_proposal_v1,
@@ -2999,21 +3001,25 @@ fn authored_universe_member_program(
         target_position_units: units,
         target_weight_micros: weight_micros,
     };
-    let (design, meaning) =
-        author_single_threshold_program_v1(&SingleThresholdAuthoringRequestV1 {
-            research_request_identity: BindingDigest::from_untrusted_bytes([1; 32]),
-            intent_identity: BindingDigest::from_untrusted_bytes([2; 32]),
-            intent_digest: BindingDigest::from_untrusted_bytes([3; 32]),
-            channel: SingleThresholdChannelV1::UniverseMember {
-                close_role_semantic_id: close_role.to_owned(),
-                open_role_semantic_id: open_role.to_owned(),
-            },
-            threshold_coefficient: 12_000,
-            comparison: BoundedFeaturePredicateV1::Greater,
-            when_true: outcome("kernel.position.enter.v1", 1, entry_weight_micros),
-            otherwise: outcome("kernel.position.exit.v1", 0, 0),
-            falsifier: "the close never exceeds the threshold in the admitted window".to_owned(),
-        })
+    let mut statement = SingleThresholdAuthoringRequestV1 {
+        research_request_identity: BindingDigest::from_untrusted_bytes([1; 32]),
+        intent_identity: BindingDigest::from_untrusted_bytes([2; 32]),
+        intent_digest: BindingDigest::from_untrusted_bytes([3; 32]),
+        channel: SingleThresholdChannelV1::UniverseMember {
+            close_role_semantic_id: close_role.to_owned(),
+            open_role_semantic_id: open_role.to_owned(),
+        },
+        threshold_coefficient: 12_000,
+        comparison: BoundedFeaturePredicateV1::Greater,
+        when_true: outcome("kernel.position.enter.v1", 1, entry_weight_micros),
+        otherwise: outcome("kernel.position.exit.v1", 0, 0),
+        stop_loss_fraction: None,
+        take_profit_fraction: None,
+        max_holding_bars: None,
+        falsifier: "the close never exceeds the threshold in the admitted window".to_owned(),
+    };
+    exits(&mut statement);
+    let (design, meaning) = author_single_threshold_program_v1(&statement)
         .expect("the universe-member statement is authorable");
     let receipts = design
         .inputs
@@ -3137,7 +3143,13 @@ fn run_authored_universe_member_program(
         artifact,
         owner_frame,
         time,
-    } = authored_universe_member_program(open_role, close_role, "kernel.target.position.v1", 0);
+    } = authored_universe_member_program(
+        open_role,
+        close_role,
+        "kernel.target.position.v1",
+        0,
+        |_| {},
+    );
     let frame = owner_frame.frame().clone();
     let authority = owner_replay_execution_profile_binding_fixture_v1(
         &plan,
@@ -3407,6 +3419,146 @@ fn an_authored_weight_program_enters_exits_and_enters_again() {
     assert_eq!(trace.final_member_grid_units.as_deref(), Some(&[1][..]));
 }
 
+/// What an authored run did: each BAR's position intent, and each fill's intent and the position
+/// it left.
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+fn bar_intents_and_legs(trace: &TargetSetBacktestTraceV2) -> (Vec<&str>, Vec<(&str, i64)>) {
+    assert_eq!(trace.callback_failure, None, "the run does not fault");
+    let intents = trace
+        .host_transitions
+        .iter()
+        .filter(|transition| transition.lifecycle == "BAR")
+        .map(|transition| transition.position_intent.as_str())
+        .collect();
+    let legs = trace
+        .actual_fill_consumptions
+        .iter()
+        .map(|fill| {
+            (
+                fill.position_intent.as_str(),
+                fill.position_after_grid_units,
+            )
+        })
+        .collect();
+    (intents, legs)
+}
+
+/// A later frame whose close is `close` at scale two, opening at the frame before's close, with
+/// the book side its order meets.
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+const fn later(
+    open_close: [i128; 2],
+    bar: (&'static str, &'static str, &'static str, &'static str),
+    liquidity: Option<OrderSide>,
+) -> LaterFrame {
+    LaterFrame {
+        open_close,
+        bar,
+        liquidity,
+    }
+}
+
+/// The authored program enters on its first frame, holds on a second frame above its threshold,
+/// leaves by `exits` on the third, and enters again on a fourth, each exit judged at the close.
+///
+/// Before the program carried the position it believes it holds, the second frame alone ended
+/// the run: it proposed its entry again from a held position, which the kernel refuses, and a
+/// refused proposal aborts the run. The third frame's close stays above the threshold, so only
+/// the exit can leave the position there, and the fourth shows the program flat again.
+///
+/// THE LATER FRAMES ARE CONSTRUCTED BY THIS TEST, NOT ISSUED BY THE OWNER, as in
+/// [`an_authored_rebalance_program_lifts_three_consecutive_frames`].
+#[rstest]
+#[case::stop_loss(
+    |r: &mut crate::single_threshold_authoring_v1::SingleThresholdAuthoringRequestV1| {
+        r.stop_loss_fraction = Some("0.05".to_owned());
+    },
+    // 170.00 is at most 187.25 x 0.95 = 177.8875.
+    [[18_725, 18_800], [18_800, 17_000], [17_000, 17_500]],
+    [("187.25", "188.50", "187.00", "188.00"), ("188.00", "188.00", "169.50", "170.00"), ("170.00", "175.50", "169.80", "175.00")],
+)]
+#[case::take_profit(
+    |r: &mut crate::single_threshold_authoring_v1::SingleThresholdAuthoringRequestV1| {
+        r.take_profit_fraction = Some("0.05".to_owned());
+    },
+    // 200.00 is at least 187.25 x 1.05 = 196.6125.
+    [[18_725, 19_000], [19_000, 20_000], [20_000, 20_100]],
+    [("187.25", "190.50", "187.00", "190.00"), ("190.00", "200.50", "189.50", "200.00"), ("200.00", "201.50", "199.50", "201.00")],
+)]
+#[case::max_holding_bars(
+    |r: &mut crate::single_threshold_authoring_v1::SingleThresholdAuthoringRequestV1| {
+        r.max_holding_bars = Some(2);
+    },
+    [[18_725, 18_800], [18_800, 18_900], [18_900, 19_000]],
+    [("187.25", "188.50", "187.00", "188.00"), ("188.00", "189.50", "187.50", "189.00"), ("189.00", "190.50", "188.50", "190.00")],
+)]
+#[ignore = "lowers and builds the authored universe-member program with the pinned local wasm compiler"]
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+fn an_authored_exit_leaves_once_at_the_close_and_the_program_enters_again(
+    #[case] exits: fn(&mut crate::single_threshold_authoring_v1::SingleThresholdAuthoringRequestV1),
+    #[case] open_close: [[i128; 2]; 3],
+    #[case] bars: [(&'static str, &'static str, &'static str, &'static str); 3],
+) {
+    let trace = run_authored_program_over_frames(
+        "kernel.target.position.v1",
+        0,
+        exits,
+        &[
+            later(open_close[0], bars[0], None),
+            later(open_close[1], bars[1], Some(OrderSide::Buy)),
+            later(open_close[2], bars[2], Some(OrderSide::Sell)),
+        ],
+    )
+    .expect("the four-frame Sim run completes");
+
+    let (intents, legs) = bar_intents_and_legs(&trace);
+    assert_eq!(intents, ["ENTER", "HOLD", "EXIT", "ENTER"]);
+    assert_eq!(legs, [("ENTER", 1), ("EXIT", 0), ("ENTER", 1)]);
+    assert_eq!(trace.final_member_grid_units.as_deref(), Some(&[1][..]));
+}
+
+/// The controls for [`an_authored_exit_leaves_once_at_the_close_and_the_program_enters_again`]:
+/// the same frames under an exit they never reach hold the position throughout.
+#[rstest]
+#[case::stop_loss_not_reached(
+    |r: &mut crate::single_threshold_authoring_v1::SingleThresholdAuthoringRequestV1| {
+        r.stop_loss_fraction = Some("0.5".to_owned());
+    },
+    [[18_725, 18_800], [18_800, 17_000], [17_000, 17_500]],
+    [("187.25", "188.50", "187.00", "188.00"), ("188.00", "188.00", "169.50", "170.00"), ("170.00", "175.50", "169.80", "175.00")],
+)]
+#[case::take_profit_not_reached(
+    |r: &mut crate::single_threshold_authoring_v1::SingleThresholdAuthoringRequestV1| {
+        r.take_profit_fraction = Some("0.5".to_owned());
+    },
+    [[18_725, 19_000], [19_000, 20_000], [20_000, 20_100]],
+    [("187.25", "190.50", "187.00", "190.00"), ("190.00", "200.50", "189.50", "200.00"), ("200.00", "201.50", "199.50", "201.00")],
+)]
+#[ignore = "lowers and builds the authored universe-member program with the pinned local wasm compiler"]
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+fn an_authored_exit_never_reached_holds_the_position(
+    #[case] exits: fn(&mut crate::single_threshold_authoring_v1::SingleThresholdAuthoringRequestV1),
+    #[case] open_close: [[i128; 2]; 3],
+    #[case] bars: [(&'static str, &'static str, &'static str, &'static str); 3],
+) {
+    let trace = run_authored_program_over_frames(
+        "kernel.target.position.v1",
+        0,
+        exits,
+        &[
+            later(open_close[0], bars[0], None),
+            later(open_close[1], bars[1], None),
+            later(open_close[2], bars[2], None),
+        ],
+    )
+    .expect("the four-frame Sim run completes");
+
+    let (intents, legs) = bar_intents_and_legs(&trace);
+    assert_eq!(intents, ["ENTER", "HOLD", "HOLD", "HOLD"]);
+    assert_eq!(legs, [("ENTER", 1)]);
+    assert_eq!(trace.final_member_grid_units.as_deref(), Some(&[1][..]));
+}
+
 /// Runs the authored program of `target_variant` over three frames 100 ns apart - its close above
 /// the threshold, below it, and above it again - each with a resting book level for its order to
 /// fill against.
@@ -3414,6 +3566,48 @@ fn an_authored_weight_program_enters_exits_and_enters_again() {
 fn run_authored_program_over_three_frames(
     target_variant: &str,
     entry_weight_micros: i32,
+) -> anyhow::Result<TargetSetBacktestTraceV2> {
+    // The second frame's close of 110.00 is below the threshold of 120.00, the third's 188.00
+    // above; a bid meets the exit, an ask the entry.
+    run_authored_program_over_frames(
+        target_variant,
+        entry_weight_micros,
+        |_| {},
+        &[
+            LaterFrame {
+                open_close: [18_725, 11_000],
+                bar: ("187.25", "188.00", "109.00", "110.00"),
+                liquidity: Some(OrderSide::Buy),
+            },
+            LaterFrame {
+                open_close: [11_000, 18_800],
+                bar: ("110.00", "189.00", "109.50", "188.00"),
+                liquidity: Some(OrderSide::Sell),
+            },
+        ],
+    )
+}
+
+/// One frame after the authored program's first, 100 ns after the frame before it.
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+struct LaterFrame {
+    /// The member's open and close at the channel's scale of two.
+    open_close: [i128; 2],
+    /// The frame's bar: open, high, low, close.
+    bar: (&'static str, &'static str, &'static str, &'static str),
+    /// The side of the book the frame's order meets, at its close, when it places one: a bid for
+    /// an exit, an ask for an entry.
+    liquidity: Option<OrderSide>,
+}
+
+/// Runs the authored program of `target_variant` with `exits`: its first frame, whose close of
+/// 187.25 is above the threshold and enters against a resting ask, and then `later`.
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+fn run_authored_program_over_frames(
+    target_variant: &str,
+    entry_weight_micros: i32,
+    exits: fn(&mut crate::single_threshold_authoring_v1::SingleThresholdAuthoringRequestV1),
+    later: &[LaterFrame],
 ) -> anyhow::Result<TargetSetBacktestTraceV2> {
     let AuthoredUniverseMemberProgram {
         plan,
@@ -3425,6 +3619,7 @@ fn run_authored_program_over_three_frames(
         "research.input.close.v1",
         target_variant,
         entry_weight_micros,
+        exits,
     );
     let member = authored_program_member();
     let bar_type = BarType::new(
@@ -3432,24 +3627,20 @@ fn run_authored_program_over_three_frames(
         BarSpecification::new(1, BarAggregation::Day, PriceType::Last),
         AggregationSource::External,
     );
-    // Each later frame's member open and close, at the channel's scale of two, and its bar: the
-    // second frame's close of 110.00 is below the threshold of 120.00, the third's 188.00 above.
-    let frames = [
-        (
-            time + 100,
-            [18_725, 11_000],
-            ("187.25", "188.00", "109.00", "110.00"),
-        ),
-        (
-            time + 200,
-            [11_000, 18_800],
-            ("110.00", "189.00", "109.50", "188.00"),
-        ),
-    ];
+    let frames = later
+        .iter()
+        .zip(1_u64..)
+        .map(|(frame, index)| (time + 100 * index, frame))
+        .collect::<Vec<_>>();
     let successors = frames
         .iter()
-        .map(|(at, open_close, _)| {
-            issue_backtest_universe_successor_for_test(&plan, &owner_frame, *at, &[*open_close])
+        .map(|(at, frame)| {
+            issue_backtest_universe_successor_for_test(
+                &plan,
+                &owner_frame,
+                *at,
+                &[frame.open_close],
+            )
         })
         .collect::<Result<Vec<_>, _>>()?;
 
@@ -3475,24 +3666,17 @@ fn run_authored_program_over_three_frames(
         book_level(&member, OrderSide::Sell, 187.25, "100", 2, time),
         bar(time, ("186.41", "188.00", "185.00", "187.25")),
     ];
+    // Each frame's orders are submitted at its fill quote, which arrives just after the frame at
+    // its close: the instant the Host waits for before it submits.
     data.push(fill_quote(&member, "187.25", time + 1));
-    // Each later frame's order meets the side it needs: a bid for the exit, an ask for the entry.
-    for (index, ((at, _, prices), side)) in frames
-        .iter()
-        .zip([OrderSide::Buy, OrderSide::Sell])
-        .enumerate()
-    {
-        let price = Price::from(prices.3).as_f64();
-        data.push(book_level(
-            &member,
-            side,
-            price,
-            "100",
-            3 + index as u64,
-            *at,
-        ));
-        data.push(bar(*at, *prices));
-        data.push(fill_quote(&member, prices.3, *at + 1));
+
+    for ((at, frame), sequence) in frames.iter().zip(3_u64..) {
+        if let Some(side) = frame.liquidity {
+            let price = Price::from(frame.bar.3).as_f64();
+            data.push(book_level(&member, side, price, "100", sequence, *at));
+        }
+        data.push(bar(*at, frame.bar));
+        data.push(fill_quote(&member, frame.bar.3, *at + 1));
     }
 
     let trace = Rc::new(RefCell::new(TargetSetBacktestTraceV2::default()));
@@ -3503,8 +3687,8 @@ fn run_authored_program_over_three_frames(
         BoundedMembers::try_from([member.id()])?,
         BoundedMembers::try_from([bar_type])?,
         [owner_frame],
-        [time, time + 100, time + 200]
-            .into_iter()
+        std::iter::once(time)
+            .chain(frames.iter().map(|(at, _)| *at))
             .map(|at| (at, vec![at + 1]))
             .collect(),
         None,

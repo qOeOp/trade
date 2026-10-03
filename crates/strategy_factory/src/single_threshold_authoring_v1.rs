@@ -42,14 +42,15 @@ use crate::{
         BOUNDED_FEATURE_NUMERIC_FAILURE_V1, BOUNDED_FEATURE_PLUGIN_ABI_V1,
         BOUNDED_FEATURE_PROPOSAL_OUTPUT_PORTS_V1, BoundedFeatureAvailabilityV1,
         BoundedFeatureClockV1, BoundedFeatureConstantV1, BoundedFeatureConstantValueV1,
-        BoundedFeatureInputBindingV1, BoundedFeatureNodeV1, BoundedFeatureOutputPortV1,
-        BoundedFeatureParametersV1, BoundedFeaturePredicateV1, BoundedFeatureProgramProposalV1,
-        BoundedFeatureProposalDecisionBranchV1, BoundedFeatureProposalDecisionTableV1,
-        BoundedFeatureProposalFrameV1, BoundedFeatureTerminalConversionV1,
-        BoundedFeatureTerminalOutputV1, BoundedFeatureValueRefV1, BoundedFeatureValueTypeV1,
-        BoundedFeatureWarmupContractV1, BoundedFeatureWarmupPostStateV1,
-        CanonicalBoundedFeatureProgramV1, OWNER_SAMPLE_COORDINATE_SOURCE_V1, manifest_width,
-        prepare_bounded_feature_program_v1,
+        BoundedFeatureInitialStateV1, BoundedFeatureInputBindingV1, BoundedFeatureNodeV1,
+        BoundedFeatureOutputPortV1, BoundedFeatureParametersV1, BoundedFeaturePredicateV1,
+        BoundedFeatureProgramProposalV1, BoundedFeatureProposalDecisionBranchV1,
+        BoundedFeatureProposalDecisionTableV1, BoundedFeatureProposalFrameV1,
+        BoundedFeatureRoundingV1, BoundedFeatureStateCellV1, BoundedFeatureStateKindV1,
+        BoundedFeatureTerminalConversionV1, BoundedFeatureTerminalOutputV1,
+        BoundedFeatureValueRefV1, BoundedFeatureValueTypeV1, BoundedFeatureWarmupContractV1,
+        BoundedFeatureWarmupPostStateV1, CanonicalBoundedFeatureProgramV1,
+        OWNER_SAMPLE_COORDINATE_SOURCE_V1, manifest_width, prepare_bounded_feature_program_v1,
     },
     strategy_design_v2::{
         CapabilityDeclarationV2, ComputeNodeV2, InputFactClassV2, InputRoleV2, InputScopeV2,
@@ -255,6 +256,20 @@ pub struct SingleThresholdAuthoringRequestV1 {
     pub when_true: SingleThresholdOutcomeV1,
     /// What to propose otherwise.
     pub otherwise: SingleThresholdOutcomeV1,
+    /// Leave a held position once the bar close has moved this fraction against its entry close,
+    /// as an exact decimal such as `"0.02"`.
+    ///
+    /// The exit is judged on the close and proposed at it, so it fills on the next frame, not at
+    /// the stop level inside a bar. A request that omits it keeps its bytes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stop_loss_fraction: Option<String>,
+    /// Leave a held position once the bar close has moved this fraction in its favour from its
+    /// entry close, judged and filled as `stop_loss_fraction` is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub take_profit_fraction: Option<String>,
+    /// Leave a held position on the frame this many frames after the frame that entered it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_holding_bars: Option<u32>,
     /// The statement this program can be wrong about.
     pub falsifier: String,
 }
@@ -294,6 +309,44 @@ pub enum SingleThresholdAuthoringErrorV1 {
     /// A side names a weight outside the kernel's domain of -1,000,000 to 1,000,000 micros.
     #[error("SINGLE_THRESHOLD_WEIGHT_OUT_OF_RANGE: {field} is outside -1000000..=1000000 micros")]
     WeightOutOfRange { field: &'static str },
+    /// A side proposes an intent the kernel refuses from every position the program can hold.
+    ///
+    /// The program proposes a side only from a position the kernel accepts it at, so such a side
+    /// would never be proposed, and the request would state a strategy the program does not run:
+    /// an exit with no side that enters, say.
+    #[error(
+        "SINGLE_THRESHOLD_SIDE_NEVER_PERMITTED: {field} is refused by the kernel from every position this program can hold"
+    )]
+    SideNeverPermitted { field: &'static str },
+    /// An exit fraction is not a decimal strictly between 0 and 1 in its one canonical spelling.
+    #[error(
+        "SINGLE_THRESHOLD_EXIT_FRACTION_INVALID: {field} must be a decimal strictly between 0 and 1, written as 0. and its digits with no trailing zero, such as \"0.02\""
+    )]
+    ExitFractionInvalid { field: &'static str },
+    /// An exit fraction has more decimal places than the channel's scale leaves room for.
+    #[error(
+        "SINGLE_THRESHOLD_EXIT_FRACTION_TOO_PRECISE: {field} and the channel's scale together exceed 38 decimal places"
+    )]
+    ExitFractionTooPrecise { field: &'static str },
+    /// A price exit is asked of a channel that is not the bar close.
+    ///
+    /// The exits compare the close with the close the position was entered at, so on any other
+    /// channel they would compare something that is not a price.
+    #[error(
+        "SINGLE_THRESHOLD_EXIT_NEEDS_CLOSE_CHANNEL: {field} is judged on the bar close, and the channel reads {channel}"
+    )]
+    ExitNeedsCloseChannel {
+        field: &'static str,
+        channel: String,
+    },
+    /// A holding limit of zero frames, which would leave a position on the frame that enters it.
+    #[error("SINGLE_THRESHOLD_MAX_HOLDING_BARS_ZERO: max_holding_bars must be at least 1")]
+    MaxHoldingBarsZero,
+    /// An exit is asked of a program no side of which ever holds a position.
+    #[error(
+        "SINGLE_THRESHOLD_EXIT_WITHOUT_POSITION: {field} is set, and no side opens a position for it to leave"
+    )]
+    ExitWithoutPosition { field: &'static str },
 }
 
 /// Authors one single-threshold program: the Design it needs and the meaning a proposer declares.
@@ -383,8 +436,14 @@ pub fn author_single_threshold_program_v1(
             SingleThresholdAuthoringErrorV1::UnknownFieldSemantic(channel.field_semantic_id.clone())
         })?;
     let bar_triggered = semantic.data_kind() == "BAR";
+    let exits = exit_plan(request)?;
+    let positions = PositionBelief::of(request)?;
+
+    if let Some(field) = exits.first_field().filter(|_| !positions.holds_any()) {
+        return Err(SingleThresholdAuthoringErrorV1::ExitWithoutPosition { field });
+    }
     let design = design_for(request, bar_triggered);
-    let meaning = meaning_for(request);
+    let meaning = meaning_for(request, &positions, &exits);
     Ok((design, meaning))
 }
 
@@ -522,7 +581,11 @@ fn design_for(
             max_bytes: PLUGIN_STATE_MAX_BYTES,
         },
         capability_ids: vec![CAPABILITY_SEMANTIC_ID.to_owned()],
-        max_fuel: 100_000,
+        // Measured per invocation on the Sim: about 86,000 for a program with no exits, 205,000
+        // with a price exit, and 378,000 for the family's largest program, which names every
+        // exit and enters in both directions. The 100,000 this was before is what that largest
+        // program's measurement replaced: it ran out on its first frame.
+        max_fuel: FAMILY_MAX_FUEL,
         max_linear_memory_bytes: 1_048_576,
         max_invocations_per_event: 1,
         failure_semantic_id: BOUNDED_FEATURE_NUMERIC_FAILURE_V1.to_owned(),
@@ -640,7 +703,7 @@ fn bounded_reaction(
     }
 }
 
-/// Constant ids. The two sides carry their own three, which is what makes the frames differ.
+/// Constant ids. The two sides carry their own five, which is what makes the frames differ.
 ///
 /// There is no reconciliation constant. A position target and its reconciliation target must be
 /// equal, and when they were one shared constant for both sides, a program whose sides held
@@ -662,8 +725,590 @@ const STOP_LOSS: &str = "stop-loss";
 const TAKE_PROFIT: &str = "take-profit";
 const TRAILING_DISTANCE: &str = "trailing-distance";
 const TRAILING_STOP: &str = "trailing-stop";
+/// The frame proposed when neither side may be proposed from the position the program holds.
+const HOLD_IDS: FrameIds = (
+    "hold-position",
+    "hold-target",
+    "hold-target-position",
+    "hold-target-weight",
+    "hold-protection",
+);
+/// The frame an exit proposes.
+const EXIT_IDS: FrameIds = (
+    "exit-position",
+    "exit-target",
+    "exit-target-position",
+    "exit-target-weight",
+    "exit-protection",
+);
 
-fn meaning_for(request: &SingleThresholdAuthoringRequestV1) -> BoundedFeatureProgramMeaningV1 {
+/// One frame's five constant ids: intent, target, target position, target weight, protection.
+type FrameIds = (
+    &'static str,
+    &'static str,
+    &'static str,
+    &'static str,
+    &'static str,
+);
+
+/// Units of the values the graph computes for itself. None of them reaches a terminal, so each is
+/// only a name that keeps one kind of value from being compared with another.
+const POSITION_UNIT: &str = "POSITION_NOMINAL";
+const SIGNAL_UNIT: &str = "SIGNAL";
+const BARS_UNIT: &str = "BARS";
+const RATIO_UNIT: &str = "RATIO";
+
+const COMPARE: &str = "bfp.fixed-i128.compare.equal-scale.v1";
+const SELECT: &str = "bfp.fixed-i128.select.equal-scale.v1";
+const ADD: &str =
+    "bfp.fixed-i128.add.max-scale-38.explicit-rescale.i256-single-round.nearest-ties-to-even.v1";
+const MUL: &str =
+    "bfp.fixed-i128.mul.max-scale-38.explicit-rescale.i256-single-round.nearest-ties-to-even.v1";
+
+/// The position the program believes it holds after the frame it last proposed.
+const BELIEVED_POSITION: &str = "believed-position";
+const BELIEVED_POSITION_WRITER: &str = "next-believed-position";
+/// The close of the last frame at which the program believed itself flat: once it holds a
+/// position, that is the close of the frame that entered it.
+const ENTRY_CLOSE: &str = "entry-close";
+const ENTRY_CLOSE_WRITER: &str = "next-entry-close";
+const ENTRY_CLOSE_SEED: &str = "entry-close-seed";
+/// Frames since the frame that entered the position, 0 while flat.
+const BARS_HELD: &str = "bars-held";
+const BARS_HELD_WRITER: &str = "next-bars-held";
+const NO_BARS: &str = "bars-none";
+const MAX_HOLDING_BARS: &str = "max-holding-bars";
+/// Exit factor constants, one per exit and direction, as `{exit}-{direction}-factor`.
+const STOP_LOSS_EXIT: &str = "stop-loss";
+const TAKE_PROFIT_EXIT: &str = "take-profit";
+
+/// The fuel every program of this family may burn in one invocation: about two and a half times
+/// what its largest program was measured to burn.
+const FAMILY_MAX_FUEL: u64 = 1_000_000;
+
+/// The bounds every program of this family declares.
+///
+/// Fixed for the family, not counted per program, so that a request's graph bounds never depend
+/// on which exits it names. Each is the most the family's largest program uses, which
+/// `the_family_bounds_are_the_largest_programs_shape` measures, so none is a guess.
+///
+/// The largest program names every exit and enters in both directions, one side long and one
+/// short. Every other side pair admits each side from at most one believed position and faces at
+/// most one direction, so it builds a subset of that program's nodes and constants.
+const FAMILY_GRAPH_BOUNDS: BoundedFeatureGraphBoundsV1 = BoundedFeatureGraphBoundsV1 {
+    max_nodes: 34,
+    max_edges: 132,
+    max_depth: 10,
+    max_ports: 119,
+    max_constants: 40,
+    max_fan_out: 10,
+    // The graph declares no lag and no rolling window, and a zero bound is refused outright, so
+    // both carry the smallest bound a program may state.
+    max_lag: 1,
+    max_window: 1,
+    max_state_cells: 3,
+    max_decision_branches: 3,
+    max_source_bytes: 262_144,
+    max_wasm_bytes: 1_048_576,
+};
+
+/// A side's position intent, as far as the kernel's transition rule distinguishes them.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Intent {
+    Hold,
+    Enter,
+    Add,
+    Reduce,
+    Exit,
+}
+
+impl Intent {
+    /// The intent a side names, or `None` for an identifier the catalog would refuse anyway.
+    fn of(outcome: &SingleThresholdOutcomeV1) -> Option<Self> {
+        match outcome.position_intent_semantic_id.as_str() {
+            "kernel.position.hold.v1" => Some(Self::Hold),
+            "kernel.position.enter.v1" => Some(Self::Enter),
+            "kernel.position.add.v1" => Some(Self::Add),
+            "kernel.position.reduce.v1" => Some(Self::Reduce),
+            "kernel.position.exit.v1" => Some(Self::Exit),
+            _ => None,
+        }
+    }
+
+    /// Whether the kernel accepts this intent from `current` to `target`.
+    ///
+    /// This is `validate_position_transition` in the program SDK, restated: a proposal it refuses
+    /// aborts the whole run, so the program may only propose what it accepts.
+    fn permits(self, current: i64, target: i64) -> bool {
+        let same_direction = target.signum() == current.signum();
+
+        match self {
+            Self::Hold => true,
+            Self::Enter => current == 0 && target != 0,
+            Self::Add => {
+                current != 0 && same_direction && target.unsigned_abs() > current.unsigned_abs()
+            }
+            Self::Reduce => {
+                current != 0
+                    && target != 0
+                    && same_direction
+                    && target.unsigned_abs() < current.unsigned_abs()
+            }
+            Self::Exit => current != 0 && target == 0,
+        }
+    }
+}
+
+/// The position a side leaves the program at, as one signed number for a unit target and a weight
+/// target alike.
+///
+/// A weight target's units are derived by the Host at reconciliation, so the weight stands for
+/// them: its sign is the position's direction, and 0 is flat, which is all an entry and an exit
+/// are judged by.
+fn nominal_position(outcome: &SingleThresholdOutcomeV1) -> i64 {
+    if outcome.target_variant_semantic_id == WEIGHT_TARGET {
+        i64::from(outcome.target_weight_micros)
+    } else {
+        outcome.target_position_units
+    }
+}
+
+/// Which positions the program can hold, and from which of them each side may be proposed.
+///
+/// The kernel accepts an entry only from flat and an exit only from a held position, and a proposal
+/// it refuses aborts the run (`program_host_v2.rs`). A program that proposed its entry on every bar
+/// above its threshold therefore could not survive a second such bar. So the program carries the
+/// position it believes it holds, and proposes a side only from a position the kernel accepts it
+/// at, holding otherwise. The belief is what the program last proposed, not what filled: an order
+/// that does not fill before the next frame leaves the kernel's intent pending, and the next
+/// non-holding proposal is refused as it always was.
+struct PositionBelief {
+    /// Every position reachable from flat, flat included, in ascending order.
+    reachable: Vec<i64>,
+    /// The positions from which `when_true` may be proposed, or `None` when it holds.
+    when_true: Option<Vec<i64>>,
+    /// The positions from which `otherwise` may be proposed, or `None` when it holds.
+    otherwise: Option<Vec<i64>>,
+}
+
+impl PositionBelief {
+    fn of(
+        request: &SingleThresholdAuthoringRequestV1,
+    ) -> Result<Self, SingleThresholdAuthoringErrorV1> {
+        let sides = [&request.when_true, &request.otherwise];
+        let mut reachable = std::collections::BTreeSet::from([0_i64]);
+
+        loop {
+            let before = reachable.len();
+
+            for side in sides {
+                if let Some(intent) = Intent::of(side).filter(|intent| *intent != Intent::Hold) {
+                    let target = nominal_position(side);
+
+                    if reachable
+                        .iter()
+                        .any(|current| intent.permits(*current, target))
+                    {
+                        reachable.insert(target);
+                    }
+                }
+            }
+
+            if reachable.len() == before {
+                break;
+            }
+        }
+        let reachable = reachable.into_iter().collect::<Vec<_>>();
+        let permitted = |side: &SingleThresholdOutcomeV1, field| {
+            let Some(intent) = Intent::of(side).filter(|intent| *intent != Intent::Hold) else {
+                return Ok(None);
+            };
+            let target = nominal_position(side);
+            let from = reachable
+                .iter()
+                .copied()
+                .filter(|current| intent.permits(*current, target))
+                .collect::<Vec<_>>();
+
+            if from.is_empty() {
+                return Err(SingleThresholdAuthoringErrorV1::SideNeverPermitted { field });
+            }
+            Ok(Some(from))
+        };
+        let when_true = permitted(&request.when_true, "when_true.position_intent_semantic_id")?;
+        let otherwise = permitted(&request.otherwise, "otherwise.position_intent_semantic_id")?;
+        Ok(Self {
+            reachable,
+            when_true,
+            otherwise,
+        })
+    }
+
+    /// Whether any side ever leaves the program holding a position.
+    fn holds_any(&self) -> bool {
+        self.reachable.len() > 1
+    }
+}
+
+/// The exits a request names, at the one decimal scale both fractions are written at.
+struct ExitPlan {
+    /// The decimal places of the more precise fraction, and so of every exit factor.
+    digits: u8,
+    /// The stop-loss fraction as a coefficient at `digits`.
+    stop_loss: Option<i128>,
+    /// The take-profit fraction as a coefficient at `digits`.
+    take_profit: Option<i128>,
+    max_holding_bars: Option<u32>,
+}
+
+impl ExitPlan {
+    /// The request field of the first exit named, if any.
+    fn first_field(&self) -> Option<&'static str> {
+        [
+            (self.stop_loss.is_some(), "stop_loss_fraction"),
+            (self.take_profit.is_some(), "take_profit_fraction"),
+            (self.max_holding_bars.is_some(), "max_holding_bars"),
+        ]
+        .into_iter()
+        .find_map(|(named, field)| named.then_some(field))
+    }
+}
+
+/// The most decimal places an exit fraction may carry. The close is multiplied by `10^places`
+/// before it is compared, so this keeps that product far inside a fixed-point coefficient.
+const MAX_EXIT_FRACTION_PLACES: u8 = 9;
+
+fn exit_plan(
+    request: &SingleThresholdAuthoringRequestV1,
+) -> Result<ExitPlan, SingleThresholdAuthoringErrorV1> {
+    let channel = request.channel.role_v2();
+    let mut fractions = [
+        (&request.stop_loss_fraction, "stop_loss_fraction", None),
+        (&request.take_profit_fraction, "take_profit_fraction", None),
+    ];
+
+    for (text, field, parsed) in &mut fractions {
+        let Some(text) = text else { continue };
+        let (coefficient, places) = parse_exit_fraction(text)
+            .ok_or(SingleThresholdAuthoringErrorV1::ExitFractionInvalid { field })?;
+
+        if places > MAX_EXIT_FRACTION_PLACES || u16::from(channel.scale) + u16::from(places) > 38 {
+            return Err(SingleThresholdAuthoringErrorV1::ExitFractionTooPrecise { field });
+        }
+
+        if channel.field_semantic_id != UNIVERSE_CLOSE_FIELD_SEMANTIC_ID_V2 {
+            return Err(SingleThresholdAuthoringErrorV1::ExitNeedsCloseChannel {
+                field,
+                channel: channel.field_semantic_id,
+            });
+        }
+        *parsed = Some((coefficient, places));
+    }
+
+    if request.max_holding_bars == Some(0) {
+        return Err(SingleThresholdAuthoringErrorV1::MaxHoldingBarsZero);
+    }
+    let digits = fractions
+        .iter()
+        .filter_map(|(_, _, parsed)| parsed.map(|(_, places)| places))
+        .max()
+        .unwrap_or(0);
+    let at_digits = |parsed: Option<(i128, u8)>| {
+        parsed.map(|(coefficient, places)| coefficient * 10_i128.pow(u32::from(digits - places)))
+    };
+    Ok(ExitPlan {
+        digits,
+        stop_loss: at_digits(fractions[0].2),
+        take_profit: at_digits(fractions[1].2),
+        max_holding_bars: request.max_holding_bars,
+    })
+}
+
+/// Reads `0.` followed by digits with no trailing zero as a coefficient and its decimal places.
+///
+/// One spelling per fraction is what lets a request be recovered from its program: `0.020` and
+/// `0.02` would compile to one program and read back as only one of them.
+fn parse_exit_fraction(text: &str) -> Option<(i128, u8)> {
+    let digits = text.strip_prefix("0.")?;
+
+    if digits.is_empty()
+        || digits.len() > 38
+        || !digits.bytes().all(|byte| byte.is_ascii_digit())
+        || digits.ends_with('0')
+    {
+        return None;
+    }
+    Some((digits.parse().ok()?, u8::try_from(digits.len()).ok()?))
+}
+
+/// The canonical spelling of a fraction `coefficient / 10^digits`, if it lies strictly between 0
+/// and 1.
+fn exit_fraction_text(coefficient: i128, digits: u8) -> Option<String> {
+    let one = 10_i128.checked_pow(u32::from(digits))?;
+
+    if !(1..one).contains(&coefficient) {
+        return None;
+    }
+    let text = format!("{coefficient:0>width$}", width = usize::from(digits));
+    Some(format!("0.{}", text.trim_end_matches('0')))
+}
+
+/// The id fragment naming one believed position.
+fn position_label(position: i64) -> String {
+    match position.signum() {
+        0 => "flat".to_owned(),
+        1 => format!("long-{position}"),
+        _ => format!("short-{}", position.unsigned_abs()),
+    }
+}
+
+fn node_value(node_id: &str) -> BoundedFeatureValueRefV1 {
+    BoundedFeatureValueRefV1::NodeOutput {
+        node_id: node_id.to_owned(),
+        port_id: COMPARISON_PORT.to_owned(),
+    }
+}
+
+fn prior_state(state_id: &str) -> BoundedFeatureValueRefV1 {
+    BoundedFeatureValueRefV1::PriorState {
+        state_id: state_id.to_owned(),
+    }
+}
+
+fn fixed_type(unit: &str, scale: u8) -> BoundedFeatureValueTypeV1 {
+    BoundedFeatureValueTypeV1::FixedI128 {
+        unit: unit.to_owned(),
+        scale,
+    }
+}
+
+/// The nodes, state cells and constants of one program, each node after every node it reads.
+#[derive(Default)]
+struct Graph {
+    nodes: Vec<BoundedFeatureNodeV1>,
+    state_cells: Vec<BoundedFeatureStateCellV1>,
+    constants: Vec<(String, BoundedFeatureConstantValueV1)>,
+}
+
+impl Graph {
+    fn constant(
+        &mut self,
+        constant_id: &str,
+        value: BoundedFeatureConstantValueV1,
+    ) -> BoundedFeatureValueRefV1 {
+        if !self.constants.iter().any(|(id, _)| id == constant_id) {
+            self.constants.push((constant_id.to_owned(), value));
+        }
+        BoundedFeatureValueRefV1::Constant {
+            constant_id: constant_id.to_owned(),
+        }
+    }
+
+    fn fixed(
+        &mut self,
+        constant_id: &str,
+        coefficient: i128,
+        unit: &str,
+        scale: u8,
+    ) -> BoundedFeatureValueRefV1 {
+        self.constant(
+            constant_id,
+            BoundedFeatureConstantValueV1::FixedI128 {
+                coefficient,
+                unit: unit.to_owned(),
+                scale,
+            },
+        )
+    }
+
+    fn node(
+        &mut self,
+        node_id: &str,
+        primitive: &str,
+        inputs: Vec<(&str, BoundedFeatureValueRefV1)>,
+        parameters: BoundedFeatureParametersV1,
+        value_type: BoundedFeatureValueTypeV1,
+    ) -> BoundedFeatureValueRefV1 {
+        if !self.nodes.iter().any(|node| node.node_id == node_id) {
+            self.nodes.push(BoundedFeatureNodeV1 {
+                node_id: node_id.to_owned(),
+                primitive_semantic_id: primitive.to_owned(),
+                input_bindings: inputs
+                    .into_iter()
+                    .map(|(port_id, source)| BoundedFeatureInputBindingV1 {
+                        port_id: port_id.to_owned(),
+                        source,
+                        require_ready: false,
+                    })
+                    .collect(),
+                output_ports: vec![BoundedFeatureOutputPortV1 {
+                    port_id: COMPARISON_PORT.to_owned(),
+                    value_type,
+                    availability: BoundedFeatureAvailabilityV1::Ready,
+                }],
+                parameters,
+                state_id: None,
+                update_clock: None,
+            });
+        }
+        node_value(node_id)
+    }
+
+    fn compare(
+        &mut self,
+        node_id: &str,
+        a: BoundedFeatureValueRefV1,
+        b: BoundedFeatureValueRefV1,
+        predicate: BoundedFeaturePredicateV1,
+    ) -> BoundedFeatureValueRefV1 {
+        self.node(
+            node_id,
+            COMPARE,
+            vec![("a", a), ("b", b)],
+            BoundedFeatureParametersV1::ComparisonPredicate { predicate },
+            BoundedFeatureValueTypeV1::Boolean,
+        )
+    }
+
+    fn select(
+        &mut self,
+        node_id: &str,
+        condition: BoundedFeatureValueRefV1,
+        when_true: BoundedFeatureValueRefV1,
+        when_false: BoundedFeatureValueRefV1,
+        value_type: BoundedFeatureValueTypeV1,
+    ) -> BoundedFeatureValueRefV1 {
+        self.node(
+            node_id,
+            SELECT,
+            vec![
+                ("condition", condition),
+                ("when_true", when_true),
+                ("when_false", when_false),
+            ],
+            BoundedFeatureParametersV1::None,
+            value_type,
+        )
+    }
+
+    /// An exact sum or product: the declared scale is the one the operands' scales produce, so
+    /// the rounding the primitive names never applies.
+    fn arithmetic(
+        &mut self,
+        node_id: &str,
+        primitive: &str,
+        a: BoundedFeatureValueRefV1,
+        b: BoundedFeatureValueRefV1,
+        unit: &str,
+        scale: u8,
+    ) -> BoundedFeatureValueRefV1 {
+        self.node(
+            node_id,
+            primitive,
+            vec![("a", a), ("b", b)],
+            BoundedFeatureParametersV1::OutputScale {
+                output_scale: scale,
+                rounding: BoundedFeatureRoundingV1::NearestTiesToEven,
+            },
+            fixed_type(unit, scale),
+        )
+    }
+
+    /// A strategy state cell holding one fixed-point value, written by `writer` on every event.
+    fn cell(
+        &mut self,
+        state_id: &str,
+        writer: &str,
+        value_type: BoundedFeatureValueTypeV1,
+        initial: &str,
+    ) {
+        self.state_cells.push(BoundedFeatureStateCellV1 {
+            state_id: state_id.to_owned(),
+            writer_node_id: writer.to_owned(),
+            state_kind: BoundedFeatureStateKindV1::Strategy {
+                value_type,
+                source_port_id: COMPARISON_PORT.to_owned(),
+            },
+            initial: BoundedFeatureInitialStateV1::Constant {
+                constant_id: initial.to_owned(),
+            },
+            max_bytes: 16,
+        });
+    }
+
+    fn signal(&mut self, value: i128) -> BoundedFeatureValueRefV1 {
+        let id = if value == 0 {
+            "signal-zero"
+        } else {
+            "signal-one"
+        };
+        self.fixed(id, value, SIGNAL_UNIT, 0)
+    }
+
+    /// The believed position as a constant the belief can be compared with and set to.
+    fn position(&mut self, position: i64) -> BoundedFeatureValueRefV1 {
+        self.fixed(
+            &format!("believed-{}", position_label(position)),
+            i128::from(position),
+            POSITION_UNIT,
+            0,
+        )
+    }
+
+    /// Whether the program believed itself at `position` when this frame began.
+    fn believed_at(&mut self, position: i64) -> BoundedFeatureValueRefV1 {
+        let constant = self.position(position);
+        self.compare(
+            &format!("believed-is-{}", position_label(position)),
+            prior_state(BELIEVED_POSITION),
+            constant,
+            BoundedFeaturePredicateV1::Equal,
+        )
+    }
+
+    /// 1 when any of `conditions` holds and 0 otherwise.
+    fn any_of(
+        &mut self,
+        prefix: &str,
+        conditions: &[BoundedFeatureValueRefV1],
+    ) -> BoundedFeatureValueRefV1 {
+        let one = self.signal(1);
+        let mut any = self.signal(0);
+        for (index, condition) in conditions.iter().enumerate().rev() {
+            any = self.select(
+                &format!("{prefix}-{index}"),
+                condition.clone(),
+                one.clone(),
+                any,
+                fixed_type(SIGNAL_UNIT, 0),
+            );
+        }
+        any
+    }
+
+    /// Whether a signal is 1.
+    fn holds(
+        &mut self,
+        node_id: &str,
+        signal: BoundedFeatureValueRefV1,
+    ) -> BoundedFeatureValueRefV1 {
+        let zero = self.signal(0);
+        self.compare(node_id, signal, zero, BoundedFeaturePredicateV1::Greater)
+    }
+
+    /// The five constants of one frame, read from `outcome`.
+    fn frame_constants(&mut self, ids: FrameIds, outcome: &SingleThresholdOutcomeV1) {
+        for (constant_id, value) in outcome_constants(ids, outcome) {
+            self.constant(&constant_id, value);
+        }
+    }
+}
+
+fn meaning_for(
+    request: &SingleThresholdAuthoringRequestV1,
+    positions: &PositionBelief,
+    exits: &ExitPlan,
+) -> BoundedFeatureProgramMeaningV1 {
     let role = request.channel.role().to_owned();
     let carried = request.channel.carried_role_v2();
     let mut inputs = vec![BoundedFeatureInputMeaningV1 {
@@ -685,70 +1330,71 @@ fn meaning_for(request: &SingleThresholdAuthoringRequestV1) -> BoundedFeaturePro
         },
     }));
 
+    let mut graph = Graph::default();
+    let comparison = graph.compare(
+        COMPARISON_NODE,
+        BoundedFeatureValueRefV1::InputValue {
+            input_role_id: role,
+        },
+        BoundedFeatureValueRefV1::Constant {
+            constant_id: THRESHOLD.to_owned(),
+        },
+        request.comparison,
+    );
+    let when_true = frame(
+        &request.when_true,
+        TRUE_POSITION,
+        TRUE_TARGET,
+        TRUE_TARGET_POSITION,
+        TRUE_TARGET_WEIGHT,
+        TRUE_PROTECTION,
+    );
+    let otherwise = frame(
+        &request.otherwise,
+        FALSE_POSITION,
+        FALSE_TARGET,
+        FALSE_TARGET_POSITION,
+        FALSE_TARGET_WEIGHT,
+        FALSE_PROTECTION,
+    );
+    let proposal_decision_table = if positions.holds_any() {
+        believed_table(
+            &mut graph,
+            request,
+            positions,
+            exits,
+            &comparison,
+            when_true,
+            otherwise,
+        )
+    } else {
+        // No side ever holds a position, so there is nothing to believe and every side may be
+        // proposed from where the program is.
+        BoundedFeatureProposalDecisionTableV1 {
+            branches: vec![BoundedFeatureProposalDecisionBranchV1 {
+                priority: 20,
+                predicate: comparison,
+                frame: when_true,
+            }],
+            default_frame: otherwise,
+        }
+    };
+
+    let mut constants = constants(request);
+    constants.extend(
+        graph
+            .constants
+            .into_iter()
+            .map(|(constant_id, value)| BoundedFeatureConstantV1 { constant_id, value }),
+    );
+
     BoundedFeatureProgramMeaningV1 {
         plugin_semantic_id: PLUGIN_SEMANTIC_ID.to_owned(),
         inputs,
-        constants: constants(request),
-        // The comparison is memoryless: it reads this sample and the frozen threshold. A state
-        // cell would have to be written by some node, and there is no second node to write one.
-        state_cells: vec![],
-        nodes: vec![BoundedFeatureNodeV1 {
-            node_id: COMPARISON_NODE.to_owned(),
-            primitive_semantic_id: "bfp.fixed-i128.compare.equal-scale.v1".to_owned(),
-            input_bindings: vec![
-                BoundedFeatureInputBindingV1 {
-                    port_id: "a".to_owned(),
-                    source: BoundedFeatureValueRefV1::InputValue {
-                        input_role_id: role,
-                    },
-                    require_ready: false,
-                },
-                BoundedFeatureInputBindingV1 {
-                    port_id: "b".to_owned(),
-                    source: BoundedFeatureValueRefV1::Constant {
-                        constant_id: THRESHOLD.to_owned(),
-                    },
-                    require_ready: false,
-                },
-            ],
-            output_ports: vec![BoundedFeatureOutputPortV1 {
-                port_id: COMPARISON_PORT.to_owned(),
-                value_type: BoundedFeatureValueTypeV1::Boolean,
-                availability: BoundedFeatureAvailabilityV1::Ready,
-            }],
-            parameters: BoundedFeatureParametersV1::ComparisonPredicate {
-                predicate: request.comparison,
-            },
-            state_id: None,
-            update_clock: None,
-        }],
-        proposal_decision_table: BoundedFeatureProposalDecisionTableV1 {
-            branches: vec![BoundedFeatureProposalDecisionBranchV1 {
-                priority: 10,
-                predicate: BoundedFeatureValueRefV1::NodeOutput {
-                    node_id: COMPARISON_NODE.to_owned(),
-                    port_id: COMPARISON_PORT.to_owned(),
-                },
-                frame: frame(
-                    &request.when_true,
-                    TRUE_POSITION,
-                    TRUE_TARGET,
-                    TRUE_TARGET_POSITION,
-                    TRUE_TARGET_WEIGHT,
-                    TRUE_PROTECTION,
-                ),
-            }],
-            // Not a fallback: it is the other side of the threshold, and
-            // `IndistinguishableOutcomes` is what keeps it from collapsing into the branch.
-            default_frame: frame(
-                &request.otherwise,
-                FALSE_POSITION,
-                FALSE_TARGET,
-                FALSE_TARGET_POSITION,
-                FALSE_TARGET_WEIGHT,
-                FALSE_PROTECTION,
-            ),
-        },
+        constants,
+        state_cells: graph.state_cells,
+        nodes: graph.nodes,
+        proposal_decision_table,
         warmup: BoundedFeatureWarmupContractV1 {
             // Before the first sample the program has compared nothing, so it proposes neither
             // side of its own threshold and holds.
@@ -765,69 +1411,380 @@ fn meaning_for(request: &SingleThresholdAuthoringRequestV1) -> BoundedFeaturePro
             trailing_stop_ticks: 0,
             post_state: BoundedFeatureWarmupPostStateV1::AdvancedCurrentEvent,
         },
-        graph_bounds: BoundedFeatureGraphBoundsV1 {
-            max_nodes: 1,
-            max_edges: 64,
-            max_depth: 2,
-            max_ports: 16,
-            // Exactly the threshold, each side's five (intent, target, position, weight and
-            // protection), and the five terminals a single threshold does not change.
-            max_constants: 16,
-            // Not one. The five terminals a single threshold does not change are declared once
-            // and consumed by both frames, and each side's target position is read by two
-            // terminals of its own frame, so every one of them has a fan-out of two.
-            max_fan_out: 16,
-            // The graph declares no lag and no rolling window, and a zero bound is refused
-            // outright, so both carry the smallest bound a program may state.
-            max_lag: 1,
-            max_window: 1,
-            max_state_cells: 1,
-            max_decision_branches: 1,
-            max_source_bytes: 262_144,
-            max_wasm_bytes: 1_048_576,
-        },
+        graph_bounds: FAMILY_GRAPH_BOUNDS,
         carried_input_role_ids: carried.into_iter().map(|role| role.semantic_id).collect(),
     }
+}
+
+/// The decision table of a program that holds positions: an exit first, then the side the
+/// comparison chose if the believed position admits it, and a hold otherwise.
+///
+/// Priorities are spaced so that each branch keeps its number whichever of the others a request
+/// has: 10 for the exit, 20 for `when_true`, 30 for `otherwise`.
+fn believed_table(
+    graph: &mut Graph,
+    request: &SingleThresholdAuthoringRequestV1,
+    positions: &PositionBelief,
+    exits: &ExitPlan,
+    comparison: &BoundedFeatureValueRefV1,
+    when_true: BoundedFeatureProposalFrameV1,
+    otherwise: BoundedFeatureProposalFrameV1,
+) -> BoundedFeatureProposalDecisionTableV1 {
+    let flat = graph.position(0);
+    graph.cell(
+        BELIEVED_POSITION,
+        BELIEVED_POSITION_WRITER,
+        fixed_type(POSITION_UNIT, 0),
+        &format!("believed-{}", position_label(0)),
+    );
+    // Each layer is the frame one branch proposes and the belief it leaves, innermost first; the
+    // belief after a frame no layer covers is the belief before it.
+    let mut layers = Vec::new();
+    let mut branches = Vec::new();
+
+    let side_fires = |graph: &mut Graph, side: &str, from: &[i64], when_compared: bool| {
+        let believed = from
+            .iter()
+            .map(|position| graph.believed_at(*position))
+            .collect::<Vec<_>>();
+        let admitted = graph.any_of(&format!("{side}-admitted"), &believed);
+        let zero = graph.signal(0);
+        let (when_true, when_false) = if when_compared {
+            (admitted, zero)
+        } else {
+            (zero, admitted)
+        };
+        let fires = graph.select(
+            &format!("{side}-fires-signal"),
+            comparison.clone(),
+            when_true,
+            when_false,
+            fixed_type(SIGNAL_UNIT, 0),
+        );
+        graph.holds(&format!("{side}-fires"), fires)
+    };
+
+    let otherwise_fires = positions
+        .otherwise
+        .as_ref()
+        .map(|from| side_fires(graph, "otherwise", from, false));
+    let true_fires = match &positions.when_true {
+        Some(from) => side_fires(graph, "when-true", from, true),
+        None => comparison.clone(),
+    };
+
+    if let Some(fires) = &otherwise_fires {
+        let position = graph.position(nominal_position(&request.otherwise));
+        layers.push(("believed-after-otherwise", fires.clone(), position));
+    }
+
+    if positions.when_true.is_some() {
+        let position = graph.position(nominal_position(&request.when_true));
+        layers.push(("believed-after-when-true", true_fires.clone(), position));
+    }
+
+    if exits.first_field().is_some() {
+        let exit_now = exit_condition(graph, request, positions, exits);
+        graph.frame_constants(EXIT_IDS, &exit_outcome());
+        branches.push(BoundedFeatureProposalDecisionBranchV1 {
+            priority: 10,
+            predicate: exit_now.clone(),
+            frame: frame(
+                &exit_outcome(),
+                EXIT_IDS.0,
+                EXIT_IDS.1,
+                EXIT_IDS.2,
+                EXIT_IDS.3,
+                EXIT_IDS.4,
+            ),
+        });
+        layers.push(("believed-after-exit", exit_now, flat));
+    }
+    branches.push(BoundedFeatureProposalDecisionBranchV1 {
+        priority: 20,
+        predicate: true_fires,
+        frame: when_true,
+    });
+    let default_frame = match otherwise_fires {
+        Some(fires) => {
+            branches.push(BoundedFeatureProposalDecisionBranchV1 {
+                priority: 30,
+                predicate: fires,
+                frame: otherwise,
+            });
+            graph.frame_constants(HOLD_IDS, &hold_outcome());
+            frame(
+                &hold_outcome(),
+                HOLD_IDS.0,
+                HOLD_IDS.1,
+                HOLD_IDS.2,
+                HOLD_IDS.3,
+                HOLD_IDS.4,
+            )
+        }
+        // A holding side may be proposed from anywhere, so it is the other side of the
+        // threshold as before, not a fallback.
+        None => otherwise,
+    };
+
+    let mut believed = prior_state(BELIEVED_POSITION);
+    let last = layers.len().saturating_sub(1);
+    for (index, (node_id, condition, position)) in layers.into_iter().enumerate() {
+        let node_id = if index == last {
+            BELIEVED_POSITION_WRITER
+        } else {
+            node_id
+        };
+        believed = graph.select(
+            node_id,
+            condition,
+            position,
+            believed,
+            fixed_type(POSITION_UNIT, 0),
+        );
+    }
+
+    BoundedFeatureProposalDecisionTableV1 {
+        branches,
+        default_frame,
+    }
+}
+
+/// Whether a held position is left at this frame's close: by its stop-loss, its take-profit or its
+/// holding limit, each judged in the direction the believed position faces.
+fn exit_condition(
+    graph: &mut Graph,
+    request: &SingleThresholdAuthoringRequestV1,
+    positions: &PositionBelief,
+    exits: &ExitPlan,
+) -> BoundedFeatureValueRefV1 {
+    let channel = request.channel.role_v2();
+    let close = BoundedFeatureValueRefV1::InputValue {
+        input_role_id: channel.semantic_id.clone(),
+    };
+    let flat = graph.believed_at(0);
+    let long = positions.reachable.iter().any(|position| *position > 0);
+    let short = positions.reachable.iter().any(|position| *position < 0);
+    let mut long_exits = Vec::new();
+    let mut short_exits = Vec::new();
+
+    if exits.stop_loss.is_some() || exits.take_profit.is_some() {
+        graph.fixed(ENTRY_CLOSE_SEED, 0, &channel.unit, channel.scale);
+        graph.cell(
+            ENTRY_CLOSE,
+            ENTRY_CLOSE_WRITER,
+            fixed_type(&channel.unit, channel.scale),
+            ENTRY_CLOSE_SEED,
+        );
+        graph.select(
+            ENTRY_CLOSE_WRITER,
+            flat.clone(),
+            close.clone(),
+            prior_state(ENTRY_CLOSE),
+            fixed_type(&channel.unit, channel.scale),
+        );
+        // The close and the entry close are compared at one unit and scale: the close times
+        // exactly 1, and the entry close times 1 minus or plus the fraction, both in `RATIO` at
+        // the fractions' decimal places. Both products are exact.
+        let one = 10_i128.pow(u32::from(exits.digits));
+        let ratio_one = graph.fixed("ratio-one", one, RATIO_UNIT, exits.digits);
+        let product_unit = format!("{}*{RATIO_UNIT}", channel.unit);
+        let product_scale = channel.scale + exits.digits;
+        let scaled_close = graph.arithmetic(
+            "close-at-ratio",
+            MUL,
+            close,
+            ratio_one,
+            &product_unit,
+            product_scale,
+        );
+
+        for (exit, fraction, long_sign, long_predicate, short_predicate) in [
+            (
+                STOP_LOSS_EXIT,
+                exits.stop_loss,
+                -1,
+                BoundedFeaturePredicateV1::LessOrEqual,
+                BoundedFeaturePredicateV1::GreaterOrEqual,
+            ),
+            (
+                TAKE_PROFIT_EXIT,
+                exits.take_profit,
+                1,
+                BoundedFeaturePredicateV1::GreaterOrEqual,
+                BoundedFeaturePredicateV1::LessOrEqual,
+            ),
+        ] {
+            let Some(fraction) = fraction else { continue };
+
+            for (direction, sign, predicate, faces) in [
+                ("long", long_sign, long_predicate, long),
+                ("short", -long_sign, short_predicate, short),
+            ] {
+                if !faces {
+                    continue;
+                }
+                let factor = graph.fixed(
+                    &format!("{exit}-{direction}-factor"),
+                    one + sign * fraction,
+                    RATIO_UNIT,
+                    exits.digits,
+                );
+                let level = graph.arithmetic(
+                    &format!("{exit}-{direction}-level"),
+                    MUL,
+                    prior_state(ENTRY_CLOSE),
+                    factor,
+                    &product_unit,
+                    product_scale,
+                );
+                let reached = graph.compare(
+                    &format!("{exit}-{direction}-reached"),
+                    scaled_close.clone(),
+                    level,
+                    predicate,
+                );
+
+                if direction == "long" {
+                    long_exits.push(reached);
+                } else {
+                    short_exits.push(reached);
+                }
+            }
+        }
+    }
+
+    if let Some(limit) = exits.max_holding_bars {
+        let none = graph.fixed(NO_BARS, 0, BARS_UNIT, 0);
+        graph.cell(
+            BARS_HELD,
+            BARS_HELD_WRITER,
+            fixed_type(BARS_UNIT, 0),
+            NO_BARS,
+        );
+        let bar = graph.fixed("bar-one", 1, BARS_UNIT, 0);
+        let counted = graph.arithmetic(
+            "bars-plus-one",
+            ADD,
+            prior_state(BARS_HELD),
+            bar,
+            BARS_UNIT,
+            0,
+        );
+        let held = graph.select(
+            BARS_HELD_WRITER,
+            flat.clone(),
+            none,
+            counted,
+            fixed_type(BARS_UNIT, 0),
+        );
+        let limit = graph.fixed(MAX_HOLDING_BARS, i128::from(limit), BARS_UNIT, 0);
+        let reached = graph.compare(
+            "holding-limit-reached",
+            held,
+            limit,
+            BoundedFeaturePredicateV1::GreaterOrEqual,
+        );
+
+        if long {
+            long_exits.push(reached.clone());
+        }
+
+        if short {
+            short_exits.push(reached);
+        }
+    }
+
+    let faced = match (long, short) {
+        (true, true) => {
+            let leave_long = graph.any_of("exit-long", &long_exits);
+            let leave_short = graph.any_of("exit-short", &short_exits);
+            let flat_position = graph.position(0);
+            let believed_long = graph.compare(
+                "believed-long",
+                prior_state(BELIEVED_POSITION),
+                flat_position,
+                BoundedFeaturePredicateV1::Greater,
+            );
+            graph.select(
+                "exit-faced",
+                believed_long,
+                leave_long,
+                leave_short,
+                fixed_type(SIGNAL_UNIT, 0),
+            )
+        }
+        (true, false) => graph.any_of("exit-long", &long_exits),
+        _ => graph.any_of("exit-short", &short_exits),
+    };
+    // Flat, there is nothing to leave.
+    let zero = graph.signal(0);
+    let leave = graph.select("exit-signal", flat, zero, faced, fixed_type(SIGNAL_UNIT, 0));
+    graph.holds("exit-now", leave)
+}
+
+/// What an exit proposes: flat, as a position target, clearing the protection it leaves.
+fn exit_outcome() -> SingleThresholdOutcomeV1 {
+    SingleThresholdOutcomeV1 {
+        position_intent_semantic_id: "kernel.position.exit.v1".to_owned(),
+        target_variant_semantic_id: "kernel.target.position.v1".to_owned(),
+        target_position_units: 0,
+        target_weight_micros: 0,
+    }
+}
+
+/// What the program proposes when neither side may be proposed from where it is.
+fn hold_outcome() -> SingleThresholdOutcomeV1 {
+    SingleThresholdOutcomeV1 {
+        position_intent_semantic_id: "kernel.position.hold.v1".to_owned(),
+        target_variant_semantic_id: "kernel.target.keep.v1".to_owned(),
+        target_position_units: 0,
+        target_weight_micros: 0,
+    }
+}
+
+/// The five constants of one frame: intent, target, target position, target weight, protection.
+fn outcome_constants(
+    ids: FrameIds,
+    outcome: &SingleThresholdOutcomeV1,
+) -> [(String, BoundedFeatureConstantValueV1); 5] {
+    [
+        (
+            ids.0.to_owned(),
+            BoundedFeatureConstantValueV1::PositionIntentV1 {
+                semantic_id: outcome.position_intent_semantic_id.clone(),
+            },
+        ),
+        (
+            ids.1.to_owned(),
+            BoundedFeatureConstantValueV1::TargetVariantV1 {
+                semantic_id: outcome.target_variant_semantic_id.clone(),
+            },
+        ),
+        (
+            ids.2.to_owned(),
+            BoundedFeatureConstantValueV1::I64 {
+                value: outcome.target_position_units,
+            },
+        ),
+        (
+            ids.3.to_owned(),
+            BoundedFeatureConstantValueV1::I32 {
+                value: outcome.target_weight_micros,
+            },
+        ),
+        (
+            ids.4.to_owned(),
+            BoundedFeatureConstantValueV1::ProtectionVariantV1 {
+                semantic_id: protection_variant(outcome).to_owned(),
+            },
+        ),
+    ]
 }
 
 fn constants(request: &SingleThresholdAuthoringRequestV1) -> Vec<BoundedFeatureConstantV1> {
     // The threshold is compared at the channel's own unit and scale, which the Design role states.
     let channel = request.channel.role_v2();
-    let outcome = |ids: (&str, &str, &str, &str, &str), o: &SingleThresholdOutcomeV1| {
-        [
-            (
-                ids.0.to_owned(),
-                BoundedFeatureConstantValueV1::PositionIntentV1 {
-                    semantic_id: o.position_intent_semantic_id.clone(),
-                },
-            ),
-            (
-                ids.1.to_owned(),
-                BoundedFeatureConstantValueV1::TargetVariantV1 {
-                    semantic_id: o.target_variant_semantic_id.clone(),
-                },
-            ),
-            (
-                ids.2.to_owned(),
-                BoundedFeatureConstantValueV1::I64 {
-                    value: o.target_position_units,
-                },
-            ),
-            (
-                ids.3.to_owned(),
-                BoundedFeatureConstantValueV1::I32 {
-                    value: o.target_weight_micros,
-                },
-            ),
-            (
-                ids.4.to_owned(),
-                BoundedFeatureConstantValueV1::ProtectionVariantV1 {
-                    semantic_id: protection_variant(o).to_owned(),
-                },
-            ),
-        ]
-    };
-
     let mut values = vec![(
         THRESHOLD.to_owned(),
         // The comparison primitive is equal-scale, so the threshold takes the channel's own unit
@@ -838,7 +1795,7 @@ fn constants(request: &SingleThresholdAuthoringRequestV1) -> Vec<BoundedFeatureC
             scale: channel.scale,
         },
     )];
-    values.extend(outcome(
+    values.extend(outcome_constants(
         (
             TRUE_POSITION,
             TRUE_TARGET,
@@ -848,7 +1805,7 @@ fn constants(request: &SingleThresholdAuthoringRequestV1) -> Vec<BoundedFeatureC
         ),
         &request.when_true,
     ));
-    values.extend(outcome(
+    values.extend(outcome_constants(
         (
             FALSE_POSITION,
             FALSE_TARGET,
@@ -858,7 +1815,7 @@ fn constants(request: &SingleThresholdAuthoringRequestV1) -> Vec<BoundedFeatureC
         ),
         &request.otherwise,
     ));
-    // Shared by both frames: a single threshold does not change them, so the author is not asked
+    // Shared by every frame: a single threshold does not change them, so the author is not asked
     // for them twice.
     values.extend([
         // The Host assigns a rebalance target's sequence, and a program emits 0 for it.
@@ -1143,8 +2100,37 @@ fn candidate_request(
             FALSE_TARGET_POSITION,
             FALSE_TARGET_WEIGHT,
         )?,
+        stop_loss_fraction: candidate_fraction(constant, STOP_LOSS_EXIT, -1),
+        take_profit_fraction: candidate_fraction(constant, TAKE_PROFIT_EXIT, 1),
+        max_holding_bars: match constant(MAX_HOLDING_BARS) {
+            Some(BoundedFeatureConstantValueV1::FixedI128 { coefficient, .. }) => {
+                Some(u32::try_from(*coefficient).ok()?)
+            }
+            _ => None,
+        },
         falsifier: design.falsifier.clone(),
     })
+}
+
+/// Reads an exit fraction back from the factor of either direction it was written for: a long
+/// position's factor is `1 + long_sign * fraction`, and a short position's the opposite.
+fn candidate_fraction<'a>(
+    constant: impl Fn(&str) -> Option<&'a BoundedFeatureConstantValueV1>,
+    exit: &str,
+    long_sign: i128,
+) -> Option<String> {
+    [("long", long_sign), ("short", -long_sign)]
+        .into_iter()
+        .find_map(|(direction, sign)| {
+            let BoundedFeatureConstantValueV1::FixedI128 {
+                coefficient, scale, ..
+            } = constant(&format!("{exit}-{direction}-factor"))?
+            else {
+                return None;
+            };
+            let one = 10_i128.checked_pow(u32::from(*scale))?;
+            exit_fraction_text(coefficient.checked_sub(one)?.checked_mul(sign)?, *scale)
+        })
 }
 
 /// Reads a candidate channel out of a Design's roles, by the scope each role declares.
@@ -1277,6 +2263,9 @@ mod tests {
                 target_position_units: 0,
                 target_weight_micros: 0,
             },
+            stop_loss_fraction: None,
+            take_profit_fraction: None,
+            max_holding_bars: None,
             falsifier: "the channel never crosses the threshold in the admitted window".to_owned(),
         }
     }
@@ -1321,7 +2310,7 @@ mod tests {
     #[rstest]
     #[case::enter_then_exit(SIDE_ENTER, SIDE_EXIT)]
     #[case::enter_then_keep(SIDE_ENTER, SIDE_KEEP)]
-    #[case::keep_then_exit(SIDE_KEEP, SIDE_EXIT)]
+    #[case::keep_then_enter(SIDE_KEEP, SIDE_ENTER)]
     #[case::exit_then_enter(SIDE_EXIT, SIDE_ENTER)]
     #[case::rebalance_enter_then_exit(SIDE_REBALANCE_ENTER, SIDE_REBALANCE_EXIT)]
     #[case::weight_enter_then_exit(SIDE_WEIGHT_ENTER, SIDE_WEIGHT_EXIT)]
@@ -1457,9 +2446,16 @@ mod tests {
         let (_, meaning) =
             author_single_threshold_program_v1(&authored).expect("the request is authorable");
         let table = &meaning.proposal_decision_table;
+        let branch = |priority| {
+            table
+                .branches
+                .iter()
+                .find(|branch| branch.priority == priority)
+                .map(|branch| &branch.frame)
+        };
         let frames = [
-            (when_true, &table.branches[0].frame),
-            (otherwise, &table.default_frame),
+            (when_true, branch(20).expect("the side above the threshold")),
+            (otherwise, branch(30).unwrap_or(&table.default_frame)),
         ];
         let terminal_value = |frame: &BoundedFeatureProposalFrameV1, terminal| {
             let port = match terminal {
@@ -1614,6 +2610,11 @@ mod tests {
         side.target_variant_semantic_id = variant.to_owned();
         side.target_weight_micros = weight_micros;
 
+        // An exit leaves a position at nothing, so a side weighted away from 0 enters instead.
+        if !when_true {
+            side.position_intent_semantic_id = "kernel.position.enter.v1".to_owned();
+        }
+
         let result = author_single_threshold_program_v1(&authored);
 
         match refused_as_not_read {
@@ -1756,6 +2757,18 @@ mod tests {
     })]
     #[case::otherwise(|r: &mut SingleThresholdAuthoringRequestV1| r.otherwise.position_intent_semantic_id = "kernel.position.hold.v1".to_owned())]
     #[case::falsifier(|r: &mut SingleThresholdAuthoringRequestV1| r.falsifier = "a different statement to be wrong about".to_owned())]
+    #[case::stop_loss(|r: &mut SingleThresholdAuthoringRequestV1| r.stop_loss_fraction = Some("0.02".to_owned()))]
+    #[case::take_profit(|r: &mut SingleThresholdAuthoringRequestV1| r.take_profit_fraction = Some("0.035".to_owned()))]
+    #[case::max_holding_bars(|r: &mut SingleThresholdAuthoringRequestV1| r.max_holding_bars = Some(5))]
+    #[case::fractions_of_two_precisions(|r: &mut SingleThresholdAuthoringRequestV1| {
+        r.stop_loss_fraction = Some("0.02".to_owned());
+        r.take_profit_fraction = Some("0.005".to_owned());
+    })]
+    #[case::every_exit_short(|r: &mut SingleThresholdAuthoringRequestV1| {
+        with_every_exit(r);
+        r.when_true.target_position_units = -1;
+    })]
+    #[case::every_exit_both_directions(largest_request_shape)]
     fn a_frozen_authored_program_states_the_request_it_was_authored_from(
         #[case] change: fn(&mut SingleThresholdAuthoringRequestV1),
     ) {
@@ -1767,6 +2780,135 @@ mod tests {
             recover_single_threshold_request_v1(&design, &program),
             Some(expected)
         );
+    }
+
+    /// Names every exit.
+    fn with_every_exit(request: &mut SingleThresholdAuthoringRequestV1) {
+        request.stop_loss_fraction = Some("0.02".to_owned());
+        request.take_profit_fraction = Some("0.005".to_owned());
+        request.max_holding_bars = Some(5);
+    }
+
+    /// The largest program the family authors: every exit, and a side entering in each direction,
+    /// so both directions' exits are judged.
+    fn largest_request_shape(request: &mut SingleThresholdAuthoringRequestV1) {
+        with_every_exit(request);
+        request.otherwise = SingleThresholdOutcomeV1 {
+            position_intent_semantic_id: "kernel.position.enter.v1".to_owned(),
+            target_variant_semantic_id: "kernel.target.position.v1".to_owned(),
+            target_position_units: -1,
+            target_weight_micros: 0,
+        };
+    }
+
+    /// The family's bounds are exactly the largest programs' shape: each graph bound equals the
+    /// most either form's largest program measures, so none is loose, and both still prepare.
+    #[rstest]
+    fn the_family_bounds_are_the_largest_programs_shape() {
+        use crate::bounded_feature_program_v1::measure_bounded_feature_program_shape_v1;
+
+        let mut largest = (0, 0, 0, 0, 0, 0, 0, 0);
+
+        for mut request in [request(), universe_request()] {
+            largest_request_shape(&mut request);
+            let (design, meaning) =
+                author_single_threshold_program_v1(&request).expect("the largest request authors");
+            let proposal = derive_bounded_feature_program_proposal_v1(
+                &design,
+                PrimitiveCatalogV1::verify().expect("a published catalog"),
+                &meaning,
+                &bindings(&design),
+            )
+            .expect("the largest meaning assembles");
+            let shape = measure_bounded_feature_program_shape_v1(proposal, &design)
+                .expect("the largest program measures");
+            largest = (
+                largest.0.max(shape.nodes),
+                largest.1.max(shape.edges),
+                largest.2.max(shape.depth),
+                largest.3.max(shape.ports),
+                largest.4.max(shape.constants),
+                largest.5.max(shape.fan_out),
+                largest.6.max(shape.state_cells),
+                largest.7.max(shape.decision_branches),
+            );
+            frozen(&design, &meaning);
+        }
+        let bounds = FAMILY_GRAPH_BOUNDS;
+
+        assert_eq!(
+            largest,
+            (
+                bounds.max_nodes,
+                bounds.max_edges,
+                bounds.max_depth,
+                bounds.max_ports,
+                bounds.max_constants,
+                bounds.max_fan_out,
+                bounds.max_state_cells,
+                bounds.max_decision_branches,
+            ),
+        );
+    }
+
+    /// Each malformed exit is refused under its own name.
+    #[rstest]
+    #[case::fraction_without_a_leading_zero(|r: &mut SingleThresholdAuthoringRequestV1| r.stop_loss_fraction = Some(".02".to_owned()), SingleThresholdAuthoringErrorV1::ExitFractionInvalid { field: "stop_loss_fraction" })]
+    #[case::fraction_with_a_trailing_zero(|r: &mut SingleThresholdAuthoringRequestV1| r.take_profit_fraction = Some("0.020".to_owned()), SingleThresholdAuthoringErrorV1::ExitFractionInvalid { field: "take_profit_fraction" })]
+    #[case::fraction_of_zero(|r: &mut SingleThresholdAuthoringRequestV1| r.stop_loss_fraction = Some("0.0".to_owned()), SingleThresholdAuthoringErrorV1::ExitFractionInvalid { field: "stop_loss_fraction" })]
+    #[case::fraction_of_one(|r: &mut SingleThresholdAuthoringRequestV1| r.stop_loss_fraction = Some("1".to_owned()), SingleThresholdAuthoringErrorV1::ExitFractionInvalid { field: "stop_loss_fraction" })]
+    #[case::negative_fraction(|r: &mut SingleThresholdAuthoringRequestV1| r.take_profit_fraction = Some("-0.02".to_owned()), SingleThresholdAuthoringErrorV1::ExitFractionInvalid { field: "take_profit_fraction" })]
+    #[case::fraction_too_precise(|r: &mut SingleThresholdAuthoringRequestV1| r.stop_loss_fraction = Some("0.0000000001".to_owned()), SingleThresholdAuthoringErrorV1::ExitFractionTooPrecise { field: "stop_loss_fraction" })]
+    #[case::zero_holding_bars(|r: &mut SingleThresholdAuthoringRequestV1| r.max_holding_bars = Some(0), SingleThresholdAuthoringErrorV1::MaxHoldingBarsZero)]
+    #[case::price_exit_on_another_channel(|r: &mut SingleThresholdAuthoringRequestV1| {
+        let SingleThresholdChannelV1::ExactInstrument { field_semantic_id, .. } = &mut r.channel else {
+            panic!("the base request is the exact-instrument form");
+        };
+        *field_semantic_id = "MARKET_DATA.BAR.OPEN.PRICE.V1".to_owned();
+        r.stop_loss_fraction = Some("0.02".to_owned());
+    }, SingleThresholdAuthoringErrorV1::ExitNeedsCloseChannel { field: "stop_loss_fraction", channel: "MARKET_DATA.BAR.OPEN.PRICE.V1".to_owned() })]
+    #[case::exit_without_a_position(|r: &mut SingleThresholdAuthoringRequestV1| {
+        r.when_true = r.otherwise.clone();
+        r.when_true.position_intent_semantic_id = "kernel.position.hold.v1".to_owned();
+        r.when_true.target_variant_semantic_id = "kernel.target.keep.v1".to_owned();
+        r.otherwise = r.when_true.clone();
+        r.otherwise.target_position_units = 1;
+        r.max_holding_bars = Some(3);
+    }, SingleThresholdAuthoringErrorV1::ExitWithoutPosition { field: "max_holding_bars" })]
+    #[case::an_exit_with_nothing_to_leave(|r: &mut SingleThresholdAuthoringRequestV1| {
+        r.when_true.position_intent_semantic_id = "kernel.position.hold.v1".to_owned();
+        r.when_true.target_variant_semantic_id = "kernel.target.keep.v1".to_owned();
+        r.when_true.target_position_units = 0;
+    }, SingleThresholdAuthoringErrorV1::SideNeverPermitted { field: "otherwise.position_intent_semantic_id" })]
+    fn a_malformed_exit_or_an_unreachable_side_is_refused_by_name(
+        #[case] change: fn(&mut SingleThresholdAuthoringRequestV1),
+        #[case] refusal: SingleThresholdAuthoringErrorV1,
+    ) {
+        let mut refused = request();
+        change(&mut refused);
+
+        assert_eq!(author_single_threshold_program_v1(&refused), Err(refusal));
+    }
+
+    /// A request that names no exit keeps its serialized bytes: the three fields are omitted, not
+    /// written as null, so a statement written before they existed still reads and writes the same.
+    #[rstest]
+    fn a_request_without_exits_keeps_its_serialized_bytes() {
+        let text = serde_json::to_string(&request()).expect("the request serialises");
+
+        for field in [
+            "stop_loss_fraction",
+            "take_profit_fraction",
+            "max_holding_bars",
+        ] {
+            assert!(!text.contains(field), "{field} is omitted");
+        }
+        let mut exits = request();
+        with_every_exit(&mut exits);
+        let text = serde_json::to_string(&exits).expect("the request serialises");
+        let read: SingleThresholdAuthoringRequestV1 =
+            serde_json::from_str(&text).expect("the request reads back");
+        assert_eq!(read, exits);
     }
 
     /// A program whose declared fields all read back cleanly, but which fixes a terminal this
@@ -1844,8 +2986,21 @@ mod tests {
             author_single_threshold_program_v1(&request()).expect("the request is authorable");
         let table = &meaning.proposal_decision_table;
 
-        assert_eq!(table.branches.len(), 1, "one threshold means one branch");
-        for frame in [&table.branches[0].frame, &table.default_frame] {
+        // An entry and an exit are each proposed only from where the kernel accepts them, so each
+        // is a branch of its own, and the program holds when neither is admitted.
+        let priorities = table
+            .branches
+            .iter()
+            .map(|branch| branch.priority)
+            .collect::<Vec<_>>();
+        assert_eq!(priorities, [20, 30], "one branch per side of the threshold");
+        let frames = [
+            &table.branches[0].frame,
+            &table.branches[1].frame,
+            &table.default_frame,
+        ];
+
+        for frame in frames {
             assert_eq!(
                 frame.terminal_outputs.len(),
                 11,
@@ -1853,8 +3008,20 @@ mod tests {
             );
         }
         assert_ne!(
-            table.branches[0].frame, table.default_frame,
+            frames[0], frames[1],
             "the two sides of the threshold propose different frames",
+        );
+        assert_eq!(
+            frames[2],
+            &frame(
+                &hold_outcome(),
+                HOLD_IDS.0,
+                HOLD_IDS.1,
+                HOLD_IDS.2,
+                HOLD_IDS.3,
+                HOLD_IDS.4
+            ),
+            "neither side admitted, the program holds",
         );
     }
 
@@ -1943,14 +3110,18 @@ mod tests {
                 hex(&<sha2::Sha256 as sha2::Digest>::digest(&meaning_bytes)),
             ),
             (
-                "726d4aff67eb718382b790353c43011739ede0073048afd9c7bc8dbed2465d28".to_owned(),
-                "4725d44ade0ad56f07f3a47beffb25b373eaf52b7d1af347c48c39d05ee1a05f".to_owned(),
+                // The Design moved once, when the plugin's fuel bound rose from 100,000 to the
+                // family's measured need of 1,000,000.
+                "5bdc590d3c37093ef2ae35cc6ae6609a76a1d870a3b9cc3461a2e4af7913ad5f".to_owned(),
+                "63759f64de22d977427a5e4f7809417c91630dd3e22657809308324b74010e10".to_owned(),
                 // Moved when each frame's reconciliation target began reading its own side's
                 // target position instead of one shared constant of 0, and again when the
                 // rebalance sequence became the Host's (0 in the program) and each frame's
                 // protection began following its own side's intent, and again when each frame's
-                // target weight became its own side's. The Design is unchanged.
-                "80cc033f13a244c62b4aaccc3522ee2ea204a77b0e57dd3e286b6271b69ff8f2".to_owned(),
+                // target weight became its own side's, and again when the program began carrying
+                // the position it believes it holds and proposing a side only from a position the
+                // kernel accepts it at.
+                "55d45374bf8574cd9a3d97a1b9353684528f3e82947a83162fd24edf52e4b247".to_owned(),
             ),
         );
     }
@@ -2554,9 +3725,10 @@ mod tests {
 
         assert_eq!(
             (exact_digest.as_str(), universe_digest.as_str()),
+            // Moved once, with the Design, when the plugin's fuel bound rose to 1,000,000.
             (
-                "0a6f7ca9688276240ca5768eb072cad5e29bcf45e573a5214461ab563572ceb0",
-                "9e1b19650443285b7cb48852613094d15c8623c8871cd7a4c0931344a52a3dd1",
+                "d9ef1d86900b14be0170b96c289da65dc8dec706a23027faf17b1b418954f7f8",
+                "f628363b99449af1316ef81a05b68eaaf1cdff8b0b70c4f5226ceda9c22305ce",
             ),
         );
     }

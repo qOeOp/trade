@@ -353,6 +353,33 @@ test("the strategy is stated only for the admitted single-threshold family", () 
   );
 });
 
+const exits = {
+  stop_loss_fraction: "0.02",
+  max_holding_bars: 5,
+  judged: "AT_BAR_CLOSE_FILLED_NEXT_FRAME",
+};
+
+test("a strategy states its exits only as the authoring family spells them", () => {
+  const withExits = (value) => normalizeBacktestRunReport({
+    ...available,
+    strategy: { ...strategy, exits: value },
+  }, LOCATOR).state;
+  assert.equal(withExits(exits), "available");
+  assert.equal(withExits({ take_profit_fraction: "0.005", judged: exits.judged }), "available");
+  for (const [label, value] of [
+    ["no exit named", { judged: exits.judged }],
+    ["judged inside the bar", { ...exits, judged: "INTRA_BAR" }],
+    ["no judgement stated", { stop_loss_fraction: "0.02" }],
+    ["a trailing zero", { ...exits, stop_loss_fraction: "0.020" }],
+    ["a fraction of one", { ...exits, stop_loss_fraction: "1" }],
+    ["zero bars", { ...exits, max_holding_bars: 0 }],
+    ["an unknown exit", { ...exits, trailing_fraction: "0.01" }],
+    ["not an object", "0.02"],
+  ]) {
+    assert.equal(withExits(value), "unavailable", label);
+  }
+});
+
 test("anything that is not a projection object fails closed", () => {
   for (const value of [null, undefined, "AVAILABLE", 7, [], [available]]) {
     assert.deepEqual(normalizeBacktestRunReport(value, LOCATOR), invalid);
@@ -455,6 +482,23 @@ test("empty lists the run's fills, says what is missing and the Owner's reason a
   assert.doesNotMatch(html, /<polyline|<circle|unavailable-state/u);
   assert.deepEqual(cellTexts(html).filter((text) => text === "BUY" || text === "SELL"), ["BUY", "SELL"]);
   assert.match(html, /<h3>Strategy<\/h3>/u);
+});
+
+test("the strategy says when it has no exits, and states each exit it names", () => {
+  const none = /None: a position closes only when the strategy&#x27;s own condition proposes it/u;
+  assert.match(render(normalizeBacktestRunReport(available, LOCATOR)), none);
+  const html = render(normalizeBacktestRunReport({ ...available, strategy: { ...strategy, exits } }, LOCATOR));
+  assert.match(
+    html,
+    /stop-loss at an adverse move of 0\.02 of the entry close · time exit 5 bars after the entry bar · judged at the bar close, filled on the next bar/u,
+  );
+  assert.doesNotMatch(html, none);
+  assert.doesNotMatch(html, /take-profit/u);
+  const one = render(normalizeBacktestRunReport({
+    ...available,
+    strategy: { ...strategy, exits: { take_profit_fraction: "0.05", max_holding_bars: 1, judged: exits.judged } },
+  }, LOCATOR));
+  assert.match(one, /take-profit at a favourable move of 0\.05 of the entry close · time exit 1 bar after the entry bar/u);
 });
 
 test("fills are shown exactly as the projection wrote them", () => {

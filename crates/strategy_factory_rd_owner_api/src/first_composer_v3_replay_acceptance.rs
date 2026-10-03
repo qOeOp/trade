@@ -1154,6 +1154,9 @@ pub(crate) async fn ensure_first_composer_v3_replay_acceptance_v1(
                 target_position_units: 0,
                 target_weight_micros: 0,
             },
+            stop_loss_fraction: None,
+            take_profit_fraction: None,
+            max_holding_bars: None,
             falsifier: facts.falsifier.clone(),
         })
         .expect("H4: the proposer authors the universe-member statement");

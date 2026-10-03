@@ -464,7 +464,13 @@ Composer 路径握着的是 `CurrentResearchDevelopCustodyV2`，它的十四个�
 
 reaction graph 才是仍然属于判断的那一部分，而它仍然归提案者。为它准入第一个有界族，
 不准入更宽的任何东西：**单一已声明 channel 与单一阈值的比较**，决策时钟取自
-`data.decision_clock_channel`。这个族之外的每一种图，两个信号、一个合取、一个依赖状态的
+`data.decision_clock_channel`。这个族的程序只在 kernel 接受某一侧的仓位上提议该侧，否则持有不动，
+所以它在一个状态单元里带着自己认为持有的仓位：kernel 只接受从空仓入场、只接受从持仓退出
+（程序 SDK 里的 `validate_position_transition`），而一次被拒的提议会中止整个 run（`program_host_v2.rs`），
+所以没有这份认定的程序活不过阈值之上的第二根 bar。它还可以声明三种退出，每一种都在 bar 收盘时判定并在那里
+提议，所以它在下一帧成交，而不是在 bar 内部的退出价位上成交：`stop_loss_fraction` 与 `take_profit_fraction`
+从入场那一帧的收盘价量起，只在收盘价 channel 上准入；`max_holding_bars` 按帧计数。那份认定与那些退出都属于
+这个族，两者都不让它的阈值依赖状态。这个族之外的每一种图，两个信号、一个合取、一个依赖状态的
 阈值、一个本 Owner 不得不去选的阈值，都仍然是提案者的声明，本 Owner 准入而不导出。提案者
 可以直接把这样的图声明为 `meaning`，也可以写成 **Strategy authoring surface** 一节里编写语言的
 一份文档；这门语言只把后者编译成前者、不做任何决定，所以两条路都不会让本 Owner 去导出一张图。
@@ -649,7 +655,10 @@ host 仍 fail closed，绝不替换为 generic toolchain。
 此后它的字节有意改过一次：一侧的 reconciliation target 读该侧的 target position，因为 kernel 要求
 position target 与它的 reconciliation target 相等，而两侧曾共用的那个值为 0 的常量，让每个两侧仓位不同的
 程序都无法运行 - target-set Host 在第一笔订单之前就拒绝了它的入场一侧。按旧字节冻结的程序从来不可能运行，
-现在它在这个族之外。
+现在它在这个族之外。出于同一类原因，它的字节又有意改过第二次：程序在比较成立的每一根 bar 上都提议它那一侧，
+所以按上面那条 kernel 规则，这个族的每个程序都在阈值之上的第二根 bar 中止 run。现在每个程序都带着自己认为
+持有的仓位，只在 kernel 接受某一侧的仓位上提议该侧。这次改动时没有任何部署冻结过这个族的程序，按更早字节冻结
+的程序在这个族之外。
 
 **IMPLEMENTATION_ADMITTED - 编写语言 V1：** 提案者写的一份文档，由一个纯函数编译成 `design` 与
 `meaning` 这一对，再无其他。这个截面上没有任何实现，它的实现排在第一次 COMPOSER_V3 Replay
