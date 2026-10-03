@@ -27,8 +27,6 @@ const MCP_ENVIRONMENT_KEYS = [
   "DASHBOARD_MCP_ALLOWED_ORIGIN_HOSTNAMES",
 ];
 const EXPECTED_TOOLS = [
-  "dashboard_artifact_action_v1",
-  "dashboard_artifact_preflight_v1",
   "dashboard_develop_composer_action_v2",
   "dashboard_exploratory_replay_action_v2",
   "dashboard_run_detail_read_v1",
@@ -114,7 +112,7 @@ test("MCP route requires the exact bearer capability", async (t) => {
   }
 });
 
-test("MCP tools/list exposes exactly seven bounded Dashboard tools and no arbitrary executor", async (t) => {
+test("MCP tools/list exposes exactly five bounded Dashboard tools and no arbitrary executor", async (t) => {
   configureCapability();
   t.after(clearCapability);
 
@@ -123,7 +121,7 @@ test("MCP tools/list exposes exactly seven bounded Dashboard tools and no arbitr
   const envelope = await response.json();
   const tools = envelope.result.tools;
   assert.deepEqual(tools.map(({ name }) => name).sort(), EXPECTED_TOOLS);
-  assert.equal(tools.length, 7);
+  assert.equal(tools.length, 5);
   assert.equal(tools.some(({ name }) => /(?:shell|script|sql|eval|exec|admin)/iu.test(name)), false);
 
   const arbitraryMethod = await route.POST(mcpRequest("shell/execute"));

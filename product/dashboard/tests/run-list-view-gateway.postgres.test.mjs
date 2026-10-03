@@ -81,7 +81,7 @@ test("Runs v2 keeps summary, filters, and pages on one fail-closed PostgreSQL cu
     for (const [offset, state] of states.entries()) {
       runIds.push(await insertRun(pool, {
         kind: "owner_effect", state, offset,
-        operation: offset % 2 ? "artifact_build.formation_execute.v1" : "source_intake.research.submit_or_resolve.v1",
+        operation: offset % 2 ? "exploratory_replay.submit_or_resolve.v2" : "source_intake.research.submit_or_resolve.v1",
       }));
     }
     for (let offset = 0; offset < 4; offset += 1) {
@@ -233,7 +233,7 @@ test("Runs v2 keeps summary, filters, and pages on one fail-closed PostgreSQL cu
 
     const appendedRun = await insertRun(pool, {
       kind: "owner_effect", state: "queued", offset: 90,
-      operation: "artifact_build.formation_execute.v1",
+      operation: "exploratory_replay.submit_or_resolve.v2",
     });
     await pool.query(`UPDATE dashboard_operation_runs_v1
       SET created_at = clock_timestamp(), updated_at = clock_timestamp(),
@@ -261,7 +261,7 @@ test("Runs v2 keeps summary, filters, and pages on one fail-closed PostgreSQL cu
 
     await insertRun(pool, {
       kind: "owner_effect", state: "running", offset: 120,
-      operation: "artifact_build.formation_execute.v1", trigger: "dashboard_scheduler",
+      operation: "exploratory_replay.submit_or_resolve.v2", trigger: "dashboard_scheduler",
     });
     await assert.rejects(
       gateway.read({ kind: "runs", pageSize: 25 }),

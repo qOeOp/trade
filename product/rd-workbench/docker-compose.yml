@@ -23,6 +23,7 @@ services:
       - INSTRUMENT_OWNER_DB_PASSWORD
       - RISK_WRITER_DB_PASSWORD
       - SCANNER_WRITER_DB_PASSWORD
+      - RD_SCHEMA_MIGRATOR_DB_PASSWORD
     volumes:
       - postgres-data:/var/lib/postgresql/data
       - ./postgres-init/00-create-rd-owner.sh:/docker-entrypoint-initdb.d/00-create-rd-owner.sh:ro
@@ -84,6 +85,9 @@ services:
       RD_OWNER_API_TOKEN: ${RD_OWNER_API_TOKEN:?set RD_OWNER_API_TOKEN}
       RD_OWNER_ENABLE_ACCEPTANCE_FAULTS: ${RD_OWNER_ENABLE_ACCEPTANCE_FAULTS:-0}
       RD_SANDBOX_SOCKET: /run/trade-rd-sandbox/build.sock
+      # The Binance Vision backfill fetcher's on-disk shard cache, one subdirectory per
+      # symbol/interval. Unset disables the backfill routes (vision_backfill_fetcher_v1 errors).
+      BINANCE_VISION_SHARD_DIR_V1: /var/lib/trade/binance-vision-shards
       RUST_LOG: info
     depends_on:
       replay-policy-catalog-owner-readback:
@@ -94,6 +98,7 @@ services:
       - sandbox-socket:/run/trade-rd-sandbox:ro
       # A host directory when DEPLOYMENT_STORE_FILES_DIRECTORY names one, an empty volume otherwise.
       - ${DEPLOYMENT_STORE_FILES_DIRECTORY:-deployment-store-files}:/run/deployment-store:ro
+      - binance-vision-shards:/var/lib/trade/binance-vision-shards
     healthcheck:
       test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/8080'"]
       interval: 5s
@@ -218,6 +223,8 @@ services:
       INSTRUMENT_OWNER_DB_PASSWORD: ${INSTRUMENT_OWNER_DB_PASSWORD:?set INSTRUMENT_OWNER_DB_PASSWORD}
       RISK_WRITER_DB_PASSWORD: ${RISK_WRITER_DB_PASSWORD:?set RISK_WRITER_DB_PASSWORD}
       SCANNER_WRITER_DB_PASSWORD: ${SCANNER_WRITER_DB_PASSWORD:?set SCANNER_WRITER_DB_PASSWORD}
+      RD_SCHEMA_MIGRATOR_DB_PASSWORD: >-
+        ${RD_SCHEMA_MIGRATOR_DB_PASSWORD:?set RD_SCHEMA_MIGRATOR_DB_PASSWORD}
     entrypoint: ["/bin/sh", "/opt/trade/10-migrate-authority-custody.sh"]
     volumes:
       - ./postgres-init/10-migrate-authority-custody.sh:/opt/trade/10-migrate-authority-custody.sh:ro
@@ -241,6 +248,28 @@ services:
     # After the authority custody migration, not before: these migrations assume
     # `operator_authorization_private` and the Product Edge relations' schema
     # already exist, and that step is what creates them.
+    depends_on:
+      authority-custody-migrate:
+        condition: service_completed_successfully
+    security_opt:
+      - no-new-privileges:true
+
+  # Lets a store that already cut over custody gain an R&D public table a newer build added,
+  # without reopening the pre-cutover window: additive only, and refused by name (never altered)
+  # if a same-named relation already exists and does not match exactly (rd.md, "additive table
+  # migration, post-cutover"). Not profiled, so a default `up` always re-checks it, the same as
+  # `authority-schema-materialize`; each run after the first is a no-op once every table it knows
+  # about already exists.
+  authority-additive-table-migrate:
+    build:
+      context: ../..
+      dockerfile: product/rd-workbench/Dockerfile.owner
+    restart: "no"
+    entrypoint: ["/usr/local/bin/rd-owner-additive-table-migrate"]
+    environment:
+      RD_OWNER_DATABASE_URL: ${RD_OWNER_DATABASE_URL:?set RD_OWNER_DATABASE_URL}
+      RD_SCHEMA_MIGRATOR_DATABASE_URL: >-
+        ${RD_SCHEMA_MIGRATOR_DATABASE_URL:?set RD_SCHEMA_MIGRATOR_DATABASE_URL}
     depends_on:
       authority-custody-migrate:
         condition: service_completed_successfully
@@ -515,7 +544,6 @@ services:
         ${DASHBOARD_MCP_ALLOWED_ORIGIN_HOSTNAMES:-localhost,127.0.0.1,[::1]}
       DASHBOARD_SERVER_INSTANCE_IDENTITY: ${DASHBOARD_SERVER_INSTANCE_IDENTITY:-dashboard-web}
       DASHBOARD_DEPLOYMENT_CLASS: ${DASHBOARD_DEPLOYMENT_CLASS:-}
-      DASHBOARD_DISPOSABLE_ARTIFACT_EXECUTION: ${DASHBOARD_DISPOSABLE_ARTIFACT_EXECUTION:-}
       DASHBOARD_DISPOSABLE_DEVELOP_COMPOSER_EXECUTION: >-
         ${DASHBOARD_DISPOSABLE_DEVELOP_COMPOSER_EXECUTION:-}
       DASHBOARD_DISPOSABLE_EXPLORATORY_REPLAY_EXECUTION: >-
@@ -579,7 +607,6 @@ services:
       DASHBOARD_ARTIFACT_DIGEST: ${DASHBOARD_ARTIFACT_DIGEST:-}
       RD_OWNER_API_ARTIFACT_DIGEST: ${RD_OWNER_API_ARTIFACT_DIGEST:-}
       DASHBOARD_DEPLOYMENT_CLASS: ${DASHBOARD_DEPLOYMENT_CLASS:-}
-      DASHBOARD_DISPOSABLE_ARTIFACT_EXECUTION: ${DASHBOARD_DISPOSABLE_ARTIFACT_EXECUTION:-}
       DASHBOARD_DISPOSABLE_DEVELOP_COMPOSER_EXECUTION: >-
         ${DASHBOARD_DISPOSABLE_DEVELOP_COMPOSER_EXECUTION:-}
       DASHBOARD_DISPOSABLE_EXPLORATORY_REPLAY_EXECUTION: >-
@@ -592,9 +619,6 @@ services:
       DASHBOARD_EFFECT_WORKER_INTERVAL_MS: ${DASHBOARD_EFFECT_WORKER_INTERVAL_MS:-1000}
       RD_OWNER_API_URL: ${RD_OWNER_API_URL:-http://rd-owner-api:8080}
       RD_OWNER_API_TOKEN: ${RD_OWNER_API_TOKEN:-}
-      RD_EXECUTION_AGENT_PROVIDER_URL: ${RD_EXECUTION_AGENT_PROVIDER_URL:-}
-      RD_EXECUTION_AGENT_MODEL: ${RD_EXECUTION_AGENT_MODEL:-deepseek-chat}
-      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
     read_only: true
     tmpfs:
       - /tmp:rw,nosuid,nodev,noexec,size=16m,uid=1000,gid=1000,mode=0700
@@ -696,3 +720,4 @@ volumes:
   deployment-store-files:
   deployment-store-admin:
   postgres-tls:
+  binance-vision-shards:

@@ -7,10 +7,10 @@
 //! fetcher's shards, not here.
 //!
 //! Values cross as the venue published them. Every price and volume string becomes the exact
-//! mantissa and scale it spells, and Market Data's custody commit rescales it to the member's
-//! Instrument Master precision or refuses it by name. That commit is where external market data
-//! enters Market Data, so it is the one place a value is checked; repeating the check here would
-//! be a second definition of it.
+//! mantissa and scale it spells, and Market Data's custody commit rescales it to the custody
+//! series' fixed scale 9 or refuses it by name. That commit is where external market data enters
+//! Market Data, so it is the one place a value is checked; repeating the check here would be a
+//! second definition of it.
 
 use rust_decimal::Decimal;
 use vibe_data::owner::{

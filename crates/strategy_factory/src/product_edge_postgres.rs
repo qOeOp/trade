@@ -1325,6 +1325,9 @@ impl PostgresResearchGoalOwnerV1 {
         .map_err(|e| storage(&e))?;
 
         research_initial_pit::migrate(pool, admitted).await?;
+        crate::strategy_catalog_postgres_v1::migrate(pool, admitted)
+            .await
+            .map_err(|e| storage(&e))?;
 
         for statement in [
             "ALTER TABLE rd_research_request_receipts_v1 ADD COLUMN IF NOT EXISTS artifact_evidence_digest TEXT",
@@ -1820,6 +1823,7 @@ impl PostgresResearchGoalOwnerV1 {
             crate::market_data_repair_resolution_postgres::TABLES,
             crate::complex_strategy_develop_evaluation::TABLES,
             research_initial_pit::TABLES,
+            crate::strategy_catalog_postgres_v1::TABLES,
         ] {
             if materialization {
                 crate::schema_materialization::verify_materialized_public_tables(pool, tables)

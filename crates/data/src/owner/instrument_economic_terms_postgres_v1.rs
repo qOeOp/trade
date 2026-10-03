@@ -182,6 +182,48 @@ impl InstrumentEconomicTermsPostgresOwnerV1 {
         Ok(readback)
     }
 
+    /// Every economic-terms version admitted for one instrument, in fact-identity order, each
+    /// decoded and checked against its receipt.
+    ///
+    /// A discovery read for an operator or an agent: it states every version Market Data holds,
+    /// whatever its account scope or validity. A Replay never selects terms this way; it resolves
+    /// them from its verified cut through [`Self::resolve_unique_native_replay_members`].
+    ///
+    /// # Errors
+    ///
+    /// Returns for an invalid instrument identity, store or ACL failure, or corrupt durable bytes.
+    pub async fn terms_for_instrument_v1(
+        &self,
+        instrument_identity: &str,
+    ) -> Result<Vec<InstrumentEconomicTermsReadbackV1>, InstrumentEconomicTermsPostgresErrorV1>
+    {
+        if !valid_selector_text(instrument_identity) {
+            return Err(InstrumentEconomicTermsPostgresErrorV1::InvalidSelection);
+        }
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|cause| store_error(&cause))?;
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+            .execute(&mut *tx)
+            .await
+            .map_err(|cause| store_error(&cause))?;
+        lock_protected_tables_in_transaction(&mut tx).await?;
+        assert_acl_in_transaction(&mut tx).await?;
+        assert_complete_ledger_in_transaction(&mut tx).await?;
+        let rows = sqlx::query(
+            "SELECT f.fact_identity,f.meaning_identity,f.fact_bytes,f.custody_digest,r.receipt_identity,r.receipt_bytes,r.custody_digest AS receipt_custody_digest,s.instrument_identity AS selection_instrument_identity,s.venue_identity AS selection_venue_identity,s.account_scope_identity AS selection_account_scope_identity,s.quote_currency AS selection_quote_currency FROM instrument_owner_private.economic_terms_selection_v1 s JOIN instrument_owner_private.economic_terms_facts_v1 f ON f.fact_identity=s.fact_identity JOIN instrument_owner_private.economic_terms_receipts_v1 r ON r.fact_identity=f.fact_identity WHERE s.instrument_identity=$1 ORDER BY f.fact_identity",
+        )
+        .bind(instrument_identity)
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(|cause| store_error(&cause))?;
+        let readbacks = rows.iter().map(decode_row).collect::<Result<Vec<_>, _>>()?;
+        tx.commit().await.map_err(|cause| store_error(&cause))?;
+        Ok(readbacks)
+    }
+
     /// Resolves one economic-terms readback for each member of one verified Native Replay public
     /// cut, in the cut's member order.
     ///

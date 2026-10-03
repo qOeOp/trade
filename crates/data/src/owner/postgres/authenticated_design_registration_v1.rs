@@ -114,7 +114,9 @@ pub(super) fn map_admission_resolution_error(
             StrategyInputBindingAdmissionErrorV1::InitialPitRequestRequesterMismatch
         }
         PitRoleResolutionErrorV1::UniverseUnavailable => {
-            StrategyInputBindingAdmissionErrorV1::BindingUnavailable
+            StrategyInputBindingAdmissionErrorV1::BindingUnavailable {
+                cause: "UNIVERSE_UNAVAILABLE",
+            }
         }
         PitRoleResolutionErrorV1::StoreUnavailable => {
             StrategyInputBindingAdmissionErrorV1::StoreUnavailable
@@ -139,6 +141,8 @@ pub(super) fn map_admission_registry_error(
         StrategyInputBindingRegistryErrorV1::StrategyDesignRoleSetUnavailable => {
             StrategyInputBindingAdmissionErrorV1::UnsupportedRole
         }
-        _ => StrategyInputBindingAdmissionErrorV1::BindingUnavailable,
+        other => StrategyInputBindingAdmissionErrorV1::BindingUnavailable {
+            cause: other.code(),
+        },
     }
 }

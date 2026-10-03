@@ -1490,9 +1490,13 @@ later submission and the cost grows with the whole history.
   precision authority, and the execution bundle aligns the engine's data to them.
   - Market Data aligns each canonical row exactly to the role's scale and refuses a finer row by name (Market Data
     owner page).
-  - The single-threshold author takes its threshold as a decimal string, such as `"120"`. It converts the string
-    exactly to the role's scale and refuses a finer one as `THRESHOLD_FINER_THAN_CHANNEL_SCALE`; the Design stores
-    the converted integer.
+  - **Current:** the single-threshold author takes its threshold as a decimal string, such as `"120"`. It converts
+    the string exactly to the role's scale, through Market Data's exact rescale, and refuses a finer one as
+    `THRESHOLD_FINER_THAN_CHANNEL_SCALE`, malformed text as `THRESHOLD_INVALID`, and a value that does not fit as
+    `THRESHOLD_OVERFLOWS_CHANNEL_SCALE`. The Design stores the converted integer.
+    - Equivalent spellings, `"120"` and `"120.000"`, author one program.
+    - A request recovered from its program spells the threshold canonically, with no trailing fractional zero, so
+      anything keyed by a canonical request names a threshold one way.
   - Why fixed and not derived: the PC-1 probe refused a BTCUSDT Replay at its universe declaration, because a
     canonical BTC price has scale 1 and the role required 2. A role scale taken from each instrument's tick would make
     a threshold mean 120.00 on ETHUSDT and 1200.0 on BTCUSDT, so one strategy would need a different Design per

@@ -1316,8 +1316,11 @@ custody 会挡住之后的每一次提交，而成本随整个历史增长。
   的精度。scale 9 是程序读取时使用的定点约定，不是第二份精度定义：Instrument Master 的 tick 与 step 仍是唯一的精度
   权威，执行 bundle 把引擎看到的数据对齐到它们。
   - Market Data 把每条规范行精确对齐到角色的 scale，比它更细的行按名拒绝（见 Market Data owner 页）。
-  - 单阈值编写器以十进制字符串接收阈值，例如 `"120"`。它把字符串精确换算到角色的 scale，更细的以
-    `THRESHOLD_FINER_THAN_CHANNEL_SCALE` 拒绝；Design 中存的是换算后的整数。
+  - **已实现：** 单阈值编写器以十进制字符串接收阈值，例如 `"120"`。它通过 Market Data 的精确换算把字符串换算到角色
+    的 scale，更细的以 `THRESHOLD_FINER_THAN_CHANNEL_SCALE` 拒绝，格式不对的以 `THRESHOLD_INVALID` 拒绝，放不下的以
+    `THRESHOLD_OVERFLOWS_CHANNEL_SCALE` 拒绝。Design 中存的是换算后的整数。
+    - 等价的写法，例如 `"120"` 与 `"120.000"`，编写出同一个程序。
+    - 从程序恢复出的请求以规范写法陈述阈值，不带小数尾零，所以以规范请求为键的东西只以一种方式命名一个阈值。
   - 为什么固定而不推导：PC-1 探针在 BTCUSDT Replay 的 universe 声明处被拒，因为 BTC 的规范价格 scale 为 1，而角色
     要求 2。若角色 scale 取自每个品种的 tick，同一个阈值在 ETHUSDT 上是 120.00、在 BTCUSDT 上是 1200.0，同一个策略
     就需要按品种写不同的 Design。

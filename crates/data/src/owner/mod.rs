@@ -4,11 +4,13 @@
 use std::sync::Arc;
 use vibe_postgres_connect::{PgPoolOptionsExt, PostgresTls};
 
+pub mod backfill_job_v1;
 pub mod bar_schedule;
 pub mod calendar;
 pub mod decimal_rescale_v1;
 pub mod declared_bar_timeframe_v1;
 pub mod frozen_observation_window_v1;
+pub mod instrument_catalog_v1;
 pub mod instrument_economic_terms_intake_v1;
 pub mod instrument_economic_terms_postgres_v1;
 pub mod instrument_economic_terms_v1;
@@ -19,6 +21,7 @@ pub mod instrument_master_v2;
 pub mod instrument_master_v2_postgres;
 pub mod live_market_fact_v1;
 pub mod live_market_stream_v1;
+pub mod market_data_mcp_v1;
 pub mod market_semantics_admission_v1;
 pub mod native_replay_scheduling_v1;
 pub mod native_replay_scheduling_v2;
@@ -208,6 +211,29 @@ pub async fn instrument_master_v2_postgres_owner_from_environment()
         .await
         .map_err(|_| InstrumentMasterCustodyErrorV2::StoreUnavailable)?;
     InstrumentMasterV2PostgresOwner::install(pool).await
+}
+
+/// Opens the instrument catalog over the configured Instrument Master V2 and economic-terms stores.
+///
+/// # Errors
+///
+/// Returns [`instrument_catalog_v1::InstrumentCatalogErrorV1::StoreUnavailable`] when either store
+/// is unconfigured, unreachable or fails its ACL check.
+pub async fn instrument_catalog_read_from_environment_v1() -> Result<
+    instrument_catalog_v1::InstrumentCatalogPostgresV1,
+    instrument_catalog_v1::InstrumentCatalogErrorV1,
+> {
+    let unavailable = |_| instrument_catalog_v1::InstrumentCatalogErrorV1::StoreUnavailable;
+    let instrument_master = instrument_master_v2_postgres_owner_from_environment()
+        .await
+        .map_err(unavailable)?;
+    let economic_terms = instrument_economic_terms_postgres_owner_from_environment_v1()
+        .await
+        .map_err(|_| instrument_catalog_v1::InstrumentCatalogErrorV1::StoreUnavailable)?;
+    Ok(instrument_catalog_v1::InstrumentCatalogPostgresV1::new(
+        instrument_master,
+        economic_terms,
+    ))
 }
 
 #[cfg(not(test))]

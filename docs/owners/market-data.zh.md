@@ -218,10 +218,6 @@ ACL 拒绝。它不证明供应商真实性，不证明生产装配，也不证�
 | 只发布 bar 的来源的成交 bar 报价 cut              | `TARGET`，在 U1 路径上                                                             | 无；报价 cut 只装观测到的 Quote 行（`owner/native_replay_quote_cut_v2.rs`）                                                                                                                                     | 无         |
 | 伴随报价 lineage                                  | `TARGET`，排在 U1 之后                                                             | 无                                                                                                                                                                                                              | 无         |
 | Source Binding successor 准入                     | `TARGET`，排在 U1 之后                                                             | `commit_source_successor`，只有测试调用方                                                                                                                                                                       | 无         |
-| 托管窗口 schedule fact                            | `CURRENT / PARTIAL`（T0-4b）                                                       | `owner/pit_window_custody_v1/schedule.rs`、`owner/postgres/pit_window_custody_v1.rs`（`pit_window_schedule_facts_v1`）                                                                                          | `B5`       |
-
-快照路径按标的的 BAR schedule 链（`bar_schedule_*`）与托管的窗口 schedule fact 并存，各有各的消费方：快照 Replay 读前者，
-托管视图读后者。两者不得合并：托管的提交绝不写入或推进某个标的的 BAR schedule 链，快照也绝不读窗口 schedule。
 
 ## 拥有的权威事实
 
@@ -1987,18 +1983,24 @@ row digest，并交叉绑定 trigger 和 observation-batch digest。consumer 必
 envelope，不能从 caller 选择的 value 或 order key 铸造。Market Data 绝不签发 `TIMER` 或 `FILL`
 trigger；在真实 Time/Scheduler 与 Execution Owner contract 分别存在前，两者都保持 unavailable。
 
-**TARGET，行对齐到角色的 scale：** 角色按自己声明的 scale 读值，规范行带的是该值自身的最小 scale。今天 binding 要求
-两者相等，其余一律答 `ScaleMismatch`，所以只有价格恰好与角色小数位相同的规范行才能绑定。PC-1 探针测到了这一点：
+**CURRENT，行精确换算到角色的 scale：** 角色按自己声明的 scale 读值，规范行保留其来源陈述该值时用的 scale。binding
+以前要求两者相等，其余一律答 `ScaleMismatch`，所以只有价格恰好与角色小数位相同的行才能绑定。PC-1 探针测到了这一点：
 BTCUSDT 在 0.10 tick 上的价格 scale 为 1，scale 2 的 universe 角色在 universe 声明处拒绝了它。
 
-- **对齐。** 每一种 binding（exact instrument 与 universe member 一样）都把 scale 不超过角色的行精确对齐：mantissa
-  乘以 `10^(role scale - row scale)`，带溢出检查。
-- **拒绝。** 比角色更细的行以 `VALUE_FINER_THAN_ROLE_SCALE` 按名拒绝，不做任何舍入。
-- **收据。** role-value 收据在原始 row digest 旁封存角色 scale 下的对齐值，所以值所来自的托管行仍然精确可追。
+- **对齐。** 每一种 binding（exact instrument 与 universe member 一样）都接纳能由
+  `decimal_rescale_v1::rescale_exact_v1` 精确换算到角色 scale 的行。放大把 mantissa 乘以
+  `10^(role scale - row scale)`，带溢出检查；缩位做除法，只有被舍去的位全为零时才精确，所以 scale 9 的行在 scale 9
+  上原样不变，末位为 0 的 scale 10 行可以缩到 9。
+- **拒绝。** 没有任何候选行能精确换算时，拒绝写出原因：有比角色更细的非零位时为 `VALUE_FINER_THAN_ROLE_SCALE`，放大后
+  的 mantissa 装不进 `i128` 时为 `VALUE_OVERFLOWS_ROLE_SCALE`。不做任何舍入。
+- **收据。** binding locator 记录角色的 scale。role-value 收据的 `value_bytes` 与 `value_scale` 承载对齐后的值和角色
+  的 scale，`canonical_row_digest` 仍是来源行自己的 digest，所以值所来自的托管行仍然精确可追。已经处于角色 scale 的
+  行字节不变。
 - **scale 9。** universe 成员角色按固定 scale 9 读取（Strategy Factory，P1），它就是托管 series 的 scale，即
   `decimal_rescale_v1::MARKET_DATA_VALUE_SCALE_V1`，在 Market Data 中只定义一次，与每次对齐所用的精确换算放在一起。品种的 tick 在历史上会变（BTC 今天是 0.10，2021 年的价格在 0.01 网格上；SOL 2021 年有
   3 位小数），所以 series 固定在生产定点精度的上限 9，每一行都精确换算到它。
-- **拒绝名。** HTTP 拒绝写出 binding 自己的成因，绝不只写 `STRATEGY_INPUT_BINDING_UNAVAILABLE`。
+- **拒绝名。** `STRATEGY_INPUT_BINDING_UNAVAILABLE`（422）在 `x-rd-rejection-cause` 头与 body 的 `cause` 中带出
+  binding 自己的成因，例如 `VALUE_FINER_THAN_ROLE_SCALE`。
 
 ### CURRENT/PARTIAL EVENT 与 BAR Owner custody；TARGET BAR 产品权威
 
@@ -2318,13 +2320,6 @@ Backtest 的组合与 Market Data 之外的每个读者也属于 T1；T2（多�
 随值的末位数字变化，同一标的同一字段在每个末位为 0 的 bar 上都会分裂出新序列。托管已由上面的固定 scale 规则修好，
 这也是快照路径的修法。快照路径保留其字节，留给排在 U1 之后的单独切片：今天的快照消费方各自只读一帧，所以还没有序列连续性依赖它。
 
-目前已建成（T0-4b）：窗口 schedule fact。根托管的提交在同一个事务内、在所有拒绝之后，为每个成员的执行周期铸一个
-`PitWindowScheduleFactV1`：成员的周期 identity 与声明形状、间隔及其相位（从 Unix 纪元起的网格相位为零）、托管的窗口、
-Instrument Master key 与 fact、Market Semantics identity 和铸造 cut。帧就是窗口内的 bar 收盘时刻
-`phase + n * interval`。后继托管不铸 schedule，它所在的链读回根托管的 schedule；重新加入或拒绝都不铸 schedule，任何托管
-提交都不写 `bar_schedule_*` 表。目前还没有生产调用方读它，派生视图（T0-5）会读。驱动它的是它的单元测试与托管的
-PostgreSQL 证明。
-
 - **托管：** 覆盖从预热起点开始的半开窗口，只提交一次，此后不可变。后来的更正是一份后继托管，它指名自己的前驱，只携带
   它新增的版本；视图沿这条链读到 head。后继托管原样重述前驱的基底 - Market Semantics fact、 Instrument Master cut、成
   员集与可得规则 digest - 基底一变就是新的根托管，绝不是后继，所以一条链绝不混用两套基底。更正单位是截面 - 同一个源、
@@ -2370,9 +2365,7 @@ PostgreSQL 证明。
   与 head、intake 时盖章的 Instrument Master cut、声明登记与 universe 成员组合 basis 都按每条托管链记录一次；sample
   slot 按每条托管行携带的 series 与 event-effective 时刻定键，所以后继托管里的更正落在同一个 slot。Reference Fact R0 按每条托管链覆盖整个窗口存一次，某帧的 R0 在读时由它算出，不存按帧的
   locator。PIT evaluation evidence 的读从托管推导，BAR schedule 检查改为一个窗口 schedule fact，其有效区间包含
-  `e_k`，且其生效起点（即托管窗口的起点）不晚于 `d_k`。托管的铸造 cut 仍是托管证据，不与 `d_k` 比较：在用户
-  2026-09-27 授权的收窄下，帧不再各自携带铸造证据，只准入回填历史，而窗口网格是 Source Binding 的声明，在任何帧
-  之前就可知。这些读碰到的每一张表和每个函数都在 admitted-port 的测量范围内。
+  `e_k`，且其 cut 不晚于 `d_k`。这些读碰到的每一张表和每个函数都在 admitted-port 的测量范围内。
 - **报价 cut：** 从托管在 `(d_k, e_{k+1})` 之内派生，每个间隙恰好一个、同一时刻、按成员顺序、不占帧序号，而且绝不是后
   来的更正取代掉的那个版本。它的版本是在报价时刻自己的可得时刻之前发布的最高序号，更晚的更正也只在那个时刻取代它：成交
   在决策之后，而在 `d_k` 上没有报价能入选，因为报价的事件在 `d_k` 之后。这只关乎成交报价。帧 `k` 的策略输入仍然截在
@@ -2803,6 +2796,12 @@ Data 里；一个工具只发一个请求，按名原样传回它的应答或拒
 | `get_bars(instrument, timeframe, range)` | T0-5 之后，基于运行窗口托管视图                         | `HOLDOUT_PARTITION_UNDEFINED`、`RANGE_NOT_COVERED`、`RANGE_TOO_LARGE_FOR_INLINE` |
 | `get_funding(instrument, range)`         | 在下面的 funding schedule 读面之后                      | `HOLDOUT_PARTITION_UNDEFINED`、`RANGE_NOT_COVERED`、`RANGE_TOO_LARGE_FOR_INLINE` |
 
+- **列出与描述读取的是 Market Data 当前持有的。** `GET /v1/market-data/instruments` 与
+  `GET /v1/market-data/instruments/{instrument}` 已是 `CURRENT`：`crates/data/src/owner/instrument_catalog_v1.rs` 读取每个标的最新的
+  Instrument Master V2 fact，其链上每一环都经解码与校验，并读取为它准入的每个 economic terms 版本。交易所没有陈述的值按名写出
+  （`UNBOUNDED`、`NOT_APPLICABLE` 或 `UNAVAILABLE`），绝不写成数字。这些是发现性读取，绝不是 Replay 的输入：Replay 仍然绑定一个确切的
+  Instrument Master cut 并从中解析它的 terms，所以没有消费方因此获得「最新」选择器。链路条目 121 经 HTTP 读取 F 准入的永续合约。基于
+  这些路由的 MCP 服务尚未构建。
 - **准入是一个 Market Data 操作。** `POST /v1/market-data/binance-perpetual-admissions` 接收一个 Binance USD-M symbol。Market
   Data 取该 symbol 公开的 `exchangeInfo` 条目，按顺序提交第一个 `COMPOSER_V3` Replay 的验收今天经各自路由提交的那些事实：kline
   Source Binding、Instrument Master fact、`exchangeInfo` Source Binding、Instrument Master V2 fact、economic terms 与历史成员资格。

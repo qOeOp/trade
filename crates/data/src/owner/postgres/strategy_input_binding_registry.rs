@@ -78,6 +78,55 @@ pub(super) enum StrategyInputBindingRegistryErrorV1 {
     StrategyDesignRoleSetUnavailable,
 }
 
+impl StrategyInputBindingRegistryErrorV1 {
+    /// The stable name of this refusal; a binding refusal carries its own.
+    pub(super) const fn code(&self) -> &'static str {
+        match self {
+            Self::InvalidRequest => "INVALID_REQUEST",
+            Self::CapacityExceeded => "CAPACITY_EXCEEDED",
+            Self::CodecMismatch => "CODEC_MISMATCH",
+            Self::PitUnavailable => "PIT_UNAVAILABLE",
+            Self::UniverseUnavailable => "UNIVERSE_UNAVAILABLE",
+            Self::SourceUnavailable => "SOURCE_UNAVAILABLE",
+            Self::InstrumentMasterScopeUnavailable => "INSTRUMENT_MASTER_SCOPE_UNAVAILABLE",
+            Self::InstrumentMasterBatchDigestUnavailable => {
+                "INSTRUMENT_MASTER_BATCH_DIGEST_UNAVAILABLE"
+            }
+            Self::InstrumentMasterCutLocatorUnavailable => {
+                "INSTRUMENT_MASTER_CUT_LOCATOR_UNAVAILABLE"
+            }
+            Self::InstrumentMasterReadbackUnavailable => "INSTRUMENT_MASTER_READBACK_UNAVAILABLE",
+            Self::InstrumentMasterFactCountUnavailable => {
+                "INSTRUMENT_MASTER_FACT_COUNT_UNAVAILABLE"
+            }
+            Self::InstrumentMasterDigestUnavailable => "INSTRUMENT_MASTER_DIGEST_UNAVAILABLE",
+            Self::InstrumentMasterCutUnavailable => "INSTRUMENT_MASTER_CUT_UNAVAILABLE",
+            Self::InstrumentMasterCanonicalIdentityUnavailable => {
+                "INSTRUMENT_MASTER_CANONICAL_IDENTITY_UNAVAILABLE"
+            }
+            Self::InstrumentMasterSemanticsIdentityUnavailable => {
+                "INSTRUMENT_MASTER_SEMANTICS_IDENTITY_UNAVAILABLE"
+            }
+            Self::InstrumentMasterSourceFrontierUnavailable => {
+                "INSTRUMENT_MASTER_SOURCE_FRONTIER_UNAVAILABLE"
+            }
+            Self::InstrumentMasterCorrectionFrontierUnavailable => {
+                "INSTRUMENT_MASTER_CORRECTION_FRONTIER_UNAVAILABLE"
+            }
+            Self::InstrumentMasterEffectiveRangeUnavailable => {
+                "INSTRUMENT_MASTER_EFFECTIVE_RANGE_UNAVAILABLE"
+            }
+            Self::MarketSemanticsUnavailable => "MARKET_SEMANTICS_UNAVAILABLE",
+            Self::BindingUnavailable(refusal) => refusal.code(),
+            Self::UnknownDeclaration => "UNKNOWN_DECLARATION",
+            Self::RequestConflict => "REQUEST_CONFLICT",
+            Self::StoreUnavailable => "STORE_UNAVAILABLE",
+            Self::StoreUntrusted => "STORE_UNTRUSTED",
+            Self::StrategyDesignRoleSetUnavailable => "STRATEGY_DESIGN_ROLE_SET_UNAVAILABLE",
+        }
+    }
+}
+
 /// Authenticates a complete legacy request set against the fixed R&D role-set readback before any
 /// W3 positive composition. Existing V1 request and receipt bytes remain unchanged.
 pub(super) fn validate_authenticated_role_set_coverage_v1(
