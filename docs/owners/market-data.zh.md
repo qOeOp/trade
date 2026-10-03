@@ -2714,15 +2714,24 @@ U1 的历史以 T0 窗口托管的形式进入：每个成员在整个窗口上�
   - live 测试读取真实的无表头 2021-06 月份、有表头的 2025-12 月份与一根真实的成交 bar。
   - 把这些 bar 映射到 T0 的托管请求并提交，要等 T0 的请求类型。
 - **取回发生在今天。** 托管的取回时刻是取回运行时的墙钟。可见性来自 Source Binding 的可用性规则，绝不来自一个历史的取回坐标。
+- **fill 缺口的 lag 只来自 binding。** `fill_bars` 接收托管所依据的 Source Binding 提案的可用性规则，用其中的 `lag_ns` 定位每个
+  缺口。任何调用方都不另行声明 lag：lag 偏小，选出的 bar 会被托管拒绝；lag 偏大，选出的是缺口里更晚的一根，仍在缺口之内，下游无法
+  与正确的那根区分，成交价就会悄悄出错。
 - **fill bar 在取回时必须已收盘。** 接口把仍在形成的那根 bar 作为最后一根返回。收盘时刻不早于取回时刻的 fill bar 按
   `FillBarNotClosed` 拒绝，绝不成为一行，因为托管会把这样的行按「在 bar 收盘前取回」拒绝。已收盘但尚不可见的 bar，即收盘加上声明的
   lag 仍晚于提交时刻的，稍后再提交。
 - **写入方按交易所发布的原样传值。** `crates/adapters/binance/src/vision_backfill_custody_v1.rs` 把一个成员取回的 bar 变成一份托管
-  请求：每个输入周期的每根 bar，以及每根整根落在窗口内的 fill bar，各自是一个以区间收盘时刻为标签的 original 版本，`OPEN`、
-  `HIGH`、`LOW`、`CLOSE` 与 `VOLUME` 取交易所字符串所写的精确 mantissa 与 scale。托管提交把每个值放大到成员的 Instrument Master
+  请求：每个输入周期的每根 bar，以及每根区间收盘时刻落在 `[window_start_ns, window_end_ns_exclusive)` 内的 fill bar，各自是一个以
+  该时刻为标签的 original 版本，按托管的规范顺序（先周期标签、后事件时刻）排列，`OPEN`、`HIGH`、`LOW`、`CLOSE` 与 `VOLUME` 取
+  交易所字符串所写的精确 mantissa 与 scale。窗口在最后一根执行 bar 收盘之后再过一个执行周期结束，这样最后一个缺口和它的 fill bar
+  都落在窗口内。托管提交把每个值放大到成员的 Instrument Master
   精度，并拒绝更细的值，因为提交是外部行情进入 Market Data 的地方；写入方不再检查第二遍。
 - **每种拒绝都说明回填该做什么。** 一种拒绝意味着稍后原样再提交，或者写入方构造的请求有缺陷，或者 basis（binding、semantics、
-  selection、窗口或周期）需要换掉之后才能提交任何东西。生产中还没有调用方调用写入方，因为在托管聚合实现之前，没有东西实现托管提交。
+  selection、窗口或周期）需要换掉之后才能提交任何东西。
+- **它的调用方是 Market Data 的一次性回填子命令。** 生产中还没有调用方调用写入方，因为在托管聚合（T0-4a）实现之前，没有东西实现
+  托管提交。届时它的调用方是 Market Data Owner 的一个一次性子命令：这段外部历史进入 Market Data 的入口，所以它归 Market Data 层，
+  绝不放进 R&D 的 `rd-run-research`，那样就成了上层替下层摄入。T0-4a 合入后接上。U1 的验收在部署镜像里对 BTC、ETH 与 SOL 各跑一次，
+  然后读每个成员的托管视图，核对行数。
 
 ## 输入交接
 

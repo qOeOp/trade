@@ -63,11 +63,15 @@ pub enum BackfillCustodyErrorV1 {
 }
 
 /// The custody request for one member: every bar of every input timeframe and every fill bar
-/// that lies wholly inside the window, as one original version each.
+/// whose close lies in the window, as one original version each, in the custody's canonical
+/// order - by timeframe label, then event instant.
 ///
 /// A bar is labelled by its interval-close instant, the instant after the venue's inclusive close
-/// time. A gap the fetcher found no fill bar for is simply absent, and the custody's derived view
-/// refuses a run over it as `QuoteCutMissing`.
+/// time, and belongs to the window when that instant is in `[window_start_ns,
+/// window_end_ns_exclusive)`. A window should end one execution interval after its last execution
+/// bar's close, so the last gap and its fill bar lie inside it. A gap the fetcher found no fill bar
+/// for is simply absent, and the custody's derived view refuses a run over it as
+/// `QuoteCutMissing`.
 ///
 /// # Errors
 ///
@@ -94,8 +98,12 @@ pub fn custody_request_v1(
         }
     }
     cross_sections.sort_by(|a, b| {
-        (a.event_effective_ns, &a.timeframe).cmp(&(b.event_effective_ns, &b.timeframe))
+        (&a.timeframe, a.event_effective_ns).cmp(&(&b.timeframe, b.event_effective_ns))
     });
+    let mut input_timeframes: Vec<String> =
+        inputs.iter().map(|input| input.label.clone()).collect();
+    input_timeframes.sort_unstable();
+    input_timeframes.dedup();
 
     Ok(UntrustedPitWindowCustodyRequestV1 {
         source_binding: basis.source_binding,
@@ -105,14 +113,14 @@ pub fn custody_request_v1(
         window_start_ns: basis.window_start_ns,
         window_end_ns_exclusive: basis.window_end_ns_exclusive,
         execution_timeframe: basis.execution_timeframe,
-        input_timeframes: inputs.iter().map(|input| input.label.clone()).collect(),
+        input_timeframes,
         fill_timeframe: Some(basis.fill_timeframe),
         predecessor: None,
         cross_sections,
     })
 }
 
-/// One bar as an original version, or `None` for a bar not wholly inside the window.
+/// One bar as an original version, or `None` for a bar whose close is outside the window.
 fn cross_section(
     basis: &BackfillCustodyBasisV1,
     timeframe: &str,
@@ -122,14 +130,13 @@ fn cross_section(
     let before_epoch = BackfillCustodyErrorV1::InstantBeforeEpoch {
         open_time_ms: kline.open_time,
     };
-    let open_ns = millis_to_nanos(kline.open_time).ok_or_else(|| before_epoch.clone())?;
     let close_ns = kline
         .close_time
         .checked_add(1)
         .and_then(millis_to_nanos)
         .ok_or(before_epoch)?;
 
-    if open_ns < basis.window_start_ns || close_ns > basis.window_end_ns_exclusive {
+    if close_ns < basis.window_start_ns || close_ns >= basis.window_end_ns_exclusive {
         return Ok(None);
     }
     let mut rows = Vec::with_capacity(5);
@@ -327,7 +334,7 @@ mod tests {
             ),
             member: MEMBER.to_string(),
             window_start_ns: nanos(JUNE_2021_MS),
-            window_end_ns_exclusive: nanos(JUNE_2021_MS + 2 * DAY_MS),
+            window_end_ns_exclusive: nanos(JUNE_2021_MS + 3 * DAY_MS),
             execution_timeframe: "1d".to_string(),
             fill_timeframe: "1m".to_string(),
         }
@@ -354,11 +361,18 @@ mod tests {
         ];
         let fill = bar(JUNE_2021_MS + DAY_MS + MINUTE_MS, MINUTE_MS, ENDPOINT_ROUTE);
 
-        let request = custody_request_v1(basis(), &inputs, &[fill]).unwrap();
+        let request = custody_request_v1(basis(), &inputs, std::slice::from_ref(&fill)).unwrap();
 
         assert_eq!(request.members, vec![MEMBER.to_string()]);
         assert_eq!(request.execution_timeframe, "1d");
         assert_eq!(request.input_timeframes, vec!["1d", "4h"]);
+        let mut reversed_inputs = inputs;
+        reversed_inputs.reverse();
+        assert_eq!(
+            custody_request_v1(basis(), &reversed_inputs, std::slice::from_ref(&fill)).unwrap(),
+            request,
+            "the order the timeframes arrive in changes nothing"
+        );
         assert_eq!(request.fill_timeframe.as_deref(), Some("1m"));
         assert_eq!(request.predecessor, None);
         assert_eq!(request.source_binding, source_binding());
@@ -369,14 +383,15 @@ mod tests {
                 .map(|version| (version.timeframe.as_str(), version.event_effective_ns))
                 .collect::<Vec<_>>(),
             vec![
-                ("4h", nanos(JUNE_2021_MS + FOUR_HOURS_MS)),
                 ("1d", nanos(JUNE_2021_MS + DAY_MS)),
-                ("1m", nanos(JUNE_2021_MS + DAY_MS + 2 * MINUTE_MS)),
                 ("1d", nanos(JUNE_2021_MS + 2 * DAY_MS)),
+                ("1m", nanos(JUNE_2021_MS + DAY_MS + 2 * MINUTE_MS)),
+                ("4h", nanos(JUNE_2021_MS + FOUR_HOURS_MS)),
             ],
+            "canonical order is by timeframe label first, then event instant"
         );
 
-        let first_day = &request.cross_sections[1];
+        let first_day = &request.cross_sections[0];
         assert_eq!(first_day.kind, CrossSectionVersionKindV1::Original);
         assert_eq!(first_day.correction_sequence, 1);
         assert_eq!(first_day.predecessor_version, None);
@@ -408,10 +423,11 @@ mod tests {
     }
 
     #[rstest]
-    fn a_bar_not_wholly_inside_the_window_is_left_out() {
+    fn a_bar_belongs_to_the_window_its_close_lies_in() {
         let inputs = [daily(vec![
+            bar(JUNE_2021_MS - 2 * DAY_MS, DAY_MS, ARCHIVE_ROUTE),
             bar(JUNE_2021_MS - DAY_MS, DAY_MS, ARCHIVE_ROUTE),
-            bar(JUNE_2021_MS, DAY_MS, ARCHIVE_ROUTE),
+            bar(JUNE_2021_MS + DAY_MS, DAY_MS, ARCHIVE_ROUTE),
             bar(JUNE_2021_MS + 2 * DAY_MS, DAY_MS, ARCHIVE_ROUTE),
         ])];
 
@@ -423,7 +439,8 @@ mod tests {
                 .iter()
                 .map(|version| version.event_effective_ns)
                 .collect::<Vec<_>>(),
-            vec![nanos(JUNE_2021_MS + DAY_MS)],
+            vec![nanos(JUNE_2021_MS), nanos(JUNE_2021_MS + 2 * DAY_MS)],
+            "a close at the window's start is inside it, and a close at its end is not"
         );
     }
 
