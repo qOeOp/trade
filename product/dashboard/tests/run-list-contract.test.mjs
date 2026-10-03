@@ -120,7 +120,7 @@ test("Run list keeps a cancelled-before-start dependency beside normal rows", ()
   const effectCancellation = structuredClone(projected);
   effectCancellation.runs[1].channel = "DASHBOARD_DISPOSABLE_EXECUTION";
   effectCancellation.runs[1].run_kind = "owner_effect";
-  effectCancellation.runs[1].operation_id = "artifact_build.formation_execute.v1";
+  effectCancellation.runs[1].operation_id = "exploratory_replay.submit_or_resolve.v2";
   assert.equal(parseRunListBrowserEnvelopeV1(effectCancellation), null);
 
   const inventedDuration = structuredClone(projected);

@@ -7,7 +7,6 @@ const PRINCIPAL = /^[A-Za-z0-9._:/-]{1,96}$/;
 const RECEIPT_IDENTITY = /^dashboard-control-plane-admission-v1-[0-9a-f]{64}$/;
 
 export const controlPlaneAdmissionOperationsV1 = [
-  "artifact_build.formation_execute.v1",
   "develop_composer.submit_or_resolve.v2",
   "exploratory_replay.submit_or_resolve.v2",
   "source_intake.research.submit_or_resolve.v1",
@@ -16,7 +15,6 @@ export const controlPlaneAdmissionOperationsV1 = [
 export type ControlPlaneAdmissionOperationV1 = typeof controlPlaneAdmissionOperationsV1[number];
 export type ControlPlaneAdmissionExecutionModeV1 =
   | "FRESH_RUN"
-  | "CONTINUE_CLAIMED_ONCE"
   | "RESOLVE_ONLY";
 
 export type ControlPlaneAdmissionContextV1 = {
@@ -36,14 +34,6 @@ export type ControlPlaneAdmissionReceiptV1 = {
   run_identity: string;
   authorization_digest: string;
 };
-
-function compatibleMode(
-  operation: ControlPlaneAdmissionOperationV1,
-  executionMode: ControlPlaneAdmissionExecutionModeV1,
-) {
-  return operation === "artifact_build.formation_execute.v1"
-    || executionMode !== "CONTINUE_CLAIMED_ONCE";
-}
 
 export function validControlPlaneAdmissionContextV1(
   value: unknown,
@@ -75,8 +65,7 @@ export function controlPlaneAdmissionReceiptIdentityV1({
   if (!PRINCIPAL.test(principalRef)
     || !controlPlaneAdmissionOperationsV1.includes(operation)
     || !["RUN", "RESOLVE"].includes(requestedAction)
-    || !["FRESH_RUN", "CONTINUE_CLAIMED_ONCE", "RESOLVE_ONLY"].includes(executionMode)
-    || !compatibleMode(operation, executionMode)
+    || !["FRESH_RUN", "RESOLVE_ONLY"].includes(executionMode)
     || !isRunIdentityV1(runIdentity)
     || !DIGEST.test(authorizationDigest)) {
     throw new Error("CONTROL_PLANE_ADMISSION_INVALID");
@@ -112,11 +101,7 @@ export function parseControlPlaneAdmissionReceiptV1(
     || typeof row.principal_ref !== "string" || !PRINCIPAL.test(row.principal_ref)
     || !controlPlaneAdmissionOperationsV1.includes(row.operation as ControlPlaneAdmissionOperationV1)
     || !["RUN", "RESOLVE"].includes(String(row.requested_action))
-    || !["FRESH_RUN", "CONTINUE_CLAIMED_ONCE", "RESOLVE_ONLY"].includes(String(row.execution_mode))
-    || !compatibleMode(
-      row.operation as ControlPlaneAdmissionOperationV1,
-      row.execution_mode as ControlPlaneAdmissionExecutionModeV1,
-    )
+    || !["FRESH_RUN", "RESOLVE_ONLY"].includes(String(row.execution_mode))
     || typeof row.run_identity !== "string" || !isRunIdentityV1(row.run_identity)
     || typeof row.authorization_digest !== "string" || !DIGEST.test(row.authorization_digest)) return null;
   try {

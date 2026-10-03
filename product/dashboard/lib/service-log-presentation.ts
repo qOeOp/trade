@@ -6,7 +6,6 @@ const serviceLogSourceLabels = {
   dashboard_bff: "Dashboard",
   owner_gateway: "Owner reads",
   shadow_worker: "Worker activity",
-  artifact_orchestrator: "Strategy builds",
   source_research_orchestrator: "Research requests",
 } satisfies Record<ServiceLogSourceV1, string>;
 

@@ -196,8 +196,7 @@ function targetForRun(
       read: () => readers.research(identity.request_identity),
     };
   }
-  if (run.operation_id === ARTIFACT_SHADOW_RESOLVE_OPERATION
-    || run.operation_id === "artifact_build.formation_execute.v1") {
+  if (run.operation_id === ARTIFACT_SHADOW_RESOLVE_OPERATION) {
     return {
       operationId: ARTIFACT_SHADOW_RESOLVE_OPERATION,
       recoveryIdentity: {

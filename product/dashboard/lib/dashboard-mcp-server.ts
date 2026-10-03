@@ -1,9 +1,7 @@
 import { McpServer, type AuthInfo } from "@modelcontextprotocol/server";
 import * as z from "zod/v4";
 
-import { preflightDisposableArtifactFormationV1 } from "./artifact-formation-client.ts";
 import {
-  handleArtifactFormationActionV1,
   handleDevelopComposerActionV2,
   handleExploratoryReplayActionV2,
   handleSourceResearchActionV1,
@@ -65,22 +63,6 @@ const sourceResearchRequest = z.discriminatedUnion("action", [
     action: z.literal("RESOLVE"),
     source_request_identity: identity,
     research_request_identity: identity,
-  }),
-]);
-const artifactRequest = z.discriminatedUnion("action", [
-  z.strictObject({
-    action: z.literal("RUN"),
-    build_request_identity: identity,
-    attempt_identity: identity,
-    research_request_identity: identity,
-    identity_mode: z.literal("GENERATE"),
-  }),
-  z.strictObject({
-    action: z.literal("RESOLVE"),
-    build_request_identity: identity,
-    attempt_identity: identity,
-    research_request_identity: identity,
-    identity_mode: z.literal("EXACT"),
   }),
 ]);
 const exploratoryReplayRequest = z.strictObject({
@@ -149,24 +131,6 @@ function actionContext(authInfo: AuthInfo, action: "RUN" | "RESOLVE") {
 
 export function createDashboardMcpServerV1(authInfo: AuthInfo): McpServer {
   const server = new McpServer({ name: "trade-dashboard", version: "1.0.0" });
-  server.registerTool("dashboard_artifact_preflight_v1", {
-    description: "Read the exact current Artifact Formation preflight for one Research request.",
-    inputSchema: z.strictObject({ research_request_identity: identity }),
-    annotations: { readOnlyHint: true, idempotentHint: true },
-  }, async ({ research_request_identity }) => {
-    const result = await preflightDisposableArtifactFormationV1({ researchRequestIdentity: research_request_identity });
-    return toolResult(result.envelope, result.status);
-  });
-  server.registerTool("dashboard_artifact_action_v1", {
-    description: "Enqueue one admitted Artifact RUN or perform an effect-free exact RESOLVE.",
-    inputSchema: artifactRequest,
-  }, async (request) => {
-    const result = await handleArtifactFormationActionV1({
-      request,
-      actionContext: actionContext(authInfo, request.action),
-    });
-    return toolResult(result.envelope, result.status);
-  });
   server.registerTool("dashboard_source_research_action_v1", {
     description: "Enqueue one admitted ordered Source/Research RUN or perform an effect-free exact RESOLVE.",
     inputSchema: sourceResearchRequest,
@@ -215,7 +179,7 @@ export function createDashboardMcpServerV1(authInfo: AuthInfo): McpServer {
       level: z.enum(["all", "info", "warning", "error"]).default("all"),
       source: z.enum([
         "all", "run_store", "dashboard_bff", "owner_gateway", "shadow_worker",
-        "artifact_orchestrator", "source_research_orchestrator", "effect_worker",
+        "source_research_orchestrator", "effect_worker",
       ]).default("all"),
       query: z.string().max(160).default(""),
       cursor: z.string().min(32).max(1_024).optional(),

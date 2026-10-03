@@ -1366,9 +1366,9 @@ it, which the count above already maps.
   PIT issuance, the PIT snapshot request route, and the Composer and bounded-feature-program routes, which reread one
   PIT batch at one cut. The V3 Research submission checks instrument identities against the eligible frontier, which
   is reference data, not prices.
-- No R&D tool lets an agent read market data. The Dashboard MCP server's seven tools
-  (`product/dashboard/lib/dashboard-mcp-server.ts:152-211`) submit or read R&D and run state and return no market
-  value, and the artifact-build model call has no tools.
+- No R&D tool lets an agent read market data. The Dashboard MCP server's five tools
+  (`product/dashboard/lib/dashboard-mcp-server.ts:134-193`) submit or read R&D and run state and return no market
+  value, and the product makes no model call.
 - No type classifies an instrument into a stratum. Instrument Master V2 records a perpetual's listing instant from
   Binance `onboardDate` (`crates/data/src/owner/instrument_master_v2.rs:346`), and Market Data serves bar volume as
   `MARKET_DATA.BAR.VOLUME.QUANTITY.V1`.

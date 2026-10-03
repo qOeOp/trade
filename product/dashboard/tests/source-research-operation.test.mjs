@@ -230,8 +230,6 @@ function effectClaim(recovery, claimAttempt = 1) {
       "source_intake.research.submit_or_resolve.v1",
       frozenTarget,
     ),
-    frozen_context: null,
-    frozen_context_digest: null,
     principal_ref: "local_operator",
     authorization_digest: `sha256:${"e".repeat(64)}`,
     admission_receipt_identity: "dashboard-admission-receipt-1",

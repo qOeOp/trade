@@ -47,9 +47,6 @@ const operationInputs = {
   "exploratory_replay.shadow_read.v2": ["request_identity", "meaning_digest"],
   "exploratory_replay_result.shadow_read.v2": ["result_identity", "request_identity", "attempt_identity", "meaning_digest"],
   "develop_composer.shadow_read.v2": ["request_identity"],
-  "artifact_build.formation_execute.v1": [
-    "research_request_identity", "build_request_identity", "attempt_identity",
-  ],
   "develop_composer.submit_or_resolve.v2": ["request_identity", "projection_digest"],
   "exploratory_replay.submit_or_resolve.v2": ["request_identity", "meaning_digest"],
   "source_intake.research.submit_or_resolve.v1": [
@@ -71,7 +68,7 @@ export type RunDetailLogV1 = {
   observed_at: string;
   level: "info" | "warning" | "error";
   source: "run_store" | "dashboard_bff" | "owner_gateway" | "shadow_worker"
-    | "artifact_orchestrator" | "source_research_orchestrator" | "effect_worker";
+    | "source_research_orchestrator" | "effect_worker";
   event_code: RunEventCodeV1;
 };
 export type RunDetailRunV1 = {
@@ -255,13 +252,11 @@ function parseRun(value: unknown, envelope: RunDetailEnvelopeV1): RunDetailRunV1
     "dispatch_binding", "worker_compatibility", "owner_view",
   ]) || run.schema_version !== 1 || run.run_identity !== envelope.run_identity
     || typeof run.operation_id !== "string" || !(run.operation_id in operationInputs)
-    || ((run.operation_id === "artifact_build.formation_execute.v1"
-      || run.operation_id === "develop_composer.submit_or_resolve.v2"
+    || ((run.operation_id === "develop_composer.submit_or_resolve.v2"
       || run.operation_id === "exploratory_replay.submit_or_resolve.v2"
       || run.operation_id === "source_intake.research.submit_or_resolve.v1")
       !== (run.channel === "DASHBOARD_DISPOSABLE_EXECUTION" && run.run_kind === "owner_effect"))
-    || (run.operation_id !== "artifact_build.formation_execute.v1"
-      && run.operation_id !== "develop_composer.submit_or_resolve.v2"
+    || (run.operation_id !== "develop_composer.submit_or_resolve.v2"
       && run.operation_id !== "exploratory_replay.submit_or_resolve.v2"
       && run.operation_id !== "source_intake.research.submit_or_resolve.v1"
       && (run.channel !== "DASHBOARD_SHADOW_READ" || run.run_kind !== "owner_read"))
@@ -315,7 +310,7 @@ function parseLog(value: unknown, envelope: RunDetailEnvelopeV1): RunDetailLogV1
     || !timestamp(log.observed_at) || Date.parse(log.observed_at) > Date.parse(envelope.observed_at)
     || !["info", "warning", "error"].includes(String(log.level))
     || !["run_store", "dashboard_bff", "owner_gateway", "shadow_worker",
-      "artifact_orchestrator", "source_research_orchestrator", "effect_worker"]
+      "source_research_orchestrator", "effect_worker"]
       .includes(String(log.source)) || !isRunEventCodeV1(log.event_code)) return null;
   return log as RunDetailLogV1;
 }
