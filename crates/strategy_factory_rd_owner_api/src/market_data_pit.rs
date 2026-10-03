@@ -27,8 +27,8 @@ use vibe_binance::{
     futures::http::client::BinanceFuturesHttpClient,
     perpetual_admission_v1::{
         BinancePerpetualAdmissionErrorV1, BinancePerpetualDatasetV1,
-        binance_perpetual_instrument_master_submission, binance_perpetual_source_proposal,
-        binance_perpetual_symbol_is_eligible_v1,
+        binance_perpetual_canonical_identity_v1, binance_perpetual_instrument_master_submission,
+        binance_perpetual_source_proposal, binance_perpetual_symbol_is_eligible_v1,
     },
 };
 use vibe_data::owner::{
@@ -486,11 +486,15 @@ struct BinancePerpetualAdmissionRequestV1 {
 /// Market Data fetches the symbol's public `exchangeInfo` entry and commits, in order, the facts
 /// the first `COMPOSER_V3` Replay's acceptance commits through separate routes: the kline Source
 /// Binding, the Instrument Master fact, the `exchangeInfo` Source Binding, the Instrument Master
-/// V2 fact, the economic terms, and the historical membership. Every admitted step rejoins an
-/// identical resubmission rather than erroring, so a retry after any failure completes the rest;
-/// the two Source Binding steps carry no symbol and are shared across every instrument this route
-/// admits (`binance_perpetual_source_proposal`'s own doc explains why). All six steps stay in the
-/// data layer: nothing here reads back from a higher one.
+/// V2 fact, the economic terms, and the historical membership. A symbol whose Instrument Master V2
+/// fact the catalog already answers for is refused `ALREADY_ADMITTED` before any fetch, rather than
+/// attempted again: each step below rejoins only a byte-identical resubmission
+/// (`InstrumentMasterAdmissionV1::admit_fact`'s own doc), and this route's `effective_ns` is the
+/// Owner's advancing clock, so a second submission is never identical to the first. A retry after
+/// a failure that left the catalog unanswered still completes the rest; the two Source Binding
+/// steps carry no symbol and are shared across every instrument this route admits
+/// (`binance_perpetual_source_proposal`'s own doc explains why). All six steps stay in the data
+/// layer: nothing here reads back from a higher one.
 async fn admit_binance_perpetual(
     State(state): State<MarketDataPitApiState>,
     headers: HeaderMap,
@@ -530,10 +534,24 @@ async fn admit_binance_perpetual(
         return rejection(StatusCode::BAD_REQUEST, "SYMBOL_NOT_IN_ELIGIBLE_FRONTIER");
     }
 
-    let effective_ns = match intake.current_decision_cut().await {
-        Ok(cut) => cut.decision_cut.as_epoch_nanos(),
-        Err(e) => return intake_error(e),
-    };
+    // An already-admitted symbol rejoins its existing fact rather than attempting a second
+    // submission: the Instrument Master port below admits a fresh revision only by exact digest
+    // replay (`InstrumentMasterAdmissionV1::admit_fact`'s own doc), and this route's effective_ns
+    // is the Owner's advancing clock, not a fixed instant, so a second submission is never
+    // byte-identical to the first. Predecessor-chaining a real second revision is its own TARGET
+    // (`docs/owners/market-data.md`); until then this route answers from the one read that
+    // already serves `describe_instrument` rather than erroring on the write.
+    if let Some(catalog) = &state.catalog {
+        let canonical_identity = binance_perpetual_canonical_identity_v1(&raw_symbol);
+
+        if catalog
+            .describe_instrument_v1(&canonical_identity)
+            .await
+            .is_ok()
+        {
+            return rejection(StatusCode::CONFLICT, "ALREADY_ADMITTED");
+        }
+    }
 
     // Fetched once and reused for both facts below: the V1 fact reads its filters from it, and
     // the V2 baseline carries it unparsed. One real retrieval, admitted under two facts in F's
@@ -563,6 +581,17 @@ async fn admit_binance_perpetual(
             Ok(locator) => locator,
             Err(response) => return response,
         };
+
+    // Read after, not before, admitting the kline binding above: on a store that holds no
+    // canonical clock head yet, admitting that first Source Binding is what establishes one (the
+    // Owner's clock is atomically persisted alongside its first Source Binding or PIT fact,
+    // `docs/owners/market-data.md`'s "one private canonical clock head" bullet) - reading the cut
+    // first would refuse every admission on an empty store before any binding ever got the
+    // chance to seed it.
+    let effective_ns = match intake.current_decision_cut().await {
+        Ok(cut) => cut.decision_cut.as_epoch_nanos(),
+        Err(e) => return intake_error(e),
+    };
 
     let v1_submission = match binance_perpetual_instrument_master_submission(
         &raw_symbol,
