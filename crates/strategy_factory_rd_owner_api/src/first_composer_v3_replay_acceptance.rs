@@ -756,7 +756,8 @@ pub(crate) async fn ensure_first_composer_v3_replay_acceptance_v1(
     // rather than inherited from an earlier entry of another shard, then advanced to a schema 2
     // economic configuration at BINANCE. The base head is schema 1 at SIM and pins ETHUSDT-PERP's
     // terms; schema 2 pins no instrument, so the Replay's terms are the perpetual's own, as the
-    // Instrument Owner resolves them for its window. Nothing after F in the chain forms a family.
+    // Instrument Owner resolves them for its window. The second instrument's entry after F forms its
+    // family against the same schema 2 head, which this call then resolves exactly.
     // The schema 2 ensure ensures the base itself while the head is not yet its record, and
     // resolves its record exactly once it is. Ensuring the base here as well would conflict on the
     // body's second call, once the head has moved past it.

@@ -385,12 +385,24 @@ pub(crate) async fn ensure_sealed_acceptance_schema_2_catalog_v3(
     pool: &PgPool,
     venue_identity: &str,
 ) -> Result<ReplayPolicyCatalogBindingV3, ReplayPolicyCatalogErrorV2> {
-    ensure_authenticated_sealed_acceptance_fixture_v3(pool).await?;
     let signing_key = SigningKey::from_bytes(&[11_u8; 32]);
     let record = format!(
         "sealed-acceptance-replay-policy-v3-schema-2-{}",
         venue_identity.to_ascii_lowercase()
     );
+    // A re-applied advance rejoins only while its record is still the head. Once this record is the
+    // head, re-ensuring the base would re-apply the base's advance, which the moved head refuses as
+    // a conflict: a second consumer in one deployment, such as a second instrument's Research after
+    // the first, would fail on the fixture rather than on what it tests. So the base is ensured
+    // only while this record is not yet the head, and a failed read of the head ensures it too,
+    // so the base's own refusal is what such a failure reports.
+    let this_record_is_head = read_current_replay_policy_catalog_v3(pool)
+        .await
+        .is_ok_and(|head| head.replay_policy_v2().catalog_record_id() == record);
+
+    if !this_record_is_head {
+        ensure_authenticated_sealed_acceptance_fixture_v3(pool).await?;
+    }
     let command = |kind, identity: &str| {
         sealed_acceptance_catalog_record_command_v3(
             &signing_key,
