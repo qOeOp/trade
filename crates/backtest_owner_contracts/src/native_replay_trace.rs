@@ -432,7 +432,7 @@ fn reconcile_fills(
 mod tests {
     use rstest::rstest;
     use strategy_factory_program_sdk::lifecycle_v1::{
-        EventOrderKeyV1, FillFrontierV1, TargetSemanticV1, TargetStateV1,
+        EventOrderKeyV1, FillFrontierV1, FillLegV1, TargetSemanticV1, TargetStateV1,
     };
 
     use super::*;
@@ -502,6 +502,7 @@ mod tests {
                     intent_identity: identity,
                     cumulative_filled_units: units,
                     terminal_disposition: Some(d),
+                    leg: FillLegV1::Intent,
                 }
             }),
             ..SemanticTraceV1::default()
