@@ -849,7 +849,7 @@ pub(crate) async fn ensure_first_composer_v3_replay_acceptance_v1(
             instrument_identity: PERPETUAL_V1.to_owned(),
             instrument_public_fact_digest: *terminal.fact_identity().as_bytes(),
             venue_identity: "BINANCE".to_owned(),
-            account_scope_identity: "PROBE-STUB-MARGIN".to_owned(),
+            account_scope_identity: "BINANCE-001".to_owned(),
             account_applicability: InstrumentEconomicAccountApplicabilityV1::MarginAccount,
             valid_from_ns: 1,
             valid_until_ns_exclusive: 4_102_444_800_000_000_000,
