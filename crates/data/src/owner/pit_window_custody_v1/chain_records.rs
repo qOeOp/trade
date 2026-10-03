@@ -530,6 +530,154 @@ pub(crate) fn decode_market_semantics_chain_fact_v1(
     seal_market_semantics_fact(fact).filter(|fact| fact.canonical_bytes == bytes)
 }
 
+const INSTRUMENT_MASTER_REQUEST_DOMAIN: &[u8] =
+    b"market-data.pit-window-instrument-master-request.v1\0";
+const INSTRUMENT_MASTER_MEANING_DOMAIN: &[u8] =
+    b"market-data.pit-window-instrument-master-meaning.v1\0";
+const INSTRUMENT_MASTER_CHAIN_DOMAIN: &[u8] =
+    b"market-data.pit-window-instrument-master-chain.v1\0";
+
+/// The identity of the Instrument Master request a chain's root issues its cut under: a function
+/// of the chain root alone, so one chain has one cut.
+pub(crate) fn chain_instrument_master_request_identity_v1(
+    chain_root: BindingDigest,
+) -> BindingDigest {
+    sha256(INSTRUMENT_MASTER_REQUEST_DOMAIN, chain_root.as_bytes())
+}
+
+/// The meaning of that request: its identity and the facts the custody selected, in member order.
+pub(crate) fn chain_instrument_master_request_meaning_v1(
+    request_identity: BindingDigest,
+    fact_digests: &[BindingDigest],
+) -> BindingDigest {
+    let mut bytes = Vec::with_capacity(32 * (1 + fact_digests.len()));
+    bytes.extend_from_slice(request_identity.as_bytes());
+
+    for digest in fact_digests {
+        bytes.extend_from_slice(digest.as_bytes());
+    }
+    sha256(INSTRUMENT_MASTER_MEANING_DOMAIN, &bytes)
+}
+
+/// How a custody chain reaches the Instrument Master cut its root issued: the key every row of the
+/// chain carries, mapped to the cut's request, readback and facts.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct InstrumentMasterChainLinkV1 {
+    pub(crate) chain_root: BindingDigest,
+    pub(crate) root_custody_identity: BindingDigest,
+    pub(crate) instrument_master_key: BindingDigest,
+    pub(crate) request_identity: BindingDigest,
+    pub(crate) readback_digest: BindingDigest,
+    pub(crate) cut_identity: BindingDigest,
+    pub(crate) fact_digests: Vec<BindingDigest>,
+    canonical_bytes: Vec<u8>,
+    identity: BindingDigest,
+}
+
+impl InstrumentMasterChainLinkV1 {
+    pub(crate) fn canonical_bytes(&self) -> &[u8] {
+        &self.canonical_bytes
+    }
+
+    pub(crate) const fn identity(&self) -> BindingDigest {
+        self.identity
+    }
+}
+
+/// The link of a chain to its Instrument Master cut, `None` for a zero coordinate or no fact.
+pub(crate) fn issue_instrument_master_chain_link_v1(
+    chain_root: BindingDigest,
+    root_custody_identity: BindingDigest,
+    instrument_master_key: BindingDigest,
+    readback: (BindingDigest, BindingDigest, BindingDigest),
+    fact_digests: Vec<BindingDigest>,
+) -> Option<InstrumentMasterChainLinkV1> {
+    let (request_identity, readback_digest, cut_identity) = readback;
+    seal_instrument_master_link(InstrumentMasterChainLinkV1 {
+        chain_root,
+        root_custody_identity,
+        instrument_master_key,
+        request_identity,
+        readback_digest,
+        cut_identity,
+        fact_digests,
+        canonical_bytes: Vec::new(),
+        identity: zero(),
+    })
+}
+
+fn seal_instrument_master_link(
+    mut link: InstrumentMasterChainLinkV1,
+) -> Option<InstrumentMasterChainLinkV1> {
+    let digests = [
+        link.chain_root,
+        link.root_custody_identity,
+        link.instrument_master_key,
+        link.request_identity,
+        link.readback_digest,
+        link.cut_identity,
+    ];
+
+    if digests.contains(&zero()) || link.fact_digests.is_empty() {
+        return None;
+    }
+    let mut bytes = Vec::new();
+    put_u16(&mut bytes, 1);
+
+    for digest in digests {
+        bytes.extend_from_slice(digest.as_bytes());
+    }
+    put_u64(&mut bytes, link.fact_digests.len() as u64);
+
+    for digest in &link.fact_digests {
+        bytes.extend_from_slice(digest.as_bytes());
+    }
+    link.identity = sha256(INSTRUMENT_MASTER_CHAIN_DOMAIN, &bytes);
+    link.canonical_bytes = bytes;
+    Some(link)
+}
+
+/// Reads stored chain link bytes back, only when they reproduce `identity`.
+pub(crate) fn decode_instrument_master_chain_link_v1(
+    bytes: &[u8],
+    identity: BindingDigest,
+) -> Option<InstrumentMasterChainLinkV1> {
+    if sha256(INSTRUMENT_MASTER_CHAIN_DOMAIN, bytes) != identity {
+        return None;
+    }
+    let mut reader = Reader { bytes };
+
+    if reader.u16()? != 1 {
+        return None;
+    }
+    let chain_root = reader.digest()?;
+    let root_custody_identity = reader.digest()?;
+    let instrument_master_key = reader.digest()?;
+    let request_identity = reader.digest()?;
+    let readback_digest = reader.digest()?;
+    let cut_identity = reader.digest()?;
+    let count = usize::try_from(reader.u64()?).ok()?;
+    let fact_digests = (0..count)
+        .map(|_| reader.digest())
+        .collect::<Option<Vec<_>>>()?;
+
+    if !reader.bytes.is_empty() {
+        return None;
+    }
+    seal_instrument_master_link(InstrumentMasterChainLinkV1 {
+        chain_root,
+        root_custody_identity,
+        instrument_master_key,
+        request_identity,
+        readback_digest,
+        cut_identity,
+        fact_digests,
+        canonical_bytes: Vec::new(),
+        identity: zero(),
+    })
+    .filter(|link| link.canonical_bytes == bytes)
+}
+
 struct Reader<'a> {
     bytes: &'a [u8],
 }

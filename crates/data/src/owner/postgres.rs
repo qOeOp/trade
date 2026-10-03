@@ -3343,61 +3343,13 @@ impl MarketDataOwnerPostgres {
             }
             _ => return Err(InstrumentMasterError::MembershipMismatch),
         };
-        let (handoff, proof) =
-            current_instrument_clock(&mut transaction, &request.clock_head).await?;
-        let clock = instrument_clock_projection(&handoff, proof.as_ref())?;
-        let facts = load_instrument_facts(&mut transaction, &members, true).await?;
-        validate_instrument_fact_graph(&facts)?;
-        let selected = select_instrument_facts(
-            &facts,
-            &members,
-            request.effective_instant,
-            request.owner_observation,
-            request.decision_cut,
-            &clock,
-        )?;
-        let cut = build_instrument_cut(request, members, &selected, clock)?;
-
-        let database_name: String = sqlx::query_scalar("SELECT current_database()")
-            .fetch_one(&mut *transaction)
-            .await
-            .map_err(|_| InstrumentMasterError::StoreUnavailable)?;
-        let generation = instrument_store_generation(&database_name);
-        sqlx::query("INSERT INTO market_data_private.instrument_master_state_v1(singleton,store_generation_identity,append_sequence) VALUES (TRUE,$1,0) ON CONFLICT (singleton) DO NOTHING")
-            .bind(generation.as_bytes().as_slice()).execute(&mut *transaction).await.map_err(|_| InstrumentMasterError::StoreUnavailable)?;
-        let state = sqlx::query("UPDATE market_data_private.instrument_master_state_v1 SET append_sequence=append_sequence+1 WHERE singleton AND store_generation_identity=$1 RETURNING store_generation_identity,append_sequence")
-            .bind(generation.as_bytes().as_slice()).fetch_optional(&mut *transaction).await.map_err(|_| InstrumentMasterError::StoreUnavailable)?.ok_or(InstrumentMasterError::StoreUntrusted)?;
-        let stored_generation: Vec<u8> = state
-            .try_get("store_generation_identity")
-            .map_err(|_| InstrumentMasterError::StoreUntrusted)?;
-        let append_sequence = positive_u64(
-            state
-                .try_get("append_sequence")
-                .map_err(|_| InstrumentMasterError::StoreUntrusted)?,
-        )
-        .map_err(|_| InstrumentMasterError::StoreUntrusted)?;
-        let receipt = build_instrument_receipt(
+        let receipt = issue_instrument_master_cut_in_transaction_v1(
+            &mut transaction,
             request,
-            &selected,
-            &cut,
-            digest_from_bytes(&stored_generation)
-                .map_err(|_| InstrumentMasterError::StoreUntrusted)?,
-            append_sequence,
-        )?;
-        sqlx::query("INSERT INTO market_data_private.instrument_master_cuts_v1(cut_identity,request_identity,cut_bytes) VALUES ($1,$2,$3)")
-            .bind(cut.identity().as_bytes().as_slice())
-            .bind(request.request_identity.as_bytes().as_slice())
-            .bind(cut.canonical_bytes())
-            .execute(&mut *transaction).await.map_err(|_| InstrumentMasterError::StoreUnavailable)?;
-        sqlx::query("INSERT INTO market_data_private.instrument_master_receipts_v1(request_identity,request_meaning_digest,cut_identity,receipt_identity,receipt_bytes,append_sequence) VALUES ($1,$2,$3,$4,$5,$6)")
-            .bind(request.request_identity.as_bytes().as_slice()).bind(request.request_meaning_digest.as_bytes().as_slice()).bind(cut.identity().as_bytes().as_slice()).bind(receipt.identity.as_bytes().as_slice()).bind(&receipt.canonical_bytes).bind(i64::try_from(append_sequence).map_err(|_| InstrumentMasterError::StoreUnavailable)?)
-            .execute(&mut *transaction).await.map_err(|_| InstrumentMasterError::StoreUnavailable)?;
-        if interrupt_before_outbox {
-            return Err(InstrumentMasterError::CommitInterrupted);
-        }
-        sqlx::query("INSERT INTO market_data_private.instrument_master_outbox_v1(outbox_identity,request_identity,receipt_bytes) VALUES ($1,$2,$3)")
-            .bind(receipt.identity.as_bytes().as_slice()).bind(request.request_identity.as_bytes().as_slice()).bind(&receipt.canonical_bytes)
-            .execute(&mut *transaction).await.map_err(|_| InstrumentMasterError::StoreUnavailable)?;
+            members,
+            interrupt_before_outbox,
+        )
+        .await?;
         transaction
             .commit()
             .await
@@ -5345,6 +5297,75 @@ fn decode_durable_instrument_readback_row(
         return Err(InstrumentMasterError::StoreUntrusted);
     }
     build_instrument_readback(&receipt)
+}
+
+/// Issues one Instrument Master cut, its receipt and outbox inside the caller's transaction, which
+/// holds the request's lock and has found no readback under its identity: selects `members`' facts
+/// at the request's instants on the clock head it names, and appends the next store sequence.
+///
+/// The PIT intake's resolution runs it in a transaction of its own; a PIT window custody's root
+/// runs it inside its commit, on the clock it just admitted, so the cut and the custody stand or
+/// fall together.
+async fn issue_instrument_master_cut_in_transaction_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    request: &UntrustedInstrumentMasterRequestV1,
+    members: Vec<String>,
+    interrupt_before_outbox: bool,
+) -> Result<super::instrument_master::InstrumentMasterReceiptV1, InstrumentMasterError> {
+    let (handoff, proof) = current_instrument_clock(transaction, &request.clock_head).await?;
+    let clock = instrument_clock_projection(&handoff, proof.as_ref())?;
+    let facts = load_instrument_facts(transaction, &members, true).await?;
+    validate_instrument_fact_graph(&facts)?;
+    let selected = select_instrument_facts(
+        &facts,
+        &members,
+        request.effective_instant,
+        request.owner_observation,
+        request.decision_cut,
+        &clock,
+    )?;
+    let cut = build_instrument_cut(request, members, &selected, clock)?;
+
+    let database_name: String = sqlx::query_scalar("SELECT current_database()")
+        .fetch_one(&mut **transaction)
+        .await
+        .map_err(|_| InstrumentMasterError::StoreUnavailable)?;
+    let generation = instrument_store_generation(&database_name);
+    sqlx::query("INSERT INTO market_data_private.instrument_master_state_v1(singleton,store_generation_identity,append_sequence) VALUES (TRUE,$1,0) ON CONFLICT (singleton) DO NOTHING")
+        .bind(generation.as_bytes().as_slice()).execute(&mut **transaction).await.map_err(|_| InstrumentMasterError::StoreUnavailable)?;
+    let state = sqlx::query("UPDATE market_data_private.instrument_master_state_v1 SET append_sequence=append_sequence+1 WHERE singleton AND store_generation_identity=$1 RETURNING store_generation_identity,append_sequence")
+        .bind(generation.as_bytes().as_slice()).fetch_optional(&mut **transaction).await.map_err(|_| InstrumentMasterError::StoreUnavailable)?.ok_or(InstrumentMasterError::StoreUntrusted)?;
+    let stored_generation: Vec<u8> = state
+        .try_get("store_generation_identity")
+        .map_err(|_| InstrumentMasterError::StoreUntrusted)?;
+    let append_sequence = positive_u64(
+        state
+            .try_get("append_sequence")
+            .map_err(|_| InstrumentMasterError::StoreUntrusted)?,
+    )
+    .map_err(|_| InstrumentMasterError::StoreUntrusted)?;
+    let receipt = build_instrument_receipt(
+        request,
+        &selected,
+        &cut,
+        digest_from_bytes(&stored_generation).map_err(|_| InstrumentMasterError::StoreUntrusted)?,
+        append_sequence,
+    )?;
+    sqlx::query("INSERT INTO market_data_private.instrument_master_cuts_v1(cut_identity,request_identity,cut_bytes) VALUES ($1,$2,$3)")
+        .bind(cut.identity().as_bytes().as_slice())
+        .bind(request.request_identity.as_bytes().as_slice())
+        .bind(cut.canonical_bytes())
+        .execute(&mut **transaction).await.map_err(|_| InstrumentMasterError::StoreUnavailable)?;
+    sqlx::query("INSERT INTO market_data_private.instrument_master_receipts_v1(request_identity,request_meaning_digest,cut_identity,receipt_identity,receipt_bytes,append_sequence) VALUES ($1,$2,$3,$4,$5,$6)")
+        .bind(request.request_identity.as_bytes().as_slice()).bind(request.request_meaning_digest.as_bytes().as_slice()).bind(cut.identity().as_bytes().as_slice()).bind(receipt.identity.as_bytes().as_slice()).bind(&receipt.canonical_bytes).bind(i64::try_from(append_sequence).map_err(|_| InstrumentMasterError::StoreUnavailable)?)
+        .execute(&mut **transaction).await.map_err(|_| InstrumentMasterError::StoreUnavailable)?;
+    if interrupt_before_outbox {
+        return Err(InstrumentMasterError::CommitInterrupted);
+    }
+    sqlx::query("INSERT INTO market_data_private.instrument_master_outbox_v1(outbox_identity,request_identity,receipt_bytes) VALUES ($1,$2,$3)")
+        .bind(receipt.identity.as_bytes().as_slice()).bind(request.request_identity.as_bytes().as_slice()).bind(&receipt.canonical_bytes)
+        .execute(&mut **transaction).await.map_err(|_| InstrumentMasterError::StoreUnavailable)?;
+    Ok(receipt)
 }
 
 async fn current_instrument_clock(

@@ -30,14 +30,17 @@ use std::{
 use sqlx::{Postgres, Row, Transaction};
 
 use super::{
-    MarketDataClockAdmission, MarketDataOwnerPostgres, admit_clock, digest_from_bytes,
-    load_current_clock_for_update, load_instrument_facts, load_source, lock_clock_state,
+    MarketDataClockAdmission, MarketDataOwnerPostgres, admit_clock, build_instrument_readback,
+    digest_from_bytes, issue_instrument_master_cut_in_transaction_v1,
+    load_current_clock_fact_for_update, load_current_clock_for_update,
+    load_durable_instrument_readback, load_instrument_facts, load_source, lock_clock_state,
     lock_digests, next_owner_clock_admission_v1,
     universe_selection::recover_universe_selection_in_transaction_v1,
 };
 use crate::owner::{
     instrument_master::{
-        InstrumentMasterError, InstrumentMasterFactV1,
+        BACKTEST_OWNER_V1, InstrumentMasterError, InstrumentMasterFactV1,
+        InstrumentMasterReadbackV1, InstrumentMasterScopeV1, UntrustedInstrumentMasterRequestV1,
         authority::{ObservationClockV1, observable_at, select_facts_observed},
     },
     pit_window_custody_v1::{
@@ -50,8 +53,11 @@ use crate::owner::{
             derive_custody_v1, kind_from_tag, kind_tag,
         },
         chain_records::{
-            ReferenceFactR0ChainCutV1, ReferenceFactR0ChainRecordV1, decode_r0_chain_cut_v1,
-            decode_r0_chain_record_v1, issue_r0_chain_record_v1,
+            InstrumentMasterChainLinkV1, ReferenceFactR0ChainCutV1, ReferenceFactR0ChainRecordV1,
+            chain_instrument_master_request_identity_v1,
+            chain_instrument_master_request_meaning_v1, decode_instrument_master_chain_link_v1,
+            decode_r0_chain_cut_v1, decode_r0_chain_record_v1,
+            issue_instrument_master_chain_link_v1, issue_r0_chain_record_v1,
         },
         schedule::{PitWindowScheduleFactV1, decode_window_schedule_v1, mint_window_schedules_v1},
         sealed,
@@ -90,6 +96,9 @@ pub(super) const SCHEMA_V1: &[&str] = &[
     // from it on read and never stored; nothing here is a `reference_fact_r0_*` row.
     "CREATE TABLE IF NOT EXISTS market_data_private.pit_window_r0_chain_records_v1 (chain_root BYTEA PRIMARY KEY REFERENCES market_data_private.pit_window_custody_heads_v1(chain_root), custody_identity BYTEA NOT NULL REFERENCES market_data_private.pit_window_custodies_v1(custody_identity), record_identity BYTEA UNIQUE NOT NULL CHECK (octet_length(record_identity)=32), record_bytes BYTEA NOT NULL, cut_identity BYTEA UNIQUE NOT NULL CHECK (octet_length(cut_identity)=32), cut_bytes BYTEA NOT NULL, window_start_ns BIGINT NOT NULL CHECK (window_start_ns>=0), window_end_ns_exclusive BIGINT NOT NULL CHECK (window_end_ns_exclusive>window_start_ns), CHECK (chain_root=custody_identity))",
     "REVOKE ALL ON TABLE market_data_private.pit_window_r0_chain_records_v1 FROM PUBLIC",
+    // How a chain reaches the Instrument Master cut its root issued in its own commit (T0-4c).
+    "CREATE TABLE IF NOT EXISTS market_data_private.pit_window_instrument_master_chains_v1 (chain_root BYTEA PRIMARY KEY REFERENCES market_data_private.pit_window_custody_heads_v1(chain_root), custody_identity BYTEA NOT NULL REFERENCES market_data_private.pit_window_custodies_v1(custody_identity), link_identity BYTEA UNIQUE NOT NULL CHECK (octet_length(link_identity)=32), link_bytes BYTEA NOT NULL, instrument_master_key BYTEA NOT NULL CHECK (octet_length(instrument_master_key)=32), request_identity BYTEA UNIQUE NOT NULL REFERENCES market_data_private.instrument_master_receipts_v1(request_identity), cut_identity BYTEA NOT NULL CHECK (octet_length(cut_identity)=32), readback_digest BYTEA NOT NULL CHECK (octet_length(readback_digest)=32), CHECK (chain_root=custody_identity))",
+    "REVOKE ALL ON TABLE market_data_private.pit_window_instrument_master_chains_v1 FROM PUBLIC",
 ];
 
 #[track_caller]
@@ -238,7 +247,7 @@ async fn load_binding(
 async fn load_membership(
     transaction: &mut Transaction<'_, Postgres>,
     locator: &UntrustedUniverseSelectionLocatorV1,
-) -> Result<Vec<CustodyMembershipV1>, Refused> {
+) -> Result<(Vec<CustodyMembershipV1>, BindingDigest), Refused> {
     let readback = recover_universe_selection_in_transaction_v1(transaction, locator)
         .await
         .map_err(|e| match e {
@@ -246,7 +255,7 @@ async fn load_membership(
             | UniverseSelectionErrorV1::RequestConflict => Refused::InvalidRequest,
             _ => Refused::StoreUnavailable,
         })?;
-    Ok(readback
+    let membership = readback
         .record()
         .membership()
         .iter()
@@ -256,7 +265,8 @@ async fn load_membership(
             effective_from_ns: record.effective_from_ns(),
             effective_until_ns: record.effective_until_ns(),
         })
-        .collect())
+        .collect();
+    Ok((membership, readback.record().identity()))
 }
 
 /// What the Instrument Master selects for each member at the window's first and last instants,
@@ -481,7 +491,8 @@ async fn commit_custody_v1(
 
     // 1. The basis the request names.
     let binding = load_binding(&mut transaction, &request.source_binding).await?;
-    let membership = load_membership(&mut transaction, &request.universe_selection).await?;
+    let (membership, universe_record) =
+        load_membership(&mut transaction, &request.universe_selection).await?;
 
     // 2. The minting cut: the clock-state lock before the head's row lock, as every clock writer
     //    takes them. The next clock is minted only when a row was retrieved after the head, and is
@@ -697,6 +708,15 @@ async fn commit_custody_v1(
             issue_r0_chain_record_v1(&derived, chain_root, identity, cut_clock)
                 .ok_or(Refused::StoreUnavailable)?;
         insert_r0_chain_record(&mut transaction, &r0_record, &r0_cut).await?;
+        let instrument_master = Box::pin(issue_chain_instrument_master_v1(
+            &mut transaction,
+            &derived,
+            chain_root,
+            minting_cut,
+            universe_record,
+        ))
+        .await?;
+        insert_instrument_master_link(&mut transaction, &instrument_master).await?;
     }
     transaction
         .commit()
@@ -735,6 +755,166 @@ async fn insert_window_schedule(
         .await
         .map_err(|cause| store_error(&cause))?;
     Ok(())
+}
+
+/// Issues a root custody's Instrument Master cut inside its commit, on the clock it admitted, for
+/// exactly the facts it selected at the window's start, and links the chain to it.
+///
+/// Its request identity is a function of the chain root; its instants are the window's start and
+/// the minting cut. The cut's own selection must give the custody's facts, member for member.
+async fn issue_chain_instrument_master_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    derived: &DerivedCustodyV1,
+    chain_root: BindingDigest,
+    minting_cut: u64,
+    universe_record: BindingDigest,
+) -> Result<InstrumentMasterChainLinkV1, Refused> {
+    let request_identity = chain_instrument_master_request_identity_v1(chain_root);
+    lock_digests(transaction, request_identity, request_identity)
+        .await
+        .map_err(|cause| store_error(&cause))?;
+
+    if load_durable_instrument_readback(transaction, request_identity, true)
+        .await
+        .map_err(|cause| store_error(&cause))?
+        .is_some()
+    {
+        return Err(Refused::StoreUnavailable);
+    }
+    let head = load_current_clock_fact_for_update(transaction)
+        .await
+        .map_err(|cause| store_error(&cause))?
+        .ok_or(Refused::StoreUnavailable)?;
+    let facts = load_instrument_facts(transaction, &derived.members, false)
+        .await
+        .map_err(|cause| store_error(&cause))?;
+    let first = facts
+        .iter()
+        .find(|fact| Some(&fact.digest()) == derived.member_fact_digests.first())
+        .ok_or(Refused::StoreUnavailable)?;
+    let scope = match derived.members.as_slice() {
+        [member] => InstrumentMasterScopeV1::ExactInstrument(member.clone()),
+        _ => InstrumentMasterScopeV1::UniverseSelectionRecord(universe_record),
+    };
+    let request = UntrustedInstrumentMasterRequestV1 {
+        request_identity,
+        request_meaning_digest: chain_instrument_master_request_meaning_v1(
+            request_identity,
+            &derived.member_fact_digests,
+        ),
+        consumer_role: BACKTEST_OWNER_V1.into(),
+        scope,
+        effective_instant: i128::from(derived.window.0),
+        owner_observation: i128::from(minting_cut),
+        decision_cut: minting_cut,
+        clock_head: head.handoff.locator().clone(),
+        lifecycle_frontier: first.proposal.lifecycle_frontier,
+        corporate_action_frontier: first.proposal.corporate_action_frontier,
+        historical_membership_frontier: first.proposal.historical_membership_frontier,
+        market_semantics_identity: first.proposal.market_semantics_identity,
+        source_frontier: first.proposal.source_frontier,
+        correction_frontier: first.proposal.correction_frontier,
+        stable_correlation: chain_root,
+    };
+    let receipt = issue_instrument_master_cut_in_transaction_v1(
+        transaction,
+        &request,
+        derived.members.clone(),
+        false,
+    )
+    .await
+    .map_err(|cause| store_error(&cause))?;
+    let readback = build_instrument_readback(&receipt).map_err(|cause| store_error(&cause))?;
+    let selected = readback
+        .facts()
+        .iter()
+        .map(InstrumentMasterFactV1::digest)
+        .collect::<Vec<_>>();
+
+    if selected != derived.member_fact_digests {
+        return Err(Refused::StoreUnavailable);
+    }
+    issue_instrument_master_chain_link_v1(
+        chain_root,
+        chain_root,
+        derived.instrument_master_key,
+        (
+            request_identity,
+            readback.digest(),
+            readback.cut().identity(),
+        ),
+        selected,
+    )
+    .ok_or(Refused::StoreUnavailable)
+}
+
+async fn insert_instrument_master_link(
+    transaction: &mut Transaction<'_, Postgres>,
+    link: &InstrumentMasterChainLinkV1,
+) -> Result<(), Refused> {
+    sqlx::query("INSERT INTO market_data_private.pit_window_instrument_master_chains_v1(chain_root,custody_identity,link_identity,link_bytes,instrument_master_key,request_identity,cut_identity,readback_digest) VALUES($1,$2,$3,$4,$5,$6,$7,$8)")
+        .bind(link.chain_root.as_bytes().as_slice())
+        .bind(link.root_custody_identity.as_bytes().as_slice())
+        .bind(link.identity().as_bytes().as_slice())
+        .bind(link.canonical_bytes())
+        .bind(link.instrument_master_key.as_bytes().as_slice())
+        .bind(link.request_identity.as_bytes().as_slice())
+        .bind(link.cut_identity.as_bytes().as_slice())
+        .bind(link.readback_digest.as_bytes().as_slice())
+        .execute(&mut **transaction)
+        .await
+        .map_err(|cause| store_error(&cause))?;
+    Ok(())
+}
+
+/// The Instrument Master link of the chain rooted at `chain_root` and the readback it names, each
+/// verified; `None` for a chain that holds none.
+pub(in crate::owner) async fn read_pit_window_instrument_master_chain_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    chain_root: BindingDigest,
+) -> Result<Option<(InstrumentMasterChainLinkV1, InstrumentMasterReadbackV1)>, Refused> {
+    let Some(row) = sqlx::query(
+        "SELECT chain_root,custody_identity,link_identity,link_bytes,instrument_master_key,request_identity,cut_identity,readback_digest FROM market_data_private.pit_window_instrument_master_chains_v1 WHERE chain_root=$1",
+    )
+    .bind(chain_root.as_bytes().as_slice())
+    .fetch_optional(&mut **transaction)
+    .await
+    .map_err(|cause| store_error(&cause))?
+    else {
+        return Ok(None);
+    };
+    let bytes = |column: &str| -> Result<Vec<u8>, Refused> {
+        row.try_get(column).map_err(|cause| store_error(&cause))
+    };
+    let link = decode_instrument_master_chain_link_v1(
+        &bytes("link_bytes")?,
+        digest(&bytes("link_identity")?)?,
+    )
+    .ok_or(Refused::StoreUnavailable)?;
+    let readback = load_durable_instrument_readback(transaction, link.request_identity, false)
+        .await
+        .map_err(|cause| store_error(&cause))?
+        .ok_or(Refused::StoreUnavailable)?;
+    let agrees = link.chain_root == chain_root
+        && digest(&bytes("chain_root")?)? == chain_root
+        && digest(&bytes("custody_identity")?)? == link.root_custody_identity
+        && digest(&bytes("instrument_master_key")?)? == link.instrument_master_key
+        && digest(&bytes("request_identity")?)? == link.request_identity
+        && digest(&bytes("cut_identity")?)? == link.cut_identity
+        && digest(&bytes("readback_digest")?)? == link.readback_digest
+        && readback.digest() == link.readback_digest
+        && readback.cut().identity() == link.cut_identity
+        && readback
+            .facts()
+            .iter()
+            .map(InstrumentMasterFactV1::digest)
+            .eq(link.fact_digests.iter().copied());
+
+    if agrees {
+        Ok(Some((link, readback)))
+    } else {
+        Err(Refused::StoreUnavailable)
+    }
 }
 
 async fn insert_r0_chain_record(

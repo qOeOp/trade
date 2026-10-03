@@ -1228,6 +1228,53 @@ mod chain_records {
         }
     }
 
+    /// A chain's Instrument Master request is a function of its root; its link decodes only to
+    /// what it states.
+    #[rstest]
+    fn the_instrument_master_chain_link_states_its_cut() {
+        use crate::owner::pit_window_custody_v1::chain_records::{
+            chain_instrument_master_request_identity_v1,
+            chain_instrument_master_request_meaning_v1, decode_instrument_master_chain_link_v1,
+            issue_instrument_master_chain_link_v1,
+        };
+
+        let request = chain_instrument_master_request_identity_v1(d(1));
+        assert_eq!(request, chain_instrument_master_request_identity_v1(d(1)));
+        assert_ne!(request, chain_instrument_master_request_identity_v1(d(2)));
+        assert_ne!(
+            chain_instrument_master_request_meaning_v1(request, &[d(40), d(41)]),
+            chain_instrument_master_request_meaning_v1(request, &[d(41), d(40)]),
+            "the meaning binds the facts in member order"
+        );
+        let link = issue_instrument_master_chain_link_v1(
+            d(1),
+            d(1),
+            d(60),
+            (request, d(62), d(63)),
+            vec![d(40), d(41)],
+        )
+        .unwrap();
+        assert_eq!(
+            decode_instrument_master_chain_link_v1(link.canonical_bytes(), link.identity()),
+            Some(link.clone())
+        );
+        let mut tampered = link.canonical_bytes().to_vec();
+        let last = tampered.len() - 1;
+        tampered[last] ^= 1;
+        assert!(decode_instrument_master_chain_link_v1(&tampered, link.identity()).is_none());
+        assert!(
+            issue_instrument_master_chain_link_v1(
+                d(1),
+                d(1),
+                d(60),
+                (request, d(62), d(63)),
+                Vec::new()
+            )
+            .is_none(),
+            "a link names at least one fact"
+        );
+    }
+
     /// A frame's R0 runs from its `e_k` to the end its input timeframes claim, lies inside the
     /// chain's, and is a function of `e_k`; a frame off the schedule has none.
     #[rstest]
