@@ -122,7 +122,7 @@ quality tiers, screenshot extraction, author and publishers. Missing subtitles d
 Other HTTPS links use one isolated yt-dlp Generic extractor. It may unwrap exactly one embedded video,
 but cannot hand off to another platform extractor. Every request requires public DNS answers, HTTPS
 on port 443, and no credentials, redirects or IP literals; ambient cookies/proxies and external
-media downloaders are unavailable. Metadata responses and request count are bounded. Only a progressive
+media downloaders are unavailable. Metadata responses and request count are bounded. Only a progressive MP4/WebM
 media URL is downloaded through the same transport under the existing media-byte and process bounds.
 Playlists, manifests, live streams and DRM are refused. Local FFprobe/FFmpeg retain `file,pipe` only.
 

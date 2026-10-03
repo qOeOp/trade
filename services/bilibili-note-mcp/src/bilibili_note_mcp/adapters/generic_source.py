@@ -24,6 +24,15 @@ from bilibili_note_mcp.domain.models import SourceV1
 _SCHEMA = "video-note-generic-worker/v1"
 
 
+def require_progressive_container(path: Path) -> None:
+    # A text playlist can reference local files even when FFmpeg network protocols are off.
+    # Refuse it before invoking any decoder; this fallback admits MP4/WebM containers only.
+    with path.open("rb") as stream:
+        header = stream.read(16)
+    if not (header[4:8] == b"ftyp" or header[:4] == b"\x1a\x45\xdf\xa3"):
+        raise BilibiliNoteFailure("SOURCE_UNAVAILABLE", "generic_container_unsupported")
+
+
 @dataclass(frozen=True)
 class _PreparedMedia:
     url: str
@@ -64,6 +73,7 @@ class GenericSource:
             path = workspace / "source.mp4"
             if path.is_symlink():
                 raise ValueError("generic_media_invalid")
+            require_progressive_container(path)
             duration, width, height = await _probe(path)
             date = None
             if data["date"] is not None:

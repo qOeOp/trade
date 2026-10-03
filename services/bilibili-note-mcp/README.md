@@ -61,7 +61,7 @@ usage is unknown, not zero. Rate limits return an explicit error instead of unbo
 ## Public video links
 
 `video_note.create({"url":"https://cn.tradingview.com/chart/XRPUSDT/e9QiRzXx/","quality":"fast"})`
-also accepts a public HTTPS page containing one progressive video, or a direct HTTPS video URL.
+also accepts a public HTTPS page containing one progressive MP4/WebM video, or a direct HTTPS video URL.
 Bilibili and YouTube always use their dedicated adapters; a platform error does not trigger a bypass.
 The generic extractor has no site-specific prompts. It rejects playlists with multiple videos, live
 streams, manifests, DRM, authentication, redirects, non-public destinations and non-HTTPS URLs.

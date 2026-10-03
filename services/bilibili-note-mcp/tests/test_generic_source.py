@@ -147,7 +147,9 @@ async def test_each_generic_request_transcribes_current_download(monkeypatch, tm
     async def worker(*args, **kwargs):
         nonlocal calls
         calls += 1
-        (tmp_path / "source.mp4").write_bytes(f"new media {calls}".encode())
+        (tmp_path / "source.mp4").write_bytes(
+            b"\x00\x00\x00\x18ftypmp42" + f"new media {calls}".encode()
+        )
         return 0, json.dumps(
             {
                 "schema": module._SCHEMA,
@@ -220,3 +222,16 @@ async def test_manifest_disguised_as_file_cannot_probe_remote_stream(tmp_path):
     )
     with pytest.raises(BilibiliNoteFailure):
         await _probe(path)
+
+
+def test_generic_refuses_local_playlist_before_decoder(tmp_path):
+    from bilibili_note_mcp.adapters.generic_source import require_progressive_container
+
+    path = tmp_path / "source.mp4"
+    for body in [
+        b"#EXTM3U\n#EXTINF:10,\nfile:///private/media.mp4\n",
+        b"ffconcat version 1.0\nfile /private/media.mp4",
+    ]:
+        path.write_bytes(body)
+        with pytest.raises(BilibiliNoteFailure, match="generic_container_unsupported"):
+            require_progressive_container(path)
