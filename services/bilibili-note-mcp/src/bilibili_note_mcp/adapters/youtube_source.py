@@ -10,14 +10,14 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from bilibili_note_mcp.adapters.bilibili_media_ytdlp import (
-    _media_candidates,
-    _probe,
-    _run_worker,
-    _sha256_file,
-    _worker_environment,
-)
 from bilibili_note_mcp.adapters.egress import admitted_loopback_proxy
+from bilibili_note_mcp.adapters.media_acquisition import (
+    media_candidates,
+    media_worker_environment,
+    probe_downloaded_media,
+    run_media_worker,
+    sha256_file,
+)
 from bilibili_note_mcp.adapters.source_acquisition import SourceAcquisition
 from bilibili_note_mcp.adapters.source_cache import SourceCache
 from bilibili_note_mcp.adapters.strict_json import StrictJsonError, decode_strict_json_object
@@ -53,12 +53,12 @@ class YoutubeExtractor:
             "workspace": str(workspace) if workspace else None,
             "proxy": self.proxy,
         }
-        code, raw = await _run_worker(
+        code, raw = await run_media_worker(
             (sys.executable, "-m", "bilibili_note_mcp.adapters._youtube_worker"),
             json.dumps(payload).encode(),
             timeout_seconds=360 if operation == "media" else 90,
             grace_seconds=2,
-            env=_worker_environment(),
+            env=media_worker_environment(),
         )
         try:
             result = decode_strict_json_object(raw)
@@ -74,14 +74,14 @@ class YoutubeExtractor:
     async def download(self, canonical_url: str, workspace: Path) -> SourceMediaArtifact:
         result = await self.request("media", canonical_url, workspace)
         source = source_metadata(result["metadata"], canonical_url)
-        files = await asyncio.to_thread(_media_candidates, workspace)
+        files = await asyncio.to_thread(media_candidates, workspace)
         if len(files) != 1:
             raise BilibiliNoteFailure("SOURCE_UNAVAILABLE", "downloaded_media_ambiguous")
         path = files[0]
-        duration, width, height = await _probe(path)
+        duration, width, height = await probe_downloaded_media(path)
         return SourceMediaArtifact(
             media_path=path,
-            media_sha256=await asyncio.to_thread(_sha256_file, path),
+            media_sha256=await asyncio.to_thread(sha256_file, path),
             observed_duration_ms=duration,
             width=width,
             height=height,

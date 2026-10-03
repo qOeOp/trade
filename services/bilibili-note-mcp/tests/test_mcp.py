@@ -9,7 +9,7 @@ import pytest
 from mcp import Client
 
 from bilibili_note_mcp import __main__ as cli_module
-from bilibili_note_mcp.adapters.distillers import DeterministicDistiller
+from bilibili_note_mcp.adapters.fixture_distiller import DeterministicDistiller
 from bilibili_note_mcp.adapters.fixture_search import FixtureSearch
 from bilibili_note_mcp.adapters.media_ffmpeg import FfmpegMedia
 from bilibili_note_mcp.adapters.note_publisher import LocalNotePublisher

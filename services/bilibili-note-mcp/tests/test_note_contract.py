@@ -10,6 +10,7 @@ from conftest import MemoryAuthor, MemoryMedia, MemorySource
 from bilibili_note_mcp.adapters.note_publisher import LocalNotePublisher
 from bilibili_note_mcp.application.create_note import CreateBilibiliNote
 from bilibili_note_mcp.application.errors import BilibiliNoteFailure
+from bilibili_note_mcp.application.note_validation import validate_note
 from bilibili_note_mcp.fixture import FIXTURE_URL
 
 
@@ -168,7 +169,7 @@ async def test_image_does_not_require_repeating_all_nearby_speech(tmp_path, draf
     from bilibili_note_mcp.application.progress import NullProgressReporter
 
     acquired = await MemorySource(source).acquire("", tmp_path, NullProgressReporter())
-    CreateBilibiliNote.validate_note(note, acquired, source.frames)
+    validate_note(note, acquired, source.frames)
 
 
 async def test_html_omits_transcript_but_markdown_retains_original_text(tmp_path, draft):

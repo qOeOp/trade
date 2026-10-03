@@ -1,42 +1,27 @@
 from __future__ import annotations
 
 import asyncio
-import base64
-import io
 import json
 import math
 import os
 import ssl
 import time
-from dataclasses import asdict
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from typing import TypeVar
 
 import httpx
-from PIL import Image
 from pydantic import BaseModel, ValidationError
 
 from bilibili_note_mcp.application.errors import BilibiliNoteFailure
 from bilibili_note_mcp.application.operator_events import emit_operator_event
-from bilibili_note_mcp.application.ports import AcquiredSource, FrameAsset
 from bilibili_note_mcp.application.progress import report_provider_retry
 from bilibili_note_mcp.application.resource_limits import (
-    FRAME_MAX_PIXELS,
-    FRAME_PNG_BYTES,
-    FRAME_PNG_TOTAL_BYTES,
-    TRANSCRIPT_TOTAL_BYTES,
     VISION_CONTENT_BYTES,
     VISION_REQUEST_BYTES,
     VISION_RESPONSE_BYTES,
 )
 from bilibili_note_mcp.config import ModelProfile, load_model_profile
-from bilibili_note_mcp.domain.models import (
-    GroundedText,
-    NoteChapter,
-    ScreenshotSelection,
-    VideoNote,
-)
 
 from .http_bodies import read_httpx_body
 from .provider_envelopes import require_exact_model_envelope
@@ -45,66 +30,7 @@ from .strict_json import decode_strict_json_object
 T = TypeVar("T", bound=BaseModel)
 
 
-def _content(source: AcquiredSource, frames: tuple[FrameAsset, ...]) -> list[dict[str, object]]:
-    transcript = [
-        dict(evidence_id=s.evidence_id, start_ms=s.start_ms, end_ms=s.end_ms, text=s.text)
-        for s in source.transcript.segments
-    ]
-    text = json.dumps(
-        {
-            "title": source.source.title,
-            "transcript": transcript,
-            "audio_reviews": [asdict(r) for r in source.reviews],
-        },
-        ensure_ascii=False,
-    )
-    if len(text.encode()) > TRANSCRIPT_TOTAL_BYTES:
-        raise BilibiliNoteFailure("DISTILLATION_FAILED", "transcript_bytes_exceeded")
-    if (
-        any(len(f.png_bytes) > FRAME_PNG_BYTES for f in frames)
-        or sum(len(f.png_bytes) for f in frames) > FRAME_PNG_TOTAL_BYTES
-    ):
-        raise BilibiliNoteFailure("DISTILLATION_FAILED", "frame_png_total_bytes_exceeded")
-    result: list[dict[str, object]] = [{"type": "text", "text": text}]
-    for f in sorted(frames, key=lambda frame: frame.timestamp_ms):
-        try:
-            with Image.open(io.BytesIO(f.png_bytes)) as decoded:
-                if (
-                    decoded.size != (f.width, f.height)
-                    or decoded.format != "PNG"
-                    or decoded.width * decoded.height > FRAME_MAX_PIXELS
-                ):
-                    raise ValueError("invalid frame")
-                encoded_image = io.BytesIO()
-                decoded.convert("RGB").save(encoded_image, format="JPEG", quality=90)
-        except (OSError, ValueError, Image.DecompressionBombError) as e:
-            raise BilibiliNoteFailure("DISTILLATION_FAILED", "frame_image_invalid") from e
-        result.append(
-            {
-                "type": "text",
-                "text": json.dumps(
-                    {
-                        "frame_id": f.frame_id,
-                        "group_id": f.group_id,
-                        "timestamp_ms": f.timestamp_ms,
-                        "evidence_refs": f.transcript_refs,
-                    }
-                ),
-            }
-        )
-        result.append(
-            {
-                "type": "image_url",
-                "image_url": {
-                    "url": "data:image/jpeg;base64,"
-                    + base64.b64encode(encoded_image.getvalue()).decode()
-                },
-            }
-        )
-    return result
-
-
-class _Provider:
+class JsonModelClient:
     def __init__(
         self, profile: ModelProfile | None = None, transport: httpx.AsyncBaseTransport | None = None
     ) -> None:
@@ -265,24 +191,3 @@ def _retry_delay(value: str | None, fallback: float) -> float:
     if not math.isfinite(seconds):
         return fallback
     return max(fallback, min(30.0, seconds))
-
-
-class DeterministicDistiller:
-    """Explicit fixture-only author; never a live fallback."""
-
-    async def distill(self, source: AcquiredSource, frames: tuple[FrameAsset, ...]) -> VideoNote:
-        refs = tuple(s.evidence_id for s in source.transcript.segments)
-        point = GroundedText(
-            text="示例演示了操作的前后变化，需要结合完整说明理解。", evidence_refs=refs
-        )
-        return VideoNote(
-            overview=(point,),
-            chapters=(
-                NoteChapter(
-                    title="操作演示",
-                    points=(point,),
-                    screenshots=tuple(ScreenshotSelection(frame_id=f.frame_id) for f in frames),
-                ),
-            ),
-            takeaways=(),
-        )
