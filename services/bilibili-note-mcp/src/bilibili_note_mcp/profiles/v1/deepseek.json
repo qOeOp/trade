@@ -1,0 +1,13 @@
+{
+  "schema": "bilibili-note-model-profile/v1",
+  "provider": "deepseek",
+  "base_url": "https://api.deepseek.com",
+  "vision_model": "deepseek-flash",
+  "asr_model": "",
+  "api_key_env": "DEEPSEEK_API_KEY",
+  "timeout_seconds": 300,
+  "max_output_tokens": 8192,
+  "enable_thinking": false,
+  "response_format": "json_object",
+  "thinking_budget": 4096
+}

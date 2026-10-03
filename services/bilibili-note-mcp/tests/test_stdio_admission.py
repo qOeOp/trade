@@ -186,7 +186,9 @@ async def test_raw_stdio_rejections_never_reach_operator_progress_or_use_case(
 
         escaped_url_key = "\\u0075rl"
         escaped_name_key = "\\u006eame"
-        valid_arguments = json.dumps({"url": FIXTURE_URL}, separators=(",", ":"))[1:-1]
+        valid_arguments = json.dumps(
+            {"url": FIXTURE_URL, "quality": "fast"}, separators=(",", ":")
+        )[1:-1]
         malicious_frames = [
             (
                 '{"jsonrpc":"2.0","id":10,"method":"ping",'
@@ -226,7 +228,7 @@ async def test_raw_stdio_rejections_never_reach_operator_progress_or_use_case(
                     "method": "tools/call",
                     "params": {
                         "name": TOOL_NAME,
-                        "arguments": {"url": FIXTURE_URL},
+                        "arguments": {"url": FIXTURE_URL, "quality": "fast"},
                         "_meta": nested,
                     },
                 },
@@ -241,7 +243,7 @@ async def test_raw_stdio_rejections_never_reach_operator_progress_or_use_case(
                     "method": "tools/call",
                     "params": {
                         "name": TOOL_NAME,
-                        "arguments": {"url": FIXTURE_URL},
+                        "arguments": {"url": FIXTURE_URL, "quality": "fast"},
                         "_meta": {"padding": "x" * MAX_STDIO_FRAME_BYTES},
                     },
                 },
@@ -264,7 +266,7 @@ async def test_raw_stdio_rejections_never_reach_operator_progress_or_use_case(
                 "jsonrpc": "2.0",
                 "id": 200,
                 "method": "tools/call",
-                "params": {"name": TOOL_NAME, "arguments": {"url": FIXTURE_URL}},
+                "params": {"name": TOOL_NAME, "arguments": {"url": FIXTURE_URL, "quality": "fast"}},
             },
             separators=(",", ":"),
         ).encode("utf-8")
@@ -312,7 +314,10 @@ async def test_raw_stdio_rejections_never_reach_operator_progress_or_use_case(
                     "jsonrpc": "2.0",
                     "id": 100,
                     "method": "tools/call",
-                    "params": {"name": TOOL_NAME, "arguments": {"url": FIXTURE_URL}},
+                    "params": {
+                        "name": TOOL_NAME,
+                        "arguments": {"url": FIXTURE_URL, "quality": "fast"},
+                    },
                 },
                 separators=(",", ":"),
             ),

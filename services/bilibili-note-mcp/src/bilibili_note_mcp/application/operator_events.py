@@ -14,6 +14,8 @@ from pathlib import Path
 from typing import Literal
 
 OperatorEventName = Literal[
+    "provider_usage",
+    "provider_retry",
     "request_started",
     "request_completed",
     "request_failed",
@@ -34,6 +36,10 @@ OperatorEventName = Literal[
 ]
 
 _FIELDS: dict[OperatorEventName, frozenset[str]] = {
+    "provider_retry": frozenset({"model", "stage", "attempt", "status", "delay_ms"}),
+    "provider_usage": frozenset(
+        {"model", "stage", "prompt_tokens", "completion_tokens", "total_tokens", "request_ms"}
+    ),
     "request_started": frozenset({"tool"}),
     "request_completed": frozenset(),
     "request_failed": frozenset({"code", "reason"}),

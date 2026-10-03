@@ -78,11 +78,11 @@ def test_generated_public_schemas_have_no_drift() -> None:
     )
     assert result.returncode == 0, result.stderr
     expected_names = (
-        "result-v3.schema.json",
-        "search-result-v1.schema.json",
+        "result-v4.schema.json",
+        "search-result-v2.schema.json",
         "error-v1.schema.json",
-        "tool-output-v3.schema.json",
-        "search-tool-output-v1.schema.json",
+        "tool-output-v4.schema.json",
+        "search-tool-output-v2.schema.json",
         "create-input-v1.schema.json",
         "search-input-v1.schema.json",
     )
@@ -91,9 +91,9 @@ def test_generated_public_schemas_have_no_drift() -> None:
         schema = json.loads((ROOT / "schemas" / name).read_text(encoding="utf-8"))
         if "oneOf" in schema:
             expected_success = (
-                "bilibili-note.search-result/v1"
-                if name == "search-tool-output-v1.schema.json"
-                else "bilibili-note.result/v3"
+                "bilibili-note.search-result/v2"
+                if name == "search-tool-output-v2.schema.json"
+                else "bilibili-note.result/v4"
             )
             assert [branch["properties"]["schema"]["const"] for branch in schema["oneOf"]] == [
                 expected_success,
@@ -107,6 +107,12 @@ def test_wire_authority_constants_are_required_not_default_injected() -> None:
     error = json.loads((ROOT / "schemas" / "error-v1.schema.json").read_text(encoding="utf-8"))
 
     assert {"schema", "maturity"} <= set(error["required"])
-    public = json.loads((ROOT / "schemas" / "result-v3.schema.json").read_text(encoding="utf-8"))
-    assert public["required"] == ["schema", "rendered_markdown"]
-    assert set(public["properties"]) == {"schema", "rendered_markdown"}
+    public = json.loads((ROOT / "schemas" / "result-v4.schema.json").read_text(encoding="utf-8"))
+    assert public["required"] == ["schema", "rendered_markdown", "note_path", "html_path", "images"]
+    assert set(public["properties"]) == {
+        "schema",
+        "rendered_markdown",
+        "note_path",
+        "html_path",
+        "images",
+    }
