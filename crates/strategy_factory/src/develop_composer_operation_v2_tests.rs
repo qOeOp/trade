@@ -4,13 +4,7 @@ use std::sync::{
 };
 
 use rstest::rstest;
-use vibe_data::owner::{
-    source_binding::BindingDigest,
-    strategy_input_binding::{
-        MarketDataFieldSemantic, StrategyInputChannel, StrategyInputUnit,
-        UntrustedStrategyInputBindingRequest, UntrustedStrategyInputScope,
-    },
-};
+use vibe_data::owner::source_binding::BindingDigest;
 
 use super::{
     develop_composer_operation_v2::{
@@ -31,11 +25,11 @@ use super::{
         mutated_build_receipt_bytes_for_test, portable_sealed_composer_test_evidence,
     },
     program_host_v2_tests::executable_design,
-    strategy_design_v2::{InputRoleV2, PluginManifestV2, TypedConstantV2},
+    strategy_design_v2::{PluginManifestV2, TypedConstantV2},
     strategy_design_v2_tests::bindings,
     strategy_plan_v2::{
         StrategyDesignPreparationV2, VerifiedStrategyInputBindingsV2, prepare_strategy_design_v2,
-        strategy_input_role_identity_v2, verified_strategy_input_bindings_for_test,
+        verified_strategy_input_bindings_for_test,
     },
 };
 
@@ -75,7 +69,6 @@ struct SealedFinalEvidence {
     expected_request_identity: String,
     expected_request_digest: BindingDigest,
     expected_design_identity: BindingDigest,
-    expected_binding_requests: Vec<UntrustedStrategyInputBindingRequest>,
     reads: Arc<AtomicUsize>,
 }
 
@@ -94,11 +87,7 @@ impl DevelopComposerFinalEvidencePortV2 for SealedFinalEvidence {
         };
 
         if request.research_custody_reference != research.request_locator()
-            || request.binding_requests != self.expected_binding_requests
-            || request
-                .binding_requests
-                .iter()
-                .any(|binding| binding.strategy_design_identity != design_identity)
+            || design_identity != self.expected_design_identity
         {
             return Err(DevelopComposerTerminalV2 {
                 kind: DevelopComposerTerminalKindV2::Unavailable,
@@ -550,19 +539,6 @@ fn fixture() -> (
     };
     let owner_bindings = bindings(&design);
     let verified_bindings = verified_strategy_input_bindings_for_test(&design, owner_bindings);
-    let binding_requests = design
-        .inputs
-        .iter()
-        .enumerate()
-        .map(|(index, input)| {
-            binding_request(
-                input,
-                design.research_request_identity,
-                design_identity,
-                index as u8,
-            )
-        })
-        .collect::<Vec<_>>();
     let manifest = design.plugins[0].clone();
     let capsule = UntrustedDevelopPluginCapsuleV2 {
         schema_version: 2,
@@ -593,7 +569,6 @@ fn fixture() -> (
         request_identity: "composer-request-1".to_owned(),
         research_custody_reference: research.request_locator().to_owned(),
         design,
-        binding_requests: binding_requests.clone(),
         plugin_source_capsules: vec![capsule.clone()],
     };
     let calls = Arc::new(AtomicUsize::new(0));
@@ -614,48 +589,11 @@ fn fixture() -> (
             expected_request_identity,
             expected_request_digest,
             expected_design_identity: design_identity,
-            expected_binding_requests: binding_requests,
             reads: Arc::clone(&reads),
         },
         calls,
         reads,
     )
-}
-
-fn binding_request(
-    input: &InputRoleV2,
-    research_request_identity: BindingDigest,
-    strategy_design_identity: BindingDigest,
-    seed: u8,
-) -> UntrustedStrategyInputBindingRequest {
-    UntrustedStrategyInputBindingRequest {
-        research_request_identity,
-        strategy_design_identity,
-        input_role_identity: strategy_input_role_identity_v2(input),
-        scope: UntrustedStrategyInputScope::ExactInstrument {
-            instrument: input.instrument.clone(),
-        },
-        field_semantic: match input.field_semantic_id.as_str() {
-            "MARKET_DATA.BAR.OPEN.PRICE.V1" => MarketDataFieldSemantic::BarOpenPrice,
-            _ => MarketDataFieldSemantic::BarClosePrice,
-        },
-        channel: StrategyInputChannel::Market,
-        timeframe: input.timeframe.clone(),
-        unit: StrategyInputUnit::Price,
-        scale: input.scale,
-        pit_request_identity: digest(seed + 1),
-        pit_request_digest: digest(seed + 2),
-        snapshot_identity: digest(seed + 3),
-        snapshot_fact_digest: digest(seed + 4),
-        observation_batch_digest: digest(seed + 5),
-        source_binding_identity: digest(seed + 6),
-        source_frontier_digest: digest(seed + 7),
-        correction_frontier_digest: digest(seed + 8),
-        instrument_master_digest: digest(seed + 9),
-        universe_selection_digest: digest(seed + 10),
-        market_semantics_identity: BindingDigest::from_untrusted_bytes([9; 32]),
-        decision_cut: 10,
-    }
 }
 
 fn digest(seed: u8) -> BindingDigest {

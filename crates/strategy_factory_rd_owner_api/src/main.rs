@@ -5615,6 +5615,9 @@ mod tests {
                 // accepted Research custody and the falsifier is the fourth: an authored one
                 // publishes (that route derives the role intent from three identities) and then
                 // refuses at declare with RESEARCH_CUSTODY_MISMATCH.
+                stop_loss_fraction: None,
+                take_profit_fraction: None,
+                max_holding_bars: None,
                 falsifier: facts.falsifier.clone(),
             })
             .expect("the authoring surface must author this statement");

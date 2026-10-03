@@ -20,7 +20,7 @@ use crate::strategy_design_v2::{
 };
 use crate::strategy_plan_v2::{
     StrategyDesignPreparationV2, coordinate_port_id, plugin_manifest_digest,
-    prepare_strategy_design_v2, strategy_input_role_identity_v2,
+    prepare_strategy_design_v2,
 };
 
 pub const BOUNDED_FEATURE_PROGRAM_SCHEMA_V1: u16 = 1;
@@ -1056,11 +1056,13 @@ fn validate_inputs_and_constants(
             .find(|v| v.semantic_id == input.input_role_id)
             .ok_or(BoundedFeatureProgramErrorV1::Input)?;
 
-        if strategy_input_role_identity_v2(role) != input.input_role_identity
-            || role.timeframe != input.timeframe
-            || role.unit != input.unit
-            || role.scale != input.scale
-            || role.field_semantic_id != input.fact_type_semantic_id
+        if *input
+            != crate::bounded_feature_program_derivation_v1::bounded_feature_input_v1(
+                role,
+                &input.value_port_semantic_id,
+                &input.update_clock,
+                input.static_binding_receipt_digest,
+            )
             || role.value_type != ValueTypeV2::I128
             || input.static_binding_receipt_digest.as_bytes() == &[0; 32]
         {
@@ -3475,6 +3477,7 @@ pub(crate) mod tests {
         ProposalWiringV2, ReactionGraphV2, ResourceBoundsV2, STRATEGY_DESIGN_SCHEMA_V2,
         StateCellV2, StateWriteV2, TypedConstantV2, ValueRefV2,
     };
+    use crate::strategy_plan_v2::strategy_input_role_identity_v2;
 
     const PLUGIN: &str = "research.plugin.bfp.v1";
     const TIMER_PLUGIN: &str = "research.plugin.timer-fixture.v1";
@@ -4451,6 +4454,31 @@ pub(crate) mod tests {
             prepare_bounded_feature_program_v1(proposal, &design),
             Err(BoundedFeatureProgramErrorV1::Terminal)
         );
+    }
+
+    /// A pre-assembled program's input is admitted only as exactly what `declare` derives for its
+    /// role: each field the Design owns, changed alone, is refused. The Owner name was checked as
+    /// text only before `freeze` shared `declare`'s derivation.
+    #[rstest::rstest]
+    #[case::owner(|input: &mut BoundedFeatureInputV1| input.owner_semantic_id = "elsewhere.owner.v1".to_owned())]
+    #[case::fact_type(|input: &mut BoundedFeatureInputV1| input.fact_type_semantic_id = "MARKET_DATA.BAR.HIGH.PRICE.V1".to_owned())]
+    #[case::role_identity(|input: &mut BoundedFeatureInputV1| input.input_role_identity = BindingDigest::from_untrusted_bytes([9; 32]))]
+    #[case::timeframe(|input: &mut BoundedFeatureInputV1| input.timeframe.push_str("-other"))]
+    #[case::unit(|input: &mut BoundedFeatureInputV1| input.unit.push_str("-other"))]
+    #[case::scale(|input: &mut BoundedFeatureInputV1| input.scale += 1)]
+    fn a_pre_assembled_input_is_admitted_only_as_the_declared_derivation(
+        #[case] change: fn(&mut BoundedFeatureInputV1),
+    ) {
+        let (design, mut proposal) = candidate();
+        let manifest = &design.plugins[0];
+        let catalog = PrimitiveCatalogV1::verify().unwrap();
+        assert!(validate_inputs_and_constants(&proposal, &design, manifest, catalog).is_ok());
+
+        change(&mut proposal.inputs[0]);
+        assert!(matches!(
+            validate_inputs_and_constants(&proposal, &design, manifest, catalog),
+            Err(BoundedFeatureProgramErrorV1::Input)
+        ));
     }
 
     #[rstest::rstest]

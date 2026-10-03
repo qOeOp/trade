@@ -1,16 +1,17 @@
 //! The first COMPOSER_V3 Replay's one report point, computed independently of the engine and the
 //! report.
 //!
-//! F's endpoint is a report with one point and one fill. The Host places a GTC limit buy of
-//! `quantity` at the frame's close. No book exists yet, so the order rests as a passive (MAKER)
-//! order, and when the quote cut's ask reaches it, it fills at its own price
-//! (`OrderMatchingEngine`, `crates/execution/src/matching_engine/engine.rs`: a resting limit fills
-//! as MAKER at the order's price). It pays the maker fee on that fill and marks the long position at
-//! the bid. So the point is `(-fee + unrealized) / starting_balance`. The inputs are what production
-//! decoders read back: the quote cut's bid, the frame's close the order is priced at, the Owner's
-//! maker fee and multiplier, the family's sealed starting balance, and the target's quantity.
-//! Measured on owner-chains run 37093452400, where the fill was at the limit (123.450), not at the
-//! ask (123.440). From them this module computes the fee and the
+//! F's endpoint is a report with one point and one fill. The Host decides a GTC limit buy of
+//! `quantity` at the frame's close and submits it when the frame's fill quote arrives. That
+//! Quote's ask is below the limit, so the venue's on-arrival check matches the order against it
+//! and it fills as TAKER at the ask, the touch (`OrderMatchingEngine`,
+//! `crates/execution/src/matching_engine/engine.rs`: a limit the book already crosses on arrival
+//! fills as TAKER at the book's price). It pays the taker fee on that fill and marks the long
+//! position at the bid. So the point is `(-fee + unrealized) / starting_balance`. The inputs are
+//! what production decoders read back: the quote cut's bid and ask, the Owner's taker fee and
+//! multiplier, the family's sealed starting balance, and the target's quantity. Before the Host
+//! waited for the fill quote, owner-chains run 37093452400 filled at the limit (123.450) as MAKER,
+//! not at the ask (123.440). From them this module computes the fee and the
 //! unrealized PnL as exact decimals, and the point as an exact quotient. It calls no engine or
 //! report function; it restates the arithmetic those functions perform, measured at `main`
 //! c4bddc3b2, so a report that disagrees with it is refused rather than trusted.
@@ -18,7 +19,7 @@
 //! **The fee** is two exact decimal steps, both rounded half-to-even at the settlement currency's
 //! precision. The notional is `quantity * multiplier * fill_price`, rounded to a `Money`
 //! (`try_notional_value`, `crates/model/src/instruments/mod.rs`). The commission is that notional
-//! times the maker rate, rounded again (`MakerTakerFeeModel::get_commission`,
+//! times the taker rate, rounded again (`MakerTakerFeeModel::get_commission`,
 //! `crates/execution/src/models/fee.rs`). Both roundings are `bankers_round`
 //! (`crates/model/src/types/fixed.rs`). The report's fee must equal this one exactly.
 //!
@@ -44,14 +45,14 @@ use rust_decimal::{Decimal, RoundingStrategy};
 pub(crate) struct FillOracleInputsV1 {
     /// The quote cut's best bid for the member: the long position's mark.
     pub(crate) bid: Decimal,
-    /// The price the order fills at: its limit, the frame's close, since it rests as MAKER before
-    /// the quote cut's ask reaches it.
+    /// The price the order fills at: the quote cut's ask, the touch, since the order the Host
+    /// submits on that Quote already crosses it.
     pub(crate) fill_price: Decimal,
     /// The target's quantity, in the instrument's units.
     pub(crate) quantity: Decimal,
     /// The Owner's contract multiplier.
     pub(crate) multiplier: Decimal,
-    /// The Owner's fee rate for the fill's liquidity side: the maker rate for F's resting limit.
+    /// The Owner's fee rate for the fill's liquidity side: the taker rate for F's crossing limit.
     pub(crate) fee_rate: Decimal,
     /// The family's sealed starting balance, in the settlement currency.
     pub(crate) starting_balance: Decimal,

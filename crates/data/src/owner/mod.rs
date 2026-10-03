@@ -6,6 +6,7 @@ use vibe_postgres_connect::{PgPoolOptionsExt, PostgresTls};
 
 pub mod bar_schedule;
 pub mod calendar;
+pub mod decimal_rescale_v1;
 pub mod declared_bar_timeframe_v1;
 pub mod frozen_observation_window_v1;
 pub mod instrument_economic_terms_intake_v1;
@@ -25,6 +26,8 @@ pub mod observation_census;
 pub mod pit_market_snapshot_intake_v1;
 pub mod pit_observation_source_v1;
 pub mod pit_snapshot;
+pub mod pit_window_custody_v1;
+pub mod replay_funding_schedule_v1;
 pub mod replay_market_facts_v2;
 pub mod research_instrument_scope_v1;
 pub mod research_pit_references_v1;
