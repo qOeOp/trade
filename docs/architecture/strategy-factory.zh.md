@@ -669,9 +669,16 @@ V2 sequence digest 覆盖各帧顺序及全部 frame、schedule、liquidity rece
 原记录，意义变化零写入冲突。Native preparation 必须独立重解每个 Owner cut、逐字节复现 V2 binding，再交付
 move-only bundle；bundle 在 ProgramHost 或 Backtest 改变状态前验证每帧完整 BAR、随后真实 EVENT 流动性、
 跨帧时间顺序和请求窗口。不能把 V1 解释成 V2，也不能在 V2 来源不可用时退回 V1。Market Data 按规范 scale 签发每个
-BAR 与 Quote 的值，所以 0.001 tick 上的收盘价 123.450 到达时是 123.45。bundle 把每个价格与数量在不改变数值的前提下
-改写为其 instrument 的精度，比 instrument 网格更细的值按名拒绝；随后对任何不在其 instrument 精度上的 BAR 或 Quote 按名
-拒绝，否则引擎会静默丢弃该数据，运行却照常完成。
+BAR 与 Quote 的值，所以 0.001 tick 上的收盘价 123.450 到达时是 123.45。Instrument Master 的 tick 是取回当天交易所的
+tick，而交易所会随价格上涨把 tick 放粗：BTCUSDT 今天的 tick 是 0.10，它 2021-06-01 的日线开盘却是 37244.36；SOLUSDT
+今天是 0.0100，它 2021 年的价格有三位小数。所以 bundle 先把每个成员的价格网格放宽到其窗口内 BAR 与 Quote 价格出现过的
+最细 scale（当它比 tick 更细时），increment 取该 scale 上的一个单位；census 按成员记下 tick 的精度、数据的精度、第一个
+达到该精度的数据的时刻，以及 Replay 实际运行的精度。于是订单网格取自数据，而不是当时交易所的 tick，后者 Instrument
+Master 并不持有。Host 把这一点守成不变量而不是假设：position order 的价格与每笔成交的价格都必须落在该成员的数据网格上，
+否则运行按名失败，即 `ORDER_PRICE_OFF_THE_DATA_GRID` 或 `FILL_PRICE_OFF_THE_DATA_GRID`；protective stop-market 的触发价
+由 kernel 给出、落在 Replay 的网格上，它按 touch 成交，由成交检查覆盖。只放宽价格：size 网格就是一个 grid unit 仓位
+的含义。随后 bundle 把每个价格与数量在不改变数值的前提下改写为其 instrument 的精度，比 instrument 网格更细的值按名
+拒绝；随后对任何不在其 instrument 精度上的 BAR 或 Quote 按名拒绝，否则引擎会静默丢弃该数据，运行却照常完成。
 
 Backtest V2 Result custody 绑定 V2 binding、sequence digest、每帧消费顺序、实际 target set/fill 和本次
 canonical Result bytes；单帧 V1 的 28 项证据不能证明一次序列运行。只有每个成员真实进场成交、出场再次成交、

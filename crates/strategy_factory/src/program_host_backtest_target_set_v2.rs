@@ -286,6 +286,9 @@ pub(crate) struct BacktestTargetSetProgramHostStrategyV2 {
     /// Each frame's fill-quote instants, keyed by the frame's time, one per member, as the bundle
     /// states them.
     fill_quote_instants: BTreeMap<u64, Vec<u64>>,
+    /// Each member's data price precision: the finest scale its window's prices show. Every
+    /// position order's price and every fill's price must lie on that grid.
+    data_price_precisions: BoundedMembers<u8>,
     /// The orders a frame decided, each waiting for its member's fill quote to be submitted.
     awaiting_fill_quote: Option<AwaitingFillQuoteV2>,
     trace: Rc<RefCell<TargetSetBacktestTraceV2>>,
@@ -314,7 +317,12 @@ impl BacktestTargetSetProgramHostStrategyV2 {
         restore_after_first_terminal_fill: bool,
         restore_performed: Rc<Cell<bool>>,
         trace: Rc<RefCell<TargetSetBacktestTraceV2>>,
+        data_price_precisions: BoundedMembers<u8>,
     ) -> anyhow::Result<Self> {
+        anyhow::ensure!(
+            data_price_precisions.len() == instrument_ids.len(),
+            "Backtest target-set data price precisions do not correspond to its members"
+        );
         anyhow::ensure!(
             instrument_ids.windows(2).all(|pair| pair[0] < pair[1])
                 && bar_types.len() == instrument_ids.len()
@@ -367,6 +375,7 @@ impl BacktestTargetSetProgramHostStrategyV2 {
             restore_after_first_terminal_fill,
             restore_performed,
             fill_quote_instants,
+            data_price_precisions,
             awaiting_fill_quote: None,
             trace,
         })
@@ -538,10 +547,40 @@ impl BacktestTargetSetProgramHostStrategyV2 {
         Ok(())
     }
 
+    /// Refuses, by `refusal`, a price finer than the member's data grid.
+    ///
+    /// The Replay may run a member at a grid widened to its data (see `ReplayPriceGridV1`). That is
+    /// sound only while every price the run trades at is one the data could have shown, which a
+    /// position order's limit (the frame's close) and a fill (a Quote's touch or a resting limit)
+    /// each are. This holds that invariant instead of assuming it. A protective stop-market's
+    /// trigger is the kernel's, on the Replay's grid; it trades at the touch, which this checks.
+    fn ensure_on_the_data_grid(
+        &self,
+        ordinal: usize,
+        price: Price,
+        refusal: &str,
+    ) -> anyhow::Result<()> {
+        let scale = price.as_decimal().normalize().scale();
+        let grid = self.data_price_precisions[ordinal];
+        anyhow::ensure!(
+            scale <= u32::from(grid),
+            "{refusal}: {price} for {} is finer than its data's {grid}-place grid",
+            self.instrument_ids[ordinal]
+        );
+        Ok(())
+    }
+
     fn submit_prepared_order(
         &mut self,
         prepared_order: PreparedNativeOrderV2,
     ) -> anyhow::Result<()> {
+        if let Some(price) = prepared_order.order.price() {
+            self.ensure_on_the_data_grid(
+                prepared_order.member_ordinal,
+                price,
+                "ORDER_PRICE_OFF_THE_DATA_GRID",
+            )?;
+        }
         let client_order_id = prepared_order.order.client_order_id();
         let binding = NativeOrderBindingV2 {
             member_ordinal: prepared_order.member_ordinal,
@@ -942,6 +981,10 @@ impl BacktestTargetSetProgramHostStrategyV2 {
                 }),
             "cross-member Backtest target-set order event"
         );
+
+        if let OrderEventAny::Filled(filled) = event {
+            self.ensure_on_the_data_grid(ordinal, filled.last_px, "FILL_PRICE_OFF_THE_DATA_GRID")?;
+        }
         let (status, filled_quantity) = {
             let cache = self.cache();
             let order = cache.try_order(&client_order_id)?;
