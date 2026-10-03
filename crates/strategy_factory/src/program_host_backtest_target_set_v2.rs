@@ -1203,6 +1203,33 @@ impl DataActor for BacktestTargetSetProgramHostStrategyV2 {
                 self.cached_position_grid_units(ordinal, &instrument)
             })?;
             self.trace.borrow_mut().final_member_grid_units = Some(final_member_grid_units);
+            {
+                let cache = self.cache();
+                for order in cache.orders(None, None, None, None, None) {
+                    eprintln!(
+                        "PROBE order at stop: {} {:?} {:?} side={:?} qty={} filled={} price={:?} events={:?}",
+                        order.client_order_id(),
+                        order.status(),
+                        order.order_type(),
+                        order.order_side(),
+                        order.quantity(),
+                        order.filled_qty(),
+                        order.price(),
+                        order.events().iter().map(|event| format!("{event:?}")).collect::<Vec<_>>(),
+                    );
+                }
+                for (ordinal, (_, checkpoint)) in
+                    self.host.member_checkpoints_for_backtest().iter().enumerate()
+                {
+                    eprintln!("PROBE member {ordinal} pending intent: {:?}", checkpoint.pending_intent);
+                }
+                eprintln!(
+                    "PROBE frames left {} pending bars {} clock {}",
+                    self.universe_frames.len(),
+                    self.pending_bars.len(),
+                    self.clock().timestamp_ns().as_u64()
+                );
+            }
             anyhow::ensure!(
                 self.universe_frames.is_empty() && self.pending_bars.is_empty(),
                 "Backtest target-set frames were not exhausted"
