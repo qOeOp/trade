@@ -113,7 +113,12 @@ ACL 拒绝。它不证明供应商真实性，不证明生产装配，也不证�
   建不出其中任何一个就以它的失败码拒绝。Market Data 的证明
   `the_production_seam_admits_what_the_administrator_measured_sealed_and_published` 在一次性 PostgreSQL 上把这个合成根
   端到端走了一遍 - 测量、补全、封存、发布、准入，再经 scheduling 读口读取 - 所以**一条自述未建的缝**已不再是它的写照。
-  它在那里读到的 BAR schedule 普查是空的；生产策略在真实 schedule 行上仍从未运行过。真实部署会不会设成 `Required`
+  它在那里读到的 BAR schedule 普查是空的；生产策略在真实 schedule 行上仍从未运行过。
+  Native Replay 执行需要的两个 resolver 也以同样方式打开：集成测试
+  `the_native_replay_resolvers_open_and_read_in_required_mode` 在 `required` 模式下、以文件配置打开
+  `native_replay_scheduling_resolver_v1_from_store_admission_lookup` 与
+  `shared_time_evidence_resolver_from_store_admission_lookup_v1`，与 `rd-owner-api` 打开其环境变体的方式相同，
+  并经同一次准入读取该库。真实部署会不会设成 `Required`
   是一个关于部署配置的问题，代码里答不出。
   **解除 `B3` 证明的是 `rd-owner-api` 连到了哪个库，并不把凭据挡在这个进程之外**。同一进程启动时就持有两条裸 DSN：
   `MARKET_DATA_OWNER_DATABASE_URL`，即 Owner 的写主体 `market_data_owner`，`product/rd-workbench/docker-compose.yml`
@@ -2324,6 +2329,24 @@ bytes conflict。schedule readback 缺失、含糊、不唯一或非 durable 时
 准确 historical schedule 与 projection；这些改变必须形成新的 Owner schedule fact/cut，不能通过 free-form
 binding label 偷渡。
 
+`SampleFactV2` 是 PIT 窗口托管（切片 T0）的行事实，是与 V1 并列的后继 schema，V1 的字节绝不被重新解释。它的 canonical
+bytes 以 schema `u16LE = 2` 与 reserved-zero `u16LE` 开头，然后按顺序绑定：series identity、slot identity、
+series-predecessor sample identity（series 根处全零）、可选的 correction-predecessor sample identity、series 序号
+`u64LE`、更正序号 `u64LE`、截面版本 identity、canonical-row digest、Owner event identity `[u8; 16]`、instrument、
+channel 与 data-kind 编码、field semantic、timeframe identity、value semantic、unit、fixed-I128 value mantissa 与
+scale、event-effective、available 与 publication 时刻 `u64LE`、Source Binding identity、lineage root 与 version、
+source-frontier digest、correction stream、correction-frontier digest、Instrument Master digest 与 Market Semantics
+identity；可变字段是 `u16LE length || bytes`。fact digest 是 `market-data.sample-fact.v2\0 || bytes` 的 SHA-256，
+sample identity 是 `market-data.sample.identity.v2\0 || fact digest` 的 SHA-256。series identity 沿用 V1 的，所以同一
+个 series 在两个 schema 下指同一个东西。根 slot 是
+`market-data.sample-slot.identity.v2\0 || series identity || event-effective u64LE` 的 SHA-256，不指名任何快照或版本。
+Owner event identity 是 `market-data.sample-event.identity.v2\0` 加上 schema `u16LE = 2`、reserved-zero `u16LE`、截面
+版本 identity、canonical-row digest、event-effective、available 与 publication 时刻、更正序号与 correction stream 的
+SHA-256 前 16 bytes。新 bar 取它 event 的根 slot、更正序号 1 与下一个 series 位置，它的 event 必须晚于 series head；更
+正保持它那根 bar 的 slot 与 series 位置，更正序号必须是 slot head 的加一，发布必须晚于 slot head。否则分别按名拒为
+`EventNotAfterSeriesHead`、`CorrectionSequenceNotNext` 或 `PublicationNotAfterCorrection`；存储的 V2 fact 若其 slot、
+event identity 或链位置不能由它自己的行推出，一律拒绝。
+
 `SampleFactV1`、`SampleReceiptV1` 与 308-byte coordinate 携带的 `Owner event identity` 是新增的
 role-independent Market Data identity，并非既有 V1 frame-trigger event identity。其 canonical preimage 按顺序
 为：schema `u16LE = 1`、reserved-zero `u16LE`、source snapshot identity `[u8; 32]`、source-snapshot fact
@@ -2609,6 +2632,38 @@ scope 时，给出每个成员最后一根已收盘的 bar，并在旁边给出�
   断言这些行。
 - **不陈述的内容。** 结算间隔不是一行：端点不陈述它，所以 timeframe 是 `TICK`，而不是猜出来的间隔。来自
   `premiumIndex` 的实时估计、Replay 中的 funding 计提，以及 Design 可以引用的 funding 字段语义，是各自独立的切片。
+
+### TARGET 供 T0 窗口托管使用的 Binance 回填取回
+
+U1 的历史以 T0 窗口托管的形式进入：每个成员在整个窗口上一个托管，覆盖执行周期与成交周期。这里是为托管提交供数的取回一侧，
+提交本身的类型属于 T0。
+
+- **执行 bar 来自公开归档。** 对每个成员、周期与月份，取回读取
+  `data/futures/um/monthly/klines/{SYMBOL}/{interval}/{SYMBOL}-{interval}-{YYYY-MM}.zip` 及其 `.CHECKSUM` 侧文件，并以侧文件自己的摘要
+  作为绑定摘要，经 `authenticate_monthly_klines` 读取。这证明字节按主机发布的样子到达，不证明发布者是谁。
+- **数据集由请求命名，而不是从文件读出。** 读取器入口接收它被要求读取的数据集（`klines`），并与它取回的归档路径核对。
+  `markPriceKlines`、`indexPriceKlines` 与 `premiumIndexKlines` 的归档有相同的文件名、列与布局。
+- **2022 年之前的归档没有表头。** BTCUSDT `1d` 从 2021-01 到 2021-12 的每个月都以数据开头，从 2022-01 起的每个月都以官方表头开头。
+  今天的读取器拒绝前一种，那是 U1 的一整年。首行恰为官方表头时跳过；否则首行按一行数据读取，适用读取器对每行已有的全部规则：
+  - 12 列；
+  - 开盘时刻落在周期网格上且严格递增，缺口被记录而不是被补上；
+  - 收盘时刻在周期之内；
+  - 价格一致；
+  - 成交量不为负，taker 买入量不超过成交量。
+- **把价格归档挡在外面的是零成交量规则。** 成交量为零的行，只有在成交笔数为零且价格不动时才接受，否则以 `ZeroVolumeAmbiguity`
+  拒绝。BTCUSDT `1d` 2021-06 的标记价、指数价与溢价指数归档，每一行成交量都为零，成交笔数分别为 86,363 到 86,400、86,360 到 86,400
+  与 17,267 到 17,280，且价格在动；成交归档的成交量最高到 1,531,824。去掉这条规则，价格归档就会被当作成交读入而不报任何拒绝，
+  所以它保留。读取器今天已经这样做：`crates/adapters/binance/src/common/offline.rs` 中表头是可选的，其测试读取两份 2021-06 归档的真实首行，
+  成交行被读入，标记价行被拒绝。
+- **成交 bar 来自端点。** 第 `k` 帧的成交 bar 是开盘时刻严格晚于第 `k` 帧的 bar 事件加声明的滞后、并严格早于第 `k+1` 帧 bar 事件的
+  第一根 `1m` bar；用这个起点与 `limit=1` 调用一次无签名的 `klines` 即得到它。每帧一次调用，不取约每月 2 MB 的 `1m` 归档。
+- **资金费率暂不进入这个托管。** 一个 Source Binding 只声明一条可用性规则，而 funding 结算不是声明过的 bar 周期。所以 U1 的 funding
+  经永续 Data Client 的已结算 funding 行读取；以后可以用单独的 binding 把它加入托管，这只是加法。
+- **每一行注明自己的途径。** 执行 bar 来自归档主机，成交 bar 来自端点主机，二者在同一个 Source Binding 之下；托管证据记录每一行由哪个途径产出。
+- **可续跑且幂等。** 每个取回的文件以其归档名保存在分片目录中，旁边放它的侧文件；只有字节与侧文件一致的分片才算数。重跑时校验
+  已有的分片，只取回缺失或不一致的，每个新分片经临时文件加改名写入。托管在它的全部分片都齐了之后提交一次，T0 的提交对相同的
+  重复提交 rejoin。
+- **取回发生在今天。** 托管的取回时刻是取回运行时的墙钟。可见性来自 Source Binding 的可用性规则，绝不来自一个历史的取回坐标。
 
 ## 输入交接
 
