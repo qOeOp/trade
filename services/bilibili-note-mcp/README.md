@@ -1,6 +1,6 @@
-# Bilibili Note MCP
+# Video Note MCP
 
-Standalone local MCP for illustrated Chinese notes from public Bilibili videos of any subject.
+Standalone local MCP for illustrated Chinese notes from public Bilibili and YouTube videos of any subject.
 It uses complete speech transcription and actual video frames to produce an overview, content-derived
 chapters, concrete details, relevant screenshots and source/time links. No subject-specific framework
 or fixed topic categories are imposed. The [design](bilibili-note.md) is the architecture authority.
@@ -8,9 +8,17 @@ or fixed topic categories are imposed. The [design](bilibili-note.md) is the arc
 ## Use
 
 ```text
-bilibili_note.create({"url":"https://www.bilibili.com/video/BV..."})
-bilibili_note.search_and_create({"query":"Python 入门教程","max_videos":1})
+video_note.create({"url":"https://www.bilibili.com/video/BV..."})
+video_note.create({"url":"https://www.youtube.com/watch?v=EtIAqiguRHs","quality":"fast"})
+video_note.search_and_create({"query":"Python 入门教程","platform":"youtube","max_videos":1})
 ```
+
+The old `bilibili_note.*` tool names remain accepted as compatibility aliases.
+Search defaults to Bilibili; select `platform: "youtube"` explicitly for YouTube.
+YouTube accepts public finite `watch`, `youtu.be` and `shorts` links, including share/time parameters.
+Playlists, channels and live streams are rejected. Install Deno (recommended) or Node 22+ on `PATH`;
+the locked yt-dlp default dependencies include the matching EJS component. No browser cookies are
+read automatically. Videos without subtitles use the same complete-audio ASR and quality tiers.
 
 Search returns a collection of exactly the requested number of successful notes (1–3), each retaining
 its own source attribution. At most two source jobs run concurrently. If the target cannot be met,
@@ -117,8 +125,8 @@ Live acceptance must include non-domain-specific material and viewing the actual
 - `standard`：额外复听最多三个包含疑似异常、重复、字母或数字的片段。启发式筛选不能找出所有错词。
 - `precise`：第二种 ASR 复核全部音频，耗时与成本更高。
 
-例如 `bilibili_note.create({"url":"视频链接","quality":"precise"})`；
-搜索入口使用 `bilibili_note.search_and_create({"query":"主题或作者","max_videos":1,"quality":"standard"})`。
+例如 `video_note.create({"url":"视频链接","quality":"precise"})`；
+搜索入口使用 `video_note.search_and_create({"query":"主题或作者","max_videos":1,"quality":"standard"})`。
 CLI 同样支持 `--create URL --quality precise`。已有内部 Python 调用默认仍为 `fast`。
 
 所有档位都不依赖字幕，保留完整原转录、时间段与复核分歧。复核结果不会擅自覆盖原文，

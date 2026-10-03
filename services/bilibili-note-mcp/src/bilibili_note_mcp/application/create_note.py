@@ -38,7 +38,8 @@ from bilibili_note_mcp.application.resource_limits import (
     FRAME_PNG_TOTAL_BYTES,
 )
 from bilibili_note_mcp.domain.models import FailureCode, Quality, VideoNote
-from bilibili_note_mcp.domain.url_policy import InvalidBilibiliUrl, validate_bilibili_url
+from bilibili_note_mcp.domain.url_policy import InvalidBilibiliUrl
+from bilibili_note_mcp.domain.video_url import validate_video_url
 
 from .transcript_validation import validate_transcript
 
@@ -88,7 +89,7 @@ class CreateBilibiliNote:
             raise ValueError("invalid quality")
         reporter = progress or NullProgressReporter()
         try:
-            validate_bilibili_url(url)
+            validate_video_url(url)
         except InvalidBilibiliUrl as e:
             raise BilibiliNoteFailure(e.code, e.reason) from e
         await reporter.report(progress_update(ProgressStageV1.REQUEST_VALIDATED))
