@@ -1002,6 +1002,44 @@ fn real_sim_event_run_enters_fills_exits_fills_again_and_ends_flat() {
     );
 }
 
+/// A frame that flips both held longs to shorts fills each as one native order of the whole
+/// difference, through zero, and cancels the stop that guarded the long.
+#[rstest]
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+fn a_flip_frame_takes_each_long_through_zero_to_a_short_in_one_fill() {
+    let (trace, _) =
+        run_two_frame_corpus_with_exit(target_set(), flip_target_set(), |_, _| Vec::new())
+            .expect("target-set flip corpus");
+    assert_eq!(trace.callback_failure, None);
+
+    let legs = trace
+        .actual_fill_consumptions
+        .iter()
+        .map(|fill| {
+            (
+                fill.instrument.as_str(),
+                fill.position_intent.as_str(),
+                fill.position_after_grid_units,
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        legs,
+        [
+            ("AAPL.XNAS", "ENTER", 2),
+            ("MSFT.XNAS", "ENTER", 1),
+            ("AAPL.XNAS", "ENTER", 5),
+            ("MSFT.XNAS", "ENTER", 4),
+            ("AAPL.XNAS", "FLIP", -5),
+            ("MSFT.XNAS", "FLIP", -4),
+        ]
+    );
+    assert_eq!(
+        trace.final_member_grid_units.as_deref(),
+        Some(&[-5, -4][..])
+    );
+}
+
 #[rstest]
 #[cfg(feature = "sealed-strategy-input-acceptance")]
 fn real_sim_event_run_which_only_entered_claims_no_round_trip() {
@@ -2652,6 +2690,17 @@ fn exit_target_set() -> InstrumentTargetSetV2 {
         ],
     )
     .unwrap()
+}
+
+fn flip_target_set() -> InstrumentTargetSetV2 {
+    let flip = |instrument: &[u8], units: i64| MemberTargetV2 {
+        instrument: InstrumentKeyV2::new(instrument).unwrap(),
+        position: PositionIntentV1::Flip,
+        target: TargetProposalV1::Position(units),
+        reconciliation_target_units: Some(units),
+        protection: ProtectionProposalV1::Clear,
+    };
+    InstrumentTargetSetV2::new(2, &[flip(b"AAPL.XNAS", -5), flip(b"MSFT.XNAS", -4)]).unwrap()
 }
 
 fn output_frame(
