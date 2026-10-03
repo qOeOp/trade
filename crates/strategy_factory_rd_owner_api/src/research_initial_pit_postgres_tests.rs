@@ -344,6 +344,63 @@ async fn accept(
         .unwrap()
 }
 
+/// Submits the same Research request `accept` admits, over `POST /v2/research-goals` without a scope
+/// or `POST /v3/research-goals` with one, as a caller does.
+async fn submit_over_http(
+    app: &axum::Router,
+    route: &str,
+    request_identity: &str,
+    scope: Option<&[&str]>,
+) -> Response {
+    let mut body = serde_json::json!({
+        "request_identity": request_identity,
+        "channel": ProductEdgeChannel::WindmillProductEdge,
+        "goal": {
+            "hypothesis": "A bounded momentum effect persists after exact costs.",
+            "mechanism": "Slow information diffusion creates bounded continuation.",
+            "falsification_question": "Does the effect disappear after modeled costs?",
+            "expected_observation": "Net continuation remains positive.",
+            "required_data": ["PIT bars of the requested instrument"],
+            "cost_assumption": "Exact acceptance cost model.",
+            "capacity_assumption": "Exact acceptance capacity model.",
+            "sources": [{
+                "locator": "https://example.com/initial-pit-acceptance",
+                "content_digest": format!("sha256:{}", "a".repeat(64)),
+                "observed_at": "2026-09-26T00:00:00Z",
+                "source_cut": "initial-pit-acceptance-cut-v1",
+                "license_basis": "public research",
+                "interpretation": "Initial PIT issuance acceptance fixture.",
+            }],
+        },
+        "trial_family_proposal": {
+            "trial_budget": 2,
+            "stop_rule": "Stop on falsifier or unavailable PIT input.",
+            "pit_rule_identity": "pit-rule-v1",
+            "cost_model_identity": "cost-model-v1",
+            "slippage_model_identity": "slippage-model-v1",
+            "capacity_model_identity": "capacity-model-v1",
+            "independence_rationale": "Fresh isolated initial PIT family.",
+        },
+    });
+
+    if let Some(identities) = scope {
+        body["instrument_scope"] =
+            serde_json::json!({"schema_version": 1, "identities": identities});
+    }
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(route)
+                .header("authorization", format!("Bearer {TOKEN}"))
+                .header("content-type", "application/json")
+                .body(Body::from(serde_json::to_vec(&body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap()
+}
+
 async fn issue_over_http(app: &axum::Router, request_identity: &str) -> Response {
     app.clone()
         .oneshot(
@@ -411,7 +468,7 @@ fn available() -> ResearchInitialPitV1 {
 struct InitialPitFixtureV1 {
     test_database: CanonicalOwnerPostgresTestDatabaseV1,
     suffix: String,
-    product_edge: ProductEdgePostgresOwnerV1,
+    product_edge: Arc<ProductEdgePostgresOwnerV1>,
     owner: Arc<PostgresResearchGoalOwnerV1>,
     rd: PgPool,
     market_data: PgPool,
@@ -446,25 +503,27 @@ async fn initial_pit_fixture() -> InitialPitFixtureV1 {
         .unwrap()
         .as_nanos()
         .to_string();
-    let product_edge = super::tests::bootstrap_api_test_product_edge_with(
-        &test_database,
-        &suffix,
-        REQUEST_PROOF_DIGEST,
-        |window| {
-            vec![AgentOperationManifestProposalV1 {
-                operation: RESEARCH_GOAL_OPERATION_V3.to_owned(),
-                operation_schema: RESEARCH_GOAL_SCHEMA_V3.to_owned(),
-                target_owner: RESEARCH_OWNER_V1.to_owned(),
-                allowed_effects: vec!["R_AND_D_RESEARCH_MUTATION_V1".to_owned()],
-                prohibited_effects: vec!["REAL_TRADING_V1".to_owned()],
-                capability_policy_digest: format!("sha256:{}", "e".repeat(64)),
-                effective_from_epoch_ms: window.effective_from_epoch_ms,
-                valid_through_epoch_ms: window.valid_through_epoch_ms,
-            }]
-        },
-        Vec::new(),
-    )
-    .await;
+    let product_edge = Arc::new(
+        super::tests::bootstrap_api_test_product_edge_with(
+            &test_database,
+            &suffix,
+            REQUEST_PROOF_DIGEST,
+            |window| {
+                vec![AgentOperationManifestProposalV1 {
+                    operation: RESEARCH_GOAL_OPERATION_V3.to_owned(),
+                    operation_schema: RESEARCH_GOAL_SCHEMA_V3.to_owned(),
+                    target_owner: RESEARCH_OWNER_V1.to_owned(),
+                    allowed_effects: vec!["R_AND_D_RESEARCH_MUTATION_V1".to_owned()],
+                    prohibited_effects: vec!["REAL_TRADING_V1".to_owned()],
+                    capability_policy_digest: format!("sha256:{}", "e".repeat(64)),
+                    effective_from_epoch_ms: window.effective_from_epoch_ms,
+                    valid_through_epoch_ms: window.valid_through_epoch_ms,
+                }]
+            },
+            Vec::new(),
+        )
+        .await,
+    );
     let owner = Arc::new(
         PostgresResearchGoalOwnerV1::connect(
             test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
@@ -498,7 +557,18 @@ async fn initial_pit_fixture() -> InitialPitFixtureV1 {
         .unwrap();
     let ports = MarketDataInitialPitPortsV1::new(universe.clone(), intake.clone());
     let token_digest: [u8; 32] = Sha256::digest(TOKEN.as_bytes()).into();
-    let app = research_initial_pit::router(owner.clone(), Some(ports.clone()), token_digest);
+    // The initial PIT step and the Research submission routes, as the API serves them.
+    let app = research_initial_pit::router(owner.clone(), Some(ports.clone()), token_digest).merge(
+        research_goal_submission::router(
+            research_goal_submission::ResearchGoalSubmissionApiStateV1 {
+                product_edge: product_edge.clone(),
+                owner: owner.clone(),
+                token_digest,
+                request_proof_digest: REQUEST_PROOF_DIGEST.to_owned(),
+                allow_acceptance_faults: false,
+            },
+        ),
+    );
     InitialPitFixtureV1 {
         test_database,
         suffix,
@@ -800,6 +870,63 @@ async fn issues_its_initial_pit_request() {
     let body = readback(&owner, &unscoped).await;
     assert_eq!(body["request_schema_version"], 2, "{body}");
     assert_eq!(body["instrument_scope"], serde_json::Value::Null, "{body}");
+
+    // H: submitted over the R&D API, as a caller does. A scope goes to `POST /v3/research-goals`
+    // and is admitted as V3, whose initial PIT request then issues; no scope goes to
+    // `POST /v2/research-goals` and stays V2. Each route refuses the other's body before anything
+    // is admitted, so a scope cannot slip into a V2 request or out of a V3 one.
+    let over_http = format!("rd-initial-pit-h-v3-{suffix}");
+    let response = submit_over_http(&app, "/v3/research-goals", &over_http, Some(&scope)).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = super::tests::response_json(response).await;
+    assert_eq!(body["resolution"], "ACCEPTED", "{body}");
+    let body = readback(&owner, &over_http).await;
+    assert_eq!(body["request_schema_version"], 3, "{body}");
+    assert_eq!(
+        body["instrument_scope"],
+        serde_json::json!({"schema_version": 1, "identities": [CHAIN_FIXTURE_INSTRUMENT]}),
+        "{body}"
+    );
+    let response = issue_over_http(&app, &over_http).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = super::tests::response_json(response).await;
+    assert_eq!(
+        body["initial_pit"],
+        serde_json::json!({"state": "TERMINAL", "disposition": "AVAILABLE", "primary_blocker": null}),
+        "{body}"
+    );
+    let over_http_v2 = format!("rd-initial-pit-h-v2-{suffix}");
+    let response = submit_over_http(&app, "/v2/research-goals", &over_http_v2, None).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = readback(&owner, &over_http_v2).await;
+    assert_eq!(body["request_schema_version"], 2, "{body}");
+    assert_eq!(body["instrument_scope"], serde_json::Value::Null, "{body}");
+
+    for (route, scope, name) in [
+        (
+            "/v2/research-goals",
+            Some(&scope[..]),
+            "rd-initial-pit-h-v2-scoped",
+        ),
+        ("/v3/research-goals", None, "rd-initial-pit-h-v3-unscoped"),
+    ] {
+        let refused_request = format!("{name}-{suffix}");
+        let refused = submit_over_http(&app, route, &refused_request, scope).await;
+        assert_eq!(refused.status(), StatusCode::BAD_REQUEST, "{route}");
+        assert_eq!(
+            refused.headers()["x-rd-rejection-code"],
+            "MALFORMED_TYPED_REQUEST",
+            "{route}"
+        );
+        let receipts: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM public.rd_research_request_receipts_v1 WHERE request_identity = $1",
+        )
+        .bind(&refused_request)
+        .fetch_one(&rd)
+        .await
+        .unwrap();
+        assert_eq!(receipts, 0, "{route}: nothing was submitted");
+    }
 
     // N1, rejected: a V3 request the Owner rejects is still V3, and its readback states the scope
     // exactly as it was admitted. One is rejected by Market Data's real check, which does not find

@@ -57,6 +57,7 @@ use super::{
 use super::{
     program_host_sim_event_consumer_v1::{
         ProgramHostSimEventRoundTripV1, program_host_sim_event_canonical_result_digest_for_test,
+        program_host_sim_event_ordered_trace_census_for_test,
         program_host_sim_event_round_trip_for_test, run_program_host_sim_event_consumer_v1,
     },
     replay_execution_profile_binding_v1::{
@@ -115,6 +116,81 @@ fn a_bundle_takes_a_replay_that_names_its_universe_selection_record() {
         &[time],
     )
     .expect("a request naming its Universe Selection Record forms its execution bundle");
+}
+
+/// Market Data issues values at their canonical scale, so on a 0.001 tick a close of 187.250
+/// arrives as 187.25. The bundle re-expresses every BAR and Quote at its instrument's precision
+/// without changing a value; the engine would otherwise drop the data and reject an order priced
+/// from it.
+#[rstest]
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+fn a_bundle_expresses_canonical_scale_data_at_its_instruments_precision() {
+    let mut instruments = instruments();
+    for instrument in &mut instruments {
+        let instrument = crypto_perpetual_mut(instrument);
+        instrument.maker_fee = rust_decimal::Decimal::new(2, 4);
+        instrument.taker_fee = rust_decimal::Decimal::new(4, 4);
+        instrument.margin_init = rust_decimal::Decimal::new(1, 1);
+        instrument.margin_maint = rust_decimal::Decimal::new(5, 2);
+        instrument.price_precision = 3;
+        instrument.price_increment = Price::from("0.001");
+    }
+    let (plan, artifact, frame) = fixture().unwrap();
+    let admitted = admit_owner_universe_program_event_v2(
+        &plan,
+        &OwnerUniverseFrameV1::uncoordinated(frame.clone()),
+    )
+    .unwrap();
+    let time = admitted.envelope().order_key.logical_time_ns;
+    let authority = owner_replay_execution_profile_binding_fixture_v1(
+        &plan,
+        &artifact,
+        &frame,
+        ReplayWindowV2 {
+            start_event_ns: time,
+            end_event_ns_exclusive: time + 3,
+        },
+    );
+    let (bar_types, data) = request_execution_schedule(&instruments, time);
+    assert!(data.iter().all(|datum| match datum {
+        Data::Bar(bar) => bar.close.precision == 2,
+        Data::Quote(quote) => quote.ask_price.precision == 2,
+        _ => false,
+    }));
+    let capability = ReplayTargetSetExecutionBundleV1::new_with_native_instruments_for_test(
+        authority,
+        plan,
+        artifact,
+        vec![OwnerUniverseFrameV1::uncoordinated(frame)],
+        StrategyId::from("TARGET-SET-PROFILE-EVENT-001"),
+        "target-set-profile-event".into(),
+        instruments,
+        bar_types,
+        data.clone(),
+        &[time],
+    )
+    .expect("canonical-scale data forms a bundle at its instruments' precision");
+    let aligned = &capability.data;
+    assert_eq!(aligned.len(), data.len());
+
+    for (aligned, issued) in aligned.iter().zip(&data) {
+        match (aligned, issued) {
+            (Data::Bar(aligned), Data::Bar(issued)) => {
+                assert_eq!(aligned.close.precision, 3);
+                assert_eq!(aligned.close.as_decimal(), issued.close.as_decimal());
+                assert_eq!(aligned.volume, issued.volume);
+            }
+            (Data::Quote(aligned), Data::Quote(issued)) => {
+                assert_eq!(aligned.ask_price.precision, 3);
+                assert_eq!(
+                    aligned.ask_price.as_decimal(),
+                    issued.ask_price.as_decimal()
+                );
+                assert_eq!(aligned.bid_size, issued.bid_size);
+            }
+            other => panic!("native data kind changed: {other:?}"),
+        }
+    }
 }
 
 #[rstest]
@@ -247,6 +323,14 @@ fn owner_bound_profile_drives_bar_signal_then_real_event_fills() {
             .get("canonical_result")
             .is_none(),
         "canonical result belongs to separate Backtest outcome evidence"
+    );
+    assert!(readback.protective_fills().is_empty());
+    assert!(
+        serde_json::to_value(&readback)
+            .unwrap()
+            .get("protective_fills")
+            .is_none(),
+        "a run no protective order filled keeps the semantic trace bytes it had before D1"
     );
     assert_eq!(readback.target_set_count(), 1);
     assert!(readback.position_submit_count() >= 2);
@@ -861,17 +945,15 @@ fn real_sim_event_run_which_only_entered_claims_no_round_trip() {
     );
 }
 
-/// A protective stop that fills between two frames aborts today's run: the Host records the fill
-/// only as a native observation and never feeds it to the kernel, so at the next frame the
-/// kernel's checkpoint still holds the entered position while the venue holds none, and the batch
-/// snapshot refuses the mismatch.
+/// A protective stop that fills between two frames is reconciled by `kernel.fill.reconcile.v1`
+/// (D1), so the run continues and the exit frame sees the stopped-out member flat.
 ///
-/// This pins the defect the strategy shape envelope names D1, as it behaves today. When D1 lands -
-/// a `kernel.fill.reconcile.v1` case for a protective fill, with T1 - this test flips to asserting
-/// that the run continues and the exit frame sees the stopped-out member flat.
+/// Before D1 the Host recorded the fill only as a native observation and never fed it to the
+/// kernel, so at the next frame the kernel's checkpoint still held the entered position while the
+/// venue held none, and the batch snapshot refused the run as a member reconciliation mismatch.
 #[rstest]
 #[cfg(feature = "sealed-strategy-input-acceptance")]
-fn a_triggered_stop_aborts_the_run_today_until_d1() {
+fn a_triggered_stop_reconciles_the_member_flat_and_the_run_continues() {
     let aapl_stop_ticks = 18_600;
     let stopped = InstrumentTargetSetV2::new(
         1,
@@ -923,9 +1005,8 @@ fn a_triggered_stop_aborts_the_run_today_until_d1() {
         ]
     };
 
-    // Both controls run clean, so the abort below is the filled stop and nothing else: the same
-    // close stop with no fall, and the same fall under the fixture's far 180.00 stop, which it
-    // never reaches.
+    // Both controls run clean and fill no protective order: the same close stop with no fall, and
+    // the same fall under the fixture's far 180.00 stop, which it never reaches.
     let (unfallen, _) = run_two_frame_corpus(stopped, |_, _| Vec::new())
         .expect("the close stop without a fall runs");
     assert!(
@@ -933,6 +1014,7 @@ fn a_triggered_stop_aborts_the_run_today_until_d1() {
         "{:?}",
         unfallen.callback_failure
     );
+    assert!(unfallen.protective_fill_consumptions.is_empty());
     let (far_stop, _) = run_two_frame_corpus(target_set(), fall_through_the_stop)
         .expect("the fall above the far stop runs");
     assert!(
@@ -940,31 +1022,108 @@ fn a_triggered_stop_aborts_the_run_today_until_d1() {
         "{:?}",
         far_stop.callback_failure
     );
+    assert!(far_stop.protective_fill_consumptions.is_empty());
+
+    // A program that reads its position holds the member the stop closed and exits the other.
+    let (trace, canonical_result) = run_two_frame_corpus_with_exit(
+        stopped,
+        hold_aapl_exit_msft_target_set(),
+        fall_through_the_stop,
+    )
+    .expect("the stopped-out run completes");
     assert!(
-        !far_stop
-            .native_order_observations
+        trace.callback_failure.is_none(),
+        "a filled protective stop must no longer abort the run: {:?}",
+        trace.callback_failure
+    );
+    let stops = trace
+        .protective_fill_consumptions
+        .iter()
+        .map(|fill| {
+            (
+                fill.instrument.as_str(),
+                fill.leg,
+                fill.disposition.as_str(),
+                fill.position_before_grid_units,
+                fill.position_after_grid_units,
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        stops,
+        [("AAPL.XNAS", "STOP_LOSS", "FILLED", 5, 0)],
+        "the kernel consumes the stop's fill and reconciles AAPL flat"
+    );
+    assert_eq!(trace.equity_snapshots.len(), 2);
+    assert_eq!(
+        trace.equity_snapshots[1].current_grid_units,
+        [0, 4],
+        "the exit frame sees the stopped-out member flat and the other still held"
+    );
+    assert_eq!(trace.final_member_grid_units.as_deref(), Some(&[0, 0][..]));
+    assert!(
+        trace
+            .actual_fill_consumptions
             .iter()
-            .any(|event| { event.protection_order && event.event == "FILLED" })
+            .all(|fill| fill.instrument != "AAPL.XNAS" || fill.position_intent == "ENTER"),
+        "no submitted order closed AAPL: the stop did"
     );
 
-    let (trace, _) = run_two_frame_corpus(stopped, fall_through_the_stop)
+    // The consumer's production census binds the stop's FILL transition to the reported
+    // protective fill, so the Backtest Owner can seal this trace; and the round trip counts the
+    // stop as AAPL's exit.
+    let members = instruments().map(|instrument| instrument.id().to_string());
+    let census = program_host_sim_event_ordered_trace_census_for_test(&trace, &members)
+        .expect("the ordered trace reconciles every consuming FILL, the stop's included");
+    assert_eq!(
+        census.reconciled_fill_count,
+        trace.actual_fill_consumptions.len() + 1
+    );
+    let closure = program_host_sim_event_round_trip_for_test(&trace, &members, &canonical_result)
+        .expect("a stopped-out member closes its round trip")
+        .expect("both members entered and ended flat");
+    assert_eq!(closure.members()[0].instrument(), "AAPL.XNAS");
+    assert_eq!(
+        (
+            closure.members()[0].entry_fill_count(),
+            closure.members()[0].exit_fill_count()
+        ),
+        (2, 1),
+        "AAPL's one exit is its stop"
+    );
+    assert_eq!(closure.members()[1].exit_fill_count(), 1);
+    assert!(closure.closure_is_exact());
+
+    // A program that exits AAPL anyway asks the kernel to close a position it no longer holds,
+    // and the kernel refuses that by name rather than the venue/kernel mismatch D1 removed.
+    let (blind, _) = run_two_frame_corpus(stopped, fall_through_the_stop)
         .expect("the run itself completes and reports its callback failure");
-
-    let stop_filled = trace.native_order_observations.iter().any(|event| {
-        event.protection_order && event.instrument == "AAPL.XNAS" && event.event == "FILLED"
-    });
-    assert!(
-        stop_filled,
-        "the protective stop must fill before the exit frame"
-    );
-    let failure = trace
+    let failure = blind
         .callback_failure
         .as_deref()
-        .expect("today a filled protective stop aborts the run at the next frame");
+        .expect("exiting a member the stop already closed is refused");
     assert!(
-        failure.contains("member reconciliation mismatch"),
-        "the abort must be the reconciliation refusal D1 removes: {failure}"
+        failure.contains("InvalidPositionTransition"),
+        "the refusal must be the kernel's, on a flat member: {failure}"
     );
+    assert_eq!(blind.protective_fill_consumptions.len(), 1);
+}
+
+fn hold_aapl_exit_msft_target_set() -> InstrumentTargetSetV2 {
+    InstrumentTargetSetV2::new(
+        2,
+        &[
+            MemberTargetV2 {
+                instrument: InstrumentKeyV2::new(b"AAPL.XNAS").unwrap(),
+                position: PositionIntentV1::Hold,
+                target: TargetProposalV1::Keep,
+                reconciliation_target_units: None,
+                protection: ProtectionProposalV1::Keep,
+            },
+            exit_target_set().members()[1],
+        ],
+    )
+    .unwrap()
 }
 
 fn run_round_trip_corpus() -> anyhow::Result<RoundTripEvidence> {
@@ -995,6 +1154,15 @@ fn run_two_frame_corpus(
     entry: InstrumentTargetSetV2,
     between_frames: impl FnOnce(&[InstrumentAny; 2], u64) -> Vec<Data>,
 ) -> anyhow::Result<(TargetSetBacktestTraceV2, Vec<u8>)> {
+    run_two_frame_corpus_with_exit(entry, exit_target_set(), between_frames)
+}
+
+/// [`run_two_frame_corpus`] with the exit frame's target set named by the caller.
+fn run_two_frame_corpus_with_exit(
+    entry: InstrumentTargetSetV2,
+    exit: InstrumentTargetSetV2,
+    between_frames: impl FnOnce(&[InstrumentAny; 2], u64) -> Vec<Data>,
+) -> anyhow::Result<(TargetSetBacktestTraceV2, Vec<u8>)> {
     let instruments = instruments();
     let instrument_ids = [instruments[0].id(), instruments[1].id()];
     let bar_types = instrument_ids.map(|instrument_id| {
@@ -1004,7 +1172,7 @@ fn run_two_frame_corpus(
             AggregationSource::External,
         )
     });
-    let (plan, artifact, frame) = fixture_with_target_sets(entry, Some(exit_target_set()))?;
+    let (plan, artifact, frame) = fixture_with_target_sets(entry, Some(exit))?;
     let admitted = admit_owner_universe_program_event_v2(
         &plan,
         &OwnerUniverseFrameV1::uncoordinated(frame.clone()),
@@ -2092,7 +2260,7 @@ fn lifecycle_event(
     )>,
 ) -> super::program_host_v2::AdmittedProgramEventV2 {
     use strategy_factory_program_sdk::lifecycle_v1::{
-        EnvelopePayloadV1, EventOrderKeyV1, FillEventV1, LifecycleEnvelopeV1,
+        EnvelopePayloadV1, EventOrderKeyV1, FillEventV1, FillLegV1, LifecycleEnvelopeV1,
     };
     let payload = match kind {
         strategy_factory_program_sdk::lifecycle_v1::LifecycleKind::Start => {
@@ -2105,6 +2273,7 @@ fn lifecycle_event(
                 side: pending.side,
                 disposition,
                 cumulative_filled_units: cumulative,
+                leg: FillLegV1::Intent,
             })
         }
         _ => unreachable!(),

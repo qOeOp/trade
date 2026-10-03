@@ -113,7 +113,12 @@ ACL 拒绝。它不证明供应商真实性，不证明生产装配，也不证�
   建不出其中任何一个就以它的失败码拒绝。Market Data 的证明
   `the_production_seam_admits_what_the_administrator_measured_sealed_and_published` 在一次性 PostgreSQL 上把这个合成根
   端到端走了一遍 - 测量、补全、封存、发布、准入，再经 scheduling 读口读取 - 所以**一条自述未建的缝**已不再是它的写照。
-  它在那里读到的 BAR schedule 普查是空的；生产策略在真实 schedule 行上仍从未运行过。真实部署会不会设成 `Required`
+  它在那里读到的 BAR schedule 普查是空的；生产策略在真实 schedule 行上仍从未运行过。
+  Native Replay 执行需要的两个 resolver 也以同样方式打开：集成测试
+  `the_native_replay_resolvers_open_and_read_in_required_mode` 在 `required` 模式下、以文件配置打开
+  `native_replay_scheduling_resolver_v1_from_store_admission_lookup` 与
+  `shared_time_evidence_resolver_from_store_admission_lookup_v1`，与 `rd-owner-api` 打开其环境变体的方式相同，
+  并经同一次准入读取该库。真实部署会不会设成 `Required`
   是一个关于部署配置的问题，代码里答不出。
   **解除 `B3` 证明的是 `rd-owner-api` 连到了哪个库，并不把凭据挡在这个进程之外**。同一进程启动时就持有两条裸 DSN：
   `MARKET_DATA_OWNER_DATABASE_URL`，即 Owner 的写主体 `market_data_owner`，`product/rd-workbench/docker-compose.yml`
@@ -208,6 +213,7 @@ ACL 拒绝。它不证明供应商真实性，不证明生产装配，也不证�
 | 供应商 Data Clients                               | `CURRENT / PARTIAL`                                                                | `crates/adapters/databento/src/pit_observation_source_v1.rs` 与 `crates/adapters/binance/src/pit_observation_source_v1.rs`，均已实盘验证                                                                        | `B6`       |
 | 面向 Runtime 的实时行情事实通道                   | `CURRENT / PARTIAL`，一条通道                                                      | `owner/live_market_fact_v1.rs`、`owner/live_market_stream_v1.rs`、`owner/postgres/live_market_stream_v1.rs`、`crates/adapters/bybit/src/live_market_fact_source_v1.rs`                                          | `B8`       |
 | Binance 永续已结算 funding 行                     | `CURRENT / PARTIAL`                                                                | `crates/adapters/binance/src/futures_pit_observation_source_v1.rs`                                                                                                                                              | `B6`       |
+| Binance bar 成交量与 taker 买入量                 | `CURRENT / PARTIAL`                                                                | `crates/adapters/binance/src/pit_observation_source_v1.rs`、`futures_pit_observation_source_v1.rs`                                                                                                              | `B6`       |
 | Owner 时钟随 PIT 摄入推进                         | `TARGET`，排在 U1 之后                                                             | 无；PIT 摄入在当前时钟 head 上提交（`owner/postgres.rs`）                                                                                                                                                       | 无         |
 | 只发布 bar 的来源的成交 bar 报价 cut              | `TARGET`，在 U1 路径上                                                             | 无；报价 cut 只装观测到的 Quote 行（`owner/native_replay_quote_cut_v2.rs`）                                                                                                                                     | 无         |
 | 伴随报价 lineage                                  | `TARGET`，排在 U1 之后                                                             | 无                                                                                                                                                                                                              | 无         |
@@ -2608,6 +2614,20 @@ executable maturity、Backtest 产品闭合（包括 inverse/quanto target-consu
 Dashboard/default-database 准入或 trading authority。这些 Backtest 限制不创建 Market Data instrument-class
 rejection。
 
+### CURRENT/PARTIAL Binance bar 成交量与 taker 买入量
+
+两个 Binance Data Client，即现货（`crates/adapters/binance/src/pit_observation_source_v1.rs`）与 USD-M 永续，都在已收盘
+bar 的 `OPEN`、`HIGH`、`LOW`、`CLOSE` 旁边陈述它的 `VOLUME` 与 `TAKER_BUY_VOLUME`，以基础资产为单位，用 bar 自己的
+timeframe。两个数与价格来自同一个 kline 响应，所以不增加请求。
+
+- **为什么需要 `VOLUME`。** 每个原生 Replay 帧都恰好用 `OPEN`、`HIGH`、`LOW`、`CLOSE` 与 `VOLUME` 投影出一根 bar
+  （`native_replay_scheduling_v1.rs` 与 `native_replay_scheduling_v2.rs` 中的 `BAR_FIELDS`），census 缺其中任何一个的成员都会被拒绝。
+  没有 `VOLUME`，从 Binance 快照铸出的帧一个都投影不出来。
+- **taker 卖出量不是一行。** 它等于 `VOLUME - TAKER_BUY_VOLUME`，在消费方第一次需要它的地方推导，不陈述两次。
+- **数值按发布原样。** 永续的数量是交易所的十进制字符串；现货的数量是交易所的 128 位 mantissa，配响应中的数量指数。
+- **状态。** 两个 client 今天都会给出这两行，任何指定它们的部署都会得到。帧投影仍然受上文 Binance quote 缺口的阻挡。这些行由交易所替身测试、
+  两个 live 源测试，以及无凭据的 Market Data 端到端证明断言。
+
 ### CURRENT/PARTIAL Binance 永续已结算 funding 行
 
 `crates/adapters/binance/src/futures_pit_observation_source_v1.rs` 中的 Binance USD-M 永续 Data Client 回答一个
@@ -2628,6 +2648,38 @@ scope 时，给出每个成员最后一根已收盘的 bar，并在旁边给出�
   断言这些行。
 - **不陈述的内容。** 结算间隔不是一行：端点不陈述它，所以 timeframe 是 `TICK`，而不是猜出来的间隔。来自
   `premiumIndex` 的实时估计、Replay 中的 funding 计提，以及 Design 可以引用的 funding 字段语义，是各自独立的切片。
+
+### TARGET 供 T0 窗口托管使用的 Binance 回填取回
+
+U1 的历史以 T0 窗口托管的形式进入：每个成员在整个窗口上一个托管，覆盖执行周期与成交周期。这里是为托管提交供数的取回一侧，
+提交本身的类型属于 T0。
+
+- **执行 bar 来自公开归档。** 对每个成员、周期与月份，取回读取
+  `data/futures/um/monthly/klines/{SYMBOL}/{interval}/{SYMBOL}-{interval}-{YYYY-MM}.zip` 及其 `.CHECKSUM` 侧文件，并以侧文件自己的摘要
+  作为绑定摘要，经 `authenticate_monthly_klines` 读取。这证明字节按主机发布的样子到达，不证明发布者是谁。
+- **数据集由请求命名，而不是从文件读出。** 读取器入口接收它被要求读取的数据集（`klines`），并与它取回的归档路径核对。
+  `markPriceKlines`、`indexPriceKlines` 与 `premiumIndexKlines` 的归档有相同的文件名、列与布局。
+- **2022 年之前的归档没有表头。** BTCUSDT `1d` 从 2021-01 到 2021-12 的每个月都以数据开头，从 2022-01 起的每个月都以官方表头开头。
+  今天的读取器拒绝前一种，那是 U1 的一整年。首行恰为官方表头时跳过；否则首行按一行数据读取，适用读取器对每行已有的全部规则：
+  - 12 列；
+  - 开盘时刻落在周期网格上且严格递增，缺口被记录而不是被补上；
+  - 收盘时刻在周期之内；
+  - 价格一致；
+  - 成交量不为负，taker 买入量不超过成交量。
+- **把价格归档挡在外面的是零成交量规则。** 成交量为零的行，只有在成交笔数为零且价格不动时才接受，否则以 `ZeroVolumeAmbiguity`
+  拒绝。BTCUSDT `1d` 2021-06 的标记价、指数价与溢价指数归档，每一行成交量都为零，成交笔数分别为 86,363 到 86,400、86,360 到 86,400
+  与 17,267 到 17,280，且价格在动；成交归档的成交量最高到 1,531,824。去掉这条规则，价格归档就会被当作成交读入而不报任何拒绝，
+  所以它保留。读取器今天已经这样做：`crates/adapters/binance/src/common/offline.rs` 中表头是可选的，其测试读取两份 2021-06 归档的真实首行，
+  成交行被读入，标记价行被拒绝。
+- **成交 bar 来自端点。** 第 `k` 帧的成交 bar 是开盘时刻严格晚于第 `k` 帧的 bar 事件加声明的滞后、并严格早于第 `k+1` 帧 bar 事件的
+  第一根 `1m` bar；用这个起点与 `limit=1` 调用一次无签名的 `klines` 即得到它。每帧一次调用，不取约每月 2 MB 的 `1m` 归档。
+- **资金费率暂不进入这个托管。** 一个 Source Binding 只声明一条可用性规则，而 funding 结算不是声明过的 bar 周期。所以 U1 的 funding
+  经永续 Data Client 的已结算 funding 行读取；以后可以用单独的 binding 把它加入托管，这只是加法。
+- **每一行注明自己的途径。** 执行 bar 来自归档主机，成交 bar 来自端点主机，二者在同一个 Source Binding 之下；托管证据记录每一行由哪个途径产出。
+- **可续跑且幂等。** 每个取回的文件以其归档名保存在分片目录中，旁边放它的侧文件；只有字节与侧文件一致的分片才算数。重跑时校验
+  已有的分片，只取回缺失或不一致的，每个新分片经临时文件加改名写入。托管在它的全部分片都齐了之后提交一次，T0 的提交对相同的
+  重复提交 rejoin。
+- **取回发生在今天。** 托管的取回时刻是取回运行时的墙钟。可见性来自 Source Binding 的可用性规则，绝不来自一个历史的取回坐标。
 
 ## 输入交接
 

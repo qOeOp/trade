@@ -55,8 +55,8 @@ listener_line=$(grep -n '^    let listener = TcpListener::bind' "$rd_owner_api" 
   exit 1
 }
 # The production seam is composed from the deployment's configuration, and from nothing else.
-grep -Fq 'composition::production_custodian(lookup)' "$store_admission"
-grep -Fq 'admit_rd_owner_market_data_postgres_with(request, |name| std::env::var(name).ok())' "$store_admission"
+grep -Fq 'composition::production_custodian(ports)' "$store_admission"
+grep -Fq '(bootstrap, |name| std::env::var(name).ok()).await' "$package_dir/../../crates/data/src/owner/mod.rs"
 # `grep -rE`, not `rg`: ripgrep is absent on the CI runner, and because this is a
 # NEGATIVE assertion a missing command makes the condition false and the check pass
 # silently. Verified equivalent here against a matching control pattern.

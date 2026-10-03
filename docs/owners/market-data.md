@@ -141,6 +141,11 @@ never runs in CI.
   drives that root end to end on a disposable PostgreSQL - measured, authored, sealed, published, admitted, and read
   through the scheduling port - so **a seam that declares its own incompleteness** no longer describes it. The BAR
   schedule census it reads there is empty; the production strategy over real schedule rows has still never run.
+  The two resolvers Native Replay execution needs open the same way: the integration test
+  `the_native_replay_resolvers_open_and_read_in_required_mode` opens
+  `native_replay_scheduling_resolver_v1_from_store_admission_lookup` and
+  `shared_time_evidence_resolver_from_store_admission_lookup_v1` over a file configuration in `required` mode, as
+  `rd-owner-api` opens their environment variants, and reads the store through the same admission.
   Whether a real deployment sets `Required` is a question about deployment configuration that the code cannot
   answer.
   **Clearing `B3` proves which store `rd-owner-api` reached; it does not keep credentials out of that process.**
@@ -263,6 +268,7 @@ never runs in CI.
 | Vendor Data Clients                                       | `CURRENT / PARTIAL`                                                                                 | `crates/adapters/databento/src/pit_observation_source_v1.rs` and `crates/adapters/binance/src/pit_observation_source_v1.rs`, both live‑verified                                                                                          | `B6`       |
 | Live market fact channel to Runtime                       | `CURRENT / PARTIAL`, one channel                                                                    | `owner/live_market_fact_v1.rs`, `owner/live_market_stream_v1.rs`, `owner/postgres/live_market_stream_v1.rs`, `crates/adapters/bybit/src/live_market_fact_source_v1.rs`                                                                   | `B8`       |
 | Binance perpetual settled funding rows                    | `CURRENT / PARTIAL`                                                                                 | `crates/adapters/binance/src/futures_pit_observation_source_v1.rs`                                                                                                                                                                       | `B6`       |
+| Binance bar volume and taker buy volume                   | `CURRENT / PARTIAL`                                                                                 | `crates/adapters/binance/src/pit_observation_source_v1.rs`, `futures_pit_observation_source_v1.rs`                                                                                                                                       | `B6`       |
 | Owner clock follows PIT intake                            | `TARGET`, after U1                                                                                  | none; PIT intake commits at the current clock head (`owner/postgres.rs`)                                                                                                                                                                 | none       |
 | Fill‑bar quote cut for a bar‑only source                  | `TARGET`, on U1's path                                                                              | none; a quote cut holds observed Quote rows only (`owner/native_replay_quote_cut_v2.rs`)                                                                                                                                                 | none       |
 | Companion quote lineage                                   | `TARGET`, after U1                                                                                  | none                                                                                                                                                                                                                                     | none       |
@@ -3020,6 +3026,24 @@ BFP executable maturity, Backtest product closure including inverse or quanto ta
 Dashboard/default-database admission, or trading authority. These Backtest limitations do not create a Market Data
 instrument-class rejection.
 
+### CURRENT/PARTIAL Binance bar volume and taker buy volume
+
+Both Binance Data Clients, spot (`crates/adapters/binance/src/pit_observation_source_v1.rs`) and USD-M perpetual,
+state a closed bar's `VOLUME` and `TAKER_BUY_VOLUME` beside its `OPEN`, `HIGH`, `LOW` and `CLOSE`, in base-asset
+units and under the bar's own timeframe. Both numbers arrive in the same kline response the prices come from, so no
+request is added.
+
+- **Why `VOLUME` is required.** Every native Replay frame projects a bar from exactly `OPEN`, `HIGH`, `LOW`, `CLOSE`
+  and `VOLUME` (`BAR_FIELDS` in `native_replay_scheduling_v1.rs` and `native_replay_scheduling_v2.rs`), and refuses a
+  member whose census lacks one. Without `VOLUME`, no frame minted from a Binance snapshot can be projected.
+- **Taker sell volume is not a row.** It is `VOLUME - TAKER_BUY_VOLUME`, and it is derived where a consumer first
+  needs it, not stated twice.
+- **Values as published.** Perpetual quantities are the venue's decimal strings. Spot quantities are the venue's
+  128-bit mantissas under the response's quantity exponent.
+- **Status.** Both clients state the two rows today, for any deployment that names them. Frame projection still waits
+  on the Binance quote gap above. The rows are asserted by a stand-in venue test, by both live source tests, and by
+  the credential-free Market Data end-to-end proof.
+
 ### CURRENT/PARTIAL Binance perpetual settled funding rows
 
 The Binance USD-M perpetual Data Client in `crates/adapters/binance/src/futures_pit_observation_source_v1.rs`
@@ -3046,6 +3070,50 @@ settlement at exactly that coordinate is included and one a millisecond later is
 - **Not stated.** The settlement interval is not a row: the endpoint does not state it, so the timeframe is `TICK`
   rather than a guessed interval. The live estimate from `premiumIndex`, funding accrual in a Replay, and a funding
   field semantic a Design can name are separate slices.
+
+### TARGET Binance backfill fetch for T0 window custody
+
+U1's history enters as T0 window custody: one custody per member over the whole window, for the execution timeframe
+and the fill timeframe. This is the fetch side that feeds a custody commit. The commit's own types are T0's.
+
+- **Execution bars come from the public archive.** For each member, interval and month, the fetch reads
+  `data/futures/um/monthly/klines/{SYMBOL}/{interval}/{SYMBOL}-{interval}-{YYYY-MM}.zip` with its `.CHECKSUM` sidecar.
+  The bars are read through `authenticate_monthly_klines`, with the sidecar's own digest as the bound digest. That
+  proves the bytes arrived as the host published them; it does not prove who published them.
+- **The dataset is named by the request, not read from the file.** The reader's entry takes the dataset it was asked
+  for (`klines`) and checks it against the archive path it fetched. `markPriceKlines`, `indexPriceKlines` and
+  `premiumIndexKlines` archives have the same name, columns and layout.
+- **Archives before 2022 have no header.** Every BTCUSDT `1d` month from 2021-01 to 2021-12 starts with data, and
+  every month from 2022-01 starts with the official header. Today's reader refuses the first kind, which is a year of
+  U1. A first line that is the exact header is skipped. Otherwise the first line is read as a row, under every rule
+  the reader already applies to rows:
+  - 12 columns;
+  - open times on the interval grid and strictly rising, with a gap recorded rather than filled;
+  - close times inside the interval;
+  - consistent prices;
+  - volumes that are not negative, and taker buy volume no larger than volume.
+- **The zero-volume rule is what keeps price archives out.** A row with zero volume is accepted only with zero trades
+  and one unmoving price, and is refused as `ZeroVolumeAmbiguity` otherwise. For BTCUSDT `1d` 2021-06, every row of
+  the mark, index and premium price archives has zero volume, with trade counts of 86,363 to 86,400, 86,360 to 86,400
+  and 17,267 to 17,280, and prices that move. The trade archive's volume reaches 1,531,824. Removing that rule would
+  let a price archive be read as trades without a refusal, so it stays. The reader applies this today: the header
+  is optional in `crates/adapters/binance/src/common/offline.rs`, and its tests read the first real rows of both
+  2021-06 archives. The trade row is read and the mark price row is refused.
+- **Fill bars come from the endpoint.** The fill bar for frame `k` is the first `1m` bar opening strictly after
+  frame `k`'s bar event plus the declared lag, and strictly before frame `k+1`'s bar event. One unsigned `klines` call
+  with that start and `limit=1` returns it. There is one call per frame and no `1m` archive, which is about 2 MB a
+  month.
+- **Funding stays outside this custody for now.** A Source Binding declares one availability rule, and a funding
+  settlement is not a declared bar timeframe. U1's funding is therefore read through the perpetual Data Client's
+  settled funding rows. A separate binding can add it to custody later, and that change only adds.
+- **Each row names its route.** Execution bars come from the archive host, and fill bars from the endpoint host, under
+  one Source Binding. The custody evidence records which route produced each row.
+- **Resumable and idempotent.** Each fetched file is kept in a shard directory under its archive name, beside its
+  sidecar. A shard counts only when its bytes match the sidecar. A rerun verifies the shards it has, fetches only the
+  missing or mismatched ones, and writes each new one through a temporary file and a rename. The custody is committed
+  once, after every shard for it is present, and T0's commit rejoins an identical resubmission.
+- **Retrieval is today.** The custody's retrieval instant is the wall clock when the fetch ran. Visibility comes from
+  the Source Binding's availability rule, never from a historical retrieval coordinate.
 
 ## Input handoffs
 

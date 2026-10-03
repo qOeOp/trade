@@ -21,8 +21,8 @@ from bilibili_note_mcp.domain.models import (
     CreateNoteInputV1,
     ErrorV1,
     FailureCode,
-    PublicBilibiliNoteResultV3,
-    PublicBilibiliSearchResultV1,
+    PublicBilibiliNoteResultV4,
+    PublicBilibiliSearchResultV2,
     SearchAndCreateInputV1,
 )
 from bilibili_note_mcp.presentation.schemas import search_tool_output_schema, tool_output_schema
@@ -30,11 +30,6 @@ from bilibili_note_mcp.presentation.schemas import search_tool_output_schema, to
 TOOL_NAME = "bilibili_note.create"
 SEARCH_TOOL_NAME = "bilibili_note.search_and_create"
 _USER_ANNOTATIONS = types.Annotations(audience=["user"])
-
-
-async def _terminal_cancellation_checkpoint() -> None:
-    """Yield after final validation and before constructing a terminal success."""
-    await asyncio.sleep(0)
 
 
 class _McpProgressReporter:
@@ -87,14 +82,16 @@ def build_server(
             tools=[
                 types.Tool(
                     name=TOOL_NAME,
-                    title="Create Bilibili research brief",
+                    title="Create illustrated video notes",
                     description=(
-                        "CURRENT_POC: convert one direct Bilibili video URL into a concise Chinese "
-                        "trading thought and strategy summary with exactly three sections: core "
-                        "strategy, methods, and risk management. Speech is aligned with transient "
-                        "internal visual analysis; no image is returned or persisted. Output is a "
-                        "research source, never "
-                        "trading evidence or authorization."
+                        "Convert a public Bilibili video of any subject into detailed Chinese "
+                        "notes"
+                        "with content-derived chapters, source/timestamp links and relevant "
+                        "real screenshots."
+                        "Returns persistent local Markdown and HTML paths. Images are on the "
+                        "MCP server filesystem;"
+                        "open the HTML preview if the client cannot render local Markdown "
+                        "images. No subject-specific framework is imposed."
                     ),
                     input_schema=CreateNoteInputV1.model_json_schema(by_alias=True),
                     output_schema=tool_output_schema(),
@@ -107,16 +104,15 @@ def build_server(
                 ),
                 types.Tool(
                     name=SEARCH_TOOL_NAME,
-                    title="Search and create Bilibili research briefs",
+                    title="Search and create illustrated video notes",
                     description=(
-                        "CURRENT_POC: search Bilibili from one natural-language research topic, "
-                        "then convert bounded candidates through a rolling window of at most two "
-                        "into "
-                        "Chinese multimodal strategy summaries. Default 2 videos; hard maximum 3. "
-                        "Returns "
-                        "one deterministic aggregation with only core strategy, methods, and risk "
-                        "management; candidate links and per-video failures stay internal. Output "
-                        "is a research source, never trading evidence or authorization."
+                        "Search Bilibili by a topic or creator name and produce a collection of "
+                        "1–3 verified illustrated notes with separate source attribution and "
+                        "content-derived chapters."
+                        "At most two videos process concurrently; exact requested success count "
+                        "is required."
+                        "Returns local Markdown, HTML and screenshot paths on the server "
+                        "filesystem."
                     ),
                     input_schema=SearchAndCreateInputV1.model_json_schema(by_alias=True),
                     output_schema=search_tool_output_schema(),
@@ -143,18 +139,24 @@ def build_server(
             progress = _progress_reporter(context)
             try:
                 search_payload = await search_use_case.execute(
-                    search_request.query, search_request.max_videos, progress
+                    search_request.query,
+                    search_request.max_videos,
+                    progress,
+                    quality=search_request.quality,
                 )
-                await _terminal_cancellation_checkpoint()
+                # Return the committed publication receipt.
             except asyncio.CancelledError:
                 return _error("CANCELLED", "request_cancelled")
             except BilibiliNoteFailure as e:
                 return _error(e.code, e.reason)
             except Exception:
                 return _error("INTERNAL", "unexpected_internal_failure")
-            search_result = PublicBilibiliSearchResultV1(
-                schema="bilibili-note.search-result/v1",
+            search_result = PublicBilibiliSearchResultV2(
+                schema="bilibili-note.search-result/v2",
                 rendered_markdown=search_payload.rendered_markdown,
+                note_path=search_payload.note_path,
+                html_path=search_payload.html_path,
+                images=search_payload.images,
             )
             search_structured: dict[str, Any] = search_result.model_dump(mode="json", by_alias=True)
             return types.CallToolResult(
@@ -174,17 +176,22 @@ def build_server(
             return _error("INVALID_URL", "tool_arguments_invalid")
         progress = _progress_reporter(context)
         try:
-            create_payload = await use_case.execute(create_request.url, progress)
-            await _terminal_cancellation_checkpoint()
+            create_payload = await use_case.execute(
+                create_request.url, progress, quality=create_request.quality
+            )
+            # Publication already committed; deliver its receipt without a new cancellation point.
         except asyncio.CancelledError:
             return _error("CANCELLED", "request_cancelled")
         except BilibiliNoteFailure as e:
             return _error(e.code, e.reason)
         except Exception:
             return _error("INTERNAL", "unexpected_internal_failure")
-        create_result = PublicBilibiliNoteResultV3(
-            schema="bilibili-note.result/v3",
+        create_result = PublicBilibiliNoteResultV4(
+            schema="bilibili-note.result/v4",
             rendered_markdown=create_payload.rendered_markdown,
+            note_path=create_payload.note_path,
+            html_path=create_payload.html_path,
+            images=create_payload.images,
         )
         create_structured: dict[str, Any] = create_result.model_dump(mode="json", by_alias=True)
         return types.CallToolResult(

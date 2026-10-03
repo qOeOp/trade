@@ -17,28 +17,15 @@ def generate_fixture(root: Path) -> Path:
         image = Image.new("RGB", (1920, 1080), "#0b1020")
         draw = ImageDraw.Draw(image)
         draw.rectangle((100, 80, 1820, 950), outline="#334155", width=3)
-        draw.text(
-            (130, 105), f"BTCUSDT 1H - research fixture - frame {frame_index}", fill="#e2e8f0"
-        )
-        support_y = 790 - frame_index * 5
-        resistance_y = 295 + frame_index * 3
-        draw.line((130, support_y, 1790, support_y), fill="#22c55e", width=8)
-        draw.line((130, resistance_y, 1790, resistance_y), fill="#ef4444", width=8)
-        draw.text((1450, support_y + 12), "SUPPORT 62,000", fill="#86efac")
-        draw.text((1450, resistance_y - 28), "RESISTANCE 68,000", fill="#fca5a5")
-        for candle in range(38):
-            x = 160 + candle * 42
-            drift = candle * 6 - 100 + frame_index * 8
-            center = 650 - drift
-            opening = center + (28 if candle % 3 == 0 else -18)
-            closing = center + (-26 if candle % 3 == 0 else 22)
-            high = min(opening, closing) - 38
-            low = max(opening, closing) + 42
-            color = "#22c55e" if closing < opening else "#ef4444"
-            draw.line((x, high, x, low), fill=color, width=4)
-            draw.rectangle(
-                (x - 10, min(opening, closing), x + 10, max(opening, closing)), fill=color
-            )
+        draw.text((130, 105), f"Water cycle - fixture frame {frame_index}", fill="#e2e8f0")
+        for index, label in enumerate(("EVAPORATION", "CONDENSATION", "PRECIPITATION")):
+            x = 160 + index * 560
+            color = "#38bdf8" if index == (frame_index - 1) % 3 else "#64748b"
+            draw.rounded_rectangle((x, 330, x + 450, 680), radius=30, outline=color, width=12)
+            draw.text((x + 70, 490), label, fill="#e2e8f0")
+            if index < 2:
+                draw.line((x + 455, 500, x + 545, 500), fill="#38bdf8", width=10)
+                draw.polygon(((x + 545, 500), (x + 520, 480), (x + 520, 520)), fill="#38bdf8")
         image.save(frames / f"frame-{frame_index:03d}.png", format="PNG")
     subprocess.run(
         [
@@ -69,7 +56,7 @@ def generate_fixture(root: Path) -> Path:
                 "video_id": "BV1bK411W797",
                 "part_id": "fixture-cid-1",
                 "part_index": 1,
-                "title": "支撑阻力研究假设示例",
+                "title": "水循环过程演示",
                 "author_name": "Offline Fixture",
                 "published_at": "2026-08-11T00:00:00Z",
                 "duration_ms": 6000,
@@ -84,13 +71,13 @@ def generate_fixture(root: Path) -> Path:
         """WEBVTT
 
 00:00:00.000 --> 00:00:02.000
-视频展示了价格在支撑区域附近企稳的示例。
+水受热蒸发，水蒸气进入空气。
 
 00:00:02.000 --> 00:00:04.000
-上方阻力区域用于观察价格是否出现反应。
+水蒸气冷却后凝结为小水滴。
 
 00:00:04.000 --> 00:00:06.000
-具体市场、周期和风险参数需要进一步验证。
+水滴聚集后以降水的形式回到地面。
 """,
         encoding="utf-8",
     )
