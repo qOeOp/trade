@@ -208,6 +208,10 @@ ACL 拒绝。它不证明供应商真实性，不证明生产装配，也不证�
 | 供应商 Data Clients                               | `CURRENT / PARTIAL`                                                                | `crates/adapters/databento/src/pit_observation_source_v1.rs` 与 `crates/adapters/binance/src/pit_observation_source_v1.rs`，均已实盘验证                                                                        | `B6`       |
 | 面向 Runtime 的实时行情事实通道                   | `CURRENT / PARTIAL`，一条通道                                                      | `owner/live_market_fact_v1.rs`、`owner/live_market_stream_v1.rs`、`owner/postgres/live_market_stream_v1.rs`、`crates/adapters/bybit/src/live_market_fact_source_v1.rs`                                          | `B8`       |
 | Binance 永续已结算 funding 行                     | `CURRENT / PARTIAL`                                                                | `crates/adapters/binance/src/futures_pit_observation_source_v1.rs`                                                                                                                                              | `B6`       |
+| Owner 时钟随 PIT 摄入推进                         | `TARGET`，排在 U1 之后                                                             | 无；PIT 摄入在当前时钟 head 上提交（`owner/postgres.rs`）                                                                                                                                                       | 无         |
+| 只发布 bar 的来源的成交 bar 报价 cut              | `TARGET`，在 U1 路径上                                                             | 无；报价 cut 只装观测到的 Quote 行（`owner/native_replay_quote_cut_v2.rs`）                                                                                                                                     | 无         |
+| 伴随报价 lineage                                  | `TARGET`，排在 U1 之后                                                             | 无                                                                                                                                                                                                              | 无         |
+| Source Binding successor 准入                     | `TARGET`，排在 U1 之后                                                             | `commit_source_successor`，只有测试调用方                                                                                                                                                                       | 无         |
 
 ## 拥有的权威事实
 
@@ -1956,7 +1960,7 @@ cut。schedule 属于品种与所声明的 bar，不属于角色；帧已经读�
 照、batch 验不过、角色未声明、角色跨多个成员、角色所在行不是 BAR、Source Binding 没有声明任何 bar 周期、角色的行标签
 没有对应声明，以及 Instrument Master readback 缺失，都按名拒绝。Strategy Factory 的切片 F 依赖它。像 Binance 永续这
 样的连续日线，被声明为从 Unix epoch 起、连续时钟上的 24 小时固定间隔，并按这个 bar 排 schedule。旁边还有一个源缺口：
-已准入的 Binance 永续源不提供 QUOTE 行，所以永续 Replay 没有可供成交的报价 cut。
+已准入的 Binance 永续源不提供 QUOTE 行，所以永续 Replay 没有可供成交的报价 cut。下文 PIT 窗口托管之前的成交 bar 报价 cut 就是补上它的设计。
 
 `TimeframeSpecV1` 只有一种 fixed canonical codec，字段顺序是：schema `u16LE = 1`、reserved-zero `u16LE`、
 kind `u8`、正 step `u32LE`、unit `u8`、anchor identity `[u8; 32]`、calendar identity `[u8; 32]`、session
@@ -2144,6 +2148,55 @@ census。V1 scheduling receipt 先声明成员数，并在帧的 batch 之后绑
 它的字节不同于它从帧自己的 batch 取 Quote 时的字节 - 那些字节 Owner 托管数据从未产生过。V2 帧证据的每一帧都经
 同一个 seal 封存，覆盖一个或两个成员，其流动性 EVENT receipt 封存的是报价 cut 而不是帧的 snapshot、fact 与
 batch。目前还没有证明在 Owner 托管数据上驱动过一次完整的首帧读取（schedule、universe 与报价 cut 齐备）。
+
+**TARGET，只发布 bar 的来源的成交报价，以及准入它们的 Owner 时钟：** 这里的任何东西都还没有构建，每一片在准入之前都不
+动手。在部署上对 Binance 永续历史做的 Backtest，每两帧之间都需要一个成交报价，今天一个也没有：Binance 不发布历史报价
+（`bookTicker` 只回答当前的一个），而报价 cut 必须与帧同属一条 Source Binding lineage。所以这样的 Backtest 每一帧都会被拒为
+`QuoteCutMissing`。第一次 Composer 回放还撞上第二个缺口：它把帧冻结在帧自己的时刻，所以它的报价在 Owner 时钟 head 之后才取回，
+而在 head 之后取回的快照根本无法准入。它只是靠两个具名的 stand-in 才走通的：它的 Data Client 用 klines 构造 Quote 行，再多准入一个 `usdm/klines/4h` Source Binding 把时钟推过帧。
+本设计替换这两者。
+
+- **成交来自同一来源更细的 bar。** 声明了帧所用 bar 的 schema 2 Source Binding，还可以声明一个更细的固定间隔 bar，由
+  PIT 窗口托管请求把它指名为成交周期，与它为策略输入持有的周期分开。成交周期的行只服务报价 cut：派生视图绝不把它们选作
+  帧的输入，因为它们是稀疏的，每个间隔一根，否则读该周期的策略角色会看到一根过时的成交 bar。不严格短于执行周期的成交周期按名拒绝为 `FILL_TIMEFRAME_NOT_FINER_THAN_EXECUTION`。每一帧
+  的成交 bar，是开盘时刻严格晚于该帧可见时刻（即其 BAR 的 event-effective 时刻加上 binding 的 availability rule 所声明的
+  滞后）、且严格早于下一帧 BAR 的第一根成交周期 bar。在托管里，它就是为间隔 `(d_k, e_{k+1})` 派生的报价 cut；在快照路径上，
+  恰好为每个成员装着这根 bar、别无他物的 PIT 快照会被记进报价 census，绝不记进帧 census。两种情况下，Owner 都从存下的行
+  读出每个成员的 Quote：bid 与 ask 都是这根
+  bar 的开盘价，两个 size 都是这根 bar 的成交量，时刻是这根 bar 的开盘时刻。调用方不陈述任何价格、数量或时刻；Data
+  Client 像交付任何 bar 一样交付这根 kline。
+- **为什么不是前视。** 帧 `k` 的决策只能用到其可见时刻之前可见的东西，而成交时刻严格晚于它，所以成交价是策略能够行动之后
+  市场打出的价格。下一根执行周期 bar 的开盘价不行：那根 bar 在帧的事件时刻开盘，此时声明的滞后还没过去，所以会以决策还
+  不可能做出时打出的价格成交。研究原型按下一根 4h 的开盘成交；1m 的成交 bar 保留了这个意图，并去掉了这段滞后。与每个
+  报价 cut 一样，成交报价只进入成交路径，绝不进入策略输入。
+- **为什么可以重读。** Quote 是一行不可变、经 Owner 验证的行的固定函数，成交 bar 报价 cut 按与观测报价相同的 census 与
+  读取 cut 规则选出，所以之后的读取解析出同一个报价。
+- **它是声明的成交模型，不是 stand-in，并且自己说明这一点。** 报价 cut 的 identity 带有它的派生方式（观测到的最优买卖价，
+  或某个具名成交周期 bar 的开盘价），Backtest 结果会写明它。它没有价差，也没有挂单深度：它的 size 是市场在这根 bar 里
+  成交的量，不是盘口上的流动性。价差与滑点属于 Backtest 的成本模型，绝不是本 Owner 编出来的数字。
+- **Owner 时钟随 PIT 摄入推进。** 观测取回时刻晚于时钟 head 的 PIT 摄入，在时钟状态锁下、在它自己的提交事务内自行铸出
+  下一个 cut，做法与 Instrument Master V2 快照准入今天的做法相同；取回时刻晚于其所铸 cut 的一律拒绝。因此 V2 PIT 提交
+  不再陈述决策 cut 或时钟：Owner 把它们盖进快照的时间证据，并在回执里返回这个 cut，请求方从回执读取。这个 cut 仍然在任何
+  读者看到快照数据之前就已固定，所以这是把请求方的决策 cut 从请求挪到回执，不移除任何性质。它还让 V2 提交不再出现
+  `ClockEvidenceNotCurrent`，否则每小时推进 head 的归档器会让这种拒绝变成常态。V1 提交保持今天的契约。R&D 的冻结请求
+  交接随之改变，所以这一片要先得到 R&D 对这一改变的同意才开始。没有它，任何在 head 之后取回的摄入（冻结在自身时刻的帧之后的
+  报价，或实时路径）什么也准入不了，直到别的准入推进时钟。历史摄入不需要它：它只读一次 Owner 的 cut，提交的请求坐标都不晚于
+  这个 cut。
+- **伴随报价 lineage，排在 U1 之后。** 被准入为某一条 bar lineage 的流动性伴随的报价 Source Binding，可以为该 lineage
+  提供报价 cut。这种配对在报价 binding 的提案里声明，并进入它的 identity。它指名的是 bar lineage 的根，不是某个 binding，
+  所以在 bar lineage 的 successor 之间保持不变。Market Semantics identity、时间关系与歧义拒绝都保持精确。它需要一个运行
+  两个观测来源的部署和一个永续报价来源，今天没有任何部署具备；Binance 历史两者都不需要，因为成交 bar 报价 cut 已经能服务它。
+- **Source Binding successor 准入，排在 U1 之后。** `commit_source_successor` 只有测试调用方，没有路由或请求字段能到达
+  它，所以今天重新准入一个来源会开出一条不相关的 lineage。它不卡伴随 lineage，因为伴随指名的是 lineage 根。
+- **准入不检查 mapping 是否有人服务。** Source Binding 准入接受任何 dataset mapping，包括部署里没有任何 Data Client 服务
+  的 mapping，这样的 binding 下的快照只是不可用。这是失败即关闭的，但它允许只为了推进时钟而准入一个 binding，第一次
+  Composer 回放的 stand-in 正是这样做的，只不过它用的 mapping 至少是能服务的。Owner 时钟随 PIT 摄入推进之后，就没有理由
+  再这样做。把 mapping 与部署的 Data Client 对照检查记录在此，不准入。
+- **切片与顺序。** (1) 成交 bar 报价 cut，在 U1 的路径上，作为 T0 托管报价 cut 的一部分，因为多帧 Backtest 读的是 PIT 窗口
+  托管；之后回填在窗口的 bar 旁边，为每个成员每个间隔提交一根成交 bar。它不需要改时钟。快照路径上的形式只在有快照路径的
+  消费者需要时才做。(2) Owner 时钟随
+  PIT 摄入推进，排在 U1 之后，服务于在 head 之后取回的路径。(3) 伴随 lineage 与 (4) successor 准入，排在 U1 之后，先后不限。
+  mapping 检查不准入。
 
 **TARGET / IMPLEMENTATION_ADMITTED（切片 T0），PIT 窗口托管：** 针对回补历史的多帧 Backtest 读一份只追加的 PIT 窗口托管，而不是每帧
 一份快照。用户于 2026-09-27 准入了这一点，原选项见 Strategy Factory 页策略形状包络一节的引文，其中包括它收窄的那
