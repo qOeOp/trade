@@ -417,8 +417,11 @@ the run, so a replay reads the same data.
 - Accepted on its own when an agent can list, describe, admit, backfill and read one instrument end to end against a
   disposable store, with each refusal driven once.
 
-**`strategy`**, served by R&D:
+**`strategy-authoring`**, served by R&D:
 
+- It belongs to R&D's authoring layer (Strategy Artifact): it authors, compiles and checks, and keeps immutable
+  versions. It does not register a qualified strategy or own its lifecycle and capital, which is Strategy Governance
+  and a later `governance` server, and it does not run anything, which is Runtime.
 - A spec is the single-threshold authoring request without its three identities, including its exit fields. A
   strategy is bound to no Research request.
 - `validate(spec)` → `VALID`, or every violation by the authoring compiler's own name, writing nothing.

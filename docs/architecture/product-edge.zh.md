@@ -358,8 +358,10 @@ Source 与 Research 动作、探索性 Replay 动作、Develop Composer 动作�
   的台账。
 - 单独验收的条件：代理能在一次性 store 上对一个标的端到端地完成列出、描述、准入、回填与读取，且每个拒绝都被驱动到一次。
 
-**`strategy`**，由 R&D 提供：
+**`strategy-authoring`**，由 R&D 提供：
 
+- 它属于 R&D 的编写层（Strategy Artifact）：负责编写、编译检查并保存不可变版本。它不登记已合格的策略，也不负责其生命周期与
+  资金，那是 Strategy Governance 与以后的 `governance` server；它也不运行任何东西，那是 Runtime。
 - spec 是去掉三个 identity 的单阈值 authoring 请求，含其出场字段。策略不绑定任何 Research 请求。
 - `validate(spec)` → `VALID`，或按 authoring 编译器自己的名字给出全部违规，不写入任何东西。
 - `create(spec)` → `strategy_id`，即规范化 spec 的内容摘要。同一份 spec 再次创建返回同一个 id。
