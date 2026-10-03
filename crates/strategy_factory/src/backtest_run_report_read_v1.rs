@@ -1788,7 +1788,7 @@ mod tests {
                 field_semantic_id: "MARKET_DATA.BAR.CLOSE.PRICE.V1".to_owned(),
                 timeframe: "1D".to_owned(),
                 unit: "PRICE".to_owned(),
-                scale: 2,
+                scale: vibe_data::owner::decimal_rescale_v1::MARKET_DATA_VALUE_SCALE_V1,
             })
         );
 

@@ -3239,6 +3239,7 @@ fn authored_universe_member_program(
     let sealed_frame = issue_single_member_universe_frame_for_owner_lineage(
         candidate.research_request_identity,
         design_identity,
+        crate::program_host_v2_tests::single_member_universe_roles_of(&candidate),
     )
     .expect("one-member Owner universe frame");
     let build = VerifiedPluginCargoBuildV3::verify(
@@ -3767,7 +3768,7 @@ fn run_authored_program_over_three_frames(
 /// One frame after the authored program's first, 100 ns after the frame before it.
 #[cfg(feature = "sealed-strategy-input-acceptance")]
 struct LaterFrame {
-    /// The member's open and close at the channel's scale of two.
+    /// The member's open and close in cents; the frame states them at the role's scale.
     open_close: [i128; 2],
     /// The frame's bar: open, high, low, close.
     bar: (&'static str, &'static str, &'static str, &'static str),
@@ -3815,7 +3816,12 @@ fn run_authored_program_over_frames(
                 &plan,
                 &owner_frame,
                 *at,
-                &[frame.open_close],
+                &[frame.open_close.map(|cents| {
+                    cents
+                        * 10_i128.pow(u32::from(
+                            vibe_data::owner::decimal_rescale_v1::MARKET_DATA_VALUE_SCALE_V1 - 2,
+                        ))
+                })],
             )
         })
         .collect::<Result<Vec<_>, _>>()?;
