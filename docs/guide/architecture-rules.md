@@ -154,7 +154,7 @@ Product Edge and Operator Authorization are the outer boundary above the stack, 
 dependencies are not layer edges. The inherited engine crates (`vibe-backtest`, `vibe-execution`,
 `vibe-portfolio`, `vibe-risk`, `vibe-trading`) are libraries, not Owners, and any layer may link them.
 
-Three rules govern the stack:
+Four rules govern the stack:
 
 - **Calls go down only.** An Owner may call, link, or be granted the functions of an Owner in a lower layer.
   Information reaches a higher layer only when the lower Owner appends a fact or event that the higher Owner
@@ -167,8 +167,17 @@ Three rules govern the stack:
 - **The only trust boundary is the outer one.** Input is verified strictly once, where it enters the product:
   agent input at the `rd-owner-api` HTTP layer, and external market data at Market Data intake. Inside the
   product, one Owner does not re-verify another Owner's values.
+- **Each Owner is an independent module.** With only its own crates, its own schemas, and the public contracts of
+  the Owners below it (or stubs of those contracts), an Owner builds, migrates a fresh database, runs its tests,
+  and deploys and runs on its own. Any two adjacent Owners can be picked out and combined to test one stretch of
+  the chain without bringing up the whole stack. Changing an Owner's internals never forces another Owner to
+  change; only its public contract can. The measurable form: the normal-dependency closure of an Owner's crate
+  holds only that Owner's crates, crates of lower-layer Owners, crates of same-layer Owners it calls one-way, and
+  ownerless libraries; and each Owner's contract lives in a leaf crate that holds types only and depends on
+  nothing but ownerless libraries.
 
-This relaxes an invariant the documentation stated before: that each Owner reads the original record itself
+The fourth rule adds a bound; the user stated it on 2026-10-03. The third rule relaxes an invariant the
+documentation stated before: that each Owner reads the original record itself
 before it trusts another Owner's value. The user authorized the relaxation on 2026-10-03 (AskUserQuestion,
 chosen option "relax: verify only at the outer boundary"). The reason is the measured baseline below: re-reading
 across Owners produced five two-way Owner pairs, and every one of them is a dependency cycle.
@@ -207,6 +216,33 @@ The two-way pairs are Backtest and R&D, Market Data and R&D, Backtest and Qualif
 and R&D and Product Edge. Downward edges (R&D to Market Data and Backtest, Qualification to Market Data, Backtest,
 and R&D, Product Edge to the stack) and the one-way calls inside layer 5 conform and are not listed.
 
+### Dependency closures at `80e9497a8`
+
+Each Owner crate's closure is `cargo tree -p <crate> -e normal`, which resolves the crate with its own default
+features exactly as `cargo build -p <crate>` builds it; a second run with `--all-features` surfaces what an
+optional feature pulls in. The table lists every crate in a closure that the fourth rule excludes. Every crate
+not listed conforms: `vibe-data`, `vibe-binance`, `vibe-databento`, `vibe-qualification`, the trading-side Owner
+crates, the Scanner crates, and the one-way same-layer uses (Runtime of Execution,
+Product Edge of Operator Authorization).
+`vibe-strategy-factory-rd-owner-api` is the composition root and is exempt.
+
+| Owner crate                                | Workspace crates in closure | Crates the fourth rule excludes                                                                                                                                                                                                                                                                                                                                            |
+| ------------------------------------------ | --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `vibe-data` with `--all-features`          | 16                          | `vibe-rd-exploratory-replay-custody`, `vibe-rd-artifact-invocation-custody`, `vibe-rd-source-intake-invocation-custody`, `strategy-factory-program-sdk`, `vibe-backtest-owner-contracts`, `vibe-product-edge`, `vibe-product-edge-claim-custody`, `vibe-product-edge-contracts`, `vibe-operator-authorization`, all through the `isolated-event-replay-acceptance` feature |
+| `vibe-market-data-repair-custody`          | 6                           | `vibe-rd-market-data-repair-custody`                                                                                                                                                                                                                                                                                                                                       |
+| `vibe-backtest-owner`                      | 30                          | `vibe-strategy-factory`, `strategy-factory-program-sdk`, `vibe-rd-artifact-invocation-custody`, `vibe-rd-exploratory-replay-custody`, `vibe-rd-market-data-repair-custody`, `vibe-rd-source-intake-invocation-custody`, `vibe-qualification`, `vibe-product-edge`, `vibe-product-edge-claim-custody`, `vibe-product-edge-contracts`, `vibe-operator-authorization`         |
+| `vibe-backtest-owner-contracts`            | 1                           | `strategy-factory-program-sdk`                                                                                                                                                                                                                                                                                                                                             |
+| `vibe-backtest-result-custody`             | 2                           | `strategy-factory-program-sdk`                                                                                                                                                                                                                                                                                                                                             |
+| `vibe-strategy-factory`                    | 29                          | `vibe-qualification`, `vibe-product-edge`, `vibe-product-edge-claim-custody`, `vibe-product-edge-contracts`, `vibe-operator-authorization`                                                                                                                                                                                                                                 |
+| `vibe-rd-exploratory-replay-custody`       | 10                          | `vibe-product-edge`, `vibe-product-edge-claim-custody`, `vibe-product-edge-contracts`, `vibe-operator-authorization`                                                                                                                                                                                                                                                       |
+| `vibe-rd-artifact-invocation-custody`      | 1                           | `vibe-product-edge-claim-custody`                                                                                                                                                                                                                                                                                                                                          |
+| `vibe-rd-source-intake-invocation-custody` | 1                           | `vibe-product-edge-claim-custody`                                                                                                                                                                                                                                                                                                                                          |
+
+Two further facts block independence outside the crate graph. One script,
+`product/rd-workbench/postgres-init/10-migrate-authority-custody.sh` (5869 lines), creates the schemas of every
+Owner, so no Owner migrates a database on its own. Of the four core Owners, only Backtest has a contract crate
+(`vibe-backtest-owner-contracts`); Market Data, R&D, and Qualification are consumed through their whole crates.
+
 ### Teardown list
 
 Each row is `TARGET` and is removed by its own reviewable change after U1. A row closes when its crate edge,
@@ -222,6 +258,20 @@ grants, and call sites are all gone and a fresh run of the baseline shows the pa
 | Backtest to Qualification | `TARGET` | `qualification_api` granted to `backtest_owner` at `10-migrate:2200`, `:2593`, `:2676`; calls `qualification_api.lock_protected_replay_request_v1` and `_set_v1` at `crates/backtest_owner/src/protected_replay_postgres.rs:1128`, `:1205`, `:1282`                                                                                                                                                                                                  | Qualification puts the Protected Replay Request value in the call; Backtest stops locking it. Holdout isolation is unchanged.                 |
 | Backtest to Product Edge  | `TARGET` | `product_edge_api` granted to `backtest_owner` at `10-migrate:221`, `:4188`, `:4279` and `crates/strategy_factory/src/exploratory_replay/postgres.rs:1671`; no call site in a Backtest crate, and the only Rust caller of `lock_downstream_admission_v1` is `crates/product_edge/src/postgres.rs:4914`                                                                                                                                               | Find the connection that exercises the grants, then pass the value or revoke them.                                                            |
 | Portfolio to Product Edge | `TARGET` | `product_edge_api` granted to `portfolio_owner` at `10-migrate:221`, `:4478`; no call site in a Portfolio crate, and the only Rust caller of `lock_portfolio_read_policy_v1` is `crates/product_edge/src/postgres.rs:5011`                                                                                                                                                                                                                           | Find the connection that exercises the grants, then pass the read policy value or revoke them.                                                |
+
+Module independence adds these `TARGET` rows. A row closes when the named Owner builds and runs its tests with
+`cargo test -p` on its own crates and a fresh database migrated by its own script, with stubs standing in for
+the contracts of the Owners below it.
+
+| Independence target                                  | Status   | Evidence                                                                                      | Work                                                                                                                                    |
+| ---------------------------------------------------- | -------- | --------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| Market Data builds and tests alone                   | `TARGET` | the `vibe-data` and `vibe-market-data-repair-custody` rows of the closure table               | Move the `isolated-event-replay-acceptance` acceptance out of `vibe-data`; remove the repair custody's R&D dependency.                  |
+| Backtest builds and tests alone                      | `TARGET` | the `vibe-backtest-owner` row of the closure table                                            | Remove the `vibe-strategy-factory` dependency; the program SDK becomes an ownerless library or leaves the contract.                     |
+| R&D builds and tests alone                           | `TARGET` | the `vibe-strategy-factory` and `vibe-rd-*` rows of the closure table                         | Remove the Qualification, Product Edge, and Operator Authorization dependencies.                                                        |
+| Qualification builds and tests alone                 | `TARGET` | no excluded crate today; it consumes `vibe-data` and Backtest whole                           | Depend on the lower Owners' contract crates instead of their whole crates.                                                              |
+| Each core Owner's contract is a leaf crate           | `TARGET` | only `vibe-backtest-owner-contracts` exists, and it depends on `strategy-factory-program-sdk` | Add contract crates for Market Data, R&D, and Qualification, holding types only and depending only on ownerless libraries.              |
+| Each Owner migrates its own schemas                  | `TARGET` | `10-migrate-authority-custody.sh` (5869 lines) creates every Owner's schemas                  | Split the migration per Owner, ordered from the bottom up, each creating only its own schemas and the grants its callers above it need. |
+| Each Owner's routes and storage run without the root | `TARGET` | `rd-owner-api` hosts the routes of several Owners in one process                              | Keep `rd-owner-api` as the composition root; make each Owner's routes and storage start on their own.                                   |
 
 ## Research, development, and qualification
 
