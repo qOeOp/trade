@@ -128,6 +128,16 @@ fn binance_perpetual_admission_digest_v1(meaning: &str) -> BindingDigest {
 /// the set it belongs to is this one.
 pub const BINANCE_PERPETUAL_U1_MEMBERS_V1: &[&str] = &["BTCUSDT", "ETHUSDT", "SOLUSDT"];
 
+/// Whether `raw_symbol` is one of [`BINANCE_PERPETUAL_U1_MEMBERS_V1`]. The route checks this
+/// before any admission step, and refuses by name rather than letting a symbol outside the fixed
+/// set fail partway through as a generic conflict: growing the set is its own deliberate
+/// successor-frontier admission (see [`binance_perpetual_eligible_frontier_v1`]'s doc), not
+/// something this route does on an unrecognised symbol.
+#[must_use]
+pub fn binance_perpetual_symbol_is_eligible_v1(raw_symbol: &str) -> bool {
+    BINANCE_PERPETUAL_U1_MEMBERS_V1.contains(&raw_symbol)
+}
+
 /// The eligible-instrument frontier for one fixed, complete member set: a domain-separated digest
 /// over the sorted canonical identities, so a different set derives a different frontier instead
 /// of colliding with this one's manifest.
@@ -566,6 +576,15 @@ mod tests {
                 binance_perpetual_admission_digest_v1("correction-frontier")
             );
         }
+    }
+
+    #[rstest]
+    fn symbol_eligibility_matches_the_fixed_u1_set() {
+        for raw_symbol in BINANCE_PERPETUAL_U1_MEMBERS_V1 {
+            assert!(binance_perpetual_symbol_is_eligible_v1(raw_symbol));
+        }
+        assert!(!binance_perpetual_symbol_is_eligible_v1("LINKUSDT"));
+        assert!(!binance_perpetual_symbol_is_eligible_v1("DOGEUSDT"));
     }
 
     /// A different member set derives a different frontier, instead of colliding with

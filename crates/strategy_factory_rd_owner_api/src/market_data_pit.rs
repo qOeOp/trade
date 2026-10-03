@@ -28,6 +28,7 @@ use vibe_binance::{
     perpetual_admission_v1::{
         BinancePerpetualAdmissionErrorV1, BinancePerpetualDatasetV1,
         binance_perpetual_instrument_master_submission, binance_perpetual_source_proposal,
+        binance_perpetual_symbol_is_eligible_v1,
     },
 };
 use vibe_data::owner::{
@@ -524,6 +525,10 @@ async fn admit_binance_perpetual(
         Err(_) => return rejection(StatusCode::BAD_REQUEST, "MALFORMED_TYPED_REQUEST"),
     };
     let raw_symbol = request.symbol;
+
+    if !binance_perpetual_symbol_is_eligible_v1(&raw_symbol) {
+        return rejection(StatusCode::BAD_REQUEST, "SYMBOL_NOT_IN_ELIGIBLE_FRONTIER");
+    }
 
     let effective_ns = match intake.current_decision_cut().await {
         Ok(cut) => cut.decision_cut.as_epoch_nanos(),

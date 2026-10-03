@@ -3316,7 +3316,8 @@ same names.
   this request's) but before any symbol's own Instrument Master submission. Every per-symbol admission then names
   that same frontier (derived from the sorted member set, not a fixed constant, so a different future set derives a
   different frontier instead of colliding) in its Instrument Master fact. Re-sending the one-time admission rejoins
-  the same frontier.
+  the same frontier. A symbol outside the fixed set is refused by name, `SYMBOL_NOT_IN_ELIGIBLE_FRONTIER`, before
+  any admission step runs: nothing is written for a symbol the fixed set does not name.
 - **TARGET: adding a symbol beyond the fixed U1 set is a successor-frontier admission, not something per-symbol
   admission does.** A frontier is Market Data's own complete statement of the eligible-instrument set at a point in
   time - "each admission succeeds the one before it, so Market Data, not the requester, decides which frontier is
