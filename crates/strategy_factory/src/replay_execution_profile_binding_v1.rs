@@ -644,6 +644,30 @@ pub(crate) fn owner_replay_execution_profile_binding_fixture_v1(
     universe_frame: &StrategyInputUniverseFrameReceipt,
     window: ReplayWindowV2,
 ) -> OwnerIssuedReplayExecutionProfileBindingV1 {
+    owner_replay_execution_profile_binding_with_record_fixture_v1(
+        plan,
+        artifact,
+        universe_frame,
+        window,
+        None,
+    )
+}
+
+/// The fixture above, with the request's `universe_selection` set to a Universe Selection Record
+/// when one is given: identity equal to digest, as `UniverseSelectionRecordV1` states it, and
+/// distinct from the frame's strategy-input selection, as every production Replay request names it.
+#[cfg(test)]
+#[allow(
+    dead_code,
+    reason = "acceptance helpers are selected by focused test targets"
+)]
+pub(crate) fn owner_replay_execution_profile_binding_with_record_fixture_v1(
+    plan: &crate::strategy_plan_v2::StrategyPlanV2,
+    artifact: &crate::artifact_v2::StrategyArtifactV2,
+    universe_frame: &StrategyInputUniverseFrameReceipt,
+    window: ReplayWindowV2,
+    universe_selection_record: Option<[u8; 32]>,
+) -> OwnerIssuedReplayExecutionProfileBindingV1 {
     use crate::{
         exploratory_replay::issue_sealed_exploratory_replay_readback_with_profiles_for_acceptance_v2,
         replay_economic_configuration_v1::economic_fixture,
@@ -804,16 +828,27 @@ pub(crate) fn owner_replay_execution_profile_binding_fixture_v1(
         resolved_owner_inputs: content("owner-inputs-v2", digest(9)),
         pit_scope: content("pit-scope-v2", digest(10)),
         pit_snapshot: content("pit-snapshot-v2", digest(11)),
-        universe_selection: content(
-            &format!(
-                "blake3:{}",
-                hex_bytes(universe_frame.selection().selection_identity().as_bytes())
-            ),
-            CanonicalDigestV2::try_from(format!(
-                "blake3:{}",
-                hex_bytes(universe_frame.selection().selection_digest().as_bytes())
-            ))
-            .expect("universe selection digest"),
+        universe_selection: universe_selection_record.map_or_else(
+            || {
+                content(
+                    &format!(
+                        "blake3:{}",
+                        hex_bytes(universe_frame.selection().selection_identity().as_bytes())
+                    ),
+                    CanonicalDigestV2::try_from(format!(
+                        "blake3:{}",
+                        hex_bytes(universe_frame.selection().selection_digest().as_bytes())
+                    ))
+                    .expect("universe selection digest"),
+                )
+            },
+            |record| {
+                content(
+                    &format!("blake3:{}", hex_bytes(&record)),
+                    CanonicalDigestV2::try_from(format!("blake3:{}", hex_bytes(&record)))
+                        .expect("universe selection record digest"),
+                )
+            },
         ),
         correction_rule: execution_policy.correction_rule.clone(),
         market_semantics: execution_policy.market_semantics.clone(),

@@ -59,10 +59,63 @@ use super::{
         ProgramHostSimEventRoundTripV1, program_host_sim_event_canonical_result_digest_for_test,
         program_host_sim_event_round_trip_for_test, run_program_host_sim_event_consumer_v1,
     },
-    replay_execution_profile_binding_v1::owner_replay_execution_profile_binding_fixture_v1,
+    replay_execution_profile_binding_v1::{
+        owner_replay_execution_profile_binding_fixture_v1,
+        owner_replay_execution_profile_binding_with_record_fixture_v1,
+    },
     replay_target_set_execution_bundle_v1::ReplayTargetSetExecutionBundleV1,
     target_set_members::BoundedMembers,
 };
+
+/// A production Replay request names its Universe Selection Record, not the strategy-input
+/// selection its frames carry, and the two never share an identity. Market Data holds the Record
+/// against each frame's verified batch when it issues the frames; the bundle takes such a request.
+#[rstest]
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+fn a_bundle_takes_a_replay_that_names_its_universe_selection_record() {
+    let mut instruments = instruments();
+    for instrument in &mut instruments {
+        let instrument = crypto_perpetual_mut(instrument);
+        instrument.maker_fee = rust_decimal::Decimal::new(2, 4);
+        instrument.taker_fee = rust_decimal::Decimal::new(4, 4);
+        instrument.margin_init = rust_decimal::Decimal::new(1, 1);
+        instrument.margin_maint = rust_decimal::Decimal::new(5, 2);
+    }
+    let (plan, artifact, frame) = fixture().unwrap();
+    let record = [0xb8; 32];
+    assert_ne!(&record, frame.selection().selection_identity().as_bytes());
+    assert_ne!(&record, frame.selection().selection_digest().as_bytes());
+    let admitted = admit_owner_universe_program_event_v2(
+        &plan,
+        &OwnerUniverseFrameV1::uncoordinated(frame.clone()),
+    )
+    .unwrap();
+    let time = admitted.envelope().order_key.logical_time_ns;
+    let authority = owner_replay_execution_profile_binding_with_record_fixture_v1(
+        &plan,
+        &artifact,
+        &frame,
+        ReplayWindowV2 {
+            start_event_ns: time,
+            end_event_ns_exclusive: time + 3,
+        },
+        Some(record),
+    );
+    let (bar_types, data) = request_execution_schedule(&instruments, time);
+    ReplayTargetSetExecutionBundleV1::new_with_native_instruments_for_test(
+        authority,
+        plan,
+        artifact,
+        vec![OwnerUniverseFrameV1::uncoordinated(frame)],
+        StrategyId::from("TARGET-SET-PROFILE-EVENT-001"),
+        "target-set-profile-event".into(),
+        instruments,
+        bar_types,
+        data,
+        &[time],
+    )
+    .expect("a request naming its Universe Selection Record forms its execution bundle");
+}
 
 #[rstest]
 #[cfg(feature = "sealed-strategy-input-acceptance")]
