@@ -222,6 +222,8 @@ async fn load_binding(
         source_frontier_digest: fact.source_frontier().digest,
         correction_stream: fact.correction_frontier().stream_identity.clone(),
         correction_frontier_digest: fact.correction_frontier().digest,
+        source_frontier: fact.source_frontier().clone(),
+        correction_frontier: fact.correction_frontier().clone(),
     }))
 }
 

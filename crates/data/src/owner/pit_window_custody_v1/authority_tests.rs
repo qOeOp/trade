@@ -9,6 +9,7 @@ use crate::owner::{
         schedule_time_zone_identity_v1,
     },
     declared_bar_timeframe_v1::{DeclaredBarAnchorV1, anchor_identity_v1},
+    market_semantics_admission_v1::MarketSemanticsValueSubmissionV1,
     pit_window_custody_v1::{
         UntrustedCrossSectionVersionV1, UntrustedCustodyRowV1, UntrustedPitWindowCustodyClaimV1,
     },
@@ -36,12 +37,6 @@ fn d(byte: u8) -> BindingDigest {
 }
 
 fn locator() -> UntrustedSourceBindingLocator {
-    let frontier = |byte: u8| UntrustedCompleteFrontier {
-        stream_identity: "test/stream".to_owned(),
-        cut_identity: "test/stream/cut-1".to_owned(),
-        sequence: 1,
-        digest: d(byte),
-    };
     UntrustedSourceBindingLocator::from_untrusted(UntrustedSourceBindingLocatorFields {
         owner: "MARKET_DATA_OWNER_V1".to_owned(),
         lineage_root: d(2),
@@ -152,6 +147,8 @@ impl Basis {
                 source_frontier_digest: d(24),
                 correction_stream: "test/stream".to_owned(),
                 correction_frontier_digest: d(25),
+                source_frontier: frontier(24),
+                correction_frontier: frontier(25),
             }),
             instruments: vec![instrument(40), instrument(41)],
             membership: vec![membership(BTC), membership(ETH)],
@@ -250,11 +247,32 @@ fn correction(
     }
 }
 
+/// The typed Market Semantics value every fixture custody claims.
+fn market_semantics_value() -> MarketSemanticsValueSubmissionV1 {
+    MarketSemanticsValueSubmissionV1 {
+        normalization_identity: d(31),
+        price_adjustment: "RAW".to_owned(),
+        timestamp_basis: "INTERVAL_CLOSE".to_owned(),
+        price_unit_identity: d(32),
+        size_unit_identity: d(33),
+    }
+}
+
+fn frontier(byte: u8) -> UntrustedCompleteFrontier {
+    UntrustedCompleteFrontier {
+        stream_identity: "test/stream".to_owned(),
+        cut_identity: "test/stream/cut-1".to_owned(),
+        sequence: 1,
+        digest: d(byte),
+    }
+}
+
 /// Two members, three days, a daily execution timeframe and a one-minute fill timeframe.
 fn request() -> UntrustedPitWindowCustodyRequestV1 {
     UntrustedPitWindowCustodyRequestV1 {
         source_binding: locator(),
         market_semantics_identity: d(30),
+        market_semantics_value: market_semantics_value(),
         universe_selection: UntrustedUniverseSelectionLocatorV1::from_untrusted(d(50), d(51)),
         members: vec![BTC.to_owned(), ETH.to_owned()],
         window_start_ns: 0,
@@ -1021,4 +1039,233 @@ fn a_value_the_increment_cannot_state_exactly_is_refused(
             .map(|_| ()),
         Err(refused)
     );
+}
+
+/// The claimed Market Semantics value is part of what a custody is: it enters the basis a
+/// successor restates and the custody identity, and a malformed claim is refused.
+#[rstest]
+fn the_market_semantics_value_enters_the_basis_and_the_identity() {
+    let basis = Basis::new(false);
+    let derived = basis.derive(&request()).unwrap();
+    let mut adjusted = request();
+    adjusted.market_semantics_value.price_adjustment = "SPLIT_ADJUSTED".to_owned();
+    let other = basis.derive(&adjusted).unwrap();
+
+    assert_ne!(other.basis_digest, derived.basis_digest);
+    assert_ne!(root_identity(&other), root_identity(&derived));
+
+    let mut misspelt = request();
+    misspelt.market_semantics_value.timestamp_basis = "CLOSE".to_owned();
+    assert_eq!(
+        basis.derive(&misspelt).map(|_| ()),
+        Err(Refused::InvalidRequest)
+    );
+    let mut unnamed = request();
+    unnamed.market_semantics_value.size_unit_identity = d(0);
+    assert_eq!(
+        basis.derive(&unnamed).map(|_| ()),
+        Err(Refused::InvalidRequest)
+    );
+}
+
+#[rstest]
+fn a_window_holding_no_frame_is_refused() {
+    let mut request = request();
+    request.window_start_ns = 1;
+    request.window_end_ns_exclusive = DAY;
+    request.fill_timeframe = None;
+    request.cross_sections = vec![original("1D", DAY / 2)];
+
+    assert_eq!(
+        Basis::new(false).derive(&request).map(|_| ()),
+        Err(Refused::InvalidRequest)
+    );
+}
+
+mod chain_records {
+    use super::*;
+    use crate::owner::pit_window_custody_v1::{
+        chain_records::{
+            MarketSemanticsChainBasisV1, decode_market_semantics_chain_fact_v1,
+            decode_r0_chain_cut_v1, decode_r0_chain_record_v1, frame_r0_v1,
+            issue_market_semantics_chain_fact_v1, issue_r0_chain_record_v1,
+        },
+        schedule::mint_window_schedules_v1,
+    };
+
+    /// The minting clock of every fixture chain.
+    fn minting_clock() -> crate::owner::source_binding::MarketDataClockAdmission {
+        crate::owner::source_binding::MarketDataClockAdmission::seal_for_test(
+            "market-data.owner-clock.v1-00001",
+            "market-data.owner-epoch.v1-00001",
+            7,
+            RETRIEVED,
+            RETRIEVED,
+            RETRIEVED + 3_600 * SECOND,
+            d(9),
+            1,
+            2,
+        )
+    }
+
+    fn chain(
+        request: &UntrustedPitWindowCustodyRequestV1,
+    ) -> (
+        DerivedCustodyV1,
+        crate::owner::pit_window_custody_v1::chain_records::ReferenceFactR0ChainRecordV1,
+        crate::owner::pit_window_custody_v1::chain_records::ReferenceFactR0ChainCutV1,
+    ) {
+        let derived = Basis::new(false).derive(request).unwrap();
+        let root = root_identity(&derived);
+        let (record, cut) = issue_r0_chain_record_v1(&derived, root, root, &minting_clock())
+            .expect("a window with frames has a chain R0");
+        (derived, record, cut)
+    }
+
+    /// The chain R0 runs from the window's start to the end its last frame's input timeframes
+    /// claim: the last daily close is day two, so day three; a two-day input moves it to day four,
+    /// and the fill timeframe never does.
+    #[rstest]
+    fn the_chain_r0_window_ends_where_the_last_frame_claims() {
+        let (derived, record, cut) = chain(&request());
+        assert_eq!(derived.last_execution_frame_ns(), 2 * DAY);
+        assert_eq!(
+            (record.window_start_ns, record.window_end_ns_exclusive),
+            (0, 3 * DAY)
+        );
+        assert_eq!(
+            (
+                cut.window_start_ns,
+                cut.window_end_ns_exclusive,
+                cut.record_identity
+            ),
+            (0, 3 * DAY, record.identity())
+        );
+        assert_eq!(record.clock.decision_cut, RETRIEVED);
+
+        let mut wider = request();
+        wider.input_timeframes = vec!["1D".to_owned(), "2D".to_owned()];
+        assert_eq!(chain(&wider).1.window_end_ns_exclusive, 4 * DAY);
+    }
+
+    /// The preimages are pinned: a change to any field's encoding or order moves these digests.
+    #[rstest]
+    fn the_chain_record_preimages_are_pinned() {
+        let (derived, record, cut) = chain(&request());
+        let fact = issue_market_semantics_chain_fact_v1(
+            &derived,
+            record.chain_root,
+            record.root_custody_identity,
+            (&record, &cut),
+            MarketSemanticsChainBasisV1 {
+                registry_record_identity: d(70),
+                instrument_master_cut_identity: d(71),
+            },
+        )
+        .unwrap();
+        let hex = |digest: BindingDigest| {
+            digest
+                .as_bytes()
+                .iter()
+                .fold(String::new(), |mut hex, byte| {
+                    use std::fmt::Write as _;
+                    let _ = write!(hex, "{byte:02x}");
+                    hex
+                })
+        };
+
+        assert_eq!(hex(record.identity()), PINNED_R0_RECORD);
+        assert_eq!(hex(cut.identity()), PINNED_R0_CUT);
+        assert_eq!(hex(fact.identity()), PINNED_MARKET_SEMANTICS_FACT);
+        assert_eq!(fact.effective_from_ns, 0);
+        assert_eq!(fact.effective_until_ns, 3 * DAY);
+    }
+
+    const PINNED_R0_RECORD: &str =
+        "123805a7ee9c3356b07a2b18780faa2e4b83b832d775c09e6a54f35b1b9fdc25";
+    const PINNED_R0_CUT: &str = "1962c055edc720da8680f37d45a75a05c1b83d3bd8953bbfa591a43054b9cfd5";
+    const PINNED_MARKET_SEMANTICS_FACT: &str =
+        "aa8822732504b7ae7630d6706b38c88ed4c75686edd6ffa433221da0b0104193";
+
+    #[rstest]
+    fn stored_chain_records_decode_only_to_what_they_state() {
+        let (derived, record, cut) = chain(&request());
+        assert_eq!(
+            decode_r0_chain_record_v1(record.canonical_bytes(), record.identity()),
+            Some(record.clone())
+        );
+        assert_eq!(
+            decode_r0_chain_cut_v1(cut.canonical_bytes(), cut.identity()),
+            Some(cut.clone())
+        );
+        let fact = issue_market_semantics_chain_fact_v1(
+            &derived,
+            record.chain_root,
+            record.root_custody_identity,
+            (&record, &cut),
+            MarketSemanticsChainBasisV1 {
+                registry_record_identity: d(70),
+                instrument_master_cut_identity: d(71),
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            decode_market_semantics_chain_fact_v1(fact.canonical_bytes(), fact.identity()),
+            Some(fact.clone())
+        );
+
+        for (bytes, identity) in [
+            (record.canonical_bytes(), record.identity()),
+            (cut.canonical_bytes(), cut.identity()),
+            (fact.canonical_bytes(), fact.identity()),
+        ] {
+            let mut tampered = bytes.to_vec();
+            let last = tampered.len() - 1;
+            tampered[last] ^= 1;
+            assert!(decode_r0_chain_record_v1(&tampered, identity).is_none());
+            assert!(decode_r0_chain_cut_v1(&tampered, identity).is_none());
+            assert!(decode_market_semantics_chain_fact_v1(&tampered, identity).is_none());
+        }
+    }
+
+    /// A frame's R0 runs from its `e_k` to the end its input timeframes claim, lies inside the
+    /// chain's, and is a function of `e_k`; a frame off the schedule has none.
+    #[rstest]
+    fn a_frame_r0_is_computed_from_the_chain_record() {
+        let request = request();
+        let (derived, record, _) = chain(&request);
+        let root = root_identity(&derived);
+        let schedules = mint_window_schedules_v1(&derived, root, root, RETRIEVED).unwrap();
+        let schedule = &schedules[0];
+        let declarations = &derived.binding.bar_timeframes;
+        let frame = |event| {
+            frame_r0_v1(
+                &record,
+                schedule,
+                event,
+                declarations,
+                derived.input_labels(),
+            )
+        };
+
+        let first = frame(0).expect("the window's first frame has an R0");
+        assert_eq!(
+            (first.window_start_ns, first.window_end_ns_exclusive),
+            (0, DAY)
+        );
+        let last = frame(2 * DAY).expect("the last frame's R0 ends at the chain's");
+        assert_eq!(
+            (last.window_start_ns, last.window_end_ns_exclusive),
+            (2 * DAY, 3 * DAY)
+        );
+        assert_eq!(last.chain_record_identity, record.identity());
+        assert_ne!(
+            first.identity, last.identity,
+            "a frame R0 is a function of e_k"
+        );
+        assert_eq!(frame(DAY), frame(DAY), "and only of e_k");
+
+        assert_eq!(frame(DAY + 1), None, "off the grid");
+        assert_eq!(frame(3 * DAY), None, "outside the window");
+    }
 }

@@ -17,6 +17,7 @@ use super::{
     seal_owner_clock_admission_v1,
 };
 use crate::owner::{
+    market_semantics_admission_v1::MarketSemanticsValueSubmissionV1,
     pit_window_custody_v1::{
         CrossSectionVersionKindV1, PitWindowCustodyCommitV1, PitWindowCustodyReceiptV1,
         PitWindowCustodyRefusalV1 as Refused, UntrustedCrossSectionVersionV1,
@@ -334,6 +335,17 @@ fn withdrawal(
     }
 }
 
+/// The typed Market Semantics value every fixture custody claims.
+fn market_semantics_value() -> MarketSemanticsValueSubmissionV1 {
+    MarketSemanticsValueSubmissionV1 {
+        normalization_identity: d(31),
+        price_adjustment: "RAW".to_owned(),
+        timestamp_basis: "INTERVAL_CLOSE".to_owned(),
+        price_unit_identity: d(32),
+        size_unit_identity: d(33),
+    }
+}
+
 /// Two members over three days: daily bars for inputs and execution, minute bars for fills.
 fn request(
     binding: &SourceBindingCommit,
@@ -344,6 +356,7 @@ fn request(
         market_semantics_identity: derive_market_semantics_compatibility_identity_v1(
             &binding.fact().proposal().semantics,
         ),
+        market_semantics_value: market_semantics_value(),
         universe_selection: universe,
         members: vec![BTC.to_owned(), ETH.to_owned()],
         window_start_ns: WINDOW_START,
