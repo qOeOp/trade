@@ -179,8 +179,9 @@ async fn assert_the_production_preparation_executes_one_member_one_frame(
 }
 
 /// The fill oracle's inputs, read from the bundle the engine runs rather than restated: the
-/// Quote's bid and ask, the instrument's multiplier and size increment, the Owner's taker fee, and
-/// the venue's starting balance. Only the target's grid units come from the prefix's authoring.
+/// Quote's bid, the frame's close the Host prices its limit at, the instrument's multiplier and size
+/// increment, the Owner's maker fee (the limit rests before the Quote, so it fills as MAKER), and the
+/// venue's starting balance. Only the target's grid units come from the prefix's authoring.
 fn oracle_inputs_from_the_bundle(
     bundle: &vibe_strategy_factory::replay_target_set_execution_bundle_v1::ReplayTargetSetExecutionBundleV1,
 ) -> FillOracleInputsV1 {
@@ -195,17 +196,25 @@ fn oracle_inputs_from_the_bundle(
             _ => None,
         })
         .expect("F's bundle carries the frame's Quote");
-    let taker = bundle.census().instrument_terms()[0].taker_fee();
+    let close = bundle
+        .native_data_for_acceptance()
+        .iter()
+        .find_map(|datum| match datum {
+            Data::Bar(bar) => Some(bar.close),
+            _ => None,
+        })
+        .expect("F's bundle carries the frame's BAR");
+    let maker = bundle.census().instrument_terms()[0].maker_fee();
     let starting_balance = bundle
         .starting_balance_for_acceptance()
         .expect("the venue starts with one balance");
     FillOracleInputsV1 {
         bid: quote.bid_price.as_decimal(),
-        ask: quote.ask_price.as_decimal(),
+        fill_price: close.as_decimal(),
         quantity: Decimal::from(FIRST_COMPOSER_V3_TARGET_UNITS_V1)
             * instrument.size_increment().as_decimal(),
         multiplier: instrument.multiplier().as_decimal(),
-        taker_fee: Decimal::from_i128_with_scale(taker.mantissa, u32::from(taker.scale)),
+        fee_rate: Decimal::from_i128_with_scale(maker.mantissa, u32::from(maker.scale)),
         starting_balance: starting_balance.as_decimal(),
         currency_precision: u32::from(starting_balance.currency.precision),
     }
@@ -316,8 +325,8 @@ async fn assert_the_report_states_the_run(
     assert_eq!(fill.side, "BUY");
     assert_eq!(
         Decimal::from_str_exact(&fill.price).expect("a canonical fill price"),
-        oracle_inputs.ask,
-        "the marketable limit fills at the Quote's ask"
+        oracle_inputs.fill_price,
+        "the limit rests at the frame's close and fills there as MAKER when the Quote's ask reaches it"
     );
     assert_eq!(
         Decimal::from_str_exact(&fill.quantity).expect("a canonical fill quantity"),
