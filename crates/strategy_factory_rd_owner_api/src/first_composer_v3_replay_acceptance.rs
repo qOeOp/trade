@@ -178,7 +178,7 @@ pub(crate) struct FirstComposerV3ReplayV1 {
 /// each frame's BAR from all five, and refuses a frame without them as a field census mismatch.
 /// Values are in canonical form (no trailing zero at a nonzero scale), as a real client normalizes
 /// them; Market Data refuses any other row as not canonical.
-struct UniverseMemberDailyBarsV1;
+pub(crate) struct UniverseMemberDailyBarsV1;
 
 #[async_trait]
 impl PitObservationSourceV1 for UniverseMemberDailyBarsV1 {

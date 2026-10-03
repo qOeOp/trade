@@ -212,6 +212,14 @@ struct DevelopComposerA0ExecutionsV1 {
 
 use vibe_strategy_factory_rd_owner_api::required_env;
 
+// Both gated on `sealed-source-intake-composer-acceptance`: the chain entry needs
+// `first_composer_v3_replay_acceptance`'s fixtures, and `backtest_run_v1` (deferred until the
+// `POST /v1/backtests` route wires it into `ApiState` - see its own module doc) has no other
+// caller, so it would be dead code under default features without the same gate.
+#[cfg(all(test, feature = "sealed-source-intake-composer-acceptance"))]
+mod backtest_run_chain_entry_acceptance;
+#[cfg(all(test, feature = "sealed-source-intake-composer-acceptance"))]
+mod backtest_run_v1;
 mod binance_backfill_job;
 mod bounded_feature_program;
 #[cfg(all(test, feature = "sealed-source-intake-acceptance"))]
@@ -6235,6 +6243,42 @@ mod tests {
                             crate::first_composer_v3_replay_body_acceptance::assert_the_first_composer_v3_replay_runs_as_its_universe_v1(
                                 &test_database,
                                 &replay,
+                            ),
+                        )
+                        .await;
+                    }));
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
+    /// `backtest.run`'s own chain proof, distinct from F: a fresh catalog strategy, run through
+    /// the production orchestration (a new Research goal, its initial PIT request, authoring,
+    /// role binding and freeze), driven up to the exact point the replay step cannot proceed -
+    /// nothing on `main` implements Market Data's T0-5 derived view yet. See
+    /// `backtest_run_v1`'s and `backtest_run_chain_entry_acceptance`'s module docs.
+    ///
+    /// Follows F because it reuses the perpetual F admits (its Source Binding, Instrument Master
+    /// fact and historical membership); F is the chain's only producer of that fixture.
+    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+    #[rstest]
+    #[ignore = "requires the ordered chain's PostgreSQL, after F admits the perpetual"]
+    fn backtest_run_reaches_the_replay_step_over_a_catalogued_strategy() {
+        std::thread::Builder::new()
+            .stack_size(16 * 1024 * 1024)
+            .spawn(|| {
+                tokio::runtime::Builder::new_multi_thread()
+                    .worker_threads(2)
+                    .enable_all()
+                    .build()
+                    .unwrap()
+                    .block_on(Box::pin(async {
+                        let test_database =
+                            CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
+                        Box::pin(
+                            crate::backtest_run_chain_entry_acceptance::assert_backtest_run_reaches_the_replay_step_v1(
+                                &test_database,
                             ),
                         )
                         .await;
