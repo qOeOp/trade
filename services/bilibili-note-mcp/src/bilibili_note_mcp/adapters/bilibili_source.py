@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
@@ -10,7 +11,9 @@ from bilibili_note_mcp.adapters.bilibili_http import (
     raise_named_envelope_refusal,
 )
 from bilibili_note_mcp.adapters.egress import SafeHttpClient
+from bilibili_note_mcp.adapters.source_cache import SourceCache
 from bilibili_note_mcp.application.errors import BilibiliNoteFailure
+from bilibili_note_mcp.application.owned_tasks import finish_owned_task
 from bilibili_note_mcp.application.ports import AcquiredSource, SourceMediaPort, TranscriptPort
 from bilibili_note_mcp.application.progress import (
     ProgressReporter,
@@ -67,7 +70,10 @@ class BilibiliSource:
         transcript: TranscriptPort,
         media: SourceMediaPort,
         http: SafeHttpClient | None = None,
+        cache: SourceCache | None = None,
     ) -> None:
+        self._cache = cache
+        self._cache_gate = asyncio.Lock()
         self._transcript = transcript
         self._media = media
         self._http = http or SafeHttpClient()
@@ -82,7 +88,7 @@ class BilibiliSource:
         headers = bilibili_browser_headers(referer=validated.clean_url)
         query = urlencode({"bvid": validated.video_id})
         envelope = await self._http.get_json(
-            f"https://api.bilibili.com/x/web-interface/view?{query}", headers=headers
+            f"https://api.bilibili.com/x/web-interface/wbi/view?{query}", headers=headers
         )
         code = envelope.get("code")
         if not isinstance(code, int) or isinstance(code, bool):
@@ -169,6 +175,13 @@ class BilibiliSource:
             or min(width, height) < 720
         ):
             raise BilibiliNoteFailure("HD_SOURCE_UNAVAILABLE", "source_below_hd_floor")
+        if self._cache is not None:
+            cached = await finish_owned_task(
+                asyncio.create_task(asyncio.to_thread(self._cache.load, source))
+            )
+            if cached is not None:
+                await progress.report(progress_update(ProgressStageV1.MEDIA_READY))
+                return cached
         media = await self._media.download(source.canonical_url, workspace)
         if (
             media.upstream_video_id != source.video_id
@@ -201,9 +214,19 @@ class BilibiliSource:
             "format_id": media.format_id,
             "adapter": media.adapter_ref,
         }
-        return AcquiredSource(
+        result = AcquiredSource(
             source=source,
             media_path=media.media_path,
             transcript=transcript,
             source_snapshot_ref=source_snapshot_ref(snapshot),
         )
+
+        if self._cache is not None:
+            async with self._cache_gate:
+                try:
+                    await finish_owned_task(
+                        asyncio.create_task(asyncio.to_thread(self._cache.save, result))
+                    )
+                except OSError:
+                    pass  # Optional cache writes cannot turn acquired evidence into a failure.
+        return result

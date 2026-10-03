@@ -4,25 +4,42 @@
   "oneOf": [
     {
       "additionalProperties": false,
-      "description": "Research-agent-facing projection; internal trace data never crosses this boundary.",
       "properties": {
+        "html_path": {
+          "title": "Html Path",
+          "type": "string"
+        },
+        "images": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Images",
+          "type": "array"
+        },
+        "note_path": {
+          "title": "Note Path",
+          "type": "string"
+        },
         "rendered_markdown": {
-          "maxLength": 65536,
+          "maxLength": 786432,
           "minLength": 1,
           "title": "Rendered Markdown",
           "type": "string"
         },
         "schema": {
-          "const": "bilibili-note.result/v3",
+          "const": "bilibili-note.search-result/v2",
           "title": "Schema",
           "type": "string"
         }
       },
       "required": [
         "schema",
-        "rendered_markdown"
+        "rendered_markdown",
+        "note_path",
+        "html_path",
+        "images"
       ],
-      "title": "PublicBilibiliNoteResultV3",
+      "title": "PublicBilibiliSearchResultV2",
       "type": "object"
     },
     {
@@ -78,6 +95,6 @@
       "type": "object"
     }
   ],
-  "title": "BilibiliNoteToolOutputV2",
+  "title": "BilibiliNoteSearchToolOutputV2",
   "type": "object"
 }

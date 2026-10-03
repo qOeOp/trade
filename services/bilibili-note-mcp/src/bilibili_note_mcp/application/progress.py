@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
+from dataclasses import dataclass, replace
 from enum import StrEnum
 from typing import Protocol
 
@@ -40,13 +43,13 @@ _UPDATES = {
         ProgressStageV1.TRANSCRIPT_READY, 50, 100, "语音或字幕转写已完成"
     ),
     ProgressStageV1.HD_FRAMES_READY: ProgressUpdateV1(
-        ProgressStageV1.HD_FRAMES_READY, 65, 100, "已按语音意图定位并提取内部视觉关键帧"
+        ProgressStageV1.HD_FRAMES_READY, 65, 100, "已按语音意图定位并提取相关视频截图"
     ),
     ProgressStageV1.ANALYSIS_READY: ProgressUpdateV1(
-        ProgressStageV1.ANALYSIS_READY, 75, 100, "音频与画面联合分析已完成，正在压缩核心内容"
+        ProgressStageV1.ANALYSIS_READY, 75, 100, "音频与画面联合分析已完成，正在组织章节内容"
     ),
     ProgressStageV1.NOTE_VALIDATED: ProgressUpdateV1(
-        ProgressStageV1.NOTE_VALIDATED, 89, 100, "文字 brief 与证据合同已校验，正在封装返回"
+        ProgressStageV1.NOTE_VALIDATED, 89, 100, "图文笔记已校验，正在保存并返回"
     ),
 }
 
@@ -119,3 +122,41 @@ def batch_progress(message: str, progress: int, *, ready: bool = False) -> Progr
         raise ValueError("batch progress is invalid")
     stage = ProgressStageV1.BATCH_READY if ready else ProgressStageV1.BATCH_ITEM_ACTIVE
     return ProgressUpdateV1(stage, progress, 100, message)
+
+
+class AnalysisProgressReporter:
+    def __init__(self, parent: ProgressReporter) -> None:
+        self.parent = parent
+        self.last = 65
+
+    async def report(self, update: ProgressUpdateV1) -> None:
+        self.last = max(self.last, update.progress)
+        await self.parent.report(replace(update, progress=self.last))
+
+
+_PROVIDER_PROGRESS: ContextVar[ProgressReporter | None] = ContextVar(
+    "provider_progress", default=None
+)
+
+
+@contextmanager
+def provider_progress_scope(reporter: ProgressReporter) -> Iterator[None]:
+    token = _PROVIDER_PROGRESS.set(reporter)
+    try:
+        yield
+    finally:
+        _PROVIDER_PROGRESS.reset(token)
+
+
+async def report_provider_retry(attempt: int, status: int, delay: float) -> None:
+    reporter = _PROVIDER_PROGRESS.get()
+    if reporter is not None:
+        reason = f"HTTP {status}" if status else "连接中断或超时"
+        await reporter.report(
+            ProgressUpdateV1(
+                ProgressStageV1.VISUAL_ANALYSIS_ACTIVE,
+                65,
+                100,
+                f"模型服务暂时不可用（{reason}），{delay:g}秒后重试当前步骤（第{attempt}/3次）；已完成步骤保留",
+            )
+        )

@@ -53,6 +53,7 @@ readonly market_data_owner_postgres_tests=(
   owner::postgres::pit_window_custody_v1_tests::postgres_every_custody_refusal_writes_nothing
   owner::postgres::pit_window_custody_v1_tests::postgres_a_successor_corrects_its_chain_and_refuses_a_branch_or_a_changed_basis
   owner::postgres::pit_window_custody_v1_tests::postgres_availability_follows_the_rule_and_never_passes_the_minting_cut
+  owner::postgres::source_binding_admission_v1_tests::postgres_an_unsupported_bar_timeframe_is_refused_by_name_and_writes_nothing
   owner::postgres::bar_schedule_acceptance_v1_tests::postgres_a_declared_bar_role_gets_the_schedule_its_frame_reads_once
   owner::postgres::bar_schedule_acceptance_v1_tests::postgres_the_schedule_refuses_each_input_it_cannot_derive_from
   owner::postgres::bar_schedule_acceptance_v1_tests::postgres_a_continuous_declaration_mints_a_schedule_without_calendar_or_session
@@ -65,6 +66,14 @@ readonly market_data_owner_postgres_tests=(
 # that is where the production branch of what they relax is the branch compiled and proven.
 readonly market_data_owner_postgres_sealed_acceptance_tests=(
   owner::store_admission::tests::the_sealed_acceptance_resolver_reads_under_exactly_its_grants
+)
+
+# Proofs in an integration-test binary, as `<binary>::<test>`. They reach what exists only in a build
+# that is not a test build of the library - `rd-owner-api`'s production resolvers - so they cannot
+# be unit tests. They migrate the Owner as a process outside the crate does, through the intake,
+# which reads MARKET_DATA_OWNER_DATABASE_URL; it is given to them alone.
+readonly market_data_owner_postgres_integration_tests=(
+  store_admission_production_resolvers::the_native_replay_resolvers_open_and_read_in_required_mode
 )
 
 # The ordered chain refuses a guarded crate whose test SQL is destructive without dedicated-database
@@ -334,18 +343,27 @@ mkdir -p -- "$proof_record_dir"
 readonly all_market_data_proofs=(
   "${market_data_owner_postgres_tests[@]}"
   "${market_data_owner_postgres_sealed_acceptance_tests[@]}"
+  "${market_data_owner_postgres_integration_tests[@]}"
 )
 readonly plain_proof_count="${#market_data_owner_postgres_tests[@]}"
+readonly library_proof_count=$((plain_proof_count + ${#market_data_owner_postgres_sealed_acceptance_tests[@]}))
 ordinal=0
-for test_selection in "${all_market_data_proofs[@]}"; do
+for proof in "${all_market_data_proofs[@]}"; do
   ordinal=$((ordinal + 1))
   feature_args=()
-  if [[ "$ordinal" -gt "$plain_proof_count" ]]; then
+  target_args=(--lib)
+  proof_env=()
+  test_selection="$proof"
+
+  if [[ "$ordinal" -gt "$library_proof_count" ]]; then
+    target_args=(--test "${proof%%::*}")
+    test_selection="${proof#*::}"
+  elif [[ "$ordinal" -gt "$plain_proof_count" ]]; then
     feature_args=(--features sealed-strategy-input-acceptance)
   fi
   arm_chain_entry_watchdog "$proof_wall_clock_seconds" \
     "$(printf '%s/%03d.timeout' "$proof_record_dir" "$ordinal")" \
-    "market-data proof ${ordinal}/${#all_market_data_proofs[@]} (${test_selection})"
+    "market-data proof ${ordinal}/${#all_market_data_proofs[@]} (${proof})"
   provision_database "${database_prefix}_${ordinal}" "${marker_prefix}-${ordinal}"
 
   # Selection runs under nextest, not `cargo test --exact`, because the two differ on the case that
@@ -353,10 +371,13 @@ for test_selection in "${all_market_data_proofs[@]}"; do
   # exits 0, so renaming a proof would leave this gate green while running nothing at all. nextest
   # refuses an empty selection with `error: no tests to run` and a non-zero exit, which makes the
   # gate fail closed by construction rather than by a wrapper someone has to remember to keep.
+  if [[ "$ordinal" -gt "$library_proof_count" ]]; then
+    proof_env=("MARKET_DATA_OWNER_DATABASE_URL=${MARKET_DATA_OWNER_TEST_DATABASE_URL}")
+  fi
   set +e
-  cargo nextest run \
+  env ${proof_env[@]+"${proof_env[@]}"} cargo nextest run \
     --manifest-path crates/data/Cargo.toml \
-    --lib \
+    "${target_args[@]}" \
     --cargo-profile "${CARGO_CI_PROFILE:-nextest}" \
     --run-ignored all \
     ${feature_args[@]+"${feature_args[@]}"} \
@@ -366,7 +387,7 @@ for test_selection in "${all_market_data_proofs[@]}"; do
   disarm_chain_entry_watchdog
 
   if [[ "$test_status" -ne 0 ]]; then
-    echo "market-data proof ${ordinal}/${#all_market_data_proofs[@]} failed: ${test_selection}" >&2
+    echo "market-data proof ${ordinal}/${#all_market_data_proofs[@]} failed: ${proof}" >&2
     echo "  a non-zero exit here is either a failing proof or a selection that matched nothing;" >&2
     echo "  nextest prints 'error: no tests to run' for the second, which means the name is stale" >&2
     exit "$test_status"
