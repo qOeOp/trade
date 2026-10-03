@@ -1215,8 +1215,8 @@ and issues the terms into the Instrument Owner's.
   `1 / maxOpenPosLeverage` rounded up at the sixth decimal place, so that a rate base ten cannot state exactly
   is never understated. A position whose notional exceeds the row's `notional_cap` (10000 USDT for
   `LINKUSDT-PERP.BINANCE`) is margined by the venue at later brackets, which these terms do not record, and
-  priced at the first bracket's rates its margin would be understated. The terms carry the cap so that a
-  consumer can refuse such a position; no consumer does yet.
+  priced at the first bracket's rates its margin would be understated. The terms carry the cap, and the Native
+  Replay execution refuses such a run as `ECONOMIC_TERMS_NOTIONAL_ABOVE_RECORDED_TIER` (Strategy Factory page).
 - **The tables are maintained by hand.** The venue changes its brackets and fees without notice and nothing
   here notices. Adding an instrument is adding a row with its source; changing a value is a new revision,
   issued for a validity that does not overlap the earlier revision's, because the Native Replay resolver

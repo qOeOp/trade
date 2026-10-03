@@ -1322,7 +1322,12 @@ validity, source/provenance, revision, quote/fee currency, and every exact term 
 positive fixed initial/maintenance values, `STANDARD_NOTIONAL_RATE` or `FIRST_BRACKET_NOTIONAL_RATE`, and explicitly
 selects `StandardMarginModel` (`notional * rate`, no leverage); it never infers `LeveragedMarginModel`. First-bracket
 terms hold only up to their `margin_notional_cap`, which the binding records beside the rates and binds into the
-terms digest, so the cap is available to a consumer of the bound terms. The visible economic
+terms digest. After the engine runs and before any result is sealed, the Sim EVENT consumer compares, at every
+frame and for every member with a cap, the larger of the held and the derived target position, times the frame's
+price, multiplier and size increment, with that cap, and refuses a run over it as
+`ECONOMIC_TERMS_NOTIONAL_ABOVE_RECORDED_TIER`. Until a native run can commit a result other than `TERMINAL_RESULT`, the refusal ends
+the run without a result; it then becomes an `INVALID_REPLAY_EVIDENCE` result under the `ReplayConfiguration`
+diagnostic category. The visible economic
 configuration cannot attest those values, and a missing value never becomes zero or a native default. Wrong fact,
 receipt, terms, venue, account or time, and noncanonical, partial, extra, cross-spliced, tampered or ACL-drifted
 custody fail before `ProgramHostV2` or Backtest state exists. Existing profile canonical bytes and digest remain

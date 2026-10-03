@@ -1183,7 +1183,10 @@ public-fact identity/digest、venue、margin-account scope、半开 event validi
 quote/fee currency 与每个准确 term byte。首版只接受正 fixed initial/maintenance value，语义为
 `STANDARD_NOTIONAL_RATE` 或 `FIRST_BRACKET_NOTIONAL_RATE`，并明确选择 `StandardMarginModel`（`notional * rate`，
 不经 leverage）；绝不推断 `LeveragedMarginModel`。first-bracket terms 只在其 `margin_notional_cap` 以内成立，binding
-把该上限与比率一起记录并绑定进 terms digest，因此 bound terms 的 consumer 可以读到它。可见 economic configuration 不能自证这些值，missing value 也绝不会变为零或原生
+把该上限与比率一起记录并绑定进 terms digest。引擎运行之后、任何结果封存之前，Sim EVENT consumer 在每一帧、对每个
+有上限的 member，取持有与派生目标两者中较大的持仓，乘以该帧的价格、multiplier 与 size increment，与上限比较，超出则把
+该运行按名拒绝为 `ECONOMIC_TERMS_NOTIONAL_ABOVE_RECORDED_TIER`。在 native run 能提交 `TERMINAL_RESULT` 以外的结果之前，该拒绝使运行不产生
+结果而结束；之后它会成为 `ReplayConfiguration` 诊断类别下的 `INVALID_REPLAY_EVIDENCE` 结果。可见 economic configuration 不能自证这些值，missing value 也绝不会变为零或原生
 default。错误 fact、receipt、terms、venue、account 或 time，以及 noncanonical、partial、extra、
 cross-spliced、tampered 或 ACL-drifted custody 都会在 `ProgramHostV2` 或 Backtest state 存在前失败。既有
 profile canonical bytes 与 digest 保持不变。

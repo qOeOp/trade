@@ -119,6 +119,9 @@ pub(crate) struct TargetSetEquitySnapshotObservationV2 {
     pub(crate) equity: String,
     pub(crate) current_grid_units: BoundedMembers<i64>,
     pub(crate) derived_grid_targets: BoundedMembers<i64>,
+    /// The quote-currency notional of one grid unit of each member at this frame's price:
+    /// `price * multiplier * size_increment`, the divisors of the weight formula.
+    pub(crate) grid_unit_notionals: BoundedMembers<Decimal>,
     pub(crate) snapshot_identity: [u8; 32],
 }
 
@@ -627,6 +630,16 @@ impl BacktestTargetSetProgramHostStrategyV2 {
                 equity: snapshot.equity.to_string(),
                 current_grid_units: snapshot.current_grid_units.clone(),
                 derived_grid_targets: grid_targets.clone(),
+                grid_unit_notionals: try_map_members(self.instrument_ids.len(), |ordinal| {
+                    let instrument = &snapshot.instruments[ordinal];
+                    snapshot.prices[ordinal]
+                        .as_decimal()
+                        .checked_mul(instrument.multiplier().as_decimal())
+                        .and_then(|value| {
+                            value.checked_mul(instrument.size_increment().as_decimal())
+                        })
+                        .context("a member's grid-unit notional overflows")
+                })?,
                 snapshot_identity: *capability.snapshot_identity.as_bytes(),
             });
         let prepared = prepared.reconcile_backtest_capability(capability)?;
