@@ -35,23 +35,21 @@ use vibe_data::owner::source_binding::BindingDigest;
 use vibe_data::owner::strategy_input_binding::MarketDataFieldSemantic;
 
 use crate::{
+    bounded_feature_graph_v1::{ADD, Graph, MUL, SIGNAL_UNIT, fixed_type, prior_state},
     bounded_feature_program_derivation_v1::{
         BoundedFeatureGraphBoundsV1, BoundedFeatureInputMeaningV1, BoundedFeatureProgramMeaningV1,
         redeclare_frozen_bounded_feature_program_v1,
     },
     bounded_feature_program_v1::{
         BOUNDED_FEATURE_NUMERIC_FAILURE_V1, BOUNDED_FEATURE_PLUGIN_ABI_V1,
-        BOUNDED_FEATURE_PROPOSAL_OUTPUT_PORTS_V1, BoundedFeatureAvailabilityV1,
-        BoundedFeatureClockV1, BoundedFeatureConstantV1, BoundedFeatureConstantValueV1,
-        BoundedFeatureInitialStateV1, BoundedFeatureInputBindingV1, BoundedFeatureNodeV1,
-        BoundedFeatureOutputPortV1, BoundedFeatureParametersV1, BoundedFeaturePredicateV1,
+        BOUNDED_FEATURE_PROPOSAL_OUTPUT_PORTS_V1, BoundedFeatureClockV1, BoundedFeatureConstantV1,
+        BoundedFeatureConstantValueV1, BoundedFeatureParametersV1, BoundedFeaturePredicateV1,
         BoundedFeatureProgramProposalV1, BoundedFeatureProposalDecisionBranchV1,
         BoundedFeatureProposalDecisionTableV1, BoundedFeatureProposalFrameV1,
-        BoundedFeatureRoundingV1, BoundedFeatureStateCellV1, BoundedFeatureStateKindV1,
         BoundedFeatureTerminalConversionV1, BoundedFeatureTerminalOutputV1,
-        BoundedFeatureValueRefV1, BoundedFeatureValueTypeV1, BoundedFeatureWarmupContractV1,
-        BoundedFeatureWarmupPostStateV1, CanonicalBoundedFeatureProgramV1,
-        OWNER_SAMPLE_COORDINATE_SOURCE_V1, manifest_width, prepare_bounded_feature_program_v1,
+        BoundedFeatureValueRefV1, BoundedFeatureWarmupContractV1, BoundedFeatureWarmupPostStateV1,
+        CanonicalBoundedFeatureProgramV1, OWNER_SAMPLE_COORDINATE_SOURCE_V1, manifest_width,
+        prepare_bounded_feature_program_v1,
     },
     strategy_design_v2::{
         CapabilityDeclarationV2, ComputeNodeV2, InputFactClassV2, InputRoleV2, InputScopeV2,
@@ -83,8 +81,6 @@ const BAR_NODE: &str = "research.node.bfp.bar.v1";
 const EVENT_NODE: &str = "research.node.bfp.event.v1";
 /// The one graph node: the channel compared against the threshold.
 const COMPARISON_NODE: &str = "channel-against-threshold";
-/// Its single boolean output port.
-const COMPARISON_PORT: &str = "value";
 /// The manifest port the channel's value arrives on.
 const CHANNEL_VALUE_PORT: &str = "input.channel.v1";
 /// Plugin input port the carried role's value arrives on, in the form that has one.
@@ -879,16 +875,8 @@ type FrameIds = (
 /// Units of the values the graph computes for itself. None of them reaches a terminal, so each is
 /// only a name that keeps one kind of value from being compared with another.
 const POSITION_UNIT: &str = "POSITION_NOMINAL";
-const SIGNAL_UNIT: &str = "SIGNAL";
 const BARS_UNIT: &str = "BARS";
 const RATIO_UNIT: &str = "RATIO";
-
-const COMPARE: &str = "bfp.fixed-i128.compare.equal-scale.v1";
-const SELECT: &str = "bfp.fixed-i128.select.equal-scale.v1";
-const ADD: &str =
-    "bfp.fixed-i128.add.max-scale-38.explicit-rescale.i256-single-round.nearest-ties-to-even.v1";
-const MUL: &str =
-    "bfp.fixed-i128.mul.max-scale-38.explicit-rescale.i256-single-round.nearest-ties-to-even.v1";
 
 /// The position the program believes it holds after the frame it last proposed.
 const BELIEVED_POSITION: &str = "believed-position";
@@ -1187,189 +1175,7 @@ fn position_label(position: i64) -> String {
     }
 }
 
-fn node_value(node_id: &str) -> BoundedFeatureValueRefV1 {
-    BoundedFeatureValueRefV1::NodeOutput {
-        node_id: node_id.to_owned(),
-        port_id: COMPARISON_PORT.to_owned(),
-    }
-}
-
-fn prior_state(state_id: &str) -> BoundedFeatureValueRefV1 {
-    BoundedFeatureValueRefV1::PriorState {
-        state_id: state_id.to_owned(),
-    }
-}
-
-fn fixed_type(unit: &str, scale: u8) -> BoundedFeatureValueTypeV1 {
-    BoundedFeatureValueTypeV1::FixedI128 {
-        unit: unit.to_owned(),
-        scale,
-    }
-}
-
-/// The nodes, state cells and constants of one program, each node after every node it reads.
-#[derive(Default)]
-struct Graph {
-    nodes: Vec<BoundedFeatureNodeV1>,
-    state_cells: Vec<BoundedFeatureStateCellV1>,
-    constants: Vec<(String, BoundedFeatureConstantValueV1)>,
-}
-
 impl Graph {
-    fn constant(
-        &mut self,
-        constant_id: &str,
-        value: BoundedFeatureConstantValueV1,
-    ) -> BoundedFeatureValueRefV1 {
-        if !self.constants.iter().any(|(id, _)| id == constant_id) {
-            self.constants.push((constant_id.to_owned(), value));
-        }
-        BoundedFeatureValueRefV1::Constant {
-            constant_id: constant_id.to_owned(),
-        }
-    }
-
-    fn fixed(
-        &mut self,
-        constant_id: &str,
-        coefficient: i128,
-        unit: &str,
-        scale: u8,
-    ) -> BoundedFeatureValueRefV1 {
-        self.constant(
-            constant_id,
-            BoundedFeatureConstantValueV1::FixedI128 {
-                coefficient,
-                unit: unit.to_owned(),
-                scale,
-            },
-        )
-    }
-
-    fn node(
-        &mut self,
-        node_id: &str,
-        primitive: &str,
-        inputs: Vec<(&str, BoundedFeatureValueRefV1)>,
-        parameters: BoundedFeatureParametersV1,
-        value_type: BoundedFeatureValueTypeV1,
-    ) -> BoundedFeatureValueRefV1 {
-        if !self.nodes.iter().any(|node| node.node_id == node_id) {
-            self.nodes.push(BoundedFeatureNodeV1 {
-                node_id: node_id.to_owned(),
-                primitive_semantic_id: primitive.to_owned(),
-                input_bindings: inputs
-                    .into_iter()
-                    .map(|(port_id, source)| BoundedFeatureInputBindingV1 {
-                        port_id: port_id.to_owned(),
-                        source,
-                        require_ready: false,
-                    })
-                    .collect(),
-                output_ports: vec![BoundedFeatureOutputPortV1 {
-                    port_id: COMPARISON_PORT.to_owned(),
-                    value_type,
-                    availability: BoundedFeatureAvailabilityV1::Ready,
-                }],
-                parameters,
-                state_id: None,
-                update_clock: None,
-            });
-        }
-        node_value(node_id)
-    }
-
-    fn compare(
-        &mut self,
-        node_id: &str,
-        a: BoundedFeatureValueRefV1,
-        b: BoundedFeatureValueRefV1,
-        predicate: BoundedFeaturePredicateV1,
-    ) -> BoundedFeatureValueRefV1 {
-        self.node(
-            node_id,
-            COMPARE,
-            vec![("a", a), ("b", b)],
-            BoundedFeatureParametersV1::ComparisonPredicate { predicate },
-            BoundedFeatureValueTypeV1::Boolean,
-        )
-    }
-
-    fn select(
-        &mut self,
-        node_id: &str,
-        condition: BoundedFeatureValueRefV1,
-        when_true: BoundedFeatureValueRefV1,
-        when_false: BoundedFeatureValueRefV1,
-        value_type: BoundedFeatureValueTypeV1,
-    ) -> BoundedFeatureValueRefV1 {
-        self.node(
-            node_id,
-            SELECT,
-            vec![
-                ("condition", condition),
-                ("when_true", when_true),
-                ("when_false", when_false),
-            ],
-            BoundedFeatureParametersV1::None,
-            value_type,
-        )
-    }
-
-    /// An exact sum or product: the declared scale is the one the operands' scales produce, so
-    /// the rounding the primitive names never applies.
-    fn arithmetic(
-        &mut self,
-        node_id: &str,
-        primitive: &str,
-        a: BoundedFeatureValueRefV1,
-        b: BoundedFeatureValueRefV1,
-        unit: &str,
-        scale: u8,
-    ) -> BoundedFeatureValueRefV1 {
-        self.node(
-            node_id,
-            primitive,
-            vec![("a", a), ("b", b)],
-            BoundedFeatureParametersV1::OutputScale {
-                output_scale: scale,
-                rounding: BoundedFeatureRoundingV1::NearestTiesToEven,
-            },
-            fixed_type(unit, scale),
-        )
-    }
-
-    /// A strategy state cell holding one fixed-point value, written by `writer` on every event.
-    fn cell(
-        &mut self,
-        state_id: &str,
-        writer: &str,
-        value_type: BoundedFeatureValueTypeV1,
-        initial: &str,
-    ) {
-        self.state_cells.push(BoundedFeatureStateCellV1 {
-            state_id: state_id.to_owned(),
-            writer_node_id: writer.to_owned(),
-            state_kind: BoundedFeatureStateKindV1::Strategy {
-                value_type,
-                source_port_id: COMPARISON_PORT.to_owned(),
-            },
-            initial: BoundedFeatureInitialStateV1::Constant {
-                constant_id: initial.to_owned(),
-            },
-            max_bytes: 16,
-        });
-    }
-
-    fn signal(&mut self, value: i128) -> BoundedFeatureValueRefV1 {
-        let id = if value == 0 {
-            "signal-zero"
-        } else {
-            "signal-one"
-        };
-        self.fixed(id, value, SIGNAL_UNIT, 0)
-    }
-
     /// The believed position as a constant the belief can be compared with and set to.
     fn position(&mut self, position: i64) -> BoundedFeatureValueRefV1 {
         self.fixed(
@@ -1379,7 +1185,6 @@ impl Graph {
             0,
         )
     }
-
     /// Whether the program believed itself at `position` when this frame began.
     fn believed_at(&mut self, position: i64) -> BoundedFeatureValueRefV1 {
         let constant = self.position(position);
@@ -1390,37 +1195,6 @@ impl Graph {
             BoundedFeaturePredicateV1::Equal,
         )
     }
-
-    /// 1 when any of `conditions` holds and 0 otherwise.
-    fn any_of(
-        &mut self,
-        prefix: &str,
-        conditions: &[BoundedFeatureValueRefV1],
-    ) -> BoundedFeatureValueRefV1 {
-        let one = self.signal(1);
-        let mut any = self.signal(0);
-        for (index, condition) in conditions.iter().enumerate().rev() {
-            any = self.select(
-                &format!("{prefix}-{index}"),
-                condition.clone(),
-                one.clone(),
-                any,
-                fixed_type(SIGNAL_UNIT, 0),
-            );
-        }
-        any
-    }
-
-    /// Whether a signal is 1.
-    fn holds(
-        &mut self,
-        node_id: &str,
-        signal: BoundedFeatureValueRefV1,
-    ) -> BoundedFeatureValueRefV1 {
-        let zero = self.signal(0);
-        self.compare(node_id, signal, zero, BoundedFeaturePredicateV1::Greater)
-    }
-
     /// The five constants of one frame, read from `outcome`.
     fn frame_constants(&mut self, ids: FrameIds, outcome: &SingleThresholdOutcomeV1) {
         for (constant_id, value) in outcome_constants(ids, outcome) {

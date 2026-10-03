@@ -9,6 +9,7 @@ pub mod artifact_build_sandbox;
 pub mod artifact_v2;
 pub mod backtest_run_dataset_ref_v1;
 pub mod backtest_run_report_read_v1;
+mod bounded_feature_graph_v1;
 #[cfg(test)]
 mod bounded_feature_program_canonical_form_v1;
 #[cfg(test)]
