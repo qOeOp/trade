@@ -31,6 +31,7 @@ use vibe_model::{
     instruments::{CryptoPerpetual, Instrument, InstrumentAny},
     types::{Currency, Money, Price, Quantity},
 };
+use vibe_risk::engine::config::RiskEngineConfig;
 
 use super::{
     artifact_v2::{StrategyArtifactV2, StrategyArtifactV2Error},
@@ -1655,7 +1656,15 @@ fn run_invalid_batch(case: InvalidBatchCase) -> anyhow::Result<TargetSetBacktest
 /// instant per member the bundle would state.
 fn run_fill_quote_corpus(
     schedule: impl FnOnce(u64, &[InstrumentAny]) -> (Vec<Data>, Vec<u64>),
-) -> anyhow::Result<(TargetSetBacktestTraceV2, Vec<serde_json::Value>)> {
+) -> anyhow::Result<(TargetSetBacktestTraceV2, serde_json::Value)> {
+    run_fill_quote_corpus_with_risk(None, schedule)
+}
+
+/// [`run_fill_quote_corpus`] with the run's pre-trade risk engine stated.
+fn run_fill_quote_corpus_with_risk(
+    risk_engine: Option<RiskEngineConfig>,
+    schedule: impl FnOnce(u64, &[InstrumentAny]) -> (Vec<Data>, Vec<u64>),
+) -> anyhow::Result<(TargetSetBacktestTraceV2, serde_json::Value)> {
     let mut instruments = instruments();
 
     for instrument in &mut instruments {
@@ -1720,6 +1729,7 @@ fn run_fill_quote_corpus(
     let mut engine = BacktestEngine::new(BacktestEngineConfig {
         bypass_logging: true,
         run_analysis: false,
+        risk_engine,
         ..Default::default()
     })?;
     engine.add_venue(
@@ -1745,14 +1755,9 @@ fn run_fill_quote_corpus(
         Some("target-set-backtest-fill-quote".to_owned()),
         false,
     )?;
-    let mut result: serde_json::Value =
-        serde_json::from_slice(&engine.get_canonical_result()?.to_bytes()?)?;
-    let fills = result["fills"]
-        .as_array_mut()
-        .map(std::mem::take)
-        .unwrap_or_default();
+    let result = serde_json::from_slice(&engine.get_canonical_result()?.to_bytes()?)?;
     let trace = trace.borrow().clone();
-    Ok((trace, fills))
+    Ok((trace, result))
 }
 
 /// A two-sided Quote for `instrument` at `instant`.
@@ -1770,9 +1775,11 @@ fn touch(instrument: &InstrumentAny, bid: &str, ask: &str, instant: u64) -> Data
 
 /// Each fill as `(instrument, ts_event, last_px, liquidity_side, commission)`, in the canonical
 /// result's order: by order, not by time.
-fn fill_rows(fills: &[serde_json::Value]) -> Vec<[String; 5]> {
-    fills
-        .iter()
+fn fill_rows(result: &serde_json::Value) -> Vec<[String; 5]> {
+    result["fills"]
+        .as_array()
+        .into_iter()
+        .flatten()
         .map(|fill| {
             let filled = &fill["event"]["Filled"];
             [
@@ -1794,7 +1801,7 @@ fn fill_rows(fills: &[serde_json::Value]) -> Vec<[String; 5]> {
 #[rstest]
 #[cfg(feature = "sealed-strategy-input-acceptance")]
 fn a_limit_its_fill_quote_already_crosses_fills_as_taker_at_the_touch() {
-    let (trace, fills) = run_fill_quote_corpus(|time, instruments| {
+    let (trace, result) = run_fill_quote_corpus(|time, instruments| {
         (
             vec![
                 touch(&instruments[0], "187.10", "187.20", time + 1),
@@ -1806,7 +1813,7 @@ fn a_limit_its_fill_quote_already_crosses_fills_as_taker_at_the_touch() {
     .expect("fill-quote corpus");
     assert_eq!(trace.callback_failure, None);
     assert_eq!(
-        fill_rows(&fills),
+        fill_rows(&result),
         [
             ["AAPL.XNAS", "26", "187.20", "TAKER", "0.75 USD"],
             ["MSFT.XNAS", "26", "421.10", "TAKER", "1.68 USD"],
@@ -1819,7 +1826,7 @@ fn a_limit_its_fill_quote_already_crosses_fills_as_taker_at_the_touch() {
 #[rstest]
 #[cfg(feature = "sealed-strategy-input-acceptance")]
 fn a_limit_its_fill_quote_does_not_cross_rests_and_fills_later_as_maker_at_its_limit() {
-    let (trace, fills) = run_fill_quote_corpus(|time, instruments| {
+    let (trace, result) = run_fill_quote_corpus(|time, instruments| {
         (
             vec![
                 touch(&instruments[0], "187.20", "187.30", time + 1),
@@ -1832,7 +1839,7 @@ fn a_limit_its_fill_quote_does_not_cross_rests_and_fills_later_as_maker_at_its_l
     .expect("fill-quote corpus");
     assert_eq!(trace.callback_failure, None);
     assert_eq!(
-        fill_rows(&fills),
+        fill_rows(&result),
         [
             ["AAPL.XNAS", "27", "187.25", "MAKER", "0.37 USD"],
             ["MSFT.XNAS", "26", "421.10", "TAKER", "1.68 USD"],
@@ -1845,7 +1852,7 @@ fn a_limit_its_fill_quote_does_not_cross_rests_and_fills_later_as_maker_at_its_l
 #[rstest]
 #[cfg(feature = "sealed-strategy-input-acceptance")]
 fn each_member_submits_on_its_own_fill_quote() {
-    let (trace, fills) = run_fill_quote_corpus(|time, instruments| {
+    let (trace, result) = run_fill_quote_corpus(|time, instruments| {
         (
             vec![
                 touch(&instruments[0], "187.10", "187.20", time + 1),
@@ -1857,10 +1864,139 @@ fn each_member_submits_on_its_own_fill_quote() {
     .expect("fill-quote corpus");
     assert_eq!(trace.callback_failure, None);
     assert_eq!(
-        fill_rows(&fills),
+        fill_rows(&result),
         [
             ["AAPL.XNAS", "26", "187.20", "TAKER", "0.75 USD"],
             ["MSFT.XNAS", "27", "421.10", "TAKER", "1.68 USD"],
+        ]
+    );
+}
+
+/// A position order the pre-trade risk engine denies never reaches the venue. The Host hands the
+/// kernel that denial as a rejection, so the member's pending intent is released with nothing
+/// filled and the run goes on: MSFT still fills, and the run stops cleanly.
+#[rstest]
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+fn a_denied_position_order_reaches_the_kernel_as_a_rejection() {
+    let risk_engine = RiskEngineConfig {
+        max_notional_per_order: [(
+            InstrumentId::from("AAPL.XNAS"),
+            rust_decimal::Decimal::from(100),
+        )]
+        .into_iter()
+        .collect(),
+        ..Default::default()
+    };
+    let (trace, result) =
+        run_fill_quote_corpus_with_risk(Some(risk_engine), |time, instruments| {
+            (
+                vec![
+                    touch(&instruments[0], "187.10", "187.20", time + 1),
+                    touch(&instruments[1], "421.00", "421.10", time + 1),
+                ],
+                vec![time + 1; 2],
+            )
+        })
+        .expect("fill-quote corpus");
+    assert_eq!(trace.callback_failure, None);
+    assert_eq!(
+        fill_rows(&result),
+        [["MSFT.XNAS", "26", "421.10", "TAKER", "1.68 USD"]]
+    );
+    let aapl_fills = trace
+        .host_transitions
+        .iter()
+        .filter(|transition| {
+            transition.lifecycle == "FILL" && transition.instrument.as_deref() == Some("AAPL.XNAS")
+        })
+        .map(|transition| {
+            (
+                transition.position_before_grid_units,
+                transition.position_after_grid_units,
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        aapl_fills,
+        [(0, 0)],
+        "the denial is one FILL transition that moves nothing"
+    );
+    assert!(
+        trace
+            .final_member_grid_units
+            .as_ref()
+            .is_some_and(|units| *units == [0, 4])
+    );
+}
+
+/// Each order as `(instrument, order_type, status)` at the run's end, in the canonical result's
+/// order.
+fn order_statuses(result: &serde_json::Value) -> Vec<[String; 3]> {
+    result["orders"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|order| order.as_object()?.values().next())
+        .map(|order| {
+            let core = &order["core"];
+            ["instrument_id", "order_type", "status"]
+                .map(|field| core[field].as_str().unwrap_or_default().to_owned())
+        })
+        .collect()
+}
+
+/// A position order still resting when the run ends is canceled at the venue, and the Host hands
+/// the kernel that cancellation before the Stop, so the member's pending intent is released with
+/// nothing filled. No fill follows the Stop: the run states MSFT's fill and nothing for AAPL.
+#[rstest]
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+fn a_position_order_resting_at_the_runs_end_is_canceled_into_the_kernel_before_the_stop() {
+    let (trace, result) = run_fill_quote_corpus(|time, instruments| {
+        (
+            vec![
+                touch(&instruments[0], "187.20", "187.30", time + 1),
+                touch(&instruments[1], "421.00", "421.10", time + 1),
+            ],
+            vec![time + 1; 2],
+        )
+    })
+    .expect("fill-quote corpus");
+    assert_eq!(trace.callback_failure, None);
+    let lifecycle = trace
+        .host_transitions
+        .iter()
+        .map(|transition| {
+            (
+                transition.lifecycle.as_str(),
+                transition.instrument.as_deref(),
+                transition.position_before_grid_units,
+                transition.position_after_grid_units,
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        lifecycle,
+        [
+            ("START", None, 0, 0),
+            ("BAR", Some("AAPL.XNAS"), 0, 0),
+            ("BAR", Some("MSFT.XNAS"), 0, 0),
+            ("FILL", Some("MSFT.XNAS"), 0, 4),
+            ("FILL", Some("AAPL.XNAS"), 0, 0),
+            ("STOP", None, 0, 0),
+        ],
+        "AAPL's cancellation reaches the kernel as a FILL that moves nothing, before the STOP"
+    );
+    assert_eq!(
+        fill_rows(&result),
+        [["MSFT.XNAS", "26", "421.10", "TAKER", "1.68 USD"]]
+    );
+    assert_eq!(
+        order_statuses(&result),
+        [
+            ["MSFT.XNAS", "LIMIT", "FILLED"],
+            ["AAPL.XNAS", "LIMIT", "CANCELED"],
+            // The protective stop guards the position MSFT still holds, so it stays.
+            ["MSFT.XNAS", "STOP_MARKET", "ACCEPTED"],
         ]
     );
 }
@@ -1870,7 +2006,7 @@ fn each_member_submits_on_its_own_fill_quote() {
 #[rstest]
 #[cfg(feature = "sealed-strategy-input-acceptance")]
 fn a_quote_at_another_instant_than_the_frames_fill_quote_is_refused() {
-    let (trace, fills) = run_fill_quote_corpus(|time, instruments| {
+    let (trace, result) = run_fill_quote_corpus(|time, instruments| {
         (
             vec![
                 touch(&instruments[0], "187.10", "187.20", time + 1),
@@ -1889,7 +2025,7 @@ fn a_quote_at_another_instant_than_the_frames_fill_quote_is_refused() {
         trace.callback_failure
     );
     assert_eq!(trace.position_submit_attempts, 0);
-    assert!(fills.is_empty());
+    assert!(fill_rows(&result).is_empty());
 }
 
 /// An order still waiting when the next BAR or the run's end arrives is refused by name: the
@@ -1905,7 +2041,7 @@ fn a_fill_quote_missing_before_the_next_bar_or_the_runs_end_is_refused(
     #[case] next_bar: bool,
     #[case] refusal: &str,
 ) {
-    let (trace, fills) = run_fill_quote_corpus(|time, instruments| {
+    let (trace, result) = run_fill_quote_corpus(|time, instruments| {
         let later_bar = Data::Bar(Bar::new(
             BarType::new(
                 instruments[0].id(),
@@ -1938,7 +2074,7 @@ fn a_fill_quote_missing_before_the_next_bar_or_the_runs_end_is_refused(
         trace.callback_failure
     );
     assert_eq!(trace.position_submit_attempts, 0);
-    assert!(fills.is_empty());
+    assert!(fill_rows(&result).is_empty());
 }
 
 fn run_multi_frame_equity_corpus() -> anyhow::Result<TargetSetBacktestTraceV2> {

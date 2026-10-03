@@ -280,11 +280,10 @@ pub(crate) struct BacktestTargetSetProgramHostStrategyV2 {
     fault_hook: BacktestTargetSetFaultHookV2,
     restore_after_first_terminal_fill: bool,
     restore_performed: Rc<Cell<bool>>,
-    /// A restore the first terminal fill asked for while another member's order still waited for
-    /// its fill quote; it runs once nothing waits.
-    /// Each frame's fill-quote instant, keyed by the frame's time, as the bundle states it.
+    /// Each frame's fill-quote instants, keyed by the frame's time, one per member, as the bundle
+    /// states them.
     fill_quote_instants: BTreeMap<u64, Vec<u64>>,
-    /// The orders a frame decided, waiting for the frame's fill quote to be submitted.
+    /// The orders a frame decided, each waiting for its member's fill quote to be submitted.
     awaiting_fill_quote: Option<AwaitingFillQuoteV2>,
     trace: Rc<RefCell<TargetSetBacktestTraceV2>>,
 }
@@ -988,7 +987,11 @@ impl BacktestTargetSetProgramHostStrategyV2 {
                 Some(FillDispositionV1::PartiallyFilled)
             }
             (OrderEventAny::Filled(_), OrderStatus::Filled) => Some(FillDispositionV1::Filled),
-            (OrderEventAny::Rejected(_), _) => Some(FillDispositionV1::Rejected),
+            // A pre-trade denial is the venue-side rejection's twin: the order never rests and
+            // never fills, so the kernel releases the member's pending intent the same way.
+            (OrderEventAny::Rejected(_) | OrderEventAny::Denied(_), _) => {
+                Some(FillDispositionV1::Rejected)
+            }
             (OrderEventAny::Canceled(_) | OrderEventAny::Expired(_), _) => {
                 Some(FillDispositionV1::Canceled)
             }
@@ -1463,6 +1466,10 @@ impl DataActor for BacktestTargetSetProgramHostStrategyV2 {
             for bar_type in self.bar_types.clone() {
                 self.unsubscribe_bars(bar_type, None, None);
             }
+
+            for instrument_id in self.instrument_ids.clone() {
+                self.unsubscribe_quotes(instrument_id, None, None);
+            }
             let final_member_grid_units = try_map_members(self.instrument_ids.len(), |ordinal| {
                 let instrument = self.cache().try_instrument(&self.instrument_ids[ordinal])?;
                 self.cached_position_grid_units(ordinal, &instrument)
@@ -1472,6 +1479,26 @@ impl DataActor for BacktestTargetSetProgramHostStrategyV2 {
                 self.awaiting_fill_quote.is_none(),
                 "FILL_QUOTE_MISSING_BEFORE_NEXT_FRAME: a decided order still waits for its frame's fill quote at the run's end"
             );
+            // A position order still resting when the run ends is canceled here. No venue event
+            // reaches a stopping strategy, so the venue's cancellation would never reach the
+            // kernel and its pending intent would fault the Stop; the Host ends the run, so it
+            // states the cancellation itself, with whatever the order filled before.
+            let now = self.clock().timestamp_ns().as_u64();
+            let resting = self
+                .cache()
+                .orders_open(None, None, None, None, None)
+                .iter()
+                .filter_map(|order| {
+                    self.position_orders
+                        .get(&order.client_order_id())
+                        .map(|binding| (order.client_order_id(), *binding))
+                })
+                .collect::<Vec<_>>();
+
+            for (client_order_id, binding) in resting {
+                self.cancel_order(client_order_id, None, None)?;
+                self.consume_native_order_progress(binding, now, FillDispositionV1::Canceled)?;
+            }
             anyhow::ensure!(
                 self.universe_frames.is_empty() && self.pending_bars.is_empty(),
                 "Backtest target-set frames were not exhausted"

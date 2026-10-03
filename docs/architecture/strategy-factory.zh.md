@@ -135,7 +135,9 @@ R&D 内的 Develop 能力返回内容寻址 Strategy Artifact 和 Build Receipt�
   第一份真实 submit 已成功且原生 cached order 被保留；这不代表 venue rollback 或 all-or-none submit。每个
   `ClientOrderId` 都绑定准确 instrument 与 host-derived intent；partial/
   full/canceled/rejected progress 只推进对应成员，保留独立 residual，并把该成员 protection quantity 同步到
-  实际 filled quantity。真实 `BacktestEngine`/Sim Exchange acceptance corpus 使用不同 price、multiplier 与
+  实际 filled quantity。pre-trade risk denial 以该成员的 rejection 进入 kernel。运行结束时仍挂着的 position
+  order 会在 venue 撤销，Host 在 Stop 之前把这次撤销告诉 kernel，因为正在停止的 strategy 收不到任何 venue
+  event；protective order 保留。真实 `BacktestEngine`/Sim Exchange acceptance corpus 使用不同 price、multiplier 与
   size grid，证明重复运行相等，以及不中断执行与同一运行中仅恢复不透明 Host checkpoint 的后缀相等。另一份
   real-Sim regression 使用 Owner-sealed 第一帧和 test-only admitted successor frame，先开仓并形成非零
   unrealized PnL，再证明下一 weight target 使用该 batch 的 account-scoped equity，而不是 cash balance；它
