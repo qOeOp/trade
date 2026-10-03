@@ -319,13 +319,15 @@ Qualification 细节。
 Source 与 Research 动作、探索性 Replay 动作、Develop Composer 动作，以及 run detail 与 run log 读取。它只在 opt-in 的
 `dashboard-preview` profile 下提供服务。
 
-**形态。** 一个二进制 `rd-run-research` 随部署的 R&D 镜像发布。一个库持有全部命令，两个薄壳调用同一组函数：命令行，
+**形态。** 工具面面向代理只有一个入口，就是 `rd-run-research`。该二进制随部署的 R&D 镜像发布。一个库持有全部命令，两个薄壳调用同一组函数：命令行，
 以及 `rd-run-research mcp`（基于 stdio 的 MCP server）。命令与其工具同名。代理以
 `docker compose exec rd-owner-api rd-run-research <command>` 运行它。
 
-**命令及其到达的 Owner 路由。** 每个改变状态的命令发送的，都是 Owner 已经从任何 channel 接纳的那个请求，并带上它陈述的
-请求身份；接收的 Owner，以及在该 Owner 要求 Product Edge 准入时的 Product Edge，像接纳来自 Dashboard 的同一请求那样接纳它。
-命令不增加任何权威，也不跳过任何检查。
+**命令及其到达的 Owner 路由。** 工具按它到达的 Owner 分组，每条规矩都在该 Owner 里，从不在工具里。工具发送的，都是 Owner
+已经从任何 channel 接纳的那个请求，并带上它陈述的请求身份；接收的 Owner，以及在该 Owner 要求 Product Edge 准入时的
+Product Edge，像接纳来自 Dashboard 的同一请求那样接纳它。工具不增加任何权威，也不跳过任何检查。一步需要某个 Owner 的多条
+路由时（`admit-instrument`、`design`、`compose`、`replay`），命令只按该 Owner 要求的顺序串接它们，并透传每个拒绝；
+`run` 串接各步。
 
 - `admit-instrument`：Market Data 标的准入（Source Binding、Instrument Master、universe 成员资格）。
 - `submit`：`POST /v3/research-goals`，返回请求身份及其 Research Request Receipt。请求声明
@@ -362,13 +364,10 @@ Source 与 Research 动作、探索性 Replay 动作、Develop Composer 动作�
   任何受保护数值。
 - 拒绝原样透传其 HTTP 状态、`x-rd-rejection-code` 与 `x-rd-rejection-cause`。没有任何拒绝被折叠成泛化失败。
 
-**Dashboard MCP。** Dashboard 的 `/api/mcp` 不扩展这些命令，因为两个提交同一组 operation 的 MCP server 只是两个需要保持
-一致、却毫无收益的传输。它仍是 Dashboard 的 channel：
+**Dashboard MCP。** Dashboard 的 `/api/mcp` 不是面向代理的入口，也不扩展这些命令。它保留给预览界面使用：
 
-- 它的 run detail 与 run log 读取保留；
 - 它的 Artifact Formation preflight 与 Artifact 动作工具服务于产品内模型构建，同一决定使该构建退役，这两个工具随之删除；
-- 它的 Source 与 Research、探索性 Replay 与 Develop Composer 动作工具保留到某个命令覆盖它们各自为止，然后删除，
-  这样代理的每次写入都经由同一个表面进入，Dashboard MCP 变为只读。
+- 它的其他工具保留。等上面的命令覆盖它的读取之后，再决定它是否退役。
 
 ## Agent Shell 部署绑定
 

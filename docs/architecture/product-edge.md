@@ -370,14 +370,17 @@ builds it.
 the Source and Research action, the exploratory Replay action, the Develop Composer action, and the run detail and
 run log reads. It serves only under the opt-in `dashboard-preview` profile.
 
-**Shape.** One binary, `rd-run-research`, ships in the deployed R&D image. One library holds the commands, and two thin
+**Shape.** The tool surface has one entry for agents, and `rd-run-research` is it. The binary ships in the deployed
+R&D image. One library holds the commands, and two thin
 shells call the same functions: the command line, and `rd-run-research mcp`, an MCP server over stdio. A command and
 its tool share one name. The agent runs it as `docker compose exec rd-owner-api rd-run-research <command>`.
 
-**Commands and the Owner routes they reach.** Each mutating command sends the request the Owner already admits from
-any channel, with the request identity it states; the receiving Owner, and Product Edge where that Owner requires a
-Product Edge admission, admit it exactly as they would the same request from the Dashboard. The command adds no
-authority and skips no check.
+**Commands and the Owner routes they reach.** The tools are grouped by the Owner they reach, and every rule lives in
+that Owner, never in a tool. A tool sends the request the Owner already admits from any channel, with the request
+identity it states; the receiving Owner, and Product Edge where that Owner requires a Product Edge admission, admit
+it exactly as they would the same request from the Dashboard. A tool adds no authority and skips no check. Where one
+step needs several routes of an Owner (`admit-instrument`, `design`, `compose`, `replay`), the command only
+sequences them in the order the Owner requires and passes each refusal through; `run` sequences the steps.
 
 - `admit-instrument`: Market Data instrument admission (Source Binding, Instrument Master, universe membership).
 - `submit`: `POST /v3/research-goals`, returning the request identity and its Research Request Receipt. The request
@@ -420,15 +423,12 @@ The read commands:
 - A refusal passes through its HTTP status, `x-rd-rejection-code` and `x-rd-rejection-cause` unchanged. Nothing is
   folded into a generic failure.
 
-**The Dashboard MCP.** The Dashboard's `/api/mcp` is not extended with these commands, because two MCP servers that
-submit the same operations would be two transports to keep equal for no gain. It stays the Dashboard's channel:
+**The Dashboard MCP.** The Dashboard's `/api/mcp` is not an entry for agents, and it is not extended with these
+commands. It stays for the preview interface:
 
-- its run detail and run log reads stay;
 - its Artifact Formation preflight and Artifact action tools serve the in-product model build, which the same decision
   retires, and they are removed with it;
-- its Source and Research, exploratory Replay and Develop Composer action tools stay until a command covers each,
-  and are then removed, so every write from an agent enters through one surface and the Dashboard MCP becomes
-  read-only.
+- its other tools stay. Whether it retires is decided once the commands above cover its reads.
 
 ## Agent Shell deployment binding
 

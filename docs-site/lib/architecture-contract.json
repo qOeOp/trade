@@ -4179,8 +4179,8 @@
             "research"
           ],
           "description": {
-            "en": "Freezes mechanism budget and falsifier\nPreserves predecessors and opaque feedback cut",
-            "zh": "冻结机制 数据 成本 预算 证伪与停止规则\n保留完整前驱与不透明保护反馈前沿"
+            "en": "Freezes mechanism budget and falsifier\nChecks the knowledge ledger before it freezes\nPreserves predecessors and opaque feedback cut",
+            "zh": "冻结机制 数据 成本 预算 证伪与停止规则\n冻结前先对照研究知识台账检查\n保留完整前驱与不透明保护反馈前沿"
           }
         },
         {
@@ -4193,21 +4193,21 @@
             "backtest"
           ],
           "description": {
-            "en": "Stores content addressed strategy build output\nBuilt in a restricted sandbox from an Owner compiled authoring document\nRemains Research owned across replay and review",
-            "zh": "保存内容寻址的策略构建产物并绑定唯一版本身份\n在受限沙箱中由 Owner 编译的 authoring 文档构建\n由 Research 持有权威供回测和资格流程只读消费"
+            "en": "Stores content addressed strategy build output\nBinds intent code dependencies and runtime version\nRemains Research owned across replay and review",
+            "zh": "保存内容寻址的策略构建产物并绑定唯一版本身份\n关联冻结意图 代码 依赖和可复现运行环境版本\n由 Research 持有权威供回测和资格流程只读消费"
           }
         },
         {
-          "id": "knowledge-ledger",
-          "label": "Knowledge Ledger",
-          "kind": "authority",
-          "emphasis": "standard",
+          "id": "code-sandbox",
+          "label": "Development Sandbox",
+          "kind": "protected",
+          "emphasis": "support",
           "scenarios": [
             "research"
           ],
           "description": {
-            "en": "Keeps mechanism statuses construct effects and findings\nRefuses an Intent that reopens a closed mechanism\nHolds no protected Qualification value",
-            "zh": "保存机制状态 构件效果与结论\n拒绝没有新机制就重开已关闭机制的 Intent\n不持有任何受保护的 Qualification 数值"
+            "en": "Builds the program an Owner lowers an authoring document into\nAlso builds attended repair code without market or account access\nCannot deploy trade or mutate governed state",
+            "zh": "构建 Owner 从 authoring 文档降级出的程序\n也构建有人值守的修复代码 不访问行情或账户权限\n不能部署策略 发送交易意图或修改治理状态"
           }
         }
       ]
