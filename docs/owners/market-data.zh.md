@@ -1977,18 +1977,24 @@ row digest，并交叉绑定 trigger 和 observation-batch digest。consumer 必
 envelope，不能从 caller 选择的 value 或 order key 铸造。Market Data 绝不签发 `TIMER` 或 `FILL`
 trigger；在真实 Time/Scheduler 与 Execution Owner contract 分别存在前，两者都保持 unavailable。
 
-**TARGET，行对齐到角色的 scale：** 角色按自己声明的 scale 读值，规范行带的是该值自身的最小 scale。今天 binding 要求
-两者相等，其余一律答 `ScaleMismatch`，所以只有价格恰好与角色小数位相同的规范行才能绑定。PC-1 探针测到了这一点：
+**CURRENT，行精确换算到角色的 scale：** 角色按自己声明的 scale 读值，规范行保留其来源陈述该值时用的 scale。binding
+以前要求两者相等，其余一律答 `ScaleMismatch`，所以只有价格恰好与角色小数位相同的行才能绑定。PC-1 探针测到了这一点：
 BTCUSDT 在 0.10 tick 上的价格 scale 为 1，scale 2 的 universe 角色在 universe 声明处拒绝了它。
 
-- **对齐。** 每一种 binding（exact instrument 与 universe member 一样）都把 scale 不超过角色的行精确对齐：mantissa
-  乘以 `10^(role scale - row scale)`，带溢出检查。
-- **拒绝。** 比角色更细的行以 `VALUE_FINER_THAN_ROLE_SCALE` 按名拒绝，不做任何舍入。
-- **收据。** role-value 收据在原始 row digest 旁封存角色 scale 下的对齐值，所以值所来自的托管行仍然精确可追。
+- **对齐。** 每一种 binding（exact instrument 与 universe member 一样）都接纳能由
+  `decimal_rescale_v1::rescale_exact_v1` 精确换算到角色 scale 的行。放大把 mantissa 乘以
+  `10^(role scale - row scale)`，带溢出检查；缩位做除法，只有被舍去的位全为零时才精确，所以 scale 9 的行在 scale 9
+  上原样不变，末位为 0 的 scale 10 行可以缩到 9。
+- **拒绝。** 没有任何候选行能精确换算时，拒绝写出原因：有比角色更细的非零位时为 `VALUE_FINER_THAN_ROLE_SCALE`，放大后
+  的 mantissa 装不进 `i128` 时为 `VALUE_OVERFLOWS_ROLE_SCALE`。不做任何舍入。
+- **收据。** binding locator 记录角色的 scale。role-value 收据的 `value_bytes` 与 `value_scale` 承载对齐后的值和角色
+  的 scale，`canonical_row_digest` 仍是来源行自己的 digest，所以值所来自的托管行仍然精确可追。已经处于角色 scale 的
+  行字节不变。
 - **scale 9。** universe 成员角色按固定 scale 9 读取（Strategy Factory，P1），它就是托管 series 的 scale，即
   `decimal_rescale_v1::MARKET_DATA_VALUE_SCALE_V1`，在 Market Data 中只定义一次，与每次对齐所用的精确换算放在一起。品种的 tick 在历史上会变（BTC 今天是 0.10，2021 年的价格在 0.01 网格上；SOL 2021 年有
   3 位小数），所以 series 固定在生产定点精度的上限 9，每一行都精确换算到它。
-- **拒绝名。** HTTP 拒绝写出 binding 自己的成因，绝不只写 `STRATEGY_INPUT_BINDING_UNAVAILABLE`。
+- **拒绝名。** `STRATEGY_INPUT_BINDING_UNAVAILABLE`（422）在 `x-rd-rejection-cause` 头与 body 的 `cause` 中带出
+  binding 自己的成因，例如 `VALUE_FINER_THAN_ROLE_SCALE`。
 
 ### CURRENT/PARTIAL EVENT 与 BAR Owner custody；TARGET BAR 产品权威
 

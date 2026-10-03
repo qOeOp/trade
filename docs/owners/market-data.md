@@ -2252,24 +2252,29 @@ cross-binds the trigger and observation-batch digest. Consumers derive the lifec
 they cannot mint it from caller-selected values or order keys. Market Data never issues `TIMER` or `FILL` triggers:
 those remain unavailable pending real Time/Scheduler and Execution Owner contracts respectively.
 
-**TARGET, a row aligned to its role's scale:** a role reads its value at the role's declared scale, and a canonical
-row carries the value's own minimal scale. Today the binding requires the two to be equal and answers anything else
-as `ScaleMismatch`, so a canonical row can bind only where its price happens to have exactly the role's decimal places.
-The PC-1 probe measured this: a BTCUSDT price on its 0.10 tick has scale 1, and a scale 2 universe role refused it at
-the universe declaration.
+**CURRENT, a row stated exactly at its role's scale:** a role reads its value at the role's declared scale, and a
+canonical row keeps the scale its source stated the value at. The binding used to require the two to be equal and
+answered anything else as `ScaleMismatch`, so a row bound only where its price happened to have exactly the role's
+decimal places. The PC-1 probe measured this: a BTCUSDT price on its 0.10 tick has scale 1, and a scale 2 universe role
+refused it at the universe declaration.
 
-- **Alignment.** Every binding (exact instrument and universe member alike) aligns a row whose scale is at most the
-  role's exactly: the mantissa times `10^(role scale - row scale)`, checked.
-- **Refusal.** A row finer than the role is refused by name as `VALUE_FINER_THAN_ROLE_SCALE`, and nothing is
-  rounded.
-- **Receipts.** The role-value receipt seals the aligned value at the role's scale beside the original row digest,
-  so the custody row a value came from stays exact.
+- **Alignment.** Every binding (exact instrument and universe member alike) admits a row whose value
+  `decimal_rescale_v1::rescale_exact_v1` states exactly at the role's scale. Widening multiplies the mantissa by
+  `10^(role scale - row scale)`, checked. Narrowing divides it and is exact only when the dropped digits are zero, so
+  a scale 9 row is the identity at scale 9 and a scale 10 row ending in 0 narrows to 9.
+- **Refusal.** When no candidate row can be stated exactly, the refusal names why: `VALUE_FINER_THAN_ROLE_SCALE` for a
+  nonzero digit finer than the role, `VALUE_OVERFLOWS_ROLE_SCALE` for a widened mantissa that does not fit in an
+  `i128`. Nothing is rounded.
+- **Receipts.** The binding locator records the role's scale. A role-value receipt's `value_bytes` and `value_scale`
+  carry the aligned value and the role's scale, and its `canonical_row_digest` stays the source row's own digest, so
+  the custody row a value came from stays exact. A row already at the role's scale keeps its bytes.
 - **Scale 9.** Universe-member roles read at the fixed scale 9 (Strategy Factory, P1). It is the custody series'
   scale, `decimal_rescale_v1::MARKET_DATA_VALUE_SCALE_V1`, defined once, in Market Data, beside the exact rescale
   every alignment uses. An instrument's tick changes over its history (BTC's is 0.10 today, but its
   2021 prices sit on a 0.01 grid; SOL's had 3 decimals in 2021), so the series is fixed at production fixed-point's
   upper bound, 9, and every row is aligned exactly to it.
-- **Refusal names.** The HTTP refusal names the binding's own cause, never only `STRATEGY_INPUT_BINDING_UNAVAILABLE`.
+- **Refusal names.** `STRATEGY_INPUT_BINDING_UNAVAILABLE` (422) carries the binding's own cause in the
+  `x-rd-rejection-cause` header and the body's `cause`, such as `VALUE_FINER_THAN_ROLE_SCALE`.
 
 ### CURRENT/PARTIAL EVENT and BAR Owner custody; TARGET BAR product authority
 
