@@ -4,8 +4,9 @@
 //! A static file carries no expiry and no version of its own, so both are derived rather than
 //! assumed. The version is the SHA-256 of the file's exact bytes: the signed manifest names the
 //! version it admits, so a changed secret is a new version, and only a newly signed manifest admits
-//! it. The lease lapses a fixed time after the admission's store-clock cut, never on this process's
-//! clock, because the custody store judges the receipt's window on the store's clock.
+//! it. The lease lapses at the end of the fixed-length lease period the admission's store-clock cut
+//! falls in, never on this process's clock, because the custody store judges the receipt's window
+//! on the store's clock.
 
 use std::{
     io::Read,
@@ -38,8 +39,13 @@ pub(super) struct SecretFileCredentialResolver {
 }
 
 impl SecretFileCredentialResolver {
-    /// Resolves handles under `directory` (for docker secrets, `/run/secrets`); each lease lapses
-    /// `lease_ms` after the cut it was resolved at.
+    /// Resolves handles under `directory` (for docker secrets, `/run/secrets`). Time is cut into
+    /// periods of `lease_ms`, and a lease lapses at the end of the period its cut falls in: at most
+    /// `lease_ms` after the cut, and the same for every cut in one period.
+    ///
+    /// A file has no expiry of its own, so the lapse is this resolver's alone, and the period is
+    /// what lets an admitted port revalidate: a revalidation must rejoin the receipt its admission
+    /// sealed, and a lapse that moved with every cut made each one a different receipt.
     ///
     /// # Errors
     ///
@@ -85,18 +91,37 @@ impl CredentialResolver for SecretFileCredentialResolver {
         let bytes = read_regular_file(&path).ok_or(())?;
         // The lease carries the version the file is, not the one the handle asks for: whether they
         // are the same is the custodian's to judge, as a rejected lease rather than a missing one.
-        let version = secret_version(&bytes);
-        let url = std::str::from_utf8(&bytes).map_err(|_| ())?;
-        let url = url.strip_suffix('\n').unwrap_or(url);
-        PostgresCredentialLease::from_resolved_secret(
+        lease_from_secret(
             &handle.identity,
             &handle.audience,
-            version,
-            cut_epoch_ms.checked_add(self.lease_ms).ok_or(())?,
-            url.to_string(),
+            &bytes,
+            (cut_epoch_ms / self.lease_ms)
+                .checked_add(1)
+                .and_then(|period| period.checked_mul(self.lease_ms))
+                .ok_or(())?,
         )
-        .map_err(|_| ())
     }
+}
+
+/// The lease a secret file's exact bytes make: the connection string they hold, a trailing newline
+/// aside, at the version those bytes are. The resolver and the administrator's authoring both read a
+/// secret through this, so the version a manifest names is the one the deployment resolves.
+pub(super) fn lease_from_secret(
+    identity: &str,
+    audience: &str,
+    bytes: &[u8],
+    valid_through_epoch_ms: u64,
+) -> Result<PostgresCredentialLease, ()> {
+    let url = std::str::from_utf8(bytes).map_err(|_| ())?;
+    let url = url.strip_suffix('\n').unwrap_or(url);
+    PostgresCredentialLease::from_resolved_secret(
+        identity,
+        audience,
+        secret_version(bytes),
+        valid_through_epoch_ms,
+        url.to_string(),
+    )
+    .map_err(|_| ())
 }
 
 /// The version a manifest signs for a secret: `sha256-` and the lowercase hexadecimal SHA-256 of
@@ -114,7 +139,7 @@ pub(super) fn secret_version(bytes: &[u8]) -> String {
 
 /// The bytes of a regular, bounded, non-empty file, or none. A symbolic link is refused rather than
 /// followed: a secret is the file mounted at its name, not whatever that name points to.
-fn read_regular_file(path: &Path) -> Option<Zeroizing<Vec<u8>>> {
+pub(super) fn read_regular_file(path: &Path) -> Option<Zeroizing<Vec<u8>>> {
     let metadata = std::fs::symlink_metadata(path).ok()?;
 
     if !metadata.file_type().is_file() || metadata.len() == 0 || metadata.len() > MAX_SECRET_BYTES {
@@ -179,7 +204,7 @@ mod tests {
 
     #[rstest]
     #[tokio::test]
-    async fn a_mounted_secret_leases_its_url_until_a_fixed_time_after_the_cut() {
+    async fn a_mounted_secret_leases_its_url_until_the_end_of_its_cuts_lease_period() {
         let directory = SecretsDirectory::new();
         let bytes = format!("{URL}\n");
         directory.write("market-data-admitted-reader", bytes.as_bytes());
@@ -199,8 +224,23 @@ mod tests {
         assert_eq!(lease.database_url(), URL);
         assert_eq!(lease.handle_identity(), "market-data-admitted-reader");
         assert_eq!(lease.version(), secret_version(bytes.as_bytes()));
-        assert_eq!(lease.valid_through_epoch_ms(), 301_000);
+        assert_eq!(lease.valid_through_epoch_ms(), 300_000);
         assert!(!format!("{lease:?}").contains("secret@"));
+
+        // Every cut in one period lapses together, and a cut on the boundary starts the next.
+        for (cut, lapse) in [(0, 300_000), (299_999, 300_000), (300_000, 600_000)] {
+            let lease = resolver
+                .resolve(
+                    &handle(
+                        "market-data-admitted-reader",
+                        secret_version(bytes.as_bytes()),
+                    ),
+                    cut,
+                )
+                .await
+                .unwrap();
+            assert_eq!(lease.valid_through_epoch_ms(), lapse, "cut {cut}");
+        }
     }
 
     #[rstest]

@@ -86,9 +86,9 @@ never runs in CI.
 - **`B3` Deployment Store Admission disabled.** `DEPLOYMENT_STORE_ADMISSION_MODE` is `disabled` in
   `product/rd-workbench/.env.example` and `product/rd-workbench/docker-compose.yml`, so every sealed read port
   resolves to `None`, and `crates/strategy_factory_rd_owner_api/src/main.rs` retains the resolver in the unread
-  field `_market_data_research_pit`. Cleared by the production resolver, signer, anti-rollback witness, credential
-  resolver and direct-measurement adapters named in `docs/guide/architecture-rules.md`, plus one consumer that
-  reads the port.
+  field `_market_data_research_pit`. The production ports `docs/guide/architecture-rules.md` names now exist and
+  compose the `required` seam. Cleared when a deployment turns `required` on by the procedure in
+  `product/rd-workbench/README.md`, plus one consumer that reads the port.
   The acceptance chain covers the segment after Store Admission, and not Admission itself. In a build that enables
   `sealed-strategy-input-acceptance`, which no deployed binary does,
   `native_replay_scheduling_resolver_for_sealed_acceptance_v1` runs the native Replay scheduling read path with the
@@ -132,15 +132,17 @@ never runs in CI.
   module and `AdmittedCapability` leaves it by one exit, so no consumer outside that module can construct the port
   a production read requires.
   One further fact about that gate, which a reader of the code gets backwards by default:
-  **the production form of `MarketDataReadPostgres` is never constructed today.** Its only production constructor is
-  `from_admitted`, gated `cfg(not(test))`, and its seven callers all sit behind
+  **the production form of `MarketDataReadPostgres` is constructed only in `required` mode.** Its only production
+  constructor is `from_admitted`, gated `cfg(not(test))`, and its seven callers all sit behind
   `RdOwnerStoreAdmissionBootstrap::Required`; with no environment configuration that branch is `Disabled` and
-  returns `Ok(None)`. The composition root behind `Required` builds its custodian from five `Unavailable*`
-  placeholders, so it answers `Err` unconditionally. All three layers name themselves placeholders, which makes this
-  **a seam that declares its own incompleteness** rather than a defect - but the whole `cfg(not(test))` impl block
-  exists for the day that changes, not because anything runs it now. Whether a real deployment sets `Required` is a
-  question about deployment configuration that the code cannot answer; either way `from_admitted` is unreachable
-  while the admission fails closed.
+  returns `Ok(None)`. The composition root behind `Required` builds its custodian from the five production ports the
+  deployment's configuration names (`store_admission/composition.rs`), and refuses under the first one it cannot
+  build. The Market Data proof `the_production_seam_admits_what_the_administrator_measured_sealed_and_published`
+  drives that root end to end on a disposable PostgreSQL - measured, authored, sealed, published, admitted, and read
+  through the scheduling port - so **a seam that declares its own incompleteness** no longer describes it. The BAR
+  schedule census it reads there is empty; the production strategy over real schedule rows has still never run.
+  Whether a real deployment sets `Required` is a question about deployment configuration that the code cannot
+  answer.
   **Clearing `B3` proves which store `rd-owner-api` reached; it does not keep credentials out of that process.**
   The same process starts with two raw DSNs: `MARKET_DATA_OWNER_DATABASE_URL`, the Owner's write principal
   `market_data_owner`, which `product/rd-workbench/docker-compose.yml` requires, and
@@ -159,12 +161,17 @@ never runs in CI.
   measures inside the custodian with the leased credential. It also has the admission receipt cross-bind the trust
   bundle, while `SealedDeploymentStoreAdmissionReceipt` carries the witness identity but no signer key fingerprint
   or bundle identity.
-  Five production adapters now exist, and none is composed: the pinned Ed25519 signature verifier
-  (`store_admission/signature.rs`), the PostgreSQL custody store (`store_admission/custody_postgres.rs`, its schema
-  and its two principals in `product/rd-workbench/postgres-init/20-deployment-store-custody.sh`, which the compose file
-  does not run yet), and the secret-file credential resolver (`store_admission/credential_files.rs`). A secret file
-  has no version or expiry of its own: its version is the SHA-256 of its exact bytes, which the signed manifest names,
-  and its lease lapses a fixed time after the admission's store-clock cut. The fourth is the single-machine
+  Five production adapters exist, and `store_admission/composition.rs` composes them from the files the deployment's
+  configuration names: the pinned Ed25519 signature verifier (`store_admission/signature.rs`), the PostgreSQL custody
+  store (`store_admission/custody_postgres.rs`, its schema and its two principals in
+  `product/rd-workbench/postgres-init/20-deployment-store-custody.sh`, which the compose file's
+  `deployment-store-provision` service runs), and the secret-file credential resolver
+  (`store_admission/credential_files.rs`). A secret file has no version or expiry of its own: its version is the
+  SHA-256 of its exact bytes, which the signed manifest names, and its lease lapses at the end of the fixed-length lease
+  period the admission's store-clock cut falls in, so every admission and revalidation within one period seals or
+  rejoins one receipt. An admitted port compares each re-admission with the receipt it opened on by the store and its
+  custody, not by that window, so it outlives the period it opened in; only the admissions before and after one read
+  must be the same receipt, and a read that straddles a period boundary is refused. The fourth is the single-machine
   anti-rollback mode `SingleTrustDomainNoRollbackWitness` (`store_admission/witness.rs`): on one machine the
   anti-rollback property does not hold, the mode says so in every receipt, and the architecture rules carry the
   user's 2026-09-27 authorization. The fifth is the direct measurer for a deployment's store,
@@ -175,12 +182,16 @@ never runs in CI.
   the server through a private Unix socket. Its TLS identity names the certificate that server presented and the pinned
   root, and the server's `pg_stat_ssl` must agree on TLS, protocol and cipher. Every admitted read reaches the store
   the same way: the admission records the measurer's transport, bound to the certificate it measured, and each read
-  opens its session over it and is refused unless its server presents that certificate. The
-  deployment's PostgreSQL does not serve TLS yet; turning it on belongs to composing these adapters.
-  The administrator seals and publishes the history with
-  `deployment-store-publication-seal` and `deployment-store-publication-publish`; `product/rd-workbench/README.md`
-  gives the procedure. `admit_rd_owner_market_data_postgres` still wires the `Unavailable*` ports, so `required` still
-  fails closed at startup. The admission reads time from the custody store's clock alone: every history read carries
+  opens its session over it and is refused unless its server presents that certificate. The socket between the two legs
+  exists only between the handshake and the one session it accepts, in a directory only this process's user can
+  enter; the relay carries nothing for any process but this one, and a server under another root or with another
+  certificate is refused before the socket exists, so no byte of a session reaches it. The
+  deployment's PostgreSQL serves TLS once the compose file's `postgres-tls-install` service has run.
+  The administrator measures the store and completes a draft with `deployment-store-publication-author`, from where
+  the deployment reaches the store, then seals and publishes the history with `deployment-store-publication-seal` and
+  `deployment-store-publication-publish`; `product/rd-workbench/README.md` gives the procedure. A receipt's slot
+  carries its lapse: under the single-machine mode, whose observation never changes, a slot named only by head and
+  observation made every admission after the first a conflict. The admission reads time from the custody store's clock alone: every history read carries
   the store's `clock_timestamp()` cut, and the commit judges the receipt's window on that clock.
   The direct measurer's role identity covers what the leased role can do, not only the listed surface's ACLs,
   which cannot show a grant on anything else. It carries a privilege census (`PRIVILEGE_CENSUS_V1`): every
@@ -251,6 +262,11 @@ never runs in CI.
 | Shared Time clock‑head handoff                            | `TARGET`                                                                                            | `owner/shared_time_evidence.rs`                                                                                                                                                                                                          | `B3`       |
 | Vendor Data Clients                                       | `CURRENT / PARTIAL`                                                                                 | `crates/adapters/databento/src/pit_observation_source_v1.rs` and `crates/adapters/binance/src/pit_observation_source_v1.rs`, both live‑verified                                                                                          | `B6`       |
 | Live market fact channel to Runtime                       | `CURRENT / PARTIAL`, one channel                                                                    | `owner/live_market_fact_v1.rs`, `owner/live_market_stream_v1.rs`, `owner/postgres/live_market_stream_v1.rs`, `crates/adapters/bybit/src/live_market_fact_source_v1.rs`                                                                   | `B8`       |
+| Binance perpetual settled funding rows                    | `CURRENT / PARTIAL`                                                                                 | `crates/adapters/binance/src/futures_pit_observation_source_v1.rs`                                                                                                                                                                       | `B6`       |
+| Owner clock follows PIT intake                            | `TARGET`, after U1                                                                                  | none; PIT intake commits at the current clock head (`owner/postgres.rs`)                                                                                                                                                                 | none       |
+| Fill‑bar quote cut for a bar‑only source                  | `TARGET`, on U1's path                                                                              | none; a quote cut holds observed Quote rows only (`owner/native_replay_quote_cut_v2.rs`)                                                                                                                                                 | none       |
+| Companion quote lineage                                   | `TARGET`, after U1                                                                                  | none                                                                                                                                                                                                                                     | none       |
+| Source Binding successor admission                        | `TARGET`, after U1                                                                                  | `commit_source_successor`, test callers only                                                                                                                                                                                             | none       |
 
 ## Authoritative facts owned
 
@@ -1137,9 +1153,12 @@ R&D remains the sole owner of the one `ReplayExecutionProfileV1`. The logical In
 Owner now separately owns a private `InstrumentEconomicTermsFactV1` PostgreSQL path. Its fact binds the
 exact public instrument identity/digest, venue, margin-account scope, half-open validity, source and
 provenance, positive revision, quote/fee currency, positive exact maker/taker rates, positive exact
-initial/maintenance rates, and the closed `STANDARD_NOTIONAL_RATE` meaning. That meaning is explicitly
-`notional * rate` without leverage and may map only to native `StandardMarginModel`; V1 never guesses
-`LeveragedMarginModel`.
+initial/maintenance rates, and one of two closed margin meanings. `STANDARD_NOTIONAL_RATE` is explicitly
+`notional * rate` without leverage. `FIRST_BRACKET_NOTIONAL_RATE` is the same `notional * rate` for a position
+whose notional is at most the fact's `margin_notional_cap`, a venue's first leverage bracket, and says nothing
+about a larger position. Either may map only to native `StandardMarginModel`; V1 never guesses
+`LeveragedMarginModel`. The cap is absent from a `STANDARD_NOTIONAL_RATE` fact's bytes, so those bytes are the
+ones they were before the cap existed.
 
 Fact and deterministic receipt are committed atomically. Repeating identical meaning and bytes performs
 no write and returns the same locator and bytes. Recovery accepts only the exact fact-and-receipt locator,
@@ -1160,6 +1179,57 @@ R&D may mint its move-only economic provenance only from that verified Owner rea
 must additionally match venue, account scope, event time, currencies and all visible economic profile
 values. Market Data's public-fact module still neither imports R&D nor validates, copies,
 selects, or issues replay economic values.
+
+**CURRENT / PARTIAL, production Instrument Economic Terms intake:** one Owner-sealed admission port,
+`InstrumentEconomicTermsAdmissionV1` in `owner/instrument_economic_terms_intake_v1.rs`, and one route,
+`POST /v1/market-data/instrument-economic-terms`, guarded exactly as the Instrument Master V2 baseline intake is.
+It is the only production writer of the private terms store above, and the API composes it only when both
+`MARKET_DATA_OWNER_DATABASE_URL` and `INSTRUMENT_OWNER_DATABASE_URL` are configured: it reads the named
+Instrument Master V2 fact and the clock head from Market Data's store, in one snapshot and without a row lock,
+and issues the terms into the Instrument Owner's.
+
+- **What the submission states:** the instrument's canonical identity (`LINKUSDT-PERP.BINANCE`), the identity
+  of its admitted Instrument Master V2 fact, the account scope, and the exclusive end of validity. The account
+  scope is the caller's statement, which the Owner cannot verify; the trust boundary is the credential that
+  reaches the route.
+- **What the Owner derives:** from the fact, the instrument, its public fact digest (the fact's identity, which
+  the Native Replay resolver matches a cut member against), the venue, the quote currency, the fee currency
+  (the settlement currency, which must equal the quote currency), the start of validity (the baseline's
+  effective instant, its listing) and the source digest (the baseline's `raw_payload_digest`). From the
+  module's own tables, the fees and margin: `BINANCE_USDM_VIP0_MAKER_FEE_V1` and
+  `BINANCE_USDM_VIP0_TAKER_FEE_V1`, and the instrument's row of `BINANCE_USDM_FIRST_LEVERAGE_BRACKETS_V1`.
+  Those constants are the only definition of the values, and their comments state each value's source and
+  date. The `source_identity` is `ECONOMIC_TERMS_SOURCE_IDENTITY_V1`, which names the values as public defaults,
+  not an account's own; the provenance digest binds the exact rows used; the revision is
+  `ECONOMIC_TERMS_TABLE_REVISION_V1`; the meaning is `FIRST_BRACKET_NOTIONAL_RATE` with the row's notional
+  cap.
+- **The fees** are the regular user (VIP 0) schedule. The public fee pages answer an automated client with an
+  empty challenge page, so the values rest on the user's confirmation, as the constant states.
+- **The margin** is the first leverage bracket: its maintenance rate, and an initial rate of
+  `1 / maxOpenPosLeverage` rounded up at the sixth decimal place, so that a rate base ten cannot state exactly
+  is never understated. A position whose notional exceeds the row's `notional_cap` (10000 USDT for
+  `LINKUSDT-PERP.BINANCE`) is margined by the venue at later brackets, which these terms do not record, and
+  priced at the first bracket's rates its margin would be understated. The terms carry the cap so that a
+  consumer can refuse such a position; no consumer does yet.
+- **The tables are maintained by hand.** The venue changes its brackets and fees without notice and nothing
+  here notices. Adding an instrument is adding a row with its source; changing a value is a new revision,
+  issued for a validity that does not overlap the earlier revision's, because the Native Replay resolver
+  refuses an instrument with two facts valid at one instant. Keeping the rows current is an Instrument Owner
+  task.
+- **Refusals**, each with nothing written:
+  - `ECONOMIC_TERMS_INSTRUMENT_FACT_UNAVAILABLE`: no fact with that identity is held for that canonical identity.
+  - `ECONOMIC_TERMS_MARGIN_BRACKET_UNLISTED`: the table has no row for the instrument.
+  - `ECONOMIC_TERMS_VENUE_NOT_ADMITTED`: the fact's venue is not `BINANCE`. The Instrument Master V2 venue
+    table has only the Binance row today, so no admitted fact reaches this refusal yet.
+  - `ECONOMIC_TERMS_CURRENCY_UNAVAILABLE`: the fact states no quote or settlement currency, or they differ.
+  - `ECONOMIC_TERMS_VALIDITY_UNBOUNDED`: the end of validity is later than the last instant a signed 64-bit
+    nanosecond count reaches, which is how `i128::MAX` or any other open value is stated.
+  - `ECONOMIC_TERMS_VALIDITY_NOT_AFTER_CLOCK_HEAD`: the end of validity is not later than the decision cut of
+    Market Data's clock head; a submission naming the head's own cut reaches it.
+  - `ECONOMIC_TERMS_INVALID`: the derived terms do not seal, for instance for a blank account scope; the body
+    states the reason.
+  - `ECONOMIC_TERMS_MEANING_CONFLICT` (HTTP 409): terms with the same meaning are held with other bytes. The
+    same submission again rejoins the same terms.
 
 **CURRENT/PARTIAL, durable public V2 custody and fixed Native Replay resolution:** Market Data owns
 the additive `InstrumentMasterFactV2` store, immutable content-addressed cut, atomic receipt/outbox, and
@@ -2159,8 +2229,8 @@ derived by the candidate, caller, consumer, or tested process
 cannot mint the request locator, resolver, event, or readback. Missing, stale, superseded, or mismatched head, rotation,
 ACL, credential, measurement, request, role, projection, event, locator, or readback fails before `ProgramHost` or
 Backtest state mutation and produces no positive resolver or terminal result. Successful proof authorizes only this
-disposable profile; production resolver, signer, anti-rollback witness, credential-resolver, and direct-measurement
-adapters and the default product entry remain `UNAVAILABLE`. It establishes no provider authenticity, production
+disposable profile; it admits nothing for the default product entry, whose production adapters compose only from a
+deployment's own configuration. It establishes no provider authenticity, production
 readiness or deployment authority, Dashboard, Paper, Live, real trading, or other production write.
 
 The runtime handoff consumes the existing static receipts plus one verified batch and re-resolves each selection;
@@ -2217,7 +2287,7 @@ not a BAR, a Source Binding that declares no bar timeframe, a role row label it 
 Instrument Master readback. Strategy Factory slice F depends on it. A continuous daily bar such as a Binance
 perpetual's is declared as a 24-hour fixed interval on a continuous clock from the Unix epoch and scheduled as that
 bar. One source gap remains beside it: no admitted Binance perpetual source supplies QUOTE rows, so a perpetual Replay
-has no quote cut to fill from.
+has no quote cut to fill from. The fill-bar quote cut below, before PIT window custody, is the design that closes it.
 
 `TimeframeSpecV1` has one fixed canonical codec, in this order: schema `u16LE = 1`, reserved-zero `u16LE`, kind
 `u8`, positive step `u32LE`, unit `u8`, anchor identity `[u8; 32]`, calendar identity `[u8; 32]`, session identity
@@ -2453,6 +2523,74 @@ took Quotes from the frame's own batch - bytes Owner custody never produced. The
 seals every frame through that same seal, over one or two members, and its liquidity EVENT receipt
 seals the quote cut's snapshot, fact and batch in place of the frame's. No proof yet drives a
 complete initial read - schedules, universe and quote cut together - on Owner custody.
+
+**TARGET, fill quotes for a source that publishes bars only, and the Owner clock that admits them:** nothing here is
+built, and nothing is admitted until its slice is. A deployed Backtest over Binance perpetual history needs a fill quote
+between every pair of frames and has none today: Binance publishes no historical quotes (`bookTicker` answers only the
+current one), and a quote cut must sit on the frame's own Source Binding lineage. Every frame of such a Backtest is
+therefore refused as `QuoteCutMissing`. The first Composer replay meets a second gap as well: it freezes its frame at
+the frame's own instant, so its quote is retrieved after the Owner's clock head, and a snapshot retrieved after the
+head cannot be admitted at all. It passes only through two named stand-ins: its Data Client builds Quote rows from
+klines, and an extra `usdm/klines/4h` Source Binding admission moves the clock past the frame.
+This design replaces both.
+
+- **The fill comes from a finer bar of the same source.** A schema 2 Source Binding that declares the frame's bar may
+  also declare a finer fixed-interval bar, which a PIT window custody request names as its fill timeframe, apart from
+  the timeframes it holds for strategy inputs. Fill-timeframe rows serve the quote cut only: the derived view never
+  selects them for a frame's inputs, because they are sparse, one bar per gap, and a strategy role reading that
+  timeframe would otherwise see a stale fill bar. A fill timeframe that is
+  not strictly shorter than the execution timeframe is refused by name as `FILL_TIMEFRAME_NOT_FINER_THAN_EXECUTION`.
+  For each frame the fill bar is the first fill-timeframe bar whose open instant lies strictly after the frame's
+  availability instant - its BAR's event-effective instant plus the lag the binding's availability rule declares - and
+  strictly before the next frame's BAR. In custody it is the quote cut derived for the gap `(d_k, e_{k+1})`; on the
+  snapshot path, a PIT snapshot holding exactly that bar for each member, and nothing else, would be recorded in the
+  quote census, never the frame census. Either way the Owner reads each member's Quote from the stored row: bid and ask are both the bar's open, both sizes are the bar's traded volume, and its instant is
+  the bar's open instant. The caller states no price, size or instant; the Data Client delivers the kline as it
+  delivers any bar.
+- **Why it is not look-ahead.** Frame `k`'s decision can use nothing visible after its availability instant, and the
+  fill instant lies strictly after it, so the price is one the market printed after the strategy could act. The next
+  execution bar's open would not do: that bar opens at the frame's event instant, before the declared lag has passed,
+  so it would fill at a price printed before the decision was possible. The research prototype filled at the next 4h
+  open; a 1m fill bar keeps that intent and removes the lag. As with every quote cut, the fill quote reaches the fill
+  path only and never a strategy input.
+- **Why it re-reads.** The Quote is a fixed function of one immutable Owner-verified row, and a fill-bar quote cut is
+  chosen by the same census and reading-cut rules as an observed one, so a later reading resolves the same quote.
+- **It is the declared fill model, not a stand-in, and it says so.** A quote cut's identity carries its derivation -
+  observed best bid and offer, or the open of a named fill-timeframe bar - and the Backtest result states it. It has no
+  spread and no resting depth: its size is volume the market traded in that bar, not liquidity at the touch. Spread and
+  slippage belong to Backtest's cost model, never to a number this Owner invents.
+- **The Owner clock follows PIT intake.** A PIT intake whose observations were retrieved after the clock head mints the
+  next cut itself, under the clock-state lock and inside its own commit, as an Instrument Master V2 snapshot admission
+  already does, and refuses a retrieval later than the cut it minted. A V2 PIT submission therefore states no decision
+  cut or clock: the Owner stamps them into the snapshot's time evidence and returns the cut in the receipt, where the
+  requester reads it. The cut is still fixed before any reader sees the snapshot's data, so this relocates the
+  requester's decision cut from the request to the receipt and removes no property. It also ends
+  `ClockEvidenceNotCurrent` for V2 submissions, which an archiver moving the head hourly would otherwise make routine.
+  A V1 submission keeps today's contract. R&D's frozen-request handoff changes with it, so this slice starts only with
+  R&D's agreement to that change. Without it, any intake that retrieves after the head - a quote after a frame frozen at
+  its own instant, or a real-time path - admits nothing until some other admission moves the clock. A historical
+  ingestion does not need it: it reads the Owner's cut once and submits requests whose coordinates all lie at or before
+  that cut.
+- **A companion quote lineage, after U1.** A quote Source Binding admitted as the liquidity companion of one bar lineage
+  may supply that lineage's quote cuts. The pairing is declared in the quote binding's proposal and enters its
+  identity. It names the bar lineage's root, not a binding, so it survives the bar lineage's successors. Market
+  Semantics identity, the time relation and the ambiguity refusal stay exact. It needs a deployment that runs two
+  observation sources and a perpetual quote source, which no deployment has; Binance history needs neither, because the
+  fill-bar quote cut serves it.
+- **Source Binding successor admission, after U1.** `commit_source_successor` has test callers only, and no route or
+  request field reaches it, so re-admitting a source today starts an unrelated lineage. It does not gate the companion
+  lineage, which names a lineage root.
+- **Admission does not check that a mapping is served.** Source Binding admission accepts any dataset mapping,
+  including one no Data Client of the deployment serves, and a snapshot under such a binding is simply unavailable.
+  That fails closed, but it lets an admission be used only for its effect on the clock, which is what the first
+  Composer replay's stand-in does, with a mapping that is at least servable. The Owner clock following PIT intake
+  removes the reason to do that. Checking a mapping against the deployment's Data Clients is recorded here and not
+  admitted.
+- **Slices, in order.** (1) The fill-bar quote cut, on U1's path, as part of T0's custody quote cut, because a
+  multi-frame Backtest reads PIT window custody; the backfill then commits one fill bar per member per gap beside the
+  window's bars. It needs no clock change. The snapshot-path form follows only if a snapshot-path consumer needs it. (2) The Owner clock
+  follows PIT intake, after U1, for the paths that retrieve after the head. (3) The companion lineage and (4) successor
+  admission, after U1 and in either order. The mapping check is not admitted.
 
 **TARGET / IMPLEMENTATION_ADMITTED for slice T0, PIT window custody:** a multi-frame Backtest over backfilled history
 reads one append-only PIT window custody instead of a snapshot per frame. The user admitted this on 2026-09-27, as the
@@ -2861,6 +2999,33 @@ BFP executable maturity, Backtest product closure including inverse or quanto ta
 Dashboard/default-database admission, or trading authority. These Backtest limitations do not create a Market Data
 instrument-class rejection.
 
+### CURRENT/PARTIAL Binance perpetual settled funding rows
+
+The Binance USD-M perpetual Data Client in `crates/adapters/binance/src/futures_pit_observation_source_v1.rs`
+answers a scope with each member's last closed bar and, beside it, the member's last settled funding. Funding is two
+rows on channel `MARKET`, data kind `SCALAR` and timeframe `TICK`: field `FUNDING_RATE` is the venue's decimal as
+published, and field `FUNDING_TIME` is the settlement instant in nanoseconds. Both come from the unsigned public
+`fundingRate` endpoint, asked for the last two settlements at or before the scope's event-effective coordinate, so a
+settlement at exactly that coordinate is included and one a millisecond later is not.
+
+- **Knowable at settlement.** A settled rate is knowable at its own settlement instant. The public archive's
+  `calc_time` and the endpoint's `fundingTime` are equal, and so are the rates, for all 93 BTCUSDT settlements of
+  2024-01.
+- **Absence is the absence of rows, never a value.** Before a member's first settlement, and once the settlement that
+  the last two imply is overdue at the coordinate, the member has no funding rows, and the client never states a zero
+  rate in their place. A consumer that needs funding refuses on the missing field. An endpoint that cannot be reached
+  or refuses the call, a rate that is not a decimal, and a settlement after the coordinate each refuse the whole
+  retrieval by its bounded category.
+- **No credential.** The client refuses to be built over an HTTP client that holds a credential, and its requests
+  carry no `X-MBX-APIKEY` header and no `signature` parameter.
+- **Status.** The client is the one `MARKET_DATA_OBSERVATION_SOURCE=binance-perpetual` composes, so a deployment
+  that names it commits funding rows today; no consumer reads them yet. Unit tests in that file drive it against a
+  local stand-in for the venue, and the credential-free Market Data end-to-end proof asserts the rows on the live
+  endpoint.
+- **Not stated.** The settlement interval is not a row: the endpoint does not state it, so the timeframe is `TICK`
+  rather than a guessed interval. The live estimate from `premiumIndex`, funding accrual in a Replay, and a funding
+  field semantic a Design can name are separate slices.
+
 ## Input handoffs
 
 - Data vendors and trading venues provide raw market and reference records through Data Clients, and every time
@@ -2888,6 +3053,17 @@ instrument-class rejection.
   bounded reason, stable correlation, required provenance/license/correction fields, and shared Time Evidence.
 - Operations supply the Market Data Source Binding, opaque credential handles, license scope, and correction feeds without
   changing observed-at history. Credentials never enter a snapshot, stream, artifact, or product view.
+  The admission `POST /v1/market-data/source-bindings` refuses each defect of a proposal under its own name as
+  HTTP 400: an empty field as `SOURCE_BINDING_FIELD_MISSING`, a zero digest as `SOURCE_BINDING_DIGEST_ZERO`, an
+  invalid schema, policy or frontier version as `SOURCE_BINDING_VERSION_INVALID`, raw credential material, an
+  audience other than Market Data or a capability beyond read-only market data as
+  `SOURCE_BINDING_RAW_CREDENTIAL_MATERIAL`, `SOURCE_BINDING_CREDENTIAL_AUDIENCE_INVALID` or
+  `SOURCE_BINDING_CREDENTIAL_CAPABILITY_FORBIDDEN`, time coordinates that are zero or out of order as
+  `SOURCE_BINDING_TIME_EVIDENCE_INVALID`, and a bar timeframe no bar can have as
+  `SOURCE_BINDING_BAR_TIMEFRAME_UNSUPPORTED`. Coordinates that are well ordered but later than this Owner's decision
+  cut are early rather than wrong: they are a 409 `SOURCE_BINDING_TIME_EVIDENCE_AFTER_DECISION_CUT`, and a later
+  admission can accept them. `INVALID_SOURCE_BINDING_PROPOSAL` remains only for a claimed identity that does not
+  derive from its content.
 
 ## Output handoffs
 
@@ -2924,6 +3100,39 @@ instrument-class rejection.
   window of a few hundred coordinates is cheap, a long minute-resolution history is not reachable by this path at
   all, and **a store that is never reset makes every later snapshot slower for every writer**, so accumulating
   snapshots in a shared chain database spends a budget that never returns.
+  **Measured again on 2026-10-03, and the cause located.** The run was 256 consecutive daily `BTCUSDC-PERP.BINANCE`
+  coordinates on main 85c4237d2, against a disposable store with `pg_stat_statements`.
+  - **Per-commit cost.** The cheapest commit in each block of 16 rose from 138 ms to 1241 ms. That is about 4.5 ms
+    for every lineage already in the store, so the cost is linear per commit and quadratic in total.
+  - **Where it goes.** 632,102 statements ran. The top four by time are the per-lineage history checks, each called
+    97,920 times, which is 256 squared over two times three. Server execution was 79 s of the 258 s commit time; the
+    rest is round trips and decoding each fact in Rust, which an index cannot remove.
+  - **What triggers it.** `validate_owner_history_custody` runs about three times per commit: clock admission, clock
+    materialization, and the read validation that eight read paths share. Each run re-decodes every PIT lineage.
+  - **Projection.** At that slope, about 5,500 daily snapshots would end with a 25 s commit and about 19 hours in
+    total, and every read would slow the same way.
+
+  **TARGET - per-lineage history custody.** The check moves to where each lineage is written and read. It is not
+  removed.
+  - **On commit:** the lineage being written. Its new fact, and its link to the previous head (predecessor digest
+    and next version), are validated in the committing transaction.
+  - **On read:** the lineage being read. A PIT snapshot or Research PIT terminal read validates the one lineage it
+    returns.
+  - **The census check stays global.** It is one set-level statement (0.46 s over all 774 calls above). Source
+    Binding lineages stay walked whole, because there are few of them (0.21 s over 772 calls).
+  - **History cannot be rewritten.** PIT snapshot facts, observation batches, observation rows and the outbox get
+    append-only triggers, written the way `native_replay_frame_sequences_are_append_only` is. A rewrite through the
+    Owner's own connection is then refused by name rather than detected at a later commit.
+  - **Migration keeps one full walk** as the audit entry point.
+  - **What changes.** Today a damaged lineage stops every commit and read in the store. After this, it stops the
+    consumer that reaches it, which is what "fails closed for the dependent consumer" under Failure and recovery
+    states.
+  - **Acceptance:**
+    - the same sweep must be linear in N;
+    - a rewrite of a committed PIT fact through the Owner connection must be refused by the trigger.
+  - **Scope.** The tests that rewrite PIT rows to prove detection (15 sites in `postgres/tests.rs` and one each in
+    `store_admission/mod.rs` and `bar_schedule_acceptance_v1_tests.rs`) move to the trigger's refusal or to an
+    explicitly trigger-disabled admin session.
 - To [Scanner](./scanner/): the exact PIT Market Snapshot requested by published activation conditions.
 - To [Runtime](./runtime/): live market streams and instrument updates carrying the same Market Semantics
   Compatibility identity consumed by the generation's Strategy Artifact and historical evidence.

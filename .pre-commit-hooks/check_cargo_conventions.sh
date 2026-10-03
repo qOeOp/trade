@@ -53,11 +53,8 @@ is_portable_no_std_crate() {
     crates/indicators/kernel/Cargo.toml | \
       crates/strategy_factory/programs/channel_control/Cargo.toml | \
       crates/strategy_factory/programs/complex/Cargo.toml | \
-      crates/strategy_factory/programs/dual_tsmom/Cargo.toml | \
-      crates/strategy_factory/programs/pairs_relative_value/Cargo.toml | \
       crates/strategy_factory/programs/pilot/Cargo.toml | \
-      crates/strategy_factory/programs/sdk/Cargo.toml | \
-      crates/strategy_factory/programs/secac/Cargo.toml) return 0 ;;
+      crates/strategy_factory/programs/sdk/Cargo.toml) return 0 ;;
     *) return 1 ;;
   esac
 }

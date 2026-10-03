@@ -3492,8 +3492,7 @@ mod postgres_acceptance_tests {
                 terminal_disposition: TrialFamilyAttemptTerminalDispositionV2::Invalid,
                 consumed_trial_budget: 1,
                 candidate_set: TrialFamilyCandidateSetProposalV2 {
-                    generation_rule_identity: format!("rd-candidate-generation-decision-{suffix}"),
-                    generation_rule_digest: digest('c'),
+                    generation_rule: crate::CandidateGenerationGridV1::default(),
                     expected_cardinality: 0,
                     candidates: Vec::new(),
                 },
@@ -3994,8 +3993,7 @@ mod postgres_acceptance_tests {
         };
         let candidate_set: TrialFamilyCandidateSetProposalV2 =
             serde_json::from_value(serde_json::json!({
-                "generation_rule_identity": format!("successor-generation-rule-{suffix}"),
-                "generation_rule_digest": digest('c'),
+                "generation_rule": {"single_dimensions": ["RETURN_MECHANISM"], "finite_joints": []},
                 "expected_cardinality": 1,
                 "candidates": [{
                     "candidate_identity": candidate_identity,
@@ -5754,8 +5752,7 @@ mod postgres_acceptance_tests {
                 terminal_disposition: TrialFamilyAttemptTerminalDispositionV2::TerminalResult,
                 consumed_trial_budget: 1,
                 candidate_set: TrialFamilyCandidateSetProposalV2 {
-                    generation_rule_identity: format!("rd-candidate-generation-ready-{suffix}"),
-                    generation_rule_digest: digest('c'),
+                    generation_rule: crate::CandidateGenerationGridV1::default(),
                     expected_cardinality: 0,
                     candidates: Vec::new(),
                 },

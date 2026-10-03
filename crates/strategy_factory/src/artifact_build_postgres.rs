@@ -5369,8 +5369,7 @@ mod postgres_freshness_tests {
                 terminal_disposition: TrialFamilyAttemptTerminalDispositionV2::Rejected,
                 consumed_trial_budget: 1,
                 candidate_set: TrialFamilyCandidateSetProposalV2 {
-                    generation_rule_identity: format!("governance-generation-rule-{suffix}"),
-                    generation_rule_digest: format!("sha256:{}", "3".repeat(64)),
+                    generation_rule: crate::CandidateGenerationGridV1::default(),
                     expected_cardinality: 0,
                     candidates: Vec::new(),
                 },

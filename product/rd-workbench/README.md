@@ -29,12 +29,31 @@ repository is constructed.
 
 These values select the intended custody scope; they are not positive evidence
 or credentials. A raw DSN, password, secret, private key, or caller-authored
-receipt cannot replace the sealed handoff. The production custody resolver,
-signature verifier, anti-rollback witness, credential resolver, and receipt
-store adapters are currently unavailable. Consequently `required` mode can
-only fail closed during startup. It does not claim that a governed Market Data
-repository has been composed. Do not enable `required` until those production
-adapters and their deployment authority are separately available.
+receipt cannot replace the sealed handoff. The admission is composed from five
+production ports, each named by the deployment's environment and built from a
+file in `/run/deployment-store`, the directory `DEPLOYMENT_STORE_FILES_DIRECTORY`
+mounts read-only:
+
+- the custody store, as the custodian principal in `custodian-connection`;
+- the store signer's Ed25519 public key in `signer-public-key.hex`, under
+  `DEPLOYMENT_STORE_SIGNER_IDENTITY`;
+- the anti-rollback mode `DEPLOYMENT_STORE_ANTI_ROLLBACK_MODE`, which must be
+  exactly `SINGLE_TRUST_DOMAIN_NO_ROLLBACK_WITNESS`: on this one machine no
+  witness can watch the store from outside it, and the user authorized running
+  without one (Market Data's documentation and the architecture rules carry the
+  authorization);
+- the leased secret `leased/market-data-admitted-reader`, the admitted reader's
+  connection string, whose lease lapses at the end of each
+  `DEPLOYMENT_STORE_LEASE_PERIOD_MS` period;
+- the store's TLS root in `postgres-root.crt`: the admission measures and reads
+  the store only over TLS that trusts exactly that root.
+
+Without any one of them `required` mode fails closed during startup, naming the
+port that could not be built in its log, and `rd-owner-api` does not listen.
+Each admission seals a receipt for its lease period; an admitted port re-admits
+before and after every read, and a read whose two admissions fall in different
+periods is refused once and succeeds when retried. Choose a period far longer
+than a read.
 
 `required` would not take credentials out of `rd-owner-api`. The service also
 reads `MARKET_DATA_OWNER_DATABASE_URL` (`market_data_owner`, required by the
@@ -45,46 +64,153 @@ connect with those raw DSNs directly, outside store admission. Store admission
 proves which store the service reached; it isolates no credential until those
 DSNs move behind the custodian.
 
-`postgres-init/20-deployment-store-custody.sh` provisions the custody store:
-its schema, its functions, and its publisher and custodian principals. The
-compose file does not run it yet. When it does, it needs
-`DEPLOYMENT_STORE_PUBLISHER_DB_PASSWORD` and
-`DEPLOYMENT_STORE_CUSTODIAN_DB_PASSWORD`.
+### Turning on `required`
 
-`postgres-init/25-market-data-admitted-reader.sh` provisions
-`market_data_admitted_reader`, the principal a store admission leases to read
-the Market Data store: a login role with `CONNECT` on the database and nothing
-else. The Market Data Owner's migration grants it the admitted read wrappers
-the next time it runs. The compose file does not run this script yet. When it
-does, it needs `MARKET_DATA_ADMITTED_READER_DB_PASSWORD`.
+Run these on the deployment's machine, from this directory, with the stack's
+private environment file in place. Every `docker compose --profile
+authority-admin run` step is a one-shot service in the stack's own network,
+because the store is measured from where `rd-owner-api` reaches it. Sealing is
+the one step that runs on the host, so the signing key never enters a
+container. Each step refuses rather than writes on anything unexpected.
 
-The administrator seals each store manifest and the head that makes it current
-with the store signing key: an Ed25519 seed file of its own, separate from the
-Replay Policy Catalog's, whose public half the deployment pins as its store
-signer. Run both tools on the administrator's machine, not in the stack:
+1. Make three private directories outside the repository and name them in the
+   environment file: `DEPLOYMENT_STORE_FILES_DIRECTORY`, which `rd-owner-api`
+   reads, `DEPLOYMENT_STORE_ADMIN_DIRECTORY`, where the publication is written,
+   and `POSTGRES_TLS_DIRECTORY`, the store's certificate and key. Also set
+   `STORE_CUSTODY_PUBLISHER_DB_PASSWORD`,
+   `STORE_CUSTODY_CUSTODIAN_DB_PASSWORD`,
+   `MARKET_DATA_ADMITTED_READER_DB_PASSWORD`,
+   and `STORE_CUSTODY_PUBLISHER_DATABASE_URL`, and export the variables these
+   steps name into the shell.
+
+2. Make the store's TLS root and the certificate it issues for the host name
+   `postgres`, and turn TLS on. The root's key stays outside every directory a
+   container mounts:
+
+   ```bash
+   (umask 077 && openssl req -x509 -new -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -days 3650 \
+     -subj "/CN=trade store root" -keyout /absolute/path/to/private-store-root.key \
+     -out "$DEPLOYMENT_STORE_FILES_DIRECTORY/postgres-root.crt" \
+     -addext "basicConstraints=critical,CA:TRUE" -addext "keyUsage=critical,keyCertSign")
+   openssl req -new -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -subj "/CN=postgres" \
+     -keyout "$POSTGRES_TLS_DIRECTORY/server.key" -out "$POSTGRES_TLS_DIRECTORY/server.csr"
+   printf '%s\n' "basicConstraints=critical,CA:FALSE" "keyUsage=critical,digitalSignature" \
+     "extendedKeyUsage=serverAuth" "subjectAltName=DNS:postgres" > "$POSTGRES_TLS_DIRECTORY/server.ext"
+   openssl x509 -req -in "$POSTGRES_TLS_DIRECTORY/server.csr" \
+     -CA "$DEPLOYMENT_STORE_FILES_DIRECTORY/postgres-root.crt" -CAkey /absolute/path/to/private-store-root.key \
+     -CAcreateserial -days 825 -extfile "$POSTGRES_TLS_DIRECTORY/server.ext" \
+     -out "$POSTGRES_TLS_DIRECTORY/server.crt"
+   docker compose --profile authority-admin run --rm postgres-tls-install
+   ```
+
+3. Provision the custody store and the admitted reader, then restart
+   `rd-owner-api` so the Market Data Owner's migration grants the reader its
+   admitted read wrappers:
+
+   ```bash
+   docker compose --profile authority-admin run --rm deployment-store-provision
+   docker compose restart rd-owner-api
+   ```
+
+4. Write the two connection files the deployment leases, readable by you
+   alone. They name the principals provisioned in step 3, at
+   `postgres:5432/rd_owner`:
+
+   ```bash
+   umask 077
+   mkdir -p "$DEPLOYMENT_STORE_FILES_DIRECTORY/leased"
+   printf 'postgres://market_data_admitted_reader:%s@postgres:5432/rd_owner\n' "$MARKET_DATA_ADMITTED_READER_DB_PASSWORD" \
+     > "$DEPLOYMENT_STORE_FILES_DIRECTORY/leased/market-data-admitted-reader"
+   printf 'postgres://deployment_store_custodian:%s@postgres:5432/rd_owner\n' "$STORE_CUSTODY_CUSTODIAN_DB_PASSWORD" \
+     > "$DEPLOYMENT_STORE_FILES_DIRECTORY/custodian-connection"
+   ```
+
+5. Make the store signing key: an Ed25519 seed of its own, separate from the
+   Replay Policy Catalog's, kept outside both directories:
+
+   ```bash
+   (umask 077 && openssl rand -hex 32 > /absolute/path/to/private-deployment-store-signing-key.hex)
+   ```
+
+6. Write `$DEPLOYMENT_STORE_ADMIN_DIRECTORY/draft.json`: everything a
+   publication states except what is measured. The first publication names no
+   earlier manifest and no previous head; each later one lists every earlier
+   manifest identity, oldest first, and the head it replaces. Times are epoch
+   milliseconds on the store's clock:
+
+   ```json
+   {
+     "signer_identity": "trade-deployment-store-signer-v1",
+     "environment_identity": "trade-rd-workbench-local",
+     "deployment_identity": "trade-rd-workbench-local-v1",
+     "prior_manifest_identities": [],
+     "expected_previous_head_identity": null,
+     "valid_from_epoch_ms": 0,
+     "valid_through_epoch_ms": 4102444800000,
+     "recovery": {
+       "identity": "trade-rd-workbench-local-recovery-v1",
+       "restart_requires_reverification": true,
+       "ambiguity_forbids_business_retry": true
+     },
+     "rotation_fence_identity": "trade-rd-workbench-local-rotation-v1",
+     "rotation_fence_closed_at_epoch_ms": 0
+   }
+   ```
+
+7. Measure the store and complete the draft into `authoring.json`, as your own
+   user, then seal it on the host:
+
+   ```bash
+   docker compose --profile authority-admin run --rm --user "$(id -u):$(id -g)" \
+     deployment-store-publication-author
+   DEPLOYMENT_STORE_PUBLICATION_AUTHORING_PATH="$DEPLOYMENT_STORE_ADMIN_DIRECTORY/authoring.json" \
+   DEPLOYMENT_STORE_SIGNING_KEY_PATH=/absolute/path/to/private-deployment-store-signing-key.hex \
+   DEPLOYMENT_STORE_SEALED_PUBLICATION_OUTPUT_PATH="$DEPLOYMENT_STORE_ADMIN_DIRECTORY/sealed.json" \
+     cargo run --locked --release -p vibe-strategy-factory-rd-owner-api --bin deployment-store-publication-seal
+   ```
+
+   The sealer derives every identity, the history digest and both signatures,
+   never prints the key and never overwrites a sealed file. It prints a summary
+   naming `head_identity` and `signer_public_key_hex`.
+
+8. Publish it as the publisher principal, and pin the signer's public key:
+
+   ```bash
+   docker compose --profile authority-admin run --rm --user "$(id -u):$(id -g)" \
+     deployment-store-publication-publish
+   printf '%s\n' "<signer_public_key_hex from step 7>" > "$DEPLOYMENT_STORE_FILES_DIRECTORY/signer-public-key.hex"
+   ```
+
+   It re-verifies the sealed file before writing. It exits zero only for
+   `PUBLISHED` or `REPLAYED`, and writes nothing on a head mismatch or a
+   conflict.
+
+9. Set `DEPLOYMENT_STORE_ADMISSION_MODE=required`, the three identities from
+   the draft and step 7's `head_identity`,
+   `DEPLOYMENT_STORE_ANTI_ROLLBACK_MODE=SINGLE_TRUST_DOMAIN_NO_ROLLBACK_WITNESS`,
+   `DEPLOYMENT_STORE_SIGNER_IDENTITY` from the draft, and
+   `DEPLOYMENT_STORE_LEASE_PERIOD_MS` (for example `86400000`). Hand the files
+   to `rd-owner-api`'s user, readable by it alone, and start it again:
+
+   ```bash
+   sudo chown -R 10001 "$DEPLOYMENT_STORE_FILES_DIRECTORY"
+   sudo chmod -R go-rwx "$DEPLOYMENT_STORE_FILES_DIRECTORY"
+   docker compose up -d rd-owner-api
+   ```
+
+The measurement names the endpoint as `rd-owner-api` reaches it, including the
+address the store answers on. A stack recreated with a different address, a
+changed role, function or grant, or a rotated certificate no longer matches the
+manifest, and `required` refuses at startup. The next publication repeats steps
+6 to 9, naming every earlier manifest and the current head in the draft. Take
+the files back first, and move the last publication's files aside, since the
+author and the sealer never overwrite one:
 
 ```bash
-DEPLOYMENT_STORE_PUBLICATION_AUTHORING_PATH=/absolute/path/to/private-publication-authoring.json \
-DEPLOYMENT_STORE_SIGNING_KEY_PATH=/absolute/path/to/private-deployment-store-signing-key.hex \
-DEPLOYMENT_STORE_SEALED_PUBLICATION_OUTPUT_PATH=/absolute/path/to/private-sealed-publication.json \
-  cargo run --locked --release -p vibe-strategy-factory-rd-owner-api --bin deployment-store-publication-seal
+sudo chown -R "$(id -u):$(id -g)" "$DEPLOYMENT_STORE_FILES_DIRECTORY"
+mv "$DEPLOYMENT_STORE_ADMIN_DIRECTORY/authoring.json" "$DEPLOYMENT_STORE_ADMIN_DIRECTORY/authoring.previous.json"
+mv "$DEPLOYMENT_STORE_ADMIN_DIRECTORY/sealed.json" "$DEPLOYMENT_STORE_ADMIN_DIRECTORY/sealed.previous.json"
 ```
-
-The authoring names every earlier manifest identity of the scope, oldest first,
-and the head it replaces (none for the first publication). Identities, the
-history digest and both signatures are derived, and the sealer never prints the
-key or overwrites a sealed file. It prints the new head identity, which the
-next publication expects and `DEPLOYMENT_STORE_EXPECTED_HEAD_IDENTITY` names
-once the head is current. Publishing connects as the publisher principal:
-
-```bash
-DEPLOYMENT_STORE_SEALED_PUBLICATION_PATH=/absolute/path/to/private-sealed-publication.json \
-DEPLOYMENT_STORE_PUBLISHER_DATABASE_URL=postgres://deployment_store_publisher:...@host/rd_owner \
-  cargo run --locked --release -p vibe-strategy-factory-rd-owner-api --bin deployment-store-publication-publish
-```
-
-It re-verifies the sealed file before writing, exits zero only for `PUBLISHED`
-or `REPLAYED`, and writes nothing on a head mismatch or a conflict.
 
 ## Start
 

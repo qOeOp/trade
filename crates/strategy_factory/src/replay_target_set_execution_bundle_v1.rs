@@ -647,12 +647,12 @@ impl ReplayTargetSetExecutionBundleV1 {
                 && authority.request_artifact_digest() == artifact_digest,
             "request execution bundle Artifact mismatches Owner request authority"
         );
-        anyhow::ensure!(
-            authority.request_universe_selection_identity()
-                == canonical_digest_text("blake3", selection_identity)
-                && authority.request_universe_selection_digest() == selection_digest,
-            "request execution bundle universe selection mismatches Owner request authority"
-        );
+        // The request's `universe_selection` is the Universe Selection Record its composition
+        // depends on, not the strategy-input selection the frames carry, and the two never share
+        // an identity. Market Data holds the Record against each frame's verified batch, refusing
+        // another as `UniverseSelectionRecordMismatch`, when it issues the frames this bundle is
+        // built from. Comparing the Record with the frames' selection here refuses every
+        // production Replay.
         let request_window = authority.request_window();
         anyhow::ensure!(
             frame_time == request_window.start_event_ns,

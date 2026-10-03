@@ -1223,3 +1223,45 @@ fn declared_bars_round_trip_and_an_undeclared_binding_carries_no_field() {
         serde_json::from_value(serde_json::to_value(&declared).unwrap()).unwrap();
     assert_eq!(round_trip, declared);
 }
+
+/// A coordinate the Owner's cut has not reached is early, not malformed: it is refused under its
+/// own name, while the same coordinates out of order among themselves are malformed.
+#[rstest]
+#[case::retrieval_after_the_cut(
+    |time: &mut UntrustedMarketDataAsOf| time.retrieval = 41,
+    SourceBindingError::TimeEvidenceAfterDecisionCut
+)]
+#[case::provider_after_retrieval(
+    |time: &mut UntrustedMarketDataAsOf| time.provider_available = 31,
+    SourceBindingError::InvalidTimeEvidence
+)]
+#[case::correction_after_retrieval(
+    |time: &mut UntrustedMarketDataAsOf| time.correction_publication = 31,
+    SourceBindingError::InvalidTimeEvidence
+)]
+#[case::zero_event(
+    |time: &mut UntrustedMarketDataAsOf| time.event_effective = 0,
+    SourceBindingError::InvalidTimeEvidence
+)]
+fn time_evidence_the_cut_has_not_reached_is_named_apart_from_malformed_evidence(
+    #[case] edit: fn(&mut UntrustedMarketDataAsOf),
+    #[case] expected: SourceBindingError,
+) {
+    let owner = TestOnlyInMemorySourceBindingOwner::default();
+    let mut refused = proposal();
+    edit(&mut refused.time_evidence);
+    refresh_claims(&mut refused);
+    assert!(
+        matches!(
+            owner.commit_initial(refused, decision([]), &commit_clock()),
+            Err(e) if e == expected
+        ),
+        "{expected:?}"
+    );
+    assert!(
+        owner
+            .commit_initial(proposal(), decision([]), &commit_clock())
+            .is_ok(),
+        "the unedited proposal is admitted at the same cut"
+    );
+}

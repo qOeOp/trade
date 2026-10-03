@@ -376,9 +376,9 @@ commit cut 与 comparison rule。消费者不能遍历 proof chain、跳过前�
 ### Deployment Store Admission
 
 **CURRENT：** `crates/data/src/owner/store_admission` 将非业务 PostgreSQL admission 机制及其前后
-revalidation 保留在 Market Data crate 内。固定 `rd-owner-api` bootstrap 请求该私有 seam；production resolver、
-signer、anti-rollback witness、credential resolver 或 direct measurer 不可用时，在构造 repository 前 fail
-closed。随后 Market Data 回读当前 PIT、Source Binding 与 clock head 并密封 `ResearchPitTerminal`。R&D 只能获得 sealed terminal resolver：raw receipt、capability、query、DTO、evidence accessor 或
+revalidation 保留在 Market Data crate 内。固定 `rd-owner-api` bootstrap 请求该私有 seam；custody store、
+signer、anti-rollback mode、credential resolver 或 direct measurer 中任一生产端口无法由部署配置构建时，在构造
+repository 前 fail closed。随后 Market Data 回读当前 PIT、Source Binding 与 clock head 并密封 `ResearchPitTerminal`。R&D 只能获得 sealed terminal resolver：raw receipt、capability、query、DTO、evidence accessor 或
 caller-authored positive authority 均不能越过 Owner 边界。通用 S3 catalog 仍只是机制，不是权威。
 
 **TARGET：** 一个属于 Market Data 私有边界且不属于业务的 Deployment Store Admission Custodian，只拥有 signed append-only store manifest
@@ -400,10 +400,10 @@ Owner repository，也不触发 business retry。
 environment、deployment 与 consumer identity 的 sealed store-admission receipt。S3 保持 TARGET 和
 `UNAVAILABLE`，直到存在真实 catalog consumer 与 pinned disposable S3-compatible test authority。receipt 与 raw
 store/PIT/source/clock evidence 保留在 Market Data 内；普通 consumer 首个可见值是 sealed
-`ResearchPitTerminal`。在独立的 production resolver、signer、anti-rollback witness、credential-resolver 与
-direct-measurement adapter 存在前，默认产品入口保持 `UNAVAILABLE`。
+`ResearchPitTerminal`。默认产品入口从部署配置组合其独立的生产 custody store、signer、anti-rollback mode、credential
+resolver 与 direct measurer，并且只准入某个已发布 head 指名为已测量的库。
 
-**`ISOLATED_EVENT_REPLAY_ACCEPTANCE_V1` / TARGET：** 在上述 adapter 存在前，只有这个被显式选择的 profile
+**`ISOLATED_EVENT_REPLAY_ACCEPTANCE_V1` / TARGET：** 只有这个被显式选择的 profile
 获准作为非默认、非生产动态验收拓扑。canonical management plane 在 repository、candidate、caller、consumer 与被测进程
 之外预置 immutable acceptance trust bundle，固定 environment、signer key fingerprint、witness、credential-
 resolver 与 direct-measurer identity。分别执行的独立 principal 签发 signed append-only manifest/history 与
