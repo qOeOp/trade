@@ -15,7 +15,11 @@ Three readings make up "required in the build the image makes":
   check cannot read them from `run()`: pinned in `LIBRARY_READS`, and calibrated against each
   constructor's body;
 - a constructor named like `*_from_*environment*` that `LIBRARY_READS` does not list is refused,
-  so a new library read cannot arrive unnoticed.
+  so a new library read cannot arrive unnoticed;
+- when a Deployment Store Admission constructor is on the startup path, every `DEPLOYMENT_STORE_*`
+  variable the admission reads, enumerated from the constants that name them in its source, since
+  `required` mode cannot start without them; and the mode is chosen in the private environment
+  file, which this check cannot see.
 
 Usage: owner_api_environment.py <main.rs> <docker-compose.yml> <Dockerfile.owner> <Cargo.toml>
 <crates/data/src> | --self-test
@@ -35,9 +39,8 @@ BINARY = "strategy-factory-rd-owner-api"
 SERVICE = "rd-owner-api"
 
 # The variables each Market Data constructor on the startup path requires, read inside the data
-# crate. The two store-admission constructors read the DEPLOYMENT_STORE_* set through further calls;
-# that set is optional, because without it they admit no store and the service still starts
-# (measured 2026-10-03 on a cut-over database).
+# crate. The two store-admission constructors read nothing in their own bodies: the
+# DEPLOYMENT_STORE_* set they read through further calls is `STORE_ADMISSION_SOURCES`' business.
 LIBRARY_READS: dict[str, tuple[str, ...]] = {
     "instrument_economic_terms_postgres_owner_from_environment_v1": (
         "INSTRUMENT_OWNER_DATABASE_URL",
@@ -47,6 +50,22 @@ LIBRARY_READS: dict[str, tuple[str, ...]] = {
     "shared_time_evidence_resolver_from_store_admission_environment_v1": (),
     "universe_sample_projection_owner_from_environment_v1": ("MARKET_DATA_OWNER_DATABASE_URL",),
 }
+
+# Deployment Store Admission's environment, read through calls this check cannot follow: every
+# `const ...: &str = "DEPLOYMENT_STORE_..."` in these files names one variable it reads. In
+# `disabled` mode it reads only the mode; in `required` mode it fails closed at startup without the
+# rest, so the compose service must carry all of them for `required` to be reachable at all.
+STORE_ADMISSION_CONSTRUCTORS = (
+    "native_replay_scheduling_resolver_v1_from_store_admission_environment",
+    "shared_time_evidence_resolver_from_store_admission_environment_v1",
+)
+STORE_ADMISSION_SOURCES = (
+    "owner/store_admission/mod.rs",
+    "owner/store_admission/composition.rs",
+)
+STORE_ADMISSION_CONSTANT = re.compile(
+    r'const [A-Z_0-9]+: &str =\s*"(DEPLOYMENT_STORE_[A-Z_0-9]+)";',
+)
 
 CONSTRUCTOR = re.compile(r"\b([a-z_0-9]+_from_[a-z_0-9]*environment[a-z_0-9]*)\(")
 REQUIRED_ENV = re.compile(r'required_env\("([A-Z_0-9]+)"\)')
@@ -163,6 +182,43 @@ def startup_reads(
     return required, unpinned
 
 
+def store_admission_reads(sources: dict[str, str]) -> list[str]:
+    """
+    Return every `DEPLOYMENT_STORE_*` variable the admission's sources name in a
+    constant.
+
+    Refuses when the files are missing or name none, since an empty reading would pass
+    any compose file.
+
+    """
+    texts = [
+        text
+        for path, text in sources.items()
+        if path.replace("\\", "/").endswith(STORE_ADMISSION_SOURCES)
+    ]
+    names = sorted({m.group(1) for text in texts for m in STORE_ADMISSION_CONSTANT.finditer(text)})
+    if len(texts) != len(STORE_ADMISSION_SOURCES) or not names:
+        raise SystemExit(
+            "owner-api-environment: Deployment Store Admission's sources or their "
+            f"DEPLOYMENT_STORE_* constants were not found ({', '.join(STORE_ADMISSION_SOURCES)})",
+        )
+    return names
+
+
+def active_store_admission(main_rs: str, features: set[str]) -> list[str]:
+    """
+    Return each store-admission constructor compiled into the startup path, with where.
+    """
+    lines, start, end = run_body(main_rs)
+    return [
+        f"{match.group(1)} (main.rs:{index + 1})"
+        for index in range(start, end + 1)
+        if active(gate(lines, index, start), features)
+        for match in CONSTRUCTOR.finditer(lines[index])
+        if match.group(1) in STORE_ADMISSION_CONSTRUCTORS
+    ]
+
+
 def undelivered(required: list[tuple[str, str]], compose: str) -> list[str]:
     """
     Return each required variable the compose service's block does not name.
@@ -241,8 +297,15 @@ def check(
         dockerfile.read_text(encoding="utf-8"),
         cargo_toml.read_text(encoding="utf-8"),
     )
-    required, unpinned = startup_reads(main_rs.read_text(encoding="utf-8"), features)
+    main_text = main_rs.read_text(encoding="utf-8")
+    required, unpinned = startup_reads(main_text, features)
     sources = {str(path): path.read_text(encoding="utf-8") for path in data_src.rglob("*.rs")}
+    admission = active_store_admission(main_text, features)
+    if admission:
+        required.extend(
+            (name, f"Deployment Store Admission in `required` mode, via {admission[0]}")
+            for name in store_admission_reads(sources)
+        )
     problems = [f"{line}: not pinned in LIBRARY_READS" for line in unpinned] + calibration(sources)
     missing = undelivered(required, compose.read_text(encoding="utf-8"))
     if problems:
@@ -266,7 +329,11 @@ def check(
         for line in missing:
             print(f"  {line}", file=sys.stderr)
         print(
-            "       The service will exit before it binds a port, so every route looks unreachable.",
+            "       The service will exit before it binds a port, so every route looks unreachable;",
+            file=sys.stderr,
+        )
+        print(
+            "       for a Deployment Store Admission variable, in `required` mode.",
             file=sys.stderr,
         )
         print(
@@ -347,6 +414,42 @@ def reading_failures() -> list[str]:
     )
     if unpinned != ["new_market_owner_postgres_owner_from_environment_v1 (main.rs:6)"]:
         failures.append(f"an unpinned library constructor was not refused: {unpinned}")
+    return failures + store_admission_failures()
+
+
+def store_admission_failures() -> list[str]:
+    """
+    Run the store-admission readings against fixed sources in both directions.
+    """
+    failures = []
+    gated = FIXTURE_MAIN.replace(
+        "instrument_economic_terms_postgres_owner_from_environment_v1",
+        STORE_ADMISSION_CONSTRUCTORS[0],
+    )
+    if active_store_admission(gated, set()):
+        failures.append("a store-admission constructor under an off feature read as compiled")
+    if active_store_admission(gated, {"beta", "gamma"}) != [
+        f"{STORE_ADMISSION_CONSTRUCTORS[0]} (main.rs:6)",
+    ]:
+        failures.append("a compiled store-admission constructor was missed")
+    sources = {
+        "x/owner/store_admission/mod.rs": 'const MODE_ENV: &str = "DEPLOYMENT_STORE_ADMISSION_MODE";\n'
+        'let test = env("DEPLOYMENT_STORE_PUBLISHER_TEST_DATABASE_URL");\n',
+        "x/owner/store_admission/composition.rs": "pub(super) const ROOT_ENV: &str =\n"
+        '    "DEPLOYMENT_STORE_POSTGRES_ROOT_CERTIFICATE_PATH";\n',
+    }
+    if store_admission_reads(sources) != [
+        "DEPLOYMENT_STORE_ADMISSION_MODE",
+        "DEPLOYMENT_STORE_POSTGRES_ROOT_CERTIFICATE_PATH",
+    ]:
+        failures.append(
+            f"the admission's constants were misread: {store_admission_reads(sources)}",
+        )
+    try:
+        store_admission_reads({"x/owner/store_admission/mod.rs": "no constants here"})
+        failures.append("missing admission sources read as naming no variable")
+    except SystemExit:
+        pass
     return failures
 
 
@@ -394,7 +497,8 @@ def self_test() -> int:
     print(
         "owner-api-environment: reads the image's features and expands them, requires an enabled "
         "feature's reads and a constructor's library reads, refuses an unpinned constructor, "
-        "calibrates the pinned reads against their bodies",
+        "calibrates the pinned reads against their bodies, requires store admission's "
+        "enumerated variables when it is compiled",
     )
     return 0
 

@@ -71,6 +71,8 @@ mod sample_projection_v4;
 mod session;
 #[cfg(test)]
 mod source_availability_rule_v1_tests;
+#[cfg(test)]
+mod source_binding_admission_v1_tests;
 mod source_sample_custody_v1;
 pub(in crate::owner) mod strategy_input_binding_registry;
 #[cfg(feature = "isolated-event-replay-acceptance")]
