@@ -814,6 +814,40 @@ catalog never holds a strategy a run would refuse at authoring.
 - `strategies::postgres_tests::the_strategy_catalog_holds_a_statement_through_every_operation_over_http` drives every
   operation and every refusal over HTTP on the ordered chain's PostgreSQL, with no market data and no Research request.
 
+**CURRENT - strategy MCP server:** the `strategy` server of the
+[domain MCP catalog](../architecture/product-edge#target---external-agent-tool-surface) is `strategy-mcp`, a stateless
+stdio process built from `rd-owner-api`'s package. It holds `RD_OWNER_API_URL` and `RD_OWNER_API_TOKEN` in its own
+environment and reaches `/v1/strategies` only. Each tool sends one request and passes the answer or the refusal through
+by name; no argument or result carries the token.
+
+| Tool                            | Route                                         | Refusals by name                                                                                                |
+| ------------------------------- | --------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `validate(spec)`                | `POST /v1/strategies/validate`                | every `SINGLE_THRESHOLD_*` authoring refusal                                                                    |
+| `create(spec)`                  | `POST /v1/strategies`                         | every `SINGLE_THRESHOLD_*` authoring refusal                                                                    |
+| `get(strategy_id)`              | `GET /v1/strategies/{strategy_id}`            | `STRATEGY_UNKNOWN`                                                                                              |
+| `list(include_archived, limit)` | `GET /v1/strategies`                          | `STRATEGY_LIST_LIMIT_OUT_OF_RANGE`                                                                              |
+| `revise(strategy_id, spec)`     | `POST /v1/strategies/{strategy_id}/revisions` | `STRATEGY_UNKNOWN`, `STRATEGY_ARCHIVED`, `STRATEGY_REVISION_UNCHANGED`, `STRATEGY_EXISTS_UNDER_ANOTHER_LINEAGE` |
+| `archive(strategy_id)`          | `POST /v1/strategies/{strategy_id}/archive`   | `STRATEGY_UNKNOWN`                                                                                              |
+
+A `strategy_id` in any spelling but `sha256:` and 64 lower-case hex digits is answered `STRATEGY_UNKNOWN` without a
+request, because it becomes part of a route's path. A malformed call is `MALFORMED_TYPED_REQUEST`, an unknown tool
+`TOOL_UNKNOWN`, and a route that cannot be reached `RD_OWNER_API_UNREACHABLE`.
+
+Acceptance on a local deployment, with only this server mounted and no market data:
+
+1. `validate` a single-threshold statement with a stop-loss and a holding limit: `VALID` and a `strategy_id`.
+2. `get` that id: `STRATEGY_UNKNOWN`, because validate wrote nothing.
+3. `create` the same statement: the same `strategy_id`; `create` it again: the same answer.
+4. `get` it: the `spec` returned hashes to the `strategy_id` (SHA-256 over
+   `strategy.catalog.single-threshold-statement.v1\0` followed by the spec's bytes).
+5. `revise` it with `max_holding_bars` changed: a new id naming the first as `predecessor_id`.
+6. `revise` the first into its own statement: `STRATEGY_REVISION_UNCHANGED`; revise the second into the first's
+   statement: `STRATEGY_EXISTS_UNDER_ANOTHER_LINEAGE`.
+7. `list`: both; `archive` the first, `list` again: only the second; `list(include_archived=true)`: both.
+8. `revise` the archived one: `STRATEGY_ARCHIVED`; `get` it: still readable, with `archived_at_epoch_ms`.
+9. `validate` with `max_holding_bars: 0`: `SINGLE_THRESHOLD_MAX_HOLDING_BARS_ZERO`; with `stop_loss_fraction: "0.020"`:
+   `SINGLE_THRESHOLD_EXIT_FRACTION_INVALID`.
+
 **IMPLEMENTATION_ADMITTED - authoring language V1:** a document a proposer writes, compiled by a pure
 function into the `design` and `meaning` pair and nothing further. Nothing implements it at this cut, and
 its implementation follows the first COMPOSER_V3 Replay through the ordered chain. The proposer is a

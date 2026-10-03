@@ -676,6 +676,38 @@ position target 与它的 reconciliation target 相等，而两侧曾共用的�
 - `strategies::postgres_tests::the_strategy_catalog_holds_a_statement_through_every_operation_over_http` 在有序链路的
   PostgreSQL 上经 HTTP 驱动每一种操作与每一条拒绝，不用任何行情数据，也不用任何 Research 请求。
 
+**CURRENT - strategy MCP server：**
+[领域 MCP 目录](../architecture/product-edge#target---external-agent-tool-surface)里的 `strategy` server 是 `strategy-mcp`，一个由
+`rd-owner-api` 的 package 构建的无状态 stdio 进程。它在自己的环境里持有 `RD_OWNER_API_URL` 与 `RD_OWNER_API_TOKEN`，只访问
+`/v1/strategies`。每个工具只发一个请求，按名字原样转交回答或拒绝；任何参数或结果都不携带 token。
+
+| 工具                            | 路由                                          | 按名拒绝                                                                                                        |
+| ------------------------------- | --------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `validate(spec)`                | `POST /v1/strategies/validate`                | 每一条 `SINGLE_THRESHOLD_*` 编写拒绝                                                                            |
+| `create(spec)`                  | `POST /v1/strategies`                         | 每一条 `SINGLE_THRESHOLD_*` 编写拒绝                                                                            |
+| `get(strategy_id)`              | `GET /v1/strategies/{strategy_id}`            | `STRATEGY_UNKNOWN`                                                                                              |
+| `list(include_archived, limit)` | `GET /v1/strategies`                          | `STRATEGY_LIST_LIMIT_OUT_OF_RANGE`                                                                              |
+| `revise(strategy_id, spec)`     | `POST /v1/strategies/{strategy_id}/revisions` | `STRATEGY_UNKNOWN`、`STRATEGY_ARCHIVED`、`STRATEGY_REVISION_UNCHANGED`、`STRATEGY_EXISTS_UNDER_ANOTHER_LINEAGE` |
+| `archive(strategy_id)`          | `POST /v1/strategies/{strategy_id}/archive`   | `STRATEGY_UNKNOWN`                                                                                              |
+
+`strategy_id` 只要不是 `sha256:` 加 64 位小写十六进制这一种写法，就不发请求、直接回答 `STRATEGY_UNKNOWN`，因为它会成为路由路径的
+一部分。格式不对的调用是 `MALFORMED_TYPED_REQUEST`，未知工具是 `TOOL_UNKNOWN`，路由不可达是 `RD_OWNER_API_UNREACHABLE`。
+
+在本机部署上验收，只挂这一个 server，不用任何行情数据：
+
+1. `validate` 一份带止损与持仓上限的单阈值陈述：得到 `VALID` 与一个 `strategy_id`。
+2. `get` 那个 id：`STRATEGY_UNKNOWN`，因为 validate 什么都没写。
+3. `create` 同一份陈述：同一个 `strategy_id`；再 `create` 一次：同样的回答。
+4. `get` 它：返回的 `spec` 哈希回 `strategy_id`（对
+   `strategy.catalog.single-threshold-statement.v1\0` 后接 spec 字节做 SHA-256）。
+5. 把 `max_holding_bars` 改了之后 `revise` 它：得到一个新 id，并以第一个为 `predecessor_id`。
+6. 把第一个 `revise` 成它自己的陈述：`STRATEGY_REVISION_UNCHANGED`；把第二个 revise 成第一个的陈述：
+   `STRATEGY_EXISTS_UNDER_ANOTHER_LINEAGE`。
+7. `list`：两个都在；`archive` 第一个之后再 `list`：只有第二个；`list(include_archived=true)`：两个都在。
+8. `revise` 已归档的那个：`STRATEGY_ARCHIVED`；`get` 它：仍可读，带 `archived_at_epoch_ms`。
+9. 用 `max_holding_bars: 0` 去 `validate`：`SINGLE_THRESHOLD_MAX_HOLDING_BARS_ZERO`；用 `stop_loss_fraction: "0.020"`：
+   `SINGLE_THRESHOLD_EXIT_FRACTION_INVALID`。
+
 **IMPLEMENTATION_ADMITTED - 编写语言 V1：** 提案者写的一份文档，由一个纯函数编译成 `design` 与
 `meaning` 这一对，再无其他。这个截面上没有任何实现，它的实现排在第一次 COMPOSER_V3 Replay
 走通有序链路之后。提案者是语言模型或 Composer；用户不写文档，所以没有需要解析的文本语法，
