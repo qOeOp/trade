@@ -39,6 +39,8 @@ on:
       - python/pyproject.toml
       - services/*/uv.lock
       - services/*/pyproject.toml
+      - docs-site/package-lock.json
+      - product/dashboard/package-lock.json
       - deny.toml
       - .cargo/deny-fuzz.toml
       - osv-scanner.toml
@@ -298,6 +300,8 @@ jobs:
             --lockfile=crates/adapters/lighter/fuzz/pornin/Cargo.lock
             --lockfile=python/uv.lock
             --lockfile=services/bilibili-note-mcp/uv.lock
+            --lockfile=docs-site/package-lock.json
+            --lockfile=product/dashboard/package-lock.json
 
   audit-result:
     name: audit-result
