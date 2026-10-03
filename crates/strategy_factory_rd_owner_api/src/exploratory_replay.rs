@@ -661,10 +661,17 @@ async fn resolved_native_replay_commit_v1(
 /// `backtest.run` tomorrow. The same `ExploratoryResultCensusErrorV1` and recovery outcomes the
 /// route renders are returned as data instead of a `Response`.
 ///
-/// `#[cfg(test)]` for now: its only caller is F's chain entry. A CLI or MCP `backtest.run` widens
-/// this to the bin target when it lands (step 4 of the backtest.run slice), rather than carrying
-/// unused production surface before anything calls it.
-#[cfg(all(test, feature = "native-replay-execution"))]
+/// `#[cfg(test)]` for now: its only caller is F's chain entry, gated on
+/// `sealed-source-intake-composer-acceptance`, which this carries too so the two can never
+/// compile apart (the sealed feature union lints `native-replay-execution` alone as its own
+/// carried feature, where F's acceptance module - and so this function's only caller - does not
+/// exist). A CLI or MCP `backtest.run` widens this to the bin target when it lands (step 4 of the
+/// backtest.run slice), rather than carrying unused production surface before anything calls it.
+#[cfg(all(
+    test,
+    feature = "native-replay-execution",
+    feature = "sealed-source-intake-composer-acceptance"
+))]
 pub(crate) async fn run_and_count_native_replay_v1(
     service: &NativeReplayExecutionServiceV2,
     request_locator: &ExploratoryReplayRequestLocatorV2,
@@ -695,7 +702,11 @@ pub(crate) async fn run_and_count_native_replay_v1(
 }
 
 /// Why `run_and_count_native_replay_v1` did not answer a counted Result.
-#[cfg(all(test, feature = "native-replay-execution"))]
+#[cfg(all(
+    test,
+    feature = "native-replay-execution",
+    feature = "sealed-source-intake-composer-acceptance"
+))]
 pub(crate) enum NativeReplayRunOutcomeErrorV1 {
     /// A step before the commit failed; no Result exists to count.
     RunFailed(NativeReplayRunErrorV2),
