@@ -555,7 +555,15 @@ graph.
 
 The reaction graph is the part that stays a judgement, and it stays with the proposer. A first
 bounded family is admitted for it and nothing wider: **a single declared channel compared against a
-single threshold**, with the decision clock taken from `data.decision_clock_channel`. Every graph
+single threshold**, with the decision clock taken from `data.decision_clock_channel`. A program of the family
+proposes each side only from a position the kernel accepts it at, and holds otherwise, so it carries the position it
+believes it holds in a state cell: the kernel accepts an entry only from flat and an exit only from a held position
+(`validate_position_transition` in the program SDK), and a refused proposal aborts the whole run
+(`program_host_v2.rs`), so a program without that belief could not survive a second bar above its threshold. It may
+also name three exits, each judged at the bar close and proposed there, so that it fills on the next frame and not
+at the exit level inside a bar: `stop_loss_fraction` and `take_profit_fraction`, measured from the close the position
+was entered at and admitted only on a close channel, and `max_holding_bars`, counted in frames. That belief and those
+exits belong to the family; neither makes its threshold depend on state. Every graph
 outside that family - two signals, a conjunction, a state-dependent threshold, a threshold this
 Owner would have to choose - remains a proposer declaration this Owner admits rather than derives. A proposer
 may declare such a graph as `meaning` directly or as a document in the authoring language under **Strategy
@@ -774,7 +782,11 @@ since, on purpose: a side's reconciliation target reads that side's target posit
 requires a position target and its reconciliation target to be equal, and the single constant of 0 both sides
 once shared made every program whose sides held different positions unrunnable - the target-set Host refused its
 entry side before the first order. A program frozen from the old bytes could never have run, and it is now
-outside the family.
+outside the family. They changed a second time, on purpose, for the same kind of reason: a program proposed its side
+on every bar its comparison held, so under the kernel rule above every program of the family aborted its run on its
+second bar above the threshold. Each program now carries the position it believes it holds, and proposes a side only
+from a position the kernel accepts it at. No deployment had frozen a program of the family when this changed, and a
+program frozen from the earlier bytes is outside the family.
 
 **IMPLEMENTATION_ADMITTED - authoring language V1:** a document a proposer writes, compiled by a pure
 function into the `design` and `meaning` pair and nothing further. Nothing implements it at this cut, and

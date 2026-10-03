@@ -1517,6 +1517,17 @@ rebalance 那次运行找到了一个任何变体拒绝都没覆盖的缺陷：�
 `every_authored_side_runs_through_the_kernel` 把每一个编写出的侧，从它可能被提出的每个仓位，施加到一个真实的生命周期
 内核上，于是一个本该跟随各侧却被共用的终端，会在那里失败，而不是在之后某一帧。
 
+编写出的程序曾在比较成立的每一帧都提议它那一侧，所以阈值之上的第二帧会从持仓状态再提议一次入场，内核拒绝它，
+而这次拒绝结束了整个 run。现在程序带着自己认为持有的仓位，只在内核接受某一侧的仓位上提议该侧，否则持有不动。
+它还可以声明 `stop_loss_fraction`、`take_profit_fraction` 与 `max_holding_bars`，每一种都在一帧收盘时判定并在那里
+提议，所以退出在下一帧成交，而从不在 bar 内部的退出价位上成交；报告把这一点写成 `AT_BAR_CLOSE_FILLED_NEXT_FRAME`，
+因为价格在 bar 内部穿过的止损，比挂在交易所的止损离场更晚，价格也更差。
+`an_authored_exit_leaves_once_at_the_close_and_the_program_enters_again` 对每一种退出让编写出的程序跑四帧：进场，
+在阈值之上的第二帧持有，在收盘仍在阈值之上的第三帧由该退出离场，再进场。
+`an_authored_exit_never_reached_holds_the_position` 在这些帧永远够不到的退出下跑同样的帧。这些运行测得一次调用消耗的
+fuel：没有退出时约 86,000，有价格退出时约 205,000，这个族编写出的最大程序约 378,000，超过了插件 manifest 声明的
+100,000，所以这个族的 manifest 声明 1,000,000。
+
 ## TARGET - Research 运行到出策略为止，由花费约束
 
 用户于 2026-09-27 决定：Research 不因试验次数停下；每次试验都记账并跨轮累计，Qualification 的折扣随这个计数增长，随机对照

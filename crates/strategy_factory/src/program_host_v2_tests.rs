@@ -1859,6 +1859,9 @@ fn universe_bfp_fixture() -> (
         comparison: BoundedFeaturePredicateV1::Greater,
         when_true: outcome("kernel.position.enter.v1", 1),
         otherwise: outcome("kernel.position.exit.v1", 0),
+        stop_loss_fraction: None,
+        take_profit_fraction: None,
+        max_holding_bars: None,
         falsifier: "the channel never crosses the threshold in the admitted window".to_owned(),
     })
     .expect("the universe-member request is authorable");

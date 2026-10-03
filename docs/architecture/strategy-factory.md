@@ -1733,6 +1733,20 @@ intent - an exit clears, every other side keeps - and `every_authored_side_runs_
 authored side to a real lifecycle kernel from each position it can be proposed at, so a terminal shared where it must
 follow the side fails there rather than on a later frame.
 
+An authored program proposed its side on every frame its comparison held, so a second frame above the threshold
+proposed a second entry from a held position, which the kernel refuses, and the refusal ended the run. The program
+now carries the position it believes it holds and proposes a side only from a position the kernel accepts it at,
+holding otherwise. It may also name `stop_loss_fraction`, `take_profit_fraction` and `max_holding_bars`, each judged
+at a frame's close and proposed there, so an exit fills on the next frame and never at its level inside a bar; a
+report states that as `AT_BAR_CLOSE_FILLED_NEXT_FRAME`, because a stop the price passes through inside a bar is
+left later, and at a worse price, than one a venue holds.
+`an_authored_exit_leaves_once_at_the_close_and_the_program_enters_again` runs the authored program through four
+frames for each exit: it enters, holds on a second frame above its threshold, leaves by that exit on a third whose
+close is still above it, and enters again. `an_authored_exit_never_reached_holds_the_position` runs the same frames
+under exits they never reach. Those runs measured the fuel one invocation burns at about 86,000 with no exit, 205,000
+with a price exit and 378,000 for the largest program the family authors, past the 100,000 the plugin's manifest
+declared, so the family's manifest declares 1,000,000.
+
 ## TARGET - Research runs until a strategy, bounded by spend
 
 The user decided on 2026-09-27 that Research does not stop on a trial count: every trial is recorded and accumulates
