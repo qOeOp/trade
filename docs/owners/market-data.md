@@ -273,6 +273,12 @@ never runs in CI.
 | Fill‑bar quote cut for a bar‑only source                  | `TARGET`, on U1's path                                                                              | none; a quote cut holds observed Quote rows only (`owner/native_replay_quote_cut_v2.rs`)                                                                                                                                                 | none       |
 | Companion quote lineage                                   | `TARGET`, after U1                                                                                  | none                                                                                                                                                                                                                                     | none       |
 | Source Binding successor admission                        | `TARGET`, after U1                                                                                  | `commit_source_successor`, test callers only                                                                                                                                                                                             | none       |
+| Custody window schedule fact                              | `CURRENT / PARTIAL` (T0-4b)                                                                         | `owner/pit_window_custody_v1/schedule.rs`, `owner/postgres/pit_window_custody_v1.rs` (`pit_window_schedule_facts_v1`)                                                                                                                    | `B5`       |
+
+The snapshot path's per-instrument BAR schedule chain (`bar_schedule_*`) and a custody's window schedule facts coexist,
+each with its own consumers: snapshot Replay reads the first, a custody view the second. They must not be merged: a
+custody's commit never writes or advances an instrument's BAR schedule chain, and a snapshot never reads a window
+schedule.
 
 ## Authoritative facts owned
 
@@ -2695,6 +2701,14 @@ and one instrument and field splits into a new series on every bar whose last di
 fixed-scale rule above, which is the snapshot path's fix too. The snapshot path keeps its bytes and is left for a
 separate slice after U1: today's snapshot consumers each read one frame, so no series continuity depends on it yet.
 
+Built so far (T0-4b): the window schedule fact. A root custody's commit mints one `PitWindowScheduleFactV1` per member
+for its execution timeframe, in the same transaction and after every refusal: the member's timeframe identity and
+declared shape, the interval and its phase (zero for a grid from the Unix epoch), the custody's window, Instrument
+Master key and fact, Market Semantics identity and minting cut. Frames are the bar-close instants
+`phase + n * interval` inside the window. A successor mints none and its chain reads back the root's schedules; a
+rejoin or a refusal mints none, and no custody commit writes a `bar_schedule_*` table. No production caller reads it
+yet; the derived view (T0-5) will. Its unit tests and the custody PostgreSQL proofs drive it.
+
 - **Custody:** covers the half-open window from its warm-up start and is committed once, then never mutated. A later
   correction is a successor custody that names its predecessor and carries only the versions it adds; a view reads the
   chain to its head. A successor restates its predecessor's basis exactly - Market Semantics fact, Instrument Master
@@ -2762,7 +2776,10 @@ separate slice after U1: today's snapshot consumers each read one frame, so no s
   keyed by the series and event-effective instant each custody row carries, so a correction in a successor custody lands in the
   same slot. Reference Fact R0 is stored once per custody chain over the whole window, and a frame's R0 is computed on
   read from it with no stored per-frame locator. The PIT evaluation evidence read derives from custody, and the BAR
-  schedule check becomes a window schedule fact whose interval contains `e_k` with its cut at or before `d_k`.
+  schedule check becomes a window schedule fact whose interval contains `e_k` with its effective start, the custody
+  window's start, at or before `d_k`. The custody's minting cut stays custody evidence and is not compared with `d_k`:
+  under the narrowing the user authorized on 2026-09-27, frames no longer carry their own minting evidence and only
+  backfilled history is admitted, while the window grid is the Source Binding's declaration, knowable before any frame.
   Every table and function those reads touch is inside the admitted-port measurement.
 - **Quote cut:** derived from custody inside `(d_k, e_{k+1})`, exactly one per gap, on one instant, in member order,
   taking no frame ordinal, and never the version a later correction superseded. Its version is the highest sequence

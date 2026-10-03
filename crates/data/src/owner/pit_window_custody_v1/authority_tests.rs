@@ -877,6 +877,46 @@ fn a_publication_before_an_availability_at_the_minting_cut_is_refused() {
     assert!(derived.resolve_at_minting_cut(RETRIEVED, None).is_ok());
 }
 
+/// A custody's window schedules: one per member, on the execution timeframe's own per-member
+/// identity, over exactly the custody's window, frames at its daily closes.
+#[rstest]
+fn a_custody_mints_one_window_schedule_per_member() {
+    use crate::owner::pit_window_custody_v1::schedule::{
+        frame_instants_v1, mint_window_schedules_v1,
+    };
+
+    let derived = Basis::new(false).derive(&request()).unwrap();
+    let identity = root_identity(&derived);
+    let schedules = mint_window_schedules_v1(&derived, identity, identity, RETRIEVED).unwrap();
+
+    assert_eq!(schedules.len(), 2);
+
+    for (ordinal, schedule) in schedules.iter().enumerate() {
+        assert_eq!(usize::from(schedule.member_ordinal), ordinal);
+        assert_eq!(schedule.instrument, [BTC, ETH][ordinal]);
+        assert_eq!(
+            *schedule.timeframe_identity.as_bytes(),
+            derived.execution.member_identities[ordinal]
+        );
+        assert_eq!(schedule.instrument_master_fact_digest, d([40, 41][ordinal]));
+        assert_eq!(
+            schedule.instrument_master_key,
+            derived.instrument_master_key
+        );
+        assert_eq!((schedule.interval_ns, schedule.phase_ns), (DAY, 0));
+        assert_eq!(
+            (schedule.window_start_ns, schedule.window_end_ns_exclusive),
+            (0, 3 * DAY)
+        );
+        assert_eq!(schedule.cut_ns, RETRIEVED);
+        assert_eq!(
+            frame_instants_v1(schedule, 0, 3 * DAY).collect::<Vec<_>>(),
+            [0, DAY, 2 * DAY]
+        );
+    }
+    assert_ne!(schedules[0].identity(), schedules[1].identity());
+}
+
 /// `request()` with its first daily bar's BTC CLOSE stated as `mantissa * 10^-scale`.
 fn close_stated_as(mantissa: i128, scale: u8) -> UntrustedPitWindowCustodyRequestV1 {
     let mut request = request();

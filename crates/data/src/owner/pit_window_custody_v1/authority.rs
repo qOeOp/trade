@@ -32,7 +32,7 @@ use super::{
 use crate::owner::{
     bar_schedule::{BarScheduleClockV1, BarScheduleKindV1, BarScheduleLabelV1},
     decimal_rescale_v1::{MARKET_DATA_VALUE_SCALE_V1, RescaleErrorV1, rescale_exact_v1},
-    declared_bar_timeframe_v1::DeclaredBarTimeframeV1,
+    declared_bar_timeframe_v1::{DeclaredBarShapeV1, DeclaredBarTimeframeV1},
     instrument_master::InstrumentClass,
     sample_fact::{continuous_bar_timeframe_spec_v1, v2::SampleRowInputV2},
     source_binding::{
@@ -193,6 +193,8 @@ pub(crate) struct CustodyTimeframeV1 {
     pub(crate) label: String,
     pub(crate) interval_ns: u64,
     label_rule: BarScheduleLabelV1,
+    /// What the declared bar is, without its label.
+    pub(crate) shape: DeclaredBarShapeV1,
     /// The timeframe identity of each member, in member order: the one a BAR schedule minted from
     /// the same declaration and the member's Instrument Master fact states.
     pub(crate) member_identities: Vec<[u8; 32]>,
@@ -272,7 +274,10 @@ pub(crate) struct DerivedCustodyV1 {
     universe: (BindingDigest, BindingDigest),
     pub(crate) instrument_master_key: BindingDigest,
     pub(crate) members: Vec<String>,
-    window: (u64, u64),
+    /// The Instrument Master fact selected for each member, in member order.
+    pub(crate) member_fact_digests: Vec<BindingDigest>,
+    /// `[start, end)`.
+    pub(crate) window: (u64, u64),
     pub(crate) execution: CustodyTimeframeV1,
     inputs: Vec<CustodyTimeframeV1>,
     fill: Option<CustodyTimeframeV1>,
@@ -746,6 +751,7 @@ pub(crate) fn derive_custody_v1(inputs: CustodyInputsV1<'_>) -> Result<DerivedCu
         ),
         instrument_master_key,
         members: request.members.clone(),
+        member_fact_digests: facts.iter().map(|fact| fact.fact_digest).collect(),
         window: (request.window_start_ns, request.window_end_ns_exclusive),
         execution,
         inputs: inputs_timeframes,
@@ -803,6 +809,7 @@ fn custody_timeframe(
         label: declaration.row_timeframe().to_owned(),
         interval_ns,
         label_rule: declaration.label(),
+        shape: declaration.shape(),
         member_identities,
         identity: sha256(TIMEFRAME_DOMAIN, &bytes),
     })

@@ -13,6 +13,7 @@ use super::{
     OWNER_CLOCK_IDENTITY_V1, OWNER_CLOCK_SKEW_BOUND_NS, OWNER_CLOCK_UNCERTAINTY_BOUND_NS,
     OWNER_CLOCK_VALIDITY_WINDOW_NS, OwnerSourceBindingDecision, SourceBindingCommit,
     pit_intake_member_count_tests::{instrument_submission, owner_store_v1, source_proposal},
+    pit_window_custody_v1::read_pit_window_schedules_v1,
     seal_owner_clock_admission_v1,
 };
 use crate::owner::{
@@ -441,6 +442,33 @@ async fn close_fact(owner: &MarketDataOwnerPostgres, version: BindingDigest) -> 
     decode_sample_fact_v2(&bytes, digest.try_into().unwrap()).expect("the stored fact verifies")
 }
 
+/// Every `bar_schedule_*` table of the snapshot path's per-instrument schedule chain.
+async fn bar_schedule_tables(owner: &MarketDataOwnerPostgres) -> Vec<(String, i64, String)> {
+    let tables = owner_store_v1(owner.pool())
+        .await
+        .into_iter()
+        .filter(|(table, _, _)| table.starts_with("bar_schedule_"))
+        .collect::<Vec<_>>();
+    assert!(
+        tables.len() >= 6,
+        "the snapshot path's schedule tables are installed, so their snapshot can show a write"
+    );
+    tables
+}
+
+/// The window schedules of the chain rooted at `chain_root`, through the crate's readback.
+async fn schedules_of(
+    owner: &MarketDataOwnerPostgres,
+    chain_root: BindingDigest,
+) -> Vec<crate::owner::pit_window_custody_v1::schedule::PitWindowScheduleFactV1> {
+    let mut transaction = owner.pool().begin().await.unwrap();
+    let schedules = read_pit_window_schedules_v1(&mut transaction, chain_root)
+        .await
+        .expect("the stored schedules verify");
+    transaction.rollback().await.unwrap();
+    schedules
+}
+
 fn wall_now_ns() -> u64 {
     u64::try_from(
         std::time::SystemTime::now()
@@ -485,9 +513,36 @@ async fn postgres_a_custody_commits_once_and_a_resubmission_rejoins_without_writ
 
     let (handoffs, head) = clock(&owner).await;
     let before_wall = wall_now_ns();
+    let instrument_schedules = bar_schedule_tables(&owner).await;
     let receipt = commit(&intake, first.clone())
         .await
         .expect("the custody commits");
+    assert_eq!(
+        bar_schedule_tables(&owner).await,
+        instrument_schedules,
+        "a custody never writes, or advances, an instrument's BAR schedule chain"
+    );
+
+    // One window schedule per member, over the custody's window, at its minting cut.
+    let schedules = schedules_of(&owner, receipt.chain_root()).await;
+    assert_eq!(count(&owner, "pit_window_schedule_facts_v1").await, 2);
+    assert_eq!(
+        schedules
+            .iter()
+            .map(|schedule| (schedule.member_ordinal, schedule.instrument.as_str()))
+            .collect::<Vec<_>>(),
+        [(0, BTC), (1, ETH)]
+    );
+
+    for schedule in &schedules {
+        assert_eq!(schedule.custody_identity, receipt.custody_identity());
+        assert_eq!((schedule.interval_ns, schedule.phase_ns), (DAY, 0));
+        assert_eq!(
+            (schedule.window_start_ns, schedule.window_end_ns_exclusive),
+            (WINDOW_START, WINDOW_START + 3 * DAY)
+        );
+        assert_eq!(schedule.cut_ns, receipt.minting_cut_ns());
+    }
     let (minted_handoffs, minted) = clock(&owner).await;
     assert_eq!(
         minted_handoffs,
@@ -729,6 +784,11 @@ async fn postgres_every_custody_refusal_writes_nothing() {
     )
     .await;
     assert_eq!(count(&owner, "pit_window_custodies_v1").await, 0);
+    assert_eq!(
+        count(&owner, "pit_window_schedule_facts_v1").await,
+        0,
+        "no refusal mints a schedule"
+    );
 
     // The request every refusal edited commits.
     assert!(commit(&intake, valid).await.is_ok());
@@ -760,9 +820,22 @@ async fn postgres_a_successor_corrects_its_chain_and_refuses_a_branch_or_a_chang
         &template,
         vec![correction(bar, original_version, 2, bar + 3 * MINUTE)],
     );
+    let root_schedules = schedules_of(&owner, root.chain_root()).await;
+    let instrument_schedules = bar_schedule_tables(&owner).await;
     let receipt = commit(&intake, corrected.clone())
         .await
         .expect("the successor commits");
+    assert_eq!(
+        count(&owner, "pit_window_schedule_facts_v1").await,
+        2,
+        "a successor mints no schedule"
+    );
+    assert_eq!(
+        schedules_of(&owner, receipt.chain_root()).await,
+        root_schedules,
+        "the successor's chain reads back its root's schedules"
+    );
+    assert_eq!(bar_schedule_tables(&owner).await, instrument_schedules);
     assert_eq!(receipt.chain_root(), root.chain_root());
     assert_eq!(receipt.chain_version(), 2);
     assert_ne!(receipt.custody_identity(), root.custody_identity());

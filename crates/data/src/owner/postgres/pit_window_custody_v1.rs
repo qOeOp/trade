@@ -49,6 +49,7 @@ use crate::owner::{
             StoredChainV1, StoredVersionV1, check_request_shape_v1, custody_digest_v1,
             derive_custody_v1, kind_from_tag, kind_tag,
         },
+        schedule::{PitWindowScheduleFactV1, decode_window_schedule_v1, mint_window_schedules_v1},
         sealed,
     },
     sample_fact::v2::{
@@ -77,6 +78,10 @@ pub(super) const SCHEMA_V1: &[&str] = &[
     "REVOKE ALL ON TABLE market_data_private.pit_window_cross_section_versions_v1 FROM PUBLIC",
     "CREATE TABLE IF NOT EXISTS market_data_private.pit_window_custody_rows_v1 (custody_identity BYTEA NOT NULL, chain_root BYTEA NOT NULL CHECK (octet_length(chain_root)=32), sample_identity BYTEA NOT NULL CHECK (octet_length(sample_identity)=32), fact_digest BYTEA NOT NULL CHECK (octet_length(fact_digest)=32), version_identity BYTEA NOT NULL, member_ordinal SMALLINT NOT NULL CHECK (member_ordinal>=0), field TEXT NOT NULL, fact_bytes BYTEA NOT NULL, retrieval_ns BIGINT NOT NULL CHECK (retrieval_ns>=0), retrieval_route TEXT NOT NULL CHECK (octet_length(retrieval_route) BETWEEN 1 AND 128), PRIMARY KEY (custody_identity, sample_identity), UNIQUE (chain_root, sample_identity), FOREIGN KEY (custody_identity, version_identity) REFERENCES market_data_private.pit_window_cross_section_versions_v1(custody_identity, version_identity))",
     "REVOKE ALL ON TABLE market_data_private.pit_window_custody_rows_v1 FROM PUBLIC",
+    // The window schedule a root custody mints for each member (T0-4b). It is not a BAR schedule
+    // fact: it never joins, or advances, an instrument's `bar_schedule_*` chain.
+    "CREATE TABLE IF NOT EXISTS market_data_private.pit_window_schedule_facts_v1 (schedule_identity BYTEA PRIMARY KEY CHECK (octet_length(schedule_identity)=32), chain_root BYTEA NOT NULL REFERENCES market_data_private.pit_window_custody_heads_v1(chain_root), custody_identity BYTEA NOT NULL REFERENCES market_data_private.pit_window_custodies_v1(custody_identity), member_ordinal SMALLINT NOT NULL CHECK (member_ordinal>=0), instrument TEXT NOT NULL CHECK (octet_length(instrument)>0), timeframe_identity BYTEA NOT NULL CHECK (octet_length(timeframe_identity)=32), interval_ns BIGINT NOT NULL CHECK (interval_ns>0), phase_ns BIGINT NOT NULL CHECK (phase_ns>=0 AND phase_ns<interval_ns), window_start_ns BIGINT NOT NULL CHECK (window_start_ns>=0), window_end_ns_exclusive BIGINT NOT NULL CHECK (window_end_ns_exclusive>window_start_ns), im_key BYTEA NOT NULL CHECK (octet_length(im_key)=32), ms_identity BYTEA NOT NULL CHECK (octet_length(ms_identity)=32), cut_ns BIGINT NOT NULL CHECK (cut_ns>0), canonical_bytes BYTEA NOT NULL, UNIQUE (chain_root, member_ordinal), CHECK (chain_root=custody_identity))",
+    "REVOKE ALL ON TABLE market_data_private.pit_window_schedule_facts_v1 FROM PUBLIC",
 ];
 
 #[track_caller]
@@ -666,6 +671,17 @@ async fn commit_custody_v1(
     if moved.rows_affected() != 1 {
         return Err(Refused::StoreUnavailable);
     }
+
+    // A root mints its window schedules; a successor restates the root's basis, window and
+    // timeframes exactly, so the root's schedules serve its whole chain and it mints none.
+    if chain.is_none() {
+        let schedules = mint_window_schedules_v1(&derived, identity, chain_root, minting_cut)
+            .ok_or(Refused::StoreUnavailable)?;
+
+        for schedule in &schedules {
+            insert_window_schedule(&mut transaction, schedule).await?;
+        }
+    }
     transaction
         .commit()
         .await
@@ -678,6 +694,87 @@ async fn commit_custody_v1(
         derived.rule_digest,
         minting_cut,
     ))
+}
+
+async fn insert_window_schedule(
+    transaction: &mut Transaction<'_, Postgres>,
+    schedule: &PitWindowScheduleFactV1,
+) -> Result<(), Refused> {
+    sqlx::query("INSERT INTO market_data_private.pit_window_schedule_facts_v1(schedule_identity,chain_root,custody_identity,member_ordinal,instrument,timeframe_identity,interval_ns,phase_ns,window_start_ns,window_end_ns_exclusive,im_key,ms_identity,cut_ns,canonical_bytes) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)")
+        .bind(schedule.identity().as_bytes().as_slice())
+        .bind(schedule.chain_root.as_bytes().as_slice())
+        .bind(schedule.custody_identity.as_bytes().as_slice())
+        .bind(i16::from(schedule.member_ordinal))
+        .bind(schedule.instrument.as_str())
+        .bind(schedule.timeframe_identity.as_bytes().as_slice())
+        .bind(to_i64(schedule.interval_ns)?)
+        .bind(to_i64(schedule.phase_ns)?)
+        .bind(to_i64(schedule.window_start_ns)?)
+        .bind(to_i64(schedule.window_end_ns_exclusive)?)
+        .bind(schedule.instrument_master_key.as_bytes().as_slice())
+        .bind(schedule.market_semantics_identity.as_bytes().as_slice())
+        .bind(to_i64(schedule.cut_ns)?)
+        .bind(schedule.canonical_bytes())
+        .execute(&mut **transaction)
+        .await
+        .map_err(|cause| store_error(&cause))?;
+    Ok(())
+}
+
+/// The window schedules of the chain rooted at `chain_root`, in member order, each verified
+/// against its own bytes and stored columns. A successor's readback is its root's: the chain has
+/// one set.
+pub(in crate::owner) async fn read_pit_window_schedules_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    chain_root: BindingDigest,
+) -> Result<Vec<PitWindowScheduleFactV1>, Refused> {
+    let rows = sqlx::query(
+        "SELECT schedule_identity,chain_root,custody_identity,member_ordinal,instrument,timeframe_identity,interval_ns,phase_ns,window_start_ns,window_end_ns_exclusive,im_key,ms_identity,cut_ns,canonical_bytes FROM market_data_private.pit_window_schedule_facts_v1 WHERE chain_root=$1 ORDER BY member_ordinal",
+    )
+    .bind(chain_root.as_bytes().as_slice())
+    .fetch_all(&mut **transaction)
+    .await
+    .map_err(|cause| store_error(&cause))?;
+    rows.iter()
+        .map(|row| {
+            let bytes = |column: &str| -> Result<Vec<u8>, Refused> {
+                row.try_get(column).map_err(|cause| store_error(&cause))
+            };
+            let number = |column: &str| -> Result<u64, Refused> {
+                to_u64(row.try_get(column).map_err(|cause| store_error(&cause))?)
+            };
+            let fact = decode_window_schedule_v1(
+                &bytes("canonical_bytes")?,
+                digest(&bytes("schedule_identity")?)?,
+            )
+            .ok_or(Refused::StoreUnavailable)?;
+            let ordinal: i16 = row
+                .try_get("member_ordinal")
+                .map_err(|cause| store_error(&cause))?;
+            let instrument: String = row
+                .try_get("instrument")
+                .map_err(|cause| store_error(&cause))?;
+            let columns_agree = digest(&bytes("chain_root")?)? == fact.chain_root
+                && fact.chain_root == chain_root
+                && digest(&bytes("custody_identity")?)? == fact.custody_identity
+                && i16::from(fact.member_ordinal) == ordinal
+                && instrument == fact.instrument
+                && digest(&bytes("timeframe_identity")?)? == fact.timeframe_identity
+                && number("interval_ns")? == fact.interval_ns
+                && number("phase_ns")? == fact.phase_ns
+                && number("window_start_ns")? == fact.window_start_ns
+                && number("window_end_ns_exclusive")? == fact.window_end_ns_exclusive
+                && digest(&bytes("im_key")?)? == fact.instrument_master_key
+                && digest(&bytes("ms_identity")?)? == fact.market_semantics_identity
+                && number("cut_ns")? == fact.cut_ns;
+
+            if columns_agree {
+                Ok(fact)
+            } else {
+                Err(Refused::StoreUnavailable)
+            }
+        })
+        .collect()
 }
 
 /// The durable custody intake. It retains the Owner and exposes no pool, writer or clock.
