@@ -3317,6 +3317,18 @@ same names.
   that same frontier (derived from the sorted member set, not a fixed constant, so a different future set derives a
   different frontier instead of colliding) in its Instrument Master fact. Re-sending the one-time admission rejoins
   the same frontier.
+- **TARGET: adding a symbol beyond the fixed U1 set is a successor-frontier admission, not something per-symbol
+  admission does.** A frontier is Market Data's own complete statement of the eligible-instrument set at a point in
+  time - "each admission succeeds the one before it, so Market Data, not the requester, decides which frontier is
+  current" - never a set a requester can narrow to one instrument by admitting it alone: doing that would make
+  every other admitted instrument fail R&D's current-frontier checks
+  (`check_research_instrument_scope_v1`/`resolve_research_pit_references_v1`) the moment a newer, narrower frontier
+  superseded theirs. Growing the eligible set is therefore its own deliberate admission: a new
+  `HistoricalMembershipAdmissionRequestV1` naming the whole new set (every existing member plus the new one), under
+  the frontier digest that set derives. Any Instrument Master fact whose cut spans members across the old and new
+  sets together needs a successor fact naming the new frontier; a single-member cut is unaffected, since its one
+  fact already names whichever frontier was current when it was admitted. This route does not drive that admission
+  itself; it is a separate, explicit operation outside `admit_binance_perpetual`.
 - **A backfill is a job Market Data runs.** `backfill` records a `QUEUED` job fact and returns its `job_id`. A worker in
   the Market Data service fetches the archive months and fill bars, builds the member's custody request and commits it,
   and records `RUNNING`, then `SUCCEEDED` with the custody receipt and the coverage it added, or `FAILED` with the
