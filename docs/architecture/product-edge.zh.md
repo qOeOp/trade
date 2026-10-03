@@ -360,19 +360,21 @@ Source 与 Research 动作、探索性 Replay 动作、Develop Composer 动作�
 
 **`strategy`**，由 R&D 提供：
 
-- `validate(spec)` → `VALID`，或按名给出全部违规，不写入任何东西。
-- `create(spec)` → 一个不可变、内容寻址的 `strategy_id`。spec 携带它所属的 Research 请求，因此之后每次运行都是该请求血缘的
-  一次试验；不带请求的 spec 以 `RESEARCH_REQUEST_REQUIRED` 拒绝。
-- `get(strategy_id)`、`list(filter)`。
-- `revise(strategy_id, spec)` → 一个点名其前驱的新 `strategy_id`；没有任何东西被原地修改。
-- `archive(strategy_id)` → 策略仍可读取，但不能再运行。
-- 单独验收的条件：一个 spec 被验证、创建、逐字节读回、修订出后继并归档，且每个拒绝都被驱动到一次。
+- spec 是去掉三个 identity 的单阈值 authoring 请求，含其出场字段。策略不绑定任何 Research 请求。
+- `validate(spec)` → `VALID`，或按 authoring 编译器自己的名字给出全部违规，不写入任何东西。
+- `create(spec)` → `strategy_id`，即规范化 spec 的内容摘要。同一份 spec 再次创建返回同一个 id。
+- `get(strategy_id)` 逐字节返回 spec；`list(filter)`。
+- `revise(strategy_id, spec)` → 新 spec 的 `strategy_id`，记录为点名其前驱；没有任何东西被原地修改。
+- `archive(strategy_id)` 追加一条归档记录。策略仍可读取，但不能再运行。
+- 单独验收的条件：只用这一个 server、不碰任何行情数据，一个 spec 被验证、创建、逐字节读回、修订出后继并归档，且每个拒绝
+  都被驱动到一次。
 
 **`backtest`**，由调用 Backtest 的 R&D 运行路由提供：
 
-- `run(strategy_id, dataset_ref, cost_profile)` → 一个 `run_id`。整个回放在服务端一次调用内完成。R&D 解析它自己的策略与
-  来自 Market Data 的数据段，并把两者按值传给 Backtest，因此 Backtest 从不回读 R&D，每次调用都指向下层。每次运行在其结果
-  被展示之前都作为一次试验计入 R&D 的 census，与今天每个探索性 Result 一样。拒绝：`STRATEGY_UNKNOWN`、`STRATEGY_ARCHIVED`、
+- `run(strategy_id, dataset_ref, cost_profile)` → 一个 `run_id`。整个回放在服务端一次调用内完成。R&D 按值读取策略的 spec，
+  为这次运行形成 Research goal，编写并冻结其 Design，并从 Market Data 解析数据段；它把两者按值传给 Backtest，因此 Backtest
+  从不回读 R&D，每次调用都指向下层。Design 的身份只存在于运行内部，从不作为策略 id 暴露。每次运行在其结果被展示之前都作为
+  一次试验计入 R&D 的 census，与今天每个探索性 Result 一样。拒绝：`STRATEGY_UNKNOWN`、`STRATEGY_ARCHIVED`、
   `DATASET_REF_UNRESOLVED`、`TIMEFRAME_UNSUPPORTED`、`COST_PROFILE_UNKNOWN`。
 - `status(run_id)`、`list_runs(filter)`。
 - `report(run_id)` → 运行报告，包括费用、资金费与随机进场对照。在 Qualification 登记其 holdout 分区之前，每份报告都写明

@@ -419,21 +419,26 @@ the run, so a replay reads the same data.
 
 **`strategy`**, served by R&D:
 
-- `validate(spec)` → `VALID`, or every violation by name, writing nothing.
-- `create(spec)` → an immutable, content-addressed `strategy_id`. The spec carries the Research request it belongs to,
-  so every later run is a trial of that request's lineage; a spec without one is refused as `RESEARCH_REQUEST_REQUIRED`.
-- `get(strategy_id)`, `list(filter)`.
-- `revise(strategy_id, spec)` → a new `strategy_id` that names its predecessor; nothing is edited in place.
-- `archive(strategy_id)` → the strategy stays readable and can no longer be run.
-- Accepted on its own when a spec is validated, created, read back byte for byte, revised into a successor and
-  archived, with every refusal driven once.
+- A spec is the single-threshold authoring request without its three identities, including its exit fields. A
+  strategy is bound to no Research request.
+- `validate(spec)` → `VALID`, or every violation by the authoring compiler's own name, writing nothing.
+- `create(spec)` → `strategy_id`, the content digest of the canonical spec. Creating the same spec again returns the
+  same id.
+- `get(strategy_id)` returns the spec byte for byte; `list(filter)`.
+- `revise(strategy_id, spec)` → the new spec's `strategy_id`, recorded as naming its predecessor; nothing is edited in
+  place.
+- `archive(strategy_id)` appends an archive record. The strategy stays readable and can no longer be run.
+- Accepted on its own when, using only this server and no market data, a spec is validated, created, read back byte
+  for byte, revised into a successor and archived, with every refusal driven once.
 
 **`backtest`**, served by R&D's run route, which calls Backtest:
 
 - `run(strategy_id, dataset_ref, cost_profile)` → a `run_id`. The whole replay runs on the server side in one call.
-  R&D resolves its own strategy and the slice from Market Data, and passes both to Backtest by value, so Backtest
-  never reads back into R&D and every call points down the layers. Every run is counted as a trial in R&D's census
-  before its result is shown, as every exploratory Result is today. Refusals: `STRATEGY_UNKNOWN`, `STRATEGY_ARCHIVED`,
+  R&D reads the strategy's spec by value, forms the Research goal for this run, authors and freezes its Design, and
+  resolves the slice from Market Data; it passes both to Backtest by value, so Backtest never reads back into R&D and
+  every call points down the layers. The Design's identity exists only inside the run and is never exposed as a
+  strategy id. Every run is counted as a trial in R&D's census before its result is shown, as every exploratory
+  Result is today. Refusals: `STRATEGY_UNKNOWN`, `STRATEGY_ARCHIVED`,
   `DATASET_REF_UNRESOLVED`, `TIMEFRAME_UNSUPPORTED`, `COST_PROFILE_UNKNOWN`.
 - `status(run_id)`, `list_runs(filter)`.
 - `report(run_id)` → the run report, including fees, funding and the random-entry control. Until Qualification
