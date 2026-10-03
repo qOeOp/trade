@@ -82,6 +82,7 @@ vibe-backtest-result-custody = { workspace = true }
 vibe-data = { workspace = true, features = [
   "sealed-strategy-input-acceptance",
 ] }
+vibe-model = { workspace = true }
 vibe-operator-authorization = { workspace = true }
 vibe-product-edge-routing-api = { workspace = true }
 vibe-rd-artifact-invocation-custody = { workspace = true }

@@ -142,6 +142,10 @@ pub(crate) struct OwnerRecordLocatorV1 {
     pub(crate) digest: String,
 }
 
+/// The grid units F's single-threshold program targets when its condition holds: 1 LINK, about 123
+/// USDT, inside every limit the perpetual's exchangeInfo states (its `MIN_NOTIONAL` is 20 USDT).
+pub(crate) const FIRST_COMPOSER_V3_TARGET_UNITS_V1: i64 = 100;
+
 /// Everything the first COMPOSER_V3 Replay was built from, by the locators the Owners issued.
 #[derive(Debug)]
 #[expect(
@@ -157,6 +161,8 @@ pub(crate) struct FirstComposerV3ReplayV1 {
     pub(crate) artifact_locator: String,
     /// The Plan's canonical digest, as the Composer issued it.
     pub(crate) plan_canonical_digest: BindingDigest,
+    /// The TrialFamily the Research request formed, whose census counts the Replay's Result.
+    pub(crate) trial_family_identity: String,
     pub(crate) replay_request: ExploratoryReplayRequestLocatorV2,
     pub(crate) composition_binding: ReplayCompositionBindingLocatorV1,
     pub(crate) execution_input_binding: OwnerRecordLocatorV1,
@@ -1138,7 +1144,7 @@ pub(crate) async fn ensure_first_composer_v3_replay_acceptance_v1(
             when_true: SingleThresholdOutcomeV1 {
                 position_intent_semantic_id: "kernel.position.enter.v1".to_owned(),
                 target_variant_semantic_id: "kernel.target.position.v1".to_owned(),
-                target_position_units: 100,
+                target_position_units: FIRST_COMPOSER_V3_TARGET_UNITS_V1,
                 target_weight_micros: 0,
             },
             otherwise: SingleThresholdOutcomeV1 {
@@ -1453,6 +1459,7 @@ pub(crate) async fn ensure_first_composer_v3_replay_acceptance_v1(
             .expect("H3: the role intent names its Design"),
         artifact_locator: composer_locator.artifact_locator.clone(),
         plan_canonical_digest: composer_locator.canonical_plan_digest,
+        trial_family_identity: family.root().trial_family_identity().to_owned(),
         member_instrument: PERPETUAL_V1.to_owned(),
         replay_request,
         composition_binding,

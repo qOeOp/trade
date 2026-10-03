@@ -11442,6 +11442,7 @@ dependencies = [
  "vibe-core",
  "vibe-data",
  "vibe-databento",
+ "vibe-model",
  "vibe-operator-authorization",
  "vibe-postgres-connect",
  "vibe-product-edge",

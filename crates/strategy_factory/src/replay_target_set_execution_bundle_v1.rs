@@ -10,6 +10,8 @@ use vibe_data::owner::instrument_master_v2::ValidatedCryptoPerpetualPublicTermsV
 use vibe_data::owner::native_replay_scheduling_v1::NativeReplaySchedulingReadbackV1;
 use vibe_data::owner::native_replay_scheduling_v2::NativeReplayFrameSequenceReadbackV2;
 use vibe_data::owner::strategy_input_binding::StrategyInputEventKind;
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+use vibe_model::types::Money;
 use vibe_model::{
     data::{Bar, BarType, Data, HasTsInit, QuoteTick},
     identifiers::{AccountId, StrategyId},
@@ -370,6 +372,30 @@ impl ReplayTargetSetExecutionBundleV1 {
     #[must_use]
     pub const fn census(&self) -> &ReplayTargetSetExecutionCensusV1 {
         &self.census
+    }
+
+    /// The native instruments this bundle runs, materialized from the Owners' terms.
+    ///
+    /// Read by the sealed first COMPOSER_V3 acceptance, which states the run's arithmetic
+    /// independently of the engine from the exact values the engine was given.
+    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+    #[must_use]
+    pub fn instruments_for_acceptance(&self) -> &[InstrumentAny] {
+        &self.instruments
+    }
+
+    /// The native BAR and Quote data this bundle runs, at its instruments' precision.
+    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+    #[must_use]
+    pub fn native_data_for_acceptance(&self) -> &[Data] {
+        &self.data
+    }
+
+    /// The venue's starting balance this bundle runs with.
+    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+    #[must_use]
+    pub fn starting_balance_for_acceptance(&self) -> Option<Money> {
+        self.native_profile.starting_balance()
     }
 
     /// Returns how many Owner-sealed universe frames this bundle was built from.
