@@ -19,7 +19,7 @@ use tokio::net::TcpListener;
 use vibe_binance::{
     common::enums::{BinanceEnvironment, BinanceProductType},
     futures::http::client::BinanceFuturesHttpClient,
-    futures_pit_observation_source_v1::BinanceFuturesBarObservationSourceV1,
+    futures_pit_observation_source_v1::BinanceFuturesObservationSourceV1,
     pit_observation_source_v1::BinanceSpotBarObservationSourceV1,
     spot::http::client::BinanceSpotHttpClient,
 };
@@ -39,6 +39,9 @@ use vibe_data::owner::{
     research_pit_terminal_resolver_from_store_admission_lookup,
 };
 use vibe_data::owner::{
+    instrument_economic_terms_intake_v1::{
+        InstrumentEconomicTermsAdmissionV1, instrument_economic_terms_admission_from_environment_v1,
+    },
     instrument_master_admission_v1::{
         InstrumentMasterAdmissionV1, instrument_master_admission_from_environment_v1,
     },
@@ -420,6 +423,8 @@ async fn run() -> anyhow::Result<()> {
         bootstrap_market_data_instrument_master_admission().await?;
     let market_data_instrument_master_admission_v2 =
         bootstrap_market_data_instrument_master_admission_v2().await?;
+    let instrument_economic_terms_admission =
+        bootstrap_instrument_economic_terms_admission().await?;
     let market_data_market_semantics_admission =
         bootstrap_market_data_market_semantics_admission().await?;
     #[cfg(feature = "composer-replay-issuance")]
@@ -788,6 +793,7 @@ async fn run() -> anyhow::Result<()> {
                 instruments: market_data_instrument_master_admission,
                 instruments_v2: market_data_instrument_master_admission_v2,
                 semantics: market_data_market_semantics_admission,
+                economic_terms: instrument_economic_terms_admission,
             },
             token_digest,
         ));
@@ -906,7 +912,8 @@ fn binance_member_mapping(
 /// would let the deployment's network decide what a snapshot records as its provenance. A
 /// deployment that must use another host says so, and that host is then what the binding carries.
 ///
-/// The public kline endpoint is unsigned, so no credential is read here.
+/// The public kline and funding endpoints are unsigned, so no credential is read here, and the
+/// Data Client refuses an HTTP client that holds one.
 fn binance_perpetual_observation_source() -> anyhow::Result<Arc<dyn PitObservationSourceV1>> {
     let mapping = binance_member_mapping("BINANCE_PERPETUAL_PIT_MEMBERS")?;
     let interval = required_env("BINANCE_PERPETUAL_PIT_INTERVAL")?;
@@ -926,7 +933,7 @@ fn binance_perpetual_observation_source() -> anyhow::Result<Arc<dyn PitObservati
         false,
     )?;
     Ok(Arc::new(
-        BinanceFuturesBarObservationSourceV1::new(client, mapping, &interval)
+        BinanceFuturesObservationSourceV1::new(client, mapping, &interval)
             .map_err(|e| anyhow::anyhow!("the Binance USD-M Data Client is unusable: {e}"))?,
     ))
 }
@@ -1009,6 +1016,21 @@ async fn bootstrap_market_data_instrument_master_admission_v2()
     }
     Ok(Some(
         instrument_master_admission_from_environment_v2().await?,
+    ))
+}
+
+/// Composes the Instrument Owner economic-terms intake when both stores it reads and writes are
+/// configured: Market Data's, which holds the Instrument Master V2 fact and clock head the terms are
+/// derived from, and the Instrument Owner's, which holds the terms.
+async fn bootstrap_instrument_economic_terms_admission()
+-> anyhow::Result<Option<Arc<dyn InstrumentEconomicTermsAdmissionV1>>> {
+    if env::var("MARKET_DATA_OWNER_DATABASE_URL").is_err()
+        || env::var("INSTRUMENT_OWNER_DATABASE_URL").is_err()
+    {
+        return Ok(None);
+    }
+    Ok(Some(
+        instrument_economic_terms_admission_from_environment_v1().await?,
     ))
 }
 
@@ -5220,6 +5242,9 @@ mod tests {
                     semantics: bootstrap_market_data_market_semantics_admission()
                         .await
                         .unwrap(),
+                    economic_terms: bootstrap_instrument_economic_terms_admission()
+                        .await
+                        .unwrap(),
                 },
                 token_digest,
             ));
@@ -5666,6 +5691,9 @@ mod tests {
                         .await
                         .unwrap(),
                     semantics: bootstrap_market_data_market_semantics_admission()
+                        .await
+                        .unwrap(),
+                    economic_terms: bootstrap_instrument_economic_terms_admission()
                         .await
                         .unwrap(),
                 },

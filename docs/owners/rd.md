@@ -54,6 +54,8 @@ Unify Research and Develop under one business-fact Owner. The Research capabilit
   slippage, and capacity-model identities. Only a request-equal `TERMINAL_RESULT` may enter Research Selection.
 - Append-only TrialFamily Census Frontier containing every exploratory Intent, Request, and Result identity through a frozen cut, including losing, rejected, invalid, and unknown trials, plus the consumed family budget.
 - Exploratory findings that may justify a new Research Intent, without mutating the frozen predecessor.
+- **TARGET:** the append-only Research knowledge ledger of mechanism statuses, construct effects and findings, each
+  bound to the evidence it rests on, which every new or successor Research Intent is checked against.
 - Write-once Iteration Result Admission binding one locked canonical Backtest Result to the iteration that may
   consume it. The Owner derives every admitted fact inside one READ COMMITTED R&D transaction, the isolation
   the Product Edge admission lock admits, from the Result bytes, the exact TrialFamily census cut and the sealed
@@ -1353,21 +1355,57 @@ This section states a contract with no implementation; it grants no permission t
 A failed run is counted once the Backtest Owner commits a `RUN_REJECTED` or `INVALID_REPLAY_EVIDENCE` Result for
 it, which the count above already maps.
 
-**The data-read ledger.** R&D records every read of market data:
+**Where market data is read today**, measured at `main` 8f67d897f by callers:
 
-- what is recorded: the lineage, the trial or agent session that made it, the instrument, the half-open period, and
-  the universe stratum the instrument falls in (majors, large caps, or new listings);
-- where the rows come from: the point-in-time scope each trial binds, and every read an agent makes through the R&D
-  tool surface, so an informal look leaves the same row a registered run does.
+- Only one R&D read has both an instrument set and a half-open period: the execution-input binding issuance
+  (`POST /v2/exploratory-replay/execution-input-bindings`, feature `composer-replay-issuance`). Its
+  `resolve_native_replay_initial_owner_inputs_v1` reads the member instruments and the Replay window
+  `[start_event_ns, end_event_ns_exclusive)` (`crates/strategy_factory/src/native_replay_initial_owner_inputs_v1.rs:150-176`),
+  and the native run and the Market Data repair request read through the same function.
+- Every other R&D route that reaches Market Data has scope identities and one decision cut but no period: the initial
+  PIT issuance, the PIT snapshot request route, and the Composer and bounded-feature-program routes, which reread one
+  PIT batch at one cut. The V3 Research submission checks instrument identities against the eligible frontier, which
+  is reference data, not prices.
+- No R&D tool lets an agent read market data. The Dashboard MCP server's seven tools
+  (`product/dashboard/lib/dashboard-mcp-server.ts:152-211`) submit or read R&D and run state and return no market
+  value, and the artifact-build model call has no tools.
+- No type classifies an instrument into a stratum. Instrument Master V2 records a perpetual's listing instant from
+  Binance `onboardDate` (`crates/data/src/owner/instrument_master_v2.rs:346`), and Market Data serves bar volume as
+  `MARKET_DATA.BAR.VOLUME.QUANTITY.V1`.
+- No Owner defines a holdout partition of instruments or periods. Qualification's holdout is a budget and a custody
+  reservation, not a partition of the data.
+
+**The data-read ledger.** R&D records every read of market data as append-only rows, one per instrument, in the R&D
+transaction that makes the read:
+
+- a row binds the lineage (the TrialFamily and its cross-family predecessor frontier), the trial (the Replay
+  request's identity and meaning digest) or the agent session, the instrument, the half-open period `[start, end)` in
+  event nanoseconds, the instrument's stratum for that period with the stratum policy's identity, and the commit time;
+- trial rows are written when R&D issues a Replay's execution-input binding, the one point where the members and the
+  window are both known; a binding that is joined rather than issued writes nothing again;
+- any R&D tool that returns market values to an agent writes its rows before it answers, and refuses when it cannot.
+  None exists today, so this source is empty, and adding such a tool without its rows breaches this contract;
+- a read whose rows cannot be written fails, so no read happens without its rows.
+
+**Strata.** A stratum is computed before the outcome, never assigned after it. A versioned stratum policy, frozen in
+the TrialFamily policy, classifies each instrument from point-in-time facts at the period's start: its listing age
+from Instrument Master's listing instant, and its size from the trailing traded value (bar volume times close) Market
+Data serves. Version 1 takes the user's research buckets as its defaults: the 17 instruments of largest trailing traded
+value are majors, the next 20 are large caps, and an instrument listed less than 365 days before the period's start is
+a new listing whatever its size. A different threshold is a new policy version, and every row names the version it
+used.
 
 **Untouched slices.** The ledger hands out slices nobody in the lineage has read:
 
-- A validation stage asks it for a slice of its own universe stratum and period that the lineage has never read, and
-  gets one or a named refusal.
-- Once handed out, the slice is reserved. A second read refuses.
-- A slice read by an earlier lineage that shares the Candidate's predecessor frontier counts as read, so an earlier
-  family's contamination is visible rather than remembered.
-- The ledger never hands out a slice inside Qualification's sealed holdout partition.
+- A validation stage asks it for a slice of one stratum and one period length, drawn from the instruments Market
+  Data's eligible frontier names, and gets one or `NO_UNTOUCHED_SLICE`.
+- A slice overlaps a read when they share an instrument and their half-open periods intersect. A read by an earlier
+  lineage that shares the Candidate's predecessor frontier counts, so an earlier family's contamination is visible
+  rather than remembered.
+- Once handed out, the slice is reserved to that stage, and a second read of it refuses as `SLICE_ALREADY_READ`.
+- The ledger never hands out a slice inside Qualification's sealed holdout partition. No Owner defines that partition
+  yet, so until Qualification does, every hand-out refuses as `HOLDOUT_PARTITION_UNDEFINED`, while reads are still
+  recorded.
 
 **The census carries no verdict.** A census row records that a trial ran and its exploratory disposition. It never
 records a Qualification outcome or any pass or fail bit from an evaluator; Qualification counts its own protected
@@ -1379,6 +1417,120 @@ a Candidate binds, plus the lineage's protected attempts. The spread of trial ra
 `TERMINAL_RESULT` trials. Both are therefore only as complete as this append. The Deflated Sharpe Ratio and its CSCV
 estimate of PBO are ported from `crates/strategy_factory/src/robustness.rs` at `main` f2238c09b, as Qualification
 states, with N the cumulative count in place of the formation path's fixed four or two.
+
+### TARGET - Research knowledge ledger
+
+This section states a contract with no implementation; it grants no permission to build or deploy it.
+
+**Why it exists.** A Research lineage today remembers its own census, Decisions and findings, and nothing carries
+what one lineage learned to the next. The user's manual research run (archived at
+`refs/archive/research/ronnie-2026-10-02`, `research/ronnie/`) kept that memory by hand: one status table of
+mechanism families (`STRATEGIES.md:166-216`), a cross-loop factor ledger (`loop/ledger.txt`), and notes that a later
+loop read before it chose a change. Its retrospective names the gap this closes: knowledge "lost partly across
+context compactions" (`loop/RETROSPECTIVE.md:131`). Its requirements add that a family opens only after a literature
+screen (`RD_AUTONOMY.md:83`). The ledger is R&D's durable form of that memory, and it binds the next Research Intent.
+
+**What it records.** The ledger is append-only and holds three kinds of entry. None is edited or deleted; a later
+entry supersedes an earlier one by naming it.
+
+- *Mechanism status.* One of five statuses for a mechanism within a scope, as the research defines them
+  (`loop/CRITERIA.md:56-83`):
+  - `ACTIVE`: positive at its first development stage or above;
+  - `PARKED`: inconclusive, with the data the next look needs (instruments, periods or trades) and a revisit trigger;
+  - `ABSORBED`: carried by another mechanism, which the entry names;
+  - `IMMATERIAL`: as a filter it touches under the frozen share of trades, so no result could change a decision;
+  - `CLOSED`: equivalence below the smallest effect of interest on data not used to select it, or a falsified
+    mechanism with its registered variants exhausted.
+- *Construct effect.* The measured effect of one construct, a reusable rule component such as a box-breakout
+  retest, a funding carry condition or a Fibonacci ratio set, on one stratum and period: the effect estimate and its
+  interval against the registered control, its rank correlation with the outcome and that correlation's sign, and
+  whether the same pattern appears in the control's own outcomes (`REGIME`, not skill).
+- *Finding.* A stated conclusion with its conditions and scope, such as "the ratios carry nothing beyond nearby
+  non-Fibonacci ratios". A later finding may narrow, extend or retract it only by superseding it.
+
+**Keys.** Every entry keys on identities R&D already owns or computes, never on a name a caller types:
+
+- a mechanism is the frozen mechanism identity of the Research Intents that test it;
+- a construct is a versioned construct definition, content-addressed over what it measures and how it counts, so
+  "touches of a swing level" and "touches of a range edge" are two constructs, because the research found the same
+  word with opposite signs (`loop/WORKFLOW_NOTES.md:203-205`);
+- a scope is a set of strata and periods under one stratum policy, the policy the data-read ledger above freezes in
+  the TrialFamily policy. A stratum the entry did not test is untested, never closed (`loop/CRITERIA.md:104-106`).
+
+**Evidence.** Every entry binds the evidence it rests on, and the Owner derives every value from that evidence:
+
+- R&D evidence is a TrialFamily census attempt and the Result it counts. A Result the census does not count is
+  refused as `EXPLORATORY_RESULT_NOT_COUNTED`, as every other R&D read refuses it.
+- An effect, its interval and its correlation are computed by a versioned R&D estimator from the Results the entry
+  binds, never stated by the caller: the same rule as candidate counts ("CURRENT - candidate counts are computed from
+  their grid"). No R&D estimator exists today; until one does, effect fields are `NOT_COMPUTED`, and a status that
+  needs an interval cannot be written.
+- Outside evidence is a Research Source Provenance Record from Source Intake, with its claimed result and evidence
+  quality. The research archive enters this way, as one source per file and line range.
+- A status change names new evidence: evidence its predecessor did not bind. A supersession that cites none is
+  refused as `KNOWLEDGE_SUPERSESSION_WITHOUT_NEW_EVIDENCE`.
+
+**How it binds the next Research Intent.** A Research Intent declares the mechanism it tests and the constructs its
+rule uses. R&D checks them against the ledger at the two points an Intent freezes: in the S1 admission transaction
+("Lineage and protected-feedback admission") and when a successor Intent is composed. A grid member that varies a
+construct names it, so a successor experiment is checked the same way. Each refusal negates the request at a ledger
+cut R&D owns, so it closes `REJECTED_NO_WRITE` under its own name and stores the check record with the ledger head it
+read, as `INSTRUMENT_SCOPE_NOT_RESOLVABLE` stores its check:
+
+- `KNOWLEDGE_MECHANISM_CLOSED`: the mechanism is `CLOSED` in the requested scope and the Intent states no new
+  mechanism. A new mechanism is a different mechanism identity, with the observable prediction that tells it apart
+  from the closed one (the diagnosis contract above).
+- `KNOWLEDGE_PARKED_GAP_UNADDRESSED`: the mechanism is `PARKED` in the requested scope and the Intent does not name
+  which of the entry's missing data it supplies.
+- `KNOWLEDGE_CONSTRUCT_CLOSED`: a declared construct is `CLOSED` as a filter or component in the requested scope.
+- `KNOWLEDGE_DECLARATION_MISSING`: the Intent declares no mechanism identity or no construct list.
+
+A scope the ledger has not tested passes, and the Intent records that it opens an untested stratum. A closure that
+rests only on outside evidence is lifted by a replication inside the product, which is new evidence, and only by one
+that could have found what the closure denies: its Intent registers the smallest effect of interest before it runs,
+its attempts are counted in the census like any other, and its detectable edge is no larger than the one the closure
+rested on. A replication with less power leaves the closure in place. A closure resting on R&D evidence is lifted only
+by a new mechanism.
+
+Today none of these is reached: no Intent declares a mechanism identity or constructs, and the ledger has no entries.
+Each becomes reachable when the declaration lands, and the first entries the archive provides make the first three
+constructible.
+
+**What the ledger never holds.** Qualification's protected evidence never enters it. R&D already never reads
+protected payload or detail, so the ledger's only inputs are R&D's own census, Results and data-read slices, Source
+Intake records, and Qualification's public phase facts. Each field is held to that:
+
+- *Effect, interval, correlation and decay* come only from counted exploratory Results. Decay is compared between
+  periods of R&D's own data, never between an iteration period and a Qualification read, which is the comparison the
+  research's attribution tool made against its validation tier (`loop/WORKFLOW_NOTES.md:106`).
+- *Scope and strata* name only slices R&D read. A slice inside Qualification's sealed holdout partition cannot be
+  named, because the data-read ledger never hands one out.
+- *Data needed and revisit trigger* are computed from R&D's own detectable edge and counts, never from a protected
+  sample size or power.
+- *Qualification outcomes* enter only as the public phase fact itself (`QUALIFIED`, `CLOSED_NOT_QUALIFIED`, or a
+  forward phase), by its type-opaque reference. A public phase never changes a status by itself: every negative
+  protected terminal projects as the same `CLOSED_NOT_QUALIFIED`, so it cannot show equivalence, and an entry that
+  follows it must cite R&D evidence too. No entry records when a protected evaluation happened beyond that fact.
+- *Text.* A finding's statement is untrusted rationale text, bound by digest. It is written from R&D-readable
+  evidence, because nothing protected reaches the writer.
+
+**What it is not.** The ledger adds no second authority:
+
+- trial counts stay in the TrialFamily census, and the ledger only cites attempts;
+- stops, successors and repairs stay Iteration Decisions. A Decision whose terminal stop is the falsifier is the
+  R&D evidence for a `CLOSED` entry by a falsified mechanism, and no entry creates or overturns a Decision;
+- strata stay the data-read ledger's stratum policy, and a scope never defines its own buckets;
+- candidate counts stay the generation grid's expansion;
+- sources stay Source Intake's records, and the pre-family literature screen is Source Intake's step.
+
+**Reads.** The ledger is read through the R&D read API by mechanism, construct or scope. A read returns entries and
+their evidence references, which are R&D facts already visible to the reader, and no market value.
+
+**First entries.** The archived research supplies the first entries as outside evidence. They are drafted for review
+with their source file and lines in `docs/plans/research-knowledge-ledger-seed.md`; only their development-side figures
+are carried, because that run's validation and final tiers played the role Qualification's holdout plays here. A
+mechanism that run closed only on such a held-out read is imported as `PARKED`: the ledger cannot hold the figure, so
+it holds no evidence that could support `CLOSED`, and the closure has to be established again from R&D evidence.
 
 ## Input handoffs
 

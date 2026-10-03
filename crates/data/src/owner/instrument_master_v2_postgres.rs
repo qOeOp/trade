@@ -675,6 +675,36 @@ pub(super) async fn begin_serializable_v2(
     Ok(tx)
 }
 
+/// Opens a reading transaction on this store: repeatable read, holding every table lock from its
+/// first statement, as every exact resolve does, so the snapshot sees each writer's commit whole.
+pub(super) async fn begin_repeatable_read_v2(
+    pool: &PgPool,
+) -> Result<Transaction<'_, Postgres>, InstrumentMasterCustodyErrorV2> {
+    let mut tx = pool.begin().await.map_err(|cause| store_error(&cause))?;
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+        .execute(&mut *tx)
+        .await
+        .map_err(|cause| store_error(&cause))?;
+    lock_all(&mut tx).await?;
+    Ok(tx)
+}
+
+/// Reads the one fact an instrument's chain holds under `fact_identity`, in the caller's
+/// [`begin_repeatable_read_v2`] transaction. The whole chain is decoded and every link checked, so
+/// the fact is returned only as a verified link of a chain that verifies; it writes nothing.
+pub(super) async fn read_fact_in_transaction_v2(
+    tx: &mut Transaction<'_, Postgres>,
+    canonical_identity: &str,
+    fact_identity: BindingDigest,
+) -> Result<InstrumentMasterFactV2, InstrumentMasterCustodyErrorV2> {
+    assert_acl_in_transaction(tx).await?;
+    assert_complete_ledger(tx).await?;
+    decode_chain(load_fact_rows(tx, canonical_identity).await?)?
+        .into_iter()
+        .find(|fact| fact.identity() == fact_identity)
+        .ok_or(InstrumentMasterCustodyErrorV2::MissingFact)
+}
+
 /// Opens a writing transaction on this store that also writes the Owner's clock: read committed,
 /// and holding every table lock from its first statement.
 ///
