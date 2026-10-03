@@ -79,22 +79,35 @@ class SearchCandidateV1(StrictModel):
 
 
 class SourceV1(StrictModel):
-    platform: Literal["bilibili", "youtube"]
+    platform: Literal["bilibili", "youtube", "generic"]
     requested_url: str
     canonical_url: str
-    video_id: str = Field(pattern=r"^(?:BV[0-9A-Za-z]{10}|[A-Za-z0-9_-]{11})$")
+    video_id: str = Field(pattern=r"^(?:BV[0-9A-Za-z]{10}|[A-Za-z0-9_-]{11}|web-[0-9a-f]{64})$")
     part_id: str = Field(min_length=1, max_length=100)
     part_index: int = Field(ge=1)
     title: NaturalText = Field(min_length=1, max_length=500)
-    author_name: NaturalText = Field(min_length=1, max_length=200)
-    published_at: str = Field(min_length=20, max_length=40)
+    author_name: NaturalText | None = Field(min_length=1, max_length=200)
+    published_at: str | None = Field(min_length=20, max_length=40)
     duration_ms: int = Field(gt=0, le=MAX_SOURCE_DURATION_MS)
 
     @model_validator(mode="after")
     def platform_identity(self) -> SourceV1:
+        from .generic_url import validate_generic_url
         from .url_policy import ValidatedBilibiliUrl, validate_bilibili_url
         from .youtube_url import ValidatedYoutubeUrl, validate_youtube_url
 
+        if self.platform == "generic":
+            generic = validate_generic_url(self.requested_url)
+            if (
+                self.part_index != 1
+                or self.part_id != self.video_id
+                or self.video_id != generic.video_id
+                or self.canonical_url != generic.canonical_url()
+            ):
+                raise ValueError("generic_source_identity_invalid")
+            return self
+        if self.author_name is None or self.published_at is None:
+            raise ValueError("platform_metadata_required")
         value: ValidatedBilibiliUrl | ValidatedYoutubeUrl
         if self.platform == "youtube":
             value = validate_youtube_url(self.requested_url)

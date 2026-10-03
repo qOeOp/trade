@@ -21,6 +21,7 @@ from bilibili_note_mcp.adapters.direct_notes import DirectDistiller
 from bilibili_note_mcp.adapters.distillers import DeterministicDistiller
 from bilibili_note_mcp.adapters.fixture_search import FixtureSearch
 from bilibili_note_mcp.adapters.fixture_source import FixtureSource
+from bilibili_note_mcp.adapters.generic_source import GenericSource
 from bilibili_note_mcp.adapters.media_ffmpeg import FfmpegMedia
 from bilibili_note_mcp.adapters.note_publisher import LocalNotePublisher
 from bilibili_note_mcp.adapters.source_cache import SourceCache
@@ -47,6 +48,7 @@ def _use_case(fixture_root: Path | None, deterministic: bool) -> CreateBilibiliN
         else VideoSource(
             BilibiliSource(transcript=transcript, cache=cache, media=YtDlpBilibiliMedia()),
             YoutubeSource(transcript=transcript, cache=cache),
+            GenericSource(transcript=transcript),
         )
     )
     distiller = DeterministicDistiller() if deterministic else DirectDistiller()

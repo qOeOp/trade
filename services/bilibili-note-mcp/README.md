@@ -1,6 +1,7 @@
 # Video Note MCP
 
-Standalone local MCP for illustrated Chinese notes from public Bilibili and YouTube videos of any subject.
+Standalone local MCP for illustrated Chinese notes from public Bilibili and YouTube videos,
+or a public HTTPS video page/direct media link, of any subject.
 It uses complete speech transcription and actual video frames to produce an overview, content-derived
 chapters, concrete details, relevant screenshots and source/time links. No subject-specific framework
 or fixed topic categories are imposed. The [design](bilibili-note.md) is the architecture authority.
@@ -56,6 +57,22 @@ Unsupported requests fail explicitly, with no automatic model or output-mode fal
 
 Reported provider token usage is recorded per stage in the private operator event stream. Missing
 usage is unknown, not zero. Rate limits return an explicit error instead of unbounded automatic retries.
+
+## Public video links
+
+`video_note.create({"url":"https://cn.tradingview.com/chart/XRPUSDT/e9QiRzXx/","quality":"fast"})`
+also accepts a public HTTPS page containing one progressive video, or a direct HTTPS video URL.
+Bilibili and YouTube always use their dedicated adapters; a platform error does not trigger a bypass.
+The generic extractor has no site-specific prompts. It rejects playlists with multiple videos, live
+streams, manifests, DRM, authentication, redirects, non-public destinations and non-HTTPS URLs.
+Only a complete video with an audio track and at least 720p can reach transcription. Unsupported
+pages return a typed failure; arbitrary websites are not guaranteed to work. No cookies or proxy
+are used by this fallback. Search still supports only Bilibili and YouTube.
+
+Generic sources use the downloaded file's measured duration; unknown author/date remain visibly
+unknown. Their time labels are references, and links return to the source page without claiming seek
+support. Generic media/transcripts are not cached because a URL can change content without changing
+its metadata. All quality tiers, screenshot selection, authoring and publication use the same pipeline.
 
 ## Setup
 

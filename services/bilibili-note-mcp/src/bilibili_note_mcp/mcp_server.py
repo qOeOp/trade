@@ -85,7 +85,8 @@ def build_server(
                     name=TOOL_NAME,
                     title="Create illustrated video notes",
                     description=(
-                        "Convert a public Bilibili or YouTube video of any subject "
+                        "Convert a public Bilibili/YouTube video, or a public HTTPS "
+                        "page/direct video link "
                         "into detailed Chinese "
                         "notes"
                         "with content-derived chapters, source/timestamp links and relevant "

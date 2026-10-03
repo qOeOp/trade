@@ -1,7 +1,8 @@
 # Bilibili Note MCP — general video notes
 
 > Status: implementation candidate. Architecture authority for this standalone service.
-> Scope: public Bilibili and YouTube videos of any subject to grounded Chinese illustrated notes.
+> Scope: public Bilibili, YouTube, and public HTTPS single-video pages/direct files of any subject
+> to grounded Chinese illustrated notes.
 
 ## Product outcome
 
@@ -115,6 +116,23 @@ requests, HTTPS YouTube/media hosts, public DNS addresses and redirect refusal; 
 closed receipts, complete audio/video, duration, HD dimensions and byte limits before ASR.
 Bilibili retains its WBI metadata and part identity rules. Both adapters reuse the same cache, ASR
 quality tiers, screenshot extraction, author and publishers. Missing subtitles do not prevent ASR.
+
+## Generic public video source (user-authorized extension)
+
+Other HTTPS links use one isolated yt-dlp Generic extractor. It may unwrap exactly one embedded video,
+but cannot hand off to another platform extractor. Every request requires public DNS answers, HTTPS
+on port 443, and no credentials, redirects or IP literals; ambient cookies/proxies and external
+media downloaders are unavailable. Metadata responses and request count are bounded. Only a progressive
+media URL is downloaded through the same transport under the existing media-byte and process bounds.
+Playlists, manifests, live streams and DRM are refused. Local FFprobe/FFmpeg retain `file,pipe` only.
+
+The adapter measures the downloaded complete file's duration, dimensions and audio track, and supplies
+that artifact to the existing acquisition owner. The 720p floor, full-audio ASR, quality tiers, frame
+binding, author and publication owners are unchanged. URL hash identifies the generic source; media
+SHA-256 binds its snapshot. No generic cache is used: unchanged URL/metadata cannot prove unchanged
+media. Missing author/date are explicit unknowns. Generic time links return to the canonical source
+without inventing platform seek parameters. Platform adapters and their errors never downgrade to the
+generic path; keyword search remains platform-specific. No TradingView-specific parser or prompt.
 
 ## Public contract and artifacts
 

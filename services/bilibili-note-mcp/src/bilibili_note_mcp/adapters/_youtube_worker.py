@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import ipaddress
 import json
 import socket
 import sys
@@ -22,6 +21,11 @@ from bilibili_note_mcp.adapters._ytdlp_worker import (
     _QuietLogger,
 )
 from bilibili_note_mcp.adapters.egress import admitted_loopback_proxy
+from bilibili_note_mcp.adapters.extractor_http import (
+    bounded_response,
+    public_resolver,
+    refuse_redirect,
+)
 from bilibili_note_mcp.adapters.strict_json import decode_strict_json_object
 from bilibili_note_mcp.application.resource_limits import MEDIA_DOWNLOAD_BYTES
 from bilibili_note_mcp.domain.models import MAX_SOURCE_DURATION_MS
@@ -47,23 +51,6 @@ def admit_url(value: str) -> None:
         raise ValueError("youtube_egress_denied")
 
 
-def bounded_response(response: Any, remaining: int) -> Any:
-    original_read = response.read
-
-    def read(amount: int | None = None) -> bytes:
-        nonlocal remaining
-        count = remaining + 1 if amount is None or amount < 0 else min(amount, remaining + 1)
-        data: bytes = original_read(count)
-        if len(data) > remaining:
-            response.close()
-            raise ValueError("youtube_response_too_large")
-        remaining -= len(data)
-        return data
-
-    response.read = read
-    return response
-
-
 class YoutubeOnlyDL(yt_dlp.YoutubeDL):  # type: ignore[misc]
     def urlopen(self, request: Any) -> Any:
         url = request if isinstance(request, str) else getattr(request, "url", None)
@@ -80,24 +67,6 @@ class YoutubeOnlyDL(yt_dlp.YoutubeDL):  # type: ignore[misc]
 
     def build_request_director(self, handlers: Any, preferences: Any = None) -> Any:
         return super().build_request_director([UrllibRH], preferences)
-
-
-def refuse_redirect(*args: Any, **kwargs: Any) -> Any:
-    raise ValueError("youtube_redirect_denied")
-
-
-def public_resolver(original: Any, proxy: str | None) -> Any:
-    proxy_parts = urlsplit(proxy) if proxy else None
-
-    def resolve(host: Any, port: Any, *args: Any, **kwargs: Any) -> Any:
-        records = original(host, port, *args, **kwargs)
-        if proxy_parts and host == proxy_parts.hostname and int(port) == proxy_parts.port:
-            return records
-        if not records or any(not ipaddress.ip_address(r[4][0]).is_global for r in records):
-            raise OSError("youtube_nonpublic_address")
-        return records
-
-    return resolve
 
 
 def metadata(info: Any, expected_id: str | None = None) -> dict[str, Any]:
