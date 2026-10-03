@@ -914,16 +914,34 @@ and a rendering of a document exists for reading only.
   fraction out of range, bands not ascending, a literal zero denominator, a weight out of range, a lowest-priority
   rule whose action equals `otherwise`, duplicate rules, a rule shadowed by an earlier literal-true rule, and
   a scope that disagrees with the Intent.
-- *Guest stack.* The lowered guest's stack follows the program's declared state: four bytes of stack per byte of
-  state, rounded up to a whole 64 KiB page, and never below the 64 KiB every program was built with before
-  (`guest_stack_bytes_v1`). A program whose stack would exceed half its linear memory is refused when it is lowered,
-  as `PROGRAM_STATE_TOO_LARGE_FOR_STACK`, rather than built into a guest that traps when it runs. The build sandbox
-  writes and the V3 build verifier checks the same config, the verifier deriving the stack from the capsule's declared
-  state bound; a hand-written build keeps 64 KiB. This changed the lowerer's source once, on purpose, and its digest
-  enters every V3 build identity, so every V3 build is re-identified once. The measurement that forced it: research
-  T0's 46.5 KB of state trapped with `MemoryOutOfBounds` at a 163 840-byte stack and ran at 196 608, which four bytes
-  per byte gives it, while the largest state in the hand-written corpus is 9.8 KB, so every one of those programs
-  lowers to the same config bytes as before (`every_hand_written_program_keeps_its_stack`).
+- *Guest stack.* The lowered guest's stack follows the program's declared state: five bytes of stack per byte of
+  state plus 16 KiB, rounded up to a whole 64 KiB page, and never below the 64 KiB every program was built with
+  before (`guest_stack_bytes_v1`). The stack shares the program's linear memory with its state and its heap, so a
+  program whose stack would exceed half of it is refused when it is lowered, as `PROGRAM_STATE_TOO_LARGE_FOR_STACK`,
+  rather than built into a guest that traps when it runs. The build sandbox writes and the V3 build verifier checks
+  the same config, the verifier deriving the stack from the capsule's declared state bound; a hand-written build
+  keeps 64 KiB. This changed the lowerer's source once, on purpose, and its digest enters every V3 build identity, so
+  every V3 build is re-identified once.
+  The rule is measured, as the least stack each program runs at to 16 bytes, a smaller one trapping with
+  `MemoryOutOfBounds`. Research T0 at four window sizes lies on one line, 3.44 bytes per byte of state plus about
+  9.9 KB:
+
+  | Program               |   State bytes | Least stack |
+  | --------------------- | ------------: | ----------: |
+  | T0, windows x0.1      |         5 764 |      29 792 |
+  | T0, windows x0.4      |        19 372 |      76 640 |
+  | T0                    |        46 588 |     170 336 |
+  | T0, windows x1.4      |        64 732 |     232 800 |
+  | `d1`                  |         5 356 |      25 280 |
+  | `t3` and its variants |         3 405 |      20 176 |
+  | every primitive alone | at most 1 376 |      12 256 |
+  | fair value gaps       |   under 1 800 |       9 712 |
+
+  Every other program sits at or under that line, so five bytes per byte and 16 KiB are 45% and 65% over it. The
+  largest state in the hand-written corpus is 9.8 KB, so every one of those programs lowers to the same config bytes
+  as before (`every_hand_written_program_keeps_its_stack`). `d1` runs at the rule's stack before the page rounding
+  and traps under its measured need (`a_program_runs_at_its_stack_rule_without_the_page_rounding`), so the rule holds
+  without the slack a page adds; 49 152 bytes is the largest state a page holds with none.
 - *Catalog.* `meaning` names primitives by full semantic id and carries no catalog version; `declare` binds
   the newest one and a redeclaration keeps the frozen one. A compiled document therefore does not change when
   a catalog version is published, which holds only while every published version contains every earlier

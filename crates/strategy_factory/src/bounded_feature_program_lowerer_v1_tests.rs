@@ -4,7 +4,8 @@ use crate::{
     bounded_feature_program_v1::tests::candidate,
     develop_composer_v2::CurrentResearchDevelopCustodyV2,
     lowered_guest_build_for_test::{
-        AMBIENT_RUST_FLAG_VARS, build_lowered_guest_for_test, lowered_guest_build_command,
+        AMBIENT_RUST_FLAG_VARS, build_lowered_guest_at_stack_for_test,
+        build_lowered_guest_for_test, lowered_guest_build_command,
     },
     plugin_wire_v2::{PluginFrameKindV2, PluginFrameV2, PluginOutputAvailabilityV3, TypedValueV2},
     rd_bounded_feature_program_v1::freeze_research_bounded_feature_program_v1,
@@ -1131,7 +1132,28 @@ impl BuiltGuest {
         target_dir: &Path,
         label: &str,
     ) -> Self {
-        let guest = build_lowered_guest_for_test(frozen, root, target_dir, label);
+        Self::load(build_lowered_guest_for_test(
+            frozen, root, target_dir, label,
+        ))
+    }
+
+    /// Builds as [`Self::build`] does, with the guest's stack set to `stack_bytes`.
+    fn build_at_stack(
+        frozen: &crate::rd_bounded_feature_program_v1::FrozenResearchBoundedFeatureProgramV1,
+        root: &Path,
+        label: &str,
+        stack_bytes: u64,
+    ) -> Self {
+        Self::load(build_lowered_guest_at_stack_for_test(
+            frozen,
+            root,
+            &root.join("target-out"),
+            label,
+            stack_bytes,
+        ))
+    }
+
+    fn load(guest: crate::lowered_guest_build_for_test::LoweredGuestModuleV1) -> Self {
         let (manifest, wasm) = (guest.manifest, guest.wasm);
 
         let manifest_digest = plugin_manifest_digest(&manifest);
@@ -1707,18 +1729,20 @@ fn what_the_canonical_form_keeps_and_drops_is_what_changes_behaviour() {
     );
 }
 
-/// The guest stack is four bytes per byte of declared state, a whole number of 64 KiB pages, and
-/// never less than the 64 KiB every program had: a program of up to 16 KiB of state builds exactly
-/// as it did, research T0's 46 556 bytes get the 196 608 it was measured to need, and a state whose
-/// stack would take more than half the linear memory is refused by name.
+/// The guest stack is five bytes per byte of declared state plus 16 KiB, a whole number of 64 KiB
+/// pages, and never less than the 64 KiB every program had: a program of up to 9 830 bytes of state
+/// builds exactly as it did; 49 152 bytes is the largest state a page holds with nothing left over;
+/// and a state whose stack would take more than half the linear memory is refused by name.
 #[rstest::rstest]
 #[case::empty(16, Some(65_536))]
 #[case::largest_hand_written(9_796, Some(65_536))]
-#[case::last_unchanged(16_384, Some(65_536))]
-#[case::first_changed(16_385, Some(131_072))]
-#[case::research_t0(46_556, Some(196_608))]
-#[case::half_the_memory(131_072, Some(524_288))]
-#[case::more_than_half(131_073, None)]
+#[case::last_unchanged(9_830, Some(65_536))]
+#[case::first_changed(9_831, Some(131_072))]
+#[case::research_t0(46_588, Some(262_144))]
+#[case::page_boundary(49_152, Some(262_144))]
+#[case::past_the_page_boundary(49_153, Some(327_680))]
+#[case::half_the_memory(101_580, Some(524_288))]
+#[case::more_than_half(101_581, None)]
 fn the_guest_stack_follows_the_declared_state(
     #[case] state_bytes: u32,
     #[case] stack: Option<u64>,
@@ -1771,4 +1795,63 @@ fn every_hand_written_program_keeps_its_stack() {
         designs += 1;
     }
     assert_eq!(designs, 12, "every corpus Design was read");
+}
+
+/// A program runs at the stack the rule gives its state before that is rounded up to a page, and
+/// traps below the stack it was measured to need, so the rule holds without the page's slack and
+/// the run would see a stack too small.
+///
+/// `d1`'s 5 356 bytes of state get 5 x 5 356 + 16 384 = 43 164 bytes, 43 168 on the 16-byte grid
+/// a stack keeps; it was measured to need 25 280, and 24 576 traps.
+#[rstest::rstest]
+#[ignore = "builds and invokes the divergence program twice with the pinned local wasm compiler"]
+fn a_program_runs_at_its_stack_rule_without_the_page_rounding() {
+    let (design, proposal) = corpus_program("d1");
+    let state = u64::from(design.plugins[0].state.max_bytes);
+    let custody = CurrentResearchDevelopCustodyV2::joint_bfp_test_fixture(&design);
+    let frozen = freeze_research_bounded_feature_program_v1(&custody, &design, proposal)
+        .expect("joint Owner freeze");
+    let unrounded =
+        (state * GUEST_STACK_BYTES_PER_STATE_BYTE + GUEST_STACK_FIXED_BYTES).next_multiple_of(16);
+    assert_eq!(unrounded, 43_168);
+
+    let root = tempfile::tempdir().expect("private build root");
+    let mut guest = BuiltGuest::build_at_stack(&frozen, root.path(), "d1", unrounded);
+    let exits: Vec<_> = (1_u64..)
+        .zip(DIVERGENCE_CLOSES)
+        .scan(Vec::new(), |state, (sample, close)| {
+            let output = guest.invoke(sample, close * 100, state, "d1");
+            *state = output.state.bytes().to_vec();
+            Some((sample, output))
+        })
+        .filter(|(_, output)| {
+            output
+                .values
+                .iter()
+                .any(|value| value.bytes() == b"kernel.position.exit.v1")
+        })
+        .map(|(sample, _)| sample)
+        .collect();
+    assert_eq!(
+        exits,
+        [14],
+        "the program behaves as it does at its rounded stack"
+    );
+
+    let small = tempfile::tempdir().expect("private build root");
+    let mut starved = BuiltGuest::build_at_stack(&frozen, small.path(), "d1", 24_576);
+    let trapped = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let mut state = Vec::new();
+
+        for (sample, close) in (1_u64..).zip(DIVERGENCE_CLOSES) {
+            state = starved
+                .invoke(sample, close * 100, &state, "d1")
+                .state
+                .bytes()
+                .to_vec();
+        }
+    }));
+    let payload = trapped.expect_err("a stack under the measured need traps");
+    let message = payload.downcast_ref::<String>().map_or("", String::as_str);
+    assert!(message.contains("MemoryOutOfBounds"), "{message}");
 }

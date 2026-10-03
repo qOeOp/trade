@@ -7,7 +7,7 @@ readonly FROZEN_SOURCE_PATH="crates/strategy_factory/src/bounded_feature_program
 # Updated 2026-10-04, on purpose: the guest stack follows the program's declared state
 # (guest_stack_bytes_v1, docs/owners/rd.md "Guest stack"). No capsule needed migrating: no deployment
 # held a V3 build (the local deployment's databases have no rd_bounded_feature_program_freezes_v1).
-readonly FROZEN_SOURCE_SHA256="4e5f2da1b07e67911d904eaccf7c0e30d516532394e34f1b38c36a1db1644c16"
+readonly FROZEN_SOURCE_SHA256="2bbf17924bbcb3e1c946e8b30b6eef213471c0b9da2fa94b319bef5d53ccfcb0"
 
 if [ "$#" -ne 1 ]; then
   echo "ERROR: frozen source baseline check requires one repository root" >&2
