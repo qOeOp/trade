@@ -349,6 +349,26 @@ pub enum SingleThresholdAuthoringErrorV1 {
     ExitWithoutPosition { field: &'static str },
 }
 
+impl SingleThresholdAuthoringErrorV1 {
+    /// The refusal's stable name, which a caller branches on instead of parsing the message.
+    #[must_use]
+    pub const fn code(&self) -> &'static str {
+        match self {
+            Self::Identifier(_) => "SINGLE_THRESHOLD_IDENTIFIER_NOT_EXACT",
+            Self::IndistinguishableOutcomes => "SINGLE_THRESHOLD_INDISTINGUISHABLE_OUTCOMES",
+            Self::UnknownFieldSemantic(_) => "SINGLE_THRESHOLD_UNKNOWN_FIELD_SEMANTIC",
+            Self::WeightNotRead { .. } => "SINGLE_THRESHOLD_WEIGHT_NOT_READ",
+            Self::WeightOutOfRange { .. } => "SINGLE_THRESHOLD_WEIGHT_OUT_OF_RANGE",
+            Self::SideNeverPermitted { .. } => "SINGLE_THRESHOLD_SIDE_NEVER_PERMITTED",
+            Self::ExitFractionInvalid { .. } => "SINGLE_THRESHOLD_EXIT_FRACTION_INVALID",
+            Self::ExitFractionTooPrecise { .. } => "SINGLE_THRESHOLD_EXIT_FRACTION_TOO_PRECISE",
+            Self::ExitNeedsCloseChannel { .. } => "SINGLE_THRESHOLD_EXIT_NEEDS_CLOSE_CHANNEL",
+            Self::MaxHoldingBarsZero => "SINGLE_THRESHOLD_MAX_HOLDING_BARS_ZERO",
+            Self::ExitWithoutPosition { .. } => "SINGLE_THRESHOLD_EXIT_WITHOUT_POSITION",
+        }
+    }
+}
+
 /// Authors one single-threshold program: the Design it needs and the meaning a proposer declares.
 ///
 /// The pair is returned together because neither half is checkable alone. Declared meaning names
@@ -2888,6 +2908,38 @@ mod tests {
         change(&mut refused);
 
         assert_eq!(author_single_threshold_program_v1(&refused), Err(refusal));
+    }
+
+    /// A refusal's code is the name its message leads with, wherever the message names one, so a
+    /// caller that reads either reads the same name.
+    #[rstest]
+    fn each_refusal_code_is_the_name_its_message_leads_with() {
+        for error in [
+            SingleThresholdAuthoringErrorV1::Identifier("falsifier"),
+            SingleThresholdAuthoringErrorV1::IndistinguishableOutcomes,
+            SingleThresholdAuthoringErrorV1::UnknownFieldSemantic("X".to_owned()),
+            SingleThresholdAuthoringErrorV1::WeightNotRead { field: "f" },
+            SingleThresholdAuthoringErrorV1::WeightOutOfRange { field: "f" },
+            SingleThresholdAuthoringErrorV1::SideNeverPermitted { field: "f" },
+            SingleThresholdAuthoringErrorV1::ExitFractionInvalid { field: "f" },
+            SingleThresholdAuthoringErrorV1::ExitFractionTooPrecise { field: "f" },
+            SingleThresholdAuthoringErrorV1::ExitNeedsCloseChannel {
+                field: "f",
+                channel: "C".to_owned(),
+            },
+            SingleThresholdAuthoringErrorV1::MaxHoldingBarsZero,
+            SingleThresholdAuthoringErrorV1::ExitWithoutPosition { field: "f" },
+        ] {
+            let message = error.to_string();
+            assert!(error.code().starts_with("SINGLE_THRESHOLD_"), "{message}");
+
+            if message.starts_with("SINGLE_THRESHOLD_") {
+                assert!(
+                    message.starts_with(&format!("{}:", error.code())),
+                    "{message}"
+                );
+            }
+        }
     }
 
     /// A request that names no exit keeps its serialized bytes: the three fields are omitted, not
