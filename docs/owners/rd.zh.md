@@ -47,6 +47,8 @@
   `TERMINAL_RESULT` 可以进入 Research Selection。
 - 只追加 TrialFamily Census Frontier，记录冻结截面前每个探索 Intent Request Result 身份，包括失败 被拒 无效 未知试验以及已消费族预算。
 - 可以支持新 Research Intent 的探索发现，但不能改写已冻结前序事实。
+- **TARGET:** 只追加的研究知识台账，记录机制状态、构件效果与结论，每条都绑定其依据的证据；每个新的或后继的
+  Research Intent 都要对照它检查。
 - 写一次的 Iteration Result Admission，把一个已加锁的 canonical Backtest Result 绑定到可以消费它的迭代。
   Owner 在单个 READ COMMITTED 的 R&D 事务内（这是 Product Edge admission 锁接受的隔离级别），从 Result 字节、
   确切 TrialFamily 普查截面与已封存试验预算推导全部被接纳事实；调用方只提供定位符、result 与 request meaning 摘要、
@@ -1189,6 +1191,94 @@ R&D 请求密封的 Result 不属于任何 family，以 `EXPLORATORY_RESULT_REQU
 尝试；试验比率的离散度取自该血缘的 `TERMINAL_RESULT` 试验。所以两者都只能与这个追加一样完整。Deflated Sharpe Ratio 及其
 CSCV 的 PBO 估计，按 Qualification 所述，从 `main` f2238c09b 的 `crates/strategy_factory/src/robustness.rs` 移植，用累计计数
 取代形成路径上固定的四或二作为 N。
+
+### TARGET - 研究知识台账
+
+本节陈述一份尚无实现的契约；它不授予构建或部署它的许可。
+
+**为什么需要它。** 今天一条 Research 血缘只记得它自己的 census、Decision 与发现，没有任何东西把一条血缘学到的东西带给下
+一条。用户的手工研究（归档在 `refs/archive/research/ronnie-2026-10-02` 的 `research/ronnie/`）靠手工保存这份记忆：一张机制
+家族状态表（`STRATEGIES.md:166-216`）、一份跨轮因子账本（`loop/ledger.txt`），以及后一轮在选择改动前会去读的笔记。它的回顾
+点名了本节要补的缺口：知识 "lost partly across context compactions"（`loop/RETROSPECTIVE.md:131`）。它的需求还规定一个家族
+只有在文献筛查之后才开（`RD_AUTONOMY.md:83`）。本台账是 R&D 对这份记忆的持久形式，并且约束下一个 Research Intent。
+
+**它记录什么。** 台账只追加，包含三类条目。任何一条都不被编辑或删除；后一条通过点名前一条来取代它。
+
+- *机制状态。* 一个机制在一个范围内的五种状态之一，定义取自该研究（`loop/CRITERIA.md:56-83`）：
+  - `ACTIVE`：在其第一开发阶段或更高阶段为正；
+  - `PARKED`：不确定，并写明下一次查看需要的数据（标的、时段或交易笔数）以及重看触发条件；
+  - `ABSORBED`：由另一个机制承载，条目点名该机制；
+  - `IMMATERIAL`：作为过滤器，它触及的交易少于冻结的比例，因此任何结果都改变不了决策；
+  - `CLOSED`：在未用于挑选它的数据上等价地低于最小关注效应，或机制被证伪且其登记的变体已穷尽。
+- *构件效果。* 一个构件（可复用的规则组成部分，例如箱体突破回踩、funding carry 条件或一组斐波那契比例）在一个分层与时段上
+  测得的效果：相对登记对照的效果估计及其区间、它与结果的秩相关及该相关的符号，以及对照自身的结果里是否出现同样的模式
+  （出现即为 `REGIME`，不是技能）。
+- *结论。* 一条带条件与范围的陈述，例如「这些比例并不比相邻的非斐波那契比例多带来任何东西」。后来的结论只能通过取代它来
+  收窄、扩展或撤回它。
+
+**键。** 每条条目都以 R&D 已经拥有或计算的身份为键，从不以调用方输入的名字为键：
+
+- 机制是检验它的那些 Research Intent 的冻结机制身份；
+- 构件是一个有版本的构件定义，对它测量什么与如何计数做内容寻址，因此「波段水平位的触碰次数」与「区间边缘的触碰次数」是
+  两个构件，因为该研究发现同一个词的符号相反（`loop/WORKFLOW_NOTES.md:203-205`）；
+- 范围是同一分层策略下的一组分层与时段，该策略就是上面数据读取台账冻结在 TrialFamily policy 里的那个。条目没有测过的分层
+  是未测，永远不是已关闭（`loop/CRITERIA.md:104-106`）。
+
+**证据。** 每条条目都绑定它所依据的证据，Owner 从该证据推导每一个数值：
+
+- R&D 证据是一个 TrialFamily census attempt 及其计入的 Result。census 未计入的 Result 以 `EXPLORATORY_RESULT_NOT_COUNTED`
+  拒绝，与其他每个 R&D 读取的拒绝方式相同。
+- 效果、其区间与其相关由一个有版本的 R&D 估计器从条目绑定的 Result 计算得出，从不由调用方陈述：与候选数的规则相同
+  （「CURRENT - 候选数由其网格计算」）。今天还没有任何 R&D 估计器；在它存在之前，效果字段是 `NOT_COMPUTED`，需要区间的
+  状态无法写入。
+- 外部证据是来自 Source Intake 的 Research Source Provenance Record，带有其声称的结果与证据质量。研究归档就以这种方式进入，
+  每个文件与行范围一条来源。
+- 状态变更要点名新证据：其前驱没有绑定过的证据。不引用新证据的取代以 `KNOWLEDGE_SUPERSESSION_WITHOUT_NEW_EVIDENCE`
+  拒绝。
+
+**它如何约束下一个 Research Intent。** Research Intent 声明它检验的机制和它的规则使用的构件。R&D 在 Intent 冻结的两个位置
+用台账检查它们：S1 准入事务内（「Lineage and protected-feedback admission」）以及组成后继 Intent 时。改变某个构件的网格成员
+会点名该构件，因此后继实验以同样方式检查。每一种拒绝都是在 R&D 拥有的台账截面上否定请求本身，所以它以自己的名字关闭为
+`REJECTED_NO_WRITE`，并与它读到的台账 head 一起存下检查记录，正如 `INSTRUMENT_SCOPE_NOT_RESOLVABLE` 存下它的检查：
+
+- `KNOWLEDGE_MECHANISM_CLOSED`：该机制在请求的范围内是 `CLOSED`，而 Intent 没有陈述新机制。新机制是一个不同的机制身份，
+  并带有把它与已关闭机制区分开的可观测预测（上面的诊断契约）。
+- `KNOWLEDGE_PARKED_GAP_UNADDRESSED`：该机制在请求的范围内是 `PARKED`，而 Intent 没有点名它补上了条目所缺数据中的哪一项。
+- `KNOWLEDGE_CONSTRUCT_CLOSED`：某个声明的构件在请求的范围内作为过滤器或组成部分是 `CLOSED`。
+- `KNOWLEDGE_DECLARATION_MISSING`：Intent 没有声明机制身份或构件清单。
+
+台账未测过的范围放行，Intent 记下它打开了一个未测分层。只依据外部证据的关闭，由产品内一次登记的复现解除，复现就是新证据；
+依据 R&D 证据的关闭只能由新机制解除。
+
+今天这些拒绝一条也到达不了：没有任何 Intent 声明机制身份或构件，台账也没有条目。声明落地后每一条都变得可达，归档提供的
+第一批条目使前三条可以构造。
+
+**台账从不持有什么。** Qualification 的受保护证据从不进入台账。R&D 本就从不读取受保护的载荷或细节，所以台账唯一的输入是
+R&D 自己的 census、Result 与数据读取切片，Source Intake 记录，以及 Qualification 的公开阶段事实。每个字段都受此约束：
+
+- *效果、区间、相关与衰减* 只来自已计入的探索性 Result。衰减在 R&D 自己数据的时段之间比较，从不在一个迭代时段与一次
+  Qualification 读取之间比较；后者正是该研究的归因工具对其验证层做过的比较（`loop/WORKFLOW_NOTES.md:106`）。
+- *范围与分层* 只点名 R&D 读过的切片。位于 Qualification 封存 holdout 分区内的切片无法被点名，因为数据读取台账从不分发它。
+- *所需数据与重看触发条件* 由 R&D 自己的可检测效应与计数计算，从不取自受保护的样本量或检验力。
+- *Qualification 结果* 只以公开阶段事实本身进入（`QUALIFIED`、`CLOSED_NOT_QUALIFIED` 或某个 forward 阶段），通过其类型不透明
+  的引用。公开阶段本身从不改变状态：每个负向受保护终态都投影为同一个 `CLOSED_NOT_QUALIFIED`，因此它无法显示等价，跟在它
+  后面的条目也必须引用 R&D 证据。除该事实之外，没有条目记录受保护评估何时发生。
+- *文本。* 结论的陈述是不受信任的理由文本，按摘要绑定。它根据 R&D 可读的证据写成，因为受保护的东西不会到达写入者。
+
+**它不是什么。** 台账不增加第二份权威：
+
+- 试验计数留在 TrialFamily census，台账只引用 attempt；
+- 停止、后继与修复留在 Iteration Decision。终态停止为证伪器的 Decision，是一条「机制被证伪」的 `CLOSED` 条目的 R&D
+  证据，没有条目创建或推翻 Decision；
+- 分层留在数据读取台账的分层策略，范围从不自定义分桶；
+- 候选数留在生成网格的展开；
+- 来源留在 Source Intake 的记录，开家族前的文献筛查是 Source Intake 的步骤。
+
+**读取。** 台账经 R&D read API 按机制、构件或范围读取。一次读取返回条目及其证据引用，这些都是读者已经可见的 R&D 事实，
+不返回任何市场数值。
+
+**第一批条目。** 归档研究以外部证据的形式提供第一批条目。它们连同来源文件与行号起草待审；只带入开发侧的数字，因为那次研究
+的验证层与最终层所扮演的角色，正是这里 Qualification 的 holdout。
 
 ## 输入交接
 
