@@ -295,7 +295,8 @@ Create a private environment file outside the repository or copy `.env.example` 
 placeholder with a local value. `RD_OWNER_DATABASE_URL`, `RD_FACT_WRITER_DATABASE_URL`,
 `MARKET_DATA_OWNER_DATABASE_URL`, `MARKET_DATA_RD_ROLE_SET_DATABASE_URL`,
 `INSTRUMENT_OWNER_DATABASE_URL`, `QUALIFICATION_OWNER_DATABASE_URL`,
-`OPERATOR_AUTHORIZATION_DATABASE_URL`, `PRODUCT_EDGE_DATABASE_URL`, and
+`OPERATOR_AUTHORIZATION_DATABASE_URL`, `PRODUCT_EDGE_DATABASE_URL`,
+`RD_SCHEMA_MIGRATOR_DATABASE_URL`, and
 `REPLAY_POLICY_CATALOG_ADMIN_DATABASE_URL` must be private PostgreSQL connection URLs for the
 Compose `postgres` service, with credentials matching the `*_DB_PASSWORD` values. Do not commit it.
 
@@ -336,6 +337,28 @@ docker compose \
   --env-file /absolute/path/to/private.env \
   -f product/rd-workbench/docker-compose.yml \
   --profile authority-admin run --rm authority-custody-migrate
+```
+
+After custody is cut over, no later build can add a new R&D public table the usual way: the
+schema materializer above only runs before cutover, and the default startup requires every
+table it knows about to already exist. `authority-additive-table-migrate` is this package's
+forward path for exactly that case. It connects twice: as `rd_owner`, which creates and so owns
+every new table, and as the dedicated `rd_schema_migrator` principal, which holds nothing of its
+own and may only call the two functions that open and close the one window `rd_owner` needs to
+create something in `public` - neither role is ever a member of the other, which the custody
+migration's own topology check requires stay true of `rd_owner` always. For each table a newer
+build compiled in, the window opens, the table is created only if it is purely absent (otherwise
+refused by name, with the existing relation left untouched - it never alters or drops anything),
+and the window closes, closing it even when creating the table failed. It is not profiled, so it
+runs on every default start the same way `authority-schema-materialize` does, and a repeat run
+after every table it knows about already exists is a no-op:
+
+```bash
+docker compose \
+  --project-name trade-rd-workbench \
+  --env-file /absolute/path/to/private.env \
+  -f product/rd-workbench/docker-compose.yml \
+  run --rm authority-additive-table-migrate
 ```
 
 The default R&D API startup additionally requires the sealed Replay Policy Catalog

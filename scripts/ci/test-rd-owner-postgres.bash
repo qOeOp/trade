@@ -2014,6 +2014,7 @@ run_authority_migration_for_database() {
     --env "INSTRUMENT_OWNER_DB_PASSWORD=${test_password}" \
     --env "RISK_WRITER_DB_PASSWORD=${test_password}" \
     --env "SCANNER_WRITER_DB_PASSWORD=${test_password}" \
+    --env "RD_SCHEMA_MIGRATOR_DB_PASSWORD=${test_password}" \
     --env "SEALED_SOURCE_RESEARCH_COMPOSER_ACCEPTANCE=${composer_acceptance_migration}" \
     "$container" sh -s < product/rd-workbench/postgres-init/10-migrate-authority-custody.sh
 }
@@ -3543,6 +3544,7 @@ docker exec --interactive \
   --env "INSTRUMENT_OWNER_DB_PASSWORD=${test_password}" \
   --env "RISK_WRITER_DB_PASSWORD=${test_password}" \
   --env "SCANNER_WRITER_DB_PASSWORD=${test_password}" \
+  --env "RD_SCHEMA_MIGRATOR_DB_PASSWORD=${test_password}" \
   --env "SEALED_SOURCE_RESEARCH_COMPOSER_ACCEPTANCE=${composer_acceptance_migration}" \
   "$container" sh -s < product/rd-workbench/postgres-init/10-migrate-authority-custody.sh
 

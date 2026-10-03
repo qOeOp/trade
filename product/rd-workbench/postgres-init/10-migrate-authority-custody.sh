@@ -6,6 +6,7 @@ set -eu
 : "${MARKET_DATA_READER_DB_PASSWORD:?set MARKET_DATA_READER_DB_PASSWORD}"
 : "${INSTRUMENT_OWNER_DB_PASSWORD:?set INSTRUMENT_OWNER_DB_PASSWORD}"
 : "${REPLAY_POLICY_CATALOG_ADMIN_DB_PASSWORD:?set REPLAY_POLICY_CATALOG_ADMIN_DB_PASSWORD}"
+: "${RD_SCHEMA_MIGRATOR_DB_PASSWORD:?set RD_SCHEMA_MIGRATOR_DB_PASSWORD}"
 case "${SEALED_SOURCE_RESEARCH_COMPOSER_ACCEPTANCE:-0}" in
   0) composer_acceptance=false ;;
   1) composer_acceptance=true ;;
@@ -31,7 +32,8 @@ psql --set=ON_ERROR_STOP=1 --host "${POSTGRES_HOST:-postgres}" --username postgr
   --set=governance_writer_password="$GOVERNANCE_WRITER_DB_PASSWORD" \
   --set=instrument_owner_password="$INSTRUMENT_OWNER_DB_PASSWORD" \
   --set=risk_writer_password="$RISK_WRITER_DB_PASSWORD" \
-  --set=scanner_writer_password="$SCANNER_WRITER_DB_PASSWORD" << 'SQL'
+  --set=scanner_writer_password="$SCANNER_WRITER_DB_PASSWORD" \
+  --set=schema_migrator_password="$RD_SCHEMA_MIGRATOR_DB_PASSWORD" << 'SQL'
 BEGIN;
 SELECT pg_catalog.pg_advisory_xact_lock(
   pg_catalog.hashtextextended('vibe.backtest.result-topology.v2',0)
@@ -65,6 +67,13 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'risk_writer') THEN CREATE ROLE risk_writer LOGIN; END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'scanner_owner') THEN CREATE ROLE scanner_owner NOLOGIN; END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'scanner_writer') THEN CREATE ROLE scanner_writer LOGIN; END IF;
+  -- Added when an already cut-over store could not gain a table a newer build adds
+  -- (schema_materialization.rs's pre-cutover gate; see this file's rd_schema_migration_api
+  -- schema, further below). Never a member of any role and never granted a privilege on
+  -- `public` or on any table directly: it can only call the two SECURITY DEFINER functions
+  -- that toggle rd_owner's own CREATE grant, which is how a wholly new table ends up owned by
+  -- rd_owner without this role ever needing membership in it.
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'rd_schema_migrator') THEN CREATE ROLE rd_schema_migrator LOGIN NOINHERIT; END IF;
 END
 $roles$;
 ALTER ROLE rd_database_owner NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
@@ -104,6 +113,7 @@ ALTER ROLE governance_writer LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE N
 ALTER ROLE instrument_owner LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD :'instrument_owner_password';
 ALTER ROLE risk_writer LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD :'risk_writer_password';
 ALTER ROLE scanner_writer LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD :'scanner_writer_password';
+ALTER ROLE rd_schema_migrator LOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD :'schema_migrator_password';
 GRANT execution_owner TO execution_writer;
 GRANT portfolio_owner TO portfolio_writer;
 GRANT governance_owner TO governance_writer;
@@ -162,7 +172,7 @@ BEGIN
     pg_catalog.current_database()
   );
   EXECUTE pg_catalog.format(
-    'GRANT CONNECT ON DATABASE %I TO rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, market_data_reader, market_data_owner, operator_authorization_writer, qualification_writer, product_edge_owner, backtest_owner, execution_writer, portfolio_writer, governance_writer, instrument_owner, risk_writer, scanner_writer',
+    'GRANT CONNECT ON DATABASE %I TO rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, market_data_reader, market_data_owner, operator_authorization_writer, qualification_writer, product_edge_owner, backtest_owner, execution_writer, portfolio_writer, governance_writer, instrument_owner, risk_writer, scanner_writer, rd_schema_migrator',
     pg_catalog.current_database()
   );
 END
@@ -215,6 +225,33 @@ REVOKE CREATE ON SCHEMA public FROM rd_owner;
 GRANT USAGE ON SCHEMA public TO rd_owner;
 GRANT USAGE, CREATE ON SCHEMA public TO product_edge_owner;
 GRANT USAGE ON SCHEMA public TO qualification_writer;
+-- rd_schema_migrator's only purpose: add a wholly new public R&D table an already cut-over store
+-- is missing (see the role's creation comment above). It holds no privilege of its own on
+-- `public` or on any table, and it is never a member of `rd_owner` or of `rd_database_owner`:
+-- the custody topology this migration enforces (further below) requires `rd_owner` to have no
+-- membership edge at all, and `ALTER TABLE ... OWNER TO rd_owner` would need exactly that edge,
+-- so this never transfers ownership. Instead `rd_owner` creates its own new table directly, made
+-- possible only for the moment `rd_schema_migrator` calls the first function below, which runs
+-- with `rd_database_owner`'s privilege (the actual owner of `public`, so it can grant and revoke
+-- CREATE on it without anyone holding membership in anyone) rather than the caller's.
+CREATE SCHEMA IF NOT EXISTS rd_schema_migration_api AUTHORIZATION rd_database_owner;
+ALTER SCHEMA rd_schema_migration_api OWNER TO rd_database_owner;
+REVOKE ALL ON SCHEMA rd_schema_migration_api FROM PUBLIC;
+GRANT USAGE ON SCHEMA rd_schema_migration_api TO rd_schema_migrator;
+CREATE OR REPLACE FUNCTION rd_schema_migration_api.grant_additive_table_create_v1()
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp
+AS $function$BEGIN EXECUTE 'GRANT CREATE ON SCHEMA public TO rd_owner'; END$function$;
+ALTER FUNCTION rd_schema_migration_api.grant_additive_table_create_v1() OWNER TO rd_database_owner;
+REVOKE ALL ON FUNCTION rd_schema_migration_api.grant_additive_table_create_v1() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION rd_schema_migration_api.grant_additive_table_create_v1() TO rd_schema_migrator;
+CREATE OR REPLACE FUNCTION rd_schema_migration_api.revoke_additive_table_create_v1()
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp
+AS $function$BEGIN EXECUTE 'REVOKE CREATE ON SCHEMA public FROM rd_owner'; END$function$;
+ALTER FUNCTION rd_schema_migration_api.revoke_additive_table_create_v1() OWNER TO rd_database_owner;
+REVOKE ALL ON FUNCTION rd_schema_migration_api.revoke_additive_table_create_v1() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION rd_schema_migration_api.revoke_additive_table_create_v1() TO rd_schema_migrator;
 CREATE SCHEMA IF NOT EXISTS product_edge_api AUTHORIZATION product_edge_owner;
 ALTER SCHEMA product_edge_api OWNER TO product_edge_owner;
 REVOKE ALL ON SCHEMA product_edge_api FROM PUBLIC, operator_authorization_writer, portfolio_owner, backtest_owner;
