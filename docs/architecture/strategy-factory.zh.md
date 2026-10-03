@@ -1191,7 +1191,9 @@ receipt、terms digest、费率与保证金。再次解析 terms 的消费方必
 新的 terms fact，而不是新的 Catalog 版本。不钉 terms 的 schema 1，或钉了 terms 的 schema 2，都以
 `InstrumentTermsPinningMismatch` 拒绝。不钉品种并不放宽 venue：配置未指名的 venue 上的 terms 在 provenance
 存在前就被拒绝，成员位于其他 venue 时 Instrument Owner 什么也解析不出。account scope 是 Owner 为每个成员都持有的
-唯一完整 scope；schema 2 不钉费率档位。
+唯一完整 scope；schema 2 不钉费率档位。terms 用带 venue 的 canonical identity 指名品种（`LINKUSDT-PERP.BINANCE`）：
+Instrument Owner 按这个 identity 解析一次 Replay 的成员 terms，原生 materialization 拿它与 public fact 的 canonical
+identity 比对，并把它解析为原生 instrument id，其 venue 必须是配置里的 venue。不带 venue 的 symbol 不指名任何品种。
 
 原生 engine materialization 保持 `UNAVAILABLE`。V1 只把 liquidation 表示为 disabled，不携带 numeric ratio；
 adapter 必须另行证明原生 float-only inactive liquidation field 不会被读取，或在 policy meaning 之外绑定
@@ -1374,7 +1376,8 @@ Research scope 是成员集的唯一来源（P0）。一到两个成员的界变
   的 catalog 行；这一类运算豁免『一个精确表达式、最后只舍入一次』。」V5 增加两条定槽状态规则：一个定桶数组，以及最近 N 个事件的
   记忆，每个槽存一组冻结的值。把 Bollinger 方差写成
   `Mean(x²) − Mean(x)²` 时必须用 `Select` 守住被开方数，因为两项各自舍入。
-- **输入：** 资金费率与持仓量扩展既有的 Binance futures PIT 源，追加两个行字段与字段语义（N1）。Binance 公开归档
+- **输入：** 资金费率与持仓量扩展既有的 Binance futures PIT 源，追加行字段与字段语义（N1）。已结算的 funding 行已经就位
+  （见 Market Data 的「Binance 永续已结算 funding 行」）；持仓量的行与 Design 可以引用的字段语义还没有。Binance 公开归档
   有标记价、指数价、溢价指数 K 线、metrics、盘口深度与资金费率的历史。强平没有已准入的历史源 - USDⓈ-M 归档没有，
   币本位 `BTCUSD_PERP` 快照止于 2024-10-14 - 所以要它的 Design 以 `INPUT_FACT_UNAVAILABLE_FROM_ADMITTED_SOURCE` 拒绝，今天没有
   任何字段词表能让 Design 走到这里。

@@ -18,7 +18,7 @@ use std::{collections::BTreeMap, sync::Arc};
 use vibe_binance::{
     common::enums::{BinanceEnvironment, BinanceProductType},
     futures::http::client::BinanceFuturesHttpClient,
-    futures_pit_observation_source_v1::BinanceFuturesBarObservationSourceV1,
+    futures_pit_observation_source_v1::BinanceFuturesObservationSourceV1,
     pit_observation_source_v1::BinanceSpotBarObservationSourceV1,
     spot::http::client::BinanceSpotHttpClient,
 };
@@ -135,6 +135,9 @@ struct Product {
     /// directly would hand a second product on the same surface the first one's symbols and
     /// interval - silently, and with every assertion below still passing.
     observations: fn(&'static Self, String) -> Arc<dyn PitObservationSourceV1>,
+    /// The funding rows the Data Client states beside each member's bar: a rate and its
+    /// settlement instant on a perpetual, nothing on a spot pair, which never settles funding.
+    funding_rows: usize,
 }
 
 /// The spot pair, read from the venue's public-data mirror.
@@ -161,6 +164,7 @@ static SPOT: Product = Product {
     price_meaning: "decimal-string/usdt",
     digest_tag: 0x01,
     observations: spot_observations,
+    funding_rows: 0,
 };
 
 /// The USD-M linear perpetual, read from the venue's futures host.
@@ -193,6 +197,7 @@ static PERPETUAL: Product = Product {
     price_meaning: "decimal-string/usdt",
     digest_tag: 0x02,
     observations: futures_observations,
+    funding_rows: 2,
 };
 
 /// The host this run will actually call: the product's own, unless the environment names another.
@@ -244,6 +249,7 @@ static PERPETUAL_DAILY: Product = Product {
     price_meaning: "decimal-string/usdc",
     digest_tag: 0x03,
     observations: futures_observations,
+    funding_rows: 2,
 };
 
 fn spot_observations(
@@ -286,7 +292,7 @@ fn futures_observations(
     )
     .expect("the keyless USD-M client builds");
     Arc::new(
-        BinanceFuturesBarObservationSourceV1::new(client, symbols(product), product.interval)
+        BinanceFuturesObservationSourceV1::new(client, symbols(product), product.interval)
             .expect("the Data Client accepts the member mapping"),
     )
 }
@@ -511,20 +517,48 @@ async fn admit(product: &'static Product) -> Admitted {
         .expect("the venue answers the admitted member's scope");
     assert_eq!(
         rows.len(),
-        4,
-        "one closed bar states an open, a high, a low and a close"
+        4 + product.funding_rows,
+        "one closed bar states an open, a high, a low and a close, and a perpetual its funding"
     );
 
     for row in &rows {
         assert_eq!(row.member_key, product.member);
+        // Funding is a settlement, not part of the bar: it is stated at an instant rather than
+        // under the timeframe the member's bars were admitted at.
+        let timeframe = if row.data_kind == "SCALAR" {
+            "TICK"
+        } else {
+            product.timeframe
+        };
         assert_eq!(
-            row.timeframe, product.timeframe,
-            "the observation carries the timeframe this member was admitted under"
+            row.timeframe, timeframe,
+            "a bar row carries the timeframe this member was admitted under"
         );
         assert_eq!(
             row.symbolic_key,
-            format!("{}.{}.{}", product.member, row.field, product.timeframe),
-            "the symbolic key is the member, the field and the admitted timeframe"
+            format!("{}.{}.{timeframe}", product.member, row.field),
+            "the symbolic key is the member, the field and the row's timeframe"
+        );
+    }
+    let funding = rows
+        .iter()
+        .filter(|row| row.data_kind == "SCALAR")
+        .map(|row| row.field.as_str())
+        .collect::<Vec<_>>();
+    let expected_funding: &[&str] = if product.funding_rows == 0 {
+        &[]
+    } else {
+        &["FUNDING_RATE", "FUNDING_TIME"]
+    };
+    assert_eq!(
+        funding, expected_funding,
+        "the funding fields, in key order"
+    );
+
+    if let Some(settled) = rows.iter().find(|row| row.field == "FUNDING_TIME") {
+        assert!(
+            u64::try_from(settled.value_mantissa).is_ok_and(|at| at <= effective_ns),
+            "the settlement stated is one already made at the coordinate"
         );
     }
     let intake = pit_market_snapshot_intake_from_environment_v1(observations)

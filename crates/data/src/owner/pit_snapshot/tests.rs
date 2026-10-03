@@ -1342,6 +1342,53 @@ fn untrusted_observation(row: &VerifiedPitObservation) -> UntrustedPitObservatio
 }
 
 #[rstest]
+fn a_settled_funding_row_is_a_canonical_observation_and_an_unadmitted_field_is_not() {
+    // The Binance perpetual Data Client states a settlement as two SCALAR rows at TICK. Both must
+    // survive the canonical round trip every batch takes before it is digested, and the field
+    // vocabulary must stay closed: a field nobody admitted is refused, not carried.
+    let (_, bar, _, _) = observation_batch_fixture();
+
+    for (field, value_mantissa, value_scale) in [
+        ("FUNDING_RATE", 6_972, 8),
+        ("FUNDING_TIME", 1_790_985_600_000_000_000, 0),
+    ] {
+        let row = VerifiedPitObservation {
+            symbolic_key: format!("BTCUSDT-PERP.BINANCE.{field}.TICK"),
+            member_key: "BTCUSDT-PERP.BINANCE".to_owned(),
+            instrument: "BTCUSDT-PERP.BINANCE".to_owned(),
+            data_kind: "SCALAR".to_owned(),
+            timeframe: "TICK".to_owned(),
+            field: field.to_owned(),
+            value_mantissa,
+            value_scale,
+            ..bar.clone()
+        };
+        let row_bytes = canonical_observation_bytes(&row);
+        assert_eq!(
+            decode_canonical_observation_batch(
+                &canonical_batch_bytes(std::slice::from_ref(&row)),
+                std::slice::from_ref(&row_bytes),
+            ),
+            Ok(vec![row.clone()]),
+            "{field} is an admitted observation field"
+        );
+
+        let unadmitted = VerifiedPitObservation {
+            field: "FUNDING_INTERVAL".to_owned(),
+            ..row
+        };
+        assert_eq!(
+            decode_canonical_observation_batch(
+                &canonical_batch_bytes(std::slice::from_ref(&unadmitted)),
+                &[canonical_observation_bytes(&unadmitted)],
+            ),
+            Err(PitSnapshotError::InvalidObservationBatch),
+            "the control: a field outside the vocabulary is refused"
+        );
+    }
+}
+
+#[rstest]
 fn explicit_untrusted_batch_is_prepared_only_when_complete_owner_claims_match() {
     let (aggregate, row, batch_bytes, _) = observation_batch_fixture();
     let snapshot = UntrustedPitSnapshotProposal {

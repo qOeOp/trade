@@ -262,6 +262,7 @@ never runs in CI.
 | Shared Time clock‑head handoff                            | `TARGET`                                                                                            | `owner/shared_time_evidence.rs`                                                                                                                                                                                                          | `B3`       |
 | Vendor Data Clients                                       | `CURRENT / PARTIAL`                                                                                 | `crates/adapters/databento/src/pit_observation_source_v1.rs` and `crates/adapters/binance/src/pit_observation_source_v1.rs`, both live‑verified                                                                                          | `B6`       |
 | Live market fact channel to Runtime                       | `CURRENT / PARTIAL`, one channel                                                                    | `owner/live_market_fact_v1.rs`, `owner/live_market_stream_v1.rs`, `owner/postgres/live_market_stream_v1.rs`, `crates/adapters/bybit/src/live_market_fact_source_v1.rs`                                                                   | `B8`       |
+| Binance perpetual settled funding rows                    | `CURRENT / PARTIAL`                                                                                 | `crates/adapters/binance/src/futures_pit_observation_source_v1.rs`                                                                                                                                                                       | `B6`       |
 
 ## Authoritative facts owned
 
@@ -2872,6 +2873,33 @@ BFP executable maturity, Backtest product closure including inverse or quanto ta
 Dashboard/default-database admission, or trading authority. These Backtest limitations do not create a Market Data
 instrument-class rejection.
 
+### CURRENT/PARTIAL Binance perpetual settled funding rows
+
+The Binance USD-M perpetual Data Client in `crates/adapters/binance/src/futures_pit_observation_source_v1.rs`
+answers a scope with each member's last closed bar and, beside it, the member's last settled funding. Funding is two
+rows on channel `MARKET`, data kind `SCALAR` and timeframe `TICK`: field `FUNDING_RATE` is the venue's decimal as
+published, and field `FUNDING_TIME` is the settlement instant in nanoseconds. Both come from the unsigned public
+`fundingRate` endpoint, asked for the last two settlements at or before the scope's event-effective coordinate, so a
+settlement at exactly that coordinate is included and one a millisecond later is not.
+
+- **Knowable at settlement.** A settled rate is knowable at its own settlement instant. The public archive's
+  `calc_time` and the endpoint's `fundingTime` are equal, and so are the rates, for all 93 BTCUSDT settlements of
+  2024-01.
+- **Absence is the absence of rows, never a value.** Before a member's first settlement, and once the settlement that
+  the last two imply is overdue at the coordinate, the member has no funding rows, and the client never states a zero
+  rate in their place. A consumer that needs funding refuses on the missing field. An endpoint that cannot be reached
+  or refuses the call, a rate that is not a decimal, and a settlement after the coordinate each refuse the whole
+  retrieval by its bounded category.
+- **No credential.** The client refuses to be built over an HTTP client that holds a credential, and its requests
+  carry no `X-MBX-APIKEY` header and no `signature` parameter.
+- **Status.** The client is the one `MARKET_DATA_OBSERVATION_SOURCE=binance-perpetual` composes, so a deployment
+  that names it commits funding rows today; no consumer reads them yet. Unit tests in that file drive it against a
+  local stand-in for the venue, and the credential-free Market Data end-to-end proof asserts the rows on the live
+  endpoint.
+- **Not stated.** The settlement interval is not a row: the endpoint does not state it, so the timeframe is `TICK`
+  rather than a guessed interval. The live estimate from `premiumIndex`, funding accrual in a Replay, and a funding
+  field semantic a Design can name are separate slices.
+
 ## Input handoffs
 
 - Data vendors and trading venues provide raw market and reference records through Data Clients, and every time
@@ -2935,6 +2963,39 @@ instrument-class rejection.
   window of a few hundred coordinates is cheap, a long minute-resolution history is not reachable by this path at
   all, and **a store that is never reset makes every later snapshot slower for every writer**, so accumulating
   snapshots in a shared chain database spends a budget that never returns.
+  **Measured again on 2026-10-03, and the cause located.** The run was 256 consecutive daily `BTCUSDC-PERP.BINANCE`
+  coordinates on main 85c4237d2, against a disposable store with `pg_stat_statements`.
+  - **Per-commit cost.** The cheapest commit in each block of 16 rose from 138 ms to 1241 ms. That is about 4.5 ms
+    for every lineage already in the store, so the cost is linear per commit and quadratic in total.
+  - **Where it goes.** 632,102 statements ran. The top four by time are the per-lineage history checks, each called
+    97,920 times, which is 256 squared over two times three. Server execution was 79 s of the 258 s commit time; the
+    rest is round trips and decoding each fact in Rust, which an index cannot remove.
+  - **What triggers it.** `validate_owner_history_custody` runs about three times per commit: clock admission, clock
+    materialization, and the read validation that eight read paths share. Each run re-decodes every PIT lineage.
+  - **Projection.** At that slope, about 5,500 daily snapshots would end with a 25 s commit and about 19 hours in
+    total, and every read would slow the same way.
+
+  **TARGET - per-lineage history custody.** The check moves to where each lineage is written and read. It is not
+  removed.
+  - **On commit:** the lineage being written. Its new fact, and its link to the previous head (predecessor digest
+    and next version), are validated in the committing transaction.
+  - **On read:** the lineage being read. A PIT snapshot or Research PIT terminal read validates the one lineage it
+    returns.
+  - **The census check stays global.** It is one set-level statement (0.46 s over all 774 calls above). Source
+    Binding lineages stay walked whole, because there are few of them (0.21 s over 772 calls).
+  - **History cannot be rewritten.** PIT snapshot facts, observation batches, observation rows and the outbox get
+    append-only triggers, written the way `native_replay_frame_sequences_are_append_only` is. A rewrite through the
+    Owner's own connection is then refused by name rather than detected at a later commit.
+  - **Migration keeps one full walk** as the audit entry point.
+  - **What changes.** Today a damaged lineage stops every commit and read in the store. After this, it stops the
+    consumer that reaches it, which is what "fails closed for the dependent consumer" under Failure and recovery
+    states.
+  - **Acceptance:**
+    - the same sweep must be linear in N;
+    - a rewrite of a committed PIT fact through the Owner connection must be refused by the trigger.
+  - **Scope.** The tests that rewrite PIT rows to prove detection (15 sites in `postgres/tests.rs` and one each in
+    `store_admission/mod.rs` and `bar_schedule_acceptance_v1_tests.rs`) move to the trigger's refusal or to an
+    explicitly trigger-disabled admin session.
 - To [Scanner](./scanner/): the exact PIT Market Snapshot requested by published activation conditions.
 - To [Runtime](./runtime/): live market streams and instrument updates carrying the same Market Semantics
   Compatibility identity consumed by the generation's Strategy Artifact and historical evidence.

@@ -207,6 +207,7 @@ ACL 拒绝。它不证明供应商真实性，不证明生产装配，也不证�
 | Shared Time clock‑head 交接                       | `TARGET`                                                                           | `owner/shared_time_evidence.rs`                                                                                                                                                                                 | `B3`       |
 | 供应商 Data Clients                               | `CURRENT / PARTIAL`                                                                | `crates/adapters/databento/src/pit_observation_source_v1.rs` 与 `crates/adapters/binance/src/pit_observation_source_v1.rs`，均已实盘验证                                                                        | `B6`       |
 | 面向 Runtime 的实时行情事实通道                   | `CURRENT / PARTIAL`，一条通道                                                      | `owner/live_market_fact_v1.rs`、`owner/live_market_stream_v1.rs`、`owner/postgres/live_market_stream_v1.rs`、`crates/adapters/bybit/src/live_market_fact_source_v1.rs`                                          | `B8`       |
+| Binance 永续已结算 funding 行                     | `CURRENT / PARTIAL`                                                                | `crates/adapters/binance/src/futures_pit_observation_source_v1.rs`                                                                                                                                              | `B6`       |
 
 ## 拥有的权威事实
 
@@ -2492,6 +2493,27 @@ executable maturity、Backtest 产品闭合（包括 inverse/quanto target-consu
 Dashboard/default-database 准入或 trading authority。这些 Backtest 限制不创建 Market Data instrument-class
 rejection。
 
+### CURRENT/PARTIAL Binance 永续已结算 funding 行
+
+`crates/adapters/binance/src/futures_pit_observation_source_v1.rs` 中的 Binance USD-M 永续 Data Client 回答一个
+scope 时，给出每个成员最后一根已收盘的 bar，并在旁边给出该成员最后一次已结算的 funding。funding 是两行，channel
+为 `MARKET`、data kind 为 `SCALAR`、timeframe 为 `TICK`：字段 `FUNDING_RATE` 是交易所发布的原样十进制数，字段
+`FUNDING_TIME` 是以纳秒计的结算时刻。两者都来自无签名的公开 `fundingRate` 端点，取 scope 的 event-effective 坐标
+当时或之前的最后两次结算，所以恰在该坐标的结算被包含，晚一毫秒的不被包含。
+
+- **在结算时刻可知。** 已结算费率在它自己的结算时刻可知。公开归档的 `calc_time` 与端点的 `fundingTime` 相等，费率也相等，
+  2024-01 的 93 次 BTCUSDT 结算全部如此。
+- **缺席就是没有行，绝不是一个值。** 成员第一次结算之前，以及最后两次结算所推出的下一次结算在该坐标已经逾期时，该成员没有
+  funding 行，client 也绝不以零费率代替。需要 funding 的消费方因缺这个字段而拒绝。端点不可达或拒绝调用、费率不是十进制数、
+  结算时刻晚于坐标，这三种情况各自按有界类别拒绝整次检索。
+- **不用凭据。** client 拒绝建立在持有凭据的 HTTP client 之上，它的请求不带 `X-MBX-APIKEY` header，也不带
+  `signature` 参数。
+- **状态。** 这个 client 就是 `MARKET_DATA_OBSERVATION_SOURCE=binance-perpetual` 组装的那一个，所以指定它的部署今天就会提交
+  funding 行；还没有消费方读取它们。该文件中的单元测试用一个本地的交易所替身驱动它，无凭据的 Market Data 端到端证明在实时端点上
+  断言这些行。
+- **不陈述的内容。** 结算间隔不是一行：端点不陈述它，所以 timeframe 是 `TICK`，而不是猜出来的间隔。来自
+  `premiumIndex` 的实时估计、Replay 中的 funding 计提，以及 Design 可以引用的 funding 字段语义，是各自独立的切片。
+
 ## 输入交接
 
 - 数据商和交易场所通过 Data Clients 提供原始行情和参考记录，而每一个时间坐标都归属于陈述它的那个时钟，不是
@@ -2542,6 +2564,31 @@ rejection。
   见证探针，而且换了标的与周期，所以它佐证的是量级，没有在受控的点上检验这条曲线。实际后果是：几百个
   坐标的有界窗口很便宜；长跨度的分钟级历史这条路径根本到不了；而且**一个从不重置的库会让此后每一个快照
   对每一个写入者都更慢**，所以在共享链路库里累积快照，花的是一笔不会回来的预算。
+  **2026-10-03 重新测量，并定位了原因。** 在 main 85c4237d2 上，对开启 `pg_stat_statements` 的一次性库，跑 256 个连续的
+  `BTCUSDC-PERP.BINANCE` 日线坐标。
+  - **单次提交成本。** 每 16 次提交中最便宜的一次从 138 ms 升到 1241 ms，即库里已有的每一条 lineage 约 4.5 ms：单次提交线性，
+    总量二次。
+  - **花在哪里。** 共 632,102 条语句；耗时前四名都是逐 lineage 的历史校验，各调用 97,920 次，即 256 的平方的一半再乘以三。
+    258 秒提交时间里服务端执行占 79 秒，其余是往返与在 Rust 中解码每个事实，这不是索引能去掉的。
+  - **触发点。** `validate_owner_history_custody` 每次提交约运行三次：clock 准入、clock 物化，以及八条读路径共用的读校验。
+    每次运行都重新解码每一条 PIT lineage。
+  - **外推。** 按这个斜率，约 5,500 个日线快照的最后一次提交约需 25 秒，总共约 19 小时，而且每一次读取也会同样变慢。
+
+  **TARGET - 逐 lineage 的历史 custody。** 校验移到每条 lineage 被写入与被读取的地方，而不是被移除。
+  - **提交时：** 正在写入的那条 lineage。它的新事实，以及它到前一个 head 的链接（前驱摘要与下一个版本号），在提交事务中校验。
+  - **读取时：** 正在读取的那条 lineage。PIT 快照或 Research PIT terminal 的读取校验它返回的那一条 lineage。
+  - **census 校验保持全局。** 它是一条集合级语句（上面全部 774 次调用共 0.46 秒）。Source Binding 的 lineage 仍然整体遍历，
+    因为数量很少（772 次调用共 0.21 秒）。
+  - **历史不可改写。** PIT 快照事实、observation batch、observation row 与 outbox 加只追加触发器，写法与
+    `native_replay_frame_sequences_are_append_only` 相同。经 Owner 自己的连接改写会被按名拒绝，而不是等到之后某次提交才被发现。
+  - **迁移保留一次完整遍历**，作为审计入口。
+  - **变化之处。** 今天一条损坏的 lineage 会让库里所有提交与读取停下；此后它只让碰到它的消费方停下，这正是「失败与恢复」中
+    「对依赖它的消费方 fail closed」的表述。
+  - **验收：**
+    - 同一条 sweep 必须对 N 线性；
+    - 经 Owner 连接改写一个已提交的 PIT 事实，必须被触发器拒绝。
+  - **范围。** 那些改写 PIT 行来证明检测的测试（`postgres/tests.rs` 中 15 处，`store_admission/mod.rs` 与
+    `bar_schedule_acceptance_v1_tests.rs` 各一处）改为断言触发器的拒绝，或在显式关闭触发器的 admin 会话中进行。
 - 向 [Scanner](./scanner/) 提供已发布激活条件请求的准确 PIT Market Snapshot。
 - 向 [Runtime](./runtime/) 提供携带同一 Market Semantics Compatibility 身份的实时行情流和标的更新；
   generation 的 Strategy Artifact 与历史证据必须消费该身份。
