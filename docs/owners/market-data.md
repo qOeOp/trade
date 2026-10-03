@@ -2657,7 +2657,7 @@ derived view are not built yet.
 canonical form, refusing a nonzero scale whose mantissa ends in 0 (`decode_observation`,
 `crates/data/src/owner/pit_snapshot/authority.rs` line 1613). The scale therefore varies with the value's last digit,
 and one instrument and field splits into a new series on every bar whose last digit is 0. Custody is fixed by the
-Instrument Master precision rule above. The snapshot path keeps its bytes and is left for a separate later slice:
+Instrument Master precision rule above. The snapshot path keeps its bytes and is left for a separate slice after U1:
 today's snapshot consumers each read one frame, so no series continuity depends on it yet.
 
 Built so far (T0-4b): the window schedule fact. A root custody's commit mints one `PitWindowScheduleFactV1` per member

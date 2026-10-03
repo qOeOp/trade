@@ -2289,7 +2289,7 @@ Backtest 的组合与 Market Data 之外的每个读者也属于 T1；T2（多�
 （`series_projection_bytes`，`crates/data/src/owner/sample_fact.rs` 第 1263 行），而 PIT batch 以规范形式存储每个值，拒绝
 尾数以 0 结尾的非零 scale（`decode_observation`，`crates/data/src/owner/pit_snapshot/authority.rs` 第 1613 行）。于是 scale
 随值的末位数字变化，同一标的同一字段在每个末位为 0 的 bar 上都会分裂出新序列。托管已由上面的 Instrument Master 精度规则
-修好。快照路径保留其字节，留给以后单独的切片：今天的快照消费方各自只读一帧，所以还没有序列连续性依赖它。
+修好。快照路径保留其字节，留给排在 U1 之后的单独切片：今天的快照消费方各自只读一帧，所以还没有序列连续性依赖它。
 
 目前已建成（T0-4b）：窗口 schedule fact。根托管的提交在同一个事务内、在所有拒绝之后，为每个成员的执行周期铸一个
 `PitWindowScheduleFactV1`：成员的周期 identity 与声明形状、间隔及其相位（从 Unix 纪元起的网格相位为零）、托管的窗口、
