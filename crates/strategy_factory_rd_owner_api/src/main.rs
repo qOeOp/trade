@@ -39,6 +39,9 @@ use vibe_data::owner::{
     research_pit_terminal_resolver_from_store_admission_lookup,
 };
 use vibe_data::owner::{
+    instrument_economic_terms_intake_v1::{
+        InstrumentEconomicTermsAdmissionV1, instrument_economic_terms_admission_from_environment_v1,
+    },
     instrument_master_admission_v1::{
         InstrumentMasterAdmissionV1, instrument_master_admission_from_environment_v1,
     },
@@ -105,12 +108,10 @@ use vibe_strategy_factory::{
     develop_composer_operation_v2::DevelopComposerOperationResponseV2,
     develop_composer_sealed_acceptance_v2::default_unavailable_response,
     product_edge::{
-        ProductEdgeChannel, ProductEdgeResearchGoalRequestV2, RESEARCH_GOAL_OPERATION_V2,
-        RESEARCH_GOAL_SCHEMA_V2, RESEARCH_OWNER_V1, ResearchDirectoryCursorV1,
+        ProductEdgeChannel, RESEARCH_OWNER_V1, ResearchDirectoryCursorV1,
         ResearchDirectoryOwnerPort, ResearchGoalOwnerError, ResearchGoalOwnerPortV2,
-        ResearchReadbackOwnerPortV1, SourcedResearchGoalV2, TrialFamilyProposalV1,
-        identity_conflict_result, identity_conflict_result_v2, rejected_result, unresolved_result,
-        unresolved_result_v2,
+        ResearchReadbackOwnerPortV1, identity_conflict_result, identity_conflict_result_v2,
+        rejected_result, unresolved_result, unresolved_result_v2,
     },
     product_edge_postgres::research_initial_pit::MarketDataInitialPitPortsV1,
     product_edge_postgres::{PostgresResearchGoalOwnerV1, ResearchRequestIdentityPreflightV1},
@@ -212,6 +213,12 @@ mod bounded_feature_program;
 #[cfg(all(test, feature = "sealed-source-intake-acceptance"))]
 mod dashboard_run_routing_acceptance;
 mod exploratory_replay;
+#[cfg(all(test, feature = "sealed-source-intake-composer-acceptance"))]
+mod first_composer_v3_replay_acceptance;
+#[cfg(all(test, feature = "sealed-source-intake-composer-acceptance"))]
+mod first_composer_v3_replay_body_acceptance;
+#[cfg(all(test, feature = "sealed-source-intake-composer-acceptance"))]
+mod first_composer_v3_replay_oracle;
 mod iteration_analysis;
 mod iteration_decision;
 mod iteration_result_admission;
@@ -222,6 +229,14 @@ mod market_data_pit;
 mod market_data_repair;
 #[cfg(all(test, feature = "sealed-develop-composer-acceptance"))]
 mod native_replay_scheduling_acceptance;
+mod research_goal_submission;
+#[cfg(test)]
+use research_goal_submission::ProductEdgeOperationRequestV2;
+#[cfg(test)]
+use vibe_strategy_factory::product_edge::{
+    ProductEdgeResearchGoalRequestV2, RESEARCH_GOAL_OPERATION_V2, RESEARCH_GOAL_SCHEMA_V2,
+    SourcedResearchGoalV2, TrialFamilyProposalV1,
+};
 mod research_initial_pit;
 #[cfg(test)]
 mod research_initial_pit_postgres_tests;
@@ -265,13 +280,19 @@ struct ApiState {
     replay_composition: Option<Arc<ReplayCompositionOwnerV1>>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-struct ProductEdgeOperationRequestV2 {
-    request_identity: String,
-    channel: ProductEdgeChannel,
-    goal: SourcedResearchGoalV2,
-    trial_family_proposal: TrialFamilyProposalV1,
+impl ApiState {
+    /// The Research submission routes' own state, which needs only these five of the API's.
+    fn research_goal_submission(
+        &self,
+    ) -> research_goal_submission::ResearchGoalSubmissionApiStateV1 {
+        research_goal_submission::ResearchGoalSubmissionApiStateV1 {
+            product_edge: self.product_edge.clone(),
+            owner: self.owner.clone(),
+            token_digest: self.token_digest,
+            request_proof_digest: self.request_proof_digest.clone(),
+            allow_acceptance_faults: self.allow_acceptance_faults,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -420,6 +441,8 @@ async fn run() -> anyhow::Result<()> {
         bootstrap_market_data_instrument_master_admission().await?;
     let market_data_instrument_master_admission_v2 =
         bootstrap_market_data_instrument_master_admission_v2().await?;
+    let instrument_economic_terms_admission =
+        bootstrap_instrument_economic_terms_admission().await?;
     let market_data_market_semantics_admission =
         bootstrap_market_data_market_semantics_admission().await?;
     #[cfg(feature = "composer-replay-issuance")]
@@ -610,6 +633,90 @@ async fn run() -> anyhow::Result<()> {
         request_proof_digest.clone(),
     )
     .await?;
+    let research_goal_submission = state.research_goal_submission();
+    let app = owner_state_routes();
+    let app = app
+        .with_state(state)
+        .merge(source_intake)
+        .merge(exploratory_replay::result_router(
+            owner.clone(),
+            token_digest,
+        ))
+        .merge(iteration_analysis::router(
+            product_edge.clone(),
+            owner.clone(),
+            token_digest,
+            request_proof_digest.clone(),
+        ))
+        .merge(iteration_decision::router(
+            product_edge.clone(),
+            owner.clone(),
+            token_digest,
+            request_proof_digest.clone(),
+        ))
+        .merge(bounded_feature_program::router(
+            bounded_feature_program_owner,
+            token_digest,
+        ))
+        .merge(iteration_result_admission::router(
+            product_edge.clone(),
+            owner.clone(),
+            token_digest,
+            request_proof_digest.clone(),
+        ))
+        .merge(research_goal_submission::router(research_goal_submission))
+        // The issuance holds the same two Market Data ports its routes serve, not a second pair.
+        .merge(research_initial_pit::router(
+            owner.clone(),
+            market_data_universe_selection
+                .clone()
+                .zip(market_data_pit_intake.clone())
+                .map(|(universe, intake)| MarketDataInitialPitPortsV1::new(universe, intake)),
+            token_digest,
+        ))
+        .merge(source_intake_research::router(
+            product_edge,
+            owner,
+            token_digest,
+            request_proof_digest,
+            allow_acceptance_faults,
+        ))
+        // Market Data answers for itself on the default feature set: these routes ship in the
+        // deployed binary rather than behind an acceptance feature.
+        .merge(market_data_pit::router(
+            market_data_pit::MarketDataAdmissions {
+                intake: market_data_pit_intake,
+                admission: market_data_source_binding_admission,
+                universe: market_data_universe_selection,
+                bindings: market_data_strategy_input_bindings,
+                instruments: market_data_instrument_master_admission,
+                instruments_v2: market_data_instrument_master_admission_v2,
+                semantics: market_data_market_semantics_admission,
+                economic_terms: instrument_economic_terms_admission,
+            },
+            token_digest,
+        ));
+    #[cfg(feature = "native-replay-execution")]
+    let app = app.merge(exploratory_replay::execution_router(
+        native_replay_execution,
+        token_digest,
+    ));
+    // The Market Data repair loop is a separate surface with its own admission; keeping its merge
+    // in its own statement is what lets the Native Replay route lose its gate on its own.
+    #[cfg(feature = "native-replay-execution")]
+    let app = app.merge(market_data_repair);
+    let address = env_or("RD_OWNER_LISTEN", "0.0.0.0:8080");
+    let listener = TcpListener::bind(&address).await?;
+    tracing::info!(listen = %address, "R&D Owner API ready");
+    axum::serve(listener, app).await?;
+    Ok(())
+}
+
+/// The routes served from the Owner API's shared state, exactly as `main` mounts them.
+///
+/// The ordered chain mounts this same table over the state it composes, so an entry that drives
+/// one of these routes reaches the production path, handler and extractors rather than a copy of them.
+fn owner_state_routes() -> Router<ApiState> {
     let app = Router::new()
         .route("/health", get(health))
         .route("/v1/research-goals/directory", get(read_research_directory))
@@ -622,7 +729,6 @@ async fn run() -> anyhow::Result<()> {
             "/v1/research-goals/{request_identity}/resolve",
             post(resolve),
         )
-        .route("/v2/research-goals", post(submit_v2))
         .route(
             "/v2/research-goals/{request_identity}/resolve",
             post(resolve_v2),
@@ -732,79 +838,7 @@ async fn run() -> anyhow::Result<()> {
             "/_sealed-acceptance/v1/develop-composer/runs/{request_identity}/resolve",
             post(resolve_develop_composer_with_acceptance_tamper),
         );
-    let app = app
-        .with_state(state)
-        .merge(source_intake)
-        .merge(exploratory_replay::result_router(
-            owner.clone(),
-            token_digest,
-        ))
-        .merge(iteration_analysis::router(
-            product_edge.clone(),
-            owner.clone(),
-            token_digest,
-            request_proof_digest.clone(),
-        ))
-        .merge(iteration_decision::router(
-            product_edge.clone(),
-            owner.clone(),
-            token_digest,
-            request_proof_digest.clone(),
-        ))
-        .merge(bounded_feature_program::router(
-            bounded_feature_program_owner,
-            token_digest,
-        ))
-        .merge(iteration_result_admission::router(
-            product_edge.clone(),
-            owner.clone(),
-            token_digest,
-            request_proof_digest.clone(),
-        ))
-        // The issuance holds the same two Market Data ports its routes serve, not a second pair.
-        .merge(research_initial_pit::router(
-            owner.clone(),
-            market_data_universe_selection
-                .clone()
-                .zip(market_data_pit_intake.clone())
-                .map(|(universe, intake)| MarketDataInitialPitPortsV1::new(universe, intake)),
-            token_digest,
-        ))
-        .merge(source_intake_research::router(
-            product_edge,
-            owner,
-            token_digest,
-            request_proof_digest,
-            allow_acceptance_faults,
-        ))
-        // Market Data answers for itself on the default feature set: these routes ship in the
-        // deployed binary rather than behind an acceptance feature.
-        .merge(market_data_pit::router(
-            market_data_pit::MarketDataAdmissions {
-                intake: market_data_pit_intake,
-                admission: market_data_source_binding_admission,
-                universe: market_data_universe_selection,
-                bindings: market_data_strategy_input_bindings,
-                instruments: market_data_instrument_master_admission,
-                instruments_v2: market_data_instrument_master_admission_v2,
-                semantics: market_data_market_semantics_admission,
-            },
-            token_digest,
-        ));
-    #[cfg(feature = "native-replay-execution")]
-    let app = app.merge(exploratory_replay::execution_router(
-        native_replay_execution,
-        token_digest,
-    ));
-    // The Market Data repair loop is a separate surface with its own admission; keeping its merge
-    // in its own statement is what lets the Native Replay route lose its gate on its own.
-    #[cfg(feature = "native-replay-execution")]
-    let app = app.merge(market_data_repair);
-    let address = env_or("RD_OWNER_LISTEN", "0.0.0.0:8080");
-    let listener = TcpListener::bind(&address).await?;
-    tracing::info!(listen = %address, "R&D Owner API ready");
-    axum::serve(listener, app).await?;
-    Ok(())
+    app
 }
 
 fn schema_materialization_requested(arguments: &[String]) -> anyhow::Result<bool> {
@@ -1010,6 +1044,21 @@ async fn bootstrap_market_data_instrument_master_admission_v2()
     }
     Ok(Some(
         instrument_master_admission_from_environment_v2().await?,
+    ))
+}
+
+/// Composes the Instrument Owner economic-terms intake when both stores it reads and writes are
+/// configured: Market Data's, which holds the Instrument Master V2 fact and clock head the terms are
+/// derived from, and the Instrument Owner's, which holds the terms.
+async fn bootstrap_instrument_economic_terms_admission()
+-> anyhow::Result<Option<Arc<dyn InstrumentEconomicTermsAdmissionV1>>> {
+    if env::var("MARKET_DATA_OWNER_DATABASE_URL").is_err()
+        || env::var("INSTRUMENT_OWNER_DATABASE_URL").is_err()
+    {
+        return Ok(None);
+    }
+    Ok(Some(
+        instrument_economic_terms_admission_from_environment_v1().await?,
     ))
 }
 
@@ -1371,7 +1420,7 @@ async fn run_develop_composer(
                 let response = composer_operation_response(response);
 
                 if delay_after_commit {
-                    maybe_delay(&state, &headers).await;
+                    maybe_delay(state.allow_acceptance_faults, &headers).await;
                 }
                 response
             }
@@ -1793,65 +1842,6 @@ async fn resolve(
     }
 }
 
-async fn submit_v2(State(state): State<ApiState>, headers: HeaderMap, body: Bytes) -> Response {
-    if !authorized(&headers, &state.token_digest) {
-        return rejection_v2(
-            StatusCode::FORBIDDEN,
-            "UNAUTHORIZED_PRODUCT_EDGE",
-            "unbound",
-        );
-    }
-    let operation: ProductEdgeOperationRequestV2 = match serde_json::from_slice(&body) {
-        Ok(request) => request,
-        Err(_) => {
-            return rejection_v2(
-                StatusCode::BAD_REQUEST,
-                "MALFORMED_TYPED_REQUEST",
-                "unbound",
-            );
-        }
-    };
-    let request_identity = operation.request_identity.clone();
-
-    if let Some(refusal) = research_preflight_refusal(
-        state
-            .owner
-            .preflight_request_identity(&request_identity)
-            .await,
-        &request_identity,
-    ) {
-        return refusal;
-    }
-    let admission = match admit_product_edge_request(
-        &state,
-        &operation,
-        &request_identity,
-        RESEARCH_GOAL_OPERATION_V2,
-        RESEARCH_GOAL_SCHEMA_V2,
-        vec!["R_AND_D_RESEARCH_MUTATION_V1".to_string()],
-    )
-    .await
-    {
-        Ok(admission) => admission,
-        Err(e) => return product_edge_error(&e, &request_identity, true),
-    };
-    let request = ProductEdgeResearchGoalRequestV2 {
-        request_identity: operation.request_identity,
-        channel: operation.channel,
-        admission: admission.locator().clone(),
-        goal: operation.goal,
-        trial_family_proposal: operation.trial_family_proposal,
-        instrument_scope: None,
-    };
-    let request_identity = request.request_identity.clone();
-    let response = match state.owner.submit_v2(request).await {
-        Ok(result) => (StatusCode::OK, Json(result)).into_response(),
-        Err(e) => owner_error_v2(&e, &request_identity),
-    };
-    maybe_delay(&state, &headers).await;
-    response
-}
-
 async fn resolve_v2(
     State(state): State<ApiState>,
     Path(request_identity): Path<String>,
@@ -2052,7 +2042,7 @@ async fn submit_artifact_candidate(
         Ok(result) => artifact_result_response(&state, &admission, &attempt_identity, result).await,
         Err(e) => artifact_error(&e, &build_request_identity, &attempt_identity),
     };
-    maybe_delay(&state, &headers).await;
+    maybe_delay(state.allow_acceptance_faults, &headers).await;
     response
 }
 
@@ -2998,8 +2988,8 @@ fn authorized(headers: &HeaderMap, expected_digest: &[u8; 32]) -> bool {
         == 0
 }
 
-async fn maybe_delay(state: &ApiState, headers: &HeaderMap) {
-    if !state.allow_acceptance_faults {
+async fn maybe_delay(allow_acceptance_faults: bool, headers: &HeaderMap) {
+    if !allow_acceptance_faults {
         return;
     }
     let delay = headers
@@ -3012,30 +3002,6 @@ async fn maybe_delay(state: &ApiState, headers: &HeaderMap) {
     if delay > 0 {
         tokio::time::sleep(Duration::from_millis(delay)).await;
     }
-}
-
-async fn admit_product_edge_request<T: Serialize>(
-    state: &ApiState,
-    typed_payload: &T,
-    request_identity: &str,
-    operation: &str,
-    operation_schema: &str,
-    requested_effects: Vec<String>,
-) -> Result<ProductEdgeAdmissionReadbackV1, ProductEdgeError> {
-    state
-        .product_edge
-        .admit_request(ProductEdgeAdmissionRequestV1 {
-            request_identity: request_identity.to_string(),
-            typed_payload: serde_json::to_value(typed_payload)
-                .map_err(|e| ProductEdgeError::Storage(e.to_string()))?,
-            operation: operation.to_string(),
-            operation_schema: operation_schema.to_string(),
-            target_owner: RESEARCH_OWNER_V1.to_string(),
-            requested_effects,
-            request_proof_digest: state.request_proof_digest.clone(),
-            audit_correlation: format!("rd-workbench:{request_identity}"),
-        })
-        .await
 }
 
 fn product_edge_error(error: &ProductEdgeError, request_identity: &str, v2: bool) -> Response {
@@ -3855,8 +3821,8 @@ mod tests {
                 independence_rationale: "Fresh isolated strategy source family.".to_string(),
             },
         };
-        let research_response = Box::pin(submit_v2(
-            State(state.clone()),
+        let research_response = Box::pin(research_goal_submission::submit_v2(
+            State(state.research_goal_submission()),
             headers.clone(),
             Bytes::from(serde_json::to_vec(&research).unwrap()),
         ))
@@ -4323,8 +4289,8 @@ mod tests {
                 independence_rationale: "Fresh isolated API retry family.".to_string(),
             },
         };
-        let research_response = Box::pin(submit_v2(
-            State(state.clone()),
+        let research_response = Box::pin(research_goal_submission::submit_v2(
+            State(state.research_goal_submission()),
             headers.clone(),
             Bytes::from(serde_json::to_vec(&research).unwrap()),
         ))
@@ -5221,6 +5187,9 @@ mod tests {
                     semantics: bootstrap_market_data_market_semantics_admission()
                         .await
                         .unwrap(),
+                    economic_terms: bootstrap_instrument_economic_terms_admission()
+                        .await
+                        .unwrap(),
                 },
                 token_digest,
             ));
@@ -5669,6 +5638,9 @@ mod tests {
                     semantics: bootstrap_market_data_market_semantics_admission()
                         .await
                         .unwrap(),
+                    economic_terms: bootstrap_instrument_economic_terms_admission()
+                        .await
+                        .unwrap(),
                 },
                 token_digest,
             ));
@@ -5871,7 +5843,7 @@ mod tests {
     /// checks sixteen ACL flags exactly, including that it reaches a published intent only through
     /// a function and holds no direct table privilege. A wrong role fails the way a missing URL
     /// does.
-    async fn composed_market_data_binding_admission(
+    pub(super) async fn composed_market_data_binding_admission(
         test_database: &CanonicalOwnerPostgresTestDatabaseV1,
     ) -> Option<Arc<dyn StrategyInputBindingAdmissionV1>> {
         unsafe {
@@ -6102,6 +6074,58 @@ mod tests {
             replay, response,
             "replaying one frozen meaning must resolve the committed operation, not compose again",
         );
+    }
+
+    /// F: the first COMPOSER_V3 Replay, committed through the production routes from a V3 Research
+    /// request to an execution input binding that reads back (the prefix), then run through the
+    /// production execution route and stated by the report (the body).
+    ///
+    /// One entry, because the body runs what the prefix just committed. Joining it from a second
+    /// entry would have to replay the prefix's admissions, and those take Market Data's clock
+    /// head, which has moved: the replayed Instrument Master fact is no successor and is refused.
+    /// The steps are in `first_composer_v3_replay_acceptance` and
+    /// `first_composer_v3_replay_body_acceptance`.
+    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+    #[rstest]
+    #[ignore = "requires the ordered chain's PostgreSQL, entry 6's Market Data fixture and the pinned local wasm compiler"]
+    fn the_first_composer_v3_replay_runs_as_its_one_member_universe_and_is_reported() {
+        // Accepting a request, issuing its PIT request and composing run the Owners' deepest
+        // custody paths; together they overflow the default test stack, as the other V3 entries do.
+        std::thread::Builder::new()
+            .stack_size(16 * 1024 * 1024)
+            .spawn(|| {
+                tokio::runtime::Builder::new_multi_thread()
+                    .worker_threads(2)
+                    .enable_all()
+                    .build()
+                    .unwrap()
+                    .block_on(Box::pin(async {
+                        let test_database =
+                            CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
+                        let replay = Box::pin(
+                            crate::first_composer_v3_replay_acceptance::ensure_first_composer_v3_replay_acceptance_v1(
+                                &test_database,
+                                crate::first_composer_v3_replay_acceptance::FIRST_COMPOSER_V3_REPLAY_FIXTURE_KEY_V1,
+                            ),
+                        )
+                        .await;
+                        assert!(
+                            replay.created,
+                            "F runs on a fresh chain database, so it must be the call that created \
+                             the first COMPOSER_V3 Replay rather than one that joined it",
+                        );
+                        Box::pin(
+                            crate::first_composer_v3_replay_body_acceptance::assert_the_first_composer_v3_replay_runs_as_its_universe_v1(
+                                &test_database,
+                                &replay,
+                            ),
+                        )
+                        .await;
+                    }));
+            })
+            .unwrap()
+            .join()
+            .unwrap();
     }
 
     pub(super) fn bearer_headers(token: &str) -> HeaderMap {

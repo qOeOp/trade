@@ -746,7 +746,11 @@ move-only V2 execution bundle. The bundle validates two complete BAR signals and
 Owner-verified Quote EVENT liquidity for each frame. Each frame's final liquidity
 EVENT must precede the next frame's first BAR. Strict cross-frame temporal order and the request
 window are checked before ProgramHost or Backtest state changes. A V1 binding is never upgraded by interpretation,
-and an unavailable V2 constituent never falls back to V1 or a test-issued successor frame.
+and an unavailable V2 constituent never falls back to V1 or a test-issued successor frame. Market Data issues every
+BAR and Quote value at its canonical scale, so a close of 123.450 on a 0.001 tick arrives as 123.45. The bundle
+re-expresses each price and size at its instrument's precision without changing a value, and refuses by name a value
+finer than the instrument's grid. It then refuses, by name, any BAR or Quote not at its instrument's precision: the
+engine would otherwise drop that datum silently and still complete the run.
 
 Backtest V2 result custody binds the exact V2 binding and sequence digest, each consumed frame's
 identity and ordinal, every native schedule and liquidity EVENT receipt, the canonical target set
@@ -1307,8 +1311,10 @@ The Owner also rejects any direct or role-derived effective access by a non-supe
 membership in the Owner role or PostgreSQL whole-database read/write roles.
 The private fact and atomic receipt bind public-fact identity/digest, venue, margin-account scope, half-open event
 validity, source/provenance, revision, quote/fee currency, and every exact term byte. The first version accepts only
-positive fixed `STANDARD_NOTIONAL_RATE` initial/maintenance values and explicitly selects
-`StandardMarginModel` (`notional * rate`, no leverage); it never infers `LeveragedMarginModel`. The visible economic
+positive fixed initial/maintenance values, `STANDARD_NOTIONAL_RATE` or `FIRST_BRACKET_NOTIONAL_RATE`, and explicitly
+selects `StandardMarginModel` (`notional * rate`, no leverage); it never infers `LeveragedMarginModel`. First-bracket
+terms hold only up to their `margin_notional_cap`, which the binding records beside the rates and binds into the
+terms digest, so the cap is available to a consumer of the bound terms. The visible economic
 configuration cannot attest those values, and a missing value never becomes zero or a native default. Wrong fact,
 receipt, terms, venue, account or time, and noncanonical, partial, extra, cross-spliced, tampered or ACL-drifted
 custody fail before `ProgramHostV2` or Backtest state exists. Existing profile canonical bytes and digest remain
@@ -1327,7 +1333,10 @@ therefore a new terms fact rather than a new Catalog version. Schema 1 without p
 refused as `InstrumentTermsPinningMismatch`. Pinning no instrument does not loosen the venue: terms at a venue the
 configuration does not name are refused before provenance exists, and the Instrument Owner resolves nothing for
 members at another venue. The account scope is the one complete scope the Owner holds for every member; schema 2
-does not pin a fee tier.
+does not pin a fee tier. Terms name their instrument by its canonical identity, which carries the venue
+(`LINKUSDT-PERP.BINANCE`): the Instrument Owner resolves a Replay's member terms by that identity, and native
+materialization compares it with the public fact's canonical identity and parses it as the native instrument id, whose
+venue must be the configuration's. A symbol without its venue names no instrument.
 
 Native engine materialization remains `UNAVAILABLE`. V1 represents liquidation only as disabled and supplies no
 numeric ratio; an adapter must separately prove that the native float-only inactive liquidation field is not read,
@@ -1556,11 +1565,20 @@ including on inputs with ties.
   metrics, book depth, and funding rate. Liquidations have no admitted historical source - the USDⓈ-M archive holds
   none and the coin-margined `BTCUSD_PERP` snapshot ends on 2024-10-14 - so a Design that asks for them is refused as
   `INPUT_FACT_UNAVAILABLE_FROM_ADMITTED_SOURCE`, which no field vocabulary lets a Design reach today.
-- **Actions:** the target-set Host ignores a protective fill today, so the next frame's reconciliation fails and
-  aborts the run; only a second frame reaches it. `a_triggered_stop_aborts_the_run_today_until_d1` pins that behavior
-  over two real Sim frames, with a close stop that does not fall and a fall that misses a far stop as its clean
-  controls, and flips to asserting the run continues when D1 lands. Its repair (D1) adds a `kernel.fill.reconcile.v1` case and lands
-  with T1. A1 exposes `DecisionTime` and `AccountEquity` (and fill-based entry price and bars held) as
+- **Actions:** a protective order that fills between frames is reconciled under `kernel.fill.reconcile.v1` (D1).
+  Before D1 the target-set Host ignored such a fill, so the next frame's reconciliation failed and aborted the run.
+  A FILL now names the leg it advances - the pending intent, the stop-loss, or the take-profit - in an envelope byte
+  every earlier FILL left zero, so earlier envelopes keep their bytes and digests. The kernel admits a protective fill
+  only while its leg is armed, nothing proposed is pending, and the fill reduces the position without passing zero,
+  and refuses each other case by name: `ProtectiveLegNotArmed`, `ProtectiveFillWithPendingIntent`, and
+  `ProtectiveFillDoesNotReduce`. A part-filled protective order holds the fill frontier until it fills or its rest is
+  canceled, and no proposal may open an intent beside it (`ProtectiveFillInProgress`). A leg that closes the position
+  clears the protection, and the Host places only the protection the kernel holds. The Native Replay readback reports
+  protective fills apart from target-set fills, binds each to its FILL transition in the ordered trace, and counts
+  it as a round-trip exit; a run in which none filled serializes as it did before.
+  `a_triggered_stop_reconciles_the_member_flat_and_the_run_continues` runs two real Sim frames: the stop fills, the
+  exit frame sees the member flat, and a program that exits it anyway is refused as `InvalidPositionTransition`; a
+  close stop that does not fall and a fall that misses a far stop are its clean controls. A1 exposes `DecisionTime` and `AccountEquity` (and fill-based entry price and bars held) as
   `LifecycleContext` values the program may read, where `DecisionTime` is the frame's decision cut `d_k`; intended entry price and bars held are expressible inside the
   program already. A2 places take-profit as reduce-only limit orders. A3 first measures a one-limit-per-bar ladder
   and adds a kernel ladder only if that is not enough.
@@ -1701,7 +1719,7 @@ one family would depend on that producer and would be listed separately.
 
 P0, P1, and T0 proceed in parallel: T0 is internal to Market Data, and its custody request states its own member set
 and timeframes. T1 depends on all three, because it derives the custody request from the Research scope and the
-Design; its first positive case uses only CLOSE and one member, and D1 lands with it. P2 lands with I2. A1 and V4a proceed in parallel with T1; then T2, I1, I1.5, I2, and I3; then N1, A2, A3, V4b, and V5. Per-frame as-of membership (T4) would
+Design; its first positive case uses only CLOSE and one member, and D1, which it needs, has landed ahead of it. P2 lands with I2. A1 and V4a proceed in parallel with T1; then T2, I1, I1.5, I2, and I3; then N1, A2, A3, V4b, and V5. Per-frame as-of membership (T4) would
 remove the invariant that every frame shares one member set, so it is asked of the user when it is proposed.
 
 Every target variant the single-threshold author accepts runs past one frame of the target-set Host. Two could not,

@@ -517,8 +517,8 @@ async fn admit(product: &'static Product) -> Admitted {
         .expect("the venue answers the admitted member's scope");
     assert_eq!(
         rows.len(),
-        4 + product.funding_rows,
-        "one closed bar states an open, a high, a low and a close, and a perpetual its funding"
+        6 + product.funding_rows,
+        "one closed bar states its prices, its volume and its taker buy volume, and a perpetual its funding"
     );
 
     for row in &rows {

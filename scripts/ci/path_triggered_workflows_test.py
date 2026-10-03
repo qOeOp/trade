@@ -118,6 +118,15 @@ def main() -> None:
         service_lock,
         True,
     )
+    # The npm lockfiles osv-scanner reads: a critical in either went unreported while neither
+    # was scanned (GHSA-vcvr-r3jv-pc5j, next, 2026-10-03).
+    for npm_lock in ("docs-site/package-lock.json", "product/dashboard/package-lock.json"):
+        check(
+            f"security-audit.yml on {npm_lock}",
+            real["security-audit.yml"],
+            [npm_lock],
+            True,
+        )
     print(
         "ok: path-filtered workflows are required exactly when their own paths say they run, and on any doubt",
     )

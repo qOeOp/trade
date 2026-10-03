@@ -8,6 +8,7 @@ pub mod bar_schedule;
 pub mod calendar;
 pub mod declared_bar_timeframe_v1;
 pub mod frozen_observation_window_v1;
+pub mod instrument_economic_terms_intake_v1;
 pub mod instrument_economic_terms_postgres_v1;
 pub mod instrument_economic_terms_v1;
 pub mod instrument_master;
@@ -70,6 +71,7 @@ use instrument_master_v2_postgres::{
 
 pub(crate) mod corporate_action;
 pub(crate) mod correction_policy_projection;
+pub(crate) mod decimal_rescale_v1;
 pub(crate) mod market_semantics;
 pub(crate) mod native_replay_quote_cut_v2;
 pub(crate) mod reference_fact_catalog;
@@ -342,7 +344,7 @@ pub async fn research_pit_terminal_resolver_from_store_admission_environment()
 -> Result<Option<Arc<dyn ResearchPitTerminalResolver>>, ResearchPitTerminalBootstrapError> {
     let bootstrap = store_admission::RdOwnerStoreAdmissionBootstrap::from_environment()
         .map_err(|e| map_bootstrap_error(&e))?;
-    consume_store_admission_bootstrap(bootstrap).await
+    consume_store_admission_bootstrap(bootstrap, |name| std::env::var(name).ok()).await
 }
 
 /// Lookup-injected form of the sealed startup bridge for deterministic composition tests.
@@ -352,11 +354,11 @@ pub async fn research_pit_terminal_resolver_from_store_admission_environment()
 /// Returns a redacted fail-closed category when configuration or store admission is unavailable.
 #[cfg(not(test))]
 pub async fn research_pit_terminal_resolver_from_store_admission_lookup(
-    lookup: impl FnMut(&str) -> Option<String>,
+    mut lookup: impl FnMut(&str) -> Option<String>,
 ) -> Result<Option<Arc<dyn ResearchPitTerminalResolver>>, ResearchPitTerminalBootstrapError> {
-    let bootstrap = store_admission::RdOwnerStoreAdmissionBootstrap::from_lookup(lookup)
+    let bootstrap = store_admission::RdOwnerStoreAdmissionBootstrap::from_lookup(&mut lookup)
         .map_err(|e| map_bootstrap_error(&e))?;
-    consume_store_admission_bootstrap(bootstrap).await
+    consume_store_admission_bootstrap(bootstrap, lookup).await
 }
 
 /// Resolves store admission and returns only the sealed Strategy Factory replay-input read port.
@@ -376,7 +378,7 @@ pub async fn sealed_replay_input_resolver_from_store_admission_environment()
                 failure: map_bootstrap_failure(&e),
             }
         })?;
-    consume_replay_input_store_admission_bootstrap(bootstrap).await
+    consume_replay_input_store_admission_bootstrap(bootstrap, |name| std::env::var(name).ok()).await
 }
 
 /// Lookup-injected form of the sealed replay-input startup bridge.
@@ -386,15 +388,13 @@ pub async fn sealed_replay_input_resolver_from_store_admission_environment()
 /// Returns a redacted fail-closed category when configuration or store admission is unavailable.
 #[cfg(not(test))]
 pub async fn sealed_replay_input_resolver_from_store_admission_lookup(
-    lookup: impl FnMut(&str) -> Option<String>,
+    mut lookup: impl FnMut(&str) -> Option<String>,
 ) -> Result<Option<Arc<dyn SealedReplayInputResolver>>, SealedReplayInputBootstrapError> {
-    let bootstrap =
-        store_admission::RdOwnerStoreAdmissionBootstrap::from_lookup(lookup).map_err(|e| {
-            SealedReplayInputBootstrapError {
-                failure: map_bootstrap_failure(&e),
-            }
+    let bootstrap = store_admission::RdOwnerStoreAdmissionBootstrap::from_lookup(&mut lookup)
+        .map_err(|e| SealedReplayInputBootstrapError {
+            failure: map_bootstrap_failure(&e),
         })?;
-    consume_replay_input_store_admission_bootstrap(bootstrap).await
+    consume_replay_input_store_admission_bootstrap(bootstrap, lookup).await
 }
 
 /// Resolves store admission and returns only the sealed V2 sample-projection resolver.
@@ -417,7 +417,10 @@ pub async fn strategy_input_sample_projection_resolver_v2_from_store_admission_e
                 failure: map_bootstrap_failure(&e),
             }
         })?;
-    consume_sample_projection_store_admission_bootstrap_v2(bootstrap).await
+    consume_sample_projection_store_admission_bootstrap_v2(bootstrap, |name| {
+        std::env::var(name).ok()
+    })
+    .await
 }
 
 /// Lookup-injected form of the sealed V2 sample-projection startup bridge.
@@ -427,18 +430,16 @@ pub async fn strategy_input_sample_projection_resolver_v2_from_store_admission_e
 /// Returns only a redacted configuration or admission category.
 #[cfg(not(test))]
 pub async fn strategy_input_sample_projection_resolver_v2_from_store_admission_lookup(
-    lookup: impl FnMut(&str) -> Option<String>,
+    mut lookup: impl FnMut(&str) -> Option<String>,
 ) -> Result<
     Option<Arc<dyn StrategyInputSampleProjectionResolverV2>>,
     StrategyInputSampleProjectionBootstrapErrorV2,
 > {
-    let bootstrap =
-        store_admission::RdOwnerStoreAdmissionBootstrap::from_lookup(lookup).map_err(|e| {
-            StrategyInputSampleProjectionBootstrapErrorV2 {
-                failure: map_bootstrap_failure(&e),
-            }
+    let bootstrap = store_admission::RdOwnerStoreAdmissionBootstrap::from_lookup(&mut lookup)
+        .map_err(|e| StrategyInputSampleProjectionBootstrapErrorV2 {
+            failure: map_bootstrap_failure(&e),
         })?;
-    consume_sample_projection_store_admission_bootstrap_v2(bootstrap).await
+    consume_sample_projection_store_admission_bootstrap_v2(bootstrap, lookup).await
 }
 
 /// Resolves store admission and returns only the sealed V3 BAR sample-projection resolver.
@@ -462,7 +463,10 @@ pub async fn strategy_input_sample_projection_resolver_v3_from_store_admission_e
                 failure: map_bootstrap_failure(&e),
             }
         })?;
-    consume_sample_projection_store_admission_bootstrap_v3(bootstrap).await
+    consume_sample_projection_store_admission_bootstrap_v3(bootstrap, |name| {
+        std::env::var(name).ok()
+    })
+    .await
 }
 
 /// Lookup-injected form of the sealed V3 BAR startup bridge.
@@ -472,18 +476,16 @@ pub async fn strategy_input_sample_projection_resolver_v3_from_store_admission_e
 /// Returns only a redacted configuration or admission category.
 #[cfg(not(test))]
 pub async fn strategy_input_sample_projection_resolver_v3_from_store_admission_lookup(
-    lookup: impl FnMut(&str) -> Option<String>,
+    mut lookup: impl FnMut(&str) -> Option<String>,
 ) -> Result<
     Option<Arc<dyn StrategyInputSampleProjectionResolverV3>>,
     StrategyInputSampleProjectionBootstrapErrorV3,
 > {
-    let bootstrap =
-        store_admission::RdOwnerStoreAdmissionBootstrap::from_lookup(lookup).map_err(|e| {
-            StrategyInputSampleProjectionBootstrapErrorV3 {
-                failure: map_bootstrap_failure(&e),
-            }
+    let bootstrap = store_admission::RdOwnerStoreAdmissionBootstrap::from_lookup(&mut lookup)
+        .map_err(|e| StrategyInputSampleProjectionBootstrapErrorV3 {
+            failure: map_bootstrap_failure(&e),
         })?;
-    consume_sample_projection_store_admission_bootstrap_v3(bootstrap).await
+    consume_sample_projection_store_admission_bootstrap_v3(bootstrap, lookup).await
 }
 
 /// Resolves store admission and returns only the sealed BAR schedule resolver.
@@ -503,7 +505,8 @@ pub async fn bar_schedule_resolver_v1_from_store_admission_environment()
                 failure: map_bootstrap_failure(&e),
             }
         })?;
-    consume_bar_schedule_store_admission_bootstrap_v1(bootstrap).await
+    consume_bar_schedule_store_admission_bootstrap_v1(bootstrap, |name| std::env::var(name).ok())
+        .await
 }
 
 /// Lookup-injected form of the sealed BAR schedule startup bridge.
@@ -513,15 +516,13 @@ pub async fn bar_schedule_resolver_v1_from_store_admission_environment()
 /// Returns only a redacted configuration or admission category.
 #[cfg(not(test))]
 pub async fn bar_schedule_resolver_v1_from_store_admission_lookup(
-    lookup: impl FnMut(&str) -> Option<String>,
+    mut lookup: impl FnMut(&str) -> Option<String>,
 ) -> Result<Option<Arc<dyn BarScheduleResolverV1>>, BarScheduleBootstrapErrorV1> {
-    let bootstrap =
-        store_admission::RdOwnerStoreAdmissionBootstrap::from_lookup(lookup).map_err(|e| {
-            BarScheduleBootstrapErrorV1 {
-                failure: map_bootstrap_failure(&e),
-            }
+    let bootstrap = store_admission::RdOwnerStoreAdmissionBootstrap::from_lookup(&mut lookup)
+        .map_err(|e| BarScheduleBootstrapErrorV1 {
+            failure: map_bootstrap_failure(&e),
         })?;
-    consume_bar_schedule_store_admission_bootstrap_v1(bootstrap).await
+    consume_bar_schedule_store_admission_bootstrap_v1(bootstrap, lookup).await
 }
 
 /// Resolves store admission and returns the combined PIT and BAR native scheduling Owner port.
@@ -542,7 +543,10 @@ pub async fn native_replay_scheduling_resolver_v1_from_store_admission_environme
                 failure: map_bootstrap_failure(&e),
             }
         })?;
-    consume_native_replay_scheduling_store_admission_bootstrap_v1(bootstrap).await
+    consume_native_replay_scheduling_store_admission_bootstrap_v1(bootstrap, |name| {
+        std::env::var(name).ok()
+    })
+    .await
 }
 
 /// Opens the native Replay scheduling resolver sealed acceptance composes in place of the one a
@@ -652,16 +656,14 @@ async fn apply_sealed_acceptance_grants_v1(
 /// Returns only a redacted configuration or admission category.
 #[cfg(not(test))]
 pub async fn native_replay_scheduling_resolver_v1_from_store_admission_lookup(
-    lookup: impl FnMut(&str) -> Option<String>,
+    mut lookup: impl FnMut(&str) -> Option<String>,
 ) -> Result<Option<Arc<dyn NativeReplaySchedulingResolverV1>>, NativeReplaySchedulingBootstrapErrorV1>
 {
-    let bootstrap =
-        store_admission::RdOwnerStoreAdmissionBootstrap::from_lookup(lookup).map_err(|e| {
-            NativeReplaySchedulingBootstrapErrorV1 {
-                failure: map_bootstrap_failure(&e),
-            }
+    let bootstrap = store_admission::RdOwnerStoreAdmissionBootstrap::from_lookup(&mut lookup)
+        .map_err(|e| NativeReplaySchedulingBootstrapErrorV1 {
+            failure: map_bootstrap_failure(&e),
         })?;
-    consume_native_replay_scheduling_store_admission_bootstrap_v1(bootstrap).await
+    consume_native_replay_scheduling_store_admission_bootstrap_v1(bootstrap, lookup).await
 }
 
 /// Resolves store admission and returns only the sealed Shared Time evidence read port.
@@ -681,7 +683,10 @@ pub async fn shared_time_evidence_resolver_from_store_admission_environment_v1()
                 failure: map_bootstrap_failure(&e),
             }
         })?;
-    consume_shared_time_evidence_store_admission_bootstrap_v1(bootstrap).await
+    consume_shared_time_evidence_store_admission_bootstrap_v1(bootstrap, |name| {
+        std::env::var(name).ok()
+    })
+    .await
 }
 
 /// Lookup-injected form of the sealed Shared Time evidence startup bridge.
@@ -691,25 +696,24 @@ pub async fn shared_time_evidence_resolver_from_store_admission_environment_v1()
 /// Returns only a redacted configuration or admission category.
 #[cfg(not(test))]
 pub async fn shared_time_evidence_resolver_from_store_admission_lookup_v1(
-    lookup: impl FnMut(&str) -> Option<String>,
+    mut lookup: impl FnMut(&str) -> Option<String>,
 ) -> Result<Option<Arc<dyn SharedTimeEvidenceResolver>>, SharedTimeEvidenceBootstrapErrorV1> {
-    let bootstrap =
-        store_admission::RdOwnerStoreAdmissionBootstrap::from_lookup(lookup).map_err(|e| {
-            SharedTimeEvidenceBootstrapErrorV1 {
-                failure: map_bootstrap_failure(&e),
-            }
+    let bootstrap = store_admission::RdOwnerStoreAdmissionBootstrap::from_lookup(&mut lookup)
+        .map_err(|e| SharedTimeEvidenceBootstrapErrorV1 {
+            failure: map_bootstrap_failure(&e),
         })?;
-    consume_shared_time_evidence_store_admission_bootstrap_v1(bootstrap).await
+    consume_shared_time_evidence_store_admission_bootstrap_v1(bootstrap, lookup).await
 }
 
 #[cfg(not(test))]
 async fn consume_store_admission_bootstrap(
     bootstrap: store_admission::RdOwnerStoreAdmissionBootstrap,
+    ports: impl FnMut(&str) -> Option<String>,
 ) -> Result<Option<Arc<dyn ResearchPitTerminalResolver>>, ResearchPitTerminalBootstrapError> {
     match bootstrap {
         store_admission::RdOwnerStoreAdmissionBootstrap::Disabled => Ok(None),
         store_admission::RdOwnerStoreAdmissionBootstrap::Required(request) => {
-            let capability = store_admission::admit_rd_owner_market_data_postgres(&request)
+            let capability = store_admission::admit_rd_owner_market_data_postgres(&request, ports)
                 .await
                 .map_err(|_| ResearchPitTerminalBootstrapError {
                     failure: ResearchPitTerminalBootstrapFailure::StoreAdmissionRejected,
@@ -727,11 +731,12 @@ async fn consume_store_admission_bootstrap(
 #[cfg(not(test))]
 async fn consume_replay_input_store_admission_bootstrap(
     bootstrap: store_admission::RdOwnerStoreAdmissionBootstrap,
+    ports: impl FnMut(&str) -> Option<String>,
 ) -> Result<Option<Arc<dyn SealedReplayInputResolver>>, SealedReplayInputBootstrapError> {
     match bootstrap {
         store_admission::RdOwnerStoreAdmissionBootstrap::Disabled => Ok(None),
         store_admission::RdOwnerStoreAdmissionBootstrap::Required(request) => {
-            let capability = store_admission::admit_rd_owner_market_data_postgres(&request)
+            let capability = store_admission::admit_rd_owner_market_data_postgres(&request, ports)
                 .await
                 .map_err(|_| SealedReplayInputBootstrapError {
                     failure: ResearchPitTerminalBootstrapFailure::StoreAdmissionRejected,
@@ -749,6 +754,7 @@ async fn consume_replay_input_store_admission_bootstrap(
 #[cfg(not(test))]
 async fn consume_sample_projection_store_admission_bootstrap_v2(
     bootstrap: store_admission::RdOwnerStoreAdmissionBootstrap,
+    ports: impl FnMut(&str) -> Option<String>,
 ) -> Result<
     Option<Arc<dyn StrategyInputSampleProjectionResolverV2>>,
     StrategyInputSampleProjectionBootstrapErrorV2,
@@ -756,7 +762,7 @@ async fn consume_sample_projection_store_admission_bootstrap_v2(
     match bootstrap {
         store_admission::RdOwnerStoreAdmissionBootstrap::Disabled => Ok(None),
         store_admission::RdOwnerStoreAdmissionBootstrap::Required(request) => {
-            let capability = store_admission::admit_rd_owner_market_data_postgres(&request)
+            let capability = store_admission::admit_rd_owner_market_data_postgres(&request, ports)
                 .await
                 .map_err(|_| StrategyInputSampleProjectionBootstrapErrorV2 {
                     failure: ResearchPitTerminalBootstrapFailure::StoreAdmissionRejected,
@@ -774,6 +780,7 @@ async fn consume_sample_projection_store_admission_bootstrap_v2(
 #[cfg(not(test))]
 async fn consume_sample_projection_store_admission_bootstrap_v3(
     bootstrap: store_admission::RdOwnerStoreAdmissionBootstrap,
+    ports: impl FnMut(&str) -> Option<String>,
 ) -> Result<
     Option<Arc<dyn StrategyInputSampleProjectionResolverV3>>,
     StrategyInputSampleProjectionBootstrapErrorV3,
@@ -781,7 +788,7 @@ async fn consume_sample_projection_store_admission_bootstrap_v3(
     match bootstrap {
         store_admission::RdOwnerStoreAdmissionBootstrap::Disabled => Ok(None),
         store_admission::RdOwnerStoreAdmissionBootstrap::Required(request) => {
-            let capability = store_admission::admit_rd_owner_market_data_postgres(&request)
+            let capability = store_admission::admit_rd_owner_market_data_postgres(&request, ports)
                 .await
                 .map_err(|_| StrategyInputSampleProjectionBootstrapErrorV3 {
                     failure: ResearchPitTerminalBootstrapFailure::StoreAdmissionRejected,
@@ -799,11 +806,12 @@ async fn consume_sample_projection_store_admission_bootstrap_v3(
 #[cfg(not(test))]
 async fn consume_bar_schedule_store_admission_bootstrap_v1(
     bootstrap: store_admission::RdOwnerStoreAdmissionBootstrap,
+    ports: impl FnMut(&str) -> Option<String>,
 ) -> Result<Option<Arc<dyn BarScheduleResolverV1>>, BarScheduleBootstrapErrorV1> {
     match bootstrap {
         store_admission::RdOwnerStoreAdmissionBootstrap::Disabled => Ok(None),
         store_admission::RdOwnerStoreAdmissionBootstrap::Required(request) => {
-            let capability = store_admission::admit_rd_owner_market_data_postgres(&request)
+            let capability = store_admission::admit_rd_owner_market_data_postgres(&request, ports)
                 .await
                 .map_err(|_| BarScheduleBootstrapErrorV1 {
                     failure: ResearchPitTerminalBootstrapFailure::StoreAdmissionRejected,
@@ -821,12 +829,13 @@ async fn consume_bar_schedule_store_admission_bootstrap_v1(
 #[cfg(not(test))]
 async fn consume_native_replay_scheduling_store_admission_bootstrap_v1(
     bootstrap: store_admission::RdOwnerStoreAdmissionBootstrap,
+    ports: impl FnMut(&str) -> Option<String>,
 ) -> Result<Option<Arc<dyn NativeReplaySchedulingResolverV1>>, NativeReplaySchedulingBootstrapErrorV1>
 {
     match bootstrap {
         store_admission::RdOwnerStoreAdmissionBootstrap::Disabled => Ok(None),
         store_admission::RdOwnerStoreAdmissionBootstrap::Required(request) => {
-            let capability = store_admission::admit_rd_owner_market_data_postgres(&request)
+            let capability = store_admission::admit_rd_owner_market_data_postgres(&request, ports)
                 .await
                 .map_err(|_| NativeReplaySchedulingBootstrapErrorV1 {
                     failure: ResearchPitTerminalBootstrapFailure::StoreAdmissionRejected,
@@ -844,11 +853,12 @@ async fn consume_native_replay_scheduling_store_admission_bootstrap_v1(
 #[cfg(not(test))]
 async fn consume_shared_time_evidence_store_admission_bootstrap_v1(
     bootstrap: store_admission::RdOwnerStoreAdmissionBootstrap,
+    ports: impl FnMut(&str) -> Option<String>,
 ) -> Result<Option<Arc<dyn SharedTimeEvidenceResolver>>, SharedTimeEvidenceBootstrapErrorV1> {
     match bootstrap {
         store_admission::RdOwnerStoreAdmissionBootstrap::Disabled => Ok(None),
         store_admission::RdOwnerStoreAdmissionBootstrap::Required(request) => {
-            let capability = store_admission::admit_rd_owner_market_data_postgres(&request)
+            let capability = store_admission::admit_rd_owner_market_data_postgres(&request, ports)
                 .await
                 .map_err(|_| SharedTimeEvidenceBootstrapErrorV1 {
                     failure: ResearchPitTerminalBootstrapFailure::StoreAdmissionRejected,

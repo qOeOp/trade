@@ -3,6 +3,8 @@
 //! This module assumes an independently provisioned topology. It performs no DDL and validates the
 //! exact append-only tables and R&D `SECURITY DEFINER` facade before use.
 
+use std::fmt::Display;
+
 use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, Postgres, Row, Transaction};
 use thiserror::Error;
@@ -344,11 +346,94 @@ impl ReplayResultReadbackV2 {
     }
 }
 
+/// Which check refused canonical Backtest Result custody: one closed cause per check, no wildcard.
+///
+/// Every cause answers one question about the store or the session, so a refusal names the check
+/// that failed rather than collapsing into "custody is unavailable". The underlying error is logged
+/// under the cause's code where it is refused.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum BacktestResultCustodyCauseV2 {
+    /// A transaction could not begin, set its isolation, or roll back.
+    TransactionUnavailable,
+    /// The session's principal could not be read.
+    PrincipalUnreadable,
+    /// The session is not `backtest_owner` as both `session_user` and `current_user`.
+    PrincipalNotBacktestOwner,
+    /// The exploratory Result tables, functions or grants are not the expected topology.
+    ResultWriterTopology,
+    /// The native Replay evidence tables or grants are not the expected topology.
+    NativeReplayEvidenceWriterTopology,
+    /// The native Replay outcome evidence tables, reader function or grants are not the expected
+    /// topology.
+    OutcomeEvidenceWriterTopology,
+    /// The protected Replay Result tables or grants are not the expected topology.
+    ProtectedResultWriterTopology,
+    /// R&D's sealed exploratory Replay request could not be locked for Backtest.
+    RdRequestLockUnavailable,
+    /// Qualification's protected Replay request could not be locked.
+    ProtectedRequestLockUnavailable,
+    /// Qualification's protected Replay request set could not be locked.
+    ProtectedRequestSetLockUnavailable,
+    /// The Qualification and Backtest sessions are not the expected principals on one store.
+    CrossOwnerBindingMismatch,
+}
+
+impl BacktestResultCustodyCauseV2 {
+    /// Every cause, in declaration order.
+    pub const ALL: [Self; 11] = [
+        Self::TransactionUnavailable,
+        Self::PrincipalUnreadable,
+        Self::PrincipalNotBacktestOwner,
+        Self::ResultWriterTopology,
+        Self::NativeReplayEvidenceWriterTopology,
+        Self::OutcomeEvidenceWriterTopology,
+        Self::ProtectedResultWriterTopology,
+        Self::RdRequestLockUnavailable,
+        Self::ProtectedRequestLockUnavailable,
+        Self::ProtectedRequestSetLockUnavailable,
+        Self::CrossOwnerBindingMismatch,
+    ];
+
+    /// The cause's stable wire name.
+    #[must_use]
+    pub const fn code(self) -> &'static str {
+        match self {
+            Self::TransactionUnavailable => "TRANSACTION_UNAVAILABLE",
+            Self::PrincipalUnreadable => "PRINCIPAL_UNREADABLE",
+            Self::PrincipalNotBacktestOwner => "PRINCIPAL_NOT_BACKTEST_OWNER",
+            Self::ResultWriterTopology => "RESULT_WRITER_TOPOLOGY",
+            Self::NativeReplayEvidenceWriterTopology => "NATIVE_REPLAY_EVIDENCE_WRITER_TOPOLOGY",
+            Self::OutcomeEvidenceWriterTopology => "OUTCOME_EVIDENCE_WRITER_TOPOLOGY",
+            Self::ProtectedResultWriterTopology => "PROTECTED_RESULT_WRITER_TOPOLOGY",
+            Self::RdRequestLockUnavailable => "RD_REQUEST_LOCK_UNAVAILABLE",
+            Self::ProtectedRequestLockUnavailable => "PROTECTED_REQUEST_LOCK_UNAVAILABLE",
+            Self::ProtectedRequestSetLockUnavailable => "PROTECTED_REQUEST_SET_LOCK_UNAVAILABLE",
+            Self::CrossOwnerBindingMismatch => "CROSS_OWNER_BINDING_MISMATCH",
+        }
+    }
+}
+
+impl Display for BacktestResultCustodyCauseV2 {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.code())
+    }
+}
+
+/// Refuses custody under `cause`, logging the error it replaces under the cause's code.
+pub(crate) fn custody_unavailable<E: Display>(
+    cause: BacktestResultCustodyCauseV2,
+) -> impl FnOnce(E) -> PostgresReplayResultOwnerErrorV2 {
+    move |e| {
+        tracing::warn!(error = %e, cause = cause.code(), "canonical Backtest Result custody refused");
+        PostgresReplayResultOwnerErrorV2::CustodyUnavailable(cause)
+    }
+}
+
 /// Fail-closed errors from canonical Backtest Result persistence.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum PostgresReplayResultOwnerErrorV2 {
-    #[error("canonical backtest_owner PostgreSQL custody is unavailable")]
-    CustodyUnavailable,
+    #[error("canonical backtest_owner PostgreSQL custody is unavailable: {0}")]
+    CustodyUnavailable(BacktestResultCustodyCauseV2),
     #[error("only sealed exploratory terminal Replay V2 results are admitted")]
     ResultNotAdmitted,
     #[error("the sealed R&D Replay V2 request is unavailable or does not equal the result")]
@@ -380,17 +465,17 @@ impl PostgresReplayResultOwnerV2 {
         pool: PgPool,
     ) -> Result<Self, PostgresReplayResultOwnerErrorV2> {
         validate_pool_principal(&pool).await?;
-        let mut transaction = pool
-            .begin()
-            .await
-            .map_err(|_| PostgresReplayResultOwnerErrorV2::CustodyUnavailable)?;
+        let mut transaction = pool.begin().await.map_err(custody_unavailable(
+            BacktestResultCustodyCauseV2::TransactionUnavailable,
+        ))?;
         validate_backtest_result_writer_topology_v2(&mut transaction)
             .await
-            .map_err(|_| PostgresReplayResultOwnerErrorV2::CustodyUnavailable)?;
-        transaction
-            .rollback()
-            .await
-            .map_err(|_| PostgresReplayResultOwnerErrorV2::CustodyUnavailable)?;
+            .map_err(custody_unavailable(
+                BacktestResultCustodyCauseV2::ResultWriterTopology,
+            ))?;
+        transaction.rollback().await.map_err(custody_unavailable(
+            BacktestResultCustodyCauseV2::TransactionUnavailable,
+        ))?;
         Ok(Self { pool })
     }
 
@@ -460,7 +545,9 @@ impl PostgresReplayResultOwnerV2 {
         validate_transaction_principal(&mut transaction).await?;
         let locked = lock_for_backtest_v2_in_transaction(rd_pool, &mut transaction, locator)
             .await
-            .map_err(|_| PostgresReplayResultOwnerErrorV2::CustodyUnavailable)?;
+            .map_err(custody_unavailable(
+                BacktestResultCustodyCauseV2::RdRequestLockUnavailable,
+            ))?;
         let request = locked
             .readback()
             .filter(|_| {
@@ -517,13 +604,19 @@ impl PostgresReplayResultOwnerV2 {
         validate_transaction_principal(&mut transaction).await?;
         validate_backtest_result_writer_topology_v2(&mut transaction)
             .await
-            .map_err(|_| PostgresReplayResultOwnerErrorV2::CustodyUnavailable)?;
+            .map_err(custody_unavailable(
+                BacktestResultCustodyCauseV2::ResultWriterTopology,
+            ))?;
         validate_backtest_native_replay_evidence_writer_topology_v2(&mut transaction)
             .await
-            .map_err(|_| PostgresReplayResultOwnerErrorV2::CustodyUnavailable)?;
+            .map_err(custody_unavailable(
+                BacktestResultCustodyCauseV2::NativeReplayEvidenceWriterTopology,
+            ))?;
         validate_backtest_outcome_evidence_writer_topology_v1(&mut transaction)
             .await
-            .map_err(|_| PostgresReplayResultOwnerErrorV2::CustodyUnavailable)?;
+            .map_err(custody_unavailable(
+                BacktestResultCustodyCauseV2::OutcomeEvidenceWriterTopology,
+            ))?;
         let (batch, trace) = read_expected_evidence(
             &mut transaction,
             &recovery.result_identity,
@@ -570,7 +663,9 @@ impl PostgresReplayResultOwnerV2 {
         validate_transaction_principal(&mut transaction).await?;
         validate_backtest_result_writer_topology_v2(&mut transaction)
             .await
-            .map_err(|_| PostgresReplayResultOwnerErrorV2::CustodyUnavailable)?;
+            .map_err(custody_unavailable(
+                BacktestResultCustodyCauseV2::ResultWriterTopology,
+            ))?;
         let query = format!("{READ_AGGREGATE} WHERE result.result_identity=$1");
         let row = sqlx::query(sqlx::AssertSqlSafe(query))
             .bind(result_identity.as_str())
@@ -600,7 +695,9 @@ impl PostgresReplayResultOwnerV2 {
         validate_transaction_principal(&mut transaction).await?;
         validate_backtest_result_writer_topology_v2(&mut transaction)
             .await
-            .map_err(|_| PostgresReplayResultOwnerErrorV2::CustodyUnavailable)?;
+            .map_err(custody_unavailable(
+                BacktestResultCustodyCauseV2::ResultWriterTopology,
+            ))?;
         let query = format!(
             "{READ_AGGREGATE} WHERE result.result_identity=$1 AND result.request_identity=$2 AND result.attempt_identity=$3"
         );
@@ -629,7 +726,9 @@ async fn persist_prepared_result(
     validate_transaction_principal(&mut transaction).await?;
     validate_backtest_result_writer_topology_v2(&mut transaction)
         .await
-        .map_err(|_| PostgresReplayResultOwnerErrorV2::CustodyUnavailable)?;
+        .map_err(custody_unavailable(
+            BacktestResultCustodyCauseV2::ResultWriterTopology,
+        ))?;
     lock_attempt(&mut transaction, &result_dto).await?;
 
     let existing = read_matching_aggregate(&mut transaction, &result_dto).await?;
@@ -731,13 +830,19 @@ async fn persist_native_replay_aggregate(
     validate_transaction_principal(&mut transaction).await?;
     validate_backtest_result_writer_topology_v2(&mut transaction)
         .await
-        .map_err(|_| PostgresReplayResultOwnerErrorV2::CustodyUnavailable)?;
+        .map_err(custody_unavailable(
+            BacktestResultCustodyCauseV2::ResultWriterTopology,
+        ))?;
     validate_backtest_native_replay_evidence_writer_topology_v2(&mut transaction)
         .await
-        .map_err(|_| PostgresReplayResultOwnerErrorV2::CustodyUnavailable)?;
+        .map_err(custody_unavailable(
+            BacktestResultCustodyCauseV2::NativeReplayEvidenceWriterTopology,
+        ))?;
     validate_backtest_outcome_evidence_writer_topology_v1(&mut transaction)
         .await
-        .map_err(|_| PostgresReplayResultOwnerErrorV2::CustodyUnavailable)?;
+        .map_err(custody_unavailable(
+            BacktestResultCustodyCauseV2::OutcomeEvidenceWriterTopology,
+        ))?;
     lock_attempt(&mut transaction, &result_dto).await?;
     let expected = expected_evidence(batch);
     let existing = read_matching_aggregate(&mut transaction, &result_dto).await?;
@@ -1253,7 +1358,9 @@ async fn validate_pool_principal(pool: &PgPool) -> Result<(), PostgresReplayResu
     let principals: (String, String) = sqlx::query_as("SELECT session_user,current_user")
         .fetch_one(pool)
         .await
-        .map_err(|_| PostgresReplayResultOwnerErrorV2::CustodyUnavailable)?;
+        .map_err(custody_unavailable(
+            BacktestResultCustodyCauseV2::PrincipalUnreadable,
+        ))?;
     validate_principals(&principals)
 }
 
@@ -1263,7 +1370,9 @@ async fn validate_transaction_principal(
     let principals: (String, String) = sqlx::query_as("SELECT session_user,current_user")
         .fetch_one(&mut **transaction)
         .await
-        .map_err(|_| PostgresReplayResultOwnerErrorV2::CustodyUnavailable)?;
+        .map_err(custody_unavailable(
+            BacktestResultCustodyCauseV2::PrincipalUnreadable,
+        ))?;
     validate_principals(&principals)
 }
 
@@ -1273,7 +1382,9 @@ fn validate_principals(
     if session_user == "backtest_owner" && current_user == "backtest_owner" {
         Ok(())
     } else {
-        Err(PostgresReplayResultOwnerErrorV2::CustodyUnavailable)
+        Err(PostgresReplayResultOwnerErrorV2::CustodyUnavailable(
+            BacktestResultCustodyCauseV2::PrincipalNotBacktestOwner,
+        ))
     }
 }
 
@@ -1956,4 +2067,39 @@ fn typed_identity(value: String) -> Result<OpaqueIdentityV2, PostgresReplayResul
 fn typed_digest(value: String) -> Result<CanonicalDigestV2, PostgresReplayResultOwnerErrorV2> {
     CanonicalDigestV2::try_from(value)
         .map_err(|_| PostgresReplayResultOwnerErrorV2::StorageUnavailable)
+}
+
+#[cfg(test)]
+mod custody_cause_tests {
+    use std::collections::BTreeSet;
+
+    use super::{BacktestResultCustodyCauseV2, PostgresReplayResultOwnerErrorV2};
+
+    #[rstest::rstest]
+    fn every_custody_cause_has_its_own_screaming_snake_wire_name() {
+        let codes = BacktestResultCustodyCauseV2::ALL
+            .iter()
+            .map(|cause| cause.code())
+            .collect::<BTreeSet<_>>();
+        assert_eq!(codes.len(), BacktestResultCustodyCauseV2::ALL.len());
+        assert!(codes.iter().all(|code| {
+            !code.is_empty()
+                && code
+                    .bytes()
+                    .all(|byte| byte.is_ascii_uppercase() || byte == b'_')
+        }));
+    }
+
+    #[rstest::rstest]
+    fn a_custody_refusal_names_the_check_that_refused() {
+        let refusal = PostgresReplayResultOwnerErrorV2::CustodyUnavailable(
+            BacktestResultCustodyCauseV2::OutcomeEvidenceWriterTopology,
+        );
+        assert!(
+            refusal
+                .to_string()
+                .ends_with("OUTCOME_EVIDENCE_WRITER_TOPOLOGY"),
+            "{refusal}"
+        );
+    }
 }

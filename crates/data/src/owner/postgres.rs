@@ -75,6 +75,8 @@ mod sample_projection_v4;
 mod session;
 #[cfg(test)]
 mod source_availability_rule_v1_tests;
+#[cfg(test)]
+mod source_binding_admission_v1_tests;
 mod source_sample_custody_v1;
 pub(in crate::owner) mod strategy_input_binding_registry;
 #[cfg(feature = "isolated-event-replay-acceptance")]
@@ -188,6 +190,11 @@ use super::{
             build_receipt as build_bar_schedule_receipt, decode_cut as decode_bar_schedule_cut,
             decode_fact as decode_bar_schedule_fact, decode_receipt as decode_bar_schedule_receipt,
         },
+    },
+    instrument_economic_terms_intake_v1::{
+        InstrumentEconomicTermsAdmissionErrorV1, InstrumentEconomicTermsAdmissionTerminalV1,
+        InstrumentEconomicTermsAdmissionV1, InstrumentEconomicTermsSubmissionV1,
+        sealed::Sealed as InstrumentEconomicTermsAdmissionSealedV1,
     },
     instrument_master::{
         InstrumentMasterError, InstrumentMasterFactProposalV1, InstrumentMasterFactV1,
@@ -7728,6 +7735,19 @@ fn map_shared_time_insert_error(error: &sqlx::Error) -> SharedTimeEvidenceError 
     }
 }
 
+/// The current clock head as the transaction's snapshot sees it, without locking it.
+async fn load_current_clock_fact(
+    transaction: &mut Transaction<'_, Postgres>,
+) -> Result<Option<ClockHeadFact>, SharedTimeEvidenceError> {
+    let row = sqlx::query(
+        "SELECT h.* FROM market_data_private.clock_handoff_head_v1 AS p JOIN market_data_private.clock_handoffs_v1 AS h ON h.head_identity=p.head_identity WHERE p.singleton",
+    )
+    .fetch_optional(&mut **transaction)
+    .await
+    .map_err(|_| SharedTimeEvidenceError::StoreUnavailable)?;
+    row.map(|row| decode_clock_fact(&row)).transpose()
+}
+
 async fn load_current_clock_fact_for_update(
     transaction: &mut Transaction<'_, Postgres>,
 ) -> Result<Option<ClockHeadFact>, SharedTimeEvidenceError> {
@@ -10989,6 +11009,53 @@ impl MarketDataOwnerPostgres {
     /// # Errors
     ///
     /// One documented refusal when nothing was admitted; a replayed submission rejoins its fact.
+    /// Reads one admitted Instrument Master V2 fact and the decision cut of the clock head, both in
+    /// one repeatable-read snapshot of this store. It writes nothing and takes no row lock: the
+    /// table locks every resolve of the V2 store takes are its only locks.
+    pub(crate) async fn read_instrument_master_fact_at_clock_head_v2(
+        &self,
+        canonical_identity: &str,
+        fact_identity: BindingDigest,
+    ) -> Result<
+        (super::instrument_master_v2::InstrumentMasterFactV2, i128),
+        InstrumentEconomicTermsAdmissionErrorV1,
+    > {
+        use super::instrument_master_v2::InstrumentMasterCustodyErrorV2;
+        use super::instrument_master_v2_postgres::{
+            begin_repeatable_read_v2, read_fact_in_transaction_v2,
+        };
+        use InstrumentEconomicTermsAdmissionErrorV1 as Refused;
+
+        let mut transaction = begin_repeatable_read_v2(&self.pool)
+            .await
+            .map_err(|_| Refused::StoreUnavailable)?;
+        let fact =
+            match read_fact_in_transaction_v2(&mut transaction, canonical_identity, fact_identity)
+                .await
+            {
+                Ok(fact) => fact,
+                Err(InstrumentMasterCustodyErrorV2::MissingFact) => {
+                    return Err(Refused::InstrumentFactUnavailable);
+                }
+                Err(e) => {
+                    super::storage_diagnostic::refused_by_store(
+                        "instrument_economic_terms_admission_v1.instrument_master_v2.read",
+                        &format!("{e:?}"),
+                    );
+                    return Err(Refused::StoreUnavailable);
+                }
+            };
+        let head = load_current_clock_fact(&mut transaction)
+            .await
+            .map_err(|_| Refused::StoreUnavailable)?
+            .ok_or(Refused::ClockUnavailable)?;
+        transaction
+            .commit()
+            .await
+            .map_err(|_| Refused::StoreUnavailable)?;
+        Ok((fact, i128::from(head.clock().decision_cut)))
+    }
+
     pub(crate) async fn admit_instrument_master_baseline_v2(
         &self,
         submission: InstrumentMasterBaselineSubmissionV2,
@@ -12202,6 +12269,96 @@ impl InstrumentMasterAdmissionV2 for InstrumentMasterAdmissionPostgresV2 {
         self.owner
             .admit_instrument_master_snapshot_v2(submission)
             .await
+    }
+}
+
+pub(super) async fn instrument_economic_terms_admission_from_environment_v1() -> Result<
+    std::sync::Arc<dyn InstrumentEconomicTermsAdmissionV1>,
+    InstrumentEconomicTermsAdmissionErrorV1,
+> {
+    use InstrumentEconomicTermsAdmissionErrorV1 as Refused;
+
+    let url =
+        std::env::var(super::instrument_master_v2_postgres::MARKET_DATA_OWNER_DATABASE_URL_ENV)
+            .map_err(|_| Refused::StoreUnavailable)?;
+    if url.is_empty() || url.trim() != url {
+        return Err(Refused::StoreUnavailable);
+    }
+    let market_data = MarketDataOwnerPostgres::connect(&url).await.map_err(|e| {
+        super::storage_diagnostic::refused_by_store(
+            "instrument_economic_terms_admission_v1.environment.connect",
+            &e,
+        );
+        Refused::StoreUnavailable
+    })?;
+    super::instrument_master_v2_postgres::InstrumentMasterV2PostgresOwner::install(
+        market_data.pool.clone(),
+    )
+    .await
+    .map_err(|_| Refused::StoreUnavailable)?;
+    let terms = super::instrument_economic_terms_postgres_owner_from_environment_v1()
+        .await
+        .map_err(|e| {
+            super::storage_diagnostic::refused_by_store(
+                "instrument_economic_terms_admission_v1.environment.terms_owner",
+                &e,
+            );
+            Refused::StoreUnavailable
+        })?;
+    Ok(std::sync::Arc::new(
+        InstrumentEconomicTermsAdmissionPostgresV1 { market_data, terms },
+    ))
+}
+
+/// The economic-terms intake: Market Data's store for the Instrument Master V2 fact and clock head
+/// the terms are derived from, and the Instrument Owner's store the terms are issued into.
+struct InstrumentEconomicTermsAdmissionPostgresV1 {
+    market_data: MarketDataOwnerPostgres,
+    terms: super::instrument_economic_terms_postgres_v1::InstrumentEconomicTermsPostgresOwnerV1,
+}
+
+impl Debug for InstrumentEconomicTermsAdmissionPostgresV1 {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct(stringify!(InstrumentEconomicTermsAdmissionPostgresV1))
+            .finish_non_exhaustive()
+    }
+}
+
+impl InstrumentEconomicTermsAdmissionSealedV1 for InstrumentEconomicTermsAdmissionPostgresV1 {}
+
+#[async_trait::async_trait]
+impl InstrumentEconomicTermsAdmissionV1 for InstrumentEconomicTermsAdmissionPostgresV1 {
+    async fn admit_terms(
+        &self,
+        submission: InstrumentEconomicTermsSubmissionV1,
+    ) -> Result<InstrumentEconomicTermsAdmissionTerminalV1, InstrumentEconomicTermsAdmissionErrorV1>
+    {
+        use super::instrument_economic_terms_intake_v1::derive_instrument_economic_terms_v1;
+        use super::instrument_economic_terms_postgres_v1::InstrumentEconomicTermsPostgresErrorV1;
+        use InstrumentEconomicTermsAdmissionErrorV1 as Refused;
+
+        let (fact, clock_head_ns) = self
+            .market_data
+            .read_instrument_master_fact_at_clock_head_v2(
+                &submission.canonical_identity,
+                submission.instrument_fact_identity,
+            )
+            .await?;
+        let terms = derive_instrument_economic_terms_v1(&fact, &submission, clock_head_ns)?;
+        let readback = self.terms.issue(&terms).await.map_err(|e| match e {
+            InstrumentEconomicTermsPostgresErrorV1::MeaningConflict => Refused::MeaningConflict,
+            other => {
+                super::storage_diagnostic::refused_by_store(
+                    "instrument_economic_terms_admission_v1.issue",
+                    &other,
+                );
+                Refused::StoreUnavailable
+            }
+        })?;
+        Ok(InstrumentEconomicTermsAdmissionTerminalV1::from_readback(
+            &readback,
+        ))
     }
 }
 

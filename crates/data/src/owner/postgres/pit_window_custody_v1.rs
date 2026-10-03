@@ -324,6 +324,8 @@ async fn load_instruments(
                     time_zone: fact.time_zone_identity().to_owned(),
                     market_semantics_identity: fact.market_semantics_identity(),
                     effective_until: fact.effective_until(),
+                    price_scale: fact.proposal.price_increment.scale,
+                    quantity_scale: fact.proposal.quantity_increment.scale,
                 }),
                 at_end,
                 others,

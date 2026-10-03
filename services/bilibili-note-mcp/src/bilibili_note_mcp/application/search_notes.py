@@ -5,23 +5,17 @@ from dataclasses import dataclass
 from typing import Literal
 
 from bilibili_note_mcp.application.operator_events import emit_operator_event
-from bilibili_note_mcp.application.public_text import (
-    rendered_contains_private_audit_noise,
-    rendered_public_text_is_valid,
-    rendered_summary_structure_is_valid,
-)
-from bilibili_note_mcp.application.resource_limits import SEARCH_TERMINAL_BYTES
-from bilibili_note_mcp.domain.models import (
-    FailureCode,
-    SearchCandidateV1,
-    StrategySummaryV1,
-)
-from bilibili_note_mcp.domain.strategy_summary import public_author_subject, public_search_subject
+from bilibili_note_mcp.domain.models import FailureCode, Quality, SearchCandidateV1
 
 from .create_note import CreateBilibiliNote
 from .errors import BilibiliNoteFailure
 from .owned_tasks import finish_owned_task
-from .ports import SearchPort, StrategyAggregatorPort, StrategySummaryRendererPort
+from .ports import (
+    NoteDraft,
+    PublishedNote,
+    PublisherPort,
+    SearchPort,
+)
 from .progress import (
     NullProgressReporter,
     ProgressReporter,
@@ -39,17 +33,9 @@ _CandidateOutcome = Literal["succeeded", "failed", "cancelled"]
 @dataclass(frozen=True, slots=True)
 class ParsedSearchItem:
     candidate: SearchCandidateV1
-    summary: StrategySummaryV1 | None
+    draft: NoteDraft | None
     error_code: FailureCode | None
     error_reason: str | None
-
-
-@dataclass(frozen=True, slots=True)
-class SearchBatchPayload:
-    query: str
-    items: tuple[ParsedSearchItem, ...]
-    summary: StrategySummaryV1
-    rendered_markdown: str
 
 
 class _BatchProgressCoordinator:
@@ -209,25 +195,16 @@ def _batch_probe(
     emit_operator_event("batch_completed", **payload)
 
 
-def _summary_subject(query: str, summaries: tuple[StrategySummaryV1, ...]) -> str:
-    subjects = {summary.subject for summary in summaries}
-    if len(subjects) == 1:
-        return public_author_subject(subjects.pop())
-    return public_search_subject(query)
-
-
 class SearchAndCreateBilibiliNotes:
     def __init__(
         self,
         search: SearchPort,
         create_note: CreateBilibiliNote,
-        aggregator: StrategyAggregatorPort,
-        renderer: StrategySummaryRendererPort,
+        publisher: PublisherPort,
     ) -> None:
         self._search = search
         self._create_note = create_note
-        self._aggregator = aggregator
-        self._renderer = renderer
+        self._publisher = publisher
 
     async def _parse_candidate(
         self,
@@ -235,6 +212,7 @@ class SearchAndCreateBilibiliNotes:
         candidate: SearchCandidateV1,
         index: int,
         coordinator: _BatchProgressCoordinator,
+        quality: Quality,
     ) -> ParsedSearchItem:
         item_progress = _ItemProgressReporter(
             coordinator,
@@ -243,7 +221,9 @@ class SearchAndCreateBilibiliNotes:
         coordinator.started()
         try:
             try:
-                payload = await self._create_note.execute(candidate.canonical_url, item_progress)
+                payload = await self._create_note.prepare(
+                    candidate.canonical_url, item_progress, quality=quality
+                )
             except BilibiliNoteFailure as e:
                 _candidate_probe(
                     event="candidate_failed",
@@ -253,7 +233,7 @@ class SearchAndCreateBilibiliNotes:
                 )
                 item = ParsedSearchItem(
                     candidate=candidate,
-                    summary=None,
+                    draft=None,
                     error_code=e.code,
                     error_reason=e.reason,
                 )
@@ -267,7 +247,7 @@ class SearchAndCreateBilibiliNotes:
                 )
                 item = ParsedSearchItem(
                     candidate=candidate,
-                    summary=payload.summary,
+                    draft=payload,
                     error_code=None,
                     error_reason=None,
                 )
@@ -328,7 +308,7 @@ class SearchAndCreateBilibiliNotes:
             item = items.get(index)
             if item is None:
                 return None
-            if item.summary is not None:
+            if item.draft is not None:
                 succeeded += 1
             if succeeded == target:
                 return index
@@ -339,6 +319,7 @@ class SearchAndCreateBilibiliNotes:
         candidates: tuple[SearchCandidateV1, ...],
         *,
         target: int,
+        quality: Quality,
         coordinator: _BatchProgressCoordinator,
     ) -> tuple[ParsedSearchItem, ...]:
         active: dict[asyncio.Task[ParsedSearchItem], int] = {}
@@ -347,7 +328,7 @@ class SearchAndCreateBilibiliNotes:
 
         def start_pending() -> None:
             nonlocal next_index
-            succeeded = sum(item.summary is not None for item in items.values())
+            succeeded = sum(item.draft is not None for item in items.values())
             while (
                 len(active) < _MAX_CONCURRENT_NOTES
                 and next_index < len(candidates)
@@ -357,6 +338,7 @@ class SearchAndCreateBilibiliNotes:
                 task = asyncio.create_task(
                     self._parse_candidate(
                         candidate=candidates[index],
+                        quality=quality,
                         index=index,
                         coordinator=coordinator,
                     )
@@ -391,7 +373,9 @@ class SearchAndCreateBilibiliNotes:
         query: str,
         max_videos: int,
         progress: ProgressReporter | None = None,
-    ) -> SearchBatchPayload:
+        *,
+        quality: Quality = "fast",
+    ) -> PublishedNote:
         if not 1 <= max_videos <= 3:
             raise ValueError("max_videos is invalid")
         reporter = progress or NullProgressReporter()
@@ -419,35 +403,19 @@ class SearchAndCreateBilibiliNotes:
             frozen_items = await self._run_rolling(
                 candidates,
                 target=max_videos,
+                quality=quality,
                 coordinator=coordinator,
             )
         except BaseException:
             _batch_probe(coordinator=coordinator)
             raise
-        succeeded = sum(item.summary is not None for item in frozen_items)
+        succeeded = sum(item.draft is not None for item in frozen_items)
         _batch_probe(coordinator=coordinator)
         if succeeded >= max_videos:
             await coordinator.status(f"已完成目标 {max_videos} 个视频，停止额外候选解析")
-        summaries = tuple(item.summary for item in frozen_items if item.summary is not None)
+        drafts = tuple(item.draft for item in frozen_items if item.draft is not None)
         if succeeded != max_videos:
             raise BilibiliNoteFailure("SEARCH_TARGET_UNMET", "search_success_target_unmet")
-        subject = _summary_subject(query, summaries)
-        summary = await self._aggregator.aggregate(subject, summaries)
-        rendered = self._renderer.render(summary)
-        if len(rendered.encode("utf-8")) > SEARCH_TERMINAL_BYTES:
-            raise BilibiliNoteFailure("OUTPUT_INVALID", "terminal_bytes_exceeded")
-        if rendered_contains_private_audit_noise(rendered):
-            raise BilibiliNoteFailure("OUTPUT_INVALID", "private_audit_projection_forbidden")
-        if not rendered_summary_structure_is_valid(rendered):
-            raise BilibiliNoteFailure("OUTPUT_INVALID", "unverified_scope_invalid")
-        if not rendered_public_text_is_valid(rendered):
-            raise BilibiliNoteFailure("OUTPUT_INVALID", "rendered_public_text_invalid")
-        await reporter.report(
-            batch_progress("统一交易策略总结已校验，正在封装返回", 89, ready=True)
-        )
-        return SearchBatchPayload(
-            query=query,
-            items=frozen_items,
-            summary=summary,
-            rendered_markdown=rendered,
-        )
+        await coordinator.status("全部笔记已校验，正在保存图文合集")
+        await asyncio.sleep(0)
+        return self._publisher.publish(drafts)

@@ -149,8 +149,29 @@ impl SourceBindingAdmissionTerminalV1 {
 /// Why an admission reached no finding.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SourceBindingAdmissionErrorV1 {
-    /// The proposal is malformed, or its claimed identity does not derive from its content.
+    /// A claimed identity or locator does not derive from the content it names.
     InvalidProposal,
+    /// A required identifier, mapping, semantics rule or licence term is empty; the field is named.
+    FieldMissing(&'static str),
+    /// A required digest is zero; the field is named.
+    DigestZero(&'static str),
+    /// A schema version, policy version or frontier sequence is zero or unsupported; the field is
+    /// named.
+    VersionInvalid(&'static str),
+    /// The credential handle carries raw credential material instead of an opaque handle identity.
+    RawCredentialMaterial,
+    /// The credential handle's audience is not exclusively Market Data.
+    CredentialAudienceInvalid,
+    /// The credential handle claims no capability, or one beyond read-only market data.
+    CredentialCapabilityForbidden,
+    /// The submitter's time coordinates are zero or out of order.
+    TimeEvidenceInvalid,
+    /// The submitter's time coordinates are well ordered but name an instant the Owner's decision
+    /// cut has not reached; a later admission can accept them.
+    TimeEvidenceAfterDecisionCut,
+    /// A declared bar timeframe is a combination no bar can have, or the declarations repeat or
+    /// misorder a label.
+    BarTimeframeUnsupported,
     /// The same binding identity is already bound to a different decision.
     AdmissionConflict,
     /// The Owner could not mint a decision cut.
@@ -165,32 +186,86 @@ pub enum SourceBindingAdmissionErrorV1 {
 
 impl Display for SourceBindingAdmissionErrorV1 {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let text = match self {
-            Self::InvalidProposal => "the Source Binding proposal is malformed",
-            Self::AdmissionConflict => "the binding identity is bound to a different decision",
-            Self::ClockUnavailable => "Market Data could not mint a decision cut",
-            Self::ClockMismatch => {
-                "the minted decision cut does not agree with Market Data's clock custody"
+        match self {
+            Self::InvalidProposal => formatter
+                .write_str("a claimed Source Binding identity does not derive from its content"),
+            Self::FieldMissing(field) => {
+                write!(formatter, "the Source Binding field {field} is empty")
             }
-            Self::StoreUnavailable => "the Market Data store is unavailable",
-        };
-        formatter.write_str(text)
+            Self::DigestZero(field) => {
+                write!(formatter, "the Source Binding digest {field} is zero")
+            }
+            Self::VersionInvalid(field) => {
+                write!(
+                    formatter,
+                    "the Source Binding version or sequence {field} is invalid"
+                )
+            }
+            Self::RawCredentialMaterial => {
+                formatter.write_str("the credential handle carries raw credential material")
+            }
+            Self::CredentialAudienceInvalid => {
+                formatter.write_str("the credential audience is not exclusively Market Data")
+            }
+            Self::CredentialCapabilityForbidden => formatter
+                .write_str("the credential capabilities are empty or exceed read-only market data"),
+            Self::TimeEvidenceInvalid => {
+                formatter.write_str("the Source Binding time evidence is zero or out of order")
+            }
+            Self::TimeEvidenceAfterDecisionCut => formatter.write_str(
+                "the Source Binding time evidence is later than Market Data's decision cut",
+            ),
+            Self::BarTimeframeUnsupported => {
+                formatter.write_str("a declared bar timeframe is not a combination a bar can have")
+            }
+            Self::AdmissionConflict => {
+                formatter.write_str("the binding identity is bound to a different decision")
+            }
+            Self::ClockUnavailable => {
+                formatter.write_str("Market Data could not mint a decision cut")
+            }
+            Self::ClockMismatch => formatter.write_str(
+                "the minted decision cut does not agree with Market Data's clock custody",
+            ),
+            Self::StoreUnavailable => formatter.write_str("the Market Data store is unavailable"),
+        }
     }
 }
 
 impl std::error::Error for SourceBindingAdmissionErrorV1 {}
 
 impl From<SourceBindingError> for SourceBindingAdmissionErrorV1 {
+    /// Every variant is listed, so a variant added later is classified by someone deciding what
+    /// it means rather than by a wildcard.
     fn from(error: SourceBindingError) -> Self {
         match error {
-            SourceBindingError::ReplayConflict | SourceBindingError::LineageHeadMismatch => {
-                Self::AdmissionConflict
+            // The Owner re-derives the binding and time-evidence identities from the stamped
+            // proposal before it validates, and admission reads no locator; each is named by its
+            // meaning should that ever change.
+            SourceBindingError::BindingIdentityMismatch
+            | SourceBindingError::TimeEvidenceIdentityMismatch
+            | SourceBindingError::LocatorMismatch => Self::InvalidProposal,
+            SourceBindingError::MissingField(field) => Self::FieldMissing(field),
+            SourceBindingError::ZeroDigest(field) => Self::DigestZero(field),
+            SourceBindingError::InvalidVersionOrSequence(field) => Self::VersionInvalid(field),
+            SourceBindingError::RawCredentialMaterial => Self::RawCredentialMaterial,
+            SourceBindingError::InvalidCredentialAudience => Self::CredentialAudienceInvalid,
+            SourceBindingError::ForbiddenCredentialCapability => {
+                Self::CredentialCapabilityForbidden
             }
-            SourceBindingError::StoreUnavailable | SourceBindingError::CommitInterrupted => {
-                Self::StoreUnavailable
-            }
+            SourceBindingError::InvalidTimeEvidence => Self::TimeEvidenceInvalid,
+            SourceBindingError::TimeEvidenceAfterDecisionCut => Self::TimeEvidenceAfterDecisionCut,
+            SourceBindingError::UnsupportedBarTimeframe => Self::BarTimeframeUnsupported,
+            // A successor that does not advance is raised only by successor commits, which
+            // admission never makes; by meaning it contends with the lineage head.
+            SourceBindingError::ReplayConflict
+            | SourceBindingError::LineageHeadMismatch
+            | SourceBindingError::SuccessorDoesNotAdvance => Self::AdmissionConflict,
+            // A lost response is recovered by an exact retry, as a store failure is.
+            SourceBindingError::StoreUnavailable
+            | SourceBindingError::CommitInterrupted
+            | SourceBindingError::ResponseLost => Self::StoreUnavailable,
             SourceBindingError::TrustedClockMismatch => Self::ClockMismatch,
-            _ => Self::InvalidProposal,
         }
     }
 }
@@ -246,5 +321,66 @@ mod tests {
             SourceBindingAdmissionErrorV1::InvalidProposal,
             "a proposal fault is still the proposal's"
         );
+    }
+
+    /// Each proposal defect keeps its own name, and none reads as another's.
+    #[rstest]
+    #[case::unsupported_bar_timeframe(
+        SourceBindingError::UnsupportedBarTimeframe,
+        SourceBindingAdmissionErrorV1::BarTimeframeUnsupported
+    )]
+    #[case::missing_field(
+        SourceBindingError::MissingField("dataset_mapping"),
+        SourceBindingAdmissionErrorV1::FieldMissing("dataset_mapping")
+    )]
+    #[case::zero_digest(
+        SourceBindingError::ZeroDigest("implementation_digest"),
+        SourceBindingAdmissionErrorV1::DigestZero("implementation_digest")
+    )]
+    #[case::invalid_version(
+        SourceBindingError::InvalidVersionOrSequence("schema_version"),
+        SourceBindingAdmissionErrorV1::VersionInvalid("schema_version")
+    )]
+    #[case::raw_credential_material(
+        SourceBindingError::RawCredentialMaterial,
+        SourceBindingAdmissionErrorV1::RawCredentialMaterial
+    )]
+    #[case::credential_audience(
+        SourceBindingError::InvalidCredentialAudience,
+        SourceBindingAdmissionErrorV1::CredentialAudienceInvalid
+    )]
+    #[case::credential_capability(
+        SourceBindingError::ForbiddenCredentialCapability,
+        SourceBindingAdmissionErrorV1::CredentialCapabilityForbidden
+    )]
+    #[case::time_evidence(
+        SourceBindingError::InvalidTimeEvidence,
+        SourceBindingAdmissionErrorV1::TimeEvidenceInvalid
+    )]
+    #[case::time_evidence_after_cut(
+        SourceBindingError::TimeEvidenceAfterDecisionCut,
+        SourceBindingAdmissionErrorV1::TimeEvidenceAfterDecisionCut
+    )]
+    #[case::time_evidence_identity(
+        SourceBindingError::TimeEvidenceIdentityMismatch,
+        SourceBindingAdmissionErrorV1::InvalidProposal
+    )]
+    #[case::locator(
+        SourceBindingError::LocatorMismatch,
+        SourceBindingAdmissionErrorV1::InvalidProposal
+    )]
+    #[case::successor_does_not_advance(
+        SourceBindingError::SuccessorDoesNotAdvance,
+        SourceBindingAdmissionErrorV1::AdmissionConflict
+    )]
+    #[case::response_lost(
+        SourceBindingError::ResponseLost,
+        SourceBindingAdmissionErrorV1::StoreUnavailable
+    )]
+    fn each_source_binding_refusal_is_admitted_under_its_own_name(
+        #[case] error: SourceBindingError,
+        #[case] expected: SourceBindingAdmissionErrorV1,
+    ) {
+        assert_eq!(SourceBindingAdmissionErrorV1::from(error), expected);
     }
 }

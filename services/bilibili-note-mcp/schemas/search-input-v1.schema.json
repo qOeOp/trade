@@ -8,6 +8,16 @@
       "title": "Max Videos",
       "type": "integer"
     },
+    "quality": {
+      "default": "standard",
+      "enum": [
+        "fast",
+        "standard",
+        "precise"
+      ],
+      "title": "Quality",
+      "type": "string"
+    },
     "query": {
       "maxLength": 200,
       "minLength": 2,

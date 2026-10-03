@@ -123,17 +123,28 @@ impl PitObservationSourceV1 for BinanceSpotBarObservationSourceV1 {
                 .map_err(|_| PitObservationSourceErrorV1::Unavailable)?;
             let scale = u8::try_from(-i16::from(klines.price_exponent))
                 .map_err(|_| PitObservationSourceErrorV1::Unavailable)?;
+            let quantity_scale = u8::try_from(-i16::from(klines.qty_exponent))
+                .map_err(|_| PitObservationSourceErrorV1::Unavailable)?;
             let Some(bar) = last_closed_bar(&klines.klines, scope.event_effective()) else {
                 continue;
             };
 
-            for (field, mantissa) in [
-                ("OPEN", bar.open_price),
-                ("HIGH", bar.high_price),
-                ("LOW", bar.low_price),
-                ("CLOSE", bar.close_price),
+            // Volume and taker buy volume are base-asset quantities from the same response, as the
+            // venue's 128-bit mantissas under its quantity exponent; a native Replay frame cannot
+            // project a bar without the volume.
+            for (field, mantissa, field_scale) in [
+                ("OPEN", i128::from(bar.open_price), scale),
+                ("HIGH", i128::from(bar.high_price), scale),
+                ("LOW", i128::from(bar.low_price), scale),
+                ("CLOSE", i128::from(bar.close_price), scale),
+                ("VOLUME", i128::from_le_bytes(bar.volume), quantity_scale),
+                (
+                    "TAKER_BUY_VOLUME",
+                    i128::from_le_bytes(bar.taker_buy_base_volume),
+                    quantity_scale,
+                ),
             ] {
-                let (value_mantissa, value_scale) = canonical_decimal(i128::from(mantissa), scale);
+                let (value_mantissa, value_scale) = canonical_decimal(mantissa, field_scale);
                 rows.push(VendorObservationV1 {
                     symbolic_key: format!("{member}.{field}.{}", self.timeframe),
                     member_key: member.clone(),
@@ -381,15 +392,19 @@ mod live_tests {
         let rows = source.observe(&scope).await.expect("the endpoint answers");
         assert_eq!(
             rows.len(),
-            4,
-            "one closed bar yields open, high, low and close"
+            6,
+            "one closed bar yields open, high, low, close, volume and taker buy volume"
         );
 
         for row in &rows {
             assert_eq!(row.member_key, "BTCUSDT.BINANCE");
             assert_eq!(row.data_kind, DATA_KIND);
             assert_eq!(row.timeframe, "1M");
-            assert!(row.value_mantissa > 0, "an admitted price is positive");
+            if row.field.ends_with("VOLUME") {
+                assert!(row.value_mantissa >= 0, "a volume is never negative");
+            } else {
+                assert!(row.value_mantissa > 0, "an admitted price is positive");
+            }
             assert_eq!(row.event_effective, effective);
             assert_eq!(row.retrieval, effective);
         }
