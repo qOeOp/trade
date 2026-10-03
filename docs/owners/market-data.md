@@ -263,6 +263,12 @@ never runs in CI.
 | Vendor Data Clients                                       | `CURRENT / PARTIAL`                                                                                 | `crates/adapters/databento/src/pit_observation_source_v1.rs` and `crates/adapters/binance/src/pit_observation_source_v1.rs`, both live‑verified                                                                                          | `B6`       |
 | Live market fact channel to Runtime                       | `CURRENT / PARTIAL`, one channel                                                                    | `owner/live_market_fact_v1.rs`, `owner/live_market_stream_v1.rs`, `owner/postgres/live_market_stream_v1.rs`, `crates/adapters/bybit/src/live_market_fact_source_v1.rs`                                                                   | `B8`       |
 | Binance perpetual settled funding rows                    | `CURRENT / PARTIAL`                                                                                 | `crates/adapters/binance/src/futures_pit_observation_source_v1.rs`                                                                                                                                                                       | `B6`       |
+| Custody window schedule fact                              | `CURRENT / PARTIAL` (T0-4b)                                                                         | `owner/pit_window_custody_v1/schedule.rs`, `owner/postgres/pit_window_custody_v1.rs` (`pit_window_schedule_facts_v1`)                                                                                                                    | `B5`       |
+
+The snapshot path's per-instrument BAR schedule chain (`bar_schedule_*`) and a custody's window schedule facts coexist,
+each with its own consumers: snapshot Replay reads the first, a custody view the second. They must not be merged: a
+custody's commit never writes or advances an instrument's BAR schedule chain, and a snapshot never reads a window
+schedule.
 
 ## Authoritative facts owned
 
@@ -2510,6 +2516,14 @@ its version's event or availability, and a version whose availability or stated 
 cut as `VERSION_NOT_AVAILABLE_AT_MINTING_CUT`. The timeframe identity a custody binds for a member is the one the BAR schedule
 path derives from the same declaration and that member's Instrument Master fact, time zone included. The window
 schedule, the once-per-chain records and the derived view are not built yet.
+
+Built so far (T0-4b): the window schedule fact. A root custody's commit mints one `PitWindowScheduleFactV1` per member
+for its execution timeframe, in the same transaction and after every refusal: the member's timeframe identity and
+declared shape, the interval and its phase (zero for a grid from the Unix epoch), the custody's window, Instrument
+Master key and fact, Market Semantics identity and minting cut. Frames are the bar-close instants
+`phase + n * interval` inside the window. A successor mints none and its chain reads back the root's schedules; a
+rejoin or a refusal mints none, and no custody commit writes a `bar_schedule_*` table. No production caller reads it
+yet; the derived view (T0-5) will. Its unit tests and the custody PostgreSQL proofs drive it.
 
 - **Custody:** covers the half-open window from its warm-up start and is committed once, then never mutated. A later
   correction is a successor custody that names its predecessor and carries only the versions it adds; a view reads the

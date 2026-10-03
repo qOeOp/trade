@@ -208,6 +208,10 @@ ACL 拒绝。它不证明供应商真实性，不证明生产装配，也不证�
 | 供应商 Data Clients                               | `CURRENT / PARTIAL`                                                                | `crates/adapters/databento/src/pit_observation_source_v1.rs` 与 `crates/adapters/binance/src/pit_observation_source_v1.rs`，均已实盘验证                                                                        | `B6`       |
 | 面向 Runtime 的实时行情事实通道                   | `CURRENT / PARTIAL`，一条通道                                                      | `owner/live_market_fact_v1.rs`、`owner/live_market_stream_v1.rs`、`owner/postgres/live_market_stream_v1.rs`、`crates/adapters/bybit/src/live_market_fact_source_v1.rs`                                          | `B8`       |
 | Binance 永续已结算 funding 行                     | `CURRENT / PARTIAL`                                                                | `crates/adapters/binance/src/futures_pit_observation_source_v1.rs`                                                                                                                                              | `B6`       |
+| 托管窗口 schedule fact                            | `CURRENT / PARTIAL`（T0-4b）                                                       | `owner/pit_window_custody_v1/schedule.rs`、`owner/postgres/pit_window_custody_v1.rs`（`pit_window_schedule_facts_v1`）                                                                                          | `B5`       |
+
+快照路径按标的的 BAR schedule 链（`bar_schedule_*`）与托管的窗口 schedule fact 并存，各有各的消费方：快照 Replay 读前者，
+托管视图读后者。两者不得合并：托管的提交绝不写入或推进某个标的的 BAR schedule 链，快照也绝不读窗口 schedule。
 
 ## 拥有的权威事实
 
@@ -2176,6 +2180,13 @@ Backtest 的组合与 Market Data 之外的每个读者也属于 T1；T2（多�
 或陈述发布时刻晚于铸造 cut 的版本。托管为某个成员绑定的周期 identity，就是 BAR
 调度路径从同一份声明与该成员的 Instrument Master fact 推出的那一个，时区也包括在内。窗口调度、每条链一次的记录与派生视
 图都还没有建。
+
+目前已建成（T0-4b）：窗口 schedule fact。根托管的提交在同一个事务内、在所有拒绝之后，为每个成员的执行周期铸一个
+`PitWindowScheduleFactV1`：成员的周期 identity 与声明形状、间隔及其相位（从 Unix 纪元起的网格相位为零）、托管的窗口、
+Instrument Master key 与 fact、Market Semantics identity 和铸造 cut。帧就是窗口内的 bar 收盘时刻
+`phase + n * interval`。后继托管不铸 schedule，它所在的链读回根托管的 schedule；重新加入或拒绝都不铸 schedule，任何托管
+提交都不写 `bar_schedule_*` 表。目前还没有生产调用方读它，派生视图（T0-5）会读。驱动它的是它的单元测试与托管的
+PostgreSQL 证明。
 
 - **托管：** 覆盖从预热起点开始的半开窗口，只提交一次，此后不可变。后来的更正是一份后继托管，它指名自己的前驱，只携带
   它新增的版本；视图沿这条链读到 head。后继托管原样重述前驱的基底 - Market Semantics fact、 Instrument Master cut、成
