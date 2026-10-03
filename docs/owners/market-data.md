@@ -2507,9 +2507,20 @@ production caller reaches it yet: the unit tests of its pure authority and four 
 members' Instrument Master facts at that cut; it refuses a member another of whose facts is in force inside the
 window, a row retrieved before its bar closed as `ROW_RETRIEVED_BEFORE_BAR_CLOSE`, a stated publication earlier than
 its version's event or availability, and a version whose availability or stated publication is later than the minting
-cut as `VERSION_NOT_AVAILABLE_AT_MINTING_CUT`. The timeframe identity a custody binds for a member is the one the BAR schedule
-path derives from the same declaration and that member's Instrument Master fact, time zone included. The window
-schedule, the once-per-chain records and the derived view are not built yet.
+cut as `VERSION_NOT_AVAILABLE_AT_MINTING_CUT`. A custody series takes its scale from the member's Instrument Master
+increment, the price increment's for OPEN, HIGH, LOW and CLOSE and the quantity increment's for VOLUME; every row is
+rescaled to it exactly, and a row finer than it is refused as `VALUE_FINER_THAN_INSTRUMENT_PRECISION`, never rounded.
+The timeframe identity a custody binds for a member is the one the BAR schedule path derives from the same declaration
+and that member's Instrument Master fact, time zone included. The window schedule, the once-per-chain records and the
+derived view are not built yet.
+
+**TARGET, snapshot-path series scale:** a sample fact's series identity binds the value's scale
+(`series_projection_bytes`, `crates/data/src/owner/sample_fact.rs` line 1263), while a PIT batch stores each value in
+canonical form, refusing a nonzero scale whose mantissa ends in 0 (`decode_observation`,
+`crates/data/src/owner/pit_snapshot/authority.rs` line 1612). The scale therefore varies with the value's last digit,
+and one instrument and field splits into a new series on every bar whose last digit is 0. Custody is fixed by the
+Instrument Master precision rule above. The snapshot path keeps its bytes and is left for a separate later slice:
+today's snapshot consumers each read one frame, so no series continuity depends on it yet.
 
 - **Custody:** covers the half-open window from its warm-up start and is committed once, then never mutated. A later
   correction is a successor custody that names its predecessor and carries only the versions it adds; a view reads the

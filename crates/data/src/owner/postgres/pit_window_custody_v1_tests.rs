@@ -265,7 +265,9 @@ async fn universe(
     )
 }
 
-/// One row per member and BAR field, values from `base`, all retrieved at `retrieval_ns`.
+/// One row per member and BAR field, values from `base`, all retrieved at `retrieval_ns`. Prices
+/// are written at the fixture instruments' price increment scale, 2, and volumes at their quantity
+/// increment scale, 0.
 fn rows(base: i128, retrieval_ns: u64) -> Vec<UntrustedCustodyRowV1> {
     [BTC, ETH]
         .into_iter()
@@ -277,7 +279,7 @@ fn rows(base: i128, retrieval_ns: u64) -> Vec<UntrustedCustodyRowV1> {
                     instrument: member.to_owned(),
                     field: field.to_owned(),
                     value_mantissa: base + offset,
-                    value_scale: 2,
+                    value_scale: if field == "VOLUME" { 0 } else { 2 },
                     retrieval_ns,
                     retrieval_route: "data.binance.vision/daily-klines".to_owned(),
                 })
@@ -455,7 +457,16 @@ async fn postgres_a_custody_commits_once_and_a_resubmission_rejoins_without_writ
     admit_members(&owner, &binding).await;
     let universe = universe(&owner, &binding, 10, None).await;
     let intake = owner.pit_window_custody_commit_v1();
-    let first = request(&binding, universe);
+    let mut first = request(&binding, universe);
+    // The second bar's BTC CLOSE is written at one decimal place: 65000.1, which the custody states
+    // at the price increment's two, so it stays in the series of the first bar's CLOSE.
+    let second_close = first.cross_sections[1]
+        .rows
+        .iter_mut()
+        .find(|row| row.instrument == BTC && row.field == "CLOSE")
+        .unwrap();
+    second_close.value_mantissa = 650_001;
+    second_close.value_scale = 1;
 
     let (handoffs, head) = clock(&owner).await;
     let before_wall = wall_now_ns();
@@ -516,7 +527,12 @@ async fn postgres_a_custody_commits_once_and_a_resubmission_rejoins_without_writ
     assert_eq!(second_close.series_sequence(), 2);
     assert_eq!(
         second_close.series_predecessor(),
-        first_close.sample_identity()
+        first_close.sample_identity(),
+        "a value written at another scale extends its series"
+    );
+    assert_eq!(
+        second_close.series_identity(),
+        first_close.series_identity()
     );
     assert_eq!(first_close.correction_predecessor(), None);
 

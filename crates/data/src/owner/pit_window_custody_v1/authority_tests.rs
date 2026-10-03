@@ -183,6 +183,8 @@ fn instrument(byte: u8) -> CustodyInstrumentV1 {
             time_zone: "Etc/UTC".to_owned(),
             market_semantics_identity: d(30),
             effective_until: None,
+            price_scale: 2,
+            quantity_scale: 3,
         }),
         at_end: Some(d(byte)),
         others: Vec::new(),
@@ -874,4 +876,109 @@ fn a_publication_before_an_availability_at_the_minting_cut_is_refused() {
         Err(Refused::InvalidRequest)
     );
     assert!(derived.resolve_at_minting_cut(RETRIEVED, None).is_ok());
+}
+
+/// `request()` with its first daily bar's BTC CLOSE stated as `mantissa * 10^-scale`.
+fn close_stated_as(mantissa: i128, scale: u8) -> UntrustedPitWindowCustodyRequestV1 {
+    let mut request = request();
+    let close = &mut request.cross_sections[0].rows[3];
+    assert_eq!(
+        (close.instrument.as_str(), close.field.as_str()),
+        (BTC, "CLOSE")
+    );
+    close.value_mantissa = mantissa;
+    close.value_scale = scale;
+    request
+}
+
+/// 45000.1 and 45000.12 on two bars of one series are stated at the price increment's scale, so
+/// the CLOSE series of the member is one series, whatever scale each value was written at.
+#[rstest]
+fn values_written_at_different_scales_land_in_one_series() {
+    use crate::owner::sample_fact::v2::{
+        SampleHeadsV2, prepare_sample_fact_v2, series_identity_v2,
+    };
+
+    let mut request = request();
+    let close_of = |version: usize| {
+        request.cross_sections[version]
+            .rows
+            .iter()
+            .position(|row| row.instrument == BTC && row.field == "CLOSE")
+            .unwrap()
+    };
+    let (first, second) = (close_of(0), close_of(1));
+    request.cross_sections[0].rows[first].value_mantissa = 450_001;
+    request.cross_sections[0].rows[first].value_scale = 1;
+    request.cross_sections[1].rows[second].value_mantissa = 4_500_012;
+    request.cross_sections[1].rows[second].value_scale = 2;
+    let derived = Basis::new(false).derive(&request).unwrap();
+    let resolved = derived.resolve_at_minting_cut(RETRIEVED, None).unwrap();
+    let series = (0..2)
+        .map(|version| {
+            let inputs = derived.row_inputs(&derived.versions[version], resolved[version]);
+            let close = &inputs[3];
+            assert_eq!(close.field_semantic, b"MARKET_DATA.BAR.CLOSE.PRICE.V1");
+            assert_eq!(close.value_scale, 2);
+            (close.value_mantissa, series_identity_v2(close).unwrap())
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(series[0].0, 4_500_010);
+    assert_eq!(series[1].0, 4_500_012);
+    assert_eq!(
+        series[0].1, series[1].1,
+        "one instrument and field is one series"
+    );
+
+    // The second bar's row fact chains onto the first's: 45000.10 (written canonically, at one
+    // place) and 45000.12 are adjacent bars of one series.
+    let inputs = (0..2)
+        .map(|version| derived.row_inputs(&derived.versions[version], resolved[version])[3].clone())
+        .collect::<Vec<_>>();
+    let first_fact = prepare_sample_fact_v2(&inputs[0], SampleHeadsV2::default()).unwrap();
+    let second_fact = prepare_sample_fact_v2(
+        &inputs[1],
+        SampleHeadsV2 {
+            series: Some(&first_fact),
+            slot: None,
+        },
+    )
+    .expect("the second bar extends the first bar's series");
+    assert_eq!(
+        second_fact.series_predecessor(),
+        first_fact.sample_identity()
+    );
+    assert_eq!(second_fact.series_sequence(), 2);
+    assert_eq!(
+        derived.versions[0].rows[4].value_scale, 3,
+        "VOLUME takes the quantity increment's scale"
+    );
+}
+
+/// One value has one representation: "45000.10" written at scale 2 and "45000.1" at scale 1 are
+/// the same custody.
+#[rstest]
+fn a_value_written_at_another_scale_keeps_the_custody_identity() {
+    let basis = Basis::new(false);
+    let two_places = basis.derive(&close_stated_as(4_500_010, 2)).unwrap();
+    let one_place = basis.derive(&close_stated_as(450_001, 1)).unwrap();
+
+    assert_eq!(root_identity(&two_places), root_identity(&one_place));
+}
+
+#[rstest]
+#[case::finer_than_the_price_increment(45_000_123, 3, Refused::ValueFinerThanInstrumentPrecision)]
+#[case::beyond_the_mantissa(i128::MAX, 0, Refused::InvalidRequest)]
+fn a_value_the_increment_cannot_state_exactly_is_refused(
+    #[case] mantissa: i128,
+    #[case] scale: u8,
+    #[case] refused: Refused,
+) {
+    assert_eq!(
+        Basis::new(false)
+            .derive(&close_stated_as(mantissa, scale))
+            .map(|_| ()),
+        Err(refused)
+    );
 }

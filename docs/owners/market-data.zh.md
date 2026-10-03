@@ -2173,9 +2173,17 @@ Backtest 的组合与 Market Data 之外的每个读者也属于 T1；T2（多�
 的单元测试，以及 `pit_window_custody_v1_tests` 里的四个 PostgreSQL 证明。提交在时钟状态锁下确定铸造 cut，并在该 cut
 上选出成员的 Instrument Master fact；它拒绝另有 fact 在窗口内生效的成员，以 `ROW_RETRIEVED_BEFORE_BAR_CLOSE` 拒绝在 bar
 收盘前取回的行，拒绝早于其版本事件或可得时刻的陈述发布时刻，并以 `VERSION_NOT_AVAILABLE_AT_MINTING_CUT` 拒绝可得时刻
-或陈述发布时刻晚于铸造 cut 的版本。托管为某个成员绑定的周期 identity，就是 BAR
+或陈述发布时刻晚于铸造 cut 的版本。托管序列的 scale 取自成员的 Instrument Master 增量：OPEN、HIGH、LOW 与 CLOSE 取价格增量
+的 scale，VOLUME 取数量增量的 scale；每一行都精确地换算到该 scale，比它更细的行以
+`VALUE_FINER_THAN_INSTRUMENT_PRECISION` 拒绝，绝不舍入。托管为某个成员绑定的周期 identity，就是 BAR
 调度路径从同一份声明与该成员的 Instrument Master fact 推出的那一个，时区也包括在内。窗口调度、每条链一次的记录与派生视
 图都还没有建。
+
+**TARGET，快照路径的序列 scale：** sample fact 的序列 identity 绑定值的 scale
+（`series_projection_bytes`，`crates/data/src/owner/sample_fact.rs` 第 1263 行），而 PIT batch 以规范形式存储每个值，拒绝
+尾数以 0 结尾的非零 scale（`decode_observation`，`crates/data/src/owner/pit_snapshot/authority.rs` 第 1612 行）。于是 scale
+随值的末位数字变化，同一标的同一字段在每个末位为 0 的 bar 上都会分裂出新序列。托管已由上面的 Instrument Master 精度规则
+修好。快照路径保留其字节，留给以后单独的切片：今天的快照消费方各自只读一帧，所以还没有序列连续性依赖它。
 
 - **托管：** 覆盖从预热起点开始的半开窗口，只提交一次，此后不可变。后来的更正是一份后继托管，它指名自己的前驱，只携带
   它新增的版本；视图沿这条链读到 head。后继托管原样重述前驱的基底 - Market Semantics fact、 Instrument Master cut、成
