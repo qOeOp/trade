@@ -962,10 +962,11 @@ and a rendering of a document exists for reading only.
 
 **CURRENT - authoring language V1, slice 1:** the constructs research T0 needs, compiled by
 `strategy_authoring_v1::author_strategy_document_v1` into the `design` and `meaning` pair, which the compiler
-derives and prepares itself before it returns them. T0 is a daily trend rule over one perpetual: enter when the close
-leaves the prior 50 closes' range; while held, flip when it leaves that range the other way; exit when it crosses the
-prior 20 closes' range, when the bar touches a stop captured at two ATR(20) from the opening close, or after 250
-bars; long and short mirrored. Every construct below maps to catalog operations, and none adds one.
+derives and prepares itself before it returns them. T0 is a daily trend rule over one perpetual: enter when the
+close leaves the prior 50 closes' range; while held, flip when it leaves that range the other way; exit when it
+crosses the prior 20 closes' range, when the bar touches a stop captured at two ATR(20) from the opening close, or
+at the close of the 250th bar the position is held, counting the bar it fills on; long and short mirrored. Every
+construct below maps to catalog operations, and none adds one.
 
 - *Inputs.* `OPEN`, `HIGH`, `LOW` and `CLOSE` of the one member of the Research scope's universe, each declared at
   most once under a name of the author's choosing. A document must read `CLOSE`, which prices its orders; an input it
@@ -997,12 +998,11 @@ bars; long and short mirrored. Every construct below maps to catalog operations,
   SHA-256 of its canonical bytes under a domain of its own, and the single-threshold identities are unchanged.
 - *Acceptance.* T0's document compiles and the compiled program prepares, and its Wasm runs across frames in the
   toolchain proofs (`the_authored_t0_document_runs_as_wasm_across_frames`): warm at bar 51; long at 61, its stop
-  captured at 105.10; a low of 106 holds and a low of 105 leaves at 66; short from flat at 71; flipped to long at 76,
-  ahead of the short's stop and channel exit on the same bar; out by the holding limit at 327, counted from the flip.
-  It behaves the same at its guest stack rule before page rounding, 249 328 bytes against a measured need of
-  170 336.
-  The sixteen hand-written programs and the total single-threshold translation above remain the next slices'
-  acceptance.
+  captured at 105.10; a low of 106 holds and a low of 105 leaves at 66; short from flat at 71; flipped to long at
+  76, ahead of the short's stop and channel exit on the same bar; out by the holding limit at 326, counted from the
+  flip, and not at 325. It behaves the same at its guest stack rule before page rounding, 249 328 bytes against a
+  measured need of 170 336. The sixteen hand-written programs and the total single-threshold translation above
+  remain the next slices' acceptance.
 
 **TARGET / NOT_ADMITTED - authored source custody and report statement:** a document is stored with the
 freeze it compiled to, in the same transaction, keyed by the joint freeze digest, and `declare` accepts it

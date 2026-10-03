@@ -1871,7 +1871,8 @@ fn a_program_runs_at_its_stack_rule_without_the_page_rounding() {
 /// close. A close of 95 under the prior 50 closes' low enters short from flat; a close of 120 over
 /// their high, while short, flips to long in one intent, ahead of the short's stop and channel exit
 /// it also meets. Held at 120, the flipped long is left by the holding limit, counted from the flip
-/// rather than from the short it reversed. T0 behaves the same at its stack rule before the page
+/// rather than from the short it reversed: decided on bar 76, it is left at the close of bar 326,
+/// the 250th bar counting the fill bar, and not on bar 325. T0 behaves the same at its stack rule before the page
 /// rounding, so its run does not rest on a page's slack.
 #[rstest::rstest]
 #[ignore = "builds and invokes research T0 with the pinned local wasm compiler"]
@@ -1978,11 +1979,15 @@ fn the_authored_t0_document_runs_as_wasm_across_frames() {
             (66, "kernel.position.exit.v1".to_owned(), 0),
             (71, "kernel.position.enter.v1".to_owned(), -1),
             (76, "kernel.position.flip.v1".to_owned(), 1),
-            // The holding count reads the position at the previous tick and restarts on the flip, so
-            // it is 1 on the bar after the flip and reaches 250 on bar 327.
-            (327, "kernel.position.exit.v1".to_owned(), 0),
+            // The holding count reads the position at the previous tick and restarts on the flip,
+            // so it reads 249 on bar 326: the flip fills at bar 77, and research leaves at the
+            // close of the 250th bar counting the fill bar, filled at the next open.
+            (326, "kernel.position.exit.v1".to_owned(), 0),
         ]
     );
+    // Only the holding limit leaves the flipped long: nothing is proposed on bar 325, one bar
+    // early, and the limit is the only exit condition on bar 326.
+    assert!(proposals.iter().all(|(sample, ..)| *sample != 325));
 
     // T0 runs at the rule's stack before it is rounded up to a page, 5 x 46 588 + 16 384 =
     // 249 324 bytes on the 16-byte grid, as it does at the 262 144 it is built with: it was

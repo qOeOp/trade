@@ -22,7 +22,7 @@
     {"name": "short_channel_exit", "expr": {"op": "COMPARE", "a": "close", "predicate": "GREATER", "b": "high_20"}},
     {"name": "long_stop_touched", "expr": {"op": "COMPARE", "a": "low", "predicate": "LESS_OR_EQUAL", "b": "long_stop_level"}},
     {"name": "short_stop_touched", "expr": {"op": "COMPARE", "a": "high", "predicate": "GREATER_OR_EQUAL", "b": "short_stop_level"}},
-    {"name": "held_too_long", "expr": {"op": "COMPARE", "a": "held", "predicate": "GREATER_OR_EQUAL", "b": "250"}},
+    {"name": "held_too_long", "expr": {"op": "COMPARE", "a": "held", "predicate": "GREATER_OR_EQUAL", "b": "249"}},
     {"name": "in_position", "expr": {"op": "ANY_OF", "of": ["long", "short"]}},
     {"name": "flat", "expr": {"op": "NOT", "of": "in_position"}},
     {"name": "long_reverses", "expr": {"op": "ALL_OF", "of": ["long", "breaks_down"]}},
