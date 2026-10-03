@@ -1,19 +1,24 @@
 //! The first COMPOSER_V3 Replay's one report point, computed independently of the engine and the
 //! report.
 //!
-//! F's endpoint is a report with one point and one fill. The run buys `quantity` of the member at
-//! its quote cut's ask, pays the taker fee on that fill, and marks the long position at the bid. So
-//! the point is `(-fee + unrealized) / starting_balance`. The inputs are what production decoders read
-//! back: the quote cut's bid and ask, the Owner's taker fee and multiplier, the family's sealed
-//! starting balance, and the target's quantity. From them this module computes the fee and the
+//! F's endpoint is a report with one point and one fill. The Host places a GTC limit buy of
+//! `quantity` at the frame's close. No book exists yet, so the order rests as a passive (MAKER)
+//! order, and when the quote cut's ask reaches it, it fills at its own price
+//! (`OrderMatchingEngine`, `crates/execution/src/matching_engine/engine.rs`: a resting limit fills
+//! as MAKER at the order's price). It pays the maker fee on that fill and marks the long position at
+//! the bid. So the point is `(-fee + unrealized) / starting_balance`. The inputs are what production
+//! decoders read back: the quote cut's bid, the frame's close the order is priced at, the Owner's
+//! maker fee and multiplier, the family's sealed starting balance, and the target's quantity.
+//! Measured on owner-chains run 37093452400, where the fill was at the limit (123.450), not at the
+//! ask (123.440). From them this module computes the fee and the
 //! unrealized PnL as exact decimals, and the point as an exact quotient. It calls no engine or
 //! report function; it restates the arithmetic those functions perform, measured at `main`
 //! c4bddc3b2, so a report that disagrees with it is refused rather than trusted.
 //!
 //! **The fee** is two exact decimal steps, both rounded half-to-even at the settlement currency's
-//! precision. The notional is `quantity * multiplier * ask`, rounded to a `Money`
+//! precision. The notional is `quantity * multiplier * fill_price`, rounded to a `Money`
 //! (`try_notional_value`, `crates/model/src/instruments/mod.rs`). The commission is that notional
-//! times the taker rate, rounded again (`MakerTakerFeeModel::get_commission`,
+//! times the maker rate, rounded again (`MakerTakerFeeModel::get_commission`,
 //! `crates/execution/src/models/fee.rs`). Both roundings are `bankers_round`
 //! (`crates/model/src/types/fixed.rs`). The report's fee must equal this one exactly.
 //!
@@ -39,14 +44,15 @@ use rust_decimal::{Decimal, RoundingStrategy};
 pub(crate) struct FillOracleInputsV1 {
     /// The quote cut's best bid for the member: the long position's mark.
     pub(crate) bid: Decimal,
-    /// The quote cut's best ask for the member: a market buy's fill price.
-    pub(crate) ask: Decimal,
+    /// The price the order fills at: its limit, the frame's close, since it rests as MAKER before
+    /// the quote cut's ask reaches it.
+    pub(crate) fill_price: Decimal,
     /// The target's quantity, in the instrument's units.
     pub(crate) quantity: Decimal,
     /// The Owner's contract multiplier.
     pub(crate) multiplier: Decimal,
-    /// The Owner's taker fee rate.
-    pub(crate) taker_fee: Decimal,
+    /// The Owner's fee rate for the fill's liquidity side: the maker rate for F's resting limit.
+    pub(crate) fee_rate: Decimal,
     /// The family's sealed starting balance, in the settlement currency.
     pub(crate) starting_balance: Decimal,
     /// The settlement currency's precision, in decimal places.
@@ -125,18 +131,18 @@ pub(crate) fn fill_oracle_v1(
 ) -> Result<FillOracleV1, FillOracleRefusalV1> {
     let FillOracleInputsV1 {
         bid,
-        ask,
+        fill_price,
         quantity,
         multiplier,
-        taker_fee,
+        fee_rate,
         starting_balance,
         currency_precision,
     } = inputs;
 
-    if [bid, ask, quantity, multiplier, starting_balance]
+    if [bid, fill_price, quantity, multiplier, starting_balance]
         .iter()
         .any(|value| *value <= Decimal::ZERO)
-        || taker_fee < Decimal::ZERO
+        || fee_rate < Decimal::ZERO
     {
         return Err(FillOracleRefusalV1::OutOfDomain);
     }
@@ -146,18 +152,18 @@ pub(crate) fn fill_oracle_v1(
     let notional = at_currency(
         quantity
             .checked_mul(multiplier)
-            .and_then(|value| value.checked_mul(ask))
+            .and_then(|value| value.checked_mul(fill_price))
             .ok_or(FillOracleRefusalV1::Overflow)?,
     );
     let fee = at_currency(
         notional
-            .checked_mul(taker_fee)
+            .checked_mul(fee_rate)
             .ok_or(FillOracleRefusalV1::Overflow)?,
     );
 
     let unrealized = quantity
         .checked_mul(multiplier)
-        .and_then(|value| value.checked_mul(bid - ask))
+        .and_then(|value| value.checked_mul(bid - fill_price))
         .ok_or(FillOracleRefusalV1::Overflow)?;
 
     if unrealized.normalize().scale() > currency_precision {
@@ -197,12 +203,12 @@ fn unrealized_scaled_error_bound(
     let one_plus_u_to_5 =
         (1..=5).try_fold(Decimal::ONE, |acc, _| acc.checked_mul(Decimal::ONE + u));
     let one_plus_u_to_5 = one_plus_u_to_5.ok_or(FillOracleRefusalV1::Overflow)?;
-    let prices = inputs.bid.abs() + inputs.ask.abs();
+    let prices = inputs.bid.abs() + inputs.fill_price.abs();
     let quantity_multiplier = inputs
         .quantity
         .checked_mul(inputs.multiplier)
         .ok_or(FillOracleRefusalV1::Overflow)?;
-    let spread = (inputs.bid - inputs.ask).abs();
+    let spread = (inputs.bid - inputs.fill_price).abs();
     let error = quantity_multiplier
         .checked_mul(spread * (one_plus_u_to_5 - Decimal::ONE) + u * prices * one_plus_u_to_5)
         .ok_or(FillOracleRefusalV1::Overflow)?;
@@ -308,15 +314,15 @@ mod tests {
 
     use super::*;
 
-    /// A LINKUSDT-PERP fill at F's quote: bid 123.44, ask 123.46, one contract, multiplier 1, a
-    /// taker rate of 0.05%, a 10,000 USDT balance, and USDT at 8 places.
+    /// A LINKUSDT-PERP fill: bid 123.44, filled at 123.46, one contract, multiplier 1, a
+    /// fee rate of 0.05%, a 10,000 USDT balance, and USDT at 8 places.
     fn linkusdt() -> FillOracleInputsV1 {
         FillOracleInputsV1 {
             bid: Decimal::new(12_344, 2),
-            ask: Decimal::new(12_346, 2),
+            fill_price: Decimal::new(12_346, 2),
             quantity: Decimal::ONE,
             multiplier: Decimal::ONE,
-            taker_fee: Decimal::new(5, 4),
+            fee_rate: Decimal::new(5, 4),
             starting_balance: Decimal::new(10_000, 0),
             currency_precision: 8,
         }
@@ -381,17 +387,17 @@ mod tests {
     // below its half and goes to 0.06172840; halving the unrounded notional would give 0.06172839.
     #[case::notional_rounds_before_the_rate("0.123456789", "1", "0.5", "0.06172840")]
     fn each_fee_rounding_is_half_to_even(
-        #[case] ask: &str,
+        #[case] fill_price: &str,
         #[case] quantity: &str,
-        #[case] taker_fee: &str,
+        #[case] fee_rate: &str,
         #[case] fee: &str,
     ) {
-        let ask: Decimal = ask.parse().unwrap();
+        let fill_price: Decimal = fill_price.parse().unwrap();
         let oracle = fill_oracle_v1(FillOracleInputsV1 {
-            bid: ask,
-            ask,
+            bid: fill_price,
+            fill_price,
             quantity: quantity.parse().unwrap(),
-            taker_fee: taker_fee.parse().unwrap(),
+            fee_rate: fee_rate.parse().unwrap(),
             ..linkusdt()
         })
         .expect("the fill is exact");
@@ -411,7 +417,7 @@ mod tests {
         );
         let huge = FillOracleInputsV1 {
             bid: Decimal::new(1_000_000_000, 0),
-            ask: Decimal::new(1_000_000_001, 0),
+            fill_price: Decimal::new(1_000_000_001, 0),
             quantity: Decimal::new(1_000_000_000, 0),
             starting_balance: Decimal::new(1_000_000_000_000_000, 0),
             ..linkusdt()
