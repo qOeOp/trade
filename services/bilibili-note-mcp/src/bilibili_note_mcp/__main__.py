@@ -21,9 +21,12 @@ from bilibili_note_mcp.adapters.direct_notes import DirectDistiller
 from bilibili_note_mcp.adapters.distillers import DeterministicDistiller
 from bilibili_note_mcp.adapters.fixture_search import FixtureSearch
 from bilibili_note_mcp.adapters.fixture_source import FixtureSource
+from bilibili_note_mcp.adapters.generic_source import GenericSource
 from bilibili_note_mcp.adapters.media_ffmpeg import FfmpegMedia
 from bilibili_note_mcp.adapters.note_publisher import LocalNotePublisher
 from bilibili_note_mcp.adapters.source_cache import SourceCache
+from bilibili_note_mcp.adapters.video_source import VideoSource
+from bilibili_note_mcp.adapters.youtube_source import YoutubeSearch, YoutubeSource
 from bilibili_note_mcp.application.create_note import CreateBilibiliNote
 from bilibili_note_mcp.application.errors import BilibiliNoteFailure
 from bilibili_note_mcp.application.search_notes import SearchAndCreateBilibiliNotes
@@ -37,13 +40,15 @@ def _use_case(fixture_root: Path | None, deterministic: bool) -> CreateBilibiliN
     engine = os.environ.get("BILIBILI_NOTE_ASR", "mlx" if local else "siliconflow")
     if engine not in ("mlx", "siliconflow"):
         raise ValueError("BILIBILI_NOTE_ASR must be mlx or siliconflow")
+    transcript = MlxAsr() if engine == "mlx" else SiliconFlowAsr()
+    cache = SourceCache(MLX_IDENTITY) if engine == "mlx" else None
     source = (
         FixtureSource(fixture_root)
         if fixture_root
-        else BilibiliSource(
-            transcript=MlxAsr() if engine == "mlx" else SiliconFlowAsr(),
-            cache=SourceCache(MLX_IDENTITY) if engine == "mlx" else None,
-            media=YtDlpBilibiliMedia(),
+        else VideoSource(
+            BilibiliSource(transcript=transcript, cache=cache, media=YtDlpBilibiliMedia()),
+            YoutubeSource(transcript=transcript, cache=cache),
+            GenericSource(transcript=transcript),
         )
     )
     distiller = DeterministicDistiller() if deterministic else DirectDistiller()
@@ -100,7 +105,13 @@ async def _run_once(use_case: CreateBilibiliNote, url: str, quality: str = "fast
 
 async def _serve(fixture_root: Path | None, deterministic: bool) -> int:
     create_note = _use_case(fixture_root, deterministic)
-    server = build_server(create_note, _search_use_case(fixture_root, create_note))
+    server = build_server(
+        create_note,
+        _search_use_case(fixture_root, create_note),
+        None
+        if fixture_root
+        else SearchAndCreateBilibiliNotes(YoutubeSearch(), create_note, LocalNotePublisher()),
+    )
     with strict_mcp_stdio_admission():
         async with stdio_server() as (read_stream, write_stream):
             await server.run(read_stream, write_stream, server.create_initialization_options())

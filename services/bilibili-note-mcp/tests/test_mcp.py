@@ -144,7 +144,8 @@ async def test_public_cli_rejects_deterministic_mode_without_fixture_before_serv
 
 
 @pytest.mark.parametrize("search", [False, True])
-async def test_transport_success_has_durable_illustrated_contract(tmp_path, draft, search):
+@pytest.mark.parametrize("legacy", [False, True])
+async def test_transport_success_has_durable_illustrated_contract(tmp_path, draft, search, legacy):
     from test_note_contract import use_case
 
     from bilibili_note_mcp.domain.models import (
@@ -161,8 +162,11 @@ async def test_transport_success_has_durable_illustrated_contract(tmp_path, draf
 
     async with Client(_server(app)) as client:
         listed = await client.list_tools()
+        name = SEARCH_TOOL_NAME if search else TOOL_NAME
+        if legacy:
+            name = name.replace("video_note.", "bilibili_note.")
         result = await client.call_tool(
-            SEARCH_TOOL_NAME if search else TOOL_NAME,
+            name,
             {"query": "纸飞机折叠", "max_videos": 1, "quality": "fast"}
             if search
             else {"url": FIXTURE_URL, "quality": "fast"},
@@ -271,3 +275,29 @@ def test_live_runtime_uses_direct_author():
 
     app = cli_module._use_case(None, deterministic=False)
     assert isinstance(app._distiller, DirectDistiller)
+
+
+@pytest.mark.parametrize("platform", [None, "bilibili", "youtube"])
+async def test_search_platform_routes_to_selected_adapter(tmp_path, draft, platform):
+    from unittest.mock import AsyncMock
+
+    from test_note_contract import use_case
+
+    from bilibili_note_mcp.application.errors import BilibiliNoteFailure
+
+    app = use_case(draft, tmp_path)
+    bili, youtube = AsyncMock(), AsyncMock()
+    bili.execute.side_effect = BilibiliNoteFailure("SEARCH_EMPTY", "bili_empty")
+    youtube.execute.side_effect = BilibiliNoteFailure("SEARCH_EMPTY", "youtube_empty")
+    args = {"query": "paper airplane", "max_videos": 1, "quality": "fast"}
+    if platform is not None:
+        args["platform"] = platform
+    async with Client(build_server(app, bili, youtube)) as client:
+        result = await client.call_tool(SEARCH_TOOL_NAME, args)
+    selected, unused = (youtube, bili) if platform == "youtube" else (bili, youtube)
+    selected.execute.assert_awaited_once()
+    unused.execute.assert_not_awaited()
+    assert result.is_error
+    assert result.structured_content["reason"] == (
+        "youtube_empty" if platform == "youtube" else "bili_empty"
+    )

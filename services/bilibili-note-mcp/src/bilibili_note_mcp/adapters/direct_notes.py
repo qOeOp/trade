@@ -13,7 +13,7 @@ import json
 from dataclasses import replace
 
 from PIL import Image, ImageDraw
-from pydantic import Field
+from pydantic import Field, ValidationError
 
 from bilibili_note_mcp.application.create_note import CreateBilibiliNote
 from bilibili_note_mcp.application.errors import BilibiliNoteFailure
@@ -37,7 +37,8 @@ AUTHOR = """
 不能凭常识补全；audio_reviews只是另一种转写，不是标准答案。不要添加来源外的解释。
 概览和结论的适用范围必须与原话一致，不把局部建议扩展到所有对象。
 每条points/overview/takeaways的evidence_refs只引用本批真实转录ID。相邻上下文仅用于理解。
-章节按最早引用时间排列，每章各点也按时间排列。截图只返回frame_id，不生成图注；必要的画面解释写入有依据的正文。
+章节按最早引用时间排列，每章各点也按时间排列。screenshots必须是对象数组，每项形如{"frame_id":"F01"}，不是字符串数组；不生成图注。
+必要的画面解释写入有依据的正文。
 不从单帧推断变化，不猜人物身份。选与本章有关且有信息量的清晰画面，
 避免近似重复；每章选择0到2张关键图即可，不为凑数配图，每张最多用一次，全篇至多24张。
 frames中的evidence_refs是画面附近的原始语句，可用于理解画面，不要求正文逐句引用。
@@ -207,11 +208,21 @@ class DirectDistiller(_Provider):
                     }
                     if attempt or not repairable:
                         raise
+                    details = ""
+                    if isinstance(e.__cause__, ValidationError):
+                        errors = e.__cause__.errors(
+                            include_url=False, include_context=False, include_input=False
+                        )
+                        details = json.dumps(
+                            [{"path": error["loc"], "type": error["type"]} for error in errors[:4]],
+                            ensure_ascii=False,
+                        )[:1024]
                     content.append(
                         {
                             "type": "text",
                             "text": "上次输出未通过结构检查："
                             + e.reason
+                            + details
                             + "。请基于原始资料重新输出完整JSON，核对引用及本批数量上限。",
                         }
                     )
