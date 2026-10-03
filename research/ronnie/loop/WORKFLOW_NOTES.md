@@ -309,4 +309,12 @@ Input for the product's R&D system. Each note: what happened, why it matters, a 
     later iteration finds it was used wrongly" (R-1, Fibonacci, now trend lines). Proposal: a fidelity check (recall of
     the source's own drawings or calls against a moved placebo, on held-out cases) is a gate before any verdict on a
     sourced technique (CRITERIA B6), and the fidelity number is reported with the result.
+59. **The forward harness saw a shorter history than the backtest.** `roleflip/forward.py` (and the scan built on it)
+    fetched the last 500, later 1,200 daily bars; R-1 breaks pivots that are years old (DOGE's 2026-09-24 order broke a
+    2022-11 pivot), so with a short window the forward stage drew different orders, stops and open positions than the
+    backtest (NEAR showed resting orders while the full-history rule held an open trade). Found when a user acted on a
+    scan line. Fixed on 2026-10-03 (full history). Proposal: the forward stage and the backtest share one data loader
+    and one rule object, and a daily check replays the last 30 days of the forward log through the backtest code and
+    fails loudly on any difference. Scan output also separates "the rule's own open position" from "orders you could
+    place now", which a reader mistook for a plan.
 

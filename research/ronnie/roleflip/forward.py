@@ -38,7 +38,7 @@ def daily(coin, now):
     b = []
     for _ in range(4):
         try:
-            b, _err = fetch(f"BINANCE:{coin}USDT", "1D", 1200)  # L-5c lines look back 700 bars
+            b, _err = fetch(f"BINANCE:{coin}USDT", "1D", 5000)  # full history: R-1 breaks pivots years old, as the backtest sees them
             if b:
                 break
         except Exception:
