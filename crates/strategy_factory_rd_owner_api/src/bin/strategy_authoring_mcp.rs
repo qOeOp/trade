@@ -38,11 +38,15 @@ impl Api for HttpApi {
             match builder.send().await {
                 Ok(response) => {
                     let status = response.status().as_u16();
-                    let body = response.json::<Value>().await.unwrap_or(Value::Null);
+                    // The text as sent: a parse here would reorder the stored statement's keys.
+                    let body = response.text().await.unwrap_or_default();
                     (status, body)
                 }
                 // The route was never reached, so there is no Owner answer to pass through.
-                Err(_) => (503, json!({"error": "RD_OWNER_API_UNREACHABLE"})),
+                Err(_) => (
+                    503,
+                    json!({"error": "RD_OWNER_API_UNREACHABLE"}).to_string(),
+                ),
             }
         })
     }

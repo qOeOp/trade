@@ -820,7 +820,8 @@ catalog never holds a strategy a run would refuse at authoring.
 [domain MCP catalog](../architecture/product-edge#target---external-agent-tool-surface) is `strategy-authoring-mcp`, a stateless
 stdio process built from `rd-owner-api`'s package. It holds `RD_OWNER_API_URL` and `RD_OWNER_API_TOKEN` in its own
 environment and reaches `/v1/strategies` only. Each tool sends one request and passes the answer or the refusal through
-by name; no argument or result carries the token.
+by name; no argument or result carries the token. A result's text is the API's body exactly as sent, so a returned
+spec keeps the stored key order its identity hashes.
 
 | Tool                            | Route                                         | Refusals by name                                                                                                |
 | ------------------------------- | --------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
