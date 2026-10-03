@@ -994,6 +994,40 @@ fn admission_error(error: SourceBindingAdmissionErrorV1) -> Response {
         SourceBindingAdmissionErrorV1::InvalidProposal => {
             (StatusCode::BAD_REQUEST, "INVALID_SOURCE_BINDING_PROPOSAL")
         }
+        SourceBindingAdmissionErrorV1::FieldMissing(_) => {
+            (StatusCode::BAD_REQUEST, "SOURCE_BINDING_FIELD_MISSING")
+        }
+        SourceBindingAdmissionErrorV1::DigestZero(_) => {
+            (StatusCode::BAD_REQUEST, "SOURCE_BINDING_DIGEST_ZERO")
+        }
+        SourceBindingAdmissionErrorV1::VersionInvalid(_) => {
+            (StatusCode::BAD_REQUEST, "SOURCE_BINDING_VERSION_INVALID")
+        }
+        SourceBindingAdmissionErrorV1::RawCredentialMaterial => (
+            StatusCode::BAD_REQUEST,
+            "SOURCE_BINDING_RAW_CREDENTIAL_MATERIAL",
+        ),
+        SourceBindingAdmissionErrorV1::CredentialAudienceInvalid => (
+            StatusCode::BAD_REQUEST,
+            "SOURCE_BINDING_CREDENTIAL_AUDIENCE_INVALID",
+        ),
+        SourceBindingAdmissionErrorV1::CredentialCapabilityForbidden => (
+            StatusCode::BAD_REQUEST,
+            "SOURCE_BINDING_CREDENTIAL_CAPABILITY_FORBIDDEN",
+        ),
+        SourceBindingAdmissionErrorV1::TimeEvidenceInvalid => (
+            StatusCode::BAD_REQUEST,
+            "SOURCE_BINDING_TIME_EVIDENCE_INVALID",
+        ),
+        // Well-formed and early for the Owner's clock, not wrong: a later admission can take it.
+        SourceBindingAdmissionErrorV1::TimeEvidenceAfterDecisionCut => (
+            StatusCode::CONFLICT,
+            "SOURCE_BINDING_TIME_EVIDENCE_AFTER_DECISION_CUT",
+        ),
+        SourceBindingAdmissionErrorV1::BarTimeframeUnsupported => (
+            StatusCode::BAD_REQUEST,
+            "SOURCE_BINDING_BAR_TIMEFRAME_UNSUPPORTED",
+        ),
         SourceBindingAdmissionErrorV1::AdmissionConflict => {
             (StatusCode::CONFLICT, "SOURCE_BINDING_ADMISSION_CONFLICT")
         }
@@ -1022,7 +1056,9 @@ fn rejection(status: StatusCode, code: &str) -> Response {
 mod tests {
     use rstest::rstest;
     use serde_json::json;
-    use vibe_data::owner::pit_snapshot::PIT_SUBMISSION_OWNER_FIELDS_V1;
+    use vibe_data::owner::{
+        pit_snapshot::PIT_SUBMISSION_OWNER_FIELDS_V1, source_binding::SourceBindingError,
+    };
 
     use super::*;
 
@@ -1426,22 +1462,105 @@ mod tests {
         assert_eq!(codes.len(), 18, "every refusal the enum names");
     }
 
-    /// A clock mismatch reaches the caller as its own conflict, not as a malformed proposal.
+    /// Every admission refusal reaches the caller under its own code, and a clock mismatch or an
+    /// early coordinate as a conflict rather than as a body the caller could fix by editing it.
     #[rstest]
-    fn a_source_binding_clock_mismatch_is_a_409_by_name() {
+    fn each_source_binding_admission_refusal_has_its_own_status_and_code() {
+        let expected = [
+            (
+                SourceBindingAdmissionErrorV1::InvalidProposal,
+                StatusCode::BAD_REQUEST,
+                "INVALID_SOURCE_BINDING_PROPOSAL",
+            ),
+            (
+                SourceBindingAdmissionErrorV1::FieldMissing("dataset_mapping"),
+                StatusCode::BAD_REQUEST,
+                "SOURCE_BINDING_FIELD_MISSING",
+            ),
+            (
+                SourceBindingAdmissionErrorV1::DigestZero("implementation_digest"),
+                StatusCode::BAD_REQUEST,
+                "SOURCE_BINDING_DIGEST_ZERO",
+            ),
+            (
+                SourceBindingAdmissionErrorV1::VersionInvalid("schema_version"),
+                StatusCode::BAD_REQUEST,
+                "SOURCE_BINDING_VERSION_INVALID",
+            ),
+            (
+                SourceBindingAdmissionErrorV1::RawCredentialMaterial,
+                StatusCode::BAD_REQUEST,
+                "SOURCE_BINDING_RAW_CREDENTIAL_MATERIAL",
+            ),
+            (
+                SourceBindingAdmissionErrorV1::CredentialAudienceInvalid,
+                StatusCode::BAD_REQUEST,
+                "SOURCE_BINDING_CREDENTIAL_AUDIENCE_INVALID",
+            ),
+            (
+                SourceBindingAdmissionErrorV1::CredentialCapabilityForbidden,
+                StatusCode::BAD_REQUEST,
+                "SOURCE_BINDING_CREDENTIAL_CAPABILITY_FORBIDDEN",
+            ),
+            (
+                SourceBindingAdmissionErrorV1::TimeEvidenceInvalid,
+                StatusCode::BAD_REQUEST,
+                "SOURCE_BINDING_TIME_EVIDENCE_INVALID",
+            ),
+            (
+                SourceBindingAdmissionErrorV1::TimeEvidenceAfterDecisionCut,
+                StatusCode::CONFLICT,
+                "SOURCE_BINDING_TIME_EVIDENCE_AFTER_DECISION_CUT",
+            ),
+            (
+                SourceBindingAdmissionErrorV1::BarTimeframeUnsupported,
+                StatusCode::BAD_REQUEST,
+                "SOURCE_BINDING_BAR_TIMEFRAME_UNSUPPORTED",
+            ),
+            (
+                SourceBindingAdmissionErrorV1::AdmissionConflict,
+                StatusCode::CONFLICT,
+                "SOURCE_BINDING_ADMISSION_CONFLICT",
+            ),
+            (
+                SourceBindingAdmissionErrorV1::ClockUnavailable,
+                StatusCode::SERVICE_UNAVAILABLE,
+                "MARKET_DATA_CLOCK_UNAVAILABLE",
+            ),
+            (
+                SourceBindingAdmissionErrorV1::ClockMismatch,
+                StatusCode::CONFLICT,
+                "SOURCE_BINDING_CLOCK_MISMATCH",
+            ),
+            (
+                SourceBindingAdmissionErrorV1::StoreUnavailable,
+                StatusCode::SERVICE_UNAVAILABLE,
+                "MARKET_DATA_OWNER_UNAVAILABLE",
+            ),
+        ];
+        let mut codes = std::collections::BTreeSet::new();
+
+        for (refusal, status, name) in expected {
+            assert_eq!(
+                code(&admission_error(refusal)),
+                (status, Some(name)),
+                "{refusal:?}"
+            );
+            assert!(codes.insert(name), "{name} names one refusal");
+        }
+    }
+
+    /// The Owner's refusal of an impossible bar timeframe keeps its name through the admission
+    /// error to the route, instead of arriving as a malformed proposal.
+    #[rstest]
+    fn an_unsupported_bar_timeframe_reaches_the_route_by_name() {
         assert_eq!(
-            code(&admission_error(
-                SourceBindingAdmissionErrorV1::ClockMismatch
-            )),
-            (StatusCode::CONFLICT, Some("SOURCE_BINDING_CLOCK_MISMATCH"))
-        );
-        assert_eq!(
-            code(&admission_error(
-                SourceBindingAdmissionErrorV1::InvalidProposal
-            )),
+            code(&admission_error(SourceBindingAdmissionErrorV1::from(
+                SourceBindingError::UnsupportedBarTimeframe
+            ))),
             (
                 StatusCode::BAD_REQUEST,
-                Some("INVALID_SOURCE_BINDING_PROPOSAL")
+                Some("SOURCE_BINDING_BAR_TIMEFRAME_UNSUPPORTED")
             )
         );
     }

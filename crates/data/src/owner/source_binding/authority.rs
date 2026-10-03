@@ -853,16 +853,19 @@ fn validate_time_for_commit(
         && time.effective_at == clock.decision_cut
         && time.monotonic_sequence == clock.monotonic_sequence
         && clock.wall_observed == clock.decision_cut;
-    let available_at_cut = time.event_effective <= time.provider_available
+    let ordered = time.event_effective <= time.provider_available
         && time.provider_available <= time.retrieval
         && time.correction_publication <= time.retrieval
-        && time.provider_available <= time.effective_at
-        && time.retrieval <= time.effective_at
-        && time.correction_publication <= time.effective_at
         && time.effective_at < time.valid_through;
+    let available_at_cut = time.provider_available <= time.effective_at
+        && time.retrieval <= time.effective_at
+        && time.correction_publication <= time.effective_at;
 
-    if !all_nonzero || !exact_cut || !available_at_cut {
+    if !all_nonzero || !exact_cut || !ordered {
         Err(SourceBindingError::InvalidTimeEvidence)
+    } else if !available_at_cut {
+        // Well-formed coordinates the Owner's cut has not reached yet: a later cut can admit them.
+        Err(SourceBindingError::TimeEvidenceAfterDecisionCut)
     } else {
         Ok(())
     }

@@ -2999,6 +2999,17 @@ settlement at exactly that coordinate is included and one a millisecond later is
   bounded reason, stable correlation, required provenance/license/correction fields, and shared Time Evidence.
 - Operations supply the Market Data Source Binding, opaque credential handles, license scope, and correction feeds without
   changing observed-at history. Credentials never enter a snapshot, stream, artifact, or product view.
+  The admission `POST /v1/market-data/source-bindings` refuses each defect of a proposal under its own name as
+  HTTP 400: an empty field as `SOURCE_BINDING_FIELD_MISSING`, a zero digest as `SOURCE_BINDING_DIGEST_ZERO`, an
+  invalid schema, policy or frontier version as `SOURCE_BINDING_VERSION_INVALID`, raw credential material, an
+  audience other than Market Data or a capability beyond read-only market data as
+  `SOURCE_BINDING_RAW_CREDENTIAL_MATERIAL`, `SOURCE_BINDING_CREDENTIAL_AUDIENCE_INVALID` or
+  `SOURCE_BINDING_CREDENTIAL_CAPABILITY_FORBIDDEN`, time coordinates that are zero or out of order as
+  `SOURCE_BINDING_TIME_EVIDENCE_INVALID`, and a bar timeframe no bar can have as
+  `SOURCE_BINDING_BAR_TIMEFRAME_UNSUPPORTED`. Coordinates that are well ordered but later than this Owner's decision
+  cut are early rather than wrong: they are a 409 `SOURCE_BINDING_TIME_EVIDENCE_AFTER_DECISION_CUT`, and a later
+  admission can accept them. `INVALID_SOURCE_BINDING_PROPOSAL` remains only for a claimed identity that does not
+  derive from its content.
 
 ## Output handoffs
 

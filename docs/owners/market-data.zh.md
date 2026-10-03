@@ -2588,6 +2588,15 @@ scope 时，给出每个成员最后一根已收盘的 bar，并在旁边给出�
   必需 provenance license correction 字段和共享 Time Evidence。
 - 运维提供 Market Data Source Binding 不透明 credential handle 许可范围和修订数据，但不能改写历史可观察时间。
   凭据不能进入 snapshot stream artifact 或产品视图。
+  准入 `POST /v1/market-data/source-bindings` 对 proposal 的每种缺陷按各自的名字以 HTTP 400 拒绝：空字段为
+  `SOURCE_BINDING_FIELD_MISSING`，零 digest 为 `SOURCE_BINDING_DIGEST_ZERO`，无效的 schema、policy 或 frontier
+  版本为 `SOURCE_BINDING_VERSION_INVALID`，裸凭据材料、非 Market Data 的 audience 或超出只读行情的 capability 分别为
+  `SOURCE_BINDING_RAW_CREDENTIAL_MATERIAL`、`SOURCE_BINDING_CREDENTIAL_AUDIENCE_INVALID` 或
+  `SOURCE_BINDING_CREDENTIAL_CAPABILITY_FORBIDDEN`，为零或顺序错乱的时间坐标为
+  `SOURCE_BINDING_TIME_EVIDENCE_INVALID`，任何 bar 都不可能具有的 bar timeframe 为
+  `SOURCE_BINDING_BAR_TIMEFRAME_UNSUPPORTED`。顺序正确但晚于本 Owner decision cut 的坐标是来早了而不是错了：它们是
+  409 `SOURCE_BINDING_TIME_EVIDENCE_AFTER_DECISION_CUT`，之后的准入可以接纳。`INVALID_SOURCE_BINDING_PROPOSAL`
+  只留给不能从内容推导出的 claimed identity。
 
 ## 输出交接
 
