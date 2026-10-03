@@ -1271,7 +1271,10 @@ custody 会挡住之后的每一次提交，而成本随整个历史增长。
   facts 推导，绝不在旁边另行给出。在陈述了 scope 的请求下，精确品种就是一成员 universe，所以 Design 不得指名品种：
   发布、冻结或声明这样的 Design 以 `DESIGN_ROLE_NAMES_INSTRUMENT_UNDER_RESEARCH_SCOPE` 拒绝。凡是随成员数不同的
   东西，例如 Market Data 的 PIT 请求 preimage 域，都由成员数推导，不在旁边另行声明。对陈述了 scope 的 Research
-  请求，改成员数只改 scope、加一个角色只改 Design 时，P0 才算完成。它本身不改动任何已准入的界。V2 请求不陈述
+  请求，改成员数只改 scope、加一个角色只改 Design 时，P0 才算完成。它本身不改动任何已准入的界。Develop Composer
+  的运行请求已不再重复声明角色集：它只带 Design 与插件源码，旁边没有任何绑定声明。生产的冻结程序运行改为按名接纳
+  Design 的角色 - 单一输入 scope、Market Data 定义了 field semantic 的 Market 价格、只在 exact scope 下指名品种 -
+  每个角色读取的托管仍由绑定 Owner 重读。V2 请求不陈述
   scope，仍是 legacy 的 exact 通道，它的 Design 照旧指名品种；退役它是 T1 之后的一个独立切片，前提是每个在 V2 下
   创建 exact 托管的链路条目都有了陈述 scope 的替身。
 - **P1，角色集来自 Design：** 原生 Plan 契约不再固定为一天周期的 OPEN 与 CLOSE。Design 用它已有的字段声明自己的

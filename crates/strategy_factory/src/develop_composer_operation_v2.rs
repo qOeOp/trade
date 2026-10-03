@@ -9,9 +9,7 @@ use std::{cell::RefCell, collections::BTreeMap, sync::Mutex};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use vibe_data::owner::{
-    source_binding::BindingDigest, strategy_input_binding::UntrustedStrategyInputBindingRequest,
-};
+use vibe_data::owner::source_binding::BindingDigest;
 
 use crate::{
     artifact_v2::StrategyArtifactV2,
@@ -53,11 +51,17 @@ const MAX_PLUGIN_CAPSULES: usize = 64;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
+/// One Develop Composer run: the Design to compose, under the Research custody it answers, with
+/// its plugins' sources.
+///
+/// It names no input binding. The roles, their fields, timeframes and scope are the Design's, and
+/// the custody each role reads is the binding Owner's to resolve when the run reads it; a list of
+/// binding claims beside the Design would restate the role set a second time (strategy shape
+/// envelope, P0) and carry custody digests nothing checks.
 pub struct DevelopComposerRunRequestV2 {
     pub request_identity: String,
     pub research_custody_reference: String,
     pub design: StrategyDesignV2,
-    pub binding_requests: Vec<UntrustedStrategyInputBindingRequest>,
     pub plugin_source_capsules: Vec<UntrustedDevelopPluginCapsuleV2>,
 }
 
@@ -649,22 +653,6 @@ pub(crate) fn preflight_develop_composer_v2(
             });
         }
     };
-
-    if request.binding_requests.len() != request.design.inputs.len()
-        || request.binding_requests.iter().any(|binding| {
-            binding.research_request_identity != request.design.research_request_identity
-                || binding.strategy_design_identity != design_identity
-                || !request.design.inputs.iter().any(|input| {
-                    crate::strategy_plan_v2::strategy_input_role_identity_v2(input)
-                        == binding.input_role_identity
-                })
-        })
-    {
-        return Err(unavailable(
-            "binding_requests",
-            "binding requests do not exactly cover this Research request and canonical Design",
-        ));
-    }
 
     let mut manifests = request.design.plugins.iter().collect::<Vec<_>>();
     manifests.sort_by(|left, right| left.semantic_id.cmp(&right.semantic_id));

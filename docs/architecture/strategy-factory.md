@@ -1427,7 +1427,11 @@ later submission and the cost grows with the whole history.
   refused as `DESIGN_ROLE_NAMES_INSTRUMENT_UNDER_RESEARCH_SCOPE`. Anything that differs by member count, such as
   Market Data's PIT request preimage domain, is derived from the count rather than declared beside it. P0 is
   complete when, for a Research request that states its scope, changing the member count changes only the scope and
-  adding a role changes only the Design. It changes no admitted bound by itself. A V2 request states no scope and
+  adding a role changes only the Design. It changes no admitted bound by itself. The Develop Composer's run request
+  no longer restates the role set: it carries the Design and the plugin sources, and no binding claim beside them.
+  The production frozen-program run admits the Design's roles by name instead - one input scope, Market prices under
+  a field semantic Market Data defines, an instrument named exactly under an exact scope - and the custody each role
+  reads stays the binding Owner's re-read. A V2 request states no scope and
   stays the legacy exact channel, whose Designs name their instrument; retiring it is a separate slice after T1,
   once every chain entry that creates exact custody under V2 has a scoped replacement.
 - **P1, the role set comes from the Design:** the native Plan contract stops fixing OPEN and CLOSE on one day. The
