@@ -655,7 +655,7 @@ test('keeps architecture labels, topology, and ids compact', async () => {
   const acceptedTitles = new Map([
     ['lifecycle', 'Lifecycle Manager'], ['capital-tier', 'Capital Policy'],
     ['capacity', 'Capacity View'], ['artifact', 'Strategy Artifact'],
-    ['code-sandbox', 'Development Sandbox'], ['candidate', 'Candidate Intake'],
+    ['knowledge-ledger', 'Knowledge Ledger'], ['candidate', 'Candidate Intake'],
     ['protected-test', 'Protected Evaluation'], ['eligibility', 'Eligibility State'],
     ['native-strategy', 'Strategy Instance'],
     ['runtime-readiness', 'Readiness Gate'], ['headroom', 'Risk Reservation'],
@@ -795,7 +795,7 @@ test('keeps architecture labels, topology, and ids compact', async () => {
   ], { inlineInset: 20, blockInset: 45, columnGap: 15, rowGap: 20 });
   assertTwoRowInnerFrame('group-rd', [
     ['source-intake', 'artifact'],
-    ['research-intent', 'code-sandbox'],
+    ['research-intent', 'knowledge-ledger'],
   ], { inlineInset: 20, blockInset: 45, columnGap: 88, rowGap: 20 });
 
   const rdLayout = layoutByGroupId.get('group-rd');
@@ -814,7 +814,7 @@ test('keeps architecture labels, topology, and ids compact', async () => {
     assert.equal(laneBottom - Math.max(...placements.map((placement) => placement.y + placement.height)), 10, `R&D lane ${laneIndex} bottom padding must be 10px`);
   };
   assertRdLaneFrame(0, ['source-intake', 'research-intent']);
-  assertRdLaneFrame(1, ['artifact', 'code-sandbox']);
+  assertRdLaneFrame(1, ['artifact', 'knowledge-ledger']);
 
   const containsWithPadding = (outer, inner, padding) => (
     inner.x - outer.x >= padding

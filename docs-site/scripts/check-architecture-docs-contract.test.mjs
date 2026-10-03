@@ -179,7 +179,7 @@ test('architecture contract keeps the overview within its frozen complexity ceil
   const productEdgeModules = contract.boundaries.find((boundary) => boundary.id === 'product-edge')?.modules ?? [];
   assert.deepEqual(productEdgeModules.map((module) => module.id), ['workspace', 'agent-shell']);
   assert.equal(productEdgeModules.find((module) => module.id === 'workspace')?.label, 'Deployment Package');
-  assert.equal(productEdgeModules.find((module) => module.id === 'agent-shell')?.label, 'Dashboard MCP');
+  assert.equal(productEdgeModules.find((module) => module.id === 'agent-shell')?.label, 'Agent Tools');
   assert.ok(!contractModules.some((module) => module.id === 'openclaw'));
 
   const authorityOwnerIds = new Set(contract.authorityOwners.map((owner) => owner.id));
@@ -4411,11 +4411,11 @@ test('the scenario projection exactly matches the contracted seven product stori
 
   const expected = {
     overview: {
-      modules: ['agent-shell', 'alert-routing', 'artifact', 'candidate', 'capacity', 'capital-tier', 'code-sandbox', 'dashboard-api', 'data-clients', 'data-engine', 'effect-record', 'eligibility', 'exposure', 'headroom', 'instrument-master', 'kill-switch', 'lifecycle', 'market-snapshot', 'native-replay', 'native-strategy', 'order-engine', 'performance', 'pit-catalog', 'portfolio', 'proposal-builder', 'protected-test', 'reconcile', 'research-intent', 'risk-engine', 'run-result', 'runtime-readiness', 'sim-exchange', 'source-intake', 'status-projection', 'strategy-loader', 'strategy-matcher', 'strategy-registry', 'telemetry-gateway', 'trade-clients', 'workspace'],
+      modules: ['agent-shell', 'alert-routing', 'artifact', 'candidate', 'capacity', 'capital-tier', 'dashboard-api', 'data-clients', 'data-engine', 'effect-record', 'eligibility', 'exposure', 'headroom', 'instrument-master', 'kill-switch', 'knowledge-ledger', 'lifecycle', 'market-snapshot', 'native-replay', 'native-strategy', 'order-engine', 'performance', 'pit-catalog', 'portfolio', 'proposal-builder', 'protected-test', 'reconcile', 'research-intent', 'risk-engine', 'run-result', 'runtime-readiness', 'sim-exchange', 'source-intake', 'status-projection', 'strategy-loader', 'strategy-matcher', 'strategy-registry', 'telemetry-gateway', 'trade-clients', 'workspace'],
       relations: ['backtest-qualification', 'data-portfolio', 'data-program', 'data-rd', 'data-runtime', 'events-governance', 'events-observability', 'execution-events', 'execution-governance-adapter-binding', 'execution-governance-drift', 'execution-portfolio', 'execution-risk', 'execution-runtime', 'governance-program', 'governance-risk', 'governance-runtime', 'observability-product-status', 'portfolio-governance', 'portfolio-governance-capacity-scope', 'portfolio-governance-interaction', 'portfolio-risk', 'product-governance', 'product-rd', 'program-governance', 'qualification-governance', 'rd-backtest-artifact', 'rd-qualification', 'risk-execution-claim', 'risk-runtime', 'runtime-events', 'runtime-execution', 'runtime-governance-incident', 'runtime-risk'],
     },
     research: {
-      modules: ['agent-shell', 'artifact', 'code-sandbox', 'dashboard-api', 'data-clients', 'data-engine', 'instrument-master', 'native-replay', 'performance', 'pit-catalog', 'reconcile', 'research-intent', 'run-result', 'runtime-readiness', 'sim-exchange', 'source-intake', 'status-projection', 'telemetry-gateway', 'workspace'],
+      modules: ['agent-shell', 'artifact', 'dashboard-api', 'data-clients', 'data-engine', 'instrument-master', 'knowledge-ledger', 'native-replay', 'performance', 'pit-catalog', 'reconcile', 'research-intent', 'run-result', 'runtime-readiness', 'sim-exchange', 'source-intake', 'status-projection', 'telemetry-gateway', 'workspace'],
       relations: ['backtest-product', 'backtest-rd', 'backtest-rd-simulator-repair', 'data-backtest', 'data-rd', 'data-rd-successor-feedback', 'execution-rd-successor-feedback', 'observability-product-status', 'portfolio-rd-successor-feedback', 'product-rd', 'rd-backtest-artifact', 'rd-backtest-native-repair-request', 'rd-backtest-request', 'rd-data-repair', 'rd-data-snapshot-request', 'rd-product', 'rd-product-request-receipt', 'rd-runtime-native-repair-request', 'runtime-rd-kernel-repair', 'runtime-rd-successor-feedback'],
     },
     backtest: {
@@ -4563,7 +4563,7 @@ test('Capability Adoption maps every workspace member without creating another a
     expectContractTerm(source, 'Event Rail', 'Capability Adoption');
     expectContractTerm(source, 'Strategy Artifact', 'Capability Adoption');
     expectContractTerm(source, 'Dashboard', 'Capability Adoption');
-    expectContractTerm(source, 'Dashboard MCP', 'Capability Adoption');
+    expectContractTerm(source, 'Agent Tools', 'Capability Adoption');
     expectContractTerm(source, 'Telegram', 'Capability Adoption');
   }
 

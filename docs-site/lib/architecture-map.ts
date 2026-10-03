@@ -270,7 +270,7 @@ const fullPlacements: FullPlacement[] = [
   place('research-intent', 428, 410, 330, 65, 'engine'),
 
   place('artifact', 846, 325, 330, 65, 'engine'),
-  place('code-sandbox', 846, 410, 330, 65, 'strategy'),
+  place('knowledge-ledger', 846, 410, 330, 65, 'store'),
 
   place('native-replay', 1264, 325, 270, 65, 'engine'),
   place('sim-exchange', 1264, 410, 128, 65, 'client'),

@@ -256,7 +256,7 @@ unavailable 且有条件。
    和匹配 `ADMITTED_ONCE`。
 3. **Owner 范围内持久化** - Event Store 和 persistence 只能通过原生 Owner 边界追加。不确定的捕获或重放状态必须保持未知并激活对应恢复围栏。
 4. **工件身份复用** - 指标 特征 策略 配置和依赖身份冻结在 Strategy Artifact 中，并在 replay paper 和 live Runtime 保持相同。
-5. **产品表面与遥测不能靠暗示实现** - Dashboard MCP operation set、外部对话客户端、Telegram、OTLP collection、broker 与 Dashboard 必须等到 canonical consumer 满足契约后才成为实现能力。App 与 MCP channel 共用一个 `TRADE_PRODUCT_EDGE` 准入网关，不能成为竞争 writer。每个写请求准入绑定权威 shell history head 及其中唯一 `ACTIVE` binding；已准入工作保持原不可变来源绑定。本地安装或 Flow 中出现它们都不是实现证据。
+5. **产品表面与遥测不能靠暗示实现** - Agent Tools 命令集、Dashboard MCP operation set、外部代理、Telegram、OTLP collection、broker 与 Dashboard 必须等到 canonical consumer 满足契约后才成为实现能力。App 与 MCP channel 共用一个 `TRADE_PRODUCT_EDGE` 准入网关，不能成为竞争 writer。每个写请求准入绑定权威 shell history head 及其中唯一 `ACTIVE` binding；已准入工作保持原不可变来源绑定。本地安装或 Flow 中出现它们都不是实现证据。
 
 ## Owner 迁移包络
 
