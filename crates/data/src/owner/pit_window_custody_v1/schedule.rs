@@ -292,7 +292,13 @@ pub(crate) fn frame_instants_v1(
 }
 
 /// The window schedule check of a custody frame: the schedule's window contains `e_k` on its
-/// grid, and its cut is at or before `d_k`.
+/// grid, and its effective start - the custody window's start - is at or before `d_k`.
+///
+/// The minting cut is not compared: under the narrowing the user authorized on 2026-09-27, a
+/// custody's frames no longer carry their own minting evidence and only backfilled history is
+/// admitted, so the cut stays custody evidence. The window grid is the Source Binding's
+/// declaration, knowable before any frame; comparing the cut would refuse every backfilled frame,
+/// whose `d_k` lies in the past of the day the custody was minted.
 pub(crate) fn window_schedule_admits_frame_v1(
     schedule: &PitWindowScheduleFactV1,
     event_ns: u64,
@@ -302,7 +308,7 @@ pub(crate) fn window_schedule_admits_frame_v1(
         && event_ns < schedule.window_end_ns_exclusive
         && event_ns >= schedule.phase_ns
         && (event_ns - schedule.phase_ns).is_multiple_of(schedule.interval_ns)
-        && schedule.cut_ns <= decision_cut_ns
+        && schedule.window_start_ns <= decision_cut_ns
 }
 
 struct Reader<'a> {

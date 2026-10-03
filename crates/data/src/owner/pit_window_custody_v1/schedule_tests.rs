@@ -154,16 +154,31 @@ fn frame_instants_are_the_close_instants_inside_the_run_and_the_window() {
     );
 }
 
+/// A backfilled frame: its `d_k` is history, long before the day the custody was minted.
 #[rstest]
-fn a_frame_is_admitted_on_the_grid_inside_the_window_at_or_after_the_cut() {
+fn a_historical_frame_of_a_custody_minted_today_is_admitted() {
+    let fact = daily();
+    let historical = START + DAY + 2 * 60 * SECOND;
+    assert!(historical < fact.cut_ns);
+    assert!(window_schedule_admits_frame_v1(
+        &fact,
+        START + DAY,
+        historical
+    ));
+    assert!(window_schedule_admits_frame_v1(&fact, START, START));
+}
+
+#[rstest]
+fn a_frame_decided_before_the_window_starts_is_refused() {
+    let fact = daily();
+    assert!(!window_schedule_admits_frame_v1(&fact, START, START - 1));
+}
+
+#[rstest]
+fn a_frame_outside_the_window_or_off_its_grid_is_refused() {
     let fact = daily();
     let late = fact.cut_ns;
-    assert!(window_schedule_admits_frame_v1(&fact, START + DAY, late));
-    assert!(!window_schedule_admits_frame_v1(
-        &fact,
-        START + DAY + 1,
-        late
-    ));
+    assert!(!window_schedule_admits_frame_v1(&fact, START - DAY, late));
     assert!(!window_schedule_admits_frame_v1(
         &fact,
         START + 3 * DAY,
@@ -171,7 +186,7 @@ fn a_frame_is_admitted_on_the_grid_inside_the_window_at_or_after_the_cut() {
     ));
     assert!(!window_schedule_admits_frame_v1(
         &fact,
-        START + DAY,
-        late - 1
+        START + DAY + 1,
+        late
     ));
 }

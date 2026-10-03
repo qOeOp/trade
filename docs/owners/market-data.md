@@ -2592,7 +2592,10 @@ yet; the derived view (T0-5) will. Its unit tests and the custody PostgreSQL pro
   keyed by the series and event-effective instant each custody row carries, so a correction in a successor custody lands in the
   same slot. Reference Fact R0 is stored once per custody chain over the whole window, and a frame's R0 is computed on
   read from it with no stored per-frame locator. The PIT evaluation evidence read derives from custody, and the BAR
-  schedule check becomes a window schedule fact whose interval contains `e_k` with its cut at or before `d_k`.
+  schedule check becomes a window schedule fact whose interval contains `e_k` with its effective start, the custody
+  window's start, at or before `d_k`. The custody's minting cut stays custody evidence and is not compared with `d_k`:
+  under the narrowing the user authorized on 2026-09-27, frames no longer carry their own minting evidence and only
+  backfilled history is admitted, while the window grid is the Source Binding's declaration, knowable before any frame.
   Every table and function those reads touch is inside the admitted-port measurement.
 - **Quote cut:** derived from custody inside `(d_k, e_{k+1})`, exactly one per gap, on one instant, in member order,
   taking no frame ordinal, and never the version a later correction superseded. Its version is the highest sequence

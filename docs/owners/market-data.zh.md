@@ -2233,7 +2233,9 @@ PostgreSQL 证明。
   与 head、intake 时盖章的 Instrument Master cut、声明登记与 universe 成员组合 basis 都按每条托管链记录一次；sample
   slot 按每条托管行携带的 series 与 event-effective 时刻定键，所以后继托管里的更正落在同一个 slot。Reference Fact R0 按每条托管链覆盖整个窗口存一次，某帧的 R0 在读时由它算出，不存按帧的
   locator。PIT evaluation evidence 的读从托管推导，BAR schedule 检查改为一个窗口 schedule fact，其有效区间包含
-  `e_k`，且其 cut 不晚于 `d_k`。这些读碰到的每一张表和每个函数都在 admitted-port 的测量范围内。
+  `e_k`，且其生效起点（即托管窗口的起点）不晚于 `d_k`。托管的铸造 cut 仍是托管证据，不与 `d_k` 比较：在用户
+  2026-09-27 授权的收窄下，帧不再各自携带铸造证据，只准入回填历史，而窗口网格是 Source Binding 的声明，在任何帧
+  之前就可知。这些读碰到的每一张表和每个函数都在 admitted-port 的测量范围内。
 - **报价 cut：** 从托管在 `(d_k, e_{k+1})` 之内派生，每个间隙恰好一个、同一时刻、按成员顺序、不占帧序号，而且绝不是后
   来的更正取代掉的那个版本。它的版本是在报价时刻自己的可得时刻之前发布的最高序号，更晚的更正也只在那个时刻取代它：成交
   在决策之后，而在 `d_k` 上没有报价能入选，因为报价的事件在 `d_k` 之后。这只关乎成交报价。帧 `k` 的策略输入仍然截在
