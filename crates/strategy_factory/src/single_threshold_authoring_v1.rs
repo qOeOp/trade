@@ -251,7 +251,7 @@ pub struct SingleThresholdAuthoringRequestV1 {
     /// scale and the Design stores that integer: a universe-member channel reads at Market Data's
     /// value scale, so `"120"` is the same threshold whatever instrument the scope names. Equivalent
     /// spellings, `"120"` and `"120.000"`, are one threshold; a value finer than the channel's scale
-    /// is refused rather than rounded. [`canonical_threshold_text`] is its one spelling.
+    /// is refused rather than rounded. `canonical_threshold_text` is its one spelling.
     pub threshold: String,
     /// How the channel is compared against the threshold.
     pub comparison: BoundedFeaturePredicateV1,
@@ -510,7 +510,7 @@ pub(crate) fn threshold_coefficient_v1(
         .map_err(|_| SingleThresholdAuthoringErrorV1::ThresholdOverflowsChannelScale { scale })?;
     let mantissa = if negative { -magnitude } else { magnitude };
 
-    rescale_exact_v1(mantissa, places, scale).map_err(|error| match error {
+    rescale_exact_v1(mantissa, places, scale).map_err(|e| match e {
         RescaleErrorV1::FinerThanTarget => {
             SingleThresholdAuthoringErrorV1::ThresholdFinerThanChannelScale { scale }
         }
