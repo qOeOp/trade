@@ -17,6 +17,12 @@
 //! `correction_publication`/`effective_at` into the same hash. `BINANCE_PERPETUAL_BINDING_EFFECTIVE_NS_V1`
 //! fixes that instant so admitting the second symbol through this route derives the same binding
 //! identity as the first and rejoins it; the route never admits one binding per instrument.
+//!
+//! Historical membership is different: it is admitted once, whole, for
+//! [`BINANCE_PERPETUAL_U1_MEMBERS_V1`]'s complete set, never per symbol (see
+//! [`binance_perpetual_eligible_frontier_v1`]'s doc for why one symbol at a time does not work),
+//! so this module only builds that one-time request plus the per-symbol fields that must name the
+//! same frontier it admits.
 
 use rust_decimal::Decimal;
 use serde_json::Value;
@@ -116,13 +122,91 @@ fn binance_perpetual_admission_digest_v1(meaning: &str) -> BindingDigest {
     BindingDigest::from_untrusted_bytes(bytes)
 }
 
-/// The route's own eligible-instrument frontier: every member this route admits belongs to it.
-/// The Instrument Master V1 submission's `historical_membership_frontier` must name the same
-/// frontier the historical-membership admission step admits into, or the two steps disagree about
-/// which frontier the instrument belongs to.
+/// U1's fixed, complete set of Binance perpetual raw symbols. Historical membership is admitted
+/// once for this whole set (see [`binance_perpetual_eligible_frontier_v1`]'s doc for why it
+/// cannot grow one symbol at a time), and every per-symbol admission through this route assumes
+/// the set it belongs to is this one.
+pub const BINANCE_PERPETUAL_U1_MEMBERS_V1: &[&str] = &["BTCUSDT", "ETHUSDT", "SOLUSDT"];
+
+/// The eligible-instrument frontier for one fixed, complete member set: a domain-separated digest
+/// over the sorted canonical identities, so a different set derives a different frontier instead
+/// of colliding with this one's manifest.
+///
+/// A frontier's manifest is fixed at the instant it is first admitted
+/// (`crates/data/src/owner/postgres/universe_selection.rs::persist_historical_membership_frontier_v1`):
+/// a later admission naming a member outside that manifest refuses `RequestConflict`, because
+/// `HistoricalMembershipAdmissionRequestV1` is one complete, atomic declaration of a closed set,
+/// not an append-only list. A per-symbol frontier does not avoid this either, because the Owner
+/// tracks only one global "current" frontier (the most recently admitted one) and an Instrument
+/// Master cut requires every member fact in it to name the same `historical_membership_frontier`
+/// (`crates/data/src/owner/instrument_master/authority.rs`, `FrontierMismatch`): a two-member cut
+/// over two different per-symbol frontiers would always fail. So this route admits membership once
+/// for [`BINANCE_PERPETUAL_U1_MEMBERS_V1`]'s whole set (via the generic
+/// `POST /v1/market-data/historical-memberships` route, see
+/// [`binance_perpetual_eligible_set_admission_request_v1`]), before any symbol's own admission,
+/// and every per-symbol Instrument Master V1 fact names this same frontier.
+///
+/// # Panics
+///
+/// Never in practice: SHA-256 always produces exactly 32 bytes.
 #[must_use]
-pub fn binance_perpetual_eligible_frontier_v1() -> BindingDigest {
-    binance_perpetual_admission_digest_v1("eligible-frontier")
+pub fn binance_perpetual_eligible_frontier_v1(raw_symbols: &[&str]) -> BindingDigest {
+    let mut sorted: Vec<&str> = raw_symbols.to_vec();
+    sorted.sort_unstable();
+    let mut encoder_input = String::from("binance-perpetual-admission.v1.eligible-frontier");
+
+    for raw_symbol in sorted {
+        encoder_input.push('\u{0}');
+        encoder_input.push_str(&binance_perpetual_canonical_identity_v1(raw_symbol));
+    }
+    let digest = aws_lc_rs::digest::digest(&aws_lc_rs::digest::SHA256, encoder_input.as_bytes());
+    let bytes: [u8; 32] = digest
+        .as_ref()
+        .try_into()
+        .expect("SHA-256 is always 32 bytes");
+    BindingDigest::from_untrusted_bytes(bytes)
+}
+
+/// The one-time, complete historical-membership admission for [`BINANCE_PERPETUAL_U1_MEMBERS_V1`],
+/// to send through the generic `POST /v1/market-data/historical-memberships` route after the
+/// kline Source Binding is admitted (its lineage is this request's) but before any symbol's own
+/// Instrument Master submission. Re-sending it rejoins the same frontier.
+#[must_use]
+pub fn binance_perpetual_eligible_set_admission_request_v1(
+    kline_source_binding: &UntrustedSourceBindingLocator,
+    effective_ns: u64,
+) -> HistoricalMembershipAdmissionRequestV1 {
+    use vibe_data::owner::universe_selection_admission_v1::HistoricalMembershipSubmissionV1;
+
+    let observed = i128::from(effective_ns);
+    let mut members: Vec<&str> = BINANCE_PERPETUAL_U1_MEMBERS_V1.to_vec();
+    members.sort_unstable();
+    HistoricalMembershipAdmissionRequestV1 {
+        eligible_instrument_frontier: binance_perpetual_eligible_frontier_v1(
+            BINANCE_PERPETUAL_U1_MEMBERS_V1,
+        ),
+        members: members
+            .into_iter()
+            .map(|raw_symbol| {
+                let canonical_identity = binance_perpetual_canonical_identity_v1(raw_symbol);
+                HistoricalMembershipSubmissionV1 {
+                    member_key: canonical_identity.clone(),
+                    instrument: canonical_identity,
+                    effective_from_ns: 1,
+                    effective_until_ns: None,
+                    provider_available_ns: observed,
+                    retrieval_ns: observed,
+                    correction_publication_ns: observed,
+                    owner_observation_ns: observed,
+                    decision_cut: effective_ns,
+                    source_binding_lineage_root: kline_source_binding.lineage_root(),
+                    correction_frontier_digest: binance_perpetual_admission_digest_v1(
+                        "correction-frontier",
+                    ),
+                }
+            })
+            .collect(),
+    }
 }
 
 /// The fixed claimed effective instant every proposal from this route uses: 2023-11-14T22:13:20Z,
@@ -306,7 +390,9 @@ pub fn binance_perpetual_instrument_master_submission(
         corporate_action_frontier: binance_perpetual_admission_digest_v1(
             "corporate-action-frontier",
         ),
-        historical_membership_frontier: binance_perpetual_eligible_frontier_v1(),
+        historical_membership_frontier: binance_perpetual_eligible_frontier_v1(
+            BINANCE_PERPETUAL_U1_MEMBERS_V1,
+        ),
         source_binding: kline_source_binding.clone(),
         effective_from: 1,
         effective_until: None,
@@ -336,38 +422,6 @@ fn filter_decimal(
     let scale = u8::try_from(value.scale())
         .map_err(|_| BinancePerpetualAdmissionErrorV1::FilterUnavailable)?;
     Ok(InstrumentDecimalSubmissionV1 { mantissa, scale })
-}
-
-/// The historical-membership admission request naming the perpetual as a member of this route's
-/// one eligible-instrument frontier, under the admitted kline Source Binding's lineage.
-#[must_use]
-pub fn binance_perpetual_historical_membership_request_v1(
-    raw_symbol: &str,
-    kline_source_binding: &UntrustedSourceBindingLocator,
-    effective_ns: u64,
-) -> HistoricalMembershipAdmissionRequestV1 {
-    use vibe_data::owner::universe_selection_admission_v1::HistoricalMembershipSubmissionV1;
-
-    let canonical_identity = binance_perpetual_canonical_identity_v1(raw_symbol);
-    let observed = i128::from(effective_ns);
-    HistoricalMembershipAdmissionRequestV1 {
-        eligible_instrument_frontier: binance_perpetual_eligible_frontier_v1(),
-        members: vec![HistoricalMembershipSubmissionV1 {
-            member_key: canonical_identity.clone(),
-            instrument: canonical_identity,
-            effective_from_ns: 1,
-            effective_until_ns: None,
-            provider_available_ns: observed,
-            retrieval_ns: observed,
-            correction_publication_ns: observed,
-            owner_observation_ns: observed,
-            decision_cut: effective_ns,
-            source_binding_lineage_root: kline_source_binding.lineage_root(),
-            correction_frontier_digest: binance_perpetual_admission_digest_v1(
-                "correction-frontier",
-            ),
-        }],
-    }
 }
 
 #[cfg(test)]
@@ -464,8 +518,8 @@ mod tests {
         assert_eq!(submission.settlement_currency, Some("USDT".to_owned()));
         assert_eq!(
             submission.historical_membership_frontier,
-            binance_perpetual_eligible_frontier_v1(),
-            "the V1 fact's claimed frontier must be the one the membership step admits into"
+            binance_perpetual_eligible_frontier_v1(BINANCE_PERPETUAL_U1_MEMBERS_V1),
+            "the V1 fact's claimed frontier must be the one the one-time membership step admits into"
         );
     }
 
@@ -483,19 +537,51 @@ mod tests {
     }
 
     #[rstest]
-    fn historical_membership_request_names_the_kline_lineage_and_correction_frontier() {
+    fn eligible_set_admission_request_names_the_kline_lineage_and_correction_frontier() {
         let locator = test_locator(BindingDigest::from_untrusted_bytes([9; 32]));
-        let request = binance_perpetual_historical_membership_request_v1("LINKUSDT", &locator, 1);
+        let request = binance_perpetual_eligible_set_admission_request_v1(&locator, 1);
         assert_eq!(
             request.eligible_instrument_frontier,
-            binance_perpetual_eligible_frontier_v1()
+            binance_perpetual_eligible_frontier_v1(BINANCE_PERPETUAL_U1_MEMBERS_V1)
         );
-        let member = &request.members[0];
-        assert_eq!(member.instrument, "LINKUSDT-PERP.BINANCE");
-        assert_eq!(member.source_binding_lineage_root, locator.lineage_root());
+        assert_eq!(request.members.len(), BINANCE_PERPETUAL_U1_MEMBERS_V1.len());
+        let instruments: Vec<&str> = request
+            .members
+            .iter()
+            .map(|member| member.instrument.as_str())
+            .collect();
         assert_eq!(
-            member.correction_frontier_digest,
-            binance_perpetual_admission_digest_v1("correction-frontier")
+            instruments,
+            vec![
+                "BTCUSDT-PERP.BINANCE",
+                "ETHUSDT-PERP.BINANCE",
+                "SOLUSDT-PERP.BINANCE"
+            ]
         );
+
+        for member in &request.members {
+            assert_eq!(member.source_binding_lineage_root, locator.lineage_root());
+            assert_eq!(
+                member.correction_frontier_digest,
+                binance_perpetual_admission_digest_v1("correction-frontier")
+            );
+        }
+    }
+
+    /// A different member set derives a different frontier, instead of colliding with
+    /// [`BINANCE_PERPETUAL_U1_MEMBERS_V1`]'s manifest.
+    #[rstest]
+    fn eligible_frontier_depends_on_the_member_set() {
+        let full = binance_perpetual_eligible_frontier_v1(BINANCE_PERPETUAL_U1_MEMBERS_V1);
+        let one = binance_perpetual_eligible_frontier_v1(&["BTCUSDT"]);
+        assert_ne!(full, one);
+    }
+
+    /// Order of the input slice does not matter: the frontier is derived from the sorted set.
+    #[rstest]
+    fn eligible_frontier_is_order_independent() {
+        let forward = binance_perpetual_eligible_frontier_v1(&["BTCUSDT", "ETHUSDT", "SOLUSDT"]);
+        let reversed = binance_perpetual_eligible_frontier_v1(&["SOLUSDT", "ETHUSDT", "BTCUSDT"]);
+        assert_eq!(forward, reversed);
     }
 }

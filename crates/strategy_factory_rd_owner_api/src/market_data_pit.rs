@@ -27,7 +27,6 @@ use vibe_binance::{
     futures::http::client::BinanceFuturesHttpClient,
     perpetual_admission_v1::{
         BinancePerpetualAdmissionErrorV1, BinancePerpetualDatasetV1,
-        binance_perpetual_historical_membership_request_v1,
         binance_perpetual_instrument_master_submission, binance_perpetual_source_proposal,
     },
 };
@@ -505,7 +504,6 @@ async fn admit_binance_perpetual(
         Some(instruments),
         Some(instruments_v2),
         Some(economic_terms),
-        Some(universe),
         Some(client),
     ) = (
         state.intake,
@@ -513,7 +511,6 @@ async fn admit_binance_perpetual(
         state.instruments,
         state.instruments_v2,
         state.economic_terms,
-        state.universe,
         state.binance_perpetual_admission,
     )
     else {
@@ -610,16 +607,6 @@ async fn admit_binance_perpetual(
         Ok(terminal) => terminal,
         Err(e) => return economic_terms_error(e),
     };
-
-    let membership_request = binance_perpetual_historical_membership_request_v1(
-        &raw_symbol,
-        &kline_locator,
-        effective_ns,
-    );
-
-    if let Err(e) = universe.admit_membership(membership_request).await {
-        return universe_error(e);
-    }
 
     (
         StatusCode::OK,

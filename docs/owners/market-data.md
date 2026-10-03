@@ -3287,18 +3287,36 @@ same names.
   `UNAVAILABLE`), never a number. These are discovery reads and never a Replay input: a Replay still binds an exact
   Instrument Master cut and resolves its terms from it, so no consumer gains a latest selector. Chain entry 121 reads
   the perpetual F admits over HTTP. The MCP server over these routes is not built yet.
-- **CURRENT: admission is one Market Data operation.** `POST /v1/market-data/binance-perpetual-admissions` takes a
-  Binance USD-M symbol. Market Data fetches the symbol's public `exchangeInfo` entry once and commits, in order, the
-  facts the first `COMPOSER_V3` Replay's acceptance commits through separate routes: the kline Source Binding, the
-  Instrument Master fact, the `exchangeInfo` Source Binding, the Instrument Master V2 fact, the economic terms, and
-  the historical membership (`crates/adapters/binance/src/perpetual_admission_v1.rs`,
+- **CURRENT: per-symbol admission is one Market Data operation, over five steps.**
+  `POST /v1/market-data/binance-perpetual-admissions` takes a Binance USD-M symbol. Market Data fetches the symbol's
+  public `exchangeInfo` entry once and commits, in order, five of the six facts the first `COMPOSER_V3` Replay's
+  acceptance commits through separate routes: the kline Source Binding, the Instrument Master fact, the
+  `exchangeInfo` Source Binding, the Instrument Master V2 fact, and the economic terms
+  (`crates/adapters/binance/src/perpetual_admission_v1.rs`,
   `crates/strategy_factory_rd_owner_api/src/market_data_pit.rs::admit_binance_perpetual`). Every step rejoins an
   identical resubmission rather than erroring, so a rerun after any failure completes the rest. The two Source
   Binding steps carry no symbol and claim a fixed effective instant, not the clock's current one: a binding's
   identity folds in its claimed effective instant, so a proposal built from "now" would mint a new binding on every
   call, and a fixed one is what lets the second symbol's identical proposal rejoin the first symbol's binding
   instead. The kline binding proposal, with its availability rule, is constructed only here, and every backfill of
-  the instrument reads that same proposal to locate its fill gaps. All six steps stay in the data layer.
+  the instrument reads that same proposal to locate its fill gaps. All five steps stay in the data layer.
+- **CURRENT: historical membership is admitted once, whole, for the fixed U1 set, not per symbol.**
+  `HistoricalMembershipAdmissionRequestV1` is "one complete membership submission for a single eligible-instrument
+  frontier... admitted whole or not at all": a frontier's membership manifest is fixed at the instant it is first
+  admitted, so a later admission naming a member outside that manifest refuses `RequestConflict`, and the Owner
+  tracks only one global "current" frontier (the most recently admitted one), so a second, different frontier per
+  symbol would make an earlier symbol's frontier stop being current. Worse, an Instrument Master cut requires every
+  member fact in it to name the same `historical_membership_frontier`
+  (`crates/data/src/owner/instrument_master/authority.rs`, `FrontierMismatch`), so a two-member cut over two
+  different per-symbol frontiers would always fail. For that reason, before any symbol is admitted through this
+  route, its complete fixed member set (`BinancePerpetualDatasetV1`'s sibling constant
+  `BINANCE_PERPETUAL_U1_MEMBERS_V1` - BTC, ETH and SOL for U1) is admitted once, whole, through the generic
+  `POST /v1/market-data/historical-memberships` route, using
+  `binance_perpetual_eligible_set_admission_request_v1`, after the kline Source Binding is admitted (its lineage is
+  this request's) but before any symbol's own Instrument Master submission. Every per-symbol admission then names
+  that same frontier (derived from the sorted member set, not a fixed constant, so a different future set derives a
+  different frontier instead of colliding) in its Instrument Master fact. Re-sending the one-time admission rejoins
+  the same frontier.
 - **A backfill is a job Market Data runs.** `backfill` records a `QUEUED` job fact and returns its `job_id`. A worker in
   the Market Data service fetches the archive months and fill bars, builds the member's custody request and commits it,
   and records `RUNNING`, then `SUCCEEDED` with the custody receipt and the coverage it added, or `FAILED` with the
