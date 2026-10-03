@@ -116,6 +116,7 @@ pub(crate) struct BacktestRunReachedReplayV1 {
 
 /// Why the replay step did not run. Each variant names exactly one missing or refusing
 /// dependency, never a bare "unavailable": a caller reading this by name learns what to wait for.
+#[derive(Debug)]
 pub(crate) enum BacktestRunReplayUnavailableV1 {
     /// Nothing implements `PitWindowCustodyFramesV1` yet (Market Data's T0-5 derived view).
     CustodyFramesNotAvailable,
@@ -127,6 +128,7 @@ pub(crate) enum BacktestRunReplayUnavailableV1 {
 }
 
 /// Why `run_backtest_v1` did not reach the replay step.
+#[derive(Debug)]
 pub(crate) enum BacktestRunErrorV1 {
     /// The catalog has no strategy under this identity.
     StrategyUnknown,
