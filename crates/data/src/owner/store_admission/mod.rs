@@ -22,6 +22,7 @@ mod postgres;
 mod publication;
 mod signature;
 mod witness;
+pub(super) use postgres::RawPitWindowChainV1;
 pub(super) use postgres::RawSharedTimeEvidenceSnapshotV1;
 #[cfg(test)]
 pub(super) use postgres::RawSharedTimeHistoryRowV1;
@@ -358,6 +359,15 @@ impl AdmittedMarketDataPostgresCapability {
             &postgres::BAR_SCHEDULE_FLOOR_V1,
             &postgres::NATIVE_REPLAY_QUOTE_CUT_FLOOR_V2,
         ])
+    }
+
+    /// Consumes this authority into the PIT window custody read operation (slice T0-5): a chain at
+    /// its head and the row facts of one frame's view. It opens only under a measurement that
+    /// covers its floor, so a deployment re-publishes a measured manifest before it opens.
+    pub(super) fn into_pit_window_custody_snapshot_port_v1(
+        self,
+    ) -> Result<AdmittedMarketDataSnapshotPort, DeploymentStoreAdmissionError> {
+        self.into_snapshot_port_covering(&[&postgres::PIT_WINDOW_CUSTODY_FLOOR_V1])
     }
 
     /// Consumes this authority into the fixed Shared Time evidence read operation.
@@ -753,6 +763,64 @@ impl AdmittedMarketDataSnapshotPort {
         self.readmit_covering(&postgres::BAR_SCHEDULE_FLOOR_V1, Some(&before.receipt))
             .await?;
         Ok(bar_schedule_candidate_evidence_v1(raw))
+    }
+
+    /// Reads one PIT window custody chain after admission before and after.
+    pub(super) async fn resolve_pit_window_chain_v1(
+        &self,
+        chain_root: [u8; 32],
+    ) -> Result<postgres::RawPitWindowChainV1, DeploymentStoreAdmissionError> {
+        let before = self
+            .readmit_covering(&postgres::PIT_WINDOW_CUSTODY_FLOOR_V1, None)
+            .await?;
+        let raw = postgres::read_pit_window_chain_snapshot_v1(
+            &before.credential_lease,
+            &before.store_transport,
+            &chain_root,
+        )
+        .await
+        .map_err(|_| {
+            rejection(
+                &self.scope,
+                AdmissionFailureCode::DirectMeasurementUnavailable,
+            )
+        })?;
+        self.readmit_covering(
+            &postgres::PIT_WINDOW_CUSTODY_FLOOR_V1,
+            Some(&before.receipt),
+        )
+        .await?;
+        Ok(raw)
+    }
+
+    /// Reads the row facts of one view's versions after admission before and after.
+    pub(super) async fn resolve_pit_window_rows_v1(
+        &self,
+        chain_root: [u8; 32],
+        versions: &[[u8; 32]],
+    ) -> Result<Vec<postgres::RawPitWindowRowV1>, DeploymentStoreAdmissionError> {
+        let before = self
+            .readmit_covering(&postgres::PIT_WINDOW_CUSTODY_FLOOR_V1, None)
+            .await?;
+        let raw = postgres::read_pit_window_rows_snapshot_v1(
+            &before.credential_lease,
+            &before.store_transport,
+            &chain_root,
+            versions,
+        )
+        .await
+        .map_err(|_| {
+            rejection(
+                &self.scope,
+                AdmissionFailureCode::DirectMeasurementUnavailable,
+            )
+        })?;
+        self.readmit_covering(
+            &postgres::PIT_WINDOW_CUSTODY_FLOOR_V1,
+            Some(&before.receipt),
+        )
+        .await?;
+        Ok(raw)
     }
 
     /// Reads one frame's quote cut census after admission before and after.
@@ -1246,6 +1314,43 @@ impl NativeReplaySchedulingReadPortV1 for AdmittedMarketDataSnapshotPort {
             window_end_ns_exclusive,
         )
         .await
+    }
+}
+
+/// The two reads of a PIT window custody chain (slice T0-5): the chain at its head, and the row
+/// facts of one frame's view. Only the admitted port implements them; what `vibe-data` does with
+/// the evidence is the same verification the Owner store's own read makes.
+#[async_trait]
+pub(super) trait PitWindowCustodyReadPortV1: Send + Sync {
+    /// The chain rooted at `chain_root`, as the store holds it.
+    async fn resolve_pit_window_chain_v1(
+        &self,
+        chain_root: [u8; 32],
+    ) -> Result<postgres::RawPitWindowChainV1, DeploymentStoreAdmissionError>;
+
+    /// The row facts of `versions` of the chain rooted at `chain_root`.
+    async fn resolve_pit_window_rows_v1(
+        &self,
+        chain_root: [u8; 32],
+        versions: &[[u8; 32]],
+    ) -> Result<Vec<postgres::RawPitWindowRowV1>, DeploymentStoreAdmissionError>;
+}
+
+#[async_trait]
+impl PitWindowCustodyReadPortV1 for AdmittedMarketDataSnapshotPort {
+    async fn resolve_pit_window_chain_v1(
+        &self,
+        chain_root: [u8; 32],
+    ) -> Result<postgres::RawPitWindowChainV1, DeploymentStoreAdmissionError> {
+        Self::resolve_pit_window_chain_v1(self, chain_root).await
+    }
+
+    async fn resolve_pit_window_rows_v1(
+        &self,
+        chain_root: [u8; 32],
+        versions: &[[u8; 32]],
+    ) -> Result<Vec<postgres::RawPitWindowRowV1>, DeploymentStoreAdmissionError> {
+        Self::resolve_pit_window_rows_v1(self, chain_root, versions).await
     }
 }
 
@@ -3884,6 +3989,88 @@ mod tests {
         );
     }
 
+    /// The custody port opens only under a measurement covering its floor: neither an unrelated
+    /// admission nor the scheduling port's floors open it, and a revalidation one item short of it
+    /// is refused.
+    #[tokio::test]
+    async fn pit_window_custody_capability_requires_and_preserves_exact_measurement_floor() {
+        let unrelated = Fixture::new();
+        let capability = unrelated
+            .custodian(Arc::new(AtomicUsize::new(0)), Arc::new(AtomicUsize::new(0)))
+            .admit_capability(unrelated.request.scope())
+            .await
+            .expect("unrelated admission remains valid for unrelated consumers");
+        assert_eq!(
+            capability
+                .into_pit_window_custody_snapshot_port_v1()
+                .unwrap_err()
+                .code(),
+            AdmissionFailureCode::DirectMeasurementMismatch
+        );
+
+        let scheduling = Fixture::with_spec(&measurement_spec_covering(&[
+            &postgres::PIT_EVALUATION_FLOOR_V1,
+            &postgres::BAR_SCHEDULE_FLOOR_V1,
+            &postgres::NATIVE_REPLAY_QUOTE_CUT_FLOOR_V2,
+        ]));
+        let capability = scheduling
+            .custodian(Arc::new(AtomicUsize::new(0)), Arc::new(AtomicUsize::new(0)))
+            .admit_capability(scheduling.request.scope())
+            .await
+            .expect("the scheduling floors are admitted");
+        assert_eq!(
+            capability
+                .into_pit_window_custody_snapshot_port_v1()
+                .unwrap_err()
+                .code(),
+            AdmissionFailureCode::DirectMeasurementMismatch,
+            "a deployment's scheduling manifest does not open the custody port"
+        );
+
+        let complete = Fixture::with_spec(&measurement_spec_covering(&[
+            &postgres::PIT_WINDOW_CUSTODY_FLOOR_V1,
+        ]));
+        let initial = complete
+            .custodian(Arc::new(AtomicUsize::new(0)), Arc::new(AtomicUsize::new(0)))
+            .admit_capability(complete.request.scope())
+            .await
+            .expect("the custody floor is admitted");
+        assert!(
+            initial
+                .measurement_spec
+                .covers(&postgres::PIT_WINDOW_CUSTODY_FLOOR_V1)
+        );
+        let port = initial
+            .into_pit_window_custody_snapshot_port_v1()
+            .expect("the complete floor opens the custody port");
+        let short = PostgresMeasurementSpec::new(
+            postgres::ADMITTED_READ_SCHEMA,
+            postgres::OWNER_MIGRATION_RELATION,
+            postgres::PIT_WINDOW_CUSTODY_FLOOR_V1
+                .functions
+                .iter()
+                .map(|function| (*function).to_owned())
+                .collect(),
+            postgres::PIT_WINDOW_CUSTODY_FLOOR_V1.relations[1..]
+                .iter()
+                .map(|relation| (*relation).to_owned())
+                .collect(),
+        )
+        .unwrap();
+        assert_eq!(
+            validate_revalidation(
+                &port.scope,
+                &port.receipt,
+                &port.receipt,
+                &short,
+                &postgres::PIT_WINDOW_CUSTODY_FLOOR_V1,
+            )
+            .unwrap_err()
+            .code(),
+            AdmissionFailureCode::DirectMeasurementMismatch
+        );
+    }
+
     #[tokio::test]
     async fn bar_schedule_capability_requires_and_preserves_exact_measurement_floor() {
         let unrelated = Fixture::new();
@@ -4759,6 +4946,13 @@ mod tests {
             &postgres::PIT_EVALUATION_FLOOR_V1,
             &["read_market_data_pit_evaluation_snapshot"],
         ),
+        (
+            &postgres::PIT_WINDOW_CUSTODY_FLOOR_V1,
+            &[
+                "read_pit_window_chain_snapshot_v1",
+                "read_pit_window_rows_snapshot_v1",
+            ],
+        ),
     ];
 
     type PortConstructor =
@@ -4768,6 +4962,11 @@ mod tests {
 
     /// Each port a bootstrap opens, and every floor the reads of the resolver it backs stand on.
     const PORT_FLOORS: &[(&str, PortConstructor, &[&postgres::MeasurementFloor])] = &[
+        (
+            "pit_window_custody",
+            AdmittedMarketDataPostgresCapability::into_pit_window_custody_snapshot_port_v1,
+            &[&postgres::PIT_WINDOW_CUSTODY_FLOOR_V1],
+        ),
         (
             "pit_evaluation",
             AdmittedMarketDataPostgresCapability::into_pit_evaluation_snapshot_port,
@@ -6296,6 +6495,154 @@ mod tests {
                 "the port and custody resolve the same quote cut for a frame decided on its instant"
             );
         }
+    }
+
+    /// A custody chain's frames and views, read through an admitted custody port, are the ones
+    /// custody reads on the Owner's store: the same frames from the head, the same view at a
+    /// pinned head with the same rows, and the same refusals. A measurement without the custody
+    /// floor never becomes a custody port.
+    #[rstest]
+    #[ignore = "requires the crates/data disposable PostgreSQL harness"]
+    fn the_admitted_custody_reads_resolve_what_custody_resolves() {
+        std::thread::Builder::new()
+            .name("market-data-pit-window-custody".into())
+            .stack_size(16 * 1024 * 1024)
+            .spawn(|| {
+                tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .unwrap()
+                    .block_on(run_pit_window_custody_admitted_scenario());
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
+    async fn run_pit_window_custody_admitted_scenario() {
+        use crate::owner::{
+            pit_window_custody_v1::{
+                PitWindowRunRefusalV1, UntrustedPitWindowCustodyClaimV1,
+                UntrustedPitWindowCustodyFrameV1,
+            },
+            postgres::pit_window_custody_v1 as custody,
+        };
+
+        let owner_url = std::env::var("MARKET_DATA_OWNER_TEST_DATABASE_URL")
+            .expect("explicit disposable Owner URL");
+        let database =
+            std::env::var("VIBE_POSTGRES_TEST_DATABASE_NAME").expect("disposable database name");
+        assert!(
+            database.starts_with("vibe_test_"),
+            "this proof writes; it runs only against a disposable database"
+        );
+        let owner = crate::owner::postgres::MarketDataOwnerPostgres::connect(&owner_url)
+            .await
+            .expect("Owner connects and migrates");
+        let (root, head, run) =
+            crate::owner::postgres::pit_window_view_v1_tests::corrected_custody_chain_fixture_v1(
+                &owner,
+            )
+            .await;
+
+        assert!(
+            admitted_capability_for(&owner_url, &native_replay_scheduling_measurement_spec())
+                .await
+                .into_pit_window_custody_snapshot_port_v1()
+                .is_err(),
+            "a measurement without the custody floor is not a custody port"
+        );
+        let port = admitted_capability_for(
+            &owner_url,
+            &measurement_spec_covering(&[&postgres::PIT_WINDOW_CUSTODY_FLOOR_V1]),
+        )
+        .await
+        .into_pit_window_custody_snapshot_port_v1()
+        .expect("the measurement carries the custody floor");
+        let in_custody = |run| {
+            let pool = owner.pool().clone();
+            async move {
+                let mut transaction = pool.begin().await.unwrap();
+                let frames =
+                    custody::resolve_pit_window_frames_in_transaction_v1(&mut transaction, run)
+                        .await;
+                transaction.rollback().await.unwrap();
+                frames
+            }
+        };
+
+        let through_port = custody::resolve_pit_window_frames_through_port_v1(&port, run)
+            .await
+            .expect("the port reads the run's frames");
+        assert_eq!(through_port.head_identity(), head.custody_identity());
+        assert_eq!(Ok(through_port.clone()), in_custody(run).await);
+
+        let mut outside = run;
+        outside.run_end_ns_exclusive += 86_400_000_000_000;
+        assert_eq!(
+            custody::resolve_pit_window_frames_through_port_v1(&port, outside).await,
+            Err(PitWindowRunRefusalV1::RunOutsideCustodyWindow)
+        );
+        assert_eq!(
+            in_custody(outside).await,
+            Err(PitWindowRunRefusalV1::RunOutsideCustodyWindow)
+        );
+
+        for pinned in [root.custody_identity(), head.custody_identity()] {
+            for coordinate in through_port.frames() {
+                let frame = UntrustedPitWindowCustodyFrameV1 {
+                    custody: UntrustedPitWindowCustodyClaimV1 {
+                        chain_root: root.chain_root(),
+                    },
+                    head_identity: pinned,
+                    event_ns: coordinate.event_ns(),
+                };
+                let admitted = custody::resolve_pit_window_view_through_port_v1(&port, &frame)
+                    .await
+                    .expect("the port reads the view");
+                let owned = owner
+                    .resolve_pit_window_view_v1(&frame)
+                    .await
+                    .expect("custody reads the view");
+                assert_eq!(admitted.selection, owned.selection);
+                assert_eq!(admitted.chain.head_identity, pinned);
+                assert_eq!(admitted.schedules, owned.schedules);
+                let rows = |view: &custody::ResolvedPitWindowViewV1| {
+                    let mut rows = view
+                        .rows
+                        .iter()
+                        .map(|row| {
+                            (
+                                row.version_identity,
+                                row.member_ordinal,
+                                row.field.clone(),
+                                row.fact.fact_digest(),
+                            )
+                        })
+                        .collect::<Vec<_>>();
+                    rows.sort();
+                    rows
+                };
+                assert_eq!(rows(&admitted), rows(&owned));
+                assert_eq!(admitted.rows.len(), 10 * admitted.selection.selected.len());
+            }
+        }
+
+        let foreign = UntrustedPitWindowCustodyFrameV1 {
+            custody: UntrustedPitWindowCustodyClaimV1 {
+                chain_root: root.chain_root(),
+            },
+            head_identity: crate::owner::source_binding::BindingDigest::from_untrusted_bytes(
+                [7; 32],
+            ),
+            event_ns: through_port.frames()[0].event_ns(),
+        };
+        assert_eq!(
+            custody::resolve_pit_window_view_through_port_v1(&port, &foreign)
+                .await
+                .map(|_| ()),
+            Err(custody::PitWindowViewRefusalV1::HeadNotInChain)
+        );
     }
 
     /// The privilege census the principal behind `reader` would be measured with, row by row.

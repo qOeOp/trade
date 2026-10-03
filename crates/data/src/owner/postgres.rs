@@ -51,12 +51,12 @@ mod pit_initial_intake_correlation_tests;
 #[cfg(test)]
 pub(in crate::owner) mod pit_intake_member_count_tests;
 mod pit_role_resolution_v1;
-mod pit_window_custody_v1;
+pub(in crate::owner) mod pit_window_custody_v1;
 pub(in crate::owner) use pit_window_custody_v1::pit_window_custody_commit_from_environment_v1;
 #[cfg(test)]
 mod pit_window_custody_v1_tests;
 #[cfg(test)]
-mod pit_window_view_v1_tests;
+pub(in crate::owner) mod pit_window_view_v1_tests;
 mod rd_strategy_input_custody;
 mod reference_fact_catalog;
 mod reference_fact_coordinates;
@@ -9101,6 +9101,50 @@ impl NativeReplaySchedulingResolverV1 for MarketDataReadPostgres {
     ) -> Result<NativeReplayCustodyFrameReadbackV1, NativeReplaySchedulingErrorV1> {
         request.custody_frame()?;
         Err(NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)
+    }
+}
+
+impl crate::owner::pit_window_custody_v1::sealed::Sealed for MarketDataReadPostgres {}
+
+/// The frames port of the deployment (slice T0-5): the admitted custody port's chain read, or, in a
+/// test build, the same read on the pool.
+#[async_trait::async_trait]
+impl crate::owner::pit_window_custody_v1::PitWindowCustodyFramesV1 for MarketDataReadPostgres {
+    async fn resolve_pit_window_frames_v1(
+        &self,
+        run: crate::owner::pit_window_custody_v1::UntrustedPitWindowRunV1,
+    ) -> Result<
+        crate::owner::pit_window_custody_v1::PitWindowRunFramesV1,
+        crate::owner::pit_window_custody_v1::PitWindowRunRefusalV1,
+    > {
+        #[cfg(test)]
+        {
+            use crate::owner::pit_window_custody_v1::PitWindowRunRefusalV1;
+
+            let mut transaction = self
+                .pool
+                .begin_with("BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+                .await
+                .map_err(|_| PitWindowRunRefusalV1::StoreUnavailable)?;
+            let frames = pit_window_custody_v1::resolve_pit_window_frames_in_transaction_v1(
+                &mut transaction,
+                run,
+            )
+            .await;
+            transaction
+                .rollback()
+                .await
+                .map_err(|_| PitWindowRunRefusalV1::StoreUnavailable)?;
+            frames
+        }
+        #[cfg(not(test))]
+        {
+            pit_window_custody_v1::resolve_pit_window_frames_through_port_v1(
+                &self.admitted_port,
+                run,
+            )
+            .await
+        }
     }
 }
 

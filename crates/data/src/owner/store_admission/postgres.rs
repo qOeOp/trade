@@ -337,6 +337,25 @@ pub(super) const PIT_EVALUATION_FLOOR_V1: MeasurementFloor = MeasurementFloor {
     ],
 };
 
+/// A PIT window custody chain's reads (slice T0-5): the chain at its head and the row facts of one
+/// frame's view.
+pub(super) const PIT_WINDOW_CUSTODY_FLOOR_V1: MeasurementFloor = MeasurementFloor {
+    name: "pit_window_custody_v1",
+    functions: &[
+        "market_data_admitted_read.resolve_pit_window_chain_v1(bytea)",
+        "market_data_admitted_read.resolve_pit_window_rows_v1(bytea,bytea[])",
+        "market_data_private.resolve_pit_window_chain_v1(bytea)",
+        "market_data_private.resolve_pit_window_rows_v1(bytea,bytea[])",
+    ],
+    relations: &[
+        "market_data_private.pit_window_custodies_v1",
+        "market_data_private.pit_window_custody_heads_v1",
+        "market_data_private.pit_window_cross_section_versions_v1",
+        "market_data_private.pit_window_custody_rows_v1",
+        "market_data_private.pit_window_schedule_facts_v1",
+    ],
+};
+
 /// Every floor a port checks, for the proofs that each one is exactly what its read touches.
 pub(super) const MEASUREMENT_FLOORS: &[MeasurementFloor] = &[
     SAMPLE_PROJECTION_FLOOR_V2,
@@ -347,6 +366,7 @@ pub(super) const MEASUREMENT_FLOORS: &[MeasurementFloor] = &[
     SOURCE_BINDING_FLOOR_V1,
     PIT_TERMINAL_FLOOR_V1,
     PIT_EVALUATION_FLOOR_V1,
+    PIT_WINDOW_CUSTODY_FLOOR_V1,
 ];
 
 /// The measurement a deployment's manifest binds: every function and relation of every floor, so
@@ -1327,6 +1347,134 @@ pub(super) async fn read_native_replay_quote_cut_census_snapshot_v2(
         bound_ns_exclusive,
         rows,
     })
+}
+
+/// A PIT window custody chain as the Owner held it in one read: each entry's kind - 1 the head,
+/// 2 a custody, 3 a window schedule, 4 a version - and its row as JSON text.
+pub(crate) struct RawPitWindowChainV1 {
+    pub(crate) entries: Vec<(i16, Vec<u8>)>,
+}
+
+/// One stored row fact of a view, as the Owner held it.
+pub(crate) struct RawPitWindowRowV1 {
+    pub(crate) version_identity: Vec<u8>,
+    pub(crate) member_ordinal: i16,
+    pub(crate) field: String,
+    pub(crate) fact_digest: Vec<u8>,
+    pub(crate) fact_bytes: Vec<u8>,
+}
+
+/// One stored row fact as the rows function returns it: version, member ordinal, field, fact
+/// digest and fact bytes.
+type PitWindowRowTupleV1 = (Vec<u8>, i16, String, Vec<u8>, Vec<u8>);
+
+/// The most entries one chain read returns, and the most bytes one entry holds.
+const MAX_PIT_WINDOW_ENTRIES: usize = 100_000;
+const MAX_PIT_WINDOW_ENTRY_BYTES: usize = 1024 * 1024;
+
+/// Reads one custody chain through the Owner's chain function, in one snapshot.
+pub(super) async fn read_pit_window_chain_snapshot_v1(
+    lease: &PostgresCredentialLease,
+    transport: &StoreTransport,
+    chain_root: &[u8; 32],
+) -> Result<RawPitWindowChainV1, PostgresMeasurementError> {
+    if ambient_pg_configuration_present() {
+        return Err(PostgresMeasurementError::InvalidTarget);
+    }
+    let mut session =
+        open_store_session(lease, transport, "vibe-market-data-pit-window-chain-v1").await?;
+    let connection = &mut session.connection;
+    let mut transaction = connection
+        .begin()
+        .await
+        .map_err(|_| PostgresMeasurementError::TransactionUnavailable)?;
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+        .execute(&mut *transaction)
+        .await
+        .map_err(|_| PostgresMeasurementError::TransactionUnavailable)?;
+    let rows: Vec<(i16, String)> = sqlx::query_as(
+        "SELECT entry_kind, payload::text FROM market_data_admitted_read.resolve_pit_window_chain_v1($1)",
+    )
+    .bind(chain_root.as_slice())
+    .fetch_all(&mut *transaction)
+    .await
+    .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
+
+    if rows.len() > MAX_PIT_WINDOW_ENTRIES
+        || rows
+            .iter()
+            .any(|(_, payload)| payload.len() > MAX_PIT_WINDOW_ENTRY_BYTES)
+    {
+        return Err(PostgresMeasurementError::SnapshotUnavailable);
+    }
+    transaction
+        .commit()
+        .await
+        .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
+    Ok(RawPitWindowChainV1 {
+        entries: rows
+            .into_iter()
+            .map(|(kind, payload)| (kind, payload.into_bytes()))
+            .collect(),
+    })
+}
+
+/// Reads the row facts of `versions` of one custody chain through the Owner's rows function, in
+/// one snapshot.
+pub(super) async fn read_pit_window_rows_snapshot_v1(
+    lease: &PostgresCredentialLease,
+    transport: &StoreTransport,
+    chain_root: &[u8; 32],
+    versions: &[[u8; 32]],
+) -> Result<Vec<RawPitWindowRowV1>, PostgresMeasurementError> {
+    if ambient_pg_configuration_present() {
+        return Err(PostgresMeasurementError::InvalidTarget);
+    }
+    let mut session =
+        open_store_session(lease, transport, "vibe-market-data-pit-window-rows-v1").await?;
+    let connection = &mut session.connection;
+    let mut transaction = connection
+        .begin()
+        .await
+        .map_err(|_| PostgresMeasurementError::TransactionUnavailable)?;
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+        .execute(&mut *transaction)
+        .await
+        .map_err(|_| PostgresMeasurementError::TransactionUnavailable)?;
+    let versions = versions
+        .iter()
+        .map(|version| version.to_vec())
+        .collect::<Vec<_>>();
+    let rows: Vec<PitWindowRowTupleV1> = sqlx::query_as(
+        "SELECT version_identity, member_ordinal, field, fact_digest, fact_bytes FROM market_data_admitted_read.resolve_pit_window_rows_v1($1,$2)",
+    )
+    .bind(chain_root.as_slice())
+    .bind(&versions)
+    .fetch_all(&mut *transaction)
+    .await
+    .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
+
+    if rows.len() > MAX_PIT_WINDOW_ENTRIES {
+        return Err(PostgresMeasurementError::SnapshotUnavailable);
+    }
+    transaction
+        .commit()
+        .await
+        .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
+    Ok(rows
+        .into_iter()
+        .map(
+            |(version_identity, member_ordinal, field, fact_digest, fact_bytes)| {
+                RawPitWindowRowV1 {
+                    version_identity,
+                    member_ordinal,
+                    field,
+                    fact_digest,
+                    fact_bytes,
+                }
+            },
+        )
+        .collect())
 }
 
 fn raw_bar_schedule_canonical_instrument(

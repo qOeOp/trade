@@ -20,7 +20,46 @@ use crate::owner::{
     },
 };
 
-fn run(chain_root: BindingDigest, start: u64, end: u64) -> UntrustedPitWindowRunV1 {
+/// A committed custody chain whose run from day 1 to day 3 is covered, for proofs outside this
+/// module: its root receipt, its correction successor's, and the run.
+pub(in crate::owner) async fn corrected_custody_chain_fixture_v1(
+    owner: &MarketDataOwnerPostgres,
+) -> (
+    PitWindowCustodyReceiptV1,
+    PitWindowCustodyReceiptV1,
+    UntrustedPitWindowRunV1,
+) {
+    let binding = commit_binding(owner, "synthetic/corrections", 1, Some(after_close(true))).await;
+    admit_members(owner, &binding).await;
+    let universe = universe(owner, &binding, 10, None).await;
+    let intake = owner.pit_window_custody_commit_v1();
+    let template = two_timeframe_request(request(&binding, universe));
+    let root = commit(&intake, template.clone()).await.expect("the root");
+    let two_day_bar = WINDOW_START + 2 * DAY;
+    let corrected = version_at_timeframe(owner, root.custody_identity(), two_day_bar).await;
+    let head = commit(
+        &intake,
+        successor(
+            &root,
+            &template,
+            vec![two_day_correction(corrected, two_day_bar + DAY / 2)],
+        ),
+    )
+    .await
+    .expect("the correction");
+    let run = run(
+        root.chain_root(),
+        WINDOW_START + 2 * DAY,
+        WINDOW_START + 4 * DAY,
+    );
+    (root, head, run)
+}
+
+pub(in crate::owner) fn run(
+    chain_root: BindingDigest,
+    start: u64,
+    end: u64,
+) -> UntrustedPitWindowRunV1 {
     UntrustedPitWindowRunV1 {
         custody: UntrustedPitWindowCustodyClaimV1 { chain_root },
         run_start_ns: start,
