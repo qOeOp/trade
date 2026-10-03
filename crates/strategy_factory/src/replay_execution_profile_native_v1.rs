@@ -176,8 +176,8 @@ impl ReplayNativeExecutionProfileV1 {
         let taker_fee = native_decimal(terms.taker_fee)?;
         let initial_margin = native_decimal(terms.initial_margin)?;
         let maintenance_margin = native_decimal(terms.maintenance_margin)?;
-        if instrument.id().to_string()
-            != format!("{}.{}", terms.instrument_identity, terms.venue_identity)
+        if instrument.id().to_string() != terms.instrument_identity
+            || instrument.id().venue.as_str() != terms.venue_identity
             || instrument.quote_currency() != quote_currency
             || instrument.maker_fee() != maker_fee
             || instrument.taker_fee() != taker_fee
@@ -284,13 +284,10 @@ fn materialize_crypto_perpetual_v2(
     economic: &BoundInstrumentEconomicTermsV1,
     public: &ValidatedCryptoPerpetualPublicTermsV2,
 ) -> Result<InstrumentAny, ReplayNativeExecutionProfileErrorV1> {
-    let expected_instrument_id = format!(
-        "{}.{}",
-        economic.instrument_identity, economic.venue_identity
-    );
-
+    // The terms name the instrument by its canonical identity, which already carries the venue:
+    // the Instrument Owner resolves a Replay's member terms by `canonical_identity()`.
     if public.instrument_class() != PublicInstrumentClassV2::CryptoPerpetual
-        || public.canonical_identity() != expected_instrument_id
+        || public.canonical_identity() != economic.instrument_identity
         || public.venue_identity() != economic.venue_identity
         || public.quote_currency() != economic.quote_currency
         || *public.instrument_master_fact_identity().as_bytes() != economic.instrument_fact_digest
@@ -397,20 +394,22 @@ pub(crate) fn materialize_event_replay_execution_profile_v1(
         .map_err(|_| ReplayNativeExecutionProfileErrorV1::InvalidIdentifier)?;
     // A schema 1 configuration names a primary instrument the binding must hold; a schema 2
     // configuration names none, and the binding's members are the instruments.
+    // Terms name an instrument by its canonical identity, which carries its venue; the venue must
+    // be the configuration's.
+    let instrument_id_at_venue = |identity: &str| {
+        InstrumentId::from_str(identity)
+            .ok()
+            .filter(|instrument_id| instrument_id.venue == venue)
+            .ok_or(ReplayNativeExecutionProfileErrorV1::InvalidIdentifier)
+    };
     let pinned_instrument_id = economic_input
         .instrument_terms
         .as_ref()
-        .map(|pinned| {
-            Symbol::new_checked(&pinned.instrument_identity)
-                .map(|symbol| InstrumentId::new(symbol, venue))
-                .map_err(|_| ReplayNativeExecutionProfileErrorV1::InvalidIdentifier)
-        })
+        .map(|pinned| instrument_id_at_venue(&pinned.instrument_identity))
         .transpose()?;
-    let instrument_ids = binding.instrument_terms().try_map(|terms| {
-        Symbol::new_checked(&terms.instrument_identity)
-            .map(|symbol| InstrumentId::new(symbol, venue))
-            .map_err(|_| ReplayNativeExecutionProfileErrorV1::InvalidIdentifier)
-    })?;
+    let instrument_ids = binding
+        .instrument_terms()
+        .try_map(|terms| instrument_id_at_venue(&terms.instrument_identity))?;
 
     if instrument_ids.windows(2).any(|pair| pair[0] >= pair[1])
         || pinned_instrument_id.is_some_and(|pinned| !instrument_ids.contains(&pinned))
@@ -1174,11 +1173,7 @@ mod tests {
         public: &ValidatedCryptoPerpetualPublicTermsV2,
     ) -> BoundInstrumentEconomicTermsV1 {
         BoundInstrumentEconomicTermsV1 {
-            instrument_identity: public
-                .canonical_identity()
-                .strip_suffix(".SIM")
-                .unwrap()
-                .to_owned(),
+            instrument_identity: public.canonical_identity().to_owned(),
             instrument_fact_digest: *public.instrument_master_fact_identity().as_bytes(),
             instrument_receipt_digest: [41; 32],
             terms_digest: [42; 32],
@@ -1575,7 +1570,7 @@ mod tests {
             BoundedMembers::try_from([
                 instrument_terms_provenance_for_fixture(
                     economic,
-                    "BTCUSDT-PERP".into(),
+                    "BTCUSDT-PERP.SIM".into(),
                     [31; 32],
                     [32; 32],
                     rate(1, 4),
@@ -1588,7 +1583,7 @@ mod tests {
                 ),
                 instrument_terms_provenance_for_fixture(
                     economic,
-                    "SOLUSDT-PERP".into(),
+                    "SOLUSDT-PERP.SIM".into(),
                     [33; 32],
                     [34; 32],
                     rate(2, 4),
@@ -1644,7 +1639,10 @@ mod tests {
                 .iter()
                 .map(|terms| (terms.instrument_identity.as_str(), terms.taker_fee))
                 .collect::<Vec<_>>(),
-            [("BTCUSDT-PERP", rate(5, 4)), ("SOLUSDT-PERP", rate(5, 4))]
+            [
+                ("BTCUSDT-PERP.SIM", rate(5, 4)),
+                ("SOLUSDT-PERP.SIM", rate(5, 4))
+            ]
         );
 
         let schema_1 = ReplayEconomicConfigurationV1::seal(economic_fixture()).unwrap();
