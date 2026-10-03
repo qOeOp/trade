@@ -834,6 +834,40 @@ pub(crate) async fn ensure_first_composer_v3_replay_acceptance_v1(
         PERPETUAL_V1,
         "H0: Market Data derives the perpetual's canonical identity: {answer}"
     );
+    // Its economic terms, as Operations admits them: issued by the Instrument Owner from that V2
+    // fact and the venue's public defaults, under a business account scope of the Owner's naming.
+    // They are valid from the perpetual's listing and bounded well past F's window.
+    let public_fact = json_of(&answer)["fact_identity"].clone();
+    let (status, answer) = post(
+        &routes,
+        "/v1/market-data/instrument-economic-terms",
+        Some(serde_json::json!({
+            "canonical_identity": PERPETUAL_V1,
+            "instrument_fact_identity": public_fact,
+            "account_scope_identity": "RDQ-MARGIN",
+            "valid_until_ns_exclusive": 4_102_444_800_000_000_000_u64,
+        })),
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "H0: the perpetual's instrument economic terms: {answer}"
+    );
+    let terms = json_of(&answer);
+    assert_eq!(
+        (
+            &terms["canonical_identity"],
+            &terms["instrument_public_fact_digest"],
+            &terms["account_scope_identity"],
+        ),
+        (
+            &serde_json::json!(PERPETUAL_V1),
+            &public_fact,
+            &serde_json::json!("RDQ-MARGIN"),
+        ),
+        "H0: the terms name the perpetual, its V2 fact and the scope: {answer}"
+    );
     let observed = i128::from(effective_ns);
     let (status, answer) = post(
         &routes,
@@ -1519,6 +1553,13 @@ async fn market_data_routes(
             semantics: bootstrap_market_data_market_semantics_admission()
                 .await
                 .expect("the Market Semantics admission composes"),
+            // Required, not optional: F's H0 issues the perpetual's terms through this route.
+            economic_terms: Some(
+                bootstrap_instrument_economic_terms_admission()
+                    .await
+                    .expect("the instrument economic terms admission composes")
+                    .expect("the chain configures both Owners the terms admission needs"),
+            ),
         },
         token_digest,
     )
