@@ -263,7 +263,7 @@ never runs in CI.
 | Vendor Data Clients                                       | `CURRENT / PARTIAL`                                                                                 | `crates/adapters/databento/src/pit_observation_source_v1.rs` and `crates/adapters/binance/src/pit_observation_source_v1.rs`, both live‑verified                                                                                          | `B6`       |
 | Live market fact channel to Runtime                       | `CURRENT / PARTIAL`, one channel                                                                    | `owner/live_market_fact_v1.rs`, `owner/live_market_stream_v1.rs`, `owner/postgres/live_market_stream_v1.rs`, `crates/adapters/bybit/src/live_market_fact_source_v1.rs`                                                                   | `B8`       |
 | Binance perpetual settled funding rows                    | `CURRENT / PARTIAL`                                                                                 | `crates/adapters/binance/src/futures_pit_observation_source_v1.rs`                                                                                                                                                                       | `B6`       |
-| Owner clock follows PIT intake                            | `TARGET`, on U1's path                                                                              | none; PIT intake commits at the current clock head (`owner/postgres.rs`)                                                                                                                                                                 | none       |
+| Owner clock follows PIT intake                            | `TARGET`, after U1                                                                                  | none; PIT intake commits at the current clock head (`owner/postgres.rs`)                                                                                                                                                                 | none       |
 | Fill‑bar quote cut for a bar‑only source                  | `TARGET`, on U1's path                                                                              | none; a quote cut holds observed Quote rows only (`owner/native_replay_quote_cut_v2.rs`)                                                                                                                                                 | none       |
 | Companion quote lineage                                   | `TARGET`, after U1                                                                                  | none                                                                                                                                                                                                                                     | none       |
 | Source Binding successor admission                        | `TARGET`, after U1                                                                                  | `commit_source_successor`, test callers only                                                                                                                                                                                             | none       |
@@ -2473,10 +2473,11 @@ complete initial read - schedules, universe and quote cut together - on Owner cu
 **TARGET, fill quotes for a source that publishes bars only, and the Owner clock that admits them:** nothing here is
 built, and nothing is admitted until its slice is. A deployed Backtest over Binance perpetual history needs a fill quote
 between every pair of frames and has none today: Binance publishes no historical quotes (`bookTicker` answers only the
-current one), a quote cut must sit on the frame's own Source Binding lineage, and a snapshot retrieved after the
-Owner's clock head cannot be admitted at all. Every frame of such a Backtest is therefore refused as
-`QuoteCutMissing`. The first Composer replay passes only through two named stand-ins: its Data Client builds Quote rows
-from klines, and an extra `usdm/klines/4h` Source Binding admission moves the clock past the frame.
+current one), and a quote cut must sit on the frame's own Source Binding lineage. Every frame of such a Backtest is
+therefore refused as `QuoteCutMissing`. The first Composer replay meets a second gap as well: it freezes its frame at
+the frame's own instant, so its quote is retrieved after the Owner's clock head, and a snapshot retrieved after the
+head cannot be admitted at all. It passes only through two named stand-ins: its Data Client builds Quote rows from
+klines, and an extra `usdm/klines/4h` Source Binding admission moves the clock past the frame.
 This design replaces both.
 
 - **The fill comes from a finer bar of the same source.** A schema 2 Source Binding that declares the frame's bar may
@@ -2509,8 +2510,10 @@ This design replaces both.
   requester's decision cut from the request to the receipt and removes no property. It also ends
   `ClockEvidenceNotCurrent` for V2 submissions, which an archiver moving the head hourly would otherwise make routine.
   A V1 submission keeps today's contract. R&D's frozen-request handoff changes with it, so this slice starts only with
-  R&D's agreement to that change. Without it, an ingestion that retrieves after the head admits nothing until some other
-  admission moves the clock.
+  R&D's agreement to that change. Without it, any intake that retrieves after the head - a quote after a frame frozen at
+  its own instant, or a real-time path - admits nothing until some other admission moves the clock. A historical
+  ingestion does not need it: it reads the Owner's cut once and submits requests whose coordinates all lie at or before
+  that cut.
 - **A companion quote lineage, after U1.** A quote Source Binding admitted as the liquidity companion of one bar lineage
   may supply that lineage's quote cuts. The pairing is declared in the quote binding's proposal and enters its
   identity. It names the bar lineage's root, not a binding, so it survives the bar lineage's successors. Market
@@ -2526,9 +2529,10 @@ This design replaces both.
   Composer replay's stand-in does, with a mapping that is at least servable. The Owner clock following PIT intake
   removes the reason to do that. Checking a mapping against the deployment's Data Clients is recorded here and not
   admitted.
-- **Slices, in order.** (1) The Owner clock follows PIT intake, on U1's path because an ingestion of history retrieves
-  after the head. (2) The fill-bar quote cut, on the snapshot path first and in custody once T0 is built, also on U1's
-  path; ingestion then commits one fill bar per frame beside each frame. (3) The companion lineage and (4) successor
+- **Slices, in order.** (1) The fill-bar quote cut, on U1's path: on the snapshot path first and in custody once T0 is
+  built; ingestion then commits one fill bar per frame beside each frame. A historical frame and its fill bar sit on
+  the same Owner cut with strictly ordered event instants, so this slice needs no clock change. (2) The Owner clock
+  follows PIT intake, after U1, for the paths that retrieve after the head. (3) The companion lineage and (4) successor
   admission, after U1 and in either order. The mapping check is not admitted.
 
 **TARGET / IMPLEMENTATION_ADMITTED for slice T0, PIT window custody:** a multi-frame Backtest over backfilled history
