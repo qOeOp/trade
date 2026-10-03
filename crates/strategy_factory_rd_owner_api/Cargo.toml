@@ -108,6 +108,12 @@ doc = false
 test = false
 
 [[bin]]
+name = "market-data-mcp"
+path = "src/bin/market_data_mcp.rs"
+doc = false
+test = false
+
+[[bin]]
 name = "strategy-factory-rd-dashboard-read-api"
 path = "src/bin/dashboard_read_api.rs"
 doc = false

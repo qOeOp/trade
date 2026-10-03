@@ -85,6 +85,9 @@ services:
       RD_OWNER_API_TOKEN: ${RD_OWNER_API_TOKEN:?set RD_OWNER_API_TOKEN}
       RD_OWNER_ENABLE_ACCEPTANCE_FAULTS: ${RD_OWNER_ENABLE_ACCEPTANCE_FAULTS:-0}
       RD_SANDBOX_SOCKET: /run/trade-rd-sandbox/build.sock
+      # The Binance Vision backfill fetcher's on-disk shard cache, one subdirectory per
+      # symbol/interval. Unset disables the backfill routes (vision_backfill_fetcher_v1 errors).
+      BINANCE_VISION_SHARD_DIR_V1: /var/lib/trade/binance-vision-shards
       RUST_LOG: info
     depends_on:
       replay-policy-catalog-owner-readback:
@@ -95,6 +98,7 @@ services:
       - sandbox-socket:/run/trade-rd-sandbox:ro
       # A host directory when DEPLOYMENT_STORE_FILES_DIRECTORY names one, an empty volume otherwise.
       - ${DEPLOYMENT_STORE_FILES_DIRECTORY:-deployment-store-files}:/run/deployment-store:ro
+      - binance-vision-shards:/var/lib/trade/binance-vision-shards
     healthcheck:
       test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/8080'"]
       interval: 5s
@@ -716,3 +720,4 @@ volumes:
   deployment-store-files:
   deployment-store-admin:
   postgres-tls:
+  binance-vision-shards:
