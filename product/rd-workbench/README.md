@@ -57,8 +57,38 @@ docker compose --project-name trade-rd-local --env-file product/rd-workbench/.lo
 rm -rf product/rd-workbench/.local
 ```
 
+A store that is already cut over cannot gain an R&D table a newer build adds: the Owner creates
+its public relations only before the custody cutover, and at startup it requires every one to
+exist. After pulling a change that adds one, `rd-owner-api` stays unhealthy and its log names the
+missing relation (for example `rd_strategy_specs_v1 has incompatible custody or relation options`).
+On this disposable deployment, start over as below.
+
 `RD_LOCAL_ACCEPTANCE_SCRIPT` names a script to run last, as
 `<script> probe http://127.0.0.1:18080` with `RD_OWNER_API_TOKEN` exported from `.env`.
+
+### Strategy authoring from Claude Code
+
+The `strategy-authoring` MCP server (`docs/owners/rd.md`, "strategy-authoring MCP server") runs on
+this host as a child process of Claude Code and reaches the local deployment's API on
+`127.0.0.1:18080`. Four steps, from the repository root:
+
+1. Bring up the deployment: `make rd-workbench-up`.
+2. Build the server: `make mcp-strategy-authoring`. It builds `strategy-authoring-mcp`, copies it
+   into `product/rd-workbench/.local/bin`, and prints the registration command.
+3. Register it with Claude Code, running the printed command, which has this shape:
+
+   ```bash
+   claude mcp add --scope user strategy-authoring -- /absolute/path/to/product/rd-workbench/scripts/strategy-authoring-mcp.sh
+   ```
+
+   Claude Code starts `scripts/strategy-authoring-mcp.sh`, which reads `RD_OWNER_API_TOKEN` from
+   `.local/.env` when the server starts and sets `RD_OWNER_API_URL` to
+   `http://127.0.0.1:${RD_LOCAL_API_PORT:-18080}`. The token is never printed and never written into
+   Claude Code's configuration. A restarted deployment keeps its `.env`, so the registration stays
+   valid.
+4. In a new Claude Code session, follow the nine acceptance steps in that section of
+   `docs/owners/rd.md`, using the server's `validate`, `create`, `get`, `list`, `revise` and
+   `archive` tools. They need no market data.
 
 ## Deployment Store Admission boundary
 

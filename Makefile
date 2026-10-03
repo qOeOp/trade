@@ -1272,6 +1272,10 @@ rd-workbench-check:  #-- Validate the pinned R&D deployment package
 rd-workbench-up:  #-- Bring up the local R&D deployment (re-entrant; credentials generated locally)
 	$Q bash product/rd-workbench/scripts/up.sh
 
+.PHONY: mcp-strategy-authoring
+mcp-strategy-authoring:  #-- Build the strategy-authoring MCP server for the local deployment and print how to register it
+	$Q bash product/rd-workbench/scripts/strategy-authoring-mcp.sh install
+
 #== CLI Tools
 
 .PHONY: install-cli

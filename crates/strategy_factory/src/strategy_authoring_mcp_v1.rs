@@ -24,8 +24,11 @@ pub struct ApiRequest {
     pub body: Option<Value>,
 }
 
-/// The R&D API's answer: its status and its JSON body.
-pub type ApiAnswer = (u16, Value);
+/// The R&D API's answer: its status and its body, as the exact text it sent.
+///
+/// The text is kept rather than parsed into a [`Value`], whose objects sort their keys: a strategy's
+/// `spec` is its stored bytes, which hash to its `strategy_id` only in the order they were stored.
+pub type ApiAnswer = (u16, String);
 
 /// Sends a request to the R&D API.
 pub trait Api {
@@ -144,12 +147,13 @@ pub fn request_for(name: &str, arguments: &Value) -> Result<ApiRequest, (u16, Va
     }
 }
 
-/// A tool result: the R&D API's body as structured content and as text, an error when the API
-/// refused.
+/// A tool result: the R&D API's body as text, verbatim, and parsed as structured content; an
+/// error when the API refused.
 pub fn tool_result((status, body): ApiAnswer) -> Value {
+    let structured = serde_json::from_str::<Value>(&body).unwrap_or(Value::Null);
     json!({
-        "content": [{"type": "text", "text": body.to_string()}],
-        "structuredContent": body,
+        "content": [{"type": "text", "text": body}],
+        "structuredContent": structured,
         "isError": !(200..300).contains(&status),
     })
 }
@@ -182,7 +186,7 @@ pub async fn handle(api: &dyn Api, message: &Value) -> Option<Value> {
 
             match request_for(name, &arguments) {
                 Ok(request) => tool_result(api.send(request).await),
-                Err(refusal) => tool_result(refusal),
+                Err((status, refusal)) => tool_result((status, refusal.to_string())),
             }
         }
         _ => {
@@ -255,7 +259,7 @@ mod tests {
         #[case] carries_spec: bool,
     ) {
         let answer = json!({"strategy_id": ID});
-        let (result, sent) = call((200, answer.clone()), name, arguments).await;
+        let (result, sent) = call((200, answer.to_string()), name, arguments).await;
 
         assert_eq!(sent.len(), 1);
         assert_eq!((sent[0].method, sent[0].path.as_str()), (method, path));
@@ -267,13 +271,29 @@ mod tests {
         assert_eq!(result["isError"], false);
     }
 
+    /// The body reaches the agent as the exact text R&D sent, so a `spec` in its stored key order
+    /// still hashes to its `strategy_id`; only the structured copy is parsed.
+    #[rstest]
+    #[tokio::test]
+    async fn the_body_text_passes_through_verbatim() {
+        let body =
+            r#"{"strategy_id":"x","spec":{"scope":"EXACT_INSTRUMENT","role_semantic_id":"r"}}"#;
+        let (result, _) = call((200, body.to_owned()), "get", json!({"strategy_id": ID})).await;
+
+        assert_eq!(result["content"][0]["text"], body);
+        assert_eq!(
+            result["structuredContent"]["spec"]["scope"],
+            "EXACT_INSTRUMENT"
+        );
+    }
+
     /// A refusal from R&D comes back as a tool error carrying R&D's body, name and all.
     #[rstest]
     #[tokio::test]
     async fn an_owner_refusal_passes_through_by_name() {
         let refusal = json!({"error": "STRATEGY_ARCHIVED"});
         let (result, _) = call(
-            (409, refusal.clone()),
+            (409, refusal.to_string()),
             "archive",
             json!({"strategy_id": ID}),
         )
@@ -298,7 +318,7 @@ mod tests {
         #[case] arguments: Value,
         #[case] code: &str,
     ) {
-        let (result, sent) = call((200, json!({})), name, arguments).await;
+        let (result, sent) = call((200, "{}".to_owned()), name, arguments).await;
 
         assert!(sent.is_empty());
         assert_eq!(result["isError"], true);
@@ -312,7 +332,7 @@ mod tests {
     async fn the_server_speaks_the_mcp_handshake_and_lists_six_tools() {
         let api = RecordingApi {
             sent: Mutex::new(Vec::new()),
-            answer: (200, json!({})),
+            answer: (200, "{}".to_owned()),
         };
         let initialized = handle(
             &api,
