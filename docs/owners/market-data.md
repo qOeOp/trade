@@ -3177,12 +3177,87 @@ and the fill timeframe. This is the fetch side that feeds a custody commit. The 
 - **Each refusal names what the backfill does.** A refusal means submit the same custody again later, a defect in
   the request the writer built, or a basis - binding, semantics, selection, window or timeframes - that needs replacing
   before anything is committed.
-- **Its caller is a one-time Market Data backfill subcommand.** Nothing calls the writer in production yet, because
-  nothing implements the custody commit until the custody aggregate (T0-4a) does. Its caller is then a one-time
-  subcommand of the Market Data Owner: the entry through which this external history enters Market Data, so it sits in
-  the Market Data layer, never in R&D's `rd-run-research`, where a higher layer would be ingesting for a lower one. It
-  is wired once T0-4a merges. U1's acceptance runs it once each for BTC, ETH and SOL in the deployment image, then reads
-  each member's custody view and checks its row count.
+- **Its caller is Market Data's backfill job.** Nothing calls the writer in production yet, because nothing
+  implements the custody commit until the custody aggregate (T0-4a) does. Its caller is then the backfill job below,
+  which a worker in the Market Data service runs: the entry through which this external history enters Market Data, so
+  it sits in the Market Data layer, never in R&D, where a higher layer would be ingesting for a lower one. A command
+  line over the same function serves an operator. U1's acceptance runs it once each for BTC, ETH and SOL in the
+  deployment image, then reads each member's coverage.
+
+### TARGET market-data MCP server
+
+The `market-data` server of the [domain MCP catalog](../architecture/product-edge#target---external-agent-tool-surface)
+is served by Market Data. It is a stateless stdio process that holds the Market Data API token in its own environment
+and reaches Market Data's routes only. Every rule lives in Market Data behind a route; a tool sends one request,
+passes its answer or refusal through by name, and sequences nothing. The same functions are a command line with the
+same names.
+
+| Tool                                     | Route                                                   | Refusals by name                                                                 |
+| ---------------------------------------- | ------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `list_instruments()`                     | `GET /v1/market-data/instruments`                       | -                                                                                |
+| `describe_instrument(instrument)`        | `GET /v1/market-data/instruments/{instrument}`          | `INSTRUMENT_UNKNOWN`                                                             |
+| `admit_instrument(instrument)`           | `POST /v1/market-data/binance-perpetual-admissions`     | each admission step's own refusal                                                |
+| `backfill(instrument, timeframe, range)` | `POST /v1/market-data/backfill-jobs`                    | `INSTRUMENT_UNKNOWN`, `TIMEFRAME_UNSUPPORTED`, `RANGE_INVALID`                   |
+| `job_status(job_id)`                     | `GET /v1/market-data/backfill-jobs/{job_id}`            | `JOB_UNKNOWN`                                                                    |
+| `coverage(instrument)`                   | `GET /v1/market-data/instruments/{instrument}/coverage` | `INSTRUMENT_UNKNOWN`                                                             |
+| `get_bars(instrument, timeframe, range)` | after T0-5, over the run window custody view            | `HOLDOUT_PARTITION_UNDEFINED`, `RANGE_NOT_COVERED`, `RANGE_TOO_LARGE_FOR_INLINE` |
+| `get_funding(instrument, range)`         | after the funding schedule read below                   | `HOLDOUT_PARTITION_UNDEFINED`, `RANGE_NOT_COVERED`, `RANGE_TOO_LARGE_FOR_INLINE` |
+
+- **Admission is one Market Data operation.** `POST /v1/market-data/binance-perpetual-admissions` takes a Binance
+  USD-M symbol. Market Data fetches the symbol's public `exchangeInfo` entry and commits, in order, the facts the first
+  `COMPOSER_V3` Replay's acceptance commits through separate routes today: the kline Source Binding, the Instrument
+  Master fact, the `exchangeInfo` Source Binding, the Instrument Master V2 fact, the economic terms, and the historical
+  membership. It is re-entrant: a step already admitted with the same content answers `ALREADY_ADMITTED` and the next
+  step runs, so a rerun after any failure completes the rest. The kline binding proposal, with its availability rule,
+  is constructed only here, and every backfill of the instrument reads that same proposal to locate its fill gaps. All
+  six steps stay in the data layer.
+- **A backfill is a job Market Data runs.** `backfill` records a `QUEUED` job fact and returns its `job_id`. A worker in
+  the Market Data service fetches the archive months and fill bars, builds the member's custody request and commits it,
+  and records `RUNNING`, then `SUCCEEDED` with the custody receipt and the coverage it added, or `FAILED` with the
+  refusal's name. Job facts are append-only and the MCP server holds no job state. The timeframe is the custody's
+  execution timeframe: U1 supports `1d` and `4h`, the `1m` fill timeframe comes with it, and any other is
+  `TIMEFRAME_UNSUPPORTED`.
+- **Coverage is what custody holds.** `coverage` answers, for each execution timeframe, the half-open ranges the
+  member's committed custody windows cover, read from the custody chains. It states no market value.
+- **A run names its data by description.** A `dataset_ref` is the description
+  `(instrument, execution_timeframe, [start, end))`, which an agent writes from `coverage`; no tool issues it. The service that runs a backtest resolves it
+  against the custody chain that covers it, records the head it resolved, and refuses a range no custody covers as
+  `DATASET_REF_UNRESOLVED`. A backtest therefore never needs `get_bars`.
+- **Agent reads are recorded by Market Data.** Before a tool returns market values - bars or funding rates - to an
+  agent, Market Data appends one agent data-read row per instrument in the same transaction that reads them: the
+  server's session identity, minted when the server process starts, the instrument, the timeframe, the half-open range
+  `[start, end)` in event nanoseconds, the tool, and the commit cut. A read whose rows cannot be written refuses. These
+  rows moved here from R&D's data-read ledger, which held the agent-session rows while R&D was meant to own the agent's
+  tools; R&D's census reads them downward and still writes the trial rows itself. Until a session is bound to a
+  lineage, R&D counts an agent read against every lineage.
+- **No market value reaches an agent before the holdout partition exists.** No Owner defines Qualification's holdout
+  partition yet, so `get_bars` and `get_funding` refuse every request as `HOLDOUT_PARTITION_UNDEFINED`, as every
+  hand-out of R&D's data-read ledger does.
+- **TARGET, after U1, Lane 4: Qualification registers its partition into Market Data.** Qualification calls down and
+  registers the protected instruments and periods by value; Market Data only refuses. Then a tool refuses a range that
+  overlaps a protected period as `RANGE_IN_HOLDOUT_PARTITION`, and a backtest whose window overlaps one is refused by
+  name, because its result alone would leak the holdout. Until the partition is registered, every backtest report
+  states that no holdout partition is defined and that its results are exploratory only.
+- **Accepted on its own** when, in the deployment image and through this server alone, BTC, ETH and SOL are admitted,
+  each is backfilled for `1d` with its `1m` fill, `coverage` shows the windows, and every refusal above is driven once.
+
+### TARGET window funding schedule read
+
+A Replay settles funding at every settlement inside its window, so it needs all of them, not the last two the
+perpetual Data Client states per scope. Market Data reads, for a request's members and window, every settled
+`(settlement_ns, rate)` in time order and returns a `ReplayFundingScheduleV1`, the value type in
+`crates/data/src/owner/replay_funding_schedule_v1.rs` that fixes its canonical encoding and digest.
+
+- **Completeness is Market Data's.** Market Data derives each member's settlement interval from the instrument's facts
+  and refuses a window with a missing settlement by name, never filling it with zero. An empty list means the window
+  holds no settlement instant; it is never an answer for missing data.
+- **The rows come in through the backfill path.** The public funding archive and the unsigned `fundingRate`
+  endpoint are both sources; neither needs a credential.
+- **It is read downward and passed by value.** R&D reads the schedule and places it in the Replay bundle; Backtest
+  never reads Market Data back. Only a schedule Market Data produced is complete: the type's constructor checks
+  canonical order, not completeness.
+- **Accepted** on one real month of BTCUSDT: the count equals the venue's settlements, and a month with one removed is
+  refused by name.
 
 ## Input handoffs
 
