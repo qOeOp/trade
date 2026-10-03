@@ -40,6 +40,11 @@ readonly portable_wasm_proofs=(
   'program_host_v2_target_set_backtest_tests::an_authored_universe_member_program_enters_once_through_the_target_set_sim'
   'program_host_v2_target_set_backtest_tests::an_authored_rebalance_program_lifts_three_consecutive_frames'
   'program_host_v2_target_set_backtest_tests::an_authored_weight_program_enters_exits_and_enters_again'
+  'program_host_v2_target_set_backtest_tests::an_authored_exit_leaves_once_at_the_close_and_the_program_enters_again::case_1_stop_loss'
+  'program_host_v2_target_set_backtest_tests::an_authored_exit_leaves_once_at_the_close_and_the_program_enters_again::case_2_take_profit'
+  'program_host_v2_target_set_backtest_tests::an_authored_exit_leaves_once_at_the_close_and_the_program_enters_again::case_3_max_holding_bars'
+  'program_host_v2_target_set_backtest_tests::an_authored_exit_never_reached_holds_the_position::case_1_stop_loss_not_reached'
+  'program_host_v2_target_set_backtest_tests::an_authored_exit_never_reached_holds_the_position::case_2_take_profit_not_reached'
 )
 
 # Compiled only on the hosts the sandbox admits (macOS arm64, Linux arm64, Linux x86_64), which are

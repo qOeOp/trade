@@ -1231,11 +1231,20 @@ check_composer_acceptance_stays_in_the_chain() {
       echo "ERROR: $dockerfile no longer builds $package the way this check reads it." >&2
       return 1
     fi
-    if rg -q -e '--features' -e '--all-features' "$dockerfile"; then
-      echo "ERROR: $dockerfile passes a feature to a deployed build; the chain's acceptance union must not reach it." >&2
+    if rg -q -e '--all-features' "$dockerfile"; then
+      echo "ERROR: $dockerfile passes --all-features to a deployed build; the chain's acceptance union must not reach it." >&2
       return 1
     fi
   done
+  # A deployed build may name production features (B0 deploys `composer-v3-replay`). Whether any of them
+  # reaches an acceptance feature is decided once, transitively, by scripts/ci/check-production-features.py,
+  # which reads every Dockerfile's `--features` and runs as the `check-production-features` hook whenever a
+  # Dockerfile changes. Removing that hook would leave this chain with no guard on deployed features.
+  if ! rg -q -x -- '[[:space:]]+- id: check-production-features' "$repository_root/.pre-commit-config.yaml" ||
+    ! rg -q -F 'product/.*Dockerfile[^/]*|' "$repository_root/.pre-commit-config.yaml"; then
+    echo "ERROR: the check-production-features hook no longer runs on Dockerfile changes; a deployed build's features are unguarded." >&2
+    return 1
+  fi
   for manifest in strategy_factory_rd_owner_api strategy_factory; do
     if ! awk '/^\[features\]/{f=1;next} /^\[/{f=0} f && $0=="default = []"{found=1} END{exit !found}' \
       "$repository_root/crates/$manifest/Cargo.toml"; then

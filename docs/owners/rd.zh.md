@@ -93,16 +93,15 @@
   只读标题会得到相反的答案，而且两个方向都会错。
 
 - **CURRENT - 已部署的服务，以及它暴露面的边界：** `product/rd-workbench/Dockerfile.owner` 构建
-  每一个二进制（包括 `--bin strategy-factory-rd-owner-api`）时都完全不带 `--features`。所以部署镜像就是
-  `crates/strategy_factory_rd_owner_api/src/main.rs` 里未加门的那个 router，
-  而其后注册的六条路由不在其中：`/v2/exploratory-replay/execution-input-bindings` 在
-  `#[cfg(feature = "composer-replay-issuance")]` 之下，`/v3/exploratory-replay-requests/composer-backed` 在
-  `#[cfg(feature = "composer-v3-replay")]` 之下，四条 `/_sealed-acceptance/v1/develop-composer/*` 在
-  `#[cfg(feature = "sealed-source-intake-composer-acceptance")]` 之下。前两个 feature 是生产面，不带任何验收夹具、
-  语料或路由；密封 feature 包含它们而不是拥有它们。在默认构建里，Composer 自己的
-  `/v2/develop-composer/runs/{request_identity}/resolve` 与 `/readback` 返回 `503`，因为
-  `composer-replay-issuance` 是关闭的。一条验收路由绝不是生产能力的证据，
-  而密封 feature 的存在就是为了让这个区别是机械的而不是靠记住的。
+  `--bin strategy-factory-rd-owner-api` 以及同一个包的三个 Replay Policy Catalog 二进制时带
+  `--features composer-v3-replay`，不带其他 feature；dashboard 读取二进制不带任何 feature。所以部署镜像注册了
+  `/v3/exploratory-replay-requests/composer-backed` 和 `/v2/exploratory-replay/execution-input-bindings`，
+  Composer 自己的 `/v2/develop-composer/runs/{request_identity}/resolve` 与 `/readback` 从托管中作答。它不构建
+  `native-replay-execution`，所以 `/v2/exploratory-replays` 和两条 `/v1/market-data-repair-requests` 路由不在其中；
+  它也不构建任何密封 feature，所以 `#[cfg(feature = "sealed-source-intake-composer-acceptance")]` 之下的四条
+  `/_sealed-acceptance/v1/develop-composer/*` 同样不在。生产 feature 不带任何验收夹具、语料或路由；密封 feature
+  包含它们而不是拥有它们。一条验收路由绝不是生产能力的证据，而密封 feature 的存在就是为了让这个区别是机械的
+  而不是靠记住的。
   镜像运行在产品的定点精度 `FIXED_PRECISION` 16 上，不靠构建参数：`vibe-strategy-factory` 在自己的
   `vibe-model` 依赖上声明 `high-precision`，`scripts/ci/check-production-features.py` 会拒绝链接
   `vibe-model` 却不带它的生产包。
@@ -128,10 +127,12 @@
   即 Playbook 点名的、缺席的 `LIVE_EXTERNAL` 权威，而不是请求本身；请求本身的拒绝（冲突的 identity、
   畸形的 body）这条路由已经按名回答。今天重试改变不了答案，是这个构建缺少的能力，列在
   `UNIMPLEMENTED_PRODUCTION_STAGES` 里；它不是请求的性质，也不需要一种专属的答复。
-- **CURRENT - composer-backed 的 Exploratory Replay 请求路径没有准入标签，把它挡在部署镜像之外的是镜像，而不是缺少产出者：**
+- **CURRENT - composer-backed 的 Exploratory Replay 请求路径已在部署镜像里：**
   `commit_composer_backed_exploratory_replay_request_v3`、它的路由
   `/v3/exploratory-replay-requests/composer-backed`、它的表和这些表的迁移，只存在于 `composer-v3-replay`
-  之下；这是一个生产 feature，而上面那个镜像不构建它，所以默认构建的 `--materialize-schema` 一张这些表也不建。
+  之下，而上面那个镜像构建它。由该镜像在 cutover 之前物化的数据库已有这些表；不带它物化、或此后已 cutover 的
+  数据库，由每个部署都会运行的 `postgres-init/10-migrate-authority-custody.sh` 补上
+  `rd_research_view_transitions_v3`。
   本文档、`docs/owners/backtest.md` 与 `docs/architecture/` 都没有把这条路径标成 `TARGET`、
   `IMPLEMENTATION_ADMITTED` 或任何其他状态，所以它的状态只能从三处陈述读出。上面那条已部署服务的条目说，
   验收路由从来不是生产能力的证据。`docs/guide/dashboard.md` 说，当某个部署镜像带上一条能产出 Composer
@@ -140,8 +141,9 @@
   （`PostgresSourceResearchComposerProductionV2::run_bounded_feature_program`），它读的是联合冻结和 Market Data
   的绑定，不经过 Source Intake，所以上面那条 Source Intake 的条目已不再指出挡路的那一跳。开启
   `composer-v3-replay` 的构建同时带着这个 Composer 和这条 commit，且不带任何验收代码。有序链路的构建不是这个
-  构建：它的验收 feature 包含 `composer-v3-replay`，但同时把 Composer 的运行换成了固定语料。因此这条路径
-  尚未被准入进镜像：既不是没做完，也不是有意不开，准入它的是一个部署决定。不带门的 v2 commit 替代不了它。
+  构建：它的验收 feature 包含 `composer-v3-replay`，但同时把 Composer 的运行换成了固定语料。把这条路径准入镜像的部署决定，
+  是在用户的 B0 授权下作出的：它准入不涉及资金、不带交易所凭据的探索重放。签发它的 execution-input binding
+  仍回答 `503` `MARKET_DATA_SCHEDULING_NOT_ADMITTED`，直到 Market Data scheduling 获得准入，也就是 `B3`。不带门的 v2 commit 替代不了它。
   Native Replay 的准备阶段在查询 Composer 之前就把请求的 `artifact.digest` 当作 `sha256:` 摘要来解析，
   而 v2 commit 只在这个摘要等于 Artifact Build Owner 的 `blake3:` wasm 摘要时才会成功；请求的
   `artifact.identity` 也得同时等于 commit 所要求的 Artifact Build `blake3:` 身份，以及准备阶段所要求的
@@ -243,7 +245,7 @@
   `vibe-backtest-owner` 之外唯一的调用者位于 `run_native_replay` 内，而后者带
   `#[cfg(feature = "native-replay-execution")]`，这是不带任何验收代码的生产 feature，且全仓没有任何
   `cfg(not(...))` 孪生体。
-  在部署镜像不带 feature 的前提下，该路径在已部署产物里不可达。这测的是部署产物，不是历史。
+  在部署镜像不带 `native-replay-execution` 的前提下，该路径在已部署产物里不可达。这测的是部署产物，不是历史。
 
 ## 模块
 
@@ -253,7 +255,8 @@
 - **Research Intent** - 在观察结果前冻结可证伪机制和实验契约。
 - **Strategy Artifact** - 保存不可变内容 依赖来源 市场语义 runtime capability sandbox policy 和
   Artifact Security Admission，供重放 资格与治理应用原样消费。
-- **Development Sandbox** - 只通过显式输入输出 mount 构建并诊断策略代码，没有环境 filesystem network
+- **Development Sandbox** - 只通过显式输入输出 mount 构建并诊断由 Owner 从策略 authoring 文档降级出的代码，
+  以及 attended D-only repair 的代码，没有环境 filesystem network
   subprocess 或 process-tree escape inherited capability secret 账户 部署或 effect-port 权威。
 
 ## 策略设计与 Develop 编译
@@ -276,7 +279,9 @@ trading effect。
 **CURRENT_PARTIAL - R&D 联合冻结写入路径：** R&D Owner 现在具备持久 PostgreSQL 组合根与三条带鉴权的路由
 `POST /v1/bounded-feature-programs/{declare,freeze,lower}`。`declare` 是提案者的路由：它接收 Design 与
 program 的含义，从该 Design、钉定的 catalog 与 Owner 自己的 binding custody 推导出提案者无从知晓的一切，
-并在取得这些 binding 行锁的同一个事务内冻结结果。`freeze` 则接收已经组装好的一对。两者都对照当前已接纳的
+并在取得这些 binding 行锁的同一个事务内冻结结果。`freeze` 则接收已经组装好的一对，并且只在它的每个输入恰好
+等于 `declare` 对同一角色、value port、clock 与 binding receipt 推导出的输入时才接纳：两条路由调用同一个推导，
+所以预先组装的程序可以复述 Design 的角色，但永远不会与之不同。两者都对照当前已接纳的
 Research custody 与钉定的 primitive catalog 接纳这一对，恰好写入一行联合冻结及其 outbox event，并对同一
 Research identity 的不同含义以 conflict 回应。`lower` 把这份冻结对读回并降级，因此被冻结的 program 现在
 经由生产路径产出规范的第一方 ABI3 源码，而不再只存在于 sealed 验收内部。
@@ -459,7 +464,13 @@ Composer 路径握着的是 `CurrentResearchDevelopCustodyV2`，它的十四个�
 
 reaction graph 才是仍然属于判断的那一部分，而它仍然归提案者。为它准入第一个有界族，
 不准入更宽的任何东西：**单一已声明 channel 与单一阈值的比较**，决策时钟取自
-`data.decision_clock_channel`。这个族之外的每一种图，两个信号、一个合取、一个依赖状态的
+`data.decision_clock_channel`。这个族的程序只在 kernel 接受某一侧的仓位上提议该侧，否则持有不动，
+所以它在一个状态单元里带着自己认为持有的仓位：kernel 只接受从空仓入场、只接受从持仓退出
+（程序 SDK 里的 `validate_position_transition`），而一次被拒的提议会中止整个 run（`program_host_v2.rs`），
+所以没有这份认定的程序活不过阈值之上的第二根 bar。它还可以声明三种退出，每一种都在 bar 收盘时判定并在那里
+提议，所以它在下一帧成交，而不是在 bar 内部的退出价位上成交：`stop_loss_fraction` 与 `take_profit_fraction`
+从入场那一帧的收盘价量起，只在收盘价 channel 上准入；`max_holding_bars` 按帧计数。那份认定与那些退出都属于
+这个族，两者都不让它的阈值依赖状态。这个族之外的每一种图，两个信号、一个合取、一个依赖状态的
 阈值、一个本 Owner 不得不去选的阈值，都仍然是提案者的声明，本 Owner 准入而不导出。提案者
 可以直接把这样的图声明为 `meaning`，也可以写成 **Strategy authoring surface** 一节里编写语言的
 一份文档；这门语言只把后者编译成前者、不做任何决定，所以两条路都不会让本 Owner 去导出一张图。
@@ -644,7 +655,10 @@ host 仍 fail closed，绝不替换为 generic toolchain。
 此后它的字节有意改过一次：一侧的 reconciliation target 读该侧的 target position，因为 kernel 要求
 position target 与它的 reconciliation target 相等，而两侧曾共用的那个值为 0 的常量，让每个两侧仓位不同的
 程序都无法运行 - target-set Host 在第一笔订单之前就拒绝了它的入场一侧。按旧字节冻结的程序从来不可能运行，
-现在它在这个族之外。
+现在它在这个族之外。出于同一类原因，它的字节又有意改过第二次：程序在比较成立的每一根 bar 上都提议它那一侧，
+所以按上面那条 kernel 规则，这个族的每个程序都在阈值之上的第二根 bar 中止 run。现在每个程序都带着自己认为
+持有的仓位，只在 kernel 接受某一侧的仓位上提议该侧。这次改动时没有任何部署冻结过这个族的程序，按更早字节冻结
+的程序在这个族之外。
 
 **IMPLEMENTATION_ADMITTED - 编写语言 V1：** 提案者写的一份文档，由一个纯函数编译成 `design` 与
 `meaning` 这一对，再无其他。这个截面上没有任何实现，它的实现排在第一次 COMPOSER_V3 Replay
@@ -1048,12 +1062,13 @@ Candidate 与按一个并非由搜索方写下的定义抽取的程序相比较�
 
 **花费上限。** 一个用户设定的上限约束 Research 的花费，达到它时 Research 暂停而不是停止。
 
-- *计量什么。* 语言模型提供方调用，按每次响应报告的 token 用量，以用户为该提供方与模型设定的价格计；今天
-  `artifact_build_v1.ts` 只读消息内容，丢弃了 `usage` 块。付费行情数据，按提供方在请求前给出的报价：Databento 的
+- *计量什么。* 付费行情数据，按提供方在请求前给出的报价：Databento 的
   `get_cost` 预检今天有自己的上限 `DATABENTO_MAX_PROBE_COST_USD`，并入这一个上限。算力，即 Backtest 重放与 Develop 构建的
-  秒数，以用户设定的费率计，在用户已准入的单台本机上默认为零，于是只有用户给算力定价时它才计入。
+  秒数，以用户设定的费率计，在用户已准入的单台本机上默认为零，于是只有用户给算力定价时它才计入。语言模型调用不计量：自用户 2026-10-03 的决定起，
+  代理在产品之外工作（产品闭环中的「代理在外的 R&D 体验」），产品不发起任何模型调用，代理的花费是代理自己的。
+  这取代了本条此前陈述的语言模型提供方调用计量。
 - *谁来计量。* R&D 维护一本只追加的 Spend Ledger。在一次被计量的效果之前，它在认领该效果的同一事务里预留这次效果的上界：
-  请求的 `max_tokens` 按价格计、预检报价，或声明的时限按算力费率计。效果之后，它按实际金额对这笔预留结算。结果未知的效果
+  预检报价，或声明的时限按算力费率计。效果之后，它按实际金额对这笔预留结算。结果未知的效果
   按上界保持预留，直到它有了结论。预留在账本头上串行化，所以两次并发的预留不能合起来越过上限。
 - *达到上限时。* 一次会让已结算加已预留的花费越过上限的预留被拒绝，Research 工作流进入 `PAUSED_SPEND_CAP_REACHED`，
   带着上限、已结算与已预留的金额，以及被拒的那次效果。它不是 Iteration Decision，也不是停止：没有身份被关闭，也不丢任何
@@ -1159,13 +1174,15 @@ R&D 请求密封的 Result 不属于任何 family，以 `EXPLORATORY_RESULT_REQU
   （`crates/data/src/owner/instrument_master_v2.rs:346`），Market Data 以 `MARKET_DATA.BAR.VOLUME.QUANTITY.V1` 提供 bar 成交量。
 - 没有任何 Owner 定义按标的或时段划分的 holdout 分区。Qualification 的 holdout 是一份预算与一项托管预留，不是数据的划分。
 
-**数据读取台账。** R&D 以只追加的行记录对市场数据的每一次读取，每个标的一行，写在发起读取的那个 R&D 事务里：
+**数据读取台账。** R&D 以只追加的行记录它的试验对市场数据的每一次读取，每个标的一行，写在发起读取的那个 R&D 事务里；每一次
+代理读取则从 Market Data 读取：
 
-- 一行绑定血缘（TrialFamily 及其跨 family 的前驱 frontier）、试验（Replay 请求的身份与含义摘要）或 agent 会话、标的、以事件
+- 一行绑定血缘（TrialFamily 及其跨 family 的前驱 frontier）、试验（Replay 请求的身份与含义摘要）、标的、以事件
   纳秒计的半开区间 `[start, end)`、该标的在该区间所属的层级及层级策略的身份，以及提交时间；
 - 试验行在 R&D 签发 Replay 的执行输入绑定时写入，那是唯一同时知道成员与窗口的位置；被加入而非新签发的绑定不再写入；
-- 任何向 agent 返回市场数值的 R&D 工具，都在应答之前写入它的行，写不了就拒绝。今天没有这样的工具，所以这个来源为空；增加
-  这样的工具而不写行，就违反本契约；
+- 代理只通过 Market Data 的 MCP 服务读取市场数值，Market Data 在应答之前把每次这样的读取记为它自己的代理数据读取行
+  （[market-data MCP 服务](./market-data#target-market-data-mcp-server)）。代理工具迁到领域服务时，这些行也从本台账迁了过去；
+  census 向下读取它们，在会话绑定到血缘之前，把一次代理读取计入每一条血缘。没有 R&D 工具向代理返回市场数值；
 - 写不了行的读取会失败，所以没有不留行的读取。
 
 **层级。** 层级在结果之前计算，从不在结果之后指派。一份有版本的层级策略冻结在 TrialFamily 策略里，按区间起点的点时事实给每个
