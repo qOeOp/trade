@@ -1,0 +1,243 @@
+{
+  "policy": {
+    "runtime_kernel": {
+      "identity": "runtime-kernel-v2",
+      "version": "v1"
+    },
+    "simulator": {
+      "identity": "simulator-v2",
+      "version": "v1"
+    },
+    "cost": {
+      "identity": "cost-model-v1",
+      "version": "v1"
+    },
+    "slippage": {
+      "identity": "slippage-model-v1",
+      "version": "v1"
+    },
+    "capacity": {
+      "identity": "capacity-model-v1",
+      "version": "v1"
+    },
+    "runner_operational_profile": {
+      "identity": "runner-profile-v2",
+      "version": "v1"
+    },
+    "diagnostic_policy": {
+      "identity": "diagnostic-policy-v2",
+      "version": "v1"
+    },
+    "deterministic_seed": 1,
+    "window": {
+      "start_event_ns": 1,
+      "end_event_ns_exclusive": 9223372036854775808
+    },
+    "calendar": {
+      "identity": "calendar-v2",
+      "version": "v1"
+    },
+    "session": {
+      "identity": "session-v2",
+      "version": "v1"
+    },
+    "time_zone": {
+      "identity": "time-zone-v2",
+      "version": "v1"
+    },
+    "correction_rule": {
+      "identity": "correction-rule-v2",
+      "version": "v1"
+    },
+    "market_semantics": {
+      "identity": "sha256:1818181818181818181818181818181818181818181818181818181818181818",
+      "version": "v1"
+    },
+    "replay_configuration": {
+      "identity": "replay-configuration-v2",
+      "digest": null
+    },
+    "corporate_action_cut": {
+      "identity": "corporate-action-cut-v2",
+      "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    "historical_membership_cut": {
+      "identity": "historical-membership-cut-v2",
+      "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    }
+  },
+  "economic_configuration": {
+    "schema_version": 2,
+    "input_kind": "EVENT_ONLY",
+    "venue_census": "SINGLE_VENUE",
+    "venue_identity": "BINANCE",
+    "oms_type": "NETTING",
+    "account_type": "MARGIN",
+    "book_type": "L1_MBP",
+    "starting_balance": {
+      "mantissa": 100000,
+      "scale": 0
+    },
+    "starting_balance_currency": "USDT",
+    "common_quote_currency": "USDT",
+    "default_leverage": {
+      "mantissa": 10,
+      "scale": 0
+    },
+    "instrument_leverage": {
+      "mantissa": 10,
+      "scale": 0
+    },
+    "margin_model": "SEALED_INSTRUMENT_TERMS",
+    "modules": "NONE",
+    "fill_model": "DETERMINISTIC_FULL_FILL",
+    "fee_model": "SEALED_INSTRUMENT_TERMS",
+    "latency_model": "DISABLED",
+    "slippage_model": "DISABLED",
+    "capacity_model": "DISABLED",
+    "routing": false,
+    "reject_stop_orders": true,
+    "support_gtd_orders": true,
+    "support_contingent_orders": true,
+    "use_position_ids": true,
+    "use_random_ids": false,
+    "use_reduce_only": true,
+    "use_message_queue": true,
+    "use_market_order_acks": false,
+    "bar_execution": false,
+    "trade_on_close": false,
+    "bar_adaptive_high_low_ordering": false,
+    "trade_execution": false,
+    "liquidity_consumption": false,
+    "allow_cash_borrowing": false,
+    "frozen_account": false,
+    "queue_position": false,
+    "oto_full_trigger": false,
+    "price_protection_points": 0,
+    "settlement_prices": "NONE",
+    "liquidation_policy": "DISABLED",
+    "liquidation_cancel_open_orders": true
+  },
+  "runner_operational_profile": {
+    "schema_version": 1,
+    "environment": "BACKTEST",
+    "trader_identity": "BACKTESTER-001",
+    "load_state": false,
+    "save_state": false,
+    "shutdown_on_error": true,
+    "logging": {
+      "stdout_level": "OFF",
+      "fileout_level": "OFF",
+      "component_level": [],
+      "module_level": [],
+      "log_components_only": false,
+      "is_colored": false,
+      "print_config": false,
+      "use_tracing": false,
+      "bypass_logging": true,
+      "file_config": "DISABLED",
+      "clear_log_file": false,
+      "fileout_sync_on_flush": false,
+      "buffered_stdout": false
+    },
+    "instance_identity": "DETERMINISTIC_FROM_REQUEST",
+    "timeout_connection_ns": 60000000000,
+    "timeout_reconciliation_ns": 30000000000,
+    "timeout_portfolio_ns": 10000000000,
+    "timeout_disconnection_ns": 10000000000,
+    "delay_post_stop_ns": 10000000000,
+    "timeout_shutdown_ns": 5000000000,
+    "cache": {
+      "encoding": "JSON",
+      "timestamps_as_iso8601": false,
+      "buffer_interval_ms": null,
+      "bulk_read_batch_size": null,
+      "use_trader_prefix": true,
+      "use_instance_id": true,
+      "flush_on_start": true,
+      "drop_instruments_on_reset": false,
+      "tick_capacity": 10000,
+      "bar_capacity": 10000,
+      "persist_account_events": false,
+      "save_market_data": false
+    },
+    "message_bus": {
+      "encoding": "JSON",
+      "encoding_market_data": null,
+      "encoding_builtin": null,
+      "timestamps_as_iso8601": false,
+      "buffer_interval_ms": null,
+      "autotrim_mins": null,
+      "autotrim_maxlen": null,
+      "use_trader_prefix": true,
+      "use_trader_id": true,
+      "use_instance_id": true,
+      "streams_prefix": "stream",
+      "stream_per_topic": true,
+      "external_streams": null,
+      "types_filter": null,
+      "heartbeat_interval_secs": null
+    },
+    "data_engine": {
+      "time_bars_build_with_no_updates": false,
+      "time_bars_timestamp_on_close": true,
+      "time_bars_skip_first_non_full_bar": false,
+      "time_bars_interval_type": "LEFT_OPEN",
+      "time_bars_build_delay": 0,
+      "time_bars_origin_offset": [],
+      "validate_data_sequence": true,
+      "buffer_deltas": false,
+      "emit_quotes_from_book": false,
+      "emit_quotes_from_book_depths": false,
+      "disable_historical_cache": true,
+      "external_clients": null,
+      "debug": false
+    },
+    "risk_engine": {
+      "bypass": false,
+      "max_order_submit": {
+        "limit": 100,
+        "interval_ns": 1000000000
+      },
+      "max_order_modify": {
+        "limit": 100,
+        "interval_ns": 1000000000
+      },
+      "max_notional_per_order": [],
+      "debug": false
+    },
+    "execution_engine": {
+      "load_cache": false,
+      "manage_own_order_books": false,
+      "snapshot_orders": false,
+      "snapshot_positions": false,
+      "snapshot_positions_interval": "DISABLED",
+      "carry_replay_events_on_reopen": false,
+      "allow_overfills": false,
+      "filter_unclaimed_external_orders": false,
+      "external_clients": null,
+      "purge_closed_orders_interval_mins": null,
+      "purge_closed_orders_buffer_mins": null,
+      "purge_closed_positions_interval_mins": null,
+      "purge_closed_positions_buffer_mins": null,
+      "purge_account_events_interval_mins": null,
+      "purge_account_events_lookback_mins": null,
+      "purge_from_database": false,
+      "debug": false
+    },
+    "portfolio": {
+      "use_mark_prices": true,
+      "use_mark_xrates": false,
+      "bar_updates": false,
+      "convert_to_account_base_currency": true,
+      "equity_curve": true,
+      "min_account_state_logging_interval_ms": null,
+      "snapshot_interval_ms": null,
+      "debug": false
+    },
+    "controller": "DISABLED",
+    "streaming": "DISABLED",
+    "bypass_logging": true,
+    "run_analysis": false
+  }
+}

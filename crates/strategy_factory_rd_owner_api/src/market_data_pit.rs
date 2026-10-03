@@ -16,14 +16,15 @@ use std::sync::Arc;
 use axum::{
     Json, Router,
     body::Bytes,
-    extract::State,
+    extract::{Path, State},
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
-    routing::post,
+    routing::{get, post},
 };
 use serde::Deserialize;
 use serde_json::json;
 use vibe_data::owner::{
+    instrument_catalog_v1::{InstrumentCatalogErrorV1, InstrumentCatalogReadV1},
     instrument_economic_terms_intake_v1::{
         InstrumentEconomicTermsAdmissionErrorV1, InstrumentEconomicTermsAdmissionV1,
         InstrumentEconomicTermsSubmissionV1,
@@ -123,6 +124,8 @@ pub(super) struct MarketDataAdmissions {
     pub(super) instruments_v2: Option<Arc<dyn InstrumentMasterAdmissionV2>>,
     pub(super) semantics: Option<Arc<dyn MarketSemanticsAdmissionV1>>,
     pub(super) economic_terms: Option<Arc<dyn InstrumentEconomicTermsAdmissionV1>>,
+    /// The read behind `list_instruments` and `describe_instrument`.
+    pub(super) catalog: Option<Arc<dyn InstrumentCatalogReadV1>>,
 }
 
 #[derive(Clone)]
@@ -135,6 +138,7 @@ struct MarketDataPitApiState {
     instruments_v2: Option<Arc<dyn InstrumentMasterAdmissionV2>>,
     semantics: Option<Arc<dyn MarketSemanticsAdmissionV1>>,
     economic_terms: Option<Arc<dyn InstrumentEconomicTermsAdmissionV1>>,
+    catalog: Option<Arc<dyn InstrumentCatalogReadV1>>,
     token_digest: [u8; 32],
 }
 
@@ -148,8 +152,14 @@ pub(super) fn router(admissions: MarketDataAdmissions, token_digest: [u8; 32]) -
         instruments_v2,
         semantics,
         economic_terms,
+        catalog,
     } = admissions;
     Router::new()
+        .route("/v1/market-data/instruments", get(list_instruments))
+        .route(
+            "/v1/market-data/instruments/{instrument}",
+            get(describe_instrument),
+        )
         .route(
             "/v1/market-data/instrument-master-facts",
             post(admit_instrument_master_fact),
@@ -211,6 +221,7 @@ pub(super) fn router(admissions: MarketDataAdmissions, token_digest: [u8; 32]) -
             instruments_v2,
             semantics,
             economic_terms,
+            catalog,
             token_digest,
         })
 }
@@ -328,6 +339,65 @@ async fn admit_instrument_economic_terms(
     match economic_terms.admit_terms(submission).await {
         Ok(terminal) => (StatusCode::OK, Json(terminal)).into_response(),
         Err(e) => economic_terms_error(e),
+    }
+}
+
+/// Lists every instrument Market Data has admitted, in canonical order: the `list_instruments`
+/// tool. A discovery read of the latest Instrument Master V2 facts; it states no market value.
+async fn list_instruments(
+    State(state): State<MarketDataPitApiState>,
+    headers: HeaderMap,
+) -> Response {
+    if !authorized(&headers, &state.token_digest) {
+        return rejection(StatusCode::FORBIDDEN, "UNAUTHORIZED_PRODUCT_EDGE");
+    }
+    let Some(catalog) = state.catalog else {
+        return rejection(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "MARKET_DATA_INSTRUMENT_CATALOG_UNAVAILABLE",
+        );
+    };
+
+    match catalog.list_instruments_v1().await {
+        Ok(instruments) => {
+            (StatusCode::OK, Json(json!({ "instruments": instruments }))).into_response()
+        }
+        Err(e) => instrument_catalog_error(e),
+    }
+}
+
+/// Describes one admitted instrument - its tick size, lot step and every economic-terms version -
+/// from its latest Instrument Master V2 fact: the `describe_instrument` tool.
+async fn describe_instrument(
+    State(state): State<MarketDataPitApiState>,
+    headers: HeaderMap,
+    Path(instrument): Path<String>,
+) -> Response {
+    if !authorized(&headers, &state.token_digest) {
+        return rejection(StatusCode::FORBIDDEN, "UNAUTHORIZED_PRODUCT_EDGE");
+    }
+    let Some(catalog) = state.catalog else {
+        return rejection(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "MARKET_DATA_INSTRUMENT_CATALOG_UNAVAILABLE",
+        );
+    };
+
+    match catalog.describe_instrument_v1(&instrument).await {
+        Ok(description) => (StatusCode::OK, Json(description)).into_response(),
+        Err(e) => instrument_catalog_error(e),
+    }
+}
+
+fn instrument_catalog_error(error: InstrumentCatalogErrorV1) -> Response {
+    match error {
+        InstrumentCatalogErrorV1::InstrumentUnknown => {
+            rejection(StatusCode::NOT_FOUND, "INSTRUMENT_UNKNOWN")
+        }
+        InstrumentCatalogErrorV1::StoreUnavailable => rejection(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "MARKET_DATA_INSTRUMENT_CATALOG_UNAVAILABLE",
+        ),
     }
 }
 
@@ -1250,6 +1320,7 @@ mod tests {
                     instruments_v2: None,
                     semantics: None,
                     economic_terms: None,
+                    catalog: None,
                 },
                 sha2::Sha256::digest(b"product-edge-token").into(),
             )

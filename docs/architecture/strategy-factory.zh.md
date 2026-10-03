@@ -669,9 +669,16 @@ V2 sequence digest 覆盖各帧顺序及全部 frame、schedule、liquidity rece
 原记录，意义变化零写入冲突。Native preparation 必须独立重解每个 Owner cut、逐字节复现 V2 binding，再交付
 move-only bundle；bundle 在 ProgramHost 或 Backtest 改变状态前验证每帧完整 BAR、随后真实 EVENT 流动性、
 跨帧时间顺序和请求窗口。不能把 V1 解释成 V2，也不能在 V2 来源不可用时退回 V1。Market Data 按规范 scale 签发每个
-BAR 与 Quote 的值，所以 0.001 tick 上的收盘价 123.450 到达时是 123.45。bundle 把每个价格与数量在不改变数值的前提下
-改写为其 instrument 的精度，比 instrument 网格更细的值按名拒绝；随后对任何不在其 instrument 精度上的 BAR 或 Quote 按名
-拒绝，否则引擎会静默丢弃该数据，运行却照常完成。
+BAR 与 Quote 的值，所以 0.001 tick 上的收盘价 123.450 到达时是 123.45。Instrument Master 的 tick 是取回当天交易所的
+tick，而交易所会随价格上涨把 tick 放粗：BTCUSDT 今天的 tick 是 0.10，它 2021-06-01 的日线开盘却是 37244.36；SOLUSDT
+今天是 0.0100，它 2021 年的价格有三位小数。所以 bundle 先把每个成员的价格网格放宽到其窗口内 BAR 与 Quote 价格出现过的
+最细 scale（当它比 tick 更细时），increment 取该 scale 上的一个单位；census 按成员记下 tick 的精度、数据的精度、第一个
+达到该精度的数据的时刻，以及 Replay 实际运行的精度。于是订单网格取自数据，而不是当时交易所的 tick，后者 Instrument
+Master 并不持有。Host 把这一点守成不变量而不是假设：position order 的价格与每笔成交的价格都必须落在该成员的数据网格上，
+否则运行按名失败，即 `ORDER_PRICE_OFF_THE_DATA_GRID` 或 `FILL_PRICE_OFF_THE_DATA_GRID`；protective stop-market 的触发价
+由 kernel 给出、落在 Replay 的网格上，它按 touch 成交，由成交检查覆盖。只放宽价格：size 网格就是一个 grid unit 仓位
+的含义。随后 bundle 把每个价格与数量在不改变数值的前提下改写为其 instrument 的精度，比 instrument 网格更细的值按名
+拒绝；随后对任何不在其 instrument 精度上的 BAR 或 Quote 按名拒绝，否则引擎会静默丢弃该数据，运行却照常完成。
 
 Backtest V2 Result custody 绑定 V2 binding、sequence digest、每帧消费顺序、实际 target set/fill 和本次
 canonical Result bytes；单帧 V1 的 28 项证据不能证明一次序列运行。只有每个成员真实进场成交、出场再次成交、
@@ -1303,6 +1310,17 @@ custody 会挡住之后的每一次提交，而成本随整个历史增长。
   `native_replay_scheduling_v1` 里的标签比较，归 Market Data。Market Data 按同一条规则从请求的角色自行推出执行角色，
   调用方不指名它；其拒绝为 `EXECUTION_ROLE_ABSENT`、`EXECUTION_ROLE_AMBIGUOUS`、`MORE_THAN_ONE_ROLE_TIMEFRAME` 与
   `EXECUTION_TIMEFRAME_NOT_DECLARED`（见 Market Data owner 页）。
+  **固定的角色 scale，TARGET：** 每个 universe 成员角色，包括价格角色和 `VOLUME` 角色，都按固定的 scale 9 读取：这是
+  Market Data 的值 scale，即 `MARKET_DATA_VALUE_SCALE_V1`，也就是它托管 series 的 scale，只在那里定义一次，这里引用它，绝不另写一份。不论 Research scope 指名哪个品种都是
+  如此，所以同一份 Design 在 BTCUSDT、ETHUSDT、SOLUSDT 与 LINKUSDT 上字节完全相同，编写时也不读取 Instrument Master
+  的精度。scale 9 是程序读取时使用的定点约定，不是第二份精度定义：Instrument Master 的 tick 与 step 仍是唯一的精度
+  权威，执行 bundle 把引擎看到的数据对齐到它们。
+  - Market Data 把每条规范行精确对齐到角色的 scale，比它更细的行按名拒绝（见 Market Data owner 页）。
+  - 单阈值编写器以十进制字符串接收阈值，例如 `"120"`。它把字符串精确换算到角色的 scale，更细的以
+    `THRESHOLD_FINER_THAN_CHANNEL_SCALE` 拒绝；Design 中存的是换算后的整数。
+  - 为什么固定而不推导：PC-1 探针在 BTCUSDT Replay 的 universe 声明处被拒，因为 BTC 的规范价格 scale 为 1，而角色
+    要求 2。若角色 scale 取自每个品种的 tick，同一个阈值在 ETHUSDT 上是 120.00、在 BTCUSDT 上是 1200.0，同一个策略
+    就需要按品种写不同的 Design。
 - **P2，报告陈述每个成员：** 报告族陈述 universe 运行的每个成员，把 Backtest 已经做到的一成员陈述推广开。它与 I2
   一同落地，由第一个超过一个成员的运行驱动：I2 之前没有程序读第一个成员以外的成员，陈述每个成员就无物可陈述。
 

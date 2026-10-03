@@ -758,10 +758,21 @@ Owner-verified Quote EVENT liquidity for each frame. Each frame's final liquidit
 EVENT must precede the next frame's first BAR. Strict cross-frame temporal order and the request
 window are checked before ProgramHost or Backtest state changes. A V1 binding is never upgraded by interpretation,
 and an unavailable V2 constituent never falls back to V1 or a test-issued successor frame. Market Data issues every
-BAR and Quote value at its canonical scale, so a close of 123.450 on a 0.001 tick arrives as 123.45. The bundle
-re-expresses each price and size at its instrument's precision without changing a value, and refuses by name a value
-finer than the instrument's grid. It then refuses, by name, any BAR or Quote not at its instrument's precision: the
-engine would otherwise drop that datum silently and still complete the run.
+BAR and Quote value at its canonical scale, so a close of 123.450 on a 0.001 tick arrives as 123.45. The Instrument
+Master's tick is the venue's tick on the day it was retrieved, and a venue coarsens a tick as the price rises:
+BTCUSDT's tick is 0.10 today, while its 2021-06-01 daily bar opened at 37244.36, and SOLUSDT's is 0.0100 while its
+2021 prices carry three places. The bundle therefore first widens each member's price grid to the finest scale its
+window's BAR and Quote prices show, when that is finer than the tick, with a one-unit increment at that scale, and its
+census records, per member, the tick's precision, the data's precision, the instant of the first datum that set it,
+and the precision the Replay runs at. The order grid is then the data's, not the venue's tick at the time, which the
+Instrument Master does not hold. The Host keeps that sound as an invariant rather than an assumption: a position
+order's price and every fill's price must lie on the member's data grid, or the run fails by name as
+`ORDER_PRICE_OFF_THE_DATA_GRID` or `FILL_PRICE_OFF_THE_DATA_GRID`; a protective stop-market's trigger is the kernel's,
+on the Replay's grid, and trades at the touch, which the fill check covers. Only prices widen: a size grid is what one
+grid unit of position means. The bundle then re-expresses each price and size at its instrument's precision without
+changing a value, and refuses by name a value finer than the instrument's grid. It then refuses, by name, any BAR or
+Quote not at its instrument's precision: the engine would otherwise drop that datum silently and still complete the
+run.
 
 Backtest V2 result custody binds the exact V2 binding and sequence digest, each consumed frame's
 identity and ordinal, every native schedule and liquidity EVENT receipt, the canonical target set
@@ -1470,6 +1481,22 @@ later submission and the cost grows with the whole history.
   Data's. Market Data derives the execution role itself from the request's roles, by the same rule, so no caller names
   it; its refusals are `EXECUTION_ROLE_ABSENT`, `EXECUTION_ROLE_AMBIGUOUS`, `MORE_THAN_ONE_ROLE_TIMEFRAME` and
   `EXECUTION_TIMEFRAME_NOT_DECLARED` (Market Data owner page).
+  **Fixed role scale, TARGET:** every universe-member role, its price roles and its `VOLUME` role, reads at the
+  fixed scale 9: Market Data's value scale, `MARKET_DATA_VALUE_SCALE_V1`, which is also its custody series scale, defined once there and referenced
+  here, never restated. That
+  holds for whatever instrument the Research scope names, so one Design is byte-identical across BTCUSDT, ETHUSDT,
+  SOLUSDT and LINKUSDT, and authoring reads no Instrument Master precision. Scale 9 is a fixed-point convention the
+  program reads at, not a second definition of precision: the Instrument Master's tick and step stay the only
+  precision authority, and the execution bundle aligns the engine's data to them.
+  - Market Data aligns each canonical row exactly to the role's scale and refuses a finer row by name (Market Data
+    owner page).
+  - The single-threshold author takes its threshold as a decimal string, such as `"120"`. It converts the string
+    exactly to the role's scale and refuses a finer one as `THRESHOLD_FINER_THAN_CHANNEL_SCALE`; the Design stores
+    the converted integer.
+  - Why fixed and not derived: the PC-1 probe refused a BTCUSDT Replay at its universe declaration, because a
+    canonical BTC price has scale 1 and the role required 2. A role scale taken from each instrument's tick would make
+    a threshold mean 120.00 on ETHUSDT and 1200.0 on BTCUSDT, so one strategy would need a different Design per
+    instrument.
 - **P2, the report states every member:** the report family states each member of a universe run, generalizing the
   one-member statement Backtest already makes. It lands with I2, driven by the first run over more than one member:
   before I2 no program reads a member other than the first, so a statement of every member would have nothing to

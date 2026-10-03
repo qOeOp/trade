@@ -13,6 +13,53 @@ executor path, and it starts only under the `dashboard-preview` profile.
 `make rd-workbench-check` validates the pinned manifests, image digests, authority wiring, and
 `docker compose config` for this package.
 
+## Local deployment in one command
+
+```bash
+make rd-workbench-up
+```
+
+`scripts/up.sh` brings up PostgreSQL and `rd-owner-api` as the compose project `trade-rd-local`,
+on that project's own volumes, and publishes the API on `127.0.0.1:18080` only
+(`RD_LOCAL_API_PORT` changes the port; `local/docker-compose.local.yml` is the only addition to the
+compose file). It runs the administrative steps below in their order: environment file, images,
+sealed Catalog commands, Product Edge genesis configuration, `postgres`, `schema-materialize`,
+`authority-custody-migrate` (which also gives `market_data_reader` and `instrument_owner` their
+passwords), `authority-schema-materialize`, `authority-bootstrap`,
+`replay-policy-catalog-bootstrap`, the `replay-policy-catalog-owner-readback` check, and
+`rd-owner-api`, ending with `GET /health`.
+
+Every value it needs is generated on this machine into `product/rd-workbench/.local` (ignored by
+Git; `RD_LOCAL_STATE_DIR` moves it): random database passwords and tokens in `.env`, the Catalog
+signing seed, the sealed create and advance commands, and the Product Edge genesis configuration.
+Nothing is printed. The Catalog content is `local/replay-policy-catalog.json`: venue `BINANCE`,
+economic configuration schema 2, so each Replay takes the terms the Instrument Owner resolves for
+its instrument. The script derives the policy's replay configuration digest from that economic
+configuration. The local sealer runs in the Owner image with no network, so for this deployment
+the signing seed is read inside a one-off container; a shared deployment seals on the
+administrator's host as described below.
+
+Docker runs with an empty environment plus that `.env`, so no key exported in the calling shell
+reaches a container. Binance is read through its public endpoints only. If
+`~/.docker/config.json` names a credential store, the script uses a private Docker config without
+it.
+
+Running it again is safe. Each step measures whether it has already happened and prints
+`skip <step>: <reason>`: the store is already cut over, a Product Edge binding or Catalog V3 head
+exists, a migration already ran on this volume with the same script and image, or the images were
+already built from the current clean tree. The Catalog readback runs every time, because it is a
+check, not a write. To start over, stop the project and remove its volumes and the state
+directory:
+
+```bash
+docker compose --project-name trade-rd-local --env-file product/rd-workbench/.local/.env \
+  -f product/rd-workbench/docker-compose.yml --profile authority-admin down --volumes
+rm -rf product/rd-workbench/.local
+```
+
+`RD_LOCAL_ACCEPTANCE_SCRIPT` names a script to run last, as
+`<script> probe http://127.0.0.1:18080` with `RD_OWNER_API_TOKEN` exported from `.env`.
+
 ## Deployment Store Admission boundary
 
 The package defaults `DEPLOYMENT_STORE_ADMISSION_MODE` to `disabled`. In that

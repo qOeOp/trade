@@ -1467,6 +1467,12 @@ snapshot 上签发 cut，这些快照的 V1 fact 由生产 V1 intake 准入、�
 member 取 selection 时刻观察到的最新 fact。所以 tick 或 lot的变化永远无法表示，retrieval 之前的 Replay 按 retrieval 当天
 的条款定价。本设计用证据替换这一个假定，此外不准入任何东西。
 
+- **为什么、实测与时机：U1 之后。** 在 Binance 公开 USD-M 端点上，BTCUSDT 今天的 tick 是 0.10，规范价格精度为 1，它
+  2021-06-01 的日线开盘却是 37244.36；SOLUSDT 的 tick 是 0.0100，精度 2，它 2021-06-01 的日线开盘是 32.749。按今天的
+  tick 把这根 BTC bar 喂给 execution bundle，整份 bundle 按名被拒。在本设计落地前，Replay 让每个成员按其 tick 与窗口内
+  数据两者中更细的那个运行，并写明用了哪一个（`docs/architecture/strategy-factory.md`）；订单因此取整到数据的网格，
+  而不是当时交易所的 tick，后者只有这份历史能提供。
+
 - **证据只能是归档快照。** Owner 为一个 instrument 持有的每个条款，都由 `ExchangeInfoBaselineV2::from_usdm_exchange_info`
   从某个明确时刻取回的 `exchangeInfo` payload 推导。任何提交都不陈述历史条款。允许陈述，就等于把调用方陈述的条款放回
   baseline intake 已经关闭的信任边界之内，那需要用户授权。
@@ -1976,6 +1982,19 @@ role/binding/row-digest 集合做 domain-separated BLAKE3 后的前 16 bytes。�
 row digest，并交叉绑定 trigger 和 observation-batch digest。consumer 必须从 trigger 派生 lifecycle
 envelope，不能从 caller 选择的 value 或 order key 铸造。Market Data 绝不签发 `TIMER` 或 `FILL`
 trigger；在真实 Time/Scheduler 与 Execution Owner contract 分别存在前，两者都保持 unavailable。
+
+**TARGET，行对齐到角色的 scale：** 角色按自己声明的 scale 读值，规范行带的是该值自身的最小 scale。今天 binding 要求
+两者相等，其余一律答 `ScaleMismatch`，所以只有价格恰好与角色小数位相同的规范行才能绑定。PC-1 探针测到了这一点：
+BTCUSDT 在 0.10 tick 上的价格 scale 为 1，scale 2 的 universe 角色在 universe 声明处拒绝了它。
+
+- **对齐。** 每一种 binding（exact instrument 与 universe member 一样）都把 scale 不超过角色的行精确对齐：mantissa
+  乘以 `10^(role scale - row scale)`，带溢出检查。
+- **拒绝。** 比角色更细的行以 `VALUE_FINER_THAN_ROLE_SCALE` 按名拒绝，不做任何舍入。
+- **收据。** role-value 收据在原始 row digest 旁封存角色 scale 下的对齐值，所以值所来自的托管行仍然精确可追。
+- **scale 9。** universe 成员角色按固定 scale 9 读取（Strategy Factory，P1），它就是托管 series 的 scale，即
+  `decimal_rescale_v1::MARKET_DATA_VALUE_SCALE_V1`，在 Market Data 中只定义一次，与每次对齐所用的精确换算放在一起。品种的 tick 在历史上会变（BTC 今天是 0.10，2021 年的价格在 0.01 网格上；SOL 2021 年有
+  3 位小数），所以 series 固定在生产定点精度的上限 9，每一行都精确换算到它。
+- **拒绝名。** HTTP 拒绝写出 binding 自己的成因，绝不只写 `STRATEGY_INPUT_BINDING_UNAVAILABLE`。
 
 ### CURRENT/PARTIAL EVENT 与 BAR Owner custody；TARGET BAR 产品权威
 
@@ -2729,10 +2748,72 @@ U1 的历史以 T0 窗口托管的形式进入：每个成员在整个窗口上�
   精度，并拒绝更细的值，因为提交是外部行情进入 Market Data 的地方；写入方不再检查第二遍。
 - **每种拒绝都说明回填该做什么。** 一种拒绝意味着稍后原样再提交，或者写入方构造的请求有缺陷，或者 basis（binding、semantics、
   selection、窗口或周期）需要换掉之后才能提交任何东西。
-- **它的调用方是 Market Data 的一次性回填子命令。** 生产中还没有调用方调用写入方，因为在托管聚合（T0-4a）实现之前，没有东西实现
-  托管提交。届时它的调用方是 Market Data Owner 的一个一次性子命令：这段外部历史进入 Market Data 的入口，所以它归 Market Data 层，
-  绝不放进 R&D 的 `rd-run-research`，那样就成了上层替下层摄入。T0-4a 合入后接上。U1 的验收在部署镜像里对 BTC、ETH 与 SOL 各跑一次，
-  然后读每个成员的托管视图，核对行数。
+- **它的调用方是 Market Data 的回填 job。** 生产中还没有调用方调用写入方，因为在托管聚合（T0-4a）实现之前，没有东西实现托管提交。
+  届时它的调用方是下面的回填 job，由 Market Data 服务里的 worker 运行：这段外部历史进入 Market Data 的入口，所以它归 Market Data
+  层，绝不放进 R&D，那样就成了上层替下层摄入。同一个函数之上还有一个命令行，供运维使用。U1 的验收在部署镜像里对 BTC、ETH 与 SOL
+  各跑一次，然后读每个成员的覆盖范围。
+
+### TARGET market-data MCP server
+
+[领域 MCP 目录](../architecture/product-edge#target---external-agent-tool-surface)里的 `market-data` 服务由 Market Data 提供。它是
+一个无状态的 stdio 进程，在自己的环境里持有 Market Data 的 API token，只访问 Market Data 的路由。每条规则都在路由背后的 Market
+Data 里；一个工具只发一个请求，按名原样传回它的应答或拒绝，不做任何编排。同一组函数也是一个同名的命令行。
+
+| 工具                                     | 路由                                                    | 按名拒绝                                                                         |
+| ---------------------------------------- | ------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `list_instruments()`                     | `GET /v1/market-data/instruments`                       | -                                                                                |
+| `describe_instrument(instrument)`        | `GET /v1/market-data/instruments/{instrument}`          | `INSTRUMENT_UNKNOWN`                                                             |
+| `admit_instrument(instrument)`           | `POST /v1/market-data/binance-perpetual-admissions`     | 每个准入步骤自己的拒绝                                                           |
+| `backfill(instrument, timeframe, range)` | `POST /v1/market-data/backfill-jobs`                    | `INSTRUMENT_UNKNOWN`、`TIMEFRAME_UNSUPPORTED`、`RANGE_INVALID`                   |
+| `job_status(job_id)`                     | `GET /v1/market-data/backfill-jobs/{job_id}`            | `JOB_UNKNOWN`                                                                    |
+| `coverage(instrument)`                   | `GET /v1/market-data/instruments/{instrument}/coverage` | `INSTRUMENT_UNKNOWN`                                                             |
+| `get_bars(instrument, timeframe, range)` | T0-5 之后，基于运行窗口托管视图                         | `HOLDOUT_PARTITION_UNDEFINED`、`RANGE_NOT_COVERED`、`RANGE_TOO_LARGE_FOR_INLINE` |
+| `get_funding(instrument, range)`         | 在下面的 funding schedule 读面之后                      | `HOLDOUT_PARTITION_UNDEFINED`、`RANGE_NOT_COVERED`、`RANGE_TOO_LARGE_FOR_INLINE` |
+
+- **列出与描述读取的是 Market Data 当前持有的。** `GET /v1/market-data/instruments` 与
+  `GET /v1/market-data/instruments/{instrument}` 已是 `CURRENT`：`crates/data/src/owner/instrument_catalog_v1.rs` 读取每个标的最新的
+  Instrument Master V2 fact，其链上每一环都经解码与校验，并读取为它准入的每个 economic terms 版本。交易所没有陈述的值按名写出
+  （`UNBOUNDED`、`NOT_APPLICABLE` 或 `UNAVAILABLE`），绝不写成数字。这些是发现性读取，绝不是 Replay 的输入：Replay 仍然绑定一个确切的
+  Instrument Master cut 并从中解析它的 terms，所以没有消费方因此获得「最新」选择器。链路条目 121 经 HTTP 读取 F 准入的永续合约。基于
+  这些路由的 MCP 服务尚未构建。
+- **准入是一个 Market Data 操作。** `POST /v1/market-data/binance-perpetual-admissions` 接收一个 Binance USD-M symbol。Market
+  Data 取该 symbol 公开的 `exchangeInfo` 条目，按顺序提交第一个 `COMPOSER_V3` Replay 的验收今天经各自路由提交的那些事实：kline
+  Source Binding、Instrument Master fact、`exchangeInfo` Source Binding、Instrument Master V2 fact、economic terms 与历史成员资格。
+  它可重入：内容相同、已经准入的步骤答 `ALREADY_ADMITTED`，然后执行下一步，所以任何失败之后重跑都会补完其余步骤。kline binding
+  提案连同它的可用性规则只在这里构造，该标的的每次回填都读同一个提案来定位 fill 缺口。六个步骤都留在数据层。
+- **回填是 Market Data 运行的 job。** `backfill` 记录一条 `QUEUED` 的 job 事实并返回它的 `job_id`。Market Data 服务里的 worker
+  取归档月份与 fill bar，构造成员的托管请求并提交，记录 `RUNNING`，然后是带托管回执与新增覆盖范围的 `SUCCEEDED`，或带拒绝名字的
+  `FAILED`。job 事实只追加，MCP 服务不持有任何 job 状态。周期是托管的执行周期：U1 支持 `1d` 与 `4h`，`1m` fill 周期随之带上，其他
+  周期为 `TIMEFRAME_UNSUPPORTED`。
+- **覆盖范围就是托管所持有的。** `coverage` 对每个执行周期回答成员已提交的托管窗口所覆盖的半开区间，从托管链读取。它不陈述任何市场
+  数值。
+- **运行以描述指名它的数据。** `dataset_ref` 是描述 `(instrument, execution_timeframe, [start, end))`，由代理根据 `coverage` 写出；
+  没有工具签发它。运行回测的服务按覆盖它的托管链解析它，记录它解析到的 head，对没有托管覆盖的区间按 `DATASET_REF_UNRESOLVED` 拒绝。
+  所以回测从不需要 `get_bars`。
+- **代理读取由 Market Data 记录。** 工具在把市场数值（bar 或 funding rate）返回给代理之前，Market Data 在读取它们的同一个事务里，
+  按每个标的追加一行代理数据读取：服务进程启动时铸出的会话身份、标的、周期、以事件纳秒计的半开区间 `[start, end)`、工具与提交 cut。
+  写不了行的读取会拒绝。这些行是从 R&D 的数据读取台账迁过来的；R&D 原本打算拥有代理的工具时，由它持有代理会话的行。R&D 的 census
+  向下读取它们，试验行仍由 R&D 自己写。在会话绑定到血缘之前，R&D 把一次代理读取计入每一条血缘。
+- **holdout 分区存在之前，没有市场数值能到达代理。** 还没有 Owner 定义 Qualification 的 holdout 分区，所以 `get_bars` 与
+  `get_funding` 对每个请求都按 `HOLDOUT_PARTITION_UNDEFINED` 拒绝，与 R&D 数据读取台账的每次分发一样。
+- **TARGET，U1 之后，Lane 4：Qualification 把分区登记进 Market Data。** Qualification 向下调用，按值登记受保护的标的与时段；Market
+  Data 只负责拒绝。届时工具对与受保护时段重叠的区间按 `RANGE_IN_HOLDOUT_PARTITION` 拒绝，窗口与之重叠的回测也按名拒绝，因为单是它的
+  结果就会泄露 holdout。分区登记之前，每份回测报告都写明没有定义 holdout 分区、结果仅作探索。
+- **单独验收**：在部署镜像里只通过这个服务，准入 BTC、ETH 与 SOL，各自回填 `1d` 及其 `1m` fill，`coverage` 显示这些窗口，并把上面每种
+  拒绝各驱动一次。
+
+### TARGET window funding schedule read
+
+Replay 在窗口内的每次结算都要结算 funding，所以它需要全部结算，而不是永续 Data Client 每个 scope 给出的最近两次。Market Data
+为请求的成员与窗口按时间顺序读出每一个已结算的 `(settlement_ns, rate)`，返回 `ReplayFundingScheduleV1`，即
+`crates/data/src/owner/replay_funding_schedule_v1.rs` 中固定其规范编码与摘要的值类型。
+
+- **完整性归 Market Data。** Market Data 根据标的的事实推出每个成员的结算间隔，对缺了一次结算的窗口按名拒绝，绝不补 0。空列表表示窗口内
+  没有结算时刻，绝不作为缺数据的回答。
+- **行经回填路径进入。** 公开的 funding 归档与无签名的 `fundingRate` 接口都是来源，都不需要凭据。
+- **向下读取、按值传递。** R&D 读取 schedule 并放进 Replay bundle；Backtest 从不回读 Market Data。只有 Market Data 产出的 schedule
+  才是完整的：类型的构造函数检查规范顺序，不检查完整性。
+- **验收**：用 BTCUSDT 一个真实月份，条数等于交易所的结算次数，删掉一次的月份被按名拒绝。
 
 ## 输入交接
 
