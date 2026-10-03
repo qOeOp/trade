@@ -8,6 +8,7 @@ use crate::owner::{
         BarScheduleCompletionV1, BarScheduleFactV1, BarScheduleUnitV1,
         schedule_time_zone_identity_v1,
     },
+    decimal_rescale_v1::MARKET_DATA_VALUE_SCALE_V1,
     declared_bar_timeframe_v1::{DeclaredBarAnchorV1, anchor_identity_v1},
     market_semantics_admission_v1::MarketSemanticsValueSubmissionV1,
     pit_window_custody_v1::{
@@ -180,8 +181,6 @@ fn instrument(byte: u8) -> CustodyInstrumentV1 {
             time_zone: "Etc/UTC".to_owned(),
             market_semantics_identity: d(30),
             effective_until: None,
-            price_scale: 2,
-            quantity_scale: 3,
         }),
         at_end: Some(d(byte)),
         others: Vec::new(),
@@ -949,8 +948,8 @@ fn close_stated_as(mantissa: i128, scale: u8) -> UntrustedPitWindowCustodyReques
     request
 }
 
-/// 45000.1 and 45000.12 on two bars of one series are stated at the price increment's scale, so
-/// the CLOSE series of the member is one series, whatever scale each value was written at.
+/// 45000.1 and 45000.12 on two bars of one series are stated at the fixed value scale, so the
+/// CLOSE series of the member is one series, whatever scale each value was written at.
 #[rstest]
 fn values_written_at_different_scales_land_in_one_series() {
     use crate::owner::sample_fact::v2::{
@@ -977,13 +976,13 @@ fn values_written_at_different_scales_land_in_one_series() {
             let inputs = derived.row_inputs(&derived.versions[version], resolved[version]);
             let close = &inputs[3];
             assert_eq!(close.field_semantic, b"MARKET_DATA.BAR.CLOSE.PRICE.V1");
-            assert_eq!(close.value_scale, 2);
+            assert_eq!(close.value_scale, MARKET_DATA_VALUE_SCALE_V1);
             (close.value_mantissa, series_identity_v2(close).unwrap())
         })
         .collect::<Vec<_>>();
 
-    assert_eq!(series[0].0, 4_500_010);
-    assert_eq!(series[1].0, 4_500_012);
+    assert_eq!(series[0].0, 45_000_100_000_000);
+    assert_eq!(series[1].0, 45_000_120_000_000);
     assert_eq!(
         series[0].1, series[1].1,
         "one instrument and field is one series"
@@ -1009,26 +1008,46 @@ fn values_written_at_different_scales_land_in_one_series() {
     );
     assert_eq!(second_fact.series_sequence(), 2);
     assert_eq!(
-        derived.versions[0].rows[4].value_scale, 3,
-        "VOLUME takes the quantity increment's scale"
+        derived.versions[0].rows[4].value_scale, MARKET_DATA_VALUE_SCALE_V1,
+        "VOLUME is stated at the same fixed scale"
     );
 }
 
-/// One value has one representation: "45000.10" written at scale 2 and "45000.1" at scale 1 are
-/// the same custody.
+/// One value has one representation: "45000.10" written at scale 2, "45000.1" at scale 1 and
+/// "45000.100000000" at the fixed scale itself are the same custody.
 #[rstest]
 fn a_value_written_at_another_scale_keeps_the_custody_identity() {
     let basis = Basis::new(false);
-    let two_places = basis.derive(&close_stated_as(4_500_010, 2)).unwrap();
-    let one_place = basis.derive(&close_stated_as(450_001, 1)).unwrap();
+    let two_places = root_identity(&basis.derive(&close_stated_as(4_500_010, 2)).unwrap());
 
-    assert_eq!(root_identity(&two_places), root_identity(&one_place));
+    for (mantissa, scale) in [
+        (450_001, 1),
+        (45_000_100_000_000, MARKET_DATA_VALUE_SCALE_V1),
+    ] {
+        assert_eq!(
+            root_identity(&basis.derive(&close_stated_as(mantissa, scale)).unwrap()),
+            two_places
+        );
+    }
+}
+
+/// A price at a precision finer than the instrument's tick today is accepted: 37244.36 is a 2021
+/// BTCUSDT close at two places, while the instrument's tick is now 0.10.
+#[rstest]
+fn a_value_finer_than_a_later_tick_is_accepted() {
+    let derived = Basis::new(false)
+        .derive(&close_stated_as(3_724_436, 2))
+        .expect("a historical value at its own precision is a value");
+    assert_eq!(
+        derived.versions[0].rows[3].value_mantissa,
+        37_244_360_000_000
+    );
 }
 
 #[rstest]
-#[case::finer_than_the_price_increment(45_000_123, 3, Refused::ValueFinerThanInstrumentPrecision)]
+#[case::ten_places(450_001_234_567_891, 10, Refused::ValueFinerThanSeriesScale)]
 #[case::beyond_the_mantissa(i128::MAX, 0, Refused::InvalidRequest)]
-fn a_value_the_increment_cannot_state_exactly_is_refused(
+fn a_value_the_series_scale_cannot_state_exactly_is_refused(
     #[case] mantissa: i128,
     #[case] scale: u8,
     #[case] refused: Refused,
@@ -1182,10 +1201,10 @@ mod chain_records {
     }
 
     const PINNED_R0_RECORD: &str =
-        "123805a7ee9c3356b07a2b18780faa2e4b83b832d775c09e6a54f35b1b9fdc25";
-    const PINNED_R0_CUT: &str = "1962c055edc720da8680f37d45a75a05c1b83d3bd8953bbfa591a43054b9cfd5";
+        "e1f059dd6ea2e29dd5515efd902bc6b534b7196bcd499847ac9d2cd43799c8c8";
+    const PINNED_R0_CUT: &str = "7e7d07092c936f94c09053242a308c8db4c4bf50ff962fbc84b6b045f2d26fd3";
     const PINNED_MARKET_SEMANTICS_FACT: &str =
-        "aa8822732504b7ae7630d6706b38c88ed4c75686edd6ffa433221da0b0104193";
+        "efcc97d162fd5f0e509123f7269b61193c3e0e52033b72336031b2c00210ef92";
 
     #[rstest]
     fn stored_chain_records_decode_only_to_what_they_state() {

@@ -31,7 +31,7 @@ use super::{
 };
 use crate::owner::{
     bar_schedule::{BarScheduleClockV1, BarScheduleKindV1, BarScheduleLabelV1},
-    decimal_rescale_v1::{RescaleErrorV1, rescale_exact_v1},
+    decimal_rescale_v1::{MARKET_DATA_VALUE_SCALE_V1, RescaleErrorV1, rescale_exact_v1},
     declared_bar_timeframe_v1::{DeclaredBarShapeV1, DeclaredBarTimeframeV1},
     instrument_master::InstrumentClass,
     market_semantics::MarketSemanticsValueV1,
@@ -102,11 +102,6 @@ pub(crate) struct CustodyMemberFactV1 {
     pub(crate) time_zone: String,
     pub(crate) market_semantics_identity: BindingDigest,
     pub(crate) effective_until: Option<i128>,
-    /// The scale of the instrument's price increment: every OPEN, HIGH, LOW and CLOSE row of the
-    /// member is stated at it.
-    pub(crate) price_scale: u8,
-    /// The scale of the instrument's quantity increment: every VOLUME row is stated at it.
-    pub(crate) quantity_scale: u8,
 }
 
 /// What the Instrument Master selects for one member at the window's first and last instants.
@@ -719,22 +714,17 @@ pub(crate) fn derive_custody_v1(inputs: CustodyInputsV1<'_>) -> Result<DerivedCu
                 else {
                     continue;
                 };
-                // One series has one scale, the member's Instrument Master increment's, so one
-                // bar's value has one representation however the writer spelled it.
-                let target_scale = if semantic == MarketDataFieldSemantic::BarVolumeQuantity {
-                    facts[ordinal].quantity_scale
-                } else {
-                    facts[ordinal].price_scale
-                };
-                let value_mantissa = rescale_exact_v1(
-                    row.value_mantissa,
-                    row.value_scale,
-                    target_scale,
-                )
-                .map_err(|e| match e {
-                    RescaleErrorV1::FinerThanTarget => Refused::ValueFinerThanInstrumentPrecision,
-                    RescaleErrorV1::Overflow => Refused::InvalidRequest,
-                })?;
+                // One series has one scale, the fixed Market Data value scale, so one bar's value
+                // has one representation however the writer spelled it, and a tick that changed
+                // over the instrument's history changes no series.
+                let target_scale = MARKET_DATA_VALUE_SCALE_V1;
+                let value_mantissa =
+                    rescale_exact_v1(row.value_mantissa, row.value_scale, target_scale).map_err(
+                        |e| match e {
+                            RescaleErrorV1::FinerThanTarget => Refused::ValueFinerThanSeriesScale,
+                            RescaleErrorV1::Overflow => Refused::InvalidRequest,
+                        },
+                    )?;
                 max_retrieval_ns = max_retrieval_ns.max(row.retrieval_ns);
                 put_u64(&mut evidence, row.retrieval_ns);
                 put_var(&mut evidence, row.retrieval_route.as_bytes());

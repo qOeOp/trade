@@ -2645,9 +2645,11 @@ production caller reaches it yet: the unit tests of its pure authority and four 
 members' Instrument Master facts at that cut; it refuses a member another of whose facts is in force inside the
 window, a row retrieved before its bar closed as `ROW_RETRIEVED_BEFORE_BAR_CLOSE`, a stated publication earlier than
 its version's event or availability, and a version whose availability or stated publication is later than the minting
-cut as `VERSION_NOT_AVAILABLE_AT_MINTING_CUT`. A custody series takes its scale from the member's Instrument Master
-increment, the price increment's for OPEN, HIGH, LOW and CLOSE and the quantity increment's for VOLUME; every row is
-rescaled to it exactly, and a row finer than it is refused as `VALUE_FINER_THAN_INSTRUMENT_PRECISION`, never rounded.
+cut as `VERSION_NOT_AVAILABLE_AT_MINTING_CUT`. Every custody series is stated at a fixed scale of 9,
+`MARKET_DATA_VALUE_SCALE_V1`: rows are rescaled to it exactly, and a row with more than 9 decimal places is refused as
+`VALUE_FINER_THAN_SERIES_SCALE`, never rounded. The scale is fixed rather than taken from the instrument's tick
+because ticks change over an instrument's history (`BTCUSDT` 0.01 to 0.10), so a tick's scale would refuse older
+rows or split one series.
 The timeframe identity a custody binds for a member is the one the BAR schedule path derives from the same declaration
 and that member's Instrument Master fact, time zone included. The window schedule, the once-per-chain records and the
 derived view are not built yet.
@@ -2657,8 +2659,8 @@ derived view are not built yet.
 canonical form, refusing a nonzero scale whose mantissa ends in 0 (`decode_observation`,
 `crates/data/src/owner/pit_snapshot/authority.rs` line 1613). The scale therefore varies with the value's last digit,
 and one instrument and field splits into a new series on every bar whose last digit is 0. Custody is fixed by the
-Instrument Master precision rule above. The snapshot path keeps its bytes and is left for a separate slice after U1:
-today's snapshot consumers each read one frame, so no series continuity depends on it yet.
+fixed-scale rule above, which is the snapshot path's fix too. The snapshot path keeps its bytes and is left for a
+separate slice after U1: today's snapshot consumers each read one frame, so no series continuity depends on it yet.
 
 Built so far (T0-4b): the window schedule fact. A root custody's commit mints one `PitWindowScheduleFactV1` per member
 for its execution timeframe, in the same transaction and after every refusal: the member's timeframe identity and
