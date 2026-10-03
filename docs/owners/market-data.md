@@ -3093,6 +3093,12 @@ and the fill timeframe. This is the fetch side that feeds a custody commit. The 
   sidecar. A shard counts only when its bytes match the sidecar. A rerun verifies the shards it has, fetches only the
   missing or mismatched ones, and writes each new one through a temporary file and a rename. The custody is committed
   once, after every shard for it is present, and T0's commit rejoins an identical resubmission.
+- **Status.** The fetch side is in `crates/adapters/binance/src/vision_backfill_v1.rs`.
+  - Execution months are read through verified shards and a reuse that refetches nothing.
+  - A damaged or mismatched shard is fetched again; a mismatched archive is refused and never kept.
+  - Fill bars are taken strictly inside their gap, with no credential.
+  - A live test reads the real headerless 2021-06 month, the headed 2025-12 month and one real fill bar.
+  - Mapping the bars onto T0's custody request, and the commit, wait for T0's request types.
 - **Retrieval is today.** The custody's retrieval instant is the wall clock when the fetch ran. Visibility comes from
   the Source Binding's availability rule, never from a historical retrieval coordinate.
 
