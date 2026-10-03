@@ -17,12 +17,19 @@
 
 use std::sync::Arc;
 
+use sqlx::PgPool;
 use vibe_data::owner::{
+    market_semantics_admission_v1::{
+        MarketSemanticsAdmissionErrorV1, MarketSemanticsAdmissionV1,
+        MarketSemanticsFactSubmissionV1, MarketSemanticsValueSubmissionV1,
+    },
+    pit_snapshot::PitSnapshotSubmissionV1,
     pit_window_custody_v1::{
         PitWindowCustodyFramesV1, PitWindowRunFramesV1, PitWindowRunRefusalV1,
         UntrustedPitWindowCustodyClaimV1, UntrustedPitWindowRunV1,
     },
     research_instrument_scope_v1::ResearchInstrumentScopeWireV1,
+    resolve_research_pit_terminal_by_correlation_v1,
     source_binding::BindingDigest,
     strategy_input_binding_admission_v1::{
         StrategyInputBindingAdmissionErrorV1, StrategyInputBindingAdmissionTerminalV1,
@@ -69,6 +76,13 @@ pub(crate) struct BacktestRunOwnersV1 {
     /// bound to an already-admitted instrument and Source Binding, the same ones every run's
     /// instrument scope must already be eligible under.
     pub(crate) market_data_initial_pit: MarketDataInitialPitPortsV1,
+    /// Admits the Market Semantics fact the run's own new PIT snapshot needs before role binding
+    /// can resolve it (H2b): a fact is per-snapshot, not per-binding, so each run's snapshot needs
+    /// its own, even over a Source Binding another run already has one for.
+    pub(crate) market_semantics: Arc<dyn MarketSemanticsAdmissionV1>,
+    /// Read directly (not through an Owner method) to resolve the run's own initial PIT
+    /// terminal's submission and snapshot locator, the same way F's chain entry does.
+    pub(crate) rd_pool: PgPool,
     /// `None` until Market Data's T0-5 derived view lands on main; see
     /// [`BacktestRunReplayUnavailableV1::CustodyFramesNotAvailable`].
     pub(crate) custody_frames: Option<Arc<dyn PitWindowCustodyFramesV1>>,
@@ -141,6 +155,18 @@ pub(crate) enum BacktestRunErrorV1 {
     /// The initial PIT request was issued but is not yet an available terminal (still submitted
     /// or unknown, or a terminal naming a different disposition).
     InitialPitNotAvailable(ResearchInitialPitV1),
+    /// The run's own initial PIT terminal could not be read back (the raw query F's own chain
+    /// entry uses, or the frozen submission bytes it names failed to decode).
+    PitTerminalUnreadable(String),
+    /// Market Data holds no committed intake for the correlation this run's terminal names.
+    PitTerminalNotCommitted,
+    /// The run's own PIT snapshot has no `AVAILABLE` locator to admit a Market Semantics fact
+    /// against.
+    PitSnapshotNotLocatable,
+    /// Reading the Source Binding's current compatibility scope value failed.
+    MarketSemanticsScopeUnavailable(String),
+    /// Admitting the run's own Market Semantics fact failed.
+    MarketSemanticsAdmissionFailed(MarketSemanticsAdmissionErrorV1),
     /// The accepted goal's authoring facts could not be read back.
     AuthoringFactsUnavailable(ResearchBoundedFeatureProgramOwnerErrorV1),
     /// The catalog statement does not author into a program (an indistinguishable-outcomes
@@ -196,6 +222,8 @@ pub(crate) async fn run_backtest_v1(
     ) {
         return Err(BacktestRunErrorV1::InitialPitNotAvailable(initial_pit));
     }
+
+    admit_market_semantics_for_run_v1(owners, &research_request_identity).await?;
 
     let facts = owners
         .bounded_feature_program
@@ -345,6 +373,91 @@ async fn submit_backtest_research_goal_v1(
         Err(ResearchGoalSubmissionErrorV1::Submission(e)) => {
             Err(BacktestRunErrorV1::GoalSubmissionFailed(e))
         }
+    }
+}
+
+/// Admits the Market Semantics fact this run's own new PIT snapshot needs before role binding
+/// can resolve it (H2b). A fact is per-snapshot, not per-Source-Binding: each run opens its own
+/// initial PIT request (a fresh snapshot), so each run admits its own fact, even over a binding
+/// another run already has one for.
+///
+/// Reads the run's own initial PIT terminal directly - the same raw query F's own chain entry
+/// uses - because no Owner method wraps it; the read is otherwise identical to F's H2/H2b.
+async fn admit_market_semantics_for_run_v1(
+    owners: &BacktestRunOwnersV1,
+    research_request_identity: &str,
+) -> Result<(), BacktestRunErrorV1> {
+    let (correlation, submission_bytes): (Vec<u8>, Vec<u8>) = sqlx::query_as(
+        "SELECT attempt.correlation_identity, attempt.submission_bytes
+           FROM rd_research_initial_pit_terminals_v1 terminal
+           JOIN rd_research_initial_pit_attempts_v1 attempt
+             ON attempt.request_identity = terminal.request_identity
+            AND attempt.attempt_ordinal = terminal.attempt_ordinal
+          WHERE terminal.request_identity = $1",
+    )
+    .bind(research_request_identity)
+    .fetch_one(&owners.rd_pool)
+    .await
+    .map_err(|e| BacktestRunErrorV1::PitTerminalUnreadable(e.to_string()))?;
+    let submission = PitSnapshotSubmissionV1::from_json_value_v1(
+        serde_json::from_slice(&submission_bytes)
+            .map_err(|e| BacktestRunErrorV1::PitTerminalUnreadable(e.to_string()))?,
+    )
+    .map_err(|e| BacktestRunErrorV1::PitTerminalUnreadable(format!("{e:?}")))?;
+    let correlation =
+        BindingDigest::from_untrusted_bytes(correlation.as_slice().try_into().map_err(|_| {
+            BacktestRunErrorV1::PitTerminalUnreadable("correlation is not 32 bytes".to_owned())
+        })?);
+
+    let mut read = owners
+        .rd_pool
+        .begin()
+        .await
+        .map_err(|e| BacktestRunErrorV1::PitTerminalUnreadable(e.to_string()))?;
+    let held = resolve_research_pit_terminal_by_correlation_v1(&mut read, correlation)
+        .await
+        .map_err(|e| BacktestRunErrorV1::PitTerminalUnreadable(e.to_string()))?
+        .ok_or(BacktestRunErrorV1::PitTerminalNotCommitted)?;
+    read.rollback()
+        .await
+        .map_err(|e| BacktestRunErrorV1::PitTerminalUnreadable(e.to_string()))?;
+    let pit_snapshot = held
+        .terminal()
+        .locator()
+        .ok_or(BacktestRunErrorV1::PitSnapshotNotLocatable)?
+        .clone();
+
+    let scope_value = owners
+        .research
+        .read_market_semantics_scope_value_v1(&submission.source_binding)
+        .await
+        .map_err(|e| BacktestRunErrorV1::MarketSemanticsScopeUnavailable(e.to_string()))?;
+    let value = scope_value
+        .value()
+        .cloned()
+        .unwrap_or_else(default_market_semantics_value_v1);
+
+    owners
+        .market_semantics
+        .admit_fact(MarketSemanticsFactSubmissionV1 {
+            source_binding: submission.source_binding,
+            pit_snapshot,
+            value,
+        })
+        .await
+        .map_err(BacktestRunErrorV1::MarketSemanticsAdmissionFailed)?;
+    Ok(())
+}
+
+/// The statement a scope with no head yet takes, matching F's own H2b fallback: raw price and
+/// size, event-effective timestamps.
+fn default_market_semantics_value_v1() -> MarketSemanticsValueSubmissionV1 {
+    MarketSemanticsValueSubmissionV1 {
+        normalization_identity: BindingDigest::from_untrusted_bytes([0x6e; 32]),
+        price_adjustment: "RAW".to_owned(),
+        timestamp_basis: "EVENT_EFFECTIVE".to_owned(),
+        price_unit_identity: BindingDigest::from_untrusted_bytes([0x70; 32]),
+        size_unit_identity: BindingDigest::from_untrusted_bytes([0x73; 32]),
     }
 }
 

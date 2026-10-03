@@ -15,11 +15,13 @@
 use std::sync::Arc;
 
 use vibe_data::owner::{
+    market_semantics_admission_v1::market_semantics_admission_from_environment_v1,
     pit_market_snapshot_intake_v1::pit_market_snapshot_intake_from_environment_v1,
     pit_window_custody_v1::UntrustedPitWindowCustodyClaimV1, source_binding::BindingDigest,
     strategy_input_binding_admission_v1::strategy_input_binding_admission_from_environment_v1,
     universe_selection_admission_v1::universe_selection_admission_from_environment_v1,
 };
+use vibe_postgres_connect::{PgPoolOptionsExt as _, PostgresTls};
 use vibe_product_edge::deployment_acceptance::{
     DeploymentAcceptanceOperationV1, DeploymentAcceptanceProposalV1,
     ensure_product_edge_deployment_acceptance_fixture_v1,
@@ -148,6 +150,13 @@ pub(crate) async fn assert_backtest_run_reaches_the_replay_step_v1(
                 .await
                 .expect("Market Data's PIT intake opens"),
         ),
+        market_semantics: market_semantics_admission_from_environment_v1()
+            .await
+            .expect("Market Data's Market Semantics admission opens"),
+        rd_pool: sqlx::postgres::PgPoolOptions::new()
+            .connect_url(rd_url, PostgresTls::Disabled)
+            .await
+            .expect("the R&D Owner pool opens"),
         custody_frames: None,
     };
 
@@ -238,6 +247,15 @@ fn describe_error(error: &BacktestRunErrorV1) -> String {
         BacktestRunErrorV1::InitialPitFailed(e) => format!("initial PIT failed: {e}"),
         BacktestRunErrorV1::InitialPitNotAvailable(state) => {
             format!("initial PIT not available: {state:?}")
+        }
+        BacktestRunErrorV1::PitTerminalUnreadable(e) => format!("PIT terminal unreadable: {e}"),
+        BacktestRunErrorV1::PitTerminalNotCommitted => "PIT terminal not committed".to_owned(),
+        BacktestRunErrorV1::PitSnapshotNotLocatable => "PIT snapshot not locatable".to_owned(),
+        BacktestRunErrorV1::MarketSemanticsScopeUnavailable(e) => {
+            format!("Market Semantics scope unavailable: {e}")
+        }
+        BacktestRunErrorV1::MarketSemanticsAdmissionFailed(e) => {
+            format!("Market Semantics admission failed: {e:?}")
         }
         BacktestRunErrorV1::AuthoringFactsUnavailable(e) => {
             format!("authoring facts unavailable: {e}")
