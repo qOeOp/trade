@@ -67,8 +67,8 @@ writer，Qualification 只读。
 
 | 能力                                                                   | 状态              | 采用契约                                                                                                                                                          |
 | ---------------------------------------------------------------------- | ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 通过 Dashboard 或其 MCP endpoint 的自然语言 Agent 创作                 | `TARGET_REQUIRED` | 只能提交已接纳的 R&D 类型化 operation；对话与 Agent 输出不是业务事实                                                                                              |
-| Conversation 与 R&D Execution Agent 分离                               | `TARGET_REQUIRED` | 把客户端交互与持久服务端 R&D job 分开；即使两个角色使用同一已配置 provider 或计费 gateway，MCP 也不传递模型 session 或 credential                                 |
+| 经工具面的外部代理创作                                                 | `TARGET_REQUIRED` | 产品之外的代理只经外部代理工具面提交已接纳的 R&D 类型化 operation；工具面持有凭据且不返回任何受保护数值；代理输出不是业务事实                                     |
+| Conversation 与 R&D Execution Agent 分离                               | `NOT_ADMITTED`    | 被用户 2026‑10‑03 「代理在产品之外」的决定取代：产品不运行任何模型，因此没有需要与客户端分开的服务端 R&D job                                                      |
 | Research Source Intake 应用表面                                        | `TARGET_REQUIRED` | 通过共同 Product Edge 调用可替换、带版本的 connector flow；展示获取终态、provenance、解释、triage 与 Research Queue，不建立 connector 专属 MCP 或直接 Intent 路径 |
 | Research run、时间线、Agent 活动、迭代进度、日志与允许动作             | `TARGET_REQUIRED` | 组合 R&D 回执、Research View 与运维进度，但不建立影子 workflow 事实                                                                                               |
 | 结构化 Artifact Review                                                 | `TARGET_REQUIRED` | 无需原始源码即可展示 Artifact identity 与血缘、策略逻辑摘要、参数、依赖、构建状态、允许的探索引用、语义变更解释和允许动作                                         |

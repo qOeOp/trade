@@ -253,7 +253,8 @@
 - **Research Intent** - 在观察结果前冻结可证伪机制和实验契约。
 - **Strategy Artifact** - 保存不可变内容 依赖来源 市场语义 runtime capability sandbox policy 和
   Artifact Security Admission，供重放 资格与治理应用原样消费。
-- **Development Sandbox** - 只通过显式输入输出 mount 构建并诊断策略代码，没有环境 filesystem network
+- **Development Sandbox** - 只通过显式输入输出 mount 构建并诊断由 Owner 从策略 authoring 文档降级出的代码，
+  以及 attended D-only repair 的代码，没有环境 filesystem network
   subprocess 或 process-tree escape inherited capability secret 账户 部署或 effect-port 权威。
 
 ## 策略设计与 Develop 编译
@@ -1048,12 +1049,13 @@ Candidate 与按一个并非由搜索方写下的定义抽取的程序相比较�
 
 **花费上限。** 一个用户设定的上限约束 Research 的花费，达到它时 Research 暂停而不是停止。
 
-- *计量什么。* 语言模型提供方调用，按每次响应报告的 token 用量，以用户为该提供方与模型设定的价格计；今天
-  `artifact_build_v1.ts` 只读消息内容，丢弃了 `usage` 块。付费行情数据，按提供方在请求前给出的报价：Databento 的
+- *计量什么。* 付费行情数据，按提供方在请求前给出的报价：Databento 的
   `get_cost` 预检今天有自己的上限 `DATABENTO_MAX_PROBE_COST_USD`，并入这一个上限。算力，即 Backtest 重放与 Develop 构建的
-  秒数，以用户设定的费率计，在用户已准入的单台本机上默认为零，于是只有用户给算力定价时它才计入。
+  秒数，以用户设定的费率计，在用户已准入的单台本机上默认为零，于是只有用户给算力定价时它才计入。语言模型调用不计量：自用户 2026-10-03 的决定起，
+  代理在产品之外工作（产品闭环中的「代理在外的 R&D 体验」），产品不发起任何模型调用，代理的花费是代理自己的。
+  这取代了本条此前陈述的语言模型提供方调用计量。
 - *谁来计量。* R&D 维护一本只追加的 Spend Ledger。在一次被计量的效果之前，它在认领该效果的同一事务里预留这次效果的上界：
-  请求的 `max_tokens` 按价格计、预检报价，或声明的时限按算力费率计。效果之后，它按实际金额对这笔预留结算。结果未知的效果
+  预检报价，或声明的时限按算力费率计。效果之后，它按实际金额对这笔预留结算。结果未知的效果
   按上界保持预留，直到它有了结论。预留在账本头上串行化，所以两次并发的预留不能合起来越过上限。
 - *达到上限时。* 一次会让已结算加已预留的花费越过上限的预留被拒绝，Research 工作流进入 `PAUSED_SPEND_CAP_REACHED`，
   带着上限、已结算与已预留的金额，以及被拒的那次效果。它不是 Iteration Decision，也不是停止：没有身份被关闭，也不丢任何
