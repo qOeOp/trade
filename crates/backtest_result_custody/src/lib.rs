@@ -1452,8 +1452,13 @@ async fn validate_outcome_evidence_topology(
           LEFT JOIN pg_catalog.pg_roles role ON role.oid=acl.grantee
           WHERE namespace.nspname='backtest_owner_api' AND procedure.proname=$2
             AND acl.grantee<>procedure.proowner)
-        AND pg_catalog.has_function_privilege('rd_owner','backtest_owner_api.resolve_exploratory_replay_result_v3(text,text,text)','EXECUTE')
-        AND NOT pg_catalog.has_function_privilege('backtest_owner','backtest_owner_api.resolve_exploratory_replay_result_v3(text,text,text)','EXECUTE')
+        AND (SELECT pg_catalog.count(*)=1
+              AND pg_catalog.bool_and(pg_catalog.has_function_privilege('rd_owner',procedure.oid,'EXECUTE'))
+              AND NOT pg_catalog.bool_or(pg_catalog.has_function_privilege('backtest_owner',procedure.oid,'EXECUTE'))
+            FROM pg_catalog.pg_proc procedure
+            JOIN pg_catalog.pg_namespace namespace ON namespace.oid=procedure.pronamespace
+            WHERE namespace.nspname='backtest_owner_api' AND procedure.proname=$2
+              AND procedure.proargtypes=ARRAY['pg_catalog.text'::pg_catalog.regtype,'pg_catalog.text'::pg_catalog.regtype,'pg_catalog.text'::pg_catalog.regtype]::pg_catalog.oidvector)
         AND NOT pg_catalog.has_table_privilege('rd_owner','public.backtest_native_replay_outcome_evidence_v1','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
         AND NOT pg_catalog.has_table_privilege('rd_owner','public.backtest_native_replay_outcome_evidence_receipts_v1','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
         AND NOT pg_catalog.has_table_privilege('rd_owner','public.backtest_native_replay_outcome_evidence_outbox_v1','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')

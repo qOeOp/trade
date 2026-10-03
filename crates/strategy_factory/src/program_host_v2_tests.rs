@@ -324,7 +324,7 @@ fn a_program_naming_a_rebalance_sequence_is_refused_by_name() {
 #[rstest]
 fn a_single_instrument_host_assigns_each_rebalance_the_next_sequence() {
     use strategy_factory_program_sdk::lifecycle_v1::{
-        FillDispositionV1, FillEventV1, TargetStateV1,
+        FillDispositionV1, FillEventV1, FillLegV1, TargetStateV1,
     };
 
     let candidate = executable_design();
@@ -382,6 +382,7 @@ fn a_single_instrument_host_assigns_each_rebalance_the_next_sequence() {
             side: pending.side,
             disposition: FillDispositionV1::Rejected,
             cumulative_filled_units: 0,
+            leg: FillLegV1::Intent,
         }),
     )
     .unwrap();

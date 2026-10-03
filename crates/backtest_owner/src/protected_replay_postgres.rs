@@ -18,7 +18,10 @@ use vibe_backtest_result_custody::validate_protected_replay_result_writer_topolo
 use crate::{
     ProtectedReplayResultProposalV3, ResolvedProtectedReplayRequestSetV1,
     SealedProtectedReplayResultV1, SealedProtectedReplayResultV2, SealedProtectedReplayResultV3,
-    postgres::{PostgresReplayResultOwnerErrorV2, PostgresReplayResultOwnerV2},
+    postgres::{
+        BacktestResultCustodyCauseV2, PostgresReplayResultOwnerErrorV2,
+        PostgresReplayResultOwnerV2, custody_unavailable,
+    },
     protected_replay::commit_protected_owner_result_proposal_v3,
 };
 
@@ -214,7 +217,9 @@ impl ProtectedReplayResultCommitRecoveryV3 {
             .map_err(|_| PostgresReplayResultOwnerErrorV2::StorageUnavailable)?;
         validate_protected_replay_result_writer_topology_v1(&mut transaction)
             .await
-            .map_err(|_| PostgresReplayResultOwnerErrorV2::CustodyUnavailable)?;
+            .map_err(custody_unavailable(
+                BacktestResultCustodyCauseV2::ProtectedResultWriterTopology,
+            ))?;
         let readback = read_exact_v3(
             &mut transaction,
             &self.result_identity,
@@ -249,7 +254,9 @@ impl ProtectedReplayResultCommitRecoveryV2 {
             .map_err(|_| PostgresReplayResultOwnerErrorV2::StorageUnavailable)?;
         validate_protected_replay_result_writer_topology_v1(&mut transaction)
             .await
-            .map_err(|_| PostgresReplayResultOwnerErrorV2::CustodyUnavailable)?;
+            .map_err(custody_unavailable(
+                BacktestResultCustodyCauseV2::ProtectedResultWriterTopology,
+            ))?;
         let readback = read_exact_v2(
             &mut transaction,
             &self.result_identity,
@@ -284,7 +291,9 @@ impl ProtectedReplayResultCommitRecoveryV1 {
             .map_err(|_| PostgresReplayResultOwnerErrorV2::StorageUnavailable)?;
         validate_protected_replay_result_writer_topology_v1(&mut transaction)
             .await
-            .map_err(|_| PostgresReplayResultOwnerErrorV2::CustodyUnavailable)?;
+            .map_err(custody_unavailable(
+                BacktestResultCustodyCauseV2::ProtectedResultWriterTopology,
+            ))?;
         let readback = read_exact(
             &mut transaction,
             &self.result_identity,
@@ -315,7 +324,9 @@ impl PostgresReplayResultOwnerV2 {
         sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
             .execute(&mut *transaction)
             .await
-            .map_err(|_| PostgresReplayResultOwnerErrorV2::CustodyUnavailable)?;
+            .map_err(custody_unavailable(
+                BacktestResultCustodyCauseV2::TransactionUnavailable,
+            ))?;
         validate_cross_owner_binding(qualification_pool, &mut transaction).await?;
         let request_set = lock_qualification_request_set(&mut transaction, locator).await?;
         transaction
@@ -340,7 +351,9 @@ impl PostgresReplayResultOwnerV2 {
         sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
             .execute(&mut *transaction)
             .await
-            .map_err(|_| PostgresReplayResultOwnerErrorV2::CustodyUnavailable)?;
+            .map_err(custody_unavailable(
+                BacktestResultCustodyCauseV2::TransactionUnavailable,
+            ))?;
         validate_cross_owner_binding(qualification_pool, &mut transaction).await?;
         let request_set = lock_qualification_request_set(&mut transaction, locator).await?;
         lock_plan_cell_set_fence(&mut transaction, &request_set.plan_cell_set_identity).await?;
@@ -544,11 +557,15 @@ impl PostgresReplayResultOwnerV2 {
         sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
             .execute(&mut *transaction)
             .await
-            .map_err(|_| PostgresReplayResultOwnerErrorV2::CustodyUnavailable)?;
+            .map_err(custody_unavailable(
+                BacktestResultCustodyCauseV2::TransactionUnavailable,
+            ))?;
         validate_cross_owner_binding(qualification_pool, &mut transaction).await?;
         validate_protected_replay_result_writer_topology_v1(&mut transaction)
             .await
-            .map_err(|_| PostgresReplayResultOwnerErrorV2::CustodyUnavailable)?;
+            .map_err(custody_unavailable(
+                BacktestResultCustodyCauseV2::ProtectedResultWriterTopology,
+            ))?;
         let request = lock_qualification_request_v2(&mut transaction, locator).await?;
         let sealed = commit_protected_owner_result_proposal_v3(&request, locator, proposal)
             .map_err(|_| PostgresReplayResultOwnerErrorV2::ResultNotAdmitted)?;
@@ -590,11 +607,15 @@ impl PostgresReplayResultOwnerV2 {
         sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
             .execute(&mut *transaction)
             .await
-            .map_err(|_| PostgresReplayResultOwnerErrorV2::CustodyUnavailable)?;
+            .map_err(custody_unavailable(
+                BacktestResultCustodyCauseV2::TransactionUnavailable,
+            ))?;
         validate_cross_owner_binding(qualification_pool, &mut transaction).await?;
         validate_protected_replay_result_writer_topology_v1(&mut transaction)
             .await
-            .map_err(|_| PostgresReplayResultOwnerErrorV2::CustodyUnavailable)?;
+            .map_err(custody_unavailable(
+                BacktestResultCustodyCauseV2::ProtectedResultWriterTopology,
+            ))?;
         let request = lock_qualification_request(&mut transaction, locator).await?;
         result_dto
             .validate_against_request(&request, locator)
@@ -750,11 +771,15 @@ impl PostgresReplayResultOwnerV2 {
         sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
             .execute(&mut *transaction)
             .await
-            .map_err(|_| PostgresReplayResultOwnerErrorV2::CustodyUnavailable)?;
+            .map_err(custody_unavailable(
+                BacktestResultCustodyCauseV2::TransactionUnavailable,
+            ))?;
         validate_cross_owner_binding(qualification_pool, &mut transaction).await?;
         validate_protected_replay_result_writer_topology_v1(&mut transaction)
             .await
-            .map_err(|_| PostgresReplayResultOwnerErrorV2::CustodyUnavailable)?;
+            .map_err(custody_unavailable(
+                BacktestResultCustodyCauseV2::ProtectedResultWriterTopology,
+            ))?;
         let request = lock_qualification_request(&mut transaction, locator).await?;
         result_dto
             .validate_against_request(&request, locator)
@@ -913,11 +938,15 @@ impl PostgresReplayResultOwnerV2 {
         sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
             .execute(&mut *transaction)
             .await
-            .map_err(|_| PostgresReplayResultOwnerErrorV2::CustodyUnavailable)?;
+            .map_err(custody_unavailable(
+                BacktestResultCustodyCauseV2::TransactionUnavailable,
+            ))?;
         validate_cross_owner_binding(qualification_pool, &mut transaction).await?;
         validate_protected_replay_result_writer_topology_v1(&mut transaction)
             .await
-            .map_err(|_| PostgresReplayResultOwnerErrorV2::CustodyUnavailable)?;
+            .map_err(custody_unavailable(
+                BacktestResultCustodyCauseV2::ProtectedResultWriterTopology,
+            ))?;
         let request = lock_qualification_request_v2(&mut transaction, locator).await?;
         result_dto
             .validate_against_request(&request, locator)
@@ -1133,7 +1162,9 @@ async fn lock_qualification_request(
     .bind(&locator.seal_digest)
     .fetch_one(&mut **transaction)
     .await
-    .map_err(|_| PostgresReplayResultOwnerErrorV2::CustodyUnavailable)?;
+    .map_err(custody_unavailable(
+        BacktestResultCustodyCauseV2::ProtectedRequestLockUnavailable,
+    ))?;
     let locked: LockedQualificationRequestV1 =
         serde_json::from_value(value.ok_or(PostgresReplayResultOwnerErrorV2::RequestNotAdmitted)?)
             .map_err(|_| PostgresReplayResultOwnerErrorV2::RequestNotAdmitted)?;
@@ -1210,7 +1241,9 @@ async fn lock_qualification_request_v2(
     .bind(&locator.seal_digest)
     .fetch_one(&mut **transaction)
     .await
-    .map_err(|_| PostgresReplayResultOwnerErrorV2::CustodyUnavailable)?;
+    .map_err(custody_unavailable(
+        BacktestResultCustodyCauseV2::ProtectedRequestLockUnavailable,
+    ))?;
     let locked: LockedQualificationRequestV1 =
         serde_json::from_value(value.ok_or(PostgresReplayResultOwnerErrorV2::RequestNotAdmitted)?)
             .map_err(|_| PostgresReplayResultOwnerErrorV2::RequestNotAdmitted)?;
@@ -1284,7 +1317,9 @@ async fn lock_qualification_request_set(
             .bind(&locator.request_set_digest)
             .fetch_one(&mut **transaction)
             .await
-            .map_err(|_| PostgresReplayResultOwnerErrorV2::CustodyUnavailable)?;
+            .map_err(custody_unavailable(
+                BacktestResultCustodyCauseV2::ProtectedRequestSetLockUnavailable,
+            ))?;
     let locked: LockedQualificationRequestSetV1 =
         serde_json::from_value(value.ok_or(PostgresReplayResultOwnerErrorV2::RequestNotAdmitted)?)
             .map_err(|_| PostgresReplayResultOwnerErrorV2::RequestNotAdmitted)?;
@@ -1347,13 +1382,13 @@ async fn validate_cross_owner_binding(
     )
     .fetch_one(qualification_pool)
     .await
-    .map_err(|_| PostgresReplayResultOwnerErrorV2::CustodyUnavailable)?;
+    .map_err(custody_unavailable(BacktestResultCustodyCauseV2::PrincipalUnreadable))?;
     let backtest: (String, String, String, Option<String>, Option<i32>) = sqlx::query_as(
         "SELECT session_user,current_user,pg_catalog.current_database(),pg_catalog.inet_server_addr()::text,pg_catalog.inet_server_port()",
     )
     .fetch_one(&mut **transaction)
     .await
-    .map_err(|_| PostgresReplayResultOwnerErrorV2::CustodyUnavailable)?;
+    .map_err(custody_unavailable(BacktestResultCustodyCauseV2::PrincipalUnreadable))?;
 
     if qualification.0 != "qualification_writer"
         || qualification.1 != "qualification_writer"
@@ -1363,7 +1398,9 @@ async fn validate_cross_owner_binding(
         || qualification.3 != backtest.3
         || qualification.4 != backtest.4
     {
-        return Err(PostgresReplayResultOwnerErrorV2::CustodyUnavailable);
+        return Err(PostgresReplayResultOwnerErrorV2::CustodyUnavailable(
+            BacktestResultCustodyCauseV2::CrossOwnerBindingMismatch,
+        ));
     }
     Ok(())
 }

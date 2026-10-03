@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from importlib.resources import files
+from typing import Literal
 
 from bilibili_note_mcp.domain.refs import raw_ref
 
@@ -16,10 +17,15 @@ class ModelProfile:
     api_key_env: str
     timeout_seconds: float
     max_output_tokens: int
+    thinking_budget: int = 4096
+    enable_thinking: bool = False
+    response_format: Literal["json_object", "json_schema"] = "json_object"
 
 
-def load_model_profile() -> ModelProfile:
-    resource = files("bilibili_note_mcp").joinpath("profiles/v1/siliconflow.json")
+def load_model_profile(
+    provider: Literal["deepseek", "siliconflow"] = "deepseek",
+) -> ModelProfile:
+    resource = files("bilibili_note_mcp").joinpath(f"profiles/v1/{provider}.json")
     value = json.loads(resource.read_text(encoding="utf-8"))
     expected = {
         "schema",
@@ -30,9 +36,19 @@ def load_model_profile() -> ModelProfile:
         "api_key_env",
         "timeout_seconds",
         "max_output_tokens",
+        "thinking_budget",
+        "enable_thinking",
+        "response_format",
     }
     if set(value) != expected or value["schema"] != "bilibili-note-model-profile/v1":
         raise ValueError("model profile is invalid")
+    if type(value["enable_thinking"]) is not bool or value["response_format"] not in {
+        "json_object",
+        "json_schema",
+    }:
+        raise ValueError("model output settings are invalid")
+    if type(value["thinking_budget"]) is not int or not 128 <= value["thinking_budget"] <= 32768:
+        raise ValueError("thinking budget is invalid")
     return ModelProfile(
         provider=str(value["provider"]),
         base_url=str(value["base_url"]),
@@ -41,9 +57,12 @@ def load_model_profile() -> ModelProfile:
         api_key_env=str(value["api_key_env"]),
         timeout_seconds=float(value["timeout_seconds"]),
         max_output_tokens=int(value["max_output_tokens"]),
+        thinking_budget=value["thinking_budget"],
+        enable_thinking=value["enable_thinking"],
+        response_format=value["response_format"],
     )
 
 
 def model_profile_material_ref() -> str:
-    resource = files("bilibili_note_mcp").joinpath("profiles/v1/siliconflow.json")
+    resource = files("bilibili_note_mcp").joinpath("profiles/v1/deepseek.json")
     return raw_ref(resource.read_bytes())

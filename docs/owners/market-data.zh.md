@@ -213,6 +213,7 @@ ACL 拒绝。它不证明供应商真实性，不证明生产装配，也不证�
 | 供应商 Data Clients                               | `CURRENT / PARTIAL`                                                                | `crates/adapters/databento/src/pit_observation_source_v1.rs` 与 `crates/adapters/binance/src/pit_observation_source_v1.rs`，均已实盘验证                                                                        | `B6`       |
 | 面向 Runtime 的实时行情事实通道                   | `CURRENT / PARTIAL`，一条通道                                                      | `owner/live_market_fact_v1.rs`、`owner/live_market_stream_v1.rs`、`owner/postgres/live_market_stream_v1.rs`、`crates/adapters/bybit/src/live_market_fact_source_v1.rs`                                          | `B8`       |
 | Binance 永续已结算 funding 行                     | `CURRENT / PARTIAL`                                                                | `crates/adapters/binance/src/futures_pit_observation_source_v1.rs`                                                                                                                                              | `B6`       |
+| Binance bar 成交量与 taker 买入量                 | `CURRENT / PARTIAL`                                                                | `crates/adapters/binance/src/pit_observation_source_v1.rs`、`futures_pit_observation_source_v1.rs`                                                                                                              | `B6`       |
 | Owner 时钟随 PIT 摄入推进                         | `TARGET`，排在 U1 之后                                                             | 无；PIT 摄入在当前时钟 head 上提交（`owner/postgres.rs`）                                                                                                                                                       | 无         |
 | 只发布 bar 的来源的成交 bar 报价 cut              | `TARGET`，在 U1 路径上                                                             | 无；报价 cut 只装观测到的 Quote 行（`owner/native_replay_quote_cut_v2.rs`）                                                                                                                                     | 无         |
 | 伴随报价 lineage                                  | `TARGET`，排在 U1 之后                                                             | 无                                                                                                                                                                                                              | 无         |
@@ -2611,6 +2612,20 @@ sample 与已接纳 correction 各推进一次；restart 后返回相同 native 
 executable maturity、Backtest 产品闭合（包括 inverse/quanto target-consumption 语义）、
 Dashboard/default-database 准入或 trading authority。这些 Backtest 限制不创建 Market Data instrument-class
 rejection。
+
+### CURRENT/PARTIAL Binance bar 成交量与 taker 买入量
+
+两个 Binance Data Client，即现货（`crates/adapters/binance/src/pit_observation_source_v1.rs`）与 USD-M 永续，都在已收盘
+bar 的 `OPEN`、`HIGH`、`LOW`、`CLOSE` 旁边陈述它的 `VOLUME` 与 `TAKER_BUY_VOLUME`，以基础资产为单位，用 bar 自己的
+timeframe。两个数与价格来自同一个 kline 响应，所以不增加请求。
+
+- **为什么需要 `VOLUME`。** 每个原生 Replay 帧都恰好用 `OPEN`、`HIGH`、`LOW`、`CLOSE` 与 `VOLUME` 投影出一根 bar
+  （`native_replay_scheduling_v1.rs` 与 `native_replay_scheduling_v2.rs` 中的 `BAR_FIELDS`），census 缺其中任何一个的成员都会被拒绝。
+  没有 `VOLUME`，从 Binance 快照铸出的帧一个都投影不出来。
+- **taker 卖出量不是一行。** 它等于 `VOLUME - TAKER_BUY_VOLUME`，在消费方第一次需要它的地方推导，不陈述两次。
+- **数值按发布原样。** 永续的数量是交易所的十进制字符串；现货的数量是交易所的 128 位 mantissa，配响应中的数量指数。
+- **状态。** 两个 client 今天都会给出这两行，任何指定它们的部署都会得到。帧投影仍然受上文 Binance quote 缺口的阻挡。这些行由交易所替身测试、
+  两个 live 源测试，以及无凭据的 Market Data 端到端证明断言。
 
 ### CURRENT/PARTIAL Binance 永续已结算 funding 行
 

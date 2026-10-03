@@ -106,7 +106,7 @@ class SiliconFlowAsr:
         profile: ModelProfile | None = None,
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
-        self._profile = profile or load_model_profile()
+        self._profile = profile or load_model_profile("siliconflow")
         self._transport = transport
         self._provider_permits = asyncio.BoundedSemaphore(_MAX_CONCURRENCY)
 

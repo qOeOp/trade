@@ -2319,9 +2319,9 @@ mod tests {
         #[case] otherwise: Side,
     ) {
         use strategy_factory_program_sdk::lifecycle_v1::{
-            EnvelopePayloadV1, EventOrderKeyV1, FillDispositionV1, FillEventV1, KernelIdentitiesV1,
-            LifecycleEnvelopeV1, LifecycleKernelV1, LifecycleKind, PositionIntentV1,
-            ProtectionProposalV1, TargetProposalV1, UnsealedGuestProposalV1,
+            EnvelopePayloadV1, EventOrderKeyV1, FillDispositionV1, FillEventV1, FillLegV1,
+            KernelIdentitiesV1, LifecycleEnvelopeV1, LifecycleKernelV1, LifecycleKind,
+            PositionIntentV1, ProtectionProposalV1, TargetProposalV1, UnsealedGuestProposalV1,
             seal_guest_proposal_with_derived_digest_v1,
         };
 
@@ -2419,6 +2419,7 @@ mod tests {
                     side: pending.side,
                     disposition: FillDispositionV1::Filled,
                     cumulative_filled_units: pending.expected_units,
+                    leg: FillLegV1::Intent,
                 }));
                 self.kernel
                     .apply(envelope, None)

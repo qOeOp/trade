@@ -268,6 +268,7 @@ never runs in CI.
 | Vendor Data Clients                                       | `CURRENT / PARTIAL`                                                                                 | `crates/adapters/databento/src/pit_observation_source_v1.rs` and `crates/adapters/binance/src/pit_observation_source_v1.rs`, both live‑verified                                                                                          | `B6`       |
 | Live market fact channel to Runtime                       | `CURRENT / PARTIAL`, one channel                                                                    | `owner/live_market_fact_v1.rs`, `owner/live_market_stream_v1.rs`, `owner/postgres/live_market_stream_v1.rs`, `crates/adapters/bybit/src/live_market_fact_source_v1.rs`                                                                   | `B8`       |
 | Binance perpetual settled funding rows                    | `CURRENT / PARTIAL`                                                                                 | `crates/adapters/binance/src/futures_pit_observation_source_v1.rs`                                                                                                                                                                       | `B6`       |
+| Binance bar volume and taker buy volume                   | `CURRENT / PARTIAL`                                                                                 | `crates/adapters/binance/src/pit_observation_source_v1.rs`, `futures_pit_observation_source_v1.rs`                                                                                                                                       | `B6`       |
 | Owner clock follows PIT intake                            | `TARGET`, after U1                                                                                  | none; PIT intake commits at the current clock head (`owner/postgres.rs`)                                                                                                                                                                 | none       |
 | Fill‑bar quote cut for a bar‑only source                  | `TARGET`, on U1's path                                                                              | none; a quote cut holds observed Quote rows only (`owner/native_replay_quote_cut_v2.rs`)                                                                                                                                                 | none       |
 | Companion quote lineage                                   | `TARGET`, after U1                                                                                  | none                                                                                                                                                                                                                                     | none       |
@@ -3024,6 +3025,24 @@ exists, this contract claims no provider authenticity, production migration or d
 BFP executable maturity, Backtest product closure including inverse or quanto target-consumption semantics,
 Dashboard/default-database admission, or trading authority. These Backtest limitations do not create a Market Data
 instrument-class rejection.
+
+### CURRENT/PARTIAL Binance bar volume and taker buy volume
+
+Both Binance Data Clients, spot (`crates/adapters/binance/src/pit_observation_source_v1.rs`) and USD-M perpetual,
+state a closed bar's `VOLUME` and `TAKER_BUY_VOLUME` beside its `OPEN`, `HIGH`, `LOW` and `CLOSE`, in base-asset
+units and under the bar's own timeframe. Both numbers arrive in the same kline response the prices come from, so no
+request is added.
+
+- **Why `VOLUME` is required.** Every native Replay frame projects a bar from exactly `OPEN`, `HIGH`, `LOW`, `CLOSE`
+  and `VOLUME` (`BAR_FIELDS` in `native_replay_scheduling_v1.rs` and `native_replay_scheduling_v2.rs`), and refuses a
+  member whose census lacks one. Without `VOLUME`, no frame minted from a Binance snapshot can be projected.
+- **Taker sell volume is not a row.** It is `VOLUME - TAKER_BUY_VOLUME`, and it is derived where a consumer first
+  needs it, not stated twice.
+- **Values as published.** Perpetual quantities are the venue's decimal strings. Spot quantities are the venue's
+  128-bit mantissas under the response's quantity exponent.
+- **Status.** Both clients state the two rows today, for any deployment that names them. Frame projection still waits
+  on the Binance quote gap above. The rows are asserted by a stand-in venue test, by both live source tests, and by
+  the credential-free Market Data end-to-end proof.
 
 ### CURRENT/PARTIAL Binance perpetual settled funding rows
 

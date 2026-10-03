@@ -1672,8 +1672,13 @@ request binds 'the requested instrument or universe scope'."
   initial PIT request is issued remains the guarantee, as in the universe-member binding. Which Market Data read
   function answers it is agreed with Market Data; if none is admitted yet, providing one is part of this slice, never
   a reason to skip the check. The request travels as
-  the `sourced-research-goal-v3` operation, submitted with `POST /v3/source-intake-research` and resolved with
-  `POST /v3/research-goals/{request_identity}/resolve`, beside the unchanged V2 routes. The scope is part of the
+  the `sourced-research-goal-v3` operation, submitted with `POST /v3/source-intake-research` when a Source Intake
+  terminal supplies its sources, or with `POST /v3/research-goals` when the caller states them, as
+  `POST /v2/research-goals` takes a V2 request's, and resolved with `POST /v3/research-goals/{request_identity}/resolve`,
+  beside the unchanged V2 routes. `POST /v3/research-goals` requires the scope and `POST /v2/research-goals` refuses
+  one, both before anything is admitted, and either route admits under the operation
+  `research_goal_admitted_operation` chooses from whether the request states a scope, the same function the Owner
+  checks a stored admission against. The scope is part of the
   request's meaning, so the same
   request identity with another scope is a changed meaning and is rejected. The frozen Research Intent (V3) binds the
   scope identity and bytes. Changing the instrument means a successor Research request, with its own Intent and its
