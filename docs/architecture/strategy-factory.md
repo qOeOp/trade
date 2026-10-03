@@ -1644,6 +1644,23 @@ including on inputs with ties.
   `LifecycleContext` values the program may read, where `DecisionTime` is the frame's decision cut `d_k`; intended entry price and bars held are expressible inside the
   program already. A2 places take-profit as reduce-only limit orders. A3 first measures a one-limit-per-bar ladder
   and adds a kernel ladder only if that is not enough.
+- **TARGET - intrabar protection.** A protective order placed by the kernel cannot yet serve a strategy across a
+  multi-frame Replay. Two gaps must close before one may:
+  - **The fill is invisible to the program.** A Bounded Feature Program reads no account or position, so after a
+    protective fill its own record of the position it holds stays where it was. Its next exit then reaches a flat
+    member and is refused as `InvalidPositionTransition`, which ends the run.
+  - **There is no price path between frames.** The production economic configuration runs with
+    `bar_execution = false`, and each gap between frames carries one fill quote (custody `FillBarOpen`). So a stop
+    can trigger only when the next frame's quote crosses it, never on the bar's low inside the gap. A path needs the
+    fill timeframe's quotes across the gap.
+
+  The unit of a protective price lands with them: the Host would read it at Market Data's value scale and round it
+  away from the market onto the Replay's price grid, under a new protection semantic ID. Today it is ticks at the
+  instrument's precision, and that precision is the data's grid since a Replay widens it. Until all three land:
+  - the authoring language's first slice refuses a protection proposal at compile time as
+    `PROTECTION_NOT_SUPPORTED_IN_SLICE_1`;
+  - a stop is judged in the program at the frame's close and filled on the next frame
+    (`AT_BAR_CLOSE_FILLED_NEXT_FRAME`), which is how research T0's ATR stop is reproduced.
 
 ### Coverage corpus
 
