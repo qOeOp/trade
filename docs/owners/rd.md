@@ -1583,9 +1583,10 @@ Intake records, and Qualification's public phase facts. Each field is held to th
 - *Data needed and revisit trigger* are computed from R&D's own detectable edge and counts, never from a protected
   sample size or power.
 - *Qualification outcomes* enter only as the public phase fact itself (`QUALIFIED`, `CLOSED_NOT_QUALIFIED`, or a
-  forward phase), by its type-opaque reference. A public phase never changes a status by itself: every negative
-  protected terminal projects as the same `CLOSED_NOT_QUALIFIED`, so it cannot show equivalence, and an entry that
-  follows it must cite R&D evidence too. No entry records when a protected evaluation happened beyond that fact.
+  forward phase), by its type-opaque reference. A public phase never changes a status by itself, and an entry that
+  follows one must cite R&D evidence too: `CLOSED_NOT_QUALIFIED` merges every negative protected terminal, so it
+  cannot show equivalence. The one exception is `EQUIVALENT_NULL` (Qualification's TARGET three-level verdict), which
+  does show equivalence on held-out data and may be cited as evidence for `CLOSED`. No entry records when a protected evaluation happened beyond that fact.
 - *Text.* A finding's statement is untrusted rationale text, bound by digest. It is written from R&D-readable
   evidence, because nothing protected reaches the writer.
 

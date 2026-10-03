@@ -417,7 +417,8 @@ its absence here is a boundary rather than a dead relation.
   cannot replace or fabricate it. The summary advances the bounded protected-feedback observation frontier before
   a successor review is admitted. `EVALUATING` derives from an `ADMITTED` receipt plus a Protected Replay Request
   in `IN_PROGRESS_OR_UNKNOWN`; every negative internal attempt disposition or `INELIGIBLE` fact projects only
-  `CLOSED_NOT_QUALIFIED`, while a positive Eligibility Fact projects `QUALIFIED`. References are type-opaque and
+  `CLOSED_NOT_QUALIFIED` (except as "TARGET - Three-level public verdict" splits `INELIGIBLE`), while a positive
+  Eligibility Fact projects `QUALIFIED`. References are type-opaque and
   non-dereferenceable. `UNAVAILABLE` binds only the unresolved request and phase identity. Later phases never
   rewrite prior facts.
 
@@ -566,6 +567,30 @@ acceptance below requires cumulative disposition across related TrialFamilies. T
 because N includes the lineage's protected attempts. The trial count it reads needs the production census append R&D
 does not have yet.
 
+## TARGET - Three-level public verdict
+
+The user authorized on 2026-10-03, after being told it gives up the byte-equivalent projection of every negative
+terminal, that a completed protected assessment answers with one of three public verdicts:
+
+- `QUALIFIED`: the protected interval lies above zero and the estimate reaches the smallest effect of interest after
+  deflation across the batch of reads;
+- `EQUIVALENT_NULL`: the interval's upper bound lies below the smallest effect of interest, so the Candidate's edge is
+  shown to be too small to matter;
+- `INCONCLUSIVE`: anything else, the sample cannot decide.
+
+**What still projects byte-equivalently.** `REPLAY_REJECTED`, `REPLAY_INVALID`, `DIAGNOSTIC_INVALID`,
+`DIAGNOSTIC_UNRESOLVED` and `ASSESSMENT_INVALID` still project as the same `CLOSED_NOT_QUALIFIED`: they say nothing
+about the strategy. Only `INELIGIBLE` splits, into `EQUIVALENT_NULL` or `INCONCLUSIVE`.
+
+**What leaves and what does not.** One more bit per assessment leaves: which side of the smallest effect of interest
+the interval lies on. Each protected attempt is already counted in the lineage's cumulative N ("TARGET - Cumulative
+trial deflation at Candidate Intake"), so the bit is paid for in the next Candidate's bar. No estimate, interval,
+bound, cell, sample size, parameter, negative reason or timing leaves; the verdict is the whole answer.
+
+**Prerequisite.** Qualification compares point estimates today and declares no smallest effect of interest. Until the
+protected decision policy fixes that effect and the interval method before any result is observed, `INELIGIBLE` keeps
+projecting as `CLOSED_NOT_QUALIFIED`, and `EQUIVALENT_NULL` and `INCONCLUSIVE` cannot be constructed.
+
 ## TARGET - Forward Record
 
 This section states a contract with no implementation; it grants no permission to build, deploy, or drive a
@@ -692,4 +717,4 @@ target fill reconciliation.
 
 ## Observability and persistence
 
-Qualification persists intake, holdout reservation/consumption, protected request/result correlation, robustness assessment, attempt disposition, Eligibility, expiry, and revocation as its native audit chain. Shared telemetry contains only the public terminal outcome, a type-opaque non-dereferenceable fact reference, and source-frontier freshness. Protected phase, latency, terminal timing, and timing-derived fields are forbidden. `REPLAY_REJECTED`, `REPLAY_INVALID`, `DIAGNOSTIC_INVALID`, `DIAGNOSTIC_UNRESOLVED`, `ASSESSMENT_INVALID`, and `INELIGIBLE` all project byte-equivalently as `CLOSED_NOT_QUALIFIED`; `QUALIFIED` remains exact. Protected measurements, parameters, cell outcomes, holdout contents, internal terminal dispositions, negative reasons, and evaluator detail never enter Event Rail, traces, logs, metrics, alerts, or Dashboard. In particular, no internal `INELIGIBLE` event exists outside Qualification. Dashboard totals distinguish only `QUALIFIED`, `CLOSED_NOT_QUALIFIED`, expired, and revoked; all negative protected terminals share byte-equivalent labels and aggregates.
+Qualification persists intake, holdout reservation/consumption, protected request/result correlation, robustness assessment, attempt disposition, Eligibility, expiry, and revocation as its native audit chain. Shared telemetry contains only the public terminal outcome, a type-opaque non-dereferenceable fact reference, and source-frontier freshness. Protected phase, latency, terminal timing, and timing-derived fields are forbidden. `REPLAY_REJECTED`, `REPLAY_INVALID`, `DIAGNOSTIC_INVALID`, `DIAGNOSTIC_UNRESOLVED`, `ASSESSMENT_INVALID`, and `INELIGIBLE` all project byte-equivalently as `CLOSED_NOT_QUALIFIED`; `QUALIFIED` remains exact. Protected measurements, parameters, cell outcomes, holdout contents, internal terminal dispositions, negative reasons, and evaluator detail never enter Event Rail, traces, logs, metrics, alerts, or Dashboard. In particular, no internal `INELIGIBLE` event exists outside Qualification. Dashboard totals distinguish only `QUALIFIED`, `CLOSED_NOT_QUALIFIED`, expired, and revoked; all negative protected terminals share byte-equivalent labels and aggregates, except the split of `INELIGIBLE` that "TARGET - Three-level public verdict" states.

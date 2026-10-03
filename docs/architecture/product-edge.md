@@ -460,10 +460,9 @@ the run, so a replay reads the same data.
 - **`knowledge`**, served by R&D's knowledge ledger: `family_status`, `record_conclusion` and
   `check_before_research`. Red line: entries are append-only and hold no protected value.
 - **`qualification`**, served by Qualification: `submit_candidate`, `status`, `verdict`, `forward_register` and
-  `forward_status`. Red line: no holdout value ever leaves. Today Qualification projects every negative terminal
-  byte-equivalently as `CLOSED_NOT_QUALIFIED`, so `verdict` answers `QUALIFIED` or `CLOSED_NOT_QUALIFIED`; the
-  three-level verdict (pass, equivalent-null, inconclusive) relaxes that stated seal and needs the user's authorization
-  before it is built.
+  `forward_status`. Red line: no holdout value ever leaves. `verdict` answers `QUALIFIED`, `EQUIVALENT_NULL` or
+  `INCONCLUSIVE` as Qualification's "TARGET - Three-level public verdict" states, which the user authorized on
+  2026-10-03; every other negative terminal stays `CLOSED_NOT_QUALIFIED`.
 - **`scan`**, served by Scanner: `create_schedule`, `list_schedules`, `scan_now` (the discovery view) and `results`.
   Red line: a scan result is never activation authority.
 - **`governance`**, served by Strategy Governance: `list_eligible`, `propose_activation` (Paper or Live), `pause`,

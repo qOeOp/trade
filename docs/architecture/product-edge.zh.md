@@ -391,9 +391,9 @@ Source 与 Research 动作、探索性 Replay 动作、Develop Composer 动作�
 - **`knowledge`**，由 R&D 知识台账提供：`family_status`、`record_conclusion` 与 `check_before_research`。红线：条目只追加，
   不持有任何受保护数值。
 - **`qualification`**，由 Qualification 提供：`submit_candidate`、`status`、`verdict`、`forward_register` 与
-  `forward_status`。红线：任何 holdout 数值都不出去。今天 Qualification 把每个负向终态都按字节相同地投影为
-  `CLOSED_NOT_QUALIFIED`，因此 `verdict` 只答 `QUALIFIED` 或 `CLOSED_NOT_QUALIFIED`；三级裁决（通过、等价为零、不确定）
-  放宽了这条已陈述的封口，建之前需要用户授权。
+  `forward_status`。红线：任何 holdout 数值都不出去。`verdict` 按 Qualification 的「TARGET - 三级公开裁决」以
+  `QUALIFIED`、`EQUIVALENT_NULL` 或 `INCONCLUSIVE` 作答，用户已于 2026-10-03 授权；其他负向终态仍为
+  `CLOSED_NOT_QUALIFIED`。
 - **`scan`**，由 Scanner 提供：`create_schedule`、`list_schedules`、`scan_now`（发现视图）与 `results`。红线：扫描结果从不是
   激活权威。
 - **`governance`**，由 Strategy Governance 提供：`list_eligible`、`propose_activation`（Paper 或 Live）、`pause`、`retire`

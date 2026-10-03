@@ -347,7 +347,8 @@ Backtest 在经济测量中属于它的那一半现在有了交付路径，却�
   `NOT_ADMITTED` 或 `ADMITTED` Candidate Intake Receipt，再单独提供关联请求的 Qualification Status
   Summary。回执缺失保持 `SUBMITTED_OR_UNKNOWN`，摘要不能替代或编造回执。摘要在接纳后继评估前推进
   有界保护反馈观察前沿；`EVALUATING` 由 `ADMITTED` 回执与 `IN_PROGRESS_OR_UNKNOWN` 请求派生；所有
-  内部负面 attempt disposition 或 `INELIGIBLE` fact 只投影为 `CLOSED_NOT_QUALIFIED`，正向 Eligibility
+  内部负面 attempt disposition 或 `INELIGIBLE` fact 只投影为 `CLOSED_NOT_QUALIFIED`（「TARGET - 三级公开裁决」拆分
+  `INELIGIBLE` 的情形除外），正向 Eligibility
   Fact 投影为 `QUALIFIED`。引用必须类型不透明且不可解引用。`UNAVAILABLE` 只绑定未解析请求和阶段身份，
   后续阶段不改写先前事实。
 
@@ -468,6 +469,26 @@ Research 不再在某个试验次数上停下（[R&D](./rd/#target---cumulative-
 而下文的验收要求跨相关 TrialFamily 的累计处置。这个计数属于这一片，因为 N 包含血缘中的保护性尝试。它读取的试验次数需要
 R&D 尚未具备的生产 census 追加。
 
+## TARGET - 三级公开裁决
+
+用户在被告知这会放弃「每个负向终态按字节相同地投影」之后，于 2026-10-03 授权：一次已完成的受保护评估以三种公开裁决之一
+作答：
+
+- `QUALIFIED`：受保护区间位于零之上，且经该批读取的打折后，估计达到最小关注效应；
+- `EQUIVALENT_NULL`：区间上界低于最小关注效应，表明该 Candidate 的优势小到无关紧要；
+- `INCONCLUSIVE`：其他一切情形，样本无法判定。
+
+**仍按字节相同投影的。** `REPLAY_REJECTED`、`REPLAY_INVALID`、`DIAGNOSTIC_INVALID`、`DIAGNOSTIC_UNRESOLVED` 与
+`ASSESSMENT_INVALID` 仍投影为同一个 `CLOSED_NOT_QUALIFIED`：它们不说明策略本身的任何事。只有 `INELIGIBLE` 拆分为
+`EQUIVALENT_NULL` 或 `INCONCLUSIVE`。
+
+**什么出去，什么不出去。** 每次评估多出去一位：区间位于最小关注效应的哪一侧。每次受保护尝试已计入血缘的累计 N
+（「TARGET - 在 Candidate Intake 处按累计试验打折」），因此这一位在下一个 Candidate 的门槛里付了代价。估计、区间、界、
+cell、样本量、参数、负面原因与时序都不出去；裁决就是全部答案。
+
+**前置条件。** Qualification 今天比较的是点估计，也没有声明最小关注效应。在受保护决策策略于观察任何结果之前固定该效应与
+区间方法之前，`INELIGIBLE` 继续投影为 `CLOSED_NOT_QUALIFIED`，`EQUIVALENT_NULL` 与 `INCONCLUSIVE` 无法构造。
+
 ## TARGET - 前向记录
 
 本节陈述的是一份尚无实现的契约；它不授予构建、部署或驱动前向记录的任何许可。
@@ -572,4 +593,4 @@ Forward Replay 需要产品在部署中尚未提供的东西：随数据到达�
 
 ## 可观测性与持久化
 
-Qualification 把 intake、holdout reservation/consumption、保护 request/result 关联、robustness assessment、attempt disposition、Eligibility、expiry 与 revocation 持久化为原生审计链。共享 telemetry 只能含公共终态、类型不透明且不可解引用的事实引用和 source-frontier freshness；保护 phase、latency、terminal timing 与 timing-derived field 明确禁止公开。`REPLAY_REJECTED` `REPLAY_INVALID` `DIAGNOSTIC_INVALID` `DIAGNOSTIC_UNRESOLVED` `ASSESSMENT_INVALID` 与 `INELIGIBLE` 都以字节等价方式投影为 `CLOSED_NOT_QUALIFIED`，`QUALIFIED` 保持准确。保护测量、参数、cell outcome、holdout 内容、内部终态 disposition、负面原因与 evaluator 细节绝不能进入 Event Rail、trace、log、metric、alert 或 Dashboard；Qualification 外尤其不存在内部 `INELIGIBLE` event。Dashboard 统计只区分 `QUALIFIED`、`CLOSED_NOT_QUALIFIED`、expired 与 revoked；全部负面保护终态共享字节等价的 label 和 aggregate。
+Qualification 把 intake、holdout reservation/consumption、保护 request/result 关联、robustness assessment、attempt disposition、Eligibility、expiry 与 revocation 持久化为原生审计链。共享 telemetry 只能含公共终态、类型不透明且不可解引用的事实引用和 source-frontier freshness；保护 phase、latency、terminal timing 与 timing-derived field 明确禁止公开。`REPLAY_REJECTED` `REPLAY_INVALID` `DIAGNOSTIC_INVALID` `DIAGNOSTIC_UNRESOLVED` `ASSESSMENT_INVALID` 与 `INELIGIBLE` 都以字节等价方式投影为 `CLOSED_NOT_QUALIFIED`，`QUALIFIED` 保持准确。保护测量、参数、cell outcome、holdout 内容、内部终态 disposition、负面原因与 evaluator 细节绝不能进入 Event Rail、trace、log、metric、alert 或 Dashboard；Qualification 外尤其不存在内部 `INELIGIBLE` event。Dashboard 统计只区分 `QUALIFIED`、`CLOSED_NOT_QUALIFIED`、expired 与 revoked；全部负面保护终态共享字节等价的 label 和 aggregate，「TARGET - 三级公开裁决」陈述的 `INELIGIBLE` 拆分除外。
