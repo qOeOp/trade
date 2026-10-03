@@ -1,0 +1,18 @@
+Second fidelity round: clean, broken (retested) and minor lines; 60 lines of his
+top calibration cells:
+ clean  broken  minor  window  half  lines_per_side  recall  moved  fidelity
+     1       2      1     200 calib               4   0.655  0.052     0.603
+     1       2      2     200 calib               5   0.655  0.052     0.603
+     1       1      1     200 calib               3   0.621  0.052     0.569
+     1       2      0     200 calib               3   0.621  0.052     0.569
+     1       1      2     200 calib               4   0.621  0.052     0.569
+     1       2      1      50 calib               4   0.621  0.052     0.569
+     1       2      2      50 calib               5   0.621  0.052     0.569
+     2       2      1      50 calib               5   0.655  0.086     0.569
+     2       2      1     200 calib               5   0.655  0.086     0.569
+     2       2      2      50 calib               6   0.655  0.086     0.569
+
+chosen: clean 1, broken 2 (break within 200 bars), minor 1 per side
+  check half: recall 45%, moved 15%, fidelity +31%
+first round (clean only, top 2): check recall 26%, moved 3%
+mean check recall by kind added: broken 0 25%, 1 38%, 2 43%; minor 0 32%, 1 36%, 2 38%

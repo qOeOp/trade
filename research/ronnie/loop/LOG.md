@@ -2255,3 +2255,23 @@ His kind of trend line is better than a line moved 1 ATR (L-4a -0.04 against -0.
 limit at the line earns no more than a random entry of the same geometry, and less with the wider stop. With a drawer
 that reproduces his lines, the trend-line test entry joins every other touch entry: the reaction is real and priced
 in. Family closed for daily crypto (equivalence on L-4a, harm on L-4b); fidelity 23% is its stated limit.
+
+## Second fidelity round, and loop L-5 (registered 2026-10-03, before running)
+
+- **Why his lines were missed:** 83% of his near-price lines exist among lines through two order-3 pivots, but most
+  have been closed through: many are broken trend lines that price is retesting from the other side (a learned
+  selection model gave lines whose slope opposes their current side a negative weight), and some are short, steep
+  lines through order-1 or order-2 pivots of the latest leg (`tv_line_select.py`, charts of eight lines).
+- **Drawer D2 (`tv_line_fidelity2.py`):** one clean line, two broken-and-retested lines (break within 200 bars, price
+  on the new side on 70% of closes since) and one minor line per side. Calibration half: recall 66% against 5% for
+  moved lines; check half: 45% against 15% (fidelity +31%, first round +23%). The broken lines carry most of the gain
+  (check recall 25% without them, 43% with two).
+- **Loop L-5, development (53 coins, 2018-2022), daily:**
+  - L-5a/b, the diagonal R-1: a large-bodied close (R-1's definition) through one of drawer D's two clean lines in the
+    trend direction of R-1's state arms a limit that follows the broken line for 10 days; filled when a bar trades
+    through the line, at the better of the open and the line. Stop 0.25 ATR (L-5a) or 0.5 ATR (L-5b) beyond the line,
+    target 2R, 60-day hold, one trade per coin, the first fill taking the slot. Placebo: the same with every line moved
+    1 ATR away from price. Pass at stage 1: interval above zero, edge at least 0.10R, above the placebo; Holm over two.
+  - L-5c, "double support" tag on R-1u: the R-1 limit lies within 0.5 ATR of a broken-and-retested line (D2's broken
+    kind, order-5 pivots, 700 bars, break within 200 bars) at the arming bar. Placebo: the lines moved 1 ATR. Pass:
+    interval above zero and above the placebo; a pass becomes a forward tag only.
