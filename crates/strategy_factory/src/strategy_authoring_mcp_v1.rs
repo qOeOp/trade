@@ -36,7 +36,7 @@ pub trait Api {
 pub fn tools() -> Value {
     let spec = json!({
         "type": "object",
-        "description": "A single-threshold strategy statement: channel, threshold_coefficient, comparison, when_true, otherwise, falsifier, and optionally stop_loss_fraction, take_profit_fraction and max_holding_bars."
+        "description": "A single-threshold strategy statement: channel, threshold (a decimal string in the channel's unit), comparison, when_true, otherwise, falsifier, and optionally stop_loss_fraction, take_profit_fraction and max_holding_bars."
     });
     let strategy_id = json!({
         "type": "string",

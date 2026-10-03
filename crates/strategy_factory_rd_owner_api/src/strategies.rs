@@ -397,7 +397,7 @@ mod postgres_tests {
                 "unit": "PRICE",
                 "scale": 2
             },
-            "threshold_coefficient": 10000,
+            "threshold": "100",
             "comparison": "GREATER",
             "when_true": {
                 "position_intent_semantic_id": "kernel.position.enter.v1",

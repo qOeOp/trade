@@ -799,13 +799,15 @@ its content and bound to no Research request. The statement is `SingleThresholdA
 Research identities (`SingleThresholdStrategySpecV1`). Its `strategy_id` is the domain-separated SHA-256 of its
 canonical bytes, not a Design identity: a Design hashes the Research request and Intent it answers, so one statement
 makes a different Design under every request. Every value a statement can spell more than one way is brought to its
-one spelling before it is hashed, so one strategy has one identity. A statement is admitted only if it authors, so the
+one spelling before it is hashed, so one strategy has one identity: the threshold is rewritten to its one decimal
+spelling at the channel's scale. A statement is admitted only if it authors, so the
 catalog never holds a strategy a run would refuse at authoring.
 
 - `rd-owner-api` serves it under `/v1/strategies`: validate (authors and writes nothing), create (the same statement is
   the same strategy), get (the stored bytes, which hash to the identity, so a row whose bytes changed is refused rather
   than served), list, revise (a new statement naming its predecessor) and archive (the strategy stays readable and can
-  no longer be revised or run). An authoring refusal keeps the author's name (`SINGLE_THRESHOLD_*`).
+  no longer be revised or run). An authoring refusal keeps the author's name (`SINGLE_THRESHOLD_*`, or `THRESHOLD_*` for a threshold the
+  channel cannot hold).
 - Two append-only R&D tables hold it, `rd_strategy_specs_v1` and `rd_strategy_archives_v1`. Neither names a Research
   request, nothing is updated or deleted, and no other Owner is granted either.
 - The catalog freezes nothing and reads no market data. A backtest run reads a statement by value, opens a Research goal

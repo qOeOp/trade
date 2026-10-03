@@ -24,6 +24,7 @@ use crate::{
     single_threshold_authoring_v1::{
         SingleThresholdAuthoringErrorV1, SingleThresholdAuthoringRequestV1,
         SingleThresholdChannelV1, SingleThresholdOutcomeV1, author_single_threshold_program_v1,
+        canonical_threshold_of_v1,
     },
 };
 
@@ -38,8 +39,8 @@ const STRATEGY_IDENTITY_DOMAIN_V1: &[u8] = b"strategy.catalog.single-threshold-s
 pub struct SingleThresholdStrategySpecV1 {
     /// The one channel read, which is also the decision clock.
     pub channel: SingleThresholdChannelV1,
-    /// The threshold, in the channel's own unit and scale.
-    pub threshold_coefficient: i128,
+    /// See [`SingleThresholdAuthoringRequestV1::threshold`].
+    pub threshold: String,
     /// How the channel is compared against the threshold.
     pub comparison: BoundedFeaturePredicateV1,
     /// What to propose when the comparison holds.
@@ -74,7 +75,7 @@ impl SingleThresholdStrategySpecV1 {
             intent_identity,
             intent_digest,
             channel: spec.channel,
-            threshold_coefficient: spec.threshold_coefficient,
+            threshold: spec.threshold,
             comparison: spec.comparison,
             when_true: spec.when_true,
             otherwise: spec.otherwise,
@@ -166,9 +167,9 @@ impl CanonicalStrategySpecV1 {
 /// authoring uses fixed stand-ins; they reach neither the canonical bytes nor the identity.
 ///
 /// Every value a statement can spell more than one way is brought to its one spelling before it
-/// is hashed, so one strategy has one identity. Today each field already has a single accepted
-/// spelling: the threshold is an integer coefficient, and an exit fraction with a trailing zero is
-/// refused by name rather than rewritten.
+/// is hashed, so one strategy has one identity. The threshold is rewritten to its one decimal
+/// spelling at the channel's scale (`100.00` and `100` are one statement); an exit fraction with a
+/// trailing zero is refused by name rather than rewritten.
 ///
 /// # Errors
 ///
@@ -179,11 +180,15 @@ pub fn canonical_strategy_spec_v1(
 ) -> Result<CanonicalStrategySpecV1, SingleThresholdAuthoringErrorV1> {
     let stand_in = BindingDigest::from_untrusted_bytes([0x5a; 32]);
     author_single_threshold_program_v1(&spec.authoring_request(stand_in, stand_in, stand_in))?;
+    let spec = SingleThresholdStrategySpecV1 {
+        threshold: canonical_threshold_of_v1(&spec.channel, &spec.threshold)?,
+        ..spec.clone()
+    };
     let canonical_bytes =
-        serde_json::to_vec(spec).expect("a strategy statement serialises to JSON");
+        serde_json::to_vec(&spec).expect("a strategy statement serialises to JSON");
     Ok(CanonicalStrategySpecV1 {
         identity: strategy_identity_of_v1(&canonical_bytes),
-        spec: spec.clone(),
+        spec,
         canonical_bytes,
     })
 }
@@ -214,7 +219,7 @@ mod tests {
                 unit: "PRICE".to_owned(),
                 scale: 2,
             },
-            threshold_coefficient: 10_000,
+            threshold: "100".to_owned(),
             comparison: BoundedFeaturePredicateV1::Greater,
             when_true: SingleThresholdOutcomeV1 {
                 position_intent_semantic_id: "kernel.position.enter.v1".to_owned(),
@@ -252,6 +257,39 @@ mod tests {
                 .expect("the statement authors")
                 .identity(),
             base.identity()
+        );
+    }
+
+    /// A threshold is hashed at its one spelling: trailing zeros name the same strategy, a different
+    /// value names another, and a value finer than the channel's scale is refused by name.
+    #[rstest]
+    fn a_threshold_spelled_two_ways_is_one_strategy() {
+        let short = canonical_strategy_spec_v1(&spec()).expect("authors");
+        let padded = canonical_strategy_spec_v1(&SingleThresholdStrategySpecV1 {
+            threshold: "100.00".to_owned(),
+            ..spec()
+        })
+        .expect("authors");
+        assert_eq!(padded.identity(), short.identity());
+        assert_eq!(padded.spec().threshold, "100");
+        assert_ne!(
+            canonical_strategy_spec_v1(&SingleThresholdStrategySpecV1 {
+                threshold: "100.01".to_owned(),
+                ..spec()
+            })
+            .expect("authors")
+            .identity(),
+            short.identity(),
+        );
+        assert_eq!(
+            canonical_strategy_spec_v1(&SingleThresholdStrategySpecV1 {
+                threshold: "100.001".to_owned(),
+                ..spec()
+            })
+            .map(|_| ())
+            .unwrap_err()
+            .code(),
+            "THRESHOLD_FINER_THAN_CHANNEL_SCALE",
         );
     }
 

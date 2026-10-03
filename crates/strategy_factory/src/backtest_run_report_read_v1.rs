@@ -91,6 +91,7 @@ use crate::{
     rd_owner_postgres_custody::resolve_exploratory_replay_outcome_for_rd_in_transaction,
     single_threshold_authoring_v1::{
         SingleThresholdChannelV1, SingleThresholdOutcomeV1, recover_single_threshold_request_v1,
+        threshold_coefficient_v1,
     },
     strategy_design_v2::StrategyDesignV2,
 };
@@ -687,7 +688,13 @@ async fn resolve_strategy_and_window(
     };
     let strategy = BacktestRunStrategyV1 {
         family: SINGLE_THRESHOLD_FAMILY_V1,
-        threshold: fixed_point_decimal(authored.threshold_coefficient, channel.scale),
+        // Stated at the channel's scale, as the program compares it; the recovered request spells it
+        // canonically, which reads back exactly at that scale.
+        threshold: fixed_point_decimal(
+            threshold_coefficient_v1(&authored.threshold, channel.scale)
+                .map_err(|_| BacktestRunReportRefusalV1::NoStrategyStatementForFamily)?,
+            channel.scale,
+        ),
         channel,
         comparison: authored.comparison,
         when_true: authored.when_true,
@@ -1758,7 +1765,7 @@ mod tests {
                 close_role_semantic_id: "research.input.close.daily.v1".to_owned(),
                 open_role_semantic_id: "research.input.open.daily.v1".to_owned(),
             },
-            threshold_coefficient: 10_000,
+            threshold: "100".to_owned(),
             comparison: BoundedFeaturePredicateV1::Greater,
             when_true: outcome("kernel.position.enter.v1", 1),
             otherwise: outcome("kernel.position.exit.v1", 0),
