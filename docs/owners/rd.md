@@ -111,17 +111,17 @@ an admission as invalid:
   the body fixes. Reading the heading alone gets the opposite answer, in both directions.
 
 - **CURRENT - deployed service and the boundary of what it exposes:** `product/rd-workbench/Dockerfile.owner`
-  builds every binary, `--bin strategy-factory-rd-owner-api` included, with no `--features` at all. So the deployed
-  image is the ungated router in `crates/strategy_factory_rd_owner_api/src/main.rs`, and the six routes registered
-  after it are absent from it:
-  `/v2/exploratory-replay/execution-input-bindings` under `#[cfg(feature = "composer-replay-issuance")]`,
-  `/v3/exploratory-replay-requests/composer-backed` under `#[cfg(feature = "composer-v3-replay")]`, and the four
-  `/_sealed-acceptance/v1/develop-composer/*` routes under
-  `#[cfg(feature = "sealed-source-intake-composer-acceptance")]`. The first two features are production surfaces
-  that carry no acceptance fixture, corpus or route; the sealed features include them rather than own them, and in
-  the default build the Composer's own `/v2/develop-composer/runs/{request_identity}/resolve` and `/readback` answer
-  `503` because `composer-replay-issuance` is off. An acceptance route is never evidence of a production
-  capability, and the sealed features exist to keep that distinction mechanical rather than remembered.
+  builds `--bin strategy-factory-rd-owner-api`, and the three Replay Policy Catalog binaries of the same package,
+  with `--features composer-v3-replay` and no other feature; the dashboard read binary is built with none. So the
+  deployed image registers `/v3/exploratory-replay-requests/composer-backed` and
+  `/v2/exploratory-replay/execution-input-bindings`, and the Composer's own
+  `/v2/develop-composer/runs/{request_identity}/resolve` and `/readback` answer from custody. It does not build
+  `native-replay-execution`, so `/v2/exploratory-replays` and the two `/v1/market-data-repair-requests` routes are
+  absent, and no sealed feature, so the four `/_sealed-acceptance/v1/develop-composer/*` routes under
+  `#[cfg(feature = "sealed-source-intake-composer-acceptance")]` are absent too. The production features carry no
+  acceptance fixture, corpus or route; the sealed features include them rather than own them. An acceptance route
+  is never evidence of a production capability, and the sealed features exist to keep that distinction mechanical
+  rather than remembered.
   The image runs at the product's fixed-point precision, `FIXED_PRECISION` 16, without a build flag:
   `vibe-strategy-factory` declares `high-precision` on its `vibe-model` dependency, and
   `scripts/ci/check-production-features.py` fails a production package that links `vibe-model` without it.
@@ -152,11 +152,11 @@ an admission as invalid:
   a malformed body) the route already answers by name. That no retry changes the answer today is the build's
   missing capability, listed in `UNIMPLEMENTED_PRODUCTION_STAGES`; it is not a property of the request and calls
   for no answer of its own.
-- **CURRENT - the composer-backed Exploratory Replay request path carries no admission label, and what keeps it
-out of the deployed image is the image, not a missing producer:** `commit_composer_backed_exploratory_replay_request_v3`,
-its route `/v3/exploratory-replay-requests/composer-backed`, its tables and their migration exist only under
-`composer-v3-replay`, a production feature that the image above does not build; the default build's
-`--materialize-schema` therefore creates none of those tables. Nothing in this document, `docs/owners/backtest.md`
+- **CURRENT - the composer-backed Exploratory Replay request path is in the deployed image:**
+`commit_composer_backed_exploratory_replay_request_v3`, its route `/v3/exploratory-replay-requests/composer-backed`,
+its tables and their migration exist only under `composer-v3-replay`, which the image above builds. A database that
+was materialized before cutover by that image has the tables; one materialized without it, or cut over since, gains
+`rd_research_view_transitions_v3` from `postgres-init/10-migrate-authority-custody.sh`, which every deployment runs. Nothing in this document, `docs/owners/backtest.md`
 or `docs/architecture/` marks the path `TARGET`, `IMPLEMENTATION_ADMITTED` or any other state, so its state is
 read from three statements instead. The deployed-service bullet above says an acceptance route is never evidence
 of a production capability. `docs/guide/dashboard.md` says the boundary lifts when a deployed image carries a
@@ -167,8 +167,10 @@ the Research request's frozen Bounded Feature Program
 Market Data's bindings and does not go through Source Intake, so the Source Intake bullet above no longer names
 the hop in the way. A build that enables `composer-v3-replay` carries that Composer and this commit together and
 no acceptance code. The ordered chain's build is not that build: its acceptance feature includes
-`composer-v3-replay` but also replaces the Composer's run with the fixed corpus. The path is therefore unadmitted into the image: neither unfinished nor closed
-by intent, and what admits it is a deployment decision.
+`composer-v3-replay` but also replaces the Composer's run with the fixed corpus. The deployment decision that
+admits the path into the image was taken under the user's B0 authorization, which admits exploratory replay
+without money or exchange credentials. Issuing its execution-input binding still answers `503`
+`MARKET_DATA_SCHEDULING_NOT_ADMITTED` until Market Data scheduling is admitted, which is `B3`.
 The ungated v2 commit cannot stand in for it. Native Replay preparation parses the request's `artifact.digest`
 as a `sha256:` digest before it queries Composer, while a v2 commit succeeds only when that digest equals the
 Artifact Build Owner's `blake3:` wasm digest; and the request's `artifact.identity` would have to equal the
@@ -286,7 +288,7 @@ ordered chain's acceptance build admits nothing in production.
 - **IMPLEMENTATION_ADMITTED / NOT_CUT_OVER - the exploratory replay production entry:** the only caller of
   `run_exploratory_replay_v2` outside `vibe-backtest-owner` is inside `run_native_replay`, which carries
   `#[cfg(feature = "native-replay-execution")]`, a production feature with no acceptance code, with no
-  `cfg(not(...))` twin anywhere in the repository. With the deployed image built without features, that path is unreachable in what is deployed. This
+  `cfg(not(...))` twin anywhere in the repository. With the deployed image built without `native-replay-execution`, that path is unreachable in what is deployed. This
   measures the deployment artifact, not history.
 
 ## Modules
@@ -297,7 +299,8 @@ ordered chain's acceptance build admits nothing in production.
 - **Research Intent** - freeze the falsifiable mechanism and experimental contract before result observation.
 - **Strategy Artifact** - preserve immutable content, dependency provenance, market semantics, runtime capability,
   sandbox policy, and Artifact Security Admission consumed unchanged by replay, qualification, and governed application.
-- **Development Sandbox** - build and diagnose generated strategy code with explicit input and output mounts and no
+- **Development Sandbox** - build and diagnose the code an Owner lowers a strategy's authoring document into, and the
+  code of an attended D-only repair, with explicit input and output mounts and no
   ambient filesystem, network, subprocess or process-tree escape, inherited capability, secret, account,
   deployment, or effect-port authority.
 
@@ -324,7 +327,10 @@ composition root and three authenticated routes,
 `POST /v1/bounded-feature-programs/{declare,freeze,lower}`. `declare` is the proposer's route: it takes
 a Design and the program's meaning, derives everything a proposer cannot know from that Design, the
 pinned catalog and the Owner's own binding custody, and freezes the result in the transaction those
-binding row locks were taken in. `freeze` takes an already assembled pair instead. Both admit the pair
+binding row locks were taken in. `freeze` takes an already assembled pair instead, and admits each of its
+inputs only as exactly what `declare` derives for that role, value port, clock and binding receipt: both
+routes call one derivation, so a pre-assembled program can restate the Design's roles but never differ from
+them. Both admit the pair
 against currently accepted Research custody and the pinned primitive catalog, write exactly one
 joint-freeze row with its outbox event, and answer a changed meaning for the same Research identity
 with a conflict. `lower` reads that frozen pair back and lowers it, so a frozen program now yields
@@ -555,7 +561,15 @@ graph.
 
 The reaction graph is the part that stays a judgement, and it stays with the proposer. A first
 bounded family is admitted for it and nothing wider: **a single declared channel compared against a
-single threshold**, with the decision clock taken from `data.decision_clock_channel`. Every graph
+single threshold**, with the decision clock taken from `data.decision_clock_channel`. A program of the family
+proposes each side only from a position the kernel accepts it at, and holds otherwise, so it carries the position it
+believes it holds in a state cell: the kernel accepts an entry only from flat and an exit only from a held position
+(`validate_position_transition` in the program SDK), and a refused proposal aborts the whole run
+(`program_host_v2.rs`), so a program without that belief could not survive a second bar above its threshold. It may
+also name three exits, each judged at the bar close and proposed there, so that it fills on the next frame and not
+at the exit level inside a bar: `stop_loss_fraction` and `take_profit_fraction`, measured from the close the position
+was entered at and admitted only on a close channel, and `max_holding_bars`, counted in frames. That belief and those
+exits belong to the family; neither makes its threshold depend on state. Every graph
 outside that family - two signals, a conjunction, a state-dependent threshold, a threshold this
 Owner would have to choose - remains a proposer declaration this Owner admits rather than derives. A proposer
 may declare such a graph as `meaning` directly or as a document in the authoring language under **Strategy
@@ -774,7 +788,68 @@ since, on purpose: a side's reconciliation target reads that side's target posit
 requires a position target and its reconciliation target to be equal, and the single constant of 0 both sides
 once shared made every program whose sides held different positions unrunnable - the target-set Host refused its
 entry side before the first order. A program frozen from the old bytes could never have run, and it is now
-outside the family.
+outside the family. They changed a second time, on purpose, for the same kind of reason: a program proposed its side
+on every bar its comparison held, so under the kernel rule above every program of the family aborted its run on its
+second bar above the threshold. Each program now carries the position it believes it holds, and proposes a side only
+from a position the kernel accepts it at. No deployment had frozen a program of the family when this changed, and a
+program frozen from the earlier bytes is outside the family.
+
+**CURRENT - strategy catalog:** an authored single-threshold strategy is held as an immutable statement, named by
+its content and bound to no Research request. The statement is `SingleThresholdAuthoringRequestV1` without its three
+Research identities (`SingleThresholdStrategySpecV1`). Its `strategy_id` is the domain-separated SHA-256 of its
+canonical bytes, not a Design identity: a Design hashes the Research request and Intent it answers, so one statement
+makes a different Design under every request. Every value a statement can spell more than one way is brought to its
+one spelling before it is hashed, so one strategy has one identity: the threshold is rewritten to its one decimal
+spelling at the channel's scale. A statement is admitted only if it authors, so the
+catalog never holds a strategy a run would refuse at authoring.
+
+- `rd-owner-api` serves it under `/v1/strategies`: validate (authors and writes nothing), create (the same statement is
+  the same strategy), get (the stored bytes, which hash to the identity, so a row whose bytes changed is refused rather
+  than served), list, revise (a new statement naming its predecessor) and archive (the strategy stays readable and can
+  no longer be revised or run). An authoring refusal keeps the author's name (`SINGLE_THRESHOLD_*`, or `THRESHOLD_*` for a threshold the
+  channel cannot hold).
+- Two append-only R&D tables hold it, `rd_strategy_specs_v1` and `rd_strategy_archives_v1`. Neither names a Research
+  request, nothing is updated or deleted, and no other Owner is granted either.
+- The catalog freezes nothing and reads no market data. A backtest run reads a statement by value, opens a Research goal
+  of its own, authors the Design under that goal's identities and freezes it there, so the one-freeze-per-request rule
+  above is never met by a second statement and every edge points down the layers.
+- `strategies::postgres_tests::the_strategy_catalog_holds_a_statement_through_every_operation_over_http` drives every
+  operation and every refusal over HTTP on the ordered chain's PostgreSQL, with no market data and no Research request.
+
+**CURRENT - strategy-authoring MCP server:** the `strategy-authoring` server of the
+[domain MCP catalog](../architecture/product-edge#target---external-agent-tool-surface) is `strategy-authoring-mcp`, a stateless
+stdio process built from `rd-owner-api`'s package. It holds `RD_OWNER_API_URL` and `RD_OWNER_API_TOKEN` in its own
+environment and reaches `/v1/strategies` only. Each tool sends one request and passes the answer or the refusal through
+by name; no argument or result carries the token. A result's text is the API's body exactly as sent, so a returned
+spec keeps the stored key order its identity hashes.
+
+| Tool                            | Route                                         | Refusals by name                                                                                                |
+| ------------------------------- | --------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `validate(spec)`                | `POST /v1/strategies/validate`                | every `SINGLE_THRESHOLD_*` authoring refusal                                                                    |
+| `create(spec)`                  | `POST /v1/strategies`                         | every `SINGLE_THRESHOLD_*` authoring refusal                                                                    |
+| `get(strategy_id)`              | `GET /v1/strategies/{strategy_id}`            | `STRATEGY_UNKNOWN`                                                                                              |
+| `list(include_archived, limit)` | `GET /v1/strategies`                          | `STRATEGY_LIST_LIMIT_OUT_OF_RANGE`                                                                              |
+| `revise(strategy_id, spec)`     | `POST /v1/strategies/{strategy_id}/revisions` | `STRATEGY_UNKNOWN`, `STRATEGY_ARCHIVED`, `STRATEGY_REVISION_UNCHANGED`, `STRATEGY_EXISTS_UNDER_ANOTHER_LINEAGE` |
+| `archive(strategy_id)`          | `POST /v1/strategies/{strategy_id}/archive`   | `STRATEGY_UNKNOWN`                                                                                              |
+
+A `strategy_id` in any spelling but `sha256:` and 64 lower-case hex digits is answered `STRATEGY_UNKNOWN` without a
+request, because it becomes part of a route's path. A malformed call is `MALFORMED_TYPED_REQUEST`, an unknown tool
+`TOOL_UNKNOWN`, and a route that cannot be reached `RD_OWNER_API_UNREACHABLE`.
+
+Acceptance on a local deployment, with only this server mounted and no market data:
+
+1. `validate` a single-threshold statement with a stop-loss and a holding limit: `VALID` and a `strategy_id`.
+2. `get` that id: `STRATEGY_UNKNOWN`, because validate wrote nothing.
+3. `create` the same statement: the same `strategy_id`; `create` it again: the same answer.
+4. `get` it: the `spec` returned hashes to the `strategy_id` (SHA-256 over
+   `strategy.catalog.single-threshold-statement.v1\0` followed by the spec's bytes).
+5. `revise` it with `max_holding_bars` changed: a new id naming the first as `predecessor_id`.
+6. `revise` the first into its own statement: `STRATEGY_REVISION_UNCHANGED`; revise the second into the first's
+   statement: `STRATEGY_EXISTS_UNDER_ANOTHER_LINEAGE`.
+7. `list`: both; `archive` the first, `list` again: only the second; `list(include_archived=true)`: both.
+8. `revise` the archived one: `STRATEGY_ARCHIVED`; `get` it: still readable, with `archived_at_epoch_ms`.
+9. `validate` with `max_holding_bars: 0`: `SINGLE_THRESHOLD_MAX_HOLDING_BARS_ZERO`; with `stop_loss_fraction: "0.020"`:
+   `SINGLE_THRESHOLD_EXIT_FRACTION_INVALID`.
 
 **IMPLEMENTATION_ADMITTED - authoring language V1:** a document a proposer writes, compiled by a pure
 function into the `design` and `meaning` pair and nothing further. Nothing implements it at this cut, and
@@ -1243,15 +1318,15 @@ counted. For V2 families:
 **The spend cap.** One user-set cap bounds what Research spends, and reaching it pauses Research rather than stopping
 it.
 
-- *What is metered.* Language-model provider calls, by the token usage each response reports, at the user's price
-  for that provider and model; today `artifact_build_v1.ts` reads only the message content and discards the `usage`
-  block. Paid market data, by the cost its provider quotes before the request: Databento's `get_cost` preflight,
+- *What is metered.* Paid market data, by the cost its provider quotes before the request: Databento's `get_cost` preflight,
   which today has its own cap `DATABENTO_MAX_PROBE_COST_USD`, is folded into this one. Compute, the seconds of
   Backtest replay and Develop builds, at a user-set rate that defaults to zero on the single local host the user
-  admitted, so compute counts only if the user prices it.
+  admitted, so compute counts only if the user prices it. Language-model calls are not metered: since the user's
+  decision of 2026-10-03 the agent works outside the product ("Agent-outside R&D experience" in the product loop), the
+  product makes no model call, and what the agent spends is the agent's own. This replaces the metering of
+  language-model provider calls that this item stated before.
 - *Who meters.* R&D keeps an append-only Spend Ledger. Before a metered effect it reserves the effect's upper bound,
-  in the transaction that claims the effect: the request's `max_tokens` at the price, the preflight quote, or the
-  declared time limit at the compute rate. After the effect it settles the actual amount against that reservation.
+  in the transaction that claims the effect: the preflight quote, or the declared time limit at the compute rate. After the effect it settles the actual amount against that reservation.
   An effect whose outcome is unknown stays reserved at its bound until it resolves. Reservations serialize on the
   ledger head, so two concurrent ones cannot together pass the cap.
 - *When the cap is reached.* A reservation that would take settled plus reserved spend past the cap is refused, and
@@ -1366,25 +1441,28 @@ it, which the count above already maps.
   PIT issuance, the PIT snapshot request route, and the Composer and bounded-feature-program routes, which reread one
   PIT batch at one cut. The V3 Research submission checks instrument identities against the eligible frontier, which
   is reference data, not prices.
-- No R&D tool lets an agent read market data. The Dashboard MCP server's seven tools
-  (`product/dashboard/lib/dashboard-mcp-server.ts:152-211`) submit or read R&D and run state and return no market
-  value, and the artifact-build model call has no tools.
+- No R&D tool lets an agent read market data. The Dashboard MCP server's five tools
+  (`product/dashboard/lib/dashboard-mcp-server.ts:134-193`) submit or read R&D and run state and return no market
+  value, and the product makes no model call.
 - No type classifies an instrument into a stratum. Instrument Master V2 records a perpetual's listing instant from
   Binance `onboardDate` (`crates/data/src/owner/instrument_master_v2.rs:346`), and Market Data serves bar volume as
   `MARKET_DATA.BAR.VOLUME.QUANTITY.V1`.
 - No Owner defines a holdout partition of instruments or periods. Qualification's holdout is a budget and a custody
   reservation, not a partition of the data.
 
-**The data-read ledger.** R&D records every read of market data as append-only rows, one per instrument, in the R&D
-transaction that makes the read:
+**The data-read ledger.** R&D records every read of market data its trials make as append-only rows, one per
+instrument, in the R&D transaction that makes the read, and reads every agent read from Market Data:
 
 - a row binds the lineage (the TrialFamily and its cross-family predecessor frontier), the trial (the Replay
-  request's identity and meaning digest) or the agent session, the instrument, the half-open period `[start, end)` in
+  request's identity and meaning digest), the instrument, the half-open period `[start, end)` in
   event nanoseconds, the instrument's stratum for that period with the stratum policy's identity, and the commit time;
 - trial rows are written when R&D issues a Replay's execution-input binding, the one point where the members and the
   window are both known; a binding that is joined rather than issued writes nothing again;
-- any R&D tool that returns market values to an agent writes its rows before it answers, and refuses when it cannot.
-  None exists today, so this source is empty, and adding such a tool without its rows breaches this contract;
+- an agent reads market values only through Market Data's MCP server, and Market Data records each such read as its own
+  agent data-read row before it answers ([market-data MCP server](./market-data#target-market-data-mcp-server)). These
+  rows moved there from this ledger when the agent's tools moved to domain servers; the census reads them downward,
+  and until a session is bound to a lineage it counts an agent read against every lineage. No R&D tool returns market
+  values to an agent;
 - a read whose rows cannot be written fails, so no read happens without its rows.
 
 **Strata.** A stratum is computed before the outcome, never assigned after it. A versioned stratum policy, frozen in

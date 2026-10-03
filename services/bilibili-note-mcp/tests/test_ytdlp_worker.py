@@ -23,9 +23,8 @@ from bilibili_note_mcp.adapters import _ytdlp_worker as worker
 from bilibili_note_mcp.adapters import bilibili_media_ytdlp as adapter_module
 from bilibili_note_mcp.adapters.bilibili_media_ytdlp import (
     YtDlpBilibiliMedia,
-    _run_worker,
-    _worker_environment,
 )
+from bilibili_note_mcp.adapters.media_acquisition import media_worker_environment, run_media_worker
 from bilibili_note_mcp.application.errors import BilibiliNoteFailure
 
 CANONICAL_URL = "https://www.bilibili.com/video/BV1uHuQ6pEFr?p=1"
@@ -86,7 +85,7 @@ async def test_worker_timeout_kills_and_reaps_process_group(tmp_path: Path) -> N
     late_write = tmp_path / "late"
 
     with pytest.raises(BilibiliNoteFailure) as failure:
-        await _run_worker(
+        await run_media_worker(
             _blocking_process_command(ready, late_write),
             b"request",
             timeout_seconds=1,
@@ -106,7 +105,7 @@ async def test_worker_cancellation_kills_group_before_return(tmp_path: Path) -> 
     ready = tmp_path / "ready"
     late_write = tmp_path / "late"
     task = asyncio.create_task(
-        _run_worker(
+        run_media_worker(
             _blocking_process_command(ready, late_write),
             b"request",
             timeout_seconds=10,
@@ -181,7 +180,7 @@ async def test_worker_communication_failure_kills_group_before_return(
     monkeypatch.setattr(adapter_module.asyncio, "create_subprocess_exec", broken_create)
 
     with pytest.raises(RuntimeError, match="synthetic input failure"):
-        await _run_worker(
+        await run_media_worker(
             _blocking_process_command(ready, late_write),
             b"request",
             timeout_seconds=10,
@@ -214,8 +213,8 @@ async def test_parent_keeps_media_validation_authority(
         assert path == media
         return 481_000, 1920, 1080
 
-    monkeypatch.setattr(adapter_module, "_run_worker", fake_run_worker)
-    monkeypatch.setattr(adapter_module, "_probe", fake_probe)
+    monkeypatch.setattr(adapter_module, "run_media_worker", fake_run_worker)
+    monkeypatch.setattr(adapter_module, "probe_downloaded_media", fake_probe)
 
     artifact = await YtDlpBilibiliMedia().download(CANONICAL_URL, tmp_path)
 
@@ -233,7 +232,7 @@ def test_worker_environment_does_not_inherit_provider_secret(
 ) -> None:
     monkeypatch.setenv("SILICONFLOW_API_KEY", "must-not-cross-worker-boundary")
     monkeypatch.setenv("BILIBILI_NOTE_OPERATOR_EVENTS_PATH", "/tmp/operator.jsonl")
-    environment = _worker_environment()
+    environment = media_worker_environment()
 
     assert "SILICONFLOW_API_KEY" not in environment
     assert "BILIBILI_NOTE_OPERATOR_EVENTS_PATH" not in environment
@@ -258,7 +257,7 @@ async def test_operator_sink_toggle_does_not_change_worker_command_env_or_outcom
         invocations.append((command, payload, environment))  # type: ignore[arg-type]
         return 0, receipt
 
-    monkeypatch.setattr(adapter_module, "_run_worker", fake_run_worker)
+    monkeypatch.setattr(adapter_module, "run_media_worker", fake_run_worker)
     monkeypatch.delenv("BILIBILI_NOTE_OPERATOR_EVENTS_PATH", raising=False)
     without_sink = await adapter_module._download(CANONICAL_URL, tmp_path, None)
     monkeypatch.setenv("BILIBILI_NOTE_OPERATOR_EVENTS_PATH", str(tmp_path / "operator.jsonl"))
@@ -823,7 +822,7 @@ async def test_media_failed_operator_event_includes_closed_worker_diagnostics(
     async def fake_run_worker(*args: object, **kwargs: object) -> tuple[int, bytes]:
         return 1, receipt
 
-    monkeypatch.setattr(adapter_module, "_run_worker", fake_run_worker)
+    monkeypatch.setattr(adapter_module, "run_media_worker", fake_run_worker)
     monkeypatch.setattr(
         adapter_module,
         "emit_operator_event",
@@ -866,7 +865,7 @@ async def test_parent_removes_worker_partial_files_when_worker_cannot_cleanup(
         partial.write_bytes(b"partial")
         raise failure
 
-    monkeypatch.setattr(adapter_module, "_run_worker", fail_worker)
+    monkeypatch.setattr(adapter_module, "run_media_worker", fail_worker)
 
     with pytest.raises(type(failure)):
         await adapter_module._download(CANONICAL_URL, tmp_path, None)
@@ -884,7 +883,7 @@ async def test_parent_removes_partial_files_when_worker_receipt_is_malformed(
         partial.write_bytes(b"partial")
         return 0, b"not-json"
 
-    monkeypatch.setattr(adapter_module, "_run_worker", malformed_worker)
+    monkeypatch.setattr(adapter_module, "run_media_worker", malformed_worker)
 
     with pytest.raises(BilibiliNoteFailure) as failure:
         await adapter_module._download(CANONICAL_URL, tmp_path, None)
@@ -915,3 +914,28 @@ def test_worker_request_rejects_noncanonical_or_symlink_workspace(tmp_path: Path
 
 def test_termination_signal_is_posix_process_group_signal() -> None:
     assert signal.SIGTERM != signal.SIGKILL
+
+
+def test_pinned_http_downloader_flattened_short_read_keeps_bounded_retry_classification():
+    from yt_dlp import YoutubeDL
+    from yt_dlp.downloader.http import HttpFD
+
+    with YoutubeDL({"quiet": True, "logger": worker._QuietLogger()}) as downloader:
+        with pytest.raises(DownloadError) as failure:
+            HttpFD(downloader, {}).report_retry(ContentTooShortError(1571863, 17971064), 1, 0)
+    classified = worker._classify_failure(failure.value)
+    assert classified.cause == "transient"
+    assert classified.failure_family == "content_short"
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "Downloaded 1 bytes, expected 2 bytes",
+        "ERROR: [download] Got error: Downloaded 2 bytes, expected 1 bytes",
+        "ERROR: [download] Got error: Downloaded 1 bytes, expected 999999999999 bytes",
+        "ERROR: [download] Got error: Downloaded 1 bytes, expected 2 bytes http://private.invalid",
+    ],
+)
+def test_short_read_retry_does_not_accept_lookalike_upstream_text(message):
+    assert worker._classify_failure(DownloadError(message)).failure_family == "unknown"

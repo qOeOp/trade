@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any
 
 import rfc8785
 from mcp import types
@@ -13,7 +12,6 @@ from bilibili_note_mcp.application.errors import BilibiliNoteFailure
 from bilibili_note_mcp.application.operator_events import operator_run
 from bilibili_note_mcp.application.owned_tasks import finish_owned_task
 from bilibili_note_mcp.application.progress import (
-    ProgressReporter,
     ProgressUpdateV1,
 )
 from bilibili_note_mcp.application.search_notes import SearchAndCreateBilibiliNotes
@@ -21,20 +19,15 @@ from bilibili_note_mcp.domain.models import (
     CreateNoteInputV1,
     ErrorV1,
     FailureCode,
-    PublicBilibiliNoteResultV3,
-    PublicBilibiliSearchResultV1,
+    PublicBilibiliNoteResultV4,
+    PublicBilibiliSearchResultV2,
     SearchAndCreateInputV1,
 )
 from bilibili_note_mcp.presentation.schemas import search_tool_output_schema, tool_output_schema
 
-TOOL_NAME = "bilibili_note.create"
-SEARCH_TOOL_NAME = "bilibili_note.search_and_create"
+TOOL_NAME = "video_note.create"
+SEARCH_TOOL_NAME = "video_note.search_and_create"
 _USER_ANNOTATIONS = types.Annotations(audience=["user"])
-
-
-async def _terminal_cancellation_checkpoint() -> None:
-    """Yield after final validation and before constructing a terminal success."""
-    await asyncio.sleep(0)
 
 
 class _McpProgressReporter:
@@ -48,10 +41,6 @@ class _McpProgressReporter:
             )
         except Exception:
             return
-
-
-def _progress_reporter(context: ServerRequestContext[None]) -> ProgressReporter:
-    return _McpProgressReporter(context)
 
 
 def _error(code: FailureCode, reason: str) -> types.CallToolResult:
@@ -78,6 +67,7 @@ def _error(code: FailureCode, reason: str) -> types.CallToolResult:
 def build_server(
     use_case: CreateBilibiliNote,
     search_use_case: SearchAndCreateBilibiliNotes,
+    youtube_search_use_case: SearchAndCreateBilibiliNotes | None = None,
 ) -> Server:
     async def list_tools(
         _context: ServerRequestContext[None],
@@ -87,14 +77,18 @@ def build_server(
             tools=[
                 types.Tool(
                     name=TOOL_NAME,
-                    title="Create Bilibili research brief",
+                    title="Create illustrated video notes",
                     description=(
-                        "CURRENT_POC: convert one direct Bilibili video URL into a concise Chinese "
-                        "trading thought and strategy summary with exactly three sections: core "
-                        "strategy, methods, and risk management. Speech is aligned with transient "
-                        "internal visual analysis; no image is returned or persisted. Output is a "
-                        "research source, never "
-                        "trading evidence or authorization."
+                        "Convert a public Bilibili/YouTube video, or a public HTTPS "
+                        "page/direct video link "
+                        "into detailed Chinese "
+                        "notes "
+                        "with content-derived chapters, source/timestamp links and relevant "
+                        "real screenshots. "
+                        "Returns persistent local Markdown and HTML paths. Images are on the "
+                        "MCP server filesystem; "
+                        "open the HTML preview if the client cannot render local Markdown "
+                        "images. No subject-specific framework is imposed."
                     ),
                     input_schema=CreateNoteInputV1.model_json_schema(by_alias=True),
                     output_schema=tool_output_schema(),
@@ -107,16 +101,16 @@ def build_server(
                 ),
                 types.Tool(
                     name=SEARCH_TOOL_NAME,
-                    title="Search and create Bilibili research briefs",
+                    title="Search and create illustrated video notes",
                     description=(
-                        "CURRENT_POC: search Bilibili from one natural-language research topic, "
-                        "then convert bounded candidates through a rolling window of at most two "
-                        "into "
-                        "Chinese multimodal strategy summaries. Default 2 videos; hard maximum 3. "
-                        "Returns "
-                        "one deterministic aggregation with only core strategy, methods, and risk "
-                        "management; candidate links and per-video failures stay internal. Output "
-                        "is a research source, never trading evidence or authorization."
+                        "Search the selected platform (Bilibili or YouTube) by a topic or "
+                        "creator name and produce a collection of "
+                        "1–3 verified illustrated notes with separate source attribution and "
+                        "content-derived chapters. "
+                        "At most two videos process concurrently; exact requested success count "
+                        "is required. "
+                        "Returns local Markdown, HTML and screenshot paths on the server "
+                        "filesystem."
                     ),
                     input_schema=SearchAndCreateInputV1.model_json_schema(by_alias=True),
                     output_schema=search_tool_output_schema(),
@@ -131,99 +125,81 @@ def build_server(
         )
 
     async def _call_tool_result(
-        context: ServerRequestContext[None], params: types.CallToolRequestParams
+        context: ServerRequestContext[None], request: CreateNoteInputV1 | SearchAndCreateInputV1
     ) -> types.CallToolResult:
-        if params.name not in {TOOL_NAME, SEARCH_TOOL_NAME}:
-            return _error("OUTPUT_INVALID", "tool_name_invalid")
-        if params.name == SEARCH_TOOL_NAME:
-            try:
-                search_request = SearchAndCreateInputV1.model_validate(params.arguments or {})
-            except ValidationError:
-                return _error("OUTPUT_INVALID", "tool_arguments_invalid")
-            progress = _progress_reporter(context)
-            try:
-                search_payload = await search_use_case.execute(
-                    search_request.query, search_request.max_videos, progress
+        progress = _McpProgressReporter(context)
+        try:
+            if isinstance(request, SearchAndCreateInputV1):
+                selected = (
+                    youtube_search_use_case if request.platform == "youtube" else search_use_case
                 )
-                await _terminal_cancellation_checkpoint()
-            except asyncio.CancelledError:
-                return _error("CANCELLED", "request_cancelled")
-            except BilibiliNoteFailure as e:
-                return _error(e.code, e.reason)
-            except Exception:
-                return _error("INTERNAL", "unexpected_internal_failure")
-            search_result = PublicBilibiliSearchResultV1(
-                schema="bilibili-note.search-result/v1",
-                rendered_markdown=search_payload.rendered_markdown,
-            )
-            search_structured: dict[str, Any] = search_result.model_dump(mode="json", by_alias=True)
-            return types.CallToolResult(
-                is_error=False,
-                content=[
-                    types.TextContent(
-                        type="text",
-                        text=search_result.rendered_markdown,
-                        annotations=_USER_ANNOTATIONS,
+                if selected is None:
+                    return _error("SOURCE_UNAVAILABLE", "search_platform_not_configured")
+                payload = await selected.execute(
+                    request.query, request.max_videos, progress, quality=request.quality
+                )
+                result: PublicBilibiliSearchResultV2 | PublicBilibiliNoteResultV4 = (
+                    PublicBilibiliSearchResultV2(
+                        schema="bilibili-note.search-result/v2",
+                        rendered_markdown=payload.rendered_markdown,
+                        note_path=payload.note_path,
+                        html_path=payload.html_path,
+                        images=payload.images,
                     )
-                ],
-                structured_content=search_structured,
-            )
-        try:
-            create_request = CreateNoteInputV1.model_validate(params.arguments or {})
-        except ValidationError:
-            return _error("INVALID_URL", "tool_arguments_invalid")
-        progress = _progress_reporter(context)
-        try:
-            create_payload = await use_case.execute(create_request.url, progress)
-            await _terminal_cancellation_checkpoint()
+                )
+            else:
+                payload = await use_case.execute(request.url, progress, quality=request.quality)
+                result = PublicBilibiliNoteResultV4(
+                    schema="bilibili-note.result/v4",
+                    rendered_markdown=payload.rendered_markdown,
+                    note_path=payload.note_path,
+                    html_path=payload.html_path,
+                    images=payload.images,
+                )
         except asyncio.CancelledError:
             return _error("CANCELLED", "request_cancelled")
         except BilibiliNoteFailure as e:
             return _error(e.code, e.reason)
         except Exception:
             return _error("INTERNAL", "unexpected_internal_failure")
-        create_result = PublicBilibiliNoteResultV3(
-            schema="bilibili-note.result/v3",
-            rendered_markdown=create_payload.rendered_markdown,
-        )
-        create_structured: dict[str, Any] = create_result.model_dump(mode="json", by_alias=True)
+        # Publication committed: return its receipt without another cancellation point.
         return types.CallToolResult(
             is_error=False,
             content=[
                 types.TextContent(
-                    type="text",
-                    text=create_result.rendered_markdown,
-                    annotations=_USER_ANNOTATIONS,
+                    type="text", text=result.rendered_markdown, annotations=_USER_ANNOTATIONS
                 )
             ],
-            structured_content=create_structured,
+            structured_content=result.model_dump(mode="json", by_alias=True),
         )
 
     async def call_tool(
         context: ServerRequestContext[None], params: types.CallToolRequestParams
     ) -> types.CallToolResult:
-        if params.name not in {TOOL_NAME, SEARCH_TOOL_NAME}:
+        name = {
+            "bilibili_note.create": TOOL_NAME,
+            "bilibili_note.search_and_create": SEARCH_TOOL_NAME,
+        }.get(params.name, params.name)
+        if name not in {TOOL_NAME, SEARCH_TOOL_NAME}:
             return _error("OUTPUT_INVALID", "tool_name_invalid")
         try:
-            if params.name == SEARCH_TOOL_NAME:
-                admitted_args = SearchAndCreateInputV1.model_validate(
-                    params.arguments or {}
-                ).model_dump(mode="json", by_alias=True)
-            else:
-                admitted_args = CreateNoteInputV1.model_validate(params.arguments or {}).model_dump(
-                    mode="json", by_alias=True
+            if name == SEARCH_TOOL_NAME:
+                admitted: CreateNoteInputV1 | SearchAndCreateInputV1 = (
+                    SearchAndCreateInputV1.model_validate(params.arguments or {})
                 )
+            else:
+                admitted = CreateNoteInputV1.model_validate(params.arguments or {})
         except ValidationError:
-            if params.name == SEARCH_TOOL_NAME:
+            if name == SEARCH_TOOL_NAME:
                 return _error("OUTPUT_INVALID", "tool_arguments_invalid")
             return _error("INVALID_URL", "tool_arguments_invalid")
         request_identity = {
             "tool": params.name,
-            "arguments": admitted_args,
+            "arguments": admitted.model_dump(mode="json", by_alias=True),
         }
         with operator_run(request_identity) as run:
             run.emit("request_started", tool=params.name)
-            request = asyncio.create_task(_call_tool_result(context, params))
+            request = asyncio.create_task(_call_tool_result(context, admitted))
             try:
                 result = await asyncio.shield(request)
             except asyncio.CancelledError:

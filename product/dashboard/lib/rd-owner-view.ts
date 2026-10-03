@@ -125,8 +125,7 @@ export function projectRdOwnerViewLocatorV1(
       identity_fields: fields.map(({ key, value }) => ({ key, value })),
     };
   }
-  if ((operationId === "artifact_build.shadow_resolve.v1"
-    || operationId === "artifact_build.formation_execute.v1")
+  if (operationId === "artifact_build.shadow_resolve.v1"
     && exactFields(fields, [
       "research_request_identity", "build_request_identity", "attempt_identity",
     ])) {

@@ -170,7 +170,7 @@ test("Operations Audit bilingual completeness closes source, geometry and mutati
     expectBonded({ [suffix || "en"]: spec }, auditCode, [
       "DRAWABLE_EXACT", "IMPLEMENTATION_ADMITTED", "dashboard.dependency.cancel.queued.v1",
       "dashboard.operational_cache.delete.v1", "source_intake.research.submit_or_resolve.v1",
-      "artifact_build.formation_execute.v1", "OperationAuditTable", "Correlation timeline",
+      "OperationAuditTable", "Correlation timeline",
       "24h", "7d", "30d", "512", "UPDATE", "DELETE",
     ], "Operations Audit");
     const blueprintOnly = doc.split("\n").find((line) => line.startsWith("| `BLUEPRINT_ONLY_NOT_IMPLEMENTABLE`"));

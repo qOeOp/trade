@@ -5,15 +5,20 @@
 //! After admission, the caller can move only this opaque bundle into the consumer; there is no API
 //! for appending or replacing instruments or scheduling data.
 
+use std::collections::BTreeMap;
+
 use sha2::{Digest, Sha256};
 use vibe_data::owner::instrument_master_v2::ValidatedCryptoPerpetualPublicTermsV2;
 use vibe_data::owner::native_replay_scheduling_v1::NativeReplaySchedulingReadbackV1;
 use vibe_data::owner::native_replay_scheduling_v2::NativeReplayFrameSequenceReadbackV2;
 use vibe_data::owner::strategy_input_binding::StrategyInputEventKind;
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+use vibe_model::types::Money;
 use vibe_model::{
     data::{Bar, BarType, Data, HasTsInit, QuoteTick},
     identifiers::{AccountId, StrategyId},
     instruments::{Instrument, InstrumentAny},
+    types::{Price, Quantity},
 };
 
 use crate::{
@@ -39,6 +44,54 @@ const SCHEDULING_DIGEST_DOMAIN_V1: &[u8] = b"strategy-factory.replay-target-set-
 const FRAME_SEQUENCE_DIGEST_DOMAIN_V1: &[u8] =
     b"vibe.replay.target-set-execution-frame-sequence.v1\0";
 const CENSUS_DIGEST_DOMAIN_V1: &[u8] = b"strategy-factory.replay-target-set-execution-census.v1\0";
+
+/// One member's price grid in the Replay, and where it came from.
+///
+/// The Instrument Master states a perpetual's tick as the venue publishes it today, and a venue
+/// coarsens a tick as the price rises: BTCUSDT's is 0.10 today, while its 2021-06-01 daily bar opened
+/// at 37244.36. A Replay over that window prices at the data's own grid instead, so the bundle widens
+/// the member's price precision to the finest scale its window's data shows whenever that is finer
+/// than the tick, and records both and the datum that set it. The order grid then comes from the data,
+/// not from the venue's tick at the time, which the Instrument Master does not hold.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize)]
+pub struct ReplayPriceGridV1 {
+    pub(crate) instrument_price_precision: u8,
+    pub(crate) data_price_precision: u8,
+    pub(crate) finest_price_at_ns: u64,
+    pub(crate) replay_price_precision: u8,
+}
+
+impl ReplayPriceGridV1 {
+    /// The price precision of the Instrument Master's tick.
+    #[must_use]
+    pub const fn instrument_price_precision(&self) -> u8 {
+        self.instrument_price_precision
+    }
+
+    /// The finest price scale any of the member's BAR or Quote values in the window shows.
+    #[must_use]
+    pub const fn data_price_precision(&self) -> u8 {
+        self.data_price_precision
+    }
+
+    /// The event instant of the member's first datum showing that finest scale.
+    #[must_use]
+    pub const fn finest_price_at_ns(&self) -> u64 {
+        self.finest_price_at_ns
+    }
+
+    /// The price precision the Replay runs the member at: the finer of the two.
+    #[must_use]
+    pub const fn replay_price_precision(&self) -> u8 {
+        self.replay_price_precision
+    }
+
+    /// Whether the Replay's grid came from the data rather than from the Instrument Master's tick.
+    #[must_use]
+    pub const fn widened_from_data(&self) -> bool {
+        self.replay_price_precision > self.instrument_price_precision
+    }
+}
 
 /// Exact Instrument Owner evidence and economic terms consumed for one target-set member.
 #[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
@@ -192,6 +245,7 @@ pub struct ReplayTargetSetExecutionCensusV1 {
     pub(crate) universe_selection_digest: [u8; 32],
     pub(crate) member_instruments: BoundedMembers<String>,
     pub(crate) instrument_terms: BoundedMembers<ReplayTargetSetInstrumentCensusV1>,
+    pub(crate) price_grids: BoundedMembers<ReplayPriceGridV1>,
     pub(crate) scheduling_data_digest: [u8; 32],
     pub(crate) scheduling_data_count: u64,
     pub(crate) bar_count: u64,
@@ -299,6 +353,12 @@ impl ReplayTargetSetExecutionCensusV1 {
         &self.instrument_terms
     }
 
+    /// Each member's price grid in the Replay, in member order.
+    #[must_use]
+    pub fn price_grids(&self) -> &[ReplayPriceGridV1] {
+        &self.price_grids
+    }
+
     #[must_use]
     pub const fn scheduling_data_digest(&self) -> [u8; 32] {
         self.scheduling_data_digest
@@ -344,6 +404,9 @@ pub struct ReplayTargetSetExecutionBundleV1 {
     pub(crate) instruments: BoundedMembers<InstrumentAny>,
     pub(crate) bar_types: BoundedMembers<BarType>,
     pub(crate) data: Vec<Data>,
+    /// Each frame's fill-quote instants, keyed by the frame's time, one per member in member order:
+    /// the instant that member's Quote arrives at, which the Host submits its decided order on.
+    pub(crate) fill_quote_instants: BTreeMap<u64, Vec<u64>>,
     pub(crate) census: ReplayTargetSetExecutionCensusV1,
 }
 
@@ -362,6 +425,38 @@ impl ReplayTargetSetExecutionBundleV1 {
     #[must_use]
     pub const fn native_materialization_digest(&self) -> [u8; 32] {
         self.census.native_materialization_digest()
+    }
+
+    /// Returns the census this bundle was built from: its Plan, universe selection, members,
+    /// instrument terms and scheduling data counts, which an acceptance states against the Owner
+    /// facts it expected rather than against the census digest alone.
+    #[must_use]
+    pub const fn census(&self) -> &ReplayTargetSetExecutionCensusV1 {
+        &self.census
+    }
+
+    /// The native instruments this bundle runs, materialized from the Owners' terms.
+    ///
+    /// Read by the sealed first COMPOSER_V3 acceptance, which states the run's arithmetic
+    /// independently of the engine from the exact values the engine was given.
+    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+    #[must_use]
+    pub fn instruments_for_acceptance(&self) -> &[InstrumentAny] {
+        &self.instruments
+    }
+
+    /// The native BAR and Quote data this bundle runs, at its instruments' precision.
+    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+    #[must_use]
+    pub fn native_data_for_acceptance(&self) -> &[Data] {
+        &self.data
+    }
+
+    /// The venue's starting balance this bundle runs with.
+    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+    #[must_use]
+    pub fn starting_balance_for_acceptance(&self) -> Option<Money> {
+        self.native_profile.starting_balance()
     }
 
     /// Returns how many Owner-sealed universe frames this bundle was built from.
@@ -650,6 +745,9 @@ impl ReplayTargetSetExecutionBundleV1 {
             frame_time == request_window.start_event_ns,
             "request execution bundle frame time mismatches Owner request window"
         );
+        let (instruments, price_grids) = widen_price_grids_to_data(instruments, &data)?;
+        let data = align_native_data_to_instruments(data, &instruments)?;
+        ensure_native_data_at_instrument_precision(&data, &instruments)?;
         let scheduling_data_digest = validate_and_digest_scheduling_data(
             &data,
             &instruments,
@@ -700,6 +798,7 @@ impl ReplayTargetSetExecutionBundleV1 {
             instrument_terms: native_profile
                 .instrument_terms()
                 .map(|terms| ReplayTargetSetInstrumentCensusV1::from(terms)),
+            price_grids,
             scheduling_data_digest,
             scheduling_data_count: u64::try_from(data.len())?,
             bar_count: u64::try_from(instruments.len() * universe_frames.len())?,
@@ -707,6 +806,7 @@ impl ReplayTargetSetExecutionBundleV1 {
             census_digest: [0; 32],
         };
         census.census_digest = digest_census(&census)?;
+        let fill_quote_instants = fill_quote_instants(&data, instruments.len(), frame_times);
         Ok(Self {
             plan,
             artifact,
@@ -718,6 +818,7 @@ impl ReplayTargetSetExecutionBundleV1 {
             instruments,
             bar_types,
             data,
+            fill_quote_instants,
             census,
         })
     }
@@ -860,6 +961,16 @@ fn digest_census(census: &ReplayTargetSetExecutionCensusV1) -> anyhow::Result<[u
             hasher.update([value.scale]);
         }
     }
+    hasher.update(b"PRICE_GRIDS_V1\0");
+
+    for grid in &census.price_grids {
+        hasher.update([
+            grid.instrument_price_precision,
+            grid.data_price_precision,
+            grid.replay_price_precision,
+        ]);
+        hasher.update(grid.finest_price_at_ns.to_be_bytes());
+    }
     hasher.update(census.scheduling_data_count.to_be_bytes());
     hasher.update(census.bar_count.to_be_bytes());
     hasher.update(census.event_count.to_be_bytes());
@@ -920,6 +1031,206 @@ fn verify_scheduling_data_against_sealed_frames(
         "sealed frame liquidity does not precede the next frame's first BAR"
     );
     Ok(())
+}
+
+/// Widens each member's price grid to the finest scale its window's BAR and Quote prices show.
+///
+/// A member whose data is no finer than its tick keeps the Instrument Master's grid. One whose data
+/// is finer runs at the data's precision, with a one-unit increment at that precision, since the
+/// engine requires an increment at the instrument's own precision. Only prices widen: a size grid is
+/// what one grid unit of position means, so a size finer than its instrument stays refused by name
+/// in [`align_native_data_to_instruments`].
+fn widen_price_grids_to_data(
+    instruments: BoundedMembers<InstrumentAny>,
+    data: &[Data],
+) -> anyhow::Result<(
+    BoundedMembers<InstrumentAny>,
+    BoundedMembers<ReplayPriceGridV1>,
+)> {
+    let mut widened = Vec::with_capacity(instruments.len());
+    let mut grids = Vec::with_capacity(instruments.len());
+
+    for instrument in instruments {
+        let instrument_id = instrument.id();
+        let mut finest: Option<(u8, u64)> = None;
+
+        for datum in data
+            .iter()
+            .filter(|datum| datum.instrument_id() == instrument_id)
+        {
+            let (prices, at) = match datum {
+                Data::Bar(bar) => (vec![bar.open, bar.high, bar.low, bar.close], bar.ts_event),
+                Data::Quote(quote) => (vec![quote.bid_price, quote.ask_price], quote.ts_event),
+                _ => continue,
+            };
+
+            for price in prices {
+                let scale = u8::try_from(price.as_decimal().normalize().scale())?;
+
+                if finest.is_none_or(|(finest_scale, _)| scale > finest_scale) {
+                    finest = Some((scale, at.as_u64()));
+                }
+            }
+        }
+        let (data_price_precision, finest_price_at_ns) = finest.ok_or_else(|| {
+            anyhow::anyhow!("request execution bundle member {instrument_id} has no priced data")
+        })?;
+        let instrument_price_precision = instrument.price_precision();
+        let replay_price_precision = instrument_price_precision.max(data_price_precision);
+        let instrument = if replay_price_precision > instrument_price_precision {
+            let InstrumentAny::CryptoPerpetual(mut perpetual) = instrument else {
+                anyhow::bail!(
+                    "request execution bundle can widen only a crypto perpetual's price grid"
+                );
+            };
+            perpetual.price_precision = replay_price_precision;
+            perpetual.price_increment = Price::from_decimal_dp(
+                rust_decimal::Decimal::new(1, u32::from(replay_price_precision)),
+                replay_price_precision,
+            )?;
+            InstrumentAny::CryptoPerpetual(perpetual)
+        } else {
+            instrument
+        };
+        widened.push(instrument);
+        grids.push(ReplayPriceGridV1 {
+            instrument_price_precision,
+            data_price_precision,
+            finest_price_at_ns,
+            replay_price_precision,
+        });
+    }
+    Ok((
+        BoundedMembers::try_from(widened)?,
+        BoundedMembers::try_from(grids)?,
+    ))
+}
+
+/// Re-expresses each native BAR and Quote at its instrument's price and size precision, exactly.
+///
+/// Market Data issues values at their canonical scale, without trailing fractional zeros, so a
+/// close of 123.450 on a 0.001 tick arrives as 123.45 at precision 2. The engine needs every price
+/// and size at the instrument's precision: its matching engine logs and drops a BAR or Quote whose
+/// precision differs, and its venue rejects an order priced at another precision. The value is
+/// never changed. A value finer than the instrument's grid is refused by name rather than rounded.
+fn align_native_data_to_instruments(
+    data: Vec<Data>,
+    instruments: &[InstrumentAny],
+) -> anyhow::Result<Vec<Data>> {
+    data.into_iter()
+        .map(|datum| {
+            let instrument = instruments
+                .iter()
+                .find(|instrument| instrument.id() == datum.instrument_id())
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "request execution bundle native data names no target set member"
+                    )
+                })?;
+            let price_precision = instrument.price_precision();
+            let size_precision = instrument.size_precision();
+            Ok(match datum {
+                Data::Bar(bar) => Data::Bar(Bar {
+                    open: exact_price(bar.open, price_precision)?,
+                    high: exact_price(bar.high, price_precision)?,
+                    low: exact_price(bar.low, price_precision)?,
+                    close: exact_price(bar.close, price_precision)?,
+                    volume: exact_quantity(bar.volume, size_precision)?,
+                    ..bar
+                }),
+                Data::Quote(quote) => Data::Quote(QuoteTick {
+                    bid_price: exact_price(quote.bid_price, price_precision)?,
+                    ask_price: exact_price(quote.ask_price, price_precision)?,
+                    bid_size: exact_quantity(quote.bid_size, size_precision)?,
+                    ask_size: exact_quantity(quote.ask_size, size_precision)?,
+                    ..quote
+                }),
+                other => other,
+            })
+        })
+        .collect()
+}
+
+fn exact_price(price: Price, precision: u8) -> anyhow::Result<Price> {
+    let aligned = Price::from_decimal_dp(price.as_decimal(), precision)?;
+    anyhow::ensure!(
+        aligned.as_decimal() == price.as_decimal(),
+        "request execution bundle native price {price} is finer than its instrument's precision {precision}"
+    );
+    Ok(aligned)
+}
+
+fn exact_quantity(quantity: Quantity, precision: u8) -> anyhow::Result<Quantity> {
+    let aligned = Quantity::from_decimal_dp(quantity.as_decimal(), precision)?;
+    anyhow::ensure!(
+        aligned.as_decimal() == quantity.as_decimal(),
+        "request execution bundle native size {quantity} is finer than its instrument's precision {precision}"
+    );
+    Ok(aligned)
+}
+
+/// Refuses, by name, any native BAR or Quote whose precision is not its instrument's.
+///
+/// The engine does not refuse such data: its matching engine logs and drops it, and the run
+/// completes on what remained. A price whose trailing zero was canonicalized away would silently
+/// remove its whole BAR or Quote from a result that still reads as complete. This guard makes that
+/// impossible past the bundle, whatever produced the data.
+fn ensure_native_data_at_instrument_precision(
+    data: &[Data],
+    instruments: &[InstrumentAny],
+) -> anyhow::Result<()> {
+    for datum in data {
+        let instrument = instruments
+            .iter()
+            .find(|instrument| instrument.id() == datum.instrument_id())
+            .ok_or_else(|| {
+                anyhow::anyhow!("request execution bundle native data names no target set member")
+            })?;
+        let (prices, sizes): (Vec<Price>, Vec<Quantity>) = match datum {
+            Data::Bar(bar) => (
+                vec![bar.open, bar.high, bar.low, bar.close],
+                vec![bar.volume],
+            ),
+            Data::Quote(quote) => (
+                vec![quote.bid_price, quote.ask_price],
+                vec![quote.bid_size, quote.ask_size],
+            ),
+            _ => continue,
+        };
+        anyhow::ensure!(
+            prices
+                .iter()
+                .all(|price| price.precision == instrument.price_precision())
+                && sizes
+                    .iter()
+                    .all(|size| size.precision == instrument.size_precision()),
+            "request execution bundle native data precision differs from its instrument's, which the engine would drop"
+        );
+    }
+    Ok(())
+}
+
+/// Each frame's fill-quote instant per member, in member order, from data
+/// `validate_and_digest_scheduling_data` has accepted: every round is one BAR per member then one
+/// Quote per member, each after the frame's instant.
+fn fill_quote_instants(
+    data: &[Data],
+    member_count: usize,
+    frame_times: &[u64],
+) -> BTreeMap<u64, Vec<u64>> {
+    data.chunks_exact(member_count * 2)
+        .zip(frame_times)
+        .map(|(round, frame_time)| {
+            let instants = round[member_count..]
+                .iter()
+                .filter_map(|value| match value {
+                    Data::Quote(quote) => Some(quote.ts_event.as_u64()),
+                    _ => None,
+                })
+                .collect();
+            (*frame_time, instants)
+        })
+        .collect()
 }
 
 fn validate_and_digest_scheduling_data(
@@ -1092,6 +1403,122 @@ mod tests {
     use crate::program_host_v2_target_set_backtest_tests::instruments;
 
     const FRAME_TIME: u64 = 1_000;
+
+    /// The instruments the scheduling fixture is for, on a 0.001 tick: its data, at the canonical
+    /// scale of two places, is coarser than the instruments.
+    fn finer_tick_instruments() -> ([InstrumentAny; 2], Vec<Data>) {
+        let (mut instruments, _, data) = scheduling_fixture();
+        for instrument in &mut instruments {
+            let InstrumentAny::CryptoPerpetual(instrument) = instrument else {
+                unreachable!("the scheduling fixture's instruments are perpetuals")
+            };
+            instrument.price_precision = 3;
+            instrument.price_increment = Price::from("0.001");
+        }
+        (instruments, data)
+    }
+
+    /// BTCUSDT's 2021-06-01 daily bar from Binance's public USD-M `klines` endpoint, at Market
+    /// Data's canonical scale of nine places, on the instrument as today's 0.10 tick makes it.
+    fn btc_2021_on_todays_tick() -> (BoundedMembers<InstrumentAny>, Vec<Data>) {
+        let (mut instruments, _, mut data) = scheduling_fixture();
+        let InstrumentAny::CryptoPerpetual(btc) = &mut instruments[0] else {
+            unreachable!("the scheduling fixture's instruments are perpetuals")
+        };
+        btc.price_precision = 1;
+        btc.price_increment = Price::from("0.1");
+        let Data::Bar(bar) = &mut data[0] else {
+            unreachable!("the first datum is the first member's BAR")
+        };
+        bar.open = Price::from("37244.360000000");
+        bar.high = Price::from("37893.760000000");
+        bar.low = Price::from("35500.000000000");
+        bar.close = Price::from("36693.410000000");
+        (BoundedMembers::try_from(instruments).unwrap(), data)
+    }
+
+    #[rstest::rstest]
+    fn a_window_finer_than_todays_tick_is_refused_on_that_tick() {
+        let (instruments, data) = btc_2021_on_todays_tick();
+        let refusal = align_native_data_to_instruments(data, &instruments)
+            .expect_err("a two-place 2021 price is finer than today's one-place tick");
+        assert_eq!(
+            refusal.to_string(),
+            "request execution bundle native price 37244.360000000 is finer than its instrument's precision 1"
+        );
+    }
+
+    /// The bundle widens BTC's grid to the data's two places, records where that came from, and
+    /// the data then aligns; the other member's data is no finer than its tick, so it keeps it.
+    #[rstest::rstest]
+    fn a_window_finer_than_todays_tick_widens_its_price_grid_to_the_data() {
+        let (instruments, data) = btc_2021_on_todays_tick();
+        let (instruments, grids) = widen_price_grids_to_data(instruments, &data).unwrap();
+        assert_eq!(
+            grids[0],
+            ReplayPriceGridV1 {
+                instrument_price_precision: 1,
+                data_price_precision: 2,
+                finest_price_at_ns: FRAME_TIME,
+                replay_price_precision: 2,
+            }
+        );
+        assert!(grids[0].widened_from_data());
+        assert_eq!(
+            (
+                instruments[0].price_precision(),
+                instruments[0].price_increment()
+            ),
+            (2, Price::from("0.01"))
+        );
+        assert_eq!(
+            grids[1],
+            ReplayPriceGridV1 {
+                instrument_price_precision: 2,
+                data_price_precision: 2,
+                finest_price_at_ns: FRAME_TIME,
+                replay_price_precision: 2,
+            }
+        );
+        assert!(!grids[1].widened_from_data());
+        let aligned = align_native_data_to_instruments(data, &instruments).unwrap();
+        ensure_native_data_at_instrument_precision(&aligned, &instruments).unwrap();
+        let Data::Bar(bar) = &aligned[0] else {
+            unreachable!("the first datum is the first member's BAR")
+        };
+        assert_eq!(bar.open, Price::from("37244.36"));
+    }
+
+    #[rstest::rstest]
+    fn data_at_another_precision_is_refused_by_name_before_the_engine_can_drop_it() {
+        let (instruments, data) = finer_tick_instruments();
+        let refusal = ensure_native_data_at_instrument_precision(&data, &instruments)
+            .expect_err("two-place data is not at a three-place instrument's precision");
+        assert!(
+            refusal.to_string().contains("which the engine would drop"),
+            "{refusal}"
+        );
+
+        let aligned = align_native_data_to_instruments(data, &instruments).unwrap();
+        ensure_native_data_at_instrument_precision(&aligned, &instruments).unwrap();
+    }
+
+    #[rstest::rstest]
+    fn a_value_finer_than_its_instrument_is_refused_by_name_not_rounded() {
+        let (instruments, _, mut data) = scheduling_fixture();
+        let Data::Quote(quote) = &mut data[2] else {
+            unreachable!("the third datum is the first member's Quote")
+        };
+        quote.ask_price = Price::from("100.015");
+        let refusal = align_native_data_to_instruments(data, &instruments)
+            .expect_err("a three-place price on a two-place instrument is not exact");
+        assert!(
+            refusal
+                .to_string()
+                .contains("is finer than its instrument's precision"),
+            "{refusal}"
+        );
+    }
 
     fn scheduling_fixture() -> ([InstrumentAny; 2], [BarType; 2], Vec<Data>) {
         let instruments = instruments();

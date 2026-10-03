@@ -123,13 +123,21 @@ R&D 内的 Develop 能力返回内容寻址 Strategy Artifact 和 Build Receipt�
   capability；该 capability 绑定准确 prepared target-set、运行中 Host instance、account/equity snapshot、两份
   instrument fact 与 price、current position、公式及 derived target，crate peer 与 caller 都不能构造或修改其
   数值。随后以 grid units 乘 size increment 准确重建原生 quantity，
-  且 instrument normalization 必须保持其不变。提交前的 host commit 与 order preflight 对整批原子；Sim
-  Exchange submit 与 fill 按顺序发生，不具备 venue 原子性：后续 submit 失败会 fault 本次运行，并保留较早的
+  且 instrument normalization 必须保持其不变。提交前的 host commit 与 order preflight 对整批原子。Host 在
+  frame BAR 收盘时决策并 commit，但每个成员的原生 order 只在该成员的 fill quote 到达时才 submit：fill quote
+  是该 frame 的 quote cut 中的 Quote，时刻由 execution bundle 按成员给出。随后由 Sim venue 对该 Quote 的
+  on-arrival 检查决定流动性：fill quote 已经穿过的 limit 以 TAKER 在 touch 价成交并按 taker 费率计费，只有
+  未穿过的 limit 才挂单，之后以 MAKER 在其 limit 价成交。成员 order 等待期间到达另一时刻的 Quote 按
+  `FILL_QUOTE_NOT_THE_FRAMES_QUOTE_CUT` 拒绝；下一根 BAR 或运行结束时仍在等待的 order 按
+  `FILL_QUOTE_MISSING_BEFORE_NEXT_FRAME` 拒绝；protective order 的放置不变。Sim
+  Exchange submit 与 fill 按顺序发生，不具备 venue 原子性，较早成员可能在较晚成员的 fill quote 到达前成交：后续 submit 失败会 fault 本次运行，并保留较早的
   原生 effect 与进程内 replay 证据。一个有界 test-only second-submit boundary fault 动态证明：Host commit 后
   第一份真实 submit 已成功且原生 cached order 被保留；这不代表 venue rollback 或 all-or-none submit。每个
   `ClientOrderId` 都绑定准确 instrument 与 host-derived intent；partial/
   full/canceled/rejected progress 只推进对应成员，保留独立 residual，并把该成员 protection quantity 同步到
-  实际 filled quantity。真实 `BacktestEngine`/Sim Exchange acceptance corpus 使用不同 price、multiplier 与
+  实际 filled quantity。pre-trade risk denial 以该成员的 rejection 进入 kernel。运行结束时仍挂着的 position
+  order 会在 venue 撤销，Host 在 Stop 之前把这次撤销告诉 kernel，因为正在停止的 strategy 收不到任何 venue
+  event；protective order 保留。真实 `BacktestEngine`/Sim Exchange acceptance corpus 使用不同 price、multiplier 与
   size grid，证明重复运行相等，以及不中断执行与同一运行中仅恢复不透明 Host checkpoint 的后缀相等。另一份
   real-Sim regression 使用 Owner-sealed 第一帧和 test-only admitted successor frame，先开仓并形成非零
   unrealized PnL，再证明下一 weight target 使用该 batch 的 account-scoped equity，而不是 cash balance；它
@@ -660,7 +668,17 @@ R&D 仅在准确读取 V1 binding 和每一帧的 Owner 能力后，原子托管
 V2 sequence digest 覆盖各帧顺序及全部 frame、schedule、liquidity receipt。精确重试和响应丢失恢复只回读
 原记录，意义变化零写入冲突。Native preparation 必须独立重解每个 Owner cut、逐字节复现 V2 binding，再交付
 move-only bundle；bundle 在 ProgramHost 或 Backtest 改变状态前验证每帧完整 BAR、随后真实 EVENT 流动性、
-跨帧时间顺序和请求窗口。不能把 V1 解释成 V2，也不能在 V2 来源不可用时退回 V1。
+跨帧时间顺序和请求窗口。不能把 V1 解释成 V2，也不能在 V2 来源不可用时退回 V1。Market Data 按规范 scale 签发每个
+BAR 与 Quote 的值，所以 0.001 tick 上的收盘价 123.450 到达时是 123.45。Instrument Master 的 tick 是取回当天交易所的
+tick，而交易所会随价格上涨把 tick 放粗：BTCUSDT 今天的 tick 是 0.10，它 2021-06-01 的日线开盘却是 37244.36；SOLUSDT
+今天是 0.0100，它 2021 年的价格有三位小数。所以 bundle 先把每个成员的价格网格放宽到其窗口内 BAR 与 Quote 价格出现过的
+最细 scale（当它比 tick 更细时），increment 取该 scale 上的一个单位；census 按成员记下 tick 的精度、数据的精度、第一个
+达到该精度的数据的时刻，以及 Replay 实际运行的精度。于是订单网格取自数据，而不是当时交易所的 tick，后者 Instrument
+Master 并不持有。Host 把这一点守成不变量而不是假设：position order 的价格与每笔成交的价格都必须落在该成员的数据网格上，
+否则运行按名失败，即 `ORDER_PRICE_OFF_THE_DATA_GRID` 或 `FILL_PRICE_OFF_THE_DATA_GRID`；protective stop-market 的触发价
+由 kernel 给出、落在 Replay 的网格上，它按 touch 成交，由成交检查覆盖。只放宽价格：size 网格就是一个 grid unit 仓位
+的含义。随后 bundle 把每个价格与数量在不改变数值的前提下改写为其 instrument 的精度，比 instrument 网格更细的值按名
+拒绝；随后对任何不在其 instrument 精度上的 BAR 或 Quote 按名拒绝，否则引擎会静默丢弃该数据，运行却照常完成。
 
 Backtest V2 Result custody 绑定 V2 binding、sequence digest、每帧消费顺序、实际 target set/fill 和本次
 canonical Result bytes；单帧 V1 的 28 项证据不能证明一次序列运行。只有每个成员真实进场成交、出场再次成交、
@@ -691,7 +709,7 @@ frame；`a_batch_holding_a_second_instant_of_one_role_binds_no_frame` 测的正�
 可编译配置下都没有东西签发 `NativeReplayExecutionInputBindingV1`。它的签发收敛到
 `issue_native_replay_execution_input_binding_v1`，而后者唯一的调用方是一个 HTTP handler，
 只在 `rd-owner-api` 这个 crate 自己的 `composer-replay-issuance` 下注册，
-部署镜像不开启它，有序链路的构建只经由 `sealed-develop-composer-acceptance` 打开它；没有 SQL 或脚本直接写那几张绑定表，
+部署镜像经由 `composer-v3-replay` 开启它，有序链路的构建经由 `sealed-develop-composer-acceptance` 打开它；没有 SQL 或脚本直接写那几张绑定表，
 也没有测试或客户端提到那条路由。签发者与它旁边的解析者都是 `PostgresResearchGoalOwnerV1` 上
 无门的生产函数，相距四十三行，要的协作者是同一套。所以这条执行路径是没被走到，而不是走不到，
 而一条先签发再解析的有序链路条目就能驱动它，既不必启用 feature 也不必扩任何 union。
@@ -1174,7 +1192,10 @@ public-fact identity/digest、venue、margin-account scope、半开 event validi
 quote/fee currency 与每个准确 term byte。首版只接受正 fixed initial/maintenance value，语义为
 `STANDARD_NOTIONAL_RATE` 或 `FIRST_BRACKET_NOTIONAL_RATE`，并明确选择 `StandardMarginModel`（`notional * rate`，
 不经 leverage）；绝不推断 `LeveragedMarginModel`。first-bracket terms 只在其 `margin_notional_cap` 以内成立，binding
-把该上限与比率一起记录并绑定进 terms digest，因此 bound terms 的 consumer 可以读到它。可见 economic configuration 不能自证这些值，missing value 也绝不会变为零或原生
+把该上限与比率一起记录并绑定进 terms digest。引擎运行之后、任何结果封存之前，Sim EVENT consumer 在每一帧、对每个
+有上限的 member，取持有与派生目标两者中较大的持仓，乘以该帧的价格、multiplier 与 size increment，与上限比较，超出则把
+该运行按名拒绝为 `ECONOMIC_TERMS_NOTIONAL_ABOVE_RECORDED_TIER`。在 native run 能提交 `TERMINAL_RESULT` 以外的结果之前，该拒绝使运行不产生
+结果而结束；之后它会成为 `ReplayConfiguration` 诊断类别下的 `INVALID_REPLAY_EVIDENCE` 结果。可见 economic configuration 不能自证这些值，missing value 也绝不会变为零或原生
 default。错误 fact、receipt、terms、venue、account 或 time，以及 noncanonical、partial、extra、
 cross-spliced、tampered 或 ACL-drifted custody 都会在 `ProgramHostV2` 或 Backtest state 存在前失败。既有
 profile canonical bytes 与 digest 保持不变。
@@ -1272,7 +1293,10 @@ custody 会挡住之后的每一次提交，而成本随整个历史增长。
   facts 推导，绝不在旁边另行给出。在陈述了 scope 的请求下，精确品种就是一成员 universe，所以 Design 不得指名品种：
   发布、冻结或声明这样的 Design 以 `DESIGN_ROLE_NAMES_INSTRUMENT_UNDER_RESEARCH_SCOPE` 拒绝。凡是随成员数不同的
   东西，例如 Market Data 的 PIT 请求 preimage 域，都由成员数推导，不在旁边另行声明。对陈述了 scope 的 Research
-  请求，改成员数只改 scope、加一个角色只改 Design 时，P0 才算完成。它本身不改动任何已准入的界。V2 请求不陈述
+  请求，改成员数只改 scope、加一个角色只改 Design 时，P0 才算完成。它本身不改动任何已准入的界。Develop Composer
+  的运行请求已不再重复声明角色集：它只带 Design 与插件源码，旁边没有任何绑定声明。生产的冻结程序运行改为按名接纳
+  Design 的角色 - 单一输入 scope、Market Data 定义了 field semantic 的 Market 价格、只在 exact scope 下指名品种 -
+  每个角色读取的托管仍由绑定 Owner 重读。V2 请求不陈述
   scope，仍是 legacy 的 exact 通道，它的 Design 照旧指名品种；退役它是 T1 之后的一个独立切片，前提是每个在 V2 下
   创建 exact 托管的链路条目都有了陈述 scope 的替身。
 - **P1，角色集来自 Design：** 原生 Plan 契约不再固定为一天周期的 OPEN 与 CLOSE。Design 用它已有的字段声明自己的
@@ -1286,6 +1310,20 @@ custody 会挡住之后的每一次提交，而成本随整个历史增长。
   `native_replay_scheduling_v1` 里的标签比较，归 Market Data。Market Data 按同一条规则从请求的角色自行推出执行角色，
   调用方不指名它；其拒绝为 `EXECUTION_ROLE_ABSENT`、`EXECUTION_ROLE_AMBIGUOUS`、`MORE_THAN_ONE_ROLE_TIMEFRAME` 与
   `EXECUTION_TIMEFRAME_NOT_DECLARED`（见 Market Data owner 页）。
+  **固定的角色 scale，TARGET：** 每个 universe 成员角色，包括价格角色和 `VOLUME` 角色，都按固定的 scale 9 读取：这是
+  Market Data 的值 scale，即 `MARKET_DATA_VALUE_SCALE_V1`，也就是它托管 series 的 scale，只在那里定义一次，这里引用它，绝不另写一份。不论 Research scope 指名哪个品种都是
+  如此，所以同一份 Design 在 BTCUSDT、ETHUSDT、SOLUSDT 与 LINKUSDT 上字节完全相同，编写时也不读取 Instrument Master
+  的精度。scale 9 是程序读取时使用的定点约定，不是第二份精度定义：Instrument Master 的 tick 与 step 仍是唯一的精度
+  权威，执行 bundle 把引擎看到的数据对齐到它们。
+  - Market Data 把每条规范行精确对齐到角色的 scale，比它更细的行按名拒绝（见 Market Data owner 页）。
+  - **已实现：** 单阈值编写器以十进制字符串接收阈值，例如 `"120"`。它通过 Market Data 的精确换算把字符串换算到角色
+    的 scale，更细的以 `THRESHOLD_FINER_THAN_CHANNEL_SCALE` 拒绝，格式不对的以 `THRESHOLD_INVALID` 拒绝，放不下的以
+    `THRESHOLD_OVERFLOWS_CHANNEL_SCALE` 拒绝。Design 中存的是换算后的整数。
+    - 等价的写法，例如 `"120"` 与 `"120.000"`，编写出同一个程序。
+    - 从程序恢复出的请求以规范写法陈述阈值，不带小数尾零，所以以规范请求为键的东西只以一种方式命名一个阈值。
+  - 为什么固定而不推导：PC-1 探针在 BTCUSDT Replay 的 universe 声明处被拒，因为 BTC 的规范价格 scale 为 1，而角色
+    要求 2。若角色 scale 取自每个品种的 tick，同一个阈值在 ETHUSDT 上是 120.00、在 BTCUSDT 上是 1200.0，同一个策略
+    就需要按品种写不同的 Design。
 - **P2，报告陈述每个成员：** 报告族陈述 universe 运行的每个成员，把 Backtest 已经做到的一成员陈述推广开。它与 I2
   一同落地，由第一个超过一个成员的运行驱动：I2 之前没有程序读第一个成员以外的成员，陈述每个成员就无物可陈述。
 
@@ -1381,10 +1419,16 @@ Research scope 是成员集的唯一来源（P0）。一到两个成员的界变
   有标记价、指数价、溢价指数 K 线、metrics、盘口深度与资金费率的历史。强平没有已准入的历史源 - USDⓈ-M 归档没有，
   币本位 `BTCUSD_PERP` 快照止于 2024-10-14 - 所以要它的 Design 以 `INPUT_FACT_UNAVAILABLE_FROM_ADMITTED_SOURCE` 拒绝，今天没有
   任何字段词表能让 Design 走到这里。
-- **动作：** 今天目标集 Host 忽略保护单成交，于是下一帧对账失败、整次运行中止；只有第二帧才会走到这里。
-  `a_triggered_stop_aborts_the_run_today_until_d1` 在两个真实的 Sim 帧上钉住这个行为，并以「近止损但价格不下破」和
-  「价格下破但够不着远止损」作为两个干净的对照；D1 落地时它翻转为断言运行继续。它的修复
-  （D1）给 `kernel.fill.reconcile.v1` 增加一种情形，并与 T1 一同落地。A1 把 `DecisionTime` 与 `AccountEquity`
+- **动作：** 两帧之间成交的保护单在 `kernel.fill.reconcile.v1` 下对账（D1）。D1 之前目标集 Host 忽略这种成交，
+  于是下一帧对账失败、整次运行中止。现在 FILL 用信封里的一个字节写明它推进的是哪条腿 - 待成交意图、止损或止盈；
+  此前的 FILL 这个字节都为零，所以此前的信封字节与摘要都不变。内核只在该腿已布防、没有待成交的提议、且成交只减仓
+  不越过零时接纳保护单成交，其余情形各按名拒绝：`ProtectiveLegNotArmed`、`ProtectiveFillWithPendingIntent`、
+  `ProtectiveFillDoesNotReduce`。部分成交的保护单占住成交前沿，直到它成交完或余量被撤销，期间任何提议都不能在旁边
+  开出意图（`ProtectiveFillInProgress`）。把仓位平掉的那条腿会清除保护，Host 只下内核持有的保护。Native Replay 读回
+  把保护单成交与目标集成交分开上报，在有序轨迹里把每笔绑定到它的 FILL 转换，并把它算作往返的退出；没有保护单
+  成交的运行序列化结果与之前相同。`a_triggered_stop_reconciles_the_member_flat_and_the_run_continues` 跑两个真实
+  的 Sim 帧：止损成交，退出帧看到该成员已平仓，而照样要退出它的程序以 `InvalidPositionTransition` 被拒；
+  「近止损但价格不下破」和「价格下破但够不着远止损」是它的两个干净对照。A1 把 `DecisionTime` 与 `AccountEquity`
   （以及按成交计的入场价与持有 bar 数）作为程序可读的 `LifecycleContext` 值开放，其中 `DecisionTime` 是该帧的 decision cut `d_k`；按意图计的入场价与持有 bar 数
   已经能在程序内表达。A2 把止盈下成 reduce-only 限价单。A3 先量「每根 bar 一张限价单」的阶梯，不够才增加内核
   阶梯。
@@ -1495,7 +1539,7 @@ Replay 不需要 attempt cut，也不需要 R&D Decision composition，上面每
 ### 顺序与以后要问的
 
 P0、P1 与 T0 并行推进：T0 在 Market Data 内部，它的托管请求自己陈述成员集与周期。T1 依赖这三项，因为它从
-Research scope 与 Design 推导出托管请求；T1 的首个正例只用 CLOSE 和一个成员，D1 与它一同落地。P2 与 I2 一同落地。A1 与 V4a 与 T1 并行；然后 T2、I1、I1.5、I2、
+Research scope 与 Design 推导出托管请求；T1 的首个正例只用 CLOSE 和一个成员，它需要的 D1 已先行落地。P2 与 I2 一同落地。A1 与 V4a 与 T1 并行；然后 T2、I1、I1.5、I2、
 I3；再然后 N1、A2、A3、V4b、V5。按帧 as-of 成员（T4）会移除「每帧共用一个成员集」这条不变式，所以在提出它时再
 问用户。
 
@@ -1518,6 +1562,20 @@ rebalance 那次运行找到了一个任何变体拒绝都没覆盖的缺陷：�
 `keep`，所以没有哪个编写出的程序能出场。现在每一侧的 protection 跟随它的意图：出场清除，其余各侧保持；
 `every_authored_side_runs_through_the_kernel` 把每一个编写出的侧，从它可能被提出的每个仓位，施加到一个真实的生命周期
 内核上，于是一个本该跟随各侧却被共用的终端，会在那里失败，而不是在之后某一帧。
+
+编写出的程序曾在比较成立的每一帧都提议它那一侧，所以阈值之上的第二帧会从持仓状态再提议一次入场，内核拒绝它，
+而这次拒绝结束了整个 run。现在程序带着自己认为持有的仓位，只在内核接受某一侧的仓位上提议该侧，否则持有不动。
+它还可以声明 `stop_loss_fraction`、`take_profit_fraction` 与 `max_holding_bars`，每一种都在一帧收盘时判定并在那里
+提议，所以退出在下一帧成交，而从不在 bar 内部的退出价位上成交；报告把这一点写成 `AT_BAR_CLOSE_FILLED_NEXT_FRAME`，
+因为价格在 bar 内部穿过的止损，比挂在交易所的止损离场更晚，价格也更差。
+`an_authored_exit_leaves_once_at_the_close_and_the_program_enters_again` 对每一种退出让编写出的程序跑四帧：进场，
+在阈值之上的第二帧持有，在收盘仍在阈值之上的第三帧由该退出离场，再进场。
+`an_authored_exit_never_reached_holds_the_position` 在这些帧永远够不到的退出下跑同样的帧。这些运行测得一次调用消耗的
+fuel：没有退出时约 86,000，有价格退出时约 205,000，这个族编写出的最大程序约 378,000，超过了插件 manifest 声明的
+100,000。这个族的 manifest 声明 1,000,000，约为最大测量值的 2.6 倍。同一个程序逐帧的消耗波动不到 2%，所以这份余量
+不是为那点波动留的；它留给这个族的最大程序再长出大约一组退出那么大的规模，到那时才需要重新测量这个上限。上限是被提高，
+不是被移除：Plan 仍然拒绝超过 10,000,000 的 manifest。提高它会改变编写出的 Design 的身份，随之改变
+`single_threshold_authoring_v1.rs` 里 Design、meaning 与 Plan 的钉子。那个模块之外没有任何地方钉住它们。
 
 ## TARGET - Research 运行到出策略为止，由花费约束
 

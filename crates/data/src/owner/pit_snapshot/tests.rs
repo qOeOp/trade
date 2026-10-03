@@ -1389,6 +1389,26 @@ fn a_settled_funding_row_is_a_canonical_observation_and_an_unadmitted_field_is_n
 }
 
 #[rstest]
+fn a_taker_buy_volume_row_is_a_canonical_bar_observation() {
+    // Both Binance Data Clients state a closed bar's taker buy volume beside its volume.
+    let (_, bar, _, _) = observation_batch_fixture();
+    let row = VerifiedPitObservation {
+        symbolic_key: "AAPL.TAKER_BUY_VOLUME".to_owned(),
+        field: "TAKER_BUY_VOLUME".to_owned(),
+        value_mantissa: 4_687_976,
+        value_scale: 3,
+        ..bar
+    };
+    assert_eq!(
+        decode_canonical_observation_batch(
+            &canonical_batch_bytes(std::slice::from_ref(&row)),
+            &[canonical_observation_bytes(&row)],
+        ),
+        Ok(vec![row])
+    );
+}
+
+#[rstest]
 fn explicit_untrusted_batch_is_prepared_only_when_complete_owner_claims_match() {
     let (aggregate, row, batch_bytes, _) = observation_batch_fixture();
     let snapshot = UntrustedPitSnapshotProposal {

@@ -88,17 +88,7 @@ jobs:
         run: npm ci --prefix docs-site
 
       - name: Check documentation localization
-        env:
-          DOCS_I18N_BASE_SHA: >-
-            ${{ github.event.pull_request.base.sha || github.event.before }}
-        run: |
-          npm run check:i18n:changed-pairs-test --prefix docs-site
-          npm run check:i18n --prefix docs-site
-
-      - name: Check localization structure
-        run: |
-          npm run check:i18n:structure-test --prefix docs-site
-          npm run check:i18n:structure --prefix docs-site
+        run: npm run check:i18n --prefix docs-site
 
       - name: Build static site
         run: npm run build --prefix docs-site

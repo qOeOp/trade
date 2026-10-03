@@ -603,6 +603,28 @@ impl BinanceRawFuturesHttpClient {
             .map_err(|e| BinanceFuturesHttpError::JsonError(e.to_string()))
     }
 
+    /// Performs an unsigned GET request and returns the response body as the exact bytes the
+    /// venue returned, for a caller that admits the raw payload itself rather than one that
+    /// wants it deserialized.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the request fails.
+    async fn get_raw(&self, path: &str) -> BinanceFuturesHttpResult<Vec<u8>> {
+        let url = self.build_url(path, "");
+        let keys = self.rate_limit_keys(false);
+        let response = self
+            .client
+            .request(Method::GET, url, None, None, None, None, Some(keys))
+            .await?;
+
+        if !response.status.is_success() {
+            return self.parse_error_response(&response);
+        }
+
+        Ok(response.body.to_vec())
+    }
+
     fn build_url(&self, path: &str, query: &str) -> String {
         // Full API paths (e.g., /fapi/v2/account) bypass the default api_path
         let url_path = if path.starts_with("/fapi/")
@@ -1615,6 +1637,17 @@ impl BinanceFuturesHttpClient {
         }
 
         Ok(())
+    }
+
+    /// Fetches exchange information as the exact bytes the venue returned, for a caller that
+    /// admits the raw payload itself (the Instrument Master V2 baseline intake) rather than one
+    /// that only wants the parsed instrument cache [`Self::exchange_info`] builds.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the request fails.
+    pub async fn exchange_info_raw(&self) -> BinanceFuturesHttpResult<Vec<u8>> {
+        self.inner.get_raw("exchangeInfo").await
     }
 
     /// Fetches exchange info and returns the current status of each symbol.

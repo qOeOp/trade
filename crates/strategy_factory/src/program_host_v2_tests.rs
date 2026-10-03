@@ -324,7 +324,7 @@ fn a_program_naming_a_rebalance_sequence_is_refused_by_name() {
 #[rstest]
 fn a_single_instrument_host_assigns_each_rebalance_the_next_sequence() {
     use strategy_factory_program_sdk::lifecycle_v1::{
-        FillDispositionV1, FillEventV1, TargetStateV1,
+        FillDispositionV1, FillEventV1, FillLegV1, TargetStateV1,
     };
 
     let candidate = executable_design();
@@ -382,6 +382,7 @@ fn a_single_instrument_host_assigns_each_rebalance_the_next_sequence() {
             side: pending.side,
             disposition: FillDispositionV1::Rejected,
             cumulative_filled_units: 0,
+            leg: FillLegV1::Intent,
         }),
     )
     .unwrap();
@@ -1855,10 +1856,13 @@ fn universe_bfp_fixture() -> (
             close_role_semantic_id: "research.input.close.v1".to_owned(),
             open_role_semantic_id: "research.input.open.v1".to_owned(),
         },
-        threshold_coefficient: 10_000,
+        threshold: "100".to_owned(),
         comparison: BoundedFeaturePredicateV1::Greater,
         when_true: outcome("kernel.position.enter.v1", 1),
         otherwise: outcome("kernel.position.exit.v1", 0),
+        stop_loss_fraction: None,
+        take_profit_fraction: None,
+        max_holding_bars: None,
         falsifier: "the channel never crosses the threshold in the admitted window".to_owned(),
     })
     .expect("the universe-member request is authorable");

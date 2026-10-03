@@ -1583,6 +1583,7 @@ fn decode_observation(bytes: &[u8]) -> Result<VerifiedPitObservation, PitSnapsho
             "LOW",
             "CLOSE",
             "VOLUME",
+            "TAKER_BUY_VOLUME",
             "BID_PRICE",
             "ASK_PRICE",
             "BID_SIZE",

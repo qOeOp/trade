@@ -138,6 +138,141 @@ incident facts. Risk owns decisions, reservations, and fence activation. Executi
 Recovery Case, Recovery Command, and `KNOWN_CLOSED`. Portfolio owns account and
 performance projections. A cache, event, notification, or read model cannot become a second authority.
 
+## Owner layering and inter-Owner trust
+
+Owners form one stack. From the bottom up:
+
+1. Data: Market Data and Instrument Master.
+2. Backtest: a service that reads only the data layer.
+3. R&D: orchestration. It calls Market Data and Backtest downward; its census reading Backtest Results is a
+   downward read.
+4. Qualification and the forward stage: they call Backtest downward and receive R&D Candidates by value.
+5. Governance and the trading side: Governance, Runtime, Risk, Execution, Portfolio, and Scanner.
+
+Product Edge and Operator Authorization are the outer boundary above the stack, not a layer inside it.
+`vibe-strategy-factory-rd-owner-api` is the composition root: it links every Owner it wires, and its crate
+dependencies are not layer edges. The inherited engine crates (`vibe-backtest`, `vibe-execution`,
+`vibe-portfolio`, `vibe-risk`, `vibe-trading`) are libraries, not Owners, and any layer may link them.
+
+Four rules govern the stack:
+
+- **Calls go down only.** An Owner may call, link, or be granted the functions of an Owner in a lower layer.
+  Information reaches a higher layer only when the lower Owner appends a fact or event that the higher Owner
+  reads. Calls within one layer are allowed while they stay one-way; a pair that calls both ways is a two-way
+  edge.
+- **Only values cross a layer.** A higher Owner puts the values a lower Owner needs, each carrying its content
+  digest, into the request. The lower Owner uses them as given and never reads the higher Owner back to check
+  them. The digest gives the value its content address and append identity; it is not evidence against the
+  caller.
+- **The only trust boundary is the outer one.** Input is verified strictly once, where it enters the product:
+  agent input at the `rd-owner-api` HTTP layer, and external market data at Market Data intake. Inside the
+  product, one Owner does not re-verify another Owner's values.
+- **Each Owner is an independent module.** With only its own crates, its own schemas, and the public contracts of
+  the Owners below it (or stubs of those contracts), an Owner builds, migrates a fresh database, runs its tests,
+  and deploys and runs on its own. Any two adjacent Owners can be picked out and combined to test one stretch of
+  the chain without bringing up the whole stack. Changing an Owner's internals never forces another Owner to
+  change; only its public contract can. The measurable form: the normal-dependency closure of an Owner's crate
+  holds only that Owner's crates, crates of lower-layer Owners, crates of same-layer Owners it calls one-way, and
+  ownerless libraries; and each Owner's contract lives in a leaf crate that holds types only and depends on
+  nothing but ownerless libraries.
+
+The fourth rule adds a bound; the user stated it on 2026-10-03. The third rule relaxes an invariant the
+documentation stated before: that each Owner reads the original record itself
+before it trusts another Owner's value. The user authorized the relaxation on 2026-10-03 (AskUserQuestion,
+chosen option "relax: verify only at the outer boundary"). The reason is the measured baseline below: re-reading
+across Owners produced five two-way Owner pairs, and every one of them is a dependency cycle.
+
+The relaxation does not change:
+
+- strict, single verification at the outer boundary;
+- Qualification holdout isolation. It is information isolation, not trust between Owners: protected results and
+  cell detail still never return to R&D, and Qualification alone still resolves cumulative holdout history;
+- the real-money, Risk, and Execution boundaries stated under Automated trading write chain and Paper and live
+  parity;
+- append-only facts, content addressing, and one authority per mutable fact.
+
+New designs follow these rules now. Where another section of this documentation tells a lower Owner to read or
+lock a higher Owner's record to check a value, that text describes the `CURRENT` implementation and has a row in
+the teardown list below; it is not a pattern for a new design. The existing edges are removed one row at a time
+after U1.
+
+### Baseline at `80e9497a8`
+
+The baseline was measured on `main` at `80e9497a8`:
+
+- Crate edges: `cargo metadata --format-version 1 --no-deps`, normal dependencies only (dev and build dependencies
+  excluded), with each crate assigned to its Owner.
+- Database edges: every `GRANT` to an Owner role in `product/rd-workbench/postgres-init/`, in migrations, and in
+  crate DDL; every `CREATE FUNCTION` body that names another Owner's schema; and every production Rust SQL string
+  that names another Owner's schema. Grants to `vibe_test_*` roles and grants in test or CI harness files (36
+  sites) are reported separately and are not edges.
+- Positive control: the scan finds the known `market_data_rd_api` to `rd_owner` grant at
+  `crates/data/src/owner/postgres/rd_strategy_input_custody.rs:24`.
+- Coverage: the function-body parser read 199 of 212 production `CREATE FUNCTION` definitions. The 6 missed in
+  Rust files are covered by the SQL-string scan. The 7 missed in `10-migrate-authority-custody.sh` were read by
+  hand; all of them name only R&D schemas.
+
+The two-way pairs are Backtest and R&D, Market Data and R&D, Backtest and Qualification, R&D and Qualification,
+and R&D and Product Edge. Downward edges (R&D to Market Data and Backtest, Qualification to Market Data, Backtest,
+and R&D, Product Edge to the stack) and the one-way calls inside layer 5 conform and are not listed.
+
+### Dependency closures at `80e9497a8`
+
+Each Owner crate's closure is `cargo tree -p <crate> -e normal`, which resolves the crate with its own default
+features exactly as `cargo build -p <crate>` builds it; a second run with `--all-features` surfaces what an
+optional feature pulls in. The table lists every crate in a closure that the fourth rule excludes. Every crate
+not listed conforms: `vibe-data`, `vibe-binance`, `vibe-databento`, `vibe-qualification`, the trading-side Owner
+crates, the Scanner crates, and the one-way same-layer uses (Runtime of Execution,
+Product Edge of Operator Authorization).
+`vibe-strategy-factory-rd-owner-api` is the composition root and is exempt.
+
+| Owner crate                                | Workspace crates in closure | Crates the fourth rule excludes                                                                                                                                                                                                                                                                                                                                            |
+| ------------------------------------------ | --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `vibe-data` with `--all-features`          | 16                          | `vibe-rd-exploratory-replay-custody`, `vibe-rd-artifact-invocation-custody`, `vibe-rd-source-intake-invocation-custody`, `strategy-factory-program-sdk`, `vibe-backtest-owner-contracts`, `vibe-product-edge`, `vibe-product-edge-claim-custody`, `vibe-product-edge-contracts`, `vibe-operator-authorization`, all through the `isolated-event-replay-acceptance` feature |
+| `vibe-market-data-repair-custody`          | 6                           | `vibe-rd-market-data-repair-custody`                                                                                                                                                                                                                                                                                                                                       |
+| `vibe-backtest-owner`                      | 30                          | `vibe-strategy-factory`, `strategy-factory-program-sdk`, `vibe-rd-artifact-invocation-custody`, `vibe-rd-exploratory-replay-custody`, `vibe-rd-market-data-repair-custody`, `vibe-rd-source-intake-invocation-custody`, `vibe-qualification`, `vibe-product-edge`, `vibe-product-edge-claim-custody`, `vibe-product-edge-contracts`, `vibe-operator-authorization`         |
+| `vibe-backtest-owner-contracts`            | 1                           | `strategy-factory-program-sdk`                                                                                                                                                                                                                                                                                                                                             |
+| `vibe-backtest-result-custody`             | 2                           | `strategy-factory-program-sdk`                                                                                                                                                                                                                                                                                                                                             |
+| `vibe-strategy-factory`                    | 29                          | `vibe-qualification`, `vibe-product-edge`, `vibe-product-edge-claim-custody`, `vibe-product-edge-contracts`, `vibe-operator-authorization`                                                                                                                                                                                                                                 |
+| `vibe-rd-exploratory-replay-custody`       | 10                          | `vibe-product-edge`, `vibe-product-edge-claim-custody`, `vibe-product-edge-contracts`, `vibe-operator-authorization`                                                                                                                                                                                                                                                       |
+| `vibe-rd-artifact-invocation-custody`      | 1                           | `vibe-product-edge-claim-custody`                                                                                                                                                                                                                                                                                                                                          |
+| `vibe-rd-source-intake-invocation-custody` | 1                           | `vibe-product-edge-claim-custody`                                                                                                                                                                                                                                                                                                                                          |
+
+Two further facts block independence outside the crate graph. One script,
+`product/rd-workbench/postgres-init/10-migrate-authority-custody.sh` (5869 lines), creates the schemas of every
+Owner, so no Owner migrates a database on its own. Of the four core Owners, only Backtest has a contract crate
+(`vibe-backtest-owner-contracts`); Market Data, R&D, and Qualification are consumed through their whole crates.
+
+### Teardown list
+
+Each row is `TARGET` and is removed by its own reviewable change after U1. A row closes when its crate edge,
+grants, and call sites are all gone and a fresh run of the baseline shows the pair one-way. Paths are at
+`80e9497a8`; `10-migrate` is `product/rd-workbench/postgres-init/10-migrate-authority-custody.sh`.
+
+| Reverse edge              | Status   | Evidence                                                                                                                                                                                                                                                                                                                                                                                                                                             | Removal                                                                                                                                       |
+| ------------------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| Backtest to R&D           | `TARGET` | crate `vibe-backtest-owner` to `vibe-strategy-factory`, `crates/backtest_owner/Cargo.toml:26`; `rd_owner_api` granted to `backtest_owner` at `10-migrate:225`, `:1255` and `crates/strategy_factory/src/exploratory_replay/postgres.rs:1669`, `:2256`, `:2263`, `:2277`; call `rd_owner_api.lock_ready_for_selection_for_qualification_v1` at `crates/backtest_owner/src/lib.rs:1464`                                                                | The caller puts the Candidate value in the replay request; Backtest stops reading R&D.                                                        |
+| Market Data to R&D        | `TARGET` | crate `vibe-data` to `vibe-rd-exploratory-replay-custody` (optional), `crates/data/Cargo.toml:52`; crate `vibe-market-data-repair-custody` to `vibe-rd-market-data-repair-custody`, `crates/market_data_repair_custody/Cargo.toml:19`; 22 grants of `composer_owner_api` and `rd_owner_api` to `market_data_owner` and `market_data_reader`, from `10-migrate:228`; calls at `crates/data/src/owner/postgres/replay_market_facts_v2.rs:90` to `:96`  | R&D puts the role intent, role set, and native join values in the market facts request; Market Data stops resolving R&D and Composer records. |
+| R&D to Qualification      | `TARGET` | crate `vibe-strategy-factory` to `vibe-qualification`, `crates/strategy_factory/Cargo.toml:84`; `qualification_api` granted to `rd_owner` at `10-migrate:2200`, `:2767`, `:2827`                                                                                                                                                                                                                                                                     | Qualification takes the Candidate and Independence Basis by value or reads R&D's appended facts; the change must keep holdout isolation.      |
+| R&D to Product Edge       | `TARGET` | crates to `vibe-product-edge-claim-custody` at `crates/rd_artifact_invocation_custody/Cargo.toml:19` and `crates/rd_source_intake_invocation_custody/Cargo.toml:19`; crates to `vibe-product-edge` at `crates/rd_exploratory_replay_custody/Cargo.toml:22` and `crates/strategy_factory/Cargo.toml:83`; `product_edge_api` granted to `rd_owner` from `10-migrate:221`; calls at `crates/rd_source_intake_invocation_custody/src/lib.rs:264`, `:546` | Product Edge puts the claim values in the request it sends R&D; R&D stops locking Product Edge records.                                       |
+| Backtest to Qualification | `TARGET` | `qualification_api` granted to `backtest_owner` at `10-migrate:2200`, `:2593`, `:2676`; calls `qualification_api.lock_protected_replay_request_v1` and `_set_v1` at `crates/backtest_owner/src/protected_replay_postgres.rs:1128`, `:1205`, `:1282`                                                                                                                                                                                                  | Qualification puts the Protected Replay Request value in the call; Backtest stops locking it. Holdout isolation is unchanged.                 |
+| Backtest to Product Edge  | `TARGET` | `product_edge_api` granted to `backtest_owner` at `10-migrate:221`, `:4188`, `:4279` and `crates/strategy_factory/src/exploratory_replay/postgres.rs:1671`; no call site in a Backtest crate, and the only Rust caller of `lock_downstream_admission_v1` is `crates/product_edge/src/postgres.rs:4914`                                                                                                                                               | Find the connection that exercises the grants, then pass the value or revoke them.                                                            |
+| Portfolio to Product Edge | `TARGET` | `product_edge_api` granted to `portfolio_owner` at `10-migrate:221`, `:4478`; no call site in a Portfolio crate, and the only Rust caller of `lock_portfolio_read_policy_v1` is `crates/product_edge/src/postgres.rs:5011`                                                                                                                                                                                                                           | Find the connection that exercises the grants, then pass the read policy value or revoke them.                                                |
+
+Module independence adds these `TARGET` rows. A row closes when the named Owner builds and runs its tests with
+`cargo test -p` on its own crates and a fresh database migrated by its own script, with stubs standing in for
+the contracts of the Owners below it.
+
+| Independence target                                  | Status   | Evidence                                                                                      | Work                                                                                                                                    |
+| ---------------------------------------------------- | -------- | --------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| Market Data builds and tests alone                   | `TARGET` | the `vibe-data` and `vibe-market-data-repair-custody` rows of the closure table               | Move the `isolated-event-replay-acceptance` acceptance out of `vibe-data`; remove the repair custody's R&D dependency.                  |
+| Backtest builds and tests alone                      | `TARGET` | the `vibe-backtest-owner` row of the closure table                                            | Remove the `vibe-strategy-factory` dependency; the program SDK becomes an ownerless library or leaves the contract.                     |
+| R&D builds and tests alone                           | `TARGET` | the `vibe-strategy-factory` and `vibe-rd-*` rows of the closure table                         | Remove the Qualification, Product Edge, and Operator Authorization dependencies.                                                        |
+| Qualification builds and tests alone                 | `TARGET` | no excluded crate today; it consumes `vibe-data` and Backtest whole                           | Depend on the lower Owners' contract crates instead of their whole crates.                                                              |
+| Each core Owner's contract is a leaf crate           | `TARGET` | only `vibe-backtest-owner-contracts` exists, and it depends on `strategy-factory-program-sdk` | Add contract crates for Market Data, R&D, and Qualification, holding types only and depending only on ownerless libraries.              |
+| Each Owner migrates its own schemas                  | `TARGET` | `10-migrate-authority-custody.sh` (5869 lines) creates every Owner's schemas                  | Split the migration per Owner, ordered from the bottom up, each creating only its own schemas and the grants its callers above it need. |
+| Each Owner's routes and storage run without the root | `TARGET` | `rd-owner-api` hosts the routes of several Owners in one process                              | Keep `rd-owner-api` as the composition root; make each Owner's routes and storage start on their own.                                   |
+
 ## Research, development, and qualification
 
 Exploratory replay is accepted for selection only when request and result are exactly equal. A terminal

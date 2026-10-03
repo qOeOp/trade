@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sys
 import time
 from dataclasses import dataclass
@@ -373,6 +374,19 @@ def _exception_chain(error: BaseException) -> tuple[tuple[BaseException, ...], i
     return tuple(chain), observed_depth
 
 
+def _flattened_short_read(error: BaseException) -> bool:
+    # The pinned HttpFD.report_retry drops ContentTooShortError when retries are exhausted.
+    # Admit only its exact numeric short-read envelope, never arbitrary upstream error text.
+    if not isinstance(error, DownloadError):
+        return False
+    match = re.fullmatch(
+        r"ERROR: \r?\[download\] Got error: Downloaded ([0-9]{1,12}) bytes, "
+        r"expected ([0-9]{1,12}) bytes",
+        str(error),
+    )
+    return match is not None and 0 <= int(match[1]) < int(match[2]) <= MEDIA_DOWNLOAD_BYTES
+
+
 def _classify_failure(error: BaseException) -> _FailureClassification:
     chain, depth = _exception_chain(error)
     if any(isinstance(item, _MediaBytesExceeded) for item in chain):
@@ -389,7 +403,7 @@ def _classify_failure(error: BaseException) -> _FailureClassification:
         return _FailureClassification("source_unavailable", "http_permanent", depth)
     if any(isinstance(item, TransportError) for item in chain):
         return _FailureClassification("transient", "transport", depth)
-    if any(isinstance(item, ContentTooShortError) for item in chain):
+    if any(isinstance(item, ContentTooShortError) or _flattened_short_read(item) for item in chain):
         return _FailureClassification("transient", "content_short", depth)
     if any(isinstance(item, GeoRestrictedError) for item in chain):
         return _FailureClassification("access_denied", "access", depth)

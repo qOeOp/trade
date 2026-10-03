@@ -10,19 +10,18 @@ from bilibili_note_mcp.adapters.bilibili_http import (
     raise_named_envelope_refusal,
 )
 from bilibili_note_mcp.adapters.egress import SafeHttpClient
+from bilibili_note_mcp.adapters.source_acquisition import SourceAcquisition
+from bilibili_note_mcp.adapters.source_cache import SourceCache
 from bilibili_note_mcp.application.errors import BilibiliNoteFailure
 from bilibili_note_mcp.application.ports import AcquiredSource, SourceMediaPort, TranscriptPort
 from bilibili_note_mcp.application.progress import (
     ProgressReporter,
-    ProgressStageV1,
-    progress_update,
 )
 from bilibili_note_mcp.application.resource_limits import (
     MEDIA_SOURCE_MAX_PIXELS,
     MEDIA_SOURCE_MAX_SIDE,
 )
 from bilibili_note_mcp.domain.models import MAX_SOURCE_DURATION_MS, FailureCode, SourceV1
-from bilibili_note_mcp.domain.refs import source_snapshot_ref
 from bilibili_note_mcp.domain.url_policy import InvalidBilibiliUrl, validate_bilibili_url
 
 
@@ -67,9 +66,9 @@ class BilibiliSource:
         transcript: TranscriptPort,
         media: SourceMediaPort,
         http: SafeHttpClient | None = None,
+        cache: SourceCache | None = None,
     ) -> None:
-        self._transcript = transcript
-        self._media = media
+        self._acquisition = SourceAcquisition(transcript, media, cache)
         self._http = http or SafeHttpClient()
 
     async def acquire(
@@ -82,7 +81,7 @@ class BilibiliSource:
         headers = bilibili_browser_headers(referer=validated.clean_url)
         query = urlencode({"bvid": validated.video_id})
         envelope = await self._http.get_json(
-            f"https://api.bilibili.com/x/web-interface/view?{query}", headers=headers
+            f"https://api.bilibili.com/x/web-interface/wbi/view?{query}", headers=headers
         )
         code = envelope.get("code")
         if not isinstance(code, int) or isinstance(code, bool):
@@ -169,41 +168,6 @@ class BilibiliSource:
             or min(width, height) < 720
         ):
             raise BilibiliNoteFailure("HD_SOURCE_UNAVAILABLE", "source_below_hd_floor")
-        media = await self._media.download(source.canonical_url, workspace)
-        if (
-            media.upstream_video_id != source.video_id
-            or media.upstream_part_index != source.part_index
-        ):
-            raise BilibiliNoteFailure("SOURCE_CHANGED", "media_video_identity_changed")
-        if (
-            media.width * media.height < 1280 * 720
-            or media.width * media.height > MEDIA_SOURCE_MAX_PIXELS
-            or max(media.width, media.height) > MEDIA_SOURCE_MAX_SIDE
-            or min(media.width, media.height) < 720
-        ):
-            raise BilibiliNoteFailure("HD_SOURCE_UNAVAILABLE", "source_below_hd_floor")
-        duration_delta = media.observed_duration_ms - source.duration_ms
-        if duration_delta < -2000:
-            raise BilibiliNoteFailure("SOURCE_UNAVAILABLE", "media_access_restricted_preview")
-        if abs(duration_delta) > 2000:
-            raise BilibiliNoteFailure("SOURCE_CHANGED", "media_duration_changed")
-        await progress.report(progress_update(ProgressStageV1.MEDIA_READY))
-        transcript = await self._transcript.transcribe(
-            media.media_path, duration_ms, workspace, progress
-        )
-        snapshot = {
-            "source": source.model_dump(mode="json", by_alias=True),
-            "cid": cid,
-            "declared_dimensions": [width, height],
-            "observed_dimensions": [media.width, media.height],
-            "observed_duration_ms": media.observed_duration_ms,
-            "media_sha256": media.media_sha256,
-            "format_id": media.format_id,
-            "adapter": media.adapter_ref,
-        }
-        return AcquiredSource(
-            source=source,
-            media_path=media.media_path,
-            transcript=transcript,
-            source_snapshot_ref=source_snapshot_ref(snapshot),
+        return await self._acquisition.acquire(
+            source, width, height, {"cid": cid}, workspace, progress
         )

@@ -10,8 +10,7 @@ from typing import Literal
 import pytest
 from PIL import Image, ImageDraw
 
-from bilibili_note_mcp.adapters.distillers import (
-    DeterministicCandidateVerifier,
+from bilibili_note_mcp.adapters.fixture_distiller import (
     DeterministicDistiller,
 )
 from bilibili_note_mcp.adapters.fixture_source import FixtureSource
@@ -25,28 +24,20 @@ from bilibili_note_mcp.adapters.media_ffmpeg import (
     ordered_relation_intent,
     visual_intent_score,
 )
-from bilibili_note_mcp.application import create_note as create_note_module
+from bilibili_note_mcp.adapters.note_publisher import LocalNotePublisher
+from bilibili_note_mcp.application import note_validation
 from bilibili_note_mcp.application.create_note import CreateBilibiliNote
 from bilibili_note_mcp.application.errors import BilibiliNoteFailure
+from bilibili_note_mcp.application.note_validation import validate_frames
 from bilibili_note_mcp.application.ports import (
     AcquiredSource,
-    CandidateVerification,
-    CandidateVisual,
-    DistillCandidate,
     FrameAsset,
     TranscriptResult,
     TranscriptSegment,
 )
 from bilibili_note_mcp.application.progress import media_acquisition_heartbeat
-from bilibili_note_mcp.application.public_text import contains_private_audit_noise
-from bilibili_note_mcp.domain.models import PublicRuleV1, SourceV1
-from bilibili_note_mcp.domain.refs import brief_ref
+from bilibili_note_mcp.domain.models import SourceV1
 from bilibili_note_mcp.fixture import FIXTURE_URL, generate_fixture
-from bilibili_note_mcp.presentation.markdown import MarkdownRenderer, markdown_literal
-
-
-def _rule(body: str) -> PublicRuleV1:
-    return PublicRuleV1(rule_body=body)
 
 
 def _frame(
@@ -74,181 +65,6 @@ def _frame(
         transcript_refs=transcript_refs,
         selection_reason=selection_reason,
     )
-
-
-class PercentageVisualDistiller:
-    async def distill(
-        self, source: AcquiredSource, frames: tuple[FrameAsset, ...]
-    ) -> DistillCandidate:
-        candidate = await DeterministicDistiller().distill(source, frames)
-        return replace(
-            candidate,
-            rules=(
-                *candidate.rules[:2],
-                (
-                    _rule("61.8% 回调位与 4 小时上升趋势线重合时，才形成结构共振。"),
-                    candidate.rules[2][1],
-                ),
-                *candidate.rules[3:],
-            ),
-        )
-
-
-class InvalidMaterialVisualDistiller:
-    def __init__(self, rule_index: object = None) -> None:
-        self._rule_index = rule_index
-
-    async def distill(
-        self, source: AcquiredSource, frames: tuple[FrameAsset, ...]
-    ) -> DistillCandidate:
-        candidate = await DeterministicDistiller().distill(source, frames)
-        return replace(
-            candidate,
-            visuals=(
-                replace(candidate.visuals[0], rule_index=self._rule_index),  # type: ignore[arg-type]
-                *candidate.visuals[1:],
-            ),
-        )
-
-
-class DuplicateVisualOwnerDistiller:
-    async def distill(
-        self, source: AcquiredSource, frames: tuple[FrameAsset, ...]
-    ) -> DistillCandidate:
-        candidate = await DeterministicDistiller().distill(source, frames)
-        text, refs = candidate.rules[0]
-        return replace(candidate, rules=((text, (*refs, "G01")), *candidate.rules[1:]))
-
-
-class MissingVisualDispositionDistiller:
-    async def distill(
-        self, source: AcquiredSource, frames: tuple[FrameAsset, ...]
-    ) -> DistillCandidate:
-        candidate = await DeterministicDistiller().distill(source, frames)
-        return replace(candidate, visuals=candidate.visuals[:-1])
-
-
-class NonMaterialFrameCitationDistiller:
-    async def distill(
-        self, source: AcquiredSource, frames: tuple[FrameAsset, ...]
-    ) -> DistillCandidate:
-        candidate = await DeterministicDistiller().distill(source, frames)
-        next(item for item in candidate.visuals if item.disposition == "no_material_increment")
-        text, refs = candidate.rules[2]
-        return replace(
-            candidate,
-            rules=(*candidate.rules[:2], (text, (*refs, "G02")), *candidate.rules[3:]),
-        )
-
-
-class RawFrameCitationDistiller:
-    async def distill(
-        self, source: AcquiredSource, frames: tuple[FrameAsset, ...]
-    ) -> DistillCandidate:
-        candidate = await DeterministicDistiller().distill(source, frames)
-        text, refs = candidate.rules[2]
-        return replace(
-            candidate,
-            rules=(*candidate.rules[:2], (text, (*refs, frames[0].frame_id)), *candidate.rules[3:]),
-        )
-
-
-class TwoMaterialGroupsDistiller:
-    async def distill(
-        self, source: AcquiredSource, frames: tuple[FrameAsset, ...]
-    ) -> DistillCandidate:
-        candidate = await DeterministicDistiller().distill(source, frames)
-        assert len(candidate.visuals) >= 2
-        return replace(
-            candidate,
-            rules=(
-                *candidate.rules[:4],
-                (_rule("另一项结构条件用于确认参与位置。"), candidate.rules[2][1]),
-                *candidate.rules[5:],
-            ),
-            visuals=(
-                candidate.visuals[0],
-                replace(
-                    candidate.visuals[1],
-                    disposition="supports_rule",
-                    rule_index=4,
-                    evidence_basis="static_frame",
-                ),
-                *candidate.visuals[2:],
-            ),
-        )
-
-
-class TwoMaterialGroupsWithSharedMethodDistiller:
-    async def distill(
-        self, source: AcquiredSource, frames: tuple[FrameAsset, ...]
-    ) -> DistillCandidate:
-        candidate = await DeterministicDistiller().distill(source, frames)
-        return replace(
-            candidate,
-            visuals=(
-                candidate.visuals[0],
-                replace(
-                    candidate.visuals[1],
-                    disposition="supports_rule",
-                    rule_index=2,
-                    evidence_basis="static_frame",
-                ),
-                *candidate.visuals[2:],
-            ),
-        )
-
-
-class DuplicateMethodsWithSecondVisualOwnerDistiller:
-    async def distill(
-        self, source: AcquiredSource, frames: tuple[FrameAsset, ...]
-    ) -> DistillCandidate:
-        candidate = await DeterministicDistiller().distill(source, frames)
-        text, refs = candidate.rules[2]
-        return replace(
-            candidate,
-            rules=(*candidate.rules[:3], (text, refs), *candidate.rules[4:]),
-            visuals=(
-                replace(candidate.visuals[0], rule_index=3),
-                *candidate.visuals[1:],
-            ),
-        )
-
-
-class RecordingVerifier:
-    def __init__(self) -> None:
-        self.calls = 0
-
-    async def verify(
-        self,
-        source: AcquiredSource,
-        frames: tuple[FrameAsset, ...],
-        candidate: DistillCandidate,
-    ) -> CandidateVerification:
-        self.calls += 1
-        return await DeterministicCandidateVerifier().verify(source, frames, candidate)
-
-
-class GlobalRuleVisualDistiller:
-    def __init__(self, rule_index: int) -> None:
-        self._rule_index = rule_index
-
-    async def distill(
-        self, source: AcquiredSource, frames: tuple[FrameAsset, ...]
-    ) -> DistillCandidate:
-        candidate = await DeterministicDistiller().distill(source, frames)
-        return replace(
-            candidate,
-            visuals=(
-                replace(
-                    candidate.visuals[0],
-                    disposition="supports_rule",
-                    rule_index=self._rule_index,
-                    evidence_basis="static_frame",
-                ),
-                *candidate.visuals[1:],
-            ),
-        )
 
 
 class RecordingSelectionMedia(FfmpegMedia):
@@ -344,34 +160,6 @@ class TracingDecodeMedia(FfmpegMedia):
                     self.active_decodes -= 1
 
 
-async def test_fixture_produces_text_only_multimodal_brief(tmp_path: Path) -> None:
-    fixture = generate_fixture(tmp_path / "fixture")
-    payload = await CreateBilibiliNote(
-        source=FixtureSource(fixture),
-        media=FfmpegMedia(),
-        distiller=DeterministicDistiller(),
-        verifier=DeterministicCandidateVerifier(),
-        renderer=MarkdownRenderer(),
-    ).execute(FIXTURE_URL)
-
-    assert payload.brief.schema_id == "bilibili-note.research-brief/v2"
-    assert payload.brief_ref == brief_ref(payload.brief.model_dump(mode="json", by_alias=True))
-    assert payload.brief.coverage.visual_analysis == "internal_transient"
-    assert payload.brief.coverage.analyzed_visual_frames >= 2
-    assert payload.brief.visual_insights[0].transcript_refs
-    assert payload.brief.visual_insights[0].frame_timestamps_ms
-    dumped = payload.brief.model_dump(mode="json", by_alias=True)
-    assert "assets" not in dumped
-    assert "excerpt" not in json.dumps(dumped)
-    assert "png" not in json.dumps(dumped).casefold()
-    assert "![" not in payload.rendered_markdown
-    assert "价格与关键线的相对位置用于确认结构" in payload.rendered_markdown
-    assert "画面显示" not in payload.rendered_markdown
-    for noise in ("E001", "V01", "证据时间轴", "Provenance", "brief_ref", "画面补足的信息"):
-        assert noise not in payload.rendered_markdown
-    assert not contains_private_audit_noise(payload.rendered_markdown)
-
-
 async def test_extract_frames_reassembles_jobs_by_frozen_ordinal_when_completion_inverts(
     tmp_path: Path,
 ) -> None:
@@ -406,30 +194,11 @@ async def test_extract_frames_reassembles_jobs_by_frozen_ordinal_when_completion
 
     frames = await media.extract_frames(source, tmp_path)
 
-    ranked = sorted(
-        (segment for segment in source.transcript.segments if visual_intent_score(segment.text)),
-        key=lambda item: (-visual_intent_score(item.text), item.start_ms),
-    )
-    selected = ranked[:3]
-    coverage_segments = []
-    for ratio in (1 / 3, 2 / 3):
-        timestamp = min(
-            source.source.duration_ms - 1,
-            max(0, int(source.source.duration_ms * ratio)),
-        )
-        coverage_segments.append(
-            min(
-                source.transcript.segments,
-                key=lambda item: (
-                    0
-                    if item.start_ms <= timestamp <= item.end_ms
-                    else min(abs(timestamp - item.start_ms), abs(timestamp - item.end_ms))
-                ),
-            )
-        )
-
-    expected_transcript_refs = tuple(item.evidence_id for item in (*selected, *coverage_segments))
-    assert tuple(frame.transcript_refs[0] for frame in frames) == expected_transcript_refs
+    # Cue jobs retain their frozen order even when decoding finishes out of order.
+    assert tuple(frame.transcript_refs[0] for frame in frames[:3]) == ("E001", "E003", "E004")
+    # Remaining budget reaches an uncovered section before repeating a cue window.
+    assert frames[3].transcript_refs == ("E002",)
+    assert [frame.frame_id for frame in frames] == [f"F{i:02d}" for i in range(1, 6)]
     assert media.max_active_decodes > 1
     assert media.max_active_decodes <= 3
 
@@ -638,272 +407,6 @@ async def test_decode_window_repeated_cancellation_waits_for_every_decode_cleanu
     assert media.terminal == 5
 
 
-async def test_visual_analysis_repeated_cancellation_waits_for_model_cleanup(
-    tmp_path: Path,
-) -> None:
-    source = AcquiredSource(
-        source=SourceV1(
-            platform="bilibili",
-            requested_url=FIXTURE_URL,
-            canonical_url=FIXTURE_URL,
-            video_id="BV1bK411W797",
-            part_id="1",
-            part_index=1,
-            title="视觉取消测试",
-            author_name="测试作者",
-            published_at="2026-08-16T00:00:00Z",
-            duration_ms=4000,
-        ),
-        media_path=tmp_path / "unused.mp4",
-        transcript=TranscriptResult(
-            method="platform_subtitle",
-            provider_ref=None,
-            language="zh-CN",
-            segments=(TranscriptSegment("E001", 0, 4000, "看这里的趋势线"),),
-        ),
-        source_snapshot_ref="bs_" + "a" * 64,
-    )
-
-    class SlowCleanupDistiller:
-        def __init__(self) -> None:
-            self.started = asyncio.Event()
-            self.cleanup_started = asyncio.Event()
-            self.allow_cleanup = asyncio.Event()
-            self.cleanup_terminal = asyncio.Event()
-
-        async def distill(
-            self, source: AcquiredSource, frames: tuple[FrameAsset, ...]
-        ) -> DistillCandidate:
-            del source, frames
-            self.started.set()
-            try:
-                await asyncio.Event().wait()
-            except asyncio.CancelledError:
-                self.cleanup_started.set()
-                try:
-                    await self.allow_cleanup.wait()
-                finally:
-                    self.cleanup_terminal.set()
-                raise
-
-    distiller = SlowCleanupDistiller()
-    use_case = CreateBilibiliNote(
-        source=FixtureSource(tmp_path),
-        media=FfmpegMedia(),
-        distiller=distiller,
-        verifier=DeterministicCandidateVerifier(),
-        renderer=MarkdownRenderer(),
-    )
-    task = asyncio.create_task(
-        use_case._analyze_with_liveness(
-            source,
-            (_frame(1, group_id="G01"), _frame(2, group_id="G02")),
-            create_note_module.NullProgressReporter(),
-        )
-    )
-    await asyncio.wait_for(distiller.started.wait(), timeout=1)
-    task.cancel("first")
-    await asyncio.wait_for(distiller.cleanup_started.wait(), timeout=1)
-    task.cancel("second")
-    await asyncio.sleep(0)
-    assert not task.done()
-    assert not distiller.cleanup_terminal.is_set()
-
-    distiller.allow_cleanup.set()
-    with pytest.raises(asyncio.CancelledError):
-        await task
-    assert distiller.cleanup_terminal.is_set()
-
-
-async def test_visual_completeness_is_checked_before_markdown_escaping(tmp_path: Path) -> None:
-    fixture = generate_fixture(tmp_path / "fixture")
-    payload = await CreateBilibiliNote(
-        source=FixtureSource(fixture),
-        media=FfmpegMedia(),
-        distiller=PercentageVisualDistiller(),
-        verifier=DeterministicCandidateVerifier(),
-        renderer=MarkdownRenderer(),
-    ).execute(FIXTURE_URL)
-
-    assert "61.8%" in payload.rendered_markdown
-    assert any("61.8%" in item.rule_body for item in payload.summary.methods)
-    assert "百分之六十一点八回调线" not in payload.rendered_markdown
-    assert "画面显示" not in payload.rendered_markdown
-
-
-@pytest.mark.parametrize(
-    ("distiller", "expected"),
-    [
-        (TwoMaterialGroupsDistiller(), (("V01",), ("V02",))),
-        (TwoMaterialGroupsWithSharedMethodDistiller(), (("V01", "V02"),)),
-    ],
-)
-async def test_material_visuals_append_or_merge_into_one_atomic_public_method(
-    tmp_path: Path,
-    distiller: object,
-    expected: tuple[tuple[str, ...], ...],
-) -> None:
-    fixture = generate_fixture(tmp_path / "fixture")
-    payload = await CreateBilibiliNote(
-        source=FixtureSource(fixture),
-        media=FfmpegMedia(),
-        distiller=distiller,  # type: ignore[arg-type]
-        verifier=DeterministicCandidateVerifier(),
-        renderer=MarkdownRenderer(),
-    ).execute(FIXTURE_URL)
-
-    method_records = [
-        item
-        for item in payload.brief.key_points
-        if item.text in {rule.rule_body for rule in payload.summary.methods}
-    ]
-    observed = tuple(
-        tuple(ref for ref in item.evidence_refs if ref.startswith("V"))
-        for item in method_records
-        if any(ref.startswith("V") for ref in item.evidence_refs)
-    )
-    assert observed == expected
-    assert [item.visual_id for item in payload.brief.visual_insights] == ["V01", "V02"]
-    visual_methods = tuple(
-        item.text
-        for item in method_records
-        if any(ref.startswith("V") for ref in item.evidence_refs)
-    )
-    assert all(payload.rendered_markdown.count(method) == 1 for method in visual_methods)
-
-
-@pytest.mark.parametrize(
-    ("rule_index", "category", "body"),
-    (
-        (0, "core", "市场主要趋势决定交易方向偏好。"),
-        (2, "method", "价格与关键线的相对位置用于确认结构。"),
-        (5, "risk", "单笔仓位与风险敞口必须预先设定上限。"),
-    ),
-)
-async def test_material_visual_binds_one_global_rule_in_any_public_category(
-    tmp_path: Path, rule_index: int, category: str, body: str
-) -> None:
-    fixture = generate_fixture(tmp_path / "fixture")
-    payload = await CreateBilibiliNote(
-        source=FixtureSource(fixture),
-        media=FfmpegMedia(),
-        distiller=GlobalRuleVisualDistiller(rule_index),
-        verifier=DeterministicCandidateVerifier(),
-        renderer=MarkdownRenderer(),
-    ).execute(FIXTURE_URL)
-
-    records = (payload.brief.core_thesis, *payload.brief.key_points)
-    target = next(item for item in records if item.text == body)
-    assert target.evidence_refs[-1] == "V01"
-    assert sum("V01" in item.evidence_refs for item in records) == 1
-    summary_bodies = {
-        "core": tuple(item.rule_body for item in payload.summary.core_strategies),
-        "method": tuple(item.rule_body for item in payload.summary.methods),
-        "risk": tuple(item.rule_body for item in payload.summary.risk_management),
-    }
-    assert body in summary_bodies[category]
-    assert payload.rendered_markdown.count(body) == 1
-
-
-async def test_same_category_duplicate_is_rejected_before_verification(
-    tmp_path: Path,
-) -> None:
-    fixture = generate_fixture(tmp_path / "fixture")
-    verifier = RecordingVerifier()
-    use_case = CreateBilibiliNote(
-        source=FixtureSource(fixture),
-        media=FfmpegMedia(),
-        distiller=DuplicateMethodsWithSecondVisualOwnerDistiller(),
-        verifier=verifier,
-        renderer=MarkdownRenderer(),
-    )
-
-    with pytest.raises(BilibiliNoteFailure) as failure:
-        await use_case.execute(FIXTURE_URL)
-    assert failure.value.reason == "model_public_items_not_unique"
-    assert verifier.calls == 0
-
-
-@pytest.mark.parametrize("rule_index", (None, -1, 6, True))
-async def test_material_visual_group_requires_one_existing_public_rule_index(
-    tmp_path: Path, rule_index: object
-) -> None:
-    fixture = generate_fixture(tmp_path / "fixture")
-    use_case = CreateBilibiliNote(
-        source=FixtureSource(fixture),
-        media=FfmpegMedia(),
-        distiller=InvalidMaterialVisualDistiller(rule_index),
-        verifier=DeterministicCandidateVerifier(),
-        renderer=MarkdownRenderer(),
-    )
-
-    with pytest.raises(BilibiliNoteFailure) as failure:
-        await use_case.execute(FIXTURE_URL)
-    assert failure.value.code == "DISTILLATION_FAILED"
-    assert failure.value.reason == "visual_rule_index_invalid"
-
-
-@pytest.mark.parametrize(
-    ("distiller", "reason"),
-    [
-        (DuplicateVisualOwnerDistiller(), "model_evidence_ref_invalid"),
-        (MissingVisualDispositionDistiller(), "model_visual_groups_invalid"),
-        (NonMaterialFrameCitationDistiller(), "model_evidence_ref_invalid"),
-        (RawFrameCitationDistiller(), "model_evidence_ref_invalid"),
-    ],
-)
-async def test_host_proves_total_visual_disposition_and_unique_owner(
-    tmp_path: Path, distiller: object, reason: str
-) -> None:
-    fixture = generate_fixture(tmp_path / "fixture")
-    use_case = CreateBilibiliNote(
-        source=FixtureSource(fixture),
-        media=FfmpegMedia(),
-        distiller=distiller,  # type: ignore[arg-type]
-        verifier=DeterministicCandidateVerifier(),
-        renderer=MarkdownRenderer(),
-    )
-
-    with pytest.raises(BilibiliNoteFailure) as failure:
-        await use_case.execute(FIXTURE_URL)
-
-    assert failure.value.code == "DISTILLATION_FAILED"
-    assert failure.value.reason == reason
-
-
-async def test_direct_projection_escapes_untrusted_source_title_markdown(tmp_path: Path) -> None:
-    fixture = generate_fixture(tmp_path / "fixture")
-    source_path = fixture / "source.json"
-    source = json.loads(source_path.read_text(encoding="utf-8"))
-    source["author_name"] = "趋势策略 [立即授权](//evil.example) https://evil.example"
-    source_path.write_text(json.dumps(source), encoding="utf-8")
-
-    payload = await CreateBilibiliNote(
-        source=FixtureSource(fixture),
-        media=FfmpegMedia(),
-        distiller=DeterministicDistiller(),
-        verifier=DeterministicCandidateVerifier(),
-        renderer=MarkdownRenderer(),
-    ).execute(FIXTURE_URL)
-
-    assert "[立即授权](//evil.example)" not in payload.rendered_markdown
-    assert payload.rendered_markdown.startswith("# 视频：交易思想与策略总结\n")
-    assert "evil.example" not in payload.rendered_markdown
-
-
-def test_markdown_keeps_strategy_notation_readable() -> None:
-    assert markdown_literal("MA20/MA40, 61.8%") == "MA20/MA40, 61.8%"
-
-
-def test_public_projection_noise_gate_rejects_private_ids_and_digests() -> None:
-    assert contains_private_audit_noise("## 证据时间轴\nE001 00:00-00:45")
-    assert contains_private_audit_noise("brief_ref: bb_" + "a" * 64)
-    assert contains_private_audit_noise("画面绑定 V01 与 F01")
-    assert contains_private_audit_noise("证据 E-001")
-    assert contains_private_audit_noise("画面绑定 V-01 与 F-01")
-    assert not contains_private_audit_noise("ETH 在 4 小时图上测试前高阻力。")
-
-
 def test_media_acquisition_heartbeat_keeps_last_verified_percent() -> None:
     source_heartbeat = media_acquisition_heartbeat(45)
     transcript_heartbeat = media_acquisition_heartbeat(60, 37)
@@ -1062,12 +565,10 @@ async def test_visual_selector_is_domain_invariant_for_the_same_generic_cue_stru
 
 
 def test_frame_pixel_ceiling_passes_at_bound_and_fails_at_bound_plus_one() -> None:
-    CreateBilibiliNote._validate_frames(
-        (_frame(1, group_id="G01", width=1920, height=1080), _frame(2, group_id="G02"))
-    )
+    validate_frames((_frame(1, group_id="G01", width=1920, height=1080), _frame(2, group_id="G02")))
 
     with pytest.raises(BilibiliNoteFailure) as failure:
-        CreateBilibiliNote._validate_frames(
+        validate_frames(
             (_frame(1, group_id="G01", width=1921, height=1080), _frame(2, group_id="G02"))
         )
 
@@ -1077,11 +578,11 @@ def test_frame_pixel_ceiling_passes_at_bound_and_fails_at_bound_plus_one() -> No
 def test_frame_and_aggregate_bytes_are_independently_bounded(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(create_note_module, "FRAME_PNG_BYTES", 16)
-    monkeypatch.setattr(create_note_module, "FRAME_PNG_TOTAL_BYTES", 24)
+    monkeypatch.setattr(note_validation, "FRAME_PNG_BYTES", 16)
+    monkeypatch.setattr(note_validation, "FRAME_PNG_TOTAL_BYTES", 24)
     minimal = b"\x89PNG\r\n\x1a\n"
     at_bound = b"\x89PNG\r\n\x1a\n" + b"x" * 8
-    CreateBilibiliNote._validate_frames(
+    validate_frames(
         (
             _frame(1, group_id="G01", png_bytes=at_bound),
             _frame(2, group_id="G02", png_bytes=minimal),
@@ -1089,7 +590,7 @@ def test_frame_and_aggregate_bytes_are_independently_bounded(
     )
 
     with pytest.raises(BilibiliNoteFailure) as individual:
-        CreateBilibiliNote._validate_frames(
+        validate_frames(
             (
                 _frame(1, group_id="G01", png_bytes=at_bound + b"x"),
                 _frame(2, group_id="G02", png_bytes=minimal),
@@ -1098,7 +599,7 @@ def test_frame_and_aggregate_bytes_are_independently_bounded(
     assert individual.value.reason == "frame_png_bytes_exceeded"
 
     with pytest.raises(BilibiliNoteFailure) as aggregate:
-        CreateBilibiliNote._validate_frames(
+        validate_frames(
             (
                 _frame(1, group_id="G01", png_bytes=at_bound),
                 _frame(2, group_id="G02", png_bytes=minimal + b"x"),
@@ -1109,7 +610,7 @@ def test_frame_and_aggregate_bytes_are_independently_bounded(
 
 def test_application_rejects_two_member_visual_group() -> None:
     with pytest.raises(BilibiliNoteFailure) as failure:
-        CreateBilibiliNote._validate_frames(
+        validate_frames(
             (
                 _frame(1, group_id="G01"),
                 _frame(2, group_id="G01"),
@@ -1144,7 +645,7 @@ def _ordered_and_singleton_frames() -> tuple[FrameAsset, ...]:
 
 
 def test_application_accepts_one_host_marked_ordered_group() -> None:
-    CreateBilibiliNote._validate_frames(_ordered_and_singleton_frames())
+    validate_frames(_ordered_and_singleton_frames())
 
 
 @pytest.mark.parametrize("reason", ("deictic_cue", "visual_activity", "coverage"))
@@ -1157,7 +658,7 @@ def test_application_rejects_unmarked_three_frame_group(
     )
 
     with pytest.raises(BilibiliNoteFailure) as failure:
-        CreateBilibiliNote._validate_frames(frames)
+        validate_frames(frames)
 
     assert failure.value.reason == "ordered_group_cue_invalid"
 
@@ -1167,136 +668,17 @@ def test_application_rejects_unordered_three_frame_timeline() -> None:
     malformed = (frames[0], replace(frames[1], timestamp_ms=1000), *frames[2:])
 
     with pytest.raises(BilibiliNoteFailure) as failure:
-        CreateBilibiliNote._validate_frames(malformed)
+        validate_frames(malformed)
 
     assert failure.value.reason == "frame_group_timeline_invalid"
 
 
-def test_candidate_evidence_basis_must_match_host_group_shape() -> None:
-    ordered_frames = _ordered_and_singleton_frames()
-    static_frames = (_frame(1, group_id="G01"), _frame(2, group_id="G02"))
-    candidate = DistillCandidate(
-        rules=(
-            (_rule("顺势交易。"), ("E001",)),
-            (_rule("等待确认。"), ("E001",)),
-            (_rule("失效后退出。"), ("E001",)),
-        ),
-        visuals=(
-            CandidateVisual("supports_rule", 0, "ordered_relation"),
-            CandidateVisual("no_material_increment", None, None),
-        ),
-        model_ref="fixture",
-        profile_material_refs=(),
-    )
-
-    with pytest.raises(BilibiliNoteFailure) as static_on_ordered:
-        CreateBilibiliNote._validate_candidate_visuals(
-            replace(
-                candidate,
-                visuals=(
-                    replace(candidate.visuals[0], evidence_basis="static_frame"),
-                    *candidate.visuals[1:],
-                ),
-            ),
-            ordered_frames,
-        )
-    with pytest.raises(BilibiliNoteFailure) as ordered_on_static:
-        CreateBilibiliNote._validate_candidate_visuals(
-            replace(
-                candidate,
-                visuals=(
-                    candidate.visuals[0],
-                    *candidate.visuals[1:],
-                ),
-            ),
-            static_frames,
-        )
-
-    assert static_on_ordered.value.reason == "visual_evidence_basis_invalid"
-    assert ordered_on_static.value.reason == "visual_evidence_basis_invalid"
-
-
-@pytest.mark.parametrize(
-    "mutation",
-    ("speech", "context", "relation"),
-)
-async def test_ordered_relation_requires_all_independent_verifier_guards(
-    mutation: str,
-) -> None:
-    candidate = DistillCandidate(
-        rules=(
-            (_rule("价格从阻力上方回到下方后转为空头偏好。"), ("E001",)),
-            (_rule("等待有序变化确认。"), ("E001",)),
-            (_rule("在关键位置观察价格反应。"), ("E001",)),
-            (_rule("结合结构信号确认方向。"), ("E001",)),
-            (_rule("不明确时保持观望。"), ("E001",)),
-            (_rule("结构失效后退出。"), ("E001",)),
-        ),
-        visuals=(CandidateVisual("supports_rule", 0, "ordered_relation"),),
-        model_ref="fixture",
-        profile_material_refs=(),
-    )
-    verification = await DeterministicCandidateVerifier().verify(
-        None,
-        (),
-        candidate,  # type: ignore[arg-type]
-    )
-    first = verification.visuals[0]
-    if mutation == "speech":
-        first = replace(first, speech_authorized="reject")
-    elif mutation == "context":
-        first = replace(first, same_visual_context="reject")
-    else:
-        first = replace(first, ordered_relation_support="reject")
-    rejected = replace(verification, visuals=(first,))
-
-    with pytest.raises(BilibiliNoteFailure) as failure:
-        CreateBilibiliNote._validate_verification(candidate, rejected)
-
-    assert failure.value.reason == "visual_ordered_relation_rejected"
-
-
-async def test_static_basis_rejects_verifier_detected_ordered_rule() -> None:
-    candidate = DistillCandidate(
-        rules=(
-            (_rule("价格前后变化形成方向偏好。"), ("E001",)),
-            (_rule("等待确认。"), ("E001",)),
-            (_rule("在关键位置观察价格反应。"), ("E001",)),
-            (_rule("结合结构信号确认方向。"), ("E001",)),
-            (_rule("不明确时保持观望。"), ("E001",)),
-            (_rule("失效后退出。"), ("E001",)),
-        ),
-        visuals=(CandidateVisual("supports_rule", 0, "static_frame"),),
-        model_ref="fixture",
-        profile_material_refs=(),
-    )
-    verification = await DeterministicCandidateVerifier().verify(
-        None,
-        (),
-        candidate,  # type: ignore[arg-type]
-    )
-    incompatible = replace(
-        verification.visuals[0],
-        rule_relation="ordered",
-        speech_authorized="accept",
-        same_visual_context="accept",
-        ordered_relation_support="accept",
-    )
-
-    with pytest.raises(BilibiliNoteFailure) as failure:
-        CreateBilibiliNote._validate_verification(
-            candidate, replace(verification, visuals=(incompatible,))
-        )
-
-    assert failure.value.reason == "visual_relation_basis_rejected"
-
-
-@pytest.mark.parametrize("frame_count", (0, 1, 6))
-def test_application_rejects_visual_count_outside_two_to_five(frame_count: int) -> None:
+@pytest.mark.parametrize("frame_count", (0, 1, 49))
+def test_application_rejects_visual_count_outside_two_to_forty_eight(frame_count: int) -> None:
     frames = tuple(_frame(index, group_id=f"G{index:02d}") for index in range(1, frame_count + 1))
 
     with pytest.raises(BilibiliNoteFailure) as failure:
-        CreateBilibiliNote._validate_frames(frames)
+        validate_frames(frames)
 
     assert failure.value.reason == "visual_count_invalid"
 
@@ -1504,24 +886,6 @@ async def test_asset_collision_atomically_degrades_ordered_group_during_bounded_
     assert all(sum(frame.group_id == group for frame in frames) == 1 for group in groups)
 
 
-def test_direct_candidate_rejects_normalized_duplicate_public_items() -> None:
-    candidate = DistillCandidate(
-        rules=(
-            (_rule("BTC 趋势过滤。"), ("E001",)),
-            (_rule("btc   趋势过滤。"), ("E001",)),
-            (_rule("结构失效时停止沿用原方向。"), ("E001",)),
-        ),
-        visuals=(),
-        model_ref="fixture",
-        profile_material_refs=(),
-    )
-
-    with pytest.raises(BilibiliNoteFailure) as failure:
-        CreateBilibiliNote._validate_candidate_text(candidate)
-
-    assert failure.value.reason == "model_public_items_not_unique"
-
-
 async def test_decoded_duration_must_match_source_identity(tmp_path: Path) -> None:
     fixture = generate_fixture(tmp_path / "fixture")
     source_path = fixture / "source.json"
@@ -1536,11 +900,147 @@ async def test_decoded_duration_must_match_source_identity(tmp_path: Path) -> No
         source=FixtureSource(fixture),
         media=FfmpegMedia(),
         distiller=DeterministicDistiller(),
-        verifier=DeterministicCandidateVerifier(),
-        renderer=MarkdownRenderer(),
+        publisher=LocalNotePublisher(tmp_path / "notes"),
     )
 
     with pytest.raises(BilibiliNoteFailure) as failure:
         await use_case.execute(FIXTURE_URL)
     assert failure.value.code == "SOURCE_CHANGED"
     assert failure.value.reason == "media_duration_changed"
+
+
+async def test_non_deictic_content_has_frames_across_early_middle_and_late_sections(
+    tmp_path, draft
+):
+    source = AcquiredSource(
+        source=draft.source,
+        media_path=tmp_path / "unused.mp4",
+        transcript=TranscriptResult(
+            "platform_subtitle",
+            None,
+            "zh-CN",
+            (TranscriptSegment("E001", 0, 4000, "水蒸气遇冷凝结。"),),
+        ),
+        source_snapshot_ref="fixture",
+    )
+    frames = await TracingDecodeMedia().extract_frames(source, tmp_path)
+    assert len(frames) == 5
+    assert min(f.timestamp_ms for f in frames) < 1000
+    assert any(1600 <= f.timestamp_ms <= 2400 for f in frames)
+    assert max(f.timestamp_ms for f in frames) > 3000
+    assert all(f.transcript_refs == ("E001",) for f in frames)
+    assert all(f.selection_reason == "coverage" for f in frames)
+
+
+async def test_long_video_candidates_are_bounded_without_truncating_ending(tmp_path, draft):
+
+    duration = 600_000
+    source = AcquiredSource(
+        draft.source.model_copy(update={"duration_ms": duration}),
+        tmp_path / "source.mp4",
+        TranscriptResult(
+            "asr",
+            "test",
+            "zh",
+            tuple(
+                TranscriptSegment(f"E{i + 1:03d}", i * 6000, (i + 1) * 6000, "按顺序展示步骤。")
+                for i in range(100)
+            ),
+            duration,
+        ),
+        "fixture",
+    )
+    frames = await TracingDecodeMedia().extract_frames(source, tmp_path)
+    assert len(frames) == 48
+    assert min(f.timestamp_ms for f in frames) < 15_000
+    assert max(f.timestamp_ms for f in frames) > duration - 15_000
+    timestamps = sorted(f.timestamp_ms for f in frames)
+    assert max(b - a for a, b in zip(timestamps, timestamps[1:], strict=False)) <= 30_000
+
+
+async def test_sentence_samples_capture_completed_steps_without_collapsing_coverage(
+    tmp_path, draft
+):
+    segments = tuple(
+        TranscriptSegment(f"E{i + 1:03}", i * 2000, (i + 1) * 2000, "依次加入材料。")
+        for i in range(10)
+    )
+    source = AcquiredSource(
+        draft.source.model_copy(update={"duration_ms": 20000}),
+        tmp_path / "source.mp4",
+        TranscriptResult("asr", "test", "zh", segments, 20000),
+        "fixture",
+    )
+    frames = await TracingDecodeMedia().extract_frames(source, tmp_path)
+    assert len(frames) == 5
+    assert len({f.timestamp_ms for f in frames}) == 5
+    for f in frames:
+        s = next(s for s in segments if s.evidence_id == f.transcript_refs[0])
+        assert s.end_ms - 200 <= f.timestamp_ms < s.end_ms
+    assert min(f.timestamp_ms for f in frames) < 4000
+    assert max(f.timestamp_ms for f in frames) > 16000
+
+
+async def test_coarse_asr_windows_keep_temporal_samples(tmp_path, draft):
+    segments = tuple(
+        TranscriptSegment(f"E{i + 1:03}", i * 45000, (i + 1) * 45000, "介绍操作过程。")
+        for i in range(5)
+    )
+    source = AcquiredSource(
+        draft.source.model_copy(update={"duration_ms": 225000}),
+        tmp_path / "source.mp4",
+        TranscriptResult("asr", "test", "zh", segments, 225000),
+        "fixture",
+    )
+    frames = await TracingDecodeMedia().extract_frames(source, tmp_path)
+    assert len(frames) > len(segments)
+    assert min(f.timestamp_ms for f in frames) < 15000
+    assert max(f.timestamp_ms for f in frames) > 210000
+
+
+async def test_webm_container_duration_supports_real_frame_decode(tmp_path, draft):
+    from bilibili_note_mcp.adapters.subprocesses import run_captured
+
+    path = tmp_path / "source.webm"
+    result = await run_captured(
+        "ffmpeg",
+        "-v",
+        "error",
+        "-f",
+        "lavfi",
+        "-i",
+        "testsrc2=size=1280x720:rate=2",
+        "-f",
+        "lavfi",
+        "-i",
+        "sine=frequency=440:sample_rate=16000",
+        "-t",
+        "2",
+        "-c:v",
+        "libvpx-vp9",
+        "-deadline",
+        "realtime",
+        "-cpu-used",
+        "8",
+        "-c:a",
+        "libopus",
+        str(path),
+        timeout_seconds=30,
+        stdout_limit_bytes=1024,
+        stderr_limit_bytes=4096,
+    )
+    assert result.returncode == 0
+    source = AcquiredSource(
+        draft.source.model_copy(update={"duration_ms": 2000}),
+        path,
+        TranscriptResult("platform_subtitle", None, "zh-CN", draft.transcript),
+        "test",
+    )
+    media = FfmpegMedia()
+    assert await media._probe(source) == (1280, 720)
+    frame = await media._decode(path, 500, tmp_path, "webm-frame", 1280, 720)
+    with Image.open(frame.path) as image:
+        assert image.size == (1280, 720)
+    changed = replace(source, source=source.source.model_copy(update={"duration_ms": 6000}))
+    with pytest.raises(BilibiliNoteFailure, match="media_duration_changed"):
+        await media._probe(changed)

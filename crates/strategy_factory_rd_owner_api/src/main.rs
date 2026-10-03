@@ -39,6 +39,9 @@ use vibe_data::owner::{
     research_pit_terminal_resolver_from_store_admission_lookup,
 };
 use vibe_data::owner::{
+    instrument_catalog_read_from_environment_v1, instrument_catalog_v1::InstrumentCatalogReadV1,
+};
+use vibe_data::owner::{
     instrument_economic_terms_intake_v1::{
         InstrumentEconomicTermsAdmissionV1, instrument_economic_terms_admission_from_environment_v1,
     },
@@ -209,10 +212,17 @@ struct DevelopComposerA0ExecutionsV1 {
 
 use vibe_strategy_factory_rd_owner_api::required_env;
 
+mod binance_backfill_job;
 mod bounded_feature_program;
 #[cfg(all(test, feature = "sealed-source-intake-acceptance"))]
 mod dashboard_run_routing_acceptance;
 mod exploratory_replay;
+#[cfg(all(test, feature = "sealed-source-intake-composer-acceptance"))]
+mod first_composer_v3_replay_acceptance;
+#[cfg(all(test, feature = "sealed-source-intake-composer-acceptance"))]
+mod first_composer_v3_replay_body_acceptance;
+#[cfg(all(test, feature = "sealed-source-intake-composer-acceptance"))]
+mod first_composer_v3_replay_oracle;
 mod iteration_analysis;
 mod iteration_decision;
 mod iteration_result_admission;
@@ -236,6 +246,7 @@ mod research_initial_pit;
 mod research_initial_pit_postgres_tests;
 mod source_intake;
 mod source_intake_research;
+mod strategies;
 
 #[derive(Clone)]
 struct ApiState {
@@ -437,6 +448,15 @@ async fn run() -> anyhow::Result<()> {
         bootstrap_market_data_instrument_master_admission_v2().await?;
     let instrument_economic_terms_admission =
         bootstrap_instrument_economic_terms_admission().await?;
+    let market_data_instrument_catalog = bootstrap_market_data_instrument_catalog().await?;
+    let market_data_binance_perpetual_admission =
+        bootstrap_market_data_binance_perpetual_admission()?;
+    let market_data_backfill_jobs = bootstrap_market_data_backfill_jobs().await?;
+    let market_data_custody_commit = bootstrap_market_data_custody_commit().await?;
+    let market_data_backfill_fetcher = market_data_binance_perpetual_admission
+        .as_ref()
+        .and_then(|client| binance_backfill_job::vision_backfill_fetcher_v1(client).ok())
+        .map(Arc::new);
     let market_data_market_semantics_admission =
         bootstrap_market_data_market_semantics_admission().await?;
     #[cfg(feature = "composer-replay-issuance")]
@@ -479,6 +499,12 @@ async fn run() -> anyhow::Result<()> {
     let owner = Arc::new(owner);
     let bounded_feature_program_owner =
         Arc::new(PostgresResearchBoundedFeatureProgramOwnerV1::connect(&database_url).await?);
+    let strategy_catalog = Arc::new(
+        vibe_strategy_factory::strategy_catalog_postgres_v1::PostgresStrategyCatalogV1::connect(
+            &database_url,
+        )
+        .await?,
+    );
     let artifact_owner = Arc::new(
         PostgresArtifactBuildOwnerV1::connect(
             &database_url,
@@ -628,6 +654,102 @@ async fn run() -> anyhow::Result<()> {
     )
     .await?;
     let research_goal_submission = state.research_goal_submission();
+    let app = owner_state_routes();
+    let app = app
+        .with_state(state)
+        .merge(source_intake)
+        .merge(exploratory_replay::result_router(
+            owner.clone(),
+            token_digest,
+        ))
+        .merge(iteration_analysis::router(
+            product_edge.clone(),
+            owner.clone(),
+            token_digest,
+            request_proof_digest.clone(),
+        ))
+        .merge(iteration_decision::router(
+            product_edge.clone(),
+            owner.clone(),
+            token_digest,
+            request_proof_digest.clone(),
+        ))
+        .merge(bounded_feature_program::router(
+            bounded_feature_program_owner,
+            token_digest,
+        ))
+        .merge(strategies::router(strategy_catalog, token_digest))
+        .merge(iteration_result_admission::router(
+            product_edge.clone(),
+            owner.clone(),
+            token_digest,
+            request_proof_digest.clone(),
+        ))
+        .merge(research_goal_submission::router(research_goal_submission))
+        // The issuance holds the same two Market Data ports its routes serve, not a second pair.
+        .merge(research_initial_pit::router(
+            owner.clone(),
+            market_data_universe_selection
+                .clone()
+                .zip(market_data_pit_intake.clone())
+                .map(|(universe, intake)| MarketDataInitialPitPortsV1::new(universe, intake)),
+            token_digest,
+        ))
+        .merge(source_intake_research::router(
+            product_edge,
+            owner,
+            token_digest,
+            request_proof_digest,
+            allow_acceptance_faults,
+        ))
+        // Market Data answers for itself on the default feature set: these routes ship in the
+        // deployed binary rather than behind an acceptance feature.
+        .merge(market_data_pit::router(
+            market_data_pit::MarketDataAdmissions {
+                intake: market_data_pit_intake,
+                admission: market_data_source_binding_admission.clone(),
+                universe: market_data_universe_selection.clone(),
+                bindings: market_data_strategy_input_bindings,
+                instruments: market_data_instrument_master_admission,
+                instruments_v2: market_data_instrument_master_admission_v2,
+                semantics: market_data_market_semantics_admission,
+                economic_terms: instrument_economic_terms_admission,
+                catalog: market_data_instrument_catalog,
+                binance_perpetual_admission: market_data_binance_perpetual_admission,
+            },
+            token_digest,
+        ))
+        .merge(binance_backfill_job::router(
+            binance_backfill_job::BinanceBackfillJobApiState {
+                jobs: market_data_backfill_jobs,
+                admission: market_data_source_binding_admission,
+                universe: market_data_universe_selection,
+                custody_commit: market_data_custody_commit,
+                fetcher: market_data_backfill_fetcher,
+                token_digest,
+            },
+        ));
+    #[cfg(feature = "native-replay-execution")]
+    let app = app.merge(exploratory_replay::execution_router(
+        native_replay_execution,
+        token_digest,
+    ));
+    // The Market Data repair loop is a separate surface with its own admission; keeping its merge
+    // in its own statement is what lets the Native Replay route lose its gate on its own.
+    #[cfg(feature = "native-replay-execution")]
+    let app = app.merge(market_data_repair);
+    let address = env_or("RD_OWNER_LISTEN", "0.0.0.0:8080");
+    let listener = TcpListener::bind(&address).await?;
+    tracing::info!(listen = %address, "R&D Owner API ready");
+    axum::serve(listener, app).await?;
+    Ok(())
+}
+
+/// The routes served from the Owner API's shared state, exactly as `main` mounts them.
+///
+/// The ordered chain mounts this same table over the state it composes, so an entry that drives
+/// one of these routes reaches the production path, handler and extractors rather than a copy of them.
+fn owner_state_routes() -> Router<ApiState> {
     let app = Router::new()
         .route("/health", get(health))
         .route("/v1/research-goals/directory", get(read_research_directory))
@@ -749,81 +871,7 @@ async fn run() -> anyhow::Result<()> {
             "/_sealed-acceptance/v1/develop-composer/runs/{request_identity}/resolve",
             post(resolve_develop_composer_with_acceptance_tamper),
         );
-    let app = app
-        .with_state(state)
-        .merge(source_intake)
-        .merge(exploratory_replay::result_router(
-            owner.clone(),
-            token_digest,
-        ))
-        .merge(iteration_analysis::router(
-            product_edge.clone(),
-            owner.clone(),
-            token_digest,
-            request_proof_digest.clone(),
-        ))
-        .merge(iteration_decision::router(
-            product_edge.clone(),
-            owner.clone(),
-            token_digest,
-            request_proof_digest.clone(),
-        ))
-        .merge(bounded_feature_program::router(
-            bounded_feature_program_owner,
-            token_digest,
-        ))
-        .merge(iteration_result_admission::router(
-            product_edge.clone(),
-            owner.clone(),
-            token_digest,
-            request_proof_digest.clone(),
-        ))
-        .merge(research_goal_submission::router(research_goal_submission))
-        // The issuance holds the same two Market Data ports its routes serve, not a second pair.
-        .merge(research_initial_pit::router(
-            owner.clone(),
-            market_data_universe_selection
-                .clone()
-                .zip(market_data_pit_intake.clone())
-                .map(|(universe, intake)| MarketDataInitialPitPortsV1::new(universe, intake)),
-            token_digest,
-        ))
-        .merge(source_intake_research::router(
-            product_edge,
-            owner,
-            token_digest,
-            request_proof_digest,
-            allow_acceptance_faults,
-        ))
-        // Market Data answers for itself on the default feature set: these routes ship in the
-        // deployed binary rather than behind an acceptance feature.
-        .merge(market_data_pit::router(
-            market_data_pit::MarketDataAdmissions {
-                intake: market_data_pit_intake,
-                admission: market_data_source_binding_admission,
-                universe: market_data_universe_selection,
-                bindings: market_data_strategy_input_bindings,
-                instruments: market_data_instrument_master_admission,
-                instruments_v2: market_data_instrument_master_admission_v2,
-                semantics: market_data_market_semantics_admission,
-                economic_terms: instrument_economic_terms_admission,
-            },
-            token_digest,
-        ));
-    #[cfg(feature = "native-replay-execution")]
-    let app = app.merge(exploratory_replay::execution_router(
-        native_replay_execution,
-        token_digest,
-    ));
-    // The Market Data repair loop is a separate surface with its own admission; keeping its merge
-    // in its own statement is what lets the Native Replay route lose its gate on its own.
-    #[cfg(feature = "native-replay-execution")]
-    let app = app.merge(market_data_repair);
-    let address = env_or("RD_OWNER_LISTEN", "0.0.0.0:8080");
-    let listener = TcpListener::bind(&address).await?;
-    tracing::info!(listen = %address, "R&D Owner API ready");
-    axum::serve(listener, app).await?;
-    Ok(())
+    app
 }
 
 fn schema_materialization_requested(arguments: &[String]) -> anyhow::Result<bool> {
@@ -1044,6 +1092,79 @@ async fn bootstrap_instrument_economic_terms_admission()
     }
     Ok(Some(
         instrument_economic_terms_admission_from_environment_v1().await?,
+    ))
+}
+
+/// Composes the instrument catalog `list_instruments` and `describe_instrument` read when both
+/// stores it reads are configured: Market Data's Instrument Master V2 and the Instrument Owner's
+/// economic terms.
+async fn bootstrap_market_data_instrument_catalog()
+-> anyhow::Result<Option<Arc<dyn InstrumentCatalogReadV1>>> {
+    if env::var("MARKET_DATA_OWNER_DATABASE_URL").is_err()
+        || env::var("INSTRUMENT_OWNER_DATABASE_URL").is_err()
+    {
+        return Ok(None);
+    }
+    Ok(Some(Arc::new(
+        instrument_catalog_read_from_environment_v1().await?,
+    )))
+}
+
+/// Builds the Binance USD-M client `admit_binance_perpetual` fetches `exchangeInfo` through.
+///
+/// The base URL is named rather than discovered, for the same reason the PIT Data Client's is: a
+/// deployment that must reach another host than `fapi.binance.com` - a test's local stand-in, or a
+/// network where the canonical host answers `451` - says so. The endpoint is public and unsigned,
+/// so no credential is read here.
+fn binance_perpetual_admission_client() -> anyhow::Result<Arc<BinanceFuturesHttpClient>> {
+    let base_url = env::var("BINANCE_PERPETUAL_ADMISSION_BASE_URL")
+        .ok()
+        .filter(|value| !value.trim().is_empty());
+    Ok(Arc::new(BinanceFuturesHttpClient::new(
+        BinanceProductType::UsdM,
+        BinanceEnvironment::Live,
+        get_atomic_clock_realtime(),
+        None,
+        None,
+        base_url,
+        None,
+        Some(30),
+        None,
+        false,
+    )?))
+}
+
+/// Composes the Binance perpetual admission route's `exchangeInfo` client when Market Data's
+/// store is configured.
+fn bootstrap_market_data_binance_perpetual_admission()
+-> anyhow::Result<Option<Arc<BinanceFuturesHttpClient>>> {
+    if env::var("MARKET_DATA_OWNER_DATABASE_URL").is_err() {
+        return Ok(None);
+    }
+    Ok(Some(binance_perpetual_admission_client()?))
+}
+
+/// Composes the backfill job fact store when Market Data's store is configured.
+async fn bootstrap_market_data_backfill_jobs()
+-> anyhow::Result<Option<Arc<dyn vibe_data::owner::backfill_job_v1::BackfillJobV1>>> {
+    if env::var("MARKET_DATA_OWNER_DATABASE_URL").is_err() {
+        return Ok(None);
+    }
+    Ok(Some(
+        vibe_data::owner::backfill_job_v1::backfill_job_from_environment_v1().await?,
+    ))
+}
+
+/// Composes the PIT window custody commit when Market Data's store is configured.
+async fn bootstrap_market_data_custody_commit() -> anyhow::Result<
+    Option<Arc<dyn vibe_data::owner::pit_window_custody_v1::PitWindowCustodyCommitV1>>,
+> {
+    if env::var("MARKET_DATA_OWNER_DATABASE_URL").is_err() {
+        return Ok(None);
+    }
+    Ok(Some(
+        vibe_data::owner::pit_window_custody_v1::pit_window_custody_commit_from_environment_v1()
+            .await?,
     ))
 }
 
@@ -5175,6 +5296,10 @@ mod tests {
                     economic_terms: bootstrap_instrument_economic_terms_admission()
                         .await
                         .unwrap(),
+                    catalog: None,
+                    binance_perpetual_admission: bootstrap_market_data_binance_perpetual_admission(
+                    )
+                    .unwrap(),
                 },
                 token_digest,
             ));
@@ -5582,7 +5707,7 @@ mod tests {
                     unit: "PRICE".to_owned(),
                     scale: 2,
                 },
-                threshold_coefficient: 10_000,
+                threshold: "100".to_owned(),
                 comparison: BoundedFeaturePredicateV1::Greater,
                 when_true: SingleThresholdOutcomeV1 {
                     position_intent_semantic_id: "kernel.position.enter.v1".to_owned(),
@@ -5600,6 +5725,9 @@ mod tests {
                 // accepted Research custody and the falsifier is the fourth: an authored one
                 // publishes (that route derives the role intent from three identities) and then
                 // refuses at declare with RESEARCH_CUSTODY_MISMATCH.
+                stop_loss_fraction: None,
+                take_profit_fraction: None,
+                max_holding_bars: None,
                 falsifier: facts.falsifier.clone(),
             })
             .expect("the authoring surface must author this statement");
@@ -5626,6 +5754,10 @@ mod tests {
                     economic_terms: bootstrap_instrument_economic_terms_admission()
                         .await
                         .unwrap(),
+                    catalog: None,
+                    binance_perpetual_admission: bootstrap_market_data_binance_perpetual_admission(
+                    )
+                    .unwrap(),
                 },
                 token_digest,
             ));
@@ -5828,7 +5960,7 @@ mod tests {
     /// checks sixteen ACL flags exactly, including that it reaches a published intent only through
     /// a function and holds no direct table privilege. A wrong role fails the way a missing URL
     /// does.
-    async fn composed_market_data_binding_admission(
+    pub(super) async fn composed_market_data_binding_admission(
         test_database: &CanonicalOwnerPostgresTestDatabaseV1,
     ) -> Option<Arc<dyn StrategyInputBindingAdmissionV1>> {
         unsafe {
@@ -6058,6 +6190,197 @@ mod tests {
         assert_eq!(
             replay, response,
             "replaying one frozen meaning must resolve the committed operation, not compose again",
+        );
+    }
+
+    /// F: the first COMPOSER_V3 Replay, committed through the production routes from a V3 Research
+    /// request to an execution input binding that reads back (the prefix), then run through the
+    /// production execution route and stated by the report (the body).
+    ///
+    /// One entry, because the body runs what the prefix just committed. Joining it from a second
+    /// entry would have to replay the prefix's admissions, and those take Market Data's clock
+    /// head, which has moved: the replayed Instrument Master fact is no successor and is refused.
+    /// The steps are in `first_composer_v3_replay_acceptance` and
+    /// `first_composer_v3_replay_body_acceptance`.
+    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+    #[rstest]
+    #[ignore = "requires the ordered chain's PostgreSQL, entry 6's Market Data fixture and the pinned local wasm compiler"]
+    fn the_first_composer_v3_replay_runs_as_its_one_member_universe_and_is_reported() {
+        // Accepting a request, issuing its PIT request and composing run the Owners' deepest
+        // custody paths; together they overflow the default test stack, as the other V3 entries do.
+        std::thread::Builder::new()
+            .stack_size(16 * 1024 * 1024)
+            .spawn(|| {
+                tokio::runtime::Builder::new_multi_thread()
+                    .worker_threads(2)
+                    .enable_all()
+                    .build()
+                    .unwrap()
+                    .block_on(Box::pin(async {
+                        let test_database =
+                            CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
+                        let replay = Box::pin(
+                            crate::first_composer_v3_replay_acceptance::ensure_first_composer_v3_replay_acceptance_v1(
+                                &test_database,
+                                crate::first_composer_v3_replay_acceptance::FIRST_COMPOSER_V3_REPLAY_FIXTURE_KEY_V1,
+                            ),
+                        )
+                        .await;
+                        assert!(
+                            replay.created,
+                            "F runs on a fresh chain database, so it must be the call that created \
+                             the first COMPOSER_V3 Replay rather than one that joined it",
+                        );
+                        Box::pin(
+                            crate::first_composer_v3_replay_body_acceptance::assert_the_first_composer_v3_replay_runs_as_its_universe_v1(
+                                &test_database,
+                                &replay,
+                            ),
+                        )
+                        .await;
+                    }));
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
+    /// `list_instruments` and `describe_instrument` answer over HTTP from the facts Market Data
+    /// holds: the perpetual F admitted is listed, its tick size and lot step are its `exchangeInfo`
+    /// entry's own, its economic terms are the ones F's H0 admitted, and an instrument Market Data
+    /// never admitted is refused by name.
+    ///
+    /// It follows F because F is the chain's only producer of an Instrument Master V2 fact with
+    /// terms. It reads Market Data and the Instrument Owner only, starts no Research and writes
+    /// nothing, so the state F leaves behind cannot affect it.
+    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+    #[rstest]
+    #[ignore = "requires the ordered chain's PostgreSQL after F, which admits the perpetual and its terms"]
+    #[tokio::test]
+    async fn an_admitted_perpetual_is_listed_and_described_over_http() {
+        use tower::ServiceExt as _;
+
+        let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
+        composed_market_data_binding_admission(&test_database).await;
+        let token = "rd-owner-api-instrument-catalog";
+        let catalog = bootstrap_market_data_instrument_catalog().await.unwrap();
+        assert!(
+            catalog.is_some(),
+            "the chain configures both stores the catalog reads"
+        );
+        let routes = market_data_pit::router(
+            market_data_pit::MarketDataAdmissions {
+                intake: None,
+                admission: None,
+                universe: None,
+                bindings: None,
+                instruments: None,
+                instruments_v2: None,
+                semantics: None,
+                economic_terms: None,
+                catalog,
+                binance_perpetual_admission: None,
+            },
+            Sha256::digest(token.as_bytes()).into(),
+        );
+        let get = |path: String, authorization: Option<String>| {
+            let routes = routes.clone();
+            async move {
+                let mut request = axum::extract::Request::builder().method("GET").uri(path);
+                if let Some(authorization) = authorization {
+                    request = request.header(axum::http::header::AUTHORIZATION, authorization);
+                }
+                let response = routes
+                    .oneshot(request.body(axum::body::Body::empty()).unwrap())
+                    .await
+                    .unwrap();
+                let status = response.status();
+                let code = response
+                    .headers()
+                    .get("x-rd-rejection-code")
+                    .map(|value| value.to_str().unwrap().to_owned());
+                let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+                    .await
+                    .unwrap();
+                (
+                    status,
+                    code,
+                    serde_json::from_slice::<serde_json::Value>(&body).unwrap(),
+                )
+            }
+        };
+        let bearer = Some(format!("Bearer {token}"));
+        let perpetual = crate::first_composer_v3_replay_acceptance::PERPETUAL_V1;
+
+        let (status, _, listed) =
+            get("/v1/market-data/instruments".to_owned(), bearer.clone()).await;
+        assert_eq!(status, StatusCode::OK, "{listed}");
+        let listing = listed["instruments"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|entry| entry["instrument"] == perpetual)
+            .unwrap_or_else(|| panic!("the perpetual F admitted is listed: {listed}"));
+        assert_eq!(listing["venue"], "BINANCE", "{listing}");
+
+        let (status, _, described) = get(
+            format!("/v1/market-data/instruments/{perpetual}"),
+            bearer.clone(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{described}");
+        let entry: serde_json::Value = serde_json::from_str(
+            crate::first_composer_v3_replay_acceptance::PERPETUAL_EXCHANGE_INFO_V1,
+        )
+        .unwrap();
+        let filter = |filter_type: &str, field: &str| {
+            let text = entry["symbols"][0]["filters"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|filter| filter["filterType"] == filter_type)
+                .and_then(|filter| filter[field].as_str())
+                .unwrap()
+                .to_owned();
+            if text.contains('.') {
+                text.trim_end_matches('0').trim_end_matches('.').to_owned()
+            } else {
+                text
+            }
+        };
+        assert_eq!(
+            described["price_increment"],
+            filter("PRICE_FILTER", "tickSize")
+        );
+        assert_eq!(
+            described["quantity_increment"],
+            filter("LOT_SIZE", "stepSize")
+        );
+        let terms = described["economic_terms"].as_array().unwrap();
+        assert!(
+            !terms.is_empty(),
+            "F's H0 admitted the perpetual's terms: {described}"
+        );
+        assert!(
+            terms.iter().all(|version| version["taker_fee"]
+                .as_str()
+                .is_some_and(|fee| !fee.is_empty())),
+            "{described}"
+        );
+
+        let (status, code, _) = get(
+            "/v1/market-data/instruments/NEVERADMITTED-PERP.BINANCE".to_owned(),
+            bearer,
+        )
+        .await;
+        assert_eq!(
+            (status, code.as_deref()),
+            (StatusCode::NOT_FOUND, Some("INSTRUMENT_UNKNOWN"))
+        );
+        let (status, code, _) = get("/v1/market-data/instruments".to_owned(), None).await;
+        assert_eq!(
+            (status, code.as_deref()),
+            (StatusCode::FORBIDDEN, Some("UNAUTHORIZED_PRODUCT_EDGE"))
         );
     }
 

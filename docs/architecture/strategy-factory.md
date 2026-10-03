@@ -132,13 +132,24 @@ The maturity boundary is explicit:
   snapshot, both instrument facts and prices, current positions, formula, and derived targets. No crate peer or
   caller can construct or alter its numeric targets. Native quantity is rebuilt exactly as grid units times size
   increment and must pass instrument normalization unchanged. Host commit and order preflight are
-  whole-batch atomic before submission. Sim Exchange submissions and fills are sequential, not venue-atomic: a
+  whole-batch atomic before submission. The Host decides and commits at the frame BAR's close but submits each
+  member's native order only when that member's fill quote arrives: the Quote from the frame's quote cut, at the
+  instant the execution bundle states for that member. The Sim venue's on-arrival check against that Quote then
+  decides liquidity, so a limit the fill quote already crosses fills as TAKER at the touch and pays the taker rate,
+  and only an uncrossed limit rests and later fills as MAKER at its limit. A Quote at another instant while the
+  member's order waits is refused as `FILL_QUOTE_NOT_THE_FRAMES_QUOTE_CUT`, and an order still waiting when the
+  next BAR or the run's end arrives is refused as `FILL_QUOTE_MISSING_BEFORE_NEXT_FRAME`; protective orders are
+  placed as before. Sim Exchange submissions and fills are sequential, not venue-atomic, so an earlier member can
+  fill before a later member's fill quote arrives: a
   later submission failure faults the run and preserves any earlier native effect and in-process replay evidence.
   A bounded test-only fault at the second-submit boundary dynamically proves one successful real submission and
   native cached order remain after the Host commit; it does not claim venue rollback or all-or-none submission.
   Each `ClientOrderId` binds the exact instrument and host-derived intent; partial/full/canceled/rejected progress
   advances only that member, retains its independent residual, and synchronizes that member's protection quantity
-  to actual filled quantity. The real `BacktestEngine`/Sim Exchange acceptance corpus uses distinct prices,
+  to actual filled quantity. A pre-trade risk denial reaches the kernel as that member's rejection. A position order
+  still resting when the run ends is canceled at the venue, and the Host states that cancellation to the kernel
+  before the Stop, because no venue event reaches a stopping strategy; protective orders stay. The real
+  `BacktestEngine`/Sim Exchange acceptance corpus uses distinct prices,
   multipliers, and size grids and proves repeat equality plus uninterrupted versus same-running-engine opaque Host
   checkpoint-restored suffix equality. A real-Sim regression with the Owner-sealed first frame and a test-only
   admitted successor frame opens positions, marks nonzero unrealized PnL, and proves the next weight target uses
@@ -746,7 +757,22 @@ move-only V2 execution bundle. The bundle validates two complete BAR signals and
 Owner-verified Quote EVENT liquidity for each frame. Each frame's final liquidity
 EVENT must precede the next frame's first BAR. Strict cross-frame temporal order and the request
 window are checked before ProgramHost or Backtest state changes. A V1 binding is never upgraded by interpretation,
-and an unavailable V2 constituent never falls back to V1 or a test-issued successor frame.
+and an unavailable V2 constituent never falls back to V1 or a test-issued successor frame. Market Data issues every
+BAR and Quote value at its canonical scale, so a close of 123.450 on a 0.001 tick arrives as 123.45. The Instrument
+Master's tick is the venue's tick on the day it was retrieved, and a venue coarsens a tick as the price rises:
+BTCUSDT's tick is 0.10 today, while its 2021-06-01 daily bar opened at 37244.36, and SOLUSDT's is 0.0100 while its
+2021 prices carry three places. The bundle therefore first widens each member's price grid to the finest scale its
+window's BAR and Quote prices show, when that is finer than the tick, with a one-unit increment at that scale, and its
+census records, per member, the tick's precision, the data's precision, the instant of the first datum that set it,
+and the precision the Replay runs at. The order grid is then the data's, not the venue's tick at the time, which the
+Instrument Master does not hold. The Host keeps that sound as an invariant rather than an assumption: a position
+order's price and every fill's price must lie on the member's data grid, or the run fails by name as
+`ORDER_PRICE_OFF_THE_DATA_GRID` or `FILL_PRICE_OFF_THE_DATA_GRID`; a protective stop-market's trigger is the kernel's,
+on the Replay's grid, and trades at the touch, which the fill check covers. Only prices widen: a size grid is what one
+grid unit of position means. The bundle then re-expresses each price and size at its instrument's precision without
+changing a value, and refuses by name a value finer than the instrument's grid. It then refuses, by name, any BAR or
+Quote not at its instrument's precision: the engine would otherwise drop that datum silently and still complete the
+run.
 
 Backtest V2 result custody binds the exact V2 binding and sequence digest, each consumed frame's
 identity and ordinal, every native schedule and liquidity EVENT receipt, the canonical target set
@@ -786,8 +812,8 @@ deserialization nor a struct literal forges one even with the acceptance feature
 path runs. Nothing issues a `NativeReplayExecutionInputBindingV1` in any compilable configuration
 today. Its issuance narrows to `issue_native_replay_execution_input_binding_v1`, whose single
 caller is an HTTP handler registered only under the `rd-owner-api` crate's own
-`composer-replay-issuance`, which the deployed image does not enable and the ordered chain's build turns
-on only through `sealed-develop-composer-acceptance`; no SQL or script writes the binding tables directly, and no test or client names the route. Both
+`composer-replay-issuance`, which the deployed image enables through `composer-v3-replay` and the ordered
+chain's build turns on through `sealed-develop-composer-acceptance`; no SQL or script writes the binding tables directly, and no test or client names the route. Both
 the issuer and the resolver beside it are ungated production functions on
 `PostgresResearchGoalOwnerV1`, forty-three lines apart, taking the same collaborators. So the
 execution path is unreached rather than unreachable, and one ordered-chain entry that issues and
@@ -1310,7 +1336,12 @@ validity, source/provenance, revision, quote/fee currency, and every exact term 
 positive fixed initial/maintenance values, `STANDARD_NOTIONAL_RATE` or `FIRST_BRACKET_NOTIONAL_RATE`, and explicitly
 selects `StandardMarginModel` (`notional * rate`, no leverage); it never infers `LeveragedMarginModel`. First-bracket
 terms hold only up to their `margin_notional_cap`, which the binding records beside the rates and binds into the
-terms digest, so the cap is available to a consumer of the bound terms. The visible economic
+terms digest. After the engine runs and before any result is sealed, the Sim EVENT consumer compares, at every
+frame and for every member with a cap, the larger of the held and the derived target position, times the frame's
+price, multiplier and size increment, with that cap, and refuses a run over it as
+`ECONOMIC_TERMS_NOTIONAL_ABOVE_RECORDED_TIER`. Until a native run can commit a result other than `TERMINAL_RESULT`, the refusal ends
+the run without a result; it then becomes an `INVALID_REPLAY_EVIDENCE` result under the `ReplayConfiguration`
+diagnostic category. The visible economic
 configuration cannot attest those values, and a missing value never becomes zero or a native default. Wrong fact,
 receipt, terms, venue, account or time, and noncanonical, partial, extra, cross-spliced, tampered or ACL-drifted
 custody fail before `ProgramHostV2` or Backtest state exists. Existing profile canonical bytes and digest remain
@@ -1429,7 +1460,11 @@ later submission and the cost grows with the whole history.
   refused as `DESIGN_ROLE_NAMES_INSTRUMENT_UNDER_RESEARCH_SCOPE`. Anything that differs by member count, such as
   Market Data's PIT request preimage domain, is derived from the count rather than declared beside it. P0 is
   complete when, for a Research request that states its scope, changing the member count changes only the scope and
-  adding a role changes only the Design. It changes no admitted bound by itself. A V2 request states no scope and
+  adding a role changes only the Design. It changes no admitted bound by itself. The Develop Composer's run request
+  no longer restates the role set: it carries the Design and the plugin sources, and no binding claim beside them.
+  The production frozen-program run admits the Design's roles by name instead - one input scope, Market prices under
+  a field semantic Market Data defines, an instrument named exactly under an exact scope - and the custody each role
+  reads stays the binding Owner's re-read. A V2 request states no scope and
   stays the legacy exact channel, whose Designs name their instrument; retiring it is a separate slice after T1,
   once every chain entry that creates exact custody under V2 has a scoped replacement.
 - **P1, the role set comes from the Design:** the native Plan contract stops fixing OPEN and CLOSE on one day. The
@@ -1446,6 +1481,26 @@ later submission and the cost grows with the whole history.
   Data's. Market Data derives the execution role itself from the request's roles, by the same rule, so no caller names
   it; its refusals are `EXECUTION_ROLE_ABSENT`, `EXECUTION_ROLE_AMBIGUOUS`, `MORE_THAN_ONE_ROLE_TIMEFRAME` and
   `EXECUTION_TIMEFRAME_NOT_DECLARED` (Market Data owner page).
+  **Fixed role scale, TARGET:** every universe-member role, its price roles and its `VOLUME` role, reads at the
+  fixed scale 9: Market Data's value scale, `MARKET_DATA_VALUE_SCALE_V1`, which is also its custody series scale, defined once there and referenced
+  here, never restated. That
+  holds for whatever instrument the Research scope names, so one Design is byte-identical across BTCUSDT, ETHUSDT,
+  SOLUSDT and LINKUSDT, and authoring reads no Instrument Master precision. Scale 9 is a fixed-point convention the
+  program reads at, not a second definition of precision: the Instrument Master's tick and step stay the only
+  precision authority, and the execution bundle aligns the engine's data to them.
+  - Market Data aligns each canonical row exactly to the role's scale and refuses a finer row by name (Market Data
+    owner page).
+  - **Current:** the single-threshold author takes its threshold as a decimal string, such as `"120"`. It converts
+    the string exactly to the role's scale, through Market Data's exact rescale, and refuses a finer one as
+    `THRESHOLD_FINER_THAN_CHANNEL_SCALE`, malformed text as `THRESHOLD_INVALID`, and a value that does not fit as
+    `THRESHOLD_OVERFLOWS_CHANNEL_SCALE`. The Design stores the converted integer.
+    - Equivalent spellings, `"120"` and `"120.000"`, author one program.
+    - A request recovered from its program spells the threshold canonically, with no trailing fractional zero, so
+      anything keyed by a canonical request names a threshold one way.
+  - Why fixed and not derived: the PC-1 probe refused a BTCUSDT Replay at its universe declaration, because a
+    canonical BTC price has scale 1 and the role required 2. A role scale taken from each instrument's tick would make
+    a threshold mean 120.00 on ETHUSDT and 1200.0 on BTCUSDT, so one strategy would need a different Design per
+    instrument.
 - **P2, the report states every member:** the report family states each member of a universe run, generalizing the
   one-member statement Backtest already makes. It lands with I2, driven by the first run over more than one member:
   before I2 no program reads a member other than the first, so a statement of every member would have nothing to
@@ -1563,11 +1618,20 @@ including on inputs with ties.
   metrics, book depth, and funding rate. Liquidations have no admitted historical source - the USDⓈ-M archive holds
   none and the coin-margined `BTCUSD_PERP` snapshot ends on 2024-10-14 - so a Design that asks for them is refused as
   `INPUT_FACT_UNAVAILABLE_FROM_ADMITTED_SOURCE`, which no field vocabulary lets a Design reach today.
-- **Actions:** the target-set Host ignores a protective fill today, so the next frame's reconciliation fails and
-  aborts the run; only a second frame reaches it. `a_triggered_stop_aborts_the_run_today_until_d1` pins that behavior
-  over two real Sim frames, with a close stop that does not fall and a fall that misses a far stop as its clean
-  controls, and flips to asserting the run continues when D1 lands. Its repair (D1) adds a `kernel.fill.reconcile.v1` case and lands
-  with T1. A1 exposes `DecisionTime` and `AccountEquity` (and fill-based entry price and bars held) as
+- **Actions:** a protective order that fills between frames is reconciled under `kernel.fill.reconcile.v1` (D1).
+  Before D1 the target-set Host ignored such a fill, so the next frame's reconciliation failed and aborted the run.
+  A FILL now names the leg it advances - the pending intent, the stop-loss, or the take-profit - in an envelope byte
+  every earlier FILL left zero, so earlier envelopes keep their bytes and digests. The kernel admits a protective fill
+  only while its leg is armed, nothing proposed is pending, and the fill reduces the position without passing zero,
+  and refuses each other case by name: `ProtectiveLegNotArmed`, `ProtectiveFillWithPendingIntent`, and
+  `ProtectiveFillDoesNotReduce`. A part-filled protective order holds the fill frontier until it fills or its rest is
+  canceled, and no proposal may open an intent beside it (`ProtectiveFillInProgress`). A leg that closes the position
+  clears the protection, and the Host places only the protection the kernel holds. The Native Replay readback reports
+  protective fills apart from target-set fills, binds each to its FILL transition in the ordered trace, and counts
+  it as a round-trip exit; a run in which none filled serializes as it did before.
+  `a_triggered_stop_reconciles_the_member_flat_and_the_run_continues` runs two real Sim frames: the stop fills, the
+  exit frame sees the member flat, and a program that exits it anyway is refused as `InvalidPositionTransition`; a
+  close stop that does not fall and a fall that misses a far stop are its clean controls. A1 exposes `DecisionTime` and `AccountEquity` (and fill-based entry price and bars held) as
   `LifecycleContext` values the program may read, where `DecisionTime` is the frame's decision cut `d_k`; intended entry price and bars held are expressible inside the
   program already. A2 places take-profit as reduce-only limit orders. A3 first measures a one-limit-per-bar ladder
   and adds a kernel ladder only if that is not enough.
@@ -1708,7 +1772,7 @@ one family would depend on that producer and would be listed separately.
 
 P0, P1, and T0 proceed in parallel: T0 is internal to Market Data, and its custody request states its own member set
 and timeframes. T1 depends on all three, because it derives the custody request from the Research scope and the
-Design; its first positive case uses only CLOSE and one member, and D1 lands with it. P2 lands with I2. A1 and V4a proceed in parallel with T1; then T2, I1, I1.5, I2, and I3; then N1, A2, A3, V4b, and V5. Per-frame as-of membership (T4) would
+Design; its first positive case uses only CLOSE and one member, and D1, which it needs, has landed ahead of it. P2 lands with I2. A1 and V4a proceed in parallel with T1; then T2, I1, I1.5, I2, and I3; then N1, A2, A3, V4b, and V5. Per-frame as-of membership (T4) would
 remove the invariant that every frame shares one member set, so it is asked of the user when it is proposed.
 
 Every target variant the single-threshold author accepts runs past one frame of the target-set Host. Two could not,
@@ -1734,6 +1798,25 @@ the kernel refuses `keep` on an exit, so no authored program could exit. Each si
 intent - an exit clears, every other side keeps - and `every_authored_side_runs_through_the_kernel` applies every
 authored side to a real lifecycle kernel from each position it can be proposed at, so a terminal shared where it must
 follow the side fails there rather than on a later frame.
+
+An authored program proposed its side on every frame its comparison held, so a second frame above the threshold
+proposed a second entry from a held position, which the kernel refuses, and the refusal ended the run. The program
+now carries the position it believes it holds and proposes a side only from a position the kernel accepts it at,
+holding otherwise. It may also name `stop_loss_fraction`, `take_profit_fraction` and `max_holding_bars`, each judged
+at a frame's close and proposed there, so an exit fills on the next frame and never at its level inside a bar; a
+report states that as `AT_BAR_CLOSE_FILLED_NEXT_FRAME`, because a stop the price passes through inside a bar is
+left later, and at a worse price, than one a venue holds.
+`an_authored_exit_leaves_once_at_the_close_and_the_program_enters_again` runs the authored program through four
+frames for each exit: it enters, holds on a second frame above its threshold, leaves by that exit on a third whose
+close is still above it, and enters again. `an_authored_exit_never_reached_holds_the_position` runs the same frames
+under exits they never reach. Those runs measured the fuel one invocation burns at about 86,000 with no exit, 205,000
+with a price exit and 378,000 for the largest program the family authors, past the 100,000 the plugin's manifest
+declared. The family's manifest declares 1,000,000, about 2.6 times the largest measurement. One program's burn varied
+by under 2% from frame to frame, so the margin is not for that variation; it covers a growth of the family's largest
+program by roughly the size of the exits themselves before the bound has to be measured again. The bound is raised,
+not removed: the Plan still refuses a manifest above 10,000,000. Raising it changes the authored Design's identity,
+and with it the Design, meaning and Plan pins in `single_threshold_authoring_v1.rs`. Nothing outside that module pins
+them.
 
 ## TARGET - Research runs until a strategy, bounded by spend
 

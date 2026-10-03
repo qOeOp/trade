@@ -30,14 +30,22 @@ use std::{
 use sqlx::{Postgres, Row, Transaction};
 
 use super::{
-    MarketDataClockAdmission, MarketDataOwnerPostgres, admit_clock, digest_from_bytes,
-    load_current_clock_for_update, load_instrument_facts, load_source, lock_clock_state,
-    lock_digests, next_owner_clock_admission_v1,
+    MarketDataClockAdmission, MarketDataOwnerPostgres, admit_clock, build_instrument_readback,
+    digest_from_bytes, issue_instrument_master_cut_in_transaction_v1,
+    load_current_clock_fact_for_update, load_current_clock_for_update,
+    load_durable_instrument_readback, load_instrument_facts, load_source, lock_clock_state,
+    lock_digests,
+    market_semantics::{
+        advisory_lock as market_semantics_advisory_lock, load_chain_scope_values_v1,
+        load_scope_heads,
+    },
+    next_owner_clock_admission_v1,
     universe_selection::recover_universe_selection_in_transaction_v1,
 };
 use crate::owner::{
     instrument_master::{
-        InstrumentMasterError, InstrumentMasterFactV1,
+        BACKTEST_OWNER_V1, InstrumentMasterError, InstrumentMasterFactV1,
+        InstrumentMasterReadbackV1, InstrumentMasterScopeV1, UntrustedInstrumentMasterRequestV1,
         authority::{ObservationClockV1, observable_at, select_facts_observed},
     },
     pit_snapshot::custody_view::StoredViewRowV1,
@@ -52,6 +60,18 @@ use crate::owner::{
             CustodyRecordV1, DerivedCustodyV1, StoredChainV1, StoredVersionV1,
             check_request_shape_v1, custody_digest_v1, decode_custody_record_v1, derive_custody_v1,
             kind_from_tag, kind_tag,
+        },
+        chain_records::{
+            ChainBasisRecordV1, InstrumentMasterChainLinkV1, MarketSemanticsChainBasisV1,
+            MarketSemanticsChainFactV1, MarketSemanticsChainRegistryEntryV1,
+            ReferenceFactR0ChainCutV1, ReferenceFactR0ChainRecordV1,
+            chain_instrument_master_request_identity_v1,
+            chain_instrument_master_request_meaning_v1, decode_chain_basis_record_v1,
+            decode_instrument_master_chain_link_v1, decode_market_semantics_chain_fact_v1,
+            decode_market_semantics_chain_registry_entry_v1, decode_r0_chain_cut_v1,
+            decode_r0_chain_record_v1, issue_chain_basis_record_v1,
+            issue_instrument_master_chain_link_v1, issue_market_semantics_chain_fact_v1,
+            issue_market_semantics_chain_registry_entry_v1, issue_r0_chain_record_v1,
         },
         schedule::{
             PitWindowScheduleFactV1, decode_window_schedule_v1, mint_window_schedules_v1,
@@ -96,6 +116,19 @@ pub(super) const SCHEMA_V1: &[&str] = &[
     // fact: it never joins, or advances, an instrument's `bar_schedule_*` chain.
     "CREATE TABLE IF NOT EXISTS market_data_private.pit_window_schedule_facts_v1 (schedule_identity BYTEA PRIMARY KEY CHECK (octet_length(schedule_identity)=32), chain_root BYTEA NOT NULL REFERENCES market_data_private.pit_window_custody_heads_v1(chain_root), custody_identity BYTEA NOT NULL REFERENCES market_data_private.pit_window_custodies_v1(custody_identity), member_ordinal SMALLINT NOT NULL CHECK (member_ordinal>=0), instrument TEXT NOT NULL CHECK (octet_length(instrument)>0), timeframe_identity BYTEA NOT NULL CHECK (octet_length(timeframe_identity)=32), interval_ns BIGINT NOT NULL CHECK (interval_ns>0), phase_ns BIGINT NOT NULL CHECK (phase_ns>=0 AND phase_ns<interval_ns), window_start_ns BIGINT NOT NULL CHECK (window_start_ns>=0), window_end_ns_exclusive BIGINT NOT NULL CHECK (window_end_ns_exclusive>window_start_ns), im_key BYTEA NOT NULL CHECK (octet_length(im_key)=32), ms_identity BYTEA NOT NULL CHECK (octet_length(ms_identity)=32), cut_ns BIGINT NOT NULL CHECK (cut_ns>0), canonical_bytes BYTEA NOT NULL, UNIQUE (chain_root, member_ordinal), CHECK (chain_root=custody_identity))",
     "REVOKE ALL ON TABLE market_data_private.pit_window_schedule_facts_v1 FROM PUBLIC",
+    // The R0 a root custody records once over its chain's window (T0-4c). A frame's R0 is computed
+    // from it on read and never stored; nothing here is a `reference_fact_r0_*` row.
+    "CREATE TABLE IF NOT EXISTS market_data_private.pit_window_r0_chain_records_v1 (chain_root BYTEA PRIMARY KEY REFERENCES market_data_private.pit_window_custody_heads_v1(chain_root), custody_identity BYTEA NOT NULL REFERENCES market_data_private.pit_window_custodies_v1(custody_identity), record_identity BYTEA UNIQUE NOT NULL CHECK (octet_length(record_identity)=32), record_bytes BYTEA NOT NULL, cut_identity BYTEA UNIQUE NOT NULL CHECK (octet_length(cut_identity)=32), cut_bytes BYTEA NOT NULL, window_start_ns BIGINT NOT NULL CHECK (window_start_ns>=0), window_end_ns_exclusive BIGINT NOT NULL CHECK (window_end_ns_exclusive>window_start_ns), CHECK (chain_root=custody_identity))",
+    "REVOKE ALL ON TABLE market_data_private.pit_window_r0_chain_records_v1 FROM PUBLIC",
+    // How a chain reaches the Instrument Master cut its root issued in its own commit (T0-4c).
+    "CREATE TABLE IF NOT EXISTS market_data_private.pit_window_instrument_master_chains_v1 (chain_root BYTEA PRIMARY KEY REFERENCES market_data_private.pit_window_custody_heads_v1(chain_root), custody_identity BYTEA NOT NULL REFERENCES market_data_private.pit_window_custodies_v1(custody_identity), link_identity BYTEA UNIQUE NOT NULL CHECK (octet_length(link_identity)=32), link_bytes BYTEA NOT NULL, instrument_master_key BYTEA NOT NULL CHECK (octet_length(instrument_master_key)=32), request_identity BYTEA UNIQUE NOT NULL REFERENCES market_data_private.instrument_master_receipts_v1(request_identity), cut_identity BYTEA NOT NULL CHECK (octet_length(cut_identity)=32), readback_digest BYTEA NOT NULL CHECK (octet_length(readback_digest)=32), CHECK (chain_root=custody_identity))",
+    "REVOKE ALL ON TABLE market_data_private.pit_window_instrument_master_chains_v1 FROM PUBLIC",
+    // The record a root custody mints last, binding its chain's R0 record and cut, Instrument
+    // Master link and Market Semantics fact together (T0-4c, C5). Each identity it carries is also
+    // the primary key, or a unique column, of the record it names, so the foreign keys alone prove
+    // the three belong to this chain root; the basis record adds no byte beyond their identities.
+    "CREATE TABLE IF NOT EXISTS market_data_private.pit_window_chain_basis_records_v1 (chain_root BYTEA PRIMARY KEY REFERENCES market_data_private.pit_window_custody_heads_v1(chain_root), custody_identity BYTEA NOT NULL REFERENCES market_data_private.pit_window_custodies_v1(custody_identity), basis_identity BYTEA UNIQUE NOT NULL CHECK (octet_length(basis_identity)=32), basis_bytes BYTEA NOT NULL, r0_record_identity BYTEA NOT NULL REFERENCES market_data_private.pit_window_r0_chain_records_v1(record_identity), r0_cut_identity BYTEA NOT NULL REFERENCES market_data_private.pit_window_r0_chain_records_v1(cut_identity), instrument_master_link_identity BYTEA NOT NULL REFERENCES market_data_private.pit_window_instrument_master_chains_v1(link_identity), market_semantics_fact_identity BYTEA NOT NULL REFERENCES market_data_private.market_semantics_chain_facts_v1(fact_identity), CHECK (chain_root=custody_identity))",
+    "REVOKE ALL ON TABLE market_data_private.pit_window_chain_basis_records_v1 FROM PUBLIC",
     // The derived view's reads (T0-5), for the admitted port: a chain as the store holds it - its
     // head, custodies, window schedules and versions, each a row's JSON - and the row facts of
     // the versions one view selects, never their retrieval evidence.
@@ -243,13 +276,15 @@ async fn load_binding(
         source_frontier_digest: fact.source_frontier().digest,
         correction_stream: fact.correction_frontier().stream_identity.clone(),
         correction_frontier_digest: fact.correction_frontier().digest,
+        source_frontier: fact.source_frontier().clone(),
+        correction_frontier: fact.correction_frontier().clone(),
     }))
 }
 
 async fn load_membership(
     transaction: &mut Transaction<'_, Postgres>,
     locator: &UntrustedUniverseSelectionLocatorV1,
-) -> Result<Vec<CustodyMembershipV1>, Refused> {
+) -> Result<(Vec<CustodyMembershipV1>, BindingDigest), Refused> {
     let readback = recover_universe_selection_in_transaction_v1(transaction, locator)
         .await
         .map_err(|e| match e {
@@ -257,7 +292,7 @@ async fn load_membership(
             | UniverseSelectionErrorV1::RequestConflict => Refused::InvalidRequest,
             _ => Refused::StoreUnavailable,
         })?;
-    Ok(readback
+    let membership = readback
         .record()
         .membership()
         .iter()
@@ -267,7 +302,8 @@ async fn load_membership(
             effective_from_ns: record.effective_from_ns(),
             effective_until_ns: record.effective_until_ns(),
         })
-        .collect())
+        .collect();
+    Ok((membership, readback.record().identity()))
 }
 
 /// What the Instrument Master selects for each member at the window's first and last instants,
@@ -490,7 +526,8 @@ async fn commit_custody_v1(
 
     // 1. The basis the request names.
     let binding = load_binding(&mut transaction, &request.source_binding).await?;
-    let membership = load_membership(&mut transaction, &request.universe_selection).await?;
+    let (membership, universe_record) =
+        load_membership(&mut transaction, &request.universe_selection).await?;
 
     // 2. The minting cut: the clock-state lock before the head's row lock, as every clock writer
     //    takes them. The next clock is minted only when a row was retrieved after the head, and is
@@ -715,6 +752,56 @@ async fn commit_custody_v1(
         for schedule in &schedules {
             insert_window_schedule(&mut transaction, schedule).await?;
         }
+        let (r0_record, r0_cut) =
+            issue_r0_chain_record_v1(&derived, chain_root, identity, cut_clock)
+                .ok_or(Refused::StoreUnavailable)?;
+        insert_r0_chain_record(&mut transaction, &r0_record, &r0_cut).await?;
+        // The scope's lock before the Instrument Master request's, as ruled; one Source Binding
+        // states one value, so every head of the scope - a snapshot's or a chain's - must state
+        // the one this chain claims.
+        reject_market_semantics_scope_conflict(&mut transaction, &derived).await?;
+        let instrument_master = Box::pin(issue_chain_instrument_master_v1(
+            &mut transaction,
+            &derived,
+            chain_root,
+            minting_cut,
+            universe_record,
+        ))
+        .await?;
+        insert_instrument_master_link(&mut transaction, &instrument_master).await?;
+        let registry = issue_market_semantics_chain_registry_entry_v1(
+            [
+                derived.market_semantics_identity,
+                chain_root,
+                instrument_master.identity(),
+                r0_record.identity(),
+                r0_cut.identity(),
+            ],
+            derived.market_semantics_value,
+        )
+        .ok_or(Refused::StoreUnavailable)?;
+        let market_semantics = issue_market_semantics_chain_fact_v1(
+            &derived,
+            chain_root,
+            identity,
+            (&r0_record, &r0_cut),
+            MarketSemanticsChainBasisV1 {
+                registry_record_identity: registry.identity(),
+                instrument_master_cut_identity: instrument_master.cut_identity,
+            },
+        )
+        .ok_or(Refused::StoreUnavailable)?;
+        insert_market_semantics_chain_fact(&mut transaction, &registry, &market_semantics).await?;
+        let basis = issue_chain_basis_record_v1(
+            chain_root,
+            identity,
+            r0_record.identity(),
+            r0_cut.identity(),
+            instrument_master.identity(),
+            market_semantics.identity(),
+        )
+        .ok_or(Refused::StoreUnavailable)?;
+        insert_chain_basis_record(&mut transaction, &basis).await?;
     }
     transaction
         .commit()
@@ -765,6 +852,425 @@ async fn insert_window_schedule(
         .await
         .map_err(|cause| store_error(&cause))?;
     Ok(())
+}
+
+/// Issues a root custody's Instrument Master cut inside its commit, on the clock it admitted, for
+/// exactly the facts it selected at the window's start, and links the chain to it.
+///
+/// Its request identity is a function of the chain root; its instants are the window's start and
+/// the minting cut. The cut's own selection must give the custody's facts, member for member.
+async fn issue_chain_instrument_master_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    derived: &DerivedCustodyV1,
+    chain_root: BindingDigest,
+    minting_cut: u64,
+    universe_record: BindingDigest,
+) -> Result<InstrumentMasterChainLinkV1, Refused> {
+    let request_identity = chain_instrument_master_request_identity_v1(chain_root);
+    lock_digests(transaction, request_identity, request_identity)
+        .await
+        .map_err(|cause| store_error(&cause))?;
+
+    if load_durable_instrument_readback(transaction, request_identity, true)
+        .await
+        .map_err(|cause| store_error(&cause))?
+        .is_some()
+    {
+        return Err(Refused::StoreUnavailable);
+    }
+    let head = load_current_clock_fact_for_update(transaction)
+        .await
+        .map_err(|cause| store_error(&cause))?
+        .ok_or(Refused::StoreUnavailable)?;
+    let facts = load_instrument_facts(transaction, &derived.members, false)
+        .await
+        .map_err(|cause| store_error(&cause))?;
+    let first = facts
+        .iter()
+        .find(|fact| Some(&fact.digest()) == derived.member_fact_digests.first())
+        .ok_or(Refused::StoreUnavailable)?;
+    let scope = match derived.members.as_slice() {
+        [member] => InstrumentMasterScopeV1::ExactInstrument(member.clone()),
+        _ => InstrumentMasterScopeV1::UniverseSelectionRecord(universe_record),
+    };
+    let request = UntrustedInstrumentMasterRequestV1 {
+        request_identity,
+        request_meaning_digest: chain_instrument_master_request_meaning_v1(
+            request_identity,
+            &derived.member_fact_digests,
+        ),
+        consumer_role: BACKTEST_OWNER_V1.into(),
+        scope,
+        effective_instant: i128::from(derived.window.0),
+        owner_observation: i128::from(minting_cut),
+        decision_cut: minting_cut,
+        clock_head: head.handoff.locator().clone(),
+        lifecycle_frontier: first.proposal.lifecycle_frontier,
+        corporate_action_frontier: first.proposal.corporate_action_frontier,
+        historical_membership_frontier: first.proposal.historical_membership_frontier,
+        market_semantics_identity: first.proposal.market_semantics_identity,
+        source_frontier: first.proposal.source_frontier,
+        correction_frontier: first.proposal.correction_frontier,
+        stable_correlation: chain_root,
+    };
+    let receipt = issue_instrument_master_cut_in_transaction_v1(
+        transaction,
+        &request,
+        derived.members.clone(),
+        false,
+    )
+    .await
+    .map_err(|cause| store_error(&cause))?;
+    let readback = build_instrument_readback(&receipt).map_err(|cause| store_error(&cause))?;
+    let selected = readback
+        .facts()
+        .iter()
+        .map(InstrumentMasterFactV1::digest)
+        .collect::<Vec<_>>();
+
+    if selected != derived.member_fact_digests {
+        return Err(Refused::StoreUnavailable);
+    }
+    issue_instrument_master_chain_link_v1(
+        chain_root,
+        chain_root,
+        derived.instrument_master_key,
+        (
+            request_identity,
+            readback.digest(),
+            readback.cut().identity(),
+        ),
+        selected,
+    )
+    .ok_or(Refused::StoreUnavailable)
+}
+
+async fn insert_instrument_master_link(
+    transaction: &mut Transaction<'_, Postgres>,
+    link: &InstrumentMasterChainLinkV1,
+) -> Result<(), Refused> {
+    sqlx::query("INSERT INTO market_data_private.pit_window_instrument_master_chains_v1(chain_root,custody_identity,link_identity,link_bytes,instrument_master_key,request_identity,cut_identity,readback_digest) VALUES($1,$2,$3,$4,$5,$6,$7,$8)")
+        .bind(link.chain_root.as_bytes().as_slice())
+        .bind(link.root_custody_identity.as_bytes().as_slice())
+        .bind(link.identity().as_bytes().as_slice())
+        .bind(link.canonical_bytes())
+        .bind(link.instrument_master_key.as_bytes().as_slice())
+        .bind(link.request_identity.as_bytes().as_slice())
+        .bind(link.cut_identity.as_bytes().as_slice())
+        .bind(link.readback_digest.as_bytes().as_slice())
+        .execute(&mut **transaction)
+        .await
+        .map_err(|cause| store_error(&cause))?;
+    Ok(())
+}
+
+/// The Instrument Master link of the chain rooted at `chain_root` and the readback it names, each
+/// verified; `None` for a chain that holds none.
+pub(in crate::owner) async fn read_pit_window_instrument_master_chain_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    chain_root: BindingDigest,
+) -> Result<Option<(InstrumentMasterChainLinkV1, InstrumentMasterReadbackV1)>, Refused> {
+    let Some(row) = sqlx::query(
+        "SELECT chain_root,custody_identity,link_identity,link_bytes,instrument_master_key,request_identity,cut_identity,readback_digest FROM market_data_private.pit_window_instrument_master_chains_v1 WHERE chain_root=$1",
+    )
+    .bind(chain_root.as_bytes().as_slice())
+    .fetch_optional(&mut **transaction)
+    .await
+    .map_err(|cause| store_error(&cause))?
+    else {
+        return Ok(None);
+    };
+    let bytes = |column: &str| -> Result<Vec<u8>, Refused> {
+        row.try_get(column).map_err(|cause| store_error(&cause))
+    };
+    let link = decode_instrument_master_chain_link_v1(
+        &bytes("link_bytes")?,
+        digest(&bytes("link_identity")?)?,
+    )
+    .ok_or(Refused::StoreUnavailable)?;
+    let readback = load_durable_instrument_readback(transaction, link.request_identity, false)
+        .await
+        .map_err(|cause| store_error(&cause))?
+        .ok_or(Refused::StoreUnavailable)?;
+    let agrees = link.chain_root == chain_root
+        && digest(&bytes("chain_root")?)? == chain_root
+        && digest(&bytes("custody_identity")?)? == link.root_custody_identity
+        && digest(&bytes("instrument_master_key")?)? == link.instrument_master_key
+        && digest(&bytes("request_identity")?)? == link.request_identity
+        && digest(&bytes("cut_identity")?)? == link.cut_identity
+        && digest(&bytes("readback_digest")?)? == link.readback_digest
+        && readback.digest() == link.readback_digest
+        && readback.cut().identity() == link.cut_identity
+        && readback
+            .facts()
+            .iter()
+            .map(InstrumentMasterFactV1::digest)
+            .eq(link.fact_digests.iter().copied());
+
+    if agrees {
+        Ok(Some((link, readback)))
+    } else {
+        Err(Refused::StoreUnavailable)
+    }
+}
+
+/// Refuses a chain whose claimed value differs from any head of its compatibility scope, under the
+/// scope's lock, which every Market Semantics append takes.
+async fn reject_market_semantics_scope_conflict(
+    transaction: &mut Transaction<'_, Postgres>,
+    derived: &DerivedCustodyV1,
+) -> Result<(), Refused> {
+    let scope = derived.market_semantics_identity;
+    market_semantics_advisory_lock(transaction, scope)
+        .await
+        .map_err(|cause| store_error(&cause))?;
+    let snapshot_heads = load_scope_heads(transaction, scope)
+        .await
+        .map_err(|cause| store_error(&cause))?;
+    let chain_values = load_chain_scope_values_v1(transaction, scope)
+        .await
+        .map_err(|cause| store_error(&cause))?;
+
+    if snapshot_heads
+        .iter()
+        .map(|head| head.value)
+        .chain(chain_values)
+        .any(|value| value != derived.market_semantics_value)
+    {
+        return Err(Refused::MarketSemanticsScopeValueConflict);
+    }
+    Ok(())
+}
+
+async fn insert_market_semantics_chain_fact(
+    transaction: &mut Transaction<'_, Postgres>,
+    registry: &MarketSemanticsChainRegistryEntryV1,
+    fact: &MarketSemanticsChainFactV1,
+) -> Result<(), Refused> {
+    sqlx::query("INSERT INTO market_data_private.market_semantics_chain_registry_v1(registry_key_identity,registry_key_bytes,record_identity,record_bytes) VALUES($1,$2,$3,$4)")
+        .bind(registry.key_identity.as_bytes().as_slice())
+        .bind(registry.key_bytes.as_slice())
+        .bind(registry.identity().as_bytes().as_slice())
+        .bind(registry.canonical_bytes())
+        .execute(&mut **transaction)
+        .await
+        .map_err(|cause| store_error(&cause))?;
+    sqlx::query("INSERT INTO market_data_private.market_semantics_chain_facts_v1(fact_identity,compatibility_scope_identity,chain_root,registry_record_identity,fact_bytes) VALUES($1,$2,$3,$4,$5)")
+        .bind(fact.identity().as_bytes().as_slice())
+        .bind(fact.compatibility_scope_identity.as_bytes().as_slice())
+        .bind(fact.chain_root.as_bytes().as_slice())
+        .bind(registry.identity().as_bytes().as_slice())
+        .bind(fact.canonical_bytes())
+        .execute(&mut **transaction)
+        .await
+        .map_err(|cause| store_error(&cause))?;
+    sqlx::query("INSERT INTO market_data_private.market_semantics_chain_heads_v1(compatibility_scope_identity,chain_root,fact_identity) VALUES($1,$2,$3)")
+        .bind(fact.compatibility_scope_identity.as_bytes().as_slice())
+        .bind(fact.chain_root.as_bytes().as_slice())
+        .bind(fact.identity().as_bytes().as_slice())
+        .execute(&mut **transaction)
+        .await
+        .map_err(|cause| store_error(&cause))?;
+    Ok(())
+}
+
+/// The Market Semantics fact the chain rooted at `chain_root` records, through its head, with the
+/// registry entry it binds; each verified. `None` for a chain that holds none.
+pub(in crate::owner) async fn read_pit_window_market_semantics_chain_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    chain_root: BindingDigest,
+) -> Result<
+    Option<(
+        MarketSemanticsChainFactV1,
+        MarketSemanticsChainRegistryEntryV1,
+    )>,
+    Refused,
+> {
+    let Some(row) = sqlx::query(
+        "SELECT h.compatibility_scope_identity AS head_scope,f.fact_identity,f.compatibility_scope_identity,f.chain_root,f.registry_record_identity,f.fact_bytes,r.record_bytes FROM market_data_private.market_semantics_chain_heads_v1 h JOIN market_data_private.market_semantics_chain_facts_v1 f ON f.fact_identity=h.fact_identity JOIN market_data_private.market_semantics_chain_registry_v1 r ON r.record_identity=f.registry_record_identity WHERE h.chain_root=$1",
+    )
+    .bind(chain_root.as_bytes().as_slice())
+    .fetch_optional(&mut **transaction)
+    .await
+    .map_err(|cause| store_error(&cause))?
+    else {
+        return Ok(None);
+    };
+    let bytes = |column: &str| -> Result<Vec<u8>, Refused> {
+        row.try_get(column).map_err(|cause| store_error(&cause))
+    };
+    let fact = decode_market_semantics_chain_fact_v1(
+        &bytes("fact_bytes")?,
+        digest(&bytes("fact_identity")?)?,
+    )
+    .ok_or(Refused::StoreUnavailable)?;
+    let registry = decode_market_semantics_chain_registry_entry_v1(
+        &bytes("record_bytes")?,
+        digest(&bytes("registry_record_identity")?)?,
+    )
+    .ok_or(Refused::StoreUnavailable)?;
+    let agrees = fact.chain_root == chain_root
+        && digest(&bytes("chain_root")?)? == chain_root
+        && digest(&bytes("compatibility_scope_identity")?)? == fact.compatibility_scope_identity
+        && digest(&bytes("head_scope")?)? == fact.compatibility_scope_identity
+        && fact.registry_record_identity == registry.identity()
+        && registry.value == fact.value;
+
+    if agrees {
+        Ok(Some((fact, registry)))
+    } else {
+        Err(Refused::StoreUnavailable)
+    }
+}
+
+async fn insert_r0_chain_record(
+    transaction: &mut Transaction<'_, Postgres>,
+    record: &ReferenceFactR0ChainRecordV1,
+    cut: &ReferenceFactR0ChainCutV1,
+) -> Result<(), Refused> {
+    sqlx::query("INSERT INTO market_data_private.pit_window_r0_chain_records_v1(chain_root,custody_identity,record_identity,record_bytes,cut_identity,cut_bytes,window_start_ns,window_end_ns_exclusive) VALUES($1,$2,$3,$4,$5,$6,$7,$8)")
+        .bind(record.chain_root.as_bytes().as_slice())
+        .bind(record.root_custody_identity.as_bytes().as_slice())
+        .bind(record.identity().as_bytes().as_slice())
+        .bind(record.canonical_bytes())
+        .bind(cut.identity().as_bytes().as_slice())
+        .bind(cut.canonical_bytes())
+        .bind(to_i64(record.window_start_ns)?)
+        .bind(to_i64(record.window_end_ns_exclusive)?)
+        .execute(&mut **transaction)
+        .await
+        .map_err(|cause| store_error(&cause))?;
+    Ok(())
+}
+
+/// The R0 record and cut of the chain rooted at `chain_root`, each verified against its own bytes
+/// and the stored columns; `None` for a chain that holds none.
+pub(in crate::owner) async fn read_pit_window_r0_chain_record_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    chain_root: BindingDigest,
+) -> Result<Option<(ReferenceFactR0ChainRecordV1, ReferenceFactR0ChainCutV1)>, Refused> {
+    let Some(row) = sqlx::query(
+        "SELECT chain_root,custody_identity,record_identity,record_bytes,cut_identity,cut_bytes,window_start_ns,window_end_ns_exclusive FROM market_data_private.pit_window_r0_chain_records_v1 WHERE chain_root=$1",
+    )
+    .bind(chain_root.as_bytes().as_slice())
+    .fetch_optional(&mut **transaction)
+    .await
+    .map_err(|cause| store_error(&cause))?
+    else {
+        return Ok(None);
+    };
+    let bytes = |column: &str| -> Result<Vec<u8>, Refused> {
+        row.try_get(column).map_err(|cause| store_error(&cause))
+    };
+    let number = |column: &str| -> Result<u64, Refused> {
+        to_u64(row.try_get(column).map_err(|cause| store_error(&cause))?)
+    };
+    let record =
+        decode_r0_chain_record_v1(&bytes("record_bytes")?, digest(&bytes("record_identity")?)?)
+            .ok_or(Refused::StoreUnavailable)?;
+    let cut = decode_r0_chain_cut_v1(&bytes("cut_bytes")?, digest(&bytes("cut_identity")?)?)
+        .ok_or(Refused::StoreUnavailable)?;
+    let agrees = record.chain_root == chain_root
+        && digest(&bytes("chain_root")?)? == chain_root
+        && digest(&bytes("custody_identity")?)? == record.root_custody_identity
+        && cut.chain_root == chain_root
+        && cut.record_identity == record.identity()
+        && (cut.window_start_ns, cut.window_end_ns_exclusive)
+            == (record.window_start_ns, record.window_end_ns_exclusive)
+        && number("window_start_ns")? == record.window_start_ns
+        && number("window_end_ns_exclusive")? == record.window_end_ns_exclusive;
+
+    if agrees {
+        Ok(Some((record, cut)))
+    } else {
+        Err(Refused::StoreUnavailable)
+    }
+}
+
+async fn insert_chain_basis_record(
+    transaction: &mut Transaction<'_, Postgres>,
+    basis: &ChainBasisRecordV1,
+) -> Result<(), Refused> {
+    sqlx::query("INSERT INTO market_data_private.pit_window_chain_basis_records_v1(chain_root,custody_identity,basis_identity,basis_bytes,r0_record_identity,r0_cut_identity,instrument_master_link_identity,market_semantics_fact_identity) VALUES($1,$2,$3,$4,$5,$6,$7,$8)")
+        .bind(basis.chain_root.as_bytes().as_slice())
+        .bind(basis.root_custody_identity.as_bytes().as_slice())
+        .bind(basis.identity().as_bytes().as_slice())
+        .bind(basis.canonical_bytes())
+        .bind(basis.r0_record_identity.as_bytes().as_slice())
+        .bind(basis.r0_cut_identity.as_bytes().as_slice())
+        .bind(basis.instrument_master_link_identity.as_bytes().as_slice())
+        .bind(basis.market_semantics_fact_identity.as_bytes().as_slice())
+        .execute(&mut **transaction)
+        .await
+        .map_err(|cause| store_error(&cause))?;
+    Ok(())
+}
+
+/// The chain readback of `chain_root`: its basis record, verified against its own bytes and stored
+/// columns, together with the R0 record and cut, the Instrument Master link and readback, and the
+/// Market Semantics fact and registry entry it names - each read through its own verified readback,
+/// and each identity the basis record carries checked against the one its own record holds. `None`
+/// for a chain that holds none; a store that holds some but not all, or whose basis disagrees with
+/// what its own records hold, is `StoreUnavailable` rather than a partial answer.
+pub(in crate::owner) async fn read_pit_window_chain_basis_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    chain_root: BindingDigest,
+) -> Result<
+    Option<(
+        ChainBasisRecordV1,
+        (ReferenceFactR0ChainRecordV1, ReferenceFactR0ChainCutV1),
+        (InstrumentMasterChainLinkV1, InstrumentMasterReadbackV1),
+        (
+            MarketSemanticsChainFactV1,
+            MarketSemanticsChainRegistryEntryV1,
+        ),
+    )>,
+    Refused,
+> {
+    let Some(row) = sqlx::query(
+        "SELECT chain_root,custody_identity,basis_identity,basis_bytes,r0_record_identity,r0_cut_identity,instrument_master_link_identity,market_semantics_fact_identity FROM market_data_private.pit_window_chain_basis_records_v1 WHERE chain_root=$1",
+    )
+    .bind(chain_root.as_bytes().as_slice())
+    .fetch_optional(&mut **transaction)
+    .await
+    .map_err(|cause| store_error(&cause))?
+    else {
+        return Ok(None);
+    };
+    let bytes = |column: &str| -> Result<Vec<u8>, Refused> {
+        row.try_get(column).map_err(|cause| store_error(&cause))
+    };
+    let basis =
+        decode_chain_basis_record_v1(&bytes("basis_bytes")?, digest(&bytes("basis_identity")?)?)
+            .ok_or(Refused::StoreUnavailable)?;
+    let r0 = read_pit_window_r0_chain_record_v1(transaction, chain_root)
+        .await?
+        .ok_or(Refused::StoreUnavailable)?;
+    let instrument_master = read_pit_window_instrument_master_chain_v1(transaction, chain_root)
+        .await?
+        .ok_or(Refused::StoreUnavailable)?;
+    let market_semantics = read_pit_window_market_semantics_chain_v1(transaction, chain_root)
+        .await?
+        .ok_or(Refused::StoreUnavailable)?;
+    let agrees = basis.chain_root == chain_root
+        && digest(&bytes("chain_root")?)? == chain_root
+        && digest(&bytes("custody_identity")?)? == basis.root_custody_identity
+        && digest(&bytes("r0_record_identity")?)? == basis.r0_record_identity
+        && digest(&bytes("r0_cut_identity")?)? == basis.r0_cut_identity
+        && digest(&bytes("instrument_master_link_identity")?)?
+            == basis.instrument_master_link_identity
+        && digest(&bytes("market_semantics_fact_identity")?)?
+            == basis.market_semantics_fact_identity
+        && basis.r0_record_identity == r0.0.identity()
+        && basis.r0_cut_identity == r0.1.identity()
+        && basis.instrument_master_link_identity == instrument_master.0.identity()
+        && basis.market_semantics_fact_identity == market_semantics.0.identity();
+
+    if agrees {
+        Ok(Some((basis, r0, instrument_master, market_semantics)))
+    } else {
+        Err(Refused::StoreUnavailable)
+    }
 }
 
 /// The window schedules of the chain rooted at `chain_root`, in member order, each verified

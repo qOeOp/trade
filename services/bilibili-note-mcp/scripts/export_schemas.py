@@ -7,8 +7,8 @@ from pathlib import Path
 from bilibili_note_mcp.domain.models import (
     CreateNoteInputV1,
     ErrorV1,
-    PublicBilibiliNoteResultV3,
-    PublicBilibiliSearchResultV1,
+    PublicBilibiliNoteResultV4,
+    PublicBilibiliSearchResultV2,
     SearchAndCreateInputV1,
 )
 from bilibili_note_mcp.presentation.schemas import search_tool_output_schema, tool_output_schema
@@ -18,10 +18,10 @@ SCHEMAS = {
     "create-input-v1.schema.json": CreateNoteInputV1.model_json_schema(by_alias=True),
     "search-input-v1.schema.json": SearchAndCreateInputV1.model_json_schema(by_alias=True),
     "error-v1.schema.json": ErrorV1.model_json_schema(by_alias=True),
-    "result-v3.schema.json": PublicBilibiliNoteResultV3.model_json_schema(by_alias=True),
-    "search-result-v1.schema.json": PublicBilibiliSearchResultV1.model_json_schema(by_alias=True),
-    "search-tool-output-v1.schema.json": search_tool_output_schema(),
-    "tool-output-v3.schema.json": tool_output_schema(),
+    "result-v4.schema.json": PublicBilibiliNoteResultV4.model_json_schema(by_alias=True),
+    "search-result-v2.schema.json": PublicBilibiliSearchResultV2.model_json_schema(by_alias=True),
+    "search-tool-output-v2.schema.json": search_tool_output_schema(),
+    "tool-output-v4.schema.json": tool_output_schema(),
 }
 
 

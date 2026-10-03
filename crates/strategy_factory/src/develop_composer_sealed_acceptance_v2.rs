@@ -62,16 +62,10 @@ mod sealed {
         strategy_design_v2::*,
         strategy_plan_v2::{
             StrategyDesignPreparationV2, VerifiedStrategyInputBindingsV2,
-            prepare_strategy_design_v2, strategy_input_role_identity_v2,
+            prepare_strategy_design_v2,
         },
     };
-    use vibe_data::owner::{
-        sealed_acceptance::issue_strategy_input_exact_instrument_bar_frame,
-        strategy_input_binding::{
-            MarketDataFieldSemantic, StrategyInputBatchSourceV1, StrategyInputChannel,
-            StrategyInputUnit, UntrustedStrategyInputBindingRequest, UntrustedStrategyInputScope,
-        },
-    };
+    use vibe_data::owner::sealed_acceptance::issue_strategy_input_exact_instrument_bar_frame;
 
     use super::{
         BindingDigest, DevelopComposerOperationResponseV2,
@@ -239,19 +233,6 @@ mod sealed {
             anyhow::bail!("sealed Market Data frame does not bind the fixed Design");
         }
         let bindings = VerifiedStrategyInputBindingsV2::from_owner_receipts(frame.bindings());
-        let binding_requests = design
-            .inputs
-            .iter()
-            .enumerate()
-            .map(|(ordinal, input)| {
-                fixed_binding_request(
-                    input,
-                    design.research_request_identity,
-                    design_identity,
-                    ordinal as u8,
-                )
-            })
-            .collect();
         let manifest = design.plugins[0].clone();
         let capsule = UntrustedDevelopPluginCapsuleV2 {
             schema_version: 2,
@@ -274,7 +255,6 @@ mod sealed {
             request_identity: SEALED_DEVELOP_COMPOSER_REQUEST_IDENTITY_V2.to_owned(),
             research_custody_reference: RESEARCH_LOCATOR.to_owned(),
             design,
-            binding_requests,
             plugin_source_capsules: vec![capsule],
         }));
         let research = CurrentResearchDevelopCustodyV2::sealed_acceptance(RESEARCH_LOCATOR)?;
@@ -290,46 +270,6 @@ mod sealed {
             coordinate, reason, ..
         } = terminal;
         anyhow::anyhow!("{coordinate}: {reason}")
-    }
-
-    fn fixed_binding_request(
-        input: &InputRoleV2,
-        research_request_identity: BindingDigest,
-        strategy_design_identity: BindingDigest,
-        seed: u8,
-    ) -> UntrustedStrategyInputBindingRequest {
-        UntrustedStrategyInputBindingRequest {
-            research_request_identity,
-            strategy_design_identity,
-            input_role_identity: strategy_input_role_identity_v2(input),
-            scope: UntrustedStrategyInputScope::ExactInstrument {
-                instrument: input.instrument.clone(),
-            },
-            field_semantic: match input.field_semantic_id.as_str() {
-                "MARKET_DATA.BAR.OPEN.PRICE.V1" => MarketDataFieldSemantic::BarOpenPrice,
-                "MARKET_DATA.BAR.HIGH.PRICE.V1" => MarketDataFieldSemantic::BarHighPrice,
-                "MARKET_DATA.BAR.LOW.PRICE.V1" => MarketDataFieldSemantic::BarLowPrice,
-                _ => MarketDataFieldSemantic::BarClosePrice,
-            },
-            channel: StrategyInputChannel::Market,
-            timeframe: input.timeframe.clone(),
-            unit: StrategyInputUnit::Price,
-            scale: input.scale,
-            pit_request_identity: digest(seed + 11),
-            pit_request_digest: digest(seed + 21),
-            source: StrategyInputBatchSourceV1::Snapshot {
-                snapshot_identity: digest(seed + 31),
-                snapshot_fact_digest: digest(seed + 41),
-            },
-            observation_batch_digest: digest(seed + 51),
-            source_binding_identity: digest(seed + 61),
-            source_frontier_digest: digest(seed + 71),
-            correction_frontier_digest: digest(seed + 81),
-            instrument_master_digest: digest(seed + 91),
-            universe_selection_digest: digest(seed + 101),
-            market_semantics_identity: digest(111),
-            decision_cut: 40,
-        }
     }
 
     fn digest(seed: u8) -> BindingDigest {
@@ -763,7 +703,6 @@ mod sealed {
                 SEALED_DEVELOP_COMPOSER_REQUEST_IDENTITY_V2
             );
             assert_eq!(request.design.inputs.len(), 6);
-            assert_eq!(request.binding_requests.len(), 6);
             assert_eq!(request.plugin_source_capsules.len(), 1);
         }
 

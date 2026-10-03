@@ -8,6 +8,25 @@
       "title": "Max Videos",
       "type": "integer"
     },
+    "platform": {
+      "default": "bilibili",
+      "enum": [
+        "bilibili",
+        "youtube"
+      ],
+      "title": "Platform",
+      "type": "string"
+    },
+    "quality": {
+      "default": "standard",
+      "enum": [
+        "fast",
+        "standard",
+        "precise"
+      ],
+      "title": "Quality",
+      "type": "string"
+    },
     "query": {
       "maxLength": 200,
       "minLength": 2,

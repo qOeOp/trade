@@ -31,12 +31,17 @@ use super::{
 };
 use crate::owner::{
     bar_schedule::{BarScheduleClockV1, BarScheduleKindV1, BarScheduleLabelV1},
+    decimal_rescale_v1::{MARKET_DATA_VALUE_SCALE_V1, RescaleErrorV1, rescale_exact_v1},
     declared_bar_timeframe_v1::{DeclaredBarShapeV1, DeclaredBarTimeframeV1},
     instrument_master::InstrumentClass,
+    market_semantics::{
+        MarketSemanticsPriceAdjustmentV1, MarketSemanticsTimestampBasisV1, MarketSemanticsValueV1,
+    },
     sample_fact::{continuous_bar_timeframe_spec_v1, v2::SampleRowInputV2},
     source_binding::{
-        BindingDigest, UntrustedSourceAvailabilityRuleV1, UntrustedSourceBarTimeframeV1,
-        UntrustedSourceVisibilityV1, authority::availability_rule_digest_v1,
+        BindingDigest, UntrustedCompleteFrontier, UntrustedSourceAvailabilityRuleV1,
+        UntrustedSourceBarTimeframeV1, UntrustedSourceVisibilityV1,
+        authority::availability_rule_digest_v1,
     },
     strategy_input_binding::{MarketDataFieldSemantic, STRATEGY_INPUT_FIXED_I128_LE_V1},
 };
@@ -86,6 +91,9 @@ pub(crate) struct CustodyBindingV1 {
     pub(crate) source_frontier_digest: BindingDigest,
     pub(crate) correction_stream: String,
     pub(crate) correction_frontier_digest: BindingDigest,
+    /// The binding's complete source and correction frontiers, as its chain's R0 record binds them.
+    pub(crate) source_frontier: UntrustedCompleteFrontier,
+    pub(crate) correction_frontier: UntrustedCompleteFrontier,
 }
 
 /// The Instrument Master fact the Owner selects for one member at the window's start.
@@ -270,6 +278,8 @@ pub(crate) struct DerivedCustodyV1 {
     pub(crate) binding: CustodyBindingV1,
     pub(crate) rule_digest: BindingDigest,
     pub(crate) market_semantics_identity: BindingDigest,
+    /// The typed Market Semantics value the request claims, checked for shape only.
+    pub(crate) market_semantics_value: MarketSemanticsValueV1,
     universe: (BindingDigest, BindingDigest),
     pub(crate) instrument_master_key: BindingDigest,
     pub(crate) members: Vec<String>,
@@ -435,6 +445,21 @@ pub(crate) fn derive_custody_v1(inputs: CustodyInputsV1<'_>) -> Result<DerivedCu
     if request.market_semantics_identity != binding.market_semantics_identity {
         return Err(Refused::MarketSemanticsMismatch);
     }
+    let market_semantics_value = request
+        .market_semantics_value
+        .clone()
+        .into_value()
+        .map_err(|_| Refused::InvalidRequest)?;
+
+    if [
+        market_semantics_value.normalization_identity,
+        market_semantics_value.price_unit_identity,
+        market_semantics_value.size_unit_identity,
+    ]
+    .contains(&ZERO)
+    {
+        return Err(Refused::InvalidRequest);
+    }
 
     // Timeframes: every label the binding declares, the execution one a fixed interval.
     let declared = |label: &str| {
@@ -454,6 +479,17 @@ pub(crate) fn derive_custody_v1(inputs: CustodyInputsV1<'_>) -> Result<DerivedCu
     // A frame is decided at its bar's close: `d_k < e_{k+1}` holds only for frames at close
     // instants, so T0 enumerates frames only from a timeframe labelled at interval close.
     if execution.label() != BarScheduleLabelV1::IntervalClose {
+        return Err(Refused::InvalidRequest);
+    }
+
+    // A window holds at least one frame: a close instant of the execution grid, which the Unix
+    // epoch anchors.
+    if request
+        .window_start_ns
+        .div_ceil(execution_interval)
+        .checked_mul(execution_interval)
+        .is_none_or(|first| first >= request.window_end_ns_exclusive)
+    {
         return Err(Refused::InvalidRequest);
     }
     let mut held = Vec::with_capacity(request.input_timeframes.len() + 1);
@@ -680,6 +716,17 @@ pub(crate) fn derive_custody_v1(inputs: CustodyInputsV1<'_>) -> Result<DerivedCu
                 else {
                     continue;
                 };
+                // One series has one scale, the fixed Market Data value scale, so one bar's value
+                // has one representation however the writer spelled it, and a tick that changed
+                // over the instrument's history changes no series.
+                let target_scale = MARKET_DATA_VALUE_SCALE_V1;
+                let value_mantissa =
+                    rescale_exact_v1(row.value_mantissa, row.value_scale, target_scale).map_err(
+                        |e| match e {
+                            RescaleErrorV1::FinerThanTarget => Refused::ValueFinerThanSeriesScale,
+                            RescaleErrorV1::Overflow => Refused::InvalidRequest,
+                        },
+                    )?;
                 max_retrieval_ns = max_retrieval_ns.max(row.retrieval_ns);
                 put_u64(&mut evidence, row.retrieval_ns);
                 put_var(&mut evidence, row.retrieval_route.as_bytes());
@@ -691,11 +738,11 @@ pub(crate) fn derive_custody_v1(inputs: CustodyInputsV1<'_>) -> Result<DerivedCu
                     row_digest: row_digest_v1(
                         member,
                         semantic.row_field(),
-                        row.value_mantissa,
-                        row.value_scale,
+                        value_mantissa,
+                        target_scale,
                     ),
-                    value_mantissa: row.value_mantissa,
-                    value_scale: row.value_scale,
+                    value_mantissa,
+                    value_scale: target_scale,
                     retrieval_ns: row.retrieval_ns,
                     retrieval_route: row.retrieval_route.clone(),
                 });
@@ -733,6 +780,7 @@ pub(crate) fn derive_custody_v1(inputs: CustodyInputsV1<'_>) -> Result<DerivedCu
         binding: binding.clone(),
         rule_digest,
         market_semantics_identity: request.market_semantics_identity,
+        market_semantics_value,
         universe: (
             request.universe_selection.request_identity(),
             request.universe_selection.request_meaning_digest(),
@@ -810,6 +858,18 @@ pub(crate) fn custody_timeframe_identity_v1(member_identities: &[[u8; 32]]) -> B
 }
 
 impl DerivedCustodyV1 {
+    /// The last frame of the window: the latest close instant of the execution grid before its
+    /// end. The derivation refuses a window that holds none.
+    pub(crate) const fn last_execution_frame_ns(&self) -> u64 {
+        let interval = self.execution.interval_ns;
+        (self.window.1 - 1) / interval * interval
+    }
+
+    /// The labels of the input timeframes, in canonical order; the fill timeframe is not one.
+    pub(crate) fn input_labels(&self) -> impl Iterator<Item = &str> {
+        self.inputs.iter().map(|timeframe| timeframe.label.as_str())
+    }
+
     /// Each timeframe's identity with the label it is held under, so a view row can state its
     /// label from the custody alone and a relabelling is another custody.
     fn timeframe_identities(&self, out: &mut Vec<u8>) {
@@ -843,6 +903,7 @@ impl DerivedCustodyV1 {
         bytes.extend_from_slice(self.binding.lineage_root.as_bytes());
         bytes.extend_from_slice(self.rule_digest.as_bytes());
         bytes.extend_from_slice(self.market_semantics_identity.as_bytes());
+        put_market_semantics_value(&mut bytes, &self.market_semantics_value);
         bytes.extend_from_slice(self.instrument_master_key.as_bytes());
         self.members(&mut bytes);
         put_u64(&mut bytes, self.window.0);
@@ -861,6 +922,7 @@ impl DerivedCustodyV1 {
         put_u64(&mut bytes, self.binding.lineage_version);
         bytes.extend_from_slice(self.rule_digest.as_bytes());
         bytes.extend_from_slice(self.market_semantics_identity.as_bytes());
+        put_market_semantics_value(&mut bytes, &self.market_semantics_value);
         bytes.extend_from_slice(self.universe.0.as_bytes());
         bytes.extend_from_slice(self.universe.1.as_bytes());
         bytes.extend_from_slice(self.instrument_master_key.as_bytes());
@@ -1144,6 +1206,7 @@ pub(crate) struct CustodyRecordV1 {
     pub(crate) lineage_version: u64,
     pub(crate) rule_digest: BindingDigest,
     pub(crate) market_semantics_identity: BindingDigest,
+    pub(crate) market_semantics_value: MarketSemanticsValueV1,
     /// The Universe Selection locator: `(request_identity, request_meaning_digest)`.
     pub(crate) universe: (BindingDigest, BindingDigest),
     pub(crate) instrument_master_key: BindingDigest,
@@ -1185,6 +1248,7 @@ impl CustodyRecordV1 {
         bytes.extend_from_slice(self.lineage_root.as_bytes());
         bytes.extend_from_slice(self.rule_digest.as_bytes());
         bytes.extend_from_slice(self.market_semantics_identity.as_bytes());
+        put_market_semantics_value(&mut bytes, &self.market_semantics_value);
         bytes.extend_from_slice(self.instrument_master_key.as_bytes());
         put_u64(&mut bytes, self.members.len() as u64);
 
@@ -1238,6 +1302,7 @@ pub(crate) fn decode_custody_record_v1(
     let lineage_version = reader.u64()?;
     let rule_digest = reader.digest()?;
     let market_semantics_identity = reader.digest()?;
+    let market_semantics_value = take_market_semantics_value(&mut reader.bytes)?;
     let universe = (reader.digest()?, reader.digest()?);
     let instrument_master_key = reader.digest()?;
     let member_count = usize::try_from(reader.u64()?).ok()?;
@@ -1296,6 +1361,7 @@ pub(crate) fn decode_custody_record_v1(
         lineage_version,
         rule_digest,
         market_semantics_identity,
+        market_semantics_value,
         universe,
         instrument_master_key,
         members,
@@ -1428,6 +1494,58 @@ fn put_u64(out: &mut Vec<u8>, value: u64) {
 fn put_var(out: &mut Vec<u8>, value: &[u8]) {
     put_u64(out, value.len() as u64);
     out.extend_from_slice(value);
+}
+
+/// The five typed Market Semantics value fields, in the order the Market Semantics codec binds them.
+pub(crate) fn put_market_semantics_value(out: &mut Vec<u8>, value: &MarketSemanticsValueV1) {
+    out.extend_from_slice(value.normalization_identity.as_bytes());
+    put_u16(out, value.price_adjustment as u16);
+    put_u16(out, value.timestamp_basis as u16);
+    out.extend_from_slice(value.price_unit_identity.as_bytes());
+    out.extend_from_slice(value.size_unit_identity.as_bytes());
+}
+
+/// Reads back what [`put_market_semantics_value`] wrote, advancing `bytes` past it; `None` for
+/// short bytes or a tag this Owner does not define.
+pub(crate) fn take_market_semantics_value(bytes: &mut &[u8]) -> Option<MarketSemanticsValueV1> {
+    fn take<'a>(bytes: &mut &'a [u8], length: usize) -> Option<&'a [u8]> {
+        if bytes.len() < length {
+            return None;
+        }
+        let (head, tail) = bytes.split_at(length);
+        *bytes = tail;
+        Some(head)
+    }
+    fn digest(bytes: &mut &[u8]) -> Option<BindingDigest> {
+        Some(BindingDigest::from_untrusted_bytes(
+            take(bytes, 32)?.try_into().ok()?,
+        ))
+    }
+    fn tag(bytes: &mut &[u8]) -> Option<u16> {
+        Some(u16::from_be_bytes(take(bytes, 2)?.try_into().ok()?))
+    }
+
+    let normalization_identity = digest(bytes)?;
+    let price_adjustment = match tag(bytes)? {
+        1 => MarketSemanticsPriceAdjustmentV1::Raw,
+        2 => MarketSemanticsPriceAdjustmentV1::SplitAdjusted,
+        3 => MarketSemanticsPriceAdjustmentV1::TotalReturnAdjusted,
+        4 => MarketSemanticsPriceAdjustmentV1::Unknown,
+        _ => return None,
+    };
+    let timestamp_basis = match tag(bytes)? {
+        1 => MarketSemanticsTimestampBasisV1::EventEffective,
+        2 => MarketSemanticsTimestampBasisV1::IntervalOpen,
+        3 => MarketSemanticsTimestampBasisV1::IntervalClose,
+        _ => return None,
+    };
+    Some(MarketSemanticsValueV1 {
+        normalization_identity,
+        price_adjustment,
+        timestamp_basis,
+        price_unit_identity: digest(bytes)?,
+        size_unit_identity: digest(bytes)?,
+    })
 }
 
 fn put_optional(out: &mut Vec<u8>, value: Option<BindingDigest>) {

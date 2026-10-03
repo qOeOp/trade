@@ -43,6 +43,7 @@ sealed-source-intake-composer-acceptance = [
   "sealed-source-intake-acceptance",
   "sealed-develop-composer-acceptance",
   "vibe-strategy-factory/sealed-source-intake-composer-acceptance",
+  "vibe-product-edge/sealed-deployment-acceptance",
 ]
 sealed-develop-composer-acceptance = [
   "native-replay-execution",
@@ -54,6 +55,7 @@ anyhow = { workspace = true }
 async-trait = { workspace = true }
 axum = { workspace = true }
 ed25519-dalek = { workspace = true }
+reqwest = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
@@ -73,12 +75,15 @@ vibe-strategy-factory = { workspace = true }
 
 [dev-dependencies]
 rstest = { workspace = true }
+# The first COMPOSER_V3 Replay oracle's exact decimal arithmetic.
+rust_decimal = { workspace = true }
 tower = { workspace = true }
 vibe-backtest-result-custody = { workspace = true }
 # The chain fixture's instrument constant, shared with the Market Data fixtures it names.
 vibe-data = { workspace = true, features = [
   "sealed-strategy-input-acceptance",
 ] }
+vibe-model = { workspace = true }
 vibe-operator-authorization = { workspace = true }
 vibe-product-edge-routing-api = { workspace = true }
 vibe-rd-artifact-invocation-custody = { workspace = true }
@@ -87,6 +92,24 @@ vibe-testkit = { workspace = true, features = ["postgres"] }
 [[bin]]
 name = "strategy-factory-rd-owner-api"
 path = "src/main.rs"
+doc = false
+test = false
+
+[[bin]]
+name = "rd-owner-additive-table-migrate"
+path = "src/bin/rd_owner_additive_table_migrate.rs"
+doc = false
+test = false
+
+[[bin]]
+name = "strategy-authoring-mcp"
+path = "src/bin/strategy_authoring_mcp.rs"
+doc = false
+test = false
+
+[[bin]]
+name = "market-data-mcp"
+path = "src/bin/market_data_mcp.rs"
 doc = false
 test = false
 

@@ -52,8 +52,11 @@ pub mod data_types;
 pub mod factories;
 pub mod futures;
 pub mod futures_pit_observation_source_v1;
+pub mod perpetual_admission_v1;
 pub mod pit_observation_source_v1;
 pub mod spot;
+pub mod vision_backfill_custody_v1;
+pub mod vision_backfill_v1;
 
 #[cfg(feature = "python")]
 pub mod python;

@@ -13,6 +13,116 @@ executor path, and it starts only under the `dashboard-preview` profile.
 `make rd-workbench-check` validates the pinned manifests, image digests, authority wiring, and
 `docker compose config` for this package.
 
+## Local deployment in one command
+
+```bash
+make rd-workbench-up
+```
+
+`scripts/up.sh` brings up PostgreSQL and `rd-owner-api` as the compose project `trade-rd-local`,
+on that project's own volumes, and publishes the API on `127.0.0.1:18080` only
+(`RD_LOCAL_API_PORT` changes the port; `local/docker-compose.local.yml` is the only addition to the
+compose file). It runs the administrative steps below in their order: environment file, images,
+sealed Catalog commands, Product Edge genesis configuration, `postgres`, `schema-materialize`,
+`authority-custody-migrate` (which also gives `market_data_reader` and `instrument_owner` their
+passwords), `authority-schema-materialize`, `authority-bootstrap`,
+`replay-policy-catalog-bootstrap`, the `replay-policy-catalog-owner-readback` check, and
+`rd-owner-api`, ending with `GET /health`.
+
+Every value it needs is generated on this machine into `product/rd-workbench/.local` (ignored by
+Git; `RD_LOCAL_STATE_DIR` moves it): random database passwords and tokens in `.env`, the Catalog
+signing seed, the sealed create and advance commands, and the Product Edge genesis configuration.
+Nothing is printed. The Catalog content is `local/replay-policy-catalog.json`: venue `BINANCE`,
+economic configuration schema 2, so each Replay takes the terms the Instrument Owner resolves for
+its instrument. The script derives the policy's replay configuration digest from that economic
+configuration. The local sealer runs in the Owner image with no network, so for this deployment
+the signing seed is read inside a one-off container; a shared deployment seals on the
+administrator's host as described below.
+
+Docker runs with an empty environment plus that `.env`, so no key exported in the calling shell
+reaches a container. Binance is read through its public endpoints only. If
+`~/.docker/config.json` names a credential store, the script uses a private Docker config without
+it.
+
+Running it again is safe. Each step measures whether it has already happened and prints
+`skip <step>: <reason>`: the store is already cut over, a Product Edge binding or Catalog V3 head
+exists, a migration already ran on this volume with the same script and image, or the images were
+already built from the current clean tree. The Catalog readback runs every time, because it is a
+check, not a write. To start over, stop the project and remove its volumes and the state
+directory:
+
+```bash
+docker compose --project-name trade-rd-local --env-file product/rd-workbench/.local/.env \
+  -f product/rd-workbench/docker-compose.yml --profile authority-admin down --volumes
+rm -rf product/rd-workbench/.local
+```
+
+A store that is already cut over cannot gain an R&D table a newer build adds: the Owner creates
+its public relations only before the custody cutover, and at startup it requires every one to
+exist. After pulling a change that adds one, `rd-owner-api` stays unhealthy and its log names the
+missing relation (for example `rd_strategy_specs_v1 has incompatible custody or relation options`).
+On this disposable deployment, start over as below.
+
+`RD_LOCAL_ACCEPTANCE_SCRIPT` names a script to run last, as
+`<script> probe http://127.0.0.1:18080` with `RD_OWNER_API_TOKEN` exported from `.env`.
+
+### Strategy authoring from Claude Code
+
+The `strategy-authoring` MCP server (`docs/owners/rd.md`, "strategy-authoring MCP server") runs on
+this host as a child process of Claude Code and reaches the local deployment's API on
+`127.0.0.1:18080`. Four steps, from the repository root:
+
+1. Bring up the deployment: `make rd-workbench-up`.
+2. Build the server: `make mcp-strategy-authoring`. It builds `strategy-authoring-mcp`, copies it
+   into `product/rd-workbench/.local/bin`, and prints the registration command.
+3. Register it with Claude Code, running the printed command, which has this shape:
+
+   ```bash
+   claude mcp add --scope user strategy-authoring -- /absolute/path/to/product/rd-workbench/scripts/strategy-authoring-mcp.sh
+   ```
+
+   Claude Code starts `scripts/strategy-authoring-mcp.sh`, which reads `RD_OWNER_API_TOKEN` from
+   `.local/.env` when the server starts and sets `RD_OWNER_API_URL` to
+   `http://127.0.0.1:${RD_LOCAL_API_PORT:-18080}`. The token is never printed and never written into
+   Claude Code's configuration. A restarted deployment keeps its `.env`, so the registration stays
+   valid.
+4. In a new Claude Code session, follow the nine acceptance steps in that section of
+   `docs/owners/rd.md`, using the server's `validate`, `create`, `get`, `list`, `revise` and
+   `archive` tools. They need no market data.
+
+### Market data from Claude Code
+
+The `market-data` MCP server (`docs/owners/market-data.md`) runs on this host as a child process of
+Claude Code and reaches the same local deployment's API on `127.0.0.1:18080`. It is a second process
+reaching the same `rd-owner-api`, authenticated by the same token, mounting a disjoint set of routes.
+Four steps, from the repository root:
+
+1. Bring up the deployment: `make rd-workbench-up`.
+2. Build the server: `make mcp-market-data`. It builds `market-data-mcp`, copies it into
+   `product/rd-workbench/.local/bin`, and prints the registration command.
+3. Register it with Claude Code, running the printed command, which has this shape:
+
+   ```bash
+   claude mcp add --scope user market-data -- /absolute/path/to/product/rd-workbench/scripts/market-data-mcp.sh
+   ```
+
+   Claude Code starts `scripts/market-data-mcp.sh`, which reads `RD_OWNER_API_TOKEN` from
+   `.local/.env` when the server starts, exports it as `MARKET_DATA_OWNER_API_TOKEN`, and sets
+   `MARKET_DATA_OWNER_API_URL` to `http://127.0.0.1:${RD_LOCAL_API_PORT:-18080}`. The token is never
+   printed and never written into Claude Code's configuration.
+4. In a new Claude Code session, exercise the server's six tools:
+   - `admit_instrument` for `BTCUSDT`, `ETHUSDT`, and `SOLUSDT` - each admits once, against the fixed
+     eligible U1 set (`docs/owners/market-data.md`).
+   - `admit_instrument` for a symbol outside that set (e.g. `DOGEUSDT`) - refused by name as
+     `SYMBOL_NOT_IN_ELIGIBLE_FRONTIER`, before any write.
+   - `list_instruments` - lists the three admitted perpetuals.
+   - `describe_instrument` for one admitted instrument.
+   - `backfill` for one admitted instrument over a small window on an unsupported timeframe (e.g.
+     `5m`) - refused by name as `TIMEFRAME_UNSUPPORTED`.
+   - `backfill` for one admitted instrument over a small `1d` window - returns a `job_id`.
+   - `job_status` for that `job_id` - observe it reach `Succeeded`.
+   - `coverage` for that instrument and timeframe - reports the backfilled window.
+
 ## Deployment Store Admission boundary
 
 The package defaults `DEPLOYMENT_STORE_ADMISSION_MODE` to `disabled`. In that
@@ -218,7 +328,8 @@ Create a private environment file outside the repository or copy `.env.example` 
 placeholder with a local value. `RD_OWNER_DATABASE_URL`, `RD_FACT_WRITER_DATABASE_URL`,
 `MARKET_DATA_OWNER_DATABASE_URL`, `MARKET_DATA_RD_ROLE_SET_DATABASE_URL`,
 `INSTRUMENT_OWNER_DATABASE_URL`, `QUALIFICATION_OWNER_DATABASE_URL`,
-`OPERATOR_AUTHORIZATION_DATABASE_URL`, `PRODUCT_EDGE_DATABASE_URL`, and
+`OPERATOR_AUTHORIZATION_DATABASE_URL`, `PRODUCT_EDGE_DATABASE_URL`,
+`RD_SCHEMA_MIGRATOR_DATABASE_URL`, and
 `REPLAY_POLICY_CATALOG_ADMIN_DATABASE_URL` must be private PostgreSQL connection URLs for the
 Compose `postgres` service, with credentials matching the `*_DB_PASSWORD` values. Do not commit it.
 
@@ -259,6 +370,28 @@ docker compose \
   --env-file /absolute/path/to/private.env \
   -f product/rd-workbench/docker-compose.yml \
   --profile authority-admin run --rm authority-custody-migrate
+```
+
+After custody is cut over, no later build can add a new R&D public table the usual way: the
+schema materializer above only runs before cutover, and the default startup requires every
+table it knows about to already exist. `authority-additive-table-migrate` is this package's
+forward path for exactly that case. It connects twice: as `rd_owner`, which creates and so owns
+every new table, and as the dedicated `rd_schema_migrator` principal, which holds nothing of its
+own and may only call the two functions that open and close the one window `rd_owner` needs to
+create something in `public` - neither role is ever a member of the other, which the custody
+migration's own topology check requires stay true of `rd_owner` always. For each table a newer
+build compiled in, the window opens, the table is created only if it is purely absent (otherwise
+refused by name, with the existing relation left untouched - it never alters or drops anything),
+and the window closes, closing it even when creating the table failed. It is not profiled, so it
+runs on every default start the same way `authority-schema-materialize` does, and a repeat run
+after every table it knows about already exists is a no-op:
+
+```bash
+docker compose \
+  --project-name trade-rd-workbench \
+  --env-file /absolute/path/to/private.env \
+  -f product/rd-workbench/docker-compose.yml \
+  run --rm authority-additive-table-migrate
 ```
 
 The default R&D API startup additionally requires the sealed Replay Policy Catalog

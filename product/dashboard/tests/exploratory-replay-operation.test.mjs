@@ -140,8 +140,6 @@ function fixture({ submissionStarted = false, claimAttempt = 1, transitionVersio
     request_digest: effectDispatchRequestDigestV1(EXPLORATORY_REPLAY_EXECUTE_OPERATION, dispatchRequest),
     frozen_target: target,
     frozen_target_digest: effectDispatchTargetDigestV1(EXPLORATORY_REPLAY_EXECUTE_OPERATION, target),
-    frozen_context: null,
-    frozen_context_digest: null,
     principal_ref: "local_operator",
     authorization_digest: sha("1"),
     admission_receipt_identity: "dashboard-control-plane-admission-v1-test",

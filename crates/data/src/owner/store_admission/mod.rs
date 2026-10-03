@@ -5817,7 +5817,7 @@ mod tests {
     /// The administrator's side runs as the deployment's runbook does: the store is measured over
     /// the pinned connection as the admitted reader, through its secret file, and the draft is
     /// completed into authoring, sealed with a fresh store key and published as the publisher.
-    /// The deployment's side is `admit_rd_owner_market_data_postgres_with` over a configuration of
+    /// The deployment's side is `admit_rd_owner_market_data_postgres` over a configuration of
     /// files: the custody store as the custodian, the key's public half, the single-machine mode,
     /// the secrets directory and the pinned root. Its capability opens the scheduling port, which
     /// reads. The same configuration with any other signer key, or without the mode named, admits
@@ -5963,19 +5963,36 @@ mod tests {
 
         // A port outlives the lease period it was opened in: under a two-second period, a read just
         // after the next boundary is admitted on a receipt of its own and reads the store.
+        //
+        // The admission itself must fall inside one period, because a lease lapses at its period's
+        // end and an admission that straddles a boundary is refused as `AdmissionCutExpired`, as it
+        // should be. Started at an arbitrary instant it straddled one with a probability of its
+        // duration over the period, and failed CI that way twice in one hour, so it starts just
+        // after a boundary and has the whole period.
         let mut short_period = configuration.clone();
-        short_period.insert(composition::LEASE_PERIOD_MS_ENV, "2000".to_owned());
-        let port =
+        short_period.insert(
+            composition::LEASE_PERIOD_MS_ENV,
+            SHORT_LEASE_PERIOD_MS.to_string(),
+        );
+        sleep_past_next_lease_boundary(&admin).await;
+        let started = store_clock(&admin).await;
+        let admitted =
             admit_rd_owner_market_data_postgres(&request, |name| short_period.get(name).cloned())
-                .await
-                .expect("the production seam admits under a short lease period")
-                .into_native_replay_scheduling_snapshot_port_v2()
-                .unwrap();
-        let now = store_clock(&admin).await;
-        tokio::time::sleep(std::time::Duration::from_millis(
-            (now / 2_000 + 1) * 2_000 - now + 50,
-        ))
-        .await;
+                .await;
+        let elapsed = store_clock(&admin).await - started;
+        eprintln!(
+            "short-period admission took {elapsed} ms of a {SHORT_LEASE_PERIOD_MS} ms period"
+        );
+        let port = admitted
+            .unwrap_or_else(|refusal| {
+                panic!(
+                    "the production seam admits under a short lease period: {refusal:?} after {elapsed} ms, started {} ms into a {SHORT_LEASE_PERIOD_MS} ms period",
+                    started % SHORT_LEASE_PERIOD_MS
+                )
+            })
+            .into_native_replay_scheduling_snapshot_port_v2()
+            .unwrap();
+        sleep_past_next_lease_boundary(&admin).await;
         assert_eq!(
             port.resolve_bar_schedule_candidates_v1("VIBE-PRODUCTION-SEAM")
                 .await
@@ -7424,6 +7441,19 @@ mod tests {
         custody_postgres::publish_signed_v1(database_url, manifest, head, expected_previous_head)
             .await
             .unwrap()
+    }
+
+    /// The lease period the production seam's boundary-crossing leg runs under.
+    const SHORT_LEASE_PERIOD_MS: u64 = 2_000;
+
+    /// Sleeps until 50 ms past the next boundary of a `SHORT_LEASE_PERIOD_MS` lease period, by the
+    /// store's clock, which is the clock leases are cut on.
+    async fn sleep_past_next_lease_boundary(admin: &sqlx::PgPool) {
+        let now = store_clock(admin).await;
+        tokio::time::sleep(std::time::Duration::from_millis(
+            (now / SHORT_LEASE_PERIOD_MS + 1) * SHORT_LEASE_PERIOD_MS - now + 50,
+        ))
+        .await;
     }
 
     async fn store_clock(admin: &sqlx::PgPool) -> u64 {

@@ -91,6 +91,7 @@ use crate::{
     rd_owner_postgres_custody::resolve_exploratory_replay_outcome_for_rd_in_transaction,
     single_threshold_authoring_v1::{
         SingleThresholdChannelV1, SingleThresholdOutcomeV1, recover_single_threshold_request_v1,
+        threshold_coefficient_v1,
     },
     strategy_design_v2::StrategyDesignV2,
 };
@@ -334,9 +335,34 @@ pub struct BacktestRunStrategyV1 {
     pub when_true: SingleThresholdOutcomeV1,
     /// What it proposes otherwise.
     pub otherwise: SingleThresholdOutcomeV1,
+    /// The exits the program names, or absent when it names none, so the report of a program
+    /// without exits keeps its bytes.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exits: Option<BacktestRunExitsV1>,
     /// The statement the program can be wrong about.
     pub falsifier: String,
 }
+
+/// How a program leaves a held position other than by its sides, as its statement names it.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct BacktestRunExitsV1 {
+    /// The fraction of the entry close the close may move against the position.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stop_loss_fraction: Option<String>,
+    /// The fraction of the entry close the close may move in the position's favour.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub take_profit_fraction: Option<String>,
+    /// The frames a position is held before it is left.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_holding_bars: Option<u32>,
+    /// Always [`EXITS_JUDGED_AT_CLOSE_V1`]: every exit is judged at a bar's close and fills on the
+    /// next frame, never at its level inside a bar. A report states it because a stop the price
+    /// passes through inside a bar is left later, and at a worse price, than one a venue holds.
+    pub judged: &'static str,
+}
+
+/// When a program's exits are judged and filled.
+pub const EXITS_JUDGED_AT_CLOSE_V1: &str = "AT_BAR_CLOSE_FILLED_NEXT_FRAME";
 
 /// The channel a run's program read, resolved to what it read rather than how it was authored.
 ///
@@ -662,11 +688,26 @@ async fn resolve_strategy_and_window(
     };
     let strategy = BacktestRunStrategyV1 {
         family: SINGLE_THRESHOLD_FAMILY_V1,
-        threshold: fixed_point_decimal(authored.threshold_coefficient, channel.scale),
+        // Stated at the channel's scale, as the program compares it; the recovered request spells it
+        // canonically, which reads back exactly at that scale.
+        threshold: fixed_point_decimal(
+            threshold_coefficient_v1(&authored.threshold, channel.scale)
+                .map_err(|_| BacktestRunReportRefusalV1::NoStrategyStatementForFamily)?,
+            channel.scale,
+        ),
         channel,
         comparison: authored.comparison,
         when_true: authored.when_true,
         otherwise: authored.otherwise,
+        exits: (authored.stop_loss_fraction.is_some()
+            || authored.take_profit_fraction.is_some()
+            || authored.max_holding_bars.is_some())
+        .then_some(BacktestRunExitsV1 {
+            stop_loss_fraction: authored.stop_loss_fraction,
+            take_profit_fraction: authored.take_profit_fraction,
+            max_holding_bars: authored.max_holding_bars,
+            judged: EXITS_JUDGED_AT_CLOSE_V1,
+        }),
         falsifier: authored.falsifier,
     };
     Ok((strategy, data_window))
@@ -1630,8 +1671,33 @@ mod tests {
             comparison: BoundedFeaturePredicateV1::Greater,
             when_true: outcome("kernel.position.enter.v1", 1),
             otherwise: outcome("kernel.position.exit.v1", 0),
+            exits: None,
             falsifier: "the channel never crosses the threshold".to_owned(),
         }
+    }
+
+    /// A program without exits states none, so its report keeps its keys; one with exits states
+    /// each it names, and states that they are judged at the close.
+    #[rstest]
+    fn a_strategy_states_its_exits_only_when_it_names_them() {
+        let without = serde_json::to_value(strategy()).expect("a strategy serialises");
+        assert!(without.get("exits").is_none(), "no exits, no key");
+
+        let mut with = strategy();
+        with.exits = Some(BacktestRunExitsV1 {
+            stop_loss_fraction: Some("0.02".to_owned()),
+            take_profit_fraction: None,
+            max_holding_bars: Some(5),
+            judged: EXITS_JUDGED_AT_CLOSE_V1,
+        });
+        assert_eq!(
+            serde_json::to_value(with).expect("a strategy serialises")["exits"],
+            serde_json::json!({
+                "stop_loss_fraction": "0.02",
+                "max_holding_bars": 5,
+                "judged": "AT_BAR_CLOSE_FILLED_NEXT_FRAME",
+            })
+        );
     }
 
     /// In a build without the Composer-backed Replay feature - the deployed image, and the one that
@@ -1699,10 +1765,13 @@ mod tests {
                 close_role_semantic_id: "research.input.close.daily.v1".to_owned(),
                 open_role_semantic_id: "research.input.open.daily.v1".to_owned(),
             },
-            threshold_coefficient: 10_000,
+            threshold: "100".to_owned(),
             comparison: BoundedFeaturePredicateV1::Greater,
             when_true: outcome("kernel.position.enter.v1", 1),
             otherwise: outcome("kernel.position.exit.v1", 0),
+            stop_loss_fraction: None,
+            take_profit_fraction: None,
+            max_holding_bars: None,
             falsifier: "the channel never crosses the threshold".to_owned(),
         })
         .expect("the universe-member form authors");

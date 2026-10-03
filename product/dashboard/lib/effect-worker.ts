@@ -1,7 +1,4 @@
 import {
-  executeClaimedArtifactFormationV1,
-} from "./artifact-formation-client.ts";
-import {
   boundEffectWorkerIdentityV1,
   configuredEffectDispatchTargetDigestsV1,
   effectDispatchOperationIdsV1,
@@ -82,14 +79,6 @@ async function executeClaimV1({
   environment: Environment;
   fetcher: typeof fetch;
 }) {
-  if (claim.operation_id === "artifact_build.formation_execute.v1") {
-    return executeClaimedArtifactFormationV1({
-      claim,
-      environment,
-      fetcher,
-      store,
-    });
-  }
   if (claim.operation_id === EXPLORATORY_REPLAY_EXECUTE_OPERATION) {
     return executeClaimedExploratoryReplayOperationV2({
       claim,

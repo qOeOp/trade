@@ -19,25 +19,35 @@
 - `NOT_ADMITTED` - 架构页面、preview profile 下可达的 Dashboard、MCP 握手、目标 read model 或可访问
   底层 API 都不能让产品表面成为 `CURRENT`。
 
-目标以一套 Docker Compose 产品包交付，只提供一个默认 Dashboard Web 入口与一个 Dashboard MCP 对话
-出口。外部对话客户端可选接入，但不随产品打包，也不逐一维护 adapter。Dashboard 的 shadow scheduler 与 effect worker 调度长时间运行的
+目标以一套 Docker Compose 产品包在用户自己的机器上交付。它有两个入口：外部代理工具面，产品之外的代理
+通过它做研发；以及 Dashboard Web 入口，用户主要用它查看。外部代理不随产品打包，也不逐一维护 adapter。Dashboard 的 shadow scheduler 与 effect worker 调度长时间运行的
 研究与 scanner job；真实策略循环、行情会话、Risk、订单与恢复效果的权威和进程边界仍属于 Trade Runtime。
 
 [Observability](../architecture/observability/) 可以解释进度与失败，但不能闭合旅程、选择下一动作，
 或用 telemetry 替代原生 Owner 回执。
 
-## Agent-native R&D 体验
+## 代理在外的 R&D 体验
 
-面向用户的创作闭环由对话驱动：
+用户在 2026-10-03 决定：代理在产品之外，规矩在产品之内。用户的理由（译述）：手工研究依赖用户所用模型的代理能力，
+产品内置模型或干脆没有代理，开发策略都会明显变差。由用户选择的代理（例如 Claude Code 或 Codex）提供 R&D 的智能部分：
+想法、策略文档、诊断与文献检索。产品负责执行规矩：数据准入、预登记、试验计数、留出集只给结论、确定性回测、
+[研究知识台账](../owners/rd/#target---research-knowledge-ledger)以及真钱边界。
 
-自然语言研究请求 → Research Request Receipt → 冻结 Research Intent → Agent 活动与 R&D 迭代 →
-不可变 Strategy Artifact 与 Build Receipt → 探索 Run Detail 或 Compare → Iteration Decision → 准确的
-后继、停止、修复或 Qualification 交接。
+研究闭环经由外部代理工具面运行
+（[Product Edge](../architecture/product-edge/#target---external-agent-tool-surface)）：每个领域一个 MCP server，每个
+server 同时也是命令行，代理是唯一的编排者，行情数据在 server 之间按引用传递：
 
-Conversation Agent 的职责止于提交类型化请求和查询有界状态。服务端 R&D Execution Agent 拥有长时间
-运行的执行 session，并在对话客户端关闭后继续受 Dashboard effect worker 监督。MCP 不会把客户端模型或 credential
-借给该 job。两个角色可以共用显式配置的模型 provider 或计费 gateway，但不能共用 session 权威、
-能力 scope、预算或审计 identity。
+声明了机制与构件的研究请求 → Research Request Receipt → 冻结 Research Intent →
+由 Owner 编译的 spec 创建的策略 → 在 `dataset_ref` 上的回测运行 → Run Report → Iteration Decision → 准确的后继、停止、修复或
+Qualification 交接。
+
+代理从不持有凭据：工具面持有 R&D 凭据，只返回身份、结论与下文的有界读取，从不返回受保护的 Qualification 数值。
+策略只以 authoring 文档进入产品，由 Owner 编译并封存；产品自身不发起任何模型调用。
+
+**被该决定取代的内容。** 本节此前描述一个由对话驱动、有两个 Agent 角色的闭环：Conversation Agent 提交类型化请求
+并查询状态，服务端 R&D Execution Agent 拥有长时间运行的执行 session、生成策略代码，并在对话关闭后继续受 Dashboard
+effect worker 监督。两个角色以及生成 Artifact 的产品内模型调用都被撤回而非延后：外部代理取代第一个角色，
+authoring 文档取代第二个角色。
 
 用户通过可见动作发起研究、请求解释、要求修改、停止工作，或提交准确的已选 Candidate。每个会改变
 状态的动作都创建新的类型化请求。修改要么产生新的不可变 Artifact，要么产生明确的原生终态
@@ -61,7 +71,7 @@ Dashboard 通过以下应用区域闭合旅程：
 
 首个 Artifact Review 表面有意不展示原始源码。完整源码只读查看、源码 diff、受控下载和源码关联诊断
 属于延后的高级审计能力。Notebook-first 创作、内嵌代码 IDE、原地编辑 Artifact 和覆盖版本都不是
-已接纳的产品能力。用户通过 Agent 请求修改，并审阅其产生的后继 Artifact。
+已接纳的产品能力。修改是外部代理提交的后继 authoring 文档，用户审阅其产生的后继 Artifact。
 
 ## 1. 发现并定义问题
 

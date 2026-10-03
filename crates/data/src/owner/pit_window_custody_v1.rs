@@ -26,11 +26,13 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
 use super::{
+    market_semantics_admission_v1::MarketSemanticsValueSubmissionV1,
     source_binding::{BindingDigest, UntrustedSourceBindingLocator},
     universe_selection::UntrustedUniverseSelectionLocatorV1,
 };
 
 pub(crate) mod authority;
+pub(crate) mod chain_records;
 pub(crate) mod quote_cut;
 pub(crate) mod schedule;
 pub(crate) mod view;
@@ -49,6 +51,10 @@ pub struct UntrustedPitWindowCustodyRequestV1 {
     pub source_binding: UntrustedSourceBindingLocator,
     /// The Market Semantics fact the rows are read under; the Owner verifies it is the head in scope.
     pub market_semantics_identity: BindingDigest,
+    /// The typed Market Semantics value the rows are read under: an untrusted claim. The Owner
+    /// records it once per custody chain, under the compatibility scope the binding implies, and
+    /// refuses it when another head of that scope states another value.
+    pub market_semantics_value: MarketSemanticsValueSubmissionV1,
     /// The Universe Selection record whose members the custody holds; the Owner verifies every
     /// member is included throughout the window.
     pub universe_selection: UntrustedUniverseSelectionLocatorV1,
@@ -246,6 +252,14 @@ pub enum PitWindowCustodyRefusalV1 {
     /// publication is later than the cut the custody is minted at.
     #[error("a version is not available at the custody's minting cut")]
     VersionNotAvailableAtMintingCut,
+    /// `VALUE_FINER_THAN_SERIES_SCALE`: a row value with more than nine decimal places, the
+    /// fixed scale every custody series is stated at; it is never rounded.
+    #[error("a value is finer than the custody series scale")]
+    ValueFinerThanSeriesScale,
+    /// `MARKET_SEMANTICS_SCOPE_VALUE_CONFLICT`: the claimed Market Semantics value differs from
+    /// the value a head of its compatibility scope - a snapshot's or another chain's - states.
+    #[error("the Market Semantics value differs from its scope's")]
+    MarketSemanticsScopeValueConflict,
     /// Two versions naming one predecessor, a repeated sequence, or a publication that does not
     /// increase with the sequence.
     #[error("a cross-section's versions branch")]

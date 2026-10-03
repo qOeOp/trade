@@ -26,6 +26,18 @@ use super::{
 
 pub type BarScheduleIdentity = BindingDigest;
 
+/// The execution timeframes U1's backfill job accepts, in the one place every caller validates
+/// against (the backfill job, `coverage`, the MCP tool and the command line) rather than each
+/// hand-checking its own copy of the list.
+///
+/// `1w` follows Binance's own weekly-kline convention: Monday 00:00:00 UTC open and close, a
+/// fixed seven-day interval on that anchor. `15m` and `1m` are deliberately absent: `15m` needs an
+/// intraday execution and cost model first, and `1m` needs a per-trade (`aggTrades`) fill model -
+/// using `1m` as the execution timeframe would make the execution bar its own fill bar, stating no
+/// price path inside the bar at all. Neither is on U1's path (`docs/owners/market-data.md`,
+/// "TARGET Binance backfill fetch for T0 window custody").
+pub const SUPPORTED_EXECUTION_TIMEFRAMES_V1: &[&str] = &["1w", "1d", "4h", "1h"];
+
 const FACT_DOMAIN: &[u8] = b"market-data.bar-schedule-fact.v1\0";
 const CUT_DOMAIN: &[u8] = b"market-data.bar-schedule-cut.v1\0";
 const RECEIPT_DOMAIN: &[u8] = b"market-data.bar-schedule-receipt.v1\0";

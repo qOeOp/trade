@@ -1,290 +1,204 @@
-# Bilibili Note MCP — standalone design
-
-> Status: implementation candidate. This document is the architecture authority for the service.
-> Scope: Bilibili URL or natural-language topic to a text-only Chinese trading research brief.
-> Deployment: standalone Python stdio MCP, independent of any particular client or trading runtime.
-
-## 1. Product outcome
-
-The service turns long-form trading videos into compact, reusable research hypotheses. Audio provides the
-primary semantic record. Internal visual analysis recovers material chart information that speech leaves
-implicit, including trend lines, support/resistance, indicator relationships, and before/after structure
-inside one host-authorized ordered visual moment.
-
-Public output is text only. Images, frames, transcript fragments, evidence identifiers, provenance,
-provider identities, internal hashes, candidate failures, and processing traces are private request-local
-validation material and never appear in the Note.
-
-Two public use cases exist:
-
-- direct: one canonical Bilibili URL becomes one Note;
-- search: one natural-language query freezes a bounded Bilibili result set, processes a requested number
-  of successful videos, and returns one systematic cross-video Note.
-
-No other feature is coupled to this service. The repository's trading system may consume the result later,
-but is neither imported nor required for execution or acceptance.
-
-## 2. Non-goals
-
-- public screenshots, image URLs, or an asset server;
-- transcript, evidence timeline, provenance, model metadata, or source-by-source recap;
-- fact verification, backtesting, profitability claims, signals, or trading authorization;
-- browser automation, cookie discovery, web-wide search, or inferred creator aliases;
-- cache reuse, automatic model repair, fallback models, or partial success Notes;
-- client-specific routing, deployment adapters, gateway patches, or UI code.
-
-## 3. Public MCP contract
-
-### 3.1 Tools
-
-```json
-{"name":"bilibili_note.create","arguments":{"url":"https://www.bilibili.com/video/BV..."}}
-```
-
-```json
-{"name":"bilibili_note.search_and_create","arguments":{"query":"趋势交易 支撑阻力","max_videos":2}}
-```
-
-`max_videos` is an exact non-boolean integer from 1 through 3. Arguments reject unknown fields.
-
-### 3.2 Success
-
-One `TextContent` equals `structuredContent.rendered_markdown` byte-for-byte:
-
-```json
-{
-  "schema": "bilibili-note.result/v3",
-  "rendered_markdown": "# ..."
-}
-```
-
-The Markdown document contains:
-
-1. exactly one host-owned H1 title;
-2. exactly one host-owned scope: `以下内容仅为未验证的交易观点摘要，须另行研究验证。`;
-3. the non-empty subset of `核心策略`, `具体方法`, `风险管理`, in that order;
-4. one or more `- 规则描述：<literal rule_body>` bullets across the whole document.
-
-A category may be empty. The complete document may not be empty. The renderer omits empty headings.
-
-### 3.3 Failure
-
-One `bilibili-note.error/v1` value contains the closed public error code and reason. No partial Note,
-internal exception text, provider body, candidate detail, or private identifier is returned.
-
-## 4. Component boundaries
-
-```text
-MCP presentation
-  -> direct/search application use case
-    -> source/search ports
-    -> media/ASR/visual ports
-    -> flat rule author port
-    -> reject-only verifier port
-    -> optional cross-video synthesis + verifier ports
-  -> deterministic Markdown renderer
-```
-
-Dependency direction is inward. Domain and application layers do not import concrete Bilibili, yt-dlp,
-SiliconFlow, filesystem, subprocess, or MCP implementations.
-
-The package exposes no repository-root application object and stores no durable business state.
-
-## 5. Direct pipeline
-
-### 5.1 Source admission
-
-Accept only canonicalizable `https` Bilibili video URLs with a valid BV identity. Resolve exact aid/cid,
-part, title, author, duration, and canonical URL from bounded provider JSON. Redirects, private/reserved
-network destinations, ambiguous JSON, type coercion, identity disagreement, and sources longer than
-96 minutes fail before media processing.
-
-### 5.2 Media acquisition
-
-Acquire one bounded public media artifact. The parent process owns the total deadline, output caps,
-temporary path, process group, termination, kill fallback, and reap-before-return. Actual duration, audio,
-dimensions, file size, and digest are checked after download. Preview-only or identity-mismatched media
-cannot reach transcription.
-
-The media worker receives only a canonical request and sanitized environment. Provider/model keys and
-operator-event sink configuration are excluded. Retry authority is single-layer and typed; exception text
-or class-name strings never decide retry.
-
-### 5.3 Complete transcription
-
-Transcribe the entire audio in host-owned 45-second windows. Windows are complete, ordered, gap-free,
-non-overlapping, and capped at 128. A request-local client is reused across bounded concurrent windows.
-Only typed transport, 429, 5xx, or malformed-response conditions receive bounded retry. Cancellation joins
-all window tasks and closes the client exactly once.
-
-Progress 50 means the complete transcript has passed structural validation, never merely that a provider
-returned some text.
-
-### 5.4 Visual selection
-
-Rank transcript windows using domain-neutral cues only:
-
-- deictic speech such as “看这里/从这里到这里”;
-- screen, page, window, or mouse interaction language;
-- explicit visible change or ordered relation.
-
-Trading vocabulary, asset names, indicators, prices, percentages, and digit density contribute no score.
-Zero-score windows cannot occupy the ranked top three.
-
-Freeze up to three intent windows plus coverage anchors. Each intent window is probed at five timestamps.
-Choose a deterministic integer-distance medoid; only the highest-ranked window with an ordered-relation cue
-may retain earliest, interior medoid, and latest as one ordered group. Duplicate timestamp/asset membership
-atomically degrades it to one static frame. Global digest dedupe yields exactly two to five groups and two
-to five frames, with at most one three-frame group and no two-frame group.
-
-Frames remain request-internal, are never upscaled, and obey per-frame and aggregate byte caps.
-
-### 5.5 Flat author catalog
-
-The multimodal author returns:
-
-```text
-rules[1..24]: ordered (PublicRuleV1, evidence_refs)
-visuals[host_group_count]: supports_rule(rule_index, evidence_basis) | no_material_increment
-```
-
-The author does not return public categories. It removes greetings, promotion, repetition, jokes,
-audience interaction, and tangents, while preserving reusable decision rules and every material symbol,
-timeframe, regime, volatility, liquidity, session, level, threshold, indicator, confirmation, exception,
-and invalidation condition.
-
-`rule_index` addresses the single flat catalog. Visual objects contain no prose, frame IDs, group IDs, or
-evidence refs. Host frame membership and private visual binding are never model-owned.
-
-### 5.6 Independent verification and category projection
-
-One separate reject-only multimodal verifier receives the immutable transcript, flat candidate catalog,
-and exact host-selected visual groups. For every positional rule it must accept:
-
-- intelligibility;
-- source resolvability;
-- entailment without a new claim;
-- polarity preservation;
-- all material conditions;
-- reusable abstraction;
-- Simplified-Chinese public representation;
-- exactly one category.
-
-It also accepts source coverage, no remaining duplicate/mergeable rule, priority order, and every material
-visual relation. It cannot author, repair, reorder, delete, or rewrite rules.
-
-The verifier is the sole category authority. Category precedence is:
-
-1. `risk_management` when the operative consequence is stop, exit, invalidation, position size, or
-   exposure control;
-2. `method` when the rule has an observable entry, avoidance, waiting, filter, or confirmation condition;
-3. `core_strategy` for an abstract strategy-wide objective, governing principle, regime preference, or
-   directional stance with no operational trigger or consequence.
-
-The host projects unchanged author rules according to accepted verifier verdicts. Direct caps are 9 core,
-9 method, and 6 risk. Any failed verdict, positional mismatch, category overflow, unsupported visual,
-duplicate public item, or invalid reference fails the whole request before rendering.
-
-### 5.7 Rendering and terminal validation
-
-The renderer owns all headings, scope text, and the `规则描述：` frame. Rule bodies are treated as untrusted
-Markdown literals. Final admission checks exact structure, title policy, scope position/uniqueness, public
-text safety, category order, item uniqueness, schema parity, byte cap, and content/structured-content
-equality.
-
-Temporary media, audio, and frames are destroyed before terminal success is constructed.
-
-## 6. Search and synthesis
-
-Normalize the query with generic Unicode rules. Search one bounded Bilibili page and require every
-normalized query unit to match title, author, tags, or description. Exact author identity may break an
-equal score but cannot create creator-only search semantics. Deduplicate exact BV IDs and freeze at most
-nine candidates before media work.
-
-Use a work-conserving rolling window with at most two active candidate pipelines. Only the lowest
-continuous terminal prefix decides selected successes and the first authoritative failure. Completion
-timing cannot change the output. When the requested success count is unreachable, return
-`SEARCH_TARGET_UNMET` without a partial Note.
-
-Cross-video synthesis receives a closed host catalog of verified typed rules. It receives no query,
-source title, image, transcript, or candidate error. One author proposes at most 3 core, 6 method, and
-4 risk outputs. Categories may be empty; at least one total output is required. Every input ID appears
-exactly once as same-category support or accepted episode-only omission.
-
-One independent synthesis verifier checks coverage, entailment, polarity, material conditions, omission
-safety, Simplified Chinese, and priority order. There is no truncation, padding, fallback, repair, cache,
-or third call.
-
-## 7. Progress and cancellation
-
-Public progress is monotonic and artifact-based:
-
-| progress | admitted artifact                          |
-| -------: | ------------------------------------------ |
-|        5 | canonical request/source identity admitted |
-|       25 | bounded media artifact admitted            |
-|   25..49 | complete ASR windows admitted              |
-|       50 | full transcript admitted                   |
-|       65 | host visual catalog admitted               |
-|   66..74 | bounded model liveness only                |
-|       75 | author and independent verifier admitted   |
-|       89 | rendered terminal bytes admitted           |
-
-Search candidate progress is capped at 88. The service emits no synthetic 90 or 100. Repeated stage
-messages may prove liveness but cannot claim a future artifact.
-
-Every request owns its tasks, clients, subprocesses, and temporary workspace. Cancellation cancels and
-joins children before propagating. Search batch accounting satisfies
-`attempted == succeeded + failed + cancelled`.
-
-## 8. Security and resource invariants
-
-- CPython `>=3.14,<3.15`; service-local `uv.lock` is dependency authority.
-- Only explicitly configured secret environment variables are read; values are never logged or persisted.
-- Provider-controlled JSON uses strict UTF-8, unique decoded keys, finite bounded numbers, object roots,
-  exact types, depth limits, and byte caps.
-- HTTP bodies are streamed under cap+1 limits; declared length cannot override the actual cap.
-- Source/search hosts are exact and public-DNS pinned; redirects are disabled.
-- Optional egress proxies are explicit unauthenticated local HTTP endpoints only.
-- Subprocess stdout/stderr are drained concurrently under independent caps. All exceptional exits share
-  one terminate, grace, kill, and reap owner.
-- stdio frames are at most 1 MiB and pass raw UTF-8 plus strict JSON-RPC admission before tool dispatch.
-- Public text cannot contain internal IDs, provenance, model identity, hidden markup, data URLs, source
-  attribution scaffolding, or host-control language.
-- Operator JSONL is diagnostics-only and cannot affect scheduling, progress, or public outcome.
-
-## 9. Test and acceptance contract
-
-The service must be testable without any repository-root runtime. Required gates are:
-
-```bash
-uvx --from 'uv==0.12.3' uv run python scripts/export_schemas.py --check
-uvx --from 'uv==0.12.3' uv run ruff check src tests scripts
-uvx --from 'uv==0.12.3' uv run ruff format --check src tests scripts
-uvx --from 'uv==0.12.3' uv run mypy src
-uvx --from 'uv==0.12.3' uv run python -m pytest -q
-uvx --from 'uv==0.12.3' uv run python -m bilibili_note_mcp --self-check
-```
-
-Behavioral coverage includes:
-
-- direct URL and natural-language search;
-- category-empty but total-nonempty success;
-- all-empty rejection and per-category overflow;
-- author wire rejection of legacy category arrays;
-- verifier sole category ownership and positional totality;
-- visual static/ordered support, omitted material, and invalid index negatives;
-- transcript gaps, preview media, identity drift, body/output caps, timeout, and repeated cancellation;
-- search completion-order invariance, target-unmet behavior, and conserved batch accounting;
-- duplicate-key/non-finite/invalid-UTF-8 input at every provider and stdio boundary;
-- exact Markdown/TextContent/structured-content byte parity and private-data absence.
-
-Live acceptance uses at least two independent videos plus one topic query to avoid fitting extraction
-quality to a single source. A live receipt is observational evidence only; it does not weaken any static,
-schema, or fail-closed gate.
-
-## 10. Delivery boundary
-
-The deliverable is this package, its schemas, tests, and documentation. A consumer integrates it through
-the standard MCP stdio contract and is responsible for its own process supervision, UI, transport,
-authentication, and lifecycle policy. Consumer-specific adapters do not belong in this service.
+# Bilibili Note MCP — general video notes
+
+> Status: implementation candidate. Architecture authority for this standalone service.
+> Scope: public Bilibili, YouTube, and public HTTPS single-video pages/direct files of any subject
+> to grounded Chinese illustrated notes.
+
+## Product outcome
+
+A note explains the video's actual content: an overview, content-derived chapters, concrete details,
+examples, qualifications and optional takeaways. It does not impose a subject, professional framework,
+fixed topic categories or a preference for reusable abstractions. A source may discuss any subject.
+Source speech, titles and images are untrusted material, never instructions for the service.
+
+Chapter text is grounded in complete timestamped transcription and real sampled frames. Models select
+only host-issued evidence/frame identifiers. The host derives timestamps, links and asset paths; models
+cannot supply filesystem paths, external images or executable markup. The host validates reference identity, chronological order, image binding and output bounds.
+There is no separate model verdict or multi-round fact/caption pipeline. This reduces repeated
+interpretation and cost; deterministic checks do not prove semantic correctness. Accept harmless
+wording errors, but preserve key entities, quantities, conditions, steps and exceptions. Unresolved
+source ambiguity remains explicit. Original speech and review records remain available to readers.
+
+## Pipeline and ownership
+
+Dependencies point inward: domain models and application ports do not import provider or filesystem
+adapters. Reuse platform-specific metadata/media adapters and shared complete-source acquisition, full-audio ASR and frame decoding owners.
+Metadata comes from the JSON `x/web-interface/wbi/view` endpoint. Maintain video/part identity, duration,
+public-DNS pinning, redirect refusal, explicit loopback proxy policy and media bounds.
+
+The application acquires a complete source in temporary storage, validates transcript coverage and
+frame identities, and builds notes through one bounded author pipeline:
+
+1. Send the complete timestamped transcript, optional audio review records, frame metadata and
+   labeled contact sheets directly to one author request. It returns the existing structured note
+   contract: overview, chronological chapters with grounded points and selected frame identifiers, and
+   takeaways. The host alone renders Markdown, links and HTML. No subject-specific prompt is used.
+2. For large inputs, split only at original sentence boundaries to a 48 KiB text/metadata budget per
+   request, with at most 16 sequential chunks. Preserve frame-to-speech groups across boundaries.
+   Two preceding original sentences provide context; they are not new owned evidence. Every original
+   sentence is sent; no pre-extraction or generated fact inventory replaces it. Allocate the existing
+   16-chapter/24-image total bounds across chunks. Once all chunks finish, one summary request writes
+   only global overview/takeaways, with a 96 KiB summary-input ceiling; the host concatenates chapter
+   bodies without rewriting them. Exceeding a bound produces an explicit error, not truncation.
+3. Contact sheets contain at most nine labeled 960x540 thumbnails. Always include the final partial
+   sheet; keep original PNGs for publication. Bound text and binary payload independently. Base64
+   length is not an image token count; reported provider usage is authoritative for actual consumption.
+4. Validate every returned evidence ID, chronological chapter order, image identity, time and original speech
+   binding. Image evidence need not duplicate every nearby sentence in the chapter points; the image
+   time must lie within both its original speech span and the chapter span. Omit individual invalid
+   screenshot selections, retaining all prose, references and valid images unchanged; never invent a
+   replacement image, widen a time span or add references to make an image pass. This follows
+   VideoNote-MCP's single-screenshot failure isolation and requires no additional model request.
+   Final publication still strictly validates the complete resulting note. Screenshots are optional,
+   so if no selection is valid, publish the validated text without images rather than inventing them.
+   Each chunk permits one re-generation after invalid JSON, text-reference or ordering constraints,
+   using the same original materials and the specific host error. It does not replay completed chunks,
+   acquisition or ASR. Transient transport retry remains a separate bounded mechanism described below.
+   Persistent errors fail with a typed result; never publish a partial or unvalidated note.
+
+Direct authoring replaces the segmented extraction, fact merge, separate image selection, per-image
+caption calls and whole-note model verification. Quality tiers continue to govern audio review, not
+extra semantic judges. Fixture authoring remains explicitly deterministic and is never a live fallback.
+This simplification was user-authorized after a same-model, two-subject upstream comparison.
+
+Models select frame identifiers only; they do not generate separate image captions. The renderer
+displays a neutral original-frame label and the actual timestamp. Necessary visual explanations belong
+in grounded chapter prose.
+
+Screenshots are real frames, selected only when relevant to a chapter; a video without useful visual
+material may have none. Do not fabricate images or claim unsampled visual coverage. Candidate frames
+cover the complete timeline at a target interval of six seconds, adapting up to 48 candidates rather
+than truncating the tail. When sentence count can fill the frame budget, coverage samples from short
+segments (at most 10 seconds) move to 150 ms before the sentence ends, clamped to its start, to capture
+completed visual steps or text. Sparse transcripts and coarse segments retain the time grid; explicit
+visual-relation sequences remain unchanged. Published timestamps always identify the actual frame.
+Byte-identical frames are removed. Contact sheets are visual evidence for direct authoring; their labels and corresponding metadata
+bind selected pictures to original PNG assets. They do not guarantee that tiny text is legible.
+The renderer uses actual frame times and
+referenced speech ranges as navigation aids, not guarantees of perfect alignment.
+
+Provider usage receipts record reported input/output/total tokens, model, stage and elapsed time in
+the private operator event stream, never keys, transcript text or images. Missing usage is unavailable,
+not zero. Transient model HTTP 408/429/500/502/503/504 and transport failures retry the identical current
+request at most three attempts, with 2/8 second backoff and bounded Retry-After (up to 30 seconds).
+The entire request including waits shares the configured timeout; each attempt is capped at 90 seconds.
+Authentication, other HTTP errors, malformed output and semantic rejection do not receive transport
+retries. Cancellation closes the active response and cancels backoff. Request-local progress reports
+the retry without replaying completed stages; operator events retain safe status and attempt metadata.
+No response bodies or credentials are logged. No provider/model downgrade is implicit.
+
+On Apple Silicon the composition root selects an isolated MLX Whisper large-v3 worker by default;
+other hosts use cloud ASR. Host configuration can explicitly select either, with no silent fallback.
+MLX weights are pinned to a repository revision. Workers process the complete decoded audio and return
+bounded sentence segments plus processed duration; silent gaps are allowed only with this full-coverage
+receipt. Cloud fixed-window coverage validation stays strict. Cancellation terminates and reaps the
+worker process group. Local ASR does not replace the visual model or guarantee correct proper names.
+
+For the pinned local engine, a source cache reuses verified media and transcripts for the same complete source metadata and
+transcriber identity. Metadata is fetched on every request. Every hit validates bounded manifest data,
+media digest and transcript coverage; changed source metadata or engine revision is a miss. Host-owned
+atomic entries expire for reuse after 24 hours. Cache writes stop when the 8 GiB budget would be exceeded;
+misses still process normally. Cache errors never become fabricated source evidence. An explicit host
+cache directory owns retained media; no provider key is cached. No automatic deletion of user files.
+
+Search keeps at most nine candidates and at most two active source jobs, exact requested success count
+(1–3), stable candidate order and cancellation/reaping. Each selected note retains its own source and
+chapters in one collection. Do not collapse different sources into unsupported agreement. Candidate
+processing creates no durable outputs; only the completed terminal collection is published.
+
+## YouTube source adapter
+
+YouTube direct links and explicitly selected keyword search use the official yt-dlp extractor with
+its matching packaged EJS dependency and a supported local JavaScript runtime. Accept finite public
+videos only, with platform-bound video identity and canonical URLs. Playlist, channel and live
+resources are rejected. No browser cookies are read automatically. The isolated worker uses bounded
+requests, HTTPS YouTube/media hosts, public DNS addresses and redirect refusal; the host validates
+closed receipts, complete audio/video, duration, HD dimensions and byte limits before ASR.
+Bilibili retains its WBI metadata and part identity rules. Both adapters reuse the same cache, ASR
+quality tiers, screenshot extraction, author and publishers. Missing subtitles do not prevent ASR.
+
+## Generic public video source (user-authorized extension)
+
+Other HTTPS links use one isolated yt-dlp Generic extractor. It may unwrap exactly one embedded video,
+but cannot hand off to another platform extractor. Every request requires public DNS answers, HTTPS
+on port 443, and no credentials, redirects or IP literals; ambient cookies/proxies and external
+media downloaders are unavailable. Metadata responses and request count are bounded. Only a progressive MP4/WebM
+media URL is downloaded through the same transport under the existing media-byte and process bounds.
+Playlists, manifests, live streams and DRM are refused. Local FFprobe/FFmpeg retain `file,pipe` only.
+
+The adapter measures the downloaded complete file's duration, dimensions and audio track, and supplies
+that artifact to the existing acquisition owner. The 720p floor, full-audio ASR, quality tiers, frame
+binding, author and publication owners are unchanged. URL hash identifies the generic source; media
+SHA-256 binds its snapshot. No generic cache is used: unchanged URL/metadata cannot prove unchanged
+media. Missing author/date are explicit unknowns. Generic time links return to the canonical source
+without inventing platform seek parameters. Platform adapters and their errors never downgrade to the
+generic path; keyword search remains platform-specific. No TradingView-specific parser or prompt.
+
+## Public contract and artifacts
+
+Expose `video_note.create({url,quality?})` and
+`video_note.search_and_create({query,platform?,max_videos,quality?})`; platform defaults to `bilibili`
+and can be `youtube`. Retain the old `bilibili_note.*` names as compatibility aliases.
+Both public tools default to `standard`; quality is `fast`, `standard` or `precise`.
+Existing internal application calls retain their explicit single-pass default `fast`.
+Success versions are `bilibili-note.result/v4` and `bilibili-note.search-result/v2`. Each returns
+`rendered_markdown`, absolute `note_path`, `html_path`, and host-owned `images` paths. Markdown includes
+source links and timestamp links. Tool text uses absolute image paths for local clients; `note.md` uses
+relative `images/` paths so the whole bundle can be moved. `note.html` is a static escaped preview,
+without scripts, remote dependencies or an asset server. The HTML preview omits the original-transcript appendix; Markdown retains every original segment.
+ Clients may show the local preview if they do
+not render Markdown images. Local paths are available only on the server's filesystem.
+
+A filesystem publisher owns the configured `BILIBILI_NOTE_OUTPUT_DIR` (default
+`~/.local/share/bilibili-note-mcp/notes`). This is host configuration, not a model/tool path argument.
+It writes a fresh private sibling staging directory, bounded PNG assets, Markdown and HTML, then
+atomically renames to a unique host-generated directory. Existing bundles are never overwritten.
+Publication is the commit point: errors/cancellation beforehand remove staging; afterward a completed
+bundle remains even if delivery is interrupted. No cancellation checkpoint may delete committed output.
+Raw audio and provider credentials remain temporary/private. Verified media and transcripts may remain
+in the private bounded source cache; users may remove that cache when no request is using it. Published bundles persist until
+explicit user deletion; no automatic expiration or background cleanup.
+
+## Validation and limits
+
+Provider JSON remains strict (unique keys, finite values, exact fields/types, bounded bytes/depth).
+Reject dangling evidence/frame references, timestamps outside the source, non-chronological chapter
+order, unrelated screenshots, unsupported details and malformed provider envelopes. Escape model prose
+as text; only the renderer may emit links, headings, images and HTML. Never convert source instructions
+into tool actions. Keep current source duration, subprocess/process-group, ASR, frame-byte, provider-body,
+concurrency and stdout admission bounds. Bound published bundles and public terminal text separately.
+Failures remain typed `bilibili-note.error/v1`; no partial success note is published.
+
+## Acceptance
+
+Use content from multiple unrelated subjects, including a real non-financial visual explanation.
+Verify detail fidelity and actual screenshot readability, chronological navigation, MCP success, and
+Markdown/HTML reopening after temporary cleanup. Preserve negative source/SSRF/strict-JSON/provider,
+process lifecycle, cancellation and bounds tests. Exercise atomic publication failure and traversal,
+forged references, source-injected markup and exact search-count behavior. Fixture-only deterministic
+mode remains explicit and cannot replace live validation.
+
+## Transcription quality (user-authorized extension)
+
+Both entrypoints use one application-owned review stage after full source acquisition and before
+notes. `fast` preserves complete single-engine ASR and host note/image binding checks. `standard`
+adds a second ASR for at most three sentence-boundary windows selected by generic risk signals
+(unintelligible markers, repetition, letters and numbers); ties favor source order. This heuristic
+cannot detect every recognition error. `precise` reviews the complete audio with a distinct ASR.
+All tiers retain the existing source duration, payload, concurrency and publication bounds.
+Silence can enlarge a review interval; the existing cloud adapter splits uploads at 45 seconds.
+Review calls are sequential per source, reuse process cancellation/reaping and bounded provider retries.
+A required review failure fails the request; it never silently downgrades quality.
+
+The primary transcript is immutable. Host-owned review records bind audio start/end, primary text,
+alternate text and provider identity. Disagreement after ignoring sentence punctuation, case and whitespace (preserving decimal points,
+signs, ranges and percent symbols) is
+uncertainty, not evidence that either model is correct. Models receive overlapping review records;
+the renderer always displays disagreements independently of model output. Full original transcript
+and review records accompany the note. No automated lexical replacement or subtitle requirement is
+introduced. Visible text remains optional evidence. Raw ASR caching remains independent of quality;
+review results are request-local and never overwrite that cache.
+
+A higher tier means more verification work, not a guaranteed error rate. Validate both entrypoints,
+unknown quality refusal, concurrent different qualities, no-subtitle audio, unrelated subjects,
+review disagreement/failure/cancellation, original text preservation and bounded publication.

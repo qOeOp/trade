@@ -10,6 +10,11 @@
 //! reports every member position closed, and it faults a run that reduced a position without
 //! reaching that closure.
 //!
+//! A protective order the Host placed from the kernel's protection fills under
+//! `kernel.fill.reconcile.v1` with no target set behind it. Such fills are reported apart from the
+//! target-set fills, in [`ProgramHostSimEventReadbackV1::protective_fills`], bind to their own
+//! `FILL` transitions in the ordered trace, and count as exits of a round trip.
+//!
 //! Closure needs an exit target set, and therefore a second Owner-sealed frame. The request
 //! execution bundle admits exactly one, so every request this consumer can be handed today enters
 //! without exiting and reports [`ProgramHostSimEventReadbackV1::round_trip`] as `None`. The
@@ -19,10 +24,12 @@
 use std::{
     cell::Cell,
     collections::{BTreeMap, BTreeSet},
+    fmt::Display,
     rc::Rc,
 };
 
 use anyhow::Context;
+use rust_decimal::Decimal;
 use serde::Serialize;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -38,9 +45,10 @@ use crate::{
     program_host_backtest_target_set_v2::{
         BacktestTargetSetProgramHostStrategyV2, TargetSetActualFillConsumptionV1,
         TargetSetBacktestTraceV2, TargetSetBacktestTransitionV2,
+        TargetSetEquitySnapshotObservationV2, TargetSetProtectiveFillConsumptionV1,
     },
     replay_target_set_execution_bundle_v1::{
-        ReplayTargetSetExecutionBundleV1, ReplayTargetSetExecutionCensusV1,
+        ReplayPriceGridV1, ReplayTargetSetExecutionBundleV1, ReplayTargetSetExecutionCensusV1,
     },
     target_set_members::{BoundedMembers, update_member_count_domain},
 };
@@ -168,6 +176,96 @@ impl From<TargetSetActualFillConsumptionV1> for ProgramHostSimEventFillReadbackV
             intent_identity: value.intent_identity,
             disposition: value.disposition,
             position_intent: value.position_intent,
+            cumulative_filled_grid_units: value.cumulative_filled_grid_units,
+            filled_native_quantity: value.filled_native_quantity,
+            position_before_grid_units: value.position_before_grid_units,
+            position_after_grid_units: value.position_after_grid_units,
+            checkpoint_before: value.checkpoint_before,
+            checkpoint_after: value.checkpoint_after,
+        }
+    }
+}
+
+/// One fill of a protective order the running Host placed from the member kernel's protection.
+///
+/// It has no public constructor or deserializer. A stop or take-profit that fills between frames
+/// moves the member's position with no target set behind it, so it is reported here rather than
+/// among the target-set fills, whose every row answers a submitted target set.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct ProgramHostSimEventProtectiveFillReadbackV1 {
+    client_order_id: String,
+    instrument: String,
+    order_identity: [u8; 16],
+    leg: String,
+    disposition: String,
+    cumulative_filled_grid_units: u64,
+    filled_native_quantity: String,
+    position_before_grid_units: i64,
+    position_after_grid_units: i64,
+    checkpoint_before: [u8; 32],
+    checkpoint_after: [u8; 32],
+}
+
+impl ProgramHostSimEventProtectiveFillReadbackV1 {
+    #[must_use]
+    pub fn client_order_id(&self) -> &str {
+        &self.client_order_id
+    }
+
+    #[must_use]
+    pub fn instrument(&self) -> &str {
+        &self.instrument
+    }
+
+    /// Returns the protective leg that filled: `STOP_LOSS` or `TAKE_PROFIT`.
+    #[must_use]
+    pub fn leg(&self) -> &str {
+        &self.leg
+    }
+
+    #[must_use]
+    pub fn disposition(&self) -> &str {
+        &self.disposition
+    }
+
+    #[must_use]
+    pub const fn position_before_grid_units(&self) -> i64 {
+        self.position_before_grid_units
+    }
+
+    #[must_use]
+    pub const fn position_after_grid_units(&self) -> i64 {
+        self.position_after_grid_units
+    }
+
+    /// Returns whether this fill gave real native position back to the venue.
+    const fn reduced_position(&self) -> bool {
+        self.position_after_grid_units.unsigned_abs()
+            < self.position_before_grid_units.unsigned_abs()
+    }
+
+    fn view(&self) -> ActualFillViewV1<'_> {
+        ActualFillViewV1 {
+            instrument: &self.instrument,
+            intent_identity: self.order_identity,
+            disposition: &self.disposition,
+            cumulative_filled_grid_units: self.cumulative_filled_grid_units,
+            position_before_grid_units: self.position_before_grid_units,
+            position_after_grid_units: self.position_after_grid_units,
+            checkpoint_before: self.checkpoint_before,
+            checkpoint_after: self.checkpoint_after,
+        }
+    }
+}
+
+impl From<TargetSetProtectiveFillConsumptionV1> for ProgramHostSimEventProtectiveFillReadbackV1 {
+    fn from(value: TargetSetProtectiveFillConsumptionV1) -> Self {
+        Self {
+            client_order_id: value.client_order_id,
+            instrument: value.instrument,
+            order_identity: value.order_identity,
+            leg: value.leg.to_owned(),
+            disposition: value.disposition,
             cumulative_filled_grid_units: value.cumulative_filled_grid_units,
             filled_native_quantity: value.filled_native_quantity,
             position_before_grid_units: value.position_before_grid_units,
@@ -427,6 +525,10 @@ pub struct ProgramHostSimEventReadbackV1 {
     /// `STOP` transition the running Host committed, in commit order.
     host_transitions: Vec<ProgramHostSimEventTransitionReadbackV1>,
     actual_fills: Vec<ProgramHostSimEventFillReadbackV1>,
+    /// Present only for a run in which a protective order filled. Every other run omits it, so
+    /// its semantic-trace serialization and Replay Result V2 identities remain unchanged.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    protective_fills: Vec<ProgramHostSimEventProtectiveFillReadbackV1>,
     /// Present only for a run which actually closed. Runs which only entered omit it entirely, so
     /// their semantic-trace serialization and Replay Result V2 identities remain unchanged.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -500,6 +602,12 @@ impl ProgramHostSimEventReadbackV1 {
         &self.actual_fills
     }
 
+    /// Returns every protective fill the kernel consumed, in consumption order.
+    #[must_use]
+    pub fn protective_fills(&self) -> &[ProgramHostSimEventProtectiveFillReadbackV1] {
+        &self.protective_fills
+    }
+
     /// Returns every committed canonical target set in commit order.
     #[must_use]
     pub fn canonical_target_sets(&self) -> &[Vec<u8>] {
@@ -522,26 +630,11 @@ impl ProgramHostSimEventReadbackV1 {
     ///
     /// Returns the first ordered-trace invariant the readback violates.
     pub fn ordered_trace_census(&self) -> Result<OrderedTraceCensusV1, OrderedTraceFaultV1> {
-        let transitions = self
-            .host_transitions
-            .iter()
-            .map(ProgramHostSimEventTransitionReadbackV1::view)
-            .collect::<Vec<_>>();
-        let fills = self
-            .actual_fills
-            .iter()
-            .map(ProgramHostSimEventFillReadbackV1::view)
-            .collect::<Vec<_>>();
-        let members = self
-            .consumption_census
-            .member_instruments()
-            .iter()
-            .map(String::as_str)
-            .collect::<Vec<_>>();
-        validate_ordered_semantic_trace_v1(
-            &transitions,
-            &fills,
-            &members,
+        ordered_trace_census(
+            &self.host_transitions,
+            &self.actual_fills,
+            &self.protective_fills,
+            self.consumption_census.member_instruments(),
             self.canonical_target_sets.len(),
         )
     }
@@ -575,10 +668,12 @@ pub fn run_program_host_sim_event_consumer_v1(
         instruments,
         bar_types,
         data,
+        fill_quote_instants,
         census,
     } = capability;
     let trace = Rc::new(std::cell::RefCell::new(TargetSetBacktestTraceV2::default()));
     let admitted_frames = universe_frames.len();
+    let notional_caps = recorded_tier_notional_caps(&native_profile);
     let strategy = BacktestTargetSetProgramHostStrategyV2::new(
         strategy_id,
         plan,
@@ -586,10 +681,18 @@ pub fn run_program_host_sim_event_consumer_v1(
         instruments.map(Instrument::id),
         bar_types,
         universe_frames,
+        fill_quote_instants,
         Some(account_scope_id),
         false,
         Rc::new(Cell::new(false)),
         Rc::clone(&trace),
+        BoundedMembers::try_from(
+            census
+                .price_grids()
+                .iter()
+                .map(ReplayPriceGridV1::data_price_precision)
+                .collect::<Vec<_>>(),
+        )?,
     )?;
     let mut engine = native_profile.into_backtest_engine(&instruments)?;
     engine.add_strategy(strategy)?;
@@ -607,11 +710,20 @@ pub fn run_program_host_sim_event_consumer_v1(
         .map(ProgramHostSimEventFillReadbackV1::from)
         .collect::<Vec<_>>();
     validate_actual_consumption(&observed, &actual_fills, &census, admitted_frames)?;
+    let protective_fills = observed
+        .protective_fill_consumptions
+        .iter()
+        .cloned()
+        .map(ProgramHostSimEventProtectiveFillReadbackV1::from)
+        .collect::<Vec<_>>();
+    validate_protective_consumption(&observed, &protective_fills)?;
+    refuse_notional_above_recorded_tier(&observed.equity_snapshots, &notional_caps)?;
     let canonical_result = engine.get_canonical_result()?.to_bytes()?;
     let canonical_result_digest = canonical_result_digest(&canonical_result);
     let round_trip = round_trip_closure(
         &observed,
         &actual_fills,
+        &protective_fills,
         census.member_instruments(),
         &canonical_result_position_census(&canonical_result)?,
         canonical_result_digest,
@@ -638,12 +750,114 @@ pub fn run_program_host_sim_event_consumer_v1(
         canonical_target_sets: observed.canonical_target_sets,
         host_transitions,
         actual_fills,
+        protective_fills,
         round_trip,
     };
     readback
         .ordered_trace_census()
         .context("Sim EVENT run did not produce a complete ordered semantic trace")?;
     Ok(readback)
+}
+
+/// The ordered-trace census over a run's transitions and every fill it reports, target-set and
+/// protective alike: each consuming `FILL` transition must bind to exactly one of them.
+fn ordered_trace_census(
+    host_transitions: &[ProgramHostSimEventTransitionReadbackV1],
+    actual_fills: &[ProgramHostSimEventFillReadbackV1],
+    protective_fills: &[ProgramHostSimEventProtectiveFillReadbackV1],
+    member_instruments: &[String],
+    target_set_count: usize,
+) -> Result<OrderedTraceCensusV1, OrderedTraceFaultV1> {
+    let transitions = host_transitions
+        .iter()
+        .map(ProgramHostSimEventTransitionReadbackV1::view)
+        .collect::<Vec<_>>();
+    let fills = actual_fills
+        .iter()
+        .map(ProgramHostSimEventFillReadbackV1::view)
+        .chain(
+            protective_fills
+                .iter()
+                .map(ProgramHostSimEventProtectiveFillReadbackV1::view),
+        )
+        .collect::<Vec<_>>();
+    let members = member_instruments
+        .iter()
+        .map(String::as_str)
+        .collect::<Vec<_>>();
+    validate_ordered_semantic_trace_v1(&transitions, &fills, &members, target_set_count)
+}
+
+/// Every reported protective fill is a native fill the venue made on an order the Host placed
+/// as protection, it moved the kernel's checkpoint, and it only gave position back: the kernel
+/// refuses a protective fill that grows or flips a position, and this boundary does not trust
+/// that it did.
+fn validate_protective_consumption(
+    observed: &TargetSetBacktestTraceV2,
+    protective_fills: &[ProgramHostSimEventProtectiveFillReadbackV1],
+) -> anyhow::Result<()> {
+    for fill in protective_fills {
+        let native_fill_observed = observed.native_order_observations.iter().any(|event| {
+            event.protection_order
+                && event.client_order_id == fill.client_order_id
+                && event.instrument == fill.instrument
+                && event.filled_native_quantity == fill.filled_native_quantity
+        });
+        anyhow::ensure!(
+            native_fill_observed
+                && matches!(fill.leg(), "STOP_LOSS" | "TAKE_PROFIT")
+                && fill.checkpoint_before != fill.checkpoint_after,
+            "Sim EVENT protective-fill evidence is not exact"
+        );
+        let (before, after) = (
+            fill.position_before_grid_units,
+            fill.position_after_grid_units,
+        );
+        anyhow::ensure!(
+            fill.reduced_position() && (after == 0 || after.signum() == before.signum()),
+            "protective fill does not reduce its member's position"
+        );
+    }
+    Ok(())
+}
+
+/// Runs the production ordered-trace census over a real run's trace, for the focused acceptance
+/// target that drives a run the request bundle cannot yet carry.
+#[cfg(test)]
+#[allow(
+    dead_code,
+    reason = "acceptance helpers are selected by focused test targets"
+)]
+pub(crate) fn program_host_sim_event_ordered_trace_census_for_test(
+    observed: &TargetSetBacktestTraceV2,
+    member_instruments: &[String],
+) -> anyhow::Result<OrderedTraceCensusV1> {
+    let host_transitions = observed
+        .host_transitions
+        .iter()
+        .cloned()
+        .map(ProgramHostSimEventTransitionReadbackV1::from_observed)
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    let actual_fills = observed
+        .actual_fill_consumptions
+        .iter()
+        .cloned()
+        .map(ProgramHostSimEventFillReadbackV1::from)
+        .collect::<Vec<_>>();
+    let protective_fills = observed
+        .protective_fill_consumptions
+        .iter()
+        .cloned()
+        .map(ProgramHostSimEventProtectiveFillReadbackV1::from)
+        .collect::<Vec<_>>();
+    validate_protective_consumption(observed, &protective_fills)?;
+    Ok(ordered_trace_census(
+        &host_transitions,
+        &actual_fills,
+        &protective_fills,
+        member_instruments,
+        observed.canonical_target_sets.len(),
+    )?)
 }
 
 /// Position records the canonical Backtest result holds for one instrument.
@@ -667,11 +881,16 @@ struct CanonicalPositionCensusV1 {
 fn round_trip_closure(
     observed: &TargetSetBacktestTraceV2,
     actual_fills: &[ProgramHostSimEventFillReadbackV1],
+    protective_fills: &[ProgramHostSimEventProtectiveFillReadbackV1],
     member_instruments: &[String],
     canonical_positions: &BTreeMap<String, CanonicalPositionCensusV1>,
     canonical_result_digest: [u8; 32],
 ) -> anyhow::Result<Option<ProgramHostSimEventRoundTripV1>> {
-    let reduced = actual_fills.iter().any(is_exit_fill);
+    let reduced = actual_fills.iter().any(is_exit_fill)
+        || protective_fills
+            .iter()
+            .any(ProgramHostSimEventProtectiveFillReadbackV1::reduced_position);
+
     if !reduced {
         return Ok(None);
     }
@@ -691,6 +910,8 @@ fn round_trip_closure(
         member_round_trip(
             &member_instruments[ordinal],
             actual_fills,
+            protective_fills,
+            last_fill_position(observed, &member_instruments[ordinal]),
             final_member_grid_units[ordinal],
             canonical_positions
                 .get(&member_instruments[ordinal])
@@ -721,9 +942,27 @@ fn is_exit_fill(fill: &ProgramHostSimEventFillReadbackV1) -> bool {
     EXIT_POSITION_INTENTS.contains(&fill.position_intent()) && fill.reduced_position()
 }
 
+/// The position the member's last kernel `FILL` transition left, target-set and protective fills
+/// taken together in the order the Host committed them.
+fn last_fill_position(observed: &TargetSetBacktestTraceV2, instrument: &str) -> Option<i64> {
+    observed
+        .host_transitions
+        .iter()
+        .rev()
+        .find(|transition| {
+            transition.lifecycle == "FILL" && transition.instrument.as_deref() == Some(instrument)
+        })
+        .map(|transition| transition.position_after_grid_units)
+}
+
+/// A member's round trip. Its exits are the target-set fills that gave position back and the
+/// protective fills that did, since a stop or take-profit closes a position as surely as an exit
+/// target set does.
 fn member_round_trip(
     instrument: &str,
     actual_fills: &[ProgramHostSimEventFillReadbackV1],
+    protective_fills: &[ProgramHostSimEventProtectiveFillReadbackV1],
+    last_fill_position: Option<i64>,
     final_grid_units: i64,
     canonical_positions: CanonicalPositionCensusV1,
 ) -> anyhow::Result<ProgramHostSimEventMemberRoundTripV1> {
@@ -738,13 +977,16 @@ fn member_round_trip(
             .filter(|fill| is_entry_fill(fill))
             .count(),
     )?;
-    let exit_fill_count = u32::try_from(
-        member_fills
-            .iter()
-            .copied()
-            .filter(|fill| is_exit_fill(fill))
-            .count(),
-    )?;
+    let protective_exit_count = protective_fills
+        .iter()
+        .filter(|fill| fill.instrument() == instrument && fill.reduced_position())
+        .count();
+    let target_set_exit_count = member_fills
+        .iter()
+        .copied()
+        .filter(|fill| is_exit_fill(fill))
+        .count();
+    let exit_fill_count = u32::try_from(target_set_exit_count + protective_exit_count)?;
     let peak_grid_units = member_fills
         .iter()
         .copied()
@@ -752,10 +994,8 @@ fn member_round_trip(
         .map(ProgramHostSimEventFillReadbackV1::position_after_grid_units)
         .max_by_key(|units| units.unsigned_abs())
         .unwrap_or(0);
-    let classified = u32::try_from(member_fills.len())? == entry_fill_count + exit_fill_count;
-    let closed_flat = member_fills
-        .last()
-        .is_some_and(|fill| fill.position_after_grid_units() == 0);
+    let classified = member_fills.len() == entry_fill_count as usize + target_set_exit_count;
+    let closed_flat = last_fill_position == Some(0);
     anyhow::ensure!(
         classified
             && entry_fill_count > 0
@@ -867,9 +1107,16 @@ pub(crate) fn program_host_sim_event_round_trip_for_test(
         .cloned()
         .map(ProgramHostSimEventFillReadbackV1::from)
         .collect::<Vec<_>>();
+    let protective_fills = observed
+        .protective_fill_consumptions
+        .iter()
+        .cloned()
+        .map(ProgramHostSimEventProtectiveFillReadbackV1::from)
+        .collect::<Vec<_>>();
     round_trip_closure(
         observed,
         &actual_fills,
+        &protective_fills,
         member_instruments,
         &canonical_result_position_census(canonical_result)?,
         canonical_result_digest(canonical_result),
@@ -891,6 +1138,80 @@ fn canonical_result_digest(bytes: &[u8]) -> [u8; 32] {
     hasher.update((bytes.len() as u64).to_le_bytes());
     hasher.update(bytes);
     hasher.finalize().into()
+}
+
+/// Each member's recorded margin tier cap, when its Owner terms state rates only up to one.
+fn recorded_tier_notional_caps(
+    profile: &crate::replay_execution_profile_native_v1::ReplayNativeExecutionProfileV1,
+) -> Vec<Option<Decimal>> {
+    profile
+        .instrument_terms()
+        .iter()
+        .map(|terms| {
+            terms
+                .margin_notional_cap
+                .map(|cap| Decimal::from_i128_with_scale(cap.mantissa, u32::from(cap.scale)))
+        })
+        .collect()
+}
+
+/// A member's position, at some frame, had a larger notional than its Owner terms state margin
+/// rates for. The run's margin was computed with rates the venue applies only below the cap.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct NotionalAboveRecordedTierV1 {
+    pub(crate) member_ordinal: usize,
+    pub(crate) frame_ordinal: usize,
+    pub(crate) notional: Decimal,
+    pub(crate) cap: Decimal,
+}
+
+impl Display for NotionalAboveRecordedTierV1 {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "ECONOMIC_TERMS_NOTIONAL_ABOVE_RECORDED_TIER: member {} at frame {} held notional {} above the recorded tier cap {}",
+            self.member_ordinal, self.frame_ordinal, self.notional, self.cap
+        )
+    }
+}
+
+impl std::error::Error for NotionalAboveRecordedTierV1 {}
+
+/// Refuses a run in which any member's position, before or after any frame's reconciliation,
+/// exceeded the notional cap its Owner terms state margin rates up to. The larger of the held and
+/// the derived target position is the one the venue would margin across the frame. A member whose
+/// terms state no cap is not checked.
+///
+/// # Errors
+///
+/// Returns [`NotionalAboveRecordedTierV1`] for the first member and frame over its cap.
+fn refuse_notional_above_recorded_tier(
+    snapshots: &[TargetSetEquitySnapshotObservationV2],
+    caps: &[Option<Decimal>],
+) -> Result<(), NotionalAboveRecordedTierV1> {
+    for (frame_ordinal, snapshot) in snapshots.iter().enumerate() {
+        for (member_ordinal, cap) in caps.iter().enumerate() {
+            let Some(cap) = *cap else {
+                continue;
+            };
+            let units = snapshot.current_grid_units[member_ordinal]
+                .unsigned_abs()
+                .max(snapshot.derived_grid_targets[member_ordinal].unsigned_abs());
+            let notional = Decimal::from(units)
+                .checked_mul(snapshot.grid_unit_notionals[member_ordinal])
+                .unwrap_or(Decimal::MAX);
+
+            if notional > cap {
+                return Err(NotionalAboveRecordedTierV1 {
+                    member_ordinal,
+                    frame_ordinal,
+                    notional,
+                    cap,
+                });
+            }
+        }
+    }
+    Ok(())
 }
 
 fn validate_actual_consumption(
@@ -1033,7 +1354,96 @@ mod tests {
         let mut trace = observed("FILLED");
         trace.canonical_target_sets = vec![vec![1], vec![2]];
         trace.final_member_grid_units = Some(BoundedMembers::try_from([0, 0]).unwrap());
+        trace.host_transitions = round_trip_fills()
+            .iter()
+            .map(|fill| fill_transition(fill.instrument(), fill.position_after_grid_units()))
+            .collect();
         trace
+    }
+
+    fn snapshot(
+        current: [i64; 2],
+        derived: [i64; 2],
+        unit_notional: i64,
+    ) -> TargetSetEquitySnapshotObservationV2 {
+        TargetSetEquitySnapshotObservationV2 {
+            account_id: "BINANCE-001".to_owned(),
+            currency: "USDT".to_owned(),
+            equity: "100000 USDT".to_owned(),
+            current_grid_units: BoundedMembers::try_from(current).unwrap(),
+            derived_grid_targets: BoundedMembers::try_from(derived).unwrap(),
+            grid_unit_notionals: BoundedMembers::try_from([
+                Decimal::from(unit_notional),
+                Decimal::from(unit_notional),
+            ])
+            .unwrap(),
+            snapshot_identity: [3; 32],
+        }
+    }
+
+    /// A position at the cap is margined at the recorded rates; one above it, held or targeted at
+    /// any frame, short or long, is refused by name; a member whose terms state no cap is not
+    /// checked.
+    #[rstest::rstest]
+    #[case::at_the_cap(vec![snapshot([0, 0], [100, 0], 100)], None)]
+    #[case::held_above(vec![snapshot([0, 0], [1, 0], 100), snapshot([101, 0], [0, 0], 100)], Some((0, 1, 10_100)))]
+    #[case::targeted_short_above(vec![snapshot([0, 0], [-101, 0], 100)], Some((0, 0, 10_100)))]
+    #[case::uncapped_member_unchecked(vec![snapshot([0, 1_000_000], [0, 1_000_000], 100)], None)]
+    fn a_position_above_the_recorded_tier_is_refused_by_name(
+        #[case] snapshots: Vec<TargetSetEquitySnapshotObservationV2>,
+        #[case] refused: Option<(usize, usize, i64)>,
+    ) {
+        let caps = [Some(Decimal::from(10_000)), None];
+        let answer = refuse_notional_above_recorded_tier(&snapshots, &caps);
+        assert_eq!(
+            answer,
+            refused.map_or(Ok(()), |(member_ordinal, frame_ordinal, notional)| {
+                Err(NotionalAboveRecordedTierV1 {
+                    member_ordinal,
+                    frame_ordinal,
+                    notional: Decimal::from(notional),
+                    cap: Decimal::from(10_000),
+                })
+            })
+        );
+
+        if let Err(refusal) = answer {
+            assert!(
+                refusal
+                    .to_string()
+                    .starts_with("ECONOMIC_TERMS_NOTIONAL_ABOVE_RECORDED_TIER")
+            );
+        }
+    }
+
+    /// A notional too large to state is over every cap, not under it.
+    #[rstest::rstest]
+    fn an_unstatable_notional_is_above_the_cap() {
+        let mut overflowing = snapshot([i64::MAX, 0], [0, 0], 0);
+        overflowing.grid_unit_notionals =
+            BoundedMembers::try_from([Decimal::MAX, Decimal::ONE]).unwrap();
+        assert!(
+            refuse_notional_above_recorded_tier(
+                &[overflowing],
+                &[Some(Decimal::from(10_000)), None]
+            )
+            .is_err()
+        );
+    }
+
+    /// The kernel `FILL` transition a fill committed, as far as closure reads it.
+    fn fill_transition(instrument: &str, position_after: i64) -> TargetSetBacktestTransitionV2 {
+        TargetSetBacktestTransitionV2 {
+            instrument: Some(instrument.to_owned()),
+            lifecycle: "FILL".to_owned(),
+            position_intent: "HOLD".to_owned(),
+            position_before_grid_units: 0,
+            position_after_grid_units: position_after,
+            residual_grid_units: None,
+            checkpoint_before: [0; 32],
+            checkpoint_after: [0; 32],
+            trace: Vec::new(),
+        }
     }
 
     fn member_instruments() -> [String; 2] {
@@ -1050,6 +1460,8 @@ mod tests {
                 equity: "1000000 USD".to_owned(),
                 current_grid_units: BoundedMembers::try_from([0, 0]).unwrap(),
                 derived_grid_targets: BoundedMembers::try_from([2, 0]).unwrap(),
+                grid_unit_notionals: BoundedMembers::try_from([Decimal::ONE, Decimal::ONE])
+                    .unwrap(),
                 snapshot_identity: [3; 32],
             }],
             native_order_observations: vec![
@@ -1176,11 +1588,74 @@ mod tests {
         );
     }
 
+    fn protective_fill(before: i64, after: i64) -> ProgramHostSimEventProtectiveFillReadbackV1 {
+        ProgramHostSimEventProtectiveFillReadbackV1 {
+            client_order_id: "P-1".to_owned(),
+            instrument: "AAPL.XNAS".to_owned(),
+            order_identity: [11; 16],
+            leg: "STOP_LOSS".to_owned(),
+            disposition: "FILLED".to_owned(),
+            cumulative_filled_grid_units: before.abs_diff(after),
+            filled_native_quantity: "2".to_owned(),
+            position_before_grid_units: before,
+            position_after_grid_units: after,
+            checkpoint_before: [6; 32],
+            checkpoint_after: [7; 32],
+        }
+    }
+
+    fn observed_with_protective_fill() -> TargetSetBacktestTraceV2 {
+        let mut trace = observed("FILLED");
+        trace
+            .native_order_observations
+            .push(TargetSetNativeOrderObservationV2 {
+                client_order_id: "P-1".to_owned(),
+                instrument: "AAPL.XNAS".to_owned(),
+                intent_identity: [0; 16],
+                event: "FILLED".to_owned(),
+                status: "FILLED".to_owned(),
+                filled_native_quantity: "2".to_owned(),
+                cached_position_native_quantity: "0".to_owned(),
+                protection_order: true,
+            });
+        trace
+    }
+
+    #[rstest::rstest]
+    fn a_protective_fill_is_admitted_only_when_it_gives_position_back() {
+        let trace = observed_with_protective_fill();
+
+        for (before, after) in [(2, 0), (3, 1), (-3, -1), (-2, 0)] {
+            validate_protective_consumption(&trace, &[protective_fill(before, after)])
+                .unwrap_or_else(|e| panic!("{before} -> {after} reduces: {e}"));
+        }
+
+        for (before, after) in [(2, 4), (2, -1), (0, -2), (-1, 1), (2, 2)] {
+            let refused =
+                validate_protective_consumption(&trace, &[protective_fill(before, after)])
+                    .expect_err("a protective fill that does not reduce is refused");
+            assert!(
+                refused
+                    .to_string()
+                    .contains("protective fill does not reduce its member's position"),
+                "{before} -> {after}: {refused}"
+            );
+        }
+
+        let mut unobserved = protective_fill(2, 0);
+        unobserved.client_order_id = "P-2".to_owned();
+        assert!(validate_protective_consumption(&trace, &[unobserved]).is_err());
+        let mut intent_leg = protective_fill(2, 0);
+        intent_leg.leg = "INTENT".to_owned();
+        assert!(validate_protective_consumption(&trace, &[intent_leg]).is_err());
+    }
+
     #[rstest::rstest]
     fn complete_round_trip_is_admitted_and_bound_to_its_canonical_result() {
         let closure = round_trip_closure(
             &closed_trace(),
             &round_trip_fills(),
+            &[],
             &member_instruments(),
             &closed_census(),
             [77; 32],
@@ -1213,6 +1688,7 @@ mod tests {
         let mut closure = round_trip_closure(
             &closed_trace(),
             &round_trip_fills(),
+            &[],
             &member_instruments(),
             &closed_census(),
             [77; 32],
@@ -1233,6 +1709,7 @@ mod tests {
         let closure = round_trip_closure(
             &observed("FILLED"),
             &[actual_fill(), second_actual_fill()],
+            &[],
             &member_instruments(),
             &BTreeMap::new(),
             [77; 32],
@@ -1252,6 +1729,7 @@ mod tests {
             round_trip_closure(
                 &closed_trace(),
                 &relabelled,
+                &[],
                 &member_instruments(),
                 &closed_census(),
                 [77; 32],
@@ -1265,6 +1743,7 @@ mod tests {
             round_trip_closure(
                 &closed_trace(),
                 &inflated,
+                &[],
                 &member_instruments(),
                 &closed_census(),
                 [77; 32],
@@ -1297,6 +1776,7 @@ mod tests {
                 round_trip_closure(
                     &trace,
                     &round_trip_fills(),
+                    &[],
                     &member_instruments(),
                     &closed_census(),
                     [77; 32],
@@ -1312,6 +1792,7 @@ mod tests {
             round_trip_closure(
                 &closed_trace(),
                 &one_member_exited,
+                &[],
                 &member_instruments(),
                 &closed_census(),
                 [77; 32],
@@ -1328,6 +1809,7 @@ mod tests {
             round_trip_closure(
                 &closed_trace(),
                 &round_trip_fills(),
+                &[],
                 &member_instruments(),
                 &still_open,
                 [77; 32],
@@ -1339,6 +1821,7 @@ mod tests {
             round_trip_closure(
                 &closed_trace(),
                 &round_trip_fills(),
+                &[],
                 &member_instruments(),
                 &BTreeMap::new(),
                 [77; 32],
@@ -1356,7 +1839,7 @@ mod tests {
         fill: Option<([u8; 16], u64)>,
     ) -> Vec<u8> {
         use strategy_factory_program_sdk::lifecycle_v1::{
-            EventOrderKeyV1, FillDispositionV1, FillFrontierV1, PositionIntentV1,
+            EventOrderKeyV1, FillDispositionV1, FillFrontierV1, FillLegV1, PositionIntentV1,
             ProtectionSemanticSetV1, TargetSemanticV1, TargetStateV1,
         };
         SemanticTraceV1 {
@@ -1385,6 +1868,7 @@ mod tests {
                     intent_identity: identity,
                     cumulative_filled_units: units,
                     terminal_disposition: Some(FillDispositionV1::Filled),
+                    leg: FillLegV1::Intent,
                 }
             }),
             ..SemanticTraceV1::default()
@@ -1446,6 +1930,7 @@ mod tests {
                     fill
                 },
             ],
+            protective_fills: Vec::new(),
             round_trip: None,
         }
     }
@@ -1616,6 +2101,15 @@ mod tests {
                 test_instrument_census("MSFT", [10; 32], [12; 32]),
             ])
             .unwrap(),
+            price_grids: BoundedMembers::try_from(
+                [crate::replay_target_set_execution_bundle_v1::ReplayPriceGridV1 {
+                    instrument_price_precision: 2,
+                    data_price_precision: 2,
+                    finest_price_at_ns: 1,
+                    replay_price_precision: 2,
+                }; 2],
+            )
+            .unwrap(),
             scheduling_data_digest: [13; 32],
             scheduling_data_count: 4,
             bar_count: 2,
@@ -1666,6 +2160,7 @@ mod tests {
         let closure = round_trip_closure(
             &closed_trace(),
             &round_trip_fills(),
+            &[],
             &member_instruments(),
             &closed_census(),
             [77; 32],
@@ -1689,6 +2184,7 @@ mod tests {
         let closure = round_trip_closure(
             &trace,
             &round_trip_fills(),
+            &[],
             &["AAPL.XNAS".to_owned()],
             &closed_census(),
             [77; 32],
@@ -1705,6 +2201,7 @@ mod tests {
             round_trip_closure(
                 &closed_trace(),
                 &round_trip_fills(),
+                &[],
                 &["AAPL.XNAS".to_owned()],
                 &closed_census(),
                 [77; 32],

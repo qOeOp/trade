@@ -1,0 +1,6 @@
+# Layered over docker-compose.yml by scripts/up.sh only: publishes the R&D Owner API on the
+# loopback interface so this machine can reach it. Nothing else changes.
+services:
+  rd-owner-api:
+    ports:
+      - 127.0.0.1:${RD_LOCAL_API_PORT:-18080}:8080

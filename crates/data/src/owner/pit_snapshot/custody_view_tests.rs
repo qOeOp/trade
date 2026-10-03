@@ -7,6 +7,7 @@ use rstest::rstest;
 use super::*;
 use crate::owner::{
     instrument_master::InstrumentClass,
+    market_semantics_admission_v1::MarketSemanticsValueSubmissionV1,
     pit_window_custody_v1::{
         CrossSectionVersionKindV1, UntrustedCrossSectionVersionV1, UntrustedCustodyRowV1,
         UntrustedPitWindowCustodyRequestV1,
@@ -110,6 +111,27 @@ fn binding(label: &str) -> CustodyBindingV1 {
         source_frontier_digest: d(24),
         correction_stream: "test/stream".to_owned(),
         correction_frontier_digest: d(25),
+        source_frontier: frontier(24),
+        correction_frontier: frontier(25),
+    }
+}
+
+fn frontier(byte: u8) -> UntrustedCompleteFrontier {
+    UntrustedCompleteFrontier {
+        stream_identity: "test/stream".to_owned(),
+        cut_identity: "test/stream/cut-1".to_owned(),
+        sequence: 1,
+        digest: d(byte),
+    }
+}
+
+fn market_semantics_value() -> MarketSemanticsValueSubmissionV1 {
+    MarketSemanticsValueSubmissionV1 {
+        normalization_identity: d(31),
+        price_adjustment: "RAW".to_owned(),
+        timestamp_basis: "INTERVAL_CLOSE".to_owned(),
+        price_unit_identity: d(32),
+        size_unit_identity: d(33),
     }
 }
 
@@ -190,6 +212,7 @@ fn fixture_of(members: &[&str], label: &str) -> Fixture {
     let request = UntrustedPitWindowCustodyRequestV1 {
         source_binding: locator(),
         market_semantics_identity: d(30),
+        market_semantics_value: market_semantics_value(),
         universe_selection: UntrustedUniverseSelectionLocatorV1::from_untrusted(d(50), d(51)),
         members: members.iter().map(|member| (*member).to_owned()).collect(),
         window_start_ns: 0,

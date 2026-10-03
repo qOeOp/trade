@@ -1,138 +1,159 @@
-# Bilibili Note MCP
+# Video Note MCP
 
-Standalone Python stdio MCP for turning Bilibili trading videos into concise Chinese research briefs.
-It has no runtime, storage, protocol, or import dependency on the repository's trading system or on a
-specific MCP client. The implementation contract is documented in
-[`bilibili-note.md`](./bilibili-note.md).
+Standalone local MCP for illustrated Chinese notes from public Bilibili and YouTube videos,
+or a public HTTPS video page/direct media link, of any subject.
+It uses complete speech transcription and actual video frames to produce an overview, content-derived
+chapters, concrete details, relevant screenshots and source/time links. No subject-specific framework
+or fixed topic categories are imposed. The [design](bilibili-note.md) is the architecture authority.
 
-## Public tools
+## Use
 
 ```text
-bilibili_note.create({"url":"https://www.bilibili.com/video/BV..."})
-bilibili_note.search_and_create({"query":"趋势交易 支撑阻力","max_videos":2})
+video_note.create({"url":"https://www.bilibili.com/video/BV..."})
+video_note.create({"url":"https://www.youtube.com/watch?v=EtIAqiguRHs","quality":"fast"})
+video_note.search_and_create({"query":"Python 入门教程","platform":"youtube","max_videos":1})
 ```
 
-`bilibili_note.create` processes one canonical Bilibili video. `bilibili_note.search_and_create`
-searches Bilibili from natural language, freezes a bounded candidate set, processes at most two
-candidates concurrently, and synthesizes the requested number of successful videos.
+The old `bilibili_note.*` tool names remain accepted as compatibility aliases.
+Search defaults to Bilibili; select `platform: "youtube"` explicitly for YouTube.
+YouTube accepts public finite `watch`, `youtu.be` and `shorts` links, including share/time parameters.
+Playlists, channels and live streams are rejected. Install Deno (recommended) or Node 22+ on `PATH`;
+the locked yt-dlp default dependencies include the matching EJS component. No browser cookies are
+read automatically. Videos without subtitles use the same complete-audio ASR and quality tiers.
 
-Success returns exactly one Markdown `TextContent` and one closed
-`bilibili-note.result/v3` structured value containing only `rendered_markdown`. Failure returns one
-`bilibili-note.error/v1` value. Public output contains no screenshots, evidence IDs, timestamps,
-transcripts, provenance, model identifiers, internal hashes, candidate failures, or image URLs.
+Search returns a collection of exactly the requested number of successful notes (1–3), each retaining
+its own source attribution. At most two source jobs run concurrently. If the target cannot be met,
+no partial collection is published.
 
-Every successful Note contains one host-owned H1 title, the exact scope
-`以下内容仅为未验证的交易观点摘要，须另行研究验证。` once, and the non-empty subset of
-`核心策略`, `具体方法`, and `风险管理` in that order. The whole Note contains at least one
-`- 规则描述：...` item.
+A successful response includes formatted `rendered_markdown`, `note_path`, `html_path`, and `images`.
+The saved directory contains `note.md`, `note.html`, and `images/*.png`. Open `note.html` for the styled
+preview, or move the whole directory to preserve relative image links in Markdown. The MCP text uses
+absolute local image paths. A remote client cannot access the server's local files automatically.
 
-The result is a research hypothesis source. It is not fact verification, backtest evidence,
-investment advice, a signal, or trading authorization.
+The live author receives complete timestamped speech and labeled contact sheets, and generates
+chapter text and image choices together. Images carry original-frame timestamps, without generated captions. Small videos use one author request. Large inputs
+are divided at sentence boundaries, preserving all speech and frame bindings; only global overview
+and takeaways need a final summary request. The host validates IDs, chronological order, image binding
+and output limits. One malformed chunk may be regenerated once; transient provider errors retain
+bounded retries without repeating acquisition or completed chunks. There is no extra model judge.
 
-## Architecture
+Contact sheets retain the last partial group. Up to 24 original PNG screenshots are published, without
+replacing them with thumbnails. A talking-head video may have no useful screenshots. Time links identify
+referenced speech intervals; they do not promise word alignment. Full original transcription and audio
+review disagreements remain available. Reference checks do not prove factual accuracy or zero omissions.
 
-The request pipeline is intentionally linear and independently testable:
+The visual author defaults to official DeepSeek `deepseek-flash` at `https://api.deepseek.com`,
+using `DEEPSEEK_API_KEY`. Apple Silicon retains local MLX transcription. Standard and precise
+audio review still use SiliconFlow `Qwen/Qwen3-ASR-1.7B` and require `SILICONFLOW_API_KEY`;
+fast quality with local MLX requires no SiliconFlow key. There is no automatic model downgrade.
 
-1. validate and canonicalize one Bilibili URL or one natural-language search query;
-2. freeze source identity and acquire bounded media;
-3. transcribe complete audio in bounded windows;
-4. select two to five internal visual groups from generic speech/visual cues;
-5. ask one multimodal author for a flat ordered catalog of reusable rules;
-6. ask one independent reject-only verifier to validate every rule and assign its public category;
-7. project unchanged verified rules into public sections;
-8. for multi-video search, synthesize and independently verify one bounded cross-video summary;
-9. render and validate exact terminal Markdown bytes;
-10. destroy temporary media, audio, and frame artifacts before returning text only.
+The private model profile controls `response_format` (`json_object` or `json_schema`) and
+`enable_thinking`. `thinking_budget` bounds reasoning tokens (128–32768); it is sent only when
+thinking is enabled on SiliconFlow. DeepSeek uses its native `thinking.type` control instead.
+Schema mode uses the same
+contract as local validation; chapters select at most two images. Schema validity does not establish
+semantic correctness.
+Unsupported requests fail explicitly, with no automatic model or output-mode fallback.
 
-The author never owns public categories. Its wire format is one flat `rules[1..24]` catalog plus one
-visual disposition per host-selected group. The verifier is the sole category authority for each
-positional rule. A category may be empty, but the whole Note may not be empty. Direct results are capped
-at 9 core, 9 method, and 6 risk rules; search synthesis is capped at 3, 6, and 4 respectively.
+Reported provider token usage is recorded per stage in the private operator event stream. Missing
+usage is unknown, not zero. Rate limits return an explicit error instead of unbounded automatic retries.
 
-The host owns transcript IDs, frame membership, visual group identity, private evidence binding,
-category projection, rendering, and terminal validation. Models cannot add public prose outside typed
-rule bodies, repair a failed response, select a different source, or trigger a retry. There is no cache,
-fallback model, third model call, or partial Note.
+## Public video links
 
-## Search behavior
+`video_note.create({"url":"https://cn.tradingview.com/chart/XRPUSDT/e9QiRzXx/","quality":"fast"})`
+also accepts a public HTTPS page containing one progressive MP4/WebM video, or a direct HTTPS video URL.
+Bilibili and YouTube always use their dedicated adapters; a platform error does not trigger a bypass.
+The generic extractor has no site-specific prompts. It rejects playlists with multiple videos, live
+streams, manifests, DRM, authentication, redirects, non-public destinations and non-HTTPS URLs.
+Only a complete video with an audio track and at least 720p can reach transcription. Unsupported
+pages return a typed failure; arbitrary websites are not guaranteed to work. No cookies or proxy
+are used by this fallback. Search still supports only Bilibili and YouTube.
 
-Search uses one anonymous first-page Bilibili request. Unicode normalization is generic; there are no
-trading-keyword bonuses, creator aliases, video-specific rules, or model-authored query expansion.
-Every normalized query unit must match title, author, tags, or description. Exact normalized author
-identity may break an equal-relevance tie but cannot turn a topic query into creator-only mode.
+Generic sources use the downloaded file's measured duration; unknown author/date remain visibly
+unknown. Their time labels are references, and links return to the source page without claiming seek
+support. Generic media/transcripts are not cached because a URL can change content without changing
+its metadata. All quality tiers, screenshot selection, authoring and publication use the same pipeline.
 
-The adapter deduplicates BV IDs and freezes at most nine candidates. A rolling window keeps at most two
-candidate pipelines active. The lowest continuous terminal prefix is the only result authority, so task
-completion order cannot change the chosen videos or first failure. Exhausting the frozen candidate set
-below the requested target returns `SEARCH_TARGET_UNMET`; a partial Note is never returned.
+## Setup
 
-Cross-video synthesis receives only a host-owned typed rule catalog, not the query, titles, images, or
-candidate errors. Every source rule ID must appear exactly once as support for a same-category output or
-as an independently accepted episode-only omission. The verifier checks total coverage, entailment,
-polarity, material conditions, omission safety, Simplified Chinese, and decision-value order.
-
-## Resource and security boundaries
-
-- Runtime: CPython `>=3.14,<3.15`; lock authority is service-local `uv.lock`.
-- Secrets: only `SILICONFLOW_API_KEY` is required. Secret values are never printed, persisted, or copied
-  into artifacts.
-- Optional media access: `BILIBILI_NOTE_COOKIE_FILE` must be an explicitly configured absolute regular
-  non-symlink Netscape cookie file.
-- Optional egress: `BILIBILI_NOTE_EGRESS_PROXY` and `BILIBILI_NOTE_MEDIA_PROXY` admit only explicit
-  unauthenticated local HTTP proxy URLs. Ambient, remote, or credentialed proxies are rejected.
-- Source/network: exact-host, public-DNS-pinned, redirect-free metadata/search; canonical Bilibili media
-  identity is revalidated after download.
-- Media: one request is capped at 96 minutes and 2 GiB. Download, ffmpeg, and ffprobe subprocesses have
-  bounded output, explicit deadlines, process-group termination, kill fallback, and reap-before-return.
-- ASR: complete 45-second windows, bounded concurrency and body sizes, at most four typed transient
-  attempts per window.
-- Visuals: two to five internal frames/groups, at most one ordered three-frame group, no public or
-  persistent image output.
-- Models: request and response byte caps, strict JSON, exact model identity, no automatic repair/retry.
-- stdio: stdout is reserved for MCP frames. Raw UTF-8, unique JSON keys, finite signed-64-bit numbers,
-  object roots, depth 32, and 1 MiB frame limits are enforced before tool dispatch.
-- Operator events: bounded JSONL diagnostics contain closed counters and request-local opaque identity,
-  never URLs, queries, transcripts, frames, Note content, or secret values.
-
-Cancellation owns and joins every request-local task and subprocess before returning. Search accounting
-obeys `attempted == succeeded + failed + cancelled` for every completed batch.
-
-## Progress contract
-
-Both tools emit monotonic artifact progress at `5, 25, 50, 65, 75, 89`. Long acquisition and model
-steps may repeat or refine the last admitted stage without inventing completion. Search candidate work is
-capped at 88; 89 is emitted only after synthesis, rendering, purity, and terminal-byte validation.
-The MCP never fabricates transport-level 90 or 100 events.
-
-## Setup and execution
+Python 3.14, FFmpeg and the locked service environment are required:
 
 ```bash
 uvx --from 'uv==0.12.3' uv sync --frozen --all-groups
-uvx --from 'uv==0.12.3' uv run bilibili-note-mcp
-```
-
-Bounded direct CLI check:
-
-```bash
+export DEEPSEEK_API_KEY='set-in-your-private-shell'
+# Required for standard/precise audio review or cloud primary ASR:
 export SILICONFLOW_API_KEY='set-in-your-private-shell'
-uvx --from 'uv==0.12.3' uv run python -m bilibili_note_mcp \
-  --create 'https://www.bilibili.com/video/BV1uHuQ6pEFr/'
+uvx --from 'uv==0.12.3' uv run --frozen bilibili-note-mcp
 ```
 
-The fixture-only deterministic mode requires `--fixture-root`. It cannot silently replace live source,
-ASR, visual, or synthesis behavior.
-
-## Repository checks
+Apple Silicon defaults to local MLX Whisper large-v3. Install its separate Python 3.12 runtime once
+(the service remains on Python 3.14):
 
 ```bash
-uvx --from 'uv==0.12.3' uv run python scripts/export_schemas.py --check
-uvx --from 'uv==0.12.3' uv run ruff check src tests scripts
-uvx --from 'uv==0.12.3' uv run ruff format --check src tests scripts
-uvx --from 'uv==0.12.3' uv run mypy src
-uvx --from 'uv==0.12.3' uv run python -m pytest -q
-uvx --from 'uv==0.12.3' uv run python -m bilibili_note_mcp --self-check
+uvx --from 'uv==0.12.3' uv venv --python 3.12 ~/.local/share/bilibili-note-mcp/mlx-venv
+uvx --from 'uv==0.12.3' uv pip install --python ~/.local/share/bilibili-note-mcp/mlx-venv/bin/python 'mlx-whisper==0.4.3'
+~/.local/share/bilibili-note-mcp/mlx-venv/bin/python -c 'from huggingface_hub import snapshot_download; snapshot_download("mlx-community/whisper-large-v3-mlx", revision="49e6aa286ad60c14352c404340ded53710378a11")'
 ```
 
-Tool discovery deliberately reports `readOnlyHint=false`, `destructiveHint=false`,
-`idempotentHint=false`, and `openWorldHint=true`: execution contacts mutable network sources and model
-providers, so read-only or idempotent claims would be misleading.
+`BILIBILI_NOTE_ASR=mlx|siliconflow` overrides engine selection. `BILIBILI_NOTE_MLX_PYTHON` can select
+another compatible runtime. Missing weights or a failed local worker produce an explicit error;
+there is no automatic paid fallback. The visual note model uses official DeepSeek.
+The cloud ASR profile uses `Qwen/Qwen3-ASR-1.7B`. Its text-only responses retain host-owned
+45-second time windows, not word or sentence timestamps.
+
+Local transcription and verified media are reused for 24 hours in
+`~/.cache/bilibili-note-mcp/material-v1` (`BILIBILI_NOTE_CACHE_DIR` overrides it). Metadata is refreshed
+on each request; changed metadata/model revision or digest mismatch prevents reuse. The cache stops
+adding entries at 8 GiB and does not automatically delete existing entries. Cloud ASR is not cached.
+Screenshot candidates grow with duration, up to 48 across the timeline; notes select at most 24 images.
+This sampling improves coverage but cannot guarantee every visual detail is captured.
+
+Register that stdio command in the client using this directory as its working directory. Keep keys in
+private local environment configuration. The optional `BILIBILI_NOTE_OUTPUT_DIR` chooses a host-owned
+absolute output directory; the default is `~/.local/share/bilibili-note-mcp/notes`. Each completed
+request gets a unique directory. Outputs remain until explicitly deleted. Temporary source media and
+provider credentials are not included. Interrupted delivery can leave a completed local bundle.
+
+`BILIBILI_NOTE_EGRESS_PROXY` and `BILIBILI_NOTE_MEDIA_PROXY`, if used, must be explicit unauthenticated
+loopback HTTP endpoints. No proxy is required by default.
+
+Public success schemas are `bilibili-note.result/v4` and `bilibili-note.search-result/v2`; errors use
+`bilibili-note.error/v1`. This replaces the old text-only result. Tool names and inputs are unchanged.
+
+## Verification
+
+```bash
+uvx --from 'uv==0.12.3' uv run --frozen python scripts/export_schemas.py --check
+uvx --from 'uv==0.12.3' uv run --frozen ruff check src tests scripts
+uvx --from 'uv==0.12.3' uv run --frozen ruff format --check src tests scripts
+uvx --from 'uv==0.12.3' uv run --frozen mypy src
+uvx --from 'uv==0.12.3' uv run --frozen python -m pytest -q
+uvx --from 'uv==0.12.3' uv run --frozen python -m bilibili_note_mcp --self-check
+```
+
+The self-check explicitly uses deterministic fixture content; it does not prove live provider quality.
+Live acceptance must include non-domain-specific material and viewing the actual exported screenshots.
+
+## 转录精度档位
+
+两个 MCP 入口均接受可选 `quality`，默认 `standard`：
+
+- `fast`：完整单路转写、笔记与原始截图核对。
+- `standard`：额外复听最多三个包含疑似异常、重复、字母或数字的片段。启发式筛选不能找出所有错词。
+- `precise`：第二种 ASR 复核全部音频，耗时与成本更高。
+
+例如 `video_note.create({"url":"视频链接","quality":"precise"})`；
+搜索入口使用 `video_note.search_and_create({"query":"主题或作者","max_videos":1,"quality":"standard"})`。
+CLI 同样支持 `--create URL --quality precise`。已有内部 Python 调用默认仍为 `fast`。
+
+所有档位都不依赖字幕，保留完整原转录、时间段与复核分歧。复核结果不会擅自覆盖原文，
+两路一致也不代表绝对准确。复核使用硅基流动另一种 ASR，需配置密钥；失败会明确返回错误，
+不会暗中降档。精度档位表示处理深度，不承诺固定错误率。确定性 fixture 验证请显式使用 `fast`。
+
+模型服务临时繁忙、限流或网络中断时，MCP 会保留已完成步骤，只重试当前请求，最多三次，
+采用退避等待并遵循有上限的 Retry-After。整个步骤受总超时约束；用户取消会立即停止重试。
+参数、鉴权、输出格式和内容校验失败不盲目重试。进度通知显示重试次数；最终 HTTP 错误保留状态码，
+不会只返回笼统的“请求失败”，也不会暗中更换模型或降低质量档位。
+
+The HTML preview presents chapter summaries, screenshots and time links without a transcript appendix or a repeated takeaway section.
+Markdown retains the complete linear transcript for reference.

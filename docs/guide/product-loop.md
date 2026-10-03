@@ -20,27 +20,43 @@ receipts, logs, or terminal output.
 - `NOT_ADMITTED` - an architecture page, a Dashboard reachable under the preview profile, an MCP handshake, a
   target read model, or a reachable low-level API does not make the product surface `CURRENT`.
 
-The target ships as one Docker Compose product package with one default Dashboard web entry and one Dashboard MCP
-conversation outlet. Optional external conversation clients are not bundled or individually adapted. The Dashboard
+The target ships as one Docker Compose product package on the user's own machine. It has two entries: the
+external-agent tool surface, through which an agent outside the product does research and development, and the
+Dashboard web entry, which the user mainly reads. External agents are not bundled or individually adapted. The Dashboard
 shadow scheduler and effect worker schedule long-running research and scanner jobs; Trade Runtime remains the authority and process boundary for
 live strategy loops, market sessions, risk, orders, and recovery effects.
 
 [Observability](../architecture/observability/) may explain progress and failure, but it cannot close the journey,
 choose the next action, or substitute telemetry for a native Owner receipt.
 
-## Agent-native R&D experience
+## Agent-outside R&D experience
 
-The user-facing authoring loop is conversation-driven:
+The user decided on 2026-10-03 that the agent stays outside the product and the rules stay inside it. The user's
+reason (translated): the manual research run depended on the agent abilities of the model the user works with, and
+an in-product model or no agent at all would develop strategies noticeably worse. An agent of the user's choosing,
+such as Claude Code or Codex, supplies the intelligence of R&D: the ideas, the strategy documents, the diagnosis and
+the literature search. The product enforces the rules: data admission, pre-registration, trial counting, holdout
+verdicts only, deterministic backtests, the [Research knowledge ledger](../owners/rd/#target---research-knowledge-ledger),
+and the real-money boundary.
 
-Natural-language research request → Research Request Receipt → Frozen Research Intent → Agent activity and R&D
-iterations → immutable Strategy Artifact and Build Receipt → exploratory Run Detail or Compare → Iteration
-Decision → exact successor, stop, repair, or Qualification handoff.
+The research loop runs through the external-agent tool surface
+([Product Edge](../architecture/product-edge/#target---external-agent-tool-surface)): one MCP server per domain, each
+also a command line, with the agent as the only orchestrator and market data passed between servers by reference:
 
-The Conversation Agent ends at typed request submission and bounded status queries. A server-side R&D Execution
-Agent owns the long-running execution session and remains supervised by the Dashboard effect worker when the conversation client is
-closed. MCP does not lend the client model or credentials to that job. The two roles may share an explicitly
-configured model provider or billing gateway, but not session authority, capability scope, budget, or audit
-identity.
+Research request with a declared mechanism and constructs → Research Request Receipt → frozen Research Intent →
+strategy created from a spec the Owner compiles → backtest run on a `dataset_ref` → Run Report → Iteration Decision →
+exact successor, stop, repair, or Qualification handoff.
+
+The agent never holds a credential: the tool surface holds the R&D credentials and returns identities, verdicts and
+the bounded reads below, never a protected Qualification value. A strategy reaches the product only as an authoring
+document that an Owner compiles and seals; the product makes no model call of its own.
+
+**Superseded by that decision.** This section previously described a conversation-driven loop with two Agent roles:
+a Conversation Agent that submitted typed requests and queried status, and a server-side R&D Execution Agent that
+owned a long-running execution session, generated strategy code, and stayed supervised by the Dashboard effect
+worker after the conversation closed. Both roles, and the in-product model call that generated Artifacts, are
+withdrawn rather than deferred: the external agent takes the first role's place and the authoring documents take the
+second's.
 
 A user starts research, asks for an explanation, requests a revision, stops work, or submits the exact selected
 Candidate through a visible action. Each mutating action creates a new typed request. A revision produces a new
@@ -66,7 +82,8 @@ The Dashboard closes the journey through these application areas:
 The first Artifact Review surface intentionally omits raw source. Full read-only source inspection, source diff,
 controlled download, and source-linked diagnostics are deferred advanced audit capabilities. Notebook-first
 authoring, an embedded code IDE, in-place Artifact edits, and version overwrite are not admitted product
-capabilities. A user requests a change through the Agent and reviews the resulting successor Artifact instead.
+capabilities. A change is a successor authoring document the external agent submits, and the user reviews the
+resulting successor Artifact instead.
 
 ## 1. Discover and formulate
 
