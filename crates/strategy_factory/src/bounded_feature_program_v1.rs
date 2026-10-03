@@ -644,13 +644,6 @@ fn validate_program(
 /// # Errors
 ///
 /// Returns every [`BoundedFeatureProgramErrorV1`] `prepare` returns except a graph-bound refusal.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the authoring language compiler sets graph_bounds from it (rd.md, authoring language V1)"
-    )
-)]
 pub(crate) fn measure_bounded_feature_program_shape_v1(
     mut proposal: BoundedFeatureProgramProposalV1,
     design: &StrategyDesignV2,
@@ -931,13 +924,6 @@ impl AtomicCoordinatePairs {
 struct ValidatedGraph {
     values: BTreeMap<String, ValueInfo>,
     atomic_coordinate_pairs: AtomicCoordinatePairs,
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "read by measure_bounded_feature_program_shape_v1, whose caller is the authoring compiler"
-        )
-    )]
     shape: BoundedFeatureProgramShapeV1,
 }
 

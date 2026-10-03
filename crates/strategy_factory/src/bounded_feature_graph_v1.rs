@@ -22,6 +22,8 @@ pub(crate) const COMPARE: &str = "bfp.fixed-i128.compare.equal-scale.v1";
 pub(crate) const SELECT: &str = "bfp.fixed-i128.select.equal-scale.v1";
 pub(crate) const ADD: &str =
     "bfp.fixed-i128.add.max-scale-38.explicit-rescale.i256-single-round.nearest-ties-to-even.v1";
+pub(crate) const SUB: &str =
+    "bfp.fixed-i128.sub.max-scale-38.explicit-rescale.i256-single-round.nearest-ties-to-even.v1";
 pub(crate) const MUL: &str =
     "bfp.fixed-i128.mul.max-scale-38.explicit-rescale.i256-single-round.nearest-ties-to-even.v1";
 

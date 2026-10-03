@@ -960,6 +960,46 @@ and a rendering of a document exists for reading only.
   into a document, to exactly the bytes `author_single_threshold_program_v1` produces, in the exact and the
   universe-member forms.
 
+**CURRENT - authoring language V1, slice 1:** the constructs research T0 needs, compiled by
+`strategy_authoring_v1::author_strategy_document_v1` into the `design` and `meaning` pair, which the compiler
+derives and prepares itself before it returns them. T0 is a daily trend rule: enter when the close leaves the prior
+50 closes' range, exit when it crosses the prior 20 closes' range or after 250 bars, with a stop at two ATR(20) from
+the decision close, long and short mirrored. Every construct below maps to catalog operations, and none adds one.
+
+- *Inputs.* `OPEN`, `HIGH`, `LOW` and `CLOSE` of the one member of the Research scope's universe, each declared at
+  most once under a name of the author's choosing. A document must read `CLOSE`, which prices its orders; an input it
+  never reads is carried.
+- *Definitions.* `ago(of, bars)`, `max(of, window)`, `min(of, window)`, `atr(period)` over the four inputs (Wilder,
+  first sample the true range), `add`, `sub`, `mul`, `compare(a, predicate, b)`, `all_of`, `any_of` and `not`. An
+  operand is a name or a decimal literal; a literal takes the unit and scale of the other operand of its operation and
+  is refused when that scale cannot hold it exactly.
+- *States.* `latch(set, reset)` is true from the tick its `set` holds until the tick its `reset` holds, `reset`
+  winning a tick where both hold; `count_while(condition)` counts the consecutive ticks its condition holds and is 0
+  otherwise. A state's name read anywhere is its value at the previous tick. A state whose writer reads a warming value
+  keeps its prior value, which is how every state holds while the program warms.
+- *Rules.* An ordered list, the first that holds deciding the tick. A rule's action is `ENTER` with a `side`, `LONG` or
+  `SHORT`, a position target in units and a `stop_loss` expression; or `EXIT`. `otherwise` is `HOLD`. A rule's name
+  read in a state is "this rule was selected this tick": its condition and no earlier rule's. Nothing on this path
+  reads the account, so a latch over rule names is the position the program intended; the document itself must gate
+  an entry on its own flat state and an exit on its held state, because the kernel refuses every other transition.
+- *Stop-loss.* The expression is a price in the `CLOSE` input's unit and scale. The compiler emits it as an integer
+  at scale 9 - the expression times `10^9` at scale 0 - which the target-set Host reads as a price at scale 9 and
+  rounds to the replay's price grid, away from the price. An expression whose scale exceeds 9 is refused.
+- *Refusals*, each at its document path: `AUTHORING_LANGUAGE_UNKNOWN`, `NAME_UNKNOWN`, `NAME_DUPLICATED`,
+  `DEFINITION_CYCLE`, `DEFINITION_UNUSED`, `UNIT_MISMATCH`, `LITERAL_NOT_REPRESENTABLE`, `WINDOW_OUT_OF_RANGE`,
+  `NOT_BOOLEAN`, `NOT_A_PRICE`, `INPUT_FIELD_REPEATED`, `CLOSE_INPUT_REQUIRED`, `RULES_REQUIRED`,
+  `STOP_LOSS_TOO_FINE`, and any refusal the compiler's own `prepare` returns.
+- *Catalog.* The strategy catalog holds a document beside the single-threshold statement. A document is named by the
+  SHA-256 of its canonical bytes under a domain of its own, and the single-threshold identities are unchanged.
+- *Acceptance.* T0's document compiles and the compiled program prepares. Its Wasm runs across frames - warm at bar
+  51, long at 61 with its stop at 105.10, out at 71, short at 80, out by the holding limit at 331 - but only with a
+  larger guest stack than the lowerer gives every program today. `frozen_config` fixes the stack at 64 KiB, and T0's
+  46.5 KB of state needs between 160 KiB and 192 KiB (measured: 163 840 traps `MemoryOutOfBounds`, 196 608 runs); the
+  largest state in the hand-written corpus is 9.8 KB. The lowerer's own source digest enters every V3 build identity,
+  so sizing the stack from a program's state re-identifies every build once, and that change is decided outside this
+  slice; until it lands the Wasm proof is held back. The sixteen hand-written programs and the total single-threshold
+  translation above remain the next slices' acceptance.
+
 **TARGET / NOT_ADMITTED - authored source custody and report statement:** a document is stored with the
 freeze it compiled to, in the same transaction, keyed by the joint freeze digest, and `declare` accepts it
 beside the `meaning` it compiled to. This Owner recompiles it and refuses a document whose design or

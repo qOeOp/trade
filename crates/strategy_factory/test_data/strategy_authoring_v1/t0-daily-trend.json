@@ -1,0 +1,45 @@
+{
+  "language": "research.strategy-authoring.v1",
+  "inputs": [
+    {"name": "open", "field": "OPEN"},
+    {"name": "high", "field": "HIGH"},
+    {"name": "low", "field": "LOW"},
+    {"name": "close", "field": "CLOSE"}
+  ],
+  "definitions": [
+    {"name": "prior_close", "expr": {"op": "AGO", "of": "close", "bars": 1}},
+    {"name": "high_50", "expr": {"op": "MAX", "of": "prior_close", "window": 50}},
+    {"name": "low_50", "expr": {"op": "MIN", "of": "prior_close", "window": 50}},
+    {"name": "high_20", "expr": {"op": "MAX", "of": "prior_close", "window": 20}},
+    {"name": "low_20", "expr": {"op": "MIN", "of": "prior_close", "window": 20}},
+    {"name": "atr_20", "expr": {"op": "ATR", "period": 20}},
+    {"name": "risk", "expr": {"op": "MUL", "a": "atr_20", "b": "2"}},
+    {"name": "long_stop", "expr": {"op": "SUB", "a": "close", "b": "risk"}},
+    {"name": "short_stop", "expr": {"op": "ADD", "a": "close", "b": "risk"}},
+    {"name": "breaks_up", "expr": {"op": "COMPARE", "a": "close", "predicate": "GREATER", "b": "high_50"}},
+    {"name": "breaks_down", "expr": {"op": "COMPARE", "a": "close", "predicate": "LESS", "b": "low_50"}},
+    {"name": "long_channel_exit", "expr": {"op": "COMPARE", "a": "close", "predicate": "LESS", "b": "low_20"}},
+    {"name": "short_channel_exit", "expr": {"op": "COMPARE", "a": "close", "predicate": "GREATER", "b": "high_20"}},
+    {"name": "held_too_long", "expr": {"op": "COMPARE", "a": "held", "predicate": "GREATER_OR_EQUAL", "b": "250"}},
+    {"name": "in_position", "expr": {"op": "ANY_OF", "of": ["long", "short"]}},
+    {"name": "flat", "expr": {"op": "NOT", "of": "in_position"}},
+    {"name": "leave_long", "expr": {"op": "ALL_OF", "of": ["long", "long_channel_exit"]}},
+    {"name": "leave_short", "expr": {"op": "ALL_OF", "of": ["short", "short_channel_exit"]}},
+    {"name": "leave_on_time", "expr": {"op": "ALL_OF", "of": ["in_position", "held_too_long"]}},
+    {"name": "exit_signal", "expr": {"op": "ANY_OF", "of": ["leave_long", "leave_short", "leave_on_time"]}},
+    {"name": "long_signal", "expr": {"op": "ALL_OF", "of": ["flat", "breaks_up"]}},
+    {"name": "short_signal", "expr": {"op": "ALL_OF", "of": ["flat", "breaks_down"]}}
+  ],
+  "states": [
+    {"name": "long", "kind": {"kind": "LATCH", "set": "enter_long", "reset": "exit"}},
+    {"name": "short", "kind": {"kind": "LATCH", "set": "enter_short", "reset": "exit"}},
+    {"name": "held", "kind": {"kind": "COUNT_WHILE", "condition": "in_position"}}
+  ],
+  "rules": [
+    {"name": "exit", "when": "exit_signal", "action": {"intent": "EXIT"}},
+    {"name": "enter_long", "when": "long_signal", "action": {"intent": "ENTER", "side": "LONG", "units": 1, "stop_loss": "long_stop"}},
+    {"name": "enter_short", "when": "short_signal", "action": {"intent": "ENTER", "side": "SHORT", "units": 1, "stop_loss": "short_stop"}}
+  ],
+  "otherwise": {"intent": "HOLD"},
+  "falsifier": "a close outside the prior 50 closes' range earns nothing over random entries with the same stop and exits"
+}

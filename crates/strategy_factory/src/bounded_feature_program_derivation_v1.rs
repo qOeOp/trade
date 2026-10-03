@@ -268,6 +268,34 @@ pub(crate) fn redeclare_frozen_bounded_feature_program_v1(
     )
 }
 
+/// Assembles `meaning` against `design` with one stand-in binding receipt for every role, for a
+/// compiler checking its own output before it emits it.
+///
+/// A receipt is the Owner's proof that a role is bound, and only `declare` holds one; the graph a
+/// proposal carries does not depend on it, so a compiler measures and prepares its graph against
+/// stand-ins and emits only the meaning. Nothing assembled here is ever frozen: a declaration
+/// assembles again from the Owner's own receipts.
+///
+/// # Errors
+///
+/// Returns what [`derive_bounded_feature_program_proposal_v1`] returns, except a missing receipt.
+pub(crate) fn assemble_bounded_feature_program_for_self_check_v1(
+    design: &StrategyDesignV2,
+    catalog: PrimitiveCatalogV1,
+    meaning: &BoundedFeatureProgramMeaningV1,
+) -> Result<BoundedFeatureProgramProposalV1, BoundedFeatureProgramDerivationErrorV1> {
+    assemble_proposal(
+        design,
+        DerivedProvenanceV1 {
+            catalog_semantic_version: catalog.semantic_version(),
+            catalog_digest: BindingDigest::from_untrusted_bytes(catalog.semantic_digest()),
+            first_party_sdk_source_digest: first_party_bfp_sdk_source_digest_v1(),
+        },
+        meaning,
+        |_| Ok(BindingDigest::from_untrusted_bytes([0x5a; 32])),
+    )
+}
+
 /// The provenance fields of a proposal that are neither meaning nor Design.
 #[derive(Clone, Copy)]
 struct DerivedProvenanceV1 {

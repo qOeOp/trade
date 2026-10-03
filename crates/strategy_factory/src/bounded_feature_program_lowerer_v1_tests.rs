@@ -773,7 +773,11 @@ fn dynamic_operation_candidate(
 fn canonical_coordinate(sample: u64) -> [u8; 308] {
     let mut bytes = [1_u8; 308];
     bytes[..4].copy_from_slice(&1_u32.to_le_bytes());
-    bytes[84..116].fill(u8::try_from(sample).expect("small corpus sample"));
+    // The same bytes as before for every sample up to 255, so the corpus runs see the coordinates
+    // they always did; a longer run wraps instead of overflowing.
+    let fill = u8::try_from(sample)
+        .unwrap_or_else(|_| u8::try_from(sample % 255 + 1).expect("a residue below 256"));
+    bytes[84..116].fill(fill);
     for offset in [116, 124, 132, 236] {
         bytes[offset..offset + 8].copy_from_slice(&sample.to_le_bytes());
     }
@@ -1221,7 +1225,9 @@ impl BuiltGuest {
         label: &str,
     ) -> PluginFrameV2 {
         let module_identity = BindingDigest::from_untrusted_bytes([91; 32]);
-        let invocation_identity = [u8::try_from(16 + sample).unwrap(); 16];
+        // One identity per sample, for a run of any length.
+        let mut invocation_identity = [16; 16];
+        invocation_identity[..8].copy_from_slice(&(16 + sample).to_le_bytes());
         let input = PluginFrameV2 {
             kind: PluginFrameKindV2::Input,
             output_availability: None,
@@ -1854,4 +1860,128 @@ fn a_program_runs_at_its_stack_rule_without_the_page_rounding() {
     let payload = trapped.expect_err("a stack under the measured need traps");
     let message = payload.downcast_ref::<String>().map_or("", String::as_str);
     assert!(message.contains("MemoryOutOfBounds"), "{message}");
+}
+
+/// Research T0, written as an authoring-language document, runs as Wasm across frames.
+///
+/// The bars are flat at 100 (high 101, low 99) until the longest window warms; then a close of 110
+/// breaks the prior 50 closes' high and enters long, with its stop at the decision close minus two
+/// ATR(20); a close of 95 under the prior 20 closes' low leaves; a close of 80 under the prior 50
+/// closes' low enters short; and with the close held at 80, the short is left by the holding limit.
+/// The stop is checked against Wilder's ATR worked by hand: the true range is 2 on every flat bar
+/// and 11 on the breakout bar, so ATR is (19 x 2 + 11) / 20 = 2.45, and the stop 110 - 4.90 =
+/// 105.10, which the program emits at scale 9.
+#[rstest::rstest]
+#[ignore = "builds and invokes research T0 with the pinned local wasm compiler"]
+fn the_authored_t0_document_runs_as_wasm_across_frames() {
+    use crate::{
+        bounded_feature_program_derivation_v1::derive_bounded_feature_program_proposal_v1,
+        strategy_authoring_v1::{StrategyAuthoringDocumentV1, author_strategy_document_v1},
+        strategy_plan_v2::verified_strategy_input_bindings_for_test,
+    };
+    use vibe_indicators_kernel::PrimitiveCatalogV1;
+
+    let document: StrategyAuthoringDocumentV1 = serde_json::from_str(include_str!(
+        "../test_data/strategy_authoring_v1/t0-daily-trend.json"
+    ))
+    .unwrap();
+    let digest = BindingDigest::from_untrusted_bytes([7; 32]);
+    let (design, meaning) = author_strategy_document_v1(&document, digest, digest, digest)
+        .unwrap_or_else(|e| panic!("T0 compiles: {e}"));
+    let receipts = design
+        .inputs
+        .iter()
+        .enumerate()
+        .map(|(index, role)| {
+            let mut bytes = [0x5a_u8; 32];
+            bytes[0] = u8::try_from(index).unwrap();
+            (role.clone(), BindingDigest::from_untrusted_bytes(bytes))
+        })
+        .collect();
+    let proposal = derive_bounded_feature_program_proposal_v1(
+        &design,
+        PrimitiveCatalogV1::verify().unwrap(),
+        &meaning,
+        &verified_strategy_input_bindings_for_test(&design, receipts),
+    )
+    .expect("the authored meaning assembles");
+    let custody = CurrentResearchDevelopCustodyV2::joint_bfp_test_fixture(&design);
+    let frozen = freeze_research_bounded_feature_program_v1(&custody, &design, proposal)
+        .expect("joint Owner freeze");
+    let root = tempfile::tempdir().expect("private build root");
+    let mut guest = BuiltGuest::build(&frozen, root.path(), &root.path().join("target-out"), "t0");
+    let scale = 10_i128.pow(u32::from(design.inputs[0].scale));
+    let stop_port = guest
+        .manifest
+        .output_ports
+        .iter()
+        .position(|port| port.semantic_id == "proposal.stop-loss.v1")
+        .expect("the manifest carries the stop-loss port");
+
+    // (open, high, low, close) in whole units, one entry per bar.
+    let mut bars = vec![(100, 101, 99, 100); 60];
+    bars.push((100, 111, 100, 110));
+    bars.extend(vec![(110, 111, 109, 110); 9]);
+    bars.push((110, 110, 94, 95));
+    bars.extend(vec![(95, 96, 94, 95); 8]);
+    bars.push((95, 95, 79, 80));
+    bars.extend(vec![(80, 81, 79, 80); 260]);
+
+    let mut state = Vec::new();
+    let mut first_ready = None;
+    let mut proposals = Vec::new();
+
+    for (sample, (open, high, low, close)) in (1_u64..).zip(bars) {
+        let output = guest.invoke_ports(
+            sample,
+            &[
+                ("input.open.v1", open * scale),
+                ("input.high.v1", high * scale),
+                ("input.low.v1", low * scale),
+                ("input.close.v1", close * scale),
+            ],
+            &state,
+            "t0",
+        );
+        state = output.state.bytes().to_vec();
+
+        if output.output_availability != Some(PluginOutputAvailabilityV3::Ready) {
+            continue;
+        }
+        first_ready.get_or_insert(sample);
+        let intent = std::str::from_utf8(output.values[0].bytes())
+            .unwrap()
+            .to_owned();
+
+        if intent != "kernel.position.hold.v1" {
+            let stop = i64::from_le_bytes(output.values[stop_port].bytes().try_into().unwrap());
+            proposals.push((sample, intent, stop));
+        }
+    }
+
+    // The two-bar lag readies at bar 2 and its 50-bar maximum at bar 51, the last node to warm.
+    assert_eq!(first_ready, Some(51));
+    let short_stop = proposals.get(2).map_or(0, |(_, _, stop)| *stop);
+    assert_eq!(
+        proposals,
+        [
+            (61, "kernel.position.enter.v1".to_owned(), 105_100_000_000),
+            (71, "kernel.position.exit.v1".to_owned(), 0),
+            (80, "kernel.position.enter.v1".to_owned(), short_stop),
+            // The holding count reads the position at the previous tick, so it is 1 on the bar
+            // after the entry and reaches 250 on bar 331.
+            (331, "kernel.position.exit.v1".to_owned(), 0),
+        ]
+    );
+    // ATR decays from 2.45 toward 2 and jumps on the two 16-wide bars; by hand it is about 3.31
+    // on bar 80, so the short's stop sits about 6.6 above the close of 80, on the scale-2 grid.
+    assert!(
+        (86_000_000_000..87_000_000_000).contains(&short_stop),
+        "{short_stop}"
+    );
+    assert_eq!(
+        short_stop % 10_000_000,
+        0,
+        "a scale-2 price emitted at scale 9"
+    );
 }
