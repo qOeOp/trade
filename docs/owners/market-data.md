@@ -274,6 +274,8 @@ never runs in CI.
 | Companion quote lineage                                   | `TARGET`, after U1                                                                                  | none                                                                                                                                                                                                                                     | none       |
 | Source Binding successor admission                        | `TARGET`, after U1                                                                                  | `commit_source_successor`, test callers only                                                                                                                                                                                             | none       |
 | Custody window schedule fact                              | `CURRENT / PARTIAL` (T0-4b)                                                                         | `owner/pit_window_custody_v1/schedule.rs`, `owner/postgres/pit_window_custody_v1.rs` (`pit_window_schedule_facts_v1`)                                                                                                                    | `B5`       |
+| Custody derived view and frames port                      | `CURRENT / PARTIAL` (T0-5)                                                                          | `owner/pit_window_custody_v1/view.rs`, `owner/pit_snapshot/custody_view.rs`, `owner/postgres/native_replay_custody_frame_v1.rs`                                                                                                          | `B5`       |
+| Custody admitted reads                                    | `CURRENT / PARTIAL` (T0-5)                                                                          | `owner/store_admission/postgres.rs` (`PIT_WINDOW_CUSTODY_FLOOR_V1`), `owner/postgres/admitted_read_api_v1.rs`                                                                                                                            | `B5`       |
 
 The snapshot path's per-instrument BAR schedule chain (`bar_schedule_*`) and a custody's window schedule facts coexist,
 each with its own consumers: snapshot Replay reads the first, a custody view the second. They must not be merged: a
@@ -2737,6 +2739,33 @@ Instrument Master and Market Semantics records back through their own verified r
 `StoreUnavailable` unless every identity the basis names equals the one its own named record holds. A successor
 restates all four exactly; it writes none, and its chain reads back its root's. No production caller reaches any of
 this yet: the custody PostgreSQL proofs drive it.
+
+Built so far (T0-5): the derived view, the frames port, the `CustodyView` seal, the admitted custody reads and the
+native Replay custody frame branch. A run's frames are read from its chain's head: one per execution-grid instant `e_k`
+inside the run, each with its decision cut `d_k`, and the run is refused as `PIT_WINDOW_FRAME_NOT_COVERED` unless every
+frame is covered. `d_k` is the availability of the execution cross-section's original version (sequence 1), not of
+the version a view selects: under `AtRetrieval` a successor's correction carries a later minting cut, and taking the
+selected version's availability would make `d_k` depend on the selection it decides. A frame is covered only when
+`d_k` precedes the next grid instant `e_k + interval`; a rule at the minting instant therefore hides every backfilled
+frame. A frame's view takes, per input timeframe, the latest cross-section whose original is available by `d_k`, at the
+highest correction published by `d_k`; a withdrawn one leaves the frame uncovered rather than falling back to an older
+bar, and the fill timeframe is never an input. Each per-frame request pins the head its run was read from, so a later
+successor never changes a run already enumerated, and a head outside the chain is `PIT_WINDOW_HEAD_NOT_IN_CHAIN`. The
+view's time evidence names the root custody's minting clock: every original lives in the root, so `d_k` is an
+instant of that clock, and a chain whose successors were minted on later epochs is not refused, since epoch
+transitions are covered by `epoch_successor_proofs_v1`. The `CustodyView` seal verifies every row against the custody
+record and the selected versions, and states each value in canonical form - custody stores every value at scale 9,
+the batch admits only canonical decimals, so the view divides out trailing fractional zeros exactly, never rounding,
+and the stored row, its digest and its identity keep scale 9. The native projection holds one precision for a bar's
+four prices, so a bar whose canonical prices state different precisions - on BTCUSDT's 0.10 tick, a high of
+65400.00 beside an open of 65000.10 - is refused as `NativeRepresentation`, as the snapshot path refuses the same rows.
+Production reads go through their own admitted port, `into_pit_window_custody_snapshot_port_v1`, under
+`PIT_WINDOW_CUSTODY_FLOOR_V1`, which opens only once a measured manifest carrying that floor is published. The native
+Replay resolver gains a custody frame method beside the snapshot one, and each refuses the other's frame source. Its
+quote cut is the T0-6 hook: until T0-6 derives the quote cut and the run-level `QuoteCutMissing` check, every gap is
+refused as `QuoteCutMissing`, so a custody frame fails closed as `EventOrderUnavailable` and no Quote is invented. The
+frames port does not check the gap yet. No production caller reaches any of this yet: its unit tests and PostgreSQL
+proofs drive it, the N=1 and two-frame parity proofs with a quote cut injected through the resolver.
 
 - **Custody:** covers the half-open window from its warm-up start and is committed once, then never mutated. A later
   correction is a successor custody that names its predecessor and carries only the versions it adds; a view reads the
