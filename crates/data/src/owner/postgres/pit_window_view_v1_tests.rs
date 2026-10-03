@@ -5,8 +5,8 @@ use super::{
     MarketDataOwnerPostgres,
     pit_window_custody_v1::PitWindowViewRefusalV1,
     pit_window_custody_v1_tests::{
-        DAY, MINUTE, WINDOW_START, admit_members, after_close, commit, commit_binding, correction,
-        original, owner, request, successor, universe, version_at,
+        BTC, DAY, MINUTE, WINDOW_START, admit_members, after_close, commit, commit_binding,
+        correction, original, owner, request, successor, universe, version_at,
     },
 };
 use crate::owner::{
@@ -461,7 +461,24 @@ async fn postgres_a_pinned_head_reads_the_view_at_that_head_and_a_foreign_head_i
     );
 }
 
-/// A stored custody whose record, versions or rows were edited behind its digests is refused.
+/// Seals a resolved view as the native resolver does; a refused seal is the store's.
+fn seal(
+    view: &super::pit_window_custody_v1::ResolvedPitWindowViewV1,
+) -> Result<crate::owner::pit_snapshot::VerifiedPitObservationBatch, PitWindowViewRefusalV1> {
+    crate::owner::pit_snapshot::custody_view::verify_custody_view_batch_v1(
+        crate::owner::pit_snapshot::custody_view::CustodyViewInputsV1 {
+            chain_root: view.chain.chain_root,
+            record: &view.chain.root,
+            clock: &view.chain.root_clock,
+            selection: &view.selection,
+            rows: &view.rows,
+        },
+    )
+    .map_err(|_| PitWindowViewRefusalV1::StoreUnavailable)
+}
+
+/// A stored custody whose record, versions or rows were edited behind its digests is refused, and
+/// the untouched one seals: its prices, stored at the fixed value scale, read back canonical.
 #[tokio::test]
 #[ignore = "requires a disposable Market Data PostgreSQL database"]
 async fn postgres_a_tampered_custody_row_refuses_the_view() {
@@ -472,7 +489,32 @@ async fn postgres_a_tampered_custody_row_refuses_the_view() {
     let intake = owner.pit_window_custody_commit_v1();
     let receipt = commit(&intake, request(&binding, universe)).await.unwrap();
     let at = frame(&receipt, receipt.custody_identity(), WINDOW_START + DAY);
-    assert!(view_of(&owner, &at).await.is_ok());
+    let view = owner
+        .resolve_pit_window_view_v1(&at)
+        .await
+        .expect("the view resolves");
+    let close = view
+        .rows
+        .iter()
+        .find(|row| row.member_ordinal == 0 && row.field == "CLOSE")
+        .expect("BTC's close")
+        .fact
+        .row();
+    assert_eq!(
+        (close.value_mantissa, close.value_scale),
+        (6_500_003 * 10_i128.pow(7), 9),
+        "custody stores 65000.03 at the fixed value scale"
+    );
+    let batch = seal(&view).expect("a custody of real prices seals its view");
+    let value = |field: &str| {
+        let row = batch
+            .select(&format!("{BTC}.{field}.1D"), BTC)
+            .expect("the field");
+        (row.value_mantissa(), row.value_scale())
+    };
+    assert_eq!(value("CLOSE"), (6_500_003, 2), "65000.03");
+    assert_eq!(value("OPEN"), (65_000, 0), "65000.00, canonically 65000");
+    assert_eq!(value("VOLUME"), (6_500_004, 0));
     let tampers = [
         "UPDATE market_data_private.pit_window_cross_section_versions_v1 SET availability_ns=availability_ns+1 WHERE custody_identity=$1",
         "UPDATE market_data_private.pit_window_custodies_v1 SET minting_clock_sequence=minting_clock_sequence+1 WHERE custody_identity=$1",
@@ -492,19 +534,7 @@ async fn postgres_a_tampered_custody_row_refuses_the_view() {
             &at,
         )
         .await;
-        let sealed = view.and_then(|view| {
-            crate::owner::pit_snapshot::custody_view::verify_custody_view_batch_v1(
-                crate::owner::pit_snapshot::custody_view::CustodyViewInputsV1 {
-                    chain_root: view.chain.chain_root,
-                    record: &view.chain.root,
-                    clock: &view.chain.root_clock,
-                    selection: &view.selection,
-                    rows: &view.rows,
-                },
-            )
-            .map(|_| ())
-            .map_err(|_| PitWindowViewRefusalV1::StoreUnavailable)
-        });
+        let sealed = view.and_then(|view| seal(&view).map(|_| ()));
         assert_eq!(
             sealed,
             Err(PitWindowViewRefusalV1::StoreUnavailable),
@@ -512,8 +542,6 @@ async fn postgres_a_tampered_custody_row_refuses_the_view() {
         );
         transaction.rollback().await.unwrap();
     }
-    assert!(
-        view_of(&owner, &at).await.is_ok(),
-        "every tamper was discarded"
-    );
+    let view = owner.resolve_pit_window_view_v1(&at).await.unwrap();
+    assert!(seal(&view).is_ok(), "every tamper was discarded");
 }

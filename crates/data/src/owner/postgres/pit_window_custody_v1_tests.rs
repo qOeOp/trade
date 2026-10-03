@@ -55,7 +55,7 @@ pub(super) const MINUTE: u64 = 60 * SECOND;
 pub(super) const DAY: u64 = 86_400 * SECOND;
 /// The backfilled window starts on a UTC midnight in 2023.
 pub(super) const WINDOW_START: u64 = 19_700 * DAY;
-const BTC: &str = "BTCUSDT-PERP.BINANCE";
+pub(super) const BTC: &str = "BTCUSDT-PERP.BINANCE";
 const ETH: &str = "ETHUSDT-PERP.BINANCE";
 /// When the backfill retrieved its rows: after the Owner's first head, before the wall clock.
 const RETRIEVED: u64 = FIRST_CUT + 10 * SECOND;

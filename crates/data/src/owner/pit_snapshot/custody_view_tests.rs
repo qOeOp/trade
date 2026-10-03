@@ -6,6 +6,7 @@ use rstest::rstest;
 
 use super::*;
 use crate::owner::{
+    decimal_rescale_v1::MARKET_DATA_VALUE_SCALE_V1,
     instrument_master::InstrumentClass,
     market_semantics_admission_v1::MarketSemanticsValueSubmissionV1,
     pit_window_custody_v1::{
@@ -209,6 +210,11 @@ fn clock() -> CustodyMintingClockV1 {
 }
 
 fn fixture_of(members: &[&str], label: &str) -> Fixture {
+    fixture_based(members, label, 6_500_000)
+}
+
+/// [`fixture_of`] with day `n`'s first value `base + n`.
+fn fixture_based(members: &[&str], label: &str, base: i128) -> Fixture {
     let request = UntrustedPitWindowCustodyRequestV1 {
         source_binding: locator(),
         market_semantics_identity: d(30),
@@ -222,7 +228,7 @@ fn fixture_of(members: &[&str], label: &str) -> Fixture {
         fill_timeframe: None,
         predecessor: None,
         cross_sections: (1..=3)
-            .map(|day| bar(label, members, day * DAY, 6_500_000 + i128::from(day)))
+            .map(|day| bar(label, members, day * DAY, base + i128::from(day)))
             .collect(),
     };
     let binding = binding(label);
@@ -549,4 +555,60 @@ fn a_quote_cut_follows_only_a_custody_view_with_every_member_quoted_in_order() {
 fn a_one_member_view_seals() {
     let fixture = fixture_of(&[BTC], "1D");
     assert_eq!(fixture.seal().unwrap().observations().len(), 5);
+}
+
+/// A custody stores each value at the fixed value scale; the view states it canonically, with no
+/// trailing fractional zero, exactly as the canonical batch encoding admits.
+#[rstest]
+#[case::a_price(37_244_360_000_000, 9, (3_724_436, 2))]
+#[case::zero(0, 9, (0, 0))]
+#[case::an_integer(150_000_000_000, 9, (150, 0))]
+#[case::negative(-1_500_000_000, 9, (-15, 1))]
+#[case::already_canonical(6_501_005, 2, (6_501_005, 2))]
+#[case::scale_zero_keeps_its_zeros(100, 0, (100, 0))]
+fn a_custody_value_projects_to_its_canonical_decimal(
+    #[case] mantissa: i128,
+    #[case] scale: u8,
+    #[case] canonical: (i128, u8),
+) {
+    assert_eq!(canonical_decimal_v1(mantissa, scale), canonical);
+}
+
+/// The stored row keeps scale 9; the view reads it back canonical and seals it, zero included.
+#[rstest]
+fn a_scale_9_custody_row_reads_back_canonical_in_the_view() {
+    let fixture = fixture();
+    let stored = fixture
+        .rows
+        .iter()
+        .map(|row| row.fact.row())
+        .find(|row| {
+            row.instrument == ETH.as_bytes()
+                && row.field_semantic
+                    == MarketDataFieldSemantic::BarClosePrice.identity().as_bytes()
+        })
+        .expect("the ETH close row");
+    assert_eq!(
+        (stored.value_mantissa, stored.value_scale),
+        (6_501_005 * 10_i128.pow(7), MARKET_DATA_VALUE_SCALE_V1)
+    );
+    let batch = fixture.seal().expect("the view seals scale-9 rows");
+    let close = batch.select(&format!("{ETH}.CLOSE.1D"), ETH).unwrap();
+    assert_eq!(
+        (close.value_mantissa(), close.value_scale()),
+        (6_501_005, 2)
+    );
+
+    // Day two's first BTC value is zero: stored as 0 at scale 9, read back as 0 at scale 0.
+    let zero = fixture_based(&[BTC, ETH], "1D", -2);
+    let batch = zero.seal().expect("a zero value seals");
+    let open = batch.select(&format!("{BTC}.OPEN.1D"), BTC).unwrap();
+    assert_eq!((open.value_mantissa(), open.value_scale()), (0, 0));
+    assert!(
+        batch
+            .observations()
+            .iter()
+            .all(|row| row.value_scale() == 0 || row.value_mantissa() % 10 != 0),
+        "every view value is canonical"
+    );
 }

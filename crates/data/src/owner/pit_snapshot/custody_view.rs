@@ -202,6 +202,8 @@ pub(crate) fn verify_custody_view_batch_v1(
                 }
                 let stream = String::from_utf8(row.correction_stream.clone())
                     .map_err(|_| SealError::Encoding)?;
+                let (value_mantissa, value_scale) =
+                    canonical_decimal_v1(row.value_mantissa, row.value_scale);
                 observations.push(UntrustedPitObservation {
                     symbolic_key: format!("{member}.{}.{label}", semantic.row_field()),
                     member_key: member.clone(),
@@ -210,8 +212,8 @@ pub(crate) fn verify_custody_view_batch_v1(
                     data_kind: "BAR".to_owned(),
                     timeframe: label.to_owned(),
                     field: semantic.row_field().to_owned(),
-                    value_mantissa: row.value_mantissa,
-                    value_scale: row.value_scale,
+                    value_mantissa,
+                    value_scale,
                     event_effective: row.event_effective,
                     provider_available: row.available,
                     retrieval: decision_cut,
@@ -505,6 +507,21 @@ pub(crate) fn verify_custody_quote_cut_batch_v1(
         digest: prepared.digest(),
         observations: prepared.rows().to_vec().into_boxed_slice(),
     })
+}
+
+/// The canonical form of `mantissa * 10^-scale`: the same value with every trailing fractional zero
+/// dropped, so `37244360000000` at scale 9 is `3724436` at scale 2 and zero is `0` at scale 0.
+///
+/// Custody stores every value at the fixed value scale, while a verified observation batch admits
+/// only canonical decimals; the view states each custody value canonically. The projection is
+/// exact - it only divides out factors of ten - and the custody row, its digest and its identity
+/// keep the stored scale. A binding reads the value back at its role's scale.
+pub(crate) const fn canonical_decimal_v1(mut mantissa: i128, mut scale: u8) -> (i128, u8) {
+    while scale > 0 && mantissa % 10 == 0 {
+        mantissa /= 10;
+        scale -= 1;
+    }
+    (mantissa, scale)
 }
 
 fn sha256(domain: &[u8], bytes: &[u8]) -> BindingDigest {
