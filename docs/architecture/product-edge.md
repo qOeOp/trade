@@ -370,58 +370,89 @@ builds it.
 the Source and Research action, the exploratory Replay action, the Develop Composer action, and the run detail and
 run log reads. It serves only under the opt-in `dashboard-preview` profile.
 
-**Shape.** The tool surface has one entry for agents, and `rd-run-research` is it. The binary ships in the deployed
-R&D image. One library holds the commands, and two thin
-shells call the same functions: the command line, and `rd-run-research mcp`, an MCP server over stdio. A command and
-its tool share one name. The agent runs it as `docker compose exec rd-owner-api rd-run-research <command>`.
+**Shape: a catalog of domain MCP servers.** The user decided on 2026-10-03 that the tool surface is split by domain.
+Each domain is one MCP server, run by the service that owns the domain, and the agent is the only orchestrator:
 
-**Commands and the Owner routes they reach.** The tools are grouped by the Owner they reach, and every rule lives in
-that Owner, never in a tool. A tool sends the request the Owner already admits from any channel, with the request
-identity it states; the receiving Owner, and Product Edge where that Owner requires a Product Edge admission, admit
-it exactly as they would the same request from the Dashboard. A tool adds no authority and skips no check. Where one
-step needs several routes of an Owner (`admit-instrument`, `design`, `compose`, `replay`), the command only
-sequences them in the order the Owner requires and passes each refusal through; `run` sequences the steps.
+- no MCP server calls another one, and no tool hides a multi-domain workflow;
+- data passes between servers by reference: a tool that produces market data for another domain returns a
+  `dataset_ref`, the consuming service resolves it by reading down into Market Data, and the values never pass
+  through the agent;
+- every rule lives in the Owner behind the server, never in a tool. A tool sends the request that Owner already
+  admits from any channel, adds no authority and skips no check, and passes each refusal through by name;
+- each server is also a command line over the same functions, with the same tool names, so a script and an agent
+  reach the same Owner behaviour.
 
-- `admit-instrument`: Market Data instrument admission (Source Binding, Instrument Master, universe membership).
-- `submit`: `POST /v3/research-goals`, returning the request identity and its Research Request Receipt. The request
-  declares the mechanism and constructs the [Research knowledge ledger](../owners/rd/#target---research-knowledge-ledger)
-  checks.
-- `initial-pit`: `POST /v3/research-goals/{request_identity}/initial-pit`.
-- `design`: authors the request's authoring document into a Strategy Design with the Owner's authoring library, then
-  publishes the role intent, forms the Design from it, and declares and freezes the bounded feature program.
-- `compose`: `POST /v2/develop-composer/runs`, then `POST /v1/replay-compositions/universe-member-issuances`. It
-  checks the Research View's remaining validity first and refuses by name when the run cannot finish inside it.
-- `replay`: `POST /v3/exploratory-replay-requests/composer-backed`, the execution-input binding, then
-  `POST /v2/exploratory-replays`, returning the Result identity.
-- `run`: every step above in order. After each step it records the identities that step produced in a local state
-  file, and `--resume` continues from the step that failed.
+This replaces the single `rd-run-research` entry this section stated before (one binary whose `run` command
+sequenced every step from instrument admission to report): the orchestration it held moves to the agent, and its
+per-domain steps move to the server of their domain.
 
-The read commands:
+**`dataset_ref`.** Market Data issues it and only Market Data resolves it; the agent hands it on and never handles
+the values. It is a content-addressed reference to one bounded slice of market data: the instrument, the timeframe,
+the half-open range `[start, end)` in event nanoseconds, and the digest of the Market Data custody that fixes it (the
+run window custody's chain root, or a PIT snapshot's digest). Its identity is computed by Market Data from those
+fields and never stated by a caller. A consumer that cannot resolve a reference to exactly that custody refuses it as
+`DATASET_REF_UNRESOLVED`; it never substitutes a newer cut. Its exact encoding is fixed with Market Data's run window
+custody.
 
-- `report`: `GET /v1/backtest-run-reports/{result_identity}`.
-- `status`: the state file and each recorded step's Owner readback.
-- `census`: `GET /v1/trial-families/{trial_family_identity}/iterations` on the R&D read API.
-- `knowledge`: the Research knowledge ledger by mechanism, construct or scope. No route exists until the ledger does.
-- `qualification-status`: the bounded public Qualification Status Summary for one Candidate: `QUALIFIED`,
-  `CLOSED_NOT_QUALIFIED`, expired, revoked, or a public forward phase. No route exists today.
+**`market-data`**, served by Market Data:
+
+- `list_instruments()` → the admitted instruments.
+- `describe_instrument(instrument)` → tick size, lot size and the current fee terms, or `INSTRUMENT_UNKNOWN`.
+- `admit_instrument(instrument)` → the admission receipt, or the admission refusal by name.
+- `backfill(instrument, timeframe, range)` → a `job_id`. Refusals: `INSTRUMENT_UNKNOWN`, `TIMEFRAME_UNSUPPORTED`,
+  `RANGE_INVALID`.
+- `job_status(job_id)` → the job's state, one of `QUEUED`, `RUNNING`, `SUCCEEDED` or `FAILED`; the coverage it added
+  once `SUCCEEDED`; and the cause by name once `FAILED`. An unknown job is `JOB_UNKNOWN`.
+- `coverage(instrument)` → the covered ranges for each timeframe.
+- `get_bars(instrument, timeframe, range, format)` → the bars inline when the slice is small, otherwise a
+  `dataset_ref`. Refusals: `RANGE_NOT_COVERED`, `RANGE_TOO_LARGE_FOR_INLINE` when `format` demands inline.
+- `get_funding(instrument, range)` → funding rates, inline or by `dataset_ref` under the same rule.
+- Every tool that returns market values writes its data-read ledger rows before it answers, and refuses when it cannot
+  (R&D's "TARGET - Production trial ledger and data-read ledger").
+- Accepted on its own when an agent can list, describe, admit, backfill and read one instrument end to end against a
+  disposable store, with each refusal driven once.
+
+**`strategy`**, served by R&D:
+
+- `validate(spec)` → `VALID`, or every violation by name, writing nothing.
+- `create(spec)` → an immutable, content-addressed `strategy_id`. The spec carries the Research request it belongs to,
+  so every later run is a trial of that request's lineage; a spec without one is refused as `RESEARCH_REQUEST_REQUIRED`.
+- `get(strategy_id)`, `list(filter)`.
+- `revise(strategy_id, spec)` → a new `strategy_id` that names its predecessor; nothing is edited in place.
+- `archive(strategy_id)` → the strategy stays readable and can no longer be run.
+- Accepted on its own when a spec is validated, created, read back byte for byte, revised into a successor and
+  archived, with every refusal driven once.
+
+**`backtest`**, served by R&D's run route, which calls Backtest:
+
+- `run(strategy_id, dataset_ref, cost_profile)` → a `run_id`. The whole replay runs on the server side in one call.
+  R&D resolves its own strategy and the slice from Market Data, and passes both to Backtest by value, so Backtest
+  never reads back into R&D and every call points down the layers. Every run is counted as a trial in R&D's census
+  before its result is shown, as every exploratory Result is today. Refusals: `STRATEGY_UNKNOWN`, `STRATEGY_ARCHIVED`,
+  `DATASET_REF_UNRESOLVED`, `COST_PROFILE_UNKNOWN`.
+- `status(run_id)`, `list_runs(filter)`.
+- `report(run_id)` → the run report, including fees, funding and the random-entry control.
+- Accepted on its own when one created strategy runs on one `dataset_ref` and its report reads back with fees,
+  funding and the control.
+
+**Later servers.** `scan` (Scanner, after U1): `scan(strategy_ids, universe)`. Then `research` (the Research
+request, census and Iteration Decision reads), `knowledge` (the Research knowledge ledger) and `paper`, each stated
+here before it is built.
 
 **Permissions.**
 
-- The process holds the R&D API token and the read API's URL and token in its environment. No tool argument or
-  result carries a credential, and the agent never sees one.
-- No command reaches Paper, Live, an exchange credential, or any execution path. The real-money boundary is
-  unchanged.
+- Each server holds the credentials it presents to its own Owner in its own environment. No tool argument or result
+  carries a credential, and the agent never sees one.
+- No tool reaches Paper, Live, an exchange credential, or any execution path. The real-money boundary is unchanged.
 - Changing the agent, or using the command line instead of MCP, changes attribution, never authority, as the Agent
   Shell deployment binding below states for every channel.
 
 **Verdicts, never protected values.**
 
-- No command calls a Qualification protected read. Qualification answers only through its public status, and a test
-  asserts the tool surface links no Qualification protected read port.
-- `report`, `census` and `knowledge` return exploratory R&D and Backtest facts, which are already the agent's own
-  evidence; the knowledge ledger holds no protected value by construction.
-- A refusal passes through its HTTP status, `x-rd-rejection-code` and `x-rd-rejection-cause` unchanged. Nothing is
-  folded into a generic failure.
+- No tool calls a Qualification protected read, and no `dataset_ref` can name a slice inside Qualification's sealed
+  holdout partition, which the data-read ledger never hands out. Qualification answers only through its public
+  status.
+- A refusal passes through by its name. Nothing is folded into a generic failure.
 
 **The Dashboard MCP.** The Dashboard's `/api/mcp` is not an entry for agents, and it is not extended with these
 commands. It stays for the preview interface:

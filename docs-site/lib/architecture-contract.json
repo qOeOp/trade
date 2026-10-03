@@ -4592,8 +4592,8 @@
             "recovery"
           ],
           "description": {
-            "en": "Exposes R&D commands to an external agent over CLI and MCP\nHolds the credentials and returns verdicts never protected values\nShares one TRADE_PRODUCT_EDGE admission gateway with the App",
-            "zh": "经命令行与 MCP 向产品之外的代理暴露 R&D 命令\n持有凭据 只返回结论 从不返回受保护数值\n与 App 共用一个 TRADE_PRODUCT_EDGE 准入网关"
+            "en": "Domain MCP servers an external agent orchestrates\nHold the credentials and return verdicts never protected values\nShare one TRADE_PRODUCT_EDGE admission gateway with the App",
+            "zh": "外部代理编排的按领域 MCP server\n持有凭据 只返回结论 从不返回受保护数值\n与 App 共用一个 TRADE_PRODUCT_EDGE 准入网关"
           }
         }
       ]
