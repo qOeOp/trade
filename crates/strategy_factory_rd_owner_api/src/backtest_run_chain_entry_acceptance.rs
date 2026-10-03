@@ -36,7 +36,9 @@ use vibe_strategy_factory::{
     rd_bounded_feature_program_postgres_v1::PostgresResearchBoundedFeatureProgramOwnerV1,
     single_threshold_authoring_v1::{SingleThresholdChannelV1, SingleThresholdOutcomeV1},
     strategy_catalog_postgres_v1::PostgresStrategyCatalogV1,
-    strategy_catalog_v1::{SingleThresholdStrategySpecV1, canonical_strategy_spec_v1},
+    strategy_catalog_v1::{
+        SingleThresholdStrategySpecV1, StrategyStatementV1, canonical_strategy_statement_v1,
+    },
 };
 use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
 
@@ -110,8 +112,10 @@ pub(crate) async fn assert_backtest_run_reaches_the_replay_step_v1(
             .await
             .expect("the strategy catalog opens"),
     );
-    let canonical = canonical_strategy_spec_v1(&backtest_run_chain_entry_spec_v1())
-        .expect("the chain entry's own statement authors into a program");
+    let canonical = canonical_strategy_statement_v1(&StrategyStatementV1::SingleThreshold(
+        Box::new(backtest_run_chain_entry_spec_v1()),
+    ))
+    .expect("the chain entry's own statement authors into a program");
     let strategy_id = canonical.identity();
     catalog
         .create(&canonical)

@@ -6,6 +6,7 @@ mod catalog_rows;
 mod catalog_rows_v2;
 mod catalog_rows_v3;
 mod catalog_rows_v4;
+mod catalog_rows_v5;
 mod catalog_version;
 mod fixed_bar_state;
 mod fixed_features;

@@ -644,13 +644,6 @@ fn validate_program(
 /// # Errors
 ///
 /// Returns every [`BoundedFeatureProgramErrorV1`] `prepare` returns except a graph-bound refusal.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the authoring language compiler sets graph_bounds from it (rd.md, authoring language V1)"
-    )
-)]
 pub(crate) fn measure_bounded_feature_program_shape_v1(
     mut proposal: BoundedFeatureProgramProposalV1,
     design: &StrategyDesignV2,
@@ -931,13 +924,6 @@ impl AtomicCoordinatePairs {
 struct ValidatedGraph {
     values: BTreeMap<String, ValueInfo>,
     atomic_coordinate_pairs: AtomicCoordinatePairs,
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "read by measure_bounded_feature_program_shape_v1, whose caller is the authoring compiler"
-        )
-    )]
     shape: BoundedFeatureProgramShapeV1,
 }
 
@@ -1223,6 +1209,7 @@ fn is_lifecycle_variant_value(semantic_id: &str, value_type: ValueTypeV2) -> boo
             "kernel.position.add.v1"
                 | "kernel.position.enter.v1"
                 | "kernel.position.exit.v1"
+                | "kernel.position.flip.v1"
                 | "kernel.position.hold.v1"
                 | "kernel.position.reduce.v1"
         ),
@@ -1249,6 +1236,7 @@ fn lifecycle_value_type(semantic_id: &str) -> Option<ValueTypeV2> {
         "kernel.position.add.v1"
         | "kernel.position.enter.v1"
         | "kernel.position.exit.v1"
+        | "kernel.position.flip.v1"
         | "kernel.position.hold.v1"
         | "kernel.position.reduce.v1" => Some(ValueTypeV2::PositionIntentV1),
         "kernel.target.keep.v1"
@@ -2445,6 +2433,7 @@ fn lifecycle_manifest_width(value_type: ValueTypeV2) -> Option<u32> {
         "kernel.position.add.v1",
         "kernel.position.enter.v1",
         "kernel.position.exit.v1",
+        "kernel.position.flip.v1",
         "kernel.position.hold.v1",
         "kernel.position.reduce.v1",
         "kernel.protection.clear.v1",

@@ -13,7 +13,7 @@ use thiserror::Error;
 use vibe_postgres_connect::{PgPoolOptionsExt, PostgresTls};
 
 use crate::strategy_catalog_v1::{
-    CanonicalStrategySpecV1, StrategyIdentityV1, strategy_identity_of_v1,
+    CanonicalStrategyStatementV1, StrategyIdentityV1, stored_strategy_identity_v1,
 };
 
 pub(crate) const TABLES: &[crate::schema_materialization::PublicTableSpec] = &[
@@ -214,7 +214,7 @@ impl PostgresStrategyCatalogV1 {
     /// Returns [`StrategyCatalogErrorV1::Storage`] when the catalog cannot be read or written.
     pub async fn create(
         &self,
-        spec: &CanonicalStrategySpecV1,
+        spec: &CanonicalStrategyStatementV1,
     ) -> Result<StrategyRecordV1, StrategyCatalogErrorV1> {
         let mut transaction = self.pool.begin().await.map_err(storage)?;
         insert_once(&mut transaction, spec, None).await?;
@@ -238,7 +238,7 @@ impl PostgresStrategyCatalogV1 {
     pub async fn revise(
         &self,
         predecessor: StrategyIdentityV1,
-        spec: &CanonicalStrategySpecV1,
+        spec: &CanonicalStrategyStatementV1,
     ) -> Result<StrategyRecordV1, StrategyCatalogErrorV1> {
         let mut transaction = self.pool.begin().await.map_err(storage)?;
         let revised = sqlx::query(
@@ -364,7 +364,7 @@ impl PostgresStrategyCatalogV1 {
 /// Writes the statement once under its identity; a second write of it changes nothing.
 async fn insert_once(
     transaction: &mut Transaction<'_, Postgres>,
-    spec: &CanonicalStrategySpecV1,
+    spec: &CanonicalStrategyStatementV1,
     predecessor: Option<StrategyIdentityV1>,
 ) -> Result<(), StrategyCatalogErrorV1> {
     let now = crate::rd_owner_clock::owner_clock_epoch_ms_in_transaction(transaction)
@@ -417,7 +417,7 @@ fn record(row: &sqlx::postgres::PgRow) -> Result<StrategyRecordV1, StrategyCatal
 
     // A statement is content-addressed, so the bytes read back must hash to the identity they are
     // stored under; a row that does not is not a statement this catalog wrote.
-    if strategy_identity_of_v1(&spec_bytes) != stored_identity {
+    if stored_strategy_identity_v1(&spec_bytes) != Some(stored_identity) {
         return Err(storage("a stored statement does not hash to its identity"));
     }
     Ok(StrategyRecordV1 {

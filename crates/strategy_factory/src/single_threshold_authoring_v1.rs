@@ -35,56 +35,34 @@ use vibe_data::owner::source_binding::BindingDigest;
 use vibe_data::owner::strategy_input_binding::MarketDataFieldSemantic;
 
 use crate::{
+    bounded_feature_design_v1::{
+        BoundedFeatureDesignSpecV1, PLUGIN_SEMANTIC_ID, bounded_feature_design_v1,
+    },
+    bounded_feature_graph_v1::{ADD, Graph, MUL, SIGNAL_UNIT, fixed_type, prior_state},
     bounded_feature_program_derivation_v1::{
         BoundedFeatureGraphBoundsV1, BoundedFeatureInputMeaningV1, BoundedFeatureProgramMeaningV1,
         redeclare_frozen_bounded_feature_program_v1,
     },
     bounded_feature_program_v1::{
-        BOUNDED_FEATURE_NUMERIC_FAILURE_V1, BOUNDED_FEATURE_PLUGIN_ABI_V1,
-        BOUNDED_FEATURE_PROPOSAL_OUTPUT_PORTS_V1, BoundedFeatureAvailabilityV1,
         BoundedFeatureClockV1, BoundedFeatureConstantV1, BoundedFeatureConstantValueV1,
-        BoundedFeatureInitialStateV1, BoundedFeatureInputBindingV1, BoundedFeatureNodeV1,
-        BoundedFeatureOutputPortV1, BoundedFeatureParametersV1, BoundedFeaturePredicateV1,
-        BoundedFeatureProgramProposalV1, BoundedFeatureProposalDecisionBranchV1,
-        BoundedFeatureProposalDecisionTableV1, BoundedFeatureProposalFrameV1,
-        BoundedFeatureRoundingV1, BoundedFeatureStateCellV1, BoundedFeatureStateKindV1,
-        BoundedFeatureTerminalConversionV1, BoundedFeatureTerminalOutputV1,
-        BoundedFeatureValueRefV1, BoundedFeatureValueTypeV1, BoundedFeatureWarmupContractV1,
+        BoundedFeatureParametersV1, BoundedFeaturePredicateV1, BoundedFeatureProgramProposalV1,
+        BoundedFeatureProposalDecisionBranchV1, BoundedFeatureProposalDecisionTableV1,
+        BoundedFeatureProposalFrameV1, BoundedFeatureTerminalConversionV1,
+        BoundedFeatureTerminalOutputV1, BoundedFeatureValueRefV1, BoundedFeatureWarmupContractV1,
         BoundedFeatureWarmupPostStateV1, CanonicalBoundedFeatureProgramV1,
-        OWNER_SAMPLE_COORDINATE_SOURCE_V1, manifest_width, prepare_bounded_feature_program_v1,
+        prepare_bounded_feature_program_v1,
     },
     strategy_design_v2::{
-        CapabilityDeclarationV2, ComputeNodeV2, InputFactClassV2, InputRoleV2, InputScopeV2,
-        LifecycleKindV2, PluginManifestV2, PluginStateContractV2, PortBindingV2, PortContractV2,
-        ProposalWiringV2, ReactionGraphV2, ResourceBoundsV2, STRATEGY_DESIGN_SCHEMA_V2,
-        StateCellV2, StateWriteV2, StrategyDesignV2, TypedConstantV2, ValueRefV2, ValueTypeV2,
+        InputFactClassV2, InputRoleV2, InputScopeV2, StrategyDesignV2, ValueTypeV2,
     },
     strategy_plan_v2::{
         UNIVERSE_CLOSE_FIELD_SEMANTIC_ID_V2, UNIVERSE_OPEN_FIELD_SEMANTIC_ID_V2,
-        coordinate_port_id, strategy_input_role_identity_v2, universe_member_role_v2,
+        universe_member_role_v2,
     },
 };
 
-/// The bounded plugin every program in this family is authored against.
-const PLUGIN_SEMANTIC_ID: &str = "research.plugin.bfp.v1";
-/// The capability the bounded plugin runs under.
-const CAPABILITY_SEMANTIC_ID: &str = "research.bfp.v1";
-/// The Design state cell carrying the plugin's own serialized state.
-const PLUGIN_STATE_CELL: &str = "research.state.bfp.v1";
-/// Plugin state ports. The post port is named by the bounded ABI, not by this module.
-const PLUGIN_STATE_PRE_PORT: &str = "plugin.state.pre.v1";
-const PLUGIN_STATE_POST_PORT: &str = "plugin.state.post.v1";
-/// The compute node the consuming reaction calls.
-///
-/// One of these two is bounded and the other is empty, decided by the input's Owner data kind.
-/// Both were bounded until the Composer refused the result: a Bar-triggered and an Event-triggered
-/// consumer of the same role contradict each other for every possible input.
-const BAR_NODE: &str = "research.node.bfp.bar.v1";
-const EVENT_NODE: &str = "research.node.bfp.event.v1";
 /// The one graph node: the channel compared against the threshold.
 const COMPARISON_NODE: &str = "channel-against-threshold";
-/// Its single boolean output port.
-const COMPARISON_PORT: &str = "value";
 /// The manifest port the channel's value arrives on.
 const CHANNEL_VALUE_PORT: &str = "input.channel.v1";
 /// Plugin input port the carried role's value arrives on, in the form that has one.
@@ -580,252 +558,27 @@ pub(crate) fn canonical_threshold_text(coefficient: i128, scale: u8) -> String {
     }
 }
 
-/// One Design role the plugin receives, with the value port it arrives on and the coordinate port
-/// its Owner sample coordinate arrives on.
-struct ReceivedRole {
-    role: InputRoleV2,
-    value_port: &'static str,
-    coordinate_port: String,
-}
-
-impl ReceivedRole {
-    fn new(role: InputRoleV2, value_port: &'static str) -> Self {
-        let coordinate_port = coordinate_port_id(strategy_input_role_identity_v2(&role));
-        Self {
-            role,
-            value_port,
-            coordinate_port,
-        }
-    }
-
-    /// The two plugin input bindings of this role.
-    ///
-    /// An exact-instrument role is read as itself. A universe-member role is read at member 0: the
-    /// program emits one instrument's proposal, and under a one-member universe the host lifts it
-    /// into the universe's target set.
-    fn bindings(&self) -> [PortBindingV2; 2] {
-        let input_id = self.role.semantic_id.clone();
-        let source_semantic_id = format!("{OWNER_SAMPLE_COORDINATE_SOURCE_V1}({input_id})");
-        let (value, coordinate) = match self.role.scope {
-            InputScopeV2::ExactInstrument => (
-                ValueRefV2::Input {
-                    input_id: input_id.clone(),
-                },
-                ValueRefV2::OwnerSampleCoordinate {
-                    input_id,
-                    source_semantic_id,
-                },
-            ),
-            InputScopeV2::UniverseMembers => (
-                ValueRefV2::UniverseMemberInput {
-                    input_id: input_id.clone(),
-                    member_ordinal: 0,
-                },
-                ValueRefV2::UniverseMemberSampleCoordinate {
-                    input_id,
-                    member_ordinal: 0,
-                    source_semantic_id,
-                },
-            ),
-        };
-        [
-            PortBindingV2 {
-                port_id: self.value_port.to_owned(),
-                source: value,
-            },
-            PortBindingV2 {
-                port_id: self.coordinate_port.clone(),
-                source: coordinate,
-            },
-        ]
-    }
-}
-
 fn design_for(
     request: &SingleThresholdAuthoringRequestV1,
     bar_triggered: bool,
 ) -> StrategyDesignV2 {
-    let mut received = vec![ReceivedRole::new(
-        request.channel.role_v2(),
-        CHANNEL_VALUE_PORT,
-    )];
+    let mut received = vec![(request.channel.role_v2(), CHANNEL_VALUE_PORT.to_owned())];
     received.extend(
         request
             .channel
             .carried_role_v2()
-            .map(|role| ReceivedRole::new(role, CARRIED_VALUE_PORT)),
+            .map(|role| (role, CARRIED_VALUE_PORT.to_owned())),
     );
-    // The host binds a plugin's inputs to its manifest ports by position, so the node's bindings
-    // and the manifest's ports are listed in one order, the canonical one of the port ids.
-    let mut bindings = received
-        .iter()
-        .flat_map(ReceivedRole::bindings)
-        .collect::<Vec<_>>();
-    bindings.sort_by(|a, b| a.port_id.as_bytes().cmp(b.port_id.as_bytes()));
-    let input_ports = bindings
-        .iter()
-        .map(|binding| match binding.source {
-            ValueRefV2::Input { .. } | ValueRefV2::UniverseMemberInput { .. } => PortContractV2 {
-                semantic_id: binding.port_id.clone(),
-                value_type: ValueTypeV2::I128,
-                max_bytes: 16,
-            },
-            _ => PortContractV2 {
-                semantic_id: binding.port_id.clone(),
-                value_type: ValueTypeV2::Bytes,
-                max_bytes: 308,
-            },
-        })
-        .collect();
-
-    // An exact-instrument role is consumed only by the lifecycle its Owner data kind triggers:
-    // the Plan refuses a BAR role read by the EVENT reaction, and the reverse. A universe frame
-    // carries both kinds, and the universe vertical requires exactly one compute node in each of
-    // BAR and EVENT, so the universe-member form reads its roles in both.
-    let universe = request.channel.role_v2().scope == InputScopeV2::UniverseMembers;
-    let reacts_to_bar = universe || bar_triggered;
-    let reacts_to_event = universe || !bar_triggered;
-
-    let manifest = PluginManifestV2 {
-        semantic_id: PLUGIN_SEMANTIC_ID.to_owned(),
-        abi_version: BOUNDED_FEATURE_PLUGIN_ABI_V1,
-        input_ports,
-        output_ports: BOUNDED_FEATURE_PROPOSAL_OUTPUT_PORTS_V1
-            .iter()
-            .map(|(semantic_id, value_type)| PortContractV2 {
-                semantic_id: (*semantic_id).to_owned(),
-                value_type: *value_type,
-                max_bytes: manifest_width(*value_type)
-                    .expect("every proposal output port carries a bounded lifecycle value"),
-            })
-            .collect(),
-        state: PluginStateContractV2 {
-            pre_port_id: PLUGIN_STATE_PRE_PORT.to_owned(),
-            post_port_id: PLUGIN_STATE_POST_PORT.to_owned(),
-            value_type: ValueTypeV2::Bytes,
-            max_bytes: PLUGIN_STATE_MAX_BYTES,
-        },
-        capability_ids: vec![CAPABILITY_SEMANTIC_ID.to_owned()],
-        // Measured per invocation on the Sim: about 86,000 for a program with no exits, 205,000
-        // with a price exit, and 378,000 for the family's largest program, which names every
-        // exit and enters in both directions. The 100,000 this was before is what that largest
-        // program's measurement replaced: it ran out on its first frame.
-        max_fuel: FAMILY_MAX_FUEL,
-        max_linear_memory_bytes: 1_048_576,
-        max_invocations_per_event: 1,
-        failure_semantic_id: BOUNDED_FEATURE_NUMERIC_FAILURE_V1.to_owned(),
-    };
-
-    StrategyDesignV2 {
-        schema_version: STRATEGY_DESIGN_SCHEMA_V2,
+    bounded_feature_design_v1(&BoundedFeatureDesignSpecV1 {
         research_request_identity: request.research_request_identity,
         intent_identity: request.intent_identity,
         intent_digest: request.intent_digest,
-        inputs: received
-            .iter()
-            .map(|received| received.role.clone())
-            .collect(),
-        joins: vec![],
-        // One channel joins nothing and needs no parameter: the threshold is a frozen graph
-        // constant, not a Design parameter, because a proposer declares it and the Design does not.
-        parameters: vec![],
-        state: vec![StateCellV2 {
-            semantic_id: PLUGIN_STATE_CELL.to_owned(),
-            value_type: ValueTypeV2::Bytes,
-            initial: TypedConstantV2::Bytes { value: vec![] },
-            max_bytes: PLUGIN_STATE_MAX_BYTES,
-        }],
-        reactions: vec![
-            empty_reaction(LifecycleKindV2::Start),
-            if reacts_to_bar {
-                bounded_reaction(LifecycleKindV2::Bar, BAR_NODE, &bindings)
-            } else {
-                empty_reaction(LifecycleKindV2::Bar)
-            },
-            if reacts_to_event {
-                bounded_reaction(LifecycleKindV2::Event, EVENT_NODE, &bindings)
-            } else {
-                empty_reaction(LifecycleKindV2::Event)
-            },
-            empty_reaction(LifecycleKindV2::Fill),
-            empty_reaction(LifecycleKindV2::Timer),
-            empty_reaction(LifecycleKindV2::Stop),
-        ],
-        capabilities: vec![CapabilityDeclarationV2 {
-            semantic_id: CAPABILITY_SEMANTIC_ID.to_owned(),
-            version: 1,
-            dependencies: vec![],
-        }],
-        plugins: vec![manifest],
-        resources: ResourceBoundsV2 {
-            max_inputs: u16::try_from(received.len()).expect("a form declares at most two roles"),
-            max_nodes_per_reaction: 1,
-            max_dependency_edges: 256,
-            max_state_bytes: PLUGIN_STATE_MAX_BYTES,
-            max_plugin_calls_per_event: 1,
-        },
-        falsifier: request.falsifier.clone(),
-    }
-}
-
-/// A lifecycle the bounded plugin does not react to.
-fn empty_reaction(kind: LifecycleKindV2) -> ReactionGraphV2 {
-    ReactionGraphV2 {
-        kind,
-        nodes: vec![],
-        state_writes: vec![],
-        proposal: None,
-    }
-}
-
-/// A lifecycle that calls the bounded plugin and wires its eleven outputs to the proposal.
-fn bounded_reaction(
-    kind: LifecycleKindV2,
-    node_id: &str,
-    bindings: &[PortBindingV2],
-) -> ReactionGraphV2 {
-    let compute = ComputeNodeV2 {
-        semantic_id: node_id.to_owned(),
-        plugin_semantic_id: PLUGIN_SEMANTIC_ID.to_owned(),
-        input_bindings: bindings.to_vec(),
-        pre_state: ValueRefV2::PriorState {
-            state_id: PLUGIN_STATE_CELL.to_owned(),
-        },
-        output_port_ids: BOUNDED_FEATURE_PROPOSAL_OUTPUT_PORTS_V1
-            .iter()
-            .map(|(id, _)| (*id).to_owned())
-            .collect(),
-        post_state_port_id: PLUGIN_STATE_POST_PORT.to_owned(),
-    };
-    let wire = |index: usize| ValueRefV2::NodeOutput {
-        node_id: node_id.to_owned(),
-        port_id: BOUNDED_FEATURE_PROPOSAL_OUTPUT_PORTS_V1[index].0.to_owned(),
-    };
-    ReactionGraphV2 {
-        kind,
-        nodes: vec![compute],
-        state_writes: vec![StateWriteV2 {
-            state_id: PLUGIN_STATE_CELL.to_owned(),
-            source: ValueRefV2::NodeOutput {
-                node_id: node_id.to_owned(),
-                port_id: PLUGIN_STATE_POST_PORT.to_owned(),
-            },
-        }],
-        proposal: Some(ProposalWiringV2 {
-            position_intent: wire(0),
-            target_variant: wire(1),
-            target_position_units: wire(2),
-            target_weight_micros: wire(3),
-            rebalance_sequence: wire(4),
-            reconciliation_target_units: wire(5),
-            protection_variant: wire(6),
-            stop_loss_ticks: wire(7),
-            take_profit_ticks: wire(8),
-            trailing_distance_ticks: wire(9),
-            trailing_stop_ticks: wire(10),
-            member_target_set: None,
-        }),
-    }
+        received,
+        bar_triggered,
+        state_max_bytes: PLUGIN_STATE_MAX_BYTES,
+        max_fuel: FAMILY_MAX_FUEL,
+        falsifier: &request.falsifier,
+    })
 }
 
 /// Constant ids. The two sides carry their own five, which is what makes the frames differ.
@@ -879,16 +632,8 @@ type FrameIds = (
 /// Units of the values the graph computes for itself. None of them reaches a terminal, so each is
 /// only a name that keeps one kind of value from being compared with another.
 const POSITION_UNIT: &str = "POSITION_NOMINAL";
-const SIGNAL_UNIT: &str = "SIGNAL";
 const BARS_UNIT: &str = "BARS";
 const RATIO_UNIT: &str = "RATIO";
-
-const COMPARE: &str = "bfp.fixed-i128.compare.equal-scale.v1";
-const SELECT: &str = "bfp.fixed-i128.select.equal-scale.v1";
-const ADD: &str =
-    "bfp.fixed-i128.add.max-scale-38.explicit-rescale.i256-single-round.nearest-ties-to-even.v1";
-const MUL: &str =
-    "bfp.fixed-i128.mul.max-scale-38.explicit-rescale.i256-single-round.nearest-ties-to-even.v1";
 
 /// The position the program believes it holds after the frame it last proposed.
 const BELIEVED_POSITION: &str = "believed-position";
@@ -1187,189 +932,7 @@ fn position_label(position: i64) -> String {
     }
 }
 
-fn node_value(node_id: &str) -> BoundedFeatureValueRefV1 {
-    BoundedFeatureValueRefV1::NodeOutput {
-        node_id: node_id.to_owned(),
-        port_id: COMPARISON_PORT.to_owned(),
-    }
-}
-
-fn prior_state(state_id: &str) -> BoundedFeatureValueRefV1 {
-    BoundedFeatureValueRefV1::PriorState {
-        state_id: state_id.to_owned(),
-    }
-}
-
-fn fixed_type(unit: &str, scale: u8) -> BoundedFeatureValueTypeV1 {
-    BoundedFeatureValueTypeV1::FixedI128 {
-        unit: unit.to_owned(),
-        scale,
-    }
-}
-
-/// The nodes, state cells and constants of one program, each node after every node it reads.
-#[derive(Default)]
-struct Graph {
-    nodes: Vec<BoundedFeatureNodeV1>,
-    state_cells: Vec<BoundedFeatureStateCellV1>,
-    constants: Vec<(String, BoundedFeatureConstantValueV1)>,
-}
-
 impl Graph {
-    fn constant(
-        &mut self,
-        constant_id: &str,
-        value: BoundedFeatureConstantValueV1,
-    ) -> BoundedFeatureValueRefV1 {
-        if !self.constants.iter().any(|(id, _)| id == constant_id) {
-            self.constants.push((constant_id.to_owned(), value));
-        }
-        BoundedFeatureValueRefV1::Constant {
-            constant_id: constant_id.to_owned(),
-        }
-    }
-
-    fn fixed(
-        &mut self,
-        constant_id: &str,
-        coefficient: i128,
-        unit: &str,
-        scale: u8,
-    ) -> BoundedFeatureValueRefV1 {
-        self.constant(
-            constant_id,
-            BoundedFeatureConstantValueV1::FixedI128 {
-                coefficient,
-                unit: unit.to_owned(),
-                scale,
-            },
-        )
-    }
-
-    fn node(
-        &mut self,
-        node_id: &str,
-        primitive: &str,
-        inputs: Vec<(&str, BoundedFeatureValueRefV1)>,
-        parameters: BoundedFeatureParametersV1,
-        value_type: BoundedFeatureValueTypeV1,
-    ) -> BoundedFeatureValueRefV1 {
-        if !self.nodes.iter().any(|node| node.node_id == node_id) {
-            self.nodes.push(BoundedFeatureNodeV1 {
-                node_id: node_id.to_owned(),
-                primitive_semantic_id: primitive.to_owned(),
-                input_bindings: inputs
-                    .into_iter()
-                    .map(|(port_id, source)| BoundedFeatureInputBindingV1 {
-                        port_id: port_id.to_owned(),
-                        source,
-                        require_ready: false,
-                    })
-                    .collect(),
-                output_ports: vec![BoundedFeatureOutputPortV1 {
-                    port_id: COMPARISON_PORT.to_owned(),
-                    value_type,
-                    availability: BoundedFeatureAvailabilityV1::Ready,
-                }],
-                parameters,
-                state_id: None,
-                update_clock: None,
-            });
-        }
-        node_value(node_id)
-    }
-
-    fn compare(
-        &mut self,
-        node_id: &str,
-        a: BoundedFeatureValueRefV1,
-        b: BoundedFeatureValueRefV1,
-        predicate: BoundedFeaturePredicateV1,
-    ) -> BoundedFeatureValueRefV1 {
-        self.node(
-            node_id,
-            COMPARE,
-            vec![("a", a), ("b", b)],
-            BoundedFeatureParametersV1::ComparisonPredicate { predicate },
-            BoundedFeatureValueTypeV1::Boolean,
-        )
-    }
-
-    fn select(
-        &mut self,
-        node_id: &str,
-        condition: BoundedFeatureValueRefV1,
-        when_true: BoundedFeatureValueRefV1,
-        when_false: BoundedFeatureValueRefV1,
-        value_type: BoundedFeatureValueTypeV1,
-    ) -> BoundedFeatureValueRefV1 {
-        self.node(
-            node_id,
-            SELECT,
-            vec![
-                ("condition", condition),
-                ("when_true", when_true),
-                ("when_false", when_false),
-            ],
-            BoundedFeatureParametersV1::None,
-            value_type,
-        )
-    }
-
-    /// An exact sum or product: the declared scale is the one the operands' scales produce, so
-    /// the rounding the primitive names never applies.
-    fn arithmetic(
-        &mut self,
-        node_id: &str,
-        primitive: &str,
-        a: BoundedFeatureValueRefV1,
-        b: BoundedFeatureValueRefV1,
-        unit: &str,
-        scale: u8,
-    ) -> BoundedFeatureValueRefV1 {
-        self.node(
-            node_id,
-            primitive,
-            vec![("a", a), ("b", b)],
-            BoundedFeatureParametersV1::OutputScale {
-                output_scale: scale,
-                rounding: BoundedFeatureRoundingV1::NearestTiesToEven,
-            },
-            fixed_type(unit, scale),
-        )
-    }
-
-    /// A strategy state cell holding one fixed-point value, written by `writer` on every event.
-    fn cell(
-        &mut self,
-        state_id: &str,
-        writer: &str,
-        value_type: BoundedFeatureValueTypeV1,
-        initial: &str,
-    ) {
-        self.state_cells.push(BoundedFeatureStateCellV1 {
-            state_id: state_id.to_owned(),
-            writer_node_id: writer.to_owned(),
-            state_kind: BoundedFeatureStateKindV1::Strategy {
-                value_type,
-                source_port_id: COMPARISON_PORT.to_owned(),
-            },
-            initial: BoundedFeatureInitialStateV1::Constant {
-                constant_id: initial.to_owned(),
-            },
-            max_bytes: 16,
-        });
-    }
-
-    fn signal(&mut self, value: i128) -> BoundedFeatureValueRefV1 {
-        let id = if value == 0 {
-            "signal-zero"
-        } else {
-            "signal-one"
-        };
-        self.fixed(id, value, SIGNAL_UNIT, 0)
-    }
-
     /// The believed position as a constant the belief can be compared with and set to.
     fn position(&mut self, position: i64) -> BoundedFeatureValueRefV1 {
         self.fixed(
@@ -1379,7 +942,6 @@ impl Graph {
             0,
         )
     }
-
     /// Whether the program believed itself at `position` when this frame began.
     fn believed_at(&mut self, position: i64) -> BoundedFeatureValueRefV1 {
         let constant = self.position(position);
@@ -1390,37 +952,6 @@ impl Graph {
             BoundedFeaturePredicateV1::Equal,
         )
     }
-
-    /// 1 when any of `conditions` holds and 0 otherwise.
-    fn any_of(
-        &mut self,
-        prefix: &str,
-        conditions: &[BoundedFeatureValueRefV1],
-    ) -> BoundedFeatureValueRefV1 {
-        let one = self.signal(1);
-        let mut any = self.signal(0);
-        for (index, condition) in conditions.iter().enumerate().rev() {
-            any = self.select(
-                &format!("{prefix}-{index}"),
-                condition.clone(),
-                one.clone(),
-                any,
-                fixed_type(SIGNAL_UNIT, 0),
-            );
-        }
-        any
-    }
-
-    /// Whether a signal is 1.
-    fn holds(
-        &mut self,
-        node_id: &str,
-        signal: BoundedFeatureValueRefV1,
-    ) -> BoundedFeatureValueRefV1 {
-        let zero = self.signal(0);
-        self.compare(node_id, signal, zero, BoundedFeaturePredicateV1::Greater)
-    }
-
     /// The five constants of one frame, read from `outcome`.
     fn frame_constants(&mut self, ids: FrameIds, outcome: &SingleThresholdOutcomeV1) {
         for (constant_id, value) in outcome_constants(ids, outcome) {
@@ -2314,6 +1845,8 @@ fn candidate_channel(design: &StrategyDesignV2) -> Option<SingleThresholdChannel
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+
+    use crate::{strategy_design_v2::ValueRefV2, strategy_plan_v2::coordinate_port_id};
     use vibe_indicators_kernel::PrimitiveCatalogV1;
 
     use super::*;

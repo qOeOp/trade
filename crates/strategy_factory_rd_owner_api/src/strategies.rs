@@ -23,8 +23,8 @@ use vibe_strategy_factory::{
         MAX_STRATEGY_LIST_V1, PostgresStrategyCatalogV1, StrategyCatalogErrorV1, StrategyRecordV1,
     },
     strategy_catalog_v1::{
-        CanonicalStrategySpecV1, SingleThresholdStrategySpecV1, StrategyIdentityV1,
-        canonical_strategy_spec_v1,
+        CanonicalStrategyStatementV1, StrategyIdentityV1, StrategyStatementV1,
+        canonical_strategy_statement_v1,
     },
 };
 
@@ -35,12 +35,12 @@ use super::{authorized, insert_rejection_code};
 pub(super) trait StrategyCatalogPortV1: Send + Sync {
     async fn create(
         &self,
-        spec: &CanonicalStrategySpecV1,
+        spec: &CanonicalStrategyStatementV1,
     ) -> Result<StrategyRecordV1, StrategyCatalogErrorV1>;
     async fn revise(
         &self,
         predecessor: StrategyIdentityV1,
-        spec: &CanonicalStrategySpecV1,
+        spec: &CanonicalStrategyStatementV1,
     ) -> Result<StrategyRecordV1, StrategyCatalogErrorV1>;
     async fn get(
         &self,
@@ -61,7 +61,7 @@ pub(super) trait StrategyCatalogPortV1: Send + Sync {
 impl StrategyCatalogPortV1 for PostgresStrategyCatalogV1 {
     async fn create(
         &self,
-        spec: &CanonicalStrategySpecV1,
+        spec: &CanonicalStrategyStatementV1,
     ) -> Result<StrategyRecordV1, StrategyCatalogErrorV1> {
         Self::create(self, spec).await
     }
@@ -69,7 +69,7 @@ impl StrategyCatalogPortV1 for PostgresStrategyCatalogV1 {
     async fn revise(
         &self,
         predecessor: StrategyIdentityV1,
-        spec: &CanonicalStrategySpecV1,
+        spec: &CanonicalStrategyStatementV1,
     ) -> Result<StrategyRecordV1, StrategyCatalogErrorV1> {
         Self::revise(self, predecessor, spec).await
     }
@@ -101,7 +101,7 @@ impl StrategyCatalogPortV1 for PostgresStrategyCatalogV1 {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct StrategySpecRequestV1 {
-    spec: SingleThresholdStrategySpecV1,
+    spec: StrategyStatementV1,
 }
 
 /// The list route's query.
@@ -284,7 +284,7 @@ fn admitted_spec(
     state: &StrategiesApiState,
     headers: &HeaderMap,
     body: &[u8],
-) -> Result<CanonicalStrategySpecV1, EarlyRefusal> {
+) -> Result<CanonicalStrategyStatementV1, EarlyRefusal> {
     if !authorized(headers, &state.token_digest) {
         return Err(EarlyRefusal {
             status: StatusCode::FORBIDDEN,
@@ -298,7 +298,7 @@ fn admitted_spec(
             code: "MALFORMED_TYPED_REQUEST",
             message: None,
         })?;
-    canonical_strategy_spec_v1(&request.spec).map_err(|refusal| EarlyRefusal {
+    canonical_strategy_statement_v1(&request.spec).map_err(|refusal| EarlyRefusal {
         status: StatusCode::UNPROCESSABLE_ENTITY,
         code: refusal.code(),
         message: Some(refusal.to_string()),
@@ -370,7 +370,7 @@ mod postgres_tests {
     use sha2::{Digest as _, Sha256};
     use tower::ServiceExt;
     use vibe_postgres_connect::{PgPoolOptionsExt, PostgresTls};
-    use vibe_strategy_factory::strategy_catalog_v1::strategy_identity_of_v1;
+    use vibe_strategy_factory::strategy_catalog_v1::stored_strategy_identity_v1;
     use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
 
     use super::*;
@@ -559,8 +559,9 @@ mod postgres_tests {
         assert_eq!(read, created);
         let served: Served<'_> = serde_json::from_slice(&raw).unwrap();
         assert_eq!(
-            strategy_identity_of_v1(served.spec.get().as_bytes()).to_string(),
-            id,
+            stored_strategy_identity_v1(served.spec.get().as_bytes())
+                .map(|identity| identity.to_string()),
+            Some(id.clone()),
             "the spec served is exactly the bytes its identity hashes"
         );
 
@@ -754,5 +755,53 @@ mod postgres_tests {
         )
         .await;
         assert_eq!((status, &restored), (StatusCode::OK, &successor));
+
+        // An authoring-language document is a strategy too: validated and created on the same
+        // routes, under an identity of its own, and read back as the bytes that hash to it. The
+        // falsifier is unique to this run, so no earlier run's row answers for it.
+        let mut document: serde_json::Value = serde_json::from_str(include_str!(
+            "../../strategy_factory/test_data/strategy_authoring_v1/t0-daily-trend.json"
+        ))
+        .unwrap();
+        document["falsifier"] = json!(format!("T0 earns nothing over random entries, run {run}"));
+        let (status, validated, _) = call(
+            &app,
+            "POST",
+            "/v1/strategies/validate",
+            token,
+            Some(json!({"spec": document.clone()})),
+        )
+        .await;
+        assert_eq!(
+            (status, validated["result"].as_str()),
+            (StatusCode::OK, Some("VALID"))
+        );
+        let (status, created, _) = call(
+            &app,
+            "POST",
+            "/v1/strategies",
+            token,
+            Some(json!({"spec": document})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(created["strategy_id"], validated["strategy_id"]);
+        let document_id = created["strategy_id"].as_str().unwrap().to_owned();
+        let (status, _, raw) = call(
+            &app,
+            "GET",
+            &format!("/v1/strategies/{document_id}"),
+            token,
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let served: Served<'_> = serde_json::from_slice(&raw).unwrap();
+        assert_eq!(
+            stored_strategy_identity_v1(served.spec.get().as_bytes())
+                .map(|identity| identity.to_string()),
+            Some(document_id),
+            "the document served is exactly the bytes its identity hashes"
+        );
     }
 }

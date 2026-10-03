@@ -319,7 +319,10 @@ implement a formula. The first catalog must include:
 Later versions only append. Version 2 adds the fused rational, version 3 the fixed-point square root, and
 version 4 the trailing-window bar counts since the maximum and since the minimum, exact integers where the
 latest of equal extrema counts, and the trailing-window percent rank, the latest sample's midrank from 0 at the
-lowest to 1 at the highest over a window of at least two, with one final rounding.
+lowest to 1 at the highest over a window of at least two, with one final rounding. Version 5 adds the position
+flip as a lifecycle reference, so a Bounded Feature Program may propose it; it needs no golden vector, so version 5's
+primitives and corpus are version 4's. A published version's number counts publications: the V4b and V5 labels under
+"Values, inputs, and actions" name planned rows, not the version that will publish them.
 
 Price-action rules and candlestick patterns are typed compositions of these catalog primitives, not named strategy
 templates, opaque labels, copied formulas, or new Host opcodes.
@@ -1190,7 +1193,8 @@ The kernel, never a Design or plugin, owns these stable semantic primitives and 
   on purpose: a Bounded Feature Program's lifecycle port is as wide as the longest identifier of its type,
   and `kernel.position.reverse.v1` would have widened it and re-identified every program. For the same reason it
   is not in a Plan's capability closure, which lists the kernel's primitives as they stood when the closure entered
-  every Plan's identity; the Plan's constant check and the plugin wire admit it instead;
+  every Plan's identity; the Plan's constant check and the plugin wire admit it instead, and catalog version 5 lists
+it, so a Bounded Feature Program frozen against version 5 may propose it;
 - target position, target weight, and target rebalance under `kernel.target.position.v1`,
   `kernel.target.weight.v1`, and `kernel.target.rebalance.v1`;
 - stop-loss, take-profit, and trailing-protection adjustment under `kernel.protection.stop-loss.v1`,

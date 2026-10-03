@@ -20,17 +20,26 @@ use sha2::{Digest as _, Sha256};
 use vibe_data::owner::source_binding::BindingDigest;
 
 use crate::{
+    bounded_feature_program_derivation_v1::BoundedFeatureProgramMeaningV1,
     bounded_feature_program_v1::BoundedFeaturePredicateV1,
     single_threshold_authoring_v1::{
         SingleThresholdAuthoringErrorV1, SingleThresholdAuthoringRequestV1,
         SingleThresholdChannelV1, SingleThresholdOutcomeV1, author_single_threshold_program_v1,
         canonical_threshold_of_v1,
     },
+    strategy_authoring_v1::{
+        AuthoringExpressionV1, StrategyAuthoringDocumentV1, StrategyAuthoringErrorV1,
+        author_strategy_document_v1,
+    },
+    strategy_design_v2::StrategyDesignV2,
 };
 
 /// Domain separation for a strategy's identity, so no other digest of the same bytes collides
 /// with it.
 const STRATEGY_IDENTITY_DOMAIN_V1: &[u8] = b"strategy.catalog.single-threshold-statement.v1\0";
+/// Domain separation for an authored document's identity, so a document and a single-threshold
+/// statement never share one.
+const AUTHORED_STRATEGY_IDENTITY_DOMAIN_V1: &[u8] = b"strategy.catalog.authored-document.v1\0";
 
 /// Everything an author decides about one single-threshold strategy: the authoring request
 /// without the three Research identities a run supplies.
@@ -134,23 +143,82 @@ impl Display for StrategyIdentityV1 {
     }
 }
 
+/// A strategy the catalog holds: a single-threshold statement or an authoring-language document.
+///
+/// The two are told apart by their closed shapes, not by a tag: a document names its `language`
+/// and a single-threshold statement its `channel`, and each refuses the other's fields. So a
+/// single-threshold statement keeps the bytes, and the identity, it had before documents existed.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(untagged)]
+pub enum StrategyStatementV1 {
+    SingleThreshold(Box<SingleThresholdStrategySpecV1>),
+    Authored(StrategyAuthoringDocumentV1),
+}
+
+/// Why a statement was not admitted, under the refusal its family names.
+#[derive(Clone, Debug, Eq, thiserror::Error, PartialEq)]
+pub enum StrategyStatementErrorV1 {
+    #[error(transparent)]
+    SingleThreshold(#[from] SingleThresholdAuthoringErrorV1),
+    #[error(transparent)]
+    Authored(#[from] StrategyAuthoringErrorV1),
+}
+
+impl StrategyStatementErrorV1 {
+    /// The refusal's stable name.
+    #[must_use]
+    pub const fn code(&self) -> &'static str {
+        match self {
+            Self::SingleThreshold(refusal) => refusal.code(),
+            Self::Authored(refusal) => refusal.code,
+        }
+    }
+}
+
+impl StrategyStatementV1 {
+    /// Compiles the statement for one Research request and Intent into its `design` and
+    /// `meaning`, whichever family it is.
+    ///
+    /// # Errors
+    ///
+    /// Returns the family's own refusal.
+    pub fn author(
+        &self,
+        research_request_identity: BindingDigest,
+        intent_identity: BindingDigest,
+        intent_digest: BindingDigest,
+    ) -> Result<(StrategyDesignV2, BoundedFeatureProgramMeaningV1), StrategyStatementErrorV1> {
+        Ok(match self {
+            Self::SingleThreshold(spec) => author_single_threshold_program_v1(
+                &spec.authoring_request(research_request_identity, intent_identity, intent_digest),
+            )?,
+            Self::Authored(document) => author_strategy_document_v1(
+                document,
+                research_request_identity,
+                intent_identity,
+                intent_digest,
+            )?,
+        })
+    }
+}
+
 /// A statement the catalog admits: its canonical bytes and the identity they hash to.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct CanonicalStrategySpecV1 {
+pub struct CanonicalStrategyStatementV1 {
     identity: StrategyIdentityV1,
-    spec: SingleThresholdStrategySpecV1,
+    statement: StrategyStatementV1,
     canonical_bytes: Vec<u8>,
 }
 
-impl CanonicalStrategySpecV1 {
+impl CanonicalStrategyStatementV1 {
     #[must_use]
     pub const fn identity(&self) -> StrategyIdentityV1 {
         self.identity
     }
 
     #[must_use]
-    pub const fn spec(&self) -> &SingleThresholdStrategySpecV1 {
-        &self.spec
+    pub const fn statement(&self) -> &StrategyStatementV1 {
+        &self.statement
     }
 
     /// The bytes the catalog stores and reads back exactly.
@@ -167,40 +235,100 @@ impl CanonicalStrategySpecV1 {
 /// authoring uses fixed stand-ins; they reach neither the canonical bytes nor the identity.
 ///
 /// Every value a statement can spell more than one way is brought to its one spelling before it
-/// is hashed, so one strategy has one identity. The threshold is rewritten to its one decimal
-/// spelling at the channel's scale (`100.00` and `100` are one statement); an exit fraction with a
-/// trailing zero is refused by name rather than rewritten.
+/// is hashed, so one strategy has one identity:
+///
+/// - a single-threshold threshold is rewritten to its one decimal spelling at the channel's scale
+///   (`100.00` and `100` are one statement), and an exit fraction with a trailing zero is refused
+///   by name rather than rewritten;
+/// - a document's inputs, definitions and states, whose order states nothing, are sorted by name,
+///   its rules keep their order, which is their priority, and each decimal literal is written
+///   without trailing zeros.
 ///
 /// # Errors
 ///
-/// Returns the authoring refusal under its own name when the statement is not one the
-/// single-threshold family admits.
-pub fn canonical_strategy_spec_v1(
-    spec: &SingleThresholdStrategySpecV1,
-) -> Result<CanonicalStrategySpecV1, SingleThresholdAuthoringErrorV1> {
-    let stand_in = BindingDigest::from_untrusted_bytes([0x5a; 32]);
-    author_single_threshold_program_v1(&spec.authoring_request(stand_in, stand_in, stand_in))?;
-    let spec = SingleThresholdStrategySpecV1 {
-        threshold: canonical_threshold_of_v1(&spec.channel, &spec.threshold)?,
-        ..spec.clone()
+/// Returns the family's refusal under its own name.
+pub fn canonical_strategy_statement_v1(
+    statement: &StrategyStatementV1,
+) -> Result<CanonicalStrategyStatementV1, StrategyStatementErrorV1> {
+    let canonical = match statement {
+        StrategyStatementV1::SingleThreshold(spec) => {
+            StrategyStatementV1::SingleThreshold(Box::new(SingleThresholdStrategySpecV1 {
+                threshold: canonical_threshold_of_v1(&spec.channel, &spec.threshold)?,
+                ..(**spec).clone()
+            }))
+        }
+        StrategyStatementV1::Authored(document) => {
+            StrategyStatementV1::Authored(canonical_document(document))
+        }
     };
+    let stand_in = BindingDigest::from_untrusted_bytes([0x5a; 32]);
+    canonical.author(stand_in, stand_in, stand_in)?;
     let canonical_bytes =
-        serde_json::to_vec(&spec).expect("a strategy statement serialises to JSON");
-    Ok(CanonicalStrategySpecV1 {
-        identity: strategy_identity_of_v1(&canonical_bytes),
-        spec,
+        serde_json::to_vec(&canonical).expect("a strategy statement serialises to JSON");
+    Ok(CanonicalStrategyStatementV1 {
+        identity: identity_of(&canonical, &canonical_bytes),
+        statement: canonical,
         canonical_bytes,
     })
 }
 
-/// The identity a statement's canonical bytes hash to, which is how a stored statement proves it
-/// is the one its identity names.
+/// The identity a stored statement's bytes hash to under its family's domain, or `None` for bytes
+/// that are not a statement, which is how a stored statement proves it is the one its identity
+/// names.
 #[must_use]
-pub fn strategy_identity_of_v1(canonical_bytes: &[u8]) -> StrategyIdentityV1 {
+pub fn stored_strategy_identity_v1(canonical_bytes: &[u8]) -> Option<StrategyIdentityV1> {
+    let statement = serde_json::from_slice::<StrategyStatementV1>(canonical_bytes).ok()?;
+    Some(identity_of(&statement, canonical_bytes))
+}
+
+fn identity_of(statement: &StrategyStatementV1, canonical_bytes: &[u8]) -> StrategyIdentityV1 {
+    let domain = match statement {
+        StrategyStatementV1::SingleThreshold(_) => STRATEGY_IDENTITY_DOMAIN_V1,
+        StrategyStatementV1::Authored(_) => AUTHORED_STRATEGY_IDENTITY_DOMAIN_V1,
+    };
     let mut hasher = Sha256::new();
-    hasher.update(STRATEGY_IDENTITY_DOMAIN_V1);
+    hasher.update(domain);
     hasher.update(canonical_bytes);
     StrategyIdentityV1(hasher.finalize().into())
+}
+
+/// A document in its one spelling.
+fn canonical_document(document: &StrategyAuthoringDocumentV1) -> StrategyAuthoringDocumentV1 {
+    let mut canonical = document.clone();
+    canonical.inputs.sort_by(|a, b| a.name.cmp(&b.name));
+    canonical.definitions.sort_by(|a, b| a.name.cmp(&b.name));
+    canonical.states.sort_by(|a, b| a.name.cmp(&b.name));
+    let literal = |operand: &mut String| *operand = canonical_literal(operand);
+
+    for definition in &mut canonical.definitions {
+        match &mut definition.expr {
+            AuthoringExpressionV1::Add { a, b }
+            | AuthoringExpressionV1::Sub { a, b }
+            | AuthoringExpressionV1::Mul { a, b }
+            | AuthoringExpressionV1::Compare { a, b, .. } => {
+                literal(a);
+                literal(b);
+            }
+            _ => {}
+        }
+    }
+    canonical
+}
+
+/// A decimal literal without trailing zeros after its point, and without the point when nothing
+/// follows it; a name is left as written.
+fn canonical_literal(operand: &str) -> String {
+    if operand.starts_with(|character: char| character.is_ascii_lowercase())
+        || !operand.contains('.')
+    {
+        return operand.to_owned();
+    }
+    let trimmed = operand.trim_end_matches('0').trim_end_matches('.');
+    if trimmed == "-0" || trimmed.is_empty() {
+        "0".to_owned()
+    } else {
+        trimmed.to_owned()
+    }
 }
 
 #[cfg(test)]
@@ -208,6 +336,23 @@ mod tests {
     use rstest::rstest;
 
     use super::*;
+
+    /// Admits a single-threshold statement.
+    fn canonical_strategy_spec_v1(
+        spec: &SingleThresholdStrategySpecV1,
+    ) -> Result<CanonicalStrategyStatementV1, StrategyStatementErrorV1> {
+        canonical_strategy_statement_v1(&StrategyStatementV1::SingleThreshold(Box::new(
+            spec.clone(),
+        )))
+    }
+
+    /// The threshold a single-threshold statement was admitted with.
+    fn threshold_of(canonical: &CanonicalStrategyStatementV1) -> &str {
+        match canonical.statement() {
+            StrategyStatementV1::SingleThreshold(spec) => &spec.threshold,
+            StrategyStatementV1::Authored(_) => panic!("a single-threshold statement"),
+        }
+    }
 
     fn spec() -> SingleThresholdStrategySpecV1 {
         SingleThresholdStrategySpecV1 {
@@ -271,7 +416,7 @@ mod tests {
         })
         .expect("authors");
         assert_eq!(padded.identity(), short.identity());
-        assert_eq!(padded.spec().threshold, "100");
+        assert_eq!(threshold_of(&padded), "100");
         assert_ne!(
             canonical_strategy_spec_v1(&SingleThresholdStrategySpecV1 {
                 threshold: "100.01".to_owned(),
@@ -343,7 +488,52 @@ mod tests {
 
         assert_eq!(
             canonical_strategy_spec_v1(&refused),
-            Err(SingleThresholdAuthoringErrorV1::MaxHoldingBarsZero)
+            Err(StrategyStatementErrorV1::SingleThreshold(
+                SingleThresholdAuthoringErrorV1::MaxHoldingBarsZero
+            ))
+        );
+    }
+
+    fn t0() -> StrategyAuthoringDocumentV1 {
+        serde_json::from_str(include_str!(
+            "../test_data/strategy_authoring_v1/t0-daily-trend.json"
+        ))
+        .expect("the T0 document parses")
+    }
+
+    /// An authored document is a strategy the catalog holds: it is admitted by authoring, named
+    /// under its own domain, and named once whatever order its definitions are written in or
+    /// however a literal spells its trailing zeros.
+    #[rstest]
+    fn an_authored_document_is_one_strategy_however_it_is_spelled() {
+        let document = t0();
+        let admitted =
+            canonical_strategy_statement_v1(&StrategyStatementV1::Authored(document.clone()))
+                .expect("T0 is admitted");
+        let mut respelled = document;
+        respelled.definitions.reverse();
+        respelled.inputs.reverse();
+        for definition in &mut respelled.definitions {
+            if let AuthoringExpressionV1::Mul { b, .. } = &mut definition.expr {
+                *b = "2.00".to_owned();
+            }
+        }
+        let again = canonical_strategy_statement_v1(&StrategyStatementV1::Authored(respelled))
+            .expect("the respelled T0 is admitted");
+
+        assert_eq!(again.identity(), admitted.identity());
+        assert_eq!(again.canonical_bytes(), admitted.canonical_bytes());
+        assert_eq!(
+            stored_strategy_identity_v1(admitted.canonical_bytes()),
+            Some(admitted.identity()),
+            "the stored bytes prove their identity"
+        );
+        let single = canonical_strategy_spec_v1(&spec()).expect("authors");
+        assert_ne!(single.identity(), admitted.identity());
+        assert_eq!(
+            serde_json::from_slice::<StrategyStatementV1>(admitted.canonical_bytes()).ok(),
+            Some(admitted.statement().clone()),
+            "a stored document reads back as a document"
         );
     }
 

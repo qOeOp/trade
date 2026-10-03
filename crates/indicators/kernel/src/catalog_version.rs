@@ -11,6 +11,7 @@ use crate::{
     catalog_rows_v2::ROWS_V2,
     catalog_rows_v3::ROWS_V3,
     catalog_rows_v4::ROWS_V4,
+    catalog_rows_v5::{CATALOG_SEMANTIC_IDS_V5, ROWS_V5},
     golden_corpus::GOLDENS,
     golden_corpus_v2::GOLDENS_V2,
     golden_corpus_v3::GOLDENS_V3,
@@ -87,10 +88,7 @@ const VERSION_3: CatalogVersionV1 = CatalogVersionV1 {
     kind_counts: [6, 40, 15],
 };
 
-/// Every version this kernel publishes, ascending by semantic version.
-///
-/// `newest()` reads the last entry, so adding one here is also the change that makes a freshly
-/// minted program resolve the new version.
+/// Version 4 adds two bar counts and a window percent rank and changes nothing else.
 const VERSION_4: CatalogVersionV1 = CatalogVersionV1 {
     semantic_version: 4,
     rows: &ROWS_V4,
@@ -101,8 +99,26 @@ const VERSION_4: CatalogVersionV1 = CatalogVersionV1 {
     kind_counts: [6, 44, 15],
 };
 
-pub(crate) const PUBLISHED_V1: [&CatalogVersionV1; 4] =
-    [&VERSION_1, &VERSION_2, &VERSION_3, &VERSION_4];
+/// Version 5 adds the position flip and changes nothing else.
+///
+/// A lifecycle reference requires no golden vector, so its executable primitives and its corpus are
+/// version 4's, and publishing it leaves versions 1 to 4 byte-identical.
+const VERSION_5: CatalogVersionV1 = CatalogVersionV1 {
+    semantic_version: 5,
+    rows: &ROWS_V5,
+    semantic_ids: &CATALOG_SEMANTIC_IDS_V5,
+    executable_ids: &EXECUTABLE_PRIMITIVE_IDS_V4,
+    goldens: &GOLDENS_V4,
+    required_golden_ids: &REQUIRED_GOLDEN_IDS_V4,
+    kind_counts: [6, 44, 16],
+};
+
+/// Every version this kernel publishes, ascending by semantic version.
+///
+/// `newest()` reads the last entry, so adding one here is also the change that makes a freshly
+/// minted program resolve the new version.
+pub(crate) const PUBLISHED_V1: [&CatalogVersionV1; 5] =
+    [&VERSION_1, &VERSION_2, &VERSION_3, &VERSION_4, &VERSION_5];
 
 /// Resolves one published version's content, or `None` when this kernel does not publish it.
 pub(crate) fn published(semantic_version: u16) -> Option<&'static CatalogVersionV1> {

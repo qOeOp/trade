@@ -153,7 +153,7 @@ const GUEST_KERNEL_SOURCES: [(&str, &[u8]); 8] = [
 
 // This is the exact source list committed by `PrimitiveCatalogV1`. It is hashed for the complete
 // catalog/source binding only. The legacy `lib.rs` is never copied into the guest source set.
-const COMPLETE_KERNEL_SOURCES: [(&str, &[u8]); 27] = [
+const COMPLETE_KERNEL_SOURCES: [(&str, &[u8]); 28] = [
     (
         "Cargo.toml",
         include_bytes!("../../indicators/kernel/Cargo.toml"),
@@ -177,6 +177,10 @@ const COMPLETE_KERNEL_SOURCES: [(&str, &[u8]); 27] = [
     (
         "catalog_rows_v4.rs",
         include_bytes!("../../indicators/kernel/src/catalog_rows_v4.rs"),
+    ),
+    (
+        "catalog_rows_v5.rs",
+        include_bytes!("../../indicators/kernel/src/catalog_rows_v5.rs"),
     ),
     (
         "catalog_version.rs",
