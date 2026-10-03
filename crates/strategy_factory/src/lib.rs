@@ -93,10 +93,11 @@ pub mod single_threshold_authoring_v1;
 pub mod successor_intent;
 mod successor_intent_postgres;
 pub use iteration_candidate::{
-    IterationCandidateAdmissibilityV1, IterationCandidateEvaluationSetV1,
-    IterationCandidateEvaluationV1, IterationCandidateInadmissibilityV1,
-    IterationEvidenceReferenceV1, IterationExperimentModeV1, IterationHypothesisDimensionV1,
-    IterationInformationValueEvidenceV1, IterationPreregisteredFiniteJointV1,
+    CandidateGenerationGridV1, CandidateGenerationRefusalV1, IterationCandidateAdmissibilityV1,
+    IterationCandidateEvaluationSetV1, IterationCandidateEvaluationV1,
+    IterationCandidateInadmissibilityV1, IterationEvidenceReferenceV1, IterationExperimentModeV1,
+    IterationHypothesisDimensionV1, IterationInformationValueEvidenceV1,
+    IterationPreregisteredFiniteJointV1,
 };
 pub mod market_data_repair_reentry;
 #[allow(

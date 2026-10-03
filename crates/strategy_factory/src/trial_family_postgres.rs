@@ -810,7 +810,7 @@ pub(crate) async fn count_trial_family_attempt_in_transaction(
             result_digest: attempt.result_digest,
             terminal_disposition: attempt.terminal_disposition,
             consumed_trial_budget,
-            candidate_set: TrialFamilyCandidateSetProposalV2::none_at_result_admission()?,
+            candidate_set: TrialFamilyCandidateSetProposalV2::none_at_result_admission(),
         },
         now_epoch_ms,
     )
@@ -2561,10 +2561,9 @@ mod postgres_binding_tests {
             terminal_disposition: TrialFamilyAttemptTerminalDispositionV2::Rejected,
             consumed_trial_budget: 1,
             candidate_set: TrialFamilyCandidateSetProposalV2 {
-                generation_rule_identity: format!(
-                    "rd-candidate-generation-candidate-acl-seed-{suffix}"
+                generation_rule: crate::CandidateGenerationGridV1::covering(
+                    proposals.iter().map(|proposal| &proposal.experiment),
                 ),
-                generation_rule_digest: format!("sha256:{}", "d".repeat(64)),
                 expected_cardinality: 1,
                 candidates: proposals.clone(),
             },
@@ -2674,8 +2673,10 @@ mod postgres_binding_tests {
             terminal_disposition: TrialFamilyAttemptTerminalDispositionV2::Rejected,
             consumed_trial_budget: 1,
             candidate_set: TrialFamilyCandidateSetProposalV2 {
-                generation_rule_identity: format!("rd-candidate-generation-v2-a-{suffix}"),
-                generation_rule_digest: format!("sha256:{}", "3".repeat(64)),
+                generation_rule: crate::CandidateGenerationGridV1 {
+                    single_dimensions: vec![IterationHypothesisDimensionV1::ReturnMechanism],
+                    finite_joints: Vec::new(),
+                },
                 expected_cardinality: 1,
                 candidates: vec![TrialFamilyCandidateExperimentProposalV1 {
                     candidate_identity: format!("rd-candidate-v2-a-{suffix}"),
@@ -2810,8 +2811,7 @@ mod postgres_binding_tests {
             terminal_disposition: TrialFamilyAttemptTerminalDispositionV2::Unknown,
             consumed_trial_budget: 2,
             candidate_set: TrialFamilyCandidateSetProposalV2 {
-                generation_rule_identity: format!("rd-candidate-generation-v2-b-{suffix}"),
-                generation_rule_digest: format!("sha256:{}", "7".repeat(64)),
+                generation_rule: crate::CandidateGenerationGridV1::default(),
                 expected_cardinality: 0,
                 candidates: Vec::new(),
             },
@@ -3218,8 +3218,10 @@ mod postgres_binding_tests {
             terminal_disposition: TrialFamilyAttemptTerminalDispositionV2::Rejected,
             consumed_trial_budget,
             candidate_set: TrialFamilyCandidateSetProposalV2 {
-                generation_rule_identity: format!("rd-candidate-generation-v2-race-{tag}-{suffix}"),
-                generation_rule_digest: format!("sha256:{}", "3".repeat(64)),
+                generation_rule: crate::CandidateGenerationGridV1 {
+                    single_dimensions: vec![IterationHypothesisDimensionV1::ReturnMechanism],
+                    finite_joints: Vec::new(),
+                },
                 expected_cardinality: 1,
                 candidates: vec![TrialFamilyCandidateExperimentProposalV1 {
                     candidate_identity: format!("rd-candidate-v2-race-{tag}-{suffix}"),

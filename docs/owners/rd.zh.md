@@ -1076,8 +1076,8 @@ Backtest Owner 已提交的 Result 计数。计数在 Backtest 提交之后、R&
 **计数什么。** 计数像 Iteration Result Admission 那样，经由 Backtest custody 适配器锁定 Result。它从密封请求的规范
 字节读出 family 与 Intent，并对照 Result 所绑定的含义摘要重算该字节的含义摘要。随后它锁定 family 的 census head，追加
 一次 attempt：Intent、请求与 Result，Result 的终态一一对应计入（`TERMINAL_RESULT`；`RUN_REJECTED` 计为 `REJECTED`；
-`INVALID_REPLAY_EVIDENCE` 计为 `INVALID`）。这次 attempt 的已消耗计数是它的序号加一。它的候选集为空，归在唯一的规则
-`rd-candidate-generation-none-at-result-admission-v1` 之下，因为还没有任何 Decision 读过这个 Result。若 census 已经
+`INVALID_REPLAY_EVIDENCE` 计为 `INVALID`）。这次 attempt 的已消耗计数是它的序号加一。它的候选集是空网格的展开（见下文
+「CURRENT - 候选数由其网格计算」），因为还没有任何 Decision 读过这个 Result。若 census 已经
 计数了某个 Result 的请求身份与含义摘要，该 Result 就是一次精确重放：无论 Backtest 给它什么 attempt 身份，它都加入那次
 attempt，不写任何东西。
 
@@ -1102,6 +1102,24 @@ R&D 请求密封的 Result 不属于任何 family，以 `EXPLORATORY_RESULT_REQU
 `backtest_run_report_reads_back_every_point_a_real_run_committed` 在经链路自己的 Backtest 写入者提交的 Result 上证明。
 原生运行只提交 `TERMINAL_RESULT`：在提交之前失败的运行不留下 Result，也没有可计数的东西。
 
+### CURRENT - 候选数由其网格计算
+
+候选集以生成它的网格 `CandidateGenerationGridV1` 陈述，由 Owner 展开。列出的每个假设维度是一个 `SINGLE_DIMENSION`
+候选，每份冻结的有限联合契约是一个 `PREREGISTERED_FINITE_JOINT` 候选。两份列表都严格升序，所以一个网格只有一种表示，
+也不会把同一成员列两次。规则的身份与摘要由网格计算，从不由调用方提供；TrialFamily census 把网格存进候选集 frontier，
+每次读回都重算这两者。
+
+凡是接纳候选集的地方，即 census 与 Iteration Result Admission 的提议集，登记的计数都要等于展开的大小，列出的候选都要
+等于展开的成员，每一种不一致都按名拒绝：
+
+- `CANDIDATE_GENERATION_GRID_INVALID`：网格重复了某个成员，或某个成员顺序不对；
+- `CANDIDATE_GENERATION_CARDINALITY_MISMATCH`：登记的 `expected_cardinality` 不是展开的大小；
+- `CANDIDATE_SET_DIFFERS_FROM_GENERATION_RULE`：列出的实验不是展开本身。
+
+提议的 `candidate_digest` 同样由它的身份与实验计算，Iteration Result Admission 对与之不同的声明值以
+`ITERATION_RESULT_ADMISSION_IDENTITY_MISMATCH` 拒绝。网格没有别种成员：编写层若以别的方式生成候选，例如参数扫描，
+那就是一种新的成员，带自己具名的展开规则，而不是一个 Owner 照单接受的字符串。
+
 ### TARGET - 生产试验台账与数据读取台账
 
 本节陈述的是一份尚无实现的契约；它不授予构建或部署的任何许可。
@@ -1111,8 +1129,6 @@ R&D 请求密封的 Result 不属于任何 family，以 `EXPLORATORY_RESULT_REQU
 - **只有已提交的 Result 被计数。** 上文「CURRENT - 每个已提交的探索性 Result 都被计数」对原生 Replay 运行路由提交的每个
   Result 计数。在提交之前失败的运行没有可计数的东西，Backtest Owner 也不会为它提交 `RUN_REJECTED` 或
   `INVALID_REPLAY_EVIDENCE` Result。
-- **候选数是声明的，不是推导的。** 候选集的 `expected_cardinality` 只与提议方提供的候选列表长度比对
-  （`crates/strategy_factory/src/trial_family.rs:1655-1662`）。它的生成规则只以身份和摘要保存，从不展开。
 
 **每一次查看都是一次试验。** 一次试验就是一次 census attempt，与上文的计法完全相同：
 
@@ -1141,9 +1157,6 @@ R&D 请求密封的 Result 不属于任何 family，以 `EXPLORATORY_RESULT_REQU
 **census 不带任何判决。** census 行记录一次试验跑过了以及它的探索性处置。它从不记录 Qualification 的结果，也不记录评估方
 给出的任何通过或失败位；Qualification 把自己的受保护尝试计入 N
 （[Qualification](./qualification/#target---cumulative-trial-deflation-at-candidate-intake)），并且只经由它的公开阶段发布结果。
-
-**计数是算出来的。** 候选集的生成规则以它展开成的网格保存，而不是以一个不透明的摘要保存。Owner 展开它，当展开的大小与
-`expected_cardinality` 不同、或列出的候选与展开不同时，按名拒绝。登记方声明的计数从不被信任。
 
 **它如何接入打折。** Qualification 的累计 N 是 Candidate 绑定的各 census frontier 上 `trial_count` 之和，加上该血缘的受保护
 尝试；试验比率的离散度取自该血缘的 `TERMINAL_RESULT` 试验。所以两者都只能与这个追加一样完整。Deflated Sharpe Ratio 及其

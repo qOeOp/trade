@@ -280,6 +280,7 @@ pub(crate) struct TrialFamilyCandidateSetFrontierV2 {
     frontier_identity: String,
     trial_family_identity: String,
     attempt_ordinal: u32,
+    generation_rule: crate::CandidateGenerationGridV1,
     generation_rule_identity: String,
     generation_rule_digest: String,
     expected_cardinality: u32,
@@ -322,37 +323,23 @@ pub(crate) struct TrialFamilyAttemptAppendV2 {
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct TrialFamilyCandidateSetProposalV2 {
-    pub generation_rule_identity: String,
-    pub generation_rule_digest: String,
+    pub generation_rule: crate::CandidateGenerationGridV1,
     pub expected_cardinality: u32,
     pub candidates: Vec<TrialFamilyCandidateExperimentProposalV1>,
 }
 
 impl TrialFamilyCandidateSetProposalV2 {
-    /// The candidate set of an attempt counted when R&D admits its exploratory Result: empty.
+    /// The candidate set of an attempt counted when R&D admits its exploratory Result: the empty
+    /// grid's.
     ///
     /// R&D counts a Result before any Decision has read it, so no candidate has been generated
-    /// yet. The attempt's candidate-set frontier is therefore fixed empty, under one named rule
-    /// whose digest covers its identity and its cardinality, rather than a caller-chosen one.
-    pub(crate) fn none_at_result_admission() -> Result<Self, TrialFamilyError> {
-        const RULE: &str = "rd-candidate-generation-none-at-result-admission-v1";
-        #[derive(Serialize)]
-        struct RuleMeaning {
-            generation_rule_identity: &'static str,
-            expected_cardinality: u32,
-        }
-        Ok(Self {
-            generation_rule_identity: RULE.to_owned(),
-            generation_rule_digest: canonical_digest(
-                "rd.trial-family.candidate-generation-rule.v1",
-                &RuleMeaning {
-                    generation_rule_identity: RULE,
-                    expected_cardinality: 0,
-                },
-            )?,
+    /// yet, and the attempt's candidate set is the expansion of the empty grid.
+    pub(crate) fn none_at_result_admission() -> Self {
+        Self {
+            generation_rule: crate::CandidateGenerationGridV1::default(),
             expected_cardinality: 0,
             candidates: Vec::new(),
-        })
+        }
     }
 }
 
@@ -1004,6 +991,10 @@ impl TrialFamilyCandidateSetFrontierV2 {
     pub(crate) fn candidates(&self) -> &[TrialFamilyCandidateFactV2] {
         &self.candidates
     }
+
+    pub(crate) fn trial_family_identity(&self) -> &str {
+        &self.trial_family_identity
+    }
 }
 
 impl TrialFamilyCandidateFactV2 {
@@ -1643,23 +1634,21 @@ fn form_candidate_set_frontier_v2(
     attempt_ordinal: u32,
     proposal: TrialFamilyCandidateSetProposalV2,
 ) -> Result<TrialFamilyCandidateSetFrontierV2, TrialFamilyError> {
-    require_identity(
-        &proposal.generation_rule_identity,
-        "CANDIDATE_GENERATION_RULE_IDENTITY_INVALID",
-    )?;
-    require_sha256(
-        &proposal.generation_rule_digest,
-        "CANDIDATE_GENERATION_RULE_DIGEST_INVALID",
-    )?;
-
-    if usize::try_from(proposal.expected_cardinality).map_err(unavailable)?
-        != proposal.candidates.len()
-        || proposal.candidates.len() > MAX_FRONTIER_MEMBERS
-    {
+    if proposal.candidates.len() > MAX_FRONTIER_MEMBERS {
         return Err(TrialFamilyError::InvalidPolicy(
             "CANDIDATE_SET_CARDINALITY_INVALID",
         ));
     }
+    proposal
+        .generation_rule
+        .admit_candidates(
+            proposal.expected_cardinality,
+            proposal
+                .candidates
+                .iter()
+                .map(|candidate| &candidate.experiment),
+        )
+        .map_err(|refusal| TrialFamilyError::InvalidPolicy(refusal.code()))?;
     let candidates = proposal
         .candidates
         .iter()
@@ -1676,8 +1665,7 @@ fn form_candidate_set_frontier_v2(
     form_candidate_set_frontier_from_facts_v2(
         trial_family_identity,
         attempt_ordinal,
-        proposal.generation_rule_identity,
-        proposal.generation_rule_digest,
+        proposal.generation_rule,
         proposal.expected_cardinality,
         candidates,
     )
@@ -1686,19 +1674,15 @@ fn form_candidate_set_frontier_v2(
 fn form_candidate_set_frontier_from_facts_v2(
     trial_family_identity: &str,
     attempt_ordinal: u32,
-    generation_rule_identity: String,
-    generation_rule_digest: String,
+    generation_rule: crate::CandidateGenerationGridV1,
     expected_cardinality: u32,
     candidates: Vec<TrialFamilyCandidateFactV2>,
 ) -> Result<TrialFamilyCandidateSetFrontierV2, TrialFamilyError> {
-    require_identity(
-        &generation_rule_identity,
-        "CANDIDATE_GENERATION_RULE_IDENTITY_INVALID",
-    )?;
-    require_sha256(
-        &generation_rule_digest,
-        "CANDIDATE_GENERATION_RULE_DIGEST_INVALID",
-    )?;
+    // The rule is the grid: its identity and digest are computed here, never carried in. The
+    // grid's expansion was held to the count and the candidates when the set was admitted, and a
+    // stored frontier whose grid or count changed since recomputes to a different frontier.
+    let generation_rule_identity = generation_rule.rule_identity();
+    let generation_rule_digest = generation_rule.rule_digest();
 
     if usize::try_from(expected_cardinality).map_err(unavailable)? != candidates.len()
         || candidates.len() > MAX_FRONTIER_MEMBERS
@@ -1739,6 +1723,7 @@ fn form_candidate_set_frontier_from_facts_v2(
         ),
         trial_family_identity: trial_family_identity.to_string(),
         attempt_ordinal,
+        generation_rule,
         generation_rule_identity,
         generation_rule_digest,
         expected_cardinality,
@@ -2334,8 +2319,7 @@ pub(crate) fn verify_census_v2(
     let expected_candidate = form_candidate_set_frontier_from_facts_v2(
         family_identity,
         candidate.attempt_ordinal,
-        candidate.generation_rule_identity.clone(),
-        candidate.generation_rule_digest.clone(),
+        candidate.generation_rule.clone(),
         candidate.expected_cardinality,
         candidate.candidates.clone(),
     )?;
@@ -2836,8 +2820,9 @@ mod tests {
             terminal_disposition: disposition,
             consumed_trial_budget: ordinal + 1,
             candidate_set: TrialFamilyCandidateSetProposalV2 {
-                generation_rule_identity: format!("rd-candidate-generation-rule-v2-{ordinal}"),
-                generation_rule_digest: format!("sha256:{:064x}", ordinal + 40),
+                generation_rule: crate::CandidateGenerationGridV1::covering(
+                    candidates.iter().map(|candidate| &candidate.experiment),
+                ),
                 expected_cardinality: u32::try_from(candidates.len()).unwrap(),
                 candidates,
             },
@@ -2974,6 +2959,27 @@ mod tests {
         .unwrap();
         census.members[2].fact_digest = format!("sha256:{}", "f".repeat(64));
         assert!(verify_census_v2(&census).is_err());
+
+        // A stored grid that changed after admission no longer recomputes to its frontier.
+        let mut regridded = append_attempt_to_census_v2(
+            family.clone(),
+            None,
+            append(
+                &family,
+                0,
+                TrialFamilyAttemptTerminalDispositionV2::Unknown,
+                Vec::new(),
+            ),
+            100,
+        )
+        .unwrap();
+        assert!(verify_census_v2(&regridded).is_ok());
+        regridded
+            .candidate_set_frontier
+            .generation_rule
+            .single_dimensions
+            .push(crate::IterationHypothesisDimensionV1::ExitRule);
+        assert!(verify_census_v2(&regridded).is_err());
 
         let mut malformed_member = append_attempt_to_census_v2(
             family.clone(),
