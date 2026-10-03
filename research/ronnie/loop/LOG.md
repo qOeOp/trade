@@ -2379,3 +2379,11 @@ random entries rises only because the matched controls, with the same tiny stops
   volatility (size scaled up by about 1.3x) P1 would earn more than base. By the registered criterion (Sharpe and
   total R both better) no exit is adopted; whether to trade P1 at a larger size is a risk-budget choice, and R-1s
   (half at 2R) already sits in the forward record.
+
+### R-1u as an account (2026-10-03, exploratory, development; `loop/r1_portfolio.py`; the user's question)
+
+Fixed-fraction risk per trade, at most 10 open trades (the rest skipped), 53 coins 2018-2022, hourly-walked R, fees
+only: 0.5% risk -> CAGR +117%, max drawdown -21% (2018 +8%, 2019 +78%, 2020 +283%, 2021 +204%, 2022 +120%); 1% risk ->
+CAGR +331%, drawdown -37%. P1 (half at +1R): +101% / -15% at 0.5%. These are upper bounds, not forecasts: survivor
+universe, no slippage, funding or liquidity limits, compounding of in-sample R over a bull market, correlated
+positions. The holdout's magnitude is sealed, and the forward record has no trades yet.
