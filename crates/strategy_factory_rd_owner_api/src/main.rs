@@ -92,6 +92,7 @@ use vibe_data::owner::{
     research_pit_terminal::ResearchPitTerminalResolver,
     research_pit_terminal_resolver_from_store_admission_environment,
 };
+use vibe_postgres_connect::{PgPoolOptionsExt as _, PostgresTls};
 use vibe_product_edge::{
     ARTIFACT_BUILD_REQUIRED_EFFECTS_V1, ProductEdgeAdmissionLocatorV1,
     ProductEdgeAdmissionReadbackV1, ProductEdgeAdmissionRequestV1, ProductEdgeAuthorizationTrustV1,
@@ -212,13 +213,13 @@ struct DevelopComposerA0ExecutionsV1 {
 
 use vibe_strategy_factory_rd_owner_api::required_env;
 
-// Both gated on `sealed-source-intake-composer-acceptance`: the chain entry needs
-// `first_composer_v3_replay_acceptance`'s fixtures, and `backtest_run_v1` (deferred until the
-// `POST /v1/backtests` route wires it into `ApiState` - see its own module doc) has no other
-// caller, so it would be dead code under default features without the same gate.
+// The chain entry needs `first_composer_v3_replay_acceptance`'s fixtures, so it stays gated on
+// `sealed-source-intake-composer-acceptance`. `backtest_run_v1` now has a real production caller
+// (`backtest_run_routes`, merged into the bin unconditionally below) and carries no such
+// dependency itself, so it is no longer gated at all.
 #[cfg(all(test, feature = "sealed-source-intake-composer-acceptance"))]
 mod backtest_run_chain_entry_acceptance;
-#[cfg(all(test, feature = "sealed-source-intake-composer-acceptance"))]
+mod backtest_run_routes;
 mod backtest_run_v1;
 mod binance_backfill_job;
 mod bounded_feature_program;
@@ -482,6 +483,12 @@ async fn run() -> anyhow::Result<()> {
     let universe_sample_projection =
         Arc::new(universe_sample_projection_owner_from_environment_v1().await?);
     let database_url = required_env("RD_OWNER_DATABASE_URL")?;
+    // backtest.run's own orchestration reads its run's initial PIT terminal directly (no Owner
+    // method wraps that read - see backtest_run_v1.rs's own doc), so it needs a raw pool on the
+    // same database every other R&D Owner connection here opens from `database_url`.
+    let backtest_run_rd_pool = sqlx::postgres::PgPoolOptions::new()
+        .connect_url(&database_url, PostgresTls::Disabled)
+        .await?;
     let composer_writer_database_url = required_env("RD_FACT_WRITER_DATABASE_URL")?;
     let qualification_database_url = required_env("QUALIFICATION_OWNER_DATABASE_URL")?;
     let product_edge_database_url = required_env("PRODUCT_EDGE_DATABASE_URL")?;
@@ -681,6 +688,21 @@ async fn run() -> anyhow::Result<()> {
             owner.clone(),
             token_digest,
             request_proof_digest.clone(),
+        ))
+        .merge(backtest_run_routes::router(
+            backtest_run_routes::BacktestRunRoutesApiState {
+                catalog: strategy_catalog.clone(),
+                product_edge: product_edge.clone(),
+                research: owner.clone(),
+                bounded_feature_program: bounded_feature_program_owner.clone(),
+                strategy_input_bindings: market_data_strategy_input_bindings.clone(),
+                market_data_universe_selection: market_data_universe_selection.clone(),
+                market_data_pit_intake: market_data_pit_intake.clone(),
+                market_semantics: market_data_market_semantics_admission.clone(),
+                rd_pool: backtest_run_rd_pool,
+                request_proof_digest: request_proof_digest.clone(),
+                token_digest,
+            },
         ))
         .merge(bounded_feature_program::router(
             bounded_feature_program_owner,
@@ -3192,7 +3214,7 @@ fn artifact_product_edge_error(
     response
 }
 
-fn hex_digest(bytes: &[u8]) -> String {
+pub(crate) fn hex_digest(bytes: &[u8]) -> String {
     const HEX: &[u8; 16] = b"0123456789abcdef";
     let mut encoded = String::with_capacity(bytes.len() * 2);
     for byte in bytes {
