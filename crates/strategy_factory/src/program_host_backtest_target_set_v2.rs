@@ -245,9 +245,9 @@ impl BacktestReconciliationCapabilityV2 {
 }
 
 enum BacktestUniverseFrameV2 {
-    Owner(OwnerUniverseFrameV1),
+    Owner(Box<OwnerUniverseFrameV1>),
     #[cfg(all(test, feature = "sealed-strategy-input-acceptance"))]
-    Admitted(AdmittedProgramEventV2),
+    Admitted(Box<AdmittedProgramEventV2>),
 }
 
 // The fault hook exists only for the sealed target-set tests: they drive a failure between the two
@@ -342,7 +342,7 @@ impl BacktestTargetSetProgramHostStrategyV2 {
                     && frames
                         .insert(
                             lifecycle.logical_time(),
-                            BacktestUniverseFrameV2::Owner(frame)
+                            BacktestUniverseFrameV2::Owner(Box::new(frame))
                         )
                         .is_none(),
                 "Backtest target-set frames must be unique BAR frames"
@@ -393,7 +393,7 @@ impl BacktestTargetSetProgramHostStrategyV2 {
                     .universe_frames
                     .insert(
                         envelope.order_key.logical_time_ns,
-                        BacktestUniverseFrameV2::Admitted(event),
+                        BacktestUniverseFrameV2::Admitted(Box::new(event)),
                     )
                     .is_none(),
             "test Backtest target-set frame is invalid or duplicated"
@@ -620,7 +620,7 @@ impl BacktestTargetSetProgramHostStrategyV2 {
                 admit_owner_universe_program_event_v2(&self.plan, frame)?
             }
             #[cfg(all(test, feature = "sealed-strategy-input-acceptance"))]
-            BacktestUniverseFrameV2::Admitted(event) => event.clone(),
+            BacktestUniverseFrameV2::Admitted(event) => (**event).clone(),
         };
 
         // The roles and the pricing role are the Plan's, derived from the Design at compilation:
