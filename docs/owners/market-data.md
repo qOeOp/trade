@@ -2711,6 +2711,27 @@ consumer may parse `1D`, `1h`, another label, venue convention, or default into 
 and projection readback remains available after later Owner mapping or calendar changes; those changes require a
 new Owner schedule fact/cut and cannot be smuggled through a free-form binding label.
 
+`SampleFactV2` is the row fact of a PIT window custody (slice T0), a successor schema beside V1 whose bytes are never
+reinterpreted. Its canonical bytes start with schema `u16LE = 2` and reserved-zero `u16LE`, then bind, in order:
+series identity, slot identity, series-predecessor sample identity (all zero at a series root), optional
+correction-predecessor sample identity, series sequence `u64LE`, correction sequence `u64LE`, cross-section version
+identity, canonical-row digest, Owner event identity `[u8; 16]`, instrument, channel and data-kind codes, field
+semantic, timeframe identity, value semantic, unit, fixed-I128 value mantissa and scale, event-effective, available,
+and publication times `u64LE`, Source Binding identity, lineage root and version, source-frontier digest, correction
+stream, correction-frontier digest, Instrument Master digest, and Market Semantics identity; a variable field is
+`u16LE length || bytes`. The fact digest is SHA-256 over `market-data.sample-fact.v2\0 || bytes`, and the sample
+identity is SHA-256 over `market-data.sample.identity.v2\0 || fact digest`. The series identity is V1's, so a series
+names the same thing under both schemas. The root slot is SHA-256 over
+`market-data.sample-slot.identity.v2\0 || series identity || event-effective u64LE`, naming no snapshot and no
+version. The Owner event identity is the first 16 bytes of SHA-256 over `market-data.sample-event.identity.v2\0` and
+schema `u16LE = 2`, reserved-zero `u16LE`, cross-section version identity, canonical-row digest, event-effective,
+available, and publication times, correction sequence, and correction stream. A new bar takes its event's root slot,
+correction sequence 1, and the next series position, and its event must follow the series head's; a correction keeps
+its bar's slot and series position, its correction sequence must be the slot head's plus one, and its publication must
+follow the slot head's. Each is refused otherwise, as `EventNotAfterSeriesHead`, `CorrectionSequenceNotNext`, or
+`PublicationNotAfterCorrection`, and a stored V2 fact whose slot, event identity, or chain position does not follow
+from its own row is refused.
+
 The `Owner event identity` carried by `SampleFactV1`, `SampleReceiptV1`, and the 308-byte coordinate is a new
 role-independent Market Data identity; it is not the existing V1 frame-trigger event identity. Its canonical
 preimage is, in order: schema `u16LE = 1`, reserved-zero `u16LE`, source snapshot identity `[u8; 32]`,
