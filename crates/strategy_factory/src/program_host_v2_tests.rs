@@ -1856,7 +1856,7 @@ fn universe_bfp_fixture() -> (
             close_role_semantic_id: "research.input.close.v1".to_owned(),
             open_role_semantic_id: "research.input.open.v1".to_owned(),
         },
-        threshold_coefficient: 10_000,
+        threshold: "100".to_owned(),
         comparison: BoundedFeaturePredicateV1::Greater,
         when_true: outcome("kernel.position.enter.v1", 1),
         otherwise: outcome("kernel.position.exit.v1", 0),

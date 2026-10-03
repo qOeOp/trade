@@ -1137,7 +1137,7 @@ pub(crate) async fn ensure_first_composer_v3_replay_acceptance_v1(
                 close_role_semantic_id: CLOSE_ROLE.to_owned(),
                 open_role_semantic_id: OPEN_ROLE.to_owned(),
             },
-            threshold_coefficient: 12_000,
+            threshold: "120".to_owned(),
             comparison: BoundedFeaturePredicateV1::Greater,
             // One grid unit is 0.01 LINK, about 1.23 USDT at the frame's close, and the venue's
             // `MIN_NOTIONAL` is 20 USDT, so the engine's risk check denies it. 100 units is 1 LINK,

@@ -30,6 +30,7 @@
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+use vibe_data::owner::decimal_rescale_v1::{RescaleErrorV1, rescale_exact_v1};
 use vibe_data::owner::source_binding::BindingDigest;
 use vibe_data::owner::strategy_input_binding::MarketDataFieldSemantic;
 
@@ -244,12 +245,14 @@ pub struct SingleThresholdAuthoringRequestV1 {
     pub intent_digest: BindingDigest,
     /// The one channel read, which is also the decision clock.
     pub channel: SingleThresholdChannelV1,
-    /// The threshold, in the channel's own unit and scale.
+    /// The threshold, in the channel's own unit, as a decimal such as `"120"` or `"-0.5"`.
     ///
-    /// The comparison primitive is equal-scale, so the threshold cannot carry a scale of its own:
-    /// one that differed from the channel's would be refused, and one that agreed would be a
-    /// restatement. Only the coefficient is declared.
-    pub threshold_coefficient: i128,
+    /// The comparison primitive is equal-scale, so the author converts it exactly to the channel's
+    /// scale and the Design stores that integer: a universe-member channel reads at Market Data's
+    /// value scale, so `"120"` is the same threshold whatever instrument the scope names. Equivalent
+    /// spellings, `"120"` and `"120.000"`, are one threshold; a value finer than the channel's scale
+    /// is refused rather than rounded. [`canonical_threshold_text`] is its one spelling.
+    pub threshold: String,
     /// How the channel is compared against the threshold.
     pub comparison: BoundedFeaturePredicateV1,
     /// What to propose when the comparison holds.
@@ -339,6 +342,23 @@ pub enum SingleThresholdAuthoringErrorV1 {
         field: &'static str,
         channel: String,
     },
+    /// The threshold is not a decimal: an optional `-`, digits without a leading zero, and an
+    /// optional `.` with digits.
+    #[error(
+        "THRESHOLD_INVALID: threshold must be a decimal such as \"120\" or \"-0.5\", without a sign of +, a leading zero, an exponent or whitespace"
+    )]
+    ThresholdInvalid,
+    /// The threshold has more decimal places than the channel's scale, so the channel cannot hold
+    /// it exactly.
+    #[error(
+        "THRESHOLD_FINER_THAN_CHANNEL_SCALE: threshold has more decimal places than the channel's scale of {scale}"
+    )]
+    ThresholdFinerThanChannelScale { scale: u8 },
+    /// The threshold at the channel's scale does not fit a fixed-point I128.
+    #[error(
+        "THRESHOLD_OVERFLOWS_CHANNEL_SCALE: threshold does not fit an I128 at the channel's scale of {scale}"
+    )]
+    ThresholdOverflowsChannelScale { scale: u8 },
     /// A holding limit of zero frames, which would leave a position on the frame that enters it.
     #[error("SINGLE_THRESHOLD_MAX_HOLDING_BARS_ZERO: max_holding_bars must be at least 1")]
     MaxHoldingBarsZero,
@@ -436,6 +456,7 @@ pub fn author_single_threshold_program_v1(
             SingleThresholdAuthoringErrorV1::UnknownFieldSemantic(channel.field_semantic_id.clone())
         })?;
     let bar_triggered = semantic.data_kind() == "BAR";
+    let threshold = threshold_coefficient_v1(&request.threshold, channel.scale)?;
     let exits = exit_plan(request)?;
     let positions = PositionBelief::of(request)?;
 
@@ -443,7 +464,7 @@ pub fn author_single_threshold_program_v1(
         return Err(SingleThresholdAuthoringErrorV1::ExitWithoutPosition { field });
     }
     let design = design_for(request, bar_triggered);
-    let meaning = meaning_for(request, &positions, &exits);
+    let meaning = meaning_for(request, threshold, &positions, &exits);
     Ok((design, meaning))
 }
 
@@ -453,6 +474,70 @@ fn exact(value: &str, field: &'static str) -> Result<(), SingleThresholdAuthorin
         return Err(SingleThresholdAuthoringErrorV1::Identifier(field));
     }
     Ok(())
+}
+
+/// The threshold `text` as an exact coefficient at `scale`.
+///
+/// `text` is an optional `-`, an integer part with no leading zero but `0` itself, and an optional
+/// `.` followed by digits; trailing fractional zeros are allowed, so `"120"`, `"120.0"` and
+/// `"120.000"` are one value. The conversion is Market Data's exact rescale, the one every value
+/// alignment uses, so nothing here rounds.
+///
+/// # Errors
+///
+/// Refuses text that is not such a decimal, a value finer than `scale`, and one that does not fit.
+pub(crate) fn threshold_coefficient_v1(
+    text: &str,
+    scale: u8,
+) -> Result<i128, SingleThresholdAuthoringErrorV1> {
+    let (negative, unsigned) = text
+        .strip_prefix('-')
+        .map_or((false, text), |rest| (true, rest));
+    let (whole, fraction) = unsigned.split_once('.').unwrap_or((unsigned, ""));
+
+    if whole.is_empty()
+        || !whole.bytes().all(|byte| byte.is_ascii_digit())
+        || (whole.len() > 1 && whole.starts_with('0'))
+        || (unsigned.contains('.') && fraction.is_empty())
+        || !fraction.bytes().all(|byte| byte.is_ascii_digit())
+    {
+        return Err(SingleThresholdAuthoringErrorV1::ThresholdInvalid);
+    }
+    let places = u8::try_from(fraction.len())
+        .map_err(|_| SingleThresholdAuthoringErrorV1::ThresholdInvalid)?;
+    let magnitude: i128 = format!("{whole}{fraction}")
+        .parse()
+        .map_err(|_| SingleThresholdAuthoringErrorV1::ThresholdOverflowsChannelScale { scale })?;
+    let mantissa = if negative { -magnitude } else { magnitude };
+
+    rescale_exact_v1(mantissa, places, scale).map_err(|error| match error {
+        RescaleErrorV1::FinerThanTarget => {
+            SingleThresholdAuthoringErrorV1::ThresholdFinerThanChannelScale { scale }
+        }
+        RescaleErrorV1::Overflow => {
+            SingleThresholdAuthoringErrorV1::ThresholdOverflowsChannelScale { scale }
+        }
+    })
+}
+
+/// The one spelling of a threshold `coefficient` at `scale`: no trailing fractional zero, no `.`
+/// for a whole value, and `0` for zero. [`threshold_coefficient_v1`] reads it back exactly, and
+/// reads every equivalent spelling to the same coefficient, so a request recovered from its
+/// program, and anything keyed by a canonical request, names the threshold one way.
+#[must_use]
+pub(crate) fn canonical_threshold_text(coefficient: i128, scale: u8) -> String {
+    let digits = coefficient.unsigned_abs().to_string();
+    let scale = usize::from(scale);
+    let padded = format!("{digits:0>width$}", width = scale + 1);
+    let (whole, fraction) = padded.split_at(padded.len() - scale);
+    let fraction = fraction.trim_end_matches('0');
+    let sign = if coefficient < 0 { "-" } else { "" };
+
+    if fraction.is_empty() {
+        format!("{sign}{whole}")
+    } else {
+        format!("{sign}{whole}.{fraction}")
+    }
 }
 
 /// One Design role the plugin receives, with the value port it arrives on and the coordinate port
@@ -1306,6 +1391,7 @@ impl Graph {
 
 fn meaning_for(
     request: &SingleThresholdAuthoringRequestV1,
+    threshold: i128,
     positions: &PositionBelief,
     exits: &ExitPlan,
 ) -> BoundedFeatureProgramMeaningV1 {
@@ -1380,7 +1466,7 @@ fn meaning_for(
         }
     };
 
-    let mut constants = constants(request);
+    let mut constants = constants(request, threshold);
     constants.extend(
         graph
             .constants
@@ -1782,7 +1868,10 @@ fn outcome_constants(
     ]
 }
 
-fn constants(request: &SingleThresholdAuthoringRequestV1) -> Vec<BoundedFeatureConstantV1> {
+fn constants(
+    request: &SingleThresholdAuthoringRequestV1,
+    threshold: i128,
+) -> Vec<BoundedFeatureConstantV1> {
     // The threshold is compared at the channel's own unit and scale, which the Design role states.
     let channel = request.channel.role_v2();
     let mut values = vec![(
@@ -1790,7 +1879,7 @@ fn constants(request: &SingleThresholdAuthoringRequestV1) -> Vec<BoundedFeatureC
         // The comparison primitive is equal-scale, so the threshold takes the channel's own unit
         // and scale. Nothing here can disagree with the channel, because nothing here restates it.
         BoundedFeatureConstantValueV1::FixedI128 {
-            coefficient: request.threshold_coefficient,
+            coefficient: threshold,
             unit: channel.unit,
             scale: channel.scale,
         },
@@ -2039,7 +2128,12 @@ fn candidate_request(
             .find(|constant| constant.constant_id == constant_id)
             .map(|constant| &constant.value)
     };
-    let BoundedFeatureConstantValueV1::FixedI128 { coefficient, .. } = constant(THRESHOLD)? else {
+    let BoundedFeatureConstantValueV1::FixedI128 {
+        coefficient,
+        scale: threshold_scale,
+        ..
+    } = constant(THRESHOLD)?
+    else {
         return None;
     };
     let comparison = program
@@ -2086,7 +2180,7 @@ fn candidate_request(
         intent_identity: design.intent_identity,
         intent_digest: design.intent_digest,
         channel,
-        threshold_coefficient: *coefficient,
+        threshold: canonical_threshold_text(*coefficient, *threshold_scale),
         comparison,
         when_true: outcome(
             TRUE_POSITION,
@@ -2249,7 +2343,7 @@ mod tests {
                 unit: "PRICE".to_owned(),
                 scale: 2,
             },
-            threshold_coefficient: 10_000,
+            threshold: "100".to_owned(),
             comparison: BoundedFeaturePredicateV1::Greater,
             when_true: SingleThresholdOutcomeV1 {
                 position_intent_semantic_id: "kernel.position.enter.v1".to_owned(),
@@ -2745,7 +2839,7 @@ mod tests {
     /// the base request in one field, and the statement read back must differ in that field too.
     #[rstest]
     #[case::base(|_: &mut SingleThresholdAuthoringRequestV1| {})]
-    #[case::threshold(|r: &mut SingleThresholdAuthoringRequestV1| r.threshold_coefficient = -12_345)]
+    #[case::threshold(|r: &mut SingleThresholdAuthoringRequestV1| r.threshold = "-123.45".to_owned())]
     #[case::comparison(|r: &mut SingleThresholdAuthoringRequestV1| r.comparison = BoundedFeaturePredicateV1::LessOrEqual)]
     #[case::scale(|r: &mut SingleThresholdAuthoringRequestV1| *exact_channel(r).scale = 4)]
     #[case::instrument(|r: &mut SingleThresholdAuthoringRequestV1| *exact_channel(r).instrument = "ETHUSDT-PERP.BINANCE".to_owned())]
@@ -3044,10 +3138,103 @@ mod tests {
         assert_eq!(
             threshold.value,
             BoundedFeatureConstantValueV1::FixedI128 {
-                coefficient: source.threshold_coefficient,
+                coefficient: threshold_coefficient_v1(&source.threshold, *scale)
+                    .expect("the base threshold converts"),
                 unit: unit.clone(),
                 scale: *scale,
             },
+        );
+    }
+
+    /// A threshold is read as a decimal at the channel's scale, exactly: equivalent spellings are one
+    /// value, and the value reads back from its one canonical spelling.
+    #[rstest]
+    #[case::whole("120", 2, 12_000)]
+    #[case::trailing_zero("120.0", 2, 12_000)]
+    #[case::trailing_zeros_to_the_scale("120.00", 2, 12_000)]
+    #[case::trailing_zeros_past_the_scale("120.000", 2, 12_000)]
+    #[case::fraction("123.45", 2, 12_345)]
+    #[case::negative("-0.5", 2, -50)]
+    #[case::zero("0", 2, 0)]
+    #[case::negative_zero("-0", 2, 0)]
+    #[case::fraction_below_one("0.07", 2, 7)]
+    #[case::value_scale("120", 9, 120_000_000_000)]
+    fn a_threshold_is_read_exactly_at_the_channel_scale(
+        #[case] text: &str,
+        #[case] scale: u8,
+        #[case] coefficient: i128,
+    ) {
+        assert_eq!(threshold_coefficient_v1(text, scale), Ok(coefficient));
+        let canonical = canonical_threshold_text(coefficient, scale);
+        assert_eq!(threshold_coefficient_v1(&canonical, scale), Ok(coefficient));
+        assert_eq!(
+            canonical_threshold_text(
+                threshold_coefficient_v1(&canonical, scale).expect("canonical reads"),
+                scale
+            ),
+            canonical,
+            "the canonical spelling is a fixed point"
+        );
+    }
+
+    /// The canonical spelling has no trailing fractional zero and no `.` for a whole value.
+    #[rstest]
+    #[case(12_000, 2, "120")]
+    #[case(12_345, 2, "123.45")]
+    #[case(12_340, 2, "123.4")]
+    #[case(-50, 2, "-0.5")]
+    #[case(7, 2, "0.07")]
+    #[case(0, 2, "0")]
+    #[case(120_000_000_000, 9, "120")]
+    #[case(5, 0, "5")]
+    fn a_threshold_has_one_canonical_spelling(
+        #[case] coefficient: i128,
+        #[case] scale: u8,
+        #[case] text: &str,
+    ) {
+        assert_eq!(canonical_threshold_text(coefficient, scale), text);
+    }
+
+    /// Text that is not a plain decimal is refused by name, as is a value the channel cannot hold.
+    #[rstest]
+    #[case::empty("", SingleThresholdAuthoringErrorV1::ThresholdInvalid)]
+    #[case::plus("+120", SingleThresholdAuthoringErrorV1::ThresholdInvalid)]
+    #[case::leading_zero("0120", SingleThresholdAuthoringErrorV1::ThresholdInvalid)]
+    #[case::bare_point("120.", SingleThresholdAuthoringErrorV1::ThresholdInvalid)]
+    #[case::leading_point(".5", SingleThresholdAuthoringErrorV1::ThresholdInvalid)]
+    #[case::exponent("1.2e2", SingleThresholdAuthoringErrorV1::ThresholdInvalid)]
+    #[case::whitespace(" 120", SingleThresholdAuthoringErrorV1::ThresholdInvalid)]
+    #[case::double_sign("--1", SingleThresholdAuthoringErrorV1::ThresholdInvalid)]
+    #[case::finer("123.456", SingleThresholdAuthoringErrorV1::ThresholdFinerThanChannelScale { scale: 2 })]
+    #[case::overflow("170141183460469231731687303715884105727", SingleThresholdAuthoringErrorV1::ThresholdOverflowsChannelScale { scale: 2 })]
+    fn a_threshold_the_channel_cannot_hold_is_refused_by_name(
+        #[case] text: &str,
+        #[case] refusal: SingleThresholdAuthoringErrorV1,
+    ) {
+        assert_eq!(threshold_coefficient_v1(text, 2), Err(refusal));
+    }
+
+    /// The author refuses the request whose threshold its channel cannot hold, and a request
+    /// recovered from its program spells the threshold canonically.
+    #[rstest]
+    fn the_request_states_its_threshold_canonically_and_refuses_a_finer_one() {
+        let mut finer = request();
+        finer.threshold = "100.001".to_owned();
+        assert_eq!(
+            author_single_threshold_program_v1(&finer).err(),
+            Some(SingleThresholdAuthoringErrorV1::ThresholdFinerThanChannelScale { scale: 2 })
+        );
+
+        let mut spelled = request();
+        spelled.threshold = "100.000".to_owned();
+        let (design, meaning) =
+            author_single_threshold_program_v1(&spelled).expect("an equivalent spelling authors");
+        let (canonical_design, canonical_meaning) =
+            author_single_threshold_program_v1(&request()).expect("the base request authors");
+        assert_eq!(
+            (&design, &meaning),
+            (&canonical_design, &canonical_meaning),
+            "equivalent spellings author one program"
         );
     }
 
