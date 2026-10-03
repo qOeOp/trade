@@ -607,7 +607,8 @@ test('keeps architecture labels, topology, and ids compact', async () => {
   assert.match(source, /triggerBranchSelectionRule: scenario\.triggerBranchSelectionRule \?\? null/);
   assert.match(source, /triggerBranches: scenario\.triggerBranches \?\? \[\]/);
 
-  assert.equal(modules.length, 40, 'topology should expose the compact 40-node capability map');
+  // 41 since the forward-record stage (#1229) sits between QUALIFIED and Paper on the user route.
+  assert.equal(modules.length, 41, 'topology should expose the compact 41-node capability map');
   assert.equal(new Set(modules.map((module) => module.id)).size, modules.length);
   for (const module of modules) {
     assert.ok(module.label.split(/\s+/).length <= 2, `label exceeds two words: ${module.label}`);
@@ -714,7 +715,7 @@ test('keeps architecture labels, topology, and ids compact', async () => {
   assert.match(placementsSource, /place\('event-rail', 408, 594, 1146, 104, 'bus'\)/);
   assert.match(
     placementsSource,
-    /place\('eligibility', 1622, 410, 325, 65, 'engine'\)/,
+    /place\('eligibility', 1767, 410, 180, 65, 'engine'\)/,
     'Eligibility State needs enough fixed-width title space at the 1280 fit scale',
   );
   assert.doesNotMatch(placementsSource, /place\('revoke'/);
@@ -791,7 +792,7 @@ test('keeps architecture labels, topology, and ids compact', async () => {
   ], { inlineInset: 20, blockInset: 45, columnGap: 15, rowGap: 20 });
   assertTwoRowInnerFrame('group-qualification', [
     ['candidate', 'protected-test'],
-    ['eligibility'],
+    ['forward-record', 'eligibility'],
   ], { inlineInset: 20, blockInset: 45, columnGap: 15, rowGap: 20 });
   assertTwoRowInnerFrame('group-rd', [
     ['source-intake', 'artifact'],
@@ -1164,7 +1165,8 @@ test('Research highlights every existing successor-feedback producer without inv
     assert.ok(!moduleById.get(moduleId)?.scenarios.includes('research'), `${moduleId} is not a Research feedback producer`);
   }
   assert.equal(contract.authorityOwners.length + contract.boundaries.length, 13);
-  assert.equal(moduleById.size, 40);
+  // 41 since the forward-record stage (#1229) sits between QUALIFIED and Paper on the user route.
+  assert.equal(moduleById.size, 41);
   assert.equal(contract.architectureObjects.length, 89);
   assert.equal(contract.relations.length, 72);
 });

@@ -4292,8 +4292,23 @@
             "backtest"
           ],
           "description": {
-            "en": "Requests and assesses isolated protected replay then a forward record\nValid terminal result commits an Eligibility Fact\nRejected or invalid commits disposition without research feedback",
-            "zh": "请求并评估隔离保护重放 随后做前向记录\n有效终态结果提交 Eligibility Fact\n拒绝或无效提交尝试终态且不反馈研发"
+            "en": "Requests and assesses isolated protected replay\nValid terminal result commits an Eligibility Fact\nRejected or invalid commits disposition without research feedback",
+            "zh": "请求并评估隔离保护重放\n有效终态结果提交 Eligibility Fact\n拒绝或无效提交尝试终态且不反馈研发"
+          }
+        },
+        {
+          "id": "forward-record",
+          "label": "Forward Record",
+          "kind": "protected",
+          "emphasis": "standard",
+          "scenarios": [
+            "backtest",
+            "paper",
+            "scan"
+          ],
+          "description": {
+            "en": "Records a qualified candidate forward without orders\nReplays each new point in time and keeps the evidence\nPublishes only public phases to R&D",
+            "zh": "不下单地对已合格候选做前向记录\n在每个新的时点切面上重放并留下证据\n只向 R&D 发布公开阶段"
           }
         },
         {
