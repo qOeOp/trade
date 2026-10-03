@@ -503,7 +503,7 @@ impl Fixture {
             .unwrap()
     }
 
-    /// Every row of every Owner table; see [`owner_store_v1`].
+    /// Every row of every Owner table: [`owner_store_v1`] over this fixture's store.
     pub(super) async fn store(&self) -> Vec<(String, i64, String)> {
         owner_store_v1(self.owner().pool()).await
     }
@@ -513,7 +513,7 @@ impl Fixture {
 ///
 /// A refusal must leave this unchanged. The digest covers content, not only the count, so an
 /// update in place - the Instrument Master append sequence, say - would show here too.
-pub(super) async fn owner_store_v1(pool: &sqlx::PgPool) -> Vec<(String, i64, String)> {
+pub(in crate::owner) async fn owner_store_v1(pool: &sqlx::PgPool) -> Vec<(String, i64, String)> {
     let tables: Vec<String> = sqlx::query_scalar(
         "SELECT tablename::text FROM pg_catalog.pg_tables WHERE schemaname='market_data_private' ORDER BY 1",
     )
@@ -521,6 +521,7 @@ pub(super) async fn owner_store_v1(pool: &sqlx::PgPool) -> Vec<(String, i64, Str
     .await
     .unwrap();
     let mut store = Vec::with_capacity(tables.len());
+
     for table in tables {
         // The name comes from the catalog, never from a caller, and is quoted as an identifier.
         let quoted = table.replace('"', "\"\"");

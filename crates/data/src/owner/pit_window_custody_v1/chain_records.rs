@@ -16,14 +16,12 @@
 use sha2::{Digest as _, Sha256};
 
 use super::{
-    authority::{DerivedCustodyV1, put_market_semantics_value},
+    authority::{DerivedCustodyV1, put_market_semantics_value, take_market_semantics_value},
     schedule::PitWindowScheduleFactV1,
 };
 use crate::owner::{
     declared_bar_timeframe_v1::r0_window_end_over_v1,
-    market_semantics::{
-        MarketSemanticsPriceAdjustmentV1, MarketSemanticsTimestampBasisV1, MarketSemanticsValueV1,
-    },
+    market_semantics::MarketSemanticsValueV1,
     source_binding::{
         BindingDigest, MarketDataClockAdmission, UntrustedCompleteFrontier,
         UntrustedSourceBarTimeframeV1,
@@ -933,27 +931,7 @@ impl<'a> Reader<'a> {
     }
 
     fn value(&mut self) -> Option<MarketSemanticsValueV1> {
-        let normalization_identity = self.digest()?;
-        let price_adjustment = match self.u16()? {
-            1 => MarketSemanticsPriceAdjustmentV1::Raw,
-            2 => MarketSemanticsPriceAdjustmentV1::SplitAdjusted,
-            3 => MarketSemanticsPriceAdjustmentV1::TotalReturnAdjusted,
-            4 => MarketSemanticsPriceAdjustmentV1::Unknown,
-            _ => return None,
-        };
-        let timestamp_basis = match self.u16()? {
-            1 => MarketSemanticsTimestampBasisV1::EventEffective,
-            2 => MarketSemanticsTimestampBasisV1::IntervalOpen,
-            3 => MarketSemanticsTimestampBasisV1::IntervalClose,
-            _ => return None,
-        };
-        Some(MarketSemanticsValueV1 {
-            normalization_identity,
-            price_adjustment,
-            timestamp_basis,
-            price_unit_identity: self.digest()?,
-            size_unit_identity: self.digest()?,
-        })
+        take_market_semantics_value(&mut self.bytes)
     }
 }
 

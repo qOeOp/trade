@@ -2,10 +2,11 @@
 //! multi-frame consumer finds the frames of a run.
 //!
 //! This module freezes the types two lanes build against in parallel with the custody itself, and
-//! holds the custody's pure authority in its `authority` module. The custody aggregate's
-//! PostgreSQL store implements [`PitWindowCustodyCommitV1`] and alone constructs a receipt; nothing
-//! implements [`PitWindowCustodyFramesV1`] until the derived view (T0-5) does, so nothing can
-//! construct a frame coordinate or a custody-sourced batch yet.
+//! holds the custody's pure authority in its `authority` module, its window schedule in `schedule`
+//! and its derived view in `view`. The custody aggregate's PostgreSQL store implements
+//! [`PitWindowCustodyCommitV1`] and alone constructs a receipt; the derived view (T0-5) reads a
+//! run's frames from a chain's head and alone constructs a frame coordinate, and the verified
+//! batch seal's custody branches alone construct a custody-sourced batch.
 //!
 //! The governing text is `docs/owners/market-data.md`, "PIT window custody". In short:
 //! - **One custody, one window, committed once.** It holds every cross-section of its window for a
@@ -32,7 +33,9 @@ use super::{
 
 pub(crate) mod authority;
 pub(crate) mod chain_records;
+pub(crate) mod quote_cut;
 pub(crate) mod schedule;
+pub(crate) mod view;
 
 /// The most members one custody holds, as the frame evidence and the native resolver do.
 pub const PIT_WINDOW_CUSTODY_MAX_MEMBERS_V1: usize = 2;
@@ -341,6 +344,15 @@ pub struct PitWindowFrameCoordinateV1 {
 }
 
 impl PitWindowFrameCoordinateV1 {
+    /// A frame the Owner's derived view enumerated. Only the frames port calls it.
+    pub(crate) const fn from_owner_view(ordinal: u64, event_ns: u64, decision_cut_ns: u64) -> Self {
+        Self {
+            ordinal,
+            event_ns,
+            decision_cut_ns,
+        }
+    }
+
     /// 1 for the run's first frame, dense.
     #[must_use]
     pub const fn ordinal(&self) -> u64 {
@@ -361,7 +373,19 @@ impl PitWindowFrameCoordinateV1 {
     }
 }
 
-/// The frames of one run, read from the head of the named chain. It has no public constructor.
+/// The frames of one run, read from the head of the named chain. It has no public constructor:
+///
+/// ```compile_fail
+/// use vibe_data::owner::{pit_window_custody_v1::PitWindowRunFramesV1, source_binding::BindingDigest};
+/// let d = BindingDigest::from_untrusted_bytes([1; 32]);
+/// let _ = PitWindowRunFramesV1 {
+///     chain_root: d,
+///     head_identity: d,
+///     head_digest: d,
+///     head_version: 1,
+///     frames: Vec::new(),
+/// };
+/// ```
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PitWindowRunFramesV1 {
     chain_root: BindingDigest,
@@ -372,6 +396,24 @@ pub struct PitWindowRunFramesV1 {
 }
 
 impl PitWindowRunFramesV1 {
+    /// The frames the Owner's derived view enumerated from the head it read. Only the frames port
+    /// calls it.
+    pub(crate) const fn from_owner_view(
+        chain_root: BindingDigest,
+        head_identity: BindingDigest,
+        head_digest: BindingDigest,
+        head_version: u64,
+        frames: Vec<PitWindowFrameCoordinateV1>,
+    ) -> Self {
+        Self {
+            chain_root,
+            head_identity,
+            head_digest,
+            head_version,
+            frames,
+        }
+    }
+
     #[must_use]
     pub const fn chain_root(&self) -> BindingDigest {
         self.chain_root
@@ -421,8 +463,11 @@ pub enum PitWindowRunRefusalV1 {
 }
 
 /// The sealed read of a run's frame coordinates. A multi-frame consumer resolves each frame's
-/// inputs and quote cut through the native Replay resolver, whose request gains a custody frame
-/// source in the derived view slice.
+/// inputs and quote cut through the native Replay resolver, naming the frame by a custody frame
+/// source that pins the head the frames were read from.
+///
+/// Every gap's quote cut is checked here, at run level, once its derivation exists (T0-6); until
+/// then the read does not check gaps, and the per-frame read refuses every frame for want of one.
 #[async_trait]
 pub trait PitWindowCustodyFramesV1: Send + Sync + sealed::Sealed {
     /// Enumerates the run's frames from the execution timeframe's window schedule.

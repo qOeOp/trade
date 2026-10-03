@@ -371,8 +371,9 @@ pub(super) fn compose_binding_request_v1(
         scale: role.scale,
         pit_request_identity: batch.request_identity(),
         pit_request_digest: batch.request_digest(),
-        snapshot_identity: batch.snapshot_identity(),
-        snapshot_fact_digest: batch.fact_digest(),
+        source: batch
+            .binding_request_source_v1()
+            .ok_or(PitRoleResolutionErrorV1::NoMatchingSnapshot)?,
         observation_batch_digest: batch.digest(),
         source_binding_identity: batch.source_binding_identity(),
         source_frontier_digest: batch.source_frontier_digest(),

@@ -34,6 +34,11 @@ use super::{
         UntrustedPitSnapshotLocator, UntrustedPitSnapshotTimeEvidence, VerifiedPitObservation,
         VerifiedPitObservationBatch,
     },
+    pit_window_custody_v1::{
+        PitObservationBatchSourceV1, QuoteDerivationV1, UntrustedPitWindowCustodyFrameV1,
+        quote_cut::custody_quote_cut_bound_v1,
+        schedule::{PitWindowScheduleFactV1, window_schedule_admits_frame_v1},
+    },
     source_binding::BindingDigest,
     strategy_input_binding::{
         MarketDataFieldSemantic, StrategyInputChannel, StrategyInputUnit,
@@ -43,6 +48,10 @@ use super::{
 };
 
 const RECEIPT_DOMAIN_V1: &[u8] = b"market-data.native-replay-scheduling-readback.v1\0";
+/// The receipt of a frame sealed from a custody view: its own domain, so it never shares a
+/// preimage with a snapshot frame's.
+const CUSTODY_RECEIPT_DOMAIN_V1: &[u8] =
+    b"market-data.native-replay-scheduling-readback.custody.v1\0";
 const BAR_FIELDS: [&str; 5] = ["OPEN", "HIGH", "LOW", "CLOSE", "VOLUME"];
 const QUOTE_FIELDS: [&str; 4] = ["BID_PRICE", "ASK_PRICE", "BID_SIZE", "ASK_SIZE"];
 
@@ -108,13 +117,13 @@ impl NativeReplaySchedulingReadbackV1 {
 
 /// The Owner coordinates of the quote cut one frame took its Quotes from.
 ///
-/// A PIT snapshot is one instant, so the Quotes that follow a frame's BAR sit in a snapshot of
-/// their own. These are that snapshot's identity, fact, verified batch and instant; every member's
-/// Quote carries that instant as both its event and its initialization time.
+/// A PIT snapshot is one instant, so the Quotes that follow a snapshot frame's BAR sit in a
+/// snapshot of their own; a custody frame's sit in a quote cut derived from its custody. These are
+/// that quote cut's source, verified batch and instant; every member's Quote carries that instant
+/// as both its event and its initialization time.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct NativeReplayQuoteCutReadbackV1 {
-    snapshot_identity: BindingDigest,
-    snapshot_fact_digest: BindingDigest,
+    source: PitObservationBatchSourceV1,
     observation_batch_digest: BindingDigest,
     instant_ns: u64,
 }
@@ -129,21 +138,30 @@ impl NativeReplayQuoteCutReadbackV1 {
         instant_ns: u64,
     ) -> Self {
         Self {
-            snapshot_identity,
-            snapshot_fact_digest,
+            source: PitObservationBatchSourceV1::CommittedSnapshot {
+                snapshot_identity,
+                fact_digest: snapshot_fact_digest,
+            },
             observation_batch_digest,
             instant_ns,
         }
     }
 
+    /// The quote cut's source: a committed snapshot, or a quote cut derived from custody.
     #[must_use]
-    pub const fn snapshot_identity(&self) -> BindingDigest {
-        self.snapshot_identity
+    pub const fn source(&self) -> PitObservationBatchSourceV1 {
+        self.source
     }
 
-    #[must_use]
-    pub const fn snapshot_fact_digest(&self) -> BindingDigest {
-        self.snapshot_fact_digest
+    /// `(snapshot identity, fact digest)` of a quote cut that is a committed snapshot.
+    pub(crate) const fn committed_snapshot(&self) -> Option<(BindingDigest, BindingDigest)> {
+        match self.source {
+            PitObservationBatchSourceV1::CommittedSnapshot {
+                snapshot_identity,
+                fact_digest,
+            } => Some((snapshot_identity, fact_digest)),
+            _ => None,
+        }
     }
 
     #[must_use]
@@ -209,6 +227,16 @@ pub enum NativeReplaySchedulingErrorV1 {
     /// execution role's timeframe label, so the label cannot be typed.
     #[error("the frame's Source Binding declares no bar for the execution role's timeframe")]
     ExecutionTimeframeNotDeclared,
+    /// A custody frame pins no head of the chain it names, or names no chain.
+    #[error("the custody frame's head is not in the chain it names")]
+    PitWindowHeadNotInChain,
+    /// `PIT_WINDOW_FRAME_NOT_COVERED`: the frame's view has no complete cross-section, or its
+    /// decision cut does not precede the next frame.
+    #[error("the custody frame is not covered")]
+    PitWindowFrameNotCovered,
+    /// A snapshot frame asked of the custody read, or a custody frame of the snapshot read.
+    #[error("the frame's source is not the one this read resolves")]
+    FrameSourceMismatch,
 }
 
 /// Untrusted coordinates for resolving one exact native Replay scheduling projection.
@@ -278,14 +306,26 @@ impl NativeReplayInitialUniverseRoleV1 {
     }
 }
 
+/// Where one frame of a native Replay is read from.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum NativeReplayFrameSourceV1 {
+    /// A committed PIT snapshot.
+    Snapshot {
+        snapshot_identity: BindingDigest,
+        snapshot_fact_digest: BindingDigest,
+    },
+    /// One frame of a run over a PIT window custody chain, at the head the run's frames were read
+    /// from.
+    CustodyFrame(UntrustedPitWindowCustodyFrameV1),
+}
+
 /// Bounded request for reconstructing the initial universe frame and one BAR schedule per member.
 ///
 /// Every Owner coordinate absent from this type is derived from the verified PIT batch. The two
 /// schedule locators and the account scope are deliberately not caller inputs.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct NativeReplayInitialMarketRequestV1 {
-    snapshot_identity: BindingDigest,
-    snapshot_fact_digest: BindingDigest,
+    frame_source: NativeReplayFrameSourceV1,
     research_request_identity: BindingDigest,
     strategy_design_identity: BindingDigest,
     /// The strategy-input universe selection the Plan was bound under, derived from a batch's
@@ -326,8 +366,10 @@ impl NativeReplayInitialMarketRequestV1 {
         window_end_ns_exclusive: u64,
     ) -> Self {
         Self {
-            snapshot_identity,
-            snapshot_fact_digest,
+            frame_source: NativeReplayFrameSourceV1::Snapshot {
+                snapshot_identity,
+                snapshot_fact_digest,
+            },
             research_request_identity,
             strategy_design_identity,
             universe_selection_identity,
@@ -358,8 +400,10 @@ impl NativeReplayInitialMarketRequestV1 {
         frame_time_ns: u64,
     ) -> Self {
         Self {
-            snapshot_identity,
-            snapshot_fact_digest,
+            frame_source: NativeReplayFrameSourceV1::Snapshot {
+                snapshot_identity,
+                snapshot_fact_digest,
+            },
             research_request_identity: self.research_request_identity,
             strategy_design_identity: self.strategy_design_identity,
             universe_selection_identity: self.universe_selection_identity,
@@ -376,14 +420,99 @@ impl NativeReplayInitialMarketRequestV1 {
         }
     }
 
+    /// A request for one frame of a custody run, resolved through the custody read: the frame's
+    /// event is the custody frame's `e_k`, and `window_end_ns_exclusive` the run's end, which
+    /// bounds the last frame's quote cut.
+    #[allow(clippy::too_many_arguments)]
     #[must_use]
-    pub const fn snapshot_identity(&self) -> BindingDigest {
-        self.snapshot_identity
+    pub fn for_custody_frame(
+        frame: UntrustedPitWindowCustodyFrameV1,
+        research_request_identity: BindingDigest,
+        strategy_design_identity: BindingDigest,
+        universe_selection_identity: BindingDigest,
+        universe_selection_digest: BindingDigest,
+        universe_selection_record_identity: BindingDigest,
+        universe_selection_record_digest: BindingDigest,
+        instrument_master_digest: BindingDigest,
+        source_binding_lineage_root: BindingDigest,
+        market_semantics_identity: BindingDigest,
+        roles: Vec<NativeReplayInitialUniverseRoleV1>,
+        member_instruments: Vec<InstrumentId>,
+        run_end_ns_exclusive: u64,
+    ) -> Self {
+        Self {
+            frame_source: NativeReplayFrameSourceV1::CustodyFrame(frame),
+            research_request_identity,
+            strategy_design_identity,
+            universe_selection_identity,
+            universe_selection_digest,
+            universe_selection_record_identity,
+            universe_selection_record_digest,
+            instrument_master_digest,
+            source_binding_lineage_root,
+            market_semantics_identity,
+            roles,
+            member_instruments,
+            frame_time_ns: frame.event_ns,
+            window_end_ns_exclusive: run_end_ns_exclusive,
+        }
     }
 
+    /// The same custody request for another frame of the same run, at the same pinned head;
+    /// `None` for a snapshot request.
     #[must_use]
-    pub const fn snapshot_fact_digest(&self) -> BindingDigest {
-        self.snapshot_fact_digest
+    pub fn for_custody_event(&self, event_ns: u64) -> Option<Self> {
+        let NativeReplayFrameSourceV1::CustodyFrame(frame) = self.frame_source else {
+            return None;
+        };
+        Some(Self {
+            frame_source: NativeReplayFrameSourceV1::CustodyFrame(
+                UntrustedPitWindowCustodyFrameV1 { event_ns, ..frame },
+            ),
+            frame_time_ns: event_ns,
+            ..self.clone()
+        })
+    }
+
+    /// What the frame is read from: a committed snapshot or one frame of a custody run.
+    #[must_use]
+    pub const fn frame_source(&self) -> NativeReplayFrameSourceV1 {
+        self.frame_source
+    }
+
+    /// `(snapshot identity, fact digest)` of a snapshot request.
+    ///
+    /// # Errors
+    ///
+    /// [`NativeReplaySchedulingErrorV1::FrameSourceMismatch`] for a custody frame request.
+    pub(crate) const fn snapshot_source(
+        &self,
+    ) -> Result<(BindingDigest, BindingDigest), NativeReplaySchedulingErrorV1> {
+        match self.frame_source {
+            NativeReplayFrameSourceV1::Snapshot {
+                snapshot_identity,
+                snapshot_fact_digest,
+            } => Ok((snapshot_identity, snapshot_fact_digest)),
+            NativeReplayFrameSourceV1::CustodyFrame(_) => {
+                Err(NativeReplaySchedulingErrorV1::FrameSourceMismatch)
+            }
+        }
+    }
+
+    /// The custody frame of a custody request.
+    ///
+    /// # Errors
+    ///
+    /// [`NativeReplaySchedulingErrorV1::FrameSourceMismatch`] for a snapshot request.
+    pub(crate) const fn custody_frame(
+        &self,
+    ) -> Result<UntrustedPitWindowCustodyFrameV1, NativeReplaySchedulingErrorV1> {
+        match self.frame_source {
+            NativeReplayFrameSourceV1::CustodyFrame(frame) => Ok(frame),
+            NativeReplayFrameSourceV1::Snapshot { .. } => {
+                Err(NativeReplaySchedulingErrorV1::FrameSourceMismatch)
+            }
+        }
     }
 
     #[must_use]
@@ -462,6 +591,8 @@ impl NativeReplayInitialMarketRequestV1 {
 #[derive(Debug)]
 pub struct NativeReplayInitialMarketReadbackV1 {
     batch: VerifiedPitObservationBatch,
+    /// The committed snapshot the batch is of, as issuance checked it against the request.
+    snapshot: (BindingDigest, BindingDigest),
     quote_cut: VerifiedPitObservationBatch,
     universe_frame: StrategyInputUniverseFrameReceipt,
     schedules: Vec<BarScheduleReadbackV1>,
@@ -592,7 +723,7 @@ impl NativeReplayInitialMarketReadbackV1 {
     /// repair request. The original observations and executable schedules are not returned.
     #[must_use]
     pub fn into_market_data_repair_source(self) -> MarketDataRepairSourceV1 {
-        market_data_repair_source_from_verified_batch(self.batch)
+        market_data_repair_source_from_verified_batch(self.batch, self.snapshot)
     }
 
     #[must_use]
@@ -624,6 +755,7 @@ impl NativeReplayInitialMarketReadbackV1 {
     > {
         let Self {
             batch,
+            snapshot: _,
             quote_cut,
             universe_frame,
             schedules,
@@ -677,13 +809,14 @@ impl NativeReplayInitialMarketReadbackV1 {
 )]
 pub(crate) fn market_data_repair_source_from_verified_batch(
     batch: VerifiedPitObservationBatch,
+    (pit_snapshot_identity, pit_snapshot_fact_digest): (BindingDigest, BindingDigest),
 ) -> MarketDataRepairSourceV1 {
     MarketDataRepairSourceV1 {
         pit_request_identity: batch.request_identity(),
         pit_request_digest: batch.request_digest(),
         correlation_identity: batch.correlation_identity(),
-        pit_snapshot_identity: batch.snapshot_identity(),
-        pit_snapshot_fact_digest: batch.fact_digest(),
+        pit_snapshot_identity,
+        pit_snapshot_fact_digest,
         instrument_scope_digest: batch.scope_digest(),
         source_binding_identity: batch.source_binding_identity(),
         source_binding_fact_digest: batch.source_binding_fact_digest(),
@@ -749,10 +882,19 @@ pub(crate) mod resolver_seal {
 /// Read-only Owner port that resolves and seals all persistent scheduling inputs as one capability.
 #[async_trait::async_trait]
 pub trait NativeReplaySchedulingResolverV1: resolver_seal::Sealed + Send + Sync {
+    /// Resolves a snapshot frame; a custody frame request is refused as
+    /// [`NativeReplaySchedulingErrorV1::FrameSourceMismatch`].
     async fn resolve_native_replay_initial_market_inputs_v1(
         &self,
         request: &NativeReplayInitialMarketRequestV1,
     ) -> Result<NativeReplayInitialMarketReadbackV1, NativeReplaySchedulingErrorV1>;
+
+    /// Resolves one frame of a custody run at the head its request pins; a snapshot request is
+    /// refused as [`NativeReplaySchedulingErrorV1::FrameSourceMismatch`].
+    async fn resolve_native_replay_custody_frame_inputs_v1(
+        &self,
+        request: &NativeReplayInitialMarketRequestV1,
+    ) -> Result<NativeReplayCustodyFrameReadbackV1, NativeReplaySchedulingErrorV1>;
 }
 
 pub(crate) fn issue_native_replay_initial_market_readback_v1(
@@ -778,8 +920,7 @@ pub(crate) fn issue_native_replay_initial_market_readback_v1(
         || !canonical_members(&request.member_instruments)
         || schedules.len() != request.member_instruments.len()
         || request.frame_time_ns >= request.window_end_ns_exclusive
-        || batch.snapshot_identity() != request.snapshot_identity
-        || batch.fact_digest() != request.snapshot_fact_digest
+        || batch.committed_snapshot() != Some(request.snapshot_source()?)
         || batch.instrument_master_digest() != request.instrument_master_digest
         || batch.source_binding_lineage_root() != request.source_binding_lineage_root
         || batch.market_semantics_identity() != request.market_semantics_identity
@@ -812,7 +953,8 @@ pub(crate) fn issue_native_replay_initial_market_readback_v1(
             return Err(NativeReplaySchedulingErrorV1::DeclaredBarTimeframeMismatch);
         }
     }
-    let binding_requests = native_replay_universe_binding_requests_v1(request, &batch);
+    let binding_requests = native_replay_universe_binding_requests_v1(request, &batch)
+        .ok_or(NativeReplaySchedulingErrorV1::OwnerBindingMismatch)?;
     let universe_frame = bind_strategy_input_universe_frame(&binding_requests, &batch)
         .map_err(|_| NativeReplaySchedulingErrorV1::OwnerBindingMismatch)?;
     let members = universe_frame.selection().members();
@@ -831,6 +973,7 @@ pub(crate) fn issue_native_replay_initial_market_readback_v1(
     quote_cut_instant(&batch, &quote_cut, request.window_end_ns_exclusive)?;
     Ok(NativeReplayInitialMarketReadbackV1 {
         batch,
+        snapshot: request.snapshot_source()?,
         quote_cut,
         universe_frame,
         schedules,
@@ -849,8 +992,9 @@ pub(crate) fn issue_native_replay_initial_market_readback_v1(
 pub(crate) fn native_replay_universe_binding_requests_v1(
     request: &NativeReplayInitialMarketRequestV1,
     batch: &VerifiedPitObservationBatch,
-) -> Vec<UntrustedStrategyInputBindingRequest> {
-    request
+) -> Option<Vec<UntrustedStrategyInputBindingRequest>> {
+    let source = batch.binding_request_source_v1()?;
+    let requests = request
         .roles
         .iter()
         .map(|role| UntrustedStrategyInputBindingRequest {
@@ -867,8 +1011,7 @@ pub(crate) fn native_replay_universe_binding_requests_v1(
             scale: role.scale,
             pit_request_identity: batch.request_identity(),
             pit_request_digest: batch.request_digest(),
-            snapshot_identity: batch.snapshot_identity(),
-            snapshot_fact_digest: batch.fact_digest(),
+            source,
             observation_batch_digest: batch.digest(),
             source_binding_identity: batch.source_binding_identity(),
             source_frontier_digest: batch.source_frontier_digest(),
@@ -878,7 +1021,8 @@ pub(crate) fn native_replay_universe_binding_requests_v1(
             market_semantics_identity: batch.market_semantics_identity(),
             decision_cut: batch.time_evidence().decision_cut.value,
         })
-        .collect()
+        .collect();
+    Some(requests)
 }
 
 #[cfg_attr(
@@ -1026,14 +1170,16 @@ pub fn seal_native_replay_scheduling_v1(
         .map(BarScheduleReadbackV1::digest)
         .collect::<Vec<_>>();
     let quote_cut = NativeReplayQuoteCutReadbackV1 {
-        snapshot_identity: quote_cut.snapshot_identity(),
-        snapshot_fact_digest: quote_cut.fact_digest(),
+        source: quote_cut.source(),
         observation_batch_digest: quote_cut.digest(),
         instant_ns,
     };
+    let (quote_snapshot, quote_fact) = quote_cut
+        .committed_snapshot()
+        .ok_or(NativeReplaySchedulingErrorV1::OwnerBindingMismatch)?;
     let receipt_digest = digest_receipt(
         frame.digest(),
-        &quote_cut,
+        (quote_snapshot, quote_fact),
         &bar_schedule_digests,
         &member_instruments,
         frame_time_ns,
@@ -1051,6 +1197,527 @@ pub fn seal_native_replay_scheduling_v1(
         data,
         receipt_digest,
     })
+}
+
+/// One member's window schedule, as a custody frame's readback states it. Move-only: it is the
+/// Owner's readback of a stored schedule, not a value a caller builds.
+#[derive(Debug, Eq, PartialEq)]
+pub struct PitWindowScheduleReadbackV1(PitWindowScheduleFactV1);
+
+impl PitWindowScheduleReadbackV1 {
+    #[must_use]
+    pub const fn identity(&self) -> BindingDigest {
+        self.0.identity()
+    }
+
+    #[must_use]
+    pub fn instrument(&self) -> &str {
+        &self.0.instrument
+    }
+
+    #[must_use]
+    pub const fn timeframe_identity(&self) -> BindingDigest {
+        self.0.timeframe_identity
+    }
+
+    #[must_use]
+    pub const fn interval_ns(&self) -> u64 {
+        self.0.interval_ns
+    }
+
+    #[must_use]
+    pub const fn phase_ns(&self) -> u64 {
+        self.0.phase_ns
+    }
+
+    /// `[start, end)` of the custody window.
+    #[must_use]
+    pub const fn window(&self) -> (u64, u64) {
+        (self.0.window_start_ns, self.0.window_end_ns_exclusive)
+    }
+}
+
+/// Move-only Market Data readback of one custody frame: its universe frame, window schedules and
+/// the view and quote cut its native schedule is sealed from.
+///
+/// It has none of a snapshot frame's snapshot-only conversions - no repair source, no binding
+/// parts, no V2 frame evidence - so none can be asked of a custody frame.
+#[derive(Debug)]
+pub struct NativeReplayCustodyFrameReadbackV1 {
+    view: VerifiedPitObservationBatch,
+    quote_cut: VerifiedPitObservationBatch,
+    universe_frame: StrategyInputUniverseFrameReceipt,
+    schedules: Vec<PitWindowScheduleReadbackV1>,
+    declared: DeclaredBarTimeframeV1,
+    member_instruments: Vec<InstrumentId>,
+    frame_time_ns: u64,
+    window_end_ns_exclusive: u64,
+}
+
+impl NativeReplayCustodyFrameReadbackV1 {
+    #[must_use]
+    pub const fn universe_frame(&self) -> &StrategyInputUniverseFrameReceipt {
+        &self.universe_frame
+    }
+
+    /// One window schedule per member, in member order.
+    #[must_use]
+    pub fn window_schedules(&self) -> &[PitWindowScheduleReadbackV1] {
+        &self.schedules
+    }
+
+    /// The custody view the frame's strategy inputs were read from.
+    #[must_use]
+    pub const fn source(&self) -> PitObservationBatchSourceV1 {
+        self.view.source()
+    }
+
+    /// Converts the frame into its universe frame and its native scheduling capability.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the view and quote cut cannot form one exact native schedule.
+    pub fn into_execution_parts(
+        self,
+    ) -> Result<
+        (
+            StrategyInputUniverseFrameReceipt,
+            NativeReplaySchedulingReadbackV1,
+        ),
+        NativeReplaySchedulingErrorV1,
+    > {
+        let schedules = self
+            .schedules
+            .into_iter()
+            .map(|schedule| schedule.0)
+            .collect::<Vec<_>>();
+        let scheduling = seal_native_replay_custody_frame_v1(
+            self.view,
+            self.quote_cut,
+            &schedules,
+            &self.declared,
+            self.member_instruments,
+            self.frame_time_ns,
+            self.window_end_ns_exclusive,
+        )?;
+        Ok((self.universe_frame, scheduling))
+    }
+}
+
+#[cfg(test)]
+impl NativeReplayCustodyFrameReadbackV1 {
+    /// The snapshot frame over exactly this frame's rows, for parity proofs: its view and quote
+    /// cut restated as committed snapshots, one BAR schedule per member stating the bar its window
+    /// schedule states, issued on the snapshot path for `request` restated for that snapshot.
+    pub(crate) fn snapshot_twin_for_test(
+        &self,
+        request: &NativeReplayInitialMarketRequestV1,
+    ) -> Result<NativeReplayInitialMarketReadbackV1, NativeReplaySchedulingErrorV1> {
+        let snapshot = |seed: u8| PitObservationBatchSourceV1::CommittedSnapshot {
+            snapshot_identity: BindingDigest::from_untrusted_bytes([seed; 32]),
+            fact_digest: BindingDigest::from_untrusted_bytes([seed.wrapping_add(1); 32]),
+        };
+        let batch = self
+            .view
+            .clone()
+            .edit_for_test(|fields| fields.source = snapshot(12));
+        let quote_cut = self
+            .quote_cut
+            .clone()
+            .edit_for_test(|fields| fields.source = snapshot(112));
+        let schedules = self
+            .schedules
+            .iter()
+            .zip(1..)
+            .map(|(window, identity)| {
+                let shape = window.0.shape;
+                let mut schedule =
+                    tests::schedule_bound_to_batch(&window.0.instrument, identity, &batch);
+                schedule.fact.kind = shape.kind;
+                schedule.fact.unit = shape.unit;
+                schedule.fact.step = shape.step;
+                schedule.fact.anchor_identity = anchor_identity_v1(shape.anchor);
+                schedule.fact.label = shape.label;
+                schedule.fact.completion = shape.completion;
+
+                if shape.clock == BarScheduleClockV1::Continuous {
+                    schedule.fact.calendar_identity = BindingDigest::from_untrusted_bytes([0; 32]);
+                    schedule.fact.session_identity = BindingDigest::from_untrusted_bytes([0; 32]);
+                }
+                schedule
+            })
+            .collect::<Vec<_>>();
+        let selection = batch.universe_selection_digest();
+        let mut request = request.for_frame(
+            BindingDigest::from_untrusted_bytes([12; 32]),
+            BindingDigest::from_untrusted_bytes([13; 32]),
+            request.frame_time_ns,
+        );
+        // A snapshot's Record is the one its intake admitted: both halves name it.
+        request.universe_selection_record_identity = selection;
+        request.universe_selection_record_digest = selection;
+        issue_native_replay_initial_market_readback_v1(
+            batch,
+            quote_cut,
+            schedules,
+            self.declared.clone(),
+            &request,
+        )
+    }
+}
+
+/// The instant of a custody quote cut that follows `view`, once it lies inside the gap after the
+/// view's frame: `(d_k, bound)`, the bound the next frame's event or, for the last, the run's end.
+fn custody_quote_cut_instant(
+    view: &VerifiedPitObservationBatch,
+    quote_cut: &VerifiedPitObservationBatch,
+    interval_ns: u64,
+    window_end_ns_exclusive: u64,
+) -> Result<u64, NativeReplaySchedulingErrorV1> {
+    let PitObservationBatchSourceV1::CustodyView {
+        chain_root,
+        event_ns,
+        decision_cut_ns,
+        ..
+    } = view.source()
+    else {
+        return Err(NativeReplaySchedulingErrorV1::OwnerBindingMismatch);
+    };
+    let PitObservationBatchSourceV1::CustodyQuoteCut {
+        chain_root: quote_root,
+        instant_ns,
+        ..
+    } = quote_cut.source()
+    else {
+        return Err(NativeReplaySchedulingErrorV1::OwnerBindingMismatch);
+    };
+    let bound = custody_quote_cut_bound_v1(event_ns, interval_ns, window_end_ns_exclusive)
+        .ok_or(NativeReplaySchedulingErrorV1::EventOrderUnavailable)?;
+
+    if quote_root != chain_root
+        || quote_cut.instrument_master_digest() != view.instrument_master_digest()
+        || quote_cut.source_binding_lineage_root() != view.source_binding_lineage_root()
+        || quote_cut.market_semantics_identity() != view.market_semantics_identity()
+    {
+        return Err(NativeReplaySchedulingErrorV1::OwnerBindingMismatch);
+    }
+
+    if instant_ns <= decision_cut_ns || instant_ns >= bound {
+        return Err(NativeReplaySchedulingErrorV1::EventOrderUnavailable);
+    }
+    Ok(instant_ns)
+}
+
+/// Issues the readback of one custody frame from the Owner's view, quote cut and window
+/// schedules of the head its request pins.
+///
+/// `universe` is the custody's Universe Selection locator, `(request_identity,
+/// request_meaning_digest)`: the Record a custody request names is checked as that pair.
+pub(crate) fn issue_native_replay_custody_frame_readback_v1(
+    view: VerifiedPitObservationBatch,
+    quote_cut: VerifiedPitObservationBatch,
+    schedules: Vec<PitWindowScheduleFactV1>,
+    declared: DeclaredBarTimeframeV1,
+    universe: (BindingDigest, BindingDigest),
+    request: &NativeReplayInitialMarketRequestV1,
+) -> Result<NativeReplayCustodyFrameReadbackV1, NativeReplaySchedulingErrorV1> {
+    let frame = request.custody_frame()?;
+
+    if request
+        .roles
+        .iter()
+        .any(|role| role.declared_scope != NativeReplayRoleScopeV1::UniverseMembers)
+    {
+        return Err(NativeReplaySchedulingErrorV1::ExactInstrumentRolesUnderOwnerUniverse);
+    }
+
+    // The view in the frame's position is this frame's custody view: a quote cut, a snapshot or
+    // another chain's or frame's view is not.
+    let is_this_frame = matches!(
+        view.source(),
+        PitObservationBatchSourceV1::CustodyView { chain_root, event_ns, .. }
+            if chain_root == frame.custody.chain_root && event_ns == request.frame_time_ns
+    );
+
+    if !is_this_frame
+        || request.roles.is_empty()
+        || !canonical_members(&request.member_instruments)
+        || schedules.len() != request.member_instruments.len()
+        || request.frame_time_ns >= request.window_end_ns_exclusive
+        || view.instrument_master_digest() != request.instrument_master_digest
+        || view.source_binding_lineage_root() != request.source_binding_lineage_root
+        || view.market_semantics_identity() != request.market_semantics_identity
+    {
+        return Err(NativeReplaySchedulingErrorV1::OwnerBindingMismatch);
+    }
+    let interval_ns = schedules
+        .first()
+        .map(|schedule| schedule.interval_ns)
+        .ok_or(NativeReplaySchedulingErrorV1::OwnerBindingMismatch)?;
+    custody_quote_cut_instant(
+        &view,
+        &quote_cut,
+        interval_ns,
+        request.window_end_ns_exclusive,
+    )?;
+
+    // Ruling Q11: the Record is the locator pair, identity and meaning digest each compared.
+    if request.universe_selection_record_identity != universe.0
+        || request.universe_selection_record_digest != universe.1
+        || view.universe_selection_digest() != universe.0
+    {
+        return Err(NativeReplaySchedulingErrorV1::UniverseSelectionRecordMismatch);
+    }
+    let timeframe = request.execution_timeframe()?;
+    declared
+        .for_batch(&view)
+        .and_then(|declared| declared.describes_label(timeframe))
+        .map_err(|_| NativeReplaySchedulingErrorV1::DeclaredBarTimeframeMismatch)?;
+    let PitObservationBatchSourceV1::CustodyView {
+        decision_cut_ns, ..
+    } = view.source()
+    else {
+        return Err(NativeReplaySchedulingErrorV1::OwnerBindingMismatch);
+    };
+
+    for (schedule, instrument) in schedules.iter().zip(&request.member_instruments) {
+        if schedule.instrument != instrument.to_string() {
+            return Err(NativeReplaySchedulingErrorV1::OwnerBindingMismatch);
+        }
+
+        if !window_schedule_admits_frame_v1(schedule, request.frame_time_ns, decision_cut_ns) {
+            return Err(NativeReplaySchedulingErrorV1::NoBarScheduleAtFrame);
+        }
+
+        if !declared.admits_window_schedule(schedule) {
+            return Err(NativeReplaySchedulingErrorV1::DeclaredBarTimeframeMismatch);
+        }
+    }
+    let binding_requests = native_replay_universe_binding_requests_v1(request, &view)
+        .ok_or(NativeReplaySchedulingErrorV1::OwnerBindingMismatch)?;
+    let universe_frame = bind_strategy_input_universe_frame(&binding_requests, &view)
+        .map_err(|_| NativeReplaySchedulingErrorV1::OwnerBindingMismatch)?;
+    let members = universe_frame.selection().members();
+
+    if universe_frame.selection().selection_identity() != request.universe_selection_identity
+        || universe_frame.selection().selection_digest() != request.universe_selection_digest
+        || members.len() != request.member_instruments.len()
+        || !members
+            .iter()
+            .zip(&request.member_instruments)
+            .all(|(member, instrument)| member.instrument() == instrument.to_string())
+    {
+        return Err(NativeReplaySchedulingErrorV1::OwnerBindingMismatch);
+    }
+    Ok(NativeReplayCustodyFrameReadbackV1 {
+        view,
+        quote_cut,
+        universe_frame,
+        schedules: schedules
+            .into_iter()
+            .map(PitWindowScheduleReadbackV1)
+            .collect(),
+        declared,
+        member_instruments: request.member_instruments.clone(),
+        frame_time_ns: request.frame_time_ns,
+        window_end_ns_exclusive: request.window_end_ns_exclusive,
+    })
+}
+
+/// Seals one custody frame's `[BAR.., QUOTE..]` native schedule from its view, its quote cut and
+/// one window schedule per member: the snapshot frame's projection, with the window schedule in
+/// place of the BAR schedule and a receipt of its own.
+///
+/// # Errors
+///
+/// Fails when a schedule, member, field census, coordinate, time, or native value is missing,
+/// duplicated, mismatched, or not exactly representable.
+#[allow(
+    clippy::needless_pass_by_value,
+    reason = "sealing native scheduling consumes the Owner view and quote cut"
+)]
+pub(crate) fn seal_native_replay_custody_frame_v1(
+    view: VerifiedPitObservationBatch,
+    quote_cut: VerifiedPitObservationBatch,
+    schedules: &[PitWindowScheduleFactV1],
+    declared: &DeclaredBarTimeframeV1,
+    member_instruments: Vec<InstrumentId>,
+    frame_time_ns: u64,
+    window_end_ns_exclusive: u64,
+) -> Result<NativeReplaySchedulingReadbackV1, NativeReplaySchedulingErrorV1> {
+    let PitObservationBatchSourceV1::CustodyView {
+        chain_root,
+        view_identity,
+        event_ns,
+        decision_cut_ns,
+        derived_frontier_digest,
+    } = view.source()
+    else {
+        return Err(NativeReplaySchedulingErrorV1::OwnerBindingMismatch);
+    };
+
+    if !canonical_members(&member_instruments)
+        || schedules.len() != member_instruments.len()
+        || frame_time_ns >= window_end_ns_exclusive
+        || event_ns != frame_time_ns
+    {
+        return Err(NativeReplaySchedulingErrorV1::OwnerBindingMismatch);
+    }
+    let declared = declared
+        .for_batch(&view)
+        .map_err(|_| NativeReplaySchedulingErrorV1::DeclaredBarTimeframeMismatch)?;
+    let interval_ns = schedules
+        .first()
+        .map(|schedule| schedule.interval_ns)
+        .ok_or(NativeReplaySchedulingErrorV1::OwnerBindingMismatch)?;
+    let instant_ns =
+        custody_quote_cut_instant(&view, &quote_cut, interval_ns, window_end_ns_exclusive)?;
+    let PitObservationBatchSourceV1::CustodyQuoteCut {
+        quote_cut_identity,
+        derivation,
+        ..
+    } = quote_cut.source()
+    else {
+        return Err(NativeReplaySchedulingErrorV1::OwnerBindingMismatch);
+    };
+    let bar_types = schedules
+        .iter()
+        .zip(&member_instruments)
+        .map(|(schedule, instrument)| {
+            if schedule.instrument != instrument.to_string()
+                || !window_schedule_admits_frame_v1(schedule, frame_time_ns, decision_cut_ns)
+            {
+                return Err(NativeReplaySchedulingErrorV1::NoBarScheduleAtFrame);
+            }
+
+            if !declared.admits_window_schedule(schedule) {
+                return Err(NativeReplaySchedulingErrorV1::DeclaredBarTimeframeMismatch);
+            }
+            Ok(BarType::new(
+                *instrument,
+                native_bar_specification_of_v1(
+                    schedule.shape.kind,
+                    schedule.shape.unit,
+                    schedule.shape.step,
+                    schedule.shape.clock,
+                    anchor_identity_v1(schedule.shape.anchor),
+                )?,
+                AggregationSource::External,
+            ))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut data = Vec::with_capacity(member_instruments.len() * 2);
+
+    for (instrument, bar_type) in member_instruments.iter().zip(&bar_types) {
+        data.push(Data::Bar(project_bar(
+            &view,
+            *instrument,
+            *bar_type,
+            frame_time_ns,
+            declared.row_timeframe(),
+        )?));
+    }
+
+    for instrument in &member_instruments {
+        data.push(Data::Quote(project_quote(
+            &quote_cut,
+            *instrument,
+            instant_ns,
+        )?));
+    }
+    let bar_schedule_digests = schedules
+        .iter()
+        .map(PitWindowScheduleFactV1::identity)
+        .collect::<Vec<_>>();
+    let receipt_digest = digest_custody_receipt_v1(
+        &CustodyReceiptPartsV1 {
+            view_digest: view.digest(),
+            chain_root,
+            view_identity,
+            derived_frontier_digest,
+            quote_cut_identity,
+            derivation,
+            schedule_digests: &bar_schedule_digests,
+            instruments: &member_instruments,
+            frame_time_ns,
+            window_end_ns_exclusive,
+        },
+        &data,
+    )?;
+    Ok(NativeReplaySchedulingReadbackV1 {
+        observation_batch_digest: view.digest(),
+        quote_cut: NativeReplayQuoteCutReadbackV1 {
+            source: quote_cut.source(),
+            observation_batch_digest: quote_cut.digest(),
+            instant_ns,
+        },
+        bar_schedule_digests,
+        member_instruments,
+        frame_time_ns,
+        window_end_ns_exclusive,
+        bar_types,
+        data,
+        receipt_digest,
+    })
+}
+
+/// Everything a custody frame's receipt binds besides its native values.
+struct CustodyReceiptPartsV1<'a> {
+    view_digest: BindingDigest,
+    chain_root: BindingDigest,
+    view_identity: BindingDigest,
+    derived_frontier_digest: BindingDigest,
+    quote_cut_identity: BindingDigest,
+    derivation: QuoteDerivationV1,
+    schedule_digests: &'a [BindingDigest],
+    instruments: &'a [InstrumentId],
+    frame_time_ns: u64,
+    window_end_ns_exclusive: u64,
+}
+
+/// The receipt of a custody frame: the member count, the view's batch digest, chain root, view
+/// identity and derived frontier, the quote cut's identity and derivation, the window schedules,
+/// the members, `e_k`, the window's end, then the native values.
+fn digest_custody_receipt_v1(
+    parts: &CustodyReceiptPartsV1<'_>,
+    data: &[Data],
+) -> Result<BindingDigest, NativeReplaySchedulingErrorV1> {
+    let mut hasher = Sha256::new();
+    hasher.update(CUSTODY_RECEIPT_DOMAIN_V1);
+    hasher.update(
+        u64::try_from(parts.instruments.len())
+            .map_err(|_| NativeReplaySchedulingErrorV1::OwnerBindingMismatch)?
+            .to_be_bytes(),
+    );
+    hasher.update(parts.view_digest.as_bytes());
+    hasher.update(parts.chain_root.as_bytes());
+    hasher.update(parts.view_identity.as_bytes());
+    hasher.update(parts.derived_frontier_digest.as_bytes());
+    hasher.update(parts.quote_cut_identity.as_bytes());
+
+    match parts.derivation {
+        QuoteDerivationV1::ObservedBbo => hasher.update([1]),
+        QuoteDerivationV1::FillBarOpen {
+            fill_timeframe_identity,
+        } => {
+            hasher.update([2]);
+            hasher.update(fill_timeframe_identity.as_bytes());
+        }
+    }
+
+    for digest in parts.schedule_digests {
+        hasher.update(digest.as_bytes());
+    }
+
+    for instrument in parts.instruments {
+        hash_text(&mut hasher, &instrument.to_string())?;
+    }
+    hasher.update(parts.frame_time_ns.to_be_bytes());
+    hasher.update(parts.window_end_ns_exclusive.to_be_bytes());
+    hash_native_data_v1(&mut hasher, data)?;
+    Ok(BindingDigest::from_untrusted_bytes(
+        hasher.finalize().into(),
+    ))
 }
 
 /// Returns the instant of `quote_cut` once it is `frame`'s quote cut and lies before the bound.
@@ -1173,14 +1840,32 @@ fn schedule_is_at_frame_v1(
 fn native_bar_specification_v1(
     fact: &BarScheduleFactV1,
 ) -> Result<BarSpecification, NativeReplaySchedulingErrorV1> {
+    native_bar_specification_of_v1(
+        fact.kind(),
+        fact.unit(),
+        fact.step(),
+        fact.clock(),
+        fact.anchor_identity(),
+    )
+}
+
+/// [`native_bar_specification_v1`] of a bar stated by its shape alone, as a window schedule
+/// states it.
+fn native_bar_specification_of_v1(
+    kind: BarScheduleKindV1,
+    schedule_unit: BarScheduleUnitV1,
+    schedule_step: u32,
+    clock: BarScheduleClockV1,
+    anchor_identity: BindingDigest,
+) -> Result<BarSpecification, NativeReplaySchedulingErrorV1> {
     let named = |step: u64, aggregation| {
         let step = usize::try_from(step)
             .map_err(|_| NativeReplaySchedulingErrorV1::NativeRepresentation)?;
         BarSpecification::new_checked(step, aggregation, PriceType::Last)
             .map_err(|_| NativeReplaySchedulingErrorV1::NativeRepresentation)
     };
-    let step = u64::from(fact.step());
-    let unit_seconds = match (fact.kind(), fact.unit()) {
+    let step = u64::from(schedule_step);
+    let unit_seconds = match (kind, schedule_unit) {
         (BarScheduleKindV1::FixedInterval, BarScheduleUnitV1::Second) => 1,
         (BarScheduleKindV1::FixedInterval, BarScheduleUnitV1::Minute) => 60,
         (BarScheduleKindV1::FixedInterval, BarScheduleUnitV1::Hour) => 3_600,
@@ -1189,14 +1874,14 @@ fn native_bar_specification_v1(
         }
         _ => return Err(NativeReplaySchedulingErrorV1::OwnerBindingMismatch),
     };
-    let unit = match fact.unit() {
+    let unit = match schedule_unit {
         BarScheduleUnitV1::Second => BarAggregation::Second,
         BarScheduleUnitV1::Minute => BarAggregation::Minute,
         _ => BarAggregation::Hour,
     };
 
-    if fact.clock() != BarScheduleClockV1::Continuous
-        || fact.anchor_identity() != anchor_identity_v1(DeclaredBarAnchorV1::UnixEpoch)
+    if clock != BarScheduleClockV1::Continuous
+        || anchor_identity != anchor_identity_v1(DeclaredBarAnchorV1::UnixEpoch)
     {
         return named(step, unit);
     }
@@ -1395,7 +2080,7 @@ fn canonical_members(members: &[InstrumentId]) -> bool {
 
 fn digest_receipt(
     batch_digest: BindingDigest,
-    quote_cut: &NativeReplayQuoteCutReadbackV1,
+    (quote_snapshot, quote_fact): (BindingDigest, BindingDigest),
     schedule_digests: &[BindingDigest],
     instruments: &[InstrumentId],
     frame_time_ns: u64,
@@ -1413,8 +2098,8 @@ fn digest_receipt(
             .to_be_bytes(),
     );
     hasher.update(batch_digest.as_bytes());
-    hasher.update(quote_cut.snapshot_identity.as_bytes());
-    hasher.update(quote_cut.snapshot_fact_digest.as_bytes());
+    hasher.update(quote_snapshot.as_bytes());
+    hasher.update(quote_fact.as_bytes());
     for digest in schedule_digests {
         hasher.update(digest.as_bytes());
     }
@@ -1424,28 +2109,39 @@ fn digest_receipt(
     }
     hasher.update(frame_time_ns.to_be_bytes());
     hasher.update(window_end_ns_exclusive.to_be_bytes());
+    hash_native_data_v1(&mut hasher, data)?;
+    Ok(BindingDigest::from_untrusted_bytes(
+        hasher.finalize().into(),
+    ))
+}
 
+/// Hashes the native values a scheduling receipt binds, in order: each BAR's type, prices, volume
+/// and instants, each Quote's instrument, prices, sizes and instants.
+fn hash_native_data_v1(
+    hasher: &mut Sha256,
+    data: &[Data],
+) -> Result<(), NativeReplaySchedulingErrorV1> {
     for value in data {
         match value {
             Data::Bar(bar) => {
                 hasher.update([1]);
-                hash_text(&mut hasher, &bar.bar_type.to_string())?;
+                hash_text(hasher, &bar.bar_type.to_string())?;
                 for price in [bar.open, bar.high, bar.low, bar.close] {
-                    hash_text(&mut hasher, &price.to_string())?;
+                    hash_text(hasher, &price.to_string())?;
                 }
-                hash_text(&mut hasher, &bar.volume.to_string())?;
+                hash_text(hasher, &bar.volume.to_string())?;
                 hasher.update(bar.ts_event.as_u64().to_be_bytes());
                 hasher.update(bar.ts_init.as_u64().to_be_bytes());
             }
             Data::Quote(quote) => {
                 hasher.update([2]);
-                hash_text(&mut hasher, &quote.instrument_id.to_string())?;
+                hash_text(hasher, &quote.instrument_id.to_string())?;
                 for price in [quote.bid_price, quote.ask_price] {
-                    hash_text(&mut hasher, &price.to_string())?;
+                    hash_text(hasher, &price.to_string())?;
                 }
 
                 for quantity in [quote.bid_size, quote.ask_size] {
-                    hash_text(&mut hasher, &quantity.to_string())?;
+                    hash_text(hasher, &quantity.to_string())?;
                 }
                 hasher.update(quote.ts_event.as_u64().to_be_bytes());
                 hasher.update(quote.ts_init.as_u64().to_be_bytes());
@@ -1453,9 +2149,7 @@ fn digest_receipt(
             _ => return Err(NativeReplaySchedulingErrorV1::FieldCensusMismatch),
         }
     }
-    Ok(BindingDigest::from_untrusted_bytes(
-        hasher.finalize().into(),
-    ))
+    Ok(())
 }
 
 fn hash_text(hasher: &mut Sha256, value: &str) -> Result<(), NativeReplaySchedulingErrorV1> {
@@ -1607,11 +2301,11 @@ pub(crate) mod tests {
         rows: Vec<VerifiedPitObservation>,
         instant: u64,
     ) -> VerifiedPitObservationBatch {
-        let seed = frame.snapshot_identity().as_bytes()[0];
+        let seed = frame.snapshot_identity_for_test().as_bytes()[0];
         let selection = frame.universe_selection_digest();
         batch(rows).edit_for_test(|fields| {
-            fields.snapshot_identity = digest(seed.wrapping_add(100));
-            fields.fact_digest = digest(seed.wrapping_add(101));
+            *fields.snapshot_identity_mut_for_test() = digest(seed.wrapping_add(100));
+            *fields.fact_digest_mut_for_test() = digest(seed.wrapping_add(101));
             fields.digest = digest(seed.wrapping_add(102));
             fields.universe_selection_digest = selection;
             fields.time_evidence.event_effective =
@@ -1664,8 +2358,10 @@ pub(crate) mod tests {
             request_digest: digest(11),
             correlation_identity: digest(18),
             scope_digest: digest(17),
-            snapshot_identity: digest(12),
-            fact_digest: digest(13),
+            source: crate::owner::pit_window_custody_v1::PitObservationBatchSourceV1::CommittedSnapshot {
+                snapshot_identity: digest(12),
+                fact_digest: digest(13),
+            },
             source_binding_identity: digest(3),
             source_binding_fact_digest: digest(19),
             source_binding_lineage_root: digest(14),
@@ -1844,8 +2540,8 @@ pub(crate) mod tests {
         }
 
         let verified = batch(rows).edit_for_test(|fields| {
-            fields.snapshot_identity = digest(seed);
-            fields.fact_digest = digest(seed.wrapping_add(1));
+            *fields.snapshot_identity_mut_for_test() = digest(seed);
+            *fields.fact_digest_mut_for_test() = digest(seed.wrapping_add(1));
             fields.time_evidence.event_effective =
                 UntrustedEventEffectiveTime::from_untrusted(frame_time_ns, "clock", "epoch");
         });
@@ -1975,8 +2671,8 @@ pub(crate) mod tests {
         for roles in [vec![close.clone()], vec![close, bid]] {
             let with_bid = roles.len() == 2;
             let request = NativeReplayInitialMarketRequestV1::new(
-                frame.snapshot_identity(),
-                frame.fact_digest(),
+                frame.snapshot_identity_for_test(),
+                frame.fact_digest_for_test(),
                 digest(20),
                 digest(21),
                 selection.selection_identity(),
@@ -2006,8 +2702,8 @@ pub(crate) mod tests {
                 Ok(readback) => {
                     let inputs = readback.universe_frame();
                     assert_eq!(
-                        inputs.trigger().snapshot_identity(),
-                        frame.snapshot_identity()
+                        inputs.trigger().snapshot_identity_for_test(),
+                        frame.snapshot_identity_for_test()
                     );
                     assert_eq!(inputs.values().len(), members.len() * request.roles.len());
 
@@ -2174,12 +2870,7 @@ pub(crate) mod tests {
     /// can share a preimage with the other and a receipt cannot be moved to another quote cut.
     #[rstest::rstest]
     fn a_receipt_states_its_member_count_and_binds_its_quote_cut() {
-        let quote_cut = NativeReplayQuoteCutReadbackV1 {
-            snapshot_identity: digest(50),
-            snapshot_fact_digest: digest(51),
-            observation_batch_digest: digest(52),
-            instant_ns: 101,
-        };
+        let quote_cut = (digest(50), digest(51));
         let by_hand = |schedule_digests: &[BindingDigest], instruments: &[InstrumentId]| {
             let mut hasher = Sha256::new();
             hasher.update(RECEIPT_DOMAIN_V1);
@@ -2206,7 +2897,7 @@ pub(crate) mod tests {
             assert_eq!(
                 digest_receipt(
                     digest(9),
-                    &quote_cut,
+                    quote_cut,
                     &schedule_digests[..count],
                     &members[..count],
                     100,
@@ -2218,14 +2909,11 @@ pub(crate) mod tests {
                 "{count} member(s)"
             );
         }
-        let elsewhere = NativeReplayQuoteCutReadbackV1 {
-            snapshot_identity: digest(53),
-            ..quote_cut
-        };
+        let elsewhere = (digest(53), quote_cut.1);
         assert_ne!(
             digest_receipt(
                 digest(9),
-                &elsewhere,
+                elsewhere,
                 &schedule_digests,
                 &members,
                 100,
@@ -2336,7 +3024,13 @@ pub(crate) mod tests {
         .unwrap();
 
         assert_eq!(readback.member_instruments(), two_members());
-        assert_eq!(readback.quote_cut().snapshot_identity(), digest(112));
+        assert_eq!(
+            readback
+                .quote_cut()
+                .committed_snapshot()
+                .map(|(snapshot, _)| snapshot),
+            Some(digest(112))
+        );
         assert_eq!(readback.quote_cut().instant_ns(), 101);
         let (_, data) = readback.into_native_schedule();
         let [
@@ -3089,5 +3783,610 @@ pub(crate) mod tests {
             native_bar_type_for_schedule_v1(elsewhere.fact(), instrument).is_ok(),
             "while the name is the schedule's alone"
         );
+    }
+
+    mod custody_frame {
+        //! A custody frame's issuance and seal (slice T0-5), against the snapshot frame's on the
+        //! same values.
+
+        use super::*;
+        use crate::owner::{
+            pit_window_custody_v1::{
+                PitObservationBatchSourceV1, QuoteDerivationV1, UntrustedPitWindowCustodyClaimV1,
+                UntrustedPitWindowCustodyFrameV1, schedule::PitWindowScheduleFactV1,
+            },
+            strategy_input_binding::derive_universe_selection,
+        };
+
+        const MINUTE: u64 = 60_000_000_000;
+        /// The frame closes at minute 2; its view decides one nanosecond later.
+        const E: u64 = 2 * MINUTE;
+        const D: u64 = E + 1;
+        const QUOTE_AT: u64 = E + 2;
+        const RUN_END: u64 = 10 * MINUTE;
+        const AAA: &str = "AAA-PERP.SIM";
+        const BBB: &str = "BBB-PERP.SIM";
+
+        fn view_source() -> PitObservationBatchSourceV1 {
+            PitObservationBatchSourceV1::CustodyView {
+                chain_root: digest(60),
+                view_identity: digest(61),
+                event_ns: E,
+                decision_cut_ns: D,
+                derived_frontier_digest: digest(62),
+            }
+        }
+
+        fn quote_source(derivation: QuoteDerivationV1) -> PitObservationBatchSourceV1 {
+            PitObservationBatchSourceV1::CustodyQuoteCut {
+                chain_root: digest(60),
+                quote_cut_identity: digest(63),
+                instant_ns: QUOTE_AT,
+                derivation,
+            }
+        }
+
+        fn bar_rows(member: &str) -> Vec<VerifiedPitObservation> {
+            bar_rows_at(member, E, 0)
+                .into_iter()
+                .map(|mut row| {
+                    row.symbolic_key = format!("{member}.{}.1M", row.field);
+                    row.provider_available = D;
+                    row.correction_publication = D;
+                    row.retrieval = D;
+                    row
+                })
+                .collect()
+        }
+
+        fn timed(
+            rows: Vec<VerifiedPitObservation>,
+            source: PitObservationBatchSourceV1,
+            event: u64,
+        ) -> VerifiedPitObservationBatch {
+            batch(rows).edit_for_test(|fields| {
+                fields.source = source;
+                fields.time_evidence.event_effective =
+                    UntrustedEventEffectiveTime::from_untrusted(event, "clock", "epoch");
+                fields.time_evidence.decision_cut =
+                    UntrustedSnapshotDecisionCut::from_untrusted(event.max(D), "clock", "epoch");
+            })
+        }
+
+        /// The frame's rows of `members`, from a snapshot or as a custody view.
+        fn frame(
+            members: &[&str],
+            source: PitObservationBatchSourceV1,
+        ) -> VerifiedPitObservationBatch {
+            timed(
+                members.iter().flat_map(|member| bar_rows(member)).collect(),
+                source,
+                E,
+            )
+        }
+
+        fn quote(
+            members: &[&str],
+            source: PitObservationBatchSourceV1,
+        ) -> VerifiedPitObservationBatch {
+            let mut quote = timed(
+                members
+                    .iter()
+                    .flat_map(|member| quote_rows(member, QUOTE_AT))
+                    .collect(),
+                source,
+                QUOTE_AT,
+            );
+            quote = quote.edit_for_test(|fields| fields.digest = digest(116));
+            quote
+        }
+
+        fn snapshot_source(seed: u8) -> PitObservationBatchSourceV1 {
+            PitObservationBatchSourceV1::CommittedSnapshot {
+                snapshot_identity: digest(seed),
+                fact_digest: digest(seed.wrapping_add(1)),
+            }
+        }
+
+        /// A continuous one-minute bar from the Unix epoch, labelled at its close: the one bar both
+        /// paths schedule.
+        fn declared() -> DeclaredBarTimeframeV1 {
+            let declared = declared_bar_timeframe_for_test_v1(
+                digest(19),
+                &UntrustedSourceBarTimeframeV1 {
+                    row_timeframe: "1M".to_owned(),
+                    cadence: UntrustedSourceBarCadenceV1::FixedInterval {
+                        step: 1,
+                        unit: UntrustedSourceBarUnitV1::Minute,
+                    },
+                    anchor: UntrustedSourceBarAnchorV1::UnixEpoch,
+                    clock: UntrustedSourceBarClockV1::Continuous,
+                    label: UntrustedSourceBarLabelV1::IntervalClose,
+                    completion: UntrustedSourceBarCompletionV1::CompleteOnly,
+                },
+            );
+            // A custody states the same declaration from its record and window schedule.
+            assert_eq!(
+                DeclaredBarTimeframeV1::from_custody_v1(digest(19), "1M", declared.shape()),
+                declared
+            );
+            declared
+        }
+
+        fn window_schedules(members: &[&str]) -> Vec<PitWindowScheduleFactV1> {
+            members
+                .iter()
+                .zip(0..)
+                .map(|(member, ordinal)| {
+                    PitWindowScheduleFactV1::with_shape_for_test(
+                        ordinal,
+                        member,
+                        declared().shape(),
+                        MINUTE,
+                        (0, RUN_END),
+                    )
+                })
+                .collect()
+        }
+
+        fn bar_schedules(
+            members: &[&str],
+            frame: &VerifiedPitObservationBatch,
+        ) -> Vec<BarScheduleReadbackV1> {
+            members
+                .iter()
+                .zip(1..)
+                .map(|(member, identity)| {
+                    let mut schedule = schedule_bound_to_batch(member, identity, frame);
+                    schedule.fact.anchor_identity =
+                        anchor_identity_v1(DeclaredBarAnchorV1::UnixEpoch);
+                    schedule.fact.calendar_identity = BindingDigest::from_untrusted_bytes([0; 32]);
+                    schedule.fact.session_identity = BindingDigest::from_untrusted_bytes([0; 32]);
+                    schedule
+                })
+                .collect()
+        }
+
+        fn instruments(members: &[&str]) -> Vec<InstrumentId> {
+            members
+                .iter()
+                .map(|member| InstrumentId::from(*member))
+                .collect()
+        }
+
+        fn custody_seal(
+            view: VerifiedPitObservationBatch,
+            quote_cut: VerifiedPitObservationBatch,
+            members: &[&str],
+        ) -> Result<NativeReplaySchedulingReadbackV1, NativeReplaySchedulingErrorV1> {
+            seal_native_replay_custody_frame_v1(
+                view,
+                quote_cut,
+                &window_schedules(members),
+                &declared(),
+                instruments(members),
+                E,
+                RUN_END,
+            )
+        }
+
+        fn snapshot_seal(
+            frame_batch: VerifiedPitObservationBatch,
+            quote_cut: VerifiedPitObservationBatch,
+            members: &[&str],
+        ) -> Result<NativeReplaySchedulingReadbackV1, NativeReplaySchedulingErrorV1> {
+            let schedules = bar_schedules(members, &frame_batch);
+            seal_native_replay_scheduling_v1(
+                frame_batch,
+                quote_cut,
+                schedules,
+                &declared(),
+                instruments(members),
+                E,
+                RUN_END,
+            )
+        }
+
+        /// A custody frame and a snapshot frame over the same values seal the same native
+        /// schedule: bar types, every value, instant and member order. Their receipts differ.
+        #[rstest::rstest]
+        #[case::one_member(&[AAA])]
+        #[case::two_members(&[AAA, BBB])]
+        fn a_custody_frame_seals_the_snapshot_frames_native_schedule(#[case] members: &[&str]) {
+            let custody = custody_seal(
+                frame(members, view_source()),
+                quote(members, quote_source(QuoteDerivationV1::ObservedBbo)),
+                members,
+            )
+            .expect("the custody frame seals");
+            let snapshot = snapshot_seal(
+                frame(members, snapshot_source(12)),
+                quote(members, snapshot_source(112)),
+                members,
+            )
+            .expect("the snapshot frame seals");
+
+            assert_eq!(custody.member_instruments(), snapshot.member_instruments());
+            assert_eq!(
+                custody.quote_cut().instant_ns(),
+                snapshot.quote_cut().instant_ns()
+            );
+            assert_eq!(
+                custody.quote_cut().source(),
+                quote_source(QuoteDerivationV1::ObservedBbo)
+            );
+            assert_ne!(custody.receipt_digest(), snapshot.receipt_digest());
+            assert_eq!(
+                custody.into_native_schedule(),
+                snapshot.into_native_schedule()
+            );
+        }
+
+        #[rstest::rstest]
+        fn a_quote_cut_batch_in_the_frame_position_is_refused() {
+            let members = &[AAA, BBB];
+            let custody_quote = quote(members, quote_source(QuoteDerivationV1::ObservedBbo));
+            assert_eq!(
+                custody_seal(custody_quote.clone(), custody_quote.clone(), members).map(|_| ()),
+                Err(NativeReplaySchedulingErrorV1::OwnerBindingMismatch)
+            );
+            assert_eq!(
+                snapshot_seal(
+                    custody_quote.clone(),
+                    quote(members, snapshot_source(112)),
+                    members
+                )
+                .map(|_| ()),
+                Err(NativeReplaySchedulingErrorV1::OwnerBindingMismatch)
+            );
+            let (request, universe) = custody_request(members, "1M");
+            assert_eq!(
+                issue(
+                    custody_quote.clone(),
+                    custody_quote,
+                    members,
+                    &request,
+                    universe
+                )
+                .map(|_| ()),
+                Err(NativeReplaySchedulingErrorV1::OwnerBindingMismatch)
+            );
+        }
+
+        #[rstest::rstest]
+        fn a_custody_view_in_the_quote_position_is_refused() {
+            let members = &[AAA, BBB];
+            assert_eq!(
+                custody_seal(
+                    frame(members, view_source()),
+                    frame(members, view_source()),
+                    members
+                )
+                .map(|_| ()),
+                Err(NativeReplaySchedulingErrorV1::OwnerBindingMismatch)
+            );
+        }
+
+        #[rstest::rstest]
+        fn a_snapshot_quote_cut_does_not_serve_a_custody_frame_and_back() {
+            let members = &[AAA, BBB];
+            assert_eq!(
+                custody_seal(
+                    frame(members, view_source()),
+                    quote(members, snapshot_source(112)),
+                    members
+                )
+                .map(|_| ()),
+                Err(NativeReplaySchedulingErrorV1::OwnerBindingMismatch)
+            );
+            assert_eq!(
+                snapshot_seal(
+                    frame(members, snapshot_source(12)),
+                    quote(members, quote_source(QuoteDerivationV1::ObservedBbo)),
+                    members
+                )
+                .map(|_| ()),
+                Err(NativeReplaySchedulingErrorV1::OwnerBindingMismatch)
+            );
+        }
+
+        /// A custody request for `members` whose close role reads `close_label`, and the custody's
+        /// Universe Selection locator.
+        fn custody_request(
+            members: &[&str],
+            close_label: &str,
+        ) -> (
+            NativeReplayInitialMarketRequestV1,
+            (BindingDigest, BindingDigest),
+        ) {
+            custody_request_with(
+                members,
+                &[(42, MarketDataFieldSemantic::BarClosePrice, close_label)],
+            )
+        }
+
+        fn custody_request_with(
+            members: &[&str],
+            roles: &[(u8, MarketDataFieldSemantic, &str)],
+        ) -> (
+            NativeReplayInitialMarketRequestV1,
+            (BindingDigest, BindingDigest),
+        ) {
+            let selection = derive_universe_selection(&frame(members, view_source())).unwrap();
+            let universe = (digest(6), digest(66));
+            let request = NativeReplayInitialMarketRequestV1::for_custody_frame(
+                UntrustedPitWindowCustodyFrameV1 {
+                    custody: UntrustedPitWindowCustodyClaimV1 {
+                        chain_root: digest(60),
+                    },
+                    head_identity: digest(64),
+                    event_ns: E,
+                },
+                digest(1),
+                digest(2),
+                selection.selection_identity(),
+                selection.selection_digest(),
+                universe.0,
+                universe.1,
+                digest(5),
+                digest(14),
+                digest(7),
+                roles
+                    .iter()
+                    .map(|(identity, field, timeframe)| {
+                        NativeReplayInitialUniverseRoleV1::new(
+                            digest(*identity),
+                            *field,
+                            StrategyInputChannel::Market,
+                            (*timeframe).to_owned(),
+                            field.unit(),
+                            2,
+                        )
+                    })
+                    .collect(),
+                instruments(members),
+                RUN_END,
+            );
+            (request, universe)
+        }
+
+        fn issue(
+            view: VerifiedPitObservationBatch,
+            quote_cut: VerifiedPitObservationBatch,
+            members: &[&str],
+            request: &NativeReplayInitialMarketRequestV1,
+            universe: (BindingDigest, BindingDigest),
+        ) -> Result<NativeReplayCustodyFrameReadbackV1, NativeReplaySchedulingErrorV1> {
+            issue_native_replay_custody_frame_readback_v1(
+                view,
+                quote_cut,
+                window_schedules(members),
+                declared(),
+                universe,
+                request,
+            )
+        }
+
+        #[rstest::rstest]
+        fn a_custody_frame_is_issued_and_converts_into_its_native_schedule() {
+            let members = &[AAA, BBB];
+            let (request, universe) = custody_request(members, "1M");
+            let readback = issue(
+                frame(members, view_source()),
+                quote(members, quote_source(QuoteDerivationV1::ObservedBbo)),
+                members,
+                &request,
+                universe,
+            )
+            .expect("the custody frame issues");
+            assert_eq!(readback.source(), view_source());
+            assert_eq!(readback.window_schedules().len(), 2);
+            assert_eq!(readback.window_schedules()[1].instrument(), BBB);
+            assert_eq!(readback.window_schedules()[0].window(), (0, RUN_END));
+            let (universe_frame, scheduling) = readback.into_execution_parts().unwrap();
+            assert_eq!(universe_frame.selection().members().len(), 2);
+            assert_eq!(scheduling.frame_time_ns(), E);
+
+            // Ruling Q11: the Record is the locator pair; each half is compared on its own.
+            for wrong in [(digest(6), digest(67)), (digest(68), digest(66))] {
+                assert_eq!(
+                    issue(
+                        frame(members, view_source()),
+                        quote(members, quote_source(QuoteDerivationV1::ObservedBbo)),
+                        members,
+                        &request,
+                        wrong,
+                    )
+                    .map(|_| ()),
+                    Err(NativeReplaySchedulingErrorV1::UniverseSelectionRecordMismatch)
+                );
+            }
+        }
+
+        /// The fill timeframe is never an input: a role on its label is not the custody's execution
+        /// bar, and reads no row.
+        #[rstest::rstest]
+        #[case::the_close_on_the_fill_label(&[(42, MarketDataFieldSemantic::BarClosePrice, "1S")], NativeReplaySchedulingErrorV1::DeclaredBarTimeframeMismatch)]
+        #[case::another_role_on_the_fill_label(&[(41, MarketDataFieldSemantic::BarOpenPrice, "1S"), (42, MarketDataFieldSemantic::BarClosePrice, "1M")], NativeReplaySchedulingErrorV1::MoreThanOneRoleTimeframe)]
+        fn a_role_on_the_fill_label_never_reads_fill_rows(
+            #[case] roles: &[(u8, MarketDataFieldSemantic, &str)],
+            #[case] refused: NativeReplaySchedulingErrorV1,
+        ) {
+            let members = &[AAA, BBB];
+            let (request, universe) = custody_request_with(members, roles);
+            assert_eq!(
+                issue(
+                    frame(members, view_source()),
+                    quote(members, quote_source(QuoteDerivationV1::ObservedBbo)),
+                    members,
+                    &request,
+                    universe,
+                )
+                .map(|_| ()),
+                Err(refused)
+            );
+        }
+
+        #[rstest::rstest]
+        fn each_method_refuses_the_other_frame_source() {
+            let members = &[AAA, BBB];
+            let (custody, universe) = custody_request(members, "1M");
+            let snapshot = NativeReplayInitialMarketRequestV1::new(
+                digest(12),
+                digest(13),
+                digest(1),
+                digest(2),
+                digest(3),
+                digest(4),
+                digest(6),
+                digest(6),
+                digest(5),
+                digest(14),
+                digest(7),
+                Vec::new(),
+                instruments(members),
+                E,
+                RUN_END,
+            );
+            assert_eq!(
+                issue(
+                    frame(members, view_source()),
+                    quote(members, quote_source(QuoteDerivationV1::ObservedBbo)),
+                    members,
+                    &snapshot,
+                    universe,
+                )
+                .map(|_| ()),
+                Err(NativeReplaySchedulingErrorV1::FrameSourceMismatch)
+            );
+            let frame_batch = frame(members, snapshot_source(12));
+            let schedules = bar_schedules(members, &frame_batch);
+            assert_eq!(
+                issue_native_replay_initial_market_readback_v1(
+                    frame_batch,
+                    quote(members, snapshot_source(112)),
+                    schedules,
+                    declared(),
+                    &custody,
+                )
+                .map(|_| ()),
+                Err(NativeReplaySchedulingErrorV1::FrameSourceMismatch)
+            );
+            assert_eq!(snapshot.for_custody_event(E), None);
+            assert_eq!(
+                custody
+                    .for_custody_event(E + MINUTE)
+                    .map(|next| next.frame_time_ns()),
+                Some(E + MINUTE)
+            );
+        }
+
+        /// The custody receipt binds the view, its chain root, view identity and frontier, the
+        /// quote cut and its derivation; it never equals the snapshot frame's.
+        #[rstest::rstest]
+        fn the_custody_receipt_binds_every_part_and_differs_from_the_snapshot_one() {
+            let members = &[AAA, BBB];
+            let receipt = |view: PitObservationBatchSourceV1,
+                           quote_cut: PitObservationBatchSourceV1| {
+                custody_seal(frame(members, view), quote(members, quote_cut), members)
+                    .unwrap()
+                    .receipt_digest()
+            };
+            let observed = quote_source(QuoteDerivationV1::ObservedBbo);
+            let base = receipt(view_source(), observed);
+            let PitObservationBatchSourceV1::CustodyView {
+                chain_root,
+                view_identity,
+                event_ns,
+                decision_cut_ns,
+                derived_frontier_digest,
+            } = view_source()
+            else {
+                unreachable!()
+            };
+            let view = |edit: fn(&mut [BindingDigest; 3])| {
+                let mut parts = [chain_root, view_identity, derived_frontier_digest];
+                edit(&mut parts);
+                PitObservationBatchSourceV1::CustodyView {
+                    chain_root: parts[0],
+                    view_identity: parts[1],
+                    event_ns,
+                    decision_cut_ns,
+                    derived_frontier_digest: parts[2],
+                }
+            };
+            assert_ne!(receipt(view(|parts| parts[1] = digest(91)), observed), base);
+            assert_ne!(receipt(view(|parts| parts[2] = digest(92)), observed), base);
+            assert_ne!(
+                receipt(
+                    view_source(),
+                    quote_source(QuoteDerivationV1::FillBarOpen {
+                        fill_timeframe_identity: digest(93),
+                    })
+                ),
+                base
+            );
+            let PitObservationBatchSourceV1::CustodyQuoteCut {
+                chain_root,
+                instant_ns,
+                derivation,
+                ..
+            } = observed
+            else {
+                unreachable!()
+            };
+            assert_ne!(
+                receipt(
+                    view_source(),
+                    PitObservationBatchSourceV1::CustodyQuoteCut {
+                        chain_root,
+                        quote_cut_identity: digest(94),
+                        instant_ns,
+                        derivation,
+                    }
+                ),
+                base
+            );
+            assert_ne!(
+                base,
+                snapshot_seal(
+                    frame(members, snapshot_source(12)),
+                    quote(members, snapshot_source(112)),
+                    members
+                )
+                .unwrap()
+                .receipt_digest()
+            );
+        }
+
+        /// A quote cut outside the gap after the frame's decision cut, or after the run's end, is
+        /// refused.
+        #[rstest::rstest]
+        fn a_custody_quote_cut_outside_its_gap_is_refused() {
+            let members = &[AAA];
+
+            for instant in [D, E + MINUTE] {
+                // Every row and coordinate of the quote cut is at the instant, so only the gap
+                // refuses it.
+                let quote_cut = timed(
+                    members
+                        .iter()
+                        .flat_map(|member| quote_rows(member, instant))
+                        .collect(),
+                    PitObservationBatchSourceV1::CustodyQuoteCut {
+                        chain_root: digest(60),
+                        quote_cut_identity: digest(63),
+                        instant_ns: instant,
+                        derivation: QuoteDerivationV1::ObservedBbo,
+                    },
+                    instant,
+                );
+                assert_eq!(
+                    custody_seal(frame(members, view_source()), quote_cut, members).map(|_| ()),
+                    Err(NativeReplaySchedulingErrorV1::EventOrderUnavailable),
+                    "{instant}"
+                );
+            }
+        }
     }
 }

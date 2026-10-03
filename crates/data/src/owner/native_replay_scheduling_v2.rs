@@ -232,6 +232,9 @@ pub(crate) fn verify_native_replay_frame_evidence_v2(
     )?;
     let scheduling_receipt_digest_v1 = scheduling.receipt_digest();
     let quote_cut_readback = *scheduling.quote_cut();
+    let (quote_snapshot, quote_fact) = quote_cut_readback
+        .committed_snapshot()
+        .ok_or(NativeReplaySchedulingErrorV1::OwnerBindingMismatch)?;
     let (bar_types, data) = scheduling.into_native_schedule();
     let members = member_instruments.len();
 
@@ -271,9 +274,12 @@ pub(crate) fn verify_native_replay_frame_evidence_v2(
         )?);
     }
 
+    let (snapshot_identity, snapshot_fact_digest) = batch
+        .committed_snapshot()
+        .ok_or(NativeReplaySchedulingErrorV1::OwnerBindingMismatch)?;
     Ok(NativeReplayFrameEvidenceV2 {
-        snapshot_identity: batch.snapshot_identity(),
-        snapshot_fact_digest: batch.fact_digest(),
+        snapshot_identity,
+        snapshot_fact_digest,
         observation_batch_digest: batch.digest(),
         source_frontier_digest: batch.source_frontier_digest(),
         correction_frontier_digest: batch.correction_frontier_digest(),
@@ -284,8 +290,8 @@ pub(crate) fn verify_native_replay_frame_evidence_v2(
         window_end_ns_exclusive,
         bar_row_digests,
         liquidity_receipt: NativeReplayQuoteLiquidityReceiptV2::seal(
-            quote_cut_readback.snapshot_identity(),
-            quote_cut_readback.snapshot_fact_digest(),
+            quote_snapshot,
+            quote_fact,
             quote_cut_readback.observation_batch_digest(),
             frame_time_ns,
             window_end_ns_exclusive,
@@ -1415,10 +1421,20 @@ mod frame_sequence_resolver_tests {
                 return Err(NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable);
             }
             Ok(frame_readback(
-                request.snapshot_identity().as_bytes()[0],
+                request.snapshot_source()?.0.as_bytes()[0],
                 request.frame_time_ns(),
                 request.window_end_ns_exclusive(),
             ))
+        }
+
+        async fn resolve_native_replay_custody_frame_inputs_v1(
+            &self,
+            _request: &NativeReplayInitialMarketRequestV1,
+        ) -> Result<
+            crate::owner::native_replay_scheduling_v1::NativeReplayCustodyFrameReadbackV1,
+            NativeReplaySchedulingErrorV1,
+        > {
+            Err(NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)
         }
     }
 
@@ -1478,10 +1494,12 @@ mod frame_sequence_resolver_tests {
 
         // Only what the census supplies moved between requests; the window fixed the rest once.
         for (request, coordinate) in seen.iter().zip(&coordinates) {
-            assert_eq!(request.snapshot_identity(), coordinate.snapshot_identity);
             assert_eq!(
-                request.snapshot_fact_digest(),
-                coordinate.snapshot_fact_digest
+                request.snapshot_source(),
+                Ok((
+                    coordinate.snapshot_identity,
+                    coordinate.snapshot_fact_digest
+                ))
             );
             assert_eq!(request.frame_time_ns(), coordinate.frame_time_ns);
             assert_eq!(
@@ -1609,9 +1627,10 @@ mod frame_sequence_tests {
             liquidity_member(first, seed, quote_cut.instant_ns()),
             liquidity_member(second, seed.wrapping_add(4), quote_cut.instant_ns()),
         ];
+        let (quote_snapshot, quote_fact) = quote_cut.committed_snapshot().unwrap();
         let liquidity_receipt = NativeReplayQuoteLiquidityReceiptV2::seal(
-            quote_cut.snapshot_identity(),
-            quote_cut.snapshot_fact_digest(),
+            quote_snapshot,
+            quote_fact,
             quote_cut.observation_batch_digest(),
             frame_time_ns,
             WINDOW_END,

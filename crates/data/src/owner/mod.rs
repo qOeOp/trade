@@ -693,6 +693,100 @@ pub async fn native_replay_scheduling_resolver_v1_from_store_admission_lookup(
     consume_native_replay_scheduling_store_admission_bootstrap_v1(bootstrap, lookup).await
 }
 
+/// Resolves store admission and returns only the sealed PIT window custody frames port (slice
+/// T0-5), which reads a run's frames from its chain's head.
+///
+/// Disabled mode returns `None`. It opens only under a measurement covering the custody floor, so a
+/// deployment re-publishes a measured manifest before it opens. No caller opens it until the
+/// N-frame composition (slice T1).
+///
+/// # Errors
+///
+/// Returns only a redacted configuration or admission category.
+#[cfg(not(test))]
+pub async fn pit_window_custody_frames_from_store_admission_environment_v1() -> Result<
+    Option<Arc<dyn pit_window_custody_v1::PitWindowCustodyFramesV1>>,
+    NativeReplaySchedulingBootstrapErrorV1,
+> {
+    pit_window_custody_frames_from_store_admission_lookup_v1(|name| std::env::var(name).ok()).await
+}
+
+/// Lookup-injected form of [`pit_window_custody_frames_from_store_admission_environment_v1`].
+///
+/// # Errors
+///
+/// Returns only a redacted configuration or admission category.
+#[cfg(not(test))]
+pub async fn pit_window_custody_frames_from_store_admission_lookup_v1(
+    lookup: impl FnMut(&str) -> Option<String>,
+) -> Result<
+    Option<Arc<dyn pit_window_custody_v1::PitWindowCustodyFramesV1>>,
+    NativeReplaySchedulingBootstrapErrorV1,
+> {
+    Ok(open_pit_window_custody_read_store_v1(lookup)
+        .await?
+        .map(|store| Arc::new(store) as Arc<dyn pit_window_custody_v1::PitWindowCustodyFramesV1>))
+}
+
+/// Resolves store admission and returns the native Replay resolver over the PIT window custody
+/// port (slice T0-5): it reads custody frames, and refuses a snapshot frame by name.
+///
+/// # Errors
+///
+/// Returns only a redacted configuration or admission category.
+#[cfg(not(test))]
+pub async fn native_replay_custody_frame_resolver_v1_from_store_admission_environment()
+-> Result<Option<Arc<dyn NativeReplaySchedulingResolverV1>>, NativeReplaySchedulingBootstrapErrorV1>
+{
+    native_replay_custody_frame_resolver_v1_from_store_admission_lookup(|name| {
+        std::env::var(name).ok()
+    })
+    .await
+}
+
+/// Lookup-injected form of
+/// [`native_replay_custody_frame_resolver_v1_from_store_admission_environment`].
+///
+/// # Errors
+///
+/// Returns only a redacted configuration or admission category.
+#[cfg(not(test))]
+pub async fn native_replay_custody_frame_resolver_v1_from_store_admission_lookup(
+    lookup: impl FnMut(&str) -> Option<String>,
+) -> Result<Option<Arc<dyn NativeReplaySchedulingResolverV1>>, NativeReplaySchedulingBootstrapErrorV1>
+{
+    Ok(open_pit_window_custody_read_store_v1(lookup)
+        .await?
+        .map(|store| Arc::new(store) as Arc<dyn NativeReplaySchedulingResolverV1>))
+}
+
+#[cfg(not(test))]
+async fn open_pit_window_custody_read_store_v1(
+    mut lookup: impl FnMut(&str) -> Option<String>,
+) -> Result<Option<MarketDataReadPostgres>, NativeReplaySchedulingBootstrapErrorV1> {
+    let bootstrap = store_admission::RdOwnerStoreAdmissionBootstrap::from_lookup(&mut lookup)
+        .map_err(|e| NativeReplaySchedulingBootstrapErrorV1 {
+            failure: map_bootstrap_failure(&e),
+        })?;
+
+    match bootstrap {
+        store_admission::RdOwnerStoreAdmissionBootstrap::Disabled => Ok(None),
+        store_admission::RdOwnerStoreAdmissionBootstrap::Required(request) => {
+            let capability = store_admission::admit_rd_owner_market_data_postgres(&request, lookup)
+                .await
+                .map_err(|_| NativeReplaySchedulingBootstrapErrorV1 {
+                    failure: ResearchPitTerminalBootstrapFailure::StoreAdmissionRejected,
+                })?;
+            let port = capability
+                .into_pit_window_custody_snapshot_port_v1()
+                .map_err(|_| NativeReplaySchedulingBootstrapErrorV1 {
+                    failure: ResearchPitTerminalBootstrapFailure::StoreAdmissionRejected,
+                })?;
+            Ok(Some(MarketDataReadPostgres::from_admitted(port)))
+        }
+    }
+}
+
 /// Resolves store admission and returns only the sealed Shared Time evidence read port.
 ///
 /// Disabled mode returns `None`. Required mode retains the fixed read-only capability inside

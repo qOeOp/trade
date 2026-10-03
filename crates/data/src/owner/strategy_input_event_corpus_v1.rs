@@ -185,11 +185,15 @@ fn event_authority(
     {
         return Err(StrategyInputBindingUnavailable::NonUniqueResolution);
     }
+    // An event corpus is read from committed snapshots only.
+    let (snapshot_identity, snapshot_fact_digest) = batch
+        .committed_snapshot()
+        .ok_or(StrategyInputBindingUnavailable::StaleBatch)?;
     Ok(StrategyInputEventAuthorityV1 {
         request_identity: batch.request_identity(),
         request_digest: batch.request_digest(),
-        snapshot_identity: batch.snapshot_identity(),
-        snapshot_fact_digest: batch.fact_digest(),
+        snapshot_identity,
+        snapshot_fact_digest,
         observation_batch_digest: batch.digest(),
         source_binding_identity: batch.source_binding_identity(),
         source_binding_lineage_root: batch.source_binding_lineage_root(),
@@ -341,8 +345,8 @@ impl StrategyInputEventCorpusV1 {
                     frame.values().len() == 4
                         && frame.trigger().observation_batch_digest()
                             == authority.observation_batch_digest
-                        && frame.trigger().snapshot_identity() == authority.snapshot_identity
-                        && frame.trigger().snapshot_fact_digest() == authority.snapshot_fact_digest
+                        && frame.trigger().committed_snapshot()
+                            == Some((authority.snapshot_identity, authority.snapshot_fact_digest))
                 })
             && self.digest == corpus_digest(&self.source, &self.members)
     }
@@ -1290,8 +1294,15 @@ fn event_source_digest(frames: &[StrategyInputEventFrameReceipt]) -> BindingDige
 
     for frame in frames {
         let trigger = frame.trigger();
-        hasher.update(trigger.snapshot_identity().as_bytes());
-        hasher.update(trigger.snapshot_fact_digest().as_bytes());
+        // A corpus is read from committed snapshots alone (`event_authority`), whose identity and
+        // fact digest are never zero; any other frame hashes zeros and so matches no authority.
+        let (snapshot_identity, snapshot_fact_digest) =
+            trigger.committed_snapshot().unwrap_or_else(|| {
+                let zero = BindingDigest::from_untrusted_bytes([0; 32]);
+                (zero, zero)
+            });
+        hasher.update(snapshot_identity.as_bytes());
+        hasher.update(snapshot_fact_digest.as_bytes());
         hasher.update(trigger.observation_batch_digest().as_bytes());
         hasher.update(trigger.digest().as_bytes());
         hasher.update(
@@ -1840,8 +1851,8 @@ mod tests {
                         let candidate_value = &candidate_frame.values()[0];
                         candidate_value.input_role_identity() == foreign_value.input_role_identity()
                             && candidate_value.value_bytes() == foreign_value.value_bytes()
-                            && candidate_frame.trigger().snapshot_identity()
-                                != foreign_frame.trigger().snapshot_identity()
+                            && candidate_frame.trigger().snapshot_identity_for_test()
+                                != foreign_frame.trigger().snapshot_identity_for_test()
                     })
                     .map(|candidate_frame| (foreign_frame, candidate_frame))
             })
@@ -1851,8 +1862,8 @@ mod tests {
             candidate_frame.values()[0].value_bytes()
         );
         assert_ne!(
-            foreign_frame.trigger().snapshot_identity(),
-            candidate_frame.trigger().snapshot_identity()
+            foreign_frame.trigger().snapshot_identity_for_test(),
+            candidate_frame.trigger().snapshot_identity_for_test()
         );
         assert!(matches!(
             issue_strategy_input_event_corpus_v1(

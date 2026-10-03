@@ -87,8 +87,8 @@ pub(crate) fn authenticate_corporate_action_inputs_v1(
             || claim.source.binding_fact_digest != source.fact_digest()
             || claim.source.lineage_root != source.lineage_root()
             || claim.source.lineage_version != source.lineage_version()
-            || claim.pit.snapshot_identity != pit.snapshot_identity()
-            || claim.pit.fact_digest != pit.fact_digest()
+            || pit.committed_snapshot()
+                != Some((claim.pit.snapshot_identity, claim.pit.fact_digest))
             || claim.stable_correlation != stable_correlation
             || instrument_fact.source_frontier() != claim.source.frontier.digest
             || instrument_fact.correction_frontier() != claim.correction.digest
@@ -111,8 +111,8 @@ pub(crate) fn authenticate_corporate_action_inputs_v1(
             coordinate_identity,
             coordinate_digest,
             instrument_master_fact_digest: instrument_fact.digest(),
-            pit_snapshot_identity: pit.snapshot_identity(),
-            pit_fact_digest: pit.fact_digest(),
+            pit_snapshot_identity: claim.pit.snapshot_identity,
+            pit_fact_digest: claim.pit.fact_digest,
             source_binding_identity: source.binding_id(),
             source_binding_fact_digest: source.fact_digest(),
             source_binding_lineage_root: source.lineage_root(),

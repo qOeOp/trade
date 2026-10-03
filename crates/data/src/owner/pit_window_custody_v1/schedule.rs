@@ -11,11 +11,6 @@
 //! instant the declared grid is anchored at reduced modulo the interval - zero for a grid anchored
 //! at the Unix epoch, such as a daily bar closing at midnight UTC or a four-hour bar.
 
-#![allow(
-    dead_code,
-    reason = "the frame reads are consumed by the custody's derived view (slice T0-5), not built yet"
-)]
-
 use sha2::{Digest as _, Sha256};
 
 use super::authority::{CustodyTimeframeV1, DerivedCustodyV1};
@@ -60,6 +55,78 @@ impl PitWindowScheduleFactV1 {
 
     pub(crate) const fn identity(&self) -> BindingDigest {
         self.identity
+    }
+}
+
+#[cfg(test)]
+impl PitWindowScheduleFactV1 {
+    /// A sealed schedule of `shape` over `window`, for tests of what reads one.
+    pub(crate) fn with_shape_for_test(
+        member_ordinal: u8,
+        instrument: &str,
+        shape: DeclaredBarShapeV1,
+        interval_ns: u64,
+        window: (u64, u64),
+    ) -> Self {
+        seal(Self {
+            custody_identity: BindingDigest::from_untrusted_bytes([1; 32]),
+            chain_root: BindingDigest::from_untrusted_bytes([1; 32]),
+            member_ordinal,
+            instrument: instrument.to_owned(),
+            timeframe_identity: BindingDigest::from_untrusted_bytes([2; 32]),
+            shape,
+            interval_ns,
+            phase_ns: 0,
+            window_start_ns: window.0,
+            window_end_ns_exclusive: window.1,
+            instrument_master_key: BindingDigest::from_untrusted_bytes([3; 32]),
+            instrument_master_fact_digest: BindingDigest::from_untrusted_bytes([4; 32]),
+            market_semantics_identity: BindingDigest::from_untrusted_bytes([5; 32]),
+            cut_ns: 1_790_000_000_000_000_000,
+            canonical_bytes: Vec::new(),
+            identity: BindingDigest::from_untrusted_bytes([0; 32]),
+        })
+        .expect("a T0 schedule seals")
+    }
+
+    /// A sealed schedule of `step` hours from the Unix epoch over `window`, for tests of what reads
+    /// one.
+    pub(crate) fn hourly_for_test(
+        member_ordinal: u8,
+        instrument: &str,
+        step: u32,
+        window: (u64, u64),
+    ) -> Self {
+        let shape = DeclaredBarShapeV1 {
+            kind: BarScheduleKindV1::FixedInterval,
+            unit: BarScheduleUnitV1::Hour,
+            step,
+            anchor: DeclaredBarAnchorV1::UnixEpoch,
+            clock: BarScheduleClockV1::Continuous,
+            label: BarScheduleLabelV1::IntervalClose,
+            completion: BarScheduleCompletionV1::CompleteOnly,
+        };
+        let interval_ns = u64::from(step) * 3_600_000_000_000;
+        let zero = BindingDigest::from_untrusted_bytes([0; 32]);
+        seal(Self {
+            custody_identity: BindingDigest::from_untrusted_bytes([1; 32]),
+            chain_root: BindingDigest::from_untrusted_bytes([1; 32]),
+            member_ordinal,
+            instrument: instrument.to_owned(),
+            timeframe_identity: BindingDigest::from_untrusted_bytes([2; 32]),
+            shape,
+            interval_ns,
+            phase_ns: 0,
+            window_start_ns: window.0,
+            window_end_ns_exclusive: window.1,
+            instrument_master_key: BindingDigest::from_untrusted_bytes([3; 32]),
+            instrument_master_fact_digest: BindingDigest::from_untrusted_bytes([4; 32]),
+            market_semantics_identity: BindingDigest::from_untrusted_bytes([5; 32]),
+            cut_ns: 1_790_000_000_000_000_000,
+            canonical_bytes: Vec::new(),
+            identity: zero,
+        })
+        .expect("a T0 schedule seals")
     }
 }
 

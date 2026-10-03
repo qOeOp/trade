@@ -1465,7 +1465,7 @@ fn complete_canonical_observation_batch_is_verified_before_selection() {
 
     assert_eq!(verified.digest(), digest);
     assert_eq!(
-        verified.snapshot_identity(),
+        verified.snapshot_identity_for_test(),
         aggregate.fact().snapshot_identity()
     );
     assert_eq!(verified.observations().len(), 1);

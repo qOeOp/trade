@@ -74,9 +74,20 @@ pub(crate) struct SampleFactV2 {
     owner_event_identity: [u8; 16],
     fact_digest: Identity,
     sample_identity: Identity,
+    /// The row the bytes state, read back from them.
+    row: SampleRowInputV2,
 }
 
 impl SampleFactV2 {
+    /// The row this fact states: the one it was prepared from, or the one its bytes decode to.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "read by the custody view seal (T0-5 C5)")
+    )]
+    pub(crate) const fn row(&self) -> &SampleRowInputV2 {
+        &self.row
+    }
+
     pub(crate) fn canonical_bytes(&self) -> &[u8] {
         &self.bytes
     }
@@ -289,6 +300,7 @@ pub(crate) fn prepare_sample_fact_v2(
         owner_event_identity,
         fact_digest,
         sample_identity,
+        row: row.clone(),
     })
 }
 
@@ -390,6 +402,7 @@ pub(crate) fn decode_sample_fact_v2(
         owner_event_identity,
         fact_digest: expected_fact_digest,
         sample_identity,
+        row,
     })
 }
 
@@ -537,6 +550,17 @@ mod tests {
             decode_sample_fact_v2(&forged, forged_digest),
             Err(SampleFactUnavailable::IdentityMismatch)
         );
+    }
+
+    /// A fact read back from its bytes states exactly the row it was prepared from.
+    #[rstest]
+    fn a_decoded_fact_states_the_row_it_was_prepared_from() {
+        let prepared = row(60, 1, 1, 61);
+        let fact = prepare_sample_fact_v2(&prepared, SampleHeadsV2::default()).unwrap();
+        assert_eq!(fact.row(), &prepared);
+
+        let decoded = decode_sample_fact_v2(fact.canonical_bytes(), fact.fact_digest()).unwrap();
+        assert_eq!(decoded.row(), &prepared);
     }
 
     #[rstest]

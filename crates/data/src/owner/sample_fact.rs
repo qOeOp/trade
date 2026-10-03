@@ -881,6 +881,10 @@ pub(crate) fn prepare_sample_commit_from_source_v1(
     }
     let batch = source.batch;
     let row = source.row;
+    // A V1 sample fact names the snapshot its row came from; a custody row is a `SampleFactV2`.
+    let (snapshot_identity, snapshot_fact_digest) = batch
+        .committed_snapshot()
+        .ok_or(SampleFactUnavailable::BindingUnavailable)?;
     let data_kind = data_kind_tag(row.data_kind())?;
     let compatible = if timeframe.is_bar() {
         data_kind == 0x01
@@ -922,7 +926,7 @@ pub(crate) fn prepare_sample_commit_from_source_v1(
     let root_slot = derive_slot_identity(
         series_identity,
         row.event_effective(),
-        *batch.fact_digest().as_bytes(),
+        *snapshot_fact_digest.as_bytes(),
     );
     let (slot_identity, correction_predecessor) = match heads.slot {
         None => (root_slot, None),
@@ -958,8 +962,8 @@ pub(crate) fn prepare_sample_commit_from_source_v1(
     bytes.extend_from_slice(&slot_identity);
     bytes.extend_from_slice(&series_predecessor);
     put_optional_identity(&mut bytes, correction_predecessor);
-    bytes.extend_from_slice(batch.snapshot_identity().as_bytes());
-    bytes.extend_from_slice(batch.fact_digest().as_bytes());
+    bytes.extend_from_slice(snapshot_identity.as_bytes());
+    bytes.extend_from_slice(snapshot_fact_digest.as_bytes());
     bytes.extend_from_slice(batch.digest().as_bytes());
     put_var(&mut bytes, row.instrument().as_bytes())?;
     bytes.push(channel);
@@ -997,8 +1001,8 @@ pub(crate) fn prepare_sample_commit_from_source_v1(
         slot_identity,
         series_predecessor,
         correction_predecessor,
-        snapshot_identity: *batch.snapshot_identity().as_bytes(),
-        snapshot_fact_digest: *batch.fact_digest().as_bytes(),
+        snapshot_identity: *snapshot_identity.as_bytes(),
+        snapshot_fact_digest: *snapshot_fact_digest.as_bytes(),
         observation_batch_digest: *batch.digest().as_bytes(),
         timeframe_identity: timeframe.timeframe_identity,
         owner_event_identity,
@@ -1286,11 +1290,14 @@ fn event_identity(
     logical_time: u64,
     owner_sequence: u64,
 ) -> Result<[u8; 16], SampleFactUnavailable> {
+    let (snapshot_identity, snapshot_fact_digest) = batch
+        .committed_snapshot()
+        .ok_or(SampleFactUnavailable::BindingUnavailable)?;
     let mut bytes = Vec::new();
     put_u16(&mut bytes, 1);
     put_u16(&mut bytes, 0);
-    bytes.extend_from_slice(batch.snapshot_identity().as_bytes());
-    bytes.extend_from_slice(batch.fact_digest().as_bytes());
+    bytes.extend_from_slice(snapshot_identity.as_bytes());
+    bytes.extend_from_slice(snapshot_fact_digest.as_bytes());
     bytes.extend_from_slice(batch.digest().as_bytes());
     bytes.extend_from_slice(canonical_row_digest.as_bytes());
     put_u64(&mut bytes, logical_time);
@@ -1861,8 +1868,10 @@ pub(crate) mod tests {
             request_digest: d(2),
             correlation_identity: d(21),
             scope_digest: d(20),
-            snapshot_identity: d(3 + fact),
-            fact_digest: d(fact),
+            source: crate::owner::pit_window_custody_v1::PitObservationBatchSourceV1::CommittedSnapshot {
+                snapshot_identity: d(3 + fact),
+                fact_digest: d(fact),
+            },
             source_binding_identity: d(6),
             source_binding_fact_digest: d(22),
             source_binding_lineage_root: d(16),
@@ -1909,8 +1918,10 @@ pub(crate) mod tests {
             scale: 2,
             pit_request_identity: batch.request_identity(),
             pit_request_digest: batch.request_digest(),
-            snapshot_identity: batch.snapshot_identity(),
-            snapshot_fact_digest: batch.fact_digest(),
+            source: crate::owner::strategy_input_binding::StrategyInputBatchSourceV1::Snapshot {
+                snapshot_identity: batch.snapshot_identity_for_test(),
+                snapshot_fact_digest: batch.fact_digest_for_test(),
+            },
             observation_batch_digest: batch.digest(),
             source_binding_identity: batch.source_binding_identity(),
             source_frontier_digest: batch.source_frontier_digest(),

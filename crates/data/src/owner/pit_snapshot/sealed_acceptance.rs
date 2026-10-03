@@ -244,7 +244,10 @@ pub struct SealedAcceptanceMarketDataRepairEvidenceV1 {
 impl SealedAcceptanceMarketDataRepairEvidenceV1 {
     #[must_use]
     pub fn source(&self) -> MarketDataRepairSourceV1 {
-        market_data_repair_source_from_verified_batch(self.batch.clone())
+        let snapshot = self.batch.committed_snapshot().unwrap_or_else(|| {
+            unreachable!("the sealed acceptance fixture verifies a committed snapshot's batch")
+        });
+        market_data_repair_source_from_verified_batch(self.batch.clone(), snapshot)
     }
 
     #[must_use]
@@ -1084,8 +1087,9 @@ fn binding_request(
         scale,
         pit_request_identity: batch.request_identity(),
         pit_request_digest: batch.request_digest(),
-        snapshot_identity: batch.snapshot_identity(),
-        snapshot_fact_digest: batch.fact_digest(),
+        source: batch
+            .binding_request_source_v1()
+            .unwrap_or_else(|| unreachable!("an acceptance batch is a committed snapshot's")),
         observation_batch_digest: batch.digest(),
         source_binding_identity: batch.source_binding_identity(),
         source_frontier_digest: batch.source_frontier_digest(),
@@ -1119,8 +1123,9 @@ fn exact_binding_request(
         scale: SCALE,
         pit_request_identity: batch.request_identity(),
         pit_request_digest: batch.request_digest(),
-        snapshot_identity: batch.snapshot_identity(),
-        snapshot_fact_digest: batch.fact_digest(),
+        source: batch
+            .binding_request_source_v1()
+            .unwrap_or_else(|| unreachable!("an acceptance batch is a committed snapshot's")),
         observation_batch_digest: batch.digest(),
         source_binding_identity: batch.source_binding_identity(),
         source_frontier_digest: batch.source_frontier_digest(),

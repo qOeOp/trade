@@ -1630,8 +1630,15 @@ fn project_component(
         return Err(StrategyInputSampleProjectionUnavailable::TimeframeMismatch);
     }
 
-    if fact.snapshot_identity() != *trigger.snapshot_identity().as_bytes()
-        || fact.snapshot_fact_digest() != *trigger.snapshot_fact_digest().as_bytes()
+    if trigger.committed_snapshot()
+        != Some((
+            crate::owner::source_binding::BindingDigest::from_untrusted_bytes(
+                fact.snapshot_identity(),
+            ),
+            crate::owner::source_binding::BindingDigest::from_untrusted_bytes(
+                fact.snapshot_fact_digest(),
+            ),
+        ))
         || fact.observation_batch_digest() != *trigger.observation_batch_digest().as_bytes()
         || value.observation_batch_digest() != trigger.observation_batch_digest()
         || fact.sample_identity() != receipt.sample_identity()

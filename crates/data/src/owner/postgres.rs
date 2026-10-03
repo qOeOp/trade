@@ -43,6 +43,9 @@ mod live_market_stream_v1;
 #[cfg(test)]
 mod market_data_rd_api_authorization_postgres_tests;
 mod market_semantics;
+pub(in crate::owner) mod native_replay_custody_frame_v1;
+#[cfg(test)]
+pub(in crate::owner) mod native_replay_custody_frame_v1_tests;
 #[cfg(test)]
 mod native_replay_quote_cut_intake_tests;
 mod observation_census;
@@ -53,10 +56,12 @@ mod pit_initial_intake_correlation_tests;
 #[cfg(test)]
 pub(in crate::owner) mod pit_intake_member_count_tests;
 mod pit_role_resolution_v1;
-mod pit_window_custody_v1;
+pub(in crate::owner) mod pit_window_custody_v1;
 pub(in crate::owner) use pit_window_custody_v1::pit_window_custody_commit_from_environment_v1;
 #[cfg(test)]
 mod pit_window_custody_v1_tests;
+#[cfg(test)]
+pub(in crate::owner) mod pit_window_view_v1_tests;
 mod rd_strategy_input_custody;
 mod reference_fact_catalog;
 mod reference_fact_coordinates;
@@ -98,9 +103,10 @@ pub(in crate::owner) mod universe_selection;
 // inside a `cfg(not(test))` arm, so that its order can be driven rather than only deployed.
 use super::declared_bar_timeframe_v1::{DeclaredBarTimeframeErrorV1, DeclaredBarTimeframeV1};
 use super::native_replay_scheduling_v1::{
-    NativeReplayInitialMarketReadbackV1, NativeReplayInitialMarketRequestV1,
-    NativeReplaySchedulingErrorV1, NativeReplaySchedulingResolverV1,
-    issue_native_replay_initial_market_readback_v1, select_native_replay_schedule_v1,
+    NativeReplayCustodyFrameReadbackV1, NativeReplayInitialMarketReadbackV1,
+    NativeReplayInitialMarketRequestV1, NativeReplaySchedulingErrorV1,
+    NativeReplaySchedulingResolverV1, issue_native_replay_initial_market_readback_v1,
+    select_native_replay_schedule_v1,
 };
 use super::pit_snapshot::{
     PitObservationBatchOwnerResolver, PitSnapshotFact, VerifiedPitObservationBatch,
@@ -6823,10 +6829,15 @@ async fn resolve_native_replay_quote_cut_in_transaction_v2(
     .map_err(|_| NativeReplayQuoteCutRefusalV2::CustodyUnavailable)?;
     let bound_ns_exclusive =
         native_replay_quote_cut_bound_v2(next_frame_ns, window_end_ns_exclusive);
+    // The census is keyed by the frame's snapshot; a custody frame's quote cut is derived from its
+    // custody instead.
+    let (frame_snapshot, _) = frame
+        .committed_snapshot()
+        .ok_or(NativeReplayQuoteCutRefusalV2::CoordinateMismatch)?;
     let (candidates, frame_instrument_master_key) = load_native_replay_quote_cut_census_v2(
         transaction,
         frame_coordinates.scope_digest,
-        frame.snapshot_identity(),
+        frame_snapshot,
         frame_coordinates.event_effective_ns,
         bound_ns_exclusive,
     )
@@ -8695,6 +8706,15 @@ impl NativeReplaySchedulingResolverV1 for SealedAcceptanceNativeReplayScheduling
     ) -> Result<NativeReplayInitialMarketReadbackV1, NativeReplaySchedulingErrorV1> {
         resolve_native_replay_initial_market_through_port_v1(&self.port, request).await
     }
+
+    /// The sealed acceptance port holds no custody read: a custody frame is never read here.
+    async fn resolve_native_replay_custody_frame_inputs_v1(
+        &self,
+        request: &NativeReplayInitialMarketRequestV1,
+    ) -> Result<NativeReplayCustodyFrameReadbackV1, NativeReplaySchedulingErrorV1> {
+        request.custody_frame()?;
+        Err(NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)
+    }
 }
 
 /// Reads one frame's initial Market Data inputs through a scheduling read port, in the required
@@ -8714,13 +8734,14 @@ pub(super) async fn resolve_native_replay_initial_market_through_port_v1<P>(
 where
     P: NativeReplaySchedulingReadPortV1 + ?Sized,
 {
+    let (snapshot_identity, snapshot_fact_digest) = request.snapshot_source()?;
     let evidence = port
-        .resolve_pit_evaluation(*request.snapshot_identity().as_bytes())
+        .resolve_pit_evaluation(*snapshot_identity.as_bytes())
         .await
         .map_err(|_| NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)?;
     let (batch, source) = verify_admitted_pit_evidence_with_source_by_identity_v1(
-        request.snapshot_identity(),
-        request.snapshot_fact_digest(),
+        snapshot_identity,
+        snapshot_fact_digest,
         &evidence,
     )
     .map_err(|_| NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)?;
@@ -8774,10 +8795,13 @@ where
 {
     let frame_coordinates = NativeReplayCutCoordinatesV2::of(frame);
     let decision_cut_ns = frame.time_evidence().decision_cut.value;
+    let (frame_snapshot, _) = frame
+        .committed_snapshot()
+        .ok_or(NativeReplayQuoteCutRefusalV2::CoordinateMismatch)?;
     let census = port
         .resolve_native_replay_quote_cut_census_v2(
             *frame_coordinates.scope_digest.as_bytes(),
-            *frame.snapshot_identity().as_bytes(),
+            *frame_snapshot.as_bytes(),
             frame_coordinates.event_effective_ns,
             decision_cut_ns,
             window_end_ns_exclusive,
@@ -8807,7 +8831,7 @@ where
         let later = port
             .resolve_native_replay_quote_cut_census_v2(
                 *frame_coordinates.scope_digest.as_bytes(),
-                *frame.snapshot_identity().as_bytes(),
+                *frame_snapshot.as_bytes(),
                 frame_coordinates.event_effective_ns,
                 reading_cut,
                 window_end_ns_exclusive,
@@ -8926,13 +8950,11 @@ async fn resolve_native_replay_initial_market_from_pool_v1(
     pool: &PgPool,
     request: &NativeReplayInitialMarketRequestV1,
 ) -> Result<NativeReplayInitialMarketReadbackV1, NativeReplaySchedulingErrorV1> {
-    let batch = load_verified_observation_batch_from_pool(
-        pool,
-        request.snapshot_identity(),
-        request.snapshot_fact_digest(),
-    )
-    .await
-    .map_err(|_| NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)?;
+    let (snapshot_identity, snapshot_fact_digest) = request.snapshot_source()?;
+    let batch =
+        load_verified_observation_batch_from_pool(pool, snapshot_identity, snapshot_fact_digest)
+            .await
+            .map_err(|_| NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)?;
     let mut transaction = pool
         .begin()
         .await
@@ -9096,6 +9118,77 @@ impl NativeReplaySchedulingResolverV1 for MarketDataReadPostgres {
         #[cfg(not(test))]
         {
             resolve_native_replay_initial_market_through_port_v1(&self.admitted_port, request).await
+        }
+    }
+
+    /// A custody frame read on Owner custody: through the admitted custody port, or, in a test
+    /// build, on the pool. Its quote cut is production's, which refuses every gap until slice T0-6
+    /// derives one, so the frame fails closed as `EventOrderUnavailable`.
+    async fn resolve_native_replay_custody_frame_inputs_v1(
+        &self,
+        request: &NativeReplayInitialMarketRequestV1,
+    ) -> Result<NativeReplayCustodyFrameReadbackV1, NativeReplaySchedulingErrorV1> {
+        #[cfg(test)]
+        {
+            return native_replay_custody_frame_v1::resolve_native_replay_custody_frame_from_pool_v1(
+                &self.pool,
+                request,
+                native_replay_custody_frame_v1::resolve_custody_quote_cut_v1,
+            )
+            .await;
+        }
+        #[cfg(not(test))]
+        {
+            native_replay_custody_frame_v1::resolve_native_replay_custody_frame_through_port_v1(
+                &self.admitted_port,
+                request,
+                native_replay_custody_frame_v1::resolve_custody_quote_cut_v1,
+            )
+            .await
+        }
+    }
+}
+
+impl crate::owner::pit_window_custody_v1::sealed::Sealed for MarketDataReadPostgres {}
+
+/// The frames port of the deployment (slice T0-5): the admitted custody port's chain read, or, in a
+/// test build, the same read on the pool.
+#[async_trait::async_trait]
+impl crate::owner::pit_window_custody_v1::PitWindowCustodyFramesV1 for MarketDataReadPostgres {
+    async fn resolve_pit_window_frames_v1(
+        &self,
+        run: crate::owner::pit_window_custody_v1::UntrustedPitWindowRunV1,
+    ) -> Result<
+        crate::owner::pit_window_custody_v1::PitWindowRunFramesV1,
+        crate::owner::pit_window_custody_v1::PitWindowRunRefusalV1,
+    > {
+        #[cfg(test)]
+        {
+            use crate::owner::pit_window_custody_v1::PitWindowRunRefusalV1;
+
+            let mut transaction = self
+                .pool
+                .begin_with("BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+                .await
+                .map_err(|_| PitWindowRunRefusalV1::StoreUnavailable)?;
+            let frames = pit_window_custody_v1::resolve_pit_window_frames_in_transaction_v1(
+                &mut transaction,
+                run,
+            )
+            .await;
+            transaction
+                .rollback()
+                .await
+                .map_err(|_| PitWindowRunRefusalV1::StoreUnavailable)?;
+            frames
+        }
+        #[cfg(not(test))]
+        {
+            pit_window_custody_v1::resolve_pit_window_frames_through_port_v1(
+                &self.admitted_port,
+                run,
+            )
+            .await
         }
     }
 }

@@ -48,14 +48,18 @@ use crate::owner::{
         InstrumentMasterReadbackV1, InstrumentMasterScopeV1, UntrustedInstrumentMasterRequestV1,
         authority::{ObservationClockV1, observable_at, select_facts_observed},
     },
+    pit_snapshot::custody_view::StoredViewRowV1,
     pit_window_custody_v1::{
         PitWindowCustodyCommitV1, PitWindowCustodyReceiptV1, PitWindowCustodyRefusalV1,
-        UntrustedPitWindowCustodyRequestV1,
+        PitWindowFrameCoordinateV1, PitWindowRunFramesV1, PitWindowRunRefusalV1,
+        UntrustedPitWindowCustodyFrameV1, UntrustedPitWindowCustodyRequestV1,
+        UntrustedPitWindowRunV1,
         authority::{
             ChainPositionV1, CustodyBindingV1, CustodyFactSpanV1, CustodyInputsV1,
-            CustodyInstrumentV1, CustodyMemberFactV1, CustodyMembershipV1, DerivedCustodyV1,
-            StoredChainV1, StoredVersionV1, check_request_shape_v1, custody_digest_v1,
-            derive_custody_v1, kind_from_tag, kind_tag,
+            CustodyInstrumentV1, CustodyMemberFactV1, CustodyMembershipV1, CustodyMintingClockV1,
+            CustodyRecordV1, DerivedCustodyV1, StoredChainV1, StoredVersionV1,
+            check_request_shape_v1, custody_digest_v1, decode_custody_record_v1, derive_custody_v1,
+            kind_from_tag, kind_tag,
         },
         chain_records::{
             ChainBasisRecordV1, InstrumentMasterChainLinkV1, MarketSemanticsChainBasisV1,
@@ -69,8 +73,15 @@ use crate::owner::{
             issue_instrument_master_chain_link_v1, issue_market_semantics_chain_fact_v1,
             issue_market_semantics_chain_registry_entry_v1, issue_r0_chain_record_v1,
         },
-        schedule::{PitWindowScheduleFactV1, decode_window_schedule_v1, mint_window_schedules_v1},
+        schedule::{
+            PitWindowScheduleFactV1, decode_window_schedule_v1, mint_window_schedules_v1,
+            window_schedule_admits_frame_v1,
+        },
         sealed,
+        view::{
+            ChainVersionV1, ViewRefusalV1, ViewSelectionV1, ViewTimeframesV1, cross_sections_v1,
+            enumerate_run_frames_v1, select_view_v1,
+        },
     },
     sample_fact::v2::{
         SampleFactV2, SampleHeadsV2, decode_sample_fact_v2, prepare_sample_fact_v2,
@@ -83,12 +94,15 @@ use crate::owner::{
     universe_selection::{UniverseSelectionErrorV1, UntrustedUniverseSelectionLocatorV1},
 };
 
+#[cfg(test)]
+use crate::owner::pit_window_custody_v1::PitWindowCustodyFramesV1;
+
 use PitWindowCustodyRefusalV1 as Refused;
 
 /// The custody's four tables. Every one is append-only except the chain head, which a successor
 /// moves; none is readable by `PUBLIC`.
 pub(super) const SCHEMA_V1: &[&str] = &[
-    "CREATE TABLE IF NOT EXISTS market_data_private.pit_window_custodies_v1 (custody_identity BYTEA PRIMARY KEY CHECK (octet_length(custody_identity)=32), custody_digest BYTEA NOT NULL CHECK (octet_length(custody_digest)=32), chain_root BYTEA NOT NULL CHECK (octet_length(chain_root)=32), chain_version BIGINT NOT NULL CHECK (chain_version>0), predecessor_identity BYTEA REFERENCES market_data_private.pit_window_custodies_v1(custody_identity), minting_cut_ns BIGINT NOT NULL CHECK (minting_cut_ns>0), rule_digest BYTEA NOT NULL CHECK (octet_length(rule_digest)=32), basis_digest BYTEA NOT NULL CHECK (octet_length(basis_digest)=32), canonical_bytes BYTEA NOT NULL, evidence_digest BYTEA NOT NULL CHECK (octet_length(evidence_digest)=32), UNIQUE (chain_root, chain_version), CHECK ((chain_version=1)=(predecessor_identity IS NULL)), CHECK ((chain_version=1)=(chain_root=custody_identity)))",
+    "CREATE TABLE IF NOT EXISTS market_data_private.pit_window_custodies_v1 (custody_identity BYTEA PRIMARY KEY CHECK (octet_length(custody_identity)=32), custody_digest BYTEA NOT NULL CHECK (octet_length(custody_digest)=32), chain_root BYTEA NOT NULL CHECK (octet_length(chain_root)=32), chain_version BIGINT NOT NULL CHECK (chain_version>0), predecessor_identity BYTEA REFERENCES market_data_private.pit_window_custodies_v1(custody_identity), minting_cut_ns BIGINT NOT NULL CHECK (minting_cut_ns>0), rule_digest BYTEA NOT NULL CHECK (octet_length(rule_digest)=32), basis_digest BYTEA NOT NULL CHECK (octet_length(basis_digest)=32), canonical_bytes BYTEA NOT NULL, evidence_digest BYTEA NOT NULL CHECK (octet_length(evidence_digest)=32), minting_clock_identity TEXT NOT NULL CHECK (octet_length(minting_clock_identity)>0), minting_clock_epoch TEXT NOT NULL CHECK (octet_length(minting_clock_epoch)>0), minting_clock_sequence BIGINT NOT NULL CHECK (minting_clock_sequence>0), minting_restart_continuity_digest BYTEA NOT NULL CHECK (octet_length(minting_restart_continuity_digest)=32), minting_uncertainty_bound BIGINT NOT NULL CHECK (minting_uncertainty_bound>=0), minting_skew_bound BIGINT NOT NULL CHECK (minting_skew_bound>0), UNIQUE (chain_root, chain_version), CHECK ((chain_version=1)=(predecessor_identity IS NULL)), CHECK ((chain_version=1)=(chain_root=custody_identity)))",
     "REVOKE ALL ON TABLE market_data_private.pit_window_custodies_v1 FROM PUBLIC",
     "CREATE TABLE IF NOT EXISTS market_data_private.pit_window_custody_heads_v1 (chain_root BYTEA PRIMARY KEY REFERENCES market_data_private.pit_window_custodies_v1(custody_identity), head_identity BYTEA NOT NULL REFERENCES market_data_private.pit_window_custodies_v1(custody_identity), head_version BIGINT NOT NULL CHECK (head_version>0))",
     "REVOKE ALL ON TABLE market_data_private.pit_window_custody_heads_v1 FROM PUBLIC",
@@ -115,6 +129,13 @@ pub(super) const SCHEMA_V1: &[&str] = &[
     // the three belong to this chain root; the basis record adds no byte beyond their identities.
     "CREATE TABLE IF NOT EXISTS market_data_private.pit_window_chain_basis_records_v1 (chain_root BYTEA PRIMARY KEY REFERENCES market_data_private.pit_window_custody_heads_v1(chain_root), custody_identity BYTEA NOT NULL REFERENCES market_data_private.pit_window_custodies_v1(custody_identity), basis_identity BYTEA UNIQUE NOT NULL CHECK (octet_length(basis_identity)=32), basis_bytes BYTEA NOT NULL, r0_record_identity BYTEA NOT NULL REFERENCES market_data_private.pit_window_r0_chain_records_v1(record_identity), r0_cut_identity BYTEA NOT NULL REFERENCES market_data_private.pit_window_r0_chain_records_v1(cut_identity), instrument_master_link_identity BYTEA NOT NULL REFERENCES market_data_private.pit_window_instrument_master_chains_v1(link_identity), market_semantics_fact_identity BYTEA NOT NULL REFERENCES market_data_private.market_semantics_chain_facts_v1(fact_identity), CHECK (chain_root=custody_identity))",
     "REVOKE ALL ON TABLE market_data_private.pit_window_chain_basis_records_v1 FROM PUBLIC",
+    // The derived view's reads (T0-5), for the admitted port: a chain as the store holds it - its
+    // head, custodies, window schedules and versions, each a row's JSON - and the row facts of
+    // the versions one view selects, never their retrieval evidence.
+    "CREATE OR REPLACE FUNCTION market_data_private.resolve_pit_window_chain_v1(p_chain_root BYTEA) RETURNS TABLE(entry_kind SMALLINT, payload JSONB) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $function$ SELECT 1::SMALLINT, pg_catalog.to_jsonb(h) FROM market_data_private.pit_window_custody_heads_v1 AS h WHERE h.chain_root = p_chain_root UNION ALL SELECT 2::SMALLINT, pg_catalog.to_jsonb(c) FROM market_data_private.pit_window_custodies_v1 AS c WHERE c.chain_root = p_chain_root UNION ALL SELECT 3::SMALLINT, pg_catalog.to_jsonb(s) FROM market_data_private.pit_window_schedule_facts_v1 AS s WHERE s.chain_root = p_chain_root UNION ALL SELECT 4::SMALLINT, pg_catalog.to_jsonb(v) FROM market_data_private.pit_window_cross_section_versions_v1 AS v WHERE v.chain_root = p_chain_root $function$",
+    "REVOKE ALL ON FUNCTION market_data_private.resolve_pit_window_chain_v1(BYTEA) FROM PUBLIC",
+    "CREATE OR REPLACE FUNCTION market_data_private.resolve_pit_window_rows_v1(p_chain_root BYTEA, p_versions BYTEA[]) RETURNS TABLE(version_identity BYTEA, member_ordinal SMALLINT, field TEXT, fact_digest BYTEA, fact_bytes BYTEA) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $function$ SELECT r.version_identity, r.member_ordinal, r.field, r.fact_digest, r.fact_bytes FROM market_data_private.pit_window_custody_rows_v1 AS r WHERE r.chain_root = p_chain_root AND r.version_identity = ANY(p_versions) ORDER BY r.version_identity, r.member_ordinal, r.field $function$",
+    "REVOKE ALL ON FUNCTION market_data_private.resolve_pit_window_rows_v1(BYTEA,BYTEA[]) FROM PUBLIC",
 ];
 
 #[track_caller]
@@ -634,9 +655,16 @@ async fn commit_custody_v1(
             .map_err(|cause| store_error(&cause))?;
     }
 
-    // 6. The minted clock, then the custody, its versions and rows, and the chain head.
-    let custody_digest = custody_digest_v1(identity, minting_cut, derived.evidence_digest);
-    sqlx::query("INSERT INTO market_data_private.pit_window_custodies_v1(custody_identity,custody_digest,chain_root,chain_version,predecessor_identity,minting_cut_ns,rule_digest,basis_digest,canonical_bytes,evidence_digest) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)")
+    // 6. The minted clock, then the custody, its versions and rows, and the chain head. The record
+    //    names the clock its minting cut is an instant of, under its digest.
+    let minting_clock = minting_clock_v1(cut_clock);
+    let custody_digest = custody_digest_v1(
+        identity,
+        minting_cut,
+        derived.evidence_digest,
+        &minting_clock,
+    );
+    sqlx::query("INSERT INTO market_data_private.pit_window_custodies_v1(custody_identity,custody_digest,chain_root,chain_version,predecessor_identity,minting_cut_ns,rule_digest,basis_digest,canonical_bytes,evidence_digest,minting_clock_identity,minting_clock_epoch,minting_clock_sequence,minting_restart_continuity_digest,minting_uncertainty_bound,minting_skew_bound) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)")
         .bind(identity.as_bytes().as_slice())
         .bind(custody_digest.as_bytes().as_slice())
         .bind(chain_root.as_bytes().as_slice())
@@ -647,6 +675,12 @@ async fn commit_custody_v1(
         .bind(derived.basis_digest.as_bytes().as_slice())
         .bind(canonical_bytes.as_slice())
         .bind(derived.evidence_digest.as_bytes().as_slice())
+        .bind(minting_clock.identity.as_str())
+        .bind(minting_clock.epoch.as_str())
+        .bind(to_i64(minting_clock.sequence)?)
+        .bind(minting_clock.restart_continuity_digest.as_bytes().as_slice())
+        .bind(to_i64(minting_clock.uncertainty_bound)?)
+        .bind(to_i64(minting_clock.skew_bound)?)
         .execute(&mut *transaction)
         .await
         .map_err(|cause| store_error(&cause))?;
@@ -781,6 +815,18 @@ async fn commit_custody_v1(
         derived.rule_digest,
         minting_cut,
     ))
+}
+
+/// The Owner clock a custody minted at `clock`'s cut is minted under.
+fn minting_clock_v1(clock: &MarketDataClockAdmission) -> CustodyMintingClockV1 {
+    CustodyMintingClockV1 {
+        identity: clock.clock_identity.clone(),
+        epoch: clock.clock_epoch.clone(),
+        sequence: clock.monotonic_sequence,
+        restart_continuity_digest: clock.restart_continuity_digest,
+        uncertainty_bound: clock.uncertainty_bound,
+        skew_bound: clock.skew_bound,
+    }
 }
 
 async fn insert_window_schedule(
@@ -1249,36 +1295,27 @@ pub(in crate::owner) async fn read_pit_window_schedules_v1(
             let number = |column: &str| -> Result<u64, Refused> {
                 to_u64(row.try_get(column).map_err(|cause| store_error(&cause))?)
             };
-            let fact = decode_window_schedule_v1(
-                &bytes("canonical_bytes")?,
-                digest(&bytes("schedule_identity")?)?,
-            )
-            .ok_or(Refused::StoreUnavailable)?;
-            let ordinal: i16 = row
-                .try_get("member_ordinal")
-                .map_err(|cause| store_error(&cause))?;
-            let instrument: String = row
-                .try_get("instrument")
-                .map_err(|cause| store_error(&cause))?;
-            let columns_agree = digest(&bytes("chain_root")?)? == fact.chain_root
-                && fact.chain_root == chain_root
-                && digest(&bytes("custody_identity")?)? == fact.custody_identity
-                && i16::from(fact.member_ordinal) == ordinal
-                && instrument == fact.instrument
-                && digest(&bytes("timeframe_identity")?)? == fact.timeframe_identity
-                && number("interval_ns")? == fact.interval_ns
-                && number("phase_ns")? == fact.phase_ns
-                && number("window_start_ns")? == fact.window_start_ns
-                && number("window_end_ns_exclusive")? == fact.window_end_ns_exclusive
-                && digest(&bytes("im_key")?)? == fact.instrument_master_key
-                && digest(&bytes("ms_identity")?)? == fact.market_semantics_identity
-                && number("cut_ns")? == fact.cut_ns;
-
-            if columns_agree {
-                Ok(fact)
-            } else {
-                Err(Refused::StoreUnavailable)
-            }
+            let columns = ScheduleColumnsV1 {
+                schedule_identity: digest(&bytes("schedule_identity")?)?,
+                chain_root: digest(&bytes("chain_root")?)?,
+                custody_identity: digest(&bytes("custody_identity")?)?,
+                member_ordinal: row
+                    .try_get("member_ordinal")
+                    .map_err(|cause| store_error(&cause))?,
+                instrument: row
+                    .try_get("instrument")
+                    .map_err(|cause| store_error(&cause))?,
+                timeframe_identity: digest(&bytes("timeframe_identity")?)?,
+                interval_ns: number("interval_ns")?,
+                phase_ns: number("phase_ns")?,
+                window_start_ns: number("window_start_ns")?,
+                window_end_ns_exclusive: number("window_end_ns_exclusive")?,
+                im_key: digest(&bytes("im_key")?)?,
+                ms_identity: digest(&bytes("ms_identity")?)?,
+                cut_ns: number("cut_ns")?,
+                canonical_bytes: bytes("canonical_bytes")?,
+            };
+            schedule_from_columns_v1(&columns, chain_root).ok_or(Refused::StoreUnavailable)
         })
         .collect()
 }
@@ -1339,4 +1376,866 @@ pub(in crate::owner) async fn pit_window_custody_commit_from_environment_v1()
         Refused::StoreUnavailable
     })?;
     Ok(Arc::new(PitWindowCustodyPostgresV1 { owner }))
+}
+
+// ---------------------------------------------------------------------------------------------
+// The derived view (slice T0-5): a chain read back at its head, or at a head a run pinned.
+// ---------------------------------------------------------------------------------------------
+
+/// One stored custody of a chain, with everything its record digest covers.
+#[derive(Clone, Debug)]
+pub(crate) struct StoredChainCustodyV1 {
+    pub(crate) identity: BindingDigest,
+    pub(crate) custody_digest: BindingDigest,
+    pub(crate) chain_root: BindingDigest,
+    pub(crate) chain_version: u64,
+    pub(crate) predecessor: Option<BindingDigest>,
+    pub(crate) minting_cut_ns: u64,
+    pub(crate) rule_digest: BindingDigest,
+    pub(crate) basis_digest: BindingDigest,
+    pub(crate) canonical_bytes: Vec<u8>,
+    pub(crate) evidence_digest: BindingDigest,
+    pub(crate) clock: CustodyMintingClockV1,
+}
+
+/// A chain verified at one head: every custody from the root to it, decoded.
+#[derive(Clone, Debug)]
+pub(crate) struct VerifiedChainV1 {
+    pub(crate) chain_root: BindingDigest,
+    pub(crate) head_identity: BindingDigest,
+    pub(crate) head_digest: BindingDigest,
+    pub(crate) head_version: u64,
+    /// The root's record: the basis, labels, window and universe every successor restates.
+    pub(crate) root: CustodyRecordV1,
+    /// The clock the root was minted under; every frame's `d_k` is an instant of it.
+    pub(crate) root_clock: CustodyMintingClockV1,
+    /// Every custody's record, from the root to the head.
+    pub(crate) records: Vec<CustodyRecordV1>,
+}
+
+/// Verifies a chain as read: versions dense from 1 to the head, the root's identity the chain's
+/// root, each custody naming the one before it, each record decoding from its bytes under its
+/// identity with the position, rule and basis its columns state, each record digest recomputing,
+/// and every successor restating the root's basis.
+pub(crate) fn verify_stored_chain_v1(
+    chain_root: BindingDigest,
+    custodies: &[StoredChainCustodyV1],
+) -> Option<VerifiedChainV1> {
+    let mut records: Vec<CustodyRecordV1> = Vec::with_capacity(custodies.len());
+
+    for (position, stored) in custodies.iter().enumerate() {
+        let record = decode_custody_record_v1(&stored.canonical_bytes, stored.identity)?;
+        let expected_version = u64::try_from(position).ok()?.checked_add(1)?;
+        let previous = records.last().map(|previous| previous.identity);
+        let digest = custody_digest_v1(
+            stored.identity,
+            stored.minting_cut_ns,
+            stored.evidence_digest,
+            &stored.clock,
+        );
+        let basis = record.basis_digest();
+        let consistent = stored.chain_version == expected_version
+            && record.chain_version == expected_version
+            && stored.chain_root == chain_root
+            && record.chain_root() == chain_root
+            && stored.predecessor == previous
+            && record.predecessor == previous
+            && stored.rule_digest == record.rule_digest
+            && stored.basis_digest == basis
+            && records
+                .first()
+                .is_none_or(|root| root.basis_digest() == basis)
+            && digest == stored.custody_digest;
+
+        if !consistent {
+            return None;
+        }
+        records.push(record);
+    }
+    let root = records.first()?.clone();
+    let head = custodies.last()?;
+    Some(VerifiedChainV1 {
+        chain_root,
+        head_identity: head.identity,
+        head_digest: head.custody_digest,
+        head_version: head.chain_version,
+        root,
+        root_clock: custodies.first()?.clock.clone(),
+        records,
+    })
+}
+
+/// Why a chain could not be read at a head.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ChainReadRefusalV1 {
+    /// No chain has this root.
+    Unknown,
+    /// The pinned head is not a custody of this chain.
+    HeadNotInChain,
+    /// The store could not be read, or what it holds does not verify.
+    Store,
+}
+
+#[track_caller]
+fn chain_read_refused_at(cause: &impl Debug) -> ChainReadRefusalV1 {
+    crate::owner::storage_diagnostic::refused_by_store_at(cause);
+    ChainReadRefusalV1::Store
+}
+
+fn stored_chain_custody(row: &sqlx::postgres::PgRow) -> Option<StoredChainCustodyV1> {
+    let bytes = |column: &str| row.try_get::<Vec<u8>, _>(column).ok();
+    let digest = |column: &str| digest_from_bytes(&bytes(column)?).ok();
+    let number = |column: &str| u64::try_from(row.try_get::<i64, _>(column).ok()?).ok();
+    let predecessor: Option<Vec<u8>> = row.try_get("predecessor_identity").ok()?;
+    Some(StoredChainCustodyV1 {
+        identity: digest("custody_identity")?,
+        custody_digest: digest("custody_digest")?,
+        chain_root: digest("chain_root")?,
+        chain_version: number("chain_version")?,
+        predecessor: match predecessor {
+            None => None,
+            Some(bytes) => Some(digest_from_bytes(&bytes).ok()?),
+        },
+        minting_cut_ns: number("minting_cut_ns")?,
+        rule_digest: digest("rule_digest")?,
+        basis_digest: digest("basis_digest")?,
+        canonical_bytes: bytes("canonical_bytes")?,
+        evidence_digest: digest("evidence_digest")?,
+        clock: CustodyMintingClockV1 {
+            identity: row.try_get("minting_clock_identity").ok()?,
+            epoch: row.try_get("minting_clock_epoch").ok()?,
+            sequence: number("minting_clock_sequence")?,
+            restart_continuity_digest: digest("minting_restart_continuity_digest")?,
+            uncertainty_bound: number("minting_uncertainty_bound")?,
+            skew_bound: number("minting_skew_bound")?,
+        },
+    })
+}
+
+const CHAIN_CUSTODY_COLUMNS: &str = "custody_identity,custody_digest,chain_root,chain_version,predecessor_identity,minting_cut_ns,rule_digest,basis_digest,canonical_bytes,evidence_digest,minting_clock_identity,minting_clock_epoch,minting_clock_sequence,minting_restart_continuity_digest,minting_uncertainty_bound,minting_skew_bound";
+
+/// One stored cross-section version as read, before the chain places it.
+#[derive(Clone, Debug)]
+pub(crate) struct StoredChainVersionV1 {
+    pub(crate) custody_identity: BindingDigest,
+    pub(crate) identity: BindingDigest,
+    pub(crate) timeframe_identity: BindingDigest,
+    pub(crate) event_ns: u64,
+    pub(crate) kind: u8,
+    pub(crate) correction_sequence: u64,
+    pub(crate) predecessor: Option<BindingDigest>,
+    pub(crate) availability_ns: u64,
+    pub(crate) publication_ns: u64,
+}
+
+/// Everything a chain's frames and views are read from, as the store holds it, before any check.
+/// The pool read and the admitted read each fill one, and one verification reads both.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct PitWindowChainEvidenceV1 {
+    /// `(head identity, head version)`; `None` when no chain has the root.
+    pub(crate) head: Option<(BindingDigest, u64)>,
+    pub(crate) custodies: Vec<StoredChainCustodyV1>,
+    pub(crate) versions: Vec<StoredChainVersionV1>,
+    /// Each verified against its own bytes and stored columns.
+    pub(crate) schedules: Vec<PitWindowScheduleFactV1>,
+}
+
+/// A chain verified at one head, with the versions and window schedules its views read.
+#[derive(Clone, Debug)]
+pub(crate) struct VerifiedChainEvidenceV1 {
+    pub(crate) chain: VerifiedChainV1,
+    pub(crate) versions: Vec<ChainVersionV1>,
+    /// In member order.
+    pub(crate) schedules: Vec<PitWindowScheduleFactV1>,
+    pub(crate) timeframes: ViewTimeframesV1,
+}
+
+/// Verifies `evidence` at its head, or at `pinned_head`: the chain verifies, each custody holds
+/// exactly the versions its record binds, and the root's window schedules are one per member
+/// on one interval.
+pub(crate) fn verify_chain_evidence_v1(
+    chain_root: BindingDigest,
+    evidence: PitWindowChainEvidenceV1,
+    pinned_head: Option<BindingDigest>,
+) -> Result<VerifiedChainEvidenceV1, ChainReadRefusalV1> {
+    let (head_identity, head_version) = evidence.head.ok_or(ChainReadRefusalV1::Unknown)?;
+    let mut custodies = evidence
+        .custodies
+        .into_iter()
+        .filter(|custody| custody.chain_version <= head_version)
+        .collect::<Vec<_>>();
+    custodies.sort_by_key(|custody| custody.chain_version);
+
+    if custodies.last().map(|custody| custody.identity) != Some(head_identity) {
+        return Err(ChainReadRefusalV1::Store);
+    }
+
+    if let Some(pinned) = pinned_head {
+        let position = custodies
+            .iter()
+            .position(|custody| custody.identity == pinned)
+            .ok_or(ChainReadRefusalV1::HeadNotInChain)?;
+        custodies.truncate(position + 1);
+    }
+    let chain = verify_stored_chain_v1(chain_root, &custodies).ok_or(ChainReadRefusalV1::Store)?;
+    let mut versions = Vec::new();
+
+    for stored in evidence.versions {
+        let Some(record) = chain
+            .records
+            .iter()
+            .find(|record| record.identity == stored.custody_identity)
+        else {
+            continue;
+        };
+        versions.push(ChainVersionV1 {
+            identity: stored.identity,
+            custody_identity: stored.custody_identity,
+            chain_version: record.chain_version,
+            timeframe_identity: stored.timeframe_identity,
+            event_ns: stored.event_ns,
+            kind: kind_from_tag(stored.kind).ok_or(ChainReadRefusalV1::Store)?,
+            correction_sequence: stored.correction_sequence,
+            predecessor: stored.predecessor,
+            availability_ns: stored.availability_ns,
+            publication_ns: stored.publication_ns,
+        });
+    }
+
+    // Each custody holds exactly the versions its record binds.
+    for record in &chain.records {
+        let held = versions
+            .iter()
+            .filter(|version| version.custody_identity == record.identity)
+            .map(|version| version.identity)
+            .collect::<Vec<_>>();
+
+        if held.len() != record.version_identities.len()
+            || held
+                .iter()
+                .any(|identity| !record.version_identities.contains(identity))
+        {
+            return Err(ChainReadRefusalV1::Store);
+        }
+    }
+    let mut schedules = evidence.schedules;
+    schedules.sort_by_key(|schedule| schedule.member_ordinal);
+    let in_order = schedules.iter().zip(&chain.root.members).enumerate().all(
+        |(ordinal, (schedule, member))| {
+            usize::from(schedule.member_ordinal) == ordinal
+                && schedule.instrument == *member
+                && schedule.chain_root == chain_root
+                && schedule.custody_identity == chain_root
+        },
+    );
+
+    if !in_order {
+        return Err(ChainReadRefusalV1::Store);
+    }
+    let timeframes = view_timeframes(&chain, &schedules).ok_or(ChainReadRefusalV1::Store)?;
+    Ok(VerifiedChainEvidenceV1 {
+        chain,
+        versions,
+        schedules,
+        timeframes,
+    })
+}
+
+/// The stored columns of one window schedule fact.
+pub(crate) struct ScheduleColumnsV1 {
+    pub(crate) schedule_identity: BindingDigest,
+    pub(crate) chain_root: BindingDigest,
+    pub(crate) custody_identity: BindingDigest,
+    pub(crate) member_ordinal: i16,
+    pub(crate) instrument: String,
+    pub(crate) timeframe_identity: BindingDigest,
+    pub(crate) interval_ns: u64,
+    pub(crate) phase_ns: u64,
+    pub(crate) window_start_ns: u64,
+    pub(crate) window_end_ns_exclusive: u64,
+    pub(crate) im_key: BindingDigest,
+    pub(crate) ms_identity: BindingDigest,
+    pub(crate) cut_ns: u64,
+    pub(crate) canonical_bytes: Vec<u8>,
+}
+
+/// The schedule fact `columns` store, only when its bytes reproduce its identity and every
+/// column states what the bytes do.
+pub(crate) fn schedule_from_columns_v1(
+    columns: &ScheduleColumnsV1,
+    chain_root: BindingDigest,
+) -> Option<PitWindowScheduleFactV1> {
+    let fact = decode_window_schedule_v1(&columns.canonical_bytes, columns.schedule_identity)?;
+    let columns_agree = columns.chain_root == fact.chain_root
+        && fact.chain_root == chain_root
+        && columns.custody_identity == fact.custody_identity
+        && i16::from(fact.member_ordinal) == columns.member_ordinal
+        && columns.instrument == fact.instrument
+        && columns.timeframe_identity == fact.timeframe_identity
+        && columns.interval_ns == fact.interval_ns
+        && columns.phase_ns == fact.phase_ns
+        && columns.window_start_ns == fact.window_start_ns
+        && columns.window_end_ns_exclusive == fact.window_end_ns_exclusive
+        && columns.im_key == fact.instrument_master_key
+        && columns.ms_identity == fact.market_semantics_identity
+        && columns.cut_ns == fact.cut_ns;
+    columns_agree.then_some(fact)
+}
+
+/// Reads the chain rooted at `chain_root` as the store holds it: its head, every custody, every
+/// version and the root's window schedules.
+pub(crate) async fn load_chain_evidence_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    chain_root: BindingDigest,
+) -> Result<PitWindowChainEvidenceV1, ChainReadRefusalV1> {
+    let head = sqlx::query(
+        "SELECT head_identity,head_version FROM market_data_private.pit_window_custody_heads_v1 WHERE chain_root=$1",
+    )
+    .bind(chain_root.as_bytes().as_slice())
+    .fetch_optional(&mut **transaction)
+    .await
+    .map_err(|cause| chain_read_refused_at(&cause))?;
+    let Some(head) = head else {
+        return Ok(PitWindowChainEvidenceV1::default());
+    };
+    let head_identity = digest_from_bytes(
+        &head
+            .try_get::<Vec<u8>, _>("head_identity")
+            .map_err(|cause| chain_read_refused_at(&cause))?,
+    )
+    .map_err(|_| ChainReadRefusalV1::Store)?;
+    let head_version = u64::try_from(
+        head.try_get::<i64, _>("head_version")
+            .map_err(|cause| chain_read_refused_at(&cause))?,
+    )
+    .map_err(|_| ChainReadRefusalV1::Store)?;
+    let custodies = sqlx::query(sqlx::AssertSqlSafe(format!(
+        "SELECT {CHAIN_CUSTODY_COLUMNS} FROM market_data_private.pit_window_custodies_v1 WHERE chain_root=$1"
+    )))
+    .bind(chain_root.as_bytes().as_slice())
+    .fetch_all(&mut **transaction)
+    .await
+    .map_err(|cause| chain_read_refused_at(&cause))?
+    .iter()
+    .map(stored_chain_custody)
+    .collect::<Option<Vec<_>>>()
+    .ok_or(ChainReadRefusalV1::Store)?;
+    let versions = sqlx::query(
+        "SELECT custody_identity,version_identity,timeframe_identity,event_ns,kind,correction_sequence,predecessor_version,availability_ns,publication_ns FROM market_data_private.pit_window_cross_section_versions_v1 WHERE chain_root=$1",
+    )
+    .bind(chain_root.as_bytes().as_slice())
+    .fetch_all(&mut **transaction)
+    .await
+    .map_err(|cause| chain_read_refused_at(&cause))?
+    .iter()
+    .map(|row| {
+        let digest = |column: &str| digest_from_bytes(&row.try_get::<Vec<u8>, _>(column).ok()?).ok();
+        let number = |column: &str| u64::try_from(row.try_get::<i64, _>(column).ok()?).ok();
+        let predecessor: Option<Vec<u8>> = row.try_get("predecessor_version").ok()?;
+        Some(StoredChainVersionV1 {
+            custody_identity: digest("custody_identity")?,
+            identity: digest("version_identity")?,
+            timeframe_identity: digest("timeframe_identity")?,
+            event_ns: number("event_ns")?,
+            kind: u8::try_from(row.try_get::<i16, _>("kind").ok()?).ok()?,
+            correction_sequence: number("correction_sequence")?,
+            predecessor: match predecessor {
+                None => None,
+                Some(bytes) => Some(digest_from_bytes(&bytes).ok()?),
+            },
+            availability_ns: number("availability_ns")?,
+            publication_ns: number("publication_ns")?,
+        })
+    })
+    .collect::<Option<Vec<_>>>()
+    .ok_or(ChainReadRefusalV1::Store)?;
+    let schedules = read_pit_window_schedules_v1(transaction, chain_root)
+        .await
+        .map_err(|_| ChainReadRefusalV1::Store)?;
+    Ok(PitWindowChainEvidenceV1 {
+        head: Some((head_identity, head_version)),
+        custodies,
+        versions,
+        schedules,
+    })
+}
+
+/// The stored row facts of `versions`, decoded and verified from their bytes. Retrieval evidence is
+/// not read: it stays custody evidence.
+pub(crate) async fn load_view_rows_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    chain_root: BindingDigest,
+    versions: &[BindingDigest],
+) -> Result<Vec<StoredViewRowV1>, ChainReadRefusalV1> {
+    let identities = versions
+        .iter()
+        .map(|version| version.as_bytes().to_vec())
+        .collect::<Vec<_>>();
+    let rows = sqlx::query(
+        "SELECT version_identity,member_ordinal,field,fact_digest,fact_bytes FROM market_data_private.pit_window_custody_rows_v1 WHERE chain_root=$1 AND version_identity=ANY($2)",
+    )
+    .bind(chain_root.as_bytes().as_slice())
+    .bind(&identities)
+    .fetch_all(&mut **transaction)
+    .await
+    .map_err(|cause| chain_read_refused_at(&cause))?;
+    rows.iter()
+        .map(|row| {
+            let bytes = |column: &str| row.try_get::<Vec<u8>, _>(column).ok();
+            view_row_v1(
+                &bytes("version_identity")?,
+                row.try_get::<i16, _>("member_ordinal").ok()?,
+                row.try_get("field").ok()?,
+                &bytes("fact_digest")?,
+                &bytes("fact_bytes")?,
+            )
+        })
+        .collect::<Option<Vec<_>>>()
+        .ok_or(ChainReadRefusalV1::Store)
+}
+
+/// One stored row of a view, its fact decoded and verified under its digest.
+pub(crate) fn view_row_v1(
+    version_identity: &[u8],
+    member_ordinal: i16,
+    field: String,
+    fact_digest: &[u8],
+    fact_bytes: &[u8],
+) -> Option<StoredViewRowV1> {
+    let fact_digest = digest_from_bytes(fact_digest).ok()?;
+    Some(StoredViewRowV1 {
+        version_identity: digest_from_bytes(version_identity).ok()?,
+        member_ordinal: u8::try_from(member_ordinal).ok()?,
+        field,
+        fact: decode_sample_fact_v2(fact_bytes, *fact_digest.as_bytes()).ok()?,
+    })
+}
+
+/// The timeframes a chain's views select from, its interval taken from the window schedules.
+fn view_timeframes(
+    chain: &VerifiedChainV1,
+    schedules: &[PitWindowScheduleFactV1],
+) -> Option<ViewTimeframesV1> {
+    let interval_ns = schedules.first()?.interval_ns;
+
+    if schedules
+        .iter()
+        .any(|schedule| schedule.interval_ns != interval_ns)
+        || schedules.len() != chain.root.members.len()
+    {
+        return None;
+    }
+    Some(ViewTimeframesV1 {
+        execution: chain.root.execution.identity,
+        inputs: chain
+            .root
+            .inputs
+            .iter()
+            .map(|input| input.identity)
+            .collect(),
+        interval_ns,
+    })
+}
+
+const fn view_store_refusal(refusal: ViewRefusalV1) -> PitWindowRunRefusalV1 {
+    match refusal {
+        ViewRefusalV1::FrameNotCovered => PitWindowRunRefusalV1::FrameNotCovered,
+        ViewRefusalV1::Branch | ViewRefusalV1::Malformed => PitWindowRunRefusalV1::StoreUnavailable,
+    }
+}
+
+/// Refuses a run no store read can answer: empty, or ending past the instants a store holds.
+pub(crate) const fn check_run_shape_v1(
+    run: &UntrustedPitWindowRunV1,
+) -> Result<(), PitWindowRunRefusalV1> {
+    if run.run_start_ns >= run.run_end_ns_exclusive || run.run_end_ns_exclusive > i64::MAX as u64 {
+        return Err(PitWindowRunRefusalV1::InvalidRequest);
+    }
+    Ok(())
+}
+
+/// The frames of `run` from the chain evidence read for it.
+///
+/// The run-level check that every gap has a quote cut (`QuoteCutMissing`) lands with the quote cut
+/// derivation (T0-6), on the predicate the per-frame read shares; until then this read does not
+/// check gaps, and the per-frame read refuses every frame for want of a quote cut.
+pub(crate) fn frames_from_evidence_v1(
+    run: UntrustedPitWindowRunV1,
+    evidence: PitWindowChainEvidenceV1,
+) -> Result<PitWindowRunFramesV1, PitWindowRunRefusalV1> {
+    check_run_shape_v1(&run)?;
+    let chain_root = run.custody.chain_root;
+    let verified =
+        verify_chain_evidence_v1(chain_root, evidence, None).map_err(|refusal| match refusal {
+            ChainReadRefusalV1::Unknown => PitWindowRunRefusalV1::CustodyUnknown,
+            ChainReadRefusalV1::HeadNotInChain | ChainReadRefusalV1::Store => {
+                PitWindowRunRefusalV1::StoreUnavailable
+            }
+        })?;
+    let window = verified.chain.root.window;
+
+    if run.run_start_ns < window.0 || run.run_end_ns_exclusive > window.1 {
+        return Err(PitWindowRunRefusalV1::RunOutsideCustodyWindow);
+    }
+    let sections = cross_sections_v1(&verified.versions).map_err(view_store_refusal)?;
+    let frames = enumerate_run_frames_v1(
+        &verified.schedules,
+        &sections,
+        &verified.timeframes,
+        run.run_start_ns,
+        run.run_end_ns_exclusive,
+    )
+    .map_err(view_store_refusal)?;
+
+    if frames.is_empty() {
+        return Err(PitWindowRunRefusalV1::InvalidRequest);
+    }
+    let frames = frames
+        .into_iter()
+        .zip(1..)
+        .map(|((event_ns, decision_cut_ns), ordinal)| {
+            PitWindowFrameCoordinateV1::from_owner_view(ordinal, event_ns, decision_cut_ns)
+        })
+        .collect();
+    Ok(PitWindowRunFramesV1::from_owner_view(
+        chain_root,
+        verified.chain.head_identity,
+        verified.chain.head_digest,
+        verified.chain.head_version,
+        frames,
+    ))
+}
+
+/// The frames of `run`, read from the head of the chain it names, on the Owner's store.
+pub(in crate::owner) async fn resolve_pit_window_frames_in_transaction_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    run: UntrustedPitWindowRunV1,
+) -> Result<PitWindowRunFramesV1, PitWindowRunRefusalV1> {
+    check_run_shape_v1(&run)?;
+    let evidence = load_chain_evidence_v1(transaction, run.custody.chain_root)
+        .await
+        .map_err(|_| PitWindowRunRefusalV1::StoreUnavailable)?;
+    frames_from_evidence_v1(run, evidence)
+}
+
+/// Why one frame's view was not resolved.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum PitWindowViewRefusalV1 {
+    CustodyUnknown,
+    HeadNotInChain,
+    FrameNotCovered,
+    /// A member's window schedule does not admit the frame.
+    NotOnSchedule,
+    StoreUnavailable,
+}
+
+/// One frame's view, read at the head its run pinned: everything its batch is sealed from.
+#[derive(Clone, Debug)]
+pub(crate) struct ResolvedPitWindowViewV1 {
+    pub(crate) chain: VerifiedChainV1,
+    pub(crate) selection: ViewSelectionV1,
+    pub(crate) rows: Vec<StoredViewRowV1>,
+    /// The window schedules, in member order.
+    pub(crate) schedules: Vec<PitWindowScheduleFactV1>,
+}
+
+/// The selection of `frame`'s view from the chain evidence read for it, at the head it pins, with
+/// every member's window schedule admitting it. Its rows are read next.
+pub(crate) fn view_selection_from_evidence_v1(
+    frame: &UntrustedPitWindowCustodyFrameV1,
+    evidence: PitWindowChainEvidenceV1,
+) -> Result<(VerifiedChainEvidenceV1, ViewSelectionV1), PitWindowViewRefusalV1> {
+    let verified = verify_chain_evidence_v1(
+        frame.custody.chain_root,
+        evidence,
+        Some(frame.head_identity),
+    )
+    .map_err(|refusal| match refusal {
+        ChainReadRefusalV1::Unknown => PitWindowViewRefusalV1::CustodyUnknown,
+        ChainReadRefusalV1::HeadNotInChain => PitWindowViewRefusalV1::HeadNotInChain,
+        ChainReadRefusalV1::Store => PitWindowViewRefusalV1::StoreUnavailable,
+    })?;
+    let refused = |refusal| match refusal {
+        ViewRefusalV1::FrameNotCovered => PitWindowViewRefusalV1::FrameNotCovered,
+        ViewRefusalV1::Branch | ViewRefusalV1::Malformed => {
+            PitWindowViewRefusalV1::StoreUnavailable
+        }
+    };
+    let sections = cross_sections_v1(&verified.versions).map_err(refused)?;
+    let selection =
+        select_view_v1(&sections, &verified.timeframes, frame.event_ns).map_err(refused)?;
+
+    if !verified.schedules.iter().all(|schedule| {
+        window_schedule_admits_frame_v1(schedule, selection.event_ns, selection.decision_cut_ns)
+    }) {
+        return Err(PitWindowViewRefusalV1::NotOnSchedule);
+    }
+    Ok((verified, selection))
+}
+
+/// The view of `frame`, read at the head it pins, on the Owner's store.
+pub(in crate::owner) async fn resolve_pit_window_view_in_transaction_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    frame: &UntrustedPitWindowCustodyFrameV1,
+) -> Result<ResolvedPitWindowViewV1, PitWindowViewRefusalV1> {
+    let chain_root = frame.custody.chain_root;
+    let evidence = load_chain_evidence_v1(transaction, chain_root)
+        .await
+        .map_err(|_| PitWindowViewRefusalV1::StoreUnavailable)?;
+    let (verified, selection) = view_selection_from_evidence_v1(frame, evidence)?;
+    let selected = selection
+        .selected
+        .iter()
+        .map(|version| version.identity)
+        .collect::<Vec<_>>();
+    let rows = load_view_rows_v1(transaction, chain_root, &selected)
+        .await
+        .map_err(|_| PitWindowViewRefusalV1::StoreUnavailable)?;
+    Ok(ResolvedPitWindowViewV1 {
+        chain: verified.chain,
+        selection,
+        rows,
+        schedules: verified.schedules,
+    })
+}
+
+// ---------------------------------------------------------------------------------------------
+// The admitted read (slice T0-5): the same chain evidence, read through Store Admission.
+// ---------------------------------------------------------------------------------------------
+
+/// A stored `BYTEA` as `to_jsonb` writes it: `\x` and lowercase hex.
+fn json_bytes(value: &serde_json::Value) -> Option<Vec<u8>> {
+    let text = value.as_str()?.strip_prefix("\\x")?;
+
+    if text.len() % 2 != 0 {
+        return None;
+    }
+    (0..text.len())
+        .step_by(2)
+        .map(|at| u8::from_str_radix(text.get(at..at + 2)?, 16).ok())
+        .collect()
+}
+
+fn json_digest(value: &serde_json::Value) -> Option<BindingDigest> {
+    digest_from_bytes(&json_bytes(value)?).ok()
+}
+
+/// A nullable digest column: `Ok(None)` for SQL `NULL`, `Err(())` for a value that is no digest.
+fn json_optional_digest(value: Option<&serde_json::Value>) -> Result<Option<BindingDigest>, ()> {
+    match value {
+        None | Some(serde_json::Value::Null) => Ok(None),
+        Some(value) => json_digest(value).map(Some).ok_or(()),
+    }
+}
+
+fn json_u64(value: &serde_json::Value) -> Option<u64> {
+    u64::try_from(value.as_i64()?).ok()
+}
+
+fn json_text(value: &serde_json::Value) -> Option<String> {
+    value.as_str().map(str::to_owned)
+}
+
+/// The chain evidence an admitted chain read returned, parsed into what the Owner store's own read
+/// returns, for the one verification both share.
+pub(crate) fn chain_evidence_from_raw_v1(
+    raw: &crate::owner::store_admission::RawPitWindowChainV1,
+) -> Option<PitWindowChainEvidenceV1> {
+    let mut evidence = PitWindowChainEvidenceV1::default();
+
+    for (kind, payload) in &raw.entries {
+        let row: serde_json::Value = serde_json::from_slice(payload).ok()?;
+        let field = |name: &str| row.get(name);
+        let get = |name: &str| field(name).filter(|value| !value.is_null());
+
+        match kind {
+            1 => {
+                if evidence.head.is_some() {
+                    return None;
+                }
+                evidence.head = Some((
+                    json_digest(get("head_identity")?)?,
+                    json_u64(get("head_version")?)?,
+                ));
+            }
+            2 => evidence.custodies.push(StoredChainCustodyV1 {
+                identity: json_digest(get("custody_identity")?)?,
+                custody_digest: json_digest(get("custody_digest")?)?,
+                chain_root: json_digest(get("chain_root")?)?,
+                chain_version: json_u64(get("chain_version")?)?,
+                predecessor: json_optional_digest(field("predecessor_identity")).ok()?,
+                minting_cut_ns: json_u64(get("minting_cut_ns")?)?,
+                rule_digest: json_digest(get("rule_digest")?)?,
+                basis_digest: json_digest(get("basis_digest")?)?,
+                canonical_bytes: json_bytes(get("canonical_bytes")?)?,
+                evidence_digest: json_digest(get("evidence_digest")?)?,
+                clock: CustodyMintingClockV1 {
+                    identity: json_text(get("minting_clock_identity")?)?,
+                    epoch: json_text(get("minting_clock_epoch")?)?,
+                    sequence: json_u64(get("minting_clock_sequence")?)?,
+                    restart_continuity_digest: json_digest(get(
+                        "minting_restart_continuity_digest",
+                    )?)?,
+                    uncertainty_bound: json_u64(get("minting_uncertainty_bound")?)?,
+                    skew_bound: json_u64(get("minting_skew_bound")?)?,
+                },
+            }),
+            3 => {
+                let columns = ScheduleColumnsV1 {
+                    schedule_identity: json_digest(get("schedule_identity")?)?,
+                    chain_root: json_digest(get("chain_root")?)?,
+                    custody_identity: json_digest(get("custody_identity")?)?,
+                    member_ordinal: i16::try_from(get("member_ordinal")?.as_i64()?).ok()?,
+                    instrument: json_text(get("instrument")?)?,
+                    timeframe_identity: json_digest(get("timeframe_identity")?)?,
+                    interval_ns: json_u64(get("interval_ns")?)?,
+                    phase_ns: json_u64(get("phase_ns")?)?,
+                    window_start_ns: json_u64(get("window_start_ns")?)?,
+                    window_end_ns_exclusive: json_u64(get("window_end_ns_exclusive")?)?,
+                    im_key: json_digest(get("im_key")?)?,
+                    ms_identity: json_digest(get("ms_identity")?)?,
+                    cut_ns: json_u64(get("cut_ns")?)?,
+                    canonical_bytes: json_bytes(get("canonical_bytes")?)?,
+                };
+                evidence
+                    .schedules
+                    .push(schedule_from_columns_v1(&columns, columns.chain_root)?);
+            }
+            4 => evidence.versions.push(StoredChainVersionV1 {
+                custody_identity: json_digest(get("custody_identity")?)?,
+                identity: json_digest(get("version_identity")?)?,
+                timeframe_identity: json_digest(get("timeframe_identity")?)?,
+                event_ns: json_u64(get("event_ns")?)?,
+                kind: u8::try_from(get("kind")?.as_i64()?).ok()?,
+                correction_sequence: json_u64(get("correction_sequence")?)?,
+                predecessor: json_optional_digest(field("predecessor_version")).ok()?,
+                availability_ns: json_u64(get("availability_ns")?)?,
+                publication_ns: json_u64(get("publication_ns")?)?,
+            }),
+            _ => return None,
+        }
+    }
+    Some(evidence)
+}
+
+/// The frames of `run`, read through an admitted custody port.
+pub(in crate::owner) async fn resolve_pit_window_frames_through_port_v1<P>(
+    port: &P,
+    run: UntrustedPitWindowRunV1,
+) -> Result<PitWindowRunFramesV1, PitWindowRunRefusalV1>
+where
+    P: crate::owner::store_admission::PitWindowCustodyReadPortV1 + ?Sized,
+{
+    check_run_shape_v1(&run)?;
+    let raw = port
+        .resolve_pit_window_chain_v1(*run.custody.chain_root.as_bytes())
+        .await
+        .map_err(|_| PitWindowRunRefusalV1::StoreUnavailable)?;
+    let evidence =
+        chain_evidence_from_raw_v1(&raw).ok_or(PitWindowRunRefusalV1::StoreUnavailable)?;
+    frames_from_evidence_v1(run, evidence)
+}
+
+/// The view of `frame`, read at the head it pins through an admitted custody port.
+pub(in crate::owner) async fn resolve_pit_window_view_through_port_v1<P>(
+    port: &P,
+    frame: &UntrustedPitWindowCustodyFrameV1,
+) -> Result<ResolvedPitWindowViewV1, PitWindowViewRefusalV1>
+where
+    P: crate::owner::store_admission::PitWindowCustodyReadPortV1 + ?Sized,
+{
+    let chain_root = frame.custody.chain_root;
+    let raw = port
+        .resolve_pit_window_chain_v1(*chain_root.as_bytes())
+        .await
+        .map_err(|_| PitWindowViewRefusalV1::StoreUnavailable)?;
+    let evidence =
+        chain_evidence_from_raw_v1(&raw).ok_or(PitWindowViewRefusalV1::StoreUnavailable)?;
+    let (verified, selection) = view_selection_from_evidence_v1(frame, evidence)?;
+    let selected = selection
+        .selected
+        .iter()
+        .map(|version| *version.identity.as_bytes())
+        .collect::<Vec<_>>();
+    let rows = port
+        .resolve_pit_window_rows_v1(*chain_root.as_bytes(), &selected)
+        .await
+        .map_err(|_| PitWindowViewRefusalV1::StoreUnavailable)?
+        .into_iter()
+        .map(|row| {
+            view_row_v1(
+                &row.version_identity,
+                row.member_ordinal,
+                row.field,
+                &row.fact_digest,
+                &row.fact_bytes,
+            )
+        })
+        .collect::<Option<Vec<_>>>()
+        .ok_or(PitWindowViewRefusalV1::StoreUnavailable)?;
+    Ok(ResolvedPitWindowViewV1 {
+        chain: verified.chain,
+        selection,
+        rows,
+        schedules: verified.schedules,
+    })
+}
+
+/// The frames port over this Owner store, for its own proofs; the deployment's is the admitted
+/// read store's.
+#[cfg(test)]
+struct PitWindowCustodyFramesPostgresV1 {
+    pool: sqlx::PgPool,
+}
+
+#[cfg(test)]
+impl sealed::Sealed for PitWindowCustodyFramesPostgresV1 {}
+
+#[cfg(test)]
+#[async_trait::async_trait]
+impl PitWindowCustodyFramesV1 for PitWindowCustodyFramesPostgresV1 {
+    async fn resolve_pit_window_frames_v1(
+        &self,
+        run: UntrustedPitWindowRunV1,
+    ) -> Result<PitWindowRunFramesV1, PitWindowRunRefusalV1> {
+        let mut transaction = self
+            .pool
+            .begin_with("BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+            .await
+            .map_err(|_| PitWindowRunRefusalV1::StoreUnavailable)?;
+        let frames = resolve_pit_window_frames_in_transaction_v1(&mut transaction, run).await;
+        transaction
+            .rollback()
+            .await
+            .map_err(|_| PitWindowRunRefusalV1::StoreUnavailable)?;
+        frames
+    }
+}
+
+#[cfg(test)]
+impl MarketDataOwnerPostgres {
+    /// The frames port over this Owner store, for its own proofs.
+    pub(super) fn pit_window_custody_frames_v1(&self) -> Arc<dyn PitWindowCustodyFramesV1> {
+        Arc::new(PitWindowCustodyFramesPostgresV1 {
+            pool: self.pool.clone(),
+        })
+    }
+
+    /// One frame's view at the head it pins, for this Owner store's own proofs.
+    pub(in crate::owner) async fn resolve_pit_window_view_v1(
+        &self,
+        frame: &UntrustedPitWindowCustodyFrameV1,
+    ) -> Result<ResolvedPitWindowViewV1, PitWindowViewRefusalV1> {
+        let mut transaction = self
+            .pool
+            .begin_with("BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+            .await
+            .map_err(|_| PitWindowViewRefusalV1::StoreUnavailable)?;
+        let view = resolve_pit_window_view_in_transaction_v1(&mut transaction, frame).await;
+        transaction
+            .rollback()
+            .await
+            .map_err(|_| PitWindowViewRefusalV1::StoreUnavailable)?;
+        view
+    }
 }

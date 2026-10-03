@@ -288,6 +288,17 @@ fn request() -> UntrustedPitWindowCustodyRequestV1 {
     }
 }
 
+fn minting_clock() -> CustodyMintingClockV1 {
+    CustodyMintingClockV1 {
+        identity: "market-data.owner-clock.v1-00001".to_owned(),
+        epoch: "market-data.owner-epoch.v1-00001".to_owned(),
+        sequence: 4,
+        restart_continuity_digest: d(70),
+        uncertainty_bound: 1_000_000,
+        skew_bound: 1_000_000,
+    }
+}
+
 fn root_identity(derived: &DerivedCustodyV1) -> BindingDigest {
     derived.identity_at(ChainPositionV1::ROOT).0
 }
@@ -369,9 +380,15 @@ fn retrieval_evidence_stays_outside_every_identity() {
         custody_digest_v1(
             root_identity(&derived),
             RETRIEVED,
-            rederived.evidence_digest
+            rederived.evidence_digest,
+            &minting_clock(),
         ),
-        custody_digest_v1(root_identity(&derived), RETRIEVED, derived.evidence_digest),
+        custody_digest_v1(
+            root_identity(&derived),
+            RETRIEVED,
+            derived.evidence_digest,
+            &minting_clock()
+        ),
         "the record digest binds the evidence"
     );
 
@@ -935,6 +952,168 @@ fn a_custody_mints_one_window_schedule_per_member() {
     assert_ne!(schedules[0].identity(), schedules[1].identity());
 }
 
+/// A stored record reads back as exactly what its custody bound, for a root and for a successor.
+#[rstest]
+fn a_custody_record_decodes_to_what_it_binds() {
+    let (basis, request, original) = correcting_root();
+    let root = basis.derive(&request).unwrap();
+    let (identity, bytes) = root.identity_at(ChainPositionV1::ROOT);
+    let record = decode_custody_record_v1(&bytes, identity).expect("the root decodes");
+
+    assert_eq!(record.identity, identity);
+    assert_eq!(record.chain_root(), identity);
+    assert_eq!(record.chain_version, 1);
+    assert_eq!(record.predecessor, None);
+    assert_eq!(
+        (
+            record.binding_id,
+            record.binding_fact_digest,
+            record.lineage_root
+        ),
+        (d(1), d(3), d(2))
+    );
+    assert_eq!(record.lineage_version, 1);
+    assert_eq!(record.rule_digest, root.rule_digest);
+    assert_eq!(record.market_semantics_identity, d(30));
+    assert_eq!(record.market_semantics_value, root.market_semantics_value);
+    assert_eq!(record.universe, (d(50), d(51)));
+    assert_eq!(record.instrument_master_key, root.instrument_master_key);
+    assert_eq!(record.members, [BTC, ETH]);
+    assert_eq!(record.window, (0, 3 * DAY));
+    assert_eq!(
+        record.execution,
+        RecordedTimeframeV1 {
+            identity: root.execution.identity,
+            label: "1D".to_owned()
+        }
+    );
+    assert_eq!(record.inputs, std::slice::from_ref(&record.execution));
+    assert_eq!(
+        record.fill.as_ref().map(|fill| fill.label.as_str()),
+        Some("1M")
+    );
+    assert_eq!(
+        record.version_identities,
+        root.versions
+            .iter()
+            .map(|version| version.identity)
+            .collect::<BTreeSet<_>>()
+    );
+    assert_eq!(record.basis_digest(), root.basis_digest);
+
+    let chain = chain_of(&root);
+    let next = basis
+        .derive(&successor(
+            &chain,
+            vec![correction("1D", DAY, original, 2, DAY + 5 * SECOND)],
+        ))
+        .unwrap();
+    let position = ChainPositionV1::successor_of(identity, identity, 1).unwrap();
+    let (successor_identity, successor_bytes) = next.identity_at(position);
+    let record =
+        decode_custody_record_v1(&successor_bytes, successor_identity).expect("it decodes");
+
+    assert_eq!(record.chain_root(), identity);
+    assert_eq!(record.chain_root_field, identity);
+    assert_eq!(record.predecessor, Some(identity));
+    assert_eq!(record.chain_version, 2);
+    assert_eq!(record.version_identities.len(), 1);
+    assert_eq!(record.basis_digest(), root.basis_digest);
+}
+
+/// A label is bound beside its identity: the same timeframe held under another label is another
+/// custody, with another basis.
+#[rstest]
+fn relabelling_a_timeframe_changes_the_custody_identity() {
+    let basis = Basis::new(false);
+    let derived = basis.derive(&request()).unwrap();
+    let mut relabelled = request();
+    relabelled.fill_timeframe = Some("5M".to_owned());
+    relabelled.cross_sections[2].timeframe = "5M".to_owned();
+    let other = basis.derive(&relabelled).unwrap();
+
+    assert_eq!(
+        other.fill.as_ref().map(|fill| fill.identity),
+        derived.fill.as_ref().map(|fill| fill.identity),
+        "both labels name one timeframe"
+    );
+    assert_ne!(root_identity(&other), root_identity(&derived));
+    assert_ne!(other.basis_digest, derived.basis_digest);
+
+    let mut execution = request();
+    execution.execution_timeframe = "24H".to_owned();
+    execution.input_timeframes = vec!["24H".to_owned()];
+
+    for version in &mut execution.cross_sections[..2] {
+        version.timeframe = "24H".to_owned();
+    }
+    // Versions stay in canonical label order: the minute bar now sorts first.
+    execution.cross_sections.rotate_right(1);
+    let other = basis.derive(&execution).unwrap();
+
+    assert_eq!(other.execution.identity, derived.execution.identity);
+    assert_ne!(root_identity(&other), root_identity(&derived));
+    assert_ne!(other.basis_digest, derived.basis_digest);
+}
+
+/// Bytes that are not exactly a custody's canonical bytes do not decode, even under their own
+/// digest.
+#[rstest]
+fn a_tampered_or_extended_record_does_not_decode() {
+    let derived = Basis::new(false).derive(&request()).unwrap();
+    let (identity, bytes) = derived.identity_at(ChainPositionV1::ROOT);
+    let restamp = |bytes: &[u8]| decode_custody_record_v1(bytes, sha256(CUSTODY_DOMAIN, bytes));
+
+    assert!(restamp(&bytes).is_some());
+
+    let mut flipped = bytes.clone();
+    flipped[40] ^= 1;
+    assert!(
+        decode_custody_record_v1(&flipped, identity).is_none(),
+        "another digest"
+    );
+
+    let mut extended = bytes.clone();
+    extended.push(0);
+    assert!(restamp(&extended).is_none(), "a trailing byte");
+
+    let truncated = &bytes[..bytes.len() - 1];
+    assert!(restamp(truncated).is_none(), "a missing byte");
+
+    // A root that states a chain root of its own is not a position a commit writes.
+    let (_, misplaced) = derived.identity_at(ChainPositionV1 {
+        predecessor: None,
+        chain_root: d(5),
+        chain_version: 1,
+    });
+    assert!(restamp(&misplaced).is_none(), "a root names no chain root");
+}
+
+/// The record digest binds the Owner clock the minting cut is an instant of.
+#[rstest]
+fn the_custody_digest_binds_the_minting_clock() {
+    let derived = Basis::new(false).derive(&request()).unwrap();
+    let identity = root_identity(&derived);
+    let digest = |clock: &CustodyMintingClockV1| {
+        custody_digest_v1(identity, RETRIEVED, derived.evidence_digest, clock)
+    };
+    let base = digest(&minting_clock());
+    let edits: [fn(&mut CustodyMintingClockV1); 6] = [
+        |clock| clock.identity.push('x'),
+        |clock| clock.epoch.push('x'),
+        |clock| clock.sequence += 1,
+        |clock| clock.restart_continuity_digest = d(71),
+        |clock| clock.uncertainty_bound += 1,
+        |clock| clock.skew_bound += 1,
+    ];
+
+    for edit in edits {
+        let mut clock = minting_clock();
+        edit(&mut clock);
+        assert_ne!(digest(&clock), base);
+    }
+}
+
 /// `request()` with its first daily bar's BTC CLOSE stated as `mantissa * 10^-scale`.
 fn close_stated_as(mantissa: i128, scale: u8) -> UntrustedPitWindowCustodyRequestV1 {
     let mut request = request();
@@ -1201,10 +1380,10 @@ mod chain_records {
     }
 
     const PINNED_R0_RECORD: &str =
-        "e1f059dd6ea2e29dd5515efd902bc6b534b7196bcd499847ac9d2cd43799c8c8";
-    const PINNED_R0_CUT: &str = "7e7d07092c936f94c09053242a308c8db4c4bf50ff962fbc84b6b045f2d26fd3";
+        "8204cabe308a164eafddea2f371abc6107a20d9ec38e45e0a757d6f5bbf1afca";
+    const PINNED_R0_CUT: &str = "adf7d5d078500cb23d3e6684d244e854a5145b0dfa47dc420a8a59b8678f5e02";
     const PINNED_MARKET_SEMANTICS_FACT: &str =
-        "efcc97d162fd5f0e509123f7269b61193c3e0e52033b72336031b2c00210ef92";
+        "a6ea5e9f5b61bd8cc3ab574819610871483c35a515cc8f2df1109ec5070667a6";
 
     #[rstest]
     fn stored_chain_records_decode_only_to_what_they_state() {

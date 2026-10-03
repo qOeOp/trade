@@ -291,8 +291,8 @@ pub fn sealed_replay_input_contains_joined_cut_v1(
             };
 
             trigger.observation_batch_digest() == replay.normalized_records_digest()
-                && trigger.snapshot_identity() == replay.snapshot_identity()
-                && trigger.snapshot_fact_digest() == replay.snapshot_fact_digest()
+                && trigger.committed_snapshot()
+                    == Some((replay.snapshot_identity(), replay.snapshot_fact_digest()))
                 && lifecycle.event_time() >= replay.observation_start_event_time()
                 && lifecycle.event_time() <= replay.observation_end_event_time()
                 && value.observation_batch_digest() == replay.normalized_records_digest()
@@ -368,8 +368,7 @@ pub(crate) fn seal_replay_input(
         || comparison.historical_membership_rules != semantics.membership_rules
         || batch.request_identity() != fact.request_identity()
         || batch.request_digest() != fact.request_digest()
-        || batch.snapshot_identity() != fact.snapshot_identity()
-        || batch.fact_digest() != fact.digest()
+        || batch.committed_snapshot() != Some((fact.snapshot_identity(), fact.digest()))
         || batch.source_binding_identity() != fact.source_binding_identity()
         || batch.source_binding_lineage_root() != fact.source_binding_lineage_root()
         || batch.source_binding_lineage_version() != fact.source_binding_lineage_version()

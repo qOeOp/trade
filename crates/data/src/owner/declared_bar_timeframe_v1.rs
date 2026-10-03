@@ -146,6 +146,36 @@ impl DeclaredBarTimeframeV1 {
         }
     }
 
+    /// The declaration a custody holds its rows under: the binding fact the custody was derived
+    /// from, the label it holds them under and the shape that label declares, all of which the
+    /// custody's record and window schedule bind.
+    pub(crate) fn from_custody_v1(
+        binding_fact_digest: BindingDigest,
+        row_timeframe: &str,
+        shape: DeclaredBarShapeV1,
+    ) -> Self {
+        Self {
+            binding_fact_digest,
+            row_timeframe: row_timeframe.to_owned(),
+            kind: shape.kind,
+            unit: shape.unit,
+            step: shape.step,
+            anchor: shape.anchor,
+            clock: shape.clock,
+            label: shape.label,
+            completion: shape.completion,
+        }
+    }
+
+    /// Whether `schedule` states exactly this bar, as [`Self::admits_schedule`] asks of a BAR
+    /// schedule.
+    pub(crate) fn admits_window_schedule(
+        &self,
+        schedule: &crate::owner::pit_window_custody_v1::schedule::PitWindowScheduleFactV1,
+    ) -> bool {
+        schedule.shape == self.shape()
+    }
+
     /// This declaration, only when it is the one `batch`'s own Source Binding makes.
     ///
     /// # Errors
