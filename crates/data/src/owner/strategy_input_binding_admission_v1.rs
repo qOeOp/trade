@@ -119,8 +119,9 @@ pub enum StrategyInputBindingAdmissionErrorV1 {
     SplitCoordinate,
     /// A declaration is already bound to different content.
     RequestConflict,
-    /// A native dependency refused the re-derivation the registration requires.
-    BindingUnavailable,
+    /// A native dependency refused the re-derivation the registration requires; `cause` names the
+    /// refusal.
+    BindingUnavailable { cause: &'static str },
     /// The Owner store, or the Composer reader, is unreachable.
     StoreUnavailable,
 }
@@ -148,7 +149,7 @@ impl Display for StrategyInputBindingAdmissionErrorV1 {
             Self::AmbiguousSnapshot => "more than one lineage answers a role at that cut",
             Self::SplitCoordinate => "the Design's roles resolved to different PIT requests",
             Self::RequestConflict => "a declaration is bound to different content",
-            Self::BindingUnavailable => "a native dependency refused the re-derivation",
+            Self::BindingUnavailable { .. } => "a native dependency refused the re-derivation",
             Self::StoreUnavailable => "the Market Data store is unavailable",
         };
         formatter.write_str(text)

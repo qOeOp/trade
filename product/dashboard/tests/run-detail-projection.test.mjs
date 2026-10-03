@@ -284,7 +284,7 @@ test("Run Detail projects claimed owner-effect worker custody without inventing 
   assert.ok(parseRunDetailEnvelopeV1(effect));
 
   const mismatched = structuredClone(effect);
-  mismatched.run.worker_compatibility.required_operation_id = "artifact_build.formation_execute.v1";
+  mismatched.run.worker_compatibility.required_operation_id = "exploratory_replay.submit_or_resolve.v2";
   assert.equal(parseRunDetailEnvelopeV1(mismatched), null);
 
   const shadowIdentity = structuredClone(effect);

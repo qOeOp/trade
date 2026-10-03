@@ -660,6 +660,54 @@ position target 与它的 reconciliation target 相等，而两侧曾共用的�
 持有的仓位，只在 kernel 接受某一侧的仓位上提议该侧。这次改动时没有任何部署冻结过这个族的程序，按更早字节冻结
 的程序在这个族之外。
 
+**CURRENT - 策略目录：** 编写出的单阈值策略作为一份不可变的陈述保存，按内容命名，不绑定任何 Research 请求。
+陈述就是去掉三个 Research 身份的 `SingleThresholdAuthoringRequestV1`（`SingleThresholdStrategySpecV1`）。它的 `strategy_id`
+是其规范字节带域分隔的 SHA-256，而不是 Design 的身份：Design 会把它所回答的 Research 请求与 Intent 一起哈希，所以同一份
+陈述在每个请求下都会得到不同的 Design。陈述里每一个能有多种写法的值，在哈希之前都先规范成唯一的写法，所以一个策略只有
+一个身份。陈述只有能编写成功才会被收录，所以目录里永远不会有一份在运行时会被编写器拒绝的策略。
+
+- `rd-owner-api` 在 `/v1/strategies` 下提供它：validate（编写一遍，不写入任何东西）、create（同一份陈述就是同一个策略）、
+  get（读回存储的字节，这些字节哈希回它的身份，所以字节被改过的行会被拒绝而不是被送出）、list、revise（一份点名其前驱的
+  新陈述）与 archive（策略仍可读取，但不能再被修订或运行）。编写器的拒绝保留编写器自己的名字（`SINGLE_THRESHOLD_*`）。
+- 它由两张只追加的 R&D 表保存：`rd_strategy_specs_v1` 与 `rd_strategy_archives_v1`。两张表都不点名 Research 请求，没有任何
+  更新或删除，也没有授权给任何其他 Owner。
+- 目录不冻结任何东西，也不读任何行情数据。回测运行按值读取一份陈述，自己开一个 Research goal，用那个 goal 的身份编写
+  Design 并在其下冻结，所以上面「一个请求只冻结一次」的规则永远不会被第二份陈述撞上，每一条边都朝下。
+- `strategies::postgres_tests::the_strategy_catalog_holds_a_statement_through_every_operation_over_http` 在有序链路的
+  PostgreSQL 上经 HTTP 驱动每一种操作与每一条拒绝，不用任何行情数据，也不用任何 Research 请求。
+
+**CURRENT - strategy-authoring MCP server：**
+[领域 MCP 目录](../architecture/product-edge#target---external-agent-tool-surface)里的 `strategy-authoring` server 是 `strategy-authoring-mcp`，一个由
+`rd-owner-api` 的 package 构建的无状态 stdio 进程。它在自己的环境里持有 `RD_OWNER_API_URL` 与 `RD_OWNER_API_TOKEN`，只访问
+`/v1/strategies`。每个工具只发一个请求，按名字原样转交回答或拒绝；任何参数或结果都不携带 token。
+
+| 工具                            | 路由                                          | 按名拒绝                                                                                                        |
+| ------------------------------- | --------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `validate(spec)`                | `POST /v1/strategies/validate`                | 每一条 `SINGLE_THRESHOLD_*` 编写拒绝                                                                            |
+| `create(spec)`                  | `POST /v1/strategies`                         | 每一条 `SINGLE_THRESHOLD_*` 编写拒绝                                                                            |
+| `get(strategy_id)`              | `GET /v1/strategies/{strategy_id}`            | `STRATEGY_UNKNOWN`                                                                                              |
+| `list(include_archived, limit)` | `GET /v1/strategies`                          | `STRATEGY_LIST_LIMIT_OUT_OF_RANGE`                                                                              |
+| `revise(strategy_id, spec)`     | `POST /v1/strategies/{strategy_id}/revisions` | `STRATEGY_UNKNOWN`、`STRATEGY_ARCHIVED`、`STRATEGY_REVISION_UNCHANGED`、`STRATEGY_EXISTS_UNDER_ANOTHER_LINEAGE` |
+| `archive(strategy_id)`          | `POST /v1/strategies/{strategy_id}/archive`   | `STRATEGY_UNKNOWN`                                                                                              |
+
+`strategy_id` 只要不是 `sha256:` 加 64 位小写十六进制这一种写法，就不发请求、直接回答 `STRATEGY_UNKNOWN`，因为它会成为路由路径的
+一部分。格式不对的调用是 `MALFORMED_TYPED_REQUEST`，未知工具是 `TOOL_UNKNOWN`，路由不可达是 `RD_OWNER_API_UNREACHABLE`。
+
+在本机部署上验收，只挂这一个 server，不用任何行情数据：
+
+1. `validate` 一份带止损与持仓上限的单阈值陈述：得到 `VALID` 与一个 `strategy_id`。
+2. `get` 那个 id：`STRATEGY_UNKNOWN`，因为 validate 什么都没写。
+3. `create` 同一份陈述：同一个 `strategy_id`；再 `create` 一次：同样的回答。
+4. `get` 它：返回的 `spec` 哈希回 `strategy_id`（对
+   `strategy.catalog.single-threshold-statement.v1\0` 后接 spec 字节做 SHA-256）。
+5. 把 `max_holding_bars` 改了之后 `revise` 它：得到一个新 id，并以第一个为 `predecessor_id`。
+6. 把第一个 `revise` 成它自己的陈述：`STRATEGY_REVISION_UNCHANGED`；把第二个 revise 成第一个的陈述：
+   `STRATEGY_EXISTS_UNDER_ANOTHER_LINEAGE`。
+7. `list`：两个都在；`archive` 第一个之后再 `list`：只有第二个；`list(include_archived=true)`：两个都在。
+8. `revise` 已归档的那个：`STRATEGY_ARCHIVED`；`get` 它：仍可读，带 `archived_at_epoch_ms`。
+9. 用 `max_holding_bars: 0` 去 `validate`：`SINGLE_THRESHOLD_MAX_HOLDING_BARS_ZERO`；用 `stop_loss_fraction: "0.020"`：
+   `SINGLE_THRESHOLD_EXIT_FRACTION_INVALID`。
+
 **IMPLEMENTATION_ADMITTED - 编写语言 V1：** 提案者写的一份文档，由一个纯函数编译成 `design` 与
 `meaning` 这一对，再无其他。这个截面上没有任何实现，它的实现排在第一次 COMPOSER_V3 Replay
 走通有序链路之后。提案者是语言模型或 Composer；用户不写文档，所以没有需要解析的文本语法，
@@ -1167,9 +1215,9 @@ R&D 请求密封的 Result 不属于任何 family，以 `EXPLORATORY_RESULT_REQU
   原生运行与 Market Data 修复请求经由同一个函数读取。
 - 其余触及 Market Data 的 R&D 路由都只有范围身份与一个决策 cut，没有区间：初始 PIT 签发、PIT 快照请求路由，以及 Composer
   与有界特征程序路由，它们在一个 cut 上重读一批 PIT。V3 Research 提交把标的身份与可交易前沿比对，那是参考数据，不是价格。
-- 没有任何 R&D 工具让 agent 读取市场数据。Dashboard MCP 服务的七个工具
-  （`product/dashboard/lib/dashboard-mcp-server.ts:152-211`）提交或读取 R&D 与运行状态，不返回任何市场数值；artifact 构建的
-  模型调用没有工具。
+- 没有任何 R&D 工具让 agent 读取市场数据。Dashboard MCP 服务的五个工具
+  （`product/dashboard/lib/dashboard-mcp-server.ts:134-193`）提交或读取 R&D 与运行状态，不返回任何市场数值；产品不发起任何
+  模型调用。
 - 没有任何类型把标的划入层级。Instrument Master V2 从 Binance `onboardDate` 记录永续合约的上市时刻
   （`crates/data/src/owner/instrument_master_v2.rs:346`），Market Data 以 `MARKET_DATA.BAR.VOLUME.QUANTITY.V1` 提供 bar 成交量。
 - 没有任何 Owner 定义按标的或时段划分的 holdout 分区。Qualification 的 holdout 是一份预算与一项托管预留，不是数据的划分。

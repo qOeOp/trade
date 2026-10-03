@@ -205,7 +205,7 @@ export function DashboardRouteContent({
                 : researchDirectory
                 ? "IMPLEMENTATION_ADMITTED - OWNER_CUSTODY_READ_ONLY - NO_SUBMIT_OR_RESOLVE"
                 : researchReadback
-                ? "IMPLEMENTATION_ADMITTED - DISPOSABLE_ARTIFACT_FORMATION - NOT_CUT_OVER"
+                ? "IMPLEMENTATION_ADMITTED - OWNER_POINT_READ_ONLY - NO_SUBMIT_OR_RESOLVE"
                 : sourceResearchControl
                 ? "IMPLEMENTATION_ADMITTED - DISPOSABLE_SOURCE_RESEARCH - NOT_CUT_OVER"
                 : sourceIntakeReadback

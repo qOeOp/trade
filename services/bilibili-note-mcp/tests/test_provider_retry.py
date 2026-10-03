@@ -5,8 +5,8 @@ import httpx
 import pytest
 from pydantic import BaseModel
 
-from bilibili_note_mcp.adapters import distillers
-from bilibili_note_mcp.adapters.distillers import _Provider, _retry_delay
+from bilibili_note_mcp.adapters import model_client
+from bilibili_note_mcp.adapters.model_client import JsonModelClient, _retry_delay
 from bilibili_note_mcp.application.errors import BilibiliNoteFailure
 from bilibili_note_mcp.application.progress import (
     AnalysisProgressReporter,
@@ -55,8 +55,10 @@ async def test_transient_retry_identical_request_then_success(monkeypatch, statu
             else success()
         )
 
-    monkeypatch.setattr(distillers.asyncio, "sleep", sleep)
-    result = await _Provider(profile(), httpx.MockTransport(respond)).request("test", [], Reply)
+    monkeypatch.setattr(model_client.asyncio, "sleep", sleep)
+    result = await JsonModelClient(profile(), httpx.MockTransport(respond)).request(
+        "test", [], Reply
+    )
     assert result.value == "ok"
     assert len(requests) == 2 and requests[0] == requests[1]
     assert waits == [3]
@@ -72,7 +74,7 @@ async def test_permanent_http_never_retried(monkeypatch, status):
         return httpx.Response(status, text="untrusted upstream body secret")
 
     with pytest.raises(BilibiliNoteFailure) as error:
-        await _Provider(profile(), httpx.MockTransport(respond)).request("test", [], Reply)
+        await JsonModelClient(profile(), httpx.MockTransport(respond)).request("test", [], Reply)
     assert len(calls) == 1
     assert error.value.reason == f"provider_http_{status}"
 
@@ -90,8 +92,10 @@ async def test_network_failure_retries_without_replaying_caller(monkeypatch):
             raise httpx.ConnectError("private endpoint", request=request)
         return success()
 
-    monkeypatch.setattr(distillers.asyncio, "sleep", sleep)
-    result = await _Provider(profile(), httpx.MockTransport(respond)).request("test", [], Reply)
+    monkeypatch.setattr(model_client.asyncio, "sleep", sleep)
+    result = await JsonModelClient(profile(), httpx.MockTransport(respond)).request(
+        "test", [], Reply
+    )
     assert result.value == "ok" and len(calls) == 3
 
 
@@ -108,9 +112,9 @@ async def test_cancel_during_backoff_never_attempts_again(monkeypatch):
         calls.append(request)
         return httpx.Response(503)
 
-    monkeypatch.setattr(distillers.asyncio, "sleep", sleep)
+    monkeypatch.setattr(model_client.asyncio, "sleep", sleep)
     task = asyncio.create_task(
-        _Provider(profile(), httpx.MockTransport(respond)).request("test", [], Reply)
+        JsonModelClient(profile(), httpx.MockTransport(respond)).request("test", [], Reply)
     )
     await asyncio.wait_for(waiting.wait(), 1)
     task.cancel()
@@ -128,7 +132,7 @@ async def test_total_deadline_bounds_backoff(monkeypatch):
         return httpx.Response(503)
 
     with pytest.raises(BilibiliNoteFailure) as error:
-        await _Provider(
+        await JsonModelClient(
             replace(profile(), timeout_seconds=0.01), httpx.MockTransport(respond)
         ).request("test", [], Reply)
     assert error.value.reason == "provider_timeout" and len(calls) == 1
@@ -156,9 +160,9 @@ async def test_progress_is_request_local_and_monotonic(monkeypatch):
         calls.append(request)
         return httpx.Response(503) if len(calls) == 1 else success()
 
-    monkeypatch.setattr(distillers.asyncio, "sleep", sleep)
+    monkeypatch.setattr(model_client.asyncio, "sleep", sleep)
     with provider_progress_scope(relay):
-        await _Provider(profile(), httpx.MockTransport(respond)).request("test", [], Reply)
+        await JsonModelClient(profile(), httpx.MockTransport(respond)).request("test", [], Reply)
     assert reporter.updates[-1].progress == 67
     assert "第2/3次" in reporter.updates[-1].message
     from bilibili_note_mcp.application.progress import report_provider_retry
@@ -191,9 +195,9 @@ async def test_retry_receipt_survives_real_operator_validation(monkeypatch, tmp_
         calls.append(request)
         return httpx.Response(503) if len(calls) == 1 else success()
 
-    monkeypatch.setattr(distillers.asyncio, "sleep", sleep)
+    monkeypatch.setattr(model_client.asyncio, "sleep", sleep)
     with operator_run({"test": "retry"}):
-        await _Provider(profile(), httpx.MockTransport(respond)).request("test", [], Reply)
+        await JsonModelClient(profile(), httpx.MockTransport(respond)).request("test", [], Reply)
     content = await asyncio.to_thread(sink.read_text)
     event = json.loads(content.splitlines()[0])
     assert event["event"] == "provider_retry"

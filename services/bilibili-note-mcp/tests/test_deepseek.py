@@ -4,7 +4,7 @@ import httpx
 from pydantic import BaseModel
 
 from bilibili_note_mcp.adapters.asr_siliconflow import SiliconFlowAsr
-from bilibili_note_mcp.adapters.distillers import _Provider
+from bilibili_note_mcp.adapters.model_client import JsonModelClient
 from bilibili_note_mcp.config import load_model_profile
 
 
@@ -34,7 +34,7 @@ async def test_default_author_uses_official_deepseek_wire_and_key(monkeypatch):
         )
 
     assert (
-        await _Provider(transport=httpx.MockTransport(respond)).request("test", [], Reply)
+        await JsonModelClient(transport=httpx.MockTransport(respond)).request("test", [], Reply)
     ).value == "ok"
 
 

@@ -3,15 +3,13 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { bilingualSection, expectBonded, source, sources } from "./doc-contract.mjs";
 
-test("Research detail reuses shared atoms and exposes the admitted Artifact control", async () => {
-  const [component, content, hook, drilldown, questionBrief, control, gate, route, page, shell, navigation, css] = await Promise.all([
+test("Research detail reuses shared atoms and exposes no Artifact action", async () => {
+  const [component, content, hook, drilldown, questionBrief, route, page, shell, navigation, css] = await Promise.all([
     readFile(new URL("../components/research-readback-workspace.tsx", import.meta.url), "utf8"),
     readFile(new URL("../components/research-readback-content.tsx", import.meta.url), "utf8"),
     readFile(new URL("../components/use-research-readback.ts", import.meta.url), "utf8"),
     readFile(new URL("../components/research-readback-drilldown.tsx", import.meta.url), "utf8"),
     readFile(new URL("../components/research-question-brief.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../components/artifact-formation-control.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../components/ui/action-admission-gate.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/api/rd/research/[requestIdentity]/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/(dashboard)/rd/research/[requestIdentity]/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../components/dashboard-route-content.tsx", import.meta.url), "utf8"),
@@ -50,8 +48,8 @@ test("Research detail reuses shared atoms and exposes the admitted Artifact cont
   assert.match(page, /researchRequestIdentity=\{requestIdentity\}/u);
   assert.match(shell, /<ResearchReadbackWorkspace requestIdentity=\{researchRequestIdentity!\}/u);
   assert.match(navigation, /\^\\\/rd\\\/research\\\/\[\^\/\]\+\$/u);
-  assert.match(component, /<ResearchReadbackContent[\s\S]+allowFormation/u);
-  assert.match(content, /allowFormation[\s\S]+<ArtifactFormationControl researchRequestIdentity=\{requestIdentity\}/u);
+  assert.doesNotMatch(component, /allowFormation|ArtifactFormationControl/u);
+  assert.doesNotMatch(content, /allowFormation|ArtifactFormationControl|ActionAdmissionGate/u);
   assert.match(drilldown, /<ResearchReadbackContent/u);
   assert.doesNotMatch(drilldown, /allowFormation|ArtifactFormationControl/u);
   assert.match(drilldown, /Back to request summary/u);
@@ -61,12 +59,6 @@ test("Research detail reuses shared atoms and exposes the admitted Artifact cont
   assert.match(drilldown, /readback\.status === "available"[\s\S]+Open full research workspace/u);
   assert.match(content, /className=\{styles\.readbackGrid\}/u);
   assert.match(css, /\.readbackGrid \{[\s\S]*repeat\(auto-fit, minmax\(min\(100%, 240px\), 1fr\)\)/u);
-  assert.match(control, /ArtifactFormationControl/u);
-  assert.match(control, /PREFLIGHTING[\s\S]+ADMITTING[\s\S]+SUBMITTED_OR_UNKNOWN/u);
-  assert.match(control, /\/api\/rd\/artifacts\/formations\/preflight\//u);
-  assert.match(control, /\/api\/rd\/artifacts\/formations\//u);
-  assert.match(control, /identity_mode: "EXACT"/u);
-  assert.match(gate, /DetailInspector[\s\S]+Input[\s\S]+StatusBadge/u);
   assert.doesNotMatch(css, /#[0-9a-f]{3,8}|rgba?\(|hsla?\(/iu);
 });
 
@@ -79,12 +71,11 @@ test("Research detail contract is bonded to the readback components and the shad
   const code = await sources([
     "components/research-readback-workspace.tsx", "components/research-readback-content.tsx",
     "components/research-readback-drilldown.tsx",
-    "components/artifact-formation-control.tsx", "components/ui/action-admission-gate.tsx",
     "lib/rd-shadow-client.ts", "../../crates/strategy_factory_rd_owner_api/src/main.rs",
   ]);
   expectBonded(section, code, [
-    "/rd/research/", "PanelFrame", "FactGroup", "Timing", "Back to requests", "Refresh", "SUBMITTED_OR_UNKNOWN",
-    "research_goal.shadow_resolve.v1", "ActionAdmissionGate", "PREFLIGHTING", "ADMITTING",
+    "/rd/research/", "PanelFrame", "FactGroup", "Timing", "Back to requests", "Refresh",
+    "research_goal.shadow_resolve.v1",
     "Needs current review", "Raw outcome", "Raw reason",
     "hypothesis", "falsification_question", "expected_observation", "semantic_digest", "committed_at_epoch_ms",
   ], "Research detail");

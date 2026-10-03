@@ -304,6 +304,38 @@ impl InstrumentMasterV2PostgresOwner {
         Ok(readback)
     }
 
+    /// The latest fact of every instrument's chain in canonical-identity order, or of the one
+    /// instrument named, with every link of each chain decoded and checked.
+    ///
+    /// A discovery read for an operator or an agent: it states what Market Data holds now. It is
+    /// never a Replay input, which binds an exact cut through [`Self::resolve`] instead.
+    ///
+    /// # Errors
+    ///
+    /// Returns a custody or storage error when the store, its ACL or a chain does not verify.
+    pub async fn latest_facts_v2(
+        &self,
+        canonical_identity: Option<&str>,
+    ) -> Result<Vec<InstrumentMasterFactV2>, InstrumentMasterCustodyErrorV2> {
+        let mut tx = begin_repeatable_read_v2(&self.pool).await?;
+        assert_acl_in_transaction(&mut tx).await?;
+        assert_complete_ledger(&mut tx).await?;
+        let identities: Vec<String> = sqlx::query_scalar("SELECT DISTINCT canonical_identity FROM market_data_instrument_master_v2.facts WHERE $1::TEXT IS NULL OR canonical_identity=$1 ORDER BY canonical_identity")
+            .bind(canonical_identity)
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(|cause| store_error(&cause))?;
+        let mut latest = Vec::with_capacity(identities.len());
+
+        for identity in identities {
+            if let Some(fact) = decode_chain(load_fact_rows(&mut tx, &identity).await?)?.pop() {
+                latest.push(fact);
+            }
+        }
+        tx.commit().await.map_err(|cause| store_error(&cause))?;
+        Ok(latest)
+    }
+
     async fn serializable(
         &self,
     ) -> Result<Transaction<'_, Postgres>, InstrumentMasterCustodyErrorV2> {

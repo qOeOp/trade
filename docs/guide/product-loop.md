@@ -40,12 +40,12 @@ verdicts only, deterministic backtests, the [Research knowledge ledger](../owner
 and the real-money boundary.
 
 The research loop runs through the external-agent tool surface
-([Product Edge](../architecture/product-edge/#target---external-agent-tool-surface)), the same commands as a command
-line and as MCP tools:
+([Product Edge](../architecture/product-edge/#target---external-agent-tool-surface)): one MCP server per domain, each
+also a command line, with the agent as the only orchestrator and market data passed between servers by reference:
 
 Research request with a declared mechanism and constructs → Research Request Receipt → frozen Research Intent →
-authoring document compiled by the Owner → exploratory replay → Run Report → Iteration Decision → exact successor,
-stop, repair, or Qualification handoff.
+strategy created from a spec the Owner compiles → backtest run on a `dataset_ref` → Run Report → Iteration Decision →
+exact successor, stop, repair, or Qualification handoff.
 
 The agent never holds a credential: the tool surface holds the R&D credentials and returns identities, verdicts and
 the bounded reads below, never a protected Qualification value. A strategy reaches the product only as an authoring

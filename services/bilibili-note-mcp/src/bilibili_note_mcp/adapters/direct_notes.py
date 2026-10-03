@@ -10,17 +10,18 @@ from __future__ import annotations
 import base64
 import io
 import json
-from dataclasses import replace
+from dataclasses import asdict, replace
 
 from PIL import Image, ImageDraw
-from pydantic import Field
+from pydantic import Field, ValidationError
 
-from bilibili_note_mcp.application.create_note import CreateBilibiliNote
 from bilibili_note_mcp.application.errors import BilibiliNoteFailure
+from bilibili_note_mcp.application.note_validation import validate_note
 from bilibili_note_mcp.application.ports import AcquiredSource, FrameAsset
+from bilibili_note_mcp.application.resource_limits import TRANSCRIPT_TOTAL_BYTES
 from bilibili_note_mcp.domain.models import GroundedText, StrictModel, VideoNote
 
-from .distillers import _content, _Provider
+from .model_client import JsonModelClient
 
 # Bounds count text/metadata, never encoded image characters. Each request has
 # at most six 3x3 sheets; actual image tokens remain provider-reported usage.
@@ -37,7 +38,8 @@ AUTHOR = """
 不能凭常识补全；audio_reviews只是另一种转写，不是标准答案。不要添加来源外的解释。
 概览和结论的适用范围必须与原话一致，不把局部建议扩展到所有对象。
 每条points/overview/takeaways的evidence_refs只引用本批真实转录ID。相邻上下文仅用于理解。
-章节按最早引用时间排列，每章各点也按时间排列。截图只返回frame_id，不生成图注；必要的画面解释写入有依据的正文。
+章节按最早引用时间排列，每章各点也按时间排列。screenshots必须是对象数组，每项形如{"frame_id":"F01"}，不是字符串数组；不生成图注。
+必要的画面解释写入有依据的正文。
 不从单帧推断变化，不猜人物身份。选与本章有关且有信息量的清晰画面，
 避免近似重复；每章选择0到2张关键图即可，不为凑数配图，每张最多用一次，全篇至多24张。
 frames中的evidence_refs是画面附近的原始语句，可用于理解画面，不要求正文逐句引用。
@@ -87,7 +89,17 @@ def sheets(frames: tuple[FrameAsset, ...]) -> list[dict[str, object]]:
 
 
 def material(source: AcquiredSource, frames: tuple[FrameAsset, ...]) -> list[dict[str, object]]:
-    content = _content(source, ())
+    text = json.dumps(
+        {
+            "title": source.source.title,
+            "transcript": [asdict(s) for s in source.transcript.segments],
+            "audio_reviews": [asdict(r) for r in source.reviews],
+        },
+        ensure_ascii=False,
+    )
+    if len(text.encode()) > TRANSCRIPT_TOTAL_BYTES:
+        raise BilibiliNoteFailure("DISTILLATION_FAILED", "transcript_bytes_exceeded")
+    content: list[dict[str, object]] = [{"type": "text", "text": text}]
     content.append(
         {
             "type": "text",
@@ -147,7 +159,7 @@ def chunks(
     return result
 
 
-class DirectDistiller(_Provider):
+class DirectDistiller(JsonModelClient):
     async def distill(self, source: AcquiredSource, frames: tuple[FrameAsset, ...]) -> VideoNote:
         parts = chunks(source, frames)
         notes = []
@@ -186,9 +198,7 @@ class DirectDistiller(_Provider):
             for attempt in range(2):
                 try:
                     note = await self.request(AUTHOR, content, VideoNote, output_schema=contract)
-                    note = CreateBilibiliNote.validate_note(
-                        note, part, images, omit_invalid_screenshots=True
-                    )
+                    note = validate_note(note, part, images, omit_invalid_screenshots=True)
                     if (
                         any(len(c.screenshots) > 2 for c in note.chapters)
                         or len(note.chapters) > chapter_limit
@@ -207,11 +217,21 @@ class DirectDistiller(_Provider):
                     }
                     if attempt or not repairable:
                         raise
+                    details = ""
+                    if isinstance(e.__cause__, ValidationError):
+                        errors = e.__cause__.errors(
+                            include_url=False, include_context=False, include_input=False
+                        )
+                        details = json.dumps(
+                            [{"path": error["loc"], "type": error["type"]} for error in errors[:4]],
+                            ensure_ascii=False,
+                        )[:1024]
                     content.append(
                         {
                             "type": "text",
                             "text": "上次输出未通过结构检查："
                             + e.reason
+                            + details
                             + "。请基于原始资料重新输出完整JSON，核对引用及本批数量上限。",
                         }
                     )
@@ -221,7 +241,7 @@ class DirectDistiller(_Provider):
         chapters = tuple(c for note in notes for c in note.chapters)
         # Only a global overview is synthesized; chapter bodies are never rewritten.
         combined = VideoNote(overview=notes[0].overview, chapters=chapters, takeaways=())
-        CreateBilibiliNote.validate_note(combined, source, frames)
+        validate_note(combined, source, frames)
         summary_text = json.dumps([n.model_dump(mode="json") for n in notes], ensure_ascii=False)
         if len(summary_text.encode()) > 96 * 1024:
             raise BilibiliNoteFailure("DISTILLATION_FAILED", "author_summary_budget_exceeded")
@@ -231,5 +251,5 @@ class DirectDistiller(_Provider):
             Summary,
         )
         note = VideoNote(overview=summary.overview, chapters=chapters, takeaways=summary.takeaways)
-        CreateBilibiliNote.validate_note(note, source, frames)
+        validate_note(note, source, frames)
         return note

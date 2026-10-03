@@ -42,7 +42,7 @@ test("control-plane admission receipt is exact and rejects incompatible modes", 
   assert.equal(parseControlPlaneAdmissionReceiptV1({ ...receipt, unexpected: true }), null);
   assert.throws(() => controlPlaneAdmissionReceiptIdentityV1({
     ...fields,
-    executionMode: "CONTINUE_CLAIMED_ONCE",
+    executionMode: "UNDECLARED_MODE",
   }), /CONTROL_PLANE_ADMISSION_INVALID/);
   assert.equal(validControlPlaneAdmissionContextV1({
     authorizationDigest: fields.authorizationDigest,

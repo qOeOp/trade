@@ -1255,10 +1255,7 @@ docs-site:  #-- Build the static documentation site
 docs-site-check:  #-- Type-check and build the static documentation site
 	$(info $(M) Checking static documentation site...)
 	$Q npm ci --prefix docs-site
-	$Q npm run check:i18n:changed-pairs-test --prefix docs-site
 	$Q npm run check:i18n --prefix docs-site
-	$Q npm run check:i18n:structure-test --prefix docs-site
-	$Q npm run check:i18n:structure --prefix docs-site
 	$Q npm run types:check --prefix docs-site
 	$Q npm run build --prefix docs-site
 	$Q npm run check:mermaid --prefix docs-site
@@ -1270,6 +1267,18 @@ docs-site-check:  #-- Type-check and build the static documentation site
 .PHONY: rd-workbench-check
 rd-workbench-check:  #-- Validate the pinned R&D deployment package
 	$Q bash product/rd-workbench/scripts/check.sh
+
+.PHONY: rd-workbench-up
+rd-workbench-up:  #-- Bring up the local R&D deployment (re-entrant; credentials generated locally)
+	$Q bash product/rd-workbench/scripts/up.sh
+
+.PHONY: mcp-strategy-authoring
+mcp-strategy-authoring:  #-- Build the strategy-authoring MCP server for the local deployment and print how to register it
+	$Q bash product/rd-workbench/scripts/strategy-authoring-mcp.sh install
+
+.PHONY: mcp-market-data
+mcp-market-data:  #-- Build the market-data MCP server for the local deployment and print how to register it
+	$Q bash product/rd-workbench/scripts/market-data-mcp.sh install
 
 #== CLI Tools
 

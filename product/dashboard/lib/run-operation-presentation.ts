@@ -11,7 +11,6 @@ const runOperationLabels = {
   "exploratory_replay.shadow_read.v2": "Replay request",
   "exploratory_replay_result.shadow_read.v2": "Replay result",
   "develop_composer.shadow_read.v2": "Strategy composition",
-  "artifact_build.formation_execute.v1": "Build strategy artifact",
   "develop_composer.submit_or_resolve.v2": "Compose strategy",
   "exploratory_replay.submit_or_resolve.v2": "Run exploratory replay",
   "source_intake.research.submit_or_resolve.v1": "Research source",

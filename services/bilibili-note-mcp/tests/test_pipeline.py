@@ -10,7 +10,7 @@ from typing import Literal
 import pytest
 from PIL import Image, ImageDraw
 
-from bilibili_note_mcp.adapters.distillers import (
+from bilibili_note_mcp.adapters.fixture_distiller import (
     DeterministicDistiller,
 )
 from bilibili_note_mcp.adapters.fixture_source import FixtureSource
@@ -25,9 +25,10 @@ from bilibili_note_mcp.adapters.media_ffmpeg import (
     visual_intent_score,
 )
 from bilibili_note_mcp.adapters.note_publisher import LocalNotePublisher
-from bilibili_note_mcp.application import create_note as create_note_module
+from bilibili_note_mcp.application import note_validation
 from bilibili_note_mcp.application.create_note import CreateBilibiliNote
 from bilibili_note_mcp.application.errors import BilibiliNoteFailure
+from bilibili_note_mcp.application.note_validation import validate_frames
 from bilibili_note_mcp.application.ports import (
     AcquiredSource,
     FrameAsset,
@@ -564,12 +565,10 @@ async def test_visual_selector_is_domain_invariant_for_the_same_generic_cue_stru
 
 
 def test_frame_pixel_ceiling_passes_at_bound_and_fails_at_bound_plus_one() -> None:
-    CreateBilibiliNote._validate_frames(
-        (_frame(1, group_id="G01", width=1920, height=1080), _frame(2, group_id="G02"))
-    )
+    validate_frames((_frame(1, group_id="G01", width=1920, height=1080), _frame(2, group_id="G02")))
 
     with pytest.raises(BilibiliNoteFailure) as failure:
-        CreateBilibiliNote._validate_frames(
+        validate_frames(
             (_frame(1, group_id="G01", width=1921, height=1080), _frame(2, group_id="G02"))
         )
 
@@ -579,11 +578,11 @@ def test_frame_pixel_ceiling_passes_at_bound_and_fails_at_bound_plus_one() -> No
 def test_frame_and_aggregate_bytes_are_independently_bounded(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(create_note_module, "FRAME_PNG_BYTES", 16)
-    monkeypatch.setattr(create_note_module, "FRAME_PNG_TOTAL_BYTES", 24)
+    monkeypatch.setattr(note_validation, "FRAME_PNG_BYTES", 16)
+    monkeypatch.setattr(note_validation, "FRAME_PNG_TOTAL_BYTES", 24)
     minimal = b"\x89PNG\r\n\x1a\n"
     at_bound = b"\x89PNG\r\n\x1a\n" + b"x" * 8
-    CreateBilibiliNote._validate_frames(
+    validate_frames(
         (
             _frame(1, group_id="G01", png_bytes=at_bound),
             _frame(2, group_id="G02", png_bytes=minimal),
@@ -591,7 +590,7 @@ def test_frame_and_aggregate_bytes_are_independently_bounded(
     )
 
     with pytest.raises(BilibiliNoteFailure) as individual:
-        CreateBilibiliNote._validate_frames(
+        validate_frames(
             (
                 _frame(1, group_id="G01", png_bytes=at_bound + b"x"),
                 _frame(2, group_id="G02", png_bytes=minimal),
@@ -600,7 +599,7 @@ def test_frame_and_aggregate_bytes_are_independently_bounded(
     assert individual.value.reason == "frame_png_bytes_exceeded"
 
     with pytest.raises(BilibiliNoteFailure) as aggregate:
-        CreateBilibiliNote._validate_frames(
+        validate_frames(
             (
                 _frame(1, group_id="G01", png_bytes=at_bound),
                 _frame(2, group_id="G02", png_bytes=minimal + b"x"),
@@ -611,7 +610,7 @@ def test_frame_and_aggregate_bytes_are_independently_bounded(
 
 def test_application_rejects_two_member_visual_group() -> None:
     with pytest.raises(BilibiliNoteFailure) as failure:
-        CreateBilibiliNote._validate_frames(
+        validate_frames(
             (
                 _frame(1, group_id="G01"),
                 _frame(2, group_id="G01"),
@@ -646,7 +645,7 @@ def _ordered_and_singleton_frames() -> tuple[FrameAsset, ...]:
 
 
 def test_application_accepts_one_host_marked_ordered_group() -> None:
-    CreateBilibiliNote._validate_frames(_ordered_and_singleton_frames())
+    validate_frames(_ordered_and_singleton_frames())
 
 
 @pytest.mark.parametrize("reason", ("deictic_cue", "visual_activity", "coverage"))
@@ -659,7 +658,7 @@ def test_application_rejects_unmarked_three_frame_group(
     )
 
     with pytest.raises(BilibiliNoteFailure) as failure:
-        CreateBilibiliNote._validate_frames(frames)
+        validate_frames(frames)
 
     assert failure.value.reason == "ordered_group_cue_invalid"
 
@@ -669,7 +668,7 @@ def test_application_rejects_unordered_three_frame_timeline() -> None:
     malformed = (frames[0], replace(frames[1], timestamp_ms=1000), *frames[2:])
 
     with pytest.raises(BilibiliNoteFailure) as failure:
-        CreateBilibiliNote._validate_frames(malformed)
+        validate_frames(malformed)
 
     assert failure.value.reason == "frame_group_timeline_invalid"
 
@@ -679,7 +678,7 @@ def test_application_rejects_visual_count_outside_two_to_forty_eight(frame_count
     frames = tuple(_frame(index, group_id=f"G{index:02d}") for index in range(1, frame_count + 1))
 
     with pytest.raises(BilibiliNoteFailure) as failure:
-        CreateBilibiliNote._validate_frames(frames)
+        validate_frames(frames)
 
     assert failure.value.reason == "visual_count_invalid"
 
@@ -997,3 +996,51 @@ async def test_coarse_asr_windows_keep_temporal_samples(tmp_path, draft):
     assert len(frames) > len(segments)
     assert min(f.timestamp_ms for f in frames) < 15000
     assert max(f.timestamp_ms for f in frames) > 210000
+
+
+async def test_webm_container_duration_supports_real_frame_decode(tmp_path, draft):
+    from bilibili_note_mcp.adapters.subprocesses import run_captured
+
+    path = tmp_path / "source.webm"
+    result = await run_captured(
+        "ffmpeg",
+        "-v",
+        "error",
+        "-f",
+        "lavfi",
+        "-i",
+        "testsrc2=size=1280x720:rate=2",
+        "-f",
+        "lavfi",
+        "-i",
+        "sine=frequency=440:sample_rate=16000",
+        "-t",
+        "2",
+        "-c:v",
+        "libvpx-vp9",
+        "-deadline",
+        "realtime",
+        "-cpu-used",
+        "8",
+        "-c:a",
+        "libopus",
+        str(path),
+        timeout_seconds=30,
+        stdout_limit_bytes=1024,
+        stderr_limit_bytes=4096,
+    )
+    assert result.returncode == 0
+    source = AcquiredSource(
+        draft.source.model_copy(update={"duration_ms": 2000}),
+        path,
+        TranscriptResult("platform_subtitle", None, "zh-CN", draft.transcript),
+        "test",
+    )
+    media = FfmpegMedia()
+    assert await media._probe(source) == (1280, 720)
+    frame = await media._decode(path, 500, tmp_path, "webm-frame", 1280, 720)
+    with Image.open(frame.path) as image:
+        assert image.size == (1280, 720)
+    changed = replace(source, source=source.source.model_copy(update={"duration_ms": 6000}))
+    with pytest.raises(BilibiliNoteFailure, match="media_duration_changed"):
+        await media._probe(changed)

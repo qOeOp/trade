@@ -14,7 +14,6 @@ export const runListOperationIdsV1 = [
   "exploratory_replay.shadow_read.v2",
   "exploratory_replay_result.shadow_read.v2",
   "develop_composer.shadow_read.v2",
-  "artifact_build.formation_execute.v1",
   "develop_composer.submit_or_resolve.v2",
   "exploratory_replay.submit_or_resolve.v2",
   "source_intake.research.submit_or_resolve.v1",
@@ -34,8 +33,7 @@ export function isRunListOperationBindingV1(
   if (!isRunListOperationIdV1(operationId)
     || !["owner_read", "owner_effect"].includes(String(runKind))
     || !["dashboard_bff", "dashboard_api", "dashboard_scheduler"].includes(String(triggerKind))) return false;
-  const effectRun = operationId === "artifact_build.formation_execute.v1"
-    || operationId === "develop_composer.submit_or_resolve.v2"
+  const effectRun = operationId === "develop_composer.submit_or_resolve.v2"
     || operationId === "exploratory_replay.submit_or_resolve.v2"
     || operationId === "source_intake.research.submit_or_resolve.v1";
   return effectRun === (runKind === "owner_effect")

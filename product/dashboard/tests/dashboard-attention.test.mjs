@@ -113,7 +113,7 @@ function runPage(filter, identity, state, effectiveAt) {
       principal_ref: null,
       tag: null,
       concurrency_key_present: null,
-      terminal_code: state === "failed" ? "DEPLOYMENT_UNAVAILABLE" : "MANUAL_RECONCILIATION_REQUIRED",
+      terminal_code: state === "failed" ? "DEPLOYMENT_UNAVAILABLE" : "OWNER_UNKNOWN",
     }],
   };
 }

@@ -4190,7 +4190,9 @@ fn map_admission_reader_error(
         // `StoreUnavailable` would send a reader to look at the database for something a source
         // said about itself.
         ReplayCompositionBindingErrorV1::PriceAdjustmentUnknown => {
-            StrategyInputBindingAdmissionErrorV1::BindingUnavailable
+            StrategyInputBindingAdmissionErrorV1::BindingUnavailable {
+                cause: "PRICE_ADJUSTMENT_UNKNOWN",
+            }
         }
         // Raised only by issuance and recovery, which this reader never calls. Named so that it is
         // classified by its meaning - an identity reused for a different request - if it ever
@@ -4204,16 +4206,32 @@ fn map_admission_reader_error(
         }
         // Raised only while issuing a universe-member aggregate, which this reader never does.
         ReplayCompositionBindingErrorV1::UniverseFrameMismatch => {
-            StrategyInputBindingAdmissionErrorV1::BindingUnavailable
+            StrategyInputBindingAdmissionErrorV1::BindingUnavailable {
+                cause: "UNIVERSE_FRAME_MISMATCH",
+            }
         }
         // Raised only while an issuance derives its window or composes its facts, which this reader
         // never does; each says the Design cannot be replayed over this snapshot, not that the
         // store failed.
-        ReplayCompositionBindingErrorV1::ExecutionRoleAmbiguous
-        | ReplayCompositionBindingErrorV1::ExecutionTimeframeNotDeclared
-        | ReplayCompositionBindingErrorV1::ExecutionBarExceedsR0Window
-        | ReplayCompositionBindingErrorV1::SessionOutsideReplayWindow => {
-            StrategyInputBindingAdmissionErrorV1::BindingUnavailable
+        ReplayCompositionBindingErrorV1::ExecutionRoleAmbiguous => {
+            StrategyInputBindingAdmissionErrorV1::BindingUnavailable {
+                cause: "EXECUTION_ROLE_AMBIGUOUS",
+            }
+        }
+        ReplayCompositionBindingErrorV1::ExecutionTimeframeNotDeclared => {
+            StrategyInputBindingAdmissionErrorV1::BindingUnavailable {
+                cause: "EXECUTION_TIMEFRAME_NOT_DECLARED",
+            }
+        }
+        ReplayCompositionBindingErrorV1::ExecutionBarExceedsR0Window => {
+            StrategyInputBindingAdmissionErrorV1::BindingUnavailable {
+                cause: "EXECUTION_BAR_EXCEEDS_R0_WINDOW",
+            }
+        }
+        ReplayCompositionBindingErrorV1::SessionOutsideReplayWindow => {
+            StrategyInputBindingAdmissionErrorV1::BindingUnavailable {
+                cause: "SESSION_OUTSIDE_REPLAY_WINDOW",
+            }
         }
         // Listed rather than left to a wildcard, so that a variant added later cannot become a
         // store failure without someone deciding that it is one.
@@ -4409,7 +4427,9 @@ mod composer_facade_tests {
     )]
     #[case::price_adjustment(
         ReplayCompositionBindingErrorV1::PriceAdjustmentUnknown,
-        StrategyInputBindingAdmissionErrorV1::BindingUnavailable
+        StrategyInputBindingAdmissionErrorV1::BindingUnavailable {
+            cause: "PRICE_ADJUSTMENT_UNKNOWN"
+        }
     )]
     #[case::identity_conflict(
         ReplayCompositionBindingErrorV1::IssuanceIdentityConflict,
