@@ -784,6 +784,112 @@ pub(crate) fn decode_market_semantics_chain_registry_entry_v1(
         .filter(|entry| entry.key_identity == key_identity && entry.canonical_bytes == bytes)
 }
 
+const CHAIN_BASIS_DOMAIN: &[u8] = b"market-data.pit-window-chain-basis-record.v1\0";
+
+/// The record a root custody's commit mints last, binding the three records its chain holds once:
+/// the Reference Fact R0 chain record and cut, the Instrument Master chain link, and the Market
+/// Semantics chain fact. It names no byte beyond their identities: each is already verified against
+/// its own stored bytes by its own readback, so the basis record only proves that one chain root's
+/// three records belong together, by the identities of this one commit.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct ChainBasisRecordV1 {
+    pub(crate) chain_root: BindingDigest,
+    pub(crate) root_custody_identity: BindingDigest,
+    pub(crate) r0_record_identity: BindingDigest,
+    pub(crate) r0_cut_identity: BindingDigest,
+    pub(crate) instrument_master_link_identity: BindingDigest,
+    pub(crate) market_semantics_fact_identity: BindingDigest,
+    canonical_bytes: Vec<u8>,
+    identity: BindingDigest,
+}
+
+impl ChainBasisRecordV1 {
+    pub(crate) fn canonical_bytes(&self) -> &[u8] {
+        &self.canonical_bytes
+    }
+
+    pub(crate) const fn identity(&self) -> BindingDigest {
+        self.identity
+    }
+}
+
+/// The chain basis record of a root commit, binding its chain's R0 record and cut, Instrument
+/// Master link and Market Semantics fact to the chain root and its root custody. `None` for a zero
+/// identity.
+pub(crate) fn issue_chain_basis_record_v1(
+    chain_root: BindingDigest,
+    root_custody_identity: BindingDigest,
+    r0_record_identity: BindingDigest,
+    r0_cut_identity: BindingDigest,
+    instrument_master_link_identity: BindingDigest,
+    market_semantics_fact_identity: BindingDigest,
+) -> Option<ChainBasisRecordV1> {
+    seal_chain_basis_record(ChainBasisRecordV1 {
+        chain_root,
+        root_custody_identity,
+        r0_record_identity,
+        r0_cut_identity,
+        instrument_master_link_identity,
+        market_semantics_fact_identity,
+        canonical_bytes: Vec::new(),
+        identity: zero(),
+    })
+}
+
+fn seal_chain_basis_record(mut record: ChainBasisRecordV1) -> Option<ChainBasisRecordV1> {
+    let digests = [
+        record.chain_root,
+        record.root_custody_identity,
+        record.r0_record_identity,
+        record.r0_cut_identity,
+        record.instrument_master_link_identity,
+        record.market_semantics_fact_identity,
+    ];
+
+    if digests.contains(&zero()) {
+        return None;
+    }
+    let mut bytes = Vec::new();
+    put_u16(&mut bytes, 1);
+
+    for digest in digests {
+        bytes.extend_from_slice(digest.as_bytes());
+    }
+    record.identity = sha256(CHAIN_BASIS_DOMAIN, &bytes);
+    record.canonical_bytes = bytes;
+    Some(record)
+}
+
+/// Reads stored chain basis bytes back, only when they reproduce `identity`.
+pub(crate) fn decode_chain_basis_record_v1(
+    bytes: &[u8],
+    identity: BindingDigest,
+) -> Option<ChainBasisRecordV1> {
+    if sha256(CHAIN_BASIS_DOMAIN, bytes) != identity {
+        return None;
+    }
+    let mut reader = Reader { bytes };
+
+    if reader.u16()? != 1 {
+        return None;
+    }
+    let record = ChainBasisRecordV1 {
+        chain_root: reader.digest()?,
+        root_custody_identity: reader.digest()?,
+        r0_record_identity: reader.digest()?,
+        r0_cut_identity: reader.digest()?,
+        instrument_master_link_identity: reader.digest()?,
+        market_semantics_fact_identity: reader.digest()?,
+        canonical_bytes: Vec::new(),
+        identity: zero(),
+    };
+
+    if !reader.bytes.is_empty() {
+        return None;
+    }
+    seal_chain_basis_record(record).filter(|record| record.canonical_bytes == bytes)
+}
+
 struct Reader<'a> {
     bytes: &'a [u8],
 }

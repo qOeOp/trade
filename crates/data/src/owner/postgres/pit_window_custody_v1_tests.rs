@@ -14,8 +14,9 @@ use super::{
     OWNER_CLOCK_VALIDITY_WINDOW_NS, OwnerSourceBindingDecision, SourceBindingCommit,
     pit_intake_member_count_tests::{instrument_submission, owner_store_v1, source_proposal},
     pit_window_custody_v1::{
-        read_pit_window_instrument_master_chain_v1, read_pit_window_market_semantics_chain_v1,
-        read_pit_window_r0_chain_record_v1, read_pit_window_schedules_v1,
+        read_pit_window_chain_basis_v1, read_pit_window_instrument_master_chain_v1,
+        read_pit_window_market_semantics_chain_v1, read_pit_window_r0_chain_record_v1,
+        read_pit_window_schedules_v1,
     },
     seal_owner_clock_admission_v1,
 };
@@ -547,6 +548,35 @@ async fn chain_r0_of(
     record
 }
 
+/// The chain basis record of the chain rooted at `chain_root`, through the crate's chain readback,
+/// together with the R0, Instrument Master and Market Semantics reads it verifies against.
+async fn chain_basis_of(
+    owner: &MarketDataOwnerPostgres,
+    chain_root: BindingDigest,
+) -> Result<
+    Option<(
+        crate::owner::pit_window_custody_v1::chain_records::ChainBasisRecordV1,
+        (
+            crate::owner::pit_window_custody_v1::chain_records::ReferenceFactR0ChainRecordV1,
+            crate::owner::pit_window_custody_v1::chain_records::ReferenceFactR0ChainCutV1,
+        ),
+        (
+            crate::owner::pit_window_custody_v1::chain_records::InstrumentMasterChainLinkV1,
+            crate::owner::instrument_master::InstrumentMasterReadbackV1,
+        ),
+        (
+            crate::owner::pit_window_custody_v1::chain_records::MarketSemanticsChainFactV1,
+            crate::owner::pit_window_custody_v1::chain_records::MarketSemanticsChainRegistryEntryV1,
+        ),
+    )>,
+    Refused,
+> {
+    let mut transaction = owner.pool().begin().await.unwrap();
+    let basis = read_pit_window_chain_basis_v1(&mut transaction, chain_root).await;
+    transaction.rollback().await.unwrap();
+    basis
+}
+
 /// The window schedules of the chain rooted at `chain_root`, through the crate's readback.
 async fn schedules_of(
     owner: &MarketDataOwnerPostgres,
@@ -689,6 +719,23 @@ async fn postgres_a_custody_commits_once_and_a_resubmission_rejoins_without_writ
     ] {
         assert_eq!(count(&owner, table).await, 1, "{table}");
     }
+
+    // One chain basis record, binding the chain's R0, Instrument Master and Market Semantics
+    // records; the chain readback verifies every identity it names against each record's own.
+    let (basis, basis_r0, basis_instrument_master, basis_market_semantics) =
+        chain_basis_of(&owner, receipt.chain_root())
+            .await
+            .expect("the chain basis verifies")
+            .expect("a root records its chain's basis");
+    assert_eq!(count(&owner, "pit_window_chain_basis_records_v1").await, 1);
+    assert_eq!(basis.root_custody_identity, receipt.custody_identity());
+    assert_eq!(basis.r0_record_identity, r0_record.identity());
+    assert_eq!(basis.r0_cut_identity, r0_cut.identity());
+    assert_eq!(basis.instrument_master_link_identity, link.identity());
+    assert_eq!(basis.market_semantics_fact_identity, semantics.identity());
+    assert_eq!(basis_r0, (r0_record.clone(), r0_cut.clone()));
+    assert_eq!(basis_instrument_master.0, link);
+    assert_eq!(basis_market_semantics.0, semantics);
     assert_eq!(
         tables_named(&owner, "market_semantics_heads_v2", 1).await,
         snapshot_heads,
@@ -816,6 +863,30 @@ async fn postgres_a_custody_commits_once_and_a_resubmission_rejoins_without_writ
         .await
         .unwrap();
     refused(&owner, &intake, first, Refused::IdentityConflict).await;
+
+    // A stored chain basis record whose bytes no longer state its identity does not read back,
+    // although every record it names still verifies on its own.
+    sqlx::query("UPDATE market_data_private.pit_window_chain_basis_records_v1 SET basis_bytes=basis_bytes||'\\x00'::bytea WHERE chain_root=$1")
+        .bind(receipt.chain_root().as_bytes().as_slice())
+        .execute(owner.pool())
+        .await
+        .unwrap();
+    assert_eq!(
+        chain_basis_of(&owner, receipt.chain_root()).await,
+        Err(Refused::StoreUnavailable)
+    );
+    sqlx::query("UPDATE market_data_private.pit_window_chain_basis_records_v1 SET basis_bytes=$2 WHERE chain_root=$1")
+        .bind(receipt.chain_root().as_bytes().as_slice())
+        .bind(basis.canonical_bytes())
+        .execute(owner.pool())
+        .await
+        .unwrap();
+    assert!(
+        chain_basis_of(&owner, receipt.chain_root())
+            .await
+            .unwrap()
+            .is_some()
+    );
 
     // A stored chain Market Semantics fact whose bytes no longer state its identity does not read
     // back.
@@ -1004,6 +1075,11 @@ async fn postgres_every_custody_refusal_writes_nothing() {
         0,
         "no refusal records a chain's Market Semantics fact"
     );
+    assert_eq!(
+        count(&owner, "pit_window_chain_basis_records_v1").await,
+        0,
+        "no refusal records a chain basis"
+    );
 
     // The request every refusal edited commits.
     assert!(commit(&intake, valid).await.is_ok());
@@ -1084,6 +1160,16 @@ async fn postgres_a_successor_corrects_its_chain_and_refuses_a_branch_or_a_chang
     assert_eq!(
         market_semantics_of(&owner, receipt.chain_root()).await,
         market_semantics_of(&owner, root.chain_root()).await,
+    );
+    assert_eq!(
+        count(&owner, "pit_window_chain_basis_records_v1").await,
+        1,
+        "a successor records no chain basis"
+    );
+    assert_eq!(
+        chain_basis_of(&owner, receipt.chain_root()).await,
+        chain_basis_of(&owner, root.chain_root()).await,
+        "the successor's chain reads back its root's basis"
     );
     assert_eq!(receipt.chain_root(), root.chain_root());
     assert_eq!(receipt.chain_version(), 2);
