@@ -319,50 +319,117 @@ Qualification 细节。
 Source 与 Research 动作、探索性 Replay 动作、Develop Composer 动作，以及 run detail 与 run log 读取。它只在 opt-in 的
 `dashboard-preview` profile 下提供服务。
 
-**形态。** 工具面面向代理只有一个入口，就是 `rd-run-research`。该二进制随部署的 R&D 镜像发布。一个库持有全部命令，两个薄壳调用同一组函数：命令行，
-以及 `rd-run-research mcp`（基于 stdio 的 MCP server）。命令与其工具同名。代理以
-`docker compose exec rd-owner-api rd-run-research <command>` 运行它。
+**形态：按领域划分的 MCP server 目录。** 用户在 2026-10-03 决定把工具面按领域拆分。每个领域是一个 MCP server，由拥有该领域的
+服务运行，代理是唯一的编排者：
 
-**命令及其到达的 Owner 路由。** 工具按它到达的 Owner 分组，每条规矩都在该 Owner 里，从不在工具里。工具发送的，都是 Owner
-已经从任何 channel 接纳的那个请求，并带上它陈述的请求身份；接收的 Owner，以及在该 Owner 要求 Product Edge 准入时的
-Product Edge，像接纳来自 Dashboard 的同一请求那样接纳它。工具不增加任何权威，也不跳过任何检查。一步需要某个 Owner 的多条
-路由时（`admit-instrument`、`design`、`compose`、`replay`），命令只按该 Owner 要求的顺序串接它们，并透传每个拒绝；
-`run` 串接各步。
+- 没有 MCP server 调用另一个 MCP server，也没有工具把跨领域的工作流藏在自己里面；
+- 数据在 server 之间按引用传递：回测用一个 `dataset_ref` 指明它的数据，服务端向下读取 Market Data 来解析它，数值从不经过
+  代理；
+- 每条规矩都在 server 背后的 Owner 里，从不在工具里。工具发送的是该 Owner 已经从任何 channel 接纳的请求，不增加任何权威，
+  不跳过任何检查，并按名透传每个拒绝；
+- 每个 server 同时也是基于同一组函数的命令行，工具名相同，因此脚本与代理到达同样的 Owner 行为。
 
-- `admit-instrument`：Market Data 标的准入（Source Binding、Instrument Master、universe 成员资格）。
-- `submit`：`POST /v3/research-goals`，返回请求身份及其 Research Request Receipt。请求声明
-  [研究知识台账](../owners/rd/#target---research-knowledge-ledger)要检查的机制与构件。
-- `initial-pit`：`POST /v3/research-goals/{request_identity}/initial-pit`。
-- `design`：用 Owner 的 authoring 库把请求的 authoring 文档编写为 Strategy Design，然后发布 role intent、
-  据此形成 Design，并 declare 与 freeze bounded feature program。
-- `compose`：`POST /v2/develop-composer/runs`，然后 `POST /v1/replay-compositions/universe-member-issuances`。
-  它先检查 Research View 的剩余有效期，在这次运行无法于其内完成时按名拒绝。
-- `replay`：`POST /v3/exploratory-replay-requests/composer-backed`、execution-input binding，然后
-  `POST /v2/exploratory-replays`，返回 Result 身份。
-- `run`：按顺序执行上面每一步。每步之后把该步产生的身份记入本地状态文件，`--resume` 从失败的那一步继续。
+这取代了本节此前陈述的单一 `rd-run-research` 入口（一个二进制，其 `run` 命令从标的准入到报告串接每一步）：它承担的编排
+移到代理，它的各领域步骤移到所属领域的 server。
 
-读取命令：
+**`dataset_ref`。** 对一段行情数据的纯描述：标的、执行周期（`1d` 或 `4h`）与以事件纳秒计的半开区间 `[start, end)`。
+它不是任何一方签发的令牌：代理照 `coverage` 报告的结果自己写。消费它的服务在运行那一刻于 Market Data 的托管里解析它；
+托管不覆盖时以 `DATASET_REF_UNRESOLVED` 按名拒绝，周期不是执行周期时以 `TIMEFRAME_UNSUPPORTED` 拒绝。运行解析到的托管随
+运行一起记录，因此重放读到同样的数据。
 
-- `report`：`GET /v1/backtest-run-reports/{result_identity}`。
-- `status`：状态文件以及每个已记录步骤的 Owner 读回。
-- `census`：R&D read API 上的 `GET /v1/trial-families/{trial_family_identity}/iterations`。
-- `knowledge`：按机制、构件或范围读取研究知识台账。台账存在之前没有路由。
-- `qualification-status`：一个 Candidate 的有界公开 Qualification Status Summary：`QUALIFIED`、
-  `CLOSED_NOT_QUALIFIED`、过期、撤销或某个公开 forward 阶段。今天没有路由。
+**`market-data`**，由 Market Data 提供：
+
+- `list_instruments()` → 已准入的标的。
+- `describe_instrument(instrument)` → tick size、lot size 与当前经济条款（费率与保证金），或 `INSTRUMENT_UNKNOWN`。
+- `admit_instrument(symbol)` → 交易所 symbol（例如 `BTCUSDT`）的准入回执，由 Market Data 映射到其 canonical 标的；
+  或按名给出的准入拒绝。
+- `backfill(instrument, timeframe, range)` → 一个 `job_id`。`timeframe` 是执行周期 `1d` 或 `4h`，成交读取的 `1m` bar 随之
+  一起回填；其他周期为 `TIMEFRAME_UNSUPPORTED`。其他拒绝：`INSTRUMENT_UNKNOWN`、`RANGE_INVALID`。
+- `job_status(job_id)` → 任务状态，取 `QUEUED`、`RUNNING`、`SUCCEEDED` 或 `FAILED` 之一；`SUCCEEDED` 时给出新增的覆盖；
+  `FAILED` 时按名给出成因。未知任务为 `JOB_UNKNOWN`。
+- `coverage(instrument)` → 每个周期已覆盖的区间。
+- `get_bars(instrument, timeframe, range, format)` → 内联且有界地返回 bar。拒绝：`RANGE_NOT_COVERED`、
+  `RANGE_TOO_LARGE_FOR_INLINE` 与 `HOLDOUT_PARTITION_UNDEFINED`。回测从不经它读取数据：回测接收 `dataset_ref`。
+- `get_funding(instrument, range)` → 资金费率，同样有界、同一组拒绝。
+- 在 Qualification 按值、向下把其 holdout 分区登记到 Market Data 之前，这两个工具对每个请求都以
+  `HOLDOUT_PARTITION_UNDEFINED` 拒绝：登记之前的答案是全部拒绝，从不是全部放行。
+- 每个返回行情数值的工具都在作答的同一事务里把这次读取追加到 Market Data 的代理数据读取台账，写不进去就拒绝
+  （[Market Data](../owners/market-data/) 中的「Agent data-read ledger」）。试验行仍归 R&D，其 census 向下读取 Market Data
+  的台账。
+- 单独验收的条件：代理能在一次性 store 上对一个标的端到端地完成列出、描述、准入、回填与读取，且每个拒绝都被驱动到一次。
+
+**`strategy-authoring`**，由 R&D 提供：
+
+- 它属于 R&D 的编写层（Strategy Artifact）：负责编写、编译检查并保存不可变版本。它不登记已合格的策略，也不负责其生命周期与
+  资金，那是 Strategy Governance 与以后的 `governance` server；它也不运行任何东西，那是 Runtime。
+- spec 是去掉三个 identity 的单阈值 authoring 请求，含其出场字段。策略不绑定任何 Research 请求。
+- `validate(spec)` → `VALID`，或按 authoring 编译器自己的名字给出全部违规，不写入任何东西。
+- `create(spec)` → `strategy_id`，即规范化 spec 的内容摘要。同一份 spec 再次创建返回同一个 id。
+- `get(strategy_id)` 逐字节返回 spec；`list(filter)`。
+- `revise(strategy_id, spec)` → 新 spec 的 `strategy_id`，记录为点名其前驱；没有任何东西被原地修改。
+- `archive(strategy_id)` 追加一条归档记录。策略仍可读取，但不能再运行。
+- 单独验收的条件：只用这一个 server、不碰任何行情数据，一个 spec 被验证、创建、逐字节读回、修订出后继并归档，且每个拒绝
+  都被驱动到一次。
+
+**`backtest`**，由调用 Backtest 的 R&D 运行路由提供：
+
+- `run(strategy_id, dataset_ref, cost_profile)` → 一个 `run_id`。整个回放在服务端一次调用内完成。R&D 按值读取策略的 spec，
+  为这次运行形成 Research goal，编写并冻结其 Design，并从 Market Data 解析数据段；它把两者按值传给 Backtest，因此 Backtest
+  从不回读 R&D，每次调用都指向下层。Design 的身份只存在于运行内部，从不作为策略 id 暴露。每次运行在其结果被展示之前都作为
+  一次试验计入 R&D 的 census，与今天每个探索性 Result 一样。拒绝：`STRATEGY_UNKNOWN`、`STRATEGY_ARCHIVED`、
+  `DATASET_REF_UNRESOLVED`、`TIMEFRAME_UNSUPPORTED`、`COST_PROFILE_UNKNOWN`。
+- `status(run_id)`、`list_runs(filter)`。
+- `report(run_id)` → 运行报告，包括费用、资金费与随机进场对照。在 Qualification 登记其 holdout 分区之前，每份报告都写明
+  没有定义 holdout 分区、结果仅作探索。
+- **TARGET：** 分区登记之后，`run` 对与受保护时段重叠的窗口以 `HOLDOUT_WINDOW_OVERLAP` 拒绝。
+- 单独验收的条件：一个已创建的策略在一个 `dataset_ref` 上运行，其报告读回时带有费用、资金费与对照。
+
+**以后的 server（TARGET）。** 每一个都只是蓝图；细节到它的阶段再定。
+
+- **`research`**，由 R&D 研究台账提供：`register_hypothesis`（在读取任何数据之前：机制、证伪条件、最小关注效应、变体数）、
+  `list_trials` 与只读的 `census`。红线：假设绝不在它所检验的数据被读过之后登记。
+- **`knowledge`**，由 R&D 知识台账提供：`family_status`、`record_conclusion` 与 `check_before_research`。红线：条目只追加，
+  不持有任何受保护数值。
+- **`qualification`**，由 Qualification 提供：`submit_candidate`、`status`、`verdict`、`forward_register` 与
+  `forward_status`。红线：任何 holdout 数值都不出去。今天 Qualification 把每个负向终态都按字节相同地投影为
+  `CLOSED_NOT_QUALIFIED`，因此 `verdict` 只答 `QUALIFIED` 或 `CLOSED_NOT_QUALIFIED`；三级裁决（通过、等价为零、不确定）
+  放宽了这条已陈述的封口，建之前需要用户授权。
+- **`scan`**，由 Scanner 提供：`create_schedule`、`list_schedules`、`scan_now`（发现视图）与 `results`。红线：扫描结果从不是
+  激活权威。
+- **`governance`**，由 Strategy Governance 提供：`list_eligible`、`propose_activation`（Paper 或 Live）、`pause`、`retire`
+  与只读的 `capital_policy`。红线：激活只能提议，由用户在 Dashboard 批准。
+- **`portfolio`**，由 Portfolio 提供：`account_state`、`exposure`、`performance` 与 `capacity`，全部只读。
+- **`operations`**，一个 server 汇集 Runtime、Risk、Execution 与可观测性的只读视图，使代理面对的 server 不多：
+  `instance_status`、`readiness`、`orders`、`fills`、`drift` 与 `alerts`。红线：kill switch 只可读，只有用户本人能触发它。
+
+**真钱红线。** 没有任何 MCP 工具下单，也没有任何工具触及真钱。交易侧的每个动作都由代理提议、由用户批准。
+
+**长时间运行的工作。** 用户问到超出一次工具调用的工作在哪里运行。答案是让每种工作留在它的生命周期本来所在的地方：
+
+- MCP server 是代理会话的 stdio 子进程。它随该会话启停，不保存状态，不托管任何长任务，也不启动容器：启动容器需要
+  Docker socket，而那等于主机 root。
+- 长时间运行的确定性工作运行在 compose 包里常驻的服务中，由该服务自己的调度器与 worker 执行。计划（例如「每 4 小时扫描
+  这几个策略」）是该服务持有的只追加记录；代理经该服务的 MCP server 增删改查这条计划并读取其结果。
+- 每个长任务都是异步 job：提交得到 `job_id`，然后代理读取其状态，再读取其结果。回测、回填、扫描与前向记录都是这个形状，
+  其结果只追加、可重放。
+- 唯一常驻的隔离容器是 `rd-build-sandbox`，它在断网与只读文件系统下把策略程序编译成 Wasm，经其 socket 被调用。它不按任务
+  启动。
+- 需要模型、不确定的工作，例如代理定期做研究，由宿主侧的定时器唤醒一个代理会话，再由该会话调用各个 MCP server。产品里不放
+  任何代理。
+- **TARGET，U1 之后：** 今天 Dashboard 的 shadow scheduler 与 effect worker 在调度研究与扫描任务（产品闭环中的「面向用户的
+  闭环与实现边界」）。按分层规则，每条计划归其领域的服务，Dashboard 只负责查看与控制。
 
 **权限。**
 
-- 进程在其环境中持有 R&D API token 以及 read API 的 URL 与 token。任何工具参数或结果都不携带凭据，代理也从不看到凭据。
-- 没有命令到达 Paper、Live、交易所凭据或任何执行路径。真钱边界不变。
+- 每个 server 在自己的环境中持有它向自己的 Owner 出示的凭据。任何工具参数或结果都不携带凭据，代理也从不看到凭据。
+- 没有工具到达 Paper、Live、交易所凭据或任何执行路径。真钱边界不变。
 - 更换代理，或改用命令行而不是 MCP，只改变归属，从不改变权威，正如下文 Agent Shell 部署绑定对每个 channel 的规定。
 
 **只给结论，从不给受保护数值。**
 
-- 没有命令调用 Qualification 的受保护读取。Qualification 只通过其公开状态作答，并有一条测试断言工具面不链接任何
-  Qualification 受保护读取 port。
-- `report`、`census` 与 `knowledge` 返回探索性的 R&D 与 Backtest 事实，它们本就是代理自己的证据；知识台账按构造不持有
-  任何受保护数值。
-- 拒绝原样透传其 HTTP 状态、`x-rd-rejection-code` 与 `x-rd-rejection-cause`。没有任何拒绝被折叠成泛化失败。
+- 没有工具调用 Qualification 的受保护读取，也没有运行读到已登记的 holdout 时段之内：分区登记之前 `get_bars` 与
+  `get_funding` 拒绝一切，登记之后 `backtest.run` 拒绝重叠的窗口。Qualification 只通过其公开状态作答。
+- 拒绝按名透传。没有任何拒绝被折叠成泛化失败。
 
 **Dashboard MCP。** Dashboard 的 `/api/mcp` 不是面向代理的入口，也不扩展这些命令。它保留给预览界面使用：
 
