@@ -2527,6 +2527,23 @@ Binance USD-M 永续 Data Client 在成员最后一根已收盘的 bar 旁边，
 - **状态。** 指定 `binance-perpetual` 的部署今天就会提交这些行，还没有消费方读取它们。单元测试用一个本地的交易所与归档主机替身驱动两条路由；
   live 源测试从真实归档读取一个 2025 年的坐标；无凭据的 Market Data 端到端证明从端点读取一个近期坐标。
 
+### TARGET Binance 永续多空比行
+
+永续 Data Client 在持仓量旁边陈述交易所的三个多空比，**取自同一个样本**，所以 `OPEN_INTEREST_TIME` 也是它们的时刻。它们是
+`TICK` 上的 `SCALAR` 行：
+
+- `LONG_SHORT_ACCOUNT_RATIO`：全部账户。
+- `TOP_TRADER_LONG_SHORT_ACCOUNT_RATIO`：大户账户。
+- `TOP_TRADER_LONG_SHORT_POSITION_RATIO`：大户持仓。
+
+- **与持仓量同样的路由。** 归档某一天的 `metrics` 行里已经有它们，在 `count_long_short_ratio`、`count_toptrader_long_short_ratio`
+  与 `sum_toptrader_long_short_ratio` 中。
+- **端点路由。** 近期坐标向三个无签名的 `futures/data` 多空比端点各请求持仓量时刻的那个样本。样本不恰好在该时刻的比值缺席，
+  不从别的样本借用。
+- **数位以路由为准。** 端点把比值四舍五入到四位小数，归档给出八位。2026-10-01 的归档挪动五分钟后在这个精度上与端点一致，
+  与持仓量相同。
+- **缺席与拒绝。** 比值单元格为空或缺少样本时，只省略这个比值的行。端点调用被拒绝或数值不是十进制数，会拒绝整次检索。
+
 ### CURRENT/PARTIAL Binance 永续已结算 funding 行
 
 `crates/adapters/binance/src/futures_pit_observation_source_v1.rs` 中的 Binance USD-M 永续 Data Client 回答一个

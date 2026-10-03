@@ -2912,6 +2912,25 @@ The instant is stated in the public endpoint's convention. The archive stamps th
   reads a 2025 coordinate from the real archive. The credential-free Market Data end-to-end proof reads a recent
   coordinate from the endpoint.
 
+### TARGET Binance perpetual long/short ratio rows
+
+Beside its open interest, the perpetual Data Client states the venue's three long/short ratios **for the same
+sample**, so `OPEN_INTEREST_TIME` is their instant too. They are `SCALAR` rows at `TICK`:
+
+- `LONG_SHORT_ACCOUNT_RATIO`: all accounts.
+- `TOP_TRADER_LONG_SHORT_ACCOUNT_RATIO`: top-trader accounts.
+- `TOP_TRADER_LONG_SHORT_POSITION_RATIO`: top-trader positions.
+
+- **Same routes as open interest.** An archived day's `metrics` row already holds them, in
+  `count_long_short_ratio`, `count_toptrader_long_short_ratio` and `sum_toptrader_long_short_ratio`.
+- **The endpoint route.** A recent coordinate asks each of the three unsigned `futures/data` ratio endpoints for
+  its sample at the open interest's instant. A ratio whose sample is not at exactly that instant is absent, not
+  carried over from another sample.
+- **The digits are the route's.** The endpoint rounds a ratio to four decimals, and the archive states eight.
+  On 2026-10-01 the archive matches the endpoint to that precision once moved five minutes, as open interest does.
+- **Absence and refusal.** An empty ratio cell or a missing sample leaves that ratio's row out, and only that row.
+  A refused endpoint call or a non-decimal value refuses the retrieval.
+
 ### CURRENT/PARTIAL Binance perpetual settled funding rows
 
 The Binance USD-M perpetual Data Client in `crates/adapters/binance/src/futures_pit_observation_source_v1.rs`
