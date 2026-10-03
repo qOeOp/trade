@@ -276,7 +276,9 @@ trading effect。
 **CURRENT_PARTIAL - R&D 联合冻结写入路径：** R&D Owner 现在具备持久 PostgreSQL 组合根与三条带鉴权的路由
 `POST /v1/bounded-feature-programs/{declare,freeze,lower}`。`declare` 是提案者的路由：它接收 Design 与
 program 的含义，从该 Design、钉定的 catalog 与 Owner 自己的 binding custody 推导出提案者无从知晓的一切，
-并在取得这些 binding 行锁的同一个事务内冻结结果。`freeze` 则接收已经组装好的一对。两者都对照当前已接纳的
+并在取得这些 binding 行锁的同一个事务内冻结结果。`freeze` 则接收已经组装好的一对，并且只在它的每个输入恰好
+等于 `declare` 对同一角色、value port、clock 与 binding receipt 推导出的输入时才接纳：两条路由调用同一个推导，
+所以预先组装的程序可以复述 Design 的角色，但永远不会与之不同。两者都对照当前已接纳的
 Research custody 与钉定的 primitive catalog 接纳这一对，恰好写入一行联合冻结及其 outbox event，并对同一
 Research identity 的不同含义以 conflict 回应。`lower` 把这份冻结对读回并降级，因此被冻结的 program 现在
 经由生产路径产出规范的第一方 ABI3 源码，而不再只存在于 sealed 验收内部。
