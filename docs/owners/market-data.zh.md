@@ -2279,17 +2279,18 @@ Backtest 的组合与 Market Data 之外的每个读者也属于 T1；T2（多�
 的单元测试，以及 `pit_window_custody_v1_tests` 里的四个 PostgreSQL 证明。提交在时钟状态锁下确定铸造 cut，并在该 cut
 上选出成员的 Instrument Master fact；它拒绝另有 fact 在窗口内生效的成员，以 `ROW_RETRIEVED_BEFORE_BAR_CLOSE` 拒绝在 bar
 收盘前取回的行，拒绝早于其版本事件或可得时刻的陈述发布时刻，并以 `VERSION_NOT_AVAILABLE_AT_MINTING_CUT` 拒绝可得时刻
-或陈述发布时刻晚于铸造 cut 的版本。托管序列的 scale 取自成员的 Instrument Master 增量：OPEN、HIGH、LOW 与 CLOSE 取价格增量
-的 scale，VOLUME 取数量增量的 scale；每一行都精确地换算到该 scale，比它更细的行以
-`VALUE_FINER_THAN_INSTRUMENT_PRECISION` 拒绝，绝不舍入。托管为某个成员绑定的周期 identity，就是 BAR
+或陈述发布时刻晚于铸造 cut 的版本。每个托管序列都以固定 scale 9 陈述，即
+`MARKET_DATA_VALUE_SCALE_V1`：每一行都精确地换算到它，小数位多于 9 位的行以 `VALUE_FINER_THAN_SERIES_SCALE` 拒绝，
+绝不舍入。scale 固定而不取自标的的 tick，因为 tick 会在标的历史中变化（`BTCUSDT` 从 0.01 变为 0.10），取 tick 的 scale
+会拒绝更早的行或把一个序列切开。托管为某个成员绑定的周期 identity，就是 BAR
 调度路径从同一份声明与该成员的 Instrument Master fact 推出的那一个，时区也包括在内。窗口调度、每条链一次的记录与派生视
 图都还没有建。
 
 **TARGET，快照路径的序列 scale：** sample fact 的序列 identity 绑定值的 scale
 （`series_projection_bytes`，`crates/data/src/owner/sample_fact.rs` 第 1263 行），而 PIT batch 以规范形式存储每个值，拒绝
 尾数以 0 结尾的非零 scale（`decode_observation`，`crates/data/src/owner/pit_snapshot/authority.rs` 第 1613 行）。于是 scale
-随值的末位数字变化，同一标的同一字段在每个末位为 0 的 bar 上都会分裂出新序列。托管已由上面的 Instrument Master 精度规则
-修好。快照路径保留其字节，留给排在 U1 之后的单独切片：今天的快照消费方各自只读一帧，所以还没有序列连续性依赖它。
+随值的末位数字变化，同一标的同一字段在每个末位为 0 的 bar 上都会分裂出新序列。托管已由上面的固定 scale 规则修好，
+这也是快照路径的修法。快照路径保留其字节，留给排在 U1 之后的单独切片：今天的快照消费方各自只读一帧，所以还没有序列连续性依赖它。
 
 目前已建成（T0-4b）：窗口 schedule fact。根托管的提交在同一个事务内、在所有拒绝之后，为每个成员的执行周期铸一个
 `PitWindowScheduleFactV1`：成员的周期 identity 与声明形状、间隔及其相位（从 Unix 纪元起的网格相位为零）、托管的窗口、

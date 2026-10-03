@@ -173,11 +173,18 @@ async fn commit_binding(
         .expect("the Owner admits the binding and its clock")
 }
 
-/// Admits both members' Instrument Master facts, in force from instant 1 with no end.
+/// Admits both members' Instrument Master facts, in force from instant 1 with no end. `BTC`'s
+/// tick is 0.10, as `BTCUSDT`'s is today.
 async fn admit_members(owner: &MarketDataOwnerPostgres, binding: &SourceBindingCommit) {
     for member in [BTC, ETH] {
+        let mut submission = instrument_submission(member, binding, d(81));
+
+        if member == BTC {
+            submission.price_increment.mantissa = 1;
+            submission.price_increment.scale = 1;
+        }
         owner
-            .admit_instrument_master_fact_v1(instrument_submission(member, binding, d(81)))
+            .admit_instrument_master_fact_v1(submission)
             .await
             .unwrap();
     }
@@ -266,9 +273,8 @@ async fn universe(
     )
 }
 
-/// One row per member and BAR field, values from `base`, all retrieved at `retrieval_ns`. Prices
-/// are written at the fixture instruments' price increment scale, 2, and volumes at their quantity
-/// increment scale, 0.
+/// One row per member and BAR field, values from `base`, all retrieved at `retrieval_ns`: prices at
+/// two places, volumes as integers. Custody states each at the fixed value scale.
 fn rows(base: i128, retrieval_ns: u64) -> Vec<UntrustedCustodyRowV1> {
     [BTC, ETH]
         .into_iter()
@@ -495,6 +501,15 @@ async fn postgres_a_custody_commits_once_and_a_resubmission_rejoins_without_writ
         .unwrap();
     second_close.value_mantissa = 650_001;
     second_close.value_scale = 1;
+    // The first bar's BTC HIGH is a 2021 BTCUSDT close at its own precision, 37244.36: finer than
+    // the instrument's tick today, and still a value.
+    let historical = first.cross_sections[0]
+        .rows
+        .iter_mut()
+        .find(|row| row.instrument == BTC && row.field == "HIGH")
+        .unwrap();
+    historical.value_mantissa = 3_724_436;
+    historical.value_scale = 2;
 
     let (handoffs, head) = clock(&owner).await;
     let before_wall = wall_now_ns();

@@ -243,10 +243,10 @@ pub enum PitWindowCustodyRefusalV1 {
     /// publication is later than the cut the custody is minted at.
     #[error("a version is not available at the custody's minting cut")]
     VersionNotAvailableAtMintingCut,
-    /// `VALUE_FINER_THAN_INSTRUMENT_PRECISION`: a row value with more decimal places than the
-    /// member's Instrument Master price or quantity increment states; it is never rounded.
-    #[error("a value is finer than the instrument's precision")]
-    ValueFinerThanInstrumentPrecision,
+    /// `VALUE_FINER_THAN_SERIES_SCALE`: a row value with more than nine decimal places, the
+    /// fixed scale every custody series is stated at; it is never rounded.
+    #[error("a value is finer than the custody series scale")]
+    ValueFinerThanSeriesScale,
     /// Two versions naming one predecessor, a repeated sequence, or a publication that does not
     /// increase with the sequence.
     #[error("a cross-section's versions branch")]
