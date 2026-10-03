@@ -3229,6 +3229,13 @@ same names.
 | `get_bars(instrument, timeframe, range)` | after T0-5, over the run window custody view            | `HOLDOUT_PARTITION_UNDEFINED`, `RANGE_NOT_COVERED`, `RANGE_TOO_LARGE_FOR_INLINE` |
 | `get_funding(instrument, range)`         | after the funding schedule read below                   | `HOLDOUT_PARTITION_UNDEFINED`, `RANGE_NOT_COVERED`, `RANGE_TOO_LARGE_FOR_INLINE` |
 
+- **Listing and describing read what Market Data holds now.** `GET /v1/market-data/instruments` and
+  `GET /v1/market-data/instruments/{instrument}` are `CURRENT`: `crates/data/src/owner/instrument_catalog_v1.rs` reads
+  each instrument's latest Instrument Master V2 fact, every link of its chain decoded and checked, and every
+  economic-terms version admitted for it. A value the venue does not state is named (`UNBOUNDED`, `NOT_APPLICABLE` or
+  `UNAVAILABLE`), never a number. These are discovery reads and never a Replay input: a Replay still binds an exact
+  Instrument Master cut and resolves its terms from it, so no consumer gains a latest selector. Chain entry 121 reads
+  the perpetual F admits over HTTP. The MCP server over these routes is not built yet.
 - **Admission is one Market Data operation.** `POST /v1/market-data/binance-perpetual-admissions` takes a Binance
   USD-M symbol. Market Data fetches the symbol's public `exchangeInfo` entry and commits, in order, the facts the first
   `COMPOSER_V3` Replay's acceptance commits through separate routes today: the kline Source Binding, the Instrument
