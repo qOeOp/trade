@@ -23,6 +23,7 @@ services:
       - INSTRUMENT_OWNER_DB_PASSWORD
       - RISK_WRITER_DB_PASSWORD
       - SCANNER_WRITER_DB_PASSWORD
+      - RD_SCHEMA_MIGRATOR_DB_PASSWORD
     volumes:
       - postgres-data:/var/lib/postgresql/data
       - ./postgres-init/00-create-rd-owner.sh:/docker-entrypoint-initdb.d/00-create-rd-owner.sh:ro
@@ -218,6 +219,8 @@ services:
       INSTRUMENT_OWNER_DB_PASSWORD: ${INSTRUMENT_OWNER_DB_PASSWORD:?set INSTRUMENT_OWNER_DB_PASSWORD}
       RISK_WRITER_DB_PASSWORD: ${RISK_WRITER_DB_PASSWORD:?set RISK_WRITER_DB_PASSWORD}
       SCANNER_WRITER_DB_PASSWORD: ${SCANNER_WRITER_DB_PASSWORD:?set SCANNER_WRITER_DB_PASSWORD}
+      RD_SCHEMA_MIGRATOR_DB_PASSWORD: >-
+        ${RD_SCHEMA_MIGRATOR_DB_PASSWORD:?set RD_SCHEMA_MIGRATOR_DB_PASSWORD}
     entrypoint: ["/bin/sh", "/opt/trade/10-migrate-authority-custody.sh"]
     volumes:
       - ./postgres-init/10-migrate-authority-custody.sh:/opt/trade/10-migrate-authority-custody.sh:ro
@@ -241,6 +244,28 @@ services:
     # After the authority custody migration, not before: these migrations assume
     # `operator_authorization_private` and the Product Edge relations' schema
     # already exist, and that step is what creates them.
+    depends_on:
+      authority-custody-migrate:
+        condition: service_completed_successfully
+    security_opt:
+      - no-new-privileges:true
+
+  # Lets a store that already cut over custody gain an R&D public table a newer build added,
+  # without reopening the pre-cutover window: additive only, and refused by name (never altered)
+  # if a same-named relation already exists and does not match exactly (rd.md, "additive table
+  # migration, post-cutover"). Not profiled, so a default `up` always re-checks it, the same as
+  # `authority-schema-materialize`; each run after the first is a no-op once every table it knows
+  # about already exists.
+  authority-additive-table-migrate:
+    build:
+      context: ../..
+      dockerfile: product/rd-workbench/Dockerfile.owner
+    restart: "no"
+    entrypoint: ["/usr/local/bin/rd-owner-additive-table-migrate"]
+    environment:
+      RD_OWNER_DATABASE_URL: ${RD_OWNER_DATABASE_URL:?set RD_OWNER_DATABASE_URL}
+      RD_SCHEMA_MIGRATOR_DATABASE_URL: >-
+        ${RD_SCHEMA_MIGRATOR_DATABASE_URL:?set RD_SCHEMA_MIGRATOR_DATABASE_URL}
     depends_on:
       authority-custody-migrate:
         condition: service_completed_successfully

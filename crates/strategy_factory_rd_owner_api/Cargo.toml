@@ -96,6 +96,12 @@ doc = false
 test = false
 
 [[bin]]
+name = "rd-owner-additive-table-migrate"
+path = "src/bin/rd_owner_additive_table_migrate.rs"
+doc = false
+test = false
+
+[[bin]]
 name = "strategy-authoring-mcp"
 path = "src/bin/strategy_authoring_mcp.rs"
 doc = false

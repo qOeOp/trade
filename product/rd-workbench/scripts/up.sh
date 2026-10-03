@@ -26,8 +26,8 @@ project=trade-rd-local
 env_file=$state_dir/.env
 catalog_dir=$state_dir/catalog
 owner_image=$project-rd-owner-api
-owner_services=(rd-owner-api schema-materialize authority-schema-materialize replay-policy-catalog-bootstrap
-  replay-policy-catalog-owner-readback authority-bootstrap)
+owner_services=(rd-owner-api schema-materialize authority-schema-materialize authority-additive-table-migrate
+  replay-policy-catalog-bootstrap replay-policy-catalog-owner-readback authority-bootstrap)
 
 log() { printf '%s\n' "$*"; }
 skip() { log "skip $1: $2"; }
@@ -62,10 +62,12 @@ compose() {
 psql_scalar() { compose exec -T postgres psql -U postgres -d rd_owner -v ON_ERROR_STOP=1 -tAc "$1"; }
 
 # 1. The env file: one random value per secret, every URL pointing at this stack's own database.
-if [ -f "$env_file" ]; then
-  skip env "$env_file exists"
-else
-  run env
+# A key already in the file is never regenerated or rewritten - the postgres volume's roles were
+# provisioned with whatever password is already there, so changing it would lock the stack out of
+# its own database. Only a key .env.example gained since this file was written is added, so a
+# build that needs a new credential (RD_SCHEMA_MIGRATOR_DATABASE_URL, say) still gets one on an
+# existing deployment, without regenerating anything that already works.
+env_fill_result=$(
   python3 - "$package_dir/.env.example" "$env_file" "$state_dir" << 'EOF'
 import os, secrets, sys
 example, target, state = sys.argv[1:4]
@@ -81,6 +83,7 @@ urls = {
     "OPERATOR_AUTHORIZATION_DATABASE_URL": (
         "operator_authorization_writer", "OPERATOR_AUTHORIZATION_DB_PASSWORD"),
     "PRODUCT_EDGE_DATABASE_URL": ("product_edge_owner", "PRODUCT_EDGE_DB_PASSWORD"),
+    "RD_SCHEMA_MIGRATOR_DATABASE_URL": ("rd_schema_migrator", "RD_SCHEMA_MIGRATOR_DB_PASSWORD"),
 }
 paths = {
     "PRODUCT_EDGE_BOOTSTRAP_CONFIG": "product-edge-bootstrap.json",
@@ -90,20 +93,26 @@ paths = {
     "REPLAY_POLICY_CATALOG_TRUSTED_VERIFIER_PUBLIC_KEY": "catalog/verifier-public-key.hex",
 }
 empty = {"STORE_CUSTODY_PUBLISHER_DATABASE_URL"}
+existing = {}
+if os.path.exists(target):
+    for line in open(target):
+        line = line.rstrip("\n")
+        if line and not line.startswith("#") and "=" in line:
+            key, value = line.split("=", 1)
+            existing[key] = value
 lines = [line.rstrip("\n") for line in open(example)]
+keys = [
+    line.split("=", 1)[0]
+    for line in lines
+    if line and not line.startswith("#") and "=" in line
+]
+added = [key for key in keys if key not in existing]
 values = {}
-for line in lines:
-    if line and not line.startswith("#") and "=" in line:
-        key = line.split("=", 1)[0]
-        if key.endswith("_PASSWORD") or key.endswith("_TOKEN") or key.endswith("_HMAC_KEY"):
-            values[key] = secrets.token_hex(32)
-values["PRODUCT_EDGE_DEPLOYMENT_IDENTITY"] = "trade-rd-local-v1"
-out = []
-for line in lines:
-    if not line or line.startswith("#") or "=" not in line:
-        out.append(line)
-        continue
-    key, value = line.split("=", 1)
+for key in added:
+    if key.endswith("_PASSWORD") or key.endswith("_TOKEN") or key.endswith("_HMAC_KEY"):
+        values[key] = secrets.token_hex(32)
+values.setdefault("PRODUCT_EDGE_DEPLOYMENT_IDENTITY", "trade-rd-local-v1")
+for key in added:
     if key in urls:
         role, password = urls[key]
         value = f"postgres://{role}:{values[password]}@postgres:5432/rd_owner"
@@ -113,13 +122,29 @@ for line in lines:
         value = ""
     elif key in values:
         value = values[key]
+    else:
+        value = next(
+            line.split("=", 1)[1] for line in lines if line.startswith(f"{key}=")
+        )
     if "replace-with" in value or "/absolute/path/to" in value:
         sys.exit(f"{key} kept a placeholder")
-    out.append(f"{key}={value}")
-fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-with os.fdopen(fd, "w") as handle:
-    handle.write("\n".join(out) + "\n")
+    existing[key] = value
+if os.path.exists(target):
+    with open(target, "a") as handle:
+        for key in added:
+            handle.write(f"{key}={existing[key]}\n")
+else:
+    fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "w") as handle:
+        handle.write("\n".join(f"{key}={existing[key]}" for key in keys) + "\n")
+print(",".join(added))
 EOF
+)
+if [ -n "$env_fill_result" ]; then
+  run env
+  log "added keys: $env_fill_result"
+else
+  skip env "$env_file already has every key .env.example names"
 fi
 env_value() { sed -n "s/^$1=//p" "$env_file"; }
 if grep -Eq 'replace-with|/absolute/path/to' "$env_file"; then
@@ -294,6 +319,11 @@ once authority-custody-migrate "$volume_created $migrate_digest $image_id" \
   compose run --rm --no-deps authority-custody-migrate
 once authority-schema-materialize "$volume_created $image_id" \
   compose run --rm --no-deps authority-schema-materialize
+# A new build may add an R&D table this volume's custody was already cut over before; keyed by
+# image so a rebuild always re-checks, same as authority-schema-materialize. Additive only: see
+# crates/strategy_factory/src/schema_materialization.rs.
+once authority-additive-table-migrate "$volume_created $image_id" \
+  compose run --rm --no-deps authority-additive-table-migrate
 
 # 9. Product Edge genesis.
 if [ "$(psql_scalar 'SELECT count(*) FROM public.product_edge_deployment_bindings_v1')" != 0 ]; then

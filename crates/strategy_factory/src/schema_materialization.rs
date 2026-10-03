@@ -138,6 +138,99 @@ pub(crate) async fn materialize_public_table(
     Ok(())
 }
 
+/// Opens the window [`migrate_additive_public_table`] needs: calls
+/// `rd_schema_migration_api.grant_additive_table_create_v1()` on a connection authenticated as
+/// `rd_schema_migrator`, which runs with `rd_database_owner`'s privilege (the actual owner of
+/// `public`) rather than the caller's, so `rd_owner` gains `CREATE` on `public` without either
+/// role ever holding membership in the other - the custody topology
+/// `10-migrate-authority-custody.sh` enforces requires `rd_owner` to have no membership edge at
+/// all, which is exactly what `ALTER TABLE ... OWNER TO rd_owner` would otherwise need.
+///
+/// # Errors
+///
+/// Propagates a connection or query failure, including one connected as any role other than
+/// `rd_schema_migrator` (the function is not reachable from any other role) or before cutover
+/// (the two private custody schemas do not exist yet, and this is not the pre-cutover path).
+pub(crate) async fn open_additive_table_create_window(
+    migrator_pool: &PgPool,
+) -> Result<(), sqlx::Error> {
+    sqlx::query("SELECT rd_schema_migration_api.grant_additive_table_create_v1()")
+        .execute(migrator_pool)
+        .await?;
+    Ok(())
+}
+
+/// Closes the window [`open_additive_table_create_window`] opened, the same way, in reverse.
+/// Idempotent: calling it when the window is already closed is a no-op, so a caller may call it
+/// unconditionally during cleanup without first checking whether the matching open succeeded.
+///
+/// # Errors
+///
+/// Propagates a connection or query failure.
+pub(crate) async fn close_additive_table_create_window(
+    migrator_pool: &PgPool,
+) -> Result<(), sqlx::Error> {
+    sqlx::query("SELECT rd_schema_migration_api.revoke_additive_table_create_v1()")
+        .execute(migrator_pool)
+        .await?;
+    Ok(())
+}
+
+/// Gives an already cut-over store one table a newer build added, without reopening the
+/// pre-cutover window.
+///
+/// Additive only: a relation that is already exactly `spec` (a previous run of this same call, or
+/// a store that already had it) is a no-op; a same-named relation that is anything else - a
+/// column added, a constraint changed, a table some other feature made - is refused by name and
+/// left untouched. `create_statement` and `post_create_statements` must produce the exact bytes
+/// [`require_existing_public_table`] already verifies for the pre-cutover path, because this
+/// function re-runs that same check on what it just created before returning.
+///
+/// `pool` must authenticate as `rd_owner` and must already be inside the window
+/// [`open_additive_table_create_window`] opens, for the one transaction this function commits:
+/// the new relation is created by - and so is owned by - `rd_owner` directly, with no ownership
+/// transfer step, so a crash mid-way leaves nothing behind for the next run to trip over.
+///
+/// # Errors
+///
+/// Propagates a connection or query failure, and refuses by name (without creating or altering
+/// anything) when a relation named `spec.name` already exists and does not match `spec`.
+pub(crate) async fn migrate_additive_public_table(
+    pool: &PgPool,
+    spec: &PublicTableSpec,
+    create_statement: &'static str,
+    post_create_statements: &[&'static str],
+) -> Result<(), sqlx::Error> {
+    let exists: bool =
+        sqlx::query_scalar("SELECT pg_catalog.to_regclass('public.'||$1) IS NOT NULL")
+            .bind(spec.name)
+            .fetch_one(pool)
+            .await?;
+
+    if exists {
+        return require_existing_public_table(pool, spec, spec.runtime_read_grantees)
+            .await
+            .map_err(|e| {
+                sqlx::Error::Protocol(format!(
+                    "public R&D relation {} already exists and is not a pure addition, so it was \
+                     left untouched: {e}",
+                    spec.name
+                ))
+            });
+    }
+
+    let mut transaction = pool.begin().await?;
+    sqlx::query(create_statement)
+        .execute(&mut *transaction)
+        .await?;
+
+    for statement in post_create_statements {
+        sqlx::query(*statement).execute(&mut *transaction).await?;
+    }
+    transaction.commit().await?;
+    require_existing_public_table(pool, spec, spec.runtime_read_grantees).await
+}
+
 pub(crate) async fn require_existing_public_tables(
     pool: &PgPool,
     specs: &[PublicTableSpec],
@@ -246,7 +339,16 @@ async fn require_existing_public_table(
     .await?;
 
     if relation_is_exact != Some(true) {
-        return incompatible(spec.name, "custody or relation options");
+        let exists: bool =
+            sqlx::query_scalar("SELECT pg_catalog.to_regclass('public.'||$1) IS NOT NULL")
+                .bind(spec.name)
+                .fetch_one(pool)
+                .await?;
+        return if exists {
+            incompatible(spec.name, "custody or relation options")
+        } else {
+            missing(spec.name)
+        };
     }
 
     let columns = sqlx::query(
@@ -402,13 +504,192 @@ fn incompatible(relation_name: &str, aspect: &str) -> Result<(), sqlx::Error> {
     )))
 }
 
+/// A relation the runtime manifest requires does not exist at all, as opposed to existing with
+/// the wrong shape (`incompatible`). This is what a store sees for a table a newer build added
+/// before running its post-cutover migration (`migrate_additive_public_table`), or before the
+/// pre-cutover materializer ever ran at all; the two have the same fix, in that order.
+fn missing(relation_name: &str) -> Result<(), sqlx::Error> {
+    Err(sqlx::Error::Protocol(format!(
+        "public R&D relation {relation_name} does not exist: run the pre-cutover materializer on \
+         a fresh store, or the post-cutover additive table migration on one already cut over"
+    )))
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        ColumnSpec, PublicTableSpec, require_existing_public_tables_for_readback, required,
+        ColumnSpec, PublicTableSpec, close_additive_table_create_window,
+        migrate_additive_public_table, open_additive_table_create_window, primary_index,
+        require_existing_public_tables_for_readback, required,
     };
     use rstest::rstest;
     use vibe_postgres_connect::{PgPoolOptionsExt, PostgresTls};
+
+    /// Two single-connection pools over the same disposable database, one narrowed by `SET
+    /// SESSION AUTHORIZATION` to each role the real deployment splits this migration across.
+    /// `max_connections(1)` makes each pool exactly one physical session, so the narrowing holds
+    /// for every statement run through it afterward.
+    async fn role_pool(database_url: &str, role: &str) -> sqlx::PgPool {
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(1)
+            .min_connections(1)
+            .connect_url(database_url, PostgresTls::Disabled)
+            .await
+            .unwrap();
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "SET SESSION AUTHORIZATION {role}"
+        )))
+        .execute(&pool)
+        .await
+        .unwrap();
+        pool
+    }
+
+    #[rstest]
+    #[tokio::test]
+    #[ignore = "requires an explicitly supplied disposable PostgreSQL database"]
+    async fn additive_migration_creates_once_and_refuses_a_mismatch_untouched() {
+        const NAME: &str = "rbm_additive_migration_probe_v1";
+        const CREATE: &str =
+            "CREATE TABLE IF NOT EXISTS rbm_additive_migration_probe_v1 (id BIGINT PRIMARY KEY)";
+        const REVOKE: &str =
+            "REVOKE ALL ON TABLE public.rbm_additive_migration_probe_v1 FROM PUBLIC";
+        const COLUMNS: &[ColumnSpec] = &[required("id", "bigint")];
+        const INDEXES: &[super::IndexSpec] = &[primary_index("id")];
+        let spec = PublicTableSpec {
+            name: NAME,
+            runtime_read_grantees: &[],
+            columns: COLUMNS,
+            constraints: &["p:id:::false:false:true:"],
+            indexes: INDEXES,
+        };
+
+        let database_url = std::env::var("RD_SCHEMA_MIGRATION_TEST_DATABASE_URL")
+            .expect("RD_SCHEMA_MIGRATION_TEST_DATABASE_URL must be explicitly supplied");
+        let setup_pool = sqlx::postgres::PgPoolOptions::new()
+            .connect_url(&database_url, PostgresTls::Disabled)
+            .await
+            .unwrap();
+        // The connecting (superuser) role sets this disposable database up exactly as the real
+        // custody migration does: `rd_database_owner` owns `public` and the SECURITY DEFINER
+        // functions, `rd_schema_migrator` may only call them, and `rd_owner` holds nothing beyond
+        // what those functions grant it for the duration of the window.
+        for statement in [
+            "DROP TABLE IF EXISTS public.rbm_additive_migration_probe_v1",
+            "DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='rd_database_owner') \
+             THEN CREATE ROLE rd_database_owner NOLOGIN; END IF; END $$",
+            "DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='rd_owner') THEN \
+             CREATE ROLE rd_owner LOGIN; END IF; END $$",
+            "DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='rd_schema_migrator') \
+             THEN CREATE ROLE rd_schema_migrator LOGIN NOINHERIT; END IF; END $$",
+            "ALTER SCHEMA public OWNER TO rd_database_owner",
+            "REVOKE CREATE ON SCHEMA public FROM rd_owner",
+            "CREATE SCHEMA IF NOT EXISTS rd_schema_migration_api AUTHORIZATION rd_database_owner",
+            "CREATE OR REPLACE FUNCTION rd_schema_migration_api.grant_additive_table_create_v1() \
+             RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp \
+             AS $f$BEGIN EXECUTE 'GRANT CREATE ON SCHEMA public TO rd_owner'; END$f$",
+            "ALTER FUNCTION rd_schema_migration_api.grant_additive_table_create_v1() OWNER TO \
+             rd_database_owner",
+            "GRANT EXECUTE ON FUNCTION rd_schema_migration_api.grant_additive_table_create_v1() \
+             TO rd_schema_migrator",
+            "CREATE OR REPLACE FUNCTION rd_schema_migration_api.revoke_additive_table_create_v1() \
+             RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp \
+             AS $f$BEGIN EXECUTE 'REVOKE CREATE ON SCHEMA public FROM rd_owner'; END$f$",
+            "ALTER FUNCTION rd_schema_migration_api.revoke_additive_table_create_v1() OWNER TO \
+             rd_database_owner",
+            "GRANT EXECUTE ON FUNCTION rd_schema_migration_api.revoke_additive_table_create_v1() \
+             TO rd_schema_migrator",
+            "GRANT USAGE ON SCHEMA rd_schema_migration_api TO rd_schema_migrator",
+        ] {
+            sqlx::query(statement).execute(&setup_pool).await.unwrap();
+        }
+
+        let migrator_pool = role_pool(&database_url, "rd_schema_migrator").await;
+        let owner_pool = role_pool(&database_url, "rd_owner").await;
+
+        open_additive_table_create_window(&migrator_pool)
+            .await
+            .expect("rd_schema_migrator may call the grant function");
+        migrate_additive_public_table(&owner_pool, &spec, CREATE, &[REVOKE])
+            .await
+            .expect("the table does not exist yet, so this creates it");
+        close_additive_table_create_window(&migrator_pool)
+            .await
+            .expect("closing the window is always admitted");
+
+        let owner: String = sqlx::query_scalar(
+            "SELECT pg_catalog.pg_get_userbyid(relowner) FROM pg_catalog.pg_class \
+             WHERE relname=$1",
+        )
+        .bind(NAME)
+        .fetch_one(&setup_pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            owner, "rd_owner",
+            "rd_owner created the table directly, so it is already the owner"
+        );
+        let rd_owner_can_create: bool =
+            sqlx::query_scalar("SELECT has_schema_privilege('rd_owner','public','CREATE')")
+                .fetch_one(&setup_pool)
+                .await
+                .unwrap();
+        assert!(
+            !rd_owner_can_create,
+            "closing the window must leave rd_owner exactly as unprivileged as before"
+        );
+        let rd_owner_is_a_member_of_anyone: bool = sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members membership \
+             WHERE membership.roleid=(SELECT oid FROM pg_catalog.pg_roles WHERE rolname='rd_owner') \
+             OR membership.member=(SELECT oid FROM pg_catalog.pg_roles WHERE rolname='rd_owner'))",
+        )
+        .fetch_one(&setup_pool)
+        .await
+        .unwrap();
+        assert!(
+            !rd_owner_is_a_member_of_anyone,
+            "the custody topology this migration must not disturb requires rd_owner to have no \
+             membership edge at all"
+        );
+
+        open_additive_table_create_window(&migrator_pool)
+            .await
+            .unwrap();
+        migrate_additive_public_table(&owner_pool, &spec, CREATE, &[REVOKE])
+            .await
+            .expect("a second call is a no-op: the table already matches exactly");
+        close_additive_table_create_window(&migrator_pool)
+            .await
+            .unwrap();
+
+        sqlx::query("ALTER TABLE public.rbm_additive_migration_probe_v1 ADD COLUMN drifted TEXT")
+            .execute(&setup_pool)
+            .await
+            .unwrap();
+
+        open_additive_table_create_window(&migrator_pool)
+            .await
+            .unwrap();
+        let refused = migrate_additive_public_table(&owner_pool, &spec, CREATE, &[REVOKE])
+            .await
+            .expect_err("a same-named relation that drifted from the manifest is refused");
+        close_additive_table_create_window(&migrator_pool)
+            .await
+            .unwrap();
+        assert!(refused.to_string().contains("is not a pure addition"));
+        let columns: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM pg_catalog.pg_attribute \
+             WHERE attrelid='public.rbm_additive_migration_probe_v1'::regclass \
+               AND attnum>0 AND NOT attisdropped",
+        )
+        .fetch_one(&setup_pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            columns, 2,
+            "the refusal left the drifted table exactly as it was"
+        );
+    }
 
     #[rstest]
     fn runtime_validation_is_read_only_and_exact() {
