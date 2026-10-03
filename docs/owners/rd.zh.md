@@ -1174,13 +1174,15 @@ R&D 请求密封的 Result 不属于任何 family，以 `EXPLORATORY_RESULT_REQU
   （`crates/data/src/owner/instrument_master_v2.rs:346`），Market Data 以 `MARKET_DATA.BAR.VOLUME.QUANTITY.V1` 提供 bar 成交量。
 - 没有任何 Owner 定义按标的或时段划分的 holdout 分区。Qualification 的 holdout 是一份预算与一项托管预留，不是数据的划分。
 
-**数据读取台账。** R&D 以只追加的行记录对市场数据的每一次读取，每个标的一行，写在发起读取的那个 R&D 事务里：
+**数据读取台账。** R&D 以只追加的行记录它的试验对市场数据的每一次读取，每个标的一行，写在发起读取的那个 R&D 事务里；每一次
+代理读取则从 Market Data 读取：
 
-- 一行绑定血缘（TrialFamily 及其跨 family 的前驱 frontier）、试验（Replay 请求的身份与含义摘要）或 agent 会话、标的、以事件
+- 一行绑定血缘（TrialFamily 及其跨 family 的前驱 frontier）、试验（Replay 请求的身份与含义摘要）、标的、以事件
   纳秒计的半开区间 `[start, end)`、该标的在该区间所属的层级及层级策略的身份，以及提交时间；
 - 试验行在 R&D 签发 Replay 的执行输入绑定时写入，那是唯一同时知道成员与窗口的位置；被加入而非新签发的绑定不再写入；
-- 任何向 agent 返回市场数值的 R&D 工具，都在应答之前写入它的行，写不了就拒绝。今天没有这样的工具，所以这个来源为空；增加
-  这样的工具而不写行，就违反本契约；
+- 代理只通过 Market Data 的 MCP 服务读取市场数值，Market Data 在应答之前把每次这样的读取记为它自己的代理数据读取行
+  （[market-data MCP 服务](./market-data#target-market-data-mcp-server)）。代理工具迁到领域服务时，这些行也从本台账迁了过去；
+  census 向下读取它们，在会话绑定到血缘之前，把一次代理读取计入每一条血缘。没有 R&D 工具向代理返回市场数值；
 - 写不了行的读取会失败，所以没有不留行的读取。
 
 **层级。** 层级在结果之前计算，从不在结果之后指派。一份有版本的层级策略冻结在 TrialFamily 策略里，按区间起点的点时事实给每个

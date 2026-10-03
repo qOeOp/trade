@@ -1470,6 +1470,22 @@ later submission and the cost grows with the whole history.
   Data's. Market Data derives the execution role itself from the request's roles, by the same rule, so no caller names
   it; its refusals are `EXECUTION_ROLE_ABSENT`, `EXECUTION_ROLE_AMBIGUOUS`, `MORE_THAN_ONE_ROLE_TIMEFRAME` and
   `EXECUTION_TIMEFRAME_NOT_DECLARED` (Market Data owner page).
+  **Fixed role scale, TARGET:** every universe-member role, its price roles and its `VOLUME` role, reads at the
+  fixed scale 9: Market Data's value scale, `MARKET_DATA_VALUE_SCALE_V1`, which is also its custody series scale, defined once there and referenced
+  here, never restated. That
+  holds for whatever instrument the Research scope names, so one Design is byte-identical across BTCUSDT, ETHUSDT,
+  SOLUSDT and LINKUSDT, and authoring reads no Instrument Master precision. Scale 9 is a fixed-point convention the
+  program reads at, not a second definition of precision: the Instrument Master's tick and step stay the only
+  precision authority, and the execution bundle aligns the engine's data to them.
+  - Market Data aligns each canonical row exactly to the role's scale and refuses a finer row by name (Market Data
+    owner page).
+  - The single-threshold author takes its threshold as a decimal string, such as `"120"`. It converts the string
+    exactly to the role's scale and refuses a finer one as `THRESHOLD_FINER_THAN_CHANNEL_SCALE`; the Design stores
+    the converted integer.
+  - Why fixed and not derived: the PC-1 probe refused a BTCUSDT Replay at its universe declaration, because a
+    canonical BTC price has scale 1 and the role required 2. A role scale taken from each instrument's tick would make
+    a threshold mean 120.00 on ETHUSDT and 1200.0 on BTCUSDT, so one strategy would need a different Design per
+    instrument.
 - **P2, the report states every member:** the report family states each member of a universe run, generalizing the
   one-member statement Backtest already makes. It lands with I2, driven by the first run over more than one member:
   before I2 no program reads a member other than the first, so a statement of every member would have nothing to

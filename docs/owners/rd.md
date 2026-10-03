@@ -1393,16 +1393,19 @@ it, which the count above already maps.
 - No Owner defines a holdout partition of instruments or periods. Qualification's holdout is a budget and a custody
   reservation, not a partition of the data.
 
-**The data-read ledger.** R&D records every read of market data as append-only rows, one per instrument, in the R&D
-transaction that makes the read:
+**The data-read ledger.** R&D records every read of market data its trials make as append-only rows, one per
+instrument, in the R&D transaction that makes the read, and reads every agent read from Market Data:
 
 - a row binds the lineage (the TrialFamily and its cross-family predecessor frontier), the trial (the Replay
-  request's identity and meaning digest) or the agent session, the instrument, the half-open period `[start, end)` in
+  request's identity and meaning digest), the instrument, the half-open period `[start, end)` in
   event nanoseconds, the instrument's stratum for that period with the stratum policy's identity, and the commit time;
 - trial rows are written when R&D issues a Replay's execution-input binding, the one point where the members and the
   window are both known; a binding that is joined rather than issued writes nothing again;
-- any R&D tool that returns market values to an agent writes its rows before it answers, and refuses when it cannot.
-  None exists today, so this source is empty, and adding such a tool without its rows breaches this contract;
+- an agent reads market values only through Market Data's MCP server, and Market Data records each such read as its own
+  agent data-read row before it answers ([market-data MCP server](./market-data#target-market-data-mcp-server)). These
+  rows moved there from this ledger when the agent's tools moved to domain servers; the census reads them downward,
+  and until a session is bound to a lineage it counts an agent read against every lineage. No R&D tool returns market
+  values to an agent;
 - a read whose rows cannot be written fails, so no read happens without its rows.
 
 **Strata.** A stratum is computed before the outcome, never assigned after it. A versioned stratum policy, frozen in
