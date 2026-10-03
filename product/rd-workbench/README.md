@@ -90,6 +90,39 @@ this host as a child process of Claude Code and reaches the local deployment's A
    `docs/owners/rd.md`, using the server's `validate`, `create`, `get`, `list`, `revise` and
    `archive` tools. They need no market data.
 
+### Market data from Claude Code
+
+The `market-data` MCP server (`docs/owners/market-data.md`) runs on this host as a child process of
+Claude Code and reaches the same local deployment's API on `127.0.0.1:18080`. It is a second process
+reaching the same `rd-owner-api`, authenticated by the same token, mounting a disjoint set of routes.
+Four steps, from the repository root:
+
+1. Bring up the deployment: `make rd-workbench-up`.
+2. Build the server: `make mcp-market-data`. It builds `market-data-mcp`, copies it into
+   `product/rd-workbench/.local/bin`, and prints the registration command.
+3. Register it with Claude Code, running the printed command, which has this shape:
+
+   ```bash
+   claude mcp add --scope user market-data -- /absolute/path/to/product/rd-workbench/scripts/market-data-mcp.sh
+   ```
+
+   Claude Code starts `scripts/market-data-mcp.sh`, which reads `RD_OWNER_API_TOKEN` from
+   `.local/.env` when the server starts, exports it as `MARKET_DATA_OWNER_API_TOKEN`, and sets
+   `MARKET_DATA_OWNER_API_URL` to `http://127.0.0.1:${RD_LOCAL_API_PORT:-18080}`. The token is never
+   printed and never written into Claude Code's configuration.
+4. In a new Claude Code session, exercise the server's six tools:
+   - `admit_instrument` for `BTCUSDT`, `ETHUSDT`, and `SOLUSDT` - each admits once, against the fixed
+     eligible U1 set (`docs/owners/market-data.md`).
+   - `admit_instrument` for a symbol outside that set (e.g. `DOGEUSDT`) - refused by name as
+     `SYMBOL_NOT_IN_ELIGIBLE_FRONTIER`, before any write.
+   - `list_instruments` - lists the three admitted perpetuals.
+   - `describe_instrument` for one admitted instrument.
+   - `backfill` for one admitted instrument over a small window on an unsupported timeframe (e.g.
+     `5m`) - refused by name as `TIMEFRAME_UNSUPPORTED`.
+   - `backfill` for one admitted instrument over a small `1d` window - returns a `job_id`.
+   - `job_status` for that `job_id` - observe it reach `Succeeded`.
+   - `coverage` for that instrument and timeframe - reports the backfilled window.
+
 ## Deployment Store Admission boundary
 
 The package defaults `DEPLOYMENT_STORE_ADMISSION_MODE` to `disabled`. In that
