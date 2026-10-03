@@ -1303,6 +1303,17 @@ custody 会挡住之后的每一次提交，而成本随整个历史增长。
   `native_replay_scheduling_v1` 里的标签比较，归 Market Data。Market Data 按同一条规则从请求的角色自行推出执行角色，
   调用方不指名它；其拒绝为 `EXECUTION_ROLE_ABSENT`、`EXECUTION_ROLE_AMBIGUOUS`、`MORE_THAN_ONE_ROLE_TIMEFRAME` 与
   `EXECUTION_TIMEFRAME_NOT_DECLARED`（见 Market Data owner 页）。
+  **固定的角色 scale，TARGET：** 每个 universe 成员角色，包括价格角色和 `VOLUME` 角色，都按固定的 scale 9 读取：这是
+  Market Data 的值 scale，即 `MARKET_DATA_VALUE_SCALE_V1`，也就是它托管 series 的 scale，只在那里定义一次，这里引用它，绝不另写一份。不论 Research scope 指名哪个品种都是
+  如此，所以同一份 Design 在 BTCUSDT、ETHUSDT、SOLUSDT 与 LINKUSDT 上字节完全相同，编写时也不读取 Instrument Master
+  的精度。scale 9 是程序读取时使用的定点约定，不是第二份精度定义：Instrument Master 的 tick 与 step 仍是唯一的精度
+  权威，执行 bundle 把引擎看到的数据对齐到它们。
+  - Market Data 把每条规范行精确对齐到角色的 scale，比它更细的行按名拒绝（见 Market Data owner 页）。
+  - 单阈值编写器以十进制字符串接收阈值，例如 `"120"`。它把字符串精确换算到角色的 scale，更细的以
+    `THRESHOLD_FINER_THAN_CHANNEL_SCALE` 拒绝；Design 中存的是换算后的整数。
+  - 为什么固定而不推导：PC-1 探针在 BTCUSDT Replay 的 universe 声明处被拒，因为 BTC 的规范价格 scale 为 1，而角色
+    要求 2。若角色 scale 取自每个品种的 tick，同一个阈值在 ETHUSDT 上是 120.00、在 BTCUSDT 上是 1200.0，同一个策略
+    就需要按品种写不同的 Design。
 - **P2，报告陈述每个成员：** 报告族陈述 universe 运行的每个成员，把 Backtest 已经做到的一成员陈述推广开。它与 I2
   一同落地，由第一个超过一个成员的运行驱动：I2 之前没有程序读第一个成员以外的成员，陈述每个成员就无物可陈述。
 

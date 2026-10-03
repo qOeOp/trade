@@ -2252,6 +2252,25 @@ cross-binds the trigger and observation-batch digest. Consumers derive the lifec
 they cannot mint it from caller-selected values or order keys. Market Data never issues `TIMER` or `FILL` triggers:
 those remain unavailable pending real Time/Scheduler and Execution Owner contracts respectively.
 
+**TARGET, a row aligned to its role's scale:** a role reads its value at the role's declared scale, and a canonical
+row carries the value's own minimal scale. Today the binding requires the two to be equal and answers anything else
+as `ScaleMismatch`, so a canonical row can bind only where its price happens to have exactly the role's decimal places.
+The PC-1 probe measured this: a BTCUSDT price on its 0.10 tick has scale 1, and a scale 2 universe role refused it at
+the universe declaration.
+
+- **Alignment.** Every binding (exact instrument and universe member alike) aligns a row whose scale is at most the
+  role's exactly: the mantissa times `10^(role scale - row scale)`, checked.
+- **Refusal.** A row finer than the role is refused by name as `VALUE_FINER_THAN_ROLE_SCALE`, and nothing is
+  rounded.
+- **Receipts.** The role-value receipt seals the aligned value at the role's scale beside the original row digest,
+  so the custody row a value came from stays exact.
+- **Scale 9.** Universe-member roles read at the fixed scale 9 (Strategy Factory, P1). It is the custody series'
+  scale, `decimal_rescale_v1::MARKET_DATA_VALUE_SCALE_V1`, defined once, in Market Data, beside the exact rescale
+  every alignment uses. An instrument's tick changes over its history (BTC's is 0.10 today, but its
+  2021 prices sit on a 0.01 grid; SOL's had 3 decimals in 2021), so the series is fixed at production fixed-point's
+  upper bound, 9, and every row is aligned exactly to it.
+- **Refusal names.** The HTTP refusal names the binding's own cause, never only `STRATEGY_INPUT_BINDING_UNAVAILABLE`.
+
 ### CURRENT/PARTIAL EVENT and BAR Owner custody; TARGET BAR product authority
 
 Market Data implements the versioned `TimeframeSpecV1`, `TimeframeProjectionReceiptV1`, `SampleFactV1`, and
