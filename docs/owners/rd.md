@@ -1486,8 +1486,11 @@ read, as `INSTRUMENT_SCOPE_NOT_RESOLVABLE` stores its check:
 - `KNOWLEDGE_DECLARATION_MISSING`: the Intent declares no mechanism identity or no construct list.
 
 A scope the ledger has not tested passes, and the Intent records that it opens an untested stratum. A closure that
-rests only on outside evidence is lifted by a registered replication inside the product, which is new evidence; a
-closure resting on R&D evidence is lifted only by a new mechanism.
+rests only on outside evidence is lifted by a replication inside the product, which is new evidence, and only by one
+that could have found what the closure denies: its Intent registers the smallest effect of interest before it runs,
+its attempts are counted in the census like any other, and its detectable edge is no larger than the one the closure
+rested on. A replication with less power leaves the closure in place. A closure resting on R&D evidence is lifted only
+by a new mechanism.
 
 Today none of these is reached: no Intent declares a mechanism identity or constructs, and the ledger has no entries.
 Each becomes reachable when the declaration lands, and the first entries the archive provides make the first three
@@ -1524,8 +1527,10 @@ Intake records, and Qualification's public phase facts. Each field is held to th
 their evidence references, which are R&D facts already visible to the reader, and no market value.
 
 **First entries.** The archived research supplies the first entries as outside evidence. They are drafted for review
-with their source file and lines; only their development-side figures are carried, because that run's validation
-and final tiers played the role Qualification's holdout plays here.
+with their source file and lines in `docs/plans/research-knowledge-ledger-seed.md`; only their development-side figures
+are carried, because that run's validation and final tiers played the role Qualification's holdout plays here. A
+mechanism that run closed only on such a held-out read is imported as `PARKED`: the ledger cannot hold the figure, so
+it holds no evidence that could support `CLOSED`, and the closure has to be established again from R&D evidence.
 
 ## Input handoffs
 
