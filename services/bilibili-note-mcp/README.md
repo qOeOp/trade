@@ -1,6 +1,7 @@
-# Bilibili Note MCP
+# Video Note MCP
 
-Standalone local MCP for illustrated Chinese notes from public Bilibili videos of any subject.
+Standalone local MCP for illustrated Chinese notes from public Bilibili and YouTube videos,
+or a public HTTPS video page/direct media link, of any subject.
 It uses complete speech transcription and actual video frames to produce an overview, content-derived
 chapters, concrete details, relevant screenshots and source/time links. No subject-specific framework
 or fixed topic categories are imposed. The [design](bilibili-note.md) is the architecture authority.
@@ -8,9 +9,17 @@ or fixed topic categories are imposed. The [design](bilibili-note.md) is the arc
 ## Use
 
 ```text
-bilibili_note.create({"url":"https://www.bilibili.com/video/BV..."})
-bilibili_note.search_and_create({"query":"Python 入门教程","max_videos":1})
+video_note.create({"url":"https://www.bilibili.com/video/BV..."})
+video_note.create({"url":"https://www.youtube.com/watch?v=EtIAqiguRHs","quality":"fast"})
+video_note.search_and_create({"query":"Python 入门教程","platform":"youtube","max_videos":1})
 ```
+
+The old `bilibili_note.*` tool names remain accepted as compatibility aliases.
+Search defaults to Bilibili; select `platform: "youtube"` explicitly for YouTube.
+YouTube accepts public finite `watch`, `youtu.be` and `shorts` links, including share/time parameters.
+Playlists, channels and live streams are rejected. Install Deno (recommended) or Node 22+ on `PATH`;
+the locked yt-dlp default dependencies include the matching EJS component. No browser cookies are
+read automatically. Videos without subtitles use the same complete-audio ASR and quality tiers.
 
 Search returns a collection of exactly the requested number of successful notes (1–3), each retaining
 its own source attribution. At most two source jobs run concurrently. If the target cannot be met,
@@ -48,6 +57,22 @@ Unsupported requests fail explicitly, with no automatic model or output-mode fal
 
 Reported provider token usage is recorded per stage in the private operator event stream. Missing
 usage is unknown, not zero. Rate limits return an explicit error instead of unbounded automatic retries.
+
+## Public video links
+
+`video_note.create({"url":"https://cn.tradingview.com/chart/XRPUSDT/e9QiRzXx/","quality":"fast"})`
+also accepts a public HTTPS page containing one progressive MP4/WebM video, or a direct HTTPS video URL.
+Bilibili and YouTube always use their dedicated adapters; a platform error does not trigger a bypass.
+The generic extractor has no site-specific prompts. It rejects playlists with multiple videos, live
+streams, manifests, DRM, authentication, redirects, non-public destinations and non-HTTPS URLs.
+Only a complete video with an audio track and at least 720p can reach transcription. Unsupported
+pages return a typed failure; arbitrary websites are not guaranteed to work. No cookies or proxy
+are used by this fallback. Search still supports only Bilibili and YouTube.
+
+Generic sources use the downloaded file's measured duration; unknown author/date remain visibly
+unknown. Their time labels are references, and links return to the source page without claiming seek
+support. Generic media/transcripts are not cached because a URL can change content without changing
+its metadata. All quality tiers, screenshot selection, authoring and publication use the same pipeline.
 
 ## Setup
 
@@ -117,8 +142,8 @@ Live acceptance must include non-domain-specific material and viewing the actual
 - `standard`：额外复听最多三个包含疑似异常、重复、字母或数字的片段。启发式筛选不能找出所有错词。
 - `precise`：第二种 ASR 复核全部音频，耗时与成本更高。
 
-例如 `bilibili_note.create({"url":"视频链接","quality":"precise"})`；
-搜索入口使用 `bilibili_note.search_and_create({"query":"主题或作者","max_videos":1,"quality":"standard"})`。
+例如 `video_note.create({"url":"视频链接","quality":"precise"})`；
+搜索入口使用 `video_note.search_and_create({"query":"主题或作者","max_videos":1,"quality":"standard"})`。
 CLI 同样支持 `--create URL --quality precise`。已有内部 Python 调用默认仍为 `fast`。
 
 所有档位都不依赖字幕，保留完整原转录、时间段与复核分歧。复核结果不会擅自覆盖原文，

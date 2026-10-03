@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import json
-import math
 import os
 import re
 import sys
@@ -16,25 +14,23 @@ from bilibili_note_mcp.application.operator_events import emit_operator_event
 from bilibili_note_mcp.application.ports import SourceMediaArtifact
 from bilibili_note_mcp.application.resource_limits import (
     MEDIA_DOWNLOAD_BYTES,
-    MEDIA_SOURCE_MAX_PIXELS,
-    MEDIA_SOURCE_MAX_SIDE,
-    MEDIA_WORKER_RECEIPT_BYTES,
-    SUBPROCESS_STDERR_BYTES,
-    SUBPROCESS_STDOUT_BYTES,
 )
 
+from .media_acquisition import (
+    media_candidates,
+    media_worker_environment,
+    probe_downloaded_media,
+    run_media_worker,
+    sha256_file,
+)
 from .strict_json import (
     StrictJsonError,
     decode_strict_json_object,
-    parse_finite_decimal_string,
-    parse_unsigned_integer_string,
 )
-from .subprocesses import ProcessOutputLimitExceeded, run_captured
 
 _UPSTREAM_ID = re.compile(r"^(BV[0-9A-Za-z]{10})(?:_p([1-9][0-9]*))?$")
 _MAX_MEDIA_BYTES = MEDIA_DOWNLOAD_BYTES
 _WORKER_SCHEMA = "bilibili-note-ytdlp-worker/v4"
-_WORKER_OUTPUT_BYTES = MEDIA_WORKER_RECEIPT_BYTES
 _DOWNLOAD_TIMEOUT_SECONDS = 360.0
 _TERMINATE_GRACE_SECONDS = 2.0
 _MAX_CHAIN_DEPTH = 8
@@ -90,96 +86,6 @@ def _cookie_file() -> str | None:
     if not path.is_absolute() or path.is_symlink() or not path.is_file():
         raise BilibiliNoteFailure("ACCESS_DENIED", "bilibili_cookie_file_invalid")
     return str(path)
-
-
-async def _probe(path: Path) -> tuple[int, int, int]:
-    command = (
-        "ffprobe",
-        "-protocol_whitelist",
-        "file,pipe",
-        "-v",
-        "error",
-        "-show_entries",
-        "format=duration,size",
-        "-show_entries",
-        "stream=codec_type,width,height",
-        "-of",
-        "json",
-        str(path),
-    )
-    try:
-        result = await run_captured(
-            *command,
-            timeout_seconds=30,
-            stdout_limit_bytes=SUBPROCESS_STDOUT_BYTES,
-            stderr_limit_bytes=SUBPROCESS_STDERR_BYTES,
-        )
-    except TimeoutError as e:
-        raise BilibiliNoteFailure("DEADLINE_EXCEEDED", "media_probe_timeout") from e
-    except ProcessOutputLimitExceeded as e:
-        raise BilibiliNoteFailure("SOURCE_UNAVAILABLE", "media_probe_output_exceeded") from e
-    if result.returncode != 0:
-        raise BilibiliNoteFailure("SOURCE_UNAVAILABLE", "downloaded_media_invalid")
-    try:
-        payload = decode_strict_json_object(result.stdout)
-        size = parse_unsigned_integer_string(payload["format"]["size"])
-        duration_ms = round(parse_finite_decimal_string(payload["format"]["duration"]) * 1000)
-        video = next(item for item in payload["streams"] if item.get("codec_type") == "video")
-        has_audio = any(item.get("codec_type") == "audio" for item in payload["streams"])
-        width, height = video["width"], video["height"]
-    except (
-        KeyError,
-        StopIteration,
-        TypeError,
-        ValueError,
-        OverflowError,
-        StrictJsonError,
-    ) as e:
-        raise BilibiliNoteFailure("SOURCE_UNAVAILABLE", "downloaded_media_invalid") from e
-    if (
-        not isinstance(width, int)
-        or isinstance(width, bool)
-        or not isinstance(height, int)
-        or isinstance(height, bool)
-    ):
-        raise BilibiliNoteFailure("SOURCE_UNAVAILABLE", "downloaded_media_invalid")
-    if not has_audio or not math.isfinite(duration_ms) or duration_ms <= 0:
-        raise BilibiliNoteFailure("SOURCE_UNAVAILABLE", "downloaded_media_invalid")
-    if (
-        width <= 0
-        or height <= 0
-        or max(width, height) > MEDIA_SOURCE_MAX_SIDE
-        or width * height > MEDIA_SOURCE_MAX_PIXELS
-    ):
-        raise BilibiliNoteFailure("SOURCE_UNAVAILABLE", "downloaded_media_invalid")
-    if not 1 <= size <= _MAX_MEDIA_BYTES:
-        raise BilibiliNoteFailure("SOURCE_UNAVAILABLE", "media_size_invalid")
-    return duration_ms, width, height
-
-
-async def _run_worker(
-    command: tuple[str, ...],
-    payload: bytes,
-    *,
-    timeout_seconds: float,
-    grace_seconds: float,
-    env: dict[str, str] | None = None,
-) -> tuple[int, bytes]:
-    try:
-        result = await run_captured(
-            *command,
-            input_bytes=payload,
-            timeout_seconds=timeout_seconds,
-            grace_seconds=grace_seconds,
-            stdout_limit_bytes=_WORKER_OUTPUT_BYTES,
-            stderr_limit_bytes=0,
-            env=env,
-        )
-    except TimeoutError as e:
-        raise BilibiliNoteFailure("DEADLINE_EXCEEDED", "media_download_timeout") from e
-    except ProcessOutputLimitExceeded:
-        raise BilibiliNoteFailure("SOURCE_UNAVAILABLE", "media_worker_receipt_invalid") from None
-    return result.returncode, result.stdout
 
 
 @dataclass(frozen=True, slots=True)
@@ -352,13 +258,6 @@ def _parse_worker_receipt(raw: bytes) -> _WorkerReceipt:
     )
 
 
-def _worker_environment() -> dict[str, str]:
-    allowed = ("PATH", "LANG", "LC_ALL", "SSL_CERT_FILE", "SSL_CERT_DIR")
-    environment = {name: os.environ[name] for name in allowed if name in os.environ}
-    environment["PYTHONIOENCODING"] = "utf-8"
-    return environment
-
-
 async def _download(canonical_url: str, workspace: Path, proxy: str | None) -> _WorkerReceipt:
     request = {
         "schema": _WORKER_SCHEMA,
@@ -369,12 +268,12 @@ async def _download(canonical_url: str, workspace: Path, proxy: str | None) -> _
     }
     payload = json.dumps(request, sort_keys=True, separators=(",", ":")).encode()
     try:
-        returncode, stdout = await _run_worker(
+        returncode, stdout = await run_media_worker(
             (sys.executable, "-m", "bilibili_note_mcp.adapters._ytdlp_worker"),
             payload,
             timeout_seconds=_DOWNLOAD_TIMEOUT_SECONDS,
             grace_seconds=_TERMINATE_GRACE_SECONDS,
-            env=_worker_environment(),
+            env=media_worker_environment(),
         )
         receipt = _parse_worker_receipt(stdout)
         if (returncode == 0) != receipt.ok:
@@ -404,22 +303,6 @@ def _worker_failure(receipt: _WorkerReceipt) -> BilibiliNoteFailure:
     return BilibiliNoteFailure("SOURCE_UNAVAILABLE", "complete_media_download_failed")
 
 
-def _media_candidates(workspace: Path) -> tuple[Path, ...]:
-    return tuple(
-        path
-        for path in workspace.glob("source.*")
-        if path.is_file() and not path.name.endswith((".part", ".ytdl"))
-    )
-
-
-def _sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as source:
-        while chunk := source.read(1024 * 1024):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
 class YtDlpBilibiliMedia:
     """Acquire a complete HD Bilibili part; previews are rejected after probing bytes."""
 
@@ -438,16 +321,16 @@ class YtDlpBilibiliMedia:
             info = await _download(canonical_url, workspace, self._proxy)
             if not info.ok:
                 raise _worker_failure(info)
-            candidates = await asyncio.to_thread(_media_candidates, workspace)
+            candidates = await asyncio.to_thread(media_candidates, workspace)
             if len(candidates) != 1:
                 raise BilibiliNoteFailure("SOURCE_UNAVAILABLE", "downloaded_media_ambiguous")
             media_path = candidates[0]
-            duration_ms, width, height = await _probe(media_path)
+            duration_ms, width, height = await probe_downloaded_media(media_path)
             upstream_id = info.upstream_id or ""
             match = _UPSTREAM_ID.fullmatch(upstream_id)
             if match is None:
                 raise BilibiliNoteFailure("SOURCE_CHANGED", "media_video_identity_invalid")
-            digest = await asyncio.to_thread(_sha256_file, media_path)
+            digest = await asyncio.to_thread(sha256_file, media_path)
         except BilibiliNoteFailure as e:
             if info is not None and not info.ok:
                 failure_family = info.failure_family

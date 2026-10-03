@@ -10,7 +10,6 @@ const SEARCH = /^[^\u0000-\u001f\u007f]{0,128}$/;
 export const operationAuditRangesV1 = ["24h", "7d", "30d", "all"] as const;
 export type OperationAuditRangeV1 = typeof operationAuditRangesV1[number];
 export const operationAuditOperationsV1 = [
-  "artifact_build.formation_execute.v1",
   "dashboard.dependency.cancel.queued.v1",
   "dashboard.operational_cache.delete.v1",
   "develop_composer.submit_or_resolve.v2",
@@ -256,7 +255,6 @@ export function parseOperationAuditEntryV1(value: unknown): OperationAuditEntryV
     || typeof value.principal_ref !== "string" || !PRINCIPAL.test(value.principal_ref)
     || !operationAuditOperationsV1.includes(value.operation as OperationAuditOperationV1)
     || !["execute", "update", "delete"].includes(String(value.action_kind))
-    || (value.operation === "artifact_build.formation_execute.v1" && value.action_kind !== "execute")
     || (value.operation === "exploratory_replay.submit_or_resolve.v2"
       && value.action_kind !== "execute")
     || (value.operation === "develop_composer.submit_or_resolve.v2"

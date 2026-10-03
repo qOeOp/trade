@@ -21,7 +21,7 @@ test("every service-log source has one business-facing label", () => {
 
 test("event and correlation presentation remains deterministic without widening the contract", () => {
   assert.equal(serviceLogEventLabel("RUN_STARTED"), "Run started");
-  assert.equal(serviceLogEventLabel("MANUAL_RECONCILIATION_REQUIRED"), "Manual reconciliation required");
+  assert.equal(serviceLogEventLabel("OWNER_UNAVAILABLE"), "Owner unavailable");
   const runIdentity = "dashboard-run-v1-963d7f74-5fc7-4d2a-8845-1eed910fb16d";
   assert.equal(serviceLogRunIdentity(runIdentity), runIdentity);
   assert.equal(serviceLogRelatedLabel(runIdentity), "View run");

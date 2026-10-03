@@ -401,28 +401,18 @@ fn value_at_role_scale(
     })
 }
 
-/// Keeps the rows whose value can be stated exactly at `scale`. When none can, the refusal names
-/// why the first one could not.
-fn rows_at_role_scale<'a>(
-    rows: impl IntoIterator<Item = &'a VerifiedPitObservation>,
+/// The one row a role resolves to, admitted only when its value can be stated exactly at
+/// `scale`. Scale never selects among rows: rows that differ only in scale are not unique, and
+/// the one resolved row either aligns exactly or is refused by name.
+fn single_row_at_role_scale<'a>(
+    rows: &[&'a VerifiedPitObservation],
     scale: u8,
-) -> Result<Vec<&'a VerifiedPitObservation>, StrategyInputBindingUnavailable> {
-    let mut refusal = None;
-    let mut aligned = Vec::new();
-
-    for row in rows {
-        match value_at_role_scale(row, scale) {
-            Ok(_) => aligned.push(row),
-            Err(e) => {
-                refusal.get_or_insert(e);
-            }
-        }
-    }
-
-    match refusal {
-        Some(e) if aligned.is_empty() => Err(e),
-        _ => Ok(aligned),
-    }
+) -> Result<&'a VerifiedPitObservation, StrategyInputBindingUnavailable> {
+    let [row] = rows else {
+        return Err(StrategyInputBindingUnavailable::NonUniqueResolution);
+    };
+    value_at_role_scale(row, scale)?;
+    Ok(row)
 }
 
 impl std::error::Error for StrategyInputBindingUnavailable {}
@@ -1570,7 +1560,6 @@ fn static_binding_matches_row(
         && row.channel() == locator.channel
         && row.data_kind() == locator.data_kind
         && row.timeframe() == locator.timeframe
-        && value_at_role_scale(row, locator.scale).is_ok()
         && row.correction_stream_identity() == locator.correction_stream_identity
         && row.market_semantics_identity() == locator.market_semantics_identity
 }
@@ -1856,16 +1845,7 @@ fn resolve_static_binding_row<'a>(
                 && row.market_semantics_identity() == locator.market_semantics_identity
         })
         .collect::<Vec<_>>();
-    let rows = if rows.is_empty() {
-        rows
-    } else {
-        rows_at_role_scale(rows, locator.scale)?
-    };
-
-    if rows.len() != 1 {
-        return Err(StrategyInputBindingUnavailable::NonUniqueResolution);
-    }
-    Ok(rows[0])
+    single_row_at_role_scale(&rows, locator.scale)
 }
 
 fn resolve_universe_member_role<'a>(
@@ -1899,12 +1879,7 @@ fn resolve_universe_member_role<'a>(
             Err(StrategyInputBindingUnavailable::NoMatchingObservation)
         };
     }
-    let exact = rows_at_role_scale(exact_without_scale, request.scale)?;
-
-    if exact.len() != 1 {
-        return Err(StrategyInputBindingUnavailable::NonUniqueResolution);
-    }
-    let row = exact[0];
+    let row = single_row_at_role_scale(&exact_without_scale, request.scale)?;
     if row.source_binding_identity() != batch.source_binding_identity()
         || row.source_frontier_digest() != batch.source_frontier_digest()
         || row.correction_frontier_digest() != batch.correction_frontier_digest()
@@ -1962,12 +1937,7 @@ fn resolve_strategy_input_row<'a>(
             Err(StrategyInputBindingUnavailable::NoMatchingObservation)
         };
     }
-    let exact = rows_at_role_scale(exact_without_scale, request.scale)?;
-
-    if exact.len() != 1 {
-        return Err(StrategyInputBindingUnavailable::NonUniqueResolution);
-    }
-    Ok(exact[0])
+    single_row_at_role_scale(&exact_without_scale, request.scale)
 }
 
 fn validate_request(
@@ -3786,6 +3756,27 @@ mod tests {
             value_at_market_scale(mantissa, scale)
                 .map(|(value, _)| i128::from_le_bytes(*value.value_bytes())),
             expected
+        );
+    }
+
+    /// Scale never picks a row: a row too fine for the role beside one that aligns leaves two
+    /// candidates, which is not unique, rather than silently binding the one that aligns.
+    #[rstest]
+    fn rows_differing_only_in_scale_are_not_unique() {
+        let mut coarser = row("AAPL.CLOSE", "AAPL.XNAS", "1M");
+        coarser.value_mantissa = 3_724_436;
+        coarser.value_scale = 2;
+        let mut finer = coarser.clone();
+        finer.symbolic_key = "AAPL.CLOSE.FINE".into();
+        finer.value_mantissa = 372_443_600_000_001;
+        finer.value_scale = 10;
+        let verified = batch(vec![coarser, finer]);
+        let mut role = request();
+        role.scale = MARKET_DATA_VALUE_SCALE_V1;
+
+        assert_eq!(
+            bind_strategy_input_role(&role, &verified),
+            Err(StrategyInputBindingUnavailable::NonUniqueResolution)
         );
     }
 

@@ -175,33 +175,6 @@ test("same-identity resolution creates one replacement owner-read run without mu
   assert.equal(calls.some(([kind]) => kind === "source" || kind === "artifact" || kind === "iteration"), false);
 });
 
-test("artifact formation resolution maps to the zero-effect Artifact owner-read operation", async () => {
-  const source = operationRun({
-    operation_id: "artifact_build.formation_execute.v1",
-    channel: "DASHBOARD_DISPOSABLE_EXECUTION",
-    run_kind: "owner_effect",
-    recovery_identity: {
-      research_request_identity: "research-request-resolution-2",
-      build_request_identity: "build-request-resolution-2",
-      attempt_identity: "attempt-resolution-2",
-    },
-  });
-  const { calls, store, readers } = harness(source);
-  const result = await resolveRunOwnerOutcomeV1({
-    runIdentity: sourceRunIdentity,
-    expectedTransitionVersion: 2,
-    store,
-    readers,
-  });
-  assert.equal(result.status, 200);
-  assert.equal(result.envelope.resolved_operation_id, "artifact_build.shadow_resolve.v1");
-  assert.deepEqual(calls.find(([kind]) => kind === "artifact"), [
-    "artifact", "research-request-resolution-2", "build-request-resolution-2",
-    "attempt-resolution-2",
-  ]);
-  assert.equal(calls.some(([kind]) => kind === "source" || kind === "research" || kind === "iteration"), false);
-});
-
 test("Replay request custody resolution maps to the zero-effect Replay owner-read operation", async () => {
   const source = operationRun({
     operation_id: "exploratory_replay.submit_or_resolve.v2",

@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from bilibili_note_mcp.adapters import asr_siliconflow, bilibili_media_ytdlp, media_ffmpeg
+from bilibili_note_mcp.adapters import asr_siliconflow, media_acquisition, media_ffmpeg
 from bilibili_note_mcp.adapters import subprocesses as subprocess_owner
 
 
@@ -169,7 +169,7 @@ async def test_each_media_adapter_cancellation_reaps_group_before_return(
             duration_ms=1000,
         )
     else:
-        operation = bilibili_media_ytdlp._probe(tmp_path / "media.mp4")
+        operation = media_acquisition.probe_downloaded_media(tmp_path / "media.mp4")
     task = asyncio.create_task(operation)
     await _wait_for_file(ready)
 

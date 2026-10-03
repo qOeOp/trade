@@ -2,7 +2,6 @@ import { createHash, createHmac, randomUUID, timingSafeEqual } from "node:crypto
 
 import { Pool, type PoolClient, type QueryResultRow } from "pg";
 
-import type { ArtifactBuildExecutionRequestV1 } from "../../rd-owner-client/artifact_build_v1.ts";
 import {
   canonicalDevelopComposerDispatchRequestV2,
   developComposerProjectionDigestV2,
@@ -28,15 +27,6 @@ import {
   EXPLORATORY_REPLAY_EXECUTE_OPERATION,
   type ExploratoryReplayExecutionAdmissionV2,
 } from "./exploratory-replay-operation.ts";
-
-import {
-  ARTIFACT_FORMATION_EXECUTE_OPERATION,
-  artifactFormationOperationV1,
-  artifactFormationRecoveryIdentityDigestV1,
-  artifactFormationRegistryEntryDigestV1,
-  canonicalArtifactFormationRecoveryIdentityV1,
-  type ArtifactFormationExecutionAdmissionV1,
-} from "./artifact-formation-operation.ts";
 import {
   operationByIdV1,
   operationRegistryEntryDigestV1,
@@ -109,8 +99,6 @@ import {
   canonicalEffectDispatchTargetV1,
   canonicalEffectDispatchTargetDigestsV1,
   boundEffectWorkerIdentityV1,
-  canonicalEffectDispatchContextV1,
-  effectDispatchContextDigestV1,
   effectDispatchOperationIdsV1,
   effectDispatchRequestDigestV1,
   effectDispatchTargetDigestV1,
@@ -134,7 +122,6 @@ export { isRunIdentityV1 } from "./run-contract.ts";
 export type RunOperationalState = "queued" | "running" | "succeeded" | "failed" | "cancelled" | "unknown";
 export type OwnerOutcomeState = "available" | "rejected" | "unknown" | "unavailable" | "not_applicable";
 export type OperationalOperationId = RegisteredOperationId
-  | typeof ARTIFACT_FORMATION_EXECUTE_OPERATION
   | typeof DEVELOP_COMPOSER_EXECUTE_OPERATION
   | typeof EXPLORATORY_REPLAY_EXECUTE_OPERATION
   | typeof SOURCE_RESEARCH_EXECUTE_OPERATION;
@@ -166,7 +153,7 @@ export type OperationRunLogV1 = {
   observed_at: string;
   level: "info" | "warning" | "error";
   source: "run_store" | "dashboard_bff" | "owner_gateway" | "shadow_worker"
-    | "artifact_orchestrator" | "source_research_orchestrator" | "effect_worker";
+    | "source_research_orchestrator" | "effect_worker";
   event_code: RunEventCodeV1;
 };
 
@@ -274,17 +261,6 @@ export type ShadowScheduleReadBindingV1 = {
   cadence_seconds: number;
   anchor_epoch_ms: number;
   dispatch_binding: OperationDispatchBindingV1;
-};
-
-export type ArtifactFormationExecutionModeV1 =
-  | "FRESH_RUN"
-  | "CONTINUE_CLAIMED_ONCE"
-  | "RESOLVE_ONLY";
-
-export type ArtifactFormationRunStartV1 = {
-  schema_version: 1;
-  run: OperationRunV1;
-  execution_mode: ArtifactFormationExecutionModeV1;
 };
 
 export type SourceResearchRunStartV1 = {
@@ -501,7 +477,7 @@ function projectRunLogRowsV1(
       || (observedAt !== undefined && row.observed_at > observedAt)
       || !["info", "warning", "error"].includes(row.level)
       || !["run_store", "dashboard_bff", "owner_gateway", "shadow_worker",
-        "artifact_orchestrator", "source_research_orchestrator", "effect_worker"]
+        "source_research_orchestrator", "effect_worker"]
         .includes(row.source)
       || !isRunEventCodeV1(row.event_code)) throw new Error("RUN_STORE_LOG_ROW_INVALID");
     return {
@@ -644,9 +620,6 @@ export function canonicalRecoveryIdentityV1(
   operationId: OperationalOperationId,
   recoveryIdentity: Record<string, string>,
 ): Record<string, string> | null {
-  if (operationId === ARTIFACT_FORMATION_EXECUTE_OPERATION) {
-    return canonicalArtifactFormationRecoveryIdentityV1(recoveryIdentity);
-  }
   if (operationId === SOURCE_RESEARCH_EXECUTE_OPERATION) {
     return canonicalSourceResearchRecoveryIdentityV1(recoveryIdentity);
   }
@@ -671,9 +644,6 @@ export function recoveryIdentityDigestV1(
   operationId: OperationalOperationId,
   recoveryIdentity: Record<string, string>,
 ): string | null {
-  if (operationId === ARTIFACT_FORMATION_EXECUTE_OPERATION) {
-    return artifactFormationRecoveryIdentityDigestV1(recoveryIdentity);
-  }
   if (operationId === SOURCE_RESEARCH_EXECUTE_OPERATION) {
     return sourceResearchRecoveryIdentityDigestV1(recoveryIdentity);
   }
@@ -756,8 +726,7 @@ function record(row: RunRow): OperationRunV1 {
     operationId,
     row.recovery_identity_json,
   );
-  const effectRun = operationId === ARTIFACT_FORMATION_EXECUTE_OPERATION
-    || operationId === DEVELOP_COMPOSER_EXECUTE_OPERATION
+  const effectRun = operationId === DEVELOP_COMPOSER_EXECUTE_OPERATION
     || operationId === EXPLORATORY_REPLAY_EXECUTE_OPERATION
     || operationId === SOURCE_RESEARCH_EXECUTE_OPERATION;
   if (!isRunIdentityV1(row.run_identity) || row.schema_version !== 1
@@ -797,8 +766,7 @@ function record(row: RunRow): OperationRunV1 {
 
 function shadowReadRecord(row: RunRow): ShadowReadClaimV1["run"] {
   const value = record(row);
-  if (value.operation_id === ARTIFACT_FORMATION_EXECUTE_OPERATION
-    || value.operation_id === DEVELOP_COMPOSER_EXECUTE_OPERATION
+  if (value.operation_id === DEVELOP_COMPOSER_EXECUTE_OPERATION
     || value.operation_id === EXPLORATORY_REPLAY_EXECUTE_OPERATION
     || value.operation_id === SOURCE_RESEARCH_EXECUTE_OPERATION
     || value.channel !== "DASHBOARD_SHADOW_READ" || value.run_kind !== "owner_read") {
@@ -867,7 +835,7 @@ function decodeRunLogCursor(value: string | undefined, key: string): RunLogCurso
       || Number(cursor.after_sequence) > 255
       || !["all", "info", "warning", "error"].includes(String(cursor.level))
       || !["all", "run_store", "dashboard_bff", "owner_gateway", "shadow_worker",
-        "artifact_orchestrator", "source_research_orchestrator", "effect_worker"]
+        "source_research_orchestrator", "effect_worker"]
         .includes(String(cursor.source))
       || typeof cursor.query !== "string" || !/^[A-Za-z0-9._:/ -]{0,64}$/.test(cursor.query)) return null;
     return cursor as RunLogCursorV1;
@@ -887,17 +855,13 @@ function operationRegistryId(value: unknown): value is RegisteredOperationId {
 }
 
 function operationalOperationId(value: unknown): value is OperationalOperationId {
-  return value === ARTIFACT_FORMATION_EXECUTE_OPERATION
-    || value === DEVELOP_COMPOSER_EXECUTE_OPERATION
+  return value === DEVELOP_COMPOSER_EXECUTE_OPERATION
     || value === EXPLORATORY_REPLAY_EXECUTE_OPERATION
     || value === SOURCE_RESEARCH_EXECUTE_OPERATION
     || operationRegistryId(value);
 }
 
 function operationalEffectSet(operationId: OperationalOperationId): readonly string[] {
-  if (operationId === ARTIFACT_FORMATION_EXECUTE_OPERATION) {
-    return artifactFormationOperationV1.effect_set;
-  }
   if (operationId === SOURCE_RESEARCH_EXECUTE_OPERATION) {
     return sourceResearchRunOperationV1.effect_set;
   }
@@ -911,9 +875,6 @@ function operationalEffectSet(operationId: OperationalOperationId): readonly str
 }
 
 function operationalRecoveryFields(operationId: OperationalOperationId): readonly string[] {
-  if (operationId === ARTIFACT_FORMATION_EXECUTE_OPERATION) {
-    return artifactFormationOperationV1.recovery_identity_fields;
-  }
   if (operationId === SOURCE_RESEARCH_EXECUTE_OPERATION) {
     return sourceResearchRunOperationV1.recovery_identity_fields;
   }
@@ -1181,17 +1142,8 @@ async function recoverExpiredEffectClaims(client: PoolClient) {
       );
       continue;
     }
-    const invocationStarted = row.operation_id === ARTIFACT_FORMATION_EXECUTE_OPERATION
-      && (await client.query<{ present: boolean }>(
-        `SELECT EXISTS(
-           SELECT 1 FROM dashboard_operation_run_logs_v1
-            WHERE run_identity = $1 AND event_code = 'INVOCATION_STARTED'
-         ) AS present`,
-        [row.run_identity],
-      )).rows[0]?.present === true;
-    if (invocationStarted || row.claim_attempt >= MAX_CLAIM_ATTEMPTS) {
-      const terminalCode = invocationStarted
-        ? "MANUAL_RECONCILIATION_REQUIRED" : "CLAIM_LIMIT_REACHED";
+    if (row.claim_attempt >= MAX_CLAIM_ATTEMPTS) {
+      const terminalCode = "CLAIM_LIMIT_REACHED";
       await client.query(
         `UPDATE dashboard_operation_runs_v1
             SET state = 'unknown', owner_outcome_state = 'unknown', terminal_code = $2,
@@ -1209,7 +1161,7 @@ async function recoverExpiredEffectClaims(client: PoolClient) {
       await appendLog(
         client,
         row.run_identity,
-        invocationStarted ? "warning" : "error",
+        "error",
         "effect_worker",
         terminalCode,
       );
@@ -1287,26 +1239,7 @@ export class PostgresRunStoreV1 {
     }
   }
 
-  async assertArtifactFormationSchema() {
-    await this.assertSchema();
-    const result = await this.#pool.query<{
-      artifact_bindings: string | null;
-      admission_receipts: string | null;
-    }>(
-      `SELECT to_regclass(
-        'public.dashboard_artifact_formation_run_bindings_v1'
-      )::text AS artifact_bindings,
-      to_regclass(
-        'public.dashboard_control_plane_admission_receipts_v1'
-      )::text AS admission_receipts`,
-    );
-    if (!result.rows[0]?.artifact_bindings || !result.rows[0]?.admission_receipts) {
-      throw new Error("RUN_STORE_SCHEMA_UNAVAILABLE");
-    }
-  }
-
   async assertEffectDispatchSchema() {
-    await this.assertArtifactFormationSchema();
     await this.assertSourceResearchSchema();
     const result = await this.#pool.query<{
       effect_workers: string | null;
@@ -1339,297 +1272,6 @@ export class PostgresRunStoreV1 {
       || Number(result.rows[0]?.frozen_target_columns) !== 2
       || Number(result.rows[0]?.worker_scan_cursor_columns) !== 2) {
       throw new Error("RUN_STORE_SCHEMA_UNAVAILABLE");
-    }
-  }
-
-  async beginArtifactFormation({
-    action,
-    recoveryIdentity,
-    admission,
-    actionContext,
-    existingRecoveryOnly = false,
-    dispatchMode = "inline",
-    dispatchRequest = null,
-    dispatchContext = null,
-    dispatchTarget = null,
-  }: {
-    action: "RUN" | "RESOLVE";
-    recoveryIdentity: Record<string, string>;
-    admission: Extract<ArtifactFormationExecutionAdmissionV1, { availability: "available" }>;
-    actionContext: ControlPlaneAdmissionContextV1;
-    existingRecoveryOnly?: boolean;
-    dispatchMode?: EffectDispatchModeV1;
-    dispatchRequest?: ArtifactBuildExecutionRequestV1 | null;
-    dispatchContext?: unknown;
-    dispatchTarget?: EffectDispatchTargetV1 | null;
-  }): Promise<ArtifactFormationRunStartV1> {
-    const canonical = canonicalArtifactFormationRecoveryIdentityV1(recoveryIdentity);
-    const recoveryDigest = artifactFormationRecoveryIdentityDigestV1(recoveryIdentity);
-    const routing = admission.routing;
-    const validAdmission = DIGEST.test(admission.registry_entry_digest)
-      && admission.registry_entry_digest === artifactFormationRegistryEntryDigestV1()
-      && DIGEST.test(admission.compatibility_envelope_digest)
-      && (((action === "RUN" && !existingRecoveryOnly) && routing.state === "ACTIVE"
-        && routing.dispatcher === "TRADE_DASHBOARD"
-        && IDENTITY.test(routing.binding_identity)
-        && DIGEST.test(routing.binding_digest)
-        && Number.isSafeInteger(routing.generation) && routing.generation > 0)
-      || ((action === "RESOLVE" || existingRecoveryOnly) && routing.state === "UNAVAILABLE"
-        && routing.dispatcher === "NONE"));
-    const queuedRequest = dispatchMode === "queue"
-      ? canonicalEffectDispatchRequestV1(ARTIFACT_FORMATION_EXECUTE_OPERATION, dispatchRequest)
-      : null;
-    const queuedRequestDigest = dispatchMode === "queue"
-      ? effectDispatchRequestDigestV1(ARTIFACT_FORMATION_EXECUTE_OPERATION, dispatchRequest)
-      : null;
-    const queuedContext = dispatchMode === "queue"
-      ? canonicalEffectDispatchContextV1(ARTIFACT_FORMATION_EXECUTE_OPERATION, dispatchContext)
-      : null;
-    const queuedContextDigest = dispatchMode === "queue"
-      ? effectDispatchContextDigestV1(ARTIFACT_FORMATION_EXECUTE_OPERATION, dispatchContext)
-      : null;
-    const queuedTarget = dispatchMode === "queue"
-      ? canonicalEffectDispatchTargetV1(ARTIFACT_FORMATION_EXECUTE_OPERATION, dispatchTarget)
-      : null;
-    const queuedTargetDigest = dispatchMode === "queue"
-      ? effectDispatchTargetDigestV1(ARTIFACT_FORMATION_EXECUTE_OPERATION, dispatchTarget)
-      : null;
-    if (!canonical || !recoveryDigest || !validAdmission
-      || !validControlPlaneAdmissionContextV1(actionContext)
-      || !["inline", "queue"].includes(dispatchMode)
-      || (dispatchMode === "queue" && (action !== "RUN" || existingRecoveryOnly
-        || !queuedRequest || !queuedRequestDigest || !queuedContext || !queuedContextDigest
-        || !queuedTarget || !queuedTargetDigest))) {
-      throw new Error("ARTIFACT_FORMATION_SUBMISSION_INVALID");
-    }
-    const client = await this.#pool.connect();
-    try {
-      await client.query("BEGIN");
-      await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [recoveryDigest]);
-      const active = await client.query<RunRow & { continuation_count: number }>(
-        `SELECT r.*, b.continuation_count
-           FROM dashboard_operation_runs_v1 r
-           JOIN dashboard_artifact_formation_run_bindings_v1 b USING (run_identity)
-          WHERE r.operation_id = $1 AND r.recovery_identity_digest = $2
-            AND r.state IN ('queued', 'running')
-          FOR UPDATE OF r, b`,
-        [ARTIFACT_FORMATION_EXECUTE_OPERATION, recoveryDigest],
-      );
-      const current = active.rows[0];
-      if (current) {
-        const continueOnce = dispatchMode === "inline"
-          && action === "RUN" && current.continuation_count === 0;
-        if (continueOnce) {
-          const continued = await client.query(
-            `UPDATE dashboard_artifact_formation_run_bindings_v1
-                SET continuation_count = 1, updated_at = clock_timestamp()
-              WHERE run_identity = $1 AND continuation_count = 0`,
-            [current.run_identity],
-          );
-          if (continued.rowCount !== 1) throw new Error("ARTIFACT_FORMATION_RECOVERY_CONFLICT");
-        }
-        const executionMode = continueOnce ? "CONTINUE_CLAIMED_ONCE" : "RESOLVE_ONLY";
-        await appendControlPlaneAdmissionV1(client, {
-          operation: ARTIFACT_FORMATION_EXECUTE_OPERATION,
-          executionMode,
-          runIdentity: current.run_identity,
-          context: actionContext,
-        });
-        await client.query("COMMIT");
-        return {
-          schema_version: 1,
-          run: record(current),
-          execution_mode: executionMode,
-        };
-      }
-      if (existingRecoveryOnly) throw new Error("ARTIFACT_FORMATION_RECOVERY_CONFLICT");
-      const runIdentity = `dashboard-run-v1-${randomUUID()}`;
-      const inserted = await client.query<RunRow>(
-        `INSERT INTO dashboard_operation_runs_v1
-           (run_identity, schema_version, operation_id, channel, run_kind, trigger_kind, state,
-            owner_outcome_state, recovery_identity_json, recovery_identity_digest,
-            transition_version, started_at)
-         VALUES ($1, 1, $2, 'DASHBOARD_DISPOSABLE_EXECUTION', 'owner_effect',
-                 'dashboard_bff', $5, 'unknown', $3::jsonb, $4, 1,
-                 CASE WHEN $5 = 'running' THEN clock_timestamp() ELSE NULL END)
-         RETURNING *`,
-        [runIdentity, ARTIFACT_FORMATION_EXECUTE_OPERATION, JSON.stringify(canonical), recoveryDigest,
-          dispatchMode === "queue" ? "queued" : "running"],
-      );
-      await client.query(
-        `INSERT INTO dashboard_artifact_formation_run_bindings_v1
-           (run_identity, schema_version, requested_action, registry_entry_digest,
-            compatibility_envelope_digest, routing_state, routing_dispatcher,
-            routing_binding_identity, routing_binding_digest, routing_generation)
-         VALUES ($1, 1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-        [runIdentity, action, admission.registry_entry_digest,
-          admission.compatibility_envelope_digest, routing.state, routing.dispatcher,
-          routing.binding_identity, routing.binding_digest, routing.generation],
-      );
-      await appendLog(
-        client,
-        runIdentity,
-        "info",
-        dispatchMode === "queue" ? "run_store" : "artifact_orchestrator",
-        dispatchMode === "queue" ? "RUN_QUEUED" : "RUN_STARTED",
-      );
-      const receipt = await appendControlPlaneAdmissionV1(client, {
-        operation: ARTIFACT_FORMATION_EXECUTE_OPERATION,
-        executionMode: "FRESH_RUN",
-        runIdentity,
-        context: actionContext,
-      });
-      if (dispatchMode === "queue") {
-        await client.query(
-          `INSERT INTO dashboard_effect_dispatch_queue_v1
-             (run_identity, schema_version, operation_id, request_json, request_digest,
-              frozen_target_json, frozen_target_digest,
-              frozen_context_json, frozen_context_digest, principal_ref,
-              authorization_digest, admission_receipt_identity)
-           VALUES ($1, 1, $2, $3::jsonb, $4, $5::jsonb, $6,
-                   $7::jsonb, $8, $9, $10, $11)`,
-          [runIdentity, ARTIFACT_FORMATION_EXECUTE_OPERATION, JSON.stringify(queuedRequest),
-            queuedRequestDigest, JSON.stringify(queuedTarget), queuedTargetDigest,
-            JSON.stringify(queuedContext), queuedContextDigest, actionContext.principalRef,
-            actionContext.authorizationDigest, receipt.receipt_identity],
-        );
-      }
-      await client.query("COMMIT");
-      return { schema_version: 1, run: record(inserted.rows[0]), execution_mode: "FRESH_RUN" };
-    } catch (error) {
-      await client.query("ROLLBACK");
-      throw error;
-    } finally {
-      client.release();
-    }
-  }
-
-  async findActiveArtifactFormation(
-    recoveryIdentity: Record<string, string>,
-  ): Promise<OperationRunV1 | null> {
-    const recoveryDigest = artifactFormationRecoveryIdentityDigestV1(recoveryIdentity);
-    if (!canonicalArtifactFormationRecoveryIdentityV1(recoveryIdentity) || !recoveryDigest) {
-      throw new Error("ARTIFACT_FORMATION_RECOVERY_INVALID");
-    }
-    const result = await this.#pool.query<RunRow>(
-      `SELECT * FROM dashboard_operation_runs_v1
-        WHERE operation_id = $1 AND recovery_identity_digest = $2
-          AND state IN ('queued', 'running')
-        ORDER BY created_at DESC, run_identity DESC LIMIT 1`,
-      [ARTIFACT_FORMATION_EXECUTE_OPERATION, recoveryDigest],
-    );
-    return result.rows[0] ? record(result.rows[0]) : null;
-  }
-
-  async recordArtifactFormationPhase({
-    runIdentity,
-    expectedTransitionVersion,
-    phase,
-  }: {
-    runIdentity: string;
-    expectedTransitionVersion: number;
-    phase: "OWNER_CLAIMED" | "INVOCATION_STARTED";
-  }): Promise<OperationRunV1> {
-    if (!isRunIdentityV1(runIdentity) || !Number.isSafeInteger(expectedTransitionVersion)
-      || expectedTransitionVersion < 1) throw new Error("ARTIFACT_FORMATION_PHASE_INVALID");
-    const client = await this.#pool.connect();
-    try {
-      await client.query("BEGIN");
-      const locked = await client.query<RunRow>(
-        `SELECT r.* FROM dashboard_operation_runs_v1 r
-           JOIN dashboard_artifact_formation_run_bindings_v1 b USING (run_identity)
-          WHERE r.run_identity = $1 FOR UPDATE OF r`,
-        [runIdentity],
-      );
-      const current = locked.rows[0];
-      if (!current || current.operation_id !== ARTIFACT_FORMATION_EXECUTE_OPERATION
-        || current.state !== "running") throw new Error("ARTIFACT_FORMATION_PHASE_CONFLICT");
-      const events = await client.query<{ event_code: string }>(
-        `SELECT event_code FROM dashboard_operation_run_logs_v1
-          WHERE run_identity = $1 AND event_code IN ('OWNER_CLAIMED', 'INVOCATION_STARTED')`,
-        [runIdentity],
-      );
-      const observed = new Set(events.rows.map(({ event_code }) => event_code));
-      if (observed.has(phase)) {
-        await client.query("COMMIT");
-        return record(current);
-      }
-      if (Number(current.transition_version) !== expectedTransitionVersion
-        || (phase === "INVOCATION_STARTED" && !observed.has("OWNER_CLAIMED"))) {
-        throw new Error("ARTIFACT_FORMATION_PHASE_CONFLICT");
-      }
-      const updated = await client.query<RunRow>(
-        `UPDATE dashboard_operation_runs_v1
-            SET transition_version = transition_version + 1, updated_at = clock_timestamp()
-          WHERE run_identity = $1 AND state = 'running' AND transition_version = $2
-          RETURNING *`,
-        [runIdentity, expectedTransitionVersion],
-      );
-      if (updated.rowCount !== 1) throw new Error("ARTIFACT_FORMATION_PHASE_CONFLICT");
-      await appendLog(client, runIdentity, "info", "artifact_orchestrator", phase);
-      await client.query("COMMIT");
-      return record(updated.rows[0]);
-    } catch (error) {
-      await client.query("ROLLBACK");
-      throw error;
-    } finally {
-      client.release();
-    }
-  }
-
-  async completeArtifactFormation({
-    runIdentity,
-    expectedTransitionVersion,
-    ownerOutcomeState,
-    terminalCode,
-  }: {
-    runIdentity: string;
-    expectedTransitionVersion: number;
-    ownerOutcomeState: "available" | "rejected" | "unknown" | "unavailable";
-    terminalCode:
-      | "OWNER_AVAILABLE"
-      | "OWNER_REJECTED"
-      | "OWNER_UNKNOWN"
-      | "OWNER_UNAVAILABLE"
-      | "MANUAL_RECONCILIATION_REQUIRED";
-  }): Promise<OperationRunV1> {
-    const terminalState = terminalCode === "OWNER_AVAILABLE" ? "succeeded"
-      : terminalCode === "OWNER_UNKNOWN" || terminalCode === "MANUAL_RECONCILIATION_REQUIRED"
-        ? "unknown" : "failed";
-    if (!isRunIdentityV1(runIdentity) || !Number.isSafeInteger(expectedTransitionVersion)
-      || expectedTransitionVersion < 1
-      || (terminalCode === "MANUAL_RECONCILIATION_REQUIRED" && ownerOutcomeState !== "unknown")) {
-      throw new Error("ARTIFACT_FORMATION_COMPLETION_INVALID");
-    }
-    const client = await this.#pool.connect();
-    try {
-      await client.query("BEGIN");
-      const updated = await client.query<RunRow>(
-        `UPDATE dashboard_operation_runs_v1
-            SET state = $2, owner_outcome_state = $3, terminal_code = $4,
-                transition_version = transition_version + 1,
-                updated_at = clock_timestamp(), finished_at = clock_timestamp()
-          WHERE run_identity = $1 AND operation_id = $5 AND state = 'running'
-            AND transition_version = $6
-          RETURNING *`,
-        [runIdentity, terminalState, ownerOutcomeState, terminalCode,
-          ARTIFACT_FORMATION_EXECUTE_OPERATION, expectedTransitionVersion],
-      );
-      if (updated.rowCount !== 1) throw new Error("ARTIFACT_FORMATION_COMPLETION_CONFLICT");
-      await appendLog(
-        client,
-        runIdentity,
-        terminalState === "succeeded" ? "info" : terminalState === "unknown" ? "warning" : "error",
-        "artifact_orchestrator",
-        terminalCode,
-      );
-      await client.query("COMMIT");
-      return record(updated.rows[0]);
-    } catch (error) {
-      await client.query("ROLLBACK");
-      throw error;
-    } finally {
-      client.release();
     }
   }
 
@@ -2787,8 +2429,6 @@ export class PostgresRunStoreV1 {
         request_digest: string;
         frozen_target_json: unknown;
         frozen_target_digest: string;
-        frozen_context_json: unknown;
-        frozen_context_digest: string | null;
         principal_ref: string;
         authorization_digest: string;
         admission_receipt_identity: string;
@@ -2804,8 +2444,6 @@ export class PostgresRunStoreV1 {
           request_digest: string;
           frozen_target_json: unknown;
           frozen_target_digest: string;
-          frozen_context_json: unknown;
-          frozen_context_digest: string | null;
           principal_ref: string;
           authorization_digest: string;
           admission_receipt_identity: string;
@@ -2813,8 +2451,7 @@ export class PostgresRunStoreV1 {
           effect_enqueued_at_text: string;
         }>(
           `SELECT r.*, q.request_json, q.request_digest, q.frozen_target_json,
-                  q.frozen_target_digest, q.frozen_context_json,
-                  q.frozen_context_digest, q.principal_ref,
+                  q.frozen_target_digest, q.principal_ref,
                   q.authorization_digest, q.admission_receipt_identity, q.claim_attempt,
                   q.enqueued_at::text AS effect_enqueued_at_text
              FROM dashboard_effect_dispatch_queue_v1 q
@@ -2851,17 +2488,6 @@ export class PostgresRunStoreV1 {
           operationId,
           current.frozen_target_json,
         );
-        const frozenContext = canonicalEffectDispatchContextV1(
-          operationId,
-          current.frozen_context_json,
-        );
-        const frozenContextDigest = effectDispatchContextDigestV1(
-          operationId,
-          current.frozen_context_json,
-        );
-        const contextValid = operationId === ARTIFACT_FORMATION_EXECUTE_OPERATION
-          ? frozenContext !== null && frozenContextDigest === current.frozen_context_digest
-          : current.frozen_context_json === null && current.frozen_context_digest === null;
         const admission = await client.query<{ present: boolean }>(
           `SELECT EXISTS(
              SELECT 1 FROM dashboard_control_plane_admission_receipts_v1
@@ -2874,7 +2500,7 @@ export class PostgresRunStoreV1 {
             current.principal_ref, current.authorization_digest],
         );
         if (request && digest === current.request_digest && frozenTarget
-          && frozenTargetDigest === current.frozen_target_digest && contextValid
+          && frozenTargetDigest === current.frozen_target_digest
           && admission.rows[0]?.present === true) {
           if (current.frozen_target_digest === canonicalTargetDigests[operationId]) break;
           nextScanCursor = {
@@ -2963,11 +2589,6 @@ export class PostgresRunStoreV1 {
           current.frozen_target_json,
         )!,
         frozen_target_digest: current.frozen_target_digest,
-        frozen_context: canonicalEffectDispatchContextV1(
-          current.operation_id as EffectDispatchOperationIdV1,
-          current.frozen_context_json,
-        ),
-        frozen_context_digest: current.frozen_context_digest,
         principal_ref: current.principal_ref,
         authorization_digest: current.authorization_digest,
         admission_receipt_identity: current.admission_receipt_identity,
@@ -3047,17 +2668,8 @@ export class PostgresRunStoreV1 {
       if (current.state !== "running" || !retry) {
         throw new Error("EFFECT_WORKER_SETTLEMENT_CONFLICT");
       }
-      const invocationStarted = current.operation_id === ARTIFACT_FORMATION_EXECUTE_OPERATION
-        && (await client.query<{ present: boolean }>(
-          `SELECT EXISTS(
-             SELECT 1 FROM dashboard_operation_run_logs_v1
-              WHERE run_identity = $1 AND event_code = 'INVOCATION_STARTED'
-           ) AS present`,
-          [runIdentity],
-        )).rows[0]?.present === true;
-      if (invocationStarted || current.claim_attempt >= MAX_CLAIM_ATTEMPTS) {
-        const terminalCode = invocationStarted
-          ? "MANUAL_RECONCILIATION_REQUIRED" : "CLAIM_LIMIT_REACHED";
+      if (current.claim_attempt >= MAX_CLAIM_ATTEMPTS) {
+        const terminalCode = "CLAIM_LIMIT_REACHED";
         const updated = await client.query<RunRow>(
           `UPDATE dashboard_operation_runs_v1
               SET state = 'unknown', owner_outcome_state = 'unknown', terminal_code = $2,
@@ -3886,7 +3498,7 @@ export class PostgresRunStoreV1 {
   }): Promise<RunLogPageCutV1 | null> {
     if (!isRunIdentityV1(runIdentity) || !["all", "info", "warning", "error"].includes(level)
       || !["all", "run_store", "dashboard_bff", "owner_gateway", "shadow_worker",
-        "artifact_orchestrator", "source_research_orchestrator", "effect_worker"]
+        "source_research_orchestrator", "effect_worker"]
         .includes(source)
       || !/^[A-Za-z0-9._:/ -]{0,64}$/.test(query) || query !== query.trim().toLowerCase()
       || !Number.isInteger(limit) || limit < 1 || limit > 256) throw new Error("RUN_LOG_REQUEST_INVALID");

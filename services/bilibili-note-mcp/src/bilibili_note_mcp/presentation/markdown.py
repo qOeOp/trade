@@ -41,14 +41,25 @@ def render(
         url = draft.source.canonical_url
         source = html.escape(url, quote=True)
         label = (
-            f"来源：{draft.source.author_name} · {draft.source.published_at[:10]} "
+            f"来源：{draft.source.author_name or '作者未提供'} · "
+            f"{draft.source.published_at[:10] if draft.source.published_at else '日期未提供'} "
             f"· {timestamp(draft.source.duration_ms)}"
         )
         blocks.append(
-            f'<p><a href="{source}">{esc(label)}</a></p>' if html_mode else f"[{esc(label)}]({url})"
+            f'<p><a href="{source}">{esc(label)}</a></p>'
+            if html_mode
+            else f"[{esc(label)}](<{url}>)"
         )
+
+        def time_url(
+            ms: int, url: str = url, generic: bool = draft.source.platform == "generic"
+        ) -> str:
+            return url if generic else url + f"&t={ms // 1000}"
+
+        if draft.source.platform == "generic":
+            paragraph("时间标记用于对照原视频；通用来源链接仅返回原页面，不保证跳转到指定时间。")
         paragraph(
-            "以下笔记依据视频内容整理，保留原作者观点；正文时间为转写片段范围，点击跳至片段起点；截图时间为实际取帧位置。"
+            "以下笔记依据视频内容整理，保留原作者观点；正文时间为转写片段范围，来源支持时可点击跳至片段起点；截图时间为实际取帧位置。"
         )
         paragraph(
             "处理档位："
@@ -70,7 +81,7 @@ def render(
             ms = min(evidence[e].start_ms for e in item.evidence_refs)
             end_ms = max(evidence[e].end_ms for e in item.evidence_refs)
             time_label = f"约 {timestamp(ms)}–{timestamp(end_ms)}"
-            link = url + f"&t={ms // 1000}"
+            link = time_url(ms)
             if html_mode:
                 blocks.append(
                     f'<p class="point">{esc(item.text)} '
@@ -79,7 +90,7 @@ def render(
                 )
             else:
                 blocks.append(
-                    ("- " if bullet else "") + esc(item.text) + f" [{time_label}]({link})"
+                    ("- " if bullet else "") + esc(item.text) + f" [{time_label}](<{link}>)"
                 )
 
         heading(2 if len(drafts) == 1 else 3, "概览")
@@ -107,7 +118,7 @@ def render(
                 path = image_paths[index, image.frame_id]
                 frame_time = frame_map[image.frame_id].timestamp_ms
                 caption = f"视频原始画面 · {timestamp(frame_time)}"
-                frame_link = html.escape(url + f"&t={frame_time // 1000}", quote=True)
+                frame_link = html.escape(time_url(frame_time), quote=True)
                 if html_mode:
                     blocks.append(
                         f'<figure><img src="{html.escape(path, quote=True)}" '

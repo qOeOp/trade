@@ -4,7 +4,7 @@ const DIGEST = /^sha256:[0-9a-f]{64}$/;
 const SEARCH = /^[^\u0000-\u001f\u007f]{0,128}$/;
 
 export const serviceLogSourcesV1 = [
-  "run_store", "dashboard_bff", "owner_gateway", "shadow_worker", "artifact_orchestrator",
+  "run_store", "dashboard_bff", "owner_gateway", "shadow_worker",
   "source_research_orchestrator",
 ] as const;
 export type ServiceLogSourceV1 = typeof serviceLogSourcesV1[number];

@@ -416,7 +416,7 @@ class FfmpegMedia:
             "-select_streams",
             "v:0",
             "-show_entries",
-            "stream=width,height,duration",
+            "stream=width,height,duration:format=duration",
             "-of",
             "json",
             str(source.media_path),
@@ -424,9 +424,12 @@ class FfmpegMedia:
         if code != 0:
             raise BilibiliNoteFailure("SOURCE_UNAVAILABLE", "ffprobe_rejected_media")
         try:
-            stream = decode_strict_json_object(stdout)["streams"][0]
+            payload = decode_strict_json_object(stdout)
+            stream = payload["streams"][0]
             width, height = stream["width"], stream["height"]
-            observed_duration_ms = round(parse_finite_decimal_string(stream["duration"]) * 1000)
+            # WebM commonly exposes duration only on the container.
+            duration = stream["duration"] if "duration" in stream else payload["format"]["duration"]
+            observed_duration_ms = round(parse_finite_decimal_string(duration) * 1000)
         except (
             KeyError,
             IndexError,

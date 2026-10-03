@@ -6,8 +6,8 @@ import pytest
 
 from bilibili_note_mcp.adapters import (
     asr_siliconflow,
-    bilibili_media_ytdlp,
     egress,
+    media_acquisition,
     media_ffmpeg,
 )
 from bilibili_note_mcp.application.errors import BilibiliNoteFailure
@@ -235,10 +235,10 @@ async def test_download_probe_rejects_untrusted_receipt(
         del args, kwargs
         return SimpleNamespace(returncode=0, stdout=payload, stderr=b"")
 
-    monkeypatch.setattr(bilibili_media_ytdlp, "run_captured", fake_run)
+    monkeypatch.setattr(media_acquisition, "run_captured", fake_run)
 
     with pytest.raises(BilibiliNoteFailure) as failure:
-        await bilibili_media_ytdlp._probe(tmp_path / "source.mp4")
+        await media_acquisition.probe_downloaded_media(tmp_path / "source.mp4")
 
     assert failure.value.code == "SOURCE_UNAVAILABLE"
     assert failure.value.reason == "downloaded_media_invalid"

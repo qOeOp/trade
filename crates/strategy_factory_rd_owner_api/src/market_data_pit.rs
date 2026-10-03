@@ -16,14 +16,23 @@ use std::sync::Arc;
 use axum::{
     Json, Router,
     body::Bytes,
-    extract::State,
+    extract::{Path, State},
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
-    routing::post,
+    routing::{get, post},
 };
 use serde::Deserialize;
 use serde_json::json;
+use vibe_binance::{
+    futures::http::client::BinanceFuturesHttpClient,
+    perpetual_admission_v1::{
+        BinancePerpetualAdmissionErrorV1, BinancePerpetualDatasetV1,
+        binance_perpetual_instrument_master_submission, binance_perpetual_source_proposal,
+        binance_perpetual_symbol_is_eligible_v1,
+    },
+};
 use vibe_data::owner::{
+    instrument_catalog_v1::{InstrumentCatalogErrorV1, InstrumentCatalogReadV1},
     instrument_economic_terms_intake_v1::{
         InstrumentEconomicTermsAdmissionErrorV1, InstrumentEconomicTermsAdmissionV1,
         InstrumentEconomicTermsSubmissionV1,
@@ -44,9 +53,11 @@ use vibe_data::owner::{
     },
     pit_market_snapshot_intake_v1::{PitMarketSnapshotIntakeErrorV1, PitMarketSnapshotIntakeV1},
     pit_snapshot::{PitSnapshotSubmissionDecodeErrorV1, PitSnapshotSubmissionV1},
-    source_binding::BindingDigest,
+    source_binding::{BindingDigest, UntrustedSourceBindingLocator},
     source_binding_admission_v1::{
-        SourceBindingAdmissionErrorV1, SourceBindingAdmissionRequestV1, SourceBindingAdmissionV1,
+        ProviderReachabilityEvidenceV1, ProviderRightsEvidenceV1,
+        SourceBindingAdmissionDispositionV1, SourceBindingAdmissionErrorV1,
+        SourceBindingAdmissionRequestV1, SourceBindingAdmissionV1,
     },
     strategy_design_role_set::StrategyDesignRoleSetLocatorV1,
     strategy_input_binding_admission_v1::{
@@ -123,6 +134,10 @@ pub(super) struct MarketDataAdmissions {
     pub(super) instruments_v2: Option<Arc<dyn InstrumentMasterAdmissionV2>>,
     pub(super) semantics: Option<Arc<dyn MarketSemanticsAdmissionV1>>,
     pub(super) economic_terms: Option<Arc<dyn InstrumentEconomicTermsAdmissionV1>>,
+    /// The read behind `list_instruments` and `describe_instrument`.
+    pub(super) catalog: Option<Arc<dyn InstrumentCatalogReadV1>>,
+    /// The client `admit_binance_perpetual` fetches `exchangeInfo` through.
+    pub(super) binance_perpetual_admission: Option<Arc<BinanceFuturesHttpClient>>,
 }
 
 #[derive(Clone)]
@@ -135,6 +150,8 @@ struct MarketDataPitApiState {
     instruments_v2: Option<Arc<dyn InstrumentMasterAdmissionV2>>,
     semantics: Option<Arc<dyn MarketSemanticsAdmissionV1>>,
     economic_terms: Option<Arc<dyn InstrumentEconomicTermsAdmissionV1>>,
+    catalog: Option<Arc<dyn InstrumentCatalogReadV1>>,
+    binance_perpetual_admission: Option<Arc<BinanceFuturesHttpClient>>,
     token_digest: [u8; 32],
 }
 
@@ -148,8 +165,19 @@ pub(super) fn router(admissions: MarketDataAdmissions, token_digest: [u8; 32]) -
         instruments_v2,
         semantics,
         economic_terms,
+        catalog,
+        binance_perpetual_admission,
     } = admissions;
     Router::new()
+        .route("/v1/market-data/instruments", get(list_instruments))
+        .route(
+            "/v1/market-data/instruments/{instrument}",
+            get(describe_instrument),
+        )
+        .route(
+            "/v1/market-data/binance-perpetual-admissions",
+            post(admit_binance_perpetual),
+        )
         .route(
             "/v1/market-data/instrument-master-facts",
             post(admit_instrument_master_fact),
@@ -211,6 +239,8 @@ pub(super) fn router(admissions: MarketDataAdmissions, token_digest: [u8; 32]) -
             instruments_v2,
             semantics,
             economic_terms,
+            catalog,
+            binance_perpetual_admission,
             token_digest,
         })
 }
@@ -331,6 +361,65 @@ async fn admit_instrument_economic_terms(
     }
 }
 
+/// Lists every instrument Market Data has admitted, in canonical order: the `list_instruments`
+/// tool. A discovery read of the latest Instrument Master V2 facts; it states no market value.
+async fn list_instruments(
+    State(state): State<MarketDataPitApiState>,
+    headers: HeaderMap,
+) -> Response {
+    if !authorized(&headers, &state.token_digest) {
+        return rejection(StatusCode::FORBIDDEN, "UNAUTHORIZED_PRODUCT_EDGE");
+    }
+    let Some(catalog) = state.catalog else {
+        return rejection(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "MARKET_DATA_INSTRUMENT_CATALOG_UNAVAILABLE",
+        );
+    };
+
+    match catalog.list_instruments_v1().await {
+        Ok(instruments) => {
+            (StatusCode::OK, Json(json!({ "instruments": instruments }))).into_response()
+        }
+        Err(e) => instrument_catalog_error(e),
+    }
+}
+
+/// Describes one admitted instrument - its tick size, lot step and every economic-terms version -
+/// from its latest Instrument Master V2 fact: the `describe_instrument` tool.
+async fn describe_instrument(
+    State(state): State<MarketDataPitApiState>,
+    headers: HeaderMap,
+    Path(instrument): Path<String>,
+) -> Response {
+    if !authorized(&headers, &state.token_digest) {
+        return rejection(StatusCode::FORBIDDEN, "UNAUTHORIZED_PRODUCT_EDGE");
+    }
+    let Some(catalog) = state.catalog else {
+        return rejection(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "MARKET_DATA_INSTRUMENT_CATALOG_UNAVAILABLE",
+        );
+    };
+
+    match catalog.describe_instrument_v1(&instrument).await {
+        Ok(description) => (StatusCode::OK, Json(description)).into_response(),
+        Err(e) => instrument_catalog_error(e),
+    }
+}
+
+fn instrument_catalog_error(error: InstrumentCatalogErrorV1) -> Response {
+    match error {
+        InstrumentCatalogErrorV1::InstrumentUnknown => {
+            rejection(StatusCode::NOT_FOUND, "INSTRUMENT_UNKNOWN")
+        }
+        InstrumentCatalogErrorV1::StoreUnavailable => rejection(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "MARKET_DATA_INSTRUMENT_CATALOG_UNAVAILABLE",
+        ),
+    }
+}
+
 /// Admits one Market Semantics fact Operations states about an admitted binding.
 ///
 /// The body names the binding and the `AVAILABLE` snapshot the statement is made against, plus the
@@ -386,6 +475,180 @@ async fn admit_historical_membership(
     }
 }
 
+/// What `admit_binance_perpetual` takes: the venue's own USD-M symbol, for example `BTCUSDT`.
+#[derive(Deserialize)]
+struct BinancePerpetualAdmissionRequestV1 {
+    symbol: String,
+}
+
+/// Admits one Binance USD-M perpetual: `admit_instrument` / the `admit_binance_perpetual` tool.
+///
+/// Market Data fetches the symbol's public `exchangeInfo` entry and commits, in order, the facts
+/// the first `COMPOSER_V3` Replay's acceptance commits through separate routes: the kline Source
+/// Binding, the Instrument Master fact, the `exchangeInfo` Source Binding, the Instrument Master
+/// V2 fact, the economic terms, and the historical membership. Every admitted step rejoins an
+/// identical resubmission rather than erroring, so a retry after any failure completes the rest;
+/// the two Source Binding steps carry no symbol and are shared across every instrument this route
+/// admits (`binance_perpetual_source_proposal`'s own doc explains why). All six steps stay in the
+/// data layer: nothing here reads back from a higher one.
+async fn admit_binance_perpetual(
+    State(state): State<MarketDataPitApiState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    if !authorized(&headers, &state.token_digest) {
+        return rejection(StatusCode::FORBIDDEN, "UNAUTHORIZED_PRODUCT_EDGE");
+    }
+    let (
+        Some(intake),
+        Some(admission),
+        Some(instruments),
+        Some(instruments_v2),
+        Some(economic_terms),
+        Some(client),
+    ) = (
+        state.intake,
+        state.admission,
+        state.instruments,
+        state.instruments_v2,
+        state.economic_terms,
+        state.binance_perpetual_admission,
+    )
+    else {
+        return rejection(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "MARKET_DATA_BINANCE_PERPETUAL_ADMISSION_UNAVAILABLE",
+        );
+    };
+    let request: BinancePerpetualAdmissionRequestV1 = match serde_json::from_slice(&body) {
+        Ok(request) => request,
+        Err(_) => return rejection(StatusCode::BAD_REQUEST, "MALFORMED_TYPED_REQUEST"),
+    };
+    let raw_symbol = request.symbol;
+
+    if !binance_perpetual_symbol_is_eligible_v1(&raw_symbol) {
+        return rejection(StatusCode::BAD_REQUEST, "SYMBOL_NOT_IN_ELIGIBLE_FRONTIER");
+    }
+
+    let effective_ns = match intake.current_decision_cut().await {
+        Ok(cut) => cut.decision_cut.as_epoch_nanos(),
+        Err(e) => return intake_error(e),
+    };
+
+    // Fetched once and reused for both facts below: the V1 fact reads its filters from it, and
+    // the V2 baseline carries it unparsed. One real retrieval, admitted under two facts in F's
+    // own order.
+    let raw_payload = match client.exchange_info_raw().await {
+        Ok(bytes) => match String::from_utf8(bytes) {
+            Ok(text) => text,
+            Err(_) => {
+                return rejection(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "BINANCE_EXCHANGE_INFO_MALFORMED",
+                );
+            }
+        },
+        Err(_) => {
+            return rejection(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "BINANCE_EXCHANGE_INFO_UNAVAILABLE",
+            );
+        }
+    };
+
+    let kline_locator =
+        match admit_binance_perpetual_binding(&admission, BinancePerpetualDatasetV1::DailyKlines)
+            .await
+        {
+            Ok(locator) => locator,
+            Err(response) => return response,
+        };
+
+    let v1_submission = match binance_perpetual_instrument_master_submission(
+        &raw_symbol,
+        &raw_payload,
+        &kline_locator,
+        effective_ns,
+    ) {
+        Ok(submission) => submission,
+        Err(e) => return binance_perpetual_admission_error(e),
+    };
+
+    if let Err(e) = instruments.admit_fact(v1_submission).await {
+        return instrument_master_error(e);
+    }
+
+    let exchange_info_locator =
+        match admit_binance_perpetual_binding(&admission, BinancePerpetualDatasetV1::ExchangeInfo)
+            .await
+        {
+            Ok(locator) => locator,
+            Err(response) => return response,
+        };
+
+    let v2_terminal = match instruments_v2
+        .admit_baseline(InstrumentMasterBaselineSubmissionV2 {
+            raw_symbol: raw_symbol.clone(),
+            instrument_class: "CRYPTO_PERPETUAL".to_owned(),
+            retrieval_time_ns: i128::from(effective_ns),
+            raw_payload,
+            source_binding: exchange_info_locator,
+        })
+        .await
+    {
+        Ok(terminal) => terminal,
+        Err(e) => return instrument_master_v2_error(e),
+    };
+
+    let terms_terminal = match economic_terms
+        .admit_terms(InstrumentEconomicTermsSubmissionV1 {
+            canonical_identity: v2_terminal.canonical_identity().to_owned(),
+            instrument_fact_identity: v2_terminal.fact_identity(),
+            account_scope_identity: "RDQ-MARGIN".to_owned(),
+            valid_until_ns_exclusive: 4_102_444_800_000_000_000_i128,
+        })
+        .await
+    {
+        Ok(terminal) => terminal,
+        Err(e) => return economic_terms_error(e),
+    };
+
+    (
+        StatusCode::OK,
+        Json(json!({
+            "canonical_identity": v2_terminal.canonical_identity(),
+            "fact_identity": v2_terminal.fact_identity(),
+            "economic_terms": terms_terminal,
+        })),
+    )
+        .into_response()
+}
+
+/// Admits one of the route's two Source Bindings, mapping a non-`Admitted` disposition to a named
+/// refusal, since an `Unavailable`, `Unlicensed` or `Incompatible` binding never backs a snapshot.
+async fn admit_binance_perpetual_binding(
+    admission: &Arc<dyn SourceBindingAdmissionV1>,
+    dataset: BinancePerpetualDatasetV1,
+) -> Result<UntrustedSourceBindingLocator, Response> {
+    let proposal = binance_perpetual_source_proposal(dataset);
+    let terminal = admission
+        .admit(SourceBindingAdmissionRequestV1 {
+            proposal,
+            rights: ProviderRightsEvidenceV1::Granted,
+            reachability: ProviderReachabilityEvidenceV1::Reachable,
+        })
+        .await
+        .map_err(admission_error)?;
+
+    if terminal.disposition() != SourceBindingAdmissionDispositionV1::Admitted {
+        return Err(rejection(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "BINANCE_SOURCE_BINDING_NOT_ADMITTED",
+        ));
+    }
+    Ok(terminal.locator().clone())
+}
+
 async fn evaluate_universe_selection(
     State(state): State<MarketDataPitApiState>,
     headers: HeaderMap,
@@ -409,6 +672,16 @@ async fn evaluate_universe_selection(
         Ok(terminal) => (StatusCode::OK, Json(terminal)).into_response(),
         Err(e) => universe_error(e),
     }
+}
+
+fn binance_perpetual_admission_error(error: BinancePerpetualAdmissionErrorV1) -> Response {
+    let code = match error {
+        BinancePerpetualAdmissionErrorV1::PayloadMalformed => "BINANCE_EXCHANGE_INFO_MALFORMED",
+        BinancePerpetualAdmissionErrorV1::SymbolAbsent => "BINANCE_SYMBOL_UNKNOWN",
+        BinancePerpetualAdmissionErrorV1::NotAPerpetual => "BINANCE_SYMBOL_NOT_A_PERPETUAL",
+        BinancePerpetualAdmissionErrorV1::FilterUnavailable => "BINANCE_SYMBOL_FILTER_UNAVAILABLE",
+    };
+    rejection(StatusCode::BAD_REQUEST, code)
 }
 
 fn universe_error(error: UniverseSelectionAdmissionErrorV1) -> Response {
@@ -1265,6 +1538,8 @@ mod tests {
                     instruments_v2: None,
                     semantics: None,
                     economic_terms: None,
+                    catalog: None,
+                    binance_perpetual_admission: None,
                 },
                 sha2::Sha256::digest(b"product-edge-token").into(),
             )

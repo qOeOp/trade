@@ -3,7 +3,6 @@ import { researchExplorationLinksV1 } from "../lib/research-exploration-links";
 import { projectResearchJourneyV1 } from "../lib/research-journey";
 import type { ResearchQuestionItemV1 } from "../lib/research-question-directory";
 import { humanizeReasonCode } from "../lib/reason-presentation";
-import { ArtifactFormationControl } from "./artifact-formation-control";
 import { ResearchQuestionBrief } from "./research-question-brief";
 import { EmptyState, UnavailableState } from "./ui/evidence-strip";
 import { FilterLink } from "./ui/filter-toolbar";
@@ -165,14 +164,10 @@ export function ResearchReadbackContent({
   status,
   projection,
   question,
-  requestIdentity,
-  allowFormation = false,
 }: {
   status: ResearchReadbackStatus;
   projection: ResearchReadbackProjectionV1 | null;
   question: ResearchQuestionItemV1 | null;
-  requestIdentity: string;
-  allowFormation?: boolean;
 }) {
   return (
     <div className={styles.result} aria-live="polite">
@@ -183,16 +178,7 @@ export function ResearchReadbackContent({
           titles={["Result", "Strategy", "Timing"]}
         />
       ) : status === "available" && projection ? (
-        <>
-          <AvailableReadback projection={projection} question={question} />
-          {allowFormation
-            && projection.outcome?.resolution === "accepted"
-            && projection.view?.availability === "available"
-            && projection.view.phase === "intent_frozen"
-            && projection.view.nextStep === "wait_for_r_and_d_execution"
-            ? <ArtifactFormationControl researchRequestIdentity={requestIdentity} />
-            : null}
-        </>
+        <AvailableReadback projection={projection} question={question} />
       ) : (
         <UnavailableState
           icon={<EvidenceIcons.warning aria-hidden="true" size={20} />}

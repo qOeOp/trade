@@ -15,7 +15,7 @@ function run(overrides = {}) {
   return {
     schema_version: 1,
     run_identity: "dashboard-run-v1-00000000-0000-4000-8000-000000000001",
-    operation_id: "artifact_build.formation_execute.v1",
+    operation_id: "exploratory_replay.submit_or_resolve.v2",
     workload_kind: "runs",
     trigger_kind: "dashboard_api",
     state: "running",
@@ -23,7 +23,7 @@ function run(overrides = {}) {
     effective_at: "2026-09-12T11:59:58.000Z",
     started_at: "2026-09-12T11:59:58.000Z",
     duration_ms: 2_000,
-    path: "artifact_build.formation_execute.v1",
+    path: "exploratory_replay.submit_or_resolve.v2",
     principal_ref: "operator:test",
     tag: null,
     concurrency_key_present: null,

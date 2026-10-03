@@ -26,12 +26,6 @@ export const PRODUCT_EDGE_RESEARCH_GOAL_ROUTING_KEY_V3 = {
   channel: "WINDMILL_PRODUCT_EDGE",
 } as const satisfies ProductEdgeRoutingLookupKeyV1;
 
-export const PRODUCT_EDGE_ARTIFACT_BUILD_ROUTING_KEY_V1 = {
-  operation: "artifact_build.submit_or_resolve.v1",
-  version: 1,
-  channel: "WINDMILL_PRODUCT_EDGE",
-} as const satisfies ProductEdgeRoutingLookupKeyV1;
-
 export const PRODUCT_EDGE_DEVELOP_COMPOSER_ROUTING_KEY_V2 = {
   operation: "develop_composer.submit_or_resolve.v2",
   version: 2,

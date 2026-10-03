@@ -2269,9 +2269,10 @@ refused it at the universe declaration.
   `decimal_rescale_v1::rescale_exact_v1` states exactly at the role's scale. Widening multiplies the mantissa by
   `10^(role scale - row scale)`, checked. Narrowing divides it and is exact only when the dropped digits are zero, so
   a scale 9 row is the identity at scale 9 and a scale 10 row ending in 0 narrows to 9.
-- **Refusal.** When no candidate row can be stated exactly, the refusal names why: `VALUE_FINER_THAN_ROLE_SCALE` for a
-  nonzero digit finer than the role, `VALUE_OVERFLOWS_ROLE_SCALE` for a widened mantissa that does not fit in an
-  `i128`. Nothing is rounded.
+- **Refusal.** Scale never selects a row: the binding resolves its one row first, so rows that differ only in scale
+  are refused as not unique, and then states that row's value exactly. When it cannot, the refusal names why:
+  `VALUE_FINER_THAN_ROLE_SCALE` for a nonzero digit finer than the role, `VALUE_OVERFLOWS_ROLE_SCALE` for a widened
+  mantissa that does not fit in an `i128`. Nothing is rounded.
 - **Receipts.** The binding locator records the role's scale. A role-value receipt's `value_bytes` and `value_scale`
   carry the aligned value and the role's scale, and its `canonical_row_digest` stays the source row's own digest, so
   the custody row a value came from stays exact. A row already at the role's scale keeps its bytes.
@@ -2669,6 +2670,31 @@ availability reaches the fill quote but not frame `k`'s strategy inputs, which a
 red. T0 is not driven until T1: it has no production caller, so a complete T0 is structurally present and run by no
 Backtest.
 
+Built so far (T0-4a): the custody aggregate - the custody record, its cross-section versions and their `SampleFactV2`
+row facts, every commit-time refusal, the Owner clock a commit mints, rejoin and successor custody - behind the sealed
+`PitWindowCustodyCommitV1`, which `pit_window_custody_commit_from_environment_v1` opens on the Owner store. No
+production caller reaches it yet: the unit tests of its pure authority and four PostgreSQL proofs in
+`pit_window_custody_v1_tests` drive it. A commit fixes its minting cut under the clock-state lock and selects the
+members' Instrument Master facts at that cut; it refuses a member another of whose facts is in force inside the
+window, a row retrieved before its bar closed as `ROW_RETRIEVED_BEFORE_BAR_CLOSE`, a stated publication earlier than
+its version's event or availability, and a version whose availability or stated publication is later than the minting
+cut as `VERSION_NOT_AVAILABLE_AT_MINTING_CUT`. Every custody series is stated at a fixed scale of 9,
+`MARKET_DATA_VALUE_SCALE_V1`: rows are rescaled to it exactly, and a row with more than 9 decimal places is refused as
+`VALUE_FINER_THAN_SERIES_SCALE`, never rounded. The scale is fixed rather than taken from the instrument's tick
+because ticks change over an instrument's history (`BTCUSDT` 0.01 to 0.10), so a tick's scale would refuse older
+rows or split one series.
+The timeframe identity a custody binds for a member is the one the BAR schedule path derives from the same declaration
+and that member's Instrument Master fact, time zone included. The window schedule, the once-per-chain records and the
+derived view are not built yet.
+
+**TARGET, snapshot-path series scale:** a sample fact's series identity binds the value's scale
+(`series_projection_bytes`, `crates/data/src/owner/sample_fact.rs` line 1263), while a PIT batch stores each value in
+canonical form, refusing a nonzero scale whose mantissa ends in 0 (`decode_observation`,
+`crates/data/src/owner/pit_snapshot/authority.rs` line 1613). The scale therefore varies with the value's last digit,
+and one instrument and field splits into a new series on every bar whose last digit is 0. Custody is fixed by the
+fixed-scale rule above, which is the snapshot path's fix too. The snapshot path keeps its bytes and is left for a
+separate slice after U1: today's snapshot consumers each read one frame, so no series continuity depends on it yet.
+
 - **Custody:** covers the half-open window from its warm-up start and is committed once, then never mutated. A later
   correction is a successor custody that names its predecessor and carries only the versions it adds; a view reads the
   chain to its head. A successor restates its predecessor's basis exactly - Market Semantics fact, Instrument Master
@@ -2708,7 +2734,8 @@ Backtest.
   membership begins or ends inside the window refuses the custody by name, as `WINDOW_MEMBER_NOT_VALID_THROUGHOUT`.
 - **Frames:** enumerated from the execution timeframe's Owner BAR schedule, never from custody rows. Frame `k` has an
   event instant `e_k` and an availability instant `d_k`, with `d_k < e_{k+1}`; a frame with no complete cross-section
-  refuses the run as `PIT_WINDOW_FRAME_NOT_COVERED`. The execution timeframe is a fixed interval, enumerated from the
+  refuses the run as `PIT_WINDOW_FRAME_NOT_COVERED`. `d_k < e_{k+1}` holds only when frames sit at bar-close instants,
+  so T0 refuses an execution timeframe labelled at interval open as a malformed request. The execution timeframe is a fixed interval, enumerated from the
   phase instant the window schedule fact records, such as midnight UTC for a daily bar or Monday midnight UTC for a
   Binance weekly bar; a session-based execution timeframe is refused by name as
   `PIT_WINDOW_EXECUTION_TIMEFRAME_NOT_FIXED_INTERVAL`, which nothing constructs until custody commits exist and the T0
@@ -2744,8 +2771,8 @@ Backtest.
   concerns the fill quote alone. Frame `k`'s strategy inputs are still cut at `d_k`, so a correction published between
   `d_k` and the quote's availability reaches the fill quote and never frame `k`'s inputs.
 - **Interface:** `crates/data/src/owner/pit_window_custody_v1.rs` freezes what a backfill writer commits and how a
-  multi-frame consumer finds a run's frames; until the custody aggregate and the derived view implement its two sealed
-  ports, nothing constructs a receipt or a frame coordinate.
+  multi-frame consumer finds a run's frames. The custody aggregate implements its commit port and alone constructs a
+  receipt; until the derived view implements its frames port, nothing constructs a frame coordinate.
   - A custody request names its Source Binding, Market Semantics fact, Universe Selection record, one or two members,
     window, execution timeframe, input timeframes and an optional fill timeframe. The execution timeframe is named by
     the custody, not by a run, because the custody's commit mints the window schedule; a lag not below its interval is
@@ -3145,6 +3172,20 @@ settlement at exactly that coordinate is included and one a millisecond later is
 U1's history enters as T0 window custody: one custody per member over the whole window, for the execution timeframe
 and the fill timeframe. This is the fetch side that feeds a custody commit. The commit's own types are T0's.
 
+- **The execution timeframe is a whitelist, defined once.** U1 supports `1w`, `1d`, `4h` and `1h`. The whitelist is
+  Market Data's own, defined in exactly one place (`crates/data/src/owner/bar_schedule.rs`,
+  `SUPPORTED_EXECUTION_TIMEFRAMES_V1`), and every entry point that takes an execution timeframe - the admit route's
+  backfill job, `coverage`, the MCP tool and command line - validates against that one constant rather than
+  repeating the list. A timeframe outside it is refused by name as `TIMEFRAME_UNSUPPORTED`; nothing hand-writes the
+  list a second time.
+- **A week starts Monday 00:00 UTC.** `1w` follows Binance's own weekly kline convention: the bar opens Monday
+  00:00:00 UTC and closes the following Monday 00:00:00 UTC, a fixed seven-day interval on that anchor, never a
+  session-relative week.
+- **`15m` and `1m` stay unsupported.** `15m` waits for an intraday execution model and a cost model; admitting it
+  without either would let a Replay choose an execution timeframe no downstream layer can cost. `1m` waits for a
+  per-trade (`aggTrades`) fill model: today's fill bar is a `1m` OHLC bar, and using `1m` as the execution timeframe
+  itself would make the execution bar its own fill bar, which states no price path inside the bar at all. Both reopen
+  once their precondition exists; neither is on U1's path.
 - **Execution bars come from the public archive.** For each member, interval and month, the fetch reads
   `data/futures/um/monthly/klines/{SYMBOL}/{interval}/{SYMBOL}-{interval}-{YYYY-MM}.zip` with its `.CHECKSUM` sidecar.
   The bars are read through `authenticate_monthly_klines`, with the sidecar's own digest as the bound digest. That
@@ -3168,10 +3209,15 @@ and the fill timeframe. This is the fetch side that feeds a custody commit. The 
   let a price archive be read as trades without a refusal, so it stays. The reader applies this today: the header
   is optional in `crates/adapters/binance/src/common/offline.rs`, and its tests read the first real rows of both
   2021-06 archives. The trade row is read and the mark price row is refused.
-- **Fill bars come from the endpoint.** The fill bar for frame `k` is the first `1m` bar opening strictly after
-  frame `k`'s bar event plus the declared lag, and strictly before frame `k+1`'s bar event. One unsigned `klines` call
-  with that start and `limit=1` returns it. There is one call per frame and no `1m` archive, which is about 2 MB a
-  month.
+- **Fill bars come from the endpoint for `1d`, and from the monthly archive for `4h`, `1h` and `1w`.** The fill bar
+  for frame `k` is the first `1m` bar opening strictly after frame `k`'s bar event plus the declared lag, and
+  strictly before frame `k+1`'s bar event. For `1d`, one unsigned `klines` call with that start and `limit=1`
+  returns it: one call per frame, and no `1m` archive, which is about 2 MB a month. For `4h`, `1h` and `1w`, a frame
+  is far more frequent, so the fetch instead reads the member's whole `1m` archive month once
+  (`data/futures/um/monthly/klines/{SYMBOL}/1m/{SYMBOL}-1m-{YYYY-MM}.zip`, the same authenticated, sidecar-verified
+  path as the execution bars) and locates each frame's fill bar inside it, rather than issuing one REST call per
+  frame; a BTCUSDT `1m` month is about 43,000 rows. Both paths apply the same gap, lag and closed-bar rules below;
+  they differ only in where the candidate rows come from.
 - **Funding stays outside this custody for now.** A Source Binding declares one availability rule, and a funding
   settlement is not a declared bar timeframe. U1's funding is therefore read through the perpetual Data Client's
   settled funding rows. A separate binding can add it to custody later, and that change only adds.
@@ -3234,22 +3280,73 @@ same names.
 | `get_bars(instrument, timeframe, range)` | after T0-5, over the run window custody view            | `HOLDOUT_PARTITION_UNDEFINED`, `RANGE_NOT_COVERED`, `RANGE_TOO_LARGE_FOR_INLINE` |
 | `get_funding(instrument, range)`         | after the funding schedule read below                   | `HOLDOUT_PARTITION_UNDEFINED`, `RANGE_NOT_COVERED`, `RANGE_TOO_LARGE_FOR_INLINE` |
 
-- **Admission is one Market Data operation.** `POST /v1/market-data/binance-perpetual-admissions` takes a Binance
-  USD-M symbol. Market Data fetches the symbol's public `exchangeInfo` entry and commits, in order, the facts the first
-  `COMPOSER_V3` Replay's acceptance commits through separate routes today: the kline Source Binding, the Instrument
-  Master fact, the `exchangeInfo` Source Binding, the Instrument Master V2 fact, the economic terms, and the historical
-  membership. It is re-entrant: a step already admitted with the same content answers `ALREADY_ADMITTED` and the next
-  step runs, so a rerun after any failure completes the rest. The kline binding proposal, with its availability rule,
-  is constructed only here, and every backfill of the instrument reads that same proposal to locate its fill gaps. All
-  six steps stay in the data layer.
-- **A backfill is a job Market Data runs.** `backfill` records a `QUEUED` job fact and returns its `job_id`. A worker in
-  the Market Data service fetches the archive months and fill bars, builds the member's custody request and commits it,
-  and records `RUNNING`, then `SUCCEEDED` with the custody receipt and the coverage it added, or `FAILED` with the
-  refusal's name. Job facts are append-only and the MCP server holds no job state. The timeframe is the custody's
-  execution timeframe: U1 supports `1d` and `4h`, the `1m` fill timeframe comes with it, and any other is
-  `TIMEFRAME_UNSUPPORTED`.
-- **Coverage is what custody holds.** `coverage` answers, for each execution timeframe, the half-open ranges the
-  member's committed custody windows cover, read from the custody chains. It states no market value.
+- **Listing and describing read what Market Data holds now.** `GET /v1/market-data/instruments` and
+  `GET /v1/market-data/instruments/{instrument}` are `CURRENT`: `crates/data/src/owner/instrument_catalog_v1.rs` reads
+  each instrument's latest Instrument Master V2 fact, every link of its chain decoded and checked, and every
+  economic-terms version admitted for it. A value the venue does not state is named (`UNBOUNDED`, `NOT_APPLICABLE` or
+  `UNAVAILABLE`), never a number. These are discovery reads and never a Replay input: a Replay still binds an exact
+  Instrument Master cut and resolves its terms from it, so no consumer gains a latest selector. Chain entry 121 reads
+  the perpetual F admits over HTTP. The MCP server over these routes is not built yet.
+- **CURRENT: per-symbol admission is one Market Data operation, over five steps.**
+  `POST /v1/market-data/binance-perpetual-admissions` takes a Binance USD-M symbol. Market Data fetches the symbol's
+  public `exchangeInfo` entry once and commits, in order, five of the six facts the first `COMPOSER_V3` Replay's
+  acceptance commits through separate routes: the kline Source Binding, the Instrument Master fact, the
+  `exchangeInfo` Source Binding, the Instrument Master V2 fact, and the economic terms
+  (`crates/adapters/binance/src/perpetual_admission_v1.rs`,
+  `crates/strategy_factory_rd_owner_api/src/market_data_pit.rs::admit_binance_perpetual`). Every step rejoins an
+  identical resubmission rather than erroring, so a rerun after any failure completes the rest. The two Source
+  Binding steps carry no symbol and claim a fixed effective instant, not the clock's current one: a binding's
+  identity folds in its claimed effective instant, so a proposal built from "now" would mint a new binding on every
+  call, and a fixed one is what lets the second symbol's identical proposal rejoin the first symbol's binding
+  instead. The kline binding proposal, with its availability rule, is constructed only here, and every backfill of
+  the instrument reads that same proposal to locate its fill gaps. All five steps stay in the data layer.
+- **CURRENT: historical membership is admitted once, whole, for the fixed U1 set, not per symbol.**
+  `HistoricalMembershipAdmissionRequestV1` is "one complete membership submission for a single eligible-instrument
+  frontier... admitted whole or not at all": a frontier's membership manifest is fixed at the instant it is first
+  admitted, so a later admission naming a member outside that manifest refuses `RequestConflict`, and the Owner
+  tracks only one global "current" frontier (the most recently admitted one), so a second, different frontier per
+  symbol would make an earlier symbol's frontier stop being current. Worse, an Instrument Master cut requires every
+  member fact in it to name the same `historical_membership_frontier`
+  (`crates/data/src/owner/instrument_master/authority.rs`, `FrontierMismatch`), so a two-member cut over two
+  different per-symbol frontiers would always fail. For that reason, before any symbol is admitted through this
+  route, its complete fixed member set (`BinancePerpetualDatasetV1`'s sibling constant
+  `BINANCE_PERPETUAL_U1_MEMBERS_V1` - BTC, ETH and SOL for U1) is admitted once, whole, through the generic
+  `POST /v1/market-data/historical-memberships` route, using
+  `binance_perpetual_eligible_set_admission_request_v1`, after the kline Source Binding is admitted (its lineage is
+  this request's) but before any symbol's own Instrument Master submission. Every per-symbol admission then names
+  that same frontier (derived from the sorted member set, not a fixed constant, so a different future set derives a
+  different frontier instead of colliding) in its Instrument Master fact. Re-sending the one-time admission rejoins
+  the same frontier. A symbol outside the fixed set is refused by name, `SYMBOL_NOT_IN_ELIGIBLE_FRONTIER`, before
+  any admission step runs: nothing is written for a symbol the fixed set does not name.
+- **TARGET: adding a symbol beyond the fixed U1 set is a successor-frontier admission, not something per-symbol
+  admission does.** A frontier is Market Data's own complete statement of the eligible-instrument set at a point in
+  time - "each admission succeeds the one before it, so Market Data, not the requester, decides which frontier is
+  current" - never a set a requester can narrow to one instrument by admitting it alone: doing that would make
+  every other admitted instrument fail R&D's current-frontier checks
+  (`check_research_instrument_scope_v1`/`resolve_research_pit_references_v1`) the moment a newer, narrower frontier
+  superseded theirs. Growing the eligible set is therefore its own deliberate admission: a new
+  `HistoricalMembershipAdmissionRequestV1` naming the whole new set (every existing member plus the new one), under
+  the frontier digest that set derives. Any Instrument Master fact whose cut spans members across the old and new
+  sets together needs a successor fact naming the new frontier; a single-member cut is unaffected, since its one
+  fact already names whichever frontier was current when it was admitted. This route does not drive that admission
+  itself; it is a separate, explicit operation outside `admit_binance_perpetual`.
+- **CURRENT: a backfill is a job Market Data runs.** `POST /v1/market-data/backfill-jobs` records a `QUEUED` job
+  fact and returns its `job_id`. The job runs synchronously within that same request
+  (`crates/strategy_factory_rd_owner_api/src/binance_backfill_job.rs::start_backfill`), recording `RUNNING`, then
+  fetching the member's execution bars and fill bars, building the member's custody request and committing it, and
+  recording `SUCCEEDED` with the custody receipt and the exact window it covered, or `FAILED` with the refusal's
+  name. Job facts are append-only (`crates/data/src/owner/backfill_job_v1.rs`) and the MCP server holds no job
+  state. The timeframe is the custody's execution timeframe, validated against the one whitelist above (`1w`,
+  `1d`, `4h`, `1h`); the `1m` fill timeframe comes with it, fetched by `vision_backfill_v1.rs::fill_bars` (one REST
+  call per gap, for every execution timeframe today - reading the `1m` archive instead for `4h`/`1h`/`1w`, to cut
+  the call count, is a pending efficiency follow-up, not a correctness gap). `GET /v1/market-data/backfill-jobs/{job_id}`
+  answers the job's complete transition history.
+- **CURRENT: coverage is what Market Data's own backfill job facts record.** `GET
+  /v1/market-data/instruments/{instrument}/coverage` answers, for each execution timeframe, the half-open ranges
+  every `SUCCEEDED` job has covered, merged where they touch or overlap - not read from the custody chains
+  directly: the committed receipt carries no window bounds, and the custody tables have no queryable bounds
+  columns either, so this is Market Data's own statement of what it committed, not another Owner's internal rows.
+  It states no market value.
 - **A run names its data by description.** A `dataset_ref` is the description
   `(instrument, execution_timeframe, [start, end))`, which an agent writes from `coverage`; no tool issues it. The service that runs a backtest resolves it
   against the custody chain that covers it, records the head it resolved, and refuses a range no custody covers as

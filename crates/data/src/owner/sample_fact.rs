@@ -25,9 +25,10 @@ use sha2::{Digest as _, Sha256};
 
 use super::{
     bar_schedule::{
-        BarScheduleCompletionV1, BarScheduleKindV1, BarScheduleLabelV1, BarScheduleReadbackV1,
-        BarScheduleUnitV1,
+        BarScheduleClockV1, BarScheduleCompletionV1, BarScheduleFactV1, BarScheduleKindV1,
+        BarScheduleLabelV1, BarScheduleReadbackV1, BarScheduleUnitV1,
     },
+    declared_bar_timeframe_v1::DeclaredBarTimeframeV1,
     instrument_master::{InstrumentMasterFactV1, InstrumentMasterReadbackV1},
     source_binding::BindingDigest,
     strategy_input_binding::{
@@ -756,7 +757,74 @@ pub(crate) fn prepare_bar_timeframe_projection_from_source_v1(
     {
         return Err(SampleFactUnavailable::InstrumentMasterMismatch);
     }
-    let (kind, unit) = match (fact.kind(), fact.unit()) {
+    let spec = bar_timeframe_spec_from_schedule_v1(fact)?;
+    Ok(TimeframeProjectionReceiptV1::from_spec(
+        source.binding_digest,
+        spec,
+    ))
+}
+
+/// The timeframe a BAR schedule fact states.
+pub(crate) fn bar_timeframe_spec_from_schedule_v1(
+    fact: &BarScheduleFactV1,
+) -> Result<TimeframeSpecV1, SampleFactUnavailable> {
+    bar_timeframe_spec_v1(
+        fact.kind(),
+        fact.unit(),
+        fact.step(),
+        [
+            *fact.anchor_identity().as_bytes(),
+            *fact.calendar_identity().as_bytes(),
+            *fact.session_identity().as_bytes(),
+            *fact.time_zone_identity().as_bytes(),
+        ],
+        fact.label(),
+        fact.completion(),
+    )
+}
+
+/// The timeframe a continuous fixed-interval declaration states for an instrument whose schedule
+/// binds `time_zone_identity`: the one a schedule minted from the same declaration and the same
+/// Instrument Master fact states, since a continuous schedule binds no calendar and no session.
+///
+/// # Errors
+///
+/// Refuses a declaration that is not a continuous fixed interval: its calendar and session come
+/// from a schedule this path does not mint.
+pub(crate) fn continuous_bar_timeframe_spec_v1(
+    declared: &DeclaredBarTimeframeV1,
+    time_zone_identity: BindingDigest,
+) -> Result<TimeframeSpecV1, SampleFactUnavailable> {
+    if declared.kind() != BarScheduleKindV1::FixedInterval
+        || declared.clock() != BarScheduleClockV1::Continuous
+    {
+        return Err(SampleFactUnavailable::UnsupportedTimeframe);
+    }
+    bar_timeframe_spec_v1(
+        declared.kind(),
+        declared.unit(),
+        declared.step(),
+        [
+            *declared.anchor_identity().as_bytes(),
+            [0; 32],
+            [0; 32],
+            *time_zone_identity.as_bytes(),
+        ],
+        declared.label(),
+        declared.completion(),
+    )
+}
+
+/// `[anchor, calendar, session, time zone]` with the typed bar tuple, as one canonical spec.
+fn bar_timeframe_spec_v1(
+    kind: BarScheduleKindV1,
+    unit: BarScheduleUnitV1,
+    step: u32,
+    [anchor, calendar, session, time_zone]: [Identity; 4],
+    label: BarScheduleLabelV1,
+    completion: BarScheduleCompletionV1,
+) -> Result<TimeframeSpecV1, SampleFactUnavailable> {
+    let (kind, unit) = match (kind, unit) {
         (BarScheduleKindV1::FixedInterval, BarScheduleUnitV1::Second) => {
             (TimeframeKind::FixedIntervalBar, TimeframeUnit::Second)
         }
@@ -772,28 +840,16 @@ pub(crate) fn prepare_bar_timeframe_projection_from_source_v1(
         ),
         _ => return Err(SampleFactUnavailable::UnsupportedTimeframe),
     };
-    let label = match fact.label() {
+    let label = match label {
         BarScheduleLabelV1::IntervalOpen => LabelRule::IntervalOpen,
         BarScheduleLabelV1::IntervalClose => LabelRule::IntervalClose,
     };
-    let partial = match fact.completion() {
+    let partial = match completion {
         BarScheduleCompletionV1::CompleteOnly => PartialBarRule::CompleteOnly,
     };
-    let spec = TimeframeSpecV1::bar(
-        kind,
-        fact.step(),
-        unit,
-        *fact.anchor_identity().as_bytes(),
-        *fact.calendar_identity().as_bytes(),
-        *fact.session_identity().as_bytes(),
-        *fact.time_zone_identity().as_bytes(),
-        label,
-        partial,
-    )?;
-    Ok(TimeframeProjectionReceiptV1::from_spec(
-        source.binding_digest,
-        spec,
-    ))
+    TimeframeSpecV1::bar(
+        kind, step, unit, anchor, calendar, session, time_zone, label, partial,
+    )
 }
 
 pub(crate) fn verify_stored_timeframe_projection_v1(

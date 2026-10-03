@@ -8,7 +8,7 @@ use super::{
     MarketDataOwnerPostgres, OwnerSourceBindingDecision,
     acceptance_fixture_v1::{declaring_bars_v1, session_bar_v1},
     bar_schedule_acceptance_v1::{BarScheduleAcceptanceErrorV1, commit_bar_schedule_on_v1},
-    declared_bar_timeframe_of_batch_v1, load_bar_schedule_candidates,
+    declared_bar_timeframe_of_batch_v1, load_bar_schedule_candidates, load_instrument_facts,
     strategy_input_binding_registry::{
         load_owner_verified_pit_batch_v1, register_strategy_input_binding_declaration_v1,
     },
@@ -21,7 +21,7 @@ use super::{
 use crate::owner::{
     bar_schedule::{
         BarScheduleClockV1, BarScheduleCompletionV1, BarScheduleKindV1, BarScheduleLabelV1,
-        BarScheduleUnitV1,
+        BarScheduleUnitV1, schedule_time_zone_identity_v1,
     },
     declared_bar_timeframe_v1::{DeclaredBarAnchorV1, anchor_identity_v1},
     native_replay_scheduling_v1::{
@@ -29,6 +29,7 @@ use crate::owner::{
         select_native_replay_schedule_for_member_v1,
     },
     pit_snapshot::PitSnapshotCommitAggregate,
+    sample_fact::{bar_timeframe_spec_from_schedule_v1, continuous_bar_timeframe_spec_v1},
     source_binding::{
         BindingDigest, UntrustedSourceBarAnchorV1, UntrustedSourceBarCadenceV1,
         UntrustedSourceBarClockV1, UntrustedSourceBarCompletionV1, UntrustedSourceBarLabelV1,
@@ -397,6 +398,33 @@ async fn postgres_a_continuous_declaration_mints_a_schedule_without_calendar_or_
     assert_ne!(fact.time_zone_identity(), zero);
     assert_eq!(fact.label(), BarScheduleLabelV1::IntervalClose);
     assert_eq!(fact.completion(), BarScheduleCompletionV1::CompleteOnly);
+
+    // A PIT window custody derives its timeframe from the declaration and the member's Instrument
+    // Master fact, minting no schedule: it is the timeframe this schedule states.
+    let mut transaction = owner.pool().begin().await.unwrap();
+    let masters = load_instrument_facts(&mut transaction, &[instrument.to_owned()], false)
+        .await
+        .unwrap();
+    transaction.rollback().await.unwrap();
+    let master = masters
+        .iter()
+        .find(|master| master.digest() == fact.instrument_master_fact_digest())
+        .expect("the schedule's Instrument Master fact is stored");
+    let time_zone = schedule_time_zone_identity_v1(
+        master.instrument_class(),
+        master.digest(),
+        master.time_zone_identity(),
+    )
+    .unwrap();
+    assert_eq!(fact.time_zone_identity(), time_zone);
+    assert_eq!(
+        continuous_bar_timeframe_spec_v1(&declared, time_zone)
+            .unwrap()
+            .identity(),
+        bar_timeframe_spec_from_schedule_v1(fact)
+            .unwrap()
+            .identity()
+    );
 }
 
 /// Without a declaration for the role's rows there is no bar to schedule, and the proposer says

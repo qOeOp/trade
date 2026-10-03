@@ -1,7 +1,8 @@
 # Bilibili Note MCP — general video notes
 
 > Status: implementation candidate. Architecture authority for this standalone service.
-> Scope: public Bilibili videos of any subject to grounded Chinese illustrated notes.
+> Scope: public Bilibili, YouTube, and public HTTPS single-video pages/direct files of any subject
+> to grounded Chinese illustrated notes.
 
 ## Product outcome
 
@@ -21,7 +22,7 @@ source ambiguity remains explicit. Original speech and review records remain ava
 ## Pipeline and ownership
 
 Dependencies point inward: domain models and application ports do not import provider or filesystem
-adapters. Reuse bounded Bilibili metadata, media download, full-audio ASR and frame decoding owners.
+adapters. Reuse platform-specific metadata/media adapters and shared complete-source acquisition, full-audio ASR and frame decoding owners.
 Metadata comes from the JSON `x/web-interface/wbi/view` endpoint. Maintain video/part identity, duration,
 public-DNS pinning, redirect refusal, explicit loopback proxy policy and media bounds.
 
@@ -105,9 +106,39 @@ Search keeps at most nine candidates and at most two active source jobs, exact r
 chapters in one collection. Do not collapse different sources into unsupported agreement. Candidate
 processing creates no durable outputs; only the completed terminal collection is published.
 
+## YouTube source adapter
+
+YouTube direct links and explicitly selected keyword search use the official yt-dlp extractor with
+its matching packaged EJS dependency and a supported local JavaScript runtime. Accept finite public
+videos only, with platform-bound video identity and canonical URLs. Playlist, channel and live
+resources are rejected. No browser cookies are read automatically. The isolated worker uses bounded
+requests, HTTPS YouTube/media hosts, public DNS addresses and redirect refusal; the host validates
+closed receipts, complete audio/video, duration, HD dimensions and byte limits before ASR.
+Bilibili retains its WBI metadata and part identity rules. Both adapters reuse the same cache, ASR
+quality tiers, screenshot extraction, author and publishers. Missing subtitles do not prevent ASR.
+
+## Generic public video source (user-authorized extension)
+
+Other HTTPS links use one isolated yt-dlp Generic extractor. It may unwrap exactly one embedded video,
+but cannot hand off to another platform extractor. Every request requires public DNS answers, HTTPS
+on port 443, and no credentials, redirects or IP literals; ambient cookies/proxies and external
+media downloaders are unavailable. Metadata responses and request count are bounded. Only a progressive MP4/WebM
+media URL is downloaded through the same transport under the existing media-byte and process bounds.
+Playlists, manifests, live streams and DRM are refused. Local FFprobe/FFmpeg retain `file,pipe` only.
+
+The adapter measures the downloaded complete file's duration, dimensions and audio track, and supplies
+that artifact to the existing acquisition owner. The 720p floor, full-audio ASR, quality tiers, frame
+binding, author and publication owners are unchanged. URL hash identifies the generic source; media
+SHA-256 binds its snapshot. No generic cache is used: unchanged URL/metadata cannot prove unchanged
+media. Missing author/date are explicit unknowns. Generic time links return to the canonical source
+without inventing platform seek parameters. Platform adapters and their errors never downgrade to the
+generic path; keyword search remains platform-specific. No TradingView-specific parser or prompt.
+
 ## Public contract and artifacts
 
-Retain `bilibili_note.create({url,quality?})` and `bilibili_note.search_and_create({query,max_videos,quality?})`.
+Expose `video_note.create({url,quality?})` and
+`video_note.search_and_create({query,platform?,max_videos,quality?})`; platform defaults to `bilibili`
+and can be `youtube`. Retain the old `bilibili_note.*` names as compatibility aliases.
 Both public tools default to `standard`; quality is `fast`, `standard` or `precise`.
 Existing internal application calls retain their explicit single-pass default `fast`.
 Success versions are `bilibili-note.result/v4` and `bilibili-note.search-result/v2`. Each returns

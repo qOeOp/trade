@@ -14,6 +14,8 @@ use vibe_postgres_connect::{PgPoolOptionsExt, PostgresTls};
 
 mod admitted_read_api_v1;
 mod authenticated_design_registration_v1;
+mod backfill_job_v1;
+pub(in crate::owner) use backfill_job_v1::backfill_job_from_environment_v1;
 #[cfg(feature = "sealed-strategy-input-acceptance")]
 pub mod bar_joined_cut_acceptance_v1;
 #[cfg(any(test, feature = "sealed-strategy-input-acceptance"))]
@@ -51,6 +53,10 @@ mod pit_initial_intake_correlation_tests;
 #[cfg(test)]
 pub(in crate::owner) mod pit_intake_member_count_tests;
 mod pit_role_resolution_v1;
+mod pit_window_custody_v1;
+pub(in crate::owner) use pit_window_custody_v1::pit_window_custody_commit_from_environment_v1;
+#[cfg(test)]
+mod pit_window_custody_v1_tests;
 mod rd_strategy_input_custody;
 mod reference_fact_catalog;
 mod reference_fact_coordinates;
@@ -1046,6 +1052,8 @@ impl MarketDataOwnerPostgres {
             .chain(universe_sample_projection_v1::SCHEMA_V1)
             .chain(universe_member_composition_basis_v1::SCHEMA_V1)
             .chain(universe_selection::RD_READ_SCHEMA_V1)
+            .chain(pit_window_custody_v1::SCHEMA_V1)
+            .chain(backfill_job_v1::SCHEMA_V1)
         {
             sqlx::query(*statement)
                 .execute(&mut *transaction)

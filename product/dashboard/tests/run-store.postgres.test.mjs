@@ -8,13 +8,6 @@ import test from "node:test";
 import pg from "pg";
 
 import {
-  admitArtifactFormationExecutionV1,
-  artifactFormationOperationManifestV1,
-} from "../lib/artifact-formation-operation.ts";
-import {
-  executeDisposableArtifactFormationV1 as executeDisposableArtifactFormationImplV1,
-} from "../lib/artifact-formation-client.ts";
-import {
   boundEffectWorkerIdentityV1,
   configuredEffectDispatchTargetV1,
   effectDispatchOperationIdsV1,
@@ -159,19 +152,27 @@ function replayRunRequest(suffix) {
   };
 }
 
+function replayDispatchRequestFor(suffix) {
+  const replayRequest = replayRunRequest(suffix);
+  const canonicalBytes = [...new TextEncoder().encode(
+    exploratoryReplayOwnerRequestBodyV2(replayRequest.request),
+  )];
+  return {
+    ...replayRequest,
+    selector: {
+      request_identity: replayRequest.request.request_identity,
+      meaning_digest: `blake3:${"e".repeat(64)}`,
+      canonical_request_digest: canonicalReplayRequestDigestV2(canonicalBytes),
+    },
+  };
+}
+
 function actionContext(requestedAction) {
   return {
     authorizationDigest: `sha256:${"e".repeat(64)}`,
     principalRef: "local_operator",
     requestedAction,
   };
-}
-
-function executeDisposableArtifactFormationV1(input) {
-  return executeDisposableArtifactFormationImplV1({
-    ...input,
-    actionContext: actionContext(input.request.action),
-  });
 }
 
 function executeSourceResearchOperationV1(input) {
@@ -192,6 +193,10 @@ async function ensureEffectDispatchSchema(admin) {
   await ensureControlPlaneAdmissionAudit(admin);
   await admin.query(await readFile(
     new URL("../migrations/0013_effect_dispatch_queue.sql", import.meta.url),
+    "utf8",
+  ));
+  await admin.query(await readFile(
+    new URL("../migrations/0014_retire_artifact_formation.sql", import.meta.url),
     "utf8",
   ));
 }
@@ -364,7 +369,6 @@ test("PostgreSQL RunStore persists CAS state, bounded logs and restart readback"
     dashboard_operation_run_cancellations_v1,
     dashboard_operation_run_cache_deletions_v1,
     dashboard_source_research_run_bindings_v1,
-    dashboard_artifact_formation_run_bindings_v1,
     dashboard_shadow_read_schedules_v1,
     dashboard_shadow_dispatch_queue_v1,
     dashboard_operation_run_logs_v1, dashboard_shadow_workers_v1,
@@ -410,13 +414,33 @@ test("PostgreSQL RunStore persists CAS state, bounded logs and restart readback"
       `sha256:${"0".repeat(64)}`,
     ],
   ), (error) => error?.code === "23514");
+  // The retired Artifact Formation operation is refused on either channel by the migrated store.
+  for (const [channel, runKind] of [
+    ["DASHBOARD_DISPOSABLE_EXECUTION", "owner_effect"],
+    ["DASHBOARD_SHADOW_READ", "owner_read"],
+  ]) {
+    await assert.rejects(() => admin.query(
+      `INSERT INTO dashboard_operation_runs_v1
+         (run_identity, schema_version, operation_id, channel, run_kind, trigger_kind, state,
+          owner_outcome_state, recovery_identity_json, recovery_identity_digest,
+          transition_version, started_at)
+       VALUES ($1, 1, 'artifact_build.formation_execute.v1', $2, $3, 'dashboard_bff', 'running',
+               'unknown', $4::jsonb, $5, 1, clock_timestamp())`,
+      [
+        `dashboard-run-v1-${randomUUID()}`,
+        channel,
+        runKind,
+        JSON.stringify({ build_request_identity: "artifact-build-request-retired-1" }),
+        `sha256:${"0".repeat(64)}`,
+      ],
+    ), (error) => error?.code === "23514"
+      && error?.constraint === "dashboard_operation_runs_v1_channel_check");
+  }
 
   const store = new PostgresRunStoreV1(connectionString, cursorKey);
   await store.assertSchema();
-  await store.assertArtifactFormationSchema();
-  const effectFixture = compatibleEnvironmentV1({
-    operationIds: [RESEARCH_SHADOW_RESOLVE_OPERATION],
-    extraManifests: [artifactFormationOperationManifestV1()],
+  const replayFixture = compatibleEnvironmentV1({
+    extraManifests: [exploratoryReplayOperationV2],
     nowEpochMs: Date.now(),
   });
   const activeRouting = {
@@ -427,14 +451,14 @@ test("PostgreSQL RunStore persists CAS state, bounded logs and restart readback"
     generation: 1,
     history_head_identity: `product-edge-operation-routing-binding-v1-${"2".repeat(64)}`,
   };
-  const effectAdmission = await admitArtifactFormationExecutionV1({
-    action: "RUN",
-    environment: effectFixture.environment,
-    nowEpochMs: effectFixture.nowEpochMs,
+  const effectAdmission = await admitExploratoryReplayExecutionV2({
+    environment: replayFixture.environment,
+    nowEpochMs: replayFixture.nowEpochMs,
     routingResolver: async () => activeRouting,
   });
   assert.equal(effectAdmission.availability, "available");
-  const rejectedBuildIdentity = "artifact-build-request-audit-rollback-1";
+  const rejectedReplayRequest = replayDispatchRequestFor("audit-rollback-1");
+  const rejectedRequestIdentity = rejectedReplayRequest.selector.request_identity;
   await admin.query(`CREATE OR REPLACE FUNCTION dashboard_test_reject_execute_audit()
     RETURNS trigger LANGUAGE plpgsql AS $function$
     BEGIN
@@ -446,159 +470,34 @@ test("PostgreSQL RunStore persists CAS state, bounded logs and restart readback"
   await admin.query(`CREATE TRIGGER dashboard_test_reject_execute_audit
     BEFORE INSERT ON dashboard_operation_audit_v1
     FOR EACH ROW EXECUTE FUNCTION dashboard_test_reject_execute_audit()`);
-  await assert.rejects(() => store.beginArtifactFormation({
-    action: "RUN",
+  await assert.rejects(() => store.beginExploratoryReplay({
     recoveryIdentity: {
-      research_request_identity: "research-request-audit-rollback-1",
-      build_request_identity: rejectedBuildIdentity,
-      attempt_identity: "artifact-attempt-audit-rollback-1",
+      request_identity: rejectedRequestIdentity,
+      meaning_digest: rejectedReplayRequest.selector.meaning_digest,
     },
     admission: effectAdmission,
     actionContext: actionContext("RUN"),
+    dispatchRequest: rejectedReplayRequest,
+    dispatchTarget: configuredEffectDispatchTargetV1(
+      "exploratory_replay.submit_or_resolve.v2",
+      { RD_OWNER_API_URL: "http://127.0.0.1:18080" },
+    ),
   }), (error) => error?.code === "55000");
   assert.equal((await admin.query(
     `SELECT COUNT(*)::int AS count FROM dashboard_operation_runs_v1
-      WHERE recovery_identity_json->>'build_request_identity' = $1`,
-    [rejectedBuildIdentity],
+      WHERE recovery_identity_json->>'request_identity' = $1`,
+    [rejectedRequestIdentity],
   )).rows[0].count, 0);
   assert.equal((await admin.query(
     `SELECT COUNT(*)::int AS count FROM dashboard_control_plane_admission_receipts_v1
       WHERE run_identity IN (
         SELECT run_identity FROM dashboard_operation_runs_v1
-         WHERE recovery_identity_json->>'build_request_identity' = $1
+         WHERE recovery_identity_json->>'request_identity' = $1
       )`,
-    [rejectedBuildIdentity],
+    [rejectedRequestIdentity],
   )).rows[0].count, 0);
   await admin.query("DROP TRIGGER dashboard_test_reject_execute_audit ON dashboard_operation_audit_v1");
   await admin.query("DROP FUNCTION dashboard_test_reject_execute_audit()");
-  const effectRecovery = {
-    research_request_identity: "research-request-effect-store-1",
-    build_request_identity: "artifact-build-request-effect-store-1",
-    attempt_identity: "artifact-attempt-effect-store-1",
-  };
-  const effectStart = await store.beginArtifactFormation({
-    action: "RUN",
-    recoveryIdentity: effectRecovery,
-    admission: effectAdmission,
-    actionContext: actionContext("RUN"),
-  });
-  assert.equal(effectStart.execution_mode, "FRESH_RUN");
-  assert.equal(effectStart.run.channel, "DASHBOARD_DISPOSABLE_EXECUTION");
-  assert.equal(effectStart.run.run_kind, "owner_effect");
-  assert.equal((await admin.query(
-    "SELECT COUNT(*)::int AS count FROM dashboard_shadow_dispatch_queue_v1 WHERE run_identity = $1",
-    [effectStart.run.run_identity],
-  )).rows[0].count, 0);
-  await assert.rejects(() => admin.query(
-    `INSERT INTO dashboard_shadow_dispatch_queue_v1
-       (run_identity, schema_version, registry_entry_digest, compatibility_envelope_set_digest)
-     VALUES ($1, 1, $2, $3)`,
-    [effectStart.run.run_identity, `sha256:${"4".repeat(64)}`, `sha256:${"5".repeat(64)}`],
-  ), (error) => error?.code === "23514");
-  let effectRun = await store.recordArtifactFormationPhase({
-    runIdentity: effectStart.run.run_identity,
-    expectedTransitionVersion: 1,
-    phase: "OWNER_CLAIMED",
-  });
-  assert.equal(effectRun.transition_version, 2);
-  effectRun = await store.recordArtifactFormationPhase({
-    runIdentity: effectStart.run.run_identity,
-    expectedTransitionVersion: 2,
-    phase: "OWNER_CLAIMED",
-  });
-  assert.equal(effectRun.transition_version, 2);
-  effectRun = await store.recordArtifactFormationPhase({
-    runIdentity: effectStart.run.run_identity,
-    expectedTransitionVersion: 2,
-    phase: "INVOCATION_STARTED",
-  });
-  assert.equal(effectRun.transition_version, 3);
-  const recoveryAdmission = await admitArtifactFormationExecutionV1({
-    action: "RESOLVE",
-    environment: effectFixture.environment,
-    nowEpochMs: effectFixture.nowEpochMs,
-    routingResolver: async () => { throw new Error("routing must not be read"); },
-  });
-  assert.equal(recoveryAdmission.availability, "available");
-  const continued = await store.beginArtifactFormation({
-    action: "RUN",
-    recoveryIdentity: effectRecovery,
-    admission: recoveryAdmission,
-    actionContext: actionContext("RUN"),
-    existingRecoveryOnly: true,
-  });
-  assert.equal(continued.execution_mode, "CONTINUE_CLAIMED_ONCE");
-  const resolveOnly = await store.beginArtifactFormation({
-    action: "RUN",
-    recoveryIdentity: effectRecovery,
-    admission: recoveryAdmission,
-    actionContext: actionContext("RUN"),
-    existingRecoveryOnly: true,
-  });
-  assert.equal(resolveOnly.execution_mode, "RESOLVE_ONLY");
-  effectRun = await store.completeArtifactFormation({
-    runIdentity: effectStart.run.run_identity,
-    expectedTransitionVersion: 3,
-    ownerOutcomeState: "unknown",
-    terminalCode: "MANUAL_RECONCILIATION_REQUIRED",
-  });
-  assert.equal(effectRun.state, "unknown");
-  assert.deepEqual((await store.getRunLogs(effectRun.run_identity)).map(({ event_code }) => event_code), [
-    "RUN_STARTED", "OWNER_CLAIMED", "INVOCATION_STARTED", "MANUAL_RECONCILIATION_REQUIRED",
-  ]);
-  const clientRecoveryRequest = {
-    action: "RESOLVE",
-    build_request_identity: dispatchBuildRequestIdentity,
-    attempt_identity: dispatchAttemptIdentity,
-    research_request_identity: acceptedResearchOwnerResult.request_identity,
-    identity_mode: "EXACT",
-  };
-  const clientEnvironment = {
-    ...effectFixture.environment,
-    DASHBOARD_DEPLOYMENT_CLASS: "DISPOSABLE_LOCAL",
-    DASHBOARD_DISPOSABLE_ARTIFACT_EXECUTION: "ENABLED",
-    RD_OWNER_API_URL: "http://127.0.0.1:18080",
-    RD_OWNER_API_TOKEN: "postgres-effect-owner-token",
-    RD_EXECUTION_AGENT_PROVIDER_URL: "https://provider.invalid/v1/chat",
-  };
-  const clientTransports = [];
-  const clientFetcher = async (url) => {
-    clientTransports.push(String(url));
-    if (String(url).includes("/v2/research-goals/")) {
-      return new Response(JSON.stringify(acceptedResearchOwnerResult));
-    }
-    if (String(url).includes("/v1/artifact-builds/")) {
-      return new Response(JSON.stringify(unknownArtifactOwnerResult));
-    }
-    throw new Error(`provider must not be called: ${url}`);
-  };
-  const firstClientRecovery = await executeDisposableArtifactFormationV1({
-    request: clientRecoveryRequest,
-    environment: clientEnvironment,
-    nowEpochMs: effectFixture.nowEpochMs,
-    fetcher: clientFetcher,
-    store,
-  });
-  assert.equal(firstClientRecovery.status, 200);
-  assert.equal(firstClientRecovery.envelope.operational_run.state, "running");
-  const secondClientRecovery = await executeDisposableArtifactFormationV1({
-    request: clientRecoveryRequest,
-    environment: clientEnvironment,
-    nowEpochMs: effectFixture.nowEpochMs,
-    fetcher: clientFetcher,
-    store,
-  });
-  assert.equal(secondClientRecovery.status, 200);
-  assert.equal(
-    secondClientRecovery.envelope.operational_run.run_identity,
-    firstClientRecovery.envelope.operational_run.run_identity,
-  );
-  assert.equal(clientTransports.length, 2);
-  assert.ok(clientTransports.every((url) => (
-    url.includes(`/v1/artifact-builds/${dispatchBuildRequestIdentity}/attempts/`)
-      && url.endsWith("/resolve")
-  )));
-  assert.equal(clientTransports.some((url) => url.includes("provider.invalid")), false);
   const research = await store.beginRead(RESEARCH_SHADOW_RESOLVE_OPERATION, {
     request_identity: "research-request-run-store-1",
   });
@@ -1284,19 +1183,6 @@ test("PostgreSQL RunStore persists CAS state, bounded logs and restart readback"
   assert.deepEqual(operationAuditCut.summary, {
     execute: 0, create_update: 1, delete: 0, succeeded: 1, failed_denied: 0,
   });
-  const artifactAdmissionAudit = await operationAuditGateway.read({
-    operation: "artifact_build.formation_execute.v1",
-    range: "all",
-  });
-  assert.equal(artifactAdmissionAudit.entries.length, 5);
-  assert.deepEqual(artifactAdmissionAudit.summary, {
-    execute: 5, create_update: 0, delete: 0, succeeded: 5, failed_denied: 0,
-  });
-  assert.equal(artifactAdmissionAudit.entries.every((entry) => (
-    entry.action_kind === "execute"
-      && entry.receipt_identity.startsWith("dashboard-control-plane-admission-v1-")
-      && entry.principal_ref === "local_operator"
-  )), true);
   const cancellationAuditDetail = await operationAuditGateway.readDetail(operationAuditCut.entries[0].audit_identity);
   assert.equal(cancellationAuditDetail.entry?.receipt_identity, cancellationReceipt.receipt_identity);
   assert.deepEqual(cancellationAuditDetail.timeline.map(({ receipt_identity }) => receipt_identity), [
@@ -1389,7 +1275,7 @@ test("PostgreSQL RunStore persists CAS state, bounded logs and restart readback"
   )).rows[0].count, 2);
   const auditAfterDeletion = new PostgresOperationAuditGatewayV1(connectionString, cursorKey);
   const auditCutAfterDeletion = await auditAfterDeletion.read({ pageSize: 20 });
-  assert.equal(auditCutAfterDeletion.entries.length, 7);
+  assert.equal(auditCutAfterDeletion.entries.length, 2);
   assert.equal(auditCutAfterDeletion.entries.some(({ receipt_identity }) => (
     receipt_identity === cancellationReceipt.receipt_identity
   )), true);
@@ -1397,7 +1283,7 @@ test("PostgreSQL RunStore persists CAS state, bounded logs and restart readback"
     receipt_identity === deletion.receipt_identity
   )), true);
   assert.deepEqual(auditCutAfterDeletion.summary, {
-    execute: 5, create_update: 1, delete: 1, succeeded: 7, failed_denied: 0,
+    execute: 0, create_update: 1, delete: 1, succeeded: 2, failed_denied: 0,
   });
   const deletionAudit = auditCutAfterDeletion.entries.find(({ receipt_identity }) => receipt_identity === deletion.receipt_identity);
   assert.ok(deletionAudit);
@@ -1446,7 +1332,6 @@ test("PostgreSQL RunStore persists CAS state, bounded logs and restart readback"
     dashboard_operation_run_cancellations_v1,
     dashboard_operation_run_cache_deletions_v1,
     dashboard_source_research_run_bindings_v1,
-    dashboard_artifact_formation_run_bindings_v1,
     dashboard_shadow_read_schedules_v1,
     dashboard_shadow_dispatch_queue_v1,
     dashboard_operation_run_logs_v1, dashboard_shadow_workers_v1,
@@ -1769,7 +1654,6 @@ test("PostgreSQL effect dispatch preserves atomic custody and lease-safe recover
     dashboard_operation_run_cancellations_v1,
     dashboard_operation_run_cache_deletions_v1,
     dashboard_source_research_run_bindings_v1,
-    dashboard_artifact_formation_run_bindings_v1,
     dashboard_shadow_read_schedules_v1,
     dashboard_shadow_dispatch_queue_v1,
     dashboard_operation_run_logs_v1, dashboard_shadow_workers_v1,
@@ -1778,11 +1662,6 @@ test("PostgreSQL effect dispatch preserves atomic custody and lease-safe recover
   const store = new PostgresRunStoreV1(connectionString, cursorKey);
   await store.assertEffectDispatchSchema();
   const nowEpochMs = Date.now();
-  const effectFixture = compatibleEnvironmentV1({
-    operationIds: [RESEARCH_SHADOW_RESOLVE_OPERATION],
-    extraManifests: [artifactFormationOperationManifestV1()],
-    nowEpochMs,
-  });
   const activeRouting = {
     state: "ACTIVE",
     dispatcher: "TRADE_DASHBOARD",
@@ -1791,13 +1670,16 @@ test("PostgreSQL effect dispatch preserves atomic custody and lease-safe recover
     generation: 1,
     history_head_identity: `product-edge-operation-routing-binding-v1-${"2".repeat(64)}`,
   };
-  const artifactAdmission = await admitArtifactFormationExecutionV1({
-    action: "RUN",
-    environment: effectFixture.environment,
+  const replayFixture = compatibleEnvironmentV1({
+    extraManifests: [exploratoryReplayOperationV2],
+    nowEpochMs,
+  });
+  const replayAdmission = await admitExploratoryReplayExecutionV2({
+    environment: replayFixture.environment,
     nowEpochMs,
     routingResolver: async () => activeRouting,
   });
-  assert.equal(artifactAdmission.availability, "available");
+  assert.equal(replayAdmission.availability, "available");
   const sourceAdmission = await admitSourceResearchExecutionV1({
     action: "RUN",
     researchOperation: "research_goal.submit_or_resolve.v3",
@@ -1806,14 +1688,6 @@ test("PostgreSQL effect dispatch preserves atomic custody and lease-safe recover
     routingResolver: async () => activeRouting,
   });
   assert.equal(sourceAdmission.availability, "available");
-  const artifactDispatchTarget = configuredEffectDispatchTargetV1(
-    "artifact_build.formation_execute.v1",
-    {
-      RD_OWNER_API_URL: "http://127.0.0.1:18080",
-      RD_EXECUTION_AGENT_PROVIDER_URL: "https://provider.test/v1/chat",
-      RD_EXECUTION_AGENT_MODEL: "provider-model-v1",
-    },
-  );
   const sourceDispatchTarget = configuredEffectDispatchTargetV1(
     "source_intake.research.submit_or_resolve.v1",
     { RD_OWNER_API_URL: "http://127.0.0.1:18080" },
@@ -1826,15 +1700,10 @@ test("PostgreSQL effect dispatch preserves atomic custody and lease-safe recover
     "develop_composer.submit_or_resolve.v2",
     { RD_OWNER_API_URL: "http://127.0.0.1:18080" },
   );
-  assert.ok(artifactDispatchTarget);
   assert.ok(sourceDispatchTarget);
   assert.ok(replayDispatchTarget);
   assert.ok(composerDispatchTarget);
   const targetDigests = {
-    "artifact_build.formation_execute.v1": effectDispatchTargetDigestV1(
-      "artifact_build.formation_execute.v1",
-      artifactDispatchTarget,
-    ),
     "exploratory_replay.submit_or_resolve.v2": effectDispatchTargetDigestV1(
       "exploratory_replay.submit_or_resolve.v2",
       replayDispatchTarget,
@@ -1849,41 +1718,21 @@ test("PostgreSQL effect dispatch preserves atomic custody and lease-safe recover
     ),
   };
 
-  function artifactQueueInput(suffix, principalRef = `effect-postgres-${suffix}`) {
-    const recoveryIdentity = {
-      research_request_identity: `research-request-effect-${suffix}`,
-      build_request_identity: `artifact-build-request-effect-${suffix}`,
-      attempt_identity: `artifact-attempt-effect-${suffix}`,
-    };
+  function replayQueueInput(suffix, principalRef = `effect-postgres-${suffix}`) {
+    const dispatchRequest = replayDispatchRequestFor(`effect-queue-${suffix}`);
     return {
-      action: "RUN",
-      recoveryIdentity,
-      admission: artifactAdmission,
+      recoveryIdentity: {
+        request_identity: dispatchRequest.selector.request_identity,
+        meaning_digest: dispatchRequest.selector.meaning_digest,
+      },
+      admission: replayAdmission,
       actionContext: {
         authorizationDigest: `sha256:${"d".repeat(64)}`,
         principalRef,
         requestedAction: "RUN",
       },
-      dispatchMode: "queue",
-      dispatchTarget: artifactDispatchTarget,
-      dispatchRequest: {
-        action: "RUN",
-        build_request_identity: recoveryIdentity.build_request_identity,
-        attempt_identity: recoveryIdentity.attempt_identity,
-        research_request_identity: recoveryIdentity.research_request_identity,
-        identity_mode: "GENERATE",
-      },
-      dispatchContext: {
-        schema_version: 1,
-        request_identity: recoveryIdentity.research_request_identity,
-        intent_identity: `research-intent-effect-${suffix}`,
-        intent_semantic_digest: `sha256:${"4".repeat(64)}`,
-        trial_family_identity: `trial-family-effect-${suffix}`,
-        trial_family_root_digest: `sha256:${"5".repeat(64)}`,
-        census_frontier_identity: `census-frontier-effect-${suffix}`,
-        census_frontier_digest: `sha256:${"6".repeat(64)}`,
-        valid_through_epoch_ms: nowEpochMs + 600_000,
-      },
+      dispatchRequest,
+      dispatchTarget: replayDispatchTarget,
     };
   }
 
@@ -1898,30 +1747,31 @@ test("PostgreSQL effect dispatch preserves atomic custody and lease-safe recover
   await admin.query(`CREATE TRIGGER dashboard_test_reject_effect_enqueue
     BEFORE INSERT ON dashboard_effect_dispatch_queue_v1
     FOR EACH ROW EXECUTE FUNCTION dashboard_test_reject_effect_enqueue()`);
-  const rejectedInput = artifactQueueInput("rollback");
-  await assert.rejects(() => store.beginArtifactFormation(rejectedInput),
+  const rejectedInput = replayQueueInput("rollback");
+  await assert.rejects(() => store.beginExploratoryReplay(rejectedInput),
     (error) => error?.code === "55000");
   assert.deepEqual((await admin.query(
     `SELECT
        (SELECT COUNT(*)::int FROM dashboard_operation_runs_v1
-         WHERE recovery_identity_json->>'build_request_identity' = $1) AS runs,
+         WHERE recovery_identity_json->>'request_identity' = $1) AS runs,
        (SELECT COUNT(*)::int FROM dashboard_control_plane_admission_receipts_v1
          WHERE principal_ref = $2) AS receipts,
        (SELECT COUNT(*)::int FROM dashboard_operation_audit_v1
          WHERE principal_ref = $2) AS audits`,
-    [rejectedInput.recoveryIdentity.build_request_identity,
+    [rejectedInput.recoveryIdentity.request_identity,
       rejectedInput.actionContext.principalRef],
   )).rows, [{ runs: 0, receipts: 0, audits: 0 }]);
   await admin.query("DROP TRIGGER dashboard_test_reject_effect_enqueue ON dashboard_effect_dispatch_queue_v1");
   await admin.query("DROP FUNCTION dashboard_test_reject_effect_enqueue()");
 
-  const artifactInput = artifactQueueInput("manual-reconciliation");
-  const queuedArtifact = await store.beginArtifactFormation(artifactInput);
-  assert.equal(queuedArtifact.run.state, "queued");
+  const custodyInput = replayQueueInput("claim-limit");
+  const queuedReplay = await store.beginExploratoryReplay(custodyInput);
+  assert.equal(queuedReplay.execution_mode, "FRESH_RUN");
+  assert.equal(queuedReplay.run.state, "queued");
   assert.deepEqual((await admin.query(
     `SELECT
        (SELECT COUNT(*)::int FROM dashboard_operation_runs_v1 WHERE run_identity = $1) AS runs,
-       (SELECT COUNT(*)::int FROM dashboard_artifact_formation_run_bindings_v1
+       (SELECT COUNT(*)::int FROM dashboard_exploratory_replay_run_bindings_v2
          WHERE run_identity = $1) AS bindings,
        (SELECT COUNT(*)::int FROM dashboard_control_plane_admission_receipts_v1
          WHERE run_identity = $1 AND execution_mode = 'FRESH_RUN') AS receipts,
@@ -1929,26 +1779,21 @@ test("PostgreSQL effect dispatch preserves atomic custody and lease-safe recover
          WHERE target_identity = $1) AS audits,
        (SELECT COUNT(*)::int FROM dashboard_effect_dispatch_queue_v1
          WHERE run_identity = $1) AS queued`,
-    [queuedArtifact.run.run_identity],
+    [queuedReplay.run.run_identity],
   )).rows, [{ runs: 1, bindings: 1, receipts: 1, audits: 1, queued: 1 }]);
 
   await assert.rejects(() => admin.query(
     `UPDATE dashboard_effect_dispatch_queue_v1
-        SET request_json = jsonb_set(request_json, '{identity_mode}', '"EXACT"'::jsonb)
+        SET request_json = jsonb_set(request_json, '{selector,meaning_digest}',
+          to_jsonb('blake3:' || repeat('f', 64)))
       WHERE run_identity = $1`,
-    [queuedArtifact.run.run_identity],
+    [queuedReplay.run.run_identity],
   ), (error) => error?.code === "23514");
   await assert.rejects(() => admin.query(
     `UPDATE dashboard_effect_dispatch_queue_v1
-        SET frozen_context_json = jsonb_set(frozen_context_json, '{intent_identity}', '"changed"'::jsonb)
+        SET frozen_target_json = jsonb_set(frozen_target_json, '{owner_url}', '"http://127.0.0.1:19090/"'::jsonb)
       WHERE run_identity = $1`,
-    [queuedArtifact.run.run_identity],
-  ), (error) => error?.code === "23514");
-  await assert.rejects(() => admin.query(
-    `UPDATE dashboard_effect_dispatch_queue_v1
-        SET frozen_target_json = jsonb_set(frozen_target_json, '{provider_model}', '"changed"'::jsonb)
-      WHERE run_identity = $1`,
-    [queuedArtifact.run.run_identity],
+    [queuedReplay.run.run_identity],
   ), (error) => error?.code === "23514");
 
   const shadowRun = await store.enqueueRead(SOURCE_INTAKE_SHADOW_READ_OPERATION, {
@@ -1958,20 +1803,18 @@ test("PostgreSQL effect dispatch preserves atomic custody and lease-safe recover
     `INSERT INTO dashboard_shadow_dispatch_queue_v1
        (run_identity, schema_version, registry_entry_digest, compatibility_envelope_set_digest)
      VALUES ($1, 1, $2, $3)`,
-    [queuedArtifact.run.run_identity, `sha256:${"7".repeat(64)}`, `sha256:${"8".repeat(64)}`],
+    [queuedReplay.run.run_identity, `sha256:${"7".repeat(64)}`, `sha256:${"8".repeat(64)}`],
   ), (error) => error?.code === "23514");
   await assert.rejects(() => admin.query(
     `INSERT INTO dashboard_effect_dispatch_queue_v1
        (run_identity, schema_version, operation_id, request_json, request_digest,
-        frozen_target_json, frozen_target_digest,
-        frozen_context_json, frozen_context_digest, principal_ref,
+        frozen_target_json, frozen_target_digest, principal_ref,
         authorization_digest, admission_receipt_identity)
      SELECT $1, schema_version, operation_id, request_json, request_digest,
-            frozen_target_json, frozen_target_digest,
-            frozen_context_json, frozen_context_digest, principal_ref,
+            frozen_target_json, frozen_target_digest, principal_ref,
             authorization_digest, admission_receipt_identity
        FROM dashboard_effect_dispatch_queue_v1 WHERE run_identity = $2`,
-    [shadowRun.run_identity, queuedArtifact.run.run_identity],
+    [shadowRun.run_identity, queuedReplay.run.run_identity],
   ), (error) => error?.code === "23514");
 
   const configuredIdentity = "postgres-effect-worker";
@@ -2010,12 +1853,24 @@ test("PostgreSQL effect dispatch preserves atomic custody and lease-safe recover
     targetDigests,
   }), { message: "EFFECT_WORKER_UNAVAILABLE" });
 
-  const artifactClaim = await store.claimNextEffect({ workerIdentity, workerCapability, targetDigests });
-  assert.equal(artifactClaim?.run_identity, queuedArtifact.run.run_identity);
-  assert.equal(artifactClaim?.claim_attempt, 1);
-  assert.deepEqual(artifactClaim?.request, artifactInput.dispatchRequest);
-  assert.deepEqual(artifactClaim?.frozen_target, artifactInput.dispatchTarget);
-  assert.deepEqual(artifactClaim?.frozen_context, artifactInput.dispatchContext);
+  const admissionReceipt = (await admin.query(
+    `SELECT receipt_identity FROM dashboard_control_plane_admission_receipts_v1
+      WHERE run_identity = $1 AND execution_mode = 'FRESH_RUN'`,
+    [queuedReplay.run.run_identity],
+  )).rows[0]?.receipt_identity;
+  assert.ok(admissionReceipt);
+  const replayCustodyClaim = await store.claimNextEffect({ workerIdentity, workerCapability, targetDigests });
+  assert.equal(replayCustodyClaim?.run_identity, queuedReplay.run.run_identity);
+  assert.equal(replayCustodyClaim?.operation_id, "exploratory_replay.submit_or_resolve.v2");
+  assert.equal(replayCustodyClaim?.claim_attempt, 1);
+  assert.deepEqual(replayCustodyClaim?.request, custodyInput.dispatchRequest);
+  assert.deepEqual(replayCustodyClaim?.frozen_target, custodyInput.dispatchTarget);
+  assert.equal(replayCustodyClaim?.frozen_target_digest,
+    targetDigests["exploratory_replay.submit_or_resolve.v2"]);
+  assert.equal(replayCustodyClaim?.admission_receipt_identity, admissionReceipt);
+  assert.equal(replayCustodyClaim?.principal_ref, custodyInput.actionContext.principalRef);
+  assert.equal(replayCustodyClaim?.authorization_digest,
+    custodyInput.actionContext.authorizationDigest);
   const effectWorkerPage = await store.listOperationalWorkers();
   const effectWorkerProjection = effectWorkerPage.workers.find(({ worker_identity }) => (
     worker_identity === workerIdentity
@@ -2024,64 +1879,84 @@ test("PostgreSQL effect dispatch preserves atomic custody and lease-safe recover
   assert.deepEqual(effectWorkerProjection?.operation_ids, effectDispatchOperationIdsV1);
   assert.equal(effectWorkerProjection?.job_count, 1);
   assert.equal(effectWorkerProjection?.active_job_count, 1);
-  assert.equal(effectWorkerProjection?.last_run_identity, artifactClaim.run_identity);
+  assert.equal(effectWorkerProjection?.last_run_identity, replayCustodyClaim.run_identity);
   const exactEffectWorker = await store.readOperationalWorker(workerIdentity);
   assert.equal(exactEffectWorker.worker?.worker_kind, "owner_effect");
-  assert.equal(exactEffectWorker.worker?.last_run_identity, artifactClaim.run_identity);
-  const claimedArtifactDetail = await store.readRunDetail(artifactClaim.run_identity);
-  assert.equal(claimedArtifactDetail?.worker_compatibility.availability, "available");
-  assert.equal(claimedArtifactDetail?.worker_compatibility.required_operation_id,
-    "artifact_build.formation_execute.v1");
-  assert.equal(claimedArtifactDetail?.worker_compatibility.worker_identity, workerIdentity);
-  assert.equal(claimedArtifactDetail?.worker_compatibility.claim_attempt, 1);
-  assert.equal(claimedArtifactDetail?.worker_compatibility.completed_at, null);
+  assert.equal(exactEffectWorker.worker?.last_run_identity, replayCustodyClaim.run_identity);
+  const claimedReplayDetail = await store.readRunDetail(replayCustodyClaim.run_identity);
+  assert.equal(claimedReplayDetail?.worker_compatibility.availability, "available");
+  assert.equal(claimedReplayDetail?.worker_compatibility.required_operation_id,
+    "exploratory_replay.submit_or_resolve.v2");
+  assert.equal(claimedReplayDetail?.worker_compatibility.worker_identity, workerIdentity);
+  assert.equal(claimedReplayDetail?.worker_compatibility.claim_attempt, 1);
+  assert.equal(claimedReplayDetail?.worker_compatibility.completed_at, null);
   await assert.rejects(() => store.settleEffectClaim({
-    runIdentity: artifactClaim.run_identity,
+    runIdentity: replayCustodyClaim.run_identity,
     workerIdentity,
     workerCapability,
-    claimToken: `${artifactClaim.claim_token}-wrong`,
+    claimToken: `${replayCustodyClaim.claim_token}-wrong`,
     retry: true,
   }), { message: "EFFECT_WORKER_SETTLEMENT_CONFLICT" });
   await store.renewEffectClaim({
-    runIdentity: artifactClaim.run_identity,
+    runIdentity: replayCustodyClaim.run_identity,
     workerIdentity,
     workerCapability,
-    claimToken: artifactClaim.claim_token,
+    claimToken: replayCustodyClaim.claim_token,
     workerLeaseMilliseconds: 30_000,
     claimLeaseMilliseconds: 30_000,
   });
-  let artifactRun = await store.recordArtifactFormationPhase({
-    runIdentity: artifactClaim.run_identity,
-    expectedTransitionVersion: artifactClaim.transition_version,
-    phase: "OWNER_CLAIMED",
-  });
-  artifactRun = await store.recordArtifactFormationPhase({
-    runIdentity: artifactClaim.run_identity,
-    expectedTransitionVersion: artifactRun.transition_version,
-    phase: "INVOCATION_STARTED",
-  });
+  // Every expired lease requeues the same frozen custody until the third claim; the claim after
+  // that finds the limit reached and settles the run as unknown instead of claiming it again.
+  let limitedClaim = replayCustodyClaim;
+  for (let expectedAttempt = 2; expectedAttempt <= 3; expectedAttempt += 1) {
+    await admin.query(
+      `UPDATE dashboard_effect_dispatch_queue_v1
+          SET lease_expires_at = clock_timestamp() - interval '1 second'
+        WHERE run_identity = $1`,
+      [limitedClaim.run_identity],
+    );
+    const successor = await store.claimNextEffect({ workerIdentity, workerCapability, targetDigests });
+    assert.equal(successor?.run_identity, queuedReplay.run.run_identity);
+    assert.equal(successor?.claim_attempt, expectedAttempt);
+    assert.equal(successor?.admission_receipt_identity, admissionReceipt);
+    assert.equal(successor?.frozen_target_digest, replayCustodyClaim.frozen_target_digest);
+    assert.equal(successor?.request_digest, replayCustodyClaim.request_digest);
+    await assert.rejects(() => store.settleEffectClaim({
+      runIdentity: limitedClaim.run_identity,
+      workerIdentity,
+      workerCapability,
+      claimToken: limitedClaim.claim_token,
+      retry: true,
+    }), { message: "EFFECT_WORKER_SETTLEMENT_CONFLICT" });
+    limitedClaim = successor;
+  }
   await admin.query(
     `UPDATE dashboard_effect_dispatch_queue_v1
         SET lease_expires_at = clock_timestamp() - interval '1 second'
       WHERE run_identity = $1`,
-    [artifactClaim.run_identity],
+    [limitedClaim.run_identity],
   );
   assert.equal(await store.claimNextEffect({ workerIdentity, workerCapability, targetDigests }), null);
-  artifactRun = await store.getRun(artifactClaim.run_identity);
-  assert.equal(artifactRun?.state, "unknown");
-  assert.equal(artifactRun?.terminal_code, "MANUAL_RECONCILIATION_REQUIRED");
-  assert.equal((await admin.query(
+  const limitedRun = await store.getRun(queuedReplay.run.run_identity);
+  assert.equal(limitedRun?.state, "unknown");
+  assert.equal(limitedRun?.owner_outcome_state, "unknown");
+  assert.equal(limitedRun?.terminal_code, "CLAIM_LIMIT_REACHED");
+  assert.ok(limitedRun?.finished_at);
+  assert.deepEqual((await admin.query(
     `SELECT claim_attempt, completed_at IS NOT NULL AS completed
        FROM dashboard_effect_dispatch_queue_v1 WHERE run_identity = $1`,
-    [artifactClaim.run_identity],
-  )).rows[0].claim_attempt, 1);
-  assert.equal((await admin.query(
-    `SELECT completed_at IS NOT NULL AS completed
-       FROM dashboard_effect_dispatch_queue_v1 WHERE run_identity = $1`,
-    [artifactClaim.run_identity],
-  )).rows[0].completed, true);
-  assert.equal((await store.getRunLogs(artifactClaim.run_identity))
-    .filter(({ event_code }) => event_code === "RUN_CLAIMED").length, 1);
+    [queuedReplay.run.run_identity],
+  )).rows, [{ claim_attempt: 3, completed: true }]);
+  assert.deepEqual((await store.getRunLogs(queuedReplay.run.run_identity))
+    .map(({ event_code }) => event_code), [
+    "RUN_QUEUED",
+    "RUN_CLAIMED",
+    "LEASE_EXPIRED_REQUEUED",
+    "RUN_CLAIMED",
+    "LEASE_EXPIRED_REQUEUED",
+    "RUN_CLAIMED",
+    "CLAIM_LIMIT_REACHED",
+  ]);
 
   function sourceQueueInput(suffix) {
     const request = structuredClone(sourceResearchRunRequest);
@@ -2329,10 +2204,10 @@ test("PostgreSQL effect dispatch preserves atomic custody and lease-safe recover
     [workerIdentity],
   )).rows, [{ cursor_time: true, cursor_identity: true }]);
 
-  const malformedRequestInput = artifactQueueInput("request-coercion-corruption");
-  const malformedRequestRun = await store.beginArtifactFormation(malformedRequestInput);
-  const followingRequestInput = artifactQueueInput("request-coercion-follower");
-  const followingRequestRun = await store.beginArtifactFormation(followingRequestInput);
+  const malformedRequestInput = replayQueueInput("request-coercion-corruption");
+  const malformedRequestRun = await store.beginExploratoryReplay(malformedRequestInput);
+  const followingRequestInput = replayQueueInput("request-coercion-follower");
+  const followingRequestRun = await store.beginExploratoryReplay(followingRequestInput);
   await admin.query(
     "ALTER TABLE dashboard_effect_dispatch_queue_v1 DISABLE TRIGGER dashboard_effect_queue_frozen_custody_v1",
   );
@@ -2341,7 +2216,7 @@ test("PostgreSQL effect dispatch preserves atomic custody and lease-safe recover
       `UPDATE dashboard_effect_dispatch_queue_v1
           SET request_json = jsonb_set(
             request_json,
-            '{research_request_identity}',
+            '{build_request_identity}',
             '{"toString":null}'::jsonb
           )
         WHERE run_identity = $1`,
@@ -2398,28 +2273,7 @@ test("PostgreSQL effect dispatch preserves atomic custody and lease-safe recover
   assert.equal(quarantinedArraySourceRun?.state, "failed");
   assert.equal(quarantinedArraySourceRun?.terminal_code, "DEPLOYMENT_UNAVAILABLE");
 
-  const replayFixture = compatibleEnvironmentV1({
-    extraManifests: [exploratoryReplayOperationV2],
-    nowEpochMs,
-  });
-  const replayAdmission = await admitExploratoryReplayExecutionV2({
-    environment: replayFixture.environment,
-    nowEpochMs,
-    routingResolver: async () => activeRouting,
-  });
-  assert.equal(replayAdmission.availability, "available");
-  const replayRequest = replayRunRequest("effect-postgres-1");
-  const canonicalBytes = [...new TextEncoder().encode(
-    exploratoryReplayOwnerRequestBodyV2(replayRequest.request),
-  )];
-  const replayDispatchRequest = {
-    ...replayRequest,
-    selector: {
-      request_identity: replayRequest.request.request_identity,
-      meaning_digest: `blake3:${"e".repeat(64)}`,
-      canonical_request_digest: canonicalReplayRequestDigestV2(canonicalBytes),
-    },
-  };
+  const replayDispatchRequest = replayDispatchRequestFor("effect-postgres-1");
   const replayStart = await store.beginExploratoryReplay({
     recoveryIdentity: {
       request_identity: replayDispatchRequest.selector.request_identity,
@@ -2718,8 +2572,6 @@ test("PostgreSQL effect dispatch preserves atomic custody and lease-safe recover
     DASHBOARD_DISPOSABLE_DEVELOP_COMPOSER_EXECUTION: "ENABLED",
     RD_OWNER_API_URL: ownerUrl,
     RD_OWNER_API_TOKEN: "composer-http-postgres-owner-token",
-    RD_EXECUTION_AGENT_PROVIDER_URL: "https://provider.test/v1/chat",
-    RD_EXECUTION_AGENT_MODEL: "provider-model-v1",
   };
   const httpDispatchTarget = configuredEffectDispatchTargetV1(
     "develop_composer.submit_or_resolve.v2",
@@ -2795,7 +2647,6 @@ test("PostgreSQL effect dispatch preserves atomic custody and lease-safe recover
     dashboard_operation_run_cancellations_v1,
     dashboard_operation_run_cache_deletions_v1,
     dashboard_source_research_run_bindings_v1,
-    dashboard_artifact_formation_run_bindings_v1,
     dashboard_shadow_read_schedules_v1,
     dashboard_shadow_dispatch_queue_v1,
     dashboard_operation_run_logs_v1, dashboard_shadow_workers_v1,
