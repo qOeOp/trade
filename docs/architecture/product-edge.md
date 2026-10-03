@@ -439,6 +439,27 @@ custody.
 request, census and Iteration Decision reads), `knowledge` (the Research knowledge ledger) and `paper`, each stated
 here before it is built.
 
+**Long-running work.** The user asked where work that outlives one tool call runs. The answer keeps each kind of
+work where its lifetime already is:
+
+- An MCP server is a stdio child process of the agent's session. It starts and stops with that session, keeps no
+  state, hosts no long-running task and starts no container: starting one needs the Docker socket, which is root on
+  the host.
+- Long-running deterministic work runs in a service that is always up in the compose package, on that service's own
+  scheduler and workers. A plan, such as "scan these strategies every 4 hours", is an append-only record the service
+  holds; the agent creates, reads, changes and removes that plan, and reads its results, through the service's MCP
+  server.
+- Every long task is an asynchronous job: submitting it returns a `job_id`, then the agent reads its status, then its
+  result. Backtests, backfills, scans and forward records all have this shape, and their results are append-only and
+  replayable.
+- The one standing isolated container is `rd-build-sandbox`, which compiles strategy programs to Wasm with no network
+  and a read-only filesystem and is called over its socket. It is not started per task.
+- Work that needs a model and is not deterministic, such as an agent doing research on a schedule, is woken by a timer
+  on the host that starts an agent session, which then calls the MCP servers. The product holds no agent.
+- **TARGET, after U1:** today the Dashboard's shadow scheduler and effect worker schedule research and scanner jobs
+  ("User-facing closure and implementation boundary" in the product loop). Under the layering rule each plan belongs
+  to the service of its domain, and the Dashboard only shows and controls it.
+
 **Permissions.**
 
 - Each server holds the credentials it presents to its own Owner in its own environment. No tool argument or result

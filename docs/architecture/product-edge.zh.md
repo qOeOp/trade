@@ -377,6 +377,21 @@ Source 与 Research 动作、探索性 Replay 动作、Develop Composer 动作�
 **以后的 server。** `scan`（Scanner，U1 之后）：`scan(strategy_ids, universe)`。然后是 `research`（Research 请求、census
 与 Iteration Decision 的读取）、`knowledge`（研究知识台账）与 `paper`，每一个都先在此陈述再建。
 
+**长时间运行的工作。** 用户问到超出一次工具调用的工作在哪里运行。答案是让每种工作留在它的生命周期本来所在的地方：
+
+- MCP server 是代理会话的 stdio 子进程。它随该会话启停，不保存状态，不托管任何长任务，也不启动容器：启动容器需要
+  Docker socket，而那等于主机 root。
+- 长时间运行的确定性工作运行在 compose 包里常驻的服务中，由该服务自己的调度器与 worker 执行。计划（例如「每 4 小时扫描
+  这几个策略」）是该服务持有的只追加记录；代理经该服务的 MCP server 增删改查这条计划并读取其结果。
+- 每个长任务都是异步 job：提交得到 `job_id`，然后代理读取其状态，再读取其结果。回测、回填、扫描与前向记录都是这个形状，
+  其结果只追加、可重放。
+- 唯一常驻的隔离容器是 `rd-build-sandbox`，它在断网与只读文件系统下把策略程序编译成 Wasm，经其 socket 被调用。它不按任务
+  启动。
+- 需要模型、不确定的工作，例如代理定期做研究，由宿主侧的定时器唤醒一个代理会话，再由该会话调用各个 MCP server。产品里不放
+  任何代理。
+- **TARGET，U1 之后：** 今天 Dashboard 的 shadow scheduler 与 effect worker 在调度研究与扫描任务（产品闭环中的「面向用户的
+  闭环与实现边界」）。按分层规则，每条计划归其领域的服务，Dashboard 只负责查看与控制。
+
 **权限。**
 
 - 每个 server 在自己的环境中持有它向自己的 Owner 出示的凭据。任何工具参数或结果都不携带凭据，代理也从不看到凭据。
