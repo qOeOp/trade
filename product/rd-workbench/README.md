@@ -327,11 +327,14 @@ mv "$DEPLOYMENT_STORE_ADMIN_DIRECTORY/sealed.json" "$DEPLOYMENT_STORE_ADMIN_DIRE
 Create a private environment file outside the repository or copy `.env.example` and replace every
 placeholder with a local value. `RD_OWNER_DATABASE_URL`, `RD_FACT_WRITER_DATABASE_URL`,
 `MARKET_DATA_OWNER_DATABASE_URL`, `MARKET_DATA_RD_ROLE_SET_DATABASE_URL`,
-`INSTRUMENT_OWNER_DATABASE_URL`, `QUALIFICATION_OWNER_DATABASE_URL`,
+`INSTRUMENT_OWNER_DATABASE_URL`, `BACKTEST_OWNER_DATABASE_URL`, `QUALIFICATION_OWNER_DATABASE_URL`,
 `OPERATOR_AUTHORIZATION_DATABASE_URL`, `PRODUCT_EDGE_DATABASE_URL`,
 `RD_SCHEMA_MIGRATOR_DATABASE_URL`, and
 `REPLAY_POLICY_CATALOG_ADMIN_DATABASE_URL` must be private PostgreSQL connection URLs for the
 Compose `postgres` service, with credentials matching the `*_DB_PASSWORD` values. Do not commit it.
+`rd-owner-api` is built with `native-replay-execution`, so with `BACKTEST_OWNER_DATABASE_URL` set it
+starts only once Deployment Store Admission is `required` and admits Market Data scheduling:
+complete "Turning on `required`" above before starting it.
 
 Operator Authorization and Product Edge genesis remain explicit administrative
 operations and never run as part of service startup. Replay Policy Catalog

@@ -27,7 +27,8 @@ env_file=$state_dir/.env
 catalog_dir=$state_dir/catalog
 owner_image=$project-rd-owner-api
 owner_services=(rd-owner-api schema-materialize authority-schema-materialize authority-additive-table-migrate
-  replay-policy-catalog-bootstrap replay-policy-catalog-owner-readback authority-bootstrap)
+  replay-policy-catalog-bootstrap replay-policy-catalog-owner-readback authority-bootstrap
+  deployment-store-publication-author deployment-store-publication-publish deployment-store-grant)
 
 log() { printf '%s\n' "$*"; }
 skip() { log "skip $1: $2"; }
@@ -60,13 +61,28 @@ compose() {
     --profile authority-admin "$@"
 }
 psql_scalar() { compose exec -T postgres psql -U postgres -d rd_owner -v ON_ERROR_STOP=1 -tAc "$1"; }
+once() { # step key command...
+  local step=$1 key=$2
+  shift 2
+  if [ "$(cat "$state_dir/steps/$step" 2> /dev/null)" = "$key" ]; then
+    skip "$step" "already ran on this volume with these inputs"
+  else
+    run "$step"
+    "$@"
+    printf '%s\n' "$key" > "$state_dir/steps/$step"
+  fi
+}
 
 # 1. The env file: one random value per secret, every URL pointing at this stack's own database.
 # A key already in the file is never regenerated or rewritten - the postgres volume's roles were
 # provisioned with whatever password is already there, so changing it would lock the stack out of
 # its own database. Only a key .env.example gained since this file was written is added, so a
 # build that needs a new credential (RD_SCHEMA_MIGRATOR_DATABASE_URL, say) still gets one on an
-# existing deployment, without regenerating anything that already works.
+# existing deployment, without regenerating anything that already works. A small set of
+# `force`d keys are this script's own toggles (Deployment Store Admission's mode, identities and
+# directories): they are recomputed every run so an existing stage-1 deployment turns `required`
+# on without wiping its volume. DEPLOYMENT_STORE_EXPECTED_HEAD_IDENTITY is deliberately not
+# forced - step 3a sets it from the sealed head once publication has run.
 env_fill_result=$(
   python3 - "$package_dir/.env.example" "$env_file" "$state_dir" << 'EOF'
 import os, secrets, sys
@@ -77,6 +93,7 @@ urls = {
     "MARKET_DATA_OWNER_DATABASE_URL": ("market_data_owner", "MARKET_DATA_OWNER_DB_PASSWORD"),
     "MARKET_DATA_RD_ROLE_SET_DATABASE_URL": ("market_data_reader", "MARKET_DATA_READER_DB_PASSWORD"),
     "INSTRUMENT_OWNER_DATABASE_URL": ("instrument_owner", "INSTRUMENT_OWNER_DB_PASSWORD"),
+    "BACKTEST_OWNER_DATABASE_URL": ("backtest_owner", "BACKTEST_OWNER_DB_PASSWORD"),
     "REPLAY_POLICY_CATALOG_ADMIN_DATABASE_URL": (
         "replay_policy_catalog_admin_writer", "REPLAY_POLICY_CATALOG_ADMIN_DB_PASSWORD"),
     "QUALIFICATION_OWNER_DATABASE_URL": ("qualification_writer", "QUALIFICATION_OWNER_DB_PASSWORD"),
@@ -84,6 +101,7 @@ urls = {
         "operator_authorization_writer", "OPERATOR_AUTHORIZATION_DB_PASSWORD"),
     "PRODUCT_EDGE_DATABASE_URL": ("product_edge_owner", "PRODUCT_EDGE_DB_PASSWORD"),
     "RD_SCHEMA_MIGRATOR_DATABASE_URL": ("rd_schema_migrator", "RD_SCHEMA_MIGRATOR_DB_PASSWORD"),
+    "STORE_CUSTODY_PUBLISHER_DATABASE_URL": ("deployment_store_publisher", "STORE_CUSTODY_PUBLISHER_DB_PASSWORD"),
 }
 paths = {
     "PRODUCT_EDGE_BOOTSTRAP_CONFIG": "product-edge-bootstrap.json",
@@ -91,8 +109,23 @@ paths = {
     "REPLAY_POLICY_CATALOG_BOOTSTRAP_CREATE_COMMAND": "catalog/create-command.json",
     "REPLAY_POLICY_CATALOG_BOOTSTRAP_ADVANCE_COMMAND": "catalog/advance-command.json",
     "REPLAY_POLICY_CATALOG_TRUSTED_VERIFIER_PUBLIC_KEY": "catalog/verifier-public-key.hex",
+    "DEPLOYMENT_STORE_FILES_DIRECTORY": "deployment-store/files",
+    "DEPLOYMENT_STORE_ADMIN_DIRECTORY": "deployment-store/admin",
+    "POSTGRES_TLS_DIRECTORY": "postgres-tls",
 }
-empty = {"STORE_CUSTODY_PUBLISHER_DATABASE_URL"}
+empty = {"DEPLOYMENT_STORE_EXPECTED_HEAD_IDENTITY"}
+# This script's own toggles, recomputed every run so an existing deployment picks up a stage
+# upgrade (disabled -> required) without touching any password or credential below.
+force_values = {
+    "DEPLOYMENT_STORE_ADMISSION_MODE": "required",
+    "DEPLOYMENT_STORE_ANTI_ROLLBACK_MODE": "SINGLE_TRUST_DOMAIN_NO_ROLLBACK_WITNESS",
+    "DEPLOYMENT_STORE_ENVIRONMENT_IDENTITY": "trade-rd-local",
+    "DEPLOYMENT_STORE_DEPLOYMENT_IDENTITY": "trade-rd-local-deployment-store-v1",
+    "DEPLOYMENT_STORE_SIGNER_IDENTITY": "trade-rd-local-deployment-store-signer-v1",
+    "DEPLOYMENT_STORE_LEASE_PERIOD_MS": "86400000",
+}
+force = set(force_values) | {"DEPLOYMENT_STORE_FILES_DIRECTORY", "DEPLOYMENT_STORE_ADMIN_DIRECTORY",
+                              "POSTGRES_TLS_DIRECTORY"}
 existing = {}
 if os.path.exists(target):
     for line in open(target):
@@ -107,19 +140,20 @@ keys = [
     if line and not line.startswith("#") and "=" in line
 ]
 added = [key for key in keys if key not in existing]
-values = {}
+changed = [key for key in keys if key in force and key not in added]
+values = dict(force_values)
 for key in added:
     if key.endswith("_PASSWORD") or key.endswith("_TOKEN") or key.endswith("_HMAC_KEY"):
         values[key] = secrets.token_hex(32)
 values.setdefault("PRODUCT_EDGE_DEPLOYMENT_IDENTITY", "trade-rd-local-v1")
-for key in added:
+for key in set(added) | set(changed):
     if key in urls:
         role, password = urls[key]
         value = f"postgres://{role}:{values[password]}@postgres:5432/rd_owner"
     elif key in paths:
         value = os.path.join(state, paths[key])
     elif key in empty:
-        value = ""
+        value = existing.get(key, "")
     elif key in values:
         value = values[key]
     else:
@@ -128,23 +162,26 @@ for key in added:
         )
     if "replace-with" in value or "/absolute/path/to" in value:
         sys.exit(f"{key} kept a placeholder")
-    existing[key] = value
-if os.path.exists(target):
-    with open(target, "a") as handle:
-        for key in added:
-            handle.write(f"{key}={existing[key]}\n")
-else:
-    fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    with os.fdopen(fd, "w") as handle:
-        handle.write("\n".join(f"{key}={existing[key]}" for key in keys) + "\n")
-print(",".join(added))
+    if existing.get(key) != value:
+        existing[key] = value
+    elif key in changed:
+        changed.remove(key)
+tmp = os.path.join(state, ".env.tmp")
+with open(tmp, "w") as handle:
+    handle.write("\n".join(f"{key}={existing[key]}" for key in keys) + "\n")
+os.chmod(tmp, 0o600)
+os.replace(tmp, target)
+print(",".join(added), ";", ",".join(changed))
 EOF
 )
-if [ -n "$env_fill_result" ]; then
+env_added=${env_fill_result%% ; *}
+env_changed=${env_fill_result##* ; }
+if [ -n "$env_added" ] || [ -n "$env_changed" ]; then
   run env
-  log "added keys: $env_fill_result"
+  [ -n "$env_added" ] && log "added keys: $env_added"
+  [ -n "$env_changed" ] && log "updated keys: $env_changed"
 else
-  skip env "$env_file already has every key .env.example names"
+  skip env "$env_file already has every key at its current value"
 fi
 env_value() { sed -n "s/^$1=//p" "$env_file"; }
 if grep -Eq 'replace-with|/absolute/path/to' "$env_file"; then
@@ -287,6 +324,49 @@ else
 fi
 volume_created=$(dock volume inspect --format '{{.CreatedAt}}' "${project}_postgres-data")
 
+# 5a. Deployment Store Admission's `required` mode (README, "Turning on `required`"), so this
+# deployment carries the production scheduling resolver Native Replay execution needs. Every value
+# is generated here the same way the env file's secrets are: once, into the state directory, never
+# printed. The store's own publication (author/seal/publish) waits for step 10a, after Product Edge
+# and Replay Policy Catalog genesis exist and the admitted reader is granted its wrappers - the same
+# order the acceptance script and the README both use.
+ds_dir=$state_dir/deployment-store
+ds_files=$(env_value DEPLOYMENT_STORE_FILES_DIRECTORY)
+ds_admin=$(env_value DEPLOYMENT_STORE_ADMIN_DIRECTORY)
+tls_dir=$(env_value POSTGRES_TLS_DIRECTORY)
+mkdir -p "$ds_files/leased" "$ds_admin" "$tls_dir"
+
+if [ -f "$ds_files/postgres-root.crt" ] && [ -f "$ds_dir/store-root.key" ]; then
+  skip deployment-store-root "$ds_files/postgres-root.crt exists"
+else
+  run deployment-store-root
+  openssl req -x509 -new -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -days 3650 \
+    -subj "/CN=trade store root" -keyout "$ds_dir/store-root.key" -out "$ds_files/postgres-root.crt" \
+    -addext "basicConstraints=critical,CA:TRUE" -addext "keyUsage=critical,keyCertSign"
+fi
+if [ -f "$tls_dir/server.crt" ]; then
+  skip postgres-tls-cert "$tls_dir/server.crt exists"
+else
+  run postgres-tls-cert
+  openssl req -new -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -subj "/CN=postgres" \
+    -keyout "$tls_dir/server.key" -out "$tls_dir/server.csr"
+  printf '%s\n' "basicConstraints=critical,CA:FALSE" "keyUsage=critical,digitalSignature" \
+    "extendedKeyUsage=serverAuth" "subjectAltName=DNS:postgres" > "$tls_dir/server.ext"
+  openssl x509 -req -in "$tls_dir/server.csr" -CA "$ds_files/postgres-root.crt" -CAkey "$ds_dir/store-root.key" \
+    -CAcreateserial -days 825 -extfile "$tls_dir/server.ext" -out "$tls_dir/server.crt"
+fi
+once postgres-tls-install "$volume_created $(shasum -a 256 "$tls_dir/server.crt" | cut -d' ' -f1)" \
+  compose run --rm postgres-tls-install
+provision_digest=$(shasum -a 256 "$package_dir/postgres-init/20-deployment-store-custody.sh" \
+  "$package_dir/postgres-init/25-market-data-admitted-reader.sh" | shasum -a 256 | cut -d' ' -f1)
+once deployment-store-provision "$volume_created $provision_digest" compose run --rm deployment-store-provision
+
+printf 'postgres://market_data_admitted_reader:%s@postgres:5432/rd_owner\n' "$(env_value MARKET_DATA_ADMITTED_READER_DB_PASSWORD)" \
+  > "$ds_files/leased/market-data-admitted-reader"
+printf 'postgres://deployment_store_custodian:%s@postgres:5432/rd_owner\n' "$(env_value STORE_CUSTODY_CUSTODIAN_DB_PASSWORD)" \
+  > "$ds_files/custodian-connection"
+[ -f "$ds_dir/signing-key.hex" ] || openssl rand -hex 32 > "$ds_dir/signing-key.hex"
+
 # 6. The R&D schema. It can run only before the custody cutover, so a cut-over store skips it.
 private_schemas=$(psql_scalar "SELECT count(*) FROM pg_namespace WHERE nspname IN ('replay_policy_catalog_private','composer_private')")
 case "$private_schemas" in
@@ -303,17 +383,6 @@ esac
 
 # 7 and 8. The custody migration and the authority schema. Both are idempotent; each is skipped
 # once it has run on this volume with this script and this image.
-once() { # step key command...
-  local step=$1 key=$2
-  shift 2
-  if [ "$(cat "$state_dir/steps/$step" 2> /dev/null)" = "$key" ]; then
-    skip "$step" "already ran on this volume with these inputs"
-  else
-    run "$step"
-    "$@"
-    printf '%s\n' "$key" > "$state_dir/steps/$step"
-  fi
-}
 migrate_digest=$(shasum -a 256 "$package_dir/postgres-init/10-migrate-authority-custody.sh" | cut -d' ' -f1)
 once authority-custody-migrate "$volume_created $migrate_digest $image_id" \
   compose run --rm --no-deps authority-custody-migrate
@@ -342,6 +411,100 @@ else
 fi
 log "check replay-policy-catalog-owner-readback"
 compose run --rm --no-deps replay-policy-catalog-owner-readback > /dev/null
+
+# 10a. Publish the Deployment Store, now that Product Edge and the Catalog exist to let a full
+# rd-owner-api start grant the admitted reader its wrappers (README steps 3, 7-8). Skipped once a
+# head is already pinned and expected; a stack change needing a true re-publication is a manual
+# operation (README, "Turning on `required`", steps 6-9), not something this script redoes.
+if [ -f "$ds_files/signer-public-key.hex" ] && [ -n "$(env_value DEPLOYMENT_STORE_EXPECTED_HEAD_IDENTITY)" ]; then
+  skip deployment-store-publish "$ds_files/signer-public-key.hex and the expected head are already set"
+else
+  run deployment-store-publish
+  grant_name=$project-deployment-store-grant
+  dock rm -f "$grant_name" > /dev/null 2>&1 || true
+  compose run -d --no-deps --name "$grant_name" deployment-store-grant > /dev/null
+  grant_ready=
+  for _ in $(seq 1 90); do
+    if dock logs "$grant_name" 2>&1 | grep -q "R&D Owner API ready"; then
+      grant_ready=1
+      break
+    fi
+    [ "$(dock inspect --format '{{.State.Running}}' "$grant_name" 2> /dev/null)" = true ] || break
+    sleep 1
+  done
+  if [ -z "$grant_ready" ]; then
+    log "deployment-store-grant: rd-owner-api (disabled, migration only) never became ready"
+    dock logs "$grant_name" 2>&1 | tail -20
+    dock rm -f "$grant_name" > /dev/null 2>&1
+    exit 1
+  fi
+  dock rm -f "$grant_name" > /dev/null 2>&1
+
+  rm -f "$ds_admin/draft.json" "$ds_admin/authoring.json" "$ds_admin/sealed.json"
+  python3 - "$ds_admin/draft.json" "$(env_value DEPLOYMENT_STORE_SIGNER_IDENTITY)" \
+    "$(env_value DEPLOYMENT_STORE_ENVIRONMENT_IDENTITY)" "$(env_value DEPLOYMENT_STORE_DEPLOYMENT_IDENTITY)" << 'EOF'
+import json, sys
+target, signer, environment, deployment = sys.argv[1:5]
+draft = {
+    "signer_identity": signer,
+    "environment_identity": environment,
+    "deployment_identity": deployment,
+    "prior_manifest_identities": [],
+    "expected_previous_head_identity": None,
+    "valid_from_epoch_ms": 0,
+    "valid_through_epoch_ms": 4102444800000,
+    "recovery": {
+        "identity": f"{deployment}-recovery-v1",
+        "restart_requires_reverification": True,
+        "ambiguity_forbids_business_retry": True,
+    },
+    "rotation_fence_identity": f"{deployment}-rotation-v1",
+    "rotation_fence_closed_at_epoch_ms": 0,
+}
+open(target, "w").write(json.dumps(draft))
+EOF
+  compose run --rm --no-deps --user "$(id -u):$(id -g)" deployment-store-publication-author
+  dock run --rm --network none --user "$(id -u):$(id -g)" \
+    -v "$ds_admin:/work/admin" -v "$ds_dir/signing-key.hex:/work/signing-key.hex:ro" \
+    -e DEPLOYMENT_STORE_PUBLICATION_AUTHORING_PATH=/work/admin/authoring.json \
+    -e DEPLOYMENT_STORE_SIGNING_KEY_PATH=/work/signing-key.hex \
+    -e DEPLOYMENT_STORE_SEALED_PUBLICATION_OUTPUT_PATH=/work/admin/sealed.json \
+    --entrypoint /usr/local/bin/deployment-store-publication-seal "$owner_image" > "$state_dir/steps/deployment-store-seal.json"
+  head_identity=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["head_identity"])' \
+    "$state_dir/steps/deployment-store-seal.json")
+  signer_hex=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["signer_public_key_hex"])' \
+    "$state_dir/steps/deployment-store-seal.json")
+  # Only PUBLISHED or REPLAYED exits zero; a head mismatch or a conflict exits non-zero, naming
+  # which it was, and needs the manual re-publication the README describes ("Turning on required",
+  # steps 6-9) rather than a retry of this script.
+  compose run --rm --no-deps --user "$(id -u):$(id -g)" deployment-store-publication-publish
+  printf '%s\n' "$signer_hex" > "$ds_files/signer-public-key.hex"
+  env_set_value() { # key value
+    python3 - "$env_file" "$1" "$2" << 'EOF'
+import sys
+target, key, value = sys.argv[1:4]
+lines = [line.rstrip("\n") for line in open(target)]
+out = []
+found = False
+for line in lines:
+    if line.startswith(f"{key}="):
+        out.append(f"{key}={value}")
+        found = True
+    else:
+        out.append(line)
+if not found:
+    out.append(f"{key}={value}")
+open(target, "w").write("\n".join(out) + "\n")
+EOF
+  }
+  env_set_value DEPLOYMENT_STORE_EXPECTED_HEAD_IDENTITY "$head_identity"
+fi
+# rd-owner-api reads these read-only as uid 10001 (Dockerfile.owner), a different uid than the one
+# that created them; unlike the README's bare-metal recipe this script has no sudo to chown them to
+# 10001, so it grants read access to any local account instead of narrowing to that one uid. $ds_dir
+# (the signing key, the root CA key) and $tls_dir are never bind-mounted into rd-owner-api and stay
+# at their umask-077 default.
+chmod -R a+rX "$ds_files"
 
 # 11. The R&D Owner API on 127.0.0.1:$api_port.
 api_container=$(compose ps -q rd-owner-api 2> /dev/null || true)
