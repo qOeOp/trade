@@ -217,9 +217,10 @@ impl PitObservationSourceV1 for UniverseMemberDailyBarsV1 {
     }
 }
 
-/// The Data Client behind the quote cut's intake: one Quote per member Market Data issues, its
-/// bid and ask around the frame's close, at the instant Market Data issues. Values are canonical,
-/// as a real client normalizes them.
+/// The Data Client behind the quote cut's intake: one Quote per member Market Data issues, at the
+/// instant Market Data issues. The host places a GTC limit at the frame's close (123.45), so the ask
+/// is at or below it for the buy to fill, at the ask, and the bid one tick under the ask marks the
+/// position. Values are canonical, as a real client normalizes them.
 struct UniverseMemberQuotesV1;
 
 #[async_trait]
@@ -233,8 +234,8 @@ impl PitObservationSourceV1 for UniverseMemberQuotesV1 {
             .iter()
             .flat_map(|member| {
                 [
-                    ("BID_PRICE", 12_344, 2),
-                    ("ASK_PRICE", 12_346, 2),
+                    ("BID_PRICE", 12_343, 2),
+                    ("ASK_PRICE", 12_344, 2),
                     ("BID_SIZE", 5, 0),
                     ("ASK_SIZE", 7, 0),
                 ]
@@ -1097,10 +1098,13 @@ pub(crate) async fn ensure_first_composer_v3_replay_acceptance_v1(
             },
             threshold_coefficient: 12_000,
             comparison: BoundedFeaturePredicateV1::Greater,
+            // One grid unit is 0.01 LINK, about 1.23 USDT at the frame's close, and the venue's
+            // `MIN_NOTIONAL` is 20 USDT, so the engine's risk check denies it. 100 units is 1 LINK,
+            // about 123 USDT: inside every limit the perpetual's exchangeInfo states.
             when_true: SingleThresholdOutcomeV1 {
                 position_intent_semantic_id: "kernel.position.enter.v1".to_owned(),
                 target_variant_semantic_id: "kernel.target.position.v1".to_owned(),
-                target_position_units: 1,
+                target_position_units: 100,
                 target_weight_micros: 0,
             },
             otherwise: SingleThresholdOutcomeV1 {
