@@ -3330,14 +3330,23 @@ same names.
   sets together needs a successor fact naming the new frontier; a single-member cut is unaffected, since its one
   fact already names whichever frontier was current when it was admitted. This route does not drive that admission
   itself; it is a separate, explicit operation outside `admit_binance_perpetual`.
-- **A backfill is a job Market Data runs.** `backfill` records a `QUEUED` job fact and returns its `job_id`. A worker in
-  the Market Data service fetches the archive months and fill bars, builds the member's custody request and commits it,
-  and records `RUNNING`, then `SUCCEEDED` with the custody receipt and the coverage it added, or `FAILED` with the
-  refusal's name. Job facts are append-only and the MCP server holds no job state. The timeframe is the custody's
-  execution timeframe, validated against the one whitelist above (`1w`, `1d`, `4h`, `1h`); the `1m` fill timeframe
-  comes with it, and any other execution timeframe is `TIMEFRAME_UNSUPPORTED`.
-- **Coverage is what custody holds.** `coverage` answers, for each execution timeframe, the half-open ranges the
-  member's committed custody windows cover, read from the custody chains. It states no market value.
+- **CURRENT: a backfill is a job Market Data runs.** `POST /v1/market-data/backfill-jobs` records a `QUEUED` job
+  fact and returns its `job_id`. The job runs synchronously within that same request
+  (`crates/strategy_factory_rd_owner_api/src/binance_backfill_job.rs::start_backfill`), recording `RUNNING`, then
+  fetching the member's execution bars and fill bars, building the member's custody request and committing it, and
+  recording `SUCCEEDED` with the custody receipt and the exact window it covered, or `FAILED` with the refusal's
+  name. Job facts are append-only (`crates/data/src/owner/backfill_job_v1.rs`) and the MCP server holds no job
+  state. The timeframe is the custody's execution timeframe, validated against the one whitelist above (`1w`,
+  `1d`, `4h`, `1h`); the `1m` fill timeframe comes with it, fetched by `vision_backfill_v1.rs::fill_bars` (one REST
+  call per gap, for every execution timeframe today - reading the `1m` archive instead for `4h`/`1h`/`1w`, to cut
+  the call count, is a pending efficiency follow-up, not a correctness gap). `GET /v1/market-data/backfill-jobs/{job_id}`
+  answers the job's complete transition history.
+- **CURRENT: coverage is what Market Data's own backfill job facts record.** `GET
+  /v1/market-data/instruments/{instrument}/coverage` answers, for each execution timeframe, the half-open ranges
+  every `SUCCEEDED` job has covered, merged where they touch or overlap - not read from the custody chains
+  directly: the committed receipt carries no window bounds, and the custody tables have no queryable bounds
+  columns either, so this is Market Data's own statement of what it committed, not another Owner's internal rows.
+  It states no market value.
 - **A run names its data by description.** A `dataset_ref` is the description
   `(instrument, execution_timeframe, [start, end))`, which an agent writes from `coverage`; no tool issues it. The service that runs a backtest resolves it
   against the custody chain that covers it, records the head it resolved, and refuses a range no custody covers as

@@ -212,6 +212,7 @@ struct DevelopComposerA0ExecutionsV1 {
 
 use vibe_strategy_factory_rd_owner_api::required_env;
 
+mod binance_backfill_job;
 mod bounded_feature_program;
 #[cfg(all(test, feature = "sealed-source-intake-acceptance"))]
 mod dashboard_run_routing_acceptance;
@@ -450,6 +451,12 @@ async fn run() -> anyhow::Result<()> {
     let market_data_instrument_catalog = bootstrap_market_data_instrument_catalog().await?;
     let market_data_binance_perpetual_admission =
         bootstrap_market_data_binance_perpetual_admission()?;
+    let market_data_backfill_jobs = bootstrap_market_data_backfill_jobs().await?;
+    let market_data_custody_commit = bootstrap_market_data_custody_commit().await?;
+    let market_data_backfill_fetcher = market_data_binance_perpetual_admission
+        .as_ref()
+        .and_then(|client| binance_backfill_job::vision_backfill_fetcher_v1(client).ok())
+        .map(Arc::new);
     let market_data_market_semantics_admission =
         bootstrap_market_data_market_semantics_admission().await?;
     #[cfg(feature = "composer-replay-issuance")]
@@ -700,8 +707,8 @@ async fn run() -> anyhow::Result<()> {
         .merge(market_data_pit::router(
             market_data_pit::MarketDataAdmissions {
                 intake: market_data_pit_intake,
-                admission: market_data_source_binding_admission,
-                universe: market_data_universe_selection,
+                admission: market_data_source_binding_admission.clone(),
+                universe: market_data_universe_selection.clone(),
                 bindings: market_data_strategy_input_bindings,
                 instruments: market_data_instrument_master_admission,
                 instruments_v2: market_data_instrument_master_admission_v2,
@@ -711,6 +718,16 @@ async fn run() -> anyhow::Result<()> {
                 binance_perpetual_admission: market_data_binance_perpetual_admission,
             },
             token_digest,
+        ))
+        .merge(binance_backfill_job::router(
+            binance_backfill_job::BinanceBackfillJobApiState {
+                jobs: market_data_backfill_jobs,
+                admission: market_data_source_binding_admission,
+                universe: market_data_universe_selection,
+                custody_commit: market_data_custody_commit,
+                fetcher: market_data_backfill_fetcher,
+                token_digest,
+            },
         ));
     #[cfg(feature = "native-replay-execution")]
     let app = app.merge(exploratory_replay::execution_router(
@@ -1125,6 +1142,30 @@ fn bootstrap_market_data_binance_perpetual_admission()
         return Ok(None);
     }
     Ok(Some(binance_perpetual_admission_client()?))
+}
+
+/// Composes the backfill job fact store when Market Data's store is configured.
+async fn bootstrap_market_data_backfill_jobs()
+-> anyhow::Result<Option<Arc<dyn vibe_data::owner::backfill_job_v1::BackfillJobV1>>> {
+    if env::var("MARKET_DATA_OWNER_DATABASE_URL").is_err() {
+        return Ok(None);
+    }
+    Ok(Some(
+        vibe_data::owner::backfill_job_v1::backfill_job_from_environment_v1().await?,
+    ))
+}
+
+/// Composes the PIT window custody commit when Market Data's store is configured.
+async fn bootstrap_market_data_custody_commit() -> anyhow::Result<
+    Option<Arc<dyn vibe_data::owner::pit_window_custody_v1::PitWindowCustodyCommitV1>>,
+> {
+    if env::var("MARKET_DATA_OWNER_DATABASE_URL").is_err() {
+        return Ok(None);
+    }
+    Ok(Some(
+        vibe_data::owner::pit_window_custody_v1::pit_window_custody_commit_from_environment_v1()
+            .await?,
+    ))
 }
 
 /// Composes the Market Data Source Binding admission when its store is configured.
