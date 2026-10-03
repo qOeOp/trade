@@ -1292,8 +1292,11 @@ unavailable 或位于不同 cut 时，只撤回它自己的行与计数。两个
   却永远无法回测的研究。该检查只是提前拒绝：真正的保证仍然是 Market Data 在签发初始 PIT 请求时的判定，与
   universe-member binding 同理。由哪个 Market Data 读取函数回答它，与 Market Data 对齐；若今天尚无已准入的读取函数，
   提供它属于本切片，而绝不是跳过该检查的理由。请求以
-  `sourced-research-goal-v3` operation 传输，经 `POST /v3/source-intake-research` 提交、经
-  `POST /v3/research-goals/{request_identity}/resolve` 解析，与不变的 V2 路由并列。范围属于请求含义，因此同一请求身份配
+  `sourced-research-goal-v3` operation 传输：来源由 Source Intake 终态提供时经 `POST /v3/source-intake-research`
+  提交，来源由调用方陈述时经 `POST /v3/research-goals` 提交（如同 `POST /v2/research-goals` 接收 V2 请求的来源），经
+  `POST /v3/research-goals/{request_identity}/resolve` 解析，与不变的 V2 路由并列。`POST /v3/research-goals` 要求带
+  范围，`POST /v2/research-goals` 拒绝带范围的请求，二者都在任何准入之前；两条路由都以
+  `research_goal_admitted_operation` 按请求是否陈述范围选出的 operation 准入，Owner 核对已存请求的准入用的也是这个函数。范围属于请求含义，因此同一请求身份配
   另一范围即为含义变化，会被拒绝。冻结的 Research Intent（V3）绑定范围
   身份与字节。更换品种意味着一个后继 Research request，它有自己的 Intent 与自己的初始 PIT 请求；没有任何机制把已接纳
   的 Intent 改绑到另一品种。

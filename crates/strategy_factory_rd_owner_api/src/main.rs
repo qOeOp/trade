@@ -105,12 +105,10 @@ use vibe_strategy_factory::{
     develop_composer_operation_v2::DevelopComposerOperationResponseV2,
     develop_composer_sealed_acceptance_v2::default_unavailable_response,
     product_edge::{
-        ProductEdgeChannel, ProductEdgeResearchGoalRequestV2, RESEARCH_GOAL_OPERATION_V2,
-        RESEARCH_GOAL_SCHEMA_V2, RESEARCH_OWNER_V1, ResearchDirectoryCursorV1,
+        ProductEdgeChannel, RESEARCH_OWNER_V1, ResearchDirectoryCursorV1,
         ResearchDirectoryOwnerPort, ResearchGoalOwnerError, ResearchGoalOwnerPortV2,
-        ResearchReadbackOwnerPortV1, SourcedResearchGoalV2, TrialFamilyProposalV1,
-        identity_conflict_result, identity_conflict_result_v2, rejected_result, unresolved_result,
-        unresolved_result_v2,
+        ResearchReadbackOwnerPortV1, identity_conflict_result, identity_conflict_result_v2,
+        rejected_result, unresolved_result, unresolved_result_v2,
     },
     product_edge_postgres::research_initial_pit::MarketDataInitialPitPortsV1,
     product_edge_postgres::{PostgresResearchGoalOwnerV1, ResearchRequestIdentityPreflightV1},
@@ -222,6 +220,14 @@ mod market_data_pit;
 mod market_data_repair;
 #[cfg(all(test, feature = "sealed-develop-composer-acceptance"))]
 mod native_replay_scheduling_acceptance;
+mod research_goal_submission;
+#[cfg(test)]
+use research_goal_submission::ProductEdgeOperationRequestV2;
+#[cfg(test)]
+use vibe_strategy_factory::product_edge::{
+    ProductEdgeResearchGoalRequestV2, RESEARCH_GOAL_OPERATION_V2, RESEARCH_GOAL_SCHEMA_V2,
+    SourcedResearchGoalV2, TrialFamilyProposalV1,
+};
 mod research_initial_pit;
 #[cfg(test)]
 mod research_initial_pit_postgres_tests;
@@ -265,13 +271,19 @@ struct ApiState {
     replay_composition: Option<Arc<ReplayCompositionOwnerV1>>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-struct ProductEdgeOperationRequestV2 {
-    request_identity: String,
-    channel: ProductEdgeChannel,
-    goal: SourcedResearchGoalV2,
-    trial_family_proposal: TrialFamilyProposalV1,
+impl ApiState {
+    /// The Research submission routes' own state, which needs only these five of the API's.
+    fn research_goal_submission(
+        &self,
+    ) -> research_goal_submission::ResearchGoalSubmissionApiStateV1 {
+        research_goal_submission::ResearchGoalSubmissionApiStateV1 {
+            product_edge: self.product_edge.clone(),
+            owner: self.owner.clone(),
+            token_digest: self.token_digest,
+            request_proof_digest: self.request_proof_digest.clone(),
+            allow_acceptance_faults: self.allow_acceptance_faults,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -610,6 +622,7 @@ async fn run() -> anyhow::Result<()> {
         request_proof_digest.clone(),
     )
     .await?;
+    let research_goal_submission = state.research_goal_submission();
     let app = Router::new()
         .route("/health", get(health))
         .route("/v1/research-goals/directory", get(read_research_directory))
@@ -622,7 +635,6 @@ async fn run() -> anyhow::Result<()> {
             "/v1/research-goals/{request_identity}/resolve",
             post(resolve),
         )
-        .route("/v2/research-goals", post(submit_v2))
         .route(
             "/v2/research-goals/{request_identity}/resolve",
             post(resolve_v2),
@@ -761,6 +773,7 @@ async fn run() -> anyhow::Result<()> {
             token_digest,
             request_proof_digest.clone(),
         ))
+        .merge(research_goal_submission::router(research_goal_submission))
         // The issuance holds the same two Market Data ports its routes serve, not a second pair.
         .merge(research_initial_pit::router(
             owner.clone(),
@@ -1371,7 +1384,7 @@ async fn run_develop_composer(
                 let response = composer_operation_response(response);
 
                 if delay_after_commit {
-                    maybe_delay(&state, &headers).await;
+                    maybe_delay(state.allow_acceptance_faults, &headers).await;
                 }
                 response
             }
@@ -1793,65 +1806,6 @@ async fn resolve(
     }
 }
 
-async fn submit_v2(State(state): State<ApiState>, headers: HeaderMap, body: Bytes) -> Response {
-    if !authorized(&headers, &state.token_digest) {
-        return rejection_v2(
-            StatusCode::FORBIDDEN,
-            "UNAUTHORIZED_PRODUCT_EDGE",
-            "unbound",
-        );
-    }
-    let operation: ProductEdgeOperationRequestV2 = match serde_json::from_slice(&body) {
-        Ok(request) => request,
-        Err(_) => {
-            return rejection_v2(
-                StatusCode::BAD_REQUEST,
-                "MALFORMED_TYPED_REQUEST",
-                "unbound",
-            );
-        }
-    };
-    let request_identity = operation.request_identity.clone();
-
-    if let Some(refusal) = research_preflight_refusal(
-        state
-            .owner
-            .preflight_request_identity(&request_identity)
-            .await,
-        &request_identity,
-    ) {
-        return refusal;
-    }
-    let admission = match admit_product_edge_request(
-        &state,
-        &operation,
-        &request_identity,
-        RESEARCH_GOAL_OPERATION_V2,
-        RESEARCH_GOAL_SCHEMA_V2,
-        vec!["R_AND_D_RESEARCH_MUTATION_V1".to_string()],
-    )
-    .await
-    {
-        Ok(admission) => admission,
-        Err(e) => return product_edge_error(&e, &request_identity, true),
-    };
-    let request = ProductEdgeResearchGoalRequestV2 {
-        request_identity: operation.request_identity,
-        channel: operation.channel,
-        admission: admission.locator().clone(),
-        goal: operation.goal,
-        trial_family_proposal: operation.trial_family_proposal,
-        instrument_scope: None,
-    };
-    let request_identity = request.request_identity.clone();
-    let response = match state.owner.submit_v2(request).await {
-        Ok(result) => (StatusCode::OK, Json(result)).into_response(),
-        Err(e) => owner_error_v2(&e, &request_identity),
-    };
-    maybe_delay(&state, &headers).await;
-    response
-}
-
 async fn resolve_v2(
     State(state): State<ApiState>,
     Path(request_identity): Path<String>,
@@ -2052,7 +2006,7 @@ async fn submit_artifact_candidate(
         Ok(result) => artifact_result_response(&state, &admission, &attempt_identity, result).await,
         Err(e) => artifact_error(&e, &build_request_identity, &attempt_identity),
     };
-    maybe_delay(&state, &headers).await;
+    maybe_delay(state.allow_acceptance_faults, &headers).await;
     response
 }
 
@@ -2998,8 +2952,8 @@ fn authorized(headers: &HeaderMap, expected_digest: &[u8; 32]) -> bool {
         == 0
 }
 
-async fn maybe_delay(state: &ApiState, headers: &HeaderMap) {
-    if !state.allow_acceptance_faults {
+async fn maybe_delay(allow_acceptance_faults: bool, headers: &HeaderMap) {
+    if !allow_acceptance_faults {
         return;
     }
     let delay = headers
@@ -3012,30 +2966,6 @@ async fn maybe_delay(state: &ApiState, headers: &HeaderMap) {
     if delay > 0 {
         tokio::time::sleep(Duration::from_millis(delay)).await;
     }
-}
-
-async fn admit_product_edge_request<T: Serialize>(
-    state: &ApiState,
-    typed_payload: &T,
-    request_identity: &str,
-    operation: &str,
-    operation_schema: &str,
-    requested_effects: Vec<String>,
-) -> Result<ProductEdgeAdmissionReadbackV1, ProductEdgeError> {
-    state
-        .product_edge
-        .admit_request(ProductEdgeAdmissionRequestV1 {
-            request_identity: request_identity.to_string(),
-            typed_payload: serde_json::to_value(typed_payload)
-                .map_err(|e| ProductEdgeError::Storage(e.to_string()))?,
-            operation: operation.to_string(),
-            operation_schema: operation_schema.to_string(),
-            target_owner: RESEARCH_OWNER_V1.to_string(),
-            requested_effects,
-            request_proof_digest: state.request_proof_digest.clone(),
-            audit_correlation: format!("rd-workbench:{request_identity}"),
-        })
-        .await
 }
 
 fn product_edge_error(error: &ProductEdgeError, request_identity: &str, v2: bool) -> Response {
@@ -3855,8 +3785,8 @@ mod tests {
                 independence_rationale: "Fresh isolated strategy source family.".to_string(),
             },
         };
-        let research_response = Box::pin(submit_v2(
-            State(state.clone()),
+        let research_response = Box::pin(research_goal_submission::submit_v2(
+            State(state.research_goal_submission()),
             headers.clone(),
             Bytes::from(serde_json::to_vec(&research).unwrap()),
         ))
@@ -4323,8 +4253,8 @@ mod tests {
                 independence_rationale: "Fresh isolated API retry family.".to_string(),
             },
         };
-        let research_response = Box::pin(submit_v2(
-            State(state.clone()),
+        let research_response = Box::pin(research_goal_submission::submit_v2(
+            State(state.research_goal_submission()),
             headers.clone(),
             Bytes::from(serde_json::to_vec(&research).unwrap()),
         ))
