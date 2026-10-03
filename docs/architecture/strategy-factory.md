@@ -146,7 +146,10 @@ The maturity boundary is explicit:
   native cached order remain after the Host commit; it does not claim venue rollback or all-or-none submission.
   Each `ClientOrderId` binds the exact instrument and host-derived intent; partial/full/canceled/rejected progress
   advances only that member, retains its independent residual, and synchronizes that member's protection quantity
-  to actual filled quantity. The real `BacktestEngine`/Sim Exchange acceptance corpus uses distinct prices,
+  to actual filled quantity. A pre-trade risk denial reaches the kernel as that member's rejection. A position order
+  still resting when the run ends is canceled at the venue, and the Host states that cancellation to the kernel
+  before the Stop, because no venue event reaches a stopping strategy; protective orders stay. The real
+  `BacktestEngine`/Sim Exchange acceptance corpus uses distinct prices,
   multipliers, and size grids and proves repeat equality plus uninterrupted versus same-running-engine opaque Host
   checkpoint-restored suffix equality. A real-Sim regression with the Owner-sealed first frame and a test-only
   admitted successor frame opens positions, marks nonzero unrealized PnL, and proves the next weight target uses
