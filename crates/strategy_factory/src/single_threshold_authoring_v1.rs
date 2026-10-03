@@ -3912,10 +3912,12 @@ mod tests {
 
         assert_eq!(
             (exact_digest.as_str(), universe_digest.as_str()),
-            // Moved once, with the Design, when the plugin's fuel bound rose to 1,000,000.
+            // Both moved once, with the Design, when the plugin's fuel bound rose to 1,000,000. The
+            // universe Plan moved again when its roles came to read at Market Data's value scale;
+            // the exact one, whose author declares its own scale, did not.
             (
                 "d9ef1d86900b14be0170b96c289da65dc8dec706a23027faf17b1b418954f7f8",
-                "f628363b99449af1316ef81a05b68eaaf1cdff8b0b70c4f5226ceda9c22305ce",
+                "7cda3249525a07d186fc8caa3556244acd99f0bd6b9083dde5140b35d697a154",
             ),
         );
     }

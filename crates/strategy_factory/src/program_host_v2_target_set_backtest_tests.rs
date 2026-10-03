@@ -3063,6 +3063,7 @@ fn authored_universe_member_program(
     let sealed_frame = issue_single_member_universe_frame_for_owner_lineage(
         candidate.research_request_identity,
         design_identity,
+        crate::program_host_v2_tests::single_member_universe_roles_of(&candidate),
     )
     .expect("one-member Owner universe frame");
     let build = VerifiedPluginCargoBuildV3::verify(
