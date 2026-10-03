@@ -1595,6 +1595,10 @@ fn decode_observation(bytes: &[u8]) -> Result<VerifiedPitObservation, PitSnapsho
             "OPEN_INTEREST",
             "OPEN_INTEREST_VALUE",
             "OPEN_INTEREST_TIME",
+            // A perpetual's long/short ratios, at the open interest's sample.
+            "LONG_SHORT_ACCOUNT_RATIO",
+            "TOP_TRADER_LONG_SHORT_ACCOUNT_RATIO",
+            "TOP_TRADER_LONG_SHORT_POSITION_RATIO",
         ])?,
         value_mantissa: decoder.i128()?,
         value_scale: decoder.u8()?,

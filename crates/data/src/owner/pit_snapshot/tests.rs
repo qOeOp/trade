@@ -1354,6 +1354,9 @@ fn funding_and_open_interest_rows_are_canonical_observations_and_an_unadmitted_f
         ("OPEN_INTEREST", 74_006_266, 3),
         ("OPEN_INTEREST_VALUE", 31_314_937_388_974, 4),
         ("OPEN_INTEREST_TIME", 1_790_985_300_000_000_000, 0),
+        ("LONG_SHORT_ACCOUNT_RATIO", 11_882, 4),
+        ("TOP_TRADER_LONG_SHORT_ACCOUNT_RATIO", 12_604, 4),
+        ("TOP_TRADER_LONG_SHORT_POSITION_RATIO", 20_516, 4),
     ] {
         let row = VerifiedPitObservation {
             symbolic_key: format!("BTCUSDT-PERP.BINANCE.{field}.TICK"),

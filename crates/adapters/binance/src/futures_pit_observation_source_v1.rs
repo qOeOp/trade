@@ -73,6 +73,26 @@ const OPEN_INTEREST_FIELD: &str = "OPEN_INTEREST";
 const OPEN_INTEREST_VALUE_FIELD: &str = "OPEN_INTEREST_VALUE";
 /// The snapshot instant in nanoseconds, in the endpoint's convention.
 const OPEN_INTEREST_TIME_FIELD: &str = "OPEN_INTEREST_TIME";
+/// The venue's three long/short ratios: each field, the archive column holding it, and the
+/// endpoint serving it. The archive column names do not say which ratio they are; the pairing is
+/// the one under which the archive equals the endpoint for every 2026-10-01 BTCUSDT sample.
+const LONG_SHORT_RATIOS: [(&str, &str, &str); 3] = [
+    (
+        "LONG_SHORT_ACCOUNT_RATIO",
+        "count_long_short_ratio",
+        "/futures/data/globalLongShortAccountRatio",
+    ),
+    (
+        "TOP_TRADER_LONG_SHORT_ACCOUNT_RATIO",
+        "count_toptrader_long_short_ratio",
+        "/futures/data/topLongShortAccountRatio",
+    ),
+    (
+        "TOP_TRADER_LONG_SHORT_POSITION_RATIO",
+        "sum_toptrader_long_short_ratio",
+        "/futures/data/topLongShortPositionRatio",
+    ),
+];
 const FIVE_MINUTES_MS: i64 = 300_000;
 const DAY_MS: i64 = 86_400_000;
 /// A sample is published about two minutes after its instant (104-144 s measured on 2026-10-02),
@@ -212,7 +232,8 @@ impl BinanceFuturesObservationSourceV1 {
             .map_err(|_| PitObservationSourceErrorV1::ScopeMismatch)?;
         let latest_visible_ms = cut_ms - OPEN_INTEREST_VISIBLE_AFTER_MS;
 
-        let snapshots = if now_ms.saturating_sub(cut_ms) < OPEN_INTEREST_ENDPOINT_REACH_MS {
+        let recent = now_ms.saturating_sub(cut_ms) < OPEN_INTEREST_ENDPOINT_REACH_MS;
+        let snapshots = if recent {
             let records = self
                 .client
                 .inner()
@@ -240,13 +261,64 @@ impl BinanceFuturesObservationSourceV1 {
                     instant_ms: record.timestamp,
                     contracts: record.sum_open_interest,
                     notional: record.sum_open_interest_value,
+                    ratios: Vec::new(),
                 })
                 .collect()
         } else {
             self.archived_open_interest(symbol, latest_visible_ms)
                 .await?
         };
-        Ok(open_interest_in_force(snapshots, cut_ms))
+        let Some(mut snapshot) = open_interest_in_force(snapshots, cut_ms) else {
+            return Ok(None);
+        };
+
+        if recent {
+            snapshot.ratios = self.endpoint_ratios(symbol, snapshot.instant_ms).await?;
+        }
+        Ok(Some(snapshot))
+    }
+
+    /// Each long/short ratio the endpoints state for exactly the sample at `instant_ms`.
+    ///
+    /// An endpoint answers with its latest sample at or before the instant, so a ratio whose
+    /// latest sample is earlier is absent rather than borrowed from another sample.
+    async fn endpoint_ratios(
+        &self,
+        symbol: &str,
+        instant_ms: i64,
+    ) -> Result<Vec<(&'static str, String)>, PitObservationSourceErrorV1> {
+        let mut ratios = Vec::new();
+
+        for (field, _, path) in LONG_SHORT_RATIOS {
+            let records: Vec<LongShortRatioRecordV1> = self
+                .client
+                .inner()
+                .get(
+                    path,
+                    Some(&LongShortRatioParamsV1 {
+                        symbol,
+                        period: "5m",
+                        end_time: instant_ms,
+                        limit: 1,
+                    }),
+                    false,
+                    false,
+                )
+                .await
+                .map_err(|_| PitObservationSourceErrorV1::Unavailable)?;
+
+            if records.iter().any(|record| record.timestamp > instant_ms) {
+                return Err(PitObservationSourceErrorV1::ScopeMismatch);
+            }
+
+            if let Some(record) = records
+                .into_iter()
+                .find(|record| record.timestamp == instant_ms)
+            {
+                ratios.push((field, record.long_short_ratio));
+            }
+        }
+        Ok(ratios)
     }
 
     /// Every open interest snapshot one archived day holds, in the endpoint's convention.
@@ -398,6 +470,10 @@ impl PitObservationSourceV1 for BinanceFuturesObservationSourceV1 {
             }
 
             if let Some(snapshot) = self.open_interest_at(&symbol, end_ms).await? {
+                for (field, quoted) in &snapshot.ratios {
+                    let (mantissa, scale) = exact_decimal(quoted)?;
+                    rows.push(scalar_row(scope, &member, field, mantissa, scale));
+                }
                 let (contracts, contracts_scale) = exact_decimal(&snapshot.contracts)?;
                 let (notional, notional_scale) = exact_decimal(&snapshot.notional)?;
                 let time = i128::from(snapshot.instant_ms) * NANOS_PER_MILLI;
@@ -471,12 +547,32 @@ fn scalar_row(
     }
 }
 
-/// One open interest sample, in the endpoint's convention: the instant it was taken.
+/// One open interest sample, in the endpoint's convention: the instant it was taken, and the
+/// long/short ratios the venue states for that same sample.
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct OpenInterestSnapshotV1 {
     instant_ms: i64,
     contracts: String,
     notional: String,
+    ratios: Vec<(&'static str, String)>,
+}
+
+/// The query each long/short ratio endpoint takes.
+#[derive(serde::Serialize)]
+struct LongShortRatioParamsV1<'a> {
+    symbol: &'a str,
+    period: &'static str,
+    #[serde(rename = "endTime")]
+    end_time: i64,
+    limit: u32,
+}
+
+/// One sample a long/short ratio endpoint states.
+#[derive(serde::Deserialize)]
+struct LongShortRatioRecordV1 {
+    #[serde(rename = "longShortRatio")]
+    long_short_ratio: String,
+    timestamp: i64,
 }
 
 /// The latest snapshot visible at `cut_ms`, unless the latest one is too old to be in force.
@@ -520,6 +616,7 @@ fn parse_metrics_open_interest(
     if lines.next() != Some(METRICS_HEADER) {
         return Err(PitObservationSourceErrorV1::Unavailable);
     }
+    let header_columns = METRICS_HEADER.split(',').collect::<Vec<_>>();
     let mut snapshots = Vec::new();
 
     for line in lines.filter(|line| !line.is_empty()) {
@@ -528,15 +625,34 @@ fn parse_metrics_open_interest(
             return Err(PitObservationSourceErrorV1::Unavailable);
         };
 
+        if columns.len() != header_columns.len() {
+            return Err(PitObservationSourceErrorV1::Unavailable);
+        }
+
         if *row_symbol != symbol {
             return Err(PitObservationSourceErrorV1::ScopeMismatch);
         }
         let stamp_ms =
             archive_stamp_ms(create_time).ok_or(PitObservationSourceErrorV1::Unavailable)?;
+        // An empty ratio cell is a ratio the venue did not state for this sample.
+        let mut ratios = Vec::new();
+
+        for (field, column, _) in LONG_SHORT_RATIOS {
+            let index = header_columns
+                .iter()
+                .position(|name| *name == column)
+                .ok_or(PitObservationSourceErrorV1::Unavailable)?;
+            let value = columns[index];
+
+            if !value.is_empty() {
+                ratios.push((field, value.to_string()));
+            }
+        }
         snapshots.push(OpenInterestSnapshotV1 {
             instant_ms: stamp_ms + FIVE_MINUTES_MS,
             contracts: (*contracts).to_string(),
             notional: (*notional).to_string(),
+            ratios,
         });
     }
     Ok(snapshots)
@@ -869,6 +985,8 @@ mod funding_tests {
         funding_status: StatusCode,
         funding: Value,
         open_interest: Value,
+        /// What each long/short ratio endpoint answers, by path.
+        ratios: BTreeMap<String, Value>,
         /// The archived day's zip and its `.CHECKSUM` text, or the status the archive answers.
         archive: Result<(Vec<u8>, String), StatusCode>,
         seen: Arc<Mutex<Vec<(String, HeaderMap, String)>>>,
@@ -879,6 +997,7 @@ mod funding_tests {
         funding_status: StatusCode,
         funding: Value,
         open_interest: Value,
+        ratios: BTreeMap<String, Value>,
         archive: Result<(Vec<u8>, String), StatusCode>,
         now_after_cut_ms: i64,
     }
@@ -891,10 +1010,44 @@ mod funding_tests {
                 open_interest: json!([{"symbol": "BTCUSDT", "sumOpenInterest": "74006.26600000",
                     "sumOpenInterestValue": "3131493738.89740000",
                     "timestamp": SETTLED_MS - FIVE_MINUTES_MS}]),
+                ratios: [
+                    ("/futures/data/globalLongShortAccountRatio", "1.1882"),
+                    ("/futures/data/topLongShortAccountRatio", "1.2604"),
+                    ("/futures/data/topLongShortPositionRatio", "2.0516"),
+                ]
+                .into_iter()
+                .map(|(path, ratio)| {
+                    (
+                        path.to_string(),
+                        json!([{"symbol": "BTCUSDT", "longShortRatio": ratio,
+                            "longAccount": "0.5", "shortAccount": "0.5",
+                            "timestamp": SETTLED_MS - FIVE_MINUTES_MS}]),
+                    )
+                })
+                .collect(),
                 archive: Err(StatusCode::NOT_FOUND),
                 now_after_cut_ms: HOUR_MS,
             }
         }
+    }
+
+    async fn long_short_ratio(
+        State(venue): State<Venue>,
+        uri: axum::http::Uri,
+        headers: HeaderMap,
+    ) -> Response {
+        let path = uri.path().to_string();
+        venue.seen.lock().unwrap().push((
+            path.clone(),
+            headers,
+            uri.query().unwrap_or_default().to_string(),
+        ));
+        (
+            StatusCode::OK,
+            [("content-type", "application/json")],
+            venue.ratios[&path].to_string(),
+        )
+            .into_response()
     }
 
     async fn open_interest_hist(
@@ -1038,6 +1191,7 @@ mod funding_tests {
             funding_status: stand.funding_status,
             funding: stand.funding,
             open_interest: stand.open_interest,
+            ratios: stand.ratios,
             archive: stand.archive,
             seen: Arc::new(Mutex::new(Vec::new())),
         };
@@ -1046,6 +1200,18 @@ mod funding_tests {
             .route("/fapi/v1/klines", get(klines))
             .route("/fapi/v1/fundingRate", get(funding))
             .route("/futures/data/openInterestHist", get(open_interest_hist))
+            .route(
+                "/futures/data/globalLongShortAccountRatio",
+                get(long_short_ratio),
+            )
+            .route(
+                "/futures/data/topLongShortAccountRatio",
+                get(long_short_ratio),
+            )
+            .route(
+                "/futures/data/topLongShortPositionRatio",
+                get(long_short_ratio),
+            )
             .route(day, get(archive_zip))
             .route(&format!("{day}.CHECKSUM"), get(archive_checksum))
             .with_state(venue.clone());
@@ -1146,7 +1312,17 @@ mod funding_tests {
             .iter()
             .map(|(endpoint, _, _)| endpoint.as_str())
             .collect::<Vec<_>>();
-        assert_eq!(requests, ["klines", "fundingRate", "openInterestHist"]);
+        assert_eq!(
+            requests,
+            [
+                "klines",
+                "fundingRate",
+                "openInterestHist",
+                "/futures/data/globalLongShortAccountRatio",
+                "/futures/data/topLongShortAccountRatio",
+                "/futures/data/topLongShortPositionRatio",
+            ]
+        );
         let (_, _, funding_query) = &seen[1];
         assert!(
             funding_query.contains(&format!("endTime={SETTLED_MS}"))
@@ -1177,8 +1353,8 @@ mod funding_tests {
         );
         assert_eq!(
             rows.len(),
-            9,
-            "the bar and the open interest are still stated"
+            12,
+            "the bar, the open interest and the ratios are still stated"
         );
     }
 
@@ -1202,6 +1378,68 @@ mod funding_tests {
         assert_eq!(result, Err(PitObservationSourceErrorV1::Unavailable));
     }
 
+    fn ratio_rows(rows: &[VendorObservationV1]) -> Vec<(&str, i128, u8)> {
+        rows.iter()
+            .filter(|row| row.field.ends_with("_RATIO"))
+            .map(|row| (row.field.as_str(), row.value_mantissa, row.value_scale))
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn a_recent_coordinate_asks_each_ratio_endpoint_for_the_open_interest_sample() {
+        let (result, seen) = observe_with(Stand::recent(StatusCode::OK, json!([]))).await;
+        let rows = result.expect("the stand-in answers");
+        assert_eq!(
+            ratio_rows(&rows),
+            [
+                ("LONG_SHORT_ACCOUNT_RATIO", 11_882, 4),
+                ("TOP_TRADER_LONG_SHORT_ACCOUNT_RATIO", 12_604, 4),
+                ("TOP_TRADER_LONG_SHORT_POSITION_RATIO", 20_516, 4),
+            ],
+            "each ratio under its own field, as the endpoint spelled it"
+        );
+
+        for (endpoint, headers, query) in seen.iter().filter(|(e, _, _)| e.ends_with("Ratio")) {
+            assert!(
+                query.contains(&format!("endTime={}", SETTLED_MS - FIVE_MINUTES_MS))
+                    && query.contains("limit=1")
+                    && query.contains("period=5m"),
+                "{endpoint} was asked for the open interest's sample: {query}"
+            );
+            assert!(
+                !headers.contains_key("x-mbx-apikey"),
+                "{endpoint} carried a key"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn a_ratio_whose_latest_sample_is_another_is_absent_alone() {
+        let mut stand = Stand::recent(StatusCode::OK, json!([]));
+        stand.ratios.insert(
+            "/futures/data/topLongShortAccountRatio".to_string(),
+            json!([{"symbol": "BTCUSDT", "longShortRatio": "9.9999", "longAccount": "0.5",
+                "shortAccount": "0.5", "timestamp": SETTLED_MS - 2 * FIVE_MINUTES_MS}]),
+        );
+        let rows = observe_with(stand).await.0.expect("the stand-in answers");
+        assert_eq!(
+            ratio_rows(&rows)
+                .iter()
+                .map(|(field, _, _)| *field)
+                .collect::<Vec<_>>(),
+            [
+                "LONG_SHORT_ACCOUNT_RATIO",
+                "TOP_TRADER_LONG_SHORT_POSITION_RATIO"
+            ],
+            "the earlier sample is not borrowed, and the other two still stand"
+        );
+        assert_eq!(
+            open_interest_rows(&rows).len(),
+            3,
+            "open interest is unaffected"
+        );
+    }
+
     fn open_interest_rows(rows: &[VendorObservationV1]) -> Vec<(&str, i128, u8)> {
         rows.iter()
             .filter(|row| row.field.starts_with("OPEN_INTEREST"))
@@ -1214,6 +1452,7 @@ mod funding_tests {
             instant_ms,
             contracts: "1".to_string(),
             notional: "1".to_string(),
+            ratios: Vec::new(),
         }
     }
 
@@ -1295,7 +1534,7 @@ mod funding_tests {
         stand.archive = Ok(archived_day(&[
             "2024-01-01 07:55:00,BTCUSDT,999.0,999.0,1,1,1,1",
             "2024-01-01 07:45:00,BTCUSDT,73900.000,3100000000.00,1,1,1,9.99",
-            "2024-01-01 07:50:00,BTCUSDT,74006.26600000,3131493738.89740000,1,1,1,9.99",
+            "2024-01-01 07:50:00,BTCUSDT,74006.26600000,3131493738.89740000,1.36820310,1.25366800,,9.99",
         ]));
         let (result, seen) = observe_with(stand).await;
         let rows = result.expect("the archived day answers");
@@ -1311,6 +1550,14 @@ mod funding_tests {
                 ("OPEN_INTEREST_VALUE", 31_314_937_388_974, 4),
             ],
             "the row stamped 07:50 is the sample taken at 07:55"
+        );
+        assert_eq!(
+            ratio_rows(&rows),
+            [
+                ("TOP_TRADER_LONG_SHORT_ACCOUNT_RATIO", 13_682_031, 7),
+                ("TOP_TRADER_LONG_SHORT_POSITION_RATIO", 1_253_668, 6),
+            ],
+            "each ratio from its own column; the empty all-accounts cell states nothing"
         );
         assert!(
             !seen
@@ -1446,8 +1693,8 @@ mod live_tests {
         let rows = source.observe(&scope).await.expect("the endpoint answers");
         assert_eq!(
             rows.len(),
-            11,
-            "one closed bar's prices and volumes, a settlement, and an archived open interest sample"
+            14,
+            "one closed bar's prices and volumes, a settlement, and an archived metrics sample"
         );
         let scalar_fields = rows
             .iter()
@@ -1459,11 +1706,14 @@ mod live_tests {
             [
                 "FUNDING_RATE",
                 "FUNDING_TIME",
+                "LONG_SHORT_ACCOUNT_RATIO",
                 "OPEN_INTEREST",
                 "OPEN_INTEREST_TIME",
-                "OPEN_INTEREST_VALUE"
+                "OPEN_INTEREST_VALUE",
+                "TOP_TRADER_LONG_SHORT_ACCOUNT_RATIO",
+                "TOP_TRADER_LONG_SHORT_POSITION_RATIO"
             ],
-            "a coordinate this old reads its open interest from the archive"
+            "a coordinate this old reads its open interest and ratios from the archive"
         );
         let rows = rows
             .into_iter()

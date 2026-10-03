@@ -197,7 +197,7 @@ static PERPETUAL: Product = Product {
     price_meaning: "decimal-string/usdt",
     digest_tag: 0x02,
     observations: futures_observations,
-    scalar_rows: 5,
+    scalar_rows: 8,
 };
 
 /// The host this run will actually call: the product's own, unless the environment names another.
@@ -249,7 +249,7 @@ static PERPETUAL_DAILY: Product = Product {
     price_meaning: "decimal-string/usdc",
     digest_tag: 0x03,
     observations: futures_observations,
-    scalar_rows: 5,
+    scalar_rows: 8,
 };
 
 fn spot_observations(
@@ -551,14 +551,17 @@ async fn admit(product: &'static Product) -> Admitted {
         &[
             "FUNDING_RATE",
             "FUNDING_TIME",
+            "LONG_SHORT_ACCOUNT_RATIO",
             "OPEN_INTEREST",
             "OPEN_INTEREST_TIME",
             "OPEN_INTEREST_VALUE",
+            "TOP_TRADER_LONG_SHORT_ACCOUNT_RATIO",
+            "TOP_TRADER_LONG_SHORT_POSITION_RATIO",
         ]
     };
     assert_eq!(
         scalars, expected_scalars,
-        "the funding and open interest fields, in key order"
+        "the funding, open interest and long/short ratio fields, in key order"
     );
 
     if let Some(sampled) = rows.iter().find(|row| row.field == "OPEN_INTEREST_TIME") {
