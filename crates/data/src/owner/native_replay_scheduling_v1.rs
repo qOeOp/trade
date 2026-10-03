@@ -161,6 +161,13 @@ impl NativeReplayQuoteCutReadbackV1 {
 pub enum NativeReplaySchedulingErrorV1 {
     #[error("native Replay scheduling Owner readback is unavailable")]
     OwnerReadbackUnavailable,
+    /// A member has no admitted BAR schedule cut at the frame.
+    ///
+    /// The candidates were read; none is this member's at this frame. A read that failed is
+    /// `OwnerReadbackUnavailable` instead, so this one states a fact about Market Data custody:
+    /// until a schedule for the member at the frame is committed, no retry changes the answer.
+    #[error("a member has no admitted BAR schedule at the frame")]
+    NoBarScheduleAtFrame,
     #[error("native Replay scheduling Owner bindings mismatch")]
     OwnerBindingMismatch,
     #[error("native Replay scheduling field census is incomplete or ambiguous")]
@@ -832,7 +839,8 @@ pub(crate) fn native_replay_universe_binding_requests_v1(
 ///
 /// # Errors
 ///
-/// Returns unavailable when no candidate matches, and a binding mismatch when two do.
+/// Returns `NoBarScheduleAtFrame` when no candidate is the member's at the frame, and a binding
+/// mismatch when two match.
 pub(crate) fn select_native_replay_schedule_v1(
     candidates: Vec<BarScheduleReadbackV1>,
     batch: &VerifiedPitObservationBatch,
@@ -873,7 +881,7 @@ pub(crate) fn select_native_replay_schedule_for_member_v1(
         .collect::<Vec<_>>();
 
     if at_frame.is_empty() {
-        return Err(NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable);
+        return Err(NativeReplaySchedulingErrorV1::NoBarScheduleAtFrame);
     }
     let mut matches = at_frame
         .into_iter()
@@ -1974,7 +1982,7 @@ pub(crate) mod tests {
                 100,
             )
             .err(),
-            Some(NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)
+            Some(NativeReplaySchedulingErrorV1::NoBarScheduleAtFrame)
         );
 
         // Two distinct schedules that both fit cannot be chosen between.
@@ -2003,7 +2011,7 @@ pub(crate) mod tests {
                 100,
             )
             .err(),
-            Some(NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)
+            Some(NativeReplaySchedulingErrorV1::NoBarScheduleAtFrame)
         );
     }
 
@@ -2762,7 +2770,7 @@ pub(crate) mod tests {
                 100,
             )
             .err(),
-            Some(NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable),
+            Some(NativeReplaySchedulingErrorV1::NoBarScheduleAtFrame),
             "with no schedule at the frame at all, the schedule is missing rather than wrong"
         );
 

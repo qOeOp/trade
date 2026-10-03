@@ -260,6 +260,9 @@ fn owner_error(error: &IterationResultAdmissionErrorV1, result_identity: &str) -
             StatusCode::CONFLICT,
             "ITERATION_RESULT_ADMISSION_RESULT_NOT_COUNTED",
         ),
+        IterationResultAdmissionErrorV1::CandidateGeneration(refusal) => {
+            (StatusCode::CONFLICT, refusal.code())
+        }
         IterationResultAdmissionErrorV1::Conflict => {
             (StatusCode::CONFLICT, "ITERATION_RESULT_ADMISSION_CONFLICT")
         }
@@ -299,6 +302,10 @@ mod tests {
     use super::*;
     use vibe_product_edge::{
         ProductEdgeSubjectKindV1, ProductEdgeUnavailableReasonV1, ProductEdgeUnavailableV1,
+    };
+    use vibe_strategy_factory::{
+        CandidateGenerationRefusalV1, IterationExperimentModeV1, IterationHypothesisDimensionV1,
+        iteration_result_admission::IterationResultCandidateProposalV1,
     };
 
     struct OwnerStub {
@@ -397,17 +404,18 @@ mod tests {
             "result_digest": digest(),
             "request_meaning_digest": digest(),
             "proposals": {
-                "generation_rule_identity": "generation-rule-1",
-                "generation_rule_digest": digest(),
+                "generation_rule": {
+                    "single_dimensions": ["ENTRY_RULE"],
+                    "finite_joints": [],
+                },
                 "expected_cardinality": 1,
-                "proposals": [{
-                    "candidate_identity": "candidate-1",
-                    "candidate_digest": digest(),
-                    "experiment": {
-                        "mode": "SINGLE_DIMENSION",
-                        "changed_dimension": "ENTRY_RULE",
+                "proposals": [IterationResultCandidateProposalV1::new(
+                    "candidate-1",
+                    IterationExperimentModeV1::SingleDimension {
+                        changed_dimension: IterationHypothesisDimensionV1::EntryRule,
                     },
-                }],
+                )
+                .expect("a well-formed proposal")],
             },
         })
     }
@@ -561,6 +569,12 @@ mod tests {
     #[case(IterationResultAdmissionErrorV1::BudgetExceeded, StatusCode::CONFLICT)]
     #[case(
         IterationResultAdmissionErrorV1::ResultNotCounted,
+        StatusCode::CONFLICT
+    )]
+    #[case(
+        IterationResultAdmissionErrorV1::CandidateGeneration(
+            CandidateGenerationRefusalV1::CardinalityMismatch
+        ),
         StatusCode::CONFLICT
     )]
     #[case(IterationResultAdmissionErrorV1::Conflict, StatusCode::CONFLICT)]

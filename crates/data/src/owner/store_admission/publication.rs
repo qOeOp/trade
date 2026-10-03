@@ -19,7 +19,9 @@ use super::{
     CredentialHandleBinding, MARKET_DATA_OWNER, POSTGRES_BACKEND, RD_OWNER_API_CONSUMER,
     RecoveryBinding, RotationFence, SignedHead, SignedManifest, StoreHead, StoreManifest,
     custody_postgres, digest_serializable, head_identity, manifest_identity,
-    postgres::{PostgresMeasurement, PostgresMeasurementSpec, PostgresTlsIdentity},
+    postgres::{
+        PostgresMeasurement, PostgresMeasurementError, PostgresMeasurementSpec, PostgresTlsIdentity,
+    },
     signature::{PinnedEd25519SignatureVerifier, lower_hex},
     valid_opaque_identity,
 };
@@ -38,6 +40,8 @@ pub enum DeploymentStorePublicationError {
     SignatureInvalid,
     #[error("the custody store could not be reached as the publisher")]
     StoreUnavailable,
+    #[error("the deployment's store could not be measured: {0}")]
+    MeasurementUnavailable(String),
 }
 
 /// What publishing did to the custody store.
@@ -71,7 +75,7 @@ pub struct DeploymentStorePublicationSummaryV1 {
 
 /// A publication as an administrator writes it. Identities, the history digest and signatures are
 /// derived, never authored; the consumer, its Owner and the backend are the one admitted consumer's.
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct PublicationAuthoringV1 {
     signer_identity: String,
@@ -93,6 +97,89 @@ struct PublicationAuthoringV1 {
     recovery: RecoveryBinding,
     rotation_fence_identity: String,
     rotation_fence_closed_at_epoch_ms: u64,
+}
+
+/// What an administrator writes of a publication before the store is measured: everything but the
+/// endpoint, TLS, server and database identities, the measurement and the credential handle, which
+/// [`author_deployment_store_publication_v1`] measures and fills in.
+#[cfg(unix)]
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PublicationDraftV1 {
+    signer_identity: String,
+    environment_identity: String,
+    deployment_identity: String,
+    prior_manifest_identities: Vec<String>,
+    expected_previous_head_identity: Option<String>,
+    valid_from_epoch_ms: u64,
+    valid_through_epoch_ms: u64,
+    recovery: RecoveryBinding,
+    rotation_fence_identity: String,
+    rotation_fence_closed_at_epoch_ms: u64,
+}
+
+/// Measures the deployment's store and completes a draft into the authoring the sealer reads.
+///
+/// The store is measured exactly as the deployment's custodian will measure it: over a connection
+/// pinned to `root_pem`, as the credential the secret file `credential` holds, on every floor any
+/// admitted read checks. The credential handle is that file's: `credential_identity` is its name
+/// under the deployment's secrets directory, and its version is the digest of its exact bytes. Run
+/// it from where the deployment reaches the store, since the endpoint and TLS identities it records
+/// are that view.
+///
+/// # Errors
+///
+/// Returns an error when the draft does not parse, the secret is not a credential, or the store
+/// cannot be measured. Nothing is written to the store.
+#[cfg(unix)]
+pub async fn author_deployment_store_publication_v1(
+    draft_json: &[u8],
+    credential_identity: &str,
+    credential: &[u8],
+    root_pem: &[u8],
+) -> Result<Vec<u8>, DeploymentStorePublicationError> {
+    let draft: PublicationDraftV1 = serde_json::from_slice(draft_json)
+        .map_err(|e| DeploymentStorePublicationError::InvalidAuthoring(e.to_string()))?;
+    let unmeasured = |e: PostgresMeasurementError| {
+        DeploymentStorePublicationError::MeasurementUnavailable(e.to_string())
+    };
+    let lease = super::credential_files::lease_from_secret(
+        credential_identity,
+        RD_OWNER_API_CONSUMER,
+        credential,
+        u64::MAX,
+    )
+    .map_err(|()| invalid("the credential secret is not a PostgreSQL connection string"))?;
+    let spec = super::postgres::deployment_measurement_spec_v1().map_err(unmeasured)?;
+    let measurement = super::postgres::PinnedTlsPostgresDirectMeasurer::from_root_pem(root_pem)
+        .map_err(unmeasured)?
+        .measure(&lease, &spec)
+        .await
+        .map_err(unmeasured)?;
+    let authoring = PublicationAuthoringV1 {
+        signer_identity: draft.signer_identity,
+        environment_identity: draft.environment_identity,
+        deployment_identity: draft.deployment_identity,
+        endpoint_identity: measurement.endpoint_identity.clone(),
+        tls_identity: measurement.tls_identity.clone(),
+        server_identity: measurement.server_identity.clone(),
+        database_identity: measurement.database_identity.clone(),
+        measurement_spec: spec,
+        expected_measurement: measurement,
+        credential_handle: CredentialHandleBinding {
+            identity: lease.handle_identity().to_owned(),
+            audience: lease.audience().to_owned(),
+            version: lease.version().to_owned(),
+        },
+        prior_manifest_identities: draft.prior_manifest_identities,
+        expected_previous_head_identity: draft.expected_previous_head_identity,
+        valid_from_epoch_ms: draft.valid_from_epoch_ms,
+        valid_through_epoch_ms: draft.valid_through_epoch_ms,
+        recovery: draft.recovery,
+        rotation_fence_identity: draft.rotation_fence_identity,
+        rotation_fence_closed_at_epoch_ms: draft.rotation_fence_closed_at_epoch_ms,
+    };
+    serde_json::to_vec_pretty(&authoring).map_err(|e| invalid(&e.to_string()))
 }
 
 /// The sealed form, as written to the administrator's file and read back to publish.

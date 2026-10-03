@@ -91,6 +91,8 @@ pub use postgres::bar_joined_cut_acceptance_v1;
 
 mod postgres;
 mod store_admission;
+#[cfg(unix)]
+pub use store_admission::author_deployment_store_publication_v1;
 pub use store_admission::{
     DeploymentStorePublicationError, DeploymentStorePublicationSummaryV1,
     DeploymentStorePublishOutcomeV1, publish_sealed_deployment_store_publication_v1,

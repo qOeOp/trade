@@ -349,6 +349,39 @@ pub(super) const MEASUREMENT_FLOORS: &[MeasurementFloor] = &[
     PIT_EVALUATION_FLOOR_V1,
 ];
 
+/// The measurement a deployment's manifest binds: every function and relation of every floor, so
+/// each port the admission can open finds its own floor covered.
+///
+/// # Errors
+///
+/// Returns [`PostgresMeasurementError::InvalidSpecification`] if the floors outgrow what one
+/// specification may list.
+pub(super) fn deployment_measurement_spec_v1()
+-> Result<PostgresMeasurementSpec, PostgresMeasurementError> {
+    let mut functions: Vec<String> = Vec::new();
+    let mut relations: Vec<String> = Vec::new();
+
+    for floor in MEASUREMENT_FLOORS {
+        for function in floor.functions {
+            if !functions.iter().any(|listed| listed == function) {
+                functions.push((*function).to_owned());
+            }
+        }
+
+        for relation in floor.relations {
+            if !relations.iter().any(|listed| listed == relation) {
+                relations.push((*relation).to_owned());
+            }
+        }
+    }
+    PostgresMeasurementSpec::new(
+        ADMITTED_READ_SCHEMA,
+        OWNER_MIGRATION_RELATION,
+        functions,
+        relations,
+    )
+}
+
 /// The schema every admitted read reaches the Owner through, and so the one a measurement names.
 pub(super) const ADMITTED_READ_SCHEMA: &str = "market_data_admitted_read";
 
@@ -2100,24 +2133,23 @@ async fn open_store_session(
                     .database(&target.database)
                     .application_name(application_name),
                 trust,
+                // Checked before the session's socket exists, so no byte of a session, its
+                // password exchange included, reaches a server the admission did not measure.
+                peer_certificate_identity.as_deref(),
             )
             .await
             .map_err(|failure| match failure {
-                PinnedTlsError::InvalidRoot | PinnedTlsError::TlsRefused => {
+                PinnedTlsError::InvalidRoot
+                | PinnedTlsError::TlsRefused
+                | PinnedTlsError::UnexpectedPeer => {
                     PostgresMeasurementError::TlsIdentityUnavailable
                 }
                 PinnedTlsError::InvalidServerName => PostgresMeasurementError::InvalidTarget,
                 PinnedTlsError::Unreachable
                 | PinnedTlsError::LocalSocket
+                | PinnedTlsError::ForeignPeer
                 | PinnedTlsError::Session => PostgresMeasurementError::ConnectionUnavailable,
             })?;
-
-            if peer_certificate_identity
-                .as_ref()
-                .is_some_and(|expected| *expected != observed.peer_certificate_identity)
-            {
-                return Err(PostgresMeasurementError::TlsIdentityUnavailable);
-            }
             Ok(StoreSession {
                 connection,
                 target,

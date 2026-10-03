@@ -1,7 +1,9 @@
 //! A Binance USD-M futures Data Client that answers one Owner-issued PIT observation scope.
 //!
-//! Binance publishes its futures klines without a credential - `klines` calls its transport with
-//! `signed = false` - so this client needs no key and spends nothing. It states only what the
+//! Binance publishes its futures klines and its funding history without a credential - `klines`
+//! and `funding_rate` call their transport with `signed = false` - so this client needs no key and
+//! spends nothing. It refuses to be built over an HTTP client that holds one, because that client
+//! puts the key in the default headers of every request, signed or not. It states only what the
 //! exchange said and when, never what any of it is bound to; Market Data stamps the Source Binding,
 //! Instrument Master, Universe Selection, Market Semantics and correction bindings itself.
 //!
@@ -9,12 +11,22 @@
 //! that had already closed at the scope's event-effective coordinate. A bar still open at that
 //! coordinate is not yet a fact about it, and one that closed later cannot backfill it.
 //!
+//! Beside that bar the member's last settled funding is stated as two `SCALAR` rows on timeframe
+//! `TICK`: the rate as published, and the settlement instant. A settled rate is knowable at its
+//! own settlement, so a settlement at exactly the coordinate counts and one a millisecond later
+//! does not. The endpoint never states the settlement interval, so no row claims one. Where no
+//! settlement applies at the coordinate the member has no funding rows: a zero rate in their place
+//! would be this client's invention.
+//!
 //! This venue quotes its klines as decimal strings rather than as a mantissa and an exponent, so
 //! the prices are read from those digits directly. Parsing them through `f64` would round the
 //! vendor's own number to the nearest double and make this client the author of a price it was only
 //! meant to repeat.
 
-use std::{collections::BTreeMap, fmt::Debug};
+use std::{
+    collections::BTreeMap,
+    fmt::{Debug, Display},
+};
 
 use async_trait::async_trait;
 use rust_decimal::Decimal;
@@ -23,13 +35,27 @@ use vibe_data::owner::pit_observation_source_v1::{
 };
 
 use crate::futures::http::{
-    client::BinanceFuturesHttpClient, models::BinanceFuturesKline, query::BinanceKlinesParams,
+    client::BinanceFuturesHttpClient,
+    models::{BinanceFundingRate, BinanceFuturesKline},
+    query::{BinanceFundingRateParams, BinanceKlinesParams},
 };
 
-/// The channel every bar on this client belongs to.
+/// The channel every row on this client belongs to.
 const CHANNEL: &str = "MARKET";
 /// The data kind a kline is, in the Owner's admitted vocabulary.
 const DATA_KIND: &str = "BAR";
+/// The data kind a settled funding value is: a vendor-stated number, not part of any bar.
+const FUNDING_DATA_KIND: &str = "SCALAR";
+/// A settlement is one instant, not an aggregate over an interval the endpoint never states.
+const FUNDING_TIMEFRAME: &str = "TICK";
+/// The settled rate, as the venue published its decimal.
+const FUNDING_RATE_FIELD: &str = "FUNDING_RATE";
+/// The settlement instant, in nanoseconds since the Unix epoch.
+const FUNDING_TIME_FIELD: &str = "FUNDING_TIME";
+/// How many settlements one member request asks for: the one in force and the one before it,
+/// whose spacing says when the next was due.
+const FUNDING_LIMIT: u32 = 2;
+const NANOS_PER_MILLI: i128 = 1_000_000;
 /// How many klines one member request may return.
 ///
 /// The client needs only the last closed bar, but asks for a few so a quiet interval at the
@@ -38,8 +64,34 @@ const KLINE_LIMIT: u32 = 16;
 /// The largest number of members one scope may name.
 const MAX_MEMBERS: usize = 64;
 
-/// Answers an Owner-issued scope from this venue's perpetual futures klines.
-pub struct BinanceFuturesBarObservationSourceV1 {
+/// Why this client could not be built.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum BinanceFuturesObservationSourceBuildErrorV1 {
+    /// The member mapping is empty or larger than one scope admits.
+    MemberMapping,
+    /// The interval has no Owner timeframe label.
+    UnmappedInterval,
+    /// The HTTP client holds a credential. Every call this client makes is public, and the HTTP
+    /// client sends its key in the default headers of every request, signed or not.
+    CredentialPresent,
+}
+
+impl Display for BinanceFuturesObservationSourceBuildErrorV1 {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(match self {
+            Self::MemberMapping => "the member mapping is empty or exceeds one scope",
+            Self::UnmappedInterval => "the interval has no Owner timeframe label",
+            Self::CredentialPresent => {
+                "the HTTP client holds a credential this public client never uses"
+            }
+        })
+    }
+}
+
+impl std::error::Error for BinanceFuturesObservationSourceBuildErrorV1 {}
+
+/// Answers an Owner-issued scope from this venue's perpetual futures klines and funding history.
+pub struct BinanceFuturesObservationSourceV1 {
     client: BinanceFuturesHttpClient,
     /// Owner member key to Binance symbol. A scope may name only these members.
     symbols: BTreeMap<String, String>,
@@ -49,37 +101,44 @@ pub struct BinanceFuturesBarObservationSourceV1 {
     timeframe: String,
 }
 
-impl Debug for BinanceFuturesBarObservationSourceV1 {
+impl Debug for BinanceFuturesObservationSourceV1 {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
-            .debug_struct(stringify!(BinanceFuturesBarObservationSourceV1))
+            .debug_struct(stringify!(BinanceFuturesObservationSourceV1))
             .field("members", &self.symbols.len())
             .field("interval", &self.interval)
             .finish_non_exhaustive()
     }
 }
 
-impl BinanceFuturesBarObservationSourceV1 {
+impl BinanceFuturesObservationSourceV1 {
     /// Binds one client to the exact universe members it may be asked for.
     ///
     /// # Errors
     ///
-    /// Returns [`PitObservationSourceErrorV1::ScopeMismatch`] for an empty or oversized mapping,
-    /// and for an interval this Owner has no timeframe label for. A client that guessed one would
-    /// be authoring a coordinate the Owner owns.
+    /// Returns [`BinanceFuturesObservationSourceBuildErrorV1::MemberMapping`] for an empty or
+    /// oversized mapping, [`BinanceFuturesObservationSourceBuildErrorV1::UnmappedInterval`] for an
+    /// interval this Owner has no timeframe label for - a client that guessed one would be
+    /// authoring a coordinate the Owner owns - and
+    /// [`BinanceFuturesObservationSourceBuildErrorV1::CredentialPresent`] for an HTTP client that
+    /// holds a credential.
     pub fn new(
         client: BinanceFuturesHttpClient,
         symbols: BTreeMap<String, String>,
         interval: &str,
-    ) -> Result<Self, PitObservationSourceErrorV1> {
+    ) -> Result<Self, BinanceFuturesObservationSourceBuildErrorV1> {
+        if client.has_credentials() {
+            return Err(BinanceFuturesObservationSourceBuildErrorV1::CredentialPresent);
+        }
+
         if symbols.is_empty() || symbols.len() > MAX_MEMBERS {
-            return Err(PitObservationSourceErrorV1::ScopeMismatch);
+            return Err(BinanceFuturesObservationSourceBuildErrorV1::MemberMapping);
         }
         // The label table is the spot client's, because it is the Owner's vocabulary rather than
         // one product's: the same `4h` denotes the same timeframe whichever venue surface served
         // the bar. A second copy here would be a second place for the two to drift apart.
         let timeframe = crate::pit_observation_source_v1::owner_timeframe(interval)
-            .ok_or(PitObservationSourceErrorV1::ScopeMismatch)?;
+            .ok_or(BinanceFuturesObservationSourceBuildErrorV1::UnmappedInterval)?;
 
         Ok(Self {
             client,
@@ -91,7 +150,7 @@ impl BinanceFuturesBarObservationSourceV1 {
 }
 
 #[async_trait]
-impl PitObservationSourceV1 for BinanceFuturesBarObservationSourceV1 {
+impl PitObservationSourceV1 for BinanceFuturesObservationSourceV1 {
     async fn observe(
         &self,
         scope: &PitObservationScopeV1,
@@ -163,6 +222,48 @@ impl PitObservationSourceV1 for BinanceFuturesBarObservationSourceV1 {
                     correction_publication: scope.correction_publication(),
                 });
             }
+
+            let funding = self
+                .client
+                .inner()
+                .funding_rate(&BinanceFundingRateParams {
+                    symbol: Some(symbol.clone()),
+                    start_time: None,
+                    end_time: Some(end_ms),
+                    limit: Some(FUNDING_LIMIT),
+                })
+                .await
+                .map_err(|_| PitObservationSourceErrorV1::Unavailable)?;
+
+            let FundingAtCutV1::Settled(settlement) = funding_at_cut(&funding, end_ms)? else {
+                continue;
+            };
+            let (rate_mantissa, rate_scale) = exact_decimal(&settlement.funding_rate)?;
+
+            for (field, value_mantissa, value_scale) in [
+                (FUNDING_RATE_FIELD, rate_mantissa, rate_scale),
+                (
+                    FUNDING_TIME_FIELD,
+                    i128::from(settlement.funding_time) * NANOS_PER_MILLI,
+                    0,
+                ),
+            ] {
+                rows.push(VendorObservationV1 {
+                    symbolic_key: format!("{member}.{field}.{FUNDING_TIMEFRAME}"),
+                    member_key: member.clone(),
+                    instrument: member.clone(),
+                    channel: CHANNEL.to_string(),
+                    data_kind: FUNDING_DATA_KIND.to_string(),
+                    timeframe: FUNDING_TIMEFRAME.to_string(),
+                    field: field.to_string(),
+                    value_mantissa,
+                    value_scale,
+                    event_effective: scope.event_effective(),
+                    provider_available: scope.provider_available(),
+                    retrieval: scope.retrieval(),
+                    correction_publication: scope.correction_publication(),
+                });
+            }
         }
         rows.sort_by(|left, right| {
             (&left.symbolic_key, &left.member_key).cmp(&(&right.symbolic_key, &right.member_key))
@@ -184,6 +285,58 @@ fn last_closed_bar(
         .iter()
         .filter(|bar| bar.close_time <= coordinate_ms)
         .max_by_key(|bar| bar.close_time)
+}
+
+/// What a member's funding is at one coordinate, read from the settlements at or before it.
+#[derive(Debug, Eq, PartialEq)]
+enum FundingAtCutV1<'a> {
+    /// The settlement in force at the coordinate.
+    Settled(&'a BinanceFundingRate),
+    /// The member had not settled yet: no funding exists to state.
+    BeforeFirstSettlement,
+    /// The settlement the last two imply was due at or before the coordinate and the venue states
+    /// none. The last one is no longer the one in force, and the one that is cannot be named.
+    SettlementOverdue,
+}
+
+/// Classifies the settlements the venue returned for a coordinate.
+///
+/// A settlement after the coordinate means the venue answered a different window, which is a
+/// mismatch rather than a fact about this one. So are two settlements at one instant, which leave
+/// no spacing to judge the next one by.
+///
+/// The spacing of the last two is the only interval this endpoint lets a client see. When the
+/// venue lengthens a member's interval, a coordinate between the old and the new due time reads as
+/// overdue: the error falls on the side of stating nothing rather than a rate no longer in force.
+fn funding_at_cut(
+    settlements: &[BinanceFundingRate],
+    coordinate_ms: i64,
+) -> Result<FundingAtCutV1<'_>, PitObservationSourceErrorV1> {
+    if settlements
+        .iter()
+        .any(|settlement| settlement.funding_time > coordinate_ms)
+    {
+        return Err(PitObservationSourceErrorV1::ScopeMismatch);
+    }
+    let mut ordered = settlements.iter().collect::<Vec<_>>();
+    ordered.sort_by_key(|settlement| std::cmp::Reverse(settlement.funding_time));
+
+    let Some(last) = ordered.first() else {
+        return Ok(FundingAtCutV1::BeforeFirstSettlement);
+    };
+
+    if let Some(previous) = ordered.get(1) {
+        let spacing = last.funding_time - previous.funding_time;
+
+        if spacing <= 0 {
+            return Err(PitObservationSourceErrorV1::ScopeMismatch);
+        }
+
+        if coordinate_ms >= last.funding_time.saturating_add(spacing) {
+            return Ok(FundingAtCutV1::SettlementOverdue);
+        }
+    }
+    Ok(FundingAtCutV1::Settled(last))
 }
 
 /// The vendor's quoted digits as a mantissa and scale, with trailing zeros removed.
@@ -332,6 +485,344 @@ mod tests {
 }
 
 #[cfg(test)]
+mod funding_tests {
+    use std::{
+        collections::BTreeMap,
+        net::SocketAddr,
+        sync::{Arc, Mutex},
+    };
+
+    use axum::{
+        Router,
+        extract::{RawQuery, State},
+        http::{HeaderMap, StatusCode},
+        response::{IntoResponse, Response},
+        routing::get,
+    };
+    use rstest::rstest;
+    use serde_json::{Value, json};
+    use vibe_core::time::get_atomic_clock_realtime;
+
+    use super::*;
+    use crate::common::enums::{BinanceEnvironment, BinanceProductType};
+
+    const HOUR_MS: i64 = 3_600_000;
+    const EIGHT_HOURS_MS: i64 = 8 * HOUR_MS;
+    /// 2024-01-01T08:00:00Z, a BTCUSDT settlement.
+    const SETTLED_MS: i64 = 1_704_096_000_000;
+    const MEMBER: &str = "BTCUSDT-PERP.BINANCE";
+
+    fn settlement(funding_time: i64, rate: &str) -> BinanceFundingRate {
+        BinanceFundingRate {
+            symbol: "BTCUSDT".into(),
+            funding_rate: rate.to_string(),
+            funding_time,
+            mark_price: None,
+            index_price: None,
+        }
+    }
+
+    #[rstest]
+    fn a_settlement_at_the_coordinate_is_the_one_in_force() {
+        let settlements = [
+            settlement(SETTLED_MS - EIGHT_HOURS_MS, "0.00037409"),
+            settlement(SETTLED_MS, "0.00027213"),
+        ];
+        assert_eq!(
+            funding_at_cut(&settlements, SETTLED_MS),
+            Ok(FundingAtCutV1::Settled(&settlements[1]))
+        );
+        assert_eq!(
+            funding_at_cut(&settlements[..1], SETTLED_MS - 1),
+            Ok(FundingAtCutV1::Settled(&settlements[0])),
+            "a millisecond before a settlement, the previous one is in force"
+        );
+    }
+
+    #[rstest]
+    fn no_settlement_yet_is_absence_not_zero() {
+        assert_eq!(
+            funding_at_cut(&[], SETTLED_MS),
+            Ok(FundingAtCutV1::BeforeFirstSettlement)
+        );
+    }
+
+    #[rstest]
+    fn a_settlement_the_last_two_imply_and_the_venue_omits_is_overdue() {
+        let settlements = [
+            settlement(SETTLED_MS - EIGHT_HOURS_MS, "0.0001"),
+            settlement(SETTLED_MS, "0.0001"),
+        ];
+        assert_eq!(
+            funding_at_cut(&settlements, SETTLED_MS + EIGHT_HOURS_MS - 1),
+            Ok(FundingAtCutV1::Settled(&settlements[1])),
+            "until the next one is due, the last one is in force"
+        );
+        assert_eq!(
+            funding_at_cut(&settlements, SETTLED_MS + EIGHT_HOURS_MS),
+            Ok(FundingAtCutV1::SettlementOverdue),
+            "once it is due and absent, the last one is no longer the one in force"
+        );
+    }
+
+    #[rstest]
+    fn an_answer_for_another_window_is_a_mismatch() {
+        assert_eq!(
+            funding_at_cut(&[settlement(SETTLED_MS + 1, "0.0001")], SETTLED_MS),
+            Err(PitObservationSourceErrorV1::ScopeMismatch),
+            "a settlement after the coordinate is not a fact about it"
+        );
+        assert_eq!(
+            funding_at_cut(
+                &[
+                    settlement(SETTLED_MS, "0.0001"),
+                    settlement(SETTLED_MS, "0.0002")
+                ],
+                SETTLED_MS
+            ),
+            Err(PitObservationSourceErrorV1::ScopeMismatch),
+            "two settlements at one instant leave no spacing to judge the next one by"
+        );
+    }
+
+    /// What the venue stand-in answers, and every request it saw.
+    #[derive(Clone)]
+    struct Venue {
+        funding_status: StatusCode,
+        funding: Value,
+        seen: Arc<Mutex<Vec<(String, HeaderMap, String)>>>,
+    }
+
+    async fn klines(
+        State(venue): State<Venue>,
+        headers: HeaderMap,
+        RawQuery(query): RawQuery,
+    ) -> Response {
+        venue
+            .seen
+            .lock()
+            .unwrap()
+            .push(("klines".to_string(), headers, query.unwrap_or_default()));
+        // One 4h bar closing exactly at the coordinate.
+        let close = SETTLED_MS;
+        let open = close - 4 * HOUR_MS + 1;
+        (
+            StatusCode::OK,
+            [("content-type", "application/json")],
+            json!([[
+                open,
+                "42314.0",
+                "42603.2",
+                "42289.6",
+                "42503.5",
+                "8459.477",
+                close,
+                "359196345.08716",
+                88278,
+                "4687.976",
+                "199033806.82405",
+                "0"
+            ]])
+            .to_string(),
+        )
+            .into_response()
+    }
+
+    async fn funding(
+        State(venue): State<Venue>,
+        headers: HeaderMap,
+        RawQuery(query): RawQuery,
+    ) -> Response {
+        venue.seen.lock().unwrap().push((
+            "fundingRate".to_string(),
+            headers,
+            query.unwrap_or_default(),
+        ));
+        (
+            venue.funding_status,
+            [("content-type", "application/json")],
+            venue.funding.to_string(),
+        )
+            .into_response()
+    }
+
+    async fn observe_against(
+        funding_status: StatusCode,
+        funding_body: Value,
+    ) -> (
+        Result<Vec<VendorObservationV1>, PitObservationSourceErrorV1>,
+        Vec<(String, HeaderMap, String)>,
+    ) {
+        let venue = Venue {
+            funding_status,
+            funding: funding_body,
+            seen: Arc::new(Mutex::new(Vec::new())),
+        };
+        let router = Router::new()
+            .route("/fapi/v1/klines", get(klines))
+            .route("/fapi/v1/fundingRate", get(funding))
+            .with_state(venue.clone());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address: SocketAddr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+
+        let client = BinanceFuturesHttpClient::new(
+            BinanceProductType::UsdM,
+            BinanceEnvironment::Live,
+            get_atomic_clock_realtime(),
+            None,
+            None,
+            Some(format!("http://{address}")),
+            None,
+            Some(10),
+            None,
+            false,
+        )
+        .expect("the keyless client builds");
+        let source = BinanceFuturesObservationSourceV1::new(
+            client,
+            BTreeMap::from([(MEMBER.to_string(), "BTCUSDT".to_string())]),
+            "4h",
+        )
+        .expect("one member and a mapped interval");
+        let at = u64::try_from(SETTLED_MS).unwrap() * 1_000_000;
+        let scope =
+            PitObservationScopeV1::from_owner_request(vec![MEMBER.to_string()], at, at, at, at, at);
+        let result = source.observe(&scope).await;
+        let seen = venue.seen.lock().unwrap().clone();
+        (result, seen)
+    }
+
+    #[tokio::test]
+    async fn a_settlement_is_stated_beside_the_bar_from_requests_that_carry_no_credential() {
+        let (result, seen) = observe_against(
+            StatusCode::OK,
+            json!([
+                {"symbol": "BTCUSDT", "fundingTime": SETTLED_MS - EIGHT_HOURS_MS,
+                 "fundingRate": "0.00037409", "markPrice": "42313.9"},
+                {"symbol": "BTCUSDT", "fundingTime": SETTLED_MS,
+                 "fundingRate": "0.00027213", "markPrice": "42503.5"}
+            ]),
+        )
+        .await;
+        let rows = result.expect("the stand-in answers both endpoints");
+
+        let funding = rows
+            .iter()
+            .filter(|row| row.data_kind == FUNDING_DATA_KIND)
+            .map(|row| {
+                (
+                    row.symbolic_key.as_str(),
+                    row.timeframe.as_str(),
+                    row.value_mantissa,
+                    row.value_scale,
+                )
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            funding,
+            [
+                ("BTCUSDT-PERP.BINANCE.FUNDING_RATE.TICK", "TICK", 27_213, 8),
+                (
+                    "BTCUSDT-PERP.BINANCE.FUNDING_TIME.TICK",
+                    "TICK",
+                    i128::from(SETTLED_MS) * 1_000_000,
+                    0
+                ),
+            ],
+            "the settlement in force, as published, at its own instant"
+        );
+        assert_eq!(
+            rows.iter().filter(|row| row.data_kind == DATA_KIND).count(),
+            4,
+            "the bar beside it is unchanged"
+        );
+        assert!(rows.iter().all(|row| row.channel == CHANNEL));
+
+        let requests = seen
+            .iter()
+            .map(|(endpoint, _, _)| endpoint.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(requests, ["klines", "fundingRate"]);
+        let (_, _, funding_query) = &seen[1];
+        assert!(
+            funding_query.contains(&format!("endTime={SETTLED_MS}"))
+                && funding_query.contains("limit=2")
+                && !funding_query.contains("startTime"),
+            "the last two settlements at or before the coordinate: {funding_query}"
+        );
+
+        for (endpoint, headers, query) in &seen {
+            assert!(
+                !headers.contains_key("x-mbx-apikey"),
+                "{endpoint} carried an API key header"
+            );
+            assert!(
+                !query.contains("signature") && !query.contains("timestamp"),
+                "{endpoint} was signed: {query}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn a_member_with_no_settlement_has_no_funding_rows_rather_than_a_zero() {
+        let (result, _) = observe_against(StatusCode::OK, json!([])).await;
+        let rows = result.expect("an empty funding history is an answer, not a failure");
+        assert!(
+            rows.iter().all(|row| row.data_kind == DATA_KIND),
+            "no funding row is invented for a member that never settled"
+        );
+        assert_eq!(rows.len(), 4, "the bar is still stated");
+    }
+
+    #[tokio::test]
+    async fn a_refusing_funding_endpoint_refuses_the_whole_retrieval() {
+        let (result, _) = observe_against(
+            StatusCode::from_u16(451).unwrap(),
+            json!({"code": 0, "msg": "Service unavailable from a restricted location"}),
+        )
+        .await;
+        assert_eq!(result, Err(PitObservationSourceErrorV1::Unavailable));
+    }
+
+    #[tokio::test]
+    async fn a_rate_that_is_not_a_decimal_refuses_the_whole_retrieval() {
+        let (result, _) = observe_against(
+            StatusCode::OK,
+            json!([{"symbol": "BTCUSDT", "fundingTime": SETTLED_MS, "fundingRate": ""}]),
+        )
+        .await;
+        assert_eq!(result, Err(PitObservationSourceErrorV1::Unavailable));
+    }
+
+    #[rstest]
+    fn a_client_holding_a_credential_is_refused() {
+        let client = BinanceFuturesHttpClient::new(
+            BinanceProductType::UsdM,
+            BinanceEnvironment::Live,
+            get_atomic_clock_realtime(),
+            Some("key".to_string()),
+            Some("secret".to_string()),
+            Some("http://127.0.0.1:9".to_string()),
+            None,
+            Some(1),
+            None,
+            false,
+        )
+        .expect("a credentialed client builds");
+        assert_eq!(
+            BinanceFuturesObservationSourceV1::new(
+                client,
+                BTreeMap::from([(MEMBER.to_string(), "BTCUSDT".to_string())]),
+                "4h",
+            )
+            .unwrap_err(),
+            BinanceFuturesObservationSourceBuildErrorV1::CredentialPresent
+        );
+    }
+}
+
+#[cfg(test)]
 mod live_tests {
     use std::collections::BTreeMap;
 
@@ -362,7 +853,7 @@ mod live_tests {
         )
         .expect("the keyless public client builds");
         let members = BTreeMap::from([("BTCUSDT-PERP.BINANCE".to_string(), "BTCUSDT".to_string())]);
-        let source = BinanceFuturesBarObservationSourceV1::new(client, members, "4h")
+        let source = BinanceFuturesObservationSourceV1::new(client, members, "4h")
             .expect("one admitted member and a mapped interval");
 
         // An instant well in the past, so the bar covering it has long since closed.
@@ -379,9 +870,18 @@ mod live_tests {
         let rows = source.observe(&scope).await.expect("the endpoint answers");
         assert_eq!(
             rows.len(),
-            4,
-            "one closed bar yields open, high, low and close"
+            6,
+            "one closed bar yields open, high, low and close, and a settlement its rate and time"
         );
+        let funding_rows = rows
+            .iter()
+            .filter(|row| row.data_kind == FUNDING_DATA_KIND)
+            .count();
+        assert_eq!(funding_rows, 2, "the settlement in force at the coordinate");
+        let rows = rows
+            .into_iter()
+            .filter(|row| row.data_kind == DATA_KIND)
+            .collect::<Vec<_>>();
 
         for row in &rows {
             assert_eq!(row.member_key, "BTCUSDT-PERP.BINANCE");

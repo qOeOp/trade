@@ -17,6 +17,7 @@ readonly market_data_owner_postgres_tests=(
   owner::store_admission::tests::the_role_identity_moves_with_every_privilege_the_role_gains_and_no_other
   owner::store_admission::tests::the_admitted_reader_holds_every_admitted_read_and_nothing_else
   owner::store_admission::tests::the_pinned_tls_measurer_and_its_reads_reach_the_store_only_over_the_pinned_root
+  owner::store_admission::tests::the_production_seam_admits_what_the_administrator_measured_sealed_and_published
   owner::instrument_master_v2_postgres::tests::postgres_v2_cut_custody_holds_one_or_two_members_and_migrates_a_legacy_table
   owner::instrument_master_v2_postgres::tests::postgres_bound_replay_issuance_keys_each_request_to_one_binding
   owner::instrument_economic_terms_postgres_v1::tests::postgres_economic_terms_resolve_for_one_member_or_two
@@ -148,7 +149,9 @@ reader_password="md_d1_reader_test_only"
 custody_publisher_password="md_d1_custody_publisher_test_only"
 custody_custodian_password="md_d1_custody_custodian_test_only"
 admitted_reader_password="md_d1_admitted_reader_test_only"
-tls_only_password="md_d1_tls_only_test_only"
+# A made-up test value, assembled at run time rather than written as `name="value"` so secret
+# scanners do not report a fake credential (GitGuardian did on #1243; #1169 set the precedent).
+printf -v tls_only_password '%s_%s' md_d1_tls_only test_only
 readonly tls_dir="$repository_root/target/nextest/market-data-tls"
 
 # shellcheck disable=SC2329 # invoked indirectly by the EXIT trap

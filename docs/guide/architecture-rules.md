@@ -424,8 +424,8 @@ Portfolio `PORTFOLIO_FRESHNESS` is the first TARGET real consumer.
 
 **CURRENT:** `crates/data/src/owner/store_admission` keeps the non-business PostgreSQL admission mechanism and its
 pre/post revalidation inside the Market Data crate. The fixed `rd-owner-api` bootstrap requests that private seam;
-unavailable production resolver, signer, anti-rollback witness, credential resolver, or direct measurer fails closed
-before repository construction. Market Data then rereads current PIT, Source Binding, and clock heads and seals
+a production port the deployment's configuration cannot build - custody store, signer, anti-rollback mode,
+credential resolver or direct measurer - fails closed before repository construction. Market Data then rereads current PIT, Source Binding, and clock heads and seals
 `ResearchPitTerminal`. R&D receives only the sealed terminal resolver: no raw receipt, capability, query,
 DTO, evidence accessor, or caller-authored positive authority crosses the Owner boundary. The generic S3 catalog
 remains mechanism, not authority.
@@ -451,11 +451,12 @@ constructs the governed PostgreSQL repository, its private seam must consume one
 exact Market Data Owner, PostgreSQL backend, environment, deployment, and consumer identity. S3 remains TARGET and
 `UNAVAILABLE` until a real catalog consumer and pinned disposable S3-compatible test authority exist. Receipt and raw
 store/PIT/source/clock evidence stay inside Market Data; the first ordinary-consumer value is a sealed
-`ResearchPitTerminal`. The default product entry remains `UNAVAILABLE` until its distinct production resolver, signer,
-anti-rollback witness, credential-resolver, and direct-measurement adapters exist.
+`ResearchPitTerminal`. The default product entry composes its distinct production custody store, signer,
+anti-rollback mode, credential resolver and direct measurer from the deployment's configuration, and admits only a
+store a published head names as measured.
 
 **`ISOLATED_EVENT_REPLAY_ACCEPTANCE_V1` / TARGET:** This explicitly selected profile is the only admitted non-default,
-non-production dynamic acceptance topology before those adapters exist. An immutable acceptance trust bundle is
+non-production dynamic acceptance topology. An immutable acceptance trust bundle is
 provisioned by the canonical management plane outside the repository, candidate, caller, consumer, and tested process and pins the environment, signer key
 fingerprint, witness, credential-resolver, and direct-measurer identities. Separately executed principals issue the
 signed append-only manifest/history and exact current head, maintain the witness, lease the opaque credential handle,

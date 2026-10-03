@@ -118,7 +118,7 @@ strategy source code do not exist.
 ### Current sealed boundaries
 
 - `crates/deployment_attestation` → **Strategy Factory deployment verification.** Reuse the sealed, fixed-policy verifier only at the executable use boundary. Its evidence is a consumer input, not deployment authority or a business fact.
-- `crates/data/src/owner/store_admission` → **Market Data-private Deployment Store Admission custody.** `CURRENT` is the fail-closed, non-business PostgreSQL admission and pre/post revalidation seam for the fixed `rd-owner-api` consumer. Market Data alone retains its raw receipt, measurement, credential, PIT, Source Binding, and clock evidence, performs current-head validation, and seals `ResearchPitTerminal`; the ordinary consumer receives only the sealed terminal resolver. Production resolver, signer, anti-rollback witness, credential resolver, and direct measurer remain `UNAVAILABLE`. The private seam owns no business fact or deployment-service authority; production writes and trading remain `NOT_ADMITTED`.
+- `crates/data/src/owner/store_admission` → **Market Data-private Deployment Store Admission custody.** `CURRENT` is the fail-closed, non-business PostgreSQL admission and pre/post revalidation seam for the fixed `rd-owner-api` consumer. Market Data alone retains its raw receipt, measurement, credential, PIT, Source Binding, and clock evidence, performs current-head validation, and seals `ResearchPitTerminal`; the ordinary consumer receives only the sealed terminal resolver. Its production custody store, signer, single-machine anti-rollback mode, secret-file credential resolver and pinned-TLS direct measurer compose the `required` seam from the deployment's configuration. The private seam owns no business fact or deployment-service authority; production writes and trading remain `NOT_ADMITTED`.
 - `crates/observability` → **Observability non-authoritative boundary.** Keep the read-only, rebuildable projection over canonical Owner records. It owns no source fact, command, retry, terminal decision, or trading authority.
 - `crates/execution_owner` → **Execution Owner adapter-binding custody.** `CURRENT` is the fail-closed PAPER
   adapter-binding rule and its PostgreSQL custody with the simulated account opening fact; it has no adapter
@@ -157,9 +157,9 @@ strategy source code do not exist.
 ### Deployment Store Admission
 
 - **CURRENT:** `crates/data/src/owner/store_admission` keeps the non-business PostgreSQL admission mechanism and its
-  pre/post revalidation private to Market Data. The `rd-owner-api` bootstrap can request the fixed admission, but
-  unavailable production resolver, signer, witness, credential resolver, or direct measurer fails closed before a
-  repository is constructed. After admission, Market Data alone reads and validates current PIT, Source Binding, and
+  pre/post revalidation private to Market Data. The `rd-owner-api` bootstrap can request the fixed admission, and a
+  production port its configuration cannot build - custody store, signer, anti-rollback mode, credential resolver or
+  direct measurer - fails closed before a repository is constructed. After admission, Market Data alone reads and validates current PIT, Source Binding, and
   clock heads and seals `ResearchPitTerminal`; Strategy Factory receives no raw receipt, capability, query, DTO, or
   evidence accessor. The generic S3 catalog still supplies mechanism, not authority.
 - **TARGET:** one non-business Deployment Store Admission Custodian, private to Market Data, owns only signed append-only manifest/history, one
@@ -176,10 +176,10 @@ strategy source code do not exist.
   architecture rules for the user's 2026-09-27 authorization. Restart or cache loss repeats signature/head verification and direct measurement;
   ambiguity constructs no Owner repository and triggers no business retry. The receipt and raw store evidence remain
   private; the first ordinary-consumer value is the Market Data-sealed `ResearchPitTerminal`. That default product
-  entry remains `UNAVAILABLE` until its distinct production resolver, signer, witness, credential-resolver, and direct-
-  measurement adapters exist.
+  entry composes its distinct production custody store, signer, anti-rollback mode, credential resolver and direct
+  measurer from the deployment's configuration.
 - **`ISOLATED_EVENT_REPLAY_ACCEPTANCE_V1` / TARGET:** this explicitly selected, request-driven profile is the only
-  admitted non-default topology for dynamic acceptance before those production adapters exist. A disposable PostgreSQL
+  admitted non-default topology for dynamic acceptance. A disposable PostgreSQL
   target is admitted only under an immutable acceptance trust bundle provisioned by the canonical management plane
   outside the repository, candidate, caller, consumer, and tested process. That bundle pins the acceptance environment, signer key fingerprint, witness,
   credential-resolver, and direct-measurer identities. Separately executed principals issue signed append-only
