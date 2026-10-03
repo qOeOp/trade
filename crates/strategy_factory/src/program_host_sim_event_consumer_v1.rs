@@ -776,7 +776,9 @@ fn ordered_trace_census(
 }
 
 /// Every reported protective fill is a native fill the venue made on an order the Host placed
-/// as protection, and it moved the kernel's checkpoint.
+/// as protection, it moved the kernel's checkpoint, and it only gave position back: the kernel
+/// refuses a protective fill that grows or flips a position, and this boundary does not trust
+/// that it did.
 fn validate_protective_consumption(
     observed: &TargetSetBacktestTraceV2,
     protective_fills: &[ProgramHostSimEventProtectiveFillReadbackV1],
@@ -793,6 +795,14 @@ fn validate_protective_consumption(
                 && matches!(fill.leg(), "STOP_LOSS" | "TAKE_PROFIT")
                 && fill.checkpoint_before != fill.checkpoint_after,
             "Sim EVENT protective-fill evidence is not exact"
+        );
+        let (before, after) = (
+            fill.position_before_grid_units,
+            fill.position_after_grid_units,
+        );
+        anyhow::ensure!(
+            fill.reduced_position() && (after == 0 || after.signum() == before.signum()),
+            "protective fill does not reduce its member's position"
         );
     }
     Ok(())
@@ -1417,6 +1427,68 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    fn protective_fill(before: i64, after: i64) -> ProgramHostSimEventProtectiveFillReadbackV1 {
+        ProgramHostSimEventProtectiveFillReadbackV1 {
+            client_order_id: "P-1".to_owned(),
+            instrument: "AAPL.XNAS".to_owned(),
+            order_identity: [11; 16],
+            leg: "STOP_LOSS".to_owned(),
+            disposition: "FILLED".to_owned(),
+            cumulative_filled_grid_units: before.abs_diff(after),
+            filled_native_quantity: "2".to_owned(),
+            position_before_grid_units: before,
+            position_after_grid_units: after,
+            checkpoint_before: [6; 32],
+            checkpoint_after: [7; 32],
+        }
+    }
+
+    fn observed_with_protective_fill() -> TargetSetBacktestTraceV2 {
+        let mut trace = observed("FILLED");
+        trace
+            .native_order_observations
+            .push(TargetSetNativeOrderObservationV2 {
+                client_order_id: "P-1".to_owned(),
+                instrument: "AAPL.XNAS".to_owned(),
+                intent_identity: [0; 16],
+                event: "FILLED".to_owned(),
+                status: "FILLED".to_owned(),
+                filled_native_quantity: "2".to_owned(),
+                cached_position_native_quantity: "0".to_owned(),
+                protection_order: true,
+            });
+        trace
+    }
+
+    #[rstest::rstest]
+    fn a_protective_fill_is_admitted_only_when_it_gives_position_back() {
+        let trace = observed_with_protective_fill();
+
+        for (before, after) in [(2, 0), (3, 1), (-3, -1), (-2, 0)] {
+            validate_protective_consumption(&trace, &[protective_fill(before, after)])
+                .unwrap_or_else(|e| panic!("{before} -> {after} reduces: {e}"));
+        }
+
+        for (before, after) in [(2, 4), (2, -1), (0, -2), (-1, 1), (2, 2)] {
+            let refused =
+                validate_protective_consumption(&trace, &[protective_fill(before, after)])
+                    .expect_err("a protective fill that does not reduce is refused");
+            assert!(
+                refused
+                    .to_string()
+                    .contains("protective fill does not reduce its member's position"),
+                "{before} -> {after}: {refused}"
+            );
+        }
+
+        let mut unobserved = protective_fill(2, 0);
+        unobserved.client_order_id = "P-2".to_owned();
+        assert!(validate_protective_consumption(&trace, &[unobserved]).is_err());
+        let mut intent_leg = protective_fill(2, 0);
+        intent_leg.leg = "INTENT".to_owned();
+        assert!(validate_protective_consumption(&trace, &[intent_leg]).is_err());
     }
 
     #[rstest::rstest]
