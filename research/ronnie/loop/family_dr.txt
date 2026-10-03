@@ -1,0 +1,8 @@
+L-5: diagonal role reversal, development (53 coins, 2018-2022)
+  L-5a: n 2348, avg R -0.199, edge +0.170 [+0.088, +0.259]
+  L-5a placebo: n 701, avg R -0.440, edge -0.064 [-0.187, +0.068]
+  L-5b: n 2229, avg R +0.075, edge +0.144 [+0.046, +0.245]
+  L-5b placebo: n 692, avg R -0.133, edge -0.049 [-0.190, +0.108]
+  L-5a: PASS (Holm first step at 97.5%: lower +0.077; placebo -0.064); active
+  L-5b: PASS (Holm first step at 97.5%: lower +0.035; placebo -0.049); active
+  L-5c double support: 1233 of 4300 R-1u trades tagged (29%); edge +0.285 vs +0.195: difference +0.091 [+0.004, +0.176]; placebo +0.018 (47% tagged) -> PASS

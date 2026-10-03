@@ -73,7 +73,12 @@ signals separately. CF is decided with the others on 2027-10-01 (LOG, "Candidate
   at least 30 closed trades.
 - **Decision date:** 2027-10-01 with the others.
 
-## R-1 tags from his 2026 video (registered 2026-10-02, forward-only)
+## R-1 tags from his 2026 video (registered 2026-10-02, forward-only), and L-5c (added 2026-10-03)
+
+- **L-5c double support (`dsup` in `roleflip/forward/orders.csv`):** the R-1 level lies within 0.5 ATR of a broken,
+  retested trend line (loop L-5, development +0.091 [+0.004, +0.176] against +0.018 for moved lines). Decided with W
+  and F on 2027-10-01, Holm over the three.
+
 
 Computed at scoring time from data before each order; every R-1 order is still recorded and scored.
 - **W (weekly regime):** a long is aligned when the last closed weekly close is above the weekly Bollinger middle band

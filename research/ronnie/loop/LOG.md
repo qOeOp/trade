@@ -2275,3 +2275,31 @@ in. Family closed for daily crypto (equivalence on L-4a, harm on L-4b); fidelity
   - L-5c, "double support" tag on R-1u: the R-1 limit lies within 0.5 ATR of a broken-and-retested line (D2's broken
     kind, order-5 pivots, 700 bars, break within 200 bars) at the arming bar. Placebo: the lines moved 1 ATR. Pass:
     interval above zero and above the placebo; a pass becomes a forward tag only.
+
+### Loop L-5 result (2026-10-03; `loop/family_dr.txt`, `loop/out/L-5_trades.csv.gz`, `loop/out/L-5d_trades.csv.gz`)
+
+| test | trades | avg R | edge [95%, week-clustered] | placebo | status |
+| --- | --- | --- | --- | --- | --- |
+| L-5a diagonal R-1, stop 0.25 ATR | 2,348 | -0.199 | +0.170 [+0.088, +0.259] | -0.064 | stage 1 pass on edge, loses after fees |
+| L-5b diagonal R-1, stop 0.5 ATR | 2,229 | +0.075 | +0.144 [+0.046, +0.245] | -0.049 | stage 1 pass; absorbed by R-1 (below) |
+| L-5c double support tag on R-1u | 1,233 of 4,300 (29%) | | +0.091 [+0.004, +0.176] | +0.018 | pass: joins the R-1 forward record as a tag |
+
+- **His kind of line works where ours did not:** the broken trend line with the calibrated drawer beats random
+  entries and beats the same line moved 1 ATR by about 0.2R. This is the first trend-line result in the study that
+  survives a placebo.
+- **But it is mostly R-1 again (diagnostics after the registered test):** 82% of L-5b fills fall within 5 days of an
+  R-1u fill on the same coin. With a causal split (a diagonal break with no R-1 arming in the 10 bars up to it), only
+  45 diagonal-only trades remain in five years (edge +0.535 [+0.06, +1.00]); R-1u plus those trades (R-1d) gives 832R
+  against 810R for R-1u and a weekly Sharpe of 2.02 against 1.98. L-5b alone has a Sharpe of 0.92. Status: L-5a/b
+  absorbed by R-1, the diagonal-only increment immaterial (1% of trades). No holdout read is spent on them.
+- **L-5c (decided as registered):** an R-1 level that coincides with a broken, retested trend line earns +0.09R more
+  than other R-1 orders, against +0.02 for moved lines. Logged as `dsup` in `roleflip/forward/orders.csv` from today;
+  decided with W and F on 2027-10-01 (tagged minus untagged forward edge, week-clustered, Holm with W and F).
+
+### R-1u and the same-bar fill rule (2026-10-03, robustness)
+
+When several R-1 orders fill on the same bar, `family_r.signals` takes the one armed first (then the older pivot);
+the forward harness does the same. The rule was never registered. Alternatives on development: latest armed first
++0.187 [+0.112, +0.264] (4,318 trades), tightest stop first +0.198 (4,944), widest stop first +0.178 (3,879), against
++0.221 [+0.142, +0.297] (4,300) as implemented. All stay above zero and above SESOI; the implemented choice is the
+most favourable of the four, so R-1u's development edge is stated as +0.18 to +0.22.

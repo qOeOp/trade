@@ -29,7 +29,7 @@ COINS = tuple(E.ITER_COINS) + tuple(E.VAL_COINS)
 START = pd.Timestamp("2026-10-02", tz="UTC")
 OUT = os.path.join(HERE, "forward", "orders.csv")
 FIELDS = ["logged_at", "coin", "side", "break_day", "limit", "stop", "target", "valid_until", "code", "stop_x", "target_x",
-          "impulse"]
+          "impulse", "dsup"]  # dsup: the "double support" tag of loop L-5c (a broken, retested trend line at the level)
 CAP_X, BUF_X, TGT_X = 0.5, 0.25, 1.5  # R-1x, the X-R1 plateau choice after the fill-order fix (loop/LOG.md)
 FEE = 0.0006
 
@@ -38,7 +38,7 @@ def daily(coin, now):
     b = []
     for _ in range(4):
         try:
-            b, _err = fetch(f"BINANCE:{coin}USDT", "1D", 500)
+            b, _err = fetch(f"BINANCE:{coin}USDT", "1D", 1200)  # L-5c lines look back 700 bars
             if b:
                 break
         except Exception:
@@ -51,8 +51,13 @@ def daily(coin, now):
 
 def armed(d):
     """Orders armed by a break on the last closed day (the same rule as family_r.signals for R-1)."""
+    import family_dr as DR  # noqa: E402 (L-5c tag)
     S = FR.state(d)
     last = len(S["c"]) - 1
+    k5 = DR.L2.K
+    hi5 = pd.Series(S["h"]).rolling(2 * k5 + 1, center=True).max().values == S["h"]
+    lo5 = pd.Series(S["l"]).rolling(2 * k5 + 1, center=True).min().values == S["l"]
+    piv_h5, piv_l5 = list(np.flatnonzero(hi5)), list(np.flatnonzero(lo5))
     out = []
     for i, kind, p in S["events"]:
         if i != last or kind not in ("break_high", "break_low"):
@@ -76,7 +81,9 @@ def armed(d):
         stop_x = lower_x - side * BUF_X * a
         out.append(dict(side=side, break_day=str(d.index[i].date()), limit=lvl, stop=stop,
                         target=lvl + side * 2 * risk, valid_until=str((d.index[i] + pd.Timedelta(days=FR.VALID)).date()),
-                        stop_x=stop_x, target_x=lvl + side * TGT_X * abs(lvl - stop_x), impulse=impulse))
+                        stop_x=stop_x, target_x=lvl + side * TGT_X * abs(lvl - stop_x), impulse=impulse,
+                        dsup=int(any(sd == side and abs(y - lvl) <= 0.5 * a for sd, y in
+                                     DR.broken_lines(S["h"], S["l"], S["c"], S["a"], i, piv_h5, piv_l5)))))
     return out
 
 
@@ -179,7 +186,7 @@ def score(now):
         if R is not None:
             R -= 2 * FEE * px / risk
         Rs = split_exit(path, t0, side, px, stop, r.get("impulse"))
-        rows.append(dict(coin=coin, status=status, R=R, R_split=Rs, fill_day=t0, exit_day=exit_t))
+        rows.append(dict(coin=coin, status=status, R=R, R_split=Rs, fill_day=t0, exit_day=exit_t, dsup=r.get("dsup")))
     z = pd.DataFrame(rows)
     # one open R-1 trade per coin: a fill while the coin's previous trade is still open is outside the rule (R-1u,
     # loop/LOG.md); such fills are reported only in the "every order" line
@@ -197,6 +204,10 @@ def score(now):
     if len(done):
         ok = done[done.slot_ok] if "slot_ok" in done else done
         print(f"R-1u (one open trade per coin): closed {len(ok)}, mean R {ok.R.mean():+.3f}" if len(ok) else "R-1u: none closed")
+        if len(ok) and "dsup" in ok:
+            tg = ok.dsup.astype(str) == "1"
+            print(f"L-5c double support tag (decision 2027-10-01): tagged {tg.sum()} mean R {ok.R[tg].mean():+.3f}, "
+                  f"untagged {(~tg).sum()} mean R {ok.R[~tg].mean():+.3f}")
         print(f"every logged order (diagnostic): closed {len(done)}, mean R {done.R.mean():+.3f}")
         sp = ok.dropna(subset=["R_split"]) if "R_split" in ok else ok.iloc[0:0]
         if len(sp):

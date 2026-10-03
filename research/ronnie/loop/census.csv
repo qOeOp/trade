@@ -163,3 +163,6 @@ logged_at,loop,candidate,stage,n,edge,lo,hi,passed,note
 2026-10-02T19:50:10+00:00,L-3,R-1 cycle Fibonacci target,iteration,2772,+0.0197,-0.0075,+0.0441,False,placebo -0.001
 2026-10-02T19:55:45+00:00,L-4a,trend-line test entry,iteration,2528,-0.0403,-0.1294,+0.0515,False,placebo -0.200
 2026-10-02T19:55:45+00:00,L-4b,trend-line test entry,iteration,1576,-0.1408,-0.2580,-0.0093,False,placebo -0.128
+2026-10-03T01:37:40+00:00,L-5a,diagonal role reversal,iteration,2348,+0.1704,+0.0878,+0.2589,True,placebo -0.064
+2026-10-03T01:37:40+00:00,L-5b,diagonal role reversal,iteration,2229,+0.1443,+0.0463,+0.2451,True,placebo -0.049
+2026-10-03T01:37:53+00:00,L-5c,double support tag,iteration,1233,+0.0908,+0.0037,+0.1759,True,placebo +0.018

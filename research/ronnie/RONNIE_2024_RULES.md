@@ -185,3 +185,10 @@ is looser than his two-step rule. The difference is recorded, not fitted.
   channel rail as target helps only because it is far (a fixed 6R does the same, at a lower Sharpe than 2R); his
   cycle-swing Fibonacci levels as targets (as in his 2025-02-25 plan) beat placebo ratios by a margin too small to use
   (+0.02R).
+- **The rest of his lines (2026-10-03, `tv_line_fidelity2.py`):** most lines our first drawer missed are broken trend
+  lines he draws while price retests them from the other side (the diagonal form of role reversal), plus short, steep
+  lines through 1-2 bar pivots of the latest leg. A drawer with both reproduces 66% (calibration) and 45% (check) of his
+  near-price lines against 5% and 15% for moved lines. Traded as a diagonal R-1 (loop L-5), the broken-line retest
+  beats random entries and moved lines, but 82% of its trades are R-1's own; where a broken line meets R-1's level
+  ("double support", a phrase from his 2026 videos), R-1 does +0.09R better, now a forward tag.
+

@@ -59,6 +59,72 @@ def broken_lines(h, l, c, a, i, piv_h, piv_l, window=200):
     return out
 
 
+def diag_candidates(d, stop_atr=0.5, shift=0.0):
+    """L-5 candidate fills (before the slot rule) with their break bar: [(fill bar, side, px, stop, tgt, break bar)]"""
+    S = FR.state(d)
+    o, h, l, c, a, tr = S["o"], S["h"], S["l"], S["c"], S["a"], S["trend"]
+    up, dn = strong(o, c)
+    hi = pd.Series(h).rolling(2 * L2.K + 1, center=True).max().values == h
+    lo = pd.Series(l).rolling(2 * L2.K + 1, center=True).min().values == l
+    piv_h, piv_l = list(np.flatnonzero(hi)), list(np.flatnonzero(lo))
+    out = set()
+    for i in range(301, len(c) - 1):
+        side = tr[i]
+        if side == 0 or not ((side == 1 and up[i]) or (side == -1 and dn[i])):
+            continue
+        for _, _, y0, s, _ in L2.drawer(h, l, c, a, i - 1, -side, piv_h, piv_l):
+            y_i = y0 + s + side * shift * a[i - 1]
+            if not ((c[i] - y_i) * side > 0 and (c[i - 1] - (y0 + side * shift * a[i - 1])) * side <= 0):
+                continue
+            for m in range(i + 1, min(i + 1 + FR.VALID, len(c))):
+                ym = y_i + s * (m - i)
+                if (side == 1 and l[m] <= ym) or (side == -1 and h[m] >= ym):
+                    px = min(o[m], ym) if side == 1 else max(o[m], ym)
+                    stop = ym - side * stop_atr * a[i]
+                    if (px - stop) * side > 0:
+                        out.add((m, side, px, stop, px + side * 2 * abs(px - stop), i))
+                    break
+    return sorted(out), S
+
+
+def r1_arm_bars(S):
+    """bars on which R-1 armed an order (a break in the trend direction)"""
+    return sorted({i for i, kind, p in S["events"] if kind in ("break_high", "break_low")
+                   and S["trend"][i] == (1 if kind == "break_high" else -1)})
+
+
+def r1d_signals(d):
+    """{'L-5b': standalone, 'diag-only': L-5b breaks with no R-1 arming in the 10 bars up to the break,
+    'R-1d': R-1u candidates plus diag-only candidates, one slot per coin, first fill}"""
+    cand, S = diag_candidates(d)
+    arms = np.array(r1_arm_bars(S))
+    only = [x for x in cand if not len(arms) or not np.any((arms >= x[5] - FR.VALID) & (arms <= x[5]))]
+    r1 = []
+    for i, kind, p in S["events"]:
+        if kind not in ("break_high", "break_low") or i + 1 >= len(S["c"]) or np.isnan(S["a"][i]):
+            continue
+        side = 1 if kind == "break_high" else -1
+        if S["trend"][i] != side:
+            continue
+        lvl, edge = p[1], p[2]
+        lower = max(edge, lvl - S["a"][i]) if side == 1 else min(edge, lvl + S["a"][i])
+        stop = lower - side * FR.BUF * S["a"][i]
+        k, px = FR.fill(S, i + 1, side, lvl)
+        if k is None or (px - stop) * side <= 0:
+            continue
+        r1.append((k, side, px, stop, px + side * 2 * abs(px - stop), i))
+
+    def slot(cs):
+        busy, out = -1, []
+        for sg in sorted(set(cs), key=lambda x: x[0]):
+            if sg[0] <= busy:
+                continue
+            out.append(sg[:5])
+            busy = FR.exit_bar(S, sg[0], sg[1], sg[3], sg[4])
+        return out
+    return {"L-5b": slot(cand), "diag-only": slot(only), "R-1d": slot(r1 + only), "R-1u": slot(r1)}
+
+
 def main():
     rows, tags = [], []
     for ci, coin in enumerate(E.ITER_COINS + E.ITER_EXT_COINS):
