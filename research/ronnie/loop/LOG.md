@@ -2303,3 +2303,11 @@ the forward harness does the same. The rule was never registered. Alternatives o
 +0.187 [+0.112, +0.264] (4,318 trades), tightest stop first +0.198 (4,944), widest stop first +0.178 (3,879), against
 +0.221 [+0.142, +0.297] (4,300) as implemented. All stay above zero and above SESOI; the implemented choice is the
 most favourable of the four, so R-1u's development edge is stated as +0.18 to +0.22.
+
+### Double support as the only orders (2026-10-03, exploratory, development; the user's question)
+
+Simulated as books (one slot per coin, first fill), 53 coins 2018-2022: R-1u 4,300 trades, avg R +0.219, edge +0.221
+[+0.142, +0.297], total 941R, weekly Sharpe 2.27; double-support orders only 1,963 trades, avg R +0.243, edge +0.255
+[+0.154, +0.352], total 478R, Sharpe 2.05 (2018 -0.66R per trade); the rest only 3,629 trades, avg R +0.134, edge
++0.148, Sharpe 1.41. The tagged orders carry more of R-1's edge, but a tagged-only book halves the trades and total R
+and lowers the Sharpe. In-sample for the tag; the forward record decides (L-5c, 2027-10-01).
