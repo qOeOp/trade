@@ -6542,7 +6542,11 @@ mod tests {
                 PitWindowRunRefusalV1, UntrustedPitWindowCustodyClaimV1,
                 UntrustedPitWindowCustodyFrameV1,
             },
-            postgres::pit_window_custody_v1 as custody,
+            postgres::{
+                native_replay_custody_frame_v1 as custody_frame,
+                native_replay_custody_frame_v1_tests as frame_fixture,
+                pit_window_custody_v1 as custody,
+            },
         };
 
         let owner_url = std::env::var("MARKET_DATA_OWNER_TEST_DATABASE_URL")
@@ -6659,6 +6663,49 @@ mod tests {
                 .await
                 .map(|_| ()),
             Err(custody::PitWindowViewRefusalV1::HeadNotInChain)
+        );
+
+        // A custody frame reads through the port exactly as it reads on the pool, and with the
+        // production quote cut resolver it is refused there too, for want of a quote cut.
+        let frame = UntrustedPitWindowCustodyFrameV1 {
+            custody: UntrustedPitWindowCustodyClaimV1 {
+                chain_root: root.chain_root(),
+            },
+            head_identity: head.custody_identity(),
+            event_ns: through_port.frames()[1].event_ns(),
+        };
+        let view = owner.resolve_pit_window_view_v1(&frame).await.unwrap();
+        let request = frame_fixture::custody_request(&view, frame, run.run_end_ns_exclusive);
+        let rows = frame_fixture::quote_rows(&view.chain.root.members);
+        let admitted = custody_frame::resolve_native_replay_custody_frame_through_port_v1(
+            &port,
+            &request,
+            frame_fixture::injected_quote_cut(&rows, 1),
+        )
+        .await
+        .expect("the port reads the custody frame");
+        let owned = custody_frame::resolve_native_replay_custody_frame_from_pool_v1(
+            owner.pool(),
+            &request,
+            frame_fixture::injected_quote_cut(&rows, 1),
+        )
+        .await
+        .expect("custody reads the custody frame");
+        assert_eq!(admitted.source(), owned.source());
+        assert_eq!(
+            admitted.universe_frame().digest(),
+            owned.universe_frame().digest()
+        );
+        assert_eq!(admitted.window_schedules(), owned.window_schedules());
+        assert_eq!(
+            custody_frame::resolve_native_replay_custody_frame_through_port_v1(
+                &port,
+                &request,
+                custody_frame::resolve_custody_quote_cut_v1,
+            )
+            .await
+            .map(|_| ()),
+            Err(crate::owner::native_replay_scheduling_v1::NativeReplaySchedulingErrorV1::EventOrderUnavailable)
         );
     }
 

@@ -6,10 +6,19 @@
 //! invented.
 
 use super::authority::RecordedTimeframeV1;
-use crate::owner::source_binding::BindingDigest;
+use crate::owner::{
+    native_replay_quote_cut_v2::NativeReplayQuoteCutRefusalV2,
+    pit_snapshot::VerifiedPitObservationBatch, source_binding::BindingDigest,
+};
 
 /// What a quote cut derivation is asked for one gap.
-#[expect(dead_code, reason = "asked of the quote cut derivation (T0-6)")]
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the quote cut derivation reads it (T0-6); until then production asks and is refused"
+    )
+)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct CustodyQuoteCutRequestV1 {
     pub(crate) chain_root: BindingDigest,
@@ -40,6 +49,22 @@ pub(crate) const fn custody_quote_cut_bound_v1(
         Some(_) => Some(run_end_ns_exclusive),
         None => None,
     }
+}
+
+/// The quote cut of the gap after `view`'s frame, as production derives it until slice T0-6: none.
+///
+/// Every gap is refused as `QuoteCutMissing`, which a frame reads as `EventOrderUnavailable`, so a
+/// custody frame fails closed rather than trade on an invented Quote. T0-6 replaces this body with
+/// the derivation, under the same signature.
+///
+/// # Errors
+///
+/// Always [`NativeReplayQuoteCutRefusalV2::QuoteCutMissing`].
+pub(crate) const fn resolve_custody_quote_cut_v1(
+    _view: &VerifiedPitObservationBatch,
+    _request: &CustodyQuoteCutRequestV1,
+) -> Result<VerifiedPitObservationBatch, NativeReplayQuoteCutRefusalV2> {
+    Err(NativeReplayQuoteCutRefusalV2::QuoteCutMissing)
 }
 
 #[cfg(test)]

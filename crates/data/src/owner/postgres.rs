@@ -43,6 +43,9 @@ mod live_market_stream_v1;
 #[cfg(test)]
 mod market_data_rd_api_authorization_postgres_tests;
 mod market_semantics;
+pub(in crate::owner) mod native_replay_custody_frame_v1;
+#[cfg(test)]
+pub(in crate::owner) mod native_replay_custody_frame_v1_tests;
 #[cfg(test)]
 mod native_replay_quote_cut_intake_tests;
 mod observation_census;
@@ -9118,13 +9121,31 @@ impl NativeReplaySchedulingResolverV1 for MarketDataReadPostgres {
         }
     }
 
-    /// The custody read lands on Owner custody with its admitted port (T0-5 C8 and C9).
+    /// A custody frame read on Owner custody: through the admitted custody port, or, in a test
+    /// build, on the pool. Its quote cut is production's, which refuses every gap until slice T0-6
+    /// derives one, so the frame fails closed as `EventOrderUnavailable`.
     async fn resolve_native_replay_custody_frame_inputs_v1(
         &self,
         request: &NativeReplayInitialMarketRequestV1,
     ) -> Result<NativeReplayCustodyFrameReadbackV1, NativeReplaySchedulingErrorV1> {
-        request.custody_frame()?;
-        Err(NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)
+        #[cfg(test)]
+        {
+            return native_replay_custody_frame_v1::resolve_native_replay_custody_frame_from_pool_v1(
+                &self.pool,
+                request,
+                native_replay_custody_frame_v1::resolve_custody_quote_cut_v1,
+            )
+            .await;
+        }
+        #[cfg(not(test))]
+        {
+            native_replay_custody_frame_v1::resolve_native_replay_custody_frame_through_port_v1(
+                &self.admitted_port,
+                request,
+                native_replay_custody_frame_v1::resolve_custody_quote_cut_v1,
+            )
+            .await
+        }
     }
 }
 

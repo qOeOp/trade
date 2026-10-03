@@ -1304,6 +1304,68 @@ impl NativeReplayCustodyFrameReadbackV1 {
     }
 }
 
+#[cfg(test)]
+impl NativeReplayCustodyFrameReadbackV1 {
+    /// The snapshot frame over exactly this frame's rows, for parity proofs: its view and quote
+    /// cut restated as committed snapshots, one BAR schedule per member stating the bar its window
+    /// schedule states, issued on the snapshot path for `request` restated for that snapshot.
+    pub(crate) fn snapshot_twin_for_test(
+        &self,
+        request: &NativeReplayInitialMarketRequestV1,
+    ) -> Result<NativeReplayInitialMarketReadbackV1, NativeReplaySchedulingErrorV1> {
+        let snapshot = |seed: u8| PitObservationBatchSourceV1::CommittedSnapshot {
+            snapshot_identity: BindingDigest::from_untrusted_bytes([seed; 32]),
+            fact_digest: BindingDigest::from_untrusted_bytes([seed.wrapping_add(1); 32]),
+        };
+        let batch = self
+            .view
+            .clone()
+            .edit_for_test(|fields| fields.source = snapshot(12));
+        let quote_cut = self
+            .quote_cut
+            .clone()
+            .edit_for_test(|fields| fields.source = snapshot(112));
+        let schedules = self
+            .schedules
+            .iter()
+            .zip(1..)
+            .map(|(window, identity)| {
+                let shape = window.0.shape;
+                let mut schedule =
+                    tests::schedule_bound_to_batch(&window.0.instrument, identity, &batch);
+                schedule.fact.kind = shape.kind;
+                schedule.fact.unit = shape.unit;
+                schedule.fact.step = shape.step;
+                schedule.fact.anchor_identity = anchor_identity_v1(shape.anchor);
+                schedule.fact.label = shape.label;
+                schedule.fact.completion = shape.completion;
+
+                if shape.clock == BarScheduleClockV1::Continuous {
+                    schedule.fact.calendar_identity = BindingDigest::from_untrusted_bytes([0; 32]);
+                    schedule.fact.session_identity = BindingDigest::from_untrusted_bytes([0; 32]);
+                }
+                schedule
+            })
+            .collect::<Vec<_>>();
+        let selection = batch.universe_selection_digest();
+        let mut request = request.for_frame(
+            BindingDigest::from_untrusted_bytes([12; 32]),
+            BindingDigest::from_untrusted_bytes([13; 32]),
+            request.frame_time_ns,
+        );
+        // A snapshot's Record is the one its intake admitted: both halves name it.
+        request.universe_selection_record_identity = selection;
+        request.universe_selection_record_digest = selection;
+        issue_native_replay_initial_market_readback_v1(
+            batch,
+            quote_cut,
+            schedules,
+            self.declared.clone(),
+            &request,
+        )
+    }
+}
+
 /// The instant of a custody quote cut that follows `view`, once it lies inside the gap after the
 /// view's frame: `(d_k, bound)`, the bound the next frame's event or, for the last, the run's end.
 fn custody_quote_cut_instant(
@@ -1351,10 +1413,6 @@ fn custody_quote_cut_instant(
 ///
 /// `universe` is the custody's Universe Selection locator, `(request_identity,
 /// request_meaning_digest)`: the Record a custody request names is checked as that pair.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the custody frame resolver issues it (T0-5 C9)")
-)]
 pub(crate) fn issue_native_replay_custody_frame_readback_v1(
     view: VerifiedPitObservationBatch,
     quote_cut: VerifiedPitObservationBatch,

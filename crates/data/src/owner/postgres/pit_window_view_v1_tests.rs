@@ -265,7 +265,7 @@ async fn postgres_an_availability_rule_at_the_minting_instant_hides_every_frame(
 }
 
 /// Daily execution bars at days 1 to 3 and two-day input bars at days 0 and 2, over four days.
-fn two_timeframe_request(
+pub(super) fn two_timeframe_request(
     template: UntrustedPitWindowCustodyRequestV1,
 ) -> UntrustedPitWindowCustodyRequestV1 {
     let mut request = template;
@@ -283,7 +283,7 @@ fn two_timeframe_request(
 }
 
 /// A correction of the two-day bar of day 2, published at `publication_ns`.
-fn two_day_correction(
+pub(super) fn two_day_correction(
     predecessor: BindingDigest,
     publication_ns: u64,
 ) -> UntrustedCrossSectionVersionV1 {
@@ -358,7 +358,7 @@ async fn postgres_a_correction_published_before_d_k_changes_only_frame_k() {
 
 /// The two-day version a custody holds at `event`: the one at `event` whose timeframe is not the
 /// daily bar's, which alone closes at day 1.
-async fn version_at_timeframe(
+pub(super) async fn version_at_timeframe(
     owner: &MarketDataOwnerPostgres,
     custody: BindingDigest,
     event: u64,
@@ -462,7 +462,7 @@ async fn postgres_a_pinned_head_reads_the_view_at_that_head_and_a_foreign_head_i
 }
 
 /// Seals a resolved view as the native resolver does; a refused seal is the store's.
-fn seal(
+pub(super) fn seal(
     view: &super::pit_window_custody_v1::ResolvedPitWindowViewV1,
 ) -> Result<crate::owner::pit_snapshot::VerifiedPitObservationBatch, PitWindowViewRefusalV1> {
     crate::owner::pit_snapshot::custody_view::verify_custody_view_batch_v1(

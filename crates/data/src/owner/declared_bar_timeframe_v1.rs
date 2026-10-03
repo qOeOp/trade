@@ -149,10 +149,6 @@ impl DeclaredBarTimeframeV1 {
     /// The declaration a custody holds its rows under: the binding fact the custody was derived
     /// from, the label it holds them under and the shape that label declares, all of which the
     /// custody's record and window schedule bind.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the custody frame resolver reads it (T0-5 C9)")
-    )]
     pub(crate) fn from_custody_v1(
         binding_fact_digest: BindingDigest,
         row_timeframe: &str,
