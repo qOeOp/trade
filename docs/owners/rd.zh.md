@@ -1141,18 +1141,45 @@ R&D 请求密封的 Result 不属于任何 family，以 `EXPLORATORY_RESULT_REQU
 失败的运行在 Backtest Owner 为它提交 `RUN_REJECTED` 或 `INVALID_REPLAY_EVIDENCE` Result 时被计数，上面的计数已经映射了
 这两种终态。
 
-**数据读取台账。** R&D 记录对市场数据的每一次读取：
+**今天市场数据在哪里被读取**，在 `main` 8f67d897f 上按调用者测得：
 
-- 记录什么：血缘、发起读取的试验或 agent 会话、标的、半开区间，以及该标的所属的标的层级（主流币、大市值或新上市）；
-- 行从哪里来：每个试验绑定的点时范围，以及 agent 经由 R&D 工具面所做的每一次读取，所以一次非正式的查看留下的行，与一次
-  登记过的运行相同。
+- 只有一处 R&D 读取同时具有标的集合与半开区间：执行输入绑定的签发
+  （`POST /v2/exploratory-replay/execution-input-bindings`，feature `composer-replay-issuance`）。它的
+  `resolve_native_replay_initial_owner_inputs_v1` 读取成员标的与 Replay 窗口
+  `[start_event_ns, end_event_ns_exclusive)`（`crates/strategy_factory/src/native_replay_initial_owner_inputs_v1.rs:150-176`），
+  原生运行与 Market Data 修复请求经由同一个函数读取。
+- 其余触及 Market Data 的 R&D 路由都只有范围身份与一个决策 cut，没有区间：初始 PIT 签发、PIT 快照请求路由，以及 Composer
+  与有界特征程序路由，它们在一个 cut 上重读一批 PIT。V3 Research 提交把标的身份与可交易前沿比对，那是参考数据，不是价格。
+- 没有任何 R&D 工具让 agent 读取市场数据。Dashboard MCP 服务的七个工具
+  （`product/dashboard/lib/dashboard-mcp-server.ts:152-211`）提交或读取 R&D 与运行状态，不返回任何市场数值；artifact 构建的
+  模型调用没有工具。
+- 没有任何类型把标的划入层级。Instrument Master V2 从 Binance `onboardDate` 记录永续合约的上市时刻
+  （`crates/data/src/owner/instrument_master_v2.rs:346`），Market Data 以 `MARKET_DATA.BAR.VOLUME.QUANTITY.V1` 提供 bar 成交量。
+- 没有任何 Owner 定义按标的或时段划分的 holdout 分区。Qualification 的 holdout 是一份预算与一项托管预留，不是数据的划分。
+
+**数据读取台账。** R&D 以只追加的行记录对市场数据的每一次读取，每个标的一行，写在发起读取的那个 R&D 事务里：
+
+- 一行绑定血缘（TrialFamily 及其跨 family 的前驱 frontier）、试验（Replay 请求的身份与含义摘要）或 agent 会话、标的、以事件
+  纳秒计的半开区间 `[start, end)`、该标的在该区间所属的层级及层级策略的身份，以及提交时间；
+- 试验行在 R&D 签发 Replay 的执行输入绑定时写入，那是唯一同时知道成员与窗口的位置；被加入而非新签发的绑定不再写入；
+- 任何向 agent 返回市场数值的 R&D 工具，都在应答之前写入它的行，写不了就拒绝。今天没有这样的工具，所以这个来源为空；增加
+  这样的工具而不写行，就违反本契约；
+- 写不了行的读取会失败，所以没有不留行的读取。
+
+**层级。** 层级在结果之前计算，从不在结果之后指派。一份有版本的层级策略冻结在 TrialFamily 策略里，按区间起点的点时事实给每个
+标的分级：上市时长取自 Instrument Master 的上市时刻，规模取自 Market Data 提供的滚动成交额（bar 成交量乘收盘价）。第 1 版以
+用户研究中的分桶为默认值：滚动成交额最大的 17 个标的是主流币，其后 20 个是大市值，区间起点之前上市不足 365 天的标的无论规模
+都是新上市。不同的阈值是新的策略版本，每一行都写明它用的版本。
 
 **未被读过的切片。** 台账分发血缘中没有任何人读过的切片：
 
-- 验证阶段向它请求一个属于自己标的层级与时段、且该血缘从未读过的切片，得到一个切片或一个具名拒绝。
-- 一旦分发，该切片即被预留，第二次读取会被拒绝。
-- 与 Candidate 的前驱 frontier 共享的更早血缘读过的切片，算作已读，所以更早 family 造成的污染是可见的，而不是靠记忆。
-- 台账从不分发位于 Qualification 封存 holdout 分区之内的切片。
+- 验证阶段向它请求一个层级与一个时段长度的切片，从 Market Data 可交易前沿列出的标的中抽取，得到一个切片或
+  `NO_UNTOUCHED_SLICE`。
+- 切片与一次读取重叠，指二者共享一个标的且半开区间相交。与 Candidate 的前驱 frontier 共享的更早血缘的读取也算，所以更早
+  family 造成的污染是可见的，而不是靠记忆。
+- 一旦分发，该切片即预留给那个阶段，对它的第二次读取以 `SLICE_ALREADY_READ` 拒绝。
+- 台账从不分发位于 Qualification 封存 holdout 分区之内的切片。还没有任何 Owner 定义这个分区，所以在 Qualification 定义它之前，
+  每次分发都以 `HOLDOUT_PARTITION_UNDEFINED` 拒绝，读取仍照常记录。
 
 **census 不带任何判决。** census 行记录一次试验跑过了以及它的探索性处置。它从不记录 Qualification 的结果，也不记录评估方
 给出的任何通过或失败位；Qualification 把自己的受保护尝试计入 N

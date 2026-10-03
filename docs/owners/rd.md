@@ -1353,21 +1353,57 @@ This section states a contract with no implementation; it grants no permission t
 A failed run is counted once the Backtest Owner commits a `RUN_REJECTED` or `INVALID_REPLAY_EVIDENCE` Result for
 it, which the count above already maps.
 
-**The data-read ledger.** R&D records every read of market data:
+**Where market data is read today**, measured at `main` 8f67d897f by callers:
 
-- what is recorded: the lineage, the trial or agent session that made it, the instrument, the half-open period, and
-  the universe stratum the instrument falls in (majors, large caps, or new listings);
-- where the rows come from: the point-in-time scope each trial binds, and every read an agent makes through the R&D
-  tool surface, so an informal look leaves the same row a registered run does.
+- Only one R&D read has both an instrument set and a half-open period: the execution-input binding issuance
+  (`POST /v2/exploratory-replay/execution-input-bindings`, feature `composer-replay-issuance`). Its
+  `resolve_native_replay_initial_owner_inputs_v1` reads the member instruments and the Replay window
+  `[start_event_ns, end_event_ns_exclusive)` (`crates/strategy_factory/src/native_replay_initial_owner_inputs_v1.rs:150-176`),
+  and the native run and the Market Data repair request read through the same function.
+- Every other R&D route that reaches Market Data has scope identities and one decision cut but no period: the initial
+  PIT issuance, the PIT snapshot request route, and the Composer and bounded-feature-program routes, which reread one
+  PIT batch at one cut. The V3 Research submission checks instrument identities against the eligible frontier, which
+  is reference data, not prices.
+- No R&D tool lets an agent read market data. The Dashboard MCP server's seven tools
+  (`product/dashboard/lib/dashboard-mcp-server.ts:152-211`) submit or read R&D and run state and return no market
+  value, and the artifact-build model call has no tools.
+- No type classifies an instrument into a stratum. Instrument Master V2 records a perpetual's listing instant from
+  Binance `onboardDate` (`crates/data/src/owner/instrument_master_v2.rs:346`), and Market Data serves bar volume as
+  `MARKET_DATA.BAR.VOLUME.QUANTITY.V1`.
+- No Owner defines a holdout partition of instruments or periods. Qualification's holdout is a budget and a custody
+  reservation, not a partition of the data.
+
+**The data-read ledger.** R&D records every read of market data as append-only rows, one per instrument, in the R&D
+transaction that makes the read:
+
+- a row binds the lineage (the TrialFamily and its cross-family predecessor frontier), the trial (the Replay
+  request's identity and meaning digest) or the agent session, the instrument, the half-open period `[start, end)` in
+  event nanoseconds, the instrument's stratum for that period with the stratum policy's identity, and the commit time;
+- trial rows are written when R&D issues a Replay's execution-input binding, the one point where the members and the
+  window are both known; a binding that is joined rather than issued writes nothing again;
+- any R&D tool that returns market values to an agent writes its rows before it answers, and refuses when it cannot.
+  None exists today, so this source is empty, and adding such a tool without its rows breaches this contract;
+- a read whose rows cannot be written fails, so no read happens without its rows.
+
+**Strata.** A stratum is computed before the outcome, never assigned after it. A versioned stratum policy, frozen in
+the TrialFamily policy, classifies each instrument from point-in-time facts at the period's start: its listing age
+from Instrument Master's listing instant, and its size from the trailing traded value (bar volume times close) Market
+Data serves. Version 1 takes the user's research buckets as its defaults: the 17 instruments of largest trailing traded
+value are majors, the next 20 are large caps, and an instrument listed less than 365 days before the period's start is
+a new listing whatever its size. A different threshold is a new policy version, and every row names the version it
+used.
 
 **Untouched slices.** The ledger hands out slices nobody in the lineage has read:
 
-- A validation stage asks it for a slice of its own universe stratum and period that the lineage has never read, and
-  gets one or a named refusal.
-- Once handed out, the slice is reserved. A second read refuses.
-- A slice read by an earlier lineage that shares the Candidate's predecessor frontier counts as read, so an earlier
-  family's contamination is visible rather than remembered.
-- The ledger never hands out a slice inside Qualification's sealed holdout partition.
+- A validation stage asks it for a slice of one stratum and one period length, drawn from the instruments Market
+  Data's eligible frontier names, and gets one or `NO_UNTOUCHED_SLICE`.
+- A slice overlaps a read when they share an instrument and their half-open periods intersect. A read by an earlier
+  lineage that shares the Candidate's predecessor frontier counts, so an earlier family's contamination is visible
+  rather than remembered.
+- Once handed out, the slice is reserved to that stage, and a second read of it refuses as `SLICE_ALREADY_READ`.
+- The ledger never hands out a slice inside Qualification's sealed holdout partition. No Owner defines that partition
+  yet, so until Qualification does, every hand-out refuses as `HOLDOUT_PARTITION_UNDEFINED`, while reads are still
+  recorded.
 
 **The census carries no verdict.** A census row records that a trial ran and its exploratory disposition. It never
 records a Qualification outcome or any pass or fail bit from an evaluator; Qualification counts its own protected
