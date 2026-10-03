@@ -746,7 +746,11 @@ move-only V2 execution bundle. The bundle validates two complete BAR signals and
 Owner-verified Quote EVENT liquidity for each frame. Each frame's final liquidity
 EVENT must precede the next frame's first BAR. Strict cross-frame temporal order and the request
 window are checked before ProgramHost or Backtest state changes. A V1 binding is never upgraded by interpretation,
-and an unavailable V2 constituent never falls back to V1 or a test-issued successor frame.
+and an unavailable V2 constituent never falls back to V1 or a test-issued successor frame. Market Data issues every
+BAR and Quote value at its canonical scale, so a close of 123.450 on a 0.001 tick arrives as 123.45. The bundle
+re-expresses each price and size at its instrument's precision without changing a value, and refuses by name a value
+finer than the instrument's grid. It then refuses, by name, any BAR or Quote not at its instrument's precision: the
+engine would otherwise drop that datum silently and still complete the run.
 
 Backtest V2 result custody binds the exact V2 binding and sequence digest, each consumed frame's
 identity and ordinal, every native schedule and liquidity EVENT receipt, the canonical target set

@@ -64,6 +64,81 @@ use super::{
     target_set_members::BoundedMembers,
 };
 
+/// Market Data issues values at their canonical scale, so on a 0.001 tick a close of 187.250
+/// arrives as 187.25. The bundle re-expresses every BAR and Quote at its instrument's precision
+/// without changing a value; the engine would otherwise drop the data and reject an order priced
+/// from it.
+#[rstest]
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+fn a_bundle_expresses_canonical_scale_data_at_its_instruments_precision() {
+    let mut instruments = instruments();
+    for instrument in &mut instruments {
+        let instrument = crypto_perpetual_mut(instrument);
+        instrument.maker_fee = rust_decimal::Decimal::new(2, 4);
+        instrument.taker_fee = rust_decimal::Decimal::new(4, 4);
+        instrument.margin_init = rust_decimal::Decimal::new(1, 1);
+        instrument.margin_maint = rust_decimal::Decimal::new(5, 2);
+        instrument.price_precision = 3;
+        instrument.price_increment = Price::from("0.001");
+    }
+    let (plan, artifact, frame) = fixture().unwrap();
+    let admitted = admit_owner_universe_program_event_v2(
+        &plan,
+        &OwnerUniverseFrameV1::uncoordinated(frame.clone()),
+    )
+    .unwrap();
+    let time = admitted.envelope().order_key.logical_time_ns;
+    let authority = owner_replay_execution_profile_binding_fixture_v1(
+        &plan,
+        &artifact,
+        &frame,
+        ReplayWindowV2 {
+            start_event_ns: time,
+            end_event_ns_exclusive: time + 3,
+        },
+    );
+    let (bar_types, data) = request_execution_schedule(&instruments, time);
+    assert!(data.iter().all(|datum| match datum {
+        Data::Bar(bar) => bar.close.precision == 2,
+        Data::Quote(quote) => quote.ask_price.precision == 2,
+        _ => false,
+    }));
+    let capability = ReplayTargetSetExecutionBundleV1::new_with_native_instruments_for_test(
+        authority,
+        plan,
+        artifact,
+        vec![OwnerUniverseFrameV1::uncoordinated(frame)],
+        StrategyId::from("TARGET-SET-PROFILE-EVENT-001"),
+        "target-set-profile-event".into(),
+        instruments,
+        bar_types,
+        data.clone(),
+        &[time],
+    )
+    .expect("canonical-scale data forms a bundle at its instruments' precision");
+    let aligned = &capability.data;
+    assert_eq!(aligned.len(), data.len());
+
+    for (aligned, issued) in aligned.iter().zip(&data) {
+        match (aligned, issued) {
+            (Data::Bar(aligned), Data::Bar(issued)) => {
+                assert_eq!(aligned.close.precision, 3);
+                assert_eq!(aligned.close.as_decimal(), issued.close.as_decimal());
+                assert_eq!(aligned.volume, issued.volume);
+            }
+            (Data::Quote(aligned), Data::Quote(issued)) => {
+                assert_eq!(aligned.ask_price.precision, 3);
+                assert_eq!(
+                    aligned.ask_price.as_decimal(),
+                    issued.ask_price.as_decimal()
+                );
+                assert_eq!(aligned.bid_size, issued.bid_size);
+            }
+            other => panic!("native data kind changed: {other:?}"),
+        }
+    }
+}
+
 #[rstest]
 #[cfg(feature = "sealed-strategy-input-acceptance")]
 fn owner_bound_profile_drives_bar_signal_then_real_event_fills() {

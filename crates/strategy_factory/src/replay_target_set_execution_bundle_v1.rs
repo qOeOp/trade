@@ -14,6 +14,7 @@ use vibe_model::{
     data::{Bar, BarType, Data, HasTsInit, QuoteTick},
     identifiers::{AccountId, StrategyId},
     instruments::{Instrument, InstrumentAny},
+    types::{Price, Quantity},
 };
 
 use crate::{
@@ -650,6 +651,8 @@ impl ReplayTargetSetExecutionBundleV1 {
             frame_time == request_window.start_event_ns,
             "request execution bundle frame time mismatches Owner request window"
         );
+        let data = align_native_data_to_instruments(data, &instruments)?;
+        ensure_native_data_at_instrument_precision(&data, &instruments)?;
         let scheduling_data_digest = validate_and_digest_scheduling_data(
             &data,
             &instruments,
@@ -922,6 +925,110 @@ fn verify_scheduling_data_against_sealed_frames(
     Ok(())
 }
 
+/// Re-expresses each native BAR and Quote at its instrument's price and size precision, exactly.
+///
+/// Market Data issues values at their canonical scale, without trailing fractional zeros, so a
+/// close of 123.450 on a 0.001 tick arrives as 123.45 at precision 2. The engine needs every price
+/// and size at the instrument's precision: its matching engine logs and drops a BAR or Quote whose
+/// precision differs, and its venue rejects an order priced at another precision. The value is
+/// never changed. A value finer than the instrument's grid is refused by name rather than rounded.
+fn align_native_data_to_instruments(
+    data: Vec<Data>,
+    instruments: &[InstrumentAny],
+) -> anyhow::Result<Vec<Data>> {
+    data.into_iter()
+        .map(|datum| {
+            let instrument = instruments
+                .iter()
+                .find(|instrument| instrument.id() == datum.instrument_id())
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "request execution bundle native data names no target set member"
+                    )
+                })?;
+            let price_precision = instrument.price_precision();
+            let size_precision = instrument.size_precision();
+            Ok(match datum {
+                Data::Bar(bar) => Data::Bar(Bar {
+                    open: exact_price(bar.open, price_precision)?,
+                    high: exact_price(bar.high, price_precision)?,
+                    low: exact_price(bar.low, price_precision)?,
+                    close: exact_price(bar.close, price_precision)?,
+                    volume: exact_quantity(bar.volume, size_precision)?,
+                    ..bar
+                }),
+                Data::Quote(quote) => Data::Quote(QuoteTick {
+                    bid_price: exact_price(quote.bid_price, price_precision)?,
+                    ask_price: exact_price(quote.ask_price, price_precision)?,
+                    bid_size: exact_quantity(quote.bid_size, size_precision)?,
+                    ask_size: exact_quantity(quote.ask_size, size_precision)?,
+                    ..quote
+                }),
+                other => other,
+            })
+        })
+        .collect()
+}
+
+fn exact_price(price: Price, precision: u8) -> anyhow::Result<Price> {
+    let aligned = Price::from_decimal_dp(price.as_decimal(), precision)?;
+    anyhow::ensure!(
+        aligned.as_decimal() == price.as_decimal(),
+        "request execution bundle native price {price} is finer than its instrument's precision {precision}"
+    );
+    Ok(aligned)
+}
+
+fn exact_quantity(quantity: Quantity, precision: u8) -> anyhow::Result<Quantity> {
+    let aligned = Quantity::from_decimal_dp(quantity.as_decimal(), precision)?;
+    anyhow::ensure!(
+        aligned.as_decimal() == quantity.as_decimal(),
+        "request execution bundle native size {quantity} is finer than its instrument's precision {precision}"
+    );
+    Ok(aligned)
+}
+
+/// Refuses, by name, any native BAR or Quote whose precision is not its instrument's.
+///
+/// The engine does not refuse such data: its matching engine logs and drops it, and the run
+/// completes on what remained. A price whose trailing zero was canonicalized away would silently
+/// remove its whole BAR or Quote from a result that still reads as complete. This guard makes that
+/// impossible past the bundle, whatever produced the data.
+fn ensure_native_data_at_instrument_precision(
+    data: &[Data],
+    instruments: &[InstrumentAny],
+) -> anyhow::Result<()> {
+    for datum in data {
+        let instrument = instruments
+            .iter()
+            .find(|instrument| instrument.id() == datum.instrument_id())
+            .ok_or_else(|| {
+                anyhow::anyhow!("request execution bundle native data names no target set member")
+            })?;
+        let (prices, sizes): (Vec<Price>, Vec<Quantity>) = match datum {
+            Data::Bar(bar) => (
+                vec![bar.open, bar.high, bar.low, bar.close],
+                vec![bar.volume],
+            ),
+            Data::Quote(quote) => (
+                vec![quote.bid_price, quote.ask_price],
+                vec![quote.bid_size, quote.ask_size],
+            ),
+            _ => continue,
+        };
+        anyhow::ensure!(
+            prices
+                .iter()
+                .all(|price| price.precision == instrument.price_precision())
+                && sizes
+                    .iter()
+                    .all(|size| size.precision == instrument.size_precision()),
+            "request execution bundle native data precision differs from its instrument's, which the engine would drop"
+        );
+    }
+    Ok(())
+}
+
 fn validate_and_digest_scheduling_data(
     data: &[Data],
     instruments: &[InstrumentAny],
@@ -1092,6 +1199,51 @@ mod tests {
     use crate::program_host_v2_target_set_backtest_tests::instruments;
 
     const FRAME_TIME: u64 = 1_000;
+
+    /// The instruments the scheduling fixture is for, on a 0.001 tick: its data, at the canonical
+    /// scale of two places, is coarser than the instruments.
+    fn finer_tick_instruments() -> ([InstrumentAny; 2], Vec<Data>) {
+        let (mut instruments, _, data) = scheduling_fixture();
+        for instrument in &mut instruments {
+            let InstrumentAny::CryptoPerpetual(instrument) = instrument else {
+                unreachable!("the scheduling fixture's instruments are perpetuals")
+            };
+            instrument.price_precision = 3;
+            instrument.price_increment = Price::from("0.001");
+        }
+        (instruments, data)
+    }
+
+    #[rstest::rstest]
+    fn data_at_another_precision_is_refused_by_name_before_the_engine_can_drop_it() {
+        let (instruments, data) = finer_tick_instruments();
+        let refusal = ensure_native_data_at_instrument_precision(&data, &instruments)
+            .expect_err("two-place data is not at a three-place instrument's precision");
+        assert!(
+            refusal.to_string().contains("which the engine would drop"),
+            "{refusal}"
+        );
+
+        let aligned = align_native_data_to_instruments(data, &instruments).unwrap();
+        ensure_native_data_at_instrument_precision(&aligned, &instruments).unwrap();
+    }
+
+    #[rstest::rstest]
+    fn a_value_finer_than_its_instrument_is_refused_by_name_not_rounded() {
+        let (instruments, _, mut data) = scheduling_fixture();
+        let Data::Quote(quote) = &mut data[2] else {
+            unreachable!("the third datum is the first member's Quote")
+        };
+        quote.ask_price = Price::from("100.015");
+        let refusal = align_native_data_to_instruments(data, &instruments)
+            .expect_err("a three-place price on a two-place instrument is not exact");
+        assert!(
+            refusal
+                .to_string()
+                .contains("is finer than its instrument's precision"),
+            "{refusal}"
+        );
+    }
 
     fn scheduling_fixture() -> ([InstrumentAny; 2], [BarType; 2], Vec<Data>) {
         let instruments = instruments();

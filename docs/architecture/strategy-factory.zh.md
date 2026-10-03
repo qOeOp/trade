@@ -660,7 +660,10 @@ R&D 仅在准确读取 V1 binding 和每一帧的 Owner 能力后，原子托管
 V2 sequence digest 覆盖各帧顺序及全部 frame、schedule、liquidity receipt。精确重试和响应丢失恢复只回读
 原记录，意义变化零写入冲突。Native preparation 必须独立重解每个 Owner cut、逐字节复现 V2 binding，再交付
 move-only bundle；bundle 在 ProgramHost 或 Backtest 改变状态前验证每帧完整 BAR、随后真实 EVENT 流动性、
-跨帧时间顺序和请求窗口。不能把 V1 解释成 V2，也不能在 V2 来源不可用时退回 V1。
+跨帧时间顺序和请求窗口。不能把 V1 解释成 V2，也不能在 V2 来源不可用时退回 V1。Market Data 按规范 scale 签发每个
+BAR 与 Quote 的值，所以 0.001 tick 上的收盘价 123.450 到达时是 123.45。bundle 把每个价格与数量在不改变数值的前提下
+改写为其 instrument 的精度，比 instrument 网格更细的值按名拒绝；随后对任何不在其 instrument 精度上的 BAR 或 Quote 按名
+拒绝，否则引擎会静默丢弃该数据，运行却照常完成。
 
 Backtest V2 Result custody 绑定 V2 binding、sequence digest、每帧消费顺序、实际 target set/fill 和本次
 canonical Result bytes；单帧 V1 的 28 项证据不能证明一次序列运行。只有每个成员真实进场成交、出场再次成交、
