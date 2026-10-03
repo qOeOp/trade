@@ -10,10 +10,10 @@ use std::sync::Arc;
 use axum::{
     Json, Router,
     body::Bytes,
-    extract::State,
+    extract::{Path, State},
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
-    routing::post,
+    routing::{get, post},
 };
 use serde::Deserialize;
 use serde_json::json;
@@ -21,10 +21,10 @@ use vibe_data::owner::strategy_design_role_intent_v1::StrategyDesignRoleIntentV1
 use vibe_strategy_factory::bounded_feature_program_derivation_v1::BoundedFeatureProgramAssemblyErrorV1;
 use vibe_strategy_factory::bounded_feature_program_v1::BoundedFeatureProgramErrorV1;
 use vibe_strategy_factory::rd_bounded_feature_program_postgres_v1::{
-    PostgresResearchBoundedFeatureProgramOwnerV1, ResearchBoundedFeatureProgramDeclarationV1,
-    ResearchBoundedFeatureProgramFreezeReceiptV1, ResearchBoundedFeatureProgramFreezeRequestV1,
-    ResearchBoundedFeatureProgramLoweringErrorV1, ResearchBoundedFeatureProgramLoweringV1,
-    ResearchBoundedFeatureProgramOwnerErrorV1,
+    PostgresResearchBoundedFeatureProgramOwnerV1, ResearchAuthoringFactsV1,
+    ResearchBoundedFeatureProgramDeclarationV1, ResearchBoundedFeatureProgramFreezeReceiptV1,
+    ResearchBoundedFeatureProgramFreezeRequestV1, ResearchBoundedFeatureProgramLoweringErrorV1,
+    ResearchBoundedFeatureProgramLoweringV1, ResearchBoundedFeatureProgramOwnerErrorV1,
 };
 use vibe_strategy_factory::strategy_design_v2::StrategyDesignV2;
 
@@ -57,6 +57,11 @@ trait ResearchBoundedFeatureProgramPort: Send + Sync {
         research_request_locator: &str,
         design: &StrategyDesignV2,
     ) -> Result<StrategyDesignRoleIntentV1, ResearchBoundedFeatureProgramOwnerErrorV1>;
+
+    async fn read_research_authoring_facts(
+        &self,
+        research_request_locator: &str,
+    ) -> Result<ResearchAuthoringFactsV1, ResearchBoundedFeatureProgramOwnerErrorV1>;
 }
 
 #[async_trait::async_trait]
@@ -94,6 +99,13 @@ impl ResearchBoundedFeatureProgramPort for PostgresResearchBoundedFeatureProgram
         design: &StrategyDesignV2,
     ) -> Result<StrategyDesignRoleIntentV1, ResearchBoundedFeatureProgramOwnerErrorV1> {
         Self::publish_design_role_intent(self, research_request_locator, design).await
+    }
+
+    async fn read_research_authoring_facts(
+        &self,
+        research_request_locator: &str,
+    ) -> Result<ResearchAuthoringFactsV1, ResearchBoundedFeatureProgramOwnerErrorV1> {
+        Self::read_research_authoring_facts_v1(self, research_request_locator).await
     }
 }
 
@@ -147,6 +159,10 @@ fn bounded_feature_program_router(
         .route(
             "/v1/strategy-designs/publish-role-intent",
             post(publish_design_role_intent),
+        )
+        .route(
+            "/v3/research-goals/{request_identity}/authoring-facts",
+            get(read_research_authoring_facts),
         )
         .with_state(BoundedFeatureProgramApiState {
             owner,
@@ -308,6 +324,32 @@ fn lowering_error(
 
     rejection(status, code, research_request_locator)
 }
+/// The four facts an author restates in a Design for this Research request, read at the same cut and
+/// through the same custody call the freeze compares a Design against, so what a proposer is given
+/// and what it is later held to cannot come from two places. A refusal answers by name.
+async fn read_research_authoring_facts(
+    State(state): State<BoundedFeatureProgramApiState>,
+    Path(request_identity): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    if !authorized(&headers, &state.token_digest) {
+        return rejection(
+            StatusCode::FORBIDDEN,
+            "UNAUTHORIZED_PRODUCT_EDGE",
+            &request_identity,
+        );
+    }
+
+    match state
+        .owner
+        .read_research_authoring_facts(&request_identity)
+        .await
+    {
+        Ok(facts) => (StatusCode::OK, Json(facts)).into_response(),
+        Err(e) => owner_error(&e, &request_identity),
+    }
+}
+
 fn owner_error(
     error: &ResearchBoundedFeatureProgramOwnerErrorV1,
     research_request_locator: &str,
@@ -757,6 +799,13 @@ mod router_tests {
             ResearchBoundedFeatureProgramLoweringErrorV1,
         > {
             unreachable!("no test in this module drives lower past the token check")
+        }
+
+        async fn read_research_authoring_facts(
+            &self,
+            _research_request_locator: &str,
+        ) -> Result<ResearchAuthoringFactsV1, ResearchBoundedFeatureProgramOwnerErrorV1> {
+            Err(ResearchBoundedFeatureProgramOwnerErrorV1::ResearchCustody)
         }
 
         async fn publish_design_role_intent(

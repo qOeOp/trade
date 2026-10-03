@@ -344,6 +344,20 @@ async fn accept(
         .unwrap()
 }
 
+async fn get_over_http(app: &axum::Router, path: &str) -> Response {
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(path)
+                .header("authorization", format!("Bearer {TOKEN}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap()
+}
+
 async fn issue_over_http(app: &axum::Router, request_identity: &str) -> Response {
     app.clone()
         .oneshot(
@@ -419,6 +433,7 @@ struct InitialPitFixtureV1 {
     universe: Arc<dyn UniverseSelectionAdmissionV1>,
     ports: MarketDataInitialPitPortsV1,
     token_digest: [u8; 32],
+    bounded_feature_program: Arc<PostgresResearchBoundedFeatureProgramOwnerV1>,
     app: axum::Router,
 }
 
@@ -498,7 +513,17 @@ async fn initial_pit_fixture() -> InitialPitFixtureV1 {
         .unwrap();
     let ports = MarketDataInitialPitPortsV1::new(universe.clone(), intake.clone());
     let token_digest: [u8; 32] = Sha256::digest(TOKEN.as_bytes()).into();
-    let app = research_initial_pit::router(owner.clone(), Some(ports.clone()), token_digest);
+    let bounded_feature_program = Arc::new(
+        PostgresResearchBoundedFeatureProgramOwnerV1::connect(
+            test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
+        )
+        .await
+        .unwrap(),
+    );
+    // The initial PIT routes and the authoring-facts read, as the API serves them.
+    let app = research_initial_pit::router(owner.clone(), Some(ports.clone()), token_digest).merge(
+        bounded_feature_program::router(bounded_feature_program.clone(), token_digest),
+    );
     InitialPitFixtureV1 {
         test_database,
         suffix,
@@ -510,6 +535,7 @@ async fn initial_pit_fixture() -> InitialPitFixtureV1 {
         universe,
         ports,
         token_digest,
+        bounded_feature_program,
         app,
     }
 }
@@ -555,6 +581,7 @@ async fn issues_its_initial_pit_request() {
         universe,
         ports,
         token_digest,
+        bounded_feature_program,
         app,
     } = initial_pit_fixture().await;
     let scope = [CHAIN_FIXTURE_INSTRUMENT];
@@ -588,6 +615,36 @@ async fn issues_its_initial_pit_request() {
     let intent = intent_of(&accepted);
     let correlation = expected_correlation(&intent);
 
+    // R2 over HTTP: the authoring facts are exactly what the freeze compares a Design against,
+    // read through the Owner's own call. Before any PIT request is issued, the terminal read is
+    // refused by name rather than answered empty.
+    let response = get_over_http(
+        &app,
+        &format!("/v3/research-goals/{request}/authoring-facts"),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        super::tests::response_json(response).await,
+        serde_json::to_value(
+            bounded_feature_program
+                .read_research_authoring_facts_v1(&request)
+                .await
+                .unwrap()
+        )
+        .unwrap()
+    );
+    let response = get_over_http(
+        &app,
+        &format!("/v3/research-goals/{request}/initial-pit/terminal"),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::CONFLICT);
+    assert_eq!(
+        response.headers()["x-rd-rejection-code"],
+        "INITIAL_PIT_NOT_AVAILABLE"
+    );
+
     // P2: issued over HTTP; the readback states Market Data's terminal.
     let response = issue_over_http(&app, &request).await;
     assert_eq!(response.status(), StatusCode::OK);
@@ -596,6 +653,37 @@ async fn issues_its_initial_pit_request() {
         body["initial_pit"],
         serde_json::json!({"state": "TERMINAL", "disposition": "AVAILABLE", "primary_blocker": null}),
         "{body}"
+    );
+
+    // R1 over HTTP: the AVAILABLE terminal reads back under the Intent's correlation, with the
+    // snapshot Market Data holds for it, which a caller states back to Market Data next.
+    let response = get_over_http(
+        &app,
+        &format!("/v3/research-goals/{request}/initial-pit/terminal"),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let terminal = super::tests::response_json(response).await;
+    assert_eq!(
+        terminal["correlation_identity"],
+        serde_json::to_value(BindingDigest::from_untrusted_bytes(correlation)).unwrap(),
+        "{terminal}"
+    );
+    assert_eq!(
+        terminal["submission"]["correlation_identity"], terminal["correlation_identity"],
+        "{terminal}"
+    );
+    let mut read = rd.begin().await.unwrap();
+    let held = ports
+        .read_terminal_by_correlation(&mut read, BindingDigest::from_untrusted_bytes(correlation))
+        .await
+        .unwrap()
+        .expect("Market Data holds the committed intake");
+    read.rollback().await.unwrap();
+    assert_eq!(
+        terminal["pit_snapshot"],
+        serde_json::to_value(held.terminal().locator().unwrap()).unwrap(),
+        "{terminal}"
     );
 
     // P3: the frozen bytes are a Market Data submission stating no Owner field, under the

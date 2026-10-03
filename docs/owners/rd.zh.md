@@ -374,7 +374,7 @@ Research artifact evidence 必须正是为它封存的（`rd_owner_api.lock_rese
 - Composer 运行；
 - `POST /v1/bounded-feature-programs/{declare,freeze}`；
 - 发布 Design role intent；
-- 读取 Research 编写事实；
+- 读取 Research 编写事实，由 `GET /v3/research-goals/{request_identity}/authoring-facts` 回答；
 - 冻结复杂策略的 develop evaluation；
 - Artifact 构建：准备它、预留其 provider 调用、记录其候选并提交其终态结果。后继的构建在后继自己的准入与它冻结的受保护反馈下
   继续，而不是其家族初始 Intent 的。
@@ -1418,7 +1418,10 @@ unavailable 或位于不同 cut 时，只撤回它自己的行与计数。两个
   Market Data 能从该 intent 重算出同一个值；它由本 Owner 写入，从不取自调用方；`scope_digest` 是范围身份；关联身份是对
   `rd.research-initial-pit-correlation.v1\0` 与 Intent 身份的 32 字节做 SHA-256；Source Binding、Market Semantics 与
   decision cut 的引用，是 Market Data 自有读取面为该范围解析出的那些，由 Market Data 契约陈述。提交不陈述 Instrument
-  Master 摘要，也不陈述声称的请求身份或摘要：intake 盖上它自己的 Instrument Master 读回，并自行封存请求。
+  Master 摘要，也不陈述声称的请求身份或摘要：intake 盖上它自己的 Instrument Master 读回，并自行封存请求。编排其后各步的
+  调用方用 `GET /v3/research-goals/{request_identity}/initial-pit/terminal` 读回已记录的 `AVAILABLE` 终态：该终态所封存
+  的冻结提交、它发出时所在的 Universe Selection 请求，以及 Market Data 在该关联身份下提交的快照。这个读取不加锁、不写入，
+  在记录到这样的终态之前以 `INITIAL_PIT_NOT_AVAILABLE` 拒绝。
 - 本 Owner 经 Market Data 的两个准入端口与之往来，即其 Universe Selection 与 PIT 路由背后的同一对端口，因此 Market Data
   在自己的连接池、自己的事务里运行，本 Owner 只交给它不受信任的输入。它对范围与关联身份的读取在本 Owner 的事务里运行，
   由 Market Data 的读取面提供。若 Market Data 将来拆成独立进程，替换点就是这两个端口的实现，改为 HTTP 客户端；签发本身

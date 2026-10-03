@@ -15,6 +15,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use serde::Serialize;
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Postgres, Row, Transaction};
 use thiserror::Error;
@@ -23,7 +24,7 @@ use vibe_data::owner::{
         PitMarketSnapshotBlockerV1, PitMarketSnapshotDispositionV1, PitMarketSnapshotIntakeErrorV1,
         PitMarketSnapshotIntakeV1, PitMarketSnapshotTerminalV1,
     },
-    pit_snapshot::PitSnapshotSubmissionV1,
+    pit_snapshot::{PitSnapshotSubmissionV1, UntrustedPitSnapshotLocator},
     research_instrument_scope_v1::ResearchInstrumentScopeV1,
     research_pit_references_v1::{ResearchPitReferencesErrorV1, ResearchPitReferencesV1},
     research_pit_terminal_v1::{ResearchPitIntakeTerminalV1, ResearchPitTerminalReadErrorV1},
@@ -310,12 +311,28 @@ pub enum ResearchInitialPitErrorV1 {
     /// Market Data's terminal does not belong to exactly one frozen attempt of this request.
     #[error("the terminal Market Data answered is not attributable: {0:?}")]
     TerminalUnattributable(InitialPitAttributionErrorV1),
+    /// The request has no recorded `AVAILABLE` terminal yet: its initial PIT request was not
+    /// issued, has not terminated, or terminated another way, which its readback states.
+    #[error("the initial PIT request has no recorded AVAILABLE terminal")]
+    InitialPitNotAvailable,
     /// This Owner's custody holds what it never writes; the name says what. Retrying cannot help.
     #[error("R&D Owner initial PIT custody is untrusted: {0}")]
     CustodyUntrusted(&'static str),
     /// This Owner's store could not answer; retrying may.
     #[error("R&D Owner storage unavailable: {0}")]
     StoreUnavailable(String),
+}
+
+/// What an `AVAILABLE` initial PIT terminal was issued from and what it committed, for a caller
+/// that composes the steps after it: the frozen submission (its Source Binding and time
+/// evidence), the Universe Selection request it was sent under, and the snapshot Market Data
+/// committed under the request's correlation.
+#[derive(Clone, Debug, Serialize)]
+pub struct ResearchInitialPitTerminalReadbackV1 {
+    pub correlation_identity: BindingDigest,
+    pub submission: PitSnapshotSubmissionV1,
+    pub universe_selection: UntrustedUniverseSelectionLocatorV1,
+    pub pit_snapshot: UntrustedPitSnapshotLocator,
 }
 
 impl From<ResearchGoalOwnerError> for ResearchInitialPitErrorV1 {
@@ -410,6 +427,69 @@ impl PostgresResearchGoalOwnerV1 {
                 }
             }
         }
+    }
+
+    /// Reads the recorded `AVAILABLE` terminal of a request's initial PIT request back, with the
+    /// frozen attempt it seals to and the snapshot Market Data holds under the correlation.
+    ///
+    /// Read only: it takes no lock and writes nothing. The attempt is the one the recorded
+    /// terminal names, re-verified as every read of the attempts verifies it, and Market Data's
+    /// read is the same correlation read issuance settles by.
+    ///
+    /// # Errors
+    ///
+    /// `InitialPitNotAvailable` until an `AVAILABLE` terminal is recorded; the request's own
+    /// refusals (`UnknownRequest`, `NotAccepted`, `NoInstrumentScope`) as issuance names them;
+    /// `MarketDataUnavailable` when Market Data could not answer the read.
+    pub async fn read_research_initial_pit_terminal_v1(
+        &self,
+        request_identity: &str,
+        market_data: &dyn InitialPitMarketDataPortV1,
+    ) -> Result<ResearchInitialPitTerminalReadbackV1, ResearchInitialPitErrorV1> {
+        let mut transaction = self.pool.begin().await.map_err(|e| storage(&e))?;
+        let subject = load_subject(&mut transaction, request_identity).await?;
+        let terminal = sqlx::query(
+            "SELECT attempt_ordinal, disposition
+               FROM rd_research_initial_pit_terminals_v1 WHERE request_identity = $1",
+        )
+        .bind(request_identity)
+        .fetch_optional(&mut *transaction)
+        .await
+        .map_err(|e| storage(&e))?;
+        let Some(terminal) = terminal.filter(|row| {
+            row.get::<String, _>("disposition")
+                == disposition_name(PitMarketSnapshotDispositionV1::Available)
+        }) else {
+            transaction.rollback().await.map_err(|e| storage(&e))?;
+            return Err(ResearchInitialPitErrorV1::InitialPitNotAvailable);
+        };
+        let ordinal = u32::try_from(terminal.get::<i32, _>("attempt_ordinal")).map_err(|_| {
+            ResearchInitialPitErrorV1::CustodyUntrusted("ATTEMPT_ORDINAL_OUT_OF_RANGE")
+        })?;
+        let attempt = load_attempts(&mut transaction, request_identity, subject.correlation())
+            .await?
+            .into_iter()
+            .find(|attempt| attempt.ordinal == ordinal)
+            .ok_or(ResearchInitialPitErrorV1::CustodyUntrusted(
+                "RECORDED_TERMINAL_NAMES_NO_ATTEMPT",
+            ))?;
+        let held = market_data
+            .read_terminal_by_correlation(&mut transaction, subject.correlation())
+            .await
+            .map_err(|_| ResearchInitialPitErrorV1::MarketDataUnavailable)?
+            .ok_or(ResearchInitialPitErrorV1::CustodyUntrusted(
+                "MARKET_DATA_HOLDS_NO_INTAKE_FOR_THE_RECORDED_TERMINAL",
+            ))?;
+        let pit_snapshot = held.terminal().locator().cloned().ok_or(
+            ResearchInitialPitErrorV1::CustodyUntrusted("MARKET_DATA_TERMINAL_LOCATES_NO_SNAPSHOT"),
+        )?;
+        transaction.rollback().await.map_err(|e| storage(&e))?;
+        Ok(ResearchInitialPitTerminalReadbackV1 {
+            correlation_identity: subject.correlation(),
+            submission: attempt.submission,
+            universe_selection: attempt.universe_selection,
+            pit_snapshot,
+        })
     }
 
     /// Under the Intent's lock: returns a recorded terminal, reads back an earlier send, or

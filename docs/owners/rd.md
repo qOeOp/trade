@@ -445,7 +445,7 @@ downstream first mutation does:
 - the Composer run;
 - `POST /v1/bounded-feature-programs/{declare,freeze}`;
 - publishing the Design role intent;
-- reading the Research authoring facts;
+- reading the Research authoring facts, which `GET /v3/research-goals/{request_identity}/authoring-facts` answers;
 - freezing a complex-strategy develop evaluation;
 - the Artifact build: preparing it, reserving its provider invocation, recording its candidate and
   committing its terminal result. A successor's build continues under the successor's own admission
@@ -1705,7 +1705,11 @@ request binds 'the requested instrument or universe scope'."
   `rd.research-initial-pit-correlation.v1\0` and the Intent identity's 32 bytes; and the Source Binding, Market Semantics
   and decision-cut references are the ones Market Data's own read surface resolves for that scope, as the Market Data
   contract states. The submission states no Instrument Master digest and no claimed request identity or digest: the
-  intake stamps its own Instrument Master readback and seals the request itself.
+  intake stamps its own Instrument Master readback and seals the request itself. A caller composing the steps after it
+  reads the recorded `AVAILABLE` terminal back with `GET /v3/research-goals/{request_identity}/initial-pit/terminal`:
+  the frozen submission the terminal seals to, the Universe Selection request it was sent under and the snapshot Market
+  Data committed under the correlation. The read takes no lock and writes nothing, and it refuses as
+  `INITIAL_PIT_NOT_AVAILABLE` until such a terminal is recorded.
 - Market Data is reached through its two admission ports, the same pair behind its Universe Selection and PIT routes,
   so it runs on its own pool and in its own transactions and this Owner hands it only untrusted input. Its reads of the
   scope and of the correlation run in this Owner's transaction, as Market Data's read surface provides. If Market Data

@@ -17,7 +17,7 @@ use axum::{
     extract::{Path, State},
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
-    routing::post,
+    routing::{get, post},
 };
 use vibe_strategy_factory::{
     product_edge::ResearchReadbackOwnerPortV1,
@@ -48,6 +48,10 @@ pub(super) fn router(
         .route(
             "/v3/research-goals/{request_identity}/initial-pit",
             post(issue_initial_pit),
+        )
+        .route(
+            "/v3/research-goals/{request_identity}/initial-pit/terminal",
+            get(read_initial_pit_terminal),
         )
         .with_state(ResearchInitialPitApiState {
             owner,
@@ -109,6 +113,44 @@ async fn issue_initial_pit(
     }
 }
 
+/// `GET /v3/research-goals/{request_identity}/initial-pit/terminal`: the recorded `AVAILABLE`
+/// terminal's frozen submission, Universe Selection request and committed snapshot, which a caller
+/// composing the steps after the initial PIT request states back to Market Data. Read only; a
+/// request with no such terminal yet is refused as `INITIAL_PIT_NOT_AVAILABLE`, and its readback
+/// says where it stands.
+async fn read_initial_pit_terminal(
+    State(state): State<ResearchInitialPitApiState>,
+    Path(request_identity): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    if !authorized(&headers, &state.token_digest) {
+        return rejection_v2(
+            StatusCode::FORBIDDEN,
+            "UNAUTHORIZED_PRODUCT_EDGE",
+            &request_identity,
+        );
+    }
+    let Some(market_data) = &state.market_data else {
+        return rejection_v2(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "MARKET_DATA_UNAVAILABLE",
+            &request_identity,
+        );
+    };
+
+    match state
+        .owner
+        .read_research_initial_pit_terminal_v1(&request_identity, market_data)
+        .await
+    {
+        Ok(readback) => (StatusCode::OK, Json(readback)).into_response(),
+        Err(e) => {
+            let (status, code) = initial_pit_refusal(&e);
+            rejection_v2(status, code, &request_identity)
+        }
+    }
+}
+
 /// The status and code of a named refusal. Each cause keeps its own code.
 fn initial_pit_refusal(error: &ResearchInitialPitErrorV1) -> (StatusCode, &'static str) {
     match error {
@@ -139,6 +181,9 @@ fn initial_pit_refusal(error: &ResearchInitialPitErrorV1) -> (StatusCode, &'stat
         }
         ResearchInitialPitErrorV1::MarketDataUnavailable => {
             (StatusCode::SERVICE_UNAVAILABLE, "MARKET_DATA_UNAVAILABLE")
+        }
+        ResearchInitialPitErrorV1::InitialPitNotAvailable => {
+            (StatusCode::CONFLICT, "INITIAL_PIT_NOT_AVAILABLE")
         }
         // Market Data refused a request this Owner froze: a defect on one side of the contract,
         // named by Market Data's own refusal.

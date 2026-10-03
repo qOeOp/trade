@@ -179,7 +179,7 @@ fn owner_error(
 ///
 /// `every_authoring_fact_is_one_the_freeze_compares` holds this set to that comparison, so a
 /// comparison that grows a fifth field cannot leave this type quietly insufficient.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct ResearchAuthoringFactsV1 {
     /// The Research request the authored Design answers.
     pub research_request_identity: BindingDigest,
