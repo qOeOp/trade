@@ -1171,9 +1171,10 @@ PostgreSQL store 都会在 provenance 存在前失败。private fact 与 atomic 
 Owner 还会拒绝任何非超级用户登录角色的直接或角色派生有效访问，包括 Owner 角色成员关系与 PostgreSQL
 全库读写角色。
 public-fact identity/digest、venue、margin-account scope、半开 event validity、source/provenance、revision、
-quote/fee currency 与每个准确 term byte。首版只接受正 fixed `STANDARD_NOTIONAL_RATE` initial/maintenance
-value，并明确选择 `StandardMarginModel`（`notional * rate`，不经 leverage）；绝不推断
-`LeveragedMarginModel`。可见 economic configuration 不能自证这些值，missing value 也绝不会变为零或原生
+quote/fee currency 与每个准确 term byte。首版只接受正 fixed initial/maintenance value，语义为
+`STANDARD_NOTIONAL_RATE` 或 `FIRST_BRACKET_NOTIONAL_RATE`，并明确选择 `StandardMarginModel`（`notional * rate`，
+不经 leverage）；绝不推断 `LeveragedMarginModel`。first-bracket terms 只在其 `margin_notional_cap` 以内成立，binding
+把该上限与比率一起记录并绑定进 terms digest，因此 bound terms 的 consumer 可以读到它。可见 economic configuration 不能自证这些值，missing value 也绝不会变为零或原生
 default。错误 fact、receipt、terms、venue、account 或 time，以及 noncanonical、partial、extra、
 cross-spliced、tampered 或 ACL-drifted custody 都会在 `ProgramHostV2` 或 Backtest state 存在前失败。既有
 profile canonical bytes 与 digest 保持不变。

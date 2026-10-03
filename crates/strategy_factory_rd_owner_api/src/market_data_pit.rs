@@ -24,6 +24,10 @@ use axum::{
 use serde::Deserialize;
 use serde_json::json;
 use vibe_data::owner::{
+    instrument_economic_terms_intake_v1::{
+        InstrumentEconomicTermsAdmissionErrorV1, InstrumentEconomicTermsAdmissionV1,
+        InstrumentEconomicTermsSubmissionV1,
+    },
     instrument_master_admission_v1::{
         InstrumentMasterAdmissionErrorV1, InstrumentMasterAdmissionV1,
         InstrumentMasterFactSubmissionV1,
@@ -118,6 +122,7 @@ pub(super) struct MarketDataAdmissions {
     pub(super) instruments: Option<Arc<dyn InstrumentMasterAdmissionV1>>,
     pub(super) instruments_v2: Option<Arc<dyn InstrumentMasterAdmissionV2>>,
     pub(super) semantics: Option<Arc<dyn MarketSemanticsAdmissionV1>>,
+    pub(super) economic_terms: Option<Arc<dyn InstrumentEconomicTermsAdmissionV1>>,
 }
 
 #[derive(Clone)]
@@ -129,6 +134,7 @@ struct MarketDataPitApiState {
     instruments: Option<Arc<dyn InstrumentMasterAdmissionV1>>,
     instruments_v2: Option<Arc<dyn InstrumentMasterAdmissionV2>>,
     semantics: Option<Arc<dyn MarketSemanticsAdmissionV1>>,
+    economic_terms: Option<Arc<dyn InstrumentEconomicTermsAdmissionV1>>,
     token_digest: [u8; 32],
 }
 
@@ -141,6 +147,7 @@ pub(super) fn router(admissions: MarketDataAdmissions, token_digest: [u8; 32]) -
         instruments,
         instruments_v2,
         semantics,
+        economic_terms,
     } = admissions;
     Router::new()
         .route(
@@ -158,6 +165,10 @@ pub(super) fn router(admissions: MarketDataAdmissions, token_digest: [u8; 32]) -
         .route(
             "/v1/market-data/instrument-master-v2-snapshots",
             post(admit_instrument_master_snapshot),
+        )
+        .route(
+            "/v1/market-data/instrument-economic-terms",
+            post(admit_instrument_economic_terms),
         )
         .route(
             "/v1/market-data/market-semantics",
@@ -199,6 +210,7 @@ pub(super) fn router(admissions: MarketDataAdmissions, token_digest: [u8; 32]) -
             instruments,
             instruments_v2,
             semantics,
+            economic_terms,
             token_digest,
         })
 }
@@ -287,6 +299,35 @@ async fn admit_instrument_master_baseline(
     match instruments.admit_baseline(submission).await {
         Ok(terminal) => (StatusCode::OK, Json(terminal)).into_response(),
         Err(e) => instrument_master_v2_error(e),
+    }
+}
+
+/// Issues the Instrument Owner's economic terms for one admitted Instrument Master V2 fact.
+///
+/// The body names the instrument, its fact, the account scope and the end of validity; the Owner
+/// derives every other field from that fact and from its own fee and leverage-bracket tables.
+async fn admit_instrument_economic_terms(
+    State(state): State<MarketDataPitApiState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    if !authorized(&headers, &state.token_digest) {
+        return rejection(StatusCode::FORBIDDEN, "UNAUTHORIZED_PRODUCT_EDGE");
+    }
+    let Some(economic_terms) = state.economic_terms else {
+        return rejection(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "INSTRUMENT_ECONOMIC_TERMS_UNAVAILABLE",
+        );
+    };
+    let submission: InstrumentEconomicTermsSubmissionV1 = match serde_json::from_slice(&body) {
+        Ok(submission) => submission,
+        Err(_) => return rejection(StatusCode::BAD_REQUEST, "MALFORMED_TYPED_REQUEST"),
+    };
+
+    match economic_terms.admit_terms(submission).await {
+        Ok(terminal) => (StatusCode::OK, Json(terminal)).into_response(),
+        Err(e) => economic_terms_error(e),
     }
 }
 
@@ -989,6 +1030,65 @@ fn instrument_master_v2_error(error: InstrumentMasterAdmissionErrorV2) -> Respon
     rejection(status, code)
 }
 
+/// Answers an economic-terms refusal with its documented code, and with the reason the derived
+/// terms did not seal when that is the refusal, since one code covers each such reason.
+fn economic_terms_error(error: InstrumentEconomicTermsAdmissionErrorV1) -> Response {
+    let (status, code) = economic_terms_status_and_code(error);
+    let InstrumentEconomicTermsAdmissionErrorV1::TermsInvalid(reason) = error else {
+        return rejection(status, code);
+    };
+    let mut response = (
+        status,
+        Json(json!({ "error": code, "reason": reason.to_string() })),
+    )
+        .into_response();
+    insert_rejection_code(&mut response, code);
+    response
+}
+
+fn economic_terms_status_and_code(
+    error: InstrumentEconomicTermsAdmissionErrorV1,
+) -> (StatusCode, &'static str) {
+    use InstrumentEconomicTermsAdmissionErrorV1 as Refused;
+
+    match error {
+        Refused::InstrumentFactUnavailable => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "ECONOMIC_TERMS_INSTRUMENT_FACT_UNAVAILABLE",
+        ),
+        Refused::VenueNotAdmitted => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "ECONOMIC_TERMS_VENUE_NOT_ADMITTED",
+        ),
+        Refused::MarginBracketUnlisted => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "ECONOMIC_TERMS_MARGIN_BRACKET_UNLISTED",
+        ),
+        Refused::CurrencyUnavailable => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "ECONOMIC_TERMS_CURRENCY_UNAVAILABLE",
+        ),
+        Refused::ValidityUnbounded => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "ECONOMIC_TERMS_VALIDITY_UNBOUNDED",
+        ),
+        Refused::ValidityNotAfterClockHead => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "ECONOMIC_TERMS_VALIDITY_NOT_AFTER_CLOCK_HEAD",
+        ),
+        Refused::TermsInvalid(_) => (StatusCode::UNPROCESSABLE_ENTITY, "ECONOMIC_TERMS_INVALID"),
+        Refused::MeaningConflict => (StatusCode::CONFLICT, "ECONOMIC_TERMS_MEANING_CONFLICT"),
+        Refused::ClockUnavailable => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "MARKET_DATA_CLOCK_UNAVAILABLE",
+        ),
+        Refused::StoreUnavailable => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "INSTRUMENT_ECONOMIC_TERMS_UNAVAILABLE",
+        ),
+    }
+}
+
 fn admission_error(error: SourceBindingAdmissionErrorV1) -> Response {
     let (status, code) = match error {
         SourceBindingAdmissionErrorV1::InvalidProposal => {
@@ -1079,11 +1179,27 @@ mod tests {
     /// token, or with another token, is refused before availability or the body is looked at. The
     /// authorized control reaches the next check, the route's own availability.
     #[rstest]
-    #[case::baseline("/v1/market-data/instrument-master-v2-facts")]
-    #[case::status_delta("/v1/market-data/instrument-master-v2-status-deltas")]
-    #[case::snapshot("/v1/market-data/instrument-master-v2-snapshots")]
+    #[case::baseline(
+        "/v1/market-data/instrument-master-v2-facts",
+        "MARKET_DATA_INSTRUMENT_MASTER_UNAVAILABLE"
+    )]
+    #[case::status_delta(
+        "/v1/market-data/instrument-master-v2-status-deltas",
+        "MARKET_DATA_INSTRUMENT_MASTER_UNAVAILABLE"
+    )]
+    #[case::snapshot(
+        "/v1/market-data/instrument-master-v2-snapshots",
+        "MARKET_DATA_INSTRUMENT_MASTER_UNAVAILABLE"
+    )]
+    #[case::economic_terms(
+        "/v1/market-data/instrument-economic-terms",
+        "INSTRUMENT_ECONOMIC_TERMS_UNAVAILABLE"
+    )]
     #[tokio::test]
-    async fn a_v2_route_refuses_a_request_without_the_product_edge_token(#[case] uri: &str) {
+    async fn a_v2_route_refuses_a_request_without_the_product_edge_token(
+        #[case] uri: &str,
+        #[case] unavailable: &str,
+    ) {
         use sha2::Digest as _;
         use tower::ServiceExt as _;
 
@@ -1097,6 +1213,7 @@ mod tests {
                     instruments: None,
                     instruments_v2: None,
                     semantics: None,
+                    economic_terms: None,
                 },
                 sha2::Sha256::digest(b"product-edge-token").into(),
             )
@@ -1123,10 +1240,49 @@ mod tests {
             .unwrap();
         assert_eq!(
             code(&authorized),
-            (
-                StatusCode::SERVICE_UNAVAILABLE,
-                Some("MARKET_DATA_INSTRUMENT_MASTER_UNAVAILABLE")
-            )
+            (StatusCode::SERVICE_UNAVAILABLE, Some(unavailable))
+        );
+    }
+
+    /// Every economic-terms refusal is its own documented code, and a terms value that did not
+    /// seal says why in the body, since that one code covers every such reason.
+    #[rstest]
+    #[tokio::test]
+    async fn every_economic_terms_refusal_has_its_own_code() {
+        use InstrumentEconomicTermsAdmissionErrorV1 as Refused;
+        use vibe_data::owner::instrument_economic_terms_v1::InstrumentEconomicTermsErrorV1;
+
+        let refusals = [
+            Refused::InstrumentFactUnavailable,
+            Refused::VenueNotAdmitted,
+            Refused::MarginBracketUnlisted,
+            Refused::CurrencyUnavailable,
+            Refused::ValidityUnbounded,
+            Refused::ValidityNotAfterClockHead,
+            Refused::TermsInvalid(InstrumentEconomicTermsErrorV1::InvalidIdentity),
+            Refused::MeaningConflict,
+            Refused::ClockUnavailable,
+            Refused::StoreUnavailable,
+        ];
+        let mut codes = std::collections::BTreeSet::new();
+
+        for refusal in refusals {
+            let response = economic_terms_error(refusal);
+            let (_, Some(name)) = code(&response) else {
+                panic!("{refusal:?} states a code");
+            };
+            assert!(codes.insert(name.to_owned()), "{name} names one refusal");
+        }
+        let invalid = economic_terms_error(Refused::TermsInvalid(
+            InstrumentEconomicTermsErrorV1::InvalidIdentity,
+        ));
+        let body = axum::body::to_bytes(invalid.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(
+            body["reason"],
+            InstrumentEconomicTermsErrorV1::InvalidIdentity.to_string()
         );
     }
 

@@ -633,6 +633,7 @@ mod tests {
             initial_margin: decimal(1, 1),
             maintenance_margin: decimal(5, 2),
             margin_meaning: InstrumentMarginMeaningV1::StandardNotionalRate,
+            margin_notional_cap: None,
         })
         .expect("sealed economic terms")
     }

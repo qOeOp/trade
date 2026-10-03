@@ -1037,9 +1037,11 @@ commission、leverage bracket 或 execution-profile authority，也不调用或�
 R&D 仍是唯一 `ReplayExecutionProfileV1` 的 sole owner。逻辑 Instrument Owner 现在另行拥有
 private `InstrumentEconomicTermsFactV1` PostgreSQL 路径。该 fact 绑定准确 public instrument
 identity/digest、venue、margin-account scope、半开 validity、source 与 provenance、正 revision、quote/fee
-currency、正且准确的 maker/taker rate、正且准确的 initial/maintenance rate，以及封闭的
-`STANDARD_NOTIONAL_RATE` 语义。该语义明确为不经 leverage 的 `notional * rate`，只可映射到原生
-`StandardMarginModel`；V1 不猜测 `LeveragedMarginModel`。
+currency、正且准确的 maker/taker rate、正且准确的 initial/maintenance rate，以及两种封闭 margin 语义之一。
+`STANDARD_NOTIONAL_RATE` 明确为不经 leverage 的 `notional * rate`。`FIRST_BRACKET_NOTIONAL_RATE` 是同样的
+`notional * rate`，但只对名义价值不超过该 fact 的 `margin_notional_cap`（即 venue 的第一档 leverage bracket）的
+持仓成立，对更大的持仓不作任何陈述。两者都只可映射到原生 `StandardMarginModel`；V1 不猜测
+`LeveragedMarginModel`。`STANDARD_NOTIONAL_RATE` fact 的 bytes 里没有 cap，因此这些 bytes 与 cap 出现之前相同。
 
 Fact 与 deterministic receipt 原子提交。完全相同的 meaning 与 bytes 重放不写入，并返回相同 locator 与
 bytes。恢复只接受准确 fact-and-receipt locator，重新校验 canonical bytes、custody 与 ACL closure；任何
@@ -1057,6 +1059,47 @@ pool 或 replacement store。
 R&D 只能从该 verified Owner readback 铸造其 move-only economic provenance，并且还必须匹配
 venue、account scope、event time、currency 与全部可见 economic profile value。Market Data public-fact
 module 仍不 import R&D，也不 validate、copy、select 或 issue replay economic value。
+
+**CURRENT / PARTIAL，生产 Instrument Economic Terms intake：** 一个 Owner-sealed admission port，即
+`owner/instrument_economic_terms_intake_v1.rs` 中的 `InstrumentEconomicTermsAdmissionV1`，以及一条路由
+`POST /v1/market-data/instrument-economic-terms`，其守卫与 Instrument Master V2 baseline intake 完全相同。它是上述
+private terms store 唯一的生产写入者；只有 `MARKET_DATA_OWNER_DATABASE_URL` 与 `INSTRUMENT_OWNER_DATABASE_URL`
+都已配置时，API 才组合它：它在 Market Data 的 store 中、于同一个 snapshot 内且不加行锁，读取所指名的
+Instrument Master V2 fact 与 clock head，再把 terms 签发进 Instrument Owner 的 store。
+
+- **submission 陈述的内容：** instrument 的 canonical identity（`LINKUSDT-PERP.BINANCE`）、它已被接纳的
+  Instrument Master V2 fact 的 identity、account scope，以及 validity 的排他终点。account scope 是调用方的陈述，
+  Owner 无法核验；信任边界是能到达该路由的凭据。
+- **Owner 推导的内容：** 从 fact 推导 instrument、其 public fact digest（即该 fact 的 identity，Native Replay
+  resolver 用它与 cut member 比对）、venue、quote currency、fee currency（即 settlement currency，必须等于 quote
+  currency）、validity 起点（baseline 的生效时刻，即上市日）与 source digest（baseline 的 `raw_payload_digest`）。
+  从该模块自己的表推导手续费与保证金：`BINANCE_USDM_VIP0_MAKER_FEE_V1`、`BINANCE_USDM_VIP0_TAKER_FEE_V1`，以及
+  `BINANCE_USDM_FIRST_LEVERAGE_BRACKETS_V1` 中该 instrument 的那一行。这些常量是这些数值唯一的定义，其注释写明
+  每个值的来源与日期。`source_identity` 为 `ECONOMIC_TERMS_SOURCE_IDENTITY_V1`，它把这些值标明为公开默认值，
+  而不是某个账户自己的费率；provenance digest 绑定所用的准确行；revision 为 `ECONOMIC_TERMS_TABLE_REVISION_V1`；
+  语义为 `FIRST_BRACKET_NOTIONAL_RATE`，并带该行的名义上限。
+- **手续费**是普通用户（VIP 0）费率。公开费率页面对自动化客户端只返回空的挑战页，因此这些值依据用户的确认，
+  如常量注释所述。
+- **保证金**取第一档 leverage bracket：其维持保证金率，以及 `1 / maxOpenPosLeverage` 在小数点后第六位向上取整
+  得到的初始保证金率，使十进制无法精确表示的比率绝不被低估。持仓名义价值超过该行 `notional_cap`
+  （`LINKUSDT-PERP.BINANCE` 为 10000 USDT）时，venue 按这些 terms 未记录的更高档位计收保证金，若按第一档比率计算，
+  保证金会被低估。terms 携带该上限，以便 consumer 拒绝这样的持仓；目前还没有 consumer 这样做。
+- **这些表靠人工维护。** venue 会不加通知地调整档位与费率，这里没有任何机制能察觉。新增 instrument 就是新增
+  一行并附来源；修改数值则是一个新 revision，其 validity 不得与之前 revision 的重叠，因为 Native Replay resolver
+  会拒绝在同一时刻有两条有效 fact 的 instrument。保持这些行为最新是 Instrument Owner 的待办。
+- **拒绝**，每一种都不写入任何内容：
+  - `ECONOMIC_TERMS_INSTRUMENT_FACT_UNAVAILABLE`：该 canonical identity 下没有该 identity 的 fact。
+  - `ECONOMIC_TERMS_MARGIN_BRACKET_UNLISTED`：表中没有该 instrument 的行。
+  - `ECONOMIC_TERMS_VENUE_NOT_ADMITTED`：fact 的 venue 不是 `BINANCE`。今天 Instrument Master V2 的 venue 表只有
+    Binance 这一行，因此还没有已接纳的 fact 能走到这一拒绝。
+  - `ECONOMIC_TERMS_CURRENCY_UNAVAILABLE`：fact 没有陈述 quote 或 settlement currency，或两者不同。
+  - `ECONOMIC_TERMS_VALIDITY_UNBOUNDED`：validity 终点晚于有符号 64 位纳秒计数能到达的最后时刻；`i128::MAX`
+    或其他开放值都以这种方式表达。
+  - `ECONOMIC_TERMS_VALIDITY_NOT_AFTER_CLOCK_HEAD`：validity 终点不晚于 Market Data clock head 的 decision cut；
+    指名 head 自身 cut 的 submission 会走到这一拒绝。
+  - `ECONOMIC_TERMS_INVALID`：推导出的 terms 无法 seal，例如 account scope 为空白；响应体会说明原因。
+  - `ECONOMIC_TERMS_MEANING_CONFLICT`（HTTP 409）：已存有相同 meaning 但 bytes 不同的 terms。相同的 submission
+    再次提交会重新加入同一份 terms。
 
 **CURRENT/PARTIAL，持久 public V2 custody 与固定 Native Replay resolution：** Market Data 拥有
 additive `InstrumentMasterFactV2` store、不可变 content-addressed cut、原子 receipt/outbox，以及 move-only

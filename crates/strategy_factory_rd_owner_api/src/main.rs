@@ -39,6 +39,9 @@ use vibe_data::owner::{
     research_pit_terminal_resolver_from_store_admission_lookup,
 };
 use vibe_data::owner::{
+    instrument_economic_terms_intake_v1::{
+        InstrumentEconomicTermsAdmissionV1, instrument_economic_terms_admission_from_environment_v1,
+    },
     instrument_master_admission_v1::{
         InstrumentMasterAdmissionV1, instrument_master_admission_from_environment_v1,
     },
@@ -420,6 +423,8 @@ async fn run() -> anyhow::Result<()> {
         bootstrap_market_data_instrument_master_admission().await?;
     let market_data_instrument_master_admission_v2 =
         bootstrap_market_data_instrument_master_admission_v2().await?;
+    let instrument_economic_terms_admission =
+        bootstrap_instrument_economic_terms_admission().await?;
     let market_data_market_semantics_admission =
         bootstrap_market_data_market_semantics_admission().await?;
     #[cfg(feature = "composer-replay-issuance")]
@@ -788,6 +793,7 @@ async fn run() -> anyhow::Result<()> {
                 instruments: market_data_instrument_master_admission,
                 instruments_v2: market_data_instrument_master_admission_v2,
                 semantics: market_data_market_semantics_admission,
+                economic_terms: instrument_economic_terms_admission,
             },
             token_digest,
         ));
@@ -1009,6 +1015,21 @@ async fn bootstrap_market_data_instrument_master_admission_v2()
     }
     Ok(Some(
         instrument_master_admission_from_environment_v2().await?,
+    ))
+}
+
+/// Composes the Instrument Owner economic-terms intake when both stores it reads and writes are
+/// configured: Market Data's, which holds the Instrument Master V2 fact and clock head the terms are
+/// derived from, and the Instrument Owner's, which holds the terms.
+async fn bootstrap_instrument_economic_terms_admission()
+-> anyhow::Result<Option<Arc<dyn InstrumentEconomicTermsAdmissionV1>>> {
+    if env::var("MARKET_DATA_OWNER_DATABASE_URL").is_err()
+        || env::var("INSTRUMENT_OWNER_DATABASE_URL").is_err()
+    {
+        return Ok(None);
+    }
+    Ok(Some(
+        instrument_economic_terms_admission_from_environment_v1().await?,
     ))
 }
 
@@ -5220,6 +5241,9 @@ mod tests {
                     semantics: bootstrap_market_data_market_semantics_admission()
                         .await
                         .unwrap(),
+                    economic_terms: bootstrap_instrument_economic_terms_admission()
+                        .await
+                        .unwrap(),
                 },
                 token_digest,
             ));
@@ -5666,6 +5690,9 @@ mod tests {
                         .await
                         .unwrap(),
                     semantics: bootstrap_market_data_market_semantics_admission()
+                        .await
+                        .unwrap(),
+                    economic_terms: bootstrap_instrument_economic_terms_admission()
                         .await
                         .unwrap(),
                 },
