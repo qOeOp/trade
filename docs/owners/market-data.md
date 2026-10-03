@@ -1678,6 +1678,13 @@ member's latest fact observed at its selection, so a tick or lot change is never
 retrieval is priced on the terms of the day it was retrieved. This design replaces that one assumption with evidence,
 and admits no other.
 
+- **Why, measured, and when: after U1.** On Binance's public USD-M endpoints, BTCUSDT's tick is 0.10 today, so its
+  canonical price precision is 1, while its 2021-06-01 daily bar opened at 37244.36; SOLUSDT's tick is 0.0100,
+  precision 2, while its 2021-06-01 bar opened at 32.749. Fed to the execution bundle on today's tick, that BTC bar
+  refused the whole bundle by name. Until this lands, a Replay runs each member at the finer of its tick and its
+  window's data, and states which it used (`docs/architecture/strategy-factory.md`); an order then rounds to the
+  data's grid, not to the venue's tick at the time, which only this history can supply.
+
 - **Evidence is an archived snapshot and nothing else.** Every term the Owner holds for an instrument is derived by
   `ExchangeInfoBaselineV2::from_usdm_exchange_info` from an `exchangeInfo` payload retrieved at a stated instant. No
   submission states a historical term. Letting one would put caller-stated terms back behind the trust boundary the
@@ -2252,24 +2259,30 @@ cross-binds the trigger and observation-batch digest. Consumers derive the lifec
 they cannot mint it from caller-selected values or order keys. Market Data never issues `TIMER` or `FILL` triggers:
 those remain unavailable pending real Time/Scheduler and Execution Owner contracts respectively.
 
-**TARGET, a row aligned to its role's scale:** a role reads its value at the role's declared scale, and a canonical
-row carries the value's own minimal scale. Today the binding requires the two to be equal and answers anything else
-as `ScaleMismatch`, so a canonical row can bind only where its price happens to have exactly the role's decimal places.
-The PC-1 probe measured this: a BTCUSDT price on its 0.10 tick has scale 1, and a scale 2 universe role refused it at
-the universe declaration.
+**CURRENT, a row stated exactly at its role's scale:** a role reads its value at the role's declared scale, and a
+canonical row keeps the scale its source stated the value at. The binding used to require the two to be equal and
+answered anything else as `ScaleMismatch`, so a row bound only where its price happened to have exactly the role's
+decimal places. The PC-1 probe measured this: a BTCUSDT price on its 0.10 tick has scale 1, and a scale 2 universe role
+refused it at the universe declaration.
 
-- **Alignment.** Every binding (exact instrument and universe member alike) aligns a row whose scale is at most the
-  role's exactly: the mantissa times `10^(role scale - row scale)`, checked.
-- **Refusal.** A row finer than the role is refused by name as `VALUE_FINER_THAN_ROLE_SCALE`, and nothing is
-  rounded.
-- **Receipts.** The role-value receipt seals the aligned value at the role's scale beside the original row digest,
-  so the custody row a value came from stays exact.
+- **Alignment.** Every binding (exact instrument and universe member alike) admits a row whose value
+  `decimal_rescale_v1::rescale_exact_v1` states exactly at the role's scale. Widening multiplies the mantissa by
+  `10^(role scale - row scale)`, checked. Narrowing divides it and is exact only when the dropped digits are zero, so
+  a scale 9 row is the identity at scale 9 and a scale 10 row ending in 0 narrows to 9.
+- **Refusal.** Scale never selects a row: the binding resolves its one row first, so rows that differ only in scale
+  are refused as not unique, and then states that row's value exactly. When it cannot, the refusal names why:
+  `VALUE_FINER_THAN_ROLE_SCALE` for a nonzero digit finer than the role, `VALUE_OVERFLOWS_ROLE_SCALE` for a widened
+  mantissa that does not fit in an `i128`. Nothing is rounded.
+- **Receipts.** The binding locator records the role's scale. A role-value receipt's `value_bytes` and `value_scale`
+  carry the aligned value and the role's scale, and its `canonical_row_digest` stays the source row's own digest, so
+  the custody row a value came from stays exact. A row already at the role's scale keeps its bytes.
 - **Scale 9.** Universe-member roles read at the fixed scale 9 (Strategy Factory, P1). It is the custody series'
   scale, `decimal_rescale_v1::MARKET_DATA_VALUE_SCALE_V1`, defined once, in Market Data, beside the exact rescale
   every alignment uses. An instrument's tick changes over its history (BTC's is 0.10 today, but its
   2021 prices sit on a 0.01 grid; SOL's had 3 decimals in 2021), so the series is fixed at production fixed-point's
   upper bound, 9, and every row is aligned exactly to it.
-- **Refusal names.** The HTTP refusal names the binding's own cause, never only `STRATEGY_INPUT_BINDING_UNAVAILABLE`.
+- **Refusal names.** `STRATEGY_INPUT_BINDING_UNAVAILABLE` (422) carries the binding's own cause in the
+  `x-rd-rejection-cause` header and the body's `cause`, such as `VALUE_FINER_THAN_ROLE_SCALE`.
 
 ### CURRENT/PARTIAL EVENT and BAR Owner custody; TARGET BAR product authority
 
@@ -2657,6 +2670,31 @@ availability reaches the fill quote but not frame `k`'s strategy inputs, which a
 red. T0 is not driven until T1: it has no production caller, so a complete T0 is structurally present and run by no
 Backtest.
 
+Built so far (T0-4a): the custody aggregate - the custody record, its cross-section versions and their `SampleFactV2`
+row facts, every commit-time refusal, the Owner clock a commit mints, rejoin and successor custody - behind the sealed
+`PitWindowCustodyCommitV1`, which `pit_window_custody_commit_from_environment_v1` opens on the Owner store. No
+production caller reaches it yet: the unit tests of its pure authority and four PostgreSQL proofs in
+`pit_window_custody_v1_tests` drive it. A commit fixes its minting cut under the clock-state lock and selects the
+members' Instrument Master facts at that cut; it refuses a member another of whose facts is in force inside the
+window, a row retrieved before its bar closed as `ROW_RETRIEVED_BEFORE_BAR_CLOSE`, a stated publication earlier than
+its version's event or availability, and a version whose availability or stated publication is later than the minting
+cut as `VERSION_NOT_AVAILABLE_AT_MINTING_CUT`. Every custody series is stated at a fixed scale of 9,
+`MARKET_DATA_VALUE_SCALE_V1`: rows are rescaled to it exactly, and a row with more than 9 decimal places is refused as
+`VALUE_FINER_THAN_SERIES_SCALE`, never rounded. The scale is fixed rather than taken from the instrument's tick
+because ticks change over an instrument's history (`BTCUSDT` 0.01 to 0.10), so a tick's scale would refuse older
+rows or split one series.
+The timeframe identity a custody binds for a member is the one the BAR schedule path derives from the same declaration
+and that member's Instrument Master fact, time zone included. The window schedule, the once-per-chain records and the
+derived view are not built yet.
+
+**TARGET, snapshot-path series scale:** a sample fact's series identity binds the value's scale
+(`series_projection_bytes`, `crates/data/src/owner/sample_fact.rs` line 1263), while a PIT batch stores each value in
+canonical form, refusing a nonzero scale whose mantissa ends in 0 (`decode_observation`,
+`crates/data/src/owner/pit_snapshot/authority.rs` line 1613). The scale therefore varies with the value's last digit,
+and one instrument and field splits into a new series on every bar whose last digit is 0. Custody is fixed by the
+fixed-scale rule above, which is the snapshot path's fix too. The snapshot path keeps its bytes and is left for a
+separate slice after U1: today's snapshot consumers each read one frame, so no series continuity depends on it yet.
+
 - **Custody:** covers the half-open window from its warm-up start and is committed once, then never mutated. A later
   correction is a successor custody that names its predecessor and carries only the versions it adds; a view reads the
   chain to its head. A successor restates its predecessor's basis exactly - Market Semantics fact, Instrument Master
@@ -2696,7 +2734,8 @@ Backtest.
   membership begins or ends inside the window refuses the custody by name, as `WINDOW_MEMBER_NOT_VALID_THROUGHOUT`.
 - **Frames:** enumerated from the execution timeframe's Owner BAR schedule, never from custody rows. Frame `k` has an
   event instant `e_k` and an availability instant `d_k`, with `d_k < e_{k+1}`; a frame with no complete cross-section
-  refuses the run as `PIT_WINDOW_FRAME_NOT_COVERED`. The execution timeframe is a fixed interval, enumerated from the
+  refuses the run as `PIT_WINDOW_FRAME_NOT_COVERED`. `d_k < e_{k+1}` holds only when frames sit at bar-close instants,
+  so T0 refuses an execution timeframe labelled at interval open as a malformed request. The execution timeframe is a fixed interval, enumerated from the
   phase instant the window schedule fact records, such as midnight UTC for a daily bar or Monday midnight UTC for a
   Binance weekly bar; a session-based execution timeframe is refused by name as
   `PIT_WINDOW_EXECUTION_TIMEFRAME_NOT_FIXED_INTERVAL`, which nothing constructs until custody commits exist and the T0
@@ -2732,8 +2771,8 @@ Backtest.
   concerns the fill quote alone. Frame `k`'s strategy inputs are still cut at `d_k`, so a correction published between
   `d_k` and the quote's availability reaches the fill quote and never frame `k`'s inputs.
 - **Interface:** `crates/data/src/owner/pit_window_custody_v1.rs` freezes what a backfill writer commits and how a
-  multi-frame consumer finds a run's frames; until the custody aggregate and the derived view implement its two sealed
-  ports, nothing constructs a receipt or a frame coordinate.
+  multi-frame consumer finds a run's frames. The custody aggregate implements its commit port and alone constructs a
+  receipt; until the derived view implements its frames port, nothing constructs a frame coordinate.
   - A custody request names its Source Binding, Market Semantics fact, Universe Selection record, one or two members,
     window, execution timeframe, input timeframes and an optional fill timeframe. The execution timeframe is named by
     the custody, not by a run, because the custody's commit mints the window schedule; a lag not below its interval is
@@ -3222,6 +3261,13 @@ same names.
 | `get_bars(instrument, timeframe, range)` | after T0-5, over the run window custody view            | `HOLDOUT_PARTITION_UNDEFINED`, `RANGE_NOT_COVERED`, `RANGE_TOO_LARGE_FOR_INLINE` |
 | `get_funding(instrument, range)`         | after the funding schedule read below                   | `HOLDOUT_PARTITION_UNDEFINED`, `RANGE_NOT_COVERED`, `RANGE_TOO_LARGE_FOR_INLINE` |
 
+- **Listing and describing read what Market Data holds now.** `GET /v1/market-data/instruments` and
+  `GET /v1/market-data/instruments/{instrument}` are `CURRENT`: `crates/data/src/owner/instrument_catalog_v1.rs` reads
+  each instrument's latest Instrument Master V2 fact, every link of its chain decoded and checked, and every
+  economic-terms version admitted for it. A value the venue does not state is named (`UNBOUNDED`, `NOT_APPLICABLE` or
+  `UNAVAILABLE`), never a number. These are discovery reads and never a Replay input: a Replay still binds an exact
+  Instrument Master cut and resolves its terms from it, so no consumer gains a latest selector. Chain entry 121 reads
+  the perpetual F admits over HTTP. The MCP server over these routes is not built yet.
 - **Admission is one Market Data operation.** `POST /v1/market-data/binance-perpetual-admissions` takes a Binance
   USD-M symbol. Market Data fetches the symbol's public `exchangeInfo` entry and commits, in order, the facts the first
   `COMPOSER_V3` Replay's acceptance commits through separate routes today: the kline Source Binding, the Instrument

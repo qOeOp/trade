@@ -1467,6 +1467,12 @@ snapshot 上签发 cut，这些快照的 V1 fact 由生产 V1 intake 准入、�
 member 取 selection 时刻观察到的最新 fact。所以 tick 或 lot的变化永远无法表示，retrieval 之前的 Replay 按 retrieval 当天
 的条款定价。本设计用证据替换这一个假定，此外不准入任何东西。
 
+- **为什么、实测与时机：U1 之后。** 在 Binance 公开 USD-M 端点上，BTCUSDT 今天的 tick 是 0.10，规范价格精度为 1，它
+  2021-06-01 的日线开盘却是 37244.36；SOLUSDT 的 tick 是 0.0100，精度 2，它 2021-06-01 的日线开盘是 32.749。按今天的
+  tick 把这根 BTC bar 喂给 execution bundle，整份 bundle 按名被拒。在本设计落地前，Replay 让每个成员按其 tick 与窗口内
+  数据两者中更细的那个运行，并写明用了哪一个（`docs/architecture/strategy-factory.md`）；订单因此取整到数据的网格，
+  而不是当时交易所的 tick，后者只有这份历史能提供。
+
 - **证据只能是归档快照。** Owner 为一个 instrument 持有的每个条款，都由 `ExchangeInfoBaselineV2::from_usdm_exchange_info`
   从某个明确时刻取回的 `exchangeInfo` payload 推导。任何提交都不陈述历史条款。允许陈述，就等于把调用方陈述的条款放回
   baseline intake 已经关闭的信任边界之内，那需要用户授权。
@@ -1977,18 +1983,24 @@ row digest，并交叉绑定 trigger 和 observation-batch digest。consumer 必
 envelope，不能从 caller 选择的 value 或 order key 铸造。Market Data 绝不签发 `TIMER` 或 `FILL`
 trigger；在真实 Time/Scheduler 与 Execution Owner contract 分别存在前，两者都保持 unavailable。
 
-**TARGET，行对齐到角色的 scale：** 角色按自己声明的 scale 读值，规范行带的是该值自身的最小 scale。今天 binding 要求
-两者相等，其余一律答 `ScaleMismatch`，所以只有价格恰好与角色小数位相同的规范行才能绑定。PC-1 探针测到了这一点：
+**CURRENT，行精确换算到角色的 scale：** 角色按自己声明的 scale 读值，规范行保留其来源陈述该值时用的 scale。binding
+以前要求两者相等，其余一律答 `ScaleMismatch`，所以只有价格恰好与角色小数位相同的行才能绑定。PC-1 探针测到了这一点：
 BTCUSDT 在 0.10 tick 上的价格 scale 为 1，scale 2 的 universe 角色在 universe 声明处拒绝了它。
 
-- **对齐。** 每一种 binding（exact instrument 与 universe member 一样）都把 scale 不超过角色的行精确对齐：mantissa
-  乘以 `10^(role scale - row scale)`，带溢出检查。
-- **拒绝。** 比角色更细的行以 `VALUE_FINER_THAN_ROLE_SCALE` 按名拒绝，不做任何舍入。
-- **收据。** role-value 收据在原始 row digest 旁封存角色 scale 下的对齐值，所以值所来自的托管行仍然精确可追。
+- **对齐。** 每一种 binding（exact instrument 与 universe member 一样）都接纳能由
+  `decimal_rescale_v1::rescale_exact_v1` 精确换算到角色 scale 的行。放大把 mantissa 乘以
+  `10^(role scale - row scale)`，带溢出检查；缩位做除法，只有被舍去的位全为零时才精确，所以 scale 9 的行在 scale 9
+  上原样不变，末位为 0 的 scale 10 行可以缩到 9。
+- **拒绝。** 没有任何候选行能精确换算时，拒绝写出原因：有比角色更细的非零位时为 `VALUE_FINER_THAN_ROLE_SCALE`，放大后
+  的 mantissa 装不进 `i128` 时为 `VALUE_OVERFLOWS_ROLE_SCALE`。不做任何舍入。
+- **收据。** binding locator 记录角色的 scale。role-value 收据的 `value_bytes` 与 `value_scale` 承载对齐后的值和角色
+  的 scale，`canonical_row_digest` 仍是来源行自己的 digest，所以值所来自的托管行仍然精确可追。已经处于角色 scale 的
+  行字节不变。
 - **scale 9。** universe 成员角色按固定 scale 9 读取（Strategy Factory，P1），它就是托管 series 的 scale，即
   `decimal_rescale_v1::MARKET_DATA_VALUE_SCALE_V1`，在 Market Data 中只定义一次，与每次对齐所用的精确换算放在一起。品种的 tick 在历史上会变（BTC 今天是 0.10，2021 年的价格在 0.01 网格上；SOL 2021 年有
   3 位小数），所以 series 固定在生产定点精度的上限 9，每一行都精确换算到它。
-- **拒绝名。** HTTP 拒绝写出 binding 自己的成因，绝不只写 `STRATEGY_INPUT_BINDING_UNAVAILABLE`。
+- **拒绝名。** `STRATEGY_INPUT_BINDING_UNAVAILABLE`（422）在 `x-rd-rejection-cause` 头与 body 的 `cause` 中带出
+  binding 自己的成因，例如 `VALUE_FINER_THAN_ROLE_SCALE`。
 
 ### CURRENT/PARTIAL EVENT 与 BAR Owner custody；TARGET BAR 产品权威
 
@@ -2289,6 +2301,25 @@ Backtest 的组合与 Market Data 之外的每个读者也属于 T1；T2（多�
 正会到达成交报价，但不到达帧 `k` 的策略输入，两者共用一段代码路径就会变红。T0 在 T1 之前不被驱动：它没有生产调用方，所
 以一个完整的 T0 在结构上存在，但没有任何 Backtest 运行它。
 
+目前已建成（T0-4a）：托管聚合 - 托管记录、它的截面版本及其 `SampleFactV2` 行事实、每个提交时拒绝、提交铸造的 Owner
+时钟、重新加入与后继托管 - 位于封缄的 `PitWindowCustodyCommitV1` 之后，由
+`pit_window_custody_commit_from_environment_v1` 在 Owner 存储上打开。目前还没有生产调用方到达它：驱动它的是其纯权威
+的单元测试，以及 `pit_window_custody_v1_tests` 里的四个 PostgreSQL 证明。提交在时钟状态锁下确定铸造 cut，并在该 cut
+上选出成员的 Instrument Master fact；它拒绝另有 fact 在窗口内生效的成员，以 `ROW_RETRIEVED_BEFORE_BAR_CLOSE` 拒绝在 bar
+收盘前取回的行，拒绝早于其版本事件或可得时刻的陈述发布时刻，并以 `VERSION_NOT_AVAILABLE_AT_MINTING_CUT` 拒绝可得时刻
+或陈述发布时刻晚于铸造 cut 的版本。每个托管序列都以固定 scale 9 陈述，即
+`MARKET_DATA_VALUE_SCALE_V1`：每一行都精确地换算到它，小数位多于 9 位的行以 `VALUE_FINER_THAN_SERIES_SCALE` 拒绝，
+绝不舍入。scale 固定而不取自标的的 tick，因为 tick 会在标的历史中变化（`BTCUSDT` 从 0.01 变为 0.10），取 tick 的 scale
+会拒绝更早的行或把一个序列切开。托管为某个成员绑定的周期 identity，就是 BAR
+调度路径从同一份声明与该成员的 Instrument Master fact 推出的那一个，时区也包括在内。窗口调度、每条链一次的记录与派生视
+图都还没有建。
+
+**TARGET，快照路径的序列 scale：** sample fact 的序列 identity 绑定值的 scale
+（`series_projection_bytes`，`crates/data/src/owner/sample_fact.rs` 第 1263 行），而 PIT batch 以规范形式存储每个值，拒绝
+尾数以 0 结尾的非零 scale（`decode_observation`，`crates/data/src/owner/pit_snapshot/authority.rs` 第 1613 行）。于是 scale
+随值的末位数字变化，同一标的同一字段在每个末位为 0 的 bar 上都会分裂出新序列。托管已由上面的固定 scale 规则修好，
+这也是快照路径的修法。快照路径保留其字节，留给排在 U1 之后的单独切片：今天的快照消费方各自只读一帧，所以还没有序列连续性依赖它。
+
 - **托管：** 覆盖从预热起点开始的半开窗口，只提交一次，此后不可变。后来的更正是一份后继托管，它指名自己的前驱，只携带
   它新增的版本；视图沿这条链读到 head。后继托管原样重述前驱的基底 - Market Semantics fact、 Instrument Master cut、成
   员集与可得规则 digest - 基底一变就是新的根托管，绝不是后继，所以一条链绝不混用两套基底。更正单位是截面 - 同一个源、
@@ -2315,7 +2346,8 @@ Backtest 的组合与 Market Data 之外的每个读者也属于 T1；T2（多�
 - **成员：** 成员集在整份托管内固定。某成员的 Instrument Master 有效期或 Universe 成员资格在窗口内开始或结束，
   就以 `WINDOW_MEMBER_NOT_VALID_THROUGHOUT` 按名拒绝这份托管。
 - **帧：** 从执行周期的 Owner BAR schedule 枚举，绝不从托管行枚举。帧 `k` 有事件时刻 `e_k` 与可得时刻 `d_k`，且
-  `d_k < e_{k+1}`；没有完整截面的帧以 `PIT_WINDOW_FRAME_NOT_COVERED` 拒绝整次运行。执行周期是固定间隔，从窗口 schedule
+  `d_k < e_{k+1}`；没有完整截面的帧以 `PIT_WINDOW_FRAME_NOT_COVERED` 拒绝整次运行。只有帧落在 bar 收盘时刻上，
+  `d_k < e_{k+1}` 才成立，所以 T0 把按区间开盘标记的执行周期作为格式错误的请求拒绝。执行周期是固定间隔，从窗口 schedule
   fact 记录的相位时刻开始枚举，例如日线取 UTC 零点，Binance 周线取周一 UTC 零点；session 型执行周期按名拒为
   `PIT_WINDOW_EXECUTION_TIMEFRAME_NOT_FIXED_INTERVAL`，托管提交存在之前没有东西构造它，之后由 T0 的证明驱动。这是范围
   限制，不是性质：session 型周期（例如黄金按交易所 session 的日线）需要以后一个做 session 展开的切片，在那之前一律拒绝。
@@ -2339,7 +2371,7 @@ Backtest 的组合与 Market Data 之外的每个读者也属于 T1；T2（多�
   在决策之后，而在 `d_k` 上没有报价能入选，因为报价的事件在 `d_k` 之后。这只关乎成交报价。帧 `k` 的策略输入仍然截在
   `d_k`，所以在 `d_k` 与报价可得时刻之间发布的更正会到达成交报价，绝不到达帧 `k` 的输入。
 - **接口：** `crates/data/src/owner/pit_window_custody_v1.rs` 冻结回填写入方提交的内容，以及多帧消费方如何找到一次运行的
-  帧；在托管聚合与派生视图实现它的两个 sealed 端口之前，没有任何东西能构造回执或帧坐标。
+  帧。托管聚合实现了它的提交端口，只有它能构造回执；在派生视图实现它的帧端口之前，没有任何东西能构造帧坐标。
   - 托管请求指名它的 Source Binding、Market Semantics fact、Universe Selection record、一到两个成员、窗口、执行周期、
     输入周期与可选的成交周期。执行周期由托管指名，不由运行指名，因为托管的提交会铸出窗口 schedule；滞后不低于其间隔的，
     在提交时拒绝，不严格细于它的成交周期也一样。同时又是输入周期的成交周期按名拒绝为
@@ -2764,6 +2796,12 @@ Data 里；一个工具只发一个请求，按名原样传回它的应答或拒
 | `get_bars(instrument, timeframe, range)` | T0-5 之后，基于运行窗口托管视图                         | `HOLDOUT_PARTITION_UNDEFINED`、`RANGE_NOT_COVERED`、`RANGE_TOO_LARGE_FOR_INLINE` |
 | `get_funding(instrument, range)`         | 在下面的 funding schedule 读面之后                      | `HOLDOUT_PARTITION_UNDEFINED`、`RANGE_NOT_COVERED`、`RANGE_TOO_LARGE_FOR_INLINE` |
 
+- **列出与描述读取的是 Market Data 当前持有的。** `GET /v1/market-data/instruments` 与
+  `GET /v1/market-data/instruments/{instrument}` 已是 `CURRENT`：`crates/data/src/owner/instrument_catalog_v1.rs` 读取每个标的最新的
+  Instrument Master V2 fact，其链上每一环都经解码与校验，并读取为它准入的每个 economic terms 版本。交易所没有陈述的值按名写出
+  （`UNBOUNDED`、`NOT_APPLICABLE` 或 `UNAVAILABLE`），绝不写成数字。这些是发现性读取，绝不是 Replay 的输入：Replay 仍然绑定一个确切的
+  Instrument Master cut 并从中解析它的 terms，所以没有消费方因此获得「最新」选择器。链路条目 121 经 HTTP 读取 F 准入的永续合约。基于
+  这些路由的 MCP 服务尚未构建。
 - **准入是一个 Market Data 操作。** `POST /v1/market-data/binance-perpetual-admissions` 接收一个 Binance USD-M symbol。Market
   Data 取该 symbol 公开的 `exchangeInfo` 条目，按顺序提交第一个 `COMPOSER_V3` Replay 的验收今天经各自路由提交的那些事实：kline
   Source Binding、Instrument Master fact、`exchangeInfo` Source Binding、Instrument Master V2 fact、economic terms 与历史成员资格。

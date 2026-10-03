@@ -758,10 +758,21 @@ Owner-verified Quote EVENT liquidity for each frame. Each frame's final liquidit
 EVENT must precede the next frame's first BAR. Strict cross-frame temporal order and the request
 window are checked before ProgramHost or Backtest state changes. A V1 binding is never upgraded by interpretation,
 and an unavailable V2 constituent never falls back to V1 or a test-issued successor frame. Market Data issues every
-BAR and Quote value at its canonical scale, so a close of 123.450 on a 0.001 tick arrives as 123.45. The bundle
-re-expresses each price and size at its instrument's precision without changing a value, and refuses by name a value
-finer than the instrument's grid. It then refuses, by name, any BAR or Quote not at its instrument's precision: the
-engine would otherwise drop that datum silently and still complete the run.
+BAR and Quote value at its canonical scale, so a close of 123.450 on a 0.001 tick arrives as 123.45. The Instrument
+Master's tick is the venue's tick on the day it was retrieved, and a venue coarsens a tick as the price rises:
+BTCUSDT's tick is 0.10 today, while its 2021-06-01 daily bar opened at 37244.36, and SOLUSDT's is 0.0100 while its
+2021 prices carry three places. The bundle therefore first widens each member's price grid to the finest scale its
+window's BAR and Quote prices show, when that is finer than the tick, with a one-unit increment at that scale, and its
+census records, per member, the tick's precision, the data's precision, the instant of the first datum that set it,
+and the precision the Replay runs at. The order grid is then the data's, not the venue's tick at the time, which the
+Instrument Master does not hold. The Host keeps that sound as an invariant rather than an assumption: a position
+order's price and every fill's price must lie on the member's data grid, or the run fails by name as
+`ORDER_PRICE_OFF_THE_DATA_GRID` or `FILL_PRICE_OFF_THE_DATA_GRID`; a protective stop-market's trigger is the kernel's,
+on the Replay's grid, and trades at the touch, which the fill check covers. Only prices widen: a size grid is what one
+grid unit of position means. The bundle then re-expresses each price and size at its instrument's precision without
+changing a value, and refuses by name a value finer than the instrument's grid. It then refuses, by name, any BAR or
+Quote not at its instrument's precision: the engine would otherwise drop that datum silently and still complete the
+run.
 
 Backtest V2 result custody binds the exact V2 binding and sequence digest, each consumed frame's
 identity and ordinal, every native schedule and liquidity EVENT receipt, the canonical target set

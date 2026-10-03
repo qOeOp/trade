@@ -195,6 +195,78 @@ fn a_bundle_expresses_canonical_scale_data_at_its_instruments_precision() {
     }
 }
 
+/// A member whose window's data is finer than its tick runs end to end on the production consumer:
+/// AAPL on a 0.1 tick, with two-place BARs and Quotes, as BTCUSDT's 2021 data is on today's 0.10
+/// tick. The bundle widens AAPL's grid to its data, the census says so, and AAPL fills at its
+/// fill quote's 187.25, a price its tick alone could not hold.
+#[rstest]
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+fn a_member_whose_data_is_finer_than_its_tick_runs_on_the_datas_grid() {
+    let mut instruments = instruments();
+    for instrument in &mut instruments {
+        let instrument = crypto_perpetual_mut(instrument);
+        instrument.maker_fee = rust_decimal::Decimal::new(2, 4);
+        instrument.taker_fee = rust_decimal::Decimal::new(4, 4);
+        instrument.margin_init = rust_decimal::Decimal::new(1, 1);
+        instrument.margin_maint = rust_decimal::Decimal::new(5, 2);
+    }
+    let aapl = crypto_perpetual_mut(&mut instruments[0]);
+    aapl.price_precision = 1;
+    aapl.price_increment = Price::from("0.1");
+    let (plan, artifact, frame) = fixture().unwrap();
+    let admitted = admit_owner_universe_program_event_v2(
+        &plan,
+        &OwnerUniverseFrameV1::uncoordinated(frame.clone()),
+    )
+    .unwrap();
+    let time = admitted.envelope().order_key.logical_time_ns;
+    let authority = owner_replay_execution_profile_binding_fixture_v1(
+        &plan,
+        &artifact,
+        &frame,
+        ReplayWindowV2 {
+            start_event_ns: time,
+            end_event_ns_exclusive: time + 3,
+        },
+    );
+    let (bar_types, data) = request_execution_schedule(&instruments, time);
+    let capability = ReplayTargetSetExecutionBundleV1::new_with_native_instruments_for_test(
+        authority,
+        plan,
+        artifact,
+        vec![OwnerUniverseFrameV1::uncoordinated(frame)],
+        StrategyId::from("TARGET-SET-PROFILE-EVENT-001"),
+        "target-set-profile-event".into(),
+        instruments,
+        bar_types,
+        data,
+        &[time],
+    )
+    .expect("a window finer than its tick forms a bundle on the data's grid");
+    let grids = capability.census.price_grids().to_vec();
+    assert_eq!(
+        grids
+            .iter()
+            .map(|grid| (
+                grid.instrument_price_precision(),
+                grid.data_price_precision(),
+                grid.replay_price_precision(),
+                grid.widened_from_data()
+            ))
+            .collect::<Vec<_>>(),
+        [(1, 2, 2, true), (2, 2, 2, false)]
+    );
+    let readback = run_program_host_sim_event_consumer_v1(capability).unwrap();
+    let result: serde_json::Value = serde_json::from_slice(readback.canonical_result()).unwrap();
+    assert_eq!(
+        fill_rows(&result)
+            .iter()
+            .map(|row| (row[0].as_str(), row[2].as_str()))
+            .collect::<Vec<_>>(),
+        [("AAPL.XNAS", "187.25"), ("MSFT.XNAS", "421.15")]
+    );
+}
+
 #[rstest]
 #[cfg(feature = "sealed-strategy-input-acceptance")]
 fn owner_bound_profile_drives_bar_signal_then_real_event_fills() {
@@ -1330,6 +1402,8 @@ fn run_two_frame_corpus_with_exit(
         false,
         Rc::new(Cell::new(false)),
         Rc::clone(&trace),
+        // Every fixture price is on a two-place grid.
+        BoundedMembers::try_from([2, 2])?,
     )?;
     strategy.add_admitted_frame_for_test(successor)?;
     let mut engine = BacktestEngine::new(BacktestEngineConfig {
@@ -1471,6 +1545,8 @@ fn run_corpus_with_fault(restore: bool, second_submit_fault: bool) -> anyhow::Re
         restore,
         Rc::clone(&restored),
         Rc::clone(&trace),
+        // Every fixture price is on a two-place grid.
+        BoundedMembers::try_from([2, 2])?,
     )?;
 
     if second_submit_fault {
@@ -1610,6 +1686,8 @@ fn run_invalid_batch(case: InvalidBatchCase) -> anyhow::Result<TargetSetBacktest
         false,
         Rc::new(Cell::new(false)),
         Rc::clone(&trace),
+        // Every fixture price is on a two-place grid.
+        BoundedMembers::try_from([2, 2])?,
     )?;
     let mut engine = BacktestEngine::new(BacktestEngineConfig {
         bypass_logging: true,
@@ -1657,14 +1735,40 @@ fn run_invalid_batch(case: InvalidBatchCase) -> anyhow::Result<TargetSetBacktest
 fn run_fill_quote_corpus(
     schedule: impl FnOnce(u64, &[InstrumentAny]) -> (Vec<Data>, Vec<u64>),
 ) -> anyhow::Result<(TargetSetBacktestTraceV2, serde_json::Value)> {
-    run_fill_quote_corpus_with_risk(None, schedule)
+    run_fill_quote_corpus_with(FillQuoteCorpusConfig::default(), schedule)
 }
 
-/// [`run_fill_quote_corpus`] with the run's pre-trade risk engine stated.
-fn run_fill_quote_corpus_with_risk(
+/// What a [`run_fill_quote_corpus`] run may state beyond its schedule.
+struct FillQuoteCorpusConfig {
+    /// The run's pre-trade risk engine.
     risk_engine: Option<RiskEngineConfig>,
+    /// AAPL's price precision, with a one-unit increment at it.
+    aapl_price_precision: u8,
+    /// Each member's data price grid, as the bundle states it.
+    data_price_precisions: [u8; 2],
+}
+
+impl Default for FillQuoteCorpusConfig {
+    fn default() -> Self {
+        Self {
+            risk_engine: None,
+            aapl_price_precision: 2,
+            // Every fixture price is on a two-place grid.
+            data_price_precisions: [2, 2],
+        }
+    }
+}
+
+/// [`run_fill_quote_corpus`] with what `config` states.
+fn run_fill_quote_corpus_with(
+    config: FillQuoteCorpusConfig,
     schedule: impl FnOnce(u64, &[InstrumentAny]) -> (Vec<Data>, Vec<u64>),
 ) -> anyhow::Result<(TargetSetBacktestTraceV2, serde_json::Value)> {
+    let FillQuoteCorpusConfig {
+        risk_engine,
+        aapl_price_precision,
+        data_price_precisions,
+    } = config;
     let mut instruments = instruments();
 
     for instrument in &mut instruments {
@@ -1672,6 +1776,12 @@ fn run_fill_quote_corpus_with_risk(
         instrument.maker_fee = rust_decimal::Decimal::new(2, 4);
         instrument.taker_fee = rust_decimal::Decimal::new(4, 4);
     }
+    let aapl = crypto_perpetual_mut(&mut instruments[0]);
+    aapl.price_precision = aapl_price_precision;
+    aapl.price_increment = Price::from_decimal_dp(
+        rust_decimal::Decimal::new(1, u32::from(aapl_price_precision)),
+        aapl_price_precision,
+    )?;
     let instrument_ids = [instruments[0].id(), instruments[1].id()];
     let bar_types = instrument_ids.map(|instrument_id| {
         BarType::new(
@@ -1689,10 +1799,10 @@ fn run_fill_quote_corpus_with_risk(
     let mut data = vec![
         Data::Bar(Bar::new(
             bar_types[0],
-            Price::from("186.41"),
-            Price::from("188.00"),
-            Price::from("185.00"),
-            Price::from("187.25"),
+            instruments[0].make_price(186.41),
+            instruments[0].make_price(188.00),
+            instruments[0].make_price(185.00),
+            instruments[0].make_price(187.25),
             Quantity::from("100"),
             time.into(),
             time.into(),
@@ -1725,6 +1835,7 @@ fn run_fill_quote_corpus_with_risk(
         false,
         Rc::new(Cell::new(false)),
         Rc::clone(&trace),
+        BoundedMembers::try_from(data_price_precisions)?,
     )?;
     let mut engine = BacktestEngine::new(BacktestEngineConfig {
         bypass_logging: true,
@@ -1762,10 +1873,13 @@ fn run_fill_quote_corpus_with_risk(
 
 /// A two-sided Quote for `instrument` at `instant`.
 fn touch(instrument: &InstrumentAny, bid: &str, ask: &str, instant: u64) -> Data {
+    let price = |value: &str| {
+        Price::from_decimal_dp(value.parse().unwrap(), instrument.price_precision()).unwrap()
+    };
     Data::Quote(QuoteTick::new(
         instrument.id(),
-        Price::from(bid),
-        Price::from(ask),
+        price(bid),
+        price(ask),
         instrument.make_qty(100.0, None),
         instrument.make_qty(100.0, None),
         instant.into(),
@@ -1872,6 +1986,68 @@ fn each_member_submits_on_its_own_fill_quote() {
     );
 }
 
+/// A position order priced finer than its member's data grid is refused by name before it reaches
+/// the venue: AAPL's limit at its close, 187.25, is finer than a one-place data grid.
+#[rstest]
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+fn a_position_order_off_its_data_grid_is_refused_by_name() {
+    let config = FillQuoteCorpusConfig {
+        data_price_precisions: [1, 2],
+        ..FillQuoteCorpusConfig::default()
+    };
+    let (trace, result) = run_fill_quote_corpus_with(config, |time, instruments| {
+        (
+            vec![
+                touch(&instruments[0], "187.10", "187.20", time + 1),
+                touch(&instruments[1], "421.00", "421.10", time + 1),
+            ],
+            vec![time + 1; 2],
+        )
+    })
+    .expect("fill-quote corpus");
+    assert_eq!(
+        trace.callback_failure.as_deref(),
+        Some(
+            "ORDER_PRICE_OFF_THE_DATA_GRID: 187.25 for AAPL.XNAS is finer than its data's 1-place grid"
+        )
+    );
+    assert_eq!(trace.position_submit_attempts, 0);
+    assert!(fill_rows(&result).is_empty());
+}
+
+/// A fill finer than its member's data grid is refused by name: AAPL runs on a three-place tick,
+/// its limit at the close (187.25) is on its two-place data grid, but a Quote at 187.245 fills it
+/// at a price the data grid cannot hold.
+#[rstest]
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+fn a_fill_off_its_data_grid_is_refused_by_name() {
+    let config = FillQuoteCorpusConfig {
+        aapl_price_precision: 3,
+        ..FillQuoteCorpusConfig::default()
+    };
+    let (trace, result) = run_fill_quote_corpus_with(config, |time, instruments| {
+        (
+            vec![
+                touch(&instruments[0], "187.235", "187.245", time + 1),
+                touch(&instruments[1], "421.00", "421.10", time + 1),
+            ],
+            vec![time + 1; 2],
+        )
+    })
+    .expect("fill-quote corpus");
+    assert_eq!(
+        trace.callback_failure.as_deref(),
+        Some(
+            "FILL_PRICE_OFF_THE_DATA_GRID: 187.245 for AAPL.XNAS is finer than its data's 2-place grid"
+        )
+    );
+    assert_eq!(
+        fill_rows(&result)[0],
+        ["AAPL.XNAS", "26", "187.245", "TAKER", "0.75 USD"],
+        "the venue filled it; the Host refuses to take it"
+    );
+}
+
 /// A position order the pre-trade risk engine denies never reaches the venue. The Host hands the
 /// kernel that denial as a rejection, so the member's pending intent is released with nothing
 /// filled and the run goes on: MSFT still fills, and the run stops cleanly.
@@ -1887,17 +2063,20 @@ fn a_denied_position_order_reaches_the_kernel_as_a_rejection() {
         .collect(),
         ..Default::default()
     };
-    let (trace, result) =
-        run_fill_quote_corpus_with_risk(Some(risk_engine), |time, instruments| {
-            (
-                vec![
-                    touch(&instruments[0], "187.10", "187.20", time + 1),
-                    touch(&instruments[1], "421.00", "421.10", time + 1),
-                ],
-                vec![time + 1; 2],
-            )
-        })
-        .expect("fill-quote corpus");
+    let config = FillQuoteCorpusConfig {
+        risk_engine: Some(risk_engine),
+        ..FillQuoteCorpusConfig::default()
+    };
+    let (trace, result) = run_fill_quote_corpus_with(config, |time, instruments| {
+        (
+            vec![
+                touch(&instruments[0], "187.10", "187.20", time + 1),
+                touch(&instruments[1], "421.00", "421.10", time + 1),
+            ],
+            vec![time + 1; 2],
+        )
+    })
+    .expect("fill-quote corpus");
     assert_eq!(trace.callback_failure, None);
     assert_eq!(
         fill_rows(&result),
@@ -2217,6 +2396,8 @@ fn run_multi_frame_equity_corpus() -> anyhow::Result<TargetSetBacktestTraceV2> {
         false,
         Rc::new(Cell::new(false)),
         Rc::clone(&trace),
+        // Every fixture price is on a two-place grid.
+        BoundedMembers::try_from([2, 2])?,
     )?;
     strategy.add_admitted_frame_for_test(successor)?;
     let mut engine = BacktestEngine::new(BacktestEngineConfig {
@@ -2939,10 +3120,12 @@ fn two_member_execution_bundle_digests_are_unchanged_by_the_member_count_widenin
                 32,
                 "9706efbc97d7954eb20ecdc449dff6979da37d6ef63bcbf587a72fd93f30ffa6",
             ),
+            // The census also states each member's price grid since the Replay widens a grid to
+            // its data; nothing else in it changed.
             (
                 "census_digest",
                 32,
-                "44d15f32f457d6ffa9c2d75b0db1b94f64d4d4aac252f7b7a0dcb3c780af8793",
+                "0e8514a73cd118d55f815a5da14195e173fbb300dc7874bd0dc40911a05a7829",
             ),
         ],
     );
@@ -3695,6 +3878,8 @@ fn run_authored_program_over_frames(
         false,
         Rc::new(Cell::new(false)),
         Rc::clone(&trace),
+        // Every fixture price is on a two-place grid.
+        BoundedMembers::try_from([2])?,
     )?;
 
     for successor in successors {

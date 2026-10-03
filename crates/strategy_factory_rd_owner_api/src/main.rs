@@ -39,6 +39,9 @@ use vibe_data::owner::{
     research_pit_terminal_resolver_from_store_admission_lookup,
 };
 use vibe_data::owner::{
+    instrument_catalog_read_from_environment_v1, instrument_catalog_v1::InstrumentCatalogReadV1,
+};
+use vibe_data::owner::{
     instrument_economic_terms_intake_v1::{
         InstrumentEconomicTermsAdmissionV1, instrument_economic_terms_admission_from_environment_v1,
     },
@@ -443,6 +446,7 @@ async fn run() -> anyhow::Result<()> {
         bootstrap_market_data_instrument_master_admission_v2().await?;
     let instrument_economic_terms_admission =
         bootstrap_instrument_economic_terms_admission().await?;
+    let market_data_instrument_catalog = bootstrap_market_data_instrument_catalog().await?;
     let market_data_market_semantics_admission =
         bootstrap_market_data_market_semantics_admission().await?;
     #[cfg(feature = "composer-replay-issuance")]
@@ -693,6 +697,7 @@ async fn run() -> anyhow::Result<()> {
                 instruments_v2: market_data_instrument_master_admission_v2,
                 semantics: market_data_market_semantics_admission,
                 economic_terms: instrument_economic_terms_admission,
+                catalog: market_data_instrument_catalog,
             },
             token_digest,
         ));
@@ -1060,6 +1065,21 @@ async fn bootstrap_instrument_economic_terms_admission()
     Ok(Some(
         instrument_economic_terms_admission_from_environment_v1().await?,
     ))
+}
+
+/// Composes the instrument catalog `list_instruments` and `describe_instrument` read when both
+/// stores it reads are configured: Market Data's Instrument Master V2 and the Instrument Owner's
+/// economic terms.
+async fn bootstrap_market_data_instrument_catalog()
+-> anyhow::Result<Option<Arc<dyn InstrumentCatalogReadV1>>> {
+    if env::var("MARKET_DATA_OWNER_DATABASE_URL").is_err()
+        || env::var("INSTRUMENT_OWNER_DATABASE_URL").is_err()
+    {
+        return Ok(None);
+    }
+    Ok(Some(Arc::new(
+        instrument_catalog_read_from_environment_v1().await?,
+    )))
 }
 
 /// Composes the Market Data Source Binding admission when its store is configured.
@@ -5190,6 +5210,7 @@ mod tests {
                     economic_terms: bootstrap_instrument_economic_terms_admission()
                         .await
                         .unwrap(),
+                    catalog: None,
                 },
                 token_digest,
             ));
@@ -5644,6 +5665,7 @@ mod tests {
                     economic_terms: bootstrap_instrument_economic_terms_admission()
                         .await
                         .unwrap(),
+                    catalog: None,
                 },
                 token_digest,
             ));
@@ -6129,6 +6151,144 @@ mod tests {
             .unwrap()
             .join()
             .unwrap();
+    }
+
+    /// `list_instruments` and `describe_instrument` answer over HTTP from the facts Market Data
+    /// holds: the perpetual F admitted is listed, its tick size and lot step are its `exchangeInfo`
+    /// entry's own, its economic terms are the ones F's H0 admitted, and an instrument Market Data
+    /// never admitted is refused by name.
+    ///
+    /// It follows F because F is the chain's only producer of an Instrument Master V2 fact with
+    /// terms. It reads Market Data and the Instrument Owner only, starts no Research and writes
+    /// nothing, so the state F leaves behind cannot affect it.
+    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+    #[rstest]
+    #[ignore = "requires the ordered chain's PostgreSQL after F, which admits the perpetual and its terms"]
+    #[tokio::test]
+    async fn an_admitted_perpetual_is_listed_and_described_over_http() {
+        use tower::ServiceExt as _;
+
+        let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
+        composed_market_data_binding_admission(&test_database).await;
+        let token = "rd-owner-api-instrument-catalog";
+        let catalog = bootstrap_market_data_instrument_catalog().await.unwrap();
+        assert!(
+            catalog.is_some(),
+            "the chain configures both stores the catalog reads"
+        );
+        let routes = market_data_pit::router(
+            market_data_pit::MarketDataAdmissions {
+                intake: None,
+                admission: None,
+                universe: None,
+                bindings: None,
+                instruments: None,
+                instruments_v2: None,
+                semantics: None,
+                economic_terms: None,
+                catalog,
+            },
+            Sha256::digest(token.as_bytes()).into(),
+        );
+        let get = |path: String, authorization: Option<String>| {
+            let routes = routes.clone();
+            async move {
+                let mut request = axum::extract::Request::builder().method("GET").uri(path);
+                if let Some(authorization) = authorization {
+                    request = request.header(axum::http::header::AUTHORIZATION, authorization);
+                }
+                let response = routes
+                    .oneshot(request.body(axum::body::Body::empty()).unwrap())
+                    .await
+                    .unwrap();
+                let status = response.status();
+                let code = response
+                    .headers()
+                    .get("x-rd-rejection-code")
+                    .map(|value| value.to_str().unwrap().to_owned());
+                let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+                    .await
+                    .unwrap();
+                (
+                    status,
+                    code,
+                    serde_json::from_slice::<serde_json::Value>(&body).unwrap(),
+                )
+            }
+        };
+        let bearer = Some(format!("Bearer {token}"));
+        let perpetual = crate::first_composer_v3_replay_acceptance::PERPETUAL_V1;
+
+        let (status, _, listed) =
+            get("/v1/market-data/instruments".to_owned(), bearer.clone()).await;
+        assert_eq!(status, StatusCode::OK, "{listed}");
+        let listing = listed["instruments"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|entry| entry["instrument"] == perpetual)
+            .unwrap_or_else(|| panic!("the perpetual F admitted is listed: {listed}"));
+        assert_eq!(listing["venue"], "BINANCE", "{listing}");
+
+        let (status, _, described) = get(
+            format!("/v1/market-data/instruments/{perpetual}"),
+            bearer.clone(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{described}");
+        let entry: serde_json::Value = serde_json::from_str(
+            crate::first_composer_v3_replay_acceptance::PERPETUAL_EXCHANGE_INFO_V1,
+        )
+        .unwrap();
+        let filter = |filter_type: &str, field: &str| {
+            let text = entry["symbols"][0]["filters"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|filter| filter["filterType"] == filter_type)
+                .and_then(|filter| filter[field].as_str())
+                .unwrap()
+                .to_owned();
+            if text.contains('.') {
+                text.trim_end_matches('0').trim_end_matches('.').to_owned()
+            } else {
+                text
+            }
+        };
+        assert_eq!(
+            described["price_increment"],
+            filter("PRICE_FILTER", "tickSize")
+        );
+        assert_eq!(
+            described["quantity_increment"],
+            filter("LOT_SIZE", "stepSize")
+        );
+        let terms = described["economic_terms"].as_array().unwrap();
+        assert!(
+            !terms.is_empty(),
+            "F's H0 admitted the perpetual's terms: {described}"
+        );
+        assert!(
+            terms.iter().all(|version| version["taker_fee"]
+                .as_str()
+                .is_some_and(|fee| !fee.is_empty())),
+            "{described}"
+        );
+
+        let (status, code, _) = get(
+            "/v1/market-data/instruments/NEVERADMITTED-PERP.BINANCE".to_owned(),
+            bearer,
+        )
+        .await;
+        assert_eq!(
+            (status, code.as_deref()),
+            (StatusCode::NOT_FOUND, Some("INSTRUMENT_UNKNOWN"))
+        );
+        let (status, code, _) = get("/v1/market-data/instruments".to_owned(), None).await;
+        assert_eq!(
+            (status, code.as_deref()),
+            (StatusCode::FORBIDDEN, Some("UNAUTHORIZED_PRODUCT_EDGE"))
+        );
     }
 
     pub(super) fn bearer_headers(token: &str) -> HeaderMap {

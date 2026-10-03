@@ -117,7 +117,7 @@ const CLOSE_ROLE: &str = "research.input.close.daily.v1";
 /// other chain entry names, so no other entry's Instrument Master or membership facts can meet it.
 /// It is F's own, not the chain fixtures' instrument, which stays an equity for the entries built on
 /// it.
-const PERPETUAL_V1: &str = "LINKUSDT-PERP.BINANCE";
+pub(crate) const PERPETUAL_V1: &str = "LINKUSDT-PERP.BINANCE";
 
 /// The perpetual's real USD-M `exchangeInfo` entry, which its Instrument Master facts are read from.
 ///
@@ -127,7 +127,7 @@ const PERPETUAL_V1: &str = "LINKUSDT-PERP.BINANCE";
 /// 1790456106252 ms. The `LINKUSDT` entry is sliced from that response byte for byte and wrapped in a
 /// minimal envelope, so the file's digest proves only that these bytes were submitted, not that they
 /// are the provider's whole response.
-const PERPETUAL_EXCHANGE_INFO_V1: &str = include_str!(
+pub(crate) const PERPETUAL_EXCHANGE_INFO_V1: &str = include_str!(
     "../../adapters/binance/test_data/futures/http_json/exchange_info_usdm_linkusdt.json"
 );
 
@@ -1571,6 +1571,7 @@ async fn market_data_routes(
                     .expect("the instrument economic terms admission composes")
                     .expect("the chain configures both Owners the terms admission needs"),
             ),
+            catalog: None,
         },
         token_digest,
     )

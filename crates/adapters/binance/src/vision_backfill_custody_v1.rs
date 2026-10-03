@@ -201,14 +201,19 @@ pub const fn refusal_disposition_v1(
         CrossSectionCorrectionNotPublishedBySource, ExecutionTimeframeNotFixedInterval,
         FillTimeframeIsAnInputTimeframe, FillTimeframeNotFinerThanExecution, IdentityConflict,
         InvalidRequest, MarketSemanticsMismatch, RetrievalAfterMintingCut,
-        SourceBindingDeclaresNoAvailabilityRule, SourceBindingUnavailable, StoreUnavailable,
-        SuccessorBasisChanged, WindowMemberNotValidThroughout,
+        RowRetrievedBeforeBarClose, SourceBindingDeclaresNoAvailabilityRule,
+        SourceBindingUnavailable, StoreUnavailable, SuccessorBasisChanged,
+        ValueFinerThanSeriesScale, VersionNotAvailableAtMintingCut, WindowMemberNotValidThroughout,
     };
 
     match refusal {
         // The Owner mints the cut inside the commit, so a later attempt finds it past every
         // retrieval this writer stated.
-        StoreUnavailable | RetrievalAfterMintingCut => RetryLater,
+        // A bar the rule makes visible later than this cut is visible to a later one.
+        StoreUnavailable | RetrievalAfterMintingCut | VersionNotAvailableAtMintingCut => RetryLater,
+        // A bar retrieved before it closed is today's open bar, and a value past nine places is
+        // one this writer passed unchecked: the same request is refused again.
+        RowRetrievedBeforeBarClose | ValueFinerThanSeriesScale => WriterDefect,
         InvalidRequest
         | CrossSectionBranch
         | CrossSectionCorrectionNotPublishedBySource
@@ -465,6 +470,18 @@ mod tests {
     #[case(
         PitWindowCustodyRefusalV1::RetrievalAfterMintingCut,
         BackfillRefusalDispositionV1::RetryLater
+    )]
+    #[case(
+        PitWindowCustodyRefusalV1::VersionNotAvailableAtMintingCut,
+        BackfillRefusalDispositionV1::RetryLater
+    )]
+    #[case(
+        PitWindowCustodyRefusalV1::RowRetrievedBeforeBarClose,
+        BackfillRefusalDispositionV1::WriterDefect
+    )]
+    #[case(
+        PitWindowCustodyRefusalV1::ValueFinerThanSeriesScale,
+        BackfillRefusalDispositionV1::WriterDefect
     )]
     #[case(
         PitWindowCustodyRefusalV1::InvalidRequest,
