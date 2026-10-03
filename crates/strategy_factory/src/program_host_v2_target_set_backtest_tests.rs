@@ -2135,7 +2135,9 @@ fn u32_leb(bytes: &mut Vec<u8>, mut value: u32) {
 
 /// The Owner-issued authority and every execution-bundle digest over a two-member run, pinned from
 /// the pre-widening tree: the profile binding, native materialization, frame sequence, scheduling
-/// data, and census digests.
+/// data, and census digests. The fixture's instrument terms now name each member by its canonical
+/// identity, as the Instrument Owner issues them, so the four digests that bind those terms were
+/// read again; the frame sequence and scheduling data digests did not move.
 #[rstest]
 #[cfg(feature = "sealed-strategy-input-acceptance")]
 fn two_member_execution_bundle_digests_are_unchanged_by_the_member_count_widening() {
@@ -2198,17 +2200,17 @@ fn two_member_execution_bundle_digests_are_unchanged_by_the_member_count_widenin
             (
                 "owner_authority_digest",
                 32,
-                "0e3c192a8de3e492a9f4600fc958485185c84cc3586e6914b005533158d877ca",
+                "65856497e7d476b0e5fcaaa492a4a8d86ab2e797ba9d8a27b08236700b0a3a80",
             ),
             (
                 "execution_profile_binding_digest",
                 32,
-                "fa773a0b4c5372d89b4164e8b1e865537645045035de83772d615c0f6e0e6d04",
+                "a08d72c7a0bfac6f46d3d551a9d41c31d0040540ac3ad7b866a55f7caad7064d",
             ),
             (
                 "native_materialization_digest",
                 32,
-                "92cb6b55801e451ac8881fd38150bb5f02b22148ec3769f7fe0a504febd724a1",
+                "576622d49f03b6fd408989236d72f38c02ac20df48279b2bd1a459d083ed73b3",
             ),
             (
                 "frame_sequence_digest",
@@ -2223,7 +2225,7 @@ fn two_member_execution_bundle_digests_are_unchanged_by_the_member_count_widenin
             (
                 "census_digest",
                 32,
-                "59398f8b58ec2729f922df25185e6ea9571f7ac2460227644e99f4f374949ea5",
+                "44d15f32f457d6ffa9c2d75b0db1b94f64d4d4aac252f7b7a0dcb3c780af8793",
             ),
         ],
     );
