@@ -2285,7 +2285,7 @@ Backtest 的组合与 Market Data 之外的每个读者也属于 T1；T2（多�
 （`series_projection_bytes`，`crates/data/src/owner/sample_fact.rs` 第 1263 行），而 PIT batch 以规范形式存储每个值，拒绝
 尾数以 0 结尾的非零 scale（`decode_observation`，`crates/data/src/owner/pit_snapshot/authority.rs` 第 1613 行）。于是 scale
 随值的末位数字变化，同一标的同一字段在每个末位为 0 的 bar 上都会分裂出新序列。托管已由上面的 Instrument Master 精度规则
-修好。快照路径保留其字节，留给以后单独的切片：今天的快照消费方各自只读一帧，所以还没有序列连续性依赖它。
+修好。快照路径保留其字节，留给排在 U1 之后的单独切片：今天的快照消费方各自只读一帧，所以还没有序列连续性依赖它。
 
 - **托管：** 覆盖从预热起点开始的半开窗口，只提交一次，此后不可变。后来的更正是一份后继托管，它指名自己的前驱，只携带
   它新增的版本；视图沿这条链读到 head。后继托管原样重述前驱的基底 - Market Semantics fact、 Instrument Master cut、成
