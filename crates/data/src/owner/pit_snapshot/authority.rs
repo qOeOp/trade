@@ -1587,6 +1587,9 @@ fn decode_observation(bytes: &[u8]) -> Result<VerifiedPitObservation, PitSnapsho
             "LAST_PRICE",
             "LAST_SIZE",
             "VALUE",
+            // A perpetual's settled funding: the rate as published and the settlement instant.
+            "FUNDING_RATE",
+            "FUNDING_TIME",
         ])?,
         value_mantissa: decoder.i128()?,
         value_scale: decoder.u8()?,

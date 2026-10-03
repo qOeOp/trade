@@ -262,6 +262,7 @@ never runs in CI.
 | Shared Time clock‑head handoff                            | `TARGET`                                                                                            | `owner/shared_time_evidence.rs`                                                                                                                                                                                                          | `B3`       |
 | Vendor Data Clients                                       | `CURRENT / PARTIAL`                                                                                 | `crates/adapters/databento/src/pit_observation_source_v1.rs` and `crates/adapters/binance/src/pit_observation_source_v1.rs`, both live‑verified                                                                                          | `B6`       |
 | Live market fact channel to Runtime                       | `CURRENT / PARTIAL`, one channel                                                                    | `owner/live_market_fact_v1.rs`, `owner/live_market_stream_v1.rs`, `owner/postgres/live_market_stream_v1.rs`, `crates/adapters/bybit/src/live_market_fact_source_v1.rs`                                                                   | `B8`       |
+| Binance perpetual settled funding rows                    | `CURRENT / PARTIAL`                                                                                 | `crates/adapters/binance/src/futures_pit_observation_source_v1.rs`                                                                                                                                                                       | `B6`       |
 
 ## Authoritative facts owned
 
@@ -2871,6 +2872,33 @@ exists, this contract claims no provider authenticity, production migration or d
 BFP executable maturity, Backtest product closure including inverse or quanto target-consumption semantics,
 Dashboard/default-database admission, or trading authority. These Backtest limitations do not create a Market Data
 instrument-class rejection.
+
+### CURRENT/PARTIAL Binance perpetual settled funding rows
+
+The Binance USD-M perpetual Data Client in `crates/adapters/binance/src/futures_pit_observation_source_v1.rs`
+answers a scope with each member's last closed bar and, beside it, the member's last settled funding. Funding is two
+rows on channel `MARKET`, data kind `SCALAR` and timeframe `TICK`: field `FUNDING_RATE` is the venue's decimal as
+published, and field `FUNDING_TIME` is the settlement instant in nanoseconds. Both come from the unsigned public
+`fundingRate` endpoint, asked for the last two settlements at or before the scope's event-effective coordinate, so a
+settlement at exactly that coordinate is included and one a millisecond later is not.
+
+- **Knowable at settlement.** A settled rate is knowable at its own settlement instant. The public archive's
+  `calc_time` and the endpoint's `fundingTime` are equal, and so are the rates, for all 93 BTCUSDT settlements of
+  2024-01.
+- **Absence is the absence of rows, never a value.** Before a member's first settlement, and once the settlement that
+  the last two imply is overdue at the coordinate, the member has no funding rows, and the client never states a zero
+  rate in their place. A consumer that needs funding refuses on the missing field. An endpoint that cannot be reached
+  or refuses the call, a rate that is not a decimal, and a settlement after the coordinate each refuse the whole
+  retrieval by its bounded category.
+- **No credential.** The client refuses to be built over an HTTP client that holds a credential, and its requests
+  carry no `X-MBX-APIKEY` header and no `signature` parameter.
+- **Status.** The client is the one `MARKET_DATA_OBSERVATION_SOURCE=binance-perpetual` composes, so a deployment
+  that names it commits funding rows today; no consumer reads them yet. Unit tests in that file drive it against a
+  local stand-in for the venue, and the credential-free Market Data end-to-end proof asserts the rows on the live
+  endpoint.
+- **Not stated.** The settlement interval is not a row: the endpoint does not state it, so the timeframe is `TICK`
+  rather than a guessed interval. The live estimate from `premiumIndex`, funding accrual in a Replay, and a funding
+  field semantic a Design can name are separate slices.
 
 ## Input handoffs
 
