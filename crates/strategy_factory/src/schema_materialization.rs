@@ -564,6 +564,10 @@ mod tests {
             indexes: INDEXES,
         };
 
+        // `RD_SCHEMA_MIGRATION_TEST_DATABASE_URL` must name a genuinely fresh disposable
+        // PostgreSQL: a superuser connection to a database that holds none of the roles, schema
+        // or table this test sets up and creates, so nothing here ever drops, truncates or
+        // deletes anything that could have been someone else's.
         let database_url = std::env::var("RD_SCHEMA_MIGRATION_TEST_DATABASE_URL")
             .expect("RD_SCHEMA_MIGRATION_TEST_DATABASE_URL must be explicitly supplied");
         let setup_pool = sqlx::postgres::PgPoolOptions::new()
@@ -575,7 +579,6 @@ mod tests {
         // functions, `rd_schema_migrator` may only call them, and `rd_owner` holds nothing beyond
         // what those functions grant it for the duration of the window.
         for statement in [
-            "DROP TABLE IF EXISTS public.rbm_additive_migration_probe_v1",
             "DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='rd_database_owner') \
              THEN CREATE ROLE rd_database_owner NOLOGIN; END IF; END $$",
             "DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='rd_owner') THEN \
