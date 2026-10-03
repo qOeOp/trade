@@ -2900,6 +2900,40 @@ settlement at exactly that coordinate is included and one a millisecond later is
   rather than a guessed interval. The live estimate from `premiumIndex`, funding accrual in a Replay, and a funding
   field semantic a Design can name are separate slices.
 
+### TARGET Binance backfill fetch for T0 window custody
+
+U1's history enters as T0 window custody: one custody per member over the whole window, for the execution timeframe
+and the fill timeframe. This is the fetch side that feeds a custody commit. The commit's own types are T0's.
+
+- **Execution bars come from the public archive.** For each member, interval and month, the fetch reads
+  `data/futures/um/monthly/klines/{SYMBOL}/{interval}/{SYMBOL}-{interval}-{YYYY-MM}.zip` with its `.CHECKSUM` sidecar.
+  The bars are read through `authenticate_monthly_klines`, with the sidecar's own digest as the bound digest. That
+  proves the bytes arrived as the host published them; it does not prove who published them.
+- **The dataset is named by the request, not read from the file.** The reader's entry takes the dataset it was asked
+  for (`klines`) and checks it against the archive path it fetched. `markPriceKlines`, `indexPriceKlines` and
+  `premiumIndexKlines` archives have the same name, columns and layout.
+- **Archives before 2022 have no header.** Every BTCUSDT `1d` month from 2021-01 to 2021-12 starts with data, and
+  every month from 2022-01 starts with the official header. Today's reader refuses the first kind, which is a year of
+  U1. A first line that is the exact header is accepted. A headerless file is accepted only when all of these hold,
+  and is refused by name otherwise:
+  - every row has 12 columns;
+  - open times rise by exactly the interval, and each close time is the open time plus the interval minus 1 ms;
+  - the high is at least the open and the close, and the low at most both;
+  - volume is not negative, and taker buy volume does not exceed it;
+  - at least one row has volume. Every row of the 2021-06 mark, index and premium price archives has zero volume,
+    while the trade archive's largest is 1,531,824, so this is the check that tells a price archive from a trade
+    archive.
+- **Fill bars come from the endpoint.** The fill bar for frame `k` is the first `1m` bar opening strictly after
+  frame `k`'s bar event plus the declared lag, and strictly before frame `k+1`'s bar event. One unsigned `klines` call
+  with that start and `limit=1` returns it. There is one call per frame and no `1m` archive, which is about 2 MB a
+  month.
+- **Resumable and idempotent.** Each fetched file is kept in a shard directory under its archive name, beside its
+  sidecar. A shard counts only when its bytes match the sidecar. A rerun verifies the shards it has, fetches only the
+  missing or mismatched ones, and writes each new one through a temporary file and a rename. The custody is committed
+  once, after every shard for it is present, and T0's commit rejoins an identical resubmission.
+- **Retrieval is today.** The custody's retrieval instant is the wall clock when the fetch ran. Visibility comes from
+  the Source Binding's availability rule, never from a historical retrieval coordinate.
+
 ## Input handoffs
 
 - Data vendors and trading venues provide raw market and reference records through Data Clients, and every time
