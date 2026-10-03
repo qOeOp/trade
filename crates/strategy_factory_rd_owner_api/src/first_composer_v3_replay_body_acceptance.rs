@@ -69,7 +69,67 @@ pub(crate) async fn assert_the_first_composer_v3_replay_runs_as_its_universe_v1(
         attempt_identity: FIRST_COMPOSER_V3_REPLAY_ATTEMPT_V1,
     };
     assert_the_report_states_the_run(&rd_pool, locator, replay).await;
+    probe_print_sealed_semantic_trace_shape(&rd_pool, locator).await;
     scheduling.revoke().await;
+}
+
+/// PROBE ONLY (never merged): the sealed semantic trace's shape, which wall-clock instants do not
+/// move. Custody verifies the bytes against the Result's digest before handing them over.
+async fn probe_print_sealed_semantic_trace_shape(
+    rd_pool: &PgPool,
+    locator: ExploratoryReplayResultLocatorV2<'_>,
+) {
+    fn key_paths(value: &serde_json::Value, path: String, out: &mut Vec<String>) {
+        match value {
+            serde_json::Value::Object(map) => {
+                for (key, child) in map {
+                    let child_path = format!("{path}/{key}");
+                    out.push(child_path.clone());
+                    key_paths(child, child_path, out);
+                }
+            }
+            serde_json::Value::Array(items) => {
+                for item in items {
+                    key_paths(item, format!("{path}[]"), out);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let mut transaction = rd_pool.begin().await.expect("probe transaction");
+    let locked = vibe_backtest_result_custody::resolve_exploratory_replay_result_v2(
+        &mut transaction,
+        locator,
+    )
+    .await
+    .expect("probe custody read")
+    .expect("the committed Result is in custody");
+    let bytes = locked
+        .semantic_trace_canonical_bytes()
+        .expect("a native Result seals its semantic trace")
+        .to_vec();
+    transaction.rollback().await.expect("probe rollback");
+    let value: serde_json::Value = serde_json::from_slice(&bytes).expect("trace bytes are JSON");
+    let mut paths = Vec::new();
+    key_paths(&value, String::new(), &mut paths);
+    paths.sort();
+    paths.dedup();
+    let shape = Sha256::digest(paths.join("\n").as_bytes())
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    let protective = paths.iter().any(|path| path.contains("protective_fills"));
+    eprintln!(
+        "F-PROBE-SHAPE trace_bytes={} key_paths={} shape_sha256={} protective_fills_key={} execution_keys={:?}",
+        bytes.len(),
+        paths.len(),
+        shape,
+        protective,
+        value["execution"]
+            .as_object()
+            .map(|map| map.keys().cloned().collect::<Vec<_>>()),
+    );
 }
 
 /// G5b, on the production registration chain rather than on an oracle-built Design.
