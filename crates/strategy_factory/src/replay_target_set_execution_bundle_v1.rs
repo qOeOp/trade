@@ -11,12 +11,13 @@ use sha2::{Digest, Sha256};
 use vibe_data::owner::instrument_master_v2::ValidatedCryptoPerpetualPublicTermsV2;
 use vibe_data::owner::native_replay_scheduling_v1::NativeReplaySchedulingReadbackV1;
 use vibe_data::owner::native_replay_scheduling_v2::NativeReplayFrameSequenceReadbackV2;
+use vibe_data::owner::replay_funding_schedule_v1::ReplayFundingScheduleV1;
 use vibe_data::owner::strategy_input_binding::StrategyInputEventKind;
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
 use vibe_model::types::Money;
 use vibe_model::{
     data::{Bar, BarType, Data, HasTsInit, QuoteTick},
-    identifiers::{AccountId, StrategyId},
+    identifiers::{AccountId, InstrumentId, StrategyId},
     instruments::{Instrument, InstrumentAny},
     types::{Price, Quantity},
 };
@@ -227,6 +228,22 @@ impl From<&BoundInstrumentEconomicTermsV1> for ReplayTargetSetInstrumentCensusV1
 }
 
 /// Exact immutable admission evidence retained for later Backtest result custody.
+/// What a bundle states about its window's funding.
+///
+/// Market Data's settled funding schedule reaches the bundle by value or not at all. A bundle
+/// without one says so rather than reading as a run that paid no funding.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize)]
+#[serde(tag = "statement", rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum ReplayFundingStatementV1 {
+    /// No funding schedule reached the bundle.
+    FundingNotStated,
+    /// The bundle carries Market Data's schedule for the run's window and members.
+    Stated {
+        /// The schedule's content digest.
+        schedule_digest: [u8; 32],
+    },
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
 pub struct ReplayTargetSetExecutionCensusV1 {
     pub(crate) request_locator: ExploratoryReplayRequestLocatorV2,
@@ -250,6 +267,7 @@ pub struct ReplayTargetSetExecutionCensusV1 {
     pub(crate) scheduling_data_count: u64,
     pub(crate) bar_count: u64,
     pub(crate) event_count: u64,
+    pub(crate) funding: ReplayFundingStatementV1,
     pub(crate) census_digest: [u8; 32],
 }
 
@@ -379,6 +397,12 @@ impl ReplayTargetSetExecutionCensusV1 {
         self.event_count
     }
 
+    /// Whether the bundle carries its window's funding schedule.
+    #[must_use]
+    pub const fn funding(&self) -> ReplayFundingStatementV1 {
+        self.funding
+    }
+
     #[must_use]
     pub const fn census_digest(&self) -> [u8; 32] {
         self.census_digest
@@ -407,6 +431,8 @@ pub struct ReplayTargetSetExecutionBundleV1 {
     /// Each frame's fill-quote instants, keyed by the frame's time, one per member in member order:
     /// the instant that member's Quote arrives at, which the Host submits its decided order on.
     pub(crate) fill_quote_instants: BTreeMap<u64, Vec<u64>>,
+    /// Market Data's settled funding for the run's window and members, by value.
+    pub(crate) funding_schedule: Option<ReplayFundingScheduleV1>,
     pub(crate) census: ReplayTargetSetExecutionCensusV1,
 }
 
@@ -457,6 +483,12 @@ impl ReplayTargetSetExecutionBundleV1 {
     #[must_use]
     pub fn starting_balance_for_acceptance(&self) -> Option<Money> {
         self.native_profile.starting_balance()
+    }
+
+    /// Market Data's settled funding for the run's window and members, when it reached the bundle.
+    #[must_use]
+    pub const fn funding_schedule(&self) -> Option<&ReplayFundingScheduleV1> {
+        self.funding_schedule.as_ref()
     }
 
     /// Returns how many Owner-sealed universe frames this bundle was built from.
@@ -517,6 +549,7 @@ impl ReplayTargetSetExecutionBundleV1 {
         run_id: String,
         public_terms: Vec<ValidatedCryptoPerpetualPublicTermsV2>,
         sequence: NativeReplayFrameSequenceReadbackV2,
+        funding_schedule: Option<ReplayFundingScheduleV1>,
     ) -> anyhow::Result<Self> {
         let instruments = materialize_crypto_perpetual_target_set_v2(
             authority.execution_profile_binding(),
@@ -581,6 +614,7 @@ impl ReplayTargetSetExecutionBundleV1 {
             data,
             &frame_times,
             &receipt_digests,
+            funding_schedule,
         )
     }
 
@@ -604,6 +638,7 @@ impl ReplayTargetSetExecutionBundleV1 {
         run_id: String,
         public_terms: Vec<ValidatedCryptoPerpetualPublicTermsV2>,
         scheduling: NativeReplaySchedulingReadbackV1,
+        funding_schedule: Option<ReplayFundingScheduleV1>,
     ) -> anyhow::Result<Self> {
         let instruments = materialize_crypto_perpetual_target_set_v2(
             authority.execution_profile_binding(),
@@ -639,6 +674,7 @@ impl ReplayTargetSetExecutionBundleV1 {
             data,
             &frame_times,
             &receipt_digests,
+            funding_schedule,
         )
     }
 
@@ -655,6 +691,7 @@ impl ReplayTargetSetExecutionBundleV1 {
         data: Vec<Data>,
         frame_times: &[u64],
         owner_scheduling_receipt_digests: &[[u8; 32]],
+        funding_schedule: Option<ReplayFundingScheduleV1>,
     ) -> anyhow::Result<Self> {
         let request_locator = authority.request_locator().clone();
         let owner_authority_digest = authority.authority_digest();
@@ -745,6 +782,12 @@ impl ReplayTargetSetExecutionBundleV1 {
             frame_time == request_window.start_event_ns,
             "request execution bundle frame time mismatches Owner request window"
         );
+        let funding = state_funding_schedule(
+            funding_schedule.as_ref(),
+            &instrument_ids,
+            request_window.start_event_ns,
+            request_window.end_event_ns_exclusive,
+        )?;
         let (instruments, price_grids) = widen_price_grids_to_data(instruments, &data)?;
         let data = align_native_data_to_instruments(data, &instruments)?;
         ensure_native_data_at_instrument_precision(&data, &instruments)?;
@@ -803,6 +846,7 @@ impl ReplayTargetSetExecutionBundleV1 {
             scheduling_data_count: u64::try_from(data.len())?,
             bar_count: u64::try_from(instruments.len() * universe_frames.len())?,
             event_count: u64::try_from(instruments.len() * universe_frames.len())?,
+            funding,
             census_digest: [0; 32],
         };
         census.census_digest = digest_census(&census)?;
@@ -819,6 +863,7 @@ impl ReplayTargetSetExecutionBundleV1 {
             bar_types,
             data,
             fill_quote_instants,
+            funding_schedule,
             census,
         })
     }
@@ -856,6 +901,7 @@ impl ReplayTargetSetExecutionBundleV1 {
             data,
             frame_times,
             &receipt_digests,
+            None,
         )
     }
 }
@@ -974,7 +1020,47 @@ fn digest_census(census: &ReplayTargetSetExecutionCensusV1) -> anyhow::Result<[u
     hasher.update(census.scheduling_data_count.to_be_bytes());
     hasher.update(census.bar_count.to_be_bytes());
     hasher.update(census.event_count.to_be_bytes());
+
+    // A bundle that states no funding keeps the digest it had before funding was carried.
+    if let ReplayFundingStatementV1::Stated { schedule_digest } = census.funding {
+        hasher.update(b"FUNDING_SCHEDULE_V1\0");
+        hasher.update(schedule_digest);
+    }
     Ok(hasher.finalize().into())
+}
+
+/// States the run's funding from Market Data's schedule, which must cover exactly the run's window
+/// and members. Market Data owns the schedule's completeness; this checks only that it is the
+/// schedule of this run.
+fn state_funding_schedule(
+    schedule: Option<&ReplayFundingScheduleV1>,
+    instrument_ids: &[InstrumentId],
+    window_start_ns: u64,
+    window_end_ns_exclusive: u64,
+) -> anyhow::Result<ReplayFundingStatementV1> {
+    let Some(schedule) = schedule else {
+        return Ok(ReplayFundingStatementV1::FundingNotStated);
+    };
+    anyhow::ensure!(
+        schedule.window() == (window_start_ns, window_end_ns_exclusive),
+        "FUNDING_SCHEDULE_WINDOW_NOT_THE_RUNS: the funding schedule covers another window"
+    );
+    let mut members = instrument_ids
+        .iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>();
+    members.sort_unstable();
+    anyhow::ensure!(
+        schedule
+            .members()
+            .iter()
+            .map(|member| member.instrument())
+            .eq(members.iter().map(String::as_str)),
+        "FUNDING_SCHEDULE_MEMBERS_NOT_THE_RUNS: the funding schedule covers other members"
+    );
+    Ok(ReplayFundingStatementV1::Stated {
+        schedule_digest: schedule.digest(),
+    })
 }
 
 /// Checks executed scheduling data against the Owner's sealed frame order boundaries.
@@ -1970,5 +2056,89 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    fn funding_schedule(
+        start_ns: u64,
+        end_ns_exclusive: u64,
+        members: &[String],
+    ) -> ReplayFundingScheduleV1 {
+        use vibe_data::owner::replay_funding_schedule_v1::{
+            FundingSettlementV1, MemberFundingScheduleV1,
+        };
+
+        ReplayFundingScheduleV1::new(
+            start_ns,
+            end_ns_exclusive,
+            members
+                .iter()
+                .map(|member| {
+                    MemberFundingScheduleV1::new(
+                        member.clone(),
+                        vec![FundingSettlementV1::new(
+                            start_ns,
+                            rust_decimal::Decimal::new(1, 4),
+                        )],
+                    )
+                })
+                .collect(),
+        )
+        .unwrap()
+    }
+
+    /// The run's members, as the schedule orders them: by instrument, not by member ordinal.
+    fn sorted_members(instrument_ids: &[InstrumentId]) -> Vec<String> {
+        let mut members = instrument_ids
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>();
+        members.sort_unstable();
+        members
+    }
+
+    #[rstest::rstest]
+    fn a_bundle_without_a_funding_schedule_states_funding_not_stated() {
+        let ids = instruments().map(|instrument| instrument.id());
+
+        assert_eq!(
+            state_funding_schedule(None, &ids, FRAME_TIME, FRAME_TIME + 3).unwrap(),
+            ReplayFundingStatementV1::FundingNotStated
+        );
+        assert_eq!(
+            serde_json::to_value(ReplayFundingStatementV1::FundingNotStated).unwrap(),
+            serde_json::json!({"statement": "FUNDING_NOT_STATED"})
+        );
+    }
+
+    #[rstest::rstest]
+    fn a_funding_schedule_of_the_runs_window_and_members_is_stated_by_its_digest() {
+        let ids = instruments().map(|instrument| instrument.id());
+        let schedule = funding_schedule(FRAME_TIME, FRAME_TIME + 3, &sorted_members(&ids));
+
+        assert_eq!(
+            state_funding_schedule(Some(&schedule), &ids, FRAME_TIME, FRAME_TIME + 3).unwrap(),
+            ReplayFundingStatementV1::Stated {
+                schedule_digest: schedule.digest()
+            }
+        );
+    }
+
+    #[rstest::rstest]
+    fn a_funding_schedule_of_another_window_or_member_set_is_refused_by_name() {
+        let ids = instruments().map(|instrument| instrument.id());
+        let members = sorted_members(&ids);
+        let later = funding_schedule(FRAME_TIME, FRAME_TIME + 4, &members);
+        let one_member = funding_schedule(FRAME_TIME, FRAME_TIME + 3, &members[..1]);
+
+        let window = state_funding_schedule(Some(&later), &ids, FRAME_TIME, FRAME_TIME + 3)
+            .unwrap_err()
+            .to_string();
+        let member_set =
+            state_funding_schedule(Some(&one_member), &ids, FRAME_TIME, FRAME_TIME + 3)
+                .unwrap_err()
+                .to_string();
+
+        assert!(window.starts_with("FUNDING_SCHEDULE_WINDOW_NOT_THE_RUNS"));
+        assert!(member_set.starts_with("FUNDING_SCHEDULE_MEMBERS_NOT_THE_RUNS"));
     }
 }
