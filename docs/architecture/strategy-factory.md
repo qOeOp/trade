@@ -1436,6 +1436,20 @@ later submission and the cost grows with the whole history.
   adding a role changes only the Design. It changes no admitted bound by itself. A V2 request states no scope and
   stays the legacy exact channel, whose Designs name their instrument; retiring it is a separate slice after T1,
   once every chain entry that creates exact custody under V2 has a scoped replacement.
+
+  The completion criterion is checked one change at a time:
+  - **Changing the instrument: proven.** `a_second_instrument_runs_from_its_research_scope_alone_after_the_first`
+    runs F's production path, from the Research request to the report, for BTCUSDT after F's LINKUSDT, in the
+    deployment F left. Its Design is the same as F's, and the only product input that differs is the Research
+    request's scope. The instrument reaches the harness only as Operations' admission of that perpetual and its
+    data clients' answers.
+  - **Changing the member count, TARGET:** a scope of two members cannot be driven yet. The acceptance stand-in
+    for the BAR schedule proposer (E1) refuses a batch that spans two members
+    (`bar_schedule_acceptance_v1.rs`, `ScheduleRoleSpansMembers`), so this half waits for E1 or a per-member
+    schedule after U1, which needs one member.
+  - **Adding a role, TARGET:** nothing after the Design restates a role, but the single-threshold author that
+    writes F's Design expresses only an open and a close role, so this half waits for the authoring layer. A
+    hand-built Design does not stand in for it.
 - **P1, the role set comes from the Design:** the native Plan contract stops fixing OPEN and CLOSE on one day. The
   Design declares its roles, its execution role and its pricing role through fields it already has, the roles' field
   semantics and a join's trigger; no field is added. A universe role must be an `I128` Market Data BAR open, high,

@@ -1278,6 +1278,17 @@ custody 会挡住之后的每一次提交，而成本随整个历史增长。
   请求，改成员数只改 scope、加一个角色只改 Design 时，P0 才算完成。它本身不改动任何已准入的界。V2 请求不陈述
   scope，仍是 legacy 的 exact 通道，它的 Design 照旧指名品种；退役它是 T1 之后的一个独立切片，前提是每个在 V2 下
   创建 exact 托管的链路条目都有了陈述 scope 的替身。
+
+  完成判据按单项改动逐一核对：
+  - **换品种：已证明。** `a_second_instrument_runs_from_its_research_scope_alone_after_the_first` 在 F 留下的部署里，
+    继 F 的 LINKUSDT 之后为 BTCUSDT 跑一遍 F 的生产路径，从 Research 请求一直到报告。它的 Design 与 F 相同，唯一不同
+    的产品输入是 Research 请求的 scope。品种只以两种形式进入 harness：Operations 对该永续合约的准入，以及它的数据
+    客户端给出的应答。
+  - **改成员数，TARGET：** 两个成员的 scope 目前还驱动不了。BAR schedule proposer（E1）的验收替身拒绝跨两个成员的
+    batch（`bar_schedule_acceptance_v1.rs`，`ScheduleRoleSpansMembers`），所以这一半要等 E1 或按成员的 schedule，
+    排在只需要一个成员的 U1 之后。
+  - **加一个角色，TARGET：** Design 之后没有任何地方复述角色，但写出 F 的 Design 的单阈值编写器只能表达 open 与 close
+    两个角色，所以这一半要等编写层。不以手工拼出的 Design 代替。
 - **P1，角色集来自 Design：** 原生 Plan 契约不再固定为一天周期的 OPEN 与 CLOSE。Design 用它已有的字段声明自己的
   角色、执行角色和定价角色，也就是各角色的 field semantic 和 join 的 trigger，不新增字段。universe 角色必须是
   `I128` 的 Market Data BAR open、high、low、close 或 volume 角色，target-set Host 用自己的原生 bar 核对它；其他角色以

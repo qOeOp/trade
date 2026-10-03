@@ -6106,6 +6106,7 @@ mod tests {
                             crate::first_composer_v3_replay_acceptance::ensure_first_composer_v3_replay_acceptance_v1(
                                 &test_database,
                                 crate::first_composer_v3_replay_acceptance::FIRST_COMPOSER_V3_REPLAY_FIXTURE_KEY_V1,
+                                crate::first_composer_v3_replay_acceptance::LINKUSDT_PERPETUAL_V1,
                             ),
                         )
                         .await;
@@ -6114,6 +6115,57 @@ mod tests {
                             "F runs on a fresh chain database, so it must be the call that created \
                              the first COMPOSER_V3 Replay rather than one that joined it",
                         );
+                        Box::pin(
+                            crate::first_composer_v3_replay_body_acceptance::assert_the_first_composer_v3_replay_runs_as_its_universe_v1(
+                                &test_database,
+                                &replay,
+                            ),
+                        )
+                        .await;
+                    }));
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
+    /// A second instrument's Research in the deployment F left: the same Design, a Research request
+    /// whose scope names BTCUSDT, and Operations' admission of that perpetual, run through the same
+    /// production path and the same body as F.
+    ///
+    /// This is the strategy shape envelope's P0 completion criterion for an instrument change, and
+    /// U1's own sequence: a Research request names the instrument to study, and a deployment that has
+    /// already run one instrument runs the next. Between F and this entry the only product input that
+    /// differs is the Research request's scope: the harness passes the instrument to Operations'
+    /// setup and the data stand-ins, and to the product path only inside that scope.
+    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+    #[rstest]
+    #[ignore = "requires the ordered chain's PostgreSQL after F, and the pinned local wasm compiler"]
+    fn a_second_instrument_runs_from_its_research_scope_alone_after_the_first() {
+        std::thread::Builder::new()
+            .stack_size(16 * 1024 * 1024)
+            .spawn(|| {
+                tokio::runtime::Builder::new_multi_thread()
+                    .worker_threads(2)
+                    .enable_all()
+                    .build()
+                    .unwrap()
+                    .block_on(Box::pin(async {
+                        let test_database =
+                            CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
+                        let replay = Box::pin(
+                            crate::first_composer_v3_replay_acceptance::ensure_first_composer_v3_replay_acceptance_v1(
+                                &test_database,
+                                "f-btcusdt-second-instrument",
+                                crate::first_composer_v3_replay_acceptance::BTCUSDT_PERPETUAL_V1,
+                            ),
+                        )
+                        .await;
+                        assert!(
+                            replay.created,
+                            "the second instrument's Replay is its own, created here",
+                        );
+                        assert_eq!(replay.member_instrument, "BTCUSDT-PERP.BINANCE");
                         Box::pin(
                             crate::first_composer_v3_replay_body_acceptance::assert_the_first_composer_v3_replay_runs_as_its_universe_v1(
                                 &test_database,

@@ -149,6 +149,7 @@ readonly rd_owner_postgres_tests=(
   'vibe-strategy-factory|vibe_strategy_factory|product_edge_postgres::tests::a_frozen_research_intent_continues_under_its_admission_past_its_views_window'
   'vibe-strategy-factory|vibe_strategy_factory|iteration_decision_postgres::postgres_acceptance_tests::a_phase_fact_stops_a_frozen_intent_and_its_successor_continues_at_the_new_generation'
   'vibe-strategy-factory-rd-owner-api|rd_owner_api_main|tests::the_first_composer_v3_replay_runs_as_its_one_member_universe_and_is_reported'
+  'vibe-strategy-factory-rd-owner-api|rd_owner_api_main|tests::a_second_instrument_runs_from_its_research_scope_alone_after_the_first'
   'vibe-strategy-factory|vibe_strategy_factory|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only'
 )
 readonly nextest_graph_args=(
@@ -233,6 +234,11 @@ readonly candidate_experiment_upgrade_seed_test='trial_family_postgres::postgres
 # isolation and fail only on the shared chain, at a refusal that names the instrument, not F.
 readonly chain_f_entry='|tests::the_first_composer_v3_replay_runs_as_its_one_member_universe_and_is_reported'
 readonly chain_after_f_allowed=(
+  # The second instrument's Research (P0's completion criterion for an instrument change, and U1's
+  # own sequence) is meant to meet F's state: its H0 admits its own perpetual's historical membership
+  # as the newest eligible frontier and an Instrument Master fact valid from 1 ns, so its Research
+  # scope is admitted against its own facts, never against F's or AAPL.XNAS's.
+  '|tests::a_second_instrument_runs_from_its_research_scope_alone_after_the_first'
   # The destructive drain reads and drains legacy prepared Artifact rows only; it starts no
   # Research and reads no Market Data frontier or Instrument Master fact.
   '|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only'
@@ -251,8 +257,8 @@ check_nextest_graph_contract() {
     echo "ERROR: isolated PostgreSQL tests must use the shared nextest graph." >&2
     return 1
   fi
-  if [[ "${#rd_owner_postgres_tests[@]}" -ne 120 ]]; then
-    echo "ERROR: isolated PostgreSQL test selection must retain all 120 ordered tests, found ${#rd_owner_postgres_tests[@]}." >&2
+  if [[ "${#rd_owner_postgres_tests[@]}" -ne 121 ]]; then
+    echo "ERROR: isolated PostgreSQL test selection must retain all 121 ordered tests, found ${#rd_owner_postgres_tests[@]}." >&2
     return 1
   fi
   if [[ "${rd_owner_postgres_tests[0]}" != *'|replay_policy_catalog_postgres_v2::postgres_tests::catalog_admin_and_family_formation_are_atomic_and_fail_closed' ]] ||
@@ -384,7 +390,8 @@ check_nextest_graph_contract() {
     [[ "${rd_owner_postgres_tests[116]}" != *'|product_edge_postgres::tests::a_frozen_research_intent_continues_under_its_admission_past_its_views_window' ]] ||
     [[ "${rd_owner_postgres_tests[117]}" != *'|iteration_decision_postgres::postgres_acceptance_tests::a_phase_fact_stops_a_frozen_intent_and_its_successor_continues_at_the_new_generation' ]] ||
     [[ "${rd_owner_postgres_tests[118]}" != *'|tests::the_first_composer_v3_replay_runs_as_its_one_member_universe_and_is_reported' ]] ||
-    [[ "${rd_owner_postgres_tests[119]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]]; then
+    [[ "${rd_owner_postgres_tests[119]}" != *'|tests::a_second_instrument_runs_from_its_research_scope_alone_after_the_first' ]] ||
+    [[ "${rd_owner_postgres_tests[120]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]]; then
     echo "ERROR: isolated PostgreSQL test ordering must remain fresh-first and destructive-drain-last." >&2
     return 1
   fi
@@ -547,7 +554,7 @@ for line in array_body.splitlines():
     entries.append(tuple(fields))
 # The count lives in one place. Writing it into the message as well lets the two drift, and the
 # drifted form reads as nonsense the moment it fires: "must contain 92 entries, found 92".
-expected_entries = 120
+expected_entries = 121
 if len(entries) != expected_entries:
     raise SystemExit(
         f"ERROR: ordered PostgreSQL test literal must contain {expected_entries} entries, found {len(entries)}."

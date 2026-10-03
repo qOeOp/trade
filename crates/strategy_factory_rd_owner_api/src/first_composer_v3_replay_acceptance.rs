@@ -113,27 +113,90 @@ pub(crate) const FIRST_COMPOSER_V3_REPLAY_FIXTURE_KEY_V1: &str = "f-first-compos
 const TOKEN: &str = "rd-owner-api-first-composer-v3";
 const CLOSE_ROLE: &str = "research.input.close.daily.v1";
 
-/// The instrument this Replay studies: a crypto perpetual, the class the product studies, and one no
-/// other chain entry names, so no other entry's Instrument Master or membership facts can meet it.
-/// It is F's own, not the chain fixtures' instrument, which stays an equity for the entries built on
-/// it.
-const PERPETUAL_V1: &str = "LINKUSDT-PERP.BINANCE";
-
-/// The perpetual's real USD-M `exchangeInfo` entry, which its Instrument Master facts are read from.
-///
-/// Fetched once from `https://fapi.binance.com/fapi/v1/exchangeInfo` (public, no credential) at
-/// 2026-09-27T09:17:36Z; the whole response was 1,127,625 bytes with sha256
-/// `427d91c56afdfb79867659e455e1e9fd0128445f658c6533a54605a9f6f36db9` and a cached `serverTime` of
-/// 1790456106252 ms. The `LINKUSDT` entry is sliced from that response byte for byte and wrapped in a
-/// minimal envelope, so the file's digest proves only that these bytes were submitted, not that they
-/// are the provider's whole response.
-const PERPETUAL_EXCHANGE_INFO_V1: &str = include_str!(
-    "../../adapters/binance/test_data/futures/http_json/exchange_info_usdm_linkusdt.json"
-);
-
-/// When [`PERPETUAL_EXCHANGE_INFO_V1`]'s entry was fetched: 2026-09-27T09:17:36Z.
-const PERPETUAL_EXCHANGE_INFO_RETRIEVED_NS_V1: i128 = 1_790_500_656_000_000_000;
 const OPEN_ROLE: &str = "research.input.open.daily.v1";
+
+/// One crypto perpetual this harness runs a COMPOSER_V3 Replay for: what Operations admits for it,
+/// and what the stand-in data clients answer for it.
+///
+/// Only the Operations setup reads it - the Source Binding, Instrument Master facts, economic terms
+/// and membership a deployment admits for an instrument before anyone researches it - and the
+/// stand-ins for the data clients behind Market Data's intakes. The product path, from the Research
+/// request on, learns the instrument only from the Research request's scope. That is the strategy
+/// shape envelope's P0 completion criterion for an instrument change: the Research request's scope
+/// is the only product input that differs between two instruments; the Design is the same.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct PerpetualFixtureV1 {
+    /// The canonical instrument identity the Research request's scope names.
+    pub(crate) canonical: &'static str,
+    raw_symbol: &'static str,
+    base: &'static str,
+    /// The perpetual's real USD-M `exchangeInfo` entry, which its Instrument Master facts are read
+    /// from, sliced byte for byte from one public response and wrapped in a minimal envelope.
+    exchange_info: &'static str,
+    exchange_info_retrieved_ns: i128,
+    /// Names the registry meanings Operations admits for this perpetual, so two perpetuals in one
+    /// deployment never share an eligible frontier or an Instrument Master frontier.
+    meaning_namespace: &'static str,
+    /// The daily kline the PIT stand-in answers: open, high, low and close as canonical decimal
+    /// `(mantissa, scale)` on the perpetual's tick grid, then volume.
+    bar: [(i128, u8); 5],
+    /// The Quote the quote-cut stand-in answers: bid and ask, one tick apart and the ask one tick
+    /// under the close, so the Host's limit at the close crosses it.
+    quote: [(i128, u8); 2],
+}
+
+/// LINKUSDT: F's instrument, one no other chain entry names, so no other entry's Instrument Master
+/// or membership facts can meet it.
+///
+/// Its `exchangeInfo` entry was fetched once from `https://fapi.binance.com/fapi/v1/exchangeInfo`
+/// (public, no credential) at 2026-09-27T09:17:36Z; the whole response was 1,127,625 bytes with
+/// sha256 `427d91c56afdfb79867659e455e1e9fd0128445f658c6533a54605a9f6f36db9` and a cached
+/// `serverTime` of 1790456106252 ms. The file's digest proves only that these bytes were submitted,
+/// not that they are the provider's whole response.
+pub(crate) const LINKUSDT_PERPETUAL_V1: PerpetualFixtureV1 = PerpetualFixtureV1 {
+    canonical: "LINKUSDT-PERP.BINANCE",
+    raw_symbol: "LINKUSDT",
+    base: "LINK",
+    exchange_info: include_str!(
+        "../../adapters/binance/test_data/futures/http_json/exchange_info_usdm_linkusdt.json"
+    ),
+    exchange_info_retrieved_ns: 1_790_500_656_000_000_000,
+    meaning_namespace: "perpetual",
+    bar: [
+        (12_301, 2),
+        (12_399, 2),
+        (12_287, 2),
+        (12_345, 2),
+        (98_765, 0),
+    ],
+    quote: [(12_343, 2), (12_344, 2)],
+};
+
+/// BTCUSDT: the instrument U1 researches first, on a 0.10 tick, with a 556.80 price floor and a
+/// 50 USDT minimum notional.
+///
+/// Its `exchangeInfo` entry was fetched once from `https://fapi.binance.com/fapi/v1/exchangeInfo`
+/// (public, no credential) at 2026-10-03T05:31:14Z; the whole response was 1,142,974 bytes with
+/// sha256 `4d13b0b196c7f478904e680e358e66ed75a43e9f4d39b7fcf8aea0c90834f6f0` and a `serverTime` of
+/// 1790941589242 ms. Its prices are on its own tick grid, so each is canonical at scale 1.
+pub(crate) const BTCUSDT_PERPETUAL_V1: PerpetualFixtureV1 = PerpetualFixtureV1 {
+    canonical: "BTCUSDT-PERP.BINANCE",
+    raw_symbol: "BTCUSDT",
+    base: "BTC",
+    exchange_info: include_str!(
+        "../../adapters/binance/test_data/futures/http_json/exchange_info_usdm_btcusdt.json"
+    ),
+    exchange_info_retrieved_ns: 1_791_005_474_000_000_000,
+    meaning_namespace: "btcusdt-perpetual",
+    bar: [
+        (654_003, 1),
+        (654_997, 1),
+        (653_001, 1),
+        (654_323, 1),
+        (98_765, 0),
+    ],
+    quote: [(654_321, 1), (654_322, 1)],
+};
 
 /// One Owner record by its identity and the digest it was issued under.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -142,8 +205,13 @@ pub(crate) struct OwnerRecordLocatorV1 {
     pub(crate) digest: String,
 }
 
-/// The grid units F's single-threshold program targets when its condition holds: 1 LINK, about 123
-/// USDT, inside every limit the perpetual's exchangeInfo states (its `MIN_NOTIONAL` is 20 USDT).
+/// The grid units the single-threshold program targets when its condition holds, for every
+/// instrument this harness runs: one Design, whatever the scope names.
+///
+/// A grid unit is the instrument's quantity increment. For LINK it is 0.01 LINK, about 1.23 USDT at
+/// the frame's close, under LINK's 20 USDT `MIN_NOTIONAL`, so 100 units (1 LINK, about 123 USDT) is
+/// the least round target inside every limit LINK's exchangeInfo states. For BTC 100 units is 0.1
+/// BTC, about 6,543 USDT, inside BTC's 50 USDT `MIN_NOTIONAL` and 1,000 BTC `maxQty`.
 pub(crate) const FIRST_COMPOSER_V3_TARGET_UNITS_V1: i64 = 100;
 
 /// Everything the first COMPOSER_V3 Replay was built from, by the locators the Owners issued.
@@ -178,7 +246,7 @@ pub(crate) struct FirstComposerV3ReplayV1 {
 /// each frame's BAR from all five, and refuses a frame without them as a field census mismatch.
 /// Values are in canonical form (no trailing zero at a nonzero scale), as a real client normalizes
 /// them; Market Data refuses any other row as not canonical.
-struct UniverseMemberDailyBarsV1;
+struct UniverseMemberDailyBarsV1(PerpetualFixtureV1);
 
 #[async_trait]
 impl PitObservationSourceV1 for UniverseMemberDailyBarsV1 {
@@ -190,27 +258,30 @@ impl PitObservationSourceV1 for UniverseMemberDailyBarsV1 {
             .members()
             .iter()
             .flat_map(|member| {
+                let [open, high, low, close, volume] = self.0.bar;
                 [
-                    ("OPEN", 12_301, 2),
-                    ("HIGH", 12_399, 2),
-                    ("LOW", 12_287, 2),
-                    ("CLOSE", 12_345, 2),
-                    ("VOLUME", 98_765, 0),
+                    ("OPEN", open),
+                    ("HIGH", high),
+                    ("LOW", low),
+                    ("CLOSE", close),
+                    ("VOLUME", volume),
                 ]
-                .map(|(field, value_mantissa, value_scale)| VendorObservationV1 {
-                    symbolic_key: format!("{member}.{field}.1D"),
-                    member_key: member.clone(),
-                    instrument: member.clone(),
-                    channel: "MARKET".into(),
-                    data_kind: "BAR".into(),
-                    timeframe: "1D".into(),
-                    field: field.into(),
-                    value_mantissa,
-                    value_scale,
-                    event_effective: scope.event_effective(),
-                    provider_available: scope.provider_available(),
-                    retrieval: scope.retrieval(),
-                    correction_publication: scope.correction_publication(),
+                .map(|(field, (value_mantissa, value_scale))| {
+                    VendorObservationV1 {
+                        symbolic_key: format!("{member}.{field}.1D"),
+                        member_key: member.clone(),
+                        instrument: member.clone(),
+                        channel: "MARKET".into(),
+                        data_kind: "BAR".into(),
+                        timeframe: "1D".into(),
+                        field: field.into(),
+                        value_mantissa,
+                        value_scale,
+                        event_effective: scope.event_effective(),
+                        provider_available: scope.provider_available(),
+                        retrieval: scope.retrieval(),
+                        correction_publication: scope.correction_publication(),
+                    }
                 })
             })
             .collect::<Vec<_>>();
@@ -224,10 +295,10 @@ impl PitObservationSourceV1 for UniverseMemberDailyBarsV1 {
 }
 
 /// The Data Client behind the quote cut's intake: one Quote per member Market Data issues, at the
-/// instant Market Data issues. The host places a GTC limit at the frame's close (123.45), so the ask
-/// is at or below it for the buy to fill, at the ask, and the bid one tick under the ask marks the
-/// position. Values are canonical, as a real client normalizes them.
-struct UniverseMemberQuotesV1;
+/// instant Market Data issues. The host places a GTC limit at the frame's close, so the ask is at or
+/// below it for the buy to fill, at the ask, and the bid one tick under the ask marks the position.
+/// Values are canonical, as a real client normalizes them.
+struct UniverseMemberQuotesV1(PerpetualFixtureV1);
 
 #[async_trait]
 impl PitObservationSourceV1 for UniverseMemberQuotesV1 {
@@ -239,26 +310,29 @@ impl PitObservationSourceV1 for UniverseMemberQuotesV1 {
             .members()
             .iter()
             .flat_map(|member| {
+                let [bid, ask] = self.0.quote;
                 [
-                    ("BID_PRICE", 12_343, 2),
-                    ("ASK_PRICE", 12_344, 2),
-                    ("BID_SIZE", 5, 0),
-                    ("ASK_SIZE", 7, 0),
+                    ("BID_PRICE", bid),
+                    ("ASK_PRICE", ask),
+                    ("BID_SIZE", (5, 0)),
+                    ("ASK_SIZE", (7, 0)),
                 ]
-                .map(|(field, value_mantissa, value_scale)| VendorObservationV1 {
-                    symbolic_key: format!("{member}.{field}.TICK"),
-                    member_key: member.clone(),
-                    instrument: member.clone(),
-                    channel: "MARKET".into(),
-                    data_kind: "QUOTE".into(),
-                    timeframe: "TICK".into(),
-                    field: field.into(),
-                    value_mantissa,
-                    value_scale,
-                    event_effective: scope.event_effective(),
-                    provider_available: scope.provider_available(),
-                    retrieval: scope.retrieval(),
-                    correction_publication: scope.correction_publication(),
+                .map(|(field, (value_mantissa, value_scale))| {
+                    VendorObservationV1 {
+                        symbolic_key: format!("{member}.{field}.TICK"),
+                        member_key: member.clone(),
+                        instrument: member.clone(),
+                        channel: "MARKET".into(),
+                        data_kind: "QUOTE".into(),
+                        timeframe: "TICK".into(),
+                        field: field.into(),
+                        value_mantissa,
+                        value_scale,
+                        event_effective: scope.event_effective(),
+                        provider_available: scope.provider_available(),
+                        retrieval: scope.retrieval(),
+                        correction_publication: scope.correction_publication(),
+                    }
                 })
             })
             .collect::<Vec<_>>();
@@ -471,27 +545,31 @@ fn perpetual_source_proposal(
 /// The perpetual's Instrument Master fact, as Operations describes it: a linear USD-M perpetual on
 /// a venue that never closes, observed under the admitted binding just before the effective instant.
 fn perpetual_instrument_submission(
+    instrument: PerpetualFixtureV1,
     source_binding: &UntrustedSourceBindingLocator,
     effective_ns: u64,
 ) -> InstrumentMasterFactSubmissionV1 {
     let observed = i128::from(effective_ns) - 1;
+    let meaning = |frontier: &str| {
+        first_composer_v3_digest(&format!("{}.{frontier}", instrument.meaning_namespace))
+    };
     InstrumentMasterFactSubmissionV1 {
-        canonical_identity: PERPETUAL_V1.to_owned(),
+        canonical_identity: instrument.canonical.to_owned(),
         predecessor_fact_digest: None,
         mappings: vec![InstrumentVenueSourceMappingSubmissionV1 {
             venue_identity: "BINANCE".to_owned(),
             source_identity: "BINANCE_USDM".to_owned(),
-            source_instrument: b"LINKUSDT".to_vec(),
+            source_instrument: instrument.raw_symbol.as_bytes().to_vec(),
         }],
         instrument_class: "CRYPTO_PERPETUAL".to_owned(),
-        base_currency: Some("LINK".to_owned()),
+        base_currency: Some(instrument.base.to_owned()),
         quote_currency: Some("USDT".to_owned()),
         settlement_currency: Some("USDT".to_owned()),
         margin_currency: Some("USDT".to_owned()),
         // The same increments the Instrument Master V2 fact derives from the same entry, so the
         // two generations cannot disagree about the instrument's terms.
-        price_increment: exchange_info_filter_decimal("PRICE_FILTER", "tickSize"),
-        quantity_increment: exchange_info_filter_decimal("LOT_SIZE", "stepSize"),
+        price_increment: exchange_info_filter_decimal(instrument, "PRICE_FILTER", "tickSize"),
+        quantity_increment: exchange_info_filter_decimal(instrument, "LOT_SIZE", "stepSize"),
         contract_multiplier: InstrumentDecimalSubmissionV1 {
             mantissa: 1,
             scale: 0,
@@ -499,9 +577,9 @@ fn perpetual_instrument_submission(
         calendar_identity: "CRYPTO-CONTINUOUS-V1".to_owned(),
         session_identity: "CRYPTO-CONTINUOUS-V1".to_owned(),
         time_zone_identity: "Etc/UTC".to_owned(),
-        lifecycle_frontier: first_composer_v3_digest("perpetual.lifecycle-frontier"),
-        corporate_action_frontier: first_composer_v3_digest("perpetual.corporate-action-frontier"),
-        historical_membership_frontier: first_composer_v3_digest("perpetual.eligible-frontier"),
+        lifecycle_frontier: meaning("lifecycle-frontier"),
+        corporate_action_frontier: meaning("corporate-action-frontier"),
+        historical_membership_frontier: meaning("eligible-frontier"),
         source_binding: source_binding.clone(),
         effective_from: 1,
         effective_until: None,
@@ -514,9 +592,13 @@ fn perpetual_instrument_submission(
 
 /// One decimal filter value of the perpetual's `exchangeInfo` entry, in canonical form (no trailing
 /// zero at a nonzero scale).
-fn exchange_info_filter_decimal(filter_type: &str, field: &str) -> InstrumentDecimalSubmissionV1 {
+fn exchange_info_filter_decimal(
+    instrument: PerpetualFixtureV1,
+    filter_type: &str,
+    field: &str,
+) -> InstrumentDecimalSubmissionV1 {
     let info: serde_json::Value =
-        serde_json::from_str(PERPETUAL_EXCHANGE_INFO_V1).expect("the exchangeInfo fixture parses");
+        serde_json::from_str(instrument.exchange_info).expect("the exchangeInfo fixture parses");
     let text = info["symbols"][0]["filters"]
         .as_array()
         .expect("the entry states its filters")
@@ -586,6 +668,7 @@ async fn accept_research(
     product_edge_url: &str,
     owner: &PostgresResearchGoalOwnerV1,
     request_identity: &str,
+    instrument: PerpetualFixtureV1,
 ) -> ResearchGoalOwnerResultV2 {
     let operation = ProductEdgeOperationRequestV2 {
         request_identity: request_identity.to_owned(),
@@ -619,7 +702,7 @@ async fn accept_research(
     };
     let instrument_scope = ResearchInstrumentScopeWireV1 {
         schema_version: 1,
-        identities: vec![PERPETUAL_V1.to_owned()],
+        identities: vec![instrument.canonical.to_owned()],
     };
     let mut typed_payload = serde_json::to_value(&operation).expect("the operation serializes");
     typed_payload["instrument_scope"] =
@@ -662,6 +745,7 @@ async fn accept_research(
 pub(crate) async fn ensure_first_composer_v3_replay_acceptance_v1(
     test_database: &CanonicalOwnerPostgresTestDatabaseV1,
     fixture_key: &str,
+    instrument: PerpetualFixtureV1,
 ) -> FirstComposerV3ReplayV1 {
     let rd_url = test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner);
     let product_edge_url = test_database.database_url(CanonicalOwnerTestRoleV1::ProductEdgeOwner);
@@ -737,10 +821,11 @@ pub(crate) async fn ensure_first_composer_v3_replay_acceptance_v1(
     // NotInEligibleFrontier. Market Data has one current frontier and admits no way back to an
     // earlier one, so the chain guards the order instead: `--check` refuses any entry after this
     // one other than those it lists.
-    let intake =
-        pit_market_snapshot_intake_from_environment_v1(Arc::new(UniverseMemberDailyBarsV1))
-            .await
-            .expect("Market Data's PIT intake opens");
+    let intake = pit_market_snapshot_intake_from_environment_v1(Arc::new(
+        UniverseMemberDailyBarsV1(instrument),
+    ))
+    .await
+    .expect("Market Data's PIT intake opens");
     let effective_ns = intake
         .current_decision_cut()
         .await
@@ -778,6 +863,7 @@ pub(crate) async fn ensure_first_composer_v3_replay_acceptance_v1(
         "/v1/market-data/instrument-master-facts",
         Some(
             serde_json::to_value(perpetual_instrument_submission(
+                instrument,
                 binding.locator(),
                 effective_ns,
             ))
@@ -822,10 +908,10 @@ pub(crate) async fn ensure_first_composer_v3_replay_acceptance_v1(
         &routes,
         "/v1/market-data/instrument-master-v2-facts",
         Some(serde_json::json!({
-            "raw_symbol": "LINKUSDT",
+            "raw_symbol": instrument.raw_symbol,
             "instrument_class": "CRYPTO_PERPETUAL",
-            "retrieval_time_ns": PERPETUAL_EXCHANGE_INFO_RETRIEVED_NS_V1,
-            "raw_payload": PERPETUAL_EXCHANGE_INFO_V1,
+            "retrieval_time_ns": instrument.exchange_info_retrieved_ns,
+            "raw_payload": instrument.exchange_info,
             "source_binding": exchange_info_binding.locator(),
         })),
     )
@@ -837,7 +923,7 @@ pub(crate) async fn ensure_first_composer_v3_replay_acceptance_v1(
     );
     assert_eq!(
         json_of(&answer)["canonical_identity"],
-        PERPETUAL_V1,
+        instrument.canonical,
         "H0: Market Data derives the perpetual's canonical identity: {answer}"
     );
     // Its economic terms, as Operations admits them: issued by the Instrument Owner from that V2
@@ -848,7 +934,7 @@ pub(crate) async fn ensure_first_composer_v3_replay_acceptance_v1(
         &routes,
         "/v1/market-data/instrument-economic-terms",
         Some(serde_json::json!({
-            "canonical_identity": PERPETUAL_V1,
+            "canonical_identity": instrument.canonical,
             "instrument_fact_identity": public_fact,
             "account_scope_identity": "RDQ-MARGIN",
             "valid_until_ns_exclusive": 4_102_444_800_000_000_000_u64,
@@ -868,7 +954,7 @@ pub(crate) async fn ensure_first_composer_v3_replay_acceptance_v1(
             &terms["account_scope_identity"],
         ),
         (
-            &serde_json::json!(PERPETUAL_V1),
+            &serde_json::json!(instrument.canonical),
             &public_fact,
             &serde_json::json!("RDQ-MARGIN"),
         ),
@@ -880,12 +966,13 @@ pub(crate) async fn ensure_first_composer_v3_replay_acceptance_v1(
         "/v1/market-data/historical-memberships",
         Some(
             serde_json::to_value(HistoricalMembershipAdmissionRequestV1 {
-                eligible_instrument_frontier: first_composer_v3_digest(
-                    "perpetual.eligible-frontier",
-                ),
+                eligible_instrument_frontier: first_composer_v3_digest(&format!(
+                    "{}.eligible-frontier",
+                    instrument.meaning_namespace
+                )),
                 members: vec![HistoricalMembershipSubmissionV1 {
-                    member_key: PERPETUAL_V1.to_owned(),
-                    instrument: PERPETUAL_V1.to_owned(),
+                    member_key: instrument.canonical.to_owned(),
+                    instrument: instrument.canonical.to_owned(),
                     effective_from_ns: 1,
                     effective_until_ns: None,
                     provider_available_ns: observed,
@@ -922,6 +1009,7 @@ pub(crate) async fn ensure_first_composer_v3_replay_acceptance_v1(
         product_edge_url,
         &owner,
         &research_request_identity,
+        instrument,
     ))
     .await;
     assert_eq!(
@@ -1056,9 +1144,11 @@ pub(crate) async fn ensure_first_composer_v3_replay_acceptance_v1(
     // finds the clock already past it and the quote cut already committed.
     let quote_routes = market_data_routes(
         Some(
-            pit_market_snapshot_intake_from_environment_v1(Arc::new(UniverseMemberQuotesV1))
-                .await
-                .expect("Market Data's PIT intake opens for the quote cut"),
+            pit_market_snapshot_intake_from_environment_v1(Arc::new(UniverseMemberQuotesV1(
+                instrument,
+            )))
+            .await
+            .expect("Market Data's PIT intake opens for the quote cut"),
         ),
         token_digest,
     )
@@ -1138,9 +1228,7 @@ pub(crate) async fn ensure_first_composer_v3_replay_acceptance_v1(
             },
             threshold_coefficient: 12_000,
             comparison: BoundedFeaturePredicateV1::Greater,
-            // One grid unit is 0.01 LINK, about 1.23 USDT at the frame's close, and the venue's
-            // `MIN_NOTIONAL` is 20 USDT, so the engine's risk check denies it. 100 units is 1 LINK,
-            // about 123 USDT: inside every limit the perpetual's exchangeInfo states.
+            // The same Design for every instrument (see FIRST_COMPOSER_V3_TARGET_UNITS_V1).
             when_true: SingleThresholdOutcomeV1 {
                 position_intent_semantic_id: "kernel.position.enter.v1".to_owned(),
                 target_variant_semantic_id: "kernel.target.position.v1".to_owned(),
@@ -1237,10 +1325,10 @@ pub(crate) async fn ensure_first_composer_v3_replay_acceptance_v1(
     assert_eq!(schedule.label(), BarScheduleLabelV1::IntervalClose);
     assert_eq!(schedule.completion(), BarScheduleCompletionV1::CompleteOnly);
     assert_eq!(
-        native_bar_type_for_schedule_v1(schedule, PERPETUAL_V1.into())
+        native_bar_type_for_schedule_v1(schedule, instrument.canonical.into())
             .expect("H4b: the schedule projects to a bar type")
             .to_string(),
-        "LINKUSDT-PERP.BINANCE-1-DAY-LAST-EXTERNAL",
+        format!("{}-1-DAY-LAST-EXTERNAL", instrument.canonical),
         "H4b: the engine's bar type for the schedule"
     );
     let (status, answer) = post(
@@ -1460,7 +1548,7 @@ pub(crate) async fn ensure_first_composer_v3_replay_acceptance_v1(
         artifact_locator: composer_locator.artifact_locator.clone(),
         plan_canonical_digest: composer_locator.canonical_plan_digest,
         trial_family_identity: family.root().trial_family_identity().to_owned(),
-        member_instrument: PERPETUAL_V1.to_owned(),
+        member_instrument: instrument.canonical.to_owned(),
         replay_request,
         composition_binding,
         execution_input_binding: OwnerRecordLocatorV1 {
@@ -1636,17 +1724,56 @@ async fn owner_api_state(
     }
 }
 
-/// The perpetual's increments are read from its real entry, canonically: `0.001` and `0.01` are
-/// `(1, 3)` and `(1, 2)`, the terms the Instrument Master V2 fact derives from the same bytes.
+/// Each perpetual's increments are read from its real entry, canonically, the terms the Instrument
+/// Master V2 fact derives from the same bytes: LINK's `0.001` tick and `0.01` step are `(1, 3)` and
+/// `(1, 2)`; BTC's `0.10` tick and `0.001` step are `(1, 1)` and `(1, 3)`.
 #[rstest::rstest]
-fn the_perpetual_increments_are_the_exchange_info_entry_s_own() {
-    let decimal = |mantissa, scale| InstrumentDecimalSubmissionV1 { mantissa, scale };
+#[case::link(LINKUSDT_PERPETUAL_V1, (1, 3), (1, 2))]
+#[case::btc(BTCUSDT_PERPETUAL_V1, (1, 1), (1, 3))]
+fn the_perpetual_increments_are_the_exchange_info_entry_s_own(
+    #[case] instrument: PerpetualFixtureV1,
+    #[case] tick: (i128, u8),
+    #[case] step: (i128, u8),
+) {
+    let decimal = |(mantissa, scale)| InstrumentDecimalSubmissionV1 { mantissa, scale };
     assert_eq!(
-        exchange_info_filter_decimal("PRICE_FILTER", "tickSize"),
-        decimal(1, 3)
+        exchange_info_filter_decimal(instrument, "PRICE_FILTER", "tickSize"),
+        decimal(tick)
     );
     assert_eq!(
-        exchange_info_filter_decimal("LOT_SIZE", "stepSize"),
-        decimal(1, 2)
+        exchange_info_filter_decimal(instrument, "LOT_SIZE", "stepSize"),
+        decimal(step)
     );
+}
+
+/// Every price a stand-in answers sits on its perpetual's tick grid, in canonical form, so the run
+/// fails, if it does, on what the product does with a real price and not on a malformed fixture.
+#[rstest::rstest]
+#[case::link(LINKUSDT_PERPETUAL_V1)]
+#[case::btc(BTCUSDT_PERPETUAL_V1)]
+fn the_stand_in_prices_are_on_the_perpetual_s_tick_grid(#[case] instrument: PerpetualFixtureV1) {
+    let tick = exchange_info_filter_decimal(instrument, "PRICE_FILTER", "tickSize");
+    let [open, high, low, close, _volume] = instrument.bar;
+    let [bid, ask] = instrument.quote;
+
+    // Each price in ticks: `mantissa * 10^(tick scale - scale) / tick mantissa`, exact.
+    let in_ticks = |(mantissa, scale): (i128, u8)| {
+        assert!(
+            mantissa % 10 != 0,
+            "canonical: no trailing zero at scale {scale}"
+        );
+        assert!(scale <= tick.scale, "no finer than the tick");
+        let at_tick_scale = mantissa * 10_i128.pow(u32::from(tick.scale - scale));
+        assert_eq!(at_tick_scale % tick.mantissa, 0, "on the tick grid");
+        at_tick_scale / tick.mantissa
+    };
+    let [open, high, low, close] = [open, high, low, close].map(in_ticks);
+    let [bid, ask] = [bid, ask].map(in_ticks);
+
+    assert!(low <= open && open <= high && low <= close && close <= high);
+    assert!(
+        ask <= close,
+        "the Host's limit at the close crosses the ask, so the entry fills"
+    );
+    assert!(bid < ask, "the bid is under the ask");
 }
