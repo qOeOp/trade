@@ -770,10 +770,14 @@ fn strategy_input_binding_error(
         StrategyInputBindingAdmissionErrorV1::RequestConflict => {
             (StatusCode::CONFLICT, "STRATEGY_INPUT_DECLARATION_CONFLICT")
         }
-        StrategyInputBindingAdmissionErrorV1::BindingUnavailable => (
-            StatusCode::UNPROCESSABLE_ENTITY,
-            "STRATEGY_INPUT_BINDING_UNAVAILABLE",
-        ),
+        // One code covers every refusal of the re-derivation, so the response also names which.
+        StrategyInputBindingAdmissionErrorV1::BindingUnavailable { cause } => {
+            return rejection_with_cause(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "STRATEGY_INPUT_BINDING_UNAVAILABLE",
+                cause,
+            );
+        }
         StrategyInputBindingAdmissionErrorV1::StoreUnavailable => (
             StatusCode::SERVICE_UNAVAILABLE,
             "MARKET_DATA_OWNER_UNAVAILABLE",
@@ -1219,6 +1223,17 @@ fn admission_error(error: SourceBindingAdmissionErrorV1) -> Response {
 fn rejection(status: StatusCode, code: &str) -> Response {
     let mut response = (status, Json(json!({ "error": code }))).into_response();
     insert_rejection_code(&mut response, code);
+    response
+}
+
+/// A rejection that also names why, in the body's `cause` and the `x-rd-rejection-cause` header.
+fn rejection_with_cause(status: StatusCode, code: &str, cause: &'static str) -> Response {
+    let mut response = (status, Json(json!({ "error": code, "cause": cause }))).into_response();
+    insert_rejection_code(&mut response, code);
+    response.headers_mut().insert(
+        "x-rd-rejection-cause",
+        axum::http::HeaderValue::from_static(cause),
+    );
     response
 }
 
@@ -1929,5 +1944,39 @@ mod tests {
 
         assert_eq!(response.status(), status);
         assert_eq!(response.headers()["x-rd-rejection-code"], code);
+    }
+
+    /// A refused re-derivation keeps its own name on the wire: the shared code says that binding
+    /// failed, and the cause, in the header and the body, says why. Without the cause a probe
+    /// refused for its row scale could not tell that apart from any other binding refusal.
+    #[tokio::test]
+    async fn a_binding_refusal_names_its_cause() {
+        let response = strategy_input_binding_error(
+            StrategyInputBindingAdmissionErrorV1::BindingUnavailable {
+                cause: "VALUE_FINER_THAN_ROLE_SCALE",
+            },
+            "UNKNOWN",
+            "UNTRUSTED",
+        );
+
+        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        assert_eq!(
+            response.headers()["x-rd-rejection-code"],
+            "STRATEGY_INPUT_BINDING_UNAVAILABLE"
+        );
+        assert_eq!(
+            response.headers()["x-rd-rejection-cause"],
+            "VALUE_FINER_THAN_ROLE_SCALE"
+        );
+        let body = axum::body::to_bytes(response.into_body(), 4096)
+            .await
+            .expect("the body is bounded");
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&body).expect("the body is JSON"),
+            json!({
+                "error": "STRATEGY_INPUT_BINDING_UNAVAILABLE",
+                "cause": "VALUE_FINER_THAN_ROLE_SCALE",
+            })
+        );
     }
 }
