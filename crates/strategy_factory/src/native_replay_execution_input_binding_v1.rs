@@ -292,6 +292,14 @@ pub enum NativeReplayExecutionInputBindingCauseV1 {
     /// A role's timeframe, or every schedule of a member at the frame, is not the bar the frame's
     /// Source Binding declares.
     DeclaredBarTimeframeMismatch,
+    /// No role reads the BAR close, so no role executes and prices the frame.
+    ExecutionRoleAbsent,
+    /// More than one role reads the BAR close.
+    ExecutionRoleAmbiguous,
+    /// A BAR role reads another timeframe than the execution role.
+    MoreThanOneRoleTimeframe,
+    /// The frame's Source Binding declares no bar for the execution role's timeframe label.
+    ExecutionTimeframeNotDeclared,
     /// Market Data did not issue the initial frame's universe sample projection, for a reason
     /// other than the schedule ones above.
     SampleProjectionNotIssued,
@@ -496,6 +504,10 @@ impl NativeReplayExecutionInputBindingCauseV1 {
             Self::BarScheduleUnavailable => "BAR_SCHEDULE_UNAVAILABLE",
             Self::SourceBindingDeclaresNoBarTimeframe => "SOURCE_BINDING_DECLARES_NO_BAR_TIMEFRAME",
             Self::DeclaredBarTimeframeMismatch => "DECLARED_BAR_TIMEFRAME_MISMATCH",
+            Self::ExecutionRoleAbsent => "EXECUTION_ROLE_ABSENT",
+            Self::ExecutionRoleAmbiguous => "EXECUTION_ROLE_AMBIGUOUS",
+            Self::MoreThanOneRoleTimeframe => "MORE_THAN_ONE_ROLE_TIMEFRAME",
+            Self::ExecutionTimeframeNotDeclared => "EXECUTION_TIMEFRAME_NOT_DECLARED",
             Self::SampleProjectionNotIssued => "SAMPLE_PROJECTION_NOT_ISSUED",
             Self::InstrumentMasterUnresolved => "INSTRUMENT_MASTER_UNRESOLVED",
             Self::InstrumentMasterCutForeign => "INSTRUMENT_MASTER_CUT_FOREIGN",

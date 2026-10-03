@@ -297,7 +297,8 @@ ordered chain's acceptance build admits nothing in production.
 - **Research Intent** - freeze the falsifiable mechanism and experimental contract before result observation.
 - **Strategy Artifact** - preserve immutable content, dependency provenance, market semantics, runtime capability,
   sandbox policy, and Artifact Security Admission consumed unchanged by replay, qualification, and governed application.
-- **Development Sandbox** - build and diagnose generated strategy code with explicit input and output mounts and no
+- **Development Sandbox** - build and diagnose the code an Owner lowers a strategy's authoring document into, and the
+  code of an attended D-only repair, with explicit input and output mounts and no
   ambient filesystem, network, subprocess or process-tree escape, inherited capability, secret, account,
   deployment, or effect-port authority.
 
@@ -324,7 +325,10 @@ composition root and three authenticated routes,
 `POST /v1/bounded-feature-programs/{declare,freeze,lower}`. `declare` is the proposer's route: it takes
 a Design and the program's meaning, derives everything a proposer cannot know from that Design, the
 pinned catalog and the Owner's own binding custody, and freezes the result in the transaction those
-binding row locks were taken in. `freeze` takes an already assembled pair instead. Both admit the pair
+binding row locks were taken in. `freeze` takes an already assembled pair instead, and admits each of its
+inputs only as exactly what `declare` derives for that role, value port, clock and binding receipt: both
+routes call one derivation, so a pre-assembled program can restate the Design's roles but never differ from
+them. Both admit the pair
 against currently accepted Research custody and the pinned primitive catalog, write exactly one
 joint-freeze row with its outbox event, and answer a changed meaning for the same Research identity
 with a conflict. `lower` reads that frozen pair back and lowers it, so a frozen program now yields
@@ -1255,15 +1259,15 @@ counted. For V2 families:
 **The spend cap.** One user-set cap bounds what Research spends, and reaching it pauses Research rather than stopping
 it.
 
-- *What is metered.* Language-model provider calls, by the token usage each response reports, at the user's price
-  for that provider and model; today `artifact_build_v1.ts` reads only the message content and discards the `usage`
-  block. Paid market data, by the cost its provider quotes before the request: Databento's `get_cost` preflight,
+- *What is metered.* Paid market data, by the cost its provider quotes before the request: Databento's `get_cost` preflight,
   which today has its own cap `DATABENTO_MAX_PROBE_COST_USD`, is folded into this one. Compute, the seconds of
   Backtest replay and Develop builds, at a user-set rate that defaults to zero on the single local host the user
-  admitted, so compute counts only if the user prices it.
+  admitted, so compute counts only if the user prices it. Language-model calls are not metered: since the user's
+  decision of 2026-10-03 the agent works outside the product ("Agent-outside R&D experience" in the product loop), the
+  product makes no model call, and what the agent spends is the agent's own. This replaces the metering of
+  language-model provider calls that this item stated before.
 - *Who meters.* R&D keeps an append-only Spend Ledger. Before a metered effect it reserves the effect's upper bound,
-  in the transaction that claims the effect: the request's `max_tokens` at the price, the preflight quote, or the
-  declared time limit at the compute rate. After the effect it settles the actual amount against that reservation.
+  in the transaction that claims the effect: the preflight quote, or the declared time limit at the compute rate. After the effect it settles the actual amount against that reservation.
   An effect whose outcome is unknown stays reserved at its bound until it resolves. Reservations serialize on the
   ledger head, so two concurrent ones cannot together pass the cap.
 - *When the cap is reached.* A reservation that would take settled plus reserved spend past the cap is refused, and
