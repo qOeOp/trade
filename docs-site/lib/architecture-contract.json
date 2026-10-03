@@ -4126,8 +4126,8 @@
             "backtest"
           ],
           "description": {
-            "en": "Records when each dataset version became observable\nTracks coverage gaps licenses lineage and corrections\nPrevents future information from entering past runs",
-            "zh": "记录每个数据版本何时真正可被观察\n管理覆盖缺口 许可 血缘和历史修订\n防止未来信息进入过去的研究与回测"
+            "en": "Records when each dataset version became observable\nHolds a run window in custody for multi-frame replay\nPrevents future information from entering past runs",
+            "zh": "记录每个数据版本何时真正可被观察\n为多帧回放托管整个运行窗口\n防止未来信息进入过去的研究与回测"
           }
         },
         {
@@ -4179,8 +4179,8 @@
             "research"
           ],
           "description": {
-            "en": "Freezes mechanism budget and falsifier\nPreserves predecessors and opaque feedback cut",
-            "zh": "冻结机制 数据 成本 预算 证伪与停止规则\n保留完整前驱与不透明保护反馈前沿"
+            "en": "Freezes mechanism budget and falsifier\nChecks the knowledge ledger before it freezes\nPreserves predecessors and opaque feedback cut",
+            "zh": "冻结机制 数据 成本 预算 证伪与停止规则\n冻结前先对照研究知识台账检查\n保留完整前驱与不透明保护反馈前沿"
           }
         },
         {
@@ -4206,8 +4206,8 @@
             "research"
           ],
           "description": {
-            "en": "Runs generated or repair code in a restricted build context\nProduces diagnostics without market or account access\nCannot deploy trade or mutate governed state",
-            "zh": "在受限构建环境编译并运行研发或修复阶段的策略代码\n产出编译诊断和构建结果但不访问行情或账户权限\n不能部署策略 发送交易意图或修改治理状态"
+            "en": "Builds the program an Owner lowers an authoring document into\nAlso builds attended repair code without market or account access\nCannot deploy trade or mutate governed state",
+            "zh": "构建 Owner 从 authoring 文档降级出的程序\n也构建有人值守的修复代码 不访问行情或账户权限\n不能部署策略 发送交易意图或修改治理状态"
           }
         }
       ]
@@ -4257,8 +4257,8 @@
             "backtest"
           ],
           "description": {
-            "en": "Canonical consumed inputs and outcome",
-            "zh": "记录实际消费的数据、配置、订单、成交和最终回测结果"
+            "en": "Canonical consumed inputs and outcome\nReports fees funding and a random-entry control",
+            "zh": "记录实际消费的数据、配置、订单、成交和最终回测结果\n报告费用 资金费与随机进场对照"
           }
         }
       ]
@@ -4294,6 +4294,21 @@
           "description": {
             "en": "Requests and assesses isolated protected replay\nValid terminal result commits an Eligibility Fact\nRejected or invalid commits disposition without research feedback",
             "zh": "请求并评估隔离保护重放\n有效终态结果提交 Eligibility Fact\n拒绝或无效提交尝试终态且不反馈研发"
+          }
+        },
+        {
+          "id": "forward-record",
+          "label": "Forward Record",
+          "kind": "protected",
+          "emphasis": "standard",
+          "scenarios": [
+            "backtest",
+            "paper",
+            "scan"
+          ],
+          "description": {
+            "en": "Records a qualified candidate forward without orders\nReplays each new point in time and carries Scanner views\nPublishes only public phases to R&D",
+            "zh": "不下单地对已合格候选做前向记录\n在每个新的时点切面上重放 并承载 Scanner 的发现视图\n只向 R&D 发布公开阶段"
           }
         },
         {
@@ -4356,8 +4371,8 @@
             "scan"
           ],
           "description": {
-            "en": "Runs each activation rule in a bounded context\nChecks regime history quality and lifecycle limits\nReturns matches reasons and evidence only",
-            "zh": "在受限环境逐个执行策略激活条件 并使用同一份市场快照进行判断\n同时检查市场状态 历史窗口 数据质量和治理生命周期是否允许候选\n输出匹配结果 未匹配原因和证据引用 不批准部署也不启动 Runtime"
+            "en": "Runs each activation rule on the replay kernel\nChecks regime history quality and lifecycle limits\nReturns matches reasons and evidence only",
+            "zh": "在 Native Replay 的单帧评估内核上逐个执行策略激活条件 并使用同一份市场快照进行判断\n同时检查市场状态 历史窗口 数据质量和治理生命周期是否允许候选\n输出匹配结果 未匹配原因和证据引用 不批准部署也不启动 Runtime"
           }
         },
         {
@@ -4565,7 +4580,7 @@
         },
         {
           "id": "agent-shell",
-          "label": "Dashboard MCP",
+          "label": "Agent Tools",
           "kind": "adapter",
           "emphasis": "support",
           "scenarios": [
@@ -4577,8 +4592,8 @@
             "recovery"
           ],
           "description": {
-            "en": "Exposes the Workbench operation set to optional MCP clients\nShares one TRADE_PRODUCT_EDGE admission gateway with the App\nNever grants a client direct business write authority",
-            "zh": "把 Workbench operation set 暴露给可选 MCP 客户端\n与 App 共用一个 TRADE_PRODUCT_EDGE 准入网关\n任何客户端都不能绕过 Owner 直接写入业务事实"
+            "en": "Exposes R&D commands to an external agent over CLI and MCP\nHolds the credentials and returns verdicts never protected values\nShares one TRADE_PRODUCT_EDGE admission gateway with the App",
+            "zh": "经命令行与 MCP 向产品之外的代理暴露 R&D 命令\n持有凭据 只返回结论 从不返回受保护数值\n与 App 共用一个 TRADE_PRODUCT_EDGE 准入网关"
           }
         }
       ]

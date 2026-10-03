@@ -314,33 +314,33 @@ architecture dependency.
 The vendor capability evidence that once backed this floor retired with the shell it described. A first-party
 executor is audited against its own source and deployment package, not against a vendor's documentation cut.
 
-## Agent-native R&D authoring
+## Agent-outside R&D authoring
 
-The target product admits one user-facing strategy-authoring path: a person expresses a sourced research goal,
-question, explanation request, or revision request in natural language, and an Agent invokes the admitted typed
-R&D operations. The Dashboard may provide that attended conversation surface directly, while an optional
-external conversation client may invoke the same operations through the Dashboard MCP endpoint. Neither channel authors a
-business fact or edits an Artifact.
+The user decided on 2026-10-03 that the agent stays outside the product and the rules stay inside it
+([Product loop](../guide/product-loop/#agent-outside-rd-experience)). A person works with an agent of their choosing,
+such as Claude Code or Codex, and that agent invokes the admitted typed R&D operations through the external-agent
+tool surface below. The agent supplies ideas, authoring documents, diagnosis and literature; it never authors a
+business fact or edits an Artifact, and every rule the Owners enforce applies to it as to any other channel.
 
-This path separates two Agent roles. A **Conversation Agent** runs in the attended Dashboard experience or an
-external client such as WorkBuddy; it frames intent, submits or queries typed operations, and explains returned
-views. A server-side **R&D Execution Agent** runs in an executor-supervised run and the admitted Development Sandbox;
-it continues after the conversation disconnects, performs bounded research and generation, and submits candidate
-outputs through R&D Owner ports. Neither Agent owns Research facts, and the Conversation Agent never drives the
-step-by-step lifetime of the execution Agent.
+The tool surface carries operation requests and bounded results, not an LLM session, hidden reasoning, model
+entitlement, or credential. It holds the credentials it presents to the Owners, and no tool argument or result
+carries one. Secret values never enter tool payloads, Owner facts, Artifact metadata, or logs. The product makes no
+model call: a strategy reaches it only as an authoring document an Owner compiles and seals.
 
-MCP carries operation requests and bounded results, not an LLM session, hidden reasoning, model entitlement, or
-credential. The two Agent roles may be configured to use the same provider, gateway, billing account, or even the
-same underlying credential under deployment policy, but that is explicit backend configuration rather than
-credential pass-through. Each role retains a distinct invocation identity, scope, capability policy, budget, and
-audit trail. Secret values never enter MCP payloads, Owner facts, Artifact metadata, or logs.
+**Superseded by that decision.** This section previously admitted two Agent roles. A **Conversation Agent** ran in
+the attended Dashboard or an external client and submitted or queried typed operations. A server-side **R&D
+Execution Agent** ran in an executor-supervised run and the Development Sandbox, continued after the conversation
+disconnected, generated strategy code through an in-product model call, and submitted candidate outputs through R&D
+Owner ports. Both roles are withdrawn rather than deferred; the external agent takes the first one's place and the
+authoring documents take the second's. The separation they protected, no session or credential pass-through between
+a client and a long-running job, now holds because there is no in-product job that runs a model at all.
 
 An accepted revision request starts a new governed R&D attempt. It either produces a new immutable,
 content-addressed Strategy Artifact and its own build and exploratory evidence, or closes with the native
 no-artifact, failure, rejection, or unknown disposition. It never changes bytes under an existing Artifact
 identity. A semantic strategy change requires the applicable successor hypothesis and Research Intent path;
-an attended D-only repair remains constrained by its separate repair contract. The visible **Ask Agent to revise**
-action submits that typed request and remains `SUBMITTED_OR_UNKNOWN` until the R&D-owned receipt arrives.
+an attended D-only repair remains constrained by its separate repair contract. A revision the agent submits is that typed
+request, and it remains `SUBMITTED_OR_UNKNOWN` until the R&D-owned receipt arrives.
 
 The first admitted Artifact Review surface does not require raw source access. It presents the Artifact identity,
 Research Intent and iteration lineage, structured strategy-logic summary, parameter and dependency identities,
@@ -359,6 +359,76 @@ initial Workbench acceptance. An in-product code editor, Notebook-first authorin
 overwriting an Artifact version are `NOT_ADMITTED`. External IDEs or notebooks may remain engineering tools, but
 they are outside the product contract and cannot establish a Product Edge request, Owner fact, or acceptance
 evidence.
+
+### TARGET - External agent tool surface
+
+This section states a contract with no implementation; it grants no permission to deploy it beyond the slice that
+builds it.
+
+**Today.** No command line exists. The Dashboard's `/api/mcp` registers seven tools
+(`product/dashboard/lib/dashboard-mcp-server.ts:152-211`): the Artifact Formation preflight read and Artifact action,
+the Source and Research action, the exploratory Replay action, the Develop Composer action, and the run detail and
+run log reads. It serves only under the opt-in `dashboard-preview` profile.
+
+**Shape.** The tool surface has one entry for agents, and `rd-run-research` is it. The binary ships in the deployed
+R&D image. One library holds the commands, and two thin
+shells call the same functions: the command line, and `rd-run-research mcp`, an MCP server over stdio. A command and
+its tool share one name. The agent runs it as `docker compose exec rd-owner-api rd-run-research <command>`.
+
+**Commands and the Owner routes they reach.** The tools are grouped by the Owner they reach, and every rule lives in
+that Owner, never in a tool. A tool sends the request the Owner already admits from any channel, with the request
+identity it states; the receiving Owner, and Product Edge where that Owner requires a Product Edge admission, admit
+it exactly as they would the same request from the Dashboard. A tool adds no authority and skips no check. Where one
+step needs several routes of an Owner (`admit-instrument`, `design`, `compose`, `replay`), the command only
+sequences them in the order the Owner requires and passes each refusal through; `run` sequences the steps.
+
+- `admit-instrument`: Market Data instrument admission (Source Binding, Instrument Master, universe membership).
+- `submit`: `POST /v3/research-goals`, returning the request identity and its Research Request Receipt. The request
+  declares the mechanism and constructs the [Research knowledge ledger](../owners/rd/#target---research-knowledge-ledger)
+  checks.
+- `initial-pit`: `POST /v3/research-goals/{request_identity}/initial-pit`.
+- `design`: authors the request's authoring document into a Strategy Design with the Owner's authoring library, then
+  publishes the role intent, forms the Design from it, and declares and freezes the bounded feature program.
+- `compose`: `POST /v2/develop-composer/runs`, then `POST /v1/replay-compositions/universe-member-issuances`. It
+  checks the Research View's remaining validity first and refuses by name when the run cannot finish inside it.
+- `replay`: `POST /v3/exploratory-replay-requests/composer-backed`, the execution-input binding, then
+  `POST /v2/exploratory-replays`, returning the Result identity.
+- `run`: every step above in order. After each step it records the identities that step produced in a local state
+  file, and `--resume` continues from the step that failed.
+
+The read commands:
+
+- `report`: `GET /v1/backtest-run-reports/{result_identity}`.
+- `status`: the state file and each recorded step's Owner readback.
+- `census`: `GET /v1/trial-families/{trial_family_identity}/iterations` on the R&D read API.
+- `knowledge`: the Research knowledge ledger by mechanism, construct or scope. No route exists until the ledger does.
+- `qualification-status`: the bounded public Qualification Status Summary for one Candidate: `QUALIFIED`,
+  `CLOSED_NOT_QUALIFIED`, expired, revoked, or a public forward phase. No route exists today.
+
+**Permissions.**
+
+- The process holds the R&D API token and the read API's URL and token in its environment. No tool argument or
+  result carries a credential, and the agent never sees one.
+- No command reaches Paper, Live, an exchange credential, or any execution path. The real-money boundary is
+  unchanged.
+- Changing the agent, or using the command line instead of MCP, changes attribution, never authority, as the Agent
+  Shell deployment binding below states for every channel.
+
+**Verdicts, never protected values.**
+
+- No command calls a Qualification protected read. Qualification answers only through its public status, and a test
+  asserts the tool surface links no Qualification protected read port.
+- `report`, `census` and `knowledge` return exploratory R&D and Backtest facts, which are already the agent's own
+  evidence; the knowledge ledger holds no protected value by construction.
+- A refusal passes through its HTTP status, `x-rd-rejection-code` and `x-rd-rejection-cause` unchanged. Nothing is
+  folded into a generic failure.
+
+**The Dashboard MCP.** The Dashboard's `/api/mcp` is not an entry for agents, and it is not extended with these
+commands. It stays for the preview interface:
+
+- its Artifact Formation preflight and Artifact action tools serve the in-product model build, which the same decision
+  retires, and they are removed with it;
+- its other tools stay. Whether it retires is decided once the commands above cover its reads.
 
 ## Agent Shell deployment binding
 

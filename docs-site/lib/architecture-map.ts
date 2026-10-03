@@ -278,7 +278,8 @@ const fullPlacements: FullPlacement[] = [
 
   place('candidate', 1622, 325, 145, 65, 'strategy'),
   place('protected-test', 1782, 325, 165, 65, 'strategy'),
-  place('eligibility', 1622, 410, 325, 65, 'engine'),
+  place('forward-record', 1622, 410, 130, 65, 'strategy'),
+  place('eligibility', 1767, 410, 180, 65, 'engine'),
 
   place('event-rail', 408, 594, 1146, 104, 'bus'),
 
