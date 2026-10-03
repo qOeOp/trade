@@ -157,7 +157,11 @@ quantile band, no benchmark and no comparison.
 
 Positive rendering accepts only one exact, bounded Owner-projected `run_identity`. The strategy is
 given as the admitted single-threshold family states it: channel, threshold, comparison, both-side
-actions and falsifier. Canonical UTC means RFC3339 with exactly nine fractional digits and a
+actions and falsifier, and the program's exits. An exit is stated as named: a stop-loss or take-profit as
+an adverse or favourable move of the close, measured as a fraction of the entry bar's close, a holding
+limit in bars after the entry bar, and always that it is judged at the bar close and filled on the next
+bar (`AT_BAR_CLOSE_FILLED_NEXT_FRAME`); a program that names none says it has none, so a report never
+reads as though it had no exit rules when the projection could not state them. Canonical UTC means RFC3339 with exactly nine fractional digits and a
 `Z` offset, so no truncation decision is delegated and no offset form is accepted. The data window
 is given as instrument, granularity, a canonical UTC start and an exclusive end `end_exclusive`, the
 first instant outside the window, the snapshot count, and an explicit `cut_identity` that the projection

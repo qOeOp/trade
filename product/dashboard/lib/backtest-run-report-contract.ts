@@ -52,8 +52,20 @@ export type BacktestRunReportStrategy = Readonly<{
   comparison: BacktestRunReportComparison;
   when_true: BacktestRunReportOutcome;
   otherwise: BacktestRunReportOutcome;
+  exits?: BacktestRunReportExits;
   falsifier: string;
 }>;
+
+// How a program leaves a held position other than by its sides. Present only when it names at least
+// one exit, and always judged at a bar's close and filled on the next frame, never inside a bar.
+export type BacktestRunReportExits = Readonly<{
+  stop_loss_fraction?: string;
+  take_profit_fraction?: string;
+  max_holding_bars?: number;
+  judged: typeof EXITS_JUDGED_AT_CLOSE;
+}>;
+
+export const EXITS_JUDGED_AT_CLOSE = "AT_BAR_CLOSE_FILLED_NEXT_FRAME";
 
 export type BacktestRunReportDataWindow = Readonly<{
   instrument: string;
@@ -130,6 +142,10 @@ const UNAVAILABLE_KEYS = ["reason", "state"];
 const RUN_KEYS = ["attempt_identity", "engine_result_digest", "request_identity", "result_identity"];
 const RUN_IDENTITY_KEYS = ["attempt_identity", "request_identity", "result_identity"] as const;
 const STRATEGY_KEYS = ["channel", "comparison", "falsifier", "family", "otherwise", "threshold", "when_true"];
+const STRATEGY_WITH_EXITS_KEYS = [...STRATEGY_KEYS, "exits"].sort();
+const EXIT_KEYS = ["max_holding_bars", "stop_loss_fraction", "take_profit_fraction"];
+// The authoring request's one spelling of a fraction strictly between 0 and 1.
+const EXIT_FRACTION = /^0\.[0-9]*[1-9]$/u;
 const CHANNEL_KEYS = ["field_semantic_id", "instrument", "role_semantic_id", "scale", "timeframe", "unit"];
 const OUTCOME_KEYS = ["position_intent_semantic_id", "target_position_units", "target_variant_semantic_id"];
 const DATA_WINDOW_KEYS = ["cut_identity", "end_exclusive", "granularity", "instrument", "snapshot_count", "start"];
@@ -196,8 +212,22 @@ function isThresholdAtScale(value: unknown, scale: number): value is string {
   return scale === 0 ? point < 0 : point >= 0 && value.length - point - 1 === scale;
 }
 
+function isExits(value: unknown): value is BacktestRunReportExits {
+  if (!isRecord(value) || value.judged !== EXITS_JUDGED_AT_CLOSE) return false;
+  const named = Object.keys(value).filter((key) => key !== "judged");
+  return named.length > 0
+    && named.every((key) => EXIT_KEYS.includes(key))
+    && ["stop_loss_fraction", "take_profit_fraction"]
+      .every((key) => value[key] === undefined || (typeof value[key] === "string" && EXIT_FRACTION.test(value[key])))
+    && (value.max_holding_bars === undefined
+      || (Number.isSafeInteger(value.max_holding_bars) && (value.max_holding_bars as number) > 0));
+}
+
 function isStrategy(value: unknown): value is BacktestRunReportStrategy {
-  if (!isRecord(value) || !hasExactKeys(value, STRATEGY_KEYS)) return false;
+  if (!isRecord(value)) return false;
+  const withExits = hasExactKeys(value, STRATEGY_WITH_EXITS_KEYS);
+  if (!withExits && !hasExactKeys(value, STRATEGY_KEYS)) return false;
+  if (withExits && !isExits(value.exits)) return false;
   const channel = value.channel;
   return value.family === "SINGLE_THRESHOLD_V1"
     && isRecord(channel)

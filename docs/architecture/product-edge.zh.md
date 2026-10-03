@@ -273,29 +273,27 @@ provider 账户是运维选择，不是架构依赖。
 曾经支撑该下限的厂商能力证据随它所描述的产品壳一起退役。第一方执行器按自己的源码与部署包审计，
 不按厂商的文档截面。
 
-## Agent-native R&D 创作
+## 代理在外的 R&D 创作
 
-目标产品只接纳一条面向用户的策略创作路径：用户用自然语言表达带来源的研究目标、问题、解释请求
-或修改请求，由 Agent 调用已接纳的 R&D 类型化 operation。Dashboard 可以直接提供 attended 对话
-表面，可选外部对话客户端也可以通过 Dashboard MCP endpoint 调用同一组 operation。两个 channel 都不能创作
-业务事实或编辑 Artifact。
+用户在 2026-10-03 决定：代理在产品之外，规矩在产品之内
+（[产品闭环](../guide/product-loop/#agent-outside-rd-experience)）。用户与自己选择的代理（例如 Claude Code 或
+Codex）一起工作，由该代理经下文的外部代理工具面调用已接纳的 R&D 类型化 operation。代理提供想法、authoring 文档、
+诊断与文献；它绝不创作业务事实或编辑 Artifact，Owner 执行的每条规矩对它和对其他任何 channel 一样适用。
 
-该路径区分两个 Agent 角色。**Conversation Agent** 运行在有人值守的 Dashboard 体验或 WorkBuddy 等
-外部客户端中，负责组织意图、提交或查询类型化 operation，并解释返回视图。服务端
-**R&D Execution Agent** 在执行器监督的 run 和已准入 Development Sandbox 中运行；对话断开后仍
-继续执行，完成有界研究与生成，再通过 R&D Owner port 提交候选输出。两个 Agent 都不拥有 Research
-事实，Conversation Agent 也绝不逐步维持 Execution Agent 的运行生命周期。
+工具面只传递 operation 请求与有界结果，不传递 LLM session、隐藏推理、模型 entitlement 或 credential。它持有自己向
+Owner 出示的凭据，任何工具参数或结果都不携带凭据。Secret 值绝不能进入工具 payload、Owner 事实、Artifact metadata
+或日志。产品不发起任何模型调用：策略只以 authoring 文档进入产品，由 Owner 编译并封存。
 
-MCP 只传递 operation 请求与有界结果，不传递 LLM session、隐藏推理、模型 entitlement 或 credential。
-在部署政策明确配置时，两个 Agent 角色可以使用同一个 provider、gateway、计费账户，甚至同一底层
-credential；但这是显式后台配置，不是 credential 穿透。每个角色都保留独立 invocation identity、
-scope、能力政策、预算和审计轨迹。Secret 值绝不能进入 MCP payload、Owner 事实、Artifact metadata
-或日志。
+**被该决定取代的内容。** 本节此前接纳两个 Agent 角色。**Conversation Agent** 运行在有人值守的 Dashboard 或外部客户端中，
+提交或查询类型化 operation。服务端 **R&D Execution Agent** 在执行器监督的 run 和 Development Sandbox 中运行，对话断开后仍
+继续执行，经产品内模型调用生成策略代码，再通过 R&D Owner port 提交候选输出。两个角色都被撤回而非延后；外部代理取代第一个
+角色，authoring 文档取代第二个角色。它们保护的分离（客户端与长时间运行的 job 之间不穿透 session 或凭据）如今成立，是因为
+产品内根本没有运行模型的 job。
 
 已接受的修改请求会启动一个新的受治理 R&D attempt。它要么产生新的不可变、内容寻址 Strategy
 Artifact 及其自身构建和探索证据，要么以原生无 Artifact、失败、拒绝或未知 disposition 闭合。它绝不
 在既有 Artifact identity 下修改字节。策略语义变化必须经过适用的后继假设与 Research Intent 路径；
-attended D-only repair 仍受独立 repair 契约约束。可见的 **让 Agent 修改** 动作只提交该类型化请求，
+attended D-only repair 仍受独立 repair 契约约束。代理提交的修改就是该类型化请求，
 在 R&D-owned 回执到达前始终为 `SUBMITTED_OR_UNKNOWN`。
 
 首个已接纳 Artifact Review 表面不要求访问原始源码。它展示 Artifact identity、Research Intent 与
@@ -311,6 +309,65 @@ Qualification 细节。
 即使以后引入也只能只读，且不作为首期 Workbench 验收条件。产品内代码编辑器、Notebook-first
 创作、原地修改 Artifact 和覆盖 Artifact 版本属于 `NOT_ADMITTED`。外部 IDE 或 notebook 可以继续
 作为工程工具存在，但不属于产品契约，也不能建立 Product Edge 请求、Owner 事实或验收证据。
+
+### TARGET - 外部代理工具面
+
+本节陈述一份尚无实现的契约；除构建它的切片外，它不授予部署它的许可。
+
+**今天。** 不存在命令行。Dashboard 的 `/api/mcp` 注册了七个工具
+（`product/dashboard/lib/dashboard-mcp-server.ts:152-211`）：Artifact Formation preflight 读取与 Artifact 动作、
+Source 与 Research 动作、探索性 Replay 动作、Develop Composer 动作，以及 run detail 与 run log 读取。它只在 opt-in 的
+`dashboard-preview` profile 下提供服务。
+
+**形态。** 工具面面向代理只有一个入口，就是 `rd-run-research`。该二进制随部署的 R&D 镜像发布。一个库持有全部命令，两个薄壳调用同一组函数：命令行，
+以及 `rd-run-research mcp`（基于 stdio 的 MCP server）。命令与其工具同名。代理以
+`docker compose exec rd-owner-api rd-run-research <command>` 运行它。
+
+**命令及其到达的 Owner 路由。** 工具按它到达的 Owner 分组，每条规矩都在该 Owner 里，从不在工具里。工具发送的，都是 Owner
+已经从任何 channel 接纳的那个请求，并带上它陈述的请求身份；接收的 Owner，以及在该 Owner 要求 Product Edge 准入时的
+Product Edge，像接纳来自 Dashboard 的同一请求那样接纳它。工具不增加任何权威，也不跳过任何检查。一步需要某个 Owner 的多条
+路由时（`admit-instrument`、`design`、`compose`、`replay`），命令只按该 Owner 要求的顺序串接它们，并透传每个拒绝；
+`run` 串接各步。
+
+- `admit-instrument`：Market Data 标的准入（Source Binding、Instrument Master、universe 成员资格）。
+- `submit`：`POST /v3/research-goals`，返回请求身份及其 Research Request Receipt。请求声明
+  [研究知识台账](../owners/rd/#target---research-knowledge-ledger)要检查的机制与构件。
+- `initial-pit`：`POST /v3/research-goals/{request_identity}/initial-pit`。
+- `design`：用 Owner 的 authoring 库把请求的 authoring 文档编写为 Strategy Design，然后发布 role intent、
+  据此形成 Design，并 declare 与 freeze bounded feature program。
+- `compose`：`POST /v2/develop-composer/runs`，然后 `POST /v1/replay-compositions/universe-member-issuances`。
+  它先检查 Research View 的剩余有效期，在这次运行无法于其内完成时按名拒绝。
+- `replay`：`POST /v3/exploratory-replay-requests/composer-backed`、execution-input binding，然后
+  `POST /v2/exploratory-replays`，返回 Result 身份。
+- `run`：按顺序执行上面每一步。每步之后把该步产生的身份记入本地状态文件，`--resume` 从失败的那一步继续。
+
+读取命令：
+
+- `report`：`GET /v1/backtest-run-reports/{result_identity}`。
+- `status`：状态文件以及每个已记录步骤的 Owner 读回。
+- `census`：R&D read API 上的 `GET /v1/trial-families/{trial_family_identity}/iterations`。
+- `knowledge`：按机制、构件或范围读取研究知识台账。台账存在之前没有路由。
+- `qualification-status`：一个 Candidate 的有界公开 Qualification Status Summary：`QUALIFIED`、
+  `CLOSED_NOT_QUALIFIED`、过期、撤销或某个公开 forward 阶段。今天没有路由。
+
+**权限。**
+
+- 进程在其环境中持有 R&D API token 以及 read API 的 URL 与 token。任何工具参数或结果都不携带凭据，代理也从不看到凭据。
+- 没有命令到达 Paper、Live、交易所凭据或任何执行路径。真钱边界不变。
+- 更换代理，或改用命令行而不是 MCP，只改变归属，从不改变权威，正如下文 Agent Shell 部署绑定对每个 channel 的规定。
+
+**只给结论，从不给受保护数值。**
+
+- 没有命令调用 Qualification 的受保护读取。Qualification 只通过其公开状态作答，并有一条测试断言工具面不链接任何
+  Qualification 受保护读取 port。
+- `report`、`census` 与 `knowledge` 返回探索性的 R&D 与 Backtest 事实，它们本就是代理自己的证据；知识台账按构造不持有
+  任何受保护数值。
+- 拒绝原样透传其 HTTP 状态、`x-rd-rejection-code` 与 `x-rd-rejection-cause`。没有任何拒绝被折叠成泛化失败。
+
+**Dashboard MCP。** Dashboard 的 `/api/mcp` 不是面向代理的入口，也不扩展这些命令。它保留给预览界面使用：
+
+- 它的 Artifact Formation preflight 与 Artifact 动作工具服务于产品内模型构建，同一决定使该构建退役，这两个工具随之删除；
+- 它的其他工具保留。等上面的命令覆盖它的读取之后，再决定它是否退役。
 
 ## Agent Shell 部署绑定
 

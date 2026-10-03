@@ -24,10 +24,7 @@ use vibe_data::owner::pit_snapshot::sealed_acceptance::{
     issue_strategy_input_exact_instrument_bar_frame_for_owner_lineage,
 };
 use vibe_data::owner::source_binding::BindingDigest;
-use vibe_data::owner::strategy_input_binding::{
-    MarketDataFieldSemantic, StrategyInputChannel, StrategyInputUnit,
-    UntrustedStrategyInputBindingRequest, UntrustedStrategyInputScope,
-};
+use vibe_data::owner::strategy_input_binding::MarketDataFieldSemantic;
 use vibe_indicators_kernel::PrimitiveCatalogV1;
 
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
@@ -53,6 +50,8 @@ use crate::product_edge::{
     composer_exploration_research_view_is_valid_v3,
 };
 use crate::rd_owner_postgres_custody::validate_historical_view;
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+use crate::strategy_plan_v2::strategy_input_role_identity_v2;
 use crate::{
     bounded_feature_program_lowerer_v1::prepare_frozen_bounded_feature_source_inputs_v1,
     design_input_custody_v1::{
@@ -94,7 +93,7 @@ use crate::{
     strategy_design_v2::*,
     strategy_plan_v2::{
         StrategyDesignPreparationV2, VerifiedStrategyInputBindingsV2, input_scope_of_design_v2,
-        prepare_strategy_design_v2, strategy_input_role_identity_v2,
+        prepare_strategy_design_v2,
     },
     successor_intent_postgres::{
         lock_by_intent_in_transaction, lock_successor_research_view_in_transaction,
@@ -127,27 +126,6 @@ pub fn sealed_source_research_composer_a0_execution_count_v2() -> u64 {
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum SourceResearchComposerAcceptanceTamperV2 {
-    BindingResearchRequestIdentity,
-    BindingStrategyDesignIdentity,
-    BindingInputRoleIdentity,
-    BindingScopeSelectionIdentity,
-    BindingFieldSemantic,
-    BindingChannel,
-    BindingTimeframe,
-    BindingUnit,
-    BindingScale,
-    BindingPitRequestIdentity,
-    BindingPitRequestDigest,
-    BindingSnapshotIdentity,
-    BindingSnapshotFactDigest,
-    BindingObservationBatchDigest,
-    BindingSourceBindingIdentity,
-    BindingSourceFrontierDigest,
-    BindingCorrectionFrontierDigest,
-    BindingInstrumentMasterDigest,
-    BindingUniverseSelectionDigest,
-    BindingMarketSemanticsIdentity,
-    BindingDecisionCut,
     CapsuleSchemaVersion,
     CapsuleManifestSemanticIdentity,
     CapsuleLanguage,
@@ -162,28 +140,7 @@ pub enum SourceResearchComposerAcceptanceTamperV2 {
 
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
 impl SourceResearchComposerAcceptanceTamperV2 {
-    pub const ALL: [Self; 31] = [
-        Self::BindingResearchRequestIdentity,
-        Self::BindingStrategyDesignIdentity,
-        Self::BindingInputRoleIdentity,
-        Self::BindingScopeSelectionIdentity,
-        Self::BindingFieldSemantic,
-        Self::BindingChannel,
-        Self::BindingTimeframe,
-        Self::BindingUnit,
-        Self::BindingScale,
-        Self::BindingPitRequestIdentity,
-        Self::BindingPitRequestDigest,
-        Self::BindingSnapshotIdentity,
-        Self::BindingSnapshotFactDigest,
-        Self::BindingObservationBatchDigest,
-        Self::BindingSourceBindingIdentity,
-        Self::BindingSourceFrontierDigest,
-        Self::BindingCorrectionFrontierDigest,
-        Self::BindingInstrumentMasterDigest,
-        Self::BindingUniverseSelectionDigest,
-        Self::BindingMarketSemanticsIdentity,
-        Self::BindingDecisionCut,
+    pub const ALL: [Self; 10] = [
         Self::CapsuleSchemaVersion,
         Self::CapsuleManifestSemanticIdentity,
         Self::CapsuleLanguage,
@@ -427,13 +384,9 @@ pub fn sealed_source_research_composer_design_v2() -> StrategyDesignV2 {
 #[must_use]
 pub fn sealed_source_research_composer_request_v2() -> DevelopComposerRunRequestV2 {
     let design = sealed_source_research_composer_design_v2();
-    let StrategyDesignPreparationV2::Prepared {
-        design_identity, ..
-    } = prepare_strategy_design_v2(&design)
-    else {
+    let StrategyDesignPreparationV2::Prepared { .. } = prepare_strategy_design_v2(&design) else {
         unreachable!("fixed A2 Design must prepare")
     };
-    let binding_requests = a2_fixed_binding_requests(&design, design_identity);
     let manifest = design.plugins[0].clone();
     let capsule = UntrustedDevelopPluginCapsuleV2 {
         schema_version: 2,
@@ -457,7 +410,6 @@ pub fn sealed_source_research_composer_request_v2() -> DevelopComposerRunRequest
         research_custody_reference: SEALED_SOURCE_INTAKE_COMPOSER_RESEARCH_REQUEST_IDENTITY_V2
             .to_owned(),
         design,
-        binding_requests,
         plugin_source_capsules: vec![capsule],
     }
 }
@@ -471,16 +423,12 @@ fn derive_source_research_composer_request_v2(
     design.intent_identity = research.intent_identity();
     design.intent_digest = research.intent_digest();
     design.falsifier = research.falsifier().to_owned();
-    let StrategyDesignPreparationV2::Prepared {
-        design_identity, ..
-    } = prepare_strategy_design_v2(&design)
-    else {
+    let StrategyDesignPreparationV2::Prepared { .. } = prepare_strategy_design_v2(&design) else {
         return Err(DevelopComposerTerminalV2::unavailable(
             "design",
             "the canonical Research-derived A2 Design does not prepare",
         ));
     };
-    let binding_requests = a2_fixed_binding_requests(&design, design_identity);
     let manifest = design.plugins[0].clone();
     let capsule = UntrustedDevelopPluginCapsuleV2 {
         schema_version: 2,
@@ -505,7 +453,6 @@ fn derive_source_research_composer_request_v2(
         ),
         research_custody_reference: research.request_locator().to_owned(),
         design,
-        binding_requests,
         plugin_source_capsules: vec![capsule],
     })
 }
@@ -558,11 +505,7 @@ fn derive_source_research_composer_bfp_v3_request(
         ));
     }
 
-    let binding_requests = bfp_binding_requests(
-        &design.inputs,
-        design.research_request_identity,
-        design_identity,
-    )?;
+    admit_bfp_design_roles(&design.inputs)?;
     let mut manifests = design.plugins.clone();
     manifests.sort_by(|left, right| left.semantic_id.cmp(&right.semantic_id));
     let plugin_source_capsules = manifests
@@ -592,112 +535,50 @@ fn derive_source_research_composer_bfp_v3_request(
         ),
         research_custody_reference: research.request_locator().to_owned(),
         design,
-        binding_requests,
         plugin_source_capsules,
     })
 }
 
-/// The production frozen-program request's binding claims, one per role of a Design, under the one
-/// input scope its roles state.
-fn bfp_binding_requests(
-    inputs: &[InputRoleV2],
-    research_request_identity: BindingDigest,
-    design_identity: BindingDigest,
-) -> Result<Vec<UntrustedStrategyInputBindingRequest>, DevelopComposerTerminalV2> {
+/// Admits the frozen Design's roles as ones the production Composer can run, or refuses by name.
+///
+/// The roles must state one input scope, and each must be a Market price under a field semantic
+/// Market Data defines, naming an instrument exactly when the scope is an exact instrument. The run
+/// carries no binding claim of its own: the custody each role reads is the binding Owner's re-read
+/// in `lock_for_frozen_program`.
+fn admit_bfp_design_roles(inputs: &[InputRoleV2]) -> Result<(), DevelopComposerTerminalV2> {
     let Ok(Some(scope)) = input_scope_of_design_v2(inputs) else {
-        return Err(bfp_binding_claim_refused(
+        return Err(bfp_role_refused(
             "bounded_feature_program.input_scope",
             "the frozen Design's roles do not state one input scope",
         ));
     };
-    inputs
-        .iter()
-        .enumerate()
-        .map(|(ordinal, input)| {
-            bfp_binding_request(
-                input,
-                &scope,
-                research_request_identity,
-                design_identity,
-                ordinal as u8,
-            )
-        })
-        .collect()
-}
 
-/// One role's binding claim in the production frozen-program request.
-///
-/// The claim's Owner evidence is placeholder, not custody: every PIT, snapshot, Source Binding,
-/// frontier, Instrument Master and Universe Selection digest below, and a universe role's
-/// selection identity, is an `a2_digest` seed, and the decision cut is a constant. They enter the
-/// request digest, so the durable Composer record binds them, but nothing reads them from Market
-/// Data or checks them against it. Preflight checks only that the claims cover the Design's roles
-/// under its Research request and Design identity; the custody the program runs on is the binding
-/// Owner's re-read in `lock_for_frozen_program`. Replacing these values with custody-derived ones
-/// is open production work, which moves the claim after that re-read and changes the request
-/// digest.
-///
-/// What the claim does state from the Design is each role's identity, field, timeframe, unit,
-/// scale and scope: an exact-instrument role names its instrument, and a universe-member role
-/// names none and claims a Universe Selection scope.
-fn bfp_binding_request(
-    input: &InputRoleV2,
-    design_scope: &InputScopeV2,
-    research_request_identity: BindingDigest,
-    strategy_design_identity: BindingDigest,
-    seed: u8,
-) -> Result<UntrustedStrategyInputBindingRequest, DevelopComposerTerminalV2> {
-    let field_semantic = MarketDataFieldSemantic::from_identity(&input.field_semantic_id)
-        .ok_or_else(|| {
-            bfp_binding_claim_refused(
+    for input in inputs {
+        if MarketDataFieldSemantic::from_identity(&input.field_semantic_id).is_none() {
+            return Err(bfp_role_refused(
                 "bounded_feature_program.input_field",
                 "a role names a field semantic Market Data does not define",
-            )
-        })?;
+            ));
+        }
 
-    if input.channel != "MARKET" || input.unit != "PRICE" {
-        return Err(bfp_binding_claim_refused(
-            "bounded_feature_program.input_field",
-            "a role is not a Market price",
-        ));
-    }
-    let scope = match (design_scope, input.instrument.is_empty()) {
-        (InputScopeV2::ExactInstrument, false) => UntrustedStrategyInputScope::ExactInstrument {
-            instrument: input.instrument.clone(),
-        },
-        (InputScopeV2::UniverseMembers, true) => UntrustedStrategyInputScope::UniverseSelection {
-            selection_identity: a2_digest(seed.wrapping_add(121)),
-        },
-        _ => {
-            return Err(bfp_binding_claim_refused(
+        if input.channel != "MARKET" || input.unit != "PRICE" {
+            return Err(bfp_role_refused(
+                "bounded_feature_program.input_field",
+                "a role is not a Market price",
+            ));
+        }
+
+        if !matches!(
+            (&scope, input.instrument.is_empty()),
+            (InputScopeV2::ExactInstrument, false) | (InputScopeV2::UniverseMembers, true)
+        ) {
+            return Err(bfp_role_refused(
                 "bounded_feature_program.input_scope",
                 "a role's instrument does not agree with its input scope",
             ));
         }
-    };
-    Ok(UntrustedStrategyInputBindingRequest {
-        research_request_identity,
-        strategy_design_identity,
-        input_role_identity: strategy_input_role_identity_v2(input),
-        scope,
-        field_semantic,
-        channel: StrategyInputChannel::Market,
-        timeframe: input.timeframe.clone(),
-        unit: StrategyInputUnit::Price,
-        scale: input.scale,
-        pit_request_identity: a2_digest(seed.wrapping_add(11)),
-        pit_request_digest: a2_digest(seed.wrapping_add(21)),
-        snapshot_identity: a2_digest(seed.wrapping_add(31)),
-        snapshot_fact_digest: a2_digest(seed.wrapping_add(41)),
-        observation_batch_digest: a2_digest(seed.wrapping_add(51)),
-        source_binding_identity: a2_digest(seed.wrapping_add(61)),
-        source_frontier_digest: a2_digest(seed.wrapping_add(71)),
-        correction_frontier_digest: a2_digest(seed.wrapping_add(81)),
-        instrument_master_digest: a2_digest(seed.wrapping_add(91)),
-        universe_selection_digest: a2_digest(seed.wrapping_add(101)),
-        market_semantics_identity: a2_digest(111),
-        decision_cut: 40,
-    })
+    }
+    Ok(())
 }
 
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
@@ -798,12 +679,6 @@ fn tamper_source_research_composer_request_v2(
     request: &mut DevelopComposerRunRequestV2,
     selector: SourceResearchComposerAcceptanceTamperV2,
 ) -> Result<(), DevelopComposerTerminalV2> {
-    let binding = request.binding_requests.first_mut().ok_or_else(|| {
-        DevelopComposerTerminalV2::unavailable(
-            "acceptance_tamper",
-            "the fixed A2 binding input is unavailable",
-        )
-    })?;
     let capsule = request.plugin_source_capsules.first_mut().ok_or_else(|| {
         DevelopComposerTerminalV2::unavailable(
             "acceptance_tamper",
@@ -817,74 +692,8 @@ fn tamper_source_research_composer_request_v2(
             "the fixed A2 source file is unavailable",
         ));
     }
-    let changed_digest = BindingDigest::from_untrusted_bytes([0xff; 32]);
 
     match selector {
-        SourceResearchComposerAcceptanceTamperV2::BindingResearchRequestIdentity => {
-            binding.research_request_identity = changed_digest;
-        }
-        SourceResearchComposerAcceptanceTamperV2::BindingStrategyDesignIdentity => {
-            binding.strategy_design_identity = changed_digest;
-        }
-        SourceResearchComposerAcceptanceTamperV2::BindingInputRoleIdentity => {
-            binding.input_role_identity = changed_digest;
-        }
-        SourceResearchComposerAcceptanceTamperV2::BindingScopeSelectionIdentity => {
-            binding.scope = UntrustedStrategyInputScope::UniverseSelection {
-                selection_identity: changed_digest,
-            };
-        }
-        SourceResearchComposerAcceptanceTamperV2::BindingFieldSemantic => {
-            binding.field_semantic = MarketDataFieldSemantic::BarHighPrice;
-        }
-        SourceResearchComposerAcceptanceTamperV2::BindingChannel => {
-            binding.channel = StrategyInputChannel::Reference;
-        }
-        SourceResearchComposerAcceptanceTamperV2::BindingTimeframe => {
-            binding.timeframe.push_str("-tampered");
-        }
-        SourceResearchComposerAcceptanceTamperV2::BindingUnit => {
-            binding.unit = StrategyInputUnit::Quantity;
-        }
-        SourceResearchComposerAcceptanceTamperV2::BindingScale => {
-            binding.scale = binding.scale.wrapping_add(1);
-        }
-        SourceResearchComposerAcceptanceTamperV2::BindingPitRequestIdentity => {
-            binding.pit_request_identity = changed_digest;
-        }
-        SourceResearchComposerAcceptanceTamperV2::BindingPitRequestDigest => {
-            binding.pit_request_digest = changed_digest;
-        }
-        SourceResearchComposerAcceptanceTamperV2::BindingSnapshotIdentity => {
-            binding.snapshot_identity = changed_digest;
-        }
-        SourceResearchComposerAcceptanceTamperV2::BindingSnapshotFactDigest => {
-            binding.snapshot_fact_digest = changed_digest;
-        }
-        SourceResearchComposerAcceptanceTamperV2::BindingObservationBatchDigest => {
-            binding.observation_batch_digest = changed_digest;
-        }
-        SourceResearchComposerAcceptanceTamperV2::BindingSourceBindingIdentity => {
-            binding.source_binding_identity = changed_digest;
-        }
-        SourceResearchComposerAcceptanceTamperV2::BindingSourceFrontierDigest => {
-            binding.source_frontier_digest = changed_digest;
-        }
-        SourceResearchComposerAcceptanceTamperV2::BindingCorrectionFrontierDigest => {
-            binding.correction_frontier_digest = changed_digest;
-        }
-        SourceResearchComposerAcceptanceTamperV2::BindingInstrumentMasterDigest => {
-            binding.instrument_master_digest = changed_digest;
-        }
-        SourceResearchComposerAcceptanceTamperV2::BindingUniverseSelectionDigest => {
-            binding.universe_selection_digest = changed_digest;
-        }
-        SourceResearchComposerAcceptanceTamperV2::BindingMarketSemanticsIdentity => {
-            binding.market_semantics_identity = changed_digest;
-        }
-        SourceResearchComposerAcceptanceTamperV2::BindingDecisionCut => {
-            binding.decision_cut = binding.decision_cut.wrapping_add(1);
-        }
         SourceResearchComposerAcceptanceTamperV2::CapsuleSchemaVersion => {
             capsule.schema_version = capsule.schema_version.wrapping_add(1);
         }
@@ -960,75 +769,10 @@ fn project_source_research_composer_request_v2(
     })
 }
 
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
-fn a2_fixed_binding_requests(
-    design: &StrategyDesignV2,
-    design_identity: BindingDigest,
-) -> Vec<UntrustedStrategyInputBindingRequest> {
-    let selection_identity = BindingDigest::from_untrusted_bytes([
-        38, 69, 161, 29, 208, 191, 187, 10, 106, 223, 55, 76, 175, 82, 195, 14, 54, 4, 74, 9, 51,
-        97, 227, 227, 81, 199, 206, 202, 52, 52, 55, 207,
-    ]);
-    design
-        .inputs
-        .iter()
-        .enumerate()
-        .map(|(ordinal, input)| {
-            a2_fixed_binding_request(
-                input,
-                design.research_request_identity,
-                design_identity,
-                selection_identity,
-                ordinal as u8,
-            )
-        })
-        .collect()
-}
-
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
-fn a2_fixed_binding_request(
-    input: &InputRoleV2,
-    research_request_identity: BindingDigest,
-    strategy_design_identity: BindingDigest,
-    selection_identity: BindingDigest,
-    seed: u8,
-) -> UntrustedStrategyInputBindingRequest {
-    UntrustedStrategyInputBindingRequest {
-        research_request_identity,
-        strategy_design_identity,
-        input_role_identity: strategy_input_role_identity_v2(input),
-        scope: UntrustedStrategyInputScope::UniverseSelection { selection_identity },
-        field_semantic: match input.field_semantic_id.as_str() {
-            "MARKET_DATA.BAR.OPEN.PRICE.V1" => MarketDataFieldSemantic::BarOpenPrice,
-            _ => MarketDataFieldSemantic::BarClosePrice,
-        },
-        channel: StrategyInputChannel::Market,
-        timeframe: input.timeframe.clone(),
-        unit: StrategyInputUnit::Price,
-        scale: input.scale,
-        pit_request_identity: a2_digest(seed + 11),
-        pit_request_digest: a2_digest(seed + 21),
-        snapshot_identity: a2_digest(seed + 31),
-        snapshot_fact_digest: a2_digest(seed + 41),
-        observation_batch_digest: a2_digest(seed + 51),
-        source_binding_identity: a2_digest(seed + 61),
-        source_frontier_digest: a2_digest(seed + 71),
-        correction_frontier_digest: a2_digest(seed + 81),
-        instrument_master_digest: a2_digest(seed + 91),
-        universe_selection_digest: a2_digest(seed + 101),
-        market_semantics_identity: a2_digest(111),
-        decision_cut: 40,
-    }
-}
-
-/// A production frozen-program request the Composer refuses before reading any custody, under its
-/// own coordinate. The sealed acceptance runs keep their own refusal text.
-fn bfp_binding_claim_refused(coordinate: &str, reason: &str) -> DevelopComposerTerminalV2 {
+/// A frozen Design the production Composer refuses before reading any custody, under its own
+/// coordinate. The sealed acceptance runs keep their own refusal text.
+fn bfp_role_refused(coordinate: &str, reason: &str) -> DevelopComposerTerminalV2 {
     DevelopComposerTerminalV2::unavailable(coordinate, reason)
-}
-
-fn a2_digest(seed: u8) -> BindingDigest {
-    BindingDigest::from_untrusted_bytes([seed; 32])
 }
 
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
@@ -1391,9 +1135,6 @@ impl SealedSourceResearchComposerBindingOwnerV2 {
             _ => return Err(market_data_unavailable()),
         };
 
-        if request.binding_requests != a2_fixed_binding_requests(&request.design, design_identity) {
-            return Err(market_data_unavailable());
-        }
         let authority =
             sealed_a2_market_authority(request.design.research_request_identity, design_identity)?;
         verify_sealed_a2_market_authority(
@@ -1477,7 +1218,7 @@ fn verify_sealed_a2_market_authority(
 }
 
 /// The sealed acceptance runs' Market Data refusal. The production frozen-program request refuses
-/// under its own coordinates (`bfp_binding_claim_refused`), so this text never reads as a
+/// under its own coordinates (`bfp_role_refused`), so this text never reads as a
 /// production cause.
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
 fn market_data_unavailable() -> DevelopComposerTerminalV2 {
@@ -3367,11 +3108,9 @@ mod tests {
         else {
             panic!("fixed A2 design must prepare");
         };
-        assert!(
-            request
-                .binding_requests
-                .iter()
-                .all(|binding| binding.strategy_design_identity == design_identity)
+        assert_ne!(
+            design_identity,
+            BindingDigest::from_untrusted_bytes([0; 32])
         );
         assert_eq!(
             request.design.research_request_identity.as_bytes(),
@@ -3382,7 +3121,6 @@ mod tests {
             SEALED_SOURCE_INTAKE_COMPOSER_RESEARCH_REQUEST_IDENTITY_V2
         );
         assert_eq!(request.design.inputs.len(), 2);
-        assert_eq!(request.binding_requests.len(), 2);
         assert!(request.design.inputs.iter().all(|role| {
             role.scope == InputScopeV2::UniverseMembers
                 && role.fact_class == InputFactClassV2::MarketData
@@ -3414,13 +3152,14 @@ mod tests {
             sealed_a2_market_authority(request.design.research_request_identity, design_identity)
                 .expect("fixed A2 Market authority");
         let mut request_roles = request
-            .binding_requests
+            .design
+            .inputs
             .iter()
-            .map(|binding| {
+            .map(|input| {
                 (
-                    binding.research_request_identity,
-                    binding.strategy_design_identity,
-                    binding.input_role_identity,
+                    request.design.research_request_identity,
+                    design_identity,
+                    strategy_input_role_identity_v2(input),
                 )
             })
             .collect::<Vec<_>>();
@@ -3441,67 +3180,7 @@ mod tests {
     }
 
     #[rstest::rstest]
-    fn sealed_a2_request_gate_rejects_all_same_identity_binding_mutations() {
-        fn assert_rejected(
-            sealed: &DevelopComposerRunRequestV2,
-            mutated: &DevelopComposerRunRequestV2,
-        ) {
-            assert_eq!(mutated.request_identity, sealed.request_identity);
-            let rejection = SealedSourceResearchComposerBindingOwnerV2::read_for_run(mutated)
-                .expect_err("same-identity mutation must fail at the Binding Owner");
-            assert_eq!(rejection.coordinate, "market_data_binding");
-        }
-
-        let sealed = sealed_source_research_composer_request_v2();
-        assert!(SealedSourceResearchComposerBindingOwnerV2::read_for_run(&sealed).is_ok());
-
-        macro_rules! assert_binding_mutation_rejected {
-            ($field:ident, $value:expr) => {{
-                let mut mutated = sealed.clone();
-                mutated.binding_requests[0].$field = $value;
-                assert_rejected(&sealed, &mutated);
-            }};
-        }
-
-        let zero = BindingDigest::from_untrusted_bytes([0; 32]);
-        assert_binding_mutation_rejected!(research_request_identity, zero);
-        assert_binding_mutation_rejected!(strategy_design_identity, zero);
-        assert_binding_mutation_rejected!(input_role_identity, zero);
-        assert_binding_mutation_rejected!(
-            scope,
-            UntrustedStrategyInputScope::ExactInstrument {
-                instrument: "AAPL.XNAS".to_owned(),
-            }
-        );
-        assert_binding_mutation_rejected!(field_semantic, MarketDataFieldSemantic::BarHighPrice);
-        assert_binding_mutation_rejected!(channel, StrategyInputChannel::Reference);
-        assert_binding_mutation_rejected!(timeframe, "1H".to_owned());
-        assert_binding_mutation_rejected!(unit, StrategyInputUnit::Quantity);
-        assert_binding_mutation_rejected!(scale, 3);
-        assert_binding_mutation_rejected!(pit_request_identity, zero);
-        assert_binding_mutation_rejected!(pit_request_digest, zero);
-        assert_binding_mutation_rejected!(snapshot_identity, zero);
-        assert_binding_mutation_rejected!(snapshot_fact_digest, zero);
-        assert_binding_mutation_rejected!(observation_batch_digest, zero);
-        assert_binding_mutation_rejected!(source_binding_identity, zero);
-        assert_binding_mutation_rejected!(source_frontier_digest, zero);
-        assert_binding_mutation_rejected!(correction_frontier_digest, zero);
-        assert_binding_mutation_rejected!(instrument_master_digest, zero);
-        assert_binding_mutation_rejected!(universe_selection_digest, zero);
-        assert_binding_mutation_rejected!(market_semantics_identity, zero);
-        assert_binding_mutation_rejected!(decision_cut, 41);
-
-        let mut duplicated_role = sealed.clone();
-        duplicated_role.binding_requests[1] = duplicated_role.binding_requests[0].clone();
-        assert_rejected(&sealed, &duplicated_role);
-
-        let mut reordered_roles = sealed.clone();
-        reordered_roles.binding_requests.swap(0, 1);
-        assert_rejected(&sealed, &reordered_roles);
-    }
-
-    #[rstest::rstest]
-    fn runtime_binding_owner_accepts_each_lineage_and_rejects_the_closed_binding_tampers() {
+    fn runtime_binding_owner_accepts_each_lineage() {
         for seed in [31, 32] {
             let research = CurrentResearchDevelopCustodyV2::fixture(
                 &format!("runtime-research-{seed}"),
@@ -3511,22 +3190,6 @@ mod tests {
             let canonical = derive_source_research_composer_request_v2(&research)
                 .expect("Research-derived request");
             assert!(SealedSourceResearchComposerBindingOwnerV2::read_for_run(&canonical).is_ok());
-            for selector in SourceResearchComposerAcceptanceTamperV2::ALL {
-                let mut tampered = canonical.clone();
-                tamper_source_research_composer_request_v2(&mut tampered, selector)
-                    .expect("fixed input exists");
-
-                if tampered.binding_requests != canonical.binding_requests {
-                    assert!(
-                        SealedSourceResearchComposerBindingOwnerV2::read_for_run(&tampered)
-                            .is_err(),
-                        "{selector:?}"
-                    );
-                }
-            }
-            let mut missing = canonical.clone();
-            missing.binding_requests.pop();
-            assert!(SealedSourceResearchComposerBindingOwnerV2::read_for_run(&missing).is_err());
         }
     }
 
@@ -3864,7 +3527,7 @@ mod run_view_readback_tests {
 }
 
 #[cfg(test)]
-mod bfp_binding_claim_tests {
+mod bfp_design_role_tests {
     use rstest::rstest;
 
     use super::*;
@@ -3885,87 +3548,19 @@ mod bfp_binding_claim_tests {
         }
     }
 
-    fn claim(
-        input: &InputRoleV2,
-    ) -> Result<UntrustedStrategyInputBindingRequest, DevelopComposerTerminalV2> {
-        bfp_binding_request(input, &input.scope, a2_digest(1), a2_digest(2), 3)
-    }
-
-    /// An exact-instrument role's claim is the one this request always carried: the role's own
-    /// instrument and the fixed placeholder evidence, so no existing request digest changes.
+    /// Both input scopes the production Composer runs are admitted: exact-instrument roles that
+    /// each name their instrument, and universe-member roles that name none.
     #[rstest]
-    fn an_exact_instrument_role_claims_what_it_always_claimed() {
-        let input = role(
-            "research.input.close.v1",
-            InputScopeV2::ExactInstrument,
-            "BTCUSDT-PERP.BINANCE",
-        );
-
-        assert_eq!(
-            claim(&input).expect("an exact-instrument role is claimed"),
-            UntrustedStrategyInputBindingRequest {
-                research_request_identity: a2_digest(1),
-                strategy_design_identity: a2_digest(2),
-                input_role_identity: strategy_input_role_identity_v2(&input),
-                scope: UntrustedStrategyInputScope::ExactInstrument {
-                    instrument: "BTCUSDT-PERP.BINANCE".to_owned(),
-                },
-                field_semantic: MarketDataFieldSemantic::from_identity(
-                    "MARKET_DATA.BAR.CLOSE.PRICE.V1"
-                )
-                .expect("a Market Data field"),
-                channel: StrategyInputChannel::Market,
-                timeframe: "1D".to_owned(),
-                unit: StrategyInputUnit::Price,
-                scale: 2,
-                pit_request_identity: a2_digest(14),
-                pit_request_digest: a2_digest(24),
-                snapshot_identity: a2_digest(34),
-                snapshot_fact_digest: a2_digest(44),
-                observation_batch_digest: a2_digest(54),
-                source_binding_identity: a2_digest(64),
-                source_frontier_digest: a2_digest(74),
-                correction_frontier_digest: a2_digest(84),
-                instrument_master_digest: a2_digest(94),
-                universe_selection_digest: a2_digest(104),
-                market_semantics_identity: a2_digest(111),
-                decision_cut: 40,
-            },
-        );
-    }
-
-    /// A universe-member role names no instrument and claims a Universe Selection scope; the rest
-    /// of its claim is the same placeholder evidence an exact role's is.
-    #[rstest]
-    fn a_universe_member_role_claims_a_universe_selection_scope() {
-        let exact = claim(&role(
-            "research.input.close.v1",
-            InputScopeV2::ExactInstrument,
-            "BTCUSDT-PERP.BINANCE",
-        ))
-        .expect("an exact-instrument role is claimed");
-        let input = role("research.input.close.v1", InputScopeV2::UniverseMembers, "");
-        let universe = claim(&input).expect("a universe-member role is claimed");
-
-        assert_eq!(
-            universe.scope,
-            UntrustedStrategyInputScope::UniverseSelection {
-                selection_identity: a2_digest(124),
-            },
-        );
-        assert_eq!(
-            universe.input_role_identity,
-            strategy_input_role_identity_v2(&input)
-        );
-        assert_eq!(
-            UntrustedStrategyInputBindingRequest {
-                scope: exact.scope.clone(),
-                input_role_identity: exact.input_role_identity,
-                ..universe
-            },
-            exact,
-            "only the scope and the role identity it derives differ",
-        );
+    #[case::exact_instruments(vec![
+        role("research.input.close.v1", InputScopeV2::ExactInstrument, "BTCUSDT-PERP.BINANCE"),
+        role("research.input.open.v1", InputScopeV2::ExactInstrument, "BTCUSDT-PERP.BINANCE"),
+    ])]
+    #[case::universe_members(vec![
+        role("research.input.close.v1", InputScopeV2::UniverseMembers, ""),
+        role("research.input.open.v1", InputScopeV2::UniverseMembers, ""),
+    ])]
+    fn a_design_the_production_composer_can_run_is_admitted(#[case] inputs: Vec<InputRoleV2>) {
+        admit_bfp_design_roles(&inputs).expect("the Design's roles are admitted");
     }
 
     /// Each refusal before custody is read is the production Composer's own, named by coordinate,
@@ -3987,16 +3582,20 @@ mod bfp_binding_claim_tests {
         "bounded_feature_program.input_scope"
     )]
     #[case::no_roles(vec![], "bounded_feature_program.input_scope")]
+    #[case::field_market_data_does_not_define(
+        vec![InputRoleV2 { field_semantic_id: "MARKET_DATA.BAR.UNKNOWN.V1".to_owned(), ..role("research.input.close.v1", InputScopeV2::UniverseMembers, "") }],
+        "bounded_feature_program.input_field"
+    )]
     #[case::not_a_market_price(
         vec![InputRoleV2 { unit: "QUANTITY".to_owned(), ..role("research.input.close.v1", InputScopeV2::UniverseMembers, "") }],
         "bounded_feature_program.input_field"
     )]
-    fn a_claim_the_production_composer_cannot_make_is_refused_by_name(
+    fn a_design_the_production_composer_cannot_run_is_refused_by_name(
         #[case] inputs: Vec<InputRoleV2>,
         #[case] coordinate: &str,
     ) {
-        let refusal = bfp_binding_requests(&inputs, a2_digest(1), a2_digest(2))
-            .expect_err("the claim is refused before custody is read");
+        let refusal = admit_bfp_design_roles(&inputs)
+            .expect_err("the Design is refused before custody is read");
 
         assert_eq!(refusal.kind, DevelopComposerTerminalKindV2::Unavailable);
         assert_eq!(refusal.coordinate, coordinate);
