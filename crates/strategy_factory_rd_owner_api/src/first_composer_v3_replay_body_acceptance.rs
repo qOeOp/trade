@@ -207,6 +207,17 @@ async fn run_over_http(
     // The route answers a committed and counted Result with its canonical bytes, and nothing else.
     let result = ReplayResultDtoV2::from_canonical_bytes(&bytes)
         .expect("the run answers with the Result's canonical bytes");
+    // PROBE ONLY (never merged): prints what D1 must leave unchanged, for comparison across trees.
+    eprintln!(
+        "F-PROBE result_bytes_sha256={} result_digest={} result_identity={} semantic_trace={}",
+        Sha256::digest(&bytes)
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>(),
+        result.result_digest.as_str(),
+        result.result_identity.as_str(),
+        serde_json::to_string(&result.semantic_trace).expect("semantic trace observation"),
+    );
     assert_eq!(
         result.request_identity.as_str(),
         replay.replay_request.request_identity
