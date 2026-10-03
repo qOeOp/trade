@@ -6,6 +6,7 @@ use vibe_postgres_connect::{PgPoolOptionsExt, PostgresTls};
 
 pub mod bar_schedule;
 pub mod calendar;
+pub mod decimal_rescale_v1;
 pub mod declared_bar_timeframe_v1;
 pub mod frozen_observation_window_v1;
 pub mod instrument_economic_terms_intake_v1;
@@ -71,7 +72,6 @@ use instrument_master_v2_postgres::{
 
 pub(crate) mod corporate_action;
 pub(crate) mod correction_policy_projection;
-pub(crate) mod decimal_rescale_v1;
 pub(crate) mod market_semantics;
 pub(crate) mod native_replay_quote_cut_v2;
 pub(crate) mod reference_fact_catalog;

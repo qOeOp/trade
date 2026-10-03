@@ -1,36 +1,72 @@
-//! Exact rescaling of a fixed-point decimal `mantissa * 10^-scale` to another scale.
+//! Exact rescaling of a fixed-point decimal to another scale.
 //!
-//! It depends on integers alone, so any Market Data surface that aligns values to one scale - a
-//! PIT window custody series to its Instrument Master increment, a binding role to its declared
-//! scale - shares one arithmetic. It never rounds: a value finer than the target is refused.
+//! A value `mantissa * 10^-scale` is restated at `target_scale` only when that restatement is
+//! exact. Widening multiplies the mantissa by `10^(target_scale - scale)`; narrowing divides it by
+//! `10^(scale - target_scale)` and is admitted only when the remainder is zero, so `4500010` at
+//! scale 2 is `450001` at scale 1 while `4500011` is refused. A value with a nonzero digit finer
+//! than the target would have to be rounded, and a widened mantissa that does not fit in an `i128`
+//! would have to be truncated; both are refused by name. Nothing here ever rounds.
 
-/// Why a value cannot be stated exactly at the target scale.
+use std::fmt::Display;
+
+/// The one decimal scale Market Data states a market value at: every custody series and every
+/// strategy input role. A tick is not a scale - an instrument's tick changes over its history, and
+/// BTCUSDT's 2021 bars sit on a finer grid than today's tick - so the scale is fixed here once.
+pub const MARKET_DATA_VALUE_SCALE_V1: u8 = 9;
+
+/// Why a value cannot be restated exactly at the target scale.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum RescaleErrorV1 {
-    /// The value has more decimal places than the target scale holds.
+pub enum RescaleErrorV1 {
+    /// The value has a nonzero digit finer than the target scale can hold.
     FinerThanTarget,
-    /// The rescaled mantissa does not fit an `i128`.
+    /// The exact restatement does not fit in an `i128`.
     Overflow,
 }
 
-/// The mantissa of `mantissa * 10^-scale` at `target_scale`, exactly.
+impl Display for RescaleErrorV1 {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(match self {
+            Self::FinerThanTarget => "the value is finer than the target scale",
+            Self::Overflow => "the value does not fit at the target scale",
+        })
+    }
+}
+
+impl std::error::Error for RescaleErrorV1 {}
+
+/// Restates `mantissa * 10^-scale` at `target_scale` and returns the new mantissa.
+///
+/// A value already at `target_scale` comes back unchanged.
 ///
 /// # Errors
 ///
-/// [`RescaleErrorV1::FinerThanTarget`] when `scale` is above `target_scale`, and
-/// [`RescaleErrorV1::Overflow`] when the rescaled mantissa does not fit.
-pub(crate) fn rescale_exact_v1(
+/// [`RescaleErrorV1::FinerThanTarget`] when narrowing would drop a nonzero digit, and
+/// [`RescaleErrorV1::Overflow`] when the widened mantissa does not fit in an `i128`.
+pub fn rescale_exact_v1(
     mantissa: i128,
     scale: u8,
     target_scale: u8,
 ) -> Result<i128, RescaleErrorV1> {
-    let widen = target_scale
-        .checked_sub(scale)
-        .ok_or(RescaleErrorV1::FinerThanTarget)?;
-    10_i128
-        .checked_pow(u32::from(widen))
-        .and_then(|factor| mantissa.checked_mul(factor))
-        .ok_or(RescaleErrorV1::Overflow)
+    if let Some(places) = target_scale.checked_sub(scale) {
+        return 10_i128
+            .checked_pow(u32::from(places))
+            .and_then(|factor| mantissa.checked_mul(factor))
+            .ok_or(RescaleErrorV1::Overflow);
+    }
+    // Narrowing past 38 places leaves no representable nonzero digit, so only zero survives it.
+    let Some(divisor) = 10_i128.checked_pow(u32::from(scale - target_scale)) else {
+        return if mantissa == 0 {
+            Ok(0)
+        } else {
+            Err(RescaleErrorV1::FinerThanTarget)
+        };
+    };
+
+    if mantissa % divisor == 0 {
+        Ok(mantissa / divisor)
+    } else {
+        Err(RescaleErrorV1::FinerThanTarget)
+    }
 }
 
 #[cfg(test)]
@@ -40,14 +76,20 @@ mod tests {
     use super::*;
 
     #[rstest]
-    #[case::one_place_to_two(450_001, 1, 2, Ok(4_500_010))]
-    #[case::same_scale(4_500_012, 2, 2, Ok(4_500_012))]
-    #[case::integer_to_three(-7, 0, 3, Ok(-7_000))]
-    #[case::finer(45_000_123, 3, 2, Err(RescaleErrorV1::FinerThanTarget))]
-    #[case::finer_even_when_trailing_zero(4_500_010, 2, 1, Err(RescaleErrorV1::FinerThanTarget))]
-    #[case::overflow_of_the_product(i128::MAX / 5, 0, 1, Err(RescaleErrorV1::Overflow))]
-    #[case::overflow_of_the_factor(1, 0, 39, Err(RescaleErrorV1::Overflow))]
-    fn a_value_is_rescaled_exactly_or_refused(
+    #[case::same_scale(123_456, 8, 8, Ok(123_456))]
+    #[case::one_place_to_eight(1_234_565, 1, 8, Ok(12_345_650_000_000))]
+    #[case::negative(-15, 1, 3, Ok(-1_500))]
+    #[case::zero(0, 0, 38, Ok(0))]
+    #[case::narrow_exact(4_500_010, 2, 1, Ok(450_001))]
+    #[case::nine_to_eight_exact(37_244_360_000_000, 9, 8, Ok(3_724_436_000_000))]
+    #[case::narrow_negative_exact(-1_500, 3, 1, Ok(-15))]
+    #[case::narrow_inexact(4_500_011, 2, 1, Err(RescaleErrorV1::FinerThanTarget))]
+    #[case::finer(123_456_789, 9, 8, Err(RescaleErrorV1::FinerThanTarget))]
+    #[case::narrow_past_i128_zero(0, 60, 0, Ok(0))]
+    #[case::narrow_past_i128_nonzero(1, 60, 0, Err(RescaleErrorV1::FinerThanTarget))]
+    #[case::mantissa_overflow(i128::MAX / 10 + 1, 0, 1, Err(RescaleErrorV1::Overflow))]
+    #[case::factor_overflow(1, 0, 39, Err(RescaleErrorV1::Overflow))]
+    fn restates_only_exactly(
         #[case] mantissa: i128,
         #[case] scale: u8,
         #[case] target_scale: u8,
