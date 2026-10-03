@@ -31,6 +31,7 @@ use super::{
 
 pub(crate) mod authority;
 pub(crate) mod schedule;
+pub(crate) mod view;
 
 /// The most members one custody holds, as the frame evidence and the native resolver do.
 pub const PIT_WINDOW_CUSTODY_MAX_MEMBERS_V1: usize = 2;
