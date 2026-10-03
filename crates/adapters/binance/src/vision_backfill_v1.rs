@@ -61,6 +61,9 @@ pub enum VisionBackfillErrorV1 {
     ShardStoreUnavailable,
     /// The `klines` endpoint did not answer.
     EndpointUnavailable,
+    /// The fill bar the endpoint returned had not closed when it was retrieved: its gap reaches
+    /// past the present, and the custody would refuse the row as retrieved before its close.
+    FillBarNotClosed,
 }
 
 impl Display for VisionBackfillErrorV1 {
@@ -75,6 +78,7 @@ impl Display for VisionBackfillErrorV1 {
             Self::ArchiveUnreadable => "the archive is not a USD-M kline month the reader admits",
             Self::ShardStoreUnavailable => "the shard directory could not be read or written",
             Self::EndpointUnavailable => "the klines endpoint did not answer",
+            Self::FillBarNotClosed => "the fill bar had not closed when it was retrieved",
         })
     }
 }
@@ -216,7 +220,9 @@ impl VisionBackfillFetcherV1 {
     ///
     /// # Errors
     ///
-    /// Returns [`VisionBackfillErrorV1::EndpointUnavailable`] when the endpoint does not answer.
+    /// Returns [`VisionBackfillErrorV1::EndpointUnavailable`] when the endpoint does not answer,
+    /// and [`VisionBackfillErrorV1::FillBarNotClosed`] for a bar still open when it was retrieved:
+    /// the venue serves the current bar as its last, and it is never a custody row.
     pub async fn fill_bar(
         &self,
         symbol: &str,
@@ -236,14 +242,59 @@ impl VisionBackfillFetcherV1 {
             })
             .await
             .map_err(|_| VisionBackfillErrorV1::EndpointUnavailable)?;
-        Ok(klines
+        let Some(kline) = klines
             .into_iter()
             .find(|kline| kline.open_time > after_ms && kline.open_time < before_ms)
-            .map(|kline| FetchedBarV1 {
-                kline,
-                retrieval_ns,
-                route: ENDPOINT_ROUTE,
-            }))
+        else {
+            return Ok(None);
+        };
+        // The venue's close time is the last millisecond of the bar, so it has closed once the
+        // millisecond after it has passed.
+        let closed_by_ms = i64::try_from(retrieval_ns / 1_000_000).unwrap_or(i64::MAX);
+
+        if kline.close_time >= closed_by_ms {
+            return Err(VisionBackfillErrorV1::FillBarNotClosed);
+        }
+        Ok(Some(FetchedBarV1 {
+            kline,
+            retrieval_ns,
+            route: ENDPOINT_ROUTE,
+        }))
+    }
+
+    /// The fill bar of every gap after an execution bar: the first `1m` bar opening strictly
+    /// after the bar's close plus `availability_lag_ms`, and strictly before the next execution
+    /// bar's close, or before `window_end_ms` for the last. A gap the venue has no bar in is left
+    /// out. `availability_lag_ms` must be the lag the Source Binding's availability rule declares.
+    ///
+    /// # Errors
+    ///
+    /// Returns the first [`VisionBackfillErrorV1`] a gap's [`Self::fill_bar`] call returns.
+    pub async fn fill_bars(
+        &self,
+        symbol: &str,
+        execution: &[FetchedBarV1],
+        availability_lag_ms: i64,
+        window_end_ms: i64,
+    ) -> Result<Vec<FetchedBarV1>, VisionBackfillErrorV1> {
+        let mut closes: Vec<i64> = execution
+            .iter()
+            .map(|bar| bar.kline.close_time.saturating_add(1))
+            .collect();
+        closes.sort_unstable();
+        let mut fills = Vec::new();
+
+        for (index, close) in closes.iter().enumerate() {
+            let before = closes.get(index + 1).copied().unwrap_or(window_end_ms);
+
+            if let Some(fill) = self
+                .fill_bar(symbol, close.saturating_add(availability_lag_ms), before)
+                .await?
+            {
+                fills.push(fill);
+            }
+        }
+        Ok(fills)
     }
 
     async fn fetch(&self, url: String) -> Result<Vec<u8>, VisionBackfillErrorV1> {
@@ -632,6 +683,75 @@ mod tests {
             None,
             "a bar opening at the next frame's event is not inside the gap"
         );
+    }
+
+    #[tokio::test]
+    async fn a_fill_bar_still_open_when_retrieved_is_refused() {
+        let shards = ShardDir::new();
+        let now_ms = i64::try_from(NOW_NS / 1_000_000).unwrap();
+
+        let mut stand = archive(None, Vec::new());
+        stand.fill = one_minute(now_ms - 30_000);
+        let fetcher = fetcher(stand, shards.path()).await;
+
+        assert_eq!(
+            fetcher
+                .fill_bar("BTCUSDT", now_ms - 60_000, now_ms + 60_000)
+                .await,
+            Err(VisionBackfillErrorV1::FillBarNotClosed),
+        );
+    }
+
+    #[tokio::test]
+    async fn each_gap_asks_for_the_first_bar_after_its_close_and_lag_and_a_gap_without_one_is_left_out()
+     {
+        let shards = ShardDir::new();
+        let lag_ms = 300_000;
+        let execution: Vec<FetchedBarV1> = [JUNE_2021_MS, JUNE_2021_MS + DAY_MS]
+            .into_iter()
+            .map(|open_time| FetchedBarV1 {
+                kline: serde_json::from_value::<Vec<BinanceFuturesKline>>(one_minute(open_time))
+                    .map(|mut klines| {
+                        let mut kline = klines.remove(0);
+                        kline.close_time = open_time + DAY_MS - 1;
+                        kline
+                    })
+                    .unwrap(),
+                retrieval_ns: NOW_NS,
+                route: ARCHIVE_ROUTE,
+            })
+            .collect();
+
+        let mut stand = archive(None, Vec::new());
+        stand.fill = one_minute(JUNE_2021_MS + DAY_MS + lag_ms + 60_000);
+        let seen = stand.seen.clone();
+        let fetcher = fetcher(stand, shards.path()).await;
+
+        let fills = fetcher
+            .fill_bars("BTCUSDT", &execution, lag_ms, JUNE_2021_MS + 3 * DAY_MS)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            fills
+                .iter()
+                .map(|fill| fill.kline.open_time)
+                .collect::<Vec<_>>(),
+            vec![JUNE_2021_MS + DAY_MS + lag_ms + 60_000],
+            "the second gap, bounded by the window's end, has no bar"
+        );
+        let starts: Vec<String> = seen
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(_, query)| query.clone())
+            .collect();
+        assert_eq!(starts.len(), 2);
+        assert!(starts[0].contains(&format!("startTime={}", JUNE_2021_MS + DAY_MS + lag_ms + 1)));
+        assert!(starts[1].contains(&format!(
+            "startTime={}",
+            JUNE_2021_MS + 2 * DAY_MS + lag_ms + 1
+        )));
     }
 
     #[rstest]

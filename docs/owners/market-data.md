@@ -3158,6 +3158,20 @@ and the fill timeframe. This is the fetch side that feeds a custody commit. The 
   - Mapping the bars onto T0's custody request, and the commit, wait for T0's request types.
 - **Retrieval is today.** The custody's retrieval instant is the wall clock when the fetch ran. Visibility comes from
   the Source Binding's availability rule, never from a historical retrieval coordinate.
+- **A fill bar has closed when it is retrieved.** The endpoint serves the bar still forming as its last. A fill bar
+  whose close time is not before its retrieval is refused as `FillBarNotClosed` and never becomes a row, because the
+  custody would refuse that row as retrieved before its bar's close. A bar that has closed but is not yet visible,
+  its close plus the declared lag still ahead of the commit, is submitted again later.
+- **The writer passes values as the venue published them.** `crates/adapters/binance/src/vision_backfill_custody_v1.rs`
+  turns one member's fetched bars into one custody request: every bar of every input timeframe and every fill bar that
+  lies wholly inside the window, each an original version labelled by its interval-close instant, with `OPEN`,
+  `HIGH`, `LOW`, `CLOSE` and `VOLUME` as the exact mantissa and scale the venue's string spells. The custody commit
+  rescales each value to the member's Instrument Master precision and refuses a finer one, because the commit is where
+  external market data enters Market Data; the writer does not check it a second time.
+- **Each refusal names what the backfill does.** A refusal means submit the same custody again later, a defect in
+  the request the writer built, or a basis - binding, semantics, selection, window or timeframes - that needs replacing
+  before anything is committed. Nothing calls the writer in production yet, because nothing implements the custody
+  commit until the custody aggregate does.
 
 ## Input handoffs
 
