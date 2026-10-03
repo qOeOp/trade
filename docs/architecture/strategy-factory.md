@@ -1327,7 +1327,10 @@ therefore a new terms fact rather than a new Catalog version. Schema 1 without p
 refused as `InstrumentTermsPinningMismatch`. Pinning no instrument does not loosen the venue: terms at a venue the
 configuration does not name are refused before provenance exists, and the Instrument Owner resolves nothing for
 members at another venue. The account scope is the one complete scope the Owner holds for every member; schema 2
-does not pin a fee tier.
+does not pin a fee tier. Terms name their instrument by its canonical identity, which carries the venue
+(`LINKUSDT-PERP.BINANCE`): the Instrument Owner resolves a Replay's member terms by that identity, and native
+materialization compares it with the public fact's canonical identity and parses it as the native instrument id, whose
+venue must be the configuration's. A symbol without its venue names no instrument.
 
 Native engine materialization remains `UNAVAILABLE`. V1 represents liquidation only as disabled and supplies no
 numeric ratio; an adapter must separately prove that the native float-only inactive liquidation field is not read,
