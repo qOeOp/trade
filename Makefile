@@ -1276,6 +1276,10 @@ rd-workbench-up:  #-- Bring up the local R&D deployment (re-entrant; credentials
 mcp-strategy-authoring:  #-- Build the strategy-authoring MCP server for the local deployment and print how to register it
 	$Q bash product/rd-workbench/scripts/strategy-authoring-mcp.sh install
 
+.PHONY: mcp-market-data
+mcp-market-data:  #-- Build the market-data MCP server for the local deployment and print how to register it
+	$Q bash product/rd-workbench/scripts/market-data-mcp.sh install
+
 #== CLI Tools
 
 .PHONY: install-cli

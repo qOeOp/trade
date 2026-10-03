@@ -70,6 +70,9 @@ pub enum VisionBackfillErrorV1 {
     /// The binding's availability rule does not make rows visible a lag after their bar closes,
     /// so no gap after a bar's availability can be located.
     AvailabilityNotAfterBarClose,
+    /// A requested window's start or end lies before the Unix epoch, so it names no calendar
+    /// month an archive could serve.
+    WindowBeforeEpoch,
 }
 
 impl Display for VisionBackfillErrorV1 {
@@ -88,6 +91,7 @@ impl Display for VisionBackfillErrorV1 {
             Self::AvailabilityNotAfterBarClose => {
                 "the binding's availability rule is not a lag after the bar's close"
             }
+            Self::WindowBeforeEpoch => "the requested window lies before the Unix epoch",
         })
     }
 }
@@ -224,6 +228,34 @@ impl VisionBackfillFetcherV1 {
             .collect())
     }
 
+    /// Every ordinary bar of every calendar month [`Self::execution_month`] could read that
+    /// overlaps `[window_start_ns, window_end_ns_exclusive)`, concatenated in month order.
+    ///
+    /// Fetches a superset, not an exact window: a month's bars that fall outside the window are
+    /// included too, because the custody request builder
+    /// (`crates/adapters/binance/src/vision_backfill_custody_v1.rs::cross_section`) already
+    /// filters every bar by its own close instant against the same window, so filtering here
+    /// first would be a second definition of the same rule.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`VisionBackfillErrorV1::WindowBeforeEpoch`] for a window before the Unix epoch,
+    /// and otherwise the first error [`Self::execution_month`] returns for any covered month.
+    pub async fn execution_window(
+        &self,
+        symbol: &str,
+        interval: BinanceKlineInterval,
+        window_start_ns: u64,
+        window_end_ns_exclusive: u64,
+    ) -> Result<Vec<FetchedBarV1>, VisionBackfillErrorV1> {
+        let mut bars = Vec::new();
+
+        for (year, month) in calendar_months(window_start_ns, window_end_ns_exclusive)? {
+            bars.extend(self.execution_month(symbol, interval, year, month).await?);
+        }
+        Ok(bars)
+    }
+
     /// The first `1m` bar opening strictly after `after_ms` and strictly before `before_ms`, or
     /// `None` when the venue has none in that gap.
     ///
@@ -331,6 +363,84 @@ impl VisionBackfillFetcherV1 {
             return Err(VisionBackfillErrorV1::ArchiveUnavailable);
         }
         Ok(response.body.to_vec())
+    }
+}
+
+/// Every UTC calendar `(year, month)` `[window_start_ns, window_end_ns_exclusive)` touches, in
+/// ascending order: the archive month an instant falls in, for the first instant and for every
+/// instant strictly before the exclusive end.
+fn calendar_months(
+    window_start_ns: u64,
+    window_end_ns_exclusive: u64,
+) -> Result<Vec<(i32, u8)>, VisionBackfillErrorV1> {
+    if window_end_ns_exclusive <= window_start_ns {
+        return Ok(Vec::new());
+    }
+    let start = jiff::Timestamp::from_nanosecond(i128::from(window_start_ns))
+        .map_err(|_| VisionBackfillErrorV1::WindowBeforeEpoch)?
+        .to_zoned(jiff::tz::TimeZone::UTC);
+    let last_ns = window_end_ns_exclusive - 1;
+    let end = jiff::Timestamp::from_nanosecond(i128::from(last_ns))
+        .map_err(|_| VisionBackfillErrorV1::WindowBeforeEpoch)?
+        .to_zoned(jiff::tz::TimeZone::UTC);
+
+    let mut months = Vec::new();
+    let mut year: i16 = start.year();
+    let mut month = start.month();
+    loop {
+        months.push((i32::from(year), u8::try_from(month).unwrap_or(1)));
+        if year == end.year() && month == end.month() {
+            break;
+        }
+
+        if month == 12 {
+            year += 1;
+            month = 1;
+        } else {
+            month += 1;
+        }
+    }
+    Ok(months)
+}
+
+#[cfg(test)]
+mod calendar_months_tests {
+    use rstest::rstest;
+
+    use super::calendar_months;
+
+    const fn nanos_per_day() -> u64 {
+        24 * 60 * 60 * 1_000_000_000
+    }
+
+    #[rstest]
+    fn a_window_inside_one_month_names_that_month() {
+        // 2024-01-15T00:00:00Z through 2024-01-16T00:00:00Z (exclusive).
+        let start = 1_705_276_800_000_000_000;
+        let months = calendar_months(start, start + nanos_per_day()).unwrap();
+        assert_eq!(months, vec![(2024, 1)]);
+    }
+
+    #[rstest]
+    fn a_window_crossing_a_month_boundary_names_both_months() {
+        // 2024-01-31T00:00:00Z through 2024-02-01T00:00:00Z + 1 day (exclusive end inside Feb).
+        let jan_31 = 1_706_659_200_000_000_000;
+        let months = calendar_months(jan_31, jan_31 + 2 * nanos_per_day()).unwrap();
+        assert_eq!(months, vec![(2024, 1), (2024, 2)]);
+    }
+
+    #[rstest]
+    fn a_window_crossing_a_year_boundary_names_both_years() {
+        // 2023-12-31T00:00:00Z through 2024-01-01T00:00:00Z + 1 day (exclusive end inside Jan).
+        let dec_31 = 1_703_980_800_000_000_000;
+        let months = calendar_months(dec_31, dec_31 + 2 * nanos_per_day()).unwrap();
+        assert_eq!(months, vec![(2023, 12), (2024, 1)]);
+    }
+
+    #[rstest]
+    fn an_empty_window_names_no_month() {
+        assert_eq!(calendar_months(10, 10).unwrap(), Vec::new());
+        assert_eq!(calendar_months(10, 5).unwrap(), Vec::new());
     }
 }
 

@@ -177,6 +177,15 @@ pub fn binance_perpetual_eligible_frontier_v1(raw_symbols: &[&str]) -> BindingDi
     BindingDigest::from_untrusted_bytes(bytes)
 }
 
+/// The kline and `exchangeInfo` Source Bindings' own `correction_frontier.digest`
+/// (`binance_perpetual_source_proposal`'s `frontier("correction-frontier")`), for a caller that
+/// must restate it rather than read it back from an admitted locator, which exposes no accessor
+/// for it.
+#[must_use]
+pub fn binance_perpetual_correction_frontier_digest_v1() -> BindingDigest {
+    binance_perpetual_admission_digest_v1("correction-frontier")
+}
+
 /// The one-time, complete historical-membership admission for [`BINANCE_PERPETUAL_U1_MEMBERS_V1`],
 /// to send through the generic `POST /v1/market-data/historical-memberships` route after the
 /// kline Source Binding is admitted (its lineage is this request's) but before any symbol's own
@@ -225,7 +234,14 @@ pub fn binance_perpetual_eligible_set_admission_request_v1(
 /// identity (`encode_time_without_claim`), so a proposal that claimed "now" would derive a new
 /// binding identity on every call; fixing it is what makes the second symbol's identical proposal
 /// rejoin the first symbol's binding instead of minting a second one.
-const BINANCE_PERPETUAL_BINDING_EFFECTIVE_NS_V1: u64 = 1_700_000_000_000_000_000;
+///
+/// Also reused by the backfill job as the fixed `decision_cut`/`effective_at_ns`/
+/// `owner_observation_ns` of its universe-selection `evaluate()` request: every Instrument Master
+/// fact this route admits states `effective_from: 1`, so it is in force at this instant
+/// regardless of when it was actually admitted, and reusing one fixed instant (rather than "now")
+/// is what makes a repeat backfill of the same job rejoin the same evaluated selection, and so
+/// the same custody, instead of minting a new one each run.
+pub const BINANCE_PERPETUAL_BINDING_EFFECTIVE_NS_V1: u64 = 1_700_000_000_000_000_000;
 
 /// The perpetual's Source Binding, as this route proposes one: a public USD-M feed that needs no
 /// credential. Every clock field is the Owner's and is overwritten on admission; the proposer's
