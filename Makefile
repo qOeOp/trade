@@ -1271,6 +1271,10 @@ docs-site-check:  #-- Type-check and build the static documentation site
 rd-workbench-check:  #-- Validate the pinned R&D deployment package
 	$Q bash product/rd-workbench/scripts/check.sh
 
+.PHONY: rd-workbench-up
+rd-workbench-up:  #-- Bring up the local R&D deployment (re-entrant; credentials generated locally)
+	$Q bash product/rd-workbench/scripts/up.sh
+
 #== CLI Tools
 
 .PHONY: install-cli
