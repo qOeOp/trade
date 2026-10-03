@@ -2932,9 +2932,9 @@ and the fill timeframe. This is the fetch side that feeds a custody commit. The 
   frame `k`'s bar event plus the declared lag, and strictly before frame `k+1`'s bar event. One unsigned `klines` call
   with that start and `limit=1` returns it. There is one call per frame and no `1m` archive, which is about 2 MB a
   month.
-- **Funding settlements enter the same custody.** They are their own `TICK` timeframe, with each settlement's instant
-  as its event. They are fetched from the monthly `fundingRate` archive with its checksum. The availability rule
-  anchors on each row's own event: a bar's close, or a funding settlement.
+- **Funding stays outside this custody for now.** A Source Binding declares one availability rule, and a funding
+  settlement is not a declared bar timeframe. U1's funding is therefore read through the perpetual Data Client's
+  settled funding rows. A separate binding can add it to custody later, and that change only adds.
 - **Each row names its route.** Execution bars come from the archive host, and fill bars from the endpoint host, under
   one Source Binding. The custody evidence records which route produced each row.
 - **Resumable and idempotent.** Each fetched file is kept in a shard directory under its archive name, beside its
