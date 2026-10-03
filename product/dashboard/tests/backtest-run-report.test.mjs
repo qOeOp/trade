@@ -353,6 +353,33 @@ test("the strategy is stated only for the admitted single-threshold family", () 
   );
 });
 
+const exits = {
+  stop_loss_fraction: "0.02",
+  max_holding_bars: 5,
+  judged: "AT_BAR_CLOSE_FILLED_NEXT_FRAME",
+};
+
+test("a strategy states its exits only as the authoring family spells them", () => {
+  const withExits = (value) => normalizeBacktestRunReport({
+    ...available,
+    strategy: { ...strategy, exits: value },
+  }, LOCATOR).state;
+  assert.equal(withExits(exits), "available");
+  assert.equal(withExits({ take_profit_fraction: "0.005", judged: exits.judged }), "available");
+  for (const [label, value] of [
+    ["no exit named", { judged: exits.judged }],
+    ["judged inside the bar", { ...exits, judged: "INTRA_BAR" }],
+    ["no judgement stated", { stop_loss_fraction: "0.02" }],
+    ["a trailing zero", { ...exits, stop_loss_fraction: "0.020" }],
+    ["a fraction of one", { ...exits, stop_loss_fraction: "1" }],
+    ["zero bars", { ...exits, max_holding_bars: 0 }],
+    ["an unknown exit", { ...exits, trailing_fraction: "0.01" }],
+    ["not an object", "0.02"],
+  ]) {
+    assert.equal(withExits(value), "unavailable", label);
+  }
+});
+
 test("anything that is not a projection object fails closed", () => {
   for (const value of [null, undefined, "AVAILABLE", 7, [], [available]]) {
     assert.deepEqual(normalizeBacktestRunReport(value, LOCATOR), invalid);
@@ -455,6 +482,13 @@ test("empty lists the run's fills, says what is missing and the Owner's reason a
   assert.doesNotMatch(html, /<polyline|<circle|unavailable-state/u);
   assert.deepEqual(cellTexts(html).filter((text) => text === "BUY" || text === "SELL"), ["BUY", "SELL"]);
   assert.match(html, /<h3>Strategy<\/h3>/u);
+});
+
+test("the strategy says when it has no exits, and states each exit it names", () => {
+  assert.match(render(normalizeBacktestRunReport(available, LOCATOR)), /None: positions are left only by the sides/u);
+  const html = render(normalizeBacktestRunReport({ ...available, strategy: { ...strategy, exits } }, LOCATOR));
+  assert.match(html, /stop-loss 0\.02 · after 5 bars · judged at the bar close, filled on the next frame/u);
+  assert.doesNotMatch(html, /None: positions are left only by the sides|take-profit/u);
 });
 
 test("fills are shown exactly as the projection wrote them", () => {

@@ -1,5 +1,6 @@
 import type {
   BacktestRunReport as BacktestRunReportProjection,
+  BacktestRunReportExits,
   BacktestRunReportFill,
   BacktestRunReportOutcome,
   BacktestRunReportPoint,
@@ -50,6 +51,7 @@ export function BacktestRunReport({ report }: { report: BacktestRunReportProject
               <FactItem label="Threshold" mono>{report.strategy.threshold}</FactItem>
               <FactItem label="When true">{outcomeText(report.strategy.when_true)}</FactItem>
               <FactItem label="Otherwise">{outcomeText(report.strategy.otherwise)}</FactItem>
+              <FactItem label="Exits">{exitsText(report.strategy.exits)}</FactItem>
               <FactItem label="Falsifier">{report.strategy.falsifier}</FactItem>
             </FactGroup>
             <FactGroup title="Data window">
@@ -96,6 +98,18 @@ export function BacktestRunReport({ report }: { report: BacktestRunReportProject
 
 function outcomeText(outcome: BacktestRunReportOutcome): string {
   return `${outcome.position_intent_semantic_id} · target ${outcome.target_position_units}`;
+}
+
+// A program without exits says so, rather than leaving the line out: an absent line would read the
+// same as a report that cannot state its exits.
+function exitsText(exits: BacktestRunReportExits | undefined): string {
+  if (!exits) return "None: positions are left only by the sides";
+  const named = [
+    exits.stop_loss_fraction && `stop-loss ${exits.stop_loss_fraction}`,
+    exits.take_profit_fraction && `take-profit ${exits.take_profit_fraction}`,
+    exits.max_holding_bars !== undefined && `after ${exits.max_holding_bars} bars`,
+  ].filter(Boolean);
+  return `${named.join(" · ")} · judged at the bar close, filled on the next frame`;
 }
 
 // Plots the stated points and nothing between them: the path joins the observations the projection
