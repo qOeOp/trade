@@ -253,6 +253,21 @@ pub struct UntrustedPitWindowRunV1 {
     pub run_end_ns_exclusive: u64,
 }
 
+/// One frame of a run, as a consumer asks the native Replay resolver for it.
+///
+/// It pins the head the run's frames were read from, so a correction committed between
+/// enumeration and the per-frame reads cannot mix two heads into one run: the resolver reads the
+/// view at that head, and refuses a head that is not in the named chain.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct UntrustedPitWindowCustodyFrameV1 {
+    pub custody: UntrustedPitWindowCustodyClaimV1,
+    /// The head identity [`PitWindowRunFramesV1::head_identity`] returned.
+    pub head_identity: BindingDigest,
+    /// The frame's `e_k`.
+    pub event_ns: u64,
+}
+
 /// Where one frame of a run lies. It has no public constructor:
 ///
 /// ```compile_fail

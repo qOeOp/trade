@@ -2595,7 +2595,9 @@ Backtest.
     its own window inside the custody's. Its frames come back as coordinates - ordinal, `e_k` and `d_k`, where `d_k` is
     the derived availability of frame `k`'s execution cross-section - read from the head it names. Each frame's inputs
     and quote cut are then resolved through the native Replay resolver, whose request gains a custody frame source in
-    the derived view slice. Every gap has its quote cut, the last bounded by the run's end, and a gap without one
+    the derived view slice. That source names the chain root, the head the frames were read from and `e_k`, so a
+    correction committed between enumeration and the per-frame reads cannot mix two heads into one run; a head that is
+    not in the chain is refused. Every gap has its quote cut, the last bounded by the run's end, and a gap without one
     refuses the run as `QuoteCutMissing`.
   - A batch's source is a committed snapshot, a custody view or a custody quote cut. A custody view names its chain's
     root, not its head, with its view identity, `e_k`, `d_k` and derived frontier, so a correction changes only the
