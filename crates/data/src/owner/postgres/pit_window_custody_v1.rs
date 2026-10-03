@@ -45,9 +45,9 @@ use crate::owner::{
         UntrustedPitWindowCustodyRequestV1,
         authority::{
             ChainPositionV1, CustodyBindingV1, CustodyFactSpanV1, CustodyInputsV1,
-            CustodyInstrumentV1, CustodyMemberFactV1, CustodyMembershipV1, DerivedCustodyV1,
-            StoredChainV1, StoredVersionV1, check_request_shape_v1, custody_digest_v1,
-            derive_custody_v1, kind_from_tag, kind_tag,
+            CustodyInstrumentV1, CustodyMemberFactV1, CustodyMembershipV1, CustodyMintingClockV1,
+            DerivedCustodyV1, StoredChainV1, StoredVersionV1, check_request_shape_v1,
+            custody_digest_v1, derive_custody_v1, kind_from_tag, kind_tag,
         },
         schedule::{PitWindowScheduleFactV1, decode_window_schedule_v1, mint_window_schedules_v1},
         sealed,
@@ -68,7 +68,7 @@ use PitWindowCustodyRefusalV1 as Refused;
 /// The custody's four tables. Every one is append-only except the chain head, which a successor
 /// moves; none is readable by `PUBLIC`.
 pub(super) const SCHEMA_V1: &[&str] = &[
-    "CREATE TABLE IF NOT EXISTS market_data_private.pit_window_custodies_v1 (custody_identity BYTEA PRIMARY KEY CHECK (octet_length(custody_identity)=32), custody_digest BYTEA NOT NULL CHECK (octet_length(custody_digest)=32), chain_root BYTEA NOT NULL CHECK (octet_length(chain_root)=32), chain_version BIGINT NOT NULL CHECK (chain_version>0), predecessor_identity BYTEA REFERENCES market_data_private.pit_window_custodies_v1(custody_identity), minting_cut_ns BIGINT NOT NULL CHECK (minting_cut_ns>0), rule_digest BYTEA NOT NULL CHECK (octet_length(rule_digest)=32), basis_digest BYTEA NOT NULL CHECK (octet_length(basis_digest)=32), canonical_bytes BYTEA NOT NULL, evidence_digest BYTEA NOT NULL CHECK (octet_length(evidence_digest)=32), UNIQUE (chain_root, chain_version), CHECK ((chain_version=1)=(predecessor_identity IS NULL)), CHECK ((chain_version=1)=(chain_root=custody_identity)))",
+    "CREATE TABLE IF NOT EXISTS market_data_private.pit_window_custodies_v1 (custody_identity BYTEA PRIMARY KEY CHECK (octet_length(custody_identity)=32), custody_digest BYTEA NOT NULL CHECK (octet_length(custody_digest)=32), chain_root BYTEA NOT NULL CHECK (octet_length(chain_root)=32), chain_version BIGINT NOT NULL CHECK (chain_version>0), predecessor_identity BYTEA REFERENCES market_data_private.pit_window_custodies_v1(custody_identity), minting_cut_ns BIGINT NOT NULL CHECK (minting_cut_ns>0), rule_digest BYTEA NOT NULL CHECK (octet_length(rule_digest)=32), basis_digest BYTEA NOT NULL CHECK (octet_length(basis_digest)=32), canonical_bytes BYTEA NOT NULL, evidence_digest BYTEA NOT NULL CHECK (octet_length(evidence_digest)=32), minting_clock_identity TEXT NOT NULL CHECK (octet_length(minting_clock_identity)>0), minting_clock_epoch TEXT NOT NULL CHECK (octet_length(minting_clock_epoch)>0), minting_clock_sequence BIGINT NOT NULL CHECK (minting_clock_sequence>0), minting_restart_continuity_digest BYTEA NOT NULL CHECK (octet_length(minting_restart_continuity_digest)=32), minting_uncertainty_bound BIGINT NOT NULL CHECK (minting_uncertainty_bound>=0), minting_skew_bound BIGINT NOT NULL CHECK (minting_skew_bound>0), UNIQUE (chain_root, chain_version), CHECK ((chain_version=1)=(predecessor_identity IS NULL)), CHECK ((chain_version=1)=(chain_root=custody_identity)))",
     "REVOKE ALL ON TABLE market_data_private.pit_window_custodies_v1 FROM PUBLIC",
     "CREATE TABLE IF NOT EXISTS market_data_private.pit_window_custody_heads_v1 (chain_root BYTEA PRIMARY KEY REFERENCES market_data_private.pit_window_custodies_v1(custody_identity), head_identity BYTEA NOT NULL REFERENCES market_data_private.pit_window_custodies_v1(custody_identity), head_version BIGINT NOT NULL CHECK (head_version>0))",
     "REVOKE ALL ON TABLE market_data_private.pit_window_custody_heads_v1 FROM PUBLIC",
@@ -597,9 +597,16 @@ async fn commit_custody_v1(
             .map_err(|cause| store_error(&cause))?;
     }
 
-    // 6. The minted clock, then the custody, its versions and rows, and the chain head.
-    let custody_digest = custody_digest_v1(identity, minting_cut, derived.evidence_digest);
-    sqlx::query("INSERT INTO market_data_private.pit_window_custodies_v1(custody_identity,custody_digest,chain_root,chain_version,predecessor_identity,minting_cut_ns,rule_digest,basis_digest,canonical_bytes,evidence_digest) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)")
+    // 6. The minted clock, then the custody, its versions and rows, and the chain head. The record
+    //    names the clock its minting cut is an instant of, under its digest.
+    let minting_clock = minting_clock_v1(cut_clock);
+    let custody_digest = custody_digest_v1(
+        identity,
+        minting_cut,
+        derived.evidence_digest,
+        &minting_clock,
+    );
+    sqlx::query("INSERT INTO market_data_private.pit_window_custodies_v1(custody_identity,custody_digest,chain_root,chain_version,predecessor_identity,minting_cut_ns,rule_digest,basis_digest,canonical_bytes,evidence_digest,minting_clock_identity,minting_clock_epoch,minting_clock_sequence,minting_restart_continuity_digest,minting_uncertainty_bound,minting_skew_bound) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)")
         .bind(identity.as_bytes().as_slice())
         .bind(custody_digest.as_bytes().as_slice())
         .bind(chain_root.as_bytes().as_slice())
@@ -610,6 +617,12 @@ async fn commit_custody_v1(
         .bind(derived.basis_digest.as_bytes().as_slice())
         .bind(canonical_bytes.as_slice())
         .bind(derived.evidence_digest.as_bytes().as_slice())
+        .bind(minting_clock.identity.as_str())
+        .bind(minting_clock.epoch.as_str())
+        .bind(to_i64(minting_clock.sequence)?)
+        .bind(minting_clock.restart_continuity_digest.as_bytes().as_slice())
+        .bind(to_i64(minting_clock.uncertainty_bound)?)
+        .bind(to_i64(minting_clock.skew_bound)?)
         .execute(&mut *transaction)
         .await
         .map_err(|cause| store_error(&cause))?;
@@ -694,6 +707,18 @@ async fn commit_custody_v1(
         derived.rule_digest,
         minting_cut,
     ))
+}
+
+/// The Owner clock a custody minted at `clock`'s cut is minted under.
+fn minting_clock_v1(clock: &MarketDataClockAdmission) -> CustodyMintingClockV1 {
+    CustodyMintingClockV1 {
+        identity: clock.clock_identity.clone(),
+        epoch: clock.clock_epoch.clone(),
+        sequence: clock.monotonic_sequence,
+        restart_continuity_digest: clock.restart_continuity_digest,
+        uncertainty_bound: clock.uncertainty_bound,
+        skew_bound: clock.skew_bound,
+    }
 }
 
 async fn insert_window_schedule(

@@ -804,19 +804,21 @@ fn custody_timeframe(
 }
 
 impl DerivedCustodyV1 {
+    /// Each timeframe's identity with the label it is held under, so a view row can state its
+    /// label from the custody alone and a relabelling is another custody.
     fn timeframe_identities(&self, out: &mut Vec<u8>) {
-        out.extend_from_slice(self.execution.identity.as_bytes());
-        let inputs = self
-            .inputs
-            .iter()
-            .map(|timeframe| timeframe.identity)
-            .collect::<BTreeSet<_>>();
-        put_u64(out, inputs.len() as u64);
-
-        for identity in inputs {
-            out.extend_from_slice(identity.as_bytes());
-        }
-        put_optional(out, self.fill.as_ref().map(|fill| fill.identity));
+        put_timeframes(
+            out,
+            (self.execution.identity, &self.execution.label),
+            &self
+                .inputs
+                .iter()
+                .map(|timeframe| (timeframe.identity, timeframe.label.as_str()))
+                .collect::<BTreeMap<_, _>>(),
+            self.fill
+                .as_ref()
+                .map(|fill| (fill.identity, fill.label.as_str())),
+        );
     }
 
     fn members(&self, out: &mut Vec<u8>) {
@@ -1067,6 +1069,295 @@ impl DerivedCustodyV1 {
     }
 }
 
+/// Writes the execution timeframe, the inputs in ascending identity, and the optional fill, each as
+/// its identity then its label.
+fn put_timeframes(
+    out: &mut Vec<u8>,
+    execution: (BindingDigest, &str),
+    inputs: &BTreeMap<BindingDigest, &str>,
+    fill: Option<(BindingDigest, &str)>,
+) {
+    out.extend_from_slice(execution.0.as_bytes());
+    put_var(out, execution.1.as_bytes());
+    put_u64(out, inputs.len() as u64);
+
+    for (identity, label) in inputs {
+        out.extend_from_slice(identity.as_bytes());
+        put_var(out, label.as_bytes());
+    }
+
+    match fill {
+        None => out.push(0),
+        Some((identity, label)) => {
+            out.push(1);
+            out.extend_from_slice(identity.as_bytes());
+            put_var(out, label.as_bytes());
+        }
+    }
+}
+
+/// The Owner clock a custody was minted under: the clock its minting cut is an instant of.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct CustodyMintingClockV1 {
+    pub(crate) identity: String,
+    pub(crate) epoch: String,
+    pub(crate) sequence: u64,
+    pub(crate) restart_continuity_digest: BindingDigest,
+    pub(crate) uncertainty_bound: u64,
+    pub(crate) skew_bound: u64,
+}
+
+/// One timeframe a stored custody holds: its identity and the label it is held under.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "read back by the derived view's chain verifier (T0-5 C6)"
+    )
+)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct RecordedTimeframeV1 {
+    pub(crate) identity: BindingDigest,
+    pub(crate) label: String,
+}
+
+/// A stored custody record, read back from the canonical bytes its identity is the digest of.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "read back by the derived view's chain verifier (T0-5 C6)"
+    )
+)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct CustodyRecordV1 {
+    pub(crate) identity: BindingDigest,
+    pub(crate) binding_id: BindingDigest,
+    pub(crate) binding_fact_digest: BindingDigest,
+    pub(crate) lineage_root: BindingDigest,
+    pub(crate) lineage_version: u64,
+    pub(crate) rule_digest: BindingDigest,
+    pub(crate) market_semantics_identity: BindingDigest,
+    /// The Universe Selection locator: `(request_identity, request_meaning_digest)`.
+    pub(crate) universe: (BindingDigest, BindingDigest),
+    pub(crate) instrument_master_key: BindingDigest,
+    pub(crate) members: Vec<String>,
+    /// `[start, end)`.
+    pub(crate) window: (u64, u64),
+    pub(crate) execution: RecordedTimeframeV1,
+    /// In ascending identity, the execution timeframe among them.
+    pub(crate) inputs: Vec<RecordedTimeframeV1>,
+    pub(crate) fill: Option<RecordedTimeframeV1>,
+    pub(crate) predecessor: Option<BindingDigest>,
+    /// Zero for a root, whose chain root is its own identity.
+    pub(crate) chain_root_field: BindingDigest,
+    pub(crate) chain_version: u64,
+    pub(crate) version_identities: BTreeSet<BindingDigest>,
+}
+
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "read back by the derived view's chain verifier (T0-5 C6)"
+    )
+)]
+impl CustodyRecordV1 {
+    /// The root of the chain this custody belongs to.
+    pub(crate) fn chain_root(&self) -> BindingDigest {
+        if self.predecessor.is_none() {
+            self.identity
+        } else {
+            self.chain_root_field
+        }
+    }
+
+    /// The basis a successor restates, as [`DerivedCustodyV1`] binds it at commit.
+    pub(crate) fn basis_digest(&self) -> BindingDigest {
+        let mut bytes = Vec::new();
+        put_u16(&mut bytes, 1);
+        bytes.extend_from_slice(self.lineage_root.as_bytes());
+        bytes.extend_from_slice(self.rule_digest.as_bytes());
+        bytes.extend_from_slice(self.market_semantics_identity.as_bytes());
+        bytes.extend_from_slice(self.instrument_master_key.as_bytes());
+        put_u64(&mut bytes, self.members.len() as u64);
+
+        for member in &self.members {
+            put_var(&mut bytes, member.as_bytes());
+        }
+        put_u64(&mut bytes, self.window.0);
+        put_u64(&mut bytes, self.window.1);
+        put_timeframes(
+            &mut bytes,
+            (self.execution.identity, &self.execution.label),
+            &self
+                .inputs
+                .iter()
+                .map(|timeframe| (timeframe.identity, timeframe.label.as_str()))
+                .collect(),
+            self.fill
+                .as_ref()
+                .map(|fill| (fill.identity, fill.label.as_str())),
+        );
+        sha256(BASIS_DOMAIN, &bytes)
+    }
+}
+
+/// Reads stored custody bytes back into the record they state, only when they are exactly the
+/// canonical bytes of `identity`: the digest under the custody domain, no trailing byte, inputs
+/// strictly ascending with the execution timeframe among them and the fill never among them, and
+/// a chain position a commit can write.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "read back by the derived view's chain verifier (T0-5 C6)"
+    )
+)]
+pub(crate) fn decode_custody_record_v1(
+    bytes: &[u8],
+    identity: BindingDigest,
+) -> Option<CustodyRecordV1> {
+    if sha256(CUSTODY_DOMAIN, bytes) != identity {
+        return None;
+    }
+    let mut reader = RecordReader { bytes };
+
+    if reader.take(2)? != 1_u16.to_be_bytes() {
+        return None;
+    }
+    let binding_id = reader.digest()?;
+    let binding_fact_digest = reader.digest()?;
+    let lineage_root = reader.digest()?;
+    let lineage_version = reader.u64()?;
+    let rule_digest = reader.digest()?;
+    let market_semantics_identity = reader.digest()?;
+    let universe = (reader.digest()?, reader.digest()?);
+    let instrument_master_key = reader.digest()?;
+    let member_count = usize::try_from(reader.u64()?).ok()?;
+
+    if member_count == 0 || member_count > PIT_WINDOW_CUSTODY_MAX_MEMBERS_V1 {
+        return None;
+    }
+    let members = (0..member_count)
+        .map(|_| reader.text())
+        .collect::<Option<Vec<_>>>()?;
+    let window = (reader.u64()?, reader.u64()?);
+    let execution = reader.timeframe()?;
+    let input_count = usize::try_from(reader.u64()?).ok()?;
+    let inputs = (0..input_count)
+        .map(|_| reader.timeframe())
+        .collect::<Option<Vec<_>>>()?;
+    let fill = match reader.u8()? {
+        0 => None,
+        1 => Some(reader.timeframe()?),
+        _ => return None,
+    };
+    let predecessor = match reader.u8()? {
+        0 => None,
+        1 => Some(reader.digest()?),
+        _ => return None,
+    };
+    let chain_root_field = reader.digest()?;
+    let chain_version = reader.u64()?;
+    let version_count = usize::try_from(reader.u64()?).ok()?;
+    let versions = (0..version_count)
+        .map(|_| reader.digest())
+        .collect::<Option<Vec<_>>>()?;
+
+    let root = predecessor.is_none();
+    let well_formed = reader.bytes.is_empty()
+        && members.iter().all(|member| !member.is_empty())
+        && members.windows(2).all(|pair| pair[0] < pair[1])
+        && window.0 < window.1
+        && inputs
+            .windows(2)
+            .all(|pair| pair[0].identity < pair[1].identity)
+        && inputs.contains(&execution)
+        && fill
+            .as_ref()
+            .is_none_or(|fill| inputs.iter().all(|input| input.identity != fill.identity))
+        && versions.windows(2).all(|pair| pair[0] < pair[1])
+        && !versions.is_empty()
+        && root == (chain_version == 1)
+        && root == (chain_root_field == ZERO);
+
+    well_formed.then(|| CustodyRecordV1 {
+        identity,
+        binding_id,
+        binding_fact_digest,
+        lineage_root,
+        lineage_version,
+        rule_digest,
+        market_semantics_identity,
+        universe,
+        instrument_master_key,
+        members,
+        window,
+        execution,
+        inputs,
+        fill,
+        predecessor,
+        chain_root_field,
+        chain_version,
+        version_identities: versions.into_iter().collect(),
+    })
+}
+
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "read back by the derived view's chain verifier (T0-5 C6)"
+    )
+)]
+struct RecordReader<'a> {
+    bytes: &'a [u8],
+}
+
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "read back by the derived view's chain verifier (T0-5 C6)"
+    )
+)]
+impl<'a> RecordReader<'a> {
+    fn take(&mut self, length: usize) -> Option<&'a [u8]> {
+        if self.bytes.len() < length {
+            return None;
+        }
+        let (head, tail) = self.bytes.split_at(length);
+        self.bytes = tail;
+        Some(head)
+    }
+
+    fn u8(&mut self) -> Option<u8> {
+        Some(self.take(1)?[0])
+    }
+
+    fn u64(&mut self) -> Option<u64> {
+        Some(u64::from_be_bytes(self.take(8)?.try_into().ok()?))
+    }
+
+    fn digest(&mut self) -> Option<BindingDigest> {
+        Some(BindingDigest::from_untrusted_bytes(
+            self.take(32)?.try_into().ok()?,
+        ))
+    }
+
+    fn text(&mut self) -> Option<String> {
+        let length = usize::try_from(self.u64()?).ok()?;
+        String::from_utf8(self.take(length)?.to_vec()).ok()
+    }
+
+    fn timeframe(&mut self) -> Option<RecordedTimeframeV1> {
+        let identity = self.digest()?;
+        let label = self.text().filter(|label| !label.is_empty())?;
+        Some(RecordedTimeframeV1 { identity, label })
+    }
+}
+
 /// The digest one row is bound by: instrument, field and exact value, never its retrieval.
 pub(crate) fn row_digest_v1(
     instrument: &str,
@@ -1082,16 +1373,24 @@ pub(crate) fn row_digest_v1(
     sha256(ROW_DOMAIN, &bytes)
 }
 
-/// The digest of one stored custody record: its identity, minting cut and retrieval evidence.
+/// The digest of one stored custody record: its identity, minting cut, retrieval evidence and the
+/// Owner clock the cut is an instant of.
 pub(crate) fn custody_digest_v1(
     identity: BindingDigest,
     minting_cut: u64,
     evidence_digest: BindingDigest,
+    clock: &CustodyMintingClockV1,
 ) -> BindingDigest {
-    let mut bytes = Vec::with_capacity(72);
+    let mut bytes = Vec::with_capacity(200);
     bytes.extend_from_slice(identity.as_bytes());
     put_u64(&mut bytes, minting_cut);
     bytes.extend_from_slice(evidence_digest.as_bytes());
+    put_var(&mut bytes, clock.identity.as_bytes());
+    put_var(&mut bytes, clock.epoch.as_bytes());
+    put_u64(&mut bytes, clock.sequence);
+    bytes.extend_from_slice(clock.restart_continuity_digest.as_bytes());
+    put_u64(&mut bytes, clock.uncertainty_bound);
+    put_u64(&mut bytes, clock.skew_bound);
     sha256(RECORD_DOMAIN, &bytes)
 }
 

@@ -22,6 +22,7 @@ use crate::owner::{
         PitWindowCustodyRefusalV1 as Refused, UntrustedCrossSectionVersionV1,
         UntrustedCustodyRowV1, UntrustedPitWindowCustodyClaimV1,
         UntrustedPitWindowCustodyRequestV1,
+        authority::{CustodyMintingClockV1, custody_digest_v1},
     },
     sample_fact::v2::{SampleFactV2, decode_sample_fact_v2},
     source_binding::{
@@ -461,6 +462,48 @@ async fn schedules_of(
     schedules
 }
 
+/// The minting clock a stored custody record names, from its columns.
+async fn minting_clock_of(
+    owner: &MarketDataOwnerPostgres,
+    custody: BindingDigest,
+) -> CustodyMintingClockV1 {
+    let row = sqlx::query(
+        "SELECT minting_clock_identity,minting_clock_epoch,minting_clock_sequence,minting_restart_continuity_digest,minting_uncertainty_bound,minting_skew_bound FROM market_data_private.pit_window_custodies_v1 WHERE custody_identity=$1",
+    )
+    .bind(custody.as_bytes().as_slice())
+    .fetch_one(owner.pool())
+    .await
+    .unwrap();
+    let restart: Vec<u8> = row.get("minting_restart_continuity_digest");
+    CustodyMintingClockV1 {
+        identity: row.get("minting_clock_identity"),
+        epoch: row.get("minting_clock_epoch"),
+        sequence: u64::try_from(row.get::<i64, _>("minting_clock_sequence")).unwrap(),
+        restart_continuity_digest: BindingDigest::from_untrusted_bytes(restart.try_into().unwrap()),
+        uncertainty_bound: u64::try_from(row.get::<i64, _>("minting_uncertainty_bound")).unwrap(),
+        skew_bound: u64::try_from(row.get::<i64, _>("minting_skew_bound")).unwrap(),
+    }
+}
+
+/// The Owner clock head, as a custody minted at it would name it.
+async fn clock_head_tuple(owner: &MarketDataOwnerPostgres) -> CustodyMintingClockV1 {
+    let row = sqlx::query(
+        "SELECT clock_identity,clock_epoch,monotonic_sequence,restart_continuity_digest,uncertainty_bound,skew_bound FROM market_data_private.clock_head_v1 WHERE singleton",
+    )
+    .fetch_one(owner.pool())
+    .await
+    .unwrap();
+    let restart: Vec<u8> = row.get("restart_continuity_digest");
+    CustodyMintingClockV1 {
+        identity: row.get("clock_identity"),
+        epoch: row.get("clock_epoch"),
+        sequence: u64::try_from(row.get::<i64, _>("monotonic_sequence")).unwrap(),
+        restart_continuity_digest: BindingDigest::from_untrusted_bytes(restart.try_into().unwrap()),
+        uncertainty_bound: u64::try_from(row.get::<i64, _>("uncertainty_bound")).unwrap(),
+        skew_bound: u64::try_from(row.get::<i64, _>("skew_bound")).unwrap(),
+    }
+}
+
 fn wall_now_ns() -> u64 {
     u64::try_from(
         std::time::SystemTime::now()
@@ -525,6 +568,29 @@ async fn postgres_a_custody_commits_once_and_a_resubmission_rejoins_without_writ
     );
     assert!(minted > head && minted >= before_wall && minted > RETRIEVED);
     assert_eq!(receipt.minting_cut_ns(), minted);
+    let stored_clock = minting_clock_of(&owner, receipt.custody_identity()).await;
+    assert_eq!(
+        stored_clock,
+        clock_head_tuple(&owner).await,
+        "the record names the clock its minting cut was minted on"
+    );
+    let stored_digest: Vec<u8> = sqlx::query_scalar(
+        "SELECT evidence_digest FROM market_data_private.pit_window_custodies_v1 WHERE custody_identity=$1",
+    )
+    .bind(receipt.custody_identity().as_bytes().as_slice())
+    .fetch_one(owner.pool())
+    .await
+    .unwrap();
+    assert_eq!(
+        custody_digest_v1(
+            receipt.custody_identity(),
+            receipt.minting_cut_ns(),
+            BindingDigest::from_untrusted_bytes(stored_digest.try_into().unwrap()),
+            &stored_clock,
+        ),
+        receipt.custody_digest(),
+        "the record digest covers that clock"
+    );
     assert_eq!(receipt.chain_version(), 1);
     assert_eq!(receipt.chain_root(), receipt.custody_identity());
     assert_eq!(
@@ -595,6 +661,11 @@ async fn postgres_a_custody_commits_once_and_a_resubmission_rejoins_without_writ
     }
     assert_eq!(commit(&intake, retried).await, Ok(receipt.clone()));
     assert_eq!(owner_store_v1(owner.pool()).await, stored);
+    assert_eq!(
+        minting_clock_of(&owner, receipt.custody_identity()).await,
+        stored_clock,
+        "a rejoin leaves the record's clock as it was"
+    );
     assert_eq!(
         clock(&owner).await,
         (minted_handoffs, minted),
