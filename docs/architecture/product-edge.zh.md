@@ -384,8 +384,25 @@ Source 与 Research 动作、探索性 Replay 动作、Develop Composer 动作�
 - **TARGET：** 分区登记之后，`run` 对与受保护时段重叠的窗口以 `HOLDOUT_WINDOW_OVERLAP` 拒绝。
 - 单独验收的条件：一个已创建的策略在一个 `dataset_ref` 上运行，其报告读回时带有费用、资金费与对照。
 
-**以后的 server。** `scan`（Scanner，U1 之后）：`scan(strategy_ids, universe)`。然后是 `research`（Research 请求、census
-与 Iteration Decision 的读取）、`knowledge`（研究知识台账）与 `paper`，每一个都先在此陈述再建。
+**以后的 server（TARGET）。** 每一个都只是蓝图；细节到它的阶段再定。
+
+- **`research`**，由 R&D 研究台账提供：`register_hypothesis`（在读取任何数据之前：机制、证伪条件、最小关注效应、变体数）、
+  `list_trials` 与只读的 `census`。红线：假设绝不在它所检验的数据被读过之后登记。
+- **`knowledge`**，由 R&D 知识台账提供：`family_status`、`record_conclusion` 与 `check_before_research`。红线：条目只追加，
+  不持有任何受保护数值。
+- **`qualification`**，由 Qualification 提供：`submit_candidate`、`status`、`verdict`、`forward_register` 与
+  `forward_status`。红线：任何 holdout 数值都不出去。今天 Qualification 把每个负向终态都按字节相同地投影为
+  `CLOSED_NOT_QUALIFIED`，因此 `verdict` 只答 `QUALIFIED` 或 `CLOSED_NOT_QUALIFIED`；三级裁决（通过、等价为零、不确定）
+  放宽了这条已陈述的封口，建之前需要用户授权。
+- **`scan`**，由 Scanner 提供：`create_schedule`、`list_schedules`、`scan_now`（发现视图）与 `results`。红线：扫描结果从不是
+  激活权威。
+- **`governance`**，由 Strategy Governance 提供：`list_eligible`、`propose_activation`（Paper 或 Live）、`pause`、`retire`
+  与只读的 `capital_policy`。红线：激活只能提议，由用户在 Dashboard 批准。
+- **`portfolio`**，由 Portfolio 提供：`account_state`、`exposure`、`performance` 与 `capacity`，全部只读。
+- **`operations`**，一个 server 汇集 Runtime、Risk、Execution 与可观测性的只读视图，使代理面对的 server 不多：
+  `instance_status`、`readiness`、`orders`、`fills`、`drift` 与 `alerts`。红线：kill switch 只可读，只有用户本人能触发它。
+
+**真钱红线。** 没有任何 MCP 工具下单，也没有任何工具触及真钱。交易侧的每个动作都由代理提议、由用户批准。
 
 **长时间运行的工作。** 用户问到超出一次工具调用的工作在哪里运行。答案是让每种工作留在它的生命周期本来所在的地方：
 

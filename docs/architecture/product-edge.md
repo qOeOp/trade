@@ -452,9 +452,30 @@ the run, so a replay reads the same data.
 - Accepted on its own when one created strategy runs on one `dataset_ref` and its report reads back with fees,
   funding and the control.
 
-**Later servers.** `scan` (Scanner, after U1): `scan(strategy_ids, universe)`. Then `research` (the Research
-request, census and Iteration Decision reads), `knowledge` (the Research knowledge ledger) and `paper`, each stated
-here before it is built.
+**Later servers (TARGET).** Each is a blueprint; its details are fixed when its stage comes.
+
+- **`research`**, served by R&D's research ledger: `register_hypothesis` (before any data is read: mechanism,
+  falsifier, smallest effect of interest, variant count), `list_trials`, and a read-only `census`. Red line: no
+  hypothesis is registered after the data it tests was read.
+- **`knowledge`**, served by R&D's knowledge ledger: `family_status`, `record_conclusion` and
+  `check_before_research`. Red line: entries are append-only and hold no protected value.
+- **`qualification`**, served by Qualification: `submit_candidate`, `status`, `verdict`, `forward_register` and
+  `forward_status`. Red line: no holdout value ever leaves. Today Qualification projects every negative terminal
+  byte-equivalently as `CLOSED_NOT_QUALIFIED`, so `verdict` answers `QUALIFIED` or `CLOSED_NOT_QUALIFIED`; the
+  three-level verdict (pass, equivalent-null, inconclusive) relaxes that stated seal and needs the user's authorization
+  before it is built.
+- **`scan`**, served by Scanner: `create_schedule`, `list_schedules`, `scan_now` (the discovery view) and `results`.
+  Red line: a scan result is never activation authority.
+- **`governance`**, served by Strategy Governance: `list_eligible`, `propose_activation` (Paper or Live), `pause`,
+  `retire` and a read-only `capital_policy`. Red line: an activation is only proposed; the user approves it in the
+  Dashboard.
+- **`portfolio`**, served by Portfolio: `account_state`, `exposure`, `performance` and `capacity`, all read-only.
+- **`operations`**, one server over read-only views of Runtime, Risk, Execution and observability, so an agent faces
+  few servers: `instance_status`, `readiness`, `orders`, `fills`, `drift` and `alerts`. Red line: the kill switch is
+  readable only, and only the user can trigger it.
+
+**The real-money red line.** No MCP tool places an order, and no tool reaches real money. Every action on the trading
+side is proposed by the agent and approved by the user.
 
 **Long-running work.** The user asked where work that outlives one tool call runs. The answer keeps each kind of
 work where its lifetime already is:
