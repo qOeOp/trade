@@ -2262,9 +2262,10 @@ refused it at the universe declaration.
   `decimal_rescale_v1::rescale_exact_v1` states exactly at the role's scale. Widening multiplies the mantissa by
   `10^(role scale - row scale)`, checked. Narrowing divides it and is exact only when the dropped digits are zero, so
   a scale 9 row is the identity at scale 9 and a scale 10 row ending in 0 narrows to 9.
-- **Refusal.** When no candidate row can be stated exactly, the refusal names why: `VALUE_FINER_THAN_ROLE_SCALE` for a
-  nonzero digit finer than the role, `VALUE_OVERFLOWS_ROLE_SCALE` for a widened mantissa that does not fit in an
-  `i128`. Nothing is rounded.
+- **Refusal.** Scale never selects a row: the binding resolves its one row first, so rows that differ only in scale
+  are `NonUniqueResolution`, and then states that row's value exactly. When it cannot, the refusal names why:
+  `VALUE_FINER_THAN_ROLE_SCALE` for a nonzero digit finer than the role, `VALUE_OVERFLOWS_ROLE_SCALE` for a widened
+  mantissa that does not fit in an `i128`. Nothing is rounded.
 - **Receipts.** The binding locator records the role's scale. A role-value receipt's `value_bytes` and `value_scale`
   carry the aligned value and the role's scale, and its `canonical_row_digest` stays the source row's own digest, so
   the custody row a value came from stays exact. A row already at the role's scale keeps its bytes.
