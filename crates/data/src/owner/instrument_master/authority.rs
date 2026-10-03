@@ -1120,7 +1120,7 @@ pub(super) fn observable(
     observable_at(fact, observation, cut, clock.observation_clock())
 }
 
-fn observable_at(
+pub(crate) fn observable_at(
     fact: &InstrumentMasterFactV1,
     observation: i128,
     cut: u64,

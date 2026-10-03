@@ -359,6 +359,25 @@ pub(crate) fn prepare_bar_schedule_commit_v1(
     )
 }
 
+/// The time zone identity a schedule binds for an instrument whose Instrument Master fact is
+/// `master_fact_digest`, of `class`, naming `time_zone`.
+///
+/// Every schedule binds one, continuous or not, and a PIT window custody derives its timeframe
+/// identities through this same function, so a custody's timeframe and the schedule the same
+/// declaration mints for the same fact name one timeframe.
+pub(crate) fn schedule_time_zone_identity_v1(
+    class: super::instrument_master::InstrumentClass,
+    master_fact_digest: BarScheduleIdentity,
+    time_zone: &str,
+) -> Result<BarScheduleIdentity, BarScheduleError> {
+    field_identity(
+        TIME_ZONE_DOMAIN,
+        class as u16,
+        master_fact_digest,
+        time_zone,
+    )
+}
+
 /// Returns the only element matching `predicate`.
 ///
 /// Zero matches and several matches are different faults and get different refusals. A master that
@@ -514,9 +533,8 @@ pub(super) mod authority {
                 )?,
             ),
         };
-        let time_zone_identity = field_identity(
-            TIME_ZONE_DOMAIN,
-            class,
+        let time_zone_identity = schedule_time_zone_identity_v1(
+            master_fact.instrument_class(),
             master_fact.digest(),
             master_fact.time_zone_identity(),
         )?;

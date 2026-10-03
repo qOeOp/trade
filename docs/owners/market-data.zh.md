@@ -2301,6 +2301,25 @@ Backtest 的组合与 Market Data 之外的每个读者也属于 T1；T2（多�
 正会到达成交报价，但不到达帧 `k` 的策略输入，两者共用一段代码路径就会变红。T0 在 T1 之前不被驱动：它没有生产调用方，所
 以一个完整的 T0 在结构上存在，但没有任何 Backtest 运行它。
 
+目前已建成（T0-4a）：托管聚合 - 托管记录、它的截面版本及其 `SampleFactV2` 行事实、每个提交时拒绝、提交铸造的 Owner
+时钟、重新加入与后继托管 - 位于封缄的 `PitWindowCustodyCommitV1` 之后，由
+`pit_window_custody_commit_from_environment_v1` 在 Owner 存储上打开。目前还没有生产调用方到达它：驱动它的是其纯权威
+的单元测试，以及 `pit_window_custody_v1_tests` 里的四个 PostgreSQL 证明。提交在时钟状态锁下确定铸造 cut，并在该 cut
+上选出成员的 Instrument Master fact；它拒绝另有 fact 在窗口内生效的成员，以 `ROW_RETRIEVED_BEFORE_BAR_CLOSE` 拒绝在 bar
+收盘前取回的行，拒绝早于其版本事件或可得时刻的陈述发布时刻，并以 `VERSION_NOT_AVAILABLE_AT_MINTING_CUT` 拒绝可得时刻
+或陈述发布时刻晚于铸造 cut 的版本。每个托管序列都以固定 scale 9 陈述，即
+`MARKET_DATA_VALUE_SCALE_V1`：每一行都精确地换算到它，小数位多于 9 位的行以 `VALUE_FINER_THAN_SERIES_SCALE` 拒绝，
+绝不舍入。scale 固定而不取自标的的 tick，因为 tick 会在标的历史中变化（`BTCUSDT` 从 0.01 变为 0.10），取 tick 的 scale
+会拒绝更早的行或把一个序列切开。托管为某个成员绑定的周期 identity，就是 BAR
+调度路径从同一份声明与该成员的 Instrument Master fact 推出的那一个，时区也包括在内。窗口调度、每条链一次的记录与派生视
+图都还没有建。
+
+**TARGET，快照路径的序列 scale：** sample fact 的序列 identity 绑定值的 scale
+（`series_projection_bytes`，`crates/data/src/owner/sample_fact.rs` 第 1263 行），而 PIT batch 以规范形式存储每个值，拒绝
+尾数以 0 结尾的非零 scale（`decode_observation`，`crates/data/src/owner/pit_snapshot/authority.rs` 第 1613 行）。于是 scale
+随值的末位数字变化，同一标的同一字段在每个末位为 0 的 bar 上都会分裂出新序列。托管已由上面的固定 scale 规则修好，
+这也是快照路径的修法。快照路径保留其字节，留给排在 U1 之后的单独切片：今天的快照消费方各自只读一帧，所以还没有序列连续性依赖它。
+
 - **托管：** 覆盖从预热起点开始的半开窗口，只提交一次，此后不可变。后来的更正是一份后继托管，它指名自己的前驱，只携带
   它新增的版本；视图沿这条链读到 head。后继托管原样重述前驱的基底 - Market Semantics fact、 Instrument Master cut、成
   员集与可得规则 digest - 基底一变就是新的根托管，绝不是后继，所以一条链绝不混用两套基底。更正单位是截面 - 同一个源、
@@ -2327,7 +2346,8 @@ Backtest 的组合与 Market Data 之外的每个读者也属于 T1；T2（多�
 - **成员：** 成员集在整份托管内固定。某成员的 Instrument Master 有效期或 Universe 成员资格在窗口内开始或结束，
   就以 `WINDOW_MEMBER_NOT_VALID_THROUGHOUT` 按名拒绝这份托管。
 - **帧：** 从执行周期的 Owner BAR schedule 枚举，绝不从托管行枚举。帧 `k` 有事件时刻 `e_k` 与可得时刻 `d_k`，且
-  `d_k < e_{k+1}`；没有完整截面的帧以 `PIT_WINDOW_FRAME_NOT_COVERED` 拒绝整次运行。执行周期是固定间隔，从窗口 schedule
+  `d_k < e_{k+1}`；没有完整截面的帧以 `PIT_WINDOW_FRAME_NOT_COVERED` 拒绝整次运行。只有帧落在 bar 收盘时刻上，
+  `d_k < e_{k+1}` 才成立，所以 T0 把按区间开盘标记的执行周期作为格式错误的请求拒绝。执行周期是固定间隔，从窗口 schedule
   fact 记录的相位时刻开始枚举，例如日线取 UTC 零点，Binance 周线取周一 UTC 零点；session 型执行周期按名拒为
   `PIT_WINDOW_EXECUTION_TIMEFRAME_NOT_FIXED_INTERVAL`，托管提交存在之前没有东西构造它，之后由 T0 的证明驱动。这是范围
   限制，不是性质：session 型周期（例如黄金按交易所 session 的日线）需要以后一个做 session 展开的切片，在那之前一律拒绝。
@@ -2351,7 +2371,7 @@ Backtest 的组合与 Market Data 之外的每个读者也属于 T1；T2（多�
   在决策之后，而在 `d_k` 上没有报价能入选，因为报价的事件在 `d_k` 之后。这只关乎成交报价。帧 `k` 的策略输入仍然截在
   `d_k`，所以在 `d_k` 与报价可得时刻之间发布的更正会到达成交报价，绝不到达帧 `k` 的输入。
 - **接口：** `crates/data/src/owner/pit_window_custody_v1.rs` 冻结回填写入方提交的内容，以及多帧消费方如何找到一次运行的
-  帧；在托管聚合与派生视图实现它的两个 sealed 端口之前，没有任何东西能构造回执或帧坐标。
+  帧。托管聚合实现了它的提交端口，只有它能构造回执；在派生视图实现它的帧端口之前，没有任何东西能构造帧坐标。
   - 托管请求指名它的 Source Binding、Market Semantics fact、Universe Selection record、一到两个成员、窗口、执行周期、
     输入周期与可选的成交周期。执行周期由托管指名，不由运行指名，因为托管的提交会铸出窗口 schedule；滞后不低于其间隔的，
     在提交时拒绝，不严格细于它的成交周期也一样。同时又是输入周期的成交周期按名拒绝为
