@@ -1745,7 +1745,12 @@ frames for each exit: it enters, holds on a second frame above its threshold, le
 close is still above it, and enters again. `an_authored_exit_never_reached_holds_the_position` runs the same frames
 under exits they never reach. Those runs measured the fuel one invocation burns at about 86,000 with no exit, 205,000
 with a price exit and 378,000 for the largest program the family authors, past the 100,000 the plugin's manifest
-declared, so the family's manifest declares 1,000,000.
+declared. The family's manifest declares 1,000,000, about 2.6 times the largest measurement. One program's burn varied
+by under 2% from frame to frame, so the margin is not for that variation; it covers a growth of the family's largest
+program by roughly the size of the exits themselves before the bound has to be measured again. The bound is raised,
+not removed: the Plan still refuses a manifest above 10,000,000. Raising it changes the authored Design's identity,
+and with it the Design, meaning and Plan pins in `single_threshold_authoring_v1.rs`. Nothing outside that module pins
+them.
 
 ## TARGET - Research runs until a strategy, bounded by spend
 
