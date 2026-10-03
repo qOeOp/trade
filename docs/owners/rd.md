@@ -324,7 +324,10 @@ composition root and three authenticated routes,
 `POST /v1/bounded-feature-programs/{declare,freeze,lower}`. `declare` is the proposer's route: it takes
 a Design and the program's meaning, derives everything a proposer cannot know from that Design, the
 pinned catalog and the Owner's own binding custody, and freezes the result in the transaction those
-binding row locks were taken in. `freeze` takes an already assembled pair instead. Both admit the pair
+binding row locks were taken in. `freeze` takes an already assembled pair instead, and admits each of its
+inputs only as exactly what `declare` derives for that role, value port, clock and binding receipt: both
+routes call one derivation, so a pre-assembled program can restate the Design's roles but never differ from
+them. Both admit the pair
 against currently accepted Research custody and the pinned primitive catalog, write exactly one
 joint-freeze row with its outbox event, and answer a changed meaning for the same Research identity
 with a conflict. `lower` reads that frozen pair back and lowers it, so a frozen program now yields

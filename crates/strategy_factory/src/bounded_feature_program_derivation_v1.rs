@@ -77,6 +77,33 @@ pub struct BoundedFeatureInputMeaningV1 {
     pub update_clock: BoundedFeatureClockV1,
 }
 
+/// The one definition of a program input: everything about it but its value port, its clock and
+/// its binding receipt is the Design role's.
+///
+/// `declare` assembles each input with it, and a pre-assembled program frozen through `freeze` is
+/// admitted only if each of its inputs is exactly what this returns for the same role, port, clock
+/// and receipt. The role set is declared once, by the Design (strategy shape envelope, P0); a
+/// verifier holding a second copy of this mapping could disagree with the derivation.
+pub(crate) fn bounded_feature_input_v1(
+    role: &crate::strategy_design_v2::InputRoleV2,
+    value_port_semantic_id: &str,
+    update_clock: &BoundedFeatureClockV1,
+    static_binding_receipt_digest: BindingDigest,
+) -> BoundedFeatureInputV1 {
+    BoundedFeatureInputV1 {
+        owner_semantic_id: MARKET_DATA_OWNER_SEMANTIC_ID_V1.to_owned(),
+        fact_type_semantic_id: role.field_semantic_id.clone(),
+        input_role_id: role.semantic_id.clone(),
+        input_role_identity: strategy_input_role_identity_v2(role),
+        timeframe: role.timeframe.clone(),
+        unit: role.unit.clone(),
+        scale: role.scale,
+        static_binding_receipt_digest,
+        value_port_semantic_id: value_port_semantic_id.to_owned(),
+        update_clock: update_clock.clone(),
+    }
+}
+
 /// Bounds on the graph's own shape, which the plugin manifest does not fix.
 ///
 /// The four resource bounds the manifest does fix - fuel, linear memory, invocations per event and
@@ -301,18 +328,12 @@ fn assemble_proposal(
                 }
             })?;
 
-        inputs.push(BoundedFeatureInputV1 {
-            owner_semantic_id: MARKET_DATA_OWNER_SEMANTIC_ID_V1.to_owned(),
-            fact_type_semantic_id: role.field_semantic_id.clone(),
-            input_role_id: role.semantic_id.clone(),
-            input_role_identity,
-            timeframe: role.timeframe.clone(),
-            unit: role.unit.clone(),
-            scale: role.scale,
+        inputs.push(bounded_feature_input_v1(
+            role,
+            &input.value_port_semantic_id,
+            &input.update_clock,
             static_binding_receipt_digest,
-            value_port_semantic_id: input.value_port_semantic_id.clone(),
-            update_clock: input.update_clock.clone(),
-        });
+        ));
     }
 
     if let Some(uncovered) = design
