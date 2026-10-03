@@ -2347,16 +2347,9 @@ fn run_multi_frame_equity_corpus() -> anyhow::Result<TargetSetBacktestTraceV2> {
         ));
         data.push(Data::Bar(bar));
     }
+    // The latest Quote before the second BAR is the first frame's fill quote. The second frame's
+    // equity is marked at its own BAR close, not at that Quote.
     data.extend(fill_quotes(&instruments, &first_bars, first_time + 1));
-    // The portfolio marks a position at its latest Quote before any BAR, so without this Quote the
-    // second frame's equity would be marked at the first frame's fill quote. It states the moved
-    // marks the second frame sizes against; the Host ignores it, since no order waits.
-    data.extend(
-        instruments
-            .iter()
-            .zip(&second_bars)
-            .map(|(instrument, bar)| fill_quote_at(instrument, bar.close, second_time - 1)),
-    );
     data.extend([
         book_level(
             &instruments[0],

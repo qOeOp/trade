@@ -669,6 +669,9 @@ pub fn run_program_host_sim_event_consumer_v1(
         bar_types,
         data,
         fill_quote_instants,
+        // Carried for funding settlement, which this consumer does not perform yet; its census
+        // states whether the window's funding was stated at all.
+        funding_schedule: _,
         census,
     } = capability;
     let trace = Rc::new(std::cell::RefCell::new(TargetSetBacktestTraceV2::default()));
@@ -2114,6 +2117,7 @@ mod tests {
             scheduling_data_count: 4,
             bar_count: 2,
             event_count: 2,
+            funding: crate::replay_target_set_execution_bundle_v1::ReplayFundingStatementV1::FundingNotStated,
             census_digest: [14; 32],
         }
     }

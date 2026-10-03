@@ -313,6 +313,9 @@ where
         run_id,
         public_terms,
         scheduling,
+        // No Owner read states this window's funding yet, so the bundle states none and its census
+        // records `FUNDING_NOT_STATED`.
+        None,
     )
     .map_err(|e| {
         crate::storage_diagnostic::refused_by_store(

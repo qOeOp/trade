@@ -120,10 +120,11 @@ The maturity boundary is explicit:
   resolver, prove dynamic PostgreSQL product composition or end-to-end first-party acceptance, or admit trading.
 - **CURRENT/DYNAMIC, bounded exactly-two-member Backtest target-set vertical:** one complete Owner-sealed
   universe frame is prepared on a cloned `ProgramHostV2`, produces one canonical target set and one plugin
-  invocation, and is committed only after one account-scoped `Portfolio::equity` snapshot, both exact instrument
+  invocation, and is committed only after one account-scoped equity snapshot, both exact instrument
   facts, Decimal target conversion, member reconciliation, and both native orders validate. The equity snapshot is
-  total account balance plus unrealized PnL for margin positions; it fails closed for an absent or ambiguous venue
-  account, multiple/wrong currencies, or any unpriced open position. Support is limited to
+  total account balance plus each open margin position's unrealized PnL, marked at that member's price under the
+  frame's pricing role, never at the latest cached Quote, which is the previous frame's fill quote; it fails closed
+  for an absent or ambiguous venue account, multiple/wrong currencies, or an open position on no member. Support is limited to
   linear, non-inverse, non-quanto instruments whose settlement and quote currency equal the positive equity
   currency. Weight targets use
   `trunc_toward_zero(equity * weight_micros / 1_000_000 / price / multiplier / size_increment)` as signed grid
@@ -773,6 +774,14 @@ grid unit of position means. The bundle then re-expresses each price and size at
 changing a value, and refuses by name a value finer than the instrument's grid. It then refuses, by name, any BAR or
 Quote not at its instrument's precision: the engine would otherwise drop that datum silently and still complete the
 run.
+
+The bundle carries the window's settled funding by value: Market Data's `ReplayFundingScheduleV1` (market-data.md,
+"window funding schedule read"), or nothing. Its census states which. A schedule must cover exactly the run's window
+and members, or the bundle is refused by name as `FUNDING_SCHEDULE_WINDOW_NOT_THE_RUNS` or
+`FUNDING_SCHEDULE_MEMBERS_NOT_THE_RUNS`, and its digest is then sealed into the census digest. A bundle without one
+states `FUNDING_NOT_STATED`, and its census digest is the one it had before funding was carried. **Current:** no Owner
+read of the schedule exists yet, so every production bundle states `FUNDING_NOT_STATED`; a report must not read that
+as a run that paid no funding.
 
 Backtest V2 result custody binds the exact V2 binding and sequence digest, each consumed frame's
 identity and ordinal, every native schedule and liquidity EVENT receipt, the canonical target set
