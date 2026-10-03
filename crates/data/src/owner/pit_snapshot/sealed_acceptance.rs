@@ -376,6 +376,7 @@ pub fn issue_strategy_input_universe_frame()
         UniverseCorpus::AaplMsft,
         RESEARCH_REQUEST_IDENTITY,
         STRATEGY_DESIGN_IDENTITY,
+        SingleMemberUniverseRolesV1::compile_time_corpus(),
     )
 }
 
@@ -394,6 +395,7 @@ pub fn issue_source_intake_composer_universe_frame()
         UniverseCorpus::AaplMsft,
         SOURCE_INTAKE_COMPOSER_RESEARCH_REQUEST_IDENTITY,
         SOURCE_INTAKE_COMPOSER_STRATEGY_DESIGN_IDENTITY,
+        SingleMemberUniverseRolesV1::compile_time_corpus(),
     )
 }
 
@@ -414,6 +416,7 @@ pub fn issue_source_intake_composer_universe_frame_for_owner_lineage(
         UniverseCorpus::AaplMsft,
         *research_request_identity.as_bytes(),
         *strategy_design_identity.as_bytes(),
+        SingleMemberUniverseRolesV1::compile_time_corpus(),
     )
 }
 
@@ -435,18 +438,45 @@ pub fn issue_source_intake_composer_universe_frame_for_owner_lineage(
 pub fn issue_single_member_universe_frame_for_owner_lineage(
     research_request_identity: BindingDigest,
     strategy_design_identity: BindingDigest,
+    roles: SingleMemberUniverseRolesV1,
 ) -> Result<SealedAcceptanceStrategyInputUniverseFrame, SealedAcceptanceError> {
     issue_universe_frame_for_compile_time_corpus(
         UniverseCorpus::Aapl,
         *research_request_identity.as_bytes(),
         *strategy_design_identity.as_bytes(),
+        roles,
     )
+}
+
+/// The `OPEN` and `CLOSE` roles a single-member universe frame binds, as the consuming Design
+/// states them: each role's identity and the scale the roles read at.
+///
+/// The Design passes them, because a role's identity covers its scale: an authored universe-member
+/// role reads at Market Data's value scale, and the frame must bind that role, not a scale 2 copy.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct SingleMemberUniverseRolesV1 {
+    pub open_role_identity: BindingDigest,
+    pub close_role_identity: BindingDigest,
+    pub scale: u8,
+}
+
+impl SingleMemberUniverseRolesV1 {
+    /// The compile-time corpus's own roles, at its scale 2, for the corpora whose Designs are fixed.
+    #[must_use]
+    pub const fn compile_time_corpus() -> Self {
+        Self {
+            open_role_identity: BindingDigest::from_untrusted_bytes(OPEN_ROLE_IDENTITY),
+            close_role_identity: BindingDigest::from_untrusted_bytes(CLOSE_ROLE_IDENTITY),
+            scale: SCALE,
+        }
+    }
 }
 
 fn issue_universe_frame_for_compile_time_corpus(
     corpus: UniverseCorpus,
     research_request_identity: [u8; 32],
     strategy_design_identity: [u8; 32],
+    roles: SingleMemberUniverseRolesV1,
 ) -> Result<SealedAcceptanceStrategyInputUniverseFrame, SealedAcceptanceError> {
     let source_clock = clock();
     let source_owner = TestOnlyInMemorySourceBindingOwner::default();
@@ -491,16 +521,18 @@ fn issue_universe_frame_for_compile_time_corpus(
             selection_identity,
             research_request_identity,
             strategy_design_identity,
-            BindingDigest::from_untrusted_bytes(OPEN_ROLE_IDENTITY),
+            roles.open_role_identity,
             MarketDataFieldSemantic::BarOpenPrice,
+            roles.scale,
         ),
         binding_request(
             &verified,
             selection_identity,
             research_request_identity,
             strategy_design_identity,
-            BindingDigest::from_untrusted_bytes(CLOSE_ROLE_IDENTITY),
+            roles.close_role_identity,
             MarketDataFieldSemantic::BarClosePrice,
+            roles.scale,
         ),
     ];
     let frame = bind_strategy_input_universe_frame(&requests, &verified)?;
@@ -1041,6 +1073,7 @@ fn binding_request(
     strategy_design_identity: [u8; 32],
     input_role_identity: BindingDigest,
     field_semantic: MarketDataFieldSemantic,
+    scale: u8,
 ) -> UntrustedStrategyInputBindingRequest {
     UntrustedStrategyInputBindingRequest {
         research_request_identity: BindingDigest::from_untrusted_bytes(research_request_identity),
@@ -1051,7 +1084,7 @@ fn binding_request(
         channel: StrategyInputChannel::Market,
         timeframe: TIMEFRAME.into(),
         unit: StrategyInputUnit::Price,
-        scale: SCALE,
+        scale,
         pit_request_identity: batch.request_identity(),
         pit_request_digest: batch.request_digest(),
         source: batch
@@ -1148,8 +1181,12 @@ mod tests {
     fn the_single_member_frame_holds_one_member_bound_to_its_design() {
         let research = BindingDigest::from_untrusted_bytes([61; 32]);
         let design = BindingDigest::from_untrusted_bytes([62; 32]);
-        let issued =
-            issue_single_member_universe_frame_for_owner_lineage(research, design).unwrap();
+        let issued = issue_single_member_universe_frame_for_owner_lineage(
+            research,
+            design,
+            SingleMemberUniverseRolesV1::compile_time_corpus(),
+        )
+        .unwrap();
         let members = issued.frame().selection().members();
 
         assert_eq!(members.len(), 1);
@@ -1168,14 +1205,22 @@ mod tests {
         }));
 
         let other_design = BindingDigest::from_untrusted_bytes([63; 32]);
-        let other =
-            issue_single_member_universe_frame_for_owner_lineage(research, other_design).unwrap();
+        let other = issue_single_member_universe_frame_for_owner_lineage(
+            research,
+            other_design,
+            SingleMemberUniverseRolesV1::compile_time_corpus(),
+        )
+        .unwrap();
         assert_ne!(other.frame().digest(), issued.frame().digest());
         assert_eq!(
-            issue_single_member_universe_frame_for_owner_lineage(research, design)
-                .unwrap()
-                .frame()
-                .digest(),
+            issue_single_member_universe_frame_for_owner_lineage(
+                research,
+                design,
+                SingleMemberUniverseRolesV1::compile_time_corpus(),
+            )
+            .unwrap()
+            .frame()
+            .digest(),
             issued.frame().digest(),
             "the same lineage issues the same frame"
         );

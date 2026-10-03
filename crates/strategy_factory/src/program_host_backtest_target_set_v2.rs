@@ -806,20 +806,35 @@ impl BacktestTargetSetProgramHostStrategyV2 {
                     .is_none_or(|expected| expected == account_id),
             "Backtest target-set venue account binding is ambiguous"
         );
-        let portfolio = self.portfolio();
-        let equities = portfolio.equity(&venue, Some(&account_id));
-        let missing_prices = portfolio.missing_price_instruments(&venue);
+        // Margin equity is the account's total balance plus each open position's unrealized PnL,
+        // marked at this frame's pricing-role price rather than at whatever Quote the cache last
+        // saw, which is the previous frame's fill quote.
+        let balances = accounts[0].balances_total();
         anyhow::ensure!(
-            missing_prices.is_empty(),
-            "Backtest target-set portfolio equity contains an unpriced position"
-        );
-        anyhow::ensure!(
-            equities.len() == 1 && equities.contains_key(&currency),
+            balances.len() == 1 && balances.contains_key(&currency),
             "Backtest target-set quote-currency equity is unavailable or ambiguous"
         );
-        let equity = equities[&currency];
+        let mut equity = balances[&currency].as_decimal();
+
+        for position in
+            self.cache()
+                .positions_open(Some(&venue), None, None, Some(&account_id), None)
+        {
+            let ordinal = self
+                .instrument_ids
+                .iter()
+                .position(|instrument_id| *instrument_id == position.instrument_id)
+                .context("Backtest target-set portfolio equity contains an unpriced position")?;
+            let pnl = position.try_unrealized_pnl(prices[ordinal])?;
+            anyhow::ensure!(
+                pnl.currency == currency,
+                "Backtest target-set quote-currency equity is unavailable or ambiguous"
+            );
+            equity += pnl.as_decimal();
+        }
+        let equity = Money::from_decimal(equity, currency)?;
         anyhow::ensure!(
-            equity.currency == currency && equity.as_decimal() > Decimal::ZERO,
+            equity.as_decimal() > Decimal::ZERO,
             "Backtest target-set equity is invalid"
         );
         let current_grid_units = try_map_members(self.instrument_ids.len(), |ordinal| {

@@ -619,6 +619,7 @@ pub mod lifecycle_v1 {
     pub const ADD_SEMANTIC_ID: &str = "kernel.position.add.v1";
     pub const REDUCE_SEMANTIC_ID: &str = "kernel.position.reduce.v1";
     pub const EXIT_SEMANTIC_ID: &str = "kernel.position.exit.v1";
+    pub const FLIP_SEMANTIC_ID: &str = "kernel.position.flip.v1";
     pub const HOLD_SEMANTIC_ID: &str = "kernel.position.hold.v1";
     pub const TARGET_POSITION_SEMANTIC_ID: &str = "kernel.target.position.v1";
     pub const TARGET_WEIGHT_SEMANTIC_ID: &str = "kernel.target.weight.v1";
@@ -1065,6 +1066,8 @@ pub mod lifecycle_v1 {
         Add = 3,
         Reduce = 4,
         Exit = 5,
+        /// Through zero to the opposite side, as one intent.
+        Flip = 6,
     }
 
     impl PositionIntentV1 {
@@ -1075,6 +1078,7 @@ pub mod lifecycle_v1 {
                 Self::Add => ADD_SEMANTIC_ID,
                 Self::Reduce => REDUCE_SEMANTIC_ID,
                 Self::Exit => EXIT_SEMANTIC_ID,
+                Self::Flip => FLIP_SEMANTIC_ID,
             }
         }
     }
@@ -1372,6 +1376,7 @@ pub mod lifecycle_v1 {
             3 => PositionIntentV1::Add,
             4 => PositionIntentV1::Reduce,
             5 => PositionIntentV1::Exit,
+            6 => PositionIntentV1::Flip,
             _ => return Err(ProposalCodecFaultV1::UnknownPositionIntent),
         };
         let target = decode_wire_target(bytes)?;
@@ -2427,6 +2432,9 @@ pub mod lifecycle_v1 {
                     && value.unsigned_abs() < current.unsigned_abs()
             }
             (PositionIntentV1::Exit, Some(0)) => current != 0,
+            (PositionIntentV1::Flip, Some(value)) => {
+                current != 0 && value != 0 && value.signum() != current.signum()
+            }
             _ => false,
         };
 
@@ -2487,7 +2495,8 @@ pub mod lifecycle_v1 {
     ) -> Result<(), KernelFaultV1> {
         match proposal {
             ProtectionProposalV1::Keep => {
-                if intent == PositionIntentV1::Exit {
+                // A flip leaves the side its protection guards, so it clears or replaces it.
+                if matches!(intent, PositionIntentV1::Exit | PositionIntentV1::Flip) {
                     return Err(KernelFaultV1::InvalidProtection);
                 }
             }
@@ -2517,7 +2526,7 @@ pub mod lifecycle_v1 {
                 checkpoint.protection.trailing_stop_ticks = Some(stop_ticks);
             }
             ProtectionProposalV1::Clear => {
-                if intent != PositionIntentV1::Exit {
+                if !matches!(intent, PositionIntentV1::Exit | PositionIntentV1::Flip) {
                     return Err(KernelFaultV1::InvalidProtection);
                 }
                 checkpoint.protection = ProtectionStateV1::default();
@@ -2983,6 +2992,7 @@ pub mod lifecycle_v1 {
             3 => PositionIntentV1::Add,
             4 => PositionIntentV1::Reduce,
             5 => PositionIntentV1::Exit,
+            6 => PositionIntentV1::Flip,
             _ => return Err(CheckpointCodecFaultV1::UnknownPositionIntent),
         };
         let target_semantic = match bytes[122] {
@@ -3718,6 +3728,7 @@ pub mod lifecycle_v2 {
             3 => PositionIntentV1::Add,
             4 => PositionIntentV1::Reduce,
             5 => PositionIntentV1::Exit,
+            6 => PositionIntentV1::Flip,
             _ => return Err(TargetSetFaultV2::InvalidTarget),
         };
         let target_sequence = read_u64(bytes, 72)?;
@@ -5179,6 +5190,127 @@ mod tests {
                 kernel.checkpoint().fill_frontier.terminal_disposition,
                 Some(FillDispositionV1::Canceled)
             );
+        }
+
+        /// A flip takes a held long through zero to a short in one intent, filled as one order of
+        /// the whole difference, and clears the protection that guarded the long.
+        #[rstest]
+        fn a_flip_crosses_zero_in_one_fill_and_clears_the_long_protection() {
+            let mut kernel = long_position(1, stop_at(90));
+            let flip = proposal(
+                2,
+                PositionIntentV1::Flip,
+                TargetProposalV1::Position(-1),
+                Some(-1),
+                ProtectionProposalV1::Clear,
+            );
+            kernel
+                .apply(
+                    envelope(4, LifecycleKind::Bar, EnvelopePayloadV1::Bar),
+                    Some(flip),
+                )
+                .unwrap();
+            let pending = kernel.checkpoint().pending_intent.unwrap();
+            assert_eq!(
+                (pending.side, pending.expected_units),
+                (FillSideV1::Sell, 2)
+            );
+            assert_eq!(kernel.checkpoint().protection, ProtectionStateV1::default());
+
+            kernel
+                .apply(
+                    envelope(
+                        5,
+                        LifecycleKind::Fill,
+                        fill(2, FillSideV1::Sell, FillDispositionV1::Filled, 2),
+                    ),
+                    None,
+                )
+                .unwrap();
+            assert_eq!(kernel.checkpoint().reconciled_position_units, -1);
+            assert_eq!(kernel.checkpoint().pending_intent, None);
+        }
+
+        /// A flip needs a held position and a target on the other side, and may not keep the
+        /// protection of the side it leaves; each refusal leaves the checkpoint unchanged.
+        #[rstest]
+        #[case::from_flat(0, -1, ProtectionProposalV1::Clear, KernelFaultV1::InvalidPositionTransition)]
+        #[case::to_the_same_side(
+            1,
+            2,
+            ProtectionProposalV1::Clear,
+            KernelFaultV1::InvalidPositionTransition
+        )]
+        #[case::to_zero(
+            1,
+            0,
+            ProtectionProposalV1::Clear,
+            KernelFaultV1::InvalidPositionTransition
+        )]
+        #[case::keeping_protection(1, -1, ProtectionProposalV1::Keep, KernelFaultV1::InvalidProtection)]
+        fn a_flip_is_refused_unless_it_crosses_zero_and_drops_the_old_protection(
+            #[case] held: i64,
+            #[case] target: i64,
+            #[case] protection: ProtectionProposalV1,
+            #[case] fault: KernelFaultV1,
+        ) {
+            let mut kernel = if held == 0 {
+                let mut kernel = LifecycleKernelV1::new(identities()).unwrap();
+                kernel
+                    .apply(
+                        envelope(1, LifecycleKind::Start, EnvelopePayloadV1::Start),
+                        None,
+                    )
+                    .unwrap();
+                kernel
+            } else {
+                long_position(held, stop_at(90))
+            };
+            let before = kernel.checkpoint().encode();
+            let flip = proposal(
+                2,
+                PositionIntentV1::Flip,
+                TargetProposalV1::Position(target),
+                Some(target),
+                protection,
+            );
+
+            assert_eq!(
+                kernel.apply(
+                    envelope(4, LifecycleKind::Bar, EnvelopePayloadV1::Bar),
+                    Some(flip)
+                ),
+                Err(fault)
+            );
+            assert_eq!(kernel.checkpoint().encode(), before);
+        }
+
+        /// A flip keeps its one byte through the proposal and checkpoint codecs.
+        #[rstest]
+        fn a_flip_round_trips_through_the_proposal_and_checkpoint_codecs() {
+            let flip = proposal(
+                2,
+                PositionIntentV1::Flip,
+                TargetProposalV1::Position(-1),
+                Some(-1),
+                ProtectionProposalV1::Clear,
+            );
+            let wire = encode_proposal_v1(flip).unwrap();
+            assert_eq!(decode_proposal_v1(&wire).unwrap(), flip);
+
+            let mut kernel = long_position(1, stop_at(90));
+            kernel
+                .apply(
+                    envelope(4, LifecycleKind::Bar, EnvelopePayloadV1::Bar),
+                    Some(flip),
+                )
+                .unwrap();
+            let checkpoint = kernel.checkpoint();
+            assert_eq!(
+                CheckpointV1::decode(&checkpoint.encode()).unwrap(),
+                checkpoint
+            );
+            assert_eq!(PositionIntentV1::Flip.semantic_id(), FLIP_SEMANTIC_ID);
         }
 
         #[rstest]

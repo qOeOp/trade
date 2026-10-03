@@ -134,6 +134,8 @@ pub async fn compose_native_replay_execution_bundle_v2(
         run_id,
         public_terms,
         sequence,
+        // No Owner read states this window's funding yet, so the bundle states none.
+        None,
     )
     // `new` returns `anyhow::Result`, so what arrives here is a chain with context, and `{:#}`
     // keeps the whole chain rather than only its outermost message. This is the one discard on

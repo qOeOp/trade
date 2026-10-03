@@ -1002,6 +1002,44 @@ fn real_sim_event_run_enters_fills_exits_fills_again_and_ends_flat() {
     );
 }
 
+/// A frame that flips both held longs to shorts fills each as one native order of the whole
+/// difference, through zero, and cancels the stop that guarded the long.
+#[rstest]
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+fn a_flip_frame_takes_each_long_through_zero_to_a_short_in_one_fill() {
+    let (trace, _) =
+        run_two_frame_corpus_with_exit(target_set(), flip_target_set(), |_, _| Vec::new())
+            .expect("target-set flip corpus");
+    assert_eq!(trace.callback_failure, None);
+
+    let legs = trace
+        .actual_fill_consumptions
+        .iter()
+        .map(|fill| {
+            (
+                fill.instrument.as_str(),
+                fill.position_intent.as_str(),
+                fill.position_after_grid_units,
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        legs,
+        [
+            ("AAPL.XNAS", "ENTER", 2),
+            ("MSFT.XNAS", "ENTER", 1),
+            ("AAPL.XNAS", "ENTER", 5),
+            ("MSFT.XNAS", "ENTER", 4),
+            ("AAPL.XNAS", "FLIP", -5),
+            ("MSFT.XNAS", "FLIP", -4),
+        ]
+    );
+    assert_eq!(
+        trace.final_member_grid_units.as_deref(),
+        Some(&[-5, -4][..])
+    );
+}
+
 #[rstest]
 #[cfg(feature = "sealed-strategy-input-acceptance")]
 fn real_sim_event_run_which_only_entered_claims_no_round_trip() {
@@ -2347,16 +2385,9 @@ fn run_multi_frame_equity_corpus() -> anyhow::Result<TargetSetBacktestTraceV2> {
         ));
         data.push(Data::Bar(bar));
     }
+    // The latest Quote before the second BAR is the first frame's fill quote. The second frame's
+    // equity is marked at its own BAR close, not at that Quote.
     data.extend(fill_quotes(&instruments, &first_bars, first_time + 1));
-    // The portfolio marks a position at its latest Quote before any BAR, so without this Quote the
-    // second frame's equity would be marked at the first frame's fill quote. It states the moved
-    // marks the second frame sizes against; the Host ignores it, since no order waits.
-    data.extend(
-        instruments
-            .iter()
-            .zip(&second_bars)
-            .map(|(instrument, bar)| fill_quote_at(instrument, bar.close, second_time - 1)),
-    );
     data.extend([
         book_level(
             &instruments[0],
@@ -2659,6 +2690,17 @@ fn exit_target_set() -> InstrumentTargetSetV2 {
         ],
     )
     .unwrap()
+}
+
+fn flip_target_set() -> InstrumentTargetSetV2 {
+    let flip = |instrument: &[u8], units: i64| MemberTargetV2 {
+        instrument: InstrumentKeyV2::new(instrument).unwrap(),
+        position: PositionIntentV1::Flip,
+        target: TargetProposalV1::Position(units),
+        reconciliation_target_units: Some(units),
+        protection: ProtectionProposalV1::Clear,
+    };
+    InstrumentTargetSetV2::new(2, &[flip(b"AAPL.XNAS", -5), flip(b"MSFT.XNAS", -4)]).unwrap()
 }
 
 fn output_frame(
@@ -3246,6 +3288,7 @@ fn authored_universe_member_program(
     let sealed_frame = issue_single_member_universe_frame_for_owner_lineage(
         candidate.research_request_identity,
         design_identity,
+        crate::program_host_v2_tests::single_member_universe_roles_of(&candidate),
     )
     .expect("one-member Owner universe frame");
     let build = VerifiedPluginCargoBuildV3::verify(
@@ -3774,7 +3817,7 @@ fn run_authored_program_over_three_frames(
 /// One frame after the authored program's first, 100 ns after the frame before it.
 #[cfg(feature = "sealed-strategy-input-acceptance")]
 struct LaterFrame {
-    /// The member's open and close at the channel's scale of two.
+    /// The member's open and close in cents; the frame states them at the role's scale.
     open_close: [i128; 2],
     /// The frame's bar: open, high, low, close.
     bar: (&'static str, &'static str, &'static str, &'static str),
@@ -3822,7 +3865,12 @@ fn run_authored_program_over_frames(
                 &plan,
                 &owner_frame,
                 *at,
-                &[frame.open_close],
+                &[frame.open_close.map(|cents| {
+                    cents
+                        * 10_i128.pow(u32::from(
+                            vibe_data::owner::decimal_rescale_v1::MARKET_DATA_VALUE_SCALE_V1 - 2,
+                        ))
+                })],
             )
         })
         .collect::<Result<Vec<_>, _>>()?;

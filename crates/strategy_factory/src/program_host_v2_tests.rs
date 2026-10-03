@@ -6,6 +6,8 @@ use strategy_factory_program_sdk::lifecycle_v1::{
 use strategy_factory_program_sdk::lifecycle_v2::{
     InstrumentKeyV2, InstrumentTargetSetV2, MemberTargetV2, target_set_encoded_bytes,
 };
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+use vibe_data::owner::sealed_acceptance::SingleMemberUniverseRolesV1;
 use vibe_data::owner::source_binding::BindingDigest;
 #[cfg(feature = "sealed-strategy-input-acceptance")]
 use vibe_data::owner::{
@@ -1721,6 +1723,29 @@ fn universe_input_ordinals_follow_the_member_count() {
     assert!(!admitted(Some(0), 0));
 }
 
+/// The `OPEN` and `CLOSE` roles a single-member universe frame must bind for `design`, as the Design
+/// states them: the frame binds the Design's own roles, at the scale they read at.
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+pub(crate) fn single_member_universe_roles_of(
+    design: &super::strategy_design_v2::StrategyDesignV2,
+) -> SingleMemberUniverseRolesV1 {
+    let role = |field_semantic_id: &str| {
+        design
+            .inputs
+            .iter()
+            .find(|role| role.field_semantic_id == field_semantic_id)
+            .unwrap_or_else(|| panic!("the universe Design reads {field_semantic_id}"))
+    };
+    let open = role("MARKET_DATA.BAR.OPEN.PRICE.V1");
+    let close = role("MARKET_DATA.BAR.CLOSE.PRICE.V1");
+    assert_eq!(open.scale, close.scale, "both roles read at one scale");
+    SingleMemberUniverseRolesV1 {
+        open_role_identity: super::strategy_plan_v2::strategy_input_role_identity_v2(open),
+        close_role_identity: super::strategy_plan_v2::strategy_input_role_identity_v2(close),
+        scale: close.scale,
+    }
+}
+
 /// Compiles the one-member Design against a one-member Owner universe frame that Market Data issues
 /// through its own derivation and binds to that Design.
 #[cfg(feature = "sealed-strategy-input-acceptance")]
@@ -1739,6 +1764,7 @@ fn one_member_universe_fixture() -> (
     let frame = issue_single_member_universe_frame_for_owner_lineage(
         candidate.research_request_identity,
         design_identity,
+        single_member_universe_roles_of(&candidate),
     )
     .expect("one-member Owner universe frame");
     assert_eq!(frame.frame().selection().members().len(), 1);
@@ -1875,6 +1901,7 @@ fn universe_bfp_fixture() -> (
     let frame = issue_single_member_universe_frame_for_owner_lineage(
         candidate.research_request_identity,
         design_identity,
+        single_member_universe_roles_of(&candidate),
     )
     .expect("one-member Owner universe frame");
     // The host reads plugin frames against the Plan's canonical manifest, whose ports are sorted.

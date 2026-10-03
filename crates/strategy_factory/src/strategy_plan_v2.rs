@@ -3509,6 +3509,9 @@ fn compile_canonical(
         .iter()
         .map(|value| value.semantic_id.clone())
         .collect::<Vec<_>>();
+    // The kernel's primitives as they stood when the closure entered every Plan's identity. A
+    // primitive added later, such as `FLIP_SEMANTIC_ID`, is admitted by the constant and wire
+    // checks rather than listed here, which would re-identify every Plan for no reader.
     capability_closure.extend(
         [
             lifecycle_v1::KERNEL_SEMANTICS_ID,
@@ -3640,8 +3643,13 @@ pub(crate) const UNIVERSE_OPEN_FIELD_SEMANTIC_ID_V2: &str = "MARKET_DATA.BAR.OPE
 /// Market Data field of the universe vertical's fixed `CLOSE` member role.
 pub(crate) const UNIVERSE_CLOSE_FIELD_SEMANTIC_ID_V2: &str = "MARKET_DATA.BAR.CLOSE.PRICE.V1";
 
-/// A daily Market Data price at scale 2, read for each Owner universe member rather than for a
-/// named instrument: the role the single-threshold authoring surface emits for its universe form.
+/// A daily Market Data price at Market Data's value scale, read for each Owner universe member rather
+/// than for a named instrument: the role the single-threshold authoring surface emits for its
+/// universe form.
+///
+/// The scale is [`vibe_data::owner::decimal_rescale_v1::MARKET_DATA_VALUE_SCALE_V1`], referenced and never restated, so one Design reads
+/// every instrument the scope may name at one fixed point: Market Data aligns each canonical row to
+/// it exactly, and a threshold authored against it means the same price on every instrument.
 ///
 /// The universe contract below does not require this shape; it admits any role set the target-set
 /// Host can bind and that names one pricing role.
@@ -3655,7 +3663,7 @@ pub(crate) fn universe_member_role_v2(semantic_id: &str, field_semantic_id: &str
         channel: "MARKET".to_owned(),
         timeframe: "1D".to_owned(),
         unit: "PRICE".to_owned(),
-        scale: 2,
+        scale: vibe_data::owner::decimal_rescale_v1::MARKET_DATA_VALUE_SCALE_V1,
         value_type: ValueTypeV2::I128,
     }
 }
@@ -4130,6 +4138,7 @@ fn constant_semantic_is_supported(value: &TypedConstantV2) -> bool {
             lifecycle_v1::ADD_SEMANTIC_ID,
             lifecycle_v1::REDUCE_SEMANTIC_ID,
             lifecycle_v1::EXIT_SEMANTIC_ID,
+            lifecycle_v1::FLIP_SEMANTIC_ID,
             lifecycle_v1::HOLD_SEMANTIC_ID,
         ]
         .contains(&semantic_id.as_str()),

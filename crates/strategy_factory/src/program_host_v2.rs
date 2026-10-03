@@ -3611,6 +3611,7 @@ pub(crate) fn decode_proposal_terminals_v2(
         lifecycle_v1::ADD_SEMANTIC_ID => PositionIntentV1::Add,
         lifecycle_v1::REDUCE_SEMANTIC_ID => PositionIntentV1::Reduce,
         lifecycle_v1::EXIT_SEMANTIC_ID => PositionIntentV1::Exit,
+        lifecycle_v1::FLIP_SEMANTIC_ID => PositionIntentV1::Flip,
         _ => return Err(ProgramHostV2Error::Graph("proposal.position_intent".into())),
     };
     let target_variant_value = terminal(ProposalTerminalV2::TargetVariant)?;

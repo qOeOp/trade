@@ -50,6 +50,10 @@ services:
         ${MARKET_DATA_RD_ROLE_SET_DATABASE_URL:?set MARKET_DATA_RD_ROLE_SET_DATABASE_URL}
       INSTRUMENT_OWNER_DATABASE_URL: >-
         ${INSTRUMENT_OWNER_DATABASE_URL:?set INSTRUMENT_OWNER_DATABASE_URL}
+      # Native Replay execution writes its Result as backtest_owner. With it set, the service refuses
+      # to start unless Deployment Store Admission is `required` and admits Market Data scheduling.
+      BACKTEST_OWNER_DATABASE_URL: >-
+        ${BACKTEST_OWNER_DATABASE_URL:?set BACKTEST_OWNER_DATABASE_URL}
       MARKET_DATA_OBSERVATION_SOURCE: ${MARKET_DATA_OBSERVATION_SOURCE:-}
       DATABENTO_API_KEY: ${DATABENTO_API_KEY:-}
       DATABENTO_PUBLISHERS_PATH: ${DATABENTO_PUBLISHERS_PATH:-}
@@ -474,6 +478,52 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    security_opt:
+      - no-new-privileges:true
+
+  # rd-owner-api's own Market Data Owner migration grants an already-provisioned
+  # market_data_admitted_reader its admitted-read wrappers, but only runs that migration at this
+  # binary's own startup. A deployment turning `required` on for the first time needs one such
+  # start before it can author a publication that measures the store through that reader - so this
+  # one-shot service runs the same binary, scoped to that migration: `disabled` mode, and no
+  # BACKTEST_OWNER_DATABASE_URL at all (an empty value refuses by name, same as unset would not).
+  # scripts/up.sh starts it, waits for "R&D Owner API ready" in its log, then stops it.
+  deployment-store-grant:
+    profiles: ["authority-admin"]
+    build:
+      context: ../..
+      dockerfile: product/rd-workbench/Dockerfile.owner
+    restart: "no"
+    environment:
+      RD_OWNER_DATABASE_URL: ${RD_OWNER_DATABASE_URL:?set RD_OWNER_DATABASE_URL}
+      RD_FACT_WRITER_DATABASE_URL: >-
+        ${RD_FACT_WRITER_DATABASE_URL:?set RD_FACT_WRITER_DATABASE_URL}
+      MARKET_DATA_OWNER_DATABASE_URL: >-
+        ${MARKET_DATA_OWNER_DATABASE_URL:?set MARKET_DATA_OWNER_DATABASE_URL}
+      MARKET_DATA_RD_ROLE_SET_DATABASE_URL: >-
+        ${MARKET_DATA_RD_ROLE_SET_DATABASE_URL:?set MARKET_DATA_RD_ROLE_SET_DATABASE_URL}
+      INSTRUMENT_OWNER_DATABASE_URL: >-
+        ${INSTRUMENT_OWNER_DATABASE_URL:?set INSTRUMENT_OWNER_DATABASE_URL}
+      QUALIFICATION_OWNER_DATABASE_URL: >-
+        ${QUALIFICATION_OWNER_DATABASE_URL:?set QUALIFICATION_OWNER_DATABASE_URL}
+      PRODUCT_EDGE_DATABASE_URL: ${PRODUCT_EDGE_DATABASE_URL:?set PRODUCT_EDGE_DATABASE_URL}
+      PRODUCT_EDGE_DEPLOYMENT_IDENTITY: ${PRODUCT_EDGE_DEPLOYMENT_IDENTITY:?set PRODUCT_EDGE_DEPLOYMENT_IDENTITY}
+      PRODUCT_EDGE_TRUSTED_ISSUER_IDENTITY: >-
+        ${PRODUCT_EDGE_TRUSTED_ISSUER_IDENTITY:?set PRODUCT_EDGE_TRUSTED_ISSUER_IDENTITY}
+      PRODUCT_EDGE_TRUSTED_ISSUER_KEY_VERSION: >-
+        ${PRODUCT_EDGE_TRUSTED_ISSUER_KEY_VERSION:?set PRODUCT_EDGE_TRUSTED_ISSUER_KEY_VERSION}
+      PRODUCT_EDGE_TRUSTED_AUTHORIZATION_AUDIENCE: >-
+        ${PRODUCT_EDGE_TRUSTED_AUTHORIZATION_AUDIENCE:?set PRODUCT_EDGE_TRUSTED_AUTHORIZATION_AUDIENCE}
+      RD_OWNER_API_TOKEN: ${RD_OWNER_API_TOKEN:?set RD_OWNER_API_TOKEN}
+      RD_SANDBOX_SOCKET: /run/trade-rd-sandbox/build.sock
+      DEPLOYMENT_STORE_ADMISSION_MODE: disabled
+      RUST_LOG: info
+    depends_on:
+      replay-policy-catalog-owner-readback:
+        condition: service_completed_successfully
+    volumes:
+      - sandbox-socket:/run/trade-rd-sandbox:ro
+      - binance-vision-shards:/var/lib/trade/binance-vision-shards
     security_opt:
       - no-new-privileges:true
 
