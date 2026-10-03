@@ -1,3 +1,4 @@
+(run with order-3 candidates only; the order-1/2 minor candidates in CONFIGS were added after this run and are tested in tv_line_fidelity2.py)
 Learning which lines Ronnie keeps: 60 lines of his, 488539 candidate lines on 45 charts, 24928 candidates match one of his
 logistic weights (standardised features, fitted on the calibration half):
   t_same +0.23, t_opp +0.24, t_recent -0.36, through +0.06, through_recent -0.27, cross -0.53, log_span -0.61, log_age +0.89, dist +0.16, slope_ok -0.83, body +0.07
