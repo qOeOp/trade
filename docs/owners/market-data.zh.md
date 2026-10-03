@@ -2318,6 +2318,29 @@ Backtest 的组合与 Market Data 之外的每个读者也属于 T1；T2（多�
   来的更正取代掉的那个版本。它的版本是在报价时刻自己的可得时刻之前发布的最高序号，更晚的更正也只在那个时刻取代它：成交
   在决策之后，而在 `d_k` 上没有报价能入选，因为报价的事件在 `d_k` 之后。这只关乎成交报价。帧 `k` 的策略输入仍然截在
   `d_k`，所以在 `d_k` 与报价可得时刻之间发布的更正会到达成交报价，绝不到达帧 `k` 的输入。
+- **接口：** `crates/data/src/owner/pit_window_custody_v1.rs` 冻结回填写入方提交的内容，以及多帧消费方如何找到一次运行的
+  帧；在托管聚合与派生视图实现它的两个 sealed 端口之前，没有任何东西能构造回执或帧坐标。
+  - 托管请求指名它的 Source Binding、Market Semantics fact、Universe Selection record、一到两个成员、窗口、执行周期、
+    输入周期与可选的成交周期。执行周期由托管指名，不由运行指名，因为托管的提交会铸出窗口 schedule；滞后不低于其间隔的，
+    在提交时拒绝，不严格细于它的成交周期也一样。同时又是输入周期的成交周期按名拒绝为
+    `FILL_TIMEFRAME_IS_AN_INPUT_TIMEFRAME`，否则成交行会到达策略输入。`WINDOW_MEMBER_NOT_VALID_THROUGHOUT` 同时覆盖
+    Instrument Master 有效期与请求所指名的 Universe 成员资格。
+  - 每个 cross-section 版本陈述它的种类（原始、更正或撤回，撤回不带任何行）、它的序号以及它所替换的版本。只有发布更正的
+    来源才陈述发布时刻；其余来源由 Owner 把它推导为该版本的可得时刻，陈述了的按
+    `CROSS_SECTION_CORRECTION_NOT_PUBLISHED_BY_SOURCE` 拒绝。
+  - 每一行都带着它被真实取回的时刻与来处，作为托管证据，不进任何 identity，所以带着别的取回证据重新提交同样的版本会
+    rejoin，并返回原来的回执与铸造 cut。在 availability rule 设为取回时刻时，行的可得时刻是托管的铸造 cut，绝不是调用方
+    陈述的取回时刻；在这个 cut 之后取回的行按 `RETRIEVAL_AFTER_MINTING_CUT` 拒绝。
+  - 运行以托管链的根指名一条链，这是一个不受信的声明，由 Owner 解析到链的 head，并陈述它自己落在托管窗口之内的窗口。它的
+    帧以坐标返回：序号、`e_k` 与 `d_k`，其中 `d_k` 是帧 `k` 的执行 cross-section 推导出的可得时刻，从它指名的 head 上读出。
+    之后每一帧的输入与报价 cut 经原生 Replay resolver 解析，它的请求在派生视图那一片获得托管帧来源。这个来源指名链根、读出这些
+    帧的 head 以及 `e_k`，所以在枚举与逐帧读取之间提交的更正不会把两个 head 混进同一次运行；不在该链上的 head 会被拒绝。每个间隙都有它的报价
+    cut，最后一个以运行的结束为界，缺报价 cut 的间隙让运行按 `QuoteCutMissing` 拒绝。
+  - batch 的来源是已提交的快照、托管视图或托管报价 cut。托管视图指名它所在链的根而不是 head，并带着视图 identity、`e_k`、
+    `d_k` 与派生 frontier，所以一次更正只改变选中它的那些视图。托管报价 cut 只装 Quote 行，绝不装成交 bar，并指名它的
+    派生方式。
+  - funding 结算这类事件行不由 T0 持有：一个 binding 只陈述一条 availability rule，而它们没有可以锚定规则的 bar 收盘。
+    它们以后在自己的 binding 下进入托管。
 
 在 CURRENT/PARTIAL BAR schedule 路径中，只有具备 custody verification 的 readback 才能授权以准确 V1
 binding-receipt digest 为键的新增 immutable `TimeframeProjectionReceiptV1`。其既有 canonical bytes 与 domain
