@@ -858,6 +858,7 @@ async fn issues_its_initial_pit_request() {
             instruments: None,
             instruments_v2: None,
             semantics: None,
+            economic_terms: None,
         },
         token_digest,
     );

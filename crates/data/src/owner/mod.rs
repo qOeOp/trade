@@ -8,6 +8,7 @@ pub mod bar_schedule;
 pub mod calendar;
 pub mod declared_bar_timeframe_v1;
 pub mod frozen_observation_window_v1;
+pub mod instrument_economic_terms_intake_v1;
 pub mod instrument_economic_terms_postgres_v1;
 pub mod instrument_economic_terms_v1;
 pub mod instrument_master;

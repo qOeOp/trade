@@ -28,12 +28,16 @@ pub struct InstrumentEconomicDecimalV1 {
     pub scale: u8,
 }
 
-/// The only margin meaning admitted by this version.
+/// What the initial and maintenance values mean.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum InstrumentMarginMeaningV1 {
     /// Initial and maintenance values are fixed rates multiplied by notional, without leverage.
     StandardNotionalRate,
+    /// The same fixed rates, but only for a position whose notional is at most the fact's
+    /// `margin_notional_cap`: the venue's first leverage bracket. Above the cap the venue applies
+    /// other brackets this fact does not record, so the rates say nothing about such a position.
+    FirstBracketNotionalRate,
 }
 
 /// The account/margin applicability admitted by this version.
@@ -66,6 +70,11 @@ pub struct InstrumentEconomicTermsInputV1 {
     pub initial_margin: InstrumentEconomicDecimalV1,
     pub maintenance_margin: InstrumentEconomicDecimalV1,
     pub margin_meaning: InstrumentMarginMeaningV1,
+    /// The largest position notional, in the quote currency, the margin rates hold for. Present
+    /// exactly when the meaning is `FIRST_BRACKET_NOTIONAL_RATE`, and absent from the bytes of a
+    /// `STANDARD_NOTIONAL_RATE` fact, whose bytes are therefore those they were before it existed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub margin_notional_cap: Option<InstrumentEconomicDecimalV1>,
 }
 
 /// Canonical private fact. This type has no public field mutation surface.
@@ -280,6 +289,8 @@ pub enum InstrumentEconomicTermsErrorV1 {
     InvalidRevision,
     #[error("Instrument economic currency mismatch")]
     CurrencyMismatch,
+    #[error("Instrument economic margin cap does not match its meaning")]
+    MarginCapMismatch,
     #[error("Instrument economic terms encoding is invalid")]
     CodecMismatch,
     #[error("Instrument economic terms encoding is non-canonical")]
@@ -333,12 +344,21 @@ fn validate_input(
         return Err(InstrumentEconomicTermsErrorV1::CurrencyMismatch);
     }
 
+    let cap = match (input.margin_meaning, input.margin_notional_cap) {
+        (InstrumentMarginMeaningV1::StandardNotionalRate, None) => None,
+        (InstrumentMarginMeaningV1::FirstBracketNotionalRate, Some(cap)) => Some(cap),
+        _ => return Err(InstrumentEconomicTermsErrorV1::MarginCapMismatch),
+    };
+
     for value in [
         input.maker_fee,
         input.taker_fee,
         input.initial_margin,
         input.maintenance_margin,
-    ] {
+    ]
+    .into_iter()
+    .chain(cap)
+    {
         if value.scale > 38 || value.mantissa <= 0 || (value.scale != 0 && value.mantissa % 10 == 0)
         {
             return Err(InstrumentEconomicTermsErrorV1::InvalidDecimal);
@@ -411,7 +431,53 @@ mod tests {
                 scale: 2,
             },
             margin_meaning: InstrumentMarginMeaningV1::StandardNotionalRate,
+            margin_notional_cap: None,
         }
+    }
+
+    /// A standard fact's bytes carry no cap, so adding the field left every earlier fact's bytes,
+    /// and with them its identity, as they were.
+    #[rstest]
+    fn a_standard_fact_states_no_cap_and_a_first_bracket_fact_requires_one() {
+        let standard = InstrumentEconomicTermsFactV1::seal(input()).unwrap();
+        assert!(
+            !String::from_utf8_lossy(standard.canonical_bytes()).contains("margin_notional_cap")
+        );
+
+        let cap = InstrumentEconomicDecimalV1 {
+            mantissa: 10_000,
+            scale: 0,
+        };
+        let mut bracket = input();
+        bracket.margin_meaning = InstrumentMarginMeaningV1::FirstBracketNotionalRate;
+        bracket.margin_notional_cap = Some(cap);
+        let sealed = InstrumentEconomicTermsFactV1::seal(bracket.clone()).unwrap();
+        assert_eq!(
+            InstrumentEconomicTermsFactV1::parse_canonical(sealed.canonical_bytes()).unwrap(),
+            sealed
+        );
+
+        let mut uncapped = bracket.clone();
+        uncapped.margin_notional_cap = None;
+        let mut capped_standard = input();
+        capped_standard.margin_notional_cap = Some(cap);
+        let mut zero_cap = bracket;
+        zero_cap.margin_notional_cap = Some(InstrumentEconomicDecimalV1 {
+            mantissa: 0,
+            scale: 0,
+        });
+        assert_eq!(
+            InstrumentEconomicTermsFactV1::seal(uncapped),
+            Err(InstrumentEconomicTermsErrorV1::MarginCapMismatch)
+        );
+        assert_eq!(
+            InstrumentEconomicTermsFactV1::seal(capped_standard),
+            Err(InstrumentEconomicTermsErrorV1::MarginCapMismatch)
+        );
+        assert_eq!(
+            InstrumentEconomicTermsFactV1::seal(zero_cap),
+            Err(InstrumentEconomicTermsErrorV1::InvalidDecimal)
+        );
     }
 
     #[rstest]
