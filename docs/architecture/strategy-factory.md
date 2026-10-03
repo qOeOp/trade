@@ -1443,7 +1443,9 @@ later submission and the cost grows with the whole history.
   timeframe label stays provenance only, so the execution timeframe is not derived from it here: Market Data resolves
   the execution role's typed timeframe from its own binding and refuses more than one timeframe, or a day it cannot
   type, by name. That scheduling change replaces the label comparison in `native_replay_scheduling_v1` and is Market
-  Data's.
+  Data's. Market Data derives the execution role itself from the request's roles, by the same rule, so no caller names
+  it; its refusals are `EXECUTION_ROLE_ABSENT`, `EXECUTION_ROLE_AMBIGUOUS`, `MORE_THAN_ONE_ROLE_TIMEFRAME` and
+  `EXECUTION_TIMEFRAME_NOT_DECLARED` (Market Data owner page).
 - **P2, the report states every member:** the report family states each member of a universe run, generalizing the
   one-member statement Backtest already makes. It lands with I2, driven by the first run over more than one member:
   before I2 no program reads a member other than the first, so a statement of every member would have nothing to

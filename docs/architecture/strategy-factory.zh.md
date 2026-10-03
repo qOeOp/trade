@@ -1283,7 +1283,9 @@ custody 会挡住之后的每一次提交，而成本随整个历史增长。
   `ExecutionRoleNotPricingRole`；今天没有东西构造出后者，因为 universe 角色上的 join 会先被拒绝。Host 从 Plan 读取它的
   成员角色和定价角色。角色的周期标签仍然只是 provenance，所以这里不从它推出执行周期：Market Data 从自己的 binding
   取执行角色的 typed 周期，周期不止一种、或者某种日它无法 typed 时按名拒绝。这项调度改动取代
-  `native_replay_scheduling_v1` 里的标签比较，归 Market Data。
+  `native_replay_scheduling_v1` 里的标签比较，归 Market Data。Market Data 按同一条规则从请求的角色自行推出执行角色，
+  调用方不指名它；其拒绝为 `EXECUTION_ROLE_ABSENT`、`EXECUTION_ROLE_AMBIGUOUS`、`MORE_THAN_ONE_ROLE_TIMEFRAME` 与
+  `EXECUTION_TIMEFRAME_NOT_DECLARED`（见 Market Data owner 页）。
 - **P2，报告陈述每个成员：** 报告族陈述 universe 运行的每个成员，把 Backtest 已经做到的一成员陈述推广开。它与 I2
   一同落地，由第一个超过一个成员的运行驱动：I2 之前没有程序读第一个成员以外的成员，陈述每个成员就无物可陈述。
 
