@@ -141,6 +141,11 @@ never runs in CI.
   drives that root end to end on a disposable PostgreSQL - measured, authored, sealed, published, admitted, and read
   through the scheduling port - so **a seam that declares its own incompleteness** no longer describes it. The BAR
   schedule census it reads there is empty; the production strategy over real schedule rows has still never run.
+  The two resolvers Native Replay execution needs open the same way: the integration test
+  `the_native_replay_resolvers_open_and_read_in_required_mode` opens
+  `native_replay_scheduling_resolver_v1_from_store_admission_lookup` and
+  `shared_time_evidence_resolver_from_store_admission_lookup_v1` over a file configuration in `required` mode, as
+  `rd-owner-api` opens their environment variants, and reads the store through the same admission.
   Whether a real deployment sets `Required` is a question about deployment configuration that the code cannot
   answer.
   **Clearing `B3` proves which store `rd-owner-api` reached; it does not keep credentials out of that process.**

@@ -113,7 +113,12 @@ ACL 拒绝。它不证明供应商真实性，不证明生产装配，也不证�
   建不出其中任何一个就以它的失败码拒绝。Market Data 的证明
   `the_production_seam_admits_what_the_administrator_measured_sealed_and_published` 在一次性 PostgreSQL 上把这个合成根
   端到端走了一遍 - 测量、补全、封存、发布、准入，再经 scheduling 读口读取 - 所以**一条自述未建的缝**已不再是它的写照。
-  它在那里读到的 BAR schedule 普查是空的；生产策略在真实 schedule 行上仍从未运行过。真实部署会不会设成 `Required`
+  它在那里读到的 BAR schedule 普查是空的；生产策略在真实 schedule 行上仍从未运行过。
+  Native Replay 执行需要的两个 resolver 也以同样方式打开：集成测试
+  `the_native_replay_resolvers_open_and_read_in_required_mode` 在 `required` 模式下、以文件配置打开
+  `native_replay_scheduling_resolver_v1_from_store_admission_lookup` 与
+  `shared_time_evidence_resolver_from_store_admission_lookup_v1`，与 `rd-owner-api` 打开其环境变体的方式相同，
+  并经同一次准入读取该库。真实部署会不会设成 `Required`
   是一个关于部署配置的问题，代码里答不出。
   **解除 `B3` 证明的是 `rd-owner-api` 连到了哪个库，并不把凭据挡在这个进程之外**。同一进程启动时就持有两条裸 DSN：
   `MARKET_DATA_OWNER_DATABASE_URL`，即 Owner 的写主体 `market_data_owner`，`product/rd-workbench/docker-compose.yml`
