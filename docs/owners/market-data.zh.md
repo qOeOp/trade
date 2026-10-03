@@ -1088,7 +1088,8 @@ Instrument Master V2 fact 与 clock head，再把 terms 签发进 Instrument Own
 - **保证金**取第一档 leverage bracket：其维持保证金率，以及 `1 / maxOpenPosLeverage` 在小数点后第六位向上取整
   得到的初始保证金率，使十进制无法精确表示的比率绝不被低估。持仓名义价值超过该行 `notional_cap`
   （`LINKUSDT-PERP.BINANCE` 为 10000 USDT）时，venue 按这些 terms 未记录的更高档位计收保证金，若按第一档比率计算，
-  保证金会被低估。terms 携带该上限，以便 consumer 拒绝这样的持仓；目前还没有 consumer 这样做。
+  保证金会被低估。terms 携带该上限，Native Replay 执行会把这样的运行按名拒绝为
+  `ECONOMIC_TERMS_NOTIONAL_ABOVE_RECORDED_TIER`（见 Strategy Factory 页）。
 - **这些表靠人工维护。** venue 会不加通知地调整档位与费率，这里没有任何机制能察觉。新增 instrument 就是新增
   一行并附来源；修改数值则是一个新 revision，其 validity 不得与之前 revision 的重叠，因为 Native Replay resolver
   会拒绝在同一时刻有两条有效 fact 的 instrument。保持这些行为最新是 Instrument Owner 的待办。
