@@ -323,8 +323,8 @@ Source 与 Research 动作、探索性 Replay 动作、Develop Composer 动作�
 服务运行，代理是唯一的编排者：
 
 - 没有 MCP server 调用另一个 MCP server，也没有工具把跨领域的工作流藏在自己里面；
-- 数据在 server 之间按引用传递：为另一个领域产出行情数据的工具返回一个 `dataset_ref`，消费方服务向下读取 Market Data 来解析它，
-  数值从不经过代理；
+- 数据在 server 之间按引用传递：回测用一个 `dataset_ref` 指明它的数据，服务端向下读取 Market Data 来解析它，数值从不经过
+  代理；
 - 每条规矩都在 server 背后的 Owner 里，从不在工具里。工具发送的是该 Owner 已经从任何 channel 接纳的请求，不增加任何权威，
   不跳过任何检查，并按名透传每个拒绝；
 - 每个 server 同时也是基于同一组函数的命令行，工具名相同，因此脚本与代理到达同样的 Owner 行为。
@@ -332,11 +332,10 @@ Source 与 Research 动作、探索性 Replay 动作、Develop Composer 动作�
 这取代了本节此前陈述的单一 `rd-run-research` 入口（一个二进制，其 `run` 命令从标的准入到报告串接每一步）：它承担的编排
 移到代理，它的各领域步骤移到所属领域的 server。
 
-**`dataset_ref`。** 由 Market Data 签发，也只由 Market Data 解析；代理只负责转交，从不经手数值。它是指向一段有界行情数据的
-内容寻址引用：标的、周期、以事件纳秒计的半开区间 `[start, end)`，以及固定该段
-数据的 Market Data custody 的摘要（运行窗口 custody 的 chain root，或某个 PIT snapshot 的摘要）。它的身份由 Market Data 从
-这些字段计算，从不由调用方陈述。消费方若不能把引用解析到恰好那份 custody，就以 `DATASET_REF_UNRESOLVED` 拒绝；它从不改用
-更新的截面。确切编码与 Market Data 的运行窗口 custody 一起确定。
+**`dataset_ref`。** 对一段行情数据的纯描述：标的、执行周期（`1d` 或 `4h`）与以事件纳秒计的半开区间 `[start, end)`。
+它不是任何一方签发的令牌：代理照 `coverage` 报告的结果自己写。消费它的服务在运行那一刻于 Market Data 的托管里解析它；
+托管不覆盖时以 `DATASET_REF_UNRESOLVED` 按名拒绝，周期不是执行周期时以 `TIMEFRAME_UNSUPPORTED` 拒绝。运行解析到的托管随
+运行一起记录，因此重放读到同样的数据。
 
 **`market-data`**，由 Market Data 提供：
 
@@ -344,14 +343,14 @@ Source 与 Research 动作、探索性 Replay 动作、Develop Composer 动作�
 - `describe_instrument(instrument)` → tick size、lot size 与当前经济条款（费率与保证金），或 `INSTRUMENT_UNKNOWN`。
 - `admit_instrument(symbol)` → 交易所 symbol（例如 `BTCUSDT`）的准入回执，由 Market Data 映射到其 canonical 标的；
   或按名给出的准入拒绝。
-- `backfill(instrument, timeframe, range)` → 一个 `job_id`。拒绝：`INSTRUMENT_UNKNOWN`、`TIMEFRAME_UNSUPPORTED`、
-  `RANGE_INVALID`。
+- `backfill(instrument, timeframe, range)` → 一个 `job_id`。`timeframe` 是执行周期 `1d` 或 `4h`，成交读取的 `1m` bar 随之
+  一起回填；其他周期为 `TIMEFRAME_UNSUPPORTED`。其他拒绝：`INSTRUMENT_UNKNOWN`、`RANGE_INVALID`。
 - `job_status(job_id)` → 任务状态，取 `QUEUED`、`RUNNING`、`SUCCEEDED` 或 `FAILED` 之一；`SUCCEEDED` 时给出新增的覆盖；
   `FAILED` 时按名给出成因。未知任务为 `JOB_UNKNOWN`。
 - `coverage(instrument)` → 每个周期已覆盖的区间。
-- `get_bars(instrument, timeframe, range, format)` → 小段数据内联返回 bar，否则返回 `dataset_ref`。拒绝：
-  `RANGE_NOT_COVERED`、`format` 要求内联时的 `RANGE_TOO_LARGE_FOR_INLINE`，以及 `HOLDOUT_PARTITION_UNDEFINED`。
-- `get_funding(instrument, range)` → 资金费率，按同一规则与同一组拒绝内联或以 `dataset_ref` 返回。
+- `get_bars(instrument, timeframe, range, format)` → 内联且有界地返回 bar。拒绝：`RANGE_NOT_COVERED`、
+  `RANGE_TOO_LARGE_FOR_INLINE` 与 `HOLDOUT_PARTITION_UNDEFINED`。回测从不经它读取数据：回测接收 `dataset_ref`。
+- `get_funding(instrument, range)` → 资金费率，同样有界、同一组拒绝。
 - 在 Qualification 按值、向下把其 holdout 分区登记到 Market Data 之前，这两个工具对每个请求都以
   `HOLDOUT_PARTITION_UNDEFINED` 拒绝：登记之前的答案是全部拒绝，从不是全部放行。
 - 每个返回行情数值的工具都在作答的同一事务里把这次读取追加到 Market Data 的代理数据读取台账，写不进去就拒绝
@@ -374,9 +373,11 @@ Source 与 Research 动作、探索性 Replay 动作、Develop Composer 动作�
 - `run(strategy_id, dataset_ref, cost_profile)` → 一个 `run_id`。整个回放在服务端一次调用内完成。R&D 解析它自己的策略与
   来自 Market Data 的数据段，并把两者按值传给 Backtest，因此 Backtest 从不回读 R&D，每次调用都指向下层。每次运行在其结果
   被展示之前都作为一次试验计入 R&D 的 census，与今天每个探索性 Result 一样。拒绝：`STRATEGY_UNKNOWN`、`STRATEGY_ARCHIVED`、
-  `DATASET_REF_UNRESOLVED`、`COST_PROFILE_UNKNOWN`。
+  `DATASET_REF_UNRESOLVED`、`TIMEFRAME_UNSUPPORTED`、`COST_PROFILE_UNKNOWN`。
 - `status(run_id)`、`list_runs(filter)`。
-- `report(run_id)` → 运行报告，包括费用、资金费与随机进场对照。
+- `report(run_id)` → 运行报告，包括费用、资金费与随机进场对照。在 Qualification 登记其 holdout 分区之前，每份报告都写明
+  没有定义 holdout 分区、结果仅作探索。
+- **TARGET：** 分区登记之后，`run` 对与受保护时段重叠的窗口以 `HOLDOUT_WINDOW_OVERLAP` 拒绝。
 - 单独验收的条件：一个已创建的策略在一个 `dataset_ref` 上运行，其报告读回时带有费用、资金费与对照。
 
 **以后的 server。** `scan`（Scanner，U1 之后）：`scan(strategy_ids, universe)`。然后是 `research`（Research 请求、census
@@ -405,8 +406,8 @@ Source 与 Research 动作、探索性 Replay 动作、Develop Composer 动作�
 
 **只给结论，从不给受保护数值。**
 
-- 没有工具调用 Qualification 的受保护读取，也没有 `dataset_ref` 能点名 Qualification 封存 holdout 分区内的数据段，
-  数据读取台账从不分发这样的数据段。Qualification 只通过其公开状态作答。
+- 没有工具调用 Qualification 的受保护读取，也没有运行读到已登记的 holdout 时段之内：分区登记之前 `get_bars` 与
+  `get_funding` 拒绝一切，登记之后 `backtest.run` 拒绝重叠的窗口。Qualification 只通过其公开状态作答。
 - 拒绝按名透传。没有任何拒绝被折叠成泛化失败。
 
 **Dashboard MCP。** Dashboard 的 `/api/mcp` 不是面向代理的入口，也不扩展这些命令。它保留给预览界面使用：

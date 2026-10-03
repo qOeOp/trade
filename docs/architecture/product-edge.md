@@ -374,9 +374,8 @@ run log reads. It serves only under the opt-in `dashboard-preview` profile.
 Each domain is one MCP server, run by the service that owns the domain, and the agent is the only orchestrator:
 
 - no MCP server calls another one, and no tool hides a multi-domain workflow;
-- data passes between servers by reference: a tool that produces market data for another domain returns a
-  `dataset_ref`, the consuming service resolves it by reading down into Market Data, and the values never pass
-  through the agent;
+- data passes between servers by reference: a backtest names its data with a `dataset_ref`, the serving side
+  resolves it by reading down into Market Data, and the values never pass through the agent;
 - every rule lives in the Owner behind the server, never in a tool. A tool sends the request that Owner already
   admits from any channel, adds no authority and skips no check, and passes each refusal through by name;
 - each server is also a command line over the same functions, with the same tool names, so a script and an agent
@@ -386,13 +385,12 @@ This replaces the single `rd-run-research` entry this section stated before (one
 sequenced every step from instrument admission to report): the orchestration it held moves to the agent, and its
 per-domain steps move to the server of their domain.
 
-**`dataset_ref`.** Market Data issues it and only Market Data resolves it; the agent hands it on and never handles
-the values. It is a content-addressed reference to one bounded slice of market data: the instrument, the timeframe,
-the half-open range `[start, end)` in event nanoseconds, and the digest of the Market Data custody that fixes it (the
-run window custody's chain root, or a PIT snapshot's digest). Its identity is computed by Market Data from those
-fields and never stated by a caller. A consumer that cannot resolve a reference to exactly that custody refuses it as
-`DATASET_REF_UNRESOLVED`; it never substitutes a newer cut. Its exact encoding is fixed with Market Data's run window
-custody.
+**`dataset_ref`.** A plain description of one slice of market data: the instrument, the execution timeframe (`1d` or
+`4h`) and the half-open range `[start, end)` in event nanoseconds. It is not a token anything issues: the agent writes
+it from what `coverage` reports. The service that consumes it resolves it inside Market Data's custody at the moment
+it runs, and refuses it by name when that custody does not cover it, as `DATASET_REF_UNRESOLVED`, or when the
+timeframe is not an execution timeframe, as `TIMEFRAME_UNSUPPORTED`. The custody the run resolved is recorded with
+the run, so a replay reads the same data.
 
 **`market-data`**, served by Market Data:
 
@@ -401,15 +399,16 @@ custody.
   `INSTRUMENT_UNKNOWN`.
 - `admit_instrument(symbol)` → the admission receipt for the venue symbol (such as `BTCUSDT`), which Market Data maps
   to its canonical instrument, or the admission refusal by name.
-- `backfill(instrument, timeframe, range)` → a `job_id`. Refusals: `INSTRUMENT_UNKNOWN`, `TIMEFRAME_UNSUPPORTED`,
-  `RANGE_INVALID`.
+- `backfill(instrument, timeframe, range)` → a `job_id`. `timeframe` is the execution timeframe, `1d` or `4h`, and the
+  `1m` bars the fills read are backfilled with it; any other timeframe is `TIMEFRAME_UNSUPPORTED`. Other refusals:
+  `INSTRUMENT_UNKNOWN`, `RANGE_INVALID`.
 - `job_status(job_id)` → the job's state, one of `QUEUED`, `RUNNING`, `SUCCEEDED` or `FAILED`; the coverage it added
   once `SUCCEEDED`; and the cause by name once `FAILED`. An unknown job is `JOB_UNKNOWN`.
 - `coverage(instrument)` → the covered ranges for each timeframe.
-- `get_bars(instrument, timeframe, range, format)` → the bars inline when the slice is small, otherwise a
-  `dataset_ref`. Refusals: `RANGE_NOT_COVERED`, `RANGE_TOO_LARGE_FOR_INLINE` when `format` demands inline, and
-  `HOLDOUT_PARTITION_UNDEFINED`.
-- `get_funding(instrument, range)` → funding rates, inline or by `dataset_ref` under the same rule and refusals.
+- `get_bars(instrument, timeframe, range, format)` → the bars, inline and bounded. Refusals: `RANGE_NOT_COVERED`,
+  `RANGE_TOO_LARGE_FOR_INLINE`, and `HOLDOUT_PARTITION_UNDEFINED`. A backtest never reads through it: it takes a
+  `dataset_ref`.
+- `get_funding(instrument, range)` → funding rates, under the same bound and refusals.
 - Until Qualification registers its holdout partition with Market Data, by value and downward, both tools refuse every
   request as `HOLDOUT_PARTITION_UNDEFINED`: the answer before registration is refuse all, never allow all.
 - Every tool that returns market values appends its read to Market Data's agent data-read ledger in the transaction
@@ -435,9 +434,13 @@ custody.
   R&D resolves its own strategy and the slice from Market Data, and passes both to Backtest by value, so Backtest
   never reads back into R&D and every call points down the layers. Every run is counted as a trial in R&D's census
   before its result is shown, as every exploratory Result is today. Refusals: `STRATEGY_UNKNOWN`, `STRATEGY_ARCHIVED`,
-  `DATASET_REF_UNRESOLVED`, `COST_PROFILE_UNKNOWN`.
+  `DATASET_REF_UNRESOLVED`, `TIMEFRAME_UNSUPPORTED`, `COST_PROFILE_UNKNOWN`.
 - `status(run_id)`, `list_runs(filter)`.
-- `report(run_id)` → the run report, including fees, funding and the random-entry control.
+- `report(run_id)` → the run report, including fees, funding and the random-entry control. Until Qualification
+  registers its holdout partition, every report states that no holdout partition is defined and that the result is
+  exploratory only.
+- **TARGET:** once the partition is registered, `run` refuses a window that overlaps a protected period as
+  `HOLDOUT_WINDOW_OVERLAP`.
 - Accepted on its own when one created strategy runs on one `dataset_ref` and its report reads back with fees,
   funding and the control.
 
@@ -476,9 +479,9 @@ work where its lifetime already is:
 
 **Verdicts, never protected values.**
 
-- No tool calls a Qualification protected read, and no `dataset_ref` can name a slice inside Qualification's sealed
-  holdout partition, which the data-read ledger never hands out. Qualification answers only through its public
-  status.
+- No tool calls a Qualification protected read, and no run reads inside a registered holdout period: `get_bars` and
+  `get_funding` refuse everything until the partition is registered, and `backtest.run` refuses an overlapping window
+  once it is. Qualification answers only through its public status.
 - A refusal passes through by its name. Nothing is folded into a generic failure.
 
 **The Dashboard MCP.** The Dashboard's `/api/mcp` is not an entry for agents, and it is not extended with these
