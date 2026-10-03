@@ -178,7 +178,7 @@ pub(crate) struct FirstComposerV3ReplayV1 {
 /// each frame's BAR from all five, and refuses a frame without them as a field census mismatch.
 /// Values are in canonical form (no trailing zero at a nonzero scale), as a real client normalizes
 /// them; Market Data refuses any other row as not canonical.
-struct UniverseMemberDailyBarsV1;
+pub(crate) struct UniverseMemberDailyBarsV1;
 
 #[async_trait]
 impl PitObservationSourceV1 for UniverseMemberDailyBarsV1 {
@@ -1008,14 +1008,10 @@ pub(crate) async fn ensure_first_composer_v3_replay_acceptance_v1(
     // A scope that already has heads admits only the value they carry, so Operations restates the
     // value Market Data reads back for the binding's scope; only a scope with no head yet takes
     // Operations' own statement about the feed.
-    let mut read = rd.begin().await.expect("a read transaction opens");
-    let scope_value = vibe_data::owner::resolve_market_semantics_scope_value_v1(
-        &mut read,
-        &submission.source_binding,
-    )
-    .await
-    .unwrap_or_else(|e| panic!("H2b: Market Data states the binding's scope value: {e:?}"));
-    read.rollback().await.expect("the read transaction closes");
+    let scope_value = owner
+        .read_market_semantics_scope_value_v1(&submission.source_binding)
+        .await
+        .unwrap_or_else(|e| panic!("H2b: Market Data states the binding's scope value: {e:?}"));
     let value = scope_value
         .value()
         .cloned()
@@ -1296,15 +1292,12 @@ pub(crate) async fn ensure_first_composer_v3_replay_acceptance_v1(
     // Market Semantics fact over it, for [event effective, event effective + 1).
     let composer_locator = DevelopComposerSealedReadLocatorV2::from_accepted_response(&composed)
         .expect("H6: a successful Composer operation locates its artifact");
-    let mut read = rd.begin().await.expect("a read transaction opens");
-    let basis = vibe_data::owner::resolve_universe_member_composition_basis_v1(
-        &mut read,
-        &pit_snapshot,
-        &submission.source_binding,
-    )
-    .await
-    .unwrap_or_else(|e| panic!("H6: Market Data states the snapshot's composition basis: {e:?}"));
-    read.rollback().await.expect("the read transaction closes");
+    let basis = owner
+        .read_universe_member_composition_basis_v1(&pit_snapshot, &submission.source_binding)
+        .await
+        .unwrap_or_else(|e| {
+            panic!("H6: Market Data states the snapshot's composition basis: {e:?}")
+        });
     let composition: ReplayCompositionUniverseBindingIssuanceRequestV1 =
         serde_json::from_value(serde_json::json!({
             "composer_locator": composer_locator,

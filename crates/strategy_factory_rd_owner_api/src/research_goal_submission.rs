@@ -28,15 +28,14 @@ use vibe_product_edge::{
 use vibe_strategy_factory::{
     product_edge::{
         ProductEdgeChannel, ProductEdgeResearchGoalRequestV2, RESEARCH_OWNER_V1,
-        ResearchGoalOwnerPortV2, SourcedResearchGoalV2, TrialFamilyProposalV1,
-        research_goal_admitted_operation,
+        ResearchGoalOwnerError, ResearchGoalOwnerPortV2, ResearchGoalOwnerResultV2,
+        SourcedResearchGoalV2, TrialFamilyProposalV1, research_goal_admitted_operation,
     },
-    product_edge_postgres::PostgresResearchGoalOwnerV1,
+    product_edge_postgres::{PostgresResearchGoalOwnerV1, ResearchRequestIdentityPreflightV1},
 };
 
 use super::{
-    authorized, maybe_delay, owner_error_v2, product_edge_error, rejection_v2,
-    research_preflight_refusal,
+    authorized, maybe_delay, owner_error_v2, product_edge_error, rejection_v2, unresolved_result_v2,
 };
 
 #[derive(Clone)]
@@ -144,17 +143,96 @@ async fn submit(
     trial_family_proposal: TrialFamilyProposalV1,
     instrument_scope: Option<ResearchInstrumentScopeWireV1>,
 ) -> Response {
-    if let Some(refusal) = research_preflight_refusal(
-        state
-            .owner
-            .preflight_request_identity(&request_identity)
-            .await,
-        &request_identity,
-    ) {
-        return refusal;
+    let outcome = submit_research_goal_v2_in_process(
+        &state.product_edge,
+        &state.owner,
+        &state.request_proof_digest,
+        request_identity.clone(),
+        channel,
+        goal,
+        trial_family_proposal,
+        instrument_scope,
+    )
+    .await;
+    // The route's own HTTP fault injection runs only once a submission was actually attempted
+    // (the submit_v2 call itself, win or lose), not on a preflight refusal or an admission
+    // failure: unchanged from before this function was split from its typed core.
+    let delay_eligible = matches!(
+        outcome,
+        Ok(ResearchGoalSubmissionOutcomeV1::Submitted(_))
+            | Err(ResearchGoalSubmissionErrorV1::Submission(_))
+    );
+    let response = match outcome {
+        Ok(ResearchGoalSubmissionOutcomeV1::Submitted(result)) => {
+            (StatusCode::OK, Json(result)).into_response()
+        }
+        Ok(ResearchGoalSubmissionOutcomeV1::LegacyQuarantined) => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(unresolved_result_v2(&request_identity)),
+        )
+            .into_response(),
+        Err(ResearchGoalSubmissionErrorV1::PreflightUnavailable(e)) => {
+            tracing::warn!(error = %e, %request_identity, "Research request identity preflight unavailable");
+            owner_error_v2(&e, &request_identity)
+        }
+        Err(ResearchGoalSubmissionErrorV1::Admission(e)) => {
+            product_edge_error(&e, &request_identity, true)
+        }
+        Err(ResearchGoalSubmissionErrorV1::Submission(e)) => owner_error_v2(&e, &request_identity),
+    };
+
+    if delay_eligible {
+        maybe_delay(state.allow_acceptance_faults, headers).await;
     }
-    let admission = match admit(
-        state,
+    response
+}
+
+/// What a submission reached, once Product Edge has (or has not) admitted it.
+pub(crate) enum ResearchGoalSubmissionOutcomeV1 {
+    /// Admitted and submitted; the Owner's own disposition (accepted, rejected, submitted-or-
+    /// unknown, …) is in the result.
+    Submitted(Box<ResearchGoalOwnerResultV2>),
+    /// The identity names a request this Owner's custody quarantined under the legacy shape; no
+    /// admission was attempted.
+    LegacyQuarantined,
+}
+
+/// Why [`submit_research_goal_v2_in_process`] did not reach a [`ResearchGoalSubmissionOutcomeV1`].
+pub(crate) enum ResearchGoalSubmissionErrorV1 {
+    PreflightUnavailable(ResearchGoalOwnerError),
+    Admission(ProductEdgeError),
+    Submission(ResearchGoalOwnerError),
+}
+
+/// Submits one V2 or V3 Research request (a `None` scope is V2, `Some` is V3) in process: the
+/// production composition `/v2/research-goals` and `/v3/research-goals` answer over HTTP, reached
+/// here without HTTP for a direct caller - `backtest.run`'s own orchestration opens a Research
+/// goal this same way, once per run.
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn submit_research_goal_v2_in_process(
+    product_edge: &ProductEdgePostgresOwnerV1,
+    owner: &PostgresResearchGoalOwnerV1,
+    request_proof_digest: &str,
+    request_identity: String,
+    channel: ProductEdgeChannel,
+    goal: SourcedResearchGoalV2,
+    trial_family_proposal: TrialFamilyProposalV1,
+    instrument_scope: Option<ResearchInstrumentScopeWireV1>,
+) -> Result<ResearchGoalSubmissionOutcomeV1, ResearchGoalSubmissionErrorV1> {
+    match owner
+        .preflight_request_identity(&request_identity)
+        .await
+        .map_err(ResearchGoalSubmissionErrorV1::PreflightUnavailable)?
+    {
+        ResearchRequestIdentityPreflightV1::Vacant
+        | ResearchRequestIdentityPreflightV1::Current => {}
+        ResearchRequestIdentityPreflightV1::LegacyQuarantined => {
+            return Ok(ResearchGoalSubmissionOutcomeV1::LegacyQuarantined);
+        }
+    }
+    let admission = admit_in_process(
+        product_edge,
+        request_proof_digest,
         &AdmittedResearchPayloadV1 {
             request_identity: &request_identity,
             channel: &channel,
@@ -164,10 +242,7 @@ async fn submit(
         },
     )
     .await
-    {
-        Ok(admission) => admission,
-        Err(e) => return product_edge_error(&e, &request_identity, true),
-    };
+    .map_err(ResearchGoalSubmissionErrorV1::Admission)?;
     let request = ProductEdgeResearchGoalRequestV2 {
         request_identity,
         channel,
@@ -176,23 +251,21 @@ async fn submit(
         trial_family_proposal,
         instrument_scope,
     };
-    let request_identity = request.request_identity.clone();
-    let response = match state.owner.submit_v2(request).await {
-        Ok(result) => (StatusCode::OK, Json(result)).into_response(),
-        Err(e) => owner_error_v2(&e, &request_identity),
-    };
-    maybe_delay(state.allow_acceptance_faults, headers).await;
-    response
+    owner
+        .submit_v2(request)
+        .await
+        .map(|result| ResearchGoalSubmissionOutcomeV1::Submitted(Box::new(result)))
+        .map_err(ResearchGoalSubmissionErrorV1::Submission)
 }
 
-async fn admit(
-    state: &ResearchGoalSubmissionApiStateV1,
+async fn admit_in_process(
+    product_edge: &ProductEdgePostgresOwnerV1,
+    request_proof_digest: &str,
     payload: &AdmittedResearchPayloadV1<'_>,
 ) -> Result<ProductEdgeAdmissionReadbackV1, ProductEdgeError> {
     let (operation, operation_schema) =
         research_goal_admitted_operation(payload.instrument_scope.is_some());
-    state
-        .product_edge
+    product_edge
         .admit_request(ProductEdgeAdmissionRequestV1 {
             request_identity: payload.request_identity.to_owned(),
             typed_payload: serde_json::to_value(payload)
@@ -201,7 +274,7 @@ async fn admit(
             operation_schema: operation_schema.to_owned(),
             target_owner: RESEARCH_OWNER_V1.to_owned(),
             requested_effects: vec!["R_AND_D_RESEARCH_MUTATION_V1".to_owned()],
-            request_proof_digest: state.request_proof_digest.clone(),
+            request_proof_digest: request_proof_digest.to_owned(),
             audit_correlation: format!("rd-workbench:{}", payload.request_identity),
         })
         .await

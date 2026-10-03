@@ -9,13 +9,9 @@
 
 use std::sync::Arc;
 
-use axum::body::Body;
-use axum::extract::Request;
 use rust_decimal::Decimal;
-use sha2::{Digest, Sha256};
 use sqlx::PgPool;
-use tower::ServiceExt;
-use vibe_backtest_owner_contracts::{OpaqueIdentityV2, ReplayResultDtoV2};
+use vibe_backtest_owner_contracts::OpaqueIdentityV2;
 use vibe_backtest_result_custody::ExploratoryReplayResultLocatorV2;
 use vibe_data::owner::{
     UniverseSampleProjectionOwnerV1, instrument_economic_terms_postgres_owner_from_environment_v1,
@@ -40,7 +36,9 @@ use vibe_strategy_factory::{
 };
 use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
 
-use crate::exploratory_replay::{NativeReplayExecutionServiceV2, execution_router};
+use crate::exploratory_replay::{
+    NativeReplayExecutionServiceV2, NativeReplayRunOutcomeErrorV1, run_and_count_native_replay_v1,
+};
 use crate::first_composer_v3_replay_acceptance::{
     FIRST_COMPOSER_V3_TARGET_UNITS_V1, FirstComposerV3ReplayV1,
 };
@@ -225,14 +223,16 @@ fn oracle_inputs_from_the_bundle(
     }
 }
 
-/// Runs the Replay through `/v2/exploratory-replays`, the one production route that drives the
-/// consumer, and returns the identity of the result it committed.
+/// Runs the Replay through `run_and_count_native_replay_v1`, the production composition
+/// `/v2/exploratory-replays` itself answers over HTTP, reached here in process - this is
+/// `backtest.run`'s single-frame version, and this entry is its chain proof. The route's own HTTP
+/// transport (status codes, JSON body) is exercised independently by `exploratory_replay`'s own
+/// unit tests; this entry's job is the production composition underneath it.
 async fn run_over_http(
     test_database: &CanonicalOwnerPostgresTestDatabaseV1,
     owners: &ProductionExecutionOwnersV1,
     replay: &FirstComposerV3ReplayV1,
 ) -> String {
-    let token = "rd-owner-api-first-composer-v3-replay";
     let service = NativeReplayExecutionServiceV2::connect(
         test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
         test_database.database_url(CanonicalOwnerTestRoleV1::BacktestOwner),
@@ -245,47 +245,41 @@ async fn run_over_http(
     )
     .await
     .expect("the production execution service opens");
-    let token_digest: [u8; 32] = Sha256::digest(token.as_bytes()).into();
-    let response = execution_router(Some(Arc::new(service)), token_digest)
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/v2/exploratory-replays")
-                .header("authorization", format!("Bearer {token}"))
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::json!({
-                        "request_locator": replay.replay_request,
-                        "attempt_identity": FIRST_COMPOSER_V3_REPLAY_ATTEMPT_V1,
-                    })
-                    .to_string(),
-                ))
-                .expect("the run request"),
-        )
+    let attempt_identity =
+        OpaqueIdentityV2::try_from(FIRST_COMPOSER_V3_REPLAY_ATTEMPT_V1.to_owned())
+            .expect("the body's attempt identity is opaque");
+    let result = run_and_count_native_replay_v1(&service, &replay.replay_request, attempt_identity)
         .await
-        .expect("the execution router answers");
-    let status = response.status();
-    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .expect("the run's answer is read");
+        .unwrap_or_else(|e| panic!("the run commits and counts its Result: {}", describe(&e)));
+    let readback = result.result();
     assert_eq!(
-        status,
-        axum::http::StatusCode::OK,
-        "the run commits and counts its Result: {}",
-        String::from_utf8_lossy(&bytes)
-    );
-    // The route answers a committed and counted Result with its canonical bytes, and nothing else.
-    let result = ReplayResultDtoV2::from_canonical_bytes(&bytes)
-        .expect("the run answers with the Result's canonical bytes");
-    assert_eq!(
-        result.request_identity.as_str(),
+        readback.request_identity.as_str(),
         replay.replay_request.request_identity
     );
     assert_eq!(
-        result.attempt_identity.as_str(),
+        readback.attempt_identity.as_str(),
         FIRST_COMPOSER_V3_REPLAY_ATTEMPT_V1
     );
-    result.result_identity.as_str().to_owned()
+    readback.result_identity.as_str().to_owned()
+}
+
+fn describe(error: &NativeReplayRunOutcomeErrorV1) -> String {
+    use vibe_backtest_owner::native_replay::NativeReplayCommitDispositionV2;
+
+    match error {
+        NativeReplayRunOutcomeErrorV1::RunFailed(e) => format!("run failed: {e}"),
+        NativeReplayRunOutcomeErrorV1::NotCommitted(recovered) => match recovered.as_ref() {
+            Ok(Some(NativeReplayCommitDispositionV2::SubmittedOrUnknown(_))) => {
+                "commit still unknown after recovery".to_owned()
+            }
+            Ok(Some(NativeReplayCommitDispositionV2::Committed { .. })) => unreachable!(
+                "run_and_count_native_replay_v1 extracts a committed disposition as Ok, not an error"
+            ),
+            Ok(None) => "commit absent after recovery".to_owned(),
+            Err(e) => format!("commit recovery failed: {e}"),
+        },
+        NativeReplayRunOutcomeErrorV1::NotCounted(e) => format!("not counted: {e}"),
+    }
 }
 
 /// The report states the run through its COMPOSER_V3 branch, the lock-free self-verified claim

@@ -152,6 +152,7 @@ readonly rd_owner_postgres_tests=(
   'vibe-strategy-factory-rd-owner-api|rd_owner_api_main|tests::the_first_composer_v3_replay_runs_as_its_one_member_universe_and_is_reported'
   'vibe-strategy-factory|vibe_strategy_factory|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only'
   'vibe-strategy-factory-rd-owner-api|rd_owner_api_main|tests::an_admitted_perpetual_is_listed_and_described_over_http'
+  'vibe-strategy-factory-rd-owner-api|rd_owner_api_main|tests::backtest_run_reaches_the_replay_step_over_a_catalogued_strategy'
 )
 readonly nextest_graph_args=(
   --locked
@@ -241,6 +242,11 @@ readonly chain_after_f_allowed=(
   # The instrument catalog reads the Instrument Master V2 fact and economic terms F's H0 admits and
   # writes nothing; it starts no Research, so the frontier and Catalog V3 head F leaves are inert.
   '|tests::an_admitted_perpetual_is_listed_and_described_over_http'
+  # backtest.run's own chain entry starts a new V3 Research request, but scoped to the same
+  # perpetual F's H0 already admitted into the eligible frontier (not a different instrument), so
+  # NotInEligibleFrontier does not apply; it touches no Catalog V3 head, so F's BINANCE schema-2
+  # advance is inert to it too.
+  '|tests::backtest_run_reaches_the_replay_step_over_a_catalogued_strategy'
 )
 
 chain_entry_may_follow_f() {
@@ -256,8 +262,8 @@ check_nextest_graph_contract() {
     echo "ERROR: isolated PostgreSQL tests must use the shared nextest graph." >&2
     return 1
   fi
-  if [[ "${#rd_owner_postgres_tests[@]}" -ne 122 ]]; then
-    echo "ERROR: isolated PostgreSQL test selection must retain all 122 ordered tests, found ${#rd_owner_postgres_tests[@]}." >&2
+  if [[ "${#rd_owner_postgres_tests[@]}" -ne 123 ]]; then
+    echo "ERROR: isolated PostgreSQL test selection must retain all 123 ordered tests, found ${#rd_owner_postgres_tests[@]}." >&2
     return 1
   fi
   if [[ "${rd_owner_postgres_tests[0]}" != *'|replay_policy_catalog_postgres_v2::postgres_tests::catalog_admin_and_family_formation_are_atomic_and_fail_closed' ]] ||
@@ -391,7 +397,8 @@ check_nextest_graph_contract() {
     [[ "${rd_owner_postgres_tests[118]}" != *'|strategies::postgres_tests::the_strategy_catalog_holds_a_statement_through_every_operation_over_http' ]] ||
     [[ "${rd_owner_postgres_tests[119]}" != *'|tests::the_first_composer_v3_replay_runs_as_its_one_member_universe_and_is_reported' ]] ||
     [[ "${rd_owner_postgres_tests[120]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]] ||
-    [[ "${rd_owner_postgres_tests[121]}" != *'|tests::an_admitted_perpetual_is_listed_and_described_over_http' ]]; then
+    [[ "${rd_owner_postgres_tests[121]}" != *'|tests::an_admitted_perpetual_is_listed_and_described_over_http' ]] ||
+    [[ "${rd_owner_postgres_tests[122]}" != *'|tests::backtest_run_reaches_the_replay_step_over_a_catalogued_strategy' ]]; then
     echo "ERROR: isolated PostgreSQL test ordering must remain fresh-first and destructive-drain-last." >&2
     return 1
   fi
@@ -554,7 +561,7 @@ for line in array_body.splitlines():
     entries.append(tuple(fields))
 # The count lives in one place. Writing it into the message as well lets the two drift, and the
 # drifted form reads as nonsense the moment it fires: "must contain 92 entries, found 92".
-expected_entries = 122
+expected_entries = 123
 if len(entries) != expected_entries:
     raise SystemExit(
         f"ERROR: ordered PostgreSQL test literal must contain {expected_entries} entries, found {len(entries)}."
