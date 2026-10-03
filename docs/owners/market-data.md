@@ -2914,19 +2914,29 @@ and the fill timeframe. This is the fetch side that feeds a custody commit. The 
   `premiumIndexKlines` archives have the same name, columns and layout.
 - **Archives before 2022 have no header.** Every BTCUSDT `1d` month from 2021-01 to 2021-12 starts with data, and
   every month from 2022-01 starts with the official header. Today's reader refuses the first kind, which is a year of
-  U1. A first line that is the exact header is accepted. A headerless file is accepted only when all of these hold,
-  and is refused by name otherwise:
-  - every row has 12 columns;
-  - open times rise by exactly the interval, and each close time is the open time plus the interval minus 1 ms;
-  - the high is at least the open and the close, and the low at most both;
-  - volume is not negative, and taker buy volume does not exceed it;
-  - at least one row has volume. Every row of the 2021-06 mark, index and premium price archives has zero volume,
-    while the trade archive's largest is 1,531,824, so this is the check that tells a price archive from a trade
-    archive.
+  U1. A first line that is the exact header is skipped. Otherwise the first line is read as a row, under every rule
+  the reader already applies to rows:
+  - 12 columns;
+  - open times on the interval grid and strictly rising, with a gap recorded rather than filled;
+  - close times inside the interval;
+  - consistent prices;
+  - volumes that are not negative, and taker buy volume no larger than volume.
+- **The zero-volume rule is what keeps price archives out.** A row with zero volume is accepted only with zero trades
+  and one unmoving price, and is refused as `ZeroVolumeAmbiguity` otherwise. For BTCUSDT `1d` 2021-06, every row of
+  the mark, index and premium price archives has zero volume, with trade counts of 86,363 to 86,400, 86,360 to 86,400
+  and 17,267 to 17,280, and prices that move. The trade archive's volume reaches 1,531,824. Removing that rule would
+  let a price archive be read as trades without a refusal, so it stays. The reader applies this today: the header
+  is optional in `crates/adapters/binance/src/common/offline.rs`, and its tests read the first real rows of both
+  2021-06 archives. The trade row is read and the mark price row is refused.
 - **Fill bars come from the endpoint.** The fill bar for frame `k` is the first `1m` bar opening strictly after
   frame `k`'s bar event plus the declared lag, and strictly before frame `k+1`'s bar event. One unsigned `klines` call
   with that start and `limit=1` returns it. There is one call per frame and no `1m` archive, which is about 2 MB a
   month.
+- **Funding settlements enter the same custody.** They are their own `TICK` timeframe, with each settlement's instant
+  as its event. They are fetched from the monthly `fundingRate` archive with its checksum. The availability rule
+  anchors on each row's own event: a bar's close, or a funding settlement.
+- **Each row names its route.** Execution bars come from the archive host, and fill bars from the endpoint host, under
+  one Source Binding. The custody evidence records which route produced each row.
 - **Resumable and idempotent.** Each fetched file is kept in a shard directory under its archive name, beside its
   sidecar. A shard counts only when its bytes match the sidecar. A rerun verifies the shards it has, fetches only the
   missing or mismatched ones, and writes each new one through a temporary file and a rename. The custody is committed
