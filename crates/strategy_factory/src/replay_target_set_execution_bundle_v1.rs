@@ -45,6 +45,54 @@ const FRAME_SEQUENCE_DIGEST_DOMAIN_V1: &[u8] =
     b"vibe.replay.target-set-execution-frame-sequence.v1\0";
 const CENSUS_DIGEST_DOMAIN_V1: &[u8] = b"strategy-factory.replay-target-set-execution-census.v1\0";
 
+/// One member's price grid in the Replay, and where it came from.
+///
+/// The Instrument Master states a perpetual's tick as the venue publishes it today, and a venue
+/// coarsens a tick as the price rises: BTCUSDT's is 0.10 today, while its 2021-06-01 daily bar opened
+/// at 37244.36. A Replay over that window prices at the data's own grid instead, so the bundle widens
+/// the member's price precision to the finest scale its window's data shows whenever that is finer
+/// than the tick, and records both and the datum that set it. The order grid then comes from the data,
+/// not from the venue's tick at the time, which the Instrument Master does not hold.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize)]
+pub struct ReplayPriceGridV1 {
+    pub(crate) instrument_price_precision: u8,
+    pub(crate) data_price_precision: u8,
+    pub(crate) finest_price_at_ns: u64,
+    pub(crate) replay_price_precision: u8,
+}
+
+impl ReplayPriceGridV1 {
+    /// The price precision of the Instrument Master's tick.
+    #[must_use]
+    pub const fn instrument_price_precision(&self) -> u8 {
+        self.instrument_price_precision
+    }
+
+    /// The finest price scale any of the member's BAR or Quote values in the window shows.
+    #[must_use]
+    pub const fn data_price_precision(&self) -> u8 {
+        self.data_price_precision
+    }
+
+    /// The event instant of the member's first datum showing that finest scale.
+    #[must_use]
+    pub const fn finest_price_at_ns(&self) -> u64 {
+        self.finest_price_at_ns
+    }
+
+    /// The price precision the Replay runs the member at: the finer of the two.
+    #[must_use]
+    pub const fn replay_price_precision(&self) -> u8 {
+        self.replay_price_precision
+    }
+
+    /// Whether the Replay's grid came from the data rather than from the Instrument Master's tick.
+    #[must_use]
+    pub const fn widened_from_data(&self) -> bool {
+        self.replay_price_precision > self.instrument_price_precision
+    }
+}
+
 /// Exact Instrument Owner evidence and economic terms consumed for one target-set member.
 #[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
 pub struct ReplayTargetSetInstrumentCensusV1 {
@@ -197,6 +245,7 @@ pub struct ReplayTargetSetExecutionCensusV1 {
     pub(crate) universe_selection_digest: [u8; 32],
     pub(crate) member_instruments: BoundedMembers<String>,
     pub(crate) instrument_terms: BoundedMembers<ReplayTargetSetInstrumentCensusV1>,
+    pub(crate) price_grids: BoundedMembers<ReplayPriceGridV1>,
     pub(crate) scheduling_data_digest: [u8; 32],
     pub(crate) scheduling_data_count: u64,
     pub(crate) bar_count: u64,
@@ -302,6 +351,12 @@ impl ReplayTargetSetExecutionCensusV1 {
     #[must_use]
     pub fn instrument_terms(&self) -> &[ReplayTargetSetInstrumentCensusV1] {
         &self.instrument_terms
+    }
+
+    /// Each member's price grid in the Replay, in member order.
+    #[must_use]
+    pub fn price_grids(&self) -> &[ReplayPriceGridV1] {
+        &self.price_grids
     }
 
     #[must_use]
@@ -690,6 +745,7 @@ impl ReplayTargetSetExecutionBundleV1 {
             frame_time == request_window.start_event_ns,
             "request execution bundle frame time mismatches Owner request window"
         );
+        let (instruments, price_grids) = widen_price_grids_to_data(instruments, &data)?;
         let data = align_native_data_to_instruments(data, &instruments)?;
         ensure_native_data_at_instrument_precision(&data, &instruments)?;
         let scheduling_data_digest = validate_and_digest_scheduling_data(
@@ -742,6 +798,7 @@ impl ReplayTargetSetExecutionBundleV1 {
             instrument_terms: native_profile
                 .instrument_terms()
                 .map(|terms| ReplayTargetSetInstrumentCensusV1::from(terms)),
+            price_grids,
             scheduling_data_digest,
             scheduling_data_count: u64::try_from(data.len())?,
             bar_count: u64::try_from(instruments.len() * universe_frames.len())?,
@@ -904,6 +961,16 @@ fn digest_census(census: &ReplayTargetSetExecutionCensusV1) -> anyhow::Result<[u
             hasher.update([value.scale]);
         }
     }
+    hasher.update(b"PRICE_GRIDS_V1\0");
+
+    for grid in &census.price_grids {
+        hasher.update([
+            grid.instrument_price_precision,
+            grid.data_price_precision,
+            grid.replay_price_precision,
+        ]);
+        hasher.update(grid.finest_price_at_ns.to_be_bytes());
+    }
     hasher.update(census.scheduling_data_count.to_be_bytes());
     hasher.update(census.bar_count.to_be_bytes());
     hasher.update(census.event_count.to_be_bytes());
@@ -964,6 +1031,79 @@ fn verify_scheduling_data_against_sealed_frames(
         "sealed frame liquidity does not precede the next frame's first BAR"
     );
     Ok(())
+}
+
+/// Widens each member's price grid to the finest scale its window's BAR and Quote prices show.
+///
+/// A member whose data is no finer than its tick keeps the Instrument Master's grid. One whose data
+/// is finer runs at the data's precision, with a one-unit increment at that precision, since the
+/// engine requires an increment at the instrument's own precision. Only prices widen: a size grid is
+/// what one grid unit of position means, so a size finer than its instrument stays refused by name
+/// in [`align_native_data_to_instruments`].
+fn widen_price_grids_to_data(
+    instruments: BoundedMembers<InstrumentAny>,
+    data: &[Data],
+) -> anyhow::Result<(
+    BoundedMembers<InstrumentAny>,
+    BoundedMembers<ReplayPriceGridV1>,
+)> {
+    let mut widened = Vec::with_capacity(instruments.len());
+    let mut grids = Vec::with_capacity(instruments.len());
+
+    for instrument in instruments {
+        let instrument_id = instrument.id();
+        let mut finest: Option<(u8, u64)> = None;
+
+        for datum in data
+            .iter()
+            .filter(|datum| datum.instrument_id() == instrument_id)
+        {
+            let (prices, at) = match datum {
+                Data::Bar(bar) => (vec![bar.open, bar.high, bar.low, bar.close], bar.ts_event),
+                Data::Quote(quote) => (vec![quote.bid_price, quote.ask_price], quote.ts_event),
+                _ => continue,
+            };
+
+            for price in prices {
+                let scale = u8::try_from(price.as_decimal().normalize().scale())?;
+
+                if finest.is_none_or(|(finest_scale, _)| scale > finest_scale) {
+                    finest = Some((scale, at.as_u64()));
+                }
+            }
+        }
+        let (data_price_precision, finest_price_at_ns) = finest.ok_or_else(|| {
+            anyhow::anyhow!("request execution bundle member {instrument_id} has no priced data")
+        })?;
+        let instrument_price_precision = instrument.price_precision();
+        let replay_price_precision = instrument_price_precision.max(data_price_precision);
+        let instrument = if replay_price_precision > instrument_price_precision {
+            let InstrumentAny::CryptoPerpetual(mut perpetual) = instrument else {
+                anyhow::bail!(
+                    "request execution bundle can widen only a crypto perpetual's price grid"
+                );
+            };
+            perpetual.price_precision = replay_price_precision;
+            perpetual.price_increment = Price::from_decimal_dp(
+                rust_decimal::Decimal::new(1, u32::from(replay_price_precision)),
+                replay_price_precision,
+            )?;
+            InstrumentAny::CryptoPerpetual(perpetual)
+        } else {
+            instrument
+        };
+        widened.push(instrument);
+        grids.push(ReplayPriceGridV1 {
+            instrument_price_precision,
+            data_price_precision,
+            finest_price_at_ns,
+            replay_price_precision,
+        });
+    }
+    Ok((
+        BoundedMembers::try_from(widened)?,
+        BoundedMembers::try_from(grids)?,
+    ))
 }
 
 /// Re-expresses each native BAR and Quote at its instrument's price and size precision, exactly.
@@ -1276,6 +1416,77 @@ mod tests {
             instrument.price_increment = Price::from("0.001");
         }
         (instruments, data)
+    }
+
+    /// BTCUSDT's 2021-06-01 daily bar from Binance's public USD-M `klines` endpoint, at Market
+    /// Data's canonical scale of nine places, on the instrument as today's 0.10 tick makes it.
+    fn btc_2021_on_todays_tick() -> (BoundedMembers<InstrumentAny>, Vec<Data>) {
+        let (mut instruments, _, mut data) = scheduling_fixture();
+        let InstrumentAny::CryptoPerpetual(btc) = &mut instruments[0] else {
+            unreachable!("the scheduling fixture's instruments are perpetuals")
+        };
+        btc.price_precision = 1;
+        btc.price_increment = Price::from("0.1");
+        let Data::Bar(bar) = &mut data[0] else {
+            unreachable!("the first datum is the first member's BAR")
+        };
+        bar.open = Price::from("37244.360000000");
+        bar.high = Price::from("37893.760000000");
+        bar.low = Price::from("35500.000000000");
+        bar.close = Price::from("36693.410000000");
+        (BoundedMembers::try_from(instruments).unwrap(), data)
+    }
+
+    #[rstest::rstest]
+    fn a_window_finer_than_todays_tick_is_refused_on_that_tick() {
+        let (instruments, data) = btc_2021_on_todays_tick();
+        let refusal = align_native_data_to_instruments(data, &instruments)
+            .expect_err("a two-place 2021 price is finer than today's one-place tick");
+        assert_eq!(
+            refusal.to_string(),
+            "request execution bundle native price 37244.360000000 is finer than its instrument's precision 1"
+        );
+    }
+
+    /// The bundle widens BTC's grid to the data's two places, records where that came from, and
+    /// the data then aligns; the other member's data is no finer than its tick, so it keeps it.
+    #[rstest::rstest]
+    fn a_window_finer_than_todays_tick_widens_its_price_grid_to_the_data() {
+        let (instruments, data) = btc_2021_on_todays_tick();
+        let (instruments, grids) = widen_price_grids_to_data(instruments, &data).unwrap();
+        assert_eq!(
+            grids[0],
+            ReplayPriceGridV1 {
+                instrument_price_precision: 1,
+                data_price_precision: 2,
+                finest_price_at_ns: FRAME_TIME,
+                replay_price_precision: 2,
+            }
+        );
+        assert!(grids[0].widened_from_data());
+        assert_eq!(
+            (
+                instruments[0].price_precision(),
+                instruments[0].price_increment()
+            ),
+            (2, Price::from("0.01"))
+        );
+        assert_eq!(
+            grids[1],
+            ReplayPriceGridV1 {
+                instrument_price_precision: 2,
+                data_price_precision: 2,
+                finest_price_at_ns: FRAME_TIME,
+                replay_price_precision: 2,
+            }
+        );
+        assert!(!grids[1].widened_from_data());
+        let aligned = align_native_data_to_instruments(data, &instruments).unwrap();
+        ensure_native_data_at_instrument_precision(&aligned, &instruments).unwrap();
+        let Data::Bar(bar) = &aligned[0] else {
+            unreachable!("the first datum is the first member's BAR")
+        };
+        assert_eq!(bar.open, Price::from("37244.36"));
     }
 
     #[rstest::rstest]

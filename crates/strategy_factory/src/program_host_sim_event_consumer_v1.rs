@@ -48,7 +48,7 @@ use crate::{
         TargetSetEquitySnapshotObservationV2, TargetSetProtectiveFillConsumptionV1,
     },
     replay_target_set_execution_bundle_v1::{
-        ReplayTargetSetExecutionBundleV1, ReplayTargetSetExecutionCensusV1,
+        ReplayPriceGridV1, ReplayTargetSetExecutionBundleV1, ReplayTargetSetExecutionCensusV1,
     },
     target_set_members::{BoundedMembers, update_member_count_domain},
 };
@@ -686,6 +686,13 @@ pub fn run_program_host_sim_event_consumer_v1(
         false,
         Rc::new(Cell::new(false)),
         Rc::clone(&trace),
+        BoundedMembers::try_from(
+            census
+                .price_grids()
+                .iter()
+                .map(ReplayPriceGridV1::data_price_precision)
+                .collect::<Vec<_>>(),
+        )?,
     )?;
     let mut engine = native_profile.into_backtest_engine(&instruments)?;
     engine.add_strategy(strategy)?;
@@ -2093,6 +2100,15 @@ mod tests {
                 test_instrument_census("AAPL", [9; 32], [11; 32]),
                 test_instrument_census("MSFT", [10; 32], [12; 32]),
             ])
+            .unwrap(),
+            price_grids: BoundedMembers::try_from(
+                [crate::replay_target_set_execution_bundle_v1::ReplayPriceGridV1 {
+                    instrument_price_precision: 2,
+                    data_price_precision: 2,
+                    finest_price_at_ns: 1,
+                    replay_price_precision: 2,
+                }; 2],
+            )
             .unwrap(),
             scheduling_data_digest: [13; 32],
             scheduling_data_count: 4,

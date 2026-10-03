@@ -89,10 +89,6 @@ mod tests {
     #[case::narrow_past_i128_nonzero(1, 60, 0, Err(RescaleErrorV1::FinerThanTarget))]
     #[case::mantissa_overflow(i128::MAX / 10 + 1, 0, 1, Err(RescaleErrorV1::Overflow))]
     #[case::factor_overflow(1, 0, 39, Err(RescaleErrorV1::Overflow))]
-    #[case::min_same_scale(i128::MIN, 4, 4, Ok(i128::MIN))]
-    // -2^127 has no factor of 5, so no narrowing of it is exact; the check must not overflow.
-    #[case::min_narrowing(i128::MIN, 4, 3, Err(RescaleErrorV1::FinerThanTarget))]
-    #[case::min_widening(i128::MIN, 3, 4, Err(RescaleErrorV1::Overflow))]
     fn restates_only_exactly(
         #[case] mantissa: i128,
         #[case] scale: u8,

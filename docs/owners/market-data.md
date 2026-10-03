@@ -1678,6 +1678,13 @@ member's latest fact observed at its selection, so a tick or lot change is never
 retrieval is priced on the terms of the day it was retrieved. This design replaces that one assumption with evidence,
 and admits no other.
 
+- **Why, measured, and when: after U1.** On Binance's public USD-M endpoints, BTCUSDT's tick is 0.10 today, so its
+  canonical price precision is 1, while its 2021-06-01 daily bar opened at 37244.36; SOLUSDT's tick is 0.0100,
+  precision 2, while its 2021-06-01 bar opened at 32.749. Fed to the execution bundle on today's tick, that BTC bar
+  refused the whole bundle by name. Until this lands, a Replay runs each member at the finer of its tick and its
+  window's data, and states which it used (`docs/architecture/strategy-factory.md`); an order then rounds to the
+  data's grid, not to the venue's tick at the time, which only this history can supply.
+
 - **Evidence is an archived snapshot and nothing else.** Every term the Owner holds for an instrument is derived by
   `ExchangeInfoBaselineV2::from_usdm_exchange_info` from an `exchangeInfo` payload retrieved at a stated instant. No
   submission states a historical term. Letting one would put caller-stated terms back behind the trust boundary the
