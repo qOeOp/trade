@@ -448,6 +448,8 @@ async fn run() -> anyhow::Result<()> {
     let instrument_economic_terms_admission =
         bootstrap_instrument_economic_terms_admission().await?;
     let market_data_instrument_catalog = bootstrap_market_data_instrument_catalog().await?;
+    let market_data_binance_perpetual_admission =
+        bootstrap_market_data_binance_perpetual_admission()?;
     let market_data_market_semantics_admission =
         bootstrap_market_data_market_semantics_admission().await?;
     #[cfg(feature = "composer-replay-issuance")]
@@ -706,6 +708,7 @@ async fn run() -> anyhow::Result<()> {
                 semantics: market_data_market_semantics_admission,
                 economic_terms: instrument_economic_terms_admission,
                 catalog: market_data_instrument_catalog,
+                binance_perpetual_admission: market_data_binance_perpetual_admission,
             },
             token_digest,
         ));
@@ -1088,6 +1091,40 @@ async fn bootstrap_market_data_instrument_catalog()
     Ok(Some(Arc::new(
         instrument_catalog_read_from_environment_v1().await?,
     )))
+}
+
+/// Builds the Binance USD-M client `admit_binance_perpetual` fetches `exchangeInfo` through.
+///
+/// The base URL is named rather than discovered, for the same reason the PIT Data Client's is: a
+/// deployment that must reach another host than `fapi.binance.com` - a test's local stand-in, or a
+/// network where the canonical host answers `451` - says so. The endpoint is public and unsigned,
+/// so no credential is read here.
+fn binance_perpetual_admission_client() -> anyhow::Result<Arc<BinanceFuturesHttpClient>> {
+    let base_url = env::var("BINANCE_PERPETUAL_ADMISSION_BASE_URL")
+        .ok()
+        .filter(|value| !value.trim().is_empty());
+    Ok(Arc::new(BinanceFuturesHttpClient::new(
+        BinanceProductType::UsdM,
+        BinanceEnvironment::Live,
+        get_atomic_clock_realtime(),
+        None,
+        None,
+        base_url,
+        None,
+        Some(30),
+        None,
+        false,
+    )?))
+}
+
+/// Composes the Binance perpetual admission route's `exchangeInfo` client when Market Data's
+/// store is configured.
+fn bootstrap_market_data_binance_perpetual_admission()
+-> anyhow::Result<Option<Arc<BinanceFuturesHttpClient>>> {
+    if env::var("MARKET_DATA_OWNER_DATABASE_URL").is_err() {
+        return Ok(None);
+    }
+    Ok(Some(binance_perpetual_admission_client()?))
 }
 
 /// Composes the Market Data Source Binding admission when its store is configured.
@@ -5219,6 +5256,9 @@ mod tests {
                         .await
                         .unwrap(),
                     catalog: None,
+                    binance_perpetual_admission: bootstrap_market_data_binance_perpetual_admission(
+                    )
+                    .unwrap(),
                 },
                 token_digest,
             ));
@@ -5674,6 +5714,9 @@ mod tests {
                         .await
                         .unwrap(),
                     catalog: None,
+                    binance_perpetual_admission: bootstrap_market_data_binance_perpetual_admission(
+                    )
+                    .unwrap(),
                 },
                 token_digest,
             ));
@@ -6195,6 +6238,7 @@ mod tests {
                 semantics: None,
                 economic_terms: None,
                 catalog,
+                binance_perpetual_admission: None,
             },
             Sha256::digest(token.as_bytes()).into(),
         );

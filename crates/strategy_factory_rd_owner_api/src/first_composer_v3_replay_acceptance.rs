@@ -1572,6 +1572,8 @@ async fn market_data_routes(
                     .expect("the chain configures both Owners the terms admission needs"),
             ),
             catalog: None,
+            binance_perpetual_admission: bootstrap_market_data_binance_perpetual_admission()
+                .expect("the Binance perpetual admission client composes"),
         },
         token_digest,
     )
