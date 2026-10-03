@@ -914,6 +914,16 @@ and a rendering of a document exists for reading only.
   fraction out of range, bands not ascending, a literal zero denominator, a weight out of range, a lowest-priority
   rule whose action equals `otherwise`, duplicate rules, a rule shadowed by an earlier literal-true rule, and
   a scope that disagrees with the Intent.
+- *Guest stack.* The lowered guest's stack follows the program's declared state: four bytes of stack per byte of
+  state, rounded up to a whole 64 KiB page, and never below the 64 KiB every program was built with before
+  (`guest_stack_bytes_v1`). A program whose stack would exceed half its linear memory is refused when it is lowered,
+  as `PROGRAM_STATE_TOO_LARGE_FOR_STACK`, rather than built into a guest that traps when it runs. The build sandbox
+  writes and the V3 build verifier checks the same config, the verifier deriving the stack from the capsule's declared
+  state bound; a hand-written build keeps 64 KiB. This changed the lowerer's source once, on purpose, and its digest
+  enters every V3 build identity, so every V3 build is re-identified once. The measurement that forced it: research
+  T0's 46.5 KB of state trapped with `MemoryOutOfBounds` at a 163 840-byte stack and ran at 196 608, which four bytes
+  per byte gives it, while the largest state in the hand-written corpus is 9.8 KB, so every one of those programs
+  lowers to the same config bytes as before (`every_hand_written_program_keeps_its_stack`).
 - *Catalog.* `meaning` names primitives by full semantic id and carries no catalog version; `declare` binds
   the newest one and a redeclaration keeps the frozen one. A compiled document therefore does not change when
   a catalog version is published, which holds only while every published version contains every earlier

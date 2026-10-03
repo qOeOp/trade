@@ -304,6 +304,10 @@ fn lowering_error(
             StatusCode::UNPROCESSABLE_ENTITY,
             "BOUNDED_FEATURE_PROGRAM_DOES_NOT_LOWER",
         ),
+        ResearchBoundedFeatureProgramLoweringErrorV1::StateTooLargeForStack(_) => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "PROGRAM_STATE_TOO_LARGE_FOR_STACK",
+        ),
     };
 
     rejection(status, code, research_request_locator)

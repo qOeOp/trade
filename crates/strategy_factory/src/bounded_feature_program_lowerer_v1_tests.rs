@@ -35,7 +35,7 @@ fn a_lowered_guest_build_ignores_ambient_rust_flags() {
     );
     // The frozen configuration is then the only thing that can size the guest's memory, and it
     // asks for exactly the linear memory the strict envelope admits.
-    assert!(frozen_config(1_048_576).contains(
+    assert!(frozen_config(1_048_576, 65_536).contains(
         "\"link-arg=--max-memory=1048576\", \"-C\", \"link-arg=--initial-memory=1048576\""
     ));
 }
@@ -1705,4 +1705,70 @@ fn what_the_canonical_form_keeps_and_drops_is_what_changes_behaviour() {
         overlapping_baseline,
         "the priority order changes an output frame"
     );
+}
+
+/// The guest stack is four bytes per byte of declared state, a whole number of 64 KiB pages, and
+/// never less than the 64 KiB every program had: a program of up to 16 KiB of state builds exactly
+/// as it did, research T0's 46 556 bytes get the 196 608 it was measured to need, and a state whose
+/// stack would take more than half the linear memory is refused by name.
+#[rstest::rstest]
+#[case::empty(16, Some(65_536))]
+#[case::largest_hand_written(9_796, Some(65_536))]
+#[case::last_unchanged(16_384, Some(65_536))]
+#[case::first_changed(16_385, Some(131_072))]
+#[case::research_t0(46_556, Some(196_608))]
+#[case::half_the_memory(131_072, Some(524_288))]
+#[case::more_than_half(131_073, None)]
+fn the_guest_stack_follows_the_declared_state(
+    #[case] state_bytes: u32,
+    #[case] stack: Option<u64>,
+) {
+    let result = guest_stack_bytes_v1(state_bytes, 1_048_576);
+
+    match stack {
+        Some(stack) => assert_eq!(result.expect("a stack that fits"), stack),
+        None => {
+            let refusal = result.expect_err("refused");
+            assert!(
+                refusal
+                    .to_string()
+                    .starts_with("PROGRAM_STATE_TOO_LARGE_FOR_STACK"),
+                "{refusal}"
+            );
+        }
+    }
+}
+
+/// Every hand-written program in the corpus keeps the 64 KiB stack, so its lowered config, and so
+/// every byte of source the lowerer writes for it, is what it was before stacks followed state.
+#[rstest::rstest]
+fn every_hand_written_program_keeps_its_stack() {
+    let corpus = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/test_data/bounded_feature_program_meaning_v1/"
+    );
+    let mut designs = 0;
+
+    for entry in std::fs::read_dir(corpus).unwrap() {
+        let path = entry.unwrap().path();
+
+        if !path
+            .file_name()
+            .and_then(OsStr::to_str)
+            .is_some_and(|name| name.ends_with("-design.json"))
+        {
+            continue;
+        }
+        let design: StrategyDesignV2 =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        let manifest = &design.plugins[0];
+        assert_eq!(
+            guest_stack_bytes_v1(manifest.state.max_bytes, manifest.max_linear_memory_bytes)
+                .expect("a hand-written program fits"),
+            65_536,
+            "{path:?}"
+        );
+        designs += 1;
+    }
+    assert_eq!(designs, 12, "every corpus Design was read");
 }

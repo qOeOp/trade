@@ -4,7 +4,10 @@ set -Eeuo pipefail
 trap 'echo "$(basename "${BASH_SOURCE[0]}"):${LINENO}: this check failed: ${BASH_COMMAND}" >&2' ERR
 
 readonly FROZEN_SOURCE_PATH="crates/strategy_factory/src/bounded_feature_program_lowerer_v1.rs"
-readonly FROZEN_SOURCE_SHA256="959518fb4b0ae93ade1b277b719cbd576d8af93c69a09cd58516a201a299dc59"
+# Updated 2026-10-04, on purpose: the guest stack follows the program's declared state
+# (guest_stack_bytes_v1, docs/owners/rd.md "Guest stack"). No capsule needed migrating: no deployment
+# held a V3 build (the local deployment's databases have no rd_bounded_feature_program_freezes_v1).
+readonly FROZEN_SOURCE_SHA256="4e5f2da1b07e67911d904eaccf7c0e30d516532394e34f1b38c36a1db1644c16"
 
 if [ "$#" -ne 1 ]; then
   echo "ERROR: frozen source baseline check requires one repository root" >&2
