@@ -212,3 +212,32 @@ async def test_all_images_invalid_keeps_complete_text_without_fabricating_replac
     assert all(not c.screenshots for c in note.chapters)
     assert [c.points for c in note.chapters] == [c.points for c in authored.chapters]
     CreateBilibiliNote.validate_note(note, source(draft), draft.frames)
+
+
+async def test_schema_retry_identifies_shape_without_echoing_invalid_input(draft):
+    from pydantic import ValidationError
+
+    class Provider(DirectDistiller):
+        calls = 0
+
+        async def request(self, instruction, content, schema, **kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                invalid = draft.note.model_dump(mode="json")
+                invalid["chapters"][0]["screenshots"] = ["UNTRUSTED_PRIVATE_VALUE"]
+                try:
+                    VideoNote.model_validate_json(json.dumps(invalid))
+                except ValidationError as e:
+                    raise BilibiliNoteFailure(
+                        "DISTILLATION_FAILED", "provider_response_invalid"
+                    ) from e
+            feedback = content[-1]["text"]
+            assert '"path": ["chapters", 0, "screenshots", 0]' in feedback
+            assert '"type": "model_type"' in feedback
+            assert "UNTRUSTED_PRIVATE_VALUE" not in feedback
+            assert '{"frame_id":"F01"}' in instruction
+            return draft.note
+
+    provider = Provider()
+    assert await provider.distill(source(draft), draft.frames) == draft.note
+    assert provider.calls == 2

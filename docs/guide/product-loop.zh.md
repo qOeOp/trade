@@ -34,11 +34,11 @@
 [研究知识台账](../owners/rd/#target---research-knowledge-ledger)以及真钱边界。
 
 研究闭环经由外部代理工具面运行
-（[Product Edge](../architecture/product-edge/#target---external-agent-tool-surface)），同一组命令既是命令行也是
-MCP 工具：
+（[Product Edge](../architecture/product-edge/#target---external-agent-tool-surface)）：每个领域一个 MCP server，每个
+server 同时也是命令行，代理是唯一的编排者，行情数据在 server 之间按引用传递：
 
 声明了机制与构件的研究请求 → Research Request Receipt → 冻结 Research Intent →
-由 Owner 编译的 authoring 文档 → 探索性回放 → Run Report → Iteration Decision → 准确的后继、停止、修复或
+由 Owner 编译的 spec 创建的策略 → 在 `dataset_ref` 上的回测运行 → Run Report → Iteration Decision → 准确的后继、停止、修复或
 Qualification 交接。
 
 代理从不持有凭据：工具面持有 R&D 凭据，只返回身份、结论与下文的有界读取，从不返回受保护的 Qualification 数值。

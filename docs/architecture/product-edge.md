@@ -370,58 +370,148 @@ builds it.
 the Source and Research action, the exploratory Replay action, the Develop Composer action, and the run detail and
 run log reads. It serves only under the opt-in `dashboard-preview` profile.
 
-**Shape.** The tool surface has one entry for agents, and `rd-run-research` is it. The binary ships in the deployed
-R&D image. One library holds the commands, and two thin
-shells call the same functions: the command line, and `rd-run-research mcp`, an MCP server over stdio. A command and
-its tool share one name. The agent runs it as `docker compose exec rd-owner-api rd-run-research <command>`.
+**Shape: a catalog of domain MCP servers.** The user decided on 2026-10-03 that the tool surface is split by domain.
+Each domain is one MCP server, run by the service that owns the domain, and the agent is the only orchestrator:
 
-**Commands and the Owner routes they reach.** The tools are grouped by the Owner they reach, and every rule lives in
-that Owner, never in a tool. A tool sends the request the Owner already admits from any channel, with the request
-identity it states; the receiving Owner, and Product Edge where that Owner requires a Product Edge admission, admit
-it exactly as they would the same request from the Dashboard. A tool adds no authority and skips no check. Where one
-step needs several routes of an Owner (`admit-instrument`, `design`, `compose`, `replay`), the command only
-sequences them in the order the Owner requires and passes each refusal through; `run` sequences the steps.
+- no MCP server calls another one, and no tool hides a multi-domain workflow;
+- data passes between servers by reference: a backtest names its data with a `dataset_ref`, the serving side
+  resolves it by reading down into Market Data, and the values never pass through the agent;
+- every rule lives in the Owner behind the server, never in a tool. A tool sends the request that Owner already
+  admits from any channel, adds no authority and skips no check, and passes each refusal through by name;
+- each server is also a command line over the same functions, with the same tool names, so a script and an agent
+  reach the same Owner behaviour.
 
-- `admit-instrument`: Market Data instrument admission (Source Binding, Instrument Master, universe membership).
-- `submit`: `POST /v3/research-goals`, returning the request identity and its Research Request Receipt. The request
-  declares the mechanism and constructs the [Research knowledge ledger](../owners/rd/#target---research-knowledge-ledger)
-  checks.
-- `initial-pit`: `POST /v3/research-goals/{request_identity}/initial-pit`.
-- `design`: authors the request's authoring document into a Strategy Design with the Owner's authoring library, then
-  publishes the role intent, forms the Design from it, and declares and freezes the bounded feature program.
-- `compose`: `POST /v2/develop-composer/runs`, then `POST /v1/replay-compositions/universe-member-issuances`. It
-  checks the Research View's remaining validity first and refuses by name when the run cannot finish inside it.
-- `replay`: `POST /v3/exploratory-replay-requests/composer-backed`, the execution-input binding, then
-  `POST /v2/exploratory-replays`, returning the Result identity.
-- `run`: every step above in order. After each step it records the identities that step produced in a local state
-  file, and `--resume` continues from the step that failed.
+This replaces the single `rd-run-research` entry this section stated before (one binary whose `run` command
+sequenced every step from instrument admission to report): the orchestration it held moves to the agent, and its
+per-domain steps move to the server of their domain.
 
-The read commands:
+**`dataset_ref`.** A plain description of one slice of market data: the instrument, the execution timeframe (`1d` or
+`4h`) and the half-open range `[start, end)` in event nanoseconds. It is not a token anything issues: the agent writes
+it from what `coverage` reports. The service that consumes it resolves it inside Market Data's custody at the moment
+it runs, and refuses it by name when that custody does not cover it, as `DATASET_REF_UNRESOLVED`, or when the
+timeframe is not an execution timeframe, as `TIMEFRAME_UNSUPPORTED`. The custody the run resolved is recorded with
+the run, so a replay reads the same data.
 
-- `report`: `GET /v1/backtest-run-reports/{result_identity}`.
-- `status`: the state file and each recorded step's Owner readback.
-- `census`: `GET /v1/trial-families/{trial_family_identity}/iterations` on the R&D read API.
-- `knowledge`: the Research knowledge ledger by mechanism, construct or scope. No route exists until the ledger does.
-- `qualification-status`: the bounded public Qualification Status Summary for one Candidate: `QUALIFIED`,
-  `CLOSED_NOT_QUALIFIED`, expired, revoked, or a public forward phase. No route exists today.
+**`market-data`**, served by Market Data:
+
+- `list_instruments()` → the admitted instruments.
+- `describe_instrument(instrument)` → tick size, lot size and the current economic terms (fees and margin), or
+  `INSTRUMENT_UNKNOWN`.
+- `admit_instrument(symbol)` → the admission receipt for the venue symbol (such as `BTCUSDT`), which Market Data maps
+  to its canonical instrument, or the admission refusal by name.
+- `backfill(instrument, timeframe, range)` → a `job_id`. `timeframe` is the execution timeframe, `1d` or `4h`, and the
+  `1m` bars the fills read are backfilled with it; any other timeframe is `TIMEFRAME_UNSUPPORTED`. Other refusals:
+  `INSTRUMENT_UNKNOWN`, `RANGE_INVALID`.
+- `job_status(job_id)` → the job's state, one of `QUEUED`, `RUNNING`, `SUCCEEDED` or `FAILED`; the coverage it added
+  once `SUCCEEDED`; and the cause by name once `FAILED`. An unknown job is `JOB_UNKNOWN`.
+- `coverage(instrument)` → the covered ranges for each timeframe.
+- `get_bars(instrument, timeframe, range, format)` → the bars, inline and bounded. Refusals: `RANGE_NOT_COVERED`,
+  `RANGE_TOO_LARGE_FOR_INLINE`, and `HOLDOUT_PARTITION_UNDEFINED`. A backtest never reads through it: it takes a
+  `dataset_ref`.
+- `get_funding(instrument, range)` → funding rates, under the same bound and refusals.
+- Until Qualification registers its holdout partition with Market Data, by value and downward, both tools refuse every
+  request as `HOLDOUT_PARTITION_UNDEFINED`: the answer before registration is refuse all, never allow all.
+- Every tool that returns market values appends its read to Market Data's agent data-read ledger in the transaction
+  that answers, and refuses when it cannot ("Agent data-read ledger" in [Market Data](../owners/market-data/)). Trial
+  rows stay with R&D, whose census reads Market Data's ledger downward.
+- Accepted on its own when an agent can list, describe, admit, backfill and read one instrument end to end against a
+  disposable store, with each refusal driven once.
+
+**`strategy-authoring`**, served by R&D:
+
+- It belongs to R&D's authoring layer (Strategy Artifact): it authors, compiles and checks, and keeps immutable
+  versions. It does not register a qualified strategy or own its lifecycle and capital, which is Strategy Governance
+  and a later `governance` server, and it does not run anything, which is Runtime.
+- A spec is the single-threshold authoring request without its three identities, including its exit fields. A
+  strategy is bound to no Research request.
+- `validate(spec)` → `VALID`, or every violation by the authoring compiler's own name, writing nothing.
+- `create(spec)` → `strategy_id`, the content digest of the canonical spec. Creating the same spec again returns the
+  same id.
+- `get(strategy_id)` returns the spec byte for byte; `list(filter)`.
+- `revise(strategy_id, spec)` → the new spec's `strategy_id`, recorded as naming its predecessor; nothing is edited in
+  place.
+- `archive(strategy_id)` appends an archive record. The strategy stays readable and can no longer be run.
+- Accepted on its own when, using only this server and no market data, a spec is validated, created, read back byte
+  for byte, revised into a successor and archived, with every refusal driven once.
+
+**`backtest`**, served by R&D's run route, which calls Backtest:
+
+- `run(strategy_id, dataset_ref, cost_profile)` → a `run_id`. The whole replay runs on the server side in one call.
+  R&D reads the strategy's spec by value, forms the Research goal for this run, authors and freezes its Design, and
+  resolves the slice from Market Data; it passes both to Backtest by value, so Backtest never reads back into R&D and
+  every call points down the layers. The Design's identity exists only inside the run and is never exposed as a
+  strategy id. Every run is counted as a trial in R&D's census before its result is shown, as every exploratory
+  Result is today. Refusals: `STRATEGY_UNKNOWN`, `STRATEGY_ARCHIVED`,
+  `DATASET_REF_UNRESOLVED`, `TIMEFRAME_UNSUPPORTED`, `COST_PROFILE_UNKNOWN`.
+- `status(run_id)`, `list_runs(filter)`.
+- `report(run_id)` → the run report, including fees, funding and the random-entry control. Until Qualification
+  registers its holdout partition, every report states that no holdout partition is defined and that the result is
+  exploratory only.
+- **TARGET:** once the partition is registered, `run` refuses a window that overlaps a protected period as
+  `HOLDOUT_WINDOW_OVERLAP`.
+- Accepted on its own when one created strategy runs on one `dataset_ref` and its report reads back with fees,
+  funding and the control.
+
+**Later servers (TARGET).** Each is a blueprint; its details are fixed when its stage comes.
+
+- **`research`**, served by R&D's research ledger: `register_hypothesis` (before any data is read: mechanism,
+  falsifier, smallest effect of interest, variant count), `list_trials`, and a read-only `census`. Red line: no
+  hypothesis is registered after the data it tests was read.
+- **`knowledge`**, served by R&D's knowledge ledger: `family_status`, `record_conclusion` and
+  `check_before_research`. Red line: entries are append-only and hold no protected value.
+- **`qualification`**, served by Qualification: `submit_candidate`, `status`, `verdict`, `forward_register` and
+  `forward_status`. Red line: no holdout value ever leaves. Today Qualification projects every negative terminal
+  byte-equivalently as `CLOSED_NOT_QUALIFIED`, so `verdict` answers `QUALIFIED` or `CLOSED_NOT_QUALIFIED`; the
+  three-level verdict (pass, equivalent-null, inconclusive) relaxes that stated seal and needs the user's authorization
+  before it is built.
+- **`scan`**, served by Scanner: `create_schedule`, `list_schedules`, `scan_now` (the discovery view) and `results`.
+  Red line: a scan result is never activation authority.
+- **`governance`**, served by Strategy Governance: `list_eligible`, `propose_activation` (Paper or Live), `pause`,
+  `retire` and a read-only `capital_policy`. Red line: an activation is only proposed; the user approves it in the
+  Dashboard.
+- **`portfolio`**, served by Portfolio: `account_state`, `exposure`, `performance` and `capacity`, all read-only.
+- **`operations`**, one server over read-only views of Runtime, Risk, Execution and observability, so an agent faces
+  few servers: `instance_status`, `readiness`, `orders`, `fills`, `drift` and `alerts`. Red line: the kill switch is
+  readable only, and only the user can trigger it.
+
+**The real-money red line.** No MCP tool places an order, and no tool reaches real money. Every action on the trading
+side is proposed by the agent and approved by the user.
+
+**Long-running work.** The user asked where work that outlives one tool call runs. The answer keeps each kind of
+work where its lifetime already is:
+
+- An MCP server is a stdio child process of the agent's session. It starts and stops with that session, keeps no
+  state, hosts no long-running task and starts no container: starting one needs the Docker socket, which is root on
+  the host.
+- Long-running deterministic work runs in a service that is always up in the compose package, on that service's own
+  scheduler and workers. A plan, such as "scan these strategies every 4 hours", is an append-only record the service
+  holds; the agent creates, reads, changes and removes that plan, and reads its results, through the service's MCP
+  server.
+- Every long task is an asynchronous job: submitting it returns a `job_id`, then the agent reads its status, then its
+  result. Backtests, backfills, scans and forward records all have this shape, and their results are append-only and
+  replayable.
+- The one standing isolated container is `rd-build-sandbox`, which compiles strategy programs to Wasm with no network
+  and a read-only filesystem and is called over its socket. It is not started per task.
+- Work that needs a model and is not deterministic, such as an agent doing research on a schedule, is woken by a timer
+  on the host that starts an agent session, which then calls the MCP servers. The product holds no agent.
+- **TARGET, after U1:** today the Dashboard's shadow scheduler and effect worker schedule research and scanner jobs
+  ("User-facing closure and implementation boundary" in the product loop). Under the layering rule each plan belongs
+  to the service of its domain, and the Dashboard only shows and controls it.
 
 **Permissions.**
 
-- The process holds the R&D API token and the read API's URL and token in its environment. No tool argument or
-  result carries a credential, and the agent never sees one.
-- No command reaches Paper, Live, an exchange credential, or any execution path. The real-money boundary is
-  unchanged.
+- Each server holds the credentials it presents to its own Owner in its own environment. No tool argument or result
+  carries a credential, and the agent never sees one.
+- No tool reaches Paper, Live, an exchange credential, or any execution path. The real-money boundary is unchanged.
 - Changing the agent, or using the command line instead of MCP, changes attribution, never authority, as the Agent
   Shell deployment binding below states for every channel.
 
 **Verdicts, never protected values.**
 
-- No command calls a Qualification protected read. Qualification answers only through its public status, and a test
-  asserts the tool surface links no Qualification protected read port.
-- `report`, `census` and `knowledge` return exploratory R&D and Backtest facts, which are already the agent's own
-  evidence; the knowledge ledger holds no protected value by construction.
-- A refusal passes through its HTTP status, `x-rd-rejection-code` and `x-rd-rejection-cause` unchanged. Nothing is
-  folded into a generic failure.
+- No tool calls a Qualification protected read, and no run reads inside a registered holdout period: `get_bars` and
+  `get_funding` refuse everything until the partition is registered, and `backtest.run` refuses an overlapping window
+  once it is. Qualification answers only through its public status.
+- A refusal passes through by its name. Nothing is folded into a generic failure.
 
 **The Dashboard MCP.** The Dashboard's `/api/mcp` is not an entry for agents, and it is not extended with these
 commands. It stays for the preview interface:

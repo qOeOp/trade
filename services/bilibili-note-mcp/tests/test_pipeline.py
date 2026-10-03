@@ -997,3 +997,51 @@ async def test_coarse_asr_windows_keep_temporal_samples(tmp_path, draft):
     assert len(frames) > len(segments)
     assert min(f.timestamp_ms for f in frames) < 15000
     assert max(f.timestamp_ms for f in frames) > 210000
+
+
+async def test_webm_container_duration_supports_real_frame_decode(tmp_path, draft):
+    from bilibili_note_mcp.adapters.subprocesses import run_captured
+
+    path = tmp_path / "source.webm"
+    result = await run_captured(
+        "ffmpeg",
+        "-v",
+        "error",
+        "-f",
+        "lavfi",
+        "-i",
+        "testsrc2=size=1280x720:rate=2",
+        "-f",
+        "lavfi",
+        "-i",
+        "sine=frequency=440:sample_rate=16000",
+        "-t",
+        "2",
+        "-c:v",
+        "libvpx-vp9",
+        "-deadline",
+        "realtime",
+        "-cpu-used",
+        "8",
+        "-c:a",
+        "libopus",
+        str(path),
+        timeout_seconds=30,
+        stdout_limit_bytes=1024,
+        stderr_limit_bytes=4096,
+    )
+    assert result.returncode == 0
+    source = AcquiredSource(
+        draft.source.model_copy(update={"duration_ms": 2000}),
+        path,
+        TranscriptResult("platform_subtitle", None, "zh-CN", draft.transcript),
+        "test",
+    )
+    media = FfmpegMedia()
+    assert await media._probe(source) == (1280, 720)
+    frame = await media._decode(path, 500, tmp_path, "webm-frame", 1280, 720)
+    with Image.open(frame.path) as image:
+        assert image.size == (1280, 720)
+    changed = replace(source, source=source.source.model_copy(update={"duration_ms": 6000}))
+    with pytest.raises(BilibiliNoteFailure, match="media_duration_changed"):
+        await media._probe(changed)

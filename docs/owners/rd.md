@@ -794,6 +794,60 @@ second bar above the threshold. Each program now carries the position it believe
 from a position the kernel accepts it at. No deployment had frozen a program of the family when this changed, and a
 program frozen from the earlier bytes is outside the family.
 
+**CURRENT - strategy catalog:** an authored single-threshold strategy is held as an immutable statement, named by
+its content and bound to no Research request. The statement is `SingleThresholdAuthoringRequestV1` without its three
+Research identities (`SingleThresholdStrategySpecV1`). Its `strategy_id` is the domain-separated SHA-256 of its
+canonical bytes, not a Design identity: a Design hashes the Research request and Intent it answers, so one statement
+makes a different Design under every request. Every value a statement can spell more than one way is brought to its
+one spelling before it is hashed, so one strategy has one identity. A statement is admitted only if it authors, so the
+catalog never holds a strategy a run would refuse at authoring.
+
+- `rd-owner-api` serves it under `/v1/strategies`: validate (authors and writes nothing), create (the same statement is
+  the same strategy), get (the stored bytes, which hash to the identity, so a row whose bytes changed is refused rather
+  than served), list, revise (a new statement naming its predecessor) and archive (the strategy stays readable and can
+  no longer be revised or run). An authoring refusal keeps the author's name (`SINGLE_THRESHOLD_*`).
+- Two append-only R&D tables hold it, `rd_strategy_specs_v1` and `rd_strategy_archives_v1`. Neither names a Research
+  request, nothing is updated or deleted, and no other Owner is granted either.
+- The catalog freezes nothing and reads no market data. A backtest run reads a statement by value, opens a Research goal
+  of its own, authors the Design under that goal's identities and freezes it there, so the one-freeze-per-request rule
+  above is never met by a second statement and every edge points down the layers.
+- `strategies::postgres_tests::the_strategy_catalog_holds_a_statement_through_every_operation_over_http` drives every
+  operation and every refusal over HTTP on the ordered chain's PostgreSQL, with no market data and no Research request.
+
+**CURRENT - strategy-authoring MCP server:** the `strategy-authoring` server of the
+[domain MCP catalog](../architecture/product-edge#target---external-agent-tool-surface) is `strategy-authoring-mcp`, a stateless
+stdio process built from `rd-owner-api`'s package. It holds `RD_OWNER_API_URL` and `RD_OWNER_API_TOKEN` in its own
+environment and reaches `/v1/strategies` only. Each tool sends one request and passes the answer or the refusal through
+by name; no argument or result carries the token.
+
+| Tool                            | Route                                         | Refusals by name                                                                                                |
+| ------------------------------- | --------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `validate(spec)`                | `POST /v1/strategies/validate`                | every `SINGLE_THRESHOLD_*` authoring refusal                                                                    |
+| `create(spec)`                  | `POST /v1/strategies`                         | every `SINGLE_THRESHOLD_*` authoring refusal                                                                    |
+| `get(strategy_id)`              | `GET /v1/strategies/{strategy_id}`            | `STRATEGY_UNKNOWN`                                                                                              |
+| `list(include_archived, limit)` | `GET /v1/strategies`                          | `STRATEGY_LIST_LIMIT_OUT_OF_RANGE`                                                                              |
+| `revise(strategy_id, spec)`     | `POST /v1/strategies/{strategy_id}/revisions` | `STRATEGY_UNKNOWN`, `STRATEGY_ARCHIVED`, `STRATEGY_REVISION_UNCHANGED`, `STRATEGY_EXISTS_UNDER_ANOTHER_LINEAGE` |
+| `archive(strategy_id)`          | `POST /v1/strategies/{strategy_id}/archive`   | `STRATEGY_UNKNOWN`                                                                                              |
+
+A `strategy_id` in any spelling but `sha256:` and 64 lower-case hex digits is answered `STRATEGY_UNKNOWN` without a
+request, because it becomes part of a route's path. A malformed call is `MALFORMED_TYPED_REQUEST`, an unknown tool
+`TOOL_UNKNOWN`, and a route that cannot be reached `RD_OWNER_API_UNREACHABLE`.
+
+Acceptance on a local deployment, with only this server mounted and no market data:
+
+1. `validate` a single-threshold statement with a stop-loss and a holding limit: `VALID` and a `strategy_id`.
+2. `get` that id: `STRATEGY_UNKNOWN`, because validate wrote nothing.
+3. `create` the same statement: the same `strategy_id`; `create` it again: the same answer.
+4. `get` it: the `spec` returned hashes to the `strategy_id` (SHA-256 over
+   `strategy.catalog.single-threshold-statement.v1\0` followed by the spec's bytes).
+5. `revise` it with `max_holding_bars` changed: a new id naming the first as `predecessor_id`.
+6. `revise` the first into its own statement: `STRATEGY_REVISION_UNCHANGED`; revise the second into the first's
+   statement: `STRATEGY_EXISTS_UNDER_ANOTHER_LINEAGE`.
+7. `list`: both; `archive` the first, `list` again: only the second; `list(include_archived=true)`: both.
+8. `revise` the archived one: `STRATEGY_ARCHIVED`; `get` it: still readable, with `archived_at_epoch_ms`.
+9. `validate` with `max_holding_bars: 0`: `SINGLE_THRESHOLD_MAX_HOLDING_BARS_ZERO`; with `stop_loss_fraction: "0.020"`:
+   `SINGLE_THRESHOLD_EXIT_FRACTION_INVALID`.
+
 **IMPLEMENTATION_ADMITTED - authoring language V1:** a document a proposer writes, compiled by a pure
 function into the `design` and `meaning` pair and nothing further. Nothing implements it at this cut, and
 its implementation follows the first COMPOSER_V3 Replay through the ordered chain. The proposer is a

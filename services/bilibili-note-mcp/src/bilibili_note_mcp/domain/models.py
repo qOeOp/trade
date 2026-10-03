@@ -53,37 +53,73 @@ class CreateNoteInputV1(StrictModel):
 
 
 class SearchAndCreateInputV1(StrictModel):
+    platform: Literal["bilibili", "youtube"] = "bilibili"
     quality: Quality = "standard"
     query: NaturalText = Field(min_length=2, max_length=200)
     max_videos: int = Field(default=2, ge=1, le=3)
 
 
 class SearchCandidateV1(StrictModel):
-    video_id: str = Field(pattern=r"^BV[0-9A-Za-z]{10}$")
+    video_id: str = Field(pattern=r"^(?:BV[0-9A-Za-z]{10}|[A-Za-z0-9_-]{11})$")
     title: NaturalText = Field(min_length=1, max_length=500)
-    canonical_url: str = Field(min_length=47, max_length=47)
+    canonical_url: str = Field(min_length=1, max_length=2048)
     author_name: NaturalText | None = Field(default=None, min_length=1, max_length=200)
     published_at: int | None = Field(default=None, gt=0)
 
     @model_validator(mode="after")
     def identity_matches_url(self) -> SearchCandidateV1:
-        expected = f"https://www.bilibili.com/video/{self.video_id}?p=1"
+        expected = (
+            f"https://www.bilibili.com/video/{self.video_id}?p=1"
+            if len(self.video_id) == 12
+            else f"https://www.youtube.com/watch?v={self.video_id}"
+        )
         if self.canonical_url != expected:
             raise ValueError("search candidate identity does not match canonical URL")
         return self
 
 
 class SourceV1(StrictModel):
-    platform: Literal["bilibili"]
+    platform: Literal["bilibili", "youtube", "generic"]
     requested_url: str
     canonical_url: str
-    video_id: str = Field(pattern=r"^BV[0-9A-Za-z]{10}$")
+    video_id: str = Field(pattern=r"^(?:BV[0-9A-Za-z]{10}|[A-Za-z0-9_-]{11}|web-[0-9a-f]{64})$")
     part_id: str = Field(min_length=1, max_length=100)
     part_index: int = Field(ge=1)
     title: NaturalText = Field(min_length=1, max_length=500)
-    author_name: NaturalText = Field(min_length=1, max_length=200)
-    published_at: str = Field(min_length=20, max_length=40)
+    author_name: NaturalText | None = Field(min_length=1, max_length=200)
+    published_at: str | None = Field(min_length=20, max_length=40)
     duration_ms: int = Field(gt=0, le=MAX_SOURCE_DURATION_MS)
+
+    @model_validator(mode="after")
+    def platform_identity(self) -> SourceV1:
+        from .generic_url import validate_generic_url
+        from .url_policy import ValidatedBilibiliUrl, validate_bilibili_url
+        from .youtube_url import ValidatedYoutubeUrl, validate_youtube_url
+
+        if self.platform == "generic":
+            generic = validate_generic_url(self.requested_url)
+            if (
+                self.part_index != 1
+                or self.part_id != self.video_id
+                or self.video_id != generic.video_id
+                or self.canonical_url != generic.canonical_url()
+            ):
+                raise ValueError("generic_source_identity_invalid")
+            return self
+        if self.author_name is None or self.published_at is None:
+            raise ValueError("platform_metadata_required")
+        value: ValidatedBilibiliUrl | ValidatedYoutubeUrl
+        if self.platform == "youtube":
+            value = validate_youtube_url(self.requested_url)
+            expected = value.canonical_url()
+            if self.part_index != 1 or self.part_id != self.video_id:
+                raise ValueError("youtube_part_identity_invalid")
+        else:
+            value = validate_bilibili_url(self.requested_url)
+            expected = value.canonical_url(self.part_index)
+        if value.video_id != self.video_id or expected != self.canonical_url:
+            raise ValueError("source_identity_invalid")
+        return self
 
 
 class GroundedText(StrictModel):

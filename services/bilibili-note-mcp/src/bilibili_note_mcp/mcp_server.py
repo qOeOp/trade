@@ -27,8 +27,8 @@ from bilibili_note_mcp.domain.models import (
 )
 from bilibili_note_mcp.presentation.schemas import search_tool_output_schema, tool_output_schema
 
-TOOL_NAME = "bilibili_note.create"
-SEARCH_TOOL_NAME = "bilibili_note.search_and_create"
+TOOL_NAME = "video_note.create"
+SEARCH_TOOL_NAME = "video_note.search_and_create"
 _USER_ANNOTATIONS = types.Annotations(audience=["user"])
 
 
@@ -73,6 +73,7 @@ def _error(code: FailureCode, reason: str) -> types.CallToolResult:
 def build_server(
     use_case: CreateBilibiliNote,
     search_use_case: SearchAndCreateBilibiliNotes,
+    youtube_search_use_case: SearchAndCreateBilibiliNotes | None = None,
 ) -> Server:
     async def list_tools(
         _context: ServerRequestContext[None],
@@ -84,7 +85,9 @@ def build_server(
                     name=TOOL_NAME,
                     title="Create illustrated video notes",
                     description=(
-                        "Convert a public Bilibili video of any subject into detailed Chinese "
+                        "Convert a public Bilibili/YouTube video, or a public HTTPS "
+                        "page/direct video link "
+                        "into detailed Chinese "
                         "notes"
                         "with content-derived chapters, source/timestamp links and relevant "
                         "real screenshots."
@@ -106,7 +109,8 @@ def build_server(
                     name=SEARCH_TOOL_NAME,
                     title="Search and create illustrated video notes",
                     description=(
-                        "Search Bilibili by a topic or creator name and produce a collection of "
+                        "Search the selected platform (Bilibili or YouTube) by a topic or "
+                        "creator name and produce a collection of "
                         "1–3 verified illustrated notes with separate source attribution and "
                         "content-derived chapters."
                         "At most two videos process concurrently; exact requested success count "
@@ -129,16 +133,25 @@ def build_server(
     async def _call_tool_result(
         context: ServerRequestContext[None], params: types.CallToolRequestParams
     ) -> types.CallToolResult:
-        if params.name not in {TOOL_NAME, SEARCH_TOOL_NAME}:
+        name = {
+            "bilibili_note.create": TOOL_NAME,
+            "bilibili_note.search_and_create": SEARCH_TOOL_NAME,
+        }.get(params.name, params.name)
+        if name not in {TOOL_NAME, SEARCH_TOOL_NAME}:
             return _error("OUTPUT_INVALID", "tool_name_invalid")
-        if params.name == SEARCH_TOOL_NAME:
+        if name == SEARCH_TOOL_NAME:
             try:
                 search_request = SearchAndCreateInputV1.model_validate(params.arguments or {})
             except ValidationError:
                 return _error("OUTPUT_INVALID", "tool_arguments_invalid")
+            selected_search = (
+                youtube_search_use_case if search_request.platform == "youtube" else search_use_case
+            )
+            if selected_search is None:
+                return _error("SOURCE_UNAVAILABLE", "search_platform_not_configured")
             progress = _progress_reporter(context)
             try:
-                search_payload = await search_use_case.execute(
+                search_payload = await selected_search.execute(
                     search_request.query,
                     search_request.max_videos,
                     progress,
@@ -209,10 +222,14 @@ def build_server(
     async def call_tool(
         context: ServerRequestContext[None], params: types.CallToolRequestParams
     ) -> types.CallToolResult:
-        if params.name not in {TOOL_NAME, SEARCH_TOOL_NAME}:
+        name = {
+            "bilibili_note.create": TOOL_NAME,
+            "bilibili_note.search_and_create": SEARCH_TOOL_NAME,
+        }.get(params.name, params.name)
+        if name not in {TOOL_NAME, SEARCH_TOOL_NAME}:
             return _error("OUTPUT_INVALID", "tool_name_invalid")
         try:
-            if params.name == SEARCH_TOOL_NAME:
+            if name == SEARCH_TOOL_NAME:
                 admitted_args = SearchAndCreateInputV1.model_validate(
                     params.arguments or {}
                 ).model_dump(mode="json", by_alias=True)
@@ -221,7 +238,7 @@ def build_server(
                     mode="json", by_alias=True
                 )
         except ValidationError:
-            if params.name == SEARCH_TOOL_NAME:
+            if name == SEARCH_TOOL_NAME:
                 return _error("OUTPUT_INVALID", "tool_arguments_invalid")
             return _error("INVALID_URL", "tool_arguments_invalid")
         request_identity = {
