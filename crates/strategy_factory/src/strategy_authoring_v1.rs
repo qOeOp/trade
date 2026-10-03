@@ -56,10 +56,6 @@ const RESCALE: &str =
 const RATIO_UNIT: &str = "RATIO";
 /// The unit of a `count_while` state.
 const BARS_UNIT: &str = "BARS";
-/// The unit a stop-loss price is multiplied by to reach its scale-9 integer.
-const NANO_UNIT: &str = "NANO";
-/// The scale at which the target-set Host reads a stop-loss price.
-const STOP_LOSS_SCALE: u8 = 9;
 /// The longest window, lag or period a definition may name.
 const MAX_WINDOW: u32 = 1_000;
 /// The fuel a compiled program may burn in one invocation.
@@ -189,6 +185,8 @@ pub enum AuthoringStateKindV1 {
     Latch { set: String, reset: String },
     /// The number of consecutive ticks `condition` has held, 0 when it does not.
     CountWhile { condition: String },
+    /// The number `value` was at the last tick `when` held, 0 before `when` first holds.
+    Capture { value: String, when: String },
 }
 
 /// One rule: the first rule whose `when` holds decides the tick.
@@ -208,12 +206,18 @@ pub struct AuthoringRuleV1 {
     deny_unknown_fields
 )]
 pub enum AuthoringActionV1 {
-    /// Open a position of `units` on `side`, protected by a stop at the `stop_loss` price.
+    /// Open a position of `units` on `side` from flat.
+    ///
+    /// `stop_loss` is refused: replay judges no order inside a bar, so slice 1 states a stop as a
+    /// rule that compares the bar against a captured level and exits at the close.
     Enter {
         side: AuthoringSideV1,
         units: i64,
-        stop_loss: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        stop_loss: Option<String>,
     },
+    /// Reverse a held position through zero to `units` on `side`, in one order.
+    Flip { side: AuthoringSideV1, units: i64 },
     /// Leave the position.
     Exit,
 }
@@ -597,7 +601,7 @@ impl<'a> Compiler<'a> {
                 }
             }
             NameKind::Definition(definition) => self.definition(definition)?,
-            NameKind::State(state) => self.state_read(state),
+            NameKind::State(state) => self.state_read(state)?,
             NameKind::Rule(index) => self.rule_selected(index)?,
         };
         self.visiting.remove(name);
@@ -1100,10 +1104,13 @@ impl<'a> Compiler<'a> {
 
     /// A state read: its value at the previous tick. The state's cell is declared here and its
     /// writer later, in [`Self::emit_writers`].
-    fn state_read(&mut self, state: &'a AuthoringStateV1) -> Value {
+    fn state_read(
+        &mut self,
+        state: &'a AuthoringStateV1,
+    ) -> Result<Value, StrategyAuthoringErrorV1> {
         let name = state.name.as_str();
         self.pending_writers.push(state);
-        match state.kind {
+        Ok(match &state.kind {
             AuthoringStateKindV1::Latch { .. } => {
                 let zero = self.graph.signal(0);
                 self.graph.cell(
@@ -1119,6 +1126,25 @@ impl<'a> Compiler<'a> {
                     BoundedFeaturePredicateV1::Greater,
                 );
                 Value::Boolean { reference: held }
+            }
+            AuthoringStateKindV1::Capture { value, .. } => {
+                let (_, unit, scale) =
+                    self.fixed_operand(value, &format!("states.{name}.kind.value"))?;
+                let initial = format!("{name}-initial");
+                self.graph.fixed(&initial, 0, &unit, scale);
+                self.graph.cell(
+                    name,
+                    &format!("{name}-next"),
+                    fixed_type(&unit, scale),
+                    &initial,
+                );
+                Value::Fixed {
+                    reference: prior_state(name),
+                    unit,
+                    scale,
+                    warming: false,
+                    role: None,
+                }
             }
             AuthoringStateKindV1::CountWhile { .. } => {
                 self.graph.fixed("bars-none", 0, BARS_UNIT, 0);
@@ -1136,7 +1162,7 @@ impl<'a> Compiler<'a> {
                     role: None,
                 }
             }
-        }
+        })
     }
 
     /// Emits the writer of every state read, until no writer reads a state not yet written.
@@ -1167,6 +1193,18 @@ impl<'a> Compiler<'a> {
                         zero,
                         after_set,
                         fixed_type(SIGNAL_UNIT, 0),
+                    );
+                }
+                AuthoringStateKindV1::Capture { value, when } => {
+                    let (value, unit, scale) =
+                        self.fixed_operand(value, &format!("{path}.value"))?;
+                    let when = self.boolean(when, &format!("{path}.when"))?;
+                    self.graph.select(
+                        &format!("{name}-next"),
+                        when,
+                        reference(&value),
+                        prior_state(name),
+                        fixed_type(&unit, scale),
                     );
                 }
                 AuthoringStateKindV1::CountWhile { condition } => {
@@ -1230,16 +1268,18 @@ impl<'a> Compiler<'a> {
                     units,
                     stop_loss,
                 } => {
-                    if *units <= 0 {
-                        return refuse("LITERAL_NOT_REPRESENTABLE", format!("{path}.action.units"));
+                    if stop_loss.is_some() {
+                        return refuse(
+                            "PROTECTION_NOT_SUPPORTED_IN_SLICE_1",
+                            format!("{path}.action.stop_loss"),
+                        );
                     }
-                    let target = match side {
-                        AuthoringSideV1::Long => *units,
-                        AuthoringSideV1::Short => -*units,
-                    };
-                    let stop =
-                        self.stop_loss(&rule.name, stop_loss, &format!("{path}.action.stop_loss"))?;
-                    self.frame(&rule.name, FrameV1::Enter { target, stop })
+                    let target = signed_units(*side, *units, &path)?;
+                    self.frame(&rule.name, FrameV1::Enter { target })
+                }
+                AuthoringActionV1::Flip { side, units } => {
+                    let target = signed_units(*side, *units, &path)?;
+                    self.frame(&rule.name, FrameV1::Flip { target })
                 }
                 AuthoringActionV1::Exit => self.frame(&rule.name, FrameV1::Exit),
             };
@@ -1261,51 +1301,20 @@ impl<'a> Compiler<'a> {
         })
     }
 
-    /// The stop-loss price as the integer the Host reads at scale 9: the price times `10^9`.
-    fn stop_loss(
-        &mut self,
-        rule: &str,
-        expression: &str,
-        path: &str,
-    ) -> Result<(BoundedFeatureValueRefV1, String), StrategyAuthoringErrorV1> {
-        let close_unit = self.roles[self.fields[&AuthoringFieldV1::Close]]
-            .unit
-            .clone();
-        let (value, unit, scale) = self.fixed_operand(expression, path)?;
-
-        if unit != close_unit && !unit.starts_with(&format!("{close_unit}*{RATIO_UNIT}")) {
-            return refuse("NOT_A_PRICE", path);
-        }
-
-        if scale > STOP_LOSS_SCALE {
-            return refuse("STOP_LOSS_TOO_FINE", path);
-        }
-        let nanos = self.graph.fixed(
-            "nano-per-price",
-            10_i128.pow(u32::from(STOP_LOSS_SCALE)),
-            NANO_UNIT,
-            0,
-        );
-        let encoded_unit = format!("{unit}*{NANO_UNIT}");
-        let reference = self.graph.arithmetic(
-            &format!("{rule}-stop-loss"),
-            MUL,
-            reference(&value),
-            nanos,
-            &encoded_unit,
-            0,
-        );
-        Ok((reference, encoded_unit))
-    }
-
     /// One frame's eleven terminals.
     fn frame(&mut self, id: &str, frame: FrameV1) -> BoundedFeatureProposalFrameV1 {
-        let (intent, target_variant, target, protection) = match &frame {
-            FrameV1::Enter { target, .. } => (
+        let (intent, target_variant, target, protection) = match frame {
+            FrameV1::Enter { target } => (
                 "kernel.position.enter.v1",
                 "kernel.target.position.v1",
-                *target,
-                "kernel.protection.replace.v1",
+                target,
+                "kernel.protection.keep.v1",
+            ),
+            FrameV1::Flip { target } => (
+                "kernel.position.flip.v1",
+                "kernel.target.position.v1",
+                target,
+                "kernel.protection.clear.v1",
             ),
             FrameV1::Exit => (
                 "kernel.position.exit.v1",
@@ -1363,16 +1372,6 @@ impl<'a> Compiler<'a> {
             "no-distance",
             BoundedFeatureConstantValueV1::U64 { value: 0 },
         );
-        let (stop_source, stop_conversion) = match frame {
-            FrameV1::Enter {
-                stop: (reference, unit),
-                ..
-            } => (
-                reference,
-                BoundedFeatureTerminalConversionV1::FixedCoefficientToI64 { unit, scale: 0 },
-            ),
-            _ => (no_tick.clone(), BoundedFeatureTerminalConversionV1::Exact),
-        };
         let terminal = |port: &str, lifecycle: &str, source: BoundedFeatureValueRefV1| {
             BoundedFeatureTerminalOutputV1 {
                 manifest_port_id: port.to_owned(),
@@ -1410,12 +1409,11 @@ impl<'a> Compiler<'a> {
                     target_ref,
                 ),
                 terminal("proposal.protection-variant.v1", protection, protection_ref),
-                BoundedFeatureTerminalOutputV1 {
-                    manifest_port_id: "proposal.stop-loss.v1".to_owned(),
-                    lifecycle_semantic_id: "kernel.protection.stop-loss.v1".to_owned(),
-                    source: stop_source,
-                    conversion: stop_conversion,
-                },
+                terminal(
+                    "proposal.stop-loss.v1",
+                    "kernel.protection.stop-loss.v1",
+                    no_tick.clone(),
+                ),
                 terminal(
                     "proposal.take-profit.v1",
                     "kernel.protection.take-profit.v1",
@@ -1437,13 +1435,27 @@ impl<'a> Compiler<'a> {
 }
 
 /// What one frame proposes.
+#[derive(Clone, Copy)]
 enum FrameV1 {
-    Enter {
-        target: i64,
-        stop: (BoundedFeatureValueRefV1, String),
-    },
+    Enter { target: i64 },
+    Flip { target: i64 },
     Exit,
     Hold,
+}
+
+/// A rule's units as the signed target position its side names.
+fn signed_units(
+    side: AuthoringSideV1,
+    units: i64,
+    path: &str,
+) -> Result<i64, StrategyAuthoringErrorV1> {
+    if units <= 0 {
+        return refuse("LITERAL_NOT_REPRESENTABLE", format!("{path}.action.units"));
+    }
+    Ok(match side {
+        AuthoringSideV1::Long => units,
+        AuthoringSideV1::Short => -units,
+    })
 }
 
 fn reference(value: &Value) -> BoundedFeatureValueRefV1 {
@@ -1646,14 +1658,15 @@ mod tests {
     #[case::cycle(|d: &mut StrategyAuthoringDocumentV1| set_expr(d, "risk", AuthoringExpressionV1::Mul { a: "long_stop".to_owned(), b: "2".to_owned() }), "DEFINITION_CYCLE", "definitions.risk.expr.a")]
     #[case::unused(|d: &mut StrategyAuthoringDocumentV1| d.definitions.push(AuthoringDefinitionV1 { name: "spare".to_owned(), expr: AuthoringExpressionV1::Max { of: "close".to_owned(), window: 3 } }), "DEFINITION_UNUSED", "definitions.spare")]
     #[case::unit_mismatch(|d: &mut StrategyAuthoringDocumentV1| set_expr(d, "breaks_up", AuthoringExpressionV1::Compare { a: "close".to_owned(), predicate: BoundedFeaturePredicateV1::Greater, b: "held".to_owned() }), "UNIT_MISMATCH", "definitions.breaks_up.expr")]
-    #[case::literal(|d: &mut StrategyAuthoringDocumentV1| set_expr(d, "breaks_up", AuthoringExpressionV1::Compare { a: "close".to_owned(), predicate: BoundedFeaturePredicateV1::Greater, b: "100.005".to_owned() }), "LITERAL_NOT_REPRESENTABLE", "definitions.breaks_up.expr.b")]
+    #[case::literal(|d: &mut StrategyAuthoringDocumentV1| set_expr(d, "breaks_up", AuthoringExpressionV1::Compare { a: "close".to_owned(), predicate: BoundedFeaturePredicateV1::Greater, b: "100.0000000001".to_owned() }), "LITERAL_NOT_REPRESENTABLE", "definitions.breaks_up.expr.b")]
     #[case::window(|d: &mut StrategyAuthoringDocumentV1| set_expr(d, "high_50", AuthoringExpressionV1::Max { of: "prior_close".to_owned(), window: 0 }), "WINDOW_OUT_OF_RANGE", "definitions.high_50.expr.window")]
-    #[case::not_boolean(|d: &mut StrategyAuthoringDocumentV1| d.rules[0].when = "long_stop".to_owned(), "NOT_BOOLEAN", "rules.exit.when")]
-    #[case::not_a_price(|d: &mut StrategyAuthoringDocumentV1| { if let AuthoringActionV1::Enter { stop_loss, .. } = &mut d.rules[1].action { *stop_loss = "held".to_owned(); } }, "NOT_A_PRICE", "rules.enter_long.action.stop_loss")]
+    #[case::not_boolean(|d: &mut StrategyAuthoringDocumentV1| d.rules[0].when = "long_stop".to_owned(), "NOT_BOOLEAN", "rules.flip_short.when")]
     #[case::field_repeated(|d: &mut StrategyAuthoringDocumentV1| d.inputs[0].field = AuthoringFieldV1::Close, "INPUT_FIELD_REPEATED", "inputs.close")]
     #[case::close_required(|d: &mut StrategyAuthoringDocumentV1| { d.inputs.retain(|input| input.field != AuthoringFieldV1::Close); }, "CLOSE_INPUT_REQUIRED", "inputs")]
     #[case::rules_required(|d: &mut StrategyAuthoringDocumentV1| d.rules.clear(), "RULES_REQUIRED", "rules")]
-    #[case::stop_too_fine(|d: &mut StrategyAuthoringDocumentV1| set_expr(d, "risk", AuthoringExpressionV1::Mul { a: "atr_20".to_owned(), b: "2.0000000001".to_owned() }), "STOP_LOSS_TOO_FINE", "rules.enter_long.action.stop_loss")]
+    #[case::protection(|d: &mut StrategyAuthoringDocumentV1| { if let AuthoringActionV1::Enter { stop_loss, .. } = &mut d.rules[3].action { *stop_loss = Some("long_stop".to_owned()); } }, "PROTECTION_NOT_SUPPORTED_IN_SLICE_1", "rules.enter_long.action.stop_loss")]
+    #[case::flip_units(|d: &mut StrategyAuthoringDocumentV1| d.rules[0].action = AuthoringActionV1::Flip { side: AuthoringSideV1::Short, units: 0 }, "LITERAL_NOT_REPRESENTABLE", "rules.flip_short.action.units")]
+    #[case::capture_boolean(|d: &mut StrategyAuthoringDocumentV1| d.states[3].kind = AuthoringStateKindV1::Capture { value: "flat".to_owned(), when: "opens_long".to_owned() }, "UNIT_MISMATCH", "states.long_stop_level.kind.value")]
     #[case::ago_one_input(|d: &mut StrategyAuthoringDocumentV1| set_expr(d, "prior_close", AuthoringExpressionV1::Ago { of: "atr_20".to_owned(), bars: 1 }), "AGO_NEEDS_ONE_INPUT", "definitions.prior_close.expr.of")]
     #[case::atr_inputs(|d: &mut StrategyAuthoringDocumentV1| { d.inputs.retain(|input| input.field != AuthoringFieldV1::Open); }, "ATR_INPUTS_REQUIRED", "definitions.atr_20.expr")]
     fn each_refusal_is_named_at_its_path(
@@ -1693,6 +1706,6 @@ mod tests {
     fn the_t0_document_compiles_and_prepares() {
         let (design, meaning) = author(&t0()).unwrap_or_else(|e| panic!("T0 compiles: {e}"));
         self_check(&design, &meaning).expect("the compiled program prepares");
-        assert_eq!(meaning.proposal_decision_table.branches.len(), 3);
+        assert_eq!(meaning.proposal_decision_table.branches.len(), 5);
     }
 }

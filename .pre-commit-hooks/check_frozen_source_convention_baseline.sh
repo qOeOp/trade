@@ -4,10 +4,11 @@ set -Eeuo pipefail
 trap 'echo "$(basename "${BASH_SOURCE[0]}"):${LINENO}: this check failed: ${BASH_COMMAND}" >&2' ERR
 
 readonly FROZEN_SOURCE_PATH="crates/strategy_factory/src/bounded_feature_program_lowerer_v1.rs"
-# Updated 2026-10-04, on purpose: the guest stack follows the program's declared state
-# (guest_stack_bytes_v1, docs/owners/rd.md "Guest stack"). No capsule needed migrating: no deployment
-# held a V3 build (the local deployment's databases have no rd_bounded_feature_program_freezes_v1).
-readonly FROZEN_SOURCE_SHA256="2bbf17924bbcb3e1c946e8b30b6eef213471c0b9da2fa94b319bef5d53ccfcb0"
+# Updated 2026-10-04, on purpose, twice: the guest stack follows the program's declared state
+# (guest_stack_bytes_v1, docs/owners/rd.md "Guest stack"), and the lowerer carries catalog version 5's
+# rows, which add the position flip. No capsule needed migrating: no deployment held a V3 build (the
+# local deployment's databases have no rd_bounded_feature_program_freezes_v1).
+readonly FROZEN_SOURCE_SHA256="13ba670b53ebd1f4240dc266bd41503f239dcef5b7c831c7cce95fc0f56d5d1f"
 
 if [ "$#" -ne 1 ]; then
   echo "ERROR: frozen source baseline check requires one repository root" >&2
