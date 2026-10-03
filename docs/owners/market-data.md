@@ -2265,7 +2265,8 @@ the universe declaration.
 - **Receipts.** The role-value receipt seals the aligned value at the role's scale beside the original row digest,
   so the custody row a value came from stays exact.
 - **Scale 9.** Universe-member roles read at the fixed scale 9 (Strategy Factory, P1). It is the custody series'
-  scale, `pit_window_custody_v1::CUSTODY_SERIES_SCALE_V1`, defined once, in Market Data. An instrument's tick changes over its history (BTC's is 0.10 today, but its
+  scale, `decimal_rescale_v1::MARKET_DATA_VALUE_SCALE_V1`, defined once, in Market Data, beside the exact rescale
+  every alignment uses. An instrument's tick changes over its history (BTC's is 0.10 today, but its
   2021 prices sit on a 0.01 grid; SOL's had 3 decimals in 2021), so the series is fixed at production fixed-point's
   upper bound, 9, and every row is aligned exactly to it.
 - **Refusal names.** The HTTP refusal names the binding's own cause, never only `STRATEGY_INPUT_BINDING_UNAVAILABLE`.

@@ -1304,7 +1304,7 @@ custody 会挡住之后的每一次提交，而成本随整个历史增长。
   调用方不指名它；其拒绝为 `EXECUTION_ROLE_ABSENT`、`EXECUTION_ROLE_AMBIGUOUS`、`MORE_THAN_ONE_ROLE_TIMEFRAME` 与
   `EXECUTION_TIMEFRAME_NOT_DECLARED`（见 Market Data owner 页）。
   **固定的角色 scale，TARGET：** 每个 universe 成员角色，包括价格角色和 `VOLUME` 角色，都按固定的 scale 9 读取：这是
-  Market Data 托管 series 的 scale，即 `CUSTODY_SERIES_SCALE_V1`，只在那里定义一次，这里引用它，绝不另写一份。不论 Research scope 指名哪个品种都是
+  Market Data 的值 scale，即 `MARKET_DATA_VALUE_SCALE_V1`，也就是它托管 series 的 scale，只在那里定义一次，这里引用它，绝不另写一份。不论 Research scope 指名哪个品种都是
   如此，所以同一份 Design 在 BTCUSDT、ETHUSDT、SOLUSDT 与 LINKUSDT 上字节完全相同，编写时也不读取 Instrument Master
   的精度。scale 9 是程序读取时使用的定点约定，不是第二份精度定义：Instrument Master 的 tick 与 step 仍是唯一的精度
   权威，执行 bundle 把引擎看到的数据对齐到它们。

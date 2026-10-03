@@ -1471,7 +1471,7 @@ later submission and the cost grows with the whole history.
   it; its refusals are `EXECUTION_ROLE_ABSENT`, `EXECUTION_ROLE_AMBIGUOUS`, `MORE_THAN_ONE_ROLE_TIMEFRAME` and
   `EXECUTION_TIMEFRAME_NOT_DECLARED` (Market Data owner page).
   **Fixed role scale, TARGET:** every universe-member role, its price roles and its `VOLUME` role, reads at the
-  fixed scale 9: Market Data's custody series scale, `CUSTODY_SERIES_SCALE_V1`, defined once there and referenced
+  fixed scale 9: Market Data's value scale, `MARKET_DATA_VALUE_SCALE_V1`, which is also its custody series scale, defined once there and referenced
   here, never restated. That
   holds for whatever instrument the Research scope names, so one Design is byte-identical across BTCUSDT, ETHUSDT,
   SOLUSDT and LINKUSDT, and authoring reads no Instrument Master precision. Scale 9 is a fixed-point convention the
