@@ -90,6 +90,8 @@ mod iteration_decision_postgres;
 pub mod iteration_result_admission;
 mod iteration_result_admission_postgres;
 pub mod single_threshold_authoring_v1;
+pub mod strategy_catalog_postgres_v1;
+pub mod strategy_catalog_v1;
 pub mod successor_intent;
 mod successor_intent_postgres;
 pub use iteration_candidate::{

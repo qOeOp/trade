@@ -660,6 +660,22 @@ position target 与它的 reconciliation target 相等，而两侧曾共用的�
 持有的仓位，只在 kernel 接受某一侧的仓位上提议该侧。这次改动时没有任何部署冻结过这个族的程序，按更早字节冻结
 的程序在这个族之外。
 
+**CURRENT - 策略目录：** 编写出的单阈值策略作为一份不可变的陈述保存，按内容命名，不绑定任何 Research 请求。
+陈述就是去掉三个 Research 身份的 `SingleThresholdAuthoringRequestV1`（`SingleThresholdStrategySpecV1`）。它的 `strategy_id`
+是其规范字节带域分隔的 SHA-256，而不是 Design 的身份：Design 会把它所回答的 Research 请求与 Intent 一起哈希，所以同一份
+陈述在每个请求下都会得到不同的 Design。陈述里每一个能有多种写法的值，在哈希之前都先规范成唯一的写法，所以一个策略只有
+一个身份。陈述只有能编写成功才会被收录，所以目录里永远不会有一份在运行时会被编写器拒绝的策略。
+
+- `rd-owner-api` 在 `/v1/strategies` 下提供它：validate（编写一遍，不写入任何东西）、create（同一份陈述就是同一个策略）、
+  get（读回存储的字节，这些字节哈希回它的身份，所以字节被改过的行会被拒绝而不是被送出）、list、revise（一份点名其前驱的
+  新陈述）与 archive（策略仍可读取，但不能再被修订或运行）。编写器的拒绝保留编写器自己的名字（`SINGLE_THRESHOLD_*`）。
+- 它由两张只追加的 R&D 表保存：`rd_strategy_specs_v1` 与 `rd_strategy_archives_v1`。两张表都不点名 Research 请求，没有任何
+  更新或删除，也没有授权给任何其他 Owner。
+- 目录不冻结任何东西，也不读任何行情数据。回测运行按值读取一份陈述，自己开一个 Research goal，用那个 goal 的身份编写
+  Design 并在其下冻结，所以上面「一个请求只冻结一次」的规则永远不会被第二份陈述撞上，每一条边都朝下。
+- `strategies::postgres_tests::the_strategy_catalog_holds_a_statement_through_every_operation_over_http` 在有序链路的
+  PostgreSQL 上经 HTTP 驱动每一种操作与每一条拒绝，不用任何行情数据，也不用任何 Research 请求。
+
 **IMPLEMENTATION_ADMITTED - 编写语言 V1：** 提案者写的一份文档，由一个纯函数编译成 `design` 与
 `meaning` 这一对，再无其他。这个截面上没有任何实现，它的实现排在第一次 COMPOSER_V3 Replay
 走通有序链路之后。提案者是语言模型或 Composer；用户不写文档，所以没有需要解析的文本语法，

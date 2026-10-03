@@ -242,6 +242,7 @@ mod research_initial_pit;
 mod research_initial_pit_postgres_tests;
 mod source_intake;
 mod source_intake_research;
+mod strategies;
 
 #[derive(Clone)]
 struct ApiState {
@@ -485,6 +486,12 @@ async fn run() -> anyhow::Result<()> {
     let owner = Arc::new(owner);
     let bounded_feature_program_owner =
         Arc::new(PostgresResearchBoundedFeatureProgramOwnerV1::connect(&database_url).await?);
+    let strategy_catalog = Arc::new(
+        vibe_strategy_factory::strategy_catalog_postgres_v1::PostgresStrategyCatalogV1::connect(
+            &database_url,
+        )
+        .await?,
+    );
     let artifact_owner = Arc::new(
         PostgresArtifactBuildOwnerV1::connect(
             &database_url,
@@ -658,6 +665,7 @@ async fn run() -> anyhow::Result<()> {
             bounded_feature_program_owner,
             token_digest,
         ))
+        .merge(strategies::router(strategy_catalog, token_digest))
         .merge(iteration_result_admission::router(
             product_edge.clone(),
             owner.clone(),

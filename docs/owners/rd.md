@@ -794,6 +794,26 @@ second bar above the threshold. Each program now carries the position it believe
 from a position the kernel accepts it at. No deployment had frozen a program of the family when this changed, and a
 program frozen from the earlier bytes is outside the family.
 
+**CURRENT - strategy catalog:** an authored single-threshold strategy is held as an immutable statement, named by
+its content and bound to no Research request. The statement is `SingleThresholdAuthoringRequestV1` without its three
+Research identities (`SingleThresholdStrategySpecV1`). Its `strategy_id` is the domain-separated SHA-256 of its
+canonical bytes, not a Design identity: a Design hashes the Research request and Intent it answers, so one statement
+makes a different Design under every request. Every value a statement can spell more than one way is brought to its
+one spelling before it is hashed, so one strategy has one identity. A statement is admitted only if it authors, so the
+catalog never holds a strategy a run would refuse at authoring.
+
+- `rd-owner-api` serves it under `/v1/strategies`: validate (authors and writes nothing), create (the same statement is
+  the same strategy), get (the stored bytes, which hash to the identity, so a row whose bytes changed is refused rather
+  than served), list, revise (a new statement naming its predecessor) and archive (the strategy stays readable and can
+  no longer be revised or run). An authoring refusal keeps the author's name (`SINGLE_THRESHOLD_*`).
+- Two append-only R&D tables hold it, `rd_strategy_specs_v1` and `rd_strategy_archives_v1`. Neither names a Research
+  request, nothing is updated or deleted, and no other Owner is granted either.
+- The catalog freezes nothing and reads no market data. A backtest run reads a statement by value, opens a Research goal
+  of its own, authors the Design under that goal's identities and freezes it there, so the one-freeze-per-request rule
+  above is never met by a second statement and every edge points down the layers.
+- `strategies::postgres_tests::the_strategy_catalog_holds_a_statement_through_every_operation_over_http` drives every
+  operation and every refusal over HTTP on the ordered chain's PostgreSQL, with no market data and no Research request.
+
 **IMPLEMENTATION_ADMITTED - authoring language V1:** a document a proposer writes, compiled by a pure
 function into the `design` and `meaning` pair and nothing further. Nothing implements it at this cut, and
 its implementation follows the first COMPOSER_V3 Replay through the ordered chain. The proposer is a
