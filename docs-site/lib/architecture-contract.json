@@ -4307,8 +4307,8 @@
             "scan"
           ],
           "description": {
-            "en": "Records a qualified candidate forward without orders\nReplays each new point in time and keeps the evidence\nCarries the Scanner discovery views\nPublishes only public phases to R&D",
-            "zh": "不下单地对已合格候选做前向记录\n在每个新的时点切面上重放并留下证据\n承载 Scanner 的发现视图\n只向 R&D 发布公开阶段"
+            "en": "Records a qualified candidate forward without orders\nReplays each new point in time and carries Scanner views\nPublishes only public phases to R&D",
+            "zh": "不下单地对已合格候选做前向记录\n在每个新的时点切面上重放 并承载 Scanner 的发现视图\n只向 R&D 发布公开阶段"
           }
         },
         {
