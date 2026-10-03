@@ -1,0 +1,11 @@
+X-2 on 1h bars: dynamic exits after +1R, R-1u development, 5322 trades on 53 coins
+  a single hourly bar touched both the stop and the target or +1R trigger in 0.3% of trades (counted as the stop)
+  base: win 43%; stopped 3024 (57%); of those, reached +1R first 31%, +1.5R first 13%; trades reaching +1R 58%, of which ended at 2R 69%
+  base : avg R +0.270, win 43%, total R 1439, weekly Sharpe 2.77
+  BE1  : avg R +0.224, win 32%, total R 1190, weekly Sharpe 2.87; minus base -0.047 [-0.070, -0.023]
+  BE1+ : avg R +0.220, win 60%, total R 1170, weekly Sharpe 2.89; minus base -0.050 [-0.075, -0.027]
+  BE15 : avg R +0.259, win 39%, total R 1381, weekly Sharpe 2.89; minus base -0.011 [-0.024, +0.003]
+  P1   : avg R +0.244, win 43%, total R 1296, weekly Sharpe 3.22; minus base -0.027 [-0.045, -0.009]
+  P1BE : avg R +0.220, win 61%, total R 1171, weekly Sharpe 3.30; minus base -0.050 [-0.078, -0.022]
+  T1   : avg R +0.212, win 60%, total R 1128, weekly Sharpe 3.05; minus base -0.058 [-0.088, -0.029]
+  Holm (two-sided, 95%, six): BE1 p 0.000 vs 0.0083, BE1+ p 0.000 vs 0.0100, P1BE p 0.000 vs 0.0125, T1 p 0.000 vs 0.0167, P1 p 0.001 vs 0.0250, BE15 p 0.105 vs 0.0500

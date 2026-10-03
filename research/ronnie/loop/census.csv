@@ -167,3 +167,7 @@ logged_at,loop,candidate,stage,n,edge,lo,hi,passed,note
 2026-10-03T01:37:40+00:00,L-5b,diagonal role reversal,iteration,2229,+0.1443,+0.0463,+0.2451,True,placebo -0.049
 2026-10-03T01:37:53+00:00,L-5c,double support tag,iteration,1233,+0.0908,+0.0037,+0.1759,True,placebo +0.018
 2026-10-03T04:14:49+00:00,E-1,R-1 deeper entries,iteration,21686,+nan,+nan,+nan,False,six offsets; see r1_entry_offset.txt
+2026-10-03T04:35:34+00:00,X-2,R-1 dynamic exits,iteration,5322,+nan,+nan,+nan,False,six exits; see r1_dynexit.txt
+2026-10-03T04:36:46+00:00,X-2,R-1 dynamic exits,rerun-iteration,5322,+nan,+nan,+nan,False,six exits; see r1_dynexit.txt fill-bar high excluded from +1R triggers
+2026-10-03T04:38:01+00:00,X-2 4h,R-1 dynamic exits,iteration,5322,+nan,+nan,+nan,False,4h-ordered; see r1_dynexit4h.txt
+2026-10-03T04:39:29+00:00,X-2 1h,R-1 dynamic exits,iteration,5322,+nan,+nan,+nan,False,1h-ordered; see r1_dynexit_1h.txt

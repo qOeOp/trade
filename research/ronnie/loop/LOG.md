@@ -2337,3 +2337,45 @@ CSCV PBO 0.00. No deeper entry improves R-1u: 0.10 ATR is level with it (Sharpe 
 and from 0.25 ATR on returns fall fast. With the stop fixed at the zone, a deeper limit shrinks the stop, so noise and
 fees stop more trades out (win rate 41% to 25%), and the strongest breakouts never come back that far. The edge over
 random entries rises only because the matched controls, with the same tiny stops, lose even more. Nothing changes.
+
+## Loop X-2: dynamic exits after +1R on R-1u (registered 2026-10-03, before running; the user's question)
+
+- **Question:** how often does an R-1u trade reach +1R and still end at -1R, and does managing the trade after +1R
+  improve total R and Sharpe?
+- **Variants, on the same R-1u development trades (53 coins, 2018-2022), fees 0.06% a side:** base (stop, 2R, 60
+  days); BE1: from the bar after the high first reaches +1R, the stop moves to the entry; BE1+: to entry +0.1R; BE15:
+  the same at +1.5R; P1: half closed at +1R, the rest keeps stop and 2R; P1BE: half at +1R, the rest's stop to the
+  entry; T1: from +1R a trailing stop 1R below the highest high since entry. Daily bars: a stop move takes effect on
+  the next bar; a bar that touches both stop and target counts as the stop.
+- **Statistic:** paired per-trade R difference against base, week-clustered, Holm over six; total R and weekly Sharpe of
+  R. A variant that improves both Sharpe and total R with Holm significance joins the forward record as a paired exit.
+- **Amendment before reading results as final (2026-10-03, the user's point):** the daily run cannot order events inside
+  a day; X-2 is repeated on 4h bars (fill located in the fill day's 4h bars, stops, targets and the +1R trigger walked
+  in 4h order, a 4h bar touching both sides counted as the stop, the fill bar's own high not used as a trigger; hold
+  360 bars). The 4h run is the result of record; the daily run is kept for comparison.
+
+### Loop X-2 result (2026-10-03; 1h of record: `loop/r1_dynexit_1h.txt`; 4h `loop/r1_dynexit4h.txt`; daily `loop/r1_dynexit.txt`)
+
+- **Resolution:** on hourly bars a single bar touched both the stop and a target or trigger in 0.3% of trades, so 15m
+  bars would change nothing. The daily run had first counted the fill bar's high as a trigger (inflating partial exits);
+  corrected before any reading, and superseded by the hourly run. R-1u's own result does not suffer from daily bars:
+  the same trades give +0.270 avg R walked hourly against +0.255 daily.
+- **How often +1R turns into -1R:** 57% of trades are stopped; 31% of those first reached +1R and 13% +1.5R (about 17%
+  of all trades). Of trades that reach +1R, 69% go on to 2R.
+
+| exit (1h) | avg R | win | total R | weekly Sharpe | minus base [95%] | Sharpe minus base [95%, 8-week blocks] | max drawdown R |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| base | +0.270 | 43% | 1,439 | 2.77 | | | -46 |
+| BE1 stop to entry at +1R | +0.224 | 32% | 1,190 | 2.87 | -0.047 [-0.070, -0.023] | | |
+| BE1+ to entry +0.1R | +0.220 | 60% | 1,170 | 2.89 | -0.050 | | |
+| BE15 at +1.5R | +0.259 | 39% | 1,381 | 2.89 | -0.011 [-0.024, +0.003] | +0.12 [-0.06, +0.29] | -44 |
+| P1 half at +1R | +0.244 | 43% | 1,296 | 3.22 | -0.027 [-0.045, -0.009] | +0.45 [+0.20, +0.73] | -37 |
+| P1BE half at +1R, rest to entry | +0.220 | 61% | 1,171 | 3.30 | -0.050 [-0.078, -0.022] | +0.53 [+0.14, +0.97] | -35 |
+| T1 trail 1R from +1R | +0.212 | 60% | 1,128 | 3.05 | -0.058 [-0.088, -0.029] | +0.29 [-0.14, +0.69] | -33 |
+
+- **Reading:** every management rule lowers total R (moving the stop to the entry cuts the trades that dip back and
+  then reach 2R, 69% of those that reach +1R). Taking half at +1R lowers return per trade by 0.03-0.05R but cuts weekly
+  volatility by 23-32%, so Sharpe rises by about 0.5 (interval above zero) and the drawdown shrinks. At equal
+  volatility (size scaled up by about 1.3x) P1 would earn more than base. By the registered criterion (Sharpe and
+  total R both better) no exit is adopted; whether to trade P1 at a larger size is a risk-budget choice, and R-1s
+  (half at 2R) already sits in the forward record.

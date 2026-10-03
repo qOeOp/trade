@@ -317,4 +317,10 @@ Input for the product's R&D system. Each note: what happened, why it matters, a 
     and one rule object, and a daily check replays the last 30 days of the forward log through the backtest code and
     fails loudly on any difference. Scan output also separates "the rule's own open position" from "orders you could
     place now", which a reader mistook for a plan.
+60. **Path-dependent exits were first tested on daily bars while hourly bars were on disk.** The order of stop, target
+    and trigger inside a day is unknowable on daily bars, so the first run fell back on conservative rules and once
+    counted a fill bar's high as a trigger. The user pointed out that the data has 4h, 1h and 15m bars. Hourly ordering
+    left 0.3% of trades ambiguous. Proposal: any exit that depends on the path inside the holding period is walked on
+    the finest bars available, with the share of still-ambiguous bars reported; daily-bar results stand only for rules
+    whose events are decided at the daily close.
 

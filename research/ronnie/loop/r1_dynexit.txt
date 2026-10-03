@@ -1,0 +1,10 @@
+X-2: dynamic exits after +1R, R-1u development (53 coins, 2018-2022), 5322 trades
+  base: win 41%; stopped (R < -0.5) 3121 (59%); of those, reached +1R first 23%, +1.5R first 10%; all trades reaching +1R 36%, of which ended at 2R 62%
+  base : avg R +0.255, win 41%, total R 1360, weekly Sharpe 2.61
+  BE1  : avg R +0.231, win 34%, total R 1228, weekly Sharpe 2.76; minus base -0.025 [-0.044, -0.005]
+  BE1+ : avg R +0.227, win 52%, total R 1209, weekly Sharpe 2.74; minus base -0.028 [-0.049, -0.008]
+  BE15 : avg R +0.251, win 38%, total R 1336, weekly Sharpe 2.77; minus base -0.004 [-0.015, +0.007]
+  P1   : avg R +0.276, win 41%, total R 1471, weekly Sharpe 3.23; minus base +0.021 [+0.006, +0.035]
+  P1BE : avg R +0.264, win 55%, total R 1405, weekly Sharpe 3.32; minus base +0.009 [-0.015, +0.031]
+  T1   : avg R +0.219, win 52%, total R 1167, weekly Sharpe 2.81; minus base -0.036 [-0.059, -0.013]
+  Holm (two-sided, 95%, six): T1 p 0.003 vs 0.0083, P1 p 0.007 vs 0.0100, BE1+ p 0.009 vs 0.0125, BE1 p 0.017 vs 0.0167, BE15 p 0.406 vs 0.0250, P1BE p 0.473 vs 0.0500
