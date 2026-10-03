@@ -143,6 +143,56 @@ pub(super) async fn commit_bar_schedule_on_v1(
     design: BindingDigest,
     input_role: BindingDigest,
 ) -> Result<BarScheduleAcceptanceV1, BarScheduleAcceptanceErrorV1> {
+    Box::pin(commit_bar_schedule_from_v1(
+        owner,
+        snapshot,
+        RoleSourceV1::Declared { design, input_role },
+    ))
+    .await
+}
+
+/// **A stand-in for E1, the production BAR schedule proposer, which does not exist yet.**
+///
+/// Production has no writer of BAR schedules (E1, Lane 8). A native Replay over N bars reads one
+/// schedule per member cut at each frame's own instant (`schedule_is_at_frame_v1`), so an
+/// acceptance that drives a frame sequence has to put one in custody for every frame. This does it
+/// for one frame, through the same derivation as [`commit_bar_schedule_for_acceptance_v1`], with
+/// one difference: the role is named by the caller and bound to the frame's own batch, because a
+/// frame after the first was not committed under any Research PIT request that declared it.
+///
+/// It is not a production path and must not be mistaken for one. When E1 merges, every caller
+/// switches to it and this function is deleted.
+#[cfg(test)]
+pub(super) async fn seed_bar_schedule_standing_in_for_e1(
+    owner: &MarketDataOwnerPostgres,
+    snapshot: &UntrustedPitSnapshotLocator,
+    role: &crate::owner::strategy_input_binding::UntrustedStrategyInputBindingRequest,
+) -> Result<BarScheduleAcceptanceV1, BarScheduleAcceptanceErrorV1> {
+    Box::pin(commit_bar_schedule_from_v1(
+        owner,
+        snapshot,
+        RoleSourceV1::Named(role),
+    ))
+    .await
+}
+
+/// Where the role a schedule is derived for comes from.
+enum RoleSourceV1<'a> {
+    /// A role declared on the snapshot's Research PIT request.
+    Declared {
+        design: BindingDigest,
+        input_role: BindingDigest,
+    },
+    /// A role the caller names, bound to the frame's own batch.
+    #[cfg_attr(not(test), allow(dead_code))]
+    Named(&'a crate::owner::strategy_input_binding::UntrustedStrategyInputBindingRequest),
+}
+
+async fn commit_bar_schedule_from_v1(
+    owner: &MarketDataOwnerPostgres,
+    snapshot: &UntrustedPitSnapshotLocator,
+    role: RoleSourceV1<'_>,
+) -> Result<BarScheduleAcceptanceV1, BarScheduleAcceptanceErrorV1> {
     let mut transaction = owner
         .pool
         .begin()
@@ -156,15 +206,20 @@ pub(super) async fn commit_bar_schedule_on_v1(
     let batch = load_owner_verified_pit_batch_v1(&mut transaction, snapshot.snapshot_identity)
         .await
         .map_err(|_| BarScheduleAcceptanceErrorV1::BatchUnverified)?;
-    let declaration = recover_strategy_input_binding_declaration_v1(
-        &mut transaction,
-        pit.fact().request_identity(),
-        design,
-        input_role,
-    )
-    .await
-    .map_err(|_| BarScheduleAcceptanceErrorV1::RoleNotDeclared)?;
-    let binding = exact_binding_v1(declaration.exact_binding(), declaration.request(), &batch)?;
+    let binding = match role {
+        RoleSourceV1::Declared { design, input_role } => {
+            let declaration = recover_strategy_input_binding_declaration_v1(
+                &mut transaction,
+                pit.fact().request_identity(),
+                design,
+                input_role,
+            )
+            .await
+            .map_err(|_| BarScheduleAcceptanceErrorV1::RoleNotDeclared)?;
+            exact_binding_v1(declaration.exact_binding(), declaration.request(), &batch)?
+        }
+        RoleSourceV1::Named(request) => exact_binding_v1(None, request, &batch)?,
+    };
     // A role whose row is not a BAR has no schedule, whatever its timeframe says.
     let is_bar = crate::owner::strategy_input_binding::project_sample_fact_v1(&binding, &batch)
         .is_ok_and(|source| source.row.data_kind() == "BAR");

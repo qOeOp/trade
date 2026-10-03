@@ -34,7 +34,7 @@ use crate::owner::{
 };
 
 /// A Data Client that answers one complete Quote for every member Market Data scoped.
-struct EveryMemberQuoteSourceV1;
+pub(super) struct EveryMemberQuoteSourceV1;
 
 #[async_trait::async_trait]
 impl PitObservationSourceV1 for EveryMemberQuoteSourceV1 {

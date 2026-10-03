@@ -42,6 +42,8 @@ mod live_market_stream_v1;
 mod market_data_rd_api_authorization_postgres_tests;
 mod market_semantics;
 #[cfg(test)]
+mod native_replay_frame_sequence_intake_tests;
+#[cfg(test)]
 mod native_replay_quote_cut_intake_tests;
 mod observation_census;
 #[cfg(test)]
