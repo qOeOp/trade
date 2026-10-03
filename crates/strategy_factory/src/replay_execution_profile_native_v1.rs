@@ -189,13 +189,20 @@ impl ReplayNativeExecutionProfileV1 {
         Ok(())
     }
 
+    /// Every member's terms are the Instrument Owner's for one account scope, the one complete scope
+    /// it holds for every member. The scope is the Owner's business name and is bound as provenance;
+    /// the engine's simulated account is named from the venue (`account_scope_id`), and neither
+    /// names the other.
     pub(crate) fn validate_account_scope(&self) -> Result<(), ReplayNativeExecutionProfileErrorV1> {
-        let expected = format!("{}-001", self.venue_config.venue);
+        let Some(first) = self.instrument_terms.first() else {
+            return Err(ReplayNativeExecutionProfileErrorV1::AccountScopeMismatch);
+        };
 
-        if self
-            .instrument_terms
-            .iter()
-            .any(|terms| terms.account_scope_identity != expected)
+        if first.account_scope_identity.is_empty()
+            || self
+                .instrument_terms
+                .iter()
+                .any(|terms| terms.account_scope_identity != first.account_scope_identity)
         {
             return Err(ReplayNativeExecutionProfileErrorV1::AccountScopeMismatch);
         }
@@ -1736,6 +1743,25 @@ mod tests {
         wrong_account.instrument_terms[1].account_scope_identity = "OTHER-001".into();
         assert_eq!(
             wrong_account.validate_account_scope(),
+            Err(ReplayNativeExecutionProfileErrorV1::AccountScopeMismatch)
+        );
+        // The Owner names its scope; one shared scope is admitted whatever the engine's account is
+        // called.
+        let mut owner_named = materialize_event_replay_execution_profile_v1(
+            fixture_binding(&economic, &runner, [4; 32]),
+            &economic,
+            &runner,
+        )
+        .unwrap();
+
+        for terms in owner_named.instrument_terms.iter_mut() {
+            terms.account_scope_identity = "RDQ-MARGIN".into();
+        }
+        assert_eq!(owner_named.validate_account_scope(), Ok(()));
+        owner_named.instrument_terms[0].account_scope_identity = String::new();
+        owner_named.instrument_terms[1].account_scope_identity = String::new();
+        assert_eq!(
+            owner_named.validate_account_scope(),
             Err(ReplayNativeExecutionProfileErrorV1::AccountScopeMismatch)
         );
 
