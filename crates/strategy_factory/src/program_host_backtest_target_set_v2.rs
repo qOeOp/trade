@@ -18,7 +18,7 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 use strategy_factory_program_sdk::{
     lifecycle_v1::{
-        EnvelopePayloadV1, EventOrderKeyV1, FillDispositionV1, FillEventV1, FillSideV1,
+        EnvelopePayloadV1, EventOrderKeyV1, FillDispositionV1, FillEventV1, FillLegV1, FillSideV1,
         LifecycleEnvelopeV1, LifecycleKind, PositionIntentV1, ProtectionStateV1, SemanticTraceV1,
         TargetProposalV1,
     },
@@ -92,7 +92,8 @@ pub(crate) struct TargetSetBacktestTransitionV2 {
     pub(crate) position_intent: String,
     pub(crate) position_before_grid_units: i64,
     pub(crate) position_after_grid_units: i64,
-    /// `None` for a host-wide lifecycle event, which converts no target.
+    /// `None` for an event that converts no target: a host-wide lifecycle event, or a protective
+    /// fill, which moves the position on the kernel's protection rather than toward a target.
     pub(crate) residual_grid_units: Option<i64>,
     pub(crate) checkpoint_before: [u8; 32],
     pub(crate) checkpoint_after: [u8; 32],
@@ -136,6 +137,27 @@ pub(crate) struct TargetSetActualFillConsumptionV1 {
     pub(crate) checkpoint_after: [u8; 32],
 }
 
+/// One fill of a protective order, as `kernel.fill.reconcile.v1` consumed it.
+///
+/// It is kept apart from [`TargetSetActualFillConsumptionV1`], whose every row answers a native
+/// order a reconciled target set submitted: a protective order answers the kernel's protection
+/// state instead, and no target set submitted it.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub(crate) struct TargetSetProtectiveFillConsumptionV1 {
+    pub(crate) client_order_id: String,
+    pub(crate) instrument: String,
+    /// The identity the kernel's fill frontier records for the protective order.
+    pub(crate) order_identity: [u8; 16],
+    pub(crate) leg: &'static str,
+    pub(crate) disposition: String,
+    pub(crate) cumulative_filled_grid_units: u64,
+    pub(crate) filled_native_quantity: String,
+    pub(crate) position_before_grid_units: i64,
+    pub(crate) position_after_grid_units: i64,
+    pub(crate) checkpoint_before: [u8; 32],
+    pub(crate) checkpoint_after: [u8; 32],
+}
+
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize)]
 pub(crate) struct TargetSetBacktestTraceV2 {
     pub(crate) callback_failure: Option<String>,
@@ -148,6 +170,7 @@ pub(crate) struct TargetSetBacktestTraceV2 {
     pub(crate) equity_snapshots: Vec<TargetSetEquitySnapshotObservationV2>,
     pub(crate) canonical_target_sets: Vec<Vec<u8>>,
     pub(crate) actual_fill_consumptions: Vec<TargetSetActualFillConsumptionV1>,
+    pub(crate) protective_fill_consumptions: Vec<TargetSetProtectiveFillConsumptionV1>,
     /// Exact native grid position each member held when the real run stopped.
     ///
     /// It is recorded from the Backtest cache itself, before the frame-exhaustion check, so a
@@ -166,7 +189,6 @@ struct NativeOrderBindingV2 {
 
 #[derive(Clone, Debug, Default)]
 struct MemberExecutionStateV2 {
-    desired_protection: ProtectionStateV1,
     /// Position intent of the reconciled target set this member's native order is advancing.
     ///
     /// A FILL lifecycle event carries no intent of its own, so a fill is attributed to the intent
@@ -174,7 +196,8 @@ struct MemberExecutionStateV2 {
     desired_position_intent: Option<PositionIntentV1>,
     desired_grid_target: Option<i64>,
     active_protection_order: Option<ClientOrderId>,
-    protection_orders: BTreeSet<ClientOrderId>,
+    /// Every protective order the Host placed for the member, by the leg it is.
+    protection_orders: BTreeMap<ClientOrderId, FillLegV1>,
 }
 
 struct BatchSnapshotV2 {
@@ -552,7 +575,7 @@ impl BacktestTargetSetProgramHostStrategyV2 {
                 });
             self.members[ordinal].desired_position_intent = Some(trace.position_intent);
             self.members[ordinal].desired_grid_target = Some(grid_targets[ordinal]);
-            self.apply_desired_protection(ordinal, trace.protection)?;
+            self.apply_kernel_protection(ordinal)?;
         }
 
         for prepared_order in orders.into_iter().flatten() {
@@ -806,7 +829,7 @@ impl BacktestTargetSetProgramHostStrategyV2 {
         let protection_ordinal = self
             .members
             .iter()
-            .position(|member| member.protection_orders.contains(&client_order_id));
+            .position(|member| member.protection_orders.contains_key(&client_order_id));
         let ordinal = binding
             .map(|binding| binding.member_ordinal)
             .or(protection_ordinal)
@@ -840,7 +863,35 @@ impl BacktestTargetSetProgramHostStrategyV2 {
                 protection_order: protection_ordinal.is_some(),
             });
 
-        if protection_ordinal.is_some() {
+        if let Some(ordinal) = protection_ordinal {
+            let leg = self.members[ordinal].protection_orders[&client_order_id];
+            // An order that never filled moved nothing the kernel holds: the Host replaces and
+            // cancels unfilled protection as the position changes, and none of that is a fill.
+            let disposition = match (event, status) {
+                (OrderEventAny::Filled(_), OrderStatus::PartiallyFilled) => {
+                    Some(FillDispositionV1::PartiallyFilled)
+                }
+                (OrderEventAny::Filled(_), OrderStatus::Filled) => Some(FillDispositionV1::Filled),
+                (OrderEventAny::Rejected(_), _) if filled_quantity.is_positive() => {
+                    Some(FillDispositionV1::Rejected)
+                }
+                (OrderEventAny::Canceled(_) | OrderEventAny::Expired(_), _)
+                    if filled_quantity.is_positive() =>
+                {
+                    Some(FillDispositionV1::Canceled)
+                }
+                _ => None,
+            };
+
+            if let Some(disposition) = disposition {
+                self.consume_protective_fill(
+                    ordinal,
+                    client_order_id,
+                    leg,
+                    event.ts_event().as_u64(),
+                    disposition,
+                )?;
+            }
             return Ok(());
         }
         let binding = binding.context("position event omitted exact order binding")?;
@@ -915,6 +966,7 @@ impl BacktestTargetSetProgramHostStrategyV2 {
                 side,
                 disposition,
                 cumulative_filled_units: cumulative,
+                leg: FillLegV1::Intent,
             }),
         )?;
         let event = self.host.admit_backtest_lifecycle_event(envelope)?;
@@ -986,6 +1038,116 @@ impl BacktestTargetSetProgramHostStrategyV2 {
         Ok(())
     }
 
+    /// Feeds one protective order's progress to the member kernel under
+    /// `kernel.fill.reconcile.v1`, so the kernel's position follows the venue's when a stop or
+    /// take-profit fills between frames.
+    ///
+    /// The kernel decides whether the fill is admissible: the leg must be armed, nothing proposed
+    /// may be pending, and the fill may only reduce. A refusal faults the run by name. Once the
+    /// position is flat the kernel has cleared its protection, and the Host's desired protection
+    /// follows it, so a later entry never re-arms a stop the kernel no longer holds.
+    fn consume_protective_fill(
+        &mut self,
+        ordinal: usize,
+        client_order_id: ClientOrderId,
+        leg: FillLegV1,
+        time_ns: u64,
+        disposition: FillDispositionV1,
+    ) -> anyhow::Result<()> {
+        self.owner_sequence = self
+            .owner_sequence
+            .checked_add(1)
+            .context("Backtest target-set owner sequence exhausted")?;
+        let instrument_id = self.instrument_ids[ordinal];
+        let instrument = self.cache().try_instrument(&instrument_id)?;
+        let (native_filled, side) = {
+            let cache = self.cache();
+            let order = cache.try_order(&client_order_id)?;
+            (order.filled_qty(), order.order_side())
+        };
+        let cumulative = exact_grid_units(native_filled, instrument.size_increment())?;
+        let side = match side {
+            OrderSide::Buy => FillSideV1::Buy,
+            OrderSide::Sell => FillSideV1::Sell,
+            OrderSide::NoOrderSide => anyhow::bail!("protective order has no side"),
+        };
+        let order_identity = stable_identity(
+            b"strategy.backtest-target-set-v2.protection\0",
+            &[
+                instrument_id.to_string().as_bytes(),
+                client_order_id.as_str().as_bytes(),
+            ],
+        );
+        let envelope = lifecycle_envelope(
+            time_ns,
+            time_ns,
+            LifecycleKind::Fill,
+            self.owner_sequence,
+            stable_identity(
+                b"strategy.backtest-target-set-v2.protective-fill\0",
+                &[
+                    &order_identity,
+                    &[disposition as u8],
+                    &cumulative.to_le_bytes(),
+                    &self.owner_sequence.to_le_bytes(),
+                ],
+            ),
+            EnvelopePayloadV1::Fill(FillEventV1 {
+                intent_identity: order_identity,
+                side,
+                disposition,
+                cumulative_filled_units: cumulative,
+                leg,
+            }),
+        )?;
+        let event = self.host.admit_backtest_lifecycle_event(envelope)?;
+        let checkpoint_before = self.host.checkpoint().digest();
+        let trace = self
+            .host
+            .apply_backtest_member_fill_event(&instrument_id.to_string(), &event)?;
+        let checkpoint_after = self.host.checkpoint().digest();
+
+        let mut recorded = self.trace.borrow_mut();
+        recorded
+            .protective_fill_consumptions
+            .push(TargetSetProtectiveFillConsumptionV1 {
+                client_order_id: client_order_id.to_string(),
+                instrument: instrument_id.to_string(),
+                order_identity,
+                leg: fill_leg_name(leg),
+                disposition: fill_disposition_name(disposition).to_owned(),
+                cumulative_filled_grid_units: cumulative,
+                filled_native_quantity: native_filled.to_string(),
+                position_before_grid_units: trace.position_before_units,
+                position_after_grid_units: trace.position_after_units,
+                checkpoint_before: *checkpoint_before.as_bytes(),
+                checkpoint_after: *checkpoint_after.as_bytes(),
+            });
+        recorded
+            .host_transitions
+            .push(TargetSetBacktestTransitionV2 {
+                instrument: Some(instrument_id.to_string()),
+                lifecycle: lifecycle_name(LifecycleKind::Fill).to_owned(),
+                position_intent: position_intent_name(trace.position_intent).to_owned(),
+                position_before_grid_units: trace.position_before_units,
+                position_after_grid_units: trace.position_after_units,
+                residual_grid_units: None,
+                checkpoint_before: *checkpoint_before.as_bytes(),
+                checkpoint_after: *checkpoint_after.as_bytes(),
+                trace: trace.encode().to_vec(),
+            });
+        drop(recorded);
+
+        let member = &mut self.members[ordinal];
+
+        if disposition != FillDispositionV1::PartiallyFilled
+            && member.active_protection_order == Some(client_order_id)
+        {
+            member.active_protection_order = None;
+        }
+        Ok(())
+    }
+
     fn maybe_restore_host(&mut self, disposition: FillDispositionV1) -> anyhow::Result<()> {
         if self.restore_after_first_terminal_fill
             && !self.restore_performed.get()
@@ -1002,24 +1164,30 @@ impl BacktestTargetSetProgramHostStrategyV2 {
         Ok(())
     }
 
-    fn apply_desired_protection(
-        &mut self,
-        ordinal: usize,
-        desired: ProtectionStateV1,
-    ) -> anyhow::Result<()> {
-        if desired == ProtectionStateV1::default() {
-            self.members[ordinal].desired_protection = desired;
+    /// The protection the member kernel holds, which is the only protection the Host places.
+    ///
+    /// The Host keeps no copy of its own: a protective fill that closes the position clears the
+    /// kernel's protection, and a copy would go on re-arming the stop the kernel dropped.
+    fn kernel_protection(&self, ordinal: usize) -> anyhow::Result<ProtectionStateV1> {
+        self.host
+            .member_checkpoints_for_backtest()
+            .get(ordinal)
+            .map(|(_, checkpoint)| checkpoint.protection)
+            .context("member kernel checkpoint unavailable")
+    }
+
+    fn apply_kernel_protection(&mut self, ordinal: usize) -> anyhow::Result<()> {
+        if self.kernel_protection(ordinal)? == ProtectionStateV1::default() {
             if let Some(client_order_id) = self.members[ordinal].active_protection_order.take() {
                 self.cancel_order(client_order_id, None, None)?;
             }
             return Ok(());
         }
-        self.members[ordinal].desired_protection = desired;
         self.sync_protection_order(ordinal)
     }
 
     fn sync_protection_order(&mut self, ordinal: usize) -> anyhow::Result<()> {
-        let desired = self.members[ordinal].desired_protection;
+        let desired = self.kernel_protection(ordinal)?;
         if desired == ProtectionStateV1::default() {
             return Ok(());
         }
@@ -1079,7 +1247,7 @@ impl BacktestTargetSetProgramHostStrategyV2 {
         self.members[ordinal].active_protection_order = Some(client_order_id);
         self.members[ordinal]
             .protection_orders
-            .insert(client_order_id);
+            .insert(client_order_id, FillLegV1::StopLoss);
         self.submit_order(
             order,
             Some(self.single_open_position_id(ordinal)?),
@@ -1439,6 +1607,14 @@ fn stable_identity(domain: &[u8], parts: &[&[u8]]) -> [u8; 16] {
     hasher.finalize()[..16]
         .try_into()
         .expect("SHA-256 prefix has fixed length")
+}
+
+const fn fill_leg_name(leg: FillLegV1) -> &'static str {
+    match leg {
+        FillLegV1::Intent => "INTENT",
+        FillLegV1::StopLoss => "STOP_LOSS",
+        FillLegV1::TakeProfit => "TAKE_PROFIT",
+    }
 }
 
 const fn order_event_name(event: &OrderEventAny) -> &'static str {
