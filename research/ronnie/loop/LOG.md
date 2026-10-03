@@ -2311,3 +2311,29 @@ Simulated as books (one slot per coin, first fill), 53 coins 2018-2022: R-1u 4,3
 [+0.154, +0.352], total 478R, Sharpe 2.05 (2018 -0.66R per trade); the rest only 3,629 trades, avg R +0.134, edge
 +0.148, Sharpe 1.41. The tagged orders carry more of R-1's edge, but a tagged-only book halves the trades and total R
 and lowers the Sharpe. In-sample for the tag; the forward record decides (L-5c, 2027-10-01).
+
+## Loop E-1: deeper R-1 entries (registered 2026-10-03, before running; the user's question)
+
+- **Variants:** the R-1u limit moved deeper (lower for longs, higher for shorts) by 0, 0.1, 0.25, 0.5, 0.75 and 1.0 ATR
+  of the arming bar; the stop stays at the zone stop, the target is 2R from the new limit; an order whose limit would
+  reach the stop is dropped. One slot per coin, first fill, 10-day validity, 60-day hold. Development, 53 coins,
+  2018-2022.
+- **Reported:** trades, avg R, edge against matched random entries (week-clustered), total R and weekly Sharpe of R.
+  Six variants: the choice is judged on its neighbourhood (a plateau), with CSCV PBO over the six. Nothing changes R-1u;
+  a variant that clearly beats it on Sharpe and total R joins the forward record as a paired variant only.
+
+### Loop E-1 result (2026-10-03; `loop/r1_entry_offset.txt`)
+
+| deeper by | trades | avg R | win | edge [95%] | total R | weekly Sharpe |
+| --- | --- | --- | --- | --- | --- | --- |
+| 0 (R-1u) | 4,300 | +0.219 | 41% | +0.221 [+0.142, +0.297] | 941 | 2.18 |
+| 0.10 ATR | 4,518 | +0.203 | 41% | +0.252 [+0.182, +0.320] | 915 | 2.26 |
+| 0.25 ATR | 4,727 | +0.118 | 39% | +0.281 | 557 | 1.42 |
+| 0.50 ATR | 4,044 | -0.016 | 35% | +0.282 | -66 | -0.21 |
+| 0.75 ATR | 2,602 | -0.153 | 31% | +0.188 | -399 | -1.48 |
+| 1.00 ATR | 1,495 | -0.353 | 25% | +0.116 | -527 | -2.64 |
+
+CSCV PBO 0.00. No deeper entry improves R-1u: 0.10 ATR is level with it (Sharpe +0.08, total R -26, within noise),
+and from 0.25 ATR on returns fall fast. With the stop fixed at the zone, a deeper limit shrinks the stop, so noise and
+fees stop more trades out (win rate 41% to 25%), and the strongest breakouts never come back that far. The edge over
+random entries rises only because the matched controls, with the same tiny stops, lose even more. Nothing changes.

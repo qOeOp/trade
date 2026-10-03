@@ -1,0 +1,8 @@
+E-1: deeper R-1u entries (stop fixed at the zone, 2R target), development 53 coins 2018-2022
+  deeper by 0.00 ATR: n 4300, avg R +0.219, win 41%, edge +0.221 [+0.142, +0.297], total R 941, weekly Sharpe 2.18
+  deeper by 0.10 ATR: n 4518, avg R +0.203, win 41%, edge +0.252 [+0.182, +0.320], total R 915, weekly Sharpe 2.26
+  deeper by 0.25 ATR: n 4727, avg R +0.118, win 39%, edge +0.281 [+0.214, +0.350], total R 557, weekly Sharpe 1.42
+  deeper by 0.50 ATR: n 4044, avg R -0.016, win 35%, edge +0.282 [+0.213, +0.353], total R -66, weekly Sharpe -0.21
+  deeper by 0.75 ATR: n 2602, avg R -0.153, win 31%, edge +0.188 [+0.108, +0.271], total R -399, weekly Sharpe -1.48
+  deeper by 1.00 ATR: n 1495, avg R -0.353, win 25%, edge +0.116 [+0.039, +0.202], total R -527, weekly Sharpe -2.64
+  CSCV PBO over the six: 0.00
