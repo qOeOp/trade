@@ -210,12 +210,12 @@ never runs in CI.
   `public` and `product_edge_owner` may create there, so a new function in `public`, which `PUBLIC` may execute by
   default, changes the census and admission needs a new manifest. The census names PostgreSQL 16's privileges,
   and a server of another major is refused rather than measured short.
-- **`B4` consumer not compiled into the deployed image.** `product/rd-workbench/Dockerfile.owner` builds
-  `strategy-factory-rd-owner-api` with default features, which leaves `composer-replay-issuance` off, and the
-  dashboard read binary touches no Market Data surface. The native Replay scheduling consumer is behind that
-  production feature rather than an acceptance one; the repair loop's shared time-evidence consumer is behind
-  `native-replay-execution`, also a production feature. Cleared by the deployed image enabling those production features, which is a
-  deployment decision.
+- **`B4` consumer partly compiled into the deployed image.** `product/rd-workbench/Dockerfile.owner` builds
+  `strategy-factory-rd-owner-api` with `composer-v3-replay`, which includes `composer-replay-issuance`, so the
+  native Replay scheduling consumer is in the image; with no admitted store (`B3`) it has no resolver, and issuance
+  answers `MARKET_DATA_SCHEDULING_NOT_ADMITTED`. The repair loop's shared time-evidence consumer is behind
+  `native-replay-execution`, which the image does not build. Cleared by the deployed image enabling that production
+  feature, a deployment decision that follows `B3`.
 - **`B5` no cross-Owner consumer.** The module's only consumers are the same crate's Replay V2 composition and
   PostgreSQL writers, and most such modules are additionally `pub(crate)` inside `crates/data`. Cleared by one
   fixed consumer named by this document.

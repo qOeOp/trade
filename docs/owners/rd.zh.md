@@ -93,16 +93,15 @@
   只读标题会得到相反的答案，而且两个方向都会错。
 
 - **CURRENT - 已部署的服务，以及它暴露面的边界：** `product/rd-workbench/Dockerfile.owner` 构建
-  每一个二进制（包括 `--bin strategy-factory-rd-owner-api`）时都完全不带 `--features`。所以部署镜像就是
-  `crates/strategy_factory_rd_owner_api/src/main.rs` 里未加门的那个 router，
-  而其后注册的六条路由不在其中：`/v2/exploratory-replay/execution-input-bindings` 在
-  `#[cfg(feature = "composer-replay-issuance")]` 之下，`/v3/exploratory-replay-requests/composer-backed` 在
-  `#[cfg(feature = "composer-v3-replay")]` 之下，四条 `/_sealed-acceptance/v1/develop-composer/*` 在
-  `#[cfg(feature = "sealed-source-intake-composer-acceptance")]` 之下。前两个 feature 是生产面，不带任何验收夹具、
-  语料或路由；密封 feature 包含它们而不是拥有它们。在默认构建里，Composer 自己的
-  `/v2/develop-composer/runs/{request_identity}/resolve` 与 `/readback` 返回 `503`，因为
-  `composer-replay-issuance` 是关闭的。一条验收路由绝不是生产能力的证据，
-  而密封 feature 的存在就是为了让这个区别是机械的而不是靠记住的。
+  `--bin strategy-factory-rd-owner-api` 以及同一个包的三个 Replay Policy Catalog 二进制时带
+  `--features composer-v3-replay`，不带其他 feature；dashboard 读取二进制不带任何 feature。所以部署镜像注册了
+  `/v3/exploratory-replay-requests/composer-backed` 和 `/v2/exploratory-replay/execution-input-bindings`，
+  Composer 自己的 `/v2/develop-composer/runs/{request_identity}/resolve` 与 `/readback` 从托管中作答。它不构建
+  `native-replay-execution`，所以 `/v2/exploratory-replays` 和两条 `/v1/market-data-repair-requests` 路由不在其中；
+  它也不构建任何密封 feature，所以 `#[cfg(feature = "sealed-source-intake-composer-acceptance")]` 之下的四条
+  `/_sealed-acceptance/v1/develop-composer/*` 同样不在。生产 feature 不带任何验收夹具、语料或路由；密封 feature
+  包含它们而不是拥有它们。一条验收路由绝不是生产能力的证据，而密封 feature 的存在就是为了让这个区别是机械的
+  而不是靠记住的。
   镜像运行在产品的定点精度 `FIXED_PRECISION` 16 上，不靠构建参数：`vibe-strategy-factory` 在自己的
   `vibe-model` 依赖上声明 `high-precision`，`scripts/ci/check-production-features.py` 会拒绝链接
   `vibe-model` 却不带它的生产包。
@@ -128,10 +127,12 @@
   即 Playbook 点名的、缺席的 `LIVE_EXTERNAL` 权威，而不是请求本身；请求本身的拒绝（冲突的 identity、
   畸形的 body）这条路由已经按名回答。今天重试改变不了答案，是这个构建缺少的能力，列在
   `UNIMPLEMENTED_PRODUCTION_STAGES` 里；它不是请求的性质，也不需要一种专属的答复。
-- **CURRENT - composer-backed 的 Exploratory Replay 请求路径没有准入标签，把它挡在部署镜像之外的是镜像，而不是缺少产出者：**
+- **CURRENT - composer-backed 的 Exploratory Replay 请求路径已在部署镜像里：**
   `commit_composer_backed_exploratory_replay_request_v3`、它的路由
   `/v3/exploratory-replay-requests/composer-backed`、它的表和这些表的迁移，只存在于 `composer-v3-replay`
-  之下；这是一个生产 feature，而上面那个镜像不构建它，所以默认构建的 `--materialize-schema` 一张这些表也不建。
+  之下，而上面那个镜像构建它。由该镜像在 cutover 之前物化的数据库已有这些表；不带它物化、或此后已 cutover 的
+  数据库，由每个部署都会运行的 `postgres-init/10-migrate-authority-custody.sh` 补上
+  `rd_research_view_transitions_v3`。
   本文档、`docs/owners/backtest.md` 与 `docs/architecture/` 都没有把这条路径标成 `TARGET`、
   `IMPLEMENTATION_ADMITTED` 或任何其他状态，所以它的状态只能从三处陈述读出。上面那条已部署服务的条目说，
   验收路由从来不是生产能力的证据。`docs/guide/dashboard.md` 说，当某个部署镜像带上一条能产出 Composer
@@ -140,8 +141,9 @@
   （`PostgresSourceResearchComposerProductionV2::run_bounded_feature_program`），它读的是联合冻结和 Market Data
   的绑定，不经过 Source Intake，所以上面那条 Source Intake 的条目已不再指出挡路的那一跳。开启
   `composer-v3-replay` 的构建同时带着这个 Composer 和这条 commit，且不带任何验收代码。有序链路的构建不是这个
-  构建：它的验收 feature 包含 `composer-v3-replay`，但同时把 Composer 的运行换成了固定语料。因此这条路径
-  尚未被准入进镜像：既不是没做完，也不是有意不开，准入它的是一个部署决定。不带门的 v2 commit 替代不了它。
+  构建：它的验收 feature 包含 `composer-v3-replay`，但同时把 Composer 的运行换成了固定语料。把这条路径准入镜像的部署决定，
+  是在用户的 B0 授权下作出的：它准入不涉及资金、不带交易所凭据的探索重放。签发它的 execution-input binding
+  仍回答 `503` `MARKET_DATA_SCHEDULING_NOT_ADMITTED`，直到 Market Data scheduling 获得准入，也就是 `B3`。不带门的 v2 commit 替代不了它。
   Native Replay 的准备阶段在查询 Composer 之前就把请求的 `artifact.digest` 当作 `sha256:` 摘要来解析，
   而 v2 commit 只在这个摘要等于 Artifact Build Owner 的 `blake3:` wasm 摘要时才会成功；请求的
   `artifact.identity` 也得同时等于 commit 所要求的 Artifact Build `blake3:` 身份，以及准备阶段所要求的
@@ -243,7 +245,7 @@
   `vibe-backtest-owner` 之外唯一的调用者位于 `run_native_replay` 内，而后者带
   `#[cfg(feature = "native-replay-execution")]`，这是不带任何验收代码的生产 feature，且全仓没有任何
   `cfg(not(...))` 孪生体。
-  在部署镜像不带 feature 的前提下，该路径在已部署产物里不可达。这测的是部署产物，不是历史。
+  在部署镜像不带 `native-replay-execution` 的前提下，该路径在已部署产物里不可达。这测的是部署产物，不是历史。
 
 ## 模块
 

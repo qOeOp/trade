@@ -694,7 +694,7 @@ frame；`a_batch_holding_a_second_instant_of_one_role_binds_no_frame` 测的正�
 可编译配置下都没有东西签发 `NativeReplayExecutionInputBindingV1`。它的签发收敛到
 `issue_native_replay_execution_input_binding_v1`，而后者唯一的调用方是一个 HTTP handler，
 只在 `rd-owner-api` 这个 crate 自己的 `composer-replay-issuance` 下注册，
-部署镜像不开启它，有序链路的构建只经由 `sealed-develop-composer-acceptance` 打开它；没有 SQL 或脚本直接写那几张绑定表，
+部署镜像经由 `composer-v3-replay` 开启它，有序链路的构建经由 `sealed-develop-composer-acceptance` 打开它；没有 SQL 或脚本直接写那几张绑定表，
 也没有测试或客户端提到那条路由。签发者与它旁边的解析者都是 `PostgresResearchGoalOwnerV1` 上
 无门的生产函数，相距四十三行，要的协作者是同一套。所以这条执行路径是没被走到，而不是走不到，
 而一条先签发再解析的有序链路条目就能驱动它，既不必启用 feature 也不必扩任何 union。
