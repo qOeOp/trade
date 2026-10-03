@@ -224,9 +224,10 @@ impl PitObservationSourceV1 for UniverseMemberDailyBarsV1 {
 }
 
 /// The Data Client behind the quote cut's intake: one Quote per member Market Data issues, at the
-/// instant Market Data issues. The host places a GTC limit at the frame's close (123.45), so the ask
-/// is at or below it for the buy to fill, at the ask, and the bid one tick under the ask marks the
-/// position. Values are canonical, as a real client normalizes them.
+/// instant Market Data issues. The host decides a GTC limit at the frame's close (123.45) and submits
+/// it on this Quote, whose ask is below it, so the buy fills on arrival as TAKER at the ask, and the
+/// bid one tick under the ask marks the position. Values are canonical, as a real client normalizes
+/// them.
 struct UniverseMemberQuotesV1;
 
 #[async_trait]

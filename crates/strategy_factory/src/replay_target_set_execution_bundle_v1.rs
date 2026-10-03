@@ -5,6 +5,8 @@
 //! After admission, the caller can move only this opaque bundle into the consumer; there is no API
 //! for appending or replacing instruments or scheduling data.
 
+use std::collections::BTreeMap;
+
 use sha2::{Digest, Sha256};
 use vibe_data::owner::instrument_master_v2::ValidatedCryptoPerpetualPublicTermsV2;
 use vibe_data::owner::native_replay_scheduling_v1::NativeReplaySchedulingReadbackV1;
@@ -347,6 +349,9 @@ pub struct ReplayTargetSetExecutionBundleV1 {
     pub(crate) instruments: BoundedMembers<InstrumentAny>,
     pub(crate) bar_types: BoundedMembers<BarType>,
     pub(crate) data: Vec<Data>,
+    /// Each frame's fill-quote instants, keyed by the frame's time, one per member in member order:
+    /// the instant that member's Quote arrives at, which the Host submits its decided order on.
+    pub(crate) fill_quote_instants: BTreeMap<u64, Vec<u64>>,
     pub(crate) census: ReplayTargetSetExecutionCensusV1,
 }
 
@@ -744,6 +749,7 @@ impl ReplayTargetSetExecutionBundleV1 {
             census_digest: [0; 32],
         };
         census.census_digest = digest_census(&census)?;
+        let fill_quote_instants = fill_quote_instants(&data, instruments.len(), frame_times);
         Ok(Self {
             plan,
             artifact,
@@ -755,6 +761,7 @@ impl ReplayTargetSetExecutionBundleV1 {
             instruments,
             bar_types,
             data,
+            fill_quote_instants,
             census,
         })
     }
@@ -1061,6 +1068,29 @@ fn ensure_native_data_at_instrument_precision(
         );
     }
     Ok(())
+}
+
+/// Each frame's fill-quote instant per member, in member order, from data
+/// `validate_and_digest_scheduling_data` has accepted: every round is one BAR per member then one
+/// Quote per member, each after the frame's instant.
+fn fill_quote_instants(
+    data: &[Data],
+    member_count: usize,
+    frame_times: &[u64],
+) -> BTreeMap<u64, Vec<u64>> {
+    data.chunks_exact(member_count * 2)
+        .zip(frame_times)
+        .map(|(round, frame_time)| {
+            let instants = round[member_count..]
+                .iter()
+                .filter_map(|value| match value {
+                    Data::Quote(quote) => Some(quote.ts_event.as_u64()),
+                    _ => None,
+                })
+                .collect();
+            (*frame_time, instants)
+        })
+        .collect()
 }
 
 fn validate_and_digest_scheduling_data(

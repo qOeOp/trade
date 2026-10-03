@@ -132,7 +132,15 @@ The maturity boundary is explicit:
   snapshot, both instrument facts and prices, current positions, formula, and derived targets. No crate peer or
   caller can construct or alter its numeric targets. Native quantity is rebuilt exactly as grid units times size
   increment and must pass instrument normalization unchanged. Host commit and order preflight are
-  whole-batch atomic before submission. Sim Exchange submissions and fills are sequential, not venue-atomic: a
+  whole-batch atomic before submission. The Host decides and commits at the frame BAR's close but submits each
+  member's native order only when that member's fill quote arrives: the Quote from the frame's quote cut, at the
+  instant the execution bundle states for that member. The Sim venue's on-arrival check against that Quote then
+  decides liquidity, so a limit the fill quote already crosses fills as TAKER at the touch and pays the taker rate,
+  and only an uncrossed limit rests and later fills as MAKER at its limit. A Quote at another instant while the
+  member's order waits is refused as `FILL_QUOTE_NOT_THE_FRAMES_QUOTE_CUT`, and an order still waiting when the
+  next BAR or the run's end arrives is refused as `FILL_QUOTE_MISSING_BEFORE_NEXT_FRAME`; protective orders are
+  placed as before. Sim Exchange submissions and fills are sequential, not venue-atomic, so an earlier member can
+  fill before a later member's fill quote arrives: a
   later submission failure faults the run and preserves any earlier native effect and in-process replay evidence.
   A bounded test-only fault at the second-submit boundary dynamically proves one successful real submission and
   native cached order remain after the Host commit; it does not claim venue rollback or all-or-none submission.

@@ -123,8 +123,14 @@ R&D 内的 Develop 能力返回内容寻址 Strategy Artifact 和 Build Receipt�
   capability；该 capability 绑定准确 prepared target-set、运行中 Host instance、account/equity snapshot、两份
   instrument fact 与 price、current position、公式及 derived target，crate peer 与 caller 都不能构造或修改其
   数值。随后以 grid units 乘 size increment 准确重建原生 quantity，
-  且 instrument normalization 必须保持其不变。提交前的 host commit 与 order preflight 对整批原子；Sim
-  Exchange submit 与 fill 按顺序发生，不具备 venue 原子性：后续 submit 失败会 fault 本次运行，并保留较早的
+  且 instrument normalization 必须保持其不变。提交前的 host commit 与 order preflight 对整批原子。Host 在
+  frame BAR 收盘时决策并 commit，但每个成员的原生 order 只在该成员的 fill quote 到达时才 submit：fill quote
+  是该 frame 的 quote cut 中的 Quote，时刻由 execution bundle 按成员给出。随后由 Sim venue 对该 Quote 的
+  on-arrival 检查决定流动性：fill quote 已经穿过的 limit 以 TAKER 在 touch 价成交并按 taker 费率计费，只有
+  未穿过的 limit 才挂单，之后以 MAKER 在其 limit 价成交。成员 order 等待期间到达另一时刻的 Quote 按
+  `FILL_QUOTE_NOT_THE_FRAMES_QUOTE_CUT` 拒绝；下一根 BAR 或运行结束时仍在等待的 order 按
+  `FILL_QUOTE_MISSING_BEFORE_NEXT_FRAME` 拒绝；protective order 的放置不变。Sim
+  Exchange submit 与 fill 按顺序发生，不具备 venue 原子性，较早成员可能在较晚成员的 fill quote 到达前成交：后续 submit 失败会 fault 本次运行，并保留较早的
   原生 effect 与进程内 replay 证据。一个有界 test-only second-submit boundary fault 动态证明：Host commit 后
   第一份真实 submit 已成功且原生 cached order 被保留；这不代表 venue rollback 或 all-or-none submit。每个
   `ClientOrderId` 都绑定准确 instrument 与 host-derived intent；partial/

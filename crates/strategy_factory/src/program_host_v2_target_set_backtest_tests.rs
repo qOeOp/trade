@@ -1,5 +1,6 @@
 use std::{
     cell::{Cell, RefCell},
+    collections::BTreeMap,
     rc::Rc,
 };
 
@@ -632,9 +633,19 @@ fn second_submit_boundary_fault_preserves_first_real_submission_and_committed_ho
     );
     assert_eq!(trace.position_submit_attempts, 1);
     assert_eq!(trace.successful_position_submits.len(), 1);
-    assert_eq!(evidence.native_order_count, 1);
+    // Each member submits on its own fill quote, so the first member's order meets the book and
+    // fills before the second member's quote reaches the faulting submit: the native orders are
+    // that first order and the protective stop its fill places.
+    assert_eq!(evidence.native_order_count, 2);
     assert_eq!(trace.canonical_target_sets.len(), 1);
-    assert!(trace.actual_fill_consumptions.is_empty());
+    assert_eq!(
+        trace
+            .actual_fill_consumptions
+            .iter()
+            .map(|fill| fill.instrument.as_str())
+            .collect::<Vec<_>>(),
+        ["AAPL.XNAS"]
+    );
     assert_ne!(
         trace.batch_checkpoint_before, trace.failure_checkpoint_after,
         "the committed Host must not be rolled back after the first native submit"
@@ -1257,6 +1268,7 @@ fn run_two_frame_corpus_with_exit(
         ));
         data.push(Data::Bar(bar));
     }
+    data.extend(fill_quotes(&instruments, &entry_bars, entry_time + 1));
     data.extend([
         book_level(
             &instruments[0],
@@ -1298,6 +1310,7 @@ fn run_two_frame_corpus_with_exit(
         Data::Bar(exit_bars[0]),
         Data::Bar(exit_bars[1]),
     ]);
+    data.extend(fill_quotes(&instruments, &exit_bars, exit_time + 1));
     let trace = Rc::new(RefCell::new(TargetSetBacktestTraceV2::default()));
     let mut strategy = BacktestTargetSetProgramHostStrategyV2::new(
         StrategyId::from("TARGET-SET-BACKTEST-B3-ROUND-TRIP-001"),
@@ -1308,6 +1321,10 @@ fn run_two_frame_corpus_with_exit(
         [crate::program_host_v2::OwnerUniverseFrameV1::uncoordinated(
             frame,
         )],
+        BTreeMap::from([
+            (entry_time, vec![entry_time + 1; 2]),
+            (exit_time, vec![exit_time + 1; 2]),
+        ]),
         None,
         false,
         Rc::new(Cell::new(false)),
@@ -1418,6 +1435,7 @@ fn run_corpus_with_fault(restore: bool, second_submit_fault: bool) -> anyhow::Re
         ));
         data.push(Data::Bar(bar));
     }
+    data.extend(fill_quotes(&instruments, &bars, time + 1));
     data.extend([
         book_level(
             &instruments[0],
@@ -1447,6 +1465,7 @@ fn run_corpus_with_fault(restore: bool, second_submit_fault: bool) -> anyhow::Re
         [crate::program_host_v2::OwnerUniverseFrameV1::uncoordinated(
             frame,
         )],
+        BTreeMap::from([(time, vec![time + 1; 2])]),
         None,
         restore,
         Rc::clone(&restored),
@@ -1585,6 +1604,7 @@ fn run_invalid_batch(case: InvalidBatchCase) -> anyhow::Result<TargetSetBacktest
         [crate::program_host_v2::OwnerUniverseFrameV1::uncoordinated(
             frame,
         )],
+        BTreeMap::from([(time, vec![time + 1; 2])]),
         None,
         false,
         Rc::new(Cell::new(false)),
@@ -1625,6 +1645,300 @@ fn run_invalid_batch(case: InvalidBatchCase) -> anyhow::Result<TargetSetBacktest
     )?;
     let evidence = trace.borrow().clone();
     Ok(evidence)
+}
+
+/// A Sim EVENT run of the two-member target set on an L1 book only Quotes build, as the production
+/// venue's is, with maker and taker fees that differ. Nothing is on the book when the BARs decide,
+/// so an order submitted at the BAR would rest as MAKER whatever the Quotes after it say.
+///
+/// `schedule` states, from the frame's instant, the Quotes after the BARs and the fill-quote
+/// instant per member the bundle would state.
+fn run_fill_quote_corpus(
+    schedule: impl FnOnce(u64, &[InstrumentAny]) -> (Vec<Data>, Vec<u64>),
+) -> anyhow::Result<(TargetSetBacktestTraceV2, Vec<serde_json::Value>)> {
+    let mut instruments = instruments();
+
+    for instrument in &mut instruments {
+        let instrument = crypto_perpetual_mut(instrument);
+        instrument.maker_fee = rust_decimal::Decimal::new(2, 4);
+        instrument.taker_fee = rust_decimal::Decimal::new(4, 4);
+    }
+    let instrument_ids = [instruments[0].id(), instruments[1].id()];
+    let bar_types = instrument_ids.map(|instrument_id| {
+        BarType::new(
+            instrument_id,
+            BarSpecification::new(1, BarAggregation::Day, PriceType::Last),
+            AggregationSource::External,
+        )
+    });
+    let (plan, artifact, frame) = fixture()?;
+    let admitted = admit_owner_universe_program_event_v2(
+        &plan,
+        &OwnerUniverseFrameV1::uncoordinated(frame.clone()),
+    )?;
+    let time = admitted.envelope().order_key.logical_time_ns;
+    let mut data = vec![
+        Data::Bar(Bar::new(
+            bar_types[0],
+            Price::from("186.41"),
+            Price::from("188.00"),
+            Price::from("185.00"),
+            Price::from("187.25"),
+            Quantity::from("100"),
+            time.into(),
+            time.into(),
+        )),
+        Data::Bar(Bar::new(
+            bar_types[1],
+            Price::from("419.81"),
+            Price::from("425.00"),
+            Price::from("418.00"),
+            Price::from("421.15"),
+            Quantity::from("100.0"),
+            time.into(),
+            time.into(),
+        )),
+    ];
+    let (quotes, instants) = schedule(time, &instruments);
+    data.extend(quotes);
+    let trace = Rc::new(RefCell::new(TargetSetBacktestTraceV2::default()));
+    let strategy = BacktestTargetSetProgramHostStrategyV2::new(
+        StrategyId::from("TARGET-SET-BACKTEST-FILL-QUOTE-001"),
+        plan,
+        artifact,
+        BoundedMembers::try_from(instrument_ids)?,
+        BoundedMembers::try_from(bar_types)?,
+        [crate::program_host_v2::OwnerUniverseFrameV1::uncoordinated(
+            frame,
+        )],
+        BTreeMap::from([(time, instants)]),
+        None,
+        false,
+        Rc::new(Cell::new(false)),
+        Rc::clone(&trace),
+    )?;
+    let mut engine = BacktestEngine::new(BacktestEngineConfig {
+        bypass_logging: true,
+        run_analysis: false,
+        ..Default::default()
+    })?;
+    engine.add_venue(
+        SimulatedVenueConfig::builder()
+            .venue(Venue::from("XNAS"))
+            .oms_type(OmsType::Netting)
+            .account_type(AccountType::Margin)
+            .book_type(BookType::L1_MBP)
+            .starting_balances(vec![Money::from("1_000_000 USD")])
+            .bar_execution(false)
+            .use_random_ids(false)
+            .build()?,
+    )?;
+
+    for instrument in &instruments {
+        engine.add_instrument(instrument)?;
+    }
+    engine.add_strategy(strategy)?;
+    engine.add_data(data, None, true, true)?;
+    engine.run(
+        None,
+        None,
+        Some("target-set-backtest-fill-quote".to_owned()),
+        false,
+    )?;
+    let mut result: serde_json::Value =
+        serde_json::from_slice(&engine.get_canonical_result()?.to_bytes()?)?;
+    let fills = result["fills"]
+        .as_array_mut()
+        .map(std::mem::take)
+        .unwrap_or_default();
+    let trace = trace.borrow().clone();
+    Ok((trace, fills))
+}
+
+/// A two-sided Quote for `instrument` at `instant`.
+fn touch(instrument: &InstrumentAny, bid: &str, ask: &str, instant: u64) -> Data {
+    Data::Quote(QuoteTick::new(
+        instrument.id(),
+        Price::from(bid),
+        Price::from(ask),
+        instrument.make_qty(100.0, None),
+        instrument.make_qty(100.0, None),
+        instant.into(),
+        instant.into(),
+    ))
+}
+
+/// Each fill as `(instrument, ts_event, last_px, liquidity_side, commission)`, in the canonical
+/// result's order: by order, not by time.
+fn fill_rows(fills: &[serde_json::Value]) -> Vec<[String; 5]> {
+    fills
+        .iter()
+        .map(|fill| {
+            let filled = &fill["event"]["Filled"];
+            [
+                "instrument_id",
+                "ts_event",
+                "last_px",
+                "liquidity_side",
+                "commission",
+            ]
+            .map(|field| filled[field].as_str().unwrap_or_default().to_owned())
+        })
+        .collect()
+}
+
+/// The frame decides limits at its closes, 187.25 and 421.15. Each member's fill quote already
+/// offers below that, so each order fills on arrival as TAKER at the touch, not at its limit, and
+/// pays the taker rate: 5 x 187.20 x multiplier 2 x 0.0004 = 0.7488 and 2.0 x 421.10 x
+/// multiplier 5 x 0.0004 = 1.6844, where the maker rate would charge 0.37 and 0.84.
+#[rstest]
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+fn a_limit_its_fill_quote_already_crosses_fills_as_taker_at_the_touch() {
+    let (trace, fills) = run_fill_quote_corpus(|time, instruments| {
+        (
+            vec![
+                touch(&instruments[0], "187.10", "187.20", time + 1),
+                touch(&instruments[1], "421.00", "421.10", time + 1),
+            ],
+            vec![time + 1; 2],
+        )
+    })
+    .expect("fill-quote corpus");
+    assert_eq!(trace.callback_failure, None);
+    assert_eq!(
+        fill_rows(&fills),
+        [
+            ["AAPL.XNAS", "26", "187.20", "TAKER", "0.75 USD"],
+            ["MSFT.XNAS", "26", "421.10", "TAKER", "1.68 USD"],
+        ]
+    );
+}
+
+/// A fill quote that does not reach the limit leaves the order resting, and the later Quote that
+/// crosses it fills it as MAKER at its limit, at the maker rate: 5 x 187.25 x 2 x 0.0002 = 0.3745.
+#[rstest]
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+fn a_limit_its_fill_quote_does_not_cross_rests_and_fills_later_as_maker_at_its_limit() {
+    let (trace, fills) = run_fill_quote_corpus(|time, instruments| {
+        (
+            vec![
+                touch(&instruments[0], "187.20", "187.30", time + 1),
+                touch(&instruments[1], "421.00", "421.10", time + 1),
+                touch(&instruments[0], "187.10", "187.20", time + 2),
+            ],
+            vec![time + 1; 2],
+        )
+    })
+    .expect("fill-quote corpus");
+    assert_eq!(trace.callback_failure, None);
+    assert_eq!(
+        fill_rows(&fills),
+        [
+            ["AAPL.XNAS", "27", "187.25", "MAKER", "0.37 USD"],
+            ["MSFT.XNAS", "26", "421.10", "TAKER", "1.68 USD"],
+        ]
+    );
+}
+
+/// Each member's order waits for that member's own fill quote: MSFT's Quote comes a nanosecond
+/// after AAPL's, and its order meets it as TAKER there rather than resting from AAPL's instant.
+#[rstest]
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+fn each_member_submits_on_its_own_fill_quote() {
+    let (trace, fills) = run_fill_quote_corpus(|time, instruments| {
+        (
+            vec![
+                touch(&instruments[0], "187.10", "187.20", time + 1),
+                touch(&instruments[1], "421.00", "421.10", time + 2),
+            ],
+            vec![time + 1, time + 2],
+        )
+    })
+    .expect("fill-quote corpus");
+    assert_eq!(trace.callback_failure, None);
+    assert_eq!(
+        fill_rows(&fills),
+        [
+            ["AAPL.XNAS", "26", "187.20", "TAKER", "0.75 USD"],
+            ["MSFT.XNAS", "27", "421.10", "TAKER", "1.68 USD"],
+        ]
+    );
+}
+
+/// A Quote at another instant than the one the bundle states for a waiting member is refused by
+/// name, before any order reaches the venue.
+#[rstest]
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+fn a_quote_at_another_instant_than_the_frames_fill_quote_is_refused() {
+    let (trace, fills) = run_fill_quote_corpus(|time, instruments| {
+        (
+            vec![
+                touch(&instruments[0], "187.10", "187.20", time + 1),
+                touch(&instruments[1], "421.00", "421.10", time + 1),
+            ],
+            vec![time + 2; 2],
+        )
+    })
+    .expect("fill-quote corpus");
+    assert!(
+        trace
+            .callback_failure
+            .as_deref()
+            .is_some_and(|failure| failure.starts_with("FILL_QUOTE_NOT_THE_FRAMES_QUOTE_CUT")),
+        "{:?}",
+        trace.callback_failure
+    );
+    assert_eq!(trace.position_submit_attempts, 0);
+    assert!(fills.is_empty());
+}
+
+/// An order still waiting when the next BAR or the run's end arrives is refused by name: the
+/// decided order never reached the venue, so the run states no execution for it.
+#[rstest]
+#[case::next_bar(true, "a decided order still waits for its frame's fill quote")]
+#[case::run_end(
+    false,
+    "a decided order still waits for its frame's fill quote at the run's end"
+)]
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+fn a_fill_quote_missing_before_the_next_bar_or_the_runs_end_is_refused(
+    #[case] next_bar: bool,
+    #[case] refusal: &str,
+) {
+    let (trace, fills) = run_fill_quote_corpus(|time, instruments| {
+        let later_bar = Data::Bar(Bar::new(
+            BarType::new(
+                instruments[0].id(),
+                BarSpecification::new(1, BarAggregation::Day, PriceType::Last),
+                AggregationSource::External,
+            ),
+            Price::from("187.25"),
+            Price::from("187.25"),
+            Price::from("187.25"),
+            Price::from("187.25"),
+            Quantity::from("100"),
+            (time + 2).into(),
+            (time + 2).into(),
+        ));
+        (
+            if next_bar {
+                vec![later_bar]
+            } else {
+                Vec::new()
+            },
+            vec![time + 1; 2],
+        )
+    })
+    .expect("fill-quote corpus");
+    assert!(
+        trace.callback_failure.as_deref().is_some_and(
+            |failure| failure == format!("FILL_QUOTE_MISSING_BEFORE_NEXT_FRAME: {refusal}")
+        ),
+        "{:?}",
+        trace.callback_failure
+    );
+    assert_eq!(trace.position_submit_attempts, 0);
+    assert!(fills.is_empty());
 }
 
 fn run_multi_frame_equity_corpus() -> anyhow::Result<TargetSetBacktestTraceV2> {
@@ -1718,6 +2032,16 @@ fn run_multi_frame_equity_corpus() -> anyhow::Result<TargetSetBacktestTraceV2> {
         ));
         data.push(Data::Bar(bar));
     }
+    data.extend(fill_quotes(&instruments, &first_bars, first_time + 1));
+    // The portfolio marks a position at its latest Quote before any BAR, so without this Quote the
+    // second frame's equity would be marked at the first frame's fill quote. It states the moved
+    // marks the second frame sizes against; the Host ignores it, since no order waits.
+    data.extend(
+        instruments
+            .iter()
+            .zip(&second_bars)
+            .map(|(instrument, bar)| fill_quote_at(instrument, bar.close, second_time - 1)),
+    );
     data.extend([
         book_level(
             &instruments[0],
@@ -1738,6 +2062,7 @@ fn run_multi_frame_equity_corpus() -> anyhow::Result<TargetSetBacktestTraceV2> {
         Data::Bar(second_bars[0]),
         Data::Bar(second_bars[1]),
     ]);
+    data.extend(fill_quotes(&instruments, &second_bars, second_time + 1));
     let trace = Rc::new(RefCell::new(TargetSetBacktestTraceV2::default()));
     let mut strategy = BacktestTargetSetProgramHostStrategyV2::new(
         StrategyId::from("TARGET-SET-BACKTEST-B3-EQUITY-001"),
@@ -1748,6 +2073,10 @@ fn run_multi_frame_equity_corpus() -> anyhow::Result<TargetSetBacktestTraceV2> {
         [crate::program_host_v2::OwnerUniverseFrameV1::uncoordinated(
             frame,
         )],
+        BTreeMap::from([
+            (first_time, vec![first_time + 1; 2]),
+            (second_time, vec![second_time + 1; 2]),
+        ]),
         None,
         false,
         Rc::new(Cell::new(false)),
@@ -2223,6 +2552,36 @@ fn copy_static_bytes(bytes: &mut Vec<u8>, destination: i32, source: i32, len: us
         bytes.extend([0x2d, 0, 0]);
         bytes.extend([0x3a, 0, 0]);
     }
+}
+
+/// Each member's fill Quote at `instant`, at its frame BAR's close: the event the Host submits a
+/// frame's decided orders on.
+///
+/// On an L2 book a Quote moves no liquidity, so the orders meet the book the fixture's deltas
+/// build, at the Quote's instant rather than at the frame's; the Quote only marks the member at
+/// the close it was decided on.
+fn fill_quotes(instruments: &[InstrumentAny], bars: &[Bar], instant: u64) -> Vec<Data> {
+    instruments
+        .iter()
+        .zip(bars)
+        .map(|(instrument, bar)| fill_quote_at(instrument, bar.close, instant))
+        .collect()
+}
+
+fn fill_quote(instrument: &InstrumentAny, close: &str, instant: u64) -> Data {
+    fill_quote_at(instrument, Price::from(close), instant)
+}
+
+fn fill_quote_at(instrument: &InstrumentAny, close: Price, instant: u64) -> Data {
+    Data::Quote(QuoteTick::new(
+        instrument.id(),
+        close,
+        close,
+        instrument.make_qty(1.0, None),
+        instrument.make_qty(1.0, None),
+        instant.into(),
+        instant.into(),
+    ))
 }
 
 fn book_level(
@@ -2980,6 +3339,7 @@ fn run_authored_program_over_three_frames(
         book_level(&member, OrderSide::Sell, 187.25, "100", 2, time),
         bar(time, ("186.41", "188.00", "185.00", "187.25")),
     ];
+    data.push(fill_quote(&member, "187.25", time + 1));
     // Each later frame's order meets the side it needs: a bid for the exit, an ask for the entry.
     for (index, ((at, _, prices), side)) in frames
         .iter()
@@ -2996,6 +3356,7 @@ fn run_authored_program_over_three_frames(
             *at,
         ));
         data.push(bar(*at, *prices));
+        data.push(fill_quote(&member, prices.3, *at + 1));
     }
 
     let trace = Rc::new(RefCell::new(TargetSetBacktestTraceV2::default()));
@@ -3006,6 +3367,10 @@ fn run_authored_program_over_three_frames(
         BoundedMembers::try_from([member.id()])?,
         BoundedMembers::try_from([bar_type])?,
         [owner_frame],
+        [time, time + 100, time + 200]
+            .into_iter()
+            .map(|at| (at, vec![at + 1]))
+            .collect(),
         None,
         false,
         Rc::new(Cell::new(false)),
