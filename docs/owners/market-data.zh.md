@@ -1467,6 +1467,12 @@ snapshot 上签发 cut，这些快照的 V1 fact 由生产 V1 intake 准入、�
 member 取 selection 时刻观察到的最新 fact。所以 tick 或 lot的变化永远无法表示，retrieval 之前的 Replay 按 retrieval 当天
 的条款定价。本设计用证据替换这一个假定，此外不准入任何东西。
 
+- **为什么、实测与时机：U1 之后。** 在 Binance 公开 USD-M 端点上，BTCUSDT 今天的 tick 是 0.10，规范价格精度为 1，它
+  2021-06-01 的日线开盘却是 37244.36；SOLUSDT 的 tick 是 0.0100，精度 2，它 2021-06-01 的日线开盘是 32.749。按今天的
+  tick 把这根 BTC bar 喂给 execution bundle，整份 bundle 按名被拒。在本设计落地前，Replay 让每个成员按其 tick 与窗口内
+  数据两者中更细的那个运行，并写明用了哪一个（`docs/architecture/strategy-factory.md`）；订单因此取整到数据的网格，
+  而不是当时交易所的 tick，后者只有这份历史能提供。
+
 - **证据只能是归档快照。** Owner 为一个 instrument 持有的每个条款，都由 `ExchangeInfoBaselineV2::from_usdm_exchange_info`
   从某个明确时刻取回的 `exchangeInfo` payload 推导。任何提交都不陈述历史条款。允许陈述，就等于把调用方陈述的条款放回
   baseline intake 已经关闭的信任边界之内，那需要用户授权。
