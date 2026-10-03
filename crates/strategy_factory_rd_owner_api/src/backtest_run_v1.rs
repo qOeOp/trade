@@ -304,10 +304,14 @@ async fn submit_backtest_research_goal_v1(
     let trial_family_proposal = TrialFamilyProposalV1 {
         trial_budget: 1,
         stop_rule: "The one attempt backtest.run makes.".to_owned(),
-        pit_rule_identity: "backtest-run-pit-rule-v1".to_owned(),
-        cost_model_identity: "backtest-run-cost-model-v1".to_owned(),
-        slippage_model_identity: "backtest-run-slippage-model-v1".to_owned(),
-        capacity_model_identity: "backtest-run-capacity-model-v1".to_owned(),
+        // The Replay Policy Catalog V3 head pins its own policy model profile to these exact
+        // identities (crates/strategy_factory/src/replay_policy_catalog_postgres_v2.rs); a
+        // TrialFamily whose proposal names anything else is refused as "Catalog policy model
+        // profile does not match TrialFamily policy" (measured on a CI chain probe, 10-04).
+        pit_rule_identity: "pit-rule-v1".to_owned(),
+        cost_model_identity: "cost-model-v1".to_owned(),
+        slippage_model_identity: "slippage-model-v1".to_owned(),
+        capacity_model_identity: "capacity-model-v1".to_owned(),
         independence_rationale: "Each run opens its own goal; none shares a trial family."
             .to_owned(),
     };
