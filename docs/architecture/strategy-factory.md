@@ -1170,9 +1170,18 @@ external effect.
 
 The kernel, never a Design or plugin, owns these stable semantic primitives and their state transitions:
 
-- `ENTER`, `ADD`, `REDUCE`, `EXIT`, and `HOLD` position intent under `kernel.position.enter.v1`,
-  `kernel.position.add.v1`, `kernel.position.reduce.v1`, `kernel.position.exit.v1`, and
-  `kernel.position.hold.v1`;
+- `ENTER`, `ADD`, `REDUCE`, `EXIT`, `FLIP`, and `HOLD` position intent under `kernel.position.enter.v1`,
+  `kernel.position.add.v1`, `kernel.position.reduce.v1`, `kernel.position.exit.v1`, `kernel.position.flip.v1`,
+  and `kernel.position.hold.v1`. `FLIP` takes a held position through zero to the opposite side in one
+  intent, filled as one order of the whole difference: the position must be non-zero and the target non-zero
+  with the opposite sign, or it is `InvalidPositionTransition`. Its protection must be cleared or replaced,
+  never kept, because the protection a position held guards the side it is leaving. Without it a strategy whose
+  exit and opposite entry fall on one frame loses the entry: one proposal per member per frame can exit or
+  enter, not both, and research T0's daily trend needs that on 11 of its 940 trades (1.2%). Its name is short
+  on purpose: a Bounded Feature Program's lifecycle port is as wide as the longest identifier of its type,
+  and `kernel.position.reverse.v1` would have widened it and re-identified every program. For the same reason it
+  is not in a Plan's capability closure, which lists the kernel's primitives as they stood when the closure entered
+  every Plan's identity; the Plan's constant check and the plugin wire admit it instead;
 - target position, target weight, and target rebalance under `kernel.target.position.v1`,
   `kernel.target.weight.v1`, and `kernel.target.rebalance.v1`;
 - stop-loss, take-profit, and trailing-protection adjustment under `kernel.protection.stop-loss.v1`,

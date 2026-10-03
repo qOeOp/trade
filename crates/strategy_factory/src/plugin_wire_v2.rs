@@ -372,6 +372,7 @@ fn closed_semantic_is_supported(value_type: ValueTypeV2, bytes: &[u8]) -> bool {
             lifecycle_v1::ADD_SEMANTIC_ID,
             lifecycle_v1::REDUCE_SEMANTIC_ID,
             lifecycle_v1::EXIT_SEMANTIC_ID,
+            lifecycle_v1::FLIP_SEMANTIC_ID,
         ]
         .contains(&semantic_id),
         ValueTypeV2::TargetVariantV1 => [

@@ -52,6 +52,7 @@ pub const fn position_intent_name(intent: PositionIntentV1) -> &'static str {
         PositionIntentV1::Add => "ADD",
         PositionIntentV1::Reduce => "REDUCE",
         PositionIntentV1::Exit => "EXIT",
+        PositionIntentV1::Flip => "FLIP",
     }
 }
 

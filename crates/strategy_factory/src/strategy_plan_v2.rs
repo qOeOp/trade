@@ -3509,6 +3509,9 @@ fn compile_canonical(
         .iter()
         .map(|value| value.semantic_id.clone())
         .collect::<Vec<_>>();
+    // The kernel's primitives as they stood when the closure entered every Plan's identity. A
+    // primitive added later, such as `FLIP_SEMANTIC_ID`, is admitted by the constant and wire
+    // checks rather than listed here, which would re-identify every Plan for no reader.
     capability_closure.extend(
         [
             lifecycle_v1::KERNEL_SEMANTICS_ID,
@@ -4130,6 +4133,7 @@ fn constant_semantic_is_supported(value: &TypedConstantV2) -> bool {
             lifecycle_v1::ADD_SEMANTIC_ID,
             lifecycle_v1::REDUCE_SEMANTIC_ID,
             lifecycle_v1::EXIT_SEMANTIC_ID,
+            lifecycle_v1::FLIP_SEMANTIC_ID,
             lifecycle_v1::HOLD_SEMANTIC_ID,
         ]
         .contains(&semantic_id.as_str()),
