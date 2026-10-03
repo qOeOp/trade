@@ -1341,7 +1341,7 @@ pub(crate) fn derive_observation_batch_digest(
     prepare_canonical_observation_rows(proposal).map(|prepared| prepared.digest)
 }
 
-fn prepare_canonical_observation_rows(
+pub(crate) fn prepare_canonical_observation_rows(
     proposal: &UntrustedPitObservationBatchProposal,
 ) -> Result<PreparedPitObservationBatch, PitSnapshotError> {
     let rows = proposal

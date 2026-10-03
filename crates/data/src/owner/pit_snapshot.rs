@@ -48,6 +48,7 @@ use super::{
     strategy_input_binding::StrategyInputBatchSourceV1,
 };
 
+pub(crate) mod custody_view;
 #[cfg(feature = "sealed-strategy-input-acceptance")]
 pub mod joined_input_sealed_acceptance;
 #[cfg(feature = "sealed-strategy-input-acceptance")]
@@ -650,6 +651,37 @@ impl VerifiedPitObservation {
 /// use vibe_data::owner::pit_snapshot::VerifiedPitObservationBatch;
 ///
 /// let forged: VerifiedPitObservationBatch = serde_json::from_slice(b"{}").unwrap();
+/// ```
+///
+/// Its source is sealed with it: no literal can name one, and no source converts into a batch.
+///
+/// ```compile_fail
+/// use vibe_data::owner::{
+///     pit_snapshot::VerifiedPitObservationBatch,
+///     pit_window_custody_v1::PitObservationBatchSourceV1,
+///     source_binding::BindingDigest,
+/// };
+/// let d = BindingDigest::from_untrusted_bytes([1; 32]);
+/// let _ = VerifiedPitObservationBatch {
+///     source: PitObservationBatchSourceV1::CommittedSnapshot { snapshot_identity: d, fact_digest: d },
+/// };
+/// ```
+///
+/// ```compile_fail
+/// use vibe_data::owner::{
+///     pit_snapshot::VerifiedPitObservationBatch,
+///     pit_window_custody_v1::PitObservationBatchSourceV1,
+///     source_binding::BindingDigest,
+/// };
+/// let d = BindingDigest::from_untrusted_bytes([1; 32]);
+/// let _: VerifiedPitObservationBatch = PitObservationBatchSourceV1::CustodyView {
+///     chain_root: d,
+///     view_identity: d,
+///     event_ns: 1,
+///     decision_cut_ns: 2,
+///     derived_frontier_digest: d,
+/// }
+/// .into();
 /// ```
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct VerifiedPitObservationBatch {

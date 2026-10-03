@@ -787,20 +787,26 @@ fn custody_timeframe(
                 .map_err(|_| Refused::InvalidRequest)
         })
         .collect::<Result<Vec<_>, _>>()?;
-    let mut bytes = Vec::new();
-    put_u64(&mut bytes, member_identities.len() as u64);
-
-    for identity in &member_identities {
-        bytes.extend_from_slice(identity);
-    }
     Ok(CustodyTimeframeV1 {
         label: declaration.row_timeframe().to_owned(),
         interval_ns,
         label_rule: declaration.label(),
         shape: declaration.shape(),
+        identity: custody_timeframe_identity_v1(&member_identities),
         member_identities,
-        identity: sha256(TIMEFRAME_DOMAIN, &bytes),
     })
+}
+
+/// The custody's identity of one timeframe over its members: each member's spec identity, in
+/// member order.
+pub(crate) fn custody_timeframe_identity_v1(member_identities: &[[u8; 32]]) -> BindingDigest {
+    let mut bytes = Vec::new();
+    put_u64(&mut bytes, member_identities.len() as u64);
+
+    for identity in member_identities {
+        bytes.extend_from_slice(identity);
+    }
+    sha256(TIMEFRAME_DOMAIN, &bytes)
 }
 
 impl DerivedCustodyV1 {
