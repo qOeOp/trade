@@ -355,6 +355,7 @@ for test_selection in "${all_market_data_proofs[@]}"; do
     --lib \
     --cargo-profile "${CARGO_CI_PROFILE:-nextest}" \
     --run-ignored all \
+    --success-output final \
     ${feature_args[@]+"${feature_args[@]}"} \
     -E "test(=${test_selection})"
   test_status=$?
