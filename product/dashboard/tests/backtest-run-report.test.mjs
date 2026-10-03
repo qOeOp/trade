@@ -485,10 +485,20 @@ test("empty lists the run's fills, says what is missing and the Owner's reason a
 });
 
 test("the strategy says when it has no exits, and states each exit it names", () => {
-  assert.match(render(normalizeBacktestRunReport(available, LOCATOR)), /None: positions are left only by the sides/u);
+  const none = /None: a position closes only when the strategy&#x27;s own condition proposes it/u;
+  assert.match(render(normalizeBacktestRunReport(available, LOCATOR)), none);
   const html = render(normalizeBacktestRunReport({ ...available, strategy: { ...strategy, exits } }, LOCATOR));
-  assert.match(html, /stop-loss 0\.02 · after 5 bars · judged at the bar close, filled on the next frame/u);
-  assert.doesNotMatch(html, /None: positions are left only by the sides|take-profit/u);
+  assert.match(
+    html,
+    /stop-loss at an adverse move of 0\.02 of the entry close · time exit 5 bars after the entry bar · judged at the bar close, filled on the next bar/u,
+  );
+  assert.doesNotMatch(html, none);
+  assert.doesNotMatch(html, /take-profit/u);
+  const one = render(normalizeBacktestRunReport({
+    ...available,
+    strategy: { ...strategy, exits: { take_profit_fraction: "0.05", max_holding_bars: 1, judged: exits.judged } },
+  }, LOCATOR));
+  assert.match(one, /take-profit at a favourable move of 0\.05 of the entry close · time exit 1 bar after the entry bar/u);
 });
 
 test("fills are shown exactly as the projection wrote them", () => {

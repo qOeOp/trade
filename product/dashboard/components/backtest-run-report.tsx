@@ -101,15 +101,18 @@ function outcomeText(outcome: BacktestRunReportOutcome): string {
 }
 
 // A program without exits says so, rather than leaving the line out: an absent line would read the
-// same as a report that cannot state its exits.
+// same as a report that cannot state its exits. Each price exit is a move of the bar close, measured
+// as a fraction of the close of the bar the position was entered on.
 function exitsText(exits: BacktestRunReportExits | undefined): string {
-  if (!exits) return "None: positions are left only by the sides";
+  if (!exits) return "None: a position closes only when the strategy's own condition proposes it";
+  const bars = exits.max_holding_bars;
   const named = [
-    exits.stop_loss_fraction && `stop-loss ${exits.stop_loss_fraction}`,
-    exits.take_profit_fraction && `take-profit ${exits.take_profit_fraction}`,
-    exits.max_holding_bars !== undefined && `after ${exits.max_holding_bars} bars`,
+    exits.stop_loss_fraction && `stop-loss at an adverse move of ${exits.stop_loss_fraction} of the entry close`,
+    exits.take_profit_fraction
+      && `take-profit at a favourable move of ${exits.take_profit_fraction} of the entry close`,
+    bars !== undefined && `time exit ${bars} ${bars === 1 ? "bar" : "bars"} after the entry bar`,
   ].filter(Boolean);
-  return `${named.join(" · ")} · judged at the bar close, filled on the next frame`;
+  return `${named.join(" · ")} · judged at the bar close, filled on the next bar`;
 }
 
 // Plots the stated points and nothing between them: the path joins the observations the projection

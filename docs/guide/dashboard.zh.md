@@ -126,8 +126,8 @@ Trading 树并未 vendor 进本仓库，也未被检索，因此本节不对该�
 因此本报告不渲染 quantile band、不渲染 benchmark、不做对比。
 
 正向渲染只接受一个精确、有界、Owner 投影的 `run_identity`。策略按已准入的单阈值族的陈述给出：通道、
-阈值、比较、两侧动作与 falsifier，以及该程序的退出。退出按其声明给出：止损或止盈的比例、以 bar 计的持仓上限，
-并始终说明它在 bar 收盘时判定、在下一帧成交（`AT_BAR_CLOSE_FILLED_NEXT_FRAME`）；没有声明退出的程序明说没有，
+阈值、比较、两侧动作与 falsifier，以及该程序的退出。退出按其声明给出：止损或止盈是收盘价的不利或有利变动，按入场那根 bar 收盘价的比例计；
+持仓上限按入场 bar 之后的 bar 数计；并始终说明它在 bar 收盘时判定、在下一根 bar 成交（`AT_BAR_CLOSE_FILLED_NEXT_FRAME`）；没有声明退出的程序明说没有，
 因此当投影无法陈述退出时，报告绝不会读起来像是没有退出规则。canonical UTC 指 RFC3339、恰好九位小数秒、且带 `Z` 偏移，因此不把截断决定下放，也不接受任何带偏移量的
 形式。数据窗口按 instrument、粒度、canonical UTC 起点与不含在内的终点 `end_exclusive`（窗口外的第一个时刻）、
 快照数，以及一个由投影显式携带的 `cut_identity` 给出，而不是由浏览器从时间戳对齐推断。策略陈述,以及粒度、快照数与 `cut_identity`,都不来自回测结果:它们由 run 从上游携带,
