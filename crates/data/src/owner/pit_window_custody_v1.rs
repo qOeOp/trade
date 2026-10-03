@@ -234,6 +234,14 @@ pub enum PitWindowCustodyRefusalV1 {
     /// `RETRIEVAL_AFTER_MINTING_CUT`: a row retrieved after the cut the custody is minted at.
     #[error("a row was retrieved after the custody's minting cut")]
     RetrievalAfterMintingCut,
+    /// `ROW_RETRIEVED_BEFORE_BAR_CLOSE`: a row retrieved before its bar closed, which a
+    /// complete-only bar cannot be.
+    #[error("a row was retrieved before its bar closed")]
+    RowRetrievedBeforeBarClose,
+    /// `VERSION_NOT_AVAILABLE_AT_MINTING_CUT`: a version whose derived availability or stated
+    /// publication is later than the cut the custody is minted at.
+    #[error("a version is not available at the custody's minting cut")]
+    VersionNotAvailableAtMintingCut,
     /// Two versions naming one predecessor, a repeated sequence, or a publication that does not
     /// increase with the sequence.
     #[error("a cross-section's versions branch")]

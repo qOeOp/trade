@@ -3,45 +3,51 @@
 //!
 //! The commit follows the Instrument Master V2 snapshot admission:
 //!
-//! 1. it loads the basis the request names - Source Binding, Universe Selection record, the
-//!    members' Instrument Master facts at the clock head - and derives every identity through
+//! 1. it loads the Source Binding and the Universe Selection record the request names;
+//! 2. it takes the clock-state lock before the head's row lock, as every clock writer does, and
+//!    fixes the minting cut: the head's, or the next Owner clock's when a row was retrieved after
+//!    the head - computed here, admitted only in step 6;
+//! 3. under that lock it selects the members' Instrument Master facts at the minting cut and
+//!    derives every identity through
 //!    [`authority`](crate::owner::pit_window_custody_v1::authority), refusing before any write;
-//! 2. it locks the chain and the identity, and returns the stored receipt when the identity is
-//!    already held with the same bytes, or refuses it as another meaning, before any clock is
-//!    minted;
-//! 3. a successor is decided against its chain head;
-//! 4. it takes the clock-state lock before the head's row lock, as every clock writer does, mints
-//!    the next Owner clock only when a row was retrieved after the head, refuses a row retrieved
-//!    after the cut it mints at, and admits that clock in the same transaction;
-//! 5. it writes the custody, its versions, their `SampleFactV2` row facts prepared on the chain's
-//!    own heads, and the chain head, and commits.
+//! 4. it locks the chain and the identity, and returns the stored receipt when the identity is
+//!    already held with the same bytes, or refuses it as another meaning; a successor is decided
+//!    against its chain head;
+//! 5. it places every instant the minting cut decides and refuses a row retrieved after the cut
+//!    or before its bar closed, and a version not available at the cut;
+//! 6. it admits the minted clock, writes the custody, its versions, their `SampleFactV2` row facts
+//!    prepared on the chain's own heads, and the chain head, and commits.
 //!
 //! Nothing outside this transaction can observe a partial custody: every refusal returns before
 //! the commit, and the transaction rolls back when dropped.
 
-use std::{collections::BTreeMap, fmt::Debug, sync::Arc};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fmt::Debug,
+    sync::Arc,
+};
 
 use sqlx::{Postgres, Row, Transaction};
 
 use super::{
-    MarketDataOwnerPostgres, admit_clock, digest_from_bytes, load_current_clock_for_update,
-    load_instrument_facts, load_owner_clock_head_v1, load_source, lock_clock_state, lock_digests,
-    next_owner_clock_admission_v1,
+    MarketDataClockAdmission, MarketDataOwnerPostgres, admit_clock, digest_from_bytes,
+    load_current_clock_for_update, load_instrument_facts, load_source, lock_clock_state,
+    lock_digests, next_owner_clock_admission_v1,
     universe_selection::recover_universe_selection_in_transaction_v1,
 };
 use crate::owner::{
     instrument_master::{
-        InstrumentMasterError,
-        authority::{ObservationClockV1, select_facts_observed},
+        InstrumentMasterError, InstrumentMasterFactV1,
+        authority::{ObservationClockV1, observable_at, select_facts_observed},
     },
     pit_window_custody_v1::{
         PitWindowCustodyCommitV1, PitWindowCustodyReceiptV1, PitWindowCustodyRefusalV1,
         UntrustedPitWindowCustodyRequestV1,
         authority::{
-            ChainPositionV1, CustodyBindingV1, CustodyInputsV1, CustodyInstrumentV1,
-            CustodyMemberFactV1, CustodyMembershipV1, DerivedCustodyV1, StoredChainV1,
-            StoredVersionV1, check_request_shape_v1, custody_digest_v1, derive_custody_v1,
-            kind_from_tag, kind_tag,
+            ChainPositionV1, CustodyBindingV1, CustodyFactSpanV1, CustodyInputsV1,
+            CustodyInstrumentV1, CustodyMemberFactV1, CustodyMembershipV1, DerivedCustodyV1,
+            StoredChainV1, StoredVersionV1, check_request_shape_v1, custody_digest_v1,
+            derive_custody_v1, kind_from_tag, kind_tag,
         },
         sealed,
     },
@@ -239,32 +245,30 @@ async fn load_membership(
 }
 
 /// What the Instrument Master selects for each member at the window's first and last instants,
-/// observed at the Owner's clock head.
+/// observed at the minting cut on `clock`, the Owner clock the custody is minted under; and every
+/// other fact of the member observable there that the selected one does not supersede.
 async fn load_instruments(
     transaction: &mut Transaction<'_, Postgres>,
     request: &UntrustedPitWindowCustodyRequestV1,
+    clock: &MarketDataClockAdmission,
 ) -> Result<Vec<CustodyInstrumentV1>, Refused> {
-    let head = load_owner_clock_head_v1(transaction)
-        .await
-        .map_err(|cause| store_error(&cause))?
-        .ok_or(Refused::StoreUnavailable)?;
-    let clock = ObservationClockV1::from_owner_head(
-        &head.clock_identity,
-        &head.clock_epoch,
-        head.monotonic_sequence,
+    let observation = ObservationClockV1::from_owner_head(
+        &clock.clock_identity,
+        &clock.clock_epoch,
+        clock.monotonic_sequence,
     )
     .ok_or(Refused::StoreUnavailable)?;
     let facts = load_instrument_facts(transaction, &request.members, false)
         .await
         .map_err(|cause| store_error(&cause))?;
-    let cut = head.decision_cut;
+    let cut = clock.decision_cut;
     let select = |member: &String, effective: u64| match select_facts_observed(
         &facts,
         std::slice::from_ref(member),
         i128::from(effective),
         i128::from(cut),
         cut,
-        clock,
+        observation,
     ) {
         Ok(mut selected) => Ok(selected.pop()),
         Err(InstrumentMasterError::UnknownIdentity) => Ok(None),
@@ -277,6 +281,37 @@ async fn load_instruments(
         .map(|member| {
             let at_start = select(member, request.window_start_ns)?;
             let at_end = select(member, last)?.map(|fact| fact.digest());
+            // The facts the selected one supersedes are its ancestors; every other observable
+            // fact of the member is a rival for some part of the window.
+            let mut superseded = BTreeSet::new();
+            let mut cursor = at_start
+                .as_ref()
+                .and_then(InstrumentMasterFactV1::predecessor_fact_digest);
+
+            while let Some(digest) = cursor {
+                if !superseded.insert(digest) {
+                    return Err(Refused::StoreUnavailable);
+                }
+                cursor = facts
+                    .iter()
+                    .find(|fact| fact.digest() == digest)
+                    .and_then(InstrumentMasterFactV1::predecessor_fact_digest);
+            }
+            let others = facts
+                .iter()
+                .filter(|fact| {
+                    fact.canonical_identity() == member.as_str()
+                        && at_start
+                            .as_ref()
+                            .is_none_or(|selected| selected.digest() != fact.digest())
+                        && !superseded.contains(&fact.digest())
+                        && observable_at(fact, i128::from(cut), cut, observation)
+                })
+                .map(|fact| CustodyFactSpanV1 {
+                    effective_from: fact.effective_from(),
+                    effective_until: fact.effective_until(),
+                })
+                .collect();
             Ok(CustodyInstrumentV1 {
                 at_start: at_start.map(|fact| CustodyMemberFactV1 {
                     fact_digest: fact.digest(),
@@ -286,6 +321,7 @@ async fn load_instruments(
                     effective_until: fact.effective_until(),
                 }),
                 at_end,
+                others,
             })
         })
         .collect()
@@ -426,10 +462,38 @@ async fn commit_custody_v1(
         .await
         .map_err(|cause| store_error(&cause))?;
 
-    // 1. The basis, and everything derived from it, refused before any write.
+    // 1. The basis the request names.
     let binding = load_binding(&mut transaction, &request.source_binding).await?;
     let membership = load_membership(&mut transaction, &request.universe_selection).await?;
-    let instruments = load_instruments(&mut transaction, &request).await?;
+
+    // 2. The minting cut: the clock-state lock before the head's row lock, as every clock writer
+    //    takes them. The next clock is minted only when a row was retrieved after the head, and is
+    //    admitted only after every refusal, so a rejoin or a refusal moves no clock.
+    lock_clock_state(&mut transaction)
+        .await
+        .map_err(|cause| store_error(&cause))?;
+    let head = load_current_clock_for_update(&mut transaction)
+        .await
+        .map_err(|cause| store_error(&cause))?
+        .ok_or(Refused::StoreUnavailable)?;
+    let max_retrieval_ns = request
+        .cross_sections
+        .iter()
+        .flat_map(|version| &version.rows)
+        .map(|row| row.retrieval_ns)
+        .max()
+        .unwrap_or(0);
+    let minted = if max_retrieval_ns <= head.decision_cut {
+        None
+    } else {
+        Some(next_owner_clock_admission_v1(Some(&head)).ok_or(Refused::StoreUnavailable)?)
+    };
+    let cut_clock = minted.as_ref().unwrap_or(&head);
+    let minting_cut = cut_clock.decision_cut;
+
+    // 3. The Instrument Master at the minting cut, under the clock lock, and everything derived
+    //    from the basis, refused before any write.
+    let instruments = load_instruments(&mut transaction, &request, cut_clock).await?;
     let derived = derive_custody_v1(CustodyInputsV1 {
         request: &request,
         binding: binding.as_ref(),
@@ -437,7 +501,7 @@ async fn commit_custody_v1(
         membership: &membership,
     })?;
 
-    // 2. The chain, and a rejoin, before any clock is minted.
+    // 4. The chain, and a rejoin, before any clock is admitted.
     let (position, chain) = match derived.claimed_chain_root {
         None => {
             let (identity, bytes) = derived.identity_at(ChainPositionV1::ROOT);
@@ -471,7 +535,7 @@ async fn commit_custody_v1(
                 }
             }
 
-            // 3. A new successor extends the head.
+            // A new successor extends the head.
             let chain = load_chain_for_update(&mut transaction, chain_root).await?;
             derived.check_against_chain(&chain)?;
             (
@@ -490,22 +554,7 @@ async fn commit_custody_v1(
         return rejoin(&stored, &canonical_bytes, &derived);
     }
 
-    // 4. The clock: the clock-state lock before the head's row lock, as every clock writer.
-    lock_clock_state(&mut transaction)
-        .await
-        .map_err(|cause| store_error(&cause))?;
-    let head = load_current_clock_for_update(&mut transaction)
-        .await
-        .map_err(|cause| store_error(&cause))?
-        .ok_or(Refused::StoreUnavailable)?;
-    let minted = if derived.max_retrieval_ns <= head.decision_cut {
-        None
-    } else {
-        Some(next_owner_clock_admission_v1(Some(&head)).ok_or(Refused::StoreUnavailable)?)
-    };
-    let minting_cut = minted
-        .as_ref()
-        .map_or(head.decision_cut, |next| next.decision_cut);
+    // 5. Every instant the minting cut decides, refused before any write.
     let resolved = derived.resolve_at_minting_cut(minting_cut, chain.as_ref())?;
     let mut heads = match &chain {
         Some(chain) => load_chain_heads(&mut transaction, chain.chain_root).await?,
@@ -543,7 +592,7 @@ async fn commit_custody_v1(
             .map_err(|cause| store_error(&cause))?;
     }
 
-    // 5. The custody, its versions and rows, and the chain head.
+    // 6. The minted clock, then the custody, its versions and rows, and the chain head.
     let custody_digest = custody_digest_v1(identity, minting_cut, derived.evidence_digest);
     sqlx::query("INSERT INTO market_data_private.pit_window_custodies_v1(custody_identity,custody_digest,chain_root,chain_version,predecessor_identity,minting_cut_ns,rule_digest,basis_digest,canonical_bytes,evidence_digest) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)")
         .bind(identity.as_bytes().as_slice())
@@ -596,7 +645,7 @@ async fn commit_custody_v1(
         }
     }
 
-    match &chain {
+    let moved = match &chain {
         None => sqlx::query("INSERT INTO market_data_private.pit_window_custody_heads_v1(chain_root,head_identity,head_version) VALUES($1,$1,1)")
             .bind(identity.as_bytes().as_slice())
             .execute(&mut *transaction)
@@ -612,6 +661,11 @@ async fn commit_custody_v1(
             .await
             .map_err(|cause| store_error(&cause))?,
     };
+
+    // The head row was locked when the successor was decided, so exactly that row moves.
+    if moved.rows_affected() != 1 {
+        return Err(Refused::StoreUnavailable);
+    }
     transaction
         .commit()
         .await

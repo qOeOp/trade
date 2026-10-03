@@ -816,3 +816,108 @@ async fn postgres_a_successor_corrects_its_chain_and_refuses_a_branch_or_a_chang
     );
     assert_eq!(count(&owner, "pit_window_custody_rows_v1").await, 40);
 }
+
+/// One daily bar at `event`, its rows retrieved at `retrieval_ns`, in a window around it.
+fn single_bar(
+    binding: &SourceBindingCommit,
+    universe: UntrustedUniverseSelectionLocatorV1,
+    event: u64,
+    retrieval_ns: u64,
+) -> UntrustedPitWindowCustodyRequestV1 {
+    let mut request = request(binding, universe);
+    let mut bar = original("1D", event);
+    bar.rows = rows(6_500_000, retrieval_ns);
+    request.window_start_ns = event - 2 * DAY;
+    request.window_end_ns_exclusive = event + 2 * DAY;
+    request.fill_timeframe = None;
+    request.cross_sections = vec![bar];
+    request
+}
+
+/// Availability follows the binding's rule and never passes the minting cut. A lag one nanosecond
+/// below the execution bar is admitted and one equal to it refused; today's still-open bar, and a
+/// closed bar whose rows the rule does not make visible by the cut, are refused unwritten; a rule
+/// set to the retrieval instant makes every row available at the custody's minting cut.
+#[tokio::test]
+#[ignore = "requires a disposable Market Data PostgreSQL database"]
+async fn postgres_availability_follows_the_rule_and_never_passes_the_minting_cut() {
+    let owner = owner().await;
+    let at_retrieval = commit_binding(
+        &owner,
+        "synthetic/at-retrieval",
+        1,
+        Some(UntrustedSourceAvailabilityRuleV1 {
+            visibility: UntrustedSourceVisibilityV1::AtRetrieval,
+            publishes_corrections: false,
+        }),
+    )
+    .await;
+    let lag = |lag_ns| UntrustedSourceAvailabilityRuleV1 {
+        visibility: UntrustedSourceVisibilityV1::AfterBarClose { lag_ns },
+        publishes_corrections: false,
+    };
+    let below_bar = commit_binding(&owner, "binance/um/lagged", 2, Some(lag(DAY - 1))).await;
+    let one_bar = commit_binding(&owner, "binance/um/late", 3, Some(lag(DAY))).await;
+    admit_members(&owner, &at_retrieval).await;
+    let universe = universe(&owner, &at_retrieval, 10, None).await;
+    let intake = owner.pit_window_custody_commit_v1();
+
+    refused(
+        &owner,
+        &intake,
+        request(&one_bar, universe),
+        Refused::AvailabilityLagNotBelowBarInterval,
+    )
+    .await;
+    // Today's bar, retrieved before it closes.
+    let now = wall_now_ns();
+    refused(
+        &owner,
+        &intake,
+        single_bar(&below_bar, universe, now + DAY / 2, now - SECOND),
+        Refused::RowRetrievedBeforeBarClose,
+    )
+    .await;
+    // A bar closed half a minute ago, whose rows the rule makes visible almost a day later.
+    refused(
+        &owner,
+        &intake,
+        single_bar(&below_bar, universe, now - 30 * SECOND, now - 10 * SECOND),
+        Refused::VersionNotAvailableAtMintingCut,
+    )
+    .await;
+    assert_eq!(count(&owner, "pit_window_custodies_v1").await, 0);
+
+    let lagged = commit(&intake, request(&below_bar, universe))
+        .await
+        .expect("a lag below the execution bar is admitted");
+    let first_bar = version_at(&owner, lagged.custody_identity(), WINDOW_START + DAY).await;
+    let available: i64 = sqlx::query_scalar(
+        "SELECT availability_ns FROM market_data_private.pit_window_cross_section_versions_v1 WHERE version_identity=$1",
+    )
+    .bind(first_bar.as_bytes().as_slice())
+    .fetch_one(owner.pool())
+    .await
+    .unwrap();
+    assert_eq!(
+        available,
+        i64::try_from(WINDOW_START + 2 * DAY - 1).unwrap()
+    );
+
+    let retrieved = commit(&intake, request(&at_retrieval, universe))
+        .await
+        .expect("a rule set to the retrieval instant is admitted");
+    let instants: Vec<(i64, i64)> = sqlx::query_as(
+        "SELECT availability_ns,publication_ns FROM market_data_private.pit_window_cross_section_versions_v1 WHERE custody_identity=$1",
+    )
+    .bind(retrieved.custody_identity().as_bytes().as_slice())
+    .fetch_all(owner.pool())
+    .await
+    .unwrap();
+    let cut = i64::try_from(retrieved.minting_cut_ns()).unwrap();
+    assert_eq!(instants.len(), 3);
+    assert!(
+        instants.iter().all(|instants| *instants == (cut, cut)),
+        "every version is available, and published, at the minting cut"
+    );
+}

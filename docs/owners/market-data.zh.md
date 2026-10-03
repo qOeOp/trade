@@ -2170,7 +2170,10 @@ Backtest 的组合与 Market Data 之外的每个读者也属于 T1；T2（多�
 目前已建成（T0-4a）：托管聚合 - 托管记录、它的截面版本及其 `SampleFactV2` 行事实、每个提交时拒绝、提交铸造的 Owner
 时钟、重新加入与后继托管 - 位于封缄的 `PitWindowCustodyCommitV1` 之后，由
 `pit_window_custody_commit_from_environment_v1` 在 Owner 存储上打开。目前还没有生产调用方到达它：驱动它的是其纯权威
-的单元测试，以及 `pit_window_custody_v1_tests` 里的三个 PostgreSQL 证明。托管为某个成员绑定的周期 identity，就是 BAR
+的单元测试，以及 `pit_window_custody_v1_tests` 里的四个 PostgreSQL 证明。提交在时钟状态锁下确定铸造 cut，并在该 cut
+上选出成员的 Instrument Master fact；它拒绝另有 fact 在窗口内生效的成员，以 `ROW_RETRIEVED_BEFORE_BAR_CLOSE` 拒绝在 bar
+收盘前取回的行，拒绝早于其版本事件或可得时刻的陈述发布时刻，并以 `VERSION_NOT_AVAILABLE_AT_MINTING_CUT` 拒绝可得时刻
+或陈述发布时刻晚于铸造 cut 的版本。托管为某个成员绑定的周期 identity，就是 BAR
 调度路径从同一份声明与该成员的 Instrument Master fact 推出的那一个，时区也包括在内。窗口调度、每条链一次的记录与派生视
 图都还没有建。
 
@@ -2200,7 +2203,8 @@ Backtest 的组合与 Market Data 之外的每个读者也属于 T1；T2（多�
 - **成员：** 成员集在整份托管内固定。某成员的 Instrument Master 有效期或 Universe 成员资格在窗口内开始或结束，
   就以 `WINDOW_MEMBER_NOT_VALID_THROUGHOUT` 按名拒绝这份托管。
 - **帧：** 从执行周期的 Owner BAR schedule 枚举，绝不从托管行枚举。帧 `k` 有事件时刻 `e_k` 与可得时刻 `d_k`，且
-  `d_k < e_{k+1}`；没有完整截面的帧以 `PIT_WINDOW_FRAME_NOT_COVERED` 拒绝整次运行。执行周期是固定间隔，从窗口 schedule
+  `d_k < e_{k+1}`；没有完整截面的帧以 `PIT_WINDOW_FRAME_NOT_COVERED` 拒绝整次运行。只有帧落在 bar 收盘时刻上，
+  `d_k < e_{k+1}` 才成立，所以 T0 把按区间开盘标记的执行周期作为格式错误的请求拒绝。执行周期是固定间隔，从窗口 schedule
   fact 记录的相位时刻开始枚举，例如日线取 UTC 零点，Binance 周线取周一 UTC 零点；session 型执行周期按名拒为
   `PIT_WINDOW_EXECUTION_TIMEFRAME_NOT_FIXED_INTERVAL`，托管提交存在之前没有东西构造它，之后由 T0 的证明驱动。这是范围
   限制，不是性质：session 型周期（例如黄金按交易所 session 的日线）需要以后一个做 session 展开的切片，在那之前一律拒绝。

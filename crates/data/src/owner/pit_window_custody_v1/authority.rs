@@ -105,6 +105,16 @@ pub(crate) struct CustodyInstrumentV1 {
     pub(crate) at_start: Option<CustodyMemberFactV1>,
     /// The fact selected at the window's last instant, `None` when there is none.
     pub(crate) at_end: Option<BindingDigest>,
+    /// Every other fact of the member observable at the cut, except those the selected fact
+    /// supersedes: none of them may be in force anywhere inside the window.
+    pub(crate) others: Vec<CustodyFactSpanV1>,
+}
+
+/// When one Instrument Master fact is in force.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct CustodyFactSpanV1 {
+    pub(crate) effective_from: i128,
+    pub(crate) effective_until: Option<i128>,
 }
 
 /// One historical membership record of the Universe Selection record a request names.
@@ -212,6 +222,8 @@ pub(crate) struct DerivedVersionV1 {
     pub(crate) kind: CrossSectionVersionKindV1,
     pub(crate) correction_sequence: u64,
     pub(crate) predecessor: Option<BindingDigest>,
+    /// The instant the version's bar closes.
+    pub(crate) close_ns: u64,
     pub(crate) availability: CustodyInstantV1,
     pub(crate) publication: CustodyInstantV1,
     pub(crate) rows: Vec<DerivedRowV1>,
@@ -433,6 +445,12 @@ pub(crate) fn derive_custody_v1(inputs: CustodyInputsV1<'_>) -> Result<DerivedCu
     let execution = declared(&request.execution_timeframe)?;
     let execution_interval =
         continuous_fixed_interval(&execution).ok_or(Refused::ExecutionTimeframeNotFixedInterval)?;
+
+    // A frame is decided at its bar's close: `d_k < e_{k+1}` holds only for frames at close
+    // instants, so T0 enumerates frames only from a timeframe labelled at interval close.
+    if execution.label() != BarScheduleLabelV1::IntervalClose {
+        return Err(Refused::InvalidRequest);
+    }
     let mut held = Vec::with_capacity(request.input_timeframes.len() + 1);
 
     for label in &request.input_timeframes {
@@ -489,8 +507,16 @@ pub(crate) fn derive_custody_v1(inputs: CustodyInputsV1<'_>) -> Result<DerivedCu
             return Err(Refused::MarketSemanticsMismatch);
         }
 
+        let another_in_force = instrument.others.iter().any(|other| {
+            other.effective_from < window_end
+                && other
+                    .effective_until
+                    .is_none_or(|until| until > window_start)
+        });
+
         if instrument.at_end != Some(fact.fact_digest)
             || fact.effective_until.is_some_and(|until| until < window_end)
+            || another_in_force
         {
             return Err(Refused::WindowMemberNotValidThroughout);
         }
@@ -629,6 +655,15 @@ pub(crate) fn derive_custody_v1(inputs: CustodyInputsV1<'_>) -> Result<DerivedCu
         let publication = version
             .publication_ns
             .map_or(availability, CustodyInstantV1::At);
+
+        // A source publishes a version no earlier than its bar and its availability. One stated
+        // against the minting cut is checked when the cut is fixed.
+        if let Some(stated) = version.publication_ns
+            && (stated < version.event_effective_ns
+                || matches!(availability, CustodyInstantV1::At(at) if stated < at))
+        {
+            return Err(Refused::InvalidRequest);
+        }
         let mut rows = Vec::with_capacity(version.rows.len());
 
         for (ordinal, member) in request.members.iter().enumerate() {
@@ -682,6 +717,7 @@ pub(crate) fn derive_custody_v1(inputs: CustodyInputsV1<'_>) -> Result<DerivedCu
             kind: version.kind,
             correction_sequence: version.correction_sequence,
             predecessor: version.predecessor_version,
+            close_ns: close,
             availability,
             publication,
             rows,
@@ -912,6 +948,10 @@ impl DerivedCustodyV1 {
     /// # Errors
     ///
     /// [`Refused::RetrievalAfterMintingCut`] for a row retrieved after `minting_cut`;
+    /// [`Refused::RowRetrievedBeforeBarClose`] for a row retrieved before its bar closed, which a
+    /// complete-only bar cannot be; [`Refused::InvalidRequest`] for a stated publication earlier
+    /// than an availability the minting cut sets; [`Refused::VersionNotAvailableAtMintingCut`]
+    /// for a version whose availability or publication is later than `minting_cut`;
     /// [`Refused::CrossSectionBranch`] for a version not published after the one it corrects.
     pub(crate) fn resolve_at_minting_cut(
         &self,
@@ -931,6 +971,28 @@ impl DerivedCustodyV1 {
                 )
             })
             .collect::<Vec<_>>();
+
+        for version in &self.versions {
+            if version
+                .rows
+                .iter()
+                .any(|row| row.retrieval_ns < version.close_ns)
+            {
+                return Err(Refused::RowRetrievedBeforeBarClose);
+            }
+        }
+
+        for (availability, publication) in &resolved {
+            if publication < availability {
+                return Err(Refused::InvalidRequest);
+            }
+
+            // Custody holds what was visible when it was minted: no version is available, or
+            // published, after the cut that holds it.
+            if *availability > minting_cut || *publication > minting_cut {
+                return Err(Refused::VersionNotAvailableAtMintingCut);
+            }
+        }
 
         for (version, (_, publication)) in self.versions.iter().zip(&resolved) {
             let Some(predecessor) = version.predecessor else {

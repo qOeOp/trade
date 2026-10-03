@@ -141,6 +141,11 @@ impl Basis {
                     continuous("2D", 48, UntrustedSourceBarUnitV1::Hour),
                     // A second label for the minute bar: the same timeframe by another name.
                     continuous("5M", 1, UntrustedSourceBarUnitV1::Minute),
+                    // A four-hour bar labelled at its open.
+                    UntrustedSourceBarTimeframeV1 {
+                        label: UntrustedSourceBarLabelV1::IntervalOpen,
+                        ..continuous("4H", 4, UntrustedSourceBarUnitV1::Hour)
+                    },
                     session_day("SESSION"),
                 ],
                 market_semantics_identity: d(30),
@@ -180,6 +185,7 @@ fn instrument(byte: u8) -> CustodyInstrumentV1 {
             effective_until: None,
         }),
         at_end: Some(d(byte)),
+        others: Vec::new(),
     }
 }
 
@@ -446,7 +452,7 @@ const fn e(edit: Edit) -> Edit {
 #[case::members_out_of_order(e(|r, _| r.members.reverse()), Refused::InvalidRequest)]
 #[case::empty_window(e(|r, _| r.window_end_ns_exclusive = r.window_start_ns), Refused::InvalidRequest)]
 #[case::execution_not_an_input(e(|r, _| r.execution_timeframe = "24H".into()), Refused::InvalidRequest)]
-#[case::undeclared_input(e(|r, _| r.input_timeframes.push("4H".into())), Refused::InvalidRequest)]
+#[case::undeclared_input(e(|r, _| r.input_timeframes.push("6H".into())), Refused::InvalidRequest)]
 #[case::undeclared_fill(e(|r, _| r.fill_timeframe = Some("1S".into())), Refused::InvalidRequest)]
 #[case::session_input(e(|r, _| r.input_timeframes.push("SESSION".into())), Refused::InvalidRequest)]
 #[case::two_labels_one_timeframe(e(|r, _| r.input_timeframes.push("24H".into())), Refused::InvalidRequest)]
@@ -473,6 +479,12 @@ const fn e(edit: Edit) -> Edit {
 #[case::instrument_under_other_market_semantics(e(|_, b| {
     b.instruments[1].at_start.as_mut().unwrap().market_semantics_identity = d(31);
 }), Refused::MarketSemanticsMismatch)]
+#[case::open_labelled_execution(e(|r, _| {
+    r.execution_timeframe = "4H".into();
+    r.input_timeframes = vec!["4H".into()];
+    r.fill_timeframe = None;
+    r.cross_sections = vec![original("4H", DAY)];
+}), Refused::InvalidRequest)]
 #[case::session_execution(e(|r, _| {
     r.execution_timeframe = "SESSION".into();
     r.input_timeframes = vec!["SESSION".into()];
@@ -494,9 +506,6 @@ const fn e(edit: Edit) -> Edit {
     r.fill_timeframe = Some("1D".into());
     r.cross_sections.pop();
 }), Refused::FillTimeframeIsAnInputTimeframe)]
-#[case::fill_is_input_by_label(e(|r, _| {
-    r.input_timeframes.push("1M".into());
-}), Refused::FillTimeframeIsAnInputTimeframe)]
 #[case::fill_is_input_by_identity(e(|r, _| {
     r.input_timeframes.push("1M".into());
     r.fill_timeframe = Some("5M".into());
@@ -506,6 +515,18 @@ const fn e(edit: Edit) -> Edit {
 #[case::other_fact_at_end(e(|_, b| b.instruments[0].at_end = Some(d(49))), Refused::WindowMemberNotValidThroughout)]
 #[case::fact_ends_inside(e(|_, b| {
     b.instruments[1].at_start.as_mut().unwrap().effective_until = Some(i128::from(3 * DAY) - 1);
+}), Refused::WindowMemberNotValidThroughout)]
+#[case::mid_window_successor(e(|_, b| {
+    b.instruments[0].others.push(CustodyFactSpanV1 {
+        effective_from: i128::from(DAY) + 1,
+        effective_until: None,
+    });
+}), Refused::WindowMemberNotValidThroughout)]
+#[case::rival_ending_inside(e(|_, b| {
+    b.instruments[1].others.push(CustodyFactSpanV1 {
+        effective_from: -5,
+        effective_until: Some(1),
+    });
 }), Refused::WindowMemberNotValidThroughout)]
 #[case::membership_ends_inside(e(|_, b| b.membership[0].effective_until_ns = Some(i128::from(2 * DAY))), Refused::WindowMemberNotValidThroughout)]
 #[case::membership_begins_inside(e(|_, b| b.membership[1].effective_from_ns = 1), Refused::WindowMemberNotValidThroughout)]
@@ -686,7 +707,7 @@ fn a_successor_appends_a_correction_and_binds_its_chain_position() {
     let late = basis
         .derive(&successor(
             &chain,
-            vec![correction("1D", DAY, original, 2, DAY)],
+            vec![correction("1D", DAY, original, 2, DAY + SECOND)],
         ))
         .unwrap();
     assert_eq!(
@@ -761,4 +782,96 @@ fn a_successor_branching_a_stored_cross_section_is_refused() {
 
 fn original_of(event: u64) -> UntrustedCrossSectionVersionV1 {
     original("1D", event)
+}
+
+/// A fact of the member that ended before the window is no rival.
+#[rstest]
+fn a_fact_ended_before_the_window_is_no_rival() {
+    let mut basis = Basis::new(false);
+    basis.instruments[0].others.push(CustodyFactSpanV1 {
+        effective_from: -5,
+        effective_until: Some(0),
+    });
+
+    assert!(basis.derive(&request()).is_ok());
+}
+
+/// One daily bar, its rows retrieved at `retrieval_ns`.
+fn one_bar(retrieval_ns: u64) -> UntrustedPitWindowCustodyRequestV1 {
+    let mut request = request();
+    let mut bar = original("1D", DAY);
+    bar.rows = rows(6_500_000, retrieval_ns);
+    request.fill_timeframe = None;
+    request.cross_sections = vec![bar];
+    request
+}
+
+/// A bar retrieved before it closed is today's open bar: no complete-only bar can be it.
+#[rstest]
+fn a_row_retrieved_before_its_bar_closed_is_refused() {
+    let basis = Basis::new(false);
+    let open = basis.derive(&one_bar(DAY - 1)).unwrap();
+    assert_eq!(
+        open.resolve_at_minting_cut(RETRIEVED, None),
+        Err(Refused::RowRetrievedBeforeBarClose)
+    );
+
+    let closed = basis.derive(&one_bar(DAY)).unwrap();
+    assert!(closed.resolve_at_minting_cut(DAY + SECOND, None).is_ok());
+}
+
+/// A custody holds only what was visible at its minting cut.
+#[rstest]
+fn a_version_not_available_at_the_minting_cut_is_refused() {
+    let basis = Basis::new(false);
+    let derived = basis.derive(&one_bar(DAY)).unwrap();
+    assert_eq!(
+        derived.resolve_at_minting_cut(DAY + SECOND - 1, None),
+        Err(Refused::VersionNotAvailableAtMintingCut),
+        "available one second after the close, the bar is not visible at the cut before"
+    );
+
+    let (basis, mut request, original) = correcting_root();
+    request
+        .cross_sections
+        .insert(1, correction("1D", DAY, original, 2, RETRIEVED + 1));
+    assert_eq!(
+        basis
+            .derive(&request)
+            .unwrap()
+            .resolve_at_minting_cut(RETRIEVED, None),
+        Err(Refused::VersionNotAvailableAtMintingCut),
+        "a publication stated after the cut is not visible at it"
+    );
+}
+
+/// A stated publication is never before its bar or its availability.
+#[rstest]
+#[case::before_its_event(DAY - 1)]
+#[case::before_its_availability(DAY + SECOND - 1)]
+fn a_publication_before_its_bar_or_availability_is_refused(#[case] publication_ns: u64) {
+    let (basis, mut request, _) = correcting_root();
+    request.cross_sections[0].publication_ns = Some(publication_ns);
+
+    assert_eq!(
+        basis.derive(&request).map(|_| ()),
+        Err(Refused::InvalidRequest)
+    );
+}
+
+/// Under a rule set to the retrieval instant, availability is the minting cut: a stated
+/// publication before it is refused once the cut is fixed.
+#[rstest]
+fn a_publication_before_an_availability_at_the_minting_cut_is_refused() {
+    let mut basis = Basis::new(true);
+    basis.binding().availability_rule = Some(rule(UntrustedSourceVisibilityV1::AtRetrieval, true));
+    let mut request = request();
+    request.cross_sections[0].publication_ns = Some(RETRIEVED);
+    let derived = basis.derive(&request).unwrap();
+
+    assert_eq!(
+        derived.resolve_at_minting_cut(RETRIEVED + 1, None),
+        Err(Refused::InvalidRequest)
+    );
+    assert!(derived.resolve_at_minting_cut(RETRIEVED, None).is_ok());
 }
