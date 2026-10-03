@@ -13,7 +13,7 @@ use super::{
     OWNER_CLOCK_IDENTITY_V1, OWNER_CLOCK_SKEW_BOUND_NS, OWNER_CLOCK_UNCERTAINTY_BOUND_NS,
     OWNER_CLOCK_VALIDITY_WINDOW_NS, OwnerSourceBindingDecision, SourceBindingCommit,
     pit_intake_member_count_tests::{instrument_submission, owner_store_v1, source_proposal},
-    pit_window_custody_v1::read_pit_window_schedules_v1,
+    pit_window_custody_v1::{read_pit_window_r0_chain_record_v1, read_pit_window_schedules_v1},
     seal_owner_clock_admission_v1,
 };
 use crate::owner::{
@@ -451,16 +451,43 @@ async fn close_fact(owner: &MarketDataOwnerPostgres, version: BindingDigest) -> 
 
 /// Every `bar_schedule_*` table of the snapshot path's per-instrument schedule chain.
 async fn bar_schedule_tables(owner: &MarketDataOwnerPostgres) -> Vec<(String, i64, String)> {
+    tables_named(owner, "bar_schedule_", 6).await
+}
+
+/// Every Owner table whose name starts with `prefix`, at least `installed` of them, so a snapshot
+/// of them can show a write.
+async fn tables_named(
+    owner: &MarketDataOwnerPostgres,
+    prefix: &str,
+    installed: usize,
+) -> Vec<(String, i64, String)> {
     let tables = owner_store_v1(owner.pool())
         .await
         .into_iter()
-        .filter(|(table, _, _)| table.starts_with("bar_schedule_"))
+        .filter(|(table, _, _)| table.starts_with(prefix))
         .collect::<Vec<_>>();
     assert!(
-        tables.len() >= 6,
-        "the snapshot path's schedule tables are installed, so their snapshot can show a write"
+        tables.len() >= installed,
+        "the {prefix}* tables are installed, so their snapshot can show a write"
     );
     tables
+}
+
+/// The R0 record and cut of the chain rooted at `chain_root`, through the crate's readback.
+async fn chain_r0_of(
+    owner: &MarketDataOwnerPostgres,
+    chain_root: BindingDigest,
+) -> Result<
+    Option<(
+        crate::owner::pit_window_custody_v1::chain_records::ReferenceFactR0ChainRecordV1,
+        crate::owner::pit_window_custody_v1::chain_records::ReferenceFactR0ChainCutV1,
+    )>,
+    Refused,
+> {
+    let mut transaction = owner.pool().begin().await.unwrap();
+    let record = read_pit_window_r0_chain_record_v1(&mut transaction, chain_root).await;
+    transaction.rollback().await.unwrap();
+    record
 }
 
 /// The window schedules of the chain rooted at `chain_root`, through the crate's readback.
@@ -512,6 +539,7 @@ async fn postgres_a_custody_commits_once_and_a_resubmission_rejoins_without_writ
     let (handoffs, head) = clock(&owner).await;
     let before_wall = wall_now_ns();
     let instrument_schedules = bar_schedule_tables(&owner).await;
+    let snapshot_r0 = tables_named(&owner, "reference_fact_r0_", 5).await;
     let receipt = commit(&intake, first.clone())
         .await
         .expect("the custody commits");
@@ -520,6 +548,26 @@ async fn postgres_a_custody_commits_once_and_a_resubmission_rejoins_without_writ
         instrument_schedules,
         "a custody never writes, or advances, an instrument's BAR schedule chain"
     );
+    assert_eq!(
+        tables_named(&owner, "reference_fact_r0_", 5).await,
+        snapshot_r0,
+        "a custody writes no snapshot R0, and no frame R0 is stored"
+    );
+
+    // One R0 record for the chain, from the window's start to the end its last frame claims: the
+    // last daily close is the window's third day, and a daily input claims one day after it.
+    let (r0_record, r0_cut) = chain_r0_of(&owner, receipt.chain_root())
+        .await
+        .expect("the chain R0 verifies")
+        .expect("a root records its chain's R0");
+    assert_eq!(count(&owner, "pit_window_r0_chain_records_v1").await, 1);
+    assert_eq!(
+        (r0_record.window_start_ns, r0_record.window_end_ns_exclusive),
+        (WINDOW_START, WINDOW_START + 3 * DAY)
+    );
+    assert_eq!(r0_record.root_custody_identity, receipt.custody_identity());
+    assert_eq!(r0_record.clock.decision_cut, receipt.minting_cut_ns());
+    assert_eq!(r0_cut.record_identity, r0_record.identity());
 
     // One window schedule per member, over the custody's window, at its minting cut.
     let schedules = schedules_of(&owner, receipt.chain_root()).await;
@@ -637,6 +685,17 @@ async fn postgres_a_custody_commits_once_and_a_resubmission_rejoins_without_writ
         .await
         .unwrap();
     refused(&owner, &intake, first, Refused::IdentityConflict).await;
+
+    // A stored chain R0 whose bytes no longer state its identity does not read back.
+    sqlx::query("UPDATE market_data_private.pit_window_r0_chain_records_v1 SET record_bytes=record_bytes||'\\x00'::bytea WHERE chain_root=$1")
+        .bind(receipt.chain_root().as_bytes().as_slice())
+        .execute(owner.pool())
+        .await
+        .unwrap();
+    assert_eq!(
+        chain_r0_of(&owner, receipt.chain_root()).await,
+        Err(Refused::StoreUnavailable)
+    );
 }
 
 /// Every refusal the commit reaches is decided before any write: each leaves every Owner table,
@@ -787,6 +846,11 @@ async fn postgres_every_custody_refusal_writes_nothing() {
         0,
         "no refusal mints a schedule"
     );
+    assert_eq!(
+        count(&owner, "pit_window_r0_chain_records_v1").await,
+        0,
+        "no refusal records a chain R0"
+    );
 
     // The request every refusal edited commits.
     assert!(commit(&intake, valid).await.is_ok());
@@ -834,6 +898,16 @@ async fn postgres_a_successor_corrects_its_chain_and_refuses_a_branch_or_a_chang
         "the successor's chain reads back its root's schedules"
     );
     assert_eq!(bar_schedule_tables(&owner).await, instrument_schedules);
+    assert_eq!(
+        count(&owner, "pit_window_r0_chain_records_v1").await,
+        1,
+        "a successor records no R0"
+    );
+    assert_eq!(
+        chain_r0_of(&owner, receipt.chain_root()).await,
+        chain_r0_of(&owner, root.chain_root()).await,
+        "the successor's chain reads back its root's R0"
+    );
     assert_eq!(receipt.chain_root(), root.chain_root());
     assert_eq!(receipt.chain_version(), 2);
     assert_ne!(receipt.custody_identity(), root.custody_identity());

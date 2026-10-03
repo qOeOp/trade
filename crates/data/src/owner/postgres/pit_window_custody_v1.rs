@@ -49,6 +49,10 @@ use crate::owner::{
             StoredChainV1, StoredVersionV1, check_request_shape_v1, custody_digest_v1,
             derive_custody_v1, kind_from_tag, kind_tag,
         },
+        chain_records::{
+            ReferenceFactR0ChainCutV1, ReferenceFactR0ChainRecordV1, decode_r0_chain_cut_v1,
+            decode_r0_chain_record_v1, issue_r0_chain_record_v1,
+        },
         schedule::{PitWindowScheduleFactV1, decode_window_schedule_v1, mint_window_schedules_v1},
         sealed,
     },
@@ -82,6 +86,10 @@ pub(super) const SCHEMA_V1: &[&str] = &[
     // fact: it never joins, or advances, an instrument's `bar_schedule_*` chain.
     "CREATE TABLE IF NOT EXISTS market_data_private.pit_window_schedule_facts_v1 (schedule_identity BYTEA PRIMARY KEY CHECK (octet_length(schedule_identity)=32), chain_root BYTEA NOT NULL REFERENCES market_data_private.pit_window_custody_heads_v1(chain_root), custody_identity BYTEA NOT NULL REFERENCES market_data_private.pit_window_custodies_v1(custody_identity), member_ordinal SMALLINT NOT NULL CHECK (member_ordinal>=0), instrument TEXT NOT NULL CHECK (octet_length(instrument)>0), timeframe_identity BYTEA NOT NULL CHECK (octet_length(timeframe_identity)=32), interval_ns BIGINT NOT NULL CHECK (interval_ns>0), phase_ns BIGINT NOT NULL CHECK (phase_ns>=0 AND phase_ns<interval_ns), window_start_ns BIGINT NOT NULL CHECK (window_start_ns>=0), window_end_ns_exclusive BIGINT NOT NULL CHECK (window_end_ns_exclusive>window_start_ns), im_key BYTEA NOT NULL CHECK (octet_length(im_key)=32), ms_identity BYTEA NOT NULL CHECK (octet_length(ms_identity)=32), cut_ns BIGINT NOT NULL CHECK (cut_ns>0), canonical_bytes BYTEA NOT NULL, UNIQUE (chain_root, member_ordinal), CHECK (chain_root=custody_identity))",
     "REVOKE ALL ON TABLE market_data_private.pit_window_schedule_facts_v1 FROM PUBLIC",
+    // The R0 a root custody records once over its chain's window (T0-4c). A frame's R0 is computed
+    // from it on read and never stored; nothing here is a `reference_fact_r0_*` row.
+    "CREATE TABLE IF NOT EXISTS market_data_private.pit_window_r0_chain_records_v1 (chain_root BYTEA PRIMARY KEY REFERENCES market_data_private.pit_window_custody_heads_v1(chain_root), custody_identity BYTEA NOT NULL REFERENCES market_data_private.pit_window_custodies_v1(custody_identity), record_identity BYTEA UNIQUE NOT NULL CHECK (octet_length(record_identity)=32), record_bytes BYTEA NOT NULL, cut_identity BYTEA UNIQUE NOT NULL CHECK (octet_length(cut_identity)=32), cut_bytes BYTEA NOT NULL, window_start_ns BIGINT NOT NULL CHECK (window_start_ns>=0), window_end_ns_exclusive BIGINT NOT NULL CHECK (window_end_ns_exclusive>window_start_ns), CHECK (chain_root=custody_identity))",
+    "REVOKE ALL ON TABLE market_data_private.pit_window_r0_chain_records_v1 FROM PUBLIC",
 ];
 
 #[track_caller]
@@ -685,6 +693,10 @@ async fn commit_custody_v1(
         for schedule in &schedules {
             insert_window_schedule(&mut transaction, schedule).await?;
         }
+        let (r0_record, r0_cut) =
+            issue_r0_chain_record_v1(&derived, chain_root, identity, cut_clock)
+                .ok_or(Refused::StoreUnavailable)?;
+        insert_r0_chain_record(&mut transaction, &r0_record, &r0_cut).await?;
     }
     transaction
         .commit()
@@ -723,6 +735,70 @@ async fn insert_window_schedule(
         .await
         .map_err(|cause| store_error(&cause))?;
     Ok(())
+}
+
+async fn insert_r0_chain_record(
+    transaction: &mut Transaction<'_, Postgres>,
+    record: &ReferenceFactR0ChainRecordV1,
+    cut: &ReferenceFactR0ChainCutV1,
+) -> Result<(), Refused> {
+    sqlx::query("INSERT INTO market_data_private.pit_window_r0_chain_records_v1(chain_root,custody_identity,record_identity,record_bytes,cut_identity,cut_bytes,window_start_ns,window_end_ns_exclusive) VALUES($1,$2,$3,$4,$5,$6,$7,$8)")
+        .bind(record.chain_root.as_bytes().as_slice())
+        .bind(record.root_custody_identity.as_bytes().as_slice())
+        .bind(record.identity().as_bytes().as_slice())
+        .bind(record.canonical_bytes())
+        .bind(cut.identity().as_bytes().as_slice())
+        .bind(cut.canonical_bytes())
+        .bind(to_i64(record.window_start_ns)?)
+        .bind(to_i64(record.window_end_ns_exclusive)?)
+        .execute(&mut **transaction)
+        .await
+        .map_err(|cause| store_error(&cause))?;
+    Ok(())
+}
+
+/// The R0 record and cut of the chain rooted at `chain_root`, each verified against its own bytes
+/// and the stored columns; `None` for a chain that holds none.
+pub(in crate::owner) async fn read_pit_window_r0_chain_record_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    chain_root: BindingDigest,
+) -> Result<Option<(ReferenceFactR0ChainRecordV1, ReferenceFactR0ChainCutV1)>, Refused> {
+    let Some(row) = sqlx::query(
+        "SELECT chain_root,custody_identity,record_identity,record_bytes,cut_identity,cut_bytes,window_start_ns,window_end_ns_exclusive FROM market_data_private.pit_window_r0_chain_records_v1 WHERE chain_root=$1",
+    )
+    .bind(chain_root.as_bytes().as_slice())
+    .fetch_optional(&mut **transaction)
+    .await
+    .map_err(|cause| store_error(&cause))?
+    else {
+        return Ok(None);
+    };
+    let bytes = |column: &str| -> Result<Vec<u8>, Refused> {
+        row.try_get(column).map_err(|cause| store_error(&cause))
+    };
+    let number = |column: &str| -> Result<u64, Refused> {
+        to_u64(row.try_get(column).map_err(|cause| store_error(&cause))?)
+    };
+    let record =
+        decode_r0_chain_record_v1(&bytes("record_bytes")?, digest(&bytes("record_identity")?)?)
+            .ok_or(Refused::StoreUnavailable)?;
+    let cut = decode_r0_chain_cut_v1(&bytes("cut_bytes")?, digest(&bytes("cut_identity")?)?)
+        .ok_or(Refused::StoreUnavailable)?;
+    let agrees = record.chain_root == chain_root
+        && digest(&bytes("chain_root")?)? == chain_root
+        && digest(&bytes("custody_identity")?)? == record.root_custody_identity
+        && cut.chain_root == chain_root
+        && cut.record_identity == record.identity()
+        && (cut.window_start_ns, cut.window_end_ns_exclusive)
+            == (record.window_start_ns, record.window_end_ns_exclusive)
+        && number("window_start_ns")? == record.window_start_ns
+        && number("window_end_ns_exclusive")? == record.window_end_ns_exclusive;
+
+    if agrees {
+        Ok(Some((record, cut)))
+    } else {
+        Err(Refused::StoreUnavailable)
+    }
 }
 
 /// The window schedules of the chain rooted at `chain_root`, in member order, each verified
