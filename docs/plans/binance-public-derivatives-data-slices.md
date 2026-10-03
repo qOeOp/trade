@@ -22,6 +22,24 @@ slice that needed a key, a signed request or a user stream would be outside it a
 - **Re-measurement:** a reading here is a reading on that day. Anything stated as "documented" was not measured,
   and a slice that depends on it measures it first.
 
+**Delivery status (2026-10-03, revised after implementation).**
+
+- **F1, settled funding:** #1246.
+- **R1, bar volume and taker buy volume, both Binance sources:** #1249. R1 was needed for more than taker flow.
+  Every native Replay frame projects a bar from `OPEN`, `HIGH`, `LOW`, `CLOSE` and `VOLUME`, and refuses a member
+  missing one, but neither Binance source stated `VOLUME`. So no Binance frame could be projected. This comes from
+  reading the code; the Binance quote gap blocks those frames earlier.
+- **O1, open interest:** #1250. The PRs stack F1, then R1, then O1.
+- **R2, long/short ratios:** next.
+- **Later:**
+  - F2 (Replay accrual) belongs to Lane 5.
+  - F3 and O2 (Design-facing semantics) wait until after F.
+  - R3 (liquidations) has no historical source and is not proposed.
+- **Two readings changed during implementation, and the sections below now state them:**
+  - The REST open interest endpoint publishes a sample 104 to 144 seconds after its instant. "Knowable at t" was
+    wrong.
+  - The REST funding endpoint never states the settlement interval, so funding carries none.
+
 ## 1. What main has today
 
 ### The Owner path for USD-M perpetuals
@@ -123,19 +141,24 @@ values REST stamps t + 5m. The taker ratio in the same row is the interval REST 
 A source row may be shown to a cut only once it was knowable in the world. Each slice's source states this rule and
 its tests pin it from both sides.
 
-| Kind and source                                                      | Knowable at                                                                                             |
-| -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| Settled funding, archive or REST                                     | `fundingTime` / `calc_time`                                                                             |
-| Archive `metrics` row stamped t (open interest, ratios, taker ratio) | t + 5 minutes                                                                                           |
-| REST open interest or ratio stamped t                                | t                                                                                                       |
-| REST taker ratio stamped t                                           | t + 5 minutes                                                                                           |
-| Kline with `close_time` c                                            | c. The bar source keeps bars with `close_time <= cut` (`futures_pit_observation_source_v1.rs:179-187`). |
-| Live funding estimate from `premiumIndex`                            | its response `time`                                                                                     |
+| Kind and source                                         | Knowable at                                                                                             |
+| ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| Settled funding, archive or REST                        | `fundingTime` / `calc_time`                                                                             |
+| Archive `metrics` row stamped t (open interest, ratios) | t + 10 minutes: the row is REST's sample t + 5m, and a sample is visible 5 minutes after its instant    |
+| Archive `metrics` row stamped t (taker ratio)           | t + 5 minutes plus a publication delay that is not measured                                             |
+| REST open interest or ratio stamped t                   | t + 5 minutes: published 104 to 144 seconds after t (measured 2026-10-02), with the rest as margin      |
+| REST taker ratio stamped t                              | t + 5 minutes plus a publication delay that is not measured                                             |
+| Kline with `close_time` c                               | c. The bar source keeps bars with `close_time <= cut` (`futures_pit_observation_source_v1.rs:179-187`). |
+| Live funding estimate from `premiumIndex`               | its response `time`                                                                                     |
 
 The estimate has no history except the premium-index klines, so a Replay can only use settled funding.
 
 The 5-minute rule is the trap. Using the archive's `create_time` as the knowable time leaks five minutes of the
 future into every open-interest read.
+
+A second trap was in this plan's own first draft. It said REST open interest stamped t was knowable at t. Measured
+during O1, a sample appears 104 to 144 seconds after its instant. A backtest cut within two minutes after a sample
+boundary would have read a value not yet published, so the delivered rule is the instant plus five minutes.
 
 ## 4. Slices
 
@@ -153,13 +176,14 @@ key, and the request carries no `X-MBX-APIKEY` and no `signature`.
 
 - **Owner:** Market Data.
 - **What changes:** the Binance futures PIT source gains funding rows, the N1 route.
-  - For each member at a cut, it emits the last settled rate whose `fundingTime` is at or before the cut,
-    together with that settlement's interval in hours.
+  - For each member at a cut, it emits the last settled rate whose `fundingTime` is at or before the cut, and the
+    settlement instant. The interval is not a row: the REST endpoint does not state it, and deriving it from the
+    spacing of two settlements is wrong whenever the venue changes it. The timeframe is `TICK`.
   - The REST source covers any cut back to the listing. The archive is the bulk and verification route.
   - Storage is the existing PIT tables, with new row fields and no new table.
 - **Acceptance, each assertion two-sided:**
   1. A cut 1 ms before a settlement returns the previous settlement; a cut at the settlement returns the new one.
-  2. For BTC, ETH and SOL over one archived month, REST-derived facts equal the archive rows (rate and interval).
+  2. For BTC, ETH and SOL over one archived month, REST-derived facts equal the archive rows (rate and instant).
      This is the agreement measured above, as a test over production decoders and never hand-written expected
      rows.
   3. A source that answers 451, 404 or a timeout refuses by name. It never emits zero funding or an empty batch
@@ -186,8 +210,8 @@ key, and the request carries no `X-MBX-APIKEY` and no `signature`.
 ### F3 - funding as a strategy input
 
 - **Owner:** Market Data (field semantics), with Strategy Factory's Design vocabulary.
-- **What changes:** `MarketDataFieldSemantic` gains the funding rate and its interval in the places listed in
-  section 1. Strategy Factory's N1 text moves from TARGET to CURRENT.
+- **What changes:** `MarketDataFieldSemantic` gains the funding rate and its settlement instant in the places listed
+  in section 1. Strategy Factory's N1 text moves from TARGET to CURRENT.
 - **Acceptance:**
   1. A Design reading funding resolves, binds and replays on the production path.
   2. The 12-member set becomes 14, and its codec and registry tests fail if any one of the three places is left
@@ -202,10 +226,12 @@ key, and the request carries no `X-MBX-APIKEY` and no `signature`.
   routes:
   - the archive `metrics` file for any cut whose day is published;
   - REST `openInterestHist` for cuts inside its 30-day window and after the archive's last day.
-  - Each fact records which route produced it.
+  - The delivered route is chosen by the cut's age against the wall clock. Within 29 days it uses REST; older
+    cuts use the archive. The scope's retrieval coordinate can be historical, so it cannot decide which route
+    still answers. The facts do not record the route: both routes state the same numbers.
 - **Acceptance:**
-  1. The knowable-at rule: a cut at archive-stamp t + 5m - 1 ms does not see the row stamped t; a cut at
-     t + 5m does.
+  1. The knowable-at rule: a sample at instant T (REST convention; archive `create_time` + 5m) is invisible to a
+     cut at T + 5m - 1 ms and visible to a cut at T + 5m.
   2. For a day both routes cover, the two routes yield identical facts after the 5-minute alignment (the 287/288
      measured above), and a test fails if the alignment is removed.
   3. A cut older than 30 days whose archive day is missing refuses by name. It does not fall back to REST, which
