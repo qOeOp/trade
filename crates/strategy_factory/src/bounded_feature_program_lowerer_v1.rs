@@ -377,6 +377,64 @@ pub(crate) enum BoundedFeatureLoweringErrorV1 {
     SourceIdentity,
     #[error("generated source exceeds its frozen bound")]
     SourceBounds,
+    /// The guest stack a program's state needs would take more than half its linear memory, so
+    /// the program is refused here rather than built into a guest that traps when it runs.
+    #[error(
+        "PROGRAM_STATE_TOO_LARGE_FOR_STACK: the program's state needs a guest stack of {stack_bytes} bytes, more than half of its {max_linear_memory_bytes} bytes of linear memory"
+    )]
+    ProgramStateTooLargeForStack {
+        stack_bytes: u64,
+        max_linear_memory_bytes: u32,
+    },
+}
+
+/// The stack every program was built with before stacks followed state, and the least any is.
+pub(crate) const GUEST_STACK_FLOOR_BYTES: u64 = 65_536;
+/// Bytes of stack per byte of declared state.
+///
+/// The guest holds a few copies of its state on its stack while it runs. Measured as the least
+/// stack each program runs at, to 16 bytes: research T0 at four window sizes needs 3.44 bytes per
+/// byte of state plus about 9.9 KB (5 764 bytes of state need 29 792; 19 372 need 76 640; 46 588
+/// need 170 336; 64 732 need 232 800, 7 bytes from the line), and every other program measured
+/// sits at or under that line. Five bytes per byte is 45% over the measured slope.
+pub(crate) const GUEST_STACK_BYTES_PER_STATE_BYTE: u64 = 5;
+/// Stack every program needs beyond its state: 65% over the line's measured 9.9 KB, and above the
+/// 12.3 KB the smallest programs measured, one primitive each, need.
+pub(crate) const GUEST_STACK_FIXED_BYTES: u64 = 16_384;
+/// Stacks are whole 64 KiB Wasm pages.
+const GUEST_STACK_PAGE_BYTES: u64 = 65_536;
+
+/// The guest stack a program is built with: five bytes per byte of its declared state plus 16 KiB,
+/// rounded up to a whole page, and never less than the 64 KiB every program had before. A program
+/// whose state is at most 9 830 bytes therefore builds exactly as it did.
+///
+/// The stack shares the program's linear memory with its state and its heap, so a stack of more
+/// than half of it is refused.
+///
+/// # Errors
+///
+/// Returns [`BoundedFeatureLoweringErrorV1::ProgramStateTooLargeForStack`] when that stack would
+/// take more than half the program's linear memory.
+pub(crate) fn guest_stack_bytes_v1(
+    state_max_bytes: u32,
+    max_linear_memory_bytes: u32,
+) -> Result<u64, BoundedFeatureLoweringErrorV1> {
+    let by_state =
+        u64::from(state_max_bytes) * GUEST_STACK_BYTES_PER_STATE_BYTE + GUEST_STACK_FIXED_BYTES;
+    let stack_bytes = by_state
+        .div_ceil(GUEST_STACK_PAGE_BYTES)
+        .saturating_mul(GUEST_STACK_PAGE_BYTES)
+        .max(GUEST_STACK_FLOOR_BYTES);
+
+    if stack_bytes > u64::from(max_linear_memory_bytes) / 2 {
+        return Err(
+            BoundedFeatureLoweringErrorV1::ProgramStateTooLargeForStack {
+                stack_bytes,
+                max_linear_memory_bytes,
+            },
+        );
+    }
+    Ok(stack_bytes)
 }
 
 impl From<BoundedFeatureProgramErrorV1> for BoundedFeatureLoweringErrorV1 {
@@ -466,7 +524,11 @@ pub(crate) fn prepare_frozen_bounded_feature_source_inputs_v1(
     let mut files = vec![
         source_file(
             ".cargo/config.toml",
-            frozen_config(manifest.max_linear_memory_bytes).as_bytes(),
+            frozen_config(
+                manifest.max_linear_memory_bytes,
+                guest_stack_bytes_v1(manifest.state.max_bytes, manifest.max_linear_memory_bytes)?,
+            )
+            .as_bytes(),
         ),
         source_file("Cargo.lock", CARGO_LOCK),
         source_file("Cargo.toml", CARGO_TOML),
@@ -511,9 +573,9 @@ pub(crate) fn prepare_frozen_bounded_feature_source_inputs_v1(
     })
 }
 
-fn frozen_config(max_linear_memory_bytes: u32) -> String {
+pub(crate) fn frozen_config(max_linear_memory_bytes: u32, stack_bytes: u64) -> String {
     format!(
-        "[build]\nrustflags = [\"-C\", \"link-arg=--max-memory={max_linear_memory_bytes}\", \"-C\", \"link-arg=--initial-memory={max_linear_memory_bytes}\", \"-C\", \"link-arg=-zstack-size=65536\"]\n"
+        "[build]\nrustflags = [\"-C\", \"link-arg=--max-memory={max_linear_memory_bytes}\", \"-C\", \"link-arg=--initial-memory={max_linear_memory_bytes}\", \"-C\", \"link-arg=-zstack-size={stack_bytes}\"]\n"
     )
 }
 

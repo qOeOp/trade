@@ -246,6 +246,14 @@ pub enum ResearchBoundedFeatureProgramLoweringErrorV1 {
     /// The frozen pair does not lower with the pinned catalog and first-party SDK.
     #[error("the frozen program does not lower: {0}")]
     Lowering(String),
+    /// The program's state needs a guest stack larger than half its linear memory.
+    #[error(
+        "PROGRAM_STATE_TOO_LARGE_FOR_STACK: its state needs a guest stack of {stack_bytes} bytes, more than half of its {max_linear_memory_bytes} bytes of linear memory"
+    )]
+    StateTooLargeForStack {
+        stack_bytes: u64,
+        max_linear_memory_bytes: u32,
+    },
 }
 
 /// PostgreSQL capability narrowed to the R&D joint Bounded Feature Program freeze.
@@ -689,8 +697,15 @@ impl PostgresResearchBoundedFeatureProgramOwnerV1 {
         let frozen =
             frozen.map_err(|_| ResearchBoundedFeatureProgramLoweringErrorV1::Unavailable)?;
         let lowered = prepare_frozen_bounded_feature_source_inputs_v1(&frozen).map_err(
-            |e: BoundedFeatureLoweringErrorV1| {
-                ResearchBoundedFeatureProgramLoweringErrorV1::Lowering(e.to_string())
+            |e: BoundedFeatureLoweringErrorV1| match e {
+                BoundedFeatureLoweringErrorV1::ProgramStateTooLargeForStack {
+                    stack_bytes,
+                    max_linear_memory_bytes,
+                } => ResearchBoundedFeatureProgramLoweringErrorV1::StateTooLargeForStack {
+                    stack_bytes,
+                    max_linear_memory_bytes,
+                },
+                _ => ResearchBoundedFeatureProgramLoweringErrorV1::Lowering(e.to_string()),
             },
         )?;
 

@@ -22,6 +22,7 @@ use crate::{
     strategy_plan_v2::{durable_decode, durable_encode, plugin_manifest_digest},
 };
 
+use super::bounded_feature_program_lowerer_v1::guest_stack_bytes_v1;
 use super::develop_plugin_build_v2_sandbox::{
     BUILD_COMMAND, CARGO_COMMIT, CARGO_RELEASE, RUSTC_COMMIT, RUSTC_RELEASE,
     SandboxExecutionReceiptV2, SandboxSourceFileV2, TARGET, build_source_set_once,
@@ -509,6 +510,10 @@ pub(crate) fn prepare_develop_plugin_capsule_v3(
             .collect(),
         config_digest: BindingDigest::from_untrusted_bytes(frozen_config_digest(
             manifest.max_linear_memory_bytes,
+            guest_stack_bytes_v1(manifest.state.max_bytes, manifest.max_linear_memory_bytes)
+                .map_err(|e| {
+                    DevelopPluginBuildTerminalV3::invalid_capsule("capsule.config", &e.to_string())
+                })?,
         )),
         execution_profiles,
         bounds,
@@ -833,11 +838,16 @@ fn build_twice(
 ) -> Result<PendingBuildV3, DevelopPluginBuildTerminalV3> {
     let first_files = sandbox_source_files(first_inputs);
     let second_files = sandbox_source_files(second_inputs);
+    let stack_bytes =
+        guest_stack_bytes_v1(manifest.state.max_bytes, manifest.max_linear_memory_bytes).map_err(
+            |e| DevelopPluginBuildTerminalV3::invalid_capsule("build.stack", &e.to_string()),
+        )?;
     let first = build_source_set_once(
         first_root,
         &first_files,
         OUTPUT_CRATE_NAME,
         manifest.max_linear_memory_bytes,
+        stack_bytes,
     )
     .map_err(map_sandbox_terminal)?;
     let second = build_source_set_once(
@@ -845,6 +855,7 @@ fn build_twice(
         &second_files,
         OUTPUT_CRATE_NAME,
         manifest.max_linear_memory_bytes,
+        stack_bytes,
     )
     .map_err(map_sandbox_terminal)?;
 
@@ -1213,8 +1224,14 @@ fn validate_capsule_value(
     let config_matches = config.is_some_and(|file| {
         BindingDigest::from_untrusted_bytes(Sha256::digest(&file.bytes).into())
             == capsule.config_digest
-            && capsule.config_digest.as_bytes()
-                == &frozen_config_digest(capsule.bounds.max_linear_memory_bytes)
+            && guest_stack_bytes_v1(
+                capsule.bounds.max_state_bytes,
+                capsule.bounds.max_linear_memory_bytes,
+            )
+            .is_ok_and(|stack_bytes| {
+                capsule.config_digest.as_bytes()
+                    == &frozen_config_digest(capsule.bounds.max_linear_memory_bytes, stack_bytes)
+            })
     });
 
     if capsule.capsule_tag != CAPSULE_TAG

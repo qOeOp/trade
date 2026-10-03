@@ -17,8 +17,9 @@ use crate::{
 };
 
 use super::develop_plugin_build_v2_sandbox::{
-    BUILD_COMMAND, RUSTC_COMMIT, RUSTC_RELEASE, SandboxExecutionReceiptV2, TARGET, build_once,
-    frozen_config_digest, matches_frozen_execution_profile,
+    BUILD_COMMAND, HAND_WRITTEN_GUEST_STACK_BYTES, RUSTC_COMMIT, RUSTC_RELEASE,
+    SandboxExecutionReceiptV2, TARGET, build_once, frozen_config_digest,
+    matches_frozen_execution_profile,
 };
 
 const CAPSULE_SCHEMA_VERSION: u16 = 2;
@@ -210,6 +211,7 @@ impl DevelopPluginBuildReceiptV2 {
     fn binds_manifest_and_frozen_profile(&self, manifest: &PluginManifestV2) -> bool {
         let expected_config = BindingDigest::from_untrusted_bytes(frozen_config_digest(
             manifest.max_linear_memory_bytes,
+            HAND_WRITTEN_GUEST_STACK_BYTES,
         ));
         self.manifest_digest == plugin_manifest_digest(manifest)
             && self

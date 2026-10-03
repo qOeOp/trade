@@ -4,7 +4,9 @@
 use std::{fs, path::Path, process::Command};
 
 use crate::{
-    bounded_feature_program_lowerer_v1::prepare_frozen_bounded_feature_source_inputs_v1,
+    bounded_feature_program_lowerer_v1::{
+        frozen_config, prepare_frozen_bounded_feature_source_inputs_v1,
+    },
     rd_bounded_feature_program_v1::FrozenResearchBoundedFeatureProgramV1,
     strategy_design_v2::{PluginManifestV2, StrategyDesignV2},
 };
@@ -85,6 +87,29 @@ pub(crate) fn build_lowered_guest_for_test(
     target_dir: &Path,
     label: &str,
 ) -> LoweredGuestModuleV1 {
+    build(frozen, root, target_dir, label, None)
+}
+
+/// Builds as [`build_lowered_guest_for_test`] does, with the guest's stack set to `stack_bytes`
+/// in place of the one the lowering sized, so a test can run a program at a stack the lowering
+/// would not choose.
+pub(crate) fn build_lowered_guest_at_stack_for_test(
+    frozen: &FrozenResearchBoundedFeatureProgramV1,
+    root: &Path,
+    target_dir: &Path,
+    label: &str,
+    stack_bytes: u64,
+) -> LoweredGuestModuleV1 {
+    build(frozen, root, target_dir, label, Some(stack_bytes))
+}
+
+fn build(
+    frozen: &FrozenResearchBoundedFeatureProgramV1,
+    root: &Path,
+    target_dir: &Path,
+    label: &str,
+    stack_bytes: Option<u64>,
+) -> LoweredGuestModuleV1 {
     let canonical_design: StrategyDesignV2 =
         serde_json::from_slice(frozen.design_bytes()).expect("a frozen Design parses");
     let manifest = canonical_design.plugins[0].clone();
@@ -95,6 +120,14 @@ pub(crate) fn build_lowered_guest_for_test(
         let destination = root.join(path);
         fs::create_dir_all(destination.parent().expect("source parent")).unwrap();
         fs::write(destination, bytes).unwrap();
+    }
+
+    if let Some(stack_bytes) = stack_bytes {
+        fs::write(
+            root.join(".cargo/config.toml"),
+            frozen_config(manifest.max_linear_memory_bytes, stack_bytes),
+        )
+        .unwrap();
     }
     let output = lowered_guest_build_command(root, target_dir)
         .output()
