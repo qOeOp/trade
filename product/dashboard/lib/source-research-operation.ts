@@ -252,8 +252,7 @@ export async function executeClaimedSourceResearchOperationV1({
     || (claim.request as SourceResearchOperationRequestV1).action !== "RUN"
     || effectDispatchRequestDigestV1(claim.operation_id, claim.request) !== claim.request_digest
     || effectDispatchTargetDigestV1(claim.operation_id, claim.frozen_target)
-      !== claim.frozen_target_digest
-    || claim.frozen_context !== null || claim.frozen_context_digest !== null) return "retry";
+      !== claim.frozen_target_digest) return "retry";
   const request = claim.request as SourceResearchRunRequestV1;
   const configuredTarget = configuredEffectDispatchTargetV1(
     SOURCE_RESEARCH_EXECUTE_OPERATION,

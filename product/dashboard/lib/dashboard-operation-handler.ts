@@ -1,9 +1,3 @@
-import {
-  enqueueDisposableArtifactFormationV1,
-  executeDisposableArtifactFormationV1,
-  type ArtifactFormationRequestV1,
-  type ArtifactFormationResponseV1,
-} from "./artifact-formation-client.ts";
 import type { ControlPlaneAdmissionContextV1 } from "./control-plane-admission-contract.ts";
 import type { DevelopComposerRunRequestV2 } from "./develop-composer-action-contract.ts";
 import {
@@ -22,18 +16,6 @@ import {
   enqueueSourceResearchOperationV1,
   executeSourceResearchOperationV1,
 } from "./source-research-operation.ts";
-
-export async function handleArtifactFormationActionV1({
-  request,
-  actionContext,
-}: {
-  request: ArtifactFormationRequestV1;
-  actionContext: ControlPlaneAdmissionContextV1;
-}): Promise<ArtifactFormationResponseV1> {
-  return request.action === "RUN"
-    ? enqueueDisposableArtifactFormationV1({ request, actionContext })
-    : executeDisposableArtifactFormationV1({ request, actionContext });
-}
 
 export async function handleDevelopComposerActionV2({
   request,

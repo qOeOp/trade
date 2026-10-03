@@ -393,8 +393,7 @@ export async function executeClaimedExploratoryReplayOperationV2({
   if (!request
     || effectDispatchRequestDigestV1(claim.operation_id, request) !== claim.request_digest
     || effectDispatchTargetDigestV1(claim.operation_id, claim.frozen_target)
-      !== claim.frozen_target_digest
-    || claim.frozen_context !== null || claim.frozen_context_digest !== null) return "retry";
+      !== claim.frozen_target_digest) return "retry";
   const configuredTarget = configuredEffectDispatchTargetV1(claim.operation_id, environment);
   if (!configuredTarget
     || effectDispatchTargetDigestV1(claim.operation_id, configuredTarget)

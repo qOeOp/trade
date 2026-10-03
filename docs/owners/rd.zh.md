@@ -1215,9 +1215,9 @@ R&D 请求密封的 Result 不属于任何 family，以 `EXPLORATORY_RESULT_REQU
   原生运行与 Market Data 修复请求经由同一个函数读取。
 - 其余触及 Market Data 的 R&D 路由都只有范围身份与一个决策 cut，没有区间：初始 PIT 签发、PIT 快照请求路由，以及 Composer
   与有界特征程序路由，它们在一个 cut 上重读一批 PIT。V3 Research 提交把标的身份与可交易前沿比对，那是参考数据，不是价格。
-- 没有任何 R&D 工具让 agent 读取市场数据。Dashboard MCP 服务的七个工具
-  （`product/dashboard/lib/dashboard-mcp-server.ts:152-211`）提交或读取 R&D 与运行状态，不返回任何市场数值；artifact 构建的
-  模型调用没有工具。
+- 没有任何 R&D 工具让 agent 读取市场数据。Dashboard MCP 服务的五个工具
+  （`product/dashboard/lib/dashboard-mcp-server.ts:134-193`）提交或读取 R&D 与运行状态，不返回任何市场数值；产品不发起任何
+  模型调用。
 - 没有任何类型把标的划入层级。Instrument Master V2 从 Binance `onboardDate` 记录永续合约的上市时刻
   （`crates/data/src/owner/instrument_master_v2.rs:346`），Market Data 以 `MARKET_DATA.BAR.VOLUME.QUANTITY.V1` 提供 bar 成交量。
 - 没有任何 Owner 定义按标的或时段划分的 holdout 分区。Qualification 的 holdout 是一份预算与一项托管预留，不是数据的划分。

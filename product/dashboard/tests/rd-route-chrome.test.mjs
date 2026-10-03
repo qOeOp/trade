@@ -62,7 +62,7 @@ test("each embedded R&D panel owns an exact read-only boundary", async () => {
   assert.match(researchReadback, /title="Research outcome"/u);
   assert.match(researchReadback, /<PanelFrameInfoFact label="Request"><code>\{requestIdentity\}<\/code><\/PanelFrameInfoFact>/u);
   assert.doesNotMatch(researchReadback, /description=/u);
-  assert.match(researchReadback, /<ResearchReadbackContent[\s\S]+allowFormation/u);
-  assert.match(researchReadbackContent, /allowFormation[\s\S]+<ArtifactFormationControl researchRequestIdentity=\{requestIdentity\}/u);
+  assert.doesNotMatch(researchReadback, /allowFormation/u);
+  assert.doesNotMatch(researchReadbackContent, /ArtifactFormation|allowFormation/u);
   assert.match(artifact, /<OwnerDirectoryInfo>[\s\S]+No build, execution, or binding action is exposed here\./u);
 });

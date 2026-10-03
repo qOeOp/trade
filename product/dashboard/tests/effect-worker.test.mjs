@@ -71,8 +71,6 @@ test("effect worker leaves a mismatched target unclaimed and executes attempt on
     request_digest: effectDispatchRequestDigestV1(operationId, request),
     frozen_target: frozenTarget,
     frozen_target_digest: effectDispatchTargetDigestV1(operationId, frozenTarget),
-    frozen_context: null,
-    frozen_context_digest: null,
     principal_ref: "local_operator",
     authorization_digest: `sha256:${"b".repeat(64)}`,
     admission_receipt_identity: "dashboard-admission-receipt-target-test",

@@ -55,16 +55,16 @@ test("Dashboard image and migration are opt-in Compose services", () => {
   assert.match(effectWorker, /DASHBOARD_EFFECT_WORKER_TOKEN:/);
   assert.match(effectWorker, /DASHBOARD_EFFECT_WORKER_ID: \$\{DASHBOARD_EFFECT_WORKER_ID:-\}/);
   assert.match(effectWorker, /DASHBOARD_EFFECT_WORKER_ARTIFACT_DIGEST: \$\{DASHBOARD_EFFECT_WORKER_ARTIFACT_DIGEST:-\}/);
-  assert.match(effectWorker, /DASHBOARD_DISPOSABLE_ARTIFACT_EXECUTION: \$\{DASHBOARD_DISPOSABLE_ARTIFACT_EXECUTION:-\}/);
   assert.match(effectWorker, /DASHBOARD_DISPOSABLE_DEVELOP_COMPOSER_EXECUTION:[\s\S]+\$\{DASHBOARD_DISPOSABLE_DEVELOP_COMPOSER_EXECUTION:-\}/);
   assert.match(effectWorker, /DASHBOARD_DISPOSABLE_EXPLORATORY_REPLAY_EXECUTION:[\s\S]+\$\{DASHBOARD_DISPOSABLE_EXPLORATORY_REPLAY_EXECUTION:-\}/);
   assert.match(effectWorker, /DASHBOARD_DISPOSABLE_SOURCE_RESEARCH_EXECUTION:[\s\S]+\$\{DASHBOARD_DISPOSABLE_SOURCE_RESEARCH_EXECUTION:-\}/);
   assert.match(dashboard, /DASHBOARD_DISPOSABLE_DEVELOP_COMPOSER_EXECUTION:[\s\S]+\$\{DASHBOARD_DISPOSABLE_DEVELOP_COMPOSER_EXECUTION:-\}/);
   assert.doesNotMatch(effectWorker, /PRODUCT_EDGE_ROUTING_READ_API_(?:URL|TOKEN)/);
   assert.match(effectWorker, /test -f \/tmp\/dashboard-effect-worker\.ready/);
-  assert.doesNotMatch(dashboard, /DEEPSEEK_API_KEY/);
   assert.doesNotMatch(dashboard, /DASHBOARD_EFFECT_WORKER_(?:ID|TOKEN|ARTIFACT_DIGEST)/);
-  assert.match(effectWorker, /DEEPSEEK_API_KEY:/);
+  for (const block of [dashboard, effectWorker]) {
+    assert.doesNotMatch(block, /DEEPSEEK|RD_EXECUTION_AGENT|DASHBOARD_DISPOSABLE_ARTIFACT_EXECUTION/);
+  }
   assert.doesNotMatch(effectWorker, /DASHBOARD_(?:LOCAL_OPERATOR_LOGIN_TOKEN|SESSION_HMAC_KEY|MCP_API_TOKEN|OPERATOR_API_TOKEN)/);
   for (const block of [worker, scheduler, effectWorker]) {
     assert.match(block, /pull_policy: never/);
@@ -86,7 +86,6 @@ test("effect and MCP capabilities are scoped to their exact runtime roles", () =
     "DASHBOARD_EFFECT_WORKER_ID",
     "DASHBOARD_EFFECT_WORKER_TOKEN",
     "DASHBOARD_EFFECT_WORKER_ARTIFACT_DIGEST",
-    "DEEPSEEK_API_KEY",
   ]) assert.equal(effectWorker.match(new RegExp(`^\\s{6}${name}:`, "gmu"))?.length, 1, name);
   for (const name of [
     "DASHBOARD_MCP_API_TOKEN",

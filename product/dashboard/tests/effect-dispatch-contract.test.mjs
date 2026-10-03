@@ -4,28 +4,17 @@ import test from "node:test";
 
 import {
   boundEffectWorkerIdentityV1,
-  canonicalEffectDispatchContextV1,
   canonicalEffectDispatchRequestV1,
   canonicalEffectDispatchTargetV1,
   canonicalEffectDispatchTargetDigestsV1,
   configuredEffectDispatchTargetV1,
   configuredEffectDispatchTargetDigestsV1,
-  effectDispatchContextDigestV1,
   effectDispatchOperationIdsV1,
   effectDispatchRequestDigestV1,
   effectDispatchTargetDigestV1,
 } from "../lib/effect-dispatch-contract.ts";
-import { ARTIFACT_FORMATION_EXECUTE_OPERATION } from "../lib/artifact-formation-operation.ts";
 import { EXPLORATORY_REPLAY_EXECUTE_OPERATION } from "../lib/exploratory-replay-operation.ts";
 import { SOURCE_RESEARCH_EXECUTE_OPERATION } from "../lib/source-research-run-contract.ts";
-
-const artifactRequest = {
-  identity_mode: "GENERATE",
-  research_request_identity: "research-request-1",
-  attempt_identity: "attempt-1",
-  action: "RUN",
-  build_request_identity: "build-request-1",
-};
 
 const sourceRequest = {
   research: {
@@ -62,43 +51,11 @@ const sourceRequest = {
   action: "RUN",
 };
 
-const context = {
-  valid_through_epoch_ms: 2_000_000_000_000,
-  census_frontier_digest: `sha256:${"4".repeat(64)}`,
-  census_frontier_identity: "census-frontier-1",
-  trial_family_root_digest: `sha256:${"3".repeat(64)}`,
-  trial_family_identity: "trial-family-1",
-  intent_semantic_digest: `sha256:${"2".repeat(64)}`,
-  intent_identity: "research-intent-1",
-  request_identity: "research-request-1",
-  schema_version: 1,
-};
-
 function sha256(value) {
   return `sha256:${createHash("sha256").update(value).digest("hex")}`;
 }
 
 test("effect dispatch requests canonicalize property order and have stable domain-separated digests", () => {
-  const artifactCanonical = canonicalEffectDispatchRequestV1(
-    ARTIFACT_FORMATION_EXECUTE_OPERATION,
-    artifactRequest,
-  );
-  assert.deepEqual(artifactCanonical, {
-    action: "RUN",
-    build_request_identity: "build-request-1",
-    attempt_identity: "attempt-1",
-    research_request_identity: "research-request-1",
-    identity_mode: "GENERATE",
-  });
-  assert.equal(effectDispatchRequestDigestV1(
-    ARTIFACT_FORMATION_EXECUTE_OPERATION,
-    artifactRequest,
-  ), sha256(JSON.stringify({
-    schema_version: 1,
-    operation_id: ARTIFACT_FORMATION_EXECUTE_OPERATION,
-    request: artifactCanonical,
-  })));
-
   const sourceCanonical = canonicalEffectDispatchRequestV1(
     SOURCE_RESEARCH_EXECUTE_OPERATION,
     sourceRequest,
@@ -117,59 +74,33 @@ test("effect dispatch requests canonicalize property order and have stable domai
   })));
 
   assert.equal(canonicalEffectDispatchRequestV1(
-    ARTIFACT_FORMATION_EXECUTE_OPERATION,
-    { ...artifactRequest, extra: true },
+    SOURCE_RESEARCH_EXECUTE_OPERATION,
+    { ...sourceRequest, extra: true },
   ), null);
   assert.equal(canonicalEffectDispatchRequestV1(
     SOURCE_RESEARCH_EXECUTE_OPERATION,
     { action: "RESOLVE", source_request_identity: "source-1", research_request_identity: "research-1" },
   ), null);
   const nonCoercibleIdentity = { toString: null };
+  const nonCoercibleSource = {
+    ...sourceRequest,
+    research: { ...sourceRequest.research, request_identity: nonCoercibleIdentity },
+  };
   assert.doesNotThrow(() => canonicalEffectDispatchRequestV1(
-    ARTIFACT_FORMATION_EXECUTE_OPERATION,
-    { ...artifactRequest, research_request_identity: nonCoercibleIdentity },
+    SOURCE_RESEARCH_EXECUTE_OPERATION,
+    nonCoercibleSource,
   ));
   assert.equal(canonicalEffectDispatchRequestV1(
-    ARTIFACT_FORMATION_EXECUTE_OPERATION,
-    { ...artifactRequest, research_request_identity: nonCoercibleIdentity },
+    SOURCE_RESEARCH_EXECUTE_OPERATION,
+    nonCoercibleSource,
   ), null);
   assert.equal(effectDispatchRequestDigestV1(
-    ARTIFACT_FORMATION_EXECUTE_OPERATION,
-    { ...artifactRequest, research_request_identity: nonCoercibleIdentity },
+    SOURCE_RESEARCH_EXECUTE_OPERATION,
+    nonCoercibleSource,
   ), null);
 });
 
-test("only Artifact claims admit a canonical frozen S1 context", () => {
-  const canonical = canonicalEffectDispatchContextV1(
-    ARTIFACT_FORMATION_EXECUTE_OPERATION,
-    context,
-  );
-  assert.deepEqual(canonical, {
-    schema_version: 1,
-    request_identity: "research-request-1",
-    intent_identity: "research-intent-1",
-    intent_semantic_digest: `sha256:${"2".repeat(64)}`,
-    trial_family_identity: "trial-family-1",
-    trial_family_root_digest: `sha256:${"3".repeat(64)}`,
-    census_frontier_identity: "census-frontier-1",
-    census_frontier_digest: `sha256:${"4".repeat(64)}`,
-    valid_through_epoch_ms: 2_000_000_000_000,
-  });
-  assert.equal(effectDispatchContextDigestV1(
-    ARTIFACT_FORMATION_EXECUTE_OPERATION,
-    context,
-  ), sha256(JSON.stringify(canonical)));
-  assert.equal(canonicalEffectDispatchContextV1(SOURCE_RESEARCH_EXECUTE_OPERATION, context), null);
-  assert.equal(effectDispatchContextDigestV1(SOURCE_RESEARCH_EXECUTE_OPERATION, context), null);
-  assert.equal(canonicalEffectDispatchContextV1(EXPLORATORY_REPLAY_EXECUTE_OPERATION, context), null);
-  assert.equal(effectDispatchContextDigestV1(EXPLORATORY_REPLAY_EXECUTE_OPERATION, context), null);
-  assert.equal(canonicalEffectDispatchContextV1(
-    ARTIFACT_FORMATION_EXECUTE_OPERATION,
-    { ...context, extra: true },
-  ), null);
-});
-
-test("effect dispatch targets freeze canonical non-secret Owner and provider coordinates", () => {
+test("effect dispatch targets freeze only the canonical Owner coordinate", () => {
   const source = configuredEffectDispatchTargetV1(SOURCE_RESEARCH_EXECUTE_OPERATION, {
     RD_OWNER_API_URL: "http://127.0.0.1:8080",
   });
@@ -191,46 +122,17 @@ test("effect dispatch targets freeze canonical non-secret Owner and provider coo
     owner_url: "http://127.0.0.1:8080",
   });
 
-  const artifact = configuredEffectDispatchTargetV1(ARTIFACT_FORMATION_EXECUTE_OPERATION, {
-    RD_OWNER_API_URL: "http://rd-owner-api:8080",
-    RD_EXECUTION_AGENT_PROVIDER_URL: "https://provider.test/v1/chat",
-    RD_EXECUTION_AGENT_MODEL: "provider-model-v1",
-    RD_OWNER_API_TOKEN: "must-not-be-persisted",
-    DEEPSEEK_API_KEY: "must-not-be-persisted",
-  });
-  assert.deepEqual(artifact, {
-    schema_version: 1,
-    operation_id: ARTIFACT_FORMATION_EXECUTE_OPERATION,
-    owner_url: "http://rd-owner-api:8080",
-    provider_url: "https://provider.test/v1/chat",
-    provider_model: "provider-model-v1",
-  });
-  assert.equal(JSON.stringify(artifact).includes("must-not-be-persisted"), false);
-  assert.equal(effectDispatchTargetDigestV1(
-    ARTIFACT_FORMATION_EXECUTE_OPERATION,
-    artifact,
-  ), sha256(JSON.stringify(artifact)));
-
   for (const invalid of [
-    { ...artifact, owner_url: "https://production.example.test" },
-    { ...artifact, provider_url: "http://provider.test/v1/chat" },
-    { ...artifact, provider_url: "https://key@provider.test/v1/chat" },
-    { ...artifact, provider_url: "https://provider.test/v1/chat?api_key=secret" },
-    { ...artifact, provider_model: "contains whitespace" },
-    { ...artifact, provider_api_key: "secret" },
+    { ...source, owner_url: "https://production.example.test" },
+    { ...source, provider_url: "https://provider.test/v1/chat" },
+    { ...source, operation_id: EXPLORATORY_REPLAY_EXECUTE_OPERATION },
   ]) assert.equal(canonicalEffectDispatchTargetV1(
-    ARTIFACT_FORMATION_EXECUTE_OPERATION,
-    invalid,
-  ), null);
-  assert.equal(canonicalEffectDispatchTargetV1(
     SOURCE_RESEARCH_EXECUTE_OPERATION,
-    artifact,
+    invalid,
   ), null);
 
   const digests = configuredEffectDispatchTargetDigestsV1({
     RD_OWNER_API_URL: "http://127.0.0.1:8080",
-    RD_EXECUTION_AGENT_PROVIDER_URL: "https://provider.test/v1/chat",
-    RD_EXECUTION_AGENT_MODEL: "provider-model-v1",
   });
   assert.ok(digests);
   assert.deepEqual(Object.keys(digests).sort(), [...effectDispatchOperationIdsV1].sort());
@@ -263,8 +165,9 @@ test("effect worker identity binds configured identity, exact operations, capabi
     { ...input, workerArtifactDigest: `sha256:${"b".repeat(64)}` },
   ]) assert.notEqual(boundEffectWorkerIdentityV1(changed), identity);
   for (const invalid of [
-    { ...input, operationIds: [ARTIFACT_FORMATION_EXECUTE_OPERATION] },
-    { ...input, operationIds: [ARTIFACT_FORMATION_EXECUTE_OPERATION, ARTIFACT_FORMATION_EXECUTE_OPERATION] },
+    { ...input, operationIds: [SOURCE_RESEARCH_EXECUTE_OPERATION] },
+    { ...input, operationIds: [SOURCE_RESEARCH_EXECUTE_OPERATION, SOURCE_RESEARCH_EXECUTE_OPERATION] },
+    { ...input, operationIds: [...effectDispatchOperationIdsV1, "artifact_build.formation_execute.v1"] },
     { ...input, workerCapability: "too-short" },
     { ...input, workerArtifactDigest: "sha256:not-a-digest" },
     { ...input, configuredIdentity: "contains whitespace" },

@@ -365,9 +365,8 @@ evidence.
 This section states a contract with no implementation; it grants no permission to deploy it beyond the slice that
 builds it.
 
-**Today.** No command line exists. The Dashboard's `/api/mcp` registers seven tools
-(`product/dashboard/lib/dashboard-mcp-server.ts:152-211`): the Artifact Formation preflight read and Artifact action,
-the Source and Research action, the exploratory Replay action, the Develop Composer action, and the run detail and
+**Today.** No command line exists. The Dashboard's `/api/mcp` registers five tools
+(`product/dashboard/lib/dashboard-mcp-server.ts:134-193`): the Source and Research action, the exploratory Replay action, the Develop Composer action, and the run detail and
 run log reads. It serves only under the opt-in `dashboard-preview` profile.
 
 **Shape: a catalog of domain MCP servers.** The user decided on 2026-10-03 that the tool surface is split by domain.
@@ -527,8 +526,8 @@ work where its lifetime already is:
 **The Dashboard MCP.** The Dashboard's `/api/mcp` is not an entry for agents, and it is not extended with these
 commands. It stays for the preview interface:
 
-- its Artifact Formation preflight and Artifact action tools serve the in-product model build, which the same decision
-  retires, and they are removed with it;
+- its Artifact Formation preflight and Artifact action tools served the in-product model build, which the same
+  decision retired, and were removed with it;
 - its other tools stay. Whether it retires is decided once the commands above cover its reads.
 
 ## Agent Shell deployment binding

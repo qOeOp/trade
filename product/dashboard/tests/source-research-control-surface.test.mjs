@@ -26,7 +26,8 @@ test("Source to Research has an independent admitted typed control route", async
   assert.match(component, /SUBMITTED_OR_UNKNOWN/u);
   assert.match(component, /<FormField/u);
   assert.match(component, /<ActionAdmissionGate/u);
-  assert.match(gate, /eyebrow = "Artifact formation"/u);
+  assert.match(gate, /eyebrow: ReactNode;/u);
+  assert.doesNotMatch(gate, /Artifact formation/u);
   assert.match(field, /data-span/u);
   assert.doesNotMatch(component, /localStorage|sessionStorage|URLSearchParams|console\./u);
   assert.doesNotMatch(css, /#[0-9a-f]{3,8}|rgba?\(|hsla?\(/iu);

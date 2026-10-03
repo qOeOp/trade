@@ -53,8 +53,6 @@ export function ResearchReadbackWorkspace({ requestIdentity }: { requestIdentity
           status={readback.status}
           projection={readback.projection}
           question={question}
-          requestIdentity={requestIdentity}
-          allowFormation
         />
       </PanelFrameBody>
     </PanelFrame>

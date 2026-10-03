@@ -33,7 +33,6 @@ export function ResearchReadbackDrilldown({
         status={readback.status}
         projection={readback.projection}
         question={question}
-        requestIdentity={requestIdentity}
       />
       {readback.status === "available" && readback.projection ? (
         <div>
