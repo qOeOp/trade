@@ -314,9 +314,8 @@ Qualification 细节。
 
 本节陈述一份尚无实现的契约；除构建它的切片外，它不授予部署它的许可。
 
-**今天。** 不存在命令行。Dashboard 的 `/api/mcp` 注册了七个工具
-（`product/dashboard/lib/dashboard-mcp-server.ts:152-211`）：Artifact Formation preflight 读取与 Artifact 动作、
-Source 与 Research 动作、探索性 Replay 动作、Develop Composer 动作，以及 run detail 与 run log 读取。它只在 opt-in 的
+**今天。** 不存在命令行。Dashboard 的 `/api/mcp` 注册了五个工具
+（`product/dashboard/lib/dashboard-mcp-server.ts:134-193`）：Source 与 Research 动作、探索性 Replay 动作、Develop Composer 动作，以及 run detail 与 run log 读取。它只在 opt-in 的
 `dashboard-preview` profile 下提供服务。
 
 **形态。** 工具面面向代理只有一个入口，就是 `rd-run-research`。该二进制随部署的 R&D 镜像发布。一个库持有全部命令，两个薄壳调用同一组函数：命令行，
@@ -366,7 +365,7 @@ Product Edge，像接纳来自 Dashboard 的同一请求那样接纳它。工具
 
 **Dashboard MCP。** Dashboard 的 `/api/mcp` 不是面向代理的入口，也不扩展这些命令。它保留给预览界面使用：
 
-- 它的 Artifact Formation preflight 与 Artifact 动作工具服务于产品内模型构建，同一决定使该构建退役，这两个工具随之删除；
+- 它的 Artifact Formation preflight 与 Artifact 动作工具曾服务于产品内模型构建，同一决定使该构建退役，这两个工具已随之删除；
 - 它的其他工具保留。等上面的命令覆盖它的读取之后，再决定它是否退役。
 
 ## Agent Shell 部署绑定
