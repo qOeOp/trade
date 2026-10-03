@@ -4,8 +4,22 @@
   "oneOf": [
     {
       "additionalProperties": false,
-      "description": "Search-facing projection containing one deterministic strategy aggregation.",
       "properties": {
+        "html_path": {
+          "title": "Html Path",
+          "type": "string"
+        },
+        "images": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Images",
+          "type": "array"
+        },
+        "note_path": {
+          "title": "Note Path",
+          "type": "string"
+        },
         "rendered_markdown": {
           "maxLength": 262144,
           "minLength": 1,
@@ -13,16 +27,19 @@
           "type": "string"
         },
         "schema": {
-          "const": "bilibili-note.search-result/v1",
+          "const": "bilibili-note.result/v4",
           "title": "Schema",
           "type": "string"
         }
       },
       "required": [
         "schema",
-        "rendered_markdown"
+        "rendered_markdown",
+        "note_path",
+        "html_path",
+        "images"
       ],
-      "title": "PublicBilibiliSearchResultV1",
+      "title": "PublicBilibiliNoteResultV4",
       "type": "object"
     },
     {
@@ -78,6 +95,6 @@
       "type": "object"
     }
   ],
-  "title": "BilibiliNoteSearchToolOutputV1",
+  "title": "BilibiliNoteToolOutputV4",
   "type": "object"
 }

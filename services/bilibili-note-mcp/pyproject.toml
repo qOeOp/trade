@@ -5,7 +5,7 @@ build-backend = "uv_build"
 [project]
 name = "bilibili-note-mcp"
 version = "0.1.0"
-description = "Standalone Bilibili video to multimodal text research brief MCP"
+description = "Standalone Bilibili video to illustrated notes MCP"
 readme = "README.md"
 requires-python = ">=3.14,<3.15"
 dependencies = [

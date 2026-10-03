@@ -47,7 +47,7 @@ class FakeHttp:
         self.urls.append(url)
         assert headers is not None and "spm_id_from" not in headers["Referer"]
         assert headers["User-Agent"] == BILIBILI_BROWSER_USER_AGENT
-        if "web-interface/view" in url:
+        if url == "https://api.bilibili.com/x/web-interface/wbi/view?bvid=BV1uHuQ6pEFr":
             return {
                 "code": 0,
                 "data": {
@@ -321,3 +321,25 @@ async def test_source_metadata_envelope_code_names_its_cause(
     assert (failure.value.code, failure.value.reason) == (code, reason)
     assert media.urls == []
     assert transcript.calls == 0
+
+
+async def test_cache_hit_refreshes_metadata_and_skips_download_and_asr(tmp_path):
+    from dataclasses import replace
+
+    from bilibili_note_mcp.adapters.source_cache import SourceCache
+
+    class CountingTranscript(FakeTranscript):
+        calls = 0
+
+        async def transcribe(self, media_path, duration_ms, workspace, progress):
+            result = await super().transcribe(media_path, duration_ms, workspace, progress)
+            return replace(result, provider_ref="test-engine")
+
+    transcript, media, http = CountingTranscript(), FakeMedia(), FakeHttp()
+    source = BilibiliSource(transcript, media, http, SourceCache("test-engine", tmp_path / "cache"))
+    first = await source.acquire(USER_URL, tmp_path, NullProgressReporter())
+    second = await source.acquire(USER_URL, tmp_path, NullProgressReporter())
+    assert first.transcript == second.transcript
+    assert transcript.calls == 1
+    assert len(media.urls) == 1
+    assert len(http.urls) == 2
