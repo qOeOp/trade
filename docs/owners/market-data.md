@@ -3172,6 +3172,20 @@ settlement at exactly that coordinate is included and one a millisecond later is
 U1's history enters as T0 window custody: one custody per member over the whole window, for the execution timeframe
 and the fill timeframe. This is the fetch side that feeds a custody commit. The commit's own types are T0's.
 
+- **The execution timeframe is a whitelist, defined once.** U1 supports `1w`, `1d`, `4h` and `1h`. The whitelist is
+  Market Data's own, defined in exactly one place (`crates/data/src/owner/bar_schedule.rs`,
+  `SUPPORTED_EXECUTION_TIMEFRAMES_V1`), and every entry point that takes an execution timeframe - the admit route's
+  backfill job, `coverage`, the MCP tool and command line - validates against that one constant rather than
+  repeating the list. A timeframe outside it is refused by name as `TIMEFRAME_UNSUPPORTED`; nothing hand-writes the
+  list a second time.
+- **A week starts Monday 00:00 UTC.** `1w` follows Binance's own weekly kline convention: the bar opens Monday
+  00:00:00 UTC and closes the following Monday 00:00:00 UTC, a fixed seven-day interval on that anchor, never a
+  session-relative week.
+- **`15m` and `1m` stay unsupported.** `15m` waits for an intraday execution model and a cost model; admitting it
+  without either would let a Replay choose an execution timeframe no downstream layer can cost. `1m` waits for a
+  per-trade (`aggTrades`) fill model: today's fill bar is a `1m` OHLC bar, and using `1m` as the execution timeframe
+  itself would make the execution bar its own fill bar, which states no price path inside the bar at all. Both reopen
+  once their precondition exists; neither is on U1's path.
 - **Execution bars come from the public archive.** For each member, interval and month, the fetch reads
   `data/futures/um/monthly/klines/{SYMBOL}/{interval}/{SYMBOL}-{interval}-{YYYY-MM}.zip` with its `.CHECKSUM` sidecar.
   The bars are read through `authenticate_monthly_klines`, with the sidecar's own digest as the bound digest. That
@@ -3195,10 +3209,15 @@ and the fill timeframe. This is the fetch side that feeds a custody commit. The 
   let a price archive be read as trades without a refusal, so it stays. The reader applies this today: the header
   is optional in `crates/adapters/binance/src/common/offline.rs`, and its tests read the first real rows of both
   2021-06 archives. The trade row is read and the mark price row is refused.
-- **Fill bars come from the endpoint.** The fill bar for frame `k` is the first `1m` bar opening strictly after
-  frame `k`'s bar event plus the declared lag, and strictly before frame `k+1`'s bar event. One unsigned `klines` call
-  with that start and `limit=1` returns it. There is one call per frame and no `1m` archive, which is about 2 MB a
-  month.
+- **Fill bars come from the endpoint for `1d`, and from the monthly archive for `4h`, `1h` and `1w`.** The fill bar
+  for frame `k` is the first `1m` bar opening strictly after frame `k`'s bar event plus the declared lag, and
+  strictly before frame `k+1`'s bar event. For `1d`, one unsigned `klines` call with that start and `limit=1`
+  returns it: one call per frame, and no `1m` archive, which is about 2 MB a month. For `4h`, `1h` and `1w`, a frame
+  is far more frequent, so the fetch instead reads the member's whole `1m` archive month once
+  (`data/futures/um/monthly/klines/{SYMBOL}/1m/{SYMBOL}-1m-{YYYY-MM}.zip`, the same authenticated, sidecar-verified
+  path as the execution bars) and locates each frame's fill bar inside it, rather than issuing one REST call per
+  frame; a BTCUSDT `1m` month is about 43,000 rows. Both paths apply the same gap, lag and closed-bar rules below;
+  they differ only in where the candidate rows come from.
 - **Funding stays outside this custody for now.** A Source Binding declares one availability rule, and a funding
   settlement is not a declared bar timeframe. U1's funding is therefore read through the perpetual Data Client's
   settled funding rows. A separate binding can add it to custody later, and that change only adds.
@@ -3280,8 +3299,8 @@ same names.
   the Market Data service fetches the archive months and fill bars, builds the member's custody request and commits it,
   and records `RUNNING`, then `SUCCEEDED` with the custody receipt and the coverage it added, or `FAILED` with the
   refusal's name. Job facts are append-only and the MCP server holds no job state. The timeframe is the custody's
-  execution timeframe: U1 supports `1d` and `4h`, the `1m` fill timeframe comes with it, and any other is
-  `TIMEFRAME_UNSUPPORTED`.
+  execution timeframe, validated against the one whitelist above (`1w`, `1d`, `4h`, `1h`); the `1m` fill timeframe
+  comes with it, and any other execution timeframe is `TIMEFRAME_UNSUPPORTED`.
 - **Coverage is what custody holds.** `coverage` answers, for each execution timeframe, the half-open ranges the
   member's committed custody windows cover, read from the custody chains. It states no market value.
 - **A run names its data by description.** A `dataset_ref` is the description
