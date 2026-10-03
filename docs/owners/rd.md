@@ -814,8 +814,8 @@ catalog never holds a strategy a run would refuse at authoring.
 - `strategies::postgres_tests::the_strategy_catalog_holds_a_statement_through_every_operation_over_http` drives every
   operation and every refusal over HTTP on the ordered chain's PostgreSQL, with no market data and no Research request.
 
-**CURRENT - strategy MCP server:** the `strategy` server of the
-[domain MCP catalog](../architecture/product-edge#target---external-agent-tool-surface) is `strategy-mcp`, a stateless
+**CURRENT - strategy-authoring MCP server:** the `strategy-authoring` server of the
+[domain MCP catalog](../architecture/product-edge#target---external-agent-tool-surface) is `strategy-authoring-mcp`, a stateless
 stdio process built from `rd-owner-api`'s package. It holds `RD_OWNER_API_URL` and `RD_OWNER_API_TOKEN` in its own
 environment and reaches `/v1/strategies` only. Each tool sends one request and passes the answer or the refusal through
 by name; no argument or result carries the token.

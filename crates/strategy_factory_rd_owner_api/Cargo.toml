@@ -96,8 +96,8 @@ doc = false
 test = false
 
 [[bin]]
-name = "strategy-mcp"
-path = "src/bin/strategy_mcp.rs"
+name = "strategy-authoring-mcp"
+path = "src/bin/strategy_authoring_mcp.rs"
 doc = false
 test = false
 

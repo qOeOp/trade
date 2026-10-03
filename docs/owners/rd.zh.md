@@ -676,8 +676,8 @@ position target 与它的 reconciliation target 相等，而两侧曾共用的�
 - `strategies::postgres_tests::the_strategy_catalog_holds_a_statement_through_every_operation_over_http` 在有序链路的
   PostgreSQL 上经 HTTP 驱动每一种操作与每一条拒绝，不用任何行情数据，也不用任何 Research 请求。
 
-**CURRENT - strategy MCP server：**
-[领域 MCP 目录](../architecture/product-edge#target---external-agent-tool-surface)里的 `strategy` server 是 `strategy-mcp`，一个由
+**CURRENT - strategy-authoring MCP server：**
+[领域 MCP 目录](../architecture/product-edge#target---external-agent-tool-surface)里的 `strategy-authoring` server 是 `strategy-authoring-mcp`，一个由
 `rd-owner-api` 的 package 构建的无状态 stdio 进程。它在自己的环境里持有 `RD_OWNER_API_URL` 与 `RD_OWNER_API_TOKEN`，只访问
 `/v1/strategies`。每个工具只发一个请求，按名字原样转交回答或拒绝；任何参数或结果都不携带 token。
 

@@ -1,7 +1,7 @@
-//! The `strategy` MCP server's protocol: the six tools, the one request each becomes, and the
+//! The `strategy-authoring` MCP server's protocol: the six tools, the one request each becomes, and the
 //! JSON-RPC answers around them.
 //!
-//! The server is `strategy-mcp` in `rd-owner-api`'s package, a stateless stdio process that holds
+//! The server is `strategy-authoring-mcp` in `rd-owner-api`'s package, a stateless stdio process that holds
 //! the R&D API's URL and token. Everything it decides lives here, transport-free, so it is tested
 //! where the workspace's tests run; the binary adds only the HTTP client and the stdio loop. Every
 //! rule lives in R&D behind a route: a tool sends one request and passes the answer or the refusal
@@ -168,7 +168,7 @@ pub async fn handle(api: &dyn Api, message: &Value) -> Option<Value> {
             json!({
                 "protocolVersion": requested,
                 "capabilities": {"tools": {}},
-                "serverInfo": {"name": "strategy", "version": env!("CARGO_PKG_VERSION")}
+                "serverInfo": {"name": "strategy-authoring", "version": env!("CARGO_PKG_VERSION")}
             })
         }
         "ping" => json!({}),
@@ -320,7 +320,10 @@ mod tests {
         )
         .await
         .unwrap();
-        assert_eq!(initialized["result"]["serverInfo"]["name"], "strategy");
+        assert_eq!(
+            initialized["result"]["serverInfo"]["name"],
+            "strategy-authoring"
+        );
         assert_eq!(initialized["result"]["protocolVersion"], "2025-06-18");
 
         assert_eq!(
