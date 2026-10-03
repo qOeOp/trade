@@ -14,8 +14,8 @@ use super::{
     OWNER_CLOCK_VALIDITY_WINDOW_NS, OwnerSourceBindingDecision, SourceBindingCommit,
     pit_intake_member_count_tests::{instrument_submission, owner_store_v1, source_proposal},
     pit_window_custody_v1::{
-        read_pit_window_instrument_master_chain_v1, read_pit_window_r0_chain_record_v1,
-        read_pit_window_schedules_v1,
+        read_pit_window_instrument_master_chain_v1, read_pit_window_market_semantics_chain_v1,
+        read_pit_window_r0_chain_record_v1, read_pit_window_schedules_v1,
     },
     seal_owner_clock_admission_v1,
 };
@@ -270,6 +270,20 @@ async fn universe(
     )
 }
 
+/// [`rows`] for `members`.
+fn rows_of(members: &[&str], base: i128, retrieval_ns: u64) -> Vec<UntrustedCustodyRowV1> {
+    rows(base, retrieval_ns)
+        .into_iter()
+        .filter(|row| row.instrument == BTC)
+        .flat_map(|row| {
+            members.iter().map(move |member| UntrustedCustodyRowV1 {
+                instrument: (*member).to_owned(),
+                ..row.clone()
+            })
+        })
+        .collect()
+}
+
 /// One row per member and BAR field, values from `base`, all retrieved at `retrieval_ns`. Prices
 /// are written at the fixture instruments' price increment scale, 2, and volumes at their quantity
 /// increment scale, 0.
@@ -476,6 +490,23 @@ async fn tables_named(
     tables
 }
 
+/// The Market Semantics fact and registry entry of the chain rooted at `chain_root`.
+async fn market_semantics_of(
+    owner: &MarketDataOwnerPostgres,
+    chain_root: BindingDigest,
+) -> Result<
+    Option<(
+        crate::owner::pit_window_custody_v1::chain_records::MarketSemanticsChainFactV1,
+        crate::owner::pit_window_custody_v1::chain_records::MarketSemanticsChainRegistryEntryV1,
+    )>,
+    Refused,
+> {
+    let mut transaction = owner.pool().begin().await.unwrap();
+    let fact = read_pit_window_market_semantics_chain_v1(&mut transaction, chain_root).await;
+    transaction.rollback().await.unwrap();
+    fact
+}
+
 /// The Instrument Master link and readback of the chain rooted at `chain_root`.
 async fn instrument_master_of(
     owner: &MarketDataOwnerPostgres,
@@ -561,6 +592,7 @@ async fn postgres_a_custody_commits_once_and_a_resubmission_rejoins_without_writ
     let instrument_schedules = bar_schedule_tables(&owner).await;
     let snapshot_r0 = tables_named(&owner, "reference_fact_r0_", 5).await;
     let cuts_before = count(&owner, "instrument_master_cuts_v1").await;
+    let snapshot_heads = tables_named(&owner, "market_semantics_heads_v2", 1).await;
     let receipt = commit(&intake, first.clone())
         .await
         .expect("the custody commits");
@@ -614,6 +646,39 @@ async fn postgres_a_custody_commits_once_and_a_resubmission_rejoins_without_writ
         [BTC, ETH]
     );
     assert_eq!(instrument_master.cut().identity(), link.cut_identity);
+
+    // One Market Semantics fact for the chain, under its own head and registry entry, stating the
+    // claimed value; the snapshot path's heads are untouched, byte for byte.
+    let (semantics, registry) = market_semantics_of(&owner, receipt.chain_root())
+        .await
+        .expect("the chain's Market Semantics verifies")
+        .expect("a root records its chain's Market Semantics fact");
+    assert_eq!(
+        crate::owner::market_semantics_admission_v1::MarketSemanticsValueSubmissionV1::from_value(
+            &semantics.value
+        ),
+        market_semantics_value()
+    );
+    assert_eq!(semantics.r0_record_identity, r0_record.identity());
+    assert_eq!(semantics.instrument_master_cut_identity, link.cut_identity);
+    assert_eq!(semantics.registry_record_identity, registry.identity());
+    assert_eq!(
+        (semantics.effective_from_ns, semantics.effective_until_ns),
+        (r0_record.window_start_ns, r0_record.window_end_ns_exclusive)
+    );
+
+    for table in [
+        "market_semantics_chain_registry_v1",
+        "market_semantics_chain_facts_v1",
+        "market_semantics_chain_heads_v1",
+    ] {
+        assert_eq!(count(&owner, table).await, 1, "{table}");
+    }
+    assert_eq!(
+        tables_named(&owner, "market_semantics_heads_v2", 1).await,
+        snapshot_heads,
+        "a custody never writes a snapshot's Market Semantics head"
+    );
     assert_eq!(
         link.instrument_master_key,
         schedules_of(&owner, receipt.chain_root()).await[0].instrument_master_key,
@@ -736,6 +801,18 @@ async fn postgres_a_custody_commits_once_and_a_resubmission_rejoins_without_writ
         .await
         .unwrap();
     refused(&owner, &intake, first, Refused::IdentityConflict).await;
+
+    // A stored chain Market Semantics fact whose bytes no longer state its identity does not read
+    // back.
+    sqlx::query("UPDATE market_data_private.market_semantics_chain_facts_v1 SET fact_bytes=fact_bytes||'\\x00'::bytea WHERE chain_root=$1")
+        .bind(receipt.chain_root().as_bytes().as_slice())
+        .execute(owner.pool())
+        .await
+        .unwrap();
+    assert_eq!(
+        market_semantics_of(&owner, receipt.chain_root()).await,
+        Err(Refused::StoreUnavailable)
+    );
 
     // A stored chain R0 whose bytes no longer state its identity does not read back.
     sqlx::query("UPDATE market_data_private.pit_window_r0_chain_records_v1 SET record_bytes=record_bytes||'\\x00'::bytea WHERE chain_root=$1")
@@ -907,6 +984,11 @@ async fn postgres_every_custody_refusal_writes_nothing() {
         0,
         "no refusal issues a chain's Instrument Master cut"
     );
+    assert_eq!(
+        count(&owner, "market_semantics_chain_facts_v1").await,
+        0,
+        "no refusal records a chain's Market Semantics fact"
+    );
 
     // The request every refusal edited commits.
     assert!(commit(&intake, valid).await.is_ok());
@@ -979,6 +1061,15 @@ async fn postgres_a_successor_corrects_its_chain_and_refuses_a_branch_or_a_chang
         chain_r0_of(&owner, root.chain_root()).await,
         "the successor's chain reads back its root's R0"
     );
+    assert_eq!(
+        count(&owner, "market_semantics_chain_facts_v1").await,
+        1,
+        "a successor records no Market Semantics fact"
+    );
+    assert_eq!(
+        market_semantics_of(&owner, receipt.chain_root()).await,
+        market_semantics_of(&owner, root.chain_root()).await,
+    );
     assert_eq!(receipt.chain_root(), root.chain_root());
     assert_eq!(receipt.chain_version(), 2);
     assert_ne!(receipt.custody_identity(), root.custody_identity());
@@ -1038,6 +1129,14 @@ async fn postgres_a_successor_corrects_its_chain_and_refuses_a_branch_or_a_chang
     );
     wider.window_end_ns_exclusive += DAY;
     refused(&owner, &intake, wider, Refused::SuccessorBasisChanged).await;
+    // So is a successor that states another Market Semantics value.
+    let mut revalued = successor(
+        &root,
+        &template,
+        vec![correction(bar, correction_version, 3, bar + 4 * MINUTE)],
+    );
+    revalued.market_semantics_value.price_adjustment = "SPLIT_ADJUSTED".to_owned();
+    refused(&owner, &intake, revalued, Refused::SuccessorBasisChanged).await;
 
     // A withdrawal of the correction appends as the chain's third custody.
     let withdrawn = commit(
@@ -1166,5 +1265,210 @@ async fn postgres_availability_follows_the_rule_and_never_passes_the_minting_cut
     assert!(
         instants.iter().all(|instants| *instants == (cut, cut)),
         "every version is available, and published, at the minting cut"
+    );
+}
+
+/// A snapshot and a custody chain under one compatibility scope: binding `A` (schema 1) holds a
+/// research snapshot of `AAPL`, binding `B` (schema 2, declaring bars) states the same semantics,
+/// so both resolve to one scope. The Owner clock then moves to `FIRST_CUT`, so a custody whose
+/// rows were retrieved before it is minted at the head.
+struct SharedScopeV1 {
+    owner: MarketDataOwnerPostgres,
+    snapshot_binding: SourceBindingCommit,
+    snapshot: crate::owner::pit_snapshot::PitSnapshotCommitAggregate,
+    custody: UntrustedPitWindowCustodyRequestV1,
+}
+
+async fn shared_scope_v1() -> SharedScopeV1 {
+    use super::{
+        acceptance_fixture_v1::declaring_bars_v1,
+        tests::{
+            clock as test_clock, one_member_universe_v1, oracle_instrument_submission_v1,
+            research_request_pit_v1, source_proposal as fixture_proposal,
+        },
+    };
+
+    let owner = owner().await;
+    let decision = || OwnerSourceBindingDecision {
+        blockers: BTreeSet::new(),
+    };
+    let snapshot_binding = owner
+        .commit_source_initial(fixture_proposal(10, 40), decision(), &test_clock(40, 1))
+        .await
+        .unwrap();
+    let mut proposal = fixture_proposal(10, 40);
+    proposal.adapter.dataset_mapping = "dataset/bars".to_owned();
+    let mut proposal = declaring_bars_v1(proposal, declarations());
+    proposal.availability_rule = Some(after_close(false));
+    proposal.time_evidence.claimed_evidence_identity =
+        derive_time_evidence_identity(&proposal.time_evidence);
+    proposal.claimed_binding_id = derive_binding_id(&proposal);
+    let custody_binding = owner
+        .commit_source_initial(proposal, decision(), &test_clock(40, 1))
+        .await
+        .unwrap();
+    assert_eq!(
+        derive_market_semantics_compatibility_identity_v1(
+            &snapshot_binding.fact().proposal().semantics
+        ),
+        derive_market_semantics_compatibility_identity_v1(
+            &custody_binding.fact().proposal().semantics
+        ),
+        "the two bindings share one compatibility scope"
+    );
+    owner
+        .admit_instrument_master_fact_v1(oracle_instrument_submission_v1(
+            "AAPL",
+            snapshot_binding.receipt().locator(),
+        ))
+        .await
+        .unwrap();
+    let universe = one_member_universe_v1(&owner, &snapshot_binding, "AAPL", 20).await;
+    let snapshot = research_request_pit_v1(&owner, &snapshot_binding, "AAPL", &universe, 20).await;
+
+    // The Owner clock moves on, through its own admission, to the instant the backfill ran.
+    let mut transaction = owner.pool().begin().await.unwrap();
+    super::admit_clock(&mut transaction, &test_clock(FIRST_CUT, 2))
+        .await
+        .unwrap();
+    transaction.commit().await.unwrap();
+
+    let mut custody = request(&custody_binding, universe.0);
+    custody.members = vec!["AAPL".to_owned()];
+    custody.fill_timeframe = None;
+    custody.cross_sections = vec![
+        UntrustedCrossSectionVersionV1 {
+            rows: rows_of(&["AAPL"], 6_500_000, FIRST_CUT - SECOND),
+            ..original("1D", WINDOW_START + DAY)
+        },
+        UntrustedCrossSectionVersionV1 {
+            rows: rows_of(&["AAPL"], 6_600_000, FIRST_CUT - SECOND),
+            ..original("1D", WINDOW_START + 2 * DAY)
+        },
+    ];
+    SharedScopeV1 {
+        owner,
+        snapshot_binding,
+        snapshot,
+        custody,
+    }
+}
+
+/// The custody stating the value the snapshot fixtures state, with `price_adjustment`.
+fn stating(
+    custody: &UntrustedPitWindowCustodyRequestV1,
+    price_adjustment: &str,
+) -> UntrustedPitWindowCustodyRequestV1 {
+    let mut custody = custody.clone();
+    custody.market_semantics_value = super::tests::market_semantics_value_v1(price_adjustment);
+    custody
+}
+
+/// A custody chain stating another value than a snapshot of its scope already states is refused
+/// by name and writes nothing; stating the same value it commits.
+#[tokio::test]
+#[ignore = "requires a disposable Market Data PostgreSQL database"]
+async fn postgres_a_custody_after_a_snapshot_of_its_scope_states_the_scope_value() {
+    let shared = Box::pin(shared_scope_v1()).await;
+    let owner = &shared.owner;
+    assert_eq!(
+        super::tests::admit_market_semantics_v1(
+            owner,
+            &shared.snapshot_binding,
+            &shared.snapshot,
+            "RAW"
+        )
+        .await,
+        Ok(())
+    );
+    let intake = owner.pit_window_custody_commit_v1();
+
+    refused(
+        owner,
+        &intake,
+        stating(&shared.custody, "SPLIT_ADJUSTED"),
+        Refused::MarketSemanticsScopeValueConflict,
+    )
+    .await;
+    let receipt = commit(&intake, stating(&shared.custody, "RAW"))
+        .await
+        .expect("a custody stating its scope's value commits");
+    assert!(
+        market_semantics_of(owner, receipt.chain_root())
+            .await
+            .unwrap()
+            .is_some()
+    );
+}
+
+/// A snapshot stating another value than a custody chain of its scope already states is refused
+/// as the scope conflict the snapshot path names; stating the same value it is admitted.
+#[tokio::test]
+#[ignore = "requires a disposable Market Data PostgreSQL database"]
+async fn postgres_a_snapshot_after_a_custody_of_its_scope_states_the_scope_value() {
+    use crate::owner::market_semantics_admission_v1::MarketSemanticsAdmissionErrorV1;
+
+    let shared = Box::pin(shared_scope_v1()).await;
+    let owner = &shared.owner;
+    let intake = owner.pit_window_custody_commit_v1();
+    commit(&intake, stating(&shared.custody, "RAW"))
+        .await
+        .expect("the custody commits");
+
+    // A second chain of the scope - another window, so another root - stating another value is
+    // refused by the first chain's head alone.
+    let mut later = stating(&shared.custody, "SPLIT_ADJUSTED");
+    later.window_start_ns += DAY;
+    later.window_end_ns_exclusive += DAY;
+    later.cross_sections.remove(0);
+    refused(
+        owner,
+        &intake,
+        later,
+        Refused::MarketSemanticsScopeValueConflict,
+    )
+    .await;
+
+    // The scope's value is read over its chain heads too: with no snapshot head yet, the
+    // custody's value is the scope's.
+    let mut transaction = owner.pool().begin().await.unwrap();
+    let scope_value =
+        super::universe_member_composition_basis_v1::resolve_market_semantics_scope_value_v1(
+            &mut transaction,
+            shared.snapshot_binding.receipt().locator(),
+        )
+        .await
+        .expect("the scope's value reads");
+    transaction.rollback().await.unwrap();
+    assert_eq!(
+        scope_value.value(),
+        Some(&super::tests::market_semantics_value_v1("RAW"))
+    );
+    let before = owner_store_v1(owner.pool()).await;
+
+    assert_eq!(
+        super::tests::admit_market_semantics_v1(
+            owner,
+            &shared.snapshot_binding,
+            &shared.snapshot,
+            "SPLIT_ADJUSTED"
+        )
+        .await,
+        Err(MarketSemanticsAdmissionErrorV1::ScopeValueConflict)
+    );
+    assert_eq!(
+        owner_store_v1(owner.pool()).await,
+        before,
+        "the refusal wrote nothing"
+    );
+    assert_eq!(
+        super::tests::admit_market_semantics_v1(
+            owner,
+            &shared.snapshot_binding,
+            &shared.snapshot,
+            "RAW"
+        )
+        .await,
+        Ok(())
     );
 }

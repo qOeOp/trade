@@ -34,7 +34,12 @@ use super::{
     digest_from_bytes, issue_instrument_master_cut_in_transaction_v1,
     load_current_clock_fact_for_update, load_current_clock_for_update,
     load_durable_instrument_readback, load_instrument_facts, load_source, lock_clock_state,
-    lock_digests, next_owner_clock_admission_v1,
+    lock_digests,
+    market_semantics::{
+        advisory_lock as market_semantics_advisory_lock, load_chain_scope_values_v1,
+        load_scope_heads,
+    },
+    next_owner_clock_admission_v1,
     universe_selection::recover_universe_selection_in_transaction_v1,
 };
 use crate::owner::{
@@ -53,11 +58,14 @@ use crate::owner::{
             derive_custody_v1, kind_from_tag, kind_tag,
         },
         chain_records::{
-            InstrumentMasterChainLinkV1, ReferenceFactR0ChainCutV1, ReferenceFactR0ChainRecordV1,
-            chain_instrument_master_request_identity_v1,
+            InstrumentMasterChainLinkV1, MarketSemanticsChainBasisV1, MarketSemanticsChainFactV1,
+            MarketSemanticsChainRegistryEntryV1, ReferenceFactR0ChainCutV1,
+            ReferenceFactR0ChainRecordV1, chain_instrument_master_request_identity_v1,
             chain_instrument_master_request_meaning_v1, decode_instrument_master_chain_link_v1,
+            decode_market_semantics_chain_fact_v1, decode_market_semantics_chain_registry_entry_v1,
             decode_r0_chain_cut_v1, decode_r0_chain_record_v1,
-            issue_instrument_master_chain_link_v1, issue_r0_chain_record_v1,
+            issue_instrument_master_chain_link_v1, issue_market_semantics_chain_fact_v1,
+            issue_market_semantics_chain_registry_entry_v1, issue_r0_chain_record_v1,
         },
         schedule::{PitWindowScheduleFactV1, decode_window_schedule_v1, mint_window_schedules_v1},
         sealed,
@@ -708,6 +716,10 @@ async fn commit_custody_v1(
             issue_r0_chain_record_v1(&derived, chain_root, identity, cut_clock)
                 .ok_or(Refused::StoreUnavailable)?;
         insert_r0_chain_record(&mut transaction, &r0_record, &r0_cut).await?;
+        // The scope's lock before the Instrument Master request's, as ruled; one Source Binding
+        // states one value, so every head of the scope - a snapshot's or a chain's - must state
+        // the one this chain claims.
+        reject_market_semantics_scope_conflict(&mut transaction, &derived).await?;
         let instrument_master = Box::pin(issue_chain_instrument_master_v1(
             &mut transaction,
             &derived,
@@ -717,6 +729,29 @@ async fn commit_custody_v1(
         ))
         .await?;
         insert_instrument_master_link(&mut transaction, &instrument_master).await?;
+        let registry = issue_market_semantics_chain_registry_entry_v1(
+            [
+                derived.market_semantics_identity,
+                chain_root,
+                instrument_master.identity(),
+                r0_record.identity(),
+                r0_cut.identity(),
+            ],
+            derived.market_semantics_value,
+        )
+        .ok_or(Refused::StoreUnavailable)?;
+        let market_semantics = issue_market_semantics_chain_fact_v1(
+            &derived,
+            chain_root,
+            identity,
+            (&r0_record, &r0_cut),
+            MarketSemanticsChainBasisV1 {
+                registry_record_identity: registry.identity(),
+                instrument_master_cut_identity: instrument_master.cut_identity,
+            },
+        )
+        .ok_or(Refused::StoreUnavailable)?;
+        insert_market_semantics_chain_fact(&mut transaction, &registry, &market_semantics).await?;
     }
     transaction
         .commit()
@@ -912,6 +947,115 @@ pub(in crate::owner) async fn read_pit_window_instrument_master_chain_v1(
 
     if agrees {
         Ok(Some((link, readback)))
+    } else {
+        Err(Refused::StoreUnavailable)
+    }
+}
+
+/// Refuses a chain whose claimed value differs from any head of its compatibility scope, under the
+/// scope's lock, which every Market Semantics append takes.
+async fn reject_market_semantics_scope_conflict(
+    transaction: &mut Transaction<'_, Postgres>,
+    derived: &DerivedCustodyV1,
+) -> Result<(), Refused> {
+    let scope = derived.market_semantics_identity;
+    market_semantics_advisory_lock(transaction, scope)
+        .await
+        .map_err(|cause| store_error(&cause))?;
+    let snapshot_heads = load_scope_heads(transaction, scope)
+        .await
+        .map_err(|cause| store_error(&cause))?;
+    let chain_values = load_chain_scope_values_v1(transaction, scope)
+        .await
+        .map_err(|cause| store_error(&cause))?;
+
+    if snapshot_heads
+        .iter()
+        .map(|head| head.value)
+        .chain(chain_values)
+        .any(|value| value != derived.market_semantics_value)
+    {
+        return Err(Refused::MarketSemanticsScopeValueConflict);
+    }
+    Ok(())
+}
+
+async fn insert_market_semantics_chain_fact(
+    transaction: &mut Transaction<'_, Postgres>,
+    registry: &MarketSemanticsChainRegistryEntryV1,
+    fact: &MarketSemanticsChainFactV1,
+) -> Result<(), Refused> {
+    sqlx::query("INSERT INTO market_data_private.market_semantics_chain_registry_v1(registry_key_identity,registry_key_bytes,record_identity,record_bytes) VALUES($1,$2,$3,$4)")
+        .bind(registry.key_identity.as_bytes().as_slice())
+        .bind(registry.key_bytes.as_slice())
+        .bind(registry.identity().as_bytes().as_slice())
+        .bind(registry.canonical_bytes())
+        .execute(&mut **transaction)
+        .await
+        .map_err(|cause| store_error(&cause))?;
+    sqlx::query("INSERT INTO market_data_private.market_semantics_chain_facts_v1(fact_identity,compatibility_scope_identity,chain_root,registry_record_identity,fact_bytes) VALUES($1,$2,$3,$4,$5)")
+        .bind(fact.identity().as_bytes().as_slice())
+        .bind(fact.compatibility_scope_identity.as_bytes().as_slice())
+        .bind(fact.chain_root.as_bytes().as_slice())
+        .bind(registry.identity().as_bytes().as_slice())
+        .bind(fact.canonical_bytes())
+        .execute(&mut **transaction)
+        .await
+        .map_err(|cause| store_error(&cause))?;
+    sqlx::query("INSERT INTO market_data_private.market_semantics_chain_heads_v1(compatibility_scope_identity,chain_root,fact_identity) VALUES($1,$2,$3)")
+        .bind(fact.compatibility_scope_identity.as_bytes().as_slice())
+        .bind(fact.chain_root.as_bytes().as_slice())
+        .bind(fact.identity().as_bytes().as_slice())
+        .execute(&mut **transaction)
+        .await
+        .map_err(|cause| store_error(&cause))?;
+    Ok(())
+}
+
+/// The Market Semantics fact the chain rooted at `chain_root` records, through its head, with the
+/// registry entry it binds; each verified. `None` for a chain that holds none.
+pub(in crate::owner) async fn read_pit_window_market_semantics_chain_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    chain_root: BindingDigest,
+) -> Result<
+    Option<(
+        MarketSemanticsChainFactV1,
+        MarketSemanticsChainRegistryEntryV1,
+    )>,
+    Refused,
+> {
+    let Some(row) = sqlx::query(
+        "SELECT h.compatibility_scope_identity AS head_scope,f.fact_identity,f.compatibility_scope_identity,f.chain_root,f.registry_record_identity,f.fact_bytes,r.record_bytes FROM market_data_private.market_semantics_chain_heads_v1 h JOIN market_data_private.market_semantics_chain_facts_v1 f ON f.fact_identity=h.fact_identity JOIN market_data_private.market_semantics_chain_registry_v1 r ON r.record_identity=f.registry_record_identity WHERE h.chain_root=$1",
+    )
+    .bind(chain_root.as_bytes().as_slice())
+    .fetch_optional(&mut **transaction)
+    .await
+    .map_err(|cause| store_error(&cause))?
+    else {
+        return Ok(None);
+    };
+    let bytes = |column: &str| -> Result<Vec<u8>, Refused> {
+        row.try_get(column).map_err(|cause| store_error(&cause))
+    };
+    let fact = decode_market_semantics_chain_fact_v1(
+        &bytes("fact_bytes")?,
+        digest(&bytes("fact_identity")?)?,
+    )
+    .ok_or(Refused::StoreUnavailable)?;
+    let registry = decode_market_semantics_chain_registry_entry_v1(
+        &bytes("record_bytes")?,
+        digest(&bytes("registry_record_identity")?)?,
+    )
+    .ok_or(Refused::StoreUnavailable)?;
+    let agrees = fact.chain_root == chain_root
+        && digest(&bytes("chain_root")?)? == chain_root
+        && digest(&bytes("compatibility_scope_identity")?)? == fact.compatibility_scope_identity
+        && digest(&bytes("head_scope")?)? == fact.compatibility_scope_identity
+        && fact.registry_record_identity == registry.identity()
+        && registry.value == fact.value;
+
+    if agrees {
+        Ok(Some((fact, registry)))
     } else {
         Err(Refused::StoreUnavailable)
     }

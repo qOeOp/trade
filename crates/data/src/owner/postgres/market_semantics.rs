@@ -40,6 +40,13 @@ pub(super) const MARKET_SEMANTICS_SCHEMA_V1: &[&str] = &[
     "CREATE TABLE IF NOT EXISTS market_data_private.market_semantics_receipts_v1 (request_identity BYTEA PRIMARY KEY REFERENCES market_data_private.market_semantics_cuts_v1(request_identity), fact_identity BYTEA NOT NULL REFERENCES market_data_private.market_semantics_facts_v1(fact_identity), receipt_identity BYTEA UNIQUE NOT NULL CHECK(octet_length(receipt_identity)=32), receipt_bytes BYTEA NOT NULL CHECK(octet_length(receipt_bytes)>0), readback_identity BYTEA UNIQUE NOT NULL CHECK(octet_length(readback_identity)=32), readback_bytes BYTEA NOT NULL CHECK(octet_length(readback_bytes)>0), append_sequence BIGINT UNIQUE NOT NULL CHECK(append_sequence>0))",
     "CREATE TABLE IF NOT EXISTS market_data_private.market_semantics_outbox_v1 (outbox_identity BYTEA PRIMARY KEY REFERENCES market_data_private.market_semantics_receipts_v1(receipt_identity) CHECK(octet_length(outbox_identity)=32), request_identity BYTEA UNIQUE NOT NULL REFERENCES market_data_private.market_semantics_receipts_v1(request_identity), payload BYTEA NOT NULL CHECK(octet_length(payload)>0))",
     "REVOKE ALL ON TABLE market_data_private.market_semantics_registry_v1,market_data_private.market_semantics_facts_v1,market_data_private.market_semantics_heads_v2,market_data_private.market_semantics_cuts_v1,market_data_private.market_semantics_state_v1,market_data_private.market_semantics_receipts_v1,market_data_private.market_semantics_outbox_v1 FROM PUBLIC",
+    // A PIT window custody chain's Market Semantics fact (T0-4c): one per chain, under its own
+    // registry version 2 entry and head. It never writes a snapshot head, and a scope's heads are
+    // the union of both kinds, every one of which states the same value.
+    "CREATE TABLE IF NOT EXISTS market_data_private.market_semantics_chain_registry_v1 (registry_key_identity BYTEA PRIMARY KEY CHECK(octet_length(registry_key_identity)=32), registry_key_bytes BYTEA UNIQUE NOT NULL CHECK(octet_length(registry_key_bytes)>0), record_identity BYTEA UNIQUE NOT NULL CHECK(octet_length(record_identity)=32), record_bytes BYTEA NOT NULL CHECK(octet_length(record_bytes)>0))",
+    "CREATE TABLE IF NOT EXISTS market_data_private.market_semantics_chain_facts_v1 (fact_identity BYTEA PRIMARY KEY CHECK(octet_length(fact_identity)=32), compatibility_scope_identity BYTEA NOT NULL CHECK(octet_length(compatibility_scope_identity)=32), chain_root BYTEA UNIQUE NOT NULL CHECK(octet_length(chain_root)=32), registry_record_identity BYTEA UNIQUE NOT NULL REFERENCES market_data_private.market_semantics_chain_registry_v1(record_identity), fact_bytes BYTEA NOT NULL CHECK(octet_length(fact_bytes)>0))",
+    "CREATE TABLE IF NOT EXISTS market_data_private.market_semantics_chain_heads_v1 (compatibility_scope_identity BYTEA NOT NULL CHECK(octet_length(compatibility_scope_identity)=32), chain_root BYTEA NOT NULL CHECK(octet_length(chain_root)=32), fact_identity BYTEA UNIQUE NOT NULL REFERENCES market_data_private.market_semantics_chain_facts_v1(fact_identity), PRIMARY KEY(compatibility_scope_identity,chain_root))",
+    "REVOKE ALL ON TABLE market_data_private.market_semantics_chain_registry_v1,market_data_private.market_semantics_chain_facts_v1,market_data_private.market_semantics_chain_heads_v1 FROM PUBLIC",
 ];
 
 pub(super) async fn install_market_semantics_schema_v1(
@@ -281,6 +288,16 @@ async fn append_market_semantics_in_transaction_v1(
     } else {
         validate_successor_v1(predecessor.as_ref(), &fact)?;
         reject_scope_value_conflict(&scope_heads, &fact)?;
+
+        // A custody chain's head is a head of the scope too, and none of them is this fact's
+        // predecessor.
+        if load_chain_scope_values_v1(transaction, proposal.compatibility_scope_identity)
+            .await?
+            .iter()
+            .any(|value| *value != fact.value)
+        {
+            return Err(MarketSemanticsErrorV1::ScopeValueConflict);
+        }
     }
     reject_ambiguous_overlap(transaction, &fact).await?;
 
@@ -637,7 +654,7 @@ async fn load_readback(
 }
 
 /// Every current head of one compatibility scope, one per PIT snapshot, locked for the append.
-async fn load_scope_heads(
+pub(super) async fn load_scope_heads(
     transaction: &mut Transaction<'_, Postgres>,
     compatibility_scope_identity: MarketSemanticsIdentity,
 ) -> Result<Vec<crate::owner::market_semantics::MarketSemanticsFactV1>, MarketSemanticsErrorV1> {
@@ -650,6 +667,40 @@ async fn load_scope_heads(
     .map_err(|cause| store_error(&cause))?;
     rows.iter()
         .map(|bytes| crate::owner::market_semantics::codec::decode_fact(bytes))
+        .collect()
+}
+
+/// The value every custody chain head of one compatibility scope states, the heads locked for the
+/// append. Each fact is decoded and checked against the row that carried it.
+pub(super) async fn load_chain_scope_values_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    compatibility_scope_identity: MarketSemanticsIdentity,
+) -> Result<Vec<crate::owner::market_semantics::MarketSemanticsValueV1>, MarketSemanticsErrorV1> {
+    let rows: Vec<(Vec<u8>, Vec<u8>, Vec<u8>)> = sqlx::query_as(
+        "SELECT h.chain_root,f.fact_identity,f.fact_bytes FROM market_data_private.market_semantics_chain_heads_v1 h JOIN market_data_private.market_semantics_chain_facts_v1 f ON f.fact_identity=h.fact_identity WHERE h.compatibility_scope_identity=$1 FOR UPDATE OF h,f",
+    )
+    .bind(compatibility_scope_identity.as_bytes().as_slice())
+    .fetch_all(&mut **transaction)
+    .await
+    .map_err(|cause| store_error(&cause))?;
+    rows.iter()
+        .map(|(chain_root, identity, bytes)| {
+            let identity = BindingDigest::from_untrusted_bytes(
+                identity
+                    .as_slice()
+                    .try_into()
+                    .map_err(|_| MarketSemanticsErrorV1::StoreUntrusted)?,
+            );
+            let fact = crate::owner::pit_window_custody_v1::chain_records::decode_market_semantics_chain_fact_v1(bytes, identity)
+                .ok_or(MarketSemanticsErrorV1::StoreUntrusted)?;
+
+            if fact.compatibility_scope_identity != compatibility_scope_identity
+                || fact.chain_root.as_bytes().as_slice() != chain_root.as_slice()
+            {
+                return Err(MarketSemanticsErrorV1::StoreUntrusted);
+            }
+            Ok(fact.value)
+        })
         .collect()
 }
 
@@ -803,7 +854,7 @@ fn decode_exact_locator(
     Ok((request_identity, request_meaning))
 }
 
-async fn advisory_lock(
+pub(super) async fn advisory_lock(
     transaction: &mut Transaction<'_, Postgres>,
     identity: BindingDigest,
 ) -> Result<(), MarketSemanticsErrorV1> {

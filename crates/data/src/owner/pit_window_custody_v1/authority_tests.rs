@@ -1275,6 +1275,50 @@ mod chain_records {
         );
     }
 
+    /// A chain's registry entry is keyed by its own dependencies and states one value; it decodes
+    /// only to what it states, and a zero dependency has no entry.
+    #[rstest]
+    fn the_chain_registry_entry_maps_the_chain_dependencies_to_the_value() {
+        use crate::owner::pit_window_custody_v1::chain_records::{
+            decode_market_semantics_chain_registry_entry_v1,
+            issue_market_semantics_chain_registry_entry_v1,
+        };
+
+        let derived = Basis::new(false).derive(&request()).unwrap();
+        let dependencies = [d(30), d(1), d(2), d(3), d(4)];
+        let entry = issue_market_semantics_chain_registry_entry_v1(
+            dependencies,
+            derived.market_semantics_value,
+        )
+        .unwrap();
+        assert_eq!(
+            decode_market_semantics_chain_registry_entry_v1(
+                entry.canonical_bytes(),
+                entry.identity()
+            ),
+            Some(entry.clone())
+        );
+        let other_chain = issue_market_semantics_chain_registry_entry_v1(
+            [d(30), d(9), d(2), d(3), d(4)],
+            derived.market_semantics_value,
+        )
+        .unwrap();
+        assert_ne!(other_chain.key_identity, entry.key_identity);
+        let mut tampered = entry.canonical_bytes().to_vec();
+        let last = tampered.len() - 1;
+        tampered[last] ^= 1;
+        assert!(
+            decode_market_semantics_chain_registry_entry_v1(&tampered, entry.identity()).is_none()
+        );
+        assert!(
+            issue_market_semantics_chain_registry_entry_v1(
+                [d(30), d(0), d(2), d(3), d(4)],
+                derived.market_semantics_value
+            )
+            .is_none()
+        );
+    }
+
     /// A frame's R0 runs from its `e_k` to the end its input timeframes claim, lies inside the
     /// chain's, and is a function of `e_k`; a frame off the schedule has none.
     #[rstest]

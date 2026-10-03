@@ -678,6 +678,112 @@ pub(crate) fn decode_instrument_master_chain_link_v1(
     .filter(|link| link.canonical_bytes == bytes)
 }
 
+const REGISTRY_KEY_DOMAIN: &[u8] = b"market-data.market-semantics-registry-key.v2\0";
+const REGISTRY_RECORD_DOMAIN: &[u8] = b"market-data.market-semantics-registry-record.v2\0";
+
+/// The closed Market Semantics registry entry of one custody chain: version 2 of the snapshot
+/// path's registry, keyed by the chain's own dependencies - its compatibility scope, chain root,
+/// Instrument Master link and R0 record and cut - instead of a snapshot's.
+///
+/// As the snapshot intake registers its entry with the proposed value once in the same commit, a
+/// root custody registers its chain's entry with the claimed value once; no name, latest or
+/// history lookup selects it, only the exact key.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct MarketSemanticsChainRegistryEntryV1 {
+    pub(crate) key_bytes: Vec<u8>,
+    pub(crate) key_identity: BindingDigest,
+    pub(crate) value: MarketSemanticsValueV1,
+    canonical_bytes: Vec<u8>,
+    identity: BindingDigest,
+}
+
+impl MarketSemanticsChainRegistryEntryV1 {
+    pub(crate) fn canonical_bytes(&self) -> &[u8] {
+        &self.canonical_bytes
+    }
+
+    pub(crate) const fn identity(&self) -> BindingDigest {
+        self.identity
+    }
+}
+
+/// The registry entry of a chain: `[scope, chain root, Instrument Master link, R0 record, R0 cut]`
+/// mapped to `value`. `None` for a zero dependency or value identity.
+pub(crate) fn issue_market_semantics_chain_registry_entry_v1(
+    dependencies: [BindingDigest; 5],
+    value: MarketSemanticsValueV1,
+) -> Option<MarketSemanticsChainRegistryEntryV1> {
+    if dependencies.contains(&zero())
+        || [
+            value.normalization_identity,
+            value.price_unit_identity,
+            value.size_unit_identity,
+        ]
+        .contains(&zero())
+    {
+        return None;
+    }
+    let mut key_bytes = Vec::with_capacity(2 + 32 * dependencies.len());
+    put_u16(&mut key_bytes, 2);
+
+    for digest in dependencies {
+        key_bytes.extend_from_slice(digest.as_bytes());
+    }
+    let key_identity = sha256(REGISTRY_KEY_DOMAIN, &key_bytes);
+    let mut bytes = Vec::new();
+    put_u16(&mut bytes, 2);
+    bytes.extend_from_slice(key_identity.as_bytes());
+    put_u64(&mut bytes, key_bytes.len() as u64);
+    bytes.extend_from_slice(&key_bytes);
+    put_market_semantics_value(&mut bytes, &value);
+    Some(MarketSemanticsChainRegistryEntryV1 {
+        key_bytes,
+        key_identity,
+        value,
+        identity: sha256(REGISTRY_RECORD_DOMAIN, &bytes),
+        canonical_bytes: bytes,
+    })
+}
+
+/// Reads a stored chain registry record back, only when its bytes reproduce `identity` and state
+/// the key they carry.
+pub(crate) fn decode_market_semantics_chain_registry_entry_v1(
+    bytes: &[u8],
+    identity: BindingDigest,
+) -> Option<MarketSemanticsChainRegistryEntryV1> {
+    if sha256(REGISTRY_RECORD_DOMAIN, bytes) != identity {
+        return None;
+    }
+    let mut reader = Reader { bytes };
+
+    if reader.u16()? != 2 {
+        return None;
+    }
+    let key_identity = reader.digest()?;
+    let length = usize::try_from(reader.u64()?).ok()?;
+    let mut key = Reader {
+        bytes: reader.take(length)?,
+    };
+    let value = reader.value()?;
+
+    if !reader.bytes.is_empty() || key.u16()? != 2 {
+        return None;
+    }
+    let dependencies = [
+        key.digest()?,
+        key.digest()?,
+        key.digest()?,
+        key.digest()?,
+        key.digest()?,
+    ];
+
+    if !key.bytes.is_empty() {
+        return None;
+    }
+    issue_market_semantics_chain_registry_entry_v1(dependencies, value)
+        .filter(|entry| entry.key_identity == key_identity && entry.canonical_bytes == bytes)
+}
+
 struct Reader<'a> {
     bytes: &'a [u8],
 }

@@ -253,6 +253,10 @@ pub enum PitWindowCustodyRefusalV1 {
     /// member's Instrument Master price or quantity increment states; it is never rounded.
     #[error("a value is finer than the instrument's precision")]
     ValueFinerThanInstrumentPrecision,
+    /// `MARKET_SEMANTICS_SCOPE_VALUE_CONFLICT`: the claimed Market Semantics value differs from
+    /// the value a head of its compatibility scope - a snapshot's or another chain's - states.
+    #[error("the Market Semantics value differs from its scope's")]
+    MarketSemanticsScopeValueConflict,
     /// Two versions naming one predecessor, a repeated sequence, or a publication that does not
     /// increase with the sequence.
     #[error("a cross-section's versions branch")]
