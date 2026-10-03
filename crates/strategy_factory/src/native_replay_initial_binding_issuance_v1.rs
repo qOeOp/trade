@@ -133,6 +133,14 @@ const fn market_inputs_cause(error: &NativeReplayInitialOwnerInputsErrorV1) -> C
             NativeReplaySchedulingErrorV1::DeclaredBarTimeframeMismatch => {
                 Cause::DeclaredBarTimeframeMismatch
             }
+            NativeReplaySchedulingErrorV1::ExecutionRoleAbsent => Cause::ExecutionRoleAbsent,
+            NativeReplaySchedulingErrorV1::ExecutionRoleAmbiguous => Cause::ExecutionRoleAmbiguous,
+            NativeReplaySchedulingErrorV1::MoreThanOneRoleTimeframe => {
+                Cause::MoreThanOneRoleTimeframe
+            }
+            NativeReplaySchedulingErrorV1::ExecutionTimeframeNotDeclared => {
+                Cause::ExecutionTimeframeNotDeclared
+            }
             NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable
             | NativeReplaySchedulingErrorV1::OwnerBindingMismatch
             | NativeReplaySchedulingErrorV1::FieldCensusMismatch

@@ -210,12 +210,12 @@ never runs in CI.
   `public` and `product_edge_owner` may create there, so a new function in `public`, which `PUBLIC` may execute by
   default, changes the census and admission needs a new manifest. The census names PostgreSQL 16's privileges,
   and a server of another major is refused rather than measured short.
-- **`B4` consumer not compiled into the deployed image.** `product/rd-workbench/Dockerfile.owner` builds
-  `strategy-factory-rd-owner-api` with default features, which leaves `composer-replay-issuance` off, and the
-  dashboard read binary touches no Market Data surface. The native Replay scheduling consumer is behind that
-  production feature rather than an acceptance one; the repair loop's shared time-evidence consumer is behind
-  `native-replay-execution`, also a production feature. Cleared by the deployed image enabling those production features, which is a
-  deployment decision.
+- **`B4` consumer partly compiled into the deployed image.** `product/rd-workbench/Dockerfile.owner` builds
+  `strategy-factory-rd-owner-api` with `composer-v3-replay`, which includes `composer-replay-issuance`, so the
+  native Replay scheduling consumer is in the image; with no admitted store (`B3`) it has no resolver, and issuance
+  answers `MARKET_DATA_SCHEDULING_NOT_ADMITTED`. The repair loop's shared time-evidence consumer is behind
+  `native-replay-execution`, which the image does not build. Cleared by the deployed image enabling that production
+  feature, a deployment decision that follows `B3`.
 - **`B5` no cross-Owner consumer.** The module's only consumers are the same crate's Replay V2 composition and
   PostgreSQL writers, and most such modules are additionally `pub(crate)` inside `crates/data`. Cleared by one
   fixed consumer named by this document.
@@ -1221,8 +1221,8 @@ and issues the terms into the Instrument Owner's.
   `1 / maxOpenPosLeverage` rounded up at the sixth decimal place, so that a rate base ten cannot state exactly
   is never understated. A position whose notional exceeds the row's `notional_cap` (10000 USDT for
   `LINKUSDT-PERP.BINANCE`) is margined by the venue at later brackets, which these terms do not record, and
-  priced at the first bracket's rates its margin would be understated. The terms carry the cap so that a
-  consumer can refuse such a position; no consumer does yet.
+  priced at the first bracket's rates its margin would be understated. The terms carry the cap, and the Native
+  Replay execution refuses such a run as `ECONOMIC_TERMS_NOTIONAL_ABOVE_RECORDED_TIER` (Strategy Factory page).
 - **The tables are maintained by hand.** The venue changes its brackets and fees without notice and nothing
   here notices. Adding an instrument is adding a row with its source; changing a value is a new revision,
   issued for a validity that does not overlap the earlier revision's, because the Native Replay resolver
@@ -1683,6 +1683,13 @@ and not built. A V2 fact records terms observed at one retrieval and assumed bac
 member's latest fact observed at its selection, so a tick or lot change is never representable and a Replay before the
 retrieval is priced on the terms of the day it was retrieved. This design replaces that one assumption with evidence,
 and admits no other.
+
+- **Why, measured, and when: after U1.** On Binance's public USD-M endpoints, BTCUSDT's tick is 0.10 today, so its
+  canonical price precision is 1, while its 2021-06-01 daily bar opened at 37244.36; SOLUSDT's tick is 0.0100,
+  precision 2, while its 2021-06-01 bar opened at 32.749. Fed to the execution bundle on today's tick, that BTC bar
+  refused the whole bundle by name. Until this lands, a Replay runs each member at the finer of its tick and its
+  window's data, and states which it used (`docs/architecture/strategy-factory.md`); an order then rounds to the
+  data's grid, not to the venue's tick at the time, which only this history can supply.
 
 - **Evidence is an archived snapshot and nothing else.** Every term the Owner holds for an instrument is derived by
   `ExchangeInfoBaselineV2::from_usdm_exchange_info` from an `exchangeInfo` payload retrieved at a stated instant. No
@@ -2258,6 +2265,25 @@ cross-binds the trigger and observation-batch digest. Consumers derive the lifec
 they cannot mint it from caller-selected values or order keys. Market Data never issues `TIMER` or `FILL` triggers:
 those remain unavailable pending real Time/Scheduler and Execution Owner contracts respectively.
 
+**TARGET, a row aligned to its role's scale:** a role reads its value at the role's declared scale, and a canonical
+row carries the value's own minimal scale. Today the binding requires the two to be equal and answers anything else
+as `ScaleMismatch`, so a canonical row can bind only where its price happens to have exactly the role's decimal places.
+The PC-1 probe measured this: a BTCUSDT price on its 0.10 tick has scale 1, and a scale 2 universe role refused it at
+the universe declaration.
+
+- **Alignment.** Every binding (exact instrument and universe member alike) aligns a row whose scale is at most the
+  role's exactly: the mantissa times `10^(role scale - row scale)`, checked.
+- **Refusal.** A row finer than the role is refused by name as `VALUE_FINER_THAN_ROLE_SCALE`, and nothing is
+  rounded.
+- **Receipts.** The role-value receipt seals the aligned value at the role's scale beside the original row digest,
+  so the custody row a value came from stays exact.
+- **Scale 9.** Universe-member roles read at the fixed scale 9 (Strategy Factory, P1). It is the custody series'
+  scale, `decimal_rescale_v1::MARKET_DATA_VALUE_SCALE_V1`, defined once, in Market Data, beside the exact rescale
+  every alignment uses. An instrument's tick changes over its history (BTC's is 0.10 today, but its
+  2021 prices sit on a 0.01 grid; SOL's had 3 decimals in 2021), so the series is fixed at production fixed-point's
+  upper bound, 9, and every row is aligned exactly to it.
+- **Refusal names.** The HTTP refusal names the binding's own cause, never only `STRATEGY_INPUT_BINDING_UNAVAILABLE`.
+
 ### CURRENT/PARTIAL EVENT and BAR Owner custody; TARGET BAR product authority
 
 Market Data implements the versioned `TimeframeSpecV1`, `TimeframeProjectionReceiptV1`, `SampleFactV1`, and
@@ -2365,9 +2391,16 @@ declaration's `row_timeframe` are compared as provenance strings: equality confi
 declaration speaks for, and says nothing about what the label means. A schedule's anchor identity is SHA-256 over
 `market-data.bar-schedule.anchor.v1\0 || anchor tag`, so one anchor means one thing on every schedule; a continuous
 clock binds zero calendar and session identities whatever the Instrument Master names, and a trading-schedule clock
-binds both. The read refuses by name a binding that declares no bar timeframe
-(`SourceBindingDeclaresNoBarTimeframe`) and a role label it declares none for, a declaration from another binding, or
-a member whose schedules at the frame all state another bar (`DeclaredBarTimeframeMismatch`). One role with several
+binds both. In the native Replay scheduling read, the row label is the execution role's: Market Data derives that
+role itself from the request's roles, by `execution_role_semantic_id_v1`, Strategy Factory's rule
+(`derive_execution_role_v2`): a universe Design declares no join, so it is the one role reading the BAR close. No
+caller names it. The read
+refuses a request with no role reading the close (`ExecutionRoleAbsent`) or more than one (`ExecutionRoleAmbiguous`),
+and one in which another BAR role reads a different label (`MoreThanOneRoleTimeframe`): until Strategy Factory slice T2
+resolves each role's own last close, every role is read at the execution role's bar. It refuses by name a binding that
+declares no bar timeframe (`SourceBindingDeclaresNoBarTimeframe`) and an execution label the binding declares no bar
+for, which therefore cannot be typed (`ExecutionTimeframeNotDeclared`); a declaration from another binding, or a member
+whose schedules at the frame all state another bar, is `DeclaredBarTimeframeMismatch`. One role with several
 timeframes cannot be constructed: a role has one label and a label has one declaration. Several timeframes in one
 Design are several roles, either under different labels of one binding, as the admitted joined-cut corpus below does,
 or under different bindings, such as one instrument's 1-hour and 1-day sources; this is the shape Strategy Factory
@@ -3186,8 +3219,114 @@ and the fill timeframe. This is the fetch side that feeds a custody commit. The 
   sidecar. A shard counts only when its bytes match the sidecar. A rerun verifies the shards it has, fetches only the
   missing or mismatched ones, and writes each new one through a temporary file and a rename. The custody is committed
   once, after every shard for it is present, and T0's commit rejoins an identical resubmission.
+- **Status.** The fetch side is in `crates/adapters/binance/src/vision_backfill_v1.rs`.
+  - Execution months are read through verified shards and a reuse that refetches nothing.
+  - A damaged or mismatched shard is fetched again; a mismatched archive is refused and never kept.
+  - Fill bars are taken strictly inside their gap, with no credential.
+  - A live test reads the real headerless 2021-06 month, the headed 2025-12 month and one real fill bar.
+  - Mapping the bars onto T0's custody request, and the commit, wait for T0's request types.
 - **Retrieval is today.** The custody's retrieval instant is the wall clock when the fetch ran. Visibility comes from
   the Source Binding's availability rule, never from a historical retrieval coordinate.
+- **The fill gap's lag comes only from the binding.** `fill_bars` takes the availability rule of the Source Binding
+  proposal the custody is committed under and locates each gap from its `lag_ns`. No caller states a lag of its own: a
+  smaller lag selects a bar the custody refuses, but a larger one selects a later bar still inside the gap, which
+  nothing downstream can tell from the right one, so the fill price would be silently wrong.
+- **A fill bar has closed when it is retrieved.** The endpoint serves the bar still forming as its last. A fill bar
+  whose close time is not before its retrieval is refused as `FillBarNotClosed` and never becomes a row, because the
+  custody would refuse that row as retrieved before its bar's close. A bar that has closed but is not yet visible,
+  its close plus the declared lag still ahead of the commit, is submitted again later.
+- **The writer passes values as the venue published them.** `crates/adapters/binance/src/vision_backfill_custody_v1.rs`
+  turns one member's fetched bars into one custody request: every bar of every input timeframe and every fill bar
+  whose interval-close instant lies in `[window_start_ns, window_end_ns_exclusive)`, each an original version
+  labelled by that instant, in the custody's canonical order of timeframe label then event instant, with `OPEN`,
+  `HIGH`, `LOW`, `CLOSE` and `VOLUME` as the exact mantissa and scale the venue's string spells. The window ends one
+  execution interval after the last execution bar's close, so the last gap and its fill bar lie inside it. The custody commit
+  rescales each value to the member's Instrument Master precision and refuses a finer one, because the commit is where
+  external market data enters Market Data; the writer does not check it a second time.
+- **Each refusal names what the backfill does.** A refusal means submit the same custody again later, a defect in
+  the request the writer built, or a basis - binding, semantics, selection, window or timeframes - that needs replacing
+  before anything is committed.
+- **Its caller is Market Data's backfill job.** Nothing calls the writer in production yet, because nothing
+  implements the custody commit until the custody aggregate (T0-4a) does. Its caller is then the backfill job below,
+  which a worker in the Market Data service runs: the entry through which this external history enters Market Data, so
+  it sits in the Market Data layer, never in R&D, where a higher layer would be ingesting for a lower one. A command
+  line over the same function serves an operator. U1's acceptance runs it once each for BTC, ETH and SOL in the
+  deployment image, then reads each member's coverage.
+
+### TARGET market-data MCP server
+
+The `market-data` server of the [domain MCP catalog](../architecture/product-edge#target---external-agent-tool-surface)
+is served by Market Data. It is a stateless stdio process that holds the Market Data API token in its own environment
+and reaches Market Data's routes only. Every rule lives in Market Data behind a route; a tool sends one request,
+passes its answer or refusal through by name, and sequences nothing. The same functions are a command line with the
+same names.
+
+| Tool                                     | Route                                                   | Refusals by name                                                                 |
+| ---------------------------------------- | ------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `list_instruments()`                     | `GET /v1/market-data/instruments`                       | -                                                                                |
+| `describe_instrument(instrument)`        | `GET /v1/market-data/instruments/{instrument}`          | `INSTRUMENT_UNKNOWN`                                                             |
+| `admit_instrument(instrument)`           | `POST /v1/market-data/binance-perpetual-admissions`     | each admission step's own refusal                                                |
+| `backfill(instrument, timeframe, range)` | `POST /v1/market-data/backfill-jobs`                    | `INSTRUMENT_UNKNOWN`, `TIMEFRAME_UNSUPPORTED`, `RANGE_INVALID`                   |
+| `job_status(job_id)`                     | `GET /v1/market-data/backfill-jobs/{job_id}`            | `JOB_UNKNOWN`                                                                    |
+| `coverage(instrument)`                   | `GET /v1/market-data/instruments/{instrument}/coverage` | `INSTRUMENT_UNKNOWN`                                                             |
+| `get_bars(instrument, timeframe, range)` | after T0-5, over the run window custody view            | `HOLDOUT_PARTITION_UNDEFINED`, `RANGE_NOT_COVERED`, `RANGE_TOO_LARGE_FOR_INLINE` |
+| `get_funding(instrument, range)`         | after the funding schedule read below                   | `HOLDOUT_PARTITION_UNDEFINED`, `RANGE_NOT_COVERED`, `RANGE_TOO_LARGE_FOR_INLINE` |
+
+- **Admission is one Market Data operation.** `POST /v1/market-data/binance-perpetual-admissions` takes a Binance
+  USD-M symbol. Market Data fetches the symbol's public `exchangeInfo` entry and commits, in order, the facts the first
+  `COMPOSER_V3` Replay's acceptance commits through separate routes today: the kline Source Binding, the Instrument
+  Master fact, the `exchangeInfo` Source Binding, the Instrument Master V2 fact, the economic terms, and the historical
+  membership. It is re-entrant: a step already admitted with the same content answers `ALREADY_ADMITTED` and the next
+  step runs, so a rerun after any failure completes the rest. The kline binding proposal, with its availability rule,
+  is constructed only here, and every backfill of the instrument reads that same proposal to locate its fill gaps. All
+  six steps stay in the data layer.
+- **A backfill is a job Market Data runs.** `backfill` records a `QUEUED` job fact and returns its `job_id`. A worker in
+  the Market Data service fetches the archive months and fill bars, builds the member's custody request and commits it,
+  and records `RUNNING`, then `SUCCEEDED` with the custody receipt and the coverage it added, or `FAILED` with the
+  refusal's name. Job facts are append-only and the MCP server holds no job state. The timeframe is the custody's
+  execution timeframe: U1 supports `1d` and `4h`, the `1m` fill timeframe comes with it, and any other is
+  `TIMEFRAME_UNSUPPORTED`.
+- **Coverage is what custody holds.** `coverage` answers, for each execution timeframe, the half-open ranges the
+  member's committed custody windows cover, read from the custody chains. It states no market value.
+- **A run names its data by description.** A `dataset_ref` is the description
+  `(instrument, execution_timeframe, [start, end))`, which an agent writes from `coverage`; no tool issues it. The service that runs a backtest resolves it
+  against the custody chain that covers it, records the head it resolved, and refuses a range no custody covers as
+  `DATASET_REF_UNRESOLVED`. A backtest therefore never needs `get_bars`.
+- **Agent reads are recorded by Market Data.** Before a tool returns market values - bars or funding rates - to an
+  agent, Market Data appends one agent data-read row per instrument in the same transaction that reads them: the
+  server's session identity, minted when the server process starts, the instrument, the timeframe, the half-open range
+  `[start, end)` in event nanoseconds, the tool, and the commit cut. A read whose rows cannot be written refuses. These
+  rows moved here from R&D's data-read ledger, which held the agent-session rows while R&D was meant to own the agent's
+  tools; R&D's census reads them downward and still writes the trial rows itself. Until a session is bound to a
+  lineage, R&D counts an agent read against every lineage.
+- **No market value reaches an agent before the holdout partition exists.** No Owner defines Qualification's holdout
+  partition yet, so `get_bars` and `get_funding` refuse every request as `HOLDOUT_PARTITION_UNDEFINED`, as every
+  hand-out of R&D's data-read ledger does.
+- **TARGET, after U1, Lane 4: Qualification registers its partition into Market Data.** Qualification calls down and
+  registers the protected instruments and periods by value; Market Data only refuses. Then a tool refuses a range that
+  overlaps a protected period as `RANGE_IN_HOLDOUT_PARTITION`, and a backtest whose window overlaps one is refused by
+  name, because its result alone would leak the holdout. Until the partition is registered, every backtest report
+  states that no holdout partition is defined and that its results are exploratory only.
+- **Accepted on its own** when, in the deployment image and through this server alone, BTC, ETH and SOL are admitted,
+  each is backfilled for `1d` with its `1m` fill, `coverage` shows the windows, and every refusal above is driven once.
+
+### TARGET window funding schedule read
+
+A Replay settles funding at every settlement inside its window, so it needs all of them, not the last two the
+perpetual Data Client states per scope. Market Data reads, for a request's members and window, every settled
+`(settlement_ns, rate)` in time order and returns a `ReplayFundingScheduleV1`, the value type in
+`crates/data/src/owner/replay_funding_schedule_v1.rs` that fixes its canonical encoding and digest.
+
+- **Completeness is Market Data's.** Market Data derives each member's settlement interval from the instrument's facts
+  and refuses a window with a missing settlement by name, never filling it with zero. An empty list means the window
+  holds no settlement instant; it is never an answer for missing data.
+- **The rows come in through the backfill path.** The public funding archive and the unsigned `fundingRate`
+  endpoint are both sources; neither needs a credential.
+- **It is read downward and passed by value.** R&D reads the schedule and places it in the Replay bundle; Backtest
+  never reads Market Data back. Only a schedule Market Data produced is complete: the type's constructor checks
+  canonical order, not completeness.
+- **Accepted** on one real month of BTCUSDT: the count equals the venue's settlements, and a month with one removed is
+  refused by name.
 
 ## Input handoffs
 

@@ -125,6 +125,116 @@ Governance 拥有部署与生命周期决定，Runtime 拥有策略实例 checkp
 和 `KNOWN_CLOSED`，Portfolio 拥有账户与表现投影。缓存、事件、
 通知或只读投影都不能成为第二权威。
 
+## Owner 分层与 Owner 间信任
+
+所有 Owner 组成一个栈。从下到上依次是：
+
+1. 数据层：Market Data 与 Instrument Master。
+2. Backtest：一个服务，只读数据层。
+3. R&D：编排层。向下调用 Market Data 与 Backtest；census 读取 Backtest Results 属于向下读。
+4. Qualification 与前向阶段：向下调用 Backtest，R&D 的 Candidate 以值的形式传入。
+5. Governance 与交易侧：Governance、Runtime、Risk、Execution、Portfolio 与 Scanner。
+
+Product Edge 与 Operator Authorization 是栈之上的外边界，不是栈内的一层。
+`vibe-strategy-factory-rd-owner-api` 是组装根：它链接自己装配的每个 Owner，它的 crate 依赖不算层间边。继承来的引擎
+crate（`vibe-backtest`、`vibe-execution`、`vibe-portfolio`、`vibe-risk`、`vibe-trading`）是库，不是 Owner，任何一层都可以链接。
+
+这个栈由四条规则约束：
+
+- **调用只向下。** 一个 Owner 可以调用、链接或被授予更低层 Owner 的函数。信息只能这样到达更高层：低层 Owner 追加一条事实或事件，
+  由高层 Owner 去读。同一层内的调用只要保持单向就允许；双向调用的一对就是双向边。
+- **跨层只传值。** 高层 Owner 把低层 Owner 需要的值放进请求，每个值都带着自己的内容摘要。低层 Owner 直接使用，绝不回读高层
+  Owner 去核对。摘要给这个值提供内容地址和追加身份，不是用来防调用方的证据。
+- **唯一的信任边界是外边界。** 输入在进入产品的地方严格验证一次：外部 agent 的输入在 `rd-owner-api` HTTP 层，外部行情在
+  Market Data 接入处。产品内部，一个 Owner 不再复核另一个 Owner 的值。
+- **每个 Owner 都是独立模块。** 只靠自己的 crate、自己的 schema，加上下层 Owner 的公开契约（或契约的桩），一个 Owner 就能单独构建、
+  单独在新库上迁移、单独跑测试、单独部署运行。任意两个相邻的 Owner 挑出来就能组合，测一段链路，不需要把整个栈拉起来。改一个 Owner
+  的内部绝不迫使别的 Owner 跟着改；能牵动别人的只有它的公开契约。可量的形式：一个 Owner 的 crate 的 normal 依赖闭包里，只有这个
+  Owner 自己的 crate、更低层 Owner 的 crate、它单向调用的同层 Owner 的 crate，以及无 Owner 的库；每个 Owner 的契约放在一个叶子
+  crate 里，只有类型，只依赖无 Owner 的库。
+
+第四条规则增加一条约束，由用户于 2026-10-03 提出。第三条规则是对文档此前所述不变式的放宽：此前要求每个 Owner 在信任另一个 Owner 的值之前，自己去读原始记录。用户于 2026-10-03 授权了这次
+放宽（AskUserQuestion，选项「放宽：只在外边界验」）。理由是下面实测的基线：跨 Owner 回读造成了五对双向 Owner，每一对都是依赖环。
+
+这次放宽不改变：
+
+- 外边界上严格的、一次性的验证；
+- Qualification 的 holdout 隔离。它是信息隔离，不是 Owner 间信任：受保护结果与单元明细仍然绝不回到 R&D，累计 holdout 历史仍然只由
+  Qualification 解析；
+- 自动交易写链与模拟和实盘同语义两节所述的真钱、Risk 与 Execution 边界；
+- 只追加的事实、内容寻址，以及每个可变事实只有一个权威。
+
+新设计从现在起遵守这些规则。本文档其他章节凡是要求低层 Owner 读取或锁定高层 Owner 的记录来核对某个值的，那段文字描述的是
+`CURRENT` 实现，并在下面的拆除清单里有一行；它不是新设计的范式。现有的边在 U1 之后逐行拆除。
+
+### `80e9497a8` 上的基线
+
+基线在 `main` 的 `80e9497a8` 上测量：
+
+- crate 边：`cargo metadata --format-version 1 --no-deps`，只取 normal 依赖（排除 dev 与 build 依赖），每个 crate 归到它的 Owner。
+- 数据库边：`product/rd-workbench/postgres-init/`、迁移与 crate DDL 里每一条授予 Owner 角色的 `GRANT`；每一个提到另一个 Owner
+  schema 的 `CREATE FUNCTION` 函数体；以及每一条提到另一个 Owner schema 的生产 Rust SQL 字符串。授予 `vibe_test_*` 角色的
+  grant 和测试或 CI 夹具文件里的 grant（36 处）单独报告，不算边。
+- 正控：扫描找到了已知的 `market_data_rd_api` 授予 `rd_owner`，位于
+  `crates/data/src/owner/postgres/rd_strategy_input_custody.rs:24`。
+- 覆盖：函数体解析器读到了 212 个生产 `CREATE FUNCTION` 定义中的 199 个。Rust 文件里漏掉的 6 个由 SQL 字符串扫描覆盖。
+  `10-migrate-authority-custody.sh` 里漏掉的 7 个已逐个人工阅读，全部只提到 R&D 的 schema。
+
+双向的几对是：Backtest 与 R&D、Market Data 与 R&D、Backtest 与 Qualification、R&D 与 Qualification、R&D 与 Product Edge。
+向下的边（R&D 到 Market Data 与 Backtest，Qualification 到 Market Data、Backtest 与 R&D，Product Edge 到栈）以及第 5 层内部的单向调用
+符合规则，不列出。
+
+### `80e9497a8` 上的依赖闭包
+
+每个 Owner crate 的闭包取 `cargo tree -p <crate> -e normal`，它按这个 crate 自己的默认 feature 解析，与 `cargo build -p <crate>`
+构建的完全一致；再用 `--all-features` 跑一次，暴露可选 feature 拉进来的东西。下表列出闭包里每一个被第四条规则排除的 crate。没有列出的
+crate 都符合规则：`vibe-data`、`vibe-binance`、`vibe-databento`、`vibe-qualification`、交易侧各 Owner 的 crate、Scanner 的 crate，以及
+同层的单向使用（Runtime 用 Execution，Product Edge 用 Operator Authorization）。`vibe-strategy-factory-rd-owner-api` 是组装根，不受此约束。
+
+| Owner crate                                | 闭包中的工作区 crate | 被第四条规则排除的 crate                                                                                                                                                                                                                                                                                                                                            |
+| ------------------------------------------ | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `vibe-data` 加 `--all-features`            | 16                   | `vibe-rd-exploratory-replay-custody`、`vibe-rd-artifact-invocation-custody`、`vibe-rd-source-intake-invocation-custody`、`strategy-factory-program-sdk`、`vibe-backtest-owner-contracts`、`vibe-product-edge`、`vibe-product-edge-claim-custody`、`vibe-product-edge-contracts`、`vibe-operator-authorization`，全部经由 `isolated-event-replay-acceptance` feature |
+| `vibe-market-data-repair-custody`          | 6                    | `vibe-rd-market-data-repair-custody`                                                                                                                                                                                                                                                                                                                                |
+| `vibe-backtest-owner`                      | 30                   | `vibe-strategy-factory`、`strategy-factory-program-sdk`、`vibe-rd-artifact-invocation-custody`、`vibe-rd-exploratory-replay-custody`、`vibe-rd-market-data-repair-custody`、`vibe-rd-source-intake-invocation-custody`、`vibe-qualification`、`vibe-product-edge`、`vibe-product-edge-claim-custody`、`vibe-product-edge-contracts`、`vibe-operator-authorization`  |
+| `vibe-backtest-owner-contracts`            | 1                    | `strategy-factory-program-sdk`                                                                                                                                                                                                                                                                                                                                      |
+| `vibe-backtest-result-custody`             | 2                    | `strategy-factory-program-sdk`                                                                                                                                                                                                                                                                                                                                      |
+| `vibe-strategy-factory`                    | 29                   | `vibe-qualification`、`vibe-product-edge`、`vibe-product-edge-claim-custody`、`vibe-product-edge-contracts`、`vibe-operator-authorization`                                                                                                                                                                                                                          |
+| `vibe-rd-exploratory-replay-custody`       | 10                   | `vibe-product-edge`、`vibe-product-edge-claim-custody`、`vibe-product-edge-contracts`、`vibe-operator-authorization`                                                                                                                                                                                                                                                |
+| `vibe-rd-artifact-invocation-custody`      | 1                    | `vibe-product-edge-claim-custody`                                                                                                                                                                                                                                                                                                                                   |
+| `vibe-rd-source-intake-invocation-custody` | 1                    | `vibe-product-edge-claim-custody`                                                                                                                                                                                                                                                                                                                                   |
+
+crate 图之外还有两件事阻碍独立。一个脚本 `product/rd-workbench/postgres-init/10-migrate-authority-custody.sh`（5869 行）创建所有 Owner
+的 schema，所以没有一个 Owner 能单独迁移数据库。四个核心 Owner 里只有 Backtest 有契约 crate（`vibe-backtest-owner-contracts`）；Market
+Data、R&D 与 Qualification 都是被整个 crate 依赖。
+
+### 拆除清单
+
+每一行都是 `TARGET`，在 U1 之后由各自可单独评审的改动拆除。一行关闭的条件是：它的 crate 边、grant 与调用点全部消失，并且重跑基线显示
+这一对已是单向。路径以 `80e9497a8` 为准；`10-migrate` 指 `product/rd-workbench/postgres-init/10-migrate-authority-custody.sh`。
+
+| 反向边                    | 状态     | 证据                                                                                                                                                                                                                                                                                                                                                                                                                                              | 拆除方式                                                                                                              |
+| ------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| Backtest 到 R&D           | `TARGET` | crate `vibe-backtest-owner` 到 `vibe-strategy-factory`，`crates/backtest_owner/Cargo.toml:26`；`rd_owner_api` 授予 `backtest_owner`，位于 `10-migrate:225`、`:1255` 与 `crates/strategy_factory/src/exploratory_replay/postgres.rs:1669`、`:2256`、`:2263`、`:2277`；调用 `rd_owner_api.lock_ready_for_selection_for_qualification_v1`，位于 `crates/backtest_owner/src/lib.rs:1464`                                                              | 调用方把 Candidate 的值放进回放请求；Backtest 不再读 R&D。                                                            |
+| Market Data 到 R&D        | `TARGET` | crate `vibe-data` 到 `vibe-rd-exploratory-replay-custody`（optional），`crates/data/Cargo.toml:52`；crate `vibe-market-data-repair-custody` 到 `vibe-rd-market-data-repair-custody`，`crates/market_data_repair_custody/Cargo.toml:19`；`composer_owner_api` 与 `rd_owner_api` 授予 `market_data_owner` 与 `market_data_reader` 共 22 处，起于 `10-migrate:228`；调用位于 `crates/data/src/owner/postgres/replay_market_facts_v2.rs:90` è³ `:96`  | R&D 把 role intent、role set 与 native join 的值放进 market facts 请求；Market Data 不再解析 R&D 与 Composer 的记录。 |
+| R&D 到 Qualification      | `TARGET` | crate `vibe-strategy-factory` 到 `vibe-qualification`，`crates/strategy_factory/Cargo.toml:84`；`qualification_api` 授予 `rd_owner`，位于 `10-migrate:2200`、`:2767`、`:2827`                                                                                                                                                                                                                                                                     | Qualification 以值的形式接收 Candidate 与 Independence Basis，或读取 R&D 追加的事实；这次改动必须保持 holdout 隔离。  |
+| R&D 到 Product Edge       | `TARGET` | crate 到 `vibe-product-edge-claim-custody`，位于 `crates/rd_artifact_invocation_custody/Cargo.toml:19` 与 `crates/rd_source_intake_invocation_custody/Cargo.toml:19`；crate 到 `vibe-product-edge`，位于 `crates/rd_exploratory_replay_custody/Cargo.toml:22` 与 `crates/strategy_factory/Cargo.toml:83`；`product_edge_api` 授予 `rd_owner`，起于 `10-migrate:221`；调用位于 `crates/rd_source_intake_invocation_custody/src/lib.rs:264`、`:546` | Product Edge 把 claim 的值放进发给 R&D 的请求；R&D 不再锁定 Product Edge 的记录。                                     |
+| Backtest 到 Qualification | `TARGET` | `qualification_api` 授予 `backtest_owner`，位于 `10-migrate:2200`、`:2593`、`:2676`；调用 `qualification_api.lock_protected_replay_request_v1` 与 `_set_v1`，位于 `crates/backtest_owner/src/protected_replay_postgres.rs:1128`、`:1205`、`:1282`                                                                                                                                                                                                 | Qualification 把 Protected Replay Request 的值放进调用；Backtest 不再锁定它。holdout 隔离不变。                       |
+| Backtest 到 Product Edge  | `TARGET` | `product_edge_api` 授予 `backtest_owner`，位于 `10-migrate:221`、`:4188`、`:4279` 与 `crates/strategy_factory/src/exploratory_replay/postgres.rs:1671`；Backtest crate 里没有调用点，`lock_downstream_admission_v1` 唯一的 Rust 调用方是 `crates/product_edge/src/postgres.rs:4914`                                                                                                                                                               | 找到实际行使这些 grant 的连接，然后改为传值或撤销 grant。                                                             |
+| Portfolio 到 Product Edge | `TARGET` | `product_edge_api` 授予 `portfolio_owner`，位于 `10-migrate:221`、`:4478`；Portfolio crate 里没有调用点，`lock_portfolio_read_policy_v1` 唯一的 Rust 调用方是 `crates/product_edge/src/postgres.rs:5011`                                                                                                                                                                                                                                          | 找到实际行使这些 grant 的连接，然后改为传 read policy 的值或撤销 grant。                                              |
+
+模块独立再加下面这些 `TARGET` 行。一行关闭的条件是：被点名的 Owner 只用自己的 crate、在由它自己的脚本迁移的新库上，以桩代替下层 Owner
+的契约，就能用 `cargo test -p` 构建并跑完测试。
+
+| 独立目标                              | 状态     | 证据                                                                               | 工作                                                                                            |
+| ------------------------------------- | -------- | ---------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| Market Data 单独构建与测试            | `TARGET` | 闭包表里 `vibe-data` 与 `vibe-market-data-repair-custody` 两行                     | 把 `isolated-event-replay-acceptance` 验收移出 `vibe-data`；去掉 repair custody 对 R&D 的依赖。 |
+| Backtest 单独构建与测试               | `TARGET` | 闭包表里 `vibe-backtest-owner` 一行                                                | 去掉对 `vibe-strategy-factory` 的依赖；program SDK 改为无 Owner 的库，或从契约里移出。          |
+| R&D 单独构建与测试                    | `TARGET` | 闭包表里 `vibe-strategy-factory` 与 `vibe-rd-*` 各行                               | 去掉对 Qualification、Product Edge 与 Operator Authorization 的依赖。                           |
+| Qualification 单独构建与测试          | `TARGET` | 今天没有被排除的 crate；它整个依赖 `vibe-data` 与 Backtest                         | 改为依赖下层 Owner 的契约 crate，而不是整个 crate。                                             |
+| 每个核心 Owner 的契约是叶子 crate     | `TARGET` | 只有 `vibe-backtest-owner-contracts` 存在，且它依赖 `strategy-factory-program-sdk` | 为 Market Data、R&D 与 Qualification 加契约 crate，只放类型，只依赖无 Owner 的库。              |
+| 每个 Owner 迁移自己的 schema          | `TARGET` | 一个 5869 行的 `10-migrate-authority-custody.sh` 创建所有 Owner 的 schema          | 按 Owner 拆分迁移，自下而上排序，每份只创建自己的 schema 和上层调用方需要的 grant。             |
+| 每个 Owner 的路由与存储脱离组装根运行 | `TARGET` | `rd-owner-api` 在一个进程里承载多个 Owner 的路由                                   | 保留 `rd-owner-api` 作为组装根；让每个 Owner 的路由与存储能单独启动。                           |
+
 ## 研究、开发与资格评估
 
 探索重放只有在请求与结果逐项完全相等时才能被接收和选择。终态 Exploratory Run Result 必须准确重复

@@ -8724,9 +8724,7 @@ where
     // The bar the frame's schedules must state is the one its own Source Binding declares for the
     // roles' row label, taken from the lineage rows the evidence verified the batch against: no
     // further read.
-    let timeframe = request
-        .schedule_timeframe()
-        .ok_or(NativeReplaySchedulingErrorV1::OwnerBindingMismatch)?;
+    let timeframe = request.execution_timeframe()?;
     let declared = DeclaredBarTimeframeV1::from_binding(&source, timeframe)
         .map_err(native_replay_scheduling_error_of_declaration)?;
     let mut schedules = Vec::with_capacity(request.member_instruments().len());
@@ -8940,9 +8938,7 @@ async fn resolve_native_replay_initial_market_from_pool_v1(
         .execute(&mut *transaction)
         .await
         .map_err(|_| NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)?;
-    let timeframe = request
-        .schedule_timeframe()
-        .ok_or(NativeReplaySchedulingErrorV1::OwnerBindingMismatch)?;
+    let timeframe = request.execution_timeframe()?;
     let declared = declared_bar_timeframe_of_batch_v1(&mut transaction, &batch, timeframe).await?;
     let mut schedules = Vec::with_capacity(request.member_instruments().len());
 
@@ -9008,10 +9004,46 @@ const fn native_replay_scheduling_error_of_declaration(
         DeclaredBarTimeframeErrorV1::SourceBindingDeclaresNoBarTimeframe => {
             NativeReplaySchedulingErrorV1::SourceBindingDeclaresNoBarTimeframe
         }
-        DeclaredBarTimeframeErrorV1::NotTheBatchBinding
-        | DeclaredBarTimeframeErrorV1::TimeframeLabelNotDeclared => {
+        DeclaredBarTimeframeErrorV1::TimeframeLabelNotDeclared => {
+            NativeReplaySchedulingErrorV1::ExecutionTimeframeNotDeclared
+        }
+        DeclaredBarTimeframeErrorV1::NotTheBatchBinding => {
             NativeReplaySchedulingErrorV1::DeclaredBarTimeframeMismatch
         }
+    }
+}
+
+#[cfg(test)]
+mod declaration_refusal_tests {
+    use super::{
+        DeclaredBarTimeframeErrorV1, NativeReplaySchedulingErrorV1,
+        native_replay_scheduling_error_of_declaration,
+    };
+
+    /// The scheduling read types only the execution role's label, so a label the binding declares
+    /// no bar for is that role's untyped timeframe, named apart from a declaration of another
+    /// binding.
+    #[rstest::rstest]
+    #[case(
+        DeclaredBarTimeframeErrorV1::TimeframeLabelNotDeclared,
+        NativeReplaySchedulingErrorV1::ExecutionTimeframeNotDeclared
+    )]
+    #[case(
+        DeclaredBarTimeframeErrorV1::NotTheBatchBinding,
+        NativeReplaySchedulingErrorV1::DeclaredBarTimeframeMismatch
+    )]
+    #[case(
+        DeclaredBarTimeframeErrorV1::SourceBindingDeclaresNoBarTimeframe,
+        NativeReplaySchedulingErrorV1::SourceBindingDeclaresNoBarTimeframe
+    )]
+    fn each_declaration_refusal_keeps_its_own_name(
+        #[case] declaration: DeclaredBarTimeframeErrorV1,
+        #[case] scheduling: NativeReplaySchedulingErrorV1,
+    ) {
+        assert_eq!(
+            native_replay_scheduling_error_of_declaration(declaration),
+            scheduling
+        );
     }
 }
 

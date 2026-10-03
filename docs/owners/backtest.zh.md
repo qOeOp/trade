@@ -72,7 +72,7 @@
   `run_exploratory_replay_v2` 在自身 crate 之外恰有一个调用方，即
   `crates/strategy_factory_rd_owner_api/src/exploratory_replay.rs`，而该调用方位于
   生产 feature `#[cfg(feature = "native-replay-execution")]` 之下；镜像构建
-  `--bin strategy-factory-rd-owner-api` 时根本不带 `--features` 参数。这量的是部署产物，不是历史。另一条公开
+  `--bin strategy-factory-rd-owner-api` 时只带 `--features composer-v3-replay`。这量的是部署产物，不是历史。另一条公开
   提交路径 `commit_exploratory_replay_result_v2` 的调用方只存在于
   `crates/backtest_owner/src/lib.rs` 的 `#[cfg(test)]` 模块内。
 - **CURRENT_PARTIAL - 保护观测：** Backtest 从它自己执行的那次运行的规范结果派生出观测，现在也能得知为那次
@@ -246,7 +246,7 @@ Result 时以 `EXPLORATORY_REQUEST_RESULTS_EXCEED_BOUND` 拒绝。该读取不�
 `BACKTEST_OWNER_V1` Instrument Master 解析标为 **TARGET**，因此此处任何内容都不得读作一条已准入的消费路径。
 探索路径在已部署的产物里同样不可达：`run_exploratory_replay_v2` 在其自身 crate 之外唯一的调用者位于
 生产 feature `#[cfg(feature = "native-replay-execution")]` 之下，而 `product/rd-workbench/Dockerfile.owner`
-构建 `strategy-factory-rd-owner-api` 时完全不带任何 feature 开关。这测的是部署产物而不是历史；它没有断言
+构建 `strategy-factory-rd-owner-api` 时不带它。这测的是部署产物而不是历史；它没有断言
 该路径是否曾在别的环境里跑过。
 
 ## 输出交接

@@ -1287,6 +1287,11 @@ async fn postgres_availability_follows_the_rule_and_never_passes_the_minting_cut
 /// research snapshot of `AAPL`, binding `B` (schema 2, declaring bars) states the same semantics,
 /// so both resolve to one scope. The Owner clock then moves to `FIRST_CUT`, so a custody whose
 /// rows were retrieved before it is minted at the head.
+///
+/// It runs on the test clock, not the Owner clock: the snapshot fixtures (`research_request_pit_v1`
+/// and its universe, Instrument Master and R0 base) are minted at the test clock's instants 40 and
+/// below and commit against that exact clock head, so on the Owner clock no snapshot could be
+/// taken. The custody therefore mints no clock here: it is minted at the advanced test head.
 struct SharedScopeV1 {
     owner: MarketDataOwnerPostgres,
     snapshot_binding: SourceBindingCommit,

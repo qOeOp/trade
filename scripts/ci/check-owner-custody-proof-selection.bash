@@ -183,10 +183,11 @@ if [ -f scripts/ci/test-rd-owner-postgres.bash ]; then
     sed "s/.*:://;s/'//" >> "$selected" || true
 fi
 
-# The toolchain proof script lists each name as a quoted string, one selector per entry.
+# The toolchain proof script lists each name as a quoted string, one selector per entry. An rstest
+# case is selected as `<proof>::case_<n>_<label>`, so its case segment is dropped to name the proof.
 if [ -f scripts/ci/test-toolchain-proofs.bash ]; then
   rg -o "'[a-z_0-9]+(::[a-z_0-9]+)*'" scripts/ci/test-toolchain-proofs.bash 2> /dev/null |
-    sed "s/'//g;s/.*:://" >> "$selected" || true
+    sed "s/'//g;s/::case_[0-9]*_[a-z_0-9]*$//;s/.*:://" >> "$selected" || true
 fi
 
 # The Market Data chain lists each selector as a path on its own line.
