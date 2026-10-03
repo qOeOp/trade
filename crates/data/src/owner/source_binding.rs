@@ -694,6 +694,9 @@ pub enum SourceBindingError {
     TrustedClockMismatch,
     /// Time evidence is zero, stale, incomplete, or incorrectly ordered at the exact cut.
     InvalidTimeEvidence,
+    /// Well-ordered time evidence names a provider, retrieval or correction instant the Owner's
+    /// decision cut has not reached.
+    TimeEvidenceAfterDecisionCut,
     /// The requested predecessor is not the locked current lineage head.
     LineageHeadMismatch,
     /// A successor did not strictly advance the canonical frontiers and time evidence.

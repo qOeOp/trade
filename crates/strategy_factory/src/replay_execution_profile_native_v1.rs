@@ -1207,6 +1207,7 @@ mod tests {
                 mantissa: 5,
                 scale: 2,
             },
+            margin_notional_cap: None,
         }
     }
 

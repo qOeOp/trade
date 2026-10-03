@@ -42,6 +42,7 @@ fn fact() -> InstrumentEconomicTermsFactV1 {
             scale: 2,
         },
         margin_meaning: InstrumentMarginMeaningV1::StandardNotionalRate,
+        margin_notional_cap: None,
     })
     .unwrap()
 }

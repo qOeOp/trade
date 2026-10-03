@@ -660,7 +660,10 @@ R&D 仅在准确读取 V1 binding 和每一帧的 Owner 能力后，原子托管
 V2 sequence digest 覆盖各帧顺序及全部 frame、schedule、liquidity receipt。精确重试和响应丢失恢复只回读
 原记录，意义变化零写入冲突。Native preparation 必须独立重解每个 Owner cut、逐字节复现 V2 binding，再交付
 move-only bundle；bundle 在 ProgramHost 或 Backtest 改变状态前验证每帧完整 BAR、随后真实 EVENT 流动性、
-跨帧时间顺序和请求窗口。不能把 V1 解释成 V2，也不能在 V2 来源不可用时退回 V1。
+跨帧时间顺序和请求窗口。不能把 V1 解释成 V2，也不能在 V2 来源不可用时退回 V1。Market Data 按规范 scale 签发每个
+BAR 与 Quote 的值，所以 0.001 tick 上的收盘价 123.450 到达时是 123.45。bundle 把每个价格与数量在不改变数值的前提下
+改写为其 instrument 的精度，比 instrument 网格更细的值按名拒绝；随后对任何不在其 instrument 精度上的 BAR 或 Quote 按名
+拒绝，否则引擎会静默丢弃该数据，运行却照常完成。
 
 Backtest V2 Result custody 绑定 V2 binding、sequence digest、每帧消费顺序、实际 target set/fill 和本次
 canonical Result bytes；单帧 V1 的 28 项证据不能证明一次序列运行。只有每个成员真实进场成交、出场再次成交、
@@ -1171,9 +1174,10 @@ PostgreSQL store 都会在 provenance 存在前失败。private fact 与 atomic 
 Owner 还会拒绝任何非超级用户登录角色的直接或角色派生有效访问，包括 Owner 角色成员关系与 PostgreSQL
 全库读写角色。
 public-fact identity/digest、venue、margin-account scope、半开 event validity、source/provenance、revision、
-quote/fee currency 与每个准确 term byte。首版只接受正 fixed `STANDARD_NOTIONAL_RATE` initial/maintenance
-value，并明确选择 `StandardMarginModel`（`notional * rate`，不经 leverage）；绝不推断
-`LeveragedMarginModel`。可见 economic configuration 不能自证这些值，missing value 也绝不会变为零或原生
+quote/fee currency 与每个准确 term byte。首版只接受正 fixed initial/maintenance value，语义为
+`STANDARD_NOTIONAL_RATE` 或 `FIRST_BRACKET_NOTIONAL_RATE`，并明确选择 `StandardMarginModel`（`notional * rate`，
+不经 leverage）；绝不推断 `LeveragedMarginModel`。first-bracket terms 只在其 `margin_notional_cap` 以内成立，binding
+把该上限与比率一起记录并绑定进 terms digest，因此 bound terms 的 consumer 可以读到它。可见 economic configuration 不能自证这些值，missing value 也绝不会变为零或原生
 default。错误 fact、receipt、terms、venue、account 或 time，以及 noncanonical、partial、extra、
 cross-spliced、tampered 或 ACL-drifted custody 都会在 `ProgramHostV2` 或 Backtest state 存在前失败。既有
 profile canonical bytes 与 digest 保持不变。

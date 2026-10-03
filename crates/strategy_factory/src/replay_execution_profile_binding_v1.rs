@@ -178,6 +178,7 @@ pub struct SealedInstrumentEconomicTermsProvenanceV1 {
     taker_fee: crate::replay_economic_configuration_v1::ReplayFixedDecimalV1,
     initial_margin: crate::replay_economic_configuration_v1::ReplayFixedDecimalV1,
     maintenance_margin: crate::replay_economic_configuration_v1::ReplayFixedDecimalV1,
+    margin_notional_cap: Option<crate::replay_economic_configuration_v1::ReplayFixedDecimalV1>,
 }
 
 /// Exact native margin implementation selected by verified Owner meaning.
@@ -197,7 +198,8 @@ pub struct InstrumentEconomicTermsConsumptionContextV1<'a> {
 /// Mints move-only provenance solely from a verified Instrument Owner exact-locator readback.
 ///
 /// The visible economic configuration is compared field-for-field but is never evidence. V1
-/// accepts only fixed notional rates and maps that meaning explicitly to `StandardMarginModel`.
+/// accepts only fixed notional rates and maps that meaning explicitly to `StandardMarginModel`;
+/// rates stated only up to a first leverage bracket's notional cap carry the cap with them.
 ///
 /// # Errors
 ///
@@ -258,7 +260,11 @@ pub fn seal_target_set_member_instrument_economic_terms_provenance_v1(
         || context.event_time_ns >= owner.valid_until_ns_exclusive
         || owner.quote_currency != economic.input().common_quote_currency
         || owner.fee_currency != economic.input().common_quote_currency
-        || owner.margin_meaning != InstrumentMarginMeaningV1::StandardNotionalRate
+        || !matches!(
+            (owner.margin_meaning, owner.margin_notional_cap),
+            (InstrumentMarginMeaningV1::StandardNotionalRate, None)
+                | (InstrumentMarginMeaningV1::FirstBracketNotionalRate, Some(_))
+        )
         || owner.instrument_public_fact_digest == [0; 32]
         || readback.receipt_identity() == [0; 32]
     {
@@ -285,6 +291,12 @@ pub fn seal_target_set_member_instrument_economic_terms_provenance_v1(
             mantissa: owner.maintenance_margin.mantissa,
             scale: owner.maintenance_margin.scale,
         },
+        margin_notional_cap: owner.margin_notional_cap.map(|cap| {
+            crate::replay_economic_configuration_v1::ReplayFixedDecimalV1 {
+                mantissa: cap.mantissa,
+                scale: cap.scale,
+            }
+        }),
     };
     Ok(SealedInstrumentEconomicTermsProvenanceV1 {
         instrument_identity: owner.instrument_identity.clone(),
@@ -303,6 +315,7 @@ pub fn seal_target_set_member_instrument_economic_terms_provenance_v1(
         taker_fee: terms.taker_fee,
         initial_margin: terms.initial_margin,
         maintenance_margin: terms.maintenance_margin,
+        margin_notional_cap: terms.margin_notional_cap,
     })
 }
 
@@ -323,6 +336,10 @@ pub(crate) struct BoundInstrumentEconomicTermsV1 {
     pub(crate) taker_fee: crate::replay_economic_configuration_v1::ReplayFixedDecimalV1,
     pub(crate) initial_margin: crate::replay_economic_configuration_v1::ReplayFixedDecimalV1,
     pub(crate) maintenance_margin: crate::replay_economic_configuration_v1::ReplayFixedDecimalV1,
+    /// The largest position notional the margin rates hold for, when the Owner's terms are a
+    /// venue's first leverage bracket; above it the venue charges rates these terms do not state.
+    pub(crate) margin_notional_cap:
+        Option<crate::replay_economic_configuration_v1::ReplayFixedDecimalV1>,
 }
 
 /// Content binding produced before any engine state exists.
@@ -1095,7 +1112,8 @@ fn terms_match_profile_primary(
         && terms.maker_fee == expected.maker_fee
         && terms.taker_fee == expected.taker_fee
         && terms.initial_margin == expected.initial_margin
-        && terms.maintenance_margin == expected.maintenance_margin)
+        && terms.maintenance_margin == expected.maintenance_margin
+        && terms.margin_notional_cap == expected.margin_notional_cap)
 }
 
 /// Revalidates the two seals against the binding and returns the exact unavailable prerequisites.
@@ -1240,6 +1258,7 @@ fn validate_instrument_terms(
         taker_fee,
         initial_margin,
         maintenance_margin,
+        margin_notional_cap,
     } = provenance;
 
     if instrument_identity.is_empty()
@@ -1263,6 +1282,7 @@ fn validate_instrument_terms(
                 taker_fee,
                 initial_margin,
                 maintenance_margin,
+                margin_notional_cap,
             })?
     {
         return Err(ReplayExecutionProfileBindingErrorV1::InstrumentTermsProvenanceMismatch);
@@ -1283,6 +1303,7 @@ fn validate_instrument_terms(
         taker_fee,
         initial_margin,
         maintenance_margin,
+        margin_notional_cap,
     })
 }
 
@@ -1366,6 +1387,7 @@ pub(crate) fn instrument_terms_provenance_for_fixture(
         taker_fee,
         initial_margin,
         maintenance_margin,
+        margin_notional_cap: None,
     };
     SealedInstrumentEconomicTermsProvenanceV1 {
         instrument_identity,
@@ -1384,6 +1406,7 @@ pub(crate) fn instrument_terms_provenance_for_fixture(
         taker_fee: terms.taker_fee,
         initial_margin: terms.initial_margin,
         maintenance_margin: terms.maintenance_margin,
+        margin_notional_cap: None,
     }
 }
 
@@ -1728,6 +1751,7 @@ mod tests {
                 scale: 2,
             },
             margin_meaning: InstrumentMarginMeaningV1::StandardNotionalRate,
+            margin_notional_cap: None,
         })
         .unwrap();
         let readback = owner.issue(&fact).await.unwrap();
@@ -1919,6 +1943,48 @@ mod tests {
             ),
             Err(ReplayExecutionProfileBindingErrorV1::InstrumentTermsProvenanceMismatch)
         );
+
+        // Terms stated only up to a first leverage bracket bind as fixed rates, and the binding
+        // carries the bracket's notional cap with them; terms with no bracket carry none.
+        let first_bracket = owner
+            .issue(
+                &InstrumentEconomicTermsFactV1::seal(InstrumentEconomicTermsInputV1 {
+                    instrument_identity: "SOLUSDT-PERP".into(),
+                    instrument_public_fact_digest: [6; 32],
+                    margin_meaning: InstrumentMarginMeaningV1::FirstBracketNotionalRate,
+                    margin_notional_cap: Some(InstrumentEconomicDecimalV1 {
+                        mantissa: 50_000,
+                        scale: 0,
+                    }),
+                    ..readback.fact().input().clone()
+                })
+                .unwrap(),
+            )
+            .await
+            .unwrap();
+        let first_bracket_bound = bind_v2(
+            seal_target_set_member_instrument_economic_terms_provenance_v1(
+                &first_bracket,
+                &economic_v2,
+                context,
+            )
+            .unwrap(),
+        )
+        .expect("schema 2 binds first-bracket terms");
+        assert_eq!(
+            first_bracket_bound.instrument_terms()[0].margin_notional_cap,
+            Some(
+                crate::replay_economic_configuration_v1::ReplayFixedDecimalV1 {
+                    mantissa: 50_000,
+                    scale: 0
+                }
+            )
+        );
+        assert_eq!(
+            first_bracket_bound.instrument_terms()[0].margin_model,
+            InstrumentMarginModelSelectionV1::StandardMarginModel
+        );
+        assert_eq!(eth.instrument_terms()[0].margin_notional_cap, None);
 
         // Pinning nothing does not widen the venue: terms at a venue the configuration does not
         // name are still refused before any provenance exists.

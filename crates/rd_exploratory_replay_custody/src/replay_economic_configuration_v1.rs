@@ -144,6 +144,11 @@ pub struct InstrumentEconomicTermsBindingV1 {
     pub taker_fee: ReplayFixedDecimalV1,
     pub initial_margin: ReplayFixedDecimalV1,
     pub maintenance_margin: ReplayFixedDecimalV1,
+    /// The largest position notional the margin rates hold for, when the Owner's terms state one.
+    /// Absent from the bytes of terms that state none, whose bytes and digest are therefore those
+    /// they were before it existed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub margin_notional_cap: Option<ReplayFixedDecimalV1>,
 }
 
 /// Every economic and `SimulatedVenueConfig` choice for the V1 profile.
@@ -410,6 +415,7 @@ pub(crate) fn economic_fixture() -> ReplayEconomicConfigurationInputV1 {
                 mantissa: 5,
                 scale: 2,
             },
+            margin_notional_cap: None,
         }),
         margin_model: ReplayMarginModelV1::SealedInstrumentTerms,
         modules: ReplaySimulationModulesV1::None,

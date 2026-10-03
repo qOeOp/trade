@@ -1132,14 +1132,16 @@ fn parse_authenticated_csv(
             message: e.to_string(),
         })?;
 
-        if index == 0 && binding.product == BinanceProductType::UsdM {
-            if !record.iter().eq(USD_M_HEADER.split(',')) {
-                return Err(BinanceVisionArchiveError::InvalidCsv {
-                    row,
-                    message: "USD-M archive must begin with the exact official header".to_string(),
-                });
-            }
-
+        // USD-M archives carry the official header from 2022-01; every BTCUSDT `1d` month of 2021
+        // starts with data. A first line that is the header is skipped, and anything else is read as
+        // a row under every row rule below. That is what separates a trade archive from the price
+        // archives (`markPriceKlines`, `indexPriceKlines`, `premiumIndexKlines`) sharing its name
+        // and columns: their rows have zero volume with trades counted and the price moving, which
+        // the zero-volume rule refuses as ambiguous.
+        if index == 0
+            && binding.product == BinanceProductType::UsdM
+            && record.iter().eq(USD_M_HEADER.split(','))
+        {
             continue;
         }
         total_rows += 1;
@@ -1726,29 +1728,84 @@ mod tests {
             Err(BinanceVisionArchiveError::InvalidBarConsumer(_))
         ));
 
-        let stem = "ETHUSDT-1h-2023-03";
-        let member_name = format!("{stem}.csv");
-        let headerless_archive = zip_members(&[(
-            &member_name,
-            &row(T0, T0 + CLOSED_HOUR_MILLIS, "1.00000000"),
-        )]);
-        let headerless_digest = sha256(&headerless_archive).to_hex();
-        let headerless_sidecar = format!("{headerless_digest}  {stem}.zip").into_bytes();
-        let headerless_binding = BinanceVisionArchiveBinding::new(
-            format!("{stem}.zip"),
-            member_name,
-            &headerless_digest,
-            Some(&sha256(&headerless_sidecar).to_hex()),
-            BinanceProductType::UsdM,
-            "ETHUSDT",
-            BinanceKlineInterval::Hour1,
-        )
-        .unwrap();
+        // USD-M archives before 2022-01 carry no header: the first line is read as a row. A trade row
+        // is accepted; a price archive's row (zero volume, trades counted, price moving - BTCUSDT `1d`
+        // 2021-06 mark, index and premium archives all look like this) is refused; a first line that
+        // is neither the header nor a 12-column row is refused.
+        let headerless = |stem: &str, csv: &str| {
+            let member_name = format!("{stem}.csv");
+            let archive = zip_members(&[(&member_name, csv)]);
+            let digest = sha256(&archive).to_hex();
+            let sidecar = format!("{digest}  {stem}.zip").into_bytes();
+            let binding = BinanceVisionArchiveBinding::new(
+                format!("{stem}.zip"),
+                member_name,
+                &digest,
+                Some(&sha256(&sidecar).to_hex()),
+                BinanceProductType::UsdM,
+                "ETHUSDT",
+                BinanceKlineInterval::Hour1,
+            )
+            .unwrap();
+            authenticate_monthly_klines(&binding, &archive, &sidecar)
+        };
+        let close = T0 + CLOSED_HOUR_MILLIS;
+        let accepted = headerless("ETHUSDT-1h-2023-03", &row(T0, close, "1.00000000"))
+            .expect("a headerless trade archive is read");
+        assert_eq!(accepted.metadata().normalized_rows(), 1);
         assert!(matches!(
-            authenticate_monthly_klines(
-                &headerless_binding,
-                &headerless_archive,
-                &headerless_sidecar,
+            headerless(
+                "ETHUSDT-1h-2023-03",
+                &format!("{T0},100.00,102.00,99.00,101.00,0,{close},0,3600,0,0,0"),
+            ),
+            Err(BinanceVisionArchiveError::ZeroVolumeAmbiguity { row: 1, .. })
+        ));
+        // The first rows of the real BTCUSDT `1d` 2021-06 archives, verbatim: the trade archive's is
+        // read, and the mark price archive's - same name, same columns, no header - is refused.
+        let real_month = |csv: &str| {
+            let stem = "BTCUSDT-1d-2021-06";
+            let member_name = format!("{stem}.csv");
+            let archive = zip_members(&[(&member_name, csv)]);
+            let digest = sha256(&archive).to_hex();
+            let sidecar = format!("{digest}  {stem}.zip").into_bytes();
+            let binding = BinanceVisionArchiveBinding::new(
+                format!("{stem}.zip"),
+                member_name,
+                &digest,
+                Some(&sha256(&sidecar).to_hex()),
+                BinanceProductType::UsdM,
+                "BTCUSDT",
+                BinanceKlineInterval::Day1,
+            )
+            .unwrap();
+            authenticate_monthly_klines(&binding, &archive, &sidecar)
+        };
+        assert_eq!(
+            real_month(
+                "1622505600000,37244.36,37893.76,35500.00,36693.41,590822.540,1622591999999,21609364827.08958,5297320,291774.994,10673866023.68145,0"
+            )
+            .expect("the 2021 trade archive is read")
+            .metadata()
+            .normalized_rows(),
+            1
+        );
+        assert!(matches!(
+            real_month(
+                "1622505600000,37243.70237204,37880.64000000,35700.97224247,36691.60855746,0,1622591999999,0,86398,0,0,0"
+            ),
+            Err(BinanceVisionArchiveError::ZeroVolumeAmbiguity { row: 1, .. })
+        ));
+        assert!(matches!(
+            headerless(
+                "ETHUSDT-1h-2023-03",
+                &USD_M_HEADER.replace("ignore", "IGNORE"),
+            ),
+            Err(BinanceVisionArchiveError::InvalidNumeric { row: 1, .. })
+        ));
+        assert!(matches!(
+            headerless(
+                "ETHUSDT-1h-2023-03",
+                &format!("{T0},100.00,102.00,99.00,101.00,1.000,{close},101.25,4,0.500,50.50"),
             ),
             Err(BinanceVisionArchiveError::InvalidCsv { row: 1, .. })
         ));

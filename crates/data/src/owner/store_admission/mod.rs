@@ -1114,7 +1114,10 @@ impl Display for DeploymentStoreAdmissionError {
 
 impl std::error::Error for DeploymentStoreAdmissionError {}
 
-/// Runs the exact production `rd-owner-api` seam, over the ports the process environment names.
+/// Runs the exact production `rd-owner-api` seam, over the ports `ports` names: `composition`
+/// builds every one of them or refuses under the code of the first it cannot build. The bootstraps
+/// pass the process environment; a proof passes its own configuration. A platform without Unix
+/// sockets has no pinned measurer, so there the admission refuses at the measurer.
 ///
 /// # Errors
 ///
@@ -1122,9 +1125,21 @@ impl std::error::Error for DeploymentStoreAdmissionError {}
 /// configuration, or the admission itself refuses.
 pub(super) async fn admit_rd_owner_market_data_postgres(
     request: &RdOwnerMarketDataAdmissionRequest,
+    ports: impl FnMut(&str) -> Option<String>,
 ) -> Result<AdmittedMarketDataPostgresCapability, DeploymentStoreAdmissionError> {
-    let admitted =
-        admit_rd_owner_market_data_postgres_with(request, |name| std::env::var(name).ok()).await;
+    #[cfg(unix)]
+    let admitted = match composition::production_custodian(ports).await {
+        Ok(custodian) => custodian.admit_capability(request.scope()).await,
+        Err(code) => Err(rejection(&request.scope(), code)),
+    };
+    #[cfg(not(unix))]
+    let admitted = {
+        let _ = ports;
+        Err(rejection(
+            &request.scope(),
+            AdmissionFailureCode::DirectMeasurementUnavailable,
+        ))
+    };
 
     // The bootstraps keep only a category, so the code naming the port or check that refused is
     // logged here, where it still exists.
@@ -1135,31 +1150,6 @@ pub(super) async fn admit_rd_owner_market_data_postgres(
         );
     }
     admitted
-}
-
-/// The production seam over the ports a supplied configuration names: `composition` builds every
-/// one of them or refuses under the code of the first it cannot build. A platform without Unix
-/// sockets has no pinned measurer, so there the admission refuses at the measurer.
-async fn admit_rd_owner_market_data_postgres_with(
-    request: &RdOwnerMarketDataAdmissionRequest,
-    lookup: impl FnMut(&str) -> Option<String>,
-) -> Result<AdmittedMarketDataPostgresCapability, DeploymentStoreAdmissionError> {
-    #[cfg(unix)]
-    {
-        composition::production_custodian(lookup)
-            .await
-            .map_err(|code| rejection(&request.scope(), code))?
-            .admit_capability(request.scope())
-            .await
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = lookup;
-        Err(rejection(
-            &request.scope(),
-            AdmissionFailureCode::DirectMeasurementUnavailable,
-        ))
-    }
 }
 
 /// The evidence one PIT evaluation read returns, under the receipt the read was made against.
@@ -3711,7 +3701,7 @@ mod tests {
     #[tokio::test]
     async fn an_unconfigured_production_seam_and_s3_are_unavailable() {
         let fixture = Fixture::new();
-        let production = admit_rd_owner_market_data_postgres_with(&fixture.request, |_| None)
+        let production = admit_rd_owner_market_data_postgres(&fixture.request, |_| None)
             .await
             .unwrap_err();
         assert_eq!(
@@ -5628,7 +5618,7 @@ mod tests {
     /// The administrator's side runs as the deployment's runbook does: the store is measured over
     /// the pinned connection as the admitted reader, through its secret file, and the draft is
     /// completed into authoring, sealed with a fresh store key and published as the publisher.
-    /// The deployment's side is `admit_rd_owner_market_data_postgres_with` over a configuration of
+    /// The deployment's side is `admit_rd_owner_market_data_postgres` over a configuration of
     /// files: the custody store as the custodian, the key's public half, the single-machine mode,
     /// the secrets directory and the pinned root. Its capability opens the scheduling port, which
     /// reads. The same configuration with any other signer key, or without the mode named, admits
@@ -5758,13 +5748,12 @@ mod tests {
             summary.head_identity.clone(),
         )
         .unwrap();
-        let port = admit_rd_owner_market_data_postgres_with(&request, |name| {
-            configuration.get(name).cloned()
-        })
-        .await
-        .expect("the production seam admits the published store")
-        .into_native_replay_scheduling_snapshot_port_v2()
-        .expect("the deployment's measurement covers the scheduling floors");
+        let port =
+            admit_rd_owner_market_data_postgres(&request, |name| configuration.get(name).cloned())
+                .await
+                .expect("the production seam admits the published store")
+                .into_native_replay_scheduling_snapshot_port_v2()
+                .expect("the deployment's measurement covers the scheduling floors");
         assert_eq!(
             port.resolve_bar_schedule_candidates_v1("VIBE-PRODUCTION-SEAM")
                 .await
@@ -5788,10 +5777,9 @@ mod tests {
         );
         sleep_past_next_lease_boundary(&admin).await;
         let started = store_clock(&admin).await;
-        let admitted = admit_rd_owner_market_data_postgres_with(&request, |name| {
-            short_period.get(name).cloned()
-        })
-        .await;
+        let admitted =
+            admit_rd_owner_market_data_postgres(&request, |name| short_period.get(name).cloned())
+                .await;
         let elapsed = store_clock(&admin).await - started;
         eprintln!(
             "short-period admission took {elapsed} ms of a {SHORT_LEASE_PERIOD_MS} ms period"
@@ -5825,7 +5813,7 @@ mod tests {
             ),
         );
         assert_eq!(
-            admit_rd_owner_market_data_postgres_with(&request, |name| {
+            admit_rd_owner_market_data_postgres(&request, |name| {
                 another_signer.get(name).cloned()
             })
             .await
@@ -5837,7 +5825,7 @@ mod tests {
         let mut no_mode = configuration.clone();
         no_mode.remove(composition::ANTI_ROLLBACK_MODE_ENV);
         assert_eq!(
-            admit_rd_owner_market_data_postgres_with(&request, |name| no_mode.get(name).cloned())
+            admit_rd_owner_market_data_postgres(&request, |name| no_mode.get(name).cloned())
                 .await
                 .map(|_| ())
                 .unwrap_err()

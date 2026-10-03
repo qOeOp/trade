@@ -746,7 +746,11 @@ move-only V2 execution bundle. The bundle validates two complete BAR signals and
 Owner-verified Quote EVENT liquidity for each frame. Each frame's final liquidity
 EVENT must precede the next frame's first BAR. Strict cross-frame temporal order and the request
 window are checked before ProgramHost or Backtest state changes. A V1 binding is never upgraded by interpretation,
-and an unavailable V2 constituent never falls back to V1 or a test-issued successor frame.
+and an unavailable V2 constituent never falls back to V1 or a test-issued successor frame. Market Data issues every
+BAR and Quote value at its canonical scale, so a close of 123.450 on a 0.001 tick arrives as 123.45. The bundle
+re-expresses each price and size at its instrument's precision without changing a value, and refuses by name a value
+finer than the instrument's grid. It then refuses, by name, any BAR or Quote not at its instrument's precision: the
+engine would otherwise drop that datum silently and still complete the run.
 
 Backtest V2 result custody binds the exact V2 binding and sequence digest, each consumed frame's
 identity and ordinal, every native schedule and liquidity EVENT receipt, the canonical target set
@@ -1307,8 +1311,10 @@ The Owner also rejects any direct or role-derived effective access by a non-supe
 membership in the Owner role or PostgreSQL whole-database read/write roles.
 The private fact and atomic receipt bind public-fact identity/digest, venue, margin-account scope, half-open event
 validity, source/provenance, revision, quote/fee currency, and every exact term byte. The first version accepts only
-positive fixed `STANDARD_NOTIONAL_RATE` initial/maintenance values and explicitly selects
-`StandardMarginModel` (`notional * rate`, no leverage); it never infers `LeveragedMarginModel`. The visible economic
+positive fixed initial/maintenance values, `STANDARD_NOTIONAL_RATE` or `FIRST_BRACKET_NOTIONAL_RATE`, and explicitly
+selects `StandardMarginModel` (`notional * rate`, no leverage); it never infers `LeveragedMarginModel`. First-bracket
+terms hold only up to their `margin_notional_cap`, which the binding records beside the rates and binds into the
+terms digest, so the cap is available to a consumer of the bound terms. The visible economic
 configuration cannot attest those values, and a missing value never becomes zero or a native default. Wrong fact,
 receipt, terms, venue, account or time, and noncanonical, partial, extra, cross-spliced, tampered or ACL-drifted
 custody fail before `ProgramHostV2` or Backtest state exists. Existing profile canonical bytes and digest remain

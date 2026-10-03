@@ -141,6 +141,11 @@ never runs in CI.
   drives that root end to end on a disposable PostgreSQL - measured, authored, sealed, published, admitted, and read
   through the scheduling port - so **a seam that declares its own incompleteness** no longer describes it. The BAR
   schedule census it reads there is empty; the production strategy over real schedule rows has still never run.
+  The two resolvers Native Replay execution needs open the same way: the integration test
+  `the_native_replay_resolvers_open_and_read_in_required_mode` opens
+  `native_replay_scheduling_resolver_v1_from_store_admission_lookup` and
+  `shared_time_evidence_resolver_from_store_admission_lookup_v1` over a file configuration in `required` mode, as
+  `rd-owner-api` opens their environment variants, and reads the store through the same admission.
   Whether a real deployment sets `Required` is a question about deployment configuration that the code cannot
   answer.
   **Clearing `B3` proves which store `rd-owner-api` reached; it does not keep credentials out of that process.**
@@ -1153,9 +1158,12 @@ R&D remains the sole owner of the one `ReplayExecutionProfileV1`. The logical In
 Owner now separately owns a private `InstrumentEconomicTermsFactV1` PostgreSQL path. Its fact binds the
 exact public instrument identity/digest, venue, margin-account scope, half-open validity, source and
 provenance, positive revision, quote/fee currency, positive exact maker/taker rates, positive exact
-initial/maintenance rates, and the closed `STANDARD_NOTIONAL_RATE` meaning. That meaning is explicitly
-`notional * rate` without leverage and may map only to native `StandardMarginModel`; V1 never guesses
-`LeveragedMarginModel`.
+initial/maintenance rates, and one of two closed margin meanings. `STANDARD_NOTIONAL_RATE` is explicitly
+`notional * rate` without leverage. `FIRST_BRACKET_NOTIONAL_RATE` is the same `notional * rate` for a position
+whose notional is at most the fact's `margin_notional_cap`, a venue's first leverage bracket, and says nothing
+about a larger position. Either may map only to native `StandardMarginModel`; V1 never guesses
+`LeveragedMarginModel`. The cap is absent from a `STANDARD_NOTIONAL_RATE` fact's bytes, so those bytes are the
+ones they were before the cap existed.
 
 Fact and deterministic receipt are committed atomically. Repeating identical meaning and bytes performs
 no write and returns the same locator and bytes. Recovery accepts only the exact fact-and-receipt locator,
@@ -1176,6 +1184,57 @@ R&D may mint its move-only economic provenance only from that verified Owner rea
 must additionally match venue, account scope, event time, currencies and all visible economic profile
 values. Market Data's public-fact module still neither imports R&D nor validates, copies,
 selects, or issues replay economic values.
+
+**CURRENT / PARTIAL, production Instrument Economic Terms intake:** one Owner-sealed admission port,
+`InstrumentEconomicTermsAdmissionV1` in `owner/instrument_economic_terms_intake_v1.rs`, and one route,
+`POST /v1/market-data/instrument-economic-terms`, guarded exactly as the Instrument Master V2 baseline intake is.
+It is the only production writer of the private terms store above, and the API composes it only when both
+`MARKET_DATA_OWNER_DATABASE_URL` and `INSTRUMENT_OWNER_DATABASE_URL` are configured: it reads the named
+Instrument Master V2 fact and the clock head from Market Data's store, in one snapshot and without a row lock,
+and issues the terms into the Instrument Owner's.
+
+- **What the submission states:** the instrument's canonical identity (`LINKUSDT-PERP.BINANCE`), the identity
+  of its admitted Instrument Master V2 fact, the account scope, and the exclusive end of validity. The account
+  scope is the caller's statement, which the Owner cannot verify; the trust boundary is the credential that
+  reaches the route.
+- **What the Owner derives:** from the fact, the instrument, its public fact digest (the fact's identity, which
+  the Native Replay resolver matches a cut member against), the venue, the quote currency, the fee currency
+  (the settlement currency, which must equal the quote currency), the start of validity (the baseline's
+  effective instant, its listing) and the source digest (the baseline's `raw_payload_digest`). From the
+  module's own tables, the fees and margin: `BINANCE_USDM_VIP0_MAKER_FEE_V1` and
+  `BINANCE_USDM_VIP0_TAKER_FEE_V1`, and the instrument's row of `BINANCE_USDM_FIRST_LEVERAGE_BRACKETS_V1`.
+  Those constants are the only definition of the values, and their comments state each value's source and
+  date. The `source_identity` is `ECONOMIC_TERMS_SOURCE_IDENTITY_V1`, which names the values as public defaults,
+  not an account's own; the provenance digest binds the exact rows used; the revision is
+  `ECONOMIC_TERMS_TABLE_REVISION_V1`; the meaning is `FIRST_BRACKET_NOTIONAL_RATE` with the row's notional
+  cap.
+- **The fees** are the regular user (VIP 0) schedule. The public fee pages answer an automated client with an
+  empty challenge page, so the values rest on the user's confirmation, as the constant states.
+- **The margin** is the first leverage bracket: its maintenance rate, and an initial rate of
+  `1 / maxOpenPosLeverage` rounded up at the sixth decimal place, so that a rate base ten cannot state exactly
+  is never understated. A position whose notional exceeds the row's `notional_cap` (10000 USDT for
+  `LINKUSDT-PERP.BINANCE`) is margined by the venue at later brackets, which these terms do not record, and
+  priced at the first bracket's rates its margin would be understated. The terms carry the cap so that a
+  consumer can refuse such a position; no consumer does yet.
+- **The tables are maintained by hand.** The venue changes its brackets and fees without notice and nothing
+  here notices. Adding an instrument is adding a row with its source; changing a value is a new revision,
+  issued for a validity that does not overlap the earlier revision's, because the Native Replay resolver
+  refuses an instrument with two facts valid at one instant. Keeping the rows current is an Instrument Owner
+  task.
+- **Refusals**, each with nothing written:
+  - `ECONOMIC_TERMS_INSTRUMENT_FACT_UNAVAILABLE`: no fact with that identity is held for that canonical identity.
+  - `ECONOMIC_TERMS_MARGIN_BRACKET_UNLISTED`: the table has no row for the instrument.
+  - `ECONOMIC_TERMS_VENUE_NOT_ADMITTED`: the fact's venue is not `BINANCE`. The Instrument Master V2 venue
+    table has only the Binance row today, so no admitted fact reaches this refusal yet.
+  - `ECONOMIC_TERMS_CURRENCY_UNAVAILABLE`: the fact states no quote or settlement currency, or they differ.
+  - `ECONOMIC_TERMS_VALIDITY_UNBOUNDED`: the end of validity is later than the last instant a signed 64-bit
+    nanosecond count reaches, which is how `i128::MAX` or any other open value is stated.
+  - `ECONOMIC_TERMS_VALIDITY_NOT_AFTER_CLOCK_HEAD`: the end of validity is not later than the decision cut of
+    Market Data's clock head; a submission naming the head's own cut reaches it.
+  - `ECONOMIC_TERMS_INVALID`: the derived terms do not seal, for instance for a blank account scope; the body
+    states the reason.
+  - `ECONOMIC_TERMS_MEANING_CONFLICT` (HTTP 409): terms with the same meaning are held with other bytes. The
+    same submission again rejoins the same terms.
 
 **CURRENT/PARTIAL, durable public V2 custody and fixed Native Replay resolution:** Market Data owns
 the additive `InstrumentMasterFactV2` store, immutable content-addressed cut, atomic receipt/outbox, and
@@ -2657,6 +2716,27 @@ consumer may parse `1D`, `1h`, another label, venue convention, or default into 
 and projection readback remains available after later Owner mapping or calendar changes; those changes require a
 new Owner schedule fact/cut and cannot be smuggled through a free-form binding label.
 
+`SampleFactV2` is the row fact of a PIT window custody (slice T0), a successor schema beside V1 whose bytes are never
+reinterpreted. Its canonical bytes start with schema `u16LE = 2` and reserved-zero `u16LE`, then bind, in order:
+series identity, slot identity, series-predecessor sample identity (all zero at a series root), optional
+correction-predecessor sample identity, series sequence `u64LE`, correction sequence `u64LE`, cross-section version
+identity, canonical-row digest, Owner event identity `[u8; 16]`, instrument, channel and data-kind codes, field
+semantic, timeframe identity, value semantic, unit, fixed-I128 value mantissa and scale, event-effective, available,
+and publication times `u64LE`, Source Binding identity, lineage root and version, source-frontier digest, correction
+stream, correction-frontier digest, Instrument Master digest, and Market Semantics identity; a variable field is
+`u16LE length || bytes`. The fact digest is SHA-256 over `market-data.sample-fact.v2\0 || bytes`, and the sample
+identity is SHA-256 over `market-data.sample.identity.v2\0 || fact digest`. The series identity is V1's, so a series
+names the same thing under both schemas. The root slot is SHA-256 over
+`market-data.sample-slot.identity.v2\0 || series identity || event-effective u64LE`, naming no snapshot and no
+version. The Owner event identity is the first 16 bytes of SHA-256 over `market-data.sample-event.identity.v2\0` and
+schema `u16LE = 2`, reserved-zero `u16LE`, cross-section version identity, canonical-row digest, event-effective,
+available, and publication times, correction sequence, and correction stream. A new bar takes its event's root slot,
+correction sequence 1, and the next series position, and its event must follow the series head's; a correction keeps
+its bar's slot and series position, its correction sequence must be the slot head's plus one, and its publication must
+follow the slot head's. Each is refused otherwise, as `EventNotAfterSeriesHead`, `CorrectionSequenceNotNext`, or
+`PublicationNotAfterCorrection`, and a stored V2 fact whose slot, event identity, or chain position does not follow
+from its own row is refused.
+
 The `Owner event identity` carried by `SampleFactV1`, `SampleReceiptV1`, and the 308-byte coordinate is a new
 role-independent Market Data identity; it is not the existing V1 frame-trigger event identity. Its canonical
 preimage is, in order: schema `u16LE = 1`, reserved-zero `u16LE`, source snapshot identity `[u8; 32]`,
@@ -2972,6 +3052,50 @@ settlement at exactly that coordinate is included and one a millisecond later is
   rather than a guessed interval. The live estimate from `premiumIndex`, funding accrual in a Replay, and a funding
   field semantic a Design can name are separate slices.
 
+### TARGET Binance backfill fetch for T0 window custody
+
+U1's history enters as T0 window custody: one custody per member over the whole window, for the execution timeframe
+and the fill timeframe. This is the fetch side that feeds a custody commit. The commit's own types are T0's.
+
+- **Execution bars come from the public archive.** For each member, interval and month, the fetch reads
+  `data/futures/um/monthly/klines/{SYMBOL}/{interval}/{SYMBOL}-{interval}-{YYYY-MM}.zip` with its `.CHECKSUM` sidecar.
+  The bars are read through `authenticate_monthly_klines`, with the sidecar's own digest as the bound digest. That
+  proves the bytes arrived as the host published them; it does not prove who published them.
+- **The dataset is named by the request, not read from the file.** The reader's entry takes the dataset it was asked
+  for (`klines`) and checks it against the archive path it fetched. `markPriceKlines`, `indexPriceKlines` and
+  `premiumIndexKlines` archives have the same name, columns and layout.
+- **Archives before 2022 have no header.** Every BTCUSDT `1d` month from 2021-01 to 2021-12 starts with data, and
+  every month from 2022-01 starts with the official header. Today's reader refuses the first kind, which is a year of
+  U1. A first line that is the exact header is skipped. Otherwise the first line is read as a row, under every rule
+  the reader already applies to rows:
+  - 12 columns;
+  - open times on the interval grid and strictly rising, with a gap recorded rather than filled;
+  - close times inside the interval;
+  - consistent prices;
+  - volumes that are not negative, and taker buy volume no larger than volume.
+- **The zero-volume rule is what keeps price archives out.** A row with zero volume is accepted only with zero trades
+  and one unmoving price, and is refused as `ZeroVolumeAmbiguity` otherwise. For BTCUSDT `1d` 2021-06, every row of
+  the mark, index and premium price archives has zero volume, with trade counts of 86,363 to 86,400, 86,360 to 86,400
+  and 17,267 to 17,280, and prices that move. The trade archive's volume reaches 1,531,824. Removing that rule would
+  let a price archive be read as trades without a refusal, so it stays. The reader applies this today: the header
+  is optional in `crates/adapters/binance/src/common/offline.rs`, and its tests read the first real rows of both
+  2021-06 archives. The trade row is read and the mark price row is refused.
+- **Fill bars come from the endpoint.** The fill bar for frame `k` is the first `1m` bar opening strictly after
+  frame `k`'s bar event plus the declared lag, and strictly before frame `k+1`'s bar event. One unsigned `klines` call
+  with that start and `limit=1` returns it. There is one call per frame and no `1m` archive, which is about 2 MB a
+  month.
+- **Funding stays outside this custody for now.** A Source Binding declares one availability rule, and a funding
+  settlement is not a declared bar timeframe. U1's funding is therefore read through the perpetual Data Client's
+  settled funding rows. A separate binding can add it to custody later, and that change only adds.
+- **Each row names its route.** Execution bars come from the archive host, and fill bars from the endpoint host, under
+  one Source Binding. The custody evidence records which route produced each row.
+- **Resumable and idempotent.** Each fetched file is kept in a shard directory under its archive name, beside its
+  sidecar. A shard counts only when its bytes match the sidecar. A rerun verifies the shards it has, fetches only the
+  missing or mismatched ones, and writes each new one through a temporary file and a rename. The custody is committed
+  once, after every shard for it is present, and T0's commit rejoins an identical resubmission.
+- **Retrieval is today.** The custody's retrieval instant is the wall clock when the fetch ran. Visibility comes from
+  the Source Binding's availability rule, never from a historical retrieval coordinate.
+
 ## Input handoffs
 
 - Data vendors and trading venues provide raw market and reference records through Data Clients, and every time
@@ -2999,6 +3123,17 @@ settlement at exactly that coordinate is included and one a millisecond later is
   bounded reason, stable correlation, required provenance/license/correction fields, and shared Time Evidence.
 - Operations supply the Market Data Source Binding, opaque credential handles, license scope, and correction feeds without
   changing observed-at history. Credentials never enter a snapshot, stream, artifact, or product view.
+  The admission `POST /v1/market-data/source-bindings` refuses each defect of a proposal under its own name as
+  HTTP 400: an empty field as `SOURCE_BINDING_FIELD_MISSING`, a zero digest as `SOURCE_BINDING_DIGEST_ZERO`, an
+  invalid schema, policy or frontier version as `SOURCE_BINDING_VERSION_INVALID`, raw credential material, an
+  audience other than Market Data or a capability beyond read-only market data as
+  `SOURCE_BINDING_RAW_CREDENTIAL_MATERIAL`, `SOURCE_BINDING_CREDENTIAL_AUDIENCE_INVALID` or
+  `SOURCE_BINDING_CREDENTIAL_CAPABILITY_FORBIDDEN`, time coordinates that are zero or out of order as
+  `SOURCE_BINDING_TIME_EVIDENCE_INVALID`, and a bar timeframe no bar can have as
+  `SOURCE_BINDING_BAR_TIMEFRAME_UNSUPPORTED`. Coordinates that are well ordered but later than this Owner's decision
+  cut are early rather than wrong: they are a 409 `SOURCE_BINDING_TIME_EVIDENCE_AFTER_DECISION_CUT`, and a later
+  admission can accept them. `INVALID_SOURCE_BINDING_PROPOSAL` remains only for a claimed identity that does not
+  derive from its content.
 
 ## Output handoffs
 
