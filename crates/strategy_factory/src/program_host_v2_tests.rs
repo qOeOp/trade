@@ -6,6 +6,7 @@ use strategy_factory_program_sdk::lifecycle_v1::{
 use strategy_factory_program_sdk::lifecycle_v2::{
     InstrumentKeyV2, InstrumentTargetSetV2, MemberTargetV2, target_set_encoded_bytes,
 };
+#[cfg(feature = "sealed-strategy-input-acceptance")]
 use vibe_data::owner::sealed_acceptance::SingleMemberUniverseRolesV1;
 use vibe_data::owner::source_binding::BindingDigest;
 #[cfg(feature = "sealed-strategy-input-acceptance")]
@@ -1722,8 +1723,6 @@ fn universe_input_ordinals_follow_the_member_count() {
     assert!(!admitted(Some(0), 0));
 }
 
-/// Compiles the one-member Design against a one-member Owner universe frame that Market Data issues
-/// through its own derivation and binds to that Design.
 /// The `OPEN` and `CLOSE` roles a single-member universe frame must bind for `design`, as the Design
 /// states them: the frame binds the Design's own roles, at the scale they read at.
 #[cfg(feature = "sealed-strategy-input-acceptance")]
@@ -1747,6 +1746,8 @@ pub(crate) fn single_member_universe_roles_of(
     }
 }
 
+/// Compiles the one-member Design against a one-member Owner universe frame that Market Data issues
+/// through its own derivation and binds to that Design.
 #[cfg(feature = "sealed-strategy-input-acceptance")]
 fn one_member_universe_fixture() -> (
     StrategyPlanV2,

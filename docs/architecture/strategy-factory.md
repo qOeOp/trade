@@ -1470,7 +1470,7 @@ later submission and the cost grows with the whole history.
   Data's. Market Data derives the execution role itself from the request's roles, by the same rule, so no caller names
   it; its refusals are `EXECUTION_ROLE_ABSENT`, `EXECUTION_ROLE_AMBIGUOUS`, `MORE_THAN_ONE_ROLE_TIMEFRAME` and
   `EXECUTION_TIMEFRAME_NOT_DECLARED` (Market Data owner page).
-  **Fixed role scale, TARGET:** every universe-member role, its price roles and its `VOLUME` role, reads at the
+  **Fixed role scale, CURRENT:** every universe-member role, its price roles and its `VOLUME` role, reads at the
   fixed scale 9: Market Data's value scale, `MARKET_DATA_VALUE_SCALE_V1`, which is also its custody series scale, defined once there and referenced
   here, never restated. That
   holds for whatever instrument the Research scope names, so one Design is byte-identical across BTCUSDT, ETHUSDT,
