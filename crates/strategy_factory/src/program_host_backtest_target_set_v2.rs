@@ -33,7 +33,7 @@ use vibe_data::owner::{
 };
 use vibe_model::{
     accounts::Account,
-    data::{Bar, BarType},
+    data::{Bar, BarType, QuoteTick},
     enums::{AccountType, OmsType, OrderSide, OrderStatus, PositionSide, TimeInForce, TriggerType},
     events::OrderEventAny,
     identifiers::{AccountId, ClientOrderId, InstrumentId, PositionId, StrategyId},
@@ -119,6 +119,9 @@ pub(crate) struct TargetSetEquitySnapshotObservationV2 {
     pub(crate) equity: String,
     pub(crate) current_grid_units: BoundedMembers<i64>,
     pub(crate) derived_grid_targets: BoundedMembers<i64>,
+    /// The quote-currency notional of one grid unit of each member at this frame's price:
+    /// `price * multiplier * size_increment`, the divisors of the weight formula.
+    pub(crate) grid_unit_notionals: BoundedMembers<Decimal>,
     pub(crate) snapshot_identity: [u8; 32],
 }
 
@@ -280,7 +283,22 @@ pub(crate) struct BacktestTargetSetProgramHostStrategyV2 {
     fault_hook: BacktestTargetSetFaultHookV2,
     restore_after_first_terminal_fill: bool,
     restore_performed: Rc<Cell<bool>>,
+    /// A restore the first terminal fill asked for while another member's order still waited for
+    /// its fill quote; it runs once nothing waits.
+    /// Each frame's fill-quote instant, keyed by the frame's time, as the bundle states it.
+    fill_quote_instants: BTreeMap<u64, Vec<u64>>,
+    /// The orders a frame decided, waiting for the frame's fill quote to be submitted.
+    awaiting_fill_quote: Option<AwaitingFillQuoteV2>,
     trace: Rc<RefCell<TargetSetBacktestTraceV2>>,
+}
+
+/// One frame's decided orders, each with the instant its member's fill quote arrives at.
+///
+/// The Host decides at the BAR's close but submits each member's order only when that member's
+/// fill quote arrives, so the venue judges liquidity against a real book: an order the quote has
+/// already crossed fills as TAKER at the touch, and only an uncrossed one rests as MAKER.
+struct AwaitingFillQuoteV2 {
+    orders: BoundedMembers<Option<(u64, PreparedNativeOrderV2)>>,
 }
 
 impl BacktestTargetSetProgramHostStrategyV2 {
@@ -292,6 +310,7 @@ impl BacktestTargetSetProgramHostStrategyV2 {
         instrument_ids: BoundedMembers<InstrumentId>,
         bar_types: BoundedMembers<BarType>,
         universe_frames: impl IntoIterator<Item = OwnerUniverseFrameV1>,
+        fill_quote_instants: BTreeMap<u64, Vec<u64>>,
         expected_account_id: Option<AccountId>,
         restore_after_first_terminal_fill: bool,
         restore_performed: Rc<Cell<bool>>,
@@ -348,6 +367,8 @@ impl BacktestTargetSetProgramHostStrategyV2 {
             fault_hook: BacktestTargetSetFaultHookV2::None,
             restore_after_first_terminal_fill,
             restore_performed,
+            fill_quote_instants,
+            awaiting_fill_quote: None,
             trace,
         })
     }
@@ -414,6 +435,10 @@ impl BacktestTargetSetProgramHostStrategyV2 {
         for bar_type in self.bar_types.clone() {
             self.subscribe_bars(bar_type, None, None);
         }
+
+        for instrument_id in self.instrument_ids.clone() {
+            self.subscribe_quotes(instrument_id, None, None);
+        }
         Ok(())
     }
 
@@ -444,6 +469,10 @@ impl BacktestTargetSetProgramHostStrategyV2 {
     }
 
     fn on_bar_checked(&mut self, bar: &Bar) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            self.awaiting_fill_quote.is_none(),
+            "FILL_QUOTE_MISSING_BEFORE_NEXT_FRAME: a decided order still waits for its frame's fill quote"
+        );
         let ordinal = self
             .bar_types
             .iter()
@@ -473,11 +502,78 @@ impl BacktestTargetSetProgramHostStrategyV2 {
             .universe_frames
             .remove(&time)
             .context("missing Owner-sealed target-set frame")?;
-        self.apply_complete_frame(&frame, &bars)
+        self.apply_complete_frame(time, &frame, &bars)
+    }
+
+    /// Submits a member's decided order when that member's fill quote arrives at the frame's
+    /// fill-quote instant. The venue has already put the quote on its book, so it judges the
+    /// order's liquidity against it.
+    fn on_quote_checked(&mut self, quote: &QuoteTick) -> anyhow::Result<()> {
+        let Some(awaiting) = self.awaiting_fill_quote.as_mut() else {
+            return Ok(());
+        };
+        let ordinal = self
+            .instrument_ids
+            .iter()
+            .position(|instrument_id| *instrument_id == quote.instrument_id)
+            .context("unbound Backtest target-set Quote")?;
+        let Some((instant, _)) = awaiting.orders[ordinal] else {
+            return Ok(());
+        };
+        anyhow::ensure!(
+            quote.ts_event.as_u64() == instant,
+            "FILL_QUOTE_NOT_THE_FRAMES_QUOTE_CUT: a quote at {} while the member's order waits for its fill quote at {instant}",
+            quote.ts_event.as_u64()
+        );
+        let prepared_order = awaiting.orders[ordinal]
+            .take()
+            .map(|(_, prepared_order)| prepared_order);
+
+        if awaiting.orders.iter().all(Option::is_none) {
+            self.awaiting_fill_quote = None;
+        }
+
+        if let Some(prepared_order) = prepared_order {
+            self.submit_prepared_order(prepared_order)?;
+        }
+        Ok(())
+    }
+
+    fn submit_prepared_order(
+        &mut self,
+        prepared_order: PreparedNativeOrderV2,
+    ) -> anyhow::Result<()> {
+        let client_order_id = prepared_order.order.client_order_id();
+        let binding = NativeOrderBindingV2 {
+            member_ordinal: prepared_order.member_ordinal,
+            instrument_id: self.instrument_ids[prepared_order.member_ordinal],
+            intent_identity: prepared_order.intent_identity,
+        };
+        let replaced = self.position_orders.insert(client_order_id, binding);
+        debug_assert!(
+            replaced.is_none(),
+            "native order bindings were prevalidated"
+        );
+        // Venue submission is intentionally sequential. A later failure faults the run and
+        // preserves the earlier native effect plus all in-process replay evidence.
+        #[cfg(all(test, feature = "sealed-strategy-input-acceptance"))]
+        if self.fault_hook == BacktestTargetSetFaultHookV2::FailBeforeSecondSubmit
+            && self.trace.borrow().successful_position_submits.len() == 1
+        {
+            anyhow::bail!("test-only fault at the second native submit boundary");
+        }
+        self.trace.borrow_mut().position_submit_attempts += 1;
+        self.submit_order(prepared_order.order, prepared_order.position_id, None, None)?;
+        self.trace
+            .borrow_mut()
+            .successful_position_submits
+            .push(client_order_id.to_string());
+        Ok(())
     }
 
     fn apply_complete_frame(
         &mut self,
+        time: u64,
         frame: &BacktestUniverseFrameV2,
         bars: &BoundedMembers<Bar>,
     ) -> anyhow::Result<()> {
@@ -534,6 +630,16 @@ impl BacktestTargetSetProgramHostStrategyV2 {
                 equity: snapshot.equity.to_string(),
                 current_grid_units: snapshot.current_grid_units.clone(),
                 derived_grid_targets: grid_targets.clone(),
+                grid_unit_notionals: try_map_members(self.instrument_ids.len(), |ordinal| {
+                    let instrument = &snapshot.instruments[ordinal];
+                    snapshot.prices[ordinal]
+                        .as_decimal()
+                        .checked_mul(instrument.multiplier().as_decimal())
+                        .and_then(|value| {
+                            value.checked_mul(instrument.size_increment().as_decimal())
+                        })
+                        .context("a member's grid-unit notional overflows")
+                })?,
                 snapshot_identity: *capability.snapshot_identity.as_bytes(),
             });
         let prepared = prepared.reconcile_backtest_capability(capability)?;
@@ -578,32 +684,27 @@ impl BacktestTargetSetProgramHostStrategyV2 {
             self.apply_kernel_protection(ordinal)?;
         }
 
-        for prepared_order in orders.into_iter().flatten() {
-            let client_order_id = prepared_order.order.client_order_id();
-            let binding = NativeOrderBindingV2 {
-                member_ordinal: prepared_order.member_ordinal,
-                instrument_id: self.instrument_ids[prepared_order.member_ordinal],
-                intent_identity: prepared_order.intent_identity,
-            };
-            let replaced = self.position_orders.insert(client_order_id, binding);
-            debug_assert!(
-                replaced.is_none(),
-                "native order bindings were prevalidated"
+        // The frame decided at its BAR's close; each order waits for its member's fill quote.
+        if orders.iter().any(Option::is_some) {
+            let instants = self.fill_quote_instants.get(&time).context(
+                "FILL_QUOTE_MISSING_BEFORE_NEXT_FRAME: the bundle states no fill quote for this frame",
+            )?;
+            anyhow::ensure!(
+                instants.len() == orders.len(),
+                "FILL_QUOTE_MISSING_BEFORE_NEXT_FRAME: the bundle states no fill quote for every member"
             );
-            // Venue submission is intentionally sequential. A later failure faults the run and
-            // preserves the earlier native effect plus all in-process replay evidence.
-            #[cfg(all(test, feature = "sealed-strategy-input-acceptance"))]
-            if self.fault_hook == BacktestTargetSetFaultHookV2::FailBeforeSecondSubmit
-                && self.trace.borrow().successful_position_submits.len() == 1
-            {
-                anyhow::bail!("test-only fault at the second native submit boundary");
-            }
-            self.trace.borrow_mut().position_submit_attempts += 1;
-            self.submit_order(prepared_order.order, prepared_order.position_id, None, None)?;
-            self.trace
-                .borrow_mut()
-                .successful_position_submits
-                .push(client_order_id.to_string());
+            anyhow::ensure!(
+                instants.iter().all(|instant| *instant > time),
+                "FILL_QUOTE_NOT_THE_FRAMES_QUOTE_CUT: the frame's fill quote is not after its decision"
+            );
+            let orders = BoundedMembers::try_from(
+                orders
+                    .into_iter()
+                    .zip(instants)
+                    .map(|(order, instant)| order.map(|order| (*instant, order)))
+                    .collect::<Vec<_>>(),
+            )?;
+            self.awaiting_fill_quote = Some(AwaitingFillQuoteV2 { orders });
         }
         Ok(())
     }
@@ -1361,6 +1462,15 @@ impl DataActor for BacktestTargetSetProgramHostStrategyV2 {
         self.finish_callback(result)
     }
 
+    fn on_quote(&mut self, quote: &QuoteTick) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            self.trace.borrow().callback_failure.is_none(),
+            "Backtest target-set program host is faulted"
+        );
+        let result = self.on_quote_checked(quote);
+        self.finish_callback(result)
+    }
+
     fn on_stop(&mut self) -> anyhow::Result<()> {
         let result = (|| {
             for bar_type in self.bar_types.clone() {
@@ -1371,6 +1481,10 @@ impl DataActor for BacktestTargetSetProgramHostStrategyV2 {
                 self.cached_position_grid_units(ordinal, &instrument)
             })?;
             self.trace.borrow_mut().final_member_grid_units = Some(final_member_grid_units);
+            anyhow::ensure!(
+                self.awaiting_fill_quote.is_none(),
+                "FILL_QUOTE_MISSING_BEFORE_NEXT_FRAME: a decided order still waits for its frame's fill quote at the run's end"
+            );
             anyhow::ensure!(
                 self.universe_frames.is_empty() && self.pending_bars.is_empty(),
                 "Backtest target-set frames were not exhausted"

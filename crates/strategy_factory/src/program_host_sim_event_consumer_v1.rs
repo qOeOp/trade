@@ -24,10 +24,12 @@
 use std::{
     cell::Cell,
     collections::{BTreeMap, BTreeSet},
+    fmt::Display,
     rc::Rc,
 };
 
 use anyhow::Context;
+use rust_decimal::Decimal;
 use serde::Serialize;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -43,7 +45,7 @@ use crate::{
     program_host_backtest_target_set_v2::{
         BacktestTargetSetProgramHostStrategyV2, TargetSetActualFillConsumptionV1,
         TargetSetBacktestTraceV2, TargetSetBacktestTransitionV2,
-        TargetSetProtectiveFillConsumptionV1,
+        TargetSetEquitySnapshotObservationV2, TargetSetProtectiveFillConsumptionV1,
     },
     replay_target_set_execution_bundle_v1::{
         ReplayTargetSetExecutionBundleV1, ReplayTargetSetExecutionCensusV1,
@@ -666,10 +668,12 @@ pub fn run_program_host_sim_event_consumer_v1(
         instruments,
         bar_types,
         data,
+        fill_quote_instants,
         census,
     } = capability;
     let trace = Rc::new(std::cell::RefCell::new(TargetSetBacktestTraceV2::default()));
     let admitted_frames = universe_frames.len();
+    let notional_caps = recorded_tier_notional_caps(&native_profile);
     let strategy = BacktestTargetSetProgramHostStrategyV2::new(
         strategy_id,
         plan,
@@ -677,6 +681,7 @@ pub fn run_program_host_sim_event_consumer_v1(
         instruments.map(Instrument::id),
         bar_types,
         universe_frames,
+        fill_quote_instants,
         Some(account_scope_id),
         false,
         Rc::new(Cell::new(false)),
@@ -705,6 +710,7 @@ pub fn run_program_host_sim_event_consumer_v1(
         .map(ProgramHostSimEventProtectiveFillReadbackV1::from)
         .collect::<Vec<_>>();
     validate_protective_consumption(&observed, &protective_fills)?;
+    refuse_notional_above_recorded_tier(&observed.equity_snapshots, &notional_caps)?;
     let canonical_result = engine.get_canonical_result()?.to_bytes()?;
     let canonical_result_digest = canonical_result_digest(&canonical_result);
     let round_trip = round_trip_closure(
@@ -1127,6 +1133,80 @@ fn canonical_result_digest(bytes: &[u8]) -> [u8; 32] {
     hasher.finalize().into()
 }
 
+/// Each member's recorded margin tier cap, when its Owner terms state rates only up to one.
+fn recorded_tier_notional_caps(
+    profile: &crate::replay_execution_profile_native_v1::ReplayNativeExecutionProfileV1,
+) -> Vec<Option<Decimal>> {
+    profile
+        .instrument_terms()
+        .iter()
+        .map(|terms| {
+            terms
+                .margin_notional_cap
+                .map(|cap| Decimal::from_i128_with_scale(cap.mantissa, u32::from(cap.scale)))
+        })
+        .collect()
+}
+
+/// A member's position, at some frame, had a larger notional than its Owner terms state margin
+/// rates for. The run's margin was computed with rates the venue applies only below the cap.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct NotionalAboveRecordedTierV1 {
+    pub(crate) member_ordinal: usize,
+    pub(crate) frame_ordinal: usize,
+    pub(crate) notional: Decimal,
+    pub(crate) cap: Decimal,
+}
+
+impl Display for NotionalAboveRecordedTierV1 {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "ECONOMIC_TERMS_NOTIONAL_ABOVE_RECORDED_TIER: member {} at frame {} held notional {} above the recorded tier cap {}",
+            self.member_ordinal, self.frame_ordinal, self.notional, self.cap
+        )
+    }
+}
+
+impl std::error::Error for NotionalAboveRecordedTierV1 {}
+
+/// Refuses a run in which any member's position, before or after any frame's reconciliation,
+/// exceeded the notional cap its Owner terms state margin rates up to. The larger of the held and
+/// the derived target position is the one the venue would margin across the frame. A member whose
+/// terms state no cap is not checked.
+///
+/// # Errors
+///
+/// Returns [`NotionalAboveRecordedTierV1`] for the first member and frame over its cap.
+fn refuse_notional_above_recorded_tier(
+    snapshots: &[TargetSetEquitySnapshotObservationV2],
+    caps: &[Option<Decimal>],
+) -> Result<(), NotionalAboveRecordedTierV1> {
+    for (frame_ordinal, snapshot) in snapshots.iter().enumerate() {
+        for (member_ordinal, cap) in caps.iter().enumerate() {
+            let Some(cap) = *cap else {
+                continue;
+            };
+            let units = snapshot.current_grid_units[member_ordinal]
+                .unsigned_abs()
+                .max(snapshot.derived_grid_targets[member_ordinal].unsigned_abs());
+            let notional = Decimal::from(units)
+                .checked_mul(snapshot.grid_unit_notionals[member_ordinal])
+                .unwrap_or(Decimal::MAX);
+
+            if notional > cap {
+                return Err(NotionalAboveRecordedTierV1 {
+                    member_ordinal,
+                    frame_ordinal,
+                    notional,
+                    cap,
+                });
+            }
+        }
+    }
+    Ok(())
+}
+
 fn validate_actual_consumption(
     observed: &TargetSetBacktestTraceV2,
     actual_fills: &[ProgramHostSimEventFillReadbackV1],
@@ -1274,6 +1354,76 @@ mod tests {
         trace
     }
 
+    fn snapshot(
+        current: [i64; 2],
+        derived: [i64; 2],
+        unit_notional: i64,
+    ) -> TargetSetEquitySnapshotObservationV2 {
+        TargetSetEquitySnapshotObservationV2 {
+            account_id: "BINANCE-001".to_owned(),
+            currency: "USDT".to_owned(),
+            equity: "100000 USDT".to_owned(),
+            current_grid_units: BoundedMembers::try_from(current).unwrap(),
+            derived_grid_targets: BoundedMembers::try_from(derived).unwrap(),
+            grid_unit_notionals: BoundedMembers::try_from([
+                Decimal::from(unit_notional),
+                Decimal::from(unit_notional),
+            ])
+            .unwrap(),
+            snapshot_identity: [3; 32],
+        }
+    }
+
+    /// A position at the cap is margined at the recorded rates; one above it, held or targeted at
+    /// any frame, short or long, is refused by name; a member whose terms state no cap is not
+    /// checked.
+    #[rstest::rstest]
+    #[case::at_the_cap(vec![snapshot([0, 0], [100, 0], 100)], None)]
+    #[case::held_above(vec![snapshot([0, 0], [1, 0], 100), snapshot([101, 0], [0, 0], 100)], Some((0, 1, 10_100)))]
+    #[case::targeted_short_above(vec![snapshot([0, 0], [-101, 0], 100)], Some((0, 0, 10_100)))]
+    #[case::uncapped_member_unchecked(vec![snapshot([0, 1_000_000], [0, 1_000_000], 100)], None)]
+    fn a_position_above_the_recorded_tier_is_refused_by_name(
+        #[case] snapshots: Vec<TargetSetEquitySnapshotObservationV2>,
+        #[case] refused: Option<(usize, usize, i64)>,
+    ) {
+        let caps = [Some(Decimal::from(10_000)), None];
+        let answer = refuse_notional_above_recorded_tier(&snapshots, &caps);
+        assert_eq!(
+            answer,
+            refused.map_or(Ok(()), |(member_ordinal, frame_ordinal, notional)| {
+                Err(NotionalAboveRecordedTierV1 {
+                    member_ordinal,
+                    frame_ordinal,
+                    notional: Decimal::from(notional),
+                    cap: Decimal::from(10_000),
+                })
+            })
+        );
+
+        if let Err(refusal) = answer {
+            assert!(
+                refusal
+                    .to_string()
+                    .starts_with("ECONOMIC_TERMS_NOTIONAL_ABOVE_RECORDED_TIER")
+            );
+        }
+    }
+
+    /// A notional too large to state is over every cap, not under it.
+    #[rstest::rstest]
+    fn an_unstatable_notional_is_above_the_cap() {
+        let mut overflowing = snapshot([i64::MAX, 0], [0, 0], 0);
+        overflowing.grid_unit_notionals =
+            BoundedMembers::try_from([Decimal::MAX, Decimal::ONE]).unwrap();
+        assert!(
+            refuse_notional_above_recorded_tier(
+                &[overflowing],
+                &[Some(Decimal::from(10_000)), None]
+            )
+            .is_err()
+        );
+    }
+
     /// The kernel `FILL` transition a fill committed, as far as closure reads it.
     fn fill_transition(instrument: &str, position_after: i64) -> TargetSetBacktestTransitionV2 {
         TargetSetBacktestTransitionV2 {
@@ -1303,6 +1453,8 @@ mod tests {
                 equity: "1000000 USD".to_owned(),
                 current_grid_units: BoundedMembers::try_from([0, 0]).unwrap(),
                 derived_grid_targets: BoundedMembers::try_from([2, 0]).unwrap(),
+                grid_unit_notionals: BoundedMembers::try_from([Decimal::ONE, Decimal::ONE])
+                    .unwrap(),
                 snapshot_identity: [3; 32],
             }],
             native_order_observations: vec![

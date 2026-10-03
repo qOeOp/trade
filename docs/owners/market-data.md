@@ -210,12 +210,12 @@ never runs in CI.
   `public` and `product_edge_owner` may create there, so a new function in `public`, which `PUBLIC` may execute by
   default, changes the census and admission needs a new manifest. The census names PostgreSQL 16's privileges,
   and a server of another major is refused rather than measured short.
-- **`B4` consumer not compiled into the deployed image.** `product/rd-workbench/Dockerfile.owner` builds
-  `strategy-factory-rd-owner-api` with default features, which leaves `composer-replay-issuance` off, and the
-  dashboard read binary touches no Market Data surface. The native Replay scheduling consumer is behind that
-  production feature rather than an acceptance one; the repair loop's shared time-evidence consumer is behind
-  `native-replay-execution`, also a production feature. Cleared by the deployed image enabling those production features, which is a
-  deployment decision.
+- **`B4` consumer partly compiled into the deployed image.** `product/rd-workbench/Dockerfile.owner` builds
+  `strategy-factory-rd-owner-api` with `composer-v3-replay`, which includes `composer-replay-issuance`, so the
+  native Replay scheduling consumer is in the image; with no admitted store (`B3`) it has no resolver, and issuance
+  answers `MARKET_DATA_SCHEDULING_NOT_ADMITTED`. The repair loop's shared time-evidence consumer is behind
+  `native-replay-execution`, which the image does not build. Cleared by the deployed image enabling that production
+  feature, a deployment decision that follows `B3`.
 - **`B5` no cross-Owner consumer.** The module's only consumers are the same crate's Replay V2 composition and
   PostgreSQL writers, and most such modules are additionally `pub(crate)` inside `crates/data`. Cleared by one
   fixed consumer named by this document.
@@ -1215,8 +1215,8 @@ and issues the terms into the Instrument Owner's.
   `1 / maxOpenPosLeverage` rounded up at the sixth decimal place, so that a rate base ten cannot state exactly
   is never understated. A position whose notional exceeds the row's `notional_cap` (10000 USDT for
   `LINKUSDT-PERP.BINANCE`) is margined by the venue at later brackets, which these terms do not record, and
-  priced at the first bracket's rates its margin would be understated. The terms carry the cap so that a
-  consumer can refuse such a position; no consumer does yet.
+  priced at the first bracket's rates its margin would be understated. The terms carry the cap, and the Native
+  Replay execution refuses such a run as `ECONOMIC_TERMS_NOTIONAL_ABOVE_RECORDED_TIER` (Strategy Factory page).
 - **The tables are maintained by hand.** The venue changes its brackets and fees without notice and nothing
   here notices. Adding an instrument is adding a row with its source; changing a value is a new revision,
   issued for a validity that does not overlap the earlier revision's, because the Native Replay resolver

@@ -123,8 +123,14 @@ R&D 内的 Develop 能力返回内容寻址 Strategy Artifact 和 Build Receipt�
   capability；该 capability 绑定准确 prepared target-set、运行中 Host instance、account/equity snapshot、两份
   instrument fact 与 price、current position、公式及 derived target，crate peer 与 caller 都不能构造或修改其
   数值。随后以 grid units 乘 size increment 准确重建原生 quantity，
-  且 instrument normalization 必须保持其不变。提交前的 host commit 与 order preflight 对整批原子；Sim
-  Exchange submit 与 fill 按顺序发生，不具备 venue 原子性：后续 submit 失败会 fault 本次运行，并保留较早的
+  且 instrument normalization 必须保持其不变。提交前的 host commit 与 order preflight 对整批原子。Host 在
+  frame BAR 收盘时决策并 commit，但每个成员的原生 order 只在该成员的 fill quote 到达时才 submit：fill quote
+  是该 frame 的 quote cut 中的 Quote，时刻由 execution bundle 按成员给出。随后由 Sim venue 对该 Quote 的
+  on-arrival 检查决定流动性：fill quote 已经穿过的 limit 以 TAKER 在 touch 价成交并按 taker 费率计费，只有
+  未穿过的 limit 才挂单，之后以 MAKER 在其 limit 价成交。成员 order 等待期间到达另一时刻的 Quote 按
+  `FILL_QUOTE_NOT_THE_FRAMES_QUOTE_CUT` 拒绝；下一根 BAR 或运行结束时仍在等待的 order 按
+  `FILL_QUOTE_MISSING_BEFORE_NEXT_FRAME` 拒绝；protective order 的放置不变。Sim
+  Exchange submit 与 fill 按顺序发生，不具备 venue 原子性，较早成员可能在较晚成员的 fill quote 到达前成交：后续 submit 失败会 fault 本次运行，并保留较早的
   原生 effect 与进程内 replay 证据。一个有界 test-only second-submit boundary fault 动态证明：Host commit 后
   第一份真实 submit 已成功且原生 cached order 被保留；这不代表 venue rollback 或 all-or-none submit。每个
   `ClientOrderId` 都绑定准确 instrument 与 host-derived intent；partial/
@@ -694,7 +700,7 @@ frame；`a_batch_holding_a_second_instant_of_one_role_binds_no_frame` 测的正�
 可编译配置下都没有东西签发 `NativeReplayExecutionInputBindingV1`。它的签发收敛到
 `issue_native_replay_execution_input_binding_v1`，而后者唯一的调用方是一个 HTTP handler，
 只在 `rd-owner-api` 这个 crate 自己的 `composer-replay-issuance` 下注册，
-部署镜像不开启它，有序链路的构建只经由 `sealed-develop-composer-acceptance` 打开它；没有 SQL 或脚本直接写那几张绑定表，
+部署镜像经由 `composer-v3-replay` 开启它，有序链路的构建经由 `sealed-develop-composer-acceptance` 打开它；没有 SQL 或脚本直接写那几张绑定表，
 也没有测试或客户端提到那条路由。签发者与它旁边的解析者都是 `PostgresResearchGoalOwnerV1` 上
 无门的生产函数，相距四十三行，要的协作者是同一套。所以这条执行路径是没被走到，而不是走不到，
 而一条先签发再解析的有序链路条目就能驱动它，既不必启用 feature 也不必扩任何 union。
@@ -1177,7 +1183,10 @@ public-fact identity/digest、venue、margin-account scope、半开 event validi
 quote/fee currency 与每个准确 term byte。首版只接受正 fixed initial/maintenance value，语义为
 `STANDARD_NOTIONAL_RATE` 或 `FIRST_BRACKET_NOTIONAL_RATE`，并明确选择 `StandardMarginModel`（`notional * rate`，
 不经 leverage）；绝不推断 `LeveragedMarginModel`。first-bracket terms 只在其 `margin_notional_cap` 以内成立，binding
-把该上限与比率一起记录并绑定进 terms digest，因此 bound terms 的 consumer 可以读到它。可见 economic configuration 不能自证这些值，missing value 也绝不会变为零或原生
+把该上限与比率一起记录并绑定进 terms digest。引擎运行之后、任何结果封存之前，Sim EVENT consumer 在每一帧、对每个
+有上限的 member，取持有与派生目标两者中较大的持仓，乘以该帧的价格、multiplier 与 size increment，与上限比较，超出则把
+该运行按名拒绝为 `ECONOMIC_TERMS_NOTIONAL_ABOVE_RECORDED_TIER`。在 native run 能提交 `TERMINAL_RESULT` 以外的结果之前，该拒绝使运行不产生
+结果而结束；之后它会成为 `ReplayConfiguration` 诊断类别下的 `INVALID_REPLAY_EVIDENCE` 结果。可见 economic configuration 不能自证这些值，missing value 也绝不会变为零或原生
 default。错误 fact、receipt、terms、venue、account 或 time，以及 noncanonical、partial、extra、
 cross-spliced、tampered 或 ACL-drifted custody 都会在 `ProgramHostV2` 或 Backtest state 存在前失败。既有
 profile canonical bytes 与 digest 保持不变。

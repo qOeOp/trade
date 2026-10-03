@@ -12,7 +12,7 @@ COPY product/rd-workbench/postgres-init/10-migrate-authority-custody.sh ./produc
 RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
     --mount=type=cache,target=/workspace/target,sharing=locked \
-    cargo build --locked --release -p vibe-strategy-factory-rd-owner-api \
+    cargo build --locked --release -p vibe-strategy-factory-rd-owner-api --features composer-v3-replay \
       --bin strategy-factory-rd-owner-api --bin replay-policy-catalog-authority-bootstrap --bin replay-policy-catalog-owner-readback --bin replay-policy-catalog-command-seal \
     && cargo build --locked --release -p vibe-strategy-factory-rd-owner-api \
       --bin strategy-factory-rd-dashboard-read-api --bin deployment-store-publication-author \

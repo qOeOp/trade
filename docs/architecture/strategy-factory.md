@@ -132,7 +132,15 @@ The maturity boundary is explicit:
   snapshot, both instrument facts and prices, current positions, formula, and derived targets. No crate peer or
   caller can construct or alter its numeric targets. Native quantity is rebuilt exactly as grid units times size
   increment and must pass instrument normalization unchanged. Host commit and order preflight are
-  whole-batch atomic before submission. Sim Exchange submissions and fills are sequential, not venue-atomic: a
+  whole-batch atomic before submission. The Host decides and commits at the frame BAR's close but submits each
+  member's native order only when that member's fill quote arrives: the Quote from the frame's quote cut, at the
+  instant the execution bundle states for that member. The Sim venue's on-arrival check against that Quote then
+  decides liquidity, so a limit the fill quote already crosses fills as TAKER at the touch and pays the taker rate,
+  and only an uncrossed limit rests and later fills as MAKER at its limit. A Quote at another instant while the
+  member's order waits is refused as `FILL_QUOTE_NOT_THE_FRAMES_QUOTE_CUT`, and an order still waiting when the
+  next BAR or the run's end arrives is refused as `FILL_QUOTE_MISSING_BEFORE_NEXT_FRAME`; protective orders are
+  placed as before. Sim Exchange submissions and fills are sequential, not venue-atomic, so an earlier member can
+  fill before a later member's fill quote arrives: a
   later submission failure faults the run and preserves any earlier native effect and in-process replay evidence.
   A bounded test-only fault at the second-submit boundary dynamically proves one successful real submission and
   native cached order remain after the Host commit; it does not claim venue rollback or all-or-none submission.
@@ -790,8 +798,8 @@ deserialization nor a struct literal forges one even with the acceptance feature
 path runs. Nothing issues a `NativeReplayExecutionInputBindingV1` in any compilable configuration
 today. Its issuance narrows to `issue_native_replay_execution_input_binding_v1`, whose single
 caller is an HTTP handler registered only under the `rd-owner-api` crate's own
-`composer-replay-issuance`, which the deployed image does not enable and the ordered chain's build turns
-on only through `sealed-develop-composer-acceptance`; no SQL or script writes the binding tables directly, and no test or client names the route. Both
+`composer-replay-issuance`, which the deployed image enables through `composer-v3-replay` and the ordered
+chain's build turns on through `sealed-develop-composer-acceptance`; no SQL or script writes the binding tables directly, and no test or client names the route. Both
 the issuer and the resolver beside it are ungated production functions on
 `PostgresResearchGoalOwnerV1`, forty-three lines apart, taking the same collaborators. So the
 execution path is unreached rather than unreachable, and one ordered-chain entry that issues and
@@ -1314,7 +1322,12 @@ validity, source/provenance, revision, quote/fee currency, and every exact term 
 positive fixed initial/maintenance values, `STANDARD_NOTIONAL_RATE` or `FIRST_BRACKET_NOTIONAL_RATE`, and explicitly
 selects `StandardMarginModel` (`notional * rate`, no leverage); it never infers `LeveragedMarginModel`. First-bracket
 terms hold only up to their `margin_notional_cap`, which the binding records beside the rates and binds into the
-terms digest, so the cap is available to a consumer of the bound terms. The visible economic
+terms digest. After the engine runs and before any result is sealed, the Sim EVENT consumer compares, at every
+frame and for every member with a cap, the larger of the held and the derived target position, times the frame's
+price, multiplier and size increment, with that cap, and refuses a run over it as
+`ECONOMIC_TERMS_NOTIONAL_ABOVE_RECORDED_TIER`. Until a native run can commit a result other than `TERMINAL_RESULT`, the refusal ends
+the run without a result; it then becomes an `INVALID_REPLAY_EVIDENCE` result under the `ReplayConfiguration`
+diagnostic category. The visible economic
 configuration cannot attest those values, and a missing value never becomes zero or a native default. Wrong fact,
 receipt, terms, venue, account or time, and noncanonical, partial, extra, cross-spliced, tampered or ACL-drifted
 custody fail before `ProgramHostV2` or Backtest state exists. Existing profile canonical bytes and digest remain
