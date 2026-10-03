@@ -263,6 +263,10 @@ never runs in CI.
 | Vendor Data Clients                                       | `CURRENT / PARTIAL`                                                                                 | `crates/adapters/databento/src/pit_observation_source_v1.rs` and `crates/adapters/binance/src/pit_observation_source_v1.rs`, both live‑verified                                                                                          | `B6`       |
 | Live market fact channel to Runtime                       | `CURRENT / PARTIAL`, one channel                                                                    | `owner/live_market_fact_v1.rs`, `owner/live_market_stream_v1.rs`, `owner/postgres/live_market_stream_v1.rs`, `crates/adapters/bybit/src/live_market_fact_source_v1.rs`                                                                   | `B8`       |
 | Binance perpetual settled funding rows                    | `CURRENT / PARTIAL`                                                                                 | `crates/adapters/binance/src/futures_pit_observation_source_v1.rs`                                                                                                                                                                       | `B6`       |
+| Owner clock follows PIT intake                            | `TARGET`, on U1's path                                                                              | none; PIT intake commits at the current clock head (`owner/postgres.rs`)                                                                                                                                                                 | none       |
+| Fill‑bar quote cut for a bar‑only source                  | `TARGET`, on U1's path                                                                              | none; a quote cut holds observed Quote rows only (`owner/native_replay_quote_cut_v2.rs`)                                                                                                                                                 | none       |
+| Companion quote lineage                                   | `TARGET`, after U1                                                                                  | none                                                                                                                                                                                                                                     | none       |
+| Source Binding successor admission                        | `TARGET`, after U1                                                                                  | `commit_source_successor`, test callers only                                                                                                                                                                                             | none       |
 
 ## Authoritative facts owned
 
@@ -2229,7 +2233,7 @@ not a BAR, a Source Binding that declares no bar timeframe, a role row label it 
 Instrument Master readback. Strategy Factory slice F depends on it. A continuous daily bar such as a Binance
 perpetual's is declared as a 24-hour fixed interval on a continuous clock from the Unix epoch and scheduled as that
 bar. One source gap remains beside it: no admitted Binance perpetual source supplies QUOTE rows, so a perpetual Replay
-has no quote cut to fill from.
+has no quote cut to fill from. The fill-bar quote cut below, before PIT window custody, is the design that closes it.
 
 `TimeframeSpecV1` has one fixed canonical codec, in this order: schema `u16LE = 1`, reserved-zero `u16LE`, kind
 `u8`, positive step `u32LE`, unit `u8`, anchor identity `[u8; 32]`, calendar identity `[u8; 32]`, session identity
@@ -2465,6 +2469,67 @@ took Quotes from the frame's own batch - bytes Owner custody never produced. The
 seals every frame through that same seal, over one or two members, and its liquidity EVENT receipt
 seals the quote cut's snapshot, fact and batch in place of the frame's. No proof yet drives a
 complete initial read - schedules, universe and quote cut together - on Owner custody.
+
+**TARGET, fill quotes for a source that publishes bars only, and the Owner clock that admits them:** nothing here is
+built, and nothing is admitted until its slice is. A deployed Backtest over Binance perpetual history needs a fill quote
+between every pair of frames and has none today: Binance publishes no historical quotes (`bookTicker` answers only the
+current one), a quote cut must sit on the frame's own Source Binding lineage, and a snapshot retrieved after the
+Owner's clock head cannot be admitted at all. Every frame of such a Backtest is therefore refused as
+`QuoteCutMissing`. The first Composer replay passes only through two named stand-ins: its Data Client builds Quote rows
+from klines, and an extra `usdm/klines/4h` Source Binding admission moves the clock past the frame.
+This design replaces both.
+
+- **The fill comes from a finer bar of the same source.** A schema 2 Source Binding that declares the frame's bar may
+  also declare a finer fixed-interval bar, which a replay request names as its fill timeframe. A fill timeframe that is
+  not strictly shorter than the execution timeframe is refused by name as `FILL_TIMEFRAME_NOT_FINER_THAN_EXECUTION`.
+  For each frame the fill bar is the first fill-timeframe bar whose open instant lies strictly after the frame's
+  availability instant - its BAR's event-effective instant plus the lag the binding's availability rule declares - and
+  strictly before the next frame's BAR. A PIT snapshot holding exactly that bar for each member, and nothing else, is a
+  fill-bar quote cut. The Owner records it in the quote census, never the frame census, and reads each member's Quote
+  from the stored row: bid and ask are both the bar's open, both sizes are the bar's traded volume, and its instant is
+  the bar's open instant. The caller states no price, size or instant; the Data Client delivers the kline as it
+  delivers any bar.
+- **Why it is not look-ahead.** Frame `k`'s decision can use nothing visible after its availability instant, and the
+  fill instant lies strictly after it, so the price is one the market printed after the strategy could act. The next
+  execution bar's open would not do: that bar opens at the frame's event instant, before the declared lag has passed,
+  so it would fill at a price printed before the decision was possible. The research prototype filled at the next 4h
+  open; a 1m fill bar keeps that intent and removes the lag. As with every quote cut, the fill quote reaches the fill
+  path only and never a strategy input.
+- **Why it re-reads.** The Quote is a fixed function of one immutable Owner-verified row, and a fill-bar quote cut is
+  chosen by the same census and reading-cut rules as an observed one, so a later reading resolves the same quote.
+- **It is the declared fill model, not a stand-in, and it says so.** A quote cut's identity carries its derivation -
+  observed best bid and offer, or the open of a named fill-timeframe bar - and the Backtest result states it. It has no
+  spread and no resting depth: its size is volume the market traded in that bar, not liquidity at the touch. Spread and
+  slippage belong to Backtest's cost model, never to a number this Owner invents.
+- **The Owner clock follows PIT intake.** A PIT intake whose observations were retrieved after the clock head mints the
+  next cut itself, under the clock-state lock and inside its own commit, as an Instrument Master V2 snapshot admission
+  already does, and refuses a retrieval later than the cut it minted. A V2 PIT submission therefore states no decision
+  cut or clock: the Owner stamps them into the snapshot's time evidence and returns the cut in the receipt, where the
+  requester reads it. The cut is still fixed before any reader sees the snapshot's data, so this relocates the
+  requester's decision cut from the request to the receipt and removes no property. It also ends
+  `ClockEvidenceNotCurrent` for V2 submissions, which an archiver moving the head hourly would otherwise make routine.
+  A V1 submission keeps today's contract. R&D's frozen-request handoff changes with it, so this slice starts only with
+  R&D's agreement to that change. Without it, an ingestion that retrieves after the head admits nothing until some other
+  admission moves the clock.
+- **A companion quote lineage, after U1.** A quote Source Binding admitted as the liquidity companion of one bar lineage
+  may supply that lineage's quote cuts. The pairing is declared in the quote binding's proposal and enters its
+  identity. It names the bar lineage's root, not a binding, so it survives the bar lineage's successors. Market
+  Semantics identity, the time relation and the ambiguity refusal stay exact. It needs a deployment that runs two
+  observation sources and a perpetual quote source, which no deployment has; Binance history needs neither, because the
+  fill-bar quote cut serves it.
+- **Source Binding successor admission, after U1.** `commit_source_successor` has test callers only, and no route or
+  request field reaches it, so re-admitting a source today starts an unrelated lineage. It does not gate the companion
+  lineage, which names a lineage root.
+- **Admission does not check that a mapping is served.** Source Binding admission accepts any dataset mapping,
+  including one no Data Client of the deployment serves, and a snapshot under such a binding is simply unavailable.
+  That fails closed, but it lets an admission be used only for its effect on the clock, which is what the first
+  Composer replay's stand-in does, with a mapping that is at least servable. The Owner clock following PIT intake
+  removes the reason to do that. Checking a mapping against the deployment's Data Clients is recorded here and not
+  admitted.
+- **Slices, in order.** (1) The Owner clock follows PIT intake, on U1's path because an ingestion of history retrieves
+  after the head. (2) The fill-bar quote cut, on the snapshot path first and in custody once T0 is built, also on U1's
+  path; ingestion then commits one fill bar per frame beside each frame. (3) The companion lineage and (4) successor
+  admission, after U1 and in either order. The mapping check is not admitted.
 
 **TARGET / IMPLEMENTATION_ADMITTED for slice T0, PIT window custody:** a multi-frame Backtest over backfilled history
 reads one append-only PIT window custody instead of a snapshot per frame. The user admitted this on 2026-09-27, as the
