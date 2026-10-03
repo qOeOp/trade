@@ -11,11 +11,6 @@
 //! instant the declared grid is anchored at reduced modulo the interval - zero for a grid anchored
 //! at the Unix epoch, such as a daily bar closing at midnight UTC or a four-hour bar.
 
-#![allow(
-    dead_code,
-    reason = "the frame reads are consumed by the custody's derived view (slice T0-5), not built yet"
-)]
-
 use sha2::{Digest as _, Sha256};
 
 use super::authority::{CustodyTimeframeV1, DerivedCustodyV1};

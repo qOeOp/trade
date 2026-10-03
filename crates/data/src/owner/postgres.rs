@@ -55,6 +55,8 @@ mod pit_window_custody_v1;
 pub(in crate::owner) use pit_window_custody_v1::pit_window_custody_commit_from_environment_v1;
 #[cfg(test)]
 mod pit_window_custody_v1_tests;
+#[cfg(test)]
+mod pit_window_view_v1_tests;
 mod rd_strategy_input_custody;
 mod reference_fact_catalog;
 mod reference_fact_coordinates;
