@@ -2499,6 +2499,14 @@ availability reaches the fill quote but not frame `k`'s strategy inputs, which a
 red. T0 is not driven until T1: it has no production caller, so a complete T0 is structurally present and run by no
 Backtest.
 
+Built so far (T0-4a): the custody aggregate - the custody record, its cross-section versions and their `SampleFactV2`
+row facts, every commit-time refusal, the Owner clock a commit mints, rejoin and successor custody - behind the sealed
+`PitWindowCustodyCommitV1`, which `pit_window_custody_commit_from_environment_v1` opens on the Owner store. No
+production caller reaches it yet: the unit tests of its pure authority and three PostgreSQL proofs in
+`pit_window_custody_v1_tests` drive it. The timeframe identity a custody binds for a member is the one the BAR schedule
+path derives from the same declaration and that member's Instrument Master fact, time zone included. The window
+schedule, the once-per-chain records and the derived view are not built yet.
+
 - **Custody:** covers the half-open window from its warm-up start and is committed once, then never mutated. A later
   correction is a successor custody that names its predecessor and carries only the versions it adds; a view reads the
   chain to its head. A successor restates its predecessor's basis exactly - Market Semantics fact, Instrument Master
@@ -2574,8 +2582,8 @@ Backtest.
   concerns the fill quote alone. Frame `k`'s strategy inputs are still cut at `d_k`, so a correction published between
   `d_k` and the quote's availability reaches the fill quote and never frame `k`'s inputs.
 - **Interface:** `crates/data/src/owner/pit_window_custody_v1.rs` freezes what a backfill writer commits and how a
-  multi-frame consumer finds a run's frames; until the custody aggregate and the derived view implement its two sealed
-  ports, nothing constructs a receipt or a frame coordinate.
+  multi-frame consumer finds a run's frames. The custody aggregate implements its commit port and alone constructs a
+  receipt; until the derived view implements its frames port, nothing constructs a frame coordinate.
   - A custody request names its Source Binding, Market Semantics fact, Universe Selection record, one or two members,
     window, execution timeframe, input timeframes and an optional fill timeframe. The execution timeframe is named by
     the custody, not by a run, because the custody's commit mints the window schedule; a lag not below its interval is

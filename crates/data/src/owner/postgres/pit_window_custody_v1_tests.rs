@@ -1,0 +1,818 @@
+//! PIT window custody (slice T0-4a), proved on real PostgreSQL through the sealed commit port.
+//!
+//! Every Source Binding is committed on the Owner's own clock, so the clock a custody commit mints
+//! from the wall is its ordinary successor. Every refusal is checked against a snapshot of every
+//! Owner table, clock included: a refusal writes nothing.
+
+use std::{collections::BTreeSet, sync::Arc};
+
+use sqlx::Row;
+
+use super::{
+    MarketDataClockAdmission, MarketDataOwnerPostgres, OWNER_CLOCK_EPOCH_V1,
+    OWNER_CLOCK_IDENTITY_V1, OWNER_CLOCK_SKEW_BOUND_NS, OWNER_CLOCK_UNCERTAINTY_BOUND_NS,
+    OWNER_CLOCK_VALIDITY_WINDOW_NS, OwnerSourceBindingDecision, SourceBindingCommit,
+    pit_intake_member_count_tests::{instrument_submission, owner_store_v1, source_proposal},
+    seal_owner_clock_admission_v1,
+};
+use crate::owner::{
+    pit_window_custody_v1::{
+        CrossSectionVersionKindV1, PitWindowCustodyCommitV1, PitWindowCustodyReceiptV1,
+        PitWindowCustodyRefusalV1 as Refused, UntrustedCrossSectionVersionV1,
+        UntrustedCustodyRowV1, UntrustedPitWindowCustodyClaimV1,
+        UntrustedPitWindowCustodyRequestV1,
+    },
+    sample_fact::v2::{SampleFactV2, decode_sample_fact_v2},
+    source_binding::{
+        BindingDigest, UntrustedSourceAvailabilityRuleV1, UntrustedSourceBarAnchorV1,
+        UntrustedSourceBarCadenceV1, UntrustedSourceBarClockV1, UntrustedSourceBarCompletionV1,
+        UntrustedSourceBarLabelV1, UntrustedSourceBarTimeframeV1, UntrustedSourceBarUnitV1,
+        UntrustedSourceVisibilityV1,
+        authority::{
+            availability_rule_digest_v1, derive_binding_id,
+            derive_market_semantics_compatibility_identity_v1, derive_time_evidence_identity,
+        },
+    },
+    universe_selection::{
+        UntrustedUniverseSelectionLocatorV1, UntrustedUniverseSelectionRequestV1,
+        authority::{
+            CanonicalUniverseSelectionRuleEvaluatorV1, HistoricalMembershipFactProposalV1,
+        },
+    },
+};
+
+/// 2026-09-21: the Owner clock's first head, on the real clock.
+const FIRST_CUT: u64 = 1_790_000_000_000_000_000;
+const SECOND: u64 = 1_000_000_000;
+const MINUTE: u64 = 60 * SECOND;
+const DAY: u64 = 86_400 * SECOND;
+/// The backfilled window starts on a UTC midnight in 2023.
+const WINDOW_START: u64 = 19_700 * DAY;
+const BTC: &str = "BTCUSDT-PERP.BINANCE";
+const ETH: &str = "ETHUSDT-PERP.BINANCE";
+/// When the backfill retrieved its rows: after the Owner's first head, before the wall clock.
+const RETRIEVED: u64 = FIRST_CUT + 10 * SECOND;
+
+fn d(byte: u8) -> BindingDigest {
+    BindingDigest::from_untrusted_bytes([byte; 32])
+}
+
+fn owner_clock(sequence: u64, instant: u64) -> MarketDataClockAdmission {
+    seal_owner_clock_admission_v1(
+        OWNER_CLOCK_IDENTITY_V1,
+        OWNER_CLOCK_EPOCH_V1,
+        sequence,
+        instant,
+        OWNER_CLOCK_VALIDITY_WINDOW_NS,
+        OWNER_CLOCK_UNCERTAINTY_BOUND_NS,
+        OWNER_CLOCK_SKEW_BOUND_NS,
+    )
+    .expect("the instant seals on the Owner clock")
+}
+
+async fn owner() -> MarketDataOwnerPostgres {
+    let owner_url = std::env::var("MARKET_DATA_OWNER_TEST_DATABASE_URL")
+        .expect("explicit disposable Owner URL");
+    let database =
+        std::env::var("VIBE_POSTGRES_TEST_DATABASE_NAME").expect("disposable database name");
+    assert!(
+        database.starts_with("vibe_test_"),
+        "this proof writes custodies and clocks; it runs only against a disposable database"
+    );
+    MarketDataOwnerPostgres::connect(&owner_url)
+        .await
+        .expect("Owner connects and migrates")
+}
+
+fn continuous(
+    label: &str,
+    step: u32,
+    unit: UntrustedSourceBarUnitV1,
+) -> UntrustedSourceBarTimeframeV1 {
+    UntrustedSourceBarTimeframeV1 {
+        row_timeframe: label.to_owned(),
+        cadence: UntrustedSourceBarCadenceV1::FixedInterval { step, unit },
+        anchor: UntrustedSourceBarAnchorV1::UnixEpoch,
+        clock: UntrustedSourceBarClockV1::Continuous,
+        label: UntrustedSourceBarLabelV1::IntervalClose,
+        completion: UntrustedSourceBarCompletionV1::CompleteOnly,
+    }
+}
+
+/// A daily bar, a minute bar, a two-day bar and an exchange session day.
+fn declarations() -> Vec<UntrustedSourceBarTimeframeV1> {
+    vec![
+        continuous("1D", 24, UntrustedSourceBarUnitV1::Hour),
+        continuous("1M", 1, UntrustedSourceBarUnitV1::Minute),
+        continuous("2D", 48, UntrustedSourceBarUnitV1::Hour),
+        UntrustedSourceBarTimeframeV1 {
+            row_timeframe: "3D".to_owned(),
+            cadence: UntrustedSourceBarCadenceV1::ExchangeSessionDay,
+            anchor: UntrustedSourceBarAnchorV1::SessionOpen,
+            clock: UntrustedSourceBarClockV1::ScheduleBounded,
+            label: UntrustedSourceBarLabelV1::IntervalClose,
+            completion: UntrustedSourceBarCompletionV1::CompleteOnly,
+        },
+    ]
+}
+
+/// Visible two minutes after the bar closes.
+fn after_close(publishes_corrections: bool) -> UntrustedSourceAvailabilityRuleV1 {
+    UntrustedSourceAvailabilityRuleV1 {
+        visibility: UntrustedSourceVisibilityV1::AfterBarClose { lag_ns: 2 * MINUTE },
+        publishes_corrections,
+    }
+}
+
+/// Commits one admitted Source Binding over `dataset` on the Owner clock's `sequence`th head, as
+/// schema 2 with `rule` and every declaration when a rule is given, and as schema 1 otherwise.
+/// Every binding states the same semantics, so all share one Market Semantics identity.
+async fn commit_binding(
+    owner: &MarketDataOwnerPostgres,
+    dataset: &str,
+    sequence: u64,
+    rule: Option<UntrustedSourceAvailabilityRuleV1>,
+) -> SourceBindingCommit {
+    let cut = FIRST_CUT + (sequence - 1) * SECOND;
+    let clock = owner_clock(sequence, cut);
+    let mut proposal = source_proposal();
+    proposal.adapter.dataset_mapping = dataset.to_owned();
+    let time = &mut proposal.time_evidence;
+    time.clock_identity.clone_from(&clock.clock_identity);
+    time.clock_epoch.clone_from(&clock.clock_epoch);
+    time.restart_continuity_digest = clock.restart_continuity_digest;
+    time.skew_bound = clock.skew_bound;
+    time.uncertainty_bound = clock.uncertainty_bound;
+    time.monotonic_sequence = sequence;
+    time.event_effective = cut - 30;
+    time.provider_available = cut - 20;
+    time.correction_publication = cut - 15;
+    time.retrieval = cut - 10;
+    time.observed_at = cut;
+    time.effective_at = cut;
+    time.valid_through = clock.valid_through;
+
+    if let Some(rule) = rule {
+        proposal.schema_version = 2;
+        proposal.availability_rule = Some(rule);
+        proposal.bar_timeframes = declarations();
+    }
+    proposal.time_evidence.claimed_evidence_identity =
+        derive_time_evidence_identity(&proposal.time_evidence);
+    proposal.claimed_binding_id = derive_binding_id(&proposal);
+    owner
+        .commit_source_initial(
+            proposal,
+            OwnerSourceBindingDecision {
+                blockers: BTreeSet::new(),
+            },
+            &clock,
+        )
+        .await
+        .expect("the Owner admits the binding and its clock")
+}
+
+/// Admits both members' Instrument Master facts, in force from instant 1 with no end.
+async fn admit_members(owner: &MarketDataOwnerPostgres, binding: &SourceBindingCommit) {
+    for member in [BTC, ETH] {
+        owner
+            .admit_instrument_master_fact_v1(instrument_submission(member, binding, d(81)))
+            .await
+            .unwrap();
+    }
+}
+
+/// The Owner's clock: every handoff, and the head's decision cut.
+async fn clock(owner: &MarketDataOwnerPostgres) -> (i64, u64) {
+    let handoffs: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM market_data_private.clock_handoffs_v1")
+            .fetch_one(owner.pool())
+            .await
+            .unwrap();
+    let cut: i64 = sqlx::query_scalar(
+        "SELECT decision_cut FROM market_data_private.clock_head_v1 WHERE singleton",
+    )
+    .fetch_one(owner.pool())
+    .await
+    .unwrap();
+    (handoffs, u64::try_from(cut).unwrap())
+}
+
+/// A Universe Selection including both members, evaluated by the Owner at its head. ETH's
+/// membership begins at `eth_from` when one is given; a membership still in force at the head
+/// is the only kind a selection evaluated there includes.
+async fn universe(
+    owner: &MarketDataOwnerPostgres,
+    binding: &SourceBindingCommit,
+    frontier: u8,
+    eth_from: Option<u64>,
+) -> UntrustedUniverseSelectionLocatorV1 {
+    let (_, decision_cut) = clock(owner).await;
+    let at = i128::from(decision_cut);
+    let lineage_root = binding.fact().lineage_root();
+    let correction = binding.receipt().locator().correction_frontier.digest;
+    let request = UntrustedUniverseSelectionRequestV1::new(
+        d(frontier.wrapping_add(1)),
+        "RESEARCH_OWNER_V1",
+        d(202),
+        vec![0, 1, 1],
+        d(frontier),
+        at,
+        at,
+        decision_cut,
+        lineage_root,
+        correction,
+        d(203),
+    );
+    let membership = [(BTC, None), (ETH, eth_from.map(i128::from))]
+        .into_iter()
+        .map(|(member, from)| HistoricalMembershipFactProposalV1 {
+            member_key: member.as_bytes().to_vec(),
+            instrument: member.as_bytes().to_vec(),
+            predecessor_identity: None,
+            // A membership fact's identity does not bind its frontier, so each frontier's member
+            // is its own fact.
+            effective_from_ns: from.unwrap_or(i128::from(frontier)),
+            effective_until_ns: None,
+            provider_available_ns: at - 20,
+            retrieval_ns: at - 10,
+            correction_publication_ns: at - 15,
+            owner_observation_ns: at,
+            decision_cut,
+            source_binding_lineage_root: lineage_root,
+            correction_frontier_digest: correction,
+        })
+        .collect();
+    let mut transaction = owner.pool().begin().await.unwrap();
+    super::universe_selection::persist_historical_membership_frontier_v1(
+        &mut transaction,
+        d(frontier),
+        membership,
+    )
+    .await
+    .unwrap();
+    super::universe_selection::resolve_universe_selection_in_transaction_v1(
+        &mut transaction,
+        &request,
+        Some(&CanonicalUniverseSelectionRuleEvaluatorV1),
+    )
+    .await
+    .unwrap();
+    transaction.commit().await.unwrap();
+    UntrustedUniverseSelectionLocatorV1::from_untrusted(
+        request.request_identity(),
+        request.request_meaning_digest(),
+    )
+}
+
+/// One row per member and BAR field, values from `base`, all retrieved at `retrieval_ns`.
+fn rows(base: i128, retrieval_ns: u64) -> Vec<UntrustedCustodyRowV1> {
+    [BTC, ETH]
+        .into_iter()
+        .flat_map(|member| {
+            ["OPEN", "HIGH", "LOW", "CLOSE", "VOLUME"]
+                .into_iter()
+                .zip(0..)
+                .map(move |(field, offset)| UntrustedCustodyRowV1 {
+                    instrument: member.to_owned(),
+                    field: field.to_owned(),
+                    value_mantissa: base + offset,
+                    value_scale: 2,
+                    retrieval_ns,
+                    retrieval_route: "data.binance.vision/daily-klines".to_owned(),
+                })
+        })
+        .collect()
+}
+
+fn original(timeframe: &str, event: u64) -> UntrustedCrossSectionVersionV1 {
+    UntrustedCrossSectionVersionV1 {
+        timeframe: timeframe.to_owned(),
+        event_effective_ns: event,
+        kind: CrossSectionVersionKindV1::Original,
+        correction_sequence: 1,
+        predecessor_version: None,
+        publication_ns: None,
+        rows: rows(6_500_000, RETRIEVED),
+    }
+}
+
+fn correction(
+    event: u64,
+    predecessor: BindingDigest,
+    correction_sequence: u64,
+    publication_ns: u64,
+) -> UntrustedCrossSectionVersionV1 {
+    UntrustedCrossSectionVersionV1 {
+        timeframe: "1D".to_owned(),
+        event_effective_ns: event,
+        kind: CrossSectionVersionKindV1::Correction,
+        correction_sequence,
+        predecessor_version: Some(predecessor),
+        publication_ns: Some(publication_ns),
+        rows: rows(6_600_000, RETRIEVED),
+    }
+}
+
+fn withdrawal(
+    event: u64,
+    predecessor: BindingDigest,
+    correction_sequence: u64,
+    publication_ns: Option<u64>,
+) -> UntrustedCrossSectionVersionV1 {
+    UntrustedCrossSectionVersionV1 {
+        timeframe: "1D".to_owned(),
+        event_effective_ns: event,
+        kind: CrossSectionVersionKindV1::Withdrawal,
+        correction_sequence,
+        predecessor_version: Some(predecessor),
+        publication_ns,
+        rows: Vec::new(),
+    }
+}
+
+/// Two members over three days: daily bars for inputs and execution, minute bars for fills.
+fn request(
+    binding: &SourceBindingCommit,
+    universe: UntrustedUniverseSelectionLocatorV1,
+) -> UntrustedPitWindowCustodyRequestV1 {
+    UntrustedPitWindowCustodyRequestV1 {
+        source_binding: binding.receipt().locator().clone(),
+        market_semantics_identity: derive_market_semantics_compatibility_identity_v1(
+            &binding.fact().proposal().semantics,
+        ),
+        universe_selection: universe,
+        members: vec![BTC.to_owned(), ETH.to_owned()],
+        window_start_ns: WINDOW_START,
+        window_end_ns_exclusive: WINDOW_START + 3 * DAY,
+        execution_timeframe: "1D".to_owned(),
+        input_timeframes: vec!["1D".to_owned()],
+        fill_timeframe: Some("1M".to_owned()),
+        predecessor: None,
+        cross_sections: vec![
+            original("1D", WINDOW_START + DAY),
+            original("1D", WINDOW_START + 2 * DAY),
+            original("1M", WINDOW_START + DAY + MINUTE),
+        ],
+    }
+}
+
+fn successor(
+    root: &PitWindowCustodyReceiptV1,
+    template: &UntrustedPitWindowCustodyRequestV1,
+    versions: Vec<UntrustedCrossSectionVersionV1>,
+) -> UntrustedPitWindowCustodyRequestV1 {
+    let mut request = template.clone();
+    request.predecessor = Some(UntrustedPitWindowCustodyClaimV1 {
+        chain_root: root.chain_root(),
+    });
+    request.cross_sections = versions;
+    request
+}
+
+async fn commit(
+    intake: &Arc<dyn PitWindowCustodyCommitV1>,
+    request: UntrustedPitWindowCustodyRequestV1,
+) -> Result<PitWindowCustodyReceiptV1, Refused> {
+    Box::pin(intake.commit_pit_window_custody_v1(request)).await
+}
+
+/// Commits `request` and requires the refusal it names, with every Owner table unchanged.
+async fn refused(
+    owner: &MarketDataOwnerPostgres,
+    intake: &Arc<dyn PitWindowCustodyCommitV1>,
+    request: UntrustedPitWindowCustodyRequestV1,
+    expected: Refused,
+) {
+    let before = owner_store_v1(owner.pool()).await;
+    assert_eq!(commit(intake, request).await, Err(expected));
+    assert_eq!(
+        owner_store_v1(owner.pool()).await,
+        before,
+        "{expected:?} wrote nothing, the clock included"
+    );
+}
+
+async fn count(owner: &MarketDataOwnerPostgres, table: &str) -> i64 {
+    sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+        "SELECT COUNT(*) FROM market_data_private.{table}"
+    )))
+    .fetch_one(owner.pool())
+    .await
+    .unwrap()
+}
+
+/// The identity of the version `custody` holds at `event`.
+async fn version_at(
+    owner: &MarketDataOwnerPostgres,
+    custody: BindingDigest,
+    event: u64,
+) -> BindingDigest {
+    let bytes: Vec<u8> = sqlx::query_scalar(
+        "SELECT version_identity FROM market_data_private.pit_window_cross_section_versions_v1 WHERE custody_identity=$1 AND event_ns=$2",
+    )
+    .bind(custody.as_bytes().as_slice())
+    .bind(i64::try_from(event).unwrap())
+    .fetch_one(owner.pool())
+    .await
+    .unwrap();
+    BindingDigest::from_untrusted_bytes(bytes.try_into().unwrap())
+}
+
+/// The BTC CLOSE row fact of `version`, decoded and verified from its stored bytes.
+async fn close_fact(owner: &MarketDataOwnerPostgres, version: BindingDigest) -> SampleFactV2 {
+    let row = sqlx::query(
+        "SELECT fact_bytes,fact_digest FROM market_data_private.pit_window_custody_rows_v1 WHERE version_identity=$1 AND member_ordinal=0 AND field='CLOSE'",
+    )
+    .bind(version.as_bytes().as_slice())
+    .fetch_one(owner.pool())
+    .await
+    .unwrap();
+    let bytes: Vec<u8> = row.get("fact_bytes");
+    let digest: Vec<u8> = row.get("fact_digest");
+    decode_sample_fact_v2(&bytes, digest.try_into().unwrap()).expect("the stored fact verifies")
+}
+
+fn wall_now_ns() -> u64 {
+    u64::try_from(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos(),
+    )
+    .unwrap()
+}
+
+/// A custody commits once, minting the one Owner clock its rows need, and stores its versions and
+/// row facts chained on one another. The same request, and the same versions with other retrieval
+/// evidence, rejoin it: the original receipt and minting cut, nothing written, no clock minted. A
+/// stored identity whose bytes differ is another meaning and is refused.
+#[tokio::test]
+#[ignore = "requires a disposable Market Data PostgreSQL database"]
+async fn postgres_a_custody_commits_once_and_a_resubmission_rejoins_without_writing() {
+    let owner = owner().await;
+    let binding = commit_binding(&owner, "binance/um/klines", 1, Some(after_close(false))).await;
+    admit_members(&owner, &binding).await;
+    let universe = universe(&owner, &binding, 10, None).await;
+    let intake = owner.pit_window_custody_commit_v1();
+    let first = request(&binding, universe);
+
+    let (handoffs, head) = clock(&owner).await;
+    let before_wall = wall_now_ns();
+    let receipt = commit(&intake, first.clone())
+        .await
+        .expect("the custody commits");
+    let (minted_handoffs, minted) = clock(&owner).await;
+    assert_eq!(
+        minted_handoffs,
+        handoffs + 1,
+        "exactly one clock was minted"
+    );
+    assert!(minted > head && minted >= before_wall && minted > RETRIEVED);
+    assert_eq!(receipt.minting_cut_ns(), minted);
+    assert_eq!(receipt.chain_version(), 1);
+    assert_eq!(receipt.chain_root(), receipt.custody_identity());
+    assert_eq!(
+        receipt.availability_rule_digest(),
+        availability_rule_digest_v1(&after_close(false))
+    );
+    assert_eq!(count(&owner, "pit_window_custodies_v1").await, 1);
+    assert_eq!(count(&owner, "pit_window_custody_heads_v1").await, 1);
+    assert_eq!(
+        count(&owner, "pit_window_cross_section_versions_v1").await,
+        3
+    );
+    assert_eq!(count(&owner, "pit_window_custody_rows_v1").await, 30);
+
+    // Availability is derived from the rule: two minutes after the daily bar closes. A source that
+    // publishes no corrections publishes at availability.
+    let first_bar = version_at(&owner, receipt.custody_identity(), WINDOW_START + DAY).await;
+    let instants = sqlx::query(
+        "SELECT availability_ns,publication_ns,kind FROM market_data_private.pit_window_cross_section_versions_v1 WHERE version_identity=$1",
+    )
+    .bind(first_bar.as_bytes().as_slice())
+    .fetch_one(owner.pool())
+    .await
+    .unwrap();
+    let available = WINDOW_START + DAY + 2 * MINUTE;
+    assert_eq!(
+        instants.get::<i64, _>("availability_ns"),
+        i64::try_from(available).unwrap()
+    );
+    assert_eq!(
+        instants.get::<i64, _>("publication_ns"),
+        i64::try_from(available).unwrap()
+    );
+    assert_eq!(instants.get::<i16, _>("kind"), 1);
+
+    // The second bar's row fact extends the first's series.
+    let first_close = close_fact(&owner, first_bar).await;
+    let second_close = close_fact(
+        &owner,
+        version_at(&owner, receipt.custody_identity(), WINDOW_START + 2 * DAY).await,
+    )
+    .await;
+    assert_eq!(first_close.series_sequence(), 1);
+    assert_eq!(second_close.series_sequence(), 2);
+    assert_eq!(
+        second_close.series_predecessor(),
+        first_close.sample_identity()
+    );
+    assert_eq!(first_close.correction_predecessor(), None);
+
+    // The same request rejoins.
+    let stored = owner_store_v1(owner.pool()).await;
+    assert_eq!(commit(&intake, first.clone()).await, Ok(receipt.clone()));
+    assert_eq!(
+        owner_store_v1(owner.pool()).await,
+        stored,
+        "a rejoin writes nothing"
+    );
+
+    // So do the same versions retrieved again, later and elsewhere.
+    let mut retried = first.clone();
+
+    for version in &mut retried.cross_sections {
+        for row in &mut version.rows {
+            row.retrieval_ns += 5 * SECOND;
+            row.retrieval_route = "fapi.binance.com/fapi/v1/klines".to_owned();
+        }
+    }
+    assert_eq!(commit(&intake, retried).await, Ok(receipt.clone()));
+    assert_eq!(owner_store_v1(owner.pool()).await, stored);
+    assert_eq!(
+        clock(&owner).await,
+        (minted_handoffs, minted),
+        "no rejoin mints"
+    );
+
+    // A stored identity whose bytes are not the request's is another meaning.
+    sqlx::query("UPDATE market_data_private.pit_window_custodies_v1 SET canonical_bytes=canonical_bytes||'\\x00'::bytea WHERE custody_identity=$1")
+        .bind(receipt.custody_identity().as_bytes().as_slice())
+        .execute(owner.pool())
+        .await
+        .unwrap();
+    refused(&owner, &intake, first, Refused::IdentityConflict).await;
+}
+
+/// Every refusal the commit reaches is decided before any write: each leaves every Owner table,
+/// the clock included, exactly as it was.
+#[tokio::test]
+#[ignore = "requires a disposable Market Data PostgreSQL database"]
+#[expect(
+    clippy::too_many_lines,
+    reason = "one store: each refusal is checked against the same unchanged snapshot"
+)]
+async fn postgres_every_custody_refusal_writes_nothing() {
+    let owner = owner().await;
+    let binding = commit_binding(&owner, "binance/um/klines", 1, Some(after_close(false))).await;
+    let schema_one = commit_binding(&owner, "binance/um/legacy", 2, None).await;
+    admit_members(&owner, &binding).await;
+    let universe_locator = universe(&owner, &binding, 10, None).await;
+    let joining = universe(&owner, &binding, 11, Some(WINDOW_START + DAY)).await;
+    let intake = owner.pit_window_custody_commit_v1();
+    let valid = request(&binding, universe_locator);
+    let edited = |edit: &dyn Fn(&mut UntrustedPitWindowCustodyRequestV1)| {
+        let mut request = valid.clone();
+        edit(&mut request);
+        request
+    };
+
+    refused(
+        &owner,
+        &intake,
+        edited(&|r| r.members.push("XRPUSDT-PERP.BINANCE".to_owned())),
+        Refused::InvalidRequest,
+    )
+    .await;
+    refused(
+        &owner,
+        &intake,
+        edited(&|r| r.source_binding.fact_digest = d(98)),
+        Refused::SourceBindingUnavailable,
+    )
+    .await;
+    refused(
+        &owner,
+        &intake,
+        edited(&|r| r.source_binding = schema_one.receipt().locator().clone()),
+        Refused::SourceBindingDeclaresNoAvailabilityRule,
+    )
+    .await;
+    refused(
+        &owner,
+        &intake,
+        edited(&|r| r.market_semantics_identity = d(99)),
+        Refused::MarketSemanticsMismatch,
+    )
+    .await;
+    refused(
+        &owner,
+        &intake,
+        edited(&|r| r.universe_selection = joining),
+        Refused::WindowMemberNotValidThroughout,
+    )
+    .await;
+    refused(
+        &owner,
+        &intake,
+        edited(&|r| {
+            r.execution_timeframe = "3D".to_owned();
+            r.input_timeframes = vec!["3D".to_owned()];
+            r.fill_timeframe = None;
+            r.cross_sections = vec![original("3D", WINDOW_START + DAY)];
+        }),
+        Refused::ExecutionTimeframeNotFixedInterval,
+    )
+    .await;
+    refused(
+        &owner,
+        &intake,
+        edited(&|r| {
+            r.execution_timeframe = "1M".to_owned();
+            r.input_timeframes = vec!["1M".to_owned()];
+            r.fill_timeframe = None;
+            r.cross_sections = vec![original("1M", WINDOW_START + MINUTE)];
+        }),
+        Refused::AvailabilityLagNotBelowBarInterval,
+    )
+    .await;
+    refused(
+        &owner,
+        &intake,
+        edited(&|r| {
+            r.fill_timeframe = Some("2D".to_owned());
+            r.cross_sections.pop();
+        }),
+        Refused::FillTimeframeNotFinerThanExecution,
+    )
+    .await;
+    refused(
+        &owner,
+        &intake,
+        edited(&|r| {
+            r.fill_timeframe = Some("1D".to_owned());
+            r.cross_sections.pop();
+        }),
+        Refused::FillTimeframeIsAnInputTimeframe,
+    )
+    .await;
+    let future = wall_now_ns() + DAY;
+    refused(
+        &owner,
+        &intake,
+        edited(&|r| r.cross_sections[0].rows[3].retrieval_ns = future),
+        Refused::RetrievalAfterMintingCut,
+    )
+    .await;
+    refused(
+        &owner,
+        &intake,
+        edited(&|r| {
+            r.cross_sections.insert(
+                1,
+                correction(WINDOW_START + DAY, d(9), 2, WINDOW_START + DAY + MINUTE),
+            );
+        }),
+        Refused::CrossSectionCorrectionNotPublishedBySource,
+    )
+    .await;
+    refused(
+        &owner,
+        &intake,
+        edited(&|r| {
+            r.cross_sections
+                .insert(1, withdrawal(WINDOW_START + DAY, d(9), 2, None));
+        }),
+        Refused::CrossSectionCorrectionNotPublishedBySource,
+    )
+    .await;
+    refused(
+        &owner,
+        &intake,
+        edited(&|r| {
+            let again = r.cross_sections[0].clone();
+            r.cross_sections.insert(1, again);
+        }),
+        Refused::CrossSectionBranch,
+    )
+    .await;
+    assert_eq!(count(&owner, "pit_window_custodies_v1").await, 0);
+
+    // The request every refusal edited commits.
+    assert!(commit(&intake, valid).await.is_ok());
+}
+
+/// A source that publishes corrections corrects a committed custody with a successor that names
+/// the chain by its root and restates its basis: the successor appends its version, its row facts
+/// chain onto the corrected ones, and the head moves. Its resubmission rejoins; a branch of a
+/// corrected cross-section and a changed basis are refused unwritten; a withdrawal appends.
+#[tokio::test]
+#[ignore = "requires a disposable Market Data PostgreSQL database"]
+async fn postgres_a_successor_corrects_its_chain_and_refuses_a_branch_or_a_changed_basis() {
+    let owner = owner().await;
+    let binding = commit_binding(&owner, "synthetic/corrections", 1, Some(after_close(true))).await;
+    admit_members(&owner, &binding).await;
+    let universe = universe(&owner, &binding, 10, None).await;
+    let intake = owner.pit_window_custody_commit_v1();
+    let template = request(&binding, universe);
+    let root = commit(&intake, template.clone())
+        .await
+        .expect("the root commits");
+    let (handoffs, head) = clock(&owner).await;
+    let bar = WINDOW_START + DAY;
+    let original_version = version_at(&owner, root.custody_identity(), bar).await;
+
+    // The correction appends.
+    let corrected = successor(
+        &root,
+        &template,
+        vec![correction(bar, original_version, 2, bar + 3 * MINUTE)],
+    );
+    let receipt = commit(&intake, corrected.clone())
+        .await
+        .expect("the successor commits");
+    assert_eq!(receipt.chain_root(), root.chain_root());
+    assert_eq!(receipt.chain_version(), 2);
+    assert_ne!(receipt.custody_identity(), root.custody_identity());
+    assert_eq!(
+        clock(&owner).await,
+        (handoffs, head),
+        "rows retrieved before the head mint no clock"
+    );
+    assert_eq!(receipt.minting_cut_ns(), head);
+    let moved: Vec<u8> = sqlx::query_scalar(
+        "SELECT head_identity FROM market_data_private.pit_window_custody_heads_v1 WHERE chain_root=$1",
+    )
+    .bind(root.chain_root().as_bytes().as_slice())
+    .fetch_one(owner.pool())
+    .await
+    .unwrap();
+    assert_eq!(moved, receipt.custody_identity().as_bytes().to_vec());
+    let correction_version = version_at(&owner, receipt.custody_identity(), bar).await;
+    let original_close = close_fact(&owner, original_version).await;
+    let corrected_close = close_fact(&owner, correction_version).await;
+    assert_eq!(
+        corrected_close.slot_identity(),
+        original_close.slot_identity()
+    );
+    assert_eq!(corrected_close.correction_sequence(), 2);
+    assert_eq!(
+        corrected_close.correction_predecessor(),
+        Some(original_close.sample_identity())
+    );
+    assert_eq!(
+        corrected_close.series_sequence(),
+        original_close.series_sequence()
+    );
+
+    // Its resubmission rejoins.
+    let stored = owner_store_v1(owner.pool()).await;
+    assert_eq!(commit(&intake, corrected).await, Ok(receipt.clone()));
+    assert_eq!(owner_store_v1(owner.pool()).await, stored);
+
+    // A second correction of the corrected original branches the cross-section.
+    refused(
+        &owner,
+        &intake,
+        successor(
+            &root,
+            &template,
+            vec![correction(bar, original_version, 2, bar + 4 * MINUTE)],
+        ),
+        Refused::CrossSectionBranch,
+    )
+    .await;
+    // A successor over another window is another basis.
+    let mut wider = successor(
+        &root,
+        &template,
+        vec![correction(bar, correction_version, 3, bar + 4 * MINUTE)],
+    );
+    wider.window_end_ns_exclusive += DAY;
+    refused(&owner, &intake, wider, Refused::SuccessorBasisChanged).await;
+
+    // A withdrawal of the correction appends as the chain's third custody.
+    let withdrawn = commit(
+        &intake,
+        successor(
+            &root,
+            &template,
+            vec![withdrawal(
+                bar,
+                correction_version,
+                3,
+                Some(bar + 5 * MINUTE),
+            )],
+        ),
+    )
+    .await
+    .expect("a correcting source withdraws a cross-section");
+    assert_eq!(withdrawn.chain_version(), 3);
+    assert_eq!(count(&owner, "pit_window_custodies_v1").await, 3);
+    assert_eq!(
+        count(&owner, "pit_window_cross_section_versions_v1").await,
+        5
+    );
+    assert_eq!(count(&owner, "pit_window_custody_rows_v1").await, 40);
+}

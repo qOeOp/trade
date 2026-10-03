@@ -503,31 +503,37 @@ impl Fixture {
             .unwrap()
     }
 
-    /// Every row of every Owner table, as a count and a content digest per table.
-    ///
-    /// A refusal must leave this unchanged. The digest covers content, not only the count, so an
-    /// update in place - the Instrument Master append sequence, say - would show here too.
+    /// Every row of every Owner table: [`owner_store_v1`] over this fixture's store.
     pub(super) async fn store(&self) -> Vec<(String, i64, String)> {
-        let tables: Vec<String> = sqlx::query_scalar(
-            "SELECT tablename::text FROM pg_catalog.pg_tables WHERE schemaname='market_data_private' ORDER BY 1",
-        )
-        .fetch_all(self.owner().pool())
+        owner_store_v1(self.owner().pool()).await
+    }
+}
+
+/// Every row of every Owner table, as a count and a content digest per table.
+///
+/// A refusal must leave this unchanged. The digest covers content, not only the count, so an
+/// update in place - the Instrument Master append sequence, say - would show here too.
+pub(in crate::owner) async fn owner_store_v1(pool: &sqlx::PgPool) -> Vec<(String, i64, String)> {
+    let tables: Vec<String> = sqlx::query_scalar(
+        "SELECT tablename::text FROM pg_catalog.pg_tables WHERE schemaname='market_data_private' ORDER BY 1",
+    )
+    .fetch_all(pool)
+    .await
+    .unwrap();
+    let mut store = Vec::with_capacity(tables.len());
+
+    for table in tables {
+        // The name comes from the catalog, never from a caller, and is quoted as an identifier.
+        let quoted = table.replace('"', "\"\"");
+        let row = sqlx::query(sqlx::AssertSqlSafe(format!(
+            "SELECT COUNT(*)::bigint AS rows, COALESCE(md5(string_agg(t::text, ',' ORDER BY t::text)), '') AS content FROM market_data_private.\"{quoted}\" t"
+        )))
+        .fetch_one(pool)
         .await
         .unwrap();
-        let mut store = Vec::with_capacity(tables.len());
-        for table in tables {
-            // The name comes from the catalog, never from a caller, and is quoted as an identifier.
-            let quoted = table.replace('"', "\"\"");
-            let row = sqlx::query(sqlx::AssertSqlSafe(format!(
-                "SELECT COUNT(*)::bigint AS rows, COALESCE(md5(string_agg(t::text, ',' ORDER BY t::text)), '') AS content FROM market_data_private.\"{quoted}\" t"
-            )))
-            .fetch_one(self.owner().pool())
-            .await
-            .unwrap();
-            store.push((table, row.get("rows"), row.get("content")));
-        }
-        store
+        store.push((table, row.get("rows"), row.get("content")));
     }
+    store
 }
 
 /// SHA-256 of the Instrument Master request-identity preimage, as the Owner computes it.

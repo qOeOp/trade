@@ -98,7 +98,9 @@ impl DeclaredBarTimeframeV1 {
         Ok(Self::from_declaration(binding.fact_digest(), declared))
     }
 
-    fn from_declaration(
+    /// The declaration `declared` of the verified binding fact `binding_fact_digest`. The caller
+    /// holds the verified binding the declaration was read from.
+    pub(crate) fn from_declaration(
         binding_fact_digest: BindingDigest,
         declared: &UntrustedSourceBarTimeframeV1,
     ) -> Self {

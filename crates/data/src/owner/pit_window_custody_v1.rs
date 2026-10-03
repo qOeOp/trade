@@ -1,10 +1,11 @@
 //! The interface of PIT window custody (slice T0): what a backfill writer commits, and how a
 //! multi-frame consumer finds the frames of a run.
 //!
-//! This module freezes the types two lanes build against in parallel with the custody itself. It
-//! holds no storage and no implementation: no type implements the sealed ports below until the
-//! custody aggregate (T0-4) and the derived view (T0-5) provide one, so nothing in a production
-//! build can construct a receipt, a frame coordinate or a custody-sourced batch yet.
+//! This module freezes the types two lanes build against in parallel with the custody itself, and
+//! holds the custody's pure authority in its `authority` module. The custody aggregate's
+//! PostgreSQL store implements [`PitWindowCustodyCommitV1`] and alone constructs a receipt; nothing
+//! implements [`PitWindowCustodyFramesV1`] until the derived view (T0-5) does, so nothing can
+//! construct a frame coordinate or a custody-sourced batch yet.
 //!
 //! The governing text is `docs/owners/market-data.md`, "PIT window custody". In short:
 //! - **One custody, one window, committed once.** It holds every cross-section of its window for a
@@ -18,6 +19,8 @@
 //! - **Fill rows never reach strategy inputs.** A fill timeframe serves quote cuts only, and may not
 //!   also be an input timeframe.
 
+use std::sync::Arc;
+
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
@@ -25,6 +28,8 @@ use super::{
     source_binding::{BindingDigest, UntrustedSourceBindingLocator},
     universe_selection::UntrustedUniverseSelectionLocatorV1,
 };
+
+pub(crate) mod authority;
 
 /// The most members one custody holds, as the frame evidence and the native resolver do.
 pub const PIT_WINDOW_CUSTODY_MAX_MEMBERS_V1: usize = 2;
@@ -142,6 +147,25 @@ pub struct PitWindowCustodyReceiptV1 {
 }
 
 impl PitWindowCustodyReceiptV1 {
+    /// The receipt of a custody the Owner committed or holds. Only the Owner's custody calls it.
+    pub(crate) const fn from_owner_custody(
+        custody_identity: BindingDigest,
+        custody_digest: BindingDigest,
+        chain_root: BindingDigest,
+        chain_version: u64,
+        availability_rule_digest: BindingDigest,
+        minting_cut_ns: u64,
+    ) -> Self {
+        Self {
+            custody_identity,
+            custody_digest,
+            chain_root,
+            chain_version,
+            availability_rule_digest,
+            minting_cut_ns,
+        }
+    }
+
     /// The custody this receipt answers.
     #[must_use]
     pub const fn custody_identity(&self) -> BindingDigest {
@@ -240,6 +264,18 @@ pub trait PitWindowCustodyCommitV1: Send + Sync + sealed::Sealed {
         &self,
         request: UntrustedPitWindowCustodyRequestV1,
     ) -> Result<PitWindowCustodyReceiptV1, PitWindowCustodyRefusalV1>;
+}
+
+/// Opens the sole configured PIT window custody intake on the Market Data Owner's store, named by
+/// `MARKET_DATA_OWNER_DATABASE_URL`.
+///
+/// # Errors
+///
+/// [`PitWindowCustodyRefusalV1::StoreUnavailable`] when the URL is missing or the store cannot be
+/// opened.
+pub async fn pit_window_custody_commit_from_environment_v1()
+-> Result<Arc<dyn PitWindowCustodyCommitV1>, PitWindowCustodyRefusalV1> {
+    super::postgres::pit_window_custody_commit_from_environment_v1().await
 }
 
 /// A run over part of one custody chain's window.
