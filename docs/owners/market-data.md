@@ -2481,13 +2481,16 @@ klines, and an extra `usdm/klines/4h` Source Binding admission moves the clock p
 This design replaces both.
 
 - **The fill comes from a finer bar of the same source.** A schema 2 Source Binding that declares the frame's bar may
-  also declare a finer fixed-interval bar, which a replay request names as its fill timeframe. A fill timeframe that is
+  also declare a finer fixed-interval bar, which a PIT window custody request names as its fill timeframe, apart from
+  the timeframes it holds for strategy inputs. Fill-timeframe rows serve the quote cut only: the derived view never
+  selects them for a frame's inputs, because they are sparse, one bar per gap, and a strategy role reading that
+  timeframe would otherwise see a stale fill bar. A fill timeframe that is
   not strictly shorter than the execution timeframe is refused by name as `FILL_TIMEFRAME_NOT_FINER_THAN_EXECUTION`.
   For each frame the fill bar is the first fill-timeframe bar whose open instant lies strictly after the frame's
   availability instant - its BAR's event-effective instant plus the lag the binding's availability rule declares - and
-  strictly before the next frame's BAR. A PIT snapshot holding exactly that bar for each member, and nothing else, is a
-  fill-bar quote cut. The Owner records it in the quote census, never the frame census, and reads each member's Quote
-  from the stored row: bid and ask are both the bar's open, both sizes are the bar's traded volume, and its instant is
+  strictly before the next frame's BAR. In custody it is the quote cut derived for the gap `(d_k, e_{k+1})`; on the
+  snapshot path, a PIT snapshot holding exactly that bar for each member, and nothing else, would be recorded in the
+  quote census, never the frame census. Either way the Owner reads each member's Quote from the stored row: bid and ask are both the bar's open, both sizes are the bar's traded volume, and its instant is
   the bar's open instant. The caller states no price, size or instant; the Data Client delivers the kline as it
   delivers any bar.
 - **Why it is not look-ahead.** Frame `k`'s decision can use nothing visible after its availability instant, and the
@@ -2529,9 +2532,9 @@ This design replaces both.
   Composer replay's stand-in does, with a mapping that is at least servable. The Owner clock following PIT intake
   removes the reason to do that. Checking a mapping against the deployment's Data Clients is recorded here and not
   admitted.
-- **Slices, in order.** (1) The fill-bar quote cut, on U1's path: on the snapshot path first and in custody once T0 is
-  built; ingestion then commits one fill bar per frame beside each frame. A historical frame and its fill bar sit on
-  the same Owner cut with strictly ordered event instants, so this slice needs no clock change. (2) The Owner clock
+- **Slices, in order.** (1) The fill-bar quote cut, on U1's path, as part of T0's custody quote cut, because a
+  multi-frame Backtest reads PIT window custody; the backfill then commits one fill bar per member per gap beside the
+  window's bars. It needs no clock change. The snapshot-path form follows only if a snapshot-path consumer needs it. (2) The Owner clock
   follows PIT intake, after U1, for the paths that retrieve after the head. (3) The companion lineage and (4) successor
   admission, after U1 and in either order. The mapping check is not admitted.
 

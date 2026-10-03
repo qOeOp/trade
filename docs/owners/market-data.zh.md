@@ -2157,10 +2157,12 @@ batch。目前还没有证明在 Owner 托管数据上驱动过一次完整的�
 本设计替换这两者。
 
 - **成交来自同一来源更细的 bar。** 声明了帧所用 bar 的 schema 2 Source Binding，还可以声明一个更细的固定间隔 bar，由
-  回放请求把它指名为成交周期。不严格短于执行周期的成交周期按名拒绝为 `FILL_TIMEFRAME_NOT_FINER_THAN_EXECUTION`。每一帧
+  PIT 窗口托管请求把它指名为成交周期，与它为策略输入持有的周期分开。成交周期的行只服务报价 cut：派生视图绝不把它们选作
+  帧的输入，因为它们是稀疏的，每个间隔一根，否则读该周期的策略角色会看到一根过时的成交 bar。不严格短于执行周期的成交周期按名拒绝为 `FILL_TIMEFRAME_NOT_FINER_THAN_EXECUTION`。每一帧
   的成交 bar，是开盘时刻严格晚于该帧可见时刻（即其 BAR 的 event-effective 时刻加上 binding 的 availability rule 所声明的
-  滞后）、且严格早于下一帧 BAR 的第一根成交周期 bar。一个恰好为每个成员装着这根 bar、别无他物的 PIT 快照，就是一个成交
-  bar 报价 cut。Owner 把它记进报价 census，绝不记进帧 census，并从存下的行读出每个成员的 Quote：bid 与 ask 都是这根
+  滞后）、且严格早于下一帧 BAR 的第一根成交周期 bar。在托管里，它就是为间隔 `(d_k, e_{k+1})` 派生的报价 cut；在快照路径上，
+  恰好为每个成员装着这根 bar、别无他物的 PIT 快照会被记进报价 census，绝不记进帧 census。两种情况下，Owner 都从存下的行
+  读出每个成员的 Quote：bid 与 ask 都是这根
   bar 的开盘价，两个 size 都是这根 bar 的成交量，时刻是这根 bar 的开盘时刻。调用方不陈述任何价格、数量或时刻；Data
   Client 像交付任何 bar 一样交付这根 kline。
 - **为什么不是前视。** 帧 `k` 的决策只能用到其可见时刻之前可见的东西，而成交时刻严格晚于它，所以成交价是策略能够行动之后
@@ -2190,8 +2192,9 @@ batch。目前还没有证明在 Owner 托管数据上驱动过一次完整的�
   的 mapping，这样的 binding 下的快照只是不可用。这是失败即关闭的，但它允许只为了推进时钟而准入一个 binding，第一次
   Composer 回放的 stand-in 正是这样做的，只不过它用的 mapping 至少是能服务的。Owner 时钟随 PIT 摄入推进之后，就没有理由
   再这样做。把 mapping 与部署的 Data Client 对照检查记录在此，不准入。
-- **切片与顺序。** (1) 成交 bar 报价 cut，在 U1 的路径上：先在快照路径上做，T0 建成后再进托管；之后摄入在每一帧旁边为它提交
-  一根成交 bar。历史帧和它的成交 bar 落在同一个 Owner cut 上，事件时刻严格有序，所以这一片不需要改时钟。(2) Owner 时钟随
+- **切片与顺序。** (1) 成交 bar 报价 cut，在 U1 的路径上，作为 T0 托管报价 cut 的一部分，因为多帧 Backtest 读的是 PIT 窗口
+  托管；之后回填在窗口的 bar 旁边，为每个成员每个间隔提交一根成交 bar。它不需要改时钟。快照路径上的形式只在有快照路径的
+  消费者需要时才做。(2) Owner 时钟随
   PIT 摄入推进，排在 U1 之后，服务于在 head 之后取回的路径。(3) 伴随 lineage 与 (4) successor 准入，排在 U1 之后，先后不限。
   mapping 检查不准入。
 
