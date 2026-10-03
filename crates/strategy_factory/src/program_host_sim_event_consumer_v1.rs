@@ -666,6 +666,7 @@ pub fn run_program_host_sim_event_consumer_v1(
         instruments,
         bar_types,
         data,
+        fill_quote_instants,
         census,
     } = capability;
     let trace = Rc::new(std::cell::RefCell::new(TargetSetBacktestTraceV2::default()));
@@ -677,6 +678,7 @@ pub fn run_program_host_sim_event_consumer_v1(
         instruments.map(Instrument::id),
         bar_types,
         universe_frames,
+        fill_quote_instants,
         Some(account_scope_id),
         false,
         Rc::new(Cell::new(false)),
