@@ -11,6 +11,7 @@ use std::{
 use serde::{Deserialize, Serialize};
 
 use super::{
+    decimal_rescale_v1::{RescaleErrorV1, rescale_exact_v1},
     pit_snapshot::{VerifiedPitObservation, VerifiedPitObservationBatch},
     source_binding::BindingDigest,
     strategy_design_role_set::StrategyDesignRoleEntryV1,
@@ -342,8 +343,11 @@ pub enum StrategyInputBindingUnavailable {
     UnsupportedScope,
     /// The declared unit is incompatible with the Owner field semantic.
     UnitMismatch,
-    /// A matching observation exists only at a different scale.
-    ScaleMismatch,
+    /// Every matching observation has a nonzero digit finer than the role's scale, so stating it
+    /// at that scale would round it.
+    ValueFinerThanRoleScale,
+    /// A matching observation stated exactly at the role's scale does not fit in an `i128`.
+    ValueOverflowsRoleScale,
     /// The canonical row cannot map to one shared-kernel lifecycle class.
     UnsupportedLifecycleKind,
     /// The canonical row lacks a non-zero Owner ordering coordinate.
@@ -355,9 +359,69 @@ pub enum StrategyInputBindingUnavailable {
     InconsistentUniverseMember,
 }
 
+impl StrategyInputBindingUnavailable {
+    /// The stable name of this refusal, as a caller sees it on the wire.
+    pub const fn code(&self) -> &'static str {
+        match self {
+            Self::MissingField(_) => "MISSING_FIELD",
+            Self::StaleBatch => "STALE_BATCH",
+            Self::AmbiguousResolution => "AMBIGUOUS_RESOLUTION",
+            Self::NonUniqueResolution => "NON_UNIQUE_RESOLUTION",
+            Self::NoMatchingObservation => "NO_MATCHING_OBSERVATION",
+            Self::UnsupportedScope => "UNSUPPORTED_SCOPE",
+            Self::UnitMismatch => "UNIT_MISMATCH",
+            Self::ValueFinerThanRoleScale => "VALUE_FINER_THAN_ROLE_SCALE",
+            Self::ValueOverflowsRoleScale => "VALUE_OVERFLOWS_ROLE_SCALE",
+            Self::UnsupportedLifecycleKind => "UNSUPPORTED_LIFECYCLE_KIND",
+            Self::MissingLifecycleCoordinate => "MISSING_LIFECYCLE_COORDINATE",
+            Self::InvalidUniverseCardinality => "INVALID_UNIVERSE_CARDINALITY",
+            Self::InconsistentUniverseMember => "INCONSISTENT_UNIVERSE_MEMBER",
+        }
+    }
+}
+
 impl Display for StrategyInputBindingUnavailable {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(formatter, "{self:?}")
+    }
+}
+
+/// A row's value stated exactly at `scale`, the role's scale.
+///
+/// Rows keep the scale their source stated them at; a role states every value at one scale.
+/// Widening is always exact, narrowing only when the dropped digits are zero, and nothing is ever
+/// rounded: a value that would need it is refused by name.
+fn value_at_role_scale(
+    row: &VerifiedPitObservation,
+    scale: u8,
+) -> Result<i128, StrategyInputBindingUnavailable> {
+    rescale_exact_v1(row.value_mantissa(), row.value_scale(), scale).map_err(|e| match e {
+        RescaleErrorV1::FinerThanTarget => StrategyInputBindingUnavailable::ValueFinerThanRoleScale,
+        RescaleErrorV1::Overflow => StrategyInputBindingUnavailable::ValueOverflowsRoleScale,
+    })
+}
+
+/// Keeps the rows whose value can be stated exactly at `scale`. When none can, the refusal names
+/// why the first one could not.
+fn rows_at_role_scale<'a>(
+    rows: impl IntoIterator<Item = &'a VerifiedPitObservation>,
+    scale: u8,
+) -> Result<Vec<&'a VerifiedPitObservation>, StrategyInputBindingUnavailable> {
+    let mut refusal = None;
+    let mut aligned = Vec::new();
+
+    for row in rows {
+        match value_at_role_scale(row, scale) {
+            Ok(_) => aligned.push(row),
+            Err(e) => {
+                refusal.get_or_insert(e);
+            }
+        }
+    }
+
+    match refusal {
+        Some(e) if aligned.is_empty() => Err(e),
+        _ => Ok(aligned),
     }
 }
 
@@ -562,8 +626,9 @@ impl StrategyInputEventTriggerReceipt {
 
 /// Owner-sealed exact typed value for one role in an admitted multi-field frame.
 ///
-/// The value bytes are signed little-endian i128 fixed-point mantissa bytes. `value_scale` remains
-/// the scale sealed by the original binding receipt. The receipt has no public constructor and does
+/// The value bytes are signed little-endian i128 fixed-point mantissa bytes, the row's value
+/// stated exactly at `value_scale`, the scale sealed by the original binding receipt;
+/// `canonical_row_digest` names the row as its source stated it. The receipt has no public constructor and does
 /// not implement `Deserialize`.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct StrategyInputEventValueReceipt {
@@ -1388,7 +1453,7 @@ pub fn bind_strategy_input_event_frame(
     let trigger = issue_event_trigger_receipt(batch, &resolved)?;
     let mut values = Vec::with_capacity(resolved.len());
     for (binding, row) in resolved {
-        values.push(issue_event_value_receipt(&trigger, &binding, batch, row));
+        values.push(issue_event_value_receipt(&trigger, &binding, batch, row)?);
     }
     Ok(StrategyInputEventFrameReceipt {
         trigger,
@@ -1505,7 +1570,7 @@ fn static_binding_matches_row(
         && row.channel() == locator.channel
         && row.data_kind() == locator.data_kind
         && row.timeframe() == locator.timeframe
-        && row.value_scale() == locator.scale
+        && value_at_role_scale(row, locator.scale).is_ok()
         && row.correction_stream_identity() == locator.correction_stream_identity
         && row.market_semantics_identity() == locator.market_semantics_identity
 }
@@ -1611,8 +1676,14 @@ pub(crate) fn bind_strategy_input_universe_frame_with_sources_v1<'a>(
     let values = resolved
         .into_iter()
         .map(|(member_ordinal, member, request, row, binding_digest)| {
-            let value =
-                issue_universe_value_receipt(&trigger, member, request, row, batch, binding_digest);
+            let value = issue_universe_value_receipt(
+                &trigger,
+                member,
+                request,
+                row,
+                batch,
+                binding_digest,
+            )?;
             sources.push(UniverseMemberSampleSourceV1 {
                 member_ordinal,
                 source: SampleSourceV1 {
@@ -1626,9 +1697,9 @@ pub(crate) fn bind_strategy_input_universe_frame_with_sources_v1<'a>(
                     canonical_row_digest: value.canonical_row_digest(),
                 },
             });
-            value
+            Ok(value)
         })
-        .collect::<Vec<_>>()
+        .collect::<Result<Vec<_>, StrategyInputBindingUnavailable>>()?
         .into_boxed_slice();
     let mut canonical = Encoder::new(b"VIBE_STRATEGY_INPUT_UNIVERSE_FRAME_RECEIPT_V1");
     canonical.digest(selection.digest());
@@ -1781,11 +1852,15 @@ fn resolve_static_binding_row<'a>(
                 && row.data_kind() == locator.data_kind
                 && row.timeframe() == locator.timeframe
                 && row.field() == semantic.row_field()
-                && row.value_scale() == locator.scale
                 && row.correction_stream_identity() == locator.correction_stream_identity
                 && row.market_semantics_identity() == locator.market_semantics_identity
         })
         .collect::<Vec<_>>();
+    let rows = if rows.is_empty() {
+        rows
+    } else {
+        rows_at_role_scale(rows, locator.scale)?
+    };
 
     if rows.len() != 1 {
         return Err(StrategyInputBindingUnavailable::NonUniqueResolution);
@@ -1824,14 +1899,7 @@ fn resolve_universe_member_role<'a>(
             Err(StrategyInputBindingUnavailable::NoMatchingObservation)
         };
     }
-    let exact = exact_without_scale
-        .into_iter()
-        .filter(|row| row.value_scale() == request.scale)
-        .collect::<Vec<_>>();
-
-    if exact.is_empty() {
-        return Err(StrategyInputBindingUnavailable::ScaleMismatch);
-    }
+    let exact = rows_at_role_scale(exact_without_scale, request.scale)?;
 
     if exact.len() != 1 {
         return Err(StrategyInputBindingUnavailable::NonUniqueResolution);
@@ -1894,15 +1962,7 @@ fn resolve_strategy_input_row<'a>(
             Err(StrategyInputBindingUnavailable::NoMatchingObservation)
         };
     }
-    let exact: Vec<&VerifiedPitObservation> = exact_without_scale
-        .iter()
-        .copied()
-        .filter(|row| row.value_scale() == request.scale)
-        .collect();
-
-    if exact.is_empty() {
-        return Err(StrategyInputBindingUnavailable::ScaleMismatch);
-    }
+    let exact = rows_at_role_scale(exact_without_scale, request.scale)?;
 
     if exact.len() != 1 {
         return Err(StrategyInputBindingUnavailable::NonUniqueResolution);
@@ -2001,7 +2061,7 @@ fn issue_receipt(
         data_kind: request.field_semantic.data_kind(),
         timeframe: row.timeframe().to_owned(),
         unit: request.unit.canonical(),
-        scale: row.value_scale(),
+        scale: request.scale,
         selection_identity: BindingDigest::from_untrusted_bytes([0; 32]),
         source_binding_lineage_root: batch.source_binding_lineage_root(),
         correction_stream_identity: row.correction_stream_identity().to_owned(),
@@ -2178,9 +2238,10 @@ fn issue_universe_value_receipt(
     row: &VerifiedPitObservation,
     batch: &VerifiedPitObservationBatch,
     binding_digest: BindingDigest,
-) -> StrategyInputUniverseValueReceipt {
+) -> Result<StrategyInputUniverseValueReceipt, StrategyInputBindingUnavailable> {
     let canonical_row_digest = digest(&canonical_row_binding_bytes(row));
-    let value_bytes = row.value_mantissa().to_le_bytes();
+    let value_scale = request.scale;
+    let value_bytes = value_at_role_scale(row, value_scale)?.to_le_bytes();
     let mut canonical = Encoder::new(b"VIBE_STRATEGY_INPUT_UNIVERSE_VALUE_V1");
     canonical.digest(trigger.digest());
     canonical.digest(trigger.observation_batch_digest());
@@ -2190,7 +2251,7 @@ fn issue_universe_value_receipt(
     canonical.digest(binding_digest);
     canonical.string(STRATEGY_INPUT_FIXED_I128_LE_V1);
     canonical.bytes(&value_bytes);
-    canonical.u8(row.value_scale());
+    canonical.u8(value_scale);
     canonical.digest(canonical_row_digest);
     canonical.digest(batch.source_binding_lineage_root());
     canonical.u64(batch.source_binding_lineage_version());
@@ -2199,14 +2260,14 @@ fn issue_universe_value_receipt(
     canonical.digest(row.correction_frontier_digest());
     canonical.digest(row.market_semantics_identity());
     let digest = digest(&canonical.finish());
-    StrategyInputUniverseValueReceipt {
+    Ok(StrategyInputUniverseValueReceipt {
         member_key: member.member_key().to_owned(),
         instrument: member.instrument().to_owned(),
         input_role_identity: request.input_role_identity,
         binding_digest,
         value_type_semantic_id: STRATEGY_INPUT_FIXED_I128_LE_V1,
         value_bytes,
-        value_scale: row.value_scale(),
+        value_scale,
         canonical_row_digest,
         source_binding_lineage_root: batch.source_binding_lineage_root(),
         correction_stream_identity: row.correction_stream_identity().to_owned(),
@@ -2214,7 +2275,7 @@ fn issue_universe_value_receipt(
         trigger_digest: trigger.digest(),
         observation_batch_digest: trigger.observation_batch_digest(),
         digest,
-    }
+    })
 }
 
 fn issue_event_value_receipt(
@@ -2222,9 +2283,10 @@ fn issue_event_value_receipt(
     binding: &StrategyInputBindingReceipt,
     batch: &VerifiedPitObservationBatch,
     row: &VerifiedPitObservation,
-) -> StrategyInputEventValueReceipt {
+) -> Result<StrategyInputEventValueReceipt, StrategyInputBindingUnavailable> {
     let canonical_row_digest = digest(&canonical_row_binding_bytes(row));
-    let value_bytes = row.value_mantissa().to_le_bytes();
+    let value_scale = binding.locator().scale;
+    let value_bytes = value_at_role_scale(row, value_scale)?.to_le_bytes();
     let mut canonical = Encoder::new(b"VIBE_STRATEGY_INPUT_EVENT_VALUE_V1");
     canonical.digest(trigger.digest());
     canonical.digest(trigger.observation_batch_digest());
@@ -2232,7 +2294,7 @@ fn issue_event_value_receipt(
     canonical.digest(binding.digest());
     canonical.string(STRATEGY_INPUT_FIXED_I128_LE_V1);
     canonical.bytes(&value_bytes);
-    canonical.u8(row.value_scale());
+    canonical.u8(value_scale);
     canonical.digest(canonical_row_digest);
     canonical.digest(batch.source_binding_lineage_root());
     canonical.u64(batch.source_binding_lineage_version());
@@ -2241,12 +2303,12 @@ fn issue_event_value_receipt(
     canonical.digest(row.correction_frontier_digest());
     canonical.digest(row.market_semantics_identity());
     let digest = digest(&canonical.finish());
-    StrategyInputEventValueReceipt {
+    Ok(StrategyInputEventValueReceipt {
         input_role_identity: binding.locator().input_role_identity(),
         binding_receipt_digest: binding.digest(),
         value_type_semantic_id: STRATEGY_INPUT_FIXED_I128_LE_V1,
         value_bytes,
-        value_scale: row.value_scale(),
+        value_scale,
         canonical_row_digest,
         source_binding_lineage_root: binding.locator().source_binding_lineage_root(),
         source_binding_lineage_version: batch.source_binding_lineage_version(),
@@ -2257,7 +2319,7 @@ fn issue_event_value_receipt(
         trigger_digest: trigger.digest(),
         observation_batch_digest: trigger.observation_batch_digest(),
         digest,
-    }
+    })
 }
 
 fn event_kind(data_kind: &str) -> Result<StrategyInputEventKind, StrategyInputBindingUnavailable> {
@@ -2413,6 +2475,7 @@ mod tests {
     use rstest::rstest;
 
     use super::*;
+    use crate::owner::decimal_rescale_v1::MARKET_DATA_VALUE_SCALE_V1;
     use crate::owner::pit_snapshot::UnverifiedBatchFieldsForTest;
     use crate::owner::pit_snapshot::{
         UntrustedCorrectionPublicationTime, UntrustedEventEffectiveTime,
@@ -3651,6 +3714,108 @@ mod tests {
         );
     }
 
+    /// The one exact-instrument value a single row yields at the market value scale.
+    fn value_at_market_scale(
+        mantissa: i128,
+        scale: u8,
+    ) -> Result<
+        (StrategyInputEventValueReceipt, VerifiedPitObservation),
+        StrategyInputBindingUnavailable,
+    > {
+        let mut source = row("AAPL.CLOSE", "AAPL.XNAS", "1M");
+        source.value_mantissa = mantissa;
+        source.value_scale = scale;
+        let verified = batch(vec![source.clone()]);
+        let mut role = request();
+        role.scale = MARKET_DATA_VALUE_SCALE_V1;
+        let frame = issue_frame(&[role], &verified)?;
+        let [value] = &*frame.values else {
+            return Err(StrategyInputBindingUnavailable::NonUniqueResolution);
+        };
+        Ok((value.clone(), source))
+    }
+
+    /// BTCUSDT's 2021 close 37244.36 arrives at scale 2 and is stated exactly at the role's scale 9,
+    /// while the receipt still names the row as its source stated it.
+    #[rstest]
+    fn a_coarser_row_is_stated_exactly_at_the_role_scale() {
+        let (value, source) =
+            value_at_market_scale(3_724_436, 2).expect("37244.36 binds at scale 9");
+
+        assert_eq!(value.value_scale(), 9);
+        assert_eq!(
+            i128::from_le_bytes(*value.value_bytes()),
+            37_244_360_000_000
+        );
+        assert_eq!(
+            value.canonical_row_digest(),
+            canonical_row_digest_for_test(&source)
+        );
+    }
+
+    /// A row already at the role's scale keeps its exact mantissa bytes.
+    #[rstest]
+    fn a_row_at_the_role_scale_keeps_its_bytes() {
+        let (value, _) =
+            value_at_market_scale(37_244_360_000_001, 9).expect("a scale 9 row binds at scale 9");
+
+        assert_eq!(value.value_scale(), 9);
+        assert_eq!(value.value_bytes(), &37_244_360_000_001_i128.to_le_bytes());
+    }
+
+    /// A tenth decimal is dropped only when it is zero; otherwise the row is refused by name rather
+    /// than rounded, and a restatement that does not fit is refused by its own name.
+    #[rstest]
+    #[case::tenth_decimal_zero(372_443_600_000_000, 10, Ok(37_244_360_000_000))]
+    #[case::tenth_decimal_nonzero(
+        372_443_600_000_001,
+        10,
+        Err(StrategyInputBindingUnavailable::ValueFinerThanRoleScale)
+    )]
+    #[case::overflow(
+        i128::MAX / 10,
+        0,
+        Err(StrategyInputBindingUnavailable::ValueOverflowsRoleScale)
+    )]
+    fn a_row_is_stated_at_the_role_scale_only_exactly(
+        #[case] mantissa: i128,
+        #[case] scale: u8,
+        #[case] expected: Result<i128, StrategyInputBindingUnavailable>,
+    ) {
+        assert_eq!(
+            value_at_market_scale(mantissa, scale)
+                .map(|(value, _)| i128::from_le_bytes(*value.value_bytes())),
+            expected
+        );
+    }
+
+    /// Universe-member values are stated at the role's scale exactly as exact-instrument ones are.
+    #[rstest]
+    fn universe_member_values_are_stated_at_the_role_scale() {
+        let verified = batch(complete_universe_rows());
+        let requests = universe_requests(&verified).map(|mut role| {
+            role.scale = MARKET_DATA_VALUE_SCALE_V1;
+            role
+        });
+
+        let frame = bind_strategy_input_universe_frame(&requests, &verified)
+            .expect("scale 2 rows bind at scale 9");
+
+        assert!(!frame.values.is_empty());
+        for value in &frame.values {
+            assert_eq!(value.value_scale(), 9);
+            let expected = if value.member_key() == "AAPL" {
+                12_345
+            } else {
+                43_210
+            };
+            assert_eq!(
+                i128::from_le_bytes(*value.value_bytes()),
+                expected * 10_i128.pow(7)
+            );
+        }
+    }
+
     #[rstest]
     fn units_scale_and_every_batch_identity_mutation_fail_closed() {
         let verified = batch(vec![row("AAPL.CLOSE", "AAPL.XNAS", "1M")]);
@@ -3660,11 +3825,11 @@ mod tests {
             bind_strategy_input_role(&wrong_unit, &verified),
             Err(StrategyInputBindingUnavailable::UnitMismatch)
         );
-        let mut wrong_scale = request();
-        wrong_scale.scale = 3;
+        let mut coarser_role = request();
+        coarser_role.scale = 1;
         assert_eq!(
-            bind_strategy_input_role(&wrong_scale, &verified),
-            Err(StrategyInputBindingUnavailable::ScaleMismatch)
+            bind_strategy_input_role(&coarser_role, &verified),
+            Err(StrategyInputBindingUnavailable::ValueFinerThanRoleScale)
         );
 
         let mutations: &[fn(&mut UntrustedStrategyInputBindingRequest)] = &[
