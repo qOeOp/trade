@@ -74,14 +74,26 @@ pub struct ProductEdgeResearchGoalRequestV2 {
     pub instrument_scope: Option<ResearchInstrumentScopeWireV1>,
 }
 
+/// The Product Edge operation and schema a Research request is admitted under: V3 exactly when it
+/// states an instrument scope, V2 otherwise.
+///
+/// The one place the choice is made. The Owner checks a stored request's admission against it, and
+/// the R&D API admits a submission with it, so the two cannot disagree.
+#[must_use]
+pub const fn research_goal_admitted_operation(
+    states_instrument_scope: bool,
+) -> (&'static str, &'static str) {
+    if states_instrument_scope {
+        (RESEARCH_GOAL_OPERATION_V3, RESEARCH_GOAL_SCHEMA_V3)
+    } else {
+        (RESEARCH_GOAL_OPERATION_V2, RESEARCH_GOAL_SCHEMA_V2)
+    }
+}
+
 impl ProductEdgeResearchGoalRequestV2 {
     /// The Product Edge operation and schema this request is admitted under.
     pub(crate) const fn admitted_operation(&self) -> (&'static str, &'static str) {
-        if self.instrument_scope.is_some() {
-            (RESEARCH_GOAL_OPERATION_V3, RESEARCH_GOAL_SCHEMA_V3)
-        } else {
-            (RESEARCH_GOAL_OPERATION_V2, RESEARCH_GOAL_SCHEMA_V2)
-        }
+        research_goal_admitted_operation(self.instrument_scope.is_some())
     }
 }
 
@@ -3560,6 +3572,18 @@ pub(crate) mod v2_sealing_tests {
         assert_eq!(
             one.admitted_operation(),
             (RESEARCH_GOAL_OPERATION_V3, RESEARCH_GOAL_SCHEMA_V3)
+        );
+    }
+
+    #[rstest]
+    fn a_request_is_admitted_as_v3_exactly_when_it_states_a_scope() {
+        assert_eq!(
+            research_goal_admitted_operation(true),
+            (RESEARCH_GOAL_OPERATION_V3, RESEARCH_GOAL_SCHEMA_V3)
+        );
+        assert_eq!(
+            research_goal_admitted_operation(false),
+            (RESEARCH_GOAL_OPERATION_V2, RESEARCH_GOAL_SCHEMA_V2)
         );
     }
 

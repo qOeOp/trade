@@ -59,10 +59,63 @@ use super::{
         ProgramHostSimEventRoundTripV1, program_host_sim_event_canonical_result_digest_for_test,
         program_host_sim_event_round_trip_for_test, run_program_host_sim_event_consumer_v1,
     },
-    replay_execution_profile_binding_v1::owner_replay_execution_profile_binding_fixture_v1,
+    replay_execution_profile_binding_v1::{
+        owner_replay_execution_profile_binding_fixture_v1,
+        owner_replay_execution_profile_binding_with_record_fixture_v1,
+    },
     replay_target_set_execution_bundle_v1::ReplayTargetSetExecutionBundleV1,
     target_set_members::BoundedMembers,
 };
+
+/// A production Replay request names its Universe Selection Record, not the strategy-input
+/// selection its frames carry, and the two never share an identity. Market Data holds the Record
+/// against each frame's verified batch when it issues the frames; the bundle takes such a request.
+#[rstest]
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+fn a_bundle_takes_a_replay_that_names_its_universe_selection_record() {
+    let mut instruments = instruments();
+    for instrument in &mut instruments {
+        let instrument = crypto_perpetual_mut(instrument);
+        instrument.maker_fee = rust_decimal::Decimal::new(2, 4);
+        instrument.taker_fee = rust_decimal::Decimal::new(4, 4);
+        instrument.margin_init = rust_decimal::Decimal::new(1, 1);
+        instrument.margin_maint = rust_decimal::Decimal::new(5, 2);
+    }
+    let (plan, artifact, frame) = fixture().unwrap();
+    let record = [0xb8; 32];
+    assert_ne!(&record, frame.selection().selection_identity().as_bytes());
+    assert_ne!(&record, frame.selection().selection_digest().as_bytes());
+    let admitted = admit_owner_universe_program_event_v2(
+        &plan,
+        &OwnerUniverseFrameV1::uncoordinated(frame.clone()),
+    )
+    .unwrap();
+    let time = admitted.envelope().order_key.logical_time_ns;
+    let authority = owner_replay_execution_profile_binding_with_record_fixture_v1(
+        &plan,
+        &artifact,
+        &frame,
+        ReplayWindowV2 {
+            start_event_ns: time,
+            end_event_ns_exclusive: time + 3,
+        },
+        Some(record),
+    );
+    let (bar_types, data) = request_execution_schedule(&instruments, time);
+    ReplayTargetSetExecutionBundleV1::new_with_native_instruments_for_test(
+        authority,
+        plan,
+        artifact,
+        vec![OwnerUniverseFrameV1::uncoordinated(frame)],
+        StrategyId::from("TARGET-SET-PROFILE-EVENT-001"),
+        "target-set-profile-event".into(),
+        instruments,
+        bar_types,
+        data,
+        &[time],
+    )
+    .expect("a request naming its Universe Selection Record forms its execution bundle");
+}
 
 #[rstest]
 #[cfg(feature = "sealed-strategy-input-acceptance")]
@@ -2135,7 +2188,9 @@ fn u32_leb(bytes: &mut Vec<u8>, mut value: u32) {
 
 /// The Owner-issued authority and every execution-bundle digest over a two-member run, pinned from
 /// the pre-widening tree: the profile binding, native materialization, frame sequence, scheduling
-/// data, and census digests.
+/// data, and census digests. The fixture's instrument terms now name each member by its canonical
+/// identity, as the Instrument Owner issues them, so the four digests that bind those terms were
+/// read again; the frame sequence and scheduling data digests did not move.
 #[rstest]
 #[cfg(feature = "sealed-strategy-input-acceptance")]
 fn two_member_execution_bundle_digests_are_unchanged_by_the_member_count_widening() {
@@ -2198,17 +2253,17 @@ fn two_member_execution_bundle_digests_are_unchanged_by_the_member_count_widenin
             (
                 "owner_authority_digest",
                 32,
-                "0e3c192a8de3e492a9f4600fc958485185c84cc3586e6914b005533158d877ca",
+                "65856497e7d476b0e5fcaaa492a4a8d86ab2e797ba9d8a27b08236700b0a3a80",
             ),
             (
                 "execution_profile_binding_digest",
                 32,
-                "fa773a0b4c5372d89b4164e8b1e865537645045035de83772d615c0f6e0e6d04",
+                "a08d72c7a0bfac6f46d3d551a9d41c31d0040540ac3ad7b866a55f7caad7064d",
             ),
             (
                 "native_materialization_digest",
                 32,
-                "92cb6b55801e451ac8881fd38150bb5f02b22148ec3769f7fe0a504febd724a1",
+                "576622d49f03b6fd408989236d72f38c02ac20df48279b2bd1a459d083ed73b3",
             ),
             (
                 "frame_sequence_digest",
@@ -2223,7 +2278,7 @@ fn two_member_execution_bundle_digests_are_unchanged_by_the_member_count_widenin
             (
                 "census_digest",
                 32,
-                "59398f8b58ec2729f922df25185e6ea9571f7ac2460227644e99f4f374949ea5",
+                "44d15f32f457d6ffa9c2d75b0db1b94f64d4d4aac252f7b7a0dcb3c780af8793",
             ),
         ],
     );

@@ -194,6 +194,21 @@ pub enum NativeReplaySchedulingErrorV1 {
     /// selection is derived from, and its Record digest was checked at intake.
     #[error("the Replay names another Universe Selection Record than the frame's batch binds")]
     UniverseSelectionRecordMismatch,
+    /// `EXECUTION_ROLE_ABSENT`: no role reads the BAR close, so no role executes and prices.
+    #[error("no role of the request reads the BAR close")]
+    ExecutionRoleAbsent,
+    /// `EXECUTION_ROLE_AMBIGUOUS`: more than one role reads the BAR close.
+    #[error("more than one role of the request reads the BAR close")]
+    ExecutionRoleAmbiguous,
+    /// `MORE_THAN_ONE_ROLE_TIMEFRAME`: a BAR role reads another timeframe than the execution role.
+    /// A role's timeframe is resolved at the frame only as the execution role's is, until roles of
+    /// several timeframes each resolve their own last close.
+    #[error("a BAR role reads another timeframe than the execution role")]
+    MoreThanOneRoleTimeframe,
+    /// `EXECUTION_TIMEFRAME_NOT_DECLARED`: the frame's Source Binding declares no bar for the
+    /// execution role's timeframe label, so the label cannot be typed.
+    #[error("the frame's Source Binding declares no bar for the execution role's timeframe")]
+    ExecutionTimeframeNotDeclared,
 }
 
 /// Untrusted coordinates for resolving one exact native Replay scheduling projection.
@@ -386,15 +401,60 @@ impl NativeReplayInitialMarketRequestV1 {
         self.window_end_ns_exclusive
     }
 
-    #[must_use]
-    pub fn schedule_timeframe(&self) -> Option<&str> {
-        let mut timeframes = self
+    /// The timeframe label of the request's execution role, the one every BAR role must read.
+    ///
+    /// The execution role is the one `execution_role_semantic_id_v1` derives, Strategy Factory's
+    /// rule for the role that executes and prices a Design: a universe Design declares no join, so
+    /// it is the one role reading the BAR close. The label is provenance until the frame's Source
+    /// Binding types it.
+    ///
+    /// # Errors
+    ///
+    /// [`NativeReplaySchedulingErrorV1::ExecutionRoleAbsent`] when no role reads the close,
+    /// [`NativeReplaySchedulingErrorV1::ExecutionRoleAmbiguous`] when several do, and
+    /// [`NativeReplaySchedulingErrorV1::MoreThanOneRoleTimeframe`] when a BAR role reads another
+    /// label.
+    pub fn execution_timeframe(&self) -> Result<&str, NativeReplaySchedulingErrorV1> {
+        use super::declared_bar_timeframe_v1::execution_role_semantic_id_v1;
+
+        let identities = self
             .roles
             .iter()
-            .filter(|role| role.field_semantic.data_kind() == "BAR")
-            .map(|role| role.timeframe.as_str());
-        let first = timeframes.next()?;
-        timeframes.all(|value| value == first).then_some(first)
+            .map(|role| {
+                role.input_role_identity.as_bytes().iter().fold(
+                    String::with_capacity(64),
+                    |mut text, byte| {
+                        use std::fmt::Write as _;
+                        let _ = write!(text, "{byte:02x}");
+                        text
+                    },
+                )
+            })
+            .collect::<Vec<_>>();
+        let execution = execution_role_semantic_id_v1(
+            identities
+                .iter()
+                .zip(&self.roles)
+                .map(|(identity, role)| (identity.as_str(), role.field_semantic.identity())),
+            std::iter::empty(),
+        )
+        .map_err(|_| NativeReplaySchedulingErrorV1::ExecutionRoleAmbiguous)?
+        .ok_or(NativeReplaySchedulingErrorV1::ExecutionRoleAbsent)?;
+        let label = identities
+            .iter()
+            .zip(&self.roles)
+            .find(|(identity, _)| identity.as_str() == execution)
+            .map(|(_, role)| role.timeframe.as_str())
+            .ok_or(NativeReplaySchedulingErrorV1::ExecutionRoleAbsent)?;
+
+        if self
+            .roles
+            .iter()
+            .any(|role| role.field_semantic.data_kind() == "BAR" && role.timeframe != label)
+        {
+            return Err(NativeReplaySchedulingErrorV1::MoreThanOneRoleTimeframe);
+        }
+        Ok(label)
     }
 }
 
@@ -736,9 +796,7 @@ pub(crate) fn issue_native_replay_initial_market_readback_v1(
     {
         return Err(NativeReplaySchedulingErrorV1::UniverseSelectionRecordMismatch);
     }
-    let timeframe = request
-        .schedule_timeframe()
-        .ok_or(NativeReplaySchedulingErrorV1::OwnerBindingMismatch)?;
+    let timeframe = request.execution_timeframe()?;
     // The roles' label is the one the frame's own Source Binding declares its bars under: an
     // identity check that the roles read that binding's rows, never a parse of what the label says.
     declared
@@ -1439,6 +1497,63 @@ pub(crate) mod tests {
 
     fn digest(value: u8) -> BindingDigest {
         BindingDigest::from_untrusted_bytes([value; 32])
+    }
+
+    fn execution_request(
+        roles: &[(u8, MarketDataFieldSemantic, &str)],
+    ) -> NativeReplayInitialMarketRequestV1 {
+        NativeReplayInitialMarketRequestV1::new(
+            digest(1),
+            digest(2),
+            digest(3),
+            digest(4),
+            digest(5),
+            digest(6),
+            digest(7),
+            digest(7),
+            digest(8),
+            digest(9),
+            digest(10),
+            roles
+                .iter()
+                .map(|(identity, field, timeframe)| {
+                    NativeReplayInitialUniverseRoleV1::new(
+                        digest(*identity),
+                        *field,
+                        StrategyInputChannel::Market,
+                        (*timeframe).to_owned(),
+                        StrategyInputUnit::Price,
+                        2,
+                    )
+                })
+                .collect(),
+            Vec::new(),
+            1,
+            2,
+        )
+    }
+
+    /// The frame's timeframe is the execution role's: the one role reading the BAR close. Every
+    /// other BAR role must read the same timeframe until roles of several timeframes each resolve
+    /// their own last close; a request without a close role, or with two, has no execution role.
+    /// Both role orders answer the same, so the timeframe is the execution role's, not the first
+    /// role's.
+    #[rstest::rstest]
+    #[case::open_and_close_on_one_day(&[(41, MarketDataFieldSemantic::BarOpenPrice, "1-DAY"), (42, MarketDataFieldSemantic::BarClosePrice, "1-DAY")], Ok("1-DAY"))]
+    #[case::close_alone(&[(42, MarketDataFieldSemantic::BarClosePrice, "4-HOUR")], Ok("4-HOUR"))]
+    #[case::open_on_another_timeframe(&[(41, MarketDataFieldSemantic::BarOpenPrice, "4-HOUR"), (42, MarketDataFieldSemantic::BarClosePrice, "1-DAY")], Err(NativeReplaySchedulingErrorV1::MoreThanOneRoleTimeframe))]
+    #[case::no_close(&[(41, MarketDataFieldSemantic::BarOpenPrice, "1-DAY")], Err(NativeReplaySchedulingErrorV1::ExecutionRoleAbsent))]
+    #[case::two_closes(&[(41, MarketDataFieldSemantic::BarClosePrice, "1-DAY"), (42, MarketDataFieldSemantic::BarClosePrice, "1-DAY")], Err(NativeReplaySchedulingErrorV1::ExecutionRoleAmbiguous))]
+    fn the_frame_timeframe_is_the_execution_roles(
+        #[case] roles: &[(u8, MarketDataFieldSemantic, &str)],
+        #[case] expected: Result<&str, NativeReplaySchedulingErrorV1>,
+    ) {
+        let mut reversed = roles.to_vec();
+        reversed.reverse();
+
+        for roles in [roles, reversed.as_slice()] {
+            assert_eq!(execution_request(roles).execution_timeframe(), expected);
+        }
     }
 
     fn row(

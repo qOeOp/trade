@@ -1171,9 +1171,10 @@ PostgreSQL store 都会在 provenance 存在前失败。private fact 与 atomic 
 Owner 还会拒绝任何非超级用户登录角色的直接或角色派生有效访问，包括 Owner 角色成员关系与 PostgreSQL
 全库读写角色。
 public-fact identity/digest、venue、margin-account scope、半开 event validity、source/provenance、revision、
-quote/fee currency 与每个准确 term byte。首版只接受正 fixed `STANDARD_NOTIONAL_RATE` initial/maintenance
-value，并明确选择 `StandardMarginModel`（`notional * rate`，不经 leverage）；绝不推断
-`LeveragedMarginModel`。可见 economic configuration 不能自证这些值，missing value 也绝不会变为零或原生
+quote/fee currency 与每个准确 term byte。首版只接受正 fixed initial/maintenance value，语义为
+`STANDARD_NOTIONAL_RATE` 或 `FIRST_BRACKET_NOTIONAL_RATE`，并明确选择 `StandardMarginModel`（`notional * rate`，
+不经 leverage）；绝不推断 `LeveragedMarginModel`。first-bracket terms 只在其 `margin_notional_cap` 以内成立，binding
+把该上限与比率一起记录并绑定进 terms digest，因此 bound terms 的 consumer 可以读到它。可见 economic configuration 不能自证这些值，missing value 也绝不会变为零或原生
 default。错误 fact、receipt、terms、venue、account 或 time，以及 noncanonical、partial、extra、
 cross-spliced、tampered 或 ACL-drifted custody 都会在 `ProgramHostV2` 或 Backtest state 存在前失败。既有
 profile canonical bytes 与 digest 保持不变。
@@ -1188,7 +1189,9 @@ receipt、terms digest、费率与保证金。再次解析 terms 的消费方必
 新的 terms fact，而不是新的 Catalog 版本。不钉 terms 的 schema 1，或钉了 terms 的 schema 2，都以
 `InstrumentTermsPinningMismatch` 拒绝。不钉品种并不放宽 venue：配置未指名的 venue 上的 terms 在 provenance
 存在前就被拒绝，成员位于其他 venue 时 Instrument Owner 什么也解析不出。account scope 是 Owner 为每个成员都持有的
-唯一完整 scope；schema 2 不钉费率档位。
+唯一完整 scope；schema 2 不钉费率档位。terms 用带 venue 的 canonical identity 指名品种（`LINKUSDT-PERP.BINANCE`）：
+Instrument Owner 按这个 identity 解析一次 Replay 的成员 terms，原生 materialization 拿它与 public fact 的 canonical
+identity 比对，并把它解析为原生 instrument id，其 venue 必须是配置里的 venue。不带 venue 的 symbol 不指名任何品种。
 
 原生 engine materialization 保持 `UNAVAILABLE`。V1 只把 liquidation 表示为 disabled，不携带 numeric ratio；
 adapter 必须另行证明原生 float-only inactive liquidation field 不会被读取，或在 policy meaning 之外绑定
@@ -1280,7 +1283,9 @@ custody 会挡住之后的每一次提交，而成本随整个历史增长。
   `ExecutionRoleNotPricingRole`；今天没有东西构造出后者，因为 universe 角色上的 join 会先被拒绝。Host 从 Plan 读取它的
   成员角色和定价角色。角色的周期标签仍然只是 provenance，所以这里不从它推出执行周期：Market Data 从自己的 binding
   取执行角色的 typed 周期，周期不止一种、或者某种日它无法 typed 时按名拒绝。这项调度改动取代
-  `native_replay_scheduling_v1` 里的标签比较，归 Market Data。
+  `native_replay_scheduling_v1` 里的标签比较，归 Market Data。Market Data 按同一条规则从请求的角色自行推出执行角色，
+  调用方不指名它；其拒绝为 `EXECUTION_ROLE_ABSENT`、`EXECUTION_ROLE_AMBIGUOUS`、`MORE_THAN_ONE_ROLE_TIMEFRAME` 与
+  `EXECUTION_TIMEFRAME_NOT_DECLARED`（见 Market Data owner 页）。
 - **P2，报告陈述每个成员：** 报告族陈述 universe 运行的每个成员，把 Backtest 已经做到的一成员陈述推广开。它与 I2
   一同落地，由第一个超过一个成员的运行驱动：I2 之前没有程序读第一个成员以外的成员，陈述每个成员就无物可陈述。
 
