@@ -613,6 +613,13 @@ while the scope has no head, when any value may be the first. It runs in the cal
 takes no row locks. Heads of one scope that state different values are the store's fault, so the read refuses them as
 `StoreUnavailable` rather than picking one, and a binding Market Data does not hold is `SourceBindingUnavailable`.
 
+R&D serves this read to a caller that holds only its API token, as
+`POST /v1/market-data/source-bindings/market-semantics-scope-value` with the body `{source_binding}`. The R&D Owner runs
+the function unchanged through `market_data_rd_api`, in a transaction that is `READ ONLY` from its first statement and
+always rolled back, and answers `compatibility_scope_identity` and `value`, which is `null` while the scope has no
+head. A binding Market Data does not hold answers `409` `MARKET_SEMANTICS_SCOPE_SOURCE_BINDING_UNAVAILABLE`, a store it
+cannot read `503` `MARKET_DATA_OWNER_UNAVAILABLE`, and a body naming any other field `400`.
+
 **CURRENT:** Market Data has one standalone `MarketSemanticsFactV1` authority foundation. Its first fixed consumer is the
 Strategy Input Binding Registry; `ReplayMarketFactsV2` later consumes the same Owner readback as a deterministic
 projection. An untrusted proposal may carry only its request identity and meaning, stable correlation, claimed
@@ -1037,6 +1044,17 @@ been admitted yet (`MarketSemanticsNotAdmitted`); the issuance still re-derives 
 Both this read and the scope-value read are Market Data code over six `STABLE` `SECURITY DEFINER` functions of
 `market_data_rd_api`, granted to `rd_owner`, that only return stored rows: one snapshot, one Source Binding, one
 Universe Selection, one R0 record, one Market Semantics readback, and a scope's heads.
+
+R&D serves the basis read as `POST /v1/market-data/universe-member-composition-bases` with the body
+`{pit_snapshot, source_binding}`, through the same read-only R&D Owner transaction. It answers the four locators under
+the issuance command's own field names, `universe_selection_locator`, `reference_fact_r0_locator`,
+`market_semantics_locator` and `correction_policy_locator`, so a caller copies each one across. Each refusal answers
+`409` under its own code: `COMPOSITION_BASIS_PIT_UNAVAILABLE`, `COMPOSITION_BASIS_SOURCE_BINDING_MISMATCH`,
+`COMPOSITION_BASIS_SOURCE_BINDING_UNAVAILABLE` and `COMPOSITION_BASIS_MARKET_SEMANTICS_NOT_ADMITTED`; none is a `404`,
+and a store it cannot read answers `503` `MARKET_DATA_OWNER_UNAVAILABLE`. The ordered R&D chain drives both routes over
+HTTP on the snapshot a V3 Research request's initial PIT request produces, before and after that snapshot's Market
+Semantics fact, and checks that both answer while Market Data's own connection holds the snapshot's and the binding's
+fact rows exclusively.
 
 **TARGET, durable R&D attestation seam:** the positive R&D Develop Composer transaction canonically persists one
 immutable complete `StrategyDesignRoleSetReceiptV1` attestation together with the Composer aggregate, receipt and

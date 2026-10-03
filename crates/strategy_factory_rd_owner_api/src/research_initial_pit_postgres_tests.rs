@@ -47,6 +47,10 @@ use vibe_data::owner::{
         InstrumentDecimalSubmissionV1, InstrumentMasterFactSubmissionV1,
         InstrumentVenueSourceMappingSubmissionV1, instrument_master_admission_from_environment_v1,
     },
+    market_semantics_admission_v1::{
+        MarketSemanticsFactSubmissionV1, MarketSemanticsValueSubmissionV1,
+        market_semantics_admission_from_environment_v1,
+    },
     pit_market_snapshot_intake_v1::{
         MarketDataDecisionCutV1, PitMarketSnapshotBlockerV1, PitMarketSnapshotDispositionV1,
         PitMarketSnapshotIntakeErrorV1, PitMarketSnapshotIntakeV1, PitMarketSnapshotTerminalV1,
@@ -358,6 +362,21 @@ async fn get_over_http(app: &axum::Router, path: &str) -> Response {
         .unwrap()
 }
 
+async fn post_over_http(app: &axum::Router, path: &str, body: &serde_json::Value) -> Response {
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(path)
+                .header("authorization", format!("Bearer {TOKEN}"))
+                .header("content-type", "application/json")
+                .body(Body::from(serde_json::to_vec(body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap()
+}
+
 async fn issue_over_http(app: &axum::Router, request_identity: &str) -> Response {
     app.clone()
         .oneshot(
@@ -520,10 +539,33 @@ async fn initial_pit_fixture() -> InitialPitFixtureV1 {
         .await
         .unwrap(),
     );
-    // The initial PIT routes and the authoring-facts read, as the API serves them.
-    let app = research_initial_pit::router(owner.clone(), Some(ports.clone()), token_digest).merge(
-        bounded_feature_program::router(bounded_feature_program.clone(), token_digest),
-    );
+    // The initial PIT routes, the authoring-facts read, the two Market Data composition reads and
+    // the Market Semantics admission, as the API serves them.
+    let app = research_initial_pit::router(owner.clone(), Some(ports.clone()), token_digest)
+        .merge(bounded_feature_program::router(
+            bounded_feature_program.clone(),
+            token_digest,
+        ))
+        .merge(market_data_composition_reads::router(
+            owner.clone(),
+            token_digest,
+        ))
+        .merge(market_data_pit::router(
+            market_data_pit::MarketDataAdmissions {
+                intake: None,
+                admission: None,
+                universe: None,
+                bindings: None,
+                instruments: None,
+                instruments_v2: None,
+                semantics: Some(
+                    market_semantics_admission_from_environment_v1()
+                        .await
+                        .unwrap(),
+                ),
+            },
+            token_digest,
+        ));
     InitialPitFixtureV1 {
         test_database,
         suffix,
@@ -748,6 +790,174 @@ async fn issues_its_initial_pit_request() {
     assert_eq!(
         recorded.2,
         held.terminal().request_digest().as_bytes().to_vec()
+    );
+
+    // R3 and R4 over HTTP: what a caller composing a universe-member Replay over this snapshot
+    // reads from Market Data, which F's acceptance reads by library call. Each answers exactly what
+    // Market Data's own function answers, a body naming anything else is malformed, and a record
+    // Market Data does not hold yet is refused by name.
+    let pit_snapshot = held.terminal().locator().unwrap().clone();
+    let scope_value_path = "/v1/market-data/source-bindings/market-semantics-scope-value";
+    let basis_path = "/v1/market-data/universe-member-composition-bases";
+    let scope_value_body = serde_json::json!({ "source_binding": submission.source_binding });
+    let basis_body = serde_json::json!({
+        "pit_snapshot": pit_snapshot,
+        "source_binding": submission.source_binding,
+    });
+
+    for (path, body) in [
+        (scope_value_path, &scope_value_body),
+        (basis_path, &basis_body),
+    ] {
+        let mut extra = body.clone();
+        extra["instrument"] = serde_json::json!(CHAIN_FIXTURE_INSTRUMENT);
+        let response = post_over_http(&app, path, &extra).await;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST, "{path}");
+        assert_eq!(
+            response.headers()["x-rd-rejection-code"],
+            "MALFORMED_TYPED_REQUEST"
+        );
+    }
+    let response = post_over_http(&app, basis_path, &basis_body).await;
+    assert_eq!(response.status(), StatusCode::CONFLICT);
+    assert_eq!(
+        response.headers()["x-rd-rejection-code"],
+        "COMPOSITION_BASIS_MARKET_SEMANTICS_NOT_ADMITTED"
+    );
+    let response = post_over_http(&app, scope_value_path, &scope_value_body).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let scope_value = super::tests::response_json(response).await;
+    let mut read = rd.begin().await.unwrap();
+    let resolved = vibe_data::owner::resolve_market_semantics_scope_value_v1(
+        &mut read,
+        &submission.source_binding,
+    )
+    .await
+    .unwrap();
+    read.rollback().await.unwrap();
+    assert_eq!(
+        scope_value,
+        serde_json::json!({
+            "compatibility_scope_identity": resolved.compatibility_scope_identity(),
+            "value": resolved.value(),
+        })
+    );
+
+    // The snapshot's Market Semantics fact, restating the value its scope already states, or the
+    // first value when the scope has none; then the scope states it and the basis is answered.
+    let value: MarketSemanticsValueSubmissionV1 = if scope_value["value"].is_null() {
+        let digest = |meaning: &str| {
+            BindingDigest::from_untrusted_bytes(
+                Sha256::digest(format!("rd-initial-pit.{meaning}").as_bytes()).into(),
+            )
+        };
+        MarketSemanticsValueSubmissionV1 {
+            normalization_identity: digest("normalization"),
+            price_adjustment: "RAW".to_owned(),
+            timestamp_basis: "EVENT_EFFECTIVE".to_owned(),
+            price_unit_identity: digest("price-unit"),
+            size_unit_identity: digest("size-unit"),
+        }
+    } else {
+        serde_json::from_value(scope_value["value"].clone()).unwrap()
+    };
+    let response = post_over_http(
+        &app,
+        "/v1/market-data/market-semantics",
+        &serde_json::to_value(MarketSemanticsFactSubmissionV1 {
+            source_binding: submission.source_binding.clone(),
+            pit_snapshot: pit_snapshot.clone(),
+            value: value.clone(),
+        })
+        .unwrap(),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let response = post_over_http(&app, scope_value_path, &scope_value_body).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        super::tests::response_json(response).await["value"],
+        serde_json::to_value(&value).unwrap()
+    );
+    let mut read = rd.begin().await.unwrap();
+    let resolved = vibe_data::owner::resolve_universe_member_composition_basis_v1(
+        &mut read,
+        &pit_snapshot,
+        &submission.source_binding,
+    )
+    .await
+    .unwrap();
+    read.rollback().await.unwrap();
+    let expected_basis = serde_json::json!({
+        "universe_selection_locator": resolved.universe_selection_locator(),
+        "reference_fact_r0_locator": resolved.reference_fact_r0_locator(),
+        "market_semantics_locator": resolved.market_semantics_locator(),
+        "correction_policy_locator": resolved.correction_policy_locator(),
+    });
+
+    // Neither read takes a row lock. Market Data's own connection holds the snapshot's and the
+    // binding's fact rows exclusively; a reader that locked them would wait, as the control
+    // shows by timing out, while both routes answer at once and answer the same.
+    let binding_id: BindingDigest = serde_json::from_value(
+        serde_json::to_value(&submission.source_binding).unwrap()["binding_id"].clone(),
+    )
+    .unwrap();
+    let lock_rows = |share: bool| {
+        if share {
+            "SELECT (SELECT pg_catalog.count(*) FROM (SELECT 1 FROM market_data_private.pit_snapshot_facts_v1 \
+              WHERE request_identity = $1 FOR SHARE) AS s) \
+              + (SELECT pg_catalog.count(*) FROM (SELECT 1 FROM market_data_private.source_binding_facts_v1 \
+              WHERE binding_id = $2 FOR SHARE) AS b)"
+        } else {
+            "SELECT (SELECT pg_catalog.count(*) FROM (SELECT 1 FROM market_data_private.pit_snapshot_facts_v1 \
+              WHERE request_identity = $1 FOR UPDATE) AS s) \
+              + (SELECT pg_catalog.count(*) FROM (SELECT 1 FROM market_data_private.source_binding_facts_v1 \
+              WHERE binding_id = $2 FOR UPDATE) AS b)"
+        }
+    };
+    let mut holder = market_data.begin().await.unwrap();
+    let held_rows: i64 = sqlx::query_scalar(lock_rows(false))
+        .bind(held.terminal().request_identity().as_bytes().as_slice())
+        .bind(binding_id.as_bytes().as_slice())
+        .fetch_one(&mut *holder)
+        .await
+        .unwrap();
+    assert_eq!(
+        held_rows, 2,
+        "the snapshot's and the binding's fact rows are held"
+    );
+    let mut control = market_data.begin().await.unwrap();
+    sqlx::query("SET LOCAL lock_timeout = '200ms'")
+        .execute(&mut *control)
+        .await
+        .unwrap();
+    let waited = sqlx::query_scalar::<_, i64>(lock_rows(true))
+        .bind(held.terminal().request_identity().as_bytes().as_slice())
+        .bind(binding_id.as_bytes().as_slice())
+        .fetch_one(&mut *control)
+        .await
+        .expect_err("a reader that locks the held rows waits for them");
+    assert_eq!(
+        waited.as_database_error().and_then(|e| e.code()).as_deref(),
+        Some("55P03"),
+        "{waited}"
+    );
+    control.rollback().await.unwrap();
+    let (scope_value_answer, basis_answer) =
+        tokio::time::timeout(std::time::Duration::from_secs(10), async {
+            (
+                post_over_http(&app, scope_value_path, &scope_value_body).await,
+                post_over_http(&app, basis_path, &basis_body).await,
+            )
+        })
+        .await
+        .expect("neither read waits on the held rows");
+    holder.rollback().await.unwrap();
+    assert_eq!(scope_value_answer.status(), StatusCode::OK);
+    assert_eq!(basis_answer.status(), StatusCode::OK);
+    assert_eq!(
+        super::tests::response_json(basis_answer).await,
+        expected_basis
     );
 
     // I1: issuing again changes nothing.

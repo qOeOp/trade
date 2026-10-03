@@ -92,6 +92,7 @@ use crate::source_intake::{
     SourceIntakePolicyEvidenceQueryV1, SourceIntakePolicyEvidenceResultV1,
 };
 
+mod market_data_reads;
 pub mod research_initial_pit;
 
 #[derive(Clone)]

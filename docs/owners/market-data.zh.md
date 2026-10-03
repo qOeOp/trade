@@ -544,6 +544,13 @@ value，用 submission 陈述它的那些词表达；scope 尚无 head 时不返
 transaction 中运行，只读，不加行锁。同一 scope 的 head 陈述不同 value 是存储的问题，因此该读取以 `StoreUnavailable`
 拒绝，而不是挑一个；Market Data 不持有的 binding 为 `SourceBindingUnavailable`。
 
+R&D 把这一读取提供给只持有其 API token 的调用方，路由为
+`POST /v1/market-data/source-bindings/market-semantics-scope-value`，body 为 `{source_binding}`。R&D Owner 经
+`market_data_rd_api` 原样运行该函数，所在 transaction 从第一条语句起即为 `READ ONLY` 且总是回滚，回答
+`compatibility_scope_identity` 与 `value`，后者在 scope 尚无 head 时为 `null`。Market Data 不持有的 binding 回答
+`409` `MARKET_SEMANTICS_SCOPE_SOURCE_BINDING_UNAVAILABLE`，无法读取的存储回答 `503` `MARKET_DATA_OWNER_UNAVAILABLE`，
+body 中出现任何其他字段则回答 `400`。
+
 **CURRENT：** Market Data 已有一个独立 `MarketSemanticsFactV1` 权威 foundation。其首个固定消费者是 Strategy Input
 Binding Registry；`ReplayMarketFactsV2` 随后把同一个 Owner readback 作为确定性 projection 消费。不受信
 proposal 只能携带 request identity/meaning、stable correlation、声称的 typed value、声称的 predecessor
@@ -936,6 +943,16 @@ binding（`SourceBindingUnavailable`），以及尚无已准入 Market Semantics
 建立在 `market_data_rd_api` 的六个授予 `rd_owner` 的 `STABLE` `SECURITY DEFINER` 函数之上，这些函数只返回已存储的
 行：一个 snapshot、一个 Source Binding、一个 Universe Selection、一条 R0 record、一个 Market Semantics readback，
 以及一个 scope 的各个 head。
+
+R&D 以 `POST /v1/market-data/universe-member-composition-bases` 提供 basis 读取，body 为
+`{pit_snapshot, source_binding}`，走同一个只读的 R&D Owner transaction。它用签发命令自己的字段名回答这四个 locator：
+`universe_selection_locator`、`reference_fact_r0_locator`、`market_semantics_locator` 与
+`correction_policy_locator`，调用方逐个照抄过去即可。每种拒绝都以 `409` 和各自的代码回答：
+`COMPOSITION_BASIS_PIT_UNAVAILABLE`、`COMPOSITION_BASIS_SOURCE_BINDING_MISMATCH`、
+`COMPOSITION_BASIS_SOURCE_BINDING_UNAVAILABLE` 与 `COMPOSITION_BASIS_MARKET_SEMANTICS_NOT_ADMITTED`；没有一种是 `404`，
+无法读取的存储回答 `503` `MARKET_DATA_OWNER_UNAVAILABLE`。有序 R&D 链路在 V3 Research request 的初始 PIT 请求产生的
+snapshot 上经 HTTP 驱动这两条路由，分别在该 snapshot 的 Market Semantics fact 准入之前与之后，并核验在 Market Data
+自己的连接以排他方式持有该 snapshot 与该 binding 的 fact 行时，两者都照常回答。
 
 **TARGET，持久 R&D attestation seam：** positive R&D Develop Composer transaction 将一份不可变、完整的
 `StrategyDesignRoleSetReceiptV1` attestation 与 Composer aggregate、receipt 及 outbox 一起规范持久化。它绑定

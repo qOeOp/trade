@@ -217,6 +217,7 @@ mod iteration_decision;
 mod iteration_result_admission;
 #[cfg(test)]
 mod log_capture;
+mod market_data_composition_reads;
 mod market_data_pit;
 #[cfg(feature = "native-replay-execution")]
 mod market_data_repair;
@@ -768,6 +769,12 @@ async fn run() -> anyhow::Result<()> {
                 .clone()
                 .zip(market_data_pit_intake.clone())
                 .map(|(universe, intake)| MarketDataInitialPitPortsV1::new(universe, intake)),
+            token_digest,
+        ))
+        // Two Market Data reads a composing caller needs, run by the R&D Owner through the same
+        // `market_data_rd_api` surface its initial PIT request reads Market Data by.
+        .merge(market_data_composition_reads::router(
+            owner.clone(),
             token_digest,
         ))
         .merge(source_intake_research::router(
