@@ -2564,6 +2564,31 @@ scope 时，给出每个成员最后一根已收盘的 bar，并在旁边给出�
   见证探针，而且换了标的与周期，所以它佐证的是量级，没有在受控的点上检验这条曲线。实际后果是：几百个
   坐标的有界窗口很便宜；长跨度的分钟级历史这条路径根本到不了；而且**一个从不重置的库会让此后每一个快照
   对每一个写入者都更慢**，所以在共享链路库里累积快照，花的是一笔不会回来的预算。
+  **2026-10-03 重新测量，并定位了原因。** 在 main 85c4237d2 上，对开启 `pg_stat_statements` 的一次性库，跑 256 个连续的
+  `BTCUSDC-PERP.BINANCE` 日线坐标。
+  - **单次提交成本。** 每 16 次提交中最便宜的一次从 138 ms 升到 1241 ms，即库里已有的每一条 lineage 约 4.5 ms：单次提交线性，
+    总量二次。
+  - **花在哪里。** 共 632,102 条语句；耗时前四名都是逐 lineage 的历史校验，各调用 97,920 次，即 256 的平方的一半再乘以三。
+    258 秒提交时间里服务端执行占 79 秒，其余是往返与在 Rust 中解码每个事实，这不是索引能去掉的。
+  - **触发点。** `validate_owner_history_custody` 每次提交约运行三次：clock 准入、clock 物化，以及八条读路径共用的读校验。
+    每次运行都重新解码每一条 PIT lineage。
+  - **外推。** 按这个斜率，约 5,500 个日线快照的最后一次提交约需 25 秒，总共约 19 小时，而且每一次读取也会同样变慢。
+
+  **TARGET - 逐 lineage 的历史 custody。** 校验移到每条 lineage 被写入与被读取的地方，而不是被移除。
+  - **提交时：** 正在写入的那条 lineage。它的新事实，以及它到前一个 head 的链接（前驱摘要与下一个版本号），在提交事务中校验。
+  - **读取时：** 正在读取的那条 lineage。PIT 快照或 Research PIT terminal 的读取校验它返回的那一条 lineage。
+  - **census 校验保持全局。** 它是一条集合级语句（上面全部 774 次调用共 0.46 秒）。Source Binding 的 lineage 仍然整体遍历，
+    因为数量很少（772 次调用共 0.21 秒）。
+  - **历史不可改写。** PIT 快照事实、observation batch、observation row 与 outbox 加只追加触发器，写法与
+    `native_replay_frame_sequences_are_append_only` 相同。经 Owner 自己的连接改写会被按名拒绝，而不是等到之后某次提交才被发现。
+  - **迁移保留一次完整遍历**，作为审计入口。
+  - **变化之处。** 今天一条损坏的 lineage 会让库里所有提交与读取停下；此后它只让碰到它的消费方停下，这正是「失败与恢复」中
+    「对依赖它的消费方 fail closed」的表述。
+  - **验收：**
+    - 同一条 sweep 必须对 N 线性；
+    - 经 Owner 连接改写一个已提交的 PIT 事实，必须被触发器拒绝。
+  - **范围。** 那些改写 PIT 行来证明检测的测试（`postgres/tests.rs` 中 15 处，`store_admission/mod.rs` 与
+    `bar_schedule_acceptance_v1_tests.rs` 各一处）改为断言触发器的拒绝，或在显式关闭触发器的 admin 会话中进行。
 - 向 [Scanner](./scanner/) 提供已发布激活条件请求的准确 PIT Market Snapshot。
 - 向 [Runtime](./runtime/) 提供携带同一 Market Semantics Compatibility 身份的实时行情流和标的更新；
   generation 的 Strategy Artifact 与历史证据必须消费该身份。

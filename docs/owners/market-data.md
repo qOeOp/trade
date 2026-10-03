@@ -2963,6 +2963,39 @@ settlement at exactly that coordinate is included and one a millisecond later is
   window of a few hundred coordinates is cheap, a long minute-resolution history is not reachable by this path at
   all, and **a store that is never reset makes every later snapshot slower for every writer**, so accumulating
   snapshots in a shared chain database spends a budget that never returns.
+  **Measured again on 2026-10-03, and the cause located.** The run was 256 consecutive daily `BTCUSDC-PERP.BINANCE`
+  coordinates on main 85c4237d2, against a disposable store with `pg_stat_statements`.
+  - **Per-commit cost.** The cheapest commit in each block of 16 rose from 138 ms to 1241 ms. That is about 4.5 ms
+    for every lineage already in the store, so the cost is linear per commit and quadratic in total.
+  - **Where it goes.** 632,102 statements ran. The top four by time are the per-lineage history checks, each called
+    97,920 times, which is 256 squared over two times three. Server execution was 79 s of the 258 s commit time; the
+    rest is round trips and decoding each fact in Rust, which an index cannot remove.
+  - **What triggers it.** `validate_owner_history_custody` runs about three times per commit: clock admission, clock
+    materialization, and the read validation that eight read paths share. Each run re-decodes every PIT lineage.
+  - **Projection.** At that slope, about 5,500 daily snapshots would end with a 25 s commit and about 19 hours in
+    total, and every read would slow the same way.
+
+  **TARGET - per-lineage history custody.** The check moves to where each lineage is written and read. It is not
+  removed.
+  - **On commit:** the lineage being written. Its new fact, and its link to the previous head (predecessor digest
+    and next version), are validated in the committing transaction.
+  - **On read:** the lineage being read. A PIT snapshot or Research PIT terminal read validates the one lineage it
+    returns.
+  - **The census check stays global.** It is one set-level statement (0.46 s over all 774 calls above). Source
+    Binding lineages stay walked whole, because there are few of them (0.21 s over 772 calls).
+  - **History cannot be rewritten.** PIT snapshot facts, observation batches, observation rows and the outbox get
+    append-only triggers, written the way `native_replay_frame_sequences_are_append_only` is. A rewrite through the
+    Owner's own connection is then refused by name rather than detected at a later commit.
+  - **Migration keeps one full walk** as the audit entry point.
+  - **What changes.** Today a damaged lineage stops every commit and read in the store. After this, it stops the
+    consumer that reaches it, which is what "fails closed for the dependent consumer" under Failure and recovery
+    states.
+  - **Acceptance:**
+    - the same sweep must be linear in N;
+    - a rewrite of a committed PIT fact through the Owner connection must be refused by the trigger.
+  - **Scope.** The tests that rewrite PIT rows to prove detection (15 sites in `postgres/tests.rs` and one each in
+    `store_admission/mod.rs` and `bar_schedule_acceptance_v1_tests.rs`) move to the trigger's refusal or to an
+    explicitly trigger-disabled admin session.
 - To [Scanner](./scanner/): the exact PIT Market Snapshot requested by published activation conditions.
 - To [Runtime](./runtime/): live market streams and instrument updates carrying the same Market Semantics
   Compatibility identity consumed by the generation's Strategy Artifact and historical evidence.
