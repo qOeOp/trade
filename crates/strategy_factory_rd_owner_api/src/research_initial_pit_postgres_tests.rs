@@ -987,6 +987,7 @@ async fn issues_its_initial_pit_request() {
             semantics: None,
             economic_terms: None,
             catalog: None,
+            binance_perpetual_admission: None,
         },
         token_digest,
     );

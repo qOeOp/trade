@@ -1,0 +1,501 @@
+//! Builds the facts Market Data's Binance perpetual admission route commits, from one real
+//! USD-M `exchangeInfo` payload.
+//!
+//! This module names only what the route itself cannot get from the Owner's own intakes: the
+//! Source Binding proposals for the two datasets the route reads (daily klines, `exchangeInfo`),
+//! and the Instrument Master V1 submission, whose fields the venue's filters must be read to fill.
+//! The Instrument Master V2 baseline derives the same fields from the raw payload inside the Owner,
+//! so the route passes that payload through unparsed.
+//!
+//! The two Source Binding proposals carry no symbol and claim the same fixed effective instant
+//! every time: a binding's identity
+//! (`crates/data/src/owner/source_binding/authority.rs::canonical_semantic_bytes`) hashes the
+//! adapter, credential, trust, semantics, license, availability-rule, bar-timeframe and claimed
+//! time-evidence fields, and none of the first six vary by instrument for one dataset - but the
+//! claimed effective instant does vary by call unless it is fixed, since
+//! `encode_time_without_claim` folds `event_effective`/`provider_available`/`retrieval`/
+//! `correction_publication`/`effective_at` into the same hash. `BINANCE_PERPETUAL_BINDING_EFFECTIVE_NS_V1`
+//! fixes that instant so admitting the second symbol through this route derives the same binding
+//! identity as the first and rejoins it; the route never admits one binding per instrument.
+
+use rust_decimal::Decimal;
+use serde_json::Value;
+use vibe_data::owner::{
+    instrument_master_admission_v1::{
+        InstrumentDecimalSubmissionV1, InstrumentMasterFactSubmissionV1,
+        InstrumentVenueSourceMappingSubmissionV1,
+    },
+    source_binding::{
+        BindingDigest, UntrustedAdapterBinding, UntrustedCompleteFrontier,
+        UntrustedCredentialAudienceClaim, UntrustedCredentialCapabilityClaim,
+        UntrustedLicensePolicy, UntrustedMarketDataAsOf, UntrustedMarketSemantics,
+        UntrustedOpaqueCredentialHandle, UntrustedSourceAvailabilityRuleV1,
+        UntrustedSourceBarAnchorV1, UntrustedSourceBarCadenceV1, UntrustedSourceBarClockV1,
+        UntrustedSourceBarCompletionV1, UntrustedSourceBarLabelV1, UntrustedSourceBarTimeframeV1,
+        UntrustedSourceBarUnitV1, UntrustedSourceBindingLocator, UntrustedSourceBindingProposal,
+        UntrustedSourceVisibilityV1, UntrustedTrustPolicy, seal_binding_claim_v1,
+    },
+    universe_selection_admission_v1::HistoricalMembershipAdmissionRequestV1,
+};
+
+/// The route's own venue identity: `BINANCE`, source `BINANCE_USDM`.
+pub const BINANCE_PERPETUAL_VENUE_IDENTITY_V1: &str = "BINANCE";
+/// The route's own source identity: `BINANCE`, source `BINANCE_USDM`.
+pub const BINANCE_PERPETUAL_SOURCE_IDENTITY_V1: &str = "BINANCE_USDM";
+
+/// The datasets the route's two Source Bindings name.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum BinancePerpetualDatasetV1 {
+    /// Daily klines: the execution bars U1's `1d` custody reads.
+    DailyKlines,
+    /// The venue's `exchangeInfo`, which the Instrument Master V2 intake reads.
+    ExchangeInfo,
+}
+
+impl BinancePerpetualDatasetV1 {
+    const fn mapping(self) -> &'static str {
+        match self {
+            Self::DailyKlines => "usdm/klines/1d",
+            Self::ExchangeInfo => "usdm/exchangeInfo",
+        }
+    }
+
+    /// The klines binding declares what its rows mean as bars, which only schema 2 can; the
+    /// `exchangeInfo` binding serves no BAR row and stays schema 1.
+    const fn schema_version(self) -> u16 {
+        match self {
+            Self::DailyKlines => 2,
+            Self::ExchangeInfo => 1,
+        }
+    }
+
+    /// A kline row is visible one second after its bar closes, and the venue never corrects a
+    /// closed kline. `exchangeInfo` is not a bar feed and declares no availability rule.
+    const fn availability_rule(self) -> Option<UntrustedSourceAvailabilityRuleV1> {
+        match self {
+            Self::DailyKlines => Some(UntrustedSourceAvailabilityRuleV1 {
+                visibility: UntrustedSourceVisibilityV1::AfterBarClose {
+                    lag_ns: 1_000_000_000,
+                },
+                publishes_corrections: false,
+            }),
+            Self::ExchangeInfo => None,
+        }
+    }
+
+    /// The `1D` rows are fixed 24-hour UTC bars on the Unix epoch grid, labelled at their close,
+    /// complete only: a perpetual never closes, so its day is not an exchange session day.
+    fn bar_timeframes(self) -> Vec<UntrustedSourceBarTimeframeV1> {
+        match self {
+            Self::DailyKlines => vec![UntrustedSourceBarTimeframeV1 {
+                row_timeframe: "1D".to_owned(),
+                cadence: UntrustedSourceBarCadenceV1::FixedInterval {
+                    step: 24,
+                    unit: UntrustedSourceBarUnitV1::Hour,
+                },
+                anchor: UntrustedSourceBarAnchorV1::UnixEpoch,
+                clock: UntrustedSourceBarClockV1::Continuous,
+                label: UntrustedSourceBarLabelV1::IntervalClose,
+                completion: UntrustedSourceBarCompletionV1::CompleteOnly,
+            }],
+            Self::ExchangeInfo => Vec::new(),
+        }
+    }
+}
+
+/// A registry meaning named for this route, so no value is borrowed from a test fixture's.
+fn binance_perpetual_admission_digest_v1(meaning: &str) -> BindingDigest {
+    let digest = aws_lc_rs::digest::digest(
+        &aws_lc_rs::digest::SHA256,
+        format!("binance-perpetual-admission.v1.{meaning}").as_bytes(),
+    );
+    let bytes: [u8; 32] = digest
+        .as_ref()
+        .try_into()
+        .expect("SHA-256 is always 32 bytes");
+    BindingDigest::from_untrusted_bytes(bytes)
+}
+
+/// The route's own eligible-instrument frontier: every member this route admits belongs to it.
+/// The Instrument Master V1 submission's `historical_membership_frontier` must name the same
+/// frontier the historical-membership admission step admits into, or the two steps disagree about
+/// which frontier the instrument belongs to.
+#[must_use]
+pub fn binance_perpetual_eligible_frontier_v1() -> BindingDigest {
+    binance_perpetual_admission_digest_v1("eligible-frontier")
+}
+
+/// The fixed claimed effective instant every proposal from this route uses: 2023-11-14T22:13:20Z,
+/// chosen only for being safely in the past of any Owner clock head this route will ever run
+/// against. `canonical_semantic_bytes` folds the claimed time-evidence tuple into a binding's
+/// identity (`encode_time_without_claim`), so a proposal that claimed "now" would derive a new
+/// binding identity on every call; fixing it is what makes the second symbol's identical proposal
+/// rejoin the first symbol's binding instead of minting a second one.
+const BINANCE_PERPETUAL_BINDING_EFFECTIVE_NS_V1: u64 = 1_700_000_000_000_000_000;
+
+/// The perpetual's Source Binding, as this route proposes one: a public USD-M feed that needs no
+/// credential. Every clock field is the Owner's and is overwritten on admission; the proposer's
+/// claimed effective instant is fixed (see
+/// `BINANCE_PERPETUAL_BINDING_EFFECTIVE_NS_V1`) so the proposal is the same for every instrument.
+#[must_use]
+pub fn binance_perpetual_source_proposal(
+    dataset: BinancePerpetualDatasetV1,
+) -> UntrustedSourceBindingProposal {
+    let effective_ns = BINANCE_PERPETUAL_BINDING_EFFECTIVE_NS_V1;
+    let frontier = |meaning: &str| UntrustedCompleteFrontier {
+        stream_identity: "binance/usdm-klines".to_owned(),
+        cut_identity: "binance/usdm-klines/cut-1".to_owned(),
+        sequence: 1,
+        digest: binance_perpetual_admission_digest_v1(meaning),
+    };
+    let mut proposal = UntrustedSourceBindingProposal {
+        claimed_binding_id: BindingDigest::from_untrusted_bytes([0; 32]),
+        schema_version: dataset.schema_version(),
+        adapter: UntrustedAdapterBinding {
+            implementation_digest: binance_perpetual_admission_digest_v1("adapter.implementation"),
+            configuration_digest: binance_perpetual_admission_digest_v1("adapter.configuration"),
+            authenticated_endpoint_identity: "https://fapi.binance.com".to_owned(),
+            dataset_mapping: dataset.mapping().to_owned(),
+            account_mapping: "binance/public".to_owned(),
+        },
+        credential_handle: UntrustedOpaqueCredentialHandle::from_untrusted_identity(
+            binance_perpetual_admission_digest_v1("credential"),
+            UntrustedCredentialAudienceClaim::MarketData,
+            [
+                UntrustedCredentialCapabilityClaim::MarketDataRead,
+                UntrustedCredentialCapabilityClaim::ReferenceDataRead,
+                UntrustedCredentialCapabilityClaim::MetadataRead,
+            ],
+        ),
+        trust_policy: UntrustedTrustPolicy {
+            identity: "binance/official-public-data".to_owned(),
+            version: 1,
+        },
+        semantics: UntrustedMarketSemantics {
+            normalization: "binance/usdm-kline".to_owned(),
+            adjustment: "raw".to_owned(),
+            price_meaning: "decimal-string/usdt".to_owned(),
+            calendar_rules: "crypto/continuous".to_owned(),
+            session_rules: "crypto/continuous".to_owned(),
+            timezone_rules: "etc-utc".to_owned(),
+            instrument_lifecycle_rules: "binance/usdm-perpetual".to_owned(),
+            corporate_action_rules: "crypto/none".to_owned(),
+            membership_rules: "binance/static".to_owned(),
+            universe_rules: "requester-owned".to_owned(),
+            correction_policy: "provider-revision".to_owned(),
+        },
+        license: UntrustedLicensePolicy {
+            use_scope: "internal-research".to_owned(),
+            redistribution_scope: "none".to_owned(),
+            retention_policy: "retain-while-entitled".to_owned(),
+            redaction_policy: "no-payload-export".to_owned(),
+        },
+        source_frontier: frontier("source-frontier"),
+        correction_frontier: frontier("correction-frontier"),
+        time_evidence: UntrustedMarketDataAsOf {
+            claimed_evidence_identity: BindingDigest::from_untrusted_bytes([0; 32]),
+            clock_identity: String::new(),
+            clock_epoch: String::new(),
+            monotonic_sequence: 0,
+            restart_continuity_digest: BindingDigest::from_untrusted_bytes([0; 32]),
+            skew_bound: 0,
+            uncertainty_bound: 0,
+            event_effective: effective_ns,
+            provider_available: effective_ns,
+            retrieval: effective_ns,
+            correction_publication: effective_ns,
+            observed_at: 0,
+            effective_at: effective_ns,
+            valid_through: 0,
+        },
+        availability_rule: dataset.availability_rule(),
+        bar_timeframes: dataset.bar_timeframes(),
+    };
+    seal_binding_claim_v1(&mut proposal);
+    proposal
+}
+
+/// Why [`binance_perpetual_instrument_master_submission`] could not read the fields it needs from
+/// the real `exchangeInfo` payload.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum BinancePerpetualAdmissionErrorV1 {
+    /// The payload is not `exchangeInfo` JSON.
+    PayloadMalformed,
+    /// No `symbols` entry has the raw symbol.
+    SymbolAbsent,
+    /// The entry's `contractType` is not `PERPETUAL`.
+    NotAPerpetual,
+    /// A required filter or field is absent or not an accepted decimal.
+    FilterUnavailable,
+}
+
+/// The perpetual's canonical identity, in this route's one naming convention.
+#[must_use]
+pub fn binance_perpetual_canonical_identity_v1(raw_symbol: &str) -> String {
+    format!("{raw_symbol}-PERP.BINANCE")
+}
+
+/// The perpetual's Instrument Master V1 fact, as this route describes it from the real
+/// `exchangeInfo` entry: a linear USD-M perpetual on a venue that never closes, observed under the
+/// admitted kline binding just before the effective instant.
+///
+/// # Errors
+///
+/// Returns a named reason when the payload does not name the symbol as a perpetual with the
+/// filters this fact needs.
+pub fn binance_perpetual_instrument_master_submission(
+    raw_symbol: &str,
+    exchange_info_payload: &str,
+    kline_source_binding: &UntrustedSourceBindingLocator,
+    effective_ns: u64,
+) -> Result<InstrumentMasterFactSubmissionV1, BinancePerpetualAdmissionErrorV1> {
+    let info: Value = serde_json::from_str(exchange_info_payload)
+        .map_err(|_| BinancePerpetualAdmissionErrorV1::PayloadMalformed)?;
+    let symbols = info
+        .get("symbols")
+        .and_then(Value::as_array)
+        .ok_or(BinancePerpetualAdmissionErrorV1::PayloadMalformed)?;
+    let symbol = symbols
+        .iter()
+        .find(|entry| entry.get("symbol").and_then(Value::as_str) == Some(raw_symbol))
+        .ok_or(BinancePerpetualAdmissionErrorV1::SymbolAbsent)?;
+    if symbol.get("contractType").and_then(Value::as_str) != Some("PERPETUAL") {
+        return Err(BinancePerpetualAdmissionErrorV1::NotAPerpetual);
+    }
+    let asset = |field: &str| -> Result<String, BinancePerpetualAdmissionErrorV1> {
+        symbol
+            .get(field)
+            .and_then(Value::as_str)
+            .map(ToOwned::to_owned)
+            .ok_or(BinancePerpetualAdmissionErrorV1::FilterUnavailable)
+    };
+    let base_currency = asset("baseAsset")?;
+    let quote_currency = asset("quoteAsset")?;
+    let margin_currency = asset("marginAsset")?;
+    let filters = symbol
+        .get("filters")
+        .and_then(Value::as_array)
+        .ok_or(BinancePerpetualAdmissionErrorV1::FilterUnavailable)?;
+    let price_increment = filter_decimal(filters, "PRICE_FILTER", "tickSize")?;
+    let quantity_increment = filter_decimal(filters, "LOT_SIZE", "stepSize")?;
+    let observed = i128::from(effective_ns) - 1;
+
+    Ok(InstrumentMasterFactSubmissionV1 {
+        canonical_identity: binance_perpetual_canonical_identity_v1(raw_symbol),
+        predecessor_fact_digest: None,
+        mappings: vec![InstrumentVenueSourceMappingSubmissionV1 {
+            venue_identity: BINANCE_PERPETUAL_VENUE_IDENTITY_V1.to_owned(),
+            source_identity: BINANCE_PERPETUAL_SOURCE_IDENTITY_V1.to_owned(),
+            source_instrument: raw_symbol.as_bytes().to_vec(),
+        }],
+        instrument_class: "CRYPTO_PERPETUAL".to_owned(),
+        base_currency: Some(base_currency),
+        quote_currency: Some(quote_currency),
+        settlement_currency: Some(margin_currency.clone()),
+        margin_currency: Some(margin_currency),
+        price_increment,
+        quantity_increment,
+        contract_multiplier: InstrumentDecimalSubmissionV1 {
+            mantissa: 1,
+            scale: 0,
+        },
+        calendar_identity: "CRYPTO-CONTINUOUS-V1".to_owned(),
+        session_identity: "CRYPTO-CONTINUOUS-V1".to_owned(),
+        time_zone_identity: "Etc/UTC".to_owned(),
+        lifecycle_frontier: binance_perpetual_admission_digest_v1("lifecycle-frontier"),
+        corporate_action_frontier: binance_perpetual_admission_digest_v1(
+            "corporate-action-frontier",
+        ),
+        historical_membership_frontier: binance_perpetual_eligible_frontier_v1(),
+        source_binding: kline_source_binding.clone(),
+        effective_from: 1,
+        effective_until: None,
+        provider_available: observed,
+        retrieval: observed,
+        correction_publication: observed,
+        owner_observation: observed,
+    })
+}
+
+/// One decimal filter value of the entry's `filters` array, in canonical form (no trailing zero
+/// at a nonzero scale).
+fn filter_decimal(
+    filters: &[Value],
+    filter_type: &str,
+    field: &str,
+) -> Result<InstrumentDecimalSubmissionV1, BinancePerpetualAdmissionErrorV1> {
+    let text = filters
+        .iter()
+        .find(|filter| filter["filterType"] == filter_type)
+        .and_then(|filter| filter[field].as_str())
+        .ok_or(BinancePerpetualAdmissionErrorV1::FilterUnavailable)?;
+    let value = Decimal::from_str_exact(text)
+        .map_err(|_| BinancePerpetualAdmissionErrorV1::FilterUnavailable)?
+        .normalize();
+    let mantissa = value.mantissa();
+    let scale = u8::try_from(value.scale())
+        .map_err(|_| BinancePerpetualAdmissionErrorV1::FilterUnavailable)?;
+    Ok(InstrumentDecimalSubmissionV1 { mantissa, scale })
+}
+
+/// The historical-membership admission request naming the perpetual as a member of this route's
+/// one eligible-instrument frontier, under the admitted kline Source Binding's lineage.
+#[must_use]
+pub fn binance_perpetual_historical_membership_request_v1(
+    raw_symbol: &str,
+    kline_source_binding: &UntrustedSourceBindingLocator,
+    effective_ns: u64,
+) -> HistoricalMembershipAdmissionRequestV1 {
+    use vibe_data::owner::universe_selection_admission_v1::HistoricalMembershipSubmissionV1;
+
+    let canonical_identity = binance_perpetual_canonical_identity_v1(raw_symbol);
+    let observed = i128::from(effective_ns);
+    HistoricalMembershipAdmissionRequestV1 {
+        eligible_instrument_frontier: binance_perpetual_eligible_frontier_v1(),
+        members: vec![HistoricalMembershipSubmissionV1 {
+            member_key: canonical_identity.clone(),
+            instrument: canonical_identity,
+            effective_from_ns: 1,
+            effective_until_ns: None,
+            provider_available_ns: observed,
+            retrieval_ns: observed,
+            correction_publication_ns: observed,
+            owner_observation_ns: observed,
+            decision_cut: effective_ns,
+            source_binding_lineage_root: kline_source_binding.lineage_root(),
+            correction_frontier_digest: binance_perpetual_admission_digest_v1(
+                "correction-frontier",
+            ),
+        }],
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeSet;
+
+    use rstest::rstest;
+    use vibe_data::owner::source_binding::UntrustedSourceBindingLocatorFields;
+
+    use super::*;
+
+    /// A real USD-M `exchangeInfo` response, sliced to one entry. Shared with
+    /// `first_composer_v3_replay_acceptance.rs`'s fixture of the same bytes.
+    const LINKUSDT_EXCHANGE_INFO: &str =
+        include_str!("../test_data/futures/http_json/exchange_info_usdm_linkusdt.json");
+
+    fn test_locator(binding_id: BindingDigest) -> UntrustedSourceBindingLocator {
+        UntrustedSourceBindingLocator::from_untrusted(UntrustedSourceBindingLocatorFields {
+            owner: "market-data".to_owned(),
+            lineage_root: binding_id,
+            lineage_version: 1,
+            predecessor_binding_id: None,
+            predecessor_fact_digest: None,
+            binding_id,
+            fact_digest: binding_id,
+            credential_handle_identity: BindingDigest::from_untrusted_bytes([0; 32]),
+            credential_audience: UntrustedCredentialAudienceClaim::MarketData,
+            credential_capabilities: BTreeSet::new(),
+            source_frontier: UntrustedCompleteFrontier {
+                stream_identity: "binance/usdm-klines".to_owned(),
+                cut_identity: "binance/usdm-klines/cut-1".to_owned(),
+                sequence: 1,
+                digest: binding_id,
+            },
+            correction_frontier: UntrustedCompleteFrontier {
+                stream_identity: "binance/usdm-klines".to_owned(),
+                cut_identity: "binance/usdm-klines/cut-1".to_owned(),
+                sequence: 1,
+                digest: binding_id,
+            },
+            time_evidence: UntrustedMarketDataAsOf {
+                claimed_evidence_identity: BindingDigest::from_untrusted_bytes([0; 32]),
+                clock_identity: String::new(),
+                clock_epoch: String::new(),
+                monotonic_sequence: 0,
+                restart_continuity_digest: BindingDigest::from_untrusted_bytes([0; 32]),
+                skew_bound: 0,
+                uncertainty_bound: 0,
+                event_effective: 1,
+                provider_available: 1,
+                retrieval: 1,
+                correction_publication: 1,
+                observed_at: 0,
+                effective_at: 1,
+                valid_through: 0,
+            },
+        })
+    }
+
+    /// The proposal is deterministic across calls (the fixed effective instant is what makes two
+    /// admissions of the same dataset - as admitting two different symbols through this route
+    /// does - derive the same binding and rejoin it, instead of minting a second one).
+    #[rstest]
+    fn kline_proposal_identity_is_deterministic() {
+        let first = binance_perpetual_source_proposal(BinancePerpetualDatasetV1::DailyKlines);
+        let second = binance_perpetual_source_proposal(BinancePerpetualDatasetV1::DailyKlines);
+        assert_eq!(first.claimed_binding_id, second.claimed_binding_id);
+    }
+
+    /// The two datasets this route names still derive different binding identities from each
+    /// other: different schema, mapping and availability rule.
+    #[rstest]
+    fn kline_and_exchange_info_proposals_derive_different_identities() {
+        let kline = binance_perpetual_source_proposal(BinancePerpetualDatasetV1::DailyKlines);
+        let exchange_info =
+            binance_perpetual_source_proposal(BinancePerpetualDatasetV1::ExchangeInfo);
+        assert_ne!(kline.claimed_binding_id, exchange_info.claimed_binding_id);
+    }
+
+    #[rstest]
+    fn instrument_master_submission_reads_the_real_filters() {
+        let locator = test_locator(BindingDigest::from_untrusted_bytes([7; 32]));
+        let submission = binance_perpetual_instrument_master_submission(
+            "LINKUSDT",
+            LINKUSDT_EXCHANGE_INFO,
+            &locator,
+            1_790_500_656_000_000_000,
+        )
+        .expect("the real LINKUSDT entry names a perpetual with both required filters");
+
+        assert_eq!(submission.canonical_identity, "LINKUSDT-PERP.BINANCE");
+        assert_eq!(submission.base_currency, Some("LINK".to_owned()));
+        assert_eq!(submission.quote_currency, Some("USDT".to_owned()));
+        assert_eq!(submission.settlement_currency, Some("USDT".to_owned()));
+        assert_eq!(
+            submission.historical_membership_frontier,
+            binance_perpetual_eligible_frontier_v1(),
+            "the V1 fact's claimed frontier must be the one the membership step admits into"
+        );
+    }
+
+    #[rstest]
+    fn instrument_master_submission_refuses_an_absent_symbol() {
+        let locator = test_locator(BindingDigest::from_untrusted_bytes([7; 32]));
+        let error = binance_perpetual_instrument_master_submission(
+            "DOGEUSDT",
+            LINKUSDT_EXCHANGE_INFO,
+            &locator,
+            1,
+        )
+        .expect_err("the fixture names only LINKUSDT");
+        assert_eq!(error, BinancePerpetualAdmissionErrorV1::SymbolAbsent);
+    }
+
+    #[rstest]
+    fn historical_membership_request_names_the_kline_lineage_and_correction_frontier() {
+        let locator = test_locator(BindingDigest::from_untrusted_bytes([9; 32]));
+        let request = binance_perpetual_historical_membership_request_v1("LINKUSDT", &locator, 1);
+        assert_eq!(
+            request.eligible_instrument_frontier,
+            binance_perpetual_eligible_frontier_v1()
+        );
+        let member = &request.members[0];
+        assert_eq!(member.instrument, "LINKUSDT-PERP.BINANCE");
+        assert_eq!(member.source_binding_lineage_root, locator.lineage_root());
+        assert_eq!(
+            member.correction_frontier_digest,
+            binance_perpetual_admission_digest_v1("correction-frontier")
+        );
+    }
+}

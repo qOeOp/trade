@@ -3287,14 +3287,18 @@ same names.
   `UNAVAILABLE`), never a number. These are discovery reads and never a Replay input: a Replay still binds an exact
   Instrument Master cut and resolves its terms from it, so no consumer gains a latest selector. Chain entry 121 reads
   the perpetual F admits over HTTP. The MCP server over these routes is not built yet.
-- **Admission is one Market Data operation.** `POST /v1/market-data/binance-perpetual-admissions` takes a Binance
-  USD-M symbol. Market Data fetches the symbol's public `exchangeInfo` entry and commits, in order, the facts the first
-  `COMPOSER_V3` Replay's acceptance commits through separate routes today: the kline Source Binding, the Instrument
-  Master fact, the `exchangeInfo` Source Binding, the Instrument Master V2 fact, the economic terms, and the historical
-  membership. It is re-entrant: a step already admitted with the same content answers `ALREADY_ADMITTED` and the next
-  step runs, so a rerun after any failure completes the rest. The kline binding proposal, with its availability rule,
-  is constructed only here, and every backfill of the instrument reads that same proposal to locate its fill gaps. All
-  six steps stay in the data layer.
+- **CURRENT: admission is one Market Data operation.** `POST /v1/market-data/binance-perpetual-admissions` takes a
+  Binance USD-M symbol. Market Data fetches the symbol's public `exchangeInfo` entry once and commits, in order, the
+  facts the first `COMPOSER_V3` Replay's acceptance commits through separate routes: the kline Source Binding, the
+  Instrument Master fact, the `exchangeInfo` Source Binding, the Instrument Master V2 fact, the economic terms, and
+  the historical membership (`crates/adapters/binance/src/perpetual_admission_v1.rs`,
+  `crates/strategy_factory_rd_owner_api/src/market_data_pit.rs::admit_binance_perpetual`). Every step rejoins an
+  identical resubmission rather than erroring, so a rerun after any failure completes the rest. The two Source
+  Binding steps carry no symbol and claim a fixed effective instant, not the clock's current one: a binding's
+  identity folds in its claimed effective instant, so a proposal built from "now" would mint a new binding on every
+  call, and a fixed one is what lets the second symbol's identical proposal rejoin the first symbol's binding
+  instead. The kline binding proposal, with its availability rule, is constructed only here, and every backfill of
+  the instrument reads that same proposal to locate its fill gaps. All six steps stay in the data layer.
 - **A backfill is a job Market Data runs.** `backfill` records a `QUEUED` job fact and returns its `job_id`. A worker in
   the Market Data service fetches the archive months and fill bars, builds the member's custody request and commits it,
   and records `RUNNING`, then `SUCCEEDED` with the custody receipt and the coverage it added, or `FAILED` with the
