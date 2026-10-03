@@ -5597,7 +5597,7 @@ mod tests {
                     unit: "PRICE".to_owned(),
                     scale: 2,
                 },
-                threshold_coefficient: 10_000,
+                threshold: "100".to_owned(),
                 comparison: BoundedFeaturePredicateV1::Greater,
                 when_true: SingleThresholdOutcomeV1 {
                     position_intent_semantic_id: "kernel.position.enter.v1".to_owned(),

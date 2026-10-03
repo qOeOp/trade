@@ -3009,7 +3009,7 @@ fn authored_universe_member_program(
             close_role_semantic_id: close_role.to_owned(),
             open_role_semantic_id: open_role.to_owned(),
         },
-        threshold_coefficient: 12_000,
+        threshold: "120".to_owned(),
         comparison: BoundedFeaturePredicateV1::Greater,
         when_true: outcome("kernel.position.enter.v1", 1, entry_weight_micros),
         otherwise: outcome("kernel.position.exit.v1", 0, 0),
