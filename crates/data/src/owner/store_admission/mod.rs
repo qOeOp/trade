@@ -1,16 +1,20 @@
 //! Fail-closed custody for admitting an external deployment store.
 //!
 //! This private boundary is deliberately not a business Owner. It can seal a store-admission receipt only
-//! after resolving and verifying custodian-owned signed history, consulting an independent
-//! anti-rollback witness, resolving an opaque credential lease, and directly measuring the target.
-//! The production signature verifier pins one Ed25519 public key (`signature`); the production
-//! resolver, witness, and credential resolver are intentionally unavailable until their deployment
-//! authorities exist, and the composition root still wires the unavailable verifier until then.
+//! after resolving and verifying custodian-owned signed history, consulting the anti-rollback port,
+//! resolving an opaque credential lease, and directly measuring the target. `composition` builds
+//! the production ports from the deployment's configuration: the custody store, the pinned Ed25519
+//! verifier (`signature`), the single-machine anti-rollback mode (`witness`), which observes
+//! nothing and says so in every receipt, the secret-file credential resolver (`credential_files`)
+//! and the pinned-TLS direct measurer (`postgres`).
 
 #![allow(
     dead_code,
-    reason = "private store-admission foundations retain tested unavailable production adapters and S3 stops"
+    reason = "private store-admission foundations retain tested acceptance and S3 stops no production build reaches"
 )]
+
+#[cfg(unix)]
+mod composition;
 
 mod credential_files;
 mod custody_postgres;
@@ -21,6 +25,8 @@ mod witness;
 pub(super) use postgres::RawSharedTimeEvidenceSnapshotV1;
 #[cfg(test)]
 pub(super) use postgres::RawSharedTimeHistoryRowV1;
+#[cfg(unix)]
+pub use publication::author_deployment_store_publication_v1;
 pub use publication::{
     DeploymentStorePublicationError, DeploymentStorePublicationSummaryV1,
     DeploymentStorePublishOutcomeV1, publish_sealed_deployment_store_publication_v1,
@@ -255,6 +261,8 @@ impl SealedDeploymentStoreAdmissionReceipt {
 pub(super) struct AdmittedMarketDataPostgresCapability {
     receipt: SealedDeploymentStoreAdmissionReceipt,
     credential_lease: PostgresCredentialLease,
+    /// How the measurement reached the store, and so how every read under this admission must.
+    store_transport: postgres::StoreTransport,
     measurement_spec: PostgresMeasurementSpec,
     revalidator: Arc<Custodian>,
     scope: AdmissionScope,
@@ -480,10 +488,13 @@ impl StrategyInputSampleProjectionStorageEvidenceV3 {
             database_url,
         )
         .map_err(|_| ())?;
-        let raw =
-            postgres::read_strategy_input_sample_projection_snapshot_v3(&lease, &receipt_digest)
-                .await
-                .map_err(|_| ())?;
+        let raw = postgres::read_strategy_input_sample_projection_snapshot_v3(
+            &lease,
+            &postgres::StoreTransport::DisposableLoopback,
+            &receipt_digest,
+        )
+        .await
+        .map_err(|_| ())?;
         Ok(Self {
             projection_row: raw.projection_row,
             dependency_rows: raw.dependency_rows,
@@ -524,10 +535,13 @@ impl StrategyInputSampleProjectionStorageEvidenceV2 {
             database_url,
         )
         .map_err(|_| ())?;
-        let raw =
-            postgres::read_strategy_input_sample_projection_snapshot_v2(&lease, &receipt_digest)
-                .await
-                .map_err(|_| ())?;
+        let raw = postgres::read_strategy_input_sample_projection_snapshot_v2(
+            &lease,
+            &postgres::StoreTransport::DisposableLoopback,
+            &receipt_digest,
+        )
+        .await
+        .map_err(|_| ())?;
         Ok(Self {
             projection_row: raw.projection_row,
             timeframe_rows: raw.timeframe_rows,
@@ -661,10 +675,16 @@ impl MarketDataSourceBindingStorageEvidence {
 }
 
 impl AdmittedMarketDataSnapshotPort {
-    /// Admits again and refuses unless that admission still covers `floor` at this port's cut.
+    /// Admits again and refuses unless that admission still names the store this port was opened
+    /// on and covers `floor`. With `same_cut_as`, the admission before a read, it also refuses
+    /// unless this is that same receipt: the read happened within one snapshot cut.
+    ///
+    /// The store is compared without the receipt's window, which moves with each lease period, so a
+    /// port outlives the period it was opened in; the window is compared only across one read.
     async fn readmit_covering(
         &self,
         floor: &postgres::MeasurementFloor,
+        same_cut_as: Option<&SealedDeploymentStoreAdmissionReceipt>,
     ) -> Result<AdmittedMarketDataPostgresCapability, DeploymentStoreAdmissionError> {
         let current = self
             .revalidator
@@ -677,6 +697,13 @@ impl AdmittedMarketDataSnapshotPort {
             &current.measurement_spec,
             floor,
         )?;
+
+        if same_cut_as.is_some_and(|before| !same_snapshot_cut(before, &current.receipt)) {
+            return Err(rejection(
+                &self.scope,
+                AdmissionFailureCode::AdmissionCutExpired,
+            ));
+        }
         Ok(current)
     }
 
@@ -685,17 +712,20 @@ impl AdmittedMarketDataSnapshotPort {
         &self,
     ) -> Result<postgres::RawSharedTimeEvidenceSnapshotV1, DeploymentStoreAdmissionError> {
         let before = self
-            .readmit_covering(&postgres::SHARED_TIME_FLOOR_V1)
+            .readmit_covering(&postgres::SHARED_TIME_FLOOR_V1, None)
             .await?;
-        let raw = postgres::read_shared_time_evidence_snapshot_v1(&before.credential_lease)
-            .await
-            .map_err(|_| {
-                rejection(
-                    &self.scope,
-                    AdmissionFailureCode::DirectMeasurementUnavailable,
-                )
-            })?;
-        self.readmit_covering(&postgres::SHARED_TIME_FLOOR_V1)
+        let raw = postgres::read_shared_time_evidence_snapshot_v1(
+            &before.credential_lease,
+            &before.store_transport,
+        )
+        .await
+        .map_err(|_| {
+            rejection(
+                &self.scope,
+                AdmissionFailureCode::DirectMeasurementUnavailable,
+            )
+        })?;
+        self.readmit_covering(&postgres::SHARED_TIME_FLOOR_V1, Some(&before.receipt))
             .await?;
         Ok(raw)
     }
@@ -706,10 +736,11 @@ impl AdmittedMarketDataSnapshotPort {
         canonical_instrument: &str,
     ) -> Result<Vec<BarScheduleStorageEvidenceV1>, DeploymentStoreAdmissionError> {
         let before = self
-            .readmit_covering(&postgres::BAR_SCHEDULE_FLOOR_V1)
+            .readmit_covering(&postgres::BAR_SCHEDULE_FLOOR_V1, None)
             .await?;
         let raw = postgres::read_bar_schedule_candidate_snapshots_v1(
             &before.credential_lease,
+            &before.store_transport,
             canonical_instrument,
         )
         .await
@@ -719,7 +750,7 @@ impl AdmittedMarketDataSnapshotPort {
                 AdmissionFailureCode::DirectMeasurementUnavailable,
             )
         })?;
-        self.readmit_covering(&postgres::BAR_SCHEDULE_FLOOR_V1)
+        self.readmit_covering(&postgres::BAR_SCHEDULE_FLOOR_V1, Some(&before.receipt))
             .await?;
         Ok(bar_schedule_candidate_evidence_v1(raw))
     }
@@ -728,16 +759,19 @@ impl AdmittedMarketDataSnapshotPort {
     pub(super) async fn resolve_native_replay_quote_cut_census_v2(
         &self,
         scope_digest: [u8; 32],
+        frame_snapshot_identity: [u8; 32],
         frame_time_ns: u64,
         decision_cut_ns: u64,
         window_end_ns_exclusive: u64,
     ) -> Result<postgres::RawNativeReplayQuoteCutCensusV2, DeploymentStoreAdmissionError> {
         let before = self
-            .readmit_covering(&postgres::NATIVE_REPLAY_QUOTE_CUT_FLOOR_V2)
+            .readmit_covering(&postgres::NATIVE_REPLAY_QUOTE_CUT_FLOOR_V2, None)
             .await?;
         let raw = postgres::read_native_replay_quote_cut_census_snapshot_v2(
             &before.credential_lease,
+            &before.store_transport,
             &scope_digest,
+            &frame_snapshot_identity,
             frame_time_ns,
             decision_cut_ns,
             window_end_ns_exclusive,
@@ -749,8 +783,11 @@ impl AdmittedMarketDataSnapshotPort {
                 AdmissionFailureCode::DirectMeasurementUnavailable,
             )
         })?;
-        self.readmit_covering(&postgres::NATIVE_REPLAY_QUOTE_CUT_FLOOR_V2)
-            .await?;
+        self.readmit_covering(
+            &postgres::NATIVE_REPLAY_QUOTE_CUT_FLOOR_V2,
+            Some(&before.receipt),
+        )
+        .await?;
         Ok(raw)
     }
 
@@ -760,18 +797,21 @@ impl AdmittedMarketDataSnapshotPort {
         readback_identity: [u8; 32],
     ) -> Result<Option<BarScheduleStorageEvidenceV1>, DeploymentStoreAdmissionError> {
         let before = self
-            .readmit_covering(&postgres::BAR_SCHEDULE_FLOOR_V1)
+            .readmit_covering(&postgres::BAR_SCHEDULE_FLOOR_V1, None)
             .await?;
-        let raw =
-            postgres::read_bar_schedule_snapshot_v1(&before.credential_lease, &readback_identity)
-                .await
-                .map_err(|_| {
-                    rejection(
-                        &self.scope,
-                        AdmissionFailureCode::DirectMeasurementUnavailable,
-                    )
-                })?;
-        self.readmit_covering(&postgres::BAR_SCHEDULE_FLOOR_V1)
+        let raw = postgres::read_bar_schedule_snapshot_v1(
+            &before.credential_lease,
+            &before.store_transport,
+            &readback_identity,
+        )
+        .await
+        .map_err(|_| {
+            rejection(
+                &self.scope,
+                AdmissionFailureCode::DirectMeasurementUnavailable,
+            )
+        })?;
+        self.readmit_covering(&postgres::BAR_SCHEDULE_FLOOR_V1, Some(&before.receipt))
             .await?;
         Ok(raw.map(|raw| BarScheduleStorageEvidenceV1 {
             readback_row: raw.readback_row,
@@ -783,7 +823,7 @@ impl AdmittedMarketDataSnapshotPort {
     pub(super) async fn revalidate_bar_schedule_v1_before_return(
         &self,
     ) -> Result<(), DeploymentStoreAdmissionError> {
-        self.readmit_covering(&postgres::BAR_SCHEDULE_FLOOR_V1)
+        self.readmit_covering(&postgres::BAR_SCHEDULE_FLOOR_V1, None)
             .await
             .map(|_| ())
     }
@@ -794,10 +834,11 @@ impl AdmittedMarketDataSnapshotPort {
         receipt_digest: [u8; 32],
     ) -> Result<StrategyInputSampleProjectionStorageEvidenceV2, DeploymentStoreAdmissionError> {
         let before = self
-            .readmit_covering(&postgres::SAMPLE_PROJECTION_FLOOR_V2)
+            .readmit_covering(&postgres::SAMPLE_PROJECTION_FLOOR_V2, None)
             .await?;
         let raw = postgres::read_strategy_input_sample_projection_snapshot_v2(
             &before.credential_lease,
+            &before.store_transport,
             &receipt_digest,
         )
         .await
@@ -807,7 +848,7 @@ impl AdmittedMarketDataSnapshotPort {
                 AdmissionFailureCode::DirectMeasurementUnavailable,
             )
         })?;
-        self.readmit_covering(&postgres::SAMPLE_PROJECTION_FLOOR_V2)
+        self.readmit_covering(&postgres::SAMPLE_PROJECTION_FLOOR_V2, Some(&before.receipt))
             .await?;
         Ok(StrategyInputSampleProjectionStorageEvidenceV2 {
             projection_row: raw.projection_row,
@@ -820,7 +861,7 @@ impl AdmittedMarketDataSnapshotPort {
     pub(super) async fn revalidate_sample_projection_v2_before_return(
         &self,
     ) -> Result<(), DeploymentStoreAdmissionError> {
-        self.readmit_covering(&postgres::SAMPLE_PROJECTION_FLOOR_V2)
+        self.readmit_covering(&postgres::SAMPLE_PROJECTION_FLOOR_V2, None)
             .await
             .map(|_| ())
     }
@@ -831,10 +872,11 @@ impl AdmittedMarketDataSnapshotPort {
         receipt_digest: [u8; 32],
     ) -> Result<StrategyInputSampleProjectionStorageEvidenceV3, DeploymentStoreAdmissionError> {
         let before = self
-            .readmit_covering(&postgres::SAMPLE_PROJECTION_FLOOR_V3)
+            .readmit_covering(&postgres::SAMPLE_PROJECTION_FLOOR_V3, None)
             .await?;
         let raw = postgres::read_strategy_input_sample_projection_snapshot_v3(
             &before.credential_lease,
+            &before.store_transport,
             &receipt_digest,
         )
         .await
@@ -844,7 +886,7 @@ impl AdmittedMarketDataSnapshotPort {
                 AdmissionFailureCode::DirectMeasurementUnavailable,
             )
         })?;
-        self.readmit_covering(&postgres::SAMPLE_PROJECTION_FLOOR_V3)
+        self.readmit_covering(&postgres::SAMPLE_PROJECTION_FLOOR_V3, Some(&before.receipt))
             .await?;
         Ok(StrategyInputSampleProjectionStorageEvidenceV3 {
             projection_row: raw.projection_row,
@@ -860,7 +902,7 @@ impl AdmittedMarketDataSnapshotPort {
     pub(super) async fn revalidate_sample_projection_v3_before_return(
         &self,
     ) -> Result<(), DeploymentStoreAdmissionError> {
-        self.readmit_covering(&postgres::SAMPLE_PROJECTION_FLOOR_V3)
+        self.readmit_covering(&postgres::SAMPLE_PROJECTION_FLOOR_V3, None)
             .await
             .map(|_| ())
     }
@@ -871,10 +913,11 @@ impl AdmittedMarketDataSnapshotPort {
         binding_identity: [u8; 32],
     ) -> Result<MarketDataSourceBindingStorageEvidence, DeploymentStoreAdmissionError> {
         let before = self
-            .readmit_covering(&postgres::SOURCE_BINDING_FLOOR_V1)
+            .readmit_covering(&postgres::SOURCE_BINDING_FLOOR_V1, None)
             .await?;
         let (lineage_rows, clock_rows) = postgres::read_market_data_source_binding_snapshot(
             &before.credential_lease,
+            &before.store_transport,
             &binding_identity,
         )
         .await
@@ -884,7 +927,7 @@ impl AdmittedMarketDataSnapshotPort {
                 AdmissionFailureCode::DirectMeasurementUnavailable,
             )
         })?;
-        self.readmit_covering(&postgres::SOURCE_BINDING_FLOOR_V1)
+        self.readmit_covering(&postgres::SOURCE_BINDING_FLOOR_V1, Some(&before.receipt))
             .await?;
         Ok(MarketDataSourceBindingStorageEvidence {
             admission_receipt_identity: self.receipt.receipt_identity.clone(),
@@ -899,10 +942,11 @@ impl AdmittedMarketDataSnapshotPort {
         snapshot_identity: [u8; 32],
     ) -> Result<MarketDataPitEvaluationStorageEvidence, DeploymentStoreAdmissionError> {
         let before = self
-            .readmit_covering(&postgres::PIT_EVALUATION_FLOOR_V1)
+            .readmit_covering(&postgres::PIT_EVALUATION_FLOOR_V1, None)
             .await?;
         let raw = postgres::read_market_data_pit_evaluation_snapshot(
             &before.credential_lease,
+            &before.store_transport,
             &snapshot_identity,
         )
         .await
@@ -912,7 +956,7 @@ impl AdmittedMarketDataSnapshotPort {
                 AdmissionFailureCode::DirectMeasurementUnavailable,
             )
         })?;
-        self.readmit_covering(&postgres::PIT_EVALUATION_FLOOR_V1)
+        self.readmit_covering(&postgres::PIT_EVALUATION_FLOOR_V1, Some(&before.receipt))
             .await?;
         Ok(pit_evaluation_evidence_v1(
             self.receipt.receipt_identity.clone(),
@@ -929,10 +973,11 @@ impl AdmittedMarketDataSnapshotPort {
         snapshot_identity: [u8; 32],
     ) -> Result<MarketDataPitTerminalStorageEvidence, DeploymentStoreAdmissionError> {
         let before = self
-            .readmit_covering(&postgres::PIT_TERMINAL_FLOOR_V1)
+            .readmit_covering(&postgres::PIT_TERMINAL_FLOOR_V1, None)
             .await?;
         let raw = postgres::read_market_data_pit_terminal_snapshot(
             &before.credential_lease,
+            &before.store_transport,
             &snapshot_identity,
         )
         .await
@@ -942,7 +987,7 @@ impl AdmittedMarketDataSnapshotPort {
                 AdmissionFailureCode::DirectMeasurementUnavailable,
             )
         })?;
-        self.readmit_covering(&postgres::PIT_TERMINAL_FLOOR_V1)
+        self.readmit_covering(&postgres::PIT_TERMINAL_FLOOR_V1, Some(&before.receipt))
             .await?;
         Ok(MarketDataPitTerminalStorageEvidence {
             admission_receipt_identity: self.receipt.receipt_identity.clone(),
@@ -960,7 +1005,7 @@ fn same_snapshot_cut(
     expected == observed
 }
 
-/// Refuses a re-admission that no longer covers `floor` or no longer stands at the expected cut.
+/// Refuses a re-admission that no longer covers `floor` or no longer admits the store `expected` did.
 fn validate_revalidation(
     scope: &AdmissionScope,
     expected: &SealedDeploymentStoreAdmissionReceipt,
@@ -975,10 +1020,27 @@ fn validate_revalidation(
         ));
     }
 
-    if !same_snapshot_cut(expected, observed) {
+    if !same_admitted_store(expected, observed) {
         return Err(rejection(scope, AdmissionFailureCode::AdmissionCutExpired));
     }
     Ok(())
+}
+
+/// Whether two receipts admit the same store under the same custody: every field but the window
+/// (`admitted_at`, `valid_through`) and the identities derived from it.
+fn same_admitted_store(
+    original: &SealedDeploymentStoreAdmissionReceipt,
+    observed: &SealedDeploymentStoreAdmissionReceipt,
+) -> bool {
+    let unwindowed = |receipt: &SealedDeploymentStoreAdmissionReceipt| {
+        let mut receipt = receipt.clone();
+        receipt.receipt_identity.clear();
+        receipt.replay_identity.clear();
+        receipt.admitted_at_epoch_ms = 0;
+        receipt.valid_through_epoch_ms = 0;
+        receipt
+    };
+    unwindowed(original) == unwindowed(observed)
 }
 
 /// Stable failure categories at the custody boundary.
@@ -1052,25 +1114,52 @@ impl Display for DeploymentStoreAdmissionError {
 
 impl std::error::Error for DeploymentStoreAdmissionError {}
 
-/// Runs the exact production `rd-owner-api` seam.
-///
-/// The current production resolver is intentionally unavailable. Consequently this function can
-/// return no positive receipt until a separately evidenced production adapter is implemented.
+/// Runs the exact production `rd-owner-api` seam, over the ports the process environment names.
 ///
 /// # Errors
 ///
-/// Returns a typed fail-closed custody incident while production ports remain unavailable.
+/// Returns a typed fail-closed custody incident when a port cannot be built from the deployment's
+/// configuration, or the admission itself refuses.
 pub(super) async fn admit_rd_owner_market_data_postgres(
     request: &RdOwnerMarketDataAdmissionRequest,
 ) -> Result<AdmittedMarketDataPostgresCapability, DeploymentStoreAdmissionError> {
-    let custodian = Custodian::new(
-        Arc::new(UnavailableCustodyStore),
-        Arc::new(UnavailableSignatureVerifier),
-        Arc::new(UnavailableAntiRollbackWitness),
-        Arc::new(UnavailableCredentialResolver),
-        Arc::new(UnavailableDirectMeasurer),
-    );
-    custodian.admit_capability(request.scope()).await
+    let admitted =
+        admit_rd_owner_market_data_postgres_with(request, |name| std::env::var(name).ok()).await;
+
+    // The bootstraps keep only a category, so the code naming the port or check that refused is
+    // logged here, where it still exists.
+    if let Err(refusal) = &admitted {
+        crate::owner::storage_diagnostic::refused_by_store(
+            "deployment_store_admission.admit_rd_owner_market_data_postgres",
+            refusal,
+        );
+    }
+    admitted
+}
+
+/// The production seam over the ports a supplied configuration names: `composition` builds every
+/// one of them or refuses under the code of the first it cannot build. A platform without Unix
+/// sockets has no pinned measurer, so there the admission refuses at the measurer.
+async fn admit_rd_owner_market_data_postgres_with(
+    request: &RdOwnerMarketDataAdmissionRequest,
+    lookup: impl FnMut(&str) -> Option<String>,
+) -> Result<AdmittedMarketDataPostgresCapability, DeploymentStoreAdmissionError> {
+    #[cfg(unix)]
+    {
+        composition::production_custodian(lookup)
+            .await
+            .map_err(|code| rejection(&request.scope(), code))?
+            .admit_capability(request.scope())
+            .await
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = lookup;
+        Err(rejection(
+            &request.scope(),
+            AdmissionFailureCode::DirectMeasurementUnavailable,
+        ))
+    }
 }
 
 /// The evidence one PIT evaluation read returns, under the receipt the read was made against.
@@ -1127,6 +1216,7 @@ pub(super) trait NativeReplaySchedulingReadPortV1: Send + Sync {
     async fn resolve_native_replay_quote_cut_census_v2(
         &self,
         scope_digest: [u8; 32],
+        frame_snapshot_identity: [u8; 32],
         frame_time_ns: u64,
         decision_cut_ns: u64,
         window_end_ns_exclusive: u64,
@@ -1152,6 +1242,7 @@ impl NativeReplaySchedulingReadPortV1 for AdmittedMarketDataSnapshotPort {
     async fn resolve_native_replay_quote_cut_census_v2(
         &self,
         scope_digest: [u8; 32],
+        frame_snapshot_identity: [u8; 32],
         frame_time_ns: u64,
         decision_cut_ns: u64,
         window_end_ns_exclusive: u64,
@@ -1159,6 +1250,7 @@ impl NativeReplaySchedulingReadPortV1 for AdmittedMarketDataSnapshotPort {
         Self::resolve_native_replay_quote_cut_census_v2(
             self,
             scope_digest,
+            frame_snapshot_identity,
             frame_time_ns,
             decision_cut_ns,
             window_end_ns_exclusive,
@@ -1242,10 +1334,13 @@ impl NativeReplaySchedulingReadPortV1 for UnadmittedAcceptanceSnapshotPortV1 {
         &self,
         snapshot_identity: [u8; 32],
     ) -> Result<MarketDataPitEvaluationStorageEvidence, DeploymentStoreAdmissionError> {
-        let raw =
-            postgres::read_market_data_pit_evaluation_snapshot(&self.lease, &snapshot_identity)
-                .await
-                .map_err(|_| self.unavailable())?;
+        let raw = postgres::read_market_data_pit_evaluation_snapshot(
+            &self.lease,
+            &postgres::StoreTransport::DisposableLoopback,
+            &snapshot_identity,
+        )
+        .await
+        .map_err(|_| self.unavailable())?;
         Ok(pit_evaluation_evidence_v1(
             SEALED_ACCEPTANCE_NO_STORE_ADMISSION_V1.to_owned(),
             raw,
@@ -1256,23 +1351,29 @@ impl NativeReplaySchedulingReadPortV1 for UnadmittedAcceptanceSnapshotPortV1 {
         &self,
         canonical_instrument: &str,
     ) -> Result<Vec<BarScheduleStorageEvidenceV1>, DeploymentStoreAdmissionError> {
-        let raw =
-            postgres::read_bar_schedule_candidate_snapshots_v1(&self.lease, canonical_instrument)
-                .await
-                .map_err(|_| self.unavailable())?;
+        let raw = postgres::read_bar_schedule_candidate_snapshots_v1(
+            &self.lease,
+            &postgres::StoreTransport::DisposableLoopback,
+            canonical_instrument,
+        )
+        .await
+        .map_err(|_| self.unavailable())?;
         Ok(bar_schedule_candidate_evidence_v1(raw))
     }
 
     async fn resolve_native_replay_quote_cut_census_v2(
         &self,
         scope_digest: [u8; 32],
+        frame_snapshot_identity: [u8; 32],
         frame_time_ns: u64,
         decision_cut_ns: u64,
         window_end_ns_exclusive: u64,
     ) -> Result<postgres::RawNativeReplayQuoteCutCensusV2, DeploymentStoreAdmissionError> {
         postgres::read_native_replay_quote_cut_census_snapshot_v2(
             &self.lease,
+            &postgres::StoreTransport::DisposableLoopback,
             &scope_digest,
+            &frame_snapshot_identity,
             frame_time_ns,
             decision_cut_ns,
             window_end_ns_exclusive,
@@ -1364,7 +1465,7 @@ pub(super) const NATIVE_REPLAY_SCHEDULING_ACCEPTANCE_GRANTS_V1: &[AcceptanceGran
         "market_data_admitted_read.resolve_bar_schedule_history_v1(text)",
     ),
     AcceptanceGrantV1::FunctionExecute(
-        "market_data_admitted_read.resolve_native_replay_quote_cut_census_v2(bytea,bigint,bigint)",
+        "market_data_admitted_read.resolve_native_replay_quote_cut_census_v2(bytea,bytea,bigint,bigint)",
     ),
     AcceptanceGrantV1::FunctionExecute(
         "market_data_admitted_read.resolve_native_replay_next_frame_v2(bytea,bigint,bigint)",
@@ -1628,6 +1729,10 @@ trait DirectMeasurer: Send + Sync {
         lease: &PostgresCredentialLease,
         spec: &PostgresMeasurementSpec,
     ) -> Result<PostgresMeasurement, ()>;
+
+    /// How this measurer reaches the store, which every read admitted under its measurement must
+    /// reach it by too.
+    fn transport(&self) -> postgres::StoreTransport;
 }
 
 struct Custodian {
@@ -1912,6 +2017,11 @@ impl Custodian {
         Ok(AdmittedMarketDataPostgresCapability {
             receipt,
             credential_lease: lease,
+            // Every read then requires its own session's server to present the measured certificate.
+            store_transport: self
+                .measurer
+                .transport()
+                .bound_to(&measurement.tls_identity),
             measurement_spec: latest.measurement_spec.clone(),
             revalidator: self.revalidator(),
             scope,
@@ -2073,8 +2183,14 @@ fn seal_receipt_at(
     receipt
 }
 
-/// The one receipt slot an exact commit cut of `scope` occupies: a replay of the same signed head,
-/// history and witness frontier lands in it again.
+/// The one receipt slot a commit cut of `scope` occupies: a replay of the same signed head, history,
+/// witness observation and validity lands in it again.
+///
+/// The receipt's `valid_through` is part of the slot. Without it, a slot named only a head and an
+/// observation, and the single-machine mode's observation never changes, while a lease's lapse moves
+/// with the cut or the period each admission falls in: every admission after the first against
+/// one head landed in the first one's slot with another lapse, and was refused as a conflict. That
+/// is every revalidation an admitted port makes before and after its reads.
 fn receipt_slot(scope: &AdmissionScope, cut: &AdmissionCommitCut) -> String {
     digest_serializable(&(
         &scope.environment_identity,
@@ -2085,6 +2201,7 @@ fn receipt_slot(scope: &AdmissionScope, cut: &AdmissionCommitCut) -> String {
         &cut.signed_head_proof_identity,
         &cut.signed_history_proof_identity,
         &cut.anti_rollback_proof_identity,
+        cut.valid_through_epoch_ms,
     ))
 }
 
@@ -2113,76 +2230,6 @@ fn rejection(scope: &AdmissionScope, code: AdmissionFailureCode) -> DeploymentSt
     }
 }
 
-struct UnavailableCustodyStore;
-struct UnavailableSignatureVerifier;
-struct UnavailableAntiRollbackWitness;
-struct UnavailableCredentialResolver;
-struct UnavailableDirectMeasurer;
-
-#[async_trait]
-impl CustodyStore for UnavailableCustodyStore {
-    async fn resolve_history(
-        &self,
-        _scope: &AdmissionScope,
-    ) -> Result<ResolvedHistory, ResolveHistoryError> {
-        Err(ResolveHistoryError::Unavailable)
-    }
-
-    async fn commit_receipt_if_current(
-        &self,
-        _scope: &AdmissionScope,
-        _expected_cut: &AdmissionCommitCut,
-        _receipt: SealedDeploymentStoreAdmissionReceipt,
-    ) -> Result<SealedDeploymentStoreAdmissionReceipt, ReceiptCommitError> {
-        Err(ReceiptCommitError::Unavailable)
-    }
-}
-
-#[async_trait]
-impl SignatureVerifier for UnavailableSignatureVerifier {
-    async fn verify(
-        &self,
-        _signer_identity: &str,
-        _message: &[u8],
-        _signature: &[u8],
-    ) -> Result<bool, ()> {
-        Err(())
-    }
-}
-
-#[async_trait]
-impl AntiRollbackWitness for UnavailableAntiRollbackWitness {
-    async fn observe(
-        &self,
-        _scope: &AdmissionScope,
-        _head: &StoreHead,
-    ) -> Result<AntiRollbackObservation, ()> {
-        Err(())
-    }
-}
-
-#[async_trait]
-impl CredentialResolver for UnavailableCredentialResolver {
-    async fn resolve(
-        &self,
-        _handle: &CredentialHandleBinding,
-        _cut_epoch_ms: u64,
-    ) -> Result<PostgresCredentialLease, ()> {
-        Err(())
-    }
-}
-
-#[async_trait]
-impl DirectMeasurer for UnavailableDirectMeasurer {
-    async fn measure(
-        &self,
-        _lease: &PostgresCredentialLease,
-        _spec: &PostgresMeasurementSpec,
-    ) -> Result<PostgresMeasurement, ()> {
-        Err(())
-    }
-}
-
 #[async_trait]
 impl DirectMeasurer for PostgresDirectMeasurer {
     async fn measure(
@@ -2191,6 +2238,26 @@ impl DirectMeasurer for PostgresDirectMeasurer {
         spec: &PostgresMeasurementSpec,
     ) -> Result<PostgresMeasurement, ()> {
         Self::measure(self, lease, spec).await.map_err(|_| ())
+    }
+
+    fn transport(&self) -> postgres::StoreTransport {
+        postgres::StoreTransport::DisposableLoopback
+    }
+}
+
+#[cfg(unix)]
+#[async_trait]
+impl DirectMeasurer for postgres::PinnedTlsPostgresDirectMeasurer {
+    async fn measure(
+        &self,
+        lease: &PostgresCredentialLease,
+        spec: &PostgresMeasurementSpec,
+    ) -> Result<PostgresMeasurement, ()> {
+        Self::measure(self, lease, spec).await.map_err(|_| ())
+    }
+
+    fn transport(&self) -> postgres::StoreTransport {
+        Self::transport(self)
     }
 }
 
@@ -2396,6 +2463,10 @@ mod tests {
                 "sha256:witness-frontier-advanced".to_string();
             Ok(self.value.clone())
         }
+
+        fn transport(&self) -> postgres::StoreTransport {
+            postgres::StoreTransport::DisposableLoopback
+        }
     }
 
     #[async_trait]
@@ -2407,6 +2478,10 @@ mod tests {
         ) -> Result<PostgresMeasurement, ()> {
             self.custody.state.lock().map_err(|_| ())?.now_epoch_ms = self.to;
             Ok(self.value.clone())
+        }
+
+        fn transport(&self) -> postgres::StoreTransport {
+            postgres::StoreTransport::DisposableLoopback
         }
     }
 
@@ -2421,6 +2496,10 @@ mod tests {
             state.history.current_heads[0].signature[0] ^= 1;
             Ok(self.value.clone())
         }
+
+        fn transport(&self) -> postgres::StoreTransport {
+            postgres::StoreTransport::DisposableLoopback
+        }
     }
 
     #[async_trait]
@@ -2432,6 +2511,10 @@ mod tests {
         ) -> Result<PostgresMeasurement, ()> {
             self.calls.fetch_add(1, Ordering::SeqCst);
             Ok(self.value.clone())
+        }
+
+        fn transport(&self) -> postgres::StoreTransport {
+            postgres::StoreTransport::DisposableLoopback
         }
     }
 
@@ -3039,10 +3122,11 @@ mod tests {
     }
 
     /// The custodian over the secret-file resolver: the manifest signs the version the mounted
-    /// secret is, and the lease lapses a fixed time after the store's cut.
+    /// secret is, and the lease lapses at the end of the lease period the store's cut falls in.
     #[rstest]
     #[tokio::test]
-    async fn a_mounted_secret_admits_only_at_its_signed_version_and_lapses_from_the_store_cut() {
+    async fn a_mounted_secret_admits_only_at_its_signed_version_and_lapses_with_the_store_cuts_period()
+     {
         let directory = std::env::temp_dir().join(format!(
             "vibe-custodian-secret-files-{}",
             std::process::id()
@@ -3083,13 +3167,14 @@ mod tests {
         };
 
         // Shorter than the witness observation and the manifest, the lease bounds the receipt, and
-        // it lapses exactly its length after the store clock's cut.
+        // it lapses at the end of the period of its length that the store clock's cut falls in.
         let signed = naming(
             "market-data-admitted-reader",
             credential_files::secret_version(secret),
         );
         let receipt = admit(&signed, 1_000).await.unwrap();
-        assert_eq!(receipt.valid_through_epoch_ms, STORE_NOW + 1_000);
+        assert_eq!(STORE_NOW, 1_000_010);
+        assert_eq!(receipt.valid_through_epoch_ms, 1_001_000);
 
         // The secret changed after the manifest was signed: the lease is the file's version, and
         // the custodian rejects it.
@@ -3173,6 +3258,141 @@ mod tests {
             custodian.admit(fixture.request.scope()).await.unwrap(),
             receipt
         );
+    }
+
+    /// A lease that lapses a fixed time after each admission's cut, so under the
+    /// single-trust-domain mode, whose observation never changes, every readmission against one head
+    /// seals a receipt with its own lapse. Each is admitted in a slot of its own: a port revalidates
+    /// before and after every read, and refusing the second admission refused every read.
+    #[rstest]
+    #[tokio::test]
+    async fn a_readmission_under_a_lease_that_lapses_from_its_cut_is_admitted_again() {
+        struct LapsingCredentials;
+
+        #[async_trait]
+        impl CredentialResolver for LapsingCredentials {
+            async fn resolve(
+                &self,
+                handle: &CredentialHandleBinding,
+                cut_epoch_ms: u64,
+            ) -> Result<PostgresCredentialLease, ()> {
+                PostgresCredentialLease::from_resolved_secret(
+                    &handle.identity,
+                    &handle.audience,
+                    &handle.version,
+                    cut_epoch_ms + 1,
+                    "postgres://test:secret@127.0.0.1:5432/disposable".to_string(),
+                )
+                .map_err(|_| ())
+            }
+        }
+
+        let fixture = Fixture::new();
+        let custody = single_trust_domain_custody(&fixture);
+        let custodian = Custodian::new(
+            Arc::new(custody.clone()),
+            Arc::new(CountingVerifier::pinned(
+                SIGNER,
+                &fixture.signing_key.verifying_key(),
+                Arc::new(AtomicUsize::new(0)),
+            )),
+            Arc::new(witness::SingleTrustDomainNoRollbackWitness),
+            Arc::new(LapsingCredentials),
+            Arc::new(FakeMeasurer {
+                value: fixture.measurement.clone(),
+                calls: Arc::new(AtomicUsize::new(0)),
+            }),
+        );
+
+        let first = custodian.admit(fixture.request.scope()).await.unwrap();
+        custody.state.lock().unwrap().now_epoch_ms = STORE_NOW + 10;
+        let second = custodian.admit(fixture.request.scope()).await.unwrap();
+
+        assert_eq!(first.valid_through_epoch_ms, STORE_NOW + 1);
+        assert_eq!(second.valid_through_epoch_ms, STORE_NOW + 11);
+        assert_eq!(custody.state.lock().unwrap().receipts.len(), 2);
+    }
+
+    /// A port lives as long as its process, across lease periods: each period seals a receipt of
+    /// its own, and a port compares a readmission with the receipt it opened on by the store and its
+    /// custody, not by the window. Across one read the window is compared too: the admissions before
+    /// and after it must be one receipt, so a read straddling a period boundary is refused.
+    #[rstest]
+    #[tokio::test]
+    async fn a_port_outlives_its_lease_period_and_refuses_a_read_that_straddles_one() {
+        struct PeriodCredentials;
+
+        #[async_trait]
+        impl CredentialResolver for PeriodCredentials {
+            async fn resolve(
+                &self,
+                handle: &CredentialHandleBinding,
+                cut_epoch_ms: u64,
+            ) -> Result<PostgresCredentialLease, ()> {
+                PostgresCredentialLease::from_resolved_secret(
+                    &handle.identity,
+                    &handle.audience,
+                    &handle.version,
+                    (cut_epoch_ms / 1_000 + 1) * 1_000,
+                    "postgres://test:secret@127.0.0.1:5432/disposable".to_string(),
+                )
+                .map_err(|_| ())
+            }
+        }
+
+        let all_floors = postgres::MEASUREMENT_FLOORS.iter().collect::<Vec<_>>();
+        let fixture = Fixture::with_spec(&measurement_spec_covering(&all_floors));
+        let custody = single_trust_domain_custody(&fixture);
+        let port = Custodian::new(
+            Arc::new(custody.clone()),
+            Arc::new(CountingVerifier::pinned(
+                SIGNER,
+                &fixture.signing_key.verifying_key(),
+                Arc::new(AtomicUsize::new(0)),
+            )),
+            Arc::new(witness::SingleTrustDomainNoRollbackWitness),
+            Arc::new(PeriodCredentials),
+            Arc::new(FakeMeasurer {
+                value: fixture.measurement.clone(),
+                calls: Arc::new(AtomicUsize::new(0)),
+            }),
+        )
+        .admit_capability(fixture.request.scope())
+        .await
+        .unwrap()
+        .into_native_replay_scheduling_snapshot_port_v2()
+        .unwrap();
+        let floor = &postgres::BAR_SCHEDULE_FLOOR_V1;
+        let set_clock = |epoch_ms: u64| custody.state.lock().unwrap().now_epoch_ms = epoch_ms;
+        assert_eq!(port.receipt.valid_through_epoch_ms, 1_001_000);
+
+        // The next period: a receipt of its own, admitted for the port opened in the last one.
+        set_clock(1_001_010);
+        let before = port.readmit_covering(floor, None).await.unwrap();
+        assert_eq!(before.receipt.valid_through_epoch_ms, 1_002_000);
+        assert!(
+            port.readmit_covering(floor, Some(&before.receipt))
+                .await
+                .is_ok(),
+            "a read within one period is admitted after it"
+        );
+
+        // A read whose admissions straddle the period boundary is refused.
+        set_clock(1_002_010);
+        assert_eq!(
+            port.readmit_covering(floor, Some(&before.receipt))
+                .await
+                .map(|_| ())
+                .unwrap_err()
+                .code(),
+            AdmissionFailureCode::AdmissionCutExpired
+        );
+
+        // A receipt for another store is never the port's, whatever its window.
+        let mut another = port.receipt.clone();
+        another.measurement_digest = "sha256:another-measurement".to_owned();
+        assert!(!same_admitted_store(&port.receipt, &another));
+        assert!(same_admitted_store(&port.receipt, &before.receipt));
     }
 
     /// The property the single-trust-domain mode gives up, pinned so that it is read rather than
@@ -3489,14 +3709,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn production_and_s3_ports_are_explicitly_unavailable() {
+    async fn an_unconfigured_production_seam_and_s3_are_unavailable() {
         let fixture = Fixture::new();
-        let production = admit_rd_owner_market_data_postgres(&fixture.request)
+        let production = admit_rd_owner_market_data_postgres_with(&fixture.request, |_| None)
             .await
             .unwrap_err();
         assert_eq!(
             production.code(),
-            AdmissionFailureCode::ProductionResolverUnavailable
+            AdmissionFailureCode::ProductionAntiRollbackWitnessUnavailable
         );
         assert_eq!(
             unavailable_s3_admission(&fixture.request)
@@ -3849,14 +4069,24 @@ mod tests {
         );
     }
 
+    /// The plaintext transport reaches only a loopback `vibe_test_` database, and no URL parameter
+    /// moves it: the measurer and an admitted read alike refuse before connecting.
+    #[rstest]
+    #[case::an_override_parameter(
+        "postgresql://rd_owner@127.0.0.1/vibe_test_decoy?hostaddr=192.0.2.1"
+    )]
+    #[case::a_remote_host("postgresql://rd_owner@db.example/vibe_test_decoy")]
+    #[case::a_database_not_for_tests("postgresql://rd_owner@127.0.0.1/rd_owner")]
     #[tokio::test]
-    async fn postgres_target_override_parameters_fail_before_connection() {
+    async fn the_plaintext_transport_refuses_any_target_but_a_loopback_test_database(
+        #[case] database_url: &str,
+    ) {
         let lease = PostgresCredentialLease::from_resolved_secret(
             "test-handle",
             RD_OWNER_API_CONSUMER,
             "test-v1",
             NOW + 1,
-            "postgresql://rd_owner@127.0.0.1/vibe_test_decoy?hostaddr=192.0.2.1".to_string(),
+            database_url.to_string(),
         )
         .unwrap();
         let spec = PostgresMeasurementSpec::new(
@@ -3869,6 +4099,16 @@ mod tests {
 
         assert_eq!(
             PostgresDirectMeasurer.measure(&lease, &spec).await,
+            Err(PostgresMeasurementError::InvalidTarget)
+        );
+        assert_eq!(
+            postgres::read_bar_schedule_candidate_snapshots_v1(
+                &lease,
+                &postgres::StoreTransport::DisposableLoopback,
+                "VIBE-TARGET-POLICY",
+            )
+            .await
+            .map(|_| ()),
             Err(PostgresMeasurementError::InvalidTarget)
         );
     }
@@ -4019,6 +4259,10 @@ mod tests {
             PostgresDirectMeasurer::measure(&PostgresDirectMeasurer, lease, spec)
                 .await
                 .map_err(|_| ())
+        }
+
+        fn transport(&self) -> postgres::StoreTransport {
+            postgres::StoreTransport::DisposableLoopback
         }
     }
 
@@ -4810,7 +5054,12 @@ mod tests {
 
         for method in block.split("\n    pub(super) async fn ").skip(1) {
             let name = &method[..method.find('(').expect("a method")];
-            let floors = identifiers_after(method, "readmit_covering(&postgres::")
+            // Without whitespace, so a call rustfmt wraps reads like one it does not.
+            let compact = method
+                .chars()
+                .filter(|c| !c.is_whitespace())
+                .collect::<String>();
+            let floors = identifiers_after(&compact, "readmit_covering(&postgres::")
                 .into_iter()
                 .map(|constant| constant.to_ascii_lowercase().replace("_floor", ""))
                 .collect::<Vec<_>>();
@@ -5151,6 +5400,446 @@ mod tests {
                 .as_deref(),
             Some("42501")
         );
+    }
+
+    /// The production measurer, and every read admitted under its measurement, reach a deployment's
+    /// store only over TLS that trusts the one pinned root.
+    ///
+    /// The runner turns `ssl` on with a server certificate a throwaway root issued, and admits one
+    /// role, `vibe_test_role_market_data_tls_only`, over TLS alone. As that role the pinned measurer
+    /// measures the store and an admitted port reads it, which no plaintext session could have
+    /// done; the disposable measurer, which states plaintext, is refused by the server; and a
+    /// measurer pinned to another root never opens a session. The pinned measurement is the
+    /// disposable one's in every identity but TLS, measured here as the Owner, which may connect
+    /// either way; its TLS identity names the certificate the server presented and the root it
+    /// was pinned to.
+    #[cfg(unix)]
+    #[rstest]
+    #[ignore = "requires the crates/data disposable PostgreSQL harness"]
+    fn the_pinned_tls_measurer_and_its_reads_reach_the_store_only_over_the_pinned_root() {
+        std::thread::Builder::new()
+            .name("market-data-pinned-tls".into())
+            .stack_size(16 * 1024 * 1024)
+            .spawn(|| {
+                tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .unwrap()
+                    .block_on(run_pinned_tls_scenario());
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
+    #[cfg(unix)]
+    async fn run_pinned_tls_scenario() {
+        use rustls::pki_types::{CertificateDer, pem::PemObject};
+        use vibe_postgres_connect::{PgPoolOptionsExt, PostgresTls};
+
+        fn certificate_identity(path: &str) -> String {
+            let der = CertificateDer::from_pem_file(path).expect("the runner wrote a certificate");
+            format!(
+                "sha256:{}",
+                signature::lower_hex(&Sha256::digest(der.as_ref()))
+            )
+        }
+        fn lease(database_url: &str) -> PostgresCredentialLease {
+            PostgresCredentialLease::from_resolved_secret(
+                "pinned-tls-handle",
+                "market-data-admitted-reader",
+                "v1",
+                NOW + 3_600_000,
+                database_url.to_owned(),
+            )
+            .expect("lease for the disposable database")
+        }
+
+        let admin_url = std::env::var("MARKET_DATA_ADMIN_TEST_DATABASE_URL")
+            .expect("explicit disposable administrator URL");
+        let owner_url = std::env::var("MARKET_DATA_OWNER_TEST_DATABASE_URL")
+            .expect("explicit disposable Owner URL");
+        let tls_only_url = std::env::var("MARKET_DATA_TLS_ONLY_TEST_DATABASE_URL")
+            .expect("explicit disposable TLS-only URL");
+        let root_file = std::env::var("MARKET_DATA_TLS_ROOT_CERTIFICATE_FILE")
+            .expect("the root the runner issued the server certificate from");
+        let server_file = std::env::var("MARKET_DATA_TLS_SERVER_CERTIFICATE_FILE")
+            .expect("the certificate the runner installed in the server");
+        let database =
+            std::env::var("VIBE_POSTGRES_TEST_DATABASE_NAME").expect("disposable database name");
+        assert!(
+            database.starts_with("vibe_test_"),
+            "this proof grants; it runs only against a disposable database"
+        );
+        drop(
+            crate::owner::postgres::MarketDataOwnerPostgres::connect(&owner_url)
+                .await
+                .expect("Owner connects and migrates"),
+        );
+        let admin = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(1)
+            .connect_url(&admin_url, PostgresTls::Disabled)
+            .await
+            .expect("the administrator connects");
+
+        // The TLS-only role reads what the admitted reader reads, in this database alone.
+        for statement in [
+            format!("GRANT CONNECT ON DATABASE \"{database}\" TO vibe_test_role_market_data_tls_only"),
+            "GRANT USAGE ON SCHEMA market_data_admitted_read TO vibe_test_role_market_data_tls_only"
+                .to_owned(),
+            "GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA market_data_admitted_read TO vibe_test_role_market_data_tls_only"
+                .to_owned(),
+        ] {
+            sqlx::query(sqlx::AssertSqlSafe(statement))
+                .execute(&admin)
+                .await
+                .expect("the administrator grants the TLS-only role");
+        }
+        let root = std::fs::read(&root_file).expect("the pinned root");
+        let pinned = postgres::PinnedTlsPostgresDirectMeasurer::from_root_pem(&root)
+            .expect("one certificate pins a root");
+        let all_floors = postgres::MEASUREMENT_FLOORS.iter().collect::<Vec<_>>();
+        let spec = measurement_spec_covering(&all_floors);
+        let expected_tls = PostgresTlsIdentity {
+            enabled: true,
+            server_name: "127.0.0.1".to_owned(),
+            protocol: "TLSv1.3".to_owned(),
+            cipher: "TLS_AES_256_GCM_SHA384".to_owned(),
+            verification_mode: "PINNED_ROOT_EXCLUSIVE_RELAY_V1".to_owned(),
+            peer_certificate_identity: certificate_identity(&server_file),
+            trust_policy_identity: format!(
+                "pinned-root-exclusive-v1:{}",
+                certificate_identity(&root_file)
+            ),
+        };
+
+        // 1. As the Owner, which may connect either way, the two measurements differ in TLS alone.
+        let over_tls = pinned
+            .measure(&lease(&owner_url), &spec)
+            .await
+            .expect("the pinned measurer measures over TLS");
+        let in_plaintext = PostgresDirectMeasurer
+            .measure(&lease(&owner_url), &spec)
+            .await
+            .expect("the disposable measurer measures in plaintext");
+        assert_eq!(over_tls.tls_identity, expected_tls);
+        assert_eq!(
+            PostgresMeasurement {
+                tls_identity: in_plaintext.tls_identity.clone(),
+                ..over_tls
+            },
+            in_plaintext,
+            "the pinned leg changes how the store is reached and nothing it measures"
+        );
+
+        // 2. As the TLS-only role: the pinned measurer measures, plaintext is refused by the
+        //    server, and another root opens no session.
+        let tls_only = lease(&tls_only_url);
+        let measured = pinned
+            .measure(&tls_only, &spec)
+            .await
+            .expect("the TLS-only role is admitted over the pinned leg");
+        assert_eq!(measured.tls_identity, expected_tls);
+        assert_eq!(
+            PostgresDirectMeasurer.measure(&tls_only, &spec).await,
+            Err(PostgresMeasurementError::ConnectionUnavailable),
+            "a plaintext session as the TLS-only role is refused by the server"
+        );
+        let another_root = {
+            let key = rcgen::KeyPair::generate().unwrap();
+            let mut params = rcgen::CertificateParams::new(Vec::<String>::new()).unwrap();
+            params.is_ca = rcgen::IsCa::Ca(rcgen::BasicConstraints::Unconstrained);
+            params.self_signed(&key).unwrap().pem()
+        };
+        assert_eq!(
+            postgres::PinnedTlsPostgresDirectMeasurer::from_root_pem(another_root.as_bytes())
+                .unwrap()
+                .measure(&tls_only, &spec)
+                .await,
+            Err(PostgresMeasurementError::TlsIdentityUnavailable),
+            "a server certificate another root issued opens no session"
+        );
+
+        // 3. An admitted port reads over the transport its measurement took: as the TLS-only role,
+        //    only the pinned leg can have carried the read.
+        let fixture = Fixture::with_spec_and_measurement(&spec, measured);
+        let capability = Custodian::new(
+            Arc::new(fixture.custody()),
+            Arc::new(CountingVerifier::pinned(
+                SIGNER,
+                &fixture.signing_key.verifying_key(),
+                Arc::new(AtomicUsize::new(0)),
+            )),
+            Arc::new(FakeWitness {
+                observation: AntiRollbackObservation::Witnessed(fixture.witness.clone()),
+            }),
+            Arc::new(LeasedCredentials {
+                database_url: tls_only_url.clone(),
+            }),
+            Arc::new(pinned.clone()),
+        )
+        .admit_capability(fixture.request.scope())
+        .await
+        .expect("the pinned measurement satisfies the recorded manifest");
+        // The capability's transport is bound to the certificate measured: a read whose server
+        // presents any other is refused, and one bound to the measured certificate reads.
+        let postgres::StoreTransport::PinnedTls { root, .. } = pinned.transport() else {
+            unreachable!("the pinned measurer's transport is pinned")
+        };
+        let bound_elsewhere = postgres::StoreTransport::PinnedTls {
+            root,
+            peer_certificate_identity: Some(format!("sha256:{}", "0".repeat(64))),
+        };
+        assert_eq!(
+            postgres::read_bar_schedule_candidate_snapshots_v1(
+                &tls_only,
+                &bound_elsewhere,
+                "VIBE-PINNED-TLS-PROOF",
+            )
+            .await
+            .map(|_| ()),
+            Err(PostgresMeasurementError::TlsIdentityUnavailable)
+        );
+        assert_eq!(
+            postgres::read_bar_schedule_candidate_snapshots_v1(
+                &tls_only,
+                &pinned.transport().bound_to(&expected_tls),
+                "VIBE-PINNED-TLS-PROOF",
+            )
+            .await
+            .map(|candidates| candidates.len()),
+            Ok(0)
+        );
+        let port = capability
+            .into_native_replay_scheduling_snapshot_port_v2()
+            .expect("the measurement covers the scheduling floors");
+        assert_eq!(
+            port.resolve_bar_schedule_candidates_v1("VIBE-PINNED-TLS-PROOF")
+                .await
+                .expect("the admitted read reaches the store over the pinned leg")
+                .len(),
+            0,
+            "no schedule is declared for an instrument nothing wrote"
+        );
+    }
+
+    /// The production seam admits end to end, over the five production ports and nothing else.
+    ///
+    /// The administrator's side runs as the deployment's runbook does: the store is measured over
+    /// the pinned connection as the admitted reader, through its secret file, and the draft is
+    /// completed into authoring, sealed with a fresh store key and published as the publisher.
+    /// The deployment's side is `admit_rd_owner_market_data_postgres_with` over a configuration of
+    /// files: the custody store as the custodian, the key's public half, the single-machine mode,
+    /// the secrets directory and the pinned root. Its capability opens the scheduling port, which
+    /// reads. The same configuration with any other signer key, or without the mode named, admits
+    /// nothing.
+    #[cfg(unix)]
+    #[rstest]
+    #[ignore = "requires the crates/data disposable PostgreSQL harness"]
+    fn the_production_seam_admits_what_the_administrator_measured_sealed_and_published() {
+        std::thread::Builder::new()
+            .name("market-data-production-seam".into())
+            .stack_size(16 * 1024 * 1024)
+            .spawn(|| {
+                tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .unwrap()
+                    .block_on(run_production_seam_scenario());
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
+    #[cfg(unix)]
+    async fn run_production_seam_scenario() {
+        use std::collections::HashMap;
+
+        use vibe_postgres_connect::{PgPoolOptionsExt, PostgresTls};
+
+        const CREDENTIAL: &str = "market-data-admitted-reader";
+        let env = |name: &str| std::env::var(name).unwrap_or_else(|_| panic!("{name} is set"));
+        let admin_url = env("MARKET_DATA_ADMIN_TEST_DATABASE_URL");
+        let owner_url = env("MARKET_DATA_OWNER_TEST_DATABASE_URL");
+        let reader_url = env("MARKET_DATA_ADMITTED_READER_TEST_DATABASE_URL");
+        let publisher_url = env("DEPLOYMENT_STORE_PUBLISHER_TEST_DATABASE_URL");
+        let custodian_url = env("DEPLOYMENT_STORE_CUSTODIAN_TEST_DATABASE_URL");
+        let root_file = env("MARKET_DATA_TLS_ROOT_CERTIFICATE_FILE");
+        drop(
+            crate::owner::postgres::MarketDataOwnerPostgres::connect(&owner_url)
+                .await
+                .expect("Owner connects and migrates"),
+        );
+        let admin = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(1)
+            .connect_url(&admin_url, PostgresTls::Disabled)
+            .await
+            .unwrap();
+        let now = store_clock(&admin).await;
+        let files = tempfile::tempdir().unwrap();
+        let write = |name: &str, contents: &[u8]| {
+            let path = files.path().join(name);
+            std::fs::write(&path, contents).unwrap();
+            path.to_string_lossy().into_owned()
+        };
+        // The secrets directory holds the reader's credential under its handle's name, and the
+        // custodian's in a file of its own.
+        let credential = format!("{reader_url}\n");
+        write(CREDENTIAL, credential.as_bytes());
+        let custodian_file = write("custodian-url", format!("{custodian_url}\n").as_bytes());
+
+        // The administrator: measure and author, seal, publish.
+        let draft = serde_json::json!({
+            "signer_identity": "deployment-store-signer-v1",
+            "environment_identity": "md-production-seam",
+            "deployment_identity": "md-production-seam-deployment",
+            "prior_manifest_identities": [],
+            "expected_previous_head_identity": null,
+            "valid_from_epoch_ms": now - 60_000,
+            "valid_through_epoch_ms": now + 3_600_000,
+            "recovery": {
+                "identity": "md-production-seam-recovery",
+                "restart_requires_reverification": true,
+                "ambiguity_forbids_business_retry": true,
+            },
+            "rotation_fence_identity": "md-production-seam-rotation",
+            "rotation_fence_closed_at_epoch_ms": now - 60_000,
+        });
+        let authoring = author_deployment_store_publication_v1(
+            &serde_json::to_vec(&draft).unwrap(),
+            CREDENTIAL,
+            credential.as_bytes(),
+            &std::fs::read(&root_file).unwrap(),
+        )
+        .await
+        .expect("the administrator measures the store over the pinned connection");
+        let signing_key = SigningKey::from_bytes(&[42; 32]);
+        let (sealed, summary) = seal_deployment_store_publication_v1(&authoring, &signing_key)
+            .expect("the authored publication seals");
+        assert_eq!(
+            publish_sealed_deployment_store_publication_v1(&publisher_url, &sealed).await,
+            Ok(DeploymentStorePublishOutcomeV1::Published)
+        );
+
+        // The deployment: every port from its configuration.
+        let configuration = HashMap::from([
+            (
+                composition::ANTI_ROLLBACK_MODE_ENV,
+                composition::SINGLE_TRUST_DOMAIN_MODE.to_owned(),
+            ),
+            (
+                composition::SIGNER_IDENTITY_ENV,
+                "deployment-store-signer-v1".to_owned(),
+            ),
+            (
+                composition::SIGNER_PUBLIC_KEY_PATH_ENV,
+                write(
+                    "signer.hex",
+                    format!("{}\n", summary.signer_public_key_hex).as_bytes(),
+                ),
+            ),
+            (
+                composition::LEASED_FILES_DIRECTORY_ENV,
+                files.path().to_string_lossy().into_owned(),
+            ),
+            // A day-long lease period: the scenario's admissions share one, so its revalidations
+            // rejoin the receipt the port was admitted on.
+            (composition::LEASE_PERIOD_MS_ENV, "86400000".to_owned()),
+            (
+                composition::POSTGRES_ROOT_CERTIFICATE_PATH_ENV,
+                root_file.clone(),
+            ),
+            (composition::CUSTODIAN_CONNECTION_FILE_ENV, custodian_file),
+        ]);
+        let request = RdOwnerMarketDataAdmissionRequest::new(
+            summary.environment_identity.clone(),
+            summary.deployment_identity.clone(),
+            summary.head_identity.clone(),
+        )
+        .unwrap();
+        let port = admit_rd_owner_market_data_postgres_with(&request, |name| {
+            configuration.get(name).cloned()
+        })
+        .await
+        .expect("the production seam admits the published store")
+        .into_native_replay_scheduling_snapshot_port_v2()
+        .expect("the deployment's measurement covers the scheduling floors");
+        assert_eq!(
+            port.resolve_bar_schedule_candidates_v1("VIBE-PRODUCTION-SEAM")
+                .await
+                .map(|candidates| candidates.len()),
+            Ok(0),
+            "the admitted port reads the store"
+        );
+
+        // A port outlives the lease period it was opened in: under a two-second period, a read just
+        // after the next boundary is admitted on a receipt of its own and reads the store.
+        let mut short_period = configuration.clone();
+        short_period.insert(composition::LEASE_PERIOD_MS_ENV, "2000".to_owned());
+        let port = admit_rd_owner_market_data_postgres_with(&request, |name| {
+            short_period.get(name).cloned()
+        })
+        .await
+        .expect("the production seam admits under a short lease period")
+        .into_native_replay_scheduling_snapshot_port_v2()
+        .unwrap();
+        let now = store_clock(&admin).await;
+        tokio::time::sleep(std::time::Duration::from_millis(
+            (now / 2_000 + 1) * 2_000 - now + 50,
+        ))
+        .await;
+        assert_eq!(
+            port.resolve_bar_schedule_candidates_v1("VIBE-PRODUCTION-SEAM")
+                .await
+                .map(|candidates| candidates.len()),
+            Ok(0),
+            "a port opened in one lease period reads in the next"
+        );
+
+        // Another signer's key, or no mode named, admits nothing.
+        let mut another_signer = configuration.clone();
+        another_signer.insert(
+            composition::SIGNER_PUBLIC_KEY_PATH_ENV,
+            write(
+                "another-signer.hex",
+                signature::lower_hex(SigningKey::from_bytes(&[43; 32]).verifying_key().as_bytes())
+                    .as_bytes(),
+            ),
+        );
+        assert_eq!(
+            admit_rd_owner_market_data_postgres_with(&request, |name| {
+                another_signer.get(name).cloned()
+            })
+            .await
+            .map(|_| ())
+            .unwrap_err()
+            .code(),
+            AdmissionFailureCode::InvalidSignature
+        );
+        let mut no_mode = configuration.clone();
+        no_mode.remove(composition::ANTI_ROLLBACK_MODE_ENV);
+        assert_eq!(
+            admit_rd_owner_market_data_postgres_with(&request, |name| no_mode.get(name).cloned())
+                .await
+                .map(|_| ())
+                .unwrap_err()
+                .code(),
+            AdmissionFailureCode::ProductionAntiRollbackWitnessUnavailable
+        );
+    }
+
+    /// A deployment's manifest binds one measurement, so it must cover every floor any port checks,
+    /// and be exactly their union.
+    #[rstest]
+    fn the_deployment_measurement_covers_every_floor_and_nothing_else() {
+        let spec = postgres::deployment_measurement_spec_v1().unwrap();
+
+        for floor in postgres::MEASUREMENT_FLOORS {
+            assert!(spec.covers(floor), "{} is covered", floor.name);
+        }
+        let all_floors = postgres::MEASUREMENT_FLOORS.iter().collect::<Vec<_>>();
+        assert_eq!(spec, measurement_spec_covering(&all_floors));
     }
 
     /// Each port opens on exactly the floors its resolver's reads stand on, and refuses a measurement
@@ -5507,6 +6196,9 @@ mod tests {
         let snapshot =
             crate::owner::postgres::tests::native_replay_two_member_snapshot_fixture_v1(&owner)
                 .await;
+        let decided =
+            Box::pin(crate::owner::postgres::tests::native_replay_decided_frame_fixture_v1(&owner))
+                .await;
 
         assert!(
             admitted_capability_for(&owner_url, &bar_schedule_measurement_spec())
@@ -5578,6 +6270,44 @@ mod tests {
                 .map(|batch| batch.snapshot_identity()),
             Err(NativeReplayQuoteCutRefusalV2::QuoteCutMissing)
         );
+
+        // Frames decided on their own instant: the port reads each quote cut lineage and the bound
+        // at the cut it was published at, as custody does.
+        for (frame, expected) in [
+            (decided.frame, Ok(decided.quote_cut_snapshot_identity)),
+            (
+                decided.overtaken_frame,
+                Err(NativeReplayQuoteCutRefusalV2::QuoteCutMissing),
+            ),
+            (
+                decided.next_frame,
+                Ok(decided.overtaken_quote_cut_snapshot_identity),
+            ),
+        ] {
+            let evidence = port
+                .resolve_pit_evaluation(*frame.0.as_bytes())
+                .await
+                .expect("the decided frame's evidence");
+            let frame = crate::owner::postgres::verify_admitted_pit_evidence_by_identity_v1(
+                frame.0, frame.1, &evidence,
+            )
+            .expect("the decided frame verifies");
+            let through_port =
+                crate::owner::postgres::resolve_native_replay_quote_cut_through_port_v2(
+                    &port, &frame, 100,
+                )
+                .await
+                .map(|batch| batch.snapshot_identity());
+            assert_eq!(through_port, expected);
+            assert_eq!(
+                owner
+                    .resolve_native_replay_quote_cut_v2(&frame, 100)
+                    .await
+                    .map(|batch| batch.snapshot_identity()),
+                through_port,
+                "the port and custody resolve the same quote cut for a frame decided on its instant"
+            );
+        }
     }
 
     /// The privilege census the principal behind `reader` would be measured with, row by row.
@@ -5660,6 +6390,7 @@ mod tests {
 
         if port
             .resolve_native_replay_quote_cut_census_v2(
+                *snapshot.snapshot_identity.as_bytes(),
                 *snapshot.snapshot_identity.as_bytes(),
                 snapshot.frame_time_ns,
                 snapshot.frame_time_ns + 1_000,
@@ -5833,16 +6564,16 @@ mod tests {
         );
         reader.close().await;
 
-        // The resolver composes the same read path. It cannot tell this proof which case it is in:
-        // the fixture seeds no schedule, and selection names a member with no candidate exactly as
-        // it names a refused read. The discriminating measurements are the reads above and below;
-        // the path with schedules is the ordered chain's, where the Replay fixtures seed them.
+        // The resolver composes the same read path. The fixture seeds no schedule, and every read
+        // above was answered, so selection finds no candidate for the member and names that: a
+        // refused read would be `OwnerReadbackUnavailable` instead. The path with schedules is the
+        // ordered chain's, where the Replay fixtures seed them.
         assert_eq!(
             resolver
                 .resolve_native_replay_initial_market_inputs_v1(&request)
                 .await
                 .map(|_| ()),
-            Err(NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)
+            Err(NativeReplaySchedulingErrorV1::NoBarScheduleAtFrame)
         );
 
         let evidence = resolver
@@ -6012,6 +6743,8 @@ mod tests {
             BindingDigest::from_untrusted_bytes([91; 32]),
             BindingDigest::from_untrusted_bytes([92; 32]),
             BindingDigest::from_untrusted_bytes([93; 32]),
+            BindingDigest::from_untrusted_bytes([94; 32]),
+            snapshot.universe_selection_digest,
             snapshot.universe_selection_digest,
             snapshot.instrument_master_digest,
             snapshot.source_binding_lineage_root,
@@ -6413,6 +7146,10 @@ mod tests {
             assert_eq!(outcome, custody_postgres::PublishOutcomeV1::Published);
             Ok(self.value.clone())
         }
+
+        fn transport(&self) -> postgres::StoreTransport {
+            postgres::StoreTransport::DisposableLoopback
+        }
     }
 
     /// Outlasts the witness observation and the credential lease while it measures.
@@ -6430,6 +7167,10 @@ mod tests {
         ) -> Result<PostgresMeasurement, ()> {
             tokio::time::sleep(std::time::Duration::from_millis(self.millis)).await;
             Ok(self.value.clone())
+        }
+
+        fn transport(&self) -> postgres::StoreTransport {
+            postgres::StoreTransport::DisposableLoopback
         }
     }
 

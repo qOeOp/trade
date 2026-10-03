@@ -113,10 +113,12 @@ grants nothing, and widening the admitted set requires changing this document fi
   lifecycle request intake that binds it.
 - **TARGET - handoffs and persistence:** no port to Qualification, Scanner, Portfolio, Runtime, Execution, or Risk
   and no durable relation for any Governance fact.
+- **TARGET - Forward Decision gate on paper activation:** the static `INITIAL_ACTIVATION` slice reads no Forward
+  Decision.
 
 ## Input handoffs
 
-- [Qualification](./qualification/) supplies committed Eligibility State and Revocation facts with exact Candidate, fact, economic-condition, evaluated cost/capacity-model, and qualified-capacity versions.
+- [Qualification](./qualification/) supplies committed Eligibility State and Revocation facts with exact Candidate, fact, economic-condition, evaluated cost/capacity-model, and qualified-capacity versions. `TARGET`: it also supplies the current Forward Decision, and a paper `INITIAL_ACTIVATION` binds a current `FORWARD_ADMITTED` decision for the same Eligibility Fact; any other, missing or unknown Forward Decision commits `REJECTED_NO_WRITE`.
 - [Scanner](./scanner/) supplies one terminal Scanner Receipt per scan; condition-dependent activation must bind an exact matched proposal member with the same strategy entry, ArtifactRef, and condition version as the decision target.
 - [Portfolio](./portfolio/) supplies one Portfolio Lifecycle Evidence Receipt. `INITIAL_ACTIVATION` binds a fresh
   candidate-neutral gross Capacity View for the pre-existing Capacity Scope; `PROMOTION` additionally binds exact

@@ -64,7 +64,7 @@ mod tests {
     use sha2::{Digest, Sha256};
     use vibe_backtest_result_custody::BacktestReadbackRefusalV1;
     use vibe_strategy_factory::{
-        BacktestResultCustodyErrorV2,
+        BacktestResultCustodyErrorV2, ExploratoryResultCensusErrorV1,
         artifact_build::{
             ArtifactBuildError, ArtifactDirectoryCursorV1, ArtifactDirectoryOwnerPort,
             ArtifactReadbackOwnerPortV1, ArtifactSourceOwnerPort,
@@ -312,7 +312,7 @@ mod tests {
             result_identity: &str,
             request_identity: &str,
             attempt_identity: &str,
-        ) -> Result<Option<Vec<u8>>, BacktestResultCustodyErrorV2> {
+        ) -> Result<Option<Vec<u8>>, ExploratoryResultCensusErrorV1> {
             self.result_calls.fetch_add(1, Ordering::SeqCst);
             Ok(Some(
                 serde_json::to_vec(&serde_json::json!({
@@ -1233,9 +1233,12 @@ mod tests {
         assert_eq!(replay.historical_rejection_calls.load(Ordering::SeqCst), 1);
     }
 
+    /// The Result read is the Backtest Owner's own fixture, whose request no R&D request seals, so
+    /// no TrialFamily census counts it and the read API does not show it. A counted Result's exact
+    /// bytes reach the page in the browser entry, which opens the run the run report entry counts.
     #[tokio::test]
     #[ignore = "requires the canonical Backtest result commit immediately before this Dashboard consumer"]
-    async fn replay_result_dashboard_read_api_returns_exact_canonical_bytes() {
+    async fn replay_result_dashboard_read_api_refuses_a_result_no_census_counts() {
         let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
         let mutation = test_database.mutation();
         let aggregate = sqlx::query(
@@ -1277,11 +1280,26 @@ mod tests {
             headers(),
         )
         .await;
-        assert_eq!(response.status(), StatusCode::OK);
-        let body = axum::body::to_bytes(response.into_body(), result_bytes.len() + 1)
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        let mut custody = mutation
+            .pool(CanonicalOwnerTestRoleV1::RdOwner)
+            .begin()
             .await
             .unwrap();
-        assert_eq!(body.as_ref(), result_bytes.as_slice());
+        let locked =
+            vibe_strategy_factory::resolve_exploratory_replay_result_for_rd_in_transaction(
+                &mut custody,
+                ExploratoryReplayResultLocatorV2 {
+                    result_identity: &result_identity,
+                    request_identity: &request_identity,
+                    attempt_identity: &attempt_identity,
+                },
+            )
+            .await
+            .expect("the custody adapter reads the fixture")
+            .expect("the fixture is committed");
+        custody.rollback().await.unwrap();
+        assert_eq!(locked.result_canonical_bytes(), result_bytes.as_slice());
 
         let cross_spliced = read_exploratory_replay_result(
             State(api),
@@ -1561,9 +1579,13 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     #[ignore = "requires the ordered chain's committed run report, Dashboard dependencies and Chrome acceptance admission"]
     async fn backtest_run_report_browser_acceptance_reads_the_owner_answer() {
-        if std::env::var("DASHBOARD_STRATEGY_VIEWER_BROWSER_ACCEPTANCE").as_deref() != Ok("1") {
-            return;
-        }
+        // Fail closed like the two inputs below: an early return here reported PASS from any run
+        // that lacked the input, having driven nothing (scripts/ci/chain-entry-early-return.py).
+        assert_eq!(
+            std::env::var("DASHBOARD_STRATEGY_VIEWER_BROWSER_ACCEPTANCE").as_deref(),
+            Ok("1"),
+            "DASHBOARD_STRATEGY_VIEWER_BROWSER_ACCEPTANCE must be exactly 1 for this browser acceptance",
+        );
         let browser_executable = std::env::var("DASHBOARD_STRATEGY_VIEWER_BROWSER_EXECUTABLE")
             .expect("explicit browser executable is required");
         let acceptance_candidate = std::env::var("DASHBOARD_STRATEGY_VIEWER_ACCEPTANCE_CANDIDATE")

@@ -56,6 +56,29 @@ pub struct IterationResultCandidateProposalV1 {
     pub experiment: IterationExperimentModeV1,
 }
 
+impl IterationResultCandidateProposalV1 {
+    /// A proposal whose digest is computed from its identity and experiment, the only digest the
+    /// Owner admits for it.
+    ///
+    /// # Errors
+    ///
+    /// [`IterationResultAdmissionErrorV1::InvalidLocator`] when the identity is malformed.
+    pub fn new(
+        candidate_identity: &str,
+        experiment: IterationExperimentModeV1,
+    ) -> Result<Self, IterationResultAdmissionErrorV1> {
+        Ok(Self {
+            candidate_identity: candidate_identity.to_owned(),
+            candidate_digest: crate::trial_family::candidate_experiment_digest_v1(
+                candidate_identity,
+                &experiment,
+            )
+            .map_err(|_| IterationResultAdmissionErrorV1::InvalidLocator)?,
+            experiment,
+        })
+    }
+}
+
 /// The complete candidate strategy proposal set for the iteration after the admitted Result.
 ///
 /// Members are ordered by strictly ascending `candidate_identity` byte key, so one proposal set has
@@ -63,8 +86,7 @@ pub struct IterationResultCandidateProposalV1 {
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct IterationResultCandidateProposalSetV1 {
-    pub generation_rule_identity: String,
-    pub generation_rule_digest: String,
+    pub generation_rule: crate::CandidateGenerationGridV1,
     pub expected_cardinality: u32,
     pub proposals: Vec<IterationResultCandidateProposalV1>,
 }
@@ -304,6 +326,10 @@ pub enum IterationResultAdmissionErrorV1 {
     IdentityMismatch,
     #[error("the candidate proposal set exceeds the remaining sealed trial budget")]
     BudgetExceeded,
+    #[error("the Result is not counted in its TrialFamily census")]
+    ResultNotCounted,
+    #[error("the candidate proposal set is refused against its generation grid: {0}")]
+    CandidateGeneration(crate::CandidateGenerationRefusalV1),
     #[error("iteration result admission conflicts with existing custody")]
     Conflict,
     #[error("iteration result admission Owner custody is unavailable: {0}")]
@@ -629,20 +655,19 @@ pub(crate) fn validate_locator(
 fn validate_proposal_set(
     proposals: &IterationResultCandidateProposalSetV1,
 ) -> Result<(), IterationResultAdmissionErrorV1> {
-    if !is_valid_iteration_decision_locator_v1(&proposals.generation_rule_identity)
-        || !is_sha256_digest(&proposals.generation_rule_digest)
-    {
-        return Err(IterationResultAdmissionErrorV1::InvalidLocator);
-    }
-
-    if proposals.proposals.is_empty()
-        || proposals.proposals.len() > MAX_PROPOSALS
-        || usize::try_from(proposals.expected_cardinality)
-            .map_err(|e| IterationResultAdmissionErrorV1::Unavailable(e.to_string()))?
-            != proposals.proposals.len()
-    {
+    if proposals.proposals.is_empty() || proposals.proposals.len() > MAX_PROPOSALS {
         return Err(IterationResultAdmissionErrorV1::NotApplicable);
     }
+    proposals
+        .generation_rule
+        .admit_candidates(
+            proposals.expected_cardinality,
+            proposals
+                .proposals
+                .iter()
+                .map(|proposal| &proposal.experiment),
+        )
+        .map_err(IterationResultAdmissionErrorV1::CandidateGeneration)?;
     let mut previous: Option<&str> = None;
 
     for proposal in &proposals.proposals {
@@ -656,6 +681,18 @@ fn validate_proposal_set(
             return Err(IterationResultAdmissionErrorV1::NotApplicable);
         }
         validate_experiment(&proposal.experiment)?;
+
+        // The digest names the experiment, so it is computed from it, never taken as stated.
+        if crate::trial_family::candidate_experiment_digest_v1(
+            &proposal.candidate_identity,
+            &proposal.experiment,
+        )
+        .ok()
+        .as_deref()
+            != Some(proposal.candidate_digest.as_str())
+        {
+            return Err(IterationResultAdmissionErrorV1::IdentityMismatch);
+        }
         previous = Some(&proposal.candidate_identity);
     }
     Ok(())
@@ -791,23 +828,51 @@ pub(crate) mod tests {
             .expect("exact exploratory terminal Result")
     }
 
-    fn proposal(candidate_identity: &str, digest_byte: char) -> IterationResultCandidateProposalV1 {
-        IterationResultCandidateProposalV1 {
-            candidate_identity: candidate_identity.to_owned(),
-            candidate_digest: sha(digest_byte),
-            experiment: IterationExperimentModeV1::SingleDimension {
-                changed_dimension: IterationHypothesisDimensionV1::ReturnMechanism,
-            },
+    /// A distinct single-dimension experiment per ordinal, in the dimensions' declaration order.
+    fn experiment(ordinal: usize) -> IterationExperimentModeV1 {
+        const DIMENSIONS: [IterationHypothesisDimensionV1; 9] = [
+            IterationHypothesisDimensionV1::ReturnMechanism,
+            IterationHypothesisDimensionV1::MarketRegime,
+            IterationHypothesisDimensionV1::InstrumentScope,
+            IterationHypothesisDimensionV1::FeatureSignal,
+            IterationHypothesisDimensionV1::EntryRule,
+            IterationHypothesisDimensionV1::ExitRule,
+            IterationHypothesisDimensionV1::PositionAndHolding,
+            IterationHypothesisDimensionV1::FrequencyAndCost,
+            IterationHypothesisDimensionV1::CapacityAndPortfolioRole,
+        ];
+        IterationExperimentModeV1::SingleDimension {
+            changed_dimension: DIMENSIONS[ordinal],
+        }
+    }
+
+    fn proposed(
+        candidate_identity: &str,
+        experiment: IterationExperimentModeV1,
+    ) -> IterationResultCandidateProposalV1 {
+        IterationResultCandidateProposalV1::new(candidate_identity, experiment)
+            .expect("candidate digest")
+    }
+
+    fn proposal(candidate_identity: &str, ordinal: usize) -> IterationResultCandidateProposalV1 {
+        proposed(candidate_identity, experiment(ordinal))
+    }
+
+    /// The set of these proposals under the grid that generates exactly them.
+    fn proposals_under_their_grid(
+        proposals: Vec<IterationResultCandidateProposalV1>,
+    ) -> IterationResultCandidateProposalSetV1 {
+        IterationResultCandidateProposalSetV1 {
+            generation_rule: crate::CandidateGenerationGridV1::covering(
+                proposals.iter().map(|proposal| &proposal.experiment),
+            ),
+            expected_cardinality: u32::try_from(proposals.len()).expect("bounded fixture"),
+            proposals,
         }
     }
 
     fn proposal_set() -> IterationResultCandidateProposalSetV1 {
-        IterationResultCandidateProposalSetV1 {
-            generation_rule_identity: "rd-generation-rule-1".to_owned(),
-            generation_rule_digest: sha('4'),
-            expected_cardinality: 2,
-            proposals: vec![proposal("candidate-1", '1'), proposal("candidate-2", '2')],
-        }
+        proposals_under_their_grid(vec![proposal("candidate-1", 0), proposal("candidate-2", 1)])
     }
 
     fn family_binding() -> IterationResultTrialFamilyBindingV1 {
@@ -1015,7 +1080,7 @@ pub(crate) mod tests {
     #[rstest]
     fn a_proposal_set_the_caller_did_not_request_closes_the_admission() {
         let mut input = input();
-        input.proposals.proposals[1] = proposal("candidate-3", '2');
+        input.proposals.proposals[1] = proposal("candidate-3", 1);
         assert!(matches!(
             issue_iteration_result_admission_v1(&request(), input, COMMITTED_AT),
             Err(IterationResultAdmissionErrorV1::IdentityMismatch)
@@ -1139,7 +1204,10 @@ pub(crate) mod tests {
         let committed = admit();
 
         let mut changed_proposals = request();
-        changed_proposals.proposals.proposals[0] = proposal("candidate-1", '9');
+        changed_proposals.proposals = proposals_under_their_grid(vec![
+            proposal("candidate-1", 8),
+            proposal("candidate-2", 1),
+        ]);
         assert!(matches!(
             ensure_same_admission_request_v1(&committed, &changed_proposals),
             Err(IterationResultAdmissionErrorV1::Conflict)
@@ -1170,7 +1238,7 @@ pub(crate) mod tests {
         ));
 
         let mut duplicated = self::request();
-        duplicated.proposals.proposals[1] = proposal("candidate-1", '2');
+        duplicated.proposals.proposals[1] = proposal("candidate-1", 1);
         assert!(matches!(
             duplicated.validate(),
             Err(IterationResultAdmissionErrorV1::NotApplicable)
@@ -1178,18 +1246,52 @@ pub(crate) mod tests {
     }
 
     #[rstest]
-    #[case::empty(0)]
-    #[case::understated(1)]
-    #[case::overstated(3)]
-    fn a_proposal_set_must_declare_its_own_cardinality(#[case] expected_cardinality: u32) {
+    fn an_empty_proposal_set_is_not_applicable() {
         let mut request = request();
-        request.proposals.expected_cardinality = expected_cardinality;
-        if expected_cardinality == 0 {
-            request.proposals.proposals.clear();
-        }
+        request.proposals = proposals_under_their_grid(Vec::new());
         assert!(matches!(
             request.validate(),
             Err(IterationResultAdmissionErrorV1::NotApplicable)
+        ));
+    }
+
+    /// The registered count is held to the size of the grid's expansion, whatever the caller
+    /// listed: an understated or overstated count is refused by name.
+    #[rstest]
+    #[case::understated(1)]
+    #[case::overstated(3)]
+    fn the_registered_count_must_be_the_size_of_the_grid_expansion(
+        #[case] expected_cardinality: u32,
+    ) {
+        let mut request = request();
+        request.proposals.expected_cardinality = expected_cardinality;
+        assert!(matches!(
+            request.validate(),
+            Err(IterationResultAdmissionErrorV1::CandidateGeneration(
+                crate::CandidateGenerationRefusalV1::CardinalityMismatch
+            ))
+        ));
+    }
+
+    #[rstest]
+    fn a_proposal_the_grid_does_not_generate_is_refused() {
+        let mut request = request();
+        request.proposals.proposals[1] = proposal("candidate-2", 2);
+        assert!(matches!(
+            request.validate(),
+            Err(IterationResultAdmissionErrorV1::CandidateGeneration(
+                crate::CandidateGenerationRefusalV1::CandidatesDifferFromRule
+            ))
+        ));
+    }
+
+    #[rstest]
+    fn a_stated_candidate_digest_must_be_its_experiments() {
+        let mut request = request();
+        request.proposals.proposals[0].candidate_digest = sha('9');
+        assert!(matches!(
+            request.validate(),
+            Err(IterationResultAdmissionErrorV1::IdentityMismatch)
         ));
     }
 
@@ -1207,25 +1309,34 @@ pub(crate) mod tests {
                 }),
             }
         };
-        let mut request = request();
-        request.proposals.proposals[0].experiment = contract(vec![
-            IterationHypothesisDimensionV1::EntryRule,
-            IterationHypothesisDimensionV1::ExitRule,
-        ]);
-        assert!(request.validate().is_ok());
-
-        request.proposals.proposals[0].experiment = contract(vec![
-            IterationHypothesisDimensionV1::EntryRule,
-            IterationHypothesisDimensionV1::EntryRule,
-        ]);
+        // Each experiment is proposed under the grid that generates it, so only the joint
+        // contract's own shape decides.
+        let with_joint = |experiment: IterationExperimentModeV1| {
+            let mut request = request();
+            request.proposals = proposals_under_their_grid(vec![
+                proposed("candidate-1", experiment),
+                proposal("candidate-2", 1),
+            ]);
+            request
+        };
+        assert!(
+            with_joint(contract(vec![
+                IterationHypothesisDimensionV1::EntryRule,
+                IterationHypothesisDimensionV1::ExitRule,
+            ]))
+            .validate()
+            .is_ok()
+        );
         assert!(matches!(
-            request.validate(),
+            with_joint(contract(vec![
+                IterationHypothesisDimensionV1::EntryRule,
+                IterationHypothesisDimensionV1::EntryRule,
+            ]))
+            .validate(),
             Err(IterationResultAdmissionErrorV1::NotApplicable)
         ));
-
-        request.proposals.proposals[0].experiment = contract(Vec::new());
         assert!(matches!(
-            request.validate(),
+            with_joint(contract(Vec::new())).validate(),
             Err(IterationResultAdmissionErrorV1::NotApplicable)
         ));
     }
@@ -1257,13 +1368,6 @@ pub(crate) mod tests {
         short_digest.result_digest = format!("sha256:{}", "3".repeat(63));
         assert!(matches!(
             short_digest.validate(),
-            Err(IterationResultAdmissionErrorV1::InvalidLocator)
-        ));
-
-        let mut unprefixed_digest = request();
-        unprefixed_digest.proposals.generation_rule_digest = "3".repeat(64);
-        assert!(matches!(
-            unprefixed_digest.validate(),
             Err(IterationResultAdmissionErrorV1::InvalidLocator)
         ));
 
@@ -1318,9 +1422,10 @@ pub(crate) mod tests {
     }
 
     fn set_cardinality(proposals: &mut IterationResultCandidateProposalSetV1, cardinality: u32) {
-        proposals.expected_cardinality = cardinality;
-        proposals.proposals = (0..cardinality)
-            .map(|ordinal| proposal(&format!("candidate-{ordinal:04}"), '1'))
-            .collect();
+        *proposals = proposals_under_their_grid(
+            (0..cardinality as usize)
+                .map(|ordinal| proposal(&format!("candidate-{ordinal:04}"), ordinal))
+                .collect(),
+        );
     }
 }

@@ -1,13 +1,13 @@
-# Declared Bounded Feature Program meaning: fourteen authored programs
+# Declared Bounded Feature Program meaning: sixteen authored programs
 
-Fourteen declarations of `BoundedFeatureProgramMeaningV1`, with the ten Strategy Designs they name.
+Sixteen declarations of `BoundedFeatureProgramMeaningV1`, with the twelve Strategy Designs they name.
 `every_authored_declaration_reassembles`, in `src/bounded_feature_program_derivation_v1.rs`, reads
 them: each one is assembled by `derive_bounded_feature_program_proposal_v1` against the newest
 published catalog, exactly as `declare` does, and the assembled proposal is then put through
 `prepare_bounded_feature_program_v1`.
 
 `derivation_reproduces_a_known_good_proposal` next to it proves the same claim once, against a
-proposal this crate builds itself. These fourteen were written outside it, as declared meaning only.
+proposal this crate builds itself. These sixteen were written outside it, as declared meaning only.
 Between them they reach every availability rule, every state sizing rule and every input rule the
 catalog has, which is the part one fixture cannot carry: a derivation that mishandled a single rule
 would still reproduce a proposal that never used it.
@@ -41,8 +41,8 @@ left four programs with a correct entry and a wrong exit, but it is a structural
 than a semantic one. The family requires only that the two frames differ, which they do.
 
 `a0` and `a0v3` share one Design and differ only in reaching for the square root catalog version 3
-added. `t4`/`t5` and `t7`/`t8`/`t9` likewise share a Design, which is why there are ten Designs and
-fourteen meanings.
+added. `t4`/`t5` and `t7`/`t8`/`t9` likewise share a Design, which is why there are twelve Designs and
+sixteen meanings.
 
 `w1` and `w2` are catalog version 4's first users, one program for each row it added.
 `every_row_added_since_version_4_is_used_by_an_authored_program` holds that: a row a later version
@@ -61,6 +61,17 @@ program built and run as Wasm:
 `src/bounded_feature_program_lowerer_v1_tests.rs` exits exactly two bars after the second pivot,
 and neither when the second high is lower nor when the two cells are put back to their seeds before
 every bar.
+
+`g2` and `g3` are one bullish fair value gap program with two and three slots, and the second programs
+built and run as Wasm. A gap forms when the daily low is above the high two bars back and is cleared
+by the bar whose low reaches its upper edge, which is the entry. Each slot is three fixed-point
+strategy state cells kept newest first, rebuilt every bar as the new gap followed by the gaps that
+survived, so a new gap replaces the oldest only when every slot is open. The template's default frame
+enters; these hold by default, so the branch's entry is the only one. They differ only in the slot
+count, and so in their Designs' state bytes:
+`a_fair_value_gap_program_evicts_the_oldest_gap_only_when_its_slots_are_full`, next to the divergence
+proof, forms three gaps and enters on the bar that trades into the first gap's interval only with
+three slots.
 
 ## Regenerating
 

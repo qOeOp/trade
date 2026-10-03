@@ -2903,7 +2903,6 @@ dependencies = [
  "indexmap",
  "jiff",
  "log",
- "rstest",
  "rust_decimal",
  "rust_decimal_macros",
  "serde",

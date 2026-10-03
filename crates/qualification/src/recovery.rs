@@ -1691,7 +1691,14 @@ mod tests {
         assert!(strict_json(b"{\"a\":1}\n").is_ok());
     }
 
+    /// Recomputes the sealed canonical vector from the bound evidence session resource. It
+    /// cannot pass anywhere, for the reason
+    /// `isolated_postgres_recovery_is_atomic_fail_closed_and_replay_safe` states: the resource is
+    /// gone and [`verify_evidence`] accepts no other path and no other bytes. It stays as the
+    /// record of what the recomputation checks. The other tests in this module do not read the
+    /// resource and run in the workspace test job.
     #[rstest]
+    #[ignore = "unrunnable: the bound evidence session resource no longer exists and no substitute can satisfy its pinned line hashes"]
     fn frozen_evidence_recomputes_exact_canonical_vector() {
         let evidence = verify_evidence(Path::new(EVIDENCE_SESSION_RESOURCE)).unwrap();
         assert_eq!(

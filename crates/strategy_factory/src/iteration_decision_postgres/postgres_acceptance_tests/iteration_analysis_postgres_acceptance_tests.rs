@@ -582,8 +582,7 @@ async fn analysis_request_completion_resolve_restart_and_tamper_are_atomic() {
     let candidate_identity = format!("analysis-candidate-{suffix}");
     let candidate_set: TrialFamilyCandidateSetProposalV2 =
         serde_json::from_value(serde_json::json!({
-            "generation_rule_identity": format!("analysis-generation-rule-{suffix}"),
-            "generation_rule_digest": digest('c'),
+            "generation_rule": {"single_dimensions": ["RETURN_MECHANISM"], "finite_joints": []},
             "expected_cardinality": 1,
             "candidates": [{
                 "candidate_identity": candidate_identity,
@@ -771,18 +770,26 @@ async fn analysis_request_completion_resolve_restart_and_tamper_are_atomic() {
     .execute(product_edge_pool)
     .await
     .expect("tamper Analysis Product Edge admission digest");
-    assert!(matches!(
-        resolve_iteration_analysis_completion_v1(&restarted, completion_locator.clone()).await,
-        Err(IterationAnalysisRequestErrorV1::Unavailable(_))
-    ));
-    sqlx::query(
-        "UPDATE product_edge_request_admissions_v1 SET admission_digest=$1 WHERE request_identity=$2",
+    vibe_testkit::postgres::restore_after_checks(
+        async {
+            assert!(matches!(
+                resolve_iteration_analysis_completion_v1(&restarted, completion_locator.clone())
+                    .await,
+                Err(IterationAnalysisRequestErrorV1::Unavailable(_))
+            ));
+        },
+        async {
+            sqlx::query(
+                "UPDATE product_edge_request_admissions_v1 SET admission_digest=$1 WHERE request_identity=$2",
+            )
+            .bind(original_admission_digest)
+            .bind(&proposal.analysis_request_identity)
+            .execute(product_edge_pool)
+            .await
+            .expect("restore Analysis Product Edge admission digest");
+        },
     )
-    .bind(original_admission_digest)
-    .bind(&proposal.analysis_request_identity)
-    .execute(product_edge_pool)
-    .await
-    .expect("restore Analysis Product Edge admission digest");
+    .await;
     assert_eq!(
         resolve_iteration_analysis_completion_v1(&restarted, completion_locator)
             .await

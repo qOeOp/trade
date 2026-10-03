@@ -1314,15 +1314,23 @@ REVOKE ALL ON TABLE
   public.rd_trial_family_members_v1,
   public.rd_successor_research_intents_v1
 FROM market_data_owner, market_data_reader;
--- Only a build with `sealed-source-intake-composer-acceptance` materializes this relation, so it
--- is granted when present. Its migration grants nothing: materialization verifies every public
--- relation with no runtime reader yet, and runtime readers arrive at cutover, as the grant above does.
--- It stays outside that grant and its matching revoke: `scripts/check/authority.bash` reads the pair
--- as one statement each, and this one is conditional. Unlike those tables it needs no matching
--- revoke from market_data_owner or market_data_reader: nothing grants it to either. In a deployed
--- database the switch is unset and the table never exists, so this block does nothing there.
+-- The composer-backed Replay's view transitions, which an image built with `composer-v3-replay`
+-- verifies at startup and writes. `--materialize-schema` creates the table only before cutover: its
+-- migration needs the pre-cutover phase, so a database materialized by an image without that feature,
+-- or cut over since, could never gain it, and an image with the feature would then refuse to start
+-- (measured 2026-10-03 on a cut-over database). It is therefore created here when absent, exactly as
+-- `migrate_composer_research_view_transitions_v3` creates it, then owned, revoked and granted to its
+-- runtime reader, which arrives at cutover. Every statement is idempotent, so a second run changes
+-- nothing. It stays outside the grant and revoke pair above, which `scripts/check/authority.bash`
+-- reads as one statement each; nothing grants it to market_data_owner or market_data_reader.
 DO $view_transitions_v3$ BEGIN
+  IF pg_catalog.to_regclass('public.rd_research_view_transitions_v3') IS NULL
+     AND pg_catalog.to_regclass('public.rd_sealed_exploratory_replay_requests_v1') IS NOT NULL THEN
+    CREATE TABLE public.rd_research_view_transitions_v3 (replay_request_identity TEXT PRIMARY KEY REFERENCES public.rd_sealed_exploratory_replay_requests_v1(request_identity), research_request_identity TEXT NOT NULL, intent_identity TEXT NOT NULL, transition_digest TEXT NOT NULL UNIQUE, old_view_json JSONB NOT NULL, new_view_json JSONB NOT NULL, transition_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL);
+  END IF;
   IF pg_catalog.to_regclass('public.rd_research_view_transitions_v3') IS NOT NULL THEN
+    ALTER TABLE public.rd_research_view_transitions_v3 OWNER TO rd_owner;
+    REVOKE ALL ON TABLE public.rd_research_view_transitions_v3 FROM PUBLIC, product_edge_owner, operator_authorization_writer, qualification_owner, qualification_writer;
     GRANT SELECT ON TABLE public.rd_research_view_transitions_v3 TO rd_exploratory_replay_api_owner;
   END IF;
 END $view_transitions_v3$;
@@ -2212,6 +2220,17 @@ CREATE TABLE IF NOT EXISTS public.qualification_public_status_facts_v1 (
   committed_at_epoch_ms BIGINT NOT NULL CHECK (committed_at_epoch_ms >= 0),
   UNIQUE (review_request_identity, phase_sequence)
 );
+-- One row per step of a principal/scope protected-feedback history's generation, each naming the
+-- public status phase fact that advanced it; the head's source_sequence is the latest step. The
+-- history is keyed by principal_scope_key and has no foreign key to its head, which tests remove.
+CREATE TABLE IF NOT EXISTS public.qualification_protected_feedback_generations_v1 (
+  principal_scope_key TEXT NOT NULL,
+  generation BIGINT NOT NULL CHECK (generation >= 1),
+  status_fact_identity TEXT NOT NULL UNIQUE REFERENCES public.qualification_public_status_facts_v1(fact_identity) DEFERRABLE INITIALLY DEFERRED,
+  status_fact_digest TEXT NOT NULL,
+  committed_at_epoch_ms BIGINT NOT NULL CHECK (committed_at_epoch_ms >= 0),
+  PRIMARY KEY (principal_scope_key, generation)
+);
 ALTER TABLE public.qualification_public_status_facts_v1
   DROP CONSTRAINT IF EXISTS qualification_public_status_facts_v1_status_check;
 ALTER TABLE public.qualification_public_status_facts_v1
@@ -2424,6 +2443,7 @@ ALTER TABLE public.qualification_protected_feedback_projections_v1 OWNER TO qual
 ALTER TABLE public.qualification_protected_feedback_heads_v1 OWNER TO qualification_owner;
 ALTER TABLE public.qualification_candidate_intake_receipts_v1 OWNER TO qualification_owner;
 ALTER TABLE public.qualification_public_status_facts_v1 OWNER TO qualification_owner;
+ALTER TABLE public.qualification_protected_feedback_generations_v1 OWNER TO qualification_owner;
 ALTER TABLE public.qualification_public_status_heads_v1 OWNER TO qualification_owner;
 ALTER TABLE public.qualification_holdout_reservations_v1 OWNER TO qualification_owner;
 ALTER TABLE public.qualification_holdout_treatment_registrations_v1 OWNER TO qualification_owner;
@@ -2441,9 +2461,10 @@ ALTER TABLE public.qualification_protected_attempt_disposition_receipts_v2 OWNER
 ALTER TABLE public.qualification_holdout_closures_v1 OWNER TO qualification_owner;
 ALTER TABLE public.qualification_protected_attempt_disposition_receipts_v1 OWNER TO qualification_owner;
 ALTER TABLE public.qualification_owner_outbox_v1 OWNER TO qualification_owner;
-REVOKE ALL ON TABLE public.qualification_protected_feedback_projections_v1, public.qualification_protected_feedback_heads_v1, public.qualification_candidate_intake_receipts_v1, public.qualification_public_status_facts_v1, public.qualification_public_status_heads_v1, public.qualification_holdout_reservations_v1, public.qualification_holdout_treatment_registrations_v1, public.qualification_protected_replay_requests_v1, public.qualification_protected_replay_request_receipts_v1, public.qualification_protected_replay_request_sets_v1, public.qualification_protected_economic_policy_bundles_v1, public.qualification_protected_attempt_dispositions_v1, public.qualification_protected_robustness_assessments_v1, public.qualification_eligibility_facts_v1, public.qualification_eligibility_fact_receipts_v1, public.qualification_protected_attempt_dispositions_v2, public.qualification_holdout_closures_v1, public.qualification_holdout_closures_v2, public.qualification_protected_attempt_disposition_receipts_v1, public.qualification_protected_attempt_disposition_receipts_v2, public.qualification_owner_outbox_v1 FROM PUBLIC, rd_owner, backtest_owner, product_edge_owner, operator_authorization_writer;
+REVOKE ALL ON TABLE public.qualification_protected_feedback_projections_v1, public.qualification_protected_feedback_heads_v1, public.qualification_candidate_intake_receipts_v1, public.qualification_public_status_facts_v1, public.qualification_public_status_heads_v1, public.qualification_holdout_reservations_v1, public.qualification_holdout_treatment_registrations_v1, public.qualification_protected_replay_requests_v1, public.qualification_protected_replay_request_receipts_v1, public.qualification_protected_replay_request_sets_v1, public.qualification_protected_economic_policy_bundles_v1, public.qualification_protected_attempt_dispositions_v1, public.qualification_protected_robustness_assessments_v1, public.qualification_eligibility_facts_v1, public.qualification_eligibility_fact_receipts_v1, public.qualification_protected_attempt_dispositions_v2, public.qualification_holdout_closures_v1, public.qualification_holdout_closures_v2, public.qualification_protected_attempt_disposition_receipts_v1, public.qualification_protected_attempt_disposition_receipts_v2, public.qualification_owner_outbox_v1, public.qualification_protected_feedback_generations_v1 FROM PUBLIC, rd_owner, backtest_owner, product_edge_owner, operator_authorization_writer;
 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.qualification_protected_feedback_projections_v1, public.qualification_protected_feedback_heads_v1, public.qualification_candidate_intake_receipts_v1, public.qualification_holdout_reservations_v1, public.qualification_protected_replay_requests_v1, public.qualification_protected_replay_request_receipts_v1, public.qualification_owner_outbox_v1 TO qualification_writer;
 GRANT SELECT, INSERT ON TABLE public.qualification_public_status_facts_v1 TO qualification_writer;
+GRANT SELECT, INSERT ON TABLE public.qualification_protected_feedback_generations_v1 TO qualification_writer;
 GRANT SELECT, INSERT, UPDATE ON TABLE public.qualification_public_status_heads_v1 TO qualification_writer;
 GRANT SELECT, INSERT ON TABLE public.qualification_protected_replay_request_sets_v1, public.qualification_protected_economic_policy_bundles_v1, public.qualification_protected_attempt_dispositions_v1, public.qualification_holdout_closures_v1, public.qualification_protected_attempt_disposition_receipts_v1 TO qualification_writer;
 GRANT SELECT, INSERT ON TABLE public.qualification_protected_robustness_assessments_v1, public.qualification_eligibility_facts_v1, public.qualification_eligibility_fact_receipts_v1, public.qualification_protected_attempt_dispositions_v2, public.qualification_holdout_closures_v2, public.qualification_protected_attempt_disposition_receipts_v2 TO qualification_writer;
@@ -2722,6 +2743,21 @@ BEGIN
         WHERE projection.principal = requested_principal
           AND projection.request_scope_json = requested_request_scope
       )
+    ), '[]'::jsonb),
+    'generations', COALESCE((
+      SELECT pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object(
+        'principal_scope_key', step.principal_scope_key,
+        'generation', step.generation,
+        'status_fact_identity', step.status_fact_identity,
+        'status_fact_digest', step.status_fact_digest,
+        'committed_at_epoch_ms', step.committed_at_epoch_ms,
+        'fact_digest', fact.fact_digest,
+        'fact_source_frontier_identity', fact.source_frontier_identity
+      ) ORDER BY step.generation)
+      FROM public.qualification_protected_feedback_generations_v1 step
+      LEFT JOIN public.qualification_public_status_facts_v1 fact
+        ON fact.fact_identity = step.status_fact_identity
+      WHERE step.principal_scope_key = requested_principal_scope_key
     ), '[]'::jsonb)
   );
 END
@@ -2729,6 +2765,66 @@ $function$;
 ALTER FUNCTION qualification_api.lock_projection_for_basis_v1(text,text,text,text,jsonb,text) OWNER TO qualification_owner;
 REVOKE ALL ON FUNCTION qualification_api.lock_projection_for_basis_v1(text,text,text,text,jsonb,text) FROM PUBLIC, product_edge_owner, operator_authorization_writer;
 GRANT EXECUTE ON FUNCTION qualification_api.lock_projection_for_basis_v1(text,text,text,text,jsonb,text) TO rd_owner, qualification_writer;
+
+-- The current protected-feedback generation of the history a frozen projection belongs to, for a
+-- caller past that projection's validity window: it neither checks the window nor writes, and it
+-- holds the history's head FOR SHARE in the caller's read-committed transaction. NULL under
+-- another isolation level; found=false when the projection or its head is absent.
+CREATE OR REPLACE FUNCTION qualification_api.read_protected_feedback_generation_v1(
+  requested_projection_identity text
+)
+RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp
+AS $function$
+DECLARE
+  head_row public.qualification_protected_feedback_heads_v1%ROWTYPE;
+BEGIN
+  IF pg_catalog.current_setting('transaction_isolation') <> 'read committed' THEN RETURN NULL; END IF;
+
+  SELECT head.* INTO head_row
+  FROM public.qualification_protected_feedback_projections_v1 projection
+  JOIN public.qualification_protected_feedback_heads_v1 head
+    ON head.principal = projection.principal
+   AND head.request_scope_json = projection.request_scope_json
+  WHERE projection.projection_identity = requested_projection_identity
+  FOR SHARE OF head;
+
+  IF NOT FOUND THEN
+    RETURN pg_catalog.jsonb_build_object(
+      'schema_version', 1,
+      'projection_identity', requested_projection_identity,
+      'found', false,
+      'principal_scope_key', NULL,
+      'source_sequence', NULL,
+      'source_cut', NULL,
+      'logged_steps', NULL,
+      'latest_logged_step', NULL
+    );
+  END IF;
+
+  RETURN pg_catalog.jsonb_build_object(
+    'schema_version', 1,
+    'projection_identity', requested_projection_identity,
+    'found', true,
+    'principal_scope_key', head_row.principal_scope_key,
+    'source_sequence', head_row.source_sequence,
+    'source_cut', head_row.source_cut,
+    'logged_steps', (
+      SELECT pg_catalog.count(*)
+      FROM public.qualification_protected_feedback_generations_v1 step
+      WHERE step.principal_scope_key = head_row.principal_scope_key
+    ),
+    'latest_logged_step', (
+      SELECT COALESCE(pg_catalog.max(step.generation), 0)
+      FROM public.qualification_protected_feedback_generations_v1 step
+      WHERE step.principal_scope_key = head_row.principal_scope_key
+    )
+  );
+END
+$function$;
+ALTER FUNCTION qualification_api.read_protected_feedback_generation_v1(text) OWNER TO qualification_owner;
+REVOKE ALL ON FUNCTION qualification_api.read_protected_feedback_generation_v1(text) FROM PUBLIC, product_edge_owner, operator_authorization_writer, backtest_owner, qualification_writer;
+GRANT EXECUTE ON FUNCTION qualification_api.read_protected_feedback_generation_v1(text) TO rd_owner;
 
 CREATE OR REPLACE FUNCTION qualification_api.canonical_json_text_v1(value jsonb)
 RETURNS text LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE SECURITY DEFINER

@@ -211,7 +211,11 @@ pub fn seal_instrument_economic_terms_provenance_v1(
     let provenance = seal_target_set_member_instrument_economic_terms_provenance_v1(
         readback, economic, context,
     )?;
-    let expected = &economic.input().instrument_terms;
+    // Only a schema 1 configuration pins a primary instrument to compare against.
+    let Some(expected) = economic.input().instrument_terms.as_ref() else {
+        return Err(ReplayExecutionProfileBindingErrorV1::InstrumentTermsProvenanceMismatch);
+    };
+
     if provenance.instrument_identity != expected.instrument_identity
         || provenance.instrument_fact_digest != expected.instrument_fact_digest
         || provenance.instrument_receipt_digest != expected.instrument_receipt_digest
@@ -442,25 +446,8 @@ impl OwnerIssuedReplayExecutionProfileBindingV1 {
         &self,
         readbacks: &[&InstrumentEconomicTermsReadbackV1],
     ) -> bool {
-        readbacks.len() == self.execution_profile_binding.instrument_terms.len()
-            && readbacks.iter().all(|readback| readback.verify())
-            && self
-                .execution_profile_binding
-                .instrument_terms
-                .iter()
-                .all(|bound| {
-                    readbacks
-                        .iter()
-                        .filter(|readback| {
-                            let input = readback.fact().input();
-                            input.instrument_identity == bound.instrument_identity
-                                && input.instrument_public_fact_digest
-                                    == bound.instrument_fact_digest
-                                && readback.receipt_identity() == bound.instrument_receipt_digest
-                        })
-                        .count()
-                        == 1
-                })
+        self.execution_profile_binding
+            .matches_instrument_terms_readbacks(readbacks)
     }
 }
 
@@ -701,8 +688,16 @@ pub(crate) fn owner_replay_execution_profile_binding_fixture_v1(
         };
     economic_input.starting_balance_currency = "USD".into();
     economic_input.common_quote_currency = "USD".into();
-    economic_input.instrument_terms.instrument_identity = "AAPL".into();
-    economic_input.instrument_terms.quote_currency = "USD".into();
+    economic_input
+        .instrument_terms
+        .as_mut()
+        .expect("the schema 1 fixture pins its terms")
+        .instrument_identity = "AAPL".into();
+    economic_input
+        .instrument_terms
+        .as_mut()
+        .expect("the schema 1 fixture pins its terms")
+        .quote_currency = "USD".into();
     let economic = ReplayEconomicConfigurationV1::seal(economic_input).expect("economic fixture");
     let runner = ReplayRunnerOperationalProfileV1::seal(runner_fixture()).expect("runner fixture");
     let execution_policy = ReplayExecutionPolicyV2 {
@@ -844,7 +839,11 @@ pub(crate) fn owner_replay_execution_profile_binding_fixture_v1(
     let request =
         issue_sealed_exploratory_replay_readback_with_profiles_for_acceptance_v2(request, &family)
             .expect("sealed Replay Owner fixture");
-    let terms = &economic.input().instrument_terms;
+    let terms = economic
+        .input()
+        .instrument_terms
+        .as_ref()
+        .expect("the schema 1 fixture pins its terms");
     // One set of terms per member of the frame, in the frame's order. The first member carries the
     // economic configuration's own fact and receipt digests, each later one digests of its own.
     let provenance = BoundedMembers::new(
@@ -915,6 +914,30 @@ impl ReplayExecutionProfileBindingV1 {
         &self.instrument_terms
     }
 
+    /// Whether `readbacks` are exactly the Instrument Owner terms this binding recorded: one
+    /// verified readback per bound member, for its instrument, public fact and receipt. The terms
+    /// were recorded as the Owner resolved them when the binding was issued, so a consumer that
+    /// resolves them again meets the same facts or refuses.
+    pub(crate) fn matches_instrument_terms_readbacks(
+        &self,
+        readbacks: &[&InstrumentEconomicTermsReadbackV1],
+    ) -> bool {
+        readbacks.len() == self.instrument_terms.len()
+            && readbacks.iter().all(|readback| readback.verify())
+            && self.instrument_terms.iter().all(|bound| {
+                readbacks
+                    .iter()
+                    .filter(|readback| {
+                        let input = readback.fact().input();
+                        input.instrument_identity == bound.instrument_identity
+                            && input.instrument_public_fact_digest == bound.instrument_fact_digest
+                            && readback.receipt_identity() == bound.instrument_receipt_digest
+                    })
+                    .count()
+                    == 1
+            })
+    }
+
     pub(crate) fn into_instrument_terms(self) -> BoundedMembers<BoundInstrumentEconomicTermsV1> {
         self.instrument_terms
     }
@@ -972,14 +995,21 @@ pub fn bind_replay_execution_profiles_v1(
     let instrument_context = BoundedMembers::new(instrument_context)
         .map_err(|_| ReplayExecutionProfileBindingErrorV1::InstrumentTermsProvenanceMismatch)?;
     let first = &instrument_context[0];
+    // A schema 1 configuration pins one instrument's terms, and exactly one member must be it. A
+    // schema 2 configuration pins none: every member's terms are the ones the Instrument Owner
+    // resolved for this request's members and window, which the provenance records and a consumer
+    // resolves again before it runs anything.
+    let pinned_members = economic.input().instrument_terms.as_ref().map(|pinned| {
+        instrument_context
+            .iter()
+            .filter(|terms| terms_match_profile_primary(terms, pinned).unwrap_or(false))
+            .count()
+    });
+
     if instrument_context
         .windows(2)
         .any(|pair| pair[0].instrument_identity == pair[1].instrument_identity)
-        || instrument_context
-            .iter()
-            .filter(|terms| terms_match_profile_primary(terms, economic).unwrap_or(false))
-            .count()
-            != 1
+        || pinned_members.is_some_and(|count| count != 1)
         || instrument_context.iter().any(|terms| {
             terms.venue_identity != first.venue_identity
                 || terms.quote_currency != first.quote_currency
@@ -1024,9 +1054,8 @@ pub fn bind_replay_execution_profiles_v1(
 
 fn terms_match_profile_primary(
     terms: &BoundInstrumentEconomicTermsV1,
-    economic: &ReplayEconomicConfigurationV1,
+    expected: &InstrumentEconomicTermsBindingV1,
 ) -> Result<bool, ReplayExecutionProfileBindingErrorV1> {
-    let expected = &economic.input().instrument_terms;
     Ok(terms.instrument_identity == expected.instrument_identity
         && terms.instrument_fact_digest == expected.instrument_fact_digest
         && terms.instrument_receipt_digest == expected.instrument_receipt_digest
@@ -1241,7 +1270,11 @@ fn instrument_terms_digest(
 pub(crate) fn instrument_terms_provenance_fixture_v1(
     economic: &ReplayEconomicConfigurationV1,
 ) -> BoundedMembers<SealedInstrumentEconomicTermsProvenanceV1> {
-    let terms = &economic.input().instrument_terms;
+    let terms = economic
+        .input()
+        .instrument_terms
+        .as_ref()
+        .expect("the schema 1 fixture pins its terms");
     BoundedMembers::try_from([
         instrument_terms_provenance_for_fixture(
             economic,
@@ -1278,7 +1311,7 @@ pub(crate) fn instrument_terms_provenance_fixture_v1(
     clippy::too_many_arguments,
     reason = "the fixture names every independent sealed Instrument Owner provenance field"
 )]
-fn instrument_terms_provenance_for_fixture(
+pub(crate) fn instrument_terms_provenance_for_fixture(
     economic: &ReplayEconomicConfigurationV1,
     instrument_identity: String,
     instrument_fact_digest: [u8; 32],
@@ -1291,10 +1324,11 @@ fn instrument_terms_provenance_for_fixture(
     valid_from_ns: i128,
     valid_until_ns_exclusive: i128,
 ) -> SealedInstrumentEconomicTermsProvenanceV1 {
-    let profile_terms = &economic.input().instrument_terms;
+    // Schema 1 validation makes the pinned terms' quote currency the common one, so this is the
+    // same value under either schema.
     let terms = InstrumentEconomicTermsBindingV1 {
         instrument_identity: instrument_identity.clone(),
-        quote_currency: profile_terms.quote_currency.clone(),
+        quote_currency: economic.input().common_quote_currency.clone(),
         instrument_fact_digest,
         instrument_receipt_digest,
         maker_fee,
@@ -1375,7 +1409,9 @@ fn hex_nibble(value: u8) -> Result<u8, ReplayExecutionProfileBindingErrorV1> {
 mod tests {
     use super::*;
     use crate::{
-        replay_economic_configuration_v1::{ReplayEconomicConfigurationV1, economic_fixture},
+        replay_economic_configuration_v1::{
+            ReplayEconomicConfigurationV1, economic_fixture, economic_fixture_v2,
+        },
         replay_runner_operational_profile_v1::{ReplayRunnerOperationalProfileV1, runner_fixture},
     };
     use rstest::rstest;
@@ -1567,14 +1603,36 @@ mod tests {
             economic
                 .input()
                 .instrument_terms
+                .as_ref()
+                .expect("the schema 1 fixture pins its terms")
                 .instrument_identity
                 .clone(),
             [21; 32],
             [22; 32],
-            economic.input().instrument_terms.maker_fee,
-            economic.input().instrument_terms.taker_fee,
-            economic.input().instrument_terms.initial_margin,
-            economic.input().instrument_terms.maintenance_margin,
+            economic
+                .input()
+                .instrument_terms
+                .as_ref()
+                .expect("the schema 1 fixture pins its terms")
+                .maker_fee,
+            economic
+                .input()
+                .instrument_terms
+                .as_ref()
+                .expect("the schema 1 fixture pins its terms")
+                .taker_fee,
+            economic
+                .input()
+                .instrument_terms
+                .as_ref()
+                .expect("the schema 1 fixture pins its terms")
+                .initial_margin,
+            economic
+                .input()
+                .instrument_terms
+                .as_ref()
+                .expect("the schema 1 fixture pins its terms")
+                .maintenance_margin,
             "SIM-001",
             0,
             i128::MAX,
@@ -1643,7 +1701,11 @@ mod tests {
         .unwrap();
         let readback = owner.issue(&fact).await.unwrap();
         let mut economic_input = economic_fixture();
-        economic_input.instrument_terms.instrument_receipt_digest = readback.receipt_identity();
+        economic_input
+            .instrument_terms
+            .as_mut()
+            .expect("the schema 1 fixture pins its terms")
+            .instrument_receipt_digest = readback.receipt_identity();
         let economic = ReplayEconomicConfigurationV1::seal(economic_input).unwrap();
         let runner = ReplayRunnerOperationalProfileV1::seal(runner_fixture()).unwrap();
         let family = ReplayExecutionProfileFamilyBindingV1 {
@@ -1693,6 +1755,157 @@ mod tests {
                 Err(ReplayExecutionProfileBindingErrorV1::InstrumentTermsProvenanceMismatch)
             ));
         }
+
+        // Schema 2 pins no instrument: the binding takes the terms the Owner resolved, records
+        // exactly them, and a consumer meeting any other terms refuses.
+        let economic_v2 = ReplayEconomicConfigurationV1::seal(economic_fixture_v2("SIM")).unwrap();
+        let bind_v2 = |terms: SealedInstrumentEconomicTermsProvenanceV1| {
+            let family = ReplayExecutionProfileFamilyBindingV1 {
+                schema_version: 1,
+                trial_family_identity: "trial-family-schema-2".into(),
+                trial_family_digest: [5; 32],
+                economic_configuration_digest: economic_v2.digest(),
+                runner_operational_profile_digest: runner.digest(),
+            };
+            let request = ReplayExecutionProfileRequestBindingV1 {
+                schema_version: 1,
+                request_identity: "request-schema-2".into(),
+                request_meaning_digest: [6; 32],
+                trial_family_identity: family.trial_family_identity.clone(),
+                trial_family_digest: family.trial_family_digest,
+                economic_configuration_digest: economic_v2.digest(),
+                runner_operational_profile_digest: runner.digest(),
+            };
+            bind_replay_execution_profiles_v1(
+                &family,
+                &request,
+                &economic_v2,
+                &runner,
+                BoundedMembers::new(vec![terms]).unwrap(),
+            )
+        };
+        let decimal = |value: InstrumentEconomicDecimalV1| (value.mantissa, value.scale);
+        let recorded = |bound: &BoundInstrumentEconomicTermsV1| {
+            (
+                bound.instrument_identity.clone(),
+                bound.instrument_fact_digest,
+                bound.instrument_receipt_digest,
+                [
+                    (bound.maker_fee.mantissa, bound.maker_fee.scale),
+                    (bound.taker_fee.mantissa, bound.taker_fee.scale),
+                    (bound.initial_margin.mantissa, bound.initial_margin.scale),
+                    (
+                        bound.maintenance_margin.mantissa,
+                        bound.maintenance_margin.scale,
+                    ),
+                ],
+            )
+        };
+        let resolved = |readback: &InstrumentEconomicTermsReadbackV1| {
+            let input = readback.fact().input();
+            (
+                input.instrument_identity.clone(),
+                input.instrument_public_fact_digest,
+                readback.receipt_identity(),
+                [
+                    decimal(input.maker_fee),
+                    decimal(input.taker_fee),
+                    decimal(input.initial_margin),
+                    decimal(input.maintenance_margin),
+                ],
+            )
+        };
+        let eth = bind_v2(
+            seal_target_set_member_instrument_economic_terms_provenance_v1(
+                &readback,
+                &economic_v2,
+                context,
+            )
+            .unwrap(),
+        )
+        .expect("schema 2 binds the terms the Owner resolved, with no instrument pinned");
+        assert_eq!(recorded(&eth.instrument_terms()[0]), resolved(&readback));
+        assert!(eth.matches_instrument_terms_readbacks(&[&readback]));
+
+        // Other terms for the same instrument, under another account scope and taker fee, are
+        // another fact with another receipt: a consumer resolving them does not meet the binding.
+        let repriced = owner
+            .issue(
+                &InstrumentEconomicTermsFactV1::seal(InstrumentEconomicTermsInputV1 {
+                    account_scope_identity: "SIM-002".into(),
+                    taker_fee: InstrumentEconomicDecimalV1 {
+                        mantissa: 5,
+                        scale: 4,
+                    },
+                    ..readback.fact().input().clone()
+                })
+                .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert!(!eth.matches_instrument_terms_readbacks(&[&repriced]));
+
+        // Another instrument binds under the same configuration, which names none. Schema 1, which
+        // pins ETHUSDT-PERP, still refuses it as a lone member.
+        let btc = owner
+            .issue(
+                &InstrumentEconomicTermsFactV1::seal(InstrumentEconomicTermsInputV1 {
+                    instrument_identity: "BTCUSDT-PERP".into(),
+                    instrument_public_fact_digest: [7; 32],
+                    maker_fee: InstrumentEconomicDecimalV1 {
+                        mantissa: 1,
+                        scale: 4,
+                    },
+                    ..readback.fact().input().clone()
+                })
+                .unwrap(),
+            )
+            .await
+            .unwrap();
+        let btc_bound = bind_v2(
+            seal_target_set_member_instrument_economic_terms_provenance_v1(
+                &btc,
+                &economic_v2,
+                context,
+            )
+            .unwrap(),
+        )
+        .expect("schema 2 binds another instrument's resolved terms");
+        assert_eq!(recorded(&btc_bound.instrument_terms()[0]), resolved(&btc));
+        assert_eq!(
+            bind_replay_execution_profiles_v1(
+                &family,
+                &request,
+                &economic,
+                &runner,
+                BoundedMembers::new(vec![
+                    seal_target_set_member_instrument_economic_terms_provenance_v1(
+                        &btc, &economic, context,
+                    )
+                    .unwrap()
+                ])
+                .unwrap(),
+            ),
+            Err(ReplayExecutionProfileBindingErrorV1::InstrumentTermsProvenanceMismatch)
+        );
+
+        // Pinning nothing does not widen the venue: terms at a venue the configuration does not
+        // name are still refused before any provenance exists.
+        let economic_elsewhere =
+            ReplayEconomicConfigurationV1::seal(economic_fixture_v2("BINANCE")).unwrap();
+        for venue_identity in ["BINANCE", "SIM"] {
+            assert!(matches!(
+                seal_target_set_member_instrument_economic_terms_provenance_v1(
+                    &readback,
+                    &economic_elsewhere,
+                    InstrumentEconomicTermsConsumptionContextV1 {
+                        venue_identity,
+                        ..context
+                    },
+                ),
+                Err(ReplayExecutionProfileBindingErrorV1::InstrumentTermsProvenanceMismatch)
+            ));
+        }
     }
 
     /// The execution-profile binding digest over two members, pinned from the pre-widening tree.
@@ -1735,7 +1948,12 @@ mod tests {
         assert_eq!(one.instrument_terms().len(), 1);
         assert_eq!(
             one.instrument_terms()[0].instrument_identity,
-            economic.input().instrument_terms.instrument_identity
+            economic
+                .input()
+                .instrument_terms
+                .as_ref()
+                .expect("the schema 1 fixture pins its terms")
+                .instrument_identity
         );
         assert_ne!(one.binding_digest(), two.binding_digest());
 

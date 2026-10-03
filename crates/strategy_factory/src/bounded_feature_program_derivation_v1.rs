@@ -628,6 +628,8 @@ mod tests {
     #[case::w1("w1", "w1")]
     #[case::w2("w2", "w2")]
     #[case::d1("d1", "d1")]
+    #[case::g2("g2", "g2")]
+    #[case::g3("g3", "g3")]
     fn every_authored_declaration_reassembles(#[case] program: &str, #[case] design_name: &str) {
         let design: StrategyDesignV2 = serde_json::from_str(
             &std::fs::read_to_string(format!("{CORPUS}{design_name}-design.json"))
@@ -730,6 +732,159 @@ mod tests {
                 input.static_binding_receipt_digest,
                 minted_receipt(minted),
                 "{program}: inputs[{index}] carries a receipt this test did not mint",
+            );
+        }
+
+        assert_measured_shape_is_where_bounds_refuse(program, &design, &derived);
+    }
+
+    /// A lag is measured by the maximum its node declares, not by its offset, because the declared
+    /// maximum is what `max_lag` holds. Every corpus lag declares a maximum equal to its offset,
+    /// so this one widens `d1`'s: measured by offset, the shape would be a bound its own lag node
+    /// exceeds.
+    #[rstest]
+    fn a_lag_is_measured_by_the_maximum_it_declares_not_its_offset() {
+        use crate::bounded_feature_program_v1::{
+            BoundedFeatureParametersV1, measure_bounded_feature_program_shape_v1,
+        };
+
+        let design: StrategyDesignV2 = serde_json::from_str(
+            &std::fs::read_to_string(format!("{CORPUS}d1-design.json")).expect("d1's Design"),
+        )
+        .expect("a corpus Design parses");
+        let declared: BoundedFeatureProgramMeaningV1 = serde_json::from_str(
+            &std::fs::read_to_string(format!("{CORPUS}d1-meaning.json")).expect("d1's meaning"),
+        )
+        .expect("d1's meaning parses");
+        let mut derived = derive_bounded_feature_program_proposal_v1(
+            &design,
+            PrimitiveCatalogV1::verify().expect("a published catalog verifies"),
+            &declared,
+            &minted_bindings(&design),
+        )
+        .expect("d1 assembles");
+        let mut widened = 0;
+
+        for node in &mut derived.nodes {
+            if let BoundedFeatureParametersV1::Lag {
+                offset,
+                declared_max_lag,
+            } = &mut node.parameters
+            {
+                assert_eq!(
+                    offset, declared_max_lag,
+                    "d1 declares its lag as its offset"
+                );
+                *declared_max_lag += 1;
+                widened += 1;
+            }
+        }
+        assert!(widened > 0, "d1 has a lag node");
+        derived.bounds.max_lag += 1;
+
+        let shape = measure_bounded_feature_program_shape_v1(derived.clone(), &design)
+            .expect("the widened program measures");
+        assert_eq!(shape.lag, 3, "d1's order-2 lag, declared up to 3");
+        assert_measured_shape_is_where_bounds_refuse("d1 widened", &design, &derived);
+    }
+
+    /// A program's measured shape is exactly where its graph bounds refuse it: with every graph
+    /// bound set to the shape it prepares, and with any one of them one below it, it is refused -
+    /// as `Primitive` for a lag or window, which a node's parameters are checked against, and as
+    /// `Bounds` for every other.
+    ///
+    /// The second half is what keeps the measure honest. A shape that undercounted would still sit
+    /// below the program's own bounds and look admissible; set as the bound, it is refused. A zero
+    /// measure has no bound below it, and a bound of zero is refused whatever the program, so a
+    /// lag or window of 0 is set to 1. State bytes are not a graph bound but the size the Design's
+    /// manifest declares, which the program's cells may not exceed.
+    fn assert_measured_shape_is_where_bounds_refuse(
+        program: &str,
+        design: &StrategyDesignV2,
+        derived: &BoundedFeatureProgramProposalV1,
+    ) {
+        use crate::bounded_feature_program_v1::{
+            BoundedFeatureBoundsV1, BoundedFeatureProgramErrorV1,
+            measure_bounded_feature_program_shape_v1,
+        };
+
+        type SetBound = fn(&mut BoundedFeatureBoundsV1, u32);
+
+        let shape = measure_bounded_feature_program_shape_v1(derived.clone(), design)
+            .unwrap_or_else(|e| panic!("{program}: the shape of a program that prepares: {e}"));
+        let dimensions: [(&str, u32, SetBound); 10] = [
+            ("nodes", u32::from(shape.nodes), |b, v| {
+                b.max_nodes = u16::try_from(v).expect("a u16 bound");
+            }),
+            ("edges", u32::from(shape.edges), |b, v| {
+                b.max_edges = u16::try_from(v).expect("a u16 bound");
+            }),
+            ("depth", u32::from(shape.depth), |b, v| {
+                b.max_depth = u16::try_from(v).expect("a u16 bound");
+            }),
+            ("ports", u32::from(shape.ports), |b, v| {
+                b.max_ports = u16::try_from(v).expect("a u16 bound");
+            }),
+            ("constants", u32::from(shape.constants), |b, v| {
+                b.max_constants = u16::try_from(v).expect("a u16 bound");
+            }),
+            ("fan_out", u32::from(shape.fan_out), |b, v| {
+                b.max_fan_out = u16::try_from(v).expect("a u16 bound");
+            }),
+            ("lag", shape.lag, |b, v| b.max_lag = v),
+            ("window", shape.window, |b, v| b.max_window = v),
+            ("state_cells", u32::from(shape.state_cells), |b, v| {
+                b.max_state_cells = u16::try_from(v).expect("a u16 bound");
+            }),
+            (
+                "decision_branches",
+                u32::from(shape.decision_branches),
+                |b, v| {
+                    b.max_decision_branches = u16::try_from(v).expect("a u16 bound");
+                },
+            ),
+        ];
+        // The corpus Designs declare their state size with a margin over their cells - 15, 16 or
+        // 64 bytes, or a flat 4096 - so the cells' sum is only bounded by it, not equal to it.
+        assert!(
+            shape.state_bytes <= derived.bounds.max_state_bytes,
+            "{program}: the cells' {} bytes exceed the {} its Design declares",
+            shape.state_bytes,
+            derived.bounds.max_state_bytes,
+        );
+
+        let mut at_shape = derived.clone();
+        for (_, measured, set) in dimensions {
+            set(&mut at_shape.bounds, measured.max(1));
+        }
+        crate::bounded_feature_program_v1::prepare_bounded_feature_program_v1(
+            at_shape.clone(),
+            design,
+        )
+        .unwrap_or_else(|e| {
+            panic!("{program}: bounds equal to its shape {shape:?} refuse it: {e}")
+        });
+
+        for (name, measured, set) in dimensions {
+            if measured == 0 {
+                continue;
+            }
+            let mut below = at_shape.clone();
+            set(&mut below.bounds, measured - 1);
+            // A lag or window is held to its bound through the node's own parameters, so a bound
+            // below one refuses that node's primitive; every other bound refuses as `Bounds`.
+            let expected = if matches!(name, "lag" | "window") {
+                BoundedFeatureProgramErrorV1::Primitive
+            } else {
+                BoundedFeatureProgramErrorV1::Bounds
+            };
+            assert_eq!(
+                crate::bounded_feature_program_v1::prepare_bounded_feature_program_v1(
+                    below, design
+                )
+                .expect_err("a bound below the shape"),
+                expected,
+                "{program}: {name} one below its measure of {measured}",
             );
         }
     }

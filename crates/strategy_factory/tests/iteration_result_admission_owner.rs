@@ -24,6 +24,18 @@ fn blake(byte: char) -> String {
     format!("blake3:{}", byte.to_string().repeat(64))
 }
 
+/// The digest the Owner computes for one proposal, the only one it admits.
+fn candidate_digest(candidate_identity: &str, dimension: IterationHypothesisDimensionV1) -> String {
+    IterationResultCandidateProposalV1::new(
+        candidate_identity,
+        IterationExperimentModeV1::SingleDimension {
+            changed_dimension: dimension,
+        },
+    )
+    .expect("a well-formed proposal")
+    .candidate_digest
+}
+
 fn request_json() -> serde_json::Value {
     serde_json::json!({
         "locator": {
@@ -35,18 +47,20 @@ fn request_json() -> serde_json::Value {
         "result_digest": blake('3'),
         "request_meaning_digest": blake('2'),
         "proposals": {
-            "generation_rule_identity": "rd-generation-rule-1",
-            "generation_rule_digest": sha('4'),
+            "generation_rule": {
+                "single_dimensions": ["RETURN_MECHANISM", "ENTRY_RULE"],
+                "finite_joints": []
+            },
             "expected_cardinality": 2,
             "proposals": [
                 {
                     "candidate_identity": "candidate-1",
-                    "candidate_digest": sha('1'),
+                    "candidate_digest": candidate_digest("candidate-1", IterationHypothesisDimensionV1::ReturnMechanism),
                     "experiment": {"mode": "SINGLE_DIMENSION", "changed_dimension": "RETURN_MECHANISM"}
                 },
                 {
                     "candidate_identity": "candidate-2",
-                    "candidate_digest": sha('2'),
+                    "candidate_digest": candidate_digest("candidate-2", IterationHypothesisDimensionV1::EntryRule),
                     "experiment": {"mode": "SINGLE_DIMENSION", "changed_dimension": "ENTRY_RULE"}
                 }
             ]
@@ -175,5 +189,11 @@ fn the_locator_alone_carries_no_result_digest_or_proposal_authority() {
         serde_json::from_value(request_json()["proposals"].clone()).expect("proposal set shape");
     let first: &IterationResultCandidateProposalV1 = &proposals.proposals[0];
     assert_eq!(first.candidate_identity, "candidate-1");
-    assert_eq!(first.candidate_digest, sha('1'));
+    assert_eq!(
+        first.candidate_digest,
+        candidate_digest(
+            "candidate-1",
+            IterationHypothesisDimensionV1::ReturnMechanism
+        )
+    );
 }

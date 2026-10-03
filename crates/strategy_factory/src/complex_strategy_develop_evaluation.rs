@@ -1,8 +1,4 @@
 //! R&D-owned pre-Artifact custody for a complex-strategy develop evaluation.
-#![expect(
-    clippy::large_futures,
-    reason = "sealed Develop evaluation keeps one typed transactional cut alive across each awaited Owner read"
-)]
 //!
 //! The public proposal and locator are claims only. A positive readback can only be produced after
 //! the R&D Owner re-admits current research custody and consumes a Market Data Owner-sealed PIT
@@ -21,6 +17,7 @@ use crate::{
     rd_owner_postgres_custody::{
         ResearchCustodyLookupV1, VerifiedResearchCustodyV1, admit_research_custody_in_transaction,
     },
+    research_continuation_v1::ResearchContinuationAuthorizedV1,
 };
 
 const EVENT_KIND: &str = "COMPLEX_STRATEGY_DEVELOP_EVALUATION_FROZEN_V1";
@@ -294,9 +291,9 @@ fn prepare_fact(
     proposal: &UntrustedComplexStrategyDevelopEvaluationProposalV1,
     pit_readback: &PitSnapshotOwnerReadback,
     custody: &VerifiedResearchCustodyV1,
-    read_cut_epoch_ms: Option<u64>,
+    continuation: Option<&ResearchContinuationAuthorizedV1>,
 ) -> Result<DevelopEvaluationFactV1, ComplexStrategyDevelopEvaluationError> {
-    let meaning = prepare_meaning(proposal, pit_readback, custody, read_cut_epoch_ms)?;
+    let meaning = prepare_meaning(proposal, pit_readback, custody, continuation)?;
     let evaluation_digest = digest("rd.develop-evaluation.meaning.v1", &meaning)?;
     let evaluation_identity = identity("rd-develop-evaluation-v1", &evaluation_digest);
     let lineage_identity = stable_lineage_for_custody(custody)?;
@@ -313,12 +310,21 @@ fn prepare_meaning(
     proposal: &UntrustedComplexStrategyDevelopEvaluationProposalV1,
     pit_readback: &PitSnapshotOwnerReadback,
     custody: &VerifiedResearchCustodyV1,
-    read_cut_epoch_ms: Option<u64>,
+    continuation: Option<&ResearchContinuationAuthorizedV1>,
 ) -> Result<DevelopEvaluationMeaningV1, ComplexStrategyDevelopEvaluationError> {
+    // At the commit cut the evaluation continues the frozen Intent under an admission whose
+    // operator authority was proven current there (`research_continuation_v1`); the View's window
+    // is a reader's freshness and bounds nothing here.
+    let continued_under_its_admission = continuation.is_none_or(|continuation| {
+        custody.product_edge_admission().is_some_and(|admission| {
+            admission.locator().admission_identity == continuation.admission_identity()
+        })
+    });
+
     if custody.request_schema_version() != 2
         || custody.receipt().disposition != ResearchRequestDisposition::Accepted
         || custody.receipt().request_identity != proposal.research_request_identity
-        || read_cut_epoch_ms.is_some_and(|cut| !custody.authority_available_at(cut))
+        || !continued_under_its_admission
     {
         return Err(ComplexStrategyDevelopEvaluationError::ResearchCustodyUnavailable);
     }
@@ -337,7 +343,10 @@ fn prepare_meaning(
                 && view.intent_identity == intent.intent_identity()
         })
         .ok_or(ComplexStrategyDevelopEvaluationError::ResearchCustodyUnavailable)?;
-    if read_cut_epoch_ms.is_some_and(|cut| !cut_precedes_expiry(cut, view.valid_through_epoch_ms)) {
+
+    if continuation
+        .is_some_and(|continuation| view.projection_at_epoch_ms > continuation.cut_epoch_ms())
+    {
         return Err(ComplexStrategyDevelopEvaluationError::ResearchCustodyUnavailable);
     }
     let family = custody
@@ -541,7 +550,16 @@ async fn revalidate_at_commit_cut(
     .await
     .map_err(|e| ComplexStrategyDevelopEvaluationError::Storage(e.to_string()))?
     .ok_or(ComplexStrategyDevelopEvaluationError::ResearchCustodyUnavailable)?;
-    let current = prepare_fact(proposal, pit_readback, &custody, Some(cut))?;
+    let continuation = Box::pin(
+        crate::research_continuation_v1::authorize_initial_research_continuation_in_transaction(
+            transaction,
+            &custody,
+            cut,
+        ),
+    )
+    .await
+    .map_err(|_| ComplexStrategyDevelopEvaluationError::ResearchCustodyUnavailable)?;
+    let current = prepare_fact(proposal, pit_readback, &custody, Some(&continuation))?;
     if &current != provisional {
         return Err(ComplexStrategyDevelopEvaluationError::ResearchCustodyUnavailable);
     }
@@ -558,10 +576,6 @@ async fn database_cut_epoch_ms(
     .await
     .map_err(storage)?;
     u64::try_from(cut).map_err(json_storage)
-}
-
-const fn cut_precedes_expiry(cut_epoch_ms: u64, valid_through_epoch_ms: u64) -> bool {
-    cut_epoch_ms < valid_through_epoch_ms
 }
 
 fn stable_lineage_for_custody(
@@ -742,13 +756,6 @@ mod tests {
         let mut changed_pit = original.clone();
         changed_pit.pit_readback_digest = "sha256:changed-pit".into();
         assert!(successor_changes_evidence(&original, &changed_pit));
-    }
-
-    #[rstest]
-    fn post_wait_expired_owner_cut_is_rejected() {
-        assert!(cut_precedes_expiry(99, 100));
-        assert!(!cut_precedes_expiry(100, 100));
-        assert!(!cut_precedes_expiry(101, 100));
     }
 
     #[rstest]

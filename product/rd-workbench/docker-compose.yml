@@ -47,6 +47,8 @@ services:
         ${MARKET_DATA_OWNER_DATABASE_URL:?set MARKET_DATA_OWNER_DATABASE_URL}
       MARKET_DATA_RD_ROLE_SET_DATABASE_URL: >-
         ${MARKET_DATA_RD_ROLE_SET_DATABASE_URL:?set MARKET_DATA_RD_ROLE_SET_DATABASE_URL}
+      INSTRUMENT_OWNER_DATABASE_URL: >-
+        ${INSTRUMENT_OWNER_DATABASE_URL:?set INSTRUMENT_OWNER_DATABASE_URL}
       MARKET_DATA_OBSERVATION_SOURCE: ${MARKET_DATA_OBSERVATION_SOURCE:-}
       DATABENTO_API_KEY: ${DATABENTO_API_KEY:-}
       DATABENTO_PUBLISHERS_PATH: ${DATABENTO_PUBLISHERS_PATH:-}
@@ -57,6 +59,15 @@ services:
       DEPLOYMENT_STORE_ENVIRONMENT_IDENTITY: ${DEPLOYMENT_STORE_ENVIRONMENT_IDENTITY:-}
       DEPLOYMENT_STORE_DEPLOYMENT_IDENTITY: ${DEPLOYMENT_STORE_DEPLOYMENT_IDENTITY:-}
       DEPLOYMENT_STORE_EXPECTED_HEAD_IDENTITY: ${DEPLOYMENT_STORE_EXPECTED_HEAD_IDENTITY:-}
+      # The five production ports, read only in `required` mode. Every value is a name or a file in
+      # /run/deployment-store; no credential reaches this service through its environment.
+      DEPLOYMENT_STORE_ANTI_ROLLBACK_MODE: ${DEPLOYMENT_STORE_ANTI_ROLLBACK_MODE:-}
+      DEPLOYMENT_STORE_SIGNER_IDENTITY: ${DEPLOYMENT_STORE_SIGNER_IDENTITY:-}
+      DEPLOYMENT_STORE_SIGNER_PUBLIC_KEY_PATH: /run/deployment-store/signer-public-key.hex
+      DEPLOYMENT_STORE_LEASED_FILES_DIRECTORY: /run/deployment-store/leased
+      DEPLOYMENT_STORE_LEASE_PERIOD_MS: ${DEPLOYMENT_STORE_LEASE_PERIOD_MS:-}
+      DEPLOYMENT_STORE_POSTGRES_ROOT_CERTIFICATE_PATH: /run/deployment-store/postgres-root.crt
+      DEPLOYMENT_STORE_CUSTODIAN_CONNECTION_FILE: /run/deployment-store/custodian-connection
       QUALIFICATION_OWNER_DATABASE_URL: >-
         ${QUALIFICATION_OWNER_DATABASE_URL:?set QUALIFICATION_OWNER_DATABASE_URL}
       PRODUCT_EDGE_DATABASE_URL: ${PRODUCT_EDGE_DATABASE_URL:?set PRODUCT_EDGE_DATABASE_URL}
@@ -78,6 +89,8 @@ services:
       - 8080
     volumes:
       - sandbox-socket:/run/trade-rd-sandbox:ro
+      # A host directory when DEPLOYMENT_STORE_FILES_DIRECTORY names one, an empty volume otherwise.
+      - ${DEPLOYMENT_STORE_FILES_DIRECTORY:-deployment-store-files}:/run/deployment-store:ro
     healthcheck:
       test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/8080'"]
       interval: 5s
@@ -348,6 +361,90 @@ services:
     security_opt:
       - no-new-privileges:true
 
+  # Deployment Store Admission's administrator side, run by hand in this order (README): turn on the
+  # store's TLS, provision the custody store and the admitted reader, then measure, author and
+  # publish. None of their variables is required to configure the stack: a deployment that sets
+  # none of them starts as before, and each step refuses at run time without what it needs.
+  postgres-tls-install:
+    profiles: ["authority-admin"]
+    image: postgres:16.10-alpine@sha256:029660641a0cfc575b14f336ba448fb8a75fd595d42e1fa316b9fb4378742297
+    restart: "no"
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+    entrypoint: ["/bin/sh", "/opt/trade/30-enable-postgres-tls.sh"]
+    volumes:
+      - ./postgres-init/30-enable-postgres-tls.sh:/opt/trade/30-enable-postgres-tls.sh:ro
+      - postgres-data:/var/lib/postgresql/data
+      - ${POSTGRES_TLS_DIRECTORY:-postgres-tls}:/run/postgres-tls:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  deployment-store-provision:
+    profiles: ["authority-admin"]
+    image: postgres:16.10-alpine@sha256:029660641a0cfc575b14f336ba448fb8a75fd595d42e1fa316b9fb4378742297
+    restart: "no"
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      DEPLOYMENT_STORE_PUBLISHER_DB_PASSWORD: >-
+        ${STORE_CUSTODY_PUBLISHER_DB_PASSWORD:-}
+      DEPLOYMENT_STORE_CUSTODIAN_DB_PASSWORD: >-
+        ${STORE_CUSTODY_CUSTODIAN_DB_PASSWORD:-}
+      MARKET_DATA_ADMITTED_READER_DB_PASSWORD: >-
+        ${MARKET_DATA_ADMITTED_READER_DB_PASSWORD:-}
+    entrypoint:
+      - /bin/sh
+      - -c
+      - sh /opt/trade/20-deployment-store-custody.sh && sh /opt/trade/25-market-data-admitted-reader.sh
+    volumes:
+      - ./postgres-init/20-deployment-store-custody.sh:/opt/trade/20-deployment-store-custody.sh:ro
+      - ./postgres-init/25-market-data-admitted-reader.sh:/opt/trade/25-market-data-admitted-reader.sh:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    security_opt:
+      - no-new-privileges:true
+
+  deployment-store-publication-author:
+    profiles: ["authority-admin"]
+    build:
+      context: ../..
+      dockerfile: product/rd-workbench/Dockerfile.owner
+    restart: "no"
+    entrypoint: ["/usr/local/bin/deployment-store-publication-author"]
+    environment:
+      DEPLOYMENT_STORE_PUBLICATION_DRAFT_PATH: /run/deployment-store-admin/draft.json
+      DEPLOYMENT_STORE_LEASED_FILE_PATH: /run/deployment-store/leased/market-data-admitted-reader
+      DEPLOYMENT_STORE_POSTGRES_ROOT_CERTIFICATE_PATH: /run/deployment-store/postgres-root.crt
+      DEPLOYMENT_STORE_PUBLICATION_AUTHORING_OUTPUT_PATH: /run/deployment-store-admin/authoring.json
+    volumes:
+      - ${DEPLOYMENT_STORE_FILES_DIRECTORY:-deployment-store-files}:/run/deployment-store:ro
+      - ${DEPLOYMENT_STORE_ADMIN_DIRECTORY:-deployment-store-admin}:/run/deployment-store-admin
+    depends_on:
+      postgres:
+        condition: service_healthy
+    security_opt:
+      - no-new-privileges:true
+
+  deployment-store-publication-publish:
+    profiles: ["authority-admin"]
+    build:
+      context: ../..
+      dockerfile: product/rd-workbench/Dockerfile.owner
+    restart: "no"
+    entrypoint: ["/usr/local/bin/deployment-store-publication-publish"]
+    environment:
+      DEPLOYMENT_STORE_SEALED_PUBLICATION_PATH: /run/deployment-store-admin/sealed.json
+      DEPLOYMENT_STORE_PUBLISHER_DATABASE_URL: >-
+        ${STORE_CUSTODY_PUBLISHER_DATABASE_URL:-}
+    volumes:
+      - ${DEPLOYMENT_STORE_ADMIN_DIRECTORY:-deployment-store-admin}:/run/deployment-store-admin:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    security_opt:
+      - no-new-privileges:true
+
   rd-build-sandbox:
     platform: linux/arm64
     build:
@@ -593,3 +690,6 @@ services:
 volumes:
   postgres-data:
   sandbox-socket:
+  deployment-store-files:
+  deployment-store-admin:
+  postgres-tls:

@@ -313,15 +313,31 @@ rm -f "$invalid_base_output"
 rm -rf "$invalid_base_checkout"
 echo "ok: invalid base history fails closed"
 
-# The heavy scanners stay paused on pull requests; only `build` gates them.
-for workflow in \
-  "$repo_root/.github/workflows/codeql-analysis.yml" \
-  "$repo_root/.github/workflows/security-audit.yml"; do
-  if grep -Eq '^[[:space:]]+pull_request:' "$workflow"; then
-    echo "PR CI must remain paused in $workflow" >&2
-    exit 1
-  fi
-done
+# CodeQL stays paused on pull requests; only `build` gates it.
+if grep -Eq '^[[:space:]]+pull_request:' "$repo_root/.github/workflows/codeql-analysis.yml"; then
+  echo "PR CI must remain paused in codeql-analysis.yml" >&2
+  exit 1
+fi
+# security-audit runs on a pull request that touches what it audits, so quality requires it there
+# (path_triggered_workflows.py). It ran on main alone until 2026-09-27 and was red for four days
+# with nothing blocked. Its pull request paths are its push paths, and they cover every lockfile
+# and audit configuration it reads, so a dependency change cannot merge without it.
+python3 - "$repo_root/.github/workflows/security-audit.yml" << 'AUDIT'
+import sys
+import yaml
+
+on = yaml.safe_load(open(sys.argv[1]))[True]
+pull, push = on.get("pull_request") or {}, on.get("push") or {}
+if pull.get("paths") != push.get("paths"):
+    sys.exit("security-audit.yml: its pull_request paths must be its push paths")
+required = {
+    "Cargo.lock", "python/uv.lock", "python/pyproject.toml", "services/*/uv.lock",
+    "services/*/pyproject.toml", "deny.toml", ".cargo/audit.toml", "osv-scanner.toml",
+}
+missing = sorted(required - set(pull["paths"]))
+if missing:
+    sys.exit(f"security-audit.yml: pull requests changing {missing} would skip the audit")
+AUDIT
 test ! -e "$repo_root/.github/workflows/pr-fast.yml"
 build_triggers="$(sed -n '/^on:/,/^concurrency:/p' "$repo_root/.github/workflows/build.yml")"
 for branch in test-ci test-pre-commit nightly master; do
@@ -443,7 +459,7 @@ security_triggers="$(sed -n '/^on:/,/^jobs:/p' "$repo_root/.github/workflows/sec
 [[ "$security_triggers" == *'schedule:'* ]]
 [[ "$security_triggers" == *'workflow_dispatch:'* ]]
 grep -Fq 'pull_request_target:' "$repo_root/.github/workflows/pr-title.yml"
-echo "ok: build gates ready pull requests; heavy scanners paused; title validation retained"
+echo "ok: build gates ready pull requests; CodeQL paused, security-audit path-gated; title validation retained"
 
 build_workflow="$repo_root/.github/workflows/build.yml"
 common_setup="$repo_root/.github/actions/common-setup/action.yml"
@@ -927,6 +943,8 @@ echo "ok: adaptive cleanup, Rust cache, doctest isolation, and nextest consumer 
 python3 -B "$repo_root/scripts/ci/check-pr-hook-coverage.py" "$repo_root"
 python3 -B "$repo_root/scripts/ci/check-pr-hook-coverage_test.py"
 bash "$repo_root/scripts/ci/test-require-workflow-job.bash"
+bash "$repo_root/scripts/ci/test-require-latest-workflow-verdict.bash" > /dev/null
+python3 -B "$repo_root/scripts/ci/require_source_canary_health_test.py" > /dev/null
 pre_commit_pr="$repo_root/.github/workflows/pre-commit-pr.yml"
 pre_commit_job="$(workflow_job_block "$build_workflow" pre-commit)"
 # Match literal workflow expressions.
@@ -961,7 +979,7 @@ guard_hook=test-disallowed-connect-guard
 for scope in pull-request-full full; do
   scope_args="$(bash "$repo_root/scripts/ci/run-pre-commit.bash" "$scope" --print)"
   if ! grep -qx -- --all-files <<< "$scope_args" ||
-    grep -qx -- "$guard_hook" <<< "$(grep -A1 -x -- --skip <<< "$scope_args")" ||
+    grep -qx -- "$guard_hook" <<< "$(grep -A1 -x -- --skip <<< "$scope_args" || true)" ||
     { [[ "$scope" == pull-request-full ]] && ! grep -qx -- "$guard_hook" <<< "$scope_args"; }; then
     echo "run-pre-commit.bash $scope must run $guard_hook over all files; it is the connection gate." >&2
     exit 1
@@ -1029,6 +1047,38 @@ quality_job="$(workflow_job_block "$build_workflow" quality)"
 [[ "$quality_job" == *'bash scripts/ci/require-workflow-job.bash "$workflow" '"'*'"' "$HEAD_SHA" 1800'* ]]
 [[ "$quality_job" == *"REQUIRE_WORKFLOW_JOB_RECOVERY="* ]]
 echo "ok: every path-filtered pull request workflow the diff triggers is required by quality"
+# main's own verdict carries security-audit's: its latest completed run on main must be green and
+# recent. The requirement script has to be checked out on main as well, or the step cannot run.
+quality_job="$(workflow_job_block "$build_workflow" quality)"
+# shellcheck disable=SC2016 # the workflow's literal expressions
+if [[ "$quality_job" != *'run: bash scripts/ci/require-latest-workflow-verdict.bash security-audit.yml main '* ]] ||
+  [[ "$quality_job" != *"if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'"* ]] ||
+  [[ "$quality_job" != *"if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'"* ]]; then
+  echo "build.yml's quality must require security-audit's latest verdict on main, with its script checked out there." >&2
+  exit 1
+fi
+echo "ok: main's verdict requires security-audit's latest verdict on main"
+# ...and the research canary's: the same source failing in its two newest runs on main is red.
+quality_step="$(awk '/- name: Require the research sources to answer/{f=1} f&&/^$/{exit} f' <<< "$quality_job")"
+# shellcheck disable=SC2016 # the workflow's literal expressions
+if [[ "$quality_step" != *'run: python3 -B scripts/ci/require_source_canary_health.py research-source-canary.yml main '* ]] ||
+  [[ "$quality_step" != *"if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'"* ]]; then
+  echo "build.yml's quality must require the research canary's health on main, outside pull requests." >&2
+  exit 1
+fi
+echo "ok: main's verdict requires the research sources not to fail twice in a row"
+# quality runs its Python on the Python pre-commit tests it with, set up before any python3 step.
+tested_python="$(grep -m1 -oE 'python-version: "[0-9.]+"' "$pre_commit_pr")"
+# `|| true`: a grep that finds nothing must reach the message below, not end the script in silence.
+quality_setup="$(grep -n 'uses: actions/setup-python@' <<< "$quality_job" | head -n 1 | cut -d: -f1 || true)"
+quality_python="$(grep -n 'python3 ' <<< "$quality_job" | grep -v '^[0-9]*: *#' | cut -d: -f1 | head -n 1 || true)"
+if [[ -z "$quality_setup" ]] ||
+  [[ "$(sed -n "${quality_setup},\$p" <<< "$quality_job" | grep -m1 -oE 'python-version: "[0-9.]+"' || true)" != "$tested_python" ]] ||
+  [[ -n "$quality_python" && "$quality_python" -lt "$quality_setup" ]]; then
+  echo "build.yml's quality must set up ${tested_python} (pre-commit-pr.yml's) before any python3 step." >&2
+  exit 1
+fi
+echo "ok: quality runs its Python on the version pre-commit tests it with"
 
 # The merge of the R&D chain shards' records before the whole-chain report. (The shards' wait for
 # the archive has its own pre-commit hook, test-wait-for-run-artifact.)
@@ -1099,7 +1149,42 @@ reuse_line='python3 scripts/ci/workspace_mtimes.py reuse "$CARGO_TARGET_DIR"'
 [[ "$(grep -cF "$reuse_line" <<< "$rust_tests_job")" -eq 1 ]]
 [[ "$(grep -B8 'workspace_mtimes.py reuse' <<< "$rust_tests_job" | grep -c "if: github.event_name == 'pull_request' || github.event_name == 'merge_group'")" -eq 1 ]]
 [[ "$(grep -B4 'workspace_mtimes.py record' <<< "$rust_tests_job" | grep -c "if: env.SAVE_BUILD_CACHES == 'true'")" -eq 1 ]]
-[[ "$(grep -c 'workspace_mtimes.py' "$build_workflow")" -eq 2 ]]
+# The stash packs the path dependencies rust-cache drops (pyo3-stub-gen, which 37 crates sit on), at
+# the end of the job, where main saves; reuse above unpacks it.
+# shellcheck disable=SC2016
+stash_line='python3 scripts/ci/workspace_mtimes.py stash "$CARGO_TARGET_DIR"'
+[[ "$(grep -cF "$stash_line" <<< "$rust_tests_job")" -eq 1 ]]
+[[ "$(grep -B8 'workspace_mtimes.py stash' <<< "$rust_tests_job" | grep -c "if: env.SAVE_BUILD_CACHES == 'true' && !cancelled()")" -eq 1 ]]
+# Prune deletes the workspace units a saving run did not build, on main only, after everything
+# compiled and before the save; quality prints what it pruned next to the entry's compressed size.
+# shellcheck disable=SC2016
+prune_line='python3 scripts/ci/workspace_mtimes.py prune "$CARGO_TARGET_DIR"'
+[[ "$(grep -cF "$prune_line" <<< "$rust_tests_job")" -eq 1 ]]
+[[ "$(grep -B10 'workspace_mtimes.py prune' <<< "$rust_tests_job" | grep -c "if: env.SAVE_BUILD_CACHES == 'true' && github.ref == 'refs/heads/main' && !cancelled()")" -eq 1 ]]
+prune_at="$(grep -nF "$prune_line" <<< "$rust_tests_job" | cut -d: -f1)"
+stash_at="$(grep -nF "$stash_line" <<< "$rust_tests_job" | cut -d: -f1)"
+proofs_at="$(grep -n 'make cargo-test-toolchain-proofs' <<< "$rust_tests_job" | cut -d: -f1)"
+[[ "$proofs_at" -lt "$prune_at" && "$prune_at" -lt "$stash_at" ]]
+# shellcheck disable=SC2016
+[[ "$rust_tests_job" == *'pruned-bytes: ${{ steps.prune.outputs.pruned-bytes }}'* ]]
+quality_job="$(workflow_job_block "$build_workflow" quality)"
+report_step="$(awk '/- name: Report the rust-tests cache entry this run saved/{f=1} f&&/^$/{exit} f' <<< "$quality_job")"
+[[ "$report_step" == *"if: env.SAVE_BUILD_CACHES == 'true' && github.ref == 'refs/heads/main'"* ]]
+# shellcheck disable=SC2016
+[[ "$report_step" == *'${{ needs.rust-tests-linux-x86.outputs.pruned-bytes }}'* ]]
+[[ "$(grep -c 'workspace_mtimes.py' "$build_workflow")" -eq 4 ]]
+python3 -B "$repo_root/scripts/ci/workspace_mtimes_prune_test.py" > /dev/null
+# Main gives the Rust tests cache key a new day (one comment line in .cargo/config.toml, which
+# rust-cache hashes after the prefix pull requests fall back to) and restores the file at once. Both
+# steps run on main only: a pull request carrying the dated key would never match it again.
+main_only="if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'"
+if [[ "$(grep -A1 'name: Date the Rust tests cache key' <<< "$rust_tests_job")" != *"$main_only"* ]] ||
+  [[ "$(grep -A1 'name: Restore the checked-out cargo config' <<< "$rust_tests_job")" != *"$main_only"* ]] ||
+  [[ "$rust_tests_job" != *'git checkout -- .cargo/config.toml'* ]] ||
+  [[ "$(grep -n 'name: Date the Rust tests cache key\|name: Common setup\|name: Restore the checked-out cargo config' <<< "$rust_tests_job" | head -n 3 | cut -d: -f2- | tr -d ' ' | paste -sd'|' -)" != '-name:DatetheRusttestscachekey|-name:Commonsetup|-name:Restorethechecked-outcargoconfig' ]]; then
+  echo "build.yml's rust tests job must date the cache key on main only, just before Common setup, and restore .cargo/config.toml just after." >&2
+  exit 1
+fi
 bash "$repo_root/scripts/ci/test-workspace-mtimes.bash"
 for composite in common-test-data common-setup; do
   file="$repo_root/.github/actions/${composite}/action.yml"

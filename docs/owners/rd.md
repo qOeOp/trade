@@ -109,14 +109,20 @@ an admission as invalid:
   the body fixes. Reading the heading alone gets the opposite answer, in both directions.
 
 - **CURRENT - deployed service and the boundary of what it exposes:** `product/rd-workbench/Dockerfile.owner`
-  builds `--bin strategy-factory-rd-owner-api` with no `--features` at all; the file's only `--features` is on the
-  dashboard binary. So the deployed image is the ungated router in
-  `crates/strategy_factory_rd_owner_api/src/main.rs`, and the six routes registered after it by
-  `#[cfg(feature = "sealed-develop-composer-acceptance")]` and
-  `#[cfg(feature = "sealed-source-intake-composer-acceptance")]` are absent from it:
-  `/v2/exploratory-replay/execution-input-bindings`, `/v3/exploratory-replay-requests/composer-backed`, and the
-  four `/_sealed-acceptance/v1/develop-composer/*` routes. An acceptance route is never evidence of a production
+  builds every binary, `--bin strategy-factory-rd-owner-api` included, with no `--features` at all. So the deployed
+  image is the ungated router in `crates/strategy_factory_rd_owner_api/src/main.rs`, and the six routes registered
+  after it are absent from it:
+  `/v2/exploratory-replay/execution-input-bindings` under `#[cfg(feature = "composer-replay-issuance")]`,
+  `/v3/exploratory-replay-requests/composer-backed` under `#[cfg(feature = "composer-v3-replay")]`, and the four
+  `/_sealed-acceptance/v1/develop-composer/*` routes under
+  `#[cfg(feature = "sealed-source-intake-composer-acceptance")]`. The first two features are production surfaces
+  that carry no acceptance fixture, corpus or route; the sealed features include them rather than own them, and in
+  the default build the Composer's own `/v2/develop-composer/runs/{request_identity}/resolve` and `/readback` answer
+  `503` because `composer-replay-issuance` is off. An acceptance route is never evidence of a production
   capability, and the sealed features exist to keep that distinction mechanical rather than remembered.
+  The image runs at the product's fixed-point precision, `FIXED_PRECISION` 16, without a build flag:
+  `vibe-strategy-factory` declares `high-precision` on its `vibe-model` dependency, and
+  `scripts/ci/check-production-features.py` fails a production package that links `vibe-model` without it.
 - **CURRENT - the deployed Source Intake pipeline stops after admission:** `SourceIntakeEnvironmentPort` has two
   implementations. `SealedSourceIntakeEnvironmentV1` sits behind `sealed-source-intake-acceptance`, which the image
   above does not build, so the one that ships is `ProductionEnvironmentV1` in
@@ -144,16 +150,23 @@ an admission as invalid:
   a malformed body) the route already answers by name. That no retry changes the answer today is the build's
   missing capability, listed in `UNIMPLEMENTED_PRODUCTION_STAGES`; it is not a property of the request and calls
   for no answer of its own.
-- **CURRENT - the composer-backed Exploratory Replay request path carries no admission label, and what lifts its
-seal is upstream:** `commit_composer_backed_exploratory_replay_request_v3` and its route
-`/v3/exploratory-replay-requests/composer-backed` exist only under `sealed-source-intake-composer-acceptance`,
-which the image above does not build. Nothing in this document, `docs/owners/backtest.md` or
-`docs/architecture/` marks the path `TARGET`, `IMPLEMENTATION_ADMITTED` or any other state, so its state is
+- **CURRENT - the composer-backed Exploratory Replay request path carries no admission label, and what keeps it
+out of the deployed image is the image, not a missing producer:** `commit_composer_backed_exploratory_replay_request_v3`,
+its route `/v3/exploratory-replay-requests/composer-backed`, its tables and their migration exist only under
+`composer-v3-replay`, a production feature that the image above does not build; the default build's
+`--materialize-schema` therefore creates none of those tables. Nothing in this document, `docs/owners/backtest.md`
+or `docs/architecture/` marks the path `TARGET`, `IMPLEMENTATION_ADMITTED` or any other state, so its state is
 read from three statements instead. The deployed-service bullet above says an acceptance route is never evidence
 of a production capability. `docs/guide/dashboard.md` says the boundary lifts when a deployed image carries a
-path that produces Composer artifacts, and that the v2 commit then retires or is replaced by this one. The
-Source Intake bullet above says the deployed pipeline, the first hop toward any Composer artifact, acquires
-nothing. The path is therefore sealed pending a production producer: neither unfinished nor closed by intent.
+path that produces Composer artifacts, and that the v2 commit then retires or is replaced by this one. Such a
+path is compiled and registered in the default build: `/v2/develop-composer/runs` runs the production Composer on
+the Research request's frozen Bounded Feature Program
+(`PostgresSourceResearchComposerProductionV2::run_bounded_feature_program`), which reads the joint freeze and
+Market Data's bindings and does not go through Source Intake, so the Source Intake bullet above no longer names
+the hop in the way. A build that enables `composer-v3-replay` carries that Composer and this commit together and
+no acceptance code. The ordered chain's build is not that build: its acceptance feature includes
+`composer-v3-replay` but also replaces the Composer's run with the fixed corpus. The path is therefore unadmitted into the image: neither unfinished nor closed
+by intent, and what admits it is a deployment decision.
 The ungated v2 commit cannot stand in for it. Native Replay preparation parses the request's `artifact.digest`
 as a `sha256:` digest before it queries Composer, while a v2 commit succeeds only when that digest equals the
 Artifact Build Owner's `blake3:` wasm digest; and the request's `artifact.identity` would have to equal the
@@ -181,12 +194,29 @@ ordered chain's acceptance build admits nothing in production.
   and the historical readback both bind the Composer's inputs through the production binding Owner, which re-reads
   Market Data custody, never the acceptance corpus's fixed frame. No SQL function reads the source sub-object of
   either column; one that starts to must branch on the source schema first.
+- **CURRENT - how execution-input binding issuance refuses:** `/v2/exploratory-replay/execution-input-bindings` and
+  its `/resolve` give five refusals their own status and code: a conflict with an issued binding and the two
+  Instrument Master refusals (`409`), a request that names no composition binding (`422`), and a resolve that finds
+  no binding (`404`). Every other refusal is `503` `NATIVE_REPLAY_EXECUTION_INPUT_BINDING_UNAVAILABLE`, and each
+  names its cause in the body's `cause` and the `x-rd-rejection-cause` header. The causes are `NativeReplayExecutionInputBindingCauseV1`, a closed list
+  whose wire names are matched with no wildcard: one for each issuance stage, one for each clause of the check that
+  the Owner readbacks agree with each other and with the request, and one for each custody check on the binding
+  itself. The service adds `STORE_UNAVAILABLE` for a database error, and one cause for each Owner port it was
+  composed without. A deployed image composes every port except Market Data scheduling, which it gains only
+  through the Store Admission that `B3` builds, so until then its answer is `MARKET_DATA_SCHEDULING_NOT_ADMITTED`.
+  With scheduling admitted and no BAR schedule committed for a member at the frame, the answer is
+  `BAR_SCHEDULE_ABSENT`: Market Data names that absence as `NoBarScheduleAtFrame` and `ScheduleAbsent`, apart from
+  a read that failed. The status is `503` for every cause. Moving one off `503` needs the per-variant analysis that
+  `replay_composition_refusal` records for its own refusals. The issuance stages also log the Owner's detail under
+  `native_replay_initial_binding.<stage>`; the cause itself carries no Owner detail.
 - **CURRENT - which TrialFamily state a composer-backed Replay binds:** the same state the legacy exploratory
   Replay binds. A Replay of the family's formation Intent binds the family as it formed, with its formation census
   frontier, and is admitted only while the family has no attempt; a successor binds the family's V2 census. An
-  attempt is one Replay recorded after its Result, so a family's first Replay can never compose against a V2 census.
-  Only the Decision composition below appends an attempt, and until it is admitted a successor is refused by name,
-  `SUCCESSOR_CENSUS_AWAITS_DECISION_COMPOSITION`. The commit and the historical readback take the choice from one
+  attempt is one Replay recorded after its Result, which R&D records when it counts that Result ("CURRENT - every
+  committed exploratory Result is counted", below), so a family's first Replay can never compose against a V2 census,
+  and once that Replay's Result is counted a new Replay of the formation Intent is refused. A successor of a family
+  with no counted attempt is refused by name, `SUCCESSOR_CENSUS_AWAITS_DECISION_COMPOSITION`; a successor Intent is
+  committed only from an Iteration Decision on a counted Result, so its family has one. The commit and the historical readback take the choice from one
   rule, and the readback of a first-generation Replay re-reads the formation frontier from the family's root, so a
   later attempt does not change it. Its replay window is the window of the facts it was composed from, which the
   family's policy window bounds (`docs/architecture/strategy-factory.md`, TrialFamily-owned Replay execution policy
@@ -251,10 +281,10 @@ ordered chain's acceptance build admits nothing in production.
   outside `crates/data`. The resolver is additionally optional: `bootstrap_deployment_store_admission` returns
   `Option`, so the field may hold `None` in a deployment. Closing this needs a consumer in this Owner, not a
   wider read from Market Data.
-- **TARGET / ISOLATED_ACCEPTANCE_ONLY - the exploratory replay production entry:** the only caller of
+- **IMPLEMENTATION_ADMITTED / NOT_CUT_OVER - the exploratory replay production entry:** the only caller of
   `run_exploratory_replay_v2` outside `vibe-backtest-owner` is inside `run_native_replay`, which carries
-  `#[cfg(feature = "sealed-develop-composer-acceptance")]` with no `cfg(not(...))` twin anywhere in the
-  repository. With the deployed image built without features, that path is unreachable in what is deployed. This
+  `#[cfg(feature = "native-replay-execution")]`, a production feature with no acceptance code, with no
+  `cfg(not(...))` twin anywhere in the repository. With the deployed image built without features, that path is unreachable in what is deployed. This
   measures the deployment artifact, not history.
 
 ## Modules
@@ -393,12 +423,73 @@ stored View must be a legal descendant of it, the cut must lie inside its validi
 operation receipt's Research custody digest must equal the one rebuilt from it. The first three
 failures answer `UNAVAILABLE` at their own coordinates under `research_custody.run_view`; a differing
 digest answers at the existing `operation_receipt` coordinate. A row committed before the
-record existed carries neither fact: it keeps the read against the current View, and once that View
-is no longer current it answers at `research_custody.run_view_unrecorded`, which
-states why the row cannot be read instead of implying that the run is gone. The migration adds the two
+record existed carries neither fact: it keeps the read against the current View. Once that View has
+moved past `INTENT_FROZEN`, or the authority it continues under is no longer current (see below), it
+answers at `research_custody.run_view_unrecorded`, which
+states why the row cannot be read instead of implying that the run is gone. Such a row therefore reads
+back for as long as the operator authorization its Research request was admitted under lasts. Once that
+authorization expires or is revoked, it answers under the continuation's own coordinate,
+`research_custody.continuation.authority_not_current`, not the unrecorded one. A row that recorded its
+View does not depend on the authorization at all. The migration adds the two
 columns by reading the catalog shape first; they freeze when the migration is deployed, not when it
-merges. The run itself still requires a current View, so a Research request can be composed only
-within ten minutes of its acceptance; that bound belongs to the run, not to this readback.
+merges.
+
+**An admitted Research Intent continues under the authority it was admitted under, not inside its
+View's window.** A View's `valid_through` is a reader's freshness: past it the View reads `STALE`,
+and nothing refreshes it. It does not bound how long the frozen Intent may be worked on. Each of
+these continuations re-locks the Intent's own Product Edge admission at its own cut, the way a
+downstream first mutation does:
+
+- the Composer run;
+- `POST /v1/bounded-feature-programs/{declare,freeze}`;
+- publishing the Design role intent;
+- reading the Research authoring facts;
+- freezing a complex-strategy develop evaluation;
+- the Artifact build: preparing it, reserving its provider invocation, recording its candidate and
+  committing its terminal result. A successor's build continues under the successor's own admission
+  and the protected feedback it froze, not its family's initial Intent's.
+
+Each continues only while the operator authorization that admission names is current there: in
+force, not revoked, and under a current policy binding and manifest window. Otherwise it answers
+`UNAVAILABLE` at `research_custody.continuation.authority_not_current`. Two other refusals are named:
+
+- a re-locked admission that is not the one the Intent was admitted under answers at
+  `research_custody.continuation.admission_changed`;
+- a quarantined legacy custody carries no current admission and answers at
+  `research_custody.continuation.no_admission`.
+
+Each also continues only while no protected evaluation has become observable to the Intent since it
+was frozen. Every public Qualification phase fact of the principal/scope history advances that
+history's protected-feedback generation (see Qualification's protected-feedback generation), so the
+continuation reads the history's current source cut for the projection the Intent froze and
+compares it with the one it froze. It holds the history's head `FOR SHARE` until the continuation
+commits, so no phase fact can land in between. A later cut answers at
+`research_custody.continuation.protected_feedback_advanced`: iterating on the Intent then goes
+through a successor Intent, which freezes the history's new generation (Lineage and
+protected-feedback admission). An Intent whose frozen projection or history cannot be read answers
+at `research_custody.continuation.protected_feedback_unavailable`. A candidate's own phase fact
+counts as well, so once the Intent's candidate enters Qualification its continuation stops.
+
+The frozen View still identifies the Intent: a cut before its projection is refused, and the Intent
+must still be `INTENT_FROZEN`.
+
+A read that only projects an Artifact build's next action, its readback and its resolve, takes no
+lock: it answers from the authorization the build's admission recorded and the stored View's
+availability, and the mutation that follows proves the continuation again and refuses by name. A
+read at a cut an operation already wrote at asks only that the Research authority it recorded covered
+that cut: the Research sources that the Backtest run, the execution-input binding and Market Data
+repair read at their Replay's Owner cut, where the Replay commit proved the continuation.
+
+Product Edge admits a new Artifact build request past the View's window as well. Its admission
+still checks that the Research was projected, and locked by R&D, no later than its cut, and that the
+source authorization the Research was admitted under is in force and not revoked there. The R&D
+functions it locks the Research through, `rd_owner_api.lock_research_for_artifact_at_view_v1` and
+`rd_owner_api.lock_current_successor_research_for_artifact_v1`, no longer refuse a View past its
+window either.
+
+Until its own slice lands, one check still reads the View's window: the exploratory Replay commit,
+whose file F holds, so until it moves every step after a Replay reaches only a Replay committed
+inside the window.
 
 **CURRENT/PARTIAL - the first cycle now has something to stand on.** Sealing the corpus run leaves
 `run_bounded_feature_program` as the only production entry, and it requires a frozen joint program.
@@ -437,16 +528,13 @@ R&D does not derive a Design from research prose. No rule in this repository tur
 mechanism and falsification question into input roles and a reaction graph, and none is intended:
 that translation is a judgement, and a judgement an Owner makes is a fact the Owner invented.
 
-**Two different things are called a Research Intent here, and the prohibition stands because the
-Composer path holds the one with nothing to project.**
+**The Composer path holds a Research Intent with nothing to project, and that is why the prohibition
+stands.**
 
-`ResearchIntent` in `crates/strategy_factory/src/research.rs` does carry `data.channels`, each
-declaring its `role`, `asset_id`, `timeframe`, requiredness, source and staleness bound, with
-`data.decision_clock_channel` naming which one advances the decision. Projecting those would choose
-nothing. But that type has exactly one constructor, `frozen_representative()`, which parses a
-compile-time constant and then refuses anything whose SHA-256, identity, revision and schema version
-are not the frozen ones; its only callers are the formation path in `family_adapters.rs`,
-`representative.rs` and `formation_adapters.rs`. The Composer path never holds it.
+No Research Intent in this repository declares channels. The formation path's `ResearchIntent` did
+(`data.channels`, each with its role, asset, timeframe and staleness bound), but it was only ever
+built from one frozen compile-time representative, never reached the Composer path, and was removed
+with the formation retirement.
 
 What the Composer path holds is `CurrentResearchDevelopCustodyV2`, whose fourteen fields are
 locators, identities and digests plus one `falsifier` string, and behind it the stored
@@ -731,11 +819,18 @@ and a rendering of a document exists for reading only.
   cut: all ten weight constants in the hand-written corpus are positive, and the only negative weight literal
   under `crates/` is a codec round trip in `crates/strategy_factory/programs/sdk/src/lib.rs`.
 - *Compilation.* The compiler decides encoding only. It calls the Owner's own functions for units and
-  scales, state bytes and role and coordinate-port identity rather than holding a second copy, which first
-  requires making `expected_state_bytes` visible to it, removing the lowerer's private copy of
-  `coordinate_port_id`, and extracting the shape measurement `prepare_bounded_feature_program_v1` performs
-  into one function both call. `graph_bounds` are measured from the emitted graph; the source and Wasm byte
-  bounds are ceilings fixed by the language version. A declared input the program never reads is compiled
+  scales, state bytes and role and coordinate-port identity rather than holding a second copy. Three of them
+  exist: `expected_state_bytes`; `coordinate_port_id` in `strategy_plan_v2.rs`, the one spelling of a
+  coordinate port id, which the validator and the Plan compiler call. The lowerer keeps its own copy because its
+  source is frozen - the V3 build capsule binds its digest, so removing the copy would re-identify every build -
+  and a test holds that copy to this one; and
+  `measure_bounded_feature_program_shape_v1`, which validates a program as
+  `prepare_bounded_feature_program_v1` does with its graph bounds lifted and returns the shape they are checked
+  against. The unit and scale derivation is still private to the validator and is exposed with the compiler
+  that calls it. `graph_bounds` are the measured shape, with a lag or window of 0 declared as 1, and they are
+  exactly where the program is refused: one below any of them fails `prepare`. The Design's state size is its
+  plugin manifest's rather than a graph bound, and the program's cells may not exceed it; the source and Wasm
+  byte bounds are ceilings fixed by the language version. A declared input the program never reads is compiled
   into `carried_input_role_ids`. The compiler then derives and prepares its own output against the newest
   published catalog and emits nothing `prepare` refuses. Its own refusals are named at a document path:
   unknown name, definition cycle, unused definition, unit mismatch, literal not representable at its scale,
@@ -747,16 +842,16 @@ and a rendering of a document exists for reading only.
   a catalog version is published, which holds only while every published version contains every earlier
   row unchanged. That is an invariant of the catalog, checked for each version against its predecessor by
   semantic digest.
-- *Acceptance.* The ten hand-written programs in
+- *Acceptance.* The sixteen hand-written programs, over twelve Designs, in
   `crates/strategy_factory/test_data/bounded_feature_program_meaning_v1/` are rewritten as documents and
   each compiles to a program whose canonical form equals the hand-written one's. The canonical form replaces
   every node, constant and state identity with a structural digest over inputs in port order, keeps decision
   priorities only by relative order, and drops the bounds; every compiled bound is at most the hand-written
   one. Both sides of that projection are proven by running the Wasm of both programs over one sequence long
-  enough to leave warmup and to produce a non-neutral entry and exit: changing a window, a constant, a
-  priority order or the order of `sub`'s operands must change behaviour and canonical form, and renaming
-  identities, scaling priorities or enlarging bounds must change neither. A short program is added to the
-  corpus and run through to a report. Every single-threshold request compiles, through a total translation
+  enough to leave warmup and to produce a non-neutral entry and exit: changing a window, a constant, the
+  priority order of branches that hold on the same bar or the order of `sub`'s operands must change
+  behaviour and canonical form, and renaming identities, scaling priorities or enlarging bounds must change
+  neither. A short program is added to the corpus and run through to a report. Every single-threshold request compiles, through a total translation
   into a document, to exactly the bytes `author_single_threshold_program_v1` produces, in the exact and the
   universe-member forms.
 
@@ -799,6 +894,18 @@ named coordinate, which is where an operator looks: `submit_v2` answers so when 
 head is absent, and records `research_goal_owner.submit_v2.replay_policy_catalog_v3.resolve_current`. The Owner does
 not judge how long an environment state will last - a head published a minute later lets the same request succeed -
 so an unavailable authority gets no answer of its own.
+
+A successor Research Intent commits no Independence Basis of its own; it is bound to the one its TrialFamily was
+admitted under. It still freezes the protected-feedback projection that is current when it is created, the same way:
+Qualification resolves the projection for that basis first, in its own transaction, and the creating transaction
+admits it again, freezes only an equal one, and admits it once more before committing. A successor therefore never
+carries its predecessor's projection forward, and after a protected evaluation becomes observable the next successor
+freezes the frontier that includes it. The successor's admitted principal and scope must be the basis's own, or the
+request is refused as an invalid proposal, so one operator cannot freeze another's family feedback. An existing
+successor replays under the projection it stored and resolves nothing. Its Artifact build binds that projection only
+while Qualification still reads it as admitted under the family's basis. The other refusals write nothing, answer the
+Owner unavailable, and are recorded under `research_goal_owner.compose_successor_v1.protected_feedback`: `resolve`,
+`absent`, `mismatch`, `refresh_mismatch` and `foreign_basis`.
 
 R&D's clock is `pg_catalog.clock_timestamp()`, read inside the R&D transaction that uses it. A Research Intent's
 projection time, `valid_through` and commit time are stamped from it, and so is the `owner_cut` its lock returns;
@@ -1018,6 +1125,12 @@ The exact development flow is **Run Result → Diagnosis → Iteration Decision 
    with the same decision-policy version, TrialFamily Census, and evidence cut; a stop state and selection cannot
    coexist.
 
+**TARGET - matched-entry control and clustered interval in Diagnosis.** Diagnosis reads the exploratory Result's
+matched-entry control and its date-clustered interval (Backtest, "TARGET - Exploratory matched-entry control and
+clustered interval") and shows the run's edge over random entries of the same shape with that interval, labelled as a
+control. It is a control, not a selection criterion: the Iteration Decision does not select, order, or stop candidates
+by it, and it never stands in for Qualification's holdout or same-universe random control.
+
 `REPAIR_INPUTS` routes by category and never means "retry anything." It is an immutable terminal disposition for
 the consumed result and by itself creates no Selection, successor Intent, Artifact, Replay Request, or repair
 effect. `MARKET_DATA` targets Market Data and is the only category that may emit a correlated Market Data Repair
@@ -1062,6 +1175,210 @@ Protected measurements, outcomes, categories, and holdout detail never enter Dia
 Purge and embargo derivation, trial-family-aware multiplicity policy, attempt frontier, and protected-decision
 policy are frozen before their results and carried unchanged through Replay Request, Run Result, Iteration
 Decision, Selection, and Candidate. Changing one creates a successor lineage rather than reinterpretation.
+
+### TARGET - Cumulative trial accounting and the spend cap
+
+The user decided on 2026-09-27 that Research runs until it develops a strategy instead of stopping at a trial count.
+In the user's words (translated): "R&D has to keep running until it develops a strategy; otherwise it keeps being
+interrupted for budget reasons and cannot develop an effective strategy, which is a bad experience." The option the
+user chose (translated): "R&D does not stop on the number of trials; every trial is recorded and accumulates across
+rounds, so the more is tried, the heavier the discount at qualification review; the random-strategy control and the
+held-out data stay as they are; only one spend cap you can set remains (API and compute)." Under that authorization
+this removes a stated bound, the sealed trial budget, and relocates what it protected: multiple-testing control
+moves from stopping the search to raising the qualification bar
+([Qualification](./qualification/#target---cumulative-trial-deflation-at-candidate-intake)), and protection against
+uneconomic endless search moves to the spend cap below. The removal lands last, after the accounting, the deflation,
+and the spend cap exist, so no cut holds neither the old bound nor its replacement.
+
+**Today**, measured at `main` 019f231b0. The sealed budget is `TrialFamilyPolicyV1.trial_budget`, which Product Edge
+admits in 1 to 10,000 (`TRIAL_BUDGET_INVALID`) and the Dashboard research form in 1 to 64. It is inside the policy
+digest and therefore the TrialFamily identity. Three rules enforce it: Iteration Result Admission refuses a proposal
+set larger than the remaining budget (`ITERATION_RESULT_ADMISSION_TRIAL_BUDGET_EXCEEDED`); the decision policy
+issues `TRIAL_BUDGET_EXHAUSTED` when the consumed count equals the budget; and that exhaustion preempts candidate
+comparison and `READY_FOR_SELECTION`, so the last budgeted trial can never become a Candidate. One consumed unit is
+one census attempt, an Intent, Request, and Result triple of any terminal disposition, counted per TrialFamily. A
+successor Intent stays in its family, a new Research goal forms a new family whose count starts again, and nothing
+sums counts across families. R&D counts every Result the native Replay run route commits ("CURRENT - every
+committed exploratory Result is counted", below). The 1 the formation writes reserves the family's first attempt, so
+counting that attempt's Result leaves the count at 1, and a family's count first reaches 2 at the Result of its first
+successor.
+
+**A trial** is one census attempt, exactly as counted today: every exploratory Intent, Request, and Result triple the
+TrialFamily Census admits, whatever its disposition. Losing, rejected, invalid, and unknown attempts count, because
+each is a look at the data; an exact request replay joins its receipt and is not a second trial. The V2 census calls
+the count `trial_count` where it now says `consumed_trial_budget`; V1 readbacks keep the old name.
+
+**The lineage it accumulates across.** A Candidate's cumulative trial count is the sum of `trial_count` at the census
+frontier it binds for its own TrialFamily and for every TrialFamily in its cross-family predecessor frontier,
+transitively:
+
+- successor iterations stay in their family, so they are counted;
+- a replan after Qualification feedback is a successor with cross-family ancestry, so it is counted;
+- declared independence changes neither, just as it cannot grant a fresh holdout budget;
+- a predecessor family that is still accruing is counted at the cut the Candidate binds, and a later append is
+  counted by the next Candidate that binds a later cut.
+
+No caller supplies the count: Qualification derives it from the bound frontiers. A Research goal with no semantic
+predecessor starts a new lineage. The count is bounded by the lineage rather than by every trial a principal has run,
+because what it protects against does not rest on it alone: using a new goal to erase a predecessor is already
+prohibited below, and the same-universe random control compares a Candidate against programs drawn to a definition
+the searcher did not write, so it holds even when the count is understated.
+
+**What changes when the removal lands.** A TrialFamily Policy V2 has no trial budget and its own digest domain, so
+every V1 family keeps its identity and its frozen decision policy. A V1 family that exhausts its sealed budget still
+stops as it committed to, and its lineage continues through a successor family formed under V2, with every V1 trial
+counted. For V2 families:
+
+- Iteration Result Admission drops the remaining-budget refusal;
+- the decision policy version no longer lists `TRIAL_BUDGET_EXHAUSTED` or its preemption of comparison and readiness;
+- the information-value comparison weighs the cumulative trial-count effect where it weighed the remaining
+  family-budget effect;
+- the remaining stops (falsifier, frozen stop rule, input unavailable, economic impossibility, low information
+  value) end a lineage, not Research, and "exhausted budgets" leaves the failures that prevent candidate submission;
+- the Dashboard's trial-budget field and budget columns give way to the cumulative trial count once
+  `docs/guide/dashboard.md` is changed for it.
+
+**The spend cap.** One user-set cap bounds what Research spends, and reaching it pauses Research rather than stopping
+it.
+
+- *What is metered.* Language-model provider calls, by the token usage each response reports, at the user's price
+  for that provider and model; today `artifact_build_v1.ts` reads only the message content and discards the `usage`
+  block. Paid market data, by the cost its provider quotes before the request: Databento's `get_cost` preflight,
+  which today has its own cap `DATABENTO_MAX_PROBE_COST_USD`, is folded into this one. Compute, the seconds of
+  Backtest replay and Develop builds, at a user-set rate that defaults to zero on the single local host the user
+  admitted, so compute counts only if the user prices it.
+- *Who meters.* R&D keeps an append-only Spend Ledger. Before a metered effect it reserves the effect's upper bound,
+  in the transaction that claims the effect: the request's `max_tokens` at the price, the preflight quote, or the
+  declared time limit at the compute rate. After the effect it settles the actual amount against that reservation.
+  An effect whose outcome is unknown stays reserved at its bound until it resolves. Reservations serialize on the
+  ledger head, so two concurrent ones cannot together pass the cap.
+- *When the cap is reached.* A reservation that would take settled plus reserved spend past the cap is refused, and
+  the Research workflow enters `PAUSED_SPEND_CAP_REACHED`, which carries the cap, the settled and reserved amounts,
+  and the refused effect. It is not an Iteration Decision or a stop: no identity closes and nothing is lost, and the
+  same step reserves again once the cap allows it. An effect already reserved completes and settles.
+- *How the user sets it.* The cap is one amount in US dollars per UTC calendar month, resetting on the first of each
+  month, which the user confirmed on 2026-09-28. It is held with its price table as an authorized Product Edge
+  configuration fact that R&D reads at each reservation; a change is a new fact, never an edit. Until the Dashboard admits a control for it, the R&D Owner API reads the cap from its environment, as it
+  reads the Databento cap today.
+
+The slices and their order are in
+[Strategy Factory](../architecture/strategy-factory#target---research-runs-until-a-strategy-bounded-by-spend).
+
+### CURRENT - every committed exploratory Result is counted
+
+The native Replay run route (`POST /v2/exploratory-replays`, carried by the `native-replay-execution` feature)
+counts the Result the Backtest Owner committed before it answers. It counts in R&D's own transaction, after the
+Backtest commit, because it cannot count in or before that commit:
+
+- the Backtest commit runs in a `backtest_owner` session, which reaches R&D only through the locked request read
+  `rd_owner_api` grants it;
+- the census append is R&D's own canonical encoding, which a SQL function would have to restate;
+- a successor's commit relock requires the census head the successor was frozen against, so an append before the
+  commit would make the commit refuse itself.
+
+**What is counted.** The count locks the Result through the Backtest custody adapter, as Iteration Result Admission
+does. It reads the family and Intent from the sealed request's canonical bytes, recomputing their meaning digest
+against the one the Result binds. It then locks the family's census head and appends one attempt: the Intent, the
+request and the Result, with the Result's terminal counted one for one (`TERMINAL_RESULT`, `RUN_REJECTED` as
+`REJECTED`, `INVALID_REPLAY_EVIDENCE` as `INVALID`). The attempt's consumed count is its ordinal plus one. Its
+candidate set is the expansion of the empty grid ("CURRENT - candidate counts are computed from their grid", below),
+because no Decision has read the Result yet. A Result whose request identity and meaning digest the census already counts is an exact
+replay: it joins that attempt and writes nothing, whatever attempt identity Backtest gave it.
+
+**What the count is.** The 1 the formation writes reserves the family's first attempt, so counting its Result leaves
+the count at 1. What changes is that the family's head moves to the V2 census and its attempt frontier binds this
+request and Result. A new Replay of the formation Intent is then refused, and the count first reaches 2 at a
+successor's Result.
+
+**No Result is shown before it is counted.** Between the Backtest commit and the count the Result exists uncounted.
+If the count fails, the route answers the count's refusal rather than the Result, and running the same request and
+attempt again recovers the committed Result and counts it. Every R&D read that shows a Result or what it produced
+refuses one its census does not count, as `EXPLORATORY_RESULT_NOT_COUNTED`:
+
+- the write API's Result and run-evidence reads and the read API's Result read, with 409;
+- the run report, whose refusal carries the same code;
+- Iteration Result Admission, as `ITERATION_RESULT_ADMISSION_RESULT_NOT_COUNTED`.
+
+The check takes no row lock, so the read API's `READ ONLY` transactions make it. The diagnosis gate, iteration
+analysis and every Decision already require the census's latest attempt to be this exact Result. The Result
+directory lists identities, terminals and commit times and no outcome, and it is unchanged. A Result whose request no
+R&D request seals belongs to no family and is refused as `EXPLORATORY_RESULT_REQUEST_UNAVAILABLE`.
+
+**What no test drives.** No ordered-chain entry runs a native Replay, so no test reaches the run route's count; the
+first entry that executes one asserts it. No entry drives Iteration Result Admission's first admission either. The
+count, the join and every refusal above are proven by the run report entry,
+`backtest_run_report_reads_back_every_point_a_real_run_committed`, on a Result committed through the chain's own
+Backtest writer. A native run commits only `TERMINAL_RESULT`: a run that fails before its commit leaves no Result and
+nothing to count.
+
+### CURRENT - candidate counts are computed from their grid
+
+A candidate set is stated as the grid that generates it, `CandidateGenerationGridV1`, and the Owner expands it. Each
+listed hypothesis dimension is one `SINGLE_DIMENSION` candidate, and each frozen finite-joint contract is one
+`PREREGISTERED_FINITE_JOINT` candidate. Both lists are strictly ascending, so a grid has one representation and lists no
+member twice. The rule's identity and digest are computed from the grid, never supplied, and the TrialFamily census
+stores the grid in the candidate-set frontier and recomputes both on every readback.
+
+Wherever a candidate set is admitted, in the census and in Iteration Result Admission's proposal set, the registered
+count is held to the expansion and the listed candidates to its members, and each disagreement is refused by name:
+
+- `CANDIDATE_GENERATION_GRID_INVALID`: the grid repeats a member or lists one out of order;
+- `CANDIDATE_GENERATION_CARDINALITY_MISMATCH`: the registered `expected_cardinality` is not the expansion's size;
+- `CANDIDATE_SET_DIFFERS_FROM_GENERATION_RULE`: the listed experiments are not the expansion.
+
+A proposal's `candidate_digest` is computed from its identity and experiment as well, and Iteration Result Admission
+refuses a stated one that differs as `ITERATION_RESULT_ADMISSION_IDENTITY_MISMATCH`. A grid has no other kind of member:
+when the authoring layer generates candidates another way, a parameter sweep for instance, that is a new kind of
+member with its own named expansion, never a string the Owner takes as stated.
+
+### TARGET - Production trial ledger and data-read ledger
+
+This section states a contract with no implementation; it grants no permission to build or deploy it.
+
+**Today**, by callers rather than references:
+
+- **Only a committed Result is counted.** "CURRENT - every committed exploratory Result is counted", above, counts
+  every Result the native Replay run route commits. A run that fails before its commit leaves nothing to count, and
+  the Backtest Owner commits no `RUN_REJECTED` or `INVALID_REPLAY_EVIDENCE` Result for one.
+
+**Every look is a trial.** A trial is one census attempt, exactly as counted above:
+
+- a run of a new request is a trial, and so is a rerun whose meaning differs in any way;
+- a failed, rejected, invalid or unknown run is a trial;
+- an exact replay of a request joins its receipt and is not a second trial;
+- a look at outcomes made for any other purpose is a trial too. An outcome is never computed except through a
+  counted request. Diagnosis, Compare and the Dashboard read only Results that already exist, and a question about
+  size or sample is answered from counts, not outcomes.
+
+A failed run is counted once the Backtest Owner commits a `RUN_REJECTED` or `INVALID_REPLAY_EVIDENCE` Result for
+it, which the count above already maps.
+
+**The data-read ledger.** R&D records every read of market data:
+
+- what is recorded: the lineage, the trial or agent session that made it, the instrument, the half-open period, and
+  the universe stratum the instrument falls in (majors, large caps, or new listings);
+- where the rows come from: the point-in-time scope each trial binds, and every read an agent makes through the R&D
+  tool surface, so an informal look leaves the same row a registered run does.
+
+**Untouched slices.** The ledger hands out slices nobody in the lineage has read:
+
+- A validation stage asks it for a slice of its own universe stratum and period that the lineage has never read, and
+  gets one or a named refusal.
+- Once handed out, the slice is reserved. A second read refuses.
+- A slice read by an earlier lineage that shares the Candidate's predecessor frontier counts as read, so an earlier
+  family's contamination is visible rather than remembered.
+- The ledger never hands out a slice inside Qualification's sealed holdout partition.
+
+**The census carries no verdict.** A census row records that a trial ran and its exploratory disposition. It never
+records a Qualification outcome or any pass or fail bit from an evaluator; Qualification counts its own protected
+attempts into N ([Qualification](./qualification/#target---cumulative-trial-deflation-at-candidate-intake)) and
+publishes outcomes only through its public phases.
+
+**How it feeds the deflation.** Qualification's cumulative N is the sum of `trial_count` across the census frontiers
+a Candidate binds, plus the lineage's protected attempts. The spread of trial ratios comes from the lineage's
+`TERMINAL_RESULT` trials. Both are therefore only as complete as this append. The Deflated Sharpe Ratio and its CSCV
+estimate of PBO are ported from `crates/strategy_factory/src/robustness.rs` at `main` f2238c09b, as Qualification
+states, with N the cumulative count in place of the formation path's fixed four or two.
 
 ## Input handoffs
 

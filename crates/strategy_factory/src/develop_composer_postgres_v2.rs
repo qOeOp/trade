@@ -1661,7 +1661,7 @@ pub(crate) async fn read_accepted_in_transaction(
 
 /// Re-locks current Research and strategy-input Owner evidence in the same Replay transaction
 /// that reads Composer custody. The binding owner is an internal Owner port, never caller data.
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+#[cfg(feature = "composer-v3-replay")]
 pub(crate) async fn read_accepted_for_replay_in_transaction<B>(
     transaction: &mut Transaction<'_, Postgres>,
     locator: &DevelopComposerSealedReadLocatorV2,
@@ -1714,7 +1714,7 @@ where
 /// Revalidates the original Composer positive after Research View has atomically advanced to
 /// the exact native Replay named by the caller's independently verified custody. The append-only
 /// View transition proves that original Replay even if the live View later advances.
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+#[cfg(feature = "composer-v3-replay")]
 pub(crate) async fn read_accepted_for_replay_historical_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
     locator: &DevelopComposerSealedReadLocatorV2,

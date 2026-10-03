@@ -61,14 +61,15 @@ fn delta(after: &[i64], before: &[i64]) -> Vec<i64> {
 /// One universe frame, one projection, over the frame the host admits.
 ///
 /// - While the member has no BAR schedule at the frame, the issuance is refused by name as
-///   `ScheduleUnavailable` and writes nothing.
+///   `ScheduleAbsent` and writes nothing.
 /// - A frame that already holds a different projection is refused by name as `SubjectConflict`
 ///   and writes nothing; a stored projection that does not verify reads back as an error, never as
 ///   absent.
 /// - Once the member's schedule is admitted, the issuance writes one projection, outbox, issuance
 ///   and issued frame, and a timeframe projection and an attachment for each of the Design's two
-///   member bindings, and no sample: both roles read the row the exact 1M close binding already
-///   sampled in the same snapshot, so all three bindings share that one sample and no head moves.
+///   member bindings. The close role reads the row the exact 1M close binding already sampled in
+///   the same snapshot and shares that sample; the open role, which no binding has sampled, mints
+///   the one new sample, with its receipt, outbox row and heads.
 /// - The projection's subject is the frame the binding sealed and the frame the host's own request
 ///   builder binds, byte for byte; it is a BAR projection with a schedule set, and each component's
 ///   coordinate verifies.
@@ -116,6 +117,10 @@ async fn postgres_a_universe_frame_issues_one_sample_projection_over_the_host_fr
         crate::owner::strategy_input_binding::derive_universe_selection(&base.batch)
             .unwrap()
             .selection_identity(),
+        crate::owner::strategy_input_binding::derive_universe_selection(&base.batch)
+            .unwrap()
+            .selection_digest(),
+        base.batch.universe_selection_digest(),
         base.batch.universe_selection_digest(),
         base.batch.instrument_master_digest(),
         base.batch.source_binding_lineage_root(),
@@ -155,7 +160,7 @@ async fn postgres_a_universe_frame_issues_one_sample_projection_over_the_host_fr
     let before = projection_state(pool).await;
     assert_eq!(
         issue(binding).await,
-        Err(UniverseSampleProjectionIssuanceErrorV1::ScheduleUnavailable)
+        Err(UniverseSampleProjectionIssuanceErrorV1::ScheduleAbsent)
     );
     assert_eq!(
         projection_state(pool).await,
@@ -262,9 +267,9 @@ async fn postgres_a_universe_frame_issues_one_sample_projection_over_the_host_fr
     let after = projection_state(pool).await;
     assert_eq!(
         delta(&after, &before),
-        [1, 1, 1, 1, 2, 0, 0, 0, 0, 0, 2],
+        [1, 1, 1, 1, 2, 1, 1, 1, 1, 1, 2],
         "one projection, outbox, issuance and issued frame; a timeframe projection and an \
-         attachment for each of the two member bindings; and no sample"
+         attachment for each of the two member bindings; and one sample, the open role's"
     );
     let [projection] = &issued[..] else {
         panic!("the initial frame has one projection: {issued:?}");
@@ -290,17 +295,34 @@ async fn postgres_a_universe_frame_issues_one_sample_projection_over_the_host_fr
         );
     }
 
-    for component in projection.components() {
-        assert_eq!(
-            component.sample_identity().as_bytes(),
-            &exact_sample.fact().sample_identity(),
-            "every member binding reads the exact binding's sample of the same row"
-        );
-        assert_eq!(
-            component.sample_receipt_digest().as_bytes(),
-            &exact_sample.receipt().digest()
-        );
-    }
+    let reads_close = |role| {
+        fixture.requests.iter().any(|request| {
+            request.input_role_identity == role
+                && request.field_semantic
+                    == crate::owner::strategy_input_binding::MarketDataFieldSemantic::BarClosePrice
+        })
+    };
+    let (close, open): (Vec<_>, Vec<_>) = projection
+        .components()
+        .iter()
+        .partition(|component| reads_close(component.input_role_identity()));
+    let ([close], [open]) = (&close[..], &open[..]) else {
+        panic!("one close role and one open role: {close:?} {open:?}");
+    };
+    assert_eq!(
+        close.sample_identity().as_bytes(),
+        &exact_sample.fact().sample_identity(),
+        "the close role reads the exact binding's sample of the same row"
+    );
+    assert_eq!(
+        close.sample_receipt_digest().as_bytes(),
+        &exact_sample.receipt().digest()
+    );
+    assert_ne!(
+        open.sample_identity().as_bytes(),
+        &exact_sample.fact().sample_identity(),
+        "the open role reads a sample of its own"
+    );
     assert_eq!(
         crate::owner::universe_sample_projection_v1::StrategyInputUniverseSampleProjectionReadbackV1::decode(
             projection.identity(),

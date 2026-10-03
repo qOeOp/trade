@@ -267,6 +267,53 @@ async fn persist_public_status_transition_v1(
     .map_err(QualificationTransactionError::into_public)
 }
 
+/// Logs the next step of a protected-feedback history's generation, naming `fact`, and moves the
+/// history's head to it. The caller holds the history's principal/scope lock and its head row
+/// `FOR UPDATE`, and read `generation` under them, so the head moves only from that generation.
+async fn advance_protected_feedback_generation_preserving_sqlstate_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    principal_scope_key: &str,
+    generation: u64,
+    fact: &crate::QualificationPublicStatusFactV1,
+    committed_at_epoch_ms: u64,
+) -> Result<(), QualificationTransactionError> {
+    let next = generation
+        .checked_add(1)
+        .ok_or_else(|| unavailable("Qualification protected-feedback generation overflowed"))?;
+    let committed_at = i64::try_from(committed_at_epoch_ms).map_err(json_storage)?;
+    sqlx::query(
+        "INSERT INTO public.qualification_protected_feedback_generations_v1 \
+         (principal_scope_key,generation,status_fact_identity,status_fact_digest,committed_at_epoch_ms) \
+         VALUES ($1,$2,$3,$4,$5)",
+    )
+    .bind(principal_scope_key)
+    .bind(i64::try_from(next).map_err(json_storage)?)
+    .bind(fact.fact_identity())
+    .bind(fact.fact_digest())
+    .bind(committed_at)
+    .execute(&mut **transaction)
+    .await
+    .map_err(transaction_storage)?;
+    let moved = sqlx::query(
+        "UPDATE public.qualification_protected_feedback_heads_v1 \
+         SET source_sequence=$1,source_cut=$2 \
+         WHERE principal_scope_key=$3 AND source_sequence=$4",
+    )
+    .bind(i64::try_from(next).map_err(json_storage)?)
+    .bind(source_cut_for_generation(next))
+    .bind(principal_scope_key)
+    .bind(i64::try_from(generation).map_err(json_storage)?)
+    .execute(&mut **transaction)
+    .await
+    .map_err(transaction_storage)?;
+
+    if moved.rows_affected() == 1 {
+        Ok(())
+    } else {
+        Err(unavailable("Qualification protected-feedback head moved during the phase fact").into())
+    }
+}
+
 async fn persist_public_status_transition_preserving_sqlstate_v1(
     transaction: &mut Transaction<'_, Postgres>,
     review_request_identity: &str,
@@ -350,13 +397,16 @@ async fn persist_public_status_transition_preserving_sqlstate_v1(
             unavailable("Qualification public status source frontier is unavailable")
         })?,
     };
-    let (resolved_frontier_digest, source_frontier_is_current) =
-        resolve_candidate_feedback_frontier_preserving_sqlstate_v1(
-            transaction,
-            source_frontier_identity,
-            source.committed_at_epoch_ms,
-        )
-        .await?;
+    let CandidateFeedbackFrontierV1 {
+        digest: resolved_frontier_digest,
+        is_current: source_frontier_is_current,
+        history: feedback_history,
+    } = resolve_candidate_feedback_frontier_preserving_sqlstate_v1(
+        transaction,
+        source_frontier_identity,
+        source.committed_at_epoch_ms,
+    )
+    .await?;
 
     if resolved_frontier_digest != source_frontier_digest {
         return Err(unavailable("Qualification public status source frontier changed").into());
@@ -393,6 +443,20 @@ async fn persist_public_status_transition_preserving_sqlstate_v1(
     .execute(&mut **transaction)
     .await
     .map_err(transaction_storage)?;
+
+    // The phase fact is what R&D can observe of this protected evaluation, so it advances the
+    // generation of the candidate's protected-feedback history, under the locks the frontier
+    // resolution already took and in this transaction.
+    if let Some((principal_scope_key, generation)) = &feedback_history {
+        advance_protected_feedback_generation_preserving_sqlstate_v1(
+            transaction,
+            principal_scope_key,
+            *generation,
+            &fact,
+            source.committed_at_epoch_ms,
+        )
+        .await?;
+    }
 
     if let Some(current) = current {
         let updated = sqlx::query(
@@ -717,14 +781,25 @@ async fn resolve_candidate_feedback_frontier_v1(
         owner_cut_epoch_ms,
     )
     .await
+    .map(|frontier| (frontier.digest, frontier.is_current))
     .map_err(QualificationTransactionError::into_public)
+}
+
+/// A candidate's protected-feedback frontier as the status transition reads it: its digest,
+/// whether it is its history's fresh head, and the history it belongs to, locked by this
+/// transaction, with that history's generation. `history` is `None` when the frontier's projection
+/// is not stored.
+struct CandidateFeedbackFrontierV1 {
+    digest: String,
+    is_current: bool,
+    history: Option<(String, u64)>,
 }
 
 async fn resolve_candidate_feedback_frontier_preserving_sqlstate_v1(
     transaction: &mut Transaction<'_, Postgres>,
     source_frontier_identity: &str,
     owner_cut_epoch_ms: u64,
-) -> Result<(String, bool), QualificationTransactionError> {
+) -> Result<CandidateFeedbackFrontierV1, QualificationTransactionError> {
     let source_frontier_digest = digest_from_identity(
         "qualification-protected-feedback-frontier-v1-",
         source_frontier_identity,
@@ -738,7 +813,11 @@ async fn resolve_candidate_feedback_frontier_preserving_sqlstate_v1(
     .await
     .map_err(transaction_storage)?;
     let Some(projection_json) = projection_json else {
-        return Ok((source_frontier_digest, false));
+        return Ok(CandidateFeedbackFrontierV1 {
+            digest: source_frontier_digest,
+            is_current: false,
+            history: None,
+        });
     };
     let stored: StoredProjectionV1 = decode_exact(&projection_json)?;
     let scope_key = principal_scope_key(&stored.principal, &stored.request_scope)?;
@@ -750,12 +829,19 @@ async fn resolve_candidate_feedback_frontier_preserving_sqlstate_v1(
         &scope_key,
     )
     .await?;
+    // Current as the admission reads it: the history's head, fresh at this cut, and stating the
+    // history's generation. A head a phase fact has passed is not current however fresh it is.
     let is_current = history.current_frontier.as_ref().is_some_and(|frontier| {
         frontier.projection_identity == source_frontier_identity
             && frontier.projection_digest == source_frontier_digest
             && verify_projection_freshness(frontier, owner_cut_epoch_ms).is_ok()
+            && verify_projection_generation(frontier, history.generation).is_ok()
     });
-    Ok((source_frontier_digest, is_current))
+    Ok(CandidateFeedbackFrontierV1 {
+        digest: source_frontier_digest,
+        is_current,
+        history: Some((scope_key, history.generation)),
+    })
 }
 
 impl LockedProtectedAttemptResultV1 {
@@ -2481,7 +2567,11 @@ impl PostgresQualificationOwnerV1 {
             let owner_read_cut_epoch_ms =
                 owner_clock_epoch_ms_in_transaction(&mut transaction).await?;
 
-            if verify_projection_freshness(existing, owner_read_cut_epoch_ms).is_ok() {
+            // A fresh projection whose generation a phase fact has since passed is renewed, so the
+            // readback always states the history's generation.
+            if verify_projection_freshness(existing, owner_read_cut_epoch_ms).is_ok()
+                && verify_projection_generation(existing, history.generation).is_ok()
+            {
                 transaction.commit().await.map_err(storage)?;
                 return Ok(existing.clone());
             }
@@ -2494,10 +2584,11 @@ impl PostgresQualificationOwnerV1 {
             source_frontier_identity,
             source_frontier_digest,
         ) = if let Some(head) = history.current_frontier.as_ref() {
+            // A renewal states the history's generation as it stands; it never advances it.
             (
                 ProtectedFeedbackResolutionV1::Frontier,
-                head.source_sequence,
-                head.source_cut.clone(),
+                history.generation,
+                source_cut_for_generation(history.generation),
                 Some(head.projection_identity.clone()),
                 Some(head.projection_digest.clone()),
             )
@@ -2505,7 +2596,7 @@ impl PostgresQualificationOwnerV1 {
             (
                 ProtectedFeedbackResolutionV1::GenesisEmpty,
                 0,
-                "qualification-protected-feedback-cut-v1-0".to_string(),
+                GENESIS_SOURCE_CUT.to_string(),
                 None,
                 None,
             )
@@ -4481,6 +4572,106 @@ pub async fn admit_historical_projection_in_transaction(
     .await
 }
 
+/// The current protected-feedback generation of one history, as
+/// [`read_protected_feedback_generation_in_transaction`] reads it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ProtectedFeedbackGenerationV1 {
+    generation: u64,
+    source_cut: String,
+}
+
+impl ProtectedFeedbackGenerationV1 {
+    /// The count of the history's public phase facts.
+    #[must_use]
+    pub const fn generation(&self) -> u64 {
+        self.generation
+    }
+
+    /// The history's source cut at that generation, which a frozen projection's `source_cut` is
+    /// compared with byte for byte.
+    #[must_use]
+    pub fn source_cut(&self) -> &str {
+        &self.source_cut
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct GenerationReadEnvelopeV1 {
+    schema_version: u32,
+    projection_identity: String,
+    found: bool,
+    principal_scope_key: Option<String>,
+    source_sequence: Option<i64>,
+    source_cut: Option<String>,
+    logged_steps: Option<i64>,
+    latest_logged_step: Option<i64>,
+}
+
+/// The current protected-feedback generation of the history `projection_identity` belongs to,
+/// read without renewal.
+///
+/// A caller that froze a projection and is past its validity window reads here whether a phase
+/// fact of its history has since become observable: it compares the source cut it froze with the
+/// one returned. Nothing is written and no validity window is checked; the history's head is held
+/// `FOR SHARE` for the rest of the caller's transaction, which must be read committed. `None` when
+/// no stored projection has that identity or its history has no head.
+///
+/// # Errors
+///
+/// `UNAVAILABLE` under another isolation level, when the store cannot be read, or when the head's
+/// generation is not the one its logged steps account for.
+pub async fn read_protected_feedback_generation_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    projection_identity: &str,
+) -> Result<Option<ProtectedFeedbackGenerationV1>, QualificationOwnerError> {
+    let raw: Option<serde_json::Value> =
+        sqlx::query_scalar("SELECT qualification_api.read_protected_feedback_generation_v1($1)")
+            .bind(projection_identity)
+            .fetch_one(&mut **transaction)
+            .await
+            .map_err(storage)?;
+    let raw = raw.ok_or_else(|| {
+        unavailable("Qualification protected-feedback generation read needs read committed")
+    })?;
+    let envelope: GenerationReadEnvelopeV1 = decode_exact(&raw)?;
+
+    if envelope.schema_version != 1 || envelope.projection_identity != projection_identity {
+        return Err(unavailable(
+            "Qualification protected-feedback generation read answered another projection",
+        ));
+    }
+
+    if !envelope.found {
+        return Ok(None);
+    }
+    let (Some(_), Some(sequence), Some(source_cut), Some(logged), Some(latest)) = (
+        envelope.principal_scope_key,
+        envelope.source_sequence,
+        envelope.source_cut,
+        envelope.logged_steps,
+        envelope.latest_logged_step,
+    ) else {
+        return Err(unavailable(
+            "Qualification protected-feedback generation read is incomplete",
+        ));
+    };
+    let generation = u64::try_from(sequence).map_err(json_storage)?;
+
+    if sequence != logged
+        || sequence != latest
+        || source_cut != source_cut_for_generation(generation)
+    {
+        return Err(unavailable(
+            "Qualification protected-feedback head is not the generation its logged steps account for",
+        ));
+    }
+    Ok(Some(ProtectedFeedbackGenerationV1 {
+        generation,
+        source_cut,
+    }))
+}
+
 enum ProjectionSelectionV1<'a> {
     Current,
     Historical {
@@ -4503,6 +4694,7 @@ struct QualificationAdmissionEnvelopeV1 {
     heads: Vec<QualificationHeadEnvelopeRowV1>,
     projections: Vec<QualificationProjectionEnvelopeRowV1>,
     outboxes: Vec<QualificationOutboxEnvelopeRowV1>,
+    generations: Vec<GenerationStepRowV1>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -4596,6 +4788,8 @@ async fn verify_admission_envelope_in_transaction(
     if envelope.heads.len() > 1 {
         return Err(unavailable("Qualification feedback head is ambiguous"));
     }
+    let generation =
+        verify_generation_steps(&envelope.generations, principal_scope_key, &projections)?;
     let current_frontier = envelope
         .heads
         .first()
@@ -4606,11 +4800,12 @@ async fn verify_admission_envelope_in_transaction(
                 &basis.principal,
                 &basis.request_scope,
                 &projections,
+                generation,
             )
         })
         .transpose()?;
 
-    if current_frontier.is_none() && !projections.is_empty() {
+    if current_frontier.is_none() && (!projections.is_empty() || !envelope.generations.is_empty()) {
         return Err(unavailable(
             "Qualification feedback history exists without a head",
         ));
@@ -4619,6 +4814,7 @@ async fn verify_admission_envelope_in_transaction(
     let history = VerifiedScopeHistoryV1 {
         projections,
         current_frontier,
+        generation,
     };
     let projection = match selection {
         ProjectionSelectionV1::Current => {
@@ -4626,6 +4822,7 @@ async fn verify_admission_envelope_in_transaction(
 
             if let Some(projection) = projection {
                 verify_projection_freshness(projection, owner_cut_epoch_ms)?;
+                verify_projection_generation(projection, history.generation)?;
             }
             projection
         }
@@ -4860,6 +5057,7 @@ fn verify_head_envelope_row(
     principal: &str,
     request_scope: &[String],
     projections: &[ProtectedFeedbackFrontierReadbackV1],
+    generation: u64,
 ) -> Result<ProtectedFeedbackFrontierReadbackV1, QualificationOwnerError> {
     let scope: Vec<String> = decode_exact(&row.request_scope_json)?;
     let mut matching = projections
@@ -4887,12 +5085,12 @@ fn verify_head_envelope_row(
         Some("projection request scope does not match the request")
     } else if row.frontier_digest != projection.projection_digest {
         Some("head frontier_digest against the projection digest")
-    } else if u64::try_from(row.source_sequence).map_err(json_storage)?
-        != projection.source_sequence
-    {
-        Some("head source_sequence against the projection")
-    } else if row.source_cut != projection.source_cut {
-        Some("head source_cut against the projection")
+    } else if u64::try_from(row.source_sequence).map_err(json_storage)? != generation {
+        Some("head source_sequence against the history's logged generation")
+    } else if row.source_cut != source_cut_for_generation(generation) {
+        Some("head source_cut against the history's logged generation")
+    } else if projection.source_sequence > generation {
+        Some("head projection is ahead of the history's logged generation")
     } else if u64::try_from(row.committed_at_epoch_ms).map_err(json_storage)?
         != projection.receipt.committed_at_epoch_ms
     {
@@ -4950,6 +5148,8 @@ fn verify_outbox_envelope_row(
 pub(crate) struct VerifiedScopeHistoryV1 {
     projections: Vec<ProtectedFeedbackFrontierReadbackV1>,
     current_frontier: Option<ProtectedFeedbackFrontierReadbackV1>,
+    /// The history's protected-feedback generation, as its logged steps account for it.
+    generation: u64,
 }
 
 impl VerifiedScopeHistoryV1 {
@@ -5076,14 +5276,26 @@ async fn verify_scope_history_preserving_sqlstate_in_transaction(
             projection.principal == principal && projection.request_scope == request_scope
         })
         .collect::<Vec<_>>();
+    let step_rows = sqlx::query_scalar::<_, serde_json::Value>(GENERATION_STEPS_SQL)
+        .bind(principal_scope_key)
+        .fetch_all(&mut **transaction)
+        .await
+        .map_err(transaction_storage)?;
+    let mut steps = Vec::with_capacity(step_rows.len());
+
+    for row in &step_rows {
+        steps.push(decode_exact::<GenerationStepRowV1>(row)?);
+    }
+    let generation = verify_generation_steps(&steps, principal_scope_key, &projections)?;
     let current_frontier = match head_rows.first() {
         Some(head) => Some(verify_head_row(
             head,
             principal,
             request_scope,
             &projections,
+            generation,
         )?),
-        None if projections.is_empty() => None,
+        None if projections.is_empty() && steps.is_empty() => None,
         None => {
             return Err(unavailable("Qualification feedback history exists without a head").into());
         }
@@ -5094,8 +5306,79 @@ async fn verify_scope_history_preserving_sqlstate_in_transaction(
     Ok(VerifiedScopeHistoryV1 {
         projections,
         current_frontier,
+        generation,
     })
 }
+
+/// The source cut of a protected-feedback history at generation zero, its genesis.
+pub(crate) const GENESIS_SOURCE_CUT: &str = "qualification-protected-feedback-cut-v1-0";
+
+/// The source cut a protected-feedback history states at `generation`.
+pub(crate) fn source_cut_for_generation(generation: u64) -> String {
+    format!("qualification-protected-feedback-cut-v1-{generation}")
+}
+
+/// One logged step of a history's protected-feedback generation, with the phase fact it names as
+/// the store holds it; `fact_digest` and `fact_source_frontier_identity` are `None` when no stored
+/// phase fact has the named identity.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct GenerationStepRowV1 {
+    principal_scope_key: String,
+    generation: i64,
+    status_fact_identity: String,
+    status_fact_digest: String,
+    committed_at_epoch_ms: i64,
+    fact_digest: Option<String>,
+    fact_source_frontier_identity: Option<String>,
+}
+
+/// The generation a history's logged steps account for.
+///
+/// The steps are numbered from one without a gap, and each names a stored phase fact, with that
+/// fact's digest, whose candidate frontier is a projection of this history. A generation no phase
+/// fact accounts for is refused, so the count cannot be advanced by anything but a phase fact.
+fn verify_generation_steps(
+    steps: &[GenerationStepRowV1],
+    principal_scope_key: &str,
+    projections: &[ProtectedFeedbackFrontierReadbackV1],
+) -> Result<u64, QualificationOwnerError> {
+    for (index, step) in steps.iter().enumerate() {
+        let expected = i64::try_from(index + 1).map_err(json_storage)?;
+
+        if step.principal_scope_key != principal_scope_key || step.generation != expected {
+            return Err(unavailable(
+                "Qualification protected-feedback generation is not numbered without a gap",
+            ));
+        }
+
+        if step.fact_digest.as_deref() != Some(step.status_fact_digest.as_str()) {
+            return Err(unavailable(
+                "Qualification protected-feedback generation names no stored phase fact",
+            ));
+        }
+        let frontier = step.fact_source_frontier_identity.as_deref();
+
+        if !projections
+            .iter()
+            .any(|projection| Some(projection.projection_identity.as_str()) == frontier)
+        {
+            return Err(unavailable(
+                "Qualification protected-feedback generation names another history's phase fact",
+            ));
+        }
+    }
+    u64::try_from(steps.len()).map_err(json_storage)
+}
+
+/// Every logged step of one history, with the phase fact each names. It states each step in the
+/// shape `lock_projection_for_basis_v1` states it, so both admission paths decode one row type.
+///
+/// It takes no row lock, and `qualification_writer` could not take one: a row lock needs `UPDATE`,
+/// and the writer holds `SELECT, INSERT` on this append-only table. None is needed. No role can
+/// change a logged step, and a new one is written only under the principal/scope advisory lock
+/// every Owner path that runs this read already holds.
+const GENERATION_STEPS_SQL: &str = "SELECT jsonb_build_object('principal_scope_key', step.principal_scope_key, 'generation', step.generation, 'status_fact_identity', step.status_fact_identity, 'status_fact_digest', step.status_fact_digest, 'committed_at_epoch_ms', step.committed_at_epoch_ms, 'fact_digest', fact.fact_digest, 'fact_source_frontier_identity', fact.source_frontier_identity) FROM qualification_protected_feedback_generations_v1 step LEFT JOIN qualification_public_status_facts_v1 fact ON fact.fact_identity = step.status_fact_identity WHERE step.principal_scope_key = $1 ORDER BY step.generation";
 
 fn verify_projection_chain(
     projections: &[ProtectedFeedbackFrontierReadbackV1],
@@ -5112,7 +5395,7 @@ fn verify_projection_chain(
             match cursor.resolution {
                 ProtectedFeedbackResolutionV1::GenesisEmpty => {
                     if cursor.source_sequence != 0
-                        || cursor.source_cut != "qualification-protected-feedback-cut-v1-0"
+                        || cursor.source_cut != GENESIS_SOURCE_CUT
                         || cursor.source_frontier_identity.is_some()
                         || cursor.source_frontier_digest.is_some()
                     {
@@ -5132,10 +5415,12 @@ fn verify_projection_chain(
                             unavailable("Qualification frontier predecessor unavailable")
                         })?;
 
+                    // A successor states the generation at its own write, which a phase fact may have
+                    // advanced since its predecessor's: never lower, and its cut is that generation's.
                     if cursor.source_frontier_digest.as_deref()
                         != Some(predecessor.projection_digest.as_str())
-                        || cursor.source_sequence != predecessor.source_sequence
-                        || cursor.source_cut != predecessor.source_cut
+                        || cursor.source_sequence < predecessor.source_sequence
+                        || cursor.source_cut != source_cut_for_generation(cursor.source_sequence)
                     {
                         return Err(unavailable("Qualification frontier predecessor mismatch"));
                     }
@@ -5151,6 +5436,23 @@ fn verify_projection_chain(
         }
     }
     Ok(())
+}
+
+/// A projection is current only at its history's generation: a phase fact committed after it was
+/// written has made protected feedback observable that it does not state.
+fn verify_projection_generation(
+    projection: &ProtectedFeedbackFrontierReadbackV1,
+    generation: u64,
+) -> Result<(), QualificationOwnerError> {
+    if projection.source_sequence == generation {
+        Ok(())
+    } else {
+        Err(unavailable(format!(
+            "Qualification projection is stale at this generation: it states generation {} and \
+             its history is at {generation}",
+            projection.source_sequence
+        )))
+    }
 }
 
 fn verify_projection_freshness(
@@ -5546,6 +5848,7 @@ fn verify_head_row(
     principal: &str,
     request_scope: &[String],
     projections: &[ProtectedFeedbackFrontierReadbackV1],
+    generation: u64,
 ) -> Result<ProtectedFeedbackFrontierReadbackV1, QualificationOwnerError> {
     let scope: Vec<String> = decode_exact(
         &row.try_get::<serde_json::Value, _>("request_scope_json")
@@ -5581,10 +5884,14 @@ fn verify_head_row(
         != projection.projection_digest
     {
         Some("head frontier_digest against the projection digest")
-    } else if u64::try_from(sequence).map_err(json_storage)? != projection.source_sequence {
-        Some("head source_sequence against the projection")
-    } else if row.try_get::<String, _>("source_cut").map_err(storage)? != projection.source_cut {
-        Some("head source_cut against the projection")
+    } else if u64::try_from(sequence).map_err(json_storage)? != generation {
+        Some("head source_sequence against the history's logged generation")
+    } else if row.try_get::<String, _>("source_cut").map_err(storage)?
+        != source_cut_for_generation(generation)
+    {
+        Some("head source_cut against the history's logged generation")
+    } else if projection.source_sequence > generation {
+        Some("head projection is ahead of the history's logged generation")
     } else if u64::try_from(committed_at).map_err(json_storage)?
         != projection.receipt.committed_at_epoch_ms
     {
@@ -6430,7 +6737,7 @@ mod postgres_tests {
             scope_history
                 .matches(".map_err(transaction_storage)?")
                 .count(),
-            4
+            5
         );
         assert!(scope_history.contains("admit_projection_row_in_transaction"));
         assert!(!scope_history.contains(".map_err(storage)?"));
@@ -6632,6 +6939,7 @@ mod postgres_tests {
         let history = VerifiedScopeHistoryV1 {
             projections: vec![first.clone(), successor.clone()],
             current_frontier: Some(successor.clone()),
+            generation: 0,
         };
         verify_projection_chain(&history.projections, history.current_frontier.as_ref()).unwrap();
         assert_eq!(
@@ -6659,6 +6967,138 @@ mod postgres_tests {
         let mut tampered = successor;
         tampered.source_frontier_digest = Some("sha256:tampered".into());
         assert!(verify_projection_chain(&[first, tampered.clone()], Some(&tampered)).is_err());
+    }
+
+    /// A successor states the generation at its own write: it may be above its predecessor's, with
+    /// that generation's cut, and never below it or with another cut.
+    #[rstest]
+    fn a_successor_states_a_generation_no_lower_than_its_predecessor() {
+        let basis = StoredRdBasisV1 {
+            schema_version: 1,
+            basis_identity: "basis-1".into(),
+            request_identity: "request-1".into(),
+            principal: "principal-1".into(),
+            request_scope: vec!["research:submit".into()],
+            rationale_digest: "sha256:rationale".into(),
+            independence_disposition: StoredIndependenceDispositionV1::Independent,
+            lineage_resolution: StoredLineageResolutionV1::GenesisEmpty,
+            semantic_predecessor_frontier: vec![],
+            lineage_digest: "sha256:lineage".into(),
+            basis_digest: "sha256:basis".into(),
+        };
+        let genesis = form_projection(
+            &basis,
+            ProtectedFeedbackResolutionV1::GenesisEmpty,
+            0,
+            GENESIS_SOURCE_CUT.into(),
+            None,
+            None,
+            100,
+        )
+        .unwrap();
+        let at = |predecessor: &ProtectedFeedbackFrontierReadbackV1, sequence: u64, cut: String| {
+            form_projection(
+                &basis,
+                ProtectedFeedbackResolutionV1::Frontier,
+                sequence,
+                cut,
+                Some(predecessor.projection_identity().into()),
+                Some(predecessor.projection_digest().into()),
+                predecessor.valid_through_epoch_ms(),
+            )
+            .unwrap()
+        };
+        let advanced = at(&genesis, 2, source_cut_for_generation(2));
+        verify_projection_chain(&[genesis.clone(), advanced.clone()], Some(&advanced)).unwrap();
+        let renewed = at(&advanced, 2, source_cut_for_generation(2));
+        verify_projection_chain(
+            &[genesis.clone(), advanced.clone(), renewed.clone()],
+            Some(&renewed),
+        )
+        .unwrap();
+
+        let lower = at(&advanced, 1, source_cut_for_generation(1));
+        assert!(
+            verify_projection_chain(&[genesis.clone(), advanced, lower.clone()], Some(&lower))
+                .is_err(),
+            "a generation never goes back"
+        );
+        let other_cut = at(&genesis, 2, source_cut_for_generation(3));
+        assert!(
+            verify_projection_chain(&[genesis, other_cut.clone()], Some(&other_cut)).is_err(),
+            "the cut is the sequence's"
+        );
+        assert_eq!(GENESIS_SOURCE_CUT, source_cut_for_generation(0));
+    }
+
+    /// Each logged step names a stored phase fact, with its digest, of this history, numbered from
+    /// one without a gap; anything else accounts for no generation.
+    #[rstest]
+    fn a_generation_is_what_its_logged_phase_facts_account_for() {
+        let basis = StoredRdBasisV1 {
+            schema_version: 1,
+            basis_identity: "basis-1".into(),
+            request_identity: "request-1".into(),
+            principal: "principal-1".into(),
+            request_scope: vec!["research:submit".into()],
+            rationale_digest: "sha256:rationale".into(),
+            independence_disposition: StoredIndependenceDispositionV1::Independent,
+            lineage_resolution: StoredLineageResolutionV1::GenesisEmpty,
+            semantic_predecessor_frontier: vec![],
+            lineage_digest: "sha256:lineage".into(),
+            basis_digest: "sha256:basis".into(),
+        };
+        let genesis = form_projection(
+            &basis,
+            ProtectedFeedbackResolutionV1::GenesisEmpty,
+            0,
+            GENESIS_SOURCE_CUT.into(),
+            None,
+            None,
+            100,
+        )
+        .unwrap();
+        let projections = [genesis.clone()];
+        let step = |generation: i64| GenerationStepRowV1 {
+            principal_scope_key: "scope-1".into(),
+            generation,
+            status_fact_identity: format!("fact-{generation}"),
+            status_fact_digest: format!("sha256:fact-{generation}"),
+            committed_at_epoch_ms: 200,
+            fact_digest: Some(format!("sha256:fact-{generation}")),
+            fact_source_frontier_identity: Some(genesis.projection_identity().into()),
+        };
+
+        assert_eq!(
+            verify_generation_steps(&[], "scope-1", &projections).unwrap(),
+            0
+        );
+        assert_eq!(
+            verify_generation_steps(&[step(1), step(2)], "scope-1", &projections).unwrap(),
+            2
+        );
+        let mut missing = step(2);
+        missing.fact_digest = None;
+        let mut forged = step(2);
+        forged.status_fact_digest = "sha256:forged".into();
+        let mut elsewhere = step(2);
+        elsewhere.fact_source_frontier_identity = Some("another-history-projection".into());
+        let mut other_scope = step(2);
+        other_scope.principal_scope_key = "scope-2".into();
+
+        for (why, steps) in [
+            ("a gap", vec![step(1), step(3)]),
+            ("not from one", vec![step(2)]),
+            ("no stored phase fact", vec![step(1), missing]),
+            ("another fact digest", vec![step(1), forged]),
+            ("another history's phase fact", vec![step(1), elsewhere]),
+            ("another history's step", vec![step(1), other_scope]),
+        ] {
+            assert!(
+                verify_generation_steps(&steps, "scope-1", &projections).is_err(),
+                "{why}"
+            );
+        }
     }
 
     /// The sixteen execution-defining bindings every ordered-gate protected request freezes. The
@@ -6851,6 +7291,80 @@ mod postgres_tests {
             status,
             phase,
         )
+    }
+
+    /// The protected-feedback frontier a review request's current public status cites, and the key
+    /// of the principal/scope history that frontier belongs to.
+    async fn feedback_history_of_review_request(
+        pool: &PgPool,
+        review_request_identity: &str,
+    ) -> (String, String) {
+        let (frontier_identity, principal, request_scope): (String, String, serde_json::Value) =
+            sqlx::query_as(
+                "SELECT fact.source_frontier_identity,projection.principal,projection.request_scope_json \
+                 FROM public.qualification_public_status_heads_v1 head \
+                 JOIN public.qualification_public_status_facts_v1 fact USING(fact_identity) \
+                 JOIN public.qualification_protected_feedback_projections_v1 projection \
+                   ON projection.projection_identity=fact.source_frontier_identity \
+                 WHERE head.review_request_identity=$1",
+            )
+            .bind(review_request_identity)
+            .fetch_one(pool)
+            .await
+            .expect("feedback frontier of the review request's public status");
+        let request_scope: Vec<String> =
+            serde_json::from_value(request_scope).expect("canonical request scope");
+        let scope_key = principal_scope_key(&principal, &request_scope).expect("scope key");
+        (frontier_identity, scope_key)
+    }
+
+    /// The generation of the history `projection_identity` belongs to, read the way R&D reads it:
+    /// through the function granted to `rd_owner` alone, in a read-committed transaction.
+    async fn protected_feedback_generation(
+        rd: &PgPool,
+        projection_identity: &str,
+    ) -> Result<Option<ProtectedFeedbackGenerationV1>, QualificationOwnerError> {
+        let mut read = rd.begin().await.expect("R&D read transaction");
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL READ COMMITTED")
+            .execute(&mut *read)
+            .await
+            .expect("read-committed R&D read");
+        let generation =
+            read_protected_feedback_generation_in_transaction(&mut read, projection_identity).await;
+        read.rollback().await.expect("R&D read rollback");
+        generation
+    }
+
+    /// Whether candidate intake reads `projection_identity` as a current feedback frontier at an
+    /// Owner cut the caller names. Read only: the transaction is rolled back.
+    async fn candidate_frontier_is_current_at(
+        pool: &PgPool,
+        projection_identity: &str,
+        owner_cut_epoch_ms: u64,
+    ) -> bool {
+        let mut read = pool.begin().await.expect("frontier read transaction");
+        let (_, is_current) = resolve_candidate_feedback_frontier_v1(
+            &mut read,
+            projection_identity,
+            owner_cut_epoch_ms,
+        )
+        .await
+        .expect("candidate feedback frontier");
+        read.rollback().await.expect("frontier read rollback");
+        is_current
+    }
+
+    /// Every logged generation step of one history, as `(generation, phase fact)` in order.
+    async fn logged_generation_steps(pool: &PgPool, scope_key: &str) -> Vec<(i64, String)> {
+        sqlx::query_as(
+            "SELECT generation,status_fact_identity \
+             FROM public.qualification_protected_feedback_generations_v1 \
+             WHERE principal_scope_key=$1 ORDER BY generation",
+        )
+        .bind(scope_key)
+        .fetch_all(pool)
+        .await
+        .expect("logged generation steps")
     }
 
     /// The `ADMITTED` intake of one exact gate lineage. Its public status has not reached a
@@ -8553,6 +9067,12 @@ mod postgres_tests {
             .connect_url(&backtest_url, PostgresTls::Disabled)
             .await
             .expect("Backtest pool");
+        let rd_url =
+            std::env::var("RD_OWNER_TEST_DATABASE_URL").expect("explicit disposable R&D Owner URL");
+        let rd = sqlx::postgres::PgPoolOptions::new()
+            .connect_url(&rd_url, PostgresTls::Disabled)
+            .await
+            .expect("R&D Owner pool");
 
         for (lineage, terminal) in [
             (ReadyLineageV1::EconomicPass, ProtectedTerminalV1::Qualified),
@@ -8566,7 +9086,7 @@ mod postgres_tests {
             ),
         ] {
             Box::pin(close_protected_terminal_for_lineage(
-                &owner, &backtest, lineage, terminal,
+                &owner, &backtest, &rd, lineage, terminal,
             ))
             .await;
         }
@@ -8600,6 +9120,7 @@ mod postgres_tests {
     async fn close_protected_terminal_for_lineage(
         owner: &PostgresQualificationOwnerV1,
         backtest: &PgPool,
+        rd: &PgPool,
         lineage: ReadyLineageV1,
         terminal: ProtectedTerminalV1,
     ) {
@@ -8702,6 +9223,20 @@ mod postgres_tests {
         .await
         .expect("no assessment before the admitted closure");
         assert_eq!(premature, (0, 0));
+
+        // The generation of the history this candidate's feedback frontier belongs to, as R&D
+        // reads it, before the closure; every step it counts is logged.
+        let (source_frontier_identity, scope_key) =
+            feedback_history_of_review_request(&owner.pool, &review_request_identity).await;
+        let generation_before = protected_feedback_generation(rd, &source_frontier_identity)
+            .await
+            .expect("generation before the closure")
+            .expect("history of the candidate's feedback frontier");
+        let steps_before = logged_generation_steps(&owner.pool, &scope_key).await;
+        assert_eq!(
+            u64::try_from(steps_before.len()).expect("step count"),
+            generation_before.generation()
+        );
 
         let closed = match terminal {
             ProtectedTerminalV1::Qualified => {
@@ -8846,6 +9381,39 @@ mod postgres_tests {
                 1 - eligibility_rows,
                 1
             )
+        );
+
+        // The terminal phase fact is what R&D can observe of this protected evaluation, so the
+        // closure advanced the history's generation by exactly one step, and that step names it.
+        // The response-loss retry above replayed the phase fact and advanced nothing.
+        let generation_after = protected_feedback_generation(rd, &source_frontier_identity)
+            .await
+            .expect("generation after the closure")
+            .expect("history of the candidate's feedback frontier");
+        assert_eq!(
+            generation_after.generation(),
+            generation_before.generation() + 1
+        );
+        assert_eq!(
+            generation_after.source_cut(),
+            source_cut_for_generation(generation_after.generation())
+        );
+        let terminal_fact_identity: String = sqlx::query_scalar(
+            "SELECT fact_identity FROM public.qualification_public_status_facts_v1 \
+             WHERE review_request_identity=$1 AND phase_sequence=3",
+        )
+        .bind(&review_request_identity)
+        .fetch_one(&owner.pool)
+        .await
+        .expect("terminal phase fact");
+        let steps_after = logged_generation_steps(&owner.pool, &scope_key).await;
+        assert_eq!(steps_after[..steps_before.len()], steps_before[..]);
+        assert_eq!(
+            steps_after[steps_before.len()..],
+            [(
+                i64::try_from(generation_after.generation()).expect("generation"),
+                terminal_fact_identity
+            )]
         );
 
         let public_terminal: serde_json::Value = sqlx::query_scalar(
@@ -9079,53 +9647,112 @@ mod postgres_tests {
             genesis.projection_at_epoch_ms()
         );
 
-        // A projection is fresh for `PROJECTION_VALIDITY_MS` from when it was projected, and this
-        // one was projected several entries ago. On a fast run it is still fresh; on a slow one it
-        // has expired, and `resolve_for_basis` then refuses it as stale rather than renewing it.
-        // Only `resolve_or_create_for_basis` renews, so that is the first resolve: it replays a
-        // fresh projection and renews an expired one, both the Owner's correct answer for the
-        // projection's age. Everything below starts from what it returned, so freshness is a
-        // property of this entry's own timing, not of how long the entries before it took.
+        // The lineage's candidate entered Qualification with this projection as its feedback
+        // frontier, and the intake's phase fact advanced the history's generation past the genesis
+        // projection's sequence zero. Every step is logged and accounted for by one phase fact that
+        // cites a frontier of this history, and the generation R&D reads is the number of them.
+        let generation = protected_feedback_generation(&rd, genesis.projection_identity())
+            .await
+            .expect("generation read")
+            .expect("history of the genesis projection");
+        let steps = logged_generation_steps(&owner.pool, &scope_key).await;
+        let cited_phase_facts: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM public.qualification_public_status_facts_v1 fact \
+             JOIN public.qualification_protected_feedback_projections_v1 projection \
+               ON projection.projection_identity=fact.source_frontier_identity \
+             WHERE projection.principal=$1 AND projection.request_scope_json=$2",
+        )
+        .bind(&locator.principal)
+        .bind(serde_json::json!(locator.request_scope))
+        .fetch_one(&owner.pool)
+        .await
+        .expect("phase facts of this history");
+        assert!(generation.generation() >= 1);
+        assert_eq!(
+            u64::try_from(steps.len()).expect("step count"),
+            generation.generation()
+        );
+        assert_eq!(
+            u64::try_from(cited_phase_facts).expect("phase fact count"),
+            generation.generation()
+        );
+        // Only R&D reads the generation; the Qualification writer cannot call the read.
+        vibe_testkit::postgres::assert_statement_is_refused(
+            &owner.pool,
+            &format!(
+                "SELECT qualification_api.read_protected_feedback_generation_v1('{}')",
+                genesis.projection_identity()
+            ),
+            "42501",
+        )
+        .await;
+
+        // The genesis projection therefore states a generation its history has passed, fresh or
+        // not: the sealed admission refuses it, and `resolve_or_create_for_basis` renews it. The
+        // renewal is a successor of the genesis projection that states the generation as it
+        // stands, and advances nothing.
         //
-        // On a slow run this is a deliberate write, not residue: the renewal appends a legitimate
-        // successor projection and its outbox event and advances the head, and that custody is
-        // append-only, so the entry cannot clean it up. It is the state a late consumer of this
-        // lineage leaves in production. Only this entry reads the lineage by name (`git grep -F
-        // inadequate-plan` at 8c81c5d71: the other hit is where the name is produced). The one
-        // later entry that reads whatever projection row sorts first,
+        // This is a deliberate write, not residue: the renewal appends a legitimate successor
+        // projection and its outbox event and moves the head, and that custody is append-only, so
+        // the entry cannot clean it up. It is the state the next consumer of this lineage leaves in
+        // production. Only this entry reads the lineage by name (`git grep -F inadequate-plan` at
+        // 8c81c5d71: the other hit is where the name is produced). The one later entry that reads
+        // whatever projection row sorts first,
         // `an_orphaned_projection_names_itself_rather_than_the_caller_request`, holds for a
         // successor too: its tamper is caught while each row's basis is loaded, before anything
         // reads the resolution, and a renewed history passes its accept control, as the replays
         // below show.
+        assert!(owner.resolve_for_basis(&locator).await.is_err());
+        // Candidate intake reads the same currentness. At the genesis projection's own cut it is
+        // fresh and still the head, so only the generation it no longer states makes it not
+        // current; the renewal below is read the same way as the control.
+        assert!(
+            !candidate_frontier_is_current_at(
+                &owner.pool,
+                genesis.projection_identity(),
+                genesis.projection_at_epoch_ms(),
+            )
+            .await
+        );
         let projection = owner
             .resolve_or_create_for_basis(&locator)
             .await
-            .expect("stored or renewed projection");
+            .expect("renewed projection");
         assert_eq!(projection.basis_identity(), locator.basis_identity);
-        if projection.projection_identity() == genesis.projection_identity() {
-            eprintln!("entry 84: the stored projection was still fresh and was replayed");
-        } else {
-            // The renewal branch is reached only on a slow run, so when it is, its shape is
-            // asserted: a successor of the genesis projection at the same source cut.
-            eprintln!("entry 84: the stored projection had expired and was renewed");
-            assert_eq!(
-                projection.resolution(),
-                ProtectedFeedbackResolutionV1::Frontier
-            );
-            assert_eq!(
-                (
-                    projection.source_frontier_identity(),
-                    projection.source_frontier_digest()
-                ),
-                (
-                    Some(genesis.projection_identity()),
-                    Some(genesis.projection_digest())
-                )
-            );
-            assert_eq!(projection.source_sequence(), genesis.source_sequence());
-            assert_eq!(projection.source_cut(), genesis.source_cut());
-            assert!(projection.projection_at_epoch_ms() >= genesis.valid_through_epoch_ms());
-        }
+        assert_eq!(
+            projection.resolution(),
+            ProtectedFeedbackResolutionV1::Frontier
+        );
+        assert_eq!(
+            (
+                projection.source_frontier_identity(),
+                projection.source_frontier_digest()
+            ),
+            (
+                Some(genesis.projection_identity()),
+                Some(genesis.projection_digest())
+            )
+        );
+        assert_eq!(projection.source_sequence(), generation.generation());
+        assert_eq!(projection.source_cut(), generation.source_cut());
+        assert!(
+            candidate_frontier_is_current_at(
+                &owner.pool,
+                projection.projection_identity(),
+                projection.projection_at_epoch_ms(),
+            )
+            .await
+        );
+        assert_eq!(
+            protected_feedback_generation(&rd, projection.projection_identity())
+                .await
+                .expect("generation read after the renewal"),
+            Some(generation.clone())
+        );
+        assert_eq!(
+            logged_generation_steps(&owner.pool, &scope_key).await,
+            steps
+        );
         // The baselines for everything below are taken after that resolve and before anything
         // else this entry writes, so a row the tampering disturbs cannot already be inside them.
         let schema_before = qualification_schema_row_counts(&owner.pool).await;
@@ -9272,6 +9899,53 @@ mod postgres_tests {
                 .resolve_for_basis(&locator)
                 .await
                 .expect("readback after exact R&D restoration"),
+            Some(projection.clone())
+        );
+
+        // A generation no phase fact accounts for fails closed: a head moved one step past its
+        // logged steps is refused by the sealed admission and by R&D's read alike.
+        let head_generation: (i64, String) = sqlx::query_as(
+            "SELECT source_sequence,source_cut FROM public.qualification_protected_feedback_heads_v1 WHERE principal_scope_key=$1",
+        )
+        .bind(&scope_key)
+        .fetch_one(&owner.pool)
+        .await
+        .expect("current head generation");
+        let invented = generation.generation() + 1;
+        sqlx::query(
+            "UPDATE public.qualification_protected_feedback_heads_v1 SET source_sequence=$2,source_cut=$3 WHERE principal_scope_key=$1",
+        )
+        .bind(&scope_key)
+        .bind(i64::try_from(invented).expect("invented generation"))
+        .bind(source_cut_for_generation(invented))
+        .execute(&owner.pool)
+        .await
+        .expect("advance the head with no logged step");
+        let invented_admission = owner.resolve_for_basis(&locator).await;
+        let invented_read =
+            protected_feedback_generation(&rd, projection.projection_identity()).await;
+        sqlx::query(
+            "UPDATE public.qualification_protected_feedback_heads_v1 SET source_sequence=$2,source_cut=$3 WHERE principal_scope_key=$1",
+        )
+        .bind(&scope_key)
+        .bind(head_generation.0)
+        .bind(&head_generation.1)
+        .execute(&owner.pool)
+        .await
+        .expect("restore the head generation exactly");
+        assert!(invented_admission.is_err());
+        assert!(invented_read.is_err());
+        assert_eq!(
+            protected_feedback_generation(&rd, projection.projection_identity())
+                .await
+                .expect("generation read after exact head restoration"),
+            Some(generation)
+        );
+        assert_eq!(
+            owner
+                .resolve_for_basis(&locator)
+                .await
+                .expect("readback after exact head generation restoration"),
             Some(projection.clone())
         );
 

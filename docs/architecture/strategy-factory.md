@@ -690,12 +690,15 @@ one-instant batch; no proof has yet driven the materialization to completion on 
 **IMPLEMENTATION_ADMITTED / NOT_CUT_OVER, production Native Replay entry:** the authenticated R&D API's
 `POST /v2/exploratory-replays` is admitted as a production route; its body carries only the exact sealed request
 locator and attempt identity. It is not cut over. The handler, the execution service it calls and the router
-registration are still compiled only under the sealed Develop composition feature, so no deployed image serves this
-route today, and no request has ever reached it outside acceptance. Cutover requires the production Composer sealed
-read port that the execution service takes as an input: a `DevelopComposerFinalEvidencePortV2` implementation that
-locks and rereads evidence for an arbitrary locator inside the caller's transaction, and a
-`PostgresDevelopComposerSealedReadPortV2` the R&D composition root can construct. Until both exist the feature gate
-is what stands between this route and production, and removing it alone would not compile. After cutover, startup
+registration are compiled under `native-replay-execution`, a production feature with no acceptance code that the
+deployed image does not enable, so no deployed image serves this route today, and no request has ever reached it outside acceptance. What the execution service needs of the
+Composer is ungated production code: its sealed read port is implemented by the production Composer,
+`PostgresSourceResearchComposerProductionV2`, and that Composer's final-evidence port, `LockedOwnerEvidenceV2`,
+locks and rereads the evidence for the locator it is given; no separate `PostgresDevelopComposerSealedReadPortV2`
+exists or is needed. A build that enables `composer-v3-replay` and `native-replay-execution` carries them and no acceptance
+code, which `scripts/ci/check-production-features.py` checks for whatever features the image builds. The feature
+gate is therefore all that stands between this route and a build, and cutover is the deployed image carrying such a
+build, which is a deployment decision. After cutover, startup
 still exposes the execution capability only when `BACKTEST_OWNER_DATABASE_URL` admits the canonical Backtest Owner
 principal and the Market Data scheduling capability is present. The handler returns only the exact persisted
 canonical Result bytes after the coordinator acknowledges the Result, all 28 evidence envelopes and the semantic
@@ -783,8 +786,8 @@ deserialization nor a struct literal forges one even with the acceptance feature
 path runs. Nothing issues a `NativeReplayExecutionInputBindingV1` in any compilable configuration
 today. Its issuance narrows to `issue_native_replay_execution_input_binding_v1`, whose single
 caller is an HTTP handler registered only under the `rd-owner-api` crate's own
-`sealed-develop-composer-acceptance`, which no Makefile target, workflow or chain script enables;
-no SQL or script writes the binding tables directly, and no test or client names the route. Both
+`composer-replay-issuance`, which the deployed image does not enable and the ordered chain's build turns
+on only through `sealed-develop-composer-acceptance`; no SQL or script writes the binding tables directly, and no test or client names the route. Both
 the issuer and the resolver beside it are ungated production functions on
 `PostgresResearchGoalOwnerV1`, forty-three lines apart, taking the same collaborators. So the
 execution path is unreached rather than unreachable, and one ordered-chain entry that issues and
@@ -947,6 +950,12 @@ and tagged V3 receipt, pass Composer into the same `StrategyArtifactV2`, and exe
 build receipt, Plan/Artifact identities, ordered semantic trace, checkpoint, fill, position, protection, cost, and
 canonical Backtest result. Restoring a checkpoint at every declared state frontier must reproduce a byte-identical
 suffix.
+
+Byte identity holds within one fixed-point precision mode. The product runs at `FIXED_PRECISION` 16:
+`vibe-strategy-factory` declares `high-precision` on its `vibe-model` dependency, so local, CI, Owner-chain and
+production builds share it, and `scripts/ci/check-production-features.py` fails any production package that links
+`vibe-model` without it. A fixed-point value converts to `f64` by one correct rounding in either mode, so the
+canonical result does not depend on the mode; the representable range and what admission accepts do.
 
 The corpus has negative oracles for unknown opcode/field/semantic ID; scale or unit mismatch; every checked
 overflow and rounding boundary; missing, stale or cross-lineage binding/coordinate; same-sample duplicate; an
@@ -1145,6 +1154,15 @@ The kernel, never a Design or plugin, owns these stable semantic primitives and 
 - fill reconciliation under `kernel.fill.reconcile.v1`, including partial fill, rejection, cancellation and
   out-of-order readback handling.
 
+A rebalance target's sequence is the Host's, not the program's. A program emits `0` on
+`proposal.rebalance-sequence.v1` for a `kernel.target.rebalance.v1` target, and the Host assigns the sequence when it
+decodes the proposal: on the target-set path, the sequence of the target set the proposal is lifted into, which the
+lift requires each member to carry; on the single-instrument path, one more than the member kernel's current
+rebalance sequence, which the kernel requires a rebalance to exceed. Both rules hold by construction, where a
+program could only guess the one number that satisfies them on one frame. A program that emits any other value for
+a rebalance target is refused by name as `REBALANCE_SEQUENCE_IS_HOST_ASSIGNED`; the port stays in the plugin ABI,
+and no other target reads it.
+
 Each primitive has a versioned semantic ID whose meaning is stable across Backtest and Runtime. The kernel turns
 targets and protection transitions into semantic intent records; in Runtime, Risk remains the final admission
 authority, Execution remains the order/fill/effect authority, and Portfolio remains the position/account truth.
@@ -1169,7 +1187,7 @@ code, a toy renderer, or a partial executable.
 ComplexStrategy V1 canonicalization, bounds, frozen-Intent checks and exact Owner binding are migration inputs,
 not a second permanent language. They must be absorbed into the V2 compiler and lowered through the sole
 `StrategyArtifactV2`/`ProgramHostV2` path. After the frozen equivalence corpora prove byte-identical semantic traces
-and canonical Backtest results, the duplicate V1 interpreter and toy renderer must be deleted. A third runtime,
+and canonical Backtest results in the product's precision mode, the duplicate V1 interpreter and toy renderer must be deleted. A third runtime,
 sidecar interpreter, generated unrestricted strategy code path, or feature-specific core opcode is prohibited.
 
 Acceptance uses three versioned, immutable corpora, each with positive, unsupported, malformed-binding,
@@ -1182,7 +1200,8 @@ resource-exhaustion and checkpoint/restart cases:
 1. **Multi-leg, multi-timeframe regime:** exact leg and timeframe roles, joined event ordering, regime state,
    atomic target intent and fail-closed missing/stale leg input.
 
-For every admitted corpus, repeated Backtest runs must produce byte-identical Design/Plan/Artifact identities,
+For every admitted corpus, repeated Backtest runs in the product's precision mode must produce byte-identical
+Design/Plan/Artifact identities,
 ordered semantic traces, checkpoints, fills, positions, costs and canonical results. The same normalized event
 prefix must produce the same semantic trace in a later admitted Paper or Live Runtime up to the Risk/Execution
 adapter boundary. Any divergence, heuristic binding, unsupported feature promoted to an opcode, plugin raw-order
@@ -1294,6 +1313,21 @@ configuration cannot attest those values, and a missing value never becomes zero
 receipt, terms, venue, account or time, and noncanonical, partial, extra, cross-spliced, tampered or ACL-drifted
 custody fail before `ProgramHostV2` or Backtest state exists. Existing profile canonical bytes and digest remain
 unchanged.
+
+Which instrument's terms a Replay uses is resolved for its request, not pinned by its family. Schema 1 of the
+economic configuration also pins one instrument's terms (`instrument_terms`: instrument, public fact and receipt
+digests, fees and margins), and the profile binding then requires exactly one member to equal them. That rule arrived
+with the sealed acceptance configuration in #468 and was not stated here before. Schema 1 stays readable, and keeps
+its bytes and digest, for every family sealed under it. Schema 2 pins no instrument. It fixes only what holds across
+instruments - venue, currencies, leverage, and the fill, fee and margin models - and each Replay's instrument terms are
+the ones the Instrument Owner resolves for its members at its window's start when the execution-profile binding is
+issued. The binding records their provenance: instrument, public fact digest, terms receipt, terms digest, fees and
+margins. A consumer that resolves the terms again must meet exactly those facts, or it refuses. A fee change is
+therefore a new terms fact rather than a new Catalog version. Schema 1 without pinned terms, or schema 2 with them, is
+refused as `InstrumentTermsPinningMismatch`. Pinning no instrument does not loosen the venue: terms at a venue the
+configuration does not name are refused before provenance exists, and the Instrument Owner resolves nothing for
+members at another venue. The account scope is the one complete scope the Owner holds for every member; schema 2
+does not pin a fee tier.
 
 Native engine materialization remains `UNAVAILABLE`. V1 represents liquidation only as disabled and supplies no
 numeric ratio; an adapter must separately prove that the native float-only inactive liquidation field is not read,
@@ -1555,6 +1589,9 @@ report over a multi-frame Backtest, proven by its chain entry's test name. The c
 | Momentum divergence                   | Price against RSI or the MACD histogram at two confirmed pivots                     | P1, T1             |
 | Rising and falling wedges             | Lines through the two latest confirmed pivot highs and lows                         | P1, T1             |
 | Three and five pushes                 | A push count over confirmed pivots with a holding structure                         | P1, T1             |
+| Fair value gap                        | A gap across three bars held in fixed slots until a later bar trades into it        | P1, T1             |
+| Liquidity sweep                       | A wick through a confirmed pivot with a close back on its near side                 | P1, T1             |
+| Change in state of delivery           | A close through the open of the first bar of the opposing run                       | P1, T1             |
 | Ronnie's drawing rules R1 to R6       | Horizontal and wide bands, trend line bands, Fibonacci, quartering, timeframe roles | See below          |
 
 Ronnie's drawing rules were measured from 2,512 screenshots across 17 of his videos and reduced to six computable
@@ -1612,6 +1649,42 @@ BTC K-lines, the program's pivots and signals must equal an independent referenc
 exactly. No human-labelled ground truth exists for these three patterns, so what's checked is the program against
 its definition, not the program against the trader.
 
+Three ICT patterns - fair value gap, liquidity sweep, and change in state of delivery - need no slice beyond P1 and
+T1 either:
+
+- **Fair value gap:** bullish at bar `t` when the low is strictly above `Lag(high, 2)`, the gap being the interval
+  between them, and bearish in the mirror case. A gap stays open until a later bar trades into it, which is the
+  signal, and is then cleared. Each open gap takes three fixed-point strategy state cells - its upper edge, its
+  lower edge, and whether it is open - and the program declares how many gaps it holds and that a new gap, when
+  every slot is open, replaces the oldest. V5's memory of the last N events is that rule as one declaration;
+  written out with `Select` today, the gap does not wait for V5. `g2` and `g3`, one bullish gap program with two
+  and three slots, are the second authored programs after `d1` whose state is proven through Wasm:
+  `a_fair_value_gap_program_evicts_the_oldest_gap_only_when_its_slots_are_full` forms three gaps, and with two slots
+  the third evicts the first, so a later bar trading into the first gap's interval emits nothing, while the same
+  bars with three slots emit the signal.
+- **Liquidity sweep:** bearish at bar `t` when the high is strictly above the latest confirmed pivot high and the
+  close is strictly below it, and bullish in the mirror case over lows; the pivot is one state cell. A bar's high
+  and close do not say when inside the bar the level was crossed, so the signal is at the sweep bar's close;
+  entering at the moment of the sweep needs T2's lower timeframe or quotes. A pivot is known k bars late, so a sweep
+  of a pivot not yet confirmed is not seen.
+- **Change in state of delivery:** a run is consecutive bars that close on one side of their open. Bullish at bar
+  `t` when, after a bearish run of at least a declared length, the close is strictly above the open of the run's
+  first bar, and bearish in the mirror case. A counter and that first open are two state cells, the open captured
+  when the counter leaves zero; it is the same kind of structure as the push count.
+
+Their controls take the form above: a synthetic control fixes the signal bar - a gap no bar trades into emits
+nothing, a wick through a pivot without a close back emits no sweep, and a close equal to the run's first open
+emits no change - and a real-data control holds the program to an independent reference implementation over public
+BTC K-lines.
+
+Two parts of the ICT method are not these shapes. A session window (killzone) cannot be expressed today: no input
+fact is a time of day, and no catalog row turns a sample coordinate, which carries the sample's time, into one. Its
+route is an appended catalog row that reads the UTC hour and minute from a sample coordinate, which takes a catalog
+version and kernel, golden, and lowerer changes; the V3 build capsule binds the catalog and lowerer source digests,
+so every program built after it carries a new build identity. A window stated in New York time moves by one UTC hour
+at each daylight saving change, which that row does not represent, so a Design declares the UTC window it means.
+Composing a higher-timeframe gap with a lower-timeframe change in state of delivery is T2.
+
 ### What the envelope assumes of F
 
 The envelope adds no production path of its own: every slice runs a Backtest through the path F's acceptance
@@ -1630,22 +1703,54 @@ and timeframes. T1 depends on all three, because it derives the custody request 
 Design; its first positive case uses only CLOSE and one member, and D1 lands with it. P2 lands with I2. A1 and V4a proceed in parallel with T1; then T2, I1, I1.5, I2, and I3; then N1, A2, A3, V4b, and V5. Per-frame as-of membership (T4) would
 remove the invariant that every frame shares one member set, so it is asked of the user when it is proposed.
 
-Two target variants the single-threshold author accepts cannot run past one frame of the target-set Host today, and
-each is a slice after F and before T1. Both were measured on `main` 3a465a537, red as it stands and past the named
-check under a temporary change that was then reverted. Until its slice lands, the author refuses the variant by
-name as `SINGLE_THRESHOLD_TARGET_VARIANT_NOT_RUNNABLE`, on either side, so a program that could only fail on its
-first frame is not authored at all. The refusal is temporary: each slice below removes it for its own variant.
+Every target variant the single-threshold author accepts runs past one frame of the target-set Host. Two could not,
+each a slice after F and before T1, and both were measured on `main` 3a465a537, red as it stands and past the named
+check under a temporary change that was then reverted; the author refused each by name until its slice landed.
 
-- **Rebalance sequence.** A `kernel.target.rebalance.v1` target must carry the sequence of the target set it is
-  lifted into, which advances by one each frame, and the author writes one constant for it. Constant 1 lifts on the
-  first frame only, and constant 2 on the second only, so no constant runs two frames: the sequence has to be the
-  Host's at lift, not the author's. Strategy Factory's Host fixes it.
-- **Weight reconciliation.** The Host decodes a reconciliation target for every target but `Keep`, and the target-set
-  reconciliation requires none for a weight target, so a weight side fails as `InputCoverage` on its first frame.
-  With the decoding temporarily leaving weight without one, that check passes and the frame then fails as
-  `InvalidPositionTransition`: the author shares one target weight of 0 between both sides, and entering at weight 0
-  is no transition. Strategy Factory fixes both: the Host's decoding, and the author's weight, which follows each
-  side as its position already does.
+- **Rebalance sequence.** The Host assigns the sequence as the rule above states, and the author writes `0`. With a
+  constant of 1 only the first frame lifts, and with the Host's assignment removed and `0` written not even the first
+  does. `an_authored_rebalance_program_lifts_three_consecutive_frames` runs the authored program as Wasm through three
+  frames of the target-set Sim, entering, exiting and entering again at sequences 1, 2 and 3, and
+  `a_single_instrument_host_assigns_each_rebalance_the_next_sequence` holds the single-instrument path.
+- **Weight reconciliation.** The target-set Host derives a weight member's grid position from equity and price when it
+  reconciles, and refuses a weight member that already carries a reconciliation target, but the Host decoded one for
+  every target but `Keep`, so a weight side failed as `InputCoverage` on its first frame. Past that check the frame
+  failed as `InvalidPositionTransition`, because the author shared one target weight of 0 between both sides. The Host
+  now decodes no reconciliation target for a weight target, and each side declares its own `target_weight_micros`,
+  which only a weight side may name (`SINGLE_THRESHOLD_WEIGHT_NOT_READ`) and only within 1,000,000 micros either way
+  (`SINGLE_THRESHOLD_WEIGHT_OUT_OF_RANGE`); a request that names no weight keeps its bytes.
+  `an_authored_weight_program_enters_exits_and_enters_again` runs the authored program through the same three frames.
+
+The rebalance run found a defect no variant refusal covered: the author shared one protection, `keep`, between both sides, and
+the kernel refuses `keep` on an exit, so no authored program could exit. Each side's protection now follows its
+intent - an exit clears, every other side keeps - and `every_authored_side_runs_through_the_kernel` applies every
+authored side to a real lifecycle kernel from each position it can be proposed at, so a terminal shared where it must
+follow the side fails there rather than on a later frame.
+
+## TARGET - Research runs until a strategy, bounded by spend
+
+The user decided on 2026-09-27 that Research does not stop on a trial count: every trial is recorded and accumulates
+across rounds, Qualification's discount grows with that count, the random control and holdout stay, and one
+user-set spend cap bounds what Research spends. [R&D](../owners/rd/#target---cumulative-trial-accounting-and-the-spend-cap)
+defines a trial, the lineage it accumulates across, the removal, and the spend cap;
+[Qualification](../owners/qualification/#target---cumulative-trial-deflation-at-candidate-intake) defines the
+deflation. None of it blocks F; it is implemented after F, in this order:
+
+| Slice                    | Owners                              | What                                                                                                               | After                |
+| ------------------------ | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------ | -------------------- |
+| TB1 Lineage trial count  | R&D                                 | production census append, `trial_count`, the lineage sum over bound predecessor frontiers                          | Decision composition |
+| TB2 Cumulative deflation | Qualification                       | the deflated ratio at Candidate Intake from the derived count, the cross‑family protected‑attempt count            | TB1                  |
+| TB3 Random control       | Qualification, R&D, Backtest        | the specified definition, synthesis, and replay, in that order                                                     | none                 |
+| TB4 Spend ledger and cap | R&D, R&D Owner client, Product Edge | usage capture, reserve and settle, `PAUSED_SPEND_CAP_REACHED`, the environment‑set cap, then the Dashboard control | none                 |
+| TB5 Remove the trial cap | R&D, Product Edge, Dashboard        | TrialFamily Policy V2 without a budget, the admission refusal and `TRIAL_BUDGET_EXHAUSTED` gone for V2 families    | TB1, TB2, TB4        |
+
+TB1 cannot start yet. It counts the census appends the same-cut Decision and Selection composition in
+[R&D](../owners/rd/#target--not_admitted---same-cut-decision-and-selection-composition) makes, and that composition is
+itself `TARGET / NOT_ADMITTED`: until it is admitted and built, successor iterations have no production path and no
+census append exists to count. TB5 is last because it removes the bound the others replace: before TB2 nothing would
+discount a long search, and before TB4 nothing would bound its cost. TB3 is already a condition of any Eligibility, so
+it gates Qualification whatever the order. What a stopped lineage does next, a new hypothesis from Source Intake, is
+outside these slices.
 
 ## Value-stream handoffs
 

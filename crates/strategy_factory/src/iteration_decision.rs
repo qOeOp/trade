@@ -19,8 +19,7 @@ use crate::{
     },
     rd_owner_postgres_custody::{LockedExploratoryReplayResultV3, VerifiedResearchCustodyV1},
     trial_family::{
-        TrialFamilyAttemptTerminalDispositionV2, TrialFamilyCensusReadbackV2, TrialFamilyError,
-        TrialFamilyIndependenceDispositionV1,
+        TrialFamilyCensusReadbackV2, TrialFamilyError, TrialFamilyIndependenceDispositionV1,
     },
 };
 
@@ -2975,12 +2974,7 @@ fn gate_result(
         return Err(IterationDecisionErrorV1::ProtectedResultForbidden);
     }
     let latest = census.latest_attempt_binding()?;
-    let expected_terminal = match latest.terminal_disposition {
-        TrialFamilyAttemptTerminalDispositionV2::TerminalResult => ReplayTerminalV2::TerminalResult,
-        TrialFamilyAttemptTerminalDispositionV2::Rejected => ReplayTerminalV2::RunRejected,
-        TrialFamilyAttemptTerminalDispositionV2::Invalid => ReplayTerminalV2::InvalidReplayEvidence,
-        TrialFamilyAttemptTerminalDispositionV2::Unknown => ReplayTerminalV2::InProgressOrUnknown,
-    };
+    let expected_terminal = latest.terminal_disposition.replay_terminal();
 
     if latest.request_identity != result.request_identity.as_str()
         || latest.request_digest != result.request_meaning_digest.as_str()
@@ -3154,6 +3148,7 @@ pub(crate) mod tests {
     use crate::replay_runner_operational_profile_v1::{
         ReplayRunnerOperationalProfileV1, runner_fixture,
     };
+    use crate::trial_family::TrialFamilyAttemptTerminalDispositionV2;
     use crate::trial_family::{
         TrialFamilyAttemptAppendV2, TrialFamilyCandidateSetProposalV2,
         TrialFamilyIndependenceDispositionV1, TrialFamilyPolicyV1, append_attempt_to_census_v2,
@@ -3262,8 +3257,7 @@ pub(crate) mod tests {
             trial_budget,
             consumed_trial_budget,
             TrialFamilyCandidateSetProposalV2 {
-                generation_rule_identity: "candidate-rule-v1".to_string(),
-                generation_rule_digest: format!("sha256:{}", "4".repeat(64)),
+                generation_rule: crate::CandidateGenerationGridV1::default(),
                 expected_cardinality: 0,
                 candidates: Vec::new(),
             },
@@ -3304,20 +3298,42 @@ pub(crate) mod tests {
         .expect("valid census")
     }
 
+    /// The experiment a fixture candidate proposes: the dimension its digit names, so candidates
+    /// with different digits propose different experiments, as a generation grid requires.
+    fn experiment_for(byte: char) -> IterationExperimentModeV1 {
+        const DIMENSIONS: [IterationHypothesisDimensionV1; 9] = [
+            IterationHypothesisDimensionV1::ReturnMechanism,
+            IterationHypothesisDimensionV1::MarketRegime,
+            IterationHypothesisDimensionV1::InstrumentScope,
+            IterationHypothesisDimensionV1::FeatureSignal,
+            IterationHypothesisDimensionV1::EntryRule,
+            IterationHypothesisDimensionV1::ExitRule,
+            IterationHypothesisDimensionV1::PositionAndHolding,
+            IterationHypothesisDimensionV1::FrequencyAndCost,
+            IterationHypothesisDimensionV1::CapacityAndPortfolioRole,
+        ];
+        IterationExperimentModeV1::SingleDimension {
+            changed_dimension: DIMENSIONS[byte.to_digit(10).expect("a digit") as usize - 1],
+        }
+    }
+
     fn candidate_set(entries: &[(&str, char)]) -> TrialFamilyCandidateSetProposalV2 {
-        serde_json::from_value(serde_json::json!({
-            "generation_rule_identity": "candidate-rule-v1",
-            "generation_rule_digest": format!("sha256:{}", "4".repeat(64)),
-            "expected_cardinality": entries.len(),
-            "candidates": entries.iter().map(|(identity, _byte)| serde_json::json!({
-                "candidate_identity": identity,
-                "experiment": {
-                    "mode": "SINGLE_DIMENSION",
-                    "changed_dimension": "RETURN_MECHANISM"
+        let candidates = entries
+            .iter()
+            .map(
+                |(identity, byte)| crate::trial_family::TrialFamilyCandidateExperimentProposalV1 {
+                    candidate_identity: (*identity).to_string(),
+                    experiment: experiment_for(*byte),
                 },
-            })).collect::<Vec<_>>(),
-        }))
-        .expect("valid candidate set")
+            )
+            .collect::<Vec<_>>();
+        TrialFamilyCandidateSetProposalV2 {
+            generation_rule: crate::CandidateGenerationGridV1::covering(
+                candidates.iter().map(|candidate| &candidate.experiment),
+            ),
+            expected_cardinality: u32::try_from(candidates.len()).expect("bounded fixture"),
+            candidates,
+        }
     }
 
     fn candidate_evaluations(
@@ -3357,7 +3373,7 @@ pub(crate) mod tests {
             },
             candidates: entries
                 .iter()
-                .map(|(candidate_identity, _byte, admissibility, rank)| {
+                .map(|(candidate_identity, byte, admissibility, rank)| {
                     let candidate_digest = census
                         .candidate_set_frontier
                         .candidates()
@@ -3384,9 +3400,7 @@ pub(crate) mod tests {
                         },
                         uncertainty_reduction_rank: *rank,
                         tie_break_key: (*candidate_identity).to_string(),
-                        experiment: IterationExperimentModeV1::SingleDimension {
-                            changed_dimension: IterationHypothesisDimensionV1::ReturnMechanism,
-                        },
+                        experiment: experiment_for(*byte),
                     }
                 })
                 .collect(),

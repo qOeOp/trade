@@ -109,43 +109,61 @@ readonly -A unselected_reason=(
   ["every_relational_scalar_is_bound_and_rollback_restores_exact_readback"]="uses DedicatedPostgresTestDatabase, whose marker validation requires every role to be named vibe_test_role_*. That is the dedicated per-Owner harness naming (crates/data/tests/run_market_data_owner_postgres.bash creates vibe_test_role_market_data_owner); the ordered chain exports its canonical role names, so admission refuses with ExpectedIdentityMismatch before the proof runs. Joining this chain would need both a canonical topology and no materialization, since that store is past the cutover"
   ["v2_census_append_restart_readback_and_fail_close_are_atomic"]="uses DedicatedPostgresTestDatabase, whose marker validation requires every role to be named vibe_test_role_*. That is the dedicated per-Owner harness naming (crates/data/tests/run_market_data_owner_postgres.bash creates vibe_test_role_market_data_owner); the ordered chain exports its canonical role names, so admission refuses with ExpectedIdentityMismatch before the proof runs. Joining this chain would need both a canonical topology and no materialization, since that store is past the cutover"
   ["postgres_v2_resolve_uses_exclusive_owner_validity_cut"]="uses DedicatedPostgresTestDatabase, whose marker validation requires every role to be named vibe_test_role_*. That is the dedicated per-Owner harness naming (crates/data/tests/run_market_data_owner_postgres.bash creates vibe_test_role_market_data_owner); the ordered chain exports its canonical role names, so admission refuses with ExpectedIdentityMismatch before the proof runs. Joining this chain would need both a canonical topology and no materialization, since that store is past the cutover"
+  ["isolated_postgres_recovery_is_atomic_fail_closed_and_replay_safe"]="unrunnable: reads the bound evidence session resource, which no longer exists, and verify_evidence accepts no other path and no other bytes. scripts/ci/test-qualification-owner-recovery-postgres.bash names it and no CI job runs that script; docs/owners/qualification.md records this under Incident-specific Owner reconstruction"
+  ["frozen_evidence_recomputes_exact_canonical_vector"]="unrunnable: recomputes the sealed incident vector from the bound evidence session resource, which no longer exists, and verify_evidence accepts no other path and no other bytes. docs/owners/qualification.md records this under Incident-specific Owner reconstruction; no chain or script can select it into a pass"
   ["qualification_basis_cannot_terminalize_after_authority_revocation"]="makes the Qualification store unavailable by dropping its relations, which requires owning them. the qualification_owner role owns them and the chain admits qualification_writer, so the drop refuses with 'must be owner of table qualification_owner_outbox_v1' before the proof reaches its subject. Joining this chain needs a qualification_owner principal, or a way to withdraw the store that a writer holds"
   ["qualification_basis_recovers_under_immediate_policy_equivalent_successor"]="makes the Qualification store unavailable by dropping its relations, which requires owning them. the qualification_owner role owns them and the chain admits qualification_writer, so the drop refuses with 'must be owner of table qualification_owner_outbox_v1' before the proof reaches its subject. Joining this chain needs a qualification_owner principal, or a way to withdraw the store that a writer holds"
   ["committed_basis_cannot_terminalize_after_original_authority_expires"]="makes the Qualification store unavailable by dropping its relations, which requires owning them. the qualification_owner role owns them and the chain admits qualification_writer, so the drop refuses with 'must be owner of table qualification_owner_outbox_v1' before the proof reaches its subject. Joining this chain needs a qualification_owner principal, or a way to withdraw the store that a writer holds"
   ["readback_accepts_only_declared_exact_acl_topologies"]="requires RD_SCHEMA_READBACK_ACL_TEST_DATABASE_URL, a database whose connecting role may CREATE in public, and a role rd_schema_reader; no workflow, Makefile or script provides any of them, and the ordered chain clones its databases after the cutover that revokes CREATE"
   ["migration_materializes_private_runtime_kernel_request_custody"]="materializes as rd_owner, which the ordered chain's store refuses past the cutover by design; nothing wires this migrate into the materializer and nothing composes a runtime-kernel native repair request, so no admitted store carries the relation it would verify. The unwired module is a recorded finding, not a table to add here"
-  ["actual_dataset_recovers_into_fresh_derived_catalogs"]="requires the separately downloaded frozen 2023 USD-M and PAXG Spot datasets; no workflow, Makefile or script provides it"
-  ["actual_dual_tsmom_family_recovers_exact_terminal_receipt"]="requires frozen Binance, five-series ALFRED, and scheduled-event evidence; no workflow, Makefile or script provides it"
-  ["actual_pairs_family_recovers_exact_terminal_receipt"]="requires frozen Binance, five-series ALFRED, and scheduled-event evidence; no workflow, Makefile or script provides it"
-  ["actual_representative_family_recovers_exact_terminal_receipt"]="requires frozen Binance, five-series ALFRED, and scheduled-event evidence; no workflow, Makefile or script provides it"
-  ["actual_representative_program_control_recovers_exact_receipt"]="requires frozen Binance, five-series ALFRED, and scheduled-event evidence; no workflow, Makefile or script provides it"
-  ["actual_secac_formation_recovers_exact_without_claiming_holdout"]="requires exact 2023 Formation inputs plus intact unclaimed 2024 custody; no workflow, Makefile or script provides it"
-  ["authenticates_frozen_representative_dataset_2023"]="requires the separately downloaded frozen 2023 USD-M dataset; no workflow, Makefile or script provides it"
   ["catalog_rule_injection_is_unavailable_and_writes_nothing"]="needs the catalog-admin route, which the chain grants by test name and whose routing its own check pins. With the default route it refuses 42501 permission denied for schema replay_policy_catalog_private"
   ["catalog_unlogged_drift_is_unavailable_to_migration_and_runtime"]="needs the catalog-admin route, which the chain grants by test name and whose routing its own check pins. With the default route it refuses 42501 permission denied for schema replay_policy_catalog_private"
   ["catalog_v3_admin_restart_tamper_and_acl_are_fail_closed"]="needs the catalog-admin route, which the chain grants by test name and whose routing its own check pins. With the default route it refuses 42501 permission denied for schema replay_policy_catalog_private"
   ["composer_unlogged_drift_is_unavailable_to_migration_and_runtime"]="compiled in every build (its module carries no feature gate), but not selected and never run. At this revision the chain's own materialization no longer refuses rd_research_view_transitions_v3 (measured on a live chain database); whether this proof passes once selected is unmeasured, and selecting it is its own change"
-  ["exact_complex_cache_executes_program_family_path_reproducibly"]="requires the separately downloaded exact 24-month Binance Vision cache; no workflow, Makefile or script provides it"
-  ["exact_pilot_cache_executes_native_family_path"]="requires the separately downloaded exact 24-month Binance Vision cache; no workflow, Makefile or script provides it"
   ["live_bounded_pit_probe_stops_on_cost_or_returns_authentic_evidence"]="live vendor probe; no workflow wires DATABENTO_API_KEY. It passes against the real vendor: one run downloads BBO and Definition for 0.000184 USD under a 0.05 USD ceiling"
   ["live_probe_answers_the_owner_scope_or_refuses"]="live vendor probe; no workflow wires DATABENTO_API_KEY. It passes locally, though on the refusal branch rather than the answering one"
   ["market_data_answers_one_frozen_request_from_live_vendor_data"]="live vendor probe; needs DATABENTO_API_KEY and MARKET_DATA_OWNER_DATABASE_URL on a store whose market_data_private schema already exists. It passes that way: twelve seconds against real vendor data"
   ["measure_admission_cost_by_program_size"]="regenerates a committed corpus or measures cost; asserts no Owner custody"
-  ["official_holdout_integrity_probe_is_deterministic"]="requires the separately custodied official 2024 source bundle; no workflow, Makefile or script provides it"
   ["postgres_every_transaction_write_boundary_fault_leaves_zero_positive_rows"]="compiled by the ordered chain since sealed-source-intake-composer-acceptance joined its union, but not selected and never run. At this revision the chain's own materialization no longer refuses rd_research_view_transitions_v3 (measured on a live chain database); whether this proof passes once selected is unmeasured, and selecting it is its own change"
   ["regenerate_sealed_a0_corpus_from_real_producer"]="regenerates a committed corpus or measures cost; asserts no Owner custody"
   ["regenerate_source_research_composer_sealed_a0_corpus_from_real_producer"]="regenerates a committed corpus or measures cost; asserts no Owner custody"
-  ["representative_coordinates_share_read_only_catalog_and_reproduce_fresh"]="requires frozen Binance, five-series ALFRED, and scheduled-event evidence; no workflow, Makefile or script provides it"
   ["sealed_run_and_restarted_resolve_return_the_same_public_receipt"]="compiled by the ordered chain since sealed-source-intake-composer-acceptance joined its union, but not selected and never run. At this revision the chain's own materialization no longer refuses rd_research_view_transitions_v3 (measured on a live chain database); whether this proof passes once selected is unmeasured, and selecting it is its own change"
   ["two_lowerings_two_builds_and_strict_replay_mint_one_v3_identity"]="builds through the sandbox, which verifies the frozen Linux target sysroot; docs/owners/rd.md holds that freeze until a fresh hosted A0 readback"
-  ["stale_artifact_policy_reaches_real_owner_chain_and_cannot_open_risk"]="requires frozen Binance, five-series ALFRED, and scheduled-event evidence; no workflow, Makefile or script provides it"
 )
 
 echo "Checking that every Owner custody proof is selected or explained..."
 
 selected=$(mktemp)
 ignored_crates="$(mktemp)"
-trap 'rm -f "$selected" "$ignored_crates"' EXIT
+ci_called="$(mktemp)"
+trap 'rm -f "$selected" "$ignored_crates" "$ci_called"' EXIT
+
+# A script that lists proof names selects them only if CI runs it. This check once read
+# `scripts/ci/test-qualification-owner-recovery-postgres.bash` as a selector, and no job has ever
+# run it, so the proof it names read as selected while nothing ran. Every script below is therefore
+# checked against what CI actually executes, derived from the workflows by `ci_called_files.py`,
+# not written here: a source it does not reach fails this check by name.
+python3 scripts/ci/ci_called_files.py > "$ci_called"
+readonly selection_sources=(
+  scripts/ci/test-rd-owner-postgres.bash
+  scripts/ci/test-toolchain-proofs.bash
+  crates/data/tests/run_market_data_owner_postgres.bash
+)
+for script in "${selection_sources[@]}"; do
+  if [ ! -f "$script" ]; then
+    echo "ERROR: the selection source '$script' does not exist." >&2
+    echo "       Every proof it lists would start reporting as unselected, and the error would" >&2
+    echo "       name those proofs rather than this path. Update the path or drop it here." >&2
+    exit 1
+  fi
+
+  if ! grep -qxF "$script" "$ci_called"; then
+    echo "ERROR: the selection source '$script' is not called by CI." >&2
+    echo "       scripts/ci/ci_called_files.py reaches no invocation of it from .github, so the" >&2
+    echo "       proofs it lists would read as selected while nothing runs them." >&2
+    exit 1
+  fi
+done
 
 # Read what each chain actually selects, not merely what its text mentions. A name that survives
 # only in a positional assertion or a comment selects nothing.
@@ -171,20 +189,10 @@ if [ -f scripts/ci/test-toolchain-proofs.bash ]; then
     sed "s/'//g;s/.*:://" >> "$selected" || true
 fi
 
-# A path here that no longer exists would narrow what counts as "selected" without saying so.
-# That errs toward noise rather than silence - proofs those scripts select would start looking
-# unselected - but the noise would be blamed on the proofs, not on the renamed script.
-for script in crates/data/tests/run_market_data_owner_postgres.bash \
-  scripts/ci/test-qualification-owner-recovery-postgres.bash; do
-  if [ ! -f "$script" ]; then
-    echo "ERROR: the selection source '$script' does not exist." >&2
-    echo "       Every proof it lists would start reporting as unselected, and the error would" >&2
-    echo "       name those proofs rather than this path. Update the path or drop it here." >&2
-    exit 1
-  fi
-  rg -o '^[[:space:]]*[a-z_0-9]+(::[a-z_0-9]+)+[[:space:]]*\\?$' "$script" 2> /dev/null |
-    sed 's/[[:space:]]*\\*$//;s/^[[:space:]]*//;s/.*:://' >> "$selected" || true
-done
+# The Market Data chain lists each selector as a path on its own line.
+rg -o '^[[:space:]]*[a-z_0-9]+(::[a-z_0-9]+)+[[:space:]]*\\?$' \
+  crates/data/tests/run_market_data_owner_postgres.bash 2> /dev/null |
+  sed 's/[[:space:]]*\\*$//;s/^[[:space:]]*//;s/.*:://' >> "$selected" || true
 sort -u -o "$selected" "$selected"
 
 # An exemption for a proof that IS selected is never consulted: the loop below checks selection

@@ -629,12 +629,14 @@ Market Data V1 native scheduling seal 封存每一帧，该 seal 现在从帧自
 
 **IMPLEMENTATION_ADMITTED / NOT_CUT_OVER，生产 Native Replay 入口：** authenticated R&D API 的
 `POST /v2/exploratory-replays` 被准入为生产 route；body 只含准确 sealed request locator 与 attempt identity。
-它尚未切换。handler、它调用的 execution service 与 router 注册仍只在 sealed Develop composition feature 下
-编译，所以今天没有任何已部署镜像提供该 route，验收之外也从未有请求到达过它。切换需要 execution service 作为
-输入所要求的生产 Composer sealed read port：一个能在调用方事务内对任意 locator 锁定并重读证据的
-`DevelopComposerFinalEvidencePortV2` 实现，以及一个 R&D composition root 可构造的
-`PostgresDevelopComposerSealedReadPortV2`。在两者具备之前，feature gate 就是这条 route 与生产之间的全部距离，
-而仅仅移除它并不能编译通过。切换之后，只有 `BACKTEST_OWNER_DATABASE_URL` 准入规范 Backtest Owner principal，
+它尚未切换。handler、它调用的 execution service 与 router 注册在生产 feature `native-replay-execution` 下
+编译，它不带任何验收代码，部署镜像不开启它，所以今天没有任何已部署镜像提供该 route，验收之外也从未有请求到达过它。execution service 对 Composer
+的需要已经是无门的生产代码：它的 sealed read port 由生产 Composer
+`PostgresSourceResearchComposerProductionV2` 实现，而这个 Composer 的 final-evidence port
+`LockedOwnerEvidenceV2` 对给定的 locator 锁定并重读证据；不存在、也不需要另一个
+`PostgresDevelopComposerSealedReadPortV2`。开启 `composer-v3-replay` 与 `native-replay-execution` 的构建带上它们且不带任何验收代码，
+`scripts/ci/check-production-features.py` 按镜像实际构建的 feature 检查这一点。所以 feature gate 就是这条 route 与一个构建之间的
+全部距离，切换就是让部署镜像带上这样的构建，这是一个部署决定。切换之后，只有 `BACKTEST_OWNER_DATABASE_URL` 准入规范 Backtest Owner principal，
 且 Market Data scheduling capability 存在时，startup 才暴露 execution capability。Coordinator 确认 Result、
 全部 28 份 evidence envelope 与 semantic trace 后，handler 只返回实际持久化的 canonical Result bytes；未获
 确认的提交保持 unavailable。该准入不授予 disposable PostgreSQL acceptance、已部署或正在运行的服务、
@@ -688,8 +690,8 @@ frame；`a_batch_holding_a_second_instant_of_one_role_binds_no_frame` 测的正�
 **那「一个生产调用方」不意味着什么：** 它是一个调用方计数，不是「这条路径会跑」的陈述。今天在任何
 可编译配置下都没有东西签发 `NativeReplayExecutionInputBindingV1`。它的签发收敛到
 `issue_native_replay_execution_input_binding_v1`，而后者唯一的调用方是一个 HTTP handler，
-只在 `rd-owner-api` 这个 crate 自己的 `sealed-develop-composer-acceptance` 下注册，
-而没有任何 Makefile 目标、workflow 或链路脚本打开它；没有 SQL 或脚本直接写那几张绑定表，
+只在 `rd-owner-api` 这个 crate 自己的 `composer-replay-issuance` 下注册，
+部署镜像不开启它，有序链路的构建只经由 `sealed-develop-composer-acceptance` 打开它；没有 SQL 或脚本直接写那几张绑定表，
 也没有测试或客户端提到那条路由。签发者与它旁边的解析者都是 `PostgresResearchGoalOwnerV1` 上
 无门的生产函数，相距四十三行，要的协作者是同一套。所以这条执行路径是没被走到，而不是走不到，
 而一条先签发再解析的有序链路条目就能驱动它，既不必启用 feature 也不必扩任何 union。
@@ -838,6 +840,11 @@ trailing adjustment 与 Replace，且不引入第二套 protection 解释。
 完整重复运行必须生成字节一致的 BFP、source、Wasm、build receipt、Plan/Artifact identity、ordered semantic
 trace、checkpoint、fill、position、protection、cost 与规范 Backtest result。在每个声明 state frontier 恢复
 checkpoint 都必须复现字节一致 suffix。
+
+字节一致只在同一种定点精度模式内成立。产品运行在 `FIXED_PRECISION` 16：`vibe-strategy-factory` 在自己的
+`vibe-model` 依赖上声明 `high-precision`，因此本地、CI、Owner 链路与生产构建共用它，
+`scripts/ci/check-production-features.py` 会拒绝任何链接 `vibe-model` 却不带它的生产包。定点值换算成 `f64`
+在两种模式下都只做一次正确舍入，所以规范 result 不依赖模式；依赖模式的是可表示范围和准入接受什么。
 
 corpus 必须为以下情况提供负向 oracle：unknown opcode/field/semantic ID；scale/unit mismatch；每个 checked
 overflow 与 rounding boundary；missing/stale/cross-lineage binding/coordinate；same-sample duplicate；
@@ -1026,6 +1033,12 @@ semantic effect 或 external effect。
 - fill reconciliation 对应 `kernel.fill.reconcile.v1`，包括 partial fill、rejection、cancellation 和乱序
   readback。
 
+rebalance 目标的序号属于 Host，不属于程序。程序对 `kernel.target.rebalance.v1` 目标在
+`proposal.rebalance-sequence.v1` 上发出 `0`，由 Host 在解码提案时分配序号：在 target-set 路径上，是提案被提升进的
+那个 target set 的序号，提升要求每个成员都带上它；在单品种路径上，是成员内核当前 rebalance 序号加一，内核要求一次
+rebalance 超过它。两条规则都由构造成立，而程序原本只能去猜那个只在一帧上满足它们的数。程序对 rebalance 目标发出
+任何其他值，都以 `REBALANCE_SEQUENCE_IS_HOST_ASSIGNED` 按名拒绝；这个端口仍留在插件 ABI 里，其他目标都不读它。
+
 每个 primitive 都有跨 Backtest 与 Runtime 含义稳定的版本化 semantic ID。内核把 target 与 protection
 转换为 semantic intent record；在 Runtime 中，Risk 仍是最终准入权威，Execution 仍是 order/fill/effect
 权威，Portfolio 仍是 position/account truth。R&D、Backtest、compiler 与 plugin 都不能绕过这些 Owner。
@@ -1047,7 +1060,7 @@ role、timeframe、state transition、target、protection rule 或 falsifier，�
 ComplexStrategy V1 的 canonicalization、bounds、frozen-Intent 校验和准确 Owner binding 是迁移输入，不是
 第二门永久语言。它们必须被吸收到 V2 compiler，并通过唯一 `StrategyArtifactV2`/`ProgramHostV2` 路径
 lowering。
-冻结等价 corpus 证明 byte-identical semantic trace 与规范 Backtest result 后，必须删除重复 V1
+冻结等价 corpus 在产品精度模式下证明 byte-identical semantic trace 与规范 Backtest result 后，必须删除重复 V1
 interpreter 与 toy renderer。禁止第三个 runtime、sidecar interpreter、生成的无限制策略代码路径或
 feature-specific core opcode。
 
@@ -1061,7 +1074,7 @@ checkpoint/restart 案例：
 1. **Multi-leg、multi-timeframe regime：** 准确 leg 与 timeframe role、joined event ordering、regime state、
    atomic target intent，以及 leg input 缺失或过期时 fail closed。
 
-每组已接纳 corpus 的重复 Backtest 必须产生 byte-identical Design/Plan/Artifact 身份、ordered semantic
+每组已接纳 corpus 在产品精度模式下的重复 Backtest 必须产生 byte-identical Design/Plan/Artifact 身份、ordered semantic
 trace、checkpoint、fill、position、cost 和规范 result。未来获准的 Paper 或 Live Runtime 对同一
 normalized event prefix 必须在 Risk/Execution adapter boundary 之前产生相同 semantic trace。任何 divergence、
 heuristic binding、把 unsupported feature 提升为 opcode、plugin raw-order attempt 或保留重复 interpreter
@@ -1164,6 +1177,18 @@ value，并明确选择 `StandardMarginModel`（`notional * rate`，不经 lever
 default。错误 fact、receipt、terms、venue、account 或 time，以及 noncanonical、partial、extra、
 cross-spliced、tampered 或 ACL-drifted custody 都会在 `ProgramHostV2` 或 Backtest state 存在前失败。既有
 profile canonical bytes 与 digest 保持不变。
+
+一次 Replay 用哪个品种的 terms，按它的请求解析，而不是由它的 family 钉死。economic configuration 的 schema 1
+还钉死了一个品种的 terms（`instrument_terms`：品种、public fact 与 receipt digest、费率与保证金），profile
+binding 随后要求恰好一个成员与之相等。这条规则随 #468 的密封验收配置引入，此前本文没有陈述过。schema 1 对在其下
+密封的每个 family 保持可读，字节与 digest 不变。schema 2 不钉任何品种，只固定跨品种成立的东西：venue、币种、
+杠杆，以及 fill、fee 与 margin model；每次 Replay 的品种 terms，是签发 execution-profile binding 时 Instrument
+Owner 按它的成员、在它窗口起点解析出的那一份。binding 记录它们的 provenance：品种、public fact digest、terms
+receipt、terms digest、费率与保证金。再次解析 terms 的消费方必须恰好遇到这些事实，否则拒绝。因此费率变更是一条
+新的 terms fact，而不是新的 Catalog 版本。不钉 terms 的 schema 1，或钉了 terms 的 schema 2，都以
+`InstrumentTermsPinningMismatch` 拒绝。不钉品种并不放宽 venue：配置未指名的 venue 上的 terms 在 provenance
+存在前就被拒绝，成员位于其他 venue 时 Instrument Owner 什么也解析不出。account scope 是 Owner 为每个成员都持有的
+唯一完整 scope；schema 2 不钉费率档位。
 
 原生 engine materialization 保持 `UNAVAILABLE`。V1 只把 liquidation 表示为 disabled，不携带 numeric ratio；
 adapter 必须另行证明原生 float-only inactive liquidation field 不会被读取，或在 policy meaning 之外绑定
@@ -1383,6 +1408,9 @@ Research scope 是成员集的唯一来源（P0）。一到两个成员的界变
 | 动能背离              | 价格对 RSI 或 MACD 柱在两个已确认拐点上比较  | P1、T1             |
 | 上升与下降楔形        | 过最近两个已确认高点拐点与低点拐点的两条线   | P1、T1             |
 | 三推与五推            | 在已确认拐点上计推动次数，结构须守住         | P1、T1             |
+| 公允价值缺口          | 三根 bar 的缺口占固定槽，直到后来的 bar 回补 | P1、T1             |
+| 流动性扫单            | 影线刺破已确认拐点，收盘回到它的近侧         | P1、T1             |
+| 交付状态转换          | 收盘越过反向序列第一根 bar 的开盘价          | P1、T1             |
 | 罗尼画线规则 R1 至 R6 | 水平与宽区域、趋势线带、斐波、四分、周期角色 | 见下               |
 
 罗尼的画线规则取自他 17 个视频的 2,512 张截图测量，归纳成六条可计算的规则。它们需要这些切片：
@@ -1423,6 +1451,32 @@ Research scope 是成员集的唯一来源（P0）。一到两个成员的界变
 重新开始。另有一个真实数据正控：在公开的 BTC K 线上，程序的拐点与信号必须与该定义的一份独立参考实现逐一相等。
 这三种形态在这里没有人工标注的真值，所以检验的是程序对它的定义，不是程序对交易员。
 
+三种 ICT 形态，即公允价值缺口、流动性扫单与交付状态转换，同样除 P1 与 T1 外不需要别的切片：
+
+- **公允价值缺口：** 在 bar `t` 上，最低价严格高于 `Lag(high, 2)` 时为看涨缺口，缺口就是两者之间的区间；看跌缺
+  口在镜像情形。缺口保持未回补，直到后来某根 bar 回到缺口里，这就是信号，随后缺口被清掉。每个未回补缺口占三个
+  定点策略状态格：上沿、下沿、是否未回补；程序声明它持有几个缺口，以及所有槽都被占用时新缺口替换最旧的一个。
+  V5 的「最近 N 个事件」记忆就是把这条规则变成一条声明；今天用 `Select` 手写出来，缺口不必等 V5。`g2` 与 `g3`
+  是同一个看涨缺口程序的两个槽与三个槽版本，是继 `d1` 之后经 Wasm 证明其状态的已编写程序：
+  `a_fair_value_gap_program_evicts_the_oldest_gap_only_when_its_slots_are_full` 形成三个缺口，两个槽时第三个挤掉第
+  一个，于是后来回到第一个缺口区间的 bar 不发信号；同样的 bar 在三个槽时发出信号。
+- **流动性扫单：** 在 bar `t` 上，最高价严格高于最近一个已确认高点拐点、而收盘价严格低于它时为看跌扫单；看涨扫
+  单在低点上镜像；拐点占一个状态格。一根 bar 的最高价与收盘价说不出 bar 内部什么时候越过了那个价位，所以信号
+  在扫单那根 bar 收盘时发出；要在刺破的那一刻进场，需要 T2 的更低周期或报价数据。拐点总是晚 k 根 bar 才知道，
+  所以扫过一个尚未确认的拐点是看不到的。
+- **交付状态转换：** 一个序列是收盘价都落在各自开盘价同一侧的连续 bar。在 bar `t` 上，若此前是一段不短于声明
+  长度的看跌序列，而收盘价严格高于该序列第一根 bar 的开盘价，则为看涨转换；看跌转换在镜像情形。一个计数器和
+  那根 bar 的开盘价是两个状态格，开盘价在计数器离开零时捕获；它与推动计数是同一类结构。
+
+它们的正控沿用上面的形式：合成正控把信号 bar 钉死，即没有 bar 回到的缺口不发信号，刺破拐点但收盘没回来的影线
+不算扫单，收盘价等于序列第一根开盘价不算转换；真实数据正控要求程序在公开的 BTC K 线上与一份独立参考实现相等。
+
+ICT 方法里有两部分不属于这些形状。时段窗口（killzone）今天表达不了：没有哪个输入事实是一天中的时刻，也没有
+哪个目录行能把样本坐标（它带着样本的时间）变成时刻。补法是追加一个目录行，从样本坐标读出 UTC 小时与分钟，这
+需要一个新的目录版本，以及 kernel、golden 与 lowerer 的改动；V3 构建胶囊绑定目录与 lowerer 的源码摘要，所以此
+后构建的每个程序都带上新的构建身份。以纽约时间表述的窗口会在每次夏令时切换时移动一个 UTC 小时，这个目录行不
+表示这一点，所以 Design 要声明它指的 UTC 窗口。把高周期的缺口与低周期的交付状态转换组合起来属于 T2。
+
 ### 包络对 F 的假设
 
 包络自己不增加任何生产路径：每个切片都经 F 的验收所建立的路径跑 Backtest。这条路径的第一代 Replay 与 legacy 路径一样，
@@ -1439,18 +1493,48 @@ Research scope 与 Design 推导出托管请求；T1 的首个正例只用 CLOSE
 I3；再然后 N1、A2、A3、V4b、V5。按帧 as-of 成员（T4）会移除「每帧共用一个成员集」这条不变式，所以在提出它时再
 问用户。
 
-单阈值编写器接受的两种目标变体，今天在 target-set Host 上跑不过一帧，各是一片，排在 F 之后、T1 之前。两者都在
-`main` 3a465a537 上实测过：现状为红，在一个随后还原的临时改动下越过了点名的那道检查。在各自那一片落地之前，编写器
-以 `SINGLE_THRESHOLD_TARGET_VARIANT_NOT_RUNNABLE` 按名拒绝该变体，任一侧都拒，于是只会在第一帧失败的程序根本不会被
-编写出来。这个拒绝是临时的：下面每一片落地时，各自移除它对自己那个变体的拒绝。
+单阈值编写器接受的每一种目标变体，都能在 target-set Host 上跑过一帧。曾有两种不能，各是一片，排在 F 之后、T1 之前，
+两者都在 `main` 3a465a537 上实测过：现状为红，在一个随后还原的临时改动下越过了点名的那道检查；在各自那一片落地之前，
+编写器按名拒绝它们。
 
-- **Rebalance 序号。** `kernel.target.rebalance.v1` 目标必须带上它被提升进的 target set 的序号，而这个序号每帧加一，
-  编写器却只为它写一个常量。常量 1 只在第一帧能提升，常量 2 只在第二帧能，所以没有哪个常量跑得过两帧：序号必须是
-  Host 在提升时给出的，不是编写器的。由 Strategy Factory 的 Host 修复。
-- **Weight 对账。** Host 除 `Keep` 以外对每种目标都解码出一个 reconciliation target，而 target-set 对账要求 weight
-  目标没有，所以 weight 一侧在第一帧就以 `InputCoverage` 失败。临时让解码对 weight 不给出它时，这道检查通过，该帧
-  接着以 `InvalidPositionTransition` 失败：编写器让两侧共用一个为 0 的 target weight，而以 0 权重入场不是迁移。
-  两处都由 Strategy Factory 修复：Host 的解码，以及编写器的 weight，让它像仓位那样跟随各侧。
+- **Rebalance 序号。** Host 按上面那条规则分配序号，编写器写 `0`。常量为 1 时只有第一帧能提升；拿掉 Host 的分配而写
+  `0` 时，连第一帧也不能。`an_authored_rebalance_program_lifts_three_consecutive_frames` 把编写出的程序构建成 Wasm，经
+  target-set Sim 跑三帧，进场、出场、再进场，序号依次为 1、2、3；
+  `a_single_instrument_host_assigns_each_rebalance_the_next_sequence` 守住单品种路径。
+- **Weight 对账。** target-set Host 在对账时从权益与价格推出 weight 成员的 grid 仓位，并拒绝一个已经带着 reconciliation
+  target 的 weight 成员，而 Host 除 `Keep` 以外对每种目标都解码出一个，所以 weight 一侧在第一帧就以 `InputCoverage`
+  失败。越过这道检查后，该帧以 `InvalidPositionTransition` 失败，因为编写器让两侧共用一个为 0 的 target weight。现在
+  Host 对 weight 目标不解码 reconciliation target，每一侧各自声明 `target_weight_micros`：只有 weight 一侧可以给出它
+  （`SINGLE_THRESHOLD_WEIGHT_NOT_READ`），且只能在正负 1,000,000 micros 之内（`SINGLE_THRESHOLD_WEIGHT_OUT_OF_RANGE`）；
+  不给出 weight 的请求字节不变。`an_authored_weight_program_enters_exits_and_enters_again` 让编写出的程序跑同样的三帧。
+
+rebalance 那次运行找到了一个任何变体拒绝都没覆盖的缺陷：编写器让两侧共用一个 protection，即 `keep`，而内核在出场时拒绝
+`keep`，所以没有哪个编写出的程序能出场。现在每一侧的 protection 跟随它的意图：出场清除，其余各侧保持；
+`every_authored_side_runs_through_the_kernel` 把每一个编写出的侧，从它可能被提出的每个仓位，施加到一个真实的生命周期
+内核上，于是一个本该跟随各侧却被共用的终端，会在那里失败，而不是在之后某一帧。
+
+## TARGET - Research 运行到出策略为止，由花费约束
+
+用户于 2026-09-27 决定：Research 不因试验次数停下；每次试验都记账并跨轮累计，Qualification 的折扣随这个计数增长，随机对照
+与留出数据保留，一个用户设定的花费上限约束 Research 的花费。[R&D](../owners/rd/#target---cumulative-trial-accounting-and-the-spend-cap)
+定义一次试验、它累计所跨的血缘、移除与花费上限；
+[Qualification](../owners/qualification/#target---cumulative-trial-deflation-at-candidate-intake) 定义打折。这些都不阻塞 F，
+在 F 之后按以下顺序实现：
+
+| 切片               | Owner                               | 内容                                                                                    | 之后                 |
+| ------------------ | ----------------------------------- | --------------------------------------------------------------------------------------- | -------------------- |
+| TB1 血缘试验计数   | R&D                                 | 生产 census 追加、`trial_count`、在所绑定前驱前沿上的血缘求和                           | Decision composition |
+| TB2 累计打折       | Qualification                       | 在 Candidate Intake 处按推导出的计数打折、跨 family 的保护性尝试计数                    | TB1                  |
+| TB3 随机对照       | Qualification、R&D、Backtest        | 已规定的定义、合成与重放，按此顺序                                                      | 无                   |
+| TB4 花费账本与上限 | R&D、R&D Owner client、Product Edge | 用量采集、预留与结算、`PAUSED_SPEND_CAP_REACHED`、环境设定的上限，然后是 Dashboard 控件 | 无                   |
+| TB5 移除试验上限   | R&D、Product Edge、Dashboard        | 没有预算的 TrialFamily Policy V2，对 V2 family 去掉准入拒绝与 `TRIAL_BUDGET_EXHAUSTED`  | TB1、TB2、TB4        |
+
+TB1 现在还不能开工。它计数的是
+[R&D](../owners/rd/#target--not_admitted---same-cut-decision-and-selection-composition) 中同一截面的 Decision 与 Selection
+composition 所做的 census 追加，而这个 composition 本身是 `TARGET / NOT_ADMITTED`：在它被准入并建成之前，后继迭代没有生产
+路径，也不存在可计数的 census 追加。TB5 排在最后，因为它移除的正是其他几片所替代的约束：TB2 之前没有东西会给长时间的搜索打折，TB4 之前没有东西会约束它的成本。
+TB3 本来就是任何 Eligibility 的条件，所以不论顺序如何它都约束 Qualification。一条血缘停止后接着做什么，即来自 Source Intake
+的新假设，不在这几片之内。
 
 ## 价值流交接
 

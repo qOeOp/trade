@@ -1,8 +1,3 @@
-#![expect(
-    clippy::large_futures,
-    reason = "attempt admission retains its typed family and evidence cut across the atomic transaction"
-)]
-
 use super::*;
 use crate::{
     artifact_build::{
@@ -85,13 +80,13 @@ impl VerifiedAttemptCustodyV1 {
         intent: ArtifactBuildIntentV1,
         product_edge_admission: ProductEdgeAdmissionReadbackV1,
     ) -> Result<Option<Self>, ArtifactBuildError> {
-        Box::pin(admit_attempt_with_develop_intent_in_transaction(
+        admit_attempt_with_develop_intent_in_transaction(
             transaction,
             build_request_identity,
             research,
             intent,
             product_edge_admission,
-        ))
+        )
         .await
     }
 
@@ -165,13 +160,13 @@ impl VerifiedAttemptCustodyV1 {
         )
         .await?
         .ok_or_else(|| ArtifactBuildError::Storage("attempt research custody missing".into()))?;
-        let custody = Box::pin(admit_attempt_with_develop_intent_in_transaction(
+        let custody = admit_attempt_with_develop_intent_in_transaction(
             transaction,
             build_request_identity,
             research,
             intent,
             artifact,
-        ))
+        )
         .await?
         .ok_or_else(|| ArtifactBuildError::Storage("attempt custody missing".into()))?;
         verify_attempt_authority(&replay, &custody.product_edge_admission)?;
@@ -354,13 +349,13 @@ pub(crate) async fn admit_attempt_custody_with_admission_mode_in_transaction(
     )
     .await?
     .ok_or_else(|| ArtifactBuildError::Storage("attempt Intent custody missing".to_string()))?;
-    Box::pin(admit_attempt_with_develop_intent_in_transaction(
+    admit_attempt_with_develop_intent_in_transaction(
         transaction,
         build_request_identity,
         research,
         intent,
         product_edge_admission,
-    ))
+    )
     .await
 }
 
@@ -453,15 +448,23 @@ pub(crate) async fn admit_develop_intent_custody_in_transaction(
         || successor_intent.independence_basis_identity()
             != initial_intent.independence_basis_identity
         || successor_intent.independence_basis_digest() != initial_intent.independence_basis_digest
-        || successor_intent.protected_feedback_projection_identity()
-            != initial_intent.protected_feedback_projection_identity
-        || successor_intent.protected_feedback_projection_digest()
-            != initial_intent.protected_feedback_projection_digest
     {
         return Err(ArtifactBuildError::Storage(
             "successor Intent authority anchor mismatch".into(),
         ));
     }
+    // A successor freezes the protected-feedback projection current when it was created, so its
+    // projection is not the initial Intent's; what anchors it is the family's basis, under which
+    // Qualification must have admitted it.
+    crate::successor_intent_postgres::verify_successor_protected_feedback_basis_in_transaction(
+        transaction,
+        successor_intent.independence_basis_identity(),
+        successor_intent.independence_basis_digest(),
+        successor_intent.protected_feedback_projection_identity(),
+        successor_intent.protected_feedback_projection_digest(),
+    )
+    .await
+    .map_err(|e| ArtifactBuildError::Storage(e.to_string()))?;
 
     let current_frontier = census.census_frontier.frontier_identity()
         == successor_intent.census_frontier_identity()
@@ -490,164 +493,172 @@ pub(crate) async fn admit_develop_intent_custody_in_transaction(
     )))
 }
 
-pub(crate) async fn admit_attempt_with_research_in_transaction(
-    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    build_request_identity: &str,
+pub(crate) fn admit_attempt_with_research_in_transaction<'a>(
+    transaction: &'a mut sqlx::Transaction<'_, sqlx::Postgres>,
+    build_request_identity: &'a str,
     research: VerifiedResearchCustodyV1,
     product_edge_admission: ProductEdgeAdmissionReadbackV1,
-) -> Result<Option<VerifiedAttemptCustodyV1>, ArtifactBuildError> {
-    let intent = research
-        .intent()
-        .cloned()
-        .ok_or_else(|| ArtifactBuildError::Storage("attempt research intent missing".to_string()))?
-        .into();
-    Box::pin(admit_attempt_with_develop_intent_in_transaction(
-        transaction,
-        build_request_identity,
-        research,
-        intent,
-        product_edge_admission,
-    ))
-    .await
+) -> super::BoxedCustodyStep<'a, Result<Option<VerifiedAttemptCustodyV1>, ArtifactBuildError>> {
+    Box::pin(async move {
+        let intent = research
+            .intent()
+            .cloned()
+            .ok_or_else(|| {
+                ArtifactBuildError::Storage("attempt research intent missing".to_string())
+            })?
+            .into();
+        admit_attempt_with_develop_intent_in_transaction(
+            transaction,
+            build_request_identity,
+            research,
+            intent,
+            product_edge_admission,
+        )
+        .await
+    })
 }
 
-pub(crate) async fn admit_attempt_with_develop_intent_in_transaction(
-    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    build_request_identity: &str,
+pub(crate) fn admit_attempt_with_develop_intent_in_transaction<'a>(
+    transaction: &'a mut sqlx::Transaction<'_, sqlx::Postgres>,
+    build_request_identity: &'a str,
     mut research: VerifiedResearchCustodyV1,
     intent: ArtifactBuildIntentV1,
     product_edge_admission: ProductEdgeAdmissionReadbackV1,
-) -> Result<Option<VerifiedAttemptCustodyV1>, ArtifactBuildError> {
-    let rows = sqlx::query("SELECT build_request_identity, attempt_identity, semantic_digest, attempt_json, prepared_at_epoch_ms FROM rd_artifact_build_attempts_v1 WHERE build_request_identity = $1 FOR UPDATE")
+) -> super::BoxedCustodyStep<'a, Result<Option<VerifiedAttemptCustodyV1>, ArtifactBuildError>> {
+    Box::pin(async move {
+        let rows = sqlx::query("SELECT build_request_identity, attempt_identity, semantic_digest, attempt_json, prepared_at_epoch_ms FROM rd_artifact_build_attempts_v1 WHERE build_request_identity = $1 FOR UPDATE")
         .bind(build_request_identity)
         .fetch_all(&mut **transaction)
         .await
         .map_err(storage)?;
 
-    if rows.is_empty() {
-        return Ok(None);
-    }
-
-    if rows.len() != 1 {
-        return Err(ArtifactBuildError::Storage(
-            "attempt custody lookup is ambiguous".to_string(),
-        ));
-    }
-    let attempt = decode_attempt_row(&rows[0], build_request_identity)?;
-    verify_artifact_build_admission(&product_edge_admission, &attempt.request)?;
-    if intent.intent_identity() != attempt.request.intent_identity {
-        return Err(ArtifactBuildError::Storage(
-            "attempt Intent custody mismatch".to_string(),
-        ));
-    }
-
-    if matches!(intent, ArtifactBuildIntentV1::Initial(_))
-        && research
-            .receipt()
-            .resulting_research_intent_identity
-            .as_deref()
-            != Some(attempt.request.intent_identity.as_str())
-    {
-        return Err(ArtifactBuildError::Storage(
-            "attempt research custody mismatch".to_string(),
-        ));
-    }
-    verify_attempt_authority(
-        &product_edge_admission,
-        research.product_edge_admission().ok_or_else(|| {
-            ArtifactBuildError::Storage("attempt research Product Edge admission missing".into())
-        })?,
-    )?;
-
-    let (artifact_family, artifact_review) = match attempt.state {
-        AttemptState::Prepared => {
-            if attempt.receipt.is_some()
-                || attempt.candidate_digest.is_some()
-                || attempt.candidate.is_some()
-                || attempt.invocation_claim.is_some()
-                || attempt.invocation_custody.is_some()
-            {
-                return Err(ArtifactBuildError::Storage(
-                    "prepared attempt state mismatch".to_string(),
-                ));
-            }
-            load_research_family_for_attempt(transaction, &mut research).await?;
-            (None, None)
+        if rows.is_empty() {
+            return Ok(None);
         }
-        AttemptState::InvocationReserved => {
-            if attempt.receipt.is_some()
-                || attempt.candidate_digest.is_some()
-                || attempt.candidate.is_some()
-                || !attempt.invocation_claim.as_ref().is_some_and(|binding| {
-                    binding.is_complete() && binding.matches_request(&attempt.request)
-                })
-                || attempt.invocation_custody.is_none()
-            {
-                return Err(ArtifactBuildError::Storage(
-                    "reserved invocation attempt state mismatch".to_string(),
-                ));
-            }
-            verify_invocation_custody_binding(&attempt)?;
-            load_research_family_for_attempt(transaction, &mut research).await?;
-            (None, None)
-        }
-        AttemptState::Building => {
-            if attempt.invocation_claim.as_ref().is_some_and(|binding| {
-                !binding.is_complete() || !binding.matches_request(&attempt.request)
-            }) {
-                return Err(ArtifactBuildError::Storage(
-                    "building invocation claim binding mismatch".to_string(),
-                ));
-            }
-            verify_invocation_custody_binding(&attempt)?;
-            verify_candidate_custody(&attempt, &intent)?;
-            if attempt.receipt.is_some() {
-                return Err(ArtifactBuildError::Storage(
-                    "building attempt state mismatch".to_string(),
-                ));
-            }
-            load_research_family_for_attempt(transaction, &mut research).await?;
-            (None, None)
-        }
-        AttemptState::Terminal => {
-            if attempt.invocation_claim.as_ref().is_some_and(|binding| {
-                !binding.is_complete() || !binding.matches_request(&attempt.request)
-            }) {
-                return Err(ArtifactBuildError::Storage(
-                    "terminal invocation claim binding mismatch".to_string(),
-                ));
-            }
-            verify_invocation_custody_binding(&attempt)?;
-            let receipt = attempt.receipt.as_ref().ok_or_else(|| {
-                ArtifactBuildError::Storage("terminal attempt receipt missing".to_string())
-            })?;
 
-            if receipt.disposition == ArtifactBuildDisposition::Success {
-                let (family, review) = verify_terminal_success_in_transaction(
-                    transaction,
-                    &attempt,
-                    &mut research,
-                    &intent,
+        if rows.len() != 1 {
+            return Err(ArtifactBuildError::Storage(
+                "attempt custody lookup is ambiguous".to_string(),
+            ));
+        }
+        let attempt = decode_attempt_row(&rows[0], build_request_identity)?;
+        verify_artifact_build_admission(&product_edge_admission, &attempt.request)?;
+        if intent.intent_identity() != attempt.request.intent_identity {
+            return Err(ArtifactBuildError::Storage(
+                "attempt Intent custody mismatch".to_string(),
+            ));
+        }
+
+        if matches!(intent, ArtifactBuildIntentV1::Initial(_))
+            && research
+                .receipt()
+                .resulting_research_intent_identity
+                .as_deref()
+                != Some(attempt.request.intent_identity.as_str())
+        {
+            return Err(ArtifactBuildError::Storage(
+                "attempt research custody mismatch".to_string(),
+            ));
+        }
+        verify_attempt_authority(
+            &product_edge_admission,
+            research.product_edge_admission().ok_or_else(|| {
+                ArtifactBuildError::Storage(
+                    "attempt research Product Edge admission missing".into(),
                 )
-                .await?;
-                (family, Some(review))
-            } else {
-                verify_terminal_without_artifact_in_transaction(transaction, &attempt, &intent)
-                    .await?;
+            })?,
+        )?;
+
+        let (artifact_family, artifact_review) = match attempt.state {
+            AttemptState::Prepared => {
+                if attempt.receipt.is_some()
+                    || attempt.candidate_digest.is_some()
+                    || attempt.candidate.is_some()
+                    || attempt.invocation_claim.is_some()
+                    || attempt.invocation_custody.is_some()
+                {
+                    return Err(ArtifactBuildError::Storage(
+                        "prepared attempt state mismatch".to_string(),
+                    ));
+                }
                 load_research_family_for_attempt(transaction, &mut research).await?;
                 (None, None)
             }
-        }
-    };
+            AttemptState::InvocationReserved => {
+                if attempt.receipt.is_some()
+                    || attempt.candidate_digest.is_some()
+                    || attempt.candidate.is_some()
+                    || !attempt.invocation_claim.as_ref().is_some_and(|binding| {
+                        binding.is_complete() && binding.matches_request(&attempt.request)
+                    })
+                    || attempt.invocation_custody.is_none()
+                {
+                    return Err(ArtifactBuildError::Storage(
+                        "reserved invocation attempt state mismatch".to_string(),
+                    ));
+                }
+                verify_invocation_custody_binding(&attempt)?;
+                load_research_family_for_attempt(transaction, &mut research).await?;
+                (None, None)
+            }
+            AttemptState::Building => {
+                if attempt.invocation_claim.as_ref().is_some_and(|binding| {
+                    !binding.is_complete() || !binding.matches_request(&attempt.request)
+                }) {
+                    return Err(ArtifactBuildError::Storage(
+                        "building invocation claim binding mismatch".to_string(),
+                    ));
+                }
+                verify_invocation_custody_binding(&attempt)?;
+                verify_candidate_custody(&attempt, &intent)?;
+                if attempt.receipt.is_some() {
+                    return Err(ArtifactBuildError::Storage(
+                        "building attempt state mismatch".to_string(),
+                    ));
+                }
+                load_research_family_for_attempt(transaction, &mut research).await?;
+                (None, None)
+            }
+            AttemptState::Terminal => {
+                if attempt.invocation_claim.as_ref().is_some_and(|binding| {
+                    !binding.is_complete() || !binding.matches_request(&attempt.request)
+                }) {
+                    return Err(ArtifactBuildError::Storage(
+                        "terminal invocation claim binding mismatch".to_string(),
+                    ));
+                }
+                verify_invocation_custody_binding(&attempt)?;
+                let receipt = attempt.receipt.as_ref().ok_or_else(|| {
+                    ArtifactBuildError::Storage("terminal attempt receipt missing".to_string())
+                })?;
 
-    Ok(Some(VerifiedAttemptCustodyV1 {
-        attempt,
-        research,
-        intent,
-        product_edge_admission,
-        artifact_review,
-        artifact_family,
-    }))
+                if receipt.disposition == ArtifactBuildDisposition::Success {
+                    let (family, review) = verify_terminal_success_in_transaction(
+                        transaction,
+                        &attempt,
+                        &mut research,
+                        &intent,
+                    )
+                    .await?;
+                    (family, Some(review))
+                } else {
+                    verify_terminal_without_artifact_in_transaction(transaction, &attempt, &intent)
+                        .await?;
+                    load_research_family_for_attempt(transaction, &mut research).await?;
+                    (None, None)
+                }
+            }
+        };
+
+        Ok(Some(VerifiedAttemptCustodyV1 {
+            attempt,
+            research,
+            intent,
+            product_edge_admission,
+            artifact_review,
+            artifact_family,
+        }))
+    })
 }
 
 /// The refusal of a legacy Artifact Build attempt lineage for a native Composer Research custody,
@@ -655,70 +666,74 @@ pub(crate) async fn admit_attempt_with_develop_intent_in_transaction(
 pub(crate) const NATIVE_COMPOSER_CUSTODY_HAS_NO_ATTEMPT_LINEAGE: &str =
     "NATIVE_COMPOSER_CUSTODY_HAS_NO_ATTEMPT_LINEAGE";
 
-pub(super) async fn admit_terminal_attempt_for_research_view(
-    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+pub(super) fn admit_terminal_attempt_for_research_view<'a>(
+    transaction: &'a mut sqlx::Transaction<'_, sqlx::Postgres>,
     research: VerifiedResearchCustodyV1,
     product_edge_admission: ProductEdgeAdmissionReadbackV1,
-) -> Result<VerifiedAttemptCustodyV1, ArtifactBuildError> {
-    if research.is_native_composer() {
-        return Err(ArtifactBuildError::Storage(
-            NATIVE_COMPOSER_CUSTODY_HAS_NO_ATTEMPT_LINEAGE.into(),
-        ));
-    }
-    let view = research
-        .view()
-        .ok_or_else(|| ArtifactBuildError::Storage("terminal research view missing".to_string()))?;
-    let artifact_identity = view.artifact_identity.clone().ok_or_else(|| {
-        ArtifactBuildError::Storage("terminal research artifact missing".to_string())
-    })?;
-    let build_receipt_identity = view.build_receipt_identity.clone().ok_or_else(|| {
-        ArtifactBuildError::Storage("terminal research build receipt missing".to_string())
-    })?;
-    let attempt_identity = view.attempt_identity.as_deref().ok_or_else(|| {
-        ArtifactBuildError::Storage("terminal research attempt identity missing".to_string())
-    })?;
-    let rows = sqlx::query("SELECT build_request_identity, attempt_identity, semantic_digest, attempt_json, prepared_at_epoch_ms FROM rd_artifact_build_attempts_v1 WHERE attempt_identity = $1")
+) -> super::BoxedCustodyStep<'a, Result<VerifiedAttemptCustodyV1, ArtifactBuildError>> {
+    Box::pin(async move {
+        if research.is_native_composer() {
+            return Err(ArtifactBuildError::Storage(
+                NATIVE_COMPOSER_CUSTODY_HAS_NO_ATTEMPT_LINEAGE.into(),
+            ));
+        }
+        let view = research.view().ok_or_else(|| {
+            ArtifactBuildError::Storage("terminal research view missing".to_string())
+        })?;
+        let artifact_identity = view.artifact_identity.clone().ok_or_else(|| {
+            ArtifactBuildError::Storage("terminal research artifact missing".to_string())
+        })?;
+        let build_receipt_identity = view.build_receipt_identity.clone().ok_or_else(|| {
+            ArtifactBuildError::Storage("terminal research build receipt missing".to_string())
+        })?;
+        let attempt_identity = view.attempt_identity.as_deref().ok_or_else(|| {
+            ArtifactBuildError::Storage("terminal research attempt identity missing".to_string())
+        })?;
+        let rows = sqlx::query("SELECT build_request_identity, attempt_identity, semantic_digest, attempt_json, prepared_at_epoch_ms FROM rd_artifact_build_attempts_v1 WHERE attempt_identity = $1")
         .bind(attempt_identity)
         .fetch_all(&mut **transaction)
         .await
         .map_err(storage)?;
 
-    if rows.len() != 1 {
-        return Err(ArtifactBuildError::Storage(
-            "terminal research attempt locator unavailable".to_string(),
-        ));
-    }
-    let build_request_identity: String =
-        rows[0].try_get("build_request_identity").map_err(storage)?;
-    let hint = decode_attempt_row(&rows[0], &build_request_identity)?;
-    if product_edge_admission.locator() != &hint.request.admission {
-        return Err(ArtifactBuildError::Storage(
-            "terminal attempt Product Edge authority mismatch".into(),
-        ));
-    }
-    verify_artifact_build_admission(&product_edge_admission, &hint.request)?;
-    let custody = Box::pin(admit_attempt_with_research_in_transaction(
-        transaction,
-        &build_request_identity,
-        research,
-        product_edge_admission,
-    ))
-    .await?
-    .ok_or_else(|| ArtifactBuildError::Storage("terminal research attempt missing".to_string()))?;
-    let receipt = custody.attempt.receipt.as_ref().ok_or_else(|| {
-        ArtifactBuildError::Storage("terminal research receipt missing".to_string())
-    })?;
+        if rows.len() != 1 {
+            return Err(ArtifactBuildError::Storage(
+                "terminal research attempt locator unavailable".to_string(),
+            ));
+        }
+        let build_request_identity: String =
+            rows[0].try_get("build_request_identity").map_err(storage)?;
+        let hint = decode_attempt_row(&rows[0], &build_request_identity)?;
+        if product_edge_admission.locator() != &hint.request.admission {
+            return Err(ArtifactBuildError::Storage(
+                "terminal attempt Product Edge authority mismatch".into(),
+            ));
+        }
+        verify_artifact_build_admission(&product_edge_admission, &hint.request)?;
+        let custody = admit_attempt_with_research_in_transaction(
+            transaction,
+            &build_request_identity,
+            research,
+            product_edge_admission,
+        )
+        .await?
+        .ok_or_else(|| {
+            ArtifactBuildError::Storage("terminal research attempt missing".to_string())
+        })?;
+        let receipt = custody.attempt.receipt.as_ref().ok_or_else(|| {
+            ArtifactBuildError::Storage("terminal research receipt missing".to_string())
+        })?;
 
-    if custody.attempt.state != AttemptState::Terminal
-        || receipt.disposition != ArtifactBuildDisposition::Success
-        || receipt.artifact_identity.as_deref() != Some(artifact_identity.as_str())
-        || receipt.build_receipt_identity.as_deref() != Some(build_receipt_identity.as_str())
-    {
-        return Err(ArtifactBuildError::Storage(
-            "terminal research attempt mismatch".to_string(),
-        ));
-    }
-    Ok(custody)
+        if custody.attempt.state != AttemptState::Terminal
+            || receipt.disposition != ArtifactBuildDisposition::Success
+            || receipt.artifact_identity.as_deref() != Some(artifact_identity.as_str())
+            || receipt.build_receipt_identity.as_deref() != Some(build_receipt_identity.as_str())
+        {
+            return Err(ArtifactBuildError::Storage(
+                "terminal research attempt mismatch".to_string(),
+            ));
+        }
+        Ok(custody)
+    })
 }
 
 async fn load_research_family_for_attempt(
@@ -882,178 +897,189 @@ async fn verify_terminal_without_artifact_in_transaction(
     Ok(())
 }
 
-async fn verify_terminal_success_in_transaction(
-    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    attempt: &StoredAttemptV1,
-    research: &mut VerifiedResearchCustodyV1,
-    intent: &ArtifactBuildIntentV1,
-) -> Result<(Option<ArtifactTrialFamilyReadbackV1>, ArtifactReviewV1), ArtifactBuildError> {
-    verify_candidate_custody(attempt, intent)?;
-    let receipt = attempt.receipt.as_ref().ok_or_else(|| {
-        ArtifactBuildError::Storage("successful attempt receipt missing".to_string())
-    })?;
-    let artifact_identity = receipt.artifact_identity.as_deref().ok_or_else(|| {
-        ArtifactBuildError::Storage("successful artifact identity missing".to_string())
-    })?;
-    let build_receipt_identity = receipt.build_receipt_identity.as_deref().ok_or_else(|| {
-        ArtifactBuildError::Storage("successful build receipt identity missing".to_string())
-    })?;
-    let rows = sqlx::query("SELECT artifact_digest, intent_identity, attempt_identity, identity_json, wasm_bytes, source_capsule, build_recipe, build_receipt_json, artifact_review_json, committed_at_epoch_ms FROM rd_strategy_artifacts_v1 WHERE artifact_digest = $1 FOR SHARE")
+fn verify_terminal_success_in_transaction<'a>(
+    transaction: &'a mut sqlx::Transaction<'_, sqlx::Postgres>,
+    attempt: &'a StoredAttemptV1,
+    research: &'a mut VerifiedResearchCustodyV1,
+    intent: &'a ArtifactBuildIntentV1,
+) -> super::BoxedCustodyStep<
+    'a,
+    Result<(Option<ArtifactTrialFamilyReadbackV1>, ArtifactReviewV1), ArtifactBuildError>,
+> {
+    Box::pin(async move {
+        verify_candidate_custody(attempt, intent)?;
+        let receipt = attempt.receipt.as_ref().ok_or_else(|| {
+            ArtifactBuildError::Storage("successful attempt receipt missing".to_string())
+        })?;
+        let artifact_identity = receipt.artifact_identity.as_deref().ok_or_else(|| {
+            ArtifactBuildError::Storage("successful artifact identity missing".to_string())
+        })?;
+        let build_receipt_identity =
+            receipt.build_receipt_identity.as_deref().ok_or_else(|| {
+                ArtifactBuildError::Storage("successful build receipt identity missing".to_string())
+            })?;
+        let rows = sqlx::query("SELECT artifact_digest, intent_identity, attempt_identity, identity_json, wasm_bytes, source_capsule, build_recipe, build_receipt_json, artifact_review_json, committed_at_epoch_ms FROM rd_strategy_artifacts_v1 WHERE artifact_digest = $1 FOR SHARE")
         .bind(artifact_identity)
         .fetch_all(&mut **transaction)
         .await
         .map_err(storage)?;
 
-    if rows.len() != 1 {
-        return Err(ArtifactBuildError::Storage(
-            "successful artifact custody missing".to_string(),
-        ));
-    }
-    let row = &rows[0];
-    let row_artifact_identity: String = row.try_get("artifact_digest").map_err(storage)?;
-    let row_intent_identity: String = row.try_get("intent_identity").map_err(storage)?;
-    let row_attempt_identity: String = row.try_get("attempt_identity").map_err(storage)?;
-    let row_committed_at: i64 = row.try_get("committed_at_epoch_ms").map_err(storage)?;
-    let identity: crate::artifact::StrategyArtifactIdentity =
-        decode(&row.try_get("identity_json").map_err(storage)?)?;
-    let wasm: Vec<u8> = row.try_get("wasm_bytes").map_err(storage)?;
-    let source_capsule: Vec<u8> = row.try_get("source_capsule").map_err(storage)?;
-    let build_recipe: Vec<u8> = row.try_get("build_recipe").map_err(storage)?;
-    let stored_build_receipt: BuildReceiptV1 =
-        decode(&row.try_get("build_receipt_json").map_err(storage)?)?;
-    let review: ArtifactReviewV1 = decode(&row.try_get("artifact_review_json").map_err(storage)?)?;
-    let expected_owner_receipt_identity = format!(
-        "rd-artifact-build-receipt-v1-{}",
-        artifact_identity.trim_start_matches("blake3:")
-    );
-    let expected_build_receipt_identity = format!(
-        "rd-build-receipt-v1-{}",
-        artifact_identity.trim_start_matches("blake3:")
-    );
-    let expected_review_identity = format!(
-        "rd-artifact-review-v1-{}",
-        artifact_identity.trim_start_matches("blake3:")
-    );
-    let candidate = attempt
-        .candidate
-        .as_ref()
-        .ok_or_else(|| ArtifactBuildError::Storage("successful candidate missing".to_string()))?;
-    let candidate_digest = attempt.candidate_digest.as_deref().ok_or_else(|| {
-        ArtifactBuildError::Storage("successful candidate digest missing".to_string())
-    })?;
-    let expected_source = render_program_source(candidate, candidate_digest);
-    let verified_build = verify_sandbox_product(
-        &SandboxBuildProductV1 {
-            source_capsule: source_capsule.clone(),
-            build_recipe: build_recipe.clone(),
-            wasm_one: wasm.clone(),
-            wasm_two: wasm.clone(),
-        },
-        &expected_source,
-    )?;
-    let expected_artifact = issue_artifact(
-        &canonical_intent_bytes(intent)?,
-        &attempt.request.attempt_identity,
-        candidate,
-        &verified_build,
-    )?;
-    let expected_identity = expected_artifact.identity();
-    let expected_build_receipt = build_receipt(
-        &attempt.request.attempt_identity,
-        intent.intent_identity(),
-        candidate_digest,
-        &verified_build,
-        &expected_artifact,
-    );
-    let expected_review = artifact_review(
-        intent,
-        candidate,
-        &expected_artifact,
-        expected_build_receipt.clone(),
-    );
-
-    if receipt.schema_version != 1
-        || receipt.receipt_identity != expected_owner_receipt_identity
-        || receipt.build_request_identity != attempt.request.build_request_identity
-        || receipt.attempt_identity != attempt.request.attempt_identity
-        || receipt.request_semantic_digest != attempt.request_semantic_digest
-        || receipt.intent_identity.as_deref() != Some(intent.intent_identity())
-        || receipt.intent_semantic_digest.as_deref() != Some(intent.semantic_digest())
-        || receipt.disposition != ArtifactBuildDisposition::Success
-        || receipt.failure_code.is_some()
-        || row_artifact_identity != artifact_identity
-        || row_intent_identity != intent.intent_identity()
-        || row_attempt_identity != attempt.request.attempt_identity
-        || i64::try_from(receipt.committed_at_epoch_ms).map_err(json_storage)? != row_committed_at
-        || &identity != expected_identity
-        || identity.artifact_digest != artifact_identity
-        || stored_build_receipt != expected_build_receipt
-        || stored_build_receipt.build_receipt_identity != build_receipt_identity
-        || stored_build_receipt.build_receipt_identity != expected_build_receipt_identity
-        || review != expected_review
-        || review.review_identity != expected_review_identity
-        || (!intent.is_successor()
-            && research.view().is_none_or(|view| {
-                view.attempt_identity.as_deref() != Some(attempt.request.attempt_identity.as_str())
-                    || view.artifact_identity.as_deref() != Some(artifact_identity)
-                    || view.build_receipt_identity.as_deref() != Some(build_receipt_identity)
-                    || view.artifact_review_identity.as_deref()
-                        != Some(review.review_identity.as_str())
-                    || (view.phase == crate::product_edge::ResearchViewPhase::ArtifactAvailable
-                        && (view.observed_at_epoch_ms != receipt.committed_at_epoch_ms
-                            || view.projection_at_epoch_ms != receipt.committed_at_epoch_ms
-                            || view.valid_through_epoch_ms
-                                != receipt.committed_at_epoch_ms.saturating_add(600_000)))
-            }))
-    {
-        return Err(ArtifactBuildError::Storage(
-            "successful artifact custody mismatch".to_string(),
-        ));
-    }
-
-    if let Some((intent_family_identity, intent_family_policy_digest)) = intent.family_binding() {
-        load_research_family_for_attempt(transaction, research).await?;
-        let research_family = research.family().ok_or_else(|| {
-            ArtifactBuildError::Storage("successful research family missing".to_string())
-        })?;
-        let family = if intent.is_successor() {
-            load_successor_artifact_trial_family_in_transaction(
-                transaction,
-                artifact_identity,
-                build_receipt_identity,
-                intent.intent_identity(),
-                intent_family_identity,
-                intent_family_policy_digest,
-                research_family,
-            )
-            .await
-        } else {
-            load_artifact_trial_family_in_transaction(
-                transaction,
-                artifact_identity,
-                build_receipt_identity,
-                intent.intent_identity(),
-                research_family,
-            )
-            .await
+        if rows.len() != 1 {
+            return Err(ArtifactBuildError::Storage(
+                "successful artifact custody missing".to_string(),
+            ));
         }
-        .map_err(|e| trial_family_storage(&e))?;
-        Ok((Some(family), review))
-    } else {
-        let bindings = sqlx::query("SELECT binding_identity FROM rd_artifact_trial_family_bindings_v1 WHERE artifact_identity = $1 OR build_receipt_identity = $2 FOR SHARE")
+        let row = &rows[0];
+        let row_artifact_identity: String = row.try_get("artifact_digest").map_err(storage)?;
+        let row_intent_identity: String = row.try_get("intent_identity").map_err(storage)?;
+        let row_attempt_identity: String = row.try_get("attempt_identity").map_err(storage)?;
+        let row_committed_at: i64 = row.try_get("committed_at_epoch_ms").map_err(storage)?;
+        let identity: crate::artifact::StrategyArtifactIdentity =
+            decode(&row.try_get("identity_json").map_err(storage)?)?;
+        let wasm: Vec<u8> = row.try_get("wasm_bytes").map_err(storage)?;
+        let source_capsule: Vec<u8> = row.try_get("source_capsule").map_err(storage)?;
+        let build_recipe: Vec<u8> = row.try_get("build_recipe").map_err(storage)?;
+        let stored_build_receipt: BuildReceiptV1 =
+            decode(&row.try_get("build_receipt_json").map_err(storage)?)?;
+        let review: ArtifactReviewV1 =
+            decode(&row.try_get("artifact_review_json").map_err(storage)?)?;
+        let expected_owner_receipt_identity = format!(
+            "rd-artifact-build-receipt-v1-{}",
+            artifact_identity.trim_start_matches("blake3:")
+        );
+        let expected_build_receipt_identity = format!(
+            "rd-build-receipt-v1-{}",
+            artifact_identity.trim_start_matches("blake3:")
+        );
+        let expected_review_identity = format!(
+            "rd-artifact-review-v1-{}",
+            artifact_identity.trim_start_matches("blake3:")
+        );
+        let candidate = attempt.candidate.as_ref().ok_or_else(|| {
+            ArtifactBuildError::Storage("successful candidate missing".to_string())
+        })?;
+        let candidate_digest = attempt.candidate_digest.as_deref().ok_or_else(|| {
+            ArtifactBuildError::Storage("successful candidate digest missing".to_string())
+        })?;
+        let expected_source = render_program_source(candidate, candidate_digest);
+        let verified_build = verify_sandbox_product(
+            &SandboxBuildProductV1 {
+                source_capsule: source_capsule.clone(),
+                build_recipe: build_recipe.clone(),
+                wasm_one: wasm.clone(),
+                wasm_two: wasm.clone(),
+            },
+            &expected_source,
+        )?;
+        let expected_artifact = issue_artifact(
+            &canonical_intent_bytes(intent)?,
+            &attempt.request.attempt_identity,
+            candidate,
+            &verified_build,
+        )?;
+        let expected_identity = expected_artifact.identity();
+        let expected_build_receipt = build_receipt(
+            &attempt.request.attempt_identity,
+            intent.intent_identity(),
+            candidate_digest,
+            &verified_build,
+            &expected_artifact,
+        );
+        let expected_review = artifact_review(
+            intent,
+            candidate,
+            &expected_artifact,
+            expected_build_receipt.clone(),
+        );
+
+        if receipt.schema_version != 1
+            || receipt.receipt_identity != expected_owner_receipt_identity
+            || receipt.build_request_identity != attempt.request.build_request_identity
+            || receipt.attempt_identity != attempt.request.attempt_identity
+            || receipt.request_semantic_digest != attempt.request_semantic_digest
+            || receipt.intent_identity.as_deref() != Some(intent.intent_identity())
+            || receipt.intent_semantic_digest.as_deref() != Some(intent.semantic_digest())
+            || receipt.disposition != ArtifactBuildDisposition::Success
+            || receipt.failure_code.is_some()
+            || row_artifact_identity != artifact_identity
+            || row_intent_identity != intent.intent_identity()
+            || row_attempt_identity != attempt.request.attempt_identity
+            || i64::try_from(receipt.committed_at_epoch_ms).map_err(json_storage)?
+                != row_committed_at
+            || &identity != expected_identity
+            || identity.artifact_digest != artifact_identity
+            || stored_build_receipt != expected_build_receipt
+            || stored_build_receipt.build_receipt_identity != build_receipt_identity
+            || stored_build_receipt.build_receipt_identity != expected_build_receipt_identity
+            || review != expected_review
+            || review.review_identity != expected_review_identity
+            || (!intent.is_successor()
+                && research.view().is_none_or(|view| {
+                    view.attempt_identity.as_deref()
+                        != Some(attempt.request.attempt_identity.as_str())
+                        || view.artifact_identity.as_deref() != Some(artifact_identity)
+                        || view.build_receipt_identity.as_deref() != Some(build_receipt_identity)
+                        || view.artifact_review_identity.as_deref()
+                            != Some(review.review_identity.as_str())
+                        || (view.phase == crate::product_edge::ResearchViewPhase::ArtifactAvailable
+                            && (view.observed_at_epoch_ms != receipt.committed_at_epoch_ms
+                                || view.projection_at_epoch_ms != receipt.committed_at_epoch_ms
+                                || view.valid_through_epoch_ms
+                                    != receipt.committed_at_epoch_ms.saturating_add(
+                                        crate::product_edge::RESEARCH_VIEW_FRESHNESS_MS,
+                                    )))
+                }))
+        {
+            return Err(ArtifactBuildError::Storage(
+                "successful artifact custody mismatch".to_string(),
+            ));
+        }
+
+        if let Some((intent_family_identity, intent_family_policy_digest)) = intent.family_binding()
+        {
+            load_research_family_for_attempt(transaction, research).await?;
+            let research_family = research.family().ok_or_else(|| {
+                ArtifactBuildError::Storage("successful research family missing".to_string())
+            })?;
+            let family = if intent.is_successor() {
+                load_successor_artifact_trial_family_in_transaction(
+                    transaction,
+                    artifact_identity,
+                    build_receipt_identity,
+                    intent.intent_identity(),
+                    intent_family_identity,
+                    intent_family_policy_digest,
+                    research_family,
+                )
+                .await
+            } else {
+                load_artifact_trial_family_in_transaction(
+                    transaction,
+                    artifact_identity,
+                    build_receipt_identity,
+                    intent.intent_identity(),
+                    research_family,
+                )
+                .await
+            }
+            .map_err(|e| trial_family_storage(&e))?;
+            Ok((Some(family), review))
+        } else {
+            let bindings = sqlx::query("SELECT binding_identity FROM rd_artifact_trial_family_bindings_v1 WHERE artifact_identity = $1 OR build_receipt_identity = $2 FOR SHARE")
             .bind(artifact_identity)
             .bind(build_receipt_identity)
             .fetch_all(&mut **transaction)
             .await
             .map_err(storage)?;
 
-        if !bindings.is_empty() {
-            return Err(ArtifactBuildError::Storage(
-                "legacy artifact has a family binding".to_string(),
-            ));
+            if !bindings.is_empty() {
+                return Err(ArtifactBuildError::Storage(
+                    "legacy artifact has a family binding".to_string(),
+                ));
+            }
+            Ok((None, review))
         }
-        Ok((None, review))
-    }
+    })
 }
 
 pub(crate) async fn resolve_verified_artifact_family(

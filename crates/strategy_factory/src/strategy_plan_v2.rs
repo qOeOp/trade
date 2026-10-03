@@ -3002,7 +3002,12 @@ fn owner_sample_coordinate_source_semantic(input_role_id: &str) -> String {
     format!("{OWNER_SAMPLE_COORDINATE_SOURCE_PREFIX_V1}({input_role_id})")
 }
 
-fn owner_sample_coordinate_port_id(input_role_identity: BindingDigest) -> String {
+/// The manifest port id a role's Owner sample coordinate arrives on.
+///
+/// It is the one spelling of that id. `project_bfp_role_bindings` refuses a binding whose
+/// coordinate port is not exactly this, the Bounded Feature Program validator and lowerer match
+/// ports by it, and an author writes it into every coordinate port it declares.
+pub(crate) fn coordinate_port_id(input_role_identity: BindingDigest) -> String {
     let mut value = String::with_capacity(OWNER_SAMPLE_COORDINATE_PORT_PREFIX_V1.len() + 64);
     value.push_str(OWNER_SAMPLE_COORDINATE_PORT_PREFIX_V1);
 
@@ -3151,7 +3156,7 @@ fn project_bfp_role_bindings(
                 let (coordinate_port, coordinate_ordinal, coordinate_source, coordinate_member) =
                     coordinates[input_role_id];
                 let expected_source = owner_sample_coordinate_source_semantic(input_role_id);
-                let expected_coordinate_port = owner_sample_coordinate_port_id(input_role_identity);
+                let expected_coordinate_port = coordinate_port_id(input_role_identity);
                 let static_binding_receipt_digest = match member_ordinal {
                     None => static_bindings
                         .get(&input_role_identity)

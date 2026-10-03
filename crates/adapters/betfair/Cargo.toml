@@ -78,6 +78,7 @@ pyo3-stub-gen = { workspace = true, optional = true }
 
 [dev-dependencies]
 vibe-backtest = { workspace = true }
+vibe-common = { workspace = true, features = ["stubs"] }
 vibe-execution = { workspace = true }
 vibe-live = { workspace = true, features = ["node"] }
 vibe-portfolio = { workspace = true }

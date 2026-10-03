@@ -220,15 +220,17 @@ impl BacktestReconciliationCapabilityV2 {
 
 enum BacktestUniverseFrameV2 {
     Owner(OwnerUniverseFrameV1),
-    #[cfg(test)]
+    #[cfg(all(test, feature = "sealed-strategy-input-acceptance"))]
     Admitted(AdmittedProgramEventV2),
 }
 
+// The fault hook exists only for the sealed target-set tests: they drive a failure between the two
+// native submits and prove the first stays committed. Production has no fault to inject.
+#[cfg(all(test, feature = "sealed-strategy-input-acceptance"))]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 enum BacktestTargetSetFaultHookV2 {
     #[default]
     None,
-    #[cfg(test)]
     FailBeforeSecondSubmit,
 }
 
@@ -251,6 +253,7 @@ pub(crate) struct BacktestTargetSetProgramHostStrategyV2 {
     position_orders: BTreeMap<ClientOrderId, NativeOrderBindingV2>,
     members: BoundedMembers<MemberExecutionStateV2>,
     owner_sequence: u64,
+    #[cfg(all(test, feature = "sealed-strategy-input-acceptance"))]
     fault_hook: BacktestTargetSetFaultHookV2,
     restore_after_first_terminal_fill: bool,
     restore_performed: Rc<Cell<bool>>,
@@ -318,6 +321,7 @@ impl BacktestTargetSetProgramHostStrategyV2 {
             position_orders: BTreeMap::new(),
             members,
             owner_sequence: 20_000,
+            #[cfg(all(test, feature = "sealed-strategy-input-acceptance"))]
             fault_hook: BacktestTargetSetFaultHookV2::None,
             restore_after_first_terminal_fill,
             restore_performed,
@@ -325,7 +329,7 @@ impl BacktestTargetSetProgramHostStrategyV2 {
         })
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, feature = "sealed-strategy-input-acceptance"))]
     pub(crate) fn add_admitted_frame_for_test(
         &mut self,
         event: AdmittedProgramEventV2,
@@ -345,7 +349,7 @@ impl BacktestTargetSetProgramHostStrategyV2 {
         Ok(())
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, feature = "sealed-strategy-input-acceptance"))]
     pub(crate) fn fail_before_second_submit_for_test(&mut self) {
         self.fault_hook = BacktestTargetSetFaultHookV2::FailBeforeSecondSubmit;
     }
@@ -458,7 +462,7 @@ impl BacktestTargetSetProgramHostStrategyV2 {
             BacktestUniverseFrameV2::Owner(frame) => {
                 admit_owner_universe_program_event_v2(&self.plan, frame)?
             }
-            #[cfg(test)]
+            #[cfg(all(test, feature = "sealed-strategy-input-acceptance"))]
             BacktestUniverseFrameV2::Admitted(event) => event.clone(),
         };
 
@@ -565,7 +569,7 @@ impl BacktestTargetSetProgramHostStrategyV2 {
             );
             // Venue submission is intentionally sequential. A later failure faults the run and
             // preserves the earlier native effect plus all in-process replay evidence.
-            #[cfg(test)]
+            #[cfg(all(test, feature = "sealed-strategy-input-acceptance"))]
             if self.fault_hook == BacktestTargetSetFaultHookV2::FailBeforeSecondSubmit
                 && self.trace.borrow().successful_position_submits.len() == 1
             {
@@ -1347,7 +1351,7 @@ fn hash_text(hasher: &mut Sha256, value: &str) {
     hasher.update(value.as_bytes());
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "sealed-strategy-input-acceptance"))]
 pub(crate) fn seal_reconciliation_capability_for_test(
     prepared: &PreparedBacktestTargetSetV2,
     account_id: AccountId,

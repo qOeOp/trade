@@ -125,6 +125,8 @@ Qualification 的其余部分并不排在它后面：attempt frontier、候选�
 - **TARGET - 同宇宙随机对照：** 下文 失败与恢复 一节记录的那个交接已声明，既无生产者也无消费者。
   没有任何东西发布对照集定义，没有任何东西据此合成比较程序，`crates/qualification` 也没有对照臂。
   它必须遵循的建造顺序是那条 clause 的一部分，不是对它的一条注记。
+- **TARGET - 前向记录：** 尚不存在 Forward Registration、Forward Replay 请求、Forward Decision 或前向普查，Eligibility
+  也没有前向淘汰这一撤销原因。契约见下文 TARGET - 前向记录 一节。
 
 ## 有序门禁到达不了的行为
 
@@ -210,6 +212,44 @@ source sequence/cut clock epoch projection time 和半开有效期。它不包�
 parameter holdout detail 或可解引用 evidence。未来任何保护反馈写入都必须重复预提交 basis 关系。相同
 basis 与规范 source cut 重放准确相同字节；改变 basis 或 source cut 不能加入。
 
+### 受保护反馈 generation
+
+每个 principal/scope 历史带一个受保护反馈 generation：该历史产生过的公开 Qualification phase fact 的计数，projection 把
+它陈述为 source sequence。它就是 Qualification Status Summary 推进的观察前沿，所以一个在某个 projection 下冻结的
+Research Intent，可以在之后的 Owner cut 上判断此后是否有受保护评估变得对它可观察。
+
+- **什么推进它：** 候选的受保护反馈 frontier 属于该历史的每个公开状态 phase fact 首次提交时，各推进一步：`NOT_ADMITTED`、
+  `ADMITTED`、`EVALUATING`、`CLOSED_NOT_QUALIFIED` 与 `QUALIFIED`。phase fact 是 R&D 对受保护评估所能观察到的东西，所以
+  generation 计的就是它。重放的 phase fact 不推进。
+- **什么不推进：** projection 的创建或续期、十分钟有效窗口、读取，以及事故重建。续期取 generation 的当前值，所以单凭时间
+  永远不会改变它。
+- **原子性：** 这一步写在提交 phase fact 的事务里，持有 projection 写入同样会取的 principal/scope 锁与该历史 head 行锁。
+  每个受保护关闭，无论 attempt disposition 还是 assessment，都在自己的 serializable 事务里提交 phase fact，并在同一事务
+  里读取 Protected Replay Attempt Frontier，所以 generation、phase fact 与它记录的受保护状态一起提交或一起回滚。
+- **每一步都有证据：** 每一步是一行只追加的记录，写明它的历史、它的 generation 以及导致它的 phase fact，从一开始连续编号、
+  不留空档。head 的 source sequence 是该历史最新的 generation，其 source cut 是
+  `qualification-protected-feedback-cut-v1-<generation>`，genesis cut 就是 generation 零。历史校验要求 head 等于最新记录
+  的那一步，每条记录都指向该历史一个已存的 phase fact，且每个 projection 的 source sequence 不大于其后继的；没有 phase
+  fact 对应的 generation 无法通过校验。
+- **当前性：** projection 只有在新鲜且其 source sequence 等于该历史的 generation 时才是当前的。
+  `resolve_or_create_for_basis` 对 generation 已被超过的新鲜 projection 续出新的，`admit_in_transaction` 把它当作过期拒
+  绝。Candidate intake 以同样方式读取候选的 feedback frontier：只有当它是该历史的 head、在 intake 的 cut 上新鲜、并且等于
+  该历史的 generation 时才是当前的，所以其 frontier 已被某个 phase fact 越过的候选是 `NOT_ADMITTED`。
+  `admit_historical_projection_in_transaction` 仍按 projection 自己的 cut 读取。
+- **不续期的读取：** `read_protected_feedback_generation_in_transaction` 对调用方冻结的那个 projection，只回答其历史当前
+  的 generation 与 source cut。它在调用方的 read committed 事务里对该历史的 head 行取 `FOR SHARE`，所以答案在该事务结束
+  前一直成立；它既不检查 projection 的有效窗口，也不写任何东西，所以已过窗口的调用方读它既不会把窗口带回来，也不会引起
+  Qualification 写入。其 SQL 函数只向 `rd_owner` 授予 `EXECUTE`。调用方比较自己冻结的 source cut 与读到的：不相等即表示
+  冻结之后该历史有 phase fact 变得可观察。
+- **候选自己的 phase fact 也计数：** 一个 Research 请求自己的候选一旦进入 Qualification，它的第一个 phase fact（
+  `ADMITTED` 或 `NOT_ADMITTED`）及其后的每一个，都会推进该请求冻结的 generation。这是有意的：Qualification 一旦观察过这个
+  候选，在它上面的迭代就要经过一次新的冻结。有两项后果依赖本 Owner 之外的工作，要等那些工作落地才成立。R&D 通过它的延续检查
+  拒绝冻结的 source cut 已被 generation 越过的延续，该检查排在 slice 1 之后。继续迭代要经过一个在家族 basis 下冻结当前投影
+  的后继 Intent，即 slice 1，qOeOp/trade#1197。slice 1 之前，后继 Intent 复制前驱的投影，因而也复制它冻结的 source cut。
+- **从部署开始计数：** generation 存在之前提交的 phase fact 不计入，也不为它们重建任何一步。首次部署时每个历史的
+  generation 都是零，即使此前已经发生过受保护评估，所以 generation 比较的是部署之后的两个时刻，对部署之前的历史不作任何
+  陈述。部署前冻结的 Intent 冻结的是 genesis cut，部署后其历史的第一个 phase fact 就会让它的延续被拒绝：比较结果偏向停止。
+
 ## 特定事故 Owner 重建
 
 Qualification 只能执行为 2026-08-21 本地保护反馈丢失授权并封闭的
@@ -238,7 +278,9 @@ Executable provenance 是独立的效果边界。Qualification 记录实际使�
 通过。同一个函数还钉死了该文件指定行的 SHA-256，因此任何替代文件都无法满足它。而文件本身已从那台机器上消失：
 没有配置 Time Machine 目标，没有本地快照保留它，主目录与任何已挂载卷下都没有携带该 session 标识的文件，
 该产物也从未提交进仓库。于是它的证明
-`isolated_postgres_recovery_is_atomic_fail_closed_and_replay_safe` 在任何地方都无法通过。上文契约继续作为
+`isolated_postgres_recovery_is_atomic_fail_closed_and_replay_safe` 在任何地方都无法通过；用同一个文件重算封存向量的
+`frozen_evidence_recomputes_exact_canonical_vector` 也一样。两者都以 unrunnable 标记为 ignore。该模块的其它测试不读
+这个文件：`make cargo-test` 以 `vibe-qualification/owner-recovery` 构建，所以 workspace 测试 job 会运行它们。上文契约继续作为
 一次已封闭的单一事故重建的记录；它不会因为无法再被执行而扩大成通用 restore 路径，本节也不授权用夹具替代
 被封存的证据。
 
@@ -292,6 +334,11 @@ Backtest 在经济测量中属于它的那一半现在有了交付路径，却�
   准确 Candidate 与事实版本 经济条件版本 已评估成本容量模型版本 资格容量上限 生效时间及不可解引用证据引用。
   过期 撤销 当前事实缺失和当前状态未知都是显式下游状态，任何状态都不能让 Governance 静默保留
   活动 generation 的新增风险权限。
+- `TARGET` - 向 [Backtest](./backtest/)：已登记的 Forward Record 每有一个新观察到的 cut，就提交一个绑定该登记确切身份的
+  Forward Replay 请求。不是本 Owner 创建的请求不是前向请求。
+- `TARGET` - 向 [Strategy Governance](./strategy-governance/)：当前的 Forward Decision，以及确切的 Forward Registration 与
+  Eligibility Fact 版本。只有 `FORWARD_ADMITTED` 加上当前的 `QUALIFIED` Eligibility State 才允许提出模拟盘
+  `INITIAL_ACTIVATION` 提案；其他、缺失或未知的决策都不允许。
 - 只有资格事实提交后才向 Event Rail 发布唤醒提示。保护 payload 只能包含公共终态、类型不透明且不可
   解引用的 reference 和 source-frontier freshness。保护 phase、latency、terminal timing 与 timing-derived
   field 明确禁止公开；永不发布内部 `INELIGIBLE` 或其他保护终态 disposition。
@@ -389,6 +436,87 @@ Eligibility replay 必须绑定 frontier。同一 Fact 身份与内容摘要只�
 和新区间的新不可变 Fact；一旦后继 过期或撤销成为 Qualification head，前驱永远不能重新成为 current。
 Governance 可在每个不同的已授权 lifecycle request evaluation 与 decision frontier 中消费一次仍 current
 的 Fact，而同一 frontier 内重复只加入，绝不恢复资金。
+
+## TARGET - 在 Candidate Intake 处按累计试验打折
+
+Research 不再在某个试验次数上停下（[R&D](./rd/#target---cumulative-trial-accounting-and-the-spend-cap)，用户 2026-09-27
+的决定）；取而代之的是，一条血缘试得越多，它的 Candidate 在这里要过的门槛就越高。Qualification 用的是它自己推导出的试验
+次数，从不是别人告诉它的。
+
+- *折扣对象。* Candidate 的 Research Selection 所指的那个被选中的探索结果，在它的日频非年化收益序列上，用 Bailey 与
+  López de Prado 的 Deflated Sharpe Ratio。它就是 `analyze_formation_robustness` 曾在 legacy formation 路径上计算的统计量
+  （`crates/strategy_factory/src/robustness.rs`），那里的试验次数在一次 formation 内固定为四或二；这条路径就是上文所说的
+  「formation 路径上的试验次数修正」。legacy formation 路径已在 #1207 退役，这个文件随之删除。TB2 从 `main`
+  f2238c09b1e2b89b16a9965104375dbb72748f9d 上的 `crates/strategy_factory/src/robustness.rs` 移植它，而不是重写：第 92 至
+  181 行的 `analyze_formation_robustness` 是打折后比率及其 PBO 门槛，第 183 至 354 行是它的辅助函数，其中第 222 行的
+  `cscv_pbo` 是 CSCV 版的 PBO 估计、第 314 行是 `daily_risk_return_ratio`，测试从第 355 行开始。移植把 N 从固定的四或二改为
+  累计计数，所以这些测试要按这个计数重新校验，而不是原样搬过来。
+- *N。* 累计试验次数：Candidate 为其 TrialFamily 与跨 family 前驱所绑定的 census 前沿上的 `trial_count` 之和，再加上这条
+  血缘里的每一次保护性尝试，因为每消耗一次留出数据就是又看了一次。Qualification 从这些前沿重新计算它，前沿不完整时照旧是
+  `NOT_ADMITTED`。
+- *试验比率的离散度。* 血缘中 `TERMINAL_RESULT` 试验的日频比率的样本标准差，这些是探索性证据而非保护性证据，并以一个预注册的
+  最小值为下限。没有终态结果的试验计入 N 但不贡献比率；终态试验少于两个时只用下限。
+- *门槛。* 保护性决策策略版本在观察任何结果之前固定最小的打折后概率与下限。低于它的 Candidate 以
+  `DEFLATED_SHARPE_BELOW_POLICY` 为 `NOT_ADMITTED`，不预留任何留出数据，所以打折不花费任何保护性证据。
+- *确定性。* 这个统计量是每次试验的规范结果字节的函数，其概率以百万分之一为单位向下取整记录，与 formation 报告的记录方式
+  相同。读取试验收益序列的字节，就是它的生产构建写下的那些。
+
+同宇宙随机对照与封存的留出数据保持上文所述。计数被低报时，仍然成立的是对照；留出数据从不向 R&D 返回细节。
+
+**已有什么、缺什么**，在 `main` 019f231b0 上实测。打折统计量只存在于 legacy formation 路径上，试验次数固定且没有 census。
+`crates/qualification` 没有打折、没有随机对照的比较臂，也没有跨 family 的留出计数：它按 Candidate 预留一次留出、按结果关闭，
+而下文的验收要求跨相关 TrialFamily 的累计处置。这个计数属于这一片，因为 N 包含血缘中的保护性尝试。它读取的试验次数需要
+R&D 尚未具备的生产 census 追加。
+
+## TARGET - 前向记录
+
+本节陈述的是一份尚无实现的契约；它不授予构建、部署或驱动前向记录的任何许可。
+
+Forward Record 只能从一个当前的 `QUALIFIED` Eligibility Fact 开始，以一个终态 Forward Decision 结束。它只做记录：不创建
+Strategy Instance、Runtime generation、trade intent、order command 或 Execution 效果，不读取任何凭据，也不持有任何资金。
+Governance 消费它的决策，它自己从不运行 Governance 的控制链。
+
+一份只写一次、在第一个前向 cut 之前提交的 Forward Registration 绑定：
+
+- 确切的 Eligibility Fact、Candidate、Artifact 与受保护策略对；
+- 取得资格时那个 Protected Replay Request 的 Runtime kernel、模拟器、成本、滑点与容量模型身份；
+- 标的与交易所范围，以及决策节奏；
+- 中期日与决策日；
+- 淘汰线与准入线，每条都写明推导方式（例如：对取得资格时的周收益流做规定条数的块自助抽样路径并取分位数，写明块长），
+  以及任何最少已平仓交易数；
+- 下面的序贯检验，以及前向起始 cut。
+
+一旦记录了第一个前向 cut，任何字段都不再改变。改过的登记是一份新登记，有它自己的记录，两者都要报告。
+
+在记录的周收益上运行 Wald 序贯概率比检验（Wald，1945）。H0 为 Sharpe 0；H1 为登记的折扣乘以取得资格时的 Sharpe，二分之一
+是登记必须写明的默认值，不能默认假设。σ 取自取得资格时的收益流并固定，每周把 (μ1 / σ²) · (xₜ − μ1 / 2) 累加到对数似然比
+上。越过 ln(β / (1 − α)) 即淘汰，越过 ln((1 − β) / α) 即到达扩大边界：在 α = 5%、检验力 80% 时为 −1.56 与 +2.77。登记写明
+α、β、折扣、σ 和观测单位。越过扩大边界本身并不准入候选，而是把准入复核提前到那个 cut。
+
+Backtest 在每个新观察到的点时 cut 上（Forward Replay）按登记的确切身份回放冻结的 Artifact，使用让它取得资格的那一套订单类型
+（限价、止损、有效期与到期、撤单）与决策节奏。挂单与未平仓位在 Backtest 的托管中从一个 cut 延续到下一个 cut，成交只能来自
+订单存在之后观察到的数据，持仓槽位与占用按成交顺序决定，因为为回测决定它们的是同一个模拟器。一份信号日志不是 Forward
+Record：它无法持有挂单，还会给止损或目标早已成交的信号计分。一个与回测分开决定占用的前向工具也不是：按挂单顺序而不是成交
+顺序分配槽位，曾把一条规则的回测优势从 +0.22 抬到 +0.34，而前向工具无声地给出了不同结果。Forward Replay 是由每个
+Market Data cut 驱动，还是按记录自己的节奏批量驱动，仍是开放问题；契约只固定：节奏所消费的每个 cut 都恰好重放一次、按顺序。
+
+每份记录以一个终态 Forward Decision 结束：
+
+- `FORWARD_KILLED`：在越过任一淘汰线或淘汰边界的那个 cut；它同时在 Eligibility Fact 上提交以前向淘汰为原因的 `REVOKED`；
+- `FORWARD_ADMITTED`：在决策日，或在扩大边界触发的准入复核中，每条准入线都成立时；它只表示该候选可以被提议进行模拟盘
+  激活；
+- `FORWARD_WITHDRAWN`：记录因其他任何原因结束，例如 Eligibility Fact 过期或被撤销、登记被替换，或来源停止。
+
+中期日只检查淘汰线。决策日既没有淘汰、准入线又没有全部成立时，提交带下一个登记日期的 `FORWARD_CONTINUES`，这是一个阶段
+事实，不是终态决策。被淘汰与被撤回的记录都保留，从不删除。
+
+Qualification 报告每一份 Forward Registration 及其当前阶段或终态决策；任何关于已准入候选的报告都要写出全部登记普查和
+每一个结果，使激励偏差无法通过省略来只挑幸存者。前向记录及其度量与任何 Qualification 结果一样受保护：R&D 只能看到公开
+阶段（`FORWARD_RECORDING`、`FORWARD_CONTINUES`、`FORWARD_KILLED`、`FORWARD_ADMITTED`、`FORWARD_WITHDRAWN`），它们每一个
+的首次提交都是一个公开阶段事实，会推进该候选的受保护反馈 generation。
+
+Forward Replay 需要产品在部署中尚未提供的东西：随数据到达的点时 cut，这需要 Market Data Owner 时钟随摄入推进；每个帧成交
+所需的报价 cut；多帧回放；对挂单类规则，还需要产品路径上带到期的限价入场、止盈与目标阶梯，以及止损与目标的成交对账。
 
 ## 决策契约
 

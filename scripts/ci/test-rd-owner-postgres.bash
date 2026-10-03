@@ -45,8 +45,8 @@ readonly rd_owner_postgres_tests=(
   'vibe-strategy-factory|exploratory_replay_request_owner|replay_at_or_after_valid_through_writes_no_frozen_row_or_outbox'
   'vibe-strategy-factory|source_intake|postgres_readback_rejects_tampered_raw_payload'
   'vibe-backtest-owner|vibe_backtest_owner|tests::postgres_result_owner_is_atomic_restart_exact_and_rd_locked_read_only'
-  'vibe-strategy-factory-rd-owner-api|rd_owner_api_main|tests::exploratory_replay_result_http_readback_is_exact_locked_and_rd_read_only'
-  'vibe-strategy-factory-rd-owner-api|dashboard_read_api|tests::replay_result_dashboard_read_api_returns_exact_canonical_bytes'
+  'vibe-strategy-factory-rd-owner-api|rd_owner_api_main|tests::exploratory_replay_result_http_read_locks_exact_custody_and_refuses_an_uncounted_result'
+  'vibe-strategy-factory-rd-owner-api|dashboard_read_api|tests::replay_result_dashboard_read_api_refuses_a_result_no_census_counts'
   'vibe-backtest-owner|vibe_backtest_owner|tests::postgres_result_rd_read_rejects_function_source_drift'
   'vibe-backtest-owner|vibe_backtest_owner|tests::postgres_result_rd_read_rejects_owner_api_routine_sibling'
   'vibe-backtest-owner|vibe_backtest_owner|tests::postgres_result_rd_read_rejects_raw_table_acl_drift'
@@ -138,6 +138,7 @@ readonly rd_owner_postgres_tests=(
   'vibe-strategy-factory|vibe_strategy_factory|iteration_decision_postgres::postgres_acceptance_tests::legacy_replay_request_passes_the_source_boundary_under_issuance_isolation'
   'vibe-product-edge-routing-api|vibe_product_edge_routing_api|postgres_tests::the_operation_routing_read_port_answers_every_routing_state_over_http'
   'vibe-strategy-factory-rd-owner-api|rd_owner_api_main|research_initial_pit_postgres_tests::a_v3_research_request_issues_its_initial_pit_request_over_http'
+  'vibe-strategy-factory-rd-owner-api|rd_owner_api_main|research_initial_pit_postgres_tests::the_initial_pit_request_refreezes_when_the_clock_head_moves_before_its_send'
   'vibe-strategy-factory-rd-owner-api|rd_owner_api_main|dashboard_run_routing_acceptance::a_dashboard_run_starts_only_on_the_routing_the_writer_committed_and_reaches_the_owner'
   'vibe-strategy-factory|composer_replay_v3_postgres|forged_v3_admission_fails_without_replay_transition_or_outbox_write'
   'vibe-strategy-factory|vibe_strategy_factory|trial_family_postgres::postgres_binding_tests::a_census_read_that_meets_an_uncommitted_append_waits_and_reads_one_cut'
@@ -145,6 +146,8 @@ readonly rd_owner_postgres_tests=(
   'vibe-strategy-factory|vibe_strategy_factory|product_edge_postgres::tests::a_native_composer_research_view_is_admitted_by_every_custody_scan'
   'vibe-strategy-factory-rd-owner-api|rd_owner_api_main|native_replay_scheduling_acceptance::tests::the_composed_scheduling_resolver_holds_its_reads_only_while_composed'
   'vibe-backtest-owner|vibe_backtest_owner|tests::postgres_result_directory_lists_one_requests_results_without_a_row_lock'
+  'vibe-strategy-factory|vibe_strategy_factory|product_edge_postgres::tests::a_frozen_research_intent_continues_under_its_admission_past_its_views_window'
+  'vibe-strategy-factory|vibe_strategy_factory|iteration_decision_postgres::postgres_acceptance_tests::a_phase_fact_stops_a_frozen_intent_and_its_successor_continues_at_the_new_generation'
   'vibe-strategy-factory|vibe_strategy_factory|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only'
 )
 readonly nextest_graph_args=(
@@ -216,8 +219,8 @@ check_nextest_graph_contract() {
     echo "ERROR: isolated PostgreSQL tests must use the shared nextest graph." >&2
     return 1
   fi
-  if [[ "${#rd_owner_postgres_tests[@]}" -ne 116 ]]; then
-    echo "ERROR: isolated PostgreSQL test selection must retain all 116 ordered tests, found ${#rd_owner_postgres_tests[@]}." >&2
+  if [[ "${#rd_owner_postgres_tests[@]}" -ne 119 ]]; then
+    echo "ERROR: isolated PostgreSQL test selection must retain all 119 ordered tests, found ${#rd_owner_postgres_tests[@]}." >&2
     return 1
   fi
   if [[ "${rd_owner_postgres_tests[0]}" != *'|replay_policy_catalog_postgres_v2::postgres_tests::catalog_admin_and_family_formation_are_atomic_and_fail_closed' ]] ||
@@ -235,8 +238,8 @@ check_nextest_graph_contract() {
     [[ "${rd_owner_postgres_tests[12]}" != *'|replay_at_or_after_valid_through_writes_no_frozen_row_or_outbox' ]] ||
     [[ "${rd_owner_postgres_tests[13]}" != *'|postgres_readback_rejects_tampered_raw_payload' ]] ||
     [[ "${rd_owner_postgres_tests[14]}" != *'|tests::postgres_result_owner_is_atomic_restart_exact_and_rd_locked_read_only' ]] ||
-    [[ "${rd_owner_postgres_tests[15]}" != *'|tests::exploratory_replay_result_http_readback_is_exact_locked_and_rd_read_only' ]] ||
-    [[ "${rd_owner_postgres_tests[16]}" != *'|tests::replay_result_dashboard_read_api_returns_exact_canonical_bytes' ]] ||
+    [[ "${rd_owner_postgres_tests[15]}" != *'|tests::exploratory_replay_result_http_read_locks_exact_custody_and_refuses_an_uncounted_result' ]] ||
+    [[ "${rd_owner_postgres_tests[16]}" != *'|tests::replay_result_dashboard_read_api_refuses_a_result_no_census_counts' ]] ||
     [[ "${rd_owner_postgres_tests[17]}" != *'|tests::postgres_result_rd_read_rejects_function_source_drift' ]] ||
     [[ "${rd_owner_postgres_tests[18]}" != *'|tests::postgres_result_rd_read_rejects_owner_api_routine_sibling' ]] ||
     [[ "${rd_owner_postgres_tests[19]}" != *'|tests::postgres_result_rd_read_rejects_raw_table_acl_drift' ]] ||
@@ -338,14 +341,17 @@ check_nextest_graph_contract() {
     [[ "${rd_owner_postgres_tests[105]}" != *'|iteration_decision_postgres::postgres_acceptance_tests::legacy_replay_request_passes_the_source_boundary_under_issuance_isolation' ]] ||
     [[ "${rd_owner_postgres_tests[106]}" != *'|postgres_tests::the_operation_routing_read_port_answers_every_routing_state_over_http' ]] ||
     [[ "${rd_owner_postgres_tests[107]}" != *'|research_initial_pit_postgres_tests::a_v3_research_request_issues_its_initial_pit_request_over_http' ]] ||
-    [[ "${rd_owner_postgres_tests[108]}" != *'|dashboard_run_routing_acceptance::a_dashboard_run_starts_only_on_the_routing_the_writer_committed_and_reaches_the_owner' ]] ||
-    [[ "${rd_owner_postgres_tests[109]}" != *'|forged_v3_admission_fails_without_replay_transition_or_outbox_write' ]] ||
-    [[ "${rd_owner_postgres_tests[110]}" != *'|trial_family_postgres::postgres_binding_tests::a_census_read_that_meets_an_uncommitted_append_waits_and_reads_one_cut' ]] ||
-    [[ "${rd_owner_postgres_tests[111]}" != *'|trial_family_postgres::postgres_binding_tests::concurrent_appends_and_admission_census_reads_neither_deadlock_nor_tear' ]] ||
-    [[ "${rd_owner_postgres_tests[112]}" != *'|product_edge_postgres::tests::a_native_composer_research_view_is_admitted_by_every_custody_scan' ]] ||
-    [[ "${rd_owner_postgres_tests[113]}" != *'|native_replay_scheduling_acceptance::tests::the_composed_scheduling_resolver_holds_its_reads_only_while_composed' ]] ||
-    [[ "${rd_owner_postgres_tests[114]}" != *'|tests::postgres_result_directory_lists_one_requests_results_without_a_row_lock' ]] ||
-    [[ "${rd_owner_postgres_tests[115]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]]; then
+    [[ "${rd_owner_postgres_tests[108]}" != *'|research_initial_pit_postgres_tests::the_initial_pit_request_refreezes_when_the_clock_head_moves_before_its_send' ]] ||
+    [[ "${rd_owner_postgres_tests[109]}" != *'|dashboard_run_routing_acceptance::a_dashboard_run_starts_only_on_the_routing_the_writer_committed_and_reaches_the_owner' ]] ||
+    [[ "${rd_owner_postgres_tests[110]}" != *'|forged_v3_admission_fails_without_replay_transition_or_outbox_write' ]] ||
+    [[ "${rd_owner_postgres_tests[111]}" != *'|trial_family_postgres::postgres_binding_tests::a_census_read_that_meets_an_uncommitted_append_waits_and_reads_one_cut' ]] ||
+    [[ "${rd_owner_postgres_tests[112]}" != *'|trial_family_postgres::postgres_binding_tests::concurrent_appends_and_admission_census_reads_neither_deadlock_nor_tear' ]] ||
+    [[ "${rd_owner_postgres_tests[113]}" != *'|product_edge_postgres::tests::a_native_composer_research_view_is_admitted_by_every_custody_scan' ]] ||
+    [[ "${rd_owner_postgres_tests[114]}" != *'|native_replay_scheduling_acceptance::tests::the_composed_scheduling_resolver_holds_its_reads_only_while_composed' ]] ||
+    [[ "${rd_owner_postgres_tests[115]}" != *'|tests::postgres_result_directory_lists_one_requests_results_without_a_row_lock' ]] ||
+    [[ "${rd_owner_postgres_tests[116]}" != *'|product_edge_postgres::tests::a_frozen_research_intent_continues_under_its_admission_past_its_views_window' ]] ||
+    [[ "${rd_owner_postgres_tests[117]}" != *'|iteration_decision_postgres::postgres_acceptance_tests::a_phase_fact_stops_a_frozen_intent_and_its_successor_continues_at_the_new_generation' ]] ||
+    [[ "${rd_owner_postgres_tests[118]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]]; then
     echo "ERROR: isolated PostgreSQL test ordering must remain fresh-first and destructive-drain-last." >&2
     return 1
   fi
@@ -495,7 +501,7 @@ for line in array_body.splitlines():
     entries.append(tuple(fields))
 # The count lives in one place. Writing it into the message as well lets the two drift, and the
 # drifted form reads as nonsense the moment it fires: "must contain 92 entries, found 92".
-expected_entries = 116
+expected_entries = 119
 if len(entries) != expected_entries:
     raise SystemExit(
         f"ERROR: ordered PostgreSQL test literal must contain {expected_entries} entries, found {len(entries)}."
@@ -1117,6 +1123,42 @@ check_chain_node_declarations() {
   python3 "$(dirname "${BASH_SOURCE[0]}")/chain-node-entries.py" --check "${BASH_SOURCE[0]}"
 }
 
+# A chain entry that returns early on an unset input reports PASS from any run without it, having
+# driven nothing; chain-entry-early-return.py refuses that shape by name, from the source (near 50 ms
+# a real entry and an early return cannot be told apart by duration). The browser entries therefore
+# fail closed without their inputs. The local preflight, which carries on without them, leaves those
+# entries out and reports each SKIP by name, so neither its line nor the verdict reads as a pass.
+# Usage: chain_entry_skipped_locally <local preflight> <absent inputs> <test name> <browser entry>...
+chain_entry_skipped_locally() {
+  local preflight="$1" absent="$2" name="$3" entry
+  shift 3
+  [[ "$preflight" == "1" && -n "$absent" ]] || return 1
+  for entry in "$@"; do
+    [[ "$entry" != "$name" ]] || return 0
+  done
+  return 1
+}
+
+check_chain_entries_fail_closed() {
+  python3 "$(dirname "${BASH_SOURCE[0]}")/chain-entry-early-return.py" --self-test
+  python3 "$(dirname "${BASH_SOURCE[0]}")/chain-entry-early-return.py" --check "${BASH_SOURCE[0]}"
+  local browser='tests::a_browser_entry' failed=false
+  chain_entry_skipped_locally 1 'INPUT' "$browser" "$browser" || failed=true
+  ! chain_entry_skipped_locally 1 'INPUT' 'tests::another_entry' "$browser" || failed=true
+  ! chain_entry_skipped_locally '' 'INPUT' "$browser" "$browser" || failed=true
+  ! chain_entry_skipped_locally 1 '' "$browser" "$browser" || failed=true
+  if [[ "$failed" == true ]]; then
+    echo "ERROR: chain_entry_skipped_locally must skip exactly a browser entry, under the local" >&2
+    echo "       preflight, with an input absent." >&2
+    return 1
+  fi
+  # shellcheck disable=SC2016 # the loop's literal text, not an expansion
+  if [[ "$(grep -c '^  if \[\[ "\$chain_entry_skipped" == true \]\]; then$' "${BASH_SOURCE[0]}")" -ne 1 ]]; then
+    echo "ERROR: the chain loop must open its run branches with the local skip, exactly once." >&2
+    return 1
+  fi
+}
+
 check_composer_acceptance_stays_in_the_chain() {
   local repository_root
   repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -1182,30 +1224,44 @@ readonly chain_log_sqlx_performance_hint='^[^ ]+ +WARN sqlx::(query: slow statem
 # `coordinate=` and are listed by entry and coordinate. sqlx performance hints are only totalled.
 # Anything else - a sqlx connection error, an Owner cause logged without a coordinate - is listed by
 # entry with its first line, never folded into either of the other two.
+#
+# classify_chain_log is the one place that sorts an entry's log into them, for the round's report and
+# for a failed entry's printout alike: one tab-tagged line per event (refusal, hint or other), and
+# exit 3 with nothing printed when the log is missing or lacks the collector's marker - not observed,
+# never "no warnings". The marker line is not an event, although it says "WARN".
+classify_chain_log() {
+  local log="$1"
+  [[ -f "$log" && "$(head -n 1 -- "$log")" == "$chain_log_collecting_marker" ]] || return 3
+  # The pattern goes through ENVIRON, not -v: awk -v would read its backslashes as escapes, and a
+  # future `\.` in it would stop matching with nothing turning red.
+  tail -n +2 -- "$log" | CHAIN_LOG_HINT="$chain_log_sqlx_performance_hint" awk '
+    !/^[^ ]+ +(WARN|ERROR) / { next }
+    $0 ~ ENVIRON["CHAIN_LOG_HINT"] { print "hint\t" $0; next }
+    index($0, "coordinate=\"") { print "refusal\t" $0; next }
+    { print "other\t" $0 }
+  '
+}
+
 report_collected_warnings() {
   local record_dir="$1" entry_count="$2" position log events coordinates other count first
   local collected=0 refusing=0 othering=0 hints=0
   local -a unobserved=() refusal_lines=() other_lines=()
   for position in $(seq 1 "$entry_count"); do
     log="$(printf '%s/%03d.log' "$record_dir" "$position")"
-    if [[ ! -f "$log" || "$(head -n 1 -- "$log")" != "$chain_log_collecting_marker" ]]; then
+    if ! events="$(classify_chain_log "$log")"; then
       unobserved+=("$position")
       continue
     fi
     collected=$((collected + 1))
-    # Events only: the marker line itself says "WARN".
-    events="$(tail -n +2 -- "$log" | grep -E '^[^ ]+ +WARN ' || true)"
     [[ -n "$events" ]] || continue
-    count="$(printf '%s\n' "$events" | grep -cE "$chain_log_sqlx_performance_hint" || true)"
+    count="$(grep -c '^hint' <<< "$events" || true)"
     hints=$((hints + count))
-    events="$(printf '%s\n' "$events" | grep -vE "$chain_log_sqlx_performance_hint" || true)"
-    [[ -n "$events" ]] || continue
-    coordinates="$(printf '%s\n' "$events" | grep -o 'coordinate="[^"]*"' | sed -e 's/^coordinate="//' -e 's/"$//' | sort -u | paste -sd ' ' - || true)"
+    coordinates="$(grep '^refusal' <<< "$events" | grep -o 'coordinate="[^"]*"' | sed -e 's/^coordinate="//' -e 's/"$//' | sort -u | paste -sd ' ' - || true)"
     if [[ -n "$coordinates" ]]; then
       refusing=$((refusing + 1))
       refusal_lines+=("  refused, entry ${position}: ${coordinates}")
     fi
-    other="$(printf '%s\n' "$events" | grep -v 'coordinate="' || true)"
+    other="$(grep '^other' <<< "$events" | cut -f2- || true)"
     if [[ -n "$other" ]]; then
       othering=$((othering + 1))
       count="$(printf '%s\n' "$other" | grep -c '' || true)"
@@ -1292,6 +1348,215 @@ check_collected_warning_report() {
     return 1
   fi
   rm -rf -- "$fixtures"
+}
+
+# A failing entry's own warnings, in the job log. The collector writes them to NNN.log only, inside
+# the chain-record artifact, so when an Owner refusal reached its test as a bare 503 (F's H8,
+# 2026-09-27) the job log said where the chain stopped and not why, and finding out meant
+# downloading the artifact or rerunning on a machine. Printed after the sentence that says where the
+# run stopped and bounded: classify_chain_log's refusals and other warnings first, its sqlx hints
+# only counted, then the file's last lines, each line cut to a fixed width.
+#
+# Nothing is printed before it is redacted, and redaction must not erase the diagnosis with it:
+# - the password in any URL, keeping its scheme, user, host and database;
+# - the values in CHAIN_REDACT_VALUES (the chain's generated test password);
+# - every environment value whose name reads as a credential;
+# - every other environment value of 8 or more characters, unless it names an existing path, is a
+#   URL (its password is already covered), or is a bare identifier or host such as `rd_owner` or
+#   `127.0.0.1`.
+readonly chain_failed_entry_event_limit=40
+readonly chain_failed_entry_tail_lines=20
+readonly chain_failed_entry_line_width=400
+print_failed_entry_warnings() {
+  local log="$1" label="$2" events observed=true events_file
+  echo "::group::Owner warnings recorded by the failed ${label}"
+  if ! events="$(classify_chain_log "$log")"; then
+    observed=false
+    if [[ -f "$log" ]]; then
+      echo "not observed: ${log} does not begin with the collector's marker"
+    else
+      echo "not observed: ${log} was not written"
+    fi
+  fi
+  if [[ -f "$log" ]]; then
+    # Through a file, not the environment: one environment string is capped at 128 KiB on Linux,
+    # and an entry that logged a thousand warnings would make exec fail and print nothing of them.
+    events_file="$(mktemp)"
+    printf '%s\n' "$events" > "$events_file"
+    python3 - "$log" "$observed" "$events_file" "$chain_failed_entry_event_limit" \
+      "$chain_failed_entry_tail_lines" "$chain_failed_entry_line_width" << 'PY' || echo "the warnings of ${log} could not be read"
+import os
+import re
+import sys
+
+log, observed, events_file = sys.argv[1], sys.argv[2] == "true", sys.argv[3]
+limit, tail, width = (int(a) for a in sys.argv[4:7])
+url_password = re.compile(r"(://[^:/@\s]+:)([^@\s]+)@")
+credential_name = re.compile(r"PASS|SECRET|TOKEN|KEY|CREDENTIAL|AUTH|DSN|PRIVATE|SALT", re.IGNORECASE)
+bare = re.compile(r"[A-Za-z0-9_.:-]{1,64}")
+secrets = {v for v in os.environ.get("CHAIN_REDACT_VALUES", "").splitlines() if v}
+for name, value in os.environ.items():
+    passwords = [m.group(2) for m in url_password.finditer(value)]
+    if passwords:
+        secrets.update(passwords)
+    elif credential_name.search(name) and len(value) >= 4:
+        secrets.add(value)
+    elif len(value) >= 8 and not os.path.exists(value) and not bare.fullmatch(value):
+        secrets.add(value)
+
+
+def clean(line):
+    line = url_password.sub(r"\1<redacted>@", line)
+    for value in sorted(secrets, key=len, reverse=True):
+        line = line.replace(value, "<redacted>")
+    return line if len(line) <= width else line[:width] + " [cut]"
+
+
+tagged = [line.split("\t", 1) for line in open(events_file, encoding="utf-8").read().splitlines() if "\t" in line]
+refusals = [line for kind, line in tagged if kind == "refusal"]
+others = [line for kind, line in tagged if kind == "other"]
+hints = [line for kind, line in tagged if kind == "hint"]
+if observed:
+    print(f"{len(refusals)} refusal(s), {len(others)} other warning(s), {len(hints)} sqlx performance hint(s) in {log}")
+shown = refusals + others
+for line in shown[:limit]:
+    print(clean(line))
+if len(shown) > limit:
+    print(f"... {len(shown) - limit} more in {log}")
+print(f"--- last {tail} lines of {log}")
+for line in open(log, encoding="utf-8", errors="replace").read().splitlines()[-tail:]:
+    print(clean(line))
+PY
+    rm -f -- "$events_file"
+  fi
+  echo "::endgroup::"
+}
+
+# print_failed_entry_warnings on fixed files: every kind of line lands where it should, the limits
+# hold, no secret survives, and redaction keeps what a diagnosis needs. Each absence is checked next
+# to a line that must be there, so a secret cannot pass as redacted because nothing was printed.
+check_failed_entry_warnings() {
+  local fixtures output position
+  local token='fixture-token-9f3c2a7b' password='fixturepassword00ff' dsn_password='dsnpass77'
+  local opaque='opaque value / with ? spaces 42' inline='inlinepass9'
+  fixtures="$(mktemp -d)"
+  {
+    printf '%s\n' "$chain_log_collecting_marker"
+    printf '%s\n' '2026-01-01T00:00:00.000000Z  WARN vibe_product_edge: Product Edge authority unavailable coordinate="fixture.refusal" detail=WINDOW_NOT_CURRENT'
+    printf '%s\n' "2026-01-01T00:00:00.000000Z  WARN sqlx_core::pool: connect failed url=postgres://rd_owner:${password}@db.internal/vibe?sslmode=disable token=${token}"
+    printf '%s\n' "2026-01-01T00:00:00.000000Z ERROR vibe_fixture: env dsn postgres://product_edge_owner:${dsn_password}@127.0.0.1:5432/vibe role rd_owner note ${opaque}"
+    printf '%s\n' "2026-01-01T00:00:00.000000Z  WARN vibe_fixture: inline dsn postgresql://writer:${inline}@replica.internal:6432/archive"
+    printf '%s\n' '2026-01-01T00:00:00.000000Z  WARN sqlx::query: slow statement: execution time exceeded alert threshold summary="SELECT 1" elapsed=1.5'
+    printf '%s %s\n' '2026-01-01T00:00:00.000000Z  WARN vibe_fixture: long' "$(printf 'x%.0s' {1..500})"
+  } > "$fixtures/001.log"
+  output="$(
+    FIXTURE_API_TOKEN="$token" CHAIN_REDACT_VALUES="$password" FIXTURE_ROLE=rd_owner \
+      FIXTURE_DATABASE_URL="postgres://product_edge_owner:${dsn_password}@127.0.0.1:5432/vibe" \
+      FIXTURE_NOTE="$opaque" print_failed_entry_warnings "$fixtures/001.log" 'entry 1/1 (fixture)'
+  )"
+  if [[ "$output" != *'::group::Owner warnings recorded by the failed entry 1/1 (fixture)'* ]] ||
+    [[ "$output" != *'::endgroup::'* ]] ||
+    [[ "$output" != *'1 refusal(s), 4 other warning(s), 1 sqlx performance hint(s)'* ]] ||
+    [[ "$output" != *'inline dsn postgresql://writer:<redacted>@replica.internal:6432/archive'* ]] ||
+    [[ "$output" != *'coordinate="fixture.refusal" detail=WINDOW_NOT_CURRENT'* ]] ||
+    [[ "$output" != *'url=postgres://rd_owner:<redacted>@db.internal/vibe?sslmode=disable token=<redacted>'* ]] ||
+    [[ "$output" != *'postgres://product_edge_owner:<redacted>@127.0.0.1:5432/vibe role rd_owner note <redacted>'* ]] ||
+    [[ "$output" == *"$token"* || "$output" == *"$password"* || "$output" == *"$dsn_password"* || "$output" == *"$inline"* ]] ||
+    [[ "$output" == *"$opaque"* ]] ||
+    [[ "$output" != *' [cut]'* ]] ||
+    [[ "$output" == *"$(printf 'x%.0s' {1..401})"* ]]; then
+    rm -rf -- "$fixtures"
+    echo "ERROR: the failed entry's warnings are misprinted (grouped; refusal, other and hint counted; secrets redacted while user, host and database stay; long lines cut):" >&2
+    printf '%s\n' "$output" >&2
+    return 1
+  fi
+  {
+    printf '%s\n' "$chain_log_collecting_marker"
+    for position in $(seq 1 45); do
+      printf '2026-01-01T00:00:00.000000Z  WARN vibe_fixture: other %s\n' "$position"
+    done
+  } > "$fixtures/002.log"
+  output="$(print_failed_entry_warnings "$fixtures/002.log" 'entry 2/2 (fixture)')"
+  if [[ "$output" != *"... 5 more in $fixtures/002.log"* ]] ||
+    [[ "$(grep -c 'vibe_fixture: other' <<< "$output")" -ne $((chain_failed_entry_event_limit + chain_failed_entry_tail_lines)) ]]; then
+    rm -rf -- "$fixtures"
+    echo "ERROR: the failed entry's warnings are not bounded to ${chain_failed_entry_event_limit} events and ${chain_failed_entry_tail_lines} tail lines:" >&2
+    printf '%s\n' "$output" >&2
+    return 1
+  fi
+  printf '%s\n' 'panicked at crates/fixture/src/lib.rs:1:1: no collector here' > "$fixtures/003.log"
+  output="$(print_failed_entry_warnings "$fixtures/003.log" 'entry 3/3 (fixture)')"
+  if [[ "$output" != *"not observed: $fixtures/003.log does not begin with the collector's marker"* ]] ||
+    [[ "$output" == *'refusal(s)'* ]] ||
+    [[ "$output" != *'panicked at crates/fixture/src/lib.rs:1:1: no collector here'* ]]; then
+    rm -rf -- "$fixtures"
+    echo "ERROR: a failed entry's log without the collector's marker is not reported as not observed, with its tail:" >&2
+    printf '%s\n' "$output" >&2
+    return 1
+  fi
+  output="$(print_failed_entry_warnings "$fixtures/004.log" 'entry 4/4 (fixture)')"
+  if [[ "$output" != *"not observed: $fixtures/004.log was not written"* ]]; then
+    rm -rf -- "$fixtures"
+    echo "ERROR: a failed entry without a record is not reported as not observed:" >&2
+    printf '%s\n' "$output" >&2
+    return 1
+  fi
+  rm -rf -- "$fixtures"
+}
+
+# Every database the chain clones from the template must be in every place a clone has to be: the
+# snapshot the reset rebuilds it from, the SECURITY DEFINER guard, the per-role settings, its REVOKE
+# and GRANT CONNECT, and its own dedicated marker. A clone left out of the snapshot is never reset,
+# and one left out of the guard is never guarded; neither makes anything red at run time, so the
+# chain would carry the gap silently (found reviewing #1185). The clones are read from the
+# `CREATE DATABASE ... WITH TEMPLATE :"test_database"` lines, not listed here, so a new clone is
+# checked without editing this.
+check_chain_clone_lists() {
+  python3 - "${BASH_SOURCE[0]}" << 'PY'
+import re
+import sys
+
+text = open(sys.argv[1], encoding="utf-8").read()
+clones = re.findall(r'^CREATE DATABASE :"(\w+)" WITH TEMPLATE :"test_database"', text, re.M)
+
+
+def block(pattern: str) -> str:
+    match = re.search(pattern, text, re.M | re.S)
+    return match.group(1) if match else ""
+
+
+places = {
+    "the snapshot the reset rebuilds from (chain_snapshot_databases)": set(
+        re.findall(r'"\$(\w+)"', block(r"^chain_snapshot_databases\(\) \{\n(.*?)\n\}")),
+    ),
+    "the SECURITY DEFINER guard (run-security-definer-guard.bash)": set(
+        re.findall(r'"\$(\w+)"', block(r'run-security-definer-guard\.bash" "\$container" \\\n(.*?)\n\n')),
+    ),
+    "the per-role settings (WITH clones(database_name))": set(
+        re.findall(r":'(\w+)'", block(r"^WITH clones\(database_name\) AS \(\n  VALUES (.*?)\n")),
+    ),
+    "REVOKE ... FROM PUBLIC": set(
+        re.findall(r'^REVOKE CONNECT, CREATE, TEMPORARY ON DATABASE :"(\w+)" FROM PUBLIC;', text, re.M),
+    ),
+    "GRANT CONNECT": set(re.findall(r'^GRANT CONNECT ON DATABASE :"(\w+)"$', text, re.M)),
+    "its dedicated marker (SET database_name)": set(
+        re.findall(r"^   SET database_name=:'(\w+)';", text, re.M),
+    ),
+}
+errors = []
+if not clones:
+    errors.append("no template clone found; the CREATE DATABASE pattern no longer matches this script")
+for place, names in places.items():
+    if not names:
+        errors.append(f"{place} could not be read; its pattern no longer matches this script")
+for clone in clones:
+    for place, names in places.items():
+        if names and clone not in names:
+            errors.append(f"{clone} is cloned from the template but missing from {place}")
+for error in errors:
+    print(f"ERROR: {error}", file=sys.stderr)
+sys.exit(1 if errors else 0)
+PY
 }
 
 check_trial_family_candidate_experiment_cutover() {
@@ -1708,8 +1973,11 @@ if [[ "$chain_reports_only" != true ]]; then
   check_trial_family_candidate_experiment_cutover
   check_composer_acceptance_stays_in_the_chain
   check_chain_node_declarations
+  check_chain_entries_fail_closed
+  check_chain_clone_lists
 fi
 check_collected_warning_report
+check_failed_entry_warnings
 # A PostgreSQL crash-reinit leaves the postmaster running, so its start time does not move; what
 # records it is a LOG line, which the lock-and-error excerpt printed at cleanup filters out. Measured
 # before --init: every round's authority-migration drills made the postmaster reap an orphaned shell
@@ -1899,7 +2167,8 @@ load_chain_shard() {
 # must be named, so all three are kept beside it and restored on every rebuild.
 chain_snapshot_databases() {
   printf '%s\n' "$test_database" "$catalog_admin_database" "$origin_current_database" \
-    "$legacy_replay_database" "$program_host_acceptance_database" "$composer_sealed_read_database"
+    "$legacy_replay_database" "$program_host_acceptance_database" "$composer_sealed_read_database" \
+    "$initial_pit_clock_move_database"
 }
 
 chain_admin_psql() {
@@ -2400,24 +2669,20 @@ fi
 source "$(dirname "${BASH_SOURCE[0]}")/chain-entry-watchdog.bash"
 readonly chain_entry_wall_clock_seconds="${CHAIN_ENTRY_WALL_CLOCK_SECONDS:-900}"
 
-# Entry 28 drives the Dashboard in a real browser only when three sealed inputs are present, and so
-# does entry 100, the single-run report's acceptance, which reads the same three. Without
-# them each returns in a few milliseconds and reports PASS, so a chain that never touched a browser
-# goes green and says nothing about it. Measured twice on two trees: 0.011s locally against 136.78s
-# on CI, and locally it is the fastest of all ninety-nine entries - three times faster than the one
-# below it, which does a single string assertion. That reading alone rules out starting Next.js and
-# Chrome; no comparison with CI is needed to see it.
+# Entry 28 drives the Dashboard in a real browser with three sealed inputs, and so does entry 100,
+# the single-run report's acceptance, which reads the same three. Each used to return in a few
+# milliseconds and report PASS without the first of them (0.011s locally against 136.78s on CI), so
+# a chain that never touched a browser went green. Both now fail closed on all three, and
+# chain-entry-early-return.py keeps any chain entry from returning early on an unset input again.
 #
-# Only the first of the three is silent. The test reads the other two with `.expect(...)`, so their
-# absence already panics and names itself. Checking all three here buys exactly two things: the
-# failure arrives before the entry runs rather than a hundred and thirty seconds into it, and a run
-# missing several is told about all of them at once. It is not new coverage for those two.
+# Checking all three here still buys two things: the failure arrives before the entry runs rather
+# than into it, and a run missing several is told about all of them at once.
 #
 # One check, two readers. What differs is only what happens after it, never what it looks for: a
-# preflight must carry on and record that this entry covered nothing, because `--fail-fast` would
-# otherwise turn a local run of ninety-eight real entries into twenty-seven. The gate must refuse,
-# because there the inputs are installed by .github/actions/dashboard-browser-acceptance and their
-# absence means that step did not do its job.
+# preflight must carry on, because `--fail-fast` would otherwise turn a local run of the other
+# entries into a fraction of them, so it leaves the two entries out and reports each SKIP by name.
+# The gate must refuse, because there the inputs are installed by
+# .github/actions/dashboard-browser-acceptance and their absence means that step did not do its job.
 sealed_browser_inputs_absent() {
   local -a absent=()
   [[ "${DASHBOARD_STRATEGY_VIEWER_BROWSER_ACCEPTANCE:-}" == "1" ]] ||
@@ -2485,7 +2750,7 @@ check_sealed_browser_inputs() {
   if [[ "${RD_OWNER_CHAIN_LOCAL_PREFLIGHT:-}" == "1" ]]; then
     echo "=== The Dashboard browser acceptance will NOT run this round. Absent: ===" >&2
     while read -r name; do echo "===   $name" >&2; done <<< "$absent"
-    echo "=== Entries 28 and 100 return in milliseconds and report PASS, covering nothing. ===" >&2
+    echo "=== Entries 28 and 100 are left out and reported SKIP, not run. ===" >&2
     echo "=== A green chain this round covers every entry except those two. ===" >&2
     return 0
   fi
@@ -2545,6 +2810,10 @@ readonly origin_current_database="vibe_test_origin_current_${suffix//-/_}"
 readonly legacy_replay_database="vibe_test_legacy_replay_${suffix//-/_}"
 readonly program_host_acceptance_database="vibe_test_program_host_acceptance_${suffix//-/_}"
 readonly composer_sealed_read_database="vibe_test_composer_sealed_read_${suffix//-/_}"
+# The initial PIT clock-move entry moves Market Data's clock head for good, which every later entry on
+# the shared database would meet as a head no longer the acceptance basis's, so it runs on a clone of
+# its own. The entry refuses any database whose name lacks this prefix.
+readonly initial_pit_clock_move_database="vibe_test_rd_initial_pit_clock_move_${suffix//-/_}"
 readonly dashboard_run_store_database="vibe_test_dashboard_run_store_${suffix//-/_}"
 readonly impersonator_container="vibe-rd-owner-impersonator-${suffix}"
 readonly impersonator_volume="vibe-rd-owner-impersonator-${suffix}"
@@ -2669,6 +2938,8 @@ cleanup() {
   if [[ "$primary_status" -ne 0 && "$chain_position" -gt 0 && "$chain_completed" != true ]]; then
     echo "ordered chain stopped at entry ${chain_position}/${chain_entry_count} (${chain_entry_label}); $((chain_position - 1)) passed before it." >&2
     report_undeclared_node_entry
+    CHAIN_REDACT_VALUES="${test_password:-}" print_failed_entry_warnings "${VIBE_TEST_LOG_FILE:-}" \
+      "entry ${chain_position}/${chain_entry_count} (${chain_entry_label})"
   fi
 
   if [[ -n "$nextest_extract_dir" ]] &&
@@ -3963,17 +4234,20 @@ docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
   --set=origin_current_database="$origin_current_database" \
   --set=legacy_replay_database="$legacy_replay_database" \
   --set=program_host_acceptance_database="$program_host_acceptance_database" \
-  --set=composer_sealed_read_database="$composer_sealed_read_database" << 'SQL'
+  --set=composer_sealed_read_database="$composer_sealed_read_database" \
+  --set=initial_pit_clock_move_database="$initial_pit_clock_move_database" << 'SQL'
 CREATE DATABASE :"catalog_admin_database" WITH TEMPLATE :"test_database" OWNER rd_database_owner;
 CREATE DATABASE :"origin_current_database" WITH TEMPLATE :"test_database" OWNER rd_database_owner;
 CREATE DATABASE :"legacy_replay_database" WITH TEMPLATE :"test_database" OWNER rd_database_owner;
 CREATE DATABASE :"program_host_acceptance_database" WITH TEMPLATE :"test_database" OWNER rd_database_owner;
 CREATE DATABASE :"composer_sealed_read_database" WITH TEMPLATE :"test_database" OWNER rd_database_owner;
+CREATE DATABASE :"initial_pit_clock_move_database" WITH TEMPLATE :"test_database" OWNER rd_database_owner;
 REVOKE CONNECT, CREATE, TEMPORARY ON DATABASE :"catalog_admin_database" FROM PUBLIC;
 REVOKE CONNECT, CREATE, TEMPORARY ON DATABASE :"origin_current_database" FROM PUBLIC;
 REVOKE CONNECT, CREATE, TEMPORARY ON DATABASE :"legacy_replay_database" FROM PUBLIC;
 REVOKE CONNECT, CREATE, TEMPORARY ON DATABASE :"program_host_acceptance_database" FROM PUBLIC;
 REVOKE CONNECT, CREATE, TEMPORARY ON DATABASE :"composer_sealed_read_database" FROM PUBLIC;
+REVOKE CONNECT, CREATE, TEMPORARY ON DATABASE :"initial_pit_clock_move_database" FROM PUBLIC;
 GRANT CONNECT ON DATABASE :"catalog_admin_database"
   TO operator_authorization_writer, product_edge_owner, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, market_data_owner, market_data_reader, qualification_writer, backtest_owner, instrument_owner, execution_writer, portfolio_writer, governance_writer, risk_writer, scanner_writer, vibe_test_owner_topology_admin;
 GRANT CONNECT ON DATABASE :"origin_current_database"
@@ -3984,9 +4258,11 @@ GRANT CONNECT ON DATABASE :"program_host_acceptance_database"
   TO operator_authorization_writer, product_edge_owner, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, market_data_owner, market_data_reader, qualification_writer, backtest_owner, instrument_owner, execution_writer, portfolio_writer, governance_writer, risk_writer, scanner_writer, vibe_test_owner_topology_admin;
 GRANT CONNECT ON DATABASE :"composer_sealed_read_database"
   TO operator_authorization_writer, product_edge_owner, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, market_data_owner, market_data_reader, qualification_writer, backtest_owner, instrument_owner, execution_writer, portfolio_writer, governance_writer, risk_writer, scanner_writer, vibe_test_owner_topology_admin;
+GRANT CONNECT ON DATABASE :"initial_pit_clock_move_database"
+  TO operator_authorization_writer, product_edge_owner, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, market_data_owner, market_data_reader, qualification_writer, backtest_owner, instrument_owner, execution_writer, portfolio_writer, governance_writer, risk_writer, scanner_writer, vibe_test_owner_topology_admin;
 
 WITH clones(database_name) AS (
-  VALUES (:'catalog_admin_database'), (:'origin_current_database'), (:'legacy_replay_database'), (:'program_host_acceptance_database'), (:'composer_sealed_read_database')
+  VALUES (:'catalog_admin_database'), (:'origin_current_database'), (:'legacy_replay_database'), (:'program_host_acceptance_database'), (:'composer_sealed_read_database'), (:'initial_pit_clock_move_database')
 ), roles(role_name) AS (
   VALUES
     ('operator_authorization_writer'),
@@ -4171,6 +4447,13 @@ docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
   --set=composer_sealed_read_database="$composer_sealed_read_database" << 'SQL'
 UPDATE vibe_test_admin.dedicated_postgres_test_instance_v1
    SET database_name=:'composer_sealed_read_database';
+SQL
+
+docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+  --username postgres --dbname "$initial_pit_clock_move_database" \
+  --set=initial_pit_clock_move_database="$initial_pit_clock_move_database" << 'SQL'
+UPDATE vibe_test_admin.dedicated_postgres_test_instance_v1
+   SET database_name=:'initial_pit_clock_move_database';
 SQL
 
 legacy_replay_fingerprint() {
@@ -4651,6 +4934,8 @@ fi
 # after its consumers because its final inheritance fault poisons that private store. Keep the
 # destructive legacy PREPARED drain probe final because it removes receipt storage required by every
 # positive Artifact Owner consumer.
+# The positions the local preflight left out and reported SKIP (chain_entry_skipped_locally).
+chain_locally_skipped_entries=()
 for chain_step in "${chain_run_order[@]}"; do
   IFS='|' read -r chain_position chain_step_kind chain_step_component <<< "$chain_step"
   chain_run_index=$((chain_run_index + 1))
@@ -4665,6 +4950,13 @@ for chain_step in "${chain_run_order[@]}"; do
     echo "=== replayed precondition ${chain_position}/${chain_entry_count} for component ${chain_step_component}: ${chain_entry_label}"
   else
     echo "=== ordered chain entry ${chain_position}/${chain_entry_count}: ${chain_entry_label}"
+  fi
+  chain_entry_skipped=false
+  if chain_entry_skipped_locally "${RD_OWNER_CHAIN_LOCAL_PREFLIGHT:-}" "$(sealed_browser_inputs_absent)" \
+    "$test_name" "${chain_browser_entries[@]}"; then
+    chain_entry_skipped=true
+    [[ "$chain_step_kind" == replay ]] || chain_locally_skipped_entries+=("$chain_position")
+    echo "=== SKIP ${chain_position}/${chain_entry_count}: not run, the Dashboard browser inputs are absent"
   fi
   # The previous entry's record must not be copied as this one's if this one never writes its own.
   rm -f -- "$chain_record_source"
@@ -4690,7 +4982,9 @@ for chain_step in "${chain_run_order[@]}"; do
   if [[ -n "$backtest_result_fault" ]]; then
     inject_backtest_result_fault "$backtest_result_fault"
   fi
-  if [[ "$test_name" == 'replay_policy_catalog_postgres_v2::postgres_tests::catalog_admin_and_family_formation_are_atomic_and_fail_closed' ]] ||
+  if [[ "$chain_entry_skipped" == true ]]; then
+    : # left out and reported SKIP above
+  elif [[ "$test_name" == 'replay_policy_catalog_postgres_v2::postgres_tests::catalog_admin_and_family_formation_are_atomic_and_fail_closed' ]] ||
     [[ "$test_name" == 'replay_policy_catalog_postgres_v2::postgres_tests::catalog_v3_bootstrap_publishes_the_head_the_owner_reads_and_formation_binds' ]] ||
     [[ "$test_name" == 'postgres::tests::expired_manifest_recovery_sidecars_reject_unknown_constraints_without_catalog_mutation' ]]; then
     env \
@@ -4810,6 +5104,31 @@ for chain_step in "${chain_run_order[@]}"; do
       --profile "$nextest_profile" \
       "${nextest_execution_args[@]}" \
       -E "$test_filter"
+  elif [[ "$test_name" == 'research_initial_pit_postgres_tests::the_initial_pit_request_refreezes_when_the_clock_head_moves_before_its_send' ]]; then
+    env \
+      VIBE_POSTGRES_TEST_DATABASE_NAME="$initial_pit_clock_move_database" \
+      OPERATOR_AUTHORIZATION_TEST_DATABASE_URL="postgresql://operator_authorization_writer:${test_password}@${postgres_host}:${postgres_port}/${initial_pit_clock_move_database}" \
+      PRODUCT_EDGE_TEST_DATABASE_URL="postgresql://product_edge_owner:${test_password}@${postgres_host}:${postgres_port}/${initial_pit_clock_move_database}" \
+      RD_OWNER_TEST_DATABASE_URL="postgresql://rd_owner:${test_password}@${postgres_host}:${postgres_port}/${initial_pit_clock_move_database}" \
+      RD_FACT_WRITER_TEST_DATABASE_URL="postgresql://rd_fact_writer:${test_password}@${postgres_host}:${postgres_port}/${initial_pit_clock_move_database}" \
+      MARKET_DATA_OWNER_TEST_DATABASE_URL="postgresql://market_data_owner:${test_password}@${postgres_host}:${postgres_port}/${initial_pit_clock_move_database}" \
+      REPLAY_POLICY_CATALOG_ADMIN_TEST_DATABASE_URL="postgresql://replay_policy_catalog_admin_writer:${test_password}@${postgres_host}:${postgres_port}/${initial_pit_clock_move_database}" \
+      MARKET_DATA_RD_ROLE_SET_TEST_DATABASE_URL="postgresql://market_data_reader:${test_password}@${postgres_host}:${postgres_port}/${initial_pit_clock_move_database}" \
+      VIBE_TEST_OWNER_TOPOLOGY_ADMIN_DATABASE_URL="postgresql://vibe_test_owner_topology_admin:${test_password}@${postgres_host}:${postgres_port}/${initial_pit_clock_move_database}" \
+      QUALIFICATION_TEST_DATABASE_URL="postgresql://qualification_writer:${test_password}@${postgres_host}:${postgres_port}/${initial_pit_clock_move_database}" \
+      BACKTEST_TEST_DATABASE_URL="postgresql://backtest_owner:${test_password}@${postgres_host}:${postgres_port}/${initial_pit_clock_move_database}" \
+      INSTRUMENT_OWNER_TEST_DATABASE_URL="postgresql://instrument_owner:${test_password}@${postgres_host}:${postgres_port}/${initial_pit_clock_move_database}" \
+      INSTRUMENT_OWNER_DATABASE_URL="postgresql://instrument_owner:${test_password}@${postgres_host}:${postgres_port}/${initial_pit_clock_move_database}" \
+      EXECUTION_OWNER_TEST_DATABASE_URL="postgresql://execution_writer:${test_password}@${postgres_host}:${postgres_port}/${initial_pit_clock_move_database}" \
+      PORTFOLIO_OWNER_TEST_DATABASE_URL="postgresql://portfolio_writer:${test_password}@${postgres_host}:${postgres_port}/${initial_pit_clock_move_database}" \
+      GOVERNANCE_OWNER_TEST_DATABASE_URL="postgresql://governance_writer:${test_password}@${postgres_host}:${postgres_port}/${initial_pit_clock_move_database}" \
+      RISK_OWNER_TEST_DATABASE_URL="postgresql://risk_writer:${test_password}@${postgres_host}:${postgres_port}/${initial_pit_clock_move_database}" \
+      SCANNER_OWNER_TEST_DATABASE_URL="postgresql://scanner_writer:${test_password}@${postgres_host}:${postgres_port}/${initial_pit_clock_move_database}" \
+      cargo nextest run \
+      "${nextest_reuse_args[@]}" \
+      --profile "$nextest_profile" \
+      "${nextest_execution_args[@]}" \
+      -E "$test_filter"
   elif [[ "$test_name" == 'program_host_bar_joined_cut_postgres_acceptance_tests::owner_postgres_v4_moves_through_program_host_and_real_backtest' ]]; then
     env \
       VIBE_POSTGRES_TEST_DATABASE_NAME="$program_host_acceptance_database" \
@@ -4861,6 +5180,7 @@ for chain_step in "${chain_run_order[@]}"; do
     if [[ -n "$chain_shard" ]]; then
       chain_expected_records="$chain_shard_entry_count"
     fi
+    chain_expected_records=$((chain_expected_records - ${#chain_locally_skipped_entries[@]}))
     if [[ "$chain_record_count" -ne "$chain_expected_records" ]]; then
       echo "ERROR: the chain passed ${chain_expected_records} entries but left ${chain_record_count}" >&2
       echo "record(s) in ${chain_record_dir}. Every entry must leave one, or the published record" >&2
@@ -4868,7 +5188,10 @@ for chain_step in "${chain_run_order[@]}"; do
       exit 1
     fi
     chain_completed=true
-    if [[ -n "$chain_shard" ]]; then
+    if [[ "${#chain_locally_skipped_entries[@]}" -gt 0 ]]; then
+      echo "=== SKIP (local preflight): entries ${chain_locally_skipped_entries[*]} not run, the Dashboard browser inputs are absent; the other ${chain_expected_records} passed, ${chain_record_count} recorded; not an ordered-chain verdict"
+      [[ -n "$chain_shard" ]] || report_collected_warnings "$chain_record_dir" "$chain_entry_count"
+    elif [[ -n "$chain_shard" ]]; then
       # The chain's two summary lines come from the merged records of every shard
       # (--report-records), so one shard reports only itself.
       echo "=== chain shard ${chain_shard}: all ${chain_shard_entry_count} entries passed, ${chain_record_count} recorded"
@@ -4901,7 +5224,7 @@ require_no_postgres_crash impersonating "$impersonator_container" "$impersonator
 bash "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/run-security-definer-guard.bash" "$container" \
   postgres "$test_database" "$catalog_admin_database" "$origin_current_database" \
   "$legacy_replay_database" "$program_host_acceptance_database" "$composer_sealed_read_database" \
-  "$dashboard_run_store_database"
+  "$initial_pit_clock_move_database" "$dashboard_run_store_database"
 
 docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
   --username postgres --dbname "$test_database" << 'SQL'
@@ -5437,6 +5760,7 @@ BEGIN
     FOREACH qualification_table IN ARRAY ARRAY[
       'qualification_protected_feedback_projections_v1',
       'qualification_protected_feedback_heads_v1',
+      'qualification_protected_feedback_generations_v1',
       'qualification_candidate_intake_receipts_v1',
       'qualification_public_status_facts_v1',
       'qualification_public_status_heads_v1',

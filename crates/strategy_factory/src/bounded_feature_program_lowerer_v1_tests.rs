@@ -1,4 +1,5 @@
 use super::*;
+use crate::bounded_feature_program_corpus_for_test::corpus_program;
 use crate::{
     bounded_feature_program_v1::tests::candidate,
     develop_composer_v2::CurrentResearchDevelopCustodyV2,
@@ -9,7 +10,7 @@ use crate::{
     rd_bounded_feature_program_v1::freeze_research_bounded_feature_program_v1,
     strategy_plan_v2::plugin_manifest_digest,
 };
-use std::{ffi::OsStr, fs, path::Path};
+use std::{ffi::OsStr, path::Path};
 
 /// The frozen project, not the surrounding job, decides what a guest compiles under.
 #[rstest::rstest]
@@ -1111,7 +1112,7 @@ fn every_executable_operation_builds_and_runs_as_strict_abi_three_wasm() {
 }
 
 /// One frozen program lowered, built as strict ABI 3 Wasm, and instantiated, taking one frame per
-/// sample of its single input role the way the program host drives it.
+/// sample of its input roles the way the program host drives it.
 struct BuiltGuest {
     manifest: crate::strategy_design_v2::PluginManifestV2,
     manifest_digest: BindingDigest,
@@ -1166,11 +1167,34 @@ impl BuiltGuest {
         }
     }
 
-    /// Invokes the guest on one sample of its input, with `prior_state` as the state it resumes.
+    /// Invokes a guest of one input role on one sample of it, with `prior_state` as the state it
+    /// resumes.
     fn invoke(
         &mut self,
         sample: u64,
         value: i128,
+        prior_state: &[u8],
+        label: &str,
+    ) -> PluginFrameV2 {
+        let [port] = self
+            .manifest
+            .input_ports
+            .iter()
+            .filter(|port| !port.semantic_id.starts_with(SAMPLE_COORDINATE_PORT_PREFIX))
+            .collect::<Vec<_>>()[..]
+        else {
+            panic!("{label} reads more than one input role");
+        };
+        let port = port.semantic_id.clone();
+        self.invoke_ports(sample, &[(port.as_str(), value)], prior_state, label)
+    }
+
+    /// Invokes the guest on one sample of every input role, naming each role's value by its
+    /// manifest port; every role's coordinate is the sample's.
+    fn invoke_ports(
+        &mut self,
+        sample: u64,
+        values: &[(&str, i128)],
         prior_state: &[u8],
         label: &str,
     ) -> PluginFrameV2 {
@@ -1182,10 +1206,22 @@ impl BuiltGuest {
             manifest_digest: self.manifest_digest,
             module_identity,
             invocation_identity,
-            values: vec![
-                TypedValueV2::i128(value),
-                TypedValueV2::new(ValueTypeV2::Bytes, canonical_coordinate(sample)).unwrap(),
-            ],
+            values: self
+                .manifest
+                .input_ports
+                .iter()
+                .map(|port| {
+                    if port.semantic_id.starts_with(SAMPLE_COORDINATE_PORT_PREFIX) {
+                        TypedValueV2::new(ValueTypeV2::Bytes, canonical_coordinate(sample)).unwrap()
+                    } else {
+                        let (_, value) = values
+                            .iter()
+                            .find(|(port_id, _)| *port_id == port.semantic_id)
+                            .unwrap_or_else(|| panic!("{label} has no value for {port:?}"));
+                        TypedValueV2::i128(*value)
+                    }
+                })
+                .collect(),
             state: TypedValueV2::new(ValueTypeV2::Bytes, prior_state).unwrap(),
         };
         let input_bytes = input.encode(&self.manifest).unwrap();
@@ -1213,6 +1249,9 @@ impl BuiltGuest {
     }
 }
 
+/// The manifest port prefix of every input role's Owner sample coordinate.
+const SAMPLE_COORDINATE_PORT_PREFIX: &str = "strategy.input.sample-coordinate.v1.";
+
 /// Daily closes, in whole units, whose only bearish divergence is confirmed at bar 14.
 ///
 /// Bars 1 to 7 only rise, so RSI(3) at bar 7 is 100, and bar 7 at 120 is the first order-2 pivot
@@ -1222,44 +1261,6 @@ impl BuiltGuest {
 const DIVERGENCE_CLOSES: [i128; 16] = [
     100, 102, 104, 106, 108, 110, 120, 115, 112, 113, 114, 121, 118, 116, 117, 119,
 ];
-
-/// The authored program `name` from the declared-meaning corpus, assembled as `declare` does.
-fn corpus_program(name: &str) -> (StrategyDesignV2, BoundedFeatureProgramProposalV1) {
-    use crate::bounded_feature_program_derivation_v1::{
-        BoundedFeatureProgramMeaningV1, derive_bounded_feature_program_proposal_v1,
-    };
-
-    let corpus = concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/test_data/bounded_feature_program_meaning_v1/"
-    );
-    let design: StrategyDesignV2 =
-        serde_json::from_str(&fs::read_to_string(format!("{corpus}{name}-design.json")).unwrap())
-            .unwrap();
-    let declared: BoundedFeatureProgramMeaningV1 =
-        serde_json::from_str(&fs::read_to_string(format!("{corpus}{name}-meaning.json")).unwrap())
-            .unwrap();
-    let receipts = design
-        .inputs
-        .iter()
-        .enumerate()
-        .map(|(index, role)| {
-            let mut bytes = [0x5a_u8; 32];
-            bytes[0] = u8::try_from(index).unwrap();
-            (role.clone(), BindingDigest::from_untrusted_bytes(bytes))
-        })
-        .collect();
-    let bindings =
-        crate::strategy_plan_v2::verified_strategy_input_bindings_for_test(&design, receipts);
-    let proposal = derive_bounded_feature_program_proposal_v1(
-        &design,
-        PrimitiveCatalogV1::verify().unwrap(),
-        &declared,
-        &bindings,
-    )
-    .unwrap_or_else(|e| panic!("{name} assembles: {e}"));
-    (design, proposal)
-}
 
 /// What one run of the divergence program emitted: the bars it exited on, and the previous
 /// pivot's close its fixed-point strategy state held after each bar.
@@ -1407,4 +1408,301 @@ fn a_divergence_program_carries_its_previous_pivot_through_fixed_point_state() {
     assert_eq!(forgotten.carried_close[8], 12_000);
     assert_eq!(forgotten.carried_close[9], 0);
     assert_eq!(forgotten.carried_close[13], 12_100);
+}
+
+/// Daily highs and lows, in whole units, with three bullish fair value gaps and three returns.
+///
+/// Gap A forms at bar 3 (low 102 above bar 1's high of 100), B at bar 6 (111 above 109) and C at
+/// bar 9 (121 above 120); no other bar's low is above the high two bars back. Until bar 10 every
+/// low stays above every gap's upper edge. Then bar 10 trades into C alone (a low of 119), bar 11
+/// into B alone (108), and bar 12 into A's interval alone (101).
+const FAIR_VALUE_GAP_BARS: [(i128, i128); 12] = [
+    (100, 95),
+    (105, 96),
+    (108, 102),
+    (109, 104),
+    (112, 106),
+    (118, 111),
+    (120, 112),
+    (122, 115),
+    (128, 121),
+    (124, 119),
+    (116, 108),
+    (106, 101),
+];
+
+/// What one run of a fair value gap program emitted: the first bar its output was ready, the bars
+/// it entered on, and each slot's upper edge after every bar.
+struct FairValueGapRun {
+    first_ready: Option<u64>,
+    entries: Vec<u64>,
+    upper_edges: Vec<Vec<i128>>,
+}
+
+/// Builds the corpus program `name` and runs it over [`FAIR_VALUE_GAP_BARS`].
+fn run_fair_value_gap(name: &str, slots: usize) -> FairValueGapRun {
+    let (design, proposal) = corpus_program(name);
+    let custody = CurrentResearchDevelopCustodyV2::joint_bfp_test_fixture(&design);
+    let frozen = freeze_research_bounded_feature_program_v1(&custody, &design, proposal)
+        .expect("joint Owner freeze");
+    let canonical = crate::bounded_feature_program_v1::parse_bounded_feature_program_v1(
+        frozen.program_bytes(),
+        &design,
+    )
+    .expect("frozen program parses");
+    let upper_edges: Vec<_> = (1..=slots)
+        .map(|slot| {
+            let cell = canonical
+                .state_layout()
+                .slots()
+                .iter()
+                .find(|cell| cell.state_id() == format!("up{slot}"))
+                .expect("every slot's upper edge is in the layout");
+            let start = cell.offset() as usize;
+            (start, start + cell.width() as usize)
+        })
+        .collect();
+    let root = tempfile::tempdir().expect("private build root");
+    let mut guest = BuiltGuest::build(&frozen, root.path(), &root.path().join("target-out"), name);
+    let mut state = Vec::new();
+    let mut run = FairValueGapRun {
+        first_ready: None,
+        entries: Vec::new(),
+        upper_edges: Vec::new(),
+    };
+
+    for (sample, (high, low)) in (1_u64..).zip(FAIR_VALUE_GAP_BARS) {
+        let output = guest.invoke_ports(
+            sample,
+            &[("input.high.v1", high * 100), ("input.low.v1", low * 100)],
+            &state,
+            name,
+        );
+        let ready = output.output_availability == Some(PluginOutputAvailabilityV3::Ready);
+
+        if ready && run.first_ready.is_none() {
+            run.first_ready = Some(sample);
+        }
+
+        if ready
+            && output
+                .values
+                .iter()
+                .any(|value| value.bytes() == b"kernel.position.enter.v1")
+        {
+            run.entries.push(sample);
+        }
+        state = output.state.bytes().to_vec();
+        run.upper_edges.push(
+            upper_edges
+                .iter()
+                .map(|(start, end)| i128::from_le_bytes(state[*start..*end].try_into().unwrap()))
+                .collect(),
+        );
+    }
+    run
+}
+
+/// A fair value gap program holds its open gaps in fixed slots, and a new gap replaces the oldest
+/// only when every slot is open.
+///
+/// `g2` and `g3` are one program with two and three slots. Three gaps form, each above the last,
+/// and every later bar trades into exactly one of them. With two slots the third gap evicts the
+/// first, so the bar that trades into the first gap's interval emits nothing; with three slots the
+/// same bars keep it, and that bar enters. The two other returns enter under both, which is the
+/// control that the eviction, not the price path, is what removes the signal.
+#[rstest::rstest]
+#[ignore = "builds and invokes the fair value gap programs with the pinned local wasm compiler"]
+fn a_fair_value_gap_program_evicts_the_oldest_gap_only_when_its_slots_are_full() {
+    let two = run_fair_value_gap("g2", 2);
+    let three = run_fair_value_gap("g3", 3);
+
+    // The high two bars back is the last node to warm.
+    assert_eq!(two.first_ready, Some(3));
+    assert_eq!(three.first_ready, Some(3));
+
+    assert_eq!(
+        two.upper_edges[7],
+        [11_100, 10_200],
+        "A and B fill both slots"
+    );
+    assert_eq!(
+        two.upper_edges[8],
+        [12_100, 11_100],
+        "C takes a slot and A, the oldest, is gone"
+    );
+    assert_eq!(
+        three.upper_edges[8],
+        [12_100, 11_100, 10_200],
+        "a third slot keeps A"
+    );
+
+    assert_eq!(
+        two.entries,
+        [10, 11],
+        "the return into A's interval finds no gap"
+    );
+    assert_eq!(
+        three.entries,
+        [10, 11, 12],
+        "the same return enters while A is held"
+    );
+    assert_eq!(
+        three.upper_edges[11],
+        [0, 0, 0],
+        "each gap is cleared by the bar that trades into it"
+    );
+}
+
+/// The lowerer keeps its own spelling of a coordinate port id because its source is frozen: the V3
+/// build capsule binds the lowerer's source digest, so deleting the copy would re-identify every
+/// build and needs a capsule compatibility migration. This holds the copy to the Owner's one
+/// spelling in `strategy_plan_v2` instead.
+#[rstest::rstest]
+fn the_lowerer_s_frozen_coordinate_port_id_is_the_owner_s() {
+    for bytes in [
+        [0_u8; 32],
+        [0xff; 32],
+        std::array::from_fn(|index| u8::try_from(index).expect("32 bytes")),
+    ] {
+        let identity = BindingDigest::from_untrusted_bytes(bytes);
+        assert_eq!(
+            coordinate_port_id(identity),
+            crate::strategy_plan_v2::coordinate_port_id(identity),
+        );
+    }
+}
+
+/// Daily closes, in whole units, that take `t3` out of warmup and through one entry and one exit.
+///
+/// Six flat bars fill its four-bar mean and RSI. The fall to 94 puts the close more than 2% under
+/// the mean with the RSI under 30, which enters; the recovery to 101 lifts it back over -0.5%,
+/// which exits.
+const T3_CLOSES: [i128; 16] = [
+    100, 100, 100, 100, 100, 100, 98, 96, 94, 95, 97, 99, 101, 102, 100, 97,
+];
+
+/// Every output frame `program` emits over `closes`, as availability and each value's bytes.
+fn t3_behaviour(
+    design: &StrategyDesignV2,
+    program: BoundedFeatureProgramProposalV1,
+    root: &Path,
+    target_dir: &Path,
+    label: &str,
+) -> Vec<(Option<PluginOutputAvailabilityV3>, Vec<Vec<u8>>)> {
+    let custody = CurrentResearchDevelopCustodyV2::joint_bfp_test_fixture(design);
+    let frozen = freeze_research_bounded_feature_program_v1(&custody, design, program)
+        .unwrap_or_else(|e| panic!("{label}: joint Owner freeze: {e}"));
+    let mut guest = BuiltGuest::build(&frozen, root, target_dir, label);
+    let mut state = Vec::new();
+
+    (1_u64..)
+        .zip(T3_CLOSES)
+        .map(|(sample, close)| {
+            let output = guest.invoke(sample, close * 100, &state, label);
+            state = output.state.bytes().to_vec();
+            (
+                output.output_availability,
+                output
+                    .values
+                    .iter()
+                    .map(|value| value.bytes().to_vec())
+                    .collect(),
+            )
+        })
+        .collect()
+}
+
+/// The canonical form's two sides, proven by running the programs.
+///
+/// `docs/owners/rd.md` defines the canonical form a compiled document is compared with its
+/// hand-written program by; each side of that projection is only as good as the behaviour it
+/// stands for. Here `t3` runs as Wasm over one sequence that leaves warmup and both enters and
+/// exits, and so does each program changed in one respect. Renaming its identities, scaling its
+/// priorities and enlarging its bounds leave every output frame as it was, as they leave the form.
+/// A shorter mean window, a nearer entry threshold, a swapped priority order and swapped `sub`
+/// operands each change an output frame, as they change the form.
+#[rstest::rstest]
+#[ignore = "builds and invokes the canonical form's programs with the pinned local wasm compiler"]
+fn what_the_canonical_form_keeps_and_drops_is_what_changes_behaviour() {
+    use crate::bounded_feature_program_canonical_form_v1::{
+        CanonicalBoundedFeatureProgramFormV1, transform,
+    };
+
+    let (design, program) = corpus_program("t3");
+    let root = tempfile::tempdir().expect("private build root");
+    let target_dir = root.path().join("target-out");
+    let form = |program: &BoundedFeatureProgramProposalV1| {
+        CanonicalBoundedFeatureProgramFormV1::of(program).expect("t3 has a canonical form")
+    };
+    let behaviour = |program: BoundedFeatureProgramProposalV1, label: &str| {
+        t3_behaviour(&design, program, root.path(), &target_dir, label)
+    };
+    let baseline = behaviour(program.clone(), "t3");
+    let ready = |intent: &[u8]| {
+        baseline.iter().any(|(availability, values)| {
+            *availability == Some(PluginOutputAvailabilityV3::Ready)
+                && values.iter().any(|value| value.as_slice() == intent)
+        })
+    };
+    assert!(
+        ready(b"kernel.position.enter.v1") && ready(b"kernel.position.exit.v1"),
+        "the sequence leaves warmup and both enters and exits: {baseline:?}"
+    );
+
+    for (change, changed) in [
+        ("renamed", transform::renamed(&program)),
+        ("priorities scaled", transform::priorities_scaled(&program)),
+        ("bounds enlarged", transform::bounds_enlarged(&program)),
+    ] {
+        assert_eq!(form(&changed), form(&program), "{change} keeps the form");
+        assert_eq!(
+            behaviour(changed, change),
+            baseline,
+            "{change} keeps every output frame"
+        );
+    }
+
+    for (change, changed) in [
+        ("window", transform::window_changed(&program, "m", 3)),
+        (
+            "constant",
+            transform::constant_changed(&program, "k_enter", -100),
+        ),
+        ("sub operands", transform::operands_swapped(&program, "dev")),
+    ] {
+        assert_ne!(
+            form(&changed),
+            form(&program),
+            "the {change} changes the form"
+        );
+        assert_ne!(
+            behaviour(changed, change),
+            baseline,
+            "the {change} changes an output frame"
+        );
+    }
+
+    // `t3` gates its entry on being out of position and its exit on being in one, so its two
+    // branches never hold on the same bar and their order cannot show. The form still tells the
+    // orders apart, which errs toward refusing a compiled program rather than admitting one.
+    let swapped = transform::priority_order_swapped(&program);
+    assert_ne!(form(&swapped), form(&program));
+    assert_eq!(behaviour(swapped, "t3 priorities swapped"), baseline);
+
+    // Pointed at the ungated conditions - out of position for the entry, back above -0.5% for the
+    // exit - both branches hold on the flat bars, and the order decides which one is emitted.
+    let overlapping = transform::predicates_rewired(&program, &[(10, "b_npos"), (20, "c_back")]);
+    let overlapping_baseline = behaviour(overlapping.clone(), "overlapping");
+    let swapped = transform::priority_order_swapped(&overlapping);
+    assert_ne!(
+        form(&swapped),
+        form(&overlapping),
+        "the priority order changes the form"
+    );
+    assert_ne!(
+        behaviour(swapped, "overlapping priorities swapped"),
+        overlapping_baseline,
+        "the priority order changes an output frame"
+    );
 }

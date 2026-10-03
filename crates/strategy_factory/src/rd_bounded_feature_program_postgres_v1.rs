@@ -21,10 +21,7 @@ use vibe_data::owner::strategy_design_role_intent_v1::{
 use vibe_indicators_kernel::PrimitiveCatalogV1;
 use vibe_postgres_connect::{PgPoolOptionsExt, PostgresTls};
 
-use crate::{
-    develop_composer_v2::CurrentResearchDevelopCustodyV2,
-    rd_design_role_intent_v1::derive_design_role_intent_v1,
-};
+use crate::rd_design_role_intent_v1::derive_design_role_intent_v1;
 
 use crate::{
     bounded_feature_program_derivation_v1::{
@@ -405,11 +402,16 @@ impl PostgresResearchBoundedFeatureProgramOwnerV1 {
             }
         };
 
-        let custody = match CurrentResearchDevelopCustodyV2::from_verified(
-            &verified,
-            research_request_locator,
-            read_cut_epoch_ms,
-        ) {
+        let custody = match Box::pin(
+            crate::research_continuation_v1::continue_initial_research_in_transaction(
+                &mut transaction,
+                &verified,
+                research_request_locator,
+                read_cut_epoch_ms,
+            ),
+        )
+        .await
+        {
             Ok(custody) => custody,
             Err(_) => {
                 transaction.rollback().await?;
@@ -454,11 +456,16 @@ impl PostgresResearchBoundedFeatureProgramOwnerV1 {
             }
         };
 
-        let custody = match CurrentResearchDevelopCustodyV2::from_verified(
-            &verified,
-            research_request_locator,
-            read_cut_epoch_ms,
-        ) {
+        let custody = match Box::pin(
+            crate::research_continuation_v1::continue_initial_research_in_transaction(
+                &mut transaction,
+                &verified,
+                research_request_locator,
+                read_cut_epoch_ms,
+            ),
+        )
+        .await
+        {
             Ok(custody) => custody,
             Err(_) => {
                 transaction.rollback().await?;

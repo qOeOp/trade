@@ -392,9 +392,11 @@ Product Edge reads one clock. Every time it checks or records - a binding's gene
 its fence, an admission or a claim's read cut and final write cut, an invocation's start - is
 `pg_catalog.clock_timestamp()` read inside its own transaction, never the application process clock. A binding's
 validity window comes from the operator, who reads no clock on Product Edge's behalf, so genesis and every later
-admission compare that window with the same clock. At an admission's cut the research window is checked against the R&D Owner's `owner_cut`,
-projection time and `valid_through`, which R&D stamps from the same database clock, so both sides of each
-comparison come from one clock. Qualification holds the same authority for its Owner cut. The Operator Authorization
+admission compare that window with the same clock. At an admission's cut the research window is checked against the R&D Owner's `owner_cut`
+and projection time, which R&D stamps from the same database clock, so both sides of each comparison come from one
+clock. The research View's `valid_through` is not part of that window: it is a reader's freshness, and the R&D Owner
+proves at each of its own mutations that the Research may still be continued under the authority it was admitted
+under. Qualification holds the same authority for its Owner cut. The Operator Authorization
 Issuer reads the same store clock for everything it judges or stamps: an authorization's issuance, revocation,
 succession and expired-manifest recovery, and a grant's issuance, succession and revocation. An authorization's
 window is judged by the Issuer at issuance and again by Product Edge at genesis and at every admission; both judges

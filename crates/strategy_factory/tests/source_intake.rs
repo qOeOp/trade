@@ -45,7 +45,9 @@ use vibe_strategy_factory::product_edge::{
     feature = "sealed-develop-composer-acceptance"
 ))]
 use vibe_strategy_factory::replay_policy_catalog_sealed_acceptance_v2::ensure_replay_policy_catalog_fixture_v3;
-use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
+use vibe_testkit::postgres::{
+    CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1, restore_after_checks,
+};
 
 #[cfg(feature = "sealed-source-intake-research-acceptance")]
 use vibe_strategy_factory::{
@@ -1223,30 +1225,37 @@ async fn postgres_source_invocation_lifecycle_is_canonical_once_only_and_acl_sea
         .execute(rd_owner)
         .await
         .unwrap();
-    let mut forged_start = start_request.clone();
-    forged_start.reservation_identity = forged_seal.reservation_identity().to_string();
-    forged_start.reservation_digest = forged_seal.reservation_digest().to_string();
-    assert!(
-        product_edge
-            .start_source_intake_invocation(forged_start)
-            .await
-            .is_err()
-    );
-    sqlx::query("ALTER TABLE public.rd_source_intake_bindings_v1 DISABLE TRIGGER rd_source_intake_binding_guard_v1")
-        .execute(rd_owner)
-        .await
-        .unwrap();
-    sqlx::query("UPDATE public.rd_source_intake_bindings_v1 SET product_edge_started_receipt_identity=$2,product_edge_started_json=$3 WHERE request_identity=$1")
-        .bind(&request_identity)
-        .bind(&original_reservation.0)
-        .bind(&original_reservation.1)
-        .execute(rd_owner)
-        .await
-        .unwrap();
-    sqlx::query("ALTER TABLE public.rd_source_intake_bindings_v1 ENABLE TRIGGER rd_source_intake_binding_guard_v1")
-        .execute(rd_owner)
-        .await
-        .unwrap();
+    restore_after_checks(
+        async {
+            let mut forged_start = start_request.clone();
+            forged_start.reservation_identity = forged_seal.reservation_identity().to_string();
+            forged_start.reservation_digest = forged_seal.reservation_digest().to_string();
+            assert!(
+                product_edge
+                    .start_source_intake_invocation(forged_start)
+                    .await
+                    .is_err()
+            );
+        },
+        async {
+            sqlx::query("ALTER TABLE public.rd_source_intake_bindings_v1 DISABLE TRIGGER rd_source_intake_binding_guard_v1")
+                .execute(rd_owner)
+                .await
+                .unwrap();
+            sqlx::query("UPDATE public.rd_source_intake_bindings_v1 SET product_edge_started_receipt_identity=$2,product_edge_started_json=$3 WHERE request_identity=$1")
+                .bind(&request_identity)
+                .bind(&original_reservation.0)
+                .bind(&original_reservation.1)
+                .execute(rd_owner)
+                .await
+                .unwrap();
+            sqlx::query("ALTER TABLE public.rd_source_intake_bindings_v1 ENABLE TRIGGER rd_source_intake_binding_guard_v1")
+                .execute(rd_owner)
+                .await
+                .unwrap();
+        },
+    )
+    .await;
     let started = product_edge
         .start_source_intake_invocation(start_request.clone())
         .await
@@ -1269,18 +1278,22 @@ async fn postgres_source_invocation_lifecycle_is_canonical_once_only_and_acl_sea
         .execute(pe_pool)
         .await
         .unwrap();
-    assert_started_custody_unavailable(
-        rd_owner,
-        &request_identity,
-        &admission.locator().admission_identity,
-        &source_binding.binding_identity,
+    restore_after_checks(
+        assert_started_custody_unavailable(
+            rd_owner,
+            &request_identity,
+            &admission.locator().admission_identity,
+            &source_binding.binding_identity,
+        ),
+        async {
+            sqlx::query("UPDATE public.product_edge_effect_invocation_states_v1 SET updated_at_epoch_ms=updated_at_epoch_ms-1 WHERE claim_identity=$1")
+                .bind(claim.claim_identity())
+                .execute(pe_pool)
+                .await
+                .unwrap();
+        },
     )
     .await;
-    sqlx::query("UPDATE public.product_edge_effect_invocation_states_v1 SET updated_at_epoch_ms=updated_at_epoch_ms-1 WHERE claim_identity=$1")
-        .bind(claim.claim_identity())
-        .execute(pe_pool)
-        .await
-        .unwrap();
 
     let original_started_outbox_digest: String = sqlx::query_scalar(
         "SELECT payload_digest FROM public.product_edge_owner_outbox_v1 WHERE aggregate_identity=$1 AND event_kind='PRODUCT_EDGE_PROVIDER_INVOCATION_STARTED_V1'",
@@ -1295,19 +1308,23 @@ async fn postgres_source_invocation_lifecycle_is_canonical_once_only_and_acl_sea
         .execute(pe_pool)
         .await
         .unwrap();
-    assert_started_custody_unavailable(
-        rd_owner,
-        &request_identity,
-        &admission.locator().admission_identity,
-        &source_binding.binding_identity,
+    restore_after_checks(
+        assert_started_custody_unavailable(
+            rd_owner,
+            &request_identity,
+            &admission.locator().admission_identity,
+            &source_binding.binding_identity,
+        ),
+        async {
+            sqlx::query("UPDATE public.product_edge_owner_outbox_v1 SET payload_digest=$2 WHERE aggregate_identity=$1 AND event_kind='PRODUCT_EDGE_PROVIDER_INVOCATION_STARTED_V1'")
+                .bind(claim.claim_identity())
+                .bind(original_started_outbox_digest)
+                .execute(pe_pool)
+                .await
+                .unwrap();
+        },
     )
     .await;
-    sqlx::query("UPDATE public.product_edge_owner_outbox_v1 SET payload_digest=$2 WHERE aggregate_identity=$1 AND event_kind='PRODUCT_EDGE_PROVIDER_INVOCATION_STARTED_V1'")
-        .bind(claim.claim_identity())
-        .bind(original_started_outbox_digest)
-        .execute(pe_pool)
-        .await
-        .unwrap();
 
     let original_claim_outbox: (String, serde_json::Value) = sqlx::query_as(
         "SELECT event_identity,payload_json FROM public.product_edge_owner_outbox_v1 WHERE aggregate_identity=$1 AND event_kind='PRODUCT_EDGE_PROVIDER_INVOCATION_CLAIMED_V1'",
@@ -1321,26 +1338,33 @@ async fn postgres_source_invocation_lifecycle_is_canonical_once_only_and_acl_sea
         .execute(pe_pool)
         .await
         .unwrap();
-    let mut tampered = rd_owner.begin().await.unwrap();
-    assert!(
-        resolve_source_invocation_started_for_downstream_in_transaction(
-            &mut tampered,
-            &request_identity,
-            &admission.locator().admission_identity,
-            &source_binding.binding_identity,
-        )
-        .await
-        .is_err()
-    );
-    tampered.rollback().await.unwrap();
-    sqlx::query(
-        "UPDATE public.product_edge_owner_outbox_v1 SET payload_json=$2 WHERE event_identity=$1",
+    restore_after_checks(
+        async {
+            let mut tampered = rd_owner.begin().await.unwrap();
+            assert!(
+                resolve_source_invocation_started_for_downstream_in_transaction(
+                    &mut tampered,
+                    &request_identity,
+                    &admission.locator().admission_identity,
+                    &source_binding.binding_identity,
+                )
+                .await
+                .is_err()
+            );
+            tampered.rollback().await.unwrap();
+        },
+        async {
+            sqlx::query(
+                "UPDATE public.product_edge_owner_outbox_v1 SET payload_json=$2 WHERE event_identity=$1",
+            )
+            .bind(&original_claim_outbox.0)
+            .bind(&original_claim_outbox.1)
+            .execute(pe_pool)
+            .await
+            .unwrap();
+        },
     )
-    .bind(&original_claim_outbox.0)
-    .bind(&original_claim_outbox.1)
-    .execute(pe_pool)
-    .await
-    .unwrap();
+    .await;
 
     let mut rd_reserve = rd_owner.begin().await.unwrap();
     let permit = reserve_started_source_invocation_in_transaction(
@@ -2832,35 +2856,41 @@ async fn postgres_readback_rejects_tampered_raw_payload() {
     .execute(rd_owner)
     .await
     .unwrap();
-    let rejected: Option<serde_json::Value> =
-        sqlx::query_scalar("SELECT rd_owner_api.read_source_intake_v1($1)")
-            .bind(&binding.request_identity)
-            .fetch_one(rd_owner)
+    restore_after_checks(
+        async {
+            let rejected: Option<serde_json::Value> =
+                sqlx::query_scalar("SELECT rd_owner_api.read_source_intake_v1($1)")
+                    .bind(&binding.request_identity)
+                    .fetch_one(rd_owner)
+                    .await
+                    .unwrap();
+            assert!(rejected.is_none());
+        },
+        async {
+            sqlx::query(
+                "ALTER TABLE public.rd_source_intake_bindings_v1 DISABLE TRIGGER rd_source_intake_binding_guard_v1",
+            )
+            .execute(rd_owner)
             .await
             .unwrap();
-    assert!(rejected.is_none());
-
-    sqlx::query(
-        "ALTER TABLE public.rd_source_intake_bindings_v1 DISABLE TRIGGER rd_source_intake_binding_guard_v1",
+            sqlx::query(
+                "UPDATE public.rd_source_intake_bindings_v1 SET product_edge_started_receipt_identity=$2,product_edge_started_json=$3 WHERE request_identity=$1",
+            )
+            .bind(&binding.request_identity)
+            .bind(&canonical_started.0)
+            .bind(&canonical_started.1)
+            .execute(rd_owner)
+            .await
+            .unwrap();
+            sqlx::query(
+                "ALTER TABLE public.rd_source_intake_bindings_v1 ENABLE TRIGGER rd_source_intake_binding_guard_v1",
+            )
+            .execute(rd_owner)
+            .await
+            .unwrap();
+        },
     )
-    .execute(rd_owner)
-    .await
-    .unwrap();
-    sqlx::query(
-        "UPDATE public.rd_source_intake_bindings_v1 SET product_edge_started_receipt_identity=$2,product_edge_started_json=$3 WHERE request_identity=$1",
-    )
-    .bind(&binding.request_identity)
-    .bind(&canonical_started.0)
-    .bind(&canonical_started.1)
-    .execute(rd_owner)
-    .await
-    .unwrap();
-    sqlx::query(
-        "ALTER TABLE public.rd_source_intake_bindings_v1 ENABLE TRIGGER rd_source_intake_binding_guard_v1",
-    )
-    .execute(rd_owner)
-    .await
-    .unwrap();
+    .await;
     let restored: Option<serde_json::Value> =
         sqlx::query_scalar("SELECT rd_owner_api.read_source_intake_v1($1)")
             .bind(&binding.request_identity)
@@ -2893,34 +2923,40 @@ async fn postgres_readback_rejects_tampered_raw_payload() {
     .execute(rd_owner)
     .await
     .unwrap();
-    let rejected: Option<serde_json::Value> =
-        sqlx::query_scalar("SELECT rd_owner_api.read_source_intake_v1($1)")
-            .bind(&binding.request_identity)
-            .fetch_one(rd_owner)
+    restore_after_checks(
+        async {
+            let rejected: Option<serde_json::Value> =
+                sqlx::query_scalar("SELECT rd_owner_api.read_source_intake_v1($1)")
+                    .bind(&binding.request_identity)
+                    .fetch_one(rd_owner)
+                    .await
+                    .unwrap();
+            assert!(rejected.is_none());
+        },
+        async {
+            sqlx::query(
+                "ALTER TABLE public.rd_research_source_provenance_v1 DISABLE TRIGGER rd_research_source_provenance_immutable_v1",
+            )
+            .execute(rd_owner)
             .await
             .unwrap();
-    assert!(rejected.is_none());
-
-    sqlx::query(
-        "ALTER TABLE public.rd_research_source_provenance_v1 DISABLE TRIGGER rd_research_source_provenance_immutable_v1",
+            sqlx::query(
+                "UPDATE public.rd_research_source_provenance_v1 SET provenance_json=$2 WHERE provenance_identity=$1",
+            )
+            .bind(&provenance.provenance_identity)
+            .bind(serde_json::to_value(provenance).unwrap())
+            .execute(rd_owner)
+            .await
+            .unwrap();
+            sqlx::query(
+                "ALTER TABLE public.rd_research_source_provenance_v1 ENABLE TRIGGER rd_research_source_provenance_immutable_v1",
+            )
+            .execute(rd_owner)
+            .await
+            .unwrap();
+        },
     )
-    .execute(rd_owner)
-    .await
-    .unwrap();
-    sqlx::query(
-        "UPDATE public.rd_research_source_provenance_v1 SET provenance_json=$2 WHERE provenance_identity=$1",
-    )
-    .bind(&provenance.provenance_identity)
-    .bind(serde_json::to_value(provenance).unwrap())
-    .execute(rd_owner)
-    .await
-    .unwrap();
-    sqlx::query(
-        "ALTER TABLE public.rd_research_source_provenance_v1 ENABLE TRIGGER rd_research_source_provenance_immutable_v1",
-    )
-    .execute(rd_owner)
-    .await
-    .unwrap();
+    .await;
     let restored: Option<serde_json::Value> =
         sqlx::query_scalar("SELECT rd_owner_api.read_source_intake_v1($1)")
             .bind(&binding.request_identity)
@@ -2941,20 +2977,28 @@ async fn postgres_readback_rejects_tampered_raw_payload() {
     .execute(rd_owner)
     .await
     .unwrap();
-    let rejected: Option<serde_json::Value> =
-        sqlx::query_scalar("SELECT rd_owner_api.read_source_intake_v1($1)")
-            .bind(&binding.request_identity)
-            .fetch_one(rd_owner)
+    restore_after_checks(
+        async {
+            let rejected: Option<serde_json::Value> =
+                sqlx::query_scalar("SELECT rd_owner_api.read_source_intake_v1($1)")
+                    .bind(&binding.request_identity)
+                    .fetch_one(rd_owner)
+                    .await
+                    .unwrap();
+            assert!(rejected.is_none());
+        },
+        async {
+            sqlx::query(
+                "UPDATE public.rd_owner_outbox_v1 SET payload_json=$2 WHERE event_identity=$1",
+            )
+            .bind(&outbox.event_identity)
+            .bind(serde_json::to_value(outbox).unwrap())
+            .execute(rd_owner)
             .await
             .unwrap();
-    assert!(rejected.is_none());
-
-    sqlx::query("UPDATE public.rd_owner_outbox_v1 SET payload_json=$2 WHERE event_identity=$1")
-        .bind(&outbox.event_identity)
-        .bind(serde_json::to_value(outbox).unwrap())
-        .execute(rd_owner)
-        .await
-        .unwrap();
+        },
+    )
+    .await;
     let restored: Option<serde_json::Value> =
         sqlx::query_scalar("SELECT rd_owner_api.read_source_intake_v1($1)")
             .bind(&binding.request_identity)
@@ -2975,22 +3019,28 @@ async fn postgres_readback_rejects_tampered_raw_payload() {
     .execute(rd_owner)
     .await
     .unwrap();
-    let rejected: Option<serde_json::Value> =
-        sqlx::query_scalar("SELECT rd_owner_api.read_source_intake_v1($1)")
-            .bind(&binding.request_identity)
-            .fetch_one(rd_owner)
+    restore_after_checks(
+        async {
+            let rejected: Option<serde_json::Value> =
+                sqlx::query_scalar("SELECT rd_owner_api.read_source_intake_v1($1)")
+                    .bind(&binding.request_identity)
+                    .fetch_one(rd_owner)
+                    .await
+                    .unwrap();
+            assert!(rejected.is_none());
+        },
+        async {
+            sqlx::query(
+                "UPDATE public.rd_owner_outbox_v1 SET committed_at_epoch_ms=$2 WHERE event_identity=$1",
+            )
+            .bind(&outbox.event_identity)
+            .bind(i64::try_from(receipt.committed_at_epoch_ms).unwrap())
+            .execute(rd_owner)
             .await
             .unwrap();
-    assert!(rejected.is_none());
-
-    sqlx::query(
-        "UPDATE public.rd_owner_outbox_v1 SET committed_at_epoch_ms=$2 WHERE event_identity=$1",
+        },
     )
-    .bind(&outbox.event_identity)
-    .bind(i64::try_from(receipt.committed_at_epoch_ms).unwrap())
-    .execute(rd_owner)
-    .await
-    .unwrap();
+    .await;
     let restored: Option<serde_json::Value> =
         sqlx::query_scalar("SELECT rd_owner_api.read_source_intake_v1($1)")
             .bind(&binding.request_identity)
@@ -3023,34 +3073,40 @@ async fn postgres_readback_rejects_tampered_raw_payload() {
     .execute(rd_owner)
     .await
     .unwrap();
-    let rejected: Option<serde_json::Value> =
-        sqlx::query_scalar("SELECT rd_owner_api.read_source_intake_v1($1)")
-            .bind(&binding.request_identity)
-            .fetch_one(rd_owner)
+    restore_after_checks(
+        async {
+            let rejected: Option<serde_json::Value> =
+                sqlx::query_scalar("SELECT rd_owner_api.read_source_intake_v1($1)")
+                    .bind(&binding.request_identity)
+                    .fetch_one(rd_owner)
+                    .await
+                    .unwrap();
+            assert!(rejected.is_none());
+        },
+        async {
+            sqlx::query(
+                "ALTER TABLE public.rd_source_intake_receipts_v1 DISABLE TRIGGER rd_source_intake_receipt_immutable_v1",
+            )
+            .execute(rd_owner)
             .await
             .unwrap();
-    assert!(rejected.is_none());
-
-    sqlx::query(
-        "ALTER TABLE public.rd_source_intake_receipts_v1 DISABLE TRIGGER rd_source_intake_receipt_immutable_v1",
+            sqlx::query(
+                "UPDATE public.rd_source_intake_receipts_v1 SET receipt_json=$2 WHERE receipt_identity=$1",
+            )
+            .bind(&receipt.receipt_identity)
+            .bind(serde_json::to_value(receipt).unwrap())
+            .execute(rd_owner)
+            .await
+            .unwrap();
+            sqlx::query(
+                "ALTER TABLE public.rd_source_intake_receipts_v1 ENABLE TRIGGER rd_source_intake_receipt_immutable_v1",
+            )
+            .execute(rd_owner)
+            .await
+            .unwrap();
+        },
     )
-    .execute(rd_owner)
-    .await
-    .unwrap();
-    sqlx::query(
-        "UPDATE public.rd_source_intake_receipts_v1 SET receipt_json=$2 WHERE receipt_identity=$1",
-    )
-    .bind(&receipt.receipt_identity)
-    .bind(serde_json::to_value(receipt).unwrap())
-    .execute(rd_owner)
-    .await
-    .unwrap();
-    sqlx::query(
-        "ALTER TABLE public.rd_source_intake_receipts_v1 ENABLE TRIGGER rd_source_intake_receipt_immutable_v1",
-    )
-    .execute(rd_owner)
-    .await
-    .unwrap();
+    .await;
     let restored: Option<serde_json::Value> =
         sqlx::query_scalar("SELECT rd_owner_api.read_source_intake_v1($1)")
             .bind(&binding.request_identity)
@@ -3084,7 +3140,7 @@ async fn postgres_readback_rejects_tampered_raw_payload() {
     ];
 
     for (column, table, guard, tamper, restore) in stored_column_tampers {
-        for (statement, action) in [(tamper, "tamper"), (restore, "restore")] {
+        let step = async |statement: &'static str, action: &'static str| {
             sqlx::query(sqlx::AssertSqlSafe(format!(
                 "ALTER TABLE public.{table} DISABLE TRIGGER {guard}"
             )))
@@ -3126,7 +3182,8 @@ async fn postgres_readback_rejects_tampered_raw_payload() {
                     "restoring {column} did not restore the readback",
                 );
             }
-        }
+        };
+        restore_after_checks(step(tamper, "tamper"), step(restore, "restore")).await;
     }
 
     // The receipt's raw-payload link cannot be tampered at all: Source provenance references it by
@@ -3188,13 +3245,56 @@ async fn postgres_readback_rejects_tampered_raw_payload() {
     .execute(rd_owner)
     .await
     .unwrap();
-    let rejected: Option<serde_json::Value> =
+    // The raw payload is restored the way it was tampered, under a disabled immutability guard:
+    // the ordered chain shares one store, and a later entry reading this intake would otherwise
+    // meet the forged bytes.
+    restore_after_checks(
+        async {
+            let rejected: Option<serde_json::Value> =
+                sqlx::query_scalar("SELECT rd_owner_api.read_source_intake_v1($1)")
+                    .bind(&binding.request_identity)
+                    .fetch_one(rd_owner)
+                    .await
+                    .unwrap();
+            assert!(rejected.is_none());
+        },
+        async {
+            sqlx::query(
+                "ALTER TABLE public.rd_source_raw_payloads_v1 DISABLE TRIGGER rd_source_raw_payload_immutable_v1",
+            )
+            .execute(rd_owner)
+            .await
+            .unwrap();
+            sqlx::query(
+                "UPDATE public.rd_source_raw_payloads_v1 SET raw_payload=$2 WHERE content_digest=$1",
+            )
+            .bind(content_digest)
+            .bind(&raw_payload)
+            .execute(rd_owner)
+            .await
+            .unwrap();
+            sqlx::query(
+                "ALTER TABLE public.rd_source_raw_payloads_v1 ENABLE TRIGGER rd_source_raw_payload_immutable_v1",
+            )
+            .execute(rd_owner)
+            .await
+            .unwrap();
+        },
+    )
+    .await;
+    let restored: Option<serde_json::Value> =
         sqlx::query_scalar("SELECT rd_owner_api.read_source_intake_v1($1)")
             .bind(&binding.request_identity)
             .fetch_one(rd_owner)
             .await
             .unwrap();
-    assert!(rejected.is_none());
+    assert_eq!(
+        restored
+            .as_ref()
+            .and_then(|value| value["content_digest"].as_str()),
+        Some(content_digest),
+        "restoring the raw payload did not restore the readback",
+    );
 }
 
 #[rstest]

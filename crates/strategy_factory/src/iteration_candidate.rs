@@ -7,6 +7,7 @@
 use std::collections::BTreeSet;
 
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use thiserror::Error;
 
 use crate::trial_family::{
@@ -57,6 +58,168 @@ pub enum IterationExperimentModeV1 {
     PreregisteredFiniteJoint {
         contract: Box<IterationPreregisteredFiniteJointV1>,
     },
+}
+
+/// The grid a candidate set is generated from. The Owner expands it, so the set's size and members
+/// are computed from it rather than stated beside it.
+///
+/// Each listed dimension expands to one `SINGLE_DIMENSION` candidate that changes it, and each
+/// frozen finite-joint contract to one `PREREGISTERED_FINITE_JOINT` candidate. Both lists are
+/// strictly ascending, dimensions in declaration order and contracts by their canonical bytes, so
+/// one grid has one representation and lists no member twice. The rule's identity and digest are
+/// derived from the grid and are never supplied.
+///
+/// These are the only two kinds of grid. When the authoring layer adds another, a parameter sweep
+/// for instance, it is a new variant of this type with its own named expansion, never a string a
+/// caller passes back for the Owner to trust.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct CandidateGenerationGridV1 {
+    pub single_dimensions: Vec<IterationHypothesisDimensionV1>,
+    pub finite_joints: Vec<IterationPreregisteredFiniteJointV1>,
+}
+
+/// Why a candidate set is refused against the grid that generates it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+pub enum CandidateGenerationRefusalV1 {
+    #[error("the candidate generation grid repeats a member or lists one out of order")]
+    GridInvalid,
+    #[error("the registered candidate count differs from the size of the grid's expansion")]
+    CardinalityMismatch,
+    #[error("the listed candidates are not the grid's expansion")]
+    CandidatesDifferFromRule,
+}
+
+impl CandidateGenerationRefusalV1 {
+    /// The code a consumer receives.
+    #[must_use]
+    pub const fn code(self) -> &'static str {
+        match self {
+            Self::GridInvalid => "CANDIDATE_GENERATION_GRID_INVALID",
+            Self::CardinalityMismatch => "CANDIDATE_GENERATION_CARDINALITY_MISMATCH",
+            Self::CandidatesDifferFromRule => "CANDIDATE_SET_DIFFERS_FROM_GENERATION_RULE",
+        }
+    }
+}
+
+impl CandidateGenerationGridV1 {
+    /// Expands the grid into its candidate experiments, in the grid's own order.
+    ///
+    /// # Errors
+    ///
+    /// [`CandidateGenerationRefusalV1::GridInvalid`] when either list repeats a member or is out
+    /// of order.
+    pub fn expand(&self) -> Result<Vec<IterationExperimentModeV1>, CandidateGenerationRefusalV1> {
+        if !self
+            .single_dimensions
+            .windows(2)
+            .all(|pair| pair[0] < pair[1])
+        {
+            return Err(CandidateGenerationRefusalV1::GridInvalid);
+        }
+        let joint_keys = self
+            .finite_joints
+            .iter()
+            .map(canonical_bytes)
+            .collect::<Vec<_>>();
+
+        if !joint_keys.windows(2).all(|pair| pair[0] < pair[1]) {
+            return Err(CandidateGenerationRefusalV1::GridInvalid);
+        }
+        Ok(self
+            .single_dimensions
+            .iter()
+            .map(|dimension| IterationExperimentModeV1::SingleDimension {
+                changed_dimension: *dimension,
+            })
+            .chain(self.finite_joints.iter().map(|contract| {
+                IterationExperimentModeV1::PreregisteredFiniteJoint {
+                    contract: Box::new(contract.clone()),
+                }
+            }))
+            .collect())
+    }
+
+    /// The canonical grid whose expansion is exactly these experiments, for fixtures that list
+    /// their candidates first.
+    #[cfg(test)]
+    pub(crate) fn covering<'a>(
+        experiments: impl IntoIterator<Item = &'a IterationExperimentModeV1>,
+    ) -> Self {
+        let mut grid = Self::default();
+
+        for experiment in experiments {
+            match experiment {
+                IterationExperimentModeV1::SingleDimension { changed_dimension } => {
+                    grid.single_dimensions.push(*changed_dimension);
+                }
+                IterationExperimentModeV1::PreregisteredFiniteJoint { contract } => {
+                    grid.finite_joints.push((**contract).clone());
+                }
+            }
+        }
+        grid.single_dimensions.sort_unstable();
+        grid.finite_joints.sort_by_key(canonical_bytes);
+        grid
+    }
+
+    /// The rule's digest, computed from the grid.
+    #[must_use]
+    pub fn rule_digest(&self) -> String {
+        let mut hasher = Sha256::new();
+        hasher.update(b"rd.candidate-generation-grid.v1");
+        hasher.update([0]);
+        hasher.update(canonical_bytes(self));
+        format!("sha256:{:x}", hasher.finalize())
+    }
+
+    /// The rule's identity, computed from its digest.
+    #[must_use]
+    pub fn rule_identity(&self) -> String {
+        format!(
+            "rd-candidate-generation-grid-v1-{}",
+            self.rule_digest().trim_start_matches("sha256:")
+        )
+    }
+
+    /// Admits a candidate set against this grid: the registered count must be the expansion's
+    /// size, and the listed experiments must be exactly the expansion, in any order.
+    ///
+    /// # Errors
+    ///
+    /// The refusal that names which of the grid, the count or the listed candidates disagrees.
+    pub fn admit_candidates<'a>(
+        &self,
+        expected_cardinality: u32,
+        experiments: impl IntoIterator<Item = &'a IterationExperimentModeV1>,
+    ) -> Result<(), CandidateGenerationRefusalV1> {
+        let mut expansion = self
+            .expand()?
+            .iter()
+            .map(canonical_bytes)
+            .collect::<Vec<_>>();
+
+        if usize::try_from(expected_cardinality).ok() != Some(expansion.len()) {
+            return Err(CandidateGenerationRefusalV1::CardinalityMismatch);
+        }
+        let mut listed = experiments
+            .into_iter()
+            .map(canonical_bytes)
+            .collect::<Vec<_>>();
+        expansion.sort_unstable();
+        listed.sort_unstable();
+
+        if listed != expansion {
+            return Err(CandidateGenerationRefusalV1::CandidatesDifferFromRule);
+        }
+        Ok(())
+    }
+}
+
+/// The canonical JSON of a value whose serialization cannot fail: plain structs and enums of
+/// strings, integers and vectors.
+fn canonical_bytes(value: &impl Serialize) -> Vec<u8> {
+    serde_json::to_vec(value).expect("a candidate experiment serializes")
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
@@ -467,6 +630,127 @@ mod tests {
 
     fn digest(byte: char) -> String {
         format!("sha256:{}", byte.to_string().repeat(64))
+    }
+
+    fn single(dimension: IterationHypothesisDimensionV1) -> IterationExperimentModeV1 {
+        IterationExperimentModeV1::SingleDimension {
+            changed_dimension: dimension,
+        }
+    }
+
+    fn joint(byte: char) -> IterationPreregisteredFiniteJointV1 {
+        IterationPreregisteredFiniteJointV1 {
+            changed_dimensions: vec![
+                IterationHypothesisDimensionV1::EntryRule,
+                IterationHypothesisDimensionV1::ExitRule,
+            ],
+            bounded_combinations: vec![reference("combination", byte)],
+            attribution_rule: reference("attribution", byte),
+            budget: reference("budget", byte),
+            falsifier: reference("falsifier", byte),
+            stop_rule: reference("stop", byte),
+        }
+    }
+
+    fn grid() -> CandidateGenerationGridV1 {
+        let mut joints = vec![joint('a'), joint('b')];
+        joints.sort_by_key(canonical_bytes);
+        CandidateGenerationGridV1 {
+            single_dimensions: vec![
+                IterationHypothesisDimensionV1::MarketRegime,
+                IterationHypothesisDimensionV1::ExitRule,
+            ],
+            finite_joints: joints,
+        }
+    }
+
+    #[rstest::rstest]
+    fn a_grid_expands_to_one_candidate_per_member_in_its_own_order() {
+        let grid = grid();
+        let expansion = grid.expand().expect("canonical grid");
+        assert_eq!(expansion.len(), 4);
+        assert_eq!(
+            expansion[..2],
+            [
+                single(IterationHypothesisDimensionV1::MarketRegime),
+                single(IterationHypothesisDimensionV1::ExitRule),
+            ]
+        );
+        assert_eq!(
+            expansion[2..],
+            grid.finite_joints
+                .iter()
+                .map(
+                    |contract| IterationExperimentModeV1::PreregisteredFiniteJoint {
+                        contract: Box::new(contract.clone()),
+                    }
+                )
+                .collect::<Vec<_>>()[..]
+        );
+        assert_eq!(
+            CandidateGenerationGridV1::default().expand(),
+            Ok(Vec::new())
+        );
+    }
+
+    #[rstest::rstest]
+    fn a_grid_that_repeats_or_misorders_a_member_is_refused() {
+        let mut repeated = grid();
+        repeated
+            .single_dimensions
+            .push(IterationHypothesisDimensionV1::ExitRule);
+        let mut misordered = grid();
+        misordered.single_dimensions.reverse();
+        let mut repeated_joint = grid();
+        repeated_joint.finite_joints.push(joint('b'));
+        let mut misordered_joint = grid();
+        misordered_joint.finite_joints.reverse();
+
+        for refused in [repeated, misordered, repeated_joint, misordered_joint] {
+            assert_eq!(
+                refused.expand(),
+                Err(CandidateGenerationRefusalV1::GridInvalid)
+            );
+        }
+    }
+
+    #[rstest::rstest]
+    fn the_count_and_the_candidates_are_held_to_the_expansion() {
+        let grid = grid();
+        let expansion = grid.expand().expect("canonical grid");
+        let reversed = expansion.iter().rev().collect::<Vec<_>>();
+        assert_eq!(grid.admit_candidates(4, reversed), Ok(()));
+        assert_eq!(
+            grid.admit_candidates(3, &expansion),
+            Err(CandidateGenerationRefusalV1::CardinalityMismatch)
+        );
+        assert_eq!(
+            grid.admit_candidates(4, &expansion[..3]),
+            Err(CandidateGenerationRefusalV1::CandidatesDifferFromRule)
+        );
+        let mut substituted = expansion.clone();
+        substituted[0] = single(IterationHypothesisDimensionV1::ReturnMechanism);
+        assert_eq!(
+            grid.admit_candidates(4, &substituted),
+            Err(CandidateGenerationRefusalV1::CandidatesDifferFromRule)
+        );
+    }
+
+    #[rstest::rstest]
+    fn the_rule_identity_and_digest_are_the_grids_own() {
+        let grid = grid();
+        let mut other = grid.clone();
+        other.single_dimensions.pop();
+        assert_eq!(grid.rule_digest(), self::grid().rule_digest());
+        assert_ne!(grid.rule_digest(), other.rule_digest());
+        assert_eq!(
+            grid.rule_identity(),
+            format!(
+                "rd-candidate-generation-grid-v1-{}",
+                grid.rule_digest().trim_start_matches("sha256:")
+            )
+        );
+        assert!(grid.rule_digest().starts_with("sha256:") && grid.rule_digest().len() == 71);
     }
 
     fn reference(identity: &str, byte: char) -> IterationEvidenceReferenceV1 {

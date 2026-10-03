@@ -8,7 +8,8 @@ use crate::{
     product_edge::ResearchRequestReceiptV1,
     trial_family::{
         ArtifactTrialFamilyReadbackV1, TrialFamilyAttemptAppendV2, TrialFamilyAttemptFrontierV2,
-        TrialFamilyCandidateExperimentReadbackV1, TrialFamilyCandidateSetFrontierV2,
+        TrialFamilyAttemptTerminalDispositionV2, TrialFamilyCandidateExperimentReadbackV1,
+        TrialFamilyCandidateSetFrontierV2, TrialFamilyCandidateSetProposalV2,
         TrialFamilyCensusFrontierV2, TrialFamilyCensusReadbackV2, TrialFamilyError,
         TrialFamilyReadbackV1, admit_stored_artifact_binding, admit_stored_candidate_experiment_v1,
         admit_stored_census_member_v2, admit_stored_family,
@@ -562,101 +563,128 @@ async fn load_artifact_trial_family_with_intent_in_transaction(
     Ok(readback)
 }
 
-pub(crate) async fn load_trial_family_in_transaction(
-    transaction: &mut Transaction<'_, Postgres>,
-    intent_identity: &str,
-    research_receipt_identity: &str,
-) -> Result<TrialFamilyReadbackV1, TrialFamilyError> {
-    let root_rows = sqlx::query("SELECT trial_family_identity, intent_identity, root_digest, root_json, root_receipt_json, root_storage_bytes, root_storage_digest, root_receipt_storage_bytes, root_receipt_storage_digest, initial_frontier_storage_bytes, initial_frontier_storage_digest, committed_at_epoch_ms FROM rd_trial_families_v1 WHERE intent_identity = $1 FOR SHARE")
+pub(crate) fn load_trial_family_in_transaction<'a>(
+    transaction: &'a mut Transaction<'_, Postgres>,
+    intent_identity: &'a str,
+    research_receipt_identity: &'a str,
+) -> crate::rd_owner_postgres_custody::BoxedCustodyStep<
+    'a,
+    Result<TrialFamilyReadbackV1, TrialFamilyError>,
+> {
+    Box::pin(async move {
+        let root_rows = sqlx::query("SELECT trial_family_identity, intent_identity, root_digest, root_json, root_receipt_json, root_storage_bytes, root_storage_digest, root_receipt_storage_bytes, root_receipt_storage_digest, initial_frontier_storage_bytes, initial_frontier_storage_digest, committed_at_epoch_ms FROM rd_trial_families_v1 WHERE intent_identity = $1 FOR SHARE")
         .bind(intent_identity)
         .fetch_all(&mut **transaction)
         .await
         .map_err(storage)?;
 
-    if root_rows.len() != 1 {
-        return Err(TrialFamilyError::Unavailable(
-            "family root missing".to_string(),
-        ));
-    }
-    let root_row = &root_rows[0];
-    let trial_family_identity: String =
-        root_row.try_get("trial_family_identity").map_err(storage)?;
-    let root_json = root_row.try_get("root_json").map_err(storage)?;
-    let root_receipt_json = root_row.try_get("root_receipt_json").map_err(storage)?;
-    let member_rows = sqlx::query("SELECT member_identity, trial_family_identity, ordinal, fact_identity, member_digest, member_json, membership_receipt_json, member_storage_bytes, member_storage_digest, membership_receipt_storage_bytes, membership_receipt_storage_digest, committed_at_epoch_ms FROM rd_trial_family_members_v1 WHERE trial_family_identity = $1 ORDER BY ordinal FOR SHARE")
-        .bind(&trial_family_identity)
-        .fetch_all(&mut **transaction)
-        .await
-        .map_err(storage)?;
-    let head_rows = sqlx::query("SELECT trial_family_identity, frontier_identity, frontier_digest, frontier_json, frontier_storage_bytes, frontier_storage_digest, committed_at_epoch_ms FROM rd_trial_family_heads_v1 WHERE trial_family_identity = $1 FOR SHARE")
-        .bind(&trial_family_identity)
-        .fetch_all(&mut **transaction)
-        .await
-        .map_err(storage)?;
-
-    if head_rows.len() != 1 {
-        return Err(TrialFamilyError::Unavailable(
-            "family census incomplete".to_string(),
-        ));
-    }
-    let head_row = &head_rows[0];
-    let frontier_json: serde_json::Value = head_row.try_get("frontier_json").map_err(storage)?;
-    let schema_version = frontier_json
-        .get("schema_version")
-        .and_then(serde_json::Value::as_u64)
-        .ok_or_else(|| TrialFamilyError::Unavailable("family head schema missing".to_string()))?;
-
-    match schema_version {
-        1 => {}
-        2 => {
-            return Box::pin(load_trial_family_census_v2_in_transaction(
-                transaction,
-                intent_identity,
-                research_receipt_identity,
-            ))
-            .await
-            .map(|readback| readback.legacy_family);
-        }
-        _ => {
+        if root_rows.len() != 1 {
             return Err(TrialFamilyError::Unavailable(
-                "family head schema is unsupported".to_string(),
+                "family root missing".to_string(),
             ));
         }
-    }
-
-    if member_rows.len() != 1 {
-        return Err(TrialFamilyError::Unavailable(
-            "family census incomplete".to_string(),
-        ));
-    }
-    let member_row = &member_rows[0];
-    let member_json = member_row.try_get("member_json").map_err(storage)?;
-    let membership_receipt_json = member_row
-        .try_get("membership_receipt_json")
+        let root_row = &root_rows[0];
+        let trial_family_identity: String =
+            root_row.try_get("trial_family_identity").map_err(storage)?;
+        let root_json = root_row.try_get("root_json").map_err(storage)?;
+        let root_receipt_json = root_row.try_get("root_receipt_json").map_err(storage)?;
+        let member_rows = sqlx::query("SELECT member_identity, trial_family_identity, ordinal, fact_identity, member_digest, member_json, membership_receipt_json, member_storage_bytes, member_storage_digest, membership_receipt_storage_bytes, membership_receipt_storage_digest, committed_at_epoch_ms FROM rd_trial_family_members_v1 WHERE trial_family_identity = $1 ORDER BY ordinal FOR SHARE")
+        .bind(&trial_family_identity)
+        .fetch_all(&mut **transaction)
+        .await
         .map_err(storage)?;
-    let readback = admit_stored_family(
-        &root_json,
-        &root_receipt_json,
-        &member_json,
-        &membership_receipt_json,
-        &frontier_json,
-    )?;
-    verify_row_bindings(&readback, root_row, member_row, head_row)?;
-    verify_family(&readback)?;
-    verify_family_outbox_in_transaction(
-        transaction,
-        &readback,
-        research_receipt_identity,
-        PostgresReadLockMode::ForShare,
-    )
-    .await?;
-    Ok(readback)
+        let head_rows = sqlx::query("SELECT trial_family_identity, frontier_identity, frontier_digest, frontier_json, frontier_storage_bytes, frontier_storage_digest, committed_at_epoch_ms FROM rd_trial_family_heads_v1 WHERE trial_family_identity = $1 FOR SHARE")
+        .bind(&trial_family_identity)
+        .fetch_all(&mut **transaction)
+        .await
+        .map_err(storage)?;
+
+        if head_rows.len() != 1 {
+            return Err(TrialFamilyError::Unavailable(
+                "family census incomplete".to_string(),
+            ));
+        }
+        let head_row = &head_rows[0];
+        let frontier_json: serde_json::Value =
+            head_row.try_get("frontier_json").map_err(storage)?;
+        let schema_version = frontier_json
+            .get("schema_version")
+            .and_then(serde_json::Value::as_u64)
+            .ok_or_else(|| {
+                TrialFamilyError::Unavailable("family head schema missing".to_string())
+            })?;
+
+        match schema_version {
+            1 => {}
+            2 => {
+                return load_trial_family_census_v2_in_transaction(
+                    transaction,
+                    intent_identity,
+                    research_receipt_identity,
+                )
+                .await
+                .map(|readback| readback.legacy_family);
+            }
+            _ => {
+                return Err(TrialFamilyError::Unavailable(
+                    "family head schema is unsupported".to_string(),
+                ));
+            }
+        }
+
+        if member_rows.len() != 1 {
+            return Err(TrialFamilyError::Unavailable(
+                "family census incomplete".to_string(),
+            ));
+        }
+        let member_row = &member_rows[0];
+        let member_json = member_row.try_get("member_json").map_err(storage)?;
+        let membership_receipt_json = member_row
+            .try_get("membership_receipt_json")
+            .map_err(storage)?;
+        let readback = admit_stored_family(
+            &root_json,
+            &root_receipt_json,
+            &member_json,
+            &membership_receipt_json,
+            &frontier_json,
+        )?;
+        verify_row_bindings(&readback, root_row, member_row, head_row)?;
+        verify_family(&readback)?;
+        verify_family_outbox_in_transaction(
+            transaction,
+            &readback,
+            research_receipt_identity,
+            PostgresReadLockMode::ForShare,
+        )
+        .await?;
+        Ok(readback)
+    })
 }
 
 pub(crate) async fn load_trial_family_by_family_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
     trial_family_identity: &str,
 ) -> Result<TrialFamilyReadbackV1, TrialFamilyError> {
+    let (intent_identity, research_receipt_identity) =
+        family_locator_in_transaction(transaction, trial_family_identity).await?;
+    let family =
+        load_trial_family_in_transaction(transaction, &intent_identity, &research_receipt_identity)
+            .await?;
+
+    if family.root().trial_family_identity() != trial_family_identity {
+        return Err(TrialFamilyError::Unavailable(
+            "TrialFamily locator resolved a different family".to_string(),
+        ));
+    }
+    Ok(family)
+}
+
+/// Resolves a family to the formation Intent and Research receipt its frozen outbox names.
+async fn family_locator_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    trial_family_identity: &str,
+) -> Result<(String, String), TrialFamilyError> {
     let family_rows = sqlx::query(
         "SELECT intent_identity FROM rd_trial_families_v1 WHERE trial_family_identity = $1 FOR SHARE",
     )
@@ -696,28 +724,141 @@ pub(crate) async fn load_trial_family_by_family_in_transaction(
             "TrialFamily locator/outbox cross-binding mismatch".to_string(),
         ));
     }
-    let family = load_trial_family_in_transaction(
-        transaction,
-        &intent_identity,
-        &payload.research_receipt_identity,
-    )
-    .await?;
-
-    if family.root().trial_family_identity() != trial_family_identity {
-        return Err(TrialFamilyError::Unavailable(
-            "TrialFamily locator resolved a different family".to_string(),
-        ));
-    }
-    Ok(family)
+    Ok((intent_identity, payload.research_receipt_identity))
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "TrialFamily Census V2 awaits the admitted R&D Decision composition consumer"
+/// The Owner-read facts one exploratory attempt is counted from.
+pub(crate) struct TrialFamilyAttemptFactsV2 {
+    pub(crate) intent_identity: String,
+    pub(crate) intent_digest: String,
+    pub(crate) request_identity: String,
+    pub(crate) request_digest: String,
+    pub(crate) result_identity: String,
+    pub(crate) result_digest: String,
+    pub(crate) terminal_disposition: TrialFamilyAttemptTerminalDispositionV2,
+}
+
+/// What counting one exploratory attempt did to its family's census.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TrialFamilyAttemptCountV2 {
+    /// The census held no attempt of this request, and now holds one.
+    Appended,
+    /// The census already counted this request: the Result is an exact replay of it, joins that
+    /// attempt, and changes nothing.
+    Joined,
+}
+
+/// Counts one exploratory attempt in its family's census, once per request meaning.
+///
+/// The family's head is locked before its census is read, so a concurrent count of the same
+/// request waits here and then joins the attempt the first one appended. The attempt takes the
+/// next ordinal, records that ordinal plus one as the consumed budget, and proposes no candidate.
+pub(crate) async fn count_trial_family_attempt_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    trial_family_identity: &str,
+    attempt: TrialFamilyAttemptFactsV2,
+    now_epoch_ms: u64,
+) -> Result<TrialFamilyAttemptCountV2, TrialFamilyError> {
+    let (intent_identity, research_receipt_identity) =
+        family_locator_in_transaction(transaction, trial_family_identity).await?;
+    let head: Option<serde_json::Value> = sqlx::query_scalar(
+        "SELECT frontier_json FROM rd_trial_family_heads_v1 WHERE trial_family_identity = $1 FOR UPDATE",
     )
-)]
+    .bind(trial_family_identity)
+    .fetch_optional(&mut **transaction)
+    .await
+    .map_err(storage)?;
+    let schema_version = head
+        .as_ref()
+        .and_then(|frontier| frontier.get("schema_version"))
+        .and_then(serde_json::Value::as_u64)
+        .ok_or_else(|| TrialFamilyError::Unavailable("family census head missing".to_string()))?;
+    let attempt_ordinal = match schema_version {
+        1 => 0,
+        2 => {
+            let census = load_trial_family_census_v2_in_transaction(
+                transaction,
+                &intent_identity,
+                &research_receipt_identity,
+            )
+            .await?;
+
+            if census.counts_request(&attempt.request_identity, &attempt.request_digest) {
+                return Ok(TrialFamilyAttemptCountV2::Joined);
+            }
+            census.attempt_count()?
+        }
+        _ => {
+            return Err(TrialFamilyError::Unavailable(
+                "family head schema is unsupported".to_string(),
+            ));
+        }
+    };
+    let consumed_trial_budget = attempt_ordinal
+        .checked_add(1)
+        .ok_or(TrialFamilyError::InvalidPolicy("TRIAL_BUDGET_OVERFLOW"))?;
+    append_trial_family_attempt_in_transaction(
+        transaction,
+        &intent_identity,
+        &research_receipt_identity,
+        TrialFamilyAttemptAppendV2 {
+            intent_identity: attempt.intent_identity,
+            intent_digest: attempt.intent_digest,
+            request_identity: attempt.request_identity,
+            request_digest: attempt.request_digest,
+            result_identity: attempt.result_identity,
+            result_digest: attempt.result_digest,
+            terminal_disposition: attempt.terminal_disposition,
+            consumed_trial_budget,
+            candidate_set: TrialFamilyCandidateSetProposalV2::none_at_result_admission(),
+        },
+        now_epoch_ms,
+    )
+    .await?;
+    Ok(TrialFamilyAttemptCountV2::Appended)
+}
+
+/// Whether the family's census counts this exact Replay request.
+///
+/// It takes no row lock, so a `READ ONLY` transaction can ask it. Counting only ever adds to a
+/// census, so a `true` here is never withdrawn by a later commit.
+pub(crate) async fn census_counts_request_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    trial_family_identity: &str,
+    request_identity: &str,
+    request_digest: &str,
+) -> Result<bool, TrialFamilyError> {
+    let head: Option<serde_json::Value> = sqlx::query_scalar(
+        "SELECT frontier_json FROM rd_trial_family_heads_v1 WHERE trial_family_identity = $1",
+    )
+    .bind(trial_family_identity)
+    .fetch_optional(&mut **transaction)
+    .await
+    .map_err(storage)?;
+
+    match head
+        .as_ref()
+        .and_then(|frontier| frontier.get("schema_version"))
+        .and_then(serde_json::Value::as_u64)
+    {
+        Some(1) => Ok(false),
+        Some(2) => Ok(
+            load_trial_family_census_v2_by_family_snapshot_in_transaction(
+                transaction,
+                trial_family_identity,
+            )
+            .await?
+            .counts_request(request_identity, request_digest),
+        ),
+        Some(_) => Err(TrialFamilyError::Unavailable(
+            "family head schema is unsupported".to_string(),
+        )),
+        None => Err(TrialFamilyError::Unavailable(
+            "family census head missing".to_string(),
+        )),
+    }
+}
+
 pub(crate) async fn append_trial_family_attempt_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
     intent_identity: &str,
@@ -1064,295 +1205,314 @@ async fn load_candidate_experiments_for_census_with_lock_mode_in_transaction(
     Ok(readbacks)
 }
 
-pub(crate) async fn load_trial_family_census_v2_in_transaction(
-    transaction: &mut Transaction<'_, Postgres>,
-    intent_identity: &str,
-    research_receipt_identity: &str,
-) -> Result<TrialFamilyCensusReadbackV2, TrialFamilyError> {
-    load_trial_family_census_v2_with_lock_mode_in_transaction(
-        transaction,
-        intent_identity,
-        research_receipt_identity,
-        PostgresReadLockMode::ForShare,
-        None,
-    )
-    .await
+pub(crate) fn load_trial_family_census_v2_in_transaction<'a>(
+    transaction: &'a mut Transaction<'_, Postgres>,
+    intent_identity: &'a str,
+    research_receipt_identity: &'a str,
+) -> crate::rd_owner_postgres_custody::BoxedCustodyStep<
+    'a,
+    Result<TrialFamilyCensusReadbackV2, TrialFamilyError>,
+> {
+    Box::pin(async move {
+        load_trial_family_census_v2_with_lock_mode_in_transaction(
+            transaction,
+            intent_identity,
+            research_receipt_identity,
+            PostgresReadLockMode::ForShare,
+            None,
+        )
+        .await
+    })
 }
 
-async fn load_trial_family_census_v2_with_lock_mode_in_transaction(
-    transaction: &mut Transaction<'_, Postgres>,
-    intent_identity: &str,
-    research_receipt_identity: &str,
+fn load_trial_family_census_v2_with_lock_mode_in_transaction<'a>(
+    transaction: &'a mut Transaction<'_, Postgres>,
+    intent_identity: &'a str,
+    research_receipt_identity: &'a str,
     lock_mode: PostgresReadLockMode,
-    requested_frontier: Option<(&str, &str)>,
-) -> Result<TrialFamilyCensusReadbackV2, TrialFamilyError> {
-    let roots_query = lock_mode.query(
+    requested_frontier: Option<(&'a str, &'a str)>,
+) -> crate::rd_owner_postgres_custody::BoxedCustodyStep<
+    'a,
+    Result<TrialFamilyCensusReadbackV2, TrialFamilyError>,
+> {
+    Box::pin(async move {
+        let roots_query = lock_mode.query(
         "SELECT trial_family_identity, intent_identity, root_digest, root_json, root_receipt_json, root_storage_bytes, root_storage_digest, root_receipt_storage_bytes, root_receipt_storage_digest, initial_frontier_storage_bytes, initial_frontier_storage_digest, committed_at_epoch_ms FROM rd_trial_families_v1 WHERE intent_identity = $1",
         " FOR SHARE",
     );
-    let roots = sqlx::query(roots_query)
-        .bind(intent_identity)
-        .fetch_all(&mut **transaction)
-        .await
-        .map_err(storage)?;
+        let roots = sqlx::query(roots_query)
+            .bind(intent_identity)
+            .fetch_all(&mut **transaction)
+            .await
+            .map_err(storage)?;
 
-    if roots.len() != 1 {
-        return Err(TrialFamilyError::Unavailable(
-            "family root missing".to_string(),
-        ));
-    }
-    let family_identity: String = roots[0].try_get("trial_family_identity").map_err(storage)?;
-    // The head is read, and under `ForShare` locked, before the members and cuts. An append holds
-    // the head `FOR UPDATE` from before its first row until it commits, so this read waits for any
-    // append in flight and then reads members and cuts that match the head it got. Read after them,
-    // at READ COMMITTED it could pair the members before an append with the head after it, which the
-    // checks below refuse as `V2 census head mismatch` rather than waiting.
-    let heads_query = lock_mode.query(
+        if roots.len() != 1 {
+            return Err(TrialFamilyError::Unavailable(
+                "family root missing".to_string(),
+            ));
+        }
+        let family_identity: String = roots[0].try_get("trial_family_identity").map_err(storage)?;
+        // The head is read, and under `ForShare` locked, before the members and cuts. An append holds
+        // the head `FOR UPDATE` from before its first row until it commits, so this read waits for any
+        // append in flight and then reads members and cuts that match the head it got. Read after them,
+        // at READ COMMITTED it could pair the members before an append with the head after it, which the
+        // checks below refuse as `V2 census head mismatch` rather than waiting.
+        let heads_query = lock_mode.query(
         "SELECT frontier_identity, frontier_digest, frontier_json, frontier_storage_bytes, frontier_storage_digest, committed_at_epoch_ms FROM rd_trial_family_heads_v1 WHERE trial_family_identity = $1",
         " FOR SHARE",
     );
-    let head_rows = sqlx::query(heads_query)
-        .bind(&family_identity)
-        .fetch_all(&mut **transaction)
-        .await
-        .map_err(storage)?;
-    let members_query = lock_mode.query(
+        let head_rows = sqlx::query(heads_query)
+            .bind(&family_identity)
+            .fetch_all(&mut **transaction)
+            .await
+            .map_err(storage)?;
+        let members_query = lock_mode.query(
         "SELECT member_identity, trial_family_identity, ordinal, fact_identity, member_digest, member_json, membership_receipt_json, member_storage_bytes, member_storage_digest, membership_receipt_storage_bytes, membership_receipt_storage_digest, committed_at_epoch_ms FROM rd_trial_family_members_v1 WHERE trial_family_identity = $1 ORDER BY ordinal",
         " FOR SHARE",
     );
-    let member_rows = sqlx::query(members_query)
-        .bind(&family_identity)
-        .fetch_all(&mut **transaction)
-        .await
-        .map_err(storage)?;
-    let cuts_query = lock_mode.query(
+        let member_rows = sqlx::query(members_query)
+            .bind(&family_identity)
+            .fetch_all(&mut **transaction)
+            .await
+            .map_err(storage)?;
+        let cuts_query = lock_mode.query(
         "SELECT census_frontier_identity, trial_family_identity, attempt_ordinal, attempt_frontier_identity, candidate_set_frontier_identity, census_frontier_json, attempt_frontier_json, candidate_set_frontier_json, census_frontier_storage_bytes, census_frontier_storage_digest, attempt_frontier_storage_bytes, attempt_frontier_storage_digest, candidate_set_frontier_storage_bytes, candidate_set_frontier_storage_digest, committed_at_epoch_ms FROM rd_trial_family_attempt_cuts_v2 WHERE trial_family_identity = $1 ORDER BY attempt_ordinal",
         " FOR SHARE",
     );
-    let cut_rows = sqlx::query(cuts_query)
-        .bind(&family_identity)
-        .fetch_all(&mut **transaction)
-        .await
-        .map_err(storage)?;
+        let cut_rows = sqlx::query(cuts_query)
+            .bind(&family_identity)
+            .fetch_all(&mut **transaction)
+            .await
+            .map_err(storage)?;
 
-    if member_rows.len() < 3 || cut_rows.is_empty() || head_rows.len() != 1 {
-        return Err(TrialFamilyError::Unavailable(
-            "V2 family census incomplete".to_string(),
-        ));
-    }
-    let root_json = roots[0].try_get("root_json").map_err(storage)?;
-    let root_receipt_json = roots[0].try_get("root_receipt_json").map_err(storage)?;
-    let initial_member_json = member_rows[0].try_get("member_json").map_err(storage)?;
-    let initial_receipt_json = member_rows[0]
-        .try_get("membership_receipt_json")
-        .map_err(storage)?;
-    let legacy_family = admit_stored_legacy_family_without_frontier(
-        &root_json,
-        &root_receipt_json,
-        &initial_member_json,
-        &initial_receipt_json,
-    )?;
-    verify_legacy_root_and_initial_member_row_bindings(&legacy_family, &roots[0], &member_rows[0])?;
-    verify_family_outbox_in_transaction(
-        transaction,
-        &legacy_family,
-        research_receipt_identity,
-        lock_mode,
-    )
-    .await?;
-    let (initial_member, initial_receipt) = legacy_initial_member_for_census_v2(&legacy_family);
-    let mut members = vec![initial_member];
-    let mut receipts = vec![initial_receipt];
-
-    for row in member_rows.iter().skip(1) {
-        let member_json = row.try_get("member_json").map_err(storage)?;
-        let receipt_json = row.try_get("membership_receipt_json").map_err(storage)?;
-        let (member, receipt) = admit_stored_census_member_v2(&member_json, &receipt_json)?;
-
-        if row
-            .try_get::<String, _>("member_identity")
-            .map_err(storage)?
-            != member.member_identity()
-            || row.try_get::<i32, _>("ordinal").map_err(storage)?
-                != i32::try_from(member.ordinal()).map_err(unavailable)?
-            || row.try_get::<String, _>("fact_identity").map_err(storage)? != member.fact_identity()
-            || row.try_get::<String, _>("member_digest").map_err(storage)? != member.member_digest()
-            || row
-                .try_get::<i64, _>("committed_at_epoch_ms")
-                .map_err(storage)?
-                != i64::try_from(receipt.committed_at_epoch_ms()).map_err(unavailable)?
-        {
+        if member_rows.len() < 3 || cut_rows.is_empty() || head_rows.len() != 1 {
             return Err(TrialFamilyError::Unavailable(
-                "V2 census member row mismatch".to_string(),
+                "V2 family census incomplete".to_string(),
             ));
         }
-        verify_storage_record(
-            row,
-            "member_storage_bytes",
-            "member_storage_digest",
-            &member,
-            crate::native_replay_rd_sources_v2::TRIAL_FAMILY_MEMBER_STORAGE_DOMAIN_V1,
+        let root_json = roots[0].try_get("root_json").map_err(storage)?;
+        let root_receipt_json = roots[0].try_get("root_receipt_json").map_err(storage)?;
+        let initial_member_json = member_rows[0].try_get("member_json").map_err(storage)?;
+        let initial_receipt_json = member_rows[0]
+            .try_get("membership_receipt_json")
+            .map_err(storage)?;
+        let legacy_family = admit_stored_legacy_family_without_frontier(
+            &root_json,
+            &root_receipt_json,
+            &initial_member_json,
+            &initial_receipt_json,
         )?;
-        verify_storage_record(
+        verify_legacy_root_and_initial_member_row_bindings(
+            &legacy_family,
+            &roots[0],
+            &member_rows[0],
+        )?;
+        verify_family_outbox_in_transaction(
+            transaction,
+            &legacy_family,
+            research_receipt_identity,
+            lock_mode,
+        )
+        .await?;
+        let (initial_member, initial_receipt) = legacy_initial_member_for_census_v2(&legacy_family);
+        let mut members = vec![initial_member];
+        let mut receipts = vec![initial_receipt];
+
+        for row in member_rows.iter().skip(1) {
+            let member_json = row.try_get("member_json").map_err(storage)?;
+            let receipt_json = row.try_get("membership_receipt_json").map_err(storage)?;
+            let (member, receipt) = admit_stored_census_member_v2(&member_json, &receipt_json)?;
+
+            if row
+                .try_get::<String, _>("member_identity")
+                .map_err(storage)?
+                != member.member_identity()
+                || row.try_get::<i32, _>("ordinal").map_err(storage)?
+                    != i32::try_from(member.ordinal()).map_err(unavailable)?
+                || row.try_get::<String, _>("fact_identity").map_err(storage)?
+                    != member.fact_identity()
+                || row.try_get::<String, _>("member_digest").map_err(storage)?
+                    != member.member_digest()
+                || row
+                    .try_get::<i64, _>("committed_at_epoch_ms")
+                    .map_err(storage)?
+                    != i64::try_from(receipt.committed_at_epoch_ms()).map_err(unavailable)?
+            {
+                return Err(TrialFamilyError::Unavailable(
+                    "V2 census member row mismatch".to_string(),
+                ));
+            }
+            verify_storage_record(
+                row,
+                "member_storage_bytes",
+                "member_storage_digest",
+                &member,
+                crate::native_replay_rd_sources_v2::TRIAL_FAMILY_MEMBER_STORAGE_DOMAIN_V1,
+            )?;
+            verify_storage_record(
             row,
             "membership_receipt_storage_bytes",
             "membership_receipt_storage_digest",
             &receipt,
             crate::native_replay_rd_sources_v2::TRIAL_FAMILY_MEMBERSHIP_RECEIPT_STORAGE_DOMAIN_V1,
         )?;
-        members.push(member);
-        receipts.push(receipt);
-    }
-    let mut latest = None;
-    let mut historical = None;
+            members.push(member);
+            receipts.push(receipt);
+        }
+        let mut latest = None;
+        let mut historical = None;
 
-    for (index, row) in cut_rows.iter().enumerate() {
-        let census: TrialFamilyCensusFrontierV2 =
-            decode(&row.try_get("census_frontier_json").map_err(storage)?)?;
-        let attempt: TrialFamilyAttemptFrontierV2 =
-            decode(&row.try_get("attempt_frontier_json").map_err(storage)?)?;
-        let candidate: TrialFamilyCandidateSetFrontierV2 = decode(
-            &row.try_get("candidate_set_frontier_json")
-                .map_err(storage)?,
-        )?;
-        let attempt_ordinal = i32::try_from(index).map_err(unavailable)?;
-        let cut_committed_at: i64 = row.try_get("committed_at_epoch_ms").map_err(storage)?;
-        if row
-            .try_get::<String, _>("census_frontier_identity")
-            .map_err(storage)?
-            != census.frontier_identity()
-            || row
-                .try_get::<String, _>("trial_family_identity")
+        for (index, row) in cut_rows.iter().enumerate() {
+            let census: TrialFamilyCensusFrontierV2 =
+                decode(&row.try_get("census_frontier_json").map_err(storage)?)?;
+            let attempt: TrialFamilyAttemptFrontierV2 =
+                decode(&row.try_get("attempt_frontier_json").map_err(storage)?)?;
+            let candidate: TrialFamilyCandidateSetFrontierV2 = decode(
+                &row.try_get("candidate_set_frontier_json")
+                    .map_err(storage)?,
+            )?;
+            let attempt_ordinal = i32::try_from(index).map_err(unavailable)?;
+            let cut_committed_at: i64 = row.try_get("committed_at_epoch_ms").map_err(storage)?;
+            if row
+                .try_get::<String, _>("census_frontier_identity")
                 .map_err(storage)?
-                != family_identity
-            || row.try_get::<i32, _>("attempt_ordinal").map_err(storage)? != attempt_ordinal
-            || row
-                .try_get::<String, _>("attempt_frontier_identity")
+                != census.frontier_identity()
+                || row
+                    .try_get::<String, _>("trial_family_identity")
+                    .map_err(storage)?
+                    != family_identity
+                || row.try_get::<i32, _>("attempt_ordinal").map_err(storage)? != attempt_ordinal
+                || row
+                    .try_get::<String, _>("attempt_frontier_identity")
+                    .map_err(storage)?
+                    != attempt.frontier_identity()
+                || row
+                    .try_get::<String, _>("candidate_set_frontier_identity")
+                    .map_err(storage)?
+                    != candidate.frontier_identity()
+            {
+                return Err(TrialFamilyError::Unavailable(
+                    "V2 attempt cut row mismatch".to_string(),
+                ));
+            }
+            verify_storage_record(
+                row,
+                "census_frontier_storage_bytes",
+                "census_frontier_storage_digest",
+                &census,
+                crate::native_replay_rd_sources_v2::TRIAL_FAMILY_FRONTIER_STORAGE_DOMAIN_V1,
+            )?;
+            verify_storage_record(
+                row,
+                "attempt_frontier_storage_bytes",
+                "attempt_frontier_storage_digest",
+                &attempt,
+                "rd.trial-family-attempt-frontier.storage.v1",
+            )?;
+            verify_storage_record(
+                row,
+                "candidate_set_frontier_storage_bytes",
+                "candidate_set_frontier_storage_digest",
+                &candidate,
+                "rd.trial-family-candidate-set-frontier.storage.v1",
+            )?;
+            let prefix_len = (index + 1) * 3;
+            if prefix_len > members.len() {
+                return Err(TrialFamilyError::Unavailable(
+                    "V2 attempt cut skips census members".to_string(),
+                ));
+            }
+            let first_new_member = if index == 0 { 1 } else { prefix_len - 3 };
+            if receipts[first_new_member..prefix_len]
+                .iter()
+                .any(|receipt| {
+                    i64::try_from(receipt.committed_at_epoch_ms()).ok() != Some(cut_committed_at)
+                })
+            {
+                return Err(TrialFamilyError::Unavailable(
+                    "V2 attempt cut commit mismatch".to_string(),
+                ));
+            }
+            let cut = TrialFamilyCensusReadbackV2 {
+                legacy_family: legacy_family.clone(),
+                members: members[..prefix_len].to_vec(),
+                membership_receipts: receipts[..prefix_len].to_vec(),
+                attempt_frontier: attempt,
+                candidate_set_frontier: candidate,
+                census_frontier: census,
+            };
+            verify_census_v2(&cut)?;
+            verify_census_outbox_in_transaction(
+                transaction,
+                &cut,
+                research_receipt_identity,
+                cut_committed_at,
+                lock_mode,
+            )
+            .await?;
+
+            if requested_frontier.is_some_and(|(identity, digest)| {
+                cut.census_frontier.frontier_identity() == identity
+                    && cut.census_frontier.frontier_digest() == digest
+            }) {
+                historical = Some(cut.clone());
+            }
+            latest = Some(cut);
+        }
+        let latest = latest.ok_or_else(|| {
+            TrialFamilyError::Unavailable("V2 family census cut missing".to_string())
+        })?;
+        let latest_cut_committed_at: i64 = cut_rows
+            .last()
+            .ok_or_else(|| {
+                TrialFamilyError::Unavailable("V2 family census cut missing".to_string())
+            })?
+            .try_get("committed_at_epoch_ms")
+            .map_err(storage)?;
+        let head = &head_rows[0];
+        if members.len() != latest.members.len()
+            || head
+                .try_get::<String, _>("frontier_identity")
                 .map_err(storage)?
-                != attempt.frontier_identity()
-            || row
-                .try_get::<String, _>("candidate_set_frontier_identity")
+                != latest.census_frontier.frontier_identity()
+            || head
+                .try_get::<String, _>("frontier_digest")
                 .map_err(storage)?
-                != candidate.frontier_identity()
+                != latest.census_frontier.frontier_digest()
+            || head
+                .try_get::<serde_json::Value, _>("frontier_json")
+                .map_err(storage)?
+                != encode(&latest.census_frontier)?
+            || head
+                .try_get::<i64, _>("committed_at_epoch_ms")
+                .map_err(storage)?
+                != latest_cut_committed_at
         {
             return Err(TrialFamilyError::Unavailable(
-                "V2 attempt cut row mismatch".to_string(),
+                "V2 census head mismatch".to_string(),
             ));
         }
         verify_storage_record(
-            row,
-            "census_frontier_storage_bytes",
-            "census_frontier_storage_digest",
-            &census,
+            head,
+            "frontier_storage_bytes",
+            "frontier_storage_digest",
+            &latest.census_frontier,
             crate::native_replay_rd_sources_v2::TRIAL_FAMILY_FRONTIER_STORAGE_DOMAIN_V1,
         )?;
-        verify_storage_record(
-            row,
-            "attempt_frontier_storage_bytes",
-            "attempt_frontier_storage_digest",
-            &attempt,
-            "rd.trial-family-attempt-frontier.storage.v1",
-        )?;
-        verify_storage_record(
-            row,
-            "candidate_set_frontier_storage_bytes",
-            "candidate_set_frontier_storage_digest",
-            &candidate,
-            "rd.trial-family-candidate-set-frontier.storage.v1",
-        )?;
-        let prefix_len = (index + 1) * 3;
-        if prefix_len > members.len() {
-            return Err(TrialFamilyError::Unavailable(
-                "V2 attempt cut skips census members".to_string(),
-            ));
-        }
-        let first_new_member = if index == 0 { 1 } else { prefix_len - 3 };
-        if receipts[first_new_member..prefix_len]
-            .iter()
-            .any(|receipt| {
-                i64::try_from(receipt.committed_at_epoch_ms()).ok() != Some(cut_committed_at)
+
+        if requested_frontier.is_some() {
+            historical.ok_or_else(|| {
+                TrialFamilyError::Unavailable("exact historical V2 census cut missing".to_string())
             })
-        {
-            return Err(TrialFamilyError::Unavailable(
-                "V2 attempt cut commit mismatch".to_string(),
-            ));
+        } else {
+            Ok(latest)
         }
-        let cut = TrialFamilyCensusReadbackV2 {
-            legacy_family: legacy_family.clone(),
-            members: members[..prefix_len].to_vec(),
-            membership_receipts: receipts[..prefix_len].to_vec(),
-            attempt_frontier: attempt,
-            candidate_set_frontier: candidate,
-            census_frontier: census,
-        };
-        verify_census_v2(&cut)?;
-        verify_census_outbox_in_transaction(
-            transaction,
-            &cut,
-            research_receipt_identity,
-            cut_committed_at,
-            lock_mode,
-        )
-        .await?;
-
-        if requested_frontier.is_some_and(|(identity, digest)| {
-            cut.census_frontier.frontier_identity() == identity
-                && cut.census_frontier.frontier_digest() == digest
-        }) {
-            historical = Some(cut.clone());
-        }
-        latest = Some(cut);
-    }
-    let latest = latest
-        .ok_or_else(|| TrialFamilyError::Unavailable("V2 family census cut missing".to_string()))?;
-    let latest_cut_committed_at: i64 = cut_rows
-        .last()
-        .ok_or_else(|| TrialFamilyError::Unavailable("V2 family census cut missing".to_string()))?
-        .try_get("committed_at_epoch_ms")
-        .map_err(storage)?;
-    let head = &head_rows[0];
-    if members.len() != latest.members.len()
-        || head
-            .try_get::<String, _>("frontier_identity")
-            .map_err(storage)?
-            != latest.census_frontier.frontier_identity()
-        || head
-            .try_get::<String, _>("frontier_digest")
-            .map_err(storage)?
-            != latest.census_frontier.frontier_digest()
-        || head
-            .try_get::<serde_json::Value, _>("frontier_json")
-            .map_err(storage)?
-            != encode(&latest.census_frontier)?
-        || head
-            .try_get::<i64, _>("committed_at_epoch_ms")
-            .map_err(storage)?
-            != latest_cut_committed_at
-    {
-        return Err(TrialFamilyError::Unavailable(
-            "V2 census head mismatch".to_string(),
-        ));
-    }
-    verify_storage_record(
-        head,
-        "frontier_storage_bytes",
-        "frontier_storage_digest",
-        &latest.census_frontier,
-        crate::native_replay_rd_sources_v2::TRIAL_FAMILY_FRONTIER_STORAGE_DOMAIN_V1,
-    )?;
-
-    if requested_frontier.is_some() {
-        historical.ok_or_else(|| {
-            TrialFamilyError::Unavailable("exact historical V2 census cut missing".to_string())
-        })
-    } else {
-        Ok(latest)
-    }
+    })
 }
 
 /// The schema of a TrialFamily's census head, read `FOR SHARE`: 1 while the family has only its
 /// formation census, 2 once an attempt has been appended.
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+#[cfg(feature = "composer-v3-replay")]
 pub(crate) async fn trial_family_head_schema_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
     trial_family_identity: &str,
@@ -1376,7 +1536,7 @@ pub(crate) async fn trial_family_head_schema_in_transaction(
 /// A successor COMPOSER_V3 Replay's historical readback, through the family-cut loader, is this
 /// prefix's only consumer, and that loader is gated on the same feature; without this gate the helper is dead in every other build and `-D warnings`
 /// fails the crate.
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+#[cfg(feature = "composer-v3-replay")]
 pub(crate) async fn load_trial_family_census_v2_at_frontier_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
     trial_family_identity: &str,
@@ -2401,10 +2561,9 @@ mod postgres_binding_tests {
             terminal_disposition: TrialFamilyAttemptTerminalDispositionV2::Rejected,
             consumed_trial_budget: 1,
             candidate_set: TrialFamilyCandidateSetProposalV2 {
-                generation_rule_identity: format!(
-                    "rd-candidate-generation-candidate-acl-seed-{suffix}"
+                generation_rule: crate::CandidateGenerationGridV1::covering(
+                    proposals.iter().map(|proposal| &proposal.experiment),
                 ),
-                generation_rule_digest: format!("sha256:{}", "d".repeat(64)),
                 expected_cardinality: 1,
                 candidates: proposals.clone(),
             },
@@ -2514,8 +2673,10 @@ mod postgres_binding_tests {
             terminal_disposition: TrialFamilyAttemptTerminalDispositionV2::Rejected,
             consumed_trial_budget: 1,
             candidate_set: TrialFamilyCandidateSetProposalV2 {
-                generation_rule_identity: format!("rd-candidate-generation-v2-a-{suffix}"),
-                generation_rule_digest: format!("sha256:{}", "3".repeat(64)),
+                generation_rule: crate::CandidateGenerationGridV1 {
+                    single_dimensions: vec![IterationHypothesisDimensionV1::ReturnMechanism],
+                    finite_joints: Vec::new(),
+                },
                 expected_cardinality: 1,
                 candidates: vec![TrialFamilyCandidateExperimentProposalV1 {
                     candidate_identity: format!("rd-candidate-v2-a-{suffix}"),
@@ -2650,8 +2811,7 @@ mod postgres_binding_tests {
             terminal_disposition: TrialFamilyAttemptTerminalDispositionV2::Unknown,
             consumed_trial_budget: 2,
             candidate_set: TrialFamilyCandidateSetProposalV2 {
-                generation_rule_identity: format!("rd-candidate-generation-v2-b-{suffix}"),
-                generation_rule_digest: format!("sha256:{}", "7".repeat(64)),
+                generation_rule: crate::CandidateGenerationGridV1::default(),
                 expected_cardinality: 0,
                 candidates: Vec::new(),
             },
@@ -3058,8 +3218,10 @@ mod postgres_binding_tests {
             terminal_disposition: TrialFamilyAttemptTerminalDispositionV2::Rejected,
             consumed_trial_budget,
             candidate_set: TrialFamilyCandidateSetProposalV2 {
-                generation_rule_identity: format!("rd-candidate-generation-v2-race-{tag}-{suffix}"),
-                generation_rule_digest: format!("sha256:{}", "3".repeat(64)),
+                generation_rule: crate::CandidateGenerationGridV1 {
+                    single_dimensions: vec![IterationHypothesisDimensionV1::ReturnMechanism],
+                    finite_joints: Vec::new(),
+                },
                 expected_cardinality: 1,
                 candidates: vec![TrialFamilyCandidateExperimentProposalV1 {
                     candidate_identity: format!("rd-candidate-v2-race-{tag}-{suffix}"),
