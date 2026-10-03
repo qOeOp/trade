@@ -385,6 +385,9 @@ impl SingleThresholdAuthoringErrorV1 {
             Self::ExitNeedsCloseChannel { .. } => "SINGLE_THRESHOLD_EXIT_NEEDS_CLOSE_CHANNEL",
             Self::MaxHoldingBarsZero => "SINGLE_THRESHOLD_MAX_HOLDING_BARS_ZERO",
             Self::ExitWithoutPosition { .. } => "SINGLE_THRESHOLD_EXIT_WITHOUT_POSITION",
+            Self::ThresholdInvalid => "THRESHOLD_INVALID",
+            Self::ThresholdFinerThanChannelScale { .. } => "THRESHOLD_FINER_THAN_CHANNEL_SCALE",
+            Self::ThresholdOverflowsChannelScale { .. } => "THRESHOLD_OVERFLOWS_CHANNEL_SCALE",
         }
     }
 }
@@ -538,6 +541,23 @@ pub(crate) fn threshold_coefficient_v1(
             SingleThresholdAuthoringErrorV1::ThresholdOverflowsChannelScale { scale }
         }
     })
+}
+
+/// The one spelling of a request's threshold at its channel's scale, which is what a statement's
+/// identity hashes.
+///
+/// # Errors
+///
+/// Returns the threshold's refusal when the channel cannot hold it exactly.
+pub(crate) fn canonical_threshold_of_v1(
+    channel: &SingleThresholdChannelV1,
+    threshold: &str,
+) -> Result<String, SingleThresholdAuthoringErrorV1> {
+    let scale = channel.role_v2().scale;
+    Ok(canonical_threshold_text(
+        threshold_coefficient_v1(threshold, scale)?,
+        scale,
+    ))
 }
 
 /// The one spelling of a threshold `coefficient` at `scale`: no trailing fractional zero, no `.`
