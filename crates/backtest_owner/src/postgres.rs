@@ -383,14 +383,14 @@ impl PostgresReplayResultOwnerV2 {
         let mut transaction = pool
             .begin()
             .await
-            .map_err(|probe_error| { eprintln!("PROBE CustodyUnavailable at {}:{}: {:?}", file!(), line!(), probe_error); PostgresReplayResultOwnerErrorV2::CustodyUnavailable })?;
+            .map_err(|_| PostgresReplayResultOwnerErrorV2::CustodyUnavailable)?;
         validate_backtest_result_writer_topology_v2(&mut transaction)
             .await
-            .map_err(|probe_error| { eprintln!("PROBE CustodyUnavailable at {}:{}: {:?}", file!(), line!(), probe_error); PostgresReplayResultOwnerErrorV2::CustodyUnavailable })?;
+            .map_err(|_| PostgresReplayResultOwnerErrorV2::CustodyUnavailable)?;
         transaction
             .rollback()
             .await
-            .map_err(|probe_error| { eprintln!("PROBE CustodyUnavailable at {}:{}: {:?}", file!(), line!(), probe_error); PostgresReplayResultOwnerErrorV2::CustodyUnavailable })?;
+            .map_err(|_| PostgresReplayResultOwnerErrorV2::CustodyUnavailable)?;
         Ok(Self { pool })
     }
 
@@ -460,7 +460,7 @@ impl PostgresReplayResultOwnerV2 {
         validate_transaction_principal(&mut transaction).await?;
         let locked = lock_for_backtest_v2_in_transaction(rd_pool, &mut transaction, locator)
             .await
-            .map_err(|probe_error| { eprintln!("PROBE CustodyUnavailable at {}:{}: {:?}", file!(), line!(), probe_error); PostgresReplayResultOwnerErrorV2::CustodyUnavailable })?;
+            .map_err(|_| PostgresReplayResultOwnerErrorV2::CustodyUnavailable)?;
         let request = locked
             .readback()
             .filter(|_| {
@@ -517,13 +517,13 @@ impl PostgresReplayResultOwnerV2 {
         validate_transaction_principal(&mut transaction).await?;
         validate_backtest_result_writer_topology_v2(&mut transaction)
             .await
-            .map_err(|probe_error| { eprintln!("PROBE CustodyUnavailable at {}:{}: {:?}", file!(), line!(), probe_error); PostgresReplayResultOwnerErrorV2::CustodyUnavailable })?;
+            .map_err(|_| PostgresReplayResultOwnerErrorV2::CustodyUnavailable)?;
         validate_backtest_native_replay_evidence_writer_topology_v2(&mut transaction)
             .await
-            .map_err(|probe_error| { eprintln!("PROBE CustodyUnavailable at {}:{}: {:?}", file!(), line!(), probe_error); PostgresReplayResultOwnerErrorV2::CustodyUnavailable })?;
+            .map_err(|_| PostgresReplayResultOwnerErrorV2::CustodyUnavailable)?;
         validate_backtest_outcome_evidence_writer_topology_v1(&mut transaction)
             .await
-            .map_err(|probe_error| { eprintln!("PROBE CustodyUnavailable at {}:{}: {:?}", file!(), line!(), probe_error); PostgresReplayResultOwnerErrorV2::CustodyUnavailable })?;
+            .map_err(|_| PostgresReplayResultOwnerErrorV2::CustodyUnavailable)?;
         let (batch, trace) = read_expected_evidence(
             &mut transaction,
             &recovery.result_identity,
@@ -570,7 +570,7 @@ impl PostgresReplayResultOwnerV2 {
         validate_transaction_principal(&mut transaction).await?;
         validate_backtest_result_writer_topology_v2(&mut transaction)
             .await
-            .map_err(|probe_error| { eprintln!("PROBE CustodyUnavailable at {}:{}: {:?}", file!(), line!(), probe_error); PostgresReplayResultOwnerErrorV2::CustodyUnavailable })?;
+            .map_err(|_| PostgresReplayResultOwnerErrorV2::CustodyUnavailable)?;
         let query = format!("{READ_AGGREGATE} WHERE result.result_identity=$1");
         let row = sqlx::query(sqlx::AssertSqlSafe(query))
             .bind(result_identity.as_str())
@@ -600,7 +600,7 @@ impl PostgresReplayResultOwnerV2 {
         validate_transaction_principal(&mut transaction).await?;
         validate_backtest_result_writer_topology_v2(&mut transaction)
             .await
-            .map_err(|probe_error| { eprintln!("PROBE CustodyUnavailable at {}:{}: {:?}", file!(), line!(), probe_error); PostgresReplayResultOwnerErrorV2::CustodyUnavailable })?;
+            .map_err(|_| PostgresReplayResultOwnerErrorV2::CustodyUnavailable)?;
         let query = format!(
             "{READ_AGGREGATE} WHERE result.result_identity=$1 AND result.request_identity=$2 AND result.attempt_identity=$3"
         );
@@ -629,7 +629,7 @@ async fn persist_prepared_result(
     validate_transaction_principal(&mut transaction).await?;
     validate_backtest_result_writer_topology_v2(&mut transaction)
         .await
-        .map_err(|probe_error| { eprintln!("PROBE CustodyUnavailable at {}:{}: {:?}", file!(), line!(), probe_error); PostgresReplayResultOwnerErrorV2::CustodyUnavailable })?;
+        .map_err(|_| PostgresReplayResultOwnerErrorV2::CustodyUnavailable)?;
     lock_attempt(&mut transaction, &result_dto).await?;
 
     let existing = read_matching_aggregate(&mut transaction, &result_dto).await?;
@@ -731,13 +731,13 @@ async fn persist_native_replay_aggregate(
     validate_transaction_principal(&mut transaction).await?;
     validate_backtest_result_writer_topology_v2(&mut transaction)
         .await
-        .map_err(|probe_error| { eprintln!("PROBE CustodyUnavailable at {}:{}: {:?}", file!(), line!(), probe_error); PostgresReplayResultOwnerErrorV2::CustodyUnavailable })?;
+        .map_err(|_| PostgresReplayResultOwnerErrorV2::CustodyUnavailable)?;
     validate_backtest_native_replay_evidence_writer_topology_v2(&mut transaction)
         .await
-        .map_err(|probe_error| { eprintln!("PROBE CustodyUnavailable at {}:{}: {:?}", file!(), line!(), probe_error); PostgresReplayResultOwnerErrorV2::CustodyUnavailable })?;
+        .map_err(|_| PostgresReplayResultOwnerErrorV2::CustodyUnavailable)?;
     validate_backtest_outcome_evidence_writer_topology_v1(&mut transaction)
         .await
-        .map_err(|probe_error| { eprintln!("PROBE CustodyUnavailable at {}:{}: {:?}", file!(), line!(), probe_error); PostgresReplayResultOwnerErrorV2::CustodyUnavailable })?;
+        .map_err(|_| PostgresReplayResultOwnerErrorV2::CustodyUnavailable)?;
     lock_attempt(&mut transaction, &result_dto).await?;
     let expected = expected_evidence(batch);
     let existing = read_matching_aggregate(&mut transaction, &result_dto).await?;
@@ -1253,7 +1253,7 @@ async fn validate_pool_principal(pool: &PgPool) -> Result<(), PostgresReplayResu
     let principals: (String, String) = sqlx::query_as("SELECT session_user,current_user")
         .fetch_one(pool)
         .await
-        .map_err(|probe_error| { eprintln!("PROBE CustodyUnavailable at {}:{}: {:?}", file!(), line!(), probe_error); PostgresReplayResultOwnerErrorV2::CustodyUnavailable })?;
+        .map_err(|_| PostgresReplayResultOwnerErrorV2::CustodyUnavailable)?;
     validate_principals(&principals)
 }
 
@@ -1263,7 +1263,7 @@ async fn validate_transaction_principal(
     let principals: (String, String) = sqlx::query_as("SELECT session_user,current_user")
         .fetch_one(&mut **transaction)
         .await
-        .map_err(|probe_error| { eprintln!("PROBE CustodyUnavailable at {}:{}: {:?}", file!(), line!(), probe_error); PostgresReplayResultOwnerErrorV2::CustodyUnavailable })?;
+        .map_err(|_| PostgresReplayResultOwnerErrorV2::CustodyUnavailable)?;
     validate_principals(&principals)
 }
 
@@ -1273,7 +1273,7 @@ fn validate_principals(
     if session_user == "backtest_owner" && current_user == "backtest_owner" {
         Ok(())
     } else {
-        Err({ eprintln!("PROBE CustodyUnavailable at {}:{}", file!(), line!()); PostgresReplayResultOwnerErrorV2::CustodyUnavailable })
+        Err(PostgresReplayResultOwnerErrorV2::CustodyUnavailable)
     }
 }
 
