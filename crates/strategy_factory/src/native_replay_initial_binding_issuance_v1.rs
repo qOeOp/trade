@@ -147,9 +147,10 @@ const fn market_inputs_cause(error: &NativeReplayInitialOwnerInputsErrorV1) -> C
             | NativeReplaySchedulingErrorV1::EventOrderUnavailable
             | NativeReplaySchedulingErrorV1::ExactInstrumentRolesUnderOwnerUniverse
             | NativeReplaySchedulingErrorV1::NativeRepresentation
-            | NativeReplaySchedulingErrorV1::UniverseSelectionRecordMismatch => {
-                Cause::MarketInputsUnresolved
-            }
+            | NativeReplaySchedulingErrorV1::UniverseSelectionRecordMismatch
+            | NativeReplaySchedulingErrorV1::PitWindowHeadNotInChain
+            | NativeReplaySchedulingErrorV1::PitWindowFrameNotCovered
+            | NativeReplaySchedulingErrorV1::FrameSourceMismatch => Cause::MarketInputsUnresolved,
         },
     }
 }

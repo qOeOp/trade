@@ -31,6 +31,7 @@ use super::{
 };
 
 pub(crate) mod authority;
+pub(crate) mod quote_cut;
 pub(crate) mod schedule;
 pub(crate) mod view;
 

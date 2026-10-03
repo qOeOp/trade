@@ -98,9 +98,10 @@ pub(in crate::owner) mod universe_selection;
 // inside a `cfg(not(test))` arm, so that its order can be driven rather than only deployed.
 use super::declared_bar_timeframe_v1::{DeclaredBarTimeframeErrorV1, DeclaredBarTimeframeV1};
 use super::native_replay_scheduling_v1::{
-    NativeReplayInitialMarketReadbackV1, NativeReplayInitialMarketRequestV1,
-    NativeReplaySchedulingErrorV1, NativeReplaySchedulingResolverV1,
-    issue_native_replay_initial_market_readback_v1, select_native_replay_schedule_v1,
+    NativeReplayCustodyFrameReadbackV1, NativeReplayInitialMarketReadbackV1,
+    NativeReplayInitialMarketRequestV1, NativeReplaySchedulingErrorV1,
+    NativeReplaySchedulingResolverV1, issue_native_replay_initial_market_readback_v1,
+    select_native_replay_schedule_v1,
 };
 use super::pit_snapshot::{
     PitObservationBatchOwnerResolver, PitSnapshotFact, VerifiedPitObservationBatch,
@@ -8678,6 +8679,15 @@ impl NativeReplaySchedulingResolverV1 for SealedAcceptanceNativeReplayScheduling
     ) -> Result<NativeReplayInitialMarketReadbackV1, NativeReplaySchedulingErrorV1> {
         resolve_native_replay_initial_market_through_port_v1(&self.port, request).await
     }
+
+    /// The sealed acceptance port holds no custody read: a custody frame is never read here.
+    async fn resolve_native_replay_custody_frame_inputs_v1(
+        &self,
+        request: &NativeReplayInitialMarketRequestV1,
+    ) -> Result<NativeReplayCustodyFrameReadbackV1, NativeReplaySchedulingErrorV1> {
+        request.custody_frame()?;
+        Err(NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)
+    }
 }
 
 /// Reads one frame's initial Market Data inputs through a scheduling read port, in the required
@@ -8697,13 +8707,14 @@ pub(super) async fn resolve_native_replay_initial_market_through_port_v1<P>(
 where
     P: NativeReplaySchedulingReadPortV1 + ?Sized,
 {
+    let (snapshot_identity, snapshot_fact_digest) = request.snapshot_source()?;
     let evidence = port
-        .resolve_pit_evaluation(*request.snapshot_identity().as_bytes())
+        .resolve_pit_evaluation(*snapshot_identity.as_bytes())
         .await
         .map_err(|_| NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)?;
     let (batch, source) = verify_admitted_pit_evidence_with_source_by_identity_v1(
-        request.snapshot_identity(),
-        request.snapshot_fact_digest(),
+        snapshot_identity,
+        snapshot_fact_digest,
         &evidence,
     )
     .map_err(|_| NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)?;
@@ -8912,13 +8923,11 @@ async fn resolve_native_replay_initial_market_from_pool_v1(
     pool: &PgPool,
     request: &NativeReplayInitialMarketRequestV1,
 ) -> Result<NativeReplayInitialMarketReadbackV1, NativeReplaySchedulingErrorV1> {
-    let batch = load_verified_observation_batch_from_pool(
-        pool,
-        request.snapshot_identity(),
-        request.snapshot_fact_digest(),
-    )
-    .await
-    .map_err(|_| NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)?;
+    let (snapshot_identity, snapshot_fact_digest) = request.snapshot_source()?;
+    let batch =
+        load_verified_observation_batch_from_pool(pool, snapshot_identity, snapshot_fact_digest)
+            .await
+            .map_err(|_| NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)?;
     let mut transaction = pool
         .begin()
         .await
@@ -9083,6 +9092,15 @@ impl NativeReplaySchedulingResolverV1 for MarketDataReadPostgres {
         {
             resolve_native_replay_initial_market_through_port_v1(&self.admitted_port, request).await
         }
+    }
+
+    /// The custody read lands on Owner custody with its admitted port (T0-5 C8 and C9).
+    async fn resolve_native_replay_custody_frame_inputs_v1(
+        &self,
+        request: &NativeReplayInitialMarketRequestV1,
+    ) -> Result<NativeReplayCustodyFrameReadbackV1, NativeReplaySchedulingErrorV1> {
+        request.custody_frame()?;
+        Err(NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)
     }
 }
 
