@@ -34,10 +34,12 @@ use crate::owner::{
     decimal_rescale_v1::{MARKET_DATA_VALUE_SCALE_V1, RescaleErrorV1, rescale_exact_v1},
     declared_bar_timeframe_v1::{DeclaredBarShapeV1, DeclaredBarTimeframeV1},
     instrument_master::InstrumentClass,
+    market_semantics::MarketSemanticsValueV1,
     sample_fact::{continuous_bar_timeframe_spec_v1, v2::SampleRowInputV2},
     source_binding::{
-        BindingDigest, UntrustedSourceAvailabilityRuleV1, UntrustedSourceBarTimeframeV1,
-        UntrustedSourceVisibilityV1, authority::availability_rule_digest_v1,
+        BindingDigest, UntrustedCompleteFrontier, UntrustedSourceAvailabilityRuleV1,
+        UntrustedSourceBarTimeframeV1, UntrustedSourceVisibilityV1,
+        authority::availability_rule_digest_v1,
     },
     strategy_input_binding::{MarketDataFieldSemantic, STRATEGY_INPUT_FIXED_I128_LE_V1},
 };
@@ -87,6 +89,9 @@ pub(crate) struct CustodyBindingV1 {
     pub(crate) source_frontier_digest: BindingDigest,
     pub(crate) correction_stream: String,
     pub(crate) correction_frontier_digest: BindingDigest,
+    /// The binding's complete source and correction frontiers, as its chain's R0 record binds them.
+    pub(crate) source_frontier: UntrustedCompleteFrontier,
+    pub(crate) correction_frontier: UntrustedCompleteFrontier,
 }
 
 /// The Instrument Master fact the Owner selects for one member at the window's start.
@@ -271,6 +276,8 @@ pub(crate) struct DerivedCustodyV1 {
     pub(crate) binding: CustodyBindingV1,
     pub(crate) rule_digest: BindingDigest,
     pub(crate) market_semantics_identity: BindingDigest,
+    /// The typed Market Semantics value the request claims, checked for shape only.
+    pub(crate) market_semantics_value: MarketSemanticsValueV1,
     universe: (BindingDigest, BindingDigest),
     pub(crate) instrument_master_key: BindingDigest,
     pub(crate) members: Vec<String>,
@@ -436,6 +443,21 @@ pub(crate) fn derive_custody_v1(inputs: CustodyInputsV1<'_>) -> Result<DerivedCu
     if request.market_semantics_identity != binding.market_semantics_identity {
         return Err(Refused::MarketSemanticsMismatch);
     }
+    let market_semantics_value = request
+        .market_semantics_value
+        .clone()
+        .into_value()
+        .map_err(|_| Refused::InvalidRequest)?;
+
+    if [
+        market_semantics_value.normalization_identity,
+        market_semantics_value.price_unit_identity,
+        market_semantics_value.size_unit_identity,
+    ]
+    .contains(&ZERO)
+    {
+        return Err(Refused::InvalidRequest);
+    }
 
     // Timeframes: every label the binding declares, the execution one a fixed interval.
     let declared = |label: &str| {
@@ -455,6 +477,17 @@ pub(crate) fn derive_custody_v1(inputs: CustodyInputsV1<'_>) -> Result<DerivedCu
     // A frame is decided at its bar's close: `d_k < e_{k+1}` holds only for frames at close
     // instants, so T0 enumerates frames only from a timeframe labelled at interval close.
     if execution.label() != BarScheduleLabelV1::IntervalClose {
+        return Err(Refused::InvalidRequest);
+    }
+
+    // A window holds at least one frame: a close instant of the execution grid, which the Unix
+    // epoch anchors.
+    if request
+        .window_start_ns
+        .div_ceil(execution_interval)
+        .checked_mul(execution_interval)
+        .is_none_or(|first| first >= request.window_end_ns_exclusive)
+    {
         return Err(Refused::InvalidRequest);
     }
     let mut held = Vec::with_capacity(request.input_timeframes.len() + 1);
@@ -745,6 +778,7 @@ pub(crate) fn derive_custody_v1(inputs: CustodyInputsV1<'_>) -> Result<DerivedCu
         binding: binding.clone(),
         rule_digest,
         market_semantics_identity: request.market_semantics_identity,
+        market_semantics_value,
         universe: (
             request.universe_selection.request_identity(),
             request.universe_selection.request_meaning_digest(),
@@ -816,6 +850,18 @@ fn custody_timeframe(
 }
 
 impl DerivedCustodyV1 {
+    /// The last frame of the window: the latest close instant of the execution grid before its
+    /// end. The derivation refuses a window that holds none.
+    pub(crate) const fn last_execution_frame_ns(&self) -> u64 {
+        let interval = self.execution.interval_ns;
+        (self.window.1 - 1) / interval * interval
+    }
+
+    /// The labels of the input timeframes, in canonical order; the fill timeframe is not one.
+    pub(crate) fn input_labels(&self) -> impl Iterator<Item = &str> {
+        self.inputs.iter().map(|timeframe| timeframe.label.as_str())
+    }
+
     fn timeframe_identities(&self, out: &mut Vec<u8>) {
         out.extend_from_slice(self.execution.identity.as_bytes());
         let inputs = self
@@ -847,6 +893,7 @@ impl DerivedCustodyV1 {
         bytes.extend_from_slice(self.binding.lineage_root.as_bytes());
         bytes.extend_from_slice(self.rule_digest.as_bytes());
         bytes.extend_from_slice(self.market_semantics_identity.as_bytes());
+        put_market_semantics_value(&mut bytes, &self.market_semantics_value);
         bytes.extend_from_slice(self.instrument_master_key.as_bytes());
         self.members(&mut bytes);
         put_u64(&mut bytes, self.window.0);
@@ -865,6 +912,7 @@ impl DerivedCustodyV1 {
         put_u64(&mut bytes, self.binding.lineage_version);
         bytes.extend_from_slice(self.rule_digest.as_bytes());
         bytes.extend_from_slice(self.market_semantics_identity.as_bytes());
+        put_market_semantics_value(&mut bytes, &self.market_semantics_value);
         bytes.extend_from_slice(self.universe.0.as_bytes());
         bytes.extend_from_slice(self.universe.1.as_bytes());
         bytes.extend_from_slice(self.instrument_master_key.as_bytes());
@@ -1135,6 +1183,15 @@ fn put_u64(out: &mut Vec<u8>, value: u64) {
 fn put_var(out: &mut Vec<u8>, value: &[u8]) {
     put_u64(out, value.len() as u64);
     out.extend_from_slice(value);
+}
+
+/// The five typed Market Semantics value fields, in the order the Market Semantics codec binds them.
+pub(crate) fn put_market_semantics_value(out: &mut Vec<u8>, value: &MarketSemanticsValueV1) {
+    out.extend_from_slice(value.normalization_identity.as_bytes());
+    put_u16(out, value.price_adjustment as u16);
+    put_u16(out, value.timestamp_basis as u16);
+    out.extend_from_slice(value.price_unit_identity.as_bytes());
+    out.extend_from_slice(value.size_unit_identity.as_bytes());
 }
 
 fn put_optional(out: &mut Vec<u8>, value: Option<BindingDigest>) {

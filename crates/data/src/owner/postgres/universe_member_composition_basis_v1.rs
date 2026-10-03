@@ -49,7 +49,10 @@ pub(super) const SCHEMA_V1: &[&str] = &[
     "REVOKE ALL ON FUNCTION market_data_rd_api.read_reference_fact_r0_for_composition_basis_v1(BYTEA) FROM PUBLIC",
     "REVOKE ALL ON FUNCTION market_data_rd_api.read_market_semantics_readback_for_composition_basis_v1(BYTEA) FROM PUBLIC",
     "REVOKE ALL ON FUNCTION market_data_rd_api.read_market_semantics_scope_heads_v1(BYTEA) FROM PUBLIC",
-    "DO $grant$ BEGIN IF pg_catalog.to_regrole('rd_owner') IS NOT NULL THEN GRANT EXECUTE ON FUNCTION market_data_rd_api.read_pit_snapshot_for_composition_basis_v1(BYTEA),market_data_rd_api.read_source_binding_for_composition_basis_v1(BYTEA),market_data_rd_api.read_universe_selection_for_composition_basis_v1(BYTEA),market_data_rd_api.read_reference_fact_r0_for_composition_basis_v1(BYTEA),market_data_rd_api.read_market_semantics_readback_for_composition_basis_v1(BYTEA),market_data_rd_api.read_market_semantics_scope_heads_v1(BYTEA) TO rd_owner; END IF; END $grant$",
+    // A custody chain's head is a head of its scope too, so a scope's value is read over both.
+    "CREATE OR REPLACE FUNCTION market_data_rd_api.read_market_semantics_chain_scope_heads_v1(p_scope BYTEA) RETURNS TABLE(chain_root BYTEA,fact_identity BYTEA,fact_bytes BYTEA) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path=pg_catalog, pg_temp AS $function$ SELECT h.chain_root,f.fact_identity,f.fact_bytes FROM market_data_private.market_semantics_chain_heads_v1 h JOIN market_data_private.market_semantics_chain_facts_v1 f ON f.fact_identity=h.fact_identity WHERE h.compatibility_scope_identity=p_scope ORDER BY h.chain_root $function$",
+    "REVOKE ALL ON FUNCTION market_data_rd_api.read_market_semantics_chain_scope_heads_v1(BYTEA) FROM PUBLIC",
+    "DO $grant$ BEGIN IF pg_catalog.to_regrole('rd_owner') IS NOT NULL THEN GRANT EXECUTE ON FUNCTION market_data_rd_api.read_pit_snapshot_for_composition_basis_v1(BYTEA),market_data_rd_api.read_source_binding_for_composition_basis_v1(BYTEA),market_data_rd_api.read_universe_selection_for_composition_basis_v1(BYTEA),market_data_rd_api.read_reference_fact_r0_for_composition_basis_v1(BYTEA),market_data_rd_api.read_market_semantics_readback_for_composition_basis_v1(BYTEA),market_data_rd_api.read_market_semantics_scope_heads_v1(BYTEA),market_data_rd_api.read_market_semantics_chain_scope_heads_v1(BYTEA) TO rd_owner; END IF; END $grant$",
 ];
 
 type BasisError = UniverseMemberCompositionBasisErrorV1;
@@ -268,15 +271,21 @@ pub async fn resolve_market_semantics_scope_value_v1(
     let heads = read_scope_heads_v1(transaction, scope)
         .await
         .map_err(|()| MarketSemanticsScopeValueErrorV1::StoreUnavailable)?;
-    let value = match heads.split_first() {
+    let chain_values = read_chain_scope_values_v1(transaction, scope)
+        .await
+        .map_err(|()| MarketSemanticsScopeValueErrorV1::StoreUnavailable)?;
+    let values = heads
+        .iter()
+        .map(|head| head.fact.value)
+        .chain(chain_values)
+        .collect::<Vec<_>>();
+    let value = match values.split_first() {
         None => None,
         Some((first, rest)) => {
-            if rest.iter().any(|head| head.fact.value != first.fact.value) {
+            if rest.iter().any(|value| value != first) {
                 return Err(MarketSemanticsScopeValueErrorV1::StoreUnavailable);
             }
-            Some(MarketSemanticsValueSubmissionV1::from_value(
-                &first.fact.value,
-            ))
+            Some(MarketSemanticsValueSubmissionV1::from_value(first))
         }
     };
     Ok(MarketSemanticsScopeValueV1::new(scope, value))
@@ -308,6 +317,35 @@ async fn read_source_binding_v1(
         return Err(SourceReadErrorV1::Unavailable);
     }
     Ok(stored)
+}
+
+/// The value of every custody chain head of `scope`, each fact decoded and checked against its row.
+async fn read_chain_scope_values_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    scope: BindingDigest,
+) -> Result<Vec<crate::owner::market_semantics::MarketSemanticsValueV1>, ()> {
+    let rows: Vec<(Vec<u8>, Vec<u8>, Vec<u8>)> = sqlx::query_as(
+        "SELECT chain_root,fact_identity,fact_bytes FROM market_data_rd_api.read_market_semantics_chain_scope_heads_v1($1)",
+    )
+    .bind(scope.as_bytes().as_slice())
+    .fetch_all(&mut **transaction)
+    .await
+    .map_err(|_| ())?;
+    rows.iter()
+        .map(|(chain_root, identity, bytes)| {
+            let identity =
+                BindingDigest::from_untrusted_bytes(identity.as_slice().try_into().map_err(|_| ())?);
+            let fact = crate::owner::pit_window_custody_v1::chain_records::decode_market_semantics_chain_fact_v1(bytes, identity)
+                .ok_or(())?;
+
+            if fact.compatibility_scope_identity != scope
+                || fact.chain_root.as_bytes().as_slice() != chain_root.as_slice()
+            {
+                return Err(());
+            }
+            Ok(fact.value)
+        })
+        .collect()
 }
 
 /// One current head of a compatibility scope, with the request its readback is stored under.

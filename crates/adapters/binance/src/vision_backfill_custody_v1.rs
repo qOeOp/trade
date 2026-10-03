@@ -14,6 +14,7 @@
 
 use rust_decimal::Decimal;
 use vibe_data::owner::{
+    market_semantics_admission_v1::MarketSemanticsValueSubmissionV1,
     pit_window_custody_v1::{
         CrossSectionVersionKindV1, PitWindowCustodyRefusalV1, UntrustedCrossSectionVersionV1,
         UntrustedCustodyRowV1, UntrustedPitWindowCustodyRequestV1,
@@ -31,6 +32,8 @@ const NANOS_PER_MILLI: u64 = 1_000_000;
 pub struct BackfillCustodyBasisV1 {
     pub source_binding: UntrustedSourceBindingLocator,
     pub market_semantics_identity: BindingDigest,
+    /// The typed Market Semantics value the custody claims for that scope.
+    pub market_semantics_value: MarketSemanticsValueSubmissionV1,
     pub universe_selection: UntrustedUniverseSelectionLocatorV1,
     /// The member's canonical instrument.
     pub member: String,
@@ -108,6 +111,7 @@ pub fn custody_request_v1(
     Ok(UntrustedPitWindowCustodyRequestV1 {
         source_binding: basis.source_binding,
         market_semantics_identity: basis.market_semantics_identity,
+        market_semantics_value: basis.market_semantics_value,
         universe_selection: basis.universe_selection,
         members: vec![basis.member],
         window_start_ns: basis.window_start_ns,
@@ -200,10 +204,11 @@ pub const fn refusal_disposition_v1(
         AvailabilityLagNotBelowBarInterval, CrossSectionBranch,
         CrossSectionCorrectionNotPublishedBySource, ExecutionTimeframeNotFixedInterval,
         FillTimeframeIsAnInputTimeframe, FillTimeframeNotFinerThanExecution, IdentityConflict,
-        InvalidRequest, MarketSemanticsMismatch, RetrievalAfterMintingCut,
-        RowRetrievedBeforeBarClose, SourceBindingDeclaresNoAvailabilityRule,
-        SourceBindingUnavailable, StoreUnavailable, SuccessorBasisChanged,
-        ValueFinerThanSeriesScale, VersionNotAvailableAtMintingCut, WindowMemberNotValidThroughout,
+        InvalidRequest, MarketSemanticsMismatch, MarketSemanticsScopeValueConflict,
+        RetrievalAfterMintingCut, RowRetrievedBeforeBarClose,
+        SourceBindingDeclaresNoAvailabilityRule, SourceBindingUnavailable, StoreUnavailable,
+        SuccessorBasisChanged, ValueFinerThanSeriesScale, VersionNotAvailableAtMintingCut,
+        WindowMemberNotValidThroughout,
     };
 
     match refusal {
@@ -226,7 +231,8 @@ pub const fn refusal_disposition_v1(
         | AvailabilityLagNotBelowBarInterval
         | FillTimeframeNotFinerThanExecution
         | FillTimeframeIsAnInputTimeframe
-        | IdentityConflict => BasisRefused,
+        | IdentityConflict
+        | MarketSemanticsScopeValueConflict => BasisRefused,
     }
 }
 
@@ -333,6 +339,13 @@ mod tests {
         BackfillCustodyBasisV1 {
             source_binding: source_binding(),
             market_semantics_identity: digest(8),
+            market_semantics_value: MarketSemanticsValueSubmissionV1 {
+                normalization_identity: digest(11),
+                price_adjustment: "RAW".to_string(),
+                timestamp_basis: "INTERVAL_CLOSE".to_string(),
+                price_unit_identity: digest(12),
+                size_unit_identity: digest(13),
+            },
             universe_selection: UntrustedUniverseSelectionLocatorV1::from_untrusted(
                 digest(9),
                 digest(10),
@@ -497,6 +510,10 @@ mod tests {
     )]
     #[case(
         PitWindowCustodyRefusalV1::FillTimeframeIsAnInputTimeframe,
+        BackfillRefusalDispositionV1::BasisRefused
+    )]
+    #[case(
+        PitWindowCustodyRefusalV1::MarketSemanticsScopeValueConflict,
         BackfillRefusalDispositionV1::BasisRefused
     )]
     fn each_refusal_names_what_the_backfill_does(

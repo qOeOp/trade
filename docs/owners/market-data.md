@@ -2709,6 +2709,35 @@ Master key and fact, Market Semantics identity and minting cut. Frames are the b
 rejoin or a refusal mints none, and no custody commit writes a `bar_schedule_*` table. No production caller reads it
 yet; the derived view (T0-5) will. Its unit tests and the custody PostgreSQL proofs drive it.
 
+Built so far (T0-4c): the records a root custody's commit mints once per chain, in the same transaction, after its
+window schedules. A `ReferenceFactR0ChainRecordV1` and its cut cover the chain's whole window, from the window's
+start to the end `r0_window_end_over_v1` gives the last frame's input timeframes (the execution timeframe among
+them; the fill timeframe is not an input and is excluded, because its bar lies inside the gap the execution bar
+already covers). A frame's own R0 is never stored: it is computed on read from the chain record, the window
+schedule and `e_k`, and is refused unless it lies inside the chain record's window, so every frame's R0 lies inside
+it by construction. The commit then issues a real Instrument Master cut on the clock it admitted, for exactly the
+facts the custody selected at the window's start, and links the chain to it by a request identity that is a
+function of the chain root alone, so one chain has one cut; the view seal's Instrument Master digest stays
+`instrument_master_key`, which every row and schedule already carries, and the chain record maps that key to the
+readback. It then records the chain's Market Semantics fact, under the compatibility scope its Source Binding
+implies, from the typed value the request carries as an untrusted claim: the Owner refuses a chain whose claimed
+value differs from any other head of its scope - a snapshot's or another chain's - by a new name,
+`MarketSemanticsScopeValueConflict`, under the scope's own advisory lock. **Snapshot heads and chain heads therefore
+coexist as two kinds of head under one compatibility scope.** The rule that one binding states one price adjustment
+is kept across both: after every Owner commit, every head of a scope - snapshot or chain - carries the same value,
+so `load_scope_heads` and `resolve_market_semantics_scope_value_v1` read the union of both kinds, never only one.
+The chain's own closed registry entry is version 2 of the snapshot path's registry described above: its key is
+over the chain's own dependencies - the compatibility scope, the chain root, the Instrument Master link and the R0
+record and cut - instead of a snapshot's, so the property that one key maps to one value is relocated to the chain
+rather than dropped. Last, the commit mints a chain basis record that binds the three once-per-chain records - the
+R0 record, the Instrument Master link and the Market Semantics fact - to the chain root and its root custody; it
+names no byte beyond their identities, since each is already verified against its own stored bytes by its own
+readback. The chain readback composes all four: it decodes the basis record against its own bytes, reads the R0,
+Instrument Master and Market Semantics records back through their own verified readbacks, and refuses as
+`StoreUnavailable` unless every identity the basis names equals the one its own named record holds. A successor
+restates all four exactly; it writes none, and its chain reads back its root's. No production caller reaches any of
+this yet: the custody PostgreSQL proofs drive it.
+
 - **Custody:** covers the half-open window from its warm-up start and is committed once, then never mutated. A later
   correction is a successor custody that names its predecessor and carries only the versions it adds; a view reads the
   chain to its head. A successor restates its predecessor's basis exactly - Market Semantics fact, Instrument Master

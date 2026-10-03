@@ -31,6 +31,7 @@ use vibe_data::owner::{
         InstrumentDecimalSubmissionV1, InstrumentMasterFactSubmissionV1,
         InstrumentVenueSourceMappingSubmissionV1,
     },
+    market_semantics_admission_v1::MarketSemanticsValueSubmissionV1,
     source_binding::{
         BindingDigest, UntrustedAdapterBinding, UntrustedCompleteFrontier,
         UntrustedCredentialAudienceClaim, UntrustedCredentialCapabilityClaim,
@@ -242,6 +243,21 @@ pub fn binance_perpetual_eligible_set_admission_request_v1(
 /// is what makes a repeat backfill of the same job rejoin the same evaluated selection, and so
 /// the same custody, instead of minting a new one each run.
 pub const BINANCE_PERPETUAL_BINDING_EFFECTIVE_NS_V1: u64 = 1_700_000_000_000_000_000;
+
+/// The Market Semantics value a PIT window custody of this route's kline binding claims: raw venue
+/// prices in USDT and quantities in the base asset, each bar labelled at its interval close. It is
+/// stated once, beside the binding whose semantics it restates, so every custody of the binding
+/// claims the same value and the Owner never sees two values for one scope.
+#[must_use]
+pub fn binance_perpetual_market_semantics_value_v1() -> MarketSemanticsValueSubmissionV1 {
+    MarketSemanticsValueSubmissionV1 {
+        normalization_identity: binance_perpetual_admission_digest_v1("normalization.usdm-kline"),
+        price_adjustment: "RAW".to_owned(),
+        timestamp_basis: "INTERVAL_CLOSE".to_owned(),
+        price_unit_identity: binance_perpetual_admission_digest_v1("price-unit.usdt"),
+        size_unit_identity: binance_perpetual_admission_digest_v1("size-unit.base-asset"),
+    }
+}
 
 /// The perpetual's Source Binding, as this route proposes one: a public USD-M feed that needs no
 /// credential. Every clock field is the Owner's and is overwritten on admission; the proposer's

@@ -25,11 +25,13 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
 use super::{
+    market_semantics_admission_v1::MarketSemanticsValueSubmissionV1,
     source_binding::{BindingDigest, UntrustedSourceBindingLocator},
     universe_selection::UntrustedUniverseSelectionLocatorV1,
 };
 
 pub(crate) mod authority;
+pub(crate) mod chain_records;
 pub(crate) mod schedule;
 
 /// The most members one custody holds, as the frame evidence and the native resolver do.
@@ -46,6 +48,10 @@ pub struct UntrustedPitWindowCustodyRequestV1 {
     pub source_binding: UntrustedSourceBindingLocator,
     /// The Market Semantics fact the rows are read under; the Owner verifies it is the head in scope.
     pub market_semantics_identity: BindingDigest,
+    /// The typed Market Semantics value the rows are read under: an untrusted claim. The Owner
+    /// records it once per custody chain, under the compatibility scope the binding implies, and
+    /// refuses it when another head of that scope states another value.
+    pub market_semantics_value: MarketSemanticsValueSubmissionV1,
     /// The Universe Selection record whose members the custody holds; the Owner verifies every
     /// member is included throughout the window.
     pub universe_selection: UntrustedUniverseSelectionLocatorV1,
@@ -247,6 +253,10 @@ pub enum PitWindowCustodyRefusalV1 {
     /// fixed scale every custody series is stated at; it is never rounded.
     #[error("a value is finer than the custody series scale")]
     ValueFinerThanSeriesScale,
+    /// `MARKET_SEMANTICS_SCOPE_VALUE_CONFLICT`: the claimed Market Semantics value differs from
+    /// the value a head of its compatibility scope - a snapshot's or another chain's - states.
+    #[error("the Market Semantics value differs from its scope's")]
+    MarketSemanticsScopeValueConflict,
     /// Two versions naming one predecessor, a repeated sequence, or a publication that does not
     /// increase with the sequence.
     #[error("a cross-section's versions branch")]

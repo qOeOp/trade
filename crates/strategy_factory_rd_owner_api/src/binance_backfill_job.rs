@@ -37,7 +37,7 @@ use vibe_binance::{
         BINANCE_PERPETUAL_BINDING_EFFECTIVE_NS_V1, BINANCE_PERPETUAL_U1_MEMBERS_V1,
         BinancePerpetualDatasetV1, binance_perpetual_canonical_identity_v1,
         binance_perpetual_correction_frontier_digest_v1, binance_perpetual_eligible_frontier_v1,
-        binance_perpetual_source_proposal,
+        binance_perpetual_market_semantics_value_v1, binance_perpetual_source_proposal,
     },
     vision_backfill_custody_v1::{
         BackfillCustodyBasisV1, BackfillTimeframeBarsV1, custody_request_v1,
@@ -423,6 +423,7 @@ async fn run_backfill_v1(
     let basis = BackfillCustodyBasisV1 {
         source_binding: kline_source_binding,
         market_semantics_identity,
+        market_semantics_value: binance_perpetual_market_semantics_value_v1(),
         universe_selection,
         member: binance_perpetual_canonical_identity_v1(raw_symbol),
         window_start_ns: request.window_start_ns,
