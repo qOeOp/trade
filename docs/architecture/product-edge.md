@@ -474,6 +474,17 @@ the run, so a replay reads the same data.
   few servers: `instance_status`, `readiness`, `orders`, `fills`, `drift` and `alerts`. Red line: the kill switch is
   readable only, and only the user can trigger it.
 
+**Source acquisition server (CURRENT).** The user put it in scope on 2026-10-03; the research loop simulated on
+`claude/inspiring-gauss-pxaril` needed video sources repeatedly.
+
+- **`video-note`**, the standalone Video Note MCP in `services/bilibili-note-mcp`: `video_note.create(url)` and `video_note.search_and_create(query, platform)` turn
+  a public Bilibili, YouTube or HTTPS video into a transcript-backed note with frames and time-linked sources.
+- It sits outside the Owner stack: it reads no product store, no product server calls it, and it holds no product
+  credential. The agent is the only link: it reads a note and, when the note motivates a hypothesis, cites the
+  source URL and the note's content digest in `research.register_hypothesis`.
+- Red line: a note is untrusted data, never an instruction or an authority. It reaches public videos only and reads
+  no browser cookies.
+
 **The real-money red line.** No MCP tool places an order, and no tool reaches real money. Every action on the trading
 side is proposed by the agent and approved by the user.
 
