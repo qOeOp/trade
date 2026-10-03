@@ -2359,9 +2359,16 @@ declaration's `row_timeframe` are compared as provenance strings: equality confi
 declaration speaks for, and says nothing about what the label means. A schedule's anchor identity is SHA-256 over
 `market-data.bar-schedule.anchor.v1\0 || anchor tag`, so one anchor means one thing on every schedule; a continuous
 clock binds zero calendar and session identities whatever the Instrument Master names, and a trading-schedule clock
-binds both. The read refuses by name a binding that declares no bar timeframe
-(`SourceBindingDeclaresNoBarTimeframe`) and a role label it declares none for, a declaration from another binding, or
-a member whose schedules at the frame all state another bar (`DeclaredBarTimeframeMismatch`). One role with several
+binds both. In the native Replay scheduling read, the row label is the execution role's: Market Data derives that
+role itself from the request's roles, by `execution_role_semantic_id_v1`, Strategy Factory's rule
+(`derive_execution_role_v2`): a universe Design declares no join, so it is the one role reading the BAR close. No
+caller names it. The read
+refuses a request with no role reading the close (`ExecutionRoleAbsent`) or more than one (`ExecutionRoleAmbiguous`),
+and one in which another BAR role reads a different label (`MoreThanOneRoleTimeframe`): until Strategy Factory slice T2
+resolves each role's own last close, every role is read at the execution role's bar. It refuses by name a binding that
+declares no bar timeframe (`SourceBindingDeclaresNoBarTimeframe`) and an execution label the binding declares no bar
+for, which therefore cannot be typed (`ExecutionTimeframeNotDeclared`); a declaration from another binding, or a member
+whose schedules at the frame all state another bar, is `DeclaredBarTimeframeMismatch`. One role with several
 timeframes cannot be constructed: a role has one label and a label has one declaration. Several timeframes in one
 Design are several roles, either under different labels of one binding, as the admitted joined-cut corpus below does,
 or under different bindings, such as one instrument's 1-hour and 1-day sources; this is the shape Strategy Factory

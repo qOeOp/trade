@@ -2071,9 +2071,15 @@ sealed 验收提议者：帧的 batch 指明它的 Source Binding fact，角色�
 必须逐字段陈述所声明的 cadence、anchor、clock、label 与 completion。角色标签、行标签与声明的 `row_timeframe` 都作为
 provenance 字符串比较：相等只确认角色读的正是这条声明所说的那些行，并不说明标签的含义。schedule 的 anchor identity 是
 `market-data.bar-schedule.anchor.v1\0 || anchor tag` 的 SHA-256，所以同一个 anchor 在每个 schedule 上含义相同；连续时
-钟无论 Instrument Master 写什么，都绑定为零的 calendar 与 session identity，交易日程时钟两者都绑定。该读按名拒绝没有
-声明任何 bar 周期的 binding（`SourceBindingDeclaresNoBarTimeframe`），并按名拒绝没有对应声明的角色标签、来自其他
-binding 的声明，以及在帧上所有 schedule 都陈述别的 bar 的成员（`DeclaredBarTimeframeMismatch`）。一个角色有多个周
+钟无论 Instrument Master 写什么，都绑定为零的 calendar 与 session identity，交易日程时钟两者都绑定。在 native Replay
+排程读中，行标签是执行角色的：Market Data 用 `execution_role_semantic_id_v1` 从请求的角色自行推出该角色，这是 Strategy
+Factory 的规则（`derive_execution_role_v2`）：universe Design 不声明 join，所以执行角色就是唯一读 BAR 收盘的那个角色。
+调用方不指名它。该读按名拒绝没有读收盘的角色的请求（`ExecutionRoleAbsent`）、读收盘的角色多于一个的请求
+（`ExecutionRoleAmbiguous`），以及另有 BAR 角色读不同标签的请求（`MoreThanOneRoleTimeframe`）：在 Strategy Factory 切片
+T2 为每个角色解析其自己的最近一次收盘之前，每个角色都按执行角色的 bar 读取。它按名拒绝没有声明任何 bar 周期的
+binding（`SourceBindingDeclaresNoBarTimeframe`），以及 binding 没有为其声明 bar、因而无法定型的执行标签
+（`ExecutionTimeframeNotDeclared`）；来自其他 binding 的声明，或在帧上所有 schedule 都陈述别的 bar 的成员，为
+`DeclaredBarTimeframeMismatch`。一个角色有多个周
 期无法构造：一个角色只有一个标签，一个标签只有一条声明。一个 Design 里的多个周期就是多个角色，或者在同一条 binding
 的不同标签下（如下面已准入的 joined-cut 语料），或者在不同 binding 下（例如同一品种的 1 小时源与 1 日源）；Strategy
 Factory 切片 T2 正是按这个形状为每个角色解析其最近一次收盘。声明是否符合市场，是 binding 作者的陈述，与 availability
