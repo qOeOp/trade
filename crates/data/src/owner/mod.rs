@@ -4,6 +4,7 @@
 use std::sync::Arc;
 use vibe_postgres_connect::{PgPoolOptionsExt, PostgresTls};
 
+pub mod backfill_job_v1;
 pub mod bar_schedule;
 pub mod calendar;
 pub mod decimal_rescale_v1;
