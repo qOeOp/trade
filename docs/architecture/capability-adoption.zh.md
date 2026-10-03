@@ -114,7 +114,7 @@ writer，Qualification 只读。
 ### 当前密封边界
 
 - `crates/deployment_attestation` → **Strategy Factory 部署验证。** 只在 executable 使用边界复用密封的固定策略 verifier。其 evidence 是 consumer 输入，不是部署权威或业务事实。
-- `crates/data/src/owner/store_admission` → **Market Data 私有 Deployment Store Admission 托管。** `CURRENT` 是面向固定 `rd-owner-api` consumer 的 fail-closed、非业务 PostgreSQL 准入和前后 revalidation seam。只有 Market Data 保留 raw receipt、measurement、credential、PIT、Source Binding 与 clock evidence，执行 current-head 校验并密封 `ResearchPitTerminal`；普通 consumer 只能获得 sealed terminal resolver。production resolver、signer、anti-rollback witness、credential resolver 与 direct measurer 保持 `UNAVAILABLE`。该私有 seam 不拥有业务事实或 deployment-service 权威；production write 与 trading 保持 `NOT_ADMITTED`。
+- `crates/data/src/owner/store_admission` → **Market Data 私有 Deployment Store Admission 托管。** `CURRENT` 是面向固定 `rd-owner-api` consumer 的 fail-closed、非业务 PostgreSQL 准入和前后 revalidation seam。只有 Market Data 保留 raw receipt、measurement、credential、PIT、Source Binding 与 clock evidence，执行 current-head 校验并密封 `ResearchPitTerminal`；普通 consumer 只能获得 sealed terminal resolver。其生产 custody store、signer、单机 anti-rollback mode、secret 文件 credential resolver 与 pinned-TLS direct measurer 从部署配置组成 `required` 那条缝。该私有 seam 不拥有业务事实或 deployment-service 权威；production write 与 trading 保持 `NOT_ADMITTED`。
 - `crates/observability` → **Observability 非权威边界。** 保留基于规范 Owner 记录的只读、可重建投影。它不拥有来源事实、command、retry、终态决策或交易权威。
 - `crates/execution_owner` → **Execution Owner adapter-binding custody。** `CURRENT` 是失败关闭的 PAPER adapter-binding
   规则及其带模拟账户开仓事实的 PostgreSQL custody；它没有 adapter 调用、订单、效果或 credential 面，LIVE binding 与交易仍为
@@ -153,8 +153,9 @@ writer，Qualification 只读。
 ### Deployment Store Admission
 
 - **CURRENT：** `crates/data/src/owner/store_admission` 将非业务 PostgreSQL admission 机制及其前后 revalidation
-  保留在 Market Data 私有边界内。`rd-owner-api` bootstrap 可以请求固定 admission；production resolver、signer、
-  witness、credential resolver 或 direct measurer 不可用时，在构造 repository 前 fail closed。准入后只有 Market
+  保留在 Market Data 私有边界内。`rd-owner-api` bootstrap 可以请求固定 admission；custody store、signer、
+  anti-rollback mode、credential resolver 或 direct measurer 中任一生产端口无法由其配置构建时，在构造 repository 前
+  fail closed。准入后只有 Market
   Data 读取并校验当前 PIT、Source Binding 与 clock head，再密封 `ResearchPitTerminal`；Strategy Factory 得不到
   raw receipt、capability、query、DTO 或 evidence accessor。通用 S3 catalog 仍只提供机制而非权威。
 - **TARGET：** 一个非业务 Deployment Store Admission Custodian 作为 Market Data 私有 seam，只拥有 signed append-only manifest/history、
@@ -170,9 +171,9 @@ writer，Qualification 只读。
   的授权见架构规则。restart
   或 cache loss 必须重复 signature/head verification 与 direct measurement；歧义不构造 Owner repository，也不
   触发 business retry。receipt 与 raw store evidence 保持私有；普通 consumer 首个可见值是 Market Data 密封的
-  `ResearchPitTerminal`。在独立的 production resolver、signer、witness、credential-resolver 与 direct-
-  measurement adapter 存在前，该默认产品入口保持 `UNAVAILABLE`。
-- **`ISOLATED_EVENT_REPLAY_ACCEPTANCE_V1` / TARGET：** 在上述生产 adapter 存在前，只有这个被显式选择、由
+  `ResearchPitTerminal`。该默认产品入口从部署配置组合其
+  独立的生产 custody store、signer、anti-rollback mode、credential resolver 与 direct measurer。
+- **`ISOLATED_EVENT_REPLAY_ACCEPTANCE_V1` / TARGET：** 只有这个被显式选择、由
   request 驱动的 profile 获准作为非默认动态验收拓扑。disposable PostgreSQL target 只有在收到 canonical management
   plane 预置、且位于 repository、candidate、caller、consumer 与被测进程之外的 immutable acceptance trust
   bundle 后才可准入；该 bundle 固定 acceptance environment、signer key fingerprint、witness、credential-

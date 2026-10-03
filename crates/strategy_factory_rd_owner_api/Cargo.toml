@@ -115,6 +115,12 @@ doc = false
 test = false
 
 [[bin]]
+name = "deployment-store-publication-author"
+path = "src/bin/deployment_store_publication_author.rs"
+doc = false
+test = false
+
+[[bin]]
 name = "deployment-store-publication-seal"
 path = "src/bin/deployment_store_publication_seal.rs"
 doc = false

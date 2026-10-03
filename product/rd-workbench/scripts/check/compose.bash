@@ -9,7 +9,9 @@ grep -Fq 'network_mode: none' "$compose_file"
 grep -Fq 'cap_drop:' "$compose_file"
 grep -Fq 'read_only: true' "$compose_file"
 grep -Fq 'profiles: ["authority-admin"]' "$compose_file"
-test "$(grep -c 'profiles: \["authority-admin"\]' "$compose_file")" -eq 3
+# Three for Product Edge and the Replay Policy Catalog, four for Deployment Store Admission's
+# administrator: postgres-tls-install, deployment-store-provision, and its author and publisher.
+test "$(grep -c 'profiles: \["authority-admin"\]' "$compose_file")" -eq 7
 grep -Fq 'product-edge-authority-bootstrap' "$package_dir/Dockerfile.owner"
 grep -Fq 'product-edge-routing-read-api' "$package_dir/Dockerfile.owner"
 
