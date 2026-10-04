@@ -453,10 +453,34 @@ run_deployment_store_grant_boot() {
 manifest_history=$ds_dir/manifest-history
 last_authoring=$ds_admin/authoring.last-published.json
 current_head=$(env_value DEPLOYMENT_STORE_EXPECTED_HEAD_IDENTITY)
-if [ -n "$current_head" ] && [ -f "$manifest_history" ] && [ -f "$last_authoring" ]; then
+if [ -n "$current_head" ]; then
   already_published=1
 else
   already_published=
+fi
+# A deployment published before this script tracked its own history (or one whose state
+# directory was lost) has a head in the env file but no `manifest_history` of its own. Seed it
+# with that head's own manifest identity, read from the store the custodian already holds it in,
+# so the next draft's `prior_manifest_identities` names it rather than starting over from an empty
+# list the custodian's publish_v1 would then refuse as a second genesis (HEAD_MISMATCH).
+if [ -n "$already_published" ] && [ ! -s "$manifest_history" ]; then
+  seeded_manifest_identity=$(psql_scalar "
+    SELECT h.manifest_identity
+    FROM deployment_store_custody_private.current_heads_v1 c
+    JOIN deployment_store_custody_private.heads_v1 h
+      ON h.environment_identity = c.environment_identity AND h.deployment_identity = c.deployment_identity
+     AND h.consumer_owner = c.consumer_owner AND h.consumer_identity = c.consumer_identity
+     AND h.backend = c.backend AND h.head_identity = c.head_identity
+    WHERE c.environment_identity = '$(env_value DEPLOYMENT_STORE_ENVIRONMENT_IDENTITY)'
+      AND c.deployment_identity = '$(env_value DEPLOYMENT_STORE_DEPLOYMENT_IDENTITY)'
+      AND c.consumer_owner = 'MARKET_DATA_OWNER_V1' AND c.consumer_identity = 'STRATEGY_FACTORY_RD_OWNER_API_V1'
+      AND c.backend = 'POSTGRESQL_V1' AND c.head_identity = '$current_head'")
+  if [ -z "$seeded_manifest_identity" ]; then
+    log "deployment-store-publish: the published head $current_head names no manifest the custody store holds"
+    exit 1
+  fi
+  printf '%s\n' "$seeded_manifest_identity" > "$manifest_history"
+  rm -f "$last_authoring"
 fi
 write_deployment_store_draft() {
   rm -f "$ds_admin/draft.json"
@@ -504,7 +528,7 @@ fi
 # `last_authoring`), so comparing the two with those two fields removed is exactly "did the store
 # change" and nothing else.
 measurement_changed=1
-if [ -n "$already_published" ] && python3 - "$ds_admin/authoring.json" "$last_authoring" << 'EOF'; then
+if [ -n "$already_published" ] && [ -f "$last_authoring" ] && python3 - "$ds_admin/authoring.json" "$last_authoring" << 'EOF'; then
 import json, sys
 varying = {"prior_manifest_identities", "expected_previous_head_identity"}
 documents = []
