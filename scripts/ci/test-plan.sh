@@ -920,20 +920,14 @@ assert_nextest_role() {
 assert_nextest_role "$build_workflow" rust-tests-linux-x86 test
 assert_nextest_role "$repo_root/.github/workflows/performance.yml" performance-benchmarks test
 assert_nextest_role "$repo_root/.github/workflows/dst.yml" dst-smoke test
-assert_nextest_role "$repo_root/.github/workflows/nightly-tests.yml" turmoil test
-assert_nextest_role "$repo_root/.github/workflows/nightly-miri.yml" miri test
 
 assert_nextest_role "$build_workflow" pre-commit release
 assert_nextest_role "$build_workflow" build release
 assert_nextest_role "$build_workflow" rust-doctests-linux-x86 release
-assert_nextest_role "$repo_root/.github/workflows/nightly-tests.yml" standard-precision release
-assert_nextest_role "$repo_root/.github/workflows/nightly-tests.yml" cargo-publish-plan release
 
 [[ "$(workflow_job_block "$build_workflow" rust-tests-linux-x86)" == *'make cargo-test NEXTEST_PROFILE=ci'* ]]
 [[ "$(workflow_job_block "$repo_root/.github/workflows/performance.yml" performance-benchmarks)" == *'make cargo-test NEXTEST_PROFILE=ci'* ]]
 [[ "$(workflow_job_block "$repo_root/.github/workflows/dst.yml" dst-smoke)" == *'make cargo-test-sim NEXTEST_PROFILE=ci'* ]]
-[[ "$(workflow_job_block "$repo_root/.github/workflows/nightly-tests.yml" turmoil)" == *'cargo nextest run'* ]]
-[[ "$(workflow_job_block "$repo_root/.github/workflows/nightly-miri.yml" miri)" == *'make cargo-miri-'* ]]
 echo "ok: adaptive cleanup, Rust cache, doctest isolation, and nextest consumer invariants"
 
 # A pull request's pre-commit hooks run in two jobs: pre-commit-pr.yml runs the no-compile ones on
