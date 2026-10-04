@@ -31,6 +31,8 @@ use vibe_data::owner::{
     universe_selection_admission_v1::UniverseSelectionAdmissionV1,
 };
 use vibe_product_edge::ProductEdgePostgresOwnerV1;
+#[cfg(feature = "composer-v3-replay")]
+use vibe_strategy_factory::source_research_composer_postgres_v2::PostgresSourceResearchComposerProductionV2;
 use vibe_strategy_factory::{
     backtest_run_dataset_ref_v1::BacktestRunDatasetRefV1,
     backtest_run_registry_postgres_v1::{
@@ -68,6 +70,8 @@ pub(crate) struct BacktestRunRoutesApiState {
     pub(crate) market_data_pit_intake: Option<Arc<dyn PitMarketSnapshotIntakeV1>>,
     pub(crate) market_semantics: Option<Arc<dyn MarketSemanticsAdmissionV1>>,
     pub(crate) custody_frames: Option<Arc<dyn PitWindowCustodyFramesV1>>,
+    #[cfg(feature = "composer-v3-replay")]
+    pub(crate) develop_composer: Option<Arc<PostgresSourceResearchComposerProductionV2>>,
     pub(crate) rd_pool: PgPool,
     pub(crate) request_proof_digest: String,
     pub(crate) token_digest: [u8; 32],
@@ -108,7 +112,24 @@ struct BacktestRunRequestBodyV1 {
 enum BacktestRunReplayStateV1 {
     CustodyFramesNotAvailable,
     CustodyFramesRefused,
+    #[cfg(not(feature = "composer-v3-replay"))]
     FramesResolvedNoConsumerYet,
+    #[cfg(feature = "composer-v3-replay")]
+    ComposerNotAvailable,
+    #[cfg(feature = "composer-v3-replay")]
+    ComposerBuildUnavailable,
+    #[cfg(feature = "composer-v3-replay")]
+    ComposerBuildRefused,
+    #[cfg(feature = "composer-v3-replay")]
+    ComposerArtifactLocatorUnavailable,
+    #[cfg(feature = "composer-v3-replay")]
+    TrialFamilyUnavailable,
+    #[cfg(feature = "composer-v3-replay")]
+    ReplayAdmissionFailed,
+    #[cfg(feature = "composer-v3-replay")]
+    ReplayCommitFailed,
+    #[cfg(feature = "composer-v3-replay")]
+    ReplayCommittedNoCustodyIssuanceYet,
 }
 
 #[derive(Debug, Serialize)]
@@ -130,9 +151,48 @@ fn reached_replay_body(reached: &BacktestRunReachedReplayV1) -> BacktestRunReach
             BacktestRunReplayStateV1::CustodyFramesRefused,
             Some(refusal.to_string()),
         ),
+        #[cfg(not(feature = "composer-v3-replay"))]
         BacktestRunReplayUnavailableV1::FramesResolvedNoConsumerYet(frames) => (
             BacktestRunReplayStateV1::FramesResolvedNoConsumerYet,
             Some(format!("{} frame(s)", frames.frames().len())),
+        ),
+        #[cfg(feature = "composer-v3-replay")]
+        BacktestRunReplayUnavailableV1::ComposerNotAvailable => {
+            (BacktestRunReplayStateV1::ComposerNotAvailable, None)
+        }
+        #[cfg(feature = "composer-v3-replay")]
+        BacktestRunReplayUnavailableV1::ComposerBuildUnavailable(detail) => (
+            BacktestRunReplayStateV1::ComposerBuildUnavailable,
+            Some(detail.clone()),
+        ),
+        #[cfg(feature = "composer-v3-replay")]
+        BacktestRunReplayUnavailableV1::ComposerBuildRefused(disposition) => (
+            BacktestRunReplayStateV1::ComposerBuildRefused,
+            Some(format!("{disposition:?}")),
+        ),
+        #[cfg(feature = "composer-v3-replay")]
+        BacktestRunReplayUnavailableV1::ComposerArtifactLocatorUnavailable(detail) => (
+            BacktestRunReplayStateV1::ComposerArtifactLocatorUnavailable,
+            Some(detail.clone()),
+        ),
+        #[cfg(feature = "composer-v3-replay")]
+        BacktestRunReplayUnavailableV1::TrialFamilyUnavailable => {
+            (BacktestRunReplayStateV1::TrialFamilyUnavailable, None)
+        }
+        #[cfg(feature = "composer-v3-replay")]
+        BacktestRunReplayUnavailableV1::ReplayAdmissionFailed(e) => (
+            BacktestRunReplayStateV1::ReplayAdmissionFailed,
+            Some(e.to_string()),
+        ),
+        #[cfg(feature = "composer-v3-replay")]
+        BacktestRunReplayUnavailableV1::ReplayCommitFailed(e) => (
+            BacktestRunReplayStateV1::ReplayCommitFailed,
+            Some(e.to_string()),
+        ),
+        #[cfg(feature = "composer-v3-replay")]
+        BacktestRunReplayUnavailableV1::ReplayCommittedNoCustodyIssuanceYet(result) => (
+            BacktestRunReplayStateV1::ReplayCommittedNoCustodyIssuanceYet,
+            Some(format!("{:?}", result.locator())),
         ),
     };
     BacktestRunReachedReplayBodyV1 {
@@ -226,6 +286,8 @@ async fn submit_backtest_run(
         market_semantics,
         rd_pool: state.rd_pool,
         custody_frames: state.custody_frames,
+        #[cfg(feature = "composer-v3-replay")]
+        develop_composer: state.develop_composer,
     };
     let backtest_request = BacktestRunRequestV1 {
         run_id: run_id.clone(),
