@@ -726,12 +726,21 @@ async fn postgres_a_custody_commits_once_and_a_resubmission_rejoins_without_writ
         .unwrap();
     second_close.value_mantissa = 650_001;
     second_close.value_scale = 1;
-    // The first bar's BTC HIGH is a 2021 BTCUSDT close at its own precision, 37244.36: finer than
-    // the instrument's tick today, and still a value.
-    let historical = first.cross_sections[0]
+    // That bar's BTC HIGH is 65000.10, so the bar stays one the custody intake admits (T0-8).
+    let second_high = first.cross_sections[1]
         .rows
         .iter_mut()
         .find(|row| row.instrument == BTC && row.field == "HIGH")
+        .unwrap();
+    second_high.value_mantissa = 6_500_010;
+    second_high.value_scale = 2;
+    // The first bar's BTC LOW is a 2021 BTCUSDT close at its own precision, 37244.36: finer than
+    // the instrument's tick today, and still a value. It is below the bar's other prices, so the
+    // bar stays one the custody intake admits (T0-8).
+    let historical = first.cross_sections[0]
+        .rows
+        .iter_mut()
+        .find(|row| row.instrument == BTC && row.field == "LOW")
         .unwrap();
     historical.value_mantissa = 3_724_436;
     historical.value_scale = 2;
