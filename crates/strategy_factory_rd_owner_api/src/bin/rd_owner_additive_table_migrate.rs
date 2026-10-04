@@ -20,7 +20,7 @@ async fn main() -> anyhow::Result<()> {
     require_no_arguments(std::env::args().skip(1))?;
     let owner_database_url = required_env("RD_OWNER_DATABASE_URL")?;
     let migrator_database_url = required_env("RD_SCHEMA_MIGRATOR_DATABASE_URL")?;
-    vibe_strategy_factory::strategy_catalog_postgres_v1::migrate_additively(
+    vibe_strategy_factory::rd_additive_public_tables::migrate_additively(
         &owner_database_url,
         &migrator_database_url,
     )

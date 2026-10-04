@@ -215,6 +215,246 @@ pub(crate) async fn assert_backtest_run_reaches_the_replay_step_v1(
             describe_error(&e)
         ),
     }
+
+    assert_backtest_runs_are_recorded_and_read_back_v1(
+        test_database,
+        &deployment
+            .connect_owner(product_edge_url)
+            .await
+            .expect("the deployment's Product Edge Owner opens"),
+        &deployment.request_proof_digest,
+        strategy_id,
+    )
+    .await;
+}
+
+const TOKEN: &str = "backtest-run-chain-entry-token";
+
+async fn call(
+    app: &axum::Router,
+    method: &str,
+    uri: &str,
+    token: Option<&str>,
+    body: Option<serde_json::Value>,
+) -> (axum::http::StatusCode, serde_json::Value, Vec<u8>) {
+    use tower::ServiceExt as _;
+
+    let mut request = axum::http::Request::builder().method(method).uri(uri);
+
+    if let Some(token) = token {
+        request = request.header("authorization", format!("Bearer {token}"));
+    }
+    let request = match body {
+        Some(body) => request
+            .header("content-type", "application/json")
+            .body(axum::body::Body::from(body.to_string())),
+        None => request.body(axum::body::Body::empty()),
+    }
+    .unwrap();
+    let response = app.clone().oneshot(request).await.unwrap();
+    let status = response.status();
+    let bytes = axum::body::to_bytes(response.into_body(), 1 << 20)
+        .await
+        .unwrap()
+        .to_vec();
+    let value = serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null);
+    (status, value, bytes)
+}
+
+/// The run route over HTTP with the backtest run registry: a run carried to its replay step is
+/// recorded once and read back as status, in the list and as a report that has no result yet; the
+/// same request answers the recorded bytes, another under its run id is refused, and a submission
+/// refused before its replay step records nothing.
+async fn assert_backtest_runs_are_recorded_and_read_back_v1(
+    test_database: &CanonicalOwnerPostgresTestDatabaseV1,
+    product_edge: &vibe_product_edge::ProductEdgePostgresOwnerV1,
+    request_proof_digest: &str,
+    strategy_id: vibe_strategy_factory::strategy_catalog_v1::StrategyIdentityV1,
+) {
+    use axum::http::StatusCode;
+    use serde_json::json;
+    use sha2::{Digest as _, Sha256};
+    use vibe_strategy_factory::backtest_run_registry_postgres_v1::PostgresBacktestRunRegistryV1;
+
+    let rd_url = test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner);
+    let state = crate::backtest_run_routes::BacktestRunRoutesApiState {
+        catalog: Arc::new(
+            PostgresStrategyCatalogV1::connect(rd_url)
+                .await
+                .expect("catalog"),
+        ),
+        registry: Arc::new(
+            PostgresBacktestRunRegistryV1::connect(rd_url)
+                .await
+                .expect("the backtest run registry opens"),
+        ),
+        product_edge: Arc::new(product_edge.clone()),
+        research: Arc::new(
+            PostgresResearchGoalOwnerV1::connect(
+                rd_url,
+                test_database.database_url(CanonicalOwnerTestRoleV1::QualificationWriter),
+            )
+            .await
+            .expect("the Research Owner opens"),
+        ),
+        bounded_feature_program: Arc::new(
+            PostgresResearchBoundedFeatureProgramOwnerV1::connect(rd_url)
+                .await
+                .expect("the Bounded Feature Program Owner opens"),
+        ),
+        strategy_input_bindings: Some(
+            strategy_input_binding_admission_from_environment_v1()
+                .await
+                .expect("the strategy input binding admission port opens"),
+        ),
+        market_data_universe_selection: Some(
+            universe_selection_admission_from_environment_v1()
+                .await
+                .expect("Market Data's Universe Selection admission opens"),
+        ),
+        market_data_pit_intake: Some(
+            pit_market_snapshot_intake_from_environment_v1(Arc::new(UniverseMemberDailyBarsV1))
+                .await
+                .expect("Market Data's PIT intake opens"),
+        ),
+        market_semantics: Some(
+            market_semantics_admission_from_environment_v1()
+                .await
+                .expect("Market Data's Market Semantics admission opens"),
+        ),
+        rd_pool: sqlx::postgres::PgPoolOptions::new()
+            .connect_url(rd_url, PostgresTls::Disabled)
+            .await
+            .expect("the R&D Owner pool opens"),
+        request_proof_digest: request_proof_digest.to_owned(),
+        token_digest: Sha256::digest(TOKEN.as_bytes()).into(),
+    };
+    let app = crate::backtest_run_routes::router(state);
+    // The chain's database outlives one run, so this run's id is its own.
+    let run_id = format!(
+        "backtest-run-chain-entry-http-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("after the epoch")
+            .as_nanos()
+    );
+    let request = |run_id: &str, window_end_ns_exclusive: u64| {
+        json!({
+            "run_id": run_id,
+            "strategy_id": strategy_id.to_string(),
+            "instrument": PERPETUAL_V1,
+            "execution_timeframe": "1d",
+            "window_start_ns": 0,
+            "window_end_ns_exclusive": window_end_ns_exclusive,
+            "custody_chain_root": BindingDigest::from_untrusted_bytes([0x5a; 32]),
+        })
+    };
+    let token = Some(TOKEN);
+
+    let (status, body, _) = call(&app, "GET", "/v1/backtests", None, None).await;
+    assert_eq!(
+        (status, body["code"].as_str()),
+        (StatusCode::FORBIDDEN, Some("UNAUTHORIZED_PRODUCT_EDGE"))
+    );
+
+    // Recorded once its orchestration reaches the replay step, and answered byte for byte again.
+    let (status, answer, answer_bytes) = call(
+        &app,
+        "POST",
+        "/v1/backtests",
+        token,
+        Some(request(&run_id, 86_400_000_000_000)),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{answer}");
+    assert_eq!(answer["replay_state"], "CUSTODY_FRAMES_NOT_AVAILABLE");
+    let (status, _, again) = call(
+        &app,
+        "POST",
+        "/v1/backtests",
+        token,
+        Some(request(&run_id, 86_400_000_000_000)),
+    )
+    .await;
+    assert_eq!((status, again), (StatusCode::OK, answer_bytes));
+    let (status, body, _) = call(
+        &app,
+        "POST",
+        "/v1/backtests",
+        token,
+        Some(request(&run_id, 2 * 86_400_000_000_000)),
+    )
+    .await;
+    assert_eq!(
+        (status, body["code"].as_str()),
+        (StatusCode::CONFLICT, Some("RUN_ID_CONFLICT"))
+    );
+
+    // Read back as status, in the list, and as a report that has no result yet.
+    let path = |suffix: &str| format!("/v1/backtests/{run_id}{suffix}");
+    let (status, run, _) = call(&app, "GET", &path(""), token, None).await;
+    assert_eq!(status, StatusCode::OK, "{run}");
+    assert_eq!(
+        (run["run_id"].as_str(), &run["answer"]),
+        (Some(run_id.as_str()), &answer)
+    );
+    assert_eq!(
+        run["request"]["window_end_ns_exclusive"],
+        86_400_000_000_000_u64
+    );
+    let (status, listed, _) = call(&app, "GET", "/v1/backtests?limit=500", token, None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        listed["runs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|listed| listed["run_id"] == run_id.as_str()),
+        "the run is listed"
+    );
+    let (status, body, _) = call(&app, "GET", "/v1/backtests?limit=0", token, None).await;
+    assert_eq!(
+        (status, body["code"].as_str()),
+        (
+            StatusCode::BAD_REQUEST,
+            Some("BACKTEST_RUN_LIST_LIMIT_OUT_OF_RANGE")
+        )
+    );
+    let (status, report, _) = call(&app, "GET", &path("/report"), token, None).await;
+    assert_eq!(
+        (status, report["code"].as_str(), &report["replay_state"]),
+        (
+            StatusCode::CONFLICT,
+            Some("RUN_HAS_NO_RESULT"),
+            &json!("CUSTODY_FRAMES_NOT_AVAILABLE")
+        )
+    );
+
+    // A submission refused before its replay step is not a run: it records nothing.
+    let refused = format!("{run_id}-unknown-strategy");
+    let mut unknown = request(&refused, 86_400_000_000_000);
+    unknown["strategy_id"] = json!(format!("sha256:{}", "ab".repeat(32)));
+    let (status, body, _) = call(&app, "POST", "/v1/backtests", token, Some(unknown)).await;
+    assert_eq!(
+        (status, body["code"].as_str()),
+        (StatusCode::NOT_FOUND, Some("STRATEGY_UNKNOWN"))
+    );
+
+    for suffix in ["", "/report"] {
+        let (status, body, _) = call(
+            &app,
+            "GET",
+            &format!("/v1/backtests/{refused}{suffix}"),
+            token,
+            None,
+        )
+        .await;
+        assert_eq!(
+            (status, body["code"].as_str()),
+            (StatusCode::NOT_FOUND, Some("RUN_UNKNOWN"))
+        );
+    }
 }
 
 fn describe_replay_reason(reason: &BacktestRunReplayUnavailableV1) -> String {

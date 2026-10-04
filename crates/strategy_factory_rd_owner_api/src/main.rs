@@ -520,6 +520,12 @@ async fn run() -> anyhow::Result<()> {
         )
         .await?,
     );
+    let backtest_run_registry = Arc::new(
+        vibe_strategy_factory::backtest_run_registry_postgres_v1::PostgresBacktestRunRegistryV1::connect(
+            &database_url,
+        )
+        .await?,
+    );
     let artifact_owner = Arc::new(
         PostgresArtifactBuildOwnerV1::connect(
             &database_url,
@@ -692,6 +698,7 @@ async fn run() -> anyhow::Result<()> {
         .merge(backtest_run_routes::router(
             backtest_run_routes::BacktestRunRoutesApiState {
                 catalog: strategy_catalog.clone(),
+                registry: backtest_run_registry,
                 product_edge: product_edge.clone(),
                 research: owner.clone(),
                 bounded_feature_program: bounded_feature_program_owner.clone(),
