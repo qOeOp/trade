@@ -1293,7 +1293,7 @@ pub(crate) mod report_test_support_v1 {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use rstest::rstest;
 
     use super::{
@@ -1804,6 +1804,16 @@ mod tests {
                 Err(BacktestRunReportRefusalV1::UniverseSelectionNotOneMember),
                 "{instruments:?}"
             );
+        }
+    }
+
+    /// A report projection over a real engine result, for the run report's own tests.
+    pub(crate) fn sample_projection_v1() -> BacktestRunReportProjectionV1 {
+        BacktestRunReportProjectionV1 {
+            run: run(),
+            strategy: strategy(),
+            data_window: data_window(),
+            result: project_engine_result_v1(&engine_bytes()).expect("result projection"),
         }
     }
 
