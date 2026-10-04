@@ -2380,8 +2380,32 @@ the 2R-from-fill variants. CSCV PBO over the five primary fractions 0.43: which 
   more breakouts, and smaller per-trade risk lowers weekly volatility. By side, deeper helps shorts (+0.19 at f = 0 to
   +0.27-0.29 at f >= 0.5) and not longs (+0.33 flat to 0.75, +0.27 at the far edge). Deeper limits also mean larger
   notional for the same R (risk 2-4% of price instead of 6.5%).
-- **Decision (registered criterion met):** f = 0.5 (the zone's middle, the plateau's centre) joins the forward record as
-  a paired variant R-1m; R-1u is unchanged. Development data only (survivor coins, 2018-2022); the holdout is not read.
+- **Decision (withdrawn, see the correction below):** f = 0.5 was to join the forward record as a paired variant R-1m;
+  R-1u is unchanged. Development data only (survivor coins, 2018-2022); the holdout is not read.
+
+### Correction (2026-10-04, found in S-1): the slot tie rule looked ahead inside the day
+
+When several of a coin's orders fill on the same day, every R-1 script gave the slot to the earliest-armed of them
+(`family_r.signals` sorts by fill day only; Z-1 by fill day, then arming bar). On a day that falls through several
+stacked levels, the order nearest price fills first and the earliest-armed one is usually deeper, so the rule picks
+the deeper fill knowing price reached it that day. Giving the slot to the order that fills first by the hour (what a
+resting book does) changes the R-1u numbers: the same 1h/1m walks give avg R +0.158 at f = 0 (win 39%, total R 779,
+weekly Sharpe 1.77) instead of +0.273. Every R-1u development figure built on that tie rule is overstated: the edge
++0.221 against controls, X-2's +0.270 base, the account CAGR. The forward record is not affected (it fills orders in
+real time), and the holdout magnitude stays sealed. Z-1 re-run with the hourly fill order
+(`loop/r1_zone_entry_fine.txt`):
+
+| f | trades | avg R | total R | weekly Sharpe | at 0.05% slippage: avg R / total / Sharpe |
+| --- | --- | --- | --- | --- | --- |
+| 0 (R-1u) | 4,932 | +0.158 | 779 | 1.77 | +0.152 / 752 / 1.71 |
+| 0.25 | 5,828 | +0.144 | 839 | 1.83 | +0.137 / 800 / 1.74 |
+| 0.50 | 6,513 | +0.141 | 918 | 2.00 | +0.132 / 863 / 1.87 |
+| 0.75 | 6,899 | +0.132 | 912 | 2.03 | +0.121 / 837 / 1.85 |
+| 1.00 | 7,112 | +0.123 | 875 | 1.87 | +0.108 / 765 / 1.62 |
+
+CSCV PBO 0.88. Per trade, deeper is now slightly worse; total R and Sharpe still edge up through 0.75 because of
+count, but by about 0.1-0.2 Sharpe, and the in-sample ranking does not hold out of sample. The earlier plateau was
+mostly the tie rule. Z-1's decision is withdrawn: no zone fraction is adopted or added to the forward record.
 
 ## Loop S-1: choosing among R-1 orders (registered 2026-10-04, before running; the user's question)
 
@@ -2418,6 +2442,38 @@ the 2R-from-fill variants. CSCV PBO over the five primary fractions 0.43: which 
 - **Reported:** trades, avg R, total R, weekly Sharpe, by year, and the 5-slot account of S-1 over 2018-2022.
   Development data; S-2 is exploratory because its hypothesis came from looking at the same data, so a winner goes to
   the forward record as a paired variant, never into R-1 directly.
+
+### Loop S-1 result (2026-10-04; `loop/r1_select.txt`)
+
+Iteration gate fails for both placements. 18,762 filled orders at f = 0 and 16,126 at f = 0.5 (each walked alone; avg
+R +0.09 and +0.08, far below the slotted R-1 average, which exposed the tie-rule look-ahead above). Walk-forward ridge
+score, test years 2020-2022: f = 0 top minus bottom tercile +0.039 [-0.170, +0.240], top minus all -0.003; f = 0.5
++0.051 [-0.128, +0.230], +0.011; the sign flips by year (2021 positive, 2020 and 2022 negative). Univariate terciles
+on 2018-2019 show no stable feature, Ronnie's room-to-target included. In the 5-slot account, filtering by the score
+did no better than a random filter with the same pass rate (f = 0: total R 167 vs 174 [110, 236]; f = 0.5: 263 vs 286
+[205, 350]), and both did worse than taking every order. Exploratory, not registered: in that account f = 0.5 beat
+f = 0 (every order: total R 398 vs 153, Sharpe 2.28 vs 1.13, 2020-2022).
+
+### Loop S-2 result (2026-10-04; `loop/r1_level_pick.txt`)
+
+The lead does not survive as a policy: placing every armed order beats placing one level per breakout.
+
+| f | policy | trades | avg R | total R | weekly Sharpe | 5-slot account: total R / Sharpe / max DD |
+| --- | --- | --- | --- | --- | --- | --- |
+| 0 | all (R-1) | 4,932 | +0.148 | 730 | 1.57 | 211 / 1.10 / -46R |
+| 0 | nearest | 4,423 | +0.088 | 391 | 0.96 | 189 / 1.08 / -45R |
+| 0 | deepest | 3,663 | +0.059 | 216 | 0.65 | 128 / 0.84 / -33R |
+| 0 | single-pivot candles | 1,496 | +0.040 | 60 | 0.38 | 87 / 0.70 / -31R |
+| 0.5 | all | 6,527 | +0.126 | 821 | 1.68 | 438 / 1.88 / -38R |
+| 0.5 | nearest | 5,167 | +0.057 | 295 | 0.80 | 193 / 0.87 / -64R |
+| 0.5 | deepest | 3,676 | +0.038 | 138 | 0.48 | 76 / 0.42 / -73R |
+| 0.5 | single-pivot candles | 1,435 | -0.007 | -10 | 0.05 | -8 / -0.06 / -52R |
+
+The S-1 split (single-pivot candles +0.35, deepest +0.32, nearest -0.11) came from conditioning on how many orders
+filled: a candle whose deep order filled is one where price came all the way back. With unfilled orders counted, every
+one-level policy loses to the full book, whose first fill is the right trade more often than any level chosen in
+advance. The capacity-constrained account again favours f = 0.5 (438 vs 211 total R, Sharpe 1.88 vs 1.10), the
+second time on the same data (S-1 had 398 vs 153); this is exploratory and is the one lead worth a registered test.
 
 ## Loop X-2: dynamic exits after +1R on R-1u (registered 2026-10-03, before running; the user's question)
 

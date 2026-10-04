@@ -334,3 +334,10 @@ Input for the product's R&D system. Each note: what happened, why it matters, a 
     1m-resolved bars. Note 60's rule had been written for exits but applies to any entry that tightens the stop.
     Proposal: the scorer reports the share of trades whose fill bar also reaches the stop or the target, and refuses a
     daily-bar verdict when that share differs by more than a few points between the variants it compares.
+63. **The fill-order fix (note 57) stopped at the day.** It gave a coin's slot to the first fill by day, then broke
+    same-day ties by arming order, which on daily bars quietly picks the deeper order on days that cut through several
+    levels: the rule knew price got there. R-1u's avg R fell from +0.27 to +0.16 when ties were broken by the hour.
+    The 4,300-trade headline, X-2, the account figures and Z-1's first verdict all carried it, and the user saw them.
+    Found only because S-1 walked every order on its own and the average did not match. Proposal: any slot or
+    capacity rule is simulated at the finest bars available, and the R-1 headline is recomputed whenever its
+    simulation changes; a "tie rule" sensitivity on coarse bars is not evidence the tie does not matter.

@@ -1,0 +1,9 @@
+S-2: which broken level to trade per breakout candle; one slot per coin by first fill (hour); 1h/1m walks, 0.05% stop slippage
+  f 0.0 all     : n 4932, win 39%, avg R +0.148, total R 730, weekly Sharpe 1.57; by year 2018 -0.26, 2019 +0.14, 2020 +0.17, 2021 +0.20, 2022 +0.11 | 5-slot account: 1675 trades, total R 211, Sharpe 1.10, max DD -46R
+  f 0.0 nearest : n 4423, win 37%, avg R +0.088, total R 391, weekly Sharpe 0.96; by year 2018 -0.19, 2019 +0.16, 2020 +0.05, 2021 +0.18, 2022 +0.04 | 5-slot account: 1631 trades, total R 189, Sharpe 1.08, max DD -45R
+  f 0.0 deepest : n 3663, win 36%, avg R +0.059, total R 216, weekly Sharpe 0.65; by year 2018 -0.27, 2019 +0.00, 2020 +0.06, 2021 +0.15, 2022 +0.02 | 5-slot account: 1429 trades, total R 128, Sharpe 0.84, max DD -33R
+  f 0.0 single  : n 1496, win 36%, avg R +0.040, total R 60, weekly Sharpe 0.38; by year 2018 -0.24, 2019 +0.01, 2020 +0.13, 2021 +0.13, 2022 -0.05 | 5-slot account: 931 trades, total R 87, Sharpe 0.70, max DD -31R
+  f 0.5 all     : n 6527, win 39%, avg R +0.126, total R 821, weekly Sharpe 1.68; by year 2018 -0.29, 2019 +0.07, 2020 +0.10, 2021 +0.18, 2022 +0.13 | 5-slot account: 3167 trades, total R 438, Sharpe 1.88, max DD -38R
+  f 0.5 nearest : n 5167, win 37%, avg R +0.057, total R 295, weekly Sharpe 0.80; by year 2018 -0.34, 2019 +0.03, 2020 -0.01, 2021 +0.12, 2022 +0.07 | 5-slot account: 3077 trades, total R 193, Sharpe 0.87, max DD -64R
+  f 0.5 deepest : n 3676, win 36%, avg R +0.038, total R 138, weekly Sharpe 0.48; by year 2018 -0.36, 2019 -0.12, 2020 +0.06, 2021 +0.09, 2022 +0.04 | 5-slot account: 2102 trades, total R 76, Sharpe 0.42, max DD -73R
+  f 0.5 single  : n 1435, win 34%, avg R -0.007, total R -10, weekly Sharpe 0.05; by year 2018 -0.58, 2019 -0.10, 2020 +0.03, 2021 +0.06, 2022 -0.03 | 5-slot account: 1225 trades, total R -8, Sharpe -0.06, max DD -52R

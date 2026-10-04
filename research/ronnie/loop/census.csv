@@ -173,3 +173,4 @@ logged_at,loop,candidate,stage,n,edge,lo,hi,passed,note
 2026-10-03T04:39:29+00:00,X-2 1h,R-1 dynamic exits,iteration,5322,+nan,+nan,+nan,False,1h-ordered; see r1_dynexit_1h.txt
 2026-10-04T01:50:22+00:00,Z-1,R-1 zone-fraction entries,iteration,43745,+nan,+nan,+nan,False,five fractions + fixed-target variants; see r1_zone_entry.txt
 2026-10-04T02:52:44+00:00,S-1,R-1 order selection,iteration,34888,+nan,+nan,+nan,False,see r1_select.txt
+2026-10-04T02:55:27+00:00,S-2,R-1 level pick per breakout,exploratory,31319,+nan,+nan,+nan,False,see r1_level_pick.txt
