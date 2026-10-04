@@ -35,6 +35,8 @@ pub(crate) mod authority;
 pub(crate) mod chain_records;
 pub(crate) mod quote_cut;
 pub(crate) mod schedule;
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+pub mod sealed_acceptance;
 pub(crate) mod view;
 
 /// The most members one custody holds, as the frame evidence and the native resolver do.

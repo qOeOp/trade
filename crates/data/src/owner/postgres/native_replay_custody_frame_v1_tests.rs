@@ -571,3 +571,146 @@ async fn postgres_without_a_derived_quote_cut_a_custody_frame_is_refused_not_inv
         Err(NativeReplaySchedulingErrorV1::FrameSourceMismatch)
     );
 }
+
+/// The acceptance quote source states, for each gap it is asked about, every member's best bid and
+/// offer at `d_k + after_d_k`.
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+fn stated_quote(
+    after_d_k: Option<u64>,
+) -> impl Fn(
+    &crate::owner::pit_window_custody_v1::sealed_acceptance::SealedAcceptanceCustodyQuoteGapV1,
+) -> Option<
+    crate::owner::pit_window_custody_v1::sealed_acceptance::SealedAcceptanceCustodyQuoteCutV1,
+> + Send
++ Sync
++ 'static {
+    use crate::owner::pit_window_custody_v1::sealed_acceptance::{
+        SealedAcceptanceCustodyQuoteCutV1, SealedAcceptanceCustodyQuoteRowV1,
+        SealedAcceptanceQuoteFieldV1 as Field,
+    };
+
+    move |gap| {
+        let after_d_k = after_d_k?;
+        let rows = gap
+            .members()
+            .iter()
+            .flat_map(|member| {
+                [
+                    (Field::BidPrice, 6_500_101, 2),
+                    (Field::AskPrice, 6_500_103, 2),
+                    (Field::BidSize, 15, 0),
+                    (Field::AskSize, 17, 0),
+                ]
+                .into_iter()
+                .map(
+                    |(field, value_mantissa, value_scale)| SealedAcceptanceCustodyQuoteRowV1 {
+                        instrument: member.clone(),
+                        field,
+                        value_mantissa,
+                        value_scale,
+                    },
+                )
+            })
+            .collect();
+        Some(SealedAcceptanceCustodyQuoteCutV1 {
+            instant_ns: gap.decision_cut_ns() + after_d_k,
+            derivation: QuoteDerivationV1::ObservedBbo,
+            rows,
+        })
+    }
+}
+
+/// The sealed acceptance custody frame resolver reads a custody frame with the Quotes its source
+/// states for the gap, through the custody quote cut seal: an in-gap quote resolves the same frame
+/// the pool read resolves with an injected one, while a quote at `d_k`, a quote at the gap's bound
+/// and no quote at all are each refused as production refuses a missing quote cut. It reads no
+/// snapshot frame.
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+#[tokio::test]
+#[ignore = "requires a disposable Market Data PostgreSQL database"]
+async fn postgres_the_sealed_acceptance_custody_resolver_reads_a_frame_with_its_stated_quotes() {
+    let owner = owner().await;
+    let binding = commit_binding(&owner, "binance/um/klines", 1, Some(after_close(false))).await;
+    admit_members(&owner, &binding).await;
+    let universe = universe(&owner, &binding, 10, None).await;
+    let intake = owner.pit_window_custody_commit_v1();
+    let receipt = commit(&intake, stating_bar(request(&binding, universe), BAR))
+        .await
+        .expect("the custody");
+    let frame = frame_at(&receipt, receipt.custody_identity(), WINDOW_START + DAY);
+    let (request, injected) = custody_frame(&owner, frame, WINDOW_START + 3 * DAY).await;
+    let injected = injected.expect("the pool read resolves the frame with an injected quote cut");
+    let owner_url = std::env::var("MARKET_DATA_OWNER_TEST_DATABASE_URL")
+        .expect("explicit disposable Owner URL");
+    let resolver = |after_d_k| {
+        crate::owner::native_replay_custody_frame_resolver_for_sealed_acceptance_v1(
+            &owner_url,
+            stated_quote(after_d_k),
+        )
+        .expect("a disposable Owner URL opens the resolver")
+    };
+
+    let resolved = resolver(Some(1))
+        .resolve_native_replay_custody_frame_inputs_v1(&request)
+        .await
+        .expect("an in-gap quote resolves the frame");
+    assert_eq!(resolved.universe_frame(), injected.universe_frame());
+    assert_eq!(resolved.source(), injected.source());
+    let (_, scheduling) = resolved
+        .into_execution_parts()
+        .expect("the frame seals its native schedule");
+    let (_, injected_scheduling) = injected.into_execution_parts().unwrap();
+    assert_eq!(
+        scheduling.member_instruments(),
+        injected_scheduling.member_instruments()
+    );
+
+    let view = owner.resolve_pit_window_view_v1(&frame).await.unwrap();
+    let gap = view.selection.next_event_ns - view.selection.decision_cut_ns;
+
+    for (after_d_k, case) in [
+        (Some(0), "a quote at d_k is not after it"),
+        (Some(gap), "a quote at the gap's bound is not inside it"),
+        (None, "a gap the source states nothing for has no quote cut"),
+    ] {
+        assert_eq!(
+            resolver(after_d_k)
+                .resolve_native_replay_custody_frame_inputs_v1(&request)
+                .await
+                .map(|_| ()),
+            Err(NativeReplaySchedulingErrorV1::EventOrderUnavailable),
+            "{case}"
+        );
+    }
+
+    let snapshot = request.for_frame(d(12), d(13), WINDOW_START + DAY);
+    assert_eq!(
+        resolver(Some(1))
+            .resolve_native_replay_initial_market_inputs_v1(&snapshot)
+            .await
+            .map(|_| ()),
+        Err(NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable),
+        "a custody frame resolver reads no snapshot frame"
+    );
+}
+
+/// The sealed acceptance custody resolver opens only on a disposable loopback `vibe_test_`
+/// database.
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+#[rstest::rstest]
+#[case::empty("")]
+#[case::a_remote_host("postgresql://owner@db.example/vibe_test_decoy")]
+#[case::a_hostaddr_override("postgresql://owner@127.0.0.1/vibe_test_decoy?hostaddr=192.0.2.1")]
+#[case::not_disposable("postgresql://owner@127.0.0.1/market_data")]
+fn the_sealed_acceptance_custody_resolver_opens_only_on_a_disposable_database(#[case] url: &str) {
+    let refused = crate::owner::native_replay_custody_frame_resolver_for_sealed_acceptance_v1(
+        url,
+        stated_quote(Some(1)),
+    )
+    .map(|_| ())
+    .unwrap_err();
+    assert_eq!(
+        refused.failure(),
+        crate::owner::ResearchPitTerminalBootstrapFailure::InvalidIdentity
+    );
+}
