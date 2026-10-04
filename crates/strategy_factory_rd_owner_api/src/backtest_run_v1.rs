@@ -9,11 +9,11 @@
 //! a second one.
 //!
 //! The replay step is injected the same way the native Replay scheduling resolver already is
-//! elsewhere in this crate: nothing implements Market Data's T0-5 derived view
-//! (`PitWindowCustodyFramesV1`) yet, so a caller that does not supply one is answered
-//! `CustodyFramesNotAvailable` by name, not a panic or a silent gap. This keeps the orchestration
-//! driven today, up to the exact point the dependency is missing, rather than structurally
-//! complete and never exercised.
+//! elsewhere in this crate: the custody frames port
+//! (`vibe_data::owner::pit_window_custody_v1::PitWindowCustodyFramesV1`) is opened once at
+//! startup from `pit_window_custody_frames_from_store_admission_environment_v1` and threaded into
+//! this route's state. A caller that still receives `None` (store admission unavailable in that
+//! deployment) is answered `CustodyFramesNotAvailable` by name, not a panic or a silent gap.
 
 use std::sync::Arc;
 

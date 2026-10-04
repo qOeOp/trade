@@ -322,6 +322,10 @@ async fn assert_backtest_runs_are_recorded_and_read_back_v1(
                 .await
                 .expect("Market Data's Market Semantics admission opens"),
         ),
+        // This entry's fixture binds a PIT snapshot, not a custody run, so the orchestration
+        // never reaches the custody frames step; the asserted refusal is CustodyFramesNotAvailable
+        // regardless of this value.
+        custody_frames: None,
         rd_pool: sqlx::postgres::PgPoolOptions::new()
             .connect_url(rd_url, PostgresTls::Disabled)
             .await

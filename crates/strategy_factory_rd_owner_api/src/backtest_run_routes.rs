@@ -25,7 +25,8 @@ use sqlx::PgPool;
 use vibe_data::owner::{
     market_semantics_admission_v1::MarketSemanticsAdmissionV1,
     pit_market_snapshot_intake_v1::PitMarketSnapshotIntakeV1,
-    pit_window_custody_v1::UntrustedPitWindowCustodyClaimV1, source_binding::BindingDigest,
+    pit_window_custody_v1::{PitWindowCustodyFramesV1, UntrustedPitWindowCustodyClaimV1},
+    source_binding::BindingDigest,
     strategy_input_binding_admission_v1::StrategyInputBindingAdmissionV1,
     universe_selection_admission_v1::UniverseSelectionAdmissionV1,
 };
@@ -66,6 +67,7 @@ pub(crate) struct BacktestRunRoutesApiState {
     pub(crate) market_data_universe_selection: Option<Arc<dyn UniverseSelectionAdmissionV1>>,
     pub(crate) market_data_pit_intake: Option<Arc<dyn PitMarketSnapshotIntakeV1>>,
     pub(crate) market_semantics: Option<Arc<dyn MarketSemanticsAdmissionV1>>,
+    pub(crate) custody_frames: Option<Arc<dyn PitWindowCustodyFramesV1>>,
     pub(crate) rd_pool: PgPool,
     pub(crate) request_proof_digest: String,
     pub(crate) token_digest: [u8; 32],
@@ -223,8 +225,7 @@ async fn submit_backtest_run(
         market_data_initial_pit: MarketDataInitialPitPortsV1::new(universe_selection, pit_intake),
         market_semantics,
         rd_pool: state.rd_pool,
-        // Nothing implements Market Data's T0-5 derived view yet; see this module's own doc.
-        custody_frames: None,
+        custody_frames: state.custody_frames,
     };
     let backtest_request = BacktestRunRequestV1 {
         run_id: run_id.clone(),

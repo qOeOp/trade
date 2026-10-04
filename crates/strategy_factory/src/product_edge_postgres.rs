@@ -84,6 +84,7 @@ use vibe_data::owner::{
     instrument_economic_terms_postgres_v1::InstrumentEconomicTermsPostgresOwnerV1,
     instrument_master_v2_postgres::InstrumentMasterV2PostgresOwner,
     native_replay_scheduling_v1::NativeReplaySchedulingResolverV1,
+    pit_window_custody_v1::PitWindowCustodyFramesV1,
 };
 use vibe_model::identifiers::StrategyId;
 
@@ -2456,6 +2457,7 @@ impl PostgresResearchGoalOwnerV1 {
         instrument_terms_owner: &InstrumentEconomicTermsPostgresOwnerV1,
         market_data: &R,
         sample_projections: &UniverseSampleProjectionOwnerV1,
+        custody_frames: Option<&dyn PitWindowCustodyFramesV1>,
         strategy_id: StrategyId,
         run_id: String,
     ) -> Result<
@@ -2479,7 +2481,7 @@ impl PostgresResearchGoalOwnerV1 {
             instrument_terms_owner,
             market_data,
             sample_projections,
-            None,
+            custody_frames,
             strategy_id,
             run_id,
         )

@@ -142,6 +142,8 @@ async fn assert_the_production_preparation_executes_one_member_one_frame(
         owners.instrument_terms.clone(),
         owners.market_data.clone(),
         owners.sample_projections.clone(),
+        // F stays the single-frame snapshot path's own regression test, unaffected by T1.
+        None,
     );
     let attempt = OpaqueIdentityV2::try_from(FIRST_COMPOSER_V3_REPLAY_ATTEMPT_V1.to_owned())
         .expect("the body's attempt identity is opaque");
@@ -242,6 +244,8 @@ async fn run_over_http(
         owners.instrument_terms.clone(),
         owners.market_data.clone(),
         owners.sample_projections.clone(),
+        // F stays the single-frame snapshot path's own regression test, unaffected by T1.
+        None,
     )
     .await
     .expect("the production execution service opens");
