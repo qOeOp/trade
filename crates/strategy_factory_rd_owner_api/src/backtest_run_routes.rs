@@ -45,11 +45,11 @@ use vibe_strategy_factory::{
     strategy_catalog_v1::StrategyIdentityV1,
 };
 
-use super::{authorized, hex_digest};
 use crate::backtest_run_v1::{
     BacktestRunErrorV1, BacktestRunOwnersV1, BacktestRunReachedReplayV1,
     BacktestRunReplayUnavailableV1, BacktestRunRequestV1, run_backtest_v1,
 };
+use crate::server::{authorized, hex_digest};
 
 /// Everything the route needs, parallel to [`BacktestRunOwnersV1`] but with the Market-Data-
 /// sourced pieces `Option`, matching the rest of this crate's convention of answering

@@ -72,7 +72,7 @@ use vibe_data::owner::{
     },
 };
 
-use super::{authorized, insert_rejection_code};
+use crate::server::{authorized, insert_rejection_code};
 
 /// One submission and the evaluated Universe Selection Record it is bound to.
 ///

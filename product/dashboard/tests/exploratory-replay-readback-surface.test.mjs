@@ -25,7 +25,12 @@ test("Backtest route renders one compact exact Replay request and result workben
     readFile(new URL("../app/(dashboard)/[...route]/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../components/exploratory-replay-readback-workbench.module.css", import.meta.url), "utf8"),
     readFile(new URL("../../../crates/strategy_factory_rd_owner_api/src/exploratory_replay.rs", import.meta.url), "utf8"),
-    readFile(new URL("../../../crates/strategy_factory_rd_owner_api/src/main.rs", import.meta.url), "utf8"),
+    // The Owner API's composition and the tests that drive it, as the one file they were before.
+    Promise.all(
+      ["server.rs", "tests.rs"].map((name) =>
+        readFile(new URL(`../../../crates/strategy_factory_rd_owner_api/src/${name}`, import.meta.url), "utf8"),
+      ),
+    ).then((parts) => parts.join("\n")),
     readFile(new URL("../../../crates/strategy_factory_rd_owner_api/src/dashboard_read_api.rs", import.meta.url), "utf8"),
   ]);
   assert.equal(maturityFor("/backtest"), "DRAWABLE_EXACT");
@@ -314,7 +319,8 @@ test("Replay request contract is bonded to the workbench and the Owner routes it
   });
   const code = await sources([
     "components/exploratory-replay-readback-workbench.tsx", "components/ui/iconography.ts",
-    "lib/exploratory-replay-readback-client.ts", "../../crates/strategy_factory_rd_owner_api/src/main.rs",
+    "lib/exploratory-replay-readback-client.ts", "../../crates/strategy_factory_rd_owner_api/src/server.rs",
+    "../../crates/strategy_factory_rd_owner_api/src/tests.rs",
     "lib/exploratory-replay-result-directory-gateway.ts",
   ]);
   expectRoute(section, "/backtest", "Replay readback");

@@ -204,7 +204,7 @@
 - **CURRENT - 有一条只读操作只能经由写 API 触达：** Dashboard 的操作登记表声明了十一条 Owner 路由，
   其中十条是 `GET`。第十一条 `research_goal.legacy_quarantine_read.v1` 声明 `effect_set: []`，
   解析到 `POST /v1/research-goals/{request_identity}/resolve`，它注册在
-  `crates/strategy_factory_rd_owner_api/src/main.rs` 里，而读 API 那个二进制里没有它。
+  `crates/strategy_factory_rd_owner_api/src/server.rs` 里，而读 API 那个二进制里没有它。
   空效果集是准确的：该处理函数忽略自己的请求体，它的三条路径
   `resolve_legacy_quarantined_v1`、`resolve_admission` 与 `resolve_historical_v1` 全部只读，
   取的是 `FOR SHARE` 而不是 `FOR UPDATE`，也不发出任何 `INSERT`、`UPDATE` 或 `DELETE`。
@@ -236,7 +236,7 @@
   `cfg` 属性，所以部署构建携带它，解析一次已提交的 Composer 操作不需要任何 acceptance feature。
   它证明该读取能解析同一事务提交的东西；它不证明有序链路之外存在任何消费方。
 - **TARGET - PIT 输入缝已接线但惰性：** `rd.md` 陈述 Market Data 为每个 PIT Market Snapshot Request
-  返回一份封缄的 `ResearchPitTerminal`。`crates/strategy_factory_rd_owner_api/src/main.rs` 导入了
+  返回一份封缄的 `ResearchPitTerminal`。`crates/strategy_factory_rd_owner_api/src/server.rs` 导入了
   `ResearchPitTerminalResolver`，声明了 `_market_data_research_pit` 并在构造时赋值，
   然后从不读它，下划线是唯一的现场标记，而 `crates/data` 之外没有任何一处调用该解析器的 trait 方法。
   该解析器还是可选的：`bootstrap_deployment_store_admission` 返回 `Option`，

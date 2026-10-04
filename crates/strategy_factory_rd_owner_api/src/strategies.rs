@@ -28,7 +28,7 @@ use vibe_strategy_factory::{
     },
 };
 
-use super::{authorized, insert_rejection_code};
+use crate::server::{authorized, insert_rejection_code};
 
 /// The catalog operations these routes need, so their wire contract is testable without a store.
 #[async_trait]
