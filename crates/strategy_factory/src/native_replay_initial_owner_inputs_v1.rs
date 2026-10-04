@@ -8,12 +8,16 @@ use vibe_data::owner::{
         NativeReplayInitialUniverseRoleV1, NativeReplaySchedulingErrorV1,
         NativeReplaySchedulingResolverV1,
     },
+    pit_window_custody_v1::{
+        PitWindowChainBasisV1, UntrustedPitWindowCustodyClaimV1, UntrustedPitWindowCustodyFrameV1,
+    },
     source_binding::BindingDigest,
     strategy_input_binding::{MarketDataFieldSemantic, StrategyInputChannel, StrategyInputUnit},
 };
 use vibe_model::identifiers::InstrumentId;
 
 use crate::{
+    native_replay_execution_input_binding_v1::ReplayCustodyRunBindingV1,
     native_replay_preparation_inputs_v2::NativeReplayPreparationInputsV2,
     strategy_design_v2::{InputFactClassV2, InputScopeV2},
     strategy_plan_v2::{StrategyPlanV2, strategy_input_role_identity_v2},
@@ -63,6 +67,68 @@ pub(crate) async fn resolve_native_replay_initial_owner_inputs_v1<R>(
 where
     R: NativeReplaySchedulingResolverV1 + ?Sized,
 {
+    let parts = native_replay_request_parts_v1(preparation, plan, instrument_master)?;
+    let replay = preparation.replay().request().as_dto();
+    let snapshot_identity = parse_sha256(
+        replay.pit_snapshot.identity.as_str(),
+        "PIT snapshot identity",
+    )?;
+    let snapshot_fact_digest =
+        parse_sha256(replay.pit_snapshot.digest.as_str(), "PIT snapshot digest")?;
+    let request = NativeReplayInitialMarketRequestV1::new(
+        BindingDigest::from_untrusted_bytes(snapshot_identity),
+        BindingDigest::from_untrusted_bytes(snapshot_fact_digest),
+        parts.research_request_identity,
+        parts.strategy_design_identity,
+        parts.universe_selection_identity,
+        parts.universe_selection_digest,
+        parts.universe_selection_record_identity,
+        parts.universe_selection_record_digest,
+        parts.instrument_master_digest,
+        parts.source_binding_lineage_root,
+        parts.market_semantics_identity,
+        parts.roles,
+        parts.member_instruments,
+        parts.window_start_ns,
+        parts.window_end_ns_exclusive,
+    );
+    // The request leaves with the readback it produced, by value, in one move. A later caller
+    // needing the request to resolve the window's whole frame sequence takes it from here rather
+    // than rebuilding an equivalent one, because "equivalent" would be a proposition with no
+    // prover, and reading it back a second time is the same fault the sequence resolver exists to
+    // prevent. Pairing them in one return makes that correspondence hold by construction instead
+    // of by a check somebody has to remember to run.
+    let readback = resolver
+        .resolve_native_replay_initial_market_inputs_v1(&request)
+        .await?;
+    Ok((request, readback))
+}
+
+/// Everything a native Replay frame request names besides the frame it reads: the Research and
+/// Design, the Plan's universe selection and the Replay's Universe Selection Record, the Owner
+/// cuts, the roles and the members, and the Replay's window. A snapshot request and a custody
+/// frame request are built from the same parts, so the two cannot name different runs.
+struct NativeReplayRequestPartsV1 {
+    research_request_identity: BindingDigest,
+    strategy_design_identity: BindingDigest,
+    universe_selection_identity: BindingDigest,
+    universe_selection_digest: BindingDigest,
+    universe_selection_record_identity: BindingDigest,
+    universe_selection_record_digest: BindingDigest,
+    instrument_master_digest: BindingDigest,
+    source_binding_lineage_root: BindingDigest,
+    market_semantics_identity: BindingDigest,
+    roles: Vec<NativeReplayInitialUniverseRoleV1>,
+    member_instruments: Vec<InstrumentId>,
+    window_start_ns: u64,
+    window_end_ns_exclusive: u64,
+}
+
+fn native_replay_request_parts_v1(
+    preparation: &NativeReplayPreparationInputsV2,
+    plan: &StrategyPlanV2,
+    instrument_master: &InstrumentMasterReadbackV2,
+) -> Result<NativeReplayRequestPartsV1, NativeReplayInitialOwnerInputsErrorV1> {
     let replay = preparation.replay().request().as_dto();
     let selection = plan
         .universe_selection()
@@ -79,12 +145,6 @@ where
         replay.universe_selection.digest.as_str(),
         "universe selection digest",
     )?;
-    let snapshot_identity = parse_sha256(
-        replay.pit_snapshot.identity.as_str(),
-        "PIT snapshot identity",
-    )?;
-    let snapshot_fact_digest =
-        parse_sha256(replay.pit_snapshot.digest.as_str(), "PIT snapshot digest")?;
     let master_members = instrument_master.cut().members();
 
     if !is_admitted_member_count(selection.members().len()) {
@@ -104,8 +164,104 @@ where
         return Err(NativeReplayInitialOwnerInputsErrorV1::MembersDisagreeWithInstrumentMaster);
     }
 
-    let roles = plan
-        .input_roles()
+    let roles = native_replay_roles_v1(plan)?;
+    let member_instruments = master_members
+        .iter()
+        .map(|member| {
+            let instrument = member.fact().canonical_identity();
+            instrument.parse::<InstrumentId>().map_err(|_| {
+                NativeReplayInitialOwnerInputsErrorV1::MemberInstrumentMalformed(
+                    instrument.to_owned(),
+                )
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(NativeReplayRequestPartsV1 {
+        research_request_identity: plan.research_request_identity(),
+        strategy_design_identity: plan.design_identity(),
+        universe_selection_identity: selection.selection_identity(),
+        universe_selection_digest: selection.selection_digest(),
+        universe_selection_record_identity: BindingDigest::from_untrusted_bytes(record_identity),
+        universe_selection_record_digest: BindingDigest::from_untrusted_bytes(record_digest),
+        instrument_master_digest: selection.instrument_master_digest(),
+        source_binding_lineage_root: selection.source_binding_lineage_root(),
+        market_semantics_identity: selection.market_semantics_identity(),
+        roles,
+        member_instruments,
+        window_start_ns: replay.window.start_event_ns,
+        window_end_ns_exclusive: replay.window.end_event_ns_exclusive,
+    })
+}
+
+/// The request for the first frame of the custody run a binding names, at the head it pins.
+///
+/// A custody frame is read under the chain's own basis, so the request names what the chain's
+/// views carry: the chain's Instrument Master key, Market Semantics fact, Universe Selection Record
+/// and members. The Plan supplies the Research, the Design, its strategy-input selection and the
+/// Source Binding lineage, and its members must be the chain's. The request's run end is the
+/// binding's; its caller checks the run covers exactly the Replay's window. Every later frame's
+/// request is this one at that frame's `e_k`.
+pub(crate) fn native_replay_custody_first_frame_request_v1(
+    plan: &StrategyPlanV2,
+    basis: &PitWindowChainBasisV1,
+    custody: &ReplayCustodyRunBindingV1,
+    first_event_ns: u64,
+) -> Result<NativeReplayInitialMarketRequestV1, NativeReplayInitialOwnerInputsErrorV1> {
+    let selection = plan
+        .universe_selection()
+        .ok_or(NativeReplayInitialOwnerInputsErrorV1::PlanHasNoUniverseSelection)?;
+
+    if !is_admitted_member_count(basis.members().len()) {
+        return Err(
+            NativeReplayInitialOwnerInputsErrorV1::MemberCountNotAdmitted(basis.members().len()),
+        );
+    }
+
+    if !members_agree(
+        selection.members().iter().map(|member| member.instrument()),
+        basis.members().iter().map(String::as_str),
+    ) {
+        return Err(NativeReplayInitialOwnerInputsErrorV1::MembersDisagreeWithInstrumentMaster);
+    }
+    let member_instruments = basis
+        .members()
+        .iter()
+        .map(|instrument| {
+            instrument.parse::<InstrumentId>().map_err(|_| {
+                NativeReplayInitialOwnerInputsErrorV1::MemberInstrumentMalformed(instrument.clone())
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let (record_identity, record_digest) = basis.universe_selection_record();
+    Ok(NativeReplayInitialMarketRequestV1::for_custody_frame(
+        UntrustedPitWindowCustodyFrameV1 {
+            custody: UntrustedPitWindowCustodyClaimV1 {
+                chain_root: BindingDigest::from_untrusted_bytes(custody.chain_root),
+            },
+            head_identity: BindingDigest::from_untrusted_bytes(custody.head_identity),
+            event_ns: first_event_ns,
+        },
+        plan.research_request_identity(),
+        plan.design_identity(),
+        selection.selection_identity(),
+        selection.selection_digest(),
+        record_identity,
+        record_digest,
+        basis.instrument_master_key(),
+        selection.source_binding_lineage_root(),
+        basis.market_semantics_identity(),
+        native_replay_roles_v1(plan)?,
+        member_instruments,
+        custody.run_end_ns_exclusive,
+    ))
+}
+
+/// The Plan's input roles as Market Data reads them: every one a Market Data role over the
+/// universe members, its coordinates named.
+fn native_replay_roles_v1(
+    plan: &StrategyPlanV2,
+) -> Result<Vec<NativeReplayInitialUniverseRoleV1>, NativeReplayInitialOwnerInputsErrorV1> {
+    plan.input_roles()
         .iter()
         .map(|role| {
             let unknown =
@@ -146,45 +302,7 @@ where
                 role.scale,
             ))
         })
-        .collect::<Result<Vec<_>, _>>()?;
-    let member_instruments = master_members
-        .iter()
-        .map(|member| {
-            let instrument = member.fact().canonical_identity();
-            instrument.parse::<InstrumentId>().map_err(|_| {
-                NativeReplayInitialOwnerInputsErrorV1::MemberInstrumentMalformed(
-                    instrument.to_owned(),
-                )
-            })
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    let request = NativeReplayInitialMarketRequestV1::new(
-        BindingDigest::from_untrusted_bytes(snapshot_identity),
-        BindingDigest::from_untrusted_bytes(snapshot_fact_digest),
-        plan.research_request_identity(),
-        plan.design_identity(),
-        selection.selection_identity(),
-        selection.selection_digest(),
-        BindingDigest::from_untrusted_bytes(record_identity),
-        BindingDigest::from_untrusted_bytes(record_digest),
-        selection.instrument_master_digest(),
-        selection.source_binding_lineage_root(),
-        selection.market_semantics_identity(),
-        roles,
-        member_instruments,
-        replay.window.start_event_ns,
-        replay.window.end_event_ns_exclusive,
-    );
-    // The request leaves with the readback it produced, by value, in one move. A later caller
-    // needing the request to resolve the window's whole frame sequence takes it from here rather
-    // than rebuilding an equivalent one, because "equivalent" would be a proposition with no
-    // prover, and reading it back a second time is the same fault the sequence resolver exists to
-    // prevent. Pairing them in one return makes that correspondence hold by construction instead
-    // of by a check somebody has to remember to run.
-    let readback = resolver
-        .resolve_native_replay_initial_market_inputs_v1(&request)
-        .await?;
-    Ok((request, readback))
+        .collect()
 }
 
 fn parse_sha256(

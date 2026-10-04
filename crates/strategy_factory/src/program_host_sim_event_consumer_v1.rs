@@ -2073,6 +2073,42 @@ mod tests {
         );
     }
 
+    /// A custody run seals its chain, pinned head and ordered views into the census digest; a
+    /// snapshot run states none and keeps the digest it had, and two frames' views swapped are a
+    /// different run.
+    #[rstest::rstest]
+    fn a_custody_run_seals_its_head_and_ordered_views_into_the_census_digest() {
+        use crate::replay_target_set_execution_bundle_v1::{
+            ReplayCustodyRunCensusV1, digest_census,
+        };
+
+        let snapshot = test_census();
+        let custody = |views: Vec<[u8; 32]>| ReplayTargetSetExecutionCensusV1 {
+            custody: Some(ReplayCustodyRunCensusV1 {
+                chain_root: [31; 32],
+                head_identity: [32; 32],
+                head_digest: [33; 32],
+                head_version: 2,
+                view_identities: views,
+            }),
+            ..test_census()
+        };
+        let in_order = digest_census(&custody(vec![[41; 32], [42; 32]])).unwrap();
+
+        assert_ne!(digest_census(&snapshot).unwrap(), in_order);
+        assert_ne!(
+            digest_census(&custody(vec![[42; 32], [41; 32]])).unwrap(),
+            in_order
+        );
+        let mut other_head = custody(vec![[41; 32], [42; 32]]);
+        other_head.custody.as_mut().unwrap().head_identity = [34; 32];
+        assert_ne!(digest_census(&other_head).unwrap(), in_order);
+        assert_eq!(
+            serde_json::to_value(&snapshot).unwrap()["custody"],
+            serde_json::Value::Null
+        );
+    }
+
     fn test_census() -> ReplayTargetSetExecutionCensusV1 {
         ReplayTargetSetExecutionCensusV1 {
             request_locator: crate::exploratory_replay::ExploratoryReplayRequestLocatorV2 {
@@ -2118,6 +2154,7 @@ mod tests {
             bar_count: 2,
             event_count: 2,
             funding: crate::replay_target_set_execution_bundle_v1::ReplayFundingStatementV1::FundingNotStated,
+            custody: None,
             census_digest: [14; 32],
         }
     }

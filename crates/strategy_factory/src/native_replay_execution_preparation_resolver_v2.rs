@@ -109,6 +109,7 @@ impl PreparationResolverV2 for PostgresNativeReplayExecutionPreparationResolverV
                 self.instrument_terms_owner.as_ref(),
                 self.market_data.as_ref(),
                 self.sample_projections.as_ref(),
+                None,
                 StrategyId::from(strategy_identity.as_str()),
                 run_identity,
             )

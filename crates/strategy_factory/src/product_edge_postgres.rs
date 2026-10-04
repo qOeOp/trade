@@ -2479,6 +2479,7 @@ impl PostgresResearchGoalOwnerV1 {
             instrument_terms_owner,
             market_data,
             sample_projections,
+            None,
             strategy_id,
             run_id,
         )

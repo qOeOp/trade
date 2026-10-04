@@ -1663,6 +1663,25 @@ reproducible anchor the single-frame path already gives F - not a second, parall
   one, per the standing rule that this entry grows as its dependencies land rather than being
   recreated each time.
 
+**T1, the custody run's consumer (TARGET; built in part).** This is the consumer side of the seam that "T1: a
+custody-run Replay commit and execution-input binding" states. A custody run reaches the Sim through the same durable
+anchors as a snapshot run, so its Result can be reread against the frames it read:
+
+- The consumer re-resolves the run from the binding's `custody_run()`.
+  - It enumerates the frames through Market Data's frames port and refuses the run as
+    `CUSTODY_HEAD_MOVED_SINCE_BINDING` unless they come from the bound head. It never follows a newer head.
+  - It reads each frame through the native Replay resolver's custody frame method, at that head and that frame's
+    `e_k`.
+  - It admits a frame only when its strategy inputs are the chain's derived view at that `e_k` and `d_k`, with member
+    coordinates from the frame's own sample projection (`resolve_native_replay_custody_frames_v1`). Otherwise it
+    refuses by name: `CUSTODY_REQUEST_NOT_THE_RUNS`, `CUSTODY_RUN_HAS_NO_FRAME`, `CUSTODY_FRAME_REFUSED`,
+    `CUSTODY_VIEW_NOT_THE_FRAMES`, `CUSTODY_FRAME_COORDINATES_UNAVAILABLE`.
+- **Current:** the execution bundle carries every frame by value (`new_from_custody_frames_v1`, which takes only the
+  resolved frames). Its census pins the chain, the head and the ordered view identities, and they enter the census
+  digest only for a custody run, so a snapshot run keeps its digest.
+- Each gap's quote cut is Market Data's, derived from the first fill bar after `d_k` (T0-6), so a custody run fills
+  on the quotes the frame readback states rather than on a quote R&D supplies.
+
 ### Members: a parameter
 
 The Research scope is the only source of the member set (P0). The one-or-two bound becomes one declared upper bound.
