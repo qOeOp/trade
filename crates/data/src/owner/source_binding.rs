@@ -407,6 +407,12 @@ pub enum UntrustedSourceBarCadenceV1 {
     },
     /// One named exchange session day.
     ExchangeSessionDay,
+    /// One calendar month on the UTC month anchor: bars run from the first instant of one UTC
+    /// calendar month up to, but not including, the first instant of the next. Admitted only on
+    /// [`UntrustedSourceBarAnchorV1::UnixEpoch`] with [`UntrustedSourceBarClockV1::Continuous`];
+    /// a window schedule cannot yet enumerate it as an execution timeframe (TARGET full chart
+    /// timeframes), so a declaration of this cadence is refused wherever one is selected.
+    CalendarMonth,
 }
 
 /// The unit of a fixed-interval bar.

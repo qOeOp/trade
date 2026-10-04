@@ -9091,6 +9091,9 @@ const fn native_replay_scheduling_error_of_declaration(
         DeclaredBarTimeframeErrorV1::NotTheBatchBinding => {
             NativeReplaySchedulingErrorV1::DeclaredBarTimeframeMismatch
         }
+        DeclaredBarTimeframeErrorV1::CalendarMonthNotAnExecutionTimeframe => {
+            NativeReplaySchedulingErrorV1::CalendarMonthNotAnExecutionTimeframe
+        }
     }
 }
 

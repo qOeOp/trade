@@ -1054,6 +1054,23 @@ fn session_minute() -> UntrustedSourceBarTimeframeV1 {
     )
 }
 
+/// One UTC calendar month, continuous from the Unix epoch - the fourth admitted combination.
+///
+/// `is_bar_row_timeframe`'s grammar (`NS`/`US`/`MS`/`S`/`M`/`H`/`D`/`W`) has no month unit yet, so
+/// this uses `1D` as a placeholder row label purely to exercise the anchor/clock combination;
+/// whichever slice first ingests a real calendar-month row (REST recorder or bar store) picks the
+/// real label and extends that grammar together with the PIT batch decoder it is kept in sync
+/// with (`pit_snapshot/authority.rs`) - out of scope here, since nothing admits a calendar-month
+/// row yet either.
+fn calendar_month() -> UntrustedSourceBarTimeframeV1 {
+    bar(
+        "1D",
+        UntrustedSourceBarCadenceV1::CalendarMonth,
+        UntrustedSourceBarAnchorV1::UnixEpoch,
+        UntrustedSourceBarClockV1::Continuous,
+    )
+}
+
 fn declaring(
     mut value: UntrustedSourceBindingProposal,
     bars: Vec<UntrustedSourceBarTimeframeV1>,
@@ -1106,6 +1123,24 @@ fn bars_are_declared_by_schema_two_in_the_combinations_a_schedule_states() {
             UntrustedSourceBarCadenceV1::ExchangeSessionDay,
             UntrustedSourceBarAnchorV1::UnixEpoch,
             UntrustedSourceBarClockV1::ScheduleBounded,
+        )],
+        vec![bar(
+            "1D",
+            UntrustedSourceBarCadenceV1::CalendarMonth,
+            UntrustedSourceBarAnchorV1::SessionOpen,
+            UntrustedSourceBarClockV1::Continuous,
+        )],
+        vec![bar(
+            "1D",
+            UntrustedSourceBarCadenceV1::CalendarMonth,
+            UntrustedSourceBarAnchorV1::UnixEpoch,
+            UntrustedSourceBarClockV1::ScheduleBounded,
+        )],
+        vec![bar(
+            "1D",
+            UntrustedSourceBarCadenceV1::CalendarMonth,
+            UntrustedSourceBarAnchorV1::WeekStartMonday,
+            UntrustedSourceBarClockV1::Continuous,
         )],
         vec![UntrustedSourceBarTimeframeV1 {
             row_timeframe: "1d".to_owned(),
@@ -1169,6 +1204,16 @@ fn bars_are_declared_by_schema_two_in_the_combinations_a_schedule_states() {
             .commit_initial(session_day, decision([]), &commit_clock())
             .is_ok(),
         "an exchange session day is the third admitted combination"
+    );
+    let calendar_month_only = declaring(
+        with_rule(proposal(), after_close(0, false)),
+        vec![calendar_month()],
+    );
+    assert!(
+        TestOnlyInMemorySourceBindingOwner::default()
+            .commit_initial(calendar_month_only, decision([]), &commit_clock())
+            .is_ok(),
+        "a UTC-anchored, continuous CalendarMonth is the fourth admitted combination"
     );
 }
 

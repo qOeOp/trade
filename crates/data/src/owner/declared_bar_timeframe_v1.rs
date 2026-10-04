@@ -46,6 +46,11 @@ pub enum DeclaredBarTimeframeErrorV1 {
     /// A role or row names a timeframe label other than the one the declaration describes.
     #[error("the timeframe label is not the one the Source Binding declares")]
     TimeframeLabelNotDeclared,
+    /// The declared cadence is `CalendarMonth`, which no window schedule can yet enumerate as an
+    /// execution timeframe (TARGET full chart timeframes and one stitched bar series): frames are
+    /// `phase + n * interval`, which has no interval a calendar month states.
+    #[error("a CalendarMonth cadence cannot be an execution timeframe")]
+    CalendarMonthNotAnExecutionTimeframe,
 }
 
 /// What a declared bar is, without the label its rows carry: the meaning two frames of one Replay
@@ -96,15 +101,20 @@ impl DeclaredBarTimeframeV1 {
             .iter()
             .find(|declared| declared.row_timeframe == row_timeframe)
             .ok_or(DeclaredBarTimeframeErrorV1::TimeframeLabelNotDeclared)?;
-        Ok(Self::from_declaration(binding.fact_digest(), declared))
+        Self::from_declaration(binding.fact_digest(), declared)
     }
 
     /// The declaration `declared` of the verified binding fact `binding_fact_digest`. The caller
     /// holds the verified binding the declaration was read from.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DeclaredBarTimeframeErrorV1::CalendarMonthNotAnExecutionTimeframe`] for a
+    /// `CalendarMonth` cadence: no window schedule can enumerate it as an execution timeframe yet.
     pub(crate) fn from_declaration(
         binding_fact_digest: BindingDigest,
         declared: &UntrustedSourceBarTimeframeV1,
-    ) -> Self {
+    ) -> Result<Self, DeclaredBarTimeframeErrorV1> {
         let (kind, unit, step) = match declared.cadence {
             UntrustedSourceBarCadenceV1::FixedInterval { step, unit } => (
                 BarScheduleKindV1::FixedInterval,
@@ -120,8 +130,11 @@ impl DeclaredBarTimeframeV1 {
                 BarScheduleUnitV1::ExchangeSessionDay,
                 1,
             ),
+            UntrustedSourceBarCadenceV1::CalendarMonth => {
+                return Err(DeclaredBarTimeframeErrorV1::CalendarMonthNotAnExecutionTimeframe);
+            }
         };
-        Self {
+        Ok(Self {
             binding_fact_digest,
             row_timeframe: declared.row_timeframe.clone(),
             kind,
@@ -145,7 +158,7 @@ impl DeclaredBarTimeframeV1 {
                     BarScheduleCompletionV1::CompleteOnly
                 }
             },
-        }
+        })
     }
 
     /// The declaration a custody holds its rows under: the binding fact the custody was derived
@@ -320,6 +333,7 @@ pub(crate) fn declared_bar_timeframe_for_test_v1(
     declared: &UntrustedSourceBarTimeframeV1,
 ) -> DeclaredBarTimeframeV1 {
     DeclaredBarTimeframeV1::from_declaration(binding_fact_digest, declared)
+        .expect("test declarations are never a CalendarMonth cadence")
 }
 
 /// Why a Replay's execution window could not be derived inside its R0 window.
@@ -387,6 +401,7 @@ pub(crate) fn r0_window_end_over_v1<'a>(
                 BindingDigest::from_untrusted_bytes([0; 32]),
                 declared,
             )
+            .ok()?
             .fixed_interval_ns()
         })
         .max()
@@ -423,6 +438,7 @@ pub(crate) fn execution_window_end_v1(
                 BindingDigest::from_untrusted_bytes([0; 32]),
                 declared,
             )
+            .map_err(|_| ExecutionWindowErrorV1::ExecutionBarExceedsR0Window)?
             .fixed_interval_ns()
             .ok_or(ExecutionWindowErrorV1::ExecutionBarExceedsR0Window)?
         }
@@ -489,13 +505,13 @@ mod window_tests {
     use rstest::rstest;
 
     use super::{
-        ExecutionWindowErrorV1, execution_role_semantic_id_v1, execution_window_end_v1,
-        r0_window_end_over_v1,
+        DeclaredBarTimeframeErrorV1, DeclaredBarTimeframeV1, ExecutionWindowErrorV1,
+        execution_role_semantic_id_v1, execution_window_end_v1, r0_window_end_over_v1,
     };
     use crate::owner::source_binding::{
-        UntrustedSourceBarAnchorV1, UntrustedSourceBarCadenceV1, UntrustedSourceBarClockV1,
-        UntrustedSourceBarCompletionV1, UntrustedSourceBarLabelV1, UntrustedSourceBarTimeframeV1,
-        UntrustedSourceBarUnitV1,
+        BindingDigest, UntrustedSourceBarAnchorV1, UntrustedSourceBarCadenceV1,
+        UntrustedSourceBarClockV1, UntrustedSourceBarCompletionV1, UntrustedSourceBarLabelV1,
+        UntrustedSourceBarTimeframeV1, UntrustedSourceBarUnitV1,
     };
 
     const E: i128 = 1_790_000_000_000_000_000;
@@ -529,6 +545,17 @@ mod window_tests {
         }
     }
 
+    fn calendar_month(label: &str) -> UntrustedSourceBarTimeframeV1 {
+        UntrustedSourceBarTimeframeV1 {
+            row_timeframe: label.to_owned(),
+            cadence: UntrustedSourceBarCadenceV1::CalendarMonth,
+            anchor: UntrustedSourceBarAnchorV1::UnixEpoch,
+            clock: UntrustedSourceBarClockV1::Continuous,
+            label: UntrustedSourceBarLabelV1::IntervalClose,
+            completion: UntrustedSourceBarCompletionV1::CompleteOnly,
+        }
+    }
+
     /// A snapshot holding one-minute and 24-hour bars.
     fn minute_and_day() -> Vec<UntrustedSourceBarTimeframeV1> {
         vec![
@@ -549,6 +576,11 @@ mod window_tests {
         E + MINUTE
     )]
     #[case::only_a_session_day(vec![session_day("1D")], vec!["1D"], E + 1)]
+    #[case::calendar_month_has_no_fixed_length_either(
+        vec![calendar_month("1MO"), continuous("1M", 1, UntrustedSourceBarUnitV1::Minute)],
+        vec!["1MO", "1M"],
+        E + MINUTE
+    )]
     #[case::an_undeclared_label(minute_and_day(), vec!["1H"], E + 1)]
     #[case::no_declarations(vec![], vec!["1M", "1D"], E + 1)]
     fn the_r0_claim_ends_with_the_longest_declared_bar_of_the_snapshot(
@@ -594,8 +626,26 @@ mod window_tests {
             "a session day has no fixed length to bound"
         );
         assert_eq!(
+            execution_window_end_v1(E, E + DAY, &[calendar_month("1MO")], Some("1MO")),
+            Err(ExecutionWindowErrorV1::ExecutionBarExceedsR0Window),
+            "a CalendarMonth cadence is refused as an execution timeframe, not merely unbounded"
+        );
+        assert_eq!(
             execution_window_end_v1(E, E + DAY, &declarations, Some("1H")),
             Err(ExecutionWindowErrorV1::ExecutionTimeframeNotDeclared)
+        );
+    }
+
+    /// A `CalendarMonth` declaration is refused by name, directly: no window schedule can
+    /// enumerate it as an execution timeframe yet (TARGET full chart timeframes).
+    #[rstest]
+    fn a_calendar_month_declaration_is_refused_by_name() {
+        assert_eq!(
+            DeclaredBarTimeframeV1::from_declaration(
+                BindingDigest::from_untrusted_bytes([0; 32]),
+                &calendar_month("1MO"),
+            ),
+            Err(DeclaredBarTimeframeErrorV1::CalendarMonthNotAnExecutionTimeframe)
         );
     }
 

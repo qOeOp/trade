@@ -205,6 +205,10 @@ pub enum NativeReplaySchedulingErrorV1 {
     SourceBindingDeclaresNoBarTimeframe,
     #[error("no schedule, role or row states the bar the frame's Source Binding declares")]
     DeclaredBarTimeframeMismatch,
+    /// The frame's declared bar is a `CalendarMonth` cadence, which no window schedule can
+    /// enumerate as an execution timeframe yet.
+    #[error("a CalendarMonth cadence cannot be an execution timeframe")]
+    CalendarMonthNotAnExecutionTimeframe,
     /// The Replay names another Universe Selection Record than the one the frame's batch binds.
     ///
     /// A request names two different universe selections, and each is checked against the same
