@@ -30,8 +30,7 @@ use vibe_data::owner::{
 use vibe_data::owner::{
     market_semantics_admission_v1::MarketSemanticsAdmissionV1,
     pit_market_snapshot_intake_v1::PitMarketSnapshotIntakeV1,
-    pit_window_custody_v1::{PitWindowCustodyFramesV1, UntrustedPitWindowCustodyClaimV1},
-    source_binding::BindingDigest,
+    pit_window_custody_v1::{PitWindowCoverageRefusalV1, PitWindowCustodyFramesV1},
     strategy_input_binding_admission_v1::StrategyInputBindingAdmissionV1,
     universe_selection_admission_v1::UniverseSelectionAdmissionV1,
 };
@@ -109,11 +108,6 @@ struct BacktestRunRequestBodyV1 {
     execution_timeframe: String,
     window_start_ns: u64,
     window_end_ns_exclusive: u64,
-    /// The custody chain this run's window is read from. Inert today: nothing implements Market
-    /// Data's T0-5 derived view, so the orchestration never validates this claim - it stops at
-    /// `CUSTODY_FRAMES_NOT_AVAILABLE` before reaching it. Required anyway, so a caller's request
-    /// shape does not need to change once T0-5 lands and the claim starts mattering.
-    custody_chain_root: BindingDigest,
 }
 
 #[derive(Debug, Serialize)]
@@ -319,9 +313,6 @@ async fn submit_backtest_run(
         run_id: run_id.clone(),
         strategy_id,
         dataset_ref,
-        custody: UntrustedPitWindowCustodyClaimV1 {
-            chain_root: request.custody_chain_root,
-        },
         request_proof_digest: state.request_proof_digest,
     };
 
@@ -512,6 +503,33 @@ fn backtest_run_error_response(error: &BacktestRunErrorV1, request_identity: &st
             "DATASET_REF_INVALID",
             String::new(),
         ),
+        BacktestRunErrorV1::CustodyCoverageRefused(refusal) => match refusal {
+            PitWindowCoverageRefusalV1::InvalidRequest => (
+                StatusCode::BAD_REQUEST,
+                "PIT_WINDOW_COVERAGE_REQUEST_INVALID",
+                String::new(),
+            ),
+            PitWindowCoverageRefusalV1::CustodyNotFound => (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "PIT_WINDOW_CUSTODY_NOT_FOUND",
+                String::new(),
+            ),
+            PitWindowCoverageRefusalV1::WindowNotCovered { missing } => (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "PIT_WINDOW_NOT_COVERED",
+                format!("missing {missing:?}"),
+            ),
+            PitWindowCoverageRefusalV1::CoveredOnlyAcrossChains => (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "PIT_WINDOW_COVERED_ONLY_ACROSS_CHAINS",
+                String::new(),
+            ),
+            PitWindowCoverageRefusalV1::StoreUnavailable => (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "BACKTEST_RUN_MARKET_DATA_UNAVAILABLE",
+                String::new(),
+            ),
+        },
         BacktestRunErrorV1::StrategyUnknown => {
             (StatusCode::NOT_FOUND, "STRATEGY_UNKNOWN", String::new())
         }
