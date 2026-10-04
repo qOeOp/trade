@@ -6801,8 +6801,8 @@ mod tests {
             Err(custody::PitWindowViewRefusalV1::HeadNotInChain)
         );
 
-        // A custody frame reads through the port exactly as it reads on the pool, and with the
-        // production quote cut resolver it is refused there too, for want of a quote cut.
+        // A custody frame reads through the port exactly as it reads on the pool, with an injected
+        // quote cut and with the production one derived from the gap's fill bar alike.
         let frame = UntrustedPitWindowCustodyFrameV1 {
             custody: UntrustedPitWindowCustodyClaimV1 {
                 chain_root: root.chain_root(),
@@ -6833,15 +6833,28 @@ mod tests {
             owned.universe_frame().digest()
         );
         assert_eq!(admitted.window_schedules(), owned.window_schedules());
+        let admitted = custody_frame::resolve_native_replay_custody_frame_through_port_v1(
+            &port,
+            &request,
+            custody_frame::resolve_custody_quote_cut_v1,
+        )
+        .await
+        .expect("the port derives the gap's quote cut");
+        let owned = custody_frame::resolve_native_replay_custody_frame_from_pool_v1(
+            owner.pool(),
+            &request,
+            custody_frame::resolve_custody_quote_cut_v1,
+        )
+        .await
+        .expect("custody derives the gap's quote cut");
+        assert_eq!(admitted.source(), owned.source());
         assert_eq!(
-            custody_frame::resolve_native_replay_custody_frame_through_port_v1(
-                &port,
-                &request,
-                custody_frame::resolve_custody_quote_cut_v1,
-            )
-            .await
-            .map(|_| ()),
-            Err(crate::owner::native_replay_scheduling_v1::NativeReplaySchedulingErrorV1::EventOrderUnavailable)
+            admitted.quote_cut_for_test().source(),
+            owned.quote_cut_for_test().source()
+        );
+        assert_eq!(
+            admitted.quote_cut_for_test().digest(),
+            owned.quote_cut_for_test().digest()
         );
     }
 

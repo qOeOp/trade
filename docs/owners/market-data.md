@@ -2594,8 +2594,9 @@ This design replaces both.
   also declare a finer fixed-interval bar, which a PIT window custody request names as its fill timeframe, apart from
   the timeframes it holds for strategy inputs. Fill-timeframe rows serve the quote cut only: the derived view never
   selects them for a frame's inputs, because they are sparse, one bar per gap, and a strategy role reading that
-  timeframe would otherwise see a stale fill bar. A fill timeframe that is
-  not strictly shorter than the execution timeframe is refused by name as `FILL_TIMEFRAME_NOT_FINER_THAN_EXECUTION`.
+  timeframe would otherwise see a stale fill bar. A fill timeframe that is not strictly shorter than the execution
+  timeframe is refused by name as `FILL_TIMEFRAME_NOT_FINER_THAN_EXECUTION`, and in PIT window custody one whose
+  declared interval is not exactly one minute (`FILL_BAR_INTERVAL_NS_V1`) as `PIT_WINDOW_FILL_TIMEFRAME_NOT_ONE_MINUTE`.
   For each frame the fill bar is the first fill-timeframe bar whose open instant lies strictly after the frame's
   availability instant - its BAR's event-effective instant plus the lag the binding's availability rule declares - and
   strictly before the next frame's BAR. In custody it is the quote cut derived for the gap `(d_k, e_{k+1})`; on the
@@ -2676,10 +2677,14 @@ a custody. Its proofs are the envelope's falsifiers that fall inside Market Data
 equal the snapshot path on the projection of values, coordinates, event times, bar types, and member order; two
 custodies differing only in whether one correction publishes before `d_k` yield different frame `k` values, and
 removing the publication condition turns that red, driven by a synthetic source that declares a correction stream; an
-availability rule set to the minting instant hides every frame; and a correction published between `d_k` and a quote's
-availability reaches the fill quote but not frame `k`'s strategy inputs, which a code path shared by the two turns
-red. T0 is not driven until T1: it has no production caller, so a complete T0 is structurally present and run by no
-Backtest.
+availability rule set to the minting instant hides every frame; and inputs and fill quotes select versions through one
+function at two cuts, frame `k`'s inputs at `d_k` and a fill quote at its bar's availability, so an input-bar
+correction published after `d_k` does not reach frame `k`'s inputs, a fill-bar correction published after its bar's
+availability does not reach the quote, and moving either cut turns its side red. That last falsifier replaced, on
+2026-10-04, one no custody can satisfy, that a correction published between `d_k` and a quote's availability reaches
+the fill quote: a version's event, availability and publication never decrease, and a fill bar's event is its open
+plus its interval, so no fill-bar correction is published at or before the quote's availability. T0 is not driven
+until T1: it has no production caller, so a complete T0 is structurally present and run by no Backtest.
 
 Built so far (T0-4a): the custody aggregate - the custody record, its cross-section versions and their `SampleFactV2`
 row facts, every commit-time refusal, the Owner clock a commit mints, rejoin and successor custody - behind the sealed
@@ -2779,12 +2784,34 @@ and a result produced with it is not U1 evidence until it is re-run on that deri
 Built so far (T0-5d): a build with `sealed-strategy-input-acceptance` also opens
 `commit_sealed_acceptance_custody_chain_v1`, which commits a synthetic custody chain only through the production Source
 Binding, Instrument Master V1, Universe Selection and custody intakes, so its output is production code run on
-synthetic inputs and never U1 evidence.
+synthetic inputs and never U1 evidence. Its spec's fill timeframe must be exactly one minute, as every custody's is.
 
 Built so far (T0-5b): a custody frame's readback carries its universe-frame sample projection, which Market Data derives
 at read time from the `SampleFactV2` rows its view was sealed from and never stores, so a Plan with coordinate rows can
 read a custody frame through the host's unchanged projection check. The derivation is stated under "universe-frame
 sample projection" below.
+
+Built so far (T0-6, T0-7 and the run-level quote check): the custody quote cut is derived from the gap's first fill bar
+that opens strictly inside `(d_k, e_{k+1})` (`resolve_custody_quote_cut_v1`), at the version `select_fill_candidates_v1`
+selects at that bar's own availability through the `visible_at` that selects frame `k`'s inputs at `d_k`. T0-6 first
+took the bar's latest correction at the pinned head, however late it was published; T0-7 restored the bound. Each of
+T0's four falsifiers has PostgreSQL proofs in the Market Data runner. N=1 and two-frame parity are
+`postgres_a_one_member_custody_frame_equals_its_snapshot_frame` and
+`postgres_two_single_timeframe_custody_frames_equal_their_snapshot_frames`. The correction published before `d_k` is
+`postgres_a_correction_published_before_d_k_changes_only_frame_k`. The rule at the minting instant is
+`postgres_an_availability_rule_at_the_minting_instant_hides_every_frame`. The two cuts are
+`postgres_an_input_correction_published_after_d_k_never_reaches_frame_k` and
+`postgres_a_fill_correction_published_after_its_bars_availability_never_reaches_the_quote`, both through the production
+custody frame resolver, with `postgres_a_fill_bar_available_after_d_k_gives_its_gap_a_quote` as their positive control.
+Moving the input cut to the quote's availability turns the first red, refused by the `CustodyView` seal before the proof
+compares anything, and selecting the fill bar at the head turns the second red at its quote. T0 status: complete inside
+Market Data. Every T0 falsifier inside Market Data is proved, and the frames port refuses a run any of whose gaps has no
+quote as `QuoteCutMissing` before any frame is read, on the pool and admitted-port reads alike
+(`frames_from_evidence_v1`). It applies `gap_fill_bar_position_v1`, the predicate each frame's quote cut applies, to the
+candidates `select_fill_candidates_v1` selects for each gap
+(`postgres_a_run_with_a_gap_without_a_quote_is_refused_before_any_frame_is_read`; dropping the run-level check turns it
+red). Outside Market Data, the R&D Owner API's Binance backfill job commits custodies and its Backtest run reads a run's
+frames through this port, and no Backtest consumes a frame yet.
 
 - **Custody:** covers the half-open window from its warm-up start and is committed once, then never mutated. A later
   correction is a successor custody that names its predecessor and carries only the versions it adds; a view reads the
@@ -2861,10 +2888,15 @@ sample projection" below.
   Every table and function those reads touch is inside the admitted-port measurement.
 - **Quote cut:** derived from custody inside `(d_k, e_{k+1})`, exactly one per gap, on one instant, in member order,
   taking no frame ordinal, and never the version a later correction superseded. Its version is the highest sequence
-  published at or before the quote instant's own availability, and a later correction supersedes it only as of that
-  instant: the fill follows the decision, and at `d_k` no quote could qualify, since its event follows `d_k`. This
-  concerns the fill quote alone. Frame `k`'s strategy inputs are still cut at `d_k`, so a correction published between
-  `d_k` and the quote's availability reaches the fill quote and never frame `k`'s inputs.
+  published at or before the quote's own availability, which is the availability of its fill bar's original version,
+  selected by the same rule that selects frame `k`'s inputs at `d_k`: the fill follows the decision, and at `d_k` no
+  quote could qualify, since its event follows `d_k`. A correction is published after the version it replaces, and an
+  original at or after its own availability, so no correction ever reaches a fill quote: a fill uses the version known
+  when its bar became available. The quote's instant is the bar's open - its close less the fill timeframe's declared
+  interval, which the custody commit holds to exactly one minute, `FILL_BAR_INTERVAL_NS_V1`, refusing any other as
+  `PIT_WINDOW_FILL_TIMEFRAME_NOT_ONE_MINUTE`, since no custody record carries the fill timeframe's declaration - and it
+  states the selected version's availability and publication; a bar available only at or after the gap's bound gives
+  the gap no quote cut.
 - **Interface:** `crates/data/src/owner/pit_window_custody_v1.rs` freezes what a backfill writer commits and how a
   multi-frame consumer finds a run's frames. The custody aggregate implements its commit port and alone constructs a
   receipt; until the derived view implements its frames port, nothing constructs a frame coordinate.

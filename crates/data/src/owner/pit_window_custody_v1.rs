@@ -244,6 +244,12 @@ pub enum PitWindowCustodyRefusalV1 {
     /// `FILL_TIMEFRAME_NOT_FINER_THAN_EXECUTION`.
     #[error("the fill timeframe is not finer than the execution timeframe")]
     FillTimeframeNotFinerThanExecution,
+    /// `PIT_WINDOW_FILL_TIMEFRAME_NOT_ONE_MINUTE`: the fill timeframe's declared interval is not
+    /// exactly one minute, `quote_cut::FILL_BAR_INTERVAL_NS_V1`. A fill bar's open is its close
+    /// less that interval, and no custody record carries the fill timeframe's own declaration, so
+    /// any other interval would put the quote's instant somewhere other than the bar's open.
+    #[error("the fill timeframe's declared interval is not one minute")]
+    FillTimeframeNotOneMinute,
     /// `FILL_TIMEFRAME_IS_AN_INPUT_TIMEFRAME`: fill rows would otherwise reach strategy inputs.
     #[error("the fill timeframe is also an input timeframe")]
     FillTimeframeIsAnInputTimeframe,
@@ -614,8 +620,9 @@ pub enum PitWindowRunRefusalV1 {
 /// inputs and quote cut through the native Replay resolver, naming the frame by a custody frame
 /// source that pins the head the frames were read from.
 ///
-/// Every gap's quote cut is checked here, at run level, once its derivation exists (T0-6); until
-/// then the read does not check gaps, and the per-frame read refuses every frame for want of one.
+/// Every gap's quote cut is checked here, at run level, by the predicate each frame's quote cut
+/// applies: a run any of whose gaps has no quote is refused as `QuoteCutMissing` before any frame is
+/// read.
 #[async_trait]
 pub trait PitWindowCustodyFramesV1: Send + Sync + sealed::Sealed {
     /// Enumerates the run's frames from the execution timeframe's window schedule.

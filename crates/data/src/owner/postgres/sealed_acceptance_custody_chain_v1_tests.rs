@@ -48,8 +48,13 @@ fn bar(open_ns: u64) -> SealedAcceptanceBarV1 {
     }
 }
 
-/// One member, five daily execution bars from `START`, and after each one's close the hourly fill
-/// bar that opens at it.
+/// The open of the fill bar after the frame at `event_ns`: a minute after its decision cut.
+fn fill_open(event_ns: u64) -> u64 {
+    event_ns + LAG + MINUTE
+}
+
+/// One member, five daily execution bars from `START`, and after each one's close the minute fill
+/// bar opening at [`fill_open`]. The fill timeframe is a minute, as the custody intake requires.
 fn spec() -> SealedAcceptanceCustodyChainSpecV1 {
     SealedAcceptanceCustodyChainSpecV1 {
         members: vec![MEMBER.to_owned()],
@@ -59,9 +64,11 @@ fn spec() -> SealedAcceptanceCustodyChainSpecV1 {
             bars: (0..FRAMES).map(|day| bar(START + day * DAY)).collect(),
         },
         fill_timeframe: SealedAcceptanceTimeframeV1 {
-            label: "1H".to_owned(),
-            interval_seconds: 3_600,
-            bars: (1..=FRAMES).map(|day| bar(START + day * DAY)).collect(),
+            label: "1M".to_owned(),
+            interval_seconds: 60,
+            bars: (1..=FRAMES)
+                .map(|day| bar(fill_open(START + day * DAY)))
+                .collect(),
         },
         lag_ns: LAG,
         instrument_increments: None,
@@ -180,6 +187,12 @@ async fn postgres_the_sealed_acceptance_chain_reads_every_frame_with_its_derived
         assert!(
             coordinate.decision_cut_ns() < instant_ns && instant_ns < coordinate.event_ns() + DAY,
             "frame {}'s quote lies in its gap",
+            coordinate.ordinal()
+        );
+        assert_eq!(
+            instant_ns,
+            fill_open(coordinate.event_ns()),
+            "frame {}'s quote is at its fill bar's true open",
             coordinate.ordinal()
         );
         assert_eq!(
