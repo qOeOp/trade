@@ -2518,6 +2518,37 @@ All four tests fail (Holm). Validation tier, 25,281 orders on 20 coins, 2023-202
   1.38) and a much deeper drawdown (-72R vs -27R). Nothing is adopted; the twelve-feature selection line is closed
   for R-1 (status: equivalent to taking every order within the data's power).
 
+## Loop M-1: a macro risk switch for R-1 (registered 2026-10-04, before running; the user asked)
+
+- **Question:** do public market stress gauges (credit spreads, equity volatility, dollar, real yields) mark periods
+  when R-1 trades do badly, so that pausing new entries in stress lowers drawdown without giving up return? R-1's
+  worst development years (2018, 2022) were Fed-tightening years.
+- **Data (FRED public CSV, market series that are not revised):** BAA10Y (Moody's Baa minus 10-year Treasury; the ICE
+  high-yield spread is limited to three years on FRED), VIXCLS, DTWEXBGS (broad dollar), DFII10 (10-year real yield).
+  A fill day uses values up to two days earlier.
+- **Gauges, thresholds fixed in advance, none fitted:** credit = BAA10Y more than 1 standard deviation above its
+  trailing 252-day mean; vix = VIX above 25; dollar = broad dollar up more than 3% over 60 days; real = 10-year real
+  yield up more than 0.50 points over 60 days. **Stress = at least two of the four.**
+- **Trades:** realistic R-1 trades (f = 0, one slot per coin taken by the first fill by the hour, 1h/1m walks, 0.05%
+  stop slippage), from the S-1 orders (53 coins, 2018-2022) and the S-3 orders (validation tier, 20 coins,
+  2023-2026-08).
+- **Primary (two tests, Holm at 95%, judged on the validation tier; development must agree in sign):** A, pause all
+  entries in stress: avg R of trades filled outside stress minus inside, week-clustered interval; B, pause longs only:
+  the same for longs. A rule counts if Holm-significant and the difference is at least 0.10R. Secondary: weekly R sums
+  with and without the switch (total R, Sharpe, max drawdown) against random pauses of the same share of days (200
+  draws), and each gauge alone, for reading.
+
+### Loop M-1 result (2026-10-04; `loop/r1_macro.txt`)
+
+Both rules fail. Development (4,836 trades): stress on 17% of days; trades filled in stress average +0.084R against
++0.173R outside (longs +0.032 vs +0.221), but A's difference +0.088 [-0.079, +0.249] and B's +0.189 [-0.055, +0.391]
+are not significant, and pausing lowers total R (728 to 619 or 709) with Sharpe and drawdown unchanged (1.41 / -99R).
+Validation (2,755 trades): stress on only 7% of days, and the sign reverses: trades in stress +0.207 (longs +0.517),
+outside +0.091; A -0.116 [-0.500, +0.347], B -0.442 [-0.919, +0.215]; the switch lowers total R and Sharpe and does not
+shorten the drawdown. Alone, the dollar gauge was the worst place to trade in development (+0.035 vs +0.181) and the
+best in validation (+0.419 vs +0.063); credit stress was the reverse. The stress episodes of 2023-2026 were short, and
+crypto bought them; none of these gauges sorts R-1 trades stably. Nothing is adopted.
+
 ## Loop X-2: dynamic exits after +1R on R-1u (registered 2026-10-03, before running; the user's question)
 
 - **Question:** how often does an R-1u trade reach +1R and still end at -1R, and does managing the trade after +1R

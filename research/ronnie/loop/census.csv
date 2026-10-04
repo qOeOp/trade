@@ -175,3 +175,4 @@ logged_at,loop,candidate,stage,n,edge,lo,hi,passed,note
 2026-10-04T02:52:44+00:00,S-1,R-1 order selection,iteration,34888,+nan,+nan,+nan,False,see r1_select.txt
 2026-10-04T02:55:27+00:00,S-2,R-1 level pick per breakout,exploratory,31319,+nan,+nan,+nan,False,see r1_level_pick.txt
 2026-10-04T03:14:24+00:00,S-3,R-1 order scores on validation,validation,25281,+nan,+nan,+nan,False,see r1_select_val.txt
+2026-10-04T06:20:30+00:00,M-1,R-1 macro risk switch,validation,0,+nan,+nan,+nan,False,see r1_macro.txt

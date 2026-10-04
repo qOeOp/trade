@@ -1,0 +1,25 @@
+M-1: macro risk switch for R-1 (stress = at least two of credit, vix, dollar, real); realistic R-1 trades, f = 0
+
+== development: 4836 trades, avg R +0.148; stress on 17% of days, 28% of trades
+  credit : on 25% of days; trades in it 1202 avg R +0.145 (longs +0.166, shorts +0.118); outside +0.149 (longs +0.185, shorts +0.096)
+  vix    : on 25% of days; trades in it 1643 avg R +0.092 (longs +0.115, shorts +0.075); outside +0.177 (longs +0.202, shorts +0.126)
+  dollar : on 16% of days; trades in it 1076 avg R +0.035 (longs +0.018, shorts +0.049); outside +0.181 (longs +0.216, shorts +0.123)
+  real   : on 11% of days; trades in it 1010 avg R +0.078 (longs -0.015, shorts +0.156); outside +0.166 (longs +0.218, shorts +0.082)
+  stress : on 17% of days; trades in it 1345 avg R +0.084 (longs +0.032, shorts +0.126); outside +0.173 (longs +0.221, shorts +0.088)
+  A pause all: outside minus inside stress +0.088 [-0.079, +0.249], p 0.270 (1345 trades paused)
+    book: no switch total R 728 / Sharpe 1.41 / max DD -99R; switch 619 / 1.39 / -99R; random pauses total R 530, Sharpe 1.37 [1.19, 1.57], max DD -77R
+  B pause longs: outside minus inside stress +0.189 [-0.055, +0.391], p 0.128 (597 trades paused)
+    book: no switch total R 728 / Sharpe 1.41 / max DD -99R; switch 709 / 1.39 / -99R; random pauses total R 622, Sharpe 1.32 [1.21, 1.43], max DD -93R
+
+== validation: 2755 trades, avg R +0.099; stress on 7% of days, 7% of trades
+  credit : on 8% of days; trades in it 250 avg R -0.164 (longs -0.044, shorts -0.340); outside +0.125 (longs +0.116, shorts +0.137)
+  vix    : on 4% of days; trades in it 124 avg R +0.015 (longs +0.223, shorts -0.115); outside +0.103 (longs +0.098, shorts +0.110)
+  dollar : on 8% of days; trades in it 276 avg R +0.419 (longs +0.426, shorts +0.405); outside +0.063 (longs +0.058, shorts +0.070)
+  real   : on 8% of days; trades in it 180 avg R +0.320 (longs +0.467, shorts +0.126); outside +0.083 (longs +0.077, shorts +0.093)
+  stress : on 7% of days; trades in it 192 avg R +0.207 (longs +0.517, shorts -0.109); outside +0.091 (longs +0.075, shorts +0.114)
+  A pause all: outside minus inside stress -0.116 [-0.500, +0.347], p 0.621 (192 trades paused)
+    book: no switch total R 272 / Sharpe 1.01 / max DD -102R; switch 233 / 0.90 / -102R; random pauses total R 255, Sharpe 1.00 [0.87, 1.12], max DD -97R
+  B pause longs: outside minus inside stress -0.442 [-0.919, +0.215], p 0.156 (97 trades paused)
+    book: no switch total R 272 / Sharpe 1.01 / max DD -102R; switch 222 / 0.84 / -121R; random pauses total R 264, Sharpe 1.00 [0.92, 1.09], max DD -101R
+
+Holm on the validation tier (95%, two tests): B pause longs p 0.156 vs 0.0250, diff -0.442 (development +0.189) -> fail, A pause all p 0.621 vs 0.0500, diff -0.116 (development +0.088) -> fail
