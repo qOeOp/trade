@@ -403,6 +403,7 @@ pub async fn run() -> anyhow::Result<()> {
         bootstrap_market_data_binance_perpetual_admission()?;
     let market_data_backfill_jobs = bootstrap_market_data_backfill_jobs().await?;
     let market_data_custody_commit = bootstrap_market_data_custody_commit().await?;
+    let market_data_custody_frames = bootstrap_market_data_custody_frames().await?;
     let market_data_backfill_fetcher = market_data_binance_perpetual_admission
         .as_ref()
         .and_then(|client| binance_backfill_job::vision_backfill_fetcher_v1(client).ok())
@@ -553,6 +554,7 @@ pub async fn run() -> anyhow::Result<()> {
                     instrument_economic_terms.clone(),
                     market_data,
                     universe_sample_projection.clone(),
+                    market_data_custody_frames.clone(),
                 )
                 .await?,
             ))
@@ -647,6 +649,7 @@ pub async fn run() -> anyhow::Result<()> {
                 market_data_universe_selection: market_data_universe_selection.clone(),
                 market_data_pit_intake: market_data_pit_intake.clone(),
                 market_semantics: market_data_market_semantics_admission.clone(),
+                custody_frames: market_data_custody_frames.clone(),
                 rd_pool: backtest_run_rd_pool,
                 request_proof_digest: request_proof_digest.clone(),
                 token_digest,
@@ -1146,6 +1149,14 @@ pub(crate) async fn bootstrap_market_data_custody_commit() -> anyhow::Result<
         vibe_data::owner::pit_window_custody_v1::pit_window_custody_commit_from_environment_v1()
             .await?,
     ))
+}
+
+/// Composes the PIT window custody frames port when Market Data's store admission environment
+/// is configured.
+pub(crate) async fn bootstrap_market_data_custody_frames() -> anyhow::Result<
+    Option<Arc<dyn vibe_data::owner::pit_window_custody_v1::PitWindowCustodyFramesV1>>,
+> {
+    Ok(vibe_data::owner::pit_window_custody_frames_from_store_admission_environment_v1().await?)
 }
 
 /// Composes the Market Data Source Binding admission when its store is configured.

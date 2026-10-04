@@ -12,6 +12,7 @@ use vibe_data::owner::{
     instrument_economic_terms_postgres_v1::InstrumentEconomicTermsPostgresOwnerV1,
     instrument_master_v2_postgres::InstrumentMasterV2PostgresOwner,
     native_replay_scheduling_v1::NativeReplaySchedulingResolverV1,
+    pit_window_custody_v1::PitWindowCustodyFramesV1,
 };
 use vibe_model::identifiers::StrategyId;
 
@@ -43,6 +44,10 @@ pub struct PostgresNativeReplayExecutionPreparationResolverV2 {
     instrument_terms_owner: Arc<InstrumentEconomicTermsPostgresOwnerV1>,
     market_data: Arc<dyn NativeReplaySchedulingResolverV1>,
     sample_projections: Arc<UniverseSampleProjectionOwnerV1>,
+    /// `None` until a PIT window custody run's frames port is composed in; a sealed Replay
+    /// request naming a custody run instead of a PIT snapshot resolves `CUSTODY_FRAMES_PORT_
+    /// NOT_COMPOSED` until it is.
+    custody_frames: Option<Arc<dyn PitWindowCustodyFramesV1>>,
 }
 
 impl PostgresNativeReplayExecutionPreparationResolverV2 {
@@ -54,6 +59,7 @@ impl PostgresNativeReplayExecutionPreparationResolverV2 {
         instrument_terms_owner: Arc<InstrumentEconomicTermsPostgresOwnerV1>,
         market_data: Arc<dyn NativeReplaySchedulingResolverV1>,
         sample_projections: Arc<UniverseSampleProjectionOwnerV1>,
+        custody_frames: Option<Arc<dyn PitWindowCustodyFramesV1>>,
     ) -> Self {
         Self {
             research_owner,
@@ -62,6 +68,7 @@ impl PostgresNativeReplayExecutionPreparationResolverV2 {
             instrument_terms_owner,
             market_data,
             sample_projections,
+            custody_frames,
         }
     }
 }
@@ -109,7 +116,7 @@ impl PreparationResolverV2 for PostgresNativeReplayExecutionPreparationResolverV
                 self.instrument_terms_owner.as_ref(),
                 self.market_data.as_ref(),
                 self.sample_projections.as_ref(),
-                None,
+                self.custody_frames.as_deref(),
                 StrategyId::from(strategy_identity.as_str()),
                 run_identity,
             )

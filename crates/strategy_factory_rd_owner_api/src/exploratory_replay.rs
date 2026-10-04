@@ -31,6 +31,7 @@ use vibe_data::owner::{
     instrument_economic_terms_postgres_v1::InstrumentEconomicTermsPostgresOwnerV1,
     instrument_master_v2_postgres::InstrumentMasterV2PostgresOwner,
     native_replay_scheduling_v1::NativeReplaySchedulingResolverV1,
+    pit_window_custody_v1::PitWindowCustodyFramesV1,
 };
 #[cfg(feature = "native-replay-execution")]
 use vibe_postgres_connect::{PgPoolOptionsExt, PostgresTls};
@@ -221,6 +222,7 @@ impl NativeReplayExecutionServiceV2 {
         instrument_terms_owner: Arc<InstrumentEconomicTermsPostgresOwnerV1>,
         market_data: Arc<dyn NativeReplaySchedulingResolverV1>,
         sample_projections: Arc<UniverseSampleProjectionOwnerV1>,
+        custody_frames: Option<Arc<dyn PitWindowCustodyFramesV1>>,
     ) -> anyhow::Result<Self> {
         let rd_relock_pool = sqlx::postgres::PgPoolOptions::new()
             .connect_url(rd_database_url, PostgresTls::Disabled)
@@ -237,6 +239,7 @@ impl NativeReplayExecutionServiceV2 {
             instrument_terms_owner,
             market_data,
             sample_projections,
+            custody_frames,
         ));
         let preparation_owner = Arc::new(PostgresNativeReplayPreparationOwnerV2::new(
             rd_relock_pool,
