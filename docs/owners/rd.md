@@ -969,13 +969,27 @@ crosses the prior 20 closes' range, when the bar touches a stop captured at two 
 at the close of the 250th bar the position is held, counting the bar it fills on; long and short mirrored. Every
 construct below maps to catalog operations, and none adds one.
 
-- *Inputs.* `OPEN`, `HIGH`, `LOW` and `CLOSE` of the one member of the Research scope's universe, each declared at
-  most once under a name of the author's choosing. A document must read `CLOSE`, which prices its orders; an input it
-  never reads is carried.
-- *Definitions.* `ago(of, bars)`, `max(of, window)`, `min(of, window)`, `atr(period)` over the four inputs (Wilder,
-  first sample the true range), `add`, `sub`, `mul`, `compare(a, predicate, b)`, `all_of`, `any_of` and `not`. An
-  operand is a name or a decimal literal; a literal takes the unit and scale of the other operand of its operation and
-  is refused when that scale cannot hold it exactly.
+- *Inputs.* `OPEN`, `HIGH`, `LOW`, `CLOSE` and `VOLUME` of the one member of the Research scope's universe, each
+  declared at most once under a name of the author's choosing. The four prices read Market Data's
+  `MARKET_DATA.BAR.<FIELD>.PRICE.V1` fields in unit `PRICE`, and `VOLUME` reads `MARKET_DATA.BAR.VOLUME.QUANTITY.V1`
+  in unit `QUANTITY`, the units Market Data's binding states for those fields and requires of a role; all five are at
+  scale 9. A document must read `CLOSE`, which prices its orders; an input it never reads is carried.
+- *Definitions.* `ago(of, bars)`, `max(of, window)`, `min(of, window)`, `atr(period)` over the four prices (Wilder,
+  first sample the true range), `add`, `sub`, `mul`, `div`, `compare(a, predicate, b)`, `all_of`, `any_of` and `not`.
+  An operand is a name or a decimal literal; a literal takes the unit and scale of the other operand of its operation
+  and is refused when that scale cannot hold it exactly.
+- *Units.* A unit is checked when a document compiles. `add`, `sub` and `compare` need one unit on both sides, so a
+  price and a quantity never meet there: adding, subtracting or comparing them is refused as `UNIT_MISMATCH` at the
+  definition. `mul` spells the product of its operands' units and `div` their quotient, `div` rounding to nearest at
+  scale 9 with both operands named. A ratio of one unit, such as a volume over a volume, is a pure number in meaning,
+  and the program spells its unit `QUANTITY/QUANTITY`: the catalog's unit rule for a quotient is syntactic and has no
+  step that cancels it. So it compares with a literal, which takes its unit, and with another ratio of the same units,
+  and a volume ratio and a price ratio, `QUANTITY/QUANTITY` and `PRICE/PRICE`, are refused as different units. A
+  quotient whose divisor is zero fails the program's evaluation, so a document divides only by what it knows is not.
+- *Clocks and readiness.* Every stateful node is stepped by the `CLOSE` role, so a lag's coordinate names a sample of
+  that clock whichever input it lags. An arithmetic input requires readiness exactly when its source is a warming
+  value, so a quotient of a volume over its rolling maximum is unready while that maximum warms. Neither changes a
+  program that reads only prices and lags only the close: research T0 compiles to the same bytes as before.
 - *States.* `latch(set, reset)` is true from the tick its `set` holds until the tick its `reset` holds, `reset`
   winning a tick where both hold; `count_while(condition)` counts the consecutive ticks its condition holds and is 0
   otherwise; `capture(value, when)` is the number `value` was at the last tick `when` held, 0 before it first holds.
@@ -1002,8 +1016,11 @@ construct below maps to catalog operations, and none adds one.
   captured at 105.10; a low of 106 holds and a low of 105 leaves at 66; short from flat at 71; flipped to long at
   76, ahead of the short's stop and channel exit on the same bar; out by the holding limit at 326, counted from the
   flip, and not at 325. It behaves the same at its guest stack rule before page rounding, 249 328 bytes against a
-  measured need of 170 336. The sixteen hand-written programs and the total single-threshold translation above
-  remain the next slices' acceptance.
+  measured need of 170 336. A document that reads `VOLUME` (`volume-breakout.json`, a 20-close breakout on more than
+  1.5 times the prior 20 bars' heaviest volume) compiles, prepares and is bound by the target-set Host, and as Wasm it
+  enters only on the breakout whose volume clears that ratio (`an_authored_volume_document_enters_on_the_volume_it_reads`).
+  The sixteen hand-written programs and the total single-threshold translation above remain the next slices'
+  acceptance.
 
 **TARGET / NOT_ADMITTED - authored source custody and report statement:** a document is stored with the
 freeze it compiled to, in the same transaction, keyed by the joint freeze digest, and `declare` accepts it
