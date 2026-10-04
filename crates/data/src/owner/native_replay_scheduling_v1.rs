@@ -1924,12 +1924,29 @@ fn project_bar(
     let close = native_price(rows["CLOSE"])?;
     let volume = native_quantity(rows["VOLUME"], true)?;
 
-    if [high, low, close]
-        .into_iter()
-        .any(|value| value.precision != open.precision)
-    {
-        return Err(NativeReplaySchedulingErrorV1::NativeRepresentation);
-    }
+    // Market Data issues each price at its own canonical scale, without trailing fractional
+    // zeros, so one field's trailing zero can canonicalize away while another's does not: a real
+    // bar of 65000.10 / 65400.00 / 64800.50 / 65210.30 carries precisions 1 / 0 / 1 / 1. `Bar`
+    // requires one shared precision (its Arrow encoding assumes it), so every field widens to the
+    // bar's own finest precision before construction - appending a fractional zero only, never
+    // rounding. This is a bar-local widening, not the run-fixed instrument grid: the execution
+    // bundle's own widening to the data's finest scale across the whole window
+    // (`widen_price_grids_to_data`/`align_native_data_to_instruments`, strategy_factory) still runs
+    // after this, re-expressing the bar at that wider, run-fixed precision.
+    let target_scale = [
+        open.precision,
+        high.precision,
+        low.precision,
+        close.precision,
+    ]
+    .into_iter()
+    .max()
+    .unwrap_or(open.precision);
+    let open = widen_price_to_scale(open, target_scale)?;
+    let high = widen_price_to_scale(high, target_scale)?;
+    let low = widen_price_to_scale(low, target_scale)?;
+    let close = widen_price_to_scale(close, target_scale)?;
+
     Bar::new_checked(
         bar_type,
         open,
@@ -1941,6 +1958,25 @@ fn project_bar(
         frame_time_ns.into(),
     )
     .map_err(|_| NativeReplaySchedulingErrorV1::NativeRepresentation)
+}
+
+/// Re-expresses `price` at `target_scale`, exactly: appends fractional zeros only, never rounds.
+///
+/// Refuses by name when `price` already carries more fractional digits than `target_scale`, which
+/// would need rounding to fit.
+fn widen_price_to_scale(
+    price: Price,
+    target_scale: u8,
+) -> Result<Price, NativeReplaySchedulingErrorV1> {
+    if price.precision == target_scale {
+        return Ok(price);
+    }
+    let widened = Price::from_decimal_dp(price.as_decimal(), target_scale)
+        .map_err(|_| NativeReplaySchedulingErrorV1::NativeRepresentation)?;
+    if widened.as_decimal() != price.as_decimal() {
+        return Err(NativeReplaySchedulingErrorV1::NativeRepresentation);
+    }
+    Ok(widened)
 }
 
 /// Projects one member's complete Quote at the quote cut's instant.
@@ -2952,6 +2988,59 @@ pub(crate) mod tests {
             [Data::Bar(bar), Data::Quote(quote)]
                 if bar.ts_event.as_u64() == 100 && quote.ts_event.as_u64() == 150
         ));
+    }
+
+    /// A real BTC 0.10-tick bar - open 65000.10, high 65400.00, low 64800.50, close 65210.30 -
+    /// canonicalizes to precisions 1, 0, 1, 1: `HIGH`'s trailing zero drops where the others'
+    /// do not. Before the fix this bar refused as `NativeRepresentation` (measured on this
+    /// repository before the widening landed); every real frame showing this shape would have
+    /// refused T0-6's U1 milestone outright. The widened bar must carry every price at precision
+    /// 1 - the bar's own finest - with no value rounded.
+    #[rstest::rstest]
+    fn a_bar_whose_fields_canonicalize_to_different_precisions_still_seals() {
+        let member = InstrumentId::from("BTCUSDT-PERP.SIM");
+        let rows = [
+            ("OPEN", 650_001, 1),
+            ("HIGH", 65_400, 0),
+            ("LOW", 648_005, 1),
+            ("CLOSE", 652_103, 1),
+            ("VOLUME", 15_000, 0),
+        ]
+        .into_iter()
+        .map(|(field, mantissa, scale)| {
+            row("BTCUSDT-PERP.SIM", "BAR", "1M", field, mantissa, scale, 100)
+        })
+        .collect::<Vec<_>>();
+        let frame = batch(rows);
+        let quote_cut = quote_cut_for(&frame, &["BTCUSDT-PERP.SIM"], 150);
+        let readback = seal_native_replay_scheduling_v1(
+            frame,
+            quote_cut,
+            vec![schedule("BTCUSDT-PERP.SIM", 40)],
+            &declared_minute(),
+            vec![member],
+            100,
+            200,
+        )
+        .expect("a bar whose fields canonicalize to different precisions still seals");
+        let (_, data) = readback.into_native_schedule();
+        let Data::Bar(bar) = &data[0] else {
+            panic!("the first datum is the member's BAR");
+        };
+        assert_eq!(
+            [
+                bar.open.precision,
+                bar.high.precision,
+                bar.low.precision,
+                bar.close.precision
+            ],
+            [1, 1, 1, 1],
+            "every field widens to the bar's own finest precision"
+        );
+        assert_eq!(bar.open.to_string(), "65000.1");
+        assert_eq!(bar.high.to_string(), "65400.0");
+        assert_eq!(bar.low.to_string(), "64800.5");
+        assert_eq!(bar.close.to_string(), "65210.3");
     }
 
     /// Members are an admitted universe in canonical order or nothing: none, three, a repeated or
