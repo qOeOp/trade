@@ -760,9 +760,19 @@ CARGO_TEST_EXCLUDED_PACKAGES ?= \
 	vibe-derive vibe-dydx vibe-hyperliquid vibe-interactive-brokers vibe-kraken \
 	vibe-lighter vibe-okx vibe-polymarket vibe-tardis
 CARGO_TEST_EXCLUDE_FLAGS := $(addprefix --exclude ,$(CARGO_TEST_EXCLUDED_PACKAGES))
+# A space-separated package list narrows `cargo-test` to exactly those packages (plus any
+# CARGO_TEST_EXCLUDED_PACKAGES member among them, still dropped) instead of the whole workspace -
+# scripts/ci/plan.sh's `rust_test_scope` output, computed from scripts/ci/rust-test-closure.py's
+# reverse-dependency table. Unset (the default) or the literal ALL both mean "every package":
+# `make cargo-test RUST_TEST_SCOPE_PACKAGES="vibe-foo vibe-bar"` to use it directly.
+RUST_TEST_SCOPE_PACKAGES ?=
 # The packages and targets `cargo-test` builds. `cargo-test-toolchain-proofs` runs in the same build,
 # so it takes these flags, CARGO_FEATURES and CARGO_CI_PROFILE from here rather than spelling its own.
+ifeq ($(strip $(filter-out ALL,$(RUST_TEST_SCOPE_PACKAGES))),)
 CARGO_TEST_SCOPE_FLAGS := --workspace $(CARGO_TEST_EXCLUDE_FLAGS) --lib --tests
+else
+CARGO_TEST_SCOPE_FLAGS := $(addprefix -p ,$(filter-out $(CARGO_TEST_EXCLUDED_PACKAGES),$(RUST_TEST_SCOPE_PACKAGES))) --lib --tests
+endif
 # The features `cargo-test` tests with: CARGO_FEATURES plus the package features that gate tests
 # and nothing else. `vibe-qualification/owner-recovery` gates the incident reconstruction module,
 # whose unit tests no job ran before. It is added here and not to CARGO_FEATURES, so clippy, the

@@ -38,6 +38,11 @@ cp "$repo_root/scripts/ci/plan.sh" "$source_repo/scripts/ci/plan.sh"
 # scripts/ci/owner-chain-crates.tsv is: crates/example is outside the closure,
 # crates/guarded is inside it.
 printf 'crates/example\tout\ncrates/guarded\tin\n' > "$source_repo/scripts/ci/owner-chain-crates.tsv"
+# A fixture rust-test reverse-dependency table, read exactly as the real repository's committed
+# scripts/ci/rust-test-crates.tsv is. crates/example's own package is named "nested" (below), and
+# its closure also names "downstream" to exercise a change reaching more than its own package.
+printf 'crates/example\tdownstream nested\ncrates/guarded\tguarded\n' \
+  > "$source_repo/scripts/ci/rust-test-crates.tsv"
 printf 'pub fn base() {}\n' > "$source_repo/crates/guarded/src/lib.rs"
 printf '[package]\nname = "guarded"\nversion = "0.0.0"\n' > "$source_repo/crates/guarded/Cargo.toml"
 printf 'name: build\n' > "$source_repo/.github/workflows/build.yml"
@@ -250,7 +255,8 @@ run_case rust_manifest \
   "printf '[workspace]\\n' >> Cargo.toml" \
   run_tests=true run_rust_tests=true run_generated_drift=false \
   run_full_pre_commit=true run_capnp_check=false \
-  codeql_python_impacted=false codeql_rust_impacted=true run_owner_chain=true
+  codeql_python_impacted=false codeql_rust_impacted=true run_owner_chain=true \
+  rust_test_scope=ALL
 run_case shared_schema \
   "printf '# changed\\n' >> schema/example.capnp" \
   run_tests=true run_rust_tests=true run_generated_drift=true \
@@ -281,6 +287,22 @@ run_case owner_chain_a_new_crate_the_table_has_never_seen_fails_open \
    printf '[package]\\nname = \"newcrate\"\\nversion = \"0.0.0\"\\n' > crates/example/newcrate/Cargo.toml; \
    printf 'pub fn added() {}\\n' > crates/example/newcrate/src/lib.rs" \
   run_owner_chain=true
+
+# rust_test_scope: a leaf change (guarded) scopes to its own package only; a change under a crate
+# with dependents (example, package "nested") scopes to its whole reverse closure; a crate the
+# table has never seen, exactly like owner_chain above, fails open to ALL rather than a named
+# subset.
+run_case rust_test_scope_a_leaf_crate_scopes_to_itself \
+  "printf 'pub fn changed() {}\\n' >> crates/guarded/src/lib.rs" \
+  run_rust_tests=true rust_test_scope=guarded
+run_case rust_test_scope_a_crate_with_dependents_scopes_to_its_closure \
+  "printf 'pub fn changed() {}\\n' >> crates/example/src/lib.rs" \
+  run_rust_tests=true rust_test_scope="downstream nested"
+run_case rust_test_scope_a_new_crate_the_table_has_never_seen_fails_open \
+  "mkdir -p crates/example/newcrate/src; \
+   printf '[package]\\nname = \"newcrate\"\\nversion = \"0.0.0\"\\n' > crates/example/newcrate/Cargo.toml; \
+   printf 'pub fn added() {}\\n' > crates/example/newcrate/src/lib.rs" \
+  rust_test_scope=ALL
 
 run_case workflow_self_change \
   "printf '# changed\\n' >> .github/workflows/build.yml" "${fail_closed[@]}"

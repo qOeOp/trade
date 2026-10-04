@@ -157,6 +157,7 @@ jobs:
       run-tests: ${{ steps.plan.outputs.run_tests }}
       run-rust-tests: ${{ steps.plan.outputs.run_rust_tests }}
       run-owner-chain: ${{ steps.plan.outputs.run_owner_chain }}
+      rust-test-scope: ${{ steps.plan.outputs.rust_test_scope }}
       run-generated-drift: ${{ steps.plan.outputs.run_generated_drift }}
       run-full-pre-commit: ${{ steps.plan.outputs.run_full_pre_commit }}
       run-capnp-check: ${{ steps.plan.outputs.run_capnp_check }}
@@ -654,6 +655,18 @@ jobs:
       RUST_TEST_EXTRA_FEATURES: capnp,hypersync,vibe-serialization/sbe,vibe-infrastructure/postgres,vibe-strategy-factory/sealed-develop-composer-acceptance
       RUST_BACKTRACE: 1
       VIBE_TEST_DATA_BASE_URL: ${{ vars.VIBE_TEST_DATA_BASE_URL }}
+      # scripts/ci/plan.sh's own reverse-dependency closure (scripts/ci/rust-test-closure.py), or
+      # the literal ALL when it cannot attribute every changed file to one tabled crate. Only this
+      # job's own test selection narrows - the build above it still compiles whatever the change
+      # reaches, and `rd owner archive` / the chain jobs below always build their own full archive.
+      # Deliberately not named with a CARGO_/RUST* prefix: rust-cache folds every variable with
+      # one into its cache key (check-chain-channel-environment.py enforces this everywhere that
+      # matters), and this value is different on almost every pull request - giving it one would
+      # make every such PR pay for a cold cache instead of restoring main's, the opposite of this
+      # change's own point. The "Run Rust tests" step below renames it into the Makefile's own
+      # RUST_TEST_SCOPE_PACKAGES on that one command line, which rust-cache's own setup step - an
+      # earlier step in this same job - never sees.
+      TEST_SCOPE_PACKAGES: ${{ needs.plan.outputs.rust-test-scope }}
     # yamllint disable rule:line-length
     services:
       redis:
@@ -773,6 +786,12 @@ jobs:
         # already paid for.
         run: python3 scripts/ci/owner-chain-closure.py --check
 
+      - name: Check rust-test closure table freshness
+        # Gated the same way, for the same reason: `plan`'s `rust_test_scope` output reads the
+        # committed table instead of computing it, and this is the job already paying for a warm
+        # `cargo metadata` resolve that can keep it honest.
+        run: python3 scripts/ci/rust-test-closure.py --check
+
       - name: Restore the checked-out cargo config
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         env:
@@ -840,6 +859,7 @@ jobs:
         run: >-
           make cargo-test NEXTEST_PROFILE=ci
           EXTRA_FEATURES="${RUST_TEST_EXTRA_FEATURES}"
+          RUST_TEST_SCOPE_PACKAGES="${TEST_SCOPE_PACKAGES}"
 
       # `cargo nextest run` rewrites junit.xml, and the proofs below are a second invocation, so
       # this copy has to happen between them or only the proofs survive. `always()`: a failing run

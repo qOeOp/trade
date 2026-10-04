@@ -8,7 +8,7 @@ set -euo pipefail
 
 emit() {
   local tests="$1" rust_tests="$2" generated="$3" full_prek="$4" capnp="$5"
-  local python="$6" rust="$7" owner_chain="$8" reason="$9"
+  local python="$6" rust="$7" owner_chain="$8" rust_test_scope="$9" reason="${10}"
   {
     echo "run_tests=${tests}"
     echo "run_rust_tests=${rust_tests}"
@@ -18,13 +18,14 @@ emit() {
     echo "codeql_python_impacted=${python}"
     echo "codeql_rust_impacted=${rust}"
     echo "run_owner_chain=${owner_chain}"
+    echo "rust_test_scope=${rust_test_scope}"
     echo "pre_commit_base=${merge_base:-}"
   } >> "$GITHUB_OUTPUT"
   echo "$reason"
 }
 
 run_all() {
-  emit true true true true true true true true "$1"
+  emit true true true true true true true true ALL "$1"
   exit 0
 }
 
@@ -58,7 +59,7 @@ case "${EVENT_NAME:-}" in
       "$before_pin_entry" != '100644 blob' || "$after_pin_entry" != '100644 blob' ]]; then
       run_all "main push is not an exact Skill pin update: running full validation"
     fi
-    emit false false false false false false false false \
+    emit false false false false false false false false ALL \
       "exact main Skill pin update: running narrow non-language validation"
     exit 0
     ;;
@@ -235,6 +236,42 @@ owner_chain_impact() {
   echo true
 }
 
+# Loaded once; a missing or malformed table, or a path it cannot attribute to a known crate
+# directory, fails open to "run every test" - the same bias `owner_chain_table_status` uses, and
+# `run_all` uses for everything else this script cannot classify.
+rust_test_scope_table_loaded=false
+declare -A rust_test_scope_table=()
+rust_test_scope_all=false
+rust_test_scope_packages=""
+
+load_rust_test_scope_table() {
+  rust_test_scope_table_loaded=true
+  local table="scripts/ci/rust-test-crates.tsv"
+  [[ -f "$table" ]] || return 0
+  local dir names
+  while IFS=$'\t' read -r dir names; do
+    case "$dir" in
+      '' | '#'*) continue ;;
+    esac
+    rust_test_scope_table["$dir"]="$names"
+  done < "$table"
+}
+
+# Adds `changed_file`'s owning crate's reverse-dependency closure (every package whose tests a
+# change there could affect) to the running scope; falls open to ALL - never a named subset - the
+# moment any one changed file cannot be attributed to a tabled crate.
+rust_test_scope_add() {
+  local changed_file="$1" crate_dir
+  [[ "$rust_test_scope_all" == true ]] && return
+  [[ "$rust_test_scope_table_loaded" == true ]] || load_rust_test_scope_table
+  crate_dir="$(owning_crate_dir "$changed_file")"
+  if [[ -n "$crate_dir" && -n "${rust_test_scope_table[$crate_dir]+set}" ]]; then
+    rust_test_scope_packages+=" ${rust_test_scope_table[$crate_dir]}"
+    return
+  fi
+  rust_test_scope_all=true
+}
+
 tests=false
 rust_tests=false
 generated=false
@@ -319,6 +356,7 @@ while IFS= read -r -d '' status <&3; do
       codeql_python=true
       codeql_rust=true
       owner_chain=true
+      rust_test_scope_all=true
       continue
       ;;
   esac
@@ -343,6 +381,7 @@ while IFS= read -r -d '' status <&3; do
       if [[ "$(owner_chain_impact "$changed_file")" == true ]]; then
         owner_chain=true
       fi
+      rust_test_scope_add "$changed_file"
       ;;
     */Cargo.toml)
       tests=true
@@ -352,6 +391,7 @@ while IFS= read -r -d '' status <&3; do
       if [[ "$(owner_chain_impact "$changed_file")" == true ]]; then
         owner_chain=true
       fi
+      rust_test_scope_add "$changed_file"
       ;;
     Cargo.toml | Cargo.lock | rust-toolchain.toml | .cargo/* | \
       */.cargo/* | clippy.toml)
@@ -362,6 +402,7 @@ while IFS= read -r -d '' status <&3; do
       full_prek=true
       codeql_rust=true
       owner_chain=true
+      rust_test_scope_all=true
       ;;
     Makefile | *.mk | tools.toml | *.sh | *.bash | *.zsh | *.toml | *.yaml | *.yml | \
       *.json | *.lock | generated/* | */generated/* | tests/* | */tests/* | \
@@ -379,6 +420,14 @@ if [[ "$changed" != true ]]; then
   run_all "Empty changed-path set: running full validation"
 fi
 
+if [[ "$rust_tests" != true || "$rust_test_scope_all" == true ]]; then
+  rust_test_scope=ALL
+else
+  rust_test_scope="$(echo "$rust_test_scope_packages" | tr ' ' '\n' | sed '/^$/d' | sort -u | tr '\n' ' ')"
+  rust_test_scope="${rust_test_scope% }"
+  [[ -n "$rust_test_scope" ]] || rust_test_scope=ALL
+fi
+
 emit "$tests" "$rust_tests" "$generated" "$full_prek" "$capnp" \
-  "$codeql_python" "$codeql_rust" "$owner_chain" \
+  "$codeql_python" "$codeql_rust" "$owner_chain" "$rust_test_scope" \
   "PR impact plan: tests=${tests}, rust=${rust_tests}, generated=${generated}, owner_chain=${owner_chain}, changed-file pre-commit"
