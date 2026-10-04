@@ -27,6 +27,7 @@ logs/
 *.env
 # The local deployment's generated credentials, seeds and sealed commands (scripts/up.sh)
 product/rd-workbench/.local/
+product/rd-workbench/.local-*/
 
 # Compressed files
 *.tar.gz*

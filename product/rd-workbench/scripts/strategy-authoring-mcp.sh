@@ -13,7 +13,8 @@ set -euo pipefail
 
 package_dir=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 repo_root=$(CDPATH='' cd -- "$package_dir/../.." && pwd)
-state_dir=${RD_LOCAL_STATE_DIR:-$package_dir/.local}
+# shellcheck source=product/rd-workbench/scripts/local-deployment.bash
+source "$package_dir/scripts/local-deployment.bash"
 env_file=$state_dir/.env
 server=$state_dir/bin/strategy-authoring-mcp
 self=$package_dir/scripts/strategy-authoring-mcp.sh
@@ -32,9 +33,13 @@ if [ "${1:-}" = install ]; then
   echo "Installed $server"
   echo "Register it with Claude Code (the token is read from $env_file when the server starts):"
   echo
-  echo "  claude mcp add --scope user strategy-authoring -- $self"
+  if [ "$local_project" = trade-rd-local ]; then
+    echo "  claude mcp add --scope user strategy-authoring -- $self"
+  else
+    echo "  claude mcp add --scope user strategy-authoring -e RD_LOCAL_PROJECT=$local_project -- $self"
+  fi
   echo
-  echo "RD_OWNER_API_URL defaults to http://127.0.0.1:${RD_LOCAL_API_PORT:-18080}; set RD_LOCAL_API_PORT"
+  echo "RD_OWNER_API_URL defaults to http://127.0.0.1:$api_port; set RD_LOCAL_API_PORT"
   echo "or RD_OWNER_API_URL in Claude Code's environment only if up.sh published another port."
   exit 0
 fi
@@ -49,5 +54,5 @@ if [ -z "$token" ]; then
   exit 1
 fi
 export RD_OWNER_API_TOKEN=$token
-export RD_OWNER_API_URL=${RD_OWNER_API_URL:-http://127.0.0.1:${RD_LOCAL_API_PORT:-18080}}
+export RD_OWNER_API_URL=${RD_OWNER_API_URL:-http://127.0.0.1:$api_port}
 exec "$server"

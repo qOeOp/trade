@@ -299,7 +299,7 @@ jobs:
             --lockfile=Cargo.lock
             --lockfile=crates/adapters/lighter/fuzz/pornin/Cargo.lock
             --lockfile=python/uv.lock
-            --lockfile=services/bilibili-note-mcp/uv.lock
+            --lockfile=services/video-note-mcp/uv.lock
             --lockfile=docs-site/package-lock.json
             --lockfile=product/dashboard/package-lock.json
 
