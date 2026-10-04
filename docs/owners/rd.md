@@ -852,6 +852,27 @@ Acceptance on a local deployment, with only this server mounted and no market da
 9. `validate` with `max_holding_bars: 0`: `SINGLE_THRESHOLD_MAX_HOLDING_BARS_ZERO`; with `stop_loss_fraction: "0.020"`:
    `SINGLE_THRESHOLD_EXIT_FRACTION_INVALID`.
 
+**CURRENT - backtest MCP server:** the `backtest` server of the
+[domain MCP catalog](../architecture/product-edge#target---external-agent-tool-surface) is `backtest-mcp`, a stateless
+stdio process built from `services/backtest-mcp`, which is its own Cargo workspace with its own `Cargo.lock` and
+depends on no Owner crate - only an HTTP client, serde and the stdio loop. It holds `RD_OWNER_API_URL` and
+`RD_OWNER_API_TOKEN` in its own environment and reaches `/v1/backtests` only. Each tool sends one request and passes
+the answer or the refusal through by name, the body exactly as sent; no argument or result carries the token.
+
+| Tool             | Route                               | Answer                                                     |
+| ---------------- | ----------------------------------- | ---------------------------------------------------------- |
+| `run(...)`       | `POST /v1/backtests`                | where the run stopped, or the refusal by name              |
+| `status(run_id)` | `GET /v1/backtests/{run_id}`        | the recorded run's request and answer, or `RUN_UNKNOWN`    |
+| `report(run_id)` | `GET /v1/backtests/{run_id}/report` | the run's report, or why it has none (`RUN_HAS_NO_RESULT`) |
+| `list(limit)`    | `GET /v1/backtests`                 | recorded runs, newest first                                |
+
+`run` takes exactly the fields the route reads - `run_id`, `strategy_id`, `instrument`, `execution_timeframe`,
+`window_start_ns`, `window_end_ns_exclusive`, `custody_chain_root` - and refuses any other as
+`MALFORMED_TYPED_REQUEST` without a request. A run id becomes part of a route's path, so only letters, digits, `.`,
+`_` and `-`, at most 128 of them, are sent; any other spelling is answered `RUN_UNKNOWN` without a request. A route
+that cannot be reached is `RD_OWNER_API_UNREACHABLE`. `make mcp-backtest` builds and installs it for the local
+deployment and prints its registration.
+
 **IMPLEMENTATION_ADMITTED - authoring language V1:** a document a proposer writes, compiled by a pure
 function into the `design` and `meaning` pair and nothing further. Nothing implements it at this cut, and
 its implementation follows the first COMPOSER_V3 Replay through the ordered chain. The proposer is a
