@@ -288,13 +288,29 @@ const SETTLEMENT_GAP_TOLERANCE_NS: u64 = 60_000_000_000;
 /// width. At or above it, zero rows for a covered window is a gap, not a quiet "nothing settled".
 const MINIMUM_SETTLEMENT_INTERVAL_NS: u64 = 3_600_000_000_000;
 
-/// Whether an observed gap matches the interval one of its two endpoints declares, within
-/// [`SETTLEMENT_GAP_TOLERANCE_NS`] (capped at the interval itself so a short interval cannot be
-/// tolerance-exempted into accepting an arbitrarily large gap).
+/// Whether an observed gap between two real settlements matches the interval the later one
+/// declares, within [`SETTLEMENT_GAP_TOLERANCE_NS`] (capped at the interval itself so a short
+/// interval cannot be tolerance-exempted into accepting an arbitrarily large gap). Two real
+/// settlements must be spaced by exactly their stated interval, so this checks equality in both
+/// directions.
 fn gap_matches_interval_v1(actual_gap_ns: u64, interval_hours: u8) -> bool {
     let expected_gap_ns = u64::from(interval_hours) * 3_600_000_000_000;
     let tolerance = expected_gap_ns.min(SETTLEMENT_GAP_TOLERANCE_NS);
     actual_gap_ns.abs_diff(expected_gap_ns) <= tolerance
+}
+
+/// Whether a window edge sits no more than its nearest settlement's declared interval (plus
+/// [`SETTLEMENT_GAP_TOLERANCE_NS`], capped at the interval) away from it. Unlike a gap between two
+/// real settlements, a window edge is not itself a settlement: the window may start exactly on,
+/// or any amount after, its first settlement's period start, and may end exactly on, or any amount
+/// before, its last settlement's period end - only an edge *further* from its settlement than that
+/// settlement's own interval is a real gap. Checking equality here instead would refuse nearly
+/// every real window, since a window's own start and end rarely land exactly one interval from the
+/// nearest settlement.
+fn edge_gap_within_interval_v1(actual_gap_ns: u64, interval_hours: u8) -> bool {
+    let expected_gap_ns = u64::from(interval_hours) * 3_600_000_000_000;
+    let tolerance = expected_gap_ns.min(SETTLEMENT_GAP_TOLERANCE_NS);
+    actual_gap_ns <= expected_gap_ns + tolerance
 }
 
 /// Builds one member's settlements from its sorted, decoded rows over `[window_start_ns,
@@ -325,7 +341,7 @@ fn member_schedule_v1(
     };
 
     let head_gap_ns = first.settlement_ns.saturating_sub(window_start_ns);
-    if !gap_matches_interval_v1(head_gap_ns, first.interval_hours) {
+    if !edge_gap_within_interval_v1(head_gap_ns, first.interval_hours) {
         return Err(ResolutionRefused::SettlementGap);
     }
 
@@ -338,7 +354,7 @@ fn member_schedule_v1(
 
     let last = rows.last().expect("checked non-empty above");
     let tail_gap_ns = window_end_ns_exclusive.saturating_sub(last.settlement_ns);
-    if !gap_matches_interval_v1(tail_gap_ns, last.interval_hours) {
+    if !edge_gap_within_interval_v1(tail_gap_ns, last.interval_hours) {
         return Err(ResolutionRefused::SettlementGap);
     }
 
@@ -683,6 +699,51 @@ mod tests {
             ),
             Err(super::ResolutionRefused::SettlementGap),
             "the tail edge is two stated intervals past the only settlement, not one"
+        );
+    }
+
+    #[rstest]
+    fn a_window_starting_exactly_on_its_first_settlement_has_a_zero_head_gap() {
+        // A window boundary is not itself a settlement: starting right on the first settlement
+        // (head gap zero) is not a gap at all, let alone one matching the declared interval.
+        let rows = vec![settlement(EIGHT_HOURS_NS, 8)];
+        member_schedule_v1(
+            "BTCUSDT-PERP.BINANCE".to_owned(),
+            rows,
+            EIGHT_HOURS_NS,
+            2 * EIGHT_HOURS_NS,
+        )
+        .expect("a window starting exactly on its first settlement has no head gap to refuse");
+    }
+
+    #[rstest]
+    fn a_window_ending_mid_interval_after_its_last_settlement_is_accepted() {
+        // A real window's own end rarely lands exactly one interval past the last settlement -
+        // ending partway through the next interval is normal, not a gap.
+        let rows = vec![settlement(EIGHT_HOURS_NS, 8)];
+        member_schedule_v1(
+            "BTCUSDT-PERP.BINANCE".to_owned(),
+            rows,
+            0,
+            EIGHT_HOURS_NS + HOUR_NS,
+        )
+        .expect("a tail gap narrower than the declared interval is not a gap");
+    }
+
+    #[rstest]
+    fn a_head_gap_past_the_first_settlements_interval_is_refused() {
+        const SETTLEMENT_NS: u64 = 3 * EIGHT_HOURS_NS;
+        const WINDOW_START_NS: u64 = SETTLEMENT_NS - (EIGHT_HOURS_NS + 2 * HOUR_NS);
+        let rows = vec![settlement(SETTLEMENT_NS, 8)];
+        assert_eq!(
+            member_schedule_v1(
+                "BTCUSDT-PERP.BINANCE".to_owned(),
+                rows,
+                WINDOW_START_NS,
+                SETTLEMENT_NS + EIGHT_HOURS_NS,
+            ),
+            Err(super::ResolutionRefused::SettlementGap),
+            "the head gap is one stated interval plus two hours, past tolerance"
         );
     }
 
