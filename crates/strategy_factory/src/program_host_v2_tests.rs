@@ -2223,6 +2223,48 @@ fn another_frames_projection_does_not_pair_with_this_frame() {
     );
 }
 
+/// Market Data's custody projection, derived at read time for a custody frame, pairs through the
+/// unchanged host check with its own frame and with no other: it names the frame as its subject,
+/// is BAR with a nonzero schedule set, and has one component per (member, role) value.
+#[rstest]
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+fn a_custody_projection_pairs_with_its_own_frame_and_no_other() {
+    use vibe_data::owner::{
+        pit_snapshot::sealed_acceptance::{
+            SingleMemberUniverseRolesV1, issue_single_member_universe_frame_for_owner_lineage,
+            issue_strategy_input_universe_frame,
+        },
+        universe_sample_projection_v1::sealed_acceptance::issue_sealed_acceptance_custody_universe_sample_projection_v1,
+    };
+
+    use super::program_host_v2::{OwnerUniverseFrameV1, ProgramHostV2Error};
+
+    let own = issue_single_member_universe_frame_for_owner_lineage(
+        BindingDigest::from_untrusted_bytes([1; 32]),
+        BindingDigest::from_untrusted_bytes([2; 32]),
+        SingleMemberUniverseRolesV1::compile_time_corpus(),
+    )
+    .expect("one-member Owner universe frame");
+    let other = issue_strategy_input_universe_frame().expect("two-member Owner universe frame");
+    let projection = issue_sealed_acceptance_custody_universe_sample_projection_v1(&own);
+    let other_projection = issue_sealed_acceptance_custody_universe_sample_projection_v1(&other);
+
+    let paired = OwnerUniverseFrameV1::from_owner_projection_v1(own.frame().clone(), &projection)
+        .expect("the custody projection pairs with its own frame");
+    assert_eq!(paired.frame(), own.frame());
+    assert_eq!(
+        OwnerUniverseFrameV1::from_owner_projection_v1(other.frame().clone(), &projection).err(),
+        Some(ProgramHostV2Error::InputCoverage),
+        "a custody projection pairs with no foreign frame"
+    );
+    assert_eq!(
+        OwnerUniverseFrameV1::from_owner_projection_v1(own.frame().clone(), &other_projection)
+            .err(),
+        Some(ProgramHostV2Error::InputCoverage),
+        "a foreign custody projection pairs with no frame but its own"
+    );
+}
+
 #[cfg(feature = "sealed-strategy-input-acceptance")]
 use vibe_data::owner::universe_sample_projection_v1::sealed_acceptance::SealedUniverseSampleProjectionTamperV1 as Tamper;
 

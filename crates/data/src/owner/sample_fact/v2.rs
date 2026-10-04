@@ -80,10 +80,6 @@ pub(crate) struct SampleFactV2 {
 
 impl SampleFactV2 {
     /// The row this fact states: the one it was prepared from, or the one its bytes decode to.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "read by the custody view seal (T0-5 C5)")
-    )]
     pub(crate) const fn row(&self) -> &SampleRowInputV2 {
         &self.row
     }

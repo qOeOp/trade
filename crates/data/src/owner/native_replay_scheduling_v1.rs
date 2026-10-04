@@ -45,6 +45,11 @@ use super::{
         StrategyInputUniverseFrameReceipt, UntrustedStrategyInputBindingRequest,
         UntrustedStrategyInputScope, bind_strategy_input_universe_frame,
     },
+    universe_sample_projection_v1::{
+        CustodyFrameRowsV1, CustodyMemberScheduleV1,
+        StrategyInputUniverseSampleProjectionReadbackV1,
+        derive_custody_universe_sample_projection_v1,
+    },
 };
 
 const RECEIPT_DOMAIN_V1: &[u8] = b"market-data.native-replay-scheduling-readback.v1\0";
@@ -1247,6 +1252,7 @@ pub struct NativeReplayCustodyFrameReadbackV1 {
     view: VerifiedPitObservationBatch,
     quote_cut: VerifiedPitObservationBatch,
     universe_frame: StrategyInputUniverseFrameReceipt,
+    sample_projection: StrategyInputUniverseSampleProjectionReadbackV1,
     schedules: Vec<PitWindowScheduleReadbackV1>,
     declared: DeclaredBarTimeframeV1,
     member_instruments: Vec<InstrumentId>,
@@ -1258,6 +1264,17 @@ impl NativeReplayCustodyFrameReadbackV1 {
     #[must_use]
     pub const fn universe_frame(&self) -> &StrategyInputUniverseFrameReceipt {
         &self.universe_frame
+    }
+
+    /// The Owner sample coordinate of every (member, role) value of the universe frame, derived by
+    /// Market Data from the custody rows the frame's view read, and never stored.
+    ///
+    /// Its subject is [`Self::universe_frame`]'s digest, so a host attaches it to that frame
+    /// through the same check as a stored projection. Each coordinate binds its custody row, so
+    /// one row has the same coordinate in every frame that reads it.
+    #[must_use]
+    pub const fn sample_projection(&self) -> &StrategyInputUniverseSampleProjectionReadbackV1 {
+        &self.sample_projection
     }
 
     /// One window schedule per member, in member order.
@@ -1412,13 +1429,15 @@ fn custody_quote_cut_instant(
 /// schedules of the head its request pins.
 ///
 /// `universe` is the custody's Universe Selection locator, `(request_identity,
-/// request_meaning_digest)`: the Record a custody request names is checked as that pair.
+/// request_meaning_digest)`: the Record a custody request names is checked as that pair. `custody`
+/// is the rows the view was sealed from, from which the frame's sample projection is derived.
 pub(crate) fn issue_native_replay_custody_frame_readback_v1(
     view: VerifiedPitObservationBatch,
     quote_cut: VerifiedPitObservationBatch,
     schedules: Vec<PitWindowScheduleFactV1>,
     declared: DeclaredBarTimeframeV1,
     universe: (BindingDigest, BindingDigest),
+    custody: &CustodyFrameRowsV1,
     request: &NativeReplayInitialMarketRequestV1,
 ) -> Result<NativeReplayCustodyFrameReadbackV1, NativeReplaySchedulingErrorV1> {
     let frame = request.custody_frame()?;
@@ -1509,10 +1528,25 @@ pub(crate) fn issue_native_replay_custody_frame_readback_v1(
     {
         return Err(NativeReplaySchedulingErrorV1::OwnerBindingMismatch);
     }
+    let member_schedules = schedules
+        .iter()
+        .map(|schedule| CustodyMemberScheduleV1 {
+            instrument: &schedule.instrument,
+            identity: schedule.identity(),
+        })
+        .collect::<Vec<_>>();
+    let sample_projection = derive_custody_universe_sample_projection_v1(
+        &universe_frame,
+        &view,
+        custody,
+        &member_schedules,
+    )
+    .map_err(|_| NativeReplaySchedulingErrorV1::OwnerBindingMismatch)?;
     Ok(NativeReplayCustodyFrameReadbackV1 {
         view,
         quote_cut,
         universe_frame,
+        sample_projection,
         schedules: schedules
             .into_iter()
             .map(PitWindowScheduleReadbackV1)
@@ -3796,6 +3830,10 @@ pub(crate) mod tests {
                 UntrustedPitWindowCustodyFrameV1, schedule::PitWindowScheduleFactV1,
             },
             strategy_input_binding::derive_universe_selection,
+            universe_sample_projection_v1::{
+                CustodyFrameRowsV1, UniverseSampleProjectionLifecycleV1,
+                custody_rows_restating_view_for_acceptance_v1,
+            },
         };
 
         const MINUTE: u64 = 60_000_000_000;
@@ -4157,14 +4195,280 @@ pub(crate) mod tests {
             request: &NativeReplayInitialMarketRequestV1,
             universe: (BindingDigest, BindingDigest),
         ) -> Result<NativeReplayCustodyFrameReadbackV1, NativeReplaySchedulingErrorV1> {
+            let custody = custody_rows_restating_view_for_acceptance_v1(&view, b"unit");
+            issue_with(view, quote_cut, members, request, universe, &custody)
+        }
+
+        fn issue_with(
+            view: VerifiedPitObservationBatch,
+            quote_cut: VerifiedPitObservationBatch,
+            members: &[&str],
+            request: &NativeReplayInitialMarketRequestV1,
+            universe: (BindingDigest, BindingDigest),
+            custody: &CustodyFrameRowsV1,
+        ) -> Result<NativeReplayCustodyFrameReadbackV1, NativeReplaySchedulingErrorV1> {
             issue_native_replay_custody_frame_readback_v1(
                 view,
                 quote_cut,
                 window_schedules(members),
                 declared(),
                 universe,
+                custody,
                 request,
             )
+        }
+
+        /// The frame's rows of `members` as a custody view `view_identity`, with every row edited.
+        fn frame_with(
+            members: &[&str],
+            view_identity: u8,
+            edit: impl Fn(&mut VerifiedPitObservation),
+        ) -> VerifiedPitObservationBatch {
+            let source = PitObservationBatchSourceV1::CustodyView {
+                chain_root: digest(60),
+                view_identity: digest(view_identity),
+                event_ns: E,
+                decision_cut_ns: D,
+                derived_frontier_digest: digest(62),
+            };
+            timed(
+                members
+                    .iter()
+                    .flat_map(|member| bar_rows(member))
+                    .map(|mut row| {
+                        edit(&mut row);
+                        row
+                    })
+                    .collect(),
+                source,
+                E,
+            )
+        }
+
+        /// The fields a coordinate states, read from its fixed layout apart from the codec.
+        fn coordinate_field(coordinate: &[u8; 308], at: std::ops::Range<usize>) -> &[u8] {
+            &coordinate[at]
+        }
+
+        /// A custody frame's projection binds its frame, under the custody domains, and each
+        /// coordinate states its custody row: the fact digest as its receipt, the row's own
+        /// digest, V1's logical time (the later of availability and publication), and the series
+        /// position. The same row read by another frame - another view, whose view rows state
+        /// another retrieval and so another row digest - has the same coordinate bytes.
+        #[rstest::rstest]
+        fn a_custody_row_states_one_coordinate_in_every_frame_that_reads_it() {
+            let members = &[AAA, BBB];
+            let (request, universe) = custody_request_with(
+                members,
+                &[
+                    (42, MarketDataFieldSemantic::BarClosePrice, "1M"),
+                    (43, MarketDataFieldSemantic::BarOpenPrice, "1M"),
+                ],
+            );
+            let first = frame_with(members, 61, |_| {});
+            let custody = custody_rows_restating_view_for_acceptance_v1(&first, b"unit");
+            let second = frame_with(members, 65, |row| row.retrieval = E);
+            let quote = || quote(members, quote_source(QuoteDerivationV1::ObservedBbo));
+            let first = issue_with(first, quote(), members, &request, universe, &custody)
+                .expect("the first frame issues");
+            let second = issue_with(second, quote(), members, &request, universe, &custody)
+                .expect("the second frame issues over the same custody rows");
+
+            assert_ne!(
+                first.universe_frame().digest(),
+                second.universe_frame().digest()
+            );
+
+            for frame in [&first, &second] {
+                let projection = frame.sample_projection();
+                assert_eq!(projection.subject(), frame.universe_frame().digest());
+                assert_eq!(
+                    projection.lifecycle(),
+                    UniverseSampleProjectionLifecycleV1::Bar
+                );
+                assert_eq!(projection.components().len(), 4, "one per (member, role)");
+                // The identity is under the custody domain, never the stored projections'.
+                let identity = |domain: &[u8]| {
+                    BindingDigest::from_untrusted_bytes(
+                        Sha256::new()
+                            .chain_update(domain)
+                            .chain_update(projection.canonical_bytes())
+                            .finalize()
+                            .into(),
+                    )
+                };
+                assert_eq!(
+                    projection.identity(),
+                    identity(b"market-data.universe-sample-projection.custody.v1\0")
+                );
+                assert_ne!(
+                    projection.identity(),
+                    identity(b"market-data.universe-sample-projection-receipt.v1\0")
+                );
+                // The schedule set is per component, over the member's window schedule fact.
+                let schedules = window_schedules(members);
+                let mut hasher = Sha256::new();
+                hasher.update(b"market-data.universe-sample-projection-schedule-set.custody.v1\0");
+                hasher.update(4_u32.to_le_bytes());
+                for component in projection.components() {
+                    hasher.update([component.member_ordinal()]);
+                    hasher.update(component.input_role_identity().as_bytes());
+                    hasher.update(
+                        schedules[usize::from(component.member_ordinal())]
+                            .identity()
+                            .as_bytes(),
+                    );
+                }
+                let schedule_set: [u8; 32] = hasher.finalize().into();
+                assert_eq!(
+                    projection.schedule_dependency_set_digest(),
+                    Some(BindingDigest::from_untrusted_bytes(schedule_set))
+                );
+
+                for (component, value) in projection
+                    .components()
+                    .iter()
+                    .zip(frame.universe_frame().values())
+                {
+                    let observation = frame
+                        .view
+                        .observations()
+                        .iter()
+                        .find(|row| {
+                            crate::owner::strategy_input_binding::canonical_row_digest_v1(row)
+                                == value.canonical_row_digest()
+                        })
+                        .expect("the value's observation");
+                    let fact = &custody
+                        .rows
+                        .iter()
+                        .find(|row| {
+                            row.fact.row().instrument == observation.instrument().as_bytes()
+                                && row.field == observation.field()
+                        })
+                        .expect("the observation's custody row")
+                        .fact;
+                    let coordinate = component.coordinate();
+                    let u64_at =
+                        |at: usize| u64::from_le_bytes(coordinate[at..at + 8].try_into().unwrap());
+                    assert_eq!(coordinate_field(coordinate, 276..308), &fact.fact_digest());
+                    assert_eq!(
+                        component.sample_receipt_digest().as_bytes(),
+                        &fact.fact_digest()
+                    );
+                    assert_eq!(
+                        component.sample_identity().as_bytes(),
+                        &fact.sample_identity()
+                    );
+                    assert_eq!(
+                        coordinate_field(coordinate, 172..204),
+                        &fact.row().canonical_row_digest
+                    );
+                    assert_ne!(
+                        coordinate_field(coordinate, 172..204),
+                        value.canonical_row_digest().as_bytes(),
+                        "the coordinate binds the custody row, not the view row"
+                    );
+                    assert_eq!(
+                        u64_at(116),
+                        fact.row().available.max(fact.row().publication)
+                    );
+                    assert_eq!(u64_at(124), fact.event_effective());
+                    assert_eq!(u64_at(132), fact.series_sequence());
+                }
+            }
+
+            for (one, other) in first
+                .sample_projection()
+                .components()
+                .iter()
+                .zip(second.sample_projection().components())
+            {
+                assert_eq!(one.coordinate(), other.coordinate());
+                assert_eq!(
+                    one.timeframe_projection_digest(),
+                    other.timeframe_projection_digest()
+                );
+                assert_ne!(one.value_receipt_digest(), other.value_receipt_digest());
+            }
+
+            for (one, other) in first
+                .universe_frame()
+                .values()
+                .iter()
+                .zip(second.universe_frame().values())
+            {
+                assert_ne!(
+                    one.canonical_row_digest(),
+                    other.canonical_row_digest(),
+                    "the two frames' view rows differ"
+                );
+            }
+            assert_ne!(
+                first.sample_projection().identity(),
+                second.sample_projection().identity()
+            );
+        }
+
+        /// A correction is a new fact over a new row: the frame that reads it reads a new
+        /// coordinate for the same (member, role).
+        #[rstest::rstest]
+        fn a_correction_changes_the_coordinate() {
+            let members = &[AAA, BBB];
+            let (request, universe) = custody_request(members, "1M");
+            let quote = || quote(members, quote_source(QuoteDerivationV1::ObservedBbo));
+            let original = issue(
+                frame_with(members, 61, |_| {}),
+                quote(),
+                members,
+                &request,
+                universe,
+            )
+            .expect("the original frame issues");
+            let corrected = issue(
+                frame_with(members, 61, |row| row.correction_sequence = 2),
+                quote(),
+                members,
+                &request,
+                universe,
+            )
+            .expect("the corrected frame issues");
+
+            for (one, other) in original
+                .sample_projection()
+                .components()
+                .iter()
+                .zip(corrected.sample_projection().components())
+            {
+                assert_eq!(
+                    (one.member_ordinal(), one.input_role_identity()),
+                    (other.member_ordinal(), other.input_role_identity())
+                );
+                assert_ne!(one.coordinate(), other.coordinate());
+                assert_ne!(one.sample_receipt_digest(), other.sample_receipt_digest());
+            }
+        }
+
+        /// A view row no custody row restates derives no projection, so the frame is not issued.
+        #[rstest::rstest]
+        fn a_view_row_no_custody_row_restates_issues_no_frame() {
+            let members = &[AAA, BBB];
+            let (request, universe) = custody_request(members, "1M");
+            let view = frame(members, view_source());
+            let mut custody = custody_rows_restating_view_for_acceptance_v1(&view, b"unit");
+            custody.rows.retain(|row| row.member_ordinal != 1);
+            assert_eq!(
+                issue_with(
+                    view,
+                    quote(members, quote_source(QuoteDerivationV1::ObservedBbo)),
+                    members,
+                    &request,
+                    universe,
+                    &custody,
+                )
+                .map(|_| ()),
+                Err(NativeReplaySchedulingErrorV1::OwnerBindingMismatch)
+            );
         }
 
         #[rstest::rstest]

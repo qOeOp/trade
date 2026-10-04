@@ -33,6 +33,7 @@ use crate::owner::{
         quote_cut::{CustodyQuoteCutRequestV1, custody_quote_cut_bound_v1},
     },
     store_admission::PitWindowCustodyReadPortV1,
+    universe_sample_projection_v1::{CustodyFrameRowsV1, CustodyFrameVersionV1},
 };
 
 pub(crate) use crate::owner::pit_window_custody_v1::quote_cut::resolve_custody_quote_cut_v1;
@@ -132,12 +133,35 @@ where
         schedule.shape,
     );
     let universe = root.universe;
+    // The rows the view was sealed from, each located by its member and selected version, from
+    // which the frame's sample projection is derived.
+    let custody = CustodyFrameRowsV1 {
+        members: root.members.clone(),
+        versions: view
+            .selection
+            .selected
+            .iter()
+            .map(|version| {
+                root.inputs
+                    .iter()
+                    .find(|timeframe| timeframe.identity == version.timeframe_identity)
+                    .map(|timeframe| CustodyFrameVersionV1 {
+                        identity: version.identity,
+                        timeframe_identity: version.timeframe_identity,
+                        label: timeframe.label.clone(),
+                    })
+                    .ok_or(NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)
+            })
+            .collect::<Result<_, _>>()?,
+        rows: view.rows,
+    };
     issue_native_replay_custody_frame_readback_v1(
         batch,
         quote_cut,
         view.schedules,
         declared,
         universe,
+        &custody,
         request,
     )
 }
