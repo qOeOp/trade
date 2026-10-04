@@ -1075,7 +1075,7 @@ fn parse_sidecar(
     })
 }
 
-fn read_single_csv_member(
+pub(crate) fn read_single_csv_member(
     binding: &BinanceVisionArchiveBinding,
     archive_bytes: &[u8],
 ) -> Result<Vec<u8>, BinanceVisionArchiveError> {
