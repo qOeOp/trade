@@ -41,14 +41,14 @@ use super::consts::{
         eq_int,
         frozen,
         hash,
-        module = "vibe_trader.adapters.architect_ax",
+        module = "vibe_trading.adapters.architect_ax",
         from_py_object,
         rename_all = "SCREAMING_SNAKE_CASE",
     )
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trader.adapters.architect_ax")
+    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trading.adapters.architect_ax")
 )]
 pub enum AxEnvironment {
     /// Sandbox/test environment.
@@ -123,7 +123,7 @@ impl AxEnvironment {
         eq_int,
         frozen,
         hash,
-        module = "vibe_trader.adapters.architect_ax",
+        module = "vibe_trading.adapters.architect_ax",
         from_py_object,
         rename_all = "SCREAMING_SNAKE_CASE",
     )
@@ -247,7 +247,7 @@ impl From<AxCategory> for AssetClass {
         eq_int,
         frozen,
         hash,
-        module = "vibe_trader.adapters.architect_ax",
+        module = "vibe_trading.adapters.architect_ax",
         from_py_object,
         rename_all = "SCREAMING_SNAKE_CASE",
     )
@@ -359,7 +359,7 @@ pub enum AxFundingSlotStatus {
         eq_int,
         frozen,
         hash,
-        module = "vibe_trader.adapters.architect_ax",
+        module = "vibe_trading.adapters.architect_ax",
         from_py_object,
         rename_all = "SCREAMING_SNAKE_CASE",
     )
@@ -443,7 +443,7 @@ impl From<AxOrderStatus> for OrderStatus {
         eq_int,
         frozen,
         hash,
-        module = "vibe_trader.adapters.architect_ax",
+        module = "vibe_trading.adapters.architect_ax",
         from_py_object,
         rename_all = "SCREAMING_SNAKE_CASE",
     )
@@ -528,14 +528,14 @@ impl TryFrom<TimeInForce> for AxTimeInForce {
         eq_int,
         frozen,
         hash,
-        module = "vibe_trader.adapters.architect_ax",
+        module = "vibe_trading.adapters.architect_ax",
         from_py_object,
         rename_all = "SCREAMING_SNAKE_CASE",
     )
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trader.adapters.architect_ax")
+    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trading.adapters.architect_ax")
 )]
 pub enum AxMarketDataLevel {
     /// Level 1: best bid/ask only.
@@ -715,7 +715,7 @@ pub enum AxOrderRequestType {
         eq_int,
         frozen,
         hash,
-        module = "vibe_trader.adapters.architect_ax",
+        module = "vibe_trading.adapters.architect_ax",
         from_py_object,
         rename_all = "SCREAMING_SNAKE_CASE",
     )
@@ -776,7 +776,7 @@ pub enum AxMdWsMessageType {
         eq_int,
         frozen,
         hash,
-        module = "vibe_trader.adapters.architect_ax",
+        module = "vibe_trading.adapters.architect_ax",
         from_py_object,
         rename_all = "SCREAMING_SNAKE_CASE",
     )
@@ -851,7 +851,7 @@ pub enum AxOrderWsMessageType {
         eq_int,
         frozen,
         hash,
-        module = "vibe_trader.adapters.architect_ax",
+        module = "vibe_trading.adapters.architect_ax",
         from_py_object,
         rename_all = "SCREAMING_SNAKE_CASE",
     )
@@ -891,7 +891,7 @@ pub enum AxCancelReason {
         eq_int,
         frozen,
         hash,
-        module = "vibe_trader.adapters.architect_ax",
+        module = "vibe_trading.adapters.architect_ax",
         from_py_object,
         rename_all = "SCREAMING_SNAKE_CASE",
     )

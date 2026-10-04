@@ -91,7 +91,7 @@ The following log levels are supported:
 You can set `TRACE` as a filter level to capture trace logs from Rust components, even though Python code cannot emit them directly.
 :::
 
-See the `LoggerConfig` [API Reference](/docs/python-api-latest/common.html#vibe_trader.common.LoggerConfig) for further details.
+See the `LoggerConfig` [API Reference](/docs/python-api-latest/common.html#vibe_trading.common.LoggerConfig) for further details.
 
 Logging can be configured in the following ways:
 
@@ -188,11 +188,11 @@ The input value should be a dictionary of component ID strings to log level stri
 Below is an example of a trading node logging configuration that includes some of the options mentioned above:
 
 ```python
-from vibe_trader.common import LogLevel
-from vibe_trader.config import FileWriterConfig
-from vibe_trader.config import LoggerConfig
-from vibe_trader.config import LiveNodeConfig
-from vibe_trader.model import TraderId
+from vibe_trading.common import LogLevel
+from vibe_trading.config import FileWriterConfig
+from vibe_trading.config import LoggerConfig
+from vibe_trading.config import LiveNodeConfig
+from vibe_trading.model import TraderId
 
 config_node = LiveNodeConfig(
     trader_id=TraderId.from_str("TESTER-001"),
@@ -302,11 +302,11 @@ If you ***aren't*** using an object which already initializes a `VibeKernel` (an
 then you can activate logging in the following way:
 
 ```python
-from vibe_trader.common import init_logging
-from vibe_trader.common import Logger
-from vibe_trader.common import LogLevel
-from vibe_trader.core import UUID4
-from vibe_trader.model import TraderId
+from vibe_trading.common import init_logging
+from vibe_trading.common import Logger
+from vibe_trading.common import LogLevel
+from vibe_trading.core import UUID4
+from vibe_trading.model import TraderId
 
 log_guard = init_logging(
     trader_id=TraderId.from_str("TESTER-001"),
@@ -351,7 +351,7 @@ custom Rust components (such as feature extractors or adapters) compiled as sepa
 Initialize the tracing subscriber directly:
 
 ```python
-from vibe_trader.common import init_tracing
+from vibe_trading.common import init_tracing
 
 init_tracing()
 ```

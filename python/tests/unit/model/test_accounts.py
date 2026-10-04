@@ -3,33 +3,33 @@ from decimal import Decimal
 import pytest
 from tests.providers import TestInstrumentProvider
 
-from vibe_trader.core import UUID4
-from vibe_trader.model import AccountBalance
-from vibe_trader.model import AccountId
-from vibe_trader.model import AccountState
-from vibe_trader.model import AccountType
-from vibe_trader.model import BettingAccount
-from vibe_trader.model import CashAccount
-from vibe_trader.model import ClientOrderId
-from vibe_trader.model import Currency
-from vibe_trader.model import LeveragedMarginModel
-from vibe_trader.model import LiquiditySide
-from vibe_trader.model import MarginAccount
-from vibe_trader.model import MarginBalance
-from vibe_trader.model import Money
-from vibe_trader.model import OrderFilled
-from vibe_trader.model import OrderSide
-from vibe_trader.model import OrderType
-from vibe_trader.model import Price
-from vibe_trader.model import Quantity
-from vibe_trader.model import StandardMarginModel
-from vibe_trader.model import StrategyId
-from vibe_trader.model import TradeId
-from vibe_trader.model import TraderId
-from vibe_trader.model import VenueOrderId
-from vibe_trader.model import betting_account_from_account_events
-from vibe_trader.model import cash_account_from_account_events
-from vibe_trader.model import margin_account_from_account_events
+from vibe_trading.core import UUID4
+from vibe_trading.model import AccountBalance
+from vibe_trading.model import AccountId
+from vibe_trading.model import AccountState
+from vibe_trading.model import AccountType
+from vibe_trading.model import BettingAccount
+from vibe_trading.model import CashAccount
+from vibe_trading.model import ClientOrderId
+from vibe_trading.model import Currency
+from vibe_trading.model import LeveragedMarginModel
+from vibe_trading.model import LiquiditySide
+from vibe_trading.model import MarginAccount
+from vibe_trading.model import MarginBalance
+from vibe_trading.model import Money
+from vibe_trading.model import OrderFilled
+from vibe_trading.model import OrderSide
+from vibe_trading.model import OrderType
+from vibe_trading.model import Price
+from vibe_trading.model import Quantity
+from vibe_trading.model import StandardMarginModel
+from vibe_trading.model import StrategyId
+from vibe_trading.model import TradeId
+from vibe_trading.model import TraderId
+from vibe_trading.model import VenueOrderId
+from vibe_trading.model import betting_account_from_account_events
+from vibe_trading.model import cash_account_from_account_events
+from vibe_trading.model import margin_account_from_account_events
 
 
 def test_cash_account_properties_and_balances():

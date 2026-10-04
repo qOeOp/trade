@@ -16,7 +16,7 @@ Derive 运行器默认以仅对冲模式启动：它设置 `enter_strangle: fals
 
 - 完成 [Derive 集成指南](../integrations/derive.md)中的钱包、子账户、会话密钥和资金配置。
 - 一个 Derive 测试网或主网子账户，并为准备允许的对冲订单提供足够的 USDC 抵押品。
-- 可用的 Rust 工具链以及已构建的 VibeTrader 工作区。
+- 可用的 Rust 工具链以及已构建的 VibeTrading 工作区。
 - 所选 Derive 环境所需的环境变量。
 
 对于测试网：

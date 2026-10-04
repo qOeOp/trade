@@ -1,5 +1,5 @@
 [project]
-name = "vibe-trader"
+name = "vibe-trading"
 version = "2.0.0rc3"
 description = "Rust-native event-driven trading engine"
 readme = "../README.md"
@@ -24,7 +24,7 @@ build-backend = "maturin"
 
 [tool.maturin]
 manifest-path = "../crates/pyo3/Cargo.toml"
-module-name = "vibe_trader._libvibe"
+module-name = "vibe_trading._libvibe"
 python-source = "."
 features = [
   "extension-module",
@@ -51,7 +51,7 @@ exclude-newer-package = { plotly = "8 hours", ruff = "8 hours", tzdata = "8 hour
 # unexpected loss of wheel publishing fails `uv lock` instead of silently
 # building from source. Kept in sync with python/uv.lock by
 # scripts/check-no-build-packages.sh (also a pre-commit hook). The local
-# vibe-trader package is intentionally absent because it must be built
+# vibe-trading package is intentionally absent because it must be built
 # by maturin.
 no-build-package = [
   "accessible-pygments",
@@ -141,7 +141,7 @@ target-version = "py312"
 line-length = 100
 exclude = [
   "stubs/**",
-  "vibe_trader/_libvibe.pyi",
+  "vibe_trading/_libvibe.pyi",
   ".git",
   "../build",
   "../dist",
@@ -232,20 +232,20 @@ unfixable = ["E4", "E501", "UP006", "UP035"]
 dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
 
 [tool.ruff.lint.per-file-ignores]
-"vibe_trader/**/*.pyi" = [
+"vibe_trading/**/*.pyi" = [
   "PYI011",
   "D",
   "RUF002",
 ] # Generated stubs use explicit default values from #[pyo3(signature)] and inherit Rust docstrings
-"vibe_trader/adapters/*/__init__.py" = [
+"vibe_trading/adapters/*/__init__.py" = [
   "F405",
 ] # Adapter facades re-export star-imported names in __all__
-"python/vibe_trader/**/*.pyi" = [
+"python/vibe_trading/**/*.pyi" = [
   "PYI011",
   "D",
   "RUF002",
 ] # Root-relative form used by repository-wide checks
-"python/vibe_trader/adapters/*/__init__.py" = [
+"python/vibe_trading/adapters/*/__init__.py" = [
   "F405",
 ] # Root-relative form used by repository-wide checks
 "docs/getting_started/**/*.py" = [
@@ -297,7 +297,7 @@ dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
 force-single-line = true
 lines-after-imports = 2
 split-on-trailing-comma = true
-known-first-party = ["vibe_trader"]
+known-first-party = ["vibe_trading"]
 
 [tool.ruff.format]
 docstring-code-format = true
@@ -316,7 +316,7 @@ warn_no_return = true
 warn_unused_configs = true
 warn_unused_ignores = true
 mypy_path = ["."]
-exclude = "^vibe_trader/.*__init__\\.py$"
+exclude = "^vibe_trading/.*__init__\\.py$"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

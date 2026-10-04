@@ -32,7 +32,7 @@ Deribit、Bybit、OKX 等交易场所会随期权市场数据发布实时 Greeks
 可以从参与者或策略订阅交易场所为单个期权合约提供的 Greeks：
 
 ```python
-from vibe_trader.model.identifiers import ClientId
+from vibe_trading.model.identifiers import ClientId
 
 client_id = ClientId("DERIBIT")
 self.subscribe_option_greeks(instrument_id, client_id=client_id)
@@ -61,8 +61,8 @@ self.unsubscribe_option_greeks(instrument_id, client_id=client_id)
 期权链订阅把一个期权系列中所有行权价的报价和 Greeks 聚合为 `OptionChainSlice` 快照。`DataEngine` 为每个系列创建一个 Rust `OptionChainManager` 并管理其生命周期：创建管理器、路由传入数据、运行快照计时器，以及排空线路订阅变更。
 
 ```python
-from vibe_trader.model import OptionSeriesId
-from vibe_trader.model import StrikeRange
+from vibe_trading.model import OptionSeriesId
+from vibe_trading.model import StrikeRange
 
 series_id = OptionSeriesId(...)  # identifies the series (venue, underlying, expiry)
 
@@ -163,8 +163,8 @@ self.subscribe_option_chain(
 ```python
 from decimal import Decimal
 
-from vibe_trader.execution import CappedOptionFeeModel
-from vibe_trader.execution import TieredNotionalOptionFeeModel
+from vibe_trading.execution import CappedOptionFeeModel
+from vibe_trading.execution import TieredNotionalOptionFeeModel
 
 deribit_like = CappedOptionFeeModel(
     maker_rate=Decimal("0.0003"),

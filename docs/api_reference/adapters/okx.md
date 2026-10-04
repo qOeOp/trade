@@ -1,7 +1,7 @@
 # OKX
 
 ```{eval-rst}
-.. automodule:: vibe_trader.adapters.okx
+.. automodule:: vibe_trading.adapters.okx
    :show-inheritance:
    :inherited-members:
    :members:

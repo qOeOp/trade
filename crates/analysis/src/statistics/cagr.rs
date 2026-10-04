@@ -25,11 +25,11 @@ use crate::statistic::PortfolioStatistic;
 #[derive(Debug, Clone)]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.analysis", from_py_object)
+    pyo3::pyclass(module = "vibe_trading.analysis", from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.analysis")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.analysis")
 )]
 pub struct CAGR {
     /// The number of periods per year for annualization (e.g., 252 for trading days).

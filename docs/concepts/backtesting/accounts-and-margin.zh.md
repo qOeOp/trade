@@ -30,12 +30,12 @@ flowchart LR
 低级 API 可直接接受模型类型：
 
 ```python
-from vibe_trader.backtest import BacktestEngine
-from vibe_trader.config import BacktestEngineConfig
-from vibe_trader.model import AccountType
-from vibe_trader.model import Money
-from vibe_trader.model import OmsType
-from vibe_trader.model import Venue
+from vibe_trading.backtest import BacktestEngine
+from vibe_trading.config import BacktestEngineConfig
+from vibe_trading.model import AccountType
+from vibe_trading.model import Money
+from vibe_trading.model import OmsType
+from vibe_trading.model import Venue
 
 engine = BacktestEngine(BacktestEngineConfig())
 engine.add_venue(
@@ -49,10 +49,10 @@ engine.add_venue(
 高级 API 接受相同的枚举值，但将起始余额表示为字符串：
 
 ```python
-from vibe_trader.config import BacktestVenueConfig
-from vibe_trader.model import AccountType
-from vibe_trader.model import BookType
-from vibe_trader.model import OmsType
+from vibe_trading.config import BacktestVenueConfig
+from vibe_trading.model import AccountType
+from vibe_trading.model import BookType
+from vibe_trading.model import OmsType
 
 venue = BacktestVenueConfig(
     name="SIM",
@@ -68,11 +68,11 @@ venue = BacktestVenueConfig(
 保证金账户默认使用 `LeveragedMarginModel`。当模拟应按金融工具的固定初始和维持保证金百分比预留保证金、且不按账户杠杆折减预留金额时，传递 `StandardMarginModel`。
 
 ```python
-from vibe_trader.config import BacktestVenueConfig
-from vibe_trader.model import AccountType
-from vibe_trader.model import BookType
-from vibe_trader.model import OmsType
-from vibe_trader.model import StandardMarginModel
+from vibe_trading.config import BacktestVenueConfig
+from vibe_trading.model import AccountType
+from vibe_trading.model import BookType
+from vibe_trading.model import OmsType
+from vibe_trading.model import StandardMarginModel
 
 venue = BacktestVenueConfig(
     name="SIM",

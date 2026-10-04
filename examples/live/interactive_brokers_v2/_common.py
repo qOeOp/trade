@@ -10,13 +10,13 @@ import subprocess
 from collections.abc import Sequence
 from typing import Any
 
-from vibe_trader.adapters import interactive_brokers
-from vibe_trader.common import Environment
-from vibe_trader.live import LiveNode
-from vibe_trader.model import AccountId
-from vibe_trader.model import InstrumentId
-from vibe_trader.model import TraderId
-from vibe_trader.trading import ImportableStrategyConfig
+from vibe_trading.adapters import interactive_brokers
+from vibe_trading.common import Environment
+from vibe_trading.live import LiveNode
+from vibe_trading.model import AccountId
+from vibe_trading.model import InstrumentId
+from vibe_trading.model import TraderId
+from vibe_trading.trading import ImportableStrategyConfig
 
 
 IB = "IB"

@@ -44,7 +44,7 @@ impl ItchParser {
     ///
     /// # Arguments
     ///
-    /// - `instrument_id` - The VibeTrader instrument ID for output deltas.
+    /// - `instrument_id` - The VibeTrading instrument ID for output deltas.
     /// - `stock` - The ITCH stock symbol to filter for (e.g., "AAPL").
     /// - `base_ns` - Base UNIX nanoseconds for midnight of the trading day
     ///   (ITCH timestamps are nanoseconds since midnight).
@@ -890,7 +890,7 @@ mod tests {
         build_msg(b'S', locate, 0, &[event_code])
     }
 
-    // Curates AAPL L3 deltas from NASDAQ ITCH 5.0 binary into VibeTrader Parquet.
+    // Curates AAPL L3 deltas from NASDAQ ITCH 5.0 binary into VibeTrading Parquet.
     // Download source: https://emi.nasdaq.com/ITCH/Nasdaq%20ITCH/01302019.NASDAQ_ITCH50.gz
     // Run: cargo test -p vibe-testkit --lib test_curate_aapl_itch -- --ignored --nocapture
     #[rstest]

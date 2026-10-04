@@ -2,9 +2,9 @@
 import asyncio
 import os
 
-from vibe_trader.adapters.interactive_brokers.common import IBContract
-from vibe_trader.adapters.interactive_brokers.historical import HistoricInteractiveBrokersClient
-from vibe_trader.examples.interactive_brokers import resolve_ib_endpoint
+from vibe_trading.adapters.interactive_brokers.common import IBContract
+from vibe_trading.adapters.interactive_brokers.historical import HistoricInteractiveBrokersClient
+from vibe_trading.examples.interactive_brokers import resolve_ib_endpoint
 
 
 async def main() -> None:

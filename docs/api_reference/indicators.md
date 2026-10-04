@@ -1,5 +1,5 @@
 # Indicators
 
 ```{eval-rst}
-.. automodule:: vibe_trader.indicators
+.. automodule:: vibe_trading.indicators
 ```

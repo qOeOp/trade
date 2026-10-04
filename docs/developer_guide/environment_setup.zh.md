@@ -6,14 +6,14 @@
 
 [prek](https://github.com/j178/prek) 用于在提交时自动运行各种 pre-commit 检查、自动格式化器和 lint 工具。
 
-VibeTrader 使用的 [Rust](https://www.rust-lang.org) 越来越多，因此系统中也应安装 Rust
+VibeTrading 使用的 [Rust](https://www.rust-lang.org) 越来越多，因此系统中也应安装 Rust
 （[安装指南](https://www.rust-lang.org/tools/install)）。
 
 [Cap'n Proto](https://capnproto.org/) 是编译序列化 schema 所必需的。所需版本在仓库根目录的
 `tools.toml` 中指定。Ubuntu 的默认软件包通常过旧，因此可能需要从源代码安装（见下文）。
 
 :::info
-VibeTrader *必须*能在 **Linux、macOS 和 Windows** 上编译和运行。请始终考虑可移植性
+VibeTrading *必须*能在 **Linux、macOS 和 Windows** 上编译和运行。请始终考虑可移植性
 （使用 `std::path::Path`，避免在 shell 脚本中使用 Bash 特有写法等）。
 :::
 
@@ -40,7 +40,7 @@ xcode-select --install
 
 ```bash
 git clone --branch develop https://github.com/qOeOp/trade
-cd vibe_trader
+cd vibe_trading
 
 curl https://sh.rustup.rs -sSf | sh
 source "$HOME/.cargo/env"
@@ -87,7 +87,7 @@ make install-debug
 
 ### 2. 安装开发工具
 
-VibeTrader 会固定每个开发工具的版本，使所有贡献者和 CI 使用完全相同的版本。
+VibeTrading 会固定每个开发工具的版本，使所有贡献者和 CI 使用完全相同的版本。
 一个 Makefile target 会安装完整工具集：
 
 ```bash
@@ -367,7 +367,7 @@ RUSTUP_TOOLCHAIN=nightly make build-debug
 make init-services
 ```
 
-该命令会启动容器并初始化 VibeTrader 数据库 schema。若只启动容器而不重新初始化 schema，运行
+该命令会启动容器并初始化 VibeTrading 数据库 schema。若只启动容器而不重新初始化 schema，运行
 `make start-services`。若只启动一项服务，直接使用 Compose 文件：
 
 ```bash
@@ -392,12 +392,12 @@ docker compose -f .docker/docker-compose.yml up -d postgres
 
 ## 简介
 
-Vibe CLI 是用于与 VibeTrader 生态交互的命令行界面工具。
+Vibe CLI 是用于与 VibeTrading 生态交互的命令行界面工具。
 它提供管理 PostgreSQL 数据库和处理各种交易操作的命令。
 
 :::warning
 在使用 GNOME 桌面的 Linux 系统上，`vibe` 命令通常指 GNOME 文件管理器（`/usr/bin/vibe`）。
-安装 VibeTrader CLI 后，可能需要通过以下任一方式确保 Cargo 二进制文件具有更高优先级：
+安装 VibeTrading CLI 后，可能需要通过以下任一方式确保 Cargo 二进制文件具有更高优先级：
 
 - 在 shell 配置中添加别名：`alias vibe="$HOME/.cargo/bin/vibe"`
 - 使用完整路径：`~/.cargo/bin/vibe`

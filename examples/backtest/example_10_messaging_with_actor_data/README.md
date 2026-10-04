@@ -1,7 +1,7 @@
 # Example - Messaging with Actor Data
 
 This example demonstrates how to work with custom data classes
-and the Actor's publish/subscribe mechanism in VibeTrader.
+and the Actor's publish/subscribe mechanism in VibeTrading.
 
 ## What You'll Learn
 

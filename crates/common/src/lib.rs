@@ -1,12 +1,12 @@
-//! Common componentry for [VibeTrader](https://github.com/qOeOp/trade).
+//! Common componentry for [VibeTrading](https://github.com/qOeOp/trade).
 //!
 //! The `vibe-common` crate provides shared components and utilities that form the system foundation for
-//! VibeTrader applications. This includes the actor system, message bus, caching layer, and other
+//! VibeTrading applications. This includes the actor system, message bus, caching layer, and other
 //! essential services.
 //!
-//! # VibeTrader
+//! # VibeTrading
 //!
-//! [VibeTrader](https://github.com/qOeOp/trade) is a Rust-native engine for multi-asset,
+//! [VibeTrading](https://github.com/qOeOp/trade) is a Rust-native engine for multi-asset,
 //! multi-venue trading systems.
 //!
 //! The system spans research, deterministic simulation, and live execution within a single
@@ -16,7 +16,7 @@
 //!
 //! This crate provides feature flags to control source code inclusion during compilation,
 //! depending on the intended use case, i.e. whether to provide Python bindings
-//! for the `vibe_trader` Python package,
+//! for the `vibe_trading` Python package,
 //! or as part of a Rust only build.
 //!
 //! - `python`: Enables Python bindings from [PyO3](https://pyo3.rs).

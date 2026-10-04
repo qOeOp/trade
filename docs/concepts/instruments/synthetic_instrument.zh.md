@@ -50,9 +50,9 @@ let synthetic = SyntheticInstrument::new(
 ```
 
 ```python tab="Python"
-from vibe_trader.model import InstrumentId
-from vibe_trader.model import Symbol
-from vibe_trader.model import SyntheticInstrument
+from vibe_trading.model import InstrumentId
+from vibe_trading.model import Symbol
+from vibe_trading.model import SyntheticInstrument
 
 synthetic = SyntheticInstrument(
     symbol=Symbol("BTC-LTC"),

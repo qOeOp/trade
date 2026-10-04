@@ -1,8 +1,8 @@
 import pytest
 
 from tests.stubs import TestDataProviderPyo3
-from vibe_trader.indicators import HullMovingAverage
-from vibe_trader.model import PriceType
+from vibe_trading.indicators import HullMovingAverage
+from vibe_trading.model import PriceType
 
 
 @pytest.fixture

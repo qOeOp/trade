@@ -1,13 +1,13 @@
 # Core
 
 ```{eval-rst}
-.. automodule:: vibe_trader.core
+.. automodule:: vibe_trading.core
 ```
 
 ## Datetime
 
 ```{eval-rst}
-.. automodule:: vibe_trader.core.datetime
+.. automodule:: vibe_trading.core.datetime
    :show-inheritance:
    :inherited-members:
    :members:

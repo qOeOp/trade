@@ -17,7 +17,7 @@ use std::path::PathBuf;
 pub fn get_workspace_root_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent() // crates/core -> crates/
-        .and_then(|p| p.parent()) // crates/ -> vibe_trader/
+        .and_then(|p| p.parent()) // crates/ -> vibe_trading/
         .unwrap_or_else(|| panic!("Failed to get workspace root"))
         .to_path_buf()
 }

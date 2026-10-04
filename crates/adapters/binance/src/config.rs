@@ -19,11 +19,11 @@ use crate::common::enums::{BinanceEnvironment, BinanceMarginType, BinanceProduct
 #[serde(default, deny_unknown_fields)]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.adapters.binance", from_py_object)
+    pyo3::pyclass(module = "vibe_trading.adapters.binance", from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.adapters.binance")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.adapters.binance")
 )]
 pub struct BinanceInstrumentProviderConfig {
     /// Whether to load all instruments on startup.
@@ -128,11 +128,11 @@ fn validate_filter_strings(name: &str, value: &serde_json::Value) -> anyhow::Res
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.adapters.binance", eq, from_py_object)
+    pyo3::pyclass(module = "vibe_trading.adapters.binance", eq, from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trader.adapters.binance")
+    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trading.adapters.binance")
 )]
 pub enum BinanceSpotMarketDataMode {
     #[default]
@@ -149,11 +149,11 @@ pub enum BinanceSpotMarketDataMode {
 #[serde(default, deny_unknown_fields)]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.adapters.binance", from_py_object)
+    pyo3::pyclass(module = "vibe_trading.adapters.binance", from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.adapters.binance")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.adapters.binance")
 )]
 pub struct BinanceDataClientConfig {
     /// Product type to subscribe to.
@@ -268,11 +268,11 @@ impl ClientConfig for BinanceDataClientConfig {
 #[serde(default, deny_unknown_fields)]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.adapters.binance", from_py_object)
+    pyo3::pyclass(module = "vibe_trading.adapters.binance", from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.adapters.binance")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.adapters.binance")
 )]
 pub struct BinanceExecClientConfig {
     /// Trader ID for the client.

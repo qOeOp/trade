@@ -14,7 +14,7 @@ pytestmark = pytest.mark.skipif(sys.platform != "darwin", reason="macOS-specific
         pytest.param(
             """
             import pyarrow
-            import vibe_trader
+            import vibe_trading
 
             print("reached end", flush=True)
             """,
@@ -23,10 +23,10 @@ pytestmark = pytest.mark.skipif(sys.platform != "darwin", reason="macOS-specific
         ),
         pytest.param(
             """
-            import vibe_trader
+            import vibe_trading
             import pandas
 
-            from vibe_trader.model import Currency
+            from vibe_trading.model import Currency
 
             Currency.from_str("USDC")
             print("currency constructed", flush=True)
@@ -38,7 +38,7 @@ pytestmark = pytest.mark.skipif(sys.platform != "darwin", reason="macOS-specific
             """
             import tempfile
 
-            from vibe_trader.persistence import ParquetDataCatalog
+            from vibe_trading.persistence import ParquetDataCatalog
             import pandas
 
             with tempfile.TemporaryDirectory() as directory:

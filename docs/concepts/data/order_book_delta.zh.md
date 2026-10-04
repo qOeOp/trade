@@ -1,7 +1,7 @@
 # OrderBookDelta
 
 `OrderBookDelta` 表示订单簿的一次变更。它是粒度最细的内置订单簿数据类型，
-支持 VibeTrader 用于增量更新的以下订单簿类型：
+支持 VibeTrading 用于增量更新的以下订单簿类型：
 
 - `L3_MBO`：三级逐笔委托（MBO）数据。
 - `L2_MBP`：二级逐价（MBP）数据。
@@ -83,14 +83,14 @@ let delta = OrderBookDelta::new(
 ```
 
 ```python tab="Python"
-from vibe_trader.model import InstrumentId
-from vibe_trader.model import Price
-from vibe_trader.model import Quantity
-from vibe_trader.model.data import BookOrder
-from vibe_trader.model.data import OrderBookDelta
-from vibe_trader.model.enums import BookAction
-from vibe_trader.model.enums import OrderSide
-from vibe_trader.model.enums import RecordFlag
+from vibe_trading.model import InstrumentId
+from vibe_trading.model import Price
+from vibe_trading.model import Quantity
+from vibe_trading.model.data import BookOrder
+from vibe_trading.model.data import OrderBookDelta
+from vibe_trading.model.enums import BookAction
+from vibe_trading.model.enums import OrderSide
+from vibe_trading.model.enums import RecordFlag
 
 delta = OrderBookDelta(
     instrument_id=InstrumentId.from_str("ETHUSDT-PERP.BINANCE"),

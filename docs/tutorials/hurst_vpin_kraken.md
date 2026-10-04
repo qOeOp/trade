@@ -59,7 +59,7 @@ currency, and dollar-bar sampling frame are all USD.
 ### Why dollar bars and VPIN together
 
 VPIN is defined on *volume* buckets rather than *time* buckets. Dollar
-bars (`VALUE` aggregation in VibeTrader) close after a fixed
+bars (`VALUE` aggregation in VibeTrading) close after a fixed
 notional has traded, so the sampling frame adapts to market activity.
 Defining each VPIN bucket as one dollar bar keeps both signals on the
 same clock, and Hurst sampled on the same bars uses the same frame.
@@ -67,7 +67,7 @@ same clock, and Hurst sampled on the same bars uses the same frame.
 ## Prerequisites
 
 - A working Rust toolchain (see [rustup.rs](https://rustup.rs)).
-- The VibeTrader repository cloned and building.
+- The VibeTrading repository cloned and building.
 - Internet access to download a free Tardis sample (no API key required
   for the first day of each month).
 
@@ -173,13 +173,13 @@ for current rates.
 
 ## Dollar-bar sampling
 
-VibeTrader ships all the information-driven bar aggregators from
+VibeTrading ships all the information-driven bar aggregators from
 AFML Chapter 2: tick, volume, value (dollar), plus imbalance and runs
 variants for each. We use plain `VALUE` bars here, which close after a
 fixed notional has traded on the tape.
 
 The bar type is expressed as a string. The `INTERNAL` suffix tells the
-engine to aggregate inside VibeTrader from the underlying trade
+engine to aggregate inside VibeTrading from the underlying trade
 stream (price type `LAST`):
 
 ```rust

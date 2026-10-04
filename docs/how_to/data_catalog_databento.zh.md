@@ -9,7 +9,7 @@ title: "使用 Databento 构建数据目录"
 ## 先决条件
 
 - Python 3.12+
-- 在本地构建 Vibe Trader 源码（`make build-debug`）
+- 在本地构建 Vibe Trading 源码（`make build-debug`）
 - [databento](https://pypi.org/project/databento/) Python 客户端库（`pip install databento`）
 - [Databento](https://databento.com) 账户，并将 API 密钥设置为 `DATABENTO_API_KEY`
 
@@ -94,9 +94,9 @@ df
 import shutil
 from pathlib import Path
 
-from vibe_trader.adapters.databento import DatabentoDataLoader
-from vibe_trader.model import InstrumentId
-from vibe_trader.persistence import ParquetDataCatalog
+from vibe_trading.adapters.databento import DatabentoDataLoader
+from vibe_trading.model import InstrumentId
+from vibe_trading.persistence import ParquetDataCatalog
 ```
 
 ```python

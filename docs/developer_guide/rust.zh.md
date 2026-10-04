@@ -1,10 +1,10 @@
 # Rust
 
-Rust 强大的类型系统、所有权模型和可预测性能，使它非常适合 VibeTrader 的关键核心。
+Rust 强大的类型系统、所有权模型和可预测性能，使它非常适合 VibeTrading 的关键核心。
 安全 Rust 会在编译期阻止数据竞争和许多内存错误；`unsafe` 代码必须明确说明编译器无法检查的不变量。
 
 修改手写 Rust 源代码、Cargo manifest、PyO3 绑定或 Rust 测试时，请使用本参考。
-通用 Rust 风格由 `rustfmt` 和工作区 lint 负责。本页记录容易在评审中遗漏的 VibeTrader 特有选择。
+通用 Rust 风格由 `rustfmt` 和工作区 lint 负责。本页记录容易在评审中遗漏的 VibeTrading 特有选择。
 
 ## 事实来源
 
@@ -60,7 +60,7 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 publish = false
-description = "Example crate for VibeTrader"
+description = "Example crate for VibeTrading"
 repository.workspace = true
 ```
 
@@ -404,8 +404,8 @@ Rustdoc 章节标题使用标题式大小写：
 
 - 使用 `#[pyo3(name = "...")]` 重命名的 Rust 函数以 `py_` 为前缀。
 - 当绑定需要仅供 Rust 使用的包装类型时，以 `Py` 为其前缀，并暴露不带该前缀的 Python 名称。
-- 公共适配器 stub 元数据使用 `vibe_trader.adapters.<adapter_name>`。运行时模块路径使用
-  `vibe_trader._libvibe.<adapter_name>`。
+- 公共适配器 stub 元数据使用 `vibe_trading.adapters.<adapter_name>`。运行时模块路径使用
+  `vibe_trading._libvibe.<adapter_name>`。
 - 标准 Python 异常使用 `vibe_core::python` 中的 `to_pyvalue_err`、`to_pytype_err`、
   `to_pyruntime_err`、`to_pykey_err`、`to_pyexception` 或 `to_pynotimplemented_err` 转换。
 
@@ -453,7 +453,7 @@ impl MyEnum {
 
 ### 生成的 Python 制品
 
-Python 表面会提交 `python/vibe_trader/` 下生成的 `.pyi` 文件，以及 `crates/**/src/python/` 下生成的
+Python 表面会提交 `python/vibe_trading/` 下生成的 `.pyi` 文件，以及 `crates/**/src/python/` 下生成的
 包装器文档注释。使用以下命令同时重新生成二者：
 
 ```bash

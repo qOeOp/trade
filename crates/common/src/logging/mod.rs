@@ -171,7 +171,7 @@ pub fn logging_clock_set_static_time(time_ns: u64) {
 /// Initialize logging.
 ///
 /// Logging should be used for Python and sync Rust logic which is most of
-/// the components in the `vibe_trader` package.
+/// the components in the `vibe_trading` package.
 /// Logging can be configured to filter components and write up to a specific level only
 /// by passing a configuration using the `VIBE_LOG` environment variable.
 ///

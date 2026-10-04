@@ -1,10 +1,10 @@
 # Docs Style
 
-This guide outlines the style conventions and best practices for writing documentation for VibeTrader.
+This guide outlines the style conventions and best practices for writing documentation for VibeTrading.
 
 The [Markdown Style](markdown_style.md) guide is the shared baseline for Markdown syntax and
 formatting, and `.markdownlint.jsonc` enforces its mechanical subset. This guide covers what is
-specific to VibeTrader documentation rather than repeating that baseline.
+specific to VibeTrading documentation rather than repeating that baseline.
 
 ## General principles
 

@@ -3,13 +3,13 @@ import asyncio
 import datetime
 import os
 
-from vibe_trader.adapters.interactive_brokers.common import IBContract
-from vibe_trader.adapters.interactive_brokers.config import DockerizedIBGatewayConfig
-from vibe_trader.adapters.interactive_brokers.gateway import DockerizedIBGateway
-from vibe_trader.adapters.interactive_brokers.historical import HistoricInteractiveBrokersClient
-from vibe_trader.core.correctness import PyCondition
-from vibe_trader.examples.interactive_brokers import resolve_ib_endpoint
-from vibe_trader.persistence.catalog import ParquetDataCatalog
+from vibe_trading.adapters.interactive_brokers.common import IBContract
+from vibe_trading.adapters.interactive_brokers.config import DockerizedIBGatewayConfig
+from vibe_trading.adapters.interactive_brokers.gateway import DockerizedIBGateway
+from vibe_trading.adapters.interactive_brokers.historical import HistoricInteractiveBrokersClient
+from vibe_trading.core.correctness import PyCondition
+from vibe_trading.examples.interactive_brokers import resolve_ib_endpoint
+from vibe_trading.persistence.catalog import ParquetDataCatalog
 
 
 async def main(

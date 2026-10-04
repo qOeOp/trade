@@ -1,6 +1,6 @@
 # vibe-dydx
 
-[VibeTrader](https://github.com/qOeOp/trade) adapter for the [dYdX v4](https://dydx.exchange/) decentralized exchange.
+[VibeTrading](https://github.com/qOeOp/trade) adapter for the [dYdX v4](https://dydx.exchange/) decentralized exchange.
 
 The `vibe-dydx` crate provides client bindings (HTTP, WebSocket & gRPC), data models
 and helper utilities that wrap the official **dYdX v4 API**.
@@ -10,9 +10,9 @@ and matching engine run on-chain as part of the validator process. Orders are su
 Cosmos transactions via gRPC and settled each block. An Indexer service exposes REST and
 WebSocket APIs for market data and account state.
 
-## VibeTrader
+## VibeTrading
 
-[VibeTrader](https://github.com/qOeOp/trade) is a Rust-native
+[VibeTrading](https://github.com/qOeOp/trade) is a Rust-native
 engine for multi-asset, multi-venue trading systems.
 
 The system spans research, deterministic simulation, and live execution within a single

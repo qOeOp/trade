@@ -16,7 +16,7 @@ Coinbase 适配器使用 Rust 实现，并通过配置、工厂、枚举和常�
 - `CoinbaseExecutionClient`：执行客户端（现货或 CFM 衍生品；REST 订单和 WS 数据流）。
 - `CoinbaseExecutionClientFactory`：执行客户端工厂；根据配置中的 `account_type` 选择现货或 CFM 衍生品。
 
-`vibe_trader.adapters.coinbase` 提供的 Python 接口：
+`vibe_trading.adapters.coinbase` 提供的 Python 接口：
 
 - `CoinbaseDataClientConfig`, `CoinbaseExecClientConfig`
 - `CoinbaseDataClientFactory`, `CoinbaseExecutionClientFactory`
@@ -37,7 +37,7 @@ Coinbase 为 Advanced Trade API 提供以下文档：
 - [API 密钥身份验证](https://docs.cdp.coinbase.com/coinbase-app/authentication-authorization/api-key-authentication)
 - [速率限制](https://docs.cdp.coinbase.com/advanced-trade/docs/rate-limits)
 
-建议结合 Coinbase 文档和本 VibeTrader 集成指南使用。
+建议结合 Coinbase 文档和本 VibeTrading 集成指南使用。
 
 :::info
 此适配器面向 Coinbase Advanced Trade API。独立的 [Coinbase International Exchange（INTX）](https://international.coinbase.com)交易场所由专用 `coinbase_intx` 适配器支持。
@@ -503,9 +503,9 @@ WebSocket 客户端重连时使用指数退避，基数为 250ms，上限为 30s
 配置通过适配器的公共 Python 模块构建：
 
 ```python
-from vibe_trader.adapters.coinbase import CoinbaseDataClientConfig
-from vibe_trader.adapters.coinbase import CoinbaseEnvironment
-from vibe_trader.adapters.coinbase import CoinbaseExecClientConfig
+from vibe_trading.adapters.coinbase import CoinbaseDataClientConfig
+from vibe_trading.adapters.coinbase import CoinbaseEnvironment
+from vibe_trading.adapters.coinbase import CoinbaseExecClientConfig
 
 data_config = CoinbaseDataClientConfig(
     api_key="YOUR_COINBASE_API_KEY",

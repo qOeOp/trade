@@ -22,7 +22,7 @@ Components:
 - `CoinbaseExecutionClient`: Execution client (spot or CFM derivatives; REST orders + WS streams).
 - `CoinbaseExecutionClientFactory`: Execution client factory; spot vs CFM derivatives is selected by `account_type` on the config.
 
-Python surface available from `vibe_trader.adapters.coinbase`:
+Python surface available from `vibe_trading.adapters.coinbase`:
 
 - `CoinbaseDataClientConfig`, `CoinbaseExecClientConfig`
 - `CoinbaseDataClientFactory`, `CoinbaseExecutionClientFactory`
@@ -44,7 +44,7 @@ Coinbase provides documentation for the Advanced Trade API:
 - [Rate limits](https://docs.cdp.coinbase.com/advanced-trade/docs/rate-limits)
 
 It's recommended you also refer to the Coinbase documentation in conjunction
-with this VibeTrader integration guide.
+with this VibeTrading integration guide.
 
 :::info
 This adapter targets the Coinbase Advanced Trade API. The separate
@@ -714,9 +714,9 @@ fill deltas remain correct.
 Configurations are constructed from the adapter's public Python module:
 
 ```python
-from vibe_trader.adapters.coinbase import CoinbaseDataClientConfig
-from vibe_trader.adapters.coinbase import CoinbaseEnvironment
-from vibe_trader.adapters.coinbase import CoinbaseExecClientConfig
+from vibe_trading.adapters.coinbase import CoinbaseDataClientConfig
+from vibe_trading.adapters.coinbase import CoinbaseEnvironment
+from vibe_trading.adapters.coinbase import CoinbaseExecClientConfig
 
 data_config = CoinbaseDataClientConfig(
     api_key="YOUR_COINBASE_API_KEY",

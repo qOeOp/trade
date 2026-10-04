@@ -75,7 +75,7 @@ seconds.
 
 ## Prerequisites
 
-- A local Vibe Trader source build (`make build-debug`).
+- A local Vibe Trading source build (`make build-debug`).
 - A Rust toolchain (`cargo`) for the live example. Install from
   [rustup.rs](https://rustup.rs/).
 - A BitMEX account: sign up at [bitmex.com](https://www.bitmex.com/) and
@@ -128,8 +128,8 @@ for bulk fetches.
 `TardisCSVDataLoader` parses the `.csv.gz` files directly:
 
 ```python
-from vibe_trader.adapters.tardis.loaders import TardisCSVDataLoader
-from vibe_trader.model.identifiers import InstrumentId
+from vibe_trading.adapters.tardis.loaders import TardisCSVDataLoader
+from vibe_trading.model.identifiers import InstrumentId
 
 instrument_id = InstrumentId.from_str("XBTUSD.BITMEX")
 
@@ -150,13 +150,13 @@ notional exposure.
 ```python
 from decimal import Decimal
 
-from vibe_trader.model.currencies import BTC
-from vibe_trader.model.currencies import USD
-from vibe_trader.model.enums import AssetClass
-from vibe_trader.model.identifiers import Symbol
-from vibe_trader.model.instruments import PerpetualContract
-from vibe_trader.model.objects import Price
-from vibe_trader.model.objects import Quantity
+from vibe_trading.model.currencies import BTC
+from vibe_trading.model.currencies import USD
+from vibe_trading.model.enums import AssetClass
+from vibe_trading.model.identifiers import Symbol
+from vibe_trading.model.instruments import PerpetualContract
+from vibe_trading.model.objects import Price
+from vibe_trading.model.objects import Quantity
 
 XBTUSD = PerpetualContract(
     instrument_id=instrument_id,
@@ -190,15 +190,15 @@ Fee rates are explicit backtest assumptions. Check
 XBTUSD is BTC-margined, so the starting balance is in BTC:
 
 ```python
-from vibe_trader.common import LogLevel
-from vibe_trader.config import BacktestEngineConfig
-from vibe_trader.backtest import BacktestEngine
-from vibe_trader.config import LoggerConfig
-from vibe_trader.model.enums import AccountType
-from vibe_trader.model.enums import OmsType
-from vibe_trader.model.identifiers import TraderId
-from vibe_trader.model.identifiers import Venue
-from vibe_trader.model.objects import Money
+from vibe_trading.common import LogLevel
+from vibe_trading.config import BacktestEngineConfig
+from vibe_trading.backtest import BacktestEngine
+from vibe_trading.config import LoggerConfig
+from vibe_trading.model.enums import AccountType
+from vibe_trading.model.enums import OmsType
+from vibe_trading.model.identifiers import TraderId
+from vibe_trading.model.identifiers import Venue
+from vibe_trading.model.objects import Money
 
 engine = BacktestEngine(
     BacktestEngineConfig(
@@ -223,8 +223,8 @@ engine.add_data(quotes + trades)
 ### Strategy configuration
 
 ```python
-from vibe_trader.examples.strategies.grid_market_maker import GridMarketMaker
-from vibe_trader.examples.strategies.grid_market_maker import GridMarketMakerConfig
+from vibe_trading.examples.strategies.grid_market_maker import GridMarketMaker
+from vibe_trading.examples.strategies.grid_market_maker import GridMarketMakerConfig
 
 strategy = GridMarketMaker(
     GridMarketMakerConfig(

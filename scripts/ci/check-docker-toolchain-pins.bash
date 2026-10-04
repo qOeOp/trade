@@ -51,7 +51,7 @@ check_refs() {
 # version tag is the source of truth: every other Python reference must match it,
 # and it must stay within pyproject's requires-python range.
 check_python_alignment() {
-  local vibe_df=".docker/vibe_trader.dockerfile"
+  local vibe_df=".docker/vibe_trading.dockerfile"
   local ubuntu_df=".docker/DockerfileUbuntu"
   local pyproject="python/pyproject.toml"
   local base_ref py_version minor digest requires lower upper ref found
@@ -117,7 +117,7 @@ check_refs \
   "$EXPECTED_UV_PREFIX" \
   'ghcr\.io/astral-sh/uv:[^[:space:]\\]+@sha256:[0-9a-f]+' \
   ".docker/DockerfileUbuntu" \
-  ".docker/vibe_trader.dockerfile" \
+  ".docker/vibe_trading.dockerfile" \
   ".docker/jupyterlab.dockerfile"
 
 check_refs \
@@ -126,7 +126,7 @@ check_refs \
   "$EXPECTED_RUST_PREFIX" \
   'public\.ecr\.aws/docker/library/rust:[^[:space:]\\]+@sha256:[0-9a-f]+' \
   ".docker/DockerfileUbuntu" \
-  ".docker/vibe_trader.dockerfile"
+  ".docker/vibe_trading.dockerfile"
 
 check_refs \
   "Ubuntu from AWS Public ECR" \

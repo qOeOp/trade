@@ -5,7 +5,7 @@ class, and how these reports are used for PnL accounting and backtest post-run a
 
 ## Overview
 
-The `ReportProvider` class in VibeTrader generates structured analytical reports from
+The `ReportProvider` class in VibeTrading generates structured analytical reports from
 trading data, transforming raw orders, fills, positions, and account states into pandas DataFrames
 for analysis and visualization. These reports help you evaluate strategy performance,
 analyze execution quality, and verify PnL accounting.
@@ -32,7 +32,7 @@ Generates a full view of all orders:
 orders_report = trader.generate_orders_report()
 
 # Or using ReportProvider directly
-from vibe_trader.analysis import ReportProvider
+from vibe_trading.analysis import ReportProvider
 
 orders = cache.orders()
 orders_report = ReportProvider.generate_orders_report(orders)
@@ -166,7 +166,7 @@ Tracks account balance and margin changes over time:
 ```python
 # Using Trader helper method (recommended)
 # Requires venue parameter
-from vibe_trader.model.identifiers import Venue
+from vibe_trading.model.identifiers import Venue
 
 venue = Venue("BINANCE")
 account_report = trader.generate_account_report(venue)
@@ -241,7 +241,7 @@ for position in positions:
 For `NETTING` OMS:
 
 ```python
-from vibe_trader.model.objects import Money
+from vibe_trading.model.objects import Money
 
 # Include snapshots for complete PnL (per currency)
 pnl_by_currency = {}
@@ -316,10 +316,10 @@ For detailed information about available statistics, see the
 
 ### Visualization
 
-VibeTrader provides interactive tearsheets and plots via Plotly:
+VibeTrading provides interactive tearsheets and plots via Plotly:
 
 ```python
-from vibe_trader.analysis import create_tearsheet
+from vibe_trading.analysis import create_tearsheet
 
 # After backtest run
 engine.run()
@@ -341,7 +341,7 @@ For more control, generate individual plots:
 ```python
 import pandas as pd
 
-from vibe_trader.analysis import create_equity_curve
+from vibe_trading.analysis import create_equity_curve
 
 returns = pd.Series(
     [0.01, -0.005, 0.002],
@@ -355,7 +355,7 @@ fig.write_image("equity.png")  # Export to PNG (requires kaleido)
 Install visualization dependencies:
 
 ```bash
-uv pip install "vibe_trader[visualization]"
+uv pip install "vibe_trading[visualization]"
 ```
 
 ## Report generation patterns
@@ -367,7 +367,7 @@ During live trading, generate reports periodically:
 ```python
 import pandas as pd
 
-from vibe_trader.common import DataActor
+from vibe_trading.common import DataActor
 
 
 class ReportingActor(DataActor):

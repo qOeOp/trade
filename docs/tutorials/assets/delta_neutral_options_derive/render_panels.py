@@ -31,8 +31,8 @@ from pathlib import Path
 import numpy as np
 import plotly.graph_objects as go
 
-from vibe_trader.analysis.tearsheet import _write_figure
-from vibe_trader.analysis.themes import get_theme
+from vibe_trading.analysis.tearsheet import _write_figure
+from vibe_trading.analysis.themes import get_theme
 
 
 OUT = Path(__file__).resolve().parent

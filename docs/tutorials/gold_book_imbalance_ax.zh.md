@@ -45,7 +45,7 @@ AX Exchange 较新，Databento 尚未覆盖。CME `GC` 黄金期货是全球流�
 ## 先决条件
 
 - Python 3.12+
-- 本地 Vibe Trader 源码构建（`make build-debug`）。
+- 本地 Vibe Trading 源码构建（`make build-debug`）。
 - 一个 Databento API 密钥：
 
 ```bash
@@ -84,8 +84,8 @@ if not data_path.exists():
 `DatabentoDataLoader.from_dbn_file` 解析 `.dbn.zst` 存档并生成 `QuoteTick` 对象。`instrument_id` 参数会覆盖 Databento 符号体系，使每个 tick 都显示为来自 `XAU-PERP.AX`。
 
 ```python
-from vibe_trader.adapters.databento import DatabentoDataLoader
-from vibe_trader.model.identifiers import InstrumentId
+from vibe_trading.adapters.databento import DatabentoDataLoader
+from vibe_trading.model.identifiers import InstrumentId
 
 instrument_id = InstrumentId.from_str("XAU-PERP.AX")
 
@@ -103,12 +103,12 @@ quotes = loader.from_dbn_file(
 ```python
 from decimal import Decimal
 
-from vibe_trader.model.currencies import USD
-from vibe_trader.model.enums import AssetClass
-from vibe_trader.model.identifiers import Symbol
-from vibe_trader.model.instruments import PerpetualContract
-from vibe_trader.model.objects import Price
-from vibe_trader.model.objects import Quantity
+from vibe_trading.model.currencies import USD
+from vibe_trading.model.enums import AssetClass
+from vibe_trading.model.identifiers import Symbol
+from vibe_trading.model.instruments import PerpetualContract
+from vibe_trading.model.objects import Price
+from vibe_trading.model.objects import Quantity
 
 XAU_PERP = PerpetualContract(
     instrument_id=instrument_id,
@@ -149,8 +149,8 @@ XAU_PERP = PerpetualContract(
 | `use_quote_ticks`              | `True`   | 由报价 tick 驱动策略。         |
 
 ```python
-from vibe_trader.examples.strategies.orderbook_imbalance import OrderBookImbalance
-from vibe_trader.examples.strategies.orderbook_imbalance import OrderBookImbalanceConfig
+from vibe_trading.examples.strategies.orderbook_imbalance import OrderBookImbalance
+from vibe_trading.examples.strategies.orderbook_imbalance import OrderBookImbalanceConfig
 
 strategy = OrderBookImbalance(
     OrderBookImbalanceConfig(
@@ -168,15 +168,15 @@ strategy = OrderBookImbalance(
 ## 回测设置
 
 ```python
-from vibe_trader.common import LogLevel
-from vibe_trader.config import BacktestEngineConfig
-from vibe_trader.backtest import BacktestEngine
-from vibe_trader.config import LoggerConfig
-from vibe_trader.model.enums import AccountType
-from vibe_trader.model.enums import OmsType
-from vibe_trader.model.identifiers import TraderId
-from vibe_trader.model.identifiers import Venue
-from vibe_trader.model.objects import Money
+from vibe_trading.common import LogLevel
+from vibe_trading.config import BacktestEngineConfig
+from vibe_trading.backtest import BacktestEngine
+from vibe_trading.config import LoggerConfig
+from vibe_trading.model.enums import AccountType
+from vibe_trading.model.enums import OmsType
+from vibe_trading.model.identifiers import TraderId
+from vibe_trading.model.identifiers import Venue
+from vibe_trading.model.objects import Money
 
 engine = BacktestEngine(
     BacktestEngineConfig(

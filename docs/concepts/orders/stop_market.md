@@ -47,13 +47,13 @@ let order = self.order().stop_market(
 ```
 
 ```python tab="Python"
-from vibe_trader.model.enums import OrderSide
-from vibe_trader.model.enums import TimeInForce
-from vibe_trader.model.enums import TriggerType
-from vibe_trader.model import InstrumentId
-from vibe_trader.model import Price
-from vibe_trader.model import Quantity
-from vibe_trader.model.orders import StopMarketOrder
+from vibe_trading.model.enums import OrderSide
+from vibe_trading.model.enums import TimeInForce
+from vibe_trading.model.enums import TriggerType
+from vibe_trading.model import InstrumentId
+from vibe_trading.model import Price
+from vibe_trading.model import Quantity
+from vibe_trading.model.orders import StopMarketOrder
 
 order: StopMarketOrder = self.order_factory.stop_market(
     instrument_id=InstrumentId.from_str("BTCUSDT.BINANCE"),
@@ -68,7 +68,7 @@ order: StopMarketOrder = self.order_factory.stop_market(
 )
 ```
 
-See the [`StopMarketOrder` API Reference](/docs/python-api-latest/model/orders.html#vibe_trader.model.orders.stop_market.StopMarketOrder) for further details.
+See the [`StopMarketOrder` API Reference](/docs/python-api-latest/model/orders.html#vibe_trading.model.orders.stop_market.StopMarketOrder) for further details.
 
 ## Related guides
 

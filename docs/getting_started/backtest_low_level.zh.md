@@ -9,27 +9,27 @@ title: "回测（低级API）"
 ## 先决条件
 
 - Python 3.12+
-- 在本地构建 Vibe Trader 源码（`make build-debug`）
+- 在本地构建 Vibe Trading 源码（`make build-debug`）
 
 ```python
 from decimal import Decimal
 
-from vibe_trader.config import BacktestEngineConfig
-from vibe_trader.backtest import BacktestEngine
-from vibe_trader.examples.algorithms.twap import TWAPExecAlgorithm
-from vibe_trader.examples.strategies.ema_cross_twap import EMACrossTWAP
-from vibe_trader.examples.strategies.ema_cross_twap import EMACrossTWAPConfig
-from vibe_trader.model import BarType
-from vibe_trader.model import Money
-from vibe_trader.model import TraderId
-from vibe_trader.model import Venue
-from vibe_trader.model.currencies import ETH
-from vibe_trader.model.currencies import USDT
-from vibe_trader.model.enums import AccountType
-from vibe_trader.model.enums import OmsType
-from vibe_trader.persistence.wranglers import TradeTickDataWrangler
-from vibe_trader.test_kit.providers import TestDataProvider
-from vibe_trader.test_kit.providers import TestInstrumentProvider
+from vibe_trading.config import BacktestEngineConfig
+from vibe_trading.backtest import BacktestEngine
+from vibe_trading.examples.algorithms.twap import TWAPExecAlgorithm
+from vibe_trading.examples.strategies.ema_cross_twap import EMACrossTWAP
+from vibe_trading.examples.strategies.ema_cross_twap import EMACrossTWAPConfig
+from vibe_trading.model import BarType
+from vibe_trading.model import Money
+from vibe_trading.model import TraderId
+from vibe_trading.model import Venue
+from vibe_trading.model.currencies import ETH
+from vibe_trading.model.currencies import USDT
+from vibe_trading.model.enums import AccountType
+from vibe_trading.model.enums import OmsType
+from vibe_trading.persistence.wranglers import TradeTickDataWrangler
+from vibe_trading.test_kit.providers import TestDataProvider
+from vibe_trading.test_kit.providers import TestInstrumentProvider
 ```
 
 ## 加载数据

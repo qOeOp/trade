@@ -251,7 +251,7 @@ for ccy, margin_balance in margin_account.account_margins().items():
 
 ## Margin models
 
-VibeTrader provides flexible margin calculation models for the calculated
+VibeTrading provides flexible margin calculation models for the calculated
 path (backtests, and live strategies running with `calculate_account_state=True`
 for reconciliation). Reported margins from a venue flow straight into
 `_account_margins` or `_margins` without going through a model.

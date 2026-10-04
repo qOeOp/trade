@@ -12,7 +12,7 @@ use crate::{
 ///
 /// Returns a `PyErr` if an event cannot be converted or the input `events` list is empty.
 #[pyfunction]
-#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trader.model")]
+#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trading.model")]
 #[pyo3(signature = (events, calculate_account_state, allow_borrowing = false))]
 pub fn cash_account_from_account_events(
     events: Vec<Bound<'_, PyDict>>,
@@ -43,7 +43,7 @@ pub fn cash_account_from_account_events(
 ///
 /// Returns a `PyErr` if the input `events` list is empty.
 #[pyfunction]
-#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trader.model")]
+#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trading.model")]
 pub fn betting_account_from_account_events(
     events: Vec<Bound<'_, PyDict>>,
     calculate_account_state: bool,
@@ -72,7 +72,7 @@ pub fn betting_account_from_account_events(
 ///
 /// Returns a `PyErr` if an event cannot be converted or the input `events` list is empty.
 #[pyfunction]
-#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trader.model")]
+#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trading.model")]
 pub fn margin_account_from_account_events(
     events: Vec<Bound<'_, PyDict>>,
     calculate_account_state: bool,

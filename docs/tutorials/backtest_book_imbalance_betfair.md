@@ -67,7 +67,7 @@ flowchart LR
 ## Prerequisites
 
 - A working Rust toolchain ([rustup.rs](https://rustup.rs)).
-- The VibeTrader repository cloned and building.
+- The VibeTrading repository cloned and building.
 - A Betfair historical `.gz` file containing MCM (Market Change Message)
   data. Source it from
   [Betfair historic data](https://historicdata.betfair.com/), a third-party
@@ -157,7 +157,7 @@ status routing to the engine.
 
 ## The actor
 
-VibeTrader ships `BookImbalanceActor` in the trading crate's examples
+VibeTrading ships `BookImbalanceActor` in the trading crate's examples
 module. The example wires it up with a per-runner instrument list and a
 log interval:
 

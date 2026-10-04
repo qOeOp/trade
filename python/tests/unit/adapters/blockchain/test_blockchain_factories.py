@@ -2,13 +2,13 @@ import pytest
 from unit.adapters.example_modules import capture_data_tester_main
 from unit.adapters.example_modules import load_example_module
 
-from vibe_trader.adapters.blockchain import BlockchainDataClientConfig
-from vibe_trader.adapters.blockchain import BlockchainDataClientFactory
-from vibe_trader.common import Environment
-from vibe_trader.live import LiveNode
-from vibe_trader.model import Chain
-from vibe_trader.model import DexType
-from vibe_trader.model import TraderId
+from vibe_trading.adapters.blockchain import BlockchainDataClientConfig
+from vibe_trading.adapters.blockchain import BlockchainDataClientFactory
+from vibe_trading.common import Environment
+from vibe_trading.live import LiveNode
+from vibe_trading.model import Chain
+from vibe_trading.model import DexType
+from vibe_trading.model import TraderId
 
 
 BLOCKCHAIN = "BLOCKCHAIN"

@@ -1,7 +1,7 @@
 import pytest
 
-from vibe_trader.indicators import BookImbalanceRatio
-from vibe_trader.model import Quantity
+from vibe_trading.indicators import BookImbalanceRatio
+from vibe_trading.model import Quantity
 
 
 @pytest.fixture

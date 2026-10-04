@@ -27,7 +27,7 @@ use vibe_model::enums::{
 #[cfg_attr(
     feature = "python",
     pyo3::pyclass(
-        module = "vibe_trader.adapters.bitmex",
+        module = "vibe_trading.adapters.bitmex",
         eq,
         eq_int,
         from_py_object,
@@ -100,7 +100,7 @@ impl From<BitmexSide> for OrderSide {
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.adapters.bitmex", eq, eq_int, from_py_object)
+    pyo3::pyclass(module = "vibe_trading.adapters.bitmex", eq, eq_int, from_py_object)
 )]
 pub enum BitmexPositionSide {
     /// Long position.
@@ -871,14 +871,14 @@ pub enum BitmexMarkMethod {
     pyo3::pyclass(
         eq,
         eq_int,
-        module = "vibe_trader.adapters.bitmex",
+        module = "vibe_trading.adapters.bitmex",
         from_py_object,
         rename_all = "SCREAMING_SNAKE_CASE",
     )
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trader.adapters.bitmex")
+    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trading.adapters.bitmex")
 )]
 pub enum BitmexEnvironment {
     /// Live trading environment.

@@ -1,5 +1,5 @@
 # Risk
 
 ```{eval-rst}
-.. automodule:: vibe_trader.risk
+.. automodule:: vibe_trading.risk
 ```

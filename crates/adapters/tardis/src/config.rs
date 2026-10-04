@@ -83,11 +83,11 @@ pub struct TardisReplayConfig {
 #[serde(default, deny_unknown_fields)]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.adapters.tardis", from_py_object)
+    pyo3::pyclass(module = "vibe_trading.adapters.tardis", from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.adapters.tardis")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.adapters.tardis")
 )]
 pub struct TardisDataClientConfig {
     /// Tardis API key for HTTP instrument fetching.

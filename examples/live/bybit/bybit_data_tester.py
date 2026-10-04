@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
-from vibe_trader.adapters.bybit import BYBIT
-from vibe_trader.adapters.bybit import BybitDataClientConfig
-from vibe_trader.adapters.bybit import BybitEnvironment
-from vibe_trader.adapters.bybit import BybitLiveDataClientFactory
-from vibe_trader.adapters.bybit import BybitLiveExecClientFactory
-from vibe_trader.adapters.bybit import BybitProductType
-from vibe_trader.config import InstrumentProviderConfig
-from vibe_trader.config import LoggingConfig
-from vibe_trader.config import TradingNodeConfig
-from vibe_trader.live.node import TradingNode
-from vibe_trader.model.data import BarType
-from vibe_trader.model.identifiers import InstrumentId
-from vibe_trader.model.identifiers import TraderId
-from vibe_trader.test_kit.strategies.tester_data import DataTester
-from vibe_trader.test_kit.strategies.tester_data import DataTesterConfig
+from vibe_trading.adapters.bybit import BYBIT
+from vibe_trading.adapters.bybit import BybitDataClientConfig
+from vibe_trading.adapters.bybit import BybitEnvironment
+from vibe_trading.adapters.bybit import BybitLiveDataClientFactory
+from vibe_trading.adapters.bybit import BybitLiveExecClientFactory
+from vibe_trading.adapters.bybit import BybitProductType
+from vibe_trading.config import InstrumentProviderConfig
+from vibe_trading.config import LoggingConfig
+from vibe_trading.config import TradingNodeConfig
+from vibe_trading.live.node import TradingNode
+from vibe_trading.model.data import BarType
+from vibe_trading.model.identifiers import InstrumentId
+from vibe_trading.model.identifiers import TraderId
+from vibe_trading.test_kit.strategies.tester_data import DataTester
+from vibe_trading.test_kit.strategies.tester_data import DataTesterConfig
 
 
 # *** THIS IS A TEST STRATEGY WITH NO ALPHA ADVANTAGE WHATSOEVER. ***

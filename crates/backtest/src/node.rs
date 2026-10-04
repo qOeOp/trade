@@ -30,11 +30,11 @@ use crate::{
 #[derive(Debug)]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.backtest", unsendable)
+    pyo3::pyclass(module = "vibe_trading.backtest", unsendable)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.backtest")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.backtest")
 )]
 pub struct BacktestNode {
     configs: Vec<BacktestRunConfig>,

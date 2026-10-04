@@ -7,9 +7,9 @@ from pathlib import Path
 import pytest
 
 
-ADAPTERS_ROOT = Path(__file__).resolve().parents[3] / "vibe_trader" / "adapters"
+ADAPTERS_ROOT = Path(__file__).resolve().parents[3] / "vibe_trading" / "adapters"
 
-# Every adapter package under python/vibe_trader/adapters/.
+# Every adapter package under python/vibe_trading/adapters/.
 ADAPTERS = sorted(p.name for p in ADAPTERS_ROOT.iterdir() if (p / "__init__.py").exists())
 
 # Venue adapters expose canonical <VENUE>, <VENUE>_CLIENT_ID, <VENUE>_VENUE constants.
@@ -60,7 +60,7 @@ def _is_forbidden(name: str) -> bool:
 
 
 def _import(adapter: str):
-    return importlib.import_module(f"vibe_trader.adapters.{adapter}")
+    return importlib.import_module(f"vibe_trading.adapters.{adapter}")
 
 
 def _stub_all(adapter: str) -> list[str]:
@@ -115,7 +115,7 @@ def test_facade_exposes_no_raw_clients_endpoints_or_helpers(adapter):
 @pytest.mark.parametrize("adapter", ADAPTERS)
 def test_public_classes_owned_by_adapter_package(adapter):
     module = _import(adapter)
-    expected_module = f"vibe_trader.adapters.{adapter}"
+    expected_module = f"vibe_trading.adapters.{adapter}"
 
     misowned = []
 

@@ -1,7 +1,7 @@
 # Hyperliquid
 
 ```{eval-rst}
-.. automodule:: vibe_trader.adapters.hyperliquid
+.. automodule:: vibe_trading.adapters.hyperliquid
    :show-inheritance:
    :inherited-members:
    :members:

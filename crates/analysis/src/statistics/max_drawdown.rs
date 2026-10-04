@@ -26,11 +26,11 @@ use crate::statistic::PortfolioStatistic;
 #[derive(Debug, Clone, Default)]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.analysis", from_py_object)
+    pyo3::pyclass(module = "vibe_trading.analysis", from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.analysis")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.analysis")
 )]
 pub struct MaxDrawdown {}
 

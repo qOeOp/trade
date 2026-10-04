@@ -2,21 +2,21 @@ import re
 
 import pytest
 
-from vibe_trader.model import BlackScholesGreeksResult
-from vibe_trader.model import ForwardPrice
-from vibe_trader.model import InstrumentId
-from vibe_trader.model import OptionChainSlice
-from vibe_trader.model import OptionGreeks
-from vibe_trader.model import OptionSeriesId
-from vibe_trader.model import OptionStrikeData
-from vibe_trader.model import Price
-from vibe_trader.model import Quantity
-from vibe_trader.model import QuoteTick
-from vibe_trader.model import StrikeRange
-from vibe_trader.model import black_scholes_greeks
-from vibe_trader.model import imply_vol
-from vibe_trader.model import imply_vol_and_greeks
-from vibe_trader.model import refine_vol_and_greeks
+from vibe_trading.model import BlackScholesGreeksResult
+from vibe_trading.model import ForwardPrice
+from vibe_trading.model import InstrumentId
+from vibe_trading.model import OptionChainSlice
+from vibe_trading.model import OptionGreeks
+from vibe_trading.model import OptionSeriesId
+from vibe_trading.model import OptionStrikeData
+from vibe_trading.model import Price
+from vibe_trading.model import Quantity
+from vibe_trading.model import QuoteTick
+from vibe_trading.model import StrikeRange
+from vibe_trading.model import black_scholes_greeks
+from vibe_trading.model import imply_vol
+from vibe_trading.model import imply_vol_and_greeks
+from vibe_trading.model import refine_vol_and_greeks
 
 
 def test_forward_price_properties():

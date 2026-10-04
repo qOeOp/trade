@@ -12,13 +12,13 @@ from __future__ import annotations
 from strategies.ema_cross import EMACross
 from strategies.ema_cross import EMACrossConfig
 
-from vibe_trader.core import UUID4
-from vibe_trader.model import ClientOrderId
-from vibe_trader.model import ContingencyType
-from vibe_trader.model import ExecAlgorithmId
-from vibe_trader.model import MarketOrder
-from vibe_trader.model import OrderSide
-from vibe_trader.model import TimeInForce
+from vibe_trading.core import UUID4
+from vibe_trading.model import ClientOrderId
+from vibe_trading.model import ContingencyType
+from vibe_trading.model import ExecAlgorithmId
+from vibe_trading.model import MarketOrder
+from vibe_trading.model import OrderSide
+from vibe_trading.model import TimeInForce
 
 
 class EMACrossTWAPConfig(EMACrossConfig):

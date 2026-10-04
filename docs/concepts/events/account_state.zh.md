@@ -26,7 +26,7 @@
 账户状态通常通过 `Portfolio` 使用，而不是通过专用处理器：
 
 ```python
-from vibe_trader.model import Venue
+from vibe_trading.model import Venue
 
 # Account state is tracked by the portfolio; query it by venue
 account = self.portfolio.account(Venue("BINANCE"))

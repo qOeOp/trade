@@ -66,12 +66,12 @@ let aapl = Equity::builder()
 ```
 
 ```python tab="Python"
-from vibe_trader.model import Currency
-from vibe_trader.model import Equity
-from vibe_trader.model import InstrumentId
-from vibe_trader.model import Price
-from vibe_trader.model import Quantity
-from vibe_trader.model import Symbol
+from vibe_trading.model import Currency
+from vibe_trading.model import Equity
+from vibe_trading.model import InstrumentId
+from vibe_trading.model import Price
+from vibe_trading.model import Quantity
+from vibe_trading.model import Symbol
 
 aapl = Equity(
     instrument_id=InstrumentId.from_str("AAPL.XNAS"),

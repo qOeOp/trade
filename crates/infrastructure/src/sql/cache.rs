@@ -49,11 +49,11 @@ const CACHE_PROCESS: &str = "cache-process";
 #[serde(default, deny_unknown_fields)]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.infrastructure", from_py_object)
+    pyo3::pyclass(module = "vibe_trading.infrastructure", from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.infrastructure")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.infrastructure")
 )]
 pub struct PostgresCacheConfig {
     /// The Postgres host address.
@@ -153,7 +153,7 @@ impl CacheDatabaseFactory for PostgresCacheConfig {
 #[derive(Debug)]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.infrastructure")
+    pyo3::pyclass(module = "vibe_trading.infrastructure")
 )]
 pub struct PostgresCacheDatabase {
     pub pool: PgPool,

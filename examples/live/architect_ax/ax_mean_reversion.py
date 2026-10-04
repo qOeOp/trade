@@ -1,23 +1,23 @@
 #!/usr/bin/env python3
 from decimal import Decimal
 
-from vibe_trader.adapters.architect_ax import AX
-from vibe_trader.adapters.architect_ax import AxDataClientConfig
-from vibe_trader.adapters.architect_ax import AxEnvironment
-from vibe_trader.adapters.architect_ax import AxExecClientConfig
-from vibe_trader.adapters.architect_ax import AxLiveDataClientFactory
-from vibe_trader.adapters.architect_ax import AxLiveExecClientFactory
-from vibe_trader.config import InstrumentProviderConfig
-from vibe_trader.config import LiveExecEngineConfig
-from vibe_trader.config import LiveRiskEngineConfig
-from vibe_trader.config import LoggingConfig
-from vibe_trader.config import TradingNodeConfig
-from vibe_trader.examples.strategies.bb_mean_reversion import BBMeanReversion
-from vibe_trader.examples.strategies.bb_mean_reversion import BBMeanReversionConfig
-from vibe_trader.live.node import TradingNode
-from vibe_trader.model.data import BarType
-from vibe_trader.model.identifiers import InstrumentId
-from vibe_trader.model.identifiers import TraderId
+from vibe_trading.adapters.architect_ax import AX
+from vibe_trading.adapters.architect_ax import AxDataClientConfig
+from vibe_trading.adapters.architect_ax import AxEnvironment
+from vibe_trading.adapters.architect_ax import AxExecClientConfig
+from vibe_trading.adapters.architect_ax import AxLiveDataClientFactory
+from vibe_trading.adapters.architect_ax import AxLiveExecClientFactory
+from vibe_trading.config import InstrumentProviderConfig
+from vibe_trading.config import LiveExecEngineConfig
+from vibe_trading.config import LiveRiskEngineConfig
+from vibe_trading.config import LoggingConfig
+from vibe_trading.config import TradingNodeConfig
+from vibe_trading.examples.strategies.bb_mean_reversion import BBMeanReversion
+from vibe_trading.examples.strategies.bb_mean_reversion import BBMeanReversionConfig
+from vibe_trading.live.node import TradingNode
+from vibe_trading.model.data import BarType
+from vibe_trading.model.identifiers import InstrumentId
+from vibe_trading.model.identifiers import TraderId
 
 
 # *** THIS IS A TEST STRATEGY WITH NO ALPHA ADVANTAGE WHATSOEVER. ***

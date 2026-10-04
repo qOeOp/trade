@@ -1,6 +1,6 @@
 # 值类型
 
-VibeTrader 提供表示核心交易概念的专用值类型：`Price`、`Quantity` 和 `Money`。
+VibeTrading 提供表示核心交易概念的专用值类型：`Price`、`Quantity` 和 `Money`。
 这些类型在内部使用定点算术，从而在不同平台和环境中实现高性能、确定性的计算。
 
 ## 概览
@@ -16,7 +16,7 @@ VibeTrader 提供表示核心交易概念的专用值类型：`Price`、`Quantit
 所有值类型都**不可变**。值一旦构造就无法修改，操作不会改变原对象。
 
 ```python
-from vibe_trader.model.objects import Quantity
+from vibe_trading.model.objects import Quantity
 
 qty1 = Quantity(100, precision=0)
 qty2 = Quantity(50, precision=0)
@@ -54,7 +54,7 @@ print(result)  # 150
 | `Money - Money`       | `Money`    |
 
 ```python
-from vibe_trader.model.objects import Price
+from vibe_trading.model.objects import Price
 
 price1 = Price(100.50, precision=2)
 price2 = Price(0.25, precision=2)
@@ -94,8 +94,8 @@ print(type(result))  # <class 'Price'>
 `Quantity.__neg__` 返回 `Decimal` 而不是 `Quantity`，因为 `Quantity` 无符号，无法表示负值。
 
 ```python
-from vibe_trader.model.objects import Price, Quantity, Money
-from vibe_trader.model.currencies import USD
+from vibe_trading.model.objects import Price, Quantity, Money
+from vibe_trading.model.currencies import USD
 
 price = Price(100.50, precision=2)
 print(-price)  # -100.50
@@ -130,7 +130,7 @@ print(type(+qty))  # <class 'Quantity'>
 
 ```python
 from decimal import Decimal
-from vibe_trader.model.objects import Quantity
+from vibe_trading.model.objects import Quantity
 
 qty = Quantity(100, precision=0)
 
@@ -157,7 +157,7 @@ print(type(result3))  # <class 'decimal.Decimal'>
 `precision` 字段记录构造时使用的小数位数，用于控制显示格式和序列化；底层原始值始终使用全局 scale。
 
 ```python
-from vibe_trader.model.objects import Price
+from vibe_trading.model.objects import Price
 
 p1 = Price(1.23, precision=2)  # displays as "1.23"
 p2 = Price(1.230, precision=3)  # displays as "1.230"
@@ -186,7 +186,7 @@ str(p2)  # "1.230"
 对精度不同的值进行算术运算时，结果使用操作数中的最大精度。
 
 ```python
-from vibe_trader.model.objects import Price
+from vibe_trading.model.objects import Price
 
 price1 = Price(100.5, precision=1)  # 1 decimal place
 price2 = Price(0.125, precision=3)  # 3 decimal places
@@ -203,7 +203,7 @@ print(result.precision)  # 3 (max of 1 and 3)
 `Quantity` 表示非负数量。尝试创建负数量，或从较小数量减去较大数量时会引发错误：
 
 ```python
-from vibe_trader.model.objects import Quantity
+from vibe_trading.model.objects import Quantity
 
 # This raises ValueError: Quantity cannot be negative
 qty = Quantity(-100, precision=0)
@@ -219,8 +219,8 @@ result = qty1 - qty2  # Would be -50, which is invalid
 `Money` 值包含货币。`Money` 值之间的加减要求货币匹配：
 
 ```python
-from vibe_trader.model.objects import Money
-from vibe_trader.model.currencies import USD, EUR
+from vibe_trading.model.objects import Money
+from vibe_trading.model.currencies import USD, EUR
 
 usd_amount = Money(100.00, USD)
 eur_amount = Money(50.00, EUR)
@@ -239,8 +239,8 @@ result = usd_amount + eur_amount
 由于值类型不可变，应通过重新赋值进行累加：
 
 ```python
-from vibe_trader.model.objects import Money
-from vibe_trader.model.currencies import USD
+from vibe_trading.model.objects import Money
+from vibe_trading.model.currencies import USD
 
 total = Money(0.00, USD)
 amounts = [Money(100.00, USD), Money(50.00, USD), Money(25.00, USD)]
@@ -256,7 +256,7 @@ print(total)  # 175.00 USD
 值类型提供转换方法：
 
 ```python
-from vibe_trader.model.objects import Price
+from vibe_trading.model.objects import Price
 
 price = Price(123.456, precision=3)
 
@@ -275,7 +275,7 @@ string_value = str(price)  # "123.456"
 从字符串表示中解析值类型：
 
 ```python
-from vibe_trader.model.objects import Quantity, Price, Money
+from vibe_trading.model.objects import Quantity, Price, Money
 
 qty = Quantity.from_str("100.5")
 price = Price.from_str("99.95")

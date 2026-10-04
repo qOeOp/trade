@@ -42,11 +42,11 @@ let order = self.order().market_to_limit(
 ```
 
 ```python tab="Python"
-from vibe_trader.model.enums import OrderSide
-from vibe_trader.model.enums import TimeInForce
-from vibe_trader.model import InstrumentId
-from vibe_trader.model import Quantity
-from vibe_trader.model.orders import MarketToLimitOrder
+from vibe_trading.model.enums import OrderSide
+from vibe_trading.model.enums import TimeInForce
+from vibe_trading.model import InstrumentId
+from vibe_trading.model import Quantity
+from vibe_trading.model.orders import MarketToLimitOrder
 
 order: MarketToLimitOrder = self.order_factory.market_to_limit(
     instrument_id=InstrumentId.from_str("USD/JPY.IDEALPRO"),
@@ -59,7 +59,7 @@ order: MarketToLimitOrder = self.order_factory.market_to_limit(
 )
 ```
 
-更多详情请参阅 [`MarketToLimitOrder` API 参考](/docs/python-api-latest/model/orders.html#vibe_trader.model.orders.market_to_limit.MarketToLimitOrder)。
+更多详情请参阅 [`MarketToLimitOrder` API 参考](/docs/python-api-latest/model/orders.html#vibe_trading.model.orders.market_to_limit.MarketToLimitOrder)。
 
 ## 相关指南
 

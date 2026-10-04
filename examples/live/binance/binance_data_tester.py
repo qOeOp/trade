@@ -7,20 +7,20 @@ requiring authentication. No API key or secret is needed.
 
 """
 
-from vibe_trader.adapters.binance import BINANCE
-from vibe_trader.adapters.binance import BinanceAccountType
-from vibe_trader.adapters.binance import BinanceDataClientConfig
-from vibe_trader.adapters.binance import BinanceLiveDataClientFactory
-from vibe_trader.adapters.binance.common.enums import BinanceEnvironment
-from vibe_trader.config import InstrumentProviderConfig
-from vibe_trader.config import LoggingConfig
-from vibe_trader.config import TradingNodeConfig
-from vibe_trader.live.node import TradingNode
-from vibe_trader.model.data import BarType
-from vibe_trader.model.identifiers import InstrumentId
-from vibe_trader.model.identifiers import TraderId
-from vibe_trader.test_kit.strategies.tester_data import DataTester
-from vibe_trader.test_kit.strategies.tester_data import DataTesterConfig
+from vibe_trading.adapters.binance import BINANCE
+from vibe_trading.adapters.binance import BinanceAccountType
+from vibe_trading.adapters.binance import BinanceDataClientConfig
+from vibe_trading.adapters.binance import BinanceLiveDataClientFactory
+from vibe_trading.adapters.binance.common.enums import BinanceEnvironment
+from vibe_trading.config import InstrumentProviderConfig
+from vibe_trading.config import LoggingConfig
+from vibe_trading.config import TradingNodeConfig
+from vibe_trading.live.node import TradingNode
+from vibe_trading.model.data import BarType
+from vibe_trading.model.identifiers import InstrumentId
+from vibe_trading.model.identifiers import TraderId
+from vibe_trading.test_kit.strategies.tester_data import DataTester
+from vibe_trading.test_kit.strategies.tester_data import DataTesterConfig
 
 
 # Toggle between SPOT and FUTURES

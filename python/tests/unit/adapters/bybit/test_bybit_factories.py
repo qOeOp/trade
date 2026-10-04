@@ -3,17 +3,17 @@ from unit.adapters.example_modules import capture_data_tester_main
 from unit.adapters.example_modules import capture_exec_tester_main
 from unit.adapters.example_modules import load_example_module
 
-from vibe_trader.adapters.bybit import BybitDataClientConfig
-from vibe_trader.adapters.bybit import BybitDataClientFactory
-from vibe_trader.adapters.bybit import BybitEnvironment
-from vibe_trader.adapters.bybit import BybitExecClientConfig
-from vibe_trader.adapters.bybit import BybitExecutionClientFactory
-from vibe_trader.adapters.bybit import BybitProductType
-from vibe_trader.common import Environment
-from vibe_trader.live import LiveNode
-from vibe_trader.live import LiveRiskEngineConfig
-from vibe_trader.model import AccountId
-from vibe_trader.model import TraderId
+from vibe_trading.adapters.bybit import BybitDataClientConfig
+from vibe_trading.adapters.bybit import BybitDataClientFactory
+from vibe_trading.adapters.bybit import BybitEnvironment
+from vibe_trading.adapters.bybit import BybitExecClientConfig
+from vibe_trading.adapters.bybit import BybitExecutionClientFactory
+from vibe_trading.adapters.bybit import BybitProductType
+from vibe_trading.common import Environment
+from vibe_trading.live import LiveNode
+from vibe_trading.live import LiveRiskEngineConfig
+from vibe_trading.model import AccountId
+from vibe_trading.model import TraderId
 
 
 BYBIT = "BYBIT"

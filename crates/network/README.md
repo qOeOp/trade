@@ -1,14 +1,14 @@
 # vibe-network
 
-Network functionality for [VibeTrader](https://github.com/qOeOp/trade).
+Network functionality for [VibeTrading](https://github.com/qOeOp/trade).
 
 The `vibe-network` crate provides networking components including HTTP, WebSocket, and raw TCP socket
 clients, rate limiting, backoff strategies, and socket TLS utilities for connecting to
 trading venues and data providers.
 
-## VibeTrader
+## VibeTrading
 
-[VibeTrader](https://github.com/qOeOp/trade) is a Rust-native
+[VibeTrading](https://github.com/qOeOp/trade) is a Rust-native
 engine for multi-asset, multi-venue trading systems.
 
 The system spans research, deterministic simulation, and live execution within a single

@@ -1,5 +1,5 @@
 //! Helper functions that convert common C types (primarily UTF-8 encoded `char *` pointers) into
-//! the Rust data structures used throughout VibeTrader.
+//! the Rust data structures used throughout VibeTrading.
 //!
 //! The conversions are opinionated:
 //!

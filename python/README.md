@@ -1,6 +1,6 @@
-# VibeTrader Python package
+# VibeTrading Python package
 
-This directory contains the `vibe_trader` Python package. Rust core bindings are exposed
+This directory contains the `vibe_trading` Python package. Rust core bindings are exposed
 through PyO3.
 
 ## Project structure
@@ -18,7 +18,7 @@ python/
 │   │   ├── common/actor.py     # Test actor/strategy/algorithm fixtures
 │   │   └── test_live_node.py   # LiveNode registration tests
 │   └── acceptance/             # Acceptance tests
-└── vibe_trader/
+└── vibe_trading/
     ├── __init__.py             # Re-exports from _libvibe
     ├── _libvibe/            # Compiled Rust extension (created by the build)
     ├── core/
@@ -62,7 +62,7 @@ after Rust changes.
 ## How it works
 
 1. **Build**: `maturin develop` compiles all Rust code into a single extension module
-   under `vibe_trader/_libvibe/`.
+   under `vibe_trading/_libvibe/`.
 2. **Re-exports**: Each submodule's `__init__.py` re-exports components from `_libvibe`.
 3. **Type stubs**: `.pyi` files provide type information for IDEs and `mypy`.
 4. **Docstrings**: `generate_docstrings.py` copies `///` doc comments from the Rust source
@@ -71,7 +71,7 @@ after Rust changes.
 ## Usage
 
 ```python
-from vibe_trader.core import UUID4
+from vibe_trading.core import UUID4
 
 UUID4()
 ```

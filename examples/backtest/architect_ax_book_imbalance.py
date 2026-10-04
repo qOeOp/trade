@@ -5,24 +5,24 @@ from pathlib import Path
 import databento as db
 import pandas as pd
 
-from vibe_trader.adapters.databento import DatabentoDataLoader
-from vibe_trader.backtest.engine import BacktestEngine
-from vibe_trader.config import BacktestEngineConfig
-from vibe_trader.config import LoggingConfig
-from vibe_trader.examples.strategies.orderbook_imbalance import OrderBookImbalance
-from vibe_trader.examples.strategies.orderbook_imbalance import OrderBookImbalanceConfig
-from vibe_trader.model.currencies import USD
-from vibe_trader.model.enums import AccountType
-from vibe_trader.model.enums import AssetClass
-from vibe_trader.model.enums import OmsType
-from vibe_trader.model.identifiers import InstrumentId
-from vibe_trader.model.identifiers import Symbol
-from vibe_trader.model.identifiers import TraderId
-from vibe_trader.model.identifiers import Venue
-from vibe_trader.model.instruments import PerpetualContract
-from vibe_trader.model.objects import Money
-from vibe_trader.model.objects import Price
-from vibe_trader.model.objects import Quantity
+from vibe_trading.adapters.databento import DatabentoDataLoader
+from vibe_trading.backtest.engine import BacktestEngine
+from vibe_trading.config import BacktestEngineConfig
+from vibe_trading.config import LoggingConfig
+from vibe_trading.examples.strategies.orderbook_imbalance import OrderBookImbalance
+from vibe_trading.examples.strategies.orderbook_imbalance import OrderBookImbalanceConfig
+from vibe_trading.model.currencies import USD
+from vibe_trading.model.enums import AccountType
+from vibe_trading.model.enums import AssetClass
+from vibe_trading.model.enums import OmsType
+from vibe_trading.model.identifiers import InstrumentId
+from vibe_trading.model.identifiers import Symbol
+from vibe_trading.model.identifiers import TraderId
+from vibe_trading.model.identifiers import Venue
+from vibe_trading.model.instruments import PerpetualContract
+from vibe_trading.model.objects import Money
+from vibe_trading.model.objects import Price
+from vibe_trading.model.objects import Quantity
 
 
 # *** THIS IS A TEST STRATEGY WITH NO ALPHA ADVANTAGE WHATSOEVER. ***

@@ -47,13 +47,13 @@ pub enum BybitUnifiedMarginStatus {
         eq,
         eq_int,
         rename_all = "SCREAMING_SNAKE_CASE",
-        module = "vibe_trader.adapters.bybit",
+        module = "vibe_trading.adapters.bybit",
         from_py_object
     )
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trader.adapters.bybit")
+    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trading.adapters.bybit")
 )]
 pub enum BybitMarginMode {
     IsolatedMargin,
@@ -84,13 +84,13 @@ pub enum BybitMarginMode {
         eq,
         eq_int,
         rename_all = "SCREAMING_SNAKE_CASE",
-        module = "vibe_trader.adapters.bybit",
+        module = "vibe_trading.adapters.bybit",
         from_py_object
     )
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trader.adapters.bybit")
+    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trading.adapters.bybit")
 )]
 pub enum BybitPositionMode {
     /// Merged single position mode.
@@ -122,13 +122,13 @@ pub enum BybitPositionMode {
         eq,
         eq_int,
         rename_all = "SCREAMING_SNAKE_CASE",
-        module = "vibe_trader.adapters.bybit",
+        module = "vibe_trading.adapters.bybit",
         from_py_object
     )
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trader.adapters.bybit")
+    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trading.adapters.bybit")
 )]
 pub enum BybitPositionIdx {
     /// One-way mode position identifier.
@@ -161,13 +161,13 @@ pub enum BybitPositionIdx {
         eq,
         eq_int,
         rename_all = "SCREAMING_SNAKE_CASE",
-        module = "vibe_trader.adapters.bybit",
+        module = "vibe_trading.adapters.bybit",
         from_py_object
     )
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trader.adapters.bybit")
+    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trading.adapters.bybit")
 )]
 pub enum BybitAccountType {
     Unified,
@@ -205,13 +205,13 @@ pub enum BybitApiKeyType {
         eq,
         eq_int,
         rename_all = "SCREAMING_SNAKE_CASE",
-        module = "vibe_trader.adapters.bybit",
+        module = "vibe_trading.adapters.bybit",
         from_py_object
     )
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trader.adapters.bybit")
+    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trading.adapters.bybit")
 )]
 pub enum BybitEnvironment {
     /// Live trading environment.
@@ -245,13 +245,13 @@ pub enum BybitEnvironment {
         eq,
         eq_int,
         rename_all = "SCREAMING_SNAKE_CASE",
-        module = "vibe_trader.adapters.bybit",
+        module = "vibe_trading.adapters.bybit",
         from_py_object
     )
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trader.adapters.bybit")
+    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trading.adapters.bybit")
 )]
 pub enum BybitProductType {
     #[default]
@@ -536,11 +536,11 @@ impl Display for BybitKlineInterval {
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.adapters.bybit", eq, eq_int, from_py_object)
+    pyo3::pyclass(module = "vibe_trading.adapters.bybit", eq, eq_int, from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trader.adapters.bybit")
+    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trading.adapters.bybit")
 )]
 pub enum BybitOrderStatus {
     #[serde(rename = "Created")]
@@ -569,11 +569,11 @@ pub enum BybitOrderStatus {
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.adapters.bybit", eq, eq_int, from_py_object)
+    pyo3::pyclass(module = "vibe_trading.adapters.bybit", eq, eq_int, from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trader.adapters.bybit")
+    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trading.adapters.bybit")
 )]
 pub enum BybitOrderSide {
     #[serde(rename = "")]
@@ -651,11 +651,11 @@ pub fn resolve_trigger_type(trigger_type: Option<TriggerType>) -> BybitTriggerTy
 #[serde(rename_all = "PascalCase")]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.adapters.bybit", eq, eq_int, from_py_object)
+    pyo3::pyclass(module = "vibe_trading.adapters.bybit", eq, eq_int, from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trader.adapters.bybit")
+    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trading.adapters.bybit")
 )]
 pub enum BybitCancelType {
     CancelByUser,
@@ -715,11 +715,11 @@ pub enum BybitBboSideType {
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.adapters.bybit", eq, eq_int, from_py_object)
+    pyo3::pyclass(module = "vibe_trading.adapters.bybit", eq, eq_int, from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trader.adapters.bybit")
+    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trading.adapters.bybit")
 )]
 pub enum BybitOrderType {
     #[serde(rename = "Market")]
@@ -734,11 +734,11 @@ pub enum BybitOrderType {
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.adapters.bybit", eq, eq_int, from_py_object)
+    pyo3::pyclass(module = "vibe_trading.adapters.bybit", eq, eq_int, from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trader.adapters.bybit")
+    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trading.adapters.bybit")
 )]
 pub enum BybitStopOrderType {
     #[serde(rename = "")]
@@ -771,11 +771,11 @@ pub enum BybitStopOrderType {
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.adapters.bybit", eq, eq_int, from_py_object)
+    pyo3::pyclass(module = "vibe_trading.adapters.bybit", eq, eq_int, from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trader.adapters.bybit")
+    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trading.adapters.bybit")
 )]
 pub enum BybitTriggerType {
     #[serde(rename = "")]
@@ -793,11 +793,11 @@ pub enum BybitTriggerType {
 #[repr(i32)]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.adapters.bybit", eq, eq_int, from_py_object)
+    pyo3::pyclass(module = "vibe_trading.adapters.bybit", eq, eq_int, from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trader.adapters.bybit")
+    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trading.adapters.bybit")
 )]
 pub enum BybitTriggerDirection {
     None = 0,
@@ -810,11 +810,11 @@ pub enum BybitTriggerDirection {
 #[serde(rename_all = "PascalCase")]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.adapters.bybit", eq, eq_int, from_py_object)
+    pyo3::pyclass(module = "vibe_trading.adapters.bybit", eq, eq_int, from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trader.adapters.bybit")
+    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trading.adapters.bybit")
 )]
 pub enum BybitTpSlMode {
     Full,
@@ -827,11 +827,11 @@ pub enum BybitTpSlMode {
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.adapters.bybit", eq, eq_int, from_py_object)
+    pyo3::pyclass(module = "vibe_trading.adapters.bybit", eq, eq_int, from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trader.adapters.bybit")
+    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trading.adapters.bybit")
 )]
 pub enum BybitTimeInForce {
     #[serde(rename = "GTC")]
@@ -929,11 +929,11 @@ pub enum BybitEndpointType {
 #[repr(i32)]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.adapters.bybit", eq, eq_int, from_py_object)
+    pyo3::pyclass(module = "vibe_trading.adapters.bybit", eq, eq_int, from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trader.adapters.bybit")
+    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trading.adapters.bybit")
 )]
 pub enum BybitOpenOnly {
     /// Query open status orders only (New, PartiallyFilled).
@@ -949,11 +949,11 @@ pub enum BybitOpenOnly {
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Hash, Serialize, Deserialize)]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.adapters.bybit", eq, eq_int, from_py_object)
+    pyo3::pyclass(module = "vibe_trading.adapters.bybit", eq, eq_int, from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trader.adapters.bybit")
+    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trading.adapters.bybit")
 )]
 pub enum BybitOrderFilter {
     /// Active orders (default).
@@ -995,13 +995,13 @@ pub enum BybitOrderFilter {
         hash,
         frozen,
         rename_all = "SCREAMING_SNAKE_CASE",
-        module = "vibe_trader.adapters.bybit",
+        module = "vibe_trading.adapters.bybit",
         from_py_object,
     )
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trader.adapters.bybit")
+    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trading.adapters.bybit")
 )]
 pub enum BybitMarginAction {
     /// Borrow funds for margin trading.

@@ -45,7 +45,7 @@ Vibe provides two subscription levels:
 Subscribe to venue-provided Greeks for a single option contract from an actor or strategy:
 
 ```python
-from vibe_trader.model.identifiers import ClientId
+from vibe_trading.model.identifiers import ClientId
 
 client_id = ClientId("DERIBIT")
 self.subscribe_option_greeks(instrument_id, client_id=client_id)
@@ -77,8 +77,8 @@ option series into `OptionChainSlice` snapshots. The `DataEngine` creates one Ru
 incoming data, running snapshot timers, and draining wire subscription changes.
 
 ```python
-from vibe_trader.model import OptionSeriesId
-from vibe_trader.model import StrikeRange
+from vibe_trading.model import OptionSeriesId
+from vibe_trading.model import StrikeRange
 
 series_id = OptionSeriesId(...)  # identifies the series (venue, underlying, expiry)
 
@@ -214,8 +214,8 @@ from the venue name:
 ```python
 from decimal import Decimal
 
-from vibe_trader.execution import CappedOptionFeeModel
-from vibe_trader.execution import TieredNotionalOptionFeeModel
+from vibe_trading.execution import CappedOptionFeeModel
+from vibe_trading.execution import TieredNotionalOptionFeeModel
 
 deribit_like = CappedOptionFeeModel(
     maker_rate=Decimal("0.0003"),

@@ -1,9 +1,9 @@
 # Polymarket
 
-This page documents the Polymarket adapter module in `vibe_trader.adapters.polymarket`.
+This page documents the Polymarket adapter module in `vibe_trading.adapters.polymarket`.
 
 ```{eval-rst}
-.. automodule:: vibe_trader.adapters.polymarket
+.. automodule:: vibe_trading.adapters.polymarket
    :show-inheritance:
    :inherited-members:
    :members:

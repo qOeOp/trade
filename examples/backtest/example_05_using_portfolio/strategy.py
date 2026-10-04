@@ -1,12 +1,12 @@
-from vibe_trader.common.enums import LogColor
-from vibe_trader.config import StrategyConfig
-from vibe_trader.model.data import Bar
-from vibe_trader.model.data import BarType
-from vibe_trader.model.enums import OrderSide
-from vibe_trader.model.enums import TimeInForce
-from vibe_trader.model.events import PositionOpened
-from vibe_trader.model.instruments.base import Instrument
-from vibe_trader.trading.strategy import Strategy
+from vibe_trading.common.enums import LogColor
+from vibe_trading.config import StrategyConfig
+from vibe_trading.model.data import Bar
+from vibe_trading.model.data import BarType
+from vibe_trading.model.enums import OrderSide
+from vibe_trading.model.enums import TimeInForce
+from vibe_trading.model.events import PositionOpened
+from vibe_trading.model.instruments.base import Instrument
+from vibe_trading.trading.strategy import Strategy
 
 
 class DemoStrategyConfig(StrategyConfig, frozen=True):

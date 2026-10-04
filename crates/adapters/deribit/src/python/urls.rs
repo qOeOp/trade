@@ -8,7 +8,7 @@ use crate::common::{
 };
 
 #[pyfunction]
-#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trader.adapters.deribit")]
+#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trading.adapters.deribit")]
 #[pyo3(name = "get_deribit_http_base_url")]
 #[must_use]
 pub fn py_get_deribit_http_base_url(environment: DeribitEnvironment) -> String {
@@ -16,7 +16,7 @@ pub fn py_get_deribit_http_base_url(environment: DeribitEnvironment) -> String {
 }
 
 #[pyfunction]
-#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trader.adapters.deribit")]
+#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trading.adapters.deribit")]
 #[pyo3(name = "get_deribit_ws_url")]
 #[must_use]
 pub fn py_get_deribit_ws_url(environment: DeribitEnvironment) -> String {

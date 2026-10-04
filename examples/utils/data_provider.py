@@ -3,10 +3,10 @@ from pathlib import Path
 
 import pandas as pd
 
-from vibe_trader.model.data import Bar
-from vibe_trader.model.data import BarType
-from vibe_trader.persistence.wranglers import BarDataWrangler
-from vibe_trader.test_kit.providers import TestInstrumentProvider
+from vibe_trading.model.data import Bar
+from vibe_trading.model.data import BarType
+from vibe_trading.persistence.wranglers import BarDataWrangler
+from vibe_trading.test_kit.providers import TestInstrumentProvider
 
 
 TEST_DATA_DIR = Path(__file__).resolve().parents[2] / "test_data"

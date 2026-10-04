@@ -11,7 +11,7 @@ APIs for market data and account state.
 
 :::note
 No additional installation extras are required. The adapter is implemented in Rust and
-compiled into the core `vibe_trader` package automatically during the build.
+compiled into the core `vibe_trading` package automatically during the build.
 :::
 
 ## Examples
@@ -574,9 +574,9 @@ and risk management within a single wallet.
 Specify the subaccount number in the execution client config:
 
 ```python
-from vibe_trader.adapters.dydx import DydxExecClientConfig
-from vibe_trader.model import AccountId
-from vibe_trader.model import TraderId
+from vibe_trading.adapters.dydx import DydxExecClientConfig
+from vibe_trading.model import AccountId
+from vibe_trading.model import TraderId
 
 
 exec_config = DydxExecClientConfig(
@@ -646,11 +646,11 @@ export DYDX_TESTNET_PRIVATE_KEY="0x..."  # hex-encoded, 0x prefix optional
 Set `network=DydxNetwork.TESTNET` on both data and execution clients:
 
 ```python
-from vibe_trader.adapters.dydx import DydxDataClientConfig
-from vibe_trader.adapters.dydx import DydxExecClientConfig
-from vibe_trader.adapters.dydx import DydxNetwork
-from vibe_trader.model import AccountId
-from vibe_trader.model import TraderId
+from vibe_trading.adapters.dydx import DydxDataClientConfig
+from vibe_trading.adapters.dydx import DydxExecClientConfig
+from vibe_trading.adapters.dydx import DydxNetwork
+from vibe_trading.model import AccountId
+from vibe_trading.model import TraderId
 
 
 data_config = DydxDataClientConfig(network=DydxNetwork.TESTNET)
@@ -706,7 +706,7 @@ wallet credentials.
 
 | Option              | Default   | Description                                                                       |
 | ------------------- | --------- | --------------------------------------------------------------------------------- |
-| `trader_id`         | Required  | Vibe trader ID for the client.                                                    |
+| `trader_id`         | Required  | Vibe Trading ID for the client.                                                   |
 | `account_id`        | Required  | Vibe account ID for the client.                                                   |
 | `network`           | `MAINNET` | `DydxNetwork.MAINNET` or `DydxNetwork.TESTNET`.                                   |
 | `private_key`       | `None`    | Hex‑encoded signing key; falls back to the network‑specific environment variable. |
@@ -764,9 +764,9 @@ owner's wallet address as `DYDX_WALLET_ADDRESS`. The adapter detects the mismatc
 and automatically queries the chain for matching authenticator IDs.
 
 ```python
-from vibe_trader.adapters.dydx import DydxExecClientConfig
-from vibe_trader.model import AccountId
-from vibe_trader.model import TraderId
+from vibe_trading.adapters.dydx import DydxExecClientConfig
+from vibe_trading.model import AccountId
+from vibe_trading.model import TraderId
 
 
 config = DydxExecClientConfig(

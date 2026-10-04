@@ -75,7 +75,7 @@ Greeks 并不存在一种能涵盖所有情况的统一结构，因此交易场�
 `crates/model/src/data/greeks.rs` 向 Python 公开以下底层定价函数：
 
 ```python
-from vibe_trader.model import (
+from vibe_trading.model import (
     black_scholes_greeks,
     imply_vol,
     imply_vol_and_greeks,
@@ -107,12 +107,12 @@ result = refine_vol_and_greeks(
 
 ### GreeksCalculator
 
-`vibe_trader/model/greeks.pyx` 中的旧版 Cython `GreeksCalculator` 类根据缓存的市场数据计算 Black-Scholes Greeks。当前 PyO3 计算器通过 `vibe_trader.common.GreeksCalculator` 公开。两个计算器都使用缓存和时钟，并可供参与者或策略调用。
+`vibe_trading/model/greeks.pyx` 中的旧版 Cython `GreeksCalculator` 类根据缓存的市场数据计算 Black-Scholes Greeks。当前 PyO3 计算器通过 `vibe_trading.common.GreeksCalculator` 公开。两个计算器都使用缓存和时钟，并可供参与者或策略调用。
 
 ```python
-from vibe_trader.common import GreeksCalculator
+from vibe_trading.common import GreeksCalculator
 
-# Legacy Cython: from vibe_trader.model.greeks import GreeksCalculator
+# Legacy Cython: from vibe_trading.model.greeks import GreeksCalculator
 
 # Typically created in on_start()
 calculator = GreeksCalculator(cache=self.cache, clock=self.clock)

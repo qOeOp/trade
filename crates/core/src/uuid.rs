@@ -24,11 +24,11 @@ pub(crate) const UUID4_LEN: usize = 37;
 #[derive(Copy, Clone, Hash, PartialEq, Eq)]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.core", from_py_object)
+    pyo3::pyclass(module = "vibe_trading.core", from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.core")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.core")
 )]
 pub struct UUID4 {
     /// The UUID v4 value as a fixed-length C string byte array (includes null terminator).

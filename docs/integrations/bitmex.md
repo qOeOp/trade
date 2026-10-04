@@ -47,7 +47,7 @@ BitMEX provides extensive documentation for users:
 - [Futures Contracts Guide](https://www.bitmex.com/app/futuresGuide) - Traditional futures information.
 
 It's recommended you refer to the BitMEX documentation in conjunction with this
-VibeTrader integration guide.
+VibeTrading integration guide.
 
 ## Product support
 
@@ -137,13 +137,13 @@ Futures contracts use standard futures month codes:
 
 Followed by the year (e.g., `24` for 2024, `25` for 2025).
 
-### VibeTrader instrument IDs
+### VibeTrading instrument IDs
 
-Within VibeTrader, BitMEX instruments are identified using the native BitMEX symbol
+Within VibeTrading, BitMEX instruments are identified using the native BitMEX symbol
 directly, combined with the venue identifier:
 
 ```python
-from vibe_trader.model import InstrumentId
+from vibe_trading.model import InstrumentId
 
 # Spot pairs (note: no slash in the symbol)
 spot_id = InstrumentId.from_str("XBTUSDT.BITMEX")  # XBT/USDT spot
@@ -163,7 +163,7 @@ prediction_id = InstrumentId.from_str(
 ```
 
 :::note
-BitMEX spot symbols in VibeTrader don't include the slash (/) that appears in the
+BitMEX spot symbols in VibeTrading don't include the slash (/) that appears in the
 BitMEX UI. Use `XBTUSDT` instead of `XBT/USDT`.
 :::
 
@@ -236,7 +236,7 @@ Choose the trigger type that matches your strategy and/or risk preferences.
 **Example**:
 
 ```python
-from vibe_trader.model import TriggerType
+from vibe_trading.model import TriggerType
 
 order = self.order_factory.stop_market(
     instrument_id=instrument_id,
@@ -266,7 +266,7 @@ limit `price`.
 **Example**:
 
 ```python
-from vibe_trader.model import TrailingOffsetType
+from vibe_trading.model import TrailingOffsetType
 
 order = self.order_factory.trailing_stop_market(
     instrument_id=instrument_id,
@@ -586,7 +586,7 @@ The submit broadcaster is configured via the execution client configuration:
 **Example configuration**:
 
 ```python
-from vibe_trader.adapters.bitmex import BitmexExecClientConfig
+from vibe_trading.adapters.bitmex import BitmexExecClientConfig
 
 exec_config = BitmexExecClientConfig(
     api_key="YOUR_API_KEY",
@@ -654,7 +654,7 @@ The cancel broadcaster is configured via the execution client configuration:
 **Example configuration**:
 
 ```python
-from vibe_trader.adapters.bitmex import BitmexExecClientConfig
+from vibe_trading.adapters.bitmex import BitmexExecClientConfig
 
 exec_config = BitmexExecClientConfig(
     api_key="YOUR_API_KEY",
@@ -728,7 +728,7 @@ Enable the dead man's switch by setting `deadmans_switch_timeout_secs` on the ex
 client config:
 
 ```python
-from vibe_trader.adapters.bitmex import BitmexExecClientConfig
+from vibe_trading.adapters.bitmex import BitmexExecClientConfig
 
 exec_config = BitmexExecClientConfig(
     api_key="YOUR_API_KEY",
@@ -844,9 +844,9 @@ The BitMEX execution client provides the following configuration options:
 A typical BitMEX configuration for live trading includes both testnet and mainnet options:
 
 ```python
-from vibe_trader.adapters.bitmex import BitmexDataClientConfig
-from vibe_trader.adapters.bitmex import BitmexEnvironment
-from vibe_trader.adapters.bitmex import BitmexExecClientConfig
+from vibe_trading.adapters.bitmex import BitmexDataClientConfig
+from vibe_trading.adapters.bitmex import BitmexEnvironment
+from vibe_trading.adapters.bitmex import BitmexExecClientConfig
 
 # Using environment variables (recommended)
 testnet_data_config = BitmexDataClientConfig(

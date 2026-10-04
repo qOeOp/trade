@@ -1,4 +1,4 @@
-//! Plug-in artifact identity and boundary primitives for VibeTrader.
+//! Plug-in artifact identity and boundary primitives for VibeTrading.
 //!
 //! This crate provides the public contract that lets an independently compiled
 //! Rust cdylib identify itself to a Vibe host. It defines versioned build

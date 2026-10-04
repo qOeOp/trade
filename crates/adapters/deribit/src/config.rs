@@ -18,11 +18,11 @@ use crate::{
 #[serde(default, deny_unknown_fields)]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.adapters.deribit", from_py_object)
+    pyo3::pyclass(module = "vibe_trading.adapters.deribit", from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.adapters.deribit")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.adapters.deribit")
 )]
 pub struct DeribitDataClientConfig {
     /// Optional API key for authenticated endpoints.
@@ -131,11 +131,11 @@ impl DeribitDataClientConfig {
 #[serde(default, deny_unknown_fields)]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.adapters.deribit", from_py_object)
+    pyo3::pyclass(module = "vibe_trading.adapters.deribit", from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.adapters.deribit")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.adapters.deribit")
 )]
 pub struct DeribitExecClientConfig {
     /// The trader ID for this client.

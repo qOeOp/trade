@@ -36,7 +36,7 @@ use crate::error::{NetworkConfigError, NetworkConfigResult};
 #[cfg_attr(
     feature = "python",
     pyo3::pyclass(
-        module = "vibe_trader.network",
+        module = "vibe_trading.network",
         eq,
         from_py_object,
         rename_all = "SCREAMING_SNAKE_CASE"
@@ -44,7 +44,7 @@ use crate::error::{NetworkConfigError, NetworkConfigResult};
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trader.network")
+    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trading.network")
 )]
 #[allow(
     clippy::unsafe_derive_deserialize,

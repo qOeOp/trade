@@ -10,12 +10,12 @@ use vibe_core::python::to_pyvalue_err;
 
 use crate::types::{Currency, Money};
 
-pub const PY_MODULE_MODEL: &str = "vibe_trader.model";
+pub const PY_MODULE_MODEL: &str = "vibe_trading.model";
 
 /// Python iterator over the variants of an enum.
 #[allow(missing_debug_implementations)]
 #[pyclass]
-#[pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.model")]
+#[pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.model")]
 pub struct EnumIterator {
     // Type erasure for code reuse, generic types can't be exposed to Python
     iter: Box<dyn Iterator<Item = PyResult<Py<PyAny>>> + Send + Sync>,

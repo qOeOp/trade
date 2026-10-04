@@ -9,11 +9,11 @@ use crate::common::{credential::credential_env_vars, enums::AxEnvironment};
 /// Configuration for the AX Exchange live data client.
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.adapters.architect_ax", from_py_object)
+    pyo3::pyclass(module = "vibe_trading.adapters.architect_ax", from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.adapters.architect_ax")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.adapters.architect_ax")
 )]
 #[derive(Debug, Clone, Serialize, Deserialize, bon::Builder)]
 #[serde(default, deny_unknown_fields)]
@@ -131,11 +131,11 @@ impl AxDataClientConfig {
 /// Configuration for the AX Exchange live execution client.
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.adapters.architect_ax", from_py_object)
+    pyo3::pyclass(module = "vibe_trading.adapters.architect_ax", from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.adapters.architect_ax")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.adapters.architect_ax")
 )]
 #[derive(Debug, Clone, Serialize, Deserialize, bon::Builder)]
 #[serde(default, deny_unknown_fields)]

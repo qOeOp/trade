@@ -1,19 +1,19 @@
 from dataclasses import dataclass
 
-from vibe_trader.common import DataActor
-from vibe_trader.common import LogColor
-from vibe_trader.common import TimeEvent
-from vibe_trader.config import DataActorConfig
-from vibe_trader.model import ActorId
-from vibe_trader.model import Block
-from vibe_trader.model import Chain
-from vibe_trader.model import ClientId
-from vibe_trader.model import InstrumentId
-from vibe_trader.model import Pool
-from vibe_trader.model import PoolFeeCollect
-from vibe_trader.model import PoolFlash
-from vibe_trader.model import PoolLiquidityUpdate
-from vibe_trader.model import PoolSwap
+from vibe_trading.common import DataActor
+from vibe_trading.common import LogColor
+from vibe_trading.common import TimeEvent
+from vibe_trading.config import DataActorConfig
+from vibe_trading.model import ActorId
+from vibe_trading.model import Block
+from vibe_trading.model import Chain
+from vibe_trading.model import ClientId
+from vibe_trading.model import InstrumentId
+from vibe_trading.model import Pool
+from vibe_trading.model import PoolFeeCollect
+from vibe_trading.model import PoolFlash
+from vibe_trading.model import PoolLiquidityUpdate
+from vibe_trading.model import PoolSwap
 
 
 @dataclass

@@ -57,7 +57,7 @@ function AuthPageContent() {
               Sign In or Join Now!
             </h1>
             <p className="text-base text-mine-muted">
-              login or create your vibe trader account.
+              login or create your vibe trading account.
             </p>
           </div>
           <div className="space-y-2">

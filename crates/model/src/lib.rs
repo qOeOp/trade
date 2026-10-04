@@ -1,11 +1,11 @@
-//! Trading domain model for [VibeTrader](https://github.com/qOeOp/trade).
+//! Trading domain model for [VibeTrading](https://github.com/qOeOp/trade).
 //!
 //! The `vibe-model` crate provides a type-safe domain model that forms the backbone of the
 //! framework and can serve as the foundation for building algorithmic trading systems.
 //!
-//! # VibeTrader
+//! # VibeTrading
 //!
-//! [VibeTrader](https://github.com/qOeOp/trade) is a Rust-native
+//! [VibeTrading](https://github.com/qOeOp/trade) is a Rust-native
 //! engine for multi-asset, multi-venue trading systems.
 //!
 //! The system spans research, deterministic simulation, and live execution within a single
@@ -15,7 +15,7 @@
 //!
 //! This crate provides feature flags to control source code inclusion during compilation,
 //! depending on the intended use case, i.e. whether to provide Python bindings
-//! for the `vibe_trader` Python package,
+//! for the `vibe_trading` Python package,
 //! or as part of a Rust only build.
 //!
 //! - `ffi`: Enables the C foreign function interface (FFI) from [cbindgen](https://github.com/mozilla/cbindgen).

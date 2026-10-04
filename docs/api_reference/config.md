@@ -1,7 +1,7 @@
 # Config
 
 ```{eval-rst}
-.. automodule:: vibe_trader.config
+.. automodule:: vibe_trading.config
    :show-inheritance:
    :inherited-members:
    :imported-members:

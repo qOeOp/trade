@@ -11,7 +11,7 @@ use vibe_persistence_macros::custom_data;
 ///
 /// The adapter normalizes both live `update` frames and `subscribe` backfill
 /// snapshots into this per-tick custom data type.
-#[custom_data(pyo3, no_arrow, stub_module = "vibe_trader.adapters.polymarket")]
+#[custom_data(pyo3, no_arrow, stub_module = "vibe_trading.adapters.polymarket")]
 pub struct PolymarketRtdsCryptoPrice {
     /// Lowercase venue symbol, e.g. `btcusdt`.
     pub symbol: String,
@@ -32,7 +32,7 @@ pub struct PolymarketRtdsCryptoPrice {
 ///
 /// The adapter normalizes both live `update` frames and `subscribe` backfill
 /// snapshots into this per-tick custom data type.
-#[custom_data(pyo3, no_arrow, stub_module = "vibe_trader.adapters.polymarket")]
+#[custom_data(pyo3, no_arrow, stub_module = "vibe_trading.adapters.polymarket")]
 pub struct PolymarketRtdsEquityPrice {
     /// Lowercase venue symbol, e.g. `aapl`, `eurusd`, or `xauusd`.
     pub symbol: String,

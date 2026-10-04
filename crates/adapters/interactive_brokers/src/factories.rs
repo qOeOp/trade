@@ -38,11 +38,11 @@ impl ClientConfig for InteractiveBrokersExecClientConfig {
 #[derive(Debug, Clone)]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.adapters.interactive_brokers", from_py_object)
+    pyo3::pyclass(module = "vibe_trading.adapters.interactive_brokers", from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.adapters.interactive_brokers")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.adapters.interactive_brokers")
 )]
 pub struct InteractiveBrokersDataClientFactory;
 
@@ -103,11 +103,11 @@ impl DataClientFactory for InteractiveBrokersDataClientFactory {
 #[derive(Debug, Clone)]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.adapters.interactive_brokers", from_py_object)
+    pyo3::pyclass(module = "vibe_trading.adapters.interactive_brokers", from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.adapters.interactive_brokers")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.adapters.interactive_brokers")
 )]
 pub struct InteractiveBrokersExecutionClientFactory {
     trader_id: TraderId,

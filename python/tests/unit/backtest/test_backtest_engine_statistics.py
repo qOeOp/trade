@@ -1,12 +1,12 @@
 import math
 
-from vibe_trader.backtest import BacktestEngine
-from vibe_trader.backtest import BacktestEngineConfig
-from vibe_trader.model import AccountType
-from vibe_trader.model import Currency
-from vibe_trader.model import Money
-from vibe_trader.model import OmsType
-from vibe_trader.model import Venue
+from vibe_trading.backtest import BacktestEngine
+from vibe_trading.backtest import BacktestEngineConfig
+from vibe_trading.model import AccountType
+from vibe_trading.model import Currency
+from vibe_trading.model import Money
+from vibe_trading.model import OmsType
+from vibe_trading.model import Venue
 
 
 def _float_maps_equal(a: dict[str, float], b: dict[str, float]) -> bool:

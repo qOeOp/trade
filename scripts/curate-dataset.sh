@@ -4,7 +4,7 @@
 #
 # This script downloads the specified dataset file, captures its licence
 # information, computes a SHA-256 checksum, and emits a ready-to-upload
-# directory structure that is compatible with the VibeTrader test-data
+# directory structure that is compatible with the VibeTrading test-data
 # bucket layout described in the developer guide.
 #
 # Usage:

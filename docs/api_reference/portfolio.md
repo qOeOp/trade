@@ -1,5 +1,5 @@
 # Portfolio
 
 ```{eval-rst}
-.. automodule:: vibe_trader.portfolio
+.. automodule:: vibe_trading.portfolio
 ```

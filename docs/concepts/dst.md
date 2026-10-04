@@ -2,15 +2,15 @@
 
 <!-- Keep this title as "DST"; longer titles do not render well in the left navigation. -->
 
-Deterministic simulation testing (DST) runs VibeTrader under a seed-controlled runtime so that
+Deterministic simulation testing (DST) runs VibeTrading under a seed-controlled runtime so that
 timing-sensitive execution behavior is bitwise reproducible from a single integer. This page is the
 determinism contract: what the runtime guarantees under seed-controlled execution, the seams that
 implement those guarantees, the pre-commit hook that enforces them, and where they stop. Each claim
 names the source site behind it, so users and auditors can check the contract against the code.
 
 :::note
-A downstream harness that depends on VibeTrader's determinism consumes the version of this
-document at its pinned VibeTrader commit. A change to this document is a contract change for
+A downstream harness that depends on VibeTrading's determinism consumes the version of this
+document at its pinned VibeTrading commit. A change to this document is a contract change for
 those consumers and should be reviewed as one.
 :::
 
@@ -38,7 +38,7 @@ cover but a deterministic scheduler can explore systematically.
 
 ## Goals
 
-- **Seed-reproducible execution** for the in-scope portion of the VibeTrader runtime.
+- **Seed-reproducible execution** for the in-scope portion of the VibeTrading runtime.
 - **Honest scope**. The contract lists what is covered and what is not. No silent fallbacks to
   real wall-clock time or unseeded RNG; conditions that weaken the guarantee are enumerated.
 - **Enforcement in source**. A pre-commit hook fails commits that add banned patterns to the DST
@@ -378,7 +378,7 @@ The contract is deliberately narrow. The following weakenings are explicit, not 
 
 DST runs under a native Rust test harness. No Python interpreter starts during a DST run. The
 PyO3 bindings under `crates/*/src/python/`, the Rust FFI modules under `crates/core/src/ffi/` and
-`crates/model/src/ffi/`, and the Python package under `python/vibe_trader/` are excluded from
+`crates/model/src/ffi/`, and the Python package under `python/vibe_trading/` are excluded from
 the contract. Code reachable only through these bindings is out of scope; any Rust path reachable
 from the native DST harness must satisfy the contract, even if the same type is also exported
 through a binding.

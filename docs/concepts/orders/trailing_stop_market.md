@@ -54,14 +54,14 @@ let order = self.order().trailing_stop_market(
 ```python tab="Python"
 import pandas as pd
 from decimal import Decimal
-from vibe_trader.model.enums import OrderSide
-from vibe_trader.model.enums import TimeInForce
-from vibe_trader.model.enums import TriggerType
-from vibe_trader.model.enums import TrailingOffsetType
-from vibe_trader.model import InstrumentId
-from vibe_trader.model import Price
-from vibe_trader.model import Quantity
-from vibe_trader.model.orders import TrailingStopMarketOrder
+from vibe_trading.model.enums import OrderSide
+from vibe_trading.model.enums import TimeInForce
+from vibe_trading.model.enums import TriggerType
+from vibe_trading.model.enums import TrailingOffsetType
+from vibe_trading.model import InstrumentId
+from vibe_trading.model import Price
+from vibe_trading.model import Quantity
+from vibe_trading.model.orders import TrailingStopMarketOrder
 
 order: TrailingStopMarketOrder = self.order_factory.trailing_stop_market(
     instrument_id=InstrumentId.from_str("ETHUSD-PERP.BINANCE"),
@@ -81,7 +81,7 @@ order: TrailingStopMarketOrder = self.order_factory.trailing_stop_market(
 If both `activation_price` and `trigger_price` are omitted, the order activates immediately at the
 current market and its trigger price materializes from `trailing_offset` on the first update.
 
-See the [`TrailingStopMarketOrder` API Reference](/docs/python-api-latest/model/orders.html#vibe_trader.model.orders.trailing_stop_market.TrailingStopMarketOrder) for further details.
+See the [`TrailingStopMarketOrder` API Reference](/docs/python-api-latest/model/orders.html#vibe_trading.model.orders.trailing_stop_market.TrailingStopMarketOrder) for further details.
 
 ## Related guides
 

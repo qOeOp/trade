@@ -1,7 +1,7 @@
 # Interactive Brokers
 
 Interactive Brokers (IB) provides market access across equities, options, futures, currencies,
-bonds, funds, and other asset classes. The VibeTrader adapter connects to Trader Workstation
+bonds, funds, and other asset classes. The VibeTrading adapter connects to Trader Workstation
 (TWS) or IB Gateway through the [TWS API](https://ibkrcampus.com/campus/ibkr-api-page/twsapi-doc/).
 
 The adapter provides live data, execution, historical data, instrument loading, and optional
@@ -9,7 +9,7 @@ Dockerized IB Gateway management through the same Rust implementation and Python
 
 ## Installation
 
-Install VibeTrader using the [installation guide](../getting_started/installation.md). The
+Install VibeTrading using the [installation guide](../getting_started/installation.md). The
 Interactive Brokers adapter and Docker gateway support are included in the Python package; no
 adapter‑specific extra is required.
 
@@ -36,12 +36,12 @@ port explicitly when using TWS or a live account.
 
 ### Connect to TWS or IB Gateway
 
-Import the public configuration types from `vibe_trader.adapters.interactive_brokers`:
+Import the public configuration types from `vibe_trading.adapters.interactive_brokers`:
 
 ```python
-from vibe_trader.adapters.interactive_brokers import InteractiveBrokersDataClientConfig
-from vibe_trader.adapters.interactive_brokers import InteractiveBrokersExecClientConfig
-from vibe_trader.adapters.interactive_brokers import MarketDataType
+from vibe_trading.adapters.interactive_brokers import InteractiveBrokersDataClientConfig
+from vibe_trading.adapters.interactive_brokers import InteractiveBrokersExecClientConfig
+from vibe_trading.adapters.interactive_brokers import MarketDataType
 
 
 data_config = InteractiveBrokersDataClientConfig(
@@ -74,9 +74,9 @@ The adapter can manage the
 the config or through `TWS_USERNAME` and `TWS_PASSWORD`:
 
 ```python
-from vibe_trader.adapters.interactive_brokers import DockerizedIBGateway
-from vibe_trader.adapters.interactive_brokers import DockerizedIBGatewayConfig
-from vibe_trader.adapters.interactive_brokers import TradingMode
+from vibe_trading.adapters.interactive_brokers import DockerizedIBGateway
+from vibe_trading.adapters.interactive_brokers import DockerizedIBGatewayConfig
+from vibe_trading.adapters.interactive_brokers import TradingMode
 
 
 gateway = DockerizedIBGateway(
@@ -124,9 +124,9 @@ instrument ID, as in `AAPL=STK.SMART`.
 Configure instruments by Vibe instrument ID or by IB contract dictionaries:
 
 ```python
-from vibe_trader.adapters.interactive_brokers import InteractiveBrokersInstrumentProviderConfig
-from vibe_trader.adapters.interactive_brokers import SymbologyMethod
-from vibe_trader.model import InstrumentId
+from vibe_trading.adapters.interactive_brokers import InteractiveBrokersInstrumentProviderConfig
+from vibe_trading.adapters.interactive_brokers import SymbologyMethod
+from vibe_trading.model import InstrumentId
 
 
 provider_config = InteractiveBrokersInstrumentProviderConfig(
@@ -170,7 +170,7 @@ Set chain flags on a contract dictionary to use that contract as the underlying 
 The provider‑level `min_expiry_days` and `max_expiry_days` values limit the contracts loaded:
 
 ```python
-from vibe_trader.adapters.interactive_brokers import InteractiveBrokersInstrumentProviderConfig
+from vibe_trading.adapters.interactive_brokers import InteractiveBrokersInstrumentProviderConfig
 
 
 provider_config = InteractiveBrokersInstrumentProviderConfig(
@@ -204,7 +204,7 @@ The adapter also resolves IB `BAG` contracts from Vibe spread instrument IDs. Re
 before subscribing to it or trading it:
 
 ```python
-from vibe_trader.model import InstrumentId
+from vibe_trading.model import InstrumentId
 
 
 spread_id = InstrumentId.from_str("(1)SPY C400_((1))SPY C410.SMART")

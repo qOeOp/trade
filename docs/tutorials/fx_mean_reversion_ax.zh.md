@@ -7,7 +7,7 @@
 该策略在一分钟中间价柱上结合两个指标：
 
 - **布林带**（`BBMeanReversion` 的 `BB(20, 2.0sd)`）：20 根柱的滚动均值及 +/-2sd 包络。布林带用于判断价格相对近期波动率是否过度延伸。
-- **相对强弱指数**（`RSI(14)`）：14 根柱周期的动量振荡指标。VibeTrader RSI 的取值范围是 `[0, 1]`，因此传统的 30/70 阈值对应 `0.30` / `0.70`。
+- **相对强弱指数**（`RSI(14)`）：14 根柱周期的动量振荡指标。VibeTrading RSI 的取值范围是 `[0, 1]`，因此传统的 30/70 阈值对应 `0.30` / `0.70`。
 
 入场需要两个信号同时成立：价格触及下轨且 `RSI < 0.30` 时开多；价格触及上轨且 `RSI > 0.70` 时开空。退出条件是单边的：收盘价反向穿过布林带中轨时，平掉所有持仓。新入场前，还会先平掉方向相反的现有持仓。
 
@@ -64,7 +64,7 @@ AX Exchange 是一个尚未被历史数据供应商覆盖的新交易场所。[T
 ## 先决条件
 
 - Python 3.12+
-- 本地 Vibe Trader 源码构建（`make build-debug`）。
+- 本地 Vibe Trading 源码构建（`make build-debug`）。
 - 一个免费的 TrueFX 账户，用于下载月度 tick 存档。
 
 ## 数据准备
@@ -82,7 +82,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from vibe_trader.persistence.wranglers import QuoteTickDataWrangler
+from vibe_trading.persistence.wranglers import QuoteTickDataWrangler
 
 df = pd.read_csv(
     Path("EURUSD-2025-12.csv"),
@@ -105,13 +105,13 @@ wrangler 会为每个 tick 标记金融工具 ID。策略声明 `1-MINUTE-MID-IN
 ```python
 from decimal import Decimal
 
-from vibe_trader.model.currencies import USD
-from vibe_trader.model.enums import AssetClass
-from vibe_trader.model.identifiers import InstrumentId
-from vibe_trader.model.identifiers import Symbol
-from vibe_trader.model.instruments import PerpetualContract
-from vibe_trader.model.objects import Price
-from vibe_trader.model.objects import Quantity
+from vibe_trading.model.currencies import USD
+from vibe_trading.model.enums import AssetClass
+from vibe_trading.model.identifiers import InstrumentId
+from vibe_trading.model.identifiers import Symbol
+from vibe_trading.model.instruments import PerpetualContract
+from vibe_trading.model.objects import Price
+from vibe_trading.model.objects import Quantity
 
 instrument_id = InstrumentId.from_str("EURUSD-PERP.AX")
 
@@ -142,34 +142,34 @@ EURUSD_PERP = PerpetualContract(
 
 ## 配置
 
-| 参数                 | 值     | 说明                                        |
-| -------------------- | ------ | ------------------------------------------- |
-| `bb_period`          | `20`   | BB 均值和标准差的滚动窗口。                 |
-| `bb_std`             | `2.0`  | 以标准差倍数表示的带宽。                    |
-| `rsi_period`         | `14`   | RSI 的回看柱数。                            |
-| `rsi_buy_threshold`  | `0.30` | 多头入场确认（VibeTrader RSI 为`[0, 1]`）。 |
-| `rsi_sell_threshold` | `0.70` | 空头入场确认。                              |
-| `trade_size`         | `1`    | 每笔交易一份合约（名义金额 1,000 欧元）。   |
+| 参数                 | 值     | 说明                                         |
+| -------------------- | ------ | -------------------------------------------- |
+| `bb_period`          | `20`   | BB 均值和标准差的滚动窗口。                  |
+| `bb_std`             | `2.0`  | 以标准差倍数表示的带宽。                     |
+| `rsi_period`         | `14`   | RSI 的回看柱数。                             |
+| `rsi_buy_threshold`  | `0.30` | 多头入场确认（VibeTrading RSI 为`[0, 1]`）。 |
+| `rsi_sell_threshold` | `0.70` | 空头入场确认。                               |
+| `trade_size`         | `1`    | 每笔交易一份合约（名义金额 1,000 欧元）。    |
 
 :::tip
-VibeTrader RSI 返回 `[0.0, 1.0]` 范围内的值，而不是 `[0, 100]`。`0.30` / `0.70` 阈值对应教科书中的 30 / 70 水平。
+VibeTrading RSI 返回 `[0.0, 1.0]` 范围内的值，而不是 `[0, 100]`。`0.30` / `0.70` 阈值对应教科书中的 30 / 70 水平。
 :::
 
 ## 回测设置
 
 ```python
-from vibe_trader.common import LogLevel
-from vibe_trader.config import BacktestEngineConfig
-from vibe_trader.backtest import BacktestEngine
-from vibe_trader.config import LoggerConfig
-from vibe_trader.examples.strategies.bb_mean_reversion import BBMeanReversion
-from vibe_trader.examples.strategies.bb_mean_reversion import BBMeanReversionConfig
-from vibe_trader.model.data import BarType
-from vibe_trader.model.enums import AccountType
-from vibe_trader.model.enums import OmsType
-from vibe_trader.model.identifiers import TraderId
-from vibe_trader.model.identifiers import Venue
-from vibe_trader.model.objects import Money
+from vibe_trading.common import LogLevel
+from vibe_trading.config import BacktestEngineConfig
+from vibe_trading.backtest import BacktestEngine
+from vibe_trading.config import LoggerConfig
+from vibe_trading.examples.strategies.bb_mean_reversion import BBMeanReversion
+from vibe_trading.examples.strategies.bb_mean_reversion import BBMeanReversionConfig
+from vibe_trading.model.data import BarType
+from vibe_trading.model.enums import AccountType
+from vibe_trading.model.enums import OmsType
+from vibe_trading.model.identifiers import TraderId
+from vibe_trading.model.identifiers import Venue
+from vibe_trading.model.objects import Money
 
 engine = BacktestEngine(
     BacktestEngineConfig(

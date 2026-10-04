@@ -36,9 +36,9 @@ let index = IndexPriceUpdate::new(
 ```
 
 ```python tab="Python"
-from vibe_trader.model import IndexPriceUpdate
-from vibe_trader.model import InstrumentId
-from vibe_trader.model import Price
+from vibe_trading.model import IndexPriceUpdate
+from vibe_trading.model import InstrumentId
+from vibe_trading.model import Price
 
 index = IndexPriceUpdate(
     instrument_id=InstrumentId.from_str("BTCUSDT-PERP.BINANCE"),

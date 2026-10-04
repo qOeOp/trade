@@ -1,15 +1,15 @@
 import pytest
 
-from vibe_trader.model import BarType
-from vibe_trader.model import ClientId
-from vibe_trader.model import InstrumentId
-from vibe_trader.model import Quantity
-from vibe_trader.model import StrategyId
-from vibe_trader.trading import CompositeMarketMakerConfig
-from vibe_trader.trading import DeltaNeutralVolConfig
-from vibe_trader.trading import EmaCrossConfig
-from vibe_trader.trading import GridMarketMakerConfig
-from vibe_trader.trading import HurstVpinDirectionalConfig
+from vibe_trading.model import BarType
+from vibe_trading.model import ClientId
+from vibe_trading.model import InstrumentId
+from vibe_trading.model import Quantity
+from vibe_trading.model import StrategyId
+from vibe_trading.trading import CompositeMarketMakerConfig
+from vibe_trading.trading import DeltaNeutralVolConfig
+from vibe_trading.trading import EmaCrossConfig
+from vibe_trading.trading import GridMarketMakerConfig
+from vibe_trading.trading import HurstVpinDirectionalConfig
 
 
 INSTRUMENT_ID = InstrumentId.from_str("BTCUSDT.BINANCE")

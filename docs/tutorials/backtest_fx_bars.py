@@ -3,7 +3,7 @@
 #
 # Run an EMA cross strategy on USD/JPY 1-minute bid/ask bars with FX rollover
 # interest and a probabilistic fill model. The data ships with the
-# VibeTrader test kit, so this tutorial runs without any external download.
+# VibeTrading test kit, so this tutorial runs without any external download.
 #
 # [View source on GitHub](https://github.com/qOeOp/trade/blob/main/docs/tutorials/backtest_fx_bars.py).
 
@@ -69,32 +69,32 @@
 # ## Prerequisites
 #
 # - Python 3.12+
-# - A local Vibe Trader source build (`make build-debug`). The `visualization` extra is only needed
+# - A local Vibe Trading source build (`make build-debug`). The `visualization` extra is only needed
 #   if you also want to regenerate the panels at the end of the tutorial.
 
 # %%
 from decimal import Decimal
 
-from vibe_trader.common import LogLevel
-from vibe_trader.config import BacktestEngineConfig
-from vibe_trader.backtest import BacktestEngine
-from vibe_trader.backtest import FXRolloverInterestModule
-from vibe_trader.backtest import InterestRateRecord
-from vibe_trader.config import LoggerConfig
-from vibe_trader.config import RiskEngineConfig
-from vibe_trader.execution import ProbabilisticFillModel
-from vibe_trader.examples.strategies.ema_cross import EMACross
-from vibe_trader.examples.strategies.ema_cross import EMACrossConfig
-from vibe_trader.model import BarType
-from vibe_trader.model import Money
-from vibe_trader.model import Venue
-from vibe_trader.model.currencies import JPY
-from vibe_trader.model.currencies import USD
-from vibe_trader.model.enums import AccountType
-from vibe_trader.model.enums import OmsType
-from vibe_trader.persistence.wranglers import QuoteTickDataWrangler
-from vibe_trader.test_kit.providers import TestDataProvider
-from vibe_trader.test_kit.providers import TestInstrumentProvider
+from vibe_trading.common import LogLevel
+from vibe_trading.config import BacktestEngineConfig
+from vibe_trading.backtest import BacktestEngine
+from vibe_trading.backtest import FXRolloverInterestModule
+from vibe_trading.backtest import InterestRateRecord
+from vibe_trading.config import LoggerConfig
+from vibe_trading.config import RiskEngineConfig
+from vibe_trading.execution import ProbabilisticFillModel
+from vibe_trading.examples.strategies.ema_cross import EMACross
+from vibe_trading.examples.strategies.ema_cross import EMACrossConfig
+from vibe_trading.model import BarType
+from vibe_trading.model import Money
+from vibe_trading.model import Venue
+from vibe_trading.model.currencies import JPY
+from vibe_trading.model.currencies import USD
+from vibe_trading.model.enums import AccountType
+from vibe_trading.model.enums import OmsType
+from vibe_trading.persistence.wranglers import QuoteTickDataWrangler
+from vibe_trading.test_kit.providers import TestDataProvider
+from vibe_trading.test_kit.providers import TestInstrumentProvider
 
 
 # %% [markdown]

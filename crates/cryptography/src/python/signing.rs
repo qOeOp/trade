@@ -13,7 +13,7 @@ use crate::signing::{ed25519_signature, hmac_signature, rsa_signature};
 ///
 /// Returns an error if signature generation fails due to key or cryptographic errors.
 #[pyfunction(name = "hmac_signature")]
-#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trader.cryptography")]
+#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trading.cryptography")]
 pub fn py_hmac_signature(secret: &str, data: &str) -> PyResult<String> {
     hmac_signature(secret, data).map_err(to_pyvalue_err)
 }
@@ -27,7 +27,7 @@ pub fn py_hmac_signature(secret: &str, data: &str) -> PyResult<String> {
 /// - `private_key_pem` is not a valid PEM-encoded PKCS#8 RSA private key or cannot be parsed.
 /// - Signature generation fails due to key or cryptographic errors.
 #[pyfunction(name = "rsa_signature")]
-#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trader.cryptography")]
+#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trading.cryptography")]
 pub fn py_rsa_signature(private_key_pem: &str, data: &str) -> PyResult<String> {
     rsa_signature(private_key_pem, data).map_err(to_pyvalue_err)
 }
@@ -38,7 +38,7 @@ pub fn py_rsa_signature(private_key_pem: &str, data: &str) -> PyResult<String> {
 ///
 /// Returns an error if the provided private key seed is invalid or signature creation fails.
 #[pyfunction(name = "ed25519_signature")]
-#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trader.cryptography")]
+#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trading.cryptography")]
 pub fn py_ed25519_signature(
     #[gen_stub(override_type(type_repr = "bytes"))] private_key: &[u8],
     data: &str,

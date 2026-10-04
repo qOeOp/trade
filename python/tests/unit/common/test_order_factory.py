@@ -2,22 +2,22 @@ from decimal import Decimal
 
 import pytest
 
-from vibe_trader.common import Clock
-from vibe_trader.common import OrderFactory
-from vibe_trader.model import ClientOrderId
-from vibe_trader.model import ContingencyType
-from vibe_trader.model import ExecAlgorithmId
-from vibe_trader.model import InstrumentId
-from vibe_trader.model import OrderListId
-from vibe_trader.model import OrderSide
-from vibe_trader.model import OrderType
-from vibe_trader.model import Price
-from vibe_trader.model import Quantity
-from vibe_trader.model import StrategyId
-from vibe_trader.model import TimeInForce
-from vibe_trader.model import TraderId
-from vibe_trader.model import TrailingOffsetType
-from vibe_trader.model import TriggerType
+from vibe_trading.common import Clock
+from vibe_trading.common import OrderFactory
+from vibe_trading.model import ClientOrderId
+from vibe_trading.model import ContingencyType
+from vibe_trading.model import ExecAlgorithmId
+from vibe_trading.model import InstrumentId
+from vibe_trading.model import OrderListId
+from vibe_trading.model import OrderSide
+from vibe_trading.model import OrderType
+from vibe_trading.model import Price
+from vibe_trading.model import Quantity
+from vibe_trading.model import StrategyId
+from vibe_trading.model import TimeInForce
+from vibe_trading.model import TraderId
+from vibe_trading.model import TrailingOffsetType
+from vibe_trading.model import TriggerType
 
 
 INSTRUMENT_ID = InstrumentId.from_str("BTCUSDT.BINANCE")

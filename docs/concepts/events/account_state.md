@@ -28,7 +28,7 @@ The `is_reported` flag distinguishes venue-reported snapshots from system-calcul
 Account state is normally consumed through the `Portfolio` rather than a dedicated handler:
 
 ```python
-from vibe_trader.model import Venue
+from vibe_trading.model import Venue
 
 # Account state is tracked by the portfolio; query it by venue
 account = self.portfolio.account(Venue("BINANCE"))

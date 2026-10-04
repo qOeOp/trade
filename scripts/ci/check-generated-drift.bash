@@ -5,7 +5,7 @@ targets=(
   python/generate_docstrings.py
   python/generate_stubs.py
   crates/pyo3
-  ':(glob)python/vibe_trader/**/*.pyi'
+  ':(glob)python/vibe_trading/**/*.pyi'
   ':(glob)crates/**/src/python/**/*.rs'
 )
 

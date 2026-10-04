@@ -52,7 +52,7 @@ use vibe_model::{
     types::{Price, Quantity},
 };
 
-/// Core trait for implementing execution algorithms in VibeTrader.
+/// Core trait for implementing execution algorithms in VibeTrading.
 ///
 /// Execution algorithms are specialized [`DataActor`]s that receive orders from strategies
 /// and execute them by spawning child orders. They are used for order slicing algorithms

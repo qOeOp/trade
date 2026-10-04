@@ -5,24 +5,24 @@ from datetime import datetime
 
 import pytest
 
-from vibe_trader.core import MILLISECONDS_IN_SECOND
-from vibe_trader.core import NANOSECONDS_IN_MICROSECOND
-from vibe_trader.core import NANOSECONDS_IN_MILLISECOND
-from vibe_trader.core import NANOSECONDS_IN_SECOND
-from vibe_trader.core import dt_to_unix_nanos
-from vibe_trader.core import is_within_last_24_hours
-from vibe_trader.core import last_weekday_nanos
-from vibe_trader.core import micros_to_nanos
-from vibe_trader.core import millis_to_nanos
-from vibe_trader.core import nanos_to_micros
-from vibe_trader.core import nanos_to_millis
-from vibe_trader.core import nanos_to_secs
-from vibe_trader.core import secs_to_millis
-from vibe_trader.core import secs_to_nanos
-from vibe_trader.core import unix_nanos_to_dt
-from vibe_trader.core import unix_nanos_to_iso8601
-from vibe_trader.core.datetime import dt_to_unix_nanos as dt_to_unix_nanos_from_datetime_module
-from vibe_trader.core.datetime import unix_nanos_to_dt as unix_nanos_to_dt_from_datetime_module
+from vibe_trading.core import MILLISECONDS_IN_SECOND
+from vibe_trading.core import NANOSECONDS_IN_MICROSECOND
+from vibe_trading.core import NANOSECONDS_IN_MILLISECOND
+from vibe_trading.core import NANOSECONDS_IN_SECOND
+from vibe_trading.core import dt_to_unix_nanos
+from vibe_trading.core import is_within_last_24_hours
+from vibe_trading.core import last_weekday_nanos
+from vibe_trading.core import micros_to_nanos
+from vibe_trading.core import millis_to_nanos
+from vibe_trading.core import nanos_to_micros
+from vibe_trading.core import nanos_to_millis
+from vibe_trading.core import nanos_to_secs
+from vibe_trading.core import secs_to_millis
+from vibe_trading.core import secs_to_nanos
+from vibe_trading.core import unix_nanos_to_dt
+from vibe_trading.core import unix_nanos_to_iso8601
+from vibe_trading.core.datetime import dt_to_unix_nanos as dt_to_unix_nanos_from_datetime_module
+from vibe_trading.core.datetime import unix_nanos_to_dt as unix_nanos_to_dt_from_datetime_module
 
 
 def test_time_constants_match_conversion_scale():

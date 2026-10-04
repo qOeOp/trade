@@ -31,13 +31,13 @@ use vibe_model::{enum_strum_serde, enums::FromU8};
         eq,
         eq_int,
         rename_all = "SCREAMING_SNAKE_CASE",
-        module = "vibe_trader.adapters.databento",
+        module = "vibe_trading.adapters.databento",
         from_py_object
     )
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trader.adapters.databento")
+    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trading.adapters.databento")
 )]
 pub enum DatabentoStatisticType {
     OpeningPrice = 1,
@@ -115,13 +115,13 @@ impl FromU8 for DatabentoStatisticType {
         eq,
         eq_int,
         rename_all = "SCREAMING_SNAKE_CASE",
-        module = "vibe_trader.adapters.databento",
+        module = "vibe_trading.adapters.databento",
         from_py_object
     )
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trader.adapters.databento")
+    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trading.adapters.databento")
 )]
 pub enum DatabentoStatisticUpdateAction {
     Added = 1,

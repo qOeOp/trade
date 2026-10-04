@@ -3,20 +3,20 @@ import asyncio
 import traceback
 from decimal import Decimal
 
-from vibe_trader.adapters.betfair import BETFAIR
-from vibe_trader.adapters.betfair import BetfairDataClientConfig
-from vibe_trader.adapters.betfair import BetfairExecClientConfig
-from vibe_trader.adapters.betfair import BetfairInstrumentProviderConfig
-from vibe_trader.adapters.betfair import BetfairLiveDataClientFactory
-from vibe_trader.adapters.betfair import BetfairLiveExecClientFactory
-from vibe_trader.adapters.betfair import get_cached_betfair_client
-from vibe_trader.adapters.betfair import get_cached_betfair_instrument_provider
-from vibe_trader.config import LiveExecEngineConfig
-from vibe_trader.config import LoggingConfig
-from vibe_trader.config import TradingNodeConfig
-from vibe_trader.examples.strategies.orderbook_imbalance import OrderBookImbalance
-from vibe_trader.examples.strategies.orderbook_imbalance import OrderBookImbalanceConfig
-from vibe_trader.live.node import TradingNode
+from vibe_trading.adapters.betfair import BETFAIR
+from vibe_trading.adapters.betfair import BetfairDataClientConfig
+from vibe_trading.adapters.betfair import BetfairExecClientConfig
+from vibe_trading.adapters.betfair import BetfairInstrumentProviderConfig
+from vibe_trading.adapters.betfair import BetfairLiveDataClientFactory
+from vibe_trading.adapters.betfair import BetfairLiveExecClientFactory
+from vibe_trading.adapters.betfair import get_cached_betfair_client
+from vibe_trading.adapters.betfair import get_cached_betfair_instrument_provider
+from vibe_trading.config import LiveExecEngineConfig
+from vibe_trading.config import LoggingConfig
+from vibe_trading.config import TradingNodeConfig
+from vibe_trading.examples.strategies.orderbook_imbalance import OrderBookImbalance
+from vibe_trading.examples.strategies.orderbook_imbalance import OrderBookImbalanceConfig
+from vibe_trading.live.node import TradingNode
 
 
 # *** THIS IS A TEST STRATEGY WITH NO ALPHA ADVANTAGE WHATSOEVER. ***
@@ -27,8 +27,8 @@ async def main(
     instrument_config: BetfairInstrumentProviderConfig,
     log_level: str = "INFO",
 ) -> TradingNode:
-    # from vibe_trader.common.component import init_logging
-    # from vibe_trader.common.component import log_level_from_str
+    # from vibe_trading.common.component import init_logging
+    # from vibe_trading.common.component import log_level_from_str
     # Connect to Betfair client early to load instruments and account currency
     # Keep a reference to the log guard to prevent it from being immediately garbage collected
     # _ = init_logging(level_stdout=log_level_from_str(log_level), print_config=True)

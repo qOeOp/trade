@@ -1,14 +1,14 @@
 # 数据
 
 :::note[层次]
-这些页面描述继承引擎：`crates` 与 `python/vibe_trader` 今天实现的组件模型。
+这些页面描述继承引擎：`crates` 与 `python/vibe_trading` 今天实现的组件模型。
 它们对那一层的描述是准确的，为在该层工作的人保留。
 
 它们不是本平台的架构权威。当此处某页与 Owner 契约对同一问题给出不同答案时，以 Owner 契约为准。
 边界由 `docs/architecture/` 规定，每条业务事实及其唯一写入者由 `docs/owners/` 规定。
 :::
 
-VibeTrader 支持细粒度订单簿数据、报价、成交、K 线、参考价格和自定义数据。
+VibeTrading 支持细粒度订单簿数据、报价、成交、K 线、参考价格和自定义数据。
 本概述链接到各内置类型，并说明回测、沙盒和实盘环境共有的概念。
 
 ## 内置数据类型
@@ -36,7 +36,7 @@ VibeTrader 支持细粒度订单簿数据、报价、成交、K 线、参考价�
 
 ## 订单簿
 
-Rust `OrderBook` 在回测和实盘交易中维护单个金融工具的状态。VibeTrader 支持以下订单簿类型：
+Rust `OrderBook` 在回测和实盘交易中维护单个金融工具的状态。VibeTrading 支持以下订单簿类型：
 
 - `L3_MBO`：三级逐笔委托（MBO）数据，以每个价格档位的订单 ID 为键。
 - `L2_MBP`：二级逐价（MBP）数据，按价格档位聚合。
@@ -83,7 +83,7 @@ Rust `OrderBook` 在回测和实盘交易中维护单个金融工具的状态。
 - 收盘价
 - 成交量（或以 tick 数量作为成交量代理值）
 
-*聚合方法*定义 VibeTrader 如何将输入数据分组为 K 线。
+*聚合方法*定义 VibeTrading 如何将输入数据分组为 K 线。
 
 ### 数据聚合的用途
 
@@ -95,7 +95,7 @@ Rust `OrderBook` 在回测和实盘交易中维护单个金融工具的状态。
 
 ### 聚合方法
 
-VibeTrader 支持以下聚合方法：
+VibeTrading 支持以下聚合方法：
 
 | 名称               | 说明                                       | 类别     |
 | :----------------- | :----------------------------------------- | :------- |
@@ -150,7 +150,7 @@ VibeTrader 支持以下聚合方法：
 
 ### 聚合类型
 
-VibeTrader 支持三种聚合输入：
+VibeTrading 支持三种聚合输入：
 
 | 输入         | 结果                       | 价格类型              | 语法要求          |
 | ------------ | -------------------------- | --------------------- | ----------------- |
@@ -167,7 +167,7 @@ VibeTrader 支持三种聚合输入：
   - `step`：区间或频率。
   - `aggregation`：聚合方法。
   - `price_type`：价格基准，例如买价、卖价、中间价或最新价。
-- **聚合源**（`AggregationSource`）：K 线是由 VibeTrader 聚合，还是由外部交易场所或数据提供商聚合。
+- **聚合源**（`AggregationSource`）：K 线是由 VibeTrading 聚合，还是由外部交易场所或数据提供商聚合。
 
 :::note
 Rust/PyO3 `BarSpecification` 会校验固定子单位时间聚合，使 K 线与其上级时钟或日历单位整齐对齐。
@@ -187,7 +187,7 @@ K 线类型还可分为*标准*和*复合*两类：
 
 K 线数据聚合可以是*内部*或*外部*：
 
-- `INTERNAL`：由 VibeTrader 聚合 K 线。
+- `INTERNAL`：由 VibeTrading 聚合 K 线。
 - `EXTERNAL`：由交易场所或数据提供商聚合 K 线。
 
 对于 K 线到 K 线的聚合，目标始终为 `INTERNAL`。源可以是 `INTERNAL` 或 `EXTERNAL`。
@@ -200,7 +200,7 @@ K 线数据聚合可以是*内部*或*外部*：
 
 `{instrument_id}-{step}-{aggregation}-{price_type}-{INTERNAL | EXTERNAL}`
 
-以下示例定义由 VibeTrader 在本地聚合的 AAPL 5 分钟成交 K 线：
+以下示例定义由 VibeTrading 在本地聚合的 AAPL 5 分钟成交 K 线：
 
 ```python
 bar_type = BarType.from_str("AAPL.XNAS-5-MINUTE-LAST-INTERNAL")
@@ -288,7 +288,7 @@ def on_start(self) -> None:
 
 #### 高级 K 线到 K 线示例
 
-从 VibeTrader 已聚合的 K 线构建更长的聚合链：
+从 VibeTrading 已聚合的 K 线构建更长的聚合链：
 
 ```python
 # Create 1-minute bars from TradeTick objects
@@ -303,7 +303,7 @@ hourly_bar_type = BarType.from_str("6EH4.XCME-1-HOUR-LAST-INTERNAL@5-MINUTE-INTE
 
 ### 使用 K 线：请求与订阅
 
-VibeTrader 提供两种处理 K 线的操作：
+VibeTrading 提供两种处理 K 线的操作：
 
 | 方法               | 用途            | 交付处理器             |
 | ------------------ | --------------- | ---------------------- |
@@ -386,7 +386,7 @@ K 线聚合器使用定点数 `Price` 类型跟踪 OHLC 价格。聚合方法决
 | `time_bars_build_delay`             | `int`  | `0`           | 构建 K 线前的延迟，单位为微秒。用于回测时，可确保先处理 K 线边界时间戳处的数据，再触发计时器。                      |
 
 ```python
-from vibe_trader.config import DataEngineConfig
+from vibe_trading.config import DataEngineConfig
 
 config = DataEngineConfig(
     time_bars_timestamp_on_close=True,
@@ -400,7 +400,7 @@ config = DataEngineConfig(
 许多市场数据、订单和事件对象都带有两个时间戳：
 
 - `ts_event`：事件发生时的 UNIX 纳秒时间戳。
-- `ts_init`：VibeTrader 初始化对象时的 UNIX 纳秒时间戳。
+- `ts_init`：VibeTrading 初始化对象时的 UNIX 纳秒时间戳。
 
 ### 典型含义
 
@@ -418,7 +418,7 @@ config = DataEngineConfig(
 
 :::note
 `ts_init` 表示初始化时间，并不总是接收时间。命令和内部生成的事件也会使用它，
-即使 VibeTrader 并未从外部来源接收这些对象。
+即使 VibeTrading 并未从外部来源接收这些对象。
 :::
 
 ### 延迟分析
@@ -444,7 +444,7 @@ config = DataEngineConfig(
 
 - 对于来自外部来源的数据，`ts_init` 通常是本地接收或规范化时间，
   但时钟偏差意味着它不保证大于或等于 `ts_event`。
-- 对于 VibeTrader 内部创建的数据，`ts_init` 和 `ts_event` 可以相同。
+- 对于 VibeTrading 内部创建的数据，`ts_init` 和 `ts_event` 可以相同。
 - 某些带有 `ts_init` 的类型没有 `ts_event`，原因如下：
   - 对象初始化与事件本身同时发生。
   - 外部事件时间这一概念并不适用。
@@ -470,10 +470,10 @@ config = DataEngineConfig(
 加载并转换数据可用于：
 
 - 使用 `BacktestEngine` 运行回测。
-- 通过 `ParquetDataCatalog.write_data(...)` 为 `BacktestNode` 持久化 VibeTrader Parquet 数据。
+- 通过 `ParquetDataCatalog.write_data(...)` 为 `BacktestNode` 持久化 VibeTrading Parquet 数据。
 - 在研究和回测中使用相同数据。
 
-每种用例都会将外部格式转换为 VibeTrader 数据对象。
+每种用例都会将外部格式转换为 VibeTrading 数据对象。
 
 转换过程使用：
 
@@ -487,7 +487,7 @@ config = DataEngineConfig(
 
 ### 数据整理器
 
-`vibe_trader.persistence` 模块为每种 VibeTrader 数据类型提供由 Rust 支持的数据整理器：
+`vibe_trading.persistence` 模块为每种 VibeTrading 数据类型提供由 Rust 支持的数据整理器：
 
 - `OrderBookDeltaDataWrangler`
 - `OrderBookDepth10DataWrangler`
@@ -499,14 +499,14 @@ config = DataEngineConfig(
 
 ### 定点精度与原始值
 
-VibeTrader 对 `Price` 和 `Quantity` 使用定点运算。原始值必须与其声明精度的比例相匹配。
+VibeTrading 对 `Price` 和 `Quantity` 使用定点运算。原始值必须与其声明精度的比例相匹配。
 
 #### 原始值要求
 
 构造 `Price` 或 `Quantity` 并使用 `from_raw()` 时，请采用以下来源的原始值：
 
 - 现有值的 `.raw` 字段，例如 `price.raw`。
-- VibeTrader 定点数转换函数。
+- VibeTrading 定点数转换函数。
 - Vibe 生成的 Arrow 数据中的值。
 
 :::warning
@@ -534,7 +534,7 @@ Arrow 解码路径会自动将这些值舍入到最近的有效倍数，因此�
 ### 转换管道
 
 1. 数据加载函数读取 CSV 等原始数据并生成 `pd.DataFrame`。
-1. 数据整理器将数据帧转换为 VibeTrader 对象。
+1. 数据整理器将数据帧转换为 VibeTrading 对象。
 1. 管道返回 `list[Data]`。
 
 ```mermaid
@@ -561,9 +561,9 @@ flowchart LR
 ```python
 from pathlib import Path
 
-from vibe_trader.adapters.binance import load_binance_order_book_deltas
-from vibe_trader.persistence.wranglers import OrderBookDeltaDataWrangler
-from vibe_trader.test_kit.providers import TestInstrumentProvider
+from vibe_trading.adapters.binance import load_binance_order_book_deltas
+from vibe_trading.persistence.wranglers import OrderBookDeltaDataWrangler
+from vibe_trading.test_kit.providers import TestInstrumentProvider
 
 
 # Load raw data
@@ -580,7 +580,7 @@ deltas = wrangler.process(df)
 
 ## 数据目录
 
-数据目录将 VibeTrader 数据存储为 [Parquet](https://parquet.apache.org) 文件，
+数据目录将 VibeTrading 数据存储为 [Parquet](https://parquet.apache.org) 文件，
 供回测、实盘交易和研究使用。
 
 ### 概述与架构
@@ -614,7 +614,7 @@ Parquet 提供压缩列式存储和跨语言访问。Rust `model` 与 `persisten
 
 ```python
 from pathlib import Path
-from vibe_trader.persistence import ParquetDataCatalog
+from vibe_trading.persistence import ParquetDataCatalog
 
 
 CATALOG_PATH = Path.cwd() / "catalog"
@@ -764,8 +764,8 @@ catalog/
 使用 `query()` 从数据目录读取数据：
 
 ```python
-from vibe_trader.model import QuoteTick
-from vibe_trader.model import TradeTick
+from vibe_trading.model import QuoteTick
+from vibe_trading.model import TradeTick
 
 # Query quote ticks for a specific instrument and time range
 quotes = catalog.query(
@@ -817,9 +817,9 @@ trades = catalog.query(
 **加载报价 tick：**
 
 ```python
-from vibe_trader.config import BacktestDataConfig
-from vibe_trader.model import InstrumentId
-from vibe_trader.model import QuoteTick
+from vibe_trading.config import BacktestDataConfig
+from vibe_trading.model import InstrumentId
+from vibe_trading.model import QuoteTick
 
 data_config = BacktestDataConfig(
     catalog_path="/path/to/catalog",
@@ -893,8 +893,8 @@ data_config = BacktestDataConfig(
 将数据配置传给 `BacktestRunConfig`：
 
 ```python
-from vibe_trader.config import BacktestRunConfig
-from vibe_trader.config import BacktestVenueConfig
+from vibe_trading.config import BacktestRunConfig
+from vibe_trading.config import BacktestVenueConfig
 
 data_configs = [
     BacktestDataConfig(
@@ -1117,7 +1117,7 @@ Python API 提供 `StreamingFeatherWriter` 用于直接流式写入。它没有�
 
 ## 数据迁移
 
-`vibe_model` crate 定义内部数据格式。VibeTrader 将这些模型序列化为 Arrow 记录批次，
+`vibe_model` crate 定义内部数据格式。VibeTrading 将这些模型序列化为 Arrow 记录批次，
 并存储在 Parquet 文件中。
 
 更改[精度模式](../../getting_started/installation.md#precision-mode)或模式时，请使用迁移工具。
@@ -1226,7 +1226,7 @@ Python API 提供 `StreamingFeatherWriter` 用于直接流式写入。它没有�
 :::
 
 ```python
-from vibe_trader.core import Data
+from vibe_trading.core import Data
 
 
 class MyDataPoint(Data):
@@ -1295,7 +1295,7 @@ self.publish_data(
 请将相同的元数据传给用于回测数据的 `BacktestDataConfig`：
 
 ```python
-from vibe_trader.config import BacktestDataConfig
+from vibe_trading.config import BacktestDataConfig
 
 data_config = BacktestDataConfig(
     catalog_path=str(catalog.path),
@@ -1315,7 +1315,7 @@ self.subscribe_data(
 
 `client_id` 将订阅路由到特定客户端。
 
-VibeTrader 将每个收到的对象传给 `on_data()`。由于该处理器会接收所有自定义数据，
+VibeTrading 将每个收到的对象传给 `on_data()`。由于该处理器会接收所有自定义数据，
 请检查对象类型：
 
 ```python
@@ -1348,12 +1348,12 @@ from __future__ import annotations
 import msgspec
 import pyarrow as pa
 
-from vibe_trader.core import Data
-from vibe_trader.core.datetime import unix_nanos_to_iso8601
-from vibe_trader.model import DataType
-from vibe_trader.model import InstrumentId
-from vibe_trader.serialization.arrow.serializer import register_arrow
-from vibe_trader.serialization.base import register_serializable_type
+from vibe_trading.core import Data
+from vibe_trading.core.datetime import unix_nanos_to_iso8601
+from vibe_trading.model import DataType
+from vibe_trading.model import InstrumentId
+from vibe_trading.serialization.arrow.serializer import register_arrow
+from vibe_trading.serialization.base import register_serializable_type
 
 
 class GreeksData(Data):
@@ -1471,7 +1471,7 @@ def greeks_from_cache(self, instrument_id: InstrumentId):
 ```python
 register_arrow(GreeksData, GreeksData.schema(), GreeksData.to_catalog, GreeksData.from_catalog)
 
-from vibe_trader.persistence import ParquetDataCatalog
+from vibe_trading.persistence import ParquetDataCatalog
 
 catalog = ParquetDataCatalog(".")
 
@@ -1484,9 +1484,9 @@ catalog.write_data([GreeksData()])
 只有在默认方法不适合该类型时，才应覆盖生成的方法：
 
 ```python
-from vibe_trader.core import Data
-from vibe_trader.model import InstrumentId
-from vibe_trader.model.custom import customdataclass
+from vibe_trading.core import Data
+from vibe_trading.model import InstrumentId
+from vibe_trading.model.custom import customdataclass
 
 
 @customdataclass
@@ -1509,11 +1509,11 @@ GreeksTestData(
 而不是 `@customdataclass`。它会添加 JSON 和 Arrow IPC 方法。定义类后注册一次：
 
 ```python
-from vibe_trader.persistence import ParquetDataCatalog
-from vibe_trader.model import CustomData
-from vibe_trader.model import DataType
-from vibe_trader.model import register_custom_data_class
-from vibe_trader.model.custom import customdataclass_pyo3
+from vibe_trading.persistence import ParquetDataCatalog
+from vibe_trading.model import CustomData
+from vibe_trading.model import DataType
+from vibe_trading.model import register_custom_data_class
+from vibe_trading.model.custom import customdataclass_pyo3
 
 
 @customdataclass_pyo3()
@@ -1539,7 +1539,7 @@ result = catalog.query("MarketTickPython")
 ticks = [item.data for item in result]
 ```
 
-详情请参阅 `vibe_trader.model.custom.customdataclass_pyo3`。
+详情请参阅 `vibe_trading.model.custom.customdataclass_pyo3`。
 
 #### 自定义数据类型存根
 
@@ -1547,8 +1547,8 @@ ticks = [item.data for item in result]
 `greeks.py` 中的自定义类型可使用以下 `greeks.pyi` 存根：
 
 ```python
-from vibe_trader.core import Data
-from vibe_trader.model import InstrumentId
+from vibe_trading.core import Data
+from vibe_trading.model import InstrumentId
 
 
 class GreeksData(Data):

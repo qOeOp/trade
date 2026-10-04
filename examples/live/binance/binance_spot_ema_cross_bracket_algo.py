@@ -1,23 +1,23 @@
 #!/usr/bin/env python3
 from decimal import Decimal
 
-from vibe_trader.adapters.binance import BINANCE
-from vibe_trader.adapters.binance import BinanceAccountType
-from vibe_trader.adapters.binance import BinanceDataClientConfig
-from vibe_trader.adapters.binance import BinanceExecClientConfig
-from vibe_trader.adapters.binance import BinanceLiveDataClientFactory
-from vibe_trader.adapters.binance import BinanceLiveExecClientFactory
-from vibe_trader.adapters.binance.common.enums import BinanceEnvironment
-from vibe_trader.config import InstrumentProviderConfig
-from vibe_trader.config import LiveExecEngineConfig
-from vibe_trader.config import LoggingConfig
-from vibe_trader.config import TradingNodeConfig
-from vibe_trader.examples.algorithms.twap import TWAPExecAlgorithm
-from vibe_trader.examples.strategies.ema_cross_bracket_algo import EMACrossBracketAlgo
-from vibe_trader.examples.strategies.ema_cross_bracket_algo import EMACrossBracketAlgoConfig
-from vibe_trader.live.node import TradingNode
-from vibe_trader.model.identifiers import ExecAlgorithmId
-from vibe_trader.model.identifiers import TraderId
+from vibe_trading.adapters.binance import BINANCE
+from vibe_trading.adapters.binance import BinanceAccountType
+from vibe_trading.adapters.binance import BinanceDataClientConfig
+from vibe_trading.adapters.binance import BinanceExecClientConfig
+from vibe_trading.adapters.binance import BinanceLiveDataClientFactory
+from vibe_trading.adapters.binance import BinanceLiveExecClientFactory
+from vibe_trading.adapters.binance.common.enums import BinanceEnvironment
+from vibe_trading.config import InstrumentProviderConfig
+from vibe_trading.config import LiveExecEngineConfig
+from vibe_trading.config import LoggingConfig
+from vibe_trading.config import TradingNodeConfig
+from vibe_trading.examples.algorithms.twap import TWAPExecAlgorithm
+from vibe_trading.examples.strategies.ema_cross_bracket_algo import EMACrossBracketAlgo
+from vibe_trading.examples.strategies.ema_cross_bracket_algo import EMACrossBracketAlgoConfig
+from vibe_trading.live.node import TradingNode
+from vibe_trading.model.identifiers import ExecAlgorithmId
+from vibe_trading.model.identifiers import TraderId
 
 
 # *** THIS IS A TEST STRATEGY WITH NO ALPHA ADVANTAGE WHATSOEVER. ***

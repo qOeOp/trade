@@ -18,7 +18,7 @@ use crate::string::conversions::to_snake_case;
 /// str
 #[must_use]
 #[pyfunction(name = "convert_to_snake_case")]
-#[gen_stub_pyfunction(module = "vibe_trader.core")]
+#[gen_stub_pyfunction(module = "vibe_trading.core")]
 pub fn py_convert_to_snake_case(input: &str) -> String {
     to_snake_case(input)
 }

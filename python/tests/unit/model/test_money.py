@@ -4,10 +4,10 @@ from decimal import Decimal
 
 import pytest
 
-from vibe_trader.model import HIGH_PRECISION
-from vibe_trader.model import Currency
-from vibe_trader.model import CurrencyType
-from vibe_trader.model import Money
+from vibe_trading.model import HIGH_PRECISION
+from vibe_trading.model import Currency
+from vibe_trading.model import CurrencyType
+from vibe_trading.model import Money
 
 
 USD = Currency.from_str("USD")

@@ -1,8 +1,8 @@
-//! Test utilities and data management for [VibeTrader](https://github.com/qOeOp/trade).
+//! Test utilities and data management for [VibeTrading](https://github.com/qOeOp/trade).
 //!
 //! The `vibe-testkit` crate provides testing utilities including test data management,
 //! file handling, and common testing patterns. This crate supports robust testing workflows
-//! across the entire VibeTrader ecosystem with automated data downloads and validation:
+//! across the entire VibeTrading ecosystem with automated data downloads and validation:
 //!
 //! - **Test data management**: Automated downloading and caching of test datasets.
 //! - **File utilities**: File integrity verification with SHA-256 checksums.
@@ -11,9 +11,9 @@
 //! - **Event collection**: Draining and correlating the data events a client emits.
 //! - **Common patterns**: Reusable test utilities and helper functions.
 //!
-//! # VibeTrader
+//! # VibeTrading
 //!
-//! [VibeTrader](https://github.com/qOeOp/trade) is a Rust-native
+//! [VibeTrading](https://github.com/qOeOp/trade) is a Rust-native
 //! engine for multi-asset, multi-venue trading systems.
 //!
 //! The system spans research, deterministic simulation, and live execution within a single

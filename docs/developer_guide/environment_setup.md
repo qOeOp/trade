@@ -6,7 +6,7 @@ Use an editor with current Rust and Python language support, such as PyCharm or 
 
 [prek](https://github.com/j178/prek) is used to automatically run various pre-commit checks, auto-formatters, and linting tools at commit.
 
-VibeTrader uses increasingly more [Rust](https://www.rust-lang.org), so Rust should be installed on your system as well
+VibeTrading uses increasingly more [Rust](https://www.rust-lang.org), so Rust should be installed on your system as well
 ([installation guide](https://www.rust-lang.org/tools/install)).
 
 [Cap'n Proto](https://capnproto.org/) is required for serialization schema compilation. The required
@@ -14,7 +14,7 @@ version is specified in `tools.toml` in the repository root. Ubuntu's default pa
 is typically too old, so you may need to install from source (see below).
 
 :::info
-VibeTrader *must* compile and run on **Linux, macOS, and Windows**. Please keep portability in
+VibeTrading *must* compile and run on **Linux, macOS, and Windows**. Please keep portability in
 mind (use `std::path::Path`, avoid Bash-isms in shell scripts, etc.).
 :::
 
@@ -42,7 +42,7 @@ Then clone the repository and install the pinned project tools:
 
 ```bash
 git clone --branch develop https://github.com/qOeOp/trade
-cd vibe_trader
+cd vibe_trading
 
 curl https://sh.rustup.rs -sSf | sh
 source "$HOME/.cargo/env"
@@ -91,7 +91,7 @@ make install-debug
 
 ### 2. Install development tools
 
-VibeTrader pins every development tool so that all contributors and CI run identical versions.
+VibeTrading pins every development tool so that all contributors and CI run identical versions.
 A single Makefile target installs the full set:
 
 ```bash
@@ -388,7 +388,7 @@ Initialize PostgreSQL, Redis, and pgAdmin from the repository root:
 make init-services
 ```
 
-This starts the containers and initializes the VibeTrader database schema. To start the
+This starts the containers and initializes the VibeTrading database schema. To start the
 containers without reinitializing the schema, run `make start-services`. To start one service, use
 the Compose file directly:
 
@@ -414,12 +414,12 @@ Use `make stop-services` to stop the containers without removing their data. Use
 
 ## Introduction
 
-The Vibe CLI is a command-line interface tool for interacting with the VibeTrader ecosystem.
+The Vibe CLI is a command-line interface tool for interacting with the VibeTrading ecosystem.
 It offers commands for managing the PostgreSQL database and handling various trading operations.
 
 :::warning
 On Linux systems with GNOME desktop, the `vibe` command typically refers to the GNOME file manager (`/usr/bin/vibe`).
-After installing the VibeTrader CLI, you may need to ensure the Cargo binary takes precedence by either:
+After installing the VibeTrading CLI, you may need to ensure the Cargo binary takes precedence by either:
 
 - Adding an alias to your shell config: `alias vibe="$HOME/.cargo/bin/vibe"`
 - Using the full path: `~/.cargo/bin/vibe`

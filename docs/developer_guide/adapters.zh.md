@@ -2,7 +2,7 @@
 
 ## 简介
 
-适配器将 VibeTrader 连接到交易场所和数据提供商。优秀的适配器不只是传输字节：
+适配器将 VibeTrading 连接到交易场所和数据提供商。优秀的适配器不只是传输字节：
 它还会保留交易场所语义、生成有效的 Vibe 领域事件，并明确表达不确定结果。
 这项工作要求严谨，但仓库已经提供了可靠的契约和有用示例。
 
@@ -79,7 +79,7 @@ crates/adapters/<adapter>/
 Python 和文档界面位于 crate 之外：
 
 ```text
-python/vibe_trader/adapters/<adapter>/  # Public package and generated stubs
+python/vibe_trading/adapters/<adapter>/  # Public package and generated stubs
 examples/live/<adapter>/                    # Python data and execution testers
 python/tests/unit/adapters/<adapter>/       # Public Python package tests
 docs/integrations/<adapter>.md              # User-facing integration guide
@@ -98,7 +98,7 @@ docs/integrations/<adapter>.md              # User-facing integration guide
 当产品系列采用不同协议时，按产品拆分是合理的。如果请求和状态语义保持共通，
 共享客户端也可以跨越不同端点。应匹配交易场所的真实边界，并将共享行为置于这些拆分之上。
 
-Python 包文件位于 `python/vibe_trader/adapters/<adapter>/` 下。在当前原生 Rust 适配器中，
+Python 包文件位于 `python/vibe_trading/adapters/<adapter>/` 下。在当前原生 Rust 适配器中，
 包通常会重新导出生成的绑定。请修改 Rust 绑定元数据或其他生成器输入，然后运行 `make py-stubs`；
 不要编辑生成的 `.pyi` 文件。
 
@@ -118,8 +118,8 @@ Python 包文件位于 `python/vibe_trader/adapters/<adapter>/` 下。在当前�
 [Vibe 约定钩子](../../.pre-commit-hooks/check_vibe_conventions.sh)将 PyO3 模块列表视为公共 API 允许列表。
 [PyO3 约定钩子](../../.pre-commit-hooks/check_pyo3_conventions.sh)还会强制执行：
 
-- 存根元数据使用 `vibe_trader.adapters.<adapter>`。
-- 运行时扩展导入使用 `vibe_trader._libvibe.<adapter>`。
+- 存根元数据使用 `vibe_trading.adapters.<adapter>`。
+- 运行时扩展导入使用 `vibe_trading._libvibe.<adapter>`。
 - 使用 `#[pyo3(name = ...)]` 重命名的 Rust 函数应具有以 `py_` 开头的 Rust 名称。
 - Python 异常使用项目的错误转换函数。
 

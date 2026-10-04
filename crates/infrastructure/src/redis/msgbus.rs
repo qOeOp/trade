@@ -71,11 +71,11 @@ type RedisStreamBulk = Vec<HashMap<String, Vec<HashMap<String, redis::Value>>>>;
 #[serde(default, deny_unknown_fields)]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.infrastructure", from_py_object)
+    pyo3::pyclass(module = "vibe_trading.infrastructure", from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.infrastructure")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.infrastructure")
 )]
 pub struct RedisMessageBusConfig {
     /// The Redis host address. If `None`, `127.0.0.1` is used.

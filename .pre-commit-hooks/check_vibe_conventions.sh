@@ -358,7 +358,7 @@ fi
 echo "Checking Python submodule registrations..."
 
 # Every module the extension exposes to Python, as "<python name> <wrap_pymodule! target>" pairs.
-# Each entry becomes an importable `vibe_trader.<name>` package, so adding, removing, renaming,
+# Each entry becomes an importable `vibe_trading.<name>` package, so adding, removing, renaming,
 # or repointing one changes the public API. Internal crates (vibe-system and other engine
 # plumbing) must not appear here: register a single class into an existing submodule instead, as
 # vibe-system does for `Controller` in the trading module.

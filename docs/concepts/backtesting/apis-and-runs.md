@@ -3,7 +3,7 @@
 This page documents the existing engine. Where it differs from the Owner contract in
 `docs/owners/backtest.md`, the Owner contract is authoritative.
 
-VibeTrader provides a low-level `BacktestEngine` API for direct control and a high-level
+VibeTrading provides a low-level `BacktestEngine` API for direct control and a high-level
 `BacktestNode` API for catalog-backed, configurable runs.
 
 ## Choosing an API level
@@ -28,8 +28,8 @@ The low-level API centers on `BacktestEngine`. Create the engine with a
 `BacktestEngineConfig`, then add venues, instruments, components, and data before calling `run()`:
 
 ```python
-from vibe_trader.backtest import BacktestEngine
-from vibe_trader.config import BacktestEngineConfig
+from vibe_trading.backtest import BacktestEngine
+from vibe_trading.config import BacktestEngineConfig
 
 engine = BacktestEngine(BacktestEngineConfig())
 engine.add_venue(...)
@@ -103,14 +103,14 @@ The high-level API centers on `BacktestNode`. Each `BacktestRunConfig` contains:
 Build the node before adding strategies through its run-specific methods:
 
 ```python
-from vibe_trader.config import BacktestDataConfig
-from vibe_trader.config import BacktestEngineConfig
-from vibe_trader.backtest import BacktestNode
-from vibe_trader.config import BacktestRunConfig
-from vibe_trader.config import BacktestVenueConfig
-from vibe_trader.model import AccountType
-from vibe_trader.model import BookType
-from vibe_trader.model import OmsType
+from vibe_trading.config import BacktestDataConfig
+from vibe_trading.config import BacktestEngineConfig
+from vibe_trading.backtest import BacktestNode
+from vibe_trading.config import BacktestRunConfig
+from vibe_trading.config import BacktestVenueConfig
+from vibe_trading.model import AccountType
+from vibe_trading.model import BookType
+from vibe_trading.model import OmsType
 
 venue = BacktestVenueConfig(
     name="SIM",
@@ -145,7 +145,7 @@ Set `BacktestEngineConfig.shutdown_on_error=True` to request a normal shutdown w
 emits an error record:
 
 ```python
-from vibe_trader.config import BacktestEngineConfig
+from vibe_trading.config import BacktestEngineConfig
 
 config = BacktestEngineConfig(shutdown_on_error=True)
 ```

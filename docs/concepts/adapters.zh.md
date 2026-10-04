@@ -1,6 +1,6 @@
 # 适配器
 
-适配器把数据提供方和交易场所集成到 VibeTrader 中。
+适配器把数据提供方和交易场所集成到 VibeTrading 中。
 它们位于顶层 `adapters` 子包中。
 
 一个适配器通常包含以下组件：
@@ -62,11 +62,11 @@ flowchart LR
 import asyncio
 import os
 
-from vibe_trader.adapters.binance.common.enums import BinanceAccountType
-from vibe_trader.adapters.binance.common.enums import BinanceEnvironment
-from vibe_trader.adapters.binance import get_cached_binance_http_client
-from vibe_trader.adapters.binance.futures.providers import BinanceFuturesInstrumentProvider
-from vibe_trader.common.component import LiveClock
+from vibe_trading.adapters.binance.common.enums import BinanceAccountType
+from vibe_trading.adapters.binance.common.enums import BinanceEnvironment
+from vibe_trading.adapters.binance import get_cached_binance_http_client
+from vibe_trading.adapters.binance.futures.providers import BinanceFuturesInstrumentProvider
+from vibe_trading.common.component import LiveClock
 
 
 async def main():
@@ -103,7 +103,7 @@ if __name__ == "__main__":
 - 启动时加载所有交易工具：
 
 ```python
-from vibe_trader.config import InstrumentProviderConfig
+from vibe_trading.config import InstrumentProviderConfig
 
 InstrumentProviderConfig(load_all=True)
 ```
@@ -129,10 +129,10 @@ Actor 和策略可以使用内置方法请求数据。数据通过 callback 返�
 from collections.abc import Sequence
 from typing import Any
 
-from vibe_trader.model import Bar
-from vibe_trader.model import BarType
-from vibe_trader.model import InstrumentId
-from vibe_trader.trading import Strategy
+from vibe_trading.model import Bar
+from vibe_trading.model import BarType
+from vibe_trading.model import InstrumentId
+from vibe_trading.trading import Strategy
 
 
 class MyStrategy(Strategy):

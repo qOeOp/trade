@@ -1,4 +1,4 @@
-//! DeFi (Decentralized Finance) integration for VibeTrader.
+//! DeFi (Decentralized Finance) integration for VibeTrading.
 //!
 //! This module provides centralized access to DeFi functionality throughout the common crate.
 //! DeFi support includes:

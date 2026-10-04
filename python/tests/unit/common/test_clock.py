@@ -2,7 +2,7 @@ import datetime as dt
 
 import pytest
 
-from vibe_trader.common import Clock
+from vibe_trading.common import Clock
 
 
 def test_clock_requires_callback_for_timers():

@@ -15,7 +15,7 @@ use strum::{AsRefStr, Display, EnumIter, EnumString};
 #[cfg_attr(
     feature = "python",
     pyo3::pyclass(
-        module = "vibe_trader.adapters.derive",
+        module = "vibe_trading.adapters.derive",
         eq,
         eq_int,
         frozen,
@@ -25,7 +25,7 @@ use strum::{AsRefStr, Display, EnumIter, EnumString};
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trader.adapters.derive")
+    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trading.adapters.derive")
 )]
 pub enum DeriveEnvironment {
     /// Production environment.

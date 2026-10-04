@@ -29,7 +29,7 @@ Hyperliquid 适配器包含多个组件：
 
 ## 构建者代码归因
 
-提交到主网的订单会携带 VibeTrader 构建者代码，且**费率为零**，因此归因不会增加交易成本。
+提交到主网的订单会携带 VibeTrading 构建者代码，且**费率为零**，因此归因不会增加交易成本。
 这有助于我们衡量此集成的真实使用情况，并确定持续维护的优先级。归因订单流的用户在进行大规模交易时，
 也可能有资格通过 [Institutional](https://github.com/qOeOp/trade) 层级获得直接支持。
 
@@ -45,7 +45,7 @@ Hyperliquid 适配器包含多个组件：
 - **已禁用归因**（`include_builder_attribution=False`）：不希望归因订单流的用户可以明确禁用构建者归因。
 
 ```python
-from vibe_trader.adapters.hyperliquid import HyperliquidExecClientConfig
+from vibe_trading.adapters.hyperliquid import HyperliquidExecClientConfig
 
 config = HyperliquidExecClientConfig(
     include_builder_attribution=False,
@@ -70,7 +70,7 @@ cargo run -p vibe-hyperliquid --bin hyperliquid-builder-fee-approve
 也可以从 Python 运行：
 
 ```python
-from vibe_trader.adapters.hyperliquid import builder_fee_approve
+from vibe_trading.adapters.hyperliquid import builder_fee_approve
 
 builder_fee_approve()
 ```
@@ -87,7 +87,7 @@ cargo run -p vibe-hyperliquid --bin hyperliquid-builder-fee-revoke
 也可以从 Python 运行：
 
 ```python
-from vibe_trader.adapters.hyperliquid import builder_fee_revoke
+from vibe_trading.adapters.hyperliquid import builder_fee_revoke
 
 builder_fee_revoke()
 ```
@@ -125,7 +125,7 @@ Hyperliquid 提供测试网环境，可使用模拟资金测试策略。
 
 ### 导出私钥
 
-要在 VibeTrader 中使用测试网账户，需要导出钱包私钥：
+要在 VibeTrading 中使用测试网账户，需要导出钱包私钥：
 
 **MetaMask:**
 
@@ -290,8 +290,8 @@ instrument_provider = InstrumentProviderConfig(
 直接使用 `HyperliquidHttpClient` 时，除非通过 `load_instrument_definitions` 选择启用，否则不包括 HIP-3 永续合约 dex：
 
 ```python
-from vibe_trader.adapters.hyperliquid import HyperliquidEnvironment
-from vibe_trader.adapters.hyperliquid import HyperliquidHttpClient
+from vibe_trading.adapters.hyperliquid import HyperliquidEnvironment
+from vibe_trading.adapters.hyperliquid import HyperliquidHttpClient
 
 client = HyperliquidHttpClient.from_env(HyperliquidEnvironment.MAINNET)
 instruments = await client.load_instrument_definitions(
@@ -361,8 +361,8 @@ Hyperliquid 当前文档将该元数据端点标记为仅限测试网，当载�
 直接使用 `HyperliquidHttpClient` 时，请通过 `load_instrument_definitions` 选择启用：
 
 ```python
-from vibe_trader.adapters.hyperliquid import HyperliquidEnvironment
-from vibe_trader.adapters.hyperliquid import HyperliquidHttpClient
+from vibe_trading.adapters.hyperliquid import HyperliquidEnvironment
+from vibe_trading.adapters.hyperliquid import HyperliquidHttpClient
 
 client = HyperliquidHttpClient.from_env(HyperliquidEnvironment.TESTNET)
 instruments = await client.load_instrument_definitions(
@@ -431,8 +431,8 @@ USDH 现货余额会与永续合约清算所视图合并，因此 `AccountState`
 
 ```python
 from decimal import Decimal
-from vibe_trader.adapters.hyperliquid import HyperliquidEnvironment
-from vibe_trader.adapters.hyperliquid import HyperliquidHttpClient
+from vibe_trading.adapters.hyperliquid import HyperliquidEnvironment
+from vibe_trading.adapters.hyperliquid import HyperliquidHttpClient
 
 client = HyperliquidHttpClient.from_env(HyperliquidEnvironment.MAINNET)
 
@@ -553,7 +553,7 @@ Hyperliquid 接受的 `nSigFigs` 值为 `2`、`3`、`4`、`5`；省略则使用�
 `mantissa` 仅在 `nSigFigs=5` 时有效，可接受 `1`、`2` 或 `5`。
 
 ```python
-from vibe_trader.model import BookType
+from vibe_trading.model import BookType
 
 self.subscribe_book_deltas(
     instrument_id=instrument_id,
@@ -591,9 +591,9 @@ self.subscribe_book_deltas(
 对于 HIP-3 dex 特定数据流，请在 `metadata["dex"]` 中传入交易场所 dex：
 
 ```python
-from vibe_trader.adapters.hyperliquid import HYPERLIQUID_CLIENT_ID
-from vibe_trader.adapters.hyperliquid import HyperliquidAllMids
-from vibe_trader.model import DataType
+from vibe_trading.adapters.hyperliquid import HYPERLIQUID_CLIENT_ID
+from vibe_trading.adapters.hyperliquid import HyperliquidAllMids
+from vibe_trading.model import DataType
 
 self.subscribe_data(
     data_type=DataType(HyperliquidAllMids.__name__, metadata={"dex": "hyperliquid"}),
@@ -612,9 +612,9 @@ self.subscribe_data(
 | `ts_init`       | `int`          | 对象构建时的 UNIX 时间戳，单位为纳秒。                    |
 
 ```python
-from vibe_trader.adapters.hyperliquid import HYPERLIQUID_CLIENT_ID
-from vibe_trader.adapters.hyperliquid import HyperliquidOpenInterest
-from vibe_trader.model import DataType
+from vibe_trading.adapters.hyperliquid import HYPERLIQUID_CLIENT_ID
+from vibe_trading.adapters.hyperliquid import HyperliquidOpenInterest
+from vibe_trading.model import DataType
 
 self.subscribe_data(
     data_type=DataType(
@@ -633,9 +633,9 @@ self.subscribe_data(
 `ts_event` 和 `ts_init`。使用相同的规范金融工具元数据进行订阅：
 
 ```python
-from vibe_trader.adapters.hyperliquid import HYPERLIQUID_CLIENT_ID
-from vibe_trader.adapters.hyperliquid import HyperliquidPublicTrade
-from vibe_trader.model import DataType
+from vibe_trading.adapters.hyperliquid import HYPERLIQUID_CLIENT_ID
+from vibe_trading.adapters.hyperliquid import HyperliquidPublicTrade
+from vibe_trading.model import DataType
 
 self.subscribe_data(
     data_type=DataType(
@@ -655,7 +655,7 @@ self.subscribe_data(
 ```python
 from decimal import Decimal
 
-from vibe_trader.adapters.hyperliquid import HyperliquidOpenInterest
+from vibe_trading.adapters.hyperliquid import HyperliquidOpenInterest
 
 
 def on_data(self, data) -> None:
@@ -696,9 +696,9 @@ def on_data(self, data) -> None:
 条目保持按位置对齐，这对追加上市的情况是正确的。
 
 ```python
-from vibe_trader.adapters.hyperliquid import HYPERLIQUID_CLIENT_ID
-from vibe_trader.adapters.hyperliquid import HyperliquidAllDexsAssetCtxs
-from vibe_trader.model import DataType
+from vibe_trading.adapters.hyperliquid import HYPERLIQUID_CLIENT_ID
+from vibe_trading.adapters.hyperliquid import HyperliquidAllDexsAssetCtxs
+from vibe_trading.model import DataType
 
 self.subscribe_data(
     data_type=DataType(HyperliquidAllDexsAssetCtxs.__name__),
@@ -849,7 +849,7 @@ Post-only 订单通过 Hyperliquid 的 ALO（仅增加流动性）通道进行�
 :::
 
 :::info
-在 VibeTrader 外部下达的订单（例如通过 Hyperliquid Web UI 或其他客户端）会被检测并作为外部订单跟踪。
+在 VibeTrading 外部下达的订单（例如通过 Hyperliquid Web UI 或其他客户端）会被检测并作为外部订单跟踪。
 这些订单会出现在订单状态报告和持仓对账中。
 :::
 

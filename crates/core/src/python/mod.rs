@@ -12,8 +12,8 @@
 )]
 //!
 //! This sub-module groups together the Rust code that is *only* required when compiling the
-//! `python` feature flag. It provides thin adapters so that VibeTrader functionality can be
-//! consumed from the `vibe_trader` Python package without sacrificing type-safety or
+//! `python` feature flag. It provides thin adapters so that VibeTrading functionality can be
+//! consumed from the `vibe_trading` Python package without sacrificing type-safety or
 //! performance.
 
 /// Implements read-only Python getters for cloneable configuration fields.
@@ -179,7 +179,7 @@ pub fn to_pynotimplemented_err(e: impl Display) -> PyErr {
     PyNotImplementedError::new_err(e.to_string())
 }
 
-/// Exposed through `vibe_trader.core`.
+/// Exposed through `vibe_trading.core`.
 ///
 /// # Errors
 ///

@@ -23,7 +23,7 @@ use crate::xrate::get_exchange_rate;
 /// - `price_type` is equal to `Last` or `Mark` (cannot calculate from quotes).
 /// - The bid or ask side of a pair is missing.
 #[pyfunction]
-#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trader.common")]
+#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trading.common")]
 #[pyo3(name = "get_exchange_rate")]
 #[pyo3(signature = (from_currency, to_currency, price_type, quotes_bid, quotes_ask))]
 pub fn py_get_exchange_rate(

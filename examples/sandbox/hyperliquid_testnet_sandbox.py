@@ -13,17 +13,17 @@ import os
 import sys
 import uuid
 
-from vibe_trader.adapters.hyperliquid import HyperliquidEnvironment
-from vibe_trader.adapters.hyperliquid import HyperliquidHttpClient
-from vibe_trader.core import UUID4
-from vibe_trader.model import ClientOrderId
-from vibe_trader.model import LimitOrder
-from vibe_trader.model import OrderSide
-from vibe_trader.model import Price
-from vibe_trader.model import Quantity
-from vibe_trader.model import StrategyId
-from vibe_trader.model import TimeInForce
-from vibe_trader.model import TraderId
+from vibe_trading.adapters.hyperliquid import HyperliquidEnvironment
+from vibe_trading.adapters.hyperliquid import HyperliquidHttpClient
+from vibe_trading.core import UUID4
+from vibe_trading.model import ClientOrderId
+from vibe_trading.model import LimitOrder
+from vibe_trading.model import OrderSide
+from vibe_trading.model import Price
+from vibe_trading.model import Quantity
+from vibe_trading.model import StrategyId
+from vibe_trading.model import TimeInForce
+from vibe_trading.model import TraderId
 
 
 async def main():

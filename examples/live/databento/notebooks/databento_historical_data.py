@@ -21,23 +21,23 @@
 # Also run `jupytext-config set-default-viewer` to open jupytext python files as notebooks by default.
 
 # %%
-from vibe_trader.adapters.databento import DATABENTO
-from vibe_trader.adapters.databento import DatabentoDataClientConfig
-from vibe_trader.adapters.databento import DatabentoLiveDataClientFactory
-from vibe_trader.adapters.databento.data_utils import load_catalog
-from vibe_trader.common.enums import LogColor
-from vibe_trader.config import InstrumentProviderConfig
-from vibe_trader.config import LiveDataClientConfig
-from vibe_trader.config import LiveExecEngineConfig
-from vibe_trader.config import LoggingConfig
-from vibe_trader.config import StrategyConfig
-from vibe_trader.config import TradingNodeConfig
-from vibe_trader.core.datetime import time_object_to_dt
-from vibe_trader.live.node import TradingNode
-from vibe_trader.model.identifiers import InstrumentId
-from vibe_trader.model.identifiers import TraderId
-from vibe_trader.persistence.config import DataCatalogConfig
-from vibe_trader.trading.strategy import Strategy
+from vibe_trading.adapters.databento import DATABENTO
+from vibe_trading.adapters.databento import DatabentoDataClientConfig
+from vibe_trading.adapters.databento import DatabentoLiveDataClientFactory
+from vibe_trading.adapters.databento.data_utils import load_catalog
+from vibe_trading.common.enums import LogColor
+from vibe_trading.config import InstrumentProviderConfig
+from vibe_trading.config import LiveDataClientConfig
+from vibe_trading.config import LiveExecEngineConfig
+from vibe_trading.config import LoggingConfig
+from vibe_trading.config import StrategyConfig
+from vibe_trading.config import TradingNodeConfig
+from vibe_trading.core.datetime import time_object_to_dt
+from vibe_trading.live.node import TradingNode
+from vibe_trading.model.identifiers import InstrumentId
+from vibe_trading.model.identifiers import TraderId
+from vibe_trading.persistence.config import DataCatalogConfig
+from vibe_trading.trading.strategy import Strategy
 
 
 # %% [markdown]
@@ -74,7 +74,7 @@ class DataSubscriber(Strategy):
         )
 
         # for instrument_id in self.config.instrument_ids:
-        # from vibe_trader.model.enums import BookType
+        # from vibe_trading.model.enums import BookType
 
         # self.subscribe_order_book_deltas(
         #     instrument_id=instrument_id,
@@ -95,8 +95,8 @@ class DataSubscriber(Strategy):
         # self.request_quote_ticks(instrument_id)
         # self.request_trade_ticks(instrument_id)
 
-        # from vibe_trader.model.data import DataType
-        # from vibe_trader.model.data import InstrumentStatus
+        # from vibe_trading.model.data import DataType
+        # from vibe_trading.model.data import InstrumentStatus
         #
         # status_data_type = DataType(
         #     type=InstrumentStatus,
@@ -104,11 +104,11 @@ class DataSubscriber(Strategy):
         # )
         # self.request_data(status_data_type, client_id=DATABENTO_CLIENT_ID)
 
-        # from vibe_trader.model.data import BarType
+        # from vibe_trading.model.data import BarType
         # self.request_bars(BarType.from_str(f"{instrument_id}-1-MINUTE-LAST-EXTERNAL"))
 
         # # Imbalance
-        # from vibe_trader.adapters.databento import DatabentoImbalance
+        # from vibe_trading.adapters.databento import DatabentoImbalance
         #
         # metadata = {"instrument_id": instrument_id}
         # self.request_data(
@@ -117,7 +117,7 @@ class DataSubscriber(Strategy):
         # )
 
         # # Statistics
-        # from vibe_trader.adapters.databento import DatabentoStatistics
+        # from vibe_trading.adapters.databento import DatabentoStatistics
         #
         # metadata = {"instrument_id": instrument_id}
         # self.subscribe_data(

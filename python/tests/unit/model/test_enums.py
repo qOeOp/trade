@@ -1,15 +1,15 @@
 import pytest
 
-from vibe_trader.model import AccountType
-from vibe_trader.model import BookType
-from vibe_trader.model import InstrumentClass
-from vibe_trader.model import MarketStatus
-from vibe_trader.model import OmsType
-from vibe_trader.model import OrderSide
-from vibe_trader.model import OrderType
-from vibe_trader.model import OtoTriggerMode
-from vibe_trader.model import PoolLiquidityUpdateType
-from vibe_trader.model import TradingState
+from vibe_trading.model import AccountType
+from vibe_trading.model import BookType
+from vibe_trading.model import InstrumentClass
+from vibe_trading.model import MarketStatus
+from vibe_trading.model import OmsType
+from vibe_trading.model import OrderSide
+from vibe_trading.model import OrderType
+from vibe_trading.model import OtoTriggerMode
+from vibe_trading.model import PoolLiquidityUpdateType
+from vibe_trading.model import TradingState
 
 
 def test_model_enum_variants_are_iterable():

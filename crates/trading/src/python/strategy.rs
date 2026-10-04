@@ -1226,12 +1226,12 @@ fn pydict_to_state(state: &Bound<'_, PyDict>) -> PyResult<IndexMap<String, Vec<u
 /// Python-facing wrapper for Strategy.
 #[allow(non_camel_case_types)]
 #[pyo3::pyclass(
-    module = "vibe_trader.trading",
+    module = "vibe_trading.trading",
     name = "Strategy",
     unsendable,
     subclass
 )]
-#[pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.trading")]
+#[pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.trading")]
 pub struct PyStrategy {
     inner: Rc<UnsafeCell<PyStrategyInner>>,
 }

@@ -1,4 +1,4 @@
-//! [VibeTrader](https://github.com/qOeOp/trade) adapter for the [dYdX](https://dydx.trade/) decentralized derivatives exchange.
+//! [VibeTrading](https://github.com/qOeOp/trade) adapter for the [dYdX](https://dydx.trade/) decentralized derivatives exchange.
 //!
 //! The `vibe-dydx` crate provides client bindings (HTTP, WebSocket & gRPC), data
 //! models, and helper utilities that wrap the official **dYdX v4 API**.
@@ -14,9 +14,9 @@
 //! | Permissioned keys                    | <https://docs.dydx.xyz/concepts/trading/authenticators> |
 //! | Validator client (gRPC)              | <https://docs.dydx.xyz/api_integration-clients/validator_client> |
 //!
-//! # VibeTrader
+//! # VibeTrading
 //!
-//! [VibeTrader](https://github.com/qOeOp/trade) is a Rust-native
+//! [VibeTrading](https://github.com/qOeOp/trade) is a Rust-native
 //! engine for multi-asset, multi-venue trading systems.
 //!
 //! The system spans research, deterministic simulation, and live execution within a single
@@ -26,7 +26,7 @@
 //!
 //! This crate provides feature flags to control source code inclusion during compilation,
 //! depending on the intended use case, i.e. whether to provide Python bindings
-//! for the `vibe_trader` Python package,
+//! for the `vibe_trading` Python package,
 //! or as part of a Rust only build.
 //!
 //! - `python`: Enables Python bindings from [PyO3](https://pyo3.rs).

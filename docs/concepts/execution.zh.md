@@ -2,7 +2,7 @@
 
 本页记载既有引擎。凡与 `docs/owners/execution.md` 的 Owner 契约不一致处，以 Owner 契约为准。
 
-VibeTrader 跨多个策略和交易场所协调订单提交、风险检查、交易场所执行、对账和持仓更新。本页介绍支持执行的组件和消息流。
+VibeTrading 跨多个策略和交易场所协调订单提交、风险检查、交易场所执行、对账和持仓更新。本页介绍支持执行的组件和消息流。
 
 与执行相关的主要组件包括：
 
@@ -168,7 +168,7 @@ flowchart LR
 - `NETTING`：每个金融工具和策略的持仓合并为一个持仓。
 - `HEDGING`：每个金融工具和策略可以有多个未平仓持仓。
 
-当策略和交易场所的 OMS 类型不同时，`ExecutionEngine` 会在 `OrderFilled` 事件中分配或覆盖 `position_id` 值。虚拟持仓存在于 VibeTrader 中，但在交易场所并不是独立持仓。
+当策略和交易场所的 OMS 类型不同时，`ExecutionEngine` 会在 `OrderFilled` 事件中分配或覆盖 `position_id` 值。虚拟持仓存在于 VibeTrading 中，但在交易场所并不是独立持仓。
 
 | 策略 OMS  | 交易场所 OMS | 结果                                       |
 | --------- | ------------ | ------------------------------------------ |
@@ -234,19 +234,19 @@ flowchart LR
 - `REDUCING`：允许取消，并且只接受不会增加风险敞口的提交或修改命令。
 
 有关配置详情，请参阅
-[`RiskEngineConfig` API 参考](/docs/python-api-latest/config.html#vibe_trader.risk.RiskEngineConfig)。
+[`RiskEngineConfig` API 参考](/docs/python-api-latest/config.html#vibe_trading.risk.RiskEngineConfig)。
 
 ## 执行算法
 
-`ExecutionAlgorithm` 接收由 `exec_algorithm_id` 选中的主订单，并可将其拆分为更小的派生订单。VibeTrader 支持自定义算法，并包含一个原生 Rust TWAP 实现。
+`ExecutionAlgorithm` 接收由 `exec_algorithm_id` 选中的主订单，并可将其拆分为更小的派生订单。VibeTrading 支持自定义算法，并包含一个原生 Rust TWAP 实现。
 
 ### TWAP（时间加权平均价格）
 
 TWAP 将主订单分散到固定时间间隔中，减少一次性提交全部数量造成的市场冲击。要向已初始化的 `BacktestEngine` 注册原生算法：
 
 ```python
-from vibe_trader.model import ExecAlgorithmId
-from vibe_trader.config import ExecutionAlgorithmConfig
+from vibe_trading.model import ExecAlgorithmId
+from vibe_trading.config import ExecutionAlgorithmConfig
 
 engine.add_native_exec_algorithm(
     "TwapAlgorithm",
@@ -268,9 +268,9 @@ engine.add_native_exec_algorithm(
 要定义 Python 执行算法，请创建 `ExecutionAlgorithm` 的子类并实现 `on_order(...)`：
 
 ```python
-from vibe_trader.model import ExecAlgorithmId
-from vibe_trader.trading import ExecutionAlgorithm
-from vibe_trader.config import ExecutionAlgorithmConfig
+from vibe_trading.model import ExecAlgorithmId
+from vibe_trading.trading import ExecutionAlgorithm
+from vibe_trading.config import ExecutionAlgorithmConfig
 
 
 class MyExecutionAlgorithm(ExecutionAlgorithm):
@@ -394,7 +394,7 @@ Python 执行算法可以访问缓存和投资组合，使用时钟设置定时�
 对于实盘交易，可在 `LiveExecEngineConfig` 中启用超额成交容忍：
 
 ```python
-from vibe_trader.config import LiveExecEngineConfig
+from vibe_trading.config import LiveExecEngineConfig
 
 config = LiveExecEngineConfig(
     allow_overfills=True,

@@ -3,15 +3,15 @@
 Founded in 2020, Polymarket is a decentralized prediction market platform that enables
 traders to speculate on event outcomes by buying and selling outcome tokens.
 
-VibeTrader provides a venue integration for data and execution via Polymarket's Central Limit
+VibeTrading provides a venue integration for data and execution via Polymarket's Central Limit
 Order Book (CLOB) API.
 
 The adapter is implemented in Rust and exposed to Python at
-`vibe_trader.adapters.polymarket`; data, execution, signing, and WebSocket
+`vibe_trading.adapters.polymarket`; data, execution, signing, and WebSocket
 operations therefore have the same behavior from Rust and Python.
 
-VibeTrader supports multiple Polymarket signature types for order signing, which gives
-flexibility for different wallet configurations while VibeTrader handles signing and order
+VibeTrading supports multiple Polymarket signature types for order signing, which gives
+flexibility for different wallet configurations while VibeTrading handles signing and order
 preparation.
 
 ## Installation
@@ -21,7 +21,7 @@ The Python package includes the Polymarket adapter; no adapter‑specific extra 
 To install the latest pre‑release build:
 
 ```bash
-uv pip install --pre vibe_trader
+uv pip install --pre vibe_trading
 ```
 
 To build the Python package from source, run from the repository root:
@@ -48,7 +48,7 @@ The exec tester configurations apply the
 A [binary option](https://en.wikipedia.org/wiki/Binary_option) is a type of financial exotic
 option contract in which traders bet on the outcome of a yes-or-no proposition. If the
 prediction is correct, the trader receives a fixed payout; otherwise, they receive nothing.
-VibeTrader represents Polymarket outcome tokens as `BinaryOption` instruments.
+VibeTrading represents Polymarket outcome tokens as `BinaryOption` instruments.
 
 Polymarket uses **pUSD** as the collateral token for trading, [see below](#pusd) for more
 information.
@@ -99,7 +99,7 @@ after conversion.
 
 ## Wallets and accounts
 
-To interact with Polymarket via VibeTrader, you'll need a **Polygon**-compatible wallet (such as MetaMask).
+To interact with Polymarket via VibeTrading, you'll need a **Polygon**-compatible wallet (such as MetaMask).
 
 ### Signature types
 
@@ -119,7 +119,7 @@ trading requires an allowlisted EOA. See the Polymarket
 types and setup flows.
 :::
 
-VibeTrader defaults to signature type 0 (EOA) but can be configured to use any of the supported signature types via the `signature_type` configuration parameter.
+VibeTrading defaults to signature type 0 (EOA) but can be configured to use any of the supported signature types via the `signature_type` configuration parameter.
 
 A single wallet address is supported per trader instance when using environment variables, or
 multiple wallets can be configured through multiple execution client instances.
@@ -181,7 +181,7 @@ public data client does not require these credentials.
 
 ## Configuration
 
-When setting up VibeTrader to work with Polymarket, it's crucial to properly configure the necessary parameters, particularly the private key.
+When setting up VibeTrading to work with Polymarket, it's crucial to properly configure the necessary parameters, particularly the private key.
 
 **Key parameters**:
 
@@ -270,7 +270,7 @@ strategy.submit_order(order)
 
 ### Time-in-force options
 
-Polymarket calls the `POST /order` field `orderType`. In VibeTrader, this maps to
+Polymarket calls the `POST /order` field `orderType`. In VibeTrading, this maps to
 `TimeInForce`. The valid combinations depend on the Vibe order type:
 
 | Vibe TIF | Polymarket `orderType` | Vibe order scope    | Notes                                                     |
@@ -281,7 +281,7 @@ Polymarket calls the `POST /order` field `orderType`. In VibeTrader, this maps t
 | `IOC`    | `FAK`                  | `LIMIT` or `MARKET` | Fill available size immediately and cancel the remainder. |
 
 :::note
-Polymarket uses `FAK` (Fill-And-Kill) for the semantics VibeTrader calls
+Polymarket uses `FAK` (Fill-And-Kill) for the semantics VibeTrading calls
 `IOC` (Immediate or Cancel). Polymarket docs classify `FOK` and `FAK` as market
 order types, while `GTC` and `GTD` are limit order types. For Vibe `MARKET`
 orders, the adapter accepts only `IOC` and `FOK`; `GTC` and `GTD` are valid for
@@ -555,7 +555,7 @@ Use `ProbabilityPriceFeeModel` for the current exponent `1` schedule. It reads m
 from the binary option instrument and applies the same probability‑price curve:
 
 ```python
-from vibe_trader.execution import ProbabilityPriceFeeModel
+from vibe_trading.execution import ProbabilityPriceFeeModel
 
 fee_model = ProbabilityPriceFeeModel()
 ```
@@ -712,10 +712,10 @@ The data client also supports Polymarket's real‑time data (RTDS) crypto and eq
 Subscribe through generic custom data with a required, non‑empty `symbol` metadata value:
 
 ```python
-from vibe_trader.adapters.polymarket import POLYMARKET_CLIENT_ID
-from vibe_trader.adapters.polymarket import PolymarketRtdsCryptoPrice
-from vibe_trader.adapters.polymarket import PolymarketRtdsEquityPrice
-from vibe_trader.model import DataType
+from vibe_trading.adapters.polymarket import POLYMARKET_CLIENT_ID
+from vibe_trading.adapters.polymarket import PolymarketRtdsCryptoPrice
+from vibe_trading.adapters.polymarket import PolymarketRtdsEquityPrice
+from vibe_trading.model import DataType
 
 crypto_type = DataType(
     PolymarketRtdsCryptoPrice.__name__,
@@ -1156,8 +1156,8 @@ catalogue. The builder emits slugs with the pattern
 `{asset}-updown-{interval_mins}m-{unix_timestamp}` for the configured window of aligned periods.
 
 ```python
-from vibe_trader.adapters.polymarket import PolymarketInstrumentProviderConfig
-from vibe_trader.adapters.polymarket import PolymarketUpDownEventSlugConfig
+from vibe_trading.adapters.polymarket import PolymarketInstrumentProviderConfig
+from vibe_trading.adapters.polymarket import PolymarketUpDownEventSlugConfig
 
 instrument_config = PolymarketInstrumentProviderConfig(
     event_slug_builder=PolymarketUpDownEventSlugConfig(
@@ -1183,7 +1183,7 @@ All network methods are asynchronous. Build a loader from a market slug and sele
 by index:
 
 ```python
-from vibe_trader.adapters.polymarket import PolymarketDataLoader
+from vibe_trading.adapters.polymarket import PolymarketDataLoader
 
 loader = await PolymarketDataLoader.from_market_slug(
     "will-jd-vance-win-the-2028-us-presidential-election",

@@ -1,7 +1,7 @@
 # Order Book
 
 ```{eval-rst}
-.. automodule:: vibe_trader.model
+.. automodule:: vibe_trading.model
    :no-index:
    :show-inheritance:
    :members: BookAction, BookLevel, BookOrder, BookType, OrderBook, OrderBookDelta, OrderBookDeltas, OrderBookDepth10, OwnBookOrder, OwnOrderBook, RecordFlag

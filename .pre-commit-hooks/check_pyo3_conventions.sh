@@ -64,23 +64,23 @@ while IFS=: read -r file line_num match; do
   module_path="$(echo "$match" | sed -E 's/.*(module|stub_module)[[:space:]]*=[[:space:]]*"([^"]+)".*/\2/')"
 
   case "$module_path" in
-    vibe_trader.adapters.*)
+    vibe_trading.adapters.*)
       continue
       ;;
   esac
 
   echo -e "${RED}Error:${NC} Adapter module path is not canonical in $file:$line_num"
   echo "  Found: $(echo "$match" | xargs)"
-  echo "  Use: vibe_trader.adapters.<adapter_name> for runtime and stub metadata"
+  echo "  Use: vibe_trading.adapters.<adapter_name> for runtime and stub metadata"
   echo
   ADAPTER_VIOLATIONS=$((ADAPTER_VIOLATIONS + 1))
-done < <(rg -n '(module|stub_module)\s*=\s*"vibe_trader\.[^"]+"' crates/adapters --type rust 2> /dev/null || true)
+done < <(rg -n '(module|stub_module)\s*=\s*"vibe_trading\.[^"]+"' crates/adapters --type rust 2> /dev/null || true)
 
 if [ $ADAPTER_VIOLATIONS -gt 0 ]; then
   echo -e "${RED}Found $ADAPTER_VIOLATIONS adapter module path violation(s)${NC}"
   echo
   echo "Convention:"
-  echo "  - Adapter runtime and stub paths use vibe_trader.adapters.<adapter_name>"
+  echo "  - Adapter runtime and stub paths use vibe_trading.adapters.<adapter_name>"
   exit 1
 fi
 

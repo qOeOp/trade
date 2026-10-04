@@ -1,7 +1,7 @@
 # Sandbox
 
 ```{eval-rst}
-.. automodule:: vibe_trader.adapters.sandbox
+.. automodule:: vibe_trading.adapters.sandbox
    :show-inheritance:
    :inherited-members:
    :members:

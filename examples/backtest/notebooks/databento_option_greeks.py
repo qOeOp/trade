@@ -22,47 +22,47 @@
 # %%
 import numpy as np
 
-from vibe_trader.adapters.databento.data_utils import data_path
-from vibe_trader.adapters.databento.data_utils import databento_data
-from vibe_trader.adapters.databento.data_utils import load_catalog
-from vibe_trader.analysis import TearsheetBarsWithFillsChart
-from vibe_trader.analysis import TearsheetEquityChart
-from vibe_trader.analysis import TearsheetStatsTableChart
-from vibe_trader.analysis.tearsheet import create_bars_with_fills
-from vibe_trader.analysis.tearsheet import create_tearsheet
-from vibe_trader.backtest.config import MarginModelConfig
-from vibe_trader.backtest.node import BacktestNode
-from vibe_trader.common.enums import LogColor
-from vibe_trader.config import BacktestDataConfig
-from vibe_trader.config import BacktestEngineConfig
-from vibe_trader.config import BacktestRunConfig
-from vibe_trader.config import BacktestVenueConfig
-from vibe_trader.config import ImportableActorConfig
-from vibe_trader.config import ImportableFillModelConfig
-from vibe_trader.config import ImportableStrategyConfig
-from vibe_trader.config import LoggingConfig
-from vibe_trader.config import StrategyConfig
-from vibe_trader.config import StreamingConfig
-from vibe_trader.config import TearsheetConfig
-from vibe_trader.core.datetime import time_object_to_dt
-from vibe_trader.core.datetime import unix_nanos_to_iso8601
-from vibe_trader.model.data import Bar
-from vibe_trader.model.data import BarType
-from vibe_trader.model.data import QuoteTick
-from vibe_trader.model.enums import OrderSide
-from vibe_trader.model.enums import PriceType
-from vibe_trader.model.greeks_data import GreeksData
-from vibe_trader.model.identifiers import InstrumentId
-from vibe_trader.model.identifiers import Venue
-from vibe_trader.model.identifiers import new_generic_spread_id
-from vibe_trader.model.instruments import FuturesContract
-from vibe_trader.model.objects import Quantity
-from vibe_trader.model.tick_scheme import TieredTickScheme
-from vibe_trader.model.tick_scheme import register_tick_scheme
-from vibe_trader.persistence.config import DataCatalogConfig
-from vibe_trader.persistence.loaders import InterestRateProvider
-from vibe_trader.persistence.loaders import InterestRateProviderConfig
-from vibe_trader.trading.strategy import Strategy
+from vibe_trading.adapters.databento.data_utils import data_path
+from vibe_trading.adapters.databento.data_utils import databento_data
+from vibe_trading.adapters.databento.data_utils import load_catalog
+from vibe_trading.analysis import TearsheetBarsWithFillsChart
+from vibe_trading.analysis import TearsheetEquityChart
+from vibe_trading.analysis import TearsheetStatsTableChart
+from vibe_trading.analysis.tearsheet import create_bars_with_fills
+from vibe_trading.analysis.tearsheet import create_tearsheet
+from vibe_trading.backtest.config import MarginModelConfig
+from vibe_trading.backtest.node import BacktestNode
+from vibe_trading.common.enums import LogColor
+from vibe_trading.config import BacktestDataConfig
+from vibe_trading.config import BacktestEngineConfig
+from vibe_trading.config import BacktestRunConfig
+from vibe_trading.config import BacktestVenueConfig
+from vibe_trading.config import ImportableActorConfig
+from vibe_trading.config import ImportableFillModelConfig
+from vibe_trading.config import ImportableStrategyConfig
+from vibe_trading.config import LoggingConfig
+from vibe_trading.config import StrategyConfig
+from vibe_trading.config import StreamingConfig
+from vibe_trading.config import TearsheetConfig
+from vibe_trading.core.datetime import time_object_to_dt
+from vibe_trading.core.datetime import unix_nanos_to_iso8601
+from vibe_trading.model.data import Bar
+from vibe_trading.model.data import BarType
+from vibe_trading.model.data import QuoteTick
+from vibe_trading.model.enums import OrderSide
+from vibe_trading.model.enums import PriceType
+from vibe_trading.model.greeks_data import GreeksData
+from vibe_trading.model.identifiers import InstrumentId
+from vibe_trading.model.identifiers import Venue
+from vibe_trading.model.identifiers import new_generic_spread_id
+from vibe_trading.model.instruments import FuturesContract
+from vibe_trading.model.objects import Quantity
+from vibe_trading.model.tick_scheme import TieredTickScheme
+from vibe_trading.model.tick_scheme import register_tick_scheme
+from vibe_trading.persistence.config import DataCatalogConfig
+from vibe_trading.persistence.loaders import InterestRateProvider
+from vibe_trading.persistence.loaders import InterestRateProviderConfig
+from vibe_trading.trading.strategy import Strategy
 
 
 # %%
@@ -88,7 +88,7 @@ register_tick_scheme(ES_OPTIONS_TICK_SCHEME)
 
 # %%
 # Set the data path for Databento data
-# import vibe_trader.adapters.databento.data_utils as db_data_utils
+# import vibe_trading.adapters.databento.data_utils as db_data_utils
 # DATA_PATH = "/path/to/your/data"  # Use your own value here
 # db_data_utils.DATA_PATH = DATA_PATH
 
@@ -502,8 +502,8 @@ if load_greeks:
 
 # Configure venue with enhanced BestPriceFillModel for being able to execute limit orders anywhere between a bid ask
 fill_model = ImportableFillModelConfig(
-    fill_model_path="vibe_trader.backtest.models:BestPriceFillModel",
-    config_path="vibe_trader.backtest.config:FillModelConfig",
+    fill_model_path="vibe_trading.backtest.models:BestPriceFillModel",
+    config_path="vibe_trading.backtest.config:FillModelConfig",
     config={},
 )
 

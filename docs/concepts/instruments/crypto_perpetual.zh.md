@@ -93,13 +93,13 @@ let instrument = InstrumentAny::CryptoPerpetual(ethusdt_perp);
 ```python tab="Python"
 from decimal import Decimal
 
-from vibe_trader.model import CryptoPerpetual
-from vibe_trader.model import Currency
-from vibe_trader.model import InstrumentId
-from vibe_trader.model import Money
-from vibe_trader.model import Price
-from vibe_trader.model import Quantity
-from vibe_trader.model import Symbol
+from vibe_trading.model import CryptoPerpetual
+from vibe_trading.model import Currency
+from vibe_trading.model import InstrumentId
+from vibe_trading.model import Money
+from vibe_trading.model import Price
+from vibe_trading.model import Quantity
+from vibe_trading.model import Symbol
 
 ETH = Currency.from_str("ETH")
 USDT = Currency.from_str("USDT")

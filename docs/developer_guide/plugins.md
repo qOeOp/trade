@@ -1,6 +1,6 @@
 # Plugins
 
-The `vibe-plugin` crate defines the artifact contract for VibeTrader plug-ins: an
+The `vibe-plugin` crate defines the artifact contract for VibeTrading plug-ins: an
 independently compiled Rust `cdylib` that identifies itself with a versioned manifest and exchanges
 values across a C-ABI boundary. The crate covers artifact identity and the boundary primitives only.
 It does not load, register, or run plug-ins; the loading host is an internal Vibe deployment

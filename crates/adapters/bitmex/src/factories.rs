@@ -34,11 +34,11 @@ impl ClientConfig for BitmexDataClientConfig {
 #[derive(Clone, Debug)]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.adapters.bitmex", from_py_object)
+    pyo3::pyclass(module = "vibe_trading.adapters.bitmex", from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.adapters.bitmex")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.adapters.bitmex")
 )]
 pub struct BitmexExecFactoryConfig {
     /// The trader ID for the execution client.
@@ -81,11 +81,11 @@ impl ClientConfig for BitmexExecFactoryConfig {
 #[derive(Debug, Clone)]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.adapters.bitmex", from_py_object)
+    pyo3::pyclass(module = "vibe_trading.adapters.bitmex", from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.adapters.bitmex")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.adapters.bitmex")
 )]
 pub struct BitmexDataClientFactory;
 
@@ -139,11 +139,11 @@ impl DataClientFactory for BitmexDataClientFactory {
 #[derive(Debug, Clone)]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.adapters.bitmex", from_py_object)
+    pyo3::pyclass(module = "vibe_trading.adapters.bitmex", from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.adapters.bitmex")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.adapters.bitmex")
 )]
 pub struct BitmexExecutionClientFactory;
 

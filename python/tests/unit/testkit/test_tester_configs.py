@@ -1,13 +1,13 @@
 from decimal import Decimal
 
-from vibe_trader.model import ActorId
-from vibe_trader.model import ClientId
-from vibe_trader.model import InstrumentId
-from vibe_trader.model import Quantity
-from vibe_trader.model import StrategyId
-from vibe_trader.model import TimeInForce
-from vibe_trader.testkit import DataTesterConfig
-from vibe_trader.testkit import ExecTesterConfig
+from vibe_trading.model import ActorId
+from vibe_trading.model import ClientId
+from vibe_trading.model import InstrumentId
+from vibe_trading.model import Quantity
+from vibe_trading.model import StrategyId
+from vibe_trading.model import TimeInForce
+from vibe_trading.testkit import DataTesterConfig
+from vibe_trading.testkit import ExecTesterConfig
 
 
 def test_data_tester_config_readback() -> None:

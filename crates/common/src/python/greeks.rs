@@ -16,8 +16,8 @@ use crate::{
 };
 
 #[allow(non_camel_case_types)]
-#[pyo3::pyclass(module = "vibe_trader.common", name = "GreeksCalculator", unsendable)]
-#[pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.common")]
+#[pyo3::pyclass(module = "vibe_trading.common", name = "GreeksCalculator", unsendable)]
+#[pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.common")]
 #[derive(Debug)]
 pub struct PyGreeksCalculator(GreeksCalculator);
 

@@ -3,21 +3,21 @@ import re
 
 import pytest
 
-from vibe_trader.model import AccountId
-from vibe_trader.model import ActorId
-from vibe_trader.model import ClientId
-from vibe_trader.model import ClientOrderId
-from vibe_trader.model import ComponentId
-from vibe_trader.model import ExecAlgorithmId
-from vibe_trader.model import InstrumentId
-from vibe_trader.model import OrderListId
-from vibe_trader.model import PositionId
-from vibe_trader.model import StrategyId
-from vibe_trader.model import Symbol
-from vibe_trader.model import TradeId
-from vibe_trader.model import TraderId
-from vibe_trader.model import Venue
-from vibe_trader.model import VenueOrderId
+from vibe_trading.model import AccountId
+from vibe_trading.model import ActorId
+from vibe_trading.model import ClientId
+from vibe_trading.model import ClientOrderId
+from vibe_trading.model import ComponentId
+from vibe_trading.model import ExecAlgorithmId
+from vibe_trading.model import InstrumentId
+from vibe_trading.model import OrderListId
+from vibe_trading.model import PositionId
+from vibe_trading.model import StrategyId
+from vibe_trading.model import Symbol
+from vibe_trading.model import TradeId
+from vibe_trading.model import TraderId
+from vibe_trading.model import Venue
+from vibe_trading.model import VenueOrderId
 
 
 def test_trader_id_equality_and_value():

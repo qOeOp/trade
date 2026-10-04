@@ -11,12 +11,12 @@
 # documentation root, use os.path.abspath to make it absolute, like shown here.
 #
 
-import vibe_trader
+import vibe_trading
 
 
 # -- Project information -----------------------------------------------------
-project = "VibeTrader"
-version = vibe_trader.__version__
+project = "VibeTrading"
+version = vibe_trading.__version__
 
 # -- General configuration ---------------------------------------------------
 extensions = [
@@ -28,7 +28,7 @@ extensions = [
 ]
 
 html_theme = "furo"
-html_title = "VibeTrader Python API"
+html_title = "VibeTrading Python API"
 html_favicon = None
 
 html_theme_options = {

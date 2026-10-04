@@ -30,12 +30,12 @@ use crate::{
 const FNV_OFFSET_BASIS: u64 = 0xcbf2_9ce4_8422_2325;
 const FNV_PRIME: u64 = 0x0100_0000_01b3;
 
-/// Strip VibeTrader identifier from BitMEX rejection/cancellation reasons.
+/// Strip VibeTrading identifier from BitMEX rejection/cancellation reasons.
 ///
-/// BitMEX appends our `text` field as `\nVibeTrader` to their messages.
+/// BitMEX appends our `text` field as `\nVibeTrading` to their messages.
 #[must_use]
 pub fn clean_reason(reason: &str) -> String {
-    reason.replace("\nVibeTrader", "").trim().to_string()
+    reason.replace("\nVibeTrading", "").trim().to_string()
 }
 
 /// Extracts the trigger type from BitMEX exec instructions.
@@ -571,19 +571,19 @@ mod tests {
     }
 
     #[rstest]
-    fn test_clean_reason_strips_vibe_trader() {
+    fn test_clean_reason_strips_vibe_trading() {
         assert_eq!(
-            clean_reason("Canceled: Order had execInst of ParticipateDoNotInitiate\nVibeTrader"),
+            clean_reason("Canceled: Order had execInst of ParticipateDoNotInitiate\nVibeTrading"),
             "Canceled: Order had execInst of ParticipateDoNotInitiate"
         );
 
-        assert_eq!(clean_reason("Some error\nVibeTrader"), "Some error");
+        assert_eq!(clean_reason("Some error\nVibeTrading"), "Some error");
         assert_eq!(
-            clean_reason("Multiple lines\nSome content\nVibeTrader"),
+            clean_reason("Multiple lines\nSome content\nVibeTrading"),
             "Multiple lines\nSome content"
         );
         assert_eq!(clean_reason("No identifier here"), "No identifier here");
-        assert_eq!(clean_reason("  \nVibeTrader  "), "");
+        assert_eq!(clean_reason("  \nVibeTrading  "), "");
     }
 
     #[rstest]

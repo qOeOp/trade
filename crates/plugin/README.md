@@ -1,7 +1,7 @@
 # vibe-plugin
 
 Plug-in artifact identity and boundary primitives for
-[VibeTrader](https://github.com/qOeOp/trade).
+[VibeTrading](https://github.com/qOeOp/trade).
 
 The `vibe-plugin` crate provides the public contract that lets an independently compiled Rust
 cdylib carry a versioned identity. It defines versioned build metadata, allocator-safe boundary
@@ -10,9 +10,9 @@ symbol and manifest.
 
 This crate gives plug-in artifacts a consistent identity and a compact contract.
 
-## VibeTrader
+## VibeTrading
 
-[VibeTrader](https://github.com/qOeOp/trade) is a Rust-native
+[VibeTrading](https://github.com/qOeOp/trade) is a Rust-native
 engine for multi-asset, multi-venue trading systems.
 
 The system spans research, deterministic simulation, and live execution within a single

@@ -3,17 +3,17 @@ import sys
 import pytest
 from unit.adapters.example_modules import load_example_module
 
-from vibe_trader.adapters.lighter import LIGHTER
-from vibe_trader.adapters.lighter import LighterDataClientConfig
-from vibe_trader.adapters.lighter import LighterDataClientFactory
-from vibe_trader.adapters.lighter import LighterEnvironment
-from vibe_trader.adapters.lighter import LighterExecClientConfig
-from vibe_trader.adapters.lighter import LighterExecutionClientFactory
-from vibe_trader.common import Environment
-from vibe_trader.live import LiveNode
-from vibe_trader.live import LiveRiskEngineConfig
-from vibe_trader.model import AccountId
-from vibe_trader.model import TraderId
+from vibe_trading.adapters.lighter import LIGHTER
+from vibe_trading.adapters.lighter import LighterDataClientConfig
+from vibe_trading.adapters.lighter import LighterDataClientFactory
+from vibe_trading.adapters.lighter import LighterEnvironment
+from vibe_trading.adapters.lighter import LighterExecClientConfig
+from vibe_trading.adapters.lighter import LighterExecutionClientFactory
+from vibe_trading.common import Environment
+from vibe_trading.live import LiveNode
+from vibe_trading.live import LiveRiskEngineConfig
+from vibe_trading.model import AccountId
+from vibe_trading.model import TraderId
 
 
 lighter_exec_tester = load_example_module("lighter", "exec_tester")

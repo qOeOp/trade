@@ -1,16 +1,16 @@
 # vibe-interactive-brokers
 
-[VibeTrader](https://github.com/qOeOp/trade) adapter for
+[VibeTrading](https://github.com/qOeOp/trade) adapter for
 [Interactive Brokers](https://www.interactivebrokers.com).
 
 The `vibe-interactive-brokers` crate wraps the [`ibapi`](https://crates.io/crates/ibapi)
-client and connects it to VibeTrader's live data, execution, historical data, and instrument
+client and connects it to VibeTrading's live data, execution, historical data, and instrument
 loading infrastructure. Optional PyO3 bindings expose the same implementation through
-`vibe_trader`.
+`vibe_trading`.
 
-## VibeTrader
+## VibeTrading
 
-[VibeTrader](https://github.com/qOeOp/trade) is an open‑source, production‑grade, Rust‑native
+[VibeTrading](https://github.com/qOeOp/trade) is an open‑source, production‑grade, Rust‑native
 engine for multi‑asset, multi‑venue trading systems.
 
 The system spans research, deterministic simulation, and live execution within a single
@@ -26,7 +26,7 @@ event‑driven architecture, providing research‑to‑live semantic parity.
   and symbology conversion.
 - `gateway`: `DockerizedIBGateway` for managing a Dockerized IB Gateway when the `gateway` feature
   is enabled.
-- `python`: PyO3 bindings exposed through `vibe_trader.adapters.interactive_brokers` when the
+- `python`: PyO3 bindings exposed through `vibe_trading.adapters.interactive_brokers` when the
   `python` feature is enabled.
 
 ## Feature flags
@@ -38,7 +38,7 @@ This crate provides feature flags to control source code inclusion during compil
 - `gateway`: Enables Dockerized IB Gateway support via `bollard`, including PyO3 bindings when
   combined with `python`.
 - `extension-module`: Builds the crate as a Python extension module. This is
-  the feature used by the `vibe_trader` package and includes `python` and
+  the feature used by the `vibe_trading` package and includes `python` and
   `gateway`.
 
 ## Default ports
@@ -61,4 +61,4 @@ live Gateway session, set the port explicitly in your config.
 ## Market data timestamps
 
 Configure TWS or IB Gateway to return market data timestamps in UTC before connecting
-VibeTrader. The adapter does not convert these timestamps automatically at runtime.
+VibeTrading. The adapter does not convert these timestamps automatically at runtime.

@@ -14,7 +14,7 @@ use vibe_core::{
 
 use crate::timer::{TimeEvent, TimeEventCallback, TimeEventHandler};
 
-#[pyo3::pyclass(module = "vibe_trader.common", name = "TimeEventHandler")]
+#[pyo3::pyclass(module = "vibe_trading.common", name = "TimeEventHandler")]
 /// Temporary time event handler for Python inter-operatbility
 ///
 /// TODO: Remove once control flow moves into Rust

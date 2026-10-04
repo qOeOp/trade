@@ -85,13 +85,13 @@ let sr3_spread = OptionSpread::builder()
 ```python tab="Python"
 import pandas as pd
 
-from vibe_trader.model import AssetClass
-from vibe_trader.model import Currency
-from vibe_trader.model import InstrumentId
-from vibe_trader.model import OptionSpread
-from vibe_trader.model import Price
-from vibe_trader.model import Quantity
-from vibe_trader.model import Symbol
+from vibe_trading.model import AssetClass
+from vibe_trading.model import Currency
+from vibe_trading.model import InstrumentId
+from vibe_trading.model import OptionSpread
+from vibe_trading.model import Price
+from vibe_trading.model import Quantity
+from vibe_trading.model import Symbol
 
 sr3_spread = OptionSpread(
     instrument_id=InstrumentId.from_str("UD:U$: GN 2534559.GLBX"),

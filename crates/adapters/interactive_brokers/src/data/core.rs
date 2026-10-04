@@ -71,10 +71,10 @@ use crate::{
 ///
 /// This client provides market data functionality using the `rust-ibapi` library.
 /// It manages subscriptions, handles historical data requests, and streams
-/// market data to VibeTrader.
+/// market data to VibeTrading.
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.adapters.interactive_brokers")
+    pyo3::pyclass(module = "vibe_trading.adapters.interactive_brokers")
 )]
 pub struct InteractiveBrokersDataClient {
     /// Client identifier.

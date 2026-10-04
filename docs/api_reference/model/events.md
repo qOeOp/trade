@@ -1,7 +1,7 @@
 # Events
 
 ```{eval-rst}
-.. automodule:: vibe_trader.model
+.. automodule:: vibe_trading.model
    :no-index:
    :show-inheritance:
    :members: AccountState, OrderAccepted, OrderCancelRejected, OrderCanceled, OrderDenied, OrderEmulated, OrderExpired, OrderFillVoided, OrderFilled, OrderInitialized, OrderModifyRejected, OrderPendingCancel, OrderPendingUpdate, OrderRejected, OrderReleased, OrderSnapshot, OrderSubmitted, OrderTriggered, OrderUpdated, PortfolioSnapshot, PositionAdjusted, PositionChanged, PositionClosed, PositionOpened, PositionSnapshot

@@ -1,6 +1,6 @@
 # Visualization
 
-VibeTrader provides interactive HTML tearsheets for analyzing backtest results through
+VibeTrading provides interactive HTML tearsheets for analyzing backtest results through
 an extensible visualization system built on Plotly. You can generate reports with minimal
 code and add custom charts and themes.
 
@@ -20,7 +20,7 @@ The visualization system requires the `visualization` extra. It installs Pandas 
 DataFrame handling, Plotly for interactive figures, and Kaleido for static image export:
 
 ```bash
-uv pip install "vibe_trader[visualization]"
+uv pip install "vibe_trading[visualization]"
 ```
 
 :::
@@ -36,8 +36,8 @@ completing a backtest run and provide immediate visual feedback on strategy perf
 Generate a tearsheet with default settings:
 
 ```python
-from vibe_trader.analysis import create_tearsheet
-from vibe_trader.backtest import BacktestEngine
+from vibe_trading.analysis import create_tearsheet
+from vibe_trading.backtest import BacktestEngine
 
 # After running your backtest
 engine.run()
@@ -87,11 +87,11 @@ cache and reports are no longer available.
 Control which charts appear and how they're styled:
 
 ```python
-from vibe_trader.config import TearsheetConfig
-from vibe_trader.analysis import TearsheetDrawdownChart
-from vibe_trader.analysis import TearsheetEquityChart
-from vibe_trader.analysis import TearsheetRunInfoChart
-from vibe_trader.analysis import TearsheetStatsTableChart
+from vibe_trading.config import TearsheetConfig
+from vibe_trading.analysis import TearsheetDrawdownChart
+from vibe_trading.analysis import TearsheetEquityChart
+from vibe_trading.analysis import TearsheetRunInfoChart
+from vibe_trading.analysis import TearsheetStatsTableChart
 
 config = TearsheetConfig(
     charts=[
@@ -116,7 +116,7 @@ create_tearsheet(
 For multi-currency backtests, filter statistics to a specific currency:
 
 ```python
-from vibe_trader.model.currencies import USD
+from vibe_trading.model.currencies import USD
 
 create_tearsheet(
     engine=engine,
@@ -227,13 +227,13 @@ current equity; otherwise later periods inflate as the running balance grows.
 ## Themes
 
 Themes control the visual styling of charts including colors, fonts, and backgrounds.
-VibeTrader provides four built-in themes:
+VibeTrading provides four built-in themes:
 
 | Theme Name     | Description                                  | Use Case                       |
 | -------------- | -------------------------------------------- | ------------------------------ |
 | `plotly_white` | Clean light theme with dark gray headers.    | Default, professional reports. |
 | `plotly_dark`  | Dark background with standard Plotly colors. | Low‑light environments.        |
-| `vibe`         | Light theme with VibeTrader brand colors.    | Official light mode.           |
+| `vibe`         | Light theme with VibeTrading brand colors.   | Official light mode.           |
 | `vibe_dark`    | Dark theme with teal/cyan signature colors.  | Official dark mode.            |
 
 ### Selecting a theme
@@ -250,7 +250,7 @@ create_tearsheet(engine=engine, config=config)
 Register a custom theme for consistent branding across all visualizations:
 
 ```python
-from vibe_trader.analysis import register_theme
+from vibe_trading.analysis import register_theme
 
 register_theme(
     name="corporate",
@@ -283,11 +283,11 @@ before table-specific colors were introduced.
 The `TearsheetConfig` class provides declarative control over tearsheet generation:
 
 ```python
-from vibe_trader.analysis import GridLayout
-from vibe_trader.config import TearsheetConfig
-from vibe_trader.analysis import TearsheetDrawdownChart
-from vibe_trader.analysis import TearsheetEquityChart
-from vibe_trader.analysis import TearsheetStatsTableChart
+from vibe_trading.analysis import GridLayout
+from vibe_trading.config import TearsheetConfig
+from vibe_trading.analysis import TearsheetDrawdownChart
+from vibe_trading.analysis import TearsheetEquityChart
+from vibe_trading.analysis import TearsheetStatsTableChart
 
 config = TearsheetConfig(
     charts=[
@@ -335,7 +335,7 @@ render traces onto a Plotly figure object.
 ### Registering a custom chart
 
 ```python
-from vibe_trader.analysis.tearsheet import register_chart
+from vibe_trading.analysis.tearsheet import register_chart
 import plotly.graph_objects as go
 
 
@@ -345,7 +345,7 @@ def my_custom_chart(returns, output_path=None, title="Custom Chart", theme="plot
 
     This function signature matches the built-in chart functions for consistency.
     """
-    from vibe_trader.analysis.themes import get_theme
+    from vibe_trading.analysis.themes import get_theme
 
     theme_config = get_theme(theme)
 
@@ -386,11 +386,11 @@ renderer draws traces directly onto a shared subplot grid cell, so its signature
 `fig` plus the `row` and `col` to render into.
 
 ```python
-from vibe_trader.config import TearsheetConfig
-from vibe_trader.analysis import TearsheetCustomChart
-from vibe_trader.analysis import TearsheetEquityChart
-from vibe_trader.analysis import TearsheetStatsTableChart
-from vibe_trader.analysis import register_tearsheet_chart
+from vibe_trading.config import TearsheetConfig
+from vibe_trading.analysis import TearsheetCustomChart
+from vibe_trading.analysis import TearsheetEquityChart
+from vibe_trading.analysis import TearsheetStatsTableChart
+from vibe_trading.analysis import register_tearsheet_chart
 
 
 def _render_my_metric(fig, row, col, returns, theme_config, **kwargs):
@@ -459,7 +459,7 @@ use the lower-level API:
 ```python
 import pandas as pd
 
-from vibe_trader.analysis.tearsheet import create_tearsheet_from_stats
+from vibe_trading.analysis.tearsheet import create_tearsheet_from_stats
 
 # Load precomputed data. The structure matches BacktestResult stats fields.
 stats_pnls = {"USD": {"PnL (total)": 1500.0, "Win Rate": 0.55, ...}}  # Per-currency
@@ -565,13 +565,13 @@ useful for visually analyzing strategy execution within price action. It can be 
 or included in tearsheets:
 
 ```python
-from vibe_trader.analysis import create_bars_with_fills
-from vibe_trader.analysis import create_tearsheet
-from vibe_trader.analysis import TearsheetBarsWithFillsChart
-from vibe_trader.config import TearsheetConfig
-from vibe_trader.analysis import TearsheetEquityChart
-from vibe_trader.analysis import TearsheetStatsTableChart
-from vibe_trader.model.data import BarType
+from vibe_trading.analysis import create_bars_with_fills
+from vibe_trading.analysis import create_tearsheet
+from vibe_trading.analysis import TearsheetBarsWithFillsChart
+from vibe_trading.config import TearsheetConfig
+from vibe_trading.analysis import TearsheetEquityChart
+from vibe_trading.analysis import TearsheetStatsTableChart
+from vibe_trading.model.data import BarType
 
 # Standalone usage
 bar_type = BarType.from_str("ESM4.XCME-1-MINUTE-LAST-EXTERNAL")

@@ -1,18 +1,18 @@
 import datetime as dt
 from collections import deque
 
-from vibe_trader.common.enums import LogColor
-from vibe_trader.indicators import MovingAverageFactory
-from vibe_trader.indicators import MovingAverageType
-from vibe_trader.model.data import Bar
-from vibe_trader.model.data import BarType
-from vibe_trader.trading.strategy import Strategy
+from vibe_trading.common.enums import LogColor
+from vibe_trading.indicators import MovingAverageFactory
+from vibe_trading.indicators import MovingAverageType
+from vibe_trading.model.data import Bar
+from vibe_trading.model.data import BarType
+from vibe_trading.trading.strategy import Strategy
 
 
 class DemoStrategy(Strategy):
     """
     A simple demonstration strategy showing how to use technical indicators in
-    VibeTrader.
+    VibeTrading.
     """
 
     def __init__(self, bar_type: BarType):
@@ -44,13 +44,13 @@ class DemoStrategy(Strategy):
         self.log.info(f"Strategy started at: {self.start_time}")
 
         # Subscribe to market data
-        # This tells VibeTrader what data we want to receive in our on_bar method
+        # This tells VibeTrading what data we want to receive in our on_bar method
         # Without this subscription, we won't receive any market data updates
         self.subscribe_bars(self.bar_type)
         self.log.info(f"Subscribed to {self.bar_type}")
 
         # Connect our EMA indicator to the market data stream
-        # This is a key VibeTrader feature that:
+        # This is a key VibeTrading feature that:
         # 1. Automatically updates the indicator when new bars arrive
         # 2. Ensures indicator values are current before our on_bar method is called
         # 3. Maintains proper data synchronization
@@ -72,7 +72,7 @@ class DemoStrategy(Strategy):
             # - index [0] = latest value (newest)
             # - index [1] = previous value
             # - index [2] = two bars ago
-            # This matches how VibeTrader's Cache stores bar data
+            # This matches how VibeTrading's Cache stores bar data
             self.ema10_history.appendleft(self.ema10.value)
 
             # Log current market data and indicator value

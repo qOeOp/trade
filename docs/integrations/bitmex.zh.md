@@ -42,7 +42,7 @@ BitMEX 为用户提供了丰富的文档：
 - [永续合约指南](https://www.bitmex.com/app/perpetualContractsGuide) - 永续掉期说明。
 - [期货合约指南](https://www.bitmex.com/app/futuresGuide) - 传统期货信息。
 
-建议结合 BitMEX 文档与本 VibeTrader 集成指南阅读。
+建议结合 BitMEX 文档与本 VibeTrading 集成指南阅读。
 
 ## 产品支持
 
@@ -130,12 +130,12 @@ BitMEX 使用 `XBT` 而不是 `BTC` 作为比特币符号。这遵循 ISO 4217 �
 
 后接年份（例如，`24` 表示 2024 年，`25` 表示 2025 年）。
 
-### VibeTrader 金融工具 ID
+### VibeTrading 金融工具 ID
 
-在 VibeTrader 中，BitMEX 金融工具直接使用原生 BitMEX 符号，并与交易场所标识符组合：
+在 VibeTrading 中，BitMEX 金融工具直接使用原生 BitMEX 符号，并与交易场所标识符组合：
 
 ```python
-from vibe_trader.model import InstrumentId
+from vibe_trading.model import InstrumentId
 
 # Spot pairs (note: no slash in the symbol)
 spot_id = InstrumentId.from_str("XBTUSDT.BITMEX")  # XBT/USDT spot
@@ -155,7 +155,7 @@ prediction_id = InstrumentId.from_str(
 ```
 
 :::note
-VibeTrader 中的 BitMEX 现货符号不包含 BitMEX UI 中出现的斜杠（/）。请使用 `XBTUSDT`，而不是 `XBT/USDT`。
+VibeTrading 中的 BitMEX 现货符号不包含 BitMEX UI 中出现的斜杠（/）。请使用 `XBTUSDT`，而不是 `XBT/USDT`。
 :::
 
 ### 数量缩放
@@ -224,7 +224,7 @@ BitMEX 支持为以下止损/条件订单选择多种参考价格来判断触发
 **示例**：
 
 ```python
-from vibe_trader.model import TriggerType
+from vibe_trading.model import TriggerType
 
 order = self.order_factory.stop_market(
     instrument_id=instrument_id,
@@ -253,7 +253,7 @@ BitMEX 支持随市场向有利方向变动而自动调整止损价的追踪止�
 **示例**：
 
 ```python
-from vibe_trader.model import TrailingOffsetType
+from vibe_trading.model import TrailingOffsetType
 
 order = self.order_factory.trailing_stop_market(
     instrument_id=instrument_id,
@@ -565,7 +565,7 @@ self.submit_order(order, params={"submit_tries": 3})
 **配置示例**：
 
 ```python
-from vibe_trader.adapters.bitmex import BitmexExecClientConfig
+from vibe_trading.adapters.bitmex import BitmexExecClientConfig
 
 exec_config = BitmexExecClientConfig(
     api_key="YOUR_API_KEY",
@@ -633,7 +633,7 @@ BitMEX 执行客户端包含取消广播器，通过并行扇出请求实现容�
 **配置示例**：
 
 ```python
-from vibe_trader.adapters.bitmex import BitmexExecClientConfig
+from vibe_trading.adapters.bitmex import BitmexExecClientConfig
 
 exec_config = BitmexExecClientConfig(
     api_key="YOUR_API_KEY",
@@ -695,7 +695,7 @@ BitMEX 会取消所有未结订单。
 在执行客户端配置中设置 `deadmans_switch_timeout_secs` 以启用死人开关：
 
 ```python
-from vibe_trader.adapters.bitmex import BitmexExecClientConfig
+from vibe_trading.adapters.bitmex import BitmexExecClientConfig
 
 exec_config = BitmexExecClientConfig(
     api_key="YOUR_API_KEY",
@@ -808,9 +808,9 @@ BitMEX 执行客户端提供以下配置选项：
 典型 BitMEX 实盘交易配置同时包含测试网和主网选项：
 
 ```python
-from vibe_trader.adapters.bitmex import BitmexDataClientConfig
-from vibe_trader.adapters.bitmex import BitmexEnvironment
-from vibe_trader.adapters.bitmex import BitmexExecClientConfig
+from vibe_trading.adapters.bitmex import BitmexDataClientConfig
+from vibe_trading.adapters.bitmex import BitmexEnvironment
+from vibe_trading.adapters.bitmex import BitmexExecClientConfig
 
 # Using environment variables (recommended)
 testnet_data_config = BitmexDataClientConfig(

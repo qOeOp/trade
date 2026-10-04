@@ -63,7 +63,7 @@ An OTO order involves two parts:
 | **Partial trigger** | Immediately upon each partial execution of the parent; the child's quantity matches the executed amount and is increased as further fills occur. |
 
 :::info
-The default backtest venue for VibeTrader uses a *partial-trigger model* for OTO orders.
+The default backtest venue for VibeTrading uses a *partial-trigger model* for OTO orders.
 To opt-in to a *full-trigger mode*, set `oto_trigger_mode="FULL"` for the venue (e.g. via `BacktestVenueConfig`).
 :::
 
@@ -141,7 +141,7 @@ levels for a position simultaneously. This involves placing a parent order (entr
 orders: a take-profit `LIMIT` order and a stop-loss `STOP_MARKET` order. When the parent order executes,
 the system places the child orders. The take-profit closes the position if the market moves favorably, and the stop-loss limits losses if it moves unfavorably.
 
-Bracket orders can be easily created using the [OrderFactory](/docs/python-api-latest/common.html#vibe_trader.common.factories.OrderFactory),
+Bracket orders can be easily created using the [OrderFactory](/docs/python-api-latest/common.html#vibe_trading.common.factories.OrderFactory),
 which supports various order types, parameters, and instructions.
 
 In the following example we bracket a *Market* entry to BUY 10 ETHUSDT-PERP contracts with a
@@ -170,11 +170,11 @@ let orders = self
 ```
 
 ```python tab="Python"
-from vibe_trader.model.enums import OrderSide
-from vibe_trader.model import InstrumentId
-from vibe_trader.model import Price
-from vibe_trader.model import Quantity
-from vibe_trader.model.orders import OrderList
+from vibe_trading.model.enums import OrderSide
+from vibe_trading.model import InstrumentId
+from vibe_trading.model import Price
+from vibe_trading.model import Quantity
+from vibe_trading.model.orders import OrderList
 
 bracket: OrderList = self.order_factory.bracket(
     instrument_id=InstrumentId.from_str("ETHUSDT-PERP.BINANCE"),

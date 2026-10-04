@@ -9,11 +9,11 @@ use crate::{average::MovingAverageType, indicator::Indicator, volatility::atr::A
 #[derive(Debug)]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.indicators", unsendable)
+    pyo3::pyclass(module = "vibe_trading.indicators", unsendable)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.indicators")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.indicators")
 )]
 pub struct VolatilityRatio {
     pub fast_period: usize,

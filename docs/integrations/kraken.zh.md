@@ -36,7 +36,7 @@ Kraken 为用户提供了详细文档：
 - [Kraken Spot REST API](https://docs.kraken.com/api/docs/guides/spot-rest-intro)
 - [Kraken Futures REST API](https://docs.kraken.com/api/docs/futures-api)
 
-请结合 Kraken 文档与本 VibeTrader 集成指南阅读。
+请结合 Kraken 文档与本 VibeTrading 集成指南阅读。
 
 ## 产品
 
@@ -126,7 +126,7 @@ Kraken 的 REST API 对比特币返回 `XBT`（遵循 ISO 4217 对超国家货�
 
 ### 现货市场
 
-VibeTrader 对 Kraken Spot 金融工具符号使用 ISO 4217-A3 格式，在不同交易所间提供标准化表示。
+VibeTrading 对 Kraken Spot 金融工具符号使用 ISO 4217-A3 格式，在不同交易所间提供标准化表示。
 适配器会在内部处理到 Kraken 原生格式的转换。
 
 **金融工具 ID 格式：**
@@ -185,7 +185,7 @@ InstrumentId.from_str("PF_XBTUSD.KRAKEN")  # Perpetual fixed-margin BTC
 
 Kraken 通过 `wss://ws-l3.kraken.com/v2` 上的 WebSocket v2 `level3` 频道公开现货逐笔委托订单簿数据。
 其中包括交易场所订单 ID、逐笔订单数量和真正的增量事件（`add`、`modify`、`delete`）。适配器会将每个
-交易场所订单 ID 散列为 VibeTrader 所用 `u64` 类型的 `BookOrder.order_id` 字段。
+交易场所订单 ID 散列为 VibeTrading 所用 `u64` 类型的 `BookOrder.order_id` 字段。
 
 ### 前置条件
 
@@ -193,7 +193,7 @@ L3 订阅需要现货 API 凭证，因为 Kraken 的 `level3` 频道需要认证
 或通过 `KRAKEN_SPOT_API_KEY` 和 `KRAKEN_SPOT_API_SECRET` 设置：
 
 ```python
-from vibe_trader.adapters.kraken import KrakenDataClientConfig
+from vibe_trading.adapters.kraken import KrakenDataClientConfig
 
 config = KrakenDataClientConfig(
     api_key="YOUR_KEY",
@@ -204,7 +204,7 @@ config = KrakenDataClientConfig(
 然后使用 `book_type=BookType.L3_MBO` 进行订阅：
 
 ```python
-from vibe_trader.model import BookType
+from vibe_trading.model import BookType
 
 await client.subscribe_book_deltas(
     instrument_id=instrument_id,
@@ -455,9 +455,9 @@ Kraken 适配器为现货和期货市场提供对账能力，使交易者可以�
 **配置：**
 
 ```python
-from vibe_trader.adapters.kraken import KrakenExecClientConfig
-from vibe_trader.model import AccountId
-from vibe_trader.model import TraderId
+from vibe_trading.adapters.kraken import KrakenExecClientConfig
+from vibe_trading.model import AccountId
+from vibe_trading.model import TraderId
 
 
 exec_config = KrakenExecClientConfig(
@@ -485,10 +485,10 @@ Kraken Spot 支持对部分交易对进行杠杆交易。Kraken 会在金融工�
 ### 配置
 
 ```python
-from vibe_trader.adapters.kraken import KrakenExecClientConfig
-from vibe_trader.model import AccountId
-from vibe_trader.model import AccountType
-from vibe_trader.model import TraderId
+from vibe_trading.adapters.kraken import KrakenExecClientConfig
+from vibe_trading.model import AccountId
+from vibe_trading.model import AccountType
+from vibe_trading.model import TraderId
 
 
 exec_config = KrakenExecClientConfig(

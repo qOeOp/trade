@@ -1,12 +1,12 @@
-//! [VibeTrader](https://github.com/qOeOp/trade) adapter for
+//! [VibeTrading](https://github.com/qOeOp/trade) adapter for
 //! [Coinbase Advanced Trade](https://docs.cdp.coinbase.com/coinbase-app/docs/advanced-trade-apis).
 //!
 //! The `vibe-coinbase` crate provides integration with the Coinbase Advanced Trade API for
 //! trading spot, futures, and perpetuals on the Coinbase exchange.
 //!
-//! # VibeTrader
+//! # VibeTrading
 //!
-//! [VibeTrader](https://github.com/qOeOp/trade) is a Rust-native
+//! [VibeTrading](https://github.com/qOeOp/trade) is a Rust-native
 //! engine for multi-asset, multi-venue trading systems.
 //!
 //! The system spans research, deterministic simulation, and live execution within a single
@@ -16,7 +16,7 @@
 //!
 //! This crate provides feature flags to control source code inclusion during compilation,
 //! depending on the intended use case, i.e. whether to provide Python bindings
-//! for the `vibe_trader` Python package,
+//! for the `vibe_trading` Python package,
 //! or as part of a Rust only build.
 //!
 //! - `python`: Enables Python bindings from [PyO3](https://pyo3.rs).

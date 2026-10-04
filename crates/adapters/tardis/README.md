@@ -1,13 +1,13 @@
 # vibe-tardis
 
-[VibeTrader](https://github.com/qOeOp/trade) adapter for [Tardis](https://tardis.dev).
+[VibeTrading](https://github.com/qOeOp/trade) adapter for [Tardis](https://tardis.dev).
 
 The `vibe-tardis` crate provides integration with the Tardis API for accessing
 normalized historical and real-time market data across multiple exchanges.
 
-## VibeTrader
+## VibeTrading
 
-[VibeTrader](https://github.com/qOeOp/trade) is a Rust-native
+[VibeTrading](https://github.com/qOeOp/trade) is a Rust-native
 engine for multi-asset, multi-venue trading systems.
 
 The system spans research, deterministic simulation, and live execution within a single

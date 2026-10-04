@@ -1,7 +1,7 @@
 # Analysis
 
 ```{eval-rst}
-.. automodule:: vibe_trader.analysis
+.. automodule:: vibe_trading.analysis
    :show-inheritance:
    :inherited-members:
    :members:
@@ -9,7 +9,7 @@
 ```
 
 ```{eval-rst}
-.. automodule:: vibe_trader.analysis.config
+.. automodule:: vibe_trading.analysis.config
    :show-inheritance:
    :inherited-members:
    :members:
@@ -17,7 +17,7 @@
 ```
 
 ```{eval-rst}
-.. automodule:: vibe_trader.analysis.tearsheet
+.. automodule:: vibe_trading.analysis.tearsheet
    :show-inheritance:
    :inherited-members:
    :members:
@@ -25,7 +25,7 @@
 ```
 
 ```{eval-rst}
-.. automodule:: vibe_trader.analysis.themes
+.. automodule:: vibe_trading.analysis.themes
    :show-inheritance:
    :inherited-members:
    :members:
@@ -33,7 +33,7 @@
 ```
 
 ```{eval-rst}
-.. automodule:: vibe_trader.analysis.reporter
+.. automodule:: vibe_trading.analysis.reporter
    :show-inheritance:
    :inherited-members:
    :members:

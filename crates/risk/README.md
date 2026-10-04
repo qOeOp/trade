@@ -1,6 +1,6 @@
 # vibe-risk
 
-Risk engine for [VibeTrader](https://github.com/qOeOp/trade).
+Risk engine for [VibeTrading](https://github.com/qOeOp/trade).
 
 The `vibe-risk` crate provides risk management capabilities including pre-trade
 order validation, position sizing calculations, and trading controls. This system ensures
@@ -12,9 +12,9 @@ trading operations remain within defined risk parameters and regulatory constrai
 - **Trading controls**: Rate limiting, balance validation, and exposure management.
 - **Account protection**: Multi-currency balance checks and margin requirement validation.
 
-## VibeTrader
+## VibeTrading
 
-[VibeTrader](https://github.com/qOeOp/trade) is a Rust-native engine for multi-asset,
+[VibeTrading](https://github.com/qOeOp/trade) is a Rust-native engine for multi-asset,
 multi-venue trading systems.
 
 The system spans research, deterministic simulation, and live execution within a single

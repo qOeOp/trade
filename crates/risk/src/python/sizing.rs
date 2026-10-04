@@ -23,8 +23,8 @@ use crate::sizing::calculate_fixed_risk_position_size;
 
 /// Base class for position sizers.
 #[allow(missing_debug_implementations)]
-#[gen_stub_pyclass(module = "vibe_trader.risk")]
-#[pyclass(module = "vibe_trader.risk", subclass)]
+#[gen_stub_pyclass(module = "vibe_trading.risk")]
+#[pyclass(module = "vibe_trading.risk", subclass)]
 pub struct PositionSizer {
     instrument: Py<PyAny>,
     instrument_any: InstrumentAny,
@@ -105,8 +105,8 @@ impl PositionSizer {
 
 /// Fixed-risk position sizer.
 #[allow(missing_debug_implementations)]
-#[gen_stub_pyclass(module = "vibe_trader.risk")]
-#[pyclass(module = "vibe_trader.risk", extends = PositionSizer)]
+#[gen_stub_pyclass(module = "vibe_trading.risk")]
+#[pyclass(module = "vibe_trading.risk", extends = PositionSizer)]
 pub struct FixedRiskSizer;
 
 #[gen_stub_pymethods]

@@ -33,11 +33,11 @@ pub type Dataset = Ustr;
 /// Represents a Databento publisher.
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.adapters.databento", from_py_object)
+    pyo3::pyclass(module = "vibe_trading.adapters.databento", from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.adapters.databento")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.adapters.databento")
 )]
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Deserialize)]
 pub struct DatabentoPublisher {
@@ -57,11 +57,11 @@ pub struct DatabentoPublisher {
 /// excluding `publisher_id` and `instrument_id`.
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.adapters.databento", from_py_object)
+    pyo3::pyclass(module = "vibe_trading.adapters.databento", from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.adapters.databento")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.adapters.databento")
 )]
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct DatabentoImbalance {
@@ -192,11 +192,11 @@ impl CustomDataTrait for DatabentoImbalance {
 /// excluding `publisher_id` and `instrument_id`.
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.adapters.databento", from_py_object)
+    pyo3::pyclass(module = "vibe_trading.adapters.databento", from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.adapters.databento")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.adapters.databento")
 )]
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct DatabentoStatistics {

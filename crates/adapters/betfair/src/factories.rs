@@ -26,11 +26,11 @@ use crate::{
 #[derive(Debug, Clone)]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.adapters.betfair", from_py_object)
+    pyo3::pyclass(module = "vibe_trading.adapters.betfair", from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.adapters.betfair")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.adapters.betfair")
 )]
 pub struct BetfairDataClientFactory;
 
@@ -111,11 +111,11 @@ impl DataClientFactory for BetfairDataClientFactory {
 #[derive(Debug, Clone)]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.adapters.betfair", from_py_object)
+    pyo3::pyclass(module = "vibe_trading.adapters.betfair", from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.adapters.betfair")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.adapters.betfair")
 )]
 pub struct BetfairExecutionClientFactory;
 

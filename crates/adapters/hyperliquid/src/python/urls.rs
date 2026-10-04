@@ -13,7 +13,7 @@ use crate::common::{
 ///
 /// The HTTP base URL string.
 #[pyfunction]
-#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trader.adapters.hyperliquid")]
+#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trading.adapters.hyperliquid")]
 #[pyo3(name = "get_hyperliquid_http_base_url")]
 pub fn py_get_hyperliquid_http_base_url(environment: HyperliquidEnvironment) -> String {
     info_url(environment).to_string()
@@ -25,7 +25,7 @@ pub fn py_get_hyperliquid_http_base_url(environment: HyperliquidEnvironment) -> 
 ///
 /// The WebSocket URL string.
 #[pyfunction]
-#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trader.adapters.hyperliquid")]
+#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trading.adapters.hyperliquid")]
 #[pyo3(name = "get_hyperliquid_ws_url")]
 pub fn py_get_hyperliquid_ws_url(environment: HyperliquidEnvironment) -> String {
     ws_url(environment).to_string()

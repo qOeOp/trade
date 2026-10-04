@@ -1,8 +1,8 @@
 import pytest
 
-from vibe_trader.common import MessageBus
-from vibe_trader.core import UUID4
-from vibe_trader.model import TraderId
+from vibe_trading.common import MessageBus
+from vibe_trading.core import UUID4
+from vibe_trading.model import TraderId
 
 
 @pytest.fixture

@@ -1,19 +1,19 @@
 import pytest
 
-from vibe_trader.model import BookOrder
-from vibe_trader.model import BookType
-from vibe_trader.model import ClientOrderId
-from vibe_trader.model import InstrumentId
-from vibe_trader.model import OrderBook
-from vibe_trader.model import OrderSide
-from vibe_trader.model import OrderStatus
-from vibe_trader.model import OrderType
-from vibe_trader.model import OwnBookOrder
-from vibe_trader.model import OwnOrderBook
-from vibe_trader.model import Price
-from vibe_trader.model import Quantity
-from vibe_trader.model import TimeInForce
-from vibe_trader.model import TraderId
+from vibe_trading.model import BookOrder
+from vibe_trading.model import BookType
+from vibe_trading.model import ClientOrderId
+from vibe_trading.model import InstrumentId
+from vibe_trading.model import OrderBook
+from vibe_trading.model import OrderSide
+from vibe_trading.model import OrderStatus
+from vibe_trading.model import OrderType
+from vibe_trading.model import OwnBookOrder
+from vibe_trading.model import OwnOrderBook
+from vibe_trading.model import Price
+from vibe_trading.model import Quantity
+from vibe_trading.model import TimeInForce
+from vibe_trading.model import TraderId
 
 
 def _populate_book(book, bids=None, asks=None):

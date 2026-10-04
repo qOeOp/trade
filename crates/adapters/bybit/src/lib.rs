@@ -1,4 +1,4 @@
-//! [VibeTrader](https://github.com/qOeOp/trade) adapter for the
+//! [VibeTrading](https://github.com/qOeOp/trade) adapter for the
 //! [Bybit](https://www.bybit.com/) cryptocurrency exchange.
 //!
 //! The `vibe-bybit` crate provides client bindings (HTTP & WebSocket), data
@@ -7,9 +7,9 @@
 //! The official Bybit API reference can be found at <https://bybit-exchange.github.io/docs/v5/intro>.
 //! All public links inside this crate reference the English version of the documentation.
 //!
-//! # VibeTrader
+//! # VibeTrading
 //!
-//! [VibeTrader](https://github.com/qOeOp/trade) is a Rust-native
+//! [VibeTrading](https://github.com/qOeOp/trade) is a Rust-native
 //! engine for multi-asset, multi-venue trading systems.
 //!
 //! The system spans research, deterministic simulation, and live execution within a single

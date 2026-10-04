@@ -42,12 +42,12 @@ use crate::{
 /// the same cache instance. All methods delegate to the underlying cache.
 #[allow(non_camel_case_types)]
 #[pyo3::pyclass(
-    module = "vibe_trader.common",
+    module = "vibe_trading.common",
     name = "Cache",
     unsendable,
     from_py_object
 )]
-#[pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.common")]
+#[pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.common")]
 #[derive(Debug, Clone)]
 pub struct PyCache(Rc<RefCell<Cache>>);
 

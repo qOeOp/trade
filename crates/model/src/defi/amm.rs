@@ -41,11 +41,11 @@ use crate::{
 /// Example: `0x11b815efB8f581194ae79006d24E0d814B7697F6.Ethereum:UniswapV3`
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.model", from_py_object)
+    pyo3::pyclass(module = "vibe_trading.model", from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.model")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.model")
 )]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Pool {

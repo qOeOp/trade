@@ -2,24 +2,24 @@ import operator
 
 import pytest
 
-from vibe_trader.model import AmmType
-from vibe_trader.model import Block
-from vibe_trader.model import Blockchain
-from vibe_trader.model import Chain
-from vibe_trader.model import DefiData
-from vibe_trader.model import Dex
-from vibe_trader.model import DexType
-from vibe_trader.model import Pool
-from vibe_trader.model import PoolFeeCollect
-from vibe_trader.model import PoolFeeProtocolCollect
-from vibe_trader.model import PoolFeeProtocolUpdate
-from vibe_trader.model import PoolFlash
-from vibe_trader.model import PoolLiquidityUpdate
-from vibe_trader.model import PoolLiquidityUpdateType
-from vibe_trader.model import PoolProfiler
-from vibe_trader.model import PoolSwap
-from vibe_trader.model import Token
-from vibe_trader.model import Transaction
+from vibe_trading.model import AmmType
+from vibe_trading.model import Block
+from vibe_trading.model import Blockchain
+from vibe_trading.model import Chain
+from vibe_trading.model import DefiData
+from vibe_trading.model import Dex
+from vibe_trading.model import DexType
+from vibe_trading.model import Pool
+from vibe_trading.model import PoolFeeCollect
+from vibe_trading.model import PoolFeeProtocolCollect
+from vibe_trading.model import PoolFeeProtocolUpdate
+from vibe_trading.model import PoolFlash
+from vibe_trading.model import PoolLiquidityUpdate
+from vibe_trading.model import PoolLiquidityUpdateType
+from vibe_trading.model import PoolProfiler
+from vibe_trading.model import PoolSwap
+from vibe_trading.model import Token
+from vibe_trading.model import Transaction
 
 
 def test_chain_construction_and_lookup():
@@ -43,10 +43,10 @@ def test_defi_enum_exports():
 
 
 def test_defi_public_module_names():
-    assert Blockchain.__module__ == "vibe_trader.model"
-    assert Chain.__module__ == "vibe_trader.model"
-    assert Dex.__module__ == "vibe_trader.model"
-    assert DexType.__module__ == "vibe_trader.model"
+    assert Blockchain.__module__ == "vibe_trading.model"
+    assert Chain.__module__ == "vibe_trading.model"
+    assert Dex.__module__ == "vibe_trading.model"
+    assert DexType.__module__ == "vibe_trading.model"
 
 
 def test_dex_and_token_properties():

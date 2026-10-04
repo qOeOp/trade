@@ -2,17 +2,17 @@ import pytest
 from unit.adapters.example_modules import capture_exec_tester_main
 from unit.adapters.example_modules import load_example_module
 
-from vibe_trader.adapters.sandbox import SandboxExecutionClientConfig
-from vibe_trader.adapters.sandbox import SandboxExecutionClientFactory
-from vibe_trader.common import Environment
-from vibe_trader.execution import ProbabilityPriceFeeModel
-from vibe_trader.live import LiveNode
-from vibe_trader.live import LiveRiskEngineConfig
-from vibe_trader.model import AccountId
-from vibe_trader.model import Currency
-from vibe_trader.model import Money
-from vibe_trader.model import TraderId
-from vibe_trader.model import Venue
+from vibe_trading.adapters.sandbox import SandboxExecutionClientConfig
+from vibe_trading.adapters.sandbox import SandboxExecutionClientFactory
+from vibe_trading.common import Environment
+from vibe_trading.execution import ProbabilityPriceFeeModel
+from vibe_trading.live import LiveNode
+from vibe_trading.live import LiveRiskEngineConfig
+from vibe_trading.model import AccountId
+from vibe_trading.model import Currency
+from vibe_trading.model import Money
+from vibe_trading.model import TraderId
+from vibe_trading.model import Venue
 
 
 SANDBOX = "SANDBOX"

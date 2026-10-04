@@ -36,9 +36,9 @@ let mark = MarkPriceUpdate::new(
 ```
 
 ```python tab="Python"
-from vibe_trader.model import InstrumentId
-from vibe_trader.model import MarkPriceUpdate
-from vibe_trader.model import Price
+from vibe_trading.model import InstrumentId
+from vibe_trading.model import MarkPriceUpdate
+from vibe_trading.model import Price
 
 mark = MarkPriceUpdate(
     instrument_id=InstrumentId.from_str("BTCUSDT-PERP.BINANCE"),

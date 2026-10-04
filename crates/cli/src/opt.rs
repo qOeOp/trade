@@ -1,6 +1,6 @@
 use clap::Parser;
 
-/// Command-line interface for VibeTrader.
+/// Command-line interface for VibeTrading.
 #[derive(Debug, Parser)]
 #[clap(version, about, author)]
 pub struct VibeCli {
@@ -8,7 +8,7 @@ pub struct VibeCli {
     pub(crate) command: Commands,
 }
 
-/// Available top-level commands for the VibeTrader CLI.
+/// Available top-level commands for the VibeTrading CLI.
 #[derive(Parser, Debug)]
 pub enum Commands {
     Database(DatabaseOpt),

@@ -11,7 +11,7 @@ from _common import instrument_ids
 from _common import instrument_provider_config
 from _common import resolve_ib_endpoint
 
-from vibe_trader.adapters import interactive_brokers
+from vibe_trading.adapters import interactive_brokers
 
 
 def historical_end() -> dt.datetime:

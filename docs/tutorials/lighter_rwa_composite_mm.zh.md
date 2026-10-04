@@ -75,7 +75,7 @@ export LIGHTER_TESTNET_API_SECRET="your-lighter-api-secret"
 
 ## 项目设置
 
-策略、节点和适配器均以 crate 形式提供，因此可以在自己的 Cargo 项目中添加这些依赖，无需在 VibeTrader checkout 内工作。将以下内容加入 `Cargo.toml`，并让每个 Vibe 依赖都指向同一个 `develop` git 源，使各 crate 解析为一致版本：
+策略、节点和适配器均以 crate 形式提供，因此可以在自己的 Cargo 项目中添加这些依赖，无需在 VibeTrading checkout 内工作。将以下内容加入 `Cargo.toml`，并让每个 Vibe 依赖都指向同一个 `develop` git 源，使各 crate 解析为一致版本：
 
 ```toml
 [dependencies]
@@ -117,7 +117,7 @@ Lighter RWA 市场全天连续交易，而 `NVDA.EQUS` 遵循美国股票市场�
 
 ## 示例节点
 
-有两种运行方式：在 VibeTrader checkout 中运行随附的 [Lighter NVDA 组合做市示例][example-script]二进制文件，或将下方节点接线复制到自己项目的 `main` 中，并依赖[项目设置](#项目设置)所列 crate。Python 对应示例位于 [`examples/live/lighter/nvda_composite_mm.py`][python-example-script]，它通过 PyO3 使用同一个 Rust 策略。
+有两种运行方式：在 VibeTrading checkout 中运行随附的 [Lighter NVDA 组合做市示例][example-script]二进制文件，或将下方节点接线复制到自己项目的 `main` 中，并依赖[项目设置](#项目设置)所列 crate。Python 对应示例位于 [`examples/live/lighter/nvda_composite_mm.py`][python-example-script]，它通过 PyO3 使用同一个 Rust 策略。
 
 在 checkout 中设置凭据变量后，随附二进制文件会连接数据客户端与执行客户端。默认配置为 `DRY_RUN = true`，因此只启动客户端，不添加会提交订单的策略：
 

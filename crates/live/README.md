@@ -1,6 +1,6 @@
 # vibe-live
 
-Live system node for [VibeTrader](https://github.com/qOeOp/trade).
+Live system node for [VibeTrading](https://github.com/qOeOp/trade).
 
 The `vibe-live` crate provides high-level abstractions and infrastructure for running live trading
 systems, including data streaming, execution management, and system lifecycle handling.
@@ -10,9 +10,9 @@ It builds on top of the system kernel to provide simplified interfaces for live 
 - `LiveNodeConfig` Configuration for live node deployment.
 - `AsyncRunner` for managing system real-time data flow.
 
-## VibeTrader
+## VibeTrading
 
-[VibeTrader](https://github.com/qOeOp/trade) is a Rust-native
+[VibeTrading](https://github.com/qOeOp/trade) is a Rust-native
 engine for multi-asset, multi-venue trading systems.
 
 The system spans research, deterministic simulation, and live execution within a single

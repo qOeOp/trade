@@ -2,7 +2,7 @@ import ast
 import importlib
 from pathlib import Path
 
-from vibe_trader import config
+from vibe_trading import config
 
 
 CONFIG_MODULE_NAMES = (
@@ -32,7 +32,7 @@ def test_config_reexports_curated_core_surface() -> None:
     expected = {}
 
     for module_name in CONFIG_MODULE_NAMES:
-        module = importlib.import_module(f"vibe_trader.{module_name}")
+        module = importlib.import_module(f"vibe_trading.{module_name}")
         expected.update(
             {
                 name: value

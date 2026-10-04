@@ -1,9 +1,9 @@
 # Migrate from v1 to v2
 
-VibeTrader v2 is the Rust core and PyO3 Python package under `python/`. It is the primary Python
+VibeTrading v2 is the Rust core and PyO3 Python package under `python/`. It is the primary Python
 path on `main`. Use this guide to migrate from the legacy v1 Cython package.
 
-The v1 and v2 packages both install and import as `vibe_trader`, so use a separate virtual
+The v1 and v2 packages both install and import as `vibe_trading`, so use a separate virtual
 environment for each and never install both into one.
 
 ## Install v2
@@ -12,7 +12,7 @@ Build the package from the repository root:
 
 ```bash
 make build-debug
-.venv/bin/python -c 'import vibe_trader; print(vibe_trader.__version__)'
+.venv/bin/python -c 'import vibe_trading; print(vibe_trading.__version__)'
 ```
 
 The source build uses the root `.venv` and `target/` directories.
@@ -23,13 +23,13 @@ See [Installation](docs/getting_started/installation.md) for platform support an
 Core strategy, data, order, risk, portfolio, backtest, and live workflows remain available. Update
 imports and configuration to the new module paths:
 
-| v1 path                                                    | v2 path                                               |
-| ---------------------------------------------------------- | ----------------------------------------------------- |
-| `vibe_trader.backtest.engine.BacktestEngine`               | `vibe_trader.backtest.BacktestEngine`                 |
-| `vibe_trader.backtest.node.BacktestNode`                   | `vibe_trader.backtest.BacktestNode`                   |
-| `vibe_trader.live.node.TradingNode`                        | `vibe_trader.live.LiveNode`                           |
-| `vibe_trader.config.StrategyConfig`                        | `vibe_trader.config.StrategyConfig`                   |
-| Adapter classes from `vibe_trader.adapters.<venue>.config` | Rust/PyO3 classes from `vibe_trader.adapters.<venue>` |
+| v1 path                                                     | v2 path                                                |
+| ----------------------------------------------------------- | ------------------------------------------------------ |
+| `vibe_trading.backtest.engine.BacktestEngine`               | `vibe_trading.backtest.BacktestEngine`                 |
+| `vibe_trading.backtest.node.BacktestNode`                   | `vibe_trading.backtest.BacktestNode`                   |
+| `vibe_trading.live.node.TradingNode`                        | `vibe_trading.live.LiveNode`                           |
+| `vibe_trading.config.StrategyConfig`                        | `vibe_trading.config.StrategyConfig`                   |
+| Adapter classes from `vibe_trading.adapters.<venue>.config` | Rust/PyO3 classes from `vibe_trading.adapters.<venue>` |
 
 ### Common API renames
 
@@ -91,7 +91,7 @@ Collection and lifecycle inspection also changes shape:
 | `OrderList.orders`             | `client_order_ids()`, then resolve each ID through the cache |
 | `OrderList.first`              | Resolve `first_client_order_id` through the cache            |
 | `Portfolio.initialized`        | `Portfolio.is_initialized()`                                 |
-| `Portfolio.analyzer`           | `statistics()`, `snapshots()`, and `vibe_trader.analysis`    |
+| `Portfolio.analyzer`           | `statistics()`, `snapshots()`, and `vibe_trading.analysis`   |
 | `Actor.state`/`Strategy.state` | `DataActor.state()`/`Strategy.state()`                       |
 | `ExecAlgorithm.state`          | `ExecutionAlgorithm.state` remains a property                |
 | `Component.is_running`         | `is_running()`                                               |
@@ -180,8 +180,8 @@ Several v1 inspection names have direct v2 replacements:
 used by the application when calendar-time inspection is needed. V1 `DirectionalMovement.value`
 never changed from zero, so v2 exposes the meaningful positive and negative outputs instead.
 
-The payload on `vibe_trader.model.CustomData` remains available through `.data`. The separate
-`vibe_trader.common.CustomData` byte container exposes `.value`; it is not the type accepted by
+The payload on `vibe_trading.model.CustomData` remains available through `.data`. The separate
+`vibe_trading.common.CustomData` byte container exposes `.value`; it is not the type accepted by
 `DataActor.publish_data()`.
 
 ### Config readback and sensitive values
@@ -241,8 +241,8 @@ V2 retains writable `instrument_provider` fields on the data and execution clien
 `cache_path` on the provider config. A non‑`None` `dockerized_gateway` is rejected because Python
 v2 does not own the container lifecycle.
 
-Core config types remain grouped under `vibe_trader.config`. Adapter configs move to the
-adapter's public module, such as `vibe_trader.adapters.databento`.
+Core config types remain grouped under `vibe_trading.config`. Adapter configs move to the
+adapter's public module, such as `vibe_trading.adapters.databento`.
 
 The core config names change as follows:
 
@@ -254,7 +254,7 @@ The core config names change as follows:
 | `LoggingConfig`       | `LoggerConfig`             |
 | `TradingNodeConfig`   | `LiveNodeConfig`           |
 
-Import the current names from `vibe_trader.config`. `ControllerConfig` has no
+Import the current names from `vibe_trading.config`. `ControllerConfig` has no
 direct replacement: define controller fields on a `DataActorConfig` subclass, then refer to that
 class through `ImportableControllerConfig`.
 
@@ -268,18 +268,18 @@ Three v1 application config exports represent workflows with no current public P
 config. In particular, `BacktestNode` does not yet expose the v1 catalog streaming workflow, and
 Python live‑node config cannot select a Redis or SQL backing.
 
-The generic Python APIs under `vibe_trader.network` have no v2 public Python equivalent:
+The generic Python APIs under `vibe_trading.network` have no v2 public Python equivalent:
 `HttpClient`, `HttpMethod`, `HttpResponse`, `SocketClient`, `WebSocketClient`, `SocketConfig`,
 `WebSocketConfig`, `Quota`, network exceptions, and the `http_*` functions. Use adapter‑specific
 APIs for supported venue workflows or the Rust `vibe-network` crate for custom networking.
-`TransportBackend` remains available from `vibe_trader.network` only for adapter config
+`TransportBackend` remains available from `vibe_trading.network` only for adapter config
 transport selection.
 
 The v1 `VibeConfig`, `VibeKernelConfig`, `ImportableConfig`, config factory classes, and
 encoding and path utilities are not application config objects in the current package. Use the
 concrete configs and registration methods instead.
 
-Use the generated type stubs in `python/vibe_trader/` as the supported Python contract. Some
+Use the generated type stubs in `python/vibe_trading/` as the supported Python contract. Some
 adapter wire DTOs expose extra runtime attributes that are not part of that contract. The following
 methods are callable at runtime but absent from the stubs, so static type checkers cannot resolve
 them:
@@ -294,8 +294,8 @@ strategies, actors, and data/execution testers.
 Python v2 strategies subclass `Strategy` and override lifecycle or data callbacks:
 
 ```python
-from vibe_trader.config import StrategyConfig
-from vibe_trader.trading import Strategy
+from vibe_trading.config import StrategyConfig
+from vibe_trading.trading import Strategy
 
 
 class MyStrategyConfig(StrategyConfig):
@@ -424,8 +424,8 @@ Signal values use their string representation. Raw message-bus endpoints and han
 runtime internals.
 
 ```python
-from vibe_trader.common import GreeksCalculator
-from vibe_trader.trading import ExecutionAlgorithm
+from vibe_trading.common import GreeksCalculator
+from vibe_trading.trading import ExecutionAlgorithm
 
 
 class RoutedAlgorithm(ExecutionAlgorithm):
@@ -453,8 +453,8 @@ only its custom attributes. Keep `**_kwargs` so the subclass accepts the base ke
 constructor ignores other unmatched keywords, so validate optional custom inputs in `__init__`.
 
 ```python
-from vibe_trader.config import ExecutionAlgorithmConfig
-from vibe_trader.model import ExecAlgorithmId
+from vibe_trading.config import ExecutionAlgorithmConfig
+from vibe_trading.model import ExecAlgorithmId
 
 
 class RoutedAlgorithmConfig(ExecutionAlgorithmConfig):

@@ -51,7 +51,7 @@
 # ## Prerequisites
 #
 # - Python 3.12+
-# - A local Vibe Trader source build (`make build-debug`)
+# - A local Vibe Trading source build (`make build-debug`)
 # - The sibling [`orderbook_data.py`](./orderbook_data.py) and
 #   [`orderbook_imbalance.py`](./orderbook_imbalance.py) files. Keep them next
 #   to this tutorial when downloading or converting it with Jupytext.
@@ -65,9 +65,9 @@ import shutil
 from pathlib import Path
 
 import pandas as pd
-from vibe_trader.backtest import BacktestNode
-from vibe_trader.common import LogLevel
-from vibe_trader.config import (
+from vibe_trading.backtest import BacktestNode
+from vibe_trading.common import LogLevel
+from vibe_trading.config import (
     BacktestDataConfig,
     BacktestEngineConfig,
     BacktestRunConfig,
@@ -75,8 +75,8 @@ from vibe_trader.config import (
     ImportableStrategyConfig,
     LoggerConfig,
 )
-from vibe_trader.core.datetime import dt_to_unix_nanos
-from vibe_trader.model import (
+from vibe_trading.core.datetime import dt_to_unix_nanos
+from vibe_trading.model import (
     AccountType,
     BookType,
     CryptoPerpetual,
@@ -88,7 +88,7 @@ from vibe_trader.model import (
     Symbol,
     Venue,
 )
-from vibe_trader.persistence import ParquetDataCatalog
+from vibe_trading.persistence import ParquetDataCatalog
 
 from orderbook_data import (
     deltas_from_frame,

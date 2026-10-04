@@ -61,7 +61,7 @@ OTO 订单包括两部分：
 | **部分触发** | 父订单每次部分执行时立即释放；子订单数量与已执行数量相同，并随后续成交继续增加。 |
 
 :::info
-VibeTrader 的默认回测交易场所对 OTO 订单使用*部分触发模型*。
+VibeTrading 的默认回测交易场所对 OTO 订单使用*部分触发模型*。
 若要选择*完全触发模式*，请为交易场所设置 `oto_trigger_mode="FULL"`（例如通过 `BacktestVenueConfig`）。
 :::
 
@@ -140,7 +140,7 @@ OUO 订单是一组关联订单，其中一笔订单执行时，会立即*减少
 父订单执行后，系统会挂出子订单。如果市场向有利方向移动，止盈订单会关闭持仓；
 如果市场向不利方向移动，止损订单会限制损失。
 
-可以使用 [OrderFactory](/docs/python-api-latest/common.html#vibe_trader.common.factories.OrderFactory)
+可以使用 [OrderFactory](/docs/python-api-latest/common.html#vibe_trading.common.factories.OrderFactory)
 轻松创建括号订单；它支持多种订单类型、参数和指令。
 
 以下示例为一笔买入 10 张 ETHUSDT-PERP 合约的 *Market* 入场订单设置括号：
@@ -169,11 +169,11 @@ let orders = self
 ```
 
 ```python tab="Python"
-from vibe_trader.model.enums import OrderSide
-from vibe_trader.model import InstrumentId
-from vibe_trader.model import Price
-from vibe_trader.model import Quantity
-from vibe_trader.model.orders import OrderList
+from vibe_trading.model.enums import OrderSide
+from vibe_trading.model import InstrumentId
+from vibe_trading.model import Price
+from vibe_trading.model import Quantity
+from vibe_trading.model.orders import OrderList
 
 bracket: OrderList = self.order_factory.bracket(
     instrument_id=InstrumentId.from_str("ETHUSDT-PERP.BINANCE"),

@@ -4,7 +4,7 @@
 perpetual futures. The venue settles through an Ethereum zero-knowledge rollup, while matching and
 sequencing run off-chain.
 
-The VibeTrader Lighter adapter is implemented by the `vibe-lighter` crate. It provides
+The VibeTrading Lighter adapter is implemented by the `vibe-lighter` crate. It provides
 Rust data and execution clients, typed REST and WebSocket models, and an in-tree L2 transaction
 signer for the venue's Schnorr / ECgFp5 signing flow.
 
@@ -122,7 +122,7 @@ configuration. URL overrides are available for private gateways or local test fi
 
 ## Integrator attribution
 
-Create and modify transactions carry the VibeTrader integrator account index in
+Create and modify transactions carry the VibeTrading integrator account index in
 `L2TxAttributes` to measure adapter usage. Maker and taker integrator fees are zero. The execution
 client submits the required **zero‑fee** `ApproveIntegrator` approval during startup.
 
@@ -145,8 +145,8 @@ Script source:
 
 ```python
 # Python (PyO3 binding) - reads the same env vars as the Rust bin
-from vibe_trader.adapters.lighter import revoke_lighter_integrator
-from vibe_trader.adapters.lighter import LighterEnvironment
+from vibe_trading.adapters.lighter import revoke_lighter_integrator
+from vibe_trading.adapters.lighter import LighterEnvironment
 
 await revoke_lighter_integrator()  # mainnet (default)
 await revoke_lighter_integrator(LighterEnvironment.TESTNET)  # testnet
@@ -617,7 +617,7 @@ endpoints.
 
 | Option                      | Default       | Description                                              |
 | --------------------------- | ------------- | -------------------------------------------------------- |
-| `trader_id`                 | `TRADER-001`  | Vibe trader identifier.                                  |
+| `trader_id`                 | `TRADER-001`  | Vibe Trading identifier.                                 |
 | `account_id`                | `LIGHTER-001` | Vibe account identifier for the venue.                   |
 | `account_index`             | `None`        | Lighter account index.                                   |
 | `api_key_index`             | `None`        | Lighter API key slot.                                    |

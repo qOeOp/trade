@@ -11,15 +11,15 @@ from __future__ import annotations
 
 import argparse
 
-from vibe_trader.adapters.hyperliquid import HyperliquidDataClientConfig
-from vibe_trader.adapters.hyperliquid import HyperliquidDataClientFactory
-from vibe_trader.adapters.hyperliquid import HyperliquidEnvironment
-from vibe_trader.common import Environment
-from vibe_trader.live import LiveNode
-from vibe_trader.model import ClientId
-from vibe_trader.model import InstrumentId
-from vibe_trader.model import TraderId
-from vibe_trader.testkit import DataTesterConfig
+from vibe_trading.adapters.hyperliquid import HyperliquidDataClientConfig
+from vibe_trading.adapters.hyperliquid import HyperliquidDataClientFactory
+from vibe_trading.adapters.hyperliquid import HyperliquidEnvironment
+from vibe_trading.common import Environment
+from vibe_trading.live import LiveNode
+from vibe_trading.model import ClientId
+from vibe_trading.model import InstrumentId
+from vibe_trading.model import TraderId
+from vibe_trading.testkit import DataTesterConfig
 
 
 HYPERLIQUID = "HYPERLIQUID"

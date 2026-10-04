@@ -9,7 +9,7 @@ Dashboard effect worker 是唯一的执行器路径，且不存在生产部署�
 
 ## 产品表面与安装包
 
-目标发行物是一套 VibeTrader Docker Compose 安装包，而不是一个单体镜像。它组合 Trade Runtime 与
+目标发行物是一套 VibeTrading Docker Compose 安装包，而不是一个单体镜像。它组合 Trade Runtime 与
 Owner API、Dashboard、所需持久化和本地入口。
 
 产品入口是 `product/dashboard`--一个独立可构建的 `trade-dashboard` 镜像，包含 Vibe 衍生外壳、共享

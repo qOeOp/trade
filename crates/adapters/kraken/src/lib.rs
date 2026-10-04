@@ -1,4 +1,4 @@
-//! Kraken exchange adapter for VibeTrader.
+//! Kraken exchange adapter for VibeTrading.
 //!
 //! This adapter provides integration with the Kraken cryptocurrency exchange,
 //! supporting both Spot and Futures markets.
@@ -20,7 +20,7 @@
 //!
 //! This crate provides feature flags to control source code inclusion during compilation,
 //! depending on the intended use case, i.e. whether to provide Python bindings
-//! for the `vibe_trader` Python package,
+//! for the `vibe_trading` Python package,
 //! or as part of a Rust only build.
 //!
 //! - `python`: Enables Python bindings from [PyO3](https://pyo3.rs).

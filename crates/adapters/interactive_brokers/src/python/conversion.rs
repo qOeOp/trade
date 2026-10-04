@@ -161,7 +161,7 @@ pub fn contract_details_to_pyobject(
     py: Python<'_>,
     details: &ContractDetails,
 ) -> PyResult<Py<PyAny>> {
-    let common = py.import("vibe_trader.adapters.interactive_brokers.common")?;
+    let common = py.import("vibe_trading.adapters.interactive_brokers.common")?;
     let dict_to_contract_details = common.getattr("dict_to_contract_details")?;
     let details_dict = PyDict::new(py);
 

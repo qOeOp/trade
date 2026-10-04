@@ -13,21 +13,21 @@ from __future__ import annotations
 from decimal import Decimal
 
 from tests.providers import TestInstrumentProvider
-from vibe_trader.backtest import BacktestEngine
-from vibe_trader.backtest import BacktestEngineConfig
-from vibe_trader.indicators import ExponentialMovingAverage
-from vibe_trader.model import AccountType
-from vibe_trader.model import Bar
-from vibe_trader.model import BarType
-from vibe_trader.model import Currency
-from vibe_trader.model import Money
-from vibe_trader.model import OmsType
-from vibe_trader.model import Price
-from vibe_trader.model import Quantity
-from vibe_trader.model import QuoteTick
-from vibe_trader.model import Venue
-from vibe_trader.trading import Strategy
-from vibe_trader.trading import StrategyConfig
+from vibe_trading.backtest import BacktestEngine
+from vibe_trading.backtest import BacktestEngineConfig
+from vibe_trading.indicators import ExponentialMovingAverage
+from vibe_trading.model import AccountType
+from vibe_trading.model import Bar
+from vibe_trading.model import BarType
+from vibe_trading.model import Currency
+from vibe_trading.model import Money
+from vibe_trading.model import OmsType
+from vibe_trading.model import Price
+from vibe_trading.model import Quantity
+from vibe_trading.model import QuoteTick
+from vibe_trading.model import Venue
+from vibe_trading.trading import Strategy
+from vibe_trading.trading import StrategyConfig
 
 
 _START = 1_577_836_800_000_000_000

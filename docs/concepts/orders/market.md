@@ -43,11 +43,11 @@ let order = self.order().market(
 ```
 
 ```python tab="Python"
-from vibe_trader.model.enums import OrderSide
-from vibe_trader.model.enums import TimeInForce
-from vibe_trader.model import InstrumentId
-from vibe_trader.model import Quantity
-from vibe_trader.model.orders import MarketOrder
+from vibe_trading.model.enums import OrderSide
+from vibe_trading.model.enums import TimeInForce
+from vibe_trading.model import InstrumentId
+from vibe_trading.model import Quantity
+from vibe_trading.model.orders import MarketOrder
 
 order: MarketOrder = self.order_factory.market(
     instrument_id=InstrumentId.from_str("AUD/USD.IDEALPRO"),
@@ -59,7 +59,7 @@ order: MarketOrder = self.order_factory.market(
 )
 ```
 
-See the [`MarketOrder` API Reference](/docs/python-api-latest/model/orders.html#vibe_trader.model.orders.market.MarketOrder) for further details.
+See the [`MarketOrder` API Reference](/docs/python-api-latest/model/orders.html#vibe_trading.model.orders.market.MarketOrder) for further details.
 
 ## Related guides
 

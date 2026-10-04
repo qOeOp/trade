@@ -1,9 +1,9 @@
 # 订单簿
 
-VibeTrader 提供以 Rust 实现的高性能订单簿，能够维护各类受支持公开订单簿的完整状态。`OrderBook` 是跟踪公开市场深度的主要组件；`OwnOrderBook` 则单独跟踪自己的订单，从而提供显示真实可用流动性的过滤视图。
+VibeTrading 提供以 Rust 实现的高性能订单簿，能够维护各类受支持公开订单簿的完整状态。`OrderBook` 是跟踪公开市场深度的主要组件；`OwnOrderBook` 则单独跟踪自己的订单，从而提供显示真实可用流动性的过滤视图。
 
 :::note
-本指南介绍 Rust API。Python 也可以通过公共模型模块使用这些类型（`vibe_trader.model.OrderBook` 和 `vibe_trader.model.OwnOrderBook`）。Rust 与 Python 接口之间的差异请参阅 API 参考。
+本指南介绍 Rust API。Python 也可以通过公共模型模块使用这些类型（`vibe_trading.model.OrderBook` 和 `vibe_trading.model.OwnOrderBook`）。Rust 与 Python 接口之间的差异请参阅 API 参考。
 :::
 
 ## 订单簿类型
@@ -23,7 +23,7 @@ VibeTrader 提供以 Rust 实现的高性能订单簿，能够维护各类受支
 策略和 actor 通过以下方法订阅订单簿更新。订阅方法和处理器属于 Python 策略/actor 层：
 
 ```python
-from vibe_trader.model import BookType
+from vibe_trading.model import BookType
 
 
 # Incremental book deltas

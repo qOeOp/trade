@@ -2,7 +2,7 @@
 
 :::note[Layer]
 These pages describe the inherited engine: the component model that `crates` and
-`python/vibe_trader` implement today. They are accurate about that layer, and they are kept for
+`python/vibe_trading` implement today. They are accurate about that layer, and they are kept for
 people working in it.
 
 They are not the platform's architecture of record. Where a page here and an Owner contract answer
@@ -14,8 +14,8 @@ An instrument represents the specification for a tradable asset, contract, or lo
 synthetic market. Market data, orders, positions, accounting, portfolio calculations,
 and adapter symbology all refer back to an `InstrumentId` and its instrument definition.
 
-VibeTrader exposes the same instrument model to Rust and Python users. Rust
-examples use `vibe_model`; Python examples use `vibe_trader.model.instruments`.
+VibeTrading exposes the same instrument model to Rust and Python users. Rust
+examples use `vibe_model`; Python examples use `vibe_trading.model.instruments`.
 
 ## Instrument types
 
@@ -43,7 +43,7 @@ examples use `vibe_model`; Python examples use `vibe_trader.model.instruments`.
 
 ## Taxonomy
 
-VibeTrader groups instruments by the market structure they represent:
+VibeTrading groups instruments by the market structure they represent:
 
 ```mermaid
 flowchart TD
@@ -138,10 +138,10 @@ Rust users work with the `vibe_model` instrument structs and `InstrumentAny`:
 use vibe_model::instruments::{CurrencyPair, InstrumentAny};
 ```
 
-Python users normally work with instrument classes from `vibe_trader.model`:
+Python users normally work with instrument classes from `vibe_trading.model`:
 
 ```python
-from vibe_trader.model import CurrencyPair
+from vibe_trading.model import CurrencyPair
 ```
 
 Both surfaces represent the same instrument contract: identity, precision, increments,
@@ -152,7 +152,7 @@ currencies, limits, margins, fees, metadata, and timestamps.
 Generic test instruments can be instantiated through the `TestInstrumentProvider`:
 
 ```python
-from vibe_trader.test_kit.providers import TestInstrumentProvider
+from vibe_trading.test_kit.providers import TestInstrumentProvider
 
 audusd = TestInstrumentProvider.default_fx_ccy("AUD/USD")
 ```
@@ -174,7 +174,7 @@ let instrument = cache.instrument(&instrument_id);
 ```
 
 ```python tab="Python"
-from vibe_trader.model import InstrumentId
+from vibe_trading.model import InstrumentId
 
 instrument_id = InstrumentId.from_str("ETHUSDT-PERP.BINANCE")
 instrument = self.cache.instrument(instrument_id)
@@ -193,7 +193,7 @@ When the `DataEngine` receives an instrument update, it passes the object to the
 ## Precision
 
 Precision defines the canonical number of decimal places for prices and quantities on an
-instrument. VibeTrader enforces the resulting price and size grids strictly because
+instrument. VibeTrading enforces the resulting price and size grids strictly because
 trading venues validate the same constraints, and backtests should not fill orders at
 prices or sizes that cannot exist in production.
 

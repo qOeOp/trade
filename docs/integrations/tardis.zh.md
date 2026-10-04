@@ -2,7 +2,7 @@
 
 Tardis 为加密货币市场提供细粒度数据，包括逐笔订单簿快照和更新、交易、未平仓量、资金费率、期权摘要，以及主流加密货币交易所的强平数据。
 
-VibeTrader 集成了 Tardis API、Tardis Machine WebSocket 服务器和 Tardis CSV 格式。该适配器提供以下功能：
+VibeTrading 集成了 Tardis API、Tardis Machine WebSocket 服务器和 Tardis CSV 格式。该适配器提供以下功能：
 
 - CSV 加载和流式处理函数：将 Tardis 格式的文件批量或分块读取为 Vibe 数据。
 - `TardisMachineClient`：以流式方式传输 Tardis Machine 的实时或历史重放数据，并将消息转换为 Vibe 数据。
@@ -28,15 +28,15 @@ Vibe 金融工具元数据调用需要 `TARDIS_API_KEY`。对于每月首日免�
 ## Tardis 文档
 
 Tardis 提供详尽的用户[文档](https://docs.tardis.dev/)。
-建议将 Tardis 文档与本 VibeTrader 集成指南结合使用。
+建议将 Tardis 文档与本 VibeTrading 集成指南结合使用。
 
 ## 支持的格式
 
 Tardis 提供跨受支持交易所保持统一格式的*规范化*市场数据。
 借助这种规范化，一个解析器就能处理任意 [Tardis 支持的交易所](#交易场所)的数据。
-VibeTrader 的此适配器不支持 Tardis 的交易所原生市场数据格式。
+VibeTrading 的此适配器不支持 Tardis 的交易所原生市场数据格式。
 
-VibeTrader 支持下列规范化 Tardis Machine 格式。字段模式请参阅官方 [Tardis 数据类型参考](https://docs.tardis.dev/tardis-machine/data-types)。
+VibeTrading 支持下列规范化 Tardis Machine 格式。字段模式请参阅官方 [Tardis 数据类型参考](https://docs.tardis.dev/tardis-machine/data-types)。
 
 | Tardis 格式         | Vibe 数据类型                                                     |
 | :------------------ | :---------------------------------------------------------------- |
@@ -78,8 +78,8 @@ VibeTrader 支持下列规范化 Tardis Machine 格式。字段模式请参阅�
 
 ## 符号体系与规范化
 
-Tardis 集成通过统一规范化符号，确保与 VibeTrader 加密货币交易所适配器兼容。
-通常，VibeTrader 使用 Tardis 提供的交易所原生命名约定。对于某些交易所，原始符号会按下述规则调整，以符合 Vibe 符号体系规范：
+Tardis 集成通过统一规范化符号，确保与 VibeTrading 加密货币交易所适配器兼容。
+通常，VibeTrading 使用 Tardis 提供的交易所原生命名约定。对于某些交易所，原始符号会按下述规则调整，以符合 Vibe 符号体系规范：
 
 ### 通用规则
 
@@ -152,12 +152,12 @@ Tardis 还公开 `binance-european-options` 和 `binance-jersey` 等旧版 Binan
 
 ## 环境变量
 
-Tardis 和 VibeTrader 使用以下环境变量。
+Tardis 和 VibeTrading 使用以下环境变量。
 
 - `TM_API_KEY`：Tardis Machine 的 API 密钥。
-- `TARDIS_API_KEY`：VibeTrader Tardis 客户端的 API 密钥。
+- `TARDIS_API_KEY`：VibeTrading Tardis 客户端的 API 密钥。
 - `TARDIS_MACHINE_WS_URL`（可选）：`TardisMachineClient` 的 WebSocket URL。
-- `TARDIS_BASE_URL`（可选）：VibeTrader 中 `TardisHttpClient` 的基础 URL。
+- `TARDIS_BASE_URL`（可选）：VibeTrading 中 `TardisHttpClient` 的基础 URL。
 - `VIBE_PATH`（可选）：包含 `catalog/` 子目录的父目录，用于存放重放输出。
 
 Tardis 金融工具元数据 API 要求使用 Bearer 令牌授权，仅向有效的 Tardis Pro 和 Business 订阅开放。
@@ -313,7 +313,7 @@ docker run -p 8000:8000 -p 8001:8001 -e "TM_API_KEY=YOUR_API_KEY" -d tardisdev/t
 import asyncio
 from pathlib import Path
 
-from vibe_trader.adapters.tardis import run_tardis_machine_replay
+from vibe_trading.adapters.tardis import run_tardis_machine_replay
 
 
 async def run():
@@ -384,7 +384,7 @@ Tardis 重放将数据写入 Vibe 数据目录后，才能开始期权链回测�
 ```python
 from pathlib import Path
 
-from vibe_trader.adapters.tardis import convert_tardis_options_chain_csv
+from vibe_trading.adapters.tardis import convert_tardis_options_chain_csv
 
 
 convert_tardis_options_chain_csv(
@@ -419,8 +419,8 @@ convert_tardis_options_chain_csv(
 ```python
 from pathlib import Path
 
-from vibe_trader.adapters.tardis import load_tardis_deltas
-from vibe_trader.model import InstrumentId
+from vibe_trading.adapters.tardis import load_tardis_deltas
+from vibe_trading.model import InstrumentId
 
 
 instrument_id = InstrumentId.from_str("BTC-PERPETUAL.DERIBIT")
@@ -490,8 +490,8 @@ Rust 也为这些 CSV 类型提供流式处理函数，此外还支持批量增�
 ```python
 from pathlib import Path
 
-from vibe_trader.adapters.tardis import stream_tardis_trades
-from vibe_trader.model import InstrumentId
+from vibe_trading.adapters.tardis import stream_tardis_trades
+from vibe_trading.model import InstrumentId
 
 instrument_id = InstrumentId.from_str("BTC-PERPETUAL.DERIBIT")
 filepath = Path("large_trades_file.csv")
@@ -518,8 +518,8 @@ for chunk in trades:
 订单簿数据的增量和深度快照均可流式处理：
 
 ```python
-from vibe_trader.adapters.tardis import stream_tardis_deltas
-from vibe_trader.adapters.tardis import stream_tardis_depth10_from_snapshot5
+from vibe_trading.adapters.tardis import stream_tardis_deltas
+from vibe_trading.adapters.tardis import stream_tardis_depth10_from_snapshot5
 
 
 # Stream order book deltas
@@ -538,7 +538,7 @@ for chunk in stream_tardis_depth10_from_snapshot5(filepath):
 报价数据可以采用相同方式流式处理：
 
 ```python
-from vibe_trader.adapters.tardis import stream_tardis_quotes
+from vibe_trading.adapters.tardis import stream_tardis_quotes
 
 
 # Stream quote ticks
@@ -623,7 +623,7 @@ async fn main() {
 ```python
 import asyncio
 
-from vibe_trader.adapters.tardis import TardisHttpClient
+from vibe_trading.adapters.tardis import TardisHttpClient
 
 
 async def run():
@@ -686,7 +686,7 @@ async fn main() {
 由于存在多个 [Tardis 支持的交易所](#交易场所)，加载所有金融工具时，必须使用 `InstrumentProviderConfig` 筛选所需交易场所：
 
 ```python
-from vibe_trader.config import InstrumentProviderConfig
+from vibe_trading.config import InstrumentProviderConfig
 
 # See supported venues https://github.com/qOeOp/trade/blob/main/docs/integrations/tardis.md#venues
 venues = {"BINANCE", "BYBIT"}
@@ -697,7 +697,7 @@ instrument_provider_config = InstrumentProviderConfig(load_all=True, filters=fil
 也可以按常规方式加载特定金融工具定义：
 
 ```python
-from vibe_trader.config import InstrumentProviderConfig
+from vibe_trading.config import InstrumentProviderConfig
 
 instrument_ids = [
     InstrumentId.from_str("BTCUSDT-PERP.BINANCE"),  # Uses the 'binance-futures' exchange
@@ -713,7 +713,7 @@ instrument_provider_config = InstrumentProviderConfig(load_ids=instrument_ids)
 要显式加载期权金融工具，请在 `instrument_type` 筛选器中包含 `"option"`：
 
 ```python
-from vibe_trader.config import InstrumentProviderConfig
+from vibe_trading.config import InstrumentProviderConfig
 
 venues = {"BINANCE", "BYBIT"}
 filters = {
@@ -732,7 +732,7 @@ instrument_provider_config = InstrumentProviderConfig(load_all=True, filters=fil
 
 ## 实盘数据客户端
 
-`TardisDataClient` 将 Tardis Machine 与正在运行的 VibeTrader 系统集成。
+`TardisDataClient` 将 Tardis Machine 与正在运行的 VibeTrading 系统集成。
 Python 实盘数据客户端会将标准订阅转换为以下 Tardis Machine 数据流：
 
 - `OrderBookDelta`（来自 Tardis 的 L2 粒度，包括增量或全深度快照）

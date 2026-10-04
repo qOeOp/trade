@@ -3,7 +3,7 @@ name = "vibe-tutorials"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-description = "Runnable tutorial examples for VibeTrader"
+description = "Runnable tutorial examples for VibeTrading"
 repository.workspace = true
 publish = false
 

@@ -19,11 +19,11 @@ Actor 通过与策略类似的模式支持配置。
 ```python
 from collections.abc import Sequence
 
-from vibe_trader.common import DataActor
-from vibe_trader.config import DataActorConfig
-from vibe_trader.model import Bar
-from vibe_trader.model import BarType
-from vibe_trader.model import InstrumentId
+from vibe_trading.common import DataActor
+from vibe_trading.config import DataActorConfig
+from vibe_trading.model import Bar
+from vibe_trading.model import BarType
+from vibe_trading.model import InstrumentId
 
 
 class MyActorConfig(DataActorConfig):
@@ -222,11 +222,11 @@ Python 组件之间受支持的自定义消息传递应使用 signal。原始消
 以下示例同时演示历史和实时数据处理：
 
 ```python
-from vibe_trader.common import DataActor
-from vibe_trader.config import DataActorConfig
-from vibe_trader.model import Bar
-from vibe_trader.model import BarType
-from vibe_trader.model import InstrumentId
+from vibe_trading.common import DataActor
+from vibe_trading.config import DataActorConfig
+from vibe_trading.model import Bar
+from vibe_trading.model import BarType
+from vibe_trading.model import InstrumentId
 
 
 class MyActorConfig(DataActorConfig):

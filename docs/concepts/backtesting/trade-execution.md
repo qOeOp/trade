@@ -9,10 +9,10 @@ evidence that liquidity traded at its price, so it can fill resting orders on th
 Set `trade_execution=False` to use trades as strategy data without letting them trigger matching:
 
 ```python
-from vibe_trader.config import BacktestVenueConfig
-from vibe_trader.model import AccountType
-from vibe_trader.model import BookType
-from vibe_trader.model import OmsType
+from vibe_trading.config import BacktestVenueConfig
+from vibe_trading.model import AccountType
+from vibe_trading.model import BookType
+from vibe_trading.model import OmsType
 
 venue = BacktestVenueConfig(
     name="SIM",

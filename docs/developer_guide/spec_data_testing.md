@@ -2,7 +2,7 @@
 
 This section defines a rigorous test matrix for validating adapter data
 functionality using the Rust `DataTester` actor. Python exposes it as a built‑in
-actor configured through `vibe_trader.testkit.DataTesterConfig`; Rust code
+actor configured through `vibe_trading.testkit.DataTesterConfig`; Rust code
 imports it from `vibe_testkit::testers`. Each test case is identified by a
 prefixed ID (e.g. TC-D01) and grouped by functionality.
 
@@ -28,16 +28,16 @@ Before running data tests:
 
 **Python node setup**:
 
-Legacy examples still use `vibe_trader.live.node.TradingNode`, but current Rust‑backed
-PyO3 adapters use `vibe_trader.live.LiveNode`. Use `LiveNode.builder(...)`
+Legacy examples still use `vibe_trading.live.node.TradingNode`, but current Rust‑backed
+PyO3 adapters use `vibe_trading.live.LiveNode`. Use `LiveNode.builder(...)`
 when you need to register adapter client factories before the node is built.
 
 ```python
-from vibe_trader.common import Environment
-from vibe_trader.config import LiveDataEngineConfig
-from vibe_trader.live import LiveNode
-from vibe_trader.model import TraderId
-from vibe_trader.testkit import DataTesterConfig
+from vibe_trading.common import Environment
+from vibe_trading.config import LiveDataEngineConfig
+from vibe_trading.live import LiveNode
+from vibe_trading.model import TraderId
+from vibe_trading.testkit import DataTesterConfig
 
 node = (
     LiveNode.builder("TESTER-001", TraderId("TESTER-001"), Environment.SANDBOX)

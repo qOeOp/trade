@@ -45,12 +45,12 @@ let trade = TradeTick::new(
 ```
 
 ```python tab="Python"
-from vibe_trader.model import InstrumentId
-from vibe_trader.model import Price
-from vibe_trader.model import Quantity
-from vibe_trader.model import TradeId
-from vibe_trader.model import TradeTick
-from vibe_trader.model.enums import AggressorSide
+from vibe_trading.model import InstrumentId
+from vibe_trading.model import Price
+from vibe_trading.model import Quantity
+from vibe_trading.model import TradeId
+from vibe_trading.model import TradeTick
+from vibe_trading.model.enums import AggressorSide
 
 trade = TradeTick(
     instrument_id=InstrumentId.from_str("BTCUSDT.BINANCE"),

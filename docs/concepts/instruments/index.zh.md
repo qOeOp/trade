@@ -1,7 +1,7 @@
 # 金融工具
 
 :::note[层次]
-这些页面描述继承引擎：`crates` 与 `python/vibe_trader` 今天实现的组件模型。
+这些页面描述继承引擎：`crates` 与 `python/vibe_trading` 今天实现的组件模型。
 它们对那一层的描述是准确的，为在该层工作的人保留。
 
 它们不是本平台的架构权威。当此处某页与 Owner 契约对同一问题给出不同答案时，以 Owner 契约为准。
@@ -11,7 +11,7 @@
 金融工具表示可交易资产、合约或本地合成市场的规格。市场数据、订单、持仓、会计、投资组合计算和适配器符号体系
 都引用 `InstrumentId` 及其金融工具定义。
 
-VibeTrader 向 Rust 和 Python 用户公开相同的金融工具模型。Rust 示例使用 `vibe_model`；Python 示例使用 `vibe_trader.model.instruments`。
+VibeTrading 向 Rust 和 Python 用户公开相同的金融工具模型。Rust 示例使用 `vibe_model`；Python 示例使用 `vibe_trading.model.instruments`。
 
 ## 金融工具类型
 
@@ -39,7 +39,7 @@ VibeTrader 向 Rust 和 Python 用户公开相同的金融工具模型。Rust �
 
 ## 分类体系
 
-VibeTrader 根据金融工具所表示的市场结构对其分组：
+VibeTrading 根据金融工具所表示的市场结构对其分组：
 
 ```mermaid
 flowchart TD
@@ -129,10 +129,10 @@ Rust 用户使用 `vibe_model` 金融工具结构体和 `InstrumentAny`：
 use vibe_model::instruments::{CurrencyPair, InstrumentAny};
 ```
 
-Python 用户通常使用 `vibe_trader.model` 中的金融工具类：
+Python 用户通常使用 `vibe_trading.model` 中的金融工具类：
 
 ```python
-from vibe_trader.model import CurrencyPair
+from vibe_trading.model import CurrencyPair
 ```
 
 两个接口表示同一个金融工具合约：身份、精度、增量、货币、限制、保证金、费用、元数据和时间戳。
@@ -142,7 +142,7 @@ from vibe_trader.model import CurrencyPair
 可以通过 `TestInstrumentProvider` 实例化通用测试金融工具：
 
 ```python
-from vibe_trader.test_kit.providers import TestInstrumentProvider
+from vibe_trading.test_kit.providers import TestInstrumentProvider
 
 audusd = TestInstrumentProvider.default_fx_ccy("AUD/USD")
 ```
@@ -162,7 +162,7 @@ let instrument = cache.instrument(&instrument_id);
 ```
 
 ```python tab="Python"
-from vibe_trader.model import InstrumentId
+from vibe_trading.model import InstrumentId
 
 instrument_id = InstrumentId.from_str("ETHUSDT-PERP.BINANCE")
 instrument = self.cache.instrument(instrument_id)
@@ -179,7 +179,7 @@ self.subscribe_instruments(venue)
 
 ## 精度
 
-精度定义金融工具价格和数量的规范小数位数。VibeTrader 严格执行由此产生的价格和数量网格，
+精度定义金融工具价格和数量的规范小数位数。VibeTrading 严格执行由此产生的价格和数量网格，
 因为交易场所会验证相同约束，而回测不应以生产环境中不可能出现的价格或数量成交订单。
 
 | 字段              | 约束对象                   | 示例              |

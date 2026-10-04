@@ -253,7 +253,7 @@ pub struct Foo {}
 
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader")
+    pyo3::pyclass(module = "vibe_trading")
 )] // trailing comment on closing line
 pub struct Bar {}
 """

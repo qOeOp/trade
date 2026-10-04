@@ -32,7 +32,7 @@ and won't need to work directly with these lower-level components.
 
 ## Builder code attribution
 
-Submitted mainnet orders carry the VibeTrader builder code at a **zero fee rate**, so
+Submitted mainnet orders carry the VibeTrading builder code at a **zero fee rate**, so
 attribution adds no trading cost. This helps us gauge real usage of the integration and
 prioritize ongoing maintenance. Users who attribute order flow may also qualify for direct
 support through the [Institutional](https://github.com/qOeOp/trade) tier when trading
@@ -52,7 +52,7 @@ The builder address is omitted from orders in three cases:
   attribute their order flow can disable builder attribution explicitly.
 
 ```python
-from vibe_trader.adapters.hyperliquid import HyperliquidExecClientConfig
+from vibe_trading.adapters.hyperliquid import HyperliquidExecClientConfig
 
 config = HyperliquidExecClientConfig(
     include_builder_attribution=False,
@@ -79,7 +79,7 @@ cargo run -p vibe-hyperliquid --bin hyperliquid-builder-fee-approve
 Or from Python:
 
 ```python
-from vibe_trader.adapters.hyperliquid import builder_fee_approve
+from vibe_trading.adapters.hyperliquid import builder_fee_approve
 
 builder_fee_approve()
 ```
@@ -97,7 +97,7 @@ cargo run -p vibe-hyperliquid --bin hyperliquid-builder-fee-revoke
 Or from Python:
 
 ```python
-from vibe_trader.adapters.hyperliquid import builder_fee_revoke
+from vibe_trading.adapters.hyperliquid import builder_fee_revoke
 
 builder_fee_revoke()
 ```
@@ -139,7 +139,7 @@ then connect the extension to testnet.
 
 ### Exporting your private key
 
-To use your testnet account with VibeTrader, you need to export your wallet's private key:
+To use your testnet account with VibeTrading, you need to export your wallet's private key:
 
 **MetaMask:**
 
@@ -320,8 +320,8 @@ For direct `HyperliquidHttpClient` usage, the HIP-3 perp dexes are excluded unle
 through `load_instrument_definitions`:
 
 ```python
-from vibe_trader.adapters.hyperliquid import HyperliquidEnvironment
-from vibe_trader.adapters.hyperliquid import HyperliquidHttpClient
+from vibe_trading.adapters.hyperliquid import HyperliquidEnvironment
+from vibe_trading.adapters.hyperliquid import HyperliquidHttpClient
 
 client = HyperliquidHttpClient.from_env(HyperliquidEnvironment.MAINNET)
 instruments = await client.load_instrument_definitions(
@@ -405,8 +405,8 @@ required.
 For direct `HyperliquidHttpClient` usage, opt in through `load_instrument_definitions`:
 
 ```python
-from vibe_trader.adapters.hyperliquid import HyperliquidEnvironment
-from vibe_trader.adapters.hyperliquid import HyperliquidHttpClient
+from vibe_trading.adapters.hyperliquid import HyperliquidEnvironment
+from vibe_trading.adapters.hyperliquid import HyperliquidHttpClient
 
 client = HyperliquidHttpClient.from_env(HyperliquidEnvironment.TESTNET)
 instruments = await client.load_instrument_definitions(
@@ -484,8 +484,8 @@ side-token inventory off-book:
 
 ```python
 from decimal import Decimal
-from vibe_trader.adapters.hyperliquid import HyperliquidEnvironment
-from vibe_trader.adapters.hyperliquid import HyperliquidHttpClient
+from vibe_trading.adapters.hyperliquid import HyperliquidEnvironment
+from vibe_trading.adapters.hyperliquid import HyperliquidHttpClient
 
 client = HyperliquidHttpClient.from_env(HyperliquidEnvironment.MAINNET)
 
@@ -626,7 +626,7 @@ precision. `mantissa` is only valid when `nSigFigs=5` and accepts `1`, `2`, or
 `5`.
 
 ```python
-from vibe_trader.model import BookType
+from vibe_trading.model import BookType
 
 self.subscribe_book_deltas(
     instrument_id=instrument_id,
@@ -669,9 +669,9 @@ Subscribe from an actor or strategy with `DataType(HyperliquidAllMids.__name__)`
 For HIP-3 dex-specific streams, pass the venue dex in `metadata["dex"]`:
 
 ```python
-from vibe_trader.adapters.hyperliquid import HYPERLIQUID_CLIENT_ID
-from vibe_trader.adapters.hyperliquid import HyperliquidAllMids
-from vibe_trader.model import DataType
+from vibe_trading.adapters.hyperliquid import HYPERLIQUID_CLIENT_ID
+from vibe_trading.adapters.hyperliquid import HyperliquidAllMids
+from vibe_trading.model import DataType
 
 self.subscribe_data(
     data_type=DataType(HyperliquidAllMids.__name__, metadata={"dex": "hyperliquid"}),
@@ -691,9 +691,9 @@ in `metadata["instrument_id"]`:
 | `ts_init`       | `int`          | UNIX timestamp in nanoseconds when the object was built.                   |
 
 ```python
-from vibe_trader.adapters.hyperliquid import HYPERLIQUID_CLIENT_ID
-from vibe_trader.adapters.hyperliquid import HyperliquidOpenInterest
-from vibe_trader.model import DataType
+from vibe_trading.adapters.hyperliquid import HYPERLIQUID_CLIENT_ID
+from vibe_trading.adapters.hyperliquid import HyperliquidOpenInterest
+from vibe_trading.model import DataType
 
 self.subscribe_data(
     data_type=DataType(
@@ -715,9 +715,9 @@ public order-flow research. It has `instrument_id`, `price`, `size`,
 `ts_init`. Subscribe with the same canonical instrument metadata:
 
 ```python
-from vibe_trader.adapters.hyperliquid import HYPERLIQUID_CLIENT_ID
-from vibe_trader.adapters.hyperliquid import HyperliquidPublicTrade
-from vibe_trader.model import DataType
+from vibe_trading.adapters.hyperliquid import HYPERLIQUID_CLIENT_ID
+from vibe_trading.adapters.hyperliquid import HyperliquidPublicTrade
+from vibe_trading.model import DataType
 
 self.subscribe_data(
     data_type=DataType(
@@ -740,7 +740,7 @@ to `on_data` as the concrete custom data type itself:
 ```python
 from decimal import Decimal
 
-from vibe_trader.adapters.hyperliquid import HyperliquidOpenInterest
+from vibe_trading.adapters.hyperliquid import HyperliquidOpenInterest
 
 
 def on_data(self, data) -> None:
@@ -787,9 +787,9 @@ reconnect. A context-count mismatch for a dex logs a warning to reconnect;
 entries stay aligned positionally, which is correct for appended listings.
 
 ```python
-from vibe_trader.adapters.hyperliquid import HYPERLIQUID_CLIENT_ID
-from vibe_trader.adapters.hyperliquid import HyperliquidAllDexsAssetCtxs
-from vibe_trader.model import DataType
+from vibe_trading.adapters.hyperliquid import HYPERLIQUID_CLIENT_ID
+from vibe_trading.adapters.hyperliquid import HyperliquidAllDexsAssetCtxs
+from vibe_trading.model import DataType
 
 self.subscribe_data(
     data_type=DataType(HyperliquidAllDexsAssetCtxs.__name__),
@@ -953,7 +953,7 @@ unknown venue outcome do not carry this per-order evidence.
 :::
 
 :::info
-Orders placed outside VibeTrader (e.g. via the Hyperliquid web UI or another client)
+Orders placed outside VibeTrading (e.g. via the Hyperliquid web UI or another client)
 are detected and tracked as external orders. They appear in order status reports and position
 reconciliation.
 :::

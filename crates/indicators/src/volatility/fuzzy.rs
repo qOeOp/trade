@@ -17,13 +17,13 @@ use crate::indicator::Indicator;
         eq,
         eq_int,
         hash,
-        module = "vibe_trader.indicators",
+        module = "vibe_trading.indicators",
         from_py_object,
     )
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trader.indicators")
+    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trading.indicators")
 )]
 pub enum CandleBodySize {
     None = 0,
@@ -44,13 +44,13 @@ pub enum CandleBodySize {
         eq,
         eq_int,
         hash,
-        module = "vibe_trader.indicators",
+        module = "vibe_trading.indicators",
         from_py_object,
     )
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trader.indicators")
+    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trading.indicators")
 )]
 pub enum CandleDirection {
     Bull = 1,
@@ -69,13 +69,13 @@ pub enum CandleDirection {
         eq,
         eq_int,
         hash,
-        module = "vibe_trader.indicators",
+        module = "vibe_trading.indicators",
         from_py_object,
     )
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trader.indicators")
+    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trading.indicators")
 )]
 pub enum CandleSize {
     None = 0,
@@ -98,13 +98,13 @@ pub enum CandleSize {
         eq,
         eq_int,
         hash,
-        module = "vibe_trader.indicators",
+        module = "vibe_trading.indicators",
         from_py_object,
     )
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trader.indicators")
+    pyo3_stub_gen::derive::gen_stub_pyclass_enum(module = "vibe_trading.indicators")
 )]
 pub enum CandleWickSize {
     None = 0,
@@ -117,11 +117,11 @@ pub enum CandleWickSize {
 #[derive(Debug, Clone, Copy)]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.indicators", from_py_object)
+    pyo3::pyclass(module = "vibe_trading.indicators", from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.indicators")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.indicators")
 )]
 pub struct FuzzyCandle {
     pub direction: CandleDirection,
@@ -164,10 +164,10 @@ const MAX_CAPACITY: usize = 1024;
 
 #[repr(C)]
 #[derive(Debug)]
-#[cfg_attr(feature = "python", pyo3::pyclass(module = "vibe_trader.indicators"))]
+#[cfg_attr(feature = "python", pyo3::pyclass(module = "vibe_trading.indicators"))]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.indicators")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.indicators")
 )]
 pub struct FuzzyCandlesticks {
     pub period: usize,

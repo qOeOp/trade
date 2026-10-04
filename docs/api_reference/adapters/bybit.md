@@ -1,7 +1,7 @@
 # Bybit
 
 ```{eval-rst}
-.. automodule:: vibe_trader.adapters.bybit
+.. automodule:: vibe_trading.adapters.bybit
    :show-inheritance:
    :inherited-members:
    :members:

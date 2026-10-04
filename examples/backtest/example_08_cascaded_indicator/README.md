@@ -1,6 +1,6 @@
 # Example: Using cascaded technical indicators
 
-This example demonstrates how to use cascaded technical indicators in a **VibeTrader** strategy.
+This example demonstrates how to use cascaded technical indicators in a **VibeTrading** strategy.
 
 The example shows how to set up and use two Exponential Moving Average (EMA) indicators in a cascaded manner,
 where the second indicator (EMA-20) is calculated using values from the first indicator (EMA-10),

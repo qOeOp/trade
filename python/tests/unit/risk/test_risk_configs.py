@@ -2,7 +2,7 @@ from decimal import Decimal
 
 import pytest
 
-from vibe_trader.risk import RiskEngineConfig
+from vibe_trading.risk import RiskEngineConfig
 
 
 def test_risk_engine_config_defaults():

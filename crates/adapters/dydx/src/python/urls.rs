@@ -5,7 +5,7 @@ use pyo3::prelude::*;
 use crate::common::{enums::DydxNetwork, urls};
 
 #[pyfunction]
-#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trader.adapters.dydx")]
+#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trading.adapters.dydx")]
 #[pyo3(name = "get_dydx_grpc_urls")]
 #[must_use]
 pub fn py_get_dydx_grpc_urls(network: DydxNetwork) -> Vec<String> {
@@ -16,7 +16,7 @@ pub fn py_get_dydx_grpc_urls(network: DydxNetwork) -> Vec<String> {
 }
 
 #[pyfunction]
-#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trader.adapters.dydx")]
+#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trading.adapters.dydx")]
 #[pyo3(name = "get_dydx_grpc_url")]
 #[must_use]
 pub fn py_get_dydx_grpc_url(network: DydxNetwork) -> String {
@@ -24,7 +24,7 @@ pub fn py_get_dydx_grpc_url(network: DydxNetwork) -> String {
 }
 
 #[pyfunction]
-#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trader.adapters.dydx")]
+#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trading.adapters.dydx")]
 #[pyo3(name = "get_dydx_http_url")]
 #[must_use]
 pub fn py_get_dydx_http_url(network: DydxNetwork) -> String {
@@ -32,7 +32,7 @@ pub fn py_get_dydx_http_url(network: DydxNetwork) -> String {
 }
 
 #[pyfunction]
-#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trader.adapters.dydx")]
+#[pyo3_stub_gen::derive::gen_stub_pyfunction(module = "vibe_trading.adapters.dydx")]
 #[pyo3(name = "get_dydx_ws_url")]
 #[must_use]
 pub fn py_get_dydx_ws_url(network: DydxNetwork) -> String {

@@ -1,14 +1,14 @@
 import pytest
 
-from vibe_trader.core import VIBE_USER_AGENT
-from vibe_trader.core import VIBE_VERSION
-from vibe_trader.core import convert_to_snake_case
-from vibe_trader.core import mask_api_key
+from vibe_trading.core import VIBE_USER_AGENT
+from vibe_trading.core import VIBE_VERSION
+from vibe_trading.core import convert_to_snake_case
+from vibe_trading.core import mask_api_key
 
 
 def test_version_constants_are_consistent():
     assert VIBE_VERSION
-    assert f"VibeTrader/{VIBE_VERSION}" == VIBE_USER_AGENT
+    assert f"VibeTrading/{VIBE_VERSION}" == VIBE_USER_AGENT
 
 
 @pytest.mark.parametrize(

@@ -7,19 +7,19 @@ Subscribes to bars, tracks fast/slow EMA, and submits market orders on crossover
 
 from __future__ import annotations
 
-from vibe_trader.core import UUID4
-from vibe_trader.model import Bar
-from vibe_trader.model import BarType
-from vibe_trader.model import ClientOrderId
-from vibe_trader.model import ContingencyType
-from vibe_trader.model import InstrumentId
-from vibe_trader.model import MarketOrder
-from vibe_trader.model import OrderSide
-from vibe_trader.model import PositionSide
-from vibe_trader.model import Quantity
-from vibe_trader.model import TimeInForce
-from vibe_trader.trading import Strategy
-from vibe_trader.trading import StrategyConfig
+from vibe_trading.core import UUID4
+from vibe_trading.model import Bar
+from vibe_trading.model import BarType
+from vibe_trading.model import ClientOrderId
+from vibe_trading.model import ContingencyType
+from vibe_trading.model import InstrumentId
+from vibe_trading.model import MarketOrder
+from vibe_trading.model import OrderSide
+from vibe_trading.model import PositionSide
+from vibe_trading.model import Quantity
+from vibe_trading.model import TimeInForce
+from vibe_trading.trading import Strategy
+from vibe_trading.trading import StrategyConfig
 
 
 class EMACrossConfig(StrategyConfig):

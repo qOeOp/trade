@@ -16,8 +16,8 @@ use vibe_model::{
 use crate::backend::catalog::ParquetDataCatalog;
 
 /// A catalog for writing data to Parquet files.
-#[pyclass(name = "ParquetDataCatalog", module = "vibe_trader.persistence")]
-#[pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.persistence")]
+#[pyclass(name = "ParquetDataCatalog", module = "vibe_trading.persistence")]
+#[pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.persistence")]
 pub struct PyParquetDataCatalog {
     inner: ParquetDataCatalog,
 }

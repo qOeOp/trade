@@ -2,7 +2,7 @@
 
 ## Introduction
 
-VibeTrader is an open‑source, production‑grade, Rust‑native engine for multi‑asset,
+VibeTrading is an open‑source, production‑grade, Rust‑native engine for multi‑asset,
 multi‑venue trading systems.
 
 The system spans research, deterministic simulation, and live execution within a single
@@ -18,7 +18,7 @@ live systems. Strategies deploy from research to production with no code changes
 providing research‑to‑live parity and reducing the divergence that typically introduces
 deployment risk.
 
-VibeTrader is asset‑class‑agnostic. Any venue with a REST API or WebSocket feed can be
+VibeTrading is asset‑class‑agnostic. Any venue with a REST API or WebSocket feed can be
 integrated through modular adapters. Integrations span centralized and decentralized crypto
 exchanges (CEX and DEX), foreign exchange (FX), equities, futures, options, and betting exchanges.
 
@@ -42,13 +42,13 @@ exchanges (CEX and DEX), foreign exchange (FX), equities, futures, options, and 
 - **AI training**: High‑throughput simulation supports workloads such as training AI trading agents
   with reinforcement learning (RL) or evolutionary strategies (ES).
 
-## Why VibeTrader?
+## Why VibeTrading?
 
 Trading strategy research typically happens in Python using vectorized approaches, while
 production trading systems are built separately using event‑driven architectures in
 compiled languages.
 
-VibeTrader removes this separation.
+VibeTrading removes this separation.
 
 A Rust‑native core provides a deterministic event‑driven runtime for both research and live
 execution, while Python serves as the control plane. The same architecture, execution
@@ -60,13 +60,13 @@ official prebuilt Python wheel does not require a Rust toolchain.
 
 ## Use cases
 
-VibeTrader supports three main use cases:
+VibeTrading supports three main use cases:
 
 - Backtest trading systems on historical data (`backtest`).
 - Simulate trading systems with real‑time data and virtual execution (`sandbox`).
 - Deploy trading systems live on real or paper accounts (`live`).
 
-VibeTrader provides backtest and live node implementations for both Python and Rust.
+VibeTrading provides backtest and live node implementations for both Python and Rust.
 The sandbox adapter supplies simulated execution for a `sandbox` environment.
 
 :::note
@@ -113,7 +113,7 @@ plus [orders](orders/) and [positions](positions.md) that aggregate events to de
 
 ## Timestamps
 
-VibeTrader represents system timestamps as UNIX nanoseconds. Its standard ISO 8601
+VibeTrading represents system timestamps as UNIX nanoseconds. Its standard ISO 8601
 (RFC 3339) formatter uses UTC and preserves all nine fractional digits. A millisecond formatter
 preserves three fractional digits for selected displays, such as good‑till‑date (GTD) expiry times.
 
@@ -149,7 +149,7 @@ For the complete specification, see
 
 ## Data types
 
-VibeTrader defines the following built‑in market and reference data types. Availability for
+VibeTrading defines the following built‑in market and reference data types. Availability for
 historical requests and live subscriptions depends on the provider and adapter. See
 [Data](data/index.md) for their fields and behavior.
 

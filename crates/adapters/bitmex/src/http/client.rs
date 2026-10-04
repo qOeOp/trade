@@ -26,7 +26,7 @@ use ustr::Ustr;
 use vibe_common::cache::InstrumentLookupError;
 use vibe_core::{
     AtomicMap, AtomicTime, UUID4, UnixNanos,
-    consts::{VIBE_TRADER, VIBE_USER_AGENT},
+    consts::{VIBE_TRADING, VIBE_USER_AGENT},
     env::get_or_env_var_opt,
     time::get_atomic_clock_realtime,
 };
@@ -865,11 +865,11 @@ impl BitmexRawHttpClient {
 #[derive(Debug)]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.adapters.bitmex", from_py_object)
+    pyo3::pyclass(module = "vibe_trading.adapters.bitmex", from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.adapters.bitmex")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.adapters.bitmex")
 )]
 pub struct BitmexHttpClient {
     pub(crate) instruments_cache: Arc<AtomicMap<Ustr, InstrumentAny>>,
@@ -1667,7 +1667,7 @@ impl BitmexHttpClient {
         let instrument = self.instrument_from_cache(instrument_id.symbol.inner())?;
 
         let mut params = super::query::PostOrderParamsBuilder::default();
-        params.text(VIBE_TRADER);
+        params.text(VIBE_TRADING);
         params.symbol(instrument_id.symbol.as_str());
         params.cl_ord_id(client_order_id.as_str());
 
@@ -1812,7 +1812,7 @@ impl BitmexHttpClient {
         venue_order_id: Option<VenueOrderId>,
     ) -> anyhow::Result<OrderStatusReport> {
         let mut params = super::query::DeleteOrderParamsBuilder::default();
-        params.text(VIBE_TRADER);
+        params.text(VIBE_TRADING);
 
         if let Some(venue_order_id) = venue_order_id {
             params.order_id(vec![venue_order_id.as_str().to_string()]);
@@ -1852,7 +1852,7 @@ impl BitmexHttpClient {
         venue_order_ids: Option<Vec<VenueOrderId>>,
     ) -> anyhow::Result<Vec<OrderStatusReport>> {
         let mut params = super::query::DeleteOrderParamsBuilder::default();
-        params.text(VIBE_TRADER);
+        params.text(VIBE_TRADING);
 
         // BitMEX API requires either client order IDs or venue order IDs, not both
         // Prioritize venue order IDs if both are provided
@@ -1918,7 +1918,7 @@ impl BitmexHttpClient {
         order_side: Option<OrderSide>,
     ) -> anyhow::Result<Vec<OrderStatusReport>> {
         let mut params = DeleteAllOrdersParamsBuilder::default();
-        params.text(VIBE_TRADER);
+        params.text(VIBE_TRADING);
         params.symbol(instrument_id.symbol.as_str());
 
         if let Some(side) = order_side {
@@ -1979,7 +1979,7 @@ impl BitmexHttpClient {
         trigger_price: Option<Price>,
     ) -> anyhow::Result<OrderStatusReport> {
         let mut params = PutOrderParamsBuilder::default();
-        params.text(VIBE_TRADER);
+        params.text(VIBE_TRADING);
 
         // Set order ID - prefer venue_order_id if available
         if let Some(venue_order_id) = venue_order_id {

@@ -1,6 +1,6 @@
 # Databento
 
-VibeTrader 包含适用于 [Databento](https://databento.com/) API 和
+VibeTrading 包含适用于 [Databento](https://databento.com/) API 和
 [Databento Binary Encoding（DBN）](https://databento.com/docs/standards-and-conventions/databento-binary-encoding)
 数据的适配器。Databento 只提供市场数据。适配器不含执行客户端，但可与沙盒配合进行模拟执行。
 也可以将 Databento 数据与 Interactive Brokers 执行匹配，或计算传统资产类别信号用于加密货币交易。
@@ -68,7 +68,7 @@ Databento Binary Encoding（DBN）是一种适用于标准化市场数据的快�
 
 ## 支持的数据模式
 
-VibeTrader 支持以下 Databento 数据模式：
+VibeTrading 支持以下 Databento 数据模式：
 
 | Databento 数据模式                                                           | Vibe 数据类型                    | 说明                        |
 | :--------------------------------------------------------------------------- | :------------------------------- | :-------------------------- |
@@ -201,10 +201,10 @@ Vibe 订阅方法按下表映射到 Databento 数据模式：
 以下示例假定处于 `Strategy` 或 `DataActor` 上下文，且 `self` 具有订阅方法。导入所需类型：
 
 ```python
-from vibe_trader.model import BarType
-from vibe_trader.model import BookType
-from vibe_trader.model import ClientId
-from vibe_trader.model import InstrumentId
+from vibe_trading.model import BarType
+from vibe_trading.model import BookType
+from vibe_trading.model import ClientId
+from vibe_trading.model import InstrumentId
 
 
 DATABENTO_CLIENT_ID = ClientId.from_str("DATABENTO")
@@ -271,7 +271,7 @@ self.subscribe_trades(
 ### 订单簿深度订阅（MBP 和 L2）
 
 ```python
-from vibe_trader.model import BookType
+from vibe_trading.model import BookType
 
 
 # Subscribe to top 10 levels of market depth
@@ -317,10 +317,10 @@ self.subscribe_bars(bar_type=BarType.from_str(f"{instrument_id}-1-DAY-LAST-EXTER
 Imbalance 和 statistics 数据需要通用 `subscribe_data` 方法：
 
 ```python
-from vibe_trader.adapters.databento import DatabentoImbalance
-from vibe_trader.adapters.databento import DatabentoStatistics
-from vibe_trader.model import ClientId
-from vibe_trader.model import DataType
+from vibe_trading.adapters.databento import DatabentoImbalance
+from vibe_trading.adapters.databento import DatabentoStatistics
+from vibe_trading.model import ClientId
+from vibe_trading.model import DataType
 
 
 DATABENTO_CLIENT_ID = ClientId.from_str("DATABENTO")
@@ -534,14 +534,14 @@ K 线**收盘**时间：原始 `ts_event` 加上周期。如果未提供显式�
 `imbalance` 和 `statistics` 数据模式没有内置 Vibe 对应类型。适配器在 Rust 中定义了
 `DatabentoImbalance` 和 `DatabentoStatistics`。
 
-Python 绑定直接从 `vibe_trader.adapters.databento` 公开这些类型。
+Python 绑定直接从 `vibe_trading.adapters.databento` 公开这些类型。
 
 请求和订阅这些类型需要通用 `subscribe_data` 方法。为 `AAPL.XNAS` 订阅 `imbalance`：
 
 ```python
-from vibe_trader.adapters.databento import DatabentoImbalance
-from vibe_trader.model import ClientId
-from vibe_trader.model import DataType
+from vibe_trading.adapters.databento import DatabentoImbalance
+from vibe_trading.model import ClientId
+from vibe_trading.model import DataType
 
 
 DATABENTO_CLIENT_ID = ClientId.from_str("DATABENTO")
@@ -558,9 +558,9 @@ self.subscribe_data(
 [`metadata.get_cost`](https://databento.com/docs/api-reference-historical/metadata/metadata-get-cost)端点：
 
 ```python
-from vibe_trader.adapters.databento import DatabentoStatistics
-from vibe_trader.model import ClientId
-from vibe_trader.model import DataType
+from vibe_trading.adapters.databento import DatabentoStatistics
+from vibe_trading.model import ClientId
+from vibe_trading.model import DataType
 
 
 DATABENTO_CLIENT_ID = ClientId.from_str("DATABENTO")
@@ -584,9 +584,9 @@ self.request_data(
 #### 写入目录
 
 ```python
-from vibe_trader.adapters.databento import DatabentoDataLoader
-from vibe_trader.model import InstrumentId
-from vibe_trader.persistence import ParquetDataCatalog
+from vibe_trading.adapters.databento import DatabentoDataLoader
+from vibe_trading.model import InstrumentId
+from vibe_trading.persistence import ParquetDataCatalog
 
 catalog = ParquetDataCatalog.from_env()
 loader = DatabentoDataLoader()
@@ -602,7 +602,7 @@ catalog.write_data(imbalances)
 #### 从目录读取
 
 ```python
-from vibe_trader.adapters.databento import DatabentoImbalance
+from vibe_trading.adapters.databento import DatabentoImbalance
 
 results = catalog.query(DatabentoImbalance, identifiers=["AAPL.XNAS"])
 
@@ -661,8 +661,8 @@ DBN 解码器经过 Rust 优化，但一次性写入目录可获得最佳回测�
 如果运行可执行文件旁没有发布方元数据文件，请传入该文件：
 
 ```python
-from vibe_trader.adapters.databento import DatabentoDataLoader
-from vibe_trader.model import InstrumentId
+from vibe_trading.adapters.databento import DatabentoDataLoader
+from vibe_trading.model import InstrumentId
 
 
 loader = DatabentoDataLoader(publishers_filepath="publishers.json")
@@ -680,7 +680,7 @@ trades = loader.load_trades(
 写入 `ParquetDataCatalog` 时，请先加载定义数据，再加载市场数据：
 
 ```python
-from vibe_trader.persistence import ParquetDataCatalog
+from vibe_trading.persistence import ParquetDataCatalog
 
 
 catalog = ParquetDataCatalog.from_env()
@@ -725,7 +725,7 @@ K 线加载器还接受 `timestamp_on_close`。
 import os
 from pathlib import Path
 
-from vibe_trader.adapters.databento import DatabentoLiveClientConfig
+from vibe_trading.adapters.databento import DatabentoLiveClientConfig
 
 
 config = DatabentoLiveClientConfig(

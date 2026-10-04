@@ -1,4 +1,4 @@
-import vibe_trader.network as network
+import vibe_trading.network as network
 
 
 def test_network_exposes_transport_backend_config_only() -> None:

@@ -70,11 +70,11 @@ impl IdentityClass {
 #[derive(Debug, Serialize)]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(module = "vibe_trader.backtest", skip_from_py_object)
+    pyo3::pyclass(module = "vibe_trading.backtest", skip_from_py_object)
 )]
 #[cfg_attr(
     feature = "python",
-    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.backtest")
+    pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.backtest")
 )]
 pub struct BacktestResult {
     pub trader_id: String,
@@ -163,7 +163,7 @@ impl CanonicalBacktestResult {
     /// Decodes canonical result bytes and verifies their envelope, normalization, and exact
     /// encoding.
     ///
-    /// Inner records retain their VibeTrader model serialization and are compared as semantic
+    /// Inner records retain their VibeTrading model serialization and are compared as semantic
     /// content. Producers must use the version 1 writer rather than construct records independently.
     ///
     /// # Errors

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 from enum import IntEnum  # IntEnum is used to create enumerated types with integer values
 
-from vibe_trader.core.fsm import FiniteStateMachine
-from vibe_trader.core.fsm import InvalidStateTrigger
+from vibe_trading.core.fsm import FiniteStateMachine
+from vibe_trading.core.fsm import InvalidStateTrigger
 
 
 if __name__ == "__main__":

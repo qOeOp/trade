@@ -1,7 +1,7 @@
 # BitMEX
 
 ```{eval-rst}
-.. automodule:: vibe_trader.adapters.bitmex
+.. automodule:: vibe_trading.adapters.bitmex
    :show-inheritance:
    :inherited-members:
    :members:

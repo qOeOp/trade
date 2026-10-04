@@ -10,7 +10,7 @@ Rust API 正在积极开发中，各版本之间的方法签名和 trait 要求�
 
 Vibe 有三种实现。了解各自的现状，有助于为具体用例选择合适路径。
 
-- **v1 legacy**：`vibe_trader/` 下的 Cython/Python 类。功能最完整，组件覆盖范围最广。
+- **v1 legacy**：`vibe_trading/` 下的 Cython/Python 类。功能最完整，组件覆盖范围最广。
 - **v2 Rust**：`crates/` 下的纯 Rust 实现，无需 Python 即可运行。
 - **v2 PyO3**：通过 PyO3 绑定，让 Python 用户组件（参与者、策略）运行在 Rust 核心上，兼具 Python 的便利性和 Rust 引擎的性能。
 
@@ -304,7 +304,7 @@ node.run().await?;
 向 `add_builtin_strategy` 传入类型名称和配置，即可从 Python 注册内置示例策略。该路径旨在让 Rust 和 Python 的文档、示例及测试共用同一份内置示例策略代码，不是添加原生策略的正式扩展路径。自定义原生组件应使用纯 Rust。
 
 ```python
-from vibe_trader.trading import GridMarketMakerConfig
+from vibe_trading.trading import GridMarketMakerConfig
 
 config = GridMarketMakerConfig(
     instrument_id=InstrumentId.from_str("BTC-USDT-SWAP.OKX"),

@@ -57,7 +57,7 @@ flowchart LR
 ## 先决条件
 
 - 可用的 Rust 工具链（[rustup.rs](https://rustup.rs)）。
-- 已克隆并能成功构建的 VibeTrader 仓库。
+- 已克隆并能成功构建的 VibeTrading 仓库。
 - 一个包含 MCM（Market Change Message，市场变更消息）数据的 Betfair 历史 `.gz` 文件。可从 [Betfair 历史数据](https://historicdata.betfair.com/)获取、使用第三方存档，或自行录制 Exchange Streaming API 数据。
 
 将文件放置在：
@@ -133,7 +133,7 @@ for item in items {
 
 ## Actor
 
-VibeTrader 在 trading crate 的 examples 模块中提供了 `BookImbalanceActor`。示例为它配置每个参赛者的金融工具列表和日志间隔：
+VibeTrading 在 trading crate 的 examples 模块中提供了 `BookImbalanceActor`。示例为它配置每个参赛者的金融工具列表和日志间隔：
 
 ```rust
 use vibe_trading::examples::actors::BookImbalanceActor;

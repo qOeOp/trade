@@ -10,7 +10,7 @@ version and generated package module paths.**
 
 `pyo3-stub-gen` stays pinned to `0.20.0` because later versions reject module paths outside the
 `pymodule` root. The stub workflow reads `gen_stub_*` module annotations that target
-`vibe_trader` package paths outside the `vibe_trader._libvibe` root.
+`vibe_trading` package paths outside the `vibe_trading._libvibe` root.
 
 The crate is licensed as `MIT OR Apache-2.0`. The local copy includes the upstream `LICENSE-MIT`
 and `LICENSE-APACHE` texts from `Jij-Inc/pyo3-stub-gen`.

@@ -1,6 +1,6 @@
 # Adapters and integrations
 
-In-tree adapters translate venue or provider protocols into the shared Vibe Trader data and
+In-tree adapters translate venue or provider protocols into the shared Vibe Trading data and
 execution contracts. The engine owns normalized domain behavior; each adapter owns transport,
 authentication, venue-specific parsing, and client wiring.
 

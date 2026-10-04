@@ -1,13 +1,13 @@
 import pytest
 
-from vibe_trader.common import CacheConfig
-from vibe_trader.common import DataActorConfig
-from vibe_trader.common import FileWriterConfig
-from vibe_trader.common import ImportableActorConfig
-from vibe_trader.common import LoggerConfig
-from vibe_trader.common import LogLevel
-from vibe_trader.common import MessageBusConfig
-from vibe_trader.model import ActorId
+from vibe_trading.common import CacheConfig
+from vibe_trading.common import DataActorConfig
+from vibe_trading.common import FileWriterConfig
+from vibe_trading.common import ImportableActorConfig
+from vibe_trading.common import LoggerConfig
+from vibe_trading.common import LogLevel
+from vibe_trading.common import MessageBusConfig
+from vibe_trading.model import ActorId
 
 
 def test_cache_config_defaults():

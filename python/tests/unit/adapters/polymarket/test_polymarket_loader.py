@@ -11,8 +11,8 @@ from urllib.parse import urlparse
 
 import pytest
 
-from vibe_trader.adapters.polymarket import PolymarketDataLoader
-from vibe_trader.model import BinaryOption
+from vibe_trading.adapters.polymarket import PolymarketDataLoader
+from vibe_trading.model import BinaryOption
 
 
 CONDITION_ID = "0xcondition"

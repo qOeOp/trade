@@ -1,14 +1,14 @@
 # vibe-persistence
 
-Data persistence and storage for [VibeTrader](https://github.com/qOeOp/trade).
+Data persistence and storage for [VibeTrading](https://github.com/qOeOp/trade).
 
 The `vibe-persistence` crate provides data persistence capabilities including reading and writing
 trading data to various storage backends. This includes Apache Parquet file support, streaming data
 pipelines, and cloud storage integration for historical data management.
 
-## VibeTrader
+## VibeTrading
 
-[VibeTrader](https://github.com/qOeOp/trade) is a Rust-native
+[VibeTrading](https://github.com/qOeOp/trade) is a Rust-native
 engine for multi-asset, multi-venue trading systems.
 
 The system spans research, deterministic simulation, and live execution within a single

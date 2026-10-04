@@ -1,6 +1,6 @@
 # Benchmarking
 
-VibeTrader is performance-sensitive software. This document describes
+VibeTrading is performance-sensitive software. This document describes
 how the project approaches benchmarking: what we measure, why, when, and
 with what tools. It is intended for contributors and reviewers who need to
 understand the policy before writing or evaluating performance work.
@@ -134,7 +134,7 @@ measures end‑user PyO3 API cost not visible in a pure‑Rust bench.
 
 No canonical Python performance suite is wired into CI, so the nightly workflow
 runs only Rust benches. Before wiring a Python benchmark into nightly CI, prove
-that it exercises the `vibe_trader` package built from `python/pyproject.toml`,
+that it exercises the `vibe_trading` package built from `python/pyproject.toml`,
 then add its suite path and runner command in the same change.
 
 ---

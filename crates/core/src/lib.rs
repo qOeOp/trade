@@ -1,7 +1,7 @@
-//! Core foundational types and utilities for [VibeTrader](https://github.com/qOeOp/trade).
+//! Core foundational types and utilities for [VibeTrading](https://github.com/qOeOp/trade).
 //!
 //! The `vibe-core` crate is designed to be lightweight, efficient, and to provide zero-cost abstractions
-//! wherever possible. It supplies the essential building blocks used across the VibeTrader
+//! wherever possible. It supplies the essential building blocks used across the VibeTrading
 //! ecosystem, including:
 //!
 //! - Time handling and atomic clock functionality.
@@ -12,9 +12,9 @@
 //! - Cross-platform environment utilities.
 //! - Abstractions over common collections.
 //!
-//! # VibeTrader
+//! # VibeTrading
 //!
-//! [VibeTrader](https://github.com/qOeOp/trade) is a Rust-native
+//! [VibeTrading](https://github.com/qOeOp/trade) is a Rust-native
 //! engine for multi-asset, multi-venue trading systems.
 //!
 //! The system spans research, deterministic simulation, and live execution within a single
@@ -24,7 +24,7 @@
 //!
 //! This crate provides feature flags to control source code inclusion during compilation,
 //! depending on the intended use case, i.e. whether to provide Python bindings
-//! for the `vibe_trader` Python package,
+//! for the `vibe_trading` Python package,
 //! or as part of a Rust only build.
 //!
 //! - `ffi`: Enables the C foreign function interface (FFI) from [cbindgen](https://github.com/mozilla/cbindgen).

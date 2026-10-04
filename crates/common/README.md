@@ -1,14 +1,14 @@
 # vibe-common
 
-Common componentry for [VibeTrader](https://github.com/qOeOp/trade).
+Common componentry for [VibeTrading](https://github.com/qOeOp/trade).
 
 The `vibe-common` crate provides shared components and utilities that form the system foundation for
-VibeTrader applications. This includes the actor system, message bus, caching layer, and other
+VibeTrading applications. This includes the actor system, message bus, caching layer, and other
 essential services.
 
-## VibeTrader
+## VibeTrading
 
-[VibeTrader](https://github.com/qOeOp/trade) is a Rust-native
+[VibeTrading](https://github.com/qOeOp/trade) is a Rust-native
 engine for multi-asset, multi-venue trading systems.
 
 The system spans research, deterministic simulation, and live execution within a single

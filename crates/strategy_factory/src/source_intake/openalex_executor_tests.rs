@@ -194,7 +194,7 @@ async fn fixed_origin_path_and_one_shot_request_are_exact() {
     assert!(!requests[0].url.contains('?'));
     assert_eq!(requests[0].resolved_addresses, vec![socket(PUBLIC_A)]);
     assert_eq!(requests[0].accept, "application/json");
-    assert_eq!(requests[0].user_agent, "vibe-trader-source-intake-v1");
+    assert_eq!(requests[0].user_agent, "vibe-trading-source-intake-v1");
     assert_eq!(requests[0].timeout_ms, openalex_http::TIMEOUT_MS);
     assert_eq!(requests[0].byte_limit, MAX_RESPONSE_BYTES);
     assert_eq!(readback.terminal, Some(AcquisitionTerminalV1::Retrieved));

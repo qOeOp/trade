@@ -13,7 +13,7 @@ use crate::execution::encoder::ClientOrderIdEncoder;
 /// Provides bidirectional encoding of Vibe ClientOrderId strings to
 /// dYdX's (client_id, client_metadata) u32 pair.
 #[pyclass(name = "DydxClientOrderIdEncoder")]
-#[pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.adapters.dydx")]
+#[pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.adapters.dydx")]
 #[derive(Debug)]
 pub struct PyDydxClientOrderIdEncoder {
     inner: Arc<ClientOrderIdEncoder>,

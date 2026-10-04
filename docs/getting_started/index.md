@@ -43,7 +43,7 @@ order book imbalance, grid market making) once the engine mechanics are clear.
 
 ## Backtesting API levels
 
-VibeTrader provides two API levels for backtesting:
+VibeTrading provides two API levels for backtesting:
 
 | API level                             | Entry point      | Best for                                                              |
 | :------------------------------------ | :--------------- | :-------------------------------------------------------------------- |

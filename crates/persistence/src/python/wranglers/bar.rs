@@ -7,7 +7,7 @@ use vibe_model::data::bar::{Bar, BarType};
 use vibe_serialization::arrow::DecodeFromRecordBatch;
 
 #[pyclass]
-#[pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trader.persistence")]
+#[pyo3_stub_gen::derive::gen_stub_pyclass(module = "vibe_trading.persistence")]
 pub struct BarDataWrangler {
     bar_type: BarType,
     price_precision: u8,

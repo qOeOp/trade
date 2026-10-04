@@ -154,7 +154,7 @@ Pass the config to `add_builtin_strategy` on a `LiveNode` or
 runs entirely in Rust.
 
 ```python
-from vibe_trader.trading import DeltaNeutralVolConfig
+from vibe_trading.trading import DeltaNeutralVolConfig
 
 config = DeltaNeutralVolConfig(
     option_family="BTC-USD",

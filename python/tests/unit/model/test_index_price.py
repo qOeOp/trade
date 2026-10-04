@@ -1,13 +1,13 @@
-from vibe_trader.model import IndexPriceUpdate
-from vibe_trader.model import InstrumentId
-from vibe_trader.model import Price
+from vibe_trading.model import IndexPriceUpdate
+from vibe_trading.model import InstrumentId
+from vibe_trading.model import Price
 
 
 BTCUSDT_BINANCE = InstrumentId.from_str("BTCUSDT.BINANCE")
 
 
 def test_fully_qualified_name():
-    assert IndexPriceUpdate.fully_qualified_name() == "vibe_trader.model:IndexPriceUpdate"
+    assert IndexPriceUpdate.fully_qualified_name() == "vibe_trading.model:IndexPriceUpdate"
 
 
 def test_hash_str_and_repr():
