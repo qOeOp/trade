@@ -544,7 +544,9 @@ impl NativeReplayInitialMarketRequestV1 {
     /// [`NativeReplaySchedulingErrorV1::MoreThanOneRoleTimeframe`] when a BAR role reads another
     /// label.
     pub fn execution_timeframe(&self) -> Result<&str, NativeReplaySchedulingErrorV1> {
-        use super::declared_bar_timeframe_v1::execution_role_semantic_id_v1;
+        use super::declared_bar_timeframe_v1::{
+            ExecutionWindowErrorV1, execution_role_semantic_id_v1,
+        };
 
         let identities = self
             .roles
@@ -560,14 +562,29 @@ impl NativeReplayInitialMarketRequestV1 {
                 )
             })
             .collect::<Vec<_>>();
-        let execution = execution_role_semantic_id_v1(
+        let execution = match execution_role_semantic_id_v1(
             identities
                 .iter()
                 .zip(&self.roles)
                 .map(|(identity, role)| (identity.as_str(), role.field_semantic.identity())),
             std::iter::empty(),
-        )
-        .map_err(|_| NativeReplaySchedulingErrorV1::ExecutionRoleAmbiguous)?
+        ) {
+            Ok(execution) => execution,
+            Err(ExecutionWindowErrorV1::ExecutionRoleAmbiguous) => {
+                return Err(NativeReplaySchedulingErrorV1::ExecutionRoleAmbiguous);
+            }
+            // Neither reads a Design's roles: a join-triggered or no-join execution role never
+            // declares a bar or claims an R0 window itself, so this call never produces them. The
+            // match is still exhaustive, so a third cause `execution_role_semantic_id_v1` gains
+            // for `ExecutionRoleAmbiguous` must be named here rather than silently absorbed into
+            // it by a bare `.map_err(|_| ...)`.
+            Err(ExecutionWindowErrorV1::ExecutionTimeframeNotDeclared) => {
+                return Err(NativeReplaySchedulingErrorV1::ExecutionRoleAmbiguous);
+            }
+            Err(ExecutionWindowErrorV1::ExecutionBarExceedsR0Window) => {
+                return Err(NativeReplaySchedulingErrorV1::ExecutionRoleAmbiguous);
+            }
+        }
         .ok_or(NativeReplaySchedulingErrorV1::ExecutionRoleAbsent)?;
         let label = identities
             .iter()
@@ -1270,6 +1287,11 @@ impl NativeReplayCustodyFrameReadbackV1 {
     #[must_use]
     pub const fn source(&self) -> PitObservationBatchSourceV1 {
         self.view.source()
+    }
+
+    #[cfg(test)]
+    pub(crate) const fn quote_cut_for_test(&self) -> &VerifiedPitObservationBatch {
+        &self.quote_cut
     }
 
     /// Converts the frame into its universe frame and its native scheduling capability.

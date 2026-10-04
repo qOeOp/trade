@@ -30,7 +30,7 @@ use crate::owner::{
     },
     pit_window_custody_v1::{
         PitObservationBatchSourceV1,
-        quote_cut::{CustodyQuoteCutRequestV1, custody_quote_cut_bound_v1},
+        quote_cut::{CustodyQuoteCutRequestV1, FillBarCandidateV1, custody_quote_cut_bound_v1},
     },
     store_admission::PitWindowCustodyReadPortV1,
 };
@@ -111,6 +111,15 @@ where
         request.window_end_ns_exclusive(),
     )
     .ok_or(NativeReplaySchedulingErrorV1::OwnerBindingMismatch)?;
+    let fill_candidates = view
+        .fill_candidates
+        .iter()
+        .map(|candidate| FillBarCandidateV1 {
+            version_identity: candidate.version_identity,
+            open_ns: candidate.open_ns,
+            rows: candidate.rows.clone(),
+        })
+        .collect();
     let quote_cut = quote_cut(
         &batch,
         &CustodyQuoteCutRequestV1 {
@@ -121,6 +130,7 @@ where
             bound_ns_exclusive,
             members: root.members.clone(),
             fill_timeframe: root.fill.clone(),
+            fill_candidates,
         },
     )
     .map_err(native_replay_scheduling_error_of_quote_cut_refusal)?;

@@ -48,12 +48,12 @@ use crate::owner::{
         InstrumentMasterReadbackV1, InstrumentMasterScopeV1, UntrustedInstrumentMasterRequestV1,
         authority::{ObservationClockV1, observable_at, select_facts_observed},
     },
-    pit_snapshot::custody_view::StoredViewRowV1,
+    pit_snapshot::custody_view::{FillBarRowV1, StoredViewRowV1, verify_fill_bar_rows_v1},
     pit_window_custody_v1::{
-        PitWindowCustodyCommitV1, PitWindowCustodyReceiptV1, PitWindowCustodyRefusalV1,
-        PitWindowFrameCoordinateV1, PitWindowRunFramesV1, PitWindowRunRefusalV1,
-        UntrustedPitWindowCustodyFrameV1, UntrustedPitWindowCustodyRequestV1,
-        UntrustedPitWindowRunV1,
+        CrossSectionVersionKindV1, PitWindowCustodyCommitV1, PitWindowCustodyReceiptV1,
+        PitWindowCustodyRefusalV1, PitWindowFrameCoordinateV1, PitWindowRunFramesV1,
+        PitWindowRunRefusalV1, UntrustedPitWindowCustodyFrameV1,
+        UntrustedPitWindowCustodyRequestV1, UntrustedPitWindowRunV1,
         authority::{
             ChainPositionV1, CustodyBindingV1, CustodyFactSpanV1, CustodyInputsV1,
             CustodyInstrumentV1, CustodyMemberFactV1, CustodyMembershipV1, CustodyMintingClockV1,
@@ -73,14 +73,15 @@ use crate::owner::{
             issue_instrument_master_chain_link_v1, issue_market_semantics_chain_fact_v1,
             issue_market_semantics_chain_registry_entry_v1, issue_r0_chain_record_v1,
         },
+        quote_cut::FILL_BAR_INTERVAL_NS_V1,
         schedule::{
             PitWindowScheduleFactV1, decode_window_schedule_v1, mint_window_schedules_v1,
             window_schedule_admits_frame_v1,
         },
         sealed,
         view::{
-            ChainVersionV1, ViewRefusalV1, ViewSelectionV1, ViewTimeframesV1, cross_sections_v1,
-            enumerate_run_frames_v1, select_view_v1,
+            ChainVersionV1, CrossSectionsV1, ViewRefusalV1, ViewSelectionV1, ViewTimeframesV1,
+            cross_sections_v1, enumerate_run_frames_v1, select_view_v1,
         },
     },
     sample_fact::v2::{
@@ -1937,14 +1938,66 @@ pub(crate) struct ResolvedPitWindowViewV1 {
     pub(crate) rows: Vec<StoredViewRowV1>,
     /// The window schedules, in member order.
     pub(crate) schedules: Vec<PitWindowScheduleFactV1>,
+    /// Every fill-timeframe bar whose open lies in the gap after this frame, ascending by open,
+    /// verified against the custody record (T0-6). Never selected as a view input.
+    pub(crate) fill_candidates: Vec<ResolvedFillCandidateV1>,
+}
+
+/// One fill-timeframe bar read and verified for the gap's quote cut.
+#[derive(Clone, Debug)]
+pub(crate) struct ResolvedFillCandidateV1 {
+    pub(crate) version_identity: BindingDigest,
+    /// The bar's open: its declaration's labeled instant, the fill timeframe's `event_ns`.
+    pub(crate) open_ns: u64,
+    pub(crate) rows: Vec<FillBarRowV1>,
+}
+
+/// The custody's fill-timeframe cross-sections whose open (`event_ns`, the fill declaration's
+/// labeled instant) lies in `(decision_cut_ns, next_event_ns)`, ascending by open: the latest
+/// non-withdrawn version of each. A custody with no fill timeframe has none. Candidates for the
+/// gap's quote cut (T0-6); the caller still reads and verifies each one's rows.
+fn fill_candidate_versions_v1(
+    sections: &CrossSectionsV1,
+    fill_identity: Option<BindingDigest>,
+    decision_cut_ns: u64,
+    next_event_ns: u64,
+) -> Vec<ChainVersionV1> {
+    let Some(fill_identity) = fill_identity else {
+        return Vec::new();
+    };
+    let mut candidates = sections
+        .events_of(fill_identity)
+        .filter_map(|(event_ns, chain)| {
+            let open_ns = event_ns.checked_sub(FILL_BAR_INTERVAL_NS_V1)?;
+
+            if open_ns <= decision_cut_ns || open_ns >= next_event_ns {
+                return None;
+            }
+            chain
+                .iter()
+                .filter(|version| version.kind != CrossSectionVersionKindV1::Withdrawal)
+                .max_by_key(|version| version.correction_sequence)
+                .cloned()
+        })
+        .collect::<Vec<_>>();
+    candidates.sort_by_key(|version| version.event_ns);
+    candidates
 }
 
 /// The selection of `frame`'s view from the chain evidence read for it, at the head it pins, with
-/// every member's window schedule admitting it. Its rows are read next.
+/// every member's window schedule admitting it, and the gap's own fill-timeframe candidates. Rows
+/// for both are read next.
 pub(crate) fn view_selection_from_evidence_v1(
     frame: &UntrustedPitWindowCustodyFrameV1,
     evidence: PitWindowChainEvidenceV1,
-) -> Result<(VerifiedChainEvidenceV1, ViewSelectionV1), PitWindowViewRefusalV1> {
+) -> Result<
+    (
+        VerifiedChainEvidenceV1,
+        ViewSelectionV1,
+        Vec<ChainVersionV1>,
+    ),
+    PitWindowViewRefusalV1,
+> {
     let verified = verify_chain_evidence_v1(
         frame.custody.chain_root,
         evidence,
@@ -1970,7 +2023,45 @@ pub(crate) fn view_selection_from_evidence_v1(
     }) {
         return Err(PitWindowViewRefusalV1::NotOnSchedule);
     }
-    Ok((verified, selection))
+    let fill_candidates = fill_candidate_versions_v1(
+        &sections,
+        verified.chain.root.fill.as_ref().map(|fill| fill.identity),
+        selection.decision_cut_ns,
+        selection.next_event_ns,
+    );
+    Ok((verified, selection, fill_candidates))
+}
+
+/// Verifies every one of `candidates`' rows against `rows` and the custody `record`, ascending by
+/// open (the order `candidates` is already in). Any that does not verify refuses the whole read:
+/// custody that commits one invariant and reads back another is a store fault, not a reason to
+/// try the next bar.
+fn resolved_fill_candidates_v1(
+    record: &CustodyRecordV1,
+    candidates: &[ChainVersionV1],
+    rows: &[StoredViewRowV1],
+) -> Result<Vec<ResolvedFillCandidateV1>, PitWindowViewRefusalV1> {
+    candidates
+        .iter()
+        .map(|version| {
+            let own_rows = rows
+                .iter()
+                .filter(|row| row.version_identity == version.identity)
+                .cloned()
+                .collect::<Vec<_>>();
+            let open_ns = version
+                .event_ns
+                .checked_sub(FILL_BAR_INTERVAL_NS_V1)
+                .ok_or(PitWindowViewRefusalV1::StoreUnavailable)?;
+            verify_fill_bar_rows_v1(record, version, &own_rows)
+                .map(|rows| ResolvedFillCandidateV1 {
+                    version_identity: version.identity,
+                    open_ns,
+                    rows,
+                })
+                .map_err(|_| PitWindowViewRefusalV1::StoreUnavailable)
+        })
+        .collect()
 }
 
 /// The view of `frame`, read at the head it pins, on the Owner's store.
@@ -1982,7 +2073,7 @@ pub(in crate::owner) async fn resolve_pit_window_view_in_transaction_v1(
     let evidence = load_chain_evidence_v1(transaction, chain_root)
         .await
         .map_err(|_| PitWindowViewRefusalV1::StoreUnavailable)?;
-    let (verified, selection) = view_selection_from_evidence_v1(frame, evidence)?;
+    let (verified, selection, fill_versions) = view_selection_from_evidence_v1(frame, evidence)?;
     let selected = selection
         .selected
         .iter()
@@ -1991,11 +2082,21 @@ pub(in crate::owner) async fn resolve_pit_window_view_in_transaction_v1(
     let rows = load_view_rows_v1(transaction, chain_root, &selected)
         .await
         .map_err(|_| PitWindowViewRefusalV1::StoreUnavailable)?;
+    let fill_identities = fill_versions
+        .iter()
+        .map(|version| version.identity)
+        .collect::<Vec<_>>();
+    let fill_rows = load_view_rows_v1(transaction, chain_root, &fill_identities)
+        .await
+        .map_err(|_| PitWindowViewRefusalV1::StoreUnavailable)?;
+    let fill_candidates =
+        resolved_fill_candidates_v1(&verified.chain.root, &fill_versions, &fill_rows)?;
     Ok(ResolvedPitWindowViewV1 {
         chain: verified.chain,
         selection,
         rows,
         schedules: verified.schedules,
+        fill_candidates,
     })
 }
 
@@ -2151,7 +2252,7 @@ where
         .map_err(|_| PitWindowViewRefusalV1::StoreUnavailable)?;
     let evidence =
         chain_evidence_from_raw_v1(&raw).ok_or(PitWindowViewRefusalV1::StoreUnavailable)?;
-    let (verified, selection) = view_selection_from_evidence_v1(frame, evidence)?;
+    let (verified, selection, fill_versions) = view_selection_from_evidence_v1(frame, evidence)?;
     let selected = selection
         .selected
         .iter()
@@ -2173,11 +2274,34 @@ where
         })
         .collect::<Option<Vec<_>>>()
         .ok_or(PitWindowViewRefusalV1::StoreUnavailable)?;
+    let fill_identities = fill_versions
+        .iter()
+        .map(|version| *version.identity.as_bytes())
+        .collect::<Vec<_>>();
+    let fill_rows = port
+        .resolve_pit_window_rows_v1(*chain_root.as_bytes(), &fill_identities)
+        .await
+        .map_err(|_| PitWindowViewRefusalV1::StoreUnavailable)?
+        .into_iter()
+        .map(|row| {
+            view_row_v1(
+                &row.version_identity,
+                row.member_ordinal,
+                row.field,
+                &row.fact_digest,
+                &row.fact_bytes,
+            )
+        })
+        .collect::<Option<Vec<_>>>()
+        .ok_or(PitWindowViewRefusalV1::StoreUnavailable)?;
+    let fill_candidates =
+        resolved_fill_candidates_v1(&verified.chain.root, &fill_versions, &fill_rows)?;
     Ok(ResolvedPitWindowViewV1 {
         chain: verified.chain,
         selection,
         rows,
         schedules: verified.schedules,
+        fill_candidates,
     })
 }
 

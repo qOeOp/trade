@@ -31,7 +31,10 @@ use crate::owner::{
         authority::{
             CustodyMintingClockV1, CustodyRecordV1, custody_timeframe_identity_v1, row_digest_v1,
         },
-        view::{ViewFrontierV1, ViewSelectionV1, derived_frontier_digest_v1, view_identity_v1},
+        view::{
+            ChainVersionV1, ViewFrontierV1, ViewSelectionV1, derived_frontier_digest_v1,
+            view_identity_v1,
+        },
     },
     sample_fact::v2::SampleFactV2,
     source_binding::BindingDigest,
@@ -328,6 +331,121 @@ pub(crate) fn verify_custody_view_batch_v1(
         digest: prepared.digest(),
         observations: prepared.rows().to_vec().into_boxed_slice(),
     })
+}
+
+/// One member's fill-timeframe bar, verified against the custody record and the version it
+/// belongs to.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct FillBarRowV1 {
+    pub(crate) instrument: String,
+    pub(crate) open_mantissa: i128,
+    pub(crate) open_scale: u8,
+    pub(crate) volume_mantissa: i128,
+    pub(crate) volume_scale: u8,
+}
+
+/// Verifies `rows` as exactly one complete BAR cross-section of the custody's fill timeframe, at
+/// `version`: one row per member and BAR field, each stating that version's identity, event,
+/// availability, publication and sequence, the member at its ordinal, its field, a value its row
+/// digest binds, and the custody's fill timeframe, Instrument Master key and Market Semantics.
+///
+/// The open and the volume are the only fields a quote cut derivation (T0-6) takes from a fill
+/// bar; every field is still checked, so a tampered bar is refused rather than partly trusted.
+///
+/// # Errors
+///
+/// The [`CustodyViewSealErrorV1`] naming the first check that fails.
+pub(crate) fn verify_fill_bar_rows_v1(
+    record: &CustodyRecordV1,
+    version: &ChainVersionV1,
+    rows: &[StoredViewRowV1],
+) -> Result<Vec<FillBarRowV1>, SealError> {
+    if record
+        .fill
+        .as_ref()
+        .is_none_or(|timeframe| timeframe.identity != version.timeframe_identity)
+    {
+        return Err(SealError::RowMismatch);
+    }
+    let member_count = record.members.len();
+
+    if rows.len() != member_count * BAR_FIELDS.len() {
+        return Err(SealError::RowCensus);
+    }
+    let mut member_identities = vec![[0; 32]; member_count];
+    let mut out = Vec::with_capacity(member_count);
+
+    for (ordinal, member) in record.members.iter().enumerate() {
+        let mut open = None;
+        let mut volume = None;
+
+        for semantic in BAR_FIELDS {
+            let mut matching = rows.iter().filter(|row| {
+                row.version_identity == version.identity
+                    && usize::from(row.member_ordinal) == ordinal
+                    && row.field == semantic.row_field()
+            });
+            let stored = matching.next().ok_or(SealError::RowCensus)?;
+
+            if matching.next().is_some() {
+                return Err(SealError::RowCensus);
+            }
+            let row = stored.fact.row();
+            let states_its_version = row.cross_section_version == *version.identity.as_bytes()
+                && row.event_effective == version.event_ns
+                && row.available == version.availability_ns
+                && row.publication == version.publication_ns
+                && row.correction_sequence == version.correction_sequence;
+            let states_its_custody = row.instrument == member.as_bytes()
+                && row.channel == MARKET_CHANNEL_CODE
+                && row.data_kind == BAR_DATA_KIND_CODE
+                && row.field_semantic == semantic.identity().as_bytes()
+                && row.value_semantic == STRATEGY_INPUT_FIXED_I128_LE_V1.as_bytes()
+                && row.unit == semantic.unit().canonical().as_bytes()
+                && row.canonical_row_digest
+                    == *row_digest_v1(
+                        member,
+                        semantic.row_field(),
+                        row.value_mantissa,
+                        row.value_scale,
+                    )
+                    .as_bytes()
+                && row.instrument_master_digest == record.instrument_master_key
+                && row.market_semantics_identity == record.market_semantics_identity;
+
+            if !states_its_version || !states_its_custody {
+                return Err(SealError::RowMismatch);
+            }
+
+            if semantic == BAR_FIELDS[0] {
+                member_identities[ordinal] = row.timeframe_identity;
+            } else if member_identities[ordinal] != row.timeframe_identity {
+                return Err(SealError::RowMismatch);
+            }
+            let (value_mantissa, value_scale) =
+                canonical_decimal_v1(row.value_mantissa, row.value_scale);
+
+            if semantic == MarketDataFieldSemantic::BarOpenPrice {
+                open = Some((value_mantissa, value_scale));
+            } else if semantic == MarketDataFieldSemantic::BarVolumeQuantity {
+                volume = Some((value_mantissa, value_scale));
+            }
+        }
+        let (open_mantissa, open_scale) = open.ok_or(SealError::RowCensus)?;
+        let (volume_mantissa, volume_scale) = volume.ok_or(SealError::RowCensus)?;
+        out.push(FillBarRowV1 {
+            instrument: member.clone(),
+            open_mantissa,
+            open_scale,
+            volume_mantissa,
+            volume_scale,
+        });
+    }
+
+    if custody_timeframe_identity_v1(&member_identities) != version.timeframe_identity {
+        return Err(SealError::RowMismatch);
+    }
+    Ok(out)
 }
 
 /// One member's quote value, as a quote cut derivation states it.
