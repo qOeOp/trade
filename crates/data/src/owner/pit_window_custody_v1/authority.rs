@@ -1176,13 +1176,6 @@ pub(crate) struct CustodyMintingClockV1 {
 }
 
 /// One timeframe a stored custody holds: its identity and the label it is held under.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "read back by the derived view's chain verifier (T0-5 C6)"
-    )
-)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct RecordedTimeframeV1 {
     pub(crate) identity: BindingDigest,

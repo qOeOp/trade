@@ -12,8 +12,8 @@ use super::{
     native_replay_custody_frame_v1::resolve_native_replay_custody_frame_from_pool_v1,
     pit_window_custody_v1::ResolvedPitWindowViewV1,
     pit_window_custody_v1_tests::{
-        BTC, DAY, ETH, WINDOW_START, admit_members, after_close, commit, commit_binding, original,
-        owner, request, rows_of, successor, universe,
+        BTC, DAY, ETH, MINUTE, WINDOW_START, admit_members, after_close, commit, commit_binding,
+        original, owner, request, rows_of, successor, universe,
     },
     pit_window_view_v1_tests::{
         seal, two_day_correction, two_timeframe_request, version_at_timeframe,
@@ -402,9 +402,10 @@ async fn postgres_a_one_member_custody_frame_equals_its_snapshot_frame() {
         .expect("the snapshot frame over the same rows issues");
     assert_same_frame(custody, snapshot, &[BTC]);
 
-    // The view states each value canonically, and the native bar holds one precision for its four
-    // prices: a bar whose prices state different ones is refused by name on both paths alike,
-    // never rounded onto one.
+    // The view states each value canonically, so one field's trailing zero can canonicalize away
+    // where another's does not: the native bar widens every price to the bar's own finest
+    // precision before projection (appending a fractional zero only, never rounding), on both
+    // paths alike, so a real bar of this shape still seals identically through either.
     let mixed = commit(
         &intake,
         stating_bar(one_member(second), MIXED_PRECISION_BAR),
@@ -421,14 +422,7 @@ async fn postgres_a_one_member_custody_frame_equals_its_snapshot_frame() {
     let snapshot = custody
         .snapshot_twin_for_test(&request)
         .expect("the snapshot frame over the same rows issues");
-    assert_eq!(
-        custody.into_execution_parts().map(|_| ()),
-        Err(NativeReplaySchedulingErrorV1::NativeRepresentation)
-    );
-    assert_eq!(
-        snapshot.into_execution_parts().map(|_| ()),
-        Err(NativeReplaySchedulingErrorV1::NativeRepresentation)
-    );
+    assert_same_frame(custody, snapshot, &[BTC]);
 }
 
 /// Both frames of a two-member, single-timeframe custody are the snapshot frames over their rows.
@@ -779,4 +773,73 @@ fn the_sealed_acceptance_custody_resolver_opens_only_on_a_disposable_database(#[
         refused.failure(),
         crate::owner::ResearchPitTerminalBootstrapFailure::InvalidIdentity
     );
+}
+
+/// The production quote cut resolver (slice T0-6): a gap with a fill-timeframe bar that opens
+/// strictly after `d_k` and before the next frame resolves the frame with that bar's open as both
+/// bid and ask, its volume as both sizes, derivation `FillBarOpen` - the same derivation the fixed
+/// fill bar the shared `request()` fixture carries is too early for (that one opens at `d_k`
+/// itself, proved refused in the sibling test above).
+#[tokio::test]
+#[ignore = "requires a disposable Market Data PostgreSQL database"]
+async fn postgres_a_fill_bar_that_opens_after_d_k_derives_the_gaps_quote_cut() {
+    use crate::owner::pit_window_custody_v1::quote_cut::resolve_custody_quote_cut_v1;
+
+    let owner = owner().await;
+    let binding = commit_binding(&owner, "binance/um/klines", 1, Some(after_close(false))).await;
+    admit_members(&owner, &binding).await;
+    let universe = universe(&owner, &binding, 10, None).await;
+    let mut pit_request = request(&binding, universe);
+    // `d_1 = WINDOW_START + DAY + 2*MINUTE` (the `after_close` rule's lag). This bar's open is
+    // `WINDOW_START + DAY + 4*MINUTE`, strictly after `d_1` and well before frame 2's event.
+    // `stating_bar` below restates every cross-section's rows at the `BAR` constant, this one
+    // included, so its own base value here is immaterial.
+    let fill_event = WINDOW_START + DAY + 5 * MINUTE;
+    pit_request.cross_sections[2] = original("1M", fill_event);
+    let intake = owner.pit_window_custody_commit_v1();
+    let receipt = commit(&intake, stating_bar(pit_request, BAR))
+        .await
+        .expect("the custody");
+    let frame = frame_at(&receipt, receipt.custody_identity(), WINDOW_START + DAY);
+    let view = owner.resolve_pit_window_view_v1(&frame).await.unwrap();
+    let native_request = custody_request(&view, frame, WINDOW_START + 3 * DAY);
+
+    let readback = resolve_native_replay_custody_frame_from_pool_v1(
+        owner.pool(),
+        &native_request,
+        resolve_custody_quote_cut_v1,
+    )
+    .await
+    .expect("a fill bar strictly after d_k derives the gap's quote cut");
+
+    let quote_cut = readback.quote_cut_for_test();
+    let PitObservationBatchSourceV1::CustodyQuoteCut { derivation, .. } = quote_cut.source() else {
+        panic!("a custody frame's quote cut is a CustodyQuoteCut batch");
+    };
+    assert!(
+        matches!(derivation, QuoteDerivationV1::FillBarOpen { .. }),
+        "the derivation is the fill bar's open: {derivation:?}"
+    );
+    let open = 6_500_012_i128; // BAR's OPEN, scale 2
+    let volume = 1_234_i128; // BAR's VOLUME, scale 0
+
+    for member in [BTC, ETH] {
+        for (field, expected) in [
+            ("BID_PRICE", open),
+            ("ASK_PRICE", open),
+            ("BID_SIZE", volume),
+            ("ASK_SIZE", volume),
+        ] {
+            let row = quote_cut
+                .observations()
+                .iter()
+                .find(|row| row.instrument() == member && row.field() == field)
+                .unwrap_or_else(|| panic!("{member} {field} is in the quote cut"));
+            assert_eq!(
+                row.value_mantissa(),
+                expected,
+                "{member} {field} is the fill bar's open or volume"
+            );
+        }
+    }
 }

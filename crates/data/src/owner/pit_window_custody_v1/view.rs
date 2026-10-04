@@ -103,6 +103,18 @@ impl CrossSectionsV1 {
     pub(crate) fn at(&self, timeframe: BindingDigest, event_ns: u64) -> Option<&[ChainVersionV1]> {
         self.0.get(&(timeframe, event_ns)).map(Vec::as_slice)
     }
+
+    /// Every cross-section of `timeframe`, by ascending event. The fill timeframe's quote-cut
+    /// derivation (T0-6) is the one reader that ranges over a timeframe this way; every other
+    /// reader selects one `(timeframe, event)` at a time through [`Self::at`].
+    pub(crate) fn events_of(
+        &self,
+        timeframe: BindingDigest,
+    ) -> impl Iterator<Item = (u64, &[ChainVersionV1])> {
+        self.0
+            .range((timeframe, 0)..=(timeframe, u64::MAX))
+            .map(|(&(_, event_ns), versions)| (event_ns, versions.as_slice()))
+    }
 }
 
 /// Groups `versions` into cross-sections, each verified as one linear chain: exactly one original,
