@@ -178,6 +178,25 @@ pub trait UniverseSelectionAdmissionV1: Send + Sync + sealed::Sealed {
         request: HistoricalMembershipAdmissionRequestV1,
     ) -> Result<(), UniverseSelectionAdmissionErrorV1>;
 
+    /// Admits one complete fixed-member frontier once, at the Owner's own current decision cut.
+    ///
+    /// Each submission's observation instants (`provider_available_ns`, `retrieval_ns`,
+    /// `correction_publication_ns`, `owner_observation_ns`, `decision_cut`) are ignored: the Owner
+    /// stamps all five with its current decision cut, so the facts are in force at that cut and
+    /// every later one. A later call rejoins the admitted frontier, writing nothing, when it names
+    /// exactly the same members with the same instrument, effective range, lineage root and
+    /// correction frontier.
+    ///
+    /// # Errors
+    ///
+    /// `RequestConflict` when the frontier is admitted with other members or another meaning;
+    /// `StoreUnavailable` when Market Data holds no clock head; otherwise as
+    /// [`Self::admit_membership`].
+    async fn admit_membership_at_owner_clock(
+        &self,
+        request: HistoricalMembershipAdmissionRequestV1,
+    ) -> Result<(), UniverseSelectionAdmissionErrorV1>;
+
     /// Evaluates one requester-owned selection rule against admitted membership.
     ///
     /// # Errors

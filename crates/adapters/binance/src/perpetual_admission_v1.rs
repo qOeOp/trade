@@ -197,10 +197,9 @@ pub fn binance_perpetual_symbol_is_eligible_v1(raw_symbol: &str) -> bool {
 /// Master cut requires every member fact in it to name the same `historical_membership_frontier`
 /// (`crates/data/src/owner/instrument_master/authority.rs`, `FrontierMismatch`): a two-member cut
 /// over two different per-symbol frontiers would always fail. So this route admits membership once
-/// for [`BINANCE_PERPETUAL_U1_MEMBERS_V1`]'s whole set (via the generic
-/// `POST /v1/market-data/historical-memberships` route, see
-/// [`binance_perpetual_eligible_set_admission_request_v1`]), before any symbol's own admission,
-/// and every per-symbol Instrument Master V1 fact names this same frontier.
+/// for [`BINANCE_PERPETUAL_U1_MEMBERS_V1`]'s whole set (see
+/// [`binance_perpetual_eligible_set_admission_request_v1`]), and every per-symbol Instrument
+/// Master V1 fact names this same frontier.
 ///
 /// # Panics
 ///
@@ -233,8 +232,10 @@ pub fn binance_perpetual_correction_frontier_digest_v1() -> BindingDigest {
 }
 
 /// The one-time, complete historical-membership admission for [`BINANCE_PERPETUAL_U1_MEMBERS_V1`],
-/// to send through the generic `POST /v1/market-data/historical-memberships` route before any
-/// symbol's own Instrument Master submission. Re-sending it rejoins the same frontier.
+/// to send through `UniverseSelectionAdmissionV1::admit_membership_at_owner_clock`. It states what
+/// the membership means and never when it was observed: every observation instant is zero, and the
+/// Owner stamps them with its own current decision cut, so the facts are in force at every later
+/// cut. Re-sending it rejoins the same frontier.
 ///
 /// `source_binding_lineage_root` must be the kline dataset's own anchored lineage root
 /// (`BinancePerpetualDatasetV1::DailyKlines`'s dataset anchor), not a value this function derives itself:
@@ -243,12 +244,10 @@ pub fn binance_perpetual_correction_frontier_digest_v1() -> BindingDigest {
 /// root once a caller checks the two against each other.
 #[must_use]
 pub fn binance_perpetual_eligible_set_admission_request_v1(
-    effective_ns: u64,
     source_binding_lineage_root: BindingDigest,
 ) -> HistoricalMembershipAdmissionRequestV1 {
     use vibe_data::owner::universe_selection_admission_v1::HistoricalMembershipSubmissionV1;
 
-    let observed = i128::from(effective_ns);
     let mut members: Vec<&str> = BINANCE_PERPETUAL_U1_MEMBERS_V1.to_vec();
     members.sort_unstable();
     HistoricalMembershipAdmissionRequestV1 {
@@ -264,11 +263,11 @@ pub fn binance_perpetual_eligible_set_admission_request_v1(
                     instrument: canonical_identity,
                     effective_from_ns: 1,
                     effective_until_ns: None,
-                    provider_available_ns: observed,
-                    retrieval_ns: observed,
-                    correction_publication_ns: observed,
-                    owner_observation_ns: observed,
-                    decision_cut: effective_ns,
+                    provider_available_ns: 0,
+                    retrieval_ns: 0,
+                    correction_publication_ns: 0,
+                    owner_observation_ns: 0,
+                    decision_cut: 0,
                     source_binding_lineage_root,
                     correction_frontier_digest: binance_perpetual_admission_digest_v1(
                         "correction-frontier",
@@ -631,7 +630,7 @@ mod tests {
     #[rstest]
     fn eligible_set_admission_request_names_the_given_lineage_root_and_correction_frontier() {
         let lineage_root = BindingDigest::from_untrusted_bytes([9; 32]);
-        let request = binance_perpetual_eligible_set_admission_request_v1(1, lineage_root);
+        let request = binance_perpetual_eligible_set_admission_request_v1(lineage_root);
         assert_eq!(
             request.eligible_instrument_frontier,
             binance_perpetual_eligible_frontier_v1(BINANCE_PERPETUAL_U1_MEMBERS_V1)

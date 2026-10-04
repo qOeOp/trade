@@ -3541,6 +3541,19 @@ value reaches an agent through them.
   different frontier instead of colliding) in its Instrument Master fact. Re-sending the one-time admission rejoins
   the same frontier. A symbol outside the fixed set is refused by name, `SYMBOL_NOT_IN_ELIGIBLE_FRONTIER`, before
   any admission step runs: nothing is written for a symbol the fixed set does not name.
+  The backfill job admits this set through `UniverseSelectionAdmissionV1::admit_membership_at_owner_clock`, under
+  the kline dataset's anchored lineage root. The request states only what the membership means: the members, their
+  instruments and effective range, the lineage root and the correction frontier. The Owner stamps all five
+  observation instants with its own current decision cut, so the facts are in force at that cut and every later
+  one, and a Research scope check at the current cut finds them. A later call rejoins the admitted frontier without
+  writing when it names exactly the same members with the same meaning, at whatever instant they were observed.
+  Another member set or another meaning is `RequestConflict`.
+
+  The job used to stamp the facts at its far-future universe-evaluation instant
+  (`BINANCE_PERPETUAL_BACKFILL_UNIVERSE_SELECTION_CUT_V1`, 2100-01-01). That put them out of force at every real
+  cut, so every scope check refused the members as `NOT_IN_ELIGIBLE_FRONTIER`. A deployment that admitted
+  membership that way, or under the fixed lineage marker that #1375 removed, holds facts no new call can rejoin and
+  must be recreated.
 - **TARGET: adding a symbol beyond the fixed U1 set is a successor-frontier admission, not something per-symbol
   admission does.** A frontier is Market Data's own complete statement of the eligible-instrument set at a point in
   time - "each admission succeeds the one before it, so Market Data, not the requester, decides which frontier is

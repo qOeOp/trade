@@ -357,12 +357,11 @@ const BINANCE_PERPETUAL_BACKFILL_UNIVERSE_SELECTION_CUT_V1: u64 = 4_102_444_800_
 ///
 /// Admits the U1 set's historical membership inline, every call, before evaluating, keyed by
 /// `source_binding_lineage_root` - the kline dataset's own anchored lineage root
-/// (`BinancePerpetualDatasetV1::DailyKlines`'s dataset anchor, read back by `kline_binding_locator`, never
-/// re-derived here), so every call submits byte-identical content and genuinely rejoins rather
-/// than conflicting (`UniverseSelectionAdmissionV1::admit_membership`'s own "a frontier is
-/// admitted whole or not at all" is this route's only attempt at it - there is no separate
-/// one-time bootstrap step for the membership admission itself, only for the kline binding its
-/// lineage root is keyed to).
+/// (`BinancePerpetualDatasetV1::DailyKlines`'s dataset anchor, read back by `kline_binding_locator`,
+/// never re-derived here). The admission goes through `admit_membership_at_owner_clock`: the first
+/// call is stamped at the Owner's current decision cut, so a Research scope check at any later cut
+/// finds the members, and every later call rejoins it. Stamping it at the far-future evaluation
+/// instant below instead put the facts out of force at every real cut, and refused every scope.
 ///
 /// `ResearchInstrumentScopeV1` caps a scope at
 /// [`RESEARCH_INSTRUMENT_SCOPE_MAX_MEMBERS_V1`](vibe_data::owner::research_instrument_scope_v1::RESEARCH_INSTRUMENT_SCOPE_MAX_MEMBERS_V1)
@@ -375,8 +374,7 @@ async fn eligible_set_universe_selection(
     source_binding_lineage_root: BindingDigest,
 ) -> Result<UntrustedUniverseSelectionLocatorV1, String> {
     universe
-        .admit_membership(binance_perpetual_eligible_set_admission_request_v1(
-            BINANCE_PERPETUAL_BACKFILL_UNIVERSE_SELECTION_CUT_V1,
+        .admit_membership_at_owner_clock(binance_perpetual_eligible_set_admission_request_v1(
             source_binding_lineage_root,
         ))
         .await
