@@ -14,8 +14,8 @@ use crate::owner::{
         UntrustedPitWindowCustodyRequestV1,
         authority::{
             ChainPositionV1, CustodyBindingV1, CustodyInputsV1, CustodyInstrumentV1,
-            CustodyMemberFactV1, CustodyMembershipV1, DerivedCustodyV1, decode_custody_record_v1,
-            derive_custody_v1,
+            CustodyMemberFactV1, CustodyMembershipV1, CustodyUniverseLineageV1, DerivedCustodyV1,
+            decode_custody_record_v1, derive_custody_v1,
         },
         view::{ChainVersionV1, ViewTimeframesV1, cross_sections_v1, select_view_v1},
     },
@@ -259,6 +259,10 @@ fn fixture_based(members: &[&str], label: &str, base: i128, volume: Option<i128>
         binding: Some(&binding),
         instruments: &instruments,
         membership: &membership,
+        universe_lineage: CustodyUniverseLineageV1 {
+            source_binding_lineage_root: binding.lineage_root,
+            correction_frontier_digest: binding.correction_frontier_digest,
+        },
     })
     .expect("the custody derives");
     let (identity, bytes) = derived.identity_at(ChainPositionV1::ROOT);

@@ -1065,9 +1065,13 @@ async fn postgres_every_custody_refusal_writes_nothing() {
     let owner = owner().await;
     let binding = commit_binding(&owner, "binance/um/klines", 1, Some(after_close(false))).await;
     let schema_one = commit_binding(&owner, "binance/um/legacy", 2, None).await;
+    let other_binding =
+        commit_binding(&owner, "binance/um/other", 3, Some(after_close(false))).await;
     admit_members(&owner, &binding).await;
     let universe_locator = universe(&owner, &binding, 10, None).await;
     let joining = universe(&owner, &binding, 11, Some(WINDOW_START + DAY)).await;
+    // The same members, evaluated over another binding's lineage and correction frontier.
+    let other_lineage = universe(&owner, &other_binding, 12, None).await;
     let intake = owner.pit_window_custody_commit_v1();
     let valid = request(&binding, universe_locator);
     let edited = |edit: &dyn Fn(&mut UntrustedPitWindowCustodyRequestV1)| {
@@ -1109,6 +1113,13 @@ async fn postgres_every_custody_refusal_writes_nothing() {
         &intake,
         edited(&|r| r.universe_selection = joining),
         Refused::WindowMemberNotValidThroughout,
+    )
+    .await;
+    refused(
+        &owner,
+        &intake,
+        edited(&|r| r.universe_selection = other_lineage),
+        Refused::UniverseSelectionLineageMismatch,
     )
     .await;
     refused(
@@ -1469,13 +1480,16 @@ async fn postgres_availability_follows_the_rule_and_never_passes_the_minting_cut
     let below_bar = commit_binding(&owner, "binance/um/lagged", 2, Some(lag(DAY - 1))).await;
     let one_bar = commit_binding(&owner, "binance/um/late", 3, Some(lag(DAY))).await;
     admit_members(&owner, &at_retrieval).await;
-    let universe = universe(&owner, &at_retrieval, 10, None).await;
+    // Each custody's universe is evaluated over its own binding's lineage.
+    let at_retrieval_universe = universe(&owner, &at_retrieval, 10, None).await;
+    let below_bar_universe = universe(&owner, &below_bar, 11, None).await;
+    let one_bar_universe = universe(&owner, &one_bar, 12, None).await;
     let intake = owner.pit_window_custody_commit_v1();
 
     refused(
         &owner,
         &intake,
-        request(&one_bar, universe),
+        request(&one_bar, one_bar_universe),
         Refused::AvailabilityLagNotBelowBarInterval,
     )
     .await;
@@ -1484,7 +1498,7 @@ async fn postgres_availability_follows_the_rule_and_never_passes_the_minting_cut
     refused(
         &owner,
         &intake,
-        single_bar(&below_bar, universe, now + DAY / 2, now - SECOND),
+        single_bar(&below_bar, below_bar_universe, now + DAY / 2, now - SECOND),
         Refused::RowRetrievedBeforeBarClose,
     )
     .await;
@@ -1492,13 +1506,18 @@ async fn postgres_availability_follows_the_rule_and_never_passes_the_minting_cut
     refused(
         &owner,
         &intake,
-        single_bar(&below_bar, universe, now - 30 * SECOND, now - 10 * SECOND),
+        single_bar(
+            &below_bar,
+            below_bar_universe,
+            now - 30 * SECOND,
+            now - 10 * SECOND,
+        ),
         Refused::VersionNotAvailableAtMintingCut,
     )
     .await;
     assert_eq!(count(&owner, "pit_window_custodies_v1").await, 0);
 
-    let lagged = commit(&intake, request(&below_bar, universe))
+    let lagged = commit(&intake, request(&below_bar, below_bar_universe))
         .await
         .expect("a lag below the execution bar is admitted");
     let first_bar = version_at(&owner, lagged.custody_identity(), WINDOW_START + DAY).await;
@@ -1514,7 +1533,7 @@ async fn postgres_availability_follows_the_rule_and_never_passes_the_minting_cut
         i64::try_from(WINDOW_START + 2 * DAY - 1).unwrap()
     );
 
-    let retrieved = commit(&intake, request(&at_retrieval, universe))
+    let retrieved = commit(&intake, request(&at_retrieval, at_retrieval_universe))
         .await
         .expect("a rule set to the retrieval instant is admitted");
     let instants: Vec<(i64, i64)> = sqlx::query_as(
@@ -1594,6 +1613,8 @@ async fn shared_scope_v1() -> SharedScopeV1 {
         .unwrap();
     let universe = one_member_universe_v1(&owner, &snapshot_binding, "AAPL", 20).await;
     let snapshot = research_request_pit_v1(&owner, &snapshot_binding, "AAPL", &universe, 20).await;
+    // The custody's own universe, evaluated over the custody binding's lineage.
+    let custody_universe = one_member_universe_v1(&owner, &custody_binding, "AAPL", 30).await;
 
     // The Owner clock moves on, through its own admission, to the instant the backfill ran.
     let mut transaction = owner.pool().begin().await.unwrap();
@@ -1602,7 +1623,7 @@ async fn shared_scope_v1() -> SharedScopeV1 {
         .unwrap();
     transaction.commit().await.unwrap();
 
-    let mut custody = request(&custody_binding, universe.0);
+    let mut custody = request(&custody_binding, custody_universe.0);
     custody.members = vec!["AAPL".to_owned()];
     custody.fill_timeframe = None;
     custody.cross_sections = vec![

@@ -2834,6 +2834,42 @@ refuse each term by name and admit the boundary (one price for all four, no volu
 table, and `postgres_the_legacy_listing_finds_an_inconsistent_stored_bar_and_writes_nothing` proves the listing finds a
 bar committed through a test-only seam that admits it as the intake did before the rule.
 
+Built so far (T0-9): the H6 checks a custody run needs and the accessors T1 consumers read.
+
+- **Lineage at commit (H6 D).** The custody commit refuses a Universe Selection record whose
+  `source_binding_lineage_root` or `correction_frontier_digest` is not the named Source Binding's own lineage root and
+  correction frontier digest. The refusal is `UNIVERSE_SELECTION_LINEAGE_MISMATCH`
+  (`PitWindowCustodyRefusalV1::UniverseSelectionLineageMismatch`), a basis refusal for the backfill writer. It is the
+  custody path's counterpart of the snapshot path's universe member composition basis check.
+- **Lineage on read.** The basis read applies the same check against the chain R0 record's Source Binding. The
+  production backfill passes it because the kline dataset's Source Binding is admitted once, through its dataset
+  anchor (`market_data_private.source_binding_dataset_anchors_v1`). The universe record and the custody basis
+  therefore cite the same lineage.
+- **Read-time cross-checks (H6 F).** The basis read also checks the chain records against each other, not only against
+  the root custody. The chain Market Semantics fact must name the R0 record and cut and the Instrument Master link's
+  cut. Its Source Binding identity, fact digest, lineage root, lineage version and both frontier digests must equal
+  the R0 record's. One commit writes these records consistent, and a read that finds otherwise answers
+  `StoreUnavailable`.
+- **Frame R0 (H6 E).** Each frame a run reads carries its Reference Fact R0 as
+  `PitWindowFrameCoordinateV1::r0() -> PitWindowFrameR0V1`, with these accessors:
+  - `window_start_ns() = e_k`;
+  - `window_end_ns_exclusive()`;
+  - `identity()`;
+  - `chain_record_identity()`.
+
+  The frame's R0 is computed on read from the chain R0 record, the window schedule and `e_k` alone. The record's end
+  is `r0_window_end_over_v1` at the window's last frame, so the span past that frame is the longest input interval,
+  and each frame's R0 is the one the same rule gives at its own `e_k`. The admitted custody read therefore needs no
+  read of the Source Binding's declarations. A frame with no R0 is a store no commit wrote, so the run answers
+  `StoreUnavailable`.
+- **Availability rule (H7).** `PitWindowChainBasisV1::availability_rule_digest()` returns the root custody record's
+  rule digest, which the read has already checked against the chain R0 record's.
+- **Proofs.**
+  - `postgres_every_custody_refusal_writes_nothing` refuses a universe evaluated over another binding and checks that
+    nothing is written.
+  - The authority's unit tests refuse a moved lineage root and a moved correction frontier by name.
+  - The frame R0 unit test pins the first and last frames' R0 and the off-grid refusal.
+
 - **Custody:** covers the half-open window from its warm-up start and is committed once, then never mutated. A later
   correction is a successor custody that names its predecessor and carries only the versions it adds; a view reads the
   chain to its head. A successor restates its predecessor's basis exactly - Market Semantics fact, Universe Selection

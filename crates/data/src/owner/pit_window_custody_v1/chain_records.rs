@@ -16,16 +16,14 @@
 use sha2::{Digest as _, Sha256};
 
 use super::{
+    PitWindowFrameR0V1,
     authority::{DerivedCustodyV1, put_market_semantics_value, take_market_semantics_value},
     schedule::PitWindowScheduleFactV1,
 };
 use crate::owner::{
     declared_bar_timeframe_v1::r0_window_end_over_v1,
     market_semantics::MarketSemanticsValueV1,
-    source_binding::{
-        BindingDigest, MarketDataClockAdmission, UntrustedCompleteFrontier,
-        UntrustedSourceBarTimeframeV1,
-    },
+    source_binding::{BindingDigest, MarketDataClockAdmission, UntrustedCompleteFrontier},
 };
 
 const R0_RECORD_DOMAIN: &[u8] = b"market-data.pit-window-r0-chain-record.v1\0";
@@ -307,29 +305,22 @@ pub(crate) fn decode_r0_chain_cut_v1(
     seal_r0_cut(cut).filter(|cut| cut.canonical_bytes == bytes)
 }
 
-/// One frame's R0, computed on read and never stored.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) struct FrameR0V1 {
-    pub(crate) chain_record_identity: BindingDigest,
-    pub(crate) window_start_ns: u64,
-    pub(crate) window_end_ns_exclusive: u64,
-    pub(crate) identity: BindingDigest,
-}
-
-/// The R0 of the frame at `event_ns`: from `e_k` to the end the frame's input timeframes claim,
-/// by the rule the snapshot path's R0 window uses. The fill timeframe is not an input: its bar
-/// lies inside the gap the execution bar already covers.
+/// The R0 of the frame at `event_ns`: from `e_k` to `e_k` plus the span the chain record claims
+/// past the window's last frame. The record's end is `r0_window_end_over_v1` at that last frame,
+/// which adds the longest input timeframe's interval to it, so the span is that interval and every
+/// frame's R0 is the one the same rule gives at its own `e_k`, read from the chain record, its
+/// window schedule and `e_k` alone. The fill timeframe is not an input: its bar lies inside the gap
+/// the execution bar already covers.
 ///
 /// `None` unless `event_ns` is a frame of `schedule` - inside its window, on its grid - and the
-/// frame's R0 lies inside the chain record's window. It inherits the chain record's time evidence.
-pub(crate) fn frame_r0_v1<'a>(
+/// chain record ends after the window's last frame. It inherits the chain record's time evidence.
+pub(crate) fn frame_r0_v1(
     record: &ReferenceFactR0ChainRecordV1,
     schedule: &PitWindowScheduleFactV1,
     event_ns: u64,
-    declarations: &[UntrustedSourceBarTimeframeV1],
-    input_labels: impl IntoIterator<Item = &'a str>,
-) -> Option<FrameR0V1> {
+) -> Option<PitWindowFrameR0V1> {
     if schedule.chain_root != record.chain_root
+        || schedule.interval_ns == 0
         || event_ns < schedule.window_start_ns
         || event_ns >= schedule.window_end_ns_exclusive
         || event_ns < schedule.phase_ns
@@ -337,26 +328,29 @@ pub(crate) fn frame_r0_v1<'a>(
     {
         return None;
     }
-    let end = u64::try_from(r0_window_end_over_v1(
-        i128::from(event_ns),
-        declarations,
-        input_labels,
-    )?)
-    .ok()?;
+    let last_frame_ns = (schedule.window_end_ns_exclusive - 1 - schedule.phase_ns)
+        / schedule.interval_ns
+        * schedule.interval_ns
+        + schedule.phase_ns;
+    let span = record
+        .window_end_ns_exclusive
+        .checked_sub(last_frame_ns)
+        .filter(|span| *span > 0)?;
+    let end = event_ns.checked_add(span)?;
 
-    if event_ns < record.window_start_ns || end > record.window_end_ns_exclusive {
+    if event_ns < record.window_start_ns {
         return None;
     }
     let mut bytes = Vec::with_capacity(48);
     bytes.extend_from_slice(record.identity.as_bytes());
     put_u64(&mut bytes, event_ns);
     put_u64(&mut bytes, end);
-    Some(FrameR0V1 {
-        chain_record_identity: record.identity,
-        window_start_ns: event_ns,
-        window_end_ns_exclusive: end,
-        identity: sha256(FRAME_R0_DOMAIN, &bytes),
-    })
+    Some(PitWindowFrameR0V1::from_chain_record(
+        record.identity,
+        event_ns,
+        end,
+        sha256(FRAME_R0_DOMAIN, &bytes),
+    ))
 }
 
 /// The Market Semantics fact a custody chain records once, under the compatibility scope its

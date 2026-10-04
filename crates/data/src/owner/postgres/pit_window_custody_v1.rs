@@ -61,10 +61,10 @@ use crate::owner::{
         authority::{
             ChainPositionV1, CustodyBarV1, CustodyBindingV1, CustodyFactSpanV1, CustodyInputsV1,
             CustodyInstrumentV1, CustodyMemberFactV1, CustodyMembershipV1, CustodyMintingClockV1,
-            CustodyRecordV1, DerivedCustodyV1, StoredChainV1, StoredVersionV1,
-            bar_is_consistent_v1, check_request_shape_v1, class_prices_are_positive_v1,
-            custody_digest_v1, decode_custody_record_v1, derive_custody_v1, kind_from_tag,
-            kind_tag,
+            CustodyRecordV1, CustodyUniverseLineageV1, DerivedCustodyV1, StoredChainV1,
+            StoredVersionV1, bar_is_consistent_v1, check_request_shape_v1,
+            class_prices_are_positive_v1, custody_digest_v1, decode_custody_record_v1,
+            derive_custody_v1, kind_from_tag, kind_tag,
         },
         chain_records::{
             ChainBasisRecordV1, InstrumentMasterChainLinkV1, MarketSemanticsChainBasisV1,
@@ -74,7 +74,7 @@ use crate::owner::{
             chain_instrument_master_request_meaning_v1, decode_chain_basis_record_v1,
             decode_instrument_master_chain_link_v1, decode_market_semantics_chain_fact_v1,
             decode_market_semantics_chain_registry_entry_v1, decode_r0_chain_cut_v1,
-            decode_r0_chain_record_v1, issue_chain_basis_record_v1,
+            decode_r0_chain_record_v1, frame_r0_v1, issue_chain_basis_record_v1,
             issue_instrument_master_chain_link_v1, issue_market_semantics_chain_fact_v1,
             issue_market_semantics_chain_registry_entry_v1, issue_r0_chain_record_v1,
         },
@@ -307,7 +307,14 @@ async fn load_binding(
 async fn load_membership(
     transaction: &mut Transaction<'_, Postgres>,
     locator: &UntrustedUniverseSelectionLocatorV1,
-) -> Result<(Vec<CustodyMembershipV1>, BindingDigest), Refused> {
+) -> Result<
+    (
+        Vec<CustodyMembershipV1>,
+        BindingDigest,
+        CustodyUniverseLineageV1,
+    ),
+    Refused,
+> {
     let readback = recover_universe_selection_in_transaction_v1(transaction, locator)
         .await
         .map_err(|e| match e {
@@ -326,7 +333,11 @@ async fn load_membership(
             effective_until_ns: record.effective_until_ns(),
         })
         .collect();
-    Ok((membership, readback.record().identity()))
+    let lineage = CustodyUniverseLineageV1 {
+        source_binding_lineage_root: readback.record().source_binding_lineage_root(),
+        correction_frontier_digest: readback.record().correction_frontier_digest(),
+    };
+    Ok((membership, readback.record().identity(), lineage))
 }
 
 /// What the Instrument Master selects for each member at the window's first and last instants,
@@ -549,7 +560,7 @@ async fn commit_custody_v1(
 
     // 1. The basis the request names.
     let binding = load_binding(&mut transaction, &request.source_binding).await?;
-    let (membership, universe_record) =
+    let (membership, universe_record, universe_lineage) =
         load_membership(&mut transaction, &request.universe_selection).await?;
 
     // 2. The minting cut: the clock-state lock before the head's row lock, as every clock writer
@@ -585,6 +596,7 @@ async fn commit_custody_v1(
         binding: binding.as_ref(),
         instruments: &instruments,
         membership: &membership,
+        universe_lineage,
     })?;
 
     // 4. The chain, and a rejoin, before any clock is admitted.
@@ -1332,17 +1344,35 @@ pub(in crate::owner) async fn read_pit_window_chain_basis_v1(
 /// basis and rule, its Universe Selection locator, its Instrument Master key and members, and its
 /// Market Semantics identity and value. A successor restates the root's basis, so whichever head
 /// the frames were read from, the basis is the root's.
+///
+/// The records are also checked against each other, not only against the root: the Universe
+/// Selection record's lineage root and correction frontier are the R0 record's Source Binding's,
+/// and the Market Semantics fact names the R0 record and cut, the Instrument Master link's cut,
+/// and the R0 record's Source Binding and frontiers. One commit writes them all consistent; a read
+/// that finds them otherwise answers nothing.
 pub(crate) fn chain_basis_from_readback_v1(
     chain: &VerifiedChainV1,
     readback: ChainBasisReadbackV1,
     selection: &UniverseSelectionReadbackV1,
 ) -> Option<PitWindowChainBasisV1> {
     let root = &chain.root;
-    let (basis, (r0_record, _), (link, cut), (market_semantics, _)) = readback;
+    let (basis, (r0_record, r0_cut), (link, cut), (market_semantics, _)) = readback;
     let record = selection.record();
     let agrees = basis.chain_root == chain.chain_root
         && record.request_identity() == root.universe.0
         && record.request_meaning_digest() == root.universe.1
+        && record.source_binding_lineage_root() == r0_record.source_binding_lineage_root
+        && record.correction_frontier_digest() == r0_record.correction_frontier.digest
+        && market_semantics.r0_record_identity == r0_record.identity()
+        && market_semantics.r0_cut_identity == r0_cut.identity()
+        && market_semantics.instrument_master_cut_identity == link.cut_identity
+        && market_semantics.source_binding_identity == r0_record.source_binding_identity
+        && market_semantics.source_binding_fact_digest == r0_record.source_binding_fact_digest
+        && market_semantics.source_binding_lineage_root == r0_record.source_binding_lineage_root
+        && market_semantics.source_binding_lineage_version
+            == r0_record.source_binding_lineage_version
+        && market_semantics.source_frontier_digest == r0_record.source_frontier.digest
+        && market_semantics.correction_frontier_digest == r0_record.correction_frontier.digest
         && basis.root_custody_identity == root.identity
         && r0_record.root_custody_identity == root.identity
         && r0_record.basis_digest == root.basis_digest()
@@ -1362,6 +1392,7 @@ pub(crate) fn chain_basis_from_readback_v1(
                 root.universe.1,
             ),
             universe_selection_record: (record.identity(), record.digest()),
+            availability_rule_digest: root.rule_digest,
             instrument_master_key: root.instrument_master_key,
             instrument_master_cut: cut,
             market_semantics_identity: root.market_semantics_identity,
@@ -2132,10 +2163,12 @@ pub(crate) fn frames_from_evidence_v1(
         })?;
     // A chain the T0-4c commit did not complete has no basis, and one whose root's Universe
     // Selection the store does not hold has no record; neither gets a partial answer.
-    let basis = basis
+    let (basis, r0_record) = basis
         .zip(selection)
         .and_then(|(readback, selection)| {
+            let r0_record = readback.1.0.clone();
             chain_basis_from_readback_v1(&verified.chain, readback, &selection)
+                .map(|basis| (basis, r0_record))
         })
         .ok_or(PitWindowRunRefusalV1::StoreUnavailable)?;
     let window = verified.chain.root.window;
@@ -2163,13 +2196,26 @@ pub(crate) fn frames_from_evidence_v1(
         run.run_end_ns_exclusive,
         &frames,
     )?;
+    // Every frame is on the root's grid and inside the chain record, so every frame has an R0;
+    // one that does not is a store no commit wrote.
+    let schedule = verified
+        .schedules
+        .first()
+        .ok_or(PitWindowRunRefusalV1::StoreUnavailable)?;
     let frames = frames
         .into_iter()
         .zip(1..)
         .map(|((event_ns, decision_cut_ns), ordinal)| {
-            PitWindowFrameCoordinateV1::from_owner_view(ordinal, event_ns, decision_cut_ns)
+            let r0 = frame_r0_v1(&r0_record, schedule, event_ns)
+                .ok_or(PitWindowRunRefusalV1::StoreUnavailable)?;
+            Ok(PitWindowFrameCoordinateV1::from_owner_view(
+                ordinal,
+                event_ns,
+                decision_cut_ns,
+                r0,
+            ))
         })
-        .collect();
+        .collect::<Result<_, PitWindowRunRefusalV1>>()?;
     Ok(PitWindowRunFramesV1::from_owner_view(
         chain_root,
         verified.chain.head_identity,

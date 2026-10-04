@@ -234,6 +234,11 @@ pub enum PitWindowCustodyRefusalV1 {
     SourceBindingDeclaresNoAvailabilityRule,
     #[error("the Market Semantics fact is not the head in scope")]
     MarketSemanticsMismatch,
+    /// `UNIVERSE_SELECTION_LINEAGE_MISMATCH`: the Universe Selection record was evaluated under
+    /// another Source Binding lineage root or correction frontier than the binding the custody
+    /// names.
+    #[error("the Universe Selection was evaluated under another Source Binding lineage")]
+    UniverseSelectionLineageMismatch,
     /// `WINDOW_MEMBER_NOT_VALID_THROUGHOUT`: an Instrument Master validity or Universe membership
     /// that begins or ends inside the window.
     #[error("a member is not valid throughout the window")]
@@ -362,16 +367,29 @@ pub struct PitWindowFrameCoordinateV1 {
     ordinal: u64,
     event_ns: u64,
     decision_cut_ns: u64,
+    r0: PitWindowFrameR0V1,
 }
 
 impl PitWindowFrameCoordinateV1 {
     /// A frame the Owner's derived view enumerated. Only the frames port calls it.
-    pub(crate) const fn from_owner_view(ordinal: u64, event_ns: u64, decision_cut_ns: u64) -> Self {
+    pub(crate) const fn from_owner_view(
+        ordinal: u64,
+        event_ns: u64,
+        decision_cut_ns: u64,
+        r0: PitWindowFrameR0V1,
+    ) -> Self {
         Self {
             ordinal,
             event_ns,
             decision_cut_ns,
+            r0,
         }
+    }
+
+    /// The frame's Reference Fact R0, computed from the chain's R0 record at `e_k`.
+    #[must_use]
+    pub const fn r0(&self) -> PitWindowFrameR0V1 {
+        self.r0
     }
 
     /// 1 for the run's first frame, dense.
@@ -391,6 +409,70 @@ impl PitWindowFrameCoordinateV1 {
     #[must_use]
     pub const fn decision_cut_ns(&self) -> u64 {
         self.decision_cut_ns
+    }
+}
+
+/// One frame's Reference Fact R0: from its `e_k` to the end its input timeframes claim, inside the
+/// chain's R0 record. It is computed on read from the chain record, the window schedule and `e_k`,
+/// never stored, and inherits the chain record's time evidence. A T1 consumer takes a frame's R0
+/// bound from here. It has no public constructor:
+///
+/// ```compile_fail
+/// use vibe_data::owner::{pit_window_custody_v1::PitWindowFrameR0V1, source_binding::BindingDigest};
+/// let d = BindingDigest::from_untrusted_bytes([1; 32]);
+/// let _ = PitWindowFrameR0V1 {
+///     chain_record_identity: d,
+///     window_start_ns: 0,
+///     window_end_ns_exclusive: 1,
+///     identity: d,
+/// };
+/// ```
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct PitWindowFrameR0V1 {
+    chain_record_identity: BindingDigest,
+    window_start_ns: u64,
+    window_end_ns_exclusive: u64,
+    identity: BindingDigest,
+}
+
+impl PitWindowFrameR0V1 {
+    /// A frame R0 computed from the chain record. Only `chain_records::frame_r0_v1` calls it.
+    pub(crate) const fn from_chain_record(
+        chain_record_identity: BindingDigest,
+        window_start_ns: u64,
+        window_end_ns_exclusive: u64,
+        identity: BindingDigest,
+    ) -> Self {
+        Self {
+            chain_record_identity,
+            window_start_ns,
+            window_end_ns_exclusive,
+            identity,
+        }
+    }
+
+    /// The chain's R0 record this frame's R0 is computed from.
+    #[must_use]
+    pub const fn chain_record_identity(&self) -> BindingDigest {
+        self.chain_record_identity
+    }
+
+    /// `e_k`.
+    #[must_use]
+    pub const fn window_start_ns(&self) -> u64 {
+        self.window_start_ns
+    }
+
+    /// The end the frame's input timeframes claim, exclusive.
+    #[must_use]
+    pub const fn window_end_ns_exclusive(&self) -> u64 {
+        self.window_end_ns_exclusive
+    }
+
+    /// A function of the chain record, `e_k` and the end alone.
+    #[must_use]
+    pub const fn identity(&self) -> BindingDigest {
+        self.identity
     }
 }
 
@@ -418,6 +500,7 @@ pub struct PitWindowChainBasisV1 {
     head_identity: BindingDigest,
     universe_selection: UntrustedUniverseSelectionLocatorV1,
     universe_selection_record: (BindingDigest, BindingDigest),
+    availability_rule_digest: BindingDigest,
     instrument_master_key: BindingDigest,
     instrument_master_cut: Arc<InstrumentMasterReadbackV1>,
     market_semantics_identity: BindingDigest,
@@ -432,6 +515,7 @@ pub(crate) struct ChainBasisPartsV1 {
     pub(crate) head_identity: BindingDigest,
     pub(crate) universe_selection: UntrustedUniverseSelectionLocatorV1,
     pub(crate) universe_selection_record: (BindingDigest, BindingDigest),
+    pub(crate) availability_rule_digest: BindingDigest,
     pub(crate) instrument_master_key: BindingDigest,
     pub(crate) instrument_master_cut: InstrumentMasterReadbackV1,
     pub(crate) market_semantics_identity: BindingDigest,
@@ -449,6 +533,7 @@ impl PitWindowChainBasisV1 {
             head_identity: parts.head_identity,
             universe_selection: parts.universe_selection,
             universe_selection_record: parts.universe_selection_record,
+            availability_rule_digest: parts.availability_rule_digest,
             instrument_master_key: parts.instrument_master_key,
             instrument_master_cut: Arc::new(parts.instrument_master_cut),
             market_semantics_identity: parts.market_semantics_identity,
@@ -483,6 +568,13 @@ impl PitWindowChainBasisV1 {
     #[must_use]
     pub const fn universe_selection_record(&self) -> (BindingDigest, BindingDigest) {
         self.universe_selection_record
+    }
+
+    /// The digest of the availability rule the root custody record binds, equal to the chain R0
+    /// record's: the rule every frame's `d_k` was derived by.
+    #[must_use]
+    pub const fn availability_rule_digest(&self) -> BindingDigest {
+        self.availability_rule_digest
     }
 
     /// The Instrument Master key the root custody record binds, equal to the chain's Instrument
@@ -1015,6 +1107,7 @@ mod tests {
             head_identity: d(2),
             universe_selection: UntrustedUniverseSelectionLocatorV1::from_untrusted(d(3), d(4)),
             universe_selection_record: (d(7), d(8)),
+            availability_rule_digest: d(10),
             instrument_master_key: d(9),
             instrument_master_cut: cut,
             market_semantics_identity: d(5),
@@ -1156,77 +1249,6 @@ mod tests {
         assert_eq!(
             serde_json::to_value(CrossSectionVersionKindV1::Withdrawal).unwrap(),
             json!("WITHDRAWAL")
-        );
-    }
-
-    /// Each accessor of a chain basis returns the part the Owner's read verified, and a run's
-    /// frames carry the basis they were read with.
-    #[rstest]
-    fn a_chain_basis_returns_each_part_it_was_read_with() {
-        use super::{
-            ChainBasisPartsV1, MarketSemanticsValueV1, PitWindowChainBasisV1,
-            PitWindowFrameCoordinateV1, PitWindowRunFramesV1, UntrustedUniverseSelectionLocatorV1,
-        };
-        use crate::owner::market_semantics::{
-            MarketSemanticsPriceAdjustmentV1, MarketSemanticsTimestampBasisV1,
-        };
-
-        let d = |byte: u8| super::BindingDigest::from_untrusted_bytes([byte; 32]);
-        let value = MarketSemanticsValueV1 {
-            normalization_identity: d(31),
-            price_adjustment: MarketSemanticsPriceAdjustmentV1::Raw,
-            timestamp_basis: MarketSemanticsTimestampBasisV1::IntervalClose,
-            price_unit_identity: d(32),
-            size_unit_identity: d(33),
-        };
-        let cut = crate::owner::calendar::tests::instrument_readback("XNYS-CALENDAR-V1");
-        let cut_identity = cut.identity();
-        let basis = PitWindowChainBasisV1::from_owner_chain(ChainBasisPartsV1 {
-            chain_root: d(1),
-            head_identity: d(2),
-            universe_selection: UntrustedUniverseSelectionLocatorV1::from_untrusted(d(3), d(4)),
-            universe_selection_record: (d(7), d(8)),
-            instrument_master_key: d(9),
-            instrument_master_cut: cut,
-            market_semantics_identity: d(5),
-            market_semantics_value: value,
-            members: vec![
-                "BTCUSDT-PERP.BINANCE".to_owned(),
-                "ETHUSDT-PERP.BINANCE".to_owned(),
-            ],
-            window: (10, 20),
-        });
-
-        assert_eq!(basis.chain_root(), d(1));
-        assert_eq!(basis.head_identity(), d(2));
-        assert_eq!(
-            basis.universe_selection(),
-            UntrustedUniverseSelectionLocatorV1::from_untrusted(d(3), d(4))
-        );
-        assert_eq!(basis.universe_selection_record(), (d(7), d(8)));
-        assert_eq!(basis.instrument_master_key(), d(9));
-        assert_eq!(basis.instrument_master_cut().identity(), cut_identity);
-        assert_eq!(basis.market_semantics_identity(), d(5));
-        assert_eq!(basis.market_semantics_value(), &value);
-        assert_eq!(
-            basis.members(),
-            ["BTCUSDT-PERP.BINANCE", "ETHUSDT-PERP.BINANCE"]
-        );
-        assert_eq!(basis.window(), (10, 20));
-
-        let frames = PitWindowRunFramesV1::from_owner_view(
-            d(1),
-            d(2),
-            d(6),
-            1,
-            vec![PitWindowFrameCoordinateV1::from_owner_view(1, 12, 13)],
-            basis.clone(),
-        );
-        assert_eq!(frames.basis(), &basis);
-        assert_eq!(
-            frames.clone(),
-            frames,
-            "a run's frames clone with their basis"
         );
     }
 

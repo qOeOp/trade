@@ -118,6 +118,7 @@ struct Basis {
     binding: Option<CustodyBindingV1>,
     instruments: Vec<CustodyInstrumentV1>,
     membership: Vec<CustodyMembershipV1>,
+    universe_lineage: CustodyUniverseLineageV1,
 }
 
 impl Basis {
@@ -154,6 +155,10 @@ impl Basis {
             }),
             instruments: vec![instrument(40), instrument(41)],
             membership: vec![membership(BTC), membership(ETH)],
+            universe_lineage: CustodyUniverseLineageV1 {
+                source_binding_lineage_root: d(2),
+                correction_frontier_digest: d(25),
+            },
         }
     }
 
@@ -170,6 +175,7 @@ impl Basis {
             binding: self.binding.as_ref(),
             instruments: &self.instruments,
             membership: &self.membership,
+            universe_lineage: self.universe_lineage,
         })
     }
 }
@@ -518,6 +524,8 @@ const fn e(edit: Edit) -> Edit {
 #[case::no_binding(e(|_, b| b.binding = None), Refused::SourceBindingUnavailable)]
 #[case::binding_not_admitted_under_locator(e(|_, b| b.binding().admitted_under_locator = false), Refused::SourceBindingUnavailable)]
 #[case::schema_one_binding(e(|_, b| b.binding().availability_rule = None), Refused::SourceBindingDeclaresNoAvailabilityRule)]
+#[case::universe_under_another_lineage(e(|_, b| b.universe_lineage.source_binding_lineage_root = d(9)), Refused::UniverseSelectionLineageMismatch)]
+#[case::universe_under_another_correction_frontier(e(|_, b| b.universe_lineage.correction_frontier_digest = d(9)), Refused::UniverseSelectionLineageMismatch)]
 #[case::other_market_semantics(e(|r, _| r.market_semantics_identity = d(31)), Refused::MarketSemanticsMismatch)]
 #[case::instrument_under_other_market_semantics(e(|_, b| {
     b.instruments[1].at_start.as_mut().unwrap().market_semantics_identity = d(31);
@@ -1661,30 +1669,22 @@ mod chain_records {
         let root = root_identity(&derived);
         let schedules = mint_window_schedules_v1(&derived, root, root, RETRIEVED).unwrap();
         let schedule = &schedules[0];
-        let declarations = &derived.binding.bar_timeframes;
-        let frame = |event| {
-            frame_r0_v1(
-                &record,
-                schedule,
-                event,
-                declarations,
-                derived.input_labels(),
-            )
-        };
+        let frame = |event| frame_r0_v1(&record, schedule, event);
 
         let first = frame(0).expect("the window's first frame has an R0");
         assert_eq!(
-            (first.window_start_ns, first.window_end_ns_exclusive),
+            (first.window_start_ns(), first.window_end_ns_exclusive()),
             (0, DAY)
         );
         let last = frame(2 * DAY).expect("the last frame's R0 ends at the chain's");
         assert_eq!(
-            (last.window_start_ns, last.window_end_ns_exclusive),
+            (last.window_start_ns(), last.window_end_ns_exclusive()),
             (2 * DAY, 3 * DAY)
         );
-        assert_eq!(last.chain_record_identity, record.identity());
+        assert_eq!(last.chain_record_identity(), record.identity());
         assert_ne!(
-            first.identity, last.identity,
+            first.identity(),
+            last.identity(),
             "a frame R0 is a function of e_k"
         );
         assert_eq!(frame(DAY), frame(DAY), "and only of e_k");
