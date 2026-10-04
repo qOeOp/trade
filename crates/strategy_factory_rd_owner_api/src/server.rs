@@ -422,6 +422,12 @@ pub async fn run() -> anyhow::Result<()> {
     #[cfg(feature = "composer-replay-issuance")]
     let instrument_economic_terms =
         Arc::new(instrument_economic_terms_postgres_owner_from_environment_v1().await?);
+    // backtest.run's own in-process caller (H8) needs both Owners directly, cloned here before
+    // `state` moves them.
+    #[cfg(feature = "composer-v3-replay")]
+    let backtest_run_instrument_master_v2 = Some(instrument_master_v2.clone());
+    #[cfg(feature = "composer-v3-replay")]
+    let backtest_run_instrument_economic_terms = Some(instrument_economic_terms.clone());
     #[cfg(feature = "composer-replay-issuance")]
     let universe_sample_projection =
         Arc::new(universe_sample_projection_owner_from_environment_v1().await?);
@@ -667,6 +673,10 @@ pub async fn run() -> anyhow::Result<()> {
                 custody_frames: market_data_custody_frames.clone(),
                 #[cfg(feature = "composer-v3-replay")]
                 develop_composer: backtest_run_develop_composer,
+                #[cfg(feature = "composer-v3-replay")]
+                instrument_master_v2: backtest_run_instrument_master_v2,
+                #[cfg(feature = "composer-v3-replay")]
+                instrument_economic_terms: backtest_run_instrument_economic_terms,
                 rd_pool: backtest_run_rd_pool,
                 request_proof_digest: request_proof_digest.clone(),
                 token_digest,
