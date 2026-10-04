@@ -6,6 +6,9 @@
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Postgres, Row, Transaction};
+use vibe_data::owner::pit_window_custody_v1::{
+    PitWindowCustodyFramesV1, UntrustedPitWindowCustodyClaimV1, UntrustedPitWindowRunV1,
+};
 use vibe_product_edge::{
     DownstreamAdmissionModeV1, ProductEdgeAdmissionReadbackV1,
     resolve_admission_for_downstream_in_transaction,
@@ -24,13 +27,16 @@ use crate::{
     composer_replay_intent_v3::{
         load_composer_replay_family_cut_v3, resolve_composer_replay_intent_in_transaction,
     },
+    design_input_custody_v1::reread_design_universe_frame_digest_v1,
     develop_composer_postgres_v2::read_accepted_for_replay_in_transaction,
     exploratory_replay::{
-        ComposerBackedExploratoryReplayProposalV3, EXPLORATORY_REPLAY_MUTATION_EFFECT_V3,
-        EXPLORATORY_REPLAY_OPERATION_V3, EXPLORATORY_REPLAY_REQUEST_FROZEN_EVENT_V2,
-        EXPLORATORY_REPLAY_SCHEMA_V3, ExploratoryReplayCommitResultV2, ExploratoryReplayOwnerError,
+        ComposerBackedExploratoryReplayProposalV3, ComposerReplayMarketDataLocatorV3,
+        EXPLORATORY_REPLAY_MUTATION_EFFECT_V3, EXPLORATORY_REPLAY_OPERATION_V3,
+        EXPLORATORY_REPLAY_REQUEST_FROZEN_EVENT_V2, EXPLORATORY_REPLAY_SCHEMA_V3,
+        ExploratoryReplayCommitResultV2, ExploratoryReplayOwnerError,
         composition_v3::{
-            admit_composer_replay_market_in_transaction_v3, prepare_composer_backed_replay_v3,
+            ComposedInputsV3, admit_composer_replay_market_in_transaction_v3,
+            prepare_composer_backed_custody_replay_v3, prepare_composer_backed_replay_v3,
             prepare_composer_replay_seal_v3, project_composer_replay_view_v3,
             verify_composer_replay_frozen_v3,
         },
@@ -202,9 +208,14 @@ pub(super) async fn migrate_composer_research_view_transitions_v3(
 
 /// Commits one exact Composer Replay request. The first read follows the request advisory lock;
 /// an existing request never re-enters the current first-mutation admission path.
+///
+/// `custody_frames` is consulted only when `proposal.market_data_locator` is `CustodyRun`; a
+/// snapshot-locator proposal never reads it. `None` there refuses a custody-run proposal by name
+/// rather than treating it as a snapshot.
 pub(crate) async fn commit_composer_v3(
     pool: &PgPool,
     proposal: ComposerBackedExploratoryReplayProposalV3,
+    custody_frames: Option<&dyn PitWindowCustodyFramesV1>,
 ) -> Result<ExploratoryReplayCommitResultV2, ExploratoryReplayOwnerError> {
     let mut transaction =
         begin_composer_replay_request_transaction_v3(pool, &proposal.request_identity)
@@ -215,6 +226,7 @@ pub(crate) async fn commit_composer_v3(
         super::composer_readback_v3::resolve_existing_composer_v3_in_transaction(
             &mut transaction,
             &proposal,
+            custody_frames,
         ),
     )
     .await?
@@ -243,6 +255,7 @@ pub(crate) async fn commit_composer_v3(
         super::composer_readback_v3::resolve_existing_composer_v3_in_transaction(
             &mut transaction,
             &proposal,
+            custody_frames,
         ),
     )
     .await?
@@ -290,15 +303,69 @@ pub(crate) async fn commit_composer_v3(
     .await
     .map_err(unavailable)?
     .ok_or_else(|| unavailable("Composer Artifact-family binding is unavailable"))?;
-    let market = vibe_data::owner::replay_market_facts_v2::resolve_bound_replay_cut_for_rd_in_transaction_v1(
-        &mut transaction,
-        proposal.market_data_locator,
-    )
-    .await
-    .map_err(unavailable)?;
-    let admitted =
-        admit_composer_replay_market_in_transaction_v3(&mut transaction, &composer, &market)
+    let composed_inputs = match proposal.market_data_locator {
+        ComposerReplayMarketDataLocatorV3::Snapshot(locator) => {
+            let market = vibe_data::owner::replay_market_facts_v2::resolve_bound_replay_cut_for_rd_in_transaction_v1(
+                &mut transaction,
+                locator,
+            )
+            .await
+            .map_err(unavailable)?;
+            let admitted = admit_composer_replay_market_in_transaction_v3(
+                &mut transaction,
+                &composer,
+                &market,
+            )
             .await?;
+            ComposedInputsV3::Snapshot {
+                market: Box::new(market),
+                admitted,
+            }
+        }
+        ComposerReplayMarketDataLocatorV3::CustodyRun {
+            chain_root,
+            head_identity,
+        } => {
+            let resolver = custody_frames.ok_or_else(|| {
+                unavailable("custody-run Replay commit requires a custody frames port")
+            })?;
+            let policy_window = cut
+                .legacy_family()
+                .root()
+                .policy()
+                .replay_policy_catalog_v3()
+                .ok_or_else(|| unavailable("TrialFamily has no sealed Replay execution profiles"))?
+                .replay_policy_v2()
+                .verify()
+                .map_err(unavailable)?
+                .window;
+            let frames = resolver
+                .resolve_pit_window_frames_v1(UntrustedPitWindowRunV1 {
+                    custody: UntrustedPitWindowCustodyClaimV1 { chain_root },
+                    run_start_ns: policy_window.start_event_ns,
+                    run_end_ns_exclusive: policy_window.end_event_ns_exclusive,
+                })
+                .await
+                .map_err(|e| unavailable(format!("custody run frames unavailable: {e}")))?;
+            if frames.chain_root() != chain_root || frames.head_identity() != head_identity {
+                return Err(unavailable(
+                    "custody run resolved a different chain or head than the locator names",
+                ));
+            }
+            let universe_frame_digest = reread_design_universe_frame_digest_v1(
+                &mut transaction,
+                "exploratory_replay.composer_v3.custody_run.universe_frame",
+                composer.research_request_identity(),
+                composer.design_identity(),
+            )
+            .await
+            .map_err(|e| unavailable(format!("custody run universe frame not rederived: {e:?}")))?;
+            ComposedInputsV3::CustodyRun {
+                frames: Box::new(frames),
+                universe_frame_digest,
+            }
+        }
+    };
     let old_view = lock_exact_research_view(&mut transaction, &intent, &composer).await?;
     if old_view.availability != ResearchViewAvailability::Available
         || old_view.phase != ResearchViewPhase::IntentFrozen
@@ -321,15 +388,29 @@ pub(crate) async fn commit_composer_v3(
             "Composer Research View expired before Replay commit",
         ));
     }
-    let composed = prepare_composer_backed_replay_v3(
-        &proposal,
-        &cut,
-        &intent,
-        &composer,
-        &artifact_family,
-        &market,
-        &admitted,
-    )?;
+    let composed = match &composed_inputs {
+        ComposedInputsV3::Snapshot { market, admitted } => prepare_composer_backed_replay_v3(
+            &proposal,
+            &cut,
+            &intent,
+            &composer,
+            &artifact_family,
+            market,
+            admitted,
+        )?,
+        ComposedInputsV3::CustodyRun {
+            frames,
+            universe_frame_digest,
+        } => prepare_composer_backed_custody_replay_v3(
+            &proposal,
+            &cut,
+            &intent,
+            &composer,
+            &artifact_family,
+            frames,
+            *universe_frame_digest,
+        )?,
+    };
     let prepared = prepare_composer_replay_seal_v3(
         composed,
         &cut,
@@ -374,6 +455,7 @@ pub(crate) async fn commit_composer_v3(
         super::composer_readback_v3::resolve_existing_composer_v3_in_transaction(
             &mut transaction,
             &proposal,
+            custody_frames,
         ),
     )
     .await?

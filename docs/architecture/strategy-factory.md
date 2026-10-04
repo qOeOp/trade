@@ -789,9 +789,13 @@ The bundle carries the window's settled funding by value: Market Data's `ReplayF
 "window funding schedule read"), or nothing. Its census states which. A schedule must cover exactly the run's window
 and members, or the bundle is refused by name as `FUNDING_SCHEDULE_WINDOW_NOT_THE_RUNS` or
 `FUNDING_SCHEDULE_MEMBERS_NOT_THE_RUNS`, and its digest is then sealed into the census digest. A bundle without one
-states `FUNDING_NOT_STATED`, and its census digest is the one it had before funding was carried. **Current:** no Owner
-read of the schedule exists yet, so every production bundle states `FUNDING_NOT_STATED`; a report must not read that
-as a run that paid no funding.
+states `FUNDING_NOT_STATED`, and its census digest is the one it had before funding was carried. **Current:** both
+consumer paths (the single-frame snapshot and the custody run) read the window's settled funding through Market
+Data's admitted-read port before composing the bundle: no backfilled coverage for a member answers `None` and the
+bundle states `FUNDING_NOT_STATED`, exactly as before this read existed; a window with coverage but a genuine
+settlement gap inside it refuses the whole bundle by name rather than stating anything or filling the gap with a
+zero rate. Since nothing backfills funding settlements in production yet, every production bundle still states
+`FUNDING_NOT_STATED` today; a report must not read that as a run that paid no funding.
 
 Backtest V2 result custody binds the exact V2 binding and sequence digest, each consumed frame's
 identity and ordinal, every native schedule and liquidity EVENT receipt, the canonical target set

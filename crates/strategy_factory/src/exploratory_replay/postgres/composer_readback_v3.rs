@@ -5,6 +5,9 @@
 use serde_json::Value;
 use sqlx::{Postgres, Row, Transaction};
 use vibe_backtest_owner_contracts::{ReplayRequestDtoV2, ReplayRequestV2};
+use vibe_data::owner::pit_window_custody_v1::{
+    PitWindowCustodyFramesV1, UntrustedPitWindowCustodyClaimV1, UntrustedPitWindowRunV1,
+};
 use vibe_data::owner::replay_market_facts_v2::resolve_bound_replay_cut_for_rd_in_transaction_v1;
 use vibe_product_edge::{
     DownstreamAdmissionModeV1, resolve_admission_for_downstream_in_transaction,
@@ -27,16 +30,19 @@ use crate::{
     composer_replay_intent_v3::{
         load_composer_replay_family_cut_v3, resolve_composer_replay_intent_in_transaction,
     },
+    design_input_custody_v1::reread_design_universe_frame_digest_v1,
     develop_composer_postgres_v2::read_accepted_for_replay_historical_in_transaction,
     exploratory_replay::{
-        ComposerBackedExploratoryReplayProposalV3, EXPLORATORY_REPLAY_MUTATION_EFFECT_V3,
-        EXPLORATORY_REPLAY_OPERATION_V3, EXPLORATORY_REPLAY_SCHEMA_V3, ExploratoryReplayOwnerError,
+        ComposerBackedExploratoryReplayProposalV3, ComposerReplayMarketDataLocatorV3,
+        EXPLORATORY_REPLAY_MUTATION_EFFECT_V3, EXPLORATORY_REPLAY_OPERATION_V3,
+        EXPLORATORY_REPLAY_SCHEMA_V3, ExploratoryReplayOwnerError,
         ExploratoryReplayRequestLocatorV2, SealedExploratoryReplayReadbackV2,
         composition_v3::{
             StoredComposerReplayFrozenV3, StoredComposerReplayReceiptV3,
             StoredComposerReplaySourceV3, admit_composer_replay_market_in_transaction_v3,
-            prepare_composer_backed_replay_v3, prepare_composer_replay_seal_v3,
-            project_composer_replay_view_v3, verify_composer_replay_frozen_v3,
+            prepare_composer_backed_custody_replay_v3, prepare_composer_backed_replay_v3,
+            prepare_composer_replay_seal_v3, project_composer_replay_view_v3,
+            verify_composer_replay_frozen_v3,
         },
         exploratory_replay_admission_payload_v3,
     },
@@ -138,9 +144,13 @@ pub(super) async fn resolve_composer_v3_by_locator_in_transaction(
     else {
         return Ok(None);
     };
+    // This generic by-locator read path (census/dashboard/Backtest Owner readback) is outside
+    // this slice's scope; no caller here resolves a custody-run-backed request yet, so `None` is
+    // correct until that widening happens, not a silently dropped port.
     let readback = Box::pin(resolve_existing_composer_v3_in_transaction(
         transaction,
         &frozen.source.proposal,
+        None,
     ))
     .await?
     .ok_or_else(|| corrupt("COMPOSER_V3 Replay row disappeared"))?;
@@ -250,24 +260,15 @@ pub(crate) async fn read_self_verified_composer_v3_claim_in_transaction(
 pub(super) async fn resolve_existing_composer_v3_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
     proposal: &ComposerBackedExploratoryReplayProposalV3,
+    custody_frames: Option<&dyn PitWindowCustodyFramesV1>,
 ) -> Result<Option<SealedExploratoryReplayReadbackV2>, ExploratoryReplayOwnerError> {
     let Some(claim) =
         load_stored_claim(transaction, proposal, PostgresReadLockMode::ForShare).await?
     else {
         return Ok(None);
     };
-    let market = resolve_bound_replay_cut_for_rd_in_transaction_v1(
-        transaction,
-        proposal.market_data_locator,
-    )
-    .await
-    .map_err(unavailable)?;
-    let binding = market.binding();
-    let market_facts = market.market_facts();
-    let instrument_master = market.instrument_master();
     let source = &claim.frozen.source;
 
-    source.require_binding_shape(binding.record().shape())?;
     let admission = resolve_admission_for_downstream_in_transaction(
         transaction,
         &proposal.admission,
@@ -297,19 +298,55 @@ pub(super) async fn resolve_existing_composer_v3_in_transaction(
         ));
     }
 
-    if market.market_data_scope_digest() != proposal.market_data_scope_digest
-        || source.market_binding_receipt_identity != binding.receipt().identity()
-        || source.market_binding_outbox_identity != binding.outbox().identity()
-        || source.market_facts_identity != market_facts.facts().identity()
-        || source.market_facts_receipt_identity != market_facts.receipt().identity()
-        || source.instrument_master_identity != instrument_master.map(|master| master.identity())
-        || source.instrument_master_receipt_identity
-            != instrument_master.map(|master| master.receipt_identity())
-        || source.instrument_master_outbox_identity
-            != instrument_master.map(|master| master.outbox_identity())
-    {
-        return Err(corrupt("COMPOSER_V3 Market Data Owner readback mismatch"));
-    }
+    // The custody branch cannot resolve its frames yet: that needs the run's requested window,
+    // which comes from the TrialFamily's sealed policy - not read until `cut` resolves below.
+    // The snapshot branch has no such dependency (its locator alone is enough), so it resolves
+    // `market` here, exactly as before, and leaves only `admitted` for the later point both
+    // branches share.
+    let early_market = match proposal.market_data_locator {
+        ComposerReplayMarketDataLocatorV3::Snapshot(locator) => {
+            let market = resolve_bound_replay_cut_for_rd_in_transaction_v1(transaction, locator)
+                .await
+                .map_err(unavailable)?;
+            let binding = market.binding();
+            let market_facts = market.market_facts();
+            let instrument_master = market.instrument_master();
+            source.require_binding_shape(binding.record().shape())?;
+
+            if market.market_data_scope_digest() != proposal.market_data_scope_digest
+                || source.market_binding_receipt_identity != Some(binding.receipt().identity())
+                || source.market_binding_outbox_identity != Some(binding.outbox().identity())
+                || source.market_facts_identity != Some(market_facts.facts().identity())
+                || source.market_facts_receipt_identity != Some(market_facts.receipt().identity())
+                || source.instrument_master_identity
+                    != instrument_master.map(|master| master.identity())
+                || source.instrument_master_receipt_identity
+                    != instrument_master.map(|master| master.receipt_identity())
+                || source.instrument_master_outbox_identity
+                    != instrument_master.map(|master| master.outbox_identity())
+            {
+                return Err(corrupt("COMPOSER_V3 Market Data Owner readback mismatch"));
+            }
+            Some(market)
+        }
+        ComposerReplayMarketDataLocatorV3::CustodyRun {
+            chain_root,
+            head_identity,
+        } => {
+            if custody_frames.is_none() {
+                return Err(unavailable(
+                    "custody-run Replay readback requires a custody frames port",
+                ));
+            }
+
+            if source.custody_chain_root != Some(chain_root)
+                || source.custody_head_identity != Some(head_identity)
+            {
+                return Err(corrupt("COMPOSER_V3 custody run readback mismatch"));
+            }
+            None
+        }
+    };
 
     let old_view = &claim.transition.old_view;
     let new_view = &claim.transition.new_view;
@@ -366,17 +403,84 @@ pub(super) async fn resolve_existing_composer_v3_in_transaction(
             .await
             .map_err(unavailable)?
             .ok_or_else(|| corrupt("COMPOSER_V3 historical Artifact-family binding is missing"))?;
-    let admitted =
-        admit_composer_replay_market_in_transaction_v3(transaction, &composer, &market).await?;
-    let composed = prepare_composer_backed_replay_v3(
-        proposal,
-        &cut,
-        &intent,
-        &composer,
-        &artifact_family,
-        &market,
-        &admitted,
-    )?;
+    let composed = match (proposal.market_data_locator, early_market) {
+        (ComposerReplayMarketDataLocatorV3::Snapshot(_), Some(market)) => {
+            let admitted =
+                admit_composer_replay_market_in_transaction_v3(transaction, &composer, &market)
+                    .await?;
+            prepare_composer_backed_replay_v3(
+                proposal,
+                &cut,
+                &intent,
+                &composer,
+                &artifact_family,
+                &market,
+                &admitted,
+            )?
+        }
+        (ComposerReplayMarketDataLocatorV3::CustodyRun { chain_root, .. }, None) => {
+            let resolver = custody_frames.ok_or_else(|| {
+                unavailable("custody-run Replay readback requires a custody frames port")
+            })?;
+            let policy_window = cut
+                .legacy_family()
+                .root()
+                .policy()
+                .replay_policy_catalog_v3()
+                .ok_or_else(|| unavailable("TrialFamily has no sealed Replay execution profiles"))?
+                .replay_policy_v2()
+                .verify()
+                .map_err(unavailable)?
+                .window;
+            let frames = resolver
+                .resolve_pit_window_frames_v1(UntrustedPitWindowRunV1 {
+                    custody: UntrustedPitWindowCustodyClaimV1 { chain_root },
+                    run_start_ns: policy_window.start_event_ns,
+                    run_end_ns_exclusive: policy_window.end_event_ns_exclusive,
+                })
+                .await
+                .map_err(|e| unavailable(format!("custody run frames unavailable: {e}")))?;
+            // The chain root is the request's own: the port is handed exactly what the stored
+            // source names, so a differing root is the port returning another chain entirely -
+            // genuine corruption, not a lifecycle event.
+            if source.custody_chain_root != Some(frames.chain_root()) {
+                return Err(corrupt(
+                    "custody run resolved a different chain than the stored source",
+                ));
+            }
+            // The head is read from the chain's current head, which is free to advance (a
+            // correction or a later commit) between the original commit and this readback. That
+            // is not corruption - the chain and the readback are both correct - so it gets its own
+            // name, matching the consumer's `CUSTODY_HEAD_MOVED_SINCE_BINDING`: an idempotent
+            // retry or an H8 readback of this exact binding cannot succeed once the head has
+            // moved, but the binding and the chain are both intact.
+            if source.custody_head_identity != Some(frames.head_identity()) {
+                return Err(corrupt(
+                    "CUSTODY_HEAD_MOVED_SINCE_BINDING: the chain's head advanced since this \
+                     source was committed; this readback will not resolve again until Market \
+                     Data can read it at the pinned head instead of the chain's current one",
+                ));
+            }
+            let universe_frame_digest = reread_design_universe_frame_digest_v1(
+                transaction,
+                "exploratory_replay.composer_v3.custody_run.universe_frame",
+                composer.research_request_identity(),
+                composer.design_identity(),
+            )
+            .await
+            .map_err(|e| unavailable(format!("custody run universe frame not rederived: {e:?}")))?;
+            prepare_composer_backed_custody_replay_v3(
+                proposal,
+                &cut,
+                &intent,
+                &composer,
+                &artifact_family,
+                &frames,
+                universe_frame_digest,
+            )?
+        }
+        _ => return Err(unavailable("custody/snapshot composition path mismatch")),
+    };
 
     if composed.source != *source {
         return Err(corrupt("COMPOSER_V3 historical Owner source differs"));
