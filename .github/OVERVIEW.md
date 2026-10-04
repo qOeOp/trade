@@ -16,24 +16,15 @@ CI/CD, testing, publishing, and automation within the Vibe Trading repository.
 - **generate-sbom-retry**: wraps Docker SBOM generation with bounded retries.
 - **install-capnp**: installs the Cap'n Proto compiler on Linux, macOS, and Windows, with a binary
   cache on Linux.
-- **publish-wheels**: publishes built wheels to Cloudflare R2, manages old wheel cleanup and index generation.
 - **upload-artifact-wheel**: uploads the latest wheel artifact to GitHub Actions.
 
 ## Workflows (`.github/workflows`)
 
-- **build.yml**: main CI and release pipeline for planning, `pre-commit`, workspace Rust tests,
-  Python tests, wheel builds, provenance, and publication. `nightly` publishes every supported wheel
-  platform to R2 after its security gate. A release commit on `master` also runs Cargo and
-  docs/features preflights, creates
-  a tag and draft GitHub release, publishes wheels to R2 and PyPI, publishes the sdist to PyPI,
-  publishes Cargo crates, verifies the registries and release assets, then publishes the GitHub
-  release. A dedicated Linux x86 job runs the Rust suite once in parallel with the required Python
-  wheel jobs after `pre-commit`; every publication path requires it to pass. Pull requests targeting
-  `main` run on opened, synchronize, and reopened events. Retargeting a pull request's base runs the
-  normal graph; other metadata edits neither cancel that graph nor publish `quality`.
-- **cli-binaries.yml**: builds CLI archives for Linux x86, Linux ARM64, macOS ARM64, and Windows
-  x86_64 on nightly pushes and manual dispatch. Nightly pushes publish those archives to R2.
-
+- **build.yml**: main CI pipeline for planning, `pre-commit`, workspace Rust tests, Python tests,
+  and wheel builds (built and tested, never published - this repository carries no release or
+  publication pipeline; the wheel is a CI artifact only). A dedicated Linux x86 job runs the Rust
+  suite once in parallel with the Python wheel jobs after `pre-commit`; `quality` requires both.
+  Pull requests targeting `main` run on opened, ready-for-review, and reopened events.
 - **codeql-analysis.yml**: CodeQL scans the tracked Go, Python, and Rust sources on `main` once a day
   (10:37 UTC, off-peak) and on manual dispatch.
 - **pr-title.yml**: validates the current pull request title with the exact base revision's canonical
@@ -86,39 +77,19 @@ CI/CD, testing, publishing, and automation within the Vibe Trading repository.
   once a day and on manual dispatch. Zizmor runs in `security-audit.yml` and
   uploads SARIF when token permissions allow it.
 
-### Build and publish controls
+### Build controls
+
+This repository carries no release or publication pipeline - the wheel `build` job and the CLI
+binaries it once fed (`cli-binaries.yml`) built artifacts for an upstream repository's own release
+process, gated on that repository's name, and never ran a publishing step on `qOeOp/trade`. Deleted
+outright rather than repointed at this repository, since repointing it would really turn publishing
+on - a production effect, not a cleanup.
 
 - **Action provenance**: Every external GitHub Action has its canonical repository URL on the
   line immediately above `uses:`, a full commit SHA pin, and an inline release tag comment. Local
   actions under `.github/actions` do not need external source metadata.
 - **Docker image pinning**: Base images in Dockerfiles and service containers in workflows are
   pinned to SHA256 digests to prevent supply-chain attacks via tag mutation.
-- **Build attestations**: Development and nightly R2 jobs create and verify GitHub artifact
-  attestations before upload. Stable wheels and sdists receive GitHub and PyPI attestations before
-  PyPI publication, with provenance siblings attached to the GitHub release. Docker images receive
-  cosign signatures and SPDX SBOM attestations, which the workflow verifies after pushing. Verify
-  Python artifacts with `gh attestation verify` and container images with `cosign verify`.
-- **Wheel publication**: `develop` publication requires a successful same‑commit security audit when
-  audit‑relevant paths change. `nightly` publication requires its `cargo audit` and OSV gate.
-  Stable publication requires `cargo-deny`, `cargo-vet`, every platform wheel job, the Rust suite,
-  and the release preflights. Development, nightly, and stable wheels publish to
-  `packages.nautechsystems.io`; stable wheels and the sdist also publish to PyPI.
-- **Release sequencing**: Stable releases create a draft GitHub release first, attach wheel and
-  sdist assets, publish to package indexes, verify registries, attach final integrity assets, then
-  publish the GitHub release.
-- **Release checksums**: GitHub releases attach `SHA256SUMS`, per‑asset `.sha256` files,
-  `dist-manifest.json`, `crates-manifest.json`, and per‑artifact `.sigstore` and `.intoto.jsonl`
-  provenance siblings for Python artifacts.
-- **PyPI Trusted Publishing**: `publish-wheels-pypi` and `publish-sdist-pypi` upload through OIDC
-  instead of a long‑lived API token. The PyPI publisher is bound to repository
-  `nautechsystems/nautilus_trader`, workflow `build.yml`, and environment `release`.
-- **crates.io Trusted Publishing**: `publish-cargo-crates` obtains a short‑lived crates.io token
-  through GitHub Actions OIDC and publishes crates one at a time in dependency order. Each crate's
-  publisher is bound to this repository, `build.yml`, and the `release` environment.
-- **Post‑publish verification**: `publish-release-integrity` compares PyPI and crates.io records
-  with the draft release assets and expected publisher identities before it attaches final
-  integrity files. `publish-github-release` verifies the complete draft asset set, publishes the
-  release, and verifies GitHub's release attestation.
 - **Caching**: The dedicated Linux x86 Rust job restores its action cache for untrusted PRs and
   produces it from trusted `main` and `test-ci` pushes. Its other self-hosted runs use a
   persistent target. Linux x86 wheel jobs disable action caching and use persistent targets for
@@ -142,9 +113,8 @@ CI/CD, testing, publishing, and automation within the Vibe Trading repository.
   currently assumes `C:\agent` exists. Workflows default `egress-policy` to `block`. Set
   `STEP_SECURITY_EGRESS_POLICY=audit` only as a temporary rollback while expanding an allow list.
   Jobs that declare a GitHub Environment can override the repo or org value with an
-  environment-scoped variable. The publish environments (`r2-develop`, `r2-nightly`, `release`) can
-  use this override too. Security audit jobs read repo and org variables directly and run in audit
-  mode for fork PRs when variables are absent.
+  environment-scoped variable. Security audit jobs read repo and org variables directly and run in
+  audit mode for fork PRs when variables are absent.
 - **Untrusted PR handling**: `build.yml` uses self‑hosted runners only for same‑repository,
   non‑Dependabot PRs with a known author. Fork and missing‑origin PRs use GitHub‑hosted runners with
   `egress-policy: audit` because they cannot read the repository or organization endpoint variables.
@@ -171,9 +141,8 @@ is single-use test credentials only:
   - `GH_TOKEN` appears only as `***`.
   - The Owner chain's per-run generated test password never appears.
 - **Long-lived secrets** reach one workflow, `research-source-canary.yml`, on schedule and dispatch
-  only. It uploads no artifact, and its logs show each key as `***`. `cli-binaries.yml` references
-  the AWS/R2 publish secrets and has never run here. No workflow references the local API keys
-  named in `AGENTS.md`, and the Owner chain jobs receive only `GITHUB_TOKEN`.
+  only. It uploads no artifact, and its logs show each key as `***`. No workflow references the
+  local API keys named in `AGENTS.md`, and the Owner chain jobs receive only `GITHUB_TOKEN`.
 - **The failed-entry warnings** a chain job prints to its log are redacted before printing (#1169).
   The raw lines stay in `chain-records/NNN.log`, which is why the audit covers the records too.
 
@@ -187,10 +156,9 @@ If it finds a long-lived credential, stop and report it. Rotating a credential i
 
 ### Security gate override
 
-The `security-gate-nightly` job runs `cargo audit` and `osv-scanner` to catch vulnerabilities
-before publishing. Occasionally, upstream events outside our control (transitive dependency
-advisories, crate yanks for non-security reasons) can block the nightly pipeline with no
-actionable fix on our side.
+`security-audit.yml`'s jobs run `cargo audit` and `osv-scanner` to catch vulnerabilities.
+Occasionally, upstream events outside our control (transitive dependency advisories, crate yanks
+for non-security reasons) can block a forced audit with no actionable fix on our side.
 
 The repo‑scoped variable `SECURITY_GATE_OVERRIDE` holds an ISO 8601 UTC timestamp
 (e.g. `2026-03-28T02:00:00Z`). When the current time is before the timestamp, the security
@@ -229,17 +197,13 @@ Workflows use these GitHub variables by role:
   `audit` only as a temporary override while expanding an allow list.
 - `COMMON_ALLOWED_ENDPOINTS`: Baseline endpoints shared across workflows for GitHub, system
   packages, and tooling.
-- `CI_ALLOWED_ENDPOINTS`: Extra endpoints shared by build, documentation, CLI, container, and
+- `CI_ALLOWED_ENDPOINTS`: Extra endpoints shared by build, documentation, container, and
   scheduled test workflows.
-- `SECURITY_AUDIT_ALLOWED_ENDPOINTS`: Extra endpoints shared by the security audit jobs and the
-  nightly publication gate.
+- `SECURITY_AUDIT_ALLOWED_ENDPOINTS`: Extra endpoints shared by the security audit jobs.
 
-Some workflows add job‑specific endpoints inline, such as `upload.pypi.org:443` for PyPI,
-`ghcr.io:443` for container publication, the configured Cloudflare R2 host, and Scorecard lookup
-and publication endpoints such as `api.scorecard.dev:443`, `fulcio.sigstore.dev:443`, and
-`tuf-repo-cdn.sigstore.dev:443`. The Windows CLI build also permits Sectigo and GlobalSign OCSP
-and CRL endpoints, plus Let's Encrypt CRL endpoints, so Schannel can verify GitHub and `crates.io`
-download certificates.
+Some workflows add job‑specific endpoints inline, such as Scorecard lookup and publication
+endpoints like `api.scorecard.dev:443`, `fulcio.sigstore.dev:443`, and
+`tuf-repo-cdn.sigstore.dev:443`.
 
 Security audit jobs do not use deployment environments or environment secrets.
 
