@@ -43,8 +43,8 @@ pub enum NativeReplayCustodyFramesErrorV1 {
         "CUSTODY_REQUEST_NOT_THE_RUNS: the frame request does not name the run's chain and head"
     )]
     RequestNotTheRuns,
-    /// The chain's head is no longer the one the request pins: the run was enumerated from a
-    /// later head, and a pinned run never follows it.
+    /// The run was enumerated from another head than the one the request pins. The bound run is
+    /// read at its pinned head, so this guards only a port that answers from another head.
     #[error(
         "CUSTODY_HEAD_MOVED_SINCE_BINDING: the run was enumerated from another head than the one pinned"
     )]
@@ -238,8 +238,9 @@ where
 
 /// Every frame of the custody run `custody` binds, read at the head it pins.
 ///
-/// The frames are enumerated afresh from the bound chain and window, and the run is refused as
-/// moved unless they come from the bound head. Every frame must be read under the chain's own
+/// The frames are enumerated afresh from the bound chain and window, read at the bound head, so a
+/// later backfill or correction that moves the chain's head does not move the run; a head that is
+/// not in the chain is refused by Market Data. Every frame must be read under the chain's own
 /// Instrument Master key, the cut its basis declares.
 ///
 /// # Errors
@@ -271,7 +272,7 @@ where
             },
             run_start_ns: custody.run_start_ns,
             run_end_ns_exclusive: custody.run_end_ns_exclusive,
-            head_identity: None,
+            head_identity: Some(BindingDigest::from_untrusted_bytes(custody.head_identity)),
         })
         .await
         .map_err(NativeReplayCustodyFramesErrorV1::RunRefused)?;
