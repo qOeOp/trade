@@ -47,13 +47,14 @@ use vibe_binance::{
     vision_backfill_custody_v1::{
         BackfillCustodyBasisV1, BackfillTimeframeBarsV1, custody_request_v1,
     },
-    vision_backfill_v1::VisionBackfillFetcherV1,
+    vision_backfill_v1::{FUNDING_ARCHIVE_ROUTE, VisionBackfillFetcherV1},
 };
 use vibe_data::owner::{
     backfill_job_v1::{
         BackfillCoverageRangeV1, BackfillJobErrorV1, BackfillJobRequestV1, BackfillJobV1,
     },
     bar_schedule::SUPPORTED_EXECUTION_TIMEFRAMES_V1,
+    funding_settlement_commit_v1::{FundingSettlementCommitV1, FundingSettlementWriteRowV1},
     pit_window_custody_v1::PitWindowCustodyCommitV1,
     research_instrument_scope_v1::ResearchInstrumentScopeV1,
     source_binding::{BindingDigest, UntrustedSourceBindingLocator},
@@ -76,6 +77,7 @@ pub(super) struct BinanceBackfillJobApiState {
     pub(super) admission: Option<Arc<dyn SourceBindingAdmissionV1>>,
     pub(super) universe: Option<Arc<dyn UniverseSelectionAdmissionV1>>,
     pub(super) custody_commit: Option<Arc<dyn PitWindowCustodyCommitV1>>,
+    pub(super) funding_commit: Option<Arc<dyn FundingSettlementCommitV1>>,
     pub(super) fetcher: Option<Arc<VisionBackfillFetcherV1>>,
     pub(super) token_digest: [u8; 32],
 }
@@ -159,13 +161,22 @@ async fn start_backfill(
     if !authorized(&headers, &state.token_digest) {
         return rejection(StatusCode::FORBIDDEN, "UNAUTHORIZED_PRODUCT_EDGE");
     }
-    let (Some(jobs), Some(admission), Some(universe), Some(custody_commit), Some(fetcher)) = (
+    let (
+        Some(jobs),
+        Some(admission),
+        Some(universe),
+        Some(custody_commit),
+        Some(funding_commit),
+        Some(fetcher),
+    ) = (
         state.jobs,
         state.admission,
         state.universe,
         state.custody_commit,
+        state.funding_commit,
         state.fetcher,
-    ) else {
+    )
+    else {
         return rejection(
             StatusCode::SERVICE_UNAVAILABLE,
             "MARKET_DATA_BACKFILL_JOB_UNAVAILABLE",
@@ -198,7 +209,10 @@ async fn start_backfill(
     match run_backfill_v1(
         &admission,
         &universe,
-        &custody_commit,
+        &BackfillWritersV1 {
+            custody_commit: &custody_commit,
+            funding_commit: &funding_commit,
+        },
         &fetcher,
         raw_symbol,
         interval,
@@ -437,12 +451,27 @@ fn domain_digest(meaning: &str, parts: &[&[u8]]) -> BindingDigest {
     BindingDigest::from_untrusted_bytes(bytes)
 }
 
-/// Fetches, builds and commits the member's custody over the request's window, returning its
-/// committed identity or a named refusal.
+/// The two idempotent writers one backfill call commits through: the member's PIT window custody
+/// and its settled funding. Grouped into one parameter so `run_backfill_v1` stays under clippy's
+/// argument-count lint.
+struct BackfillWritersV1<'a> {
+    custody_commit: &'a Arc<dyn PitWindowCustodyCommitV1>,
+    funding_commit: &'a Arc<dyn FundingSettlementCommitV1>,
+}
+
+/// Fetches, builds and commits the member's custody over the request's window, then backfills
+/// the same member's settled funding over the same window through the idempotent funding
+/// settlement writer, returning the committed custody identity or a named refusal.
+///
+/// The funding backfill runs after the custody commit succeeds, not before and not concurrently:
+/// both writes are individually idempotent (a custody commit rejoins an identical one; a funding
+/// commit rejoins identical content month by month), so a request retried after either step fails
+/// safely redoes only the step that did not complete, never a second write of what already
+/// landed.
 async fn run_backfill_v1(
     admission: &Arc<dyn SourceBindingAdmissionV1>,
     universe: &Arc<dyn UniverseSelectionAdmissionV1>,
-    custody_commit: &Arc<dyn PitWindowCustodyCommitV1>,
+    writers: &BackfillWritersV1<'_>,
     fetcher: &Arc<VisionBackfillFetcherV1>,
     raw_symbol: &str,
     interval: BinanceKlineInterval,
@@ -495,11 +524,66 @@ async fn run_backfill_v1(
     let custody_request =
         custody_request_v1(basis, &inputs, &fill_bars).map_err(|e| format!("{e:?}"))?;
 
-    custody_commit
+    let custody_identity = writers
+        .custody_commit
         .commit_pit_window_custody_v1(custody_request)
         .await
         .map(|receipt| receipt.custody_identity())
-        .map_err(|e| format!("{e:?}"))
+        .map_err(|e| format!("{e:?}"))?;
+
+    backfill_funding_v1(
+        writers.funding_commit,
+        fetcher,
+        raw_symbol,
+        &binance_perpetual_canonical_identity_v1(raw_symbol),
+        request.window_start_ns,
+        request.window_end_ns_exclusive,
+    )
+    .await?;
+
+    Ok(custody_identity)
+}
+
+/// Backfills `instrument`'s settled funding over `[window_start_ns, window_end_ns_exclusive)`,
+/// one calendar month at a time: each month's archive is committed under its own calendar
+/// window, not the request's window, so a request that only partly overlaps an already-committed
+/// month rejoins that month's existing coverage rather than conflicting with it.
+async fn backfill_funding_v1(
+    funding_commit: &Arc<dyn FundingSettlementCommitV1>,
+    fetcher: &Arc<VisionBackfillFetcherV1>,
+    raw_symbol: &str,
+    instrument: &str,
+    window_start_ns: u64,
+    window_end_ns_exclusive: u64,
+) -> Result<(), String> {
+    let months = fetcher
+        .funding_window(raw_symbol, window_start_ns, window_end_ns_exclusive)
+        .await
+        .map_err(|e| format!("{e:?}"))?;
+
+    for month in months {
+        let rows: Vec<FundingSettlementWriteRowV1> = month
+            .rows
+            .iter()
+            .map(|row| FundingSettlementWriteRowV1 {
+                settlement_ns: row.settlement_ns,
+                interval_hours: row.interval_hours,
+                rate: row.rate,
+            })
+            .collect();
+        funding_commit
+            .commit_funding_settlements_v1(
+                instrument,
+                &rows,
+                month.retrieval_ns,
+                FUNDING_ARCHIVE_ROUTE,
+                month.month_start_ns,
+                month.month_end_ns_exclusive,
+            )
+            .await
+            .map_err(|e| format!("{e:?}"))?;
+    }
+    Ok(())
 }
 
 /// Builds the fetcher the backfill job runs against, from the admission's own public endpoint

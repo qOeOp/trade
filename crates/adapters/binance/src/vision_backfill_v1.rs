@@ -33,6 +33,7 @@ use crate::{
             sidecar_digest,
         },
     },
+    funding_archive_v1::{FundingArchiveRowV1, authenticate_monthly_funding},
     futures::http::{
         client::BinanceFuturesHttpClient, models::BinanceFuturesKline, query::BinanceKlinesParams,
     },
@@ -42,6 +43,9 @@ use crate::{
 pub const ARCHIVE_ROUTE: &str = "binance-vision-archive";
 /// The route a row fetched from the public `klines` endpoint names in its custody evidence.
 pub const ENDPOINT_ROUTE: &str = "binance-usdm-endpoint";
+/// The route a settlement fetched from the public monthly funding-rate archive names in its
+/// custody evidence.
+pub const FUNDING_ARCHIVE_ROUTE: &str = "binance-vision-funding-archive";
 /// The venue's public archive host.
 const ARCHIVE_BASE_URL: &str = "https://data.binance.vision";
 /// The fill timeframe's venue interval.
@@ -107,6 +111,22 @@ pub struct FetchedBarV1 {
     pub retrieval_ns: u64,
     /// Which route produced it: [`ARCHIVE_ROUTE`] or [`ENDPOINT_ROUTE`].
     pub route: &'static str,
+}
+
+/// One calendar month's settlements from the public monthly funding-rate archive, with the
+/// evidence a funding settlement commit carries and the archive's own calendar window - never the
+/// request's own window, so two overlapping requests commit the exact same coverage range for a
+/// shared month and genuinely rejoin.
+#[derive(Clone, Debug, PartialEq)]
+pub struct FetchedFundingMonthV1 {
+    /// The settlements this calendar month's archive states, in ascending settlement order.
+    pub rows: Vec<FundingArchiveRowV1>,
+    /// Inclusive start of this calendar month, in nanoseconds since the Unix epoch.
+    pub month_start_ns: u64,
+    /// Exclusive end of this calendar month, in nanoseconds since the Unix epoch.
+    pub month_end_ns_exclusive: u64,
+    /// When this month's bytes were fetched, in nanoseconds since the Unix epoch.
+    pub retrieval_ns: u64,
 }
 
 /// Fetches execution bars from the archive and fill bars from the endpoint, keeping verified
@@ -256,6 +276,78 @@ impl VisionBackfillFetcherV1 {
         Ok(bars)
     }
 
+    /// Every settlement of one archived month, from its shard or from the archive.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`VisionBackfillErrorV1`] for an archive that is unavailable, does not match its
+    /// sidecar, or is not a USD-M funding-rate month the reader admits, and for a shard directory
+    /// that cannot be read or written.
+    pub async fn funding_month(
+        &self,
+        symbol: &str,
+        year: i32,
+        month: u8,
+    ) -> Result<FetchedFundingMonthV1, VisionBackfillErrorV1> {
+        let archive_name = format!("{symbol}-fundingRate-{year:04}-{month:02}.zip");
+        let shard = self.shard_dir.join(symbol).join("funding");
+
+        let (archive, sidecar, retrieval_ns) =
+            if let Some(found) = verified_shard(&shard, &archive_name)? {
+                found
+            } else {
+                let url = format!(
+                    "{}/data/futures/um/monthly/fundingRate/{symbol}/{archive_name}",
+                    self.archive_base_url
+                );
+                let retrieval_ns = self.clock.get_time_ns().as_u64();
+                let archive = self.fetch(url.clone()).await?;
+                let sidecar = self.fetch(format!("{url}.CHECKSUM")).await?;
+                let declared = sidecar_digest(&sidecar, &archive_name)
+                    .map_err(|_| VisionBackfillErrorV1::ArchiveMismatch)?;
+
+                if archive_digest(&archive) != declared {
+                    return Err(VisionBackfillErrorV1::ArchiveMismatch);
+                }
+                write_shard(&shard, &archive_name, &archive, &sidecar, retrieval_ns)?;
+                (archive, sidecar, retrieval_ns)
+            };
+        let rows = authenticate_monthly_funding(symbol, year, month, &archive, &sidecar)
+            .map_err(|_| VisionBackfillErrorV1::ArchiveUnreadable)?;
+        let (month_start_ns, month_end_ns_exclusive) = month_bounds_ns(year, month)?;
+        Ok(FetchedFundingMonthV1 {
+            rows,
+            month_start_ns,
+            month_end_ns_exclusive,
+            retrieval_ns,
+        })
+    }
+
+    /// Every calendar month [`Self::funding_month`] could read that overlaps `[window_start_ns,
+    /// window_end_ns_exclusive)`, in month order - one entry per month, each carrying its own
+    /// calendar window and retrieval instant, never the request's own window: a funding
+    /// settlement commit's coverage must name the exact window its rows were read for, so a
+    /// caller committing month by month commits the same coverage range every time it re-reads a
+    /// month, and genuinely rejoins.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`VisionBackfillErrorV1::WindowBeforeEpoch`] for a window before the Unix epoch,
+    /// and otherwise the first error [`Self::funding_month`] returns for any covered month.
+    pub async fn funding_window(
+        &self,
+        symbol: &str,
+        window_start_ns: u64,
+        window_end_ns_exclusive: u64,
+    ) -> Result<Vec<FetchedFundingMonthV1>, VisionBackfillErrorV1> {
+        let mut months = Vec::new();
+
+        for (year, month) in calendar_months(window_start_ns, window_end_ns_exclusive)? {
+            months.push(self.funding_month(symbol, year, month).await?);
+        }
+        Ok(months)
+    }
+
     /// The first `1m` bar opening strictly after `after_ms` and strictly before `before_ms`, or
     /// `None` when the venue has none in that gap.
     ///
@@ -403,11 +495,78 @@ fn calendar_months(
     Ok(months)
 }
 
+/// The half-open UTC calendar window `[month_start_ns, month_end_ns_exclusive)` of one calendar
+/// month, in nanoseconds since the Unix epoch, computed from the Howard Hinnant civil calendar
+/// algorithm (the same one `chrono`/C++20 `<chrono>` use) rather than a calendar library, so this
+/// stays exact at the far past and far future years an archive backfill can name.
+///
+/// # Errors
+///
+/// Returns [`VisionBackfillErrorV1::WindowBeforeEpoch`] for a month entirely before the Unix
+/// epoch.
+fn month_bounds_ns(year: i32, month: u8) -> Result<(u64, u64), VisionBackfillErrorV1> {
+    let (next_year, next_month) = if month == 12 {
+        (year + 1, 1)
+    } else {
+        (year, month + 1)
+    };
+    let start_day = days_from_civil(i64::from(year), u32::from(month), 1);
+    let end_day = days_from_civil(i64::from(next_year), u32::from(next_month), 1);
+    let start_ns = start_day
+        .checked_mul(86_400_000_000_000)
+        .and_then(|ns| u64::try_from(ns).ok())
+        .ok_or(VisionBackfillErrorV1::WindowBeforeEpoch)?;
+    let end_ns = end_day
+        .checked_mul(86_400_000_000_000)
+        .and_then(|ns| u64::try_from(ns).ok())
+        .ok_or(VisionBackfillErrorV1::WindowBeforeEpoch)?;
+    Ok((start_ns, end_ns))
+}
+
+/// Days since the Unix epoch (1970-01-01) for a proleptic Gregorian civil date. Howard Hinnant's
+/// `days_from_civil`: <https://howardhinnant.github.io/date_algorithms.html>.
+fn days_from_civil(year: i64, month: u32, day: u32) -> i64 {
+    let y = if month <= 2 { year - 1 } else { year };
+    let era = if y >= 0 { y } else { y - 399 } / 400;
+    let year_of_era = y - era * 400;
+    let month_index = (i64::from(month) + 9) % 12;
+    let day_of_year = (153 * month_index + 2) / 5 + i64::from(day) - 1;
+    let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
+    era * 146_097 + day_of_era - 719_468
+}
+
 #[cfg(test)]
 mod calendar_months_tests {
     use rstest::rstest;
 
-    use super::calendar_months;
+    use super::{calendar_months, month_bounds_ns};
+
+    /// 2021-06-01T00:00:00Z, the same instant `JUNE_2021_MS` names in the fetcher tests below,
+    /// converted to nanoseconds: an independent check that `month_bounds_ns` and the live archive
+    /// tests' own hand-verified epoch instant agree.
+    const JUNE_2021_START_NS: u64 = 1_622_505_600_000_000_000;
+
+    #[rstest]
+    fn a_months_bounds_match_the_independently_known_epoch_instant() {
+        let (start, end) = month_bounds_ns(2021, 6).unwrap();
+        assert_eq!(start, JUNE_2021_START_NS);
+        assert_eq!(end, JUNE_2021_START_NS + 30 * 86_400_000_000_000);
+    }
+
+    #[rstest]
+    fn decembers_bounds_roll_into_the_next_year() {
+        let (_, december_end) = month_bounds_ns(2023, 12).unwrap();
+        let (january_start, _) = month_bounds_ns(2024, 1).unwrap();
+        assert_eq!(december_end, january_start);
+    }
+
+    #[rstest]
+    fn februarys_length_follows_the_leap_year_rule() {
+        let (leap_start, leap_end) = month_bounds_ns(2024, 2).unwrap();
+        assert_eq!(leap_end - leap_start, 29 * 86_400_000_000_000);
+        let (common_start, common_end) = month_bounds_ns(2023, 2).unwrap();
+        assert_eq!(common_end - common_start, 28 * 86_400_000_000_000);
+    }
 
     const fn nanos_per_day() -> u64 {
         24 * 60 * 60 * 1_000_000_000
@@ -984,6 +1143,37 @@ mod tests {
 mod live_tests {
     use super::*;
     use crate::common::enums::BinanceEnvironment;
+
+    /// Reads one real month of settled funding, including a near-zero rate the venue prints in
+    /// scientific notation (`BTCUSDT-fundingRate-2020-01.zip`'s row 12, `8.4E-7`) -
+    /// `funding_archive_v1.rs`'s own `parse_funding_rate` must accept both notations or this
+    /// whole month would be refused.
+    #[tokio::test]
+    #[ignore = "reaches the live public Binance archive"]
+    async fn live_funding_month() {
+        let shards =
+            std::env::temp_dir().join(format!("funding-backfill-live-{}", std::process::id()));
+        let endpoint = BinanceFuturesHttpClient::new(
+            BinanceProductType::UsdM,
+            BinanceEnvironment::Live,
+            get_atomic_clock_realtime(),
+            None,
+            None,
+            None,
+            None,
+            Some(30),
+            None,
+            false,
+        )
+        .unwrap();
+        let fetcher = VisionBackfillFetcherV1::new(endpoint, &shards).unwrap();
+        let month = fetcher
+            .funding_month("BTCUSDT", 2020, 1)
+            .await
+            .expect("a real archived month, including its scientific-notation rows, is read");
+        assert_eq!(month.rows.len(), 93);
+        let _ = std::fs::remove_dir_all(&shards);
+    }
 
     /// Reads a headerless and a headed month from the real archive, and one real fill bar.
     #[tokio::test]

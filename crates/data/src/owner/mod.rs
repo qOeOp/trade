@@ -10,6 +10,7 @@ pub mod calendar;
 pub mod decimal_rescale_v1;
 pub mod declared_bar_timeframe_v1;
 pub mod frozen_observation_window_v1;
+pub mod funding_settlement_commit_v1;
 pub mod instrument_catalog_v1;
 pub mod instrument_economic_terms_intake_v1;
 pub mod instrument_economic_terms_postgres_v1;

@@ -21,11 +21,17 @@
 //! or received it, and too late for a Plan to read it as an input to a decision at or before that
 //! instant.
 
+use std::{fmt::Debug, sync::Arc};
+
 use rust_decimal::Decimal;
 use sqlx::Row;
 
 use super::MarketDataOwnerPostgres;
 use crate::owner::{
+    funding_settlement_commit_v1::{
+        FundingSettlementCommitV1, FundingSettlementWriteErrorV1, FundingSettlementWriteRowV1,
+        sealed,
+    },
     native_replay_scheduling_v1::ReplayFundingScheduleResolutionErrorV1,
     replay_funding_schedule_v1::{
         FundingSettlementV1, MemberFundingScheduleV1, ReplayFundingScheduleV1,
@@ -46,33 +52,6 @@ pub(super) const SCHEMA_V1: &[&str] = &[
     "CREATE OR REPLACE FUNCTION market_data_private.resolve_funding_settlement_coverage_v1(p_instrument TEXT) RETURNS TABLE(window_start_ns BIGINT, window_end_ns_exclusive BIGINT) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $function$ SELECT c.window_start_ns, c.window_end_ns_exclusive FROM market_data_private.funding_settlement_coverage_v1 AS c WHERE c.instrument = p_instrument ORDER BY c.window_start_ns $function$",
     "REVOKE ALL ON FUNCTION market_data_private.resolve_funding_settlement_coverage_v1(TEXT) FROM PUBLIC",
 ];
-
-/// Why a funding backfill write was refused.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
-pub(crate) enum FundingSettlementWriteErrorV1 {
-    /// The request is malformed: an empty instrument, an empty route, a window that does not
-    /// advance, or a settlement whose `settlement_ns` falls outside the stated window.
-    #[error("the funding settlement write request is malformed")]
-    InvalidRequest,
-    /// A row already committed under the same `(instrument, settlement_ns)` states different
-    /// content than this call does. Real archive content never differs between two fetches of
-    /// the same real settlement, so this names a defect in the caller or the source, not a race
-    /// to resolve quietly; nothing is written.
-    #[error("a committed settlement's content does not match this call's")]
-    Conflict,
-    /// The store could not be reached.
-    #[error("the funding settlement store is unavailable")]
-    StoreUnavailable,
-}
-
-/// One settlement to commit, already authenticated by its own reader
-/// (`crates/adapters/binance/src/funding_archive_v1.rs::FundingArchiveRowV1`).
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub(crate) struct FundingSettlementWriteRowV1 {
-    pub settlement_ns: u64,
-    pub interval_hours: u8,
-    pub rate: rust_decimal::Decimal,
-}
 
 impl MarketDataOwnerPostgres {
     /// Commits every row of `rows` for `instrument`, idempotently, then records
@@ -235,6 +214,72 @@ impl MarketDataOwnerPostgres {
         })
         .collect()
     }
+}
+
+/// The durable funding settlement intake. It retains the Owner and exposes no pool.
+pub(crate) struct FundingSettlementCommitPostgresV1 {
+    owner: MarketDataOwnerPostgres,
+}
+
+impl Debug for FundingSettlementCommitPostgresV1 {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct(stringify!(FundingSettlementCommitPostgresV1))
+            .finish_non_exhaustive()
+    }
+}
+
+impl sealed::Sealed for FundingSettlementCommitPostgresV1 {}
+
+#[async_trait::async_trait]
+impl FundingSettlementCommitV1 for FundingSettlementCommitPostgresV1 {
+    async fn commit_funding_settlements_v1(
+        &self,
+        instrument: &str,
+        rows: &[FundingSettlementWriteRowV1],
+        retrieval_ns: u64,
+        retrieval_route: &str,
+        window_start_ns: u64,
+        window_end_ns_exclusive: u64,
+    ) -> Result<BindingDigest, FundingSettlementWriteErrorV1> {
+        self.owner
+            .commit_funding_settlements_v1(
+                instrument,
+                rows,
+                retrieval_ns,
+                retrieval_route,
+                window_start_ns,
+                window_end_ns_exclusive,
+            )
+            .await
+    }
+}
+
+/// Opens the sole configured funding settlement intake, named by `MARKET_DATA_OWNER_DATABASE_URL`.
+///
+/// # Errors
+///
+/// Returns [`FundingSettlementWriteErrorV1::StoreUnavailable`] when the URL is missing or the
+/// store cannot be opened.
+pub(in crate::owner) async fn funding_settlement_commit_from_environment_v1()
+-> Result<Arc<dyn FundingSettlementCommitV1>, FundingSettlementWriteErrorV1> {
+    use FundingSettlementWriteErrorV1 as Refused;
+
+    let url = std::env::var(
+        crate::owner::instrument_master_v2_postgres::MARKET_DATA_OWNER_DATABASE_URL_ENV,
+    )
+    .map_err(|_| Refused::StoreUnavailable)?;
+    if url.is_empty() || url.trim() != url {
+        return Err(Refused::StoreUnavailable);
+    }
+    let owner = MarketDataOwnerPostgres::connect(&url).await.map_err(|e| {
+        crate::owner::storage_diagnostic::refused_by_store(
+            "funding-settlement-commit.environment.connect",
+            &e,
+        );
+        Refused::StoreUnavailable
+    })?;
+    Ok(Arc::new(FundingSettlementCommitPostgresV1 { owner }))
 }
 
 /// A content digest of exactly what one backfill call committed: the window, and every settlement
