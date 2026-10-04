@@ -332,6 +332,8 @@ pub(super) async fn resolve_existing_composer_v3_in_transaction(
         ComposerReplayMarketDataLocatorV3::CustodyRun {
             chain_root,
             head_identity,
+            run_start_ns,
+            run_end_ns_exclusive,
         } => {
             if custody_frames.is_none() {
                 return Err(unavailable(
@@ -341,6 +343,8 @@ pub(super) async fn resolve_existing_composer_v3_in_transaction(
 
             if source.custody_chain_root != Some(chain_root)
                 || source.custody_head_identity != Some(head_identity)
+                || source.custody_run_start_ns != Some(run_start_ns)
+                || source.custody_run_end_ns_exclusive != Some(run_end_ns_exclusive)
             {
                 return Err(corrupt("COMPOSER_V3 custody run readback mismatch"));
             }
@@ -422,21 +426,20 @@ pub(super) async fn resolve_existing_composer_v3_in_transaction(
             let resolver = custody_frames.ok_or_else(|| {
                 unavailable("custody-run Replay readback requires a custody frames port")
             })?;
-            let policy_window = cut
-                .legacy_family()
-                .root()
-                .policy()
-                .replay_policy_catalog_v3()
-                .ok_or_else(|| unavailable("TrialFamily has no sealed Replay execution profiles"))?
-                .replay_policy_v2()
-                .verify()
-                .map_err(unavailable)?
-                .window;
+            // This run's own stored window - never the TrialFamily's whole sealed policy domain,
+            // which only bounds it. The run window the early match arm above just cross-checked
+            // the resubmitted locator's against.
+            let run_start_ns = source
+                .custody_run_start_ns
+                .ok_or_else(|| corrupt("custody run source carries no recorded run window"))?;
+            let run_end_ns_exclusive = source
+                .custody_run_end_ns_exclusive
+                .ok_or_else(|| corrupt("custody run source carries no recorded run window"))?;
             let frames = resolver
                 .resolve_pit_window_frames_v1(UntrustedPitWindowRunV1 {
                     custody: UntrustedPitWindowCustodyClaimV1 { chain_root },
-                    run_start_ns: policy_window.start_event_ns,
-                    run_end_ns_exclusive: policy_window.end_event_ns_exclusive,
+                    run_start_ns,
+                    run_end_ns_exclusive,
                     // Read at the head this source pinned at commit, however far the chain has
                     // moved since.
                     head_identity: source.custody_head_identity,

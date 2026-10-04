@@ -109,6 +109,10 @@ pub enum ComposerReplayMarketDataLocatorV3 {
     CustodyRun {
         chain_root: BindingDigest,
         head_identity: BindingDigest,
+        /// This run's own requested window - never the TrialFamily's whole sealed policy domain,
+        /// which only bounds it (`replay_window_within_policy_v3` checks it fits).
+        run_start_ns: u64,
+        run_end_ns_exclusive: u64,
     },
 }
 

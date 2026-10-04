@@ -547,10 +547,12 @@ async fn resolve_replay_v1(
     let Some(resolver) = owners.custody_frames.as_ref() else {
         return BacktestRunReplayUnavailableV1::CustodyFramesNotAvailable;
     };
+    let run_start_ns = dataset_ref.window_start_ns();
+    let run_end_ns_exclusive = dataset_ref.window_end_ns_exclusive();
     let run = UntrustedPitWindowRunV1 {
         custody,
-        run_start_ns: dataset_ref.window_start_ns(),
-        run_end_ns_exclusive: dataset_ref.window_end_ns_exclusive(),
+        run_start_ns,
+        run_end_ns_exclusive,
         head_identity: None,
     };
     let frames = match resolver.resolve_pit_window_frames_v1(run).await {
@@ -563,6 +565,8 @@ async fn resolve_replay_v1(
         research_request_identity,
         accepted,
         frames,
+        run_start_ns,
+        run_end_ns_exclusive,
         request_proof_digest,
     )
     .await
@@ -580,12 +584,15 @@ async fn resolve_replay_v1(
 /// Program directly once T0 is reproduced - see `docs/architecture/strategy-factory.md`'s "Host
 /// interpretation of the Bounded Feature Program"); when that lands, only this one call changes.
 #[cfg(feature = "composer-v3-replay")]
+#[allow(clippy::too_many_arguments)]
 async fn commit_custody_replay_v1(
     owners: &BacktestRunOwnersV1,
     run_id: &str,
     research_request_identity: &str,
     accepted: &ResearchGoalOwnerResultV2,
     frames: PitWindowRunFramesV1,
+    run_start_ns: u64,
+    run_end_ns_exclusive: u64,
     request_proof_digest: &str,
 ) -> BacktestRunReplayUnavailableV1 {
     let Some(composer) = owners.develop_composer.as_ref() else {
@@ -619,6 +626,8 @@ async fn commit_custody_replay_v1(
     let market_data_locator = ComposerReplayMarketDataLocatorV3::CustodyRun {
         chain_root: frames.chain_root(),
         head_identity: frames.head_identity(),
+        run_start_ns,
+        run_end_ns_exclusive,
     };
     // The custody chain's own compatibility-scope identity stands in for the snapshot path's
     // Source Binding scope digest - `compose_composer_backed_custody_replay_request_v3` checks
@@ -678,12 +687,15 @@ async fn commit_custody_replay_v1(
 /// Without `composer-v3-replay`, nothing can commit a Replay request from resolved frames; this
 /// is the same stopping point `resolve_replay_v1` always answered before this slice.
 #[cfg(not(feature = "composer-v3-replay"))]
+#[allow(clippy::too_many_arguments)]
 async fn commit_custody_replay_v1(
     _owners: &BacktestRunOwnersV1,
     _run_id: &str,
     _research_request_identity: &str,
     _accepted: &ResearchGoalOwnerResultV2,
     frames: PitWindowRunFramesV1,
+    _run_start_ns: u64,
+    _run_end_ns_exclusive: u64,
     _request_proof_digest: &str,
 ) -> BacktestRunReplayUnavailableV1 {
     BacktestRunReplayUnavailableV1::FramesResolvedNoConsumerYet(Box::new(frames))
