@@ -269,6 +269,24 @@ read, so the bar opens need a read of the run's data window. And no Owner read s
 production execution bundle states `FUNDING_NOT_STATED` (`docs/architecture/strategy-factory.md`). A run with exits
 also needs multi-frame replay.
 
+## Research T0 replication comparison
+
+**CURRENT - the comparison; TARGET - a run to compare.** Phase 3 is accepted when a run of research T0's
+authoring-language document reproduces research's own T0 trades. `t0-replication`, a binary of
+`vibe-backtest-statistics`, compares them trade by trade and exits zero only when the match rate reaches 99.5%:
+
+- **What a trade is.** A trade is keyed by its instrument, side and entry day, the day its entry filled. Research's
+  table (`research/ronnie/trend/trades.csv`) states the entry day and the days held, the entry day counted, so its exit
+  is decided on the entry day plus the days held less one. A run's fills pair into round trips, and its exit is decided
+  on the bar before the one it fills at.
+- **What matches.** Two trades with one key match when their exits are decided on the same day and, where both state
+  an entry price, the prices agree within a relative band, 0.5% unless stated. Research's table states no price, so
+  against it only the days are held. A key that only one list has is a mismatch on that side, so the rate is matched
+  keys over every key either list has.
+- **What is compared.** For each instrument, only trades that enter after the run's first 200 bars, where every
+  indicator has warmed, and whose exit is decided before the run's last bar, which leaves a bar to fill it on.
+- **What it cannot do yet.** No run of T0 produces fills to compare until `backtest.run` reaches its replay step.
+
 ## Input handoffs
 
 - [R&D](./rd/) submits one frozen Exploratory Replay Request, addressed by an R&D-owned locator carrying the

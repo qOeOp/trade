@@ -3,12 +3,15 @@
 //!
 //! [`matched_entry_control_v1`] measures a run's round trips against random entries of the same
 //! side, year and holding period on the same bars, and bootstraps the edge over whole ISO weeks.
-//! [`round_trips_from_fills`] pairs a run's fills into those round trips. Nothing here reads an
+//! [`round_trips_from_fills`] pairs a run's fills into those round trips, and
+//! [`compare_replication_v1`] compares them, trade by trade, with a reference such as research T0. Nothing here reads an
 //! Owner, a database or a clock: the same values and seed give the same bytes on every host.
 
 mod calendar;
 mod fills;
 mod random;
+mod replication;
+mod replication_input;
 
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -16,6 +19,15 @@ use thiserror::Error;
 
 pub use fills::{
     FillSideV1, FillV1, RoundTripsFromFillsErrorV1, RoundTripsV1, round_trips_from_fills,
+};
+pub use replication::{
+    ReplicationMismatchKindV1, ReplicationMismatchV1, ReplicationReportV1, ReplicationTradeV1,
+    ReplicationWindowV1, T0_REPLICATION_THRESHOLD_V1, T0_REPLICATION_WARMUP_BARS_V1,
+    compare_replication_v1, window_after_warmup,
+};
+pub use replication_input::{
+    ReplicationInputErrorV1, RunBarV1, RunFillV1, RunInstrumentV1,
+    reference_trades_from_research_csv, run_trades_from_fills,
 };
 
 use crate::{

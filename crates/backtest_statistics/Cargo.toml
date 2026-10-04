@@ -12,9 +12,15 @@ workspace = true
 
 [dependencies]
 serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
 sha2 = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
 rstest = { workspace = true }
-serde_json = { workspace = true }
+
+[[bin]]
+name = "t0-replication"
+path = "src/bin/t0_replication.rs"
+doc = false
+test = false

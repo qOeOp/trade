@@ -1,12 +1,12 @@
 //! A run's fills paired into the round trips the control measures.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::{BarOpenV1, RoundTripV1, TradeSideV1};
 
 /// The side of one fill.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum FillSideV1 {
     Buy,
