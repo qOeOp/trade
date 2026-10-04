@@ -1878,6 +1878,7 @@ fn universe_bfp_fixture() -> (
         research_request_identity: BindingDigest::from_untrusted_bytes([1; 32]),
         intent_identity: BindingDigest::from_untrusted_bytes([2; 32]),
         intent_digest: BindingDigest::from_untrusted_bytes([3; 32]),
+        universe_timeframe: "1D".to_owned(),
         channel: SingleThresholdChannelV1::UniverseMember {
             close_role_semantic_id: "research.input.close.v1".to_owned(),
             open_role_semantic_id: "research.input.open.v1".to_owned(),

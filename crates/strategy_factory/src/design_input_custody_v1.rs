@@ -383,8 +383,8 @@ mod tests {
 
     fn universe_roles() -> Vec<InputRoleV2> {
         vec![
-            universe_member_role_v2("OPEN", UNIVERSE_OPEN_FIELD_SEMANTIC_ID_V2),
-            universe_member_role_v2("CLOSE", UNIVERSE_CLOSE_FIELD_SEMANTIC_ID_V2),
+            universe_member_role_v2("OPEN", UNIVERSE_OPEN_FIELD_SEMANTIC_ID_V2, "1D"),
+            universe_member_role_v2("CLOSE", UNIVERSE_CLOSE_FIELD_SEMANTIC_ID_V2, "1D"),
         ]
     }
 

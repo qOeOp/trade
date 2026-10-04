@@ -128,8 +128,18 @@ impl SingleThresholdChannelV1 {
         }
     }
 
-    /// The Design role of the channel.
-    fn role_v2(&self) -> InputRoleV2 {
+    /// The fixed-point scale the channel reads at, which the threshold is stated in.
+    fn scale(&self) -> u8 {
+        match self {
+            Self::ExactInstrument { scale, .. } => *scale,
+            Self::UniverseMember { .. } => {
+                vibe_data::owner::decimal_rescale_v1::MARKET_DATA_VALUE_SCALE_V1
+            }
+        }
+    }
+
+    /// The Design role of the channel; a universe-member role reads at `universe_timeframe`.
+    fn role_v2(&self, universe_timeframe: &str) -> InputRoleV2 {
         match self {
             Self::ExactInstrument {
                 role_semantic_id,
@@ -153,14 +163,16 @@ impl SingleThresholdChannelV1 {
             Self::UniverseMember {
                 close_role_semantic_id,
                 ..
-            } => {
-                universe_member_role_v2(close_role_semantic_id, UNIVERSE_CLOSE_FIELD_SEMANTIC_ID_V2)
-            }
+            } => universe_member_role_v2(
+                close_role_semantic_id,
+                UNIVERSE_CLOSE_FIELD_SEMANTIC_ID_V2,
+                universe_timeframe,
+            ),
         }
     }
 
     /// The Design role the program carries without reading, if this form has one.
-    fn carried_role_v2(&self) -> Option<InputRoleV2> {
+    fn carried_role_v2(&self, universe_timeframe: &str) -> Option<InputRoleV2> {
         match self {
             Self::ExactInstrument { .. } => None,
             Self::UniverseMember {
@@ -169,6 +181,7 @@ impl SingleThresholdChannelV1 {
             } => Some(universe_member_role_v2(
                 open_role_semantic_id,
                 UNIVERSE_OPEN_FIELD_SEMANTIC_ID_V2,
+                universe_timeframe,
             )),
         }
     }
@@ -223,6 +236,10 @@ pub struct SingleThresholdAuthoringRequestV1 {
     pub intent_digest: BindingDigest,
     /// The one channel read, which is also the decision clock.
     pub channel: SingleThresholdChannelV1,
+    /// The bar label Market Data declares for the run's execution timeframe, which a
+    /// universe-member channel reads at. A run supplies it, as it does the Research identities; an
+    /// exact-instrument channel states its own timeframe and does not read this.
+    pub universe_timeframe: String,
     /// The threshold, in the channel's own unit, as a decimal such as `"120"` or `"-0.5"`.
     ///
     /// The comparison primitive is equal-scale, so the author converts it exactly to the channel's
@@ -451,7 +468,7 @@ pub fn author_single_threshold_program_v1(
     // consuming reaction's kind to equal it. This surface emitted both a Bar-triggered and an
     // Event-triggered consumer of the same role, which is refused for every possible input:
     // whichever kind the binding carries, the other reaction contradicts it.
-    let channel = request.channel.role_v2();
+    let channel = request.channel.role_v2(&request.universe_timeframe);
     let semantic =
         MarketDataFieldSemantic::from_identity(&channel.field_semantic_id).ok_or_else(|| {
             SingleThresholdAuthoringErrorV1::UnknownFieldSemantic(channel.field_semantic_id.clone())
@@ -531,7 +548,7 @@ pub(crate) fn canonical_threshold_of_v1(
     channel: &SingleThresholdChannelV1,
     threshold: &str,
 ) -> Result<String, SingleThresholdAuthoringErrorV1> {
-    let scale = channel.role_v2().scale;
+    let scale = channel.scale();
     Ok(canonical_threshold_text(
         threshold_coefficient_v1(threshold, scale)?,
         scale,
@@ -562,11 +579,14 @@ fn design_for(
     request: &SingleThresholdAuthoringRequestV1,
     bar_triggered: bool,
 ) -> StrategyDesignV2 {
-    let mut received = vec![(request.channel.role_v2(), CHANNEL_VALUE_PORT.to_owned())];
+    let mut received = vec![(
+        request.channel.role_v2(&request.universe_timeframe),
+        CHANNEL_VALUE_PORT.to_owned(),
+    )];
     received.extend(
         request
             .channel
-            .carried_role_v2()
+            .carried_role_v2(&request.universe_timeframe)
             .map(|role| (role, CARRIED_VALUE_PORT.to_owned())),
     );
     bounded_feature_design_v1(&BoundedFeatureDesignSpecV1 {
@@ -851,7 +871,7 @@ const MAX_EXIT_FRACTION_PLACES: u8 = 9;
 fn exit_plan(
     request: &SingleThresholdAuthoringRequestV1,
 ) -> Result<ExitPlan, SingleThresholdAuthoringErrorV1> {
-    let channel = request.channel.role_v2();
+    let channel = request.channel.role_v2(&request.universe_timeframe);
     let mut fractions = [
         (&request.stop_loss_fraction, "stop_loss_fraction", None),
         (&request.take_profit_fraction, "take_profit_fraction", None),
@@ -967,7 +987,7 @@ fn meaning_for(
     exits: &ExitPlan,
 ) -> BoundedFeatureProgramMeaningV1 {
     let role = request.channel.role().to_owned();
-    let carried = request.channel.carried_role_v2();
+    let carried = request.channel.carried_role_v2(&request.universe_timeframe);
     let mut inputs = vec![BoundedFeatureInputMeaningV1 {
         role_semantic_id: role.clone(),
         value_port_semantic_id: CHANNEL_VALUE_PORT.to_owned(),
@@ -1215,7 +1235,7 @@ fn exit_condition(
     positions: &PositionBelief,
     exits: &ExitPlan,
 ) -> BoundedFeatureValueRefV1 {
-    let channel = request.channel.role_v2();
+    let channel = request.channel.role_v2(&request.universe_timeframe);
     let close = BoundedFeatureValueRefV1::InputValue {
         input_role_id: channel.semantic_id.clone(),
     };
@@ -1444,7 +1464,7 @@ fn constants(
     threshold: i128,
 ) -> Vec<BoundedFeatureConstantV1> {
     // The threshold is compared at the channel's own unit and scale, which the Design role states.
-    let channel = request.channel.role_v2();
+    let channel = request.channel.role_v2(&request.universe_timeframe);
     let mut values = vec![(
         THRESHOLD.to_owned(),
         // The comparison primitive is equal-scale, so the threshold takes the channel's own unit
@@ -1750,6 +1770,8 @@ fn candidate_request(
         research_request_identity: design.research_request_identity,
         intent_identity: design.intent_identity,
         intent_digest: design.intent_digest,
+        // Every role of the family reads at one timeframe; authoring again proves the guess.
+        universe_timeframe: design.inputs.first()?.timeframe.clone(),
         channel,
         threshold: canonical_threshold_text(*coefficient, *threshold_scale),
         comparison,
@@ -1908,6 +1930,7 @@ mod tests {
             research_request_identity: digest(1),
             intent_identity: digest(2),
             intent_digest: digest(3),
+            universe_timeframe: "1D".to_owned(),
             channel: SingleThresholdChannelV1::ExactInstrument {
                 role_semantic_id: "research.input.close.daily.v1".to_owned(),
                 instrument: "BTCUSDT-PERP.BINANCE".to_owned(),

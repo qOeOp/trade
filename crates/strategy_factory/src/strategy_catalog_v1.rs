@@ -70,19 +70,22 @@ pub struct SingleThresholdStrategySpecV1 {
 }
 
 impl SingleThresholdStrategySpecV1 {
-    /// The authoring request that states this strategy for one Research request and Intent.
+    /// The authoring request that states this strategy for one Research request and Intent, read
+    /// at `universe_timeframe`.
     #[must_use]
     pub fn authoring_request(
         &self,
         research_request_identity: BindingDigest,
         intent_identity: BindingDigest,
         intent_digest: BindingDigest,
+        universe_timeframe: &str,
     ) -> SingleThresholdAuthoringRequestV1 {
         let spec = self.clone();
         SingleThresholdAuthoringRequestV1 {
             research_request_identity,
             intent_identity,
             intent_digest,
+            universe_timeframe: universe_timeframe.to_owned(),
             channel: spec.channel,
             threshold: spec.threshold,
             comparison: spec.comparison,
@@ -186,7 +189,8 @@ impl StrategyStatementV1 {
     }
 
     /// Compiles the statement for one Research request and Intent into its `design` and
-    /// `meaning`, whichever family it is.
+    /// `meaning`, whichever family it is, its universe-member roles read at `timeframe`: the bar
+    /// label Market Data declares for the run's execution timeframe.
     ///
     /// # Errors
     ///
@@ -196,16 +200,23 @@ impl StrategyStatementV1 {
         research_request_identity: BindingDigest,
         intent_identity: BindingDigest,
         intent_digest: BindingDigest,
+        timeframe: &str,
     ) -> Result<(StrategyDesignV2, BoundedFeatureProgramMeaningV1), StrategyStatementErrorV1> {
         Ok(match self {
-            Self::SingleThreshold(spec) => author_single_threshold_program_v1(
-                &spec.authoring_request(research_request_identity, intent_identity, intent_digest),
-            )?,
+            Self::SingleThreshold(spec) => {
+                author_single_threshold_program_v1(&spec.authoring_request(
+                    research_request_identity,
+                    intent_identity,
+                    intent_digest,
+                    timeframe,
+                ))?
+            }
             Self::Authored(document) => author_strategy_document_v1(
                 document,
                 research_request_identity,
                 intent_identity,
                 intent_digest,
+                timeframe,
             )?,
         })
     }
@@ -237,11 +248,16 @@ impl CanonicalStrategyStatementV1 {
     }
 }
 
+/// The bar label admission authors at. No authoring refusal depends on the label: a run's own
+/// label is checked by Market Data when the run binds its roles.
+const STAND_IN_TIMEFRAME: &str = "24H";
+
 /// Admits a statement into the catalog: authors it, and names it by its canonical bytes.
 ///
 /// A statement is admitted only if it authors, so the catalog never holds a strategy a run would
-/// refuse at authoring. The Research identities a run supplies are not part of the statement, so
-/// authoring uses fixed stand-ins; they reach neither the canonical bytes nor the identity.
+/// refuse at authoring. The Research identities and the bar timeframe a run supplies are not part
+/// of the statement, so authoring uses fixed stand-ins; they reach neither the canonical bytes nor
+/// the identity.
 ///
 /// Every value a statement can spell more than one way is brought to its one spelling before it
 /// is hashed, so one strategy has one identity:
@@ -271,7 +287,7 @@ pub fn canonical_strategy_statement_v1(
         }
     };
     let stand_in = BindingDigest::from_untrusted_bytes([0x5a; 32]);
-    canonical.author(stand_in, stand_in, stand_in)?;
+    canonical.author(stand_in, stand_in, stand_in, STAND_IN_TIMEFRAME)?;
     let canonical_bytes =
         serde_json::to_vec(&canonical).expect("a strategy statement serialises to JSON");
     Ok(CanonicalStrategyStatementV1 {
@@ -473,7 +489,7 @@ mod tests {
         let design_identity = |seed: u8| {
             let digest = BindingDigest::from_untrusted_bytes([seed; 32]);
             let (design, _) = author_single_threshold_program_v1(
-                &spec().authoring_request(digest, digest, digest),
+                &spec().authoring_request(digest, digest, digest, "1D"),
             )
             .expect("the statement authors");
             let StrategyDesignPreparationV2::Prepared {
@@ -582,7 +598,7 @@ mod tests {
     #[rstest]
     fn a_statement_is_the_authoring_request_without_its_research() {
         let digest = BindingDigest::from_untrusted_bytes([7; 32]);
-        let request = spec().authoring_request(digest, digest, digest);
+        let request = spec().authoring_request(digest, digest, digest, "1D");
         let mut wire = serde_json::to_value(&request).expect("the request serialises");
         let object = wire.as_object_mut().expect("a JSON object");
 
@@ -597,6 +613,9 @@ mod tests {
             serde_json::from_value(wire).expect("the rest reads as a statement");
 
         assert_eq!(read, spec());
-        assert_eq!(read.authoring_request(digest, digest, digest), request);
+        assert_eq!(
+            read.authoring_request(digest, digest, digest, "1D"),
+            request
+        );
     }
 }

@@ -1130,6 +1130,7 @@ pub(crate) async fn ensure_first_composer_v3_replay_acceptance_v1(
             research_request_identity: facts.research_request_identity,
             intent_identity: facts.intent_identity,
             intent_digest: facts.intent_digest,
+            universe_timeframe: "1D".to_owned(),
             channel: SingleThresholdChannelV1::UniverseMember {
                 close_role_semantic_id: CLOSE_ROLE.to_owned(),
                 open_role_semantic_id: OPEN_ROLE.to_owned(),
