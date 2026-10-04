@@ -3454,7 +3454,9 @@ and the fill timeframe. This is the fetch side that feeds a custody commit. The 
   start opens one interval earlier, often in the previous month. The fetch therefore reads months from one interval
   before the start. When that earlier month is not archived at all (the USD-M monthly archive starts at 2020-01, so a
   window from 2020-01-01 needs the 2019-12-31 bar), only that bar comes from the public `klines` endpoint, and its rows
-  name the endpoint route; the window's own months must still be archived. Before this, the first frame of every grid-aligned window had no cross-section, and a run over the
+  name the endpoint route; the window's own months must still be archived. A grid-aligned window whose first frame's
+  bar is in neither is refused by name, `PRIOR_BAR_UNAVAILABLE`, naming that bar's open, rather than backfilled without
+  its first frame. Before this, the first frame of every grid-aligned window had no cross-section, and a run over the
   same window as its backfill was refused as `PIT_WINDOW_FRAME_NOT_COVERED`.
 - **The dataset is named by the request, not read from the file.** The reader's entry takes the dataset it was asked
   for (`klines`) and checks it against the archive path it fetched. `markPriceKlines`, `indexPriceKlines` and
