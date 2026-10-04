@@ -2673,10 +2673,14 @@ a custody. Its proofs are the envelope's falsifiers that fall inside Market Data
 equal the snapshot path on the projection of values, coordinates, event times, bar types, and member order; two
 custodies differing only in whether one correction publishes before `d_k` yield different frame `k` values, and
 removing the publication condition turns that red, driven by a synthetic source that declares a correction stream; an
-availability rule set to the minting instant hides every frame; and a correction published between `d_k` and a quote's
-availability reaches the fill quote but not frame `k`'s strategy inputs, which a code path shared by the two turns
-red. T0 is not driven until T1: it has no production caller, so a complete T0 is structurally present and run by no
-Backtest.
+availability rule set to the minting instant hides every frame; and inputs and fill quotes select versions through one
+function at two cuts, frame `k`'s inputs at `d_k` and a fill quote at its bar's availability, so an input-bar
+correction published after `d_k` does not reach frame `k`'s inputs, a fill-bar correction published after its bar's
+availability does not reach the quote, and moving either cut turns its side red. That last falsifier replaced, on
+2026-10-04, one no custody can satisfy, that a correction published between `d_k` and a quote's availability reaches
+the fill quote: a version's event, availability and publication never decrease, and a fill bar's event is its open
+plus its interval, so no fill-bar correction is published at or before the quote's availability. T0 is not driven
+until T1: it has no production caller, so a complete T0 is structurally present and run by no Backtest.
 
 Built so far (T0-4a): the custody aggregate - the custody record, its cross-section versions and their `SampleFactV2`
 row facts, every commit-time refusal, the Owner clock a commit mints, rejoin and successor custody - behind the sealed
@@ -2778,6 +2782,25 @@ at read time from the `SampleFactV2` rows its view was sealed from and never sto
 read a custody frame through the host's unchanged projection check. The derivation is stated under "universe-frame
 sample projection" below.
 
+Built so far (T0-6 and T0-7): the custody quote cut is derived from the gap's first fill bar that opens strictly inside
+`(d_k, e_{k+1})` (`resolve_custody_quote_cut_v1`), at the version `select_fill_candidates_v1` selects at that bar's own
+availability through the `visible_at` that selects frame `k`'s inputs at `d_k`. T0-6 first took the bar's latest
+correction at the pinned head, however late it was published; T0-7 restored the bound. Each of T0's four falsifiers has
+PostgreSQL proofs in the Market Data runner. N=1 and two-frame parity are
+`postgres_a_one_member_custody_frame_equals_its_snapshot_frame` and
+`postgres_two_single_timeframe_custody_frames_equal_their_snapshot_frames`. The correction published before `d_k` is
+`postgres_a_correction_published_before_d_k_changes_only_frame_k`. The rule at the minting instant is
+`postgres_an_availability_rule_at_the_minting_instant_hides_every_frame`. The two cuts are
+`postgres_an_input_correction_published_after_d_k_never_reaches_frame_k` and
+`postgres_a_fill_correction_published_after_its_bars_availability_never_reaches_the_quote`, both through the production
+custody frame resolver, with `postgres_a_fill_bar_available_after_d_k_gives_its_gap_a_quote` as their positive control.
+Moving the input cut to the quote's availability turns the first red, refused by the `CustodyView` seal before the proof
+compares anything, and selecting the fill bar at the head turns the second red at its quote. T0 status: every T0
+falsifier inside Market Data is proved. The frames port's run-level `QuoteCutMissing` check is not built:
+`PitWindowRunRefusalV1::QuoteCutMissing` is never constructed, so a gap without a quote cut is refused frame by frame,
+as `EventOrderUnavailable`, and not when a run's frames are read. Nothing outside Market Data's own proofs mints or
+reads a custody until T1.
+
 - **Custody:** covers the half-open window from its warm-up start and is committed once, then never mutated. A later
   correction is a successor custody that names its predecessor and carries only the versions it adds; a view reads the
   chain to its head. A successor restates its predecessor's basis exactly - Market Semantics fact, Instrument Master
@@ -2852,10 +2875,12 @@ sample projection" below.
   Every table and function those reads touch is inside the admitted-port measurement.
 - **Quote cut:** derived from custody inside `(d_k, e_{k+1})`, exactly one per gap, on one instant, in member order,
   taking no frame ordinal, and never the version a later correction superseded. Its version is the highest sequence
-  published at or before the quote instant's own availability, and a later correction supersedes it only as of that
-  instant: the fill follows the decision, and at `d_k` no quote could qualify, since its event follows `d_k`. This
-  concerns the fill quote alone. Frame `k`'s strategy inputs are still cut at `d_k`, so a correction published between
-  `d_k` and the quote's availability reaches the fill quote and never frame `k`'s inputs.
+  published at or before the quote's own availability, which is the availability of its fill bar's original version,
+  selected by the same rule that selects frame `k`'s inputs at `d_k`: the fill follows the decision, and at `d_k` no
+  quote could qualify, since its event follows `d_k`. A correction is published after the version it replaces, and an
+  original at or after its own availability, so no correction ever reaches a fill quote: a fill uses the version known
+  when its bar became available. The quote's instant is the bar's open, and it states the selected version's
+  availability and publication; a bar available only at or after the gap's bound gives the gap no quote cut.
 - **Interface:** `crates/data/src/owner/pit_window_custody_v1.rs` freezes what a backfill writer commits and how a
   multi-frame consumer finds a run's frames. The custody aggregate implements its commit port and alone constructs a
   receipt; until the derived view implements its frames port, nothing constructs a frame coordinate.

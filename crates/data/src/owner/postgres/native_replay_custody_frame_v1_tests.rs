@@ -2,18 +2,19 @@
 //! PostgreSQL: on the same rows it is the snapshot frame, it reads exactly the head its request
 //! pins, and with no derived quote cut it is refused rather than given an invented one.
 //!
-//! Until T0-6 the quote cut is injected through the resolver's closure; the production resolver
-//! refuses every gap, which the last proof drives.
+//! Most proofs inject the quote cut through the resolver's closure. The production resolver
+//! derives it from the gap's fill bar (T0-6), which the T0-6 and T0-7 proofs at the end drive: a
+//! frame's inputs select versions at `d_k` and its fill quote at the fill bar's own availability.
 
 use vibe_model::identifiers::InstrumentId;
 
 use super::{
-    MarketDataReadPostgres,
+    MarketDataReadPostgres, SourceBindingCommit,
     native_replay_custody_frame_v1::resolve_native_replay_custody_frame_from_pool_v1,
     pit_window_custody_v1::ResolvedPitWindowViewV1,
     pit_window_custody_v1_tests::{
         BTC, DAY, ETH, MINUTE, WINDOW_START, admit_members, after_close, commit, commit_binding,
-        original, owner, request, rows_of, successor, universe,
+        correction, original, owner, request, rows_of, successor, universe, version_at,
     },
     pit_window_view_v1_tests::{
         seal, two_day_correction, two_timeframe_request, version_at_timeframe,
@@ -842,4 +843,281 @@ async fn postgres_a_fill_bar_that_opens_after_d_k_derives_the_gaps_quote_cut() {
             );
         }
     }
+}
+
+/// A bar every correction in the T0-7 falsifiers states instead of [`BAR`]: every price differs
+/// and each still states one canonical precision.
+const CORRECTED_BAR: [(&str, i128, u8); 5] = [
+    ("OPEN", 6_600_013, 2),
+    ("HIGH", 6_640_037, 2),
+    ("LOW", 6_580_051, 2),
+    ("CLOSE", 6_621_033, 2),
+    ("VOLUME", 2_345, 0),
+];
+
+/// Frame 3's event, and its decision cut under the `after_close` rule's two-minute lag.
+const E_3: u64 = WINDOW_START + 3 * DAY;
+const D_3: u64 = E_3 + 2 * MINUTE;
+/// The close of the fill bar in frame 3's gap: it opens at `e_3 + 4 minutes`, strictly after
+/// `d_3`, and is available at `e_3 + 7 minutes`, the quote's availability.
+const FILL_CLOSE: u64 = E_3 + 5 * MINUTE;
+const QUOTE_AVAILABILITY: u64 = FILL_CLOSE + 2 * MINUTE;
+
+/// The Owner store with a correcting source's binding and both members admitted.
+async fn correcting_source() -> (super::MarketDataOwnerPostgres, SourceBindingCommit) {
+    let owner = owner().await;
+    let binding = commit_binding(&owner, "synthetic/corrections", 1, Some(after_close(true))).await;
+    admit_members(&owner, &binding).await;
+    (owner, binding)
+}
+
+/// A correcting source's custody over four days: daily execution bars at days 1 to 3, two-day
+/// input bars at days 0 and 2, and minute fill bars - one in frame 3's gap closing at
+/// `fill_close`, when given, beside one opening at `e_3` itself, which no gap takes - every row
+/// stating [`BAR`], under the Universe Selection record at `frontier`.
+async fn falsifier_chain_request(
+    owner: &super::MarketDataOwnerPostgres,
+    binding: &SourceBindingCommit,
+    frontier: u8,
+    fill_close: Option<u64>,
+) -> UntrustedPitWindowCustodyRequestV1 {
+    let mut request = two_timeframe_request(request(
+        binding,
+        universe(owner, binding, frontier, None).await,
+    ));
+    request.fill_timeframe = Some("1M".to_owned());
+    let fills = std::iter::once(E_3 + MINUTE)
+        .chain(fill_close)
+        .map(|close| original("1M", close));
+    // Canonical order: by timeframe label, then event.
+    let (daily, two_day): (Vec<_>, Vec<_>) = request
+        .cross_sections
+        .into_iter()
+        .partition(|version| version.timeframe == "1D");
+    request.cross_sections = daily.into_iter().chain(fills).chain(two_day).collect();
+    stating_bar(request, BAR)
+}
+
+/// A correction of the fill bar closing at `FILL_CLOSE`, published at `publication_ns`.
+fn fill_correction(
+    predecessor: BindingDigest,
+    publication_ns: u64,
+) -> UntrustedCrossSectionVersionV1 {
+    let mut version = correction(FILL_CLOSE, predecessor, 2, publication_ns);
+    version.timeframe = "1M".to_owned();
+    version
+}
+
+/// Frame 3 of `root`'s chain at `head`, resolved by the production custody frame resolver - the
+/// read store's, with T0-6's derived quote cut - for a run ending at day 4.
+async fn produced_frame_3(
+    owner: &super::MarketDataOwnerPostgres,
+    root: &PitWindowCustodyReceiptV1,
+    head: BindingDigest,
+) -> Result<NativeReplayCustodyFrameReadbackV1, NativeReplaySchedulingErrorV1> {
+    let frame = frame_at(root, head, E_3);
+    let view = owner
+        .resolve_pit_window_view_v1(&frame)
+        .await
+        .expect("frame 3's view resolves");
+    let request = custody_request(&view, frame, WINDOW_START + 4 * DAY);
+    MarketDataReadPostgres {
+        pool: owner.pool().clone(),
+    }
+    .resolve_native_replay_custody_frame_inputs_v1(&request)
+    .await
+}
+
+/// Each member's `BID_PRICE` in `frame`'s quote cut, in member order.
+fn bid_prices(frame: &NativeReplayCustodyFrameReadbackV1) -> Vec<i128> {
+    [BTC, ETH]
+        .into_iter()
+        .map(|member| {
+            frame
+                .quote_cut_for_test()
+                .observations()
+                .iter()
+                .find(|row| row.instrument() == member && row.field() == "BID_PRICE")
+                .unwrap_or_else(|| panic!("{member}'s bid is in the quote cut"))
+                .value_mantissa()
+        })
+        .collect()
+}
+
+/// T0-7 falsifier (a): inputs select at `d_k`. A correction of frame 3's two-day input bar and of
+/// its execution bar, both published after `d_3` and before the quote's availability, leave frame
+/// 3's view, sealed batch and strategy-input values exactly as the uncorrected root resolves them,
+/// through the production resolver with its derived quote cut. The control chain corrects the same
+/// two-day bar before `d_3`, and there frame 3 does move, so the comparison can see a correction.
+/// Moving the input cut from `d_k` to the quote's availability turns this red.
+#[tokio::test]
+#[ignore = "requires a disposable Market Data PostgreSQL database"]
+async fn postgres_an_input_correction_published_after_d_k_never_reaches_frame_k() {
+    let (owner, binding) = correcting_source().await;
+    let intake = owner.pit_window_custody_commit_v1();
+    let two_day_bar = WINDOW_START + 2 * DAY;
+    let mut chains = Vec::new();
+
+    for (frontier, two_day_publication, execution_publication) in [
+        (10, D_3 + MINUTE, Some(D_3 + MINUTE)),
+        (11, two_day_bar + DAY / 2, None),
+    ] {
+        let template = falsifier_chain_request(&owner, &binding, frontier, Some(FILL_CLOSE)).await;
+        let root = commit(&intake, template.clone()).await.expect("the root");
+        let two_day = version_at_timeframe(&owner, root.custody_identity(), two_day_bar).await;
+        let execution = version_at(&owner, root.custody_identity(), E_3).await;
+        let corrections = execution_publication
+            .map(|publication| correction(E_3, execution, 2, publication))
+            .into_iter()
+            .chain([two_day_correction(two_day, two_day_publication)])
+            .collect();
+        let head = commit(
+            &intake,
+            stating_bar(successor(&root, &template, corrections), CORRECTED_BAR),
+        )
+        .await
+        .expect("the corrections");
+        let uncorrected = produced_frame_3(&owner, &root, root.custody_identity())
+            .await
+            .expect("frame 3 resolves at the root");
+        let corrected = produced_frame_3(&owner, &root, head.custody_identity())
+            .await
+            .expect("frame 3 resolves at the head");
+        chains.push((uncorrected, corrected));
+    }
+    let (late_root, late_head) = &chains[0];
+    assert_eq!(
+        late_root.quote_cut_for_test().observations().len(),
+        8,
+        "frame 3 resolves with its derived quote cut: four Quote fields per member"
+    );
+    assert_eq!(
+        late_head.source(),
+        late_root.source(),
+        "corrections published after d_3 leave frame 3's view where the root has it"
+    );
+    assert_eq!(
+        late_head.universe_frame(),
+        late_root.universe_frame(),
+        "and its strategy-input values and sealed batch with it"
+    );
+    assert_eq!(bid_prices(late_head), vec![6_500_012; 2]);
+
+    let (early_root, early_head) = &chains[1];
+    assert_ne!(
+        early_head.source(),
+        early_root.source(),
+        "control: a correction published before d_3 does move frame 3's view"
+    );
+    assert_ne!(
+        early_head
+            .universe_frame()
+            .selection()
+            .observation_batch_digest(),
+        early_root
+            .universe_frame()
+            .selection()
+            .observation_batch_digest(),
+        "control: and the batch its values are read from"
+    );
+}
+
+/// T0-7 falsifier (b): a fill quote selects at its bar's availability. A correction of the fill
+/// bar frame 3's quote cut takes, published after that bar's availability, leaves the quote at the
+/// original bar's open through the production resolver. Selecting the fill bar at the chain's
+/// head instead, as T0-6 first did, turns this red.
+#[tokio::test]
+#[ignore = "requires a disposable Market Data PostgreSQL database"]
+async fn postgres_a_fill_correction_published_after_its_bars_availability_never_reaches_the_quote()
+{
+    let (owner, binding) = correcting_source().await;
+    let intake = owner.pit_window_custody_commit_v1();
+    let template = falsifier_chain_request(&owner, &binding, 10, Some(FILL_CLOSE)).await;
+    let root = commit(&intake, template.clone()).await.expect("the root");
+    let fill = version_at(&owner, root.custody_identity(), FILL_CLOSE).await;
+    let head = commit(
+        &intake,
+        stating_bar(
+            successor(
+                &root,
+                &template,
+                vec![fill_correction(fill, QUOTE_AVAILABILITY + MINUTE)],
+            ),
+            CORRECTED_BAR,
+        ),
+    )
+    .await
+    .expect("the fill bar's correction");
+    let uncorrected = produced_frame_3(&owner, &root, root.custody_identity())
+        .await
+        .expect("frame 3 resolves at the root");
+    let corrected = produced_frame_3(&owner, &root, head.custody_identity())
+        .await
+        .expect("frame 3 resolves at the head");
+
+    assert_eq!(bid_prices(&uncorrected), vec![6_500_012; 2]);
+    assert_eq!(
+        bid_prices(&corrected),
+        vec![6_500_012; 2],
+        "the quote is the open known at the fill bar's availability, never its later correction"
+    );
+    assert_eq!(
+        corrected.quote_cut_for_test().source(),
+        uncorrected.quote_cut_for_test().source(),
+        "the same quote cut, bound to the same fill version"
+    );
+    assert_eq!(corrected.source(), uncorrected.source());
+}
+
+/// T0-7 positive control (c): selecting at the bar's availability does not leave a quote stuck at
+/// nothing. Every original lives in its chain's root (a successor carries only corrections and
+/// withdrawals), so the control is two roots differing only in the gap's fill bar: without it
+/// frame 3 has no quote and is refused; with it, its original - available only after `d_3` -
+/// gives frame 3 that bar's own open through the production resolver, never the frame's
+/// execution bar's.
+#[tokio::test]
+#[ignore = "requires a disposable Market Data PostgreSQL database"]
+async fn postgres_a_fill_bar_available_after_d_k_gives_its_gap_a_quote() {
+    let (owner, binding) = correcting_source().await;
+    let intake = owner.pit_window_custody_commit_v1();
+    let without = commit(
+        &intake,
+        falsifier_chain_request(&owner, &binding, 10, None).await,
+    )
+    .await
+    .expect("the root without the gap's fill bar");
+    assert_eq!(
+        produced_frame_3(&owner, &without, without.custody_identity())
+            .await
+            .map(|_| ()),
+        Err(NativeReplaySchedulingErrorV1::EventOrderUnavailable),
+        "no fill bar opens inside frame 3's gap"
+    );
+
+    let mut request = falsifier_chain_request(&owner, &binding, 11, Some(FILL_CLOSE)).await;
+    let fill = request
+        .cross_sections
+        .iter_mut()
+        .find(|version| version.timeframe == "1M" && version.event_effective_ns == FILL_CLOSE)
+        .expect("the gap's fill bar");
+    for row in &mut fill.rows {
+        let (_, mantissa, scale) = CORRECTED_BAR
+            .iter()
+            .find(|(field, _, _)| *field == row.field)
+            .expect("a BAR field");
+        row.value_mantissa = *mantissa;
+        row.value_scale = *scale;
+    }
+    let with = commit(&intake, request)
+        .await
+        .expect("the root with the gap's fill bar");
+    let frame = produced_frame_3(&owner, &with, with.custody_identity())
+        .await
+        .expect("the fill bar derives frame 3's quote cut");
+    assert_eq!(
+        bid_prices(&frame),
+        vec![6_600_013; 2],
+        "the quote is that fill bar's open"
+    );
+    const { assert!(QUOTE_AVAILABILITY > D_3, "a bar available only after d_3") };
 }
