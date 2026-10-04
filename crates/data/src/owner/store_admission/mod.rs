@@ -6645,6 +6645,139 @@ mod tests {
         }
     }
 
+    /// The window's settled funding resolves the same way through the admitted-read port and
+    /// directly on the pool: a measurement without the funding settlement floor is never a
+    /// funding settlement port, a covered window's settlements agree both ways, and an uncovered
+    /// window answers `None` both ways rather than a silent empty schedule.
+    #[rstest]
+    #[ignore = "requires the crates/data disposable PostgreSQL harness"]
+    fn the_admitted_funding_settlement_read_resolves_what_the_pool_resolves() {
+        std::thread::Builder::new()
+            .name("market-data-funding-settlement".into())
+            .stack_size(16 * 1024 * 1024)
+            .spawn(|| {
+                tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .unwrap()
+                    .block_on(run_funding_settlement_admitted_scenario());
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
+    async fn run_funding_settlement_admitted_scenario() {
+        const HOUR_NS: i64 = 3_600_000_000_000;
+
+        let owner_url = std::env::var("MARKET_DATA_OWNER_TEST_DATABASE_URL")
+            .expect("explicit disposable Owner URL");
+        let database =
+            std::env::var("VIBE_POSTGRES_TEST_DATABASE_NAME").expect("disposable database name");
+        assert!(
+            database.starts_with("vibe_test_"),
+            "this proof writes; it runs only against a disposable database"
+        );
+        let owner = crate::owner::postgres::MarketDataOwnerPostgres::connect(&owner_url)
+            .await
+            .expect("Owner connects and migrates");
+        let instrument = "FUNDING-PORT-POOL-CONSISTENCY.BINANCE";
+        let window_start_ns: i64 = 0;
+        let window_end_ns_exclusive: i64 = 2 * HOUR_NS;
+
+        sqlx::query(
+            "INSERT INTO market_data_private.funding_settlement_facts_v1 \
+             (instrument, settlement_ns, interval_hours, rate, retrieval_ns, retrieval_route) \
+             VALUES ($1, $2, 1, 0.0001, 1, 'proof')",
+        )
+        .bind(instrument)
+        .bind(HOUR_NS)
+        .execute(owner.pool())
+        .await
+        .expect("seed one settlement");
+        sqlx::query(
+            "INSERT INTO market_data_private.funding_settlement_coverage_v1 \
+             (instrument, window_start_ns, window_end_ns_exclusive, committed_at_ns) \
+             VALUES ($1, $2, $3, 1)",
+        )
+        .bind(instrument)
+        .bind(window_start_ns)
+        .bind(window_end_ns_exclusive)
+        .execute(owner.pool())
+        .await
+        .expect("record this window's coverage");
+
+        assert!(
+            admitted_capability_for(&owner_url, &bar_schedule_measurement_spec())
+                .await
+                .into_snapshot_port_covering(&[&postgres::FUNDING_SETTLEMENT_FLOOR_V1])
+                .is_err(),
+            "a measurement without the funding settlement floor is not a funding settlement port"
+        );
+        let port = admitted_capability_for(
+            &owner_url,
+            &measurement_spec_covering(&[&postgres::FUNDING_SETTLEMENT_FLOOR_V1]),
+        )
+        .await
+        .into_snapshot_port_covering(&[&postgres::FUNDING_SETTLEMENT_FLOOR_V1])
+        .expect("the measurement carries the funding settlement floor");
+
+        let members = vec![instrument.to_owned()];
+
+        let through_port = crate::owner::postgres::resolve_replay_funding_schedule_through_port_v1(
+            &port,
+            &members,
+            window_start_ns as u64,
+            window_end_ns_exclusive as u64,
+        )
+        .await
+        .expect("the port resolves the covered window");
+        let through_pool = crate::owner::postgres::resolve_replay_funding_schedule_from_pool_v1(
+            owner.pool(),
+            &members,
+            window_start_ns as u64,
+            window_end_ns_exclusive as u64,
+        )
+        .await
+        .expect("the pool resolves the covered window");
+        assert_eq!(
+            through_port, through_pool,
+            "the port and the pool resolve the same covered window's schedule"
+        );
+        assert!(
+            through_port.is_some(),
+            "a genuinely covered window with a real settlement is not None"
+        );
+
+        let uncovered_window_end_ns_exclusive = (window_end_ns_exclusive + HOUR_NS) as u64;
+        let through_port_uncovered =
+            crate::owner::postgres::resolve_replay_funding_schedule_through_port_v1(
+                &port,
+                &members,
+                window_start_ns as u64,
+                uncovered_window_end_ns_exclusive,
+            )
+            .await
+            .expect("the port answers an uncovered window without erroring");
+        let through_pool_uncovered =
+            crate::owner::postgres::resolve_replay_funding_schedule_from_pool_v1(
+                owner.pool(),
+                &members,
+                window_start_ns as u64,
+                uncovered_window_end_ns_exclusive,
+            )
+            .await
+            .expect("the pool answers an uncovered window without erroring");
+        assert_eq!(
+            through_port_uncovered, None,
+            "a window never backfilled this far answers None through the port"
+        );
+        assert_eq!(
+            through_pool_uncovered, None,
+            "a window never backfilled this far answers None on the pool"
+        );
+    }
+
     /// A custody chain's frames and views, read through an admitted custody port, are the ones
     /// custody reads on the Owner's store: the same frames from the head, the same view at a
     /// pinned head with the same rows, and the same refusals. A measurement without the custody

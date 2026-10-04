@@ -283,28 +283,65 @@ struct DecodedSettlementRowV1 {
 /// this.
 const SETTLEMENT_GAP_TOLERANCE_NS: u64 = 60_000_000_000;
 
-/// Builds one member's settlements from its sorted, decoded rows, refusing a gap between two
-/// consecutive settlements that does not match the interval the earlier one itself states.
+/// The smallest interval the venue publishes; a window shorter than this can genuinely hold no
+/// settlement at all, so an empty, fully-covered member schedule is only accepted below this
+/// width. At or above it, zero rows for a covered window is a gap, not a quiet "nothing settled".
+const MINIMUM_SETTLEMENT_INTERVAL_NS: u64 = 3_600_000_000_000;
+
+/// Whether an observed gap matches the interval one of its two endpoints declares, within
+/// [`SETTLEMENT_GAP_TOLERANCE_NS`] (capped at the interval itself so a short interval cannot be
+/// tolerance-exempted into accepting an arbitrarily large gap).
+fn gap_matches_interval_v1(actual_gap_ns: u64, interval_hours: u8) -> bool {
+    let expected_gap_ns = u64::from(interval_hours) * 3_600_000_000_000;
+    let tolerance = expected_gap_ns.min(SETTLEMENT_GAP_TOLERANCE_NS);
+    actual_gap_ns.abs_diff(expected_gap_ns) <= tolerance
+}
+
+/// Builds one member's settlements from its sorted, decoded rows over `[window_start_ns,
+/// window_end_ns_exclusive)`, refusing a gap anywhere in the window - between two consecutive
+/// settlements, or between either edge and its nearest settlement.
 ///
-/// Does not check the window's own edges: a window with zero or one settlement for a member, or
-/// one whose first or last settlement sits mid-interval from the edge, is accepted as this read's
-/// current scope. `coverage` already proves the window was genuinely backfilled; a stronger edge
-/// check is a later slice's to add.
+/// `interval_hours` on a row is the archive's own field for the period *ending at* that row
+/// (empirically verified against a real 4h-to-1h transition, not derived from spacing), so a gap
+/// is checked against the *later* endpoint's declared interval: the later of a consecutive pair,
+/// the first row at the head edge, and the last row at the tail edge. A window with zero
+/// settlements is accepted only when it is narrower than the smallest interval the venue
+/// publishes ([`MINIMUM_SETTLEMENT_INTERVAL_NS`]); at or above that width, `coverage` proving the
+/// window was backfilled and still returning nothing is a gap, not an empty schedule.
 fn member_schedule_v1(
     instrument: String,
     mut rows: Vec<DecodedSettlementRowV1>,
+    window_start_ns: u64,
+    window_end_ns_exclusive: u64,
 ) -> Result<MemberFundingScheduleV1, ResolutionRefused> {
     rows.sort_by_key(|row| row.settlement_ns);
 
-    for pair in rows.windows(2) {
-        let expected_gap_ns = u64::from(pair[0].interval_hours) * 3_600_000_000_000;
-        let actual_gap_ns = pair[1].settlement_ns.saturating_sub(pair[0].settlement_ns);
-        let tolerance = expected_gap_ns.min(SETTLEMENT_GAP_TOLERANCE_NS);
+    let Some(first) = rows.first() else {
+        if window_end_ns_exclusive.saturating_sub(window_start_ns) < MINIMUM_SETTLEMENT_INTERVAL_NS
+        {
+            return Ok(MemberFundingScheduleV1::new(instrument, Vec::new()));
+        }
+        return Err(ResolutionRefused::SettlementGap);
+    };
 
-        if actual_gap_ns.abs_diff(expected_gap_ns) > tolerance {
+    let head_gap_ns = first.settlement_ns.saturating_sub(window_start_ns);
+    if !gap_matches_interval_v1(head_gap_ns, first.interval_hours) {
+        return Err(ResolutionRefused::SettlementGap);
+    }
+
+    for pair in rows.windows(2) {
+        let actual_gap_ns = pair[1].settlement_ns.saturating_sub(pair[0].settlement_ns);
+        if !gap_matches_interval_v1(actual_gap_ns, pair[1].interval_hours) {
             return Err(ResolutionRefused::SettlementGap);
         }
     }
+
+    let last = rows.last().expect("checked non-empty above");
+    let tail_gap_ns = window_end_ns_exclusive.saturating_sub(last.settlement_ns);
+    if !gap_matches_interval_v1(tail_gap_ns, last.interval_hours) {
+        return Err(ResolutionRefused::SettlementGap);
+    }
+
     let settlements = rows
         .into_iter()
         .map(|row| FundingSettlementV1::new(row.settlement_ns, row.rate))
@@ -401,7 +438,12 @@ pub(crate) async fn resolve_replay_funding_schedule_from_pool_v1(
             })
         })
         .collect::<Result<Vec<_>, _>>()?;
-        schedules.push(member_schedule_v1(instrument, rows)?);
+        schedules.push(member_schedule_v1(
+            instrument,
+            rows,
+            window_start_ns,
+            window_end_ns_exclusive,
+        )?);
     }
     ReplayFundingScheduleV1::new(window_start_ns, window_end_ns_exclusive, schedules)
         .map(Some)
@@ -443,7 +485,12 @@ where
             .iter()
             .map(|bytes| decode_settlement_row_v1(bytes))
             .collect::<Result<Vec<_>, _>>()?;
-        schedules.push(member_schedule_v1(instrument, rows)?);
+        schedules.push(member_schedule_v1(
+            instrument,
+            rows,
+            window_start_ns,
+            window_end_ns_exclusive,
+        )?);
     }
     ReplayFundingScheduleV1::new(window_start_ns, window_end_ns_exclusive, schedules)
         .map(Some)
@@ -539,8 +586,13 @@ mod tests {
             settlement(2 * EIGHT_HOURS_NS, 8),
             settlement(3 * EIGHT_HOURS_NS, 8),
         ];
-        let schedule = member_schedule_v1("BTCUSDT-PERP.BINANCE".to_owned(), rows)
-            .expect("evenly spaced settlements build a schedule");
+        let schedule = member_schedule_v1(
+            "BTCUSDT-PERP.BINANCE".to_owned(),
+            rows,
+            0,
+            4 * EIGHT_HOURS_NS,
+        )
+        .expect("evenly spaced settlements build a schedule");
         assert_eq!(schedule.settlements().len(), 3);
     }
 
@@ -548,12 +600,18 @@ mod tests {
     fn a_1ms_jitter_around_the_stated_interval_is_tolerated() {
         // The real venue jitter `funding_archive_v1.rs` found: a settlement 1ms past the clean
         // 8-hour grid from its predecessor.
+        let last_settlement_ns = 2 * EIGHT_HOURS_NS + 1_000_000;
         let rows = vec![
             settlement(EIGHT_HOURS_NS, 8),
-            settlement(2 * EIGHT_HOURS_NS + 1_000_000, 8),
+            settlement(last_settlement_ns, 8),
         ];
-        member_schedule_v1("BTCUSDT-PERP.BINANCE".to_owned(), rows)
-            .expect("1ms of real venue jitter does not read as a missing settlement");
+        member_schedule_v1(
+            "BTCUSDT-PERP.BINANCE".to_owned(),
+            rows,
+            0,
+            last_settlement_ns + EIGHT_HOURS_NS,
+        )
+        .expect("1ms of real venue jitter does not read as a missing settlement");
     }
 
     #[rstest]
@@ -564,7 +622,12 @@ mod tests {
             settlement(3 * EIGHT_HOURS_NS, 8),
         ];
         assert_eq!(
-            member_schedule_v1("BTCUSDT-PERP.BINANCE".to_owned(), rows),
+            member_schedule_v1(
+                "BTCUSDT-PERP.BINANCE".to_owned(),
+                rows,
+                0,
+                4 * EIGHT_HOURS_NS,
+            ),
             Err(super::ResolutionRefused::SettlementGap)
         );
     }
@@ -576,8 +639,72 @@ mod tests {
             settlement(EIGHT_HOURS_NS, 8),
             settlement(3 * EIGHT_HOURS_NS, 8),
         ];
-        member_schedule_v1("BTCUSDT-PERP.BINANCE".to_owned(), rows)
-            .expect("arrival order does not change whether the gaps are real");
+        member_schedule_v1(
+            "BTCUSDT-PERP.BINANCE".to_owned(),
+            rows,
+            0,
+            4 * EIGHT_HOURS_NS,
+        )
+        .expect("arrival order does not change whether the gaps are real");
+    }
+
+    #[rstest]
+    fn a_real_interval_transition_is_checked_against_the_later_settlements_own_interval() {
+        // Real ARKUSDT archive rows around its 4h-to-1h interval change: `calc_time` in
+        // milliseconds 1_790_798_400_000 (interval_hours=4) then 1_790_802_000_001
+        // (interval_hours=1), a real ~1ms venue jitter on top of the 1h gap the LATER row
+        // states. `interval_hours` describes the period *ending at* its own row, so the gap is
+        // governed by the later row's 1h, not the earlier row's 4h - using the earlier row's
+        // interval here would read this real gap as a ~3h shortfall and wrongly refuse it.
+        const FIRST_SETTLEMENT_NS: u64 = 1_790_798_400_000 * 1_000_000;
+        const SECOND_SETTLEMENT_NS: u64 = 1_790_802_000_001 * 1_000_000;
+        let rows = vec![
+            settlement(FIRST_SETTLEMENT_NS, 4),
+            settlement(SECOND_SETTLEMENT_NS, 1),
+        ];
+        member_schedule_v1(
+            "ARKUSDT-PERP.BINANCE".to_owned(),
+            rows,
+            FIRST_SETTLEMENT_NS - 4 * HOUR_NS,
+            SECOND_SETTLEMENT_NS + HOUR_NS,
+        )
+        .expect("a real interval transition's own later-side interval governs its gap");
+    }
+
+    #[rstest]
+    fn a_window_edge_set_back_from_its_nearest_settlement_by_more_than_its_interval_is_refused() {
+        let rows = vec![settlement(EIGHT_HOURS_NS, 8)];
+        assert_eq!(
+            member_schedule_v1(
+                "BTCUSDT-PERP.BINANCE".to_owned(),
+                rows,
+                0,
+                EIGHT_HOURS_NS + 2 * EIGHT_HOURS_NS,
+            ),
+            Err(super::ResolutionRefused::SettlementGap),
+            "the tail edge is two stated intervals past the only settlement, not one"
+        );
+    }
+
+    #[rstest]
+    fn a_window_narrower_than_the_minimum_interval_accepts_zero_settlements() {
+        let schedule = member_schedule_v1(
+            "BTCUSDT-PERP.BINANCE".to_owned(),
+            Vec::new(),
+            0,
+            HOUR_NS - 1,
+        )
+        .expect("a window this narrow can genuinely hold no settlement");
+        assert!(schedule.settlements().is_empty());
+    }
+
+    #[rstest]
+    fn a_covered_window_at_least_the_minimum_interval_wide_with_no_rows_is_refused() {
+        assert_eq!(
+            member_schedule_v1("BTCUSDT-PERP.BINANCE".to_owned(), Vec::new(), 0, HOUR_NS),
+            Err(super::ResolutionRefused::SettlementGap),
+            "a covered window at least as wide as the smallest interval must hold a settlement"
+        );
     }
 
     #[rstest]

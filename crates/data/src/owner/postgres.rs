@@ -33,6 +33,10 @@ mod chain_market_base_v1_tests;
 mod corporate_action;
 mod funding_settlement_v1;
 #[cfg(test)]
+pub(in crate::owner) use funding_settlement_v1::{
+    resolve_replay_funding_schedule_from_pool_v1, resolve_replay_funding_schedule_through_port_v1,
+};
+#[cfg(test)]
 mod instrument_master_admission_v1_tests;
 #[cfg(test)]
 pub(in crate::owner) mod instrument_master_admission_v2_tests;
