@@ -1592,26 +1592,25 @@ turn that red (Binance publishes no correction stream, so a synthetic source dri
 the minting instant must hide every frame; removing the available ≤ `d_k` check must turn the T2 look-ahead test red;
 and the same higher-timeframe bar must carry byte-identical coordinates in adjacent frames.
 
-**T1, the custody run's consumer (TARGET; built in part).** A custody run reaches the Sim through the same durable
+**T1, the custody run's consumer (TARGET; built in part).** This is the consumer side of the seam that "T1: a
+custody-run Replay commit and execution-input binding" states. A custody run reaches the Sim through the same durable
 anchors as a snapshot run, so its Result can be reread against the frames it read:
 
-- The Replay's execution input binding states the run as a custody run: the chain root, the run window, and the head
-  the frames were enumerated at when the binding was issued. Lane 5 owns that contract and its issuance.
-- The consumer re-resolves the run from the binding.
+- The consumer re-resolves the run from the binding's `custody_run()`.
   - It enumerates the frames through Market Data's frames port and refuses the run as
     `CUSTODY_HEAD_MOVED_SINCE_BINDING` unless they come from the bound head. It never follows a newer head.
   - It reads each frame through the native Replay resolver's custody frame method, at that head and that frame's
     `e_k`.
   - It admits a frame only when its strategy inputs are the chain's derived view at that `e_k` and `d_k`, with member
-    coordinates from the frame's own sample projection.
-- **Current:** the execution bundle carries every frame by value (`new_from_custody_frames_v1`). Its census pins the
-  chain, the head and the ordered view identities, and they enter the census digest only for a custody run, so a
-  snapshot run keeps its digest.
-- A custody run takes no BAR schedule from H4b, the stub F uses. Its schedules are the custody's window schedules
-  (T0-4b), which the frame readback states.
-- No production run completes yet, for two reasons:
-  - Market Data refuses every gap's quote cut until T0-6 derives one.
-  - The frame's sample projection arrives with T0-5b.
+    coordinates from the frame's own sample projection (`resolve_native_replay_custody_frames_v1`). Otherwise it
+    refuses by name: `CUSTODY_REQUEST_NOT_THE_RUNS`, `CUSTODY_RUN_HAS_NO_FRAME`, `CUSTODY_FRAME_REFUSED`,
+    `CUSTODY_VIEW_NOT_THE_FRAMES`, `CUSTODY_FRAME_COORDINATES_UNAVAILABLE`.
+- **Current:** the execution bundle carries every frame by value (`new_from_custody_frames_v1`, which takes only the
+  resolved frames). Its census pins the chain, the head and the ordered view identities, and they enter the census
+  digest only for a custody run, so a snapshot run keeps its digest.
+- No production run completes yet: Market Data refuses every gap's quote cut as `QuoteCutMissing` until T0-6 derives
+  one. Until then a run is proven with an injected quote cut through the sealed-acceptance custody resolver, and that
+  proof must be rerun on T0-6's derived quote cuts before it counts as evidence.
 
 ### Members: a parameter
 
