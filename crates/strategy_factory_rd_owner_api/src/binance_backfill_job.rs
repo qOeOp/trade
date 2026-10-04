@@ -11,13 +11,12 @@
 //! compatibility identity, not a separate fact: re-admitting the same binding (`admission.admit`)
 //! rejoins it and hands back the same terminal, from which this module reads
 //! `.market_semantics_identity()` and `.locator()`. The basis's `universe_selection` is a
-//! `FixedMember` selection evaluated over the fixed U1 member set's eligible frontier, at the same
-//! fixed instant the binding itself claims
-//! (`vibe_binance::perpetual_admission_v1::BINANCE_PERPETUAL_BINDING_EFFECTIVE_NS_V1`): every
-//! Instrument Master fact this route's admission (`crate::market_data_pit`) submits states
-//! `effective_from: 1`, so it is in force at that instant regardless of when it was actually
-//! admitted, and reusing one fixed instant - not "now" - is what makes evaluating the same job
-//! twice rejoin the same selection, and so the same custody, instead of minting a new one.
+//! `FixedMember` selection scoped to the one member being backfilled, evaluated at the fixed
+//! far-future instant [`BINANCE_PERPETUAL_BACKFILL_UNIVERSE_SELECTION_CUT_V1`]: the Instrument
+//! Master fact `admit_instrument` admits carries the Owner's real wall-clock reading at admission
+//! time, so the universe-selection cut must be fixed far enough in the future that no real
+//! admission can ever postdate it, not a fixed instant in the past that every real admission
+//! already does.
 
 use std::sync::Arc;
 
@@ -34,10 +33,12 @@ use vibe_binance::{
     common::enums::BinanceKlineInterval,
     futures::http::client::BinanceFuturesHttpClient,
     perpetual_admission_v1::{
-        BINANCE_PERPETUAL_BINDING_EFFECTIVE_NS_V1, BINANCE_PERPETUAL_U1_MEMBERS_V1,
-        BinancePerpetualDatasetV1, binance_perpetual_canonical_identity_v1,
-        binance_perpetual_correction_frontier_digest_v1, binance_perpetual_eligible_frontier_v1,
-        binance_perpetual_market_semantics_value_v1, binance_perpetual_source_proposal,
+        BINANCE_PERPETUAL_U1_MEMBERS_V1, BinancePerpetualDatasetV1,
+        binance_perpetual_canonical_identity_v1, binance_perpetual_correction_frontier_digest_v1,
+        binance_perpetual_eligible_frontier_v1,
+        binance_perpetual_eligible_set_admission_request_v1,
+        binance_perpetual_market_semantics_value_v1,
+        binance_perpetual_membership_lineage_anchor_v1, binance_perpetual_source_proposal,
     },
     vision_backfill_custody_v1::{
         BackfillCustodyBasisV1, BackfillTimeframeBarsV1, custody_request_v1,
@@ -120,6 +121,23 @@ fn execution_interval(execution_timeframe: &str) -> Option<BinanceKlineInterval>
         _ => None,
     }
 }
+
+/// The canonical row-timeframe label the kline binding's own `bar_timeframes` declares
+/// (`perpetual_admission_v1.rs::BinancePerpetualDatasetV1::bar_timeframes`'s doc), for the public
+/// `execution_timeframe` a `backfill` call takes. `None` for `1w`: a week additionally needs an
+/// anchor naming which day it begins on, which nobody has decided, so the binding declares none
+/// and this job cannot name one either without inventing that decision.
+fn canonical_row_timeframe(execution_timeframe: &str) -> Option<&'static str> {
+    match execution_timeframe {
+        "1h" => Some("1H"),
+        "4h" => Some("4H"),
+        "1d" => Some("24H"),
+        _ => None,
+    }
+}
+
+/// The kline binding's own fixed fill-bar row timeframe: one minute, canonically `1M`.
+const BINANCE_PERPETUAL_FILL_ROW_TIMEFRAME_V1: &str = "1M";
 
 /// The venue's own raw symbol a canonical identity like `BTCUSDT-PERP.BINANCE` names, among
 /// [`BINANCE_PERPETUAL_U1_MEMBERS_V1`].
@@ -317,21 +335,47 @@ async fn kline_binding_locator(
     ))
 }
 
-/// Evaluates (or rejoins) a `FixedMember` universe selection over the fixed U1 member set, at the
-/// fixed instant the kline binding itself claims.
+/// The fixed instant this route's universe-selection check reads the Instrument Master fact as
+/// of: 2100-01-01T00:00:00Z, the same far-future bound already used for economic-terms validity
+/// (`market_data_pit.rs`'s `admit_instrument_economic_terms`). The Instrument Master fact an
+/// `admit_instrument` call admits states `effective_from: 1` but its `clock.decision_cut` and
+/// `provider_available`/`retrieval`/`observed_at` fields are the Owner's real wall-clock reading
+/// at admission time - always strictly after this route shipped, never after 2100 - so this cut
+/// must be a fixed instant no real admission can ever postdate, not one so far in the past
+/// (2023, this route's earlier choice) that every real admission already postdates it and the
+/// fact can never resolve.
+const BINANCE_PERPETUAL_BACKFILL_UNIVERSE_SELECTION_CUT_V1: u64 = 4_102_444_800_000_000_000;
+
+/// Evaluates (or rejoins) a `FixedMember` universe selection scoped to the one member this job
+/// backfills, at the fixed far-future instant above.
+///
+/// Admits the U1 set's historical membership inline, every call, before evaluating: the
+/// admission is keyed by [`binance_perpetual_membership_lineage_anchor_v1`], a fixed value rather
+/// than any real Source Binding's identity, so every call submits byte-identical content and
+/// genuinely rejoins rather than conflicting (`UniverseSelectionAdmissionV1::admit_membership`'s
+/// own "a frontier is admitted whole or not at all" is this route's only attempt at it - there is
+/// no separate one-time bootstrap step).
+///
+/// `ResearchInstrumentScopeV1` caps a scope at
+/// [`RESEARCH_INSTRUMENT_SCOPE_MAX_MEMBERS_V1`](vibe_data::owner::research_instrument_scope_v1::RESEARCH_INSTRUMENT_SCOPE_MAX_MEMBERS_V1)
+/// members (2), below the U1 set's 3, so this scope names only the requested member rather than
+/// the whole eligible set: `backfill` names exactly one instrument per call, and "is this member
+/// eligible" never needed the other two in scope to answer.
 async fn eligible_set_universe_selection(
     universe: &Arc<dyn UniverseSelectionAdmissionV1>,
-    kline_source_binding: &UntrustedSourceBindingLocator,
+    raw_symbol: &str,
 ) -> Result<UntrustedUniverseSelectionLocatorV1, String> {
-    let mut identities: Vec<String> = BINANCE_PERPETUAL_U1_MEMBERS_V1
-        .iter()
-        .map(|raw_symbol| binance_perpetual_canonical_identity_v1(raw_symbol))
-        .collect();
-    identities.sort_unstable();
+    universe
+        .admit_membership(binance_perpetual_eligible_set_admission_request_v1(
+            BINANCE_PERPETUAL_BACKFILL_UNIVERSE_SELECTION_CUT_V1,
+        ))
+        .await
+        .map_err(|e| format!("{e:?}"))?;
+    let identities = vec![binance_perpetual_canonical_identity_v1(raw_symbol)];
     let scope =
         ResearchInstrumentScopeV1::from_identities(identities).map_err(|e| format!("{e:?}"))?;
     let frontier = binance_perpetual_eligible_frontier_v1(BINANCE_PERPETUAL_U1_MEMBERS_V1);
-    let cut = BINANCE_PERPETUAL_BINDING_EFFECTIVE_NS_V1;
+    let cut = BINANCE_PERPETUAL_BACKFILL_UNIVERSE_SELECTION_CUT_V1;
     let correction_frontier_digest = binance_perpetual_correction_frontier_digest_v1();
     let request_identity = domain_digest(
         "backfill-job.universe-selection.request-identity",
@@ -356,7 +400,7 @@ async fn eligible_set_universe_selection(
         i128::from(cut),
         i128::from(cut),
         cut,
-        kline_source_binding.lineage_root(),
+        binance_perpetual_membership_lineage_anchor_v1(),
         correction_frontier_digest,
         stable_correlation,
     );
@@ -398,8 +442,7 @@ async fn run_backfill_v1(
 ) -> Result<BindingDigest, String> {
     let (kline_source_binding, market_semantics_identity) =
         kline_binding_locator(admission).await?;
-    let universe_selection =
-        eligible_set_universe_selection(universe, &kline_source_binding).await?;
+    let universe_selection = eligible_set_universe_selection(universe, raw_symbol).await?;
 
     let execution_bars = fetcher
         .execution_window(
@@ -420,6 +463,8 @@ async fn run_backfill_v1(
         .await
         .map_err(|e| format!("{e:?}"))?;
 
+    let row_timeframe = canonical_row_timeframe(&request.execution_timeframe)
+        .ok_or_else(|| "WeekAnchorUndefined".to_owned())?;
     let basis = BackfillCustodyBasisV1 {
         source_binding: kline_source_binding,
         market_semantics_identity,
@@ -428,11 +473,11 @@ async fn run_backfill_v1(
         member: binance_perpetual_canonical_identity_v1(raw_symbol),
         window_start_ns: request.window_start_ns,
         window_end_ns_exclusive: request.window_end_ns_exclusive,
-        execution_timeframe: request.execution_timeframe.clone(),
-        fill_timeframe: "1m".to_owned(),
+        execution_timeframe: row_timeframe.to_owned(),
+        fill_timeframe: BINANCE_PERPETUAL_FILL_ROW_TIMEFRAME_V1.to_owned(),
     };
     let inputs = [BackfillTimeframeBarsV1 {
-        label: request.execution_timeframe.clone(),
+        label: row_timeframe.to_owned(),
         bars: execution_bars,
     }];
     let custody_request =

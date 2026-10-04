@@ -90,21 +90,40 @@ impl BinancePerpetualDatasetV1 {
         }
     }
 
-    /// The `1D` rows are fixed 24-hour UTC bars on the Unix epoch grid, labelled at their close,
-    /// complete only: a perpetual never closes, so its day is not an exchange session day.
+    /// Every row timeframe this binding backs: `SUPPORTED_EXECUTION_TIMEFRAMES_V1`'s three fixed-
+    /// interval members (`1h`/`4h`/`1d`, declared as `1H`/`4H`/`24H` - not `1D`, which already
+    /// names a named exchange session day elsewhere, `pit_observation_source_v1.rs::owner_timeframe`'s
+    /// own doc explains why a perpetual's continuous 24-hour bar must not share that label) plus
+    /// `1M`, the backfill job's fixed fill timeframe. Every row is on the Unix epoch grid, labelled
+    /// at its close, complete only: a perpetual never closes, so none of these is an exchange
+    /// session. `1w` stays out of `bar_timeframes` and out of this list: a week additionally needs
+    /// an anchor naming which day it begins on, which nobody has decided
+    /// (`pit_observation_source_v1.rs::owner_timeframe`'s doc again), so declaring one here would
+    /// invent that decision rather than implement an already-made one.
     fn bar_timeframes(self) -> Vec<UntrustedSourceBarTimeframeV1> {
         match self {
-            Self::DailyKlines => vec![UntrustedSourceBarTimeframeV1 {
-                row_timeframe: "1D".to_owned(),
-                cadence: UntrustedSourceBarCadenceV1::FixedInterval {
-                    step: 24,
-                    unit: UntrustedSourceBarUnitV1::Hour,
-                },
-                anchor: UntrustedSourceBarAnchorV1::UnixEpoch,
-                clock: UntrustedSourceBarClockV1::Continuous,
-                label: UntrustedSourceBarLabelV1::IntervalClose,
-                completion: UntrustedSourceBarCompletionV1::CompleteOnly,
-            }],
+            Self::DailyKlines => {
+                let continuous =
+                    |row_timeframe: &str, step: u32, unit: UntrustedSourceBarUnitV1| {
+                        UntrustedSourceBarTimeframeV1 {
+                            row_timeframe: row_timeframe.to_owned(),
+                            cadence: UntrustedSourceBarCadenceV1::FixedInterval { step, unit },
+                            anchor: UntrustedSourceBarAnchorV1::UnixEpoch,
+                            clock: UntrustedSourceBarClockV1::Continuous,
+                            label: UntrustedSourceBarLabelV1::IntervalClose,
+                            completion: UntrustedSourceBarCompletionV1::CompleteOnly,
+                        }
+                    };
+                // Declarations must sort in strictly ascending byte order by `row_timeframe`
+                // (`source_binding/authority.rs`'s "one set of declarations has one encoding"),
+                // which is not numeric order for these labels: "1H" < "1M" < "24H" < "4H".
+                vec![
+                    continuous("1H", 1, UntrustedSourceBarUnitV1::Hour),
+                    continuous("1M", 1, UntrustedSourceBarUnitV1::Minute),
+                    continuous("24H", 24, UntrustedSourceBarUnitV1::Hour),
+                    continuous("4H", 4, UntrustedSourceBarUnitV1::Hour),
+                ]
+            }
             Self::ExchangeInfo => Vec::new(),
         }
     }
@@ -187,13 +206,29 @@ pub fn binance_perpetual_correction_frontier_digest_v1() -> BindingDigest {
     binance_perpetual_admission_digest_v1("correction-frontier")
 }
 
+/// A fixed, deterministic marker the historical-membership admission below and every later
+/// `source_binding_lineage_root` check against it use as their mutual matching key.
+///
+/// It names no real admitted Source Binding, and must not: `admit()`
+/// (`SourceBindingAdmissionV1::admit`) stamps the Owner's own real wall-clock evidence into the
+/// binding's identity before deriving it (`canonical_semantic_bytes`'s `encode_time_without_claim`
+/// call), so two calls admitting the "same" kline proposal at two different real instants derive
+/// two different `lineage_root`s - there is no stable identity a later caller could read back and
+/// match against one captured earlier. Keying the membership check off this fixed value instead -
+/// exactly as `correction_frontier_digest` above already does - is what lets a historical
+/// membership admitted once and a universe-selection evaluated on every later backfill agree, each
+/// independent of whichever fresh kline binding either side separately admits for its own custody
+/// basis that call.
+#[must_use]
+pub fn binance_perpetual_membership_lineage_anchor_v1() -> BindingDigest {
+    binance_perpetual_admission_digest_v1("membership-lineage-anchor")
+}
+
 /// The one-time, complete historical-membership admission for [`BINANCE_PERPETUAL_U1_MEMBERS_V1`],
-/// to send through the generic `POST /v1/market-data/historical-memberships` route after the
-/// kline Source Binding is admitted (its lineage is this request's) but before any symbol's own
-/// Instrument Master submission. Re-sending it rejoins the same frontier.
+/// to send through the generic `POST /v1/market-data/historical-memberships` route before any
+/// symbol's own Instrument Master submission. Re-sending it rejoins the same frontier.
 #[must_use]
 pub fn binance_perpetual_eligible_set_admission_request_v1(
-    kline_source_binding: &UntrustedSourceBindingLocator,
     effective_ns: u64,
 ) -> HistoricalMembershipAdmissionRequestV1 {
     use vibe_data::owner::universe_selection_admission_v1::HistoricalMembershipSubmissionV1;
@@ -219,7 +254,7 @@ pub fn binance_perpetual_eligible_set_admission_request_v1(
                     correction_publication_ns: observed,
                     owner_observation_ns: observed,
                     decision_cut: effective_ns,
-                    source_binding_lineage_root: kline_source_binding.lineage_root(),
+                    source_binding_lineage_root: binance_perpetual_membership_lineage_anchor_v1(),
                     correction_frontier_digest: binance_perpetual_admission_digest_v1(
                         "correction-frontier",
                     ),
@@ -579,9 +614,8 @@ mod tests {
     }
 
     #[rstest]
-    fn eligible_set_admission_request_names_the_kline_lineage_and_correction_frontier() {
-        let locator = test_locator(BindingDigest::from_untrusted_bytes([9; 32]));
-        let request = binance_perpetual_eligible_set_admission_request_v1(&locator, 1);
+    fn eligible_set_admission_request_names_the_fixed_lineage_anchor_and_correction_frontier() {
+        let request = binance_perpetual_eligible_set_admission_request_v1(1);
         assert_eq!(
             request.eligible_instrument_frontier,
             binance_perpetual_eligible_frontier_v1(BINANCE_PERPETUAL_U1_MEMBERS_V1)
@@ -602,7 +636,10 @@ mod tests {
         );
 
         for member in &request.members {
-            assert_eq!(member.source_binding_lineage_root, locator.lineage_root());
+            assert_eq!(
+                member.source_binding_lineage_root,
+                binance_perpetual_membership_lineage_anchor_v1()
+            );
             assert_eq!(
                 member.correction_frontier_digest,
                 binance_perpetual_admission_digest_v1("correction-frontier")

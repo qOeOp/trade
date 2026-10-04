@@ -76,7 +76,7 @@ pub fn tools() -> Value {
         },
         {
             "name": "admit_instrument",
-            "description": "Admit one Binance USD-M perpetual among the fixed U1 set. Fetches the symbol's public exchangeInfo and commits the facts an instrument needs, in order; re-admitting an already-admitted symbol rejoins it rather than erroring.",
+            "description": "Admit one Binance USD-M perpetual among the fixed U1 set. Fetches the symbol's public exchangeInfo and commits the facts an instrument needs, in order; re-admitting an already-admitted symbol is refused ALREADY_ADMITTED before any fetch.",
             "inputSchema": {"type": "object", "properties": {"symbol": symbol}, "required": ["symbol"], "additionalProperties": false}
         },
         {

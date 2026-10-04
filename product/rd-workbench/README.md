@@ -95,12 +95,25 @@ this host as a child process of Claude Code and reaches the local deployment's A
 The `market-data` MCP server (`docs/owners/market-data.md`) runs on this host as a child process of
 Claude Code and reaches the same local deployment's API on `127.0.0.1:18080`. It is a second process
 reaching the same `rd-owner-api`, authenticated by the same token, mounting a disjoint set of routes.
-Four steps, from the repository root:
+Five steps, from the repository root:
 
-1. Bring up the deployment: `make rd-workbench-up`.
-2. Build the server: `make mcp-market-data`. It builds `market-data-mcp`, copies it into
+1. Before the first bring-up, set the deployment's observation source in `product/rd-workbench/.local/.env`
+   (`up.sh` creates it from `.env.example` on first run, so set these after that first run, or edit
+   `.env.example` for a deployment you are creating fresh):
+
+   ```bash
+   MARKET_DATA_OBSERVATION_SOURCE=binance-perpetual
+   BINANCE_PERPETUAL_PIT_MEMBERS=BTCUSDT-PERP.BINANCE=BTCUSDT,ETHUSDT-PERP.BINANCE=ETHUSDT,SOLUSDT-PERP.BINANCE=SOLUSDT
+   ```
+
+   `.env.example`'s own comment explains why this is not defaulted: "which venue the rows come from
+   changes what a snapshot means, so a deployment states it instead of falling into one." Without it,
+   `admit_instrument` refuses every symbol `MARKET_DATA_BINANCE_PERPETUAL_ADMISSION_UNAVAILABLE`.
+2. Bring up the deployment: `make rd-workbench-up`. Re-run it after changing `.env` - it detects the
+   input change and recreates `rd-owner-api` on its own.
+3. Build the server: `make mcp-market-data`. It builds `market-data-mcp`, copies it into
    `product/rd-workbench/.local/bin`, and prints the registration command.
-3. Register it with Claude Code, running the printed command, which has this shape:
+4. Register it with Claude Code, running the printed command, which has this shape:
 
    ```bash
    claude mcp add --scope user market-data -- /absolute/path/to/product/rd-workbench/scripts/market-data-mcp.sh
@@ -110,18 +123,37 @@ Four steps, from the repository root:
    `.local/.env` when the server starts, exports it as `MARKET_DATA_OWNER_API_TOKEN`, and sets
    `MARKET_DATA_OWNER_API_URL` to `http://127.0.0.1:${RD_LOCAL_API_PORT:-18080}`. The token is never
    printed and never written into Claude Code's configuration.
-4. In a new Claude Code session, exercise the server's six tools:
-   - `admit_instrument` for `BTCUSDT`, `ETHUSDT`, and `SOLUSDT` - each admits once, against the fixed
-     eligible U1 set (`docs/owners/market-data.md`).
-   - `admit_instrument` for a symbol outside that set (e.g. `DOGEUSDT`) - refused by name as
-     `SYMBOL_NOT_IN_ELIGIBLE_FRONTIER`, before any write.
-   - `list_instruments` - lists the three admitted perpetuals.
-   - `describe_instrument` for one admitted instrument.
-   - `backfill` for one admitted instrument over a small window on an unsupported timeframe (e.g.
-     `5m`) - refused by name as `TIMEFRAME_UNSUPPORTED`.
-   - `backfill` for one admitted instrument over a small `1d` window - returns a `job_id`.
-   - `job_status` for that `job_id` - observe it reach `Succeeded`.
-   - `coverage` for that instrument and timeframe - reports the backfilled window.
+5. In a new Claude Code session, exercise the server's six tools. Recorded below is one full run
+   against a real local deployment, `make rd-workbench-up` re-run between steps 6 and 7 to confirm it
+   does not wipe what came before:
+
+   1. `list_instruments` - `{"instruments":[]}` on the fresh deployment.
+   2. `admit_instrument` for `BTCUSDT`, `ETHUSDT`, `SOLUSDT` - each admits once and answers its
+      `canonical_identity`, `fact_identity` and `economic_terms`.
+   3. `admit_instrument` for `BTCUSDT` again - refused `ALREADY_ADMITTED` before any fetch.
+   4. `admit_instrument` for `DOGEUSDT` - refused `SYMBOL_NOT_IN_ELIGIBLE_FRONTIER` before any write.
+   5. `list_instruments` / `describe_instrument` - all three perpetuals, then one full description.
+   6. `backfill` for `BTCUSDT-PERP.BINANCE`, `1d`, `[2024-01-01, 2024-02-01)` - a `job_id`;
+      `job_status` reaches `SUCCEEDED` with a `custody_receipt_identity`; `coverage` reports exactly
+      that one range. Repeating the identical `backfill` call refuses `JOB_TRANSITION_INVALID`
+      (the job it would re-run already reached a terminal state) and `coverage` is unchanged - no
+      duplicate data. `backfill` for `ETHUSDT-PERP.BINANCE` and `SOLUSDT-PERP.BINANCE`, each a one-
+      day window - both `SUCCEEDED`.
+   7. `make rd-workbench-up` again, no code or `.env` change - `rd-owner-api`'s container is left
+      running (`skip rd-owner-api: running and healthy on the current image`); every admitted
+      instrument and every job's coverage reads back unchanged.
+   8. `backfill` for `BTCUSDT-PERP.BINANCE` at `1h` and at `4h`, each a small window - both
+      `SUCCEEDED`; `coverage` then lists all three execution timeframes for `BTCUSDT-PERP.BINANCE`.
+   9. `backfill` at `15m` - refused `TIMEFRAME_UNSUPPORTED` before any fetch.
+   10. `get_bars` / `get_funding` - refused `TOOL_UNKNOWN`: neither tool exists yet (phase 3, not
+       B1-B4's scope).
+   11. `backfill` at `1w` - queues and runs, then fails named `ArchiveUnreadable`: the public
+       Binance Vision archive's weekly-kline format is not one this fetcher reads. `1w` stays
+       listed in `SUPPORTED_EXECUTION_TIMEFRAMES_V1` (`docs/owners/market-data.md`'s whitelisted
+       set) but has no backing declared row timeframe in the kline Source Binding -
+       `binance_perpetual_source_proposal`'s own doc explains why: a week additionally needs an
+       anchor naming which day it begins on, which nobody has decided. Treat `1w` as a named,
+       honest gap - not silently miscoded - until that anchor decision is made.
 
 ## Deployment Store Admission boundary
 
