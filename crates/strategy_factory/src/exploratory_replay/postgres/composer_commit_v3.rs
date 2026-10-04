@@ -344,6 +344,9 @@ pub(crate) async fn commit_composer_v3(
                     custody: UntrustedPitWindowCustodyClaimV1 { chain_root },
                     run_start_ns: policy_window.start_event_ns,
                     run_end_ns_exclusive: policy_window.end_event_ns_exclusive,
+                    // Read at the head the locator pins, so a backfill that moved the chain since
+                    // never refuses a retry of this commit.
+                    head_identity: Some(head_identity),
                 })
                 .await
                 .map_err(|e| unavailable(format!("custody run frames unavailable: {e}")))?;

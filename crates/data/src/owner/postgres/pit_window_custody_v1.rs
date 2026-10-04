@@ -2154,11 +2154,14 @@ pub(crate) fn frames_from_evidence_v1(
 ) -> Result<PitWindowRunFramesV1, PitWindowRunRefusalV1> {
     check_run_shape_v1(&run)?;
     let chain_root = run.custody.chain_root;
+    // The same pinned-head read a frame's view takes (`view_selection_from_evidence_v1`): the chain
+    // truncated at the pinned head, so its frames, basis and quote cuts are the ones that head held.
     let verified =
-        verify_chain_evidence_v1(chain_root, evidence, None).map_err(|refusal| match refusal {
-            ChainReadRefusalV1::Unknown => PitWindowRunRefusalV1::CustodyUnknown,
-            ChainReadRefusalV1::HeadNotInChain | ChainReadRefusalV1::Store => {
-                PitWindowRunRefusalV1::StoreUnavailable
+        verify_chain_evidence_v1(chain_root, evidence, run.head_identity).map_err(|refusal| {
+            match refusal {
+                ChainReadRefusalV1::Unknown => PitWindowRunRefusalV1::CustodyUnknown,
+                ChainReadRefusalV1::HeadNotInChain => PitWindowRunRefusalV1::HeadNotInChain,
+                ChainReadRefusalV1::Store => PitWindowRunRefusalV1::StoreUnavailable,
             }
         })?;
     // A chain the T0-4c commit did not complete has no basis, and one whose root's Universe

@@ -479,6 +479,7 @@ async fn resolve_replay_v1(
         custody,
         run_start_ns: dataset_ref.window_start_ns(),
         run_end_ns_exclusive: dataset_ref.window_end_ns_exclusive(),
+        head_identity: None,
     };
 
     match resolver.resolve_pit_window_frames_v1(run).await {

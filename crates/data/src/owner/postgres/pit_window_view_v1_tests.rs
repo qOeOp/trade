@@ -64,6 +64,7 @@ pub(in crate::owner) fn run(
         custody: UntrustedPitWindowCustodyClaimV1 { chain_root },
         run_start_ns: start,
         run_end_ns_exclusive: end,
+        head_identity: None,
     }
 }
 
@@ -508,7 +509,8 @@ pub(super) async fn version_at_timeframe(
     BindingDigest::from_untrusted_bytes(bytes.try_into().unwrap())
 }
 
-/// A frame read at a pinned head reads the view at that head; a head of another chain is refused.
+/// A frame read at a pinned head reads the view at that head, and a run pinned at a head reads the
+/// frames that head held after the head has moved; a head of another chain is refused for either.
 #[tokio::test]
 #[ignore = "requires a disposable Market Data PostgreSQL database"]
 async fn postgres_a_pinned_head_reads_the_view_at_that_head_and_a_foreign_head_is_refused() {
@@ -570,6 +572,21 @@ async fn postgres_a_pinned_head_reads_the_view_at_that_head_and_a_foreign_head_i
         head.custody_identity(),
         "a new run reads the moved head"
     );
+    let pinned_run = |head| UntrustedPitWindowRunV1 {
+        head_identity: Some(head),
+        ..run(
+            root.chain_root(),
+            WINDOW_START + 2 * DAY,
+            WINDOW_START + 4 * DAY,
+        )
+    };
+    assert_eq!(
+        frames
+            .resolve_pit_window_frames_v1(pinned_run(root.custody_identity()))
+            .await,
+        Ok(pinned.clone()),
+        "a run pinned at the root reads what the root held, after the head moved"
+    );
 
     let universe_b = universe(&owner, &binding, 11, None).await;
     let other = commit(
@@ -583,6 +600,13 @@ async fn postgres_a_pinned_head_reads_the_view_at_that_head_and_a_foreign_head_i
             .await
             .map(|_| ()),
         Err(PitWindowViewRefusalV1::HeadNotInChain)
+    );
+    assert_eq!(
+        frames
+            .resolve_pit_window_frames_v1(pinned_run(other.custody_identity()))
+            .await
+            .map(|_| ()),
+        Err(PitWindowRunRefusalV1::HeadNotInChain)
     );
 }
 

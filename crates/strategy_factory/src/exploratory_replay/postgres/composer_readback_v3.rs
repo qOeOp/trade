@@ -437,6 +437,9 @@ pub(super) async fn resolve_existing_composer_v3_in_transaction(
                     custody: UntrustedPitWindowCustodyClaimV1 { chain_root },
                     run_start_ns: policy_window.start_event_ns,
                     run_end_ns_exclusive: policy_window.end_event_ns_exclusive,
+                    // Read at the head this source pinned at commit, however far the chain has
+                    // moved since.
+                    head_identity: source.custody_head_identity,
                 })
                 .await
                 .map_err(|e| unavailable(format!("custody run frames unavailable: {e}")))?;
@@ -448,17 +451,12 @@ pub(super) async fn resolve_existing_composer_v3_in_transaction(
                     "custody run resolved a different chain than the stored source",
                 ));
             }
-            // The head is read from the chain's current head, which is free to advance (a
-            // correction or a later commit) between the original commit and this readback. That
-            // is not corruption - the chain and the readback are both correct - so it gets its own
-            // name, matching the consumer's `CUSTODY_HEAD_MOVED_SINCE_BINDING`: an idempotent
-            // retry or an H8 readback of this exact binding cannot succeed once the head has
-            // moved, but the binding and the chain are both intact.
+            // The frames were read at the pinned head, so they name it unless the source pinned
+            // none; the consumer's `CUSTODY_HEAD_MOVED_SINCE_BINDING` names that case.
             if source.custody_head_identity != Some(frames.head_identity()) {
                 return Err(corrupt(
-                    "CUSTODY_HEAD_MOVED_SINCE_BINDING: the chain's head advanced since this \
-                     source was committed; this readback will not resolve again until Market \
-                     Data can read it at the pinned head instead of the chain's current one",
+                    "CUSTODY_HEAD_MOVED_SINCE_BINDING: the custody frames were not read at the \
+                     head this source pinned at commit",
                 ));
             }
             let universe_frame_digest = reread_design_universe_frame_digest_v1(

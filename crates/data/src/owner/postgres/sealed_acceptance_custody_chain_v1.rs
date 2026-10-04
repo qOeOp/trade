@@ -576,6 +576,7 @@ pub(in crate::owner) async fn commit_sealed_acceptance_custody_chain_in_store_v1
             },
             run_start_ns: first_close,
             run_end_ns_exclusive: plan.window.1,
+            head_identity: None,
         },
     )
     .await
