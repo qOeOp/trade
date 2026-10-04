@@ -9,7 +9,10 @@ use vibe_data::owner::{
 use vibe_product_edge::ProductEdgeAdmissionLocatorV1;
 use vibe_strategy_factory::{
     develop_composer_postgres_v2::DevelopComposerSealedReadLocatorV2,
-    exploratory_replay::{ComposerBackedExploratoryReplayProposalV3, ExploratoryReplayOwnerError},
+    exploratory_replay::{
+        ComposerBackedExploratoryReplayProposalV3, ComposerReplayMarketDataLocatorV3,
+        ExploratoryReplayOwnerError,
+    },
     product_edge_postgres::PostgresResearchGoalOwnerV1,
 };
 use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
@@ -45,8 +48,8 @@ fn forged_proposal(request_identity: String) -> ComposerBackedExploratoryReplayP
             canonical_plan_digest: untrusted,
             design_digest: untrusted,
         },
-        market_data_locator: ReplayCompositionBindingLocatorV1::from_untrusted(
-            untrusted, untrusted,
+        market_data_locator: ComposerReplayMarketDataLocatorV3::Snapshot(
+            ReplayCompositionBindingLocatorV1::from_untrusted(untrusted, untrusted),
         ),
         market_data_scope_digest: untrusted,
     }
@@ -105,7 +108,7 @@ async fn forged_v3_admission_fails_without_replay_transition_or_outbox_write() {
     assert_eq!(before, (0, 0, 0));
 
     let result = owner
-        .commit_composer_backed_exploratory_replay_request_v3(proposal.clone())
+        .commit_composer_backed_exploratory_replay_request_v3(proposal.clone(), None)
         .await;
     let Err(ExploratoryReplayOwnerError::Unavailable(refusal)) = &result else {
         panic!("an unissued Product Edge admission must fail closed: {result:?}");

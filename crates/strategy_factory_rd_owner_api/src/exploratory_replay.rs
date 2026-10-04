@@ -39,8 +39,9 @@ use vibe_product_edge::{ProductEdgeAdmissionRequestV1, ProductEdgeError};
 use vibe_strategy_factory::NativeReplayExecutionInputBindingErrorV1;
 #[cfg(feature = "composer-v3-replay")]
 use vibe_strategy_factory::exploratory_replay::{
-    ComposerBackedExploratoryReplayProposalV3, EXPLORATORY_REPLAY_MUTATION_EFFECT_V3,
-    EXPLORATORY_REPLAY_OPERATION_V3, EXPLORATORY_REPLAY_SCHEMA_V3,
+    ComposerBackedExploratoryReplayProposalV3, ComposerReplayMarketDataLocatorV3,
+    EXPLORATORY_REPLAY_MUTATION_EFFECT_V3, EXPLORATORY_REPLAY_OPERATION_V3,
+    EXPLORATORY_REPLAY_SCHEMA_V3,
 };
 #[cfg(test)]
 use vibe_strategy_factory::exploratory_replay::{
@@ -1079,8 +1080,7 @@ struct ComposerBackedReplayOperationV3 {
     artifact_identity: String,
     composer_locator:
         vibe_strategy_factory::develop_composer_postgres_v2::DevelopComposerSealedReadLocatorV2,
-    market_data_locator:
-        vibe_data::owner::replay_market_facts_v2::ReplayCompositionBindingLocatorV1,
+    market_data_locator: ComposerReplayMarketDataLocatorV3,
     market_data_scope_digest: BindingDigest,
 }
 
@@ -1301,7 +1301,10 @@ pub(super) async fn submit_composer_backed_v3(
 
     match state
         .owner
-        .commit_composer_backed_exploratory_replay_request_v3(proposal)
+        // This generic HTTP submission route is not backtest.run's own in-process caller (that
+        // wiring is a separate, later slice); a CustodyRun-locator proposal submitted here today
+        // correctly refuses by name rather than silently resolving against no port.
+        .commit_composer_backed_exploratory_replay_request_v3(proposal, None)
         .await
     {
         Ok(result) => (StatusCode::OK, Json(result)).into_response(),

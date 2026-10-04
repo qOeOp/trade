@@ -7,6 +7,7 @@ use vibe_backtest_owner_contracts::{
     ReplayModelProfilesV2, ReplayNamespaceV2, ReplayRequestDtoV2, ReplayRequestV2, ReplayWindowV2,
 };
 use vibe_data::owner::{
+    pit_window_custody_v1::PitWindowRunFramesV1,
     replay_market_facts_v2::{
         ReplayMarketDependencyKindV2, ReplayMarketFactsShapeV2, ReplayMarketFactsV2,
         ResolvedReplayCompositionCutV1,
@@ -21,8 +22,8 @@ use crate::{
     design_input_custody_v1::reread_design_universe_frame_digest_v1,
     develop_composer_postgres_v2::SealedDevelopComposerReadbackV2,
     exploratory_replay::{
-        ComposerBackedExploratoryReplayProposalV3, ComposerReplayShapeRefusalV1,
-        ExploratoryReplayOwnerError,
+        ComposerBackedExploratoryReplayProposalV3, ComposerReplayMarketDataLocatorV3,
+        ComposerReplayShapeRefusalV1, ExploratoryReplayOwnerError,
     },
     product_edge::{
         ResearchExplorationViewV1, ResearchViewAvailability, ResearchViewV1,
@@ -36,8 +37,12 @@ use crate::{
 /// Its schema records the shape of the Replay composition cut it was composed from. Schema 3 is
 /// the first corpus and carries all three Instrument Master fields; schema 4 is the universe-member
 /// shape, which binds no Instrument Master at composition, and carries none of them, so it never
-/// records an Instrument Master as verified. Absent fields are not serialized, so a schema 3
-/// source's bytes are those it had before schema 4 existed.
+/// records an Instrument Master as verified. Schema 5 is a custody run: it carries none of the
+/// market binding/facts/Instrument Master fields (there is no per-request composition binding for
+/// a custody run - T0's window custody is committed once for the whole chain, not resolved per
+/// snapshot), and instead carries the chain root and the pinned head its frames were read from.
+/// Absent fields are not serialized, so an earlier schema's bytes are those it had before a later
+/// one existed.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct StoredComposerReplaySourceV3 {
@@ -61,20 +66,32 @@ pub(super) struct StoredComposerReplaySourceV3 {
     pub(super) composer_design_bytes_digest: BindingDigest,
     pub(super) composer_plan_bytes_digest: BindingDigest,
     pub(super) composer_artifact_package_bytes_digest: BindingDigest,
-    pub(super) market_binding_receipt_identity: BindingDigest,
-    pub(super) market_binding_outbox_identity: BindingDigest,
-    pub(super) market_facts_identity: BindingDigest,
-    pub(super) market_facts_receipt_identity: BindingDigest,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) market_binding_receipt_identity: Option<BindingDigest>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) market_binding_outbox_identity: Option<BindingDigest>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) market_facts_identity: Option<BindingDigest>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) market_facts_receipt_identity: Option<BindingDigest>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) instrument_master_identity: Option<BindingDigest>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) instrument_master_receipt_identity: Option<BindingDigest>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) instrument_master_outbox_identity: Option<BindingDigest>,
+    /// Custody-run-only: the chain root its frames were read from.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) custody_chain_root: Option<BindingDigest>,
+    /// Custody-run-only: the head pinned at issuance; a consumer verifies it still matches and
+    /// never follows a newer head.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) custody_head_identity: Option<BindingDigest>,
 }
 
 const FIRST_CORPUS_SOURCE_SCHEMA_V3: u16 = 3;
 const UNIVERSE_MEMBER_SOURCE_SCHEMA_V3: u16 = 4;
+const CUSTODY_RUN_SOURCE_SCHEMA_V3: u16 = 5;
 
 impl StoredComposerReplaySourceV3 {
     /// The shape this source's schema records, refusing a source whose Instrument Master fields
@@ -124,6 +141,20 @@ impl StoredComposerReplaySourceV3 {
 pub(super) struct ComposedComposerBackedReplayV3 {
     pub(super) request: ReplayRequestDtoV2,
     pub(super) source: StoredComposerReplaySourceV3,
+}
+
+/// What a Composer-backed Replay's market composition resolved to, carried from resolution
+/// through to the final compose/prepare call - either the snapshot's cut and admitted shape, or
+/// a custody run's resolved frames and the Design's own re-derived universe frame digest.
+pub(super) enum ComposedInputsV3 {
+    Snapshot {
+        market: Box<ResolvedReplayCompositionCutV1>,
+        admitted: AdmittedReplayMarketShapeV3,
+    },
+    CustodyRun {
+        frames: Box<PitWindowRunFramesV1>,
+        universe_frame_digest: BindingDigest,
+    },
 }
 
 pub(super) struct PreparedComposerReplaySealV3 {
@@ -535,15 +566,17 @@ pub(super) fn prepare_composer_backed_replay_v3(
             composer_design_bytes_digest: composer.design_bytes_digest(),
             composer_plan_bytes_digest: composer.plan_bytes_digest(),
             composer_artifact_package_bytes_digest: composer.artifact_package_bytes_digest(),
-            market_binding_receipt_identity: binding.receipt().identity(),
-            market_binding_outbox_identity: binding.outbox().identity(),
-            market_facts_identity: market_facts.facts().identity(),
-            market_facts_receipt_identity: market_facts.receipt().identity(),
+            market_binding_receipt_identity: Some(binding.receipt().identity()),
+            market_binding_outbox_identity: Some(binding.outbox().identity()),
+            market_facts_identity: Some(market_facts.facts().identity()),
+            market_facts_receipt_identity: Some(market_facts.receipt().identity()),
             instrument_master_identity: instrument_master.map(|master| master.identity()),
             instrument_master_receipt_identity: instrument_master
                 .map(|master| master.receipt_identity()),
             instrument_master_outbox_identity: instrument_master
                 .map(|master| master.outbox_identity()),
+            custody_chain_root: None,
+            custody_head_identity: None,
         },
     })
 }
@@ -584,7 +617,11 @@ fn compose_composer_backed_replay_request_v3(
         || root.trial_family_identity() != proposal.trial_family_identity
         || composer_locator != &proposal.composer_locator
         || composer_locator.artifact_locator != proposal.artifact_identity
-        || market.binding().record().locator() != proposal.market_data_locator
+        || !matches!(
+            proposal.market_data_locator,
+            ComposerReplayMarketDataLocatorV3::Snapshot(locator)
+                if locator == market.binding().record().locator()
+        )
         || market.market_data_scope_digest() != proposal.market_data_scope_digest
         || composer.intent_identity() != parse_named_sha256(intent.identity(), intent_prefix)?
         || composer.design_identity() != composition.strategy_design_identity()
@@ -649,6 +686,199 @@ fn compose_composer_backed_replay_request_v3(
             market_facts.pit_fact_digest(),
         )?,
         universe_selection: sha256_content(universe.identity(), universe.digest())?,
+        correction_rule: policy.correction_rule.clone(),
+        market_semantics: policy.market_semantics.clone(),
+        replay_configuration: policy.replay_configuration.clone(),
+        models: ReplayModelProfilesV2 {
+            runtime_kernel: policy.runtime_kernel.clone(),
+            simulator: policy.simulator.clone(),
+            cost: policy.cost.clone(),
+            slippage: policy.slippage.clone(),
+            capacity: policy.capacity.clone(),
+        },
+        runner_operational_profile: policy.runner_operational_profile.clone(),
+        diagnostic_policy: policy.diagnostic_policy.clone(),
+        deterministic_seed: policy.deterministic_seed,
+        window,
+        calendar: policy.calendar.clone(),
+        session: policy.session.clone(),
+        time_zone: policy.time_zone.clone(),
+        corporate_action_cut: policy.corporate_action_cut.clone(),
+        historical_membership_cut: policy.historical_membership_cut,
+    })
+}
+
+/// Prepares a custody-run-backed Replay's canonical request and stored source.
+///
+/// Mirrors [`prepare_composer_backed_replay_v3`] exactly for the TrialFamily/Composer/artifact
+/// checks, which are unaffected by the data path; the market-specific fields (binding, facts,
+/// Instrument Master) are replaced by the chain root and pinned head `frames` names. H6 (the
+/// composition-binding issuance) does not run for a custody run - the chain basis already names
+/// the Universe Selection, Instrument Master cut and Market Semantics value a composition binding
+/// would otherwise have bound, read in the same transaction as `frames`.
+pub(super) fn prepare_composer_backed_custody_replay_v3(
+    proposal: &ComposerBackedExploratoryReplayProposalV3,
+    cut: &ComposerReplayFamilyCutV3,
+    intent: &ComposerReplayIntentV3,
+    composer: &SealedDevelopComposerReadbackV2,
+    artifact_family: &ComposerArtifactFamilyReadbackV3,
+    frames: &PitWindowRunFramesV1,
+    universe_frame_digest: BindingDigest,
+) -> Result<ComposedComposerBackedReplayV3, ExploratoryReplayOwnerError> {
+    let request = compose_composer_backed_custody_replay_request_v3(
+        proposal,
+        cut,
+        intent,
+        composer,
+        frames,
+        universe_frame_digest,
+    )?;
+    let family = cut.legacy_family();
+    let root = family.root();
+    let root_receipt = family.root_receipt();
+    let member = family.initial_intent_member();
+
+    if root_receipt.root_digest() != root.root_digest()
+        || root_receipt.intent_identity() != member.fact_identity()
+        || cut.frontier_trial_family_identity() != root.trial_family_identity()
+        || artifact_family.binding().artifact_locator() != proposal.artifact_identity
+        || artifact_family.binding().composer_request_identity()
+            != composer.locator().request_identity
+        || artifact_family.binding().trial_family_identity() != root.trial_family_identity()
+    {
+        return Err(unavailable("TrialFamily composition custody mismatch"));
+    }
+
+    Ok(ComposedComposerBackedReplayV3 {
+        request,
+        source: StoredComposerReplaySourceV3 {
+            schema_version: CUSTODY_RUN_SOURCE_SCHEMA_V3,
+            proposal: proposal.clone(),
+            trial_family_root_receipt_identity: root_receipt.receipt_identity().to_owned(),
+            trial_family_root_digest: root.root_digest().to_owned(),
+            trial_family_member_identity: member.member_identity().to_owned(),
+            trial_family_member_digest: member.member_digest().to_owned(),
+            census_frontier_identity: cut.frontier_identity().to_owned(),
+            census_frontier_digest: cut.frontier_digest().to_owned(),
+            composer_request_digest: composer.request_digest(),
+            artifact_family_binding_identity: artifact_family.binding().identity().to_owned(),
+            artifact_family_binding_digest: artifact_family.binding().digest().to_owned(),
+            artifact_family_binding_receipt_identity: artifact_family
+                .receipt()
+                .identity()
+                .to_owned(),
+            intent_identity: intent.identity().to_owned(),
+            intent_digest: intent.digest().to_owned(),
+            composer_research_request_identity: composer.research_request_identity(),
+            composer_intent_identity: composer.intent_identity(),
+            composer_design_identity: composer.design_identity(),
+            composer_design_bytes_digest: composer.design_bytes_digest(),
+            composer_plan_bytes_digest: composer.plan_bytes_digest(),
+            composer_artifact_package_bytes_digest: composer.artifact_package_bytes_digest(),
+            market_binding_receipt_identity: None,
+            market_binding_outbox_identity: None,
+            market_facts_identity: None,
+            market_facts_receipt_identity: None,
+            instrument_master_identity: None,
+            instrument_master_receipt_identity: None,
+            instrument_master_outbox_identity: None,
+            custody_chain_root: Some(frames.chain_root()),
+            custody_head_identity: Some(frames.head_identity()),
+        },
+    })
+}
+
+fn compose_composer_backed_custody_replay_request_v3(
+    proposal: &ComposerBackedExploratoryReplayProposalV3,
+    cut: &ComposerReplayFamilyCutV3,
+    intent: &ComposerReplayIntentV3,
+    composer: &SealedDevelopComposerReadbackV2,
+    frames: &PitWindowRunFramesV1,
+    universe_frame_digest: BindingDigest,
+) -> Result<ReplayRequestDtoV2, ExploratoryReplayOwnerError> {
+    let family = cut.legacy_family();
+    let root = family.root();
+    let composer_locator = composer.locator();
+    let basis = frames.basis();
+    let policy_catalog = root
+        .policy()
+        .replay_policy_catalog_v3()
+        .ok_or_else(|| unavailable("TrialFamily has no sealed Replay execution profiles"))?;
+    policy_catalog.verify().map_err(unavailable)?;
+    if root.policy().replay_execution_policy_v2() != Some(policy_catalog.replay_policy_v2()) {
+        return Err(unavailable("TrialFamily Catalog V2/V3 binding mismatch"));
+    }
+    let policy = policy_catalog
+        .replay_policy_v2()
+        .verify()
+        .map_err(unavailable)?;
+
+    let intent_prefix = if intent.identity().starts_with("rd-research-intent-v2-") {
+        "rd-research-intent-v2-"
+    } else {
+        "rd-successor-research-intent-v1-"
+    };
+
+    let (chain_root, head_identity) = match proposal.market_data_locator {
+        ComposerReplayMarketDataLocatorV3::CustodyRun {
+            chain_root,
+            head_identity,
+        } => (chain_root, head_identity),
+        ComposerReplayMarketDataLocatorV3::Snapshot(_) => {
+            return Err(unavailable(
+                "custody composition called for a Snapshot-locator proposal",
+            ));
+        }
+    };
+
+    if proposal.request_identity.is_empty()
+        || root.trial_family_identity() != proposal.trial_family_identity
+        || composer_locator != &proposal.composer_locator
+        || composer_locator.artifact_locator != proposal.artifact_identity
+        || chain_root != frames.chain_root()
+        || head_identity != frames.head_identity()
+        || basis.market_semantics_identity() != proposal.market_data_scope_digest
+        || composer.intent_identity() != parse_named_sha256(intent.identity(), intent_prefix)?
+    {
+        return Err(unavailable(
+            "Composer, TrialFamily, or custody run composition mismatch",
+        ));
+    }
+    let window = replay_window_within_policy_v3(
+        i128::from(policy.window.start_event_ns),
+        i128::from(policy.window.end_event_ns_exclusive),
+        &policy.window,
+    )?;
+
+    let resolved_owner_inputs = blake3_content(universe_frame_digest, universe_frame_digest)?;
+    let (universe_identity, universe_digest) = basis.universe_selection_record();
+
+    Ok(ReplayRequestDtoV2 {
+        schema_version: 2,
+        request_identity: opaque(&proposal.request_identity)?,
+        frozen_research_intent: content_from_text(intent.identity(), intent.digest())?,
+        trial_family: content_from_text(root.trial_family_identity(), root.root_digest())?,
+        trial_family_census_frontier: content_from_text(
+            cut.frontier_identity(),
+            cut.frontier_digest(),
+        )?,
+        replay_authority: ReplayAuthorityClaimV2::Exploratory,
+        strategy_design: sha256_content(
+            composer.design_identity(),
+            composer_locator.design_digest,
+        )?,
+        strategy_plan: sha256_content(
+            composer_locator.canonical_plan_digest,
+            composer_locator.canonical_plan_digest,
+        )?,
+        artifact: ContentIdentityV2 {
+            identity: opaque(&composer_locator.artifact_locator)?,
+            digest: sha256_digest(composer_locator.artifact_identity)?,
+        },
+        resolved_owner_inputs,
+        pit_scope: sha256_content(chain_root, basis.market_semantics_identity())?,
+        pit_snapshot: sha256_content(chain_root, head_identity)?,
+        universe_selection: sha256_content(universe_identity, universe_digest)?,
         correction_rule: policy.correction_rule.clone(),
         market_semantics: policy.market_semantics.clone(),
         replay_configuration: policy.replay_configuration.clone(),
@@ -862,10 +1092,10 @@ mod tests {
                     canonical_plan_digest: digest(3),
                     design_digest: digest(4),
                 },
-                market_data_locator: ReplayCompositionBindingLocatorV1::from_untrusted(
-                    digest(5),
-                    digest(6),
-                ),
+                market_data_locator:
+                    crate::exploratory_replay::ComposerReplayMarketDataLocatorV3::Snapshot(
+                        ReplayCompositionBindingLocatorV1::from_untrusted(digest(5), digest(6)),
+                    ),
                 market_data_scope_digest: digest(7),
             },
             trial_family_root_receipt_identity: "root-receipt".into(),
@@ -886,13 +1116,15 @@ mod tests {
             composer_design_bytes_digest: digest(12),
             composer_plan_bytes_digest: digest(13),
             composer_artifact_package_bytes_digest: digest(14),
-            market_binding_receipt_identity: digest(15),
-            market_binding_outbox_identity: digest(16),
-            market_facts_identity: digest(17),
-            market_facts_receipt_identity: digest(18),
+            market_binding_receipt_identity: Some(digest(15)),
+            market_binding_outbox_identity: Some(digest(16)),
+            market_facts_identity: Some(digest(17)),
+            market_facts_receipt_identity: Some(digest(18)),
             instrument_master_identity: Some(digest(19)),
             instrument_master_receipt_identity: Some(digest(20)),
             instrument_master_outbox_identity: Some(digest(21)),
+            custody_chain_root: None,
+            custody_head_identity: None,
         }
     }
 
