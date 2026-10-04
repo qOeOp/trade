@@ -124,14 +124,13 @@ fn execution_interval(execution_timeframe: &str) -> Option<BinanceKlineInterval>
 
 /// The canonical row-timeframe label the kline binding's own `bar_timeframes` declares
 /// (`perpetual_admission_v1.rs::BinancePerpetualDatasetV1::bar_timeframes`'s doc), for the public
-/// `execution_timeframe` a `backfill` call takes. `None` for `1w`: a week additionally needs an
-/// anchor naming which day it begins on, which nobody has decided, so the binding declares none
-/// and this job cannot name one either without inventing that decision.
+/// `execution_timeframe` a `backfill` call takes.
 fn canonical_row_timeframe(execution_timeframe: &str) -> Option<&'static str> {
     match execution_timeframe {
         "1h" => Some("1H"),
         "4h" => Some("4H"),
         "1d" => Some("24H"),
+        "1w" => Some("1W"),
         _ => None,
     }
 }
@@ -463,8 +462,10 @@ async fn run_backfill_v1(
         .await
         .map_err(|e| format!("{e:?}"))?;
 
+    // Unreachable for a request that passed the whitelist check above: every member of
+    // `SUPPORTED_EXECUTION_TIMEFRAMES_V1` has a canonical row-timeframe label.
     let row_timeframe = canonical_row_timeframe(&request.execution_timeframe)
-        .ok_or_else(|| "WeekAnchorUndefined".to_owned())?;
+        .ok_or_else(|| "RowTimeframeUndeclared".to_owned())?;
     let basis = BackfillCustodyBasisV1 {
         source_binding: kline_source_binding,
         market_semantics_identity,
