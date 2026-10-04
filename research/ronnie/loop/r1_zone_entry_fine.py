@@ -1,6 +1,7 @@
 """Loop Z-1, minute check (loop/LOG.md): the Z-1 trades re-walked on 1h bars with every ambiguous hour resolved on 1m
 bars (Binance daily 1m files). The one slot per coin is re-run on these exits (a coin's next order may fill only after
-the hour its trade left), so a slot never frees on a daily-bar exit the finer walk does not confirm: the fill hour always (the fill minute, then stop and target from the following
+the hour its trade left, and among orders filling on the same day the one that fills first by the hour takes it),
+so a slot never frees on a daily-bar exit the finer walk does not confirm: the fill hour always (the fill minute, then stop and target from the following
 minutes), and any later hour that touches both the stop and the target. A minute touching both still counts as the
 stop. Stop exits are also charged a slippage of 0, 0.05% and 0.1% of price, which costs a tight stop more R.
 Usage: python loop/r1_zone_entry_fine.py   (1m files cached under $ZONE_1M_CACHE, default /tmp/zone_1m)"""
@@ -137,16 +138,20 @@ def coin_rows(coin):
     rows = []
     for f, tm in Z.VARS:
         cand, _ = Z.signals(d, f, tm, raw=True)
-        busy = -1
+        walked = []
         for s in cand:
-            day = d.index[s[0]]
             if s[0] <= 300 or s[0] + FR.HOLD >= len(d):
                 continue
             w = walk(coin, q, d, s)
-            if w is None or w[4] <= busy:
+            if w is not None:
+                walked.append((w[4], s[1], s, w))
+        busy = -1
+        for jf, _, s, w in sorted(walked, key=lambda x: (x[0], x[1])):  # the slot goes to the order that fills first, by the hour
+            if jf <= busy:
                 continue
             px, kind, ex, flag, jf, jx = w
             busy = jx
+            day = d.index[s[0]]
             if not (Z.T0 <= day < Z.T1):
                 continue
             side, stop = s[2], s[4]

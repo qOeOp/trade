@@ -2406,6 +2406,19 @@ the 2R-from-fill variants. CSCV PBO over the five primary fractions 0.43: which 
   "every order" with "only orders scoring above the training median" and with a random filter of the same pass rate
   (100 draws): total R, weekly Sharpe, max drawdown over 2020-2022.
 
+## Loop S-2: which broken level to trade when one candle breaks several (registered 2026-10-04, before running)
+
+- **Origin (exploratory, S-1 data):** one strong close often breaks several order-3 pivots at once, and R-1 arms an
+  order at each. Among filled orders, the one nearest price averaged about -0.1R and the deepest about +0.3R; but that
+  split conditions on how many filled, so it is only a lead. S-1 also exposed a look-ahead in the slot tie rule (below).
+- **Policies, per breakout candle:** all (every armed order, the current R-1); nearest (only the level nearest the
+  close); deepest (only the level farthest from the close: the oldest structure the candle cleared); single (only
+  candles that break exactly one pivot). Orders that never fill count as no trade. One slot per coin, taken by the
+  order that fills first by the hour; walks on 1h with ambiguous hours on 1m, 0.05% stop slippage; f = 0 and f = 0.5.
+- **Reported:** trades, avg R, total R, weekly Sharpe, by year, and the 5-slot account of S-1 over 2018-2022.
+  Development data; S-2 is exploratory because its hypothesis came from looking at the same data, so a winner goes to
+  the forward record as a paired variant, never into R-1 directly.
+
 ## Loop X-2: dynamic exits after +1R on R-1u (registered 2026-10-03, before running; the user's question)
 
 - **Question:** how often does an R-1u trade reach +1R and still end at -1R, and does managing the trade after +1R
