@@ -277,10 +277,12 @@ The report cannot call it yet, because two of its inputs reach no report assembl
   head identity and window rather than whatever is newest; bars that do not match the run's bundle digest, or a head
   that has moved, are refused by name, never replaced, so the report measures exactly what the run read. The engine is
   not changed to keep its inputs.
-- **Funding.** No Owner read surface carries per-bar funding: every production execution bundle states
-  `FUNDING_NOT_STATED` (`docs/architecture/strategy-factory.md`). Until Market Data publishes the funding schedule
-  read surface and the report consumes it, the report computes the control with `funding_stated: false`. Phase 3 is
-  not complete while it does: its acceptance requires funding in the report.
+- **Funding.** The execution bundle's consumer now reads the window's settled funding through Market Data's
+  admitted-read port (`docs/architecture/strategy-factory.md`) before composing the bundle, but nothing backfills
+  funding settlements in production yet, so every production execution bundle still states `FUNDING_NOT_STATED`.
+  Until a backfill job covers production windows and the report consumes the stated schedule, the report computes
+  the control with `funding_stated: false`. Phase 3 is not complete while it does: its acceptance requires funding in
+  the report.
 
 A run with exits also needs multi-frame replay.
 

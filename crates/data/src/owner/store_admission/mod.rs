@@ -1691,6 +1691,12 @@ pub(super) const NATIVE_REPLAY_SCHEDULING_ACCEPTANCE_GRANTS_V1: &[AcceptanceGran
     AcceptanceGrantV1::FunctionExecute(
         "market_data_admitted_read.resolve_native_replay_next_frame_v2(bytea,bigint,bigint)",
     ),
+    AcceptanceGrantV1::FunctionExecute(
+        "market_data_admitted_read.resolve_funding_settlements_v1(text,bigint,bigint)",
+    ),
+    AcceptanceGrantV1::FunctionExecute(
+        "market_data_admitted_read.resolve_funding_settlement_coverage_v1(text)",
+    ),
 ];
 
 /// Applies `statement_of` for every sealed acceptance grant to `role`, as the Market Data owner.
