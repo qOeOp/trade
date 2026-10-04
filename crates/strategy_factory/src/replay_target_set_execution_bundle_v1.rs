@@ -228,6 +228,38 @@ impl From<&BoundInstrumentEconomicTermsV1> for ReplayTargetSetInstrumentCensusV1
 }
 
 /// Exact immutable admission evidence retained for later Backtest result custody.
+/// The PIT window custody chain a multi-frame run's frames were read from, pinned at one head,
+/// and the derived view each frame's inputs came from, in frame order.
+///
+/// Only the crate constructs it, from the frames Market Data resolved at that head, so a caller
+/// cannot state a head or a view the run did not read.
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
+pub struct ReplayCustodyRunCensusV1 {
+    pub(crate) chain_root: [u8; 32],
+    pub(crate) head_identity: [u8; 32],
+    pub(crate) head_digest: [u8; 32],
+    pub(crate) head_version: u64,
+    pub(crate) view_identities: Vec<[u8; 32]>,
+}
+
+impl ReplayCustodyRunCensusV1 {
+    #[must_use]
+    pub const fn chain_root(&self) -> [u8; 32] {
+        self.chain_root
+    }
+
+    #[must_use]
+    pub const fn head_identity(&self) -> [u8; 32] {
+        self.head_identity
+    }
+
+    /// One derived view identity per frame, in frame order.
+    #[must_use]
+    pub fn view_identities(&self) -> &[[u8; 32]] {
+        &self.view_identities
+    }
+}
+
 /// What a bundle states about its window's funding.
 ///
 /// Market Data's settled funding schedule reaches the bundle by value or not at all. A bundle
@@ -268,6 +300,8 @@ pub struct ReplayTargetSetExecutionCensusV1 {
     pub(crate) bar_count: u64,
     pub(crate) event_count: u64,
     pub(crate) funding: ReplayFundingStatementV1,
+    /// The custody chain and head a multi-frame run read, absent for a snapshot run.
+    pub(crate) custody: Option<ReplayCustodyRunCensusV1>,
     pub(crate) census_digest: [u8; 32],
 }
 
@@ -401,6 +435,12 @@ impl ReplayTargetSetExecutionCensusV1 {
     #[must_use]
     pub const fn funding(&self) -> ReplayFundingStatementV1 {
         self.funding
+    }
+
+    /// The custody chain and head a multi-frame run read, absent for a snapshot run.
+    #[must_use]
+    pub const fn custody(&self) -> Option<&ReplayCustodyRunCensusV1> {
+        self.custody.as_ref()
     }
 
     #[must_use]
@@ -615,6 +655,7 @@ impl ReplayTargetSetExecutionBundleV1 {
             &frame_times,
             &receipt_digests,
             funding_schedule,
+            None,
         )
     }
 
@@ -675,6 +716,100 @@ impl ReplayTargetSetExecutionBundleV1 {
             &frame_times,
             &receipt_digests,
             funding_schedule,
+            None,
+        )
+    }
+
+    /// Composes a bundle from every frame of one PIT window custody run, carried by value: each
+    /// frame's Owner universe frame and the native schedule Market Data sealed from that frame's
+    /// derived view and quote cut, in frame order, with the chain and head the run read.
+    ///
+    /// The frames are the run's, not a caller's list: `custody` comes only from the crate's
+    /// resolution of the run at one pinned head, one view per frame. Every per-frame and
+    /// cross-frame rule of [`Self::new`] runs; frames must name the bundle's members, the request
+    /// window's end, and the batch their universe frame was admitted from, and advance in time.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the frames and the custody views disagree in count, if any frame
+    /// mismatches the Owner inputs or the request window, or if the frames disagree on BAR types.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_from_custody_frames_v1(
+        authority: OwnerIssuedReplayExecutionProfileBindingV1,
+        plan: StrategyPlanV2,
+        artifact: StrategyArtifactV2,
+        frames: Vec<(OwnerUniverseFrameV1, NativeReplaySchedulingReadbackV1)>,
+        custody: ReplayCustodyRunCensusV1,
+        strategy_id: StrategyId,
+        run_id: String,
+        public_terms: Vec<ValidatedCryptoPerpetualPublicTermsV2>,
+        funding_schedule: Option<ReplayFundingScheduleV1>,
+    ) -> anyhow::Result<Self> {
+        anyhow::ensure!(
+            !frames.is_empty() && frames.len() == custody.view_identities.len(),
+            "request execution bundle custody frames and views do not correspond"
+        );
+        let instruments = materialize_crypto_perpetual_target_set_v2(
+            authority.execution_profile_binding(),
+            public_terms,
+        )?;
+        let request_window = authority.request_window();
+        let instrument_ids = instruments.map(Instrument::id);
+        let mut universe_frames = Vec::with_capacity(frames.len());
+        let mut frame_times = Vec::with_capacity(frames.len());
+        let mut receipt_digests = Vec::with_capacity(frames.len());
+        let mut bar_types: Option<BoundedMembers<BarType>> = None;
+        let mut data = Vec::new();
+
+        for (universe_frame, scheduling) in frames {
+            anyhow::ensure!(
+                scheduling.member_instruments().as_slice() == &*instrument_ids
+                    && scheduling.window_end_ns_exclusive()
+                        == request_window.end_event_ns_exclusive
+                    && *scheduling.observation_batch_digest().as_bytes()
+                        == *universe_frame
+                            .frame()
+                            .selection()
+                            .observation_batch_digest()
+                            .as_bytes(),
+                "request execution bundle custody frame mismatches Owner inputs"
+            );
+            frame_times.push(scheduling.frame_time_ns());
+            receipt_digests.push(*scheduling.receipt_digest().as_bytes());
+            let (frame_bar_types, frame_data) = scheduling.into_native_schedule();
+            let frame_bar_types = BoundedMembers::try_from(frame_bar_types)?;
+
+            if let Some(expected) = &bar_types {
+                anyhow::ensure!(
+                    *expected == frame_bar_types,
+                    "request execution bundle frames disagree on the target set BAR types"
+                );
+            } else {
+                bar_types = Some(frame_bar_types);
+            }
+            data.extend(frame_data);
+            universe_frames.push(universe_frame);
+        }
+        anyhow::ensure!(
+            frame_times.windows(2).all(|pair| pair[0] < pair[1]),
+            "request execution bundle custody frames do not advance"
+        );
+        let bar_types = bar_types
+            .ok_or_else(|| anyhow::anyhow!("request execution bundle run carried no frame"))?;
+        Self::new_with_native_instruments(
+            authority,
+            plan,
+            artifact,
+            universe_frames,
+            strategy_id,
+            run_id,
+            instruments,
+            bar_types,
+            data,
+            &frame_times,
+            &receipt_digests,
+            funding_schedule,
+            Some(custody),
         )
     }
 
@@ -692,6 +827,7 @@ impl ReplayTargetSetExecutionBundleV1 {
         frame_times: &[u64],
         owner_scheduling_receipt_digests: &[[u8; 32]],
         funding_schedule: Option<ReplayFundingScheduleV1>,
+        custody: Option<ReplayCustodyRunCensusV1>,
     ) -> anyhow::Result<Self> {
         let request_locator = authority.request_locator().clone();
         let owner_authority_digest = authority.authority_digest();
@@ -847,6 +983,7 @@ impl ReplayTargetSetExecutionBundleV1 {
             bar_count: u64::try_from(instruments.len() * universe_frames.len())?,
             event_count: u64::try_from(instruments.len() * universe_frames.len())?,
             funding,
+            custody,
             census_digest: [0; 32],
         };
         census.census_digest = digest_census(&census)?;
@@ -902,6 +1039,7 @@ impl ReplayTargetSetExecutionBundleV1 {
             frame_times,
             &receipt_digests,
             None,
+            None,
         )
     }
 }
@@ -945,7 +1083,7 @@ fn digest_frame_sequence(
     Ok(hasher.finalize().into())
 }
 
-fn digest_census(census: &ReplayTargetSetExecutionCensusV1) -> anyhow::Result<[u8; 32]> {
+pub(crate) fn digest_census(census: &ReplayTargetSetExecutionCensusV1) -> anyhow::Result<[u8; 32]> {
     let mut hasher = Sha256::new();
     update_member_count_domain(
         &mut hasher,
@@ -1025,6 +1163,20 @@ fn digest_census(census: &ReplayTargetSetExecutionCensusV1) -> anyhow::Result<[u
     if let ReplayFundingStatementV1::Stated { schedule_digest } = census.funding {
         hasher.update(b"FUNDING_SCHEDULE_V1\0");
         hasher.update(schedule_digest);
+    }
+
+    // A snapshot run keeps the digest it had before custody runs existed.
+    if let Some(custody) = &census.custody {
+        hasher.update(b"CUSTODY_RUN_V1\0");
+        hasher.update(custody.chain_root);
+        hasher.update(custody.head_identity);
+        hasher.update(custody.head_digest);
+        hasher.update(custody.head_version.to_be_bytes());
+        hasher.update(u64::try_from(custody.view_identities.len())?.to_be_bytes());
+
+        for view_identity in &custody.view_identities {
+            hasher.update(view_identity);
+        }
     }
     Ok(hasher.finalize().into())
 }
