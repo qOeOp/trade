@@ -2864,6 +2864,14 @@ Built so far (T0-9): the H6 checks a custody run needs and the accessors T1 cons
   `StoreUnavailable`.
 - **Availability rule (H7).** `PitWindowChainBasisV1::availability_rule_digest()` returns the root custody record's
   rule digest, which the read has already checked against the chain R0 record's.
+- **Pinned-head run read.** `UntrustedPitWindowRunV1` takes an optional `head_identity` (serde-defaulted, omitted when
+  `None`). Given one, the frames port reads the chain truncated at that head: its frames, basis, frame R0s and
+  run-level quote check are the ones that head held. This is the same pinned read a frame's view takes
+  (`verify_chain_evidence_v1`'s pinned head). A head that is not a custody of the chain is refused as
+  `PIT_WINDOW_HEAD_NOT_IN_CHAIN` (`PitWindowRunRefusalV1::HeadNotInChain`). Every head of a chain restates the
+  root's window, so a run inside the window is inside it at every head. Without a head, the port reads the current
+  head as before. A consumer that pinned a head at binding passes it back on every later read, so a daily backfill
+  moving the head never refuses those reads.
 - **Proofs.**
   - `postgres_every_custody_refusal_writes_nothing` refuses a universe evaluated over another binding and checks that
     nothing is written.

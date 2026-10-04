@@ -339,6 +339,12 @@ pub struct UntrustedPitWindowRunV1 {
     pub run_start_ns: u64,
     /// Exclusive end of the run; it bounds the last frame's quote cut.
     pub run_end_ns_exclusive: u64,
+    /// The head the run's frames are read at, as a consumer pinned it when it bound the custody;
+    /// `None` reads the chain's current head. A pinned head must be in the chain, or the run is
+    /// refused as `HeadNotInChain`; its frames then hold only the versions committed up to it, so a
+    /// later backfill moving the head never changes, or refuses, a read pinned before it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub head_identity: Option<BindingDigest>,
 }
 
 /// One frame of a run, as a consumer asks the native Replay resolver for it.
@@ -784,6 +790,9 @@ pub enum PitWindowRunRefusalV1 {
     InvalidRequest,
     #[error("no custody chain has this root")]
     CustodyUnknown,
+    /// `PIT_WINDOW_HEAD_NOT_IN_CHAIN`: the run pins a head that is not a custody of the chain.
+    #[error("the pinned head is not in the custody chain")]
+    HeadNotInChain,
     #[error("the run does not lie inside the custody window")]
     RunOutsideCustodyWindow,
     /// `PIT_WINDOW_FRAME_NOT_COVERED`: a frame with no complete cross-section, including during

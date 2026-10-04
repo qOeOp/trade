@@ -1629,7 +1629,10 @@ reproducible anchor the single-frame path already gives F - not a second, parall
   `head_identity` is written once, at issuance: the issuer calls Market Data's
   `resolve_pit_window_frames_v1(run)` and records the `head_identity` the returned
   `PitWindowRunFramesV1` names. The binding pins that head; it is never advanced to a later one by
-  the binding itself.
+  the binding itself. Every later read under the binding - an idempotent retry, H8's readback, the
+  consumer, a report readback - passes the pinned head back as the run's `head_identity`. The read
+  then answers the frames that head held, however far a daily backfill has since moved the chain,
+  rather than refusing once the head moves.
 - **Per-member `InstrumentEconomicTermsFactV1`/receipt locators and the public Instrument Master
   cut stay shared between both data paths**, unchanged from the single-frame binding, verified and
   stored at issuance exactly as today - not deferred to the consumer. They are per-instrument, not

@@ -271,6 +271,7 @@ where
             },
             run_start_ns: custody.run_start_ns,
             run_end_ns_exclusive: custody.run_end_ns_exclusive,
+            head_identity: None,
         })
         .await
         .map_err(NativeReplayCustodyFramesErrorV1::RunRefused)?;
