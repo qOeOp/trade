@@ -3413,6 +3413,12 @@ and the fill timeframe. This is the fetch side that feeds a custody commit. The 
   published is read from the REST endpoint, and its rows are recorded as not checksum-verified until that month's
   archive is published and verified against them. A closed month keeps the checksum. This sentence aligns with
   Market Data's REST-primary source design, which states the fetch order.
+- **A window's bars are the ones that close inside it.** A backfill window and a run window are both `[start, end)`
+  over interval-close instants: a bar belongs to the window when its close is in it, and the window schedule's
+  frames are exactly those close instants. The archive files a bar by its open, so the bar closing at the window's
+  start opens one interval earlier, often in the previous month. The fetch therefore reads months from one interval
+  before the start. Before this, the first frame of every grid-aligned window had no cross-section, and a run over the
+  same window as its backfill was refused as `PIT_WINDOW_FRAME_NOT_COVERED`.
 - **The dataset is named by the request, not read from the file.** The reader's entry takes the dataset it was asked
   for (`klines`) and checks it against the archive path it fetched. `markPriceKlines`, `indexPriceKlines` and
   `premiumIndexKlines` archives have the same name, columns and layout.
