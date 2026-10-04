@@ -1,7 +1,7 @@
 // Browser acceptance for every admitted Dashboard Owner read.
 //
 // The R&D Owner chain (`strategy_source_browser_acceptance_reads_canonical_terminal_owner_custody`
-// in crates/strategy_factory_rd_owner_api/src/main.rs) commits real custody through the write
+// in crates/strategy_factory_rd_owner_api/src/tests.rs) commits real custody through the write
 // API handlers, serves the production `strategy-factory-rd-dashboard-read-api` router plus the
 // write API's historical custody route on loopback, and then runs this file. Nothing here is a
 // fixture: every identity, digest and hypothesis below was written by an Owner moments earlier,

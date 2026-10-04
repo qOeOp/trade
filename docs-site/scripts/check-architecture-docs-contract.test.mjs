@@ -3577,7 +3577,7 @@ function validateDeploymentStoreAdmission(candidate) {
   assert.deepEqual(candidate.firstTargetConsumer, {
     status: 'TARGET_UNTIL_IMPLEMENTED',
     compositionPath: 'product/rd-workbench/docker-compose.yml#services.rd-owner-api',
-    codePath: 'crates/strategy_factory_rd_owner_api/src/main.rs::run',
+    codePath: 'crates/strategy_factory_rd_owner_api/src/server.rs::run',
     consumerService: 'rd-owner-api',
     consumerOwnerId: 'market-data',
     backend: 'postgresql',

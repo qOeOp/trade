@@ -85,7 +85,7 @@ never runs in CI.
   once that writer is reachable from the R&D transaction.
 - **`B3` Deployment Store Admission disabled.** `DEPLOYMENT_STORE_ADMISSION_MODE` is `disabled` in
   `product/rd-workbench/.env.example` and `product/rd-workbench/docker-compose.yml`, so every sealed read port
-  resolves to `None`, and `crates/strategy_factory_rd_owner_api/src/main.rs` retains the resolver in the unread
+  resolves to `None`, and `crates/strategy_factory_rd_owner_api/src/server.rs` retains the resolver in the unread
   field `_market_data_research_pit`. The production ports `docs/guide/architecture-rules.md` names now exist and
   compose the `required` seam. Cleared when a deployment turns `required` on by the procedure in
   `product/rd-workbench/README.md`, plus one consumer that reads the port.

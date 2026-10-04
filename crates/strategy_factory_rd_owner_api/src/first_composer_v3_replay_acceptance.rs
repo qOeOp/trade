@@ -106,6 +106,7 @@ use vibe_strategy_factory::{
 use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
 
 use super::*;
+use crate::server::*;
 
 /// The one key both F entries use, so the body joins exactly what the prefix committed.
 pub(crate) const FIRST_COMPOSER_V3_REPLAY_FIXTURE_KEY_V1: &str = "f-first-composer-v3";

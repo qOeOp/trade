@@ -12,7 +12,12 @@ test("Composer route renders one compact exact-readback workbench", async () => 
     readFile(new URL("../components/dashboard-route-content.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/(dashboard)/[...route]/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../components/source-intake-readback-workbench.module.css", import.meta.url), "utf8"),
-    readFile(new URL("../../../crates/strategy_factory_rd_owner_api/src/main.rs", import.meta.url), "utf8"),
+    // The Owner API's composition and the tests that drive it, as the one file they were before.
+    Promise.all(
+      ["server.rs", "tests.rs"].map((name) =>
+        readFile(new URL(`../../../crates/strategy_factory_rd_owner_api/src/${name}`, import.meta.url), "utf8"),
+      ),
+    ).then((parts) => parts.join("\n")),
   ]);
   assert.equal(maturityFor("/rd/composer"), "DRAWABLE_EXACT");
   assert.equal(exactBlueprints["/rd/composer"].primary, "DevelopComposerReadbackWorkbench");

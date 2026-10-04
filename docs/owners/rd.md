@@ -243,7 +243,7 @@ ordered chain's acceptance build admits nothing in production.
   registry declares eleven Owner routes, and ten are `GET`. The eleventh,
   `research_goal.legacy_quarantine_read.v1`, declares `effect_set: []` and resolves to
   `POST /v1/research-goals/{request_identity}/resolve`, registered in
-  `crates/strategy_factory_rd_owner_api/src/main.rs` and absent from the read API binary. The empty effect set is
+  `crates/strategy_factory_rd_owner_api/src/server.rs` and absent from the read API binary. The empty effect set is
   accurate: the handler ignores its request body, and each of its three paths -
   `resolve_legacy_quarantined_v1`, `resolve_admission` and `resolve_historical_v1` - only reads, taking
   `FOR SHARE` rather than `FOR UPDATE` and issuing no `INSERT`, `UPDATE` or `DELETE`. What is wrong is where the
@@ -279,7 +279,7 @@ ordered chain's acceptance build admits nothing in production.
   It proves the read resolves what the same transaction committed; it proves no consumer outside the ordered
   chain.
 - **TARGET - the PIT input seam is wired and inert:** `rd.md` states that Market Data returns one sealed
-  `ResearchPitTerminal` per PIT Market Snapshot Request. `crates/strategy_factory_rd_owner_api/src/main.rs`
+  `ResearchPitTerminal` per PIT Market Snapshot Request. `crates/strategy_factory_rd_owner_api/src/server.rs`
   imports `ResearchPitTerminalResolver`, declares `_market_data_research_pit` and assigns it at construction, and
   never reads it - the underscore is the only marker, and no trait method of that resolver is called anywhere
   outside `crates/data`. The resolver is additionally optional: `bootstrap_deployment_store_admission` returns

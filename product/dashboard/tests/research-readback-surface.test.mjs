@@ -71,7 +71,8 @@ test("Research detail contract is bonded to the readback components and the shad
   const code = await sources([
     "components/research-readback-workspace.tsx", "components/research-readback-content.tsx",
     "components/research-readback-drilldown.tsx",
-    "lib/rd-shadow-client.ts", "../../crates/strategy_factory_rd_owner_api/src/main.rs",
+    "lib/rd-shadow-client.ts", "../../crates/strategy_factory_rd_owner_api/src/server.rs",
+    "../../crates/strategy_factory_rd_owner_api/src/tests.rs",
   ]);
   expectBonded(section, code, [
     "/rd/research/", "PanelFrame", "FactGroup", "Timing", "Back to requests", "Refresh",

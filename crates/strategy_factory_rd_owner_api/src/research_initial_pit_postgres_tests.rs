@@ -98,6 +98,7 @@ use vibe_strategy_factory::{
 use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
 
 use super::*;
+use crate::server::*;
 
 const TOKEN: &str = "rd-owner-api-initial-pit-test";
 const REQUEST_PROOF_DIGEST: &str = "sha256:rd-owner-api-initial-pit-proof";
@@ -444,7 +445,7 @@ async fn readback(
     owner: &PostgresResearchGoalOwnerV1,
     request_identity: &str,
 ) -> serde_json::Value {
-    let response = super::read_research_v2_through(owner, request_identity).await;
+    let response = crate::server::read_research_v2_through(owner, request_identity).await;
     assert_eq!(response.status(), StatusCode::OK);
     super::tests::response_json(response).await
 }
