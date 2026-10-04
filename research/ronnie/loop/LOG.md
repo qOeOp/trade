@@ -2587,6 +2587,21 @@ crypto bought them; none of these gauges sorts R-1 trades stably. Nothing is ado
 - **Decision:** B joins the forward record as a paired variant (R-1 with shorts paused under crowded-short funding);
   R-1u is unchanged. cb_weak is a lead for a registered test of its own.
 
+## R-1 trades that reach +1R and then stop (2026-10-04, descriptive; `loop/r1_giveback.py`, `loop/r1_giveback.txt`)
+
+Realistic R-1 trades (f = 0, slot by first fill hour, 1h/1m walks). 68% of development trades and 67% of validation
+trades that reach +1R go on to 2R. Splits that hold in both periods (share ending at 2R, low / high tercile):
+close of the +1R hour (below 0.93R 59-62%, above 1.07R 75-76%); upper wick of that hour (small 71-72%, large 63-64%);
+its range and volume (larger is better, 62-66% to 71-73%); minutes at or above +1R in the next six hours, among trades
+still open then (under 33: 50-55%; over 180: 72-75%); close six hours later (under 0.7R 43-48%, over 1.04R 77%); close
+24 hours later (under 0.45R 36-37%, over 0.9R 74-75%). No effect: hours taken to reach +1R, BTC's share of the move,
+trend age, the minute close at first touch. The failing trade typically reaches +1R on a wick that closes back under
+it, does not extend in the next hours, and is back near the entry within a day.
+Not actionable as an exit: for every weak bucket, holding is worth about as much as or more than closing at the
+checkpoint (e.g. 24 hours after +1R and closed under +0.25R: 12-14% of these trades, win 32%, hold -0.04 to -0.05R vs
+exit -0.14R; under +0.5R at six hours: hold +0.33 / +0.15R vs exit +0.14 / +0.14R). A 2R target with a 1R stop breaks
+even at a 33% win rate, and the weak buckets sit near it. This agrees with X-2: no management rule after +1R adds R.
+
 ## Loop X-2: dynamic exits after +1R on R-1u (registered 2026-10-03, before running; the user's question)
 
 - **Question:** how often does an R-1u trade reach +1R and still end at -1R, and does managing the trade after +1R

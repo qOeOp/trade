@@ -1,0 +1,22 @@
+R-1 trades reaching +1R: share ending at 2R by feature tercile (low / mid / high), development | validation
+  dev: 2764 trades reached +1R, 68% ended at 2R; longs 70%, shorts 66%
+  val: 1532 trades reached +1R, 67% ended at 2R; longs 68%, shorts 65%
+  hours_to_1r                 : dev 70% / 67% / 68% (cuts 9, 35; n 2764) | val 68% / 66% / 67% (cuts 11, 35; n 1532)
+  hour_range_x                : dev 66% / 66% / 73% (cuts 1.39, 2.34; n 2764) | val 62% / 66% / 72% (cuts 1.34, 2.21; n 1532)
+  vol_x                       : dev 65% / 68% / 71% (cuts 1.46, 2.76; n 2764) | val 64% / 65% / 71% (cuts 1.37, 2.7; n 1532)
+  close_R_1r_hour             : dev 62% / 67% / 76% (cuts 0.927, 1.07; n 2764) | val 59% / 67% / 75% (cuts 0.923, 1.06; n 1532)
+  wick_frac                   : dev 72% / 70% / 63% (cuts 0.176, 0.39; n 2764) | val 71% / 65% / 64% (cuts 0.173, 0.382; n 1532)
+  move_atr                    : dev 63% / 70% / 72% (cuts 0.606, 0.932; n 2764) | val 63% / 66% / 72% (cuts 0.6, 0.955; n 1532)
+  btc_pct                     : dev 69% / 68% / 68% (cuts 0.744, 3.08; n 2764) | val 68% / 65% / 68% (cuts 0.48, 2.19; n 1532)
+  btc_share                   : dev 70% / 69% / 66% (cuts 0.136, 0.476; n 2764) | val 69% / 66% / 67% (cuts 0.089, 0.354; n 1532)
+  risk_pct                    : dev 70% / 69% / 66% (cuts 0.0501, 0.0783; n 2764) | val 69% / 67% / 65% (cuts 0.0499, 0.0752; n 1532)
+  trend_days                  : dev 66% / 69% / 70% (cuts 91, 121; n 2764) | val 70% / 66% / 65% (cuts 85, 112; n 1532)
+  min_above_1r_first60        : dev 60% / 68% / 77% (cuts 11, 45; n 2764) | val 59% / 68% / 74% (cuts 11, 43; n 1532)
+  min_above_1r_6h             : dev 53% / 68% / 85% (cuts 53, 239; n 2764) | val 50% / 65% / 86% (cuts 51.3, 233; n 1532)
+  first_touch_minute_close_R  : dev 68% / 68% / 69% (cuts 0.988, 1.01; n 2764) | val 68% / 63% / 70% (cuts 0.988, 1.01; n 1532)
+  max_R_6h                    : dev 54% / 62% / 70% (cuts 1.18, 1.43; n 2170) | val 51% / 58% / 74% (cuts 1.17, 1.43; n 1240)
+  close_R_6h                  : dev 48% / 61% / 77% (cuts 0.705, 1.04; n 2170) | val 43% / 62% / 77% (cuts 0.676, 1.03; n 1240)
+  min_R_6h                    : dev 53% / 60% / 73% (cuts 0.44, 0.742; n 2170) | val 47% / 63% / 72% (cuts 0.427, 0.748; n 1240)
+  max_R_24h                   : dev 48% / 56% / 65% (cuts 1.24, 1.53; n 1525) | val 47% / 54% / 65% (cuts 1.23, 1.53; n 892)
+  close_R_24h                 : dev 37% / 57% / 74% (cuts 0.46, 0.902; n 1525) | val 36% / 55% / 75% (cuts 0.444, 0.928; n 892)
+  min_R_24h                   : dev 43% / 54% / 71% (cuts 0.0236, 0.486; n 1525) | val 42% / 52% / 72% (cuts 0, 0.475; n 892)
