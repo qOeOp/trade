@@ -28,11 +28,6 @@
 use std::sync::Arc;
 
 use sqlx::PgPool;
-#[cfg(feature = "composer-v3-replay")]
-use vibe_data::owner::{
-    instrument_economic_terms_postgres_v1::InstrumentEconomicTermsPostgresOwnerV1,
-    instrument_master_v2_postgres::InstrumentMasterV2PostgresOwner,
-};
 use vibe_data::owner::{
     bar_schedule::execution_timeframe_bar_label_v1,
     market_semantics_admission_v1::{
@@ -51,6 +46,11 @@ use vibe_data::owner::{
         StrategyInputBindingAdmissionErrorV1, StrategyInputBindingAdmissionTerminalV1,
         StrategyInputBindingAdmissionV1,
     },
+};
+#[cfg(feature = "composer-v3-replay")]
+use vibe_data::owner::{
+    instrument_economic_terms_postgres_v1::InstrumentEconomicTermsPostgresOwnerV1,
+    instrument_master_v2_postgres::InstrumentMasterV2PostgresOwner,
 };
 #[cfg(feature = "composer-v3-replay")]
 use vibe_product_edge::ProductEdgeAdmissionRequestV1;
