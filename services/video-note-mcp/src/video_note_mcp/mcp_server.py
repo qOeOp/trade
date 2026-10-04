@@ -339,12 +339,13 @@ def build_server(use_case: CreateBilibiliNote) -> Server:
                     # before pending or repeated cancellation is translated to
                     # one MCP result and one operator terminal event.
                     pass
-                recovery = {}
-                if not request.cancelled() and request.exception() is None:
-                    completed = request.result().structured_content
-                    if isinstance(completed, dict):
-                        recovery = completed.get("recovery", {})
-                result = _error("CANCELLED", "request_cancelled", recovery)
+                # A completed response owns its receipt, including a committed publication.
+                # Cancellation must not replace that receipt with an unresumable error.
+                result = (
+                    request.result()
+                    if not request.cancelled() and request.exception() is None
+                    else _error("CANCELLED", "request_cancelled")
+                )
             structured = result.structured_content
             if result.is_error and isinstance(structured, dict):
                 code = structured.get("code")

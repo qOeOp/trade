@@ -494,3 +494,45 @@ async def test_cancelled_review_preserves_raw_transcript(runtime):
     assert ids["media_id"] == media["media_id"]
     _, quality = app.artifacts.load_transcript(ids["transcript_id"])
     assert quality == "fast"
+
+
+@pytest.mark.parametrize("operation", ["download", "render"])
+async def test_completed_receipt_survives_simultaneous_cancellation(
+    runtime, monkeypatch, operation
+):
+    _, app = runtime
+    arguments = {"url": FIXTURE_URL}
+    if operation == "render":
+        async with Client(build_server(app)) as client:
+            media = await call(client, "download", arguments)
+            transcript = await call(
+                client, "transcribe", {"media_id": media["media_id"], "quality": "fast"}
+            )
+            evidence = await call(client, "frames", {"transcript_id": transcript["transcript_id"]})
+        arguments = {"evidence_id": evidence["evidence_id"], "note": authored(evidence)}
+    shield = asyncio.shield
+    raced = []
+
+    def cancel_after_completion(task):
+        future = shield(task)
+        if isinstance(task, asyncio.Task) and task.get_coro().__qualname__.endswith(
+            "._call_tool_result"
+        ):
+            parent = asyncio.current_task()
+
+            def cancel(completed):
+                assert completed.done() and not completed.cancelled()
+                raced.append(True)
+                parent.cancel()
+
+            task.add_done_callback(cancel)
+        return future
+
+    monkeypatch.setattr(asyncio, "shield", cancel_after_completion)
+    async with Client(build_server(app)) as client:
+        result = await call(client, operation, arguments)
+    assert raced == [True]
+    if operation == "download":
+        assert app.artifacts.load_media(result["media_id"]).media_path.is_file()
+    else:
+        assert await asyncio.to_thread(Path(result["html_path"]).is_file)
