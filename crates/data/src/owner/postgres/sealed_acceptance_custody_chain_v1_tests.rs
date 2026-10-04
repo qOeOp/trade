@@ -11,8 +11,8 @@ use super::{
     pit_window_view_v1_tests::run,
 };
 use crate::owner::pit_window_custody_v1::{
-    PitObservationBatchSourceV1, PitWindowCustodyRefusalV1, PitWindowMemberMappingErrorV1,
-    QuoteDerivationV1, UntrustedPitWindowCustodyClaimV1, UntrustedPitWindowCustodyFrameV1,
+    PitObservationBatchSourceV1, PitWindowCustodyRefusalV1, QuoteDerivationV1,
+    UntrustedPitWindowCustodyClaimV1, UntrustedPitWindowCustodyFrameV1,
     sealed_acceptance_chain::{
         SealedAcceptanceBarV1, SealedAcceptanceCustodyChainErrorV1,
         SealedAcceptanceCustodyChainSpecV1, SealedAcceptanceDecimalV1, SealedAcceptanceOhlcvV1,
@@ -230,15 +230,29 @@ async fn postgres_the_fixtures_basis_selects_its_members_mapping_and_projects_it
             source_identity,
         );
 
-    match (basis.structural_public_terms(MEMBER), direct) {
-        (Ok(selected), Ok(direct)) => assert_eq!(selected, direct),
-        (Err(PitWindowMemberMappingErrorV1::Projection(selected)), Err(direct)) => {
-            assert_eq!(selected, direct);
-        }
-        (selected, direct) => panic!(
-            "structural_public_terms disagrees with a direct projection call: {selected:?} vs {direct:?}"
-        ),
-    }
+    let selected = basis
+        .structural_public_terms(MEMBER)
+        .expect("the fixture's fact states every structural term a crypto perpetual needs");
+    assert_eq!(
+        selected,
+        direct.expect("a direct projection with the selected mapping agrees")
+    );
+
+    // The chain's cut names the request its root commit derived, stably across reads.
+    let cut = basis.instrument_master_cut().cut();
+    assert_ne!(cut.request_identity().as_bytes(), &[0; 32]);
+    assert_ne!(cut.request_meaning_digest().as_bytes(), &[0; 32]);
+    let again = owner
+        .pit_window_custody_frames_v1()
+        .resolve_pit_window_frames_v1(run(chain.chain_root(), START + DAY, run_end))
+        .await
+        .expect("every frame is covered");
+    let again_cut = again.basis().instrument_master_cut().cut();
+    assert_eq!(again_cut.request_identity(), cut.request_identity());
+    assert_eq!(
+        again_cut.request_meaning_digest(),
+        cut.request_meaning_digest()
+    );
 }
 
 /// A bar the custody intake cannot hold - a value finer than the custody series scale - is refused

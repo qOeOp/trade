@@ -267,6 +267,15 @@ pub struct InstrumentMasterCutV1 {
 }
 
 impl InstrumentMasterCutV1 {
+    /// The identity of the request this cut answers. A custody chain's cut answers the request
+    /// its root commit derives from the chain root, never a Replay request.
+    pub const fn request_identity(&self) -> InstrumentMasterIdentity {
+        self.request_identity
+    }
+    /// The meaning digest of the request this cut answers.
+    pub const fn request_meaning_digest(&self) -> InstrumentMasterIdentity {
+        self.request_meaning_digest
+    }
     pub const fn identity(&self) -> InstrumentMasterIdentity {
         self.identity
     }
