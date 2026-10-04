@@ -26,6 +26,8 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
 use super::{
+    instrument_master::InstrumentMasterReadbackV1,
+    market_semantics::MarketSemanticsValueV1,
     market_semantics_admission_v1::MarketSemanticsValueSubmissionV1,
     source_binding::{BindingDigest, UntrustedSourceBindingLocator},
     universe_selection::UntrustedUniverseSelectionLocatorV1,
@@ -375,6 +377,113 @@ impl PitWindowFrameCoordinateV1 {
     }
 }
 
+/// What a run's custody chain was committed on, read with its frames: the Universe Selection, the
+/// Instrument Master cut and the Market Semantics fact its root bound, and the members and window
+/// they hold. A consumer takes a run's universe, cut and Market Semantics from here, never from its
+/// own evaluation. It has no public constructor:
+///
+/// ```compile_fail
+/// use vibe_data::owner::{pit_window_custody_v1::PitWindowChainBasisV1, source_binding::BindingDigest};
+/// let d = BindingDigest::from_untrusted_bytes([1; 32]);
+/// let _ = PitWindowChainBasisV1 {
+///     chain_root: d,
+///     head_identity: d,
+///     market_semantics_identity: d,
+///     members: Vec::new(),
+///     window: (0, 1),
+/// };
+/// ```
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PitWindowChainBasisV1 {
+    chain_root: BindingDigest,
+    head_identity: BindingDigest,
+    universe_selection: UntrustedUniverseSelectionLocatorV1,
+    instrument_master_cut: Arc<InstrumentMasterReadbackV1>,
+    market_semantics_identity: BindingDigest,
+    market_semantics_value: MarketSemanticsValueV1,
+    members: Vec<String>,
+    window: (u64, u64),
+}
+
+/// The parts of a chain basis, as the Owner's read verified them.
+pub(crate) struct ChainBasisPartsV1 {
+    pub(crate) chain_root: BindingDigest,
+    pub(crate) head_identity: BindingDigest,
+    pub(crate) universe_selection: UntrustedUniverseSelectionLocatorV1,
+    pub(crate) instrument_master_cut: InstrumentMasterReadbackV1,
+    pub(crate) market_semantics_identity: BindingDigest,
+    pub(crate) market_semantics_value: MarketSemanticsValueV1,
+    pub(crate) members: Vec<String>,
+    pub(crate) window: (u64, u64),
+}
+
+impl PitWindowChainBasisV1 {
+    /// The basis the Owner's read verified against the chain's own records. Only the frames read
+    /// calls it.
+    pub(crate) fn from_owner_chain(parts: ChainBasisPartsV1) -> Self {
+        Self {
+            chain_root: parts.chain_root,
+            head_identity: parts.head_identity,
+            universe_selection: parts.universe_selection,
+            instrument_master_cut: Arc::new(parts.instrument_master_cut),
+            market_semantics_identity: parts.market_semantics_identity,
+            market_semantics_value: parts.market_semantics_value,
+            members: parts.members,
+            window: parts.window,
+        }
+    }
+
+    /// The root of the chain the basis belongs to.
+    #[must_use]
+    pub const fn chain_root(&self) -> BindingDigest {
+        self.chain_root
+    }
+
+    /// The head the run's frames were read from. The basis is the root's, whichever head that is.
+    #[must_use]
+    pub const fn head_identity(&self) -> BindingDigest {
+        self.head_identity
+    }
+
+    /// The Universe Selection record the root custody named, as its locator.
+    #[must_use]
+    pub const fn universe_selection(&self) -> UntrustedUniverseSelectionLocatorV1 {
+        self.universe_selection
+    }
+
+    /// The Instrument Master cut the root's commit issued over the members, as the Owner reads it
+    /// back: its public facts and economic terms.
+    #[must_use]
+    pub fn instrument_master_cut(&self) -> &InstrumentMasterReadbackV1 {
+        &self.instrument_master_cut
+    }
+
+    /// The Market Semantics fact the custody's rows are read under.
+    #[must_use]
+    pub const fn market_semantics_identity(&self) -> BindingDigest {
+        self.market_semantics_identity
+    }
+
+    /// The typed Market Semantics value the root recorded, equal to the chain's Market Semantics
+    /// fact's.
+    #[must_use]
+    pub const fn market_semantics_value(&self) -> &MarketSemanticsValueV1 {
+        &self.market_semantics_value
+    }
+
+    /// The custody's members, in canonical order.
+    #[must_use]
+    pub fn members(&self) -> &[String] {
+        &self.members
+    }
+
+    /// The custody window, `[start, end)` in nanoseconds, its warm-up included.
+    #[must_use]
+    pub const fn window(&self) -> (u64, u64) {
+        self.window
+    }
+}
+
 /// The frames of one run, read from the head of the named chain. It has no public constructor:
 ///
 /// ```compile_fail
@@ -395,17 +504,19 @@ pub struct PitWindowRunFramesV1 {
     head_digest: BindingDigest,
     head_version: u64,
     frames: Vec<PitWindowFrameCoordinateV1>,
+    basis: PitWindowChainBasisV1,
 }
 
 impl PitWindowRunFramesV1 {
-    /// The frames the Owner's derived view enumerated from the head it read. Only the frames port
-    /// calls it.
+    /// The frames the Owner's derived view enumerated from the head it read, with the basis read
+    /// in the same transaction. Only the frames port calls it.
     pub(crate) const fn from_owner_view(
         chain_root: BindingDigest,
         head_identity: BindingDigest,
         head_digest: BindingDigest,
         head_version: u64,
         frames: Vec<PitWindowFrameCoordinateV1>,
+        basis: PitWindowChainBasisV1,
     ) -> Self {
         Self {
             chain_root,
@@ -413,7 +524,15 @@ impl PitWindowRunFramesV1 {
             head_digest,
             head_version,
             frames,
+            basis,
         }
+    }
+
+    /// What the chain was committed on, read in the same transaction and at the same head as the
+    /// frames.
+    #[must_use]
+    pub const fn basis(&self) -> &PitWindowChainBasisV1 {
+        &self.basis
     }
 
     #[must_use]
@@ -570,6 +689,73 @@ mod tests {
         assert_eq!(
             serde_json::to_value(CrossSectionVersionKindV1::Withdrawal).unwrap(),
             json!("WITHDRAWAL")
+        );
+    }
+
+    /// Each accessor of a chain basis returns the part the Owner's read verified, and a run's
+    /// frames carry the basis they were read with.
+    #[rstest]
+    fn a_chain_basis_returns_each_part_it_was_read_with() {
+        use super::{
+            ChainBasisPartsV1, MarketSemanticsValueV1, PitWindowChainBasisV1,
+            PitWindowFrameCoordinateV1, PitWindowRunFramesV1, UntrustedUniverseSelectionLocatorV1,
+        };
+        use crate::owner::market_semantics::{
+            MarketSemanticsPriceAdjustmentV1, MarketSemanticsTimestampBasisV1,
+        };
+
+        let d = |byte: u8| super::BindingDigest::from_untrusted_bytes([byte; 32]);
+        let value = MarketSemanticsValueV1 {
+            normalization_identity: d(31),
+            price_adjustment: MarketSemanticsPriceAdjustmentV1::Raw,
+            timestamp_basis: MarketSemanticsTimestampBasisV1::IntervalClose,
+            price_unit_identity: d(32),
+            size_unit_identity: d(33),
+        };
+        let cut = crate::owner::calendar::tests::instrument_readback("XNYS-CALENDAR-V1");
+        let cut_identity = cut.identity();
+        let basis = PitWindowChainBasisV1::from_owner_chain(ChainBasisPartsV1 {
+            chain_root: d(1),
+            head_identity: d(2),
+            universe_selection: UntrustedUniverseSelectionLocatorV1::from_untrusted(d(3), d(4)),
+            instrument_master_cut: cut,
+            market_semantics_identity: d(5),
+            market_semantics_value: value,
+            members: vec![
+                "BTCUSDT-PERP.BINANCE".to_owned(),
+                "ETHUSDT-PERP.BINANCE".to_owned(),
+            ],
+            window: (10, 20),
+        });
+
+        assert_eq!(basis.chain_root(), d(1));
+        assert_eq!(basis.head_identity(), d(2));
+        assert_eq!(
+            basis.universe_selection(),
+            UntrustedUniverseSelectionLocatorV1::from_untrusted(d(3), d(4))
+        );
+        assert_eq!(basis.instrument_master_cut().identity(), cut_identity);
+        assert_eq!(basis.market_semantics_identity(), d(5));
+        assert_eq!(basis.market_semantics_value(), &value);
+        assert_eq!(
+            basis.members(),
+            ["BTCUSDT-PERP.BINANCE", "ETHUSDT-PERP.BINANCE"]
+        );
+        assert_eq!(basis.window(), (10, 20));
+
+        let frames = PitWindowRunFramesV1::from_owner_view(
+            d(1),
+            d(2),
+            d(6),
+            1,
+            vec![PitWindowFrameCoordinateV1::from_owner_view(1, 12, 13)],
+            basis.clone(),
+        );
+        assert_eq!(frames.basis(), &basis);
+        assert_eq!(
+            frames.clone(),
+            frames,
+            "a run's frames clone with their basis"
         );
     }
 
