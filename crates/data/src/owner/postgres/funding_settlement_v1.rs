@@ -3,13 +3,23 @@
 //!
 //! Funding stays outside T0 window custody by design (`docs/owners/market-data.md`'s "Funding
 //! stays outside this custody for now"), so this is a plain fact table, not a custody chain: a
-//! settlement's identity is exactly `(instrument, settlement_ns)`, and writing the same real
-//! settlement twice is `ON CONFLICT DO NOTHING`, never a second row. The coverage table records
-//! which exact half-open ranges were committed, separately from the rows themselves, because an
-//! empty result for a window is ambiguous on its own - it is either "the venue settled nothing in
-//! this window" or "this window was never backfilled" - and only a recorded coverage range tells
-//! those apart (`replay_funding_schedule_v1.rs`'s own doc: "An empty list ... is never an answer
-//! for missing data").
+//! settlement's identity is exactly `(instrument, settlement_ns)`. Writing the same real
+//! settlement twice rejoins the existing row rather than writing a second one, but only when the
+//! content matches exactly; a row already held under that identity with *different* content is
+//! `FundingSettlementWriteErrorV1::Conflict`, with nothing written, never a quiet overwrite or a
+//! quiet keep. The coverage table records which exact half-open ranges were committed, separately
+//! from the rows themselves, because an empty result for a window is ambiguous on its own - it is
+//! either "the venue settled nothing in this window" or "this window was never backfilled" - and
+//! only a recorded coverage range tells those apart (`replay_funding_schedule_v1.rs`'s own doc:
+//! "An empty list ... is never an answer for missing data").
+//!
+//! **These facts carry no availability semantic and are not a strategy input.** The archive and
+//! the live endpoint both state a settlement only after it has already applied; measured against
+//! the live endpoint, a settlement's real publication lag behind its own `calc_time` is on the
+//! order of twelve seconds. A fact here is knowable only once its own settlement instant has
+//! passed, which is exactly late enough to price the realized P&L of a position that already paid
+//! or received it, and too late for a Plan to read it as an input to a decision at or before that
+//! instant.
 
 use rust_decimal::Decimal;
 use sqlx::Row;
@@ -40,9 +50,16 @@ pub(super) const SCHEMA_V1: &[&str] = &[
 /// Why a funding backfill write was refused.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
 pub(crate) enum FundingSettlementWriteErrorV1 {
-    /// The request is malformed: an empty instrument, an empty route, or an empty window.
+    /// The request is malformed: an empty instrument, an empty route, a window that does not
+    /// advance, or a settlement whose `settlement_ns` falls outside the stated window.
     #[error("the funding settlement write request is malformed")]
     InvalidRequest,
+    /// A row already committed under the same `(instrument, settlement_ns)` states different
+    /// content than this call does. Real archive content never differs between two fetches of
+    /// the same real settlement, so this names a defect in the caller or the source, not a race
+    /// to resolve quietly; nothing is written.
+    #[error("a committed settlement's content does not match this call's")]
+    Conflict,
     /// The store could not be reached.
     #[error("the funding settlement store is unavailable")]
     StoreUnavailable,
@@ -61,9 +78,10 @@ impl MarketDataOwnerPostgres {
     /// Commits every row of `rows` for `instrument`, idempotently, then records
     /// `[window_start_ns, window_end_ns_exclusive)` as covered, in one transaction.
     ///
-    /// A settlement already committed under the same `(instrument, settlement_ns)` is left
-    /// unchanged: real archive content never differs between two fetches of the same real
-    /// settlement, so the first writer's row stands. The coverage range is recorded even when
+    /// A settlement already committed under the same `(instrument, settlement_ns)` rejoins
+    /// without a second write only when its content matches exactly; different content under the
+    /// same identity is refused and nothing is written (see
+    /// [`FundingSettlementWriteErrorV1::Conflict`]). The coverage range is recorded even when
     /// `rows` is empty - a window with no venue settlement is still a window this call proves was
     /// read, which is exactly what a later completeness read must be able to tell apart from a
     /// window nobody has backfilled yet.
@@ -71,7 +89,10 @@ impl MarketDataOwnerPostgres {
     /// # Errors
     ///
     /// Returns [`FundingSettlementWriteErrorV1::InvalidRequest`] for an empty instrument, an empty
-    /// retrieval route, or a window that does not advance, and
+    /// retrieval route, a window that does not advance, or a row whose `settlement_ns` falls
+    /// outside the stated window, before any write;
+    /// [`FundingSettlementWriteErrorV1::Conflict`] for a row whose identity is already committed
+    /// under different content, with nothing written; and
     /// [`FundingSettlementWriteErrorV1::StoreUnavailable`] when the store cannot be reached.
     pub(crate) async fn commit_funding_settlements_v1(
         &self,
@@ -90,6 +111,12 @@ impl MarketDataOwnerPostgres {
         {
             return Err(Refused::InvalidRequest);
         }
+
+        if rows.iter().any(|row| {
+            row.settlement_ns < window_start_ns || row.settlement_ns >= window_end_ns_exclusive
+        }) {
+            return Err(Refused::InvalidRequest);
+        }
         let mut transaction = self
             .pool
             .begin()
@@ -97,18 +124,49 @@ impl MarketDataOwnerPostgres {
             .map_err(|_| Refused::StoreUnavailable)?;
 
         for row in rows {
-            sqlx::query(
+            let retrieval_ns_bound =
+                i64::try_from(retrieval_ns).map_err(|_| Refused::InvalidRequest)?;
+            let settlement_ns_bound =
+                i64::try_from(row.settlement_ns).map_err(|_| Refused::InvalidRequest)?;
+            let inserted = sqlx::query(
                 "INSERT INTO market_data_private.funding_settlement_facts_v1 (instrument, settlement_ns, interval_hours, rate, retrieval_ns, retrieval_route) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (instrument, settlement_ns) DO NOTHING",
             )
             .bind(instrument)
-            .bind(i64::try_from(row.settlement_ns).map_err(|_| Refused::InvalidRequest)?)
+            .bind(settlement_ns_bound)
             .bind(i16::from(row.interval_hours))
             .bind(row.rate)
-            .bind(i64::try_from(retrieval_ns).map_err(|_| Refused::InvalidRequest)?)
+            .bind(retrieval_ns_bound)
             .bind(retrieval_route)
             .execute(&mut *transaction)
             .await
             .map_err(|_| Refused::StoreUnavailable)?;
+
+            if inserted.rows_affected() == 0 {
+                // A row already exists under this identity: this call rejoins it only if the
+                // content is exactly the same real settlement, never if it differs - a quiet
+                // `DO NOTHING` would otherwise let a caller believe its content was committed
+                // when an earlier, different value stands instead.
+                let existing = sqlx::query(
+                    "SELECT interval_hours, rate FROM market_data_private.funding_settlement_facts_v1 WHERE instrument=$1 AND settlement_ns=$2",
+                )
+                .bind(instrument)
+                .bind(settlement_ns_bound)
+                .fetch_one(&mut *transaction)
+                .await
+                .map_err(|_| Refused::StoreUnavailable)?;
+                let existing_interval_hours: i16 = existing
+                    .try_get("interval_hours")
+                    .map_err(|_| Refused::StoreUnavailable)?;
+                let existing_rate: rust_decimal::Decimal = existing
+                    .try_get("rate")
+                    .map_err(|_| Refused::StoreUnavailable)?;
+
+                if existing_interval_hours != i16::from(row.interval_hours)
+                    || existing_rate != row.rate
+                {
+                    return Err(Refused::Conflict);
+                }
+            }
         }
         sqlx::query(
             "INSERT INTO market_data_private.funding_settlement_coverage_v1 (instrument, window_start_ns, window_end_ns_exclusive, committed_at_ns) VALUES ($1,$2,$3,$4) ON CONFLICT (instrument, window_start_ns, window_end_ns_exclusive) DO NOTHING",
@@ -545,5 +603,182 @@ mod tests {
     #[rstest]
     fn a_range_starting_after_the_window_is_not_full_coverage() {
         assert!(!fully_covered_v1(&[(1, 10)], 0, 10));
+    }
+}
+
+/// Real PostgreSQL proof: the write path's idempotent rejoin, its conflict refusal, an empty
+/// window's coverage, an out-of-window row's refusal, and that no role but the owner can read the
+/// tables or call the private functions directly.
+#[cfg(test)]
+mod postgres_proof_v1 {
+    use std::env;
+
+    use rust_decimal::Decimal;
+    use sqlx::Row;
+
+    use super::{FundingSettlementWriteErrorV1, FundingSettlementWriteRowV1};
+    use crate::owner::postgres::MarketDataOwnerPostgres;
+
+    async fn connect() -> MarketDataOwnerPostgres {
+        MarketDataOwnerPostgres::connect(&env::var("MARKET_DATA_OWNER_TEST_DATABASE_URL").unwrap())
+            .await
+            .expect("the disposable Owner connects and migrates")
+    }
+
+    fn row(settlement_ns: u64, interval_hours: u8, rate: &str) -> FundingSettlementWriteRowV1 {
+        FundingSettlementWriteRowV1 {
+            settlement_ns,
+            interval_hours,
+            rate: Decimal::from_str_exact(rate).unwrap(),
+        }
+    }
+
+    #[tokio::test]
+    #[ignore = "requires a disposable Market Data PostgreSQL database"]
+    async fn committing_the_same_real_content_twice_rejoins_without_a_second_row() {
+        let owner = connect().await;
+        let instrument = "BTCUSDT-PERP.BINANCE-PROOF-REJOIN";
+        let rows = [row(1_704_067_200_000_000_000, 8, "0.00037409")];
+
+        owner
+            .commit_funding_settlements_v1(
+                instrument,
+                &rows,
+                1,
+                "proof",
+                0,
+                2_000_000_000_000_000_000,
+            )
+            .await
+            .expect("first commit succeeds");
+        owner
+            .commit_funding_settlements_v1(
+                instrument,
+                &rows,
+                2,
+                "proof",
+                0,
+                2_000_000_000_000_000_000,
+            )
+            .await
+            .expect("rejoining the exact same content succeeds");
+
+        let stored = owner.funding_settlement_rows_for_test(instrument).await;
+        assert_eq!(stored.len(), 1, "the real settlement is one row, not two");
+    }
+
+    #[tokio::test]
+    #[ignore = "requires a disposable Market Data PostgreSQL database"]
+    async fn a_different_rate_under_the_same_identity_is_refused_with_zero_writes() {
+        let owner = connect().await;
+        let instrument = "BTCUSDT-PERP.BINANCE-PROOF-CONFLICT";
+        let first = [row(1_704_067_200_000_000_000, 8, "0.00037409")];
+        let conflicting = [row(1_704_067_200_000_000_000, 8, "0.00099999")];
+
+        owner
+            .commit_funding_settlements_v1(
+                instrument,
+                &first,
+                1,
+                "proof",
+                0,
+                2_000_000_000_000_000_000,
+            )
+            .await
+            .expect("first commit succeeds");
+        let result = owner
+            .commit_funding_settlements_v1(
+                instrument,
+                &conflicting,
+                2,
+                "proof",
+                0,
+                2_000_000_000_000_000_000,
+            )
+            .await;
+        assert_eq!(result, Err(FundingSettlementWriteErrorV1::Conflict));
+
+        let stored = owner.funding_settlement_rows_for_test(instrument).await;
+        assert_eq!(stored.len(), 1, "the conflicting call wrote nothing");
+        assert_eq!(
+            stored[0].2,
+            Decimal::from_str_exact("0.00037409").unwrap(),
+            "the original rate stands"
+        );
+    }
+
+    #[tokio::test]
+    #[ignore = "requires a disposable Market Data PostgreSQL database"]
+    async fn an_empty_window_still_records_its_coverage() {
+        let owner = connect().await;
+        let instrument = "BTCUSDT-PERP.BINANCE-PROOF-EMPTY";
+
+        owner
+            .commit_funding_settlements_v1(instrument, &[], 1, "proof", 100, 200)
+            .await
+            .expect("an empty-rows window still commits coverage");
+
+        let coverage = owner.funding_settlement_coverage_for_test(instrument).await;
+        assert_eq!(coverage, vec![(100, 200)]);
+    }
+
+    #[tokio::test]
+    #[ignore = "requires a disposable Market Data PostgreSQL database"]
+    async fn a_settlement_outside_the_stated_window_is_refused_before_any_write() {
+        let owner = connect().await;
+        let instrument = "BTCUSDT-PERP.BINANCE-PROOF-OUT-OF-WINDOW";
+        let rows = [row(50, 8, "0.0001")];
+
+        let result = owner
+            .commit_funding_settlements_v1(instrument, &rows, 1, "proof", 100, 200)
+            .await;
+        assert_eq!(result, Err(FundingSettlementWriteErrorV1::InvalidRequest));
+
+        let stored = owner.funding_settlement_rows_for_test(instrument).await;
+        assert!(stored.is_empty(), "the out-of-window call wrote nothing");
+        let coverage = owner.funding_settlement_coverage_for_test(instrument).await;
+        assert!(
+            coverage.is_empty(),
+            "the out-of-window call recorded no coverage either"
+        );
+    }
+
+    #[tokio::test]
+    #[ignore = "requires a disposable Market Data PostgreSQL database"]
+    async fn no_role_but_the_owner_can_reach_the_tables_or_the_private_functions() {
+        let owner = connect().await;
+        let rows: Vec<(String, bool)> = sqlx::query(
+            "SELECT relname, relacl IS NULL FROM pg_catalog.pg_class WHERE relnamespace = 'market_data_private'::regnamespace AND relname IN ('funding_settlement_facts_v1','funding_settlement_coverage_v1')",
+        )
+        .fetch_all(owner.pool())
+        .await
+        .expect("the catalog lists both tables")
+        .into_iter()
+        .map(|row| {
+            let name: String = row.try_get("relname").expect("relname");
+            let default_acl: bool = row.try_get(1).expect("relacl is null");
+            (name, default_acl)
+        })
+        .collect();
+        assert_eq!(rows.len(), 2, "both tables exist");
+        assert!(
+            rows.iter().all(|(_, default_acl)| !*default_acl),
+            "a NULL relacl would mean PUBLIC still holds the default grant: {rows:?}"
+        );
+
+        let functions: Vec<String> = sqlx::query(
+            "SELECT proname FROM pg_catalog.pg_proc WHERE pronamespace = 'market_data_private'::regnamespace AND proname IN ('resolve_funding_settlements_v1','resolve_funding_settlement_coverage_v1') AND proacl IS NOT NULL AND NOT EXISTS (SELECT 1 FROM unnest(proacl) AS granted_acl WHERE granted_acl::text LIKE '=%')",
+        )
+        .fetch_all(owner.pool())
+        .await
+        .expect("the catalog lists both functions")
+        .into_iter()
+        .map(|row| row.try_get("proname").expect("proname"))
+        .collect();
+        assert_eq!(
+            functions.len(),
+            2,
+            "both private functions have a non-default ACL with no PUBLIC grant"
+        );
     }
 }
