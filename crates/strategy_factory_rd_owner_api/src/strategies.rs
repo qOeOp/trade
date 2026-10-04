@@ -126,6 +126,13 @@ struct StrategyViewV1 {
     archived_at_epoch_ms: Option<u64>,
 }
 
+/// A page of strategies on the wire. A struct rather than a `json!` value, which would parse each
+/// `spec` into a map and write its keys back in another order than the bytes its identity hashes.
+#[derive(Debug, Serialize)]
+struct StrategyListV1 {
+    strategies: Vec<StrategyViewV1>,
+}
+
 #[derive(Clone)]
 struct StrategiesApiState {
     catalog: Arc<dyn StrategyCatalogPortV1>,
@@ -240,13 +247,10 @@ async fn list_strategies(
     }
 
     match state.catalog.list(query.include_archived, limit).await {
-        Ok(records) => {
-            let views = match records.into_iter().map(view).collect::<Result<Vec<_>, _>>() {
-                Ok(views) => views,
-                Err(e) => return catalog_error(&e),
-            };
-            (StatusCode::OK, Json(json!({"strategies": views}))).into_response()
-        }
+        Ok(records) => match records.into_iter().map(view).collect::<Result<Vec<_>, _>>() {
+            Ok(strategies) => (StatusCode::OK, Json(StrategyListV1 { strategies })).into_response(),
+            Err(e) => catalog_error(&e),
+        },
         Err(e) => catalog_error(&e),
     }
 }
@@ -380,6 +384,20 @@ mod postgres_tests {
     /// A read's statement, as the bytes the response carried.
     #[derive(Deserialize)]
     struct Served<'a> {
+        #[serde(borrow)]
+        spec: &'a RawValue,
+    }
+
+    /// A listed page, each statement as the bytes the response carried.
+    #[derive(Deserialize)]
+    struct Listed<'a> {
+        #[serde(borrow)]
+        strategies: Vec<ListedStrategy<'a>>,
+    }
+
+    #[derive(Deserialize)]
+    struct ListedStrategy<'a> {
+        strategy_id: String,
         #[serde(borrow)]
         spec: &'a RawValue,
     }
@@ -625,8 +643,19 @@ mod postgres_tests {
         );
 
         // List shows both; archiving keeps the strategy readable and refuses its revision.
-        let (status, listed, _) = call(&app, "GET", "/v1/strategies?limit=500", token, None).await;
+        let (status, listed, raw) =
+            call(&app, "GET", "/v1/strategies?limit=500", token, None).await;
         assert_eq!(status, StatusCode::OK);
+        let page: Listed<'_> = serde_json::from_slice(&raw).unwrap();
+
+        for strategy in &page.strategies {
+            assert_eq!(
+                stored_strategy_identity_v1(strategy.spec.get().as_bytes())
+                    .map(|identity| identity.to_string()),
+                Some(strategy.strategy_id.clone()),
+                "a listed spec is exactly the bytes its identity hashes"
+            );
+        }
         let ids = listed["strategies"]
             .as_array()
             .unwrap()
