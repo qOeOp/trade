@@ -46,8 +46,9 @@ use super::{
     },
 };
 use crate::owner::{
+    decimal_rescale_v1::{MARKET_DATA_VALUE_SCALE_V1, rescale_exact_v1},
     instrument_master::{
-        BACKTEST_OWNER_V1, InstrumentMasterError, InstrumentMasterFactV1,
+        BACKTEST_OWNER_V1, InstrumentClass, InstrumentMasterError, InstrumentMasterFactV1,
         InstrumentMasterReadbackV1, InstrumentMasterScopeV1, UntrustedInstrumentMasterRequestV1,
         authority::{ObservationClockV1, observable_at, select_facts_observed},
     },
@@ -58,11 +59,12 @@ use crate::owner::{
         PitWindowRunFramesV1, PitWindowRunRefusalV1, UntrustedPitWindowCustodyFrameV1,
         UntrustedPitWindowCustodyRequestV1, UntrustedPitWindowRunV1,
         authority::{
-            ChainPositionV1, CustodyBindingV1, CustodyFactSpanV1, CustodyInputsV1,
+            ChainPositionV1, CustodyBarV1, CustodyBindingV1, CustodyFactSpanV1, CustodyInputsV1,
             CustodyInstrumentV1, CustodyMemberFactV1, CustodyMembershipV1, CustodyMintingClockV1,
             CustodyRecordV1, DerivedCustodyV1, StoredChainV1, StoredVersionV1,
-            check_request_shape_v1, custody_digest_v1, decode_custody_record_v1, derive_custody_v1,
-            kind_from_tag, kind_tag,
+            bar_is_consistent_v1, check_request_shape_v1, class_prices_are_positive_v1,
+            custody_digest_v1, decode_custody_record_v1, derive_custody_v1, kind_from_tag,
+            kind_tag,
         },
         chain_records::{
             ChainBasisRecordV1, InstrumentMasterChainLinkV1, MarketSemanticsChainBasisV1,
@@ -97,6 +99,7 @@ use crate::owner::{
         BindingDigest, SourceBindingOwnerReadback, UntrustedSourceBindingLocator,
         authority::derive_market_semantics_compatibility_identity_v1,
     },
+    strategy_input_binding::MarketDataFieldSemantic,
     universe_selection::{
         UniverseSelectionErrorV1, UniverseSelectionReadbackV1, UntrustedUniverseSelectionLocatorV1,
     },
@@ -1473,6 +1476,116 @@ pub(in crate::owner) async fn pit_window_custody_commit_from_environment_v1()
         Refused::StoreUnavailable
     })?;
     Ok(Arc::new(PitWindowCustodyPostgresV1 { owner }))
+}
+
+/// One stored bar the T0-8 rule refuses: `(chain_root, custody_identity, version_identity,
+/// member, event_ns)`.
+pub(crate) type InconsistentCustodyBarV1 =
+    (BindingDigest, BindingDigest, BindingDigest, String, u64);
+
+/// The Operations read for legacy rows (T0-8): every stored custody bar the rule the intake now
+/// refuses by name would refuse, read from the row facts and judged by the same pure predicate,
+/// with each member's class from the Instrument Master readback its chain root linked. It only
+/// reads; nothing it finds is rewritten or withdrawn.
+///
+/// # Errors
+///
+/// [`Refused::StoreUnavailable`] when a row fact, a member's bar or its chain's Instrument
+/// Master link cannot be read back as written.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the Operations read for legacy rows has no route; a PG test drives it"
+    )
+)]
+pub(crate) async fn list_inconsistent_custody_bars_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+) -> Result<Vec<InconsistentCustodyBarV1>, Refused> {
+    /// `(chain_root, custody_identity, version_identity, member_ordinal)`.
+    type BarKeyV1 = (BindingDigest, BindingDigest, BindingDigest, i16);
+    /// The member, its bar's event and its fields, as the row facts state them.
+    type StoredBarV1 = (String, u64, Vec<(MarketDataFieldSemantic, i128)>);
+    let rows = sqlx::query(
+        "SELECT chain_root,custody_identity,version_identity,member_ordinal,fact_digest,fact_bytes FROM market_data_private.pit_window_custody_rows_v1 ORDER BY chain_root,custody_identity,version_identity,member_ordinal,field",
+    )
+    .fetch_all(&mut **transaction)
+    .await
+    .map_err(|cause| store_error(&cause))?;
+    let mut bars: BTreeMap<BarKeyV1, StoredBarV1> = BTreeMap::new();
+
+    for row in &rows {
+        let column = |name: &str| -> Result<BindingDigest, Refused> {
+            digest(
+                &row.try_get::<Vec<u8>, _>(name)
+                    .map_err(|cause| store_error(&cause))?,
+            )
+        };
+        let ordinal: i16 = row
+            .try_get("member_ordinal")
+            .map_err(|cause| store_error(&cause))?;
+        let bytes: Vec<u8> = row
+            .try_get("fact_bytes")
+            .map_err(|cause| store_error(&cause))?;
+        let fact = decode_sample_fact_v2(&bytes, *column("fact_digest")?.as_bytes())
+            .map_err(|_| Refused::StoreUnavailable)?;
+        let input = fact.row();
+        let semantic = std::str::from_utf8(&input.field_semantic)
+            .ok()
+            .and_then(MarketDataFieldSemantic::from_identity)
+            .ok_or(Refused::StoreUnavailable)?;
+        let value = rescale_exact_v1(
+            input.value_mantissa,
+            input.value_scale,
+            MARKET_DATA_VALUE_SCALE_V1,
+        )
+        .map_err(|_| Refused::StoreUnavailable)?;
+        let member =
+            String::from_utf8(input.instrument.clone()).map_err(|_| Refused::StoreUnavailable)?;
+        let key = (
+            column("chain_root")?,
+            column("custody_identity")?,
+            column("version_identity")?,
+            ordinal,
+        );
+        let (_, _, fields) = bars
+            .entry(key)
+            .or_insert_with(|| (member.clone(), fact.event_effective(), Vec::new()));
+        fields.push((semantic, value));
+    }
+    let mut classes: BTreeMap<BindingDigest, BTreeMap<String, InstrumentClass>> = BTreeMap::new();
+    let mut inconsistent = Vec::new();
+
+    for ((chain_root, custody, version, _), (member, event_ns, fields)) in bars {
+        if let std::collections::btree_map::Entry::Vacant(vacant) = classes.entry(chain_root) {
+            let (_, readback) = read_pit_window_instrument_master_chain_v1(transaction, chain_root)
+                .await?
+                .ok_or(Refused::StoreUnavailable)?;
+            vacant.insert(
+                readback
+                    .facts()
+                    .iter()
+                    .map(|fact| {
+                        (
+                            fact.canonical_identity().to_owned(),
+                            fact.instrument_class(),
+                        )
+                    })
+                    .collect(),
+            );
+        }
+        let class = classes
+            .get(&chain_root)
+            .and_then(|members| members.get(&member))
+            .copied()
+            .ok_or(Refused::StoreUnavailable)?;
+        let bar = CustodyBarV1::from_fields(fields).ok_or(Refused::StoreUnavailable)?;
+
+        if !bar_is_consistent_v1(&bar, class_prices_are_positive_v1(class)) {
+            inconsistent.push((chain_root, custody, version, member, event_ns));
+        }
+    }
+    Ok(inconsistent)
 }
 
 // ---------------------------------------------------------------------------------------------

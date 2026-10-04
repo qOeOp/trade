@@ -159,7 +159,14 @@ fn membership(member: &str) -> CustodyMembershipV1 {
     }
 }
 
-fn bar(label: &str, members: &[&str], event: u64, base: i128) -> UntrustedCrossSectionVersionV1 {
+/// One original bar per member from `base`, each member's volume `volume` when one is stated.
+fn bar(
+    label: &str,
+    members: &[&str],
+    event: u64,
+    base: i128,
+    volume: Option<i128>,
+) -> UntrustedCrossSectionVersionV1 {
     UntrustedCrossSectionVersionV1 {
         timeframe: label.to_owned(),
         event_effective_ns: event,
@@ -171,17 +178,26 @@ fn bar(label: &str, members: &[&str], event: u64, base: i128) -> UntrustedCrossS
             .iter()
             .zip(0..)
             .flat_map(|(member, offset)| {
-                ["OPEN", "HIGH", "LOW", "CLOSE", "VOLUME"]
-                    .into_iter()
-                    .zip(0..)
-                    .map(move |(field, position)| UntrustedCustodyRowV1 {
-                        instrument: (*member).to_owned(),
-                        field: field.to_owned(),
-                        value_mantissa: base + 1_000 * offset + position,
-                        value_scale: 2,
-                        retrieval_ns: RETRIEVED,
-                        retrieval_route: "data.binance.vision/daily-klines".to_owned(),
-                    })
+                // The low lowest and the high highest: a bar the custody intake admits.
+                [
+                    ("OPEN", 0),
+                    ("HIGH", 5),
+                    ("LOW", -1),
+                    ("CLOSE", 3),
+                    ("VOLUME", 4),
+                ]
+                .into_iter()
+                .map(move |(field, position)| UntrustedCustodyRowV1 {
+                    instrument: (*member).to_owned(),
+                    field: field.to_owned(),
+                    value_mantissa: match volume {
+                        Some(volume) if field == "VOLUME" => volume,
+                        _ => base + 1_000 * offset + position,
+                    },
+                    value_scale: 2,
+                    retrieval_ns: RETRIEVED,
+                    retrieval_route: "data.binance.vision/daily-klines".to_owned(),
+                })
             })
             .collect(),
     }
@@ -210,11 +226,12 @@ fn clock() -> CustodyMintingClockV1 {
 }
 
 fn fixture_of(members: &[&str], label: &str) -> Fixture {
-    fixture_based(members, label, 6_500_000)
+    fixture_based(members, label, 6_500_000, None)
 }
 
-/// [`fixture_of`] with day `n`'s first value `base + n`.
-fn fixture_based(members: &[&str], label: &str, base: i128) -> Fixture {
+/// [`fixture_of`] with day `n`'s first value `base + n`, and every volume `volume` when one is
+/// stated.
+fn fixture_based(members: &[&str], label: &str, base: i128, volume: Option<i128>) -> Fixture {
     let request = UntrustedPitWindowCustodyRequestV1 {
         source_binding: locator(),
         market_semantics_identity: d(30),
@@ -228,7 +245,7 @@ fn fixture_based(members: &[&str], label: &str, base: i128) -> Fixture {
         fill_timeframe: None,
         predecessor: None,
         cross_sections: (1..=3)
-            .map(|day| bar(label, members, day * DAY, base + i128::from(day)))
+            .map(|day| bar(label, members, day * DAY, base + i128::from(day), volume))
             .collect(),
     };
     let binding = binding(label);
@@ -599,11 +616,12 @@ fn a_scale_9_custody_row_reads_back_canonical_in_the_view() {
         (6_501_005, 2)
     );
 
-    // Day two's first BTC value is zero: stored as 0 at scale 9, read back as 0 at scale 0.
-    let zero = fixture_based(&[BTC, ETH], "1D", -2);
+    // Every volume is zero: stored as 0 at scale 9, read back as 0 at scale 0. A volume is the
+    // value that can be zero; a crypto perpetual's prices are positive (T0-8).
+    let zero = fixture_based(&[BTC, ETH], "1D", 6_500_000, Some(0));
     let batch = zero.seal().expect("a zero value seals");
-    let open = batch.select(&format!("{BTC}.OPEN.1D"), BTC).unwrap();
-    assert_eq!((open.value_mantissa(), open.value_scale()), (0, 0));
+    let volume = batch.select(&format!("{BTC}.VOLUME.1D"), BTC).unwrap();
+    assert_eq!((volume.value_mantissa(), volume.value_scale()), (0, 0));
     assert!(
         batch
             .observations()

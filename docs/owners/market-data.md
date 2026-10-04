@@ -2813,6 +2813,27 @@ candidates `select_fill_candidates_v1` selects for each gap
 red). Outside Market Data, the R&D Owner API's Binance backfill job commits custodies and its Backtest run reads a run's
 frames through this port, and no Backtest consumes a frame yet.
 
+Built so far (T0-8): the custody intake refuses an inconsistent bar. External market data enters Market Data at the
+custody commit, so that outer boundary is where the bar's own consistency is checked, rather than later, when a frame is
+built. The authority checks each member's bar of every original or correction cross-section version before any write,
+after the exact rescale to `MARKET_DATA_VALUE_SCALE_V1`, so every comparison is between integers at one scale:
+`low <= min(open, close)`, `high >= max(open, close)`, `low <= high`, `volume >= 0`, and `low > 0` for a class whose
+prices are positive. Only a crypto perpetual takes that last term, because a future's, an option's or a synthetic's
+price can be zero or negative; every custody member today is a crypto perpetual. A violation is refused as
+`PIT_WINDOW_BAR_OHLC_INCONSISTENT` (`PitWindowCustodyRefusalV1::BarOhlcInconsistent`) and nothing is rewritten. A
+withdrawal holds no rows, so the rule does not apply to it. A stored custody whose bar the rule refuses is refused on
+resubmission rather than rejoined. The Binance backfill writer treats the refusal as a writer defect and never retries
+it: the venue's data is inconsistent or the writer misread it. The Operations read for legacy rows is the
+crate-private `list_inconsistent_custody_bars_v1`. It applies the same pure predicate (`bar_is_consistent_v1`) to every
+stored custody bar, decoded from its `SampleFactV2` row facts, with each member's class from the Instrument Master
+readback its chain root linked. It returns each one as `(chain_root, custody_identity, version_identity, member,
+event_ns)`. It only reads and never rewrites, and it has no route. No deployed custody holds an inconsistent bar,
+because Binance archive bars are consistent, so it is expected to list nothing in production. The authority's unit tests
+refuse each term by name and admit the boundary (one price for all four, no volume).
+`postgres_every_custody_refusal_writes_nothing` proves the refusal writes nothing against a snapshot of every Owner
+table, and `postgres_the_legacy_listing_finds_an_inconsistent_stored_bar_and_writes_nothing` proves the listing finds a
+bar committed through a test-only seam that admits it as the intake did before the rule.
+
 - **Custody:** covers the half-open window from its warm-up start and is committed once, then never mutated. A later
   correction is a successor custody that names its predecessor and carries only the versions it adds; a view reads the
   chain to its head. A successor restates its predecessor's basis exactly - Market Semantics fact, Universe Selection

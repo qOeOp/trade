@@ -201,7 +201,7 @@ pub const fn refusal_disposition_v1(
 ) -> BackfillRefusalDispositionV1 {
     use BackfillRefusalDispositionV1::{BasisRefused, RetryLater, WriterDefect};
     use PitWindowCustodyRefusalV1::{
-        AvailabilityLagNotBelowBarInterval, CrossSectionBranch,
+        AvailabilityLagNotBelowBarInterval, BarOhlcInconsistent, CrossSectionBranch,
         CrossSectionCorrectionNotPublishedBySource, ExecutionTimeframeNotFixedInterval,
         FillTimeframeIsAnInputTimeframe, FillTimeframeNotFinerThanExecution,
         FillTimeframeNotOneMinute, IdentityConflict, InvalidRequest, MarketSemanticsMismatch,
@@ -221,6 +221,9 @@ pub const fn refusal_disposition_v1(
         RowRetrievedBeforeBarClose | ValueFinerThanSeriesScale => WriterDefect,
         // The fill timeframe is this writer's own constant: a non-minute one is a writer defect.
         FillTimeframeNotOneMinute => WriterDefect,
+        // A bar whose prices cannot be a bar is the venue's inconsistency or this writer's
+        // misreading; the same request is refused again, so it is never retried.
+        BarOhlcInconsistent => WriterDefect,
         InvalidRequest
         | CrossSectionBranch
         | CrossSectionCorrectionNotPublishedBySource
@@ -500,6 +503,10 @@ mod tests {
     )]
     #[case(
         PitWindowCustodyRefusalV1::FillTimeframeNotOneMinute,
+        BackfillRefusalDispositionV1::WriterDefect
+    )]
+    #[case(
+        PitWindowCustodyRefusalV1::BarOhlcInconsistent,
         BackfillRefusalDispositionV1::WriterDefect
     )]
     #[case(
