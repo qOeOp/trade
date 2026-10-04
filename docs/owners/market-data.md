@@ -3911,6 +3911,11 @@ design and the measurements behind it. Nothing in it is implemented yet; Lane 8 
     - A read at a cut before a version's availability does not see it.
     - `verified_only` refuses over an unverified bar.
     - The floor is the catalog closure of its read.
+
+    Built (with B2). `crates/data/src/owner/venue_bar_store_v1.rs` and its Postgres implementation, with the served
+    timeframe table moved here from B4 (`bar_schedule::served_timeframe_v1`: label and grid per venue interval). The
+    admitted read and its floor are deferred until an R&D consumer reads bars: B7 reads on the Owner side, and
+    `get_bars` stays refused. A bar belongs to a read window by its close, as in custody.
   - **B2 - verification and corrections (Lane 2, after B1).** An Owner operation verifies stored bars against
     archive rows for an instrument, timeframe and covered window.
     - **Equal bars:** a verification record (archive kind, archive identity, verified instant) is appended, and the
@@ -3925,6 +3930,10 @@ design and the measurements behind it. Nothing in it is implemented yet; Lane 8 
     - A differing bar yields one conflict and stays unverified.
     - An archive missing a day verifies only the days it holds.
     - A correction is seen only from its availability.
+
+    Built (with B1). `verify_venue_bars_v1` reports archive-only and store-only bars. `open_venue_bar_conflicts_v1`
+    lists the conflicts no correction resolves. `correct_venue_bar_v1` refuses an unknown conflict
+    (`BAR_CONFLICT_UNKNOWN`) or one whose bar has moved on (`BAR_CONFLICT_SUPERSEDED`).
   - **B3 - the REST recorder (Lane 8, after B1).** Forward pagination over `request_binance_bars`, for every
     timeframe label in the served set, from an instrument's first listed bar, or the last stored close, to the
     present. Every page is committed through B1's writer, and a bar is admitted only after the settle delay. It is
@@ -3935,15 +3944,12 @@ design and the measurements behind it. Nothing in it is implemented yet; Lane 8 
     - A local test against live REST: one day of BTCUSDT `1m` and `1d`, recorded twice, writes once and then
       rejoins.
     - The counts against the archive equal the measurements above.
-  - **B4 - labels and the calendar month (Lane 8, after B1).**
-    - **Labels:** the served set gets one label mapping beside the execution one (`15M`, `30M`, `2H`, `6H`, `8H`,
-      `12H` added, `1m` as `1M`), and a calendar month labelled `1MO`. `1M` is the minute.
-    - **Cadence:** `CalendarMonth` cadence on the UTC month anchor, in `UntrustedSourceBarCadenceV1`.
-    - **Unchanged:** the execution whitelist (`SUPPORTED_EXECUTION_TIMEFRAMES_V1`) does not change.
+  - **B4 - the calendar-month cadence (Lane 8).** `CalendarMonth` cadence on the UTC month anchor in
+    `UntrustedSourceBarCadenceV1`, with its codec, refused as an execution timeframe. The served label table is B1's.
 
     Acceptance:
-    - Unit tests: every served label is unique and round-trips.
     - A calendar-month declaration encodes, decodes and refuses a fixed interval.
+    - It is refused as an execution timeframe.
   - **B5 - archive verification jobs (Lane 8, after B2 and B3).**
     - **Schedule:** fetch each monthly and daily archive once it is published (the daily archive T+1 from about
       09:30 UTC, the monthly archive from the 2nd at about 12:00 UTC), and verify through B2. The existing
