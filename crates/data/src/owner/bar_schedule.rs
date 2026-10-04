@@ -57,6 +57,21 @@ pub const fn execution_timeframe_bar_label_v1(execution_timeframe: &str) -> Opti
     }
 }
 
+/// The fixed bar interval, in nanoseconds, of one of [`SUPPORTED_EXECUTION_TIMEFRAMES_V1`]: the
+/// interval its window schedule's frames step by. `None` for any other timeframe.
+#[must_use]
+pub const fn execution_timeframe_interval_ns_v1(execution_timeframe: &str) -> Option<u64> {
+    const HOUR: u64 = 3_600_000_000_000;
+
+    match execution_timeframe.as_bytes() {
+        b"1w" => Some(168 * HOUR),
+        b"1d" => Some(24 * HOUR),
+        b"4h" => Some(4 * HOUR),
+        b"1h" => Some(HOUR),
+        _ => None,
+    }
+}
+
 const FACT_DOMAIN: &[u8] = b"market-data.bar-schedule-fact.v1\0";
 const CUT_DOMAIN: &[u8] = b"market-data.bar-schedule-cut.v1\0";
 const RECEIPT_DOMAIN: &[u8] = b"market-data.bar-schedule-receipt.v1\0";

@@ -9274,6 +9274,52 @@ impl crate::owner::pit_window_custody_v1::PitWindowCustodyFramesV1 for MarketDat
             .await
         }
     }
+
+    async fn resolve_pit_window_run_for_window_v1(
+        &self,
+        instrument: &str,
+        execution_timeframe: &str,
+        window_start_ns: u64,
+        window_end_ns_exclusive: u64,
+    ) -> Result<
+        crate::owner::pit_window_custody_v1::UntrustedPitWindowRunV1,
+        crate::owner::pit_window_custody_v1::PitWindowCoverageRefusalV1,
+    > {
+        #[cfg(test)]
+        {
+            use crate::owner::pit_window_custody_v1::PitWindowCoverageRefusalV1;
+
+            let mut transaction = self
+                .pool
+                .begin_with("BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+                .await
+                .map_err(|_| PitWindowCoverageRefusalV1::StoreUnavailable)?;
+            let run = pit_window_custody_v1::resolve_pit_window_run_for_window_in_transaction_v1(
+                &mut transaction,
+                instrument,
+                execution_timeframe,
+                window_start_ns,
+                window_end_ns_exclusive,
+            )
+            .await;
+            transaction
+                .rollback()
+                .await
+                .map_err(|_| PitWindowCoverageRefusalV1::StoreUnavailable)?;
+            run
+        }
+        #[cfg(not(test))]
+        {
+            pit_window_custody_v1::resolve_pit_window_run_for_window_through_port_v1(
+                &self.admitted_port,
+                instrument,
+                execution_timeframe,
+                window_start_ns,
+                window_end_ns_exclusive,
+            )
+            .await
+        }
+    }
 }
 
 #[async_trait::async_trait]

@@ -806,6 +806,29 @@ pub enum PitWindowRunRefusalV1 {
     StoreUnavailable,
 }
 
+/// Why no custody run could be named for an instrument, execution timeframe and window.
+#[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
+pub enum PitWindowCoverageRefusalV1 {
+    /// `PIT_WINDOW_COVERAGE_REQUEST_INVALID`: an empty window, or an execution timeframe outside
+    /// `SUPPORTED_EXECUTION_TIMEFRAMES_V1`.
+    #[error("the coverage request is malformed")]
+    InvalidRequest,
+    /// `PIT_WINDOW_CUSTODY_NOT_FOUND`: no single-member custody chain holds this instrument at this
+    /// execution timeframe.
+    #[error("no custody chain holds this instrument at this execution timeframe")]
+    CustodyNotFound,
+    /// `PIT_WINDOW_NOT_COVERED`: the instrument's chains at this timeframe leave parts of the window
+    /// uncovered. `missing` is every `[start, end)` no chain covers, in ascending order.
+    #[error("the window is not covered by the instrument's custody")]
+    WindowNotCovered { missing: Vec<(u64, u64)> },
+    /// `PIT_WINDOW_COVERED_ONLY_ACROSS_CHAINS`: chains together cover the window but no one chain
+    /// does, and a run reads exactly one chain.
+    #[error("the window is covered only across several custody chains")]
+    CoveredOnlyAcrossChains,
+    #[error("the Market Data store is unavailable")]
+    StoreUnavailable,
+}
+
 /// The sealed read of a run's frame coordinates. A multi-frame consumer resolves each frame's
 /// inputs and quote cut through the native Replay resolver, naming the frame by a custody frame
 /// source that pins the head the frames were read from.
@@ -824,6 +847,26 @@ pub trait PitWindowCustodyFramesV1: Send + Sync + sealed::Sealed {
         &self,
         run: UntrustedPitWindowRunV1,
     ) -> Result<PitWindowRunFramesV1, PitWindowRunRefusalV1>;
+
+    /// The run over `[window_start_ns, window_end_ns_exclusive)` of the one custody chain that
+    /// holds `instrument` alone at `execution_timeframe` and covers the whole window, with that
+    /// chain's current head pinned, so a consumer names a plain dataset and never a chain root.
+    ///
+    /// When several chains cover the window, the one whose root was minted last is named - the
+    /// latest backfill of that window - and, between roots minted at the same cut, the lowest
+    /// chain root. The run it returns is read by [`Self::resolve_pit_window_frames_v1`], which
+    /// verifies the chain.
+    ///
+    /// # Errors
+    ///
+    /// Returns the refusal that names why no chain could be named.
+    async fn resolve_pit_window_run_for_window_v1(
+        &self,
+        instrument: &str,
+        execution_timeframe: &str,
+        window_start_ns: u64,
+        window_end_ns_exclusive: u64,
+    ) -> Result<UntrustedPitWindowRunV1, PitWindowCoverageRefusalV1>;
 }
 
 /// Where a verified observation batch comes from. The batch's own source accessor takes this in

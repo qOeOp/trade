@@ -26,8 +26,8 @@ pub(super) use postgres::RawSharedTimeEvidenceSnapshotV1;
 #[cfg(test)]
 pub(super) use postgres::RawSharedTimeHistoryRowV1;
 pub(super) use postgres::{
-    PitWindowUniverseRequestOfV1, RawPitWindowChainBasisV1, RawPitWindowChainV1,
-    RawUniverseSelectionAggregateV1,
+    PitWindowChainCandidateColumnsV1, PitWindowUniverseRequestOfV1, RawPitWindowChainBasisV1,
+    RawPitWindowChainV1, RawUniverseSelectionAggregateV1,
 };
 #[cfg(unix)]
 pub use publication::author_deployment_store_publication_v1;
@@ -829,6 +829,35 @@ impl AdmittedMarketDataSnapshotPort {
         Ok(raw)
     }
 
+    /// Reads every chain holding a window schedule for `instrument`, after admission before and
+    /// after.
+    pub(super) async fn resolve_pit_window_chains_for_instrument_v1(
+        &self,
+        instrument: &str,
+    ) -> Result<Vec<postgres::RawPitWindowChainCandidateV1>, DeploymentStoreAdmissionError> {
+        let before = self
+            .readmit_covering(&postgres::PIT_WINDOW_CUSTODY_FLOOR_V1, None)
+            .await?;
+        let raw = postgres::read_pit_window_chains_for_instrument_snapshot_v1(
+            &before.credential_lease,
+            &before.store_transport,
+            instrument,
+        )
+        .await
+        .map_err(|_| {
+            rejection(
+                &self.scope,
+                AdmissionFailureCode::DirectMeasurementUnavailable,
+            )
+        })?;
+        self.readmit_covering(
+            &postgres::PIT_WINDOW_CUSTODY_FLOOR_V1,
+            Some(&before.receipt),
+        )
+        .await?;
+        Ok(raw)
+    }
+
     /// Reads one PIT window custody chain, its basis and the Universe Selection its root names, in
     /// one snapshot, after admission before and after.
     pub(super) async fn resolve_pit_window_run_chain_v1(
@@ -1435,6 +1464,12 @@ pub(super) trait PitWindowCustodyReadPortV1: Send + Sync {
         chain_root: [u8; 32],
         versions: &[[u8; 32]],
     ) -> Result<Vec<postgres::RawPitWindowRowV1>, DeploymentStoreAdmissionError>;
+
+    /// Every chain holding a window schedule for `instrument`, as the store holds them.
+    async fn resolve_pit_window_chains_for_instrument_v1(
+        &self,
+        instrument: &str,
+    ) -> Result<Vec<postgres::RawPitWindowChainCandidateV1>, DeploymentStoreAdmissionError>;
 }
 
 #[async_trait]
@@ -1460,6 +1495,13 @@ impl PitWindowCustodyReadPortV1 for AdmittedMarketDataSnapshotPort {
         versions: &[[u8; 32]],
     ) -> Result<Vec<postgres::RawPitWindowRowV1>, DeploymentStoreAdmissionError> {
         Self::resolve_pit_window_rows_v1(self, chain_root, versions).await
+    }
+
+    async fn resolve_pit_window_chains_for_instrument_v1(
+        &self,
+        instrument: &str,
+    ) -> Result<Vec<postgres::RawPitWindowChainCandidateV1>, DeploymentStoreAdmissionError> {
+        Self::resolve_pit_window_chains_for_instrument_v1(self, instrument).await
     }
 }
 
@@ -5087,6 +5129,7 @@ mod tests {
             &postgres::PIT_WINDOW_CUSTODY_FLOOR_V1,
             &[
                 "read_pit_window_chain_snapshot_v1",
+                "read_pit_window_chains_for_instrument_snapshot_v1",
                 "read_pit_window_run_chain_snapshot_v1",
                 "read_pit_window_rows_snapshot_v1",
             ],
@@ -6860,6 +6903,16 @@ mod tests {
                 .resolve_pit_window_rows_v1(chain_root, versions)
                 .await
         }
+
+        async fn resolve_pit_window_chains_for_instrument_v1(
+            &self,
+            instrument: &str,
+        ) -> Result<Vec<postgres::RawPitWindowChainCandidateV1>, DeploymentStoreAdmissionError>
+        {
+            self.port
+                .resolve_pit_window_chains_for_instrument_v1(instrument)
+                .await
+        }
     }
 
     async fn run_pit_window_custody_admitted_scenario() {
@@ -6923,6 +6976,28 @@ mod tests {
             .expect("the port reads the run's frames");
         assert_eq!(through_port.head_identity(), head.custody_identity());
         assert_eq!(Ok(through_port.clone()), in_custody(run).await);
+
+        // The coverage lookup's read reaches the same chain through the admitted wrapper: its
+        // root, current head and two members, so a one-instrument dataset never names it.
+        let candidates = port
+            .resolve_pit_window_chains_for_instrument_v1("BTCUSDT-PERP.BINANCE")
+            .await
+            .expect("the port reads the instrument's chains");
+        assert_eq!(
+            candidates
+                .iter()
+                .map(|candidate| (
+                    candidate.chain_root.clone(),
+                    candidate.head_identity.clone(),
+                    candidate.member_count
+                ))
+                .collect::<Vec<_>>(),
+            [(
+                root.chain_root().as_bytes().to_vec(),
+                head.custody_identity().as_bytes().to_vec(),
+                2
+            )]
+        );
         let pooled = in_custody(run)
             .await
             .expect("custody reads the run's frames");
